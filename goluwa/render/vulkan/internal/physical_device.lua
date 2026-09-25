@@ -368,14 +368,11 @@ function PhysicalDevice:GetAccelerationStructureProperties()
 			minAccelerationStructureScratchOffsetAlignment = 0,
 		}
 	)
-	vulkan.lib.vkGetPhysicalDeviceProperties2(
-		self.ptr[0],
-		vulkan.vk.s.PhysicalDeviceProperties2{
-			sType = "physical_device_properties_2",
-			pNext = properties,
-			properties = vulkan.vk.VkPhysicalDeviceProperties(),
-		}
-	)
+	-- raw struct: the table constructor rejects the zeroed limits enums
+	local query = ffi.new(vulkan.vk.VkPhysicalDeviceProperties2)
+	query.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2
+	query.pNext = properties
+	vulkan.lib.vkGetPhysicalDeviceProperties2(self.ptr[0], query)
 	return properties[0]
 end
 

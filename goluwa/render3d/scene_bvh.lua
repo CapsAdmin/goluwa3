@@ -8,15 +8,16 @@ local scene_bvh = library()
 -- Pre-register to break import cycle: visual -> render3d -> scene_bvh -> visual
 import.loaded["goluwa/render3d/scene_bvh.lua"] = scene_bvh
 local Visual = import("goluwa/entities/components/visual.lua")
-local NodeArray = ffi.typeof([[
+local Material = import("goluwa/render3d/material.lua")
+local Node = ffi.typeof([[
 	struct {
 		uint32_t left_first;
 		uint32_t count;
 		float bounds_min[3];
 		float bounds_max[3];
-	}[?]
+	}
 ]])
-local TriangleArray = ffi.typeof([[
+local Triangle = ffi.typeof([[
 	struct {
 		float v0[3];
 		float e1[3];
@@ -24,8 +25,12 @@ local TriangleArray = ffi.typeof([[
 		float normal[3];
 		float emissive[3];
 		uint32_t material;
-	}[?]
+	}
 ]])
+local NodeArray = ffi.typeof("$[?]", Node)
+local NodePtr = ffi.typeof("$*", Node)
+local TriangleArray = ffi.typeof("$[?]", Triangle)
+local TrianglePtr = ffi.typeof("$*", Triangle)
 local FloatArray = ffi.typeof("float[?]")
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local NODE_BYTE_SIZE = 32
@@ -33,12 +38,20 @@ local TRIANGLE_BYTE_SIZE = 64
 local BIN_COUNT = 12
 local MAX_LEAF_TRIANGLES = 8
 local MAX_DEPTH = 30
+-- every visual's soup range starts at a multiple of this, so the ray tracing
+-- instance of a visual can store its range start in the 24 bit custom index
+local SOUP_ALIGN = 4
+scene_bvh.SOUP_ALIGN = SOUP_ALIGN
 scene_bvh.STACK_SIZE = 32
 scene_bvh.LightOcclusion = scene_bvh.LightOcclusion ~= false
 scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
 scene_bvh.build_time = 0
 scene_bvh.version = 0
+-- bumped only when a build writes new triangles. version also bumps on every
+-- invalidation, so whatever is derived from the triangles themselves (the ray
+-- tracing BLAS, the expanded shadow soup, the emitter list) follows this one
+scene_bvh.soup_version = 0
 -- world aabbs that changed while the tree was dirty. recorded by the shared
 -- aabb scan in visual.lua, consumed by light occlusion when the version
 -- bumps, so it does not have to rescan every visual's aabb on its own
@@ -59,12 +72,27 @@ scene_bvh.top_layout = {}
 scene_bvh.top_node_count = 0
 -- top node index -> the block root it copies (see the top leaf writer)
 scene_bvh.top_leaf_roots = {}
-scene_bvh.top_lazy_count = 0
 -- every material that has been part of a build, indexed by the per-triangle
 -- material id + 1. ids are never reused so a cached block keeps pointing at
 -- the right material across builds
 scene_bvh.materials = {}
 scene_bvh.material_ids = {}
+
+-- ranges (of the soup, the node buffer, blas storage) are rounded up to size
+-- classes at most 1/8 larger than needed, so freed ranges can be reused by
+-- ranges of a similar size
+local function range_class(n, align)
+	if n <= 16 then return math.ceil(n / align) * align end
+
+	local step = 1
+
+	while step * 16 <= n do
+		step = step * 2
+	end
+
+	step = math.max(step, align)
+	return math.ceil(n / step) * step
+end
 
 function scene_bvh.GetMaterialID(material)
 	local id = scene_bvh.material_ids[material]
@@ -94,19 +122,8 @@ end
 do
 	local Matrix44 = import("goluwa/structs/matrix44.lua")
 	local scratch = {}
-	local empty_triangles = TriangleArray(1)
 
-	local function get_scratch(node_capacity, tri_capacity, top_capacity)
-		if not scratch.node_capacity or scratch.node_capacity < node_capacity then
-			scratch.node_capacity = node_capacity
-			scratch.nodes = NodeArray(node_capacity)
-		end
-
-		if not scratch.tri_out_capacity or scratch.tri_out_capacity < tri_capacity then
-			scratch.tri_out_capacity = math.max(tri_capacity, 1)
-			scratch.tri_out = TriangleArray(scratch.tri_out_capacity)
-		end
-
+	local function get_scratch(tri_capacity, top_capacity)
 		if not scratch.top_capacity or scratch.top_capacity < top_capacity then
 			scratch.top_capacity = math.max(top_capacity, 1)
 			scratch.top_bounds = FloatArray(scratch.top_capacity * 6)
@@ -123,6 +140,175 @@ do
 		return scratch
 	end
 
+	-- every visual owns a fixed range of triangles and a fixed range of nodes,
+	-- so a change to one visual rewrites only its own ranges. freed ranges
+	-- are reused by the next range of the same size class
+	local function create_allocator(first, align, grow)
+		return {
+			top = first,
+			first = first,
+			align = align,
+			free = {},
+			used = 0,
+			capacity = 0,
+			grow = grow,
+		}
+	end
+
+	local function range_alloc(allocator, n)
+		local cap = range_class(n, allocator.align)
+		local list = allocator.free[cap]
+		local base
+
+		if list and list[1] then
+			base = list[#list]
+			list[#list] = nil
+		else
+			base = allocator.top
+			allocator.top = base + cap
+
+			if allocator.top > allocator.capacity then allocator.grow(allocator.top) end
+		end
+
+		allocator.used = allocator.used + cap
+		return base, cap
+	end
+
+	local function range_free(allocator, base, cap)
+		local list = allocator.free[cap]
+
+		if not list then
+			list = {}
+			allocator.free[cap] = list
+		end
+
+		list[#list + 1] = base
+		allocator.used = allocator.used - cap
+	end
+
+	-- the node mirror is the cpu copy of the node buffer. triangles have no
+	-- mirror: every visual keeps its own world block, which is written
+	-- straight into the mapped buffer
+	local function write_node(index)
+		ffi.copy(scene_bvh.node_ptr + index, scene_bvh.nodes + index, NODE_BYTE_SIZE)
+	end
+
+	local function create_mapped_buffer(label, byte_size)
+		local buffer = render.CreateBuffer{
+			byte_size = byte_size,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = label,
+		}
+		return buffer, buffer:Map()
+	end
+
+	local function grow_nodes(needed)
+		local capacity = math.max(needed, math.ceil(scene_bvh.node_capacity * 1.5), 1024)
+		local nodes = NodeArray(capacity)
+
+		if scene_bvh.nodes then
+			ffi.copy(nodes, scene_bvh.nodes, scene_bvh.node_capacity * NODE_BYTE_SIZE)
+		end
+
+		if scene_bvh.node_buffer then scene_bvh.node_buffer:Remove() end
+
+		local buffer, ptr = create_mapped_buffer("scene_bvh_nodes", capacity * NODE_BYTE_SIZE)
+		scene_bvh.node_buffer = buffer
+		scene_bvh.node_ptr = ffi.cast(NodePtr, ptr)
+		ffi.copy(scene_bvh.node_ptr, nodes, capacity * NODE_BYTE_SIZE)
+		scene_bvh.nodes = nodes
+		scene_bvh.debug_nodes = nodes
+		scene_bvh.node_capacity = capacity
+		scene_bvh.node_allocator.capacity = capacity
+	end
+
+	-- the soup lives only in the mapped buffer, so a grown buffer is refilled
+	-- from every visual's world block. consumers that expand it see the new
+	-- generation and redo everything
+	local function grow_triangles(needed)
+		local capacity = math.max(needed, math.ceil(scene_bvh.triangle_capacity * 1.5), 1024)
+
+		if scene_bvh.triangle_buffer then scene_bvh.triangle_buffer:Remove() end
+
+		local buffer, ptr = create_mapped_buffer("scene_bvh_triangles", capacity * TRIANGLE_BYTE_SIZE)
+		scene_bvh.triangle_buffer = buffer
+		scene_bvh.triangles = ffi.cast(TrianglePtr, ptr)
+
+		for _, vc in ipairs(scene_bvh.blocks) do
+			ffi.copy(scene_bvh.triangles + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
+		end
+
+		scene_bvh.triangle_capacity = capacity
+		scene_bvh.triangle_allocator.capacity = capacity
+		scene_bvh.soup_generation = scene_bvh.soup_generation + 1
+	end
+
+	-- ranges of the soup rewritten since the consumers last looked (see
+	-- ExpandPositions), as flat triangle index / count pairs
+	local SOUP_LOG_LIMIT = 8192
+
+	local function log_soup_range(first, count)
+		local log = scene_bvh.soup_log
+		local n = #log
+
+		-- entries of earlier builds may already have been consumed, so only
+		-- this build's entries are extended
+		if n > scene_bvh.soup_log_sealed and log[n - 1] + log[n] == first then
+			log[n] = log[n] + count
+			return
+		end
+
+		if n >= SOUP_LOG_LIMIT * 2 then
+			scene_bvh.soup_log_base = scene_bvh.soup_log_base + n
+			log = {}
+			scene_bvh.soup_log = log
+			scene_bvh.soup_log_sealed = 0
+			n = 0
+		end
+
+		log[n + 1] = first
+		log[n + 2] = count
+	end
+
+	local function reset_layout()
+		scene_bvh.node_allocator = create_allocator(1, 1, grow_nodes)
+		scene_bvh.node_allocator.capacity = scene_bvh.node_capacity
+		scene_bvh.triangle_allocator = create_allocator(0, SOUP_ALIGN, grow_triangles)
+		scene_bvh.triangle_allocator.capacity = scene_bvh.triangle_capacity
+		scene_bvh.blocks = {}
+		scene_bvh.raster_blocks = scene_bvh.blocks
+		scene_bvh.top_parent = {}
+		scene_bvh.top_leaf = {}
+		scene_bvh.top_count = 0
+		scene_bvh.top_changes = 0
+		scene_bvh.triangle_count = 0
+		scene_bvh.soup_generation = scene_bvh.soup_generation + 1
+
+		for _, vc in pairs(scene_bvh.visual_cache) do
+			if scene_bvh.changed_blocks then scene_bvh.changed_blocks[vc] = true end
+
+			vc.tri_base = nil
+			vc.block_base = nil
+			vc.top_slot = nil
+			vc.block_index = nil
+			vc.baked_matrix = nil
+		end
+
+		if scene_bvh.node_capacity == 0 then grow_nodes(1) end
+
+		if scene_bvh.triangle_capacity == 0 then grow_triangles(1) end
+	end
+
+	scene_bvh.node_capacity = 0
+	scene_bvh.triangle_capacity = 0
+	scene_bvh.soup_generation = 0
+	scene_bvh.soup_log = {}
+	scene_bvh.soup_log_base = 0
+	scene_bvh.soup_log_sealed = 0
+	scene_bvh.blocks = {}
+	scene_bvh.raster_blocks = scene_bvh.blocks
+
 	local function surface_area(min_x, min_y, min_z, max_x, max_y, max_z)
 		local dx = max_x - min_x
 
@@ -137,44 +323,46 @@ do
 	local bin_bounds = FloatArray(BIN_COUNT * 6)
 	local right_area = FloatArray(BIN_COUNT)
 	local right_count = UInt32Array(BIN_COUNT)
+	local right_bounds = FloatArray(BIN_COUNT * 6)
+	local min = math.min
+	local max = math.max
 
 	-- SAH over the items in the order[] range [first, first+count). Item i
-	-- holds its centroid at centroids[i*3] and its aabb at bounds[i*6]. Nodes
-	-- are written postorder into cfg.nodes; cfg.cursor tracks the next free
-	-- slot. Leaves are finalized by cfg.leaf_writer(node, first, count, node_index).
-	-- force_split turns failed splits into mid splits instead of leaves, for
-	-- trees whose leaves must hold exactly one item
-	local function build_sah(cfg, node_index, first, count, depth)
+	-- holds its centroid at centroids[i*3] and its aabb at bounds[i*6]. Child
+	-- pairs come from cfg.allocator when given, otherwise from cfg.cursor,
+	-- which tracks the next free slot. Leaves are finalized by
+	-- cfg.leaf_writer(node, first, count, node_index). force_split turns
+	-- failed splits into mid splits instead of leaves, for trees whose leaves
+	-- must hold exactly one item. has_bounds says the node's bounds were
+	-- already written by the parent's split
+	local function build_sah(cfg, node_index, first, count, depth, has_bounds)
 		local order = cfg.order
 		local centroids = cfg.centroids
 		local bounds = cfg.bounds
 		local nodes = cfg.nodes
 		local node = nodes[node_index]
-		local min_x, min_y, min_z = math.huge, math.huge, math.huge
-		local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
 
-		for i = first, first + count - 1 do
-			local t = order[i] * 6
+		if not has_bounds then
+			local min_x, min_y, min_z = math.huge, math.huge, math.huge
+			local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
 
-			if bounds[t + 0] < min_x then min_x = bounds[t + 0] end
+			for i = first, first + count - 1 do
+				local t = order[i] * 6
+				min_x = min(min_x, bounds[t + 0])
+				min_y = min(min_y, bounds[t + 1])
+				min_z = min(min_z, bounds[t + 2])
+				max_x = max(max_x, bounds[t + 3])
+				max_y = max(max_y, bounds[t + 4])
+				max_z = max(max_z, bounds[t + 5])
+			end
 
-			if bounds[t + 1] < min_y then min_y = bounds[t + 1] end
-
-			if bounds[t + 2] < min_z then min_z = bounds[t + 2] end
-
-			if bounds[t + 3] > max_x then max_x = bounds[t + 3] end
-
-			if bounds[t + 4] > max_y then max_y = bounds[t + 4] end
-
-			if bounds[t + 5] > max_z then max_z = bounds[t + 5] end
+			node.bounds_min[0] = min_x
+			node.bounds_min[1] = min_y
+			node.bounds_min[2] = min_z
+			node.bounds_max[0] = max_x
+			node.bounds_max[1] = max_y
+			node.bounds_max[2] = max_z
 		end
-
-		node.bounds_min[0] = min_x
-		node.bounds_min[1] = min_y
-		node.bounds_min[2] = min_z
-		node.bounds_max[0] = max_x
-		node.bounds_max[1] = max_y
-		node.bounds_max[2] = max_z
 
 		if count <= cfg.leaf_size or (depth >= MAX_DEPTH and not cfg.force_split) then
 			cfg.leaf_writer(node, first, count, node_index)
@@ -186,18 +374,13 @@ do
 
 		for i = first, first + count - 1 do
 			local t = order[i] * 3
-
-			if centroids[t + 0] < c_min_x then c_min_x = centroids[t + 0] end
-
-			if centroids[t + 1] < c_min_y then c_min_y = centroids[t + 1] end
-
-			if centroids[t + 2] < c_min_z then c_min_z = centroids[t + 2] end
-
-			if centroids[t + 0] > c_max_x then c_max_x = centroids[t + 0] end
-
-			if centroids[t + 1] > c_max_y then c_max_y = centroids[t + 1] end
-
-			if centroids[t + 2] > c_max_z then c_max_z = centroids[t + 2] end
+			local x, y, z = centroids[t + 0], centroids[t + 1], centroids[t + 2]
+			c_min_x = min(c_min_x, x)
+			c_min_y = min(c_min_y, y)
+			c_min_z = min(c_min_z, z)
+			c_max_x = max(c_max_x, x)
+			c_max_y = max(c_max_y, y)
+			c_max_z = max(c_max_z, z)
 		end
 
 		local axis = 0
@@ -219,6 +402,7 @@ do
 		local scale = 1
 		local best_cost = math.huge
 		local split_bin = -1
+		local lb_min_x, lb_min_y, lb_min_z, lb_max_x, lb_max_y, lb_max_z = 0, 0, 0, 0, 0, 0
 
 		if extent > 1e-9 then
 			scale = BIN_COUNT / extent
@@ -235,38 +419,16 @@ do
 
 			for i = first, first + count - 1 do
 				local t = order[i]
-				local b = math.floor((centroids[t * 3 + axis] - origin) * scale)
-
-				if b < 0 then b = 0 end
-
-				if b > BIN_COUNT - 1 then b = BIN_COUNT - 1 end
-
+				local b = min(max(math.floor((centroids[t * 3 + axis] - origin) * scale), 0), BIN_COUNT - 1)
 				bin_counts[b] = bin_counts[b] + 1
 				t = t * 6
-
-				if bounds[t + 0] < bin_bounds[b * 6 + 0] then
-					bin_bounds[b * 6 + 0] = bounds[t + 0]
-				end
-
-				if bounds[t + 1] < bin_bounds[b * 6 + 1] then
-					bin_bounds[b * 6 + 1] = bounds[t + 1]
-				end
-
-				if bounds[t + 2] < bin_bounds[b * 6 + 2] then
-					bin_bounds[b * 6 + 2] = bounds[t + 2]
-				end
-
-				if bounds[t + 3] > bin_bounds[b * 6 + 3] then
-					bin_bounds[b * 6 + 3] = bounds[t + 3]
-				end
-
-				if bounds[t + 4] > bin_bounds[b * 6 + 4] then
-					bin_bounds[b * 6 + 4] = bounds[t + 4]
-				end
-
-				if bounds[t + 5] > bin_bounds[b * 6 + 5] then
-					bin_bounds[b * 6 + 5] = bounds[t + 5]
-				end
+				local o = b * 6
+				bin_bounds[o + 0] = min(bin_bounds[o + 0], bounds[t + 0])
+				bin_bounds[o + 1] = min(bin_bounds[o + 1], bounds[t + 1])
+				bin_bounds[o + 2] = min(bin_bounds[o + 2], bounds[t + 2])
+				bin_bounds[o + 3] = max(bin_bounds[o + 3], bounds[t + 3])
+				bin_bounds[o + 4] = max(bin_bounds[o + 4], bounds[t + 4])
+				bin_bounds[o + 5] = max(bin_bounds[o + 5], bounds[t + 5])
 			end
 
 			local r_min_x, r_min_y, r_min_z = math.huge, math.huge, math.huge
@@ -274,24 +436,22 @@ do
 			local r_count = 0
 
 			for b = BIN_COUNT - 1, 1, -1 do
-				if bin_counts[b] > 0 then
-					if bin_bounds[b * 6 + 0] < r_min_x then r_min_x = bin_bounds[b * 6 + 0] end
-
-					if bin_bounds[b * 6 + 1] < r_min_y then r_min_y = bin_bounds[b * 6 + 1] end
-
-					if bin_bounds[b * 6 + 2] < r_min_z then r_min_z = bin_bounds[b * 6 + 2] end
-
-					if bin_bounds[b * 6 + 3] > r_max_x then r_max_x = bin_bounds[b * 6 + 3] end
-
-					if bin_bounds[b * 6 + 4] > r_max_y then r_max_y = bin_bounds[b * 6 + 4] end
-
-					if bin_bounds[b * 6 + 5] > r_max_z then r_max_z = bin_bounds[b * 6 + 5] end
-
-					r_count = r_count + bin_counts[b]
-				end
-
+				local o = b * 6
+				r_min_x = min(r_min_x, bin_bounds[o + 0])
+				r_min_y = min(r_min_y, bin_bounds[o + 1])
+				r_min_z = min(r_min_z, bin_bounds[o + 2])
+				r_max_x = max(r_max_x, bin_bounds[o + 3])
+				r_max_y = max(r_max_y, bin_bounds[o + 4])
+				r_max_z = max(r_max_z, bin_bounds[o + 5])
+				r_count = r_count + bin_counts[b]
 				right_area[b] = surface_area(r_min_x, r_min_y, r_min_z, r_max_x, r_max_y, r_max_z)
 				right_count[b] = r_count
+				right_bounds[o + 0] = r_min_x
+				right_bounds[o + 1] = r_min_y
+				right_bounds[o + 2] = r_min_z
+				right_bounds[o + 3] = r_max_x
+				right_bounds[o + 4] = r_max_y
+				right_bounds[o + 5] = r_max_z
 			end
 
 			local l_min_x, l_min_y, l_min_z = math.huge, math.huge, math.huge
@@ -299,21 +459,14 @@ do
 			local l_count = 0
 
 			for b = 0, BIN_COUNT - 2 do
-				if bin_counts[b] > 0 then
-					if bin_bounds[b * 6 + 0] < l_min_x then l_min_x = bin_bounds[b * 6 + 0] end
-
-					if bin_bounds[b * 6 + 1] < l_min_y then l_min_y = bin_bounds[b * 6 + 1] end
-
-					if bin_bounds[b * 6 + 2] < l_min_z then l_min_z = bin_bounds[b * 6 + 2] end
-
-					if bin_bounds[b * 6 + 3] > l_max_x then l_max_x = bin_bounds[b * 6 + 3] end
-
-					if bin_bounds[b * 6 + 4] > l_max_y then l_max_y = bin_bounds[b * 6 + 4] end
-
-					if bin_bounds[b * 6 + 5] > l_max_z then l_max_z = bin_bounds[b * 6 + 5] end
-
-					l_count = l_count + bin_counts[b]
-				end
+				local o = b * 6
+				l_min_x = min(l_min_x, bin_bounds[o + 0])
+				l_min_y = min(l_min_y, bin_bounds[o + 1])
+				l_min_z = min(l_min_z, bin_bounds[o + 2])
+				l_max_x = max(l_max_x, bin_bounds[o + 3])
+				l_max_y = max(l_max_y, bin_bounds[o + 4])
+				l_max_z = max(l_max_z, bin_bounds[o + 5])
+				l_count = l_count + bin_counts[b]
 
 				if l_count > 0 and right_count[b + 1] > 0 then
 					local cost = l_count * surface_area(l_min_x, l_min_y, l_min_z, l_max_x, l_max_y, l_max_z) + right_count[b + 1] * right_area[b + 1]
@@ -321,6 +474,8 @@ do
 					if cost < best_cost then
 						best_cost = cost
 						split_bin = b + 1
+						lb_min_x, lb_min_y, lb_min_z = l_min_x, l_min_y, l_min_z
+						lb_max_x, lb_max_y, lb_max_z = l_max_x, l_max_y, l_max_z
 					end
 				end
 			end
@@ -329,7 +484,14 @@ do
 		if
 			(
 				split_bin < 0 or
-				best_cost >= count * surface_area(min_x, min_y, min_z, max_x, max_y, max_z)
+				best_cost >= count * surface_area(
+					node.bounds_min[0],
+					node.bounds_min[1],
+					node.bounds_min[2],
+					node.bounds_max[0],
+					node.bounds_max[1],
+					node.bounds_max[2]
+				)
 			)
 			and
 			not cfg.force_split
@@ -343,11 +505,7 @@ do
 
 		while i <= j do
 			local t = order[i]
-			local b = math.floor((centroids[t * 3 + axis] - origin) * scale)
-
-			if b < 0 then b = 0 end
-
-			if b > BIN_COUNT - 1 then b = BIN_COUNT - 1 end
+			local b = min(max(math.floor((centroids[t * 3 + axis] - origin) * scale), 0), BIN_COUNT - 1)
 
 			if b < split_bin then
 				i = i + 1
@@ -359,42 +517,319 @@ do
 		end
 
 		local left_count = i - first
+		-- a failed split falls back to a mid split, whose child bounds are
+		-- not known from the bins
+		local split_bounds = left_count > 0 and left_count < count
 
-		if left_count == 0 or left_count == count then
-			left_count = math.floor(count / 2)
+		if not split_bounds then left_count = math.floor(count / 2) end
+
+		local left_index
+
+		if cfg.allocator then
+			left_index = range_alloc(cfg.allocator, 2)
+			nodes = cfg.nodes
+		else
+			left_index = cfg.cursor[1]
+			cfg.cursor[1] = left_index + 2
 		end
 
-		local left_index = cfg.cursor[1]
-		cfg.cursor[1] = left_index + 2
+		node = nodes[node_index]
 		node.left_first = left_index
 		node.count = 0
-		build_sah(cfg, left_index, first, left_count, depth + 1)
-		build_sah(cfg, left_index + 1, first + left_count, count - left_count, depth + 1)
+
+		if split_bounds then
+			local left = nodes[left_index]
+			left.bounds_min[0] = lb_min_x
+			left.bounds_min[1] = lb_min_y
+			left.bounds_min[2] = lb_min_z
+			left.bounds_max[0] = lb_max_x
+			left.bounds_max[1] = lb_max_y
+			left.bounds_max[2] = lb_max_z
+			local right = nodes[left_index + 1]
+			local o = split_bin * 6
+			right.bounds_min[0] = right_bounds[o + 0]
+			right.bounds_min[1] = right_bounds[o + 1]
+			right.bounds_min[2] = right_bounds[o + 2]
+			right.bounds_max[0] = right_bounds[o + 3]
+			right.bounds_max[1] = right_bounds[o + 4]
+			right.bounds_max[2] = right_bounds[o + 5]
+		end
+
+		build_sah(cfg, left_index, first, left_count, depth + 1, split_bounds)
+		build_sah(
+			cfg,
+			left_index + 1,
+			first + left_count,
+			count - left_count,
+			depth + 1,
+			split_bounds
+		)
 	end
 
-	-- recompute top tree node bounds bottom-up without re-splitting. a top
-	-- internal node is the union of both children; a top leaf is a copy of a
-	-- block root, which already tracks the visual's current world aabb
-	local function rederive_top_node(index)
-		local nodes = scratch.nodes
-		local node = nodes[index]
-		local root = scene_bvh.top_leaf_roots[index]
+	-- the top tree sits above the per-visual trees: its leaves are copies of
+	-- visual root nodes, so traversal continues straight into that visual's
+	-- tree (or its triangles, for a one leaf tree). node 0 is its root and
+	-- every internal node's children are a pair from the node allocator.
+	-- visuals are inserted and removed one at a time (the dynamic aabb tree
+	-- scheme), with a fresh sah over all visuals when many change at once or
+	-- enough changes have piled up to degrade it
+	local function node_union_area(a, b)
+		return surface_area(
+			a.bounds_min[0] < b.bounds_min[0] and a.bounds_min[0] or b.bounds_min[0],
+			a.bounds_min[1] < b.bounds_min[1] and a.bounds_min[1] or b.bounds_min[1],
+			a.bounds_min[2] < b.bounds_min[2] and a.bounds_min[2] or b.bounds_min[2],
+			a.bounds_max[0] > b.bounds_max[0] and a.bounds_max[0] or b.bounds_max[0],
+			a.bounds_max[1] > b.bounds_max[1] and a.bounds_max[1] or b.bounds_max[1],
+			a.bounds_max[2] > b.bounds_max[2] and a.bounds_max[2] or b.bounds_max[2]
+		)
+	end
 
-		if root then
-			ffi.copy(nodes + index, nodes + root, NODE_BYTE_SIZE)
+	local function node_area(a)
+		return surface_area(
+			a.bounds_min[0],
+			a.bounds_min[1],
+			a.bounds_min[2],
+			a.bounds_max[0],
+			a.bounds_max[1],
+			a.bounds_max[2]
+		)
+	end
+
+	-- recomputes the bounds of index and every ancestor from their children
+	local function refit_top(index)
+		local nodes = scene_bvh.nodes
+		local top_parent = scene_bvh.top_parent
+		local top_leaf = scene_bvh.top_leaf
+
+		while index do
+			if not top_leaf[index] then
+				local node = nodes[index]
+				local a = nodes[node.left_first]
+				local b = nodes[node.left_first + 1]
+				node.bounds_min[0] = a.bounds_min[0] < b.bounds_min[0] and a.bounds_min[0] or b.bounds_min[0]
+				node.bounds_min[1] = a.bounds_min[1] < b.bounds_min[1] and a.bounds_min[1] or b.bounds_min[1]
+				node.bounds_min[2] = a.bounds_min[2] < b.bounds_min[2] and a.bounds_min[2] or b.bounds_min[2]
+				node.bounds_max[0] = a.bounds_max[0] > b.bounds_max[0] and a.bounds_max[0] or b.bounds_max[0]
+				node.bounds_max[1] = a.bounds_max[1] > b.bounds_max[1] and a.bounds_max[1] or b.bounds_max[1]
+				node.bounds_max[2] = a.bounds_max[2] > b.bounds_max[2] and a.bounds_max[2] or b.bounds_max[2]
+				write_node(index)
+			end
+
+			index = top_parent[index]
+		end
+	end
+
+	local function set_top_empty()
+		local root = scene_bvh.nodes[0]
+		-- a count 0 node is an inner node, so the empty root must never be
+		-- entered: a point further away than any ray reaches
+		root.bounds_min[0] = -1e30
+		root.bounds_min[1] = -1e30
+		root.bounds_min[2] = -1e30
+		root.bounds_max[0] = -1e30
+		root.bounds_max[1] = -1e30
+		root.bounds_max[2] = -1e30
+		root.left_first = 0
+		root.count = 0
+		write_node(0)
+	end
+
+	-- moves the node at from (a top leaf or top internal node) into slot to
+	local function move_top_node(from, to)
+		local nodes = scene_bvh.nodes
+		local top_leaf = scene_bvh.top_leaf
+		ffi.copy(nodes + to, nodes + from, NODE_BYTE_SIZE)
+		local vc = top_leaf[from]
+
+		if vc then
+			top_leaf[from] = nil
+			top_leaf[to] = vc
+			vc.top_slot = to
 		else
-			local left = node.left_first
+			local left = nodes[to].left_first
+			scene_bvh.top_parent[left] = to
+			scene_bvh.top_parent[left + 1] = to
+		end
+	end
 
-			rederive_top_node(left)
-			rederive_top_node(left + 1)
-			local a = nodes[left]
-			local b = nodes[left + 1]
-			node.bounds_min[0] = a.bounds_min[0] < b.bounds_min[0] and a.bounds_min[0] or b.bounds_min[0]
-			node.bounds_min[1] = a.bounds_min[1] < b.bounds_min[1] and a.bounds_min[1] or b.bounds_min[1]
-			node.bounds_min[2] = a.bounds_min[2] < b.bounds_min[2] and a.bounds_min[2] or b.bounds_min[2]
-			node.bounds_max[0] = a.bounds_max[0] > b.bounds_max[0] and a.bounds_max[0] or b.bounds_max[0]
-			node.bounds_max[1] = a.bounds_max[1] > b.bounds_max[1] and a.bounds_max[1] or b.bounds_max[1]
-			node.bounds_max[2] = a.bounds_max[2] > b.bounds_max[2] and a.bounds_max[2] or b.bounds_max[2]
+	local function insert_top_leaf(vc)
+		local top_leaf = scene_bvh.top_leaf
+		local top_parent = scene_bvh.top_parent
+		scene_bvh.top_count = scene_bvh.top_count + 1
+
+		if scene_bvh.top_count == 1 then
+			ffi.copy(scene_bvh.nodes, scene_bvh.nodes + vc.block_base, NODE_BYTE_SIZE)
+			top_leaf[0] = vc
+			vc.top_slot = 0
+			write_node(0)
+			return
+		end
+
+		local pair = range_alloc(scene_bvh.node_allocator, 2)
+		local nodes = scene_bvh.nodes
+		local leaf = nodes[vc.block_base]
+		local index = 0
+
+		-- descend toward the sibling that grows the tree's surface area least
+		while not top_leaf[index] do
+			local node = nodes[index]
+			local area = node_area(node)
+			local combined = node_union_area(node, leaf)
+			local cost = 2 * combined
+			local inherit = 2 * (combined - area)
+			local left = nodes[node.left_first]
+			local right = nodes[node.left_first + 1]
+			local cost_left = node_union_area(left, leaf) + inherit
+			local cost_right = node_union_area(right, leaf) + inherit
+
+			if not top_leaf[node.left_first] then cost_left = cost_left - node_area(left) end
+
+			if not top_leaf[node.left_first + 1] then
+				cost_right = cost_right - node_area(right)
+			end
+
+			if cost < cost_left and cost < cost_right then break end
+
+			index = cost_left <= cost_right and node.left_first or node.left_first + 1
+		end
+
+		-- the sibling moves down into the new pair and its slot becomes the
+		-- parent of both, so nothing above it has to be repointed
+		move_top_node(index, pair)
+		ffi.copy(nodes + pair + 1, leaf, NODE_BYTE_SIZE)
+		top_leaf[pair + 1] = vc
+		vc.top_slot = pair + 1
+		top_parent[pair] = index
+		top_parent[pair + 1] = index
+		nodes[index].left_first = pair
+		nodes[index].count = 0
+		write_node(pair)
+		write_node(pair + 1)
+		refit_top(index)
+	end
+
+	local function remove_top_leaf(vc)
+		local slot = vc.top_slot
+		local top_parent = scene_bvh.top_parent
+		scene_bvh.top_leaf[slot] = nil
+		vc.top_slot = nil
+		scene_bvh.top_count = scene_bvh.top_count - 1
+
+		if slot == 0 then
+			set_top_empty()
+			return
+		end
+
+		-- the sibling takes over the parent's slot and the pair is freed
+		local parent = top_parent[slot]
+		local pair = scene_bvh.nodes[parent].left_first
+		move_top_node(slot == pair and pair + 1 or pair, parent)
+		top_parent[pair] = nil
+		top_parent[pair + 1] = nil
+		range_free(scene_bvh.node_allocator, pair, 2)
+		write_node(parent)
+		refit_top(top_parent[parent])
+	end
+
+	local top_build = {}
+
+	local function top_leaf_writer(node, first, count, node_index)
+		-- first is a sah position; the item at that position is
+		-- top_order[first] (sah reordered it in place), which is the
+		-- block's 0-based index
+		local vc = scene_bvh.blocks[top_build.order[first] + 1]
+		ffi.copy(scene_bvh.nodes + node_index, scene_bvh.nodes + vc.block_base, NODE_BYTE_SIZE)
+		scene_bvh.top_leaf[node_index] = vc
+		vc.top_slot = node_index
+	end
+
+	local function rebuild_top()
+		local allocator = scene_bvh.node_allocator
+		local nodes = scene_bvh.nodes
+		local top_leaf = scene_bvh.top_leaf
+		local blocks = scene_bvh.blocks
+		local n = #blocks
+
+		-- free the old internal pairs
+		if scene_bvh.top_count >= 2 then
+			local stack = {0}
+
+			while stack[1] do
+				local index = stack[#stack]
+				stack[#stack] = nil
+
+				if not top_leaf[index] then
+					local left = nodes[index].left_first
+					range_free(allocator, left, 2)
+					stack[#stack + 1] = left
+					stack[#stack + 1] = left + 1
+				end
+			end
+		end
+
+		scene_bvh.top_parent = {}
+		scene_bvh.top_leaf = {}
+		scene_bvh.top_count = n
+		scene_bvh.top_changes = 0
+		scene_bvh.top_incremental_count = 0
+
+		if n == 0 then
+			set_top_empty()
+			return
+		end
+
+		-- the sah allocates up to n - 1 pairs, and must not see the node
+		-- mirror move under it
+		if allocator.top + n * 2 > allocator.capacity then
+			grow_nodes(allocator.top + n * 2)
+		end
+
+		get_scratch(1, n)
+		local top_bounds = scratch.top_bounds
+		local top_centroids = scratch.top_centroids
+		local top_order = scratch.top_order
+
+		for i = 1, n do
+			local aabb = blocks[i].world_aabb
+			top_order[i - 1] = i - 1
+			top_bounds[(i - 1) * 6 + 0] = aabb[0]
+			top_bounds[(i - 1) * 6 + 1] = aabb[1]
+			top_bounds[(i - 1) * 6 + 2] = aabb[2]
+			top_bounds[(i - 1) * 6 + 3] = aabb[3]
+			top_bounds[(i - 1) * 6 + 4] = aabb[4]
+			top_bounds[(i - 1) * 6 + 5] = aabb[5]
+			top_centroids[(i - 1) * 3 + 0] = (aabb[0] + aabb[3]) / 2
+			top_centroids[(i - 1) * 3 + 1] = (aabb[1] + aabb[4]) / 2
+			top_centroids[(i - 1) * 3 + 2] = (aabb[2] + aabb[5]) / 2
+		end
+
+		top_build.order = top_order
+		top_build.centroids = top_centroids
+		top_build.bounds = top_bounds
+		top_build.nodes = scene_bvh.nodes
+		top_build.allocator = allocator
+		top_build.leaf_size = 1
+		top_build.force_split = true
+		top_build.leaf_writer = top_leaf_writer
+		build_sah(top_build, 0, 0, n, 0)
+		-- parents, and the new top nodes to the gpu
+		nodes = scene_bvh.nodes
+		top_leaf = scene_bvh.top_leaf
+		local top_parent = scene_bvh.top_parent
+		local stack = {0}
+
+		while stack[1] do
+			local index = stack[#stack]
+			stack[#stack] = nil
+			write_node(index)
+
+			if not top_leaf[index] then
+				local left = nodes[index].left_first
+				top_parent[left] = index
+				top_parent[left + 1] = index
+				stack[#stack + 1] = left
+				stack[#stack + 1] = left + 1
+			end
 		end
 	end
 
@@ -582,12 +1017,13 @@ do
 	-- world soup for a visual: local soup x the visual world matrix, in child
 	-- SAH order, plus the child node bounds in world space with internal
 	-- children remapped to the block's global base
-	local function bake_visual_world(vc, v, block_base)
+	local function bake_visual_world(vc, v)
 		local total = vc.total
 		local order = vc.order
 		local slot_of = vc.slot_of
 		local slots = vc.slots
 		local world = vc.world_block
+		local block_base = vc.block_base
 		local m00, m01, m02 = v.m00, v.m01, v.m02
 		local m10, m11, m12 = v.m10, v.m11, v.m12
 		local m20, m21, m22 = v.m20, v.m21, v.m22
@@ -658,459 +1094,455 @@ do
 			wn.bounds_max[2] = tmp_box[5]
 		end
 
-		local root = local_nodes[0]
-		tmp_box[0] = root.bounds_min[0]
-		tmp_box[1] = root.bounds_min[1]
-		tmp_box[2] = root.bounds_min[2]
-		tmp_box[3] = root.bounds_max[0]
-		tmp_box[4] = root.bounds_max[1]
-		tmp_box[5] = root.bounds_max[2]
-		transform_box(v, tmp_box, vc.world_aabb)
+		local aabb = vc.world_aabb
+		transform_box(v, ffi.cast("float*", local_nodes[0].bounds_min), aabb)
+		-- raster block fields, for cascade frustum culling of the expanded
+		-- soup (tri_base/total are soup triangle indices, x3 for the
+		-- one-position-per-vertex layout)
+		vc.first_vertex = vc.tri_base * 3
+		vc.vertex_count = total * 3
+		vc.min_x = aabb[0]
+		vc.min_y = aabb[1]
+		vc.min_z = aabb[2]
+		vc.max_x = aabb[3]
+		vc.max_y = aabb[4]
+		vc.max_z = aabb[5]
 	end
 
-	-- persistent grow-only host-mapped buffer: the VkBuffer is created (or
-	-- grown) only when the current capacity is not enough, so the buffer
-	-- object and any descriptors pointing at it survive across builds. the
-	-- data itself is copied by the caller, possibly in partial ranges. the
-	-- second return value says whether the buffer is fresh (needs a full fill)
-	local function ensure_persistent_buffer(field, label, byte_size)
-		local buffer = scene_bvh[field]
+	local function child_leaf_writer(node, first, count)
+		node.left_first = first
+		node.count = count
+	end
 
-		if not buffer or buffer:GetSize() < byte_size then
-			if buffer then buffer:Remove() end
+	local child_build = {
+		cursor = {1},
+		leaf_size = MAX_LEAF_TRIANGLES,
+		leaf_writer = child_leaf_writer,
+	}
 
-			buffer = render.CreateBuffer{
-				byte_size = byte_size,
-				buffer_usage = {"storage_buffer"},
-				memory_property = {"host_visible", "host_coherent"},
-				label = label,
-			}
-			scene_bvh[field] = buffer
-			return buffer, true
+	-- frees a visual's ranges and takes it out of the tree
+	local function release_block(visual, vc, rebuilding_top)
+		scene_bvh.visual_cache[visual] = nil
+
+		if not vc.block_index then return end
+
+		range_free(scene_bvh.triangle_allocator, vc.tri_base, vc.tri_cap)
+		range_free(scene_bvh.node_allocator, vc.block_base, vc.node_cap)
+		vc.tri_base = nil
+		vc.block_base = nil
+		scene_bvh.triangle_count = scene_bvh.triangle_count - vc.drawn_total
+		scene_bvh.soup_dirty = true
+		local blocks = scene_bvh.blocks
+		local last = blocks[#blocks]
+		blocks[vc.block_index] = last
+		last.block_index = vc.block_index
+		blocks[#blocks] = nil
+		vc.block_index = nil
+
+		if scene_bvh.changed_blocks then
+			scene_bvh.changed_blocks[vc] = true
+			scene_bvh.changed_blocks[last] = true
 		end
 
-		return buffer, false
+		if scene_bvh.emissive_set[vc] then
+			scene_bvh.emissive_set[vc] = nil
+			scene_bvh.emissive_changed = true
+		end
+
+		if vc.top_slot and not rebuilding_top then
+			remove_top_leaf(vc)
+			scene_bvh.top_changes = scene_bvh.top_changes + 1
+		end
 	end
 
-	function scene_bvh.Build(force_full)
-		local start_time = os.clock()
+	-- brings one visual's block up to date. the local soup and child tree are
+	-- only rederived when its entries changed, the world bake only when it
+	-- moved, and the ranges are kept whenever the block still fits
+	local function update_visual(visual, stamp, inserts)
 		local cache = scene_bvh.visual_cache
-		local blocks = {}
-		local triangle_total = 0
-		local present = {}
-		local slow_count = 0
+		local vc = cache[visual]
 
-		for _, visual in ipairs(Visual.Instances) do
-			local v = visual.Owner.transform:GetWorldMatrix()
-			local vc = cache[visual]
-			local slot_count = 0
-			local slots = {}
-			local fast = vc ~= nil and vc.matrix == v and vc.baked_matrix == v
+		if not visual:IsValid() or visual.scene_removed then
+			if vc then release_block(visual, vc, inserts.rebuild) end
 
-			for _, entry in ipairs(visual:GetRenderEntries()) do
-				local mesh = entry.polygon3d.mesh
+			return
+		end
 
-				if mesh and mesh.Type ~= "null" then
-					local index_buffer = mesh.index_buffer
-					local count = index_buffer and
-						math.floor(index_buffer:GetIndexCount() / 3) or
-						math.floor(mesh.vertex_buffer:GetVertexCount() / 3)
+		local v = visual.Owner.transform:GetWorldMatrix()
+		local slot_count = 0
+		local slots = {}
+		local fast = vc ~= nil and vc.matrix == v
 
-					if count > 0 then
-						local material = visual:GetResolvedMaterial(entry)
-						local emissive_r, emissive_g, emissive_b = 0, 0, 0
+		for _, entry in ipairs(visual:GetRenderEntries()) do
+			local mesh = entry.polygon3d.mesh
 
-						if
-							material:GetAlbedoAlphaIsEmissive() or
-							material:GetEmissiveTexture() ~= nil
-						then
-							local multiplier = material:GetEmissiveMultiplier()
-							emissive_r = multiplier.r * multiplier.a
-							emissive_g = multiplier.g * multiplier.a
-							emissive_b = multiplier.b * multiplier.a
-						end
+			if mesh and mesh.Type ~= "null" then
+				local index_buffer = mesh.index_buffer
+				local count = index_buffer and
+					math.floor(index_buffer:GetIndexCount() / 3) or
+					math.floor(mesh.vertex_buffer:GetVertexCount() / 3)
 
-						local material_id = scene_bvh.GetMaterialID(material)
-						local e = entry.transform:GetWorldMatrix()
-						local prev = fast and vc.slots[slot_count + 1] or false
-						local slot = prev and
+				if count > 0 then
+					local material = visual:GetResolvedMaterial(entry)
+					local emissive_r, emissive_g, emissive_b = 0, 0, 0
+
+					if material:GetAlbedoAlphaIsEmissive() or material:GetEmissiveTexture() ~= nil then
+						local multiplier = material:GetEmissiveMultiplier()
+						emissive_r = multiplier.r * multiplier.a
+						emissive_g = multiplier.g * multiplier.a
+						emissive_b = multiplier.b * multiplier.a
+					end
+
+					local material_id = scene_bvh.GetMaterialID(material)
+					local e = entry.transform:GetWorldMatrix()
+					local prev = vc and vc.slots[slot_count + 1]
+					local slot = prev and
+						prev.entry == entry and
+						prev.count == count and
+						prev.matrix == e and
+						prev.material_id == material_id and
+						prev.emissive_r == emissive_r and
+						prev.emissive_g == emissive_g and
+						prev.emissive_b == emissive_b and
+						prev
+
+					if not slot then
+						fast = false
+						slot = prev and
 							prev.entry == entry and
 							prev.count == count and
-							prev.matrix == e and
-							prev.material_id == material_id and
-							prev.emissive_r == emissive_r and
-							prev.emissive_g == emissive_g and
-							prev.emissive_b == emissive_b and
-							prev
-
-						if not slot then
-							fast = false
-							slot = {
+							prev or
+							{
 								entry = entry,
 								index_buffer = index_buffer,
 								vertex_buffer = mesh.vertex_buffer,
 								count = count,
-								matrix = e,
 							}
-						end
-
-						slot.emissive_r = emissive_r
-						slot.emissive_g = emissive_g
-						slot.emissive_b = emissive_b
-						slot.material_id = material_id
-						slot_count = slot_count + 1
-						slots[slot_count] = slot
-					end
-				end
-			end
-
-			if slot_count == 0 then
-				cache[visual] = nil
-			else
-				present[visual] = true
-				local raw_total = 0
-
-				for i = 1, slot_count do
-					raw_total = raw_total + slots[i].count
-				end
-
-				if not fast then
-					if not scratch.indices_capacity or scratch.indices_capacity < raw_total * 3 then
-						scratch.indices_capacity = math.max(raw_total * 3, 1)
-						scratch.indices = UInt32Array(scratch.indices_capacity)
+						slot.matrix = e
 					end
 
-					local t0 = os.clock()
-					local v_inv = v:GetInverse(tmp_v_inv)
-
-					for i = 1, slot_count do
-						local slot = slots[i]
-						local l = slot.matrix:GetMultiplied(v_inv, tmp_l)
-
-						if not (slot.local_tris and matrix_equal(slot.local_matrix, l)) then
-							slot.local_matrix = {
-								m00 = tmp_l.m00,
-								m01 = tmp_l.m01,
-								m02 = tmp_l.m02,
-								m03 = tmp_l.m03,
-								m10 = tmp_l.m10,
-								m11 = tmp_l.m11,
-								m12 = tmp_l.m12,
-								m13 = tmp_l.m13,
-								m20 = tmp_l.m20,
-								m21 = tmp_l.m21,
-								m22 = tmp_l.m22,
-								m23 = tmp_l.m23,
-								m30 = tmp_l.m30,
-								m31 = tmp_l.m31,
-								m32 = tmp_l.m32,
-								m33 = tmp_l.m33,
-							}
-
-							if not slot.local_tris or slot.local_tris_capacity < slot.count then
-								slot.local_tris = TriangleArray(slot.count)
-								slot.local_tris_capacity = slot.count
-							end
-
-							slot.count = build_slot_local(slot)
-						end
-					end
-				end
-
-				vc = vc or {}
-				vc.slow = not fast
-				vc.matrix = v
-				vc.slots = slots
-				vc.slot_count = slot_count
-				cache[visual] = vc
-				local total = 0
-				vc.emissive = false
-
-				for i = 1, slot_count do
-					local slot = slots[i]
-					total = total + slot.count
-
-					if slot.emissive_r + slot.emissive_g + slot.emissive_b > 0 then vc.emissive = true end
-				end
-
-				if total == 0 then
-					cache[visual] = nil
-				else
-					if not fast then
-						vc.total = total
-
-						if not vc.world_aabb then vc.world_aabb = FloatArray(6) end
-
-						if not vc.order_cap or vc.order_cap < total then
-							vc.order_cap = total
-							vc.order = UInt32Array(total)
-							vc.slot_of_cap = total
-							vc.slot_of = UInt32Array(total)
-							vc.world_block_cap = total
-							vc.world_block = TriangleArray(total)
-						end
-
-						if not vc.child_cap or vc.child_cap < total * 2 then
-							vc.child_cap = total * 2
-							vc.child_nodes = NodeArray(total * 2)
-							vc.child_world_nodes = NodeArray(total * 2)
-						end
-
-						local span = 0
-
-						for i = 1, slot_count do
-							local slot = slots[i]
-							slot.start = span
-
-							for t = span, span + slot.count - 1 do
-								vc.slot_of[t] = i - 1
-							end
-
-							span = span + slot.count
-						end
-
-						get_scratch(1, total, 1)
-
-						for i = 0, total - 1 do
-							vc.order[i] = i
-						end
-
-						prepare_child_sah(vc)
-						local cursor = {1}
-						build_sah(
-							{
-								order = vc.order,
-								centroids = scratch.tri_centroids,
-								bounds = scratch.tri_bounds,
-								nodes = vc.child_nodes,
-								cursor = cursor,
-								leaf_size = MAX_LEAF_TRIANGLES,
-								leaf_writer = function(node, first, count)
-									node.left_first = first
-									node.count = count
-								end,
-							},
-							0,
-							0,
-							total,
-							0
-						)
-						vc.node_count = cursor[1]
-					end
-
-					blocks[#blocks + 1] = vc
-					triangle_total = triangle_total + vc.total
-
-					if not fast then slow_count = slow_count + 1 end
+					slot.emissive_r = emissive_r
+					slot.emissive_g = emissive_g
+					slot.emissive_b = emissive_b
+					slot.material_id = material_id
+					slot_count = slot_count + 1
+					slots[slot_count] = slot
 				end
 			end
 		end
 
-		for visual in pairs(cache) do
-			if not present[visual] then cache[visual] = nil end
+		if vc and slot_count ~= vc.slot_count then fast = false end
+
+		if slot_count == 0 then
+			if vc then release_block(visual, vc, inserts.rebuild) end
+
+			return
 		end
 
-		local node_count = 0
-		local n = #blocks
-		local layout_same = false
+		vc = vc or {}
+		cache[visual] = vc
+		vc.stamp = stamp
 
-		if n == 0 then
-			get_scratch(1, 1, 1)
-			local nodes = scratch.nodes
-			-- a count 0 node is an inner node, so the empty root must never be
-			-- entered: a point further away than any ray reaches
-			nodes[0].bounds_min[0] = -1e30
-			nodes[0].bounds_min[1] = -1e30
-			nodes[0].bounds_min[2] = -1e30
-			nodes[0].bounds_max[0] = -1e30
-			nodes[0].bounds_max[1] = -1e30
-			nodes[0].bounds_max[2] = -1e30
-			nodes[0].left_first = 0
-			nodes[0].count = 0
-			node_count = 1
+		if fast and vc.block_index and vc.baked_matrix == v then return end
+
+		local slow = not vc.total
+
+		if not fast then
+			local raw_total = 0
+
+			for i = 1, slot_count do
+				raw_total = raw_total + slots[i].count
+			end
+
+			if not scratch.indices_capacity or scratch.indices_capacity < raw_total * 3 then
+				scratch.indices_capacity = math.max(raw_total * 3, 1)
+				scratch.indices = UInt32Array(scratch.indices_capacity)
+			end
+
+			local v_inv = v:GetInverse(tmp_v_inv)
+
+			for i = 1, slot_count do
+				local slot = slots[i]
+				local l = slot.matrix:GetMultiplied(v_inv, tmp_l)
+
+				if not (slot.local_tris and matrix_equal(slot.local_matrix, l)) then
+					slot.local_matrix = {
+						m00 = tmp_l.m00,
+						m01 = tmp_l.m01,
+						m02 = tmp_l.m02,
+						m03 = tmp_l.m03,
+						m10 = tmp_l.m10,
+						m11 = tmp_l.m11,
+						m12 = tmp_l.m12,
+						m13 = tmp_l.m13,
+						m20 = tmp_l.m20,
+						m21 = tmp_l.m21,
+						m22 = tmp_l.m22,
+						m23 = tmp_l.m23,
+						m30 = tmp_l.m30,
+						m31 = tmp_l.m31,
+						m32 = tmp_l.m32,
+						m33 = tmp_l.m33,
+					}
+
+					if not slot.local_tris or slot.local_tris_capacity < slot.count then
+						slot.local_tris = TriangleArray(slot.count)
+						slot.local_tris_capacity = slot.count
+					end
+
+					slot.count = build_slot_local(slot)
+					slot.local_version = (slot.local_version or 0) + 1
+				end
+			end
+
+			-- the child tree only has to be rederived when the local soup
+			-- itself changed, not for a new material or emission
+			if vc.slot_count ~= slot_count then slow = true end
+
+			for i = 1, slot_count do
+				local slot = slots[i]
+
+				if not vc.slots or vc.slots[i] ~= slot or slot.built_version ~= slot.local_version then
+					slow = true
+				end
+
+				slot.built_version = slot.local_version
+			end
+		end
+
+		vc.matrix = v
+		vc.slots = slots
+		vc.slot_count = slot_count
+		local emissive = false
+		local total = 0
+
+		for i = 1, slot_count do
+			local slot = slots[i]
+			total = total + slot.count
+
+			if slot.emissive_r + slot.emissive_g + slot.emissive_b > 0 then
+				emissive = true
+			end
+		end
+
+		if total == 0 then
+			release_block(visual, vc, inserts.rebuild)
+			return
+		end
+
+		if slow then
+			vc.total = total
+
+			if not vc.world_aabb then vc.world_aabb = FloatArray(6) end
+
+			if not vc.order_cap or vc.order_cap < total then
+				vc.order_cap = total
+				vc.order = UInt32Array(total)
+				vc.slot_of = UInt32Array(total)
+				vc.world_block = TriangleArray(total)
+			end
+
+			if not vc.child_cap or vc.child_cap < total * 2 then
+				vc.child_cap = total * 2
+				vc.child_nodes = NodeArray(total * 2)
+				vc.child_world_nodes = NodeArray(total * 2)
+			end
+
+			local span = 0
+
+			for i = 1, slot_count do
+				local slot = slots[i]
+				slot.start = span
+
+				for t = span, span + slot.count - 1 do
+					vc.slot_of[t] = i - 1
+				end
+
+				span = span + slot.count
+			end
+
+			get_scratch(total, 1)
+
+			for i = 0, total - 1 do
+				vc.order[i] = i
+			end
+
+			prepare_child_sah(vc)
+			child_build.order = vc.order
+			child_build.centroids = scratch.tri_centroids
+			child_build.bounds = scratch.tri_bounds
+			child_build.nodes = vc.child_nodes
+			child_build.cursor[1] = 1
+			build_sah(child_build, 0, 0, total, 0)
+			vc.node_count = child_build.cursor[1]
+		end
+
+		-- ranges: keep them while the block fits and is not much smaller
+		if vc.block_index then
+			scene_bvh.triangle_count = scene_bvh.triangle_count - vc.drawn_total
+
+			if vc.tri_cap < vc.total or range_class(vc.total, SOUP_ALIGN) * 2 <= vc.tri_cap then
+				range_free(scene_bvh.triangle_allocator, vc.tri_base, vc.tri_cap)
+				vc.tri_base, vc.tri_cap = range_alloc(scene_bvh.triangle_allocator, vc.total)
+			end
+
+			if vc.node_cap < vc.node_count or range_class(vc.node_count, 1) * 2 <= vc.node_cap then
+				range_free(scene_bvh.node_allocator, vc.block_base, vc.node_cap)
+				vc.block_base, vc.node_cap = range_alloc(scene_bvh.node_allocator, vc.node_count)
+			end
 		else
-			local top_reserve = n * 2 - 1
-			get_scratch(top_reserve + triangle_total * 2, math.max(triangle_total, 1), n)
-			local nodes = scratch.nodes
-			local tri_out = scratch.tri_out
-			-- layout: [top reserve][visual 0 child nodes][visual 1 child nodes]...
-			local tri_base = 0
-			local node_base = top_reserve
-			local block_roots = {}
-
-			for i = 1, n do
-				local vc = blocks[i]
-				vc.tri_base = tri_base
-				vc.block_base = node_base
-				block_roots[i] = node_base
-				tri_base = tri_base + vc.total
-				node_base = node_base + vc.node_count
-			end
-
-			node_count = node_base
-
-			-- world bake for anything that moved (or baked with a different
-			-- layout) since the last bake
-			for i = 1, n do
-				local vc = blocks[i]
-
-				if vc.baked_matrix ~= vc.matrix or vc.baked_base ~= vc.block_base then
-					bake_visual_world(vc, vc.matrix, vc.block_base)
-					vc.baked_matrix = vc.matrix
-					vc.baked_base = vc.block_base
-				end
-			end
-
-			-- assemble blocks: world soup and child nodes memcpy. this runs
-			-- before the top step because top leaves copy the child roots from
-			-- the assembled node buffer. blocks that are fast and were already
-			-- assembled at this layout keep their scratch bytes
-			for i = 1, n do
-				local vc = blocks[i]
-
-				if vc.slow or vc.assembled_base ~= vc.block_base then
-					ffi.copy(tri_out + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
-					ffi.copy(nodes + vc.block_base, vc.child_world_nodes, vc.node_count * NODE_BYTE_SIZE)
-					vc.assembled_base = vc.block_base
-				end
-			end
-
-			layout_same = #scene_bvh.top_layout == n
-
-			if layout_same then
-				for i = 1, n do
-					if scene_bvh.top_layout[i] ~= blocks[i].block_base then
-						layout_same = false
-
-						break
-					end
-				end
-			end
-
-			-- rebuilding the top tree runs sah over every visual aabb, the
-			-- dominant build cost. while the layout is unchanged and only a few
-			-- aabbs moved, keep the split structure from the last full build and
-			-- only re-derive the bounds; the structure re-optimizes itself
-			-- periodically (lazy cap) and on any layout change
-			local lazy_top = layout_same and
-				not force_full and
-				slow_count <= math.max(8, math.floor(n / 8))
-				and
-				scene_bvh.top_lazy_count < 120
-
-			if lazy_top then
-				rederive_top_node(0)
-				scene_bvh.top_lazy_count = scene_bvh.top_lazy_count + 1
-			else
-				-- top level: SAH over the per-visual world aabbs. a leaf is a copy
-				-- of one visual's child root, so traversal continues straight into
-				-- that visual's tree (or its triangles, for a one leaf tree)
-				local top_bounds = scratch.top_bounds
-				local top_centroids = scratch.top_centroids
-				local top_order = scratch.top_order
-
-				for i = 1, n do
-					local aabb = blocks[i].world_aabb
-					top_order[i - 1] = i - 1
-					top_bounds[(i - 1) * 6 + 0] = aabb[0]
-					top_bounds[(i - 1) * 6 + 1] = aabb[1]
-					top_bounds[(i - 1) * 6 + 2] = aabb[2]
-					top_bounds[(i - 1) * 6 + 3] = aabb[3]
-					top_bounds[(i - 1) * 6 + 4] = aabb[4]
-					top_bounds[(i - 1) * 6 + 5] = aabb[5]
-					top_centroids[(i - 1) * 3 + 0] = (aabb[0] + aabb[3]) / 2
-					top_centroids[(i - 1) * 3 + 1] = (aabb[1] + aabb[4]) / 2
-					top_centroids[(i - 1) * 3 + 2] = (aabb[2] + aabb[5]) / 2
-				end
-
-				local cursor = {1}
-				local top_leaf_roots = {}
-				build_sah(
-					{
-						order = top_order,
-						centroids = top_centroids,
-						bounds = top_bounds,
-						nodes = nodes,
-						cursor = cursor,
-						leaf_size = 1,
-						force_split = true,
-						leaf_writer = function(node, first, count, node_index)
-							-- first is a sah position; the item at that position is
-							-- top_order[first] (sah reordered it in place), which is
-							-- the visual's 0-based index into the blocks
-							local root = block_roots[top_order[first] + 1]
-							ffi.copy(nodes + node_index, nodes + root, NODE_BYTE_SIZE)
-							top_leaf_roots[node_index] = root
-						end,
-					},
-					0,
-					0,
-					n,
-					0
-				)
-				local layout = {}
-
-				for i = 1, n do
-					layout[i] = blocks[i].block_base
-				end
-
-				scene_bvh.top_layout = layout
-				scene_bvh.top_leaf_roots = top_leaf_roots
-				scene_bvh.top_node_count = cursor[1]
-				scene_bvh.top_lazy_count = 0
-			end
+			vc.tri_base, vc.tri_cap = range_alloc(scene_bvh.triangle_allocator, vc.total)
+			vc.block_base, vc.node_cap = range_alloc(scene_bvh.node_allocator, vc.node_count)
+			local blocks = scene_bvh.blocks
+			blocks[#blocks + 1] = vc
+			vc.block_index = #blocks
 		end
 
-		local tri_bytes = math.max(triangle_total, 1) * TRIANGLE_BYTE_SIZE
-		local node_buffer, nodes_fresh = ensure_persistent_buffer("node_buffer", "scene_bvh_nodes", node_count * NODE_BYTE_SIZE)
-		local tri_buffer, tris_fresh = ensure_persistent_buffer("triangle_buffer", "scene_bvh_triangles", tri_bytes)
+		vc.drawn_total = vc.total
+		scene_bvh.triangle_count = scene_bvh.triangle_count + vc.total
+		bake_visual_world(vc, v)
+		vc.baked_matrix = v
+		ffi.copy(scene_bvh.triangles + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
+		ffi.copy(scene_bvh.nodes + vc.block_base, vc.child_world_nodes, vc.node_count * NODE_BYTE_SIZE)
+		ffi.copy(
+			scene_bvh.node_ptr + vc.block_base,
+			vc.child_world_nodes,
+			vc.node_count * NODE_BYTE_SIZE
+		)
+		log_soup_range(vc.tri_base, vc.total)
+		-- the ray tracing blas of this block follows this
+		vc.soup_serial = (vc.soup_serial or 0) + 1
+		scene_bvh.soup_dirty = true
 
-		if nodes_fresh or tris_fresh or not layout_same then
-			node_buffer:CopyData(scratch.nodes, node_count * NODE_BYTE_SIZE)
-			tri_buffer:CopyData(triangle_total > 0 and scratch.tri_out or empty_triangles, tri_bytes)
+		if scene_bvh.changed_blocks then scene_bvh.changed_blocks[vc] = true end
+
+		if (scene_bvh.emissive_set[vc] or false) ~= emissive then
+			scene_bvh.emissive_set[vc] = emissive or nil
+			scene_bvh.emissive_changed = true
+		end
+
+		vc.emissive = emissive
+
+		if emissive then scene_bvh.emissive_changed = true end
+
+		if inserts.rebuild then return end
+
+		if vc.top_slot then
+			ffi.copy(scene_bvh.nodes + vc.top_slot, scene_bvh.nodes + vc.block_base, NODE_BYTE_SIZE)
+			write_node(vc.top_slot)
+			refit_top(scene_bvh.top_parent[vc.top_slot])
 		else
-			-- block ranges are stable, so only the top region and the
-			-- re-derived blocks changed; copy just those ranges
-			node_buffer:CopyData(scratch.nodes, scene_bvh.top_node_count * NODE_BYTE_SIZE)
+			inserts[#inserts + 1] = vc
+		end
+	end
 
-			for i = 1, n do
-				local vc = blocks[i]
+	scene_bvh.emissive_set = {}
+	-- blocks that were written, moved in the block list or released since the
+	-- ray tracing backend last looked. nil until it first does
+	scene_bvh.changed_blocks = nil
+	scene_bvh.top_incremental_count = 0
+	-- seconds an incremental build may spend per frame
+	scene_bvh.BUILD_BUDGET = 0.004
+	scene_bvh.build_backlog = false
+	local build_stamp = 0
 
-				if vc.slow then
-					node_buffer:CopyData(
-						scratch.nodes + vc.block_base,
-						vc.node_count * NODE_BYTE_SIZE,
-						vc.block_base * NODE_BYTE_SIZE
-					)
-					tri_buffer:CopyData(vc.world_block, vc.total * TRIANGLE_BYTE_SIZE, vc.tri_base * TRIANGLE_BYTE_SIZE)
-				end
+	-- mode "incremental" looks only at scene_bvh.dirty_components, "scan" at
+	-- every visual (anything whose matrix or entries changed is rebuilt) and
+	-- "reset" throws the layout away and lays every visual out again
+	local function build(mode)
+		local start_time = os.clock()
+		build_stamp = build_stamp + 1
+		local inserts = {}
+
+		if mode == "reset" or not scene_bvh.node_allocator then
+			mode = "reset"
+			reset_layout()
+		end
+
+		inserts.rebuild = mode == "reset"
+		scene_bvh.soup_dirty = mode == "reset"
+
+		if mode == "incremental" then
+			-- what does not fit in the budget waits for the next frame
+			local dirty = scene_bvh.dirty_components
+			local deadline = start_time + scene_bvh.BUILD_BUDGET
+
+			for visual in pairs(dirty) do
+				update_visual(visual, build_stamp, inserts)
+				dirty[visual] = nil
+
+				if os.clock() > deadline then break end
+			end
+
+			scene_bvh.build_backlog = next(dirty) ~= nil
+		else
+			scene_bvh.dirty_components = {}
+			scene_bvh.build_backlog = false
+
+			for _, visual in ipairs(Visual.Instances) do
+				update_visual(visual, build_stamp, inserts)
+			end
+
+			for visual, vc in pairs(scene_bvh.visual_cache) do
+				if vc.stamp ~= build_stamp then release_block(visual, vc, inserts.rebuild) end
 			end
 		end
 
-		scene_bvh.debug_nodes = scratch.nodes
-		scene_bvh.debug_node_count = node_count
-		scene_bvh.triangles = triangle_total > 0 and scratch.tri_out or nil
-		-- blocks holding emissive triangles, for scanning emitters without
-		-- walking the whole soup
-		local emissive_blocks = {}
+		-- many new visuals at once get a fresh sah, which is both better and
+		-- cheaper than inserting them one by one, and so does a tree that has
+		-- seen as many changes as it has leaves
+		scene_bvh.top_changes = scene_bvh.top_changes + #inserts
 
-		for i = 1, #blocks do
-			if blocks[i].emissive then emissive_blocks[#emissive_blocks + 1] = blocks[i] end
+		if
+			inserts.rebuild or
+			#inserts > math.max(64, scene_bvh.top_count / 4)
+			or
+			scene_bvh.top_changes > math.max(1024, scene_bvh.top_count)
+		then
+			rebuild_top()
+		else
+			for i = 1, #inserts do
+				insert_top_leaf(inserts[i])
+			end
+
+			scene_bvh.top_incremental_count = scene_bvh.top_incremental_count + 1
 		end
 
-		scene_bvh.emissive_blocks = emissive_blocks
-		scene_bvh.node_count = node_count
-		scene_bvh.triangle_count = triangle_total
-		scene_bvh.BuildRasterBlocks(blocks)
+		if scene_bvh.emissive_changed then
+			local emissive_blocks = {}
+
+			for vc in pairs(scene_bvh.emissive_set) do
+				emissive_blocks[#emissive_blocks + 1] = vc
+			end
+
+			scene_bvh.emissive_blocks = emissive_blocks
+			scene_bvh.emissive_changed = false
+		end
+
+		scene_bvh.debug_node_count = scene_bvh.node_allocator.top
+		scene_bvh.node_count = scene_bvh.node_allocator.top
+		scene_bvh.soup_triangle_count = scene_bvh.triangle_allocator.top
 		scene_bvh.build_time = os.clock() - start_time
 		scene_bvh.has_built = true
-		scene_bvh.dirty_components = {}
 		scene_bvh.version = scene_bvh.version + 1
+		scene_bvh.soup_log_sealed = #scene_bvh.soup_log
+
+		if scene_bvh.soup_dirty then
+			scene_bvh.soup_version = scene_bvh.soup_version + 1
+		end
 
 		if scene_bvh.triangle_count > 0 and not scene_bvh.readied then
 			event.Call("BVHSceneReady")
 			scene_bvh.readied = true
 		end
+	end
+
+	scene_bvh.BuildIncremental = build
+
+	-- brings the tree up to date with every visual. force_full also lays the
+	-- soup out from scratch and rebuilds the top tree with a fresh sah
+	function scene_bvh.Build(force_full)
+		build(force_full and "reset" or "scan")
 	end
 end
 
@@ -1197,6 +1629,20 @@ function scene_bvh.EnsureBuilt()
 	local changed = library.ScanWorldAABBs()
 	diff_lights()
 
+	-- a new emission or material on a material only rewrites the world bake
+	-- of the visuals using it
+	if next(Material.emission_dirty_materials) then
+		local users = library.GetSceneMaterialUsers()
+
+		for material in pairs(Material.emission_dirty_materials) do
+			for component in pairs(users[material] or {}) do
+				scene_bvh.Invalidate(component)
+			end
+		end
+
+		table.clear(Material.emission_dirty_materials)
+	end
+
 	if changed then
 		scene_bvh.last_change_frame = frame
 		scene_bvh.last_change_time = now
@@ -1243,12 +1689,20 @@ function scene_bvh.EnsureBuilt()
 		return
 	end
 
-	local settled = (scene_bvh.last_change_frame or 0) < frame - 1
+	local settled = (scene_bvh.last_change_frame or 0) < frame - 1 or scene_bvh.build_backlog
 	local max_wait = math.max(0.02, scene_bvh.build_time * 20)
 
 	if not scene_bvh.has_built then
 		local quiet_since = scene_bvh.last_change_time or scene_bvh.dirty_since
-		if (not quiet_since or now - quiet_since < 5.0) and now - scene_bvh.dirty_since < 10.0 then
+
+		if
+			(
+				not quiet_since or
+				now - quiet_since < 5.0
+			)
+			and
+			now - scene_bvh.dirty_since < 10.0
+		then
 			return
 		end
 	elseif not settled and (now - scene_bvh.dirty_since) < max_wait then
@@ -1256,11 +1710,17 @@ function scene_bvh.EnsureBuilt()
 	end
 
 	scene_bvh.dirty_since = nil
-	scene_bvh.Build()
+	scene_bvh.BuildIncremental(scene_bvh.dirty_components and "incremental" or "scan")
+
+	if scene_bvh.build_backlog then scene_bvh.dirty_since = now end
 end
 
 function scene_bvh.Invalidate(component)
 	Visual.Library.ForgetWorldAABB(component)
+
+	if scene_bvh.dirty_components then
+		scene_bvh.dirty_components[component] = true
+	end
 
 	-- keep the first change time so the wait window is not slid by every
 	-- subsequent transform change
@@ -1314,7 +1774,7 @@ end
 
 function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
 	return (
-		[[
+			[[
 		struct scene_bvh_node {
 			uint left_first;
 			uint count;
@@ -1326,7 +1786,7 @@ function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
 			scene_bvh_node scene_bvh_nodes[];
 		};
 	]]
-	):format(node_binding) .. scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
+		):format(node_binding) .. scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
 end
 
 function scene_bvh.GetTraversalGLSL()
@@ -1456,11 +1916,11 @@ end)
 
 commands.Add("scene_bvh_info", function()
 	logf(
-		"[scene_bvh] %d triangles, %d nodes, built in %.2fs, top_lazy %d, version %d, dirty %s, light_version %d\n",
+		"[scene_bvh] %d triangles, %d nodes, built in %.2fs, top incremental %d, version %d, dirty %s, light_version %d\n",
 		scene_bvh.triangle_count,
 		scene_bvh.node_count,
 		scene_bvh.build_time,
-		scene_bvh.top_lazy_count or 0,
+		scene_bvh.top_incremental_count,
 		scene_bvh.version,
 		scene_bvh.dirty_since and
 			(
@@ -1473,25 +1933,8 @@ end)
 
 do
 	local EXPAND_LOCAL_SIZE = 256
-	scene_bvh.raster_blocks = {}
-
-	local function ensure_position_buffer(state, vertex_count)
-		local byte_size = vertex_count * 12
-
-		if state.position_buffer and state.position_buffer:GetSize() >= byte_size then
-			return state.position_buffer
-		end
-
-		if state.position_buffer then state.position_buffer:Remove() end
-
-		state.position_buffer = render.CreateBuffer{
-			byte_size = math.max(byte_size, 12),
-			buffer_usage = state.buffer_usage or {"vertex_buffer", "storage_buffer"},
-			memory_property = {"device_local"},
-			label = "scene_bvh_raster_positions",
-		}
-		return state.position_buffer
-	end
+	local expand_first = 0
+	local expand_count = 0
 
 	local function ensure_expand_pipeline(state)
 		if state.expand_pipeline then return state.expand_pipeline end
@@ -1505,9 +1948,11 @@ do
 			LocalSize = {EXPAND_LOCAL_SIZE, 1, 1},
 			storage_buffers = {{binding_index = 0}, {binding_index = 1}},
 			block = {
+				{"first_vertex", "int"},
 				{"vertex_count", "int"},
 				write = function(self, block)
-					block.vertex_count = scene_bvh.triangle_count * 3
+					block.first_vertex = expand_first
+					block.vertex_count = expand_count
 					return block
 				end,
 			},
@@ -1529,8 +1974,9 @@ do
 			]],
 			shader = [[
 				void main() {
-					uint vid = gl_GlobalInvocationID.x;
-					if (vid >= uint(compute.vertex_count)) return;
+					uint index = gl_GlobalInvocationID.x;
+					if (index >= uint(compute.vertex_count)) return;
+					uint vid = uint(compute.first_vertex) + index;
 					uint tri = vid / 3u;
 					scene_bvh_triangle t = tris[tri];
 					uint which = vid - tri * 3u;
@@ -1544,37 +1990,42 @@ do
 		return state.expand_pipeline
 	end
 
-	-- per-visual draw ranges into the expanded position buffer, for cascade
-	-- frustum culling. tri_base/total are soup triangle indices, x3 for the
-	-- one-position-per-vertex layout
-	function scene_bvh.BuildRasterBlocks(blocks)
-		local out = {}
-
-		for i = 1, #blocks do
-			local vc = blocks[i]
-			out[#out + 1] = {
-				first_vertex = vc.tri_base * 3,
-				vertex_count = vc.total * 3,
-				min_x = vc.world_aabb[0],
-				min_y = vc.world_aabb[1],
-				min_z = vc.world_aabb[2],
-				max_x = vc.world_aabb[3],
-				max_y = vc.world_aabb[4],
-				max_z = vc.world_aabb[5],
-			}
-		end
-
-		scene_bvh.raster_blocks = out
+	local function expand_range(cmd, pipeline, slot, first_vertex, vertex_count)
+		expand_first = first_vertex
+		expand_count = vertex_count
+		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
 	end
 
+	-- expands the soup into one position per vertex in state.position_buffer,
+	-- for rasterizing it or building acceleration structures from it. only the
+	-- ranges written since the state's last call are expanded, unless its
+	-- buffer is new or the soup was laid out again. returns the vertex count
+	-- the buffer covers and the buffer
 	function scene_bvh.ExpandPositions(cmd, state)
 		if not scene_bvh.IsReady() then return 0, nil end
 
-		local vertex_count = scene_bvh.triangle_count * 3
+		local vertex_count = scene_bvh.soup_triangle_count * 3
+		local log = scene_bvh.soup_log
+		local log_base = scene_bvh.soup_log_base
+		local full = state.generation ~= scene_bvh.soup_generation or
+			(
+				state.log_position or
+				-1
+			) < log_base
 
-		if vertex_count <= 0 then return 0, nil end
+		if not state.position_buffer or state.position_buffer:GetSize() < vertex_count * 12 then
+			if state.position_buffer then state.position_buffer:Remove() end
 
-		local position_buffer = ensure_position_buffer(state, vertex_count)
+			state.position_buffer = render.CreateBuffer{
+				byte_size = math.ceil(vertex_count * 1.25) * 12,
+				buffer_usage = state.buffer_usage or {"vertex_buffer", "storage_buffer"},
+				memory_property = {"device_local"},
+				label = "scene_bvh_raster_positions",
+			}
+			full = true
+		end
+
+		local position_buffer = state.position_buffer
 		local pipeline = ensure_expand_pipeline(state)
 		local slot = math.max(render.GetCurrentFrame(), 1)
 		pipeline:UpdateDescriptorSet(
@@ -1585,24 +2036,45 @@ do
 			scene_bvh.triangle_buffer,
 			scene_bvh.triangle_buffer:GetSize()
 		)
-		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, vertex_count * 12)
-		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
+		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, position_buffer:GetSize())
+
+		if full then
+			expand_range(cmd, pipeline, slot, 0, vertex_count)
+		else
+			for i = state.log_position - log_base + 1, #log, 2 do
+				expand_range(cmd, pipeline, slot, log[i] * 3, log[i + 1] * 3)
+			end
+		end
+
+		state.generation = scene_bvh.soup_generation
+		state.log_position = log_base + #log
 		return vertex_count, position_buffer
 	end
 
-	-- Hardware ray tracing backend over the same soup: one BLAS built from the
-	-- expanded positions (non-indexed, so gl_PrimitiveID is the soup triangle
-	-- index) and a TLAS holding a single identity instance of it. Rebuilt
-	-- whenever the version changes.
+	-- Hardware ray tracing backend over the same soup: one BLAS per visual,
+	-- built from its range of the expanded positions (non-indexed, in world
+	-- space), and a TLAS with an identity instance per visual whose custom
+	-- index is the visual's soup range start / SOUP_ALIGN, so a hit's soup
+	-- triangle index is custom index * SOUP_ALIGN + primitive index. A changed
+	-- visual only rebuilds its own BLAS and the TLAS.
 	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	local AccelerationStructure = import("goluwa/render/vulkan/internal/acceleration_structure.lua")
-	local VkRangeInfoArray = ffi.typeof("$[1]", vulkan.vk.VkAccelerationStructureBuildRangeInfoKHR)
+	local VkRangeInfoArray = ffi.typeof("$[?]", vulkan.vk.VkAccelerationStructureBuildRangeInfoKHR)
+	local VkRangePointerArray = ffi.typeof("const $*[?]", vulkan.vk.VkAccelerationStructureBuildRangeInfoKHR)
+	local VkGeometryArray = ffi.typeof("$[?]", vulkan.vk.VkAccelerationStructureGeometryKHR)
+	local VkBuildInfoArray = ffi.typeof("$[?]", vulkan.vk.VkAccelerationStructureBuildGeometryInfoKHR)
+	local VkInstanceArray = ffi.typeof("$[?]", vulkan.vk.VkAccelerationStructureInstanceKHR)
+	local VkInstancePtr = ffi.typeof("$*", vulkan.vk.VkAccelerationStructureInstanceKHR)
+	local INSTANCE_BYTE_SIZE = ffi.sizeof(vulkan.vk.VkAccelerationStructureInstanceKHR)
 	local VK_GEOMETRY_TYPE_TRIANGLES = 0
 	local VK_GEOMETRY_TYPE_INSTANCES = 2
 	local VK_INDEX_TYPE_NONE = 1000165000
 	local BUILD_PREFER_FAST_TRACE = 4
-	local BUILD_PREFER_FAST_BUILD = 8
 	local INSTANCE_FACING_CULL_DISABLE = 0x01000000
+	local BLAS_ALIGN = 256
+	local BLAS_POOL_BYTES = 64 * 1024 * 1024
+	local SCRATCH_BUDGET = 128 * 1024 * 1024
+	local TLAS_SLOT_COUNT = 4
 	local rt_state = {
 		buffer_usage = {
 			"vertex_buffer",
@@ -1611,113 +2083,374 @@ do
 			"acceleration_structure_build_input_read_only_khr",
 		},
 		built_version = -1,
+		-- blas storage comes from big shared buffers, split into ranges of
+		-- BLAS_ALIGN units
+		pools = {},
+		-- cpu copy of the tlas instances, copied into the tlas slot on a
+		-- rebuild
+		instances = nil,
+		instance_capacity = 0,
+		-- blas storage waits a few frames before reuse, since frames in
+		-- flight may still trace the old one
+		pending_free = {},
+		tlas_slots = {},
 	}
 
-	local function make_range(primitive_count)
-		local ranges = VkRangeInfoArray()
-		ranges[0].primitiveCount = primitive_count
-		return ranges
-	end
+	local function pool_alloc(size)
+		local units = range_class(math.ceil(size / BLAS_ALIGN), 1)
 
-	local function create_acceleration_structure(field, type, build_info)
-		local storage_size, scratch_size = AccelerationStructure.QueryBuildSize(render.GetDevice(), build_info)
+		for _, pool in ipairs(rt_state.pools) do
+			local list = pool.free[units]
 
-		if rt_state[field] then rt_state[field]:Remove() end
+			if list and list[1] then
+				local offset = list[#list]
+				list[#list] = nil
+				return pool, offset, units
+			end
 
-		if rt_state[field .. "_buffer"] then rt_state[field .. "_buffer"]:Remove() end
+			if pool.top + units <= pool.capacity then
+				local offset = pool.top
+				pool.top = pool.top + units
+				return pool, offset, units
+			end
+		end
 
-		local buffer = render.CreateBuffer{
-			byte_size = storage_size,
-			buffer_usage = {"acceleration_structure_storage_khr", "shader_device_address"},
-			memory_property = {"device_local"},
-			label = "scene_bvh_" .. field,
+		local capacity = math.max(math.ceil(BLAS_POOL_BYTES / BLAS_ALIGN), units)
+		local pool = {
+			buffer = render.CreateBuffer{
+				byte_size = capacity * BLAS_ALIGN,
+				buffer_usage = {"acceleration_structure_storage_khr", "shader_device_address"},
+				memory_property = {"device_local"},
+				label = "scene_bvh_blas_pool",
+			},
+			capacity = capacity,
+			top = units,
+			free = {},
 		}
-		local as = AccelerationStructure.New(render.GetDevice(), type, buffer)
-		as:EnsureScratch(scratch_size)
-		rt_state[field] = as
-		rt_state[field .. "_buffer"] = buffer
-		return as, buffer
+		rt_state.pools[#rt_state.pools + 1] = pool
+		return pool, 0, units
 	end
 
-	local function build_blas(cmd, vertex_count, position_buffer)
-		local geometry = ffi.new(vulkan.vk.VkAccelerationStructureGeometryKHR)
+	local function release_blas(vc, frame)
+		local list = rt_state.pending_free
+		list[#list + 1] = {
+			frame = frame,
+			pool = vc.rt_pool,
+			offset = vc.rt_offset,
+			units = vc.rt_units,
+			blas = vc.rt_blas,
+		}
+		vc.rt_blas = nil
+		vc.rt_pool = nil
+		vc.rt_serial = nil
+	end
+
+	local function process_pending_free(frame)
+		local list = rt_state.pending_free
+		local keep = {}
+		local delay = render.GetSwapchainImageCount() + 1
+
+		for _, item in ipairs(list) do
+			if item.frame <= frame - delay then
+				local free = item.pool.free
+				free[item.units] = free[item.units] or {}
+				local units_list = free[item.units]
+				units_list[#units_list + 1] = item.offset
+				item.blas:Remove()
+			else
+				keep[#keep + 1] = item
+			end
+		end
+
+		rt_state.pending_free = keep
+	end
+
+	local function ensure_scratch(size)
+		if rt_state.scratch and rt_state.scratch:GetSize() >= size then return end
+
+		if rt_state.scratch then rt_state.scratch:Remove() end
+
+		rt_state.scratch = render.CreateBuffer{
+			byte_size = math.max(size, 1024 * 1024),
+			buffer_usage = {"shader_device_address", "storage_buffer"},
+			memory_property = {"device_local"},
+			label = "scene_bvh_blas_scratch",
+		}
+		rt_state.scratch_address = rt_state.scratch:GetDeviceAddress()
+	end
+
+	local function blas_barrier(cmd, dst_stage)
+		local barriers = {}
+
+		for i, pool in ipairs(rt_state.pools) do
+			barriers[i] = {
+				buffer = pool.buffer,
+				srcAccessMask = "acceleration_structure_write_khr",
+				dstAccessMask = "acceleration_structure_read_khr",
+			}
+		end
+
+		cmd:PipelineBarrier{
+			srcStage = "acceleration_structure_build_khr",
+			dstStage = dst_stage,
+			bufferBarriers = barriers,
+		}
+	end
+
+	local function scratch_barrier(cmd)
+		cmd:PipelineBarrier{
+			srcStage = "acceleration_structure_build_khr",
+			dstStage = "acceleration_structure_build_khr",
+			bufferBarriers = {
+				{
+					buffer = rt_state.scratch,
+					srcAccessMask = "acceleration_structure_write_khr",
+					dstAccessMask = "acceleration_structure_write_khr",
+				},
+			},
+		}
+	end
+
+	local function fill_triangle_geometry(geometry, vertex_address, vertex_count)
 		geometry.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR
 		geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES
 		local triangles = geometry.geometry.triangles
 		triangles.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR
 		triangles.vertexFormat = vulkan.vk.e.VkFormat("r32g32b32_sfloat")
-		triangles.vertexData = position_buffer:GetDeviceAddress()
+		triangles.vertexData = vertex_address
 		triangles.vertexStride = 12
 		triangles.maxVertex = vertex_count - 1
 		triangles.indexType = VK_INDEX_TYPE_NONE
-		local tri_count = vertex_count / 3
-		local blas = create_acceleration_structure(
-			"blas",
-			"bottom_level_khr",
-			{
-				type = "bottom_level_khr",
-				flags = BUILD_PREFER_FAST_BUILD,
-				geometryCount = 1,
-				pGeometries = geometry,
-				maxPrimitiveCount = tri_count,
-			}
-		)
-		blas:Build(cmd, 1, geometry, make_range(tri_count), BUILD_PREFER_FAST_BUILD)
-		return blas
 	end
 
-	-- blas nil builds a TLAS whose one instance is inactive (reference 0)
-	local function build_tlas(cmd, blas, field)
-		local instance = ffi.new(vulkan.vk.VkAccelerationStructureInstanceKHR)
+	local function write_instance(vc)
+		local index = vc.block_index - 1
+
+		if index >= rt_state.instance_capacity then
+			local capacity = math.max(math.ceil(rt_state.instance_capacity * 1.5), index + 1, 1024)
+			local instances = VkInstanceArray(capacity)
+			ffi.copy(instances, rt_state.instances, rt_state.instance_capacity * INSTANCE_BYTE_SIZE)
+			rt_state.instances = instances
+			rt_state.instance_capacity = capacity
+		end
+
+		local instance = rt_state.instances[index]
 		instance.transform.matrix[0][0] = 1
 		instance.transform.matrix[1][1] = 1
 		instance.transform.matrix[2][2] = 1
-		instance.customAndMask = 0xFF000000
 		instance.sbrtAndFlags = INSTANCE_FACING_CULL_DISABLE
-		instance.accelerationStructureReference = blas and blas:Data() or 0
-		local instance_field = field .. "_instance_buffer"
+		instance.customAndMask = 0xFF000000 + vc.tri_base / SOUP_ALIGN
+		instance.accelerationStructureReference = vc.rt_address
+	end
 
-		if rt_state[instance_field] then rt_state[instance_field]:Remove() end
+	-- builds the blas of every visual whose soup range was rewritten since its
+	-- blas was built, in batches that fit the scratch budget, and keeps the
+	-- instance list (one per block, in block order) in step
+	local function build_blases(cmd, position_buffer, frame)
+		local device = render.GetDevice()
+		local changed = scene_bvh.changed_blocks
+		scene_bvh.changed_blocks = {}
 
-		rt_state[instance_field] = render.CreateBuffer{
-			byte_size = ffi.sizeof(instance),
+		-- the first look covers every block
+		if not changed then
+			changed = {}
+
+			for _, vc in ipairs(scene_bvh.blocks) do
+				changed[vc] = true
+			end
+		end
+
+		local dirty = {}
+
+		for vc in pairs(changed) do
+			if not vc.block_index then
+				if vc.rt_blas then release_blas(vc, frame) end
+			elseif vc.rt_serial ~= vc.soup_serial then
+				dirty[#dirty + 1] = vc
+			else
+				write_instance(vc)
+			end
+		end
+
+		if not dirty[1] then return false end
+
+		local n = #dirty
+		local geometries = VkGeometryArray(n)
+		local infos = VkBuildInfoArray(n)
+		local ranges = VkRangeInfoArray(n)
+		local range_pointers = VkRangePointerArray(n)
+		local scratch_offsets = {}
+		local position_address = position_buffer:GetDeviceAddress()
+		rt_state.scratch_alignment = rt_state.scratch_alignment or
+			math.max(
+				tonumber(device.physical_device:GetAccelerationStructureProperties().minAccelerationStructureScratchOffsetAlignment),
+				1
+			)
+		local scratch_alignment = rt_state.scratch_alignment
+		local scratch_total = 0
+		local largest = 0
+
+		for i = 1, n do
+			local vc = dirty[i]
+			local geometry = geometries[i - 1]
+			fill_triangle_geometry(geometry, position_address + vc.first_vertex * 12, vc.vertex_count)
+			local storage_size, scratch_size = AccelerationStructure.QueryBuildSize(
+				device,
+				{
+					type = "bottom_level_khr",
+					flags = BUILD_PREFER_FAST_TRACE,
+					geometryCount = 1,
+					pGeometries = geometry,
+					maxPrimitiveCount = vc.total,
+				}
+			)
+
+			if vc.rt_blas then release_blas(vc, frame) end
+
+			local pool, offset, units = pool_alloc(storage_size)
+			vc.rt_pool = pool
+			vc.rt_offset = offset
+			vc.rt_units = units
+			vc.rt_blas = AccelerationStructure.New(
+				device,
+				"bottom_level_khr",
+				pool.buffer,
+				offset * BLAS_ALIGN,
+				storage_size
+			)
+			vc.rt_address = vc.rt_blas:Data()
+			vc.rt_serial = vc.soup_serial
+			write_instance(vc)
+			scratch_size = math.ceil(scratch_size / scratch_alignment) * scratch_alignment
+			scratch_offsets[i] = scratch_size
+			scratch_total = scratch_total + scratch_size
+			largest = math.max(largest, scratch_size)
+			local info = infos[i - 1]
+			info.sType = 1000150000
+			info.type = 1
+			info.flags = BUILD_PREFER_FAST_TRACE
+			info.mode = 0
+			info.dstAccelerationStructure = vc.rt_blas.ptr[0]
+			info.geometryCount = 1
+			info.pGeometries = geometry
+			ranges[i - 1].primitiveCount = vc.total
+			range_pointers[i - 1] = ranges + (i - 1)
+		end
+
+		ensure_scratch(math.max(math.min(SCRATCH_BUDGET, scratch_total), largest))
+		local scratch_size = rt_state.scratch:GetSize()
+		local cmd_build = device:GetExtension("vkCmdBuildAccelerationStructuresKHR")
+		-- scratch may still be in use by builds of an earlier frame
+		scratch_barrier(cmd)
+		local first = 0
+
+		while first < n do
+			local count = 0
+			local used = 0
+
+			while first + count < n and used + scratch_offsets[first + count + 1] <= scratch_size do
+				infos[first + count].scratchData.deviceAddress = rt_state.scratch_address + used
+				used = used + scratch_offsets[first + count + 1]
+				count = count + 1
+			end
+
+			cmd_build(cmd.ptr[0], count, infos + first, range_pointers + first)
+			first = first + count
+
+			if first < n then scratch_barrier(cmd) end
+		end
+
+		return true
+	end
+
+	local function create_tlas_slot(capacity)
+		local slot = {capacity = capacity}
+		slot.instance_buffer = render.CreateBuffer{
+			byte_size = capacity * INSTANCE_BYTE_SIZE,
 			buffer_usage = {"shader_device_address", "acceleration_structure_build_input_read_only_khr"},
-			memory_property = {"host_visible", "device_local"},
-			label = "scene_bvh_tlas_instance",
-			data = instance,
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scene_bvh_tlas_instances",
 		}
-		local geometry = ffi.new(vulkan.vk.VkAccelerationStructureGeometryKHR)
-		geometry.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR
-		geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES
-		local instances = geometry.geometry.instances
+		slot.instances = ffi.cast(VkInstancePtr, slot.instance_buffer:Map())
+		slot.geometry = ffi.new(vulkan.vk.VkAccelerationStructureGeometryKHR)
+		slot.geometry.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR
+		slot.geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES
+		local instances = slot.geometry.geometry.instances
 		instances.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR
-		instances.data = rt_state[instance_field]:GetDeviceAddress()
-		local tlas = create_acceleration_structure(
-			field,
-			"top_level_khr",
+		instances.data = slot.instance_buffer:GetDeviceAddress()
+		local storage_size, scratch_size = AccelerationStructure.QueryBuildSize(
+			render.GetDevice(),
 			{
 				type = "top_level_khr",
 				flags = BUILD_PREFER_FAST_TRACE,
 				geometryCount = 1,
-				pGeometries = geometry,
-				maxPrimitiveCount = 1,
+				pGeometries = slot.geometry,
+				maxPrimitiveCount = capacity,
 			}
 		)
-		tlas:Build(cmd, 1, geometry, make_range(1), BUILD_PREFER_FAST_TRACE)
-		return tlas
+		slot.buffer = render.CreateBuffer{
+			byte_size = storage_size,
+			buffer_usage = {"acceleration_structure_storage_khr", "shader_device_address"},
+			memory_property = {"device_local"},
+			label = "scene_bvh_tlas",
+		}
+		slot.tlas = AccelerationStructure.New(render.GetDevice(), "top_level_khr", slot.buffer)
+		slot.tlas:EnsureScratch(scratch_size)
+		slot.last_used = -math.huge
+		return slot
 	end
 
-	-- Returns the TLAS for the current soup, rebuilding it into cmd when the
-	-- soup changed. Must be recorded outside of a render pass.
+	local function remove_tlas_slot(slot)
+		slot.tlas:Remove()
+		slot.buffer:Remove()
+		slot.instance_buffer:Remove()
+	end
+
+	-- a tlas that no frame in flight can still be tracing
+	local function get_free_tlas_slot(frame, capacity)
+		local delay = render.GetSwapchainImageCount() + 1
+
+		for i = 1, TLAS_SLOT_COUNT do
+			local slot = rt_state.tlas_slots[i]
+
+			if not slot or (slot ~= rt_state.current_slot and slot.last_used <= frame - delay) then
+				if slot and slot.capacity < capacity then
+					remove_tlas_slot(slot)
+					slot = nil
+				end
+
+				if not slot then
+					slot = create_tlas_slot(math.max(capacity, 1024))
+					rt_state.tlas_slots[i] = slot
+				end
+
+				return slot
+			end
+		end
+	end
+
+	local function build_tlas(cmd, slot, count)
+		ffi.copy(slot.instances, rt_state.instances, count * INSTANCE_BYTE_SIZE)
+		local ranges = VkRangeInfoArray(1)
+		ranges[0].primitiveCount = count
+		slot.tlas:Build(cmd, 1, slot.geometry, ranges, BUILD_PREFER_FAST_TRACE)
+	end
+
+	-- Returns the TLAS for the current soup, rebuilding what changed into cmd.
+	-- Must be recorded outside of a render pass.
 	function scene_bvh.EnsureRTBuilt(cmd)
 		if not render.GetDevice().ray_tracing_supported or not scene_bvh.IsReady() then
 			return nil
 		end
 
-		if rt_state.built_version == scene_bvh.version and rt_state.tlas then
-			return rt_state.tlas
+		local frame = system.GetFrameNumber()
+
+		if rt_state.built_version == scene_bvh.soup_version and rt_state.current_slot then
+			rt_state.current_slot.last_used = frame
+			return rt_state.current_slot.tlas
 		end
 
+		process_pending_free(frame)
 		local vertex_count, position_buffer = scene_bvh.ExpandPositions(cmd, rt_state)
 		cmd:PipelineBarrier{
 			srcStage = "compute",
@@ -1730,53 +2463,54 @@ do
 				},
 			},
 		}
-		local blas = build_blas(cmd, vertex_count, position_buffer)
-		cmd:PipelineBarrier{
-			srcStage = "acceleration_structure_build_khr",
-			dstStage = "acceleration_structure_build_khr",
-			bufferBarriers = {
-				{
-					buffer = rt_state.blas_buffer,
-					srcAccessMask = "acceleration_structure_write_khr",
-					dstAccessMask = "acceleration_structure_read_khr",
-				},
-			},
-		}
-		local tlas = build_tlas(cmd, blas, "tlas")
+
+		if build_blases(cmd, position_buffer, frame) then
+			blas_barrier(cmd, "acceleration_structure_build_khr")
+		end
+
+		local count = #scene_bvh.blocks
+		local slot = get_free_tlas_slot(frame, count)
+		build_tlas(cmd, slot, count)
 		-- compute shaders trace it with ray queries (ddgi)
 		cmd:PipelineBarrier{
 			srcStage = "acceleration_structure_build_khr",
 			dstStage = {"ray_tracing_shader_khr", "compute"},
 			bufferBarriers = {
 				{
-					buffer = rt_state.tlas_buffer,
+					buffer = slot.buffer,
 					srcAccessMask = "acceleration_structure_write_khr",
 					dstAccessMask = "acceleration_structure_read_khr",
 				},
 			},
 		}
-		rt_state.built_version = scene_bvh.version
-		return tlas
+		slot.last_used = frame
+		rt_state.current_slot = slot
+		rt_state.built_version = scene_bvh.soup_version
+		return slot.tlas
 	end
 
 	-- An empty TLAS, for descriptors that must hold a valid one before the
 	-- scene's first build (null descriptors need a feature many devices lack).
 	function scene_bvh.GetPlaceholderTLAS(cmd)
-		if rt_state.placeholder then return rt_state.placeholder end
+		if rt_state.placeholder then return rt_state.placeholder.tlas end
 
-		local tlas = build_tlas(cmd, nil, "placeholder")
+		local slot = create_tlas_slot(1)
+		local ranges = VkRangeInfoArray(1)
+		ranges[0].primitiveCount = 0
+		slot.tlas:Build(cmd, 1, slot.geometry, ranges, BUILD_PREFER_FAST_TRACE)
 		cmd:PipelineBarrier{
 			srcStage = "acceleration_structure_build_khr",
 			dstStage = {"ray_tracing_shader_khr", "compute"},
 			bufferBarriers = {
 				{
-					buffer = rt_state.placeholder_buffer,
+					buffer = slot.buffer,
 					srcAccessMask = "acceleration_structure_write_khr",
 					dstAccessMask = "acceleration_structure_read_khr",
 				},
 			},
 		}
-		return tlas
+		rt_state.placeholder = slot
+		return slot.tlas
 	end
 end
 

@@ -482,7 +482,7 @@ return {
 				}
 
 				float t = rayQueryGetIntersectionTEXT(query, true);
-				scene_bvh_triangle tri = scene_bvh_triangles[rayQueryGetIntersectionPrimitiveIndexEXT(query, true)];
+				scene_bvh_triangle tri = scene_bvh_triangles[uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true))];
 				ddgi_material material = ddgi_materials[tri.material];
 				// the visible side winds clockwise, so tri.normal points inward
 				vec3 hit_N = -tri.normal;

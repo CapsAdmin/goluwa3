@@ -21,11 +21,8 @@ gpu_culling.occlusion_mode = gpu_culling.occlusion_mode or "hiz"
 gpu_culling.scene_acceleration = gpu_culling.scene_acceleration or nil
 gpu_culling.scene_dataset = gpu_culling.scene_dataset or nil
 gpu_culling.frame_buffers = gpu_culling.frame_buffers or nil
-gpu_culling.scene_acceleration_dirty = gpu_culling.scene_acceleration_dirty ~= false
 gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_generation or 0
-gpu_culling.published_scene_acceleration_generation = gpu_culling.published_scene_acceleration_generation or 0
 gpu_culling.frame_buffers_capacity = gpu_culling.frame_buffers_capacity or nil
-gpu_culling.dataset_buffers_capacity = gpu_culling.dataset_buffers_capacity or nil
 gpu_culling.main_view_submission_serial = gpu_culling.main_view_submission_serial or 0
 local float16 = ffi.typeof("float[16]")
 local VALID_OCCLUSION_MODES = {
@@ -1414,22 +1411,22 @@ local function serialize_render_entry(component, entry, entry_index, dynamic)
 	}
 end
 
+local function get_aabb_sphere_radius(aabb)
+	if not aabb then return 0 end
+
+	local extent_x = math.max(aabb.max_x - aabb.min_x, 0)
+	local extent_y = math.max(aabb.max_y - aabb.min_y, 0)
+	local extent_z = math.max(aabb.max_z - aabb.min_z, 0)
+	return math.sqrt(extent_x * extent_x + extent_y * extent_y + extent_z * extent_z) * 0.5
+end
+
 local function serialize_component(component, dynamic)
-	local owner = component and component.Owner
-	local entries = component:GetRenderEntries()
+	local owner = component.Owner
 	local serialized_entries = {}
 	local shadow_aabb_cullable = true
-	local world_aabb = serialize_aabb(component and component.GetWorldAABB and component:GetWorldAABB() or nil)
-	local sphere_radius = 0
+	local world_aabb = serialize_aabb(component:GetWorldAABB())
 
-	if world_aabb then
-		local extent_x = math.max((world_aabb.max_x or 0) - (world_aabb.min_x or 0), 0)
-		local extent_y = math.max((world_aabb.max_y or 0) - (world_aabb.min_y or 0), 0)
-		local extent_z = math.max((world_aabb.max_z or 0) - (world_aabb.min_z or 0), 0)
-		sphere_radius = math.sqrt(extent_x * extent_x + extent_y * extent_y + extent_z * extent_z) * 0.5
-	end
-
-	for i, entry in ipairs(entries) do
+	for i, entry in ipairs(component:GetRenderEntries()) do
 		serialized_entries[i] = serialize_render_entry(component, entry, i, dynamic)
 
 		if serialized_entries[i].has_height_displacement then
@@ -1439,459 +1436,57 @@ local function serialize_component(component, dynamic)
 
 	return {
 		component = component,
-		component_guid = component and component.GetGUID and component:GetGUID() or nil,
+		component_guid = component:GetGUID(),
 		owner = owner,
-		owner_guid = owner and owner.GetGUID and owner:GetGUID() or nil,
+		owner_guid = owner and owner:GetGUID() or nil,
 		name = owner and owner.Name or tostring(component),
 		dynamic = dynamic == true,
-		visible = component and component.Visible == true,
-		cast_shadows = component and component.CastShadows == true,
-		use_occlusion_culling = component and component.UseOcclusionCulling == true,
-		cull_distance = component and component.GetCullDistance and component:GetCullDistance() or nil,
-		model_path = component and component.GetModelPath and component:GetModelPath() or "",
-		shadow_change_version = component and component.shadow_change_version or 0,
+		visible = component.Visible == true,
+		cast_shadows = component.CastShadows == true,
+		use_occlusion_culling = component.UseOcclusionCulling == true,
+		cull_distance = component:GetCullDistance(),
+		model_path = component:GetModelPath(),
+		shadow_change_version = component.shadow_change_version or 0,
 		world_aabb = world_aabb,
-		sphere_radius = sphere_radius,
+		sphere_radius = get_aabb_sphere_radius(world_aabb),
 		shadow_aabb_cullable = shadow_aabb_cullable,
 		render_entry_count = #serialized_entries,
 		entries = serialized_entries,
 	}
 end
 
-local function assign_component_entry_span(component, offset_field, count_field, entry_offset, entry_count)
-	if not component then return end
+local function get_visual_flags(serialized_visual, extra_flags)
+	local flags = extra_flags
 
-	component[offset_field] = entry_offset
-	component[count_field] = entry_count
+	if serialized_visual.visible then flags = flags + VISUAL_FLAG_VISIBLE end
+
+	if serialized_visual.cast_shadows then
+		flags = flags + VISUAL_FLAG_CAST_SHADOWS
+	end
+
+	if serialized_visual.use_occlusion_culling then
+		flags = flags + VISUAL_FLAG_USE_OCCLUSION
+	end
+
+	if serialized_visual.dynamic then flags = flags + VISUAL_FLAG_DYNAMIC end
+
+	if serialized_visual.shadow_aabb_cullable then
+		flags = flags + VISUAL_FLAG_SHADOW_AABB_CULLABLE
+	end
+
+	return flags
 end
 
-local function serialized_still_current(prev_serialized, component, aabb)
-	if
-		not prev_serialized or
-		prev_serialized.component ~= component or
-		not aabb or
-		not prev_serialized.world_aabb or
-		prev_serialized.visible ~= (
-			component.Visible == true
-		)
-		or
-		prev_serialized.cast_shadows ~= (
-			component.CastShadows == true
-		)
-		or
-		prev_serialized.use_occlusion_culling ~= (
-			component.UseOcclusionCulling == true
-		)
-	then
-		return false
+local function get_entry_flags(entry)
+	local flags = 0
+
+	if entry.ignore_z then flags = flags + ENTRY_FLAG_IGNORE_Z end
+
+	if entry.has_height_displacement then
+		flags = flags + ENTRY_FLAG_HEIGHT_DISPLACEMENT
 	end
 
-	local prev_aabb = prev_serialized.world_aabb
-
-	if
-		prev_aabb.min_x ~= aabb.min_x or
-		prev_aabb.min_y ~= aabb.min_y or
-		prev_aabb.min_z ~= aabb.min_z or
-		prev_aabb.max_x ~= aabb.max_x or
-		prev_aabb.max_y ~= aabb.max_y or
-		prev_aabb.max_z ~= aabb.max_z
-	then
-		return false
-	end
-
-	for _, entry in ipairs(prev_serialized.entries) do
-		local material = component:GetResolvedMaterial(entry.source_entry)
-
-		if
-			material ~= entry.batch_material or
-			(
-				material and
-				material.GetIgnoreZ and
-				material:GetIgnoreZ() or
-				false
-			) ~= entry.ignore_z or
-			material:IsTransparent() ~= entry.transparent or
-			entry_has_height_displacement(material) ~= entry.has_height_displacement
-		then
-			return false
-		end
-	end
-
-	return true
-end
-
-local function build_scene_dataset(acceleration)
-	if not acceleration then return nil end
-
-	local dataset = {
-		generation = gpu_culling.scene_acceleration_generation,
-		main_visuals = {},
-		main_entries = {},
-		shadow_entries = {},
-		static_visuals = {},
-		dynamic_visuals = {},
-		shadow_static_visuals = {},
-		shadow_dynamic_visuals = {},
-		non_aabb_shadow_visuals = {},
-		static_visual_count = 0,
-		dynamic_visual_count = 0,
-		shadow_static_visual_count = 0,
-		shadow_dynamic_visual_count = 0,
-		non_aabb_shadow_visual_count = 0,
-		static_entry_count = 0,
-		dynamic_entry_count = 0,
-		shadow_entry_count = 0,
-		main_instanced_batches = {},
-		main_static_instance_count = 0,
-		main_static_instance_prefix_count = 0,
-		main_dynamic_world_change_version = 0,
-		shadow_instanced_batches = {},
-		shadow_instance_count = 0,
-		shadow_instance_world_change_version = 0,
-		total_visual_count = acceleration.visual_count or 0,
-	}
-
-	for i, item in ipairs(acceleration.items or {}) do
-		local component = item.component
-		local entry_offset = #dataset.main_entries
-		local aabb = item.world_aabb
-		local prev_serialized = component.gpu_dataset_static_serialized
-		local serialized = serialized_still_current(prev_serialized, component, aabb) and
-			prev_serialized or
-			serialize_component(component, false)
-		component.gpu_dataset_static_serialized = serialized
-		dataset.static_visuals[i] = serialized
-		dataset.main_visuals[#dataset.main_visuals + 1] = serialized
-
-		for _, entry in ipairs(serialized.entries) do
-			dataset.main_entries[#dataset.main_entries + 1] = entry
-		end
-
-		assign_component_entry_span(
-			component,
-			"main_gpu_entry_offset",
-			"main_gpu_entry_count",
-			entry_offset,
-			serialized.render_entry_count
-		)
-		dataset.static_visual_count = dataset.static_visual_count + 1
-		dataset.static_entry_count = dataset.static_entry_count + serialized.render_entry_count
-	end
-
-	for i, component in ipairs(acceleration.dynamic_components or {}) do
-		local entry_offset = #dataset.main_entries
-		local serialized = serialize_component(component, true)
-		dataset.dynamic_visuals[i] = serialized
-		dataset.main_visuals[#dataset.main_visuals + 1] = serialized
-
-		for _, entry in ipairs(serialized.entries) do
-			dataset.main_entries[#dataset.main_entries + 1] = entry
-		end
-
-		assign_component_entry_span(
-			component,
-			"main_gpu_entry_offset",
-			"main_gpu_entry_count",
-			entry_offset,
-			serialized.render_entry_count
-		)
-		dataset.dynamic_visual_count = dataset.dynamic_visual_count + 1
-		dataset.dynamic_entry_count = dataset.dynamic_entry_count + serialized.render_entry_count
-	end
-
-	for i, item in ipairs(acceleration.shadow_items or {}) do
-		local component = item.component
-		local entry_offset = #dataset.shadow_entries
-		local aabb = item.world_aabb
-		local prev_serialized = component.gpu_dataset_shadow_serialized
-		local serialized = serialized_still_current(prev_serialized, component, aabb) and
-			prev_serialized or
-			serialize_component(component, false)
-		component.gpu_dataset_shadow_serialized = serialized
-		dataset.shadow_static_visuals[i] = serialized
-
-		for _, entry in ipairs(serialized.entries) do
-			dataset.shadow_entries[#dataset.shadow_entries + 1] = entry
-		end
-
-		assign_component_entry_span(
-			component,
-			"shadow_gpu_entry_offset",
-			"shadow_gpu_entry_count",
-			entry_offset,
-			serialized.render_entry_count
-		)
-		dataset.shadow_static_visual_count = dataset.shadow_static_visual_count + 1
-		dataset.shadow_entry_count = dataset.shadow_entry_count + serialized.render_entry_count
-	end
-
-	for i, component in ipairs(acceleration.dynamic_shadow_components or {}) do
-		local entry_offset = #dataset.shadow_entries
-		local serialized = serialize_component(component, true)
-		dataset.shadow_dynamic_visuals[i] = serialized
-
-		for _, entry in ipairs(serialized.entries) do
-			dataset.shadow_entries[#dataset.shadow_entries + 1] = entry
-		end
-
-		assign_component_entry_span(
-			component,
-			"shadow_gpu_entry_offset",
-			"shadow_gpu_entry_count",
-			entry_offset,
-			serialized.render_entry_count
-		)
-		dataset.shadow_dynamic_visual_count = dataset.shadow_dynamic_visual_count + 1
-		dataset.shadow_entry_count = dataset.shadow_entry_count + serialized.render_entry_count
-	end
-
-	for i, component in ipairs(acceleration.non_aabb_shadow_components or {}) do
-		local entry_offset = #dataset.shadow_entries
-		local serialized = serialize_component(component, true)
-		dataset.non_aabb_shadow_visuals[i] = serialized
-
-		for _, entry in ipairs(serialized.entries) do
-			dataset.shadow_entries[#dataset.shadow_entries + 1] = entry
-		end
-
-		assign_component_entry_span(
-			component,
-			"shadow_gpu_entry_offset",
-			"shadow_gpu_entry_count",
-			entry_offset,
-			serialized.render_entry_count
-		)
-		dataset.non_aabb_shadow_visual_count = dataset.non_aabb_shadow_visual_count + 1
-		dataset.shadow_entry_count = dataset.shadow_entry_count + serialized.render_entry_count
-	end
-
-	do
-		local batches = {}
-		local instance_offset = 0
-
-		for _, visual in ipairs(dataset.static_visuals) do
-			for _, entry in ipairs(visual.entries or {}) do
-				if entry.gbuffer_instancing_eligible and entry.world_matrix then
-					local polygon3d = entry.source_entry and entry.source_entry.polygon3d or nil
-					local mesh = entry.batch_mesh
-					local material = entry.batch_material
-					local mesh_batches = get_or_create_instanced_batch_bucket(batches, mesh)
-					local material_key = entry.batch_material_key
-					local batch = mesh_batches[material_key]
-
-					if not batch then
-						batch = {
-							batch_index = #dataset.main_instanced_batches,
-							mesh = mesh,
-							material = material,
-							material_key = material_key,
-							first_polygon3d = polygon3d,
-							output_offset = 0,
-							max_count = 0,
-						}
-						mesh_batches[material_key] = batch
-						dataset.main_instanced_batches[#dataset.main_instanced_batches + 1] = batch
-					end
-
-					entry.instanced_batch_index = batch.batch_index
-					entry.static_matrix_index = dataset.main_static_instance_count
-					batch.max_count = batch.max_count + 1
-					dataset.main_static_instance_count = dataset.main_static_instance_count + 1
-				end
-			end
-		end
-
-		for _, batch in ipairs(dataset.main_instanced_batches) do
-			batch.output_offset = instance_offset
-			instance_offset = instance_offset + batch.max_count
-		end
-
-		dataset.main_static_instance_prefix_count = dataset.main_static_instance_count
-	end
-
-	do
-		local batches = {}
-
-		for _, batch in ipairs(dataset.main_instanced_batches) do
-			local mesh_batches = get_or_create_instanced_batch_bucket(batches, batch.mesh)
-			mesh_batches[batch.material_key or
-			get_gbuffer_batch_material_key(batch.material)] = batch
-		end
-
-		for _, visual in ipairs(dataset.dynamic_visuals) do
-			for _, entry in ipairs(visual.entries or {}) do
-				if entry.gbuffer_instancing_eligible and entry.world_matrix then
-					local polygon3d = entry.source_entry and entry.source_entry.polygon3d or nil
-					local mesh = entry.batch_mesh
-					local material = entry.batch_material
-					local mesh_batches = get_or_create_instanced_batch_bucket(batches, mesh)
-					local material_key = entry.batch_material_key
-					local batch = mesh_batches[material_key]
-
-					if not batch then
-						batch = {
-							batch_index = #dataset.main_instanced_batches,
-							mesh = mesh,
-							material = material,
-							material_key = material_key,
-							first_polygon3d = polygon3d,
-							output_offset = 0,
-							max_count = 0,
-						}
-						mesh_batches[material_key] = batch
-						dataset.main_instanced_batches[#dataset.main_instanced_batches + 1] = batch
-					end
-
-					entry.instanced_batch_index = batch.batch_index
-					entry.static_matrix_index = dataset.main_static_instance_count
-					batch.max_count = batch.max_count + 1
-					dataset.main_static_instance_count = dataset.main_static_instance_count + 1
-					dataset.main_dynamic_world_change_version = math.max(dataset.main_dynamic_world_change_version, visual.shadow_change_version or 0)
-				end
-			end
-		end
-
-		local instance_offset = 0
-
-		for _, batch in ipairs(dataset.main_instanced_batches) do
-			batch.output_offset = instance_offset
-			instance_offset = instance_offset + batch.max_count
-		end
-	end
-
-	do
-		local batches = {}
-		local instance_offset = 0
-
-		for _, visual in ipairs(dataset.shadow_static_visuals) do
-			for _, entry in ipairs(visual.entries or {}) do
-				if entry.shadow_instancing_eligible then
-					local polygon3d = entry.source_entry and entry.source_entry.polygon3d or nil
-					local mesh = entry.batch_mesh
-					local material = entry.batch_material
-					local mesh_batches = get_or_create_instanced_batch_bucket(batches, mesh)
-					local material_key = entry.batch_material_key
-					local batch = mesh_batches[material_key]
-
-					if not batch then
-						batch = {
-							batch_index = #dataset.shadow_instanced_batches,
-							mesh = mesh,
-							material = material,
-							material_key = material_key,
-							first_polygon3d = polygon3d,
-							first_world_matrix = entry.world_matrix,
-							output_offset = 0,
-							max_count = 0,
-							entries = {},
-						}
-						mesh_batches[material_key] = batch
-						dataset.shadow_instanced_batches[#dataset.shadow_instanced_batches + 1] = batch
-					end
-
-					entry.instanced_batch_index = batch.batch_index
-					entry.static_matrix_index = dataset.shadow_instance_count
-					batch.max_count = batch.max_count + 1
-					batch.entries[#batch.entries + 1] = entry
-					dataset.shadow_instance_count = dataset.shadow_instance_count + 1
-					dataset.shadow_instance_world_change_version = math.max(dataset.shadow_instance_world_change_version, visual.shadow_change_version or 0)
-					local aabb = visual.world_aabb
-
-					if not aabb then
-						batch.unbounded = true
-					elseif batch.world_aabb then
-						local bounds = batch.world_aabb
-						bounds.min_x = math.min(bounds.min_x, aabb.min_x)
-						bounds.min_y = math.min(bounds.min_y, aabb.min_y)
-						bounds.min_z = math.min(bounds.min_z, aabb.min_z)
-						bounds.max_x = math.max(bounds.max_x, aabb.max_x)
-						bounds.max_y = math.max(bounds.max_y, aabb.max_y)
-						bounds.max_z = math.max(bounds.max_z, aabb.max_z)
-					else
-						batch.world_aabb = {
-							min_x = aabb.min_x,
-							min_y = aabb.min_y,
-							min_z = aabb.min_z,
-							max_x = aabb.max_x,
-							max_y = aabb.max_y,
-							max_z = aabb.max_z,
-						}
-					end
-				end
-			end
-		end
-
-		for _, visual in ipairs(dataset.shadow_dynamic_visuals) do
-			for _, entry in ipairs(visual.entries or {}) do
-				if entry.shadow_instancing_eligible then
-					local polygon3d = entry.source_entry and entry.source_entry.polygon3d or nil
-					local mesh = entry.batch_mesh
-					local material = entry.batch_material
-					local mesh_batches = get_or_create_instanced_batch_bucket(batches, mesh)
-					local material_key = entry.batch_material_key
-					local batch = mesh_batches[material_key]
-
-					if not batch then
-						batch = {
-							batch_index = #dataset.shadow_instanced_batches,
-							mesh = mesh,
-							material = material,
-							material_key = material_key,
-							first_polygon3d = polygon3d,
-							first_world_matrix = entry.world_matrix,
-							output_offset = 0,
-							max_count = 0,
-							entries = {},
-						}
-						mesh_batches[material_key] = batch
-						dataset.shadow_instanced_batches[#dataset.shadow_instanced_batches + 1] = batch
-					end
-
-					entry.instanced_batch_index = batch.batch_index
-					entry.static_matrix_index = dataset.shadow_instance_count
-					batch.max_count = batch.max_count + 1
-					batch.entries[#batch.entries + 1] = entry
-					-- dynamic casters move without the batch bounds following them
-					batch.unbounded = true
-					dataset.shadow_instance_count = dataset.shadow_instance_count + 1
-					dataset.shadow_instance_world_change_version = math.max(dataset.shadow_instance_world_change_version, visual.shadow_change_version or 0)
-				end
-			end
-		end
-
-		for _, batch in ipairs(dataset.shadow_instanced_batches) do
-			batch.output_offset = instance_offset
-			instance_offset = instance_offset + batch.max_count
-		end
-	end
-
-	-- entries the shadow draw cannot instance are culled and drawn one by one on the
-	-- cpu. non-aabb visuals are height displaced past their bounds, so they skip the
-	-- bounds test
-	dataset.shadow_fallback_entries = {}
-
-	for _, visuals in ipairs{
-		dataset.shadow_static_visuals,
-		dataset.shadow_dynamic_visuals,
-		dataset.non_aabb_shadow_visuals,
-	} do
-		for _, visual in ipairs(visuals) do
-			for _, entry in ipairs(visual.entries) do
-				if entry.instanced_batch_index == nil then
-					entry.skip_shadow_aabb_cull = visuals == dataset.non_aabb_shadow_visuals
-					dataset.shadow_fallback_entries[#dataset.shadow_fallback_entries + 1] = entry
-				end
-			end
-		end
-	end
-
-	dataset.structure_key = {
-		entry_count = (dataset.static_entry_count or 0) + (dataset.dynamic_entry_count or 0),
-		batch_count = #(dataset.main_instanced_batches or {}),
-		instance_count = dataset.main_static_instance_count or 0,
-		shadow_instance_count = dataset.shadow_instance_count or 0,
-	}
-	return dataset
+	return flags
 end
 
 -- side_scale below 1 shrinks the projection's lateral rows, which is exactly a wider
@@ -1940,252 +1535,6 @@ local function extract_frustum_planes(proj_view_matrix, out_planes, side_scale)
 	end
 end
 
-local cache = {}
-
-local function new_ffi_array(ctype, count)
-	cache[ctype] = cache[ctype] or {}
-	cache[ctype][count] = cache[ctype][count] or ffi.typeof("$[?]", ctype)
-	return ffi.new(cache[ctype][count], math.max(count, 1))
-end
-
-local function set_record_aabb(record, min_prefix, max_prefix, aabb)
-	aabb = aabb or {}
-	record[min_prefix .. "x"] = aabb.min_x or 0
-	record[min_prefix .. "y"] = aabb.min_y or 0
-	record[min_prefix .. "z"] = aabb.min_z or 0
-	record[max_prefix .. "x"] = aabb.max_x or 0
-	record[max_prefix .. "y"] = aabb.max_y or 0
-	record[max_prefix .. "z"] = aabb.max_z or 0
-end
-
-local function get_visual_flags(serialized_visual, extra_flags)
-	local flags = extra_flags or 0
-
-	if serialized_visual.visible then flags = flags + VISUAL_FLAG_VISIBLE end
-
-	if serialized_visual.cast_shadows then
-		flags = flags + VISUAL_FLAG_CAST_SHADOWS
-	end
-
-	if serialized_visual.use_occlusion_culling then
-		flags = flags + VISUAL_FLAG_USE_OCCLUSION
-	end
-
-	if serialized_visual.dynamic then flags = flags + VISUAL_FLAG_DYNAMIC end
-
-	if serialized_visual.shadow_aabb_cullable then
-		flags = flags + VISUAL_FLAG_SHADOW_AABB_CULLABLE
-	end
-
-	return flags
-end
-
-local function get_entry_flags(entry)
-	local flags = 0
-
-	if entry.ignore_z then flags = flags + ENTRY_FLAG_IGNORE_Z end
-
-	if entry.has_height_displacement then
-		flags = flags + ENTRY_FLAG_HEIGHT_DISPLACEMENT
-	end
-
-	return flags
-end
-
-local function flatten_visual_upload(visuals, extra_flags)
-	local visual_records = new_ffi_array(GPUCullVisualRecord, #visuals)
-	local entry_count = 0
-
-	for _, visual in ipairs(visuals) do
-		entry_count = entry_count + (visual.render_entry_count or 0)
-	end
-
-	local entry_records = new_ffi_array(GPUCullEntryRecord, entry_count)
-	local entry_offset = 0
-
-	for visual_index, visual in ipairs(visuals) do
-		local visual_record = visual_records[visual_index - 1]
-		set_record_aabb(visual_record, "min_", "max_", visual.world_aabb)
-		visual_record.sphere_radius = visual.sphere_radius or 0
-		visual_record.cull_distance = visual.cull_distance or 0
-		visual_record.flags = get_visual_flags(visual, extra_flags)
-		visual_record.entry_offset = entry_offset
-		visual_record.entry_count = visual.render_entry_count or 0
-		visual_record.shadow_change_version = visual.shadow_change_version or 0
-
-		for entry_index, entry in ipairs(visual.entries or {}) do
-			local entry_record = entry_records[entry_offset]
-			set_record_aabb(entry_record, "local_min_", "local_max_", entry.local_aabb)
-			set_record_aabb(entry_record, "source_min_", "source_max_", entry.source_aabb)
-			entry_record.visual_index = visual_index - 1
-			entry_record.entry_index = (entry.entry_index or entry_index) - 1
-			entry_record.index_count = entry.index_count or 0
-			entry_record.flags = get_entry_flags(entry)
-			entry_record.instanced_batch_index = entry.instanced_batch_index or INVALID_INDEX
-			entry_record.static_matrix_index = entry.static_matrix_index or INVALID_INDEX
-			entry_offset = entry_offset + 1
-		end
-	end
-
-	return {
-		visual_records = visual_records,
-		visual_count = #visuals,
-		visual_byte_size = math.max(#visuals, 1) * ffi.sizeof(GPUCullVisualRecord),
-		entry_records = entry_records,
-		entry_count = entry_count,
-		entry_byte_size = math.max(entry_count, 1) * ffi.sizeof(GPUCullEntryRecord),
-	}
-end
-
-local function flatten_static_instance_world_upload(dataset)
-	local entry_count = dataset.main_static_instance_count or 0
-	local world_matrices = ffi.new("float[?]", math.max(entry_count * 16, 16))
-
-	for _, visual in ipairs(dataset.static_visuals or {}) do
-		for _, entry in ipairs(visual.entries or {}) do
-			if entry.static_matrix_index ~= nil and entry.world_matrix then
-				entry.world_matrix:CopyToFloatPointer(world_matrices + entry.static_matrix_index * 16)
-			end
-		end
-	end
-
-	for _, visual in ipairs(dataset.dynamic_visuals or {}) do
-		for _, entry in ipairs(visual.entries or {}) do
-			if entry.static_matrix_index ~= nil and entry.world_matrix then
-				entry.world_matrix:CopyToFloatPointer(world_matrices + entry.static_matrix_index * 16)
-			end
-		end
-	end
-
-	return {
-		world_matrices = world_matrices,
-		entry_count = entry_count,
-		byte_size = math.max(entry_count * 16, 16) * ffi.sizeof("float"),
-	}
-end
-
-local function flatten_shadow_instance_world_upload(dataset)
-	local entry_count = dataset.shadow_instance_count or 0
-	local world_matrices = ffi.new("float[?]", math.max(entry_count * 16, 16))
-
-	for _, visual in ipairs(dataset.shadow_static_visuals or {}) do
-		for _, entry in ipairs(visual.entries or {}) do
-			if entry.static_matrix_index ~= nil and entry.world_matrix then
-				entry.world_matrix:CopyToFloatPointer(world_matrices + entry.static_matrix_index * 16)
-			end
-		end
-	end
-
-	for _, visual in ipairs(dataset.shadow_dynamic_visuals or {}) do
-		for _, entry in ipairs(visual.entries or {}) do
-			if entry.static_matrix_index ~= nil and entry.world_matrix then
-				entry.world_matrix:CopyToFloatPointer(world_matrices + entry.static_matrix_index * 16)
-			end
-		end
-	end
-
-	return {
-		world_matrices = world_matrices,
-		entry_count = entry_count,
-		byte_size = math.max(entry_count * 16, 16) * ffi.sizeof("float"),
-	}
-end
-
-local function flatten_instanced_batch_upload(dataset)
-	local batch_count = #(dataset.main_instanced_batches or {})
-	local batch_records = new_ffi_array(GPUCullInstancedBatchRecord, batch_count)
-
-	for batch_index, batch in ipairs(dataset.main_instanced_batches or {}) do
-		local batch_record = batch_records[batch_index - 1]
-		batch_record.output_offset = batch.output_offset or 0
-		batch_record.max_count = batch.max_count or 0
-		batch_record.index_count = batch.mesh and
-			batch.mesh.index_buffer and
-			batch.mesh.index_buffer.GetIndexCount and
-			batch.mesh.index_buffer:GetIndexCount() or
-			0
-		batch_record.reserved1 = 0
-	end
-
-	return {
-		batch_records = batch_records,
-		batch_count = batch_count,
-		byte_size = math.max(batch_count, 1) * ffi.sizeof(GPUCullInstancedBatchRecord),
-	}
-end
-
-local function flatten_shadow_instanced_batch_upload(dataset)
-	local batch_count = #(dataset.shadow_instanced_batches or {})
-	local batch_records = new_ffi_array(GPUCullInstancedBatchRecord, batch_count)
-
-	for batch_index, batch in ipairs(dataset.shadow_instanced_batches or {}) do
-		local batch_record = batch_records[batch_index - 1]
-		batch_record.output_offset = batch.output_offset or 0
-		batch_record.max_count = batch.max_count or 0
-		batch_record.index_count = batch.mesh and
-			batch.mesh.index_buffer and
-			batch.mesh.index_buffer.GetIndexCount and
-			batch.mesh.index_buffer:GetIndexCount() or
-			0
-		batch_record.reserved1 = 0
-	end
-
-	return {
-		batch_records = batch_records,
-		batch_count = batch_count,
-		byte_size = math.max(batch_count, 1) * ffi.sizeof(GPUCullInstancedBatchRecord),
-	}
-end
-
-local function build_dataset_upload(dataset)
-	if not dataset then return nil end
-
-	local main_visuals = {}
-
-	for _, visual in ipairs(dataset.static_visuals or {}) do
-		main_visuals[#main_visuals + 1] = visual
-	end
-
-	for _, visual in ipairs(dataset.dynamic_visuals or {}) do
-		main_visuals[#main_visuals + 1] = visual
-	end
-
-	local shadow_visuals = {}
-
-	for _, visual in ipairs(dataset.shadow_static_visuals or {}) do
-		shadow_visuals[#shadow_visuals + 1] = visual
-	end
-
-	for _, visual in ipairs(dataset.shadow_dynamic_visuals or {}) do
-		shadow_visuals[#shadow_visuals + 1] = visual
-	end
-
-	for _, visual in ipairs(dataset.non_aabb_shadow_visuals or {}) do
-		shadow_visuals[#shadow_visuals + 1] = visual
-	end
-
-	return {
-		main = flatten_visual_upload(main_visuals),
-		shadow = flatten_visual_upload(shadow_visuals, VISUAL_FLAG_SHADOW_NON_AABB),
-		main_static_instance_worlds = flatten_static_instance_world_upload(dataset),
-		main_instanced_batches = flatten_instanced_batch_upload(dataset),
-		shadow_instance_worlds = flatten_shadow_instance_world_upload(dataset),
-		shadow_instanced_batches = flatten_shadow_instanced_batch_upload(dataset),
-		layout = {
-			generation = dataset.generation,
-			main_visual_count = #main_visuals,
-			main_entry_count = (dataset.static_entry_count or 0) + (dataset.dynamic_entry_count or 0),
-			main_instanced_batch_count = #(dataset.main_instanced_batches or {}),
-			main_static_instance_count = dataset.main_static_instance_count or 0,
-			shadow_visual_count = #shadow_visuals,
-			shadow_static_visual_count = dataset.shadow_static_visual_count or 0,
-			shadow_entry_count = dataset.shadow_entry_count or 0,
-			shadow_instanced_batch_count = #(dataset.shadow_instanced_batches or {}),
-			shadow_instance_count = dataset.shadow_instance_count or 0,
-		},
-	}
-end
-
 local function remove_buffer(buffer)
 	if buffer and buffer.Remove then buffer:Remove() end
 end
@@ -2193,24 +1542,6 @@ end
 local function grow_capacity(required, previous)
 	local grown = math.ceil((previous or 0) * 1.5)
 	return grown > required and grown or required
-end
-
-local function clear_dataset_buffers()
-	local dataset_buffers = gpu_culling.dataset_buffers
-
-	if dataset_buffers then
-		remove_buffer(dataset_buffers.main_visual_buffer)
-		remove_buffer(dataset_buffers.main_entry_buffer)
-		remove_buffer(dataset_buffers.main_static_instance_world_buffer)
-		remove_buffer(dataset_buffers.main_instanced_batch_buffer)
-		remove_buffer(dataset_buffers.shadow_visual_buffer)
-		remove_buffer(dataset_buffers.shadow_entry_buffer)
-		remove_buffer(dataset_buffers.shadow_instanced_batch_buffer)
-	end
-
-	gpu_culling.dataset_buffers = nil
-	gpu_culling.dataset_buffers_generation = -1
-	gpu_culling.dataset_buffers_capacity = nil
 end
 
 -- A slot's buffers are read by the gpu long after its cull finished: the draws that
@@ -2323,18 +1654,18 @@ local function create_shadow_query_output(
 	descriptor_slot
 )
 	local layout = gpu_culling.dataset_buffers and gpu_culling.dataset_buffers.layout or nil
-	shadow_entry_capacity = math.max(shadow_entry_capacity or (layout and layout.shadow_entry_count) or 0, 1)
+	shadow_entry_capacity = math.max(shadow_entry_capacity or (layout and layout.shadow_entry_capacity) or 0, 1)
 	shadow_instanced_batch_count = math.max(
 		shadow_instanced_batch_count or
 			(
 				layout and
-				layout.shadow_instanced_batch_count
+				layout.shadow_instanced_batch_capacity
 			)
 			or
 			0,
 		1
 	)
-	shadow_instance_capacity = math.max(shadow_instance_capacity or (layout and layout.shadow_instance_count) or 0, 1)
+	shadow_instance_capacity = math.max(shadow_instance_capacity or (layout and layout.shadow_instance_capacity) or 0, 1)
 	label_prefix = label_prefix or "gpu_culling_shadow_query"
 	descriptor_slot = descriptor_slot and
 		ensure_shadow_query_output_descriptor_capacity(descriptor_slot) or
@@ -2387,9 +1718,6 @@ local function create_shadow_query_output(
 			shadow_instance_capacity * 16 * ffi.sizeof("float"),
 			{"storage_buffer"}
 		),
-		shadow_instance_world_upload_data = ffi.new("float[?]", shadow_instance_capacity * 16),
-		shadow_instance_world_upload_generation = -1,
-		shadow_instance_world_upload_change_version = -1,
 		shadow_visible_instance_vertex_buffer = VertexBuffer.New(
 			shadow_instance_capacity,
 			{
@@ -2465,72 +1793,6 @@ function gpu_culling.RecreateShadowQueryOutput(output)
 	return output
 end
 
-local function build_dataset_buffers(dataset, capacity)
-	if not dataset then return nil end
-
-	local device = render.GetDevice and render.GetDevice() or nil
-
-	if not (device and device.IsValid and device:IsValid()) then return nil end
-
-	local upload = build_dataset_upload(dataset)
-	local entry_capacity = math.max(capacity.entry_count, 1)
-	local batch_capacity = math.max(capacity.batch_count, 1)
-	local instance_capacity = math.max(capacity.instance_count, 1)
-	return {
-		generation = dataset.generation,
-		layout = upload.layout,
-		main_visual_buffer = create_buffer_with_data(
-			"gpu_culling_main_visual_upload",
-			entry_capacity * ffi.sizeof(GPUCullVisualRecord),
-			{"storage_buffer"},
-			upload.main.visual_records,
-			upload.main.visual_byte_size
-		),
-		main_entry_buffer = create_buffer_with_data(
-			"gpu_culling_main_entry_upload",
-			entry_capacity * ffi.sizeof(GPUCullEntryRecord),
-			{"storage_buffer"},
-			upload.main.entry_records,
-			upload.main.entry_byte_size
-		),
-		main_static_instance_world_buffer = create_buffer_with_data(
-			"gpu_culling_main_static_instance_world_upload",
-			math.max(instance_capacity * 16, 16) * ffi.sizeof("float"),
-			{"storage_buffer"},
-			upload.main_static_instance_worlds.world_matrices,
-			upload.main_static_instance_worlds.byte_size
-		),
-		main_instanced_batch_buffer = create_buffer_with_data(
-			"gpu_culling_main_instanced_batch_upload",
-			batch_capacity * ffi.sizeof(GPUCullInstancedBatchRecord),
-			{"storage_buffer"},
-			upload.main_instanced_batches.batch_records,
-			upload.main_instanced_batches.byte_size
-		),
-		shadow_visual_buffer = create_buffer_with_data(
-			"gpu_culling_shadow_visual_upload",
-			entry_capacity * ffi.sizeof(GPUCullVisualRecord),
-			{"storage_buffer"},
-			upload.shadow.visual_records,
-			upload.shadow.visual_byte_size
-		),
-		shadow_entry_buffer = create_buffer_with_data(
-			"gpu_culling_shadow_entry_upload",
-			entry_capacity * ffi.sizeof(GPUCullEntryRecord),
-			{"storage_buffer"},
-			upload.shadow.entry_records,
-			upload.shadow.entry_byte_size
-		),
-		shadow_instanced_batch_buffer = create_buffer_with_data(
-			"gpu_culling_shadow_instanced_batch_upload",
-			batch_capacity * ffi.sizeof(GPUCullInstancedBatchRecord),
-			{"storage_buffer"},
-			upload.shadow_instanced_batches.batch_records,
-			upload.shadow_instanced_batches.byte_size
-		),
-	}
-end
-
 local function resolve_frame_slot(frame_index)
 	local frame_count = math.max(render.GetSwapchainImageCount() or 1, 1)
 	local slot = frame_index or render.GetCurrentFrame() or 1
@@ -2565,77 +1827,6 @@ local function update_cull_result(
 	result.indirect_command_count = indirect_command_count
 	result.visible_entry_indices_ready = visible_entry_indices_ready == true
 	return result
-end
-
-local function update_dataset_buffers_in_place(dataset, buffers)
-	local upload = build_dataset_upload(dataset)
-	buffers.layout = upload.layout
-
-	if upload.main.visual_byte_size > 0 then
-		buffers.main_visual_buffer:CopyData(upload.main.visual_records, upload.main.visual_byte_size)
-	end
-
-	if upload.main.entry_byte_size > 0 then
-		buffers.main_entry_buffer:CopyData(upload.main.entry_records, upload.main.entry_byte_size)
-	end
-
-	if upload.main_static_instance_worlds.byte_size > 0 then
-		buffers.main_static_instance_world_buffer:CopyData(upload.main_static_instance_worlds.world_matrices, upload.main_static_instance_worlds.byte_size)
-	end
-
-	if upload.main_instanced_batches.byte_size > 0 then
-		buffers.main_instanced_batch_buffer:CopyData(upload.main_instanced_batches.batch_records, upload.main_instanced_batches.byte_size)
-	end
-
-	if upload.shadow.visual_byte_size > 0 then
-		buffers.shadow_visual_buffer:CopyData(upload.shadow.visual_records, upload.shadow.visual_byte_size)
-	end
-
-	if upload.shadow.entry_byte_size > 0 then
-		buffers.shadow_entry_buffer:CopyData(upload.shadow.entry_records, upload.shadow.entry_byte_size)
-	end
-
-	if upload.shadow_instanced_batches.byte_size > 0 then
-		buffers.shadow_instanced_batch_buffer:CopyData(upload.shadow_instanced_batches.batch_records, upload.shadow_instanced_batches.byte_size)
-	end
-end
-
-local function ensure_dataset_buffers(dataset)
-	if not dataset then
-		clear_dataset_buffers()
-		return nil
-	end
-
-	local key = dataset.structure_key
-	local previous = gpu_culling.dataset_buffers_capacity
-
-	if
-		gpu_culling.dataset_buffers and
-		previous and
-		previous.entry_count >= key.entry_count and
-		previous.batch_count >= key.batch_count and
-		previous.instance_count >= key.instance_count and
-		previous.shadow_instance_count >= key.shadow_instance_count
-	then
-		if gpu_culling.dataset_buffers_generation ~= dataset.generation then
-			update_dataset_buffers_in_place(dataset, gpu_culling.dataset_buffers)
-			gpu_culling.dataset_buffers_generation = dataset.generation
-		end
-
-		return gpu_culling.dataset_buffers
-	end
-
-	local capacity = {
-		entry_count = grow_capacity(key.entry_count, previous and previous.entry_count),
-		batch_count = grow_capacity(key.batch_count, previous and previous.batch_count),
-		instance_count = grow_capacity(key.instance_count, previous and previous.instance_count),
-		shadow_instance_count = grow_capacity(key.shadow_instance_count, previous and previous.shadow_instance_count),
-	}
-	clear_dataset_buffers()
-	gpu_culling.dataset_buffers = build_dataset_buffers(dataset, capacity)
-	gpu_culling.dataset_buffers_generation = gpu_culling.dataset_buffers and dataset.generation or -1
-	gpu_culling.dataset_buffers_capacity = gpu_culling.dataset_buffers and capacity or nil
-	return gpu_culling.dataset_buffers
 end
 
 local function build_frame_buffers(dataset, capacity)
@@ -2684,8 +1875,6 @@ local function build_frame_buffers(dataset, capacity)
 				math.max(static_instance_capacity * 16, 16) * ffi.sizeof("float"),
 				{"storage_buffer"}
 			),
-			main_instance_world_upload_data = ffi.new("float[?]", math.max(static_instance_capacity * 16, 16)),
-			main_instance_world_upload_generation = -1,
 			indirect_command_buffer = create_buffer(
 				"gpu_culling_indirect_commands_" .. frame_index,
 				visible_entry_capacity * DRAW_INDEXED_INDIRECT_COMMAND_SIZE,
@@ -2861,138 +2050,685 @@ local function should_use_async_main_view_culling()
 	return true
 end
 
-local function upload_shadow_instance_worlds(output, dataset)
-	local entry_count = dataset.shadow_instance_count
-	local shadow_change_version = dataset.shadow_instance_world_change_version
+--[[
+	The scene dataset persists across scene changes. Every visual, render entry,
+	instance matrix and instanced batch owns a stable slot, so adding, removing
+	or moving one visual patches its own records and uploads only those, instead
+	of re-serializing the whole scene.
 
-	if
-		output.shadow_instance_world_upload_generation == dataset.generation and
-		output.shadow_instance_world_upload_change_version == shadow_change_version
-	then
-		return
+	Because slots are stable, a cull result stays usable after a patch: its
+	indices still name the same records, or a DEAD_ENTRY once a visual is gone.
+	Only a rebuild (the first build, compaction, a full invalidation) or a
+	reallocation of the per-frame buffers starts a new generation.
+
+	Batches own a region of the per-frame instance output. A batch that outgrows
+	its region moves to a bigger one at the end, and the space it leaves is
+	reclaimed by the next compaction.
+]]
+local DEAD_ENTRY = {}
+gpu_culling.DEAD_ENTRY = DEAD_ENTRY
+local VISUAL_RECORD_SIZE = ffi.sizeof(GPUCullVisualRecord)
+local ENTRY_RECORD_SIZE = ffi.sizeof(GPUCullEntryRecord)
+local BATCH_RECORD_SIZE = ffi.sizeof(GPUCullInstancedBatchRecord)
+local MATRIX_SIZE = 16 * ffi.sizeof("float")
+local VisualRecordArray = ffi.typeof("$[?]", GPUCullVisualRecord)
+local EntryRecordArray = ffi.typeof("$[?]", GPUCullEntryRecord)
+local BatchRecordArray = ffi.typeof("$[?]", GPUCullInstancedBatchRecord)
+local FloatArray = ffi.typeof("float[?]")
+-- a cull result a few frames old may still name a freed batch, so its index is
+-- only handed to a different mesh and material once those results are gone
+local BATCH_RECYCLE_DELAY = 8
+
+local function registry_insert(registry, index_field, value)
+	registry[#registry + 1] = value
+	value[index_field] = #registry
+end
+
+local function registry_remove(registry, index_field, value)
+	local index = value[index_field]
+	local last_index = #registry
+	local last = registry[last_index]
+	registry[index] = last
+	registry[last_index] = nil
+	value[index_field] = nil
+
+	if last ~= value then last[index_field] = index end
+end
+
+local function grow_array(ctype, old, old_capacity, required, element_size)
+	local capacity = grow_capacity(required, old_capacity)
+	local new = ctype(capacity)
+
+	if old then ffi.copy(new, old, old_capacity * element_size) end
+
+	return new, capacity
+end
+
+local function ensure_visual_capacity(view, count)
+	if count <= view.visual_capacity then return end
+
+	view.visual_records, view.visual_capacity = grow_array(
+		VisualRecordArray,
+		view.visual_records,
+		view.visual_capacity,
+		count,
+		VISUAL_RECORD_SIZE
+	)
+end
+
+local function ensure_entry_capacity(view, count)
+	if count <= view.entry_capacity then return end
+
+	view.entry_records, view.entry_capacity = grow_array(
+		EntryRecordArray,
+		view.entry_records,
+		view.entry_capacity,
+		count,
+		ENTRY_RECORD_SIZE
+	)
+end
+
+local function ensure_batch_capacity(view, count)
+	if count <= view.batch_capacity then return end
+
+	view.batch_records, view.batch_capacity = grow_array(
+		BatchRecordArray,
+		view.batch_records,
+		view.batch_capacity,
+		count,
+		BATCH_RECORD_SIZE
+	)
+end
+
+local function ensure_matrix_capacity(view, count)
+	if count <= view.matrix_capacity then return end
+
+	local capacity = grow_capacity(count, view.matrix_capacity)
+	local worlds = FloatArray(capacity * 16)
+
+	if view.worlds then
+		ffi.copy(worlds, view.worlds, view.matrix_capacity * MATRIX_SIZE)
 	end
 
-	output.shadow_instance_world_upload_generation = dataset.generation
-	output.shadow_instance_world_upload_change_version = shadow_change_version
+	view.worlds = worlds
+	view.matrix_capacity = capacity
+end
 
-	if entry_count <= 0 then return end
+local function create_view(is_main)
+	local view = {
+		is_main = is_main,
+		visual_flags = is_main and 0 or VISUAL_FLAG_SHADOW_NON_AABB,
+		visuals = {},
+		visual_free = {},
+		visual_count = 0,
+		live_visual_count = 0,
+		entries = {},
+		entry_free = {},
+		entry_count = 0,
+		entry_waste = 0,
+		matrix_free = {},
+		matrix_count = 0,
+		batches = {},
+		batch_lookup = {},
+		batch_free = {},
+		batch_free_head = 1,
+		batch_free_tail = 0,
+		dead_batch_count = 0,
+		output_count = 0,
+		output_waste = 0,
+		output_capacity = 1,
+		visual_capacity = 0,
+		entry_capacity = 0,
+		batch_capacity = 0,
+		matrix_capacity = 0,
+		dirty_visuals = {},
+		dirty_entries = {},
+		dirty_batches = {},
+		-- matrix indices written since world_log_base; outputs replay the log to
+		-- catch up, or copy every matrix when they fell behind a truncation
+		world_log = {},
+		world_log_base = 0,
+		dynamic = {},
+		-- during a rebuild batches only count their instances, and their output
+		-- regions are laid out once every visual is in
+		deferred_layout = true,
+	}
+	ensure_visual_capacity(view, 1)
+	ensure_entry_capacity(view, 1)
+	ensure_batch_capacity(view, 1)
+	ensure_matrix_capacity(view, 1)
+	return view
+end
 
-	local world_matrices = output.shadow_instance_world_upload_data
+local function alloc_visual_slot(view)
+	local free = view.visual_free
+	local slot = free[#free]
 
-	for _, entry in ipairs(dataset.shadow_entries or {}) do
-		if entry.static_matrix_index ~= nil then
-			local component = entry.component
-			local source_entry = entry.source_entry
-			local transform = source_entry and source_entry.transform or nil
-			local world_matrix = transform and
-				transform.GetWorldMatrix and
-				transform:GetWorldMatrix() or
-				component:GetWorldMatrix()
+	if slot then
+		free[#free] = nil
+		return slot
+	end
 
-			if world_matrix then
-				world_matrix:CopyToFloatPointer(world_matrices + entry.static_matrix_index * 16)
+	slot = view.visual_count
+	view.visual_count = slot + 1
+	ensure_visual_capacity(view, slot + 1)
+	return slot
+end
+
+local function alloc_entry_span(view, count)
+	local free = view.entry_free[count]
+	local offset = free and free[#free]
+
+	if offset then
+		free[#free] = nil
+		view.entry_waste = view.entry_waste - count
+		return offset
+	end
+
+	offset = view.entry_count
+	view.entry_count = offset + count
+	ensure_entry_capacity(view, offset + count)
+	return offset
+end
+
+local function free_entry_span(view, offset, count)
+	local free = view.entry_free[count]
+
+	if not free then
+		free = {}
+		view.entry_free[count] = free
+	end
+
+	free[#free + 1] = offset
+	view.entry_waste = view.entry_waste + count
+end
+
+local function alloc_matrix(view)
+	local free = view.matrix_free
+	local index = free[#free]
+
+	if index then
+		free[#free] = nil
+		return index
+	end
+
+	index = view.matrix_count
+	view.matrix_count = index + 1
+	ensure_matrix_capacity(view, index + 1)
+	return index
+end
+
+local function write_batch_record(view, batch)
+	local record = view.batch_records[batch.batch_index]
+	local index_buffer = batch.mesh.index_buffer
+	record.output_offset = batch.output_offset or 0
+	record.max_count = batch.capacity or 0
+	record.index_count = index_buffer and index_buffer:GetIndexCount() or 0
+	record.reserved1 = 0
+	local dirty = view.dirty_batches
+	dirty[#dirty + 1] = batch.batch_index
+end
+
+local function allocate_batch_output(view, batch, capacity)
+	if batch.capacity then
+		view.output_waste = view.output_waste + batch.capacity
+	end
+
+	batch.output_offset = view.output_count
+	batch.capacity = capacity
+	view.output_count = view.output_count + capacity
+end
+
+local function pop_recyclable_batch(view)
+	local free = view.batch_free
+	local frame = system.GetFrameNumber()
+
+	while true do
+		local record = free[view.batch_free_head]
+
+		if not record then return nil end
+
+		-- a batch that was revived, or freed again later, left a stale record
+		if record.batch.freed_frame ~= record.frame then
+			free[view.batch_free_head] = nil
+			view.batch_free_head = view.batch_free_head + 1
+		elseif record.frame + BATCH_RECYCLE_DELAY <= frame then
+			free[view.batch_free_head] = nil
+			view.batch_free_head = view.batch_free_head + 1
+			return record.batch
+		else
+			return nil
+		end
+	end
+end
+
+local function acquire_batch(view, entry)
+	local mesh = entry.batch_mesh
+	local material_key = entry.batch_material_key
+	local mesh_batches = get_or_create_instanced_batch_bucket(view.batch_lookup, mesh)
+	local batch = mesh_batches[material_key]
+
+	if not batch or batch.freed_frame then
+		if batch then
+			view.dead_batch_count = view.dead_batch_count - 1
+			batch.freed_frame = nil
+		else
+			batch = pop_recyclable_batch(view)
+
+			if batch then
+				view.dead_batch_count = view.dead_batch_count - 1
+				batch.freed_frame = nil
+				batch.lookup[batch.material_key] = nil
+			else
+				batch = {batch_index = #view.batches, count = 0}
+				view.batches[#view.batches + 1] = batch
+				ensure_batch_capacity(view, #view.batches)
 			end
+
+			batch.material_key = material_key
+			batch.lookup = mesh_batches
+			mesh_batches[material_key] = batch
+		end
+
+		batch.mesh = mesh
+		batch.material = entry.batch_material
+		batch.first_polygon3d = entry.source_entry.polygon3d
+
+		if not view.deferred_layout then
+			if not batch.capacity then allocate_batch_output(view, batch, 2) end
+
+			write_batch_record(view, batch)
 		end
 	end
 
-	output.shadow_instance_world_buffer:CopyData(world_matrices, entry_count * 16 * ffi.sizeof("float"), 0)
+	if not view.deferred_layout and batch.count >= batch.capacity then
+		allocate_batch_output(view, batch, batch.capacity * 2)
+		write_batch_record(view, batch)
+	end
+
+	batch.count = batch.count + 1
+	return batch
+end
+
+local function release_batch(view, batch)
+	batch.count = batch.count - 1
+
+	if batch.count > 0 then return end
+
+	local frame = system.GetFrameNumber()
+	batch.freed_frame = frame
+	view.dead_batch_count = view.dead_batch_count + 1
+	-- the mesh and material may be removed along with their last visual, and
+	-- the draws skip a batch whose mesh is not valid
+	batch.mesh = NULL
+	batch.material = nil
+	batch.first_polygon3d = nil
+	view.batch_free_tail = view.batch_free_tail + 1
+	view.batch_free[view.batch_free_tail] = {batch = batch, frame = frame}
+end
+
+local function layout_batches(view)
+	view.deferred_layout = false
+	view.output_count = 0
+	view.output_waste = 0
+
+	for _, batch in ipairs(view.batches) do
+		batch.capacity = nil
+		allocate_batch_output(view, batch, batch.count + math.ceil(batch.count / 8))
+		write_batch_record(view, batch)
+	end
+end
+
+local function write_entry_world(view, entry)
+	local source_entry = entry.source_entry
+	local world_matrix = source_entry.transform and
+		source_entry.transform:GetWorldMatrix() or
+		entry.component:GetWorldMatrix()
+	world_matrix:CopyToFloatPointer(view.worlds + entry.static_matrix_index * 16)
+	local log = view.world_log
+	log[#log + 1] = entry.static_matrix_index
+end
+
+local function write_entry_record(view, entry, visual_slot)
+	local record = view.entry_records[entry.slot]
+	local aabb = entry.local_aabb
+
+	if aabb then
+		record.local_min_x = aabb.min_x
+		record.local_min_y = aabb.min_y
+		record.local_min_z = aabb.min_z
+		record.local_max_x = aabb.max_x
+		record.local_max_y = aabb.max_y
+		record.local_max_z = aabb.max_z
+	else
+		record.local_min_x = 0
+		record.local_min_y = 0
+		record.local_min_z = 0
+		record.local_max_x = 0
+		record.local_max_y = 0
+		record.local_max_z = 0
+	end
+
+	aabb = entry.source_aabb
+
+	if aabb then
+		record.source_min_x = aabb.min_x
+		record.source_min_y = aabb.min_y
+		record.source_min_z = aabb.min_z
+		record.source_max_x = aabb.max_x
+		record.source_max_y = aabb.max_y
+		record.source_max_z = aabb.max_z
+	else
+		record.source_min_x = 0
+		record.source_min_y = 0
+		record.source_min_z = 0
+		record.source_max_x = 0
+		record.source_max_y = 0
+		record.source_max_z = 0
+	end
+
+	record.visual_index = visual_slot
+	record.entry_index = entry.entry_index - 1
+	record.index_count = entry.index_count
+	record.flags = get_entry_flags(entry)
+	record.instanced_batch_index = entry.instanced_batch_index or INVALID_INDEX
+	record.static_matrix_index = entry.static_matrix_index or INVALID_INDEX
+	local dirty = view.dirty_entries
+	dirty[#dirty + 1] = entry.slot
+end
+
+local function write_visual_record(view, serialized)
+	local record = view.visual_records[serialized.slot]
+	local aabb = serialized.world_aabb
+
+	if aabb then
+		record.min_x = aabb.min_x
+		record.min_y = aabb.min_y
+		record.min_z = aabb.min_z
+		record.max_x = aabb.max_x
+		record.max_y = aabb.max_y
+		record.max_z = aabb.max_z
+	else
+		record.min_x = 0
+		record.min_y = 0
+		record.min_z = 0
+		record.max_x = 0
+		record.max_y = 0
+		record.max_z = 0
+	end
+
+	record.sphere_radius = serialized.sphere_radius
+	record.cull_distance = serialized.cull_distance
+	record.flags = get_visual_flags(serialized, view.visual_flags)
+	record.entry_offset = serialized.entry_offset
+	record.entry_count = serialized.render_entry_count
+	record.shadow_change_version = serialized.shadow_change_version
+	local dirty = view.dirty_visuals
+	dirty[#dirty + 1] = serialized.slot
+end
+
+local function add_visual(dataset, view, component, kind)
+	local dynamic = kind ~= "static"
+	local serialized = serialize_component(component, dynamic)
+	local slot = alloc_visual_slot(view)
+	local count = serialized.render_entry_count
+	serialized.view = view
+	serialized.kind = kind
+	serialized.slot = slot
+	serialized.entry_offset = count > 0 and alloc_entry_span(view, count) or 0
+
+	for i, entry in ipairs(serialized.entries) do
+		entry.slot = serialized.entry_offset + i - 1
+		view.entries[entry.slot + 1] = entry
+
+		if
+			view.is_main and
+			entry.gbuffer_instancing_eligible or
+			not view.is_main and
+			entry.shadow_instancing_eligible
+		then
+			local batch = acquire_batch(view, entry)
+			entry.batch = batch
+			entry.instanced_batch_index = batch.batch_index
+			entry.static_matrix_index = alloc_matrix(view)
+			write_entry_world(view, entry)
+		elseif not view.is_main then
+			-- the shadow draw culls and draws entries it cannot instance on the
+			-- cpu. non-aabb visuals are height displaced past their bounds, so
+			-- they skip the bounds test
+			entry.skip_shadow_aabb_cull = kind == "non_aabb"
+			registry_insert(dataset.shadow_fallback_entries, "shadow_fallback_index", entry)
+		end
+
+		write_entry_record(view, entry, slot)
+	end
+
+	write_visual_record(view, serialized)
+	view.visuals[slot + 1] = serialized
+	view.live_visual_count = view.live_visual_count + 1
+
+	if dynamic then registry_insert(view.dynamic, "dynamic_index", serialized) end
+
+	return serialized
+end
+
+local function remove_visual(dataset, view, serialized)
+	for _, entry in ipairs(serialized.entries) do
+		if entry.batch then
+			release_batch(view, entry.batch)
+			local free = view.matrix_free
+			free[#free + 1] = entry.static_matrix_index
+			entry.batch = nil
+		end
+
+		if entry.shadow_fallback_index then
+			registry_remove(dataset.shadow_fallback_entries, "shadow_fallback_index", entry)
+		end
+
+		view.entries[entry.slot + 1] = DEAD_ENTRY
+		local record = view.entry_records[entry.slot]
+		record.index_count = 0
+		record.instanced_batch_index = INVALID_INDEX
+		record.static_matrix_index = INVALID_INDEX
+		local dirty = view.dirty_entries
+		dirty[#dirty + 1] = entry.slot
+	end
+
+	if serialized.render_entry_count > 0 then
+		free_entry_span(view, serialized.entry_offset, serialized.render_entry_count)
+	end
+
+	local record = view.visual_records[serialized.slot]
+	record.flags = 0
+	record.entry_count = 0
+	local dirty = view.dirty_visuals
+	dirty[#dirty + 1] = serialized.slot
+	view.visuals[serialized.slot + 1] = false
+	view.visual_free[#view.visual_free + 1] = serialized.slot
+	view.live_visual_count = view.live_visual_count - 1
+
+	if serialized.dynamic_index then
+		registry_remove(view.dynamic, "dynamic_index", serialized)
+	end
+end
+
+-- bounds, flags and matrices change in place, the slots stay
+local function refresh_visual(view, serialized)
+	local component = serialized.component
+	local world_aabb = serialize_aabb(component:GetWorldAABB())
+	serialized.world_aabb = world_aabb
+	serialized.sphere_radius = get_aabb_sphere_radius(world_aabb)
+	serialized.visible = component.Visible == true
+	serialized.cast_shadows = component.CastShadows == true
+	serialized.use_occlusion_culling = component.UseOcclusionCulling == true
+	serialized.cull_distance = component:GetCullDistance()
+	serialized.shadow_change_version = component.shadow_change_version or 0
+	write_visual_record(view, serialized)
+
+	for _, entry in ipairs(serialized.entries) do
+		if entry.static_matrix_index then write_entry_world(view, entry) end
+	end
+end
+
+local function update_view_visual(dataset, view, component, field, kind, structure_changed)
+	local serialized = component[field]
+
+	-- left over from a dataset that was rebuilt since
+	if serialized and serialized.view ~= view then serialized = nil end
+
+	if serialized and kind == serialized.kind and not structure_changed then
+		refresh_visual(view, serialized)
+		return serialized
+	end
+
+	if serialized then remove_visual(dataset, view, serialized) end
+
+	serialized = kind and add_visual(dataset, view, component, kind) or nil
+	component[field] = serialized
+	return serialized
+end
+
+local function sync_record_buffer(buffers, name, records, count, capacity, record_size, dirty, full)
+	local buffer = buffers[name]
+
+	if not buffer or buffer.size < capacity * record_size then
+		if buffer then
+			wait_for_pending_culls()
+			remove_buffer(buffer)
+		end
+
+		buffer = create_buffer("gpu_culling_" .. name, capacity * record_size, {"storage_buffer"})
+		buffers[name] = buffer
+		full = true
+	end
+
+	local mapped = buffer:Map()
+
+	if full or #dirty * 4 > count then
+		if count > 0 then ffi.copy(mapped, records, count * record_size) end
+	else
+		for i = 1, #dirty do
+			local index = dirty[i]
+			ffi.copy(mapped + index * record_size, records + index, record_size)
+		end
+	end
+
+	table.clear(dirty)
+end
+
+local function sync_view_buffers(buffers, view, prefix)
+	local full = buffers[prefix .. "_view"] ~= view
+	buffers[prefix .. "_view"] = view
+	sync_record_buffer(
+		buffers,
+		prefix .. "_visual_buffer",
+		view.visual_records,
+		view.visual_count,
+		view.visual_capacity,
+		VISUAL_RECORD_SIZE,
+		view.dirty_visuals,
+		full
+	)
+	sync_record_buffer(
+		buffers,
+		prefix .. "_entry_buffer",
+		view.entry_records,
+		view.entry_count,
+		view.entry_capacity,
+		ENTRY_RECORD_SIZE,
+		view.dirty_entries,
+		full
+	)
+	sync_record_buffer(
+		buffers,
+		prefix .. "_instanced_batch_buffer",
+		view.batch_records,
+		#view.batches,
+		view.batch_capacity,
+		BATCH_RECORD_SIZE,
+		view.dirty_batches,
+		full
+	)
+end
+
+local function prepare_view(view)
+	if view.deferred_layout then layout_batches(view) end
+
+	if view.output_count > view.output_capacity then
+		view.output_capacity = grow_capacity(view.output_count, view.output_capacity)
+	end
+
+	local log = view.world_log
+
+	if #log > math.max(4096, view.matrix_count) then
+		view.world_log_base = view.world_log_base + #log
+		view.world_log = {}
+	end
+end
+
+local function get_instance_capacity(view)
+	return math.max(view.matrix_capacity, view.output_capacity)
+end
+
+-- Brings an output's copy of the view's instance matrices up to date: it
+-- replays the matrices written since its last sync, or copies all of them
+-- when it is new, belongs to an older view or fell behind a log truncation.
+local function sync_output_worlds(view, output, buffer)
+	local log = view.world_log
+	local base = view.world_log_base
+	local serial = base + #log
+
+	if
+		output.world_view == view and
+		output.world_matrix_capacity == view.matrix_capacity and
+		output.world_serial >= base and
+		(
+			serial - output.world_serial
+		) * 4 < view.matrix_count
+	then
+		if output.world_serial == serial then return end
+
+		local mapped = buffer:Map()
+		local worlds = view.worlds
+
+		for i = output.world_serial - base + 1, #log do
+			local index = log[i]
+			ffi.copy(mapped + index * MATRIX_SIZE, worlds + index * 16, MATRIX_SIZE)
+		end
+	else
+		if view.matrix_count > 0 then
+			ffi.copy(buffer:Map(), view.worlds, view.matrix_count * MATRIX_SIZE)
+		end
+
+		output.world_view = view
+		output.world_matrix_capacity = view.matrix_capacity
+	end
+
+	output.world_serial = serial
+end
+
+local function upload_shadow_instance_worlds(output, dataset)
+	sync_output_worlds(dataset.shadow, output, output.shadow_instance_world_buffer)
 end
 
 local function upload_main_instance_worlds(output, dataset)
-	local entry_count = dataset and dataset.main_static_instance_count or 0
-	local generation = dataset and dataset.generation or -1
-	local float_size = ffi.sizeof("float")
-	local byte_count = entry_count * 16 * float_size
-	local dynamic_start = dataset and dataset.main_static_instance_prefix_count or 0
-	local dynamic_count = math.max(entry_count - dynamic_start, 0)
-
-	if entry_count <= 0 then
-		output.main_instance_world_upload_generation = generation
-		return
-	end
-
-	local world_matrices = output.main_instance_world_upload_data
-	local dynamic_change_version = dataset.main_dynamic_world_change_version or 0
-
-	if output.main_instance_world_upload_generation ~= generation then
-		local dataset_buffers = gpu_culling.dataset_buffers
-		local static_worlds = dataset_buffers and
-			dataset_buffers.main_static_instance_worlds or
-			flatten_static_instance_world_upload(dataset)
-		ffi.copy(world_matrices, static_worlds.world_matrices, byte_count)
-		output.main_instance_world_upload_generation = generation
-		output.main_instance_world_upload_change_version = dynamic_change_version
-
-		for _, visual in ipairs(dataset.dynamic_visuals or {}) do
-			for _, entry in ipairs(visual.entries or {}) do
-				if entry.static_matrix_index ~= nil then
-					local component = entry.component
-					local source_entry = entry.source_entry
-					local transform = source_entry and source_entry.transform or nil
-					local world_matrix = transform and
-						transform.GetWorldMatrix and
-						transform:GetWorldMatrix() or
-						component:GetWorldMatrix()
-
-					if world_matrix then
-						world_matrix:CopyToFloatPointer(world_matrices + entry.static_matrix_index * 16)
-					end
-				end
-			end
-		end
-
-		output.main_instance_world_buffer:CopyData(world_matrices, byte_count, 0)
-		return
-	end
-
-	if dynamic_count <= 0 then return end
-
-	if output.main_instance_world_upload_change_version == dynamic_change_version then
-		return
-	end
-
-	for _, visual in ipairs(dataset.dynamic_visuals or {}) do
-		for _, entry in ipairs(visual.entries or {}) do
-			if entry.static_matrix_index ~= nil then
-				local component = entry.component
-				local source_entry = entry.source_entry
-				local transform = source_entry and source_entry.transform or nil
-				local world_matrix = transform and
-					transform.GetWorldMatrix and
-					transform:GetWorldMatrix() or
-					component:GetWorldMatrix()
-
-				if world_matrix then
-					world_matrix:CopyToFloatPointer(world_matrices + entry.static_matrix_index * 16)
-				end
-			end
-		end
-	end
-
-	output.main_instance_world_buffer:CopyData(
-		world_matrices + dynamic_start * 16,
-		dynamic_count * 16 * float_size,
-		dynamic_start * 16 * float_size
-	)
-	output.main_instance_world_upload_change_version = dynamic_change_version
+	sync_output_worlds(dataset.main, output, output.main_instance_world_buffer)
 end
 
 local function ensure_frame_buffers(dataset)
-	if not dataset then
-		clear_frame_buffers()
-		return nil
-	end
-
-	local key = dataset.structure_key
+	local main = dataset.main
+	local key = {
+		entry_count = main.entry_capacity,
+		batch_count = main.batch_capacity,
+		instance_count = get_instance_capacity(main),
+	}
 	local previous = gpu_culling.frame_buffers_capacity
 
 	if
 		gpu_culling.frame_buffers and
-		previous and
 		previous.entry_count >= key.entry_count and
 		previous.batch_count >= key.batch_count and
-		previous.instance_count >= key.instance_count and
-		previous.shadow_instance_count >= key.shadow_instance_count
+		previous.instance_count >= key.instance_count
 	then
 		return gpu_culling.frame_buffers
 	end
@@ -3001,37 +2737,130 @@ local function ensure_frame_buffers(dataset)
 		entry_count = grow_capacity(key.entry_count, previous and previous.entry_count),
 		batch_count = grow_capacity(key.batch_count, previous and previous.batch_count),
 		instance_count = grow_capacity(key.instance_count, previous and previous.instance_count),
-		shadow_instance_count = grow_capacity(key.shadow_instance_count, previous and previous.shadow_instance_count),
 	}
 	clear_frame_buffers()
 	gpu_culling.frame_buffers = build_frame_buffers(dataset, capacity)
 	gpu_culling.frame_buffers_capacity = gpu_culling.frame_buffers and capacity or nil
+	-- cull results name the slots they were culled into, which are gone now
+	gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_generation + 1
+	dataset.generation = gpu_culling.scene_acceleration_generation
 	return gpu_culling.frame_buffers
 end
 
-function gpu_culling.InvalidateSceneAcceleration()
+local function flush_scene_dataset()
+	local dataset = gpu_culling.scene_dataset
+	local device = render.GetDevice()
+
+	if not (device and device:IsValid()) then return end
+
+	local main = dataset.main
+	local shadow = dataset.shadow
+	prepare_view(main)
+	prepare_view(shadow)
+	ensure_frame_buffers(dataset)
+	local buffers = gpu_culling.dataset_buffers or {}
+	gpu_culling.dataset_buffers = buffers
+	sync_view_buffers(buffers, main, "main")
+	sync_view_buffers(buffers, shadow, "shadow")
+	buffers.generation = dataset.generation
+	buffers.layout = {
+		generation = dataset.generation,
+		main_visual_count = main.visual_count,
+		main_entry_count = main.entry_count,
+		main_instanced_batch_count = #main.batches,
+		shadow_visual_count = shadow.visual_count,
+		shadow_entry_capacity = shadow.entry_capacity,
+		shadow_instanced_batch_capacity = shadow.batch_capacity,
+		shadow_instance_capacity = get_instance_capacity(shadow),
+	}
+	gpu_culling.dataset_buffers_generation = dataset.generation
+end
+
+-- Starts an empty dataset. Visuals are added with UpdateSceneVisual and the
+-- next PublishSceneAcceleration lays out the batches and uploads everything.
+function gpu_culling.ResetSceneDataset()
 	gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_generation + 1
-	gpu_culling.scene_acceleration_dirty = true
-	gpu_culling.scene_acceleration = nil
-	gpu_culling.scene_dataset = nil
+	local main = create_view(true)
+	local shadow = create_view(false)
+	gpu_culling.scene_dataset = {
+		generation = gpu_culling.scene_acceleration_generation,
+		main = main,
+		shadow = shadow,
+		main_entries = main.entries,
+		shadow_entries = shadow.entries,
+		main_instanced_batches = main.batches,
+		shadow_instanced_batches = shadow.batches,
+		shadow_fallback_entries = {},
+	}
+end
+
+-- main_kind is false, "static" or "dynamic", shadow_kind is false, "static",
+-- "dynamic" or "non_aabb". structure_changed means the render entries changed,
+-- which re-serializes the visual instead of refreshing it in place.
+function gpu_culling.UpdateSceneVisual(component, main_kind, shadow_kind, structure_changed)
+	local dataset = gpu_culling.scene_dataset
+	local main = update_view_visual(dataset, dataset.main, component, "gpu_main_visual", main_kind, structure_changed)
+	local shadow = update_view_visual(
+		dataset,
+		dataset.shadow,
+		component,
+		"gpu_shadow_visual",
+		shadow_kind,
+		structure_changed
+	)
+	component.main_gpu_entry_offset = main and main.entry_offset or nil
+	component.main_gpu_entry_count = main and main.render_entry_count or nil
+	component.shadow_gpu_entry_offset = shadow and shadow.entry_offset or nil
+	component.shadow_gpu_entry_count = shadow and shadow.render_entry_count or nil
+end
+
+-- dynamic visuals can move every frame without being invalidated (interpolated
+-- physics), so their bounds and matrices are refreshed once per frame
+function gpu_culling.RefreshDynamicSceneVisuals()
+	local dataset = gpu_culling.scene_dataset
+
+	if not dataset then return end
+
+	local main = dataset.main
+	local shadow = dataset.shadow
+
+	if not main.dynamic[1] and not shadow.dynamic[1] then return end
+
+	for _, serialized in ipairs(main.dynamic) do
+		refresh_visual(main, serialized)
+	end
+
+	for _, serialized in ipairs(shadow.dynamic) do
+		refresh_visual(shadow, serialized)
+	end
+
+	flush_scene_dataset()
+end
+
+-- patches leave freed entry spans, output regions and batches behind; once
+-- they make up a large part of the dataset it is cheaper to rebuild it
+do
+	local function is_view_fragmented(view)
+		return view.entry_waste > 4096 and
+			view.entry_waste * 2 > view.entry_count or
+			view.output_waste > 4096 and
+			view.output_waste * 2 > view.output_count or
+			view.dead_batch_count > 256 and
+			view.dead_batch_count * 2 > #view.batches
+	end
+
+	function gpu_culling.NeedsSceneDatasetCompaction()
+		local dataset = gpu_culling.scene_dataset
+
+		if not dataset then return false end
+
+		return is_view_fragmented(dataset.main) or is_view_fragmented(dataset.shadow)
+	end
 end
 
 function gpu_culling.PublishSceneAcceleration(acceleration)
-	-- visual rebuilds the acceleration whenever it is dirty, which a moved aabb can
-	-- mark without invalidating here. The generation is what keeps the gpu buffers
-	-- and cull results in step with the dataset, so each publish needs its own
-	if
-		gpu_culling.published_scene_acceleration_generation == gpu_culling.scene_acceleration_generation
-	then
-		gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_generation + 1
-	end
-
 	gpu_culling.scene_acceleration = acceleration
-	gpu_culling.scene_dataset = build_scene_dataset(acceleration)
-	ensure_dataset_buffers(gpu_culling.scene_dataset)
-	ensure_frame_buffers(gpu_culling.scene_dataset)
-	gpu_culling.scene_acceleration_dirty = false
-	gpu_culling.published_scene_acceleration_generation = gpu_culling.scene_acceleration_generation
+	flush_scene_dataset()
 	return acceleration
 end
 
@@ -3745,18 +3574,6 @@ function gpu_culling.ForEachVisibleEntryIndex(cull_result, callback, prefer_visi
 	end
 
 	return entry_count
-end
-
-function gpu_culling.IsSceneAccelerationDirty()
-	return gpu_culling.scene_acceleration_dirty
-end
-
-function gpu_culling.GetSceneAccelerationGeneration()
-	return gpu_culling.scene_acceleration_generation
-end
-
-function gpu_culling.GetPublishedSceneAccelerationGeneration()
-	return gpu_culling.published_scene_acceleration_generation
 end
 
 return gpu_culling

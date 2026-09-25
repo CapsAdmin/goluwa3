@@ -21,6 +21,8 @@ local Entity = import("goluwa/entities/entity.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local visual = {}
+visual.scene_dirty_components = {}
+visual.scene_version = 0
 
 local function registry_insert(registry, index_field, component)
 	if component[index_field] then return end
@@ -332,9 +334,9 @@ local function ensure_shadow_gpu_cull_output(cache, shadow_map, cascade_idx)
 
 	local dataset_buffers = gpu_culling.GetDatasetBuffers()
 	local layout = dataset_buffers and dataset_buffers.layout or nil
-	local shadow_entry_capacity = math.max(layout and layout.shadow_entry_count or 0, 1)
-	local shadow_instanced_batch_count = math.max(layout and layout.shadow_instanced_batch_count or 0, 1)
-	local shadow_instance_capacity = math.max(layout and layout.shadow_instance_count or 0, 1)
+	local shadow_entry_capacity = math.max(layout and layout.shadow_entry_capacity or 0, 1)
+	local shadow_instanced_batch_count = math.max(layout and layout.shadow_instanced_batch_capacity or 0, 1)
+	local shadow_instance_capacity = math.max(layout and layout.shadow_instance_capacity or 0, 1)
 	local output = cache.gpu_cull_output
 
 	if
@@ -567,11 +569,20 @@ local function invalidate_scene_voxelizer(full_rebuild)
 	voxelizer.InvalidateAll(full_rebuild ~= false)
 end
 
+-- rebuilds the scene acceleration and the gpu dataset from every visual
 local function invalidate_scene_acceleration()
-	visual.scene_acceleration = visual.scene_acceleration or {}
-	visual.scene_acceleration.dirty = true
+	visual.scene_full_rebuild = true
 	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
-	gpu_culling.InvalidateSceneAcceleration()
+	invalidate_scene_voxelizer(true)
+end
+
+-- patches only this component into the scene acceleration and the gpu dataset
+-- on the next ensure. structure means its render entries changed, which
+-- re-serializes it, otherwise its bounds and flags are refreshed in place
+local function mark_scene_component_dirty(component, structure)
+	local dirty = visual.scene_dirty_components
+	dirty[component] = structure or dirty[component] or false
+	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
 	invalidate_scene_voxelizer(true)
 end
 
@@ -701,182 +712,293 @@ local function can_use_shadow_aabb_cull(component, render_entries)
 	return true
 end
 
-local function refresh_scene_acceleration_item(item, component)
-	item.cull_distance = component.CullDistance
-	item.shadow_change_version = component.shadow_change_version or 0
-end
+-- which lists a component belongs to: main is false, "static" or "dynamic",
+-- shadow is false, "static", "dynamic" or "non_aabb". static visuals need
+-- bounds to live in the trees
+local function classify_scene_component(component)
+	if component.scene_removed then return false, false end
 
-local function scene_acceleration_item_changed(prev_item, aabb, tolerance)
-	return not prev_item or
-		not aabb or
-		math.abs(prev_item.min_x - aabb.min_x) > tolerance or
-		math.abs(prev_item.min_y - aabb.min_y) > tolerance or
-		math.abs(prev_item.min_z - aabb.min_z) > tolerance or
-		math.abs(prev_item.max_x - aabb.max_x) > tolerance or
-		math.abs(prev_item.max_y - aabb.max_y) > tolerance or
-		math.abs(prev_item.max_z - aabb.max_z) > tolerance
-end
+	local render_entries = component:GetRenderEntries()
 
-local function rebuild_scene_acceleration()
-	local prev = visual.scene_acceleration
-	local tolerance = visual.AABB_TOLERANCE
-	local items = {}
-	local dynamic_components = {}
-	local shadow_items = {}
-	local dynamic_shadow_components = {}
-	local non_aabb_shadow_components = {}
-	local static_dirty = false
-	local shadow_static_dirty = false
+	if not render_entries[1] then return false, false end
 
-	for _, component in ipairs(Visual.Instances or {}) do
-		local render_entries = component:GetRenderEntries()
+	local shadow_aabb_cull = component.CastShadows and can_use_shadow_aabb_cull(component, render_entries)
 
-		if render_entries[1] then
-			local world_aabb = component:GetWorldAABB()
-			local shadow_aabb_cull = component.CastShadows and can_use_shadow_aabb_cull(component, render_entries)
+	if is_visual_dynamic(component) then
+		return "dynamic",
+		component.CastShadows and (shadow_aabb_cull and "dynamic" or "non_aabb") or false
+	end
 
-			if is_visual_dynamic(component) then
-				dynamic_components[#dynamic_components + 1] = component
+	local bounds = component:GetWorldAABB()
+	local has_bounds = bounds and bounds.min_x <= bounds.max_x or false
+	local shadow_kind = false
 
-				if component.CastShadows then
-					if shadow_aabb_cull then
-						dynamic_shadow_components[#dynamic_shadow_components + 1] = component
-					else
-						non_aabb_shadow_components[#non_aabb_shadow_components + 1] = component
-					end
-				end
-			else
-				local prev_item = component.scene_acceleration_item
-				local aabb_changed = scene_acceleration_item_changed(prev_item, world_aabb, tolerance)
-
-				if aabb_changed then static_dirty = true end
-
-				if aabb_changed then
-					component.scene_acceleration_item = add_scene_acceleration_item(items, component, world_aabb)
-				else
-					refresh_scene_acceleration_item(prev_item, component)
-					items[#items + 1] = prev_item
-				end
-
-				if component.CastShadows then
-					if shadow_aabb_cull then
-						local prev_shadow_item = component.scene_shadow_acceleration_item
-						local shadow_aabb_changed = scene_acceleration_item_changed(prev_shadow_item, world_aabb, tolerance)
-
-						if shadow_aabb_changed then shadow_static_dirty = true end
-
-						if shadow_aabb_changed then
-							component.scene_shadow_acceleration_item = add_scene_acceleration_item(shadow_items, component, world_aabb)
-						else
-							refresh_scene_acceleration_item(prev_shadow_item, component)
-							shadow_items[#shadow_items + 1] = prev_shadow_item
-						end
-					else
-						non_aabb_shadow_components[#non_aabb_shadow_components + 1] = component
-					end
-				end
-			end
+	if component.CastShadows then
+		if not shadow_aabb_cull then
+			shadow_kind = "non_aabb"
+		elseif has_bounds then
+			shadow_kind = "static"
 		end
 	end
 
-	visual.scene_acceleration = visual.scene_acceleration or {}
-	visual.scene_acceleration.items = items
-	visual.scene_acceleration.dynamic_components = dynamic_components
-	visual.scene_acceleration.shadow_items = shadow_items
-	visual.scene_acceleration.dynamic_shadow_components = dynamic_shadow_components
-	visual.scene_acceleration.non_aabb_shadow_components = non_aabb_shadow_components
-	local static_count_same = (prev and prev.static_item_count or -1) == #items
-	local shadow_static_count_same = (prev and prev.shadow_static_item_count or -1) == #shadow_items
+	return has_bounds and "static" or false, shadow_kind, bounds
+end
 
-	if static_dirty or not static_count_same then
-		visual.scene_acceleration.tree = #items > 0 and
-			BVH.Build(
-				items,
-				get_scene_acceleration_item_bounds,
-				get_scene_acceleration_item_centroid,
-				8
-			) or
-			nil
+-- a static item leaves the tree by being marked dead, and joins the pending
+-- list, which every query walks linearly until the next tree rebuild
+local function remove_scene_item(acceleration, pending_field, dead_field, item)
+	if item.pending_index then
+		registry_remove(acceleration[pending_field], "pending_index", item)
+	else
+		item.dead = true
+		acceleration[dead_field] = acceleration[dead_field] + 1
+	end
+end
+
+local function add_pending_scene_item(pending, component, bounds)
+	local item = add_scene_acceleration_item(pending, component, bounds)
+	item.pending_index = #pending
+	return item
+end
+
+local function set_component_scene_items(acceleration, component, main_kind, shadow_kind, bounds)
+	-- fields left over from an acceleration that was rebuilt without this
+	-- component point into lists that no longer exist
+	if component.scene_acceleration_owner ~= acceleration then
+		component.scene_acceleration_owner = acceleration
+		component.scene_acceleration_item = nil
+		component.scene_shadow_acceleration_item = nil
+		component.scene_dynamic_index = nil
+		component.scene_dynamic_shadow_index = nil
+		component.scene_non_aabb_shadow_index = nil
 	end
 
-	if shadow_static_dirty or not shadow_static_count_same then
-		visual.scene_acceleration.shadow_tree = #shadow_items > 0 and
-			BVH.Build(
-				shadow_items,
-				get_scene_acceleration_item_bounds,
-				get_scene_acceleration_item_centroid,
-				8
-			) or
-			nil
+	if component.scene_acceleration_item then
+		remove_scene_item(acceleration, "pending", "dead_count", component.scene_acceleration_item)
+		component.scene_acceleration_item = nil
 	end
 
-	visual.scene_acceleration.static_item_count = #items
-	visual.scene_acceleration.shadow_static_item_count = #shadow_items
-	visual.scene_acceleration.visual_count = #(Visual.Instances or {})
-	visual.scene_acceleration.dirty = false
-	visual.scene_acceleration.visible_frame = nil
-	visual.scene_acceleration.visible_camera = nil
-	visual.scene_acceleration.visible_cull_result = nil
-	visual.scene_acceleration.visible_gpu_cull_result = nil
-	visual.scene_acceleration.visible_gpu_cull_result_frame = nil
-	visual.scene_acceleration.visible_gpu_cull_result_camera = nil
-	visual.scene_acceleration.visible_components = nil
-	visual.scene_acceleration.visible_render_entries = nil
-	visual.scene_acceleration.visible_render_entries_frame = nil
+	registry_remove(acceleration.dynamic_components, "scene_dynamic_index", component)
 
-	if (static_dirty or not static_count_same) and visual.scene_acceleration.tree then
-		visual.scene_acceleration.tree.components = visual.scene_acceleration.tree.items
-		visual.scene_acceleration.tree.items = nil
-		annotate_tree_max_cull_distance(visual.scene_acceleration.tree.root, visual.scene_acceleration.tree.components)
-		visual.scene_acceleration.tree.traversal_context = visual.scene_acceleration.tree.traversal_context or {
-			node_stack = {},
-		}
+	if main_kind == "static" then
+		component.scene_acceleration_item = add_pending_scene_item(acceleration.pending, component, bounds)
+	elseif main_kind == "dynamic" then
+		registry_insert(acceleration.dynamic_components, "scene_dynamic_index", component)
 	end
+
+	if component.scene_shadow_acceleration_item then
+		remove_scene_item(
+			acceleration,
+			"shadow_pending",
+			"shadow_dead_count",
+			component.scene_shadow_acceleration_item
+		)
+		component.scene_shadow_acceleration_item = nil
+	end
+
+	registry_remove(acceleration.dynamic_shadow_components, "scene_dynamic_shadow_index", component)
+	registry_remove(acceleration.non_aabb_shadow_components, "scene_non_aabb_shadow_index", component)
+
+	if shadow_kind == "static" then
+		component.scene_shadow_acceleration_item = add_pending_scene_item(acceleration.shadow_pending, component, bounds)
+	elseif shadow_kind == "dynamic" then
+		registry_insert(acceleration.dynamic_shadow_components, "scene_dynamic_shadow_index", component)
+	elseif shadow_kind == "non_aabb" then
+		registry_insert(acceleration.non_aabb_shadow_components, "scene_non_aabb_shadow_index", component)
+	end
+end
+
+-- a material whose transparency or displacement changes moves its users
+-- between passes, so each material knows which components draw with it
+local function refresh_material_users(component, in_scene)
+	local users = visual.material_users
+
+	if component.scene_material_users == users then
+		for _, material in ipairs(component.scene_materials) do
+			users[material][component] = nil
+		end
+	end
+
+	component.scene_material_users = nil
+	component.scene_materials = nil
+
+	if not in_scene then return end
+
+	local materials = {}
+
+	for _, entry in ipairs(component:GetRenderEntries()) do
+		local material = component:GetResolvedMaterial(entry)
+		local set = users[material]
+
+		if not set then
+			set = setmetatable({}, {__mode = "k"})
+			users[material] = set
+		end
+
+		set[component] = true
+		materials[#materials + 1] = material
+	end
+
+	component.scene_material_users = users
+	component.scene_materials = materials
+end
+
+local function build_scene_tree(items, annotate_shadow_versions)
+	for _, item in ipairs(items) do
+		item.pending_index = nil
+	end
+
+	local tree = BVH.Build(
+		items,
+		get_scene_acceleration_item_bounds,
+		get_scene_acceleration_item_centroid,
+		8
+	)
+
+	if not tree then return nil end
+
+	tree.components = tree.items
+	tree.items = nil
+	annotate_tree_max_cull_distance(tree.root, tree.components)
+
+	if annotate_shadow_versions then
+		annotate_tree_max_shadow_change_version(tree.root, tree.components)
+	end
+
+	tree.traversal_context = {node_stack = {}}
+	return tree
+end
+
+local function rebuild_scene_tree_if_stale(acceleration, tree_field, pending_field, dead_field, annotate_shadow_versions)
+	local tree = acceleration[tree_field]
+	local pending = acceleration[pending_field]
+	local count = tree and #tree.components or 0
 
 	if
-		(
-			shadow_static_dirty or
-			not shadow_static_count_same
-		)
-		and
-		visual.scene_acceleration.shadow_tree
+		#pending <= math.max(256, count * 0.1) and
+		acceleration[dead_field] <= math.max(256, count * 0.25)
 	then
-		visual.scene_acceleration.shadow_tree.components = visual.scene_acceleration.shadow_tree.items
-		visual.scene_acceleration.shadow_tree.items = nil
-		annotate_tree_max_cull_distance(visual.scene_acceleration.shadow_tree.root, visual.scene_acceleration.shadow_tree.components)
-		annotate_tree_max_shadow_change_version(visual.scene_acceleration.shadow_tree.root, visual.scene_acceleration.shadow_tree.components)
-		visual.scene_acceleration.shadow_tree.traversal_context = visual.scene_acceleration.shadow_tree.traversal_context or
-			{
-				node_stack = {},
-			}
+		return
 	end
 
-	return gpu_culling.PublishSceneAcceleration(visual.scene_acceleration)
+	local items = {}
+
+	if tree then
+		for _, item in ipairs(tree.components) do
+			if not item.dead then items[#items + 1] = item end
+		end
+	end
+
+	for _, item in ipairs(pending) do
+		items[#items + 1] = item
+	end
+
+	acceleration[tree_field] = build_scene_tree(items, annotate_shadow_versions)
+	acceleration[pending_field] = {}
+	acceleration[dead_field] = 0
+end
+
+local function reset_visible_caches(acceleration)
+	acceleration.visible_frame = nil
+	acceleration.visible_camera = nil
+	acceleration.visible_cull_result = nil
+	acceleration.visible_gpu_cull_result = nil
+	acceleration.visible_gpu_cull_result_frame = nil
+	acceleration.visible_gpu_cull_result_camera = nil
+	acceleration.visible_components = nil
+	acceleration.visible_render_entries = nil
+	acceleration.visible_render_entries_frame = nil
+end
+
+local function rebuild_scene_acceleration()
+	visual.scene_full_rebuild = false
+	visual.scene_publish_pending = false
+	visual.scene_dirty_components = {}
+	table.clear(Material.scene_dirty_materials)
+	visual.material_users = setmetatable({}, {__mode = "k"})
+	gpu_culling.ResetSceneDataset()
+	local acceleration = {
+		pending = {},
+		shadow_pending = {},
+		dead_count = 0,
+		shadow_dead_count = 0,
+		dynamic_components = {},
+		dynamic_shadow_components = {},
+		non_aabb_shadow_components = {},
+	}
+
+	for _, component in ipairs(Visual.Instances) do
+		local main_kind, shadow_kind, bounds = classify_scene_component(component)
+		set_component_scene_items(acceleration, component, main_kind, shadow_kind, bounds)
+		refresh_material_users(component, main_kind or shadow_kind)
+		gpu_culling.UpdateSceneVisual(component, main_kind, shadow_kind, true)
+	end
+
+	acceleration.tree = build_scene_tree(acceleration.pending, false)
+	acceleration.shadow_tree = build_scene_tree(acceleration.shadow_pending, true)
+	acceleration.pending = {}
+	acceleration.shadow_pending = {}
+	visual.scene_acceleration = acceleration
+	visual.scene_version = visual.scene_version + 1
+	return gpu_culling.PublishSceneAcceleration(acceleration)
+end
+
+local function patch_scene_acceleration(acceleration)
+	visual.scene_publish_pending = false
+	local dirty = visual.scene_dirty_components
+	visual.scene_dirty_components = {}
+	local users = visual.material_users
+
+	for material in pairs(Material.scene_dirty_materials) do
+		for component in pairs(users[material] or {}) do
+			dirty[component] = true
+		end
+	end
+
+	table.clear(Material.scene_dirty_materials)
+
+	for component, structure in pairs(dirty) do
+		-- removed components left the scene in OnRemove
+		if component:IsValid() then
+			local main_kind, shadow_kind, bounds = classify_scene_component(component)
+			set_component_scene_items(acceleration, component, main_kind, shadow_kind, bounds)
+
+			if structure then refresh_material_users(component, main_kind or shadow_kind) end
+
+			gpu_culling.UpdateSceneVisual(component, main_kind, shadow_kind, structure)
+		end
+	end
+
+	rebuild_scene_tree_if_stale(acceleration, "tree", "pending", "dead_count", false)
+	rebuild_scene_tree_if_stale(acceleration, "shadow_tree", "shadow_pending", "shadow_dead_count", true)
+	reset_visible_caches(acceleration)
+	visual.scene_version = visual.scene_version + 1
+	return gpu_culling.PublishSceneAcceleration(acceleration)
 end
 
 local function ensure_scene_acceleration()
-	local acceleration = visual.scene_acceleration
 	visual.ScanWorldAABBs()
+	local acceleration = visual.scene_acceleration
 
 	if
 		not acceleration or
-		acceleration.dirty or
-		acceleration.visual_count ~= #(
-			Visual.Instances or
-			{}
-		)
-		or
-		(
-			gpu_culling.IsSceneAccelerationDirty() and
-			gpu_culling.GetPublishedSceneAccelerationGeneration() ~= gpu_culling.GetSceneAccelerationGeneration()
-		)
+		visual.scene_full_rebuild or
+		gpu_culling.NeedsSceneDatasetCompaction()
 	then
-		-- at most one rebuild per frame: a publish clears the dirty flag and
-		-- stamps the published generation, so anything invalidated after the
-		-- publish is picked up by a later ensure in the same or next frame,
-		-- while the many ensure call sites that see an unchanged scene reuse
-		-- the published acceleration
-		return rebuild_scene_acceleration()
+		acceleration = rebuild_scene_acceleration()
+	elseif
+		visual.scene_publish_pending or
+		next(visual.scene_dirty_components) or
+		next(Material.scene_dirty_materials)
+	then
+		patch_scene_acceleration(acceleration)
+	end
+
+	local frame = system.GetFrameNumber()
+
+	if visual.dynamic_refresh_frame ~= frame then
+		visual.dynamic_refresh_frame = frame
+		gpu_culling.RefreshDynamicSceneVisuals()
 	end
 
 	return acceleration
@@ -978,6 +1100,8 @@ function Visual:Initialize()
 end
 
 function Visual:SetUseOcclusionCulling(enabled)
+	if self.UseOcclusionCulling ~= enabled then mark_scene_component_dirty(self) end
+
 	self.UseOcclusionCulling = enabled
 	refresh_occlusion_registries(self)
 end
@@ -993,7 +1117,21 @@ function Visual:SetCastShadows(enabled)
 	mark_shadow_change(self)
 	visual.ForgetWorldAABB(self)
 	refresh_shadow_registry(self)
-	invalidate_scene_acceleration()
+	mark_scene_component_dirty(self)
+end
+
+function Visual:SetVisible(visible)
+	if self.Visible == visible then return end
+
+	objects.CommitProperty(self, "Visible", visible)
+	mark_scene_component_dirty(self)
+end
+
+function Visual:SetCullDistance(distance)
+	if self.CullDistance == distance then return end
+
+	objects.CommitProperty(self, "CullDistance", distance)
+	mark_scene_component_dirty(self)
 end
 
 function Visual:InvalidateRenderEntries()
@@ -1010,7 +1148,7 @@ function Visual:InvalidateRenderEntries()
 	mark_shadow_change(self)
 	refresh_forward_overlay_registry(self)
 	refresh_translucent_registry(self)
-	invalidate_scene_acceleration()
+	mark_scene_component_dirty(self, true)
 	-- the triangle soup is baked from render entries, so a change in entry
 	-- topology invalidates it even when no transform moved
 	scene_bvh.Invalidate(self)
@@ -1259,19 +1397,24 @@ do
 	-- everything at once
 	visual.DIRTY_BOX_CAP = 4096
 	visual.aabb_signatures = nil
-	visual.aabb_signature_count = -1
 	visual.aabb_scan_frame = -1
 	visual.aabb_forgotten_boxes = {}
-	-- set by OnTransformChanged; lets the scan skip its walk entirely on frames
-	-- where no transform invalidated
+	-- set when a transform with children moved, since any visual below it may
+	-- have moved too, which takes a walk over every visual
 	visual.aabb_changes_pending = false
+	-- visuals that may have new bounds; the scan only looks at these otherwise
+	visual.aabb_scan_candidates = {}
 	visual.aabb_scan_changed = false
 	visual.AABB_CHANGED_BOXES = nil
 	visual.AABB_CHANGED_COMPONENTS = nil
 	visual.AABB_CHANGED_ALL = false
 
-	event.AddListener("OnTransformChanged", "visual_aabb_scan", function()
-		visual.aabb_changes_pending = true
+	event.AddListener("OnTransformChanged", "visual_aabb_scan", function(transform)
+		local owner = transform.Owner
+
+		if owner.visual then visual.aabb_scan_candidates[owner.visual] = true end
+
+		if owner:HasChildren() then visual.aabb_changes_pending = true end
 	end)
 
 	visual.shadow_debug_filter = nil
@@ -1281,7 +1424,6 @@ do
 	visual.shadow_draw_call_stats = setmetatable({}, {__mode = "k"})
 	visual.shadow_gpu_culling_stats = setmetatable({}, {__mode = "k"})
 	visual.shadow_visible_list_cache = setmetatable({}, {__mode = "k"})
-	visual.shadow_prime_seen = setmetatable({}, {__mode = "k"})
 	visual.shadow_prime_versions = setmetatable({}, {__mode = "k"})
 	visual.shadow_visible_list_version = 0
 	visual.shadow_change_version_counter = 0
@@ -1526,44 +1668,48 @@ do
 
 	local function get_shadow_tree_volume_change_version(query_aabb)
 		local acceleration = ensure_scene_acceleration()
-
-		if not (acceleration and acceleration.shadow_tree and acceleration.shadow_tree.root) then
-			return 0
-		end
-
-		local tree = acceleration.shadow_tree
-		local node_stack = tree.traversal_context and tree.traversal_context.node_stack or {}
-		node_stack[1] = tree.root
-		local stack_size = 1
 		local max_version = 0
+		local tree = acceleration.shadow_tree
 
-		while stack_size > 0 do
-			local node = node_stack[stack_size]
-			node_stack[stack_size] = nil
-			stack_size = stack_size - 1
+		if tree then
+			local node_stack = tree.traversal_context.node_stack
+			node_stack[1] = tree.root
+			local stack_size = 1
 
-			if is_aabb_intersecting(node.aabb, query_aabb) then
-				if (node.max_shadow_change_version or 0) > max_version then
-					if node.first then
-						for i = node.first, node.last do
-							local item = tree.components[i]
+			while stack_size > 0 do
+				local node = node_stack[stack_size]
+				node_stack[stack_size] = nil
+				stack_size = stack_size - 1
 
-							if is_aabb_intersecting(item.world_aabb, query_aabb) then
-								max_version = math.max(max_version, item.shadow_change_version or 0)
+				if is_aabb_intersecting(node.aabb, query_aabb) then
+					if (node.max_shadow_change_version or 0) > max_version then
+						if node.first then
+							for i = node.first, node.last do
+								local item = tree.components[i]
+
+								if not item.dead and is_aabb_intersecting(item.world_aabb, query_aabb) then
+									max_version = math.max(max_version, item.shadow_change_version or 0)
+								end
 							end
-						end
-					else
-						if node.right then
-							stack_size = stack_size + 1
-							node_stack[stack_size] = node.right
-						end
+						else
+							if node.right then
+								stack_size = stack_size + 1
+								node_stack[stack_size] = node.right
+							end
 
-						if node.left then
-							stack_size = stack_size + 1
-							node_stack[stack_size] = node.left
+							if node.left then
+								stack_size = stack_size + 1
+								node_stack[stack_size] = node.left
+							end
 						end
 					end
 				end
+			end
+		end
+
+		for _, item in ipairs(acceleration.shadow_pending) do
+			if is_aabb_intersecting(item.world_aabb, query_aabb) then
+				max_version = math.max(max_version, item.shadow_change_version or 0)
 			end
 		end
 
@@ -1865,26 +2011,74 @@ do
 		return gpu_culling.IsAnyVisibleEntryInRange(cull_result, entry_offset, entry_count)
 	end
 
-	-- single per-frame walk of every visual's world aabb. scene_bvh's rebuild
-	-- throttle and the scene acceleration's dirty marking both consume it, so
-	-- the instance list is walked once per frame instead of once per system,
-	-- and movement below AABB_TOLERANCE triggers no rebuilds at all
+	local function scan_component(component, signatures, boxes, components, tolerance)
+		local aabb = component:GetWorldAABB()
+		local sig = signatures[component]
+
+		if not aabb then
+			if sig then
+				signatures[component] = nil
+				boxes[#boxes + 1] = sig
+				components[#components + 1] = component
+			end
+
+			return
+		end
+
+		if not sig then
+			signatures[component] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
+			boxes[#boxes + 1] = signatures[component]
+			components[#components + 1] = component
+			return
+		end
+
+		if
+			math.abs(aabb.min_x - sig[1]) > tolerance or
+			math.abs(aabb.min_y - sig[2]) > tolerance or
+			math.abs(aabb.min_z - sig[3]) > tolerance or
+			math.abs(aabb.max_x - sig[4]) > tolerance or
+			math.abs(aabb.max_y - sig[5]) > tolerance or
+			math.abs(aabb.max_z - sig[6]) > tolerance
+		then
+			boxes[#boxes + 1] = {
+				math.min(sig[1], aabb.min_x),
+				math.min(sig[2], aabb.min_y),
+				math.min(sig[3], aabb.min_z),
+				math.max(sig[4], aabb.max_x),
+				math.max(sig[5], aabb.max_y),
+				math.max(sig[6], aabb.max_z),
+			}
+			components[#components + 1] = component
+			sig[1] = aabb.min_x
+			sig[2] = aabb.min_y
+			sig[3] = aabb.min_z
+			sig[4] = aabb.max_x
+			sig[5] = aabb.max_y
+			sig[6] = aabb.max_z
+		end
+	end
+
+	-- per-frame check of which visuals' world aabbs moved. scene_bvh's rebuild
+	-- throttle and the scene acceleration's dirty marking both consume it. Only
+	-- visuals that were added, invalidated or had their transform moved are
+	-- looked at, unless a transform with children moved, and movement below
+	-- AABB_TOLERANCE triggers no rebuilds at all
 	function visual.ScanWorldAABBs()
 		local frame = system.GetFrameNumber()
 
 		if visual.aabb_scan_frame == frame then return visual.aabb_scan_changed end
 
 		visual.aabb_scan_frame = frame
-		local count = #Visual.Instances
 		local signatures = visual.aabb_signatures
+		local candidates = visual.aabb_scan_candidates
 
 		if
-			not visual.aabb_changes_pending and
 			signatures and
-			count == visual.aabb_signature_count
+			not visual.aabb_changes_pending and
+			not next(candidates)
+			and
+			not visual.aabb_forgotten_boxes[1]
 		then
-			-- steady state: nothing invalidated since the last scan and the visual
-			-- set is intact, so report no change without walking the instances
 			visual.aabb_scan_changed = false
 			visual.AABB_CHANGED_BOXES = nil
 			visual.AABB_CHANGED_COMPONENTS = nil
@@ -1892,7 +2086,9 @@ do
 			return false
 		end
 
+		local full = visual.aabb_changes_pending
 		visual.aabb_changes_pending = false
+		visual.aabb_scan_candidates = {}
 
 		if not signatures then
 			local fresh = {}
@@ -1907,71 +2103,29 @@ do
 			end
 
 			visual.aabb_signatures = fresh
-			visual.aabb_signature_count = count
 			visual.aabb_scan_changed = true
 			visual.AABB_CHANGED_BOXES = nil
 			visual.AABB_CHANGED_COMPONENTS = nil
 			visual.AABB_CHANGED_ALL = true
-
-			if visual.scene_acceleration then
-				visual.scene_acceleration.dirty = true
-			end
-
+			visual.scene_full_rebuild = true
 			return true
 		end
 
 		local tolerance = visual.AABB_TOLERANCE
 		local boxes = visual.aabb_forgotten_boxes
 		visual.aabb_forgotten_boxes = {}
-		visual.aabb_signature_count = count
 		local components = {}
 
-		for _, component in ipairs(Visual.Instances) do
-			local aabb = component:GetWorldAABB()
-			local sig = signatures[component]
-
-			if not aabb then
-				if sig then
-					signatures[component] = nil
-					boxes[#boxes + 1] = sig
-					components[#components + 1] = component
+		if full then
+			for _, component in ipairs(Visual.Instances) do
+				scan_component(component, signatures, boxes, components, tolerance)
+			end
+		else
+			for component in pairs(candidates) do
+				-- a removed visual's box was already forgotten
+				if component:IsValid() and not component.scene_removed then
+					scan_component(component, signatures, boxes, components, tolerance)
 				end
-
-				continue
-			end
-
-			if not sig then
-				-- equal count but a different visual: a swap happened
-				signatures[component] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
-				boxes[#boxes + 1] = signatures[component]
-				components[#components + 1] = component
-
-				continue
-			end
-
-			if
-				math.abs(aabb.min_x - sig[1]) > tolerance or
-				math.abs(aabb.min_y - sig[2]) > tolerance or
-				math.abs(aabb.min_z - sig[3]) > tolerance or
-				math.abs(aabb.max_x - sig[4]) > tolerance or
-				math.abs(aabb.max_y - sig[5]) > tolerance or
-				math.abs(aabb.max_z - sig[6]) > tolerance
-			then
-				boxes[#boxes + 1] = {
-					math.min(sig[1], aabb.min_x),
-					math.min(sig[2], aabb.min_y),
-					math.min(sig[3], aabb.min_z),
-					math.max(sig[4], aabb.max_x),
-					math.max(sig[5], aabb.max_y),
-					math.max(sig[6], aabb.max_z),
-				}
-				components[#components + 1] = component
-				sig[1] = aabb.min_x
-				sig[2] = aabb.min_y
-				sig[3] = aabb.min_z
-				sig[4] = aabb.max_x
-				sig[5] = aabb.max_y
-				sig[6] = aabb.max_z
 			end
 		end
 
@@ -1986,8 +2140,8 @@ do
 			visual.AABB_CHANGED_ALL = true
 		end
 
-		if changed and visual.scene_acceleration then
-			visual.scene_acceleration.dirty = true
+		for _, component in ipairs(components) do
+			mark_scene_component_dirty(component)
 		end
 
 		return changed
@@ -1997,7 +2151,7 @@ do
 	-- it still has geometry, its new one
 	function visual.ForgetWorldAABB(component)
 		local signatures = visual.aabb_signatures
-		visual.aabb_changes_pending = true
+		visual.aabb_scan_candidates[component] = true
 
 		if not signatures or not signatures[component] then return end
 
@@ -2193,42 +2347,46 @@ do
 
 	local function collect_visible_static_components(out, frustum_planes)
 		local acceleration = ensure_scene_acceleration()
-
-		if not (acceleration and acceleration.tree and acceleration.tree.root) then
-			return out
-		end
-
 		local tree = acceleration.tree
-		local node_stack = tree.traversal_context and tree.traversal_context.node_stack or {}
 		local camera_position = get_cull_camera_position()
-		node_stack[1] = tree.root
-		local stack_size = 1
 
-		while stack_size > 0 do
-			local node = node_stack[stack_size]
-			node_stack[stack_size] = nil
-			stack_size = stack_size - 1
+		if tree then
+			local node_stack = tree.traversal_context.node_stack
+			node_stack[1] = tree.root
+			local stack_size = 1
 
-			if
-				is_node_within_cull_distance(node, camera_position) and
-				is_aabb_visible_frustum(node.aabb, frustum_planes)
-			then
-				if node.first then
-					for i = node.first, node.last do
-						append_visible_static_item(out, tree.components[i], frustum_planes)
-					end
-				else
-					if node.right then
-						stack_size = stack_size + 1
-						node_stack[stack_size] = node.right
-					end
+			while stack_size > 0 do
+				local node = node_stack[stack_size]
+				node_stack[stack_size] = nil
+				stack_size = stack_size - 1
 
-					if node.left then
-						stack_size = stack_size + 1
-						node_stack[stack_size] = node.left
+				if
+					is_node_within_cull_distance(node, camera_position) and
+					is_aabb_visible_frustum(node.aabb, frustum_planes)
+				then
+					if node.first then
+						for i = node.first, node.last do
+							local item = tree.components[i]
+
+							if not item.dead then append_visible_static_item(out, item, frustum_planes) end
+						end
+					else
+						if node.right then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = node.right
+						end
+
+						if node.left then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = node.left
+						end
 					end
 				end
 			end
+		end
+
+		for _, item in ipairs(acceleration.pending) do
+			append_visible_static_item(out, item, frustum_planes)
 		end
 
 		return out
@@ -2236,42 +2394,48 @@ do
 
 	local function collect_shadow_visible_static_components(out, shadow_map, cascade_idx)
 		local acceleration = ensure_scene_acceleration()
-
-		if not (acceleration and acceleration.shadow_tree and acceleration.shadow_tree.root) then
-			return out
-		end
-
 		local tree = acceleration.shadow_tree
-		local node_stack = tree.traversal_context and tree.traversal_context.node_stack or {}
 		local camera_position = get_cull_camera_position()
-		node_stack[1] = tree.root
-		local stack_size = 1
 
-		while stack_size > 0 do
-			local node = node_stack[stack_size]
-			node_stack[stack_size] = nil
-			stack_size = stack_size - 1
+		if tree then
+			local node_stack = tree.traversal_context.node_stack
+			node_stack[1] = tree.root
+			local stack_size = 1
 
-			if
-				is_node_within_cull_distance(node, camera_position) and
-				shadow_map:IsWorldAABBVisible(cascade_idx, node.aabb)
-			then
-				if node.first then
-					for i = node.first, node.last do
-						append_shadow_visible_static_item(out, tree.components[i], shadow_map, cascade_idx)
-					end
-				else
-					if node.right then
-						stack_size = stack_size + 1
-						node_stack[stack_size] = node.right
-					end
+			while stack_size > 0 do
+				local node = node_stack[stack_size]
+				node_stack[stack_size] = nil
+				stack_size = stack_size - 1
 
-					if node.left then
-						stack_size = stack_size + 1
-						node_stack[stack_size] = node.left
+				if
+					is_node_within_cull_distance(node, camera_position) and
+					shadow_map:IsWorldAABBVisible(cascade_idx, node.aabb)
+				then
+					if node.first then
+						for i = node.first, node.last do
+							local item = tree.components[i]
+
+							if not item.dead then
+								append_shadow_visible_static_item(out, item, shadow_map, cascade_idx)
+							end
+						end
+					else
+						if node.right then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = node.right
+						end
+
+						if node.left then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = node.left
+						end
 					end
 				end
 			end
+		end
+
+		for _, item in ipairs(acceleration.shadow_pending) do
+			append_shadow_visible_static_item(out, item, shadow_map, cascade_idx)
 		end
 
 		return out
@@ -2279,52 +2443,64 @@ do
 
 	local function collect_volume_visible_static_components(out, query_aabb)
 		local acceleration = ensure_scene_acceleration()
-
-		if not (acceleration and acceleration.tree and acceleration.tree.root) then
-			return out
-		end
-
 		local tree = acceleration.tree
-		local node_stack = tree.traversal_context and tree.traversal_context.node_stack or {}
 		local camera_position = get_cull_camera_position()
-		node_stack[1] = tree.root
-		local stack_size = 1
 
-		while stack_size > 0 do
-			local node = node_stack[stack_size]
-			node_stack[stack_size] = nil
-			stack_size = stack_size - 1
+		if tree then
+			local node_stack = tree.traversal_context.node_stack
+			node_stack[1] = tree.root
+			local stack_size = 1
 
-			if
-				is_node_within_cull_distance(node, camera_position) and
-				(
-					not query_aabb or
-					is_aabb_intersecting(node.aabb, query_aabb)
-				)
-			then
-				if node.first then
-					for i = node.first, node.last do
-						append_volume_visible_static_item(out, tree.components[i], query_aabb)
-					end
-				else
-					if node.right then
-						stack_size = stack_size + 1
-						node_stack[stack_size] = node.right
-					end
+			while stack_size > 0 do
+				local node = node_stack[stack_size]
+				node_stack[stack_size] = nil
+				stack_size = stack_size - 1
 
-					if node.left then
-						stack_size = stack_size + 1
-						node_stack[stack_size] = node.left
+				if
+					is_node_within_cull_distance(node, camera_position) and
+					(
+						not query_aabb or
+						is_aabb_intersecting(node.aabb, query_aabb)
+					)
+				then
+					if node.first then
+						for i = node.first, node.last do
+							local item = tree.components[i]
+
+							if not item.dead then
+								append_volume_visible_static_item(out, item, query_aabb)
+							end
+						end
+					else
+						if node.right then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = node.right
+						end
+
+						if node.left then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = node.left
+						end
 					end
 				end
 			end
 		end
 
+		for _, item in ipairs(acceleration.pending) do
+			append_volume_visible_static_item(out, item, query_aabb)
+		end
+
 		return out
 	end
 
-	function visual.InvalidateSceneAcceleration()
-		invalidate_scene_acceleration()
+	-- with a component only that component is patched, without one the whole
+	-- scene is rebuilt
+	function visual.InvalidateSceneAcceleration(component)
+		if component then
+			mark_scene_component_dirty(component)
+		else
+			invalidate_scene_acceleration()
+		end
 	end
 
 	local function get_visible_main_gpu_cull_result(include_visible_entry_indices)
@@ -2723,6 +2899,47 @@ do
 		return visual.shadow_visible_list_version or 0
 	end
 
+	-- the bounds of every shadow caster in the scene, or nil without any
+	function visual.GetShadowCasterWorldAABB()
+		local acceleration = ensure_scene_acceleration()
+		local out = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+		local tree = acceleration.shadow_tree
+
+		-- the tree's bounds still cover items that died since it was built,
+		-- which only makes them conservative
+		if tree then AABB.Expand(out, tree.root.aabb) end
+
+		for _, item in ipairs(acceleration.shadow_pending) do
+			AABB.Expand(out, item.world_aabb)
+		end
+
+		for _, component in ipairs(acceleration.dynamic_shadow_components) do
+			local box = component:GetWorldAABB()
+
+			if box then AABB.Expand(out, box) end
+		end
+
+		for _, component in ipairs(acceleration.non_aabb_shadow_components) do
+			local box = component:GetWorldAABB()
+
+			if box then AABB.Expand(out, box) end
+		end
+
+		return out.min_x <= out.max_x and out or nil
+	end
+
+	-- bumped whenever a visual joins, leaves or changes in the scene
+	function visual.GetSceneVersion()
+		ensure_scene_acceleration()
+		return visual.scene_version
+	end
+
+	-- material -> set of components in the scene drawing with it
+	function visual.GetSceneMaterialUsers()
+		ensure_scene_acceleration()
+		return visual.material_users
+	end
+
 	function visual.IsOcclusionCullingEnabled()
 		return visual.occlusion_culling_enabled
 	end
@@ -3060,8 +3277,10 @@ function Visual:OnChildRemove()
 end
 
 function Visual:OnAdd()
+	self.scene_removed = false
+	visual.aabb_scan_candidates[self] = true
 	mark_shadow_change(self)
-	invalidate_scene_acceleration()
+	mark_scene_component_dirty(self, true)
 	refresh_visual_registries(self)
 end
 
@@ -3069,9 +3288,20 @@ function Visual:OnRemove()
 	registry_remove(visual.shadow_casters, "shadow_registry_index", self)
 	registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", self)
 	registry_remove(visual.translucent_components, "translucent_registry_index", self)
+	self.scene_removed = true
 	self.RenderEntries = {}
 	self:InvalidateRenderEntries()
-	invalidate_scene_acceleration()
+	-- a removed component is wiped before the next patch could see it, so it
+	-- leaves the scene now
+	visual.scene_dirty_components[self] = nil
+	local acceleration = visual.scene_acceleration
+
+	if acceleration then
+		set_component_scene_items(acceleration, self, false, false)
+		refresh_material_users(self, false)
+		gpu_culling.UpdateSceneVisual(self, false, false, true)
+		visual.scene_publish_pending = true
+	end
 end
 
 function Visual:OnFirstCreated()
@@ -3265,19 +3495,14 @@ function Visual:OnFirstCreated()
 			return
 		end
 
-		local seen = visual.shadow_prime_seen
-		local default_material = render3d.GetDefaultMaterial()
-		table.clear(seen)
+		ensure_scene_acceleration()
 
-		for _, component in ipairs(visual.shadow_casters) do
-			local material_override = component.MaterialOverride
-
-			for _, entry in ipairs(component:GetRenderEntries()) do
-				local material = material_override or entry.material or default_material
-
-				if material and not seen[material] then
-					seen[material] = true
+		for material, users in pairs(visual.material_users) do
+			for component in pairs(users) do
+				if component.CastShadows then
 					shadow_map:PrimeMaterial(material)
+
+					break
 				end
 			end
 		end

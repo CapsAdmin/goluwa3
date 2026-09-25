@@ -44,7 +44,9 @@ function AccelerationStructure.QueryBuildSize(device, build_info)
 	tonumber(sizes.buildScratchSize)
 end
 
-function AccelerationStructure.New(device, type, buffer)
+-- offset and size place it inside a larger buffer, so many small structures
+-- can share one allocation
+function AccelerationStructure.New(device, type, buffer, offset, size)
 	local create_as = device:GetExtension("vkCreateAccelerationStructureKHR")
 	local ptr = VkAccelerationStructureBox()
 	vulkan.assert(
@@ -55,8 +57,8 @@ function AccelerationStructure.New(device, type, buffer)
 				pNext = nil,
 				createFlags = 0,
 				buffer = buffer and buffer.ptr[0] or nil,
-				offset = 0,
-				size = buffer and buffer.size or 0,
+				offset = offset or 0,
+				size = size or buffer and buffer.size or 0,
 				type = as_types[type],
 				deviceAddress = 0,
 			},
@@ -70,7 +72,7 @@ function AccelerationStructure.New(device, type, buffer)
 		device = device,
 		type = as_types[type],
 		buffer = buffer,
-		size = buffer and buffer.size or 0,
+		size = size or buffer and buffer.size or 0,
 		create_as = create_as,
 		destroy_as = device:GetExtension("vkDestroyAccelerationStructureKHR"),
 		get_as_address = device:TryGetExtension("vkGetAccelerationStructureDeviceAddressKHR"),

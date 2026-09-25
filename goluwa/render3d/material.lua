@@ -12,10 +12,14 @@ local Material = objects.CreateTemplate("render3d_material")
 Material:StartStorable()
 Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "DetectGrass"})
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
-Material:GetSet("HeightTexture", nil, {type = "render_texture"})
+Material:GetSet("HeightTexture", nil, {type = "render_texture", callback = "InvalidateSceneKey"})
 Material:GetSet("MetallicRoughnessTexture", nil, {type = "render_texture"})
 Material:GetSet("AmbientOcclusionTexture", nil, {type = "render_texture"})
-Material:GetSet("EmissiveTexture", nil, {type = "render_texture"})
+Material:GetSet(
+	"EmissiveTexture",
+	nil,
+	{type = "render_texture", callback = "InvalidateEmission"}
+)
 Material:GetSet("Albedo2Texture", nil, {type = "render_texture"})
 Material:GetSet("Normal2Texture", nil, {type = "render_texture"})
 Material:GetSet("BlendTexture", nil, {type = "render_texture"})
@@ -34,7 +38,11 @@ Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
 Material:GetSet("OpacityTexture", nil, {type = "render_texture"})
 -- multipliers
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0))
-Material:GetSet("EmissiveMultiplier", Color(1.0, 1.0, 1.0, 1.0))
+Material:GetSet(
+	"EmissiveMultiplier",
+	Color(1.0, 1.0, 1.0, 1.0),
+	{callback = "InvalidateEmission"}
+)
 -- terrain layers: world space texture scale in meters, roughness and ambient occlusion multipliers per layer
 Material:GetSet("TerrainLayerScales", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerRoughness", Color(1.0, 1.0, 1.0, 1.0))
@@ -45,7 +53,7 @@ Material:GetSet("RoughnessMultiplier", 1.0)
 Material:GetSet("SpecularMultiplier", 1.0)
 Material:GetSet("NormalMapMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
-Material:GetSet("HeightScale", 0.0)
+Material:GetSet("HeightScale", 0.0, {callback = "InvalidateSceneKey"})
 Material:GetSet("HeightCenter", 0.0)
 Material:GetSet("HeightLayers", 24)
 -- crysis style detail map: rg offsets the normal, alpha multiplies albedo
@@ -70,13 +78,13 @@ Material:GetSet("GrassWidth", 0.02)
 -- other
 -- how much light passes through the surface, bent by IndexOfRefraction (0..1,
 -- gltf's transmission). the transmitted light is tinted by the albedo
-Material:GetSet("Refraction", 0.0)
+Material:GetSet("Refraction", 0.0, {callback = "InvalidateSceneKey"})
 Material:GetSet("IndexOfRefraction", 1.5)
 -- how far light travels inside, in world units. 0 is a thin wall (a window,
 -- a bubble) and below 0 takes the object's thinnest extent
 Material:GetSet("RefractionThickness", -1.0)
 Material:GetSet("AlphaCutoff", 0.5)
-Material:GetSet("IgnoreZ", false)
+Material:GetSet("IgnoreZ", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
 -- flags
 Material:GetSet("Flags", 0)
@@ -175,9 +183,26 @@ end
 
 -- bumped whenever any material's flags change
 Material.flags_generation = 0
+-- materials whose transparency, depth test or displacement changed, which
+-- moves the visuals drawing with them between passes
+Material.scene_dirty_materials = Material.scene_dirty_materials or {}
+
+function Material:InvalidateSceneKey()
+	Material.scene_dirty_materials[self] = true
+end
+
+-- materials whose emission changed, which the ray tracing soup bakes per
+-- triangle
+Material.emission_dirty_materials = Material.emission_dirty_materials or {}
+
+function Material:InvalidateEmission()
+	Material.emission_dirty_materials[self] = true
+end
 
 function Material:InvalidateFlags()
 	Material.flags_generation = Material.flags_generation + 1
+	self:InvalidateSceneKey()
+	self:InvalidateEmission()
 	local flags = 0
 
 	for i, flag_name in ipairs(FLAGS) do

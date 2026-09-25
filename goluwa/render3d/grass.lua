@@ -556,12 +556,14 @@ local surface_count = 0
 local function collect_surfaces()
 	local out = {}
 
-	for _, component in ipairs(Visual.Instances) do
-		for _, entry in ipairs(component:GetRenderEntries()) do
-			local material = component:GetResolvedMaterial(entry)
-
-			if material:GetGrass() then
-				out[#out + 1] = {component = component, entry = entry, material = material}
+	for material, components in pairs(Visual.Library.GetSceneMaterialUsers()) do
+		if material:GetGrass() then
+			for component in pairs(components) do
+				for _, entry in ipairs(component:GetRenderEntries()) do
+					if component:GetResolvedMaterial(entry) == material then
+						out[#out + 1] = {component = component, entry = entry, material = material}
+					end
+				end
 			end
 		end
 	end
@@ -570,7 +572,7 @@ local function collect_surfaces()
 end
 
 local function get_surfaces()
-	local key = render3d.GetGPUCulling().scene_acceleration_generation .. ":" .. Material.flags_generation
+	local key = Visual.Library.GetSceneVersion() .. ":" .. Material.flags_generation
 
 	if key ~= surfaces_key then
 		surfaces = collect_surfaces()

@@ -88,7 +88,7 @@ function META:InvalidateMatrices()
 		local visual_library = self.Owner.visual.Library
 
 		if visual_library and visual_library.InvalidateSceneAcceleration then
-			visual_library.InvalidateSceneAcceleration()
+			visual_library.InvalidateSceneAcceleration(self.Owner.visual)
 		end
 
 		if visual_library and visual_library.TouchShadowChange then
@@ -104,7 +104,7 @@ function META:InvalidateMatrices()
 			local visual_library = visual.Library
 
 			if visual_library and visual_library.InvalidateSceneAcceleration then
-				visual_library.InvalidateSceneAcceleration()
+				visual_library.InvalidateSceneAcceleration(visual)
 			end
 
 			if visual_library and visual_library.TouchShadowChange then

@@ -1,6 +1,7 @@
--- The per-visual cache and the lazy top tree in scene_bvh are pure
--- optimizations: they decide what to recompute, not what the result is. So
--- a warm (incremental, lazy top) build and a cold (full) build of the same
+-- The per-visual cache, the stable per-visual ranges and the incrementally
+-- updated top tree in scene_bvh are pure optimizations: they decide what to
+-- recompute, not what the result is. So a warm (incremental) build and a
+-- cold (full) build of the same
 -- scene state must produce the same triangle soup, the same node count, the
 -- same global bounds, and both node trees must be valid (every node's bounds
 -- enclose its children). If that ever breaks, occlusion and shadows silently
@@ -106,39 +107,38 @@ T.Test3D("Graphics render3d scene bvh incremental build matches full rebuild", f
 
 	local function snapshot()
 		return ffi.string(scene_bvh.debug_nodes, scene_bvh.debug_node_count * 32),
-		ffi.string(scene_bvh.triangles, scene_bvh.triangle_count * TRI_BYTES)
+		ffi.string(scene_bvh.triangles, scene_bvh.soup_triangle_count * TRI_BYTES)
 	end
 
-	-- cold build: the cache is empty, everything is derived from scratch and
-	-- the top tree gets a fresh sah
-	scene_bvh.visual_cache = {}
-	scene_bvh.Build()
+	-- cold build: the soup is laid out from scratch and the top tree gets a
+	-- fresh sah
+	scene_bvh.Build(true)
 	local nodes_a = snapshot()
 	T(scene_bvh.triangle_count == 72)["=="](true)
 	T(tree_valid(scene_bvh.debug_nodes))["=="](true)
-	-- move the mover, then a warm build: static visuals reuse their cached
-	-- blocks, the mover is re-derived, and the top tree takes the lazy path
-	-- (bounds re-derived, split structure kept)
+	-- move the mover, then a warm build: static visuals keep their blocks,
+	-- the mover is baked again in place, and the top tree is refitted (split
+	-- structure kept)
 	mover.transform:SetPosition(Vec3(6, 4, -6))
 	scene_bvh.Build()
 	local nodes_b, tris_b = snapshot()
 	local node_count_b = scene_bvh.debug_node_count
 	local root_bounds_b = ffi.string(ffi.cast("float*", scene_bvh.debug_nodes) + 2, 24)
-	T(scene_bvh.top_lazy_count == 1)["=="](true)
+	T(scene_bvh.top_incremental_count == 1)["=="](true)
 	T(tree_valid(scene_bvh.debug_nodes))["=="](true)
-	-- full rebuild of the same scene state (forced, bypasses the lazy path)
+	-- full rebuild of the same scene state
 	scene_bvh.Build(true)
 	local nodes_c, tris_c = snapshot()
 	local node_count_c = scene_bvh.debug_node_count
 	local root_bounds_c = ffi.string(ffi.cast("float*", scene_bvh.debug_nodes) + 2, 24)
-	T(scene_bvh.top_lazy_count == 0)["=="](true)
+	T(scene_bvh.top_incremental_count == 0)["=="](true)
 	T(tree_valid(scene_bvh.debug_nodes))["=="](true)
 	-- the triangle soup is independent of the top tree shape
 	T(tris_b == tris_c)["=="](true)
 	-- both trees cover the same geometry
 	T(node_count_b == node_count_c)["=="](true)
 	T(root_bounds_b == root_bounds_c)["=="](true)
-	-- the lazy tree is not required to match the fresh sah byte for byte,
+	-- the refitted tree is not required to match the fresh sah byte for byte,
 	-- but the move must have changed the tree
 	T(nodes_b ~= nodes_a)["=="](true)
 

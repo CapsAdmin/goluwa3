@@ -1301,27 +1301,13 @@ local scene_bounds_cache = {version = nil, aabb = nil}
 
 local function get_shadow_scene_world_aabb()
 	local library = Visual.Library
-	local casters = library and library.shadow_casters
-	local count = casters and #casters or 0
-
-	if count == 0 then return nil end
-
 	local version = library.shadow_change_version_counter or 0
 
 	if scene_bounds_cache.version == version then return scene_bounds_cache.aabb end
 
-	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-
-	for i = 1, count do
-		local box = casters[i]:GetWorldAABB()
-
-		if box then AABB.Expand(aabb, box) end
-	end
-
-	local result = aabb.min_x <= aabb.max_x and aabb or nil
 	scene_bounds_cache.version = version
-	scene_bounds_cache.aabb = result
-	return result
+	scene_bounds_cache.aabb = library.GetShadowCasterWorldAABB()
+	return scene_bounds_cache.aabb
 end
 
 local function get_shadow_volume_change_version(shadow_map, cascade_idx)
@@ -2036,9 +2022,9 @@ end
 local function get_shadow_cull_output_requirements()
 	local dataset_buffers = gpu_culling.GetDatasetBuffers and gpu_culling.GetDatasetBuffers() or nil
 	local layout = dataset_buffers and dataset_buffers.layout or nil
-	return math.max(layout and layout.shadow_entry_count or 0, 1),
-	math.max(layout and layout.shadow_instanced_batch_count or 0, 1),
-	math.max(layout and layout.shadow_instance_count or 0, 1)
+	return math.max(layout and layout.shadow_entry_capacity or 0, 1),
+	math.max(layout and layout.shadow_instanced_batch_capacity or 0, 1),
+	math.max(layout and layout.shadow_instance_capacity or 0, 1)
 end
 
 -- queries read their output back on the cpu while shadow draws consume theirs on the
@@ -2223,9 +2209,9 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		if
 			self.mode ~= "point" and
 			self.soup_cascade_from <= self.cascade_count and
-			self.expander.version ~= scene_bvh.version
+			self.expander.version ~= scene_bvh.soup_version
 		then
-			self.expander.version = scene_bvh.version
+			self.expander.version = scene_bvh.soup_version
 			local vertex_count, position_buffer = scene_bvh.ExpandPositions(self.cmd, self.expander)
 
 			if vertex_count > 0 then

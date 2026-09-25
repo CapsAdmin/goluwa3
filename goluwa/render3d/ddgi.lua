@@ -1009,14 +1009,16 @@ do
 	local buffer_versions = {}
 
 	function ddgi.GetEmitters()
-		if emitters.version == scene_bvh.version then return emitters end
+		if emitters.version == scene_bvh.soup_version then return emitters end
 
-		local tris = scene_bvh.triangles
 		local count, weight = 0, 0
 
 		for _, block in ipairs(scene_bvh.emissive_blocks) do
-			for i = block.tri_base, block.tri_base + block.total - 1 do
-				local tri = tris[i]
+			local tris = block.world_block
+
+			for j = 0, block.total - 1 do
+				local tri = tris[j]
+				local i = block.tri_base + j
 				local luminance = 0.2126 * tri.emissive[0] + 0.7152 * tri.emissive[1] + 0.0722 * tri.emissive[2]
 
 				if luminance > 0 then
@@ -1048,7 +1050,7 @@ do
 
 		emitters.count = count
 		emitters.weight = weight
-		emitters.version = scene_bvh.version
+		emitters.version = scene_bvh.soup_version
 		return emitters
 	end
 
@@ -1339,7 +1341,8 @@ layout(location = 0) rayPayloadInEXT Payload payload;
 void main()
 {
     payload.hit_t = gl_HitTEXT;
-    payload.primitive = uint(gl_PrimitiveID);
+    // one instance per visual, its custom index is the visual's soup range start
+    payload.primitive = uint(gl_InstanceCustomIndexEXT) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(gl_PrimitiveID);
 }
 ]]
 local miss_glsl = [[

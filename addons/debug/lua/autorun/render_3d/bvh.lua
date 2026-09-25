@@ -151,7 +151,7 @@ local function draw_bvh_stats(x, y)
 	local triangle_count = scene_bvh.triangle_count or 0
 	local build_time = scene_bvh.build_time or 0
 	local version = scene_bvh.version or 0
-	local top_lazy = scene_bvh.top_lazy_count or 0
+	local top_incremental = scene_bvh.top_incremental_count
 	local dirty = scene_bvh.dirty_since
 	local now = system.GetElapsedTime()
 	local block_height = 176
@@ -177,7 +177,7 @@ local function draw_bvh_stats(x, y)
 		foreground_color = white,
 	}
 	render2d.DrawText{
-		text = string.format("Build time: %.2fs  Top lazy: %d", build_time, top_lazy),
+		text = string.format("Build time: %.2fs  Top incremental: %d", build_time, top_incremental),
 		x = x + 8,
 		y = y + 48,
 		foreground_color = white,

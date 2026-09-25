@@ -128,6 +128,17 @@ local function create_shadow_query_output(label_suffix)
 	return gpu_culling.CreateShadowQueryOutput("test_shadow_query_" .. tostring(label_suffix or "output"))
 end
 
+local function count_shadow_items()
+	local acceleration = gpu_culling.GetSceneAcceleration()
+	local count = #acceleration.shadow_pending
+
+	for _, item in ipairs(acceleration.shadow_tree and acceleration.shadow_tree.components or {}) do
+		if not item.dead then count = count + 1 end
+	end
+
+	return count
+end
+
 local function list_contains(list, value)
 	for _, item in ipairs(list) do
 		if item == value then return true end
@@ -216,15 +227,14 @@ T.Test3D("Graphics render3d gpu culling scaffold tracks scene acceleration inval
 	entity:AddComponent("transform")
 	entity.transform:SetPosition(Vec3(0, 0, -6))
 	attach_visual(entity, polygon3d, material)
-	local previous_generation = gpu_culling.GetSceneAccelerationGeneration()
-	Visual.Library.InvalidateSceneAcceleration()
-	T(gpu_culling.IsSceneAccelerationDirty())["=="](true)
-	T(gpu_culling.GetSceneAccelerationGeneration() > previous_generation)["=="](true)
 	Visual.Library.GetVisibleVisuals()
-	T(gpu_culling.IsSceneAccelerationDirty())["=="](false)
+	local previous_dataset = gpu_culling.GetSceneDataset()
+	Visual.Library.InvalidateSceneAcceleration()
+	Visual.Library.GetVisibleVisuals()
 	T(gpu_culling.GetSceneAcceleration() ~= nil)["=="](true)
 	T(gpu_culling.GetSceneDataset() ~= nil)["=="](true)
-	T(gpu_culling.GetPublishedSceneAccelerationGeneration())["=="](gpu_culling.GetSceneAccelerationGeneration())
+	T(gpu_culling.GetSceneDataset().generation > previous_dataset.generation)["=="](true)
+	T(gpu_culling.GetDatasetBuffersGeneration())["=="](gpu_culling.GetSceneDataset().generation)
 	entity:Remove()
 end)
 
@@ -239,18 +249,18 @@ T.Test3D("Graphics render3d gpu culling shadow culling re-entry keeps shadow ite
 	visual:SetCastShadows(false)
 	Visual.Library.InvalidateSceneAcceleration()
 	Visual.Library.GetVisibleVisuals()
-	T(#(gpu_culling.GetSceneAcceleration().shadow_items or {}))["=="](0)
+	T(count_shadow_items())["=="](0)
 	-- entering shadow culling with an unchanged static aabb must register the item
 	visual:SetCastShadows(true)
 	Visual.Library.GetVisibleVisuals()
-	T(#(gpu_culling.GetSceneAcceleration().shadow_items or {}))["=="](1)
+	T(count_shadow_items())["=="](1)
 	-- leaving and re-entering shadow culling reuses the stale back reference
 	visual:SetCastShadows(false)
 	Visual.Library.GetVisibleVisuals()
-	T(#(gpu_culling.GetSceneAcceleration().shadow_items or {}))["=="](0)
+	T(count_shadow_items())["=="](0)
 	visual:SetCastShadows(true)
 	Visual.Library.GetVisibleVisuals()
-	T(#(gpu_culling.GetSceneAcceleration().shadow_items or {}))["=="](1)
+	T(count_shadow_items())["=="](1)
 	entity:Remove()
 end)
 
@@ -438,17 +448,16 @@ T.Test3D("Graphics render3d gpu culling scene dataset serializes static and dyna
 	Visual.Library.GetVisibleVisuals()
 	local dataset = gpu_culling.GetSceneDataset()
 	T(dataset ~= nil)["=="](true)
-	T(dataset.total_visual_count)["=="](2)
-	T(dataset.static_visual_count)["=="](1)
-	T(dataset.dynamic_visual_count)["=="](1)
-	T(dataset.static_entry_count)["=="](1)
-	T(dataset.dynamic_entry_count)["=="](1)
-	T(dataset.static_visuals[1].dynamic)["=="](false)
-	T(dataset.dynamic_visuals[1].dynamic)["=="](true)
-	T(dataset.static_visuals[1].render_entry_count)["=="](1)
-	T(dataset.dynamic_visuals[1].render_entry_count)["=="](1)
-	T(dataset.static_visuals[1].entries[1].polygon_guid ~= nil)["=="](true)
-	T(dataset.static_visuals[1].entries[1].material_guid ~= nil)["=="](true)
+	local static_visual = static_entity.visual.gpu_main_visual
+	local dynamic_visual = dynamic_entity.visual.gpu_main_visual
+	T(dataset.main.live_visual_count)["=="](2)
+	T(#dataset.main.dynamic)["=="](1)
+	T(static_visual.dynamic)["=="](false)
+	T(dynamic_visual.dynamic)["=="](true)
+	T(static_visual.render_entry_count)["=="](1)
+	T(dynamic_visual.render_entry_count)["=="](1)
+	T(static_visual.entries[1].polygon_guid ~= nil)["=="](true)
+	T(static_visual.entries[1].material_guid ~= nil)["=="](true)
 	static_entity:Remove()
 	dynamic_entity:Remove()
 end)
@@ -496,7 +505,7 @@ T.Test3D("Graphics render3d gpu culling allocates per-frame buffers from dataset
 	T(#frame_buffers >= 1)["=="](true)
 	-- buffers are sized from a grow-only capacity, so they may be larger
 	-- than the current dataset requires
-	T(frame_buffers[1].visible_entry_capacity >= dataset.structure_key.entry_count)["=="](true)
+	T(frame_buffers[1].visible_entry_capacity >= dataset.main.entry_count)["=="](true)
 	T(frame_buffers[1].visible_index_buffer.size >= ffi.sizeof("uint32_t"))["=="](true)
 	T(frame_buffers[1].indirect_command_buffer.size >= ffi.sizeof(vk.VkDrawIndexedIndirectCommand))["=="](true)
 	T(frame_buffers[1].indirect_count_buffer.size >= ffi.sizeof("uint32_t"))["=="](true)
