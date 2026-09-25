@@ -335,6 +335,15 @@ local function build_material(gltf_data, material_index)
 
 	local emissive = info.emissive_factor or {0, 0, 0}
 	config.EmissiveMultiplier = Color(emissive[1], emissive[2], emissive[3], 1)
+
+	if info.transmission_factor and info.transmission_factor > 0 then
+		config.Refraction = info.transmission_factor
+		config.IndexOfRefraction = info.ior or 1.5
+		-- without the volume extension a transmissive surface is thin walled.
+		-- the factor is in the mesh's own units; left to the object's extent
+		config.RefractionThickness = (info.thickness_factor or 0) > 0 and -1 or 0
+	end
+
 	return Material.New(config)
 end
 

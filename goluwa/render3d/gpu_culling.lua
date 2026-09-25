@@ -1316,7 +1316,7 @@ local function entry_can_use_gbuffer_instancing(entry, material)
 	if material.GetIgnoreZ and material:GetIgnoreZ() then return false end
 
 	-- drawn by the forward translucent pass, not the gbuffer
-	if material:GetTranslucent() then return false end
+	if material:IsTransparent() then return false end
 
 	local polygon3d = entry and entry.polygon3d or nil
 	return polygon3d and polygon3d.GetMesh and polygon3d:GetMesh() ~= nil or false
@@ -1398,7 +1398,7 @@ local function serialize_render_entry(component, entry, entry_index, dynamic)
 		polygon_guid = entry.polygon3d:GetGUID(),
 		material_guid = material:GetGUID(),
 		ignore_z = material and material.GetIgnoreZ and material:GetIgnoreZ() or false,
-		translucent = material:GetTranslucent(),
+		transparent = material:IsTransparent(),
 		has_height_displacement = entry_has_height_displacement(material),
 		gbuffer_instancing_eligible = entry_can_use_gbuffer_instancing(entry, material),
 		shadow_instancing_eligible = entry_can_use_shadow_instancing(entry, material),
@@ -1510,7 +1510,7 @@ local function serialized_still_current(prev_serialized, component, aabb)
 				material:GetIgnoreZ() or
 				false
 			) ~= entry.ignore_z or
-			material:GetTranslucent() ~= entry.translucent or
+			material:IsTransparent() ~= entry.transparent or
 			entry_has_height_displacement(material) ~= entry.has_height_displacement
 		then
 			return false

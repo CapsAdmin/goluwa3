@@ -68,6 +68,13 @@ Material:GetSet("GrassHeight", 0.2)
 Material:GetSet("GrassHeightVariance", 4)
 Material:GetSet("GrassWidth", 0.02)
 -- other
+-- how much light passes through the surface, bent by IndexOfRefraction (0..1,
+-- gltf's transmission). the transmitted light is tinted by the albedo
+Material:GetSet("Refraction", 0.0)
+Material:GetSet("IndexOfRefraction", 1.5)
+-- how far light travels inside, in world units. 0 is a thin wall (a window,
+-- a bubble) and below 0 takes the object's thinnest extent
+Material:GetSet("RefractionThickness", -1.0)
 Material:GetSet("AlphaCutoff", 0.5)
 Material:GetSet("IgnoreZ", false)
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
@@ -123,6 +130,11 @@ function Material:HasExplicitRoughnessTexture()
 	if self.MetallicRoughnessTexture ~= nil then return true end
 
 	return false
+end
+
+-- drawn forward, over the lit opaque scene, instead of into the gbuffer
+function Material:IsTransparent()
+	return self.Translucent or self.Refraction > 0
 end
 
 -- just a shortcut for gltf
@@ -209,6 +221,22 @@ end
 
 function Material:GetFillFlags()
 	return self.Flags
+end
+
+-- a shadow map sees light pass through a refracting surface as through a
+-- translucent one: dithered, blocking what its two faces reflect (~10%)
+do
+	local TRANSLUCENT_FLAG = 2
+
+	function Material:GetShadowFlags()
+		if self.Refraction > 0 then return bit.bor(self.Flags, TRANSLUCENT_FLAG) end
+
+		return self.Flags
+	end
+
+	function Material:GetShadowOpacity()
+		return self.ColorMultiplier.a * (1 - 0.9 * self.Refraction)
+	end
 end
 
 function Material:GetLightFlags()
@@ -832,6 +860,35 @@ do
 		end
 
 		if vmt.translucent == 1 then self:SetTranslucent(true) end
+
+		-- the refract shader distorts what is behind it by its normal map
+		if vmt.shader:lower() == "refract" then
+			self:SetRefraction(1)
+			-- source offsets the screen by $refractamount times the normal, the
+			-- closest thing to a bend it has
+			self:SetIndexOfRefraction(1 + (vmt.refractamount or 0.5))
+			self:SetRefractionThickness(0)
+			self:SetSpecularMultiplier(1)
+
+			if vmt.normalmap then self:SetNormalTexture(LinearTexture(vmt.normalmap)) end
+
+			if vmt.refracttinttexture then
+				self:SetAlbedoTexture(SRGBTexture(vmt.refracttinttexture))
+			end
+
+			-- "[r g b]" parses to a vec3, "{r g b}" stays a 0..255 string
+			local tint = vmt.refracttint
+
+			if typex(tint) == "vec3" then
+				self:SetColorMultiplier(Color(tint.x, tint.y, tint.z, 1))
+			elseif type(tint) == "string" then
+				local r, g, b = tint:match("{%s*(%S+)%s+(%S+)%s+(%S+)%s*}")
+
+				if r then
+					self:SetColorMultiplier(Color(tonumber(r) / 255, tonumber(g) / 255, tonumber(b) / 255, 1))
+				end
+			end
+		end
 
 		if vmt.alphatest == 1 then self:SetAlphaTest(true) end
 

@@ -516,10 +516,11 @@ local function material_ignores_z(material)
 	return material and material.GetIgnoreZ and material:GetIgnoreZ() or false
 end
 
--- translucent materials draw in the forward translucent pass instead of the
--- gbuffer, unless they ignore z, which the forward overlay draws either way
+-- translucent and refractive materials draw in the forward translucent pass
+-- instead of the gbuffer, unless they ignore z, which the forward overlay
+-- draws either way
 local function material_is_translucent(material)
-	return material:GetTranslucent() and not material_ignores_z(material)
+	return material:IsTransparent() and not material_ignores_z(material)
 end
 
 -- a renderer without the translucent pass (the simple one) dithers them in the
@@ -3162,11 +3163,33 @@ function Visual:OnFirstCreated()
 			return a.distance > b.distance
 		end
 
+		local draws = {}
+
+		-- a refracting entry that leaves its thickness to the object uses its
+		-- thinnest extent: a window's pane, a sphere's diameter
+		local function get_refraction_thickness(material, entry, world_matrix)
+			local thickness = material:GetRefractionThickness()
+
+			if thickness >= 0 then return thickness end
+
+			local aabb = entry.source_aabb
+
+			if not aabb then return 0 end
+
+			local m = world_matrix
+			return math.min(
+				(aabb.max_x - aabb.min_x) * math.sqrt(m.m00 * m.m00 + m.m01 * m.m01 + m.m02 * m.m02),
+				(aabb.max_y - aabb.min_y) * math.sqrt(m.m10 * m.m10 + m.m11 * m.m11 + m.m12 * m.m12),
+				(aabb.max_z - aabb.min_z) * math.sqrt(m.m20 * m.m20 + m.m21 * m.m21 + m.m22 * m.m22)
+			)
+		end
+
 		-- back to front by the distance to each entry's center, so the blend
-		-- is right between separate meshes, not within one
-		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
+		-- is right between separate meshes, not within one. collected before
+		-- the pass begins so it knows whether anything refracts
+		event.AddListener("PreDraw3DTranslucent", "visual_translucent_collect", function()
 			local camera_position = render3d.GetCamera():GetPosition()
-			local draws = {}
+			draws = {}
 
 			for _, component in ipairs(visual.translucent_components) do
 				if component.Visible and not component:IsCulled() then
@@ -3188,11 +3211,19 @@ function Visual:OnFirstCreated()
 
 							x, y, z = world_matrix:TransformVectorUnpacked(x, y, z)
 							x, y, z = x - camera_position.x, y - camera_position.y, z - camera_position.z
+							local thickness = 0
+
+							if material:GetRefraction() > 0 then
+								render3d.RequestRefractionSource()
+								thickness = get_refraction_thickness(material, entry, world_matrix)
+							end
+
 							draws[#draws + 1] = {
 								entry = entry,
 								material = material,
 								world_matrix = world_matrix,
 								distance = x * x + y * y + z * z,
+								thickness = thickness,
 							}
 						end
 					end
@@ -3200,12 +3231,14 @@ function Visual:OnFirstCreated()
 			end
 
 			table.sort(draws, compare_translucent_draws)
+		end)
 
+		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
 			for _, draw in ipairs(draws) do
 				render3d.SetWorldMatrix(draw.world_matrix)
 				render3d.SetCurrentPolygon3D(draw.entry.polygon3d)
 				render3d.SetMaterial(draw.material)
-				render3d.UploadTranslucentConstants()
+				render3d.UploadTranslucentConstants(draw.thickness)
 				draw.entry.polygon3d:Draw()
 			end
 		end)

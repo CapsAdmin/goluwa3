@@ -104,3 +104,90 @@ T.Test3D("Graphics render3d translucent materials draw forward over the lit scen
 
 	if not ok then error(err, 0) end
 end)
+
+T.Test3D("Graphics render3d refractive materials transmit and blur what is behind them", function(draw)
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/light_grid.lua").pass,
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/lighting.lua"),
+			import("goluwa/render3d/passes/translucent.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+	local polygon3d = Polygon3D.New()
+	polygon3d:CreateCube(1)
+	polygon3d:BuildBoundingBox()
+	polygon3d:Upload()
+	local created = {}
+	local ok, err = pcall(function()
+		local camera = render3d.GetCamera()
+		camera:SetFOV(math.rad(90))
+		camera:SetPosition(Vec3(0, 0, 0))
+		camera:SetAngles{x = 0, y = 0, z = 0}
+		local red = Material.New{
+			ColorMultiplier = Color(0.8, 0.1, 0.1, 1),
+			RoughnessMultiplier = 1,
+			MetallicMultiplier = 0,
+		}
+		local green = Material.New{
+			ColorMultiplier = Color(0.1, 0.8, 0.1, 1),
+			RoughnessMultiplier = 1,
+			MetallicMultiplier = 0,
+		}
+		local clear = Material.New{
+			RoughnessMultiplier = 0.1,
+			MetallicMultiplier = 0,
+			Refraction = 1,
+			RefractionThickness = 0,
+		}
+		local frosted = Material.New{
+			RoughnessMultiplier = 0.6,
+			MetallicMultiplier = 0,
+			Refraction = 1,
+			RefractionThickness = 0,
+		}
+		-- a wall, red on the left and green on the right
+		add_box(polygon3d, created, Vec3(-3, 0, -10), Vec3(3, 6, 0.1), red)
+		add_box(polygon3d, created, Vec3(3, 0, -10), Vec3(3, 6, 0.1), green)
+		-- a clear pane over the top half of the red side, a frosted one over
+		-- the bottom half of the seam
+		add_box(polygon3d, created, Vec3(-2, 1.5, -5), Vec3(1, 1, 0.02), clear)
+		add_box(polygon3d, created, Vec3(0, -1.5, -5), Vec3(1.5, 1, 0.02), frosted)
+		draw()
+		draw()
+		local albedo = render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):Download()
+		local opaque = post_source.GetOpaqueSceneTexture():Download()
+		local final = post_source.GetRawSceneSourceTexture():Download()
+		local center = math.floor(opaque.width / 2)
+		local quarter = math.floor(opaque.width / 4)
+		-- refracting surfaces stay out of the gbuffer
+		local r, g = albedo:GetPixel(center - 5, center + quarter)
+		T(r > g)["=="](true)
+		-- the clear pane shows the red wall through it, a little dimmer for what
+		-- it reflects away, and not the environment
+		local opaque_r, opaque_g = opaque:GetPixelFloat(center - quarter / 2, center - quarter / 2)
+		local final_r, final_g = final:GetPixelFloat(center - quarter / 2, center - quarter / 2)
+		T(same_pixel(opaque, final, center - quarter / 2, center - quarter / 2))["=="](false)
+		T(final_r > opaque_r * 0.7)["=="](true)
+		T(final_g < final_r * 0.5)["=="](true)
+		-- just left of the seam the frosted pane blurs green in
+		opaque_r, opaque_g = opaque:GetPixelFloat(center - 4, center + quarter / 2)
+		final_r, final_g = final:GetPixelFloat(center - 4, center + quarter / 2)
+		T(final_g > opaque_g * 2)["=="](true)
+	end)
+
+	for _, ent in ipairs(created) do
+		if ent:IsValid() then ent:Remove() end
+	end
+
+	polygon3d:Remove()
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+
+	if not ok then error(err, 0) end
+end)

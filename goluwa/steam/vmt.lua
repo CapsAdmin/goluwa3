@@ -14,6 +14,8 @@ return function(steam)
 		phongexponenttexture = true,
 		blendmodulatetexture = true,
 		selfillummask = true,
+		normalmap = true,
+		refracttinttexture = true,
 	}
 	local special_textures = {
 		_rt_fullframefb = "error",

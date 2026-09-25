@@ -7,6 +7,8 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
+local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
+local Texture = import("goluwa/render/texture.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
@@ -16,6 +18,49 @@ local BINDING_OCCLUSION_MAP = 21
 -- that want what is behind the translucent surfaces. Visuals then draw their
 -- translucent entries back to front into the copy, depth tested against the
 -- opaque depth.
+-- Refractive materials see the opaque scene through a mip chain of it, which
+-- rough surfaces sample blurrier. It is only built on frames that draw one.
+local refraction_source = nil
+
+local function update_refraction_source(cmd)
+	local scene = post_source.GetOpaqueSceneTexture()
+	local width, height = scene:GetWidth(), scene:GetHeight()
+
+	if
+		not refraction_source or
+		refraction_source:GetWidth() ~= width or
+		refraction_source:GetHeight() ~= height
+	then
+		if refraction_source then refraction_source:Remove() end
+
+		refraction_source = Texture.New{
+			width = width,
+			height = height,
+			format = "r16g16b16a16_sfloat",
+			mip_map_levels = "auto",
+			image = {usage = {"sampled", "transfer_src", "transfer_dst"}},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				mipmap_mode = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
+	end
+
+	render.TransitionResourceTo(scene, "transfer_src_optimal", {cmd = cmd})
+	render.TransitionResourceTo(refraction_source, "transfer_dst_optimal", {cmd = cmd, srcStage = "fragment"})
+	cmd:CopyImageToImage(scene:GetImage(), refraction_source:GetImage(), width, height)
+	render.TransitionResourceTo(
+		scene,
+		"shader_read_only_optimal",
+		{cmd = cmd, dstStage = {"fragment", "compute"}}
+	)
+	refraction_source:GenerateMipmaps("transfer_dst_optimal")
+	refraction_source:GetImage().layout = "shader_read_only_optimal"
+end
+
 local camera_block = {
 	name = "translucent_camera",
 	binding_index = BINDING_CAMERA,
@@ -36,10 +81,14 @@ table.insert(
 		block = {
 			surface_lighting.block,
 			{"depth_tex", "int"},
+			{"refraction_tex", "int"},
 		},
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
 			block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+			block.refraction_tex = render3d.refraction_source_requested and
+				self:GetTextureIndex(refraction_source) or
+				-1
 			return block
 		end,
 		upload_scope = "frame",
@@ -62,18 +111,26 @@ return {
 
 			surface.surface_lighting_sets = surface.surface_lighting_sets or {}
 
-			if surface.surface_lighting_sets[frame] then return end
+			if not surface.surface_lighting_sets[frame] then
+				surface.surface_lighting_sets[frame] = true
+				local grid = light_grid.GetBuffer(cmd)
+				surface:UpdateDescriptorSet("storage_buffer", frame, BINDING_LIGHT_GRID, 0, grid, grid:GetSize())
+				surface:UpdateDescriptorSet(
+					"combined_image_sampler",
+					frame,
+					BINDING_OCCLUSION_MAP,
+					0,
+					unpack(light_occlusion.GetOcclusionDescriptor())
+				)
+			end
 
-			surface.surface_lighting_sets[frame] = true
-			local grid = light_grid.GetBuffer(cmd)
-			surface:UpdateDescriptorSet("storage_buffer", frame, BINDING_LIGHT_GRID, 0, grid, grid:GetSize())
-			surface:UpdateDescriptorSet(
-				"combined_image_sampler",
-				frame,
-				BINDING_OCCLUSION_MAP,
-				0,
-				unpack(light_occlusion.GetOcclusionDescriptor())
-			)
+			-- what draws this frame, sorted, and whether any of it refracts
+			render3d.refraction_source_requested = false
+			event.Call("PreDraw3DTranslucent")
+
+			if render3d.refraction_source_requested then
+				update_refraction_source(cmd)
+			end
 		end,
 		on_draw = function(self, cmd)
 			self:UploadConstants()
@@ -126,6 +183,23 @@ return {
 			uniform_buffers = {camera_block},
 		},
 		fragment = {
+			push_constants = {
+				{
+					name = "refraction",
+					block = {
+						{"amount", "float"},
+						{"ior", "float"},
+						{"thickness", "float"},
+					},
+					write = function(self, block)
+						local material = render3d.GetMaterial()
+						block.amount = material:GetRefraction()
+						block.ior = material:GetIndexOfRefraction()
+						block.thickness = render3d.translucent_thickness
+						return block
+					end,
+				},
+			},
 			uniform_buffers = surface_uniform_buffers,
 			descriptor_sets = {
 				{
@@ -140,7 +214,7 @@ return {
 				},
 			},
 			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP),
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_lighting.GetGLSL("lighting_data") .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. [[
 				// the gbuffer's screen space gi, of the opaque surface behind
 				// this one. a thin surface sits in about the same light
 				vec3 get_gi_irradiance(vec2 screen_uv, vec3 N, out float sky_visibility) {
@@ -156,6 +230,48 @@ return {
 					return gi.rgb;
 				}
 
+				vec3 get_scene_pos(vec2 uv, float depth) {
+					vec4 view_pos = lighting_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+					return (lighting_data.inv_view * vec4(view_pos.xyz / view_pos.w, 1.0)).xyz;
+				}
+
+				// the radiance behind the surface arriving along dir: the scene
+				// where the ray meets it, blurred by how far roughness has spread
+				// it by then, or the environment when it leaves the screen.
+				// reach is how far to look, a few times how far behind the
+				// surface the scene is along the view ray
+				vec3 get_refracted_background(vec3 surface_pos, vec3 exit_pos, vec3 dir, float reach, float roughness, vec3 environment_fallback) {
+					vec2 uv;
+					float travel;
+
+					// interleaved gradient noise, moving each frame
+					vec2 noise_pos = gl_FragCoord.xy + 5.588238 * floor(lighting_data.time * 60.0);
+					float jitter = fract(52.9829189 * fract(dot(noise_pos, vec2(0.06711056, 0.00583715))));
+
+					if (lighting_data.refraction_tex < 0 || !screen_refraction_trace(surface_pos, exit_pos, dir, reach, jitter, uv, travel)) {
+						return environment_fallback;
+					}
+
+					vec3 target = exit_pos + dir * travel;
+					float view_depth = max(-(lighting_data.view * vec4(target, 1.0)).z, 1e-3);
+					float blur_pixels = roughness * travel * abs(lighting_data.projection[1][1]) * 0.5 * lighting_data.render_size.y / view_depth;
+
+					if (blur_pixels <= 2.0) {
+						return textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb;
+					}
+
+					// four taps a level finer than the blur, so the box filtered
+					// mips don't show as blocks
+					vec2 spread = vec2(blur_pixels * 0.5) / lighting_data.render_size;
+					float lod = log2(blur_pixels * 0.5);
+					return (
+						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, -0.5), lod).rgb +
+						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, -0.5), lod).rgb +
+						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, 0.5), lod).rgb +
+						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, 0.5), lod).rgb
+					) * 0.25;
+				}
+
 				void main() {
 					float alpha = get_alpha();
 
@@ -163,6 +279,13 @@ return {
 
 					vec2 screen_uv = gl_FragCoord.xy / lighting_data.render_size;
 					vec3 world_pos = in_position;
+					vec3 geometric_N = get_vertex_normal();
+					// how fast the surface bends, from how the interpolated normal
+					// turns across the pixel. 0 on a flat face
+					float curvature = max(
+						length(dFdx(geometric_N)) / max(length(dFdx(world_pos)), 1e-6),
+						length(dFdy(geometric_N)) / max(length(dFdy(world_pos)), 1e-6)
+					);
 					vec3 V = normalize(lighting_data.camera_position.xyz - world_pos);
 					mat3 tbn = get_tbn();
 					vec3 N = bend_normal_to_view(get_normal(in_uv, tbn), V);
@@ -171,17 +294,22 @@ return {
 					float roughness = get_roughness(in_uv);
 					float perceptual_roughness = sqrt(roughness);
 					float subsurface = get_subsurface(in_uv);
-					vec3 F0 = mix(vec3(get_specular() * 0.08), albedo, metallic);
+					bool refractive = refraction.amount > 0.0;
+					// a refracting surface reflects what its index of refraction
+					// says, and scatters diffusely only what it doesn't transmit
+					float ior_f0 = (refraction.ior - 1.0) / (refraction.ior + 1.0);
+					vec3 F0 = mix(vec3(refractive ? ior_f0 * ior_f0 : get_specular() * 0.08), albedo, metallic);
 					float NdotV = max(dot(N, V), 0.001);
-					// alpha is how much of the pixel the surface covers, so it
-					// scales what the surface itself scatters: its diffuse and
-					// emission. reflection comes off the covered and the clear
-					// parts alike, but not off texels that hold no surface at all
-					vec3 diffuse_albedo = albedo * alpha;
-					float specular_coverage = smoothstep(0.0, 0.1, alpha);
+					// alpha is how much of the pixel the surface covers. a surface
+					// that doesn't refract uses it as its opacity, scaling what it
+					// scatters itself: its diffuse and emission. reflection comes off
+					// the covered and the clear parts alike, but not off texels that
+					// hold no surface at all
+					vec3 diffuse_albedo = albedo * (refractive ? 1.0 - refraction.amount : alpha);
+					float specular_coverage = refractive ? 1.0 : smoothstep(0.0, 0.1, alpha);
 
 					vec3 direct_specular;
-					vec3 direct_diffuse = get_direct_light(F0, NdotV, diffuse_albedo, roughness, perceptual_roughness, metallic, subsurface, get_transmission_blocking(in_uv), get_transmission_color(), get_transmission_view_dependency(), world_pos, V, N, get_vertex_normal(), direct_specular);
+					vec3 direct_diffuse = get_direct_light(F0, NdotV, diffuse_albedo, roughness, perceptual_roughness, metallic, subsurface, get_transmission_blocking(in_uv), get_transmission_color(), get_transmission_view_dependency(), world_pos, V, N, geometric_N, direct_specular);
 
 					float sky_visibility;
 					vec3 irradiance = get_gi_irradiance(screen_uv, N, sky_visibility);
@@ -193,9 +321,66 @@ return {
 					vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 					vec3 ambient_diffuse = (1.0 - F_ambient) * (1.0 - metallic) * irradiance * diffuse_albedo * get_ao(in_uv);
 					vec3 ambient_specular = reflection * (F0 * env_brdf.x + env_brdf.y) * GGXEnergyCompensation(F0, env_brdf);
-					vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv) * alpha;
-					vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
-					set_color(vec4(min(color, vec3(65504.0)), alpha));
+
+					if (!refractive) {
+						vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv) * alpha;
+						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
+						set_color(vec4(min(color, vec3(65504.0)), alpha));
+						return;
+					}
+
+					vec3 I = -V;
+					float eta = 1.0 / refraction.ior;
+					vec3 T = refract(I, N, eta);
+					vec3 exit_pos = world_pos;
+					vec3 exit_dir;
+
+					vec3 facing_N = dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N;
+
+					if (refraction.thickness > 0.0) {
+						// a solid. locally the surface is a sphere as curved as it is
+						// here, or a slab with a parallel far side when it is flat;
+						// the ray leaves through whichever it reaches first
+						// no rounder than a sphere as wide as the object is thin
+						float radius = max(1.0 / max(curvature, 1e-4), refraction.thickness * 0.5);
+						float cos_in = max(-dot(T, facing_N), 0.05);
+						float sphere_length = 2.0 * radius * cos_in;
+						float slab_length = refraction.thickness / cos_in;
+						exit_pos = world_pos + T * min(sphere_length, slab_length);
+						vec3 exit_N = sphere_length < slab_length ? normalize(exit_pos - (world_pos - facing_N * radius)) : -facing_N;
+						exit_dir = refract(T, -exit_N, refraction.ior);
+
+						// totally reflected inside; it leaves somewhere, roughly on
+						if (dot(exit_dir, exit_dir) < 1e-6) exit_dir = T;
+					} else {
+						// a thin wall leaves the ray parallel to how it came in, so
+						// only the normal map's slopes bend it
+						exit_dir = normalize(I + T - refract(I, facing_N, eta));
+					}
+
+					// how far behind the surface the opaque scene is along the view
+					// ray sets how far the refracted ray is followed. with only sky
+					// behind, as far as the surface is from the camera, again
+					float scene_depth = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r;
+					float surface_distance = distance(lighting_data.camera_position.xyz, exit_pos);
+					float reach = 2.0 * surface_distance;
+
+					if (scene_depth < 1.0) {
+						vec3 scene_pos = get_scene_pos(screen_uv, scene_depth);
+						reach = 3.0 * max(distance(lighting_data.camera_position.xyz, scene_pos) - surface_distance, 0.0) + 0.5;
+					}
+
+					vec3 environment = blend_probe_reflections(
+						mix(irradiance, sample_environment_specular(lighting_data.env_tex, exit_dir, N, perceptual_roughness), sky_visibility),
+						exit_dir,
+						perceptual_roughness,
+						world_pos
+					);
+					vec3 background = get_refracted_background(world_pos, exit_pos, exit_dir, reach, roughness, environment);
+					vec3 transmitted = background * albedo * (1.0 - F_ambient) * (1.0 - metallic) * refraction.amount;
+					vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv);
+					vec3 color = direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + transmitted + emissive;
+					set_color(vec4(min(color * alpha, vec3(65504.0)), alpha));
 				}
 			]],
 		},

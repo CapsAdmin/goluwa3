@@ -131,6 +131,20 @@ local function decode_material(material_info)
 		}
 	end
 
+	local extensions = material_info.extensions or {}
+
+	if extensions.KHR_materials_transmission then
+		material.transmission_factor = extensions.KHR_materials_transmission.transmissionFactor or 0
+	end
+
+	if extensions.KHR_materials_ior then
+		material.ior = extensions.KHR_materials_ior.ior or 1.5
+	end
+
+	if extensions.KHR_materials_volume then
+		material.thickness_factor = extensions.KHR_materials_volume.thicknessFactor or 0
+	end
+
 	local spec_gloss = material_info.extensions and
 		material_info.extensions.KHR_materials_pbrSpecularGlossiness
 
@@ -165,6 +179,9 @@ function gltf.Load(path)
 	local SUPPORTED_EXTENSIONS = {
 		MSFT_texture_dds = true,
 		KHR_materials_pbrSpecularGlossiness = true,
+		KHR_materials_transmission = true,
+		KHR_materials_ior = true,
+		KHR_materials_volume = true,
 		EXT_mesh_gpu_instancing = true,
 	}
 

@@ -5,6 +5,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
+local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local WAVE_TEX_SIZE = 512
 local WAVE_TEX_WORLD_HALF = 1024.0
 local WAVE_NEAR_WORLD_HALF = 64.0
@@ -341,12 +342,7 @@ return {
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ocean_data") .. [[
 			]] .. screen_reconstruct.GetViewRayFromUVGLSL("ocean_data") .. [[
 
-			vec2 project_world_to_uv(vec3 world_pos) {
-				vec4 clip_pos = ocean_data.projection * ocean_data.view * vec4(world_pos, 1.0);
-				if (clip_pos.w <= 1e-5) return vec2(-1.0);
-				vec2 uv = (clip_pos.xy / clip_pos.w) * 0.5 + 0.5;
-				return uv;
-			}
+			]] .. screen_refraction.GetGLSL("ocean_data") .. [[
 
 			float intersect_ocean_plane(vec3 ray_origin, vec3 ray_dir, float plane_y) {
 				float denom = ray_dir.y;
@@ -689,13 +685,10 @@ return {
 
 						if (length(refracted_dir) > 1e-5 && scene_depth < 1.0 && scene_t > ocean_t + 1e-3) {
 							float air_distance = max(length(scene_local_pos - ocean_local_pos), 0.0);
-							vec3 refracted_target_world = camera_origin + ocean_local_pos + refracted_dir * air_distance;
-							vec2 refracted_uv = project_world_to_uv(refracted_target_world);
+							vec3 surface_world = camera_origin + ocean_local_pos;
+							vec2 refracted_uv;
 
-							if (
-								all(greaterThanEqual(refracted_uv, vec2(0.001))) &&
-								all(lessThanEqual(refracted_uv, vec2(0.999)))
-							) {
+							if (screen_refraction_uv(surface_world, surface_world + refracted_dir * air_distance, refracted_uv)) {
 								refracted_scene = get_scene_color(refracted_uv);
 							}
 						}
@@ -754,7 +747,18 @@ return {
 
 				if (scene_depth < 1.0) {
 					thickness = max(length(scene_local_pos - ocean_local_pos), 0.0);
-					vec2 refracted_uv = clamp(in_uv + normal.xz * min(thickness * 0.0009, 0.03), vec2(0.001), vec2(0.999));
+					// followed as far into the water as the scene lies behind the
+					// surface. where that lands on screen off it, or on something
+					// above the water, the scene straight behind is used instead
+					vec3 surface_world = camera_origin + ocean_local_pos;
+					vec3 refracted_dir = refract(ray_dir, normal, 1.0 / 1.333);
+					vec2 refracted_uv = in_uv;
+					vec2 bent_uv;
+
+					if (screen_refraction_uv(surface_world, surface_world + refracted_dir * thickness, bent_uv)) {
+						refracted_uv = bent_uv;
+					}
+
 					reflection_uv = clamp(in_uv + normal.xz * min(thickness * 0.0007, 0.02), vec2(0.001), vec2(0.999));
 					refracted_scene = get_scene_color(refracted_uv);
 				}

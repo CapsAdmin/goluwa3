@@ -510,8 +510,8 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 		data.albedo_texture_index = texture_entry and texture_entry.albedo_texture_index or 0
 		data.opacity_texture_index = texture_entry and texture_entry.opacity_texture_index or -1
 		data.height_texture_index = texture_entry and texture_entry.height_texture_index or -1
-		data.flags = material:GetFillFlags()
-		data.color_multiplier_a = material:GetColorMultiplier().a
+		data.flags = material:GetShadowFlags()
+		data.color_multiplier_a = material:GetShadowOpacity()
 		data.alpha_cutoff = material:GetAlphaCutoff()
 		data.height_scale = material:GetHeightScale()
 		data.height_center = material:GetHeightCenter()
@@ -2690,8 +2690,8 @@ local function update_shadow_batch_table(self, pipeline, batches)
 			record.index_is_32 = mesh.index_buffer and mesh.index_buffer:GetIndexType() == "uint32" and 1 or 0
 			record.albedo_texture_index = texture_entry.albedo_texture_index
 			record.opacity_texture_index = texture_entry.opacity_texture_index
-			record.flags = material:GetFillFlags()
-			record.color_multiplier_a = material:GetColorMultiplier().a
+			record.flags = material:GetShadowFlags()
+			record.color_multiplier_a = material:GetShadowOpacity()
 			record.alpha_cutoff = material:GetAlphaCutoff()
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 			model_pipeline.FillVertexAnimationData(record.anim, material)
