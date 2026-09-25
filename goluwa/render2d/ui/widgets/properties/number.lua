@@ -37,7 +37,7 @@ return function(props)
 	local is_int = number_type == "int"
 	local show_stepper = node.ShowStepper == true
 	local show_slider = node.ShowSlider == true
-	local step = node.Step or (is_int and 1 or 0.01)
+	local step = node.Step or (is_int and 1 or 0.1)
 	local precision = node.Precision
 
 	if precision == nil then
@@ -57,9 +57,7 @@ return function(props)
 
 	local function get_display_precision()
 		if control and control.IsDragging and control:IsDragging() then
-			if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
-				return precision + drag_precision_boost
-			end
+			if input.IsAltDown() then return precision + drag_precision_boost end
 		end
 
 		return precision
@@ -162,17 +160,17 @@ return function(props)
 			return clamp_number(numeric, min, max)
 		end,
 		OnDragValue = function(delta, start_value)
-			local drag_step = get_drag_step()
+			local drag_step = get_drag_step() * 10
 			local rounding_precision = precision
 
-			if input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt") then
+			if input.IsAltDown() then
 				drag_step = drag_step * 0.1
 				rounding_precision = precision + drag_precision_boost
 			end
 
 			local next_value = (tonumber(start_value) or 0) - delta.y * drag_step
 
-			if input.IsKeyDown("left_control") or input.IsKeyDown("right_control") then
+			if input.IsControlDown() then
 				next_value = math.round(next_value)
 			elseif rounding_precision >= 0 then
 				next_value = math.round(next_value, rounding_precision)

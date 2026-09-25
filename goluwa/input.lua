@@ -119,6 +119,10 @@ function input.IsControlDown()
 		input.IsKeyDown("control")
 end
 
+function input.IsAltDown()
+	return input.IsKeyDown("left_alt") or input.IsKeyDown("right_alt")
+end
+
 function input.HijackKeyInput(cb)
 	input.key_hijack = cb
 end

@@ -372,6 +372,12 @@ local function create_value(props)
 					return begin_editing()
 				end
 
+				if state.pending_drag then
+					local next_value = props.OnDragValue(state.drag_accumulated_delta, state.drag_start_value, panel)
+
+					if next_value ~= nil then panel:SetValue(next_value, true) end
+				end
+
 				return true
 			end,
 			OnGlobalMouseMove = function(self, pos)
