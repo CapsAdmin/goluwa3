@@ -236,7 +236,7 @@ function Terrain:CreateTile(want, chunk)
 	local primitive = primitive_entity:AddComponent("visual_primitive")
 	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level))
 	primitive:SetPolygon3D(polygon)
-	primitive:SetMaterial(tiles.CreateMaterial(chunk, self.Source:GetLayers()))
+	primitive:SetMaterial(tiles.CreateMaterial(chunk, chunk.layers or self.Source:GetLayers()))
 	visual:BuildAABB()
 	return {
 		key = want.key,

@@ -575,6 +575,17 @@ function crylevel.ParseEditorLevelDocument(document)
 
 	if not attrs then return nil, "missing Level root" end
 
+	-- the terrain layer id bitmap stores editor layer ids, several layers can share a surface type
+	local layer_surface_types = {}
+
+	for layer in iter_children_by_tag(find_child_by_tag(root, "Layers"), "Layer") do
+		local layer_id = tonumber(layer.attrs.LayerId)
+
+		if layer_id and layer.attrs.SurfaceType then
+			layer_surface_types[layer_id] = layer.attrs.SurfaceType
+		end
+	end
+
 	return {
 		heightmap_width = tonumber(attrs.HeightmapWidth) or 0,
 		heightmap_height = tonumber(attrs.HeightmapHeight) or 0,
@@ -582,6 +593,7 @@ function crylevel.ParseEditorLevelDocument(document)
 		tile_count_y = tonumber(attrs.TileCountY) or 0,
 		tile_resolution = tonumber(attrs.TileResolution) or 0,
 		texture_size = tonumber(heightmap_attrs.TextureSize) or 0,
+		layer_surface_types = layer_surface_types,
 	}
 end
 
@@ -1109,6 +1121,32 @@ function crylevel.LoadTerrainData(steam, level_dir)
 		end
 	end
 
+	-- surface type index (1 based, 0 = none) per heightmap cell, the low bit of the raw layer id is a flag
+	if terrain.surface_slot_samples and terrain.editor_level then
+		local surface_index_by_name = {}
+
+		for i, surface_type in ipairs(terrain.surface_types) do
+			surface_index_by_name[surface_type.name] = i
+		end
+
+		local surface_index_by_raw = ffi.new("uint8_t[256]")
+
+		for raw = 0, 255 do
+			local name = terrain.editor_level.layer_surface_types[bit.rshift(raw, 1)]
+			surface_index_by_raw[raw] = name and surface_index_by_name[name] or 0
+		end
+
+		local count = terrain.surface_slot_width * terrain.surface_slot_height
+		local raw_samples = terrain.surface_slot_samples
+		local surface_indices = ffi.new("uint8_t[?]", count)
+
+		for i = 0, count - 1 do
+			surface_indices[i] = surface_index_by_raw[raw_samples[i]]
+		end
+
+		terrain.surface_indices = surface_indices
+	end
+
 	for _, tile in ipairs(tiles) do
 		terrain.tile_lookup[tile.y] = terrain.tile_lookup[tile.y] or {}
 		terrain.tile_lookup[tile.y][tile.x] = tile
@@ -1433,78 +1471,158 @@ local function get_or_create_cry_height_texture(terrain)
 	return terrain.height_texture
 end
 
-local function get_or_create_cry_albedo_texture(terrain)
-	if terrain.albedo_texture and terrain.albedo_texture:IsValid() then
-		return terrain.albedo_texture
-	end
+local get_or_create_cry_albedo_texture
 
-	local tile_width = 0
-	local tile_height = 0
+do
+	local AtlasTileConstants = ffi.typeof("struct { int source; int x; int y; int grid_width; int grid_height; }")
+	local ATLAS_TILE_DECLARATIONS = [[
+		layout(push_constant, scalar) uniform CryAtlasTile {
+			int source;
+			int x;
+			int y;
+			int grid_width;
+			int grid_height;
+		} atlas_tile;
+	]]
+	local ATLAS_TILE_GLSL = [[
+		vec2 cell = uv * vec2(atlas_tile.grid_width, atlas_tile.grid_height) - vec2(atlas_tile.x, atlas_tile.y);
 
-	for _, tile in ipairs(terrain.tiles or {}) do
-		local _, width, height = assert(decode_terrain_texture_tile(tile))
-		tile_width = math.max(tile_width, width)
-		tile_height = math.max(tile_height, height)
-	end
+		if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(1.0)))) discard;
 
-	local atlas_width = math.max(terrain.grid_width or 1, 1) * tile_width
-	local atlas_height = math.max(terrain.grid_height or 1, 1) * tile_height
-	local atlas_buffer = ffi.new("uint8_t[?]", atlas_width * atlas_height * 4)
-	local atlas_ptr = ffi.cast("uint8_t *", atlas_buffer)
-	local atlas_stride = atlas_width * 4
+		return texture(TEXTURE(atlas_tile.source), cell);
+	]]
+	local LINEAR_CLAMP = {
+		min_filter = "linear",
+		mag_filter = "linear",
+		wrap_s = "clamp_to_edge",
+		wrap_t = "clamp_to_edge",
+	}
 
-	for _, tile in ipairs(terrain.tiles or {}) do
-		local buffer, width, height = assert(decode_terrain_texture_tile(tile))
-		local dst_x = tile.x * tile_width * 4
-		local dst_y = tile.y * tile_height
-		local dst_base = atlas_ptr + dst_y * atlas_stride + dst_x
-
-		if width == tile_width and height == tile_height then
-			-- tile fills its slot exactly: straight copy, no resampling
-			for row = 0, tile_height - 1 do
-				ffi.copy(dst_base + row * atlas_stride, buffer + row * width * 4, width * 4)
-			end
-		else
-			local src_x = ffi.new("int[?]", tile_width)
-			local src_y = ffi.new("int[?]", tile_height)
-
-			for column = 0, tile_width - 1 do
-				src_x[column] = math.min(math.floor(column * (width - 1) / (tile_width - 1) + 0.5), width - 1)
-			end
-
-			for row = 0, tile_height - 1 do
-				src_y[row] = math.min(math.floor(row * (height - 1) / (tile_height - 1) + 0.5), height - 1)
-			end
-
-			for row = 0, tile_height - 1 do
-				local src_row = src_y[row] * width * 4
-				local dst = dst_base + row * atlas_stride
-
-				for column = 0, tile_width - 1 do
-					local src = src_row + src_x[column] * 4
-					dst[column * 4 + 0] = buffer[src + 0]
-					dst[column * 4 + 1] = buffer[src + 1]
-					dst[column * 4 + 2] = buffer[src + 2]
-					dst[column * 4 + 3] = buffer[src + 3]
-				end
-			end
+	-- tiles have different resolutions, so each one is drawn into its cell of the atlas with bilinear filtering
+	function get_or_create_cry_albedo_texture(terrain)
+		if terrain.albedo_texture and terrain.albedo_texture:IsValid() then
+			return terrain.albedo_texture
 		end
+
+		local tile_width = 0
+		local tile_height = 0
+
+		for _, tile in ipairs(terrain.tiles) do
+			local _, width, height = assert(decode_terrain_texture_tile(tile))
+			tile_width = math.max(tile_width, width)
+			tile_height = math.max(tile_height, height)
+		end
+
+		local atlas = Texture.New{
+			width = terrain.grid_width * tile_width,
+			height = terrain.grid_height * tile_height,
+			format = "r8g8b8a8_srgb",
+			mip_map_levels = 1,
+			image = {
+				usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+			},
+			sampler = LINEAR_CLAMP,
+		}
+
+		for i, tile in ipairs(terrain.tiles) do
+			local buffer, width, height = assert(decode_terrain_texture_tile(tile))
+			local source = Texture.New{
+				width = width,
+				height = height,
+				format = "r8g8b8a8_srgb",
+				buffer = buffer,
+				mip_map_levels = 1,
+				sampler = LINEAR_CLAMP,
+			}
+			local constants = AtlasTileConstants(0, tile.x, tile.y, terrain.grid_width, terrain.grid_height)
+			atlas:Shade(
+				ATLAS_TILE_GLSL,
+				{
+					textures = {source},
+					load_op = i == 1 and "clear" or "load",
+					custom_declarations = ATLAS_TILE_DECLARATIONS,
+					fragment_push_constants = {
+						size = ffi.sizeof(AtlasTileConstants),
+						get_data = function(_, _, pipeline)
+							constants.source = pipeline:GetTextureIndex(source)
+							return constants
+						end,
+					},
+				}
+			)
+			source:Remove()
+		end
+
+		terrain.albedo_texture = atlas
+		return atlas
+	end
+end
+
+local function get_or_create_cry_surface_index_texture(terrain)
+	if terrain.surface_index_texture and terrain.surface_index_texture:IsValid() then
+		return terrain.surface_index_texture
 	end
 
-	terrain.albedo_texture = Texture.New{
-		width = atlas_width,
-		height = atlas_height,
-		format = "r8g8b8a8_unorm",
-		buffer = atlas_buffer,
+	terrain.surface_index_texture = Texture.New{
+		width = terrain.surface_slot_width,
+		height = terrain.surface_slot_height,
+		format = "r8_unorm",
+		buffer = terrain.surface_indices,
 		mip_map_levels = 1,
 		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
+			min_filter = "nearest",
+			mag_filter = "nearest",
 			wrap_s = "clamp_to_edge",
 			wrap_t = "clamp_to_edge",
 		},
 	}
-	return terrain.albedo_texture
+	return terrain.surface_index_texture
+end
+
+-- the detail material of each surface type as a terrain layer, indexed like terrain.surface_types
+local function get_or_create_cry_terrain_layers(terrain)
+	if terrain.detail_layers then return terrain.detail_layers end
+
+	local Material = import("goluwa/render3d/material.lua")
+	local layers = {}
+
+	for i, surface_type in ipairs(terrain.surface_types) do
+		if surface_type.detail_material_path then
+			local material = Material.FromCryMTL(surface_type.detail_material_path)
+
+			-- some layers have a sub material per projection axis instead, all of ours project along z
+			if not (material.cry_texture_maps and material.cry_texture_maps.Diffuse) then
+				material = Material.FromCryMTL(surface_type.detail_material_path, "z")
+			end
+
+			local diffuse = material.cry_texture_maps and material.cry_texture_maps.Diffuse
+
+			if diffuse then
+				local specular = material.cry_specular_color
+				-- cry tiles the detail texture every 1 / (surface detail scale * material tiling) meters
+				layers[i] = {
+					albedo = material:GetAlbedoTexture(),
+					normal = material:GetNormalTexture(),
+					scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
+					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
+					-- cry's specular color as a reflectance relative to the default F0 of 0.04, most layers have none
+					specular = specular and
+						math.clamp((specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722) / 0.04, 0, 2) or
+						1,
+					roughness = 1,
+					ao = 1,
+				}
+			else
+				wlog(
+					"cry terrain detail material %s has no diffuse texture",
+					surface_type.detail_material_path
+				)
+			end
+		end
+	end
+
+	terrain.detail_layers = layers
+	return layers
 end
 
 local guess_cry_surface_color
@@ -1578,10 +1696,18 @@ end
 local function build_cry_terrain_source(terrain)
 	local ShaderSource = import("goluwa/terrain/shader_source.lua")
 	local world_size = math.max(terrain.world_size or 0, 1)
+	local has_layers = terrain.surface_indices ~= nil
+	local detail_layers = has_layers and get_or_create_cry_terrain_layers(terrain) or nil
+	local surface_indices = terrain.surface_indices
+	local index_width = terrain.surface_slot_width
+	local index_height = terrain.surface_slot_height
+	local cells_per_meter_x = has_layers and index_width / world_size or 0
+	local cells_per_meter_y = has_layers and index_height / world_size or 0
 	return ShaderSource.New{
 		Textures = {
 			get_or_create_cry_height_texture(terrain),
 			get_or_create_cry_albedo_texture(terrain),
+			has_layers and get_or_create_cry_surface_index_texture(terrain) or nil,
 		},
 		HeightGLSL = string.format(
 			[[
@@ -1598,11 +1724,84 @@ local function build_cry_terrain_source(terrain)
 			world_size,
 			terrain.heightmap_max_height
 		),
+		-- bilinear weights of the 4 surrounding surface cells, cells whose surface type is not
+		-- one of this chunk's layers fall back to the first (most common) layer
+		SplatGLSL = has_layers and
+			[[
+			vec4 terrain_splat(vec2 world, float h, vec3 n) {
+				ivec2 size = textureSize(TEXTURE(terrain_bake.texture2), 0);
+				vec2 p = cry_terrain_uv(world) * vec2(size) - 0.5;
+				ivec2 base = ivec2(floor(p));
+				vec2 f = p - vec2(base);
+				vec4 weights = vec4(0.0);
+
+				for (int i = 0; i < 4; i++) {
+					ivec2 offset = ivec2(i & 1, i >> 1);
+					ivec2 cell = clamp(base + offset, ivec2(0), size - 1);
+					int id = int(texelFetch(TEXTURE(terrain_bake.texture2), cell, 0).r * 255.0 + 0.5);
+					float weight = (offset.x == 1 ? f.x : 1.0 - f.x) * (offset.y == 1 ? f.y : 1.0 - f.y);
+
+					if (id == terrain_bake.layer1) {
+						weights.y += weight;
+					} else if (id == terrain_bake.layer2) {
+						weights.z += weight;
+					} else if (id == terrain_bake.layer3) {
+						weights.w += weight;
+					} else {
+						weights.x += weight;
+					}
+				}
+
+				return weights;
+			}
+		]] or
+			nil,
 		ColorGLSL = [[
 			vec3 terrain_color(vec2 world, float h, vec3 n) {
 				return texture(TEXTURE(terrain_bake.texture1), cry_terrain_uv(world)).rgb;
 			}
 		]],
+		ColorFormat = "r8g8b8a8_srgb",
+		-- the 4 most common surface types of the chunk, sampled from at most 64x64 cells
+		SelectChunkLayers = has_layers and
+			function(request)
+				local first_row = math.clamp(math.floor(request.min_x * cells_per_meter_y), 0, index_height - 1)
+				local last_row = math.clamp(math.ceil((request.min_x + request.size) * cells_per_meter_y), 0, index_height - 1)
+				local first_column = math.clamp(math.floor(-(request.min_z + request.size) * cells_per_meter_x), 0, index_width - 1)
+				local last_column = math.clamp(math.ceil(-request.min_z * cells_per_meter_x), 0, index_width - 1)
+				local stride = math.max(math.floor(math.max(last_row - first_row, last_column - first_column) / 64), 1)
+				local counts = {}
+				local ids = {}
+
+				for row = first_row, last_row, stride do
+					for column = first_column, last_column, stride do
+						local id = surface_indices[row * index_width + column]
+
+						if id ~= 0 and detail_layers[id] then
+							if not counts[id] then ids[#ids + 1] = id end
+
+							counts[id] = (counts[id] or 0) + 1
+						end
+					end
+				end
+
+				table.sort(ids, function(a, b)
+					return counts[a] > counts[b]
+				end)
+
+				local layers = {}
+
+				for i = 5, #ids do
+					ids[i] = nil
+				end
+
+				for i, id in ipairs(ids) do
+					layers[i] = detail_layers[id]
+				end
+
+				return layers, ids
+			end or
+			nil,
 		MinHeight = 0,
 		MaxHeight = terrain.heightmap_max_height,
 		Layers = {},

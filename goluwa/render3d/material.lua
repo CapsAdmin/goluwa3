@@ -47,6 +47,11 @@ Material:GetSet(
 Material:GetSet("TerrainLayerScales", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerRoughness", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerAmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
+-- 0 uses a layer's albedo as is with alpha as roughness, above 0 the layer only adds its color variation
+-- around its average color to the albedo texture, with that strength, and its alpha is ignored
+Material:GetSet("TerrainLayerDetailStrength", Color(0.0, 0.0, 0.0, 0.0))
+-- SpecularMultiplier per layer
+Material:GetSet("TerrainLayerSpecular", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)
 Material:GetSet("RoughnessMultiplier", 1.0)
 -- scales the dielectric reflectance (F0 0.04), 0 to 2
@@ -649,6 +654,11 @@ do
 			self:SetColorMultiplier(Color(r, g, b, tonumber(material_node.attrs.Opacity) or 1))
 		end
 
+		if material_node.attrs and material_node.attrs.Specular then
+			local r, g, b = unpack_csv_numbers(material_node.attrs.Specular)
+			self.cry_specular_color = Color(r or 0, g or 0, b or 0, 1)
+		end
+
 		if material_node.attrs then
 			local alpha_test = tonumber(material_node.attrs.AlphaTest)
 
@@ -733,7 +743,7 @@ do
 						SRGBTexture(resolved) or
 						get_missing_cry_texture(material_path, attrs, candidates)
 				)
-			elseif attrs.Map == "Normalmap" then
+			elseif attrs.Map == "Normalmap" or attrs.Map == "Bumpmap" then
 				self:SetNormalTexture(
 					resolved and
 						LinearTexture(resolved) or

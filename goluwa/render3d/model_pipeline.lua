@@ -131,6 +131,16 @@ local PBR_TERRAIN_FIELDS = {
 		name = "TerrainLayerAmbientOcclusion",
 		getter = "GetTerrainLayerAmbientOcclusion",
 	},
+	{
+		type = "vec4",
+		name = "TerrainLayerDetailStrength",
+		getter = "GetTerrainLayerDetailStrength",
+	},
+	{
+		type = "vec4",
+		name = "TerrainLayerSpecular",
+		getter = "GetTerrainLayerSpecular",
+	},
 }
 local PBR_TRANSMISSION_FIELDS = {
 	{
@@ -1582,13 +1592,22 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			TerrainLayerSample terrain_layer_cache;
 			bool terrain_layer_cache_valid = false;
 
-			void accumulate_terrain_layer(inout TerrainLayerSample s, int albedo_tex, int normal_tex, vec3 world_pos, vec3 blend, vec3 N, float weight, float scale) {
+			void accumulate_terrain_layer(inout TerrainLayerSample s, int albedo_tex, int normal_tex, vec3 world_pos, vec3 blend, vec3 N, float weight, float scale, float detail_strength) {
 				if (weight <= 0.001) {
 					return;
 				}
 
 				if (albedo_tex != -1) {
 					vec4 albedo = sample_terrain_layer_triplanar(albedo_tex, world_pos, scale, blend);
+
+					if (detail_strength > 0.0) {
+						// the smallest mip is the average color of the layer
+						vec3 average = textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0).rgb;
+						albedo.rgb = mix(vec3(1.0), albedo.rgb / max(average, vec3(0.01)), detail_strength);
+						// a detail layer's alpha is not roughness, TerrainLayerRoughness alone decides it
+						albedo.a = 1.0;
+					}
+
 					s.albedo += albedo.rgb * weight;
 					s.roughness += albedo.a * weight;
 				} else {
@@ -1619,10 +1638,11 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				vec3 N = get_terrain_world_normal(uv);
 				vec3 blend = get_terrain_triplanar_weights(N);
 				vec4 scales = ]] .. terrain_var .. [[.TerrainLayerScales;
-				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer1Texture, ]] .. terrain_var .. [[.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x);
-				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer2Texture, ]] .. terrain_var .. [[.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y);
-				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer3Texture, ]] .. terrain_var .. [[.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z);
-				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer4Texture, ]] .. terrain_var .. [[.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w);
+				vec4 detail = ]] .. terrain_var .. [[.TerrainLayerDetailStrength;
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer1Texture, ]] .. terrain_var .. [[.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x, detail.x);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer2Texture, ]] .. terrain_var .. [[.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y, detail.y);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer3Texture, ]] .. terrain_var .. [[.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z, detail.z);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer4Texture, ]] .. terrain_var .. [[.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w, detail.w);
 
 				if (s.normal_weight > 0.001) {
 					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
@@ -1918,8 +1938,14 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			}
 
 			// half the multiplier, so 1 lands mid range and 2 still fits the unorm target
-			float get_specular() {
-				return clamp(factor_model.SpecularMultiplier * 0.5, 0.0, 1.0);
+			float get_specular(vec2 uv) {
+				float val = factor_model.SpecularMultiplier;
+
+				if (terrain_model.TerrainMaterialTexture != -1) {
+					val *= dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerSpecular);
+				}
+
+				return clamp(val * 0.5, 0.0, 1.0);
 			}
 
 			float get_ao(vec2 uv) {

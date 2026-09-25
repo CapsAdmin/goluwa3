@@ -132,7 +132,7 @@ end
 
 --[[
 	layers = {
-		{albedo = texture or asset path, normal = texture or asset path, scale = meters per tile, roughness = 1, ao = 1},
+		{albedo = texture or asset path, normal = texture or asset path, scale = meters per tile, roughness = 1, ao = 1, detail = 0, specular = 1},
 		... up to 4
 	}
 ]]
@@ -146,6 +146,8 @@ function tiles.CreateMaterial(chunk, layers)
 	local scales = {}
 	local roughness = {}
 	local ao = {}
+	local detail = {}
+	local specular = {}
 
 	for i = 1, 4 do
 		local layer = layers[i] or {}
@@ -154,11 +156,15 @@ function tiles.CreateMaterial(chunk, layers)
 		scales[i] = layer.scale or 1
 		roughness[i] = layer.roughness or 1
 		ao[i] = layer.ao or 1
+		detail[i] = layer.detail or 0
+		specular[i] = layer.specular or 1
 	end
 
 	material:SetTerrainLayerScales(Color(scales[1], scales[2], scales[3], scales[4]))
 	material:SetTerrainLayerRoughness(Color(roughness[1], roughness[2], roughness[3], roughness[4]))
 	material:SetTerrainLayerAmbientOcclusion(Color(ao[1], ao[2], ao[3], ao[4]))
+	material:SetTerrainLayerDetailStrength(Color(detail[1], detail[2], detail[3], detail[4]))
+	material:SetTerrainLayerSpecular(Color(specular[1], specular[2], specular[3], specular[4]))
 	return material
 end
 

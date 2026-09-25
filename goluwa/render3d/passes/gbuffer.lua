@@ -242,7 +242,7 @@ local function build_ssdm_fragment_shader(displacement_var)
 			set_metallic(get_metallic(displacement.uv));
 			set_roughness(get_roughness(displacement.uv));
 			set_ao(get_ao(displacement.uv));
-			set_specular(get_specular());
+			set_specular(get_specular(displacement.uv));
 			set_subsurface(get_subsurface(displacement.uv));
 			set_transmission_blocking(get_transmission_blocking(displacement.uv));
 			set_emissive(get_emissive(displacement.uv));

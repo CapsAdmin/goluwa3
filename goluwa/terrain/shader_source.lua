@@ -18,6 +18,10 @@ local BakeConstants = ffi.typeof([[
 		int texture1;
 		int texture2;
 		int texture3;
+		int layer0;
+		int layer1;
+		int layer2;
+		int layer3;
 	}
 ]])
 local BAKE_DECLARATIONS = [[
@@ -31,6 +35,11 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 	int texture1;
 	int texture2;
 	int texture3;
+	// source specific ids of the chunk's layers, see SelectChunkLayers
+	int layer0;
+	int layer1;
+	int layer2;
+	int layer3;
 } terrain_bake;
 ]]
 -- available to the source GLSL: the world distance between samples of the
@@ -100,6 +109,10 @@ function ShaderSource.New(config)
 	self.Textures = config.Textures or {}
 	self.HasSplat = config.SplatGLSL ~= nil
 	self.HasColor = config.ColorGLSL ~= nil
+	self.ColorFormat = config.ColorFormat or "r8g8b8a8_unorm"
+	-- SelectChunkLayers(request) returns the layers of one chunk and up to 4 ids
+	-- the splat bake can read as terrain_bake.layer0-3
+	self.SelectChunkLayers = config.SelectChunkLayers
 	self.ShaderHeader = table.concat(
 		{
 			BAKE_STEP_HELPER,
@@ -135,6 +148,7 @@ do
 
 	local function get_bake_constants(_, _, pipeline)
 		local textures = bake.textures
+		local layer_ids = bake.layer_ids
 		return BakeConstants(
 			bake.origin_x,
 			bake.origin_z,
@@ -144,15 +158,20 @@ do
 			textures[1] and pipeline:GetTextureIndex(textures[1]) or -1,
 			textures[2] and pipeline:GetTextureIndex(textures[2]) or -1,
 			textures[3] and pipeline:GetTextureIndex(textures[3]) or -1,
-			textures[4] and pipeline:GetTextureIndex(textures[4]) or -1
+			textures[4] and pipeline:GetTextureIndex(textures[4]) or -1,
+			layer_ids[1] or -1,
+			layer_ids[2] or -1,
+			layer_ids[3] or -1,
+			layer_ids[4] or -1
 		)
 	end
 
+	local NO_LAYER_IDS = {}
 	local push_constants = {size = ffi.sizeof(BakeConstants), get_data = get_bake_constants}
 
 	-- texel_centered bakes sample at texel centers, otherwise the texels
 	-- land exactly on the chunk edges so neighbouring chunks share samples
-	local function record_bake(self, batch, size, format, glsl, request, texel_centered)
+	local function record_bake(self, batch, size, format, glsl, request, texel_centered, layer_ids)
 		local texture = make_bake_texture(size, format, batch.cmd)
 		local step = texel_centered and request.size / size or request.size / (size - 1)
 		local offset = texel_centered and step * 0.5 or 0
@@ -160,6 +179,7 @@ do
 		bake.origin_x = request.min_x + offset
 		bake.origin_z = request.min_z + offset
 		bake.step = step
+		bake.layer_ids = layer_ids or NO_LAYER_IDS
 		batch.refs[#batch.refs + 1] = texture:Shade(
 			glsl,
 			{
@@ -193,12 +213,27 @@ do
 			chunk.normal_texture = record_bake(self, batch, request.detail_size, "r8g8b8a8_unorm", NORMAL_BAKE, request, true)
 		end
 
+		local layer_ids
+
+		if self.SelectChunkLayers then
+			chunk.layers, layer_ids = self.SelectChunkLayers(request)
+		end
+
 		if request.splat_size and self.HasSplat then
-			chunk.splat_texture = record_bake(self, batch, request.splat_size, "r8g8b8a8_unorm", SPLAT_BAKE, request, true)
+			chunk.splat_texture = record_bake(
+				self,
+				batch,
+				request.splat_size,
+				"r8g8b8a8_unorm",
+				SPLAT_BAKE,
+				request,
+				true,
+				layer_ids
+			)
 		end
 
 		if request.color_size and self.HasColor then
-			chunk.color_texture = record_bake(self, batch, request.color_size, "r8g8b8a8_unorm", COLOR_BAKE, request, true)
+			chunk.color_texture = record_bake(self, batch, request.color_size, self.ColorFormat, COLOR_BAKE, request, true)
 		end
 
 		batch.chunks[#batch.chunks + 1] = chunk
