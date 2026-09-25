@@ -19,6 +19,7 @@ local sun = Entity.New{
 		Lux = SUN_TOA_ILLUMINANCE,
 	},
 }
+_G.SUN_ENTITY = sun
 atmosphere.SetSunIlluminance(SUN_TOA_ILLUMINANCE)
 local MODE = "cascade"
 local shadow_maps = {}

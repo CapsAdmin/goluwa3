@@ -353,23 +353,6 @@ local function ensure_shadow_gpu_cull_output(cache, shadow_map, cascade_idx)
 	return output
 end
 
-local function build_shadow_cull_options(shadow_map, cascade_idx)
-	if shadow_map.mode == "point" then return nil end
-
-	local cascade = shadow_map.cascade and shadow_map.cascade[cascade_idx]
-	local min_caster_texel_size = shadow_map.min_caster_texel_size or 0
-	local texel_world_size = cascade and cascade.texel_world_size or 0
-
-	if min_caster_texel_size <= 0 or texel_world_size <= 0 or not cascade.view_matrix then
-		return nil
-	end
-
-	return {
-		light_view = cascade.view_matrix,
-		min_caster_extent = min_caster_texel_size * texel_world_size,
-	}
-end
-
 local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visible_entry_indices)
 	local cache = get_shadow_visible_list_cache(shadow_map, cascade_idx)
 	local camera_position = get_cull_camera_position()
@@ -408,7 +391,7 @@ local function get_shadow_gpu_cull_result(shadow_map, cascade_idx, include_visib
 	if gpu_culling.IsEnabled() and not visual.noculling and query_aabb then
 		local dataset = gpu_culling.GetSceneDataset()
 		local shadow_output = ensure_shadow_gpu_cull_output(cache, shadow_map, cascade_idx)
-		local cull_options = build_shadow_cull_options(shadow_map, cascade_idx)
+		local cull_options = shadow_map:GetGPUCullOptions(cascade_idx)
 		local cull_result = dataset and
 			gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, nil, read_visible_entry_indices, cull_options) or
 			nil
@@ -2590,20 +2573,6 @@ do
 		return out
 	end
 
-	function visual.GetShadowVisibleGPUEntries(shadow_map, cascade_idx)
-		local dataset, cull_result = get_shadow_gpu_cull_result(shadow_map, cascade_idx, false)
-		local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, false)
-
-		if dataset and cull_result then
-			return dataset.shadow_entries,
-			visible_entry_index_ptr,
-			visible_entry_count,
-			cull_result
-		end
-
-		return nil, nil, 0, nil
-	end
-
 	function visual.GetShadowVisibleRenderEntries(shadow_map, cascade_idx)
 		local cache = get_shadow_visible_list_cache(shadow_map, cascade_idx)
 		local camera_position = get_cull_camera_position()
@@ -3185,92 +3154,45 @@ function Visual:OnFirstCreated()
 
 		if gpu_culling.IsEnabled() then
 			local track_shadow_debug = visual.shadow_debug_filter ~= nil
-			local entry_records, visible_entry_index_ptr, visible_entry_count, cull_result = visual.GetShadowVisibleGPUEntries(shadow_map, cascade_idx)
-			local draw_result = entry_records and
-				visible_entry_index_ptr and
-				shadow_map:DrawVisibleEntryIndices(
-					entry_records,
-					visible_entry_index_ptr,
-					visible_entry_count,
-					cascade_idx,
-					cull_result,
-					track_shadow_debug
-				) or
+			local cull_result = not visual.noculling and shadow_map:GetGPUDrawCullResult(cascade_idx) or nil
+			local draw_result = cull_result and
+				shadow_map:DrawGPUCulled(cull_result, cascade_idx, track_shadow_debug) or
 				shadow_map:DrawVisibleComponents(
 					visual.GetShadowVisibleVisuals(shadow_map, cascade_idx),
 					cascade_idx,
 					track_shadow_debug
 				)
-			local submitted_by_component = draw_result.submitted_by_component
-			local missing_world_matrix_components = draw_result.missing_world_matrix_components
-			local gpu_instanced_entry_count = draw_result.gpu_instanced_entry_count or 0
-			local gpu_instanced_draw_calls = draw_result.gpu_instanced_draw_calls or 0
-			local gpu_active_batch_count = draw_result.gpu_active_batch_count or 0
-			local gpu_total_batch_count = draw_result.gpu_total_batch_count or 0
-			local fallback_submitted_entry_count = draw_result.submitted_entry_count or 0
-			local missing_world_matrix_count = draw_result.missing_world_matrix_count or 0
-			local fallback_visible_entry_count = cull_result and
-				cull_result.fallback_visible_entry_count or
-				fallback_submitted_entry_count
-			local visible_entry_count = cull_result and
-				cull_result.visible_entry_count or
-				(
-					gpu_instanced_entry_count + fallback_visible_entry_count
-				)
-
-			if gpu_instanced_entry_count > 0 then
-				record_shadow_draw_calls(shadow_map, cascade_idx, gpu_instanced_entry_count)
-			end
-
-			if fallback_submitted_entry_count > 0 then
-				record_shadow_draw_calls(shadow_map, cascade_idx, fallback_submitted_entry_count)
-			end
+			record_shadow_draw_calls(
+				shadow_map,
+				cascade_idx,
+				draw_result.gpu_instanced_draw_calls + draw_result.submitted_entry_count
+			)
 
 			if track_shadow_debug then
-				for component, count in pairs(submitted_by_component) do
+				for component, count in pairs(draw_result.submitted_by_component) do
 					record_shadow_debug_hit(component, cascade_idx, "submitted", count)
 				end
-			end
 
-			if
-				gpu_instanced_entry_count > 0 and
-				visual.shadow_debug_filter ~= nil and
-				entry_records and
-				cull_result and
-				cull_result.visible_entry_indices_ready
-			then
-				local visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, true)
-
-				for i = 0, visible_entry_count - 1 do
-					local entry_index = tonumber(visible_entry_index_ptr[i])
-					local record = entry_records[entry_index + 1]
-
-					if record and record.component and record.instanced_batch_index ~= nil then
-						record_shadow_debug_hit(record.component, cascade_idx, "submitted", 1)
-					end
-				end
-			end
-
-			if track_shadow_debug then
-				for component in pairs(missing_world_matrix_components) do
+				for component in pairs(draw_result.missing_world_matrix_components) do
 					record_shadow_debug_hit(component, cascade_idx, "no_world_matrix")
 				end
 			end
 
+			-- entry visibility of the gpu packed batches stays on the gpu, so only
+			-- draw calls are known for them
 			record_shadow_gpu_culling_stats(
 				shadow_map,
 				cascade_idx,
 				{
-					visible_entry_count = visible_entry_count,
-					fallback_visible_entry_count = fallback_visible_entry_count,
-					gpu_packed_entry_count = gpu_instanced_entry_count,
-					gpu_packed_draw_calls = gpu_instanced_draw_calls,
-					gpu_active_batch_count = gpu_active_batch_count,
-					gpu_total_batch_count = gpu_total_batch_count,
-					fallback_submitted_entry_count = fallback_submitted_entry_count,
-					fallback_instanced_draw_calls = draw_result.instanced_draws or 0,
-					fallback_singleton_draw_calls = draw_result.fallback_draws or 0,
-					fallback_missing_world_matrix_count = missing_world_matrix_count,
+					visible_entry_count = draw_result.submitted_entry_count,
+					fallback_visible_entry_count = draw_result.submitted_entry_count,
+					gpu_packed_draw_calls = draw_result.gpu_instanced_draw_calls,
+					gpu_active_batch_count = draw_result.gpu_active_batch_count,
+					gpu_total_batch_count = draw_result.gpu_total_batch_count,
+					fallback_submitted_entry_count = draw_result.submitted_entry_count,
+					fallback_instanced_draw_calls = draw_result.instanced_draws,
+					fallback_singleton_draw_calls = draw_result.fallback_draws,
+					fallback_missing_world_matrix_count = draw_result.missing_world_matrix_count,
 				}
 			)
 		else

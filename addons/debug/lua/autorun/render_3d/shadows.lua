@@ -229,14 +229,14 @@ end
 event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 	if not show_shadow_map and not rawget(_G, "SHADOW_DEBUG_VIEW") then return end
 
-	local sun = render3d.GetLights()[1]
+	local sun = _G.SUN_ENTITY
 
 	if not sun then return end
 
 	local shadow_maps = {}
 
 	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
-		if shadow_map.enabled and shadow_map.light == sun.Owner then
+		if shadow_map.enabled and shadow_map.light == sun then
 			shadow_maps[#shadow_maps + 1] = shadow_map
 		end
 	end

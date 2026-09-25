@@ -97,7 +97,7 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 		cache[material] = material_cache
 	end
 
-	local entry = material_cache[pipeline] or {}
+	local entry = material_cache[pipeline]
 	local albedo_texture = material:GetAlbedoTexture()
 	local opacity_texture = material:GetOpacityTexture()
 	local height_texture = material:GetHeightTexture()
@@ -105,7 +105,10 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 	local opacity_view = opacity_texture and opacity_texture:GetView() or nil
 	local height_view = height_texture and height_texture:GetView() or nil
 
+	-- a material without any of these textures compares nil to nil everywhere, so
+	-- a new entry has to be filled regardless
 	if
+		not entry or
 		entry.albedo_texture ~= albedo_texture or
 		entry.albedo_view ~= albedo_view or
 		entry.opacity_texture ~= opacity_texture or
@@ -113,6 +116,7 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 		entry.height_texture ~= height_texture or
 		entry.height_view ~= height_view
 	then
+		entry = entry or {}
 		entry.albedo_texture = albedo_texture
 		entry.albedo_view = albedo_view
 		entry.opacity_texture = opacity_texture
@@ -676,6 +680,247 @@ local function create_shadow_instanced_pipeline_variant(
 	)
 end
 
+-- Multi-draw shadow pipeline: one DrawIndirect per cascade covers every instanced
+-- batch. The gpu cull writes one command per batch (zero instances when nothing is
+-- visible), gl_DrawID picks the batch's record and the vertex shader pulls the mesh
+-- through its buffer addresses, so no per-batch binding is needed.
+local ShadowBatchRecord = ffi.typeof(
+	[[struct {
+		uint32_t addresses[4];
+		uint32_t index_is_32;
+		int32_t albedo_texture_index;
+		int32_t opacity_texture_index;
+		int32_t flags;
+		float color_multiplier_a;
+		float alpha_cutoff;
+		$ anim;
+	}]],
+	ffi.typeof(model_pipeline.GetVertexAnimationUniformBufferDecl())
+)
+local ShadowBatchRecordArray = ffi.typeof("$[?]", ShadowBatchRecord)
+local ShadowMultiDrawPushConstants = ffi.typeof([[
+	struct {
+		float light_space_matrix[16];
+		float light_position[3];
+		float light_far_plane;
+		int32_t disable_vertex_animation;
+		int32_t pad;
+		uint64_t batches;
+		uint64_t instances;
+	}
+]])
+local SHADOW_MULTI_DRAW_COMMON_GLSL
+local SHADOW_VERTEX_FLOAT_COUNT = model_pipeline.GetVertexStride() / ffi.sizeof("float")
+
+do
+	local fields = {}
+
+	for _, field in ipairs(model_pipeline.GetVertexAnimationBlock()) do
+		fields[#fields + 1] = "\t\t" .. field[2] .. " " .. field[1] .. ";"
+	end
+
+	SHADOW_MULTI_DRAW_COMMON_GLSL = [[
+	#version 460
+	#extension GL_EXT_nonuniform_qualifier : require
+	#extension GL_EXT_scalar_block_layout : require
+	#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+	#extension GL_EXT_buffer_reference : require
+
+	struct VertexAnimation_t {
+]] .. table.concat(fields, "\n") .. [[
+
+	};
+
+	struct ShadowBatch {
+		uvec4 addresses;
+		uint index_is_32;
+		int albedo_texture_index;
+		int opacity_texture_index;
+		int flags;
+		float color_multiplier_a;
+		float alpha_cutoff;
+		VertexAnimation_t anim;
+	};
+
+	layout(buffer_reference, scalar) readonly buffer ShadowBatchData {
+		ShadowBatch b[];
+	};
+
+	layout(push_constant, scalar) uniform Constants {
+		mat4 light_space_matrix;
+		vec3 light_position;
+		float light_far_plane;
+		int disable_vertex_animation;
+		int pad;
+		uint64_t batches;
+		uint64_t instances;
+	} pc;
+
+	#define SHADOW_BATCH ShadowBatchData(pc.batches).b
+]]
+end
+
+local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
+	return {
+		type = "vertex",
+		code = SHADOW_MULTI_DRAW_COMMON_GLSL .. [[
+			layout(buffer_reference, scalar) readonly buffer ShadowInstanceData {
+				mat4 worlds[];
+			};
+
+			layout(buffer_reference, scalar) readonly buffer ShadowVertexData {
+				float v[];
+			};
+
+			layout(buffer_reference, scalar) readonly buffer ShadowIndexData {
+				uint i[];
+			};
+
+			layout(location = 0) out vec2 out_uv;
+			layout(location = 1) flat out uint out_batch;
+			]] .. (
+				linear_depth_output and
+				"layout(location = 2) out vec3 out_world_pos;" or
+				""
+			) .. [[
+
+			mat4 shadow_world;
+			VertexAnimation_t vertex_animation;
+
+			]] .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation", "shadow_world") .. [[
+
+			#define SHADOW_VERTEX_FLOATS ]] .. SHADOW_VERTEX_FLOAT_COUNT .. [[u
+
+			void main() {
+				uint batch_index = uint(gl_DrawID);
+				uvec4 addresses = SHADOW_BATCH[batch_index].addresses;
+
+				if (addresses.x == 0u && addresses.y == 0u) {
+					gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+					return;
+				}
+
+				uint index = uint(gl_VertexIndex);
+				uint64_t index_address = packUint2x32(addresses.zw);
+
+				if (index_address != 0ul) {
+					ShadowIndexData indices = ShadowIndexData(index_address);
+
+					if (SHADOW_BATCH[batch_index].index_is_32 != 0u) {
+						index = indices.i[index];
+					} else {
+						uint word = indices.i[index >> 1];
+						index = (index & 1u) != 0u ? word >> 16 : word & 0xFFFFu;
+					}
+				}
+
+				ShadowVertexData data = ShadowVertexData(packUint2x32(addresses.xy));
+				uint base = index * SHADOW_VERTEX_FLOATS;
+				vec3 local_pos = vec3(data.v[base], data.v[base + 1u], data.v[base + 2u]);
+				vec2 uv = vec2(data.v[base + 6u], data.v[base + 7u]);
+				shadow_world = ShadowInstanceData(pc.instances).worlds[gl_InstanceIndex];
+				vec3 world_pos = (shadow_world * vec4(local_pos, 1.0)).xyz;
+
+				if (
+					pc.disable_vertex_animation == 0 &&
+					(
+						SHADOW_BATCH[batch_index].anim.WindAmplitude > 0.0 ||
+						SHADOW_BATCH[batch_index].anim.WindDetailAmplitude > 0.0
+					)
+				) {
+					vertex_animation = SHADOW_BATCH[batch_index].anim;
+					vec3 local_normal = normalize(vec3(data.v[base + 3u], data.v[base + 4u], data.v[base + 5u]));
+					vec3 local_tangent = normalize(vec3(data.v[base + 8u], data.v[base + 9u], data.v[base + 10u]));
+					float texture_blend = data.v[base + 12u];
+					vec4 vertex_color = vec4(data.v[base + 13u], data.v[base + 14u], data.v[base + 15u], data.v[base + 16u]);
+					mat3 world_matrix3 = mat3(shadow_world);
+					vec3 world_normal = normalize(transpose(inverse(world_matrix3)) * local_normal);
+					vec3 world_tangent = normalize(world_matrix3 * local_tangent);
+					world_pos += get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
+				}
+
+				gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
+				out_uv = uv;
+				out_batch = batch_index;
+				]] .. (
+				linear_depth_output and
+				"out_world_pos = world_pos;" or
+				""
+			) .. [[
+			}
+		]],
+		push_constants = {size = ffi.sizeof(ShadowMultiDrawPushConstants), offset = 0},
+	}
+end
+
+local function build_shadow_multi_draw_fragment_stage(bindless_texture_capacity, linear_depth_output)
+	return {
+		type = "fragment",
+		code = SHADOW_MULTI_DRAW_COMMON_GLSL .. [[
+			layout(set = 1, binding = 0) uniform sampler2D textures[]] .. bindless_texture_capacity .. [[];
+			layout(location = 0) in vec2 in_uv;
+			layout(location = 1) flat in uint in_batch;
+			]] .. (
+				linear_depth_output and
+				"layout(location = 2) in vec3 in_world_pos;\nlayout(location = 0) out float out_distance;" or
+				""
+			) .. "\n" .. Material.BuildGlslFlags("SHADOW_BATCH[in_batch].flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl(
+				"SHADOW_BATCH[in_batch].albedo_texture_index",
+				"SHADOW_BATCH[in_batch].color_multiplier_a",
+				"SHADOW_BATCH[in_batch].opacity_texture_index"
+			) .. model_pipeline.BuildAlphaDiscardGlsl("SHADOW_BATCH[in_batch].alpha_cutoff") .. (
+				linear_depth_output and
+				[[
+					void main() {
+						float alpha = get_alpha();
+						compute_translucency_and_discard(alpha);
+						float light_distance = length(in_world_pos - pc.light_position);
+						out_distance = clamp(light_distance / max(pc.light_far_plane, 0.0001), 0.0, 1.0);
+					}
+				]] or
+				[[
+					void main() {
+						float alpha = get_alpha();
+						compute_translucency_and_discard(alpha);
+					}
+				]]
+			),
+		descriptor_sets = {
+			{
+				type = "combined_image_sampler",
+				binding_index = 0,
+				count = bindless_texture_capacity,
+				set_index = 1,
+			},
+		},
+		push_constants = {size = ffi.sizeof(ShadowMultiDrawPushConstants), offset = 0},
+	}
+end
+
+local function create_shadow_multi_draw_pipeline_variant(
+	depth_format,
+	max_shadow_width,
+	max_shadow_height,
+	bindless_texture_capacity,
+	linear_depth_output,
+	color_format
+)
+	return render.CreateGraphicsPipeline(
+		build_shadow_pipeline_config(
+			depth_format,
+			max_shadow_width,
+			max_shadow_height,
+			{
+				build_shadow_multi_draw_vertex_stage(linear_depth_output),
+				build_shadow_multi_draw_fragment_stage(bindless_texture_capacity, linear_depth_output),
+			},
+			"triangle_list",
+			nil,
+			color_format
+		)
+	)
+end
+
 local function get_pipeline_for_cascade(self, cascade_index)
 	if self.mode == "point" then return self.pipeline end
 
@@ -1170,6 +1415,15 @@ function ShadowMap.New(config)
 	config = config or {}
 	local self = ShadowMap:CreateObject()
 	local bindless_texture_capacity = render.GetBindlessDescriptorCapacities().textures
+	local features = render.GetPhysicalDevice():GetFeatures()
+
+	if
+		features.multiDrawIndirect ~= 1 or
+		render.GetPhysicalDevice():GetVulkan11Features().shaderDrawParameters ~= 1
+	then
+		error("shadow maps need the multiDrawIndirect and shaderDrawParameters device features")
+	end
+
 	self.mode = config.mode or "directional"
 	self.size = normalize_shadow_size(config.size)
 	self.format = config.format or DEFAULT_FORMAT
@@ -1304,6 +1558,14 @@ function ShadowMap.New(config)
 			true,
 			self.point_color_format
 		)
+		self.multi_draw_pipeline = create_shadow_multi_draw_pipeline_variant(
+			self.format,
+			max_shadow_width,
+			max_shadow_height,
+			bindless_texture_capacity,
+			true,
+			self.point_color_format
+		)
 	else
 		local unique_formats = {}
 
@@ -1351,6 +1613,7 @@ function ShadowMap.New(config)
 
 		self.pipeline_variants = {}
 		self.instanced_pipeline_variants = {}
+		self.multi_draw_pipeline_variants = {}
 		self.soup_cascade_from = config.soup_cascade_from or 2
 		self.soup_light_buffer = UniformBuffer.New([[struct { float light_space_matrix[16]; }]])
 		self.soup_pipeline_variants = {}
@@ -1374,6 +1637,14 @@ function ShadowMap.New(config)
 				false,
 				nil
 			)
+			self.multi_draw_pipeline_variants[depth_format] = create_shadow_multi_draw_pipeline_variant(
+				depth_format,
+				max_shadow_width,
+				max_shadow_height,
+				bindless_texture_capacity,
+				false,
+				nil
+			)
 			self.soup_pipeline_variants[depth_format] = create_soup_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
 		end
 
@@ -1387,12 +1658,19 @@ function ShadowMap.New(config)
 	self.cmd = self.command_pool:AllocateCommandBuffer()
 	self.fence = Fence.New(render.GetDevice())
 	self.is_recording_cascades = false
+	self.batch_serial = 0
+	self.shadow_batch_tables = {}
+	self.shadow_multi_draw_push_constants = ShadowMultiDrawPushConstants()
 	-- Current cascade being rendered (for Begin/End API)
 	self.current_cascade = 1
 	return self
 end
 
 function ShadowMap:OnRemove()
+	for _, batch_table in pairs(self.shadow_batch_tables) do
+		batch_table.buffer:Remove()
+	end
+
 	if self.expander.position_buffer then self.expander.position_buffer:Remove() end
 
 	if self.expander.expand_pipeline then self.expander.expand_pipeline:Remove() end
@@ -1409,6 +1687,12 @@ function ShadowMap:OnRemove()
 		if cascade.gpu_cull_output then
 			gpu_culling.RemoveShadowQueryOutput(cascade.gpu_cull_output)
 			cascade.gpu_cull_output = nil
+		end
+
+		if cascade.gpu_draw_cull_output then
+			gpu_culling.RemoveShadowQueryOutput(cascade.gpu_draw_cull_output)
+			cascade.gpu_draw_cull_output = nil
+			cascade.gpu_draw_cull_result = nil
 		end
 	end
 end
@@ -1749,6 +2033,106 @@ function ShadowMap:MarkCascadeRendered(cascade_index, shadow_volume_change_versi
 	cascade.last_rendered_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 end
 
+local function get_shadow_cull_output_requirements()
+	local dataset_buffers = gpu_culling.GetDatasetBuffers and gpu_culling.GetDatasetBuffers() or nil
+	local layout = dataset_buffers and dataset_buffers.layout or nil
+	return math.max(layout and layout.shadow_entry_count or 0, 1),
+	math.max(layout and layout.shadow_instanced_batch_count or 0, 1),
+	math.max(layout and layout.shadow_instance_count or 0, 1)
+end
+
+-- queries read their output back on the cpu while shadow draws consume theirs on the
+-- gpu, so each cascade keeps one output per purpose and neither can overwrite a
+-- result the other still needs
+local function ensure_shadow_cull_output(self, cascade_index, key)
+	local cascade = self.cascade and self.cascade[cascade_index] or nil
+
+	if not cascade then return nil end
+
+	local shadow_entry_capacity, shadow_instanced_batch_count, shadow_instance_capacity = get_shadow_cull_output_requirements()
+	local output = cascade[key]
+
+	if
+		output and
+		output.shadow_entry_capacity == shadow_entry_capacity and
+		output.shadow_instanced_batch_count == shadow_instanced_batch_count and
+		output.shadow_instance_capacity == shadow_instance_capacity
+	then
+		return output
+	end
+
+	local descriptor_slot = output and output.descriptor_slot or nil
+
+	if output then gpu_culling.RemoveShadowQueryOutput(output) end
+
+	output = gpu_culling.CreateShadowQueryOutput(
+		string.format("render3d_%s_%s_%d", key, tostring(self), cascade_index),
+		shadow_entry_capacity,
+		shadow_instanced_batch_count,
+		shadow_instance_capacity,
+		descriptor_slot
+	)
+	cascade[key] = output
+	return output
+end
+
+function ShadowMap:GetShadowCullOutput(cascade_index)
+	return ensure_shadow_cull_output(self, cascade_index or self.current_cascade, "gpu_cull_output")
+end
+
+function ShadowMap:GetGPUCullOptions(cascade_index)
+	if self.mode == "point" then return nil end
+
+	local cascade = self.cascade[cascade_index]
+	local min_caster_texel_size = self.min_caster_texel_size or 0
+	local texel_world_size = cascade.texel_world_size or 0
+
+	if min_caster_texel_size <= 0 or texel_world_size <= 0 or not cascade.view_matrix then
+		return nil
+	end
+
+	local options = cascade.gpu_cull_options or {}
+	options.light_view = cascade.view_matrix
+	options.min_caster_extent = min_caster_texel_size * texel_world_size
+	cascade.gpu_cull_options = options
+	return options
+end
+
+-- Records this cascade's gpu cull into self.cmd. It has to run before rendering
+-- begins, since the cull ends in a barrier. The draws later in self.cmd then read
+-- the indirect commands it writes, so the cpu never waits on the cull.
+local function record_shadow_draw_cull(self, cascade_index)
+	local cascade = self.cascade[cascade_index]
+	cascade.gpu_draw_cull_result = nil
+
+	if self:UsesSoup(cascade_index) and scene_bvh.IsReady() then return end
+
+	if not gpu_culling.IsEnabled() or not gpu_culling.GetSceneDataset() then
+		return
+	end
+
+	local query_aabb = self:GetCascadeWorldAABB(cascade_index)
+
+	if not query_aabb then return end
+
+	cascade.gpu_draw_cull_result = gpu_culling.RecordShadowViewAABBCulling(
+		self.cmd,
+		query_aabb,
+		ensure_shadow_cull_output(self, cascade_index, "gpu_draw_cull_output"),
+		self:GetGPUCullOptions(cascade_index)
+	)
+end
+
+function ShadowMap:GetGPUDrawCullResult(cascade_index)
+	local cull_result = self.cascade[cascade_index].gpu_draw_cull_result
+
+	if cull_result and gpu_culling.IsCullResultCurrent(cull_result) then
+		return cull_result
+	end
+
+	return nil
+end
+
 -- Begin shadow pass for a specific cascade (or all cascades if cascade_index is nil)
 function ShadowMap:Begin(cascade_index, is_first_in_batch)
 	cascade_index = cascade_index or 1
@@ -1767,8 +2151,10 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 			self.cmd:Reset()
 			self.cmd:Begin()
 			self.is_recording_cascades = true
+			self.batch_serial = self.batch_serial + 1
 		end
 
+		record_shadow_draw_cull(self, cascade_index)
 		local color_view = self.point_face_views[cascade_index]
 		render.TransitionResourceTo(
 			self.point_depth_cubemap,
@@ -1830,6 +2216,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		self.cmd:Reset()
 		self.cmd:Begin()
 		self.is_recording_cascades = true
+		self.batch_serial = self.batch_serial + 1
 
 		-- expand the triangle soup so the outer cascades can rasterize it as a
 		-- single merged mesh, only when the soup changed
@@ -1858,6 +2245,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		end
 	end
 
+	record_shadow_draw_cull(self, cascade_index)
 	-- Transition depth texture to depth attachment optimal
 	render.TransitionResourceTo(
 		depth_texture,
@@ -1986,50 +2374,6 @@ local function ensure_shadow_instance_buffer(batch, instance_count)
 	return batch.instance_buffer
 end
 
-local function get_shadow_cull_output_requirements()
-	local dataset_buffers = gpu_culling.GetDatasetBuffers and gpu_culling.GetDatasetBuffers() or nil
-	local layout = dataset_buffers and dataset_buffers.layout or nil
-	return math.max(layout and layout.shadow_entry_count or 0, 1),
-	math.max(layout and layout.shadow_instanced_batch_count or 0, 1),
-	math.max(layout and layout.shadow_instance_count or 0, 1)
-end
-
-local function ensure_shadow_cull_output(self, cascade_index)
-	local cascade = self.cascade and self.cascade[cascade_index] or nil
-
-	if not cascade then return nil end
-
-	local shadow_entry_capacity, shadow_instanced_batch_count, shadow_instance_capacity = get_shadow_cull_output_requirements()
-	local output = cascade.gpu_cull_output
-
-	if
-		output and
-		output.shadow_entry_capacity == shadow_entry_capacity and
-		output.shadow_instanced_batch_count == shadow_instanced_batch_count and
-		output.shadow_instance_capacity == shadow_instance_capacity
-	then
-		return output
-	end
-
-	local descriptor_slot = output and output.descriptor_slot or nil
-
-	if output then gpu_culling.RemoveShadowQueryOutput(output) end
-
-	output = gpu_culling.CreateShadowQueryOutput(
-		string.format("render3d_shadow_query_%s_%d", tostring(self), cascade_index),
-		shadow_entry_capacity,
-		shadow_instanced_batch_count,
-		shadow_instance_capacity,
-		descriptor_slot
-	)
-	cascade.gpu_cull_output = output
-	return output
-end
-
-function ShadowMap:GetShadowCullOutput(cascade_index)
-	return ensure_shadow_cull_output(self, cascade_index or self.current_cascade)
-end
-
 local function get_shadow_draw_submission_context(self, track_component_stats)
 	local context = self.shadow_draw_submission_context
 
@@ -2076,30 +2420,12 @@ local function get_shadow_instance_buffer_list(batch, instance_buffer)
 	return list
 end
 
-local function get_visible_instance_vertex_buffer_list(output)
-	local list = output.shadow_visible_instance_vertex_buffer_list or {}
-	list[1] = output.shadow_visible_instance_vertex_buffer
-	output.shadow_visible_instance_vertex_buffer_list = list
-	return list
-end
-
 local function get_shadow_draw_result(self)
 	local result = self.shadow_draw_result
 
 	if not result then
 		result = {}
 		self.shadow_draw_result = result
-	end
-
-	return result
-end
-
-local function get_shadow_gpu_instanced_draw_result(self)
-	local result = self.shadow_gpu_instanced_draw_result
-
-	if not result then
-		result = {}
-		self.shadow_gpu_instanced_draw_result = result
 	end
 
 	return result
@@ -2322,118 +2648,132 @@ function ShadowMap:DrawVisibleEntries(visible_entries, cascade_index, track_comp
 	return result
 end
 
-function ShadowMap:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index)
-	cascade_index = cascade_index or self.current_cascade
-	local result = get_shadow_gpu_instanced_draw_result(self)
+-- One record per instanced batch, indexed by gl_DrawID in the multi-draw pipeline.
+-- Texture indices are per pipeline and wind time moves every frame, so each map
+-- refreshes its table once per submission, after its fence says the gpu is done
+-- reading the previous contents.
+local function update_shadow_batch_table(self, pipeline, batches)
+	local batch_table = self.shadow_batch_tables[pipeline]
 
-	if not cull_result then
-		result.drew_any = false
-		result.submitted_entry_count = 0
-		result.draw_call_count = 0
-		result.active_batch_count = 0
-		result.total_batch_count = 0
-		return result
+	if batch_table and batch_table.serial == self.batch_serial then
+		return batch_table
 	end
 
-	local dataset = gpu_culling.GetSceneDataset()
-	local output = cull_result.shadow_output
+	if not batch_table or batch_table.capacity < #batches then
+		if batch_table then batch_table.buffer:Remove() end
 
-	if not output then
-		local frame_buffers = gpu_culling.GetFrameBuffers()
-		output = frame_buffers and frame_buffers[cull_result.frame_index] or nil
+		local capacity = math.max(math.ceil(#batches * 1.5), 1)
+		batch_table = {
+			capacity = capacity,
+			records = ShadowBatchRecordArray(capacity),
+			buffer = render.CreateBuffer{
+				byte_size = capacity * ffi.sizeof(ShadowBatchRecord),
+				buffer_usage = {"storage_buffer", "shader_device_address"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "render3d_shadow_batches",
+			},
+		}
+		batch_table.address = batch_table.buffer:GetDeviceAddress()
+		self.shadow_batch_tables[pipeline] = batch_table
 	end
 
-	local batches = dataset and dataset.shadow_instanced_batches or nil
+	for i, batch in ipairs(batches) do
+		local record = batch_table.records[i - 1]
+		local addresses = ffi.cast("uint64_t *", record.addresses)
+		local mesh = batch.mesh
 
-	if
-		not (
-			gpu_culling.IsCullResultCurrent(cull_result) and
-			output and
-			batches and
-			batches[1]
-		)
-	then
-		result.drew_any = false
-		result.submitted_entry_count = 0
-		result.draw_call_count = 0
-		result.active_batch_count = 0
-		result.total_batch_count = 0
-		return result
-	end
-
-	local active_batch_count_ptr = ffi.cast("uint32_t *", output.shadow_active_batch_count_buffer:Map())
-	local active_batch_indices = ffi.cast("uint32_t *", output.shadow_active_batch_index_buffer:Map())
-	local active_batch_count = tonumber(active_batch_count_ptr[0])
-	local drew_any = false
-	local submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0)
-	local draw_call_count = 0
-
-	for active_index = 0, active_batch_count - 1 do
-		local batch_index = tonumber(active_batch_indices[active_index]) + 1
-		local batch = batches[batch_index]
-
-		if batch and batch.mesh:IsValid() then
-			render3d.SetWorldMatrix(batch.first_world_matrix)
+		if mesh:IsValid() then
+			local material = batch.material
+			local texture_entry = cache_shadow_material_texture_indices(self, material, pipeline)
+			addresses[0] = mesh:GetVertexBufferAddress()
+			addresses[1] = mesh:GetIndexBufferAddress()
+			record.index_is_32 = mesh.index_buffer and mesh.index_buffer:GetIndexType() == "uint32" and 1 or 0
+			record.albedo_texture_index = texture_entry.albedo_texture_index
+			record.opacity_texture_index = texture_entry.opacity_texture_index
+			record.flags = material:GetFillFlags()
+			record.color_multiplier_a = material:GetColorMultiplier().a
+			record.alpha_cutoff = material:GetAlphaCutoff()
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
-			bind_instanced_shadow_constants(self, batch.material, cascade_index)
-			batch.mesh:DrawInstancedIndirect(
-				self.cmd,
-				output.shadow_visible_batch_indirect_command_buffer,
-				(batch_index - 1) * ffi.sizeof(vk.VkDrawIndexedIndirectCommand),
-				get_visible_instance_vertex_buffer_list(output),
-				1,
-				ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
-			)
-			drew_any = true
-			draw_call_count = draw_call_count + 1
+			model_pipeline.FillVertexAnimationData(record.anim, material)
+		else
+			-- the shader skips batches without a vertex buffer
+			addresses[0] = 0
+			addresses[1] = 0
 		end
 	end
 
-	result.drew_any = drew_any
-	result.submitted_entry_count = submitted_entry_count
-	result.draw_call_count = draw_call_count
-	result.active_batch_count = active_batch_count
-	result.total_batch_count = #batches
-	return result
+	batch_table.buffer:CopyData(batch_table.records, #batches * ffi.sizeof(ShadowBatchRecord))
+	batch_table.serial = self.batch_serial
+	return batch_table
 end
 
-function ShadowMap:DrawVisibleEntryIndices(
-	entry_records,
-	visible_entry_index_ptr,
-	visible_entry_count,
-	cascade_index,
-	cull_result,
-	track_component_stats
-)
-	cascade_index = cascade_index or self.current_cascade
+-- Draws a cascade from its recorded gpu cull with a single indirect multi-draw over
+-- every instanced batch: the cull wrote each batch's instance count, so a batch
+-- with no visible instance draws nothing. Entries that cannot be instanced are
+-- culled on the cpu.
+function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_stats)
 	local submission_context, submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
-	local gpu_instanced_result = self:DrawGPUCulledStaticInstanceBatches(cull_result, cascade_index)
-	local gpu_instanced_drawn = gpu_instanced_result.drew_any
-	local cull_indices_current = gpu_culling.IsCullResultCurrent(cull_result)
+	local dataset = gpu_culling.GetSceneDataset()
+	local output = cull_result.shadow_output
+	local batches = dataset.shadow_instanced_batches
+	local indirect_draws = 0
 
-	if cull_indices_current then
-		for i = 0, (visible_entry_count or 0) - 1 do
-			local entry_index = tonumber(visible_entry_index_ptr[i])
-			local visible_entry = entry_records and entry_records[entry_index + 1] or nil
+	if batches[1] then
+		local pipeline = self.mode == "point" and
+			self.multi_draw_pipeline or
+			self.multi_draw_pipeline_variants[self.cascade[cascade_index].format]
+		local batch_table = update_shadow_batch_table(self, pipeline, batches)
+		local depth_texture = self.mode == "point" and
+			self.point_depth_buffer or
+			self.cascade[cascade_index].depth_texture
+		local push_constants = self.shadow_multi_draw_push_constants
+		self.cascade[cascade_index].light_space_matrix:CopyToFloatPointer(push_constants.light_space_matrix)
+		push_constants.light_position[0] = self.point_light_position.x
+		push_constants.light_position[1] = self.point_light_position.y
+		push_constants.light_position[2] = self.point_light_position.z
+		push_constants.light_far_plane = self.far_plane
+		push_constants.disable_vertex_animation = self:ShouldDisableVertexAnimation(cascade_index) and 1 or 0
+		push_constants.batches = batch_table.address
+		push_constants.instances = output.shadow_visible_instance_vertex_buffer.buffer:GetDeviceAddress()
+		pipeline:Bind(self.cmd, render.GetCurrentFrame())
+		self.cmd:SetViewport(0.0, 0.0, depth_texture:GetWidth(), depth_texture:GetHeight(), 0.0, 1.0)
+		self.cmd:SetScissor(0, 0, depth_texture:GetWidth(), depth_texture:GetHeight())
+		self.cmd:SetFrontFace(orientation.FRONT_FACE)
+		self.cmd:SetCullMode("none")
+		pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, push_constants)
+		self.cmd:DrawIndirect(
+			output.shadow_visible_batch_indirect_command_buffer,
+			0,
+			#batches,
+			gpu_culling.SHADOW_DRAW_COMMAND_SIZE
+		)
+		indirect_draws = 1
+	end
 
-			if visible_entry and visible_entry.component and visible_entry.source_entry then
-				if gpu_instanced_drawn and visible_entry.instanced_batch_index ~= nil then
-					goto continue
-				end
+	for _, entry in ipairs(dataset.shadow_fallback_entries) do
+		local component = entry.component
+		local world_aabb = not entry.skip_shadow_aabb_cull and component:GetWorldAABB() or nil
 
-				collect_shadow_visible_entry(
-					self,
-					visible_entry.component,
-					visible_entry.source_entry,
-					cascade_index,
-					submission_context,
-					submission_stats,
-					submitted_by_component,
-					missing_world_matrix_components
+		if
+			component:IsWithinCullDistance() and
+			(
+				not world_aabb or
+				(
+					self:IsWorldAABBVisible(cascade_index, world_aabb) and
+					not self:IsWorldAABBTooSmall(cascade_index, world_aabb)
 				)
-			end
-
-			::continue::
+			)
+		then
+			collect_shadow_visible_entry(
+				self,
+				component,
+				entry.source_entry,
+				cascade_index,
+				submission_context,
+				submission_stats,
+				submitted_by_component,
+				missing_world_matrix_components
+			)
 		end
 	end
 
@@ -2443,10 +2783,10 @@ function ShadowMap:DrawVisibleEntryIndices(
 	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
 	result.submitted_by_component = submitted_by_component
 	result.missing_world_matrix_components = missing_world_matrix_components
-	result.gpu_instanced_entry_count = gpu_instanced_result.submitted_entry_count or 0
-	result.gpu_instanced_draw_calls = gpu_instanced_result.draw_call_count or 0
-	result.gpu_active_batch_count = gpu_instanced_result.active_batch_count or 0
-	result.gpu_total_batch_count = gpu_instanced_result.total_batch_count or 0
+	result.gpu_instanced_entry_count = 0
+	result.gpu_instanced_draw_calls = indirect_draws
+	result.gpu_active_batch_count = #batches
+	result.gpu_total_batch_count = #batches
 	result.instanced_draws = instanced_draws
 	result.fallback_draws = fallback_draws
 	return result

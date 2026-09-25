@@ -119,7 +119,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			variablePointers = 0,
 			protectedMemory = 0,
 			samplerYcbcrConversion = 0,
-			shaderDrawParameters = 0,
+			shaderDrawParameters = availableVulkan11Features.shaderDrawParameters,
 		}
 	)
 	pNextChain = vulkan11Features
@@ -289,6 +289,14 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 
 	if physical_features.depthClamp == 1 then
 		enabled_features[0].depthClamp = 1
+	end
+
+	if physical_features.multiDrawIndirect == 1 then
+		enabled_features[0].multiDrawIndirect = 1
+	end
+
+	if physical_features.drawIndirectFirstInstance == 1 then
+		enabled_features[0].drawIndirectFirstInstance = 1
 	end
 
 	if physical_features.depthBiasClamp == 1 then

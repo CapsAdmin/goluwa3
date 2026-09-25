@@ -845,6 +845,9 @@ T.Test3D("Graphics render3d shadow visible render entries expand shadow-visible 
 		GetCascadeWorldAABB = function()
 			return AABB(-10, -10, -20, 10, 10, 0)
 		end,
+		GetGPUCullOptions = function()
+			return nil
+		end,
 	}
 	local render_entries = Visual.Library.GetShadowVisibleRenderEntries(shadow_map, 1)
 	T(#render_entries)["=="](2)
@@ -876,6 +879,9 @@ T.Test3D("Graphics render3d shadow visible list reuses stable cascades", functio
 		end,
 		GetCascadeWorldAABB = function()
 			return query_aabb
+		end,
+		GetGPUCullOptions = function()
+			return nil
 		end,
 	}
 	local initially_visible = visible_lookup(Visual.Library.GetShadowVisibleVisuals(shadow_map, 1))
@@ -916,6 +922,9 @@ T.Test3D("Graphics render3d shadows ignore main-view occlusion", function(draw)
 		end,
 		GetCascadeWorldAABB = function()
 			return AABB(-20, -20, -20, 20, 20, 0)
+		end,
+		GetGPUCullOptions = function()
+			return nil
 		end,
 	}
 	draw()
