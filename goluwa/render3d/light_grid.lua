@@ -15,7 +15,8 @@ light_grid.WORDS = scene_lights.MAX_LIGHTS / 32
 local HEADER_BYTES = 16 * light_grid.LEVELS + 16
 local BINDING_UNIFORM = 0
 local BINDING_GRID = 1
--- the ddgi ray generation shader reads it too; set with the buffer
+-- the ddgi ray generation shader and the translucent pass's fragment shader
+-- read it too; set with the buffer
 local rt_stage = nil
 local buffer = nil
 
@@ -32,7 +33,7 @@ function light_grid.GetBuffer(cmd)
 		cmd:FillBuffer(buffer, 0, buffer:GetSize(), 0)
 		cmd:PipelineBarrier{
 			srcStage = "transfer",
-			dstStage = {"compute", rt_stage},
+			dstStage = {"compute", "fragment", rt_stage},
 			bufferBarriers = {
 				{
 					buffer = buffer,
@@ -155,7 +156,7 @@ light_grid.pass = {
 		local grid = light_grid.GetBuffer(cmd)
 		-- last frame's readers are done before it's overwritten
 		cmd:PipelineBarrier{
-			srcStage = {"compute", rt_stage},
+			srcStage = {"compute", "fragment", rt_stage},
 			dstStage = "compute",
 			bufferBarriers = {{buffer = grid, srcAccessMask = "shader_read", dstAccessMask = "shader_write"}},
 		}
@@ -170,7 +171,7 @@ light_grid.pass = {
 		)
 		cmd:PipelineBarrier{
 			srcStage = "compute",
-			dstStage = {"compute", rt_stage},
+			dstStage = {"compute", "fragment", rt_stage},
 			bufferBarriers = {{buffer = grid, srcAccessMask = "shader_write", dstAccessMask = "shader_read"}},
 		}
 	end,

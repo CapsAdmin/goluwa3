@@ -515,6 +515,7 @@ function render3d.CreatePipelineBundle(options)
 			import("goluwa/render3d/passes/lighting.lua"),
 			--import("goluwa/render3d/passes/lighting_simple.lua"),
 			import("goluwa/render3d/passes/ocean.lua"),
+			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/forward_overlay.lua"),
 			import("goluwa/render3d/passes/volumetric_fog.lua"),
 			import("goluwa/render3d/passes/taa.lua"),
@@ -1165,6 +1166,15 @@ function render3d.UploadGBufferConstants()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
 	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
 	pipeline:UploadConstants()
+	cmd:SetPolygonMode(polygon_mode)
+	cmd:SetCullMode(cull_mode)
+end
+
+function render3d.UploadTranslucentConstants()
+	local cmd = render.GetCommandBuffer()
+	local cull_mode = render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE
+	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
+	render3d.pipelines.translucent_surface:UploadConstants()
 	cmd:SetPolygonMode(polygon_mode)
 	cmd:SetCullMode(cull_mode)
 end

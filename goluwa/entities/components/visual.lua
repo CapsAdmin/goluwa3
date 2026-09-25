@@ -61,6 +61,14 @@ local function refresh_forward_overlay_registry(component)
 	end
 end
 
+local function refresh_translucent_registry(component)
+	if component.HasTranslucentRenderEntries then
+		registry_insert(visual.translucent_components, "translucent_registry_index", component)
+	else
+		registry_remove(visual.translucent_components, "translucent_registry_index", component)
+	end
+end
+
 local function refresh_occlusion_registries(component)
 	component.using_conditional_rendering = component.UseOcclusionCulling and
 		visual.IsOcclusionCullingEnabled and
@@ -508,6 +516,22 @@ local function material_ignores_z(material)
 	return material and material.GetIgnoreZ and material:GetIgnoreZ() or false
 end
 
+-- translucent materials draw in the forward translucent pass instead of the
+-- gbuffer, unless they ignore z, which the forward overlay draws either way
+local function material_is_translucent(material)
+	return material:GetTranslucent() and not material_ignores_z(material)
+end
+
+-- a renderer without the translucent pass (the simple one) dithers them in the
+-- gbuffer instead
+local function material_draws_in_gbuffer(material)
+	return not material_ignores_z(material) and
+		(
+			not material_is_translucent(material) or
+			not render3d.pipelines.translucent_surface
+		)
+end
+
 local last_scene_voxelizer_invalidation_frame = -1
 
 local function voxelizer_has_dirty_work(voxelizer)
@@ -949,11 +973,18 @@ function Visual:Initialize()
 	self.RenderEntriesDirty = true
 	self.LoadGeneration = 0
 	refresh_forward_overlay_registry(self)
+	refresh_translucent_registry(self)
 end
 
 function Visual:SetUseOcclusionCulling(enabled)
 	self.UseOcclusionCulling = enabled
 	refresh_occlusion_registries(self)
+end
+
+-- which pass an entry draws in follows from its material
+function Visual:SetMaterialOverride(material)
+	objects.CommitProperty(self, "MaterialOverride", material)
+	self:InvalidateRenderEntries()
 end
 
 function Visual:SetCastShadows(enabled)
@@ -968,6 +999,7 @@ function Visual:InvalidateRenderEntries()
 	self.RenderEntriesDirty = true
 	self.HasIgnoreZRenderEntries = false
 	self.HasOpaqueRenderEntries = false
+	self.HasTranslucentRenderEntries = false
 	self.gpu_dataset_static_serialized = nil
 	self.gpu_dataset_shadow_serialized = nil
 	self.WorldAABBCache = nil
@@ -976,6 +1008,7 @@ function Visual:InvalidateRenderEntries()
 	self.raycast_primitive_acceleration = nil
 	mark_shadow_change(self)
 	refresh_forward_overlay_registry(self)
+	refresh_translucent_registry(self)
 	invalidate_scene_acceleration()
 	-- the triangle soup is baked from render entries, so a change in entry
 	-- topology invalidates it even when no transform moved
@@ -1091,6 +1124,7 @@ function Visual:RebuildRenderEntries()
 	local bounds = create_empty_aabb()
 	local has_ignore_z_entries = false
 	local has_opaque_entries = false
+	local has_translucent_entries = false
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
 		local primitive = child.visual_primitive
@@ -1117,9 +1151,12 @@ function Visual:RebuildRenderEntries()
 					aabb = local_aabb,
 					source_aabb = source_aabb,
 				}
+				local resolved_material = self.MaterialOverride or material or render3d.GetDefaultMaterial()
 
-				if material_ignores_z(material) then
+				if material_ignores_z(resolved_material) then
 					has_ignore_z_entries = true
+				elseif material_is_translucent(resolved_material) then
+					has_translucent_entries = true
 				else
 					has_opaque_entries = true
 				end
@@ -1133,8 +1170,10 @@ function Visual:RebuildRenderEntries()
 	self.RenderEntriesDirty = false
 	self.HasIgnoreZRenderEntries = has_ignore_z_entries
 	self.HasOpaqueRenderEntries = has_opaque_entries
+	self.HasTranslucentRenderEntries = has_translucent_entries
 	self:SetAABB(bounds)
 	refresh_forward_overlay_registry(self)
+	refresh_translucent_registry(self)
 	return entries
 end
 
@@ -1247,6 +1286,7 @@ do
 	visual.shadow_change_version_counter = 0
 	visual.shadow_casters = visual.shadow_casters or {}
 	visual.forward_overlay_components = visual.forward_overlay_components or {}
+	visual.translucent_components = visual.translucent_components or {}
 
 	function visual.EnableShadowDrawDebug(filter, should_log)
 		visual.shadow_debug_filter = filter == nil and true or filter
@@ -2776,10 +2816,18 @@ function Visual:HasRenderEntriesForPass(ignore_z, render_entries)
 	if not render_entries[1] then return false end
 
 	if self.MaterialOverride then
-		return material_ignores_z(self.MaterialOverride) == ignore_z
+		if ignore_z then return material_ignores_z(self.MaterialOverride) end
+
+		return material_draws_in_gbuffer(self.MaterialOverride)
 	end
 
-	return ignore_z and self.HasIgnoreZRenderEntries or self.HasOpaqueRenderEntries
+	if ignore_z then return self.HasIgnoreZRenderEntries end
+
+	return self.HasOpaqueRenderEntries or
+		(
+			self.HasTranslucentRenderEntries and
+			not render3d.pipelines.translucent_surface
+		)
 end
 
 function Visual:DrawEntriesForPass(ignore_z, upload_constants, render_entries)
@@ -2789,7 +2837,12 @@ function Visual:DrawEntriesForPass(ignore_z, upload_constants, render_entries)
 	for _, entry in ipairs(render_entries) do
 		local material = self:GetResolvedMaterial(entry)
 
-		if material_ignores_z(material) == ignore_z then
+		if
+			ignore_z and
+			material_ignores_z(material) or
+			not ignore_z and
+			material_draws_in_gbuffer(material)
+		then
 			local transform = entry.transform
 			local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
 			local prev_world_matrix = transform and
@@ -2829,7 +2882,7 @@ end
 local function draw_geometry_entry(component, entry)
 	local material = component:GetResolvedMaterial(entry)
 
-	if material_ignores_z(material) then return false end
+	if not material_draws_in_gbuffer(material) then return false end
 
 	local transform = entry.transform
 	local world_matrix = transform and transform:GetWorldMatrix() or component:GetWorldMatrix()
@@ -3014,6 +3067,7 @@ end
 function Visual:OnRemove()
 	registry_remove(visual.shadow_casters, "shadow_registry_index", self)
 	registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", self)
+	registry_remove(visual.translucent_components, "translucent_registry_index", self)
 	self.RenderEntries = {}
 	self:InvalidateRenderEntries()
 	invalidate_scene_acceleration()
@@ -3102,6 +3156,60 @@ function Visual:OnFirstCreated()
 			end
 		end
 	end)
+
+	do
+		local function compare_translucent_draws(a, b)
+			return a.distance > b.distance
+		end
+
+		-- back to front by the distance to each entry's center, so the blend
+		-- is right between separate meshes, not within one
+		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
+			local camera_position = render3d.GetCamera():GetPosition()
+			local draws = {}
+
+			for _, component in ipairs(visual.translucent_components) do
+				if component.Visible and not component:IsCulled() then
+					for _, entry in ipairs(component:GetRenderEntries()) do
+						local material = component:GetResolvedMaterial(entry)
+						local world_matrix = entry.transform and
+							entry.transform:GetWorldMatrix() or
+							component:GetWorldMatrix()
+
+						if material_is_translucent(material) and world_matrix then
+							local aabb = entry.source_aabb
+							local x, y, z = 0, 0, 0
+
+							if aabb then
+								x, y, z = (aabb.min_x + aabb.max_x) * 0.5,
+								(aabb.min_y + aabb.max_y) * 0.5,
+								(aabb.min_z + aabb.max_z) * 0.5
+							end
+
+							x, y, z = world_matrix:TransformVectorUnpacked(x, y, z)
+							x, y, z = x - camera_position.x, y - camera_position.y, z - camera_position.z
+							draws[#draws + 1] = {
+								entry = entry,
+								material = material,
+								world_matrix = world_matrix,
+								distance = x * x + y * y + z * z,
+							}
+						end
+					end
+				end
+			end
+
+			table.sort(draws, compare_translucent_draws)
+
+			for _, draw in ipairs(draws) do
+				render3d.SetWorldMatrix(draw.world_matrix)
+				render3d.SetCurrentPolygon3D(draw.entry.polygon3d)
+				render3d.SetMaterial(draw.material)
+				render3d.UploadTranslucentConstants()
+				draw.entry.polygon3d:Draw()
+			end
+		end)
+	end
 
 	event.AddListener("PrimeAllShadowMaterials", "visual_shadow_prime", function(shadow_map)
 		local prime_versions = visual.shadow_prime_versions

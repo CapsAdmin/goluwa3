@@ -1383,4 +1383,557 @@ function model_pipeline.BuildSurfaceSamplingGlsl(model_var)
 	]]
 end
 
+function model_pipeline.GetPBRUniformBuffers()
+	return {
+		{
+			name = "model",
+			upload_scope = "persistent_keyed",
+			upload_key = render3d.GetMaterialUploadKey,
+			block = model_pipeline.GetPBRMaterialBlock(),
+			write = model_pipeline.WritePBRMaterialBlock,
+		},
+		{
+			name = "color_model",
+			upload_scope = "frame_keyed",
+			upload_key = model_pipeline.GetPBRColorUploadKey,
+			block = model_pipeline.GetPBRColorMaterialBlock(),
+			write = model_pipeline.WritePBRColorMaterialBlock,
+		},
+		{
+			name = "factor_model",
+			upload_scope = "persistent_keyed",
+			upload_key = model_pipeline.GetPBRFactorUploadKey,
+			block = model_pipeline.GetPBRFactorMaterialBlock(),
+			write = model_pipeline.WritePBRFactorMaterialBlock,
+		},
+		{
+			name = "detail_model",
+			upload_scope = "persistent_keyed",
+			upload_key = model_pipeline.GetPBRDetailUploadKey,
+			block = model_pipeline.GetPBRDetailMaterialBlock(),
+			write = model_pipeline.WritePBRDetailMaterialBlock,
+		},
+		{
+			name = "aux_model",
+			upload_scope = "frame_keyed",
+			upload_key = model_pipeline.GetPBRAuxUploadKey,
+			block = model_pipeline.GetPBRAuxMaterialBlock(),
+			write = model_pipeline.WritePBRAuxMaterialBlock,
+		},
+		{
+			name = "displacement_model",
+			upload_scope = "frame_keyed",
+			upload_key = model_pipeline.GetPBRDisplacementUploadKey,
+			block = model_pipeline.GetPBRDisplacementMaterialBlock(),
+			write = model_pipeline.WritePBRDisplacementMaterialBlock,
+		},
+		{
+			name = "terrain_model",
+			upload_scope = "frame_keyed",
+			upload_key = model_pipeline.GetPBRTerrainUploadKey,
+			block = model_pipeline.GetPBRTerrainMaterialBlock(),
+			write = model_pipeline.WritePBRTerrainMaterialBlock,
+		},
+		{
+			name = "transmission_model",
+			upload_scope = "frame_keyed",
+			upload_key = model_pipeline.GetPBRTransmissionUploadKey,
+			block = model_pipeline.GetPBRTransmissionMaterialBlock(),
+			write = model_pipeline.WritePBRTransmissionMaterialBlock,
+		},
+	}
+end
+
+-- The material side of a lit surface: what the gbuffer writes and the
+-- forward passes shade. Wants the GetPBRUniformBuffers blocks and a vertex
+-- stage with position, normal, tangent, uv, texture_blend and vertex_color.
+function model_pipeline.BuildPBRSurfaceGlsl()
+	local model_var = "model"
+	local terrain_var = "terrain_model"
+	local displacement_var = "displacement_model"
+	local detail_var = "detail_model"
+	local factor_var = "factor_model"
+	local color_var = "color_model"
+	return Material.BuildGlslFlags(model_var .. ".Flags") .. [[
+
+			bool has_heightmap() {
+				return ]] .. displacement_var .. [[.HeightTexture != -1 && ]] .. displacement_var .. [[.HeightScale > 0.0;
+			}
+
+			float get_height_sample(vec2 uv) {
+				if (!has_heightmap()) {
+					return 1.0;
+				}
+
+				return texture(TEXTURE(]] .. displacement_var .. [[.HeightTexture), uv).r;
+			}
+
+			float get_height_centered_sample(vec2 uv) {
+				return get_height_sample(uv) - ]] .. displacement_var .. [[.HeightCenter;
+			}
+
+			int get_height_layers() {
+				return clamp(]] .. displacement_var .. [[.HeightLayers, 4, 64);
+			}
+
+			float get_texture_blend_uv(vec2 uv) {
+				if (]] .. detail_var .. [[.BlendTexture == -1) {
+					return in_texture_blend;
+				}
+
+				// source blendmodulate: g is the transition center, r its half width
+				vec2 modulate = texture(TEXTURE(]] .. detail_var .. [[.BlendTexture), uv).rg;
+				return smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), in_texture_blend);
+			}
+
+			float get_texture_blend() {
+				return get_texture_blend_uv(in_uv);
+			}
+
+			vec3 get_terrain_world_normal(vec2 uv) {
+				if (]] .. model_var .. [[.NormalTexture == -1) {
+					return vec3(0.0, 1.0, 0.0);
+				}
+
+				vec2 n = texture(TEXTURE(]] .. model_var .. [[.NormalTexture), uv).xy * 2.0 - 1.0;
+				return normalize(vec3(n.x, sqrt(max(1.0 - dot(n, n), 0.0)), n.y));
+			}
+
+			vec3 get_terrain_triplanar_weights(vec3 normal) {
+				vec3 w = pow(abs(normal), vec3(4.0));
+				return w / max(w.x + w.y + w.z, 0.0001);
+			}
+
+			vec4 sample_terrain_layer_triplanar(int tex, vec3 world_pos, float scale, vec3 blend) {
+				float safe_scale = max(scale, 0.0001);
+				vec4 result = vec4(0.0);
+
+				if (blend.y > 0.001) {
+					result += texture(TEXTURE(tex), world_pos.xz / safe_scale) * blend.y;
+				}
+
+				if (blend.x > 0.001) {
+					result += texture(TEXTURE(tex), world_pos.zy / safe_scale) * blend.x;
+				}
+
+				if (blend.z > 0.001) {
+					result += texture(TEXTURE(tex), world_pos.xy / safe_scale) * blend.z;
+				}
+
+				return result;
+			}
+
+			vec4 sample_terrain_layer_normal_triplanar(int tex, vec3 world_pos, float scale, vec3 blend, vec3 N) {
+				float safe_scale = max(scale, 0.0001);
+				vec3 n = vec3(0.0);
+				float ao = 0.0;
+
+				if (blend.y > 0.001) {
+					vec4 t = texture(TEXTURE(tex), world_pos.xz / safe_scale);
+					vec3 tn = t.xyz * 2.0 - 1.0;
+					tn = vec3(tn.xy + N.xz, abs(tn.z) * N.y);
+					n += tn.xzy * blend.y;
+					ao += t.a * blend.y;
+				}
+
+				if (blend.x > 0.001) {
+					vec4 t = texture(TEXTURE(tex), world_pos.zy / safe_scale);
+					vec3 tn = t.xyz * 2.0 - 1.0;
+					tn = vec3(tn.xy + N.zy, abs(tn.z) * N.x);
+					n += tn.zyx * blend.x;
+					ao += t.a * blend.x;
+				}
+
+				if (blend.z > 0.001) {
+					vec4 t = texture(TEXTURE(tex), world_pos.xy / safe_scale);
+					vec3 tn = t.xyz * 2.0 - 1.0;
+					tn = vec3(tn.xy + N.xy, abs(tn.z) * N.z);
+					n += tn.xyz * blend.z;
+					ao += t.a * blend.z;
+				}
+
+				return vec4(n, ao);
+			}
+
+			vec4 get_terrain_material_weights_uv(vec2 uv) {
+				if (]] .. terrain_var .. [[.TerrainMaterialTexture == -1) {
+					return vec4(0.0);
+				}
+
+				vec4 weights = texture(TEXTURE(]] .. terrain_var .. [[.TerrainMaterialTexture), uv);
+				weights = max(weights, vec4(0.0));
+				float weight_sum = dot(weights, vec4(1.0));
+
+				if (weight_sum <= 0.0001) {
+					return vec4(0.0);
+				}
+
+				return weights / weight_sum;
+			}
+
+			struct TerrainLayerSample {
+				vec3 albedo;
+				float roughness;
+				vec3 normal;
+				float ao;
+				float normal_weight;
+			};
+
+			TerrainLayerSample terrain_layer_cache;
+			bool terrain_layer_cache_valid = false;
+
+			void accumulate_terrain_layer(inout TerrainLayerSample s, int albedo_tex, int normal_tex, vec3 world_pos, vec3 blend, vec3 N, float weight, float scale) {
+				if (weight <= 0.001) {
+					return;
+				}
+
+				if (albedo_tex != -1) {
+					vec4 albedo = sample_terrain_layer_triplanar(albedo_tex, world_pos, scale, blend);
+					s.albedo += albedo.rgb * weight;
+					s.roughness += albedo.a * weight;
+				} else {
+					s.albedo += vec3(weight);
+					s.roughness += weight;
+				}
+
+				if (normal_tex != -1) {
+					vec4 n = sample_terrain_layer_normal_triplanar(normal_tex, world_pos, scale, blend, N);
+					s.normal += n.xyz * weight;
+					s.ao += n.w * weight;
+					s.normal_weight += weight;
+				}
+			}
+
+			TerrainLayerSample get_terrain_layer_sample(vec2 uv, vec3 world_pos) {
+				if (terrain_layer_cache_valid) {
+					return terrain_layer_cache;
+				}
+
+				TerrainLayerSample s;
+				s.albedo = vec3(0.0);
+				s.roughness = 0.0;
+				s.normal = vec3(0.0);
+				s.ao = 0.0;
+				s.normal_weight = 0.0;
+				vec4 weights = get_terrain_material_weights_uv(uv);
+				vec3 N = get_terrain_world_normal(uv);
+				vec3 blend = get_terrain_triplanar_weights(N);
+				vec4 scales = ]] .. terrain_var .. [[.TerrainLayerScales;
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer1Texture, ]] .. terrain_var .. [[.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer2Texture, ]] .. terrain_var .. [[.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer3Texture, ]] .. terrain_var .. [[.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z);
+				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer4Texture, ]] .. terrain_var .. [[.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w);
+
+				if (s.normal_weight > 0.001) {
+					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
+					s.ao = mix(1.0, s.ao / s.normal_weight, s.normal_weight);
+				} else {
+					s.normal = N;
+					s.ao = 1.0;
+				}
+
+				terrain_layer_cache = s;
+				terrain_layer_cache_valid = true;
+				return s;
+			}
+
+			vec3 get_terrain_albedo_uv(vec2 uv, vec3 world_pos) {
+				vec4 weights = get_terrain_material_weights_uv(uv);
+
+				if (dot(weights, vec4(1.0)) <= 0.0001) {
+					return ]] .. color_var .. [[.ColorMultiplier.rgb;
+				}
+
+				vec3 color = get_terrain_layer_sample(uv, world_pos).albedo;
+
+				if (]] .. model_var .. [[.AlbedoTexture != -1) {
+					vec3 detail = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
+					color *= detail;
+				}
+
+				return color * ]] .. color_var .. [[.ColorMultiplier.rgb;
+			}
+
+			vec3 get_albedo_world(vec2 uv, vec3 world_pos) {
+				if (]] .. terrain_var .. [[.TerrainMaterialTexture != -1) {
+					return get_terrain_albedo_uv(uv, world_pos);
+				}
+
+				if (]] .. model_var .. [[.AlbedoTexture == -1) {
+					return ]] .. color_var .. [[.ColorMultiplier.rgb;
+				}
+
+				vec3 rgb1 = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
+
+				if (]] .. detail_var .. [[.Albedo2Texture != -1) {
+					float blend = get_texture_blend_uv(uv);
+
+					if (blend != 0) {
+						vec3 rgb2 = texture(TEXTURE(]] .. detail_var .. [[.Albedo2Texture), uv).rgb;
+						rgb1 = mix(rgb1, rgb2, blend);
+					}
+				}
+
+				if (]] .. detail_var .. [[.DetailTexture != -1) {
+					vec2 detail_uv = uv * ]] .. detail_var .. [[.DetailTiling;
+					float detail = texture(TEXTURE(]] .. detail_var .. [[.DetailTexture), detail_uv).a + texture(TEXTURE(]] .. detail_var .. [[.DetailTexture), detail_uv * 2.0).a;
+					rgb1 = mix(rgb1, rgb1 * detail, ]] .. detail_var .. [[.DetailBlendAmount);
+				}
+
+				return rgb1 * ]] .. color_var .. [[.ColorMultiplier.rgb;
+			}
+
+			vec3 get_albedo_uv(vec2 uv) {
+				return get_albedo_world(uv, in_position);
+			}
+
+			vec3 get_albedo() {
+				return get_albedo_uv(in_uv);
+			}
+
+			float get_alpha_uv(vec2 uv) {
+				if (
+					]] .. model_var .. [[.AlbedoTexture == -1 ||
+					AlbedoTextureAlphaIsRoughness ||
+					AlbedoTextureAlphaIsRoughness ||
+					AlbedoAlphaIsEmissive
+				) {
+					return ]] .. color_var .. [[.ColorMultiplier.a;
+				}
+
+				return texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).a * ]] .. color_var .. [[.ColorMultiplier.a;
+			}
+
+			float get_alpha() {
+				return get_alpha_uv(in_uv);
+			}
+	]] .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff") .. [[
+			vec3 get_vertex_normal() {
+				vec3 N = in_normal;
+
+				if (DoubleSided && gl_FrontFacing) {
+					N = -N;
+				}
+
+				return normalize(N);
+			}
+
+			mat3 get_tbn() {
+				vec3 normal = normalize(in_normal);
+				vec3 tangent = normalize(in_tangent.xyz);
+				vec3 bitangent = cross(normal, tangent) * in_tangent.w;
+
+				if (DoubleSided && gl_FrontFacing) {
+					normal = -normal;
+					bitangent = -bitangent;
+				}
+
+				return mat3(tangent, bitangent, normal);
+			}
+
+			vec3 get_height_normal_tangent(vec2 uv) {
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(displacement_model.HeightTexture), 0));
+				float left = get_height_centered_sample(uv - vec2(texel.x, 0.0));
+				float right = get_height_centered_sample(uv + vec2(texel.x, 0.0));
+				float down = get_height_centered_sample(uv - vec2(0.0, texel.y));
+				float up = get_height_centered_sample(uv + vec2(0.0, texel.y));
+				return normalize(vec3(left - right, down - up, max(displacement_model.HeightScale, 0.0001)));
+			}
+
+			vec3 decode_normal_map(vec2 xy) {
+				xy = xy * 2.0 - 1.0;
+
+				if (ReverseXZNormalMap) {
+					xy = -xy;
+				}
+
+				return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
+			}
+
+			vec3 get_normal_map(vec2 uv) {
+				vec3 N = vec3(0.0, 0.0, 1.0);
+
+				if (model.NormalTexture != -1) {
+					N = decode_normal_map(texture(TEXTURE(model.NormalTexture), uv).xy);
+				} else if (has_heightmap()) {
+					N = get_height_normal_tangent(uv);
+				}
+
+				if (detail_model.Normal2Texture != -1) {
+					float blend = get_texture_blend_uv(uv);
+
+					if (blend != 0) {
+						N = normalize(mix(N, decode_normal_map(texture(TEXTURE(detail_model.Normal2Texture), uv).xy), blend));
+					}
+				}
+
+				// crysis detail bump: two octaves centered on 0.5 offset the normal's slope
+				if (detail_model.DetailTexture != -1) {
+					vec2 detail_uv = uv * detail_model.DetailTiling;
+					vec2 detail = texture(TEXTURE(detail_model.DetailTexture), detail_uv).xy + texture(TEXTURE(detail_model.DetailTexture), detail_uv * 2.0).xy;
+					detail = (detail - 1.0) * detail_model.DetailBumpScale;
+					N.xy += ReverseXZNormalMap ? -detail : detail;
+				}
+
+				return normalize(N);
+			}
+
+			vec3 get_combined_normal(vec2 uv, mat3 tbn) {
+				vec3 N = tbn * get_normal_map(uv);
+
+				if (DoubleSided && gl_FrontFacing) {
+					N = -N;
+				}
+
+				return normalize(N);
+			}
+
+			vec3 get_normal(vec2 uv, mat3 tbn) {
+				vec3 N = get_combined_normal(uv, tbn);
+
+				if (terrain_model.TerrainMaterialTexture != -1) {
+					return get_terrain_layer_sample(uv, in_position).normal;
+				}
+
+				return N;
+			}
+
+			float get_metallic(vec2 uv) {
+				float val = 1.0;
+
+				if (aux_model.MetallicTexture != -1) {
+					val = texture(TEXTURE(aux_model.MetallicTexture), uv).r;
+				} else if (aux_model.MetallicRoughnessTexture != -1) {
+					val = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).b;
+				} else {
+					val = factor_model.MetallicMultiplier;
+					val = clamp(val, 0, 1);
+					return val;
+				}
+
+				val *= factor_model.MetallicMultiplier;
+				val = clamp(val, 0, 1);
+
+				return val;
+			}
+
+			float get_roughness(vec2 uv) {
+				float val = 1.0;
+
+				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
+					val = texture(TEXTURE(model.AlbedoTexture), uv).a;
+				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
+					val = -texture(TEXTURE(model.NormalTexture), uv).a + 1.0;
+				} else if (AlbedoLuminanceIsRoughness) {
+					val = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
+				} else if (aux_model.RoughnessTexture != -1) {
+					val = texture(TEXTURE(aux_model.RoughnessTexture), uv).r;
+				} else if (aux_model.MetallicRoughnessTexture != -1) {
+					val = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).g;
+				} else if (terrain_model.TerrainMaterialTexture != -1) {
+					val = dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerRoughness) * get_terrain_layer_sample(uv, in_position).roughness;
+				} else {
+					val = factor_model.RoughnessMultiplier;
+					return clamp(val * val, 0.002, 1.0);
+				}
+
+				val *= factor_model.RoughnessMultiplier;
+
+				if (InvertRoughnessTexture) val = -val + 1.0;
+
+				// perceptual roughness in, GGX alpha out
+				val *= val;
+				val = clamp(val, 0.002, 1.0);
+				return val;
+			}
+
+			float get_subsurface(vec2 uv) {
+				if (!Subsurface) return 0.0;
+
+				float strength = DoubleSided ? 1.0 : 0.35;
+
+				if (model.AlbedoTexture != -1) {
+					strength *= clamp(texture(TEXTURE(model.AlbedoTexture), uv).g, 0.35, 1.0);
+				}
+
+				return clamp(strength, 0.0, 1.0);
+			}
+
+			float get_transmission_view_dependency() {
+				if (!Subsurface) return 0.0;
+				return clamp(transmission_model.TransmissionViewDependency, 0.0, 1.0);
+			}
+
+			vec3 get_transmission_color() {
+				if (!Subsurface) return vec3(0.0);
+				return transmission_model.TransmissionColor.rgb * transmission_model.TransmissionColor.a;
+			}
+
+			float get_transmission_blocking(vec2 uv) {
+				if (!Subsurface) return 0.0;
+
+				float blocking = transmission_model.TransmissionBlocking;
+
+				if (aux_model.RoughnessTexture != -1) {
+					blocking *= texture(TEXTURE(aux_model.RoughnessTexture), uv).a;
+					return clamp(blocking, 0.0, 1.0);
+				}
+
+				if (aux_model.OpacityTexture != -1) {
+					vec4 mask = texture(TEXTURE(aux_model.OpacityTexture), uv);
+					blocking *= max(max(mask.r, mask.g), max(mask.b, mask.a));
+					return clamp(blocking, 0.0, 1.0);
+				}
+
+				blocking *= get_alpha_uv(uv);
+				return clamp(blocking, 0.0, 1.0);
+			}
+
+			]] .. render3d.GetEmissiveGLSL() .. [[
+
+			vec3 get_emissive(vec2 uv) {
+				if (Subsurface) {
+					return get_transmission_color();
+				}
+
+				vec3 emissive = vec3(0.0);
+
+				if (AlbedoAlphaIsEmissive) {
+					float mask = 1.0;
+					if (model.AlbedoTexture != -1) {
+						mask = texture(TEXTURE(model.AlbedoTexture), uv).a;
+					}
+					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+				} else if (aux_model.EmissiveTexture != -1) {
+					float mask = texture(TEXTURE(aux_model.EmissiveTexture), uv).r;
+					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+				} else if (aux_model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
+					float mask = texture(TEXTURE(aux_model.MetallicTexture), uv).a;
+					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+				} else {
+					return vec3(0.0);
+				}
+
+				return min(emissive * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+			}
+
+			// half the multiplier, so 1 lands mid range and 2 still fits the unorm target
+			float get_specular() {
+				return clamp(factor_model.SpecularMultiplier * 0.5, 0.0, 1.0);
+			}
+
+			float get_ao(vec2 uv) {
+				if (aux_model.AmbientOcclusionTexture == -1) {
+					if (terrain_model.TerrainMaterialTexture != -1) {
+						return dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerAmbientOcclusion) * get_terrain_layer_sample(uv, in_position).ao * aux_model.AmbientOcclusionMultiplier;
+					}
+
+					return 1.0 * aux_model.AmbientOcclusionMultiplier;
+				}
+
+				return texture(TEXTURE(aux_model.AmbientOcclusionTexture), uv).r * aux_model.AmbientOcclusionMultiplier;
+			}
+	]]
+end
+
 return model_pipeline

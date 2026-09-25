@@ -2,7 +2,8 @@ local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = {}
 
-function post_source.GetRawSceneSourceTexture(self)
+-- the lit opaque scene, before anything translucent is drawn over it
+function post_source.GetOpaqueSceneTexture()
 	if render3d.IsOceanEnabled() then
 		if
 			render3d.pipelines.ocean_resolve and
@@ -21,6 +22,14 @@ function post_source.GetRawSceneSourceTexture(self)
 	if not render3d.pipelines.lighting then return nil end
 
 	return render3d.pipelines.lighting:GetFramebuffer(1):GetAttachment(1)
+end
+
+function post_source.GetRawSceneSourceTexture(self)
+	if render3d.pipelines.translucent then
+		return render3d.pipelines.translucent:GetFramebuffer():GetAttachment(1)
+	end
+
+	return post_source.GetOpaqueSceneTexture()
 end
 
 -- the scene as the passes after self see it: taa resolves the fogged scene,
