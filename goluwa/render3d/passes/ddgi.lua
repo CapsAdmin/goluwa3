@@ -470,6 +470,15 @@ local function pass_update(name, texels, integrate)
 				}
 
 				barrier();
+				// count back face hits from this frame's rays for the validity check,
+				// so a probe that just escaped geometry is valid immediately
+				// instead of waiting for the probe_data pass (which runs later)
+				float backface_count = 0.0;
+				for (int r = 0; r < DDGI_RAYS; r++) {
+					if (s_ray[r].a < 0.0) backface_count += 1.0;
+				}
+				float backface_fraction = backface_count / float(DDGI_RAYS);
+
 				vec3 texel_dir = ddgi_texel_direction(local, TEXELS);
 				vec4 sum = vec4(0.0);
 				float weight_sum = 0.0;
@@ -495,10 +504,62 @@ local function pass_update(name, texels, integrate)
 				// hitting the inside of geometry, so it starts over as well, before
 				// relocation can carry it out into the open.
 				vec4 data = ddgi_probe_data(slot, c);
-				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && data.w - 1.0 <= ddgi_data.ddgi_backface_threshold;
+				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && backface_fraction <= ddgi_data.ddgi_backface_threshold;
 				vec4 previous = imageLoad(atlas, texel);
 
 				vec4 state = current ? imageLoad(state_atlas, texel) : vec4(0.0);
+
+				// A probe that just became valid has no history. Seed it from its
+				// valid neighbours so it starts close to the right answer instead
+				// of black, and give it a small age so the hysteresis keeps most
+				// of the seed value on the first frame.
+				if (current && state.x <= 0.0) {
+					vec3 seed = vec3(0.0);
+					float seed_count = 0.0;
+					ivec3 nbase = ddgi_volume_base(c);
+					ivec3 nsize = ddgi_volume_size(c);
+					for (int n = 0; n < 6; n++) {
+						ivec3 off = ivec3(n % 2 * 2 - 1, (n / 2) % 2 * 2 - 1, (n / 4) * 2 - 1);
+						if (off.x + off.y + off.z == 0) continue;
+						if (abs(off.x) + abs(off.y) + abs(off.z) != 1) continue;
+						ivec3 nworld = world + off;
+						if (any(lessThan(nworld, nbase)) || any(greaterThanEqual(nworld, nbase + nsize))) continue;
+						ivec3 nslot = ddgi_slot(nworld, c);
+						vec4 ndata = ddgi_probe_data(nslot, c);
+						if (!ddgi_probe_is_current(ndata, nworld) || ndata.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
+						ivec2 ntile = ddgi_tile(nslot, c);
+						seed += imageLoad(atlas, ntile * TEXELS + local).rgb;
+						seed_count += 1.0;
+					}
+					// fall back to the coarser cascade: its probes are twice the
+					// spacing, so they are less likely to be inside the geometry
+					if (seed_count <= 0.0 && c + 1 < ddgi_data.ddgi_cascade_count) {
+						int pc = c + 1;
+						float pspacing = ddgi_spacing(pc);
+						ivec3 pbase = ddgi_volume_base(pc);
+						ivec3 psize = ddgi_volume_size(pc);
+						ivec3 pworld = ivec3(floor(vec3(world) * ddgi_spacing(c) / pspacing + 0.5));
+
+						for (int n = 0; n < 6 && seed_count <= 0.0; n++) {
+							ivec3 off = ivec3(n % 2 * 2 - 1, (n / 2) % 2 * 2 - 1, (n / 4) * 2 - 1);
+							if (off.x + off.y + off.z == 0) continue;
+							if (abs(off.x) + abs(off.y) + abs(off.z) != 1) continue;
+							ivec3 pw = pworld + off;
+							if (any(lessThan(pw, pbase)) || any(greaterThanEqual(pw, pbase + psize))) continue;
+							ivec3 pslot = ddgi_slot(pw, pc);
+							vec4 pdata = ddgi_probe_data(pslot, pc);
+							if (!ddgi_probe_is_current(pdata, pw) || pdata.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
+							ivec2 ptile = ddgi_tile(pslot, pc);
+							seed += imageLoad(atlas, ptile * TEXELS + local).rgb;
+							seed_count += 1.0;
+						}
+					}
+
+					if (seed_count > 0.0) {
+						previous.rgb = seed / seed_count;
+						state.x = 4.0;
+					}
+				}
 
 				if (weight_sum <= 0.0) {
 					imageStore(atlas, texel, current ? previous : vec4(0.0));

@@ -724,10 +724,16 @@ function ddgi.GetCommonGLSL()
 					// a ray query with a nan or zero direction is undefined
 					if (!(len > 1e-4)) continue;
 
+					// Only front faces block. The TLAS is rebuilt a few frames
+					// behind a moving object, so a point on a face that moves away
+					// from its probes sits just inside the object's stale copy and
+					// would otherwise see every probe through that copy's back face.
 					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, to_probe / len, len);
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, to_probe / len, len);
 
-					while (rayQueryProceedEXT(query)) {}
+					while (rayQueryProceedEXT(query)) {
+						if (!rayQueryGetIntersectionFrontFaceEXT(query, false)) rayQueryConfirmIntersectionEXT(query);
+					}
 
 					if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) continue;
 				}
@@ -988,7 +994,6 @@ function ddgi.GetRayHitBuffer()
 
 	return ray_hit_buffer
 end
-
 
 -- Every emissive triangle of the scene soup, with the running sum of its
 -- power (area x emission luminance) for picking one in proportion to it.
