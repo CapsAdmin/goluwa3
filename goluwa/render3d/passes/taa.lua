@@ -16,6 +16,9 @@ local post_source = import("goluwa/render3d/post_source.lua")
 -- colour range of the current pixel's neighbourhood so it can't ghost. The
 -- blend happens on exposed, Reinhard compressed colour so a few very bright
 -- samples don't dominate it.
+--
+-- Translucent surfaces aren't in the gbuffer; the translucent pass sums how
+-- they move, weighted by how much of each pixel they make up.
 render3d.taa_enabled = render3d.taa_enabled ~= false
 
 commands.Add("r_taa=boolean[true]", function(enabled)
@@ -66,6 +69,7 @@ return {
 						{"history_tex", "int"},
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
+						{"translucent_motion_tex", "int"},
 						{"exposure_tex", "int"},
 						{"history_valid", "int"},
 					},
@@ -82,6 +86,9 @@ return {
 						block.depth_tex = self:GetTextureIndex(gbuffer:GetDepthTexture())
 						block.velocity_tex = render3d.velocity_enabled and
 							self:GetTextureIndex(gbuffer:GetAttachment(6)) or
+							-1
+						block.translucent_motion_tex = render3d.pipelines.translucent_accumulate and
+							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(2)) or
 							-1
 						local exposure = post_source.GetExposureTexture(true)
 						block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
@@ -231,6 +238,27 @@ return {
 					prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
 				}
 
+				// translucent surfaces move on their own. the history follows
+				// whichever of them and what is behind them makes up most of the
+				// pixel, and where they move apart, the part that doesn't
+				// reproject is let go
+				float reactive = 0.0;
+
+				if (taa_data.translucent_motion_tex != -1) {
+					vec4 translucent = texelFetch(TEXTURE(taa_data.translucent_motion_tex), pixel, 0);
+					float coverage = min(translucent.b, 1.0);
+
+					if (coverage > 0.0) {
+						vec2 translucent_prev_uv = uv - translucent.rg / translucent.b;
+						reactive = 2.0 * min(coverage, 1.0 - coverage) * smoothstep(0.5, 2.0, length((translucent_prev_uv - prev_uv) * vec2(size)));
+
+						if (coverage > 0.5) {
+							prev_uv = translucent_prev_uv;
+							expected_depth = -1.0;
+						}
+					}
+				}
+
 				if (any(lessThan(prev_uv, vec2(0.0))) || any(greaterThan(prev_uv, vec2(1.0)))) {
 					set_color(vec4(decompress(current, exposure), view_depth));
 					return;
@@ -251,7 +279,7 @@ return {
 				vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3(0.0)));
 				vec3 history = compress(sample_history(prev_uv, vec2(size)), exposure);
 				history = clip_to_box(mean - sigma, mean + sigma, history);
-				vec3 result = mix(current, history, 0.9 * history_weight);
+				vec3 result = mix(current, history, 0.9 * history_weight * (1.0 - reactive));
 				set_color(vec4(decompress(result, exposure), view_depth));
 			}
 		]],

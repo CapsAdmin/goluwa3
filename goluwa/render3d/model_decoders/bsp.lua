@@ -1614,7 +1614,7 @@ function steam.LoadMap(path)
 	if ocean_level == nil then ocean_level = header.lowest_point or 0 end
 
 	render3d.SetOceanLevel(ocean_level - 2)
-	render3d.SetOceanEnabled(true)
+	--render3d.SetOceanEnabled(true)
 	steam.loaded_bsp[path] = {
 		render_meshes = render_meshes,
 		entities = header.entities,

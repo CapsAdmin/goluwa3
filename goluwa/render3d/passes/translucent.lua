@@ -8,6 +8,7 @@ local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
+local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local Texture = import("goluwa/render/texture.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
@@ -24,6 +25,8 @@ local BINDING_OCCLUSION_MAP = 21
 -- against a copy of the opaque depth.
 -- Refractive materials see the opaque scene through a mip chain of it, which
 -- rough surfaces sample blurrier. It is only built on frames that draw one.
+-- The opaque scene is fogged before this, so each surface fogs itself at its
+-- own depth, and sums how it moves for taa.
 local refraction_source = nil
 -- depth is warped logarithmically into -1..1 over the distances the
 -- translucent surfaces span this frame, which the moments resolve best
@@ -108,7 +111,7 @@ local function create_depth_copy_fragment(shader)
 end
 
 local function update_refraction_source(cmd)
-	local scene = post_source.GetOpaqueSceneTexture()
+	local scene = post_source.GetFoggedOpaqueSceneTexture()
 	local width, height = scene:GetWidth(), scene:GetHeight()
 
 	if
@@ -151,9 +154,11 @@ local camera_block = {
 	binding_index = BINDING_CAMERA,
 	block = {
 		render3d.camera_block,
+		render3d.prev_camera_block,
 	},
 	write = function(self, block)
-		return render3d.WriteCameraBlock(self, block)
+		render3d.WriteCameraBlock(self, block)
+		return render3d.WritePreviousCameraBlock(self, block)
 	end,
 	upload_scope = "frame",
 }
@@ -170,9 +175,11 @@ table.insert(
 			{"b0_tex", "int"},
 			{"moments_tex", "int"},
 			{"depth_warp", "vec2"},
+			{"fog", "int"},
 		},
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
+			block.fog = render3d.pipelines.volumetric_fog and 1 or 0
 			block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
 			local b0, moments = get_moments_textures()
 			block.b0_tex = self:GetTextureIndex(b0)
@@ -322,7 +329,10 @@ return {
 	},
 	{
 		name = "translucent_accumulate",
-		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
+		},
 		DepthFormat = "d32_sfloat",
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end
@@ -332,7 +342,7 @@ return {
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
 			event.Call("Draw3DTranslucent")
 		end,
-		fragment = create_depth_copy_fragment("set_color(vec4(0.0));"),
+		fragment = create_depth_copy_fragment("set_color(vec4(0.0)); set_motion(vec4(0.0));"),
 		CullMode = "none",
 		DepthTest = true,
 		DepthWrite = true,
@@ -342,7 +352,10 @@ return {
 		name = "translucent_surface",
 		draw_in_prerender = false,
 		dont_create_framebuffers = true,
-		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
+		},
 		DepthFormat = "d32_sfloat",
 		vertex = model_pipeline.CreateVertexStage{
 			normal = true,
@@ -350,6 +363,7 @@ return {
 			uv = true,
 			texture_blend = true,
 			vertex_color = true,
+			velocity = true,
 			include_projection_view_world = false,
 			camera_uniform_block_name = "translucent_camera",
 			uniform_buffers = {camera_block},
@@ -384,9 +398,21 @@ return {
 					binding_index = BINDING_OCCLUSION_MAP,
 					stageFlags = "fragment",
 				},
+				{
+					type = "combined_image_sampler",
+					binding_index = 0,
+					set_index = 2,
+					args = froxel_fog.GetVolumeDescriptor,
+				},
 			},
-			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP),
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. [[
+			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. [[
+				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
+			]],
+			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
+				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
+					return calculateShadow(world_pos, sun_dir, sun_dir);
+				}
+			]] .. froxel_fog.GetGLSL("lighting_data", "get_fog_sun_visibility", "get_primary_sun_direction()") .. [[
 				// the gbuffer's screen space gi, of the opaque surface behind
 				// this one. a thin surface sits in about the same light
 				vec3 get_gi_irradiance(vec2 screen_uv, vec3 N, out float sky_visibility) {
@@ -400,6 +426,16 @@ return {
 					vec4 gi = texture(TEXTURE(lighting_data.gi_screen_tex), screen_uv);
 					sky_visibility = gi.a;
 					return gi.rgb;
+				}
+
+				// how far the surface moved on screen since last frame
+				vec2 get_screen_motion(vec3 world_pos, vec3 prev_world_pos) {
+					vec4 clip = translucent_camera.projection * translucent_camera.view * vec4(world_pos, 1.0);
+					vec4 prev_clip = translucent_camera.prev_projection * translucent_camera.prev_view * vec4(prev_world_pos, 1.0);
+
+					if (clip.w <= 0.0001 || prev_clip.w <= 0.0001) return vec2(0.0);
+
+					return (clip.xy / clip.w - prev_clip.xy / prev_clip.w) * 0.5;
 				}
 
 				vec3 get_scene_pos(vec2 uv, float depth) {
@@ -458,6 +494,8 @@ return {
 						texelFetch(TEXTURE(lighting_data.moments_tex), pixel, 0),
 						moments_warp_depth(distance(world_pos, lighting_data.camera_position.xyz), lighting_data.depth_warp)
 					);
+					vec4 fog = lighting_data.fog != 0 ? get_volumetric_fog(screen_uv, distance(world_pos, lighting_data.camera_position.xyz)) : vec4(0.0, 0.0, 0.0, 1.0);
+					vec2 motion = get_screen_motion(world_pos, in_prev_position);
 					vec3 geometric_N = get_vertex_normal();
 					// how fast the surface bends, from how the interpolated normal
 					// turns across the pixel. 0 on a flat face
@@ -504,7 +542,10 @@ return {
 					if (!refractive) {
 						vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv) * alpha;
 						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
+						// the fog in front of the surface covers what the surface covers
+						color = color * fog.a + fog.rgb * alpha;
 						set_color(vec4(min(color, vec3(65504.0)), alpha) * transmittance);
+						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
 						return;
 					}
 
@@ -556,10 +597,15 @@ return {
 						world_pos
 					);
 					vec3 background = get_refracted_background(world_pos, exit_pos, exit_dir, reach, roughness, environment);
-					vec3 transmitted = background * albedo * (1.0 - F_ambient) * (1.0 - metallic) * refraction.amount;
+					// the fraction of the background that comes through. the fogged
+					// scene it is taken from already holds the fog in front of the
+					// surface, so of that fog only what covers the rest is added,
+					// and taa follows the background there
+					vec3 transmission = albedo * (1.0 - F_ambient) * (1.0 - metallic) * refraction.amount;
 					vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv);
-					vec3 color = direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + transmitted + emissive;
+					vec3 color = (direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + emissive) * fog.a + fog.rgb * (1.0 - transmission) + background * transmission;
 					set_color(vec4(min(color * alpha, vec3(65504.0)), alpha) * transmittance);
+					set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance * (1.0 - dot(transmission, vec3(1.0 / 3.0))));
 				}
 			]],
 		},
@@ -572,6 +618,7 @@ return {
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "add",
+		color_blend = {attachments = {{}, ADDITIVE}},
 		DepthTest = true,
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
@@ -592,7 +639,7 @@ return {
 						{"accumulated_tex", "int"},
 					},
 					write = function(self, block)
-						block.scene_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
+						block.scene_tex = self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture())
 						block.b0_tex = self:GetTextureIndex(get_moments_textures())
 						block.accumulated_tex = self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(1))
 						return block

@@ -3229,6 +3229,9 @@ function Visual:OnFirstCreated()
 								entry = entry,
 								material = material,
 								world_matrix = world_matrix,
+								prev_world_matrix = entry.transform and
+									entry.transform:GetPreviousWorldMatrix() or
+									component:GetPreviousWorldMatrix(),
 								thickness = thickness,
 							}
 						end
@@ -3239,7 +3242,7 @@ function Visual:OnFirstCreated()
 
 		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
 			for _, draw in ipairs(draws) do
-				render3d.SetWorldMatrix(draw.world_matrix)
+				render3d.SetWorldMatrix(draw.world_matrix, draw.prev_world_matrix)
 				render3d.SetCurrentPolygon3D(draw.entry.polygon3d)
 				render3d.SetMaterial(draw.material)
 				render3d.UploadTranslucentConstants(draw.thickness)

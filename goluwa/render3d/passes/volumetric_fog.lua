@@ -1,4 +1,3 @@
-local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
@@ -10,26 +9,20 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local Texture = import("goluwa/render/texture.lua")
+local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 --[[
 	The low altitude fog (atmosphere.lua's scenery fog) in two parts:
 
-	Up to FROXEL_FAR meters of view depth it lives in a froxel volume: a grid
-	of FROXEL_TILE pixel cells, FROXEL_SLICES deep. volumetric_froxel_scatter
+	Up to froxel_fog.FAR meters of view depth it lives in froxel_fog.lua's
+	froxel volume. volumetric_froxel_scatter
 	lights one jittered point per froxel (sun with its shadow, sky or DDGI
 	ambient, local lights with their shadows), volumetric_froxel_temporal
 	blends that into last frame's volume and volumetric_froxel_integrate
-	marches each column once front to back. Slices are thin near the camera
-	and grow with distance.
+	marches each column once front to back.
 
 	Beyond that the composite integrates the rest of the ray analytically,
 	with one shadow lookup at a representative point.
 ]]
-local FROXEL_TILE = 8
-local FROXEL_SLICES = 64
-local FROXEL_FAR = 150
--- slices are roughly linear up to this many meters and exponential beyond
-local FROXEL_DEPTH_KNEE = 2
 -- history kept per 60hz frame
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
@@ -41,86 +34,9 @@ local BINDING_FROXEL = 4
 local BINDING_SCATTER = 5
 local BINDING_RAW = 6
 local BINDING_LIGHT_GRID = 7
-local froxels = {width = 0, height = 0, current = 1}
-
-local function ensure_froxel_resources()
-	local size = render.GetRenderImageSize()
-	local width = math.ceil(size.x / FROXEL_TILE)
-	local height = math.ceil(size.y / FROXEL_TILE)
-
-	if froxels.width == width and froxels.height == height then return froxels end
-
-	for _, key in ipairs{"raw", "scatter1", "scatter2", "integrated"} do
-		if froxels[key] then froxels[key]:Remove() end
-
-		froxels[key] = Texture.New{
-			width = width,
-			height = height,
-			format = "r16g16b16a16_sfloat",
-			image = {
-				image_type = "3d",
-				depth = FROXEL_SLICES,
-				usage = {"storage", "sampled"},
-			},
-			view = {view_type = "3d"},
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-				wrap_r = "clamp_to_edge",
-			},
-		}
-		froxels[key]:SetDebugName("render3d froxels " .. key)
-		froxels[key .. "_sampler"] = render.CreateSampler(froxels[key]:GetSamplerConfig())
-	end
-
-	froxels.width = width
-	froxels.height = height
-	froxels.history_valid = false
-	return froxels
-end
-
-local function scatter_texture(index)
-	local key = "scatter" .. index
-	return froxels[key], froxels[key .. "_sampler"]
-end
-
--- slice coordinate s (slice k spans [k, k + 1)) <-> view depth in meters
-local SLICE_GLSL = (
-	[[
-	const float FROXEL_SLICES = %d.0;
-	const float FROXEL_FAR = %.1f;
-	const float FROXEL_DEPTH_KNEE = %.1f;
-
-	float froxel_slice_depth(float s) {
-		return FROXEL_DEPTH_KNEE * (pow(1.0 + FROXEL_FAR / FROXEL_DEPTH_KNEE, s / FROXEL_SLICES) - 1.0);
-	}
-
-	float froxel_slice_coord(float depth) {
-		return FROXEL_SLICES * log(1.0 + depth / FROXEL_DEPTH_KNEE) / log(1.0 + FROXEL_FAR / FROXEL_DEPTH_KNEE);
-	}
-
-	// how deep a froxel's point may go in front of a surface at surface_depth:
-	// half a slice short of it. Right against the surface the sun's shadow
-	// map can't tell the point from the surface, so points in front of a wall
-	// facing away from the sun would be lit by the light on its other side.
-	float froxel_surface_limit(float surface_depth) {
-		float s = froxel_slice_coord(surface_depth);
-		return max(surface_depth - max(0.5 * (froxel_slice_depth(s + 1.0) - froxel_slice_depth(s)), 0.05), 0.0);
-	}
-]]
-):format(FROXEL_SLICES, FROXEL_FAR, FROXEL_DEPTH_KNEE)
-
-local function get_view_dir_glsl(block)
-	return [[
-		// view space direction through uv, scaled to a view depth of 1
-		vec3 get_view_dir(vec2 uv) {
-			vec4 p = ]] .. block .. [[.inv_projection * vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-			return p.xyz / -p.z;
-		}
-	]]
-end
+local froxels = froxel_fog.froxels
+local FROXEL_SLICES = froxel_fog.SLICES
+local SLICE_GLSL = froxel_fog.SLICE_GLSL
 
 local function get_sun_helpers_glsl(data_block)
 	return [[
@@ -239,7 +155,7 @@ local scatter_pass = {
 	},
 	storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
 	on_pre_draw = function(self, cmd, frame, desc)
-		ensure_froxel_resources()
+		froxel_fog.EnsureResources()
 		light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 	end,
 	on_draw = function(self, cmd, fb, frame, desc)
@@ -251,7 +167,7 @@ local scatter_pass = {
 	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID),
 	shader = [[
 		#define saturate(x) clamp(x, 0.0, 1.0)
-	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. SLICE_GLSL .. get_view_dir_glsl("froxel_data") .. [[
+	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
 			v = v * 1664525u + 1013904223u;
 			v.x += v.y * v.z;
@@ -394,7 +310,7 @@ local temporal_pass = {
 			binding_index = BINDING_OUTPUT,
 			dst_stage = "compute",
 			get_texture = function()
-				return scatter_texture(froxels.current)
+				return froxel_fog.GetScatterTexture(froxels.current)
 			end,
 		},
 	},
@@ -408,7 +324,7 @@ local temporal_pass = {
 		{
 			binding_index = BINDING_HISTORY,
 			get_descriptor = function()
-				local texture, sampler = scatter_texture(3 - froxels.current)
+				local texture, sampler = froxel_fog.GetScatterTexture(3 - froxels.current)
 				return {texture:GetView(), sampler}
 			end,
 		},
@@ -453,7 +369,7 @@ local temporal_pass = {
 		layout(set = 0, binding = ]] .. BINDING_RAW .. [[) uniform sampler3D raw_scatter;
 		layout(set = 0, binding = ]] .. BINDING_HISTORY .. [[) uniform sampler3D history_scatter;
 	]],
-	shader = SLICE_GLSL .. get_view_dir_glsl("froxel_data") .. [[
+	shader = SLICE_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
 		void main() {
 			ivec3 id = ivec3(gl_GlobalInvocationID);
 			ivec3 size = ivec3(froxel_data.froxel_size, int(FROXEL_SLICES));
@@ -516,7 +432,7 @@ local integrate_pass = {
 		{
 			binding_index = BINDING_SCATTER,
 			get_descriptor = function()
-				local texture, sampler = scatter_texture(froxels.current)
+				local texture, sampler = froxel_fog.GetScatterTexture(froxels.current)
 				return {texture:GetView(), sampler}
 			end,
 		},
@@ -545,7 +461,7 @@ local integrate_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_integrated;
 		layout(set = 0, binding = ]] .. BINDING_SCATTER .. [[) uniform sampler3D scatter;
 	]],
-	shader = SLICE_GLSL .. get_view_dir_glsl("froxel_data") .. [[
+	shader = SLICE_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
 		void main() {
 			ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 
@@ -568,6 +484,8 @@ local integrate_pass = {
 		}
 	]],
 }
+-- fogs the lit opaque scene. the translucent surfaces drawn over it fog
+-- themselves with the same volume
 local composite_pass = {
 	name = "volumetric_fog",
 	ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
@@ -577,10 +495,7 @@ local composite_pass = {
 				type = "combined_image_sampler",
 				binding_index = 0,
 				set_index = 2,
-				args = function()
-					ensure_froxel_resources()
-					return {froxels.integrated:GetView(), froxels.integrated_sampler}
-				end,
+				args = froxel_fog.GetVolumeDescriptor,
 			},
 		},
 		custom_declarations = [[
@@ -604,7 +519,7 @@ local composite_pass = {
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
-					post_source.WriteRawSceneSourceTexture(self, block, "source_tex")
+					block.source_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
 					write_ocean_distance_texture(self, block, "ocean_distance_tex")
 					write_gi_screen_texture(self, block, "gi_screen_tex")
 					write_lights_block(self, block)
@@ -612,74 +527,22 @@ local composite_pass = {
 				end,
 			},
 		},
-		shader = scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. SLICE_GLSL .. get_view_dir_glsl("fog_data") .. [[
-			// sun visibility of the fog segment [near, near + span] (km along
-			// the ray), taken at the density weighted middle of its front part
-			float get_segment_sun_visibility(vec3 fog_origin, vec3 ray_dir, float near, float span, vec3 sun_dir) {
-				const int STEPS = 8;
-				float weighted_distance = 0.0;
-				float total_weight = 0.0;
-
-				for (int i = 0; i < STEPS; i++) {
-					float u = (float(i) + 0.5) / float(STEPS);
-					float t = near + u * span;
-					float weight = max(scenery_fog_density(fog_origin + ray_dir * t) * mix(1.0, 0.35, u), 1e-4);
-					weighted_distance += t * weight;
-					total_weight += weight;
-				}
-
-				float meters = weighted_distance / total_weight / (CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER);
-				return get_fog_sun_visibility(fog_data.camera_position.xyz + ray_dir * meters, sun_dir);
-			}
-
+		shader = scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data", "get_fog_sun_visibility", "get_current_primary_sun_direction()") .. [[
 			void main() {
-				if (fog_data.source_tex == -1) {
-					set_color(vec4(0.0, 0.0, 0.0, 1.0));
-					return;
-				}
-
 				vec4 scene = texture(TEXTURE(fog_data.source_tex), in_uv);
 				float depth = texture(TEXTURE(fog_data.depth_tex), in_uv).r;
 				float ocean_distance = fog_data.ocean_distance_tex != -1 ? texture(TEXTURE(fog_data.ocean_distance_tex), in_uv).r : -1.0;
-				vec3 view_dir = get_view_dir(in_uv);
-				vec3 ray_dir = normalize(mat3(fog_data.inv_view) * view_dir);
-				// meters along the ray per meter of view depth
-				float ray_scale = length(view_dir);
-				bool is_sky = depth == 1.0 && ocean_distance <= 0.0;
 				float hit_distance = -1.0;
 
 				if (ocean_distance > 0.0) {
 					hit_distance = ocean_distance;
-				} else if (!is_sky) {
+				} else if (depth < 1.0) {
 					vec4 view_pos = fog_data.inv_projection * vec4(in_uv * 2.0 - 1.0, depth, 1.0);
-					hit_distance = -view_pos.z / view_pos.w * ray_scale;
+					hit_distance = -view_pos.z / view_pos.w * length(get_view_dir(in_uv));
 				}
 
-				float s = froxel_slice_coord(is_sky ? FROXEL_FAR : min(hit_distance / ray_scale, FROXEL_FAR));
-				// texel k holds the fog from the camera to the far side of slice k
-				vec4 near_fog = textureLod(froxel_volume, vec3(in_uv, max(s - 0.5, 0.5) / FROXEL_SLICES), 0.0);
-				near_fog = mix(vec4(0.0, 0.0, 0.0, 1.0), near_fog, clamp(s, 0.0, 1.0));
-				vec4 far_fog = vec4(0.0, 0.0, 0.0, 1.0);
-				float scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
-				float froxel_end = FROXEL_FAR * ray_scale * scale;
-				vec3 fog_origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
-				float fog_near;
-				float fog_length;
-
-				if (
-					(is_sky || hit_distance * scale > froxel_end) &&
-					get_scenery_fog_segment_with_ground_clip(fog_origin, ray_dir, is_sky ? -1.0 : hit_distance * scale, false, fog_near, fog_length) &&
-					fog_near + fog_length > froxel_end
-				) {
-					fog_length += fog_near - max(fog_near, froxel_end);
-					fog_near = max(fog_near, froxel_end);
-					vec3 sun_dir = get_current_primary_sun_direction();
-					vec4 gi = is_sky || fog_data.gi_screen_tex < 0 ? vec4(0.0, 0.0, 0.0, 1.0) : texture(TEXTURE(fog_data.gi_screen_tex), in_uv);
-					float sun_visibility = get_fog_sun_horizon_visibility(sun_dir) <= 0.0001 ? 0.0 : get_segment_sun_visibility(fog_origin, ray_dir, fog_near, fog_length, sun_dir);
-					far_fog = integrate_scenery_fog_segment(fog_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi.rgb, clamp(gi.a, 0.0, 1.0));
-				}
-
-				set_color(vec4((scene.rgb * far_fog.a + far_fog.rgb) * near_fog.a + near_fog.rgb, scene.a));
+				vec4 fog = get_volumetric_fog(in_uv, hit_distance);
+				set_color(vec4(scene.rgb * fog.a + fog.rgb, scene.a));
 			}
 		]],
 	},

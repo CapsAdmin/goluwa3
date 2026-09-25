@@ -24,26 +24,33 @@ function post_source.GetOpaqueSceneTexture()
 	return render3d.pipelines.lighting:GetFramebuffer(1):GetAttachment(1)
 end
 
-function post_source.GetRawSceneSourceTexture(self)
-	if render3d.pipelines.translucent then
-		return render3d.pipelines.translucent:GetFramebuffer():GetAttachment(1)
+-- the opaque scene with the fog in front of it, which the translucent
+-- surfaces are laid over
+function post_source.GetFoggedOpaqueSceneTexture()
+	if render3d.pipelines.volumetric_fog then
+		return render3d.pipelines.volumetric_fog:GetFramebuffer():GetAttachment(1)
 	end
 
 	return post_source.GetOpaqueSceneTexture()
 end
 
--- the scene as the passes after self see it: taa resolves the fogged scene,
+-- the whole scene, before taa
+function post_source.GetRawSceneSourceTexture()
+	if render3d.pipelines.translucent then
+		return render3d.pipelines.translucent:GetFramebuffer():GetAttachment(1)
+	end
+
+	return post_source.GetFoggedOpaqueSceneTexture()
+end
+
+-- the scene as the passes after self see it: taa resolves the raw scene,
 -- and everything after taa reads its output
 function post_source.GetSceneSourceTexture(self)
 	if self.name ~= "taa" and render3d.pipelines.taa then
 		return render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
 	end
 
-	if self.name ~= "volumetric_fog" and render3d.pipelines.volumetric_fog then
-		return render3d.pipelines.volumetric_fog:GetFramebuffer():GetAttachment(1)
-	end
-
-	return post_source.GetRawSceneSourceTexture(self)
+	return post_source.GetRawSceneSourceTexture()
 end
 
 -- The auto exposure multiplier (r) from passes/blit.lua. Its pass alternates
@@ -56,17 +63,6 @@ function post_source.GetExposureTexture(previous)
 
 	local current = system.GetFrameNumber() % 2 == 0 and 1 or 2
 	return pipeline:GetFramebuffer():GetAttachment(previous and 3 - current or current)
-end
-
-function post_source.WriteRawSceneSourceTexture(self, block, key)
-	local texture = post_source.GetRawSceneSourceTexture(self)
-
-	if not texture then
-		block[key] = -1
-		return
-	end
-
-	block[key] = self:GetTextureIndex(texture)
 end
 
 function post_source.WriteSceneSourceTexture(self, block, key)
