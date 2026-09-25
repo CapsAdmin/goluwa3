@@ -37,6 +37,16 @@ function list.copy(tbl)
 	return new
 end
 
+function list.extend(tbl, other)
+	local offset = #tbl
+
+	for i = 1, #other do
+		tbl[offset + i] = other[i]
+	end
+
+	return tbl
+end
+
 do
 	local function flatten(tbl, out)
 		for _, v in ipairs(tbl) do
