@@ -570,7 +570,7 @@ function Texture.New(config)
 			end
 
 			if has_sampled then
-				image:TransitionLayout("undefined", "shader_read_only_optimal")
+				image:TransitionLayout("undefined", "shader_read_only_optimal", config.cmd)
 			end
 		end
 
@@ -1270,9 +1270,11 @@ function Texture:Shade(glsl, extra_config)
 		)
 	end
 
-	-- Create command pool and buffer for this operation
+	-- with extra_config.cmd the draw is only recorded; the caller submits it
+	-- and keeps the returned views alive until the gpu is done
 	local command_pool = render.GetCommandPool()
-	local cmd = command_pool:AllocateCommandBuffer()
+	local owns_cmd = not extra_config.cmd
+	local cmd = extra_config.cmd or command_pool:AllocateCommandBuffer()
 	local vertex_code = (
 		[[
 		#version 450
@@ -1438,9 +1440,11 @@ function Texture:Shade(glsl, extra_config)
 		end
 	end
 
-	-- Begin recording commands
-	cmd:Reset()
-	cmd:Begin()
+	if owns_cmd then
+		cmd:Reset()
+		cmd:Begin()
+	end
+
 	-- Transition image to color_attachment_optimal
 	render.TransitionResourceTo(
 		self,
@@ -1509,9 +1513,9 @@ function Texture:Shade(glsl, extra_config)
 		)
 	end
 
-	-- End command buffer
+	if not owns_cmd then return views end
+
 	cmd:End()
-	-- Submit and wait
 	self.refs = {cmd, views, command_pool, pipeline}
 	render.SubmitAndWait(cmd)
 	cmd:Remove()
@@ -1643,7 +1647,10 @@ do
 	-- of the same size and 8 bit format
 	function TextureDownloaded:GetMeanDifference(other)
 		if self.bytes_per_pixel ~= 4 or self.format ~= other.format then
-			error("GetMeanDifference needs two downloads of the same 8 bit rgba/bgra format, got " .. self.format .. " and " .. other.format, 2)
+			error(
+				"GetMeanDifference needs two downloads of the same 8 bit rgba/bgra format, got " .. self.format .. " and " .. other.format,
+				2
+			)
 		end
 
 		if self.width ~= other.width or self.height ~= other.height then

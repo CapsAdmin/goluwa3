@@ -815,7 +815,13 @@ local function refresh_material_users(component, in_scene)
 
 	if component.scene_material_users == users then
 		for _, material in ipairs(component.scene_materials) do
-			users[material][component] = nil
+			local set = users[material]
+
+			if set then
+				set[component] = nil
+
+				if next(set) == nil then users[material] = nil end
+			end
 		end
 	end
 

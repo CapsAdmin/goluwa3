@@ -158,12 +158,17 @@ function Image:CreateView(config)
 	}
 end
 
-function Image:TransitionLayout(old_layout, new_layout)
-	-- Get the vulkan_instance instance to access queue and command pool
-	-- This is a bit hacky but necessary for one-off transitions
+-- records into cmd when given, otherwise submits a one-off command buffer
+-- and waits for it
+function Image:TransitionLayout(old_layout, new_layout, cmd)
 	local render = import("goluwa/render/render.lua")
-	local cmd = render.GetCommandPool():AllocateCommandBuffer()
-	cmd:Begin()
+	local owns_cmd = not cmd
+
+	if owns_cmd then
+		cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+	end
+
 	-- Determine access masks and stages based on layouts
 	local src_access = "none"
 	local dst_access = "none"
@@ -194,6 +199,9 @@ function Image:TransitionLayout(old_layout, new_layout)
 			},
 		},
 	}
+
+	if not owns_cmd then return end
+
 	cmd:End()
 	render.SubmitAndWait(cmd)
 end

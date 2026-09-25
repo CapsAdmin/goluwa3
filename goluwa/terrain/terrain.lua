@@ -135,6 +135,8 @@ function Terrain:ProcessBuildQueue()
 			end)
 		end
 	end
+
+	self.Source:Submit()
 end
 
 function Terrain:GetLevelChunkSize(level)
@@ -232,25 +234,21 @@ function Terrain:CreateTile(want, chunk)
 	}
 	primitive_entity:AddComponent("transform")
 	local primitive = primitive_entity:AddComponent("visual_primitive")
-	local normal_texture = tiles.BakeNormalTexture(chunk)
 	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level))
 	primitive:SetPolygon3D(polygon)
-	primitive:SetMaterial(tiles.CreateMaterial(chunk, normal_texture, self.Source:GetLayers()))
+	primitive:SetMaterial(tiles.CreateMaterial(chunk, self.Source:GetLayers()))
 	visual:BuildAABB()
 	return {
 		key = want.key,
 		level = level,
 		entity = entity,
 		polygon = polygon,
-		normal_texture = normal_texture,
 		material = primitive:GetMaterial(),
 	}
 end
 
 function Terrain:RemoveTile(tile)
 	if tile.entity and tile.entity:IsValid() then tile.entity:Remove() end
-
-	if tile.normal_texture then tile.normal_texture:Remove() end
 
 	if tile.chunk_key then self:ReleaseChunk(tile.chunk_key) end
 end
@@ -265,7 +263,10 @@ end
 local function tiles_overlap(self, a, b)
 	local a_min_x, a_min_z, a_max_x, a_max_z = tile_bounds(self, a)
 	local b_min_x, b_min_z, b_max_x, b_max_z = tile_bounds(self, b)
-	return a_min_x < b_max_x and b_min_x < a_max_x and a_min_z < b_max_z and b_min_z < a_max_z
+	return a_min_x < b_max_x and
+		b_min_x < a_max_x and
+		a_min_z < b_max_z and
+		b_min_z < a_max_z
 end
 
 local function set_tile_hidden(self, tile, hidden)
@@ -299,7 +300,12 @@ end
 
 function Terrain:IsTileBlocked(tile)
 	for _, other in pairs(self.Tiles) do
-		if other.retiring and other.entity and other ~= tile and tiles_overlap(self, tile, other) then
+		if
+			other.retiring and
+			other.entity and
+			other ~= tile and
+			tiles_overlap(self, tile, other)
+		then
 			return true
 		end
 	end
@@ -349,7 +355,6 @@ function Terrain:UpdateTiles(position)
 					local built = self:CreateTile(want, chunk)
 					tile.entity = built.entity
 					tile.polygon = built.polygon
-					tile.normal_texture = built.normal_texture
 					tile.material = built.material
 
 					if self:IsTileBlocked(tile) then set_tile_hidden(self, tile, true) end
@@ -363,6 +368,7 @@ function Terrain:UpdateTiles(position)
 end
 
 function Terrain:Update(dt)
+	self.Source:Update()
 	self.time_until_update = self.time_until_update - dt
 
 	if self.time_until_update > 0 then return end
@@ -425,6 +431,7 @@ function Terrain:Stop()
 	end
 
 	self.BuildQueue = {}
+	self.Source:Finish()
 
 	if self.Root and self.Root:IsValid() then self.Root:Remove() end
 

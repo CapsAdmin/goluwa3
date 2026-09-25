@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Color = import("goluwa/structs/color.lua")
 local assets = import("goluwa/assets.lua")
@@ -8,27 +7,6 @@ local tiles = {}
 local VertexType = Polygon3D.VertexType
 local Index16Array = ffi.typeof("uint16_t[?]")
 local Index32Array = ffi.typeof("uint32_t[?]")
-local NormalBakeConstants = ffi.typeof([[
-	struct {
-		int height_texture;
-		float step;
-	}
-]])
-local NORMAL_BAKE_DECLARATIONS = [[
-layout(push_constant, scalar) uniform TerrainNormalBakeConstants {
-	int height_texture;
-	float step;
-} normal_bake;
-]]
-local NORMAL_BAKE_GLSL = [[
-	vec2 texel = 1.0 / vec2(textureSize(TEXTURE(normal_bake.height_texture), 0));
-	float h_left = texture(TEXTURE(normal_bake.height_texture), uv - vec2(texel.x, 0.0)).r;
-	float h_right = texture(TEXTURE(normal_bake.height_texture), uv + vec2(texel.x, 0.0)).r;
-	float h_down = texture(TEXTURE(normal_bake.height_texture), uv - vec2(0.0, texel.y)).r;
-	float h_up = texture(TEXTURE(normal_bake.height_texture), uv + vec2(0.0, texel.y)).r;
-	vec3 n = normalize(vec3(h_left - h_right, 2.0 * normal_bake.step, h_down - h_up));
-	return vec4(n.x * 0.5 + 0.5, n.z * 0.5 + 0.5, n.y * 0.5 + 0.5, 1.0);
-]]
 
 function tiles.BuildPolygon(chunk, skirt_depth)
 	local request = chunk.request
@@ -140,42 +118,6 @@ function tiles.BuildPolygon(chunk, skirt_depth)
 	return polygon
 end
 
-function tiles.BakeNormalTexture(chunk)
-	local request = chunk.request
-	local size = request.detail_size
-	local texture = Texture.New{
-		width = size,
-		height = size,
-		format = "r8g8b8a8_unorm",
-		mip_map_levels = 1,
-		image = {
-			usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		},
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		},
-	}
-	local height_texture = chunk.height_texture
-	local step = request.size / size
-	texture:Shade(
-		NORMAL_BAKE_GLSL,
-		{
-			custom_declarations = NORMAL_BAKE_DECLARATIONS,
-			textures = {height_texture},
-			fragment_push_constants = {
-				size = ffi.sizeof(NormalBakeConstants),
-				get_data = function(_, _, pipeline)
-					return NormalBakeConstants(pipeline:GetTextureIndex(height_texture), step)
-				end,
-			},
-		}
-	)
-	return texture
-end
-
 local function resolve_layer_texture(value)
 	if type(value) == "string" then
 		local texture = assets.GetTexture(value, {config = {srgb = false}})
@@ -194,9 +136,9 @@ end
 		... up to 4
 	}
 ]]
-function tiles.CreateMaterial(chunk, normal_texture, layers)
+function tiles.CreateMaterial(chunk, layers)
 	local material = Material.New()
-	material:SetNormalTexture(normal_texture)
+	material:SetNormalTexture(chunk.normal_texture)
 	material:SetTerrainMaterialTexture(chunk.splat_texture)
 	material:SetAlbedoTexture(chunk.color_texture)
 	material:SetRoughnessMultiplier(1)
