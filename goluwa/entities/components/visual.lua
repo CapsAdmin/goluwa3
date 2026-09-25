@@ -3159,10 +3159,6 @@ function Visual:OnFirstCreated()
 	end)
 
 	do
-		local function compare_translucent_draws(a, b)
-			return a.distance > b.distance
-		end
-
 		local draws = {}
 
 		-- a refracting entry that leaves its thickness to the object uses its
@@ -3184,9 +3180,8 @@ function Visual:OnFirstCreated()
 			)
 		end
 
-		-- back to front by the distance to each entry's center, so the blend
-		-- is right between separate meshes, not within one. collected before
-		-- the pass begins so it knows whether anything refracts
+		-- collected before the translucent pass begins, so it knows how far
+		-- away the surfaces are and whether any of them refracts
 		event.AddListener("PreDraw3DTranslucent", "visual_translucent_collect", function()
 			local camera_position = render3d.GetCamera():GetPosition()
 			draws = {}
@@ -3202,15 +3197,27 @@ function Visual:OnFirstCreated()
 						if material_is_translucent(material) and world_matrix then
 							local aabb = entry.source_aabb
 							local x, y, z = 0, 0, 0
+							local radius = math.huge
 
 							if aabb then
 								x, y, z = (aabb.min_x + aabb.max_x) * 0.5,
 								(aabb.min_y + aabb.max_y) * 0.5,
 								(aabb.min_z + aabb.max_z) * 0.5
+								local m = world_matrix
+								local dx, dy, dz = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z
+								radius = 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz) * math.sqrt(
+										math.max(
+											m.m00 * m.m00 + m.m01 * m.m01 + m.m02 * m.m02,
+											m.m10 * m.m10 + m.m11 * m.m11 + m.m12 * m.m12,
+											m.m20 * m.m20 + m.m21 * m.m21 + m.m22 * m.m22
+										)
+									)
 							end
 
 							x, y, z = world_matrix:TransformVectorUnpacked(x, y, z)
 							x, y, z = x - camera_position.x, y - camera_position.y, z - camera_position.z
+							local distance = math.sqrt(x * x + y * y + z * z)
+							render3d.ExtendTranslucentDepthRange(distance - radius, distance + radius)
 							local thickness = 0
 
 							if material:GetRefraction() > 0 then
@@ -3222,15 +3229,12 @@ function Visual:OnFirstCreated()
 								entry = entry,
 								material = material,
 								world_matrix = world_matrix,
-								distance = x * x + y * y + z * z,
 								thickness = thickness,
 							}
 						end
 					end
 				end
 			end
-
-			table.sort(draws, compare_translucent_draws)
 		end)
 
 		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()

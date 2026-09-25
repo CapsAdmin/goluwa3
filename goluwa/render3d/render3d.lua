@@ -1170,14 +1170,16 @@ function render3d.UploadGBufferConstants()
 	cmd:SetCullMode(cull_mode)
 end
 
--- a refracting draw's thickness: what its material says, or its thinnest
--- extent when the material leaves it to the object
+-- translucent entries draw twice, once into the moments and once lit, with
+-- whichever pipeline the translucent pass is at. a refracting draw's thickness
+-- is what its material says, or its thinnest extent when the material leaves
+-- it to the object
 function render3d.UploadTranslucentConstants(thickness)
 	render3d.translucent_thickness = thickness
 	local cmd = render.GetCommandBuffer()
 	local cull_mode = render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE
 	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
-	render3d.pipelines.translucent_surface:UploadConstants()
+	render3d.translucent_pipeline:UploadConstants()
 	cmd:SetPolygonMode(polygon_mode)
 	cmd:SetCullMode(cull_mode)
 end
@@ -1186,6 +1188,13 @@ end
 -- blurred scene it looks through
 function render3d.RequestRefractionSource()
 	render3d.refraction_source_requested = true
+end
+
+-- the distances from the camera the translucent surfaces drawn this frame
+-- span, which the translucent pass fits its depth precision to
+function render3d.ExtendTranslucentDepthRange(near, far)
+	render3d.translucent_depth_near = math.min(render3d.translucent_depth_near, near)
+	render3d.translucent_depth_far = math.max(render3d.translucent_depth_far, far)
 end
 
 function render3d.UploadInstancedGBufferConstants()

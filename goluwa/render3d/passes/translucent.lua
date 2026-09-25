@@ -13,14 +13,99 @@ local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
 -- Translucent materials, which the gbuffer can't hold, drawn forward and lit
--- like the gbuffer's surfaces. The first pass copies the lit opaque scene and
--- its depth into its own target, so the scene stays untouched for the passes
--- that want what is behind the translucent surfaces. Visuals then draw their
--- translucent entries back to front into the copy, depth tested against the
--- opaque depth.
+-- like the gbuffer's surfaces, in any order: moment based order independent
+-- transparency (Münstermann et al. 2018).
+-- The moments pass sums, per pixel, each surface's absorbance and its
+-- absorbance weighted powers of its depth. From those the accumulate pass
+-- estimates how much of each surface is seen through the ones in front of it,
+-- and sums the lit surfaces weighted by it. The composite lays that sum over
+-- the lit opaque scene, which stays untouched for the passes that want what is
+-- behind the translucent surfaces. Both geometry passes are depth tested
+-- against a copy of the opaque depth.
 -- Refractive materials see the opaque scene through a mip chain of it, which
 -- rough surfaces sample blurrier. It is only built on frames that draw one.
 local refraction_source = nil
+-- depth is warped logarithmically into -1..1 over the distances the
+-- translucent surfaces span this frame, which the moments resolve best
+local MOMENTS_GLSL = [[
+	float moments_warp_depth(float distance, vec2 warp) {
+		return clamp(log(max(distance, 1e-4)) * warp.x + warp.y, -1.0, 1.0);
+	}
+
+	// the transmittance of everything in front of depth. b0 is the summed
+	// absorbance, moments its weighted depth, depth², depth³ and depth⁴. a
+	// surface counts a quarter of itself as in front of it, so the summed
+	// weights never vanish
+	float moments_transmittance(float b0, vec4 moments, float depth) {
+		if (b0 < 0.00100050033) return 1.0;
+
+		vec4 b = mix(moments / b0, vec4(0.0, 0.375, 0.0, 0.375), 5e-7);
+		float L21D11 = fma(-b.x, b.y, b.z);
+		float D11 = fma(-b.x, b.x, b.y);
+		float inv_D11 = 1.0 / D11;
+		float L21 = L21D11 * inv_D11;
+		float D22 = fma(-L21D11, L21, fma(-b.y, b.y, b.w));
+		vec3 c = vec3(1.0, depth, depth * depth);
+		c.y -= b.x;
+		c.z -= b.y + L21 * c.y;
+		c.y *= inv_D11;
+		c.z /= D22;
+		c.y -= L21 * c.z;
+		c.x -= dot(c.yz, b.xy);
+		float p = c.y / c.z;
+		float q = c.x / c.z;
+		float r = sqrt(p * p * 0.25 - q);
+		vec3 z = vec3(depth, -p * 0.5 - r, -p * 0.5 + r);
+		vec3 f = vec3(0.25, z.y < z.x ? 1.0 : 0.0, z.z < z.x ? 1.0 : 0.0);
+		float f01 = (f.y - f.x) / (z.y - z.x);
+		float f12 = (f.z - f.y) / (z.z - z.y);
+		float f012 = (f12 - f01) / (z.z - z.x);
+		float p0 = f01 - f012 * z.y;
+		float p1 = p0 - f012 * z.x;
+		p0 = f.x - p0 * z.x;
+		return clamp(exp(-b0 * (p0 + b.x * p1 + b.y * f012)), 0.0, 1.0);
+	}
+]]
+
+local function write_depth_warp(warp)
+	local camera = render3d.GetCamera()
+	local near = math.clamp(render3d.translucent_depth_near, camera:GetNearZ(), camera:GetFarZ())
+	local far = math.max(math.min(render3d.translucent_depth_far, camera:GetFarZ()), near * 1.01)
+	local scale = 2 / (math.log(far) - math.log(near))
+	warp[0] = scale
+	warp[1] = -math.log(near) * scale - 1
+end
+
+local function get_moments_textures()
+	local fb = render3d.pipelines.translucent_moments:GetFramebuffer()
+	return fb:GetAttachment(1), fb:GetAttachment(2)
+end
+
+-- a geometry pass starts with a fullscreen draw that zeroes its targets and
+-- copies the opaque depth to test against
+local function create_depth_copy_fragment(shader)
+	return {
+		uniform_buffers = {
+			{
+				name = "depth_copy",
+				binding_index = 3,
+				block = {
+					{"depth_tex", "int"},
+				},
+				write = function(self, block)
+					block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+					return block
+				end,
+			},
+		},
+		shader = [[
+			void main() {
+				]] .. shader .. [[
+				gl_FragDepth = texelFetch(TEXTURE(depth_copy.depth_tex), ivec2(gl_FragCoord.xy), 0).r;
+			}
+		]],
+	}
+end
 
 local function update_refraction_source(cmd)
 	local scene = post_source.GetOpaqueSceneTexture()
@@ -82,10 +167,17 @@ table.insert(
 			surface_lighting.block,
 			{"depth_tex", "int"},
 			{"refraction_tex", "int"},
+			{"b0_tex", "int"},
+			{"moments_tex", "int"},
+			{"depth_warp", "vec2"},
 		},
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
 			block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+			local b0, moments = get_moments_textures()
+			block.b0_tex = self:GetTextureIndex(b0)
+			block.moments_tex = self:GetTextureIndex(moments)
+			write_depth_warp(block.depth_warp)
 			block.refraction_tex = render3d.refraction_source_requested and
 				self:GetTextureIndex(refraction_source) or
 				-1
@@ -94,10 +186,38 @@ table.insert(
 		upload_scope = "frame",
 	}
 )
+local moments_uniform_buffers = model_pipeline.GetPBRUniformBuffers()
+table.insert(moments_uniform_buffers, 1, camera_block)
+table.insert(
+	moments_uniform_buffers,
+	{
+		name = "moments_data",
+		block = {
+			{"depth_warp", "vec2"},
+		},
+		write = function(self, block)
+			write_depth_warp(block.depth_warp)
+			return block
+		end,
+		upload_scope = "frame",
+	}
+)
+local ADDITIVE = {
+	blend = true,
+	src_color_blend_factor = "one",
+	dst_color_blend_factor = "one",
+	color_blend_op = "add",
+	src_alpha_blend_factor = "one",
+	dst_alpha_blend_factor = "one",
+	alpha_blend_op = "add",
+}
 return {
 	{
-		name = "translucent",
-		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		name = "translucent_moments",
+		ColorFormat = {
+			{"r32_sfloat", {"b0", "r"}},
+			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
+		},
 		DepthFormat = "d32_sfloat",
 		-- the light grid and the occlusion map live as long as the engine, so
 		-- each of the surface pipeline's descriptor sets is written once, before
@@ -124,43 +244,95 @@ return {
 				)
 			end
 
-			-- what draws this frame, sorted, and whether any of it refracts
+			-- what draws this frame, how far away it is, and whether any of it
+			-- refracts
 			render3d.refraction_source_requested = false
+			render3d.translucent_depth_near = math.huge
+			render3d.translucent_depth_far = 0
 			event.Call("PreDraw3DTranslucent")
 
 			if render3d.refraction_source_requested then
 				update_refraction_source(cmd)
 			end
 		end,
+		-- with nothing translucent in view, the cleared targets composite to the
+		-- scene as it is
 		on_draw = function(self, cmd)
+			if render3d.translucent_depth_far == 0 then return end
+
 			self:UploadConstants()
 			cmd:Draw(3, 1, 0, 0)
+			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
 			event.Call("Draw3DTranslucent")
 		end,
+		fragment = create_depth_copy_fragment("set_b0(0.0); set_moments(vec4(0.0));"),
+		CullMode = "none",
+		DepthTest = true,
+		DepthWrite = true,
+		DepthCompareOp = "always",
+	},
+	{
+		name = "translucent_moments_surface",
+		draw_in_prerender = false,
+		dont_create_framebuffers = true,
+		ColorFormat = {
+			{"r32_sfloat", {"b0", "r"}},
+			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
+		},
+		DepthFormat = "d32_sfloat",
+		vertex = model_pipeline.CreateVertexStage{
+			normal = true,
+			tangent = true,
+			uv = true,
+			texture_blend = true,
+			vertex_color = true,
+			include_projection_view_world = false,
+			camera_uniform_block_name = "translucent_camera",
+			uniform_buffers = {camera_block},
+		},
 		fragment = {
-			uniform_buffers = {
-				{
-					name = "translucent_copy",
-					binding_index = 3,
-					block = {
-						{"scene_tex", "int"},
-						{"depth_tex", "int"},
-					},
-					write = function(self, block)
-						block.scene_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
-						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-						return block
-					end,
-				},
-			},
-			shader = [[
+			uniform_buffers = moments_uniform_buffers,
+			shader = model_pipeline.BuildPBRSurfaceGlsl() .. MOMENTS_GLSL .. [[
 				void main() {
-					ivec2 pixel = ivec2(gl_FragCoord.xy);
-					set_color(texelFetch(TEXTURE(translucent_copy.scene_tex), pixel, 0));
-					gl_FragDepth = texelFetch(TEXTURE(translucent_copy.depth_tex), pixel, 0).r;
+					float alpha = get_alpha();
+
+					if (AlphaTest && alpha < factor_model.AlphaCutoff) discard;
+
+					float absorbance = -log(max(1.0 - alpha, 1e-3));
+					float depth = moments_warp_depth(distance(in_position, translucent_camera.camera_position), moments_data.depth_warp);
+					float depth2 = depth * depth;
+					set_b0(absorbance);
+					set_moments(vec4(depth, depth2, depth2 * depth, depth2 * depth2) * absorbance);
 				}
 			]],
 		},
+		CullMode = orientation.CULL_MODE,
+		FrontFace = orientation.FRONT_FACE,
+		Blend = true,
+		SrcColorBlendFactor = "one",
+		DstColorBlendFactor = "one",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "one",
+		AlphaBlendOp = "add",
+		color_blend = {attachments = {{}, ADDITIVE}},
+		DepthTest = true,
+		DepthWrite = false,
+		DepthCompareOp = "less_or_equal",
+	},
+	{
+		name = "translucent_accumulate",
+		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		DepthFormat = "d32_sfloat",
+		on_draw = function(self, cmd)
+			if render3d.translucent_depth_far == 0 then return end
+
+			self:UploadConstants()
+			cmd:Draw(3, 1, 0, 0)
+			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
+			event.Call("Draw3DTranslucent")
+		end,
+		fragment = create_depth_copy_fragment("set_color(vec4(0.0));"),
 		CullMode = "none",
 		DepthTest = true,
 		DepthWrite = true,
@@ -214,7 +386,7 @@ return {
 				},
 			},
 			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP),
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. [[
 				// the gbuffer's screen space gi, of the opaque surface behind
 				// this one. a thin surface sits in about the same light
 				vec3 get_gi_irradiance(vec2 screen_uv, vec3 N, out float sky_visibility) {
@@ -279,6 +451,13 @@ return {
 
 					vec2 screen_uv = gl_FragCoord.xy / lighting_data.render_size;
 					vec3 world_pos = in_position;
+					// how much of this surface is seen through those in front of it
+					ivec2 pixel = ivec2(gl_FragCoord.xy);
+					float transmittance = moments_transmittance(
+						texelFetch(TEXTURE(lighting_data.b0_tex), pixel, 0).r,
+						texelFetch(TEXTURE(lighting_data.moments_tex), pixel, 0),
+						moments_warp_depth(distance(world_pos, lighting_data.camera_position.xyz), lighting_data.depth_warp)
+					);
 					vec3 geometric_N = get_vertex_normal();
 					// how fast the surface bends, from how the interpolated normal
 					// turns across the pixel. 0 on a flat face
@@ -325,7 +504,7 @@ return {
 					if (!refractive) {
 						vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv) * alpha;
 						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
-						set_color(vec4(min(color, vec3(65504.0)), alpha));
+						set_color(vec4(min(color, vec3(65504.0)), alpha) * transmittance);
 						return;
 					}
 
@@ -380,7 +559,7 @@ return {
 					vec3 transmitted = background * albedo * (1.0 - F_ambient) * (1.0 - metallic) * refraction.amount;
 					vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv);
 					vec3 color = direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + transmitted + emissive;
-					set_color(vec4(min(color * alpha, vec3(65504.0)), alpha));
+					set_color(vec4(min(color * alpha, vec3(65504.0)), alpha) * transmittance);
 				}
 			]],
 		},
@@ -388,13 +567,56 @@ return {
 		FrontFace = orientation.FRONT_FACE,
 		Blend = true,
 		SrcColorBlendFactor = "one",
-		DstColorBlendFactor = "one_minus_src_alpha",
+		DstColorBlendFactor = "one",
 		ColorBlendOp = "add",
 		SrcAlphaBlendFactor = "one",
-		DstAlphaBlendFactor = "one_minus_src_alpha",
+		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "add",
 		DepthTest = true,
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
+	},
+	-- what the surfaces leave of the scene behind them, and the surfaces in
+	-- the proportions they are seen in
+	{
+		name = "translucent",
+		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "translucent_composite",
+					binding_index = 3,
+					block = {
+						{"scene_tex", "int"},
+						{"b0_tex", "int"},
+						{"accumulated_tex", "int"},
+					},
+					write = function(self, block)
+						block.scene_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
+						block.b0_tex = self:GetTextureIndex(get_moments_textures())
+						block.accumulated_tex = self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(1))
+						return block
+					end,
+				},
+			},
+			shader = [[
+				void main() {
+					ivec2 pixel = ivec2(gl_FragCoord.xy);
+					vec4 scene = texelFetch(TEXTURE(translucent_composite.scene_tex), pixel, 0);
+					vec4 accumulated = texelFetch(TEXTURE(translucent_composite.accumulated_tex), pixel, 0);
+
+					if (accumulated.a <= 0.0) {
+						set_color(scene);
+						return;
+					}
+
+					float transmittance = exp(-texelFetch(TEXTURE(translucent_composite.b0_tex), pixel, 0).r);
+					set_color(vec4(scene.rgb * transmittance + accumulated.rgb * ((1.0 - transmittance) / accumulated.a), scene.a));
+				}
+			]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 	},
 }

@@ -191,3 +191,71 @@ T.Test3D("Graphics render3d refractive materials transmit and blur what is behin
 
 	if not ok then error(err, 0) end
 end)
+
+T.Test3D("Graphics render3d translucent surfaces blend in depth order, whatever order they draw in", function(draw)
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/light_grid.lua").pass,
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/lighting.lua"),
+			import("goluwa/render3d/passes/translucent.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+	local polygon3d = Polygon3D.New()
+	polygon3d:CreateCube(1)
+	polygon3d:BuildBoundingBox()
+	polygon3d:Upload()
+	local created = {}
+	local ok, err = pcall(function()
+		local camera = render3d.GetCamera()
+		camera:SetFOV(math.rad(90))
+		camera:SetPosition(Vec3(0, 0, 0))
+		camera:SetAngles{x = 0, y = 0, z = 0}
+		local wall = Material.New{
+			ColorMultiplier = Color(0.5, 0.5, 0.5, 1),
+			RoughnessMultiplier = 1,
+			MetallicMultiplier = 0,
+		}
+		local red = Material.New{
+			ColorMultiplier = Color(0.9, 0.05, 0.05, 0.7),
+			RoughnessMultiplier = 1,
+			MetallicMultiplier = 0,
+			Translucent = true,
+		}
+		local blue = Material.New{
+			ColorMultiplier = Color(0.05, 0.05, 0.9, 0.7),
+			RoughnessMultiplier = 1,
+			MetallicMultiplier = 0,
+			Translucent = true,
+		}
+		add_box(polygon3d, created, Vec3(0, 0, -10), Vec3(20, 20, 0.1), wall)
+		-- the red pane is in front of the blue one at the center of the screen,
+		-- but reaches so far to the side that its center is the farther one
+		add_box(polygon3d, created, Vec3(14, 0, -6), Vec3(16, 0.3, 0.02), red)
+		add_box(polygon3d, created, Vec3(0, 0, -8), Vec3(1, 1, 0.02), blue)
+		draw()
+		draw()
+		local final = post_source.GetRawSceneSourceTexture():Download()
+		local center = math.floor(final.width / 2)
+		local r, _, b = final:GetPixelFloat(center + 4, center)
+		T(r > b * 1.5)["=="](true)
+		-- where only the blue pane is, blue shows
+		r, _, b = final:GetPixelFloat(center - 4, center + math.floor(final.width / 24))
+		T(b > r * 1.5)["=="](true)
+	end)
+
+	for _, ent in ipairs(created) do
+		if ent:IsValid() then ent:Remove() end
+	end
+
+	polygon3d:Remove()
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+
+	if not ok then error(err, 0) end
+end)
