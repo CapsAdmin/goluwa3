@@ -150,8 +150,8 @@ do
 		local removed = false
 
 		if instances then
-			for i, v in ipairs(instances) do
-				if v == obj then
+			for i = #instances, 1, -1 do
+				if instances[i] == obj then
 					list.remove(instances, i)
 					removed = true
 

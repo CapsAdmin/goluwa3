@@ -380,9 +380,11 @@ return function(META)
 			return
 		end
 
-		for i, val in ipairs(self.Children) do
-			if val == obj then
-				table.remove(self.Children, i)
+		local children = self.Children
+
+		for i = #children, 1, -1 do
+			if children[i] == obj then
+				table.remove(children, i)
 				self:InvalidateChildrenList()
 				obj.Parent = NULL
 				obj:InvalidateParentList()
