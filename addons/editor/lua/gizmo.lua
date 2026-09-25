@@ -1652,22 +1652,18 @@ end
 
 local function draw_gizmo()
 	local entity = state.gizmo_entity
-	local gizmo_def = get_gizmo_definition(entity)
 
-	if not gizmo_def then
-		if
-			state.gizmo_entity ~= nil or
-			state.hovered_handle ~= nil or
-			state.active_drag ~= nil
-		then
-			state.gizmo_entity = nil
-			state.hovered_handle = nil
-			state.active_drag = nil
-			notify_state_changed()
-		end
-
+	if not is_gizmo_entity(entity) then
+		state.gizmo_entity = nil
+		state.hovered_handle = nil
+		state.active_drag = nil
+		notify_state_changed()
 		return
 	end
+
+	local gizmo_def = get_gizmo_definition(entity)
+
+	if not gizmo_def then return end
 
 	populate_gizmo_handles(gizmo_def)
 
