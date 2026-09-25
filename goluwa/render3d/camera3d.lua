@@ -62,6 +62,23 @@ do
 	end
 end
 
+local function resolve_viewport(self, screen_width, screen_height)
+	local viewport = self.GetViewport and self:GetViewport() or nil
+	local viewport_x = 0
+	local viewport_y = 0
+	local viewport_width = screen_width
+	local viewport_height = screen_height
+
+	if viewport then
+		viewport_x = viewport.x or 0
+		viewport_y = viewport.y or 0
+		viewport_width = viewport.w or screen_width
+		viewport_height = viewport.h or screen_height
+	end
+
+	return viewport_x, viewport_y, viewport_width, viewport_height
+end
+
 do
 	META:StartStorable()
 	META:GetSet("Position", Vec3(0, 0, 0), {callback = "InvalidateViewMatrix"})
@@ -94,19 +111,7 @@ do
 	function META:ProjectPositionToScreen(position, screen_width, screen_height, skip_bounds_check, projection)
 		screen_width = screen_width or render.GetWidth()
 		screen_height = screen_height or render.GetHeight()
-		local viewport = self.GetViewport and self:GetViewport() or nil
-		local viewport_x = 0
-		local viewport_y = 0
-		local viewport_width = screen_width
-		local viewport_height = screen_height
-
-		if viewport then
-			viewport_x = viewport.x or 0
-			viewport_y = viewport.y or 0
-			viewport_width = viewport.w or screen_width
-			viewport_height = viewport.h or screen_height
-		end
-
+		local viewport_x, viewport_y, viewport_width, viewport_height = resolve_viewport(self, screen_width, screen_height)
 		self:BuildViewMatrix():GetMultiplied(projection, world_to_screen_matrix)
 		local clip = world_to_screen_matrix:MultiplyVector(position.x, position.y, position.z, 1, world_to_screen_clip)
 		local w = clip.m03
@@ -197,19 +202,7 @@ do
 
 		if math.abs(w_a) < 1e-6 or math.abs(w_b) < 1e-6 then return nil end
 
-		local viewport = self.GetViewport and self:GetViewport() or nil
-		local viewport_x = 0
-		local viewport_y = 0
-		local viewport_width = screen_width
-		local viewport_height = screen_height
-
-		if viewport then
-			viewport_x = viewport.x or 0
-			viewport_y = viewport.y or 0
-			viewport_width = viewport.w or screen_width
-			viewport_height = viewport.h or screen_height
-		end
-
+		local viewport_x, viewport_y, viewport_width, viewport_height = resolve_viewport(self, screen_width, screen_height)
 		return Vec2(
 			viewport_x + (line_view_a.m00 / w_a * 0.5 + 0.5) * viewport_width,
 			viewport_y + (line_view_a.m01 / w_a * 0.5 + 0.5) * viewport_height
@@ -221,13 +214,7 @@ do
 	end
 
 	function META:WorldLineToScreen(from, to, screen_width, screen_height)
-		return self:ProjectLineToScreen(
-			from,
-			to,
-			screen_width,
-			screen_height,
-			self:BuildProjectionMatrix()
-		)
+		return self:ProjectLineToScreen(from, to, screen_width, screen_height, self:BuildProjectionMatrix())
 	end
 
 	-- like WorldLineToScreen but with the TAA jitter stripped from the
@@ -259,19 +246,7 @@ do
 	function META:ScreenToWorldDirection(screen_pos, screen_width, screen_height)
 		screen_width = screen_width or render.GetWidth()
 		screen_height = screen_height or render.GetHeight()
-		local viewport = self.GetViewport and self:GetViewport() or nil
-		local viewport_x = 0
-		local viewport_y = 0
-		local viewport_width = screen_width
-		local viewport_height = screen_height
-
-		if viewport then
-			viewport_x = viewport.x or 0
-			viewport_y = viewport.y or 0
-			viewport_width = viewport.w or screen_width
-			viewport_height = viewport.h or screen_height
-		end
-
+		local viewport_x, viewport_y, viewport_width, viewport_height = resolve_viewport(self, screen_width, screen_height)
 		local ndc_x = ((screen_pos.x - viewport_x) / viewport_width) * 2 - 1
 		local ndc_y = ((screen_pos.y - viewport_y) / viewport_height) * 2 - 1
 		self:BuildViewMatrix():GetMultiplied(self:BuildProjectionMatrix(), world_to_screen_matrix)

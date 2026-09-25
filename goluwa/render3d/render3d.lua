@@ -63,33 +63,37 @@ function render3d.GetGPUCulling()
 	return gpu_culling
 end
 
+local REUSE_SUMMARY_FIELDS = {
+	"unique_keys",
+	"singleton_keys",
+	"repeated_keys",
+	"repeated_instances",
+	"max_instances_per_key",
+}
+
+local function zero_fields(tbl, fields)
+	for _, f in ipairs(fields) do
+		tbl[f] = 0
+	end
+
+	return tbl
+end
+
 local function new_instancing_reuse_summary()
-	return {
-		unique_keys = 0,
-		singleton_keys = 0,
-		repeated_keys = 0,
-		repeated_instances = 0,
-		max_instances_per_key = 0,
-	}
+	return zero_fields({}, REUSE_SUMMARY_FIELDS)
 end
 
 local function reset_instancing_reuse_summary(summary)
-	summary = summary or new_instancing_reuse_summary()
-	summary.unique_keys = 0
-	summary.singleton_keys = 0
-	summary.repeated_keys = 0
-	summary.repeated_instances = 0
-	summary.max_instances_per_key = 0
-	return summary
+	return zero_fields(summary or new_instancing_reuse_summary(), REUSE_SUMMARY_FIELDS)
 end
 
 local function copy_instancing_reuse_summary(dst, src)
 	dst = reset_instancing_reuse_summary(dst)
-	dst.unique_keys = src.unique_keys
-	dst.singleton_keys = src.singleton_keys
-	dst.repeated_keys = src.repeated_keys
-	dst.repeated_instances = src.repeated_instances
-	dst.max_instances_per_key = src.max_instances_per_key
+
+	for _, f in ipairs(REUSE_SUMMARY_FIELDS) do
+		dst[f] = src[f]
+	end
+
 	return dst
 end
 
@@ -131,105 +135,88 @@ local function new_instancing_reuse_observations()
 	}
 end
 
+local COUNTER_FIELDS = {
+	"queue_attempts",
+	"queued_batches",
+	"queued_instances",
+	"flushed_batches",
+	"flushed_instances",
+	"instanced_draws",
+	"singleton_fallback_draws",
+	"completed_frame",
+}
+local KIND_KEYS = {"raw", "vmt", "crymtl"}
+local KIND_COUNTER_FIELDS = {"queued_batches", "singleton_fallback_draws", "instanced_draws"}
+local REUSE_SUMMARY_NAMES = {
+	"observed_reuse_by_model_path",
+	"observed_reuse_by_mesh_object",
+	"observed_reuse_by_batch_key",
+}
+local REJECTED_FIELDS = {
+	"missing_args",
+	"missing_pipeline",
+	"wireframe",
+	"vertex_animation",
+	"missing_mesh",
+}
+local KIND_COUNTER_FIELDS_MATERIALS = {}
+
+for i, k in ipairs(KIND_COUNTER_FIELDS) do
+	KIND_COUNTER_FIELDS_MATERIALS[i] = k .. "_by_material_key_kind"
+end
+
 local function new_instancing_counters()
-	return {
-		queue_attempts = 0,
-		queued_batches = 0,
-		queued_instances = 0,
-		flushed_batches = 0,
-		flushed_instances = 0,
-		instanced_draws = 0,
-		singleton_fallback_draws = 0,
-		completed_frame = 0,
-		queued_batches_by_material_key_kind = {
-			raw = 0,
-			vmt = 0,
-			crymtl = 0,
-		},
-		singleton_fallback_draws_by_material_key_kind = {
-			raw = 0,
-			vmt = 0,
-			crymtl = 0,
-		},
-		instanced_draws_by_material_key_kind = {
-			raw = 0,
-			vmt = 0,
-			crymtl = 0,
-		},
-		observed_reuse_by_model_path = new_instancing_reuse_summary(),
-		observed_reuse_by_mesh_object = new_instancing_reuse_summary(),
-		observed_reuse_by_batch_key = new_instancing_reuse_summary(),
-		rejected = {
-			missing_args = 0,
-			missing_pipeline = 0,
-			wireframe = 0,
-			vertex_animation = 0,
-			missing_mesh = 0,
-		},
-	}
+	local c = zero_fields({}, COUNTER_FIELDS)
+
+	for _, k in ipairs(KIND_COUNTER_FIELDS_MATERIALS) do
+		c[k] = zero_fields({}, KIND_KEYS)
+	end
+
+	for _, n in ipairs(REUSE_SUMMARY_NAMES) do
+		c[n] = new_instancing_reuse_summary()
+	end
+
+	c.rejected = zero_fields({}, REJECTED_FIELDS)
+	return c
 end
 
 local function reset_instancing_counters(target)
 	target = target or new_instancing_counters()
-	target.queue_attempts = 0
-	target.queued_batches = 0
-	target.queued_instances = 0
-	target.flushed_batches = 0
-	target.flushed_instances = 0
-	target.instanced_draws = 0
-	target.singleton_fallback_draws = 0
-	target.completed_frame = 0
-	target.queued_batches_by_material_key_kind = target.queued_batches_by_material_key_kind or {}
-	target.queued_batches_by_material_key_kind.raw = 0
-	target.queued_batches_by_material_key_kind.vmt = 0
-	target.queued_batches_by_material_key_kind.crymtl = 0
-	target.singleton_fallback_draws_by_material_key_kind = target.singleton_fallback_draws_by_material_key_kind or {}
-	target.singleton_fallback_draws_by_material_key_kind.raw = 0
-	target.singleton_fallback_draws_by_material_key_kind.vmt = 0
-	target.singleton_fallback_draws_by_material_key_kind.crymtl = 0
-	target.instanced_draws_by_material_key_kind = target.instanced_draws_by_material_key_kind or {}
-	target.instanced_draws_by_material_key_kind.raw = 0
-	target.instanced_draws_by_material_key_kind.vmt = 0
-	target.instanced_draws_by_material_key_kind.crymtl = 0
-	target.observed_reuse_by_model_path = reset_instancing_reuse_summary(target.observed_reuse_by_model_path)
-	target.observed_reuse_by_mesh_object = reset_instancing_reuse_summary(target.observed_reuse_by_mesh_object)
-	target.observed_reuse_by_batch_key = reset_instancing_reuse_summary(target.observed_reuse_by_batch_key)
-	target.rejected = target.rejected or {}
-	target.rejected.missing_args = 0
-	target.rejected.missing_pipeline = 0
-	target.rejected.wireframe = 0
-	target.rejected.vertex_animation = 0
-	target.rejected.missing_mesh = 0
+	zero_fields(target, COUNTER_FIELDS)
+
+	for _, k in ipairs(KIND_COUNTER_FIELDS) do
+		zero_fields(target[k .. "_by_material_key_kind"], KIND_KEYS)
+	end
+
+	for _, n in ipairs(REUSE_SUMMARY_NAMES) do
+		reset_instancing_reuse_summary(target[n])
+	end
+
+	zero_fields(target.rejected, REJECTED_FIELDS)
 	return target
 end
 
 local function copy_instancing_counters(dst, src)
 	dst = reset_instancing_counters(dst)
-	dst.queue_attempts = src.queue_attempts
-	dst.queued_batches = src.queued_batches
-	dst.queued_instances = src.queued_instances
-	dst.flushed_batches = src.flushed_batches
-	dst.flushed_instances = src.flushed_instances
-	dst.instanced_draws = src.instanced_draws
-	dst.singleton_fallback_draws = src.singleton_fallback_draws
-	dst.completed_frame = src.completed_frame
-	dst.queued_batches_by_material_key_kind.raw = src.queued_batches_by_material_key_kind.raw
-	dst.queued_batches_by_material_key_kind.vmt = src.queued_batches_by_material_key_kind.vmt
-	dst.queued_batches_by_material_key_kind.crymtl = src.queued_batches_by_material_key_kind.crymtl
-	dst.singleton_fallback_draws_by_material_key_kind.raw = src.singleton_fallback_draws_by_material_key_kind.raw
-	dst.singleton_fallback_draws_by_material_key_kind.vmt = src.singleton_fallback_draws_by_material_key_kind.vmt
-	dst.singleton_fallback_draws_by_material_key_kind.crymtl = src.singleton_fallback_draws_by_material_key_kind.crymtl
-	dst.instanced_draws_by_material_key_kind.raw = src.instanced_draws_by_material_key_kind.raw
-	dst.instanced_draws_by_material_key_kind.vmt = src.instanced_draws_by_material_key_kind.vmt
-	dst.instanced_draws_by_material_key_kind.crymtl = src.instanced_draws_by_material_key_kind.crymtl
-	dst.observed_reuse_by_model_path = copy_instancing_reuse_summary(dst.observed_reuse_by_model_path, src.observed_reuse_by_model_path)
-	dst.observed_reuse_by_mesh_object = copy_instancing_reuse_summary(dst.observed_reuse_by_mesh_object, src.observed_reuse_by_mesh_object)
-	dst.observed_reuse_by_batch_key = copy_instancing_reuse_summary(dst.observed_reuse_by_batch_key, src.observed_reuse_by_batch_key)
-	dst.rejected.missing_args = src.rejected.missing_args
-	dst.rejected.missing_pipeline = src.rejected.missing_pipeline
-	dst.rejected.wireframe = src.rejected.wireframe
-	dst.rejected.vertex_animation = src.rejected.vertex_animation
-	dst.rejected.missing_mesh = src.rejected.missing_mesh
+
+	for _, f in ipairs(COUNTER_FIELDS) do
+		dst[f] = src[f]
+	end
+
+	for _, k in ipairs(KIND_COUNTER_FIELDS_MATERIALS) do
+		for _, kk in ipairs(KIND_KEYS) do
+			dst[k][kk] = src[k][kk]
+		end
+	end
+
+	for _, n in ipairs(REUSE_SUMMARY_NAMES) do
+		copy_instancing_reuse_summary(dst[n], src[n])
+	end
+
+	for _, f in ipairs(REJECTED_FIELDS) do
+		dst.rejected[f] = src.rejected[f]
+	end
+
 	return dst
 end
 
@@ -375,34 +362,32 @@ function render3d.GetActiveRenderContext()
 	return render3d.active_render_context
 end
 
-function render3d.ShouldUseLastFrameHistory()
+local function context_value(field, fallback)
 	local context = render3d.GetActiveRenderContext()
 
-	if context and context.allow_last_frame_history ~= nil then
-		return context.allow_last_frame_history == true
-	end
+	if context and context[field] ~= nil then return context[field] end
 
-	return true
+	return fallback
+end
+
+local function context_bool(field, fallback)
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context[field] ~= nil then return context[field] == true end
+
+	return fallback
+end
+
+function render3d.ShouldUseLastFrameHistory()
+	return context_bool("allow_last_frame_history", true)
 end
 
 function render3d.ShouldUseEnvProbes()
-	local context = render3d.GetActiveRenderContext()
-
-	if context and context.allow_envprobe ~= nil then
-		return context.allow_envprobe == true
-	end
-
-	return true
+	return context_bool("allow_envprobe", true)
 end
 
 function render3d.ShouldUseProbeReflections()
-	local context = render3d.GetActiveRenderContext()
-
-	if context and context.allow_probe_reflections ~= nil then
-		return context.allow_probe_reflections == true
-	end
-
-	return render3d.ShouldUseEnvProbes()
+	return context_bool("allow_probe_reflections", render3d.ShouldUseEnvProbes())
 end
 
 function render3d.GetPreviousViewMatrix()
@@ -658,70 +643,72 @@ function render3d.Initialize(config)
 			id = "render3d_instancing",
 			label = "RENDER3D INSTANCING",
 		}
-		render_stats.RegisterField{
-			id = "r3d_instanced_draws",
-			label = "R3D INST DRAWS",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_instancing_counters().instanced_draws
-			end,
-		}
-		render_stats.RegisterField{
-			id = "r3d_instanced_fallbacks",
-			label = "R3D INST FALLBACKS",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_instancing_counters().singleton_fallback_draws
-			end,
-		}
-		render_stats.RegisterField{
-			id = "r3d_instanced_rejected",
-			label = "R3D INST REJECTED",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_rejected_instancing_summary().total
-			end,
-		}
-		render_stats.RegisterField{
-			id = "r3d_inst_reject_args",
-			label = "R3D INST RJ ARGS",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_rejected_instancing_summary().missing_args
-			end,
-		}
-		render_stats.RegisterField{
-			id = "r3d_inst_reject_pipeline",
-			label = "R3D INST RJ PIPE",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_rejected_instancing_summary().missing_pipeline
-			end,
-		}
-		render_stats.RegisterField{
-			id = "r3d_inst_reject_wire",
-			label = "R3D INST RJ WIRE",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_rejected_instancing_summary().wireframe
-			end,
-		}
-		render_stats.RegisterField{
-			id = "r3d_inst_reject_anim",
-			label = "R3D INST RJ ANIM",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_rejected_instancing_summary().vertex_animation
-			end,
-		}
-		render_stats.RegisterField{
-			id = "r3d_inst_reject_mesh",
-			label = "R3D INST RJ MESH",
-			group = "render3d_instancing",
-			getter = function()
-				return get_last_rejected_instancing_summary().missing_mesh
-			end,
-		}
+
+		for _, spec in ipairs{
+			{
+				"r3d_instanced_draws",
+				"R3D INST DRAWS",
+				function()
+					return get_last_instancing_counters().instanced_draws
+				end,
+			},
+			{
+				"r3d_instanced_fallbacks",
+				"R3D INST FALLBACKS",
+				function()
+					return get_last_instancing_counters().singleton_fallback_draws
+				end,
+			},
+			{
+				"r3d_instanced_rejected",
+				"R3D INST REJECTED",
+				function()
+					return get_last_rejected_instancing_summary().total
+				end,
+			},
+			{
+				"r3d_inst_reject_args",
+				"R3D INST RJ ARGS",
+				function()
+					return get_last_rejected_instancing_summary().missing_args
+				end,
+			},
+			{
+				"r3d_inst_reject_pipeline",
+				"R3D INST RJ PIPE",
+				function()
+					return get_last_rejected_instancing_summary().missing_pipeline
+				end,
+			},
+			{
+				"r3d_inst_reject_wire",
+				"R3D INST RJ WIRE",
+				function()
+					return get_last_rejected_instancing_summary().wireframe
+				end,
+			},
+			{
+				"r3d_inst_reject_anim",
+				"R3D INST RJ ANIM",
+				function()
+					return get_last_rejected_instancing_summary().vertex_animation
+				end,
+			},
+			{
+				"r3d_inst_reject_mesh",
+				"R3D INST RJ MESH",
+				function()
+					return get_last_rejected_instancing_summary().missing_mesh
+				end,
+			},
+		} do
+			render_stats.RegisterField{
+				id = spec[1],
+				label = spec[2],
+				group = "render3d_instancing",
+				getter = spec[3],
+			}
+		end
 	end
 
 	import("goluwa/render3d/model_loader.lua")
@@ -1594,23 +1581,11 @@ function render3d.SetEnvironmentTexture(texture, irradiance_texture)
 end
 
 function render3d.GetEnvironmentTexture()
-	local context = render3d.GetActiveRenderContext()
-
-	if context and context.environment_texture ~= nil then
-		return context.environment_texture
-	end
-
-	return render3d.environment_texture
+	return context_value("environment_texture", render3d.environment_texture)
 end
 
 function render3d.GetEnvironmentIrradianceTexture()
-	local context = render3d.GetActiveRenderContext()
-
-	if context and context.environment_irradiance_texture ~= nil then
-		return context.environment_irradiance_texture
-	end
-
-	return render3d.environment_irradiance_texture
+	return context_value("environment_irradiance_texture", render3d.environment_irradiance_texture)
 end
 
 function render3d.SetOceanEnabled(enabled)
@@ -1618,15 +1593,7 @@ function render3d.SetOceanEnabled(enabled)
 end
 
 function render3d.IsOceanEnabled()
-	local context = render3d.GetActiveRenderContext()
-
-	if context and context.ocean_enabled ~= nil then
-		return context.ocean_enabled == true
-	end
-
-	if render3d.ocean_enabled == nil then return false end
-
-	return render3d.ocean_enabled == true
+	return context_bool("ocean_enabled", render3d.ocean_enabled == true)
 end
 
 function render3d.SetOceanLevel(level)
