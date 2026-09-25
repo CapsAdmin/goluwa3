@@ -1902,7 +1902,6 @@ function crylevel.Apply(steam)
 		local level_dir = assert(crylevel.ResolveLevelDirectory(steam, level))
 		local level_name = level_dir:match("/([^/]+)/$") or level_dir
 		steam.cry_level_world:SetName(level_name)
-		debug.trace()
 		steam.cry_level_world:RemoveChildren()
 		return steam.SpawnCryLevel(level_dir, steam.cry_level_world)
 	end

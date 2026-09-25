@@ -1120,11 +1120,15 @@ function ddgi.WriteMaterialBuffer(self)
 	for i, material in ipairs(scene_bvh.materials) do
 		local entry = out[i - 1]
 		local color = material:GetColorMultiplier()
-		local albedo = material:GetAlbedoTexture()
 		entry.albedo[0] = color.r
 		entry.albedo[1] = color.g
 		entry.albedo[2] = color.b
-		entry.albedo_tex = albedo and self:GetTextureIndex(albedo) or -1
+		local albedo = material:GetAlbedoTexture() or NULL
+
+		if albedo:IsValid() then
+			entry.albedo_tex = albedo and self:GetTextureIndex(albedo) or -1
+		end
+
 		entry.double_sided = material:GetDoubleSided() and 1 or 0
 	end
 

@@ -32,6 +32,7 @@ local rig = Entity.New{
 		Mode = "fly",
 	},
 }
+_G.PLAYER_RIG = rig
 rig.transform:SetPosition(cam:GetPosition():Copy())
 rig.player_input:SyncFromCamera(cam)
 system.GetWindow():SetMouseTrapped(true)
