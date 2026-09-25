@@ -1,4 +1,6 @@
 local system = import("goluwa/system.lua")
+local render = import("goluwa/render/render.lua")
+local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -34,6 +36,11 @@ local BINDING_FROXEL = 4
 local BINDING_SCATTER = 5
 local BINDING_RAW = 6
 local BINDING_LIGHT_GRID = 7
+local BINDING_SCENE = 8
+-- the ambient's probes are checked with rays like the DDGI resolve does: the
+-- distance test alone can't resolve a wall thinner than a coarse cascade's
+-- spacing, so far froxels inside a building would see the probes outside
+local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local froxels = froxel_fog.froxels
 local FROXEL_SLICES = froxel_fog.SLICES
 local SLICE_GLSL = froxel_fog.SLICE_GLSL
@@ -154,15 +161,44 @@ local scatter_pass = {
 		},
 	},
 	storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
+	descriptor_sets = VISIBILITY_RAYS and
+		{
+			{
+				type = "acceleration_structure_khr",
+				binding_index = BINDING_SCENE,
+				stageFlags = "compute",
+			},
+		} or
+		nil,
 	on_pre_draw = function(self, cmd, frame, desc)
 		froxel_fog.EnsureResources()
 		light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
+
+		if VISIBILITY_RAYS then
+			self:UpdateDescriptorSet(
+				"acceleration_structure_khr",
+				desc,
+				BINDING_SCENE,
+				0,
+				render3d.pipelines.ddgi_trace and
+					ddgi.GetFrameState().tlas or
+					scene_bvh.GetPlaceholderTLAS(cmd)
+			)
+		end
 	end,
 	on_draw = function(self, cmd, fb, frame, desc)
 		self:UploadConstants()
 		self.pipeline:DispatchForSize(cmd, froxels.width, froxels.height, FROXEL_SLICES, desc, self.dynamic_offsets)
 	end,
-	custom_declarations = [[
+	custom_declarations = (
+			VISIBILITY_RAYS and
+			[[
+		#extension GL_EXT_ray_query : require
+		#define DDGI_VISIBILITY_RAYS
+		layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT ddgi_scene;
+	]] or
+			""
+		) .. [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_scatter;
 	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID),
 	shader = [[
