@@ -343,11 +343,37 @@ function META:TransformDirection(vec)
 end
 
 function META:GetRotation(out)
-	local w = math.sqrt(1 + self.m00 + self.m11 + self.m22) / 2
-	local w2 = w * 4
-	local x = (self.m12 - self.m21) / w2
-	local y = (self.m20 - self.m02) / w2
-	local z = (self.m01 - self.m10) / w2
+	local m00, m11, m22 = self.m00, self.m11, self.m22
+	local trace = m00 + m11 + m22
+	local x, y, z, w
+
+	-- branch on the largest diagonal term so rotations near 180 degrees don't divide by ~0
+	if trace > 0 then
+		local s = math.sqrt(1 + trace) * 2
+		w = s / 4
+		x = (self.m12 - self.m21) / s
+		y = (self.m20 - self.m02) / s
+		z = (self.m01 - self.m10) / s
+	elseif m00 > m11 and m00 > m22 then
+		local s = math.sqrt(1 + m00 - m11 - m22) * 2
+		w = (self.m12 - self.m21) / s
+		x = s / 4
+		y = (self.m01 + self.m10) / s
+		z = (self.m02 + self.m20) / s
+	elseif m11 > m22 then
+		local s = math.sqrt(1 + m11 - m00 - m22) * 2
+		w = (self.m20 - self.m02) / s
+		x = (self.m01 + self.m10) / s
+		y = s / 4
+		z = (self.m12 + self.m21) / s
+	else
+		local s = math.sqrt(1 + m22 - m00 - m11) * 2
+		w = (self.m01 - self.m10) / s
+		x = (self.m02 + self.m20) / s
+		y = (self.m12 + self.m21) / s
+		z = s / 4
+	end
+
 	out = out or Quat()
 	out:Set(x, y, z, w)
 	return out
