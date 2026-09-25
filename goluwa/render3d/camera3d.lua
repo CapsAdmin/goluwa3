@@ -91,7 +91,7 @@ do
 		self:InvalidateViewMatrix()
 	end
 
-	function META:WorldPositionToScreen(position, screen_width, screen_height, skip_bounds_check)
+	function META:ProjectPositionToScreen(position, screen_width, screen_height, skip_bounds_check, projection)
 		screen_width = screen_width or render.GetWidth()
 		screen_height = screen_height or render.GetHeight()
 		local viewport = self.GetViewport and self:GetViewport() or nil
@@ -107,7 +107,7 @@ do
 			viewport_height = viewport.h or screen_height
 		end
 
-		self:BuildViewMatrix():GetMultiplied(self:BuildProjectionMatrix(), world_to_screen_matrix)
+		self:BuildViewMatrix():GetMultiplied(projection, world_to_screen_matrix)
 		local clip = world_to_screen_matrix:MultiplyVector(position.x, position.y, position.z, 1, world_to_screen_clip)
 		local w = clip.m03
 
@@ -120,7 +120,6 @@ do
 		local ndc_x = clip.m00 / w
 		local ndc_y = clip.m01 / w
 		local ndc_z = clip.m02 / w
-		local vis
 
 		if
 			not skip_bounds_check and
@@ -142,7 +141,29 @@ do
 		)
 	end
 
-	function META:WorldLineToScreen(from, to, screen_width, screen_height)
+	function META:WorldPositionToScreen(position, screen_width, screen_height, skip_bounds_check)
+		return self:ProjectPositionToScreen(
+			position,
+			screen_width,
+			screen_height,
+			skip_bounds_check,
+			self:BuildProjectionMatrix()
+		)
+	end
+
+	-- like WorldPositionToScreen but with the TAA jitter stripped from the
+	-- projection, so screen-aligned overlays (debug text, ...) stay crisp
+	function META:WorldPositionToScreenUnjittered(position, screen_width, screen_height, skip_bounds_check)
+		return self:ProjectPositionToScreen(
+			position,
+			screen_width,
+			screen_height,
+			skip_bounds_check,
+			self:BuildUnjitteredProjectionMatrix()
+		)
+	end
+
+	function META:ProjectLineToScreen(from, to, screen_width, screen_height, projection)
 		screen_width = screen_width or render.GetWidth()
 		screen_height = screen_height or render.GetHeight()
 		local view = self:BuildViewMatrix()
@@ -169,7 +190,6 @@ do
 			end
 		end
 
-		local projection = self:BuildProjectionMatrix()
 		projection:MultiplyVector(line_view_a.m00, line_view_a.m01, line_view_a.m02, 1, line_view_a)
 		projection:MultiplyVector(line_view_b.m00, line_view_b.m01, line_view_b.m02, 1, line_view_b)
 		local w_a = line_view_a.m03
@@ -197,6 +217,28 @@ do
 		Vec2(
 			viewport_x + (line_view_b.m00 / w_b * 0.5 + 0.5) * viewport_width,
 			viewport_y + (line_view_b.m01 / w_b * 0.5 + 0.5) * viewport_height
+		)
+	end
+
+	function META:WorldLineToScreen(from, to, screen_width, screen_height)
+		return self:ProjectLineToScreen(
+			from,
+			to,
+			screen_width,
+			screen_height,
+			self:BuildProjectionMatrix()
+		)
+	end
+
+	-- like WorldLineToScreen but with the TAA jitter stripped from the
+	-- projection, so screen-aligned overlays (debug lines, ...) stay crisp
+	function META:WorldLineToScreenUnjittered(from, to, screen_width, screen_height)
+		return self:ProjectLineToScreen(
+			from,
+			to,
+			screen_width,
+			screen_height,
+			self:BuildUnjitteredProjectionMatrix()
 		)
 	end
 

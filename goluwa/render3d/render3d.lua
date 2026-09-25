@@ -1467,6 +1467,15 @@ do
 		return pvm_cached
 	end
 
+	local pvm_unjittered_cached = Matrix44()
+
+	function render3d.GetUnjitteredProjectionViewWorldMatrix()
+		local camera = render3d.GetCamera()
+		render3d.world_matrix:GetMultiplied(camera:BuildViewMatrix(), pvm_unjittered_cached)
+		pvm_unjittered_cached:GetMultiplied(camera:BuildUnjitteredProjectionMatrix(), pvm_unjittered_cached)
+		return pvm_unjittered_cached
+	end
+
 	local frustum_planes = {}
 	local frustum_frame = -1
 

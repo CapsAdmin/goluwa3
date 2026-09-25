@@ -20,6 +20,7 @@ return {
 		vertex = model_pipeline.CreateVertexStage{
 			uv = true,
 			texture_blend = true,
+			get_projection_view_world_matrix = render3d.GetUnjitteredProjectionViewWorldMatrix,
 		},
 		fragment = {
 			uniform_buffers = {

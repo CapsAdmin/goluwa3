@@ -256,7 +256,7 @@ local function is_entity_origin_visible(entity)
 
 	if not cam then return false end
 
-	return cam:WorldPositionToScreen(origin) ~= nil
+	return cam:WorldPositionToScreenUnjittered(origin) ~= nil
 end
 
 local function get_gizmo_scale(center, extent)
@@ -264,12 +264,12 @@ local function get_gizmo_scale(center, extent)
 
 	if not cam then return math.max(extent * 0.75, 1.5) end
 
-	local center_screen = cam:WorldPositionToScreen(center)
+	local center_screen = cam:WorldPositionToScreenUnjittered(center)
 
 	if not center_screen then return math.max(extent * 0.75, 1.5) end
 
 	local right = cam:GetRotation():GetRight()
-	local right_screen = cam:WorldPositionToScreen(center + right)
+	local right_screen = cam:WorldPositionToScreenUnjittered(center + right)
 
 	if not right_screen then return math.max(extent * 0.75, 1.5) end
 
@@ -474,7 +474,7 @@ end
 local function get_camera_viewport_ray_direction(cam, viewport_mouse_pos, viewport)
 	local ndc_x = (viewport_mouse_pos.x / viewport.w) * 2 - 1
 	local ndc_y = (viewport_mouse_pos.y / viewport.h) * 2 - 1
-	cam:BuildViewMatrix():GetMultiplied(cam:BuildProjectionMatrix(), gizmo_world_to_screen_matrix)
+	cam:BuildViewMatrix():GetMultiplied(cam:BuildUnjitteredProjectionMatrix(), gizmo_world_to_screen_matrix)
 	gizmo_world_to_screen_matrix:GetInverse(gizmo_screen_to_world_inverse)
 	local near_pos = gizmo_screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 0, 1, gizmo_screen_to_world_near)
 	local far_pos = gizmo_screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 1, 1, gizmo_screen_to_world_far)
@@ -827,9 +827,9 @@ get_projected_shape_screen_distance = function(mouse_pos, shape)
 		local v2 = vertices[triangle[3]]
 
 		if v0 and v1 and v2 and v0.pos and v1.pos and v2.pos then
-			local p0 = render3d.GetCamera():WorldPositionToScreen(transform_world_point(matrix, v0.pos))
-			local p1 = render3d.GetCamera():WorldPositionToScreen(transform_world_point(matrix, v1.pos))
-			local p2 = render3d.GetCamera():WorldPositionToScreen(transform_world_point(matrix, v2.pos))
+			local p0 = render3d.GetCamera():WorldPositionToScreenUnjittered(transform_world_point(matrix, v0.pos))
+			local p1 = render3d.GetCamera():WorldPositionToScreenUnjittered(transform_world_point(matrix, v1.pos))
+			local p2 = render3d.GetCamera():WorldPositionToScreenUnjittered(transform_world_point(matrix, v2.pos))
 
 			if p0 and p1 and p2 then
 				if point_in_triangle_2d(mouse_pos, p0, p1, p2) then return 0 end
@@ -936,13 +936,13 @@ local function get_mouse_rotation_plane_vector(ray, center, axis_direction)
 end
 
 local function get_mouse_rotation_ring_vector(center, axis_direction, radius, mouse_pos, center_screen)
-	center_screen = center_screen or render3d.GetCamera():WorldPositionToScreen(center)
+	center_screen = center_screen or render3d.GetCamera():WorldPositionToScreenUnjittered(center)
 
 	if not center_screen then return nil end
 
 	local u, v = get_circle_basis(axis_direction)
-	local u_screen = render3d.GetCamera():WorldPositionToScreen(center + u * radius)
-	local v_screen = render3d.GetCamera():WorldPositionToScreen(center + v * radius)
+	local u_screen = render3d.GetCamera():WorldPositionToScreenUnjittered(center + u * radius)
+	local v_screen = render3d.GetCamera():WorldPositionToScreenUnjittered(center + v * radius)
 
 	if not (u_screen and v_screen) then return nil end
 
@@ -1304,9 +1304,9 @@ local function begin_gizmo_drag(handle)
 	local mouse_pos = window:GetMousePosition():Copy()
 
 	if handle.kind == "move" then
-		local start_screen = handle.start_screen or render3d.GetCamera():WorldPositionToScreen(handle.center)
+		local start_screen = handle.start_screen or render3d.GetCamera():WorldPositionToScreenUnjittered(handle.center)
 		local stop_screen = handle.stop_screen or
-			render3d.GetCamera():WorldPositionToScreen(handle.center + handle.direction * handle.axis_length)
+			render3d.GetCamera():WorldPositionToScreenUnjittered(handle.center + handle.direction * handle.axis_length)
 
 		if not (start_screen and stop_screen) then return nil end
 
@@ -1330,9 +1330,9 @@ local function begin_gizmo_drag(handle)
 
 	if handle.kind == "scale" then
 		local start_screen = handle.anchor_screen or
-			render3d.GetCamera():WorldPositionToScreen(handle.drag_anchor_position or handle.anchor_position)
+			render3d.GetCamera():WorldPositionToScreenUnjittered(handle.drag_anchor_position or handle.anchor_position)
 		local stop_screen = handle.handle_screen or
-			render3d.GetCamera():WorldPositionToScreen(handle.face_position or handle.drag_position or handle.position)
+			render3d.GetCamera():WorldPositionToScreenUnjittered(handle.face_position or handle.drag_position or handle.position)
 
 		if not (start_screen and stop_screen) then return nil end
 
@@ -1354,7 +1354,7 @@ local function begin_gizmo_drag(handle)
 		}
 	end
 
-	local center_screen = handle.center_screen or render3d.GetCamera():WorldPositionToScreen(handle.center)
+	local center_screen = handle.center_screen or render3d.GetCamera():WorldPositionToScreenUnjittered(handle.center)
 
 	if not center_screen then return nil end
 
@@ -1421,8 +1421,8 @@ local function update_gizmo_drag()
 
 		if not current_handle or current_handle.axis_world_length < 1e-5 then return end
 
-		local start_screen = render3d.GetCamera():WorldPositionToScreen(current_handle.anchor_position)
-		local stop_screen = render3d.GetCamera():WorldPositionToScreen(current_handle.position)
+		local start_screen = render3d.GetCamera():WorldPositionToScreenUnjittered(current_handle.anchor_position)
+		local stop_screen = render3d.GetCamera():WorldPositionToScreenUnjittered(current_handle.position)
 
 		if not (start_screen and stop_screen) then return end
 
