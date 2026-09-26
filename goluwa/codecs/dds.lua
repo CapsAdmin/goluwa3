@@ -605,6 +605,15 @@ function dds.DecodeBuffer(inputBuffer, opts)
 	else
 		data_buffer = ffi.new("uint8_t[?]", total_size)
 		ffi.copy(data_buffer, inputBuffer:GetBuffer() + data_pos, total_size)
+
+		-- ATI2 (3Dc) stores y in the first half of each block and x in the second, BC5 the other way around
+		if not dx10 and header.pixelFormat.fourCC == FOURCC_ATI2 then
+			local halves = ffi.cast("uint64_t *", data_buffer)
+
+			for i = 0, math.floor(total_size / 16) - 1 do
+				halves[i * 2], halves[i * 2 + 1] = halves[i * 2 + 1], halves[i * 2]
+			end
+		end
 	end
 
 	-- Return result with all the metadata needed for GPU upload
