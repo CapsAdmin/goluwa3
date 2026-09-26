@@ -776,7 +776,6 @@ do
 	local function on_load_vmt(self, vmt)
 		self.vmt = vmt -- store for debugging
 		--self:SetReverseXZNormalMap(true) -- Source engine normals need XY flip
-		self:SetInvertRoughnessTexture(true) -- Source engine normals need XY flip
 		self:SetMetallicMultiplier(0)
 
 		do -- main diffuse texture
@@ -811,17 +810,20 @@ do
 
 		if vmt.texture2 then self:SetAlbedo2Texture(SRGBTexture(vmt.texture2)) end
 
+		-- the envmap masks are reflectivity. source reads the normal map alpha and envmapmask as is, but the
+		-- base alpha inverted, so only the envmapmask texture needs inverting to be roughness
 		if vmt.envmap then -- envmap
 			if vmt.envmapmask then
 				self:SetRoughnessTexture(LinearTexture(vmt.envmapmask))
+				self:SetInvertRoughnessTexture(true)
 			end
 
 			if vmt.normalmapalphaenvmapmask == 1 then
-				self:SetNormalTextureAlphaIsRoughness(vmt.normalmapalphaenvmapmask == 1)
+				self:SetNormalTextureAlphaIsRoughness(true)
 			end
 
 			if vmt.basealphaenvmapmask == 1 then
-				self:SetAlbedoTextureAlphaIsRoughness(vmt.basealphaenvmapmask == 1)
+				self:SetAlbedoTextureAlphaIsRoughness(true)
 			end
 
 			if false and vmt.envmaptint then
@@ -839,10 +841,12 @@ do
 				end
 			end
 
-			self:SetRoughnessMultiplier(0)
+			if not self:HasExplicitRoughnessTexture() then self:SetRoughnessMultiplier(0) end
 		end
 
 		if vmt.phong == 1 then
+			self:SetInvertRoughnessTexture(vmt.invertphongmask ~= 1)
+
 			if vmt.phongexponenttexture then
 				self:SetRoughnessTexture(LinearTexture(vmt.phongexponenttexture))
 			end
@@ -866,8 +870,6 @@ do
 			if boost > 1 then roughness = roughness / math.sqrt(boost) end
 
 			self:SetRoughnessMultiplier(math.max(0.04, math.min(1.0, roughness)))
-
-			if vmt.invertphongmask == 1 then self:SetInvertRoughnessTexture(false) end
 		end
 
 		-- source only reflects light off materials that ask for an envmap or phong
