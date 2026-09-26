@@ -352,7 +352,7 @@ local function BuildShadowGeometryDeformationGlsl(block_name, shadow_state_var, 
 					world_pos += vec3(0.0, 1.0, 0.0) * (shadow_get_height_centered_sample(uv) * ]] .. shadow_state_var .. [[.height_scale);
 				}
 
-				vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
+				vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, vertex_color);
 
 				if (dot(world_offset, world_offset) > 0.0) {
 					local_pos += inv_world_matrix3 * world_offset;
@@ -518,10 +518,7 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 end
 
 local function get_vertex_animation_offset(self, vertex_animation_material, frame_index)
-	if
-		vertex_animation_material:GetWindAmplitude() > 0 or
-		vertex_animation_material:GetWindDetailAmplitude() > 0
-	then
+	if vertex_animation_material:HasVertexAnimation() then
 		model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), vertex_animation_material)
 		return self.vertex_animation_buffer:Upload(frame_index)
 	end
@@ -812,21 +809,18 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				if (
 					pc.disable_vertex_animation == 0 &&
 					(
-						SHADOW_BATCH[batch_index].anim.WindAmplitude > 0.0 ||
-						SHADOW_BATCH[batch_index].anim.WindDetailAmplitude > 0.0
+						SHADOW_BATCH[batch_index].anim.MainBending > 0.0 ||
+						(SHADOW_BATCH[batch_index].anim.DetailBending != 0 && SHADOW_BATCH[batch_index].anim.BendSpeed > 0.0)
 					)
 				) {
 					vertex_animation = SHADOW_BATCH[batch_index].anim;
 					vertex_animation.Time = pc.time;
 					vertex_animation.PrevTime = pc.prev_time;
 					vec3 local_normal = normalize(vec3(data.v[base + 3u], data.v[base + 4u], data.v[base + 5u]));
-					vec3 local_tangent = normalize(vec3(data.v[base + 8u], data.v[base + 9u], data.v[base + 10u]));
-					float texture_blend = data.v[base + 12u];
 					vec4 vertex_color = vec4(data.v[base + 13u], data.v[base + 14u], data.v[base + 15u], data.v[base + 16u]);
 					mat3 world_matrix3 = mat3(shadow_world);
 					vec3 world_normal = normalize(transpose(inverse(world_matrix3)) * local_normal);
-					vec3 world_tangent = normalize(world_matrix3 * local_tangent);
-					world_pos += get_vertex_animation_offset(world_pos, world_normal, world_tangent, uv, texture_blend, vertex_color);
+					world_pos += get_vertex_animation_offset(world_pos, world_normal, vertex_color);
 				}
 
 				gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
@@ -2323,11 +2317,7 @@ local function get_instanced_pipeline_for_cascade(self, cascade_index)
 end
 
 local function shadow_material_has_vertex_animation(material)
-	return material and
-		(
-			material:GetWindAmplitude() > 0 or
-			material:GetWindDetailAmplitude() > 0
-		)
+	return material and material:HasVertexAnimation()
 end
 
 local function ensure_shadow_instance_buffer(batch, instance_count)

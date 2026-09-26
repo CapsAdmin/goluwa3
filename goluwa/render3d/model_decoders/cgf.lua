@@ -366,72 +366,6 @@ function cgf.GetNodeWorldTransform(nodes_by_id, node_id, cache, visiting)
 	return cache[node_id]
 end
 
-local function build_children_by_parent(nodes_by_id)
-	local children_by_parent = {}
-
-	for _, node in pairs(nodes_by_id) do
-		local parent_id = node.parent_id or -1
-		children_by_parent[parent_id] = children_by_parent[parent_id] or {}
-		children_by_parent[parent_id][#children_by_parent[parent_id] + 1] = node.id
-	end
-
-	return children_by_parent
-end
-
-local function get_helper_pivots_for_node(parsed, nodes_by_id, children_by_parent, world_transforms, node_id)
-	local out = {}
-	local seen = {}
-	local current_id = node_id
-
-	while current_id and current_id > -1 and nodes_by_id[current_id] do
-		local root_transform = cgf.GetNodeWorldTransform(nodes_by_id, current_id, world_transforms)
-		local root_origin = cry_vec3_to_engine(root_transform:TransformVector(Vec3(0, 0, 0)))
-
-		if
-			not seen[string.format("%.6f:%.6f:%.6f", root_origin.x, root_origin.y, root_origin.z)]
-		then
-			out[#out + 1] = root_origin
-			seen[string.format("%.6f:%.6f:%.6f", root_origin.x, root_origin.y, root_origin.z)] = true
-		end
-
-		local stack = children_by_parent[current_id] and {unpack(children_by_parent[current_id])} or {}
-
-		while stack[1] do
-			local child_id = table.remove(stack)
-			local child = nodes_by_id[child_id]
-
-			if child then
-				local object_chunk = child.object_id > 0 and parsed.chunks_by_id[child.object_id] or nil
-
-				if object_chunk and object_chunk.type == cgf.CHUNK_HELPER then
-					local helper_transform = cgf.GetNodeWorldTransform(nodes_by_id, child.id, world_transforms)
-					local helper_origin = cry_vec3_to_engine(helper_transform:TransformVector(Vec3(0, 0, 0)))
-					local key = string.format("%.6f:%.6f:%.6f", helper_origin.x, helper_origin.y, helper_origin.z)
-
-					if not seen[key] then
-						out[#out + 1] = helper_origin
-						seen[key] = true
-					end
-				end
-
-				local children = children_by_parent[child.id]
-
-				if children then
-					for i = 1, #children do
-						stack[#stack + 1] = children[i]
-					end
-				end
-			end
-		end
-
-		if #out > 1 then break end
-
-		current_id = nodes_by_id[current_id].parent_id
-	end
-
-	return out
-end
-
 function cgf.ExtractStaticMeshData(parsed)
 	local entries = {}
 	local file = parsed.file
@@ -450,7 +384,6 @@ function cgf.ExtractStaticMeshData(parsed)
 	end
 
 	local world_transforms = {}
-	local children_by_parent = build_children_by_parent(nodes_by_id)
 
 	for _, node_id in ipairs(node_order) do
 		local node = nodes_by_id[node_id]
@@ -460,13 +393,6 @@ function cgf.ExtractStaticMeshData(parsed)
 
 			if mesh_chunk and mesh_chunk.type == cgf.CHUNK_MESH then
 				local world_transform = cgf.GetNodeWorldTransform(nodes_by_id, node.id, world_transforms)
-				local helper_pivots = get_helper_pivots_for_node(
-					parsed,
-					nodes_by_id,
-					children_by_parent,
-					world_transforms,
-					node.id
-				)
 
 				-- 0x744 meshes are the uncompiled format with an unrelated layout
 				if mesh_chunk.version ~= cgf.VERSION_MESH_COMPILED then
@@ -551,7 +477,6 @@ function cgf.ExtractStaticMeshData(parsed)
 							material_chunk_id = node.material_chunk_id,
 							material_name = material and material.name or nil,
 							subset_material_id = subset.material_id,
-							branch_helper_pivots = helper_pivots,
 							vertices_shared = shared_vertices,
 							vertices = base_vertices,
 							indices = subset_indices,
@@ -574,7 +499,6 @@ function cgf.ExtractStaticMeshData(parsed)
 						name = node.name,
 						material_chunk_id = node.material_chunk_id,
 						material_name = material and material.name or nil,
-						branch_helper_pivots = helper_pivots,
 						vertices_shared = false,
 						vertices = base_vertices,
 						indices = fixed_indices,
@@ -636,7 +560,17 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 	local model_path = parsed.file.path_used or full_path
 	local resolved_material_paths = {}
 	local ok, result = xpcall(function()
-		for _, entry in ipairs(cgf.ExtractStaticMeshData(parsed)) do
+		local entries = cgf.ExtractStaticMeshData(parsed)
+		-- cryengine bends the whole object by its height, every part must agree or they tear apart
+		local bend_height = 0
+
+		for _, entry in ipairs(entries) do
+			for _, vertex in ipairs(entry.vertices) do
+				bend_height = math.max(bend_height, vertex.pos.y)
+			end
+		end
+
+		for _, entry in ipairs(entries) do
 			local mesh = Polygon3D.New()
 			local material = nil
 
@@ -685,7 +619,7 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 			end
 
 			mesh:SetVertices(vertices)
-			mesh:SetBranchHelperPivots(entry.branch_helper_pivots)
+			mesh:SetBendHeight(bend_height)
 			mesh:SetMaterialSlot(entry.subset_material_id)
 			mesh:SetName(path)
 			mesh:BuildBoundingBox()

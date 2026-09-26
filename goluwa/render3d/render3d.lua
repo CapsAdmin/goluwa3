@@ -796,11 +796,7 @@ function render3d.GetSceneVoxelizer()
 end
 
 local function material_has_vertex_animation(material)
-	return material and
-		(
-			material:GetWindAmplitude() > 0 or
-			material:GetWindDetailAmplitude() > 0
-		)
+	return material and material:HasVertexAnimation()
 end
 
 local function get_material_upload_key(material)

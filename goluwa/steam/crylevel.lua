@@ -664,7 +664,8 @@ function crylevel.ParseVegetationMapDocument(document)
 				align_to_terrain = parse_bool_flag(attrs.AlignToTerrain),
 				random_rotation = parse_bool_flag(attrs.RandomRotation),
 				use_terrain_color = parse_bool_flag(attrs.UseTerrainColor),
-				bending = parse_bool_flag(attrs.Bending),
+				-- how much the wind bends the whole object, 0 keeps it rigid
+				bending = tonumber(attrs.Bending) or 0,
 				size = tonumber(attrs.Size) or 1,
 				size_var = tonumber(attrs.SizeVar) or 0,
 			}
@@ -1798,10 +1799,12 @@ function crylevel.Apply(steam)
 
 		if vegetation_map_data then
 			local prototypes, vegetation_map_err = crylevel.ParseVegetationMapData(vegetation_map_data)
-			vegetation_prototypes = prototypes
 			local vegetation_instances_data, vegetation_instances_err = vfs.Read(level_dir .. level_name .. ".cry/vegetationinstancesarray.editor_data")
 
 			if prototypes and vegetation_instances_data then
+				-- only with their model and material paths resolved
+				vegetation_prototypes = prototypes
+
 				for _, prototype in ipairs(prototypes.list) do
 					prototype.model_path = crylevel.ResolveModelPath(steam, level_dir, prototype.model_path)
 
@@ -1812,6 +1815,7 @@ function crylevel.Apply(steam)
 					local material_paths = prototype.material_path and
 						{prototype.material_path} or
 						import("goluwa/render3d/model_decoders/cgf.lua").GetMaterialPaths(prototype.model_path)
+					prototype.material_paths = material_paths
 					prototype.fit_to_terrain = crylevel.IsVegetationFitToTerrain(material_paths)
 
 					-- the terrain color is set on the materials of the override, so the model's own becomes one
@@ -1936,6 +1940,18 @@ function crylevel.Apply(steam)
 								material:SetGroundColorTexture(texture)
 								material:SetGroundColorUV(uv)
 							end
+						end
+					end
+				end
+			end
+
+			if data.vegetation_prototypes then
+				local Material = import("goluwa/render3d/material.lua")
+
+				for _, prototype in ipairs(data.vegetation_prototypes.list) do
+					for _, material_path in ipairs(prototype.material_paths) do
+						for _, material in ipairs(Material.FromCryMTLList(material_path)) do
+							material:SetBending(prototype.bending)
 						end
 					end
 				end

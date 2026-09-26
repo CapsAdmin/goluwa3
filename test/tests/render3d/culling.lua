@@ -345,7 +345,7 @@ T.Test3D("Graphics render3d gpu culling shadow AABB keeps vertex animated entrie
 	configure_camera()
 	local polygon3d = build_cube_polygon()
 	local material = Material.New()
-	material:SetWindAmplitude(0.08)
+	material:SetBending(1)
 	local static_entity = Entity.New({Name = "gpu_culling_shadow_vertex_animated_static"})
 	static_entity:AddComponent("transform")
 	static_entity.transform:SetPosition(Vec3(-1, 0, -6))

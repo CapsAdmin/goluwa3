@@ -1,5 +1,6 @@
 local T = import("test/environment.lua")
 T.SkipFile("disabled: long running and failing tests (85600db1)")
+
 do
 	return
 end
@@ -112,10 +113,9 @@ T.Test3D("Graphics render3d instancing allows vertex animated materials when the
 	polygon3d:CreateCube(1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
-	polygon3d:SetBranchHelperPivots{Vec3(0, 0, 0)}
 	local material = Material.New()
-	material:SetWindAmplitude(1)
-	material:SetWindDetailAmplitude(0.25)
+	material:SetBending(1)
+	material:SetDetailBending("leaves")
 	render3d.ResetInstancingCounters()
 	T(render3d.CanQueueGBufferInstance(polygon3d, material))["=="](true)
 	local summary = render3d.GetInstancingRejectionSummary(render3d.GetLiveInstancingCounters())

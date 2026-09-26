@@ -3,6 +3,7 @@ local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -718,12 +719,14 @@ local function write_surface(out, surface, pipeline)
 	out.params[1] = material:GetGrassHeight()
 	out.params[2] = material:GetGrassHeightVariance()
 	out.params[3] = material:GetGrassWidth()
-	local wind = material:GetWindDirection()
-	local length = math.sqrt(wind.x * wind.x + wind.z * wind.z)
+	local wind = atmosphere.GetWind()
+	local length = math.max(math.sqrt(wind.x * wind.x + wind.z * wind.z), 0.0001)
+	local wind_strength = atmosphere.GetWindStrength()
 	out.wind[0] = wind.x / length
 	out.wind[1] = wind.z / length
-	out.wind[2] = 0.35
-	out.wind[3] = 1.3
+	-- lean and speed of the gust waves
+	out.wind[2] = 0.35 * wind_strength
+	out.wind[3] = 1.3 * wind_strength
 	local layers = material:GetTerrainLayerGrass()
 	out.layers[0] = layers.r
 	out.layers[1] = layers.g

@@ -22,7 +22,8 @@ function Polygon3D:__tostring2()
 end
 
 Polygon3D:GetSet("Vertices")
-Polygon3D:GetSet("BranchHelperPivots", {})
+-- height of the whole model above its origin, the scale of vegetation main bending
+Polygon3D:GetSet("BendHeight", 0)
 -- index into the source model's material list, lets a visual swap materials per slot
 Polygon3D:GetSet("MaterialSlot", nil)
 Polygon3D:GetSet(

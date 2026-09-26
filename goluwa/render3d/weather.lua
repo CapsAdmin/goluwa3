@@ -103,6 +103,15 @@ function weather.GetVisibility()
 	return atmosphere.GetVisibility()
 end
 
+-- velocity in m/s, only x and z bend vegetation
+function weather.SetWind(velocity)
+	atmosphere.SetWind(velocity)
+end
+
+function weather.GetWind()
+	return atmosphere.GetWind()
+end
+
 function weather.GetSun()
 	return weather.sun
 end

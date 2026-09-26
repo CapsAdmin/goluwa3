@@ -83,13 +83,15 @@ Material:GetSet("DiffuseTransmission", 0.0, {callback = "InvalidateFlags"})
 Material:GetSet("TransmissionColor", Color(1.0, 1.0, 1.0, 1.0))
 -- 0 spreads the light going through evenly, 1 concentrates it around a light behind the surface
 Material:GetSet("TransmissionScattering", 0.5)
-Material:GetSet("WindAmplitude", 0.0)
-Material:GetSet("WindFrequency", 1.0)
-Material:GetSet("WindDetailAmplitude", 0.0)
-Material:GetSet("WindDetailFrequency", 3.0)
-Material:GetSet("WindPhaseScale", 0.15)
-Material:GetSet("WindNormalInfluence", 0.35)
-Material:GetSet("WindDirection", Vec3(1.0, 0.0, 0.35))
+-- cryengine 2 vegetation bending, see model_pipeline.BuildVertexAnimationGlsl
+-- how much the wind bends the whole object around its origin, 0 is rigid
+Material:GetSet("Bending", 0.0)
+-- "none", "leaves" or "grass", leaf and branch flutter driven by the vertex colors
+Material:GetSet("DetailBending", "none")
+Material:GetSet("BendDetailFrequency", 5.0)
+Material:GetSet("BendDetailLeafAmplitude", 0.08)
+Material:GetSet("BendDetailBranchAmplitude", 0.2)
+Material:GetSet("BendDetailPhase", 100.0)
 -- grass
 Material:GetSet("GrassDensity", 700.0)
 Material:GetSet("GrassHeight", 0.28)
@@ -163,6 +165,10 @@ function Material:HasExplicitRoughnessTexture()
 end
 
 -- drawn forward, over the lit opaque scene, instead of into the gbuffer
+function Material:HasVertexAnimation()
+	return self.Bending > 0 or self.DetailBending ~= "none"
+end
+
 function Material:IsTransparent()
 	return self.Translucent or self.Refraction > 0
 end
@@ -590,6 +596,7 @@ do
 			GRASS = 0x2000,
 			-- "fit to terrain", the vertex shader bends the model's height to the terrain's around the instance
 			TERRAINHEIGHTADAPTION = 0x4000,
+			DETAIL_BENDING = 0x10000,
 		},
 	}
 	-- MtlFlags
@@ -666,13 +673,22 @@ do
 		self:SetDoubleSided(leaves or bit.band(mtl_flags, MTL_FLAG_2SIDED) ~= 0)
 
 		if shader == "Vegetation" then
-			self:SetWindAmplitude(0.08)
-			self:SetWindFrequency(0.9)
-			self:SetWindDetailAmplitude(0.03)
-			self:SetWindDetailFrequency(3.5)
-			self:SetWindPhaseScale(0.12)
-			self:SetWindNormalInfluence(0.35)
-			self:SetWindDirection(Vec3(1.0, 0.0, 0.35))
+			-- the level's vegetation objects have their own Bending, this is for models placed on their own
+			self:SetBending(1)
+
+			-- Vegetation.cfx only detail bends leaves and grass
+			if has_gen("DETAIL_BENDING") then
+				if has_gen("GRASS") then
+					self:SetDetailBending("grass")
+				elseif has_gen("LEAVES") then
+					self:SetDetailBending("leaves")
+				end
+			end
+
+			self:SetBendDetailFrequency(tonumber(params.bendDetailFrequency) or 5)
+			self:SetBendDetailLeafAmplitude(tonumber(params.bendDetailLeafAmplitude) or 0.08)
+			self:SetBendDetailBranchAmplitude(tonumber(params.bendDetailBranchAmplitude) or 0.2)
+			self:SetBendDetailPhase(tonumber(params.bendDetailPhase) or 100)
 		end
 
 		-- leaves and grass light their back face through the opacity map, which is never alpha

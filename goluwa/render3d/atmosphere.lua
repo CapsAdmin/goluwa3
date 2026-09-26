@@ -38,6 +38,7 @@ local SCENERY_FOG_SCALE_HEIGHT = 0.28
 local SCENERY_FOG_EXTINCTION = 0.34
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 atmosphere.fog_density = 0.15
+atmosphere.wind = Vec3(0, 0, 0)
 
 local function normalize_components(x, y, z)
 	local length = math.sqrt(x * x + y * y + z * z)
@@ -918,6 +919,25 @@ do
 
 	function atmosphere.GetVisibility()
 		return CONTRAST_THRESHOLD / (atmosphere.fog_density * SEA_LEVEL_EXTINCTION_PER_METER)
+	end
+end
+
+do
+	-- the wind speed in m/s that wind animation amplitudes are tuned for, a gentle breeze
+	local REFERENCE_WIND_SPEED = 4
+
+	-- velocity in m/s
+	function atmosphere.SetWind(velocity)
+		atmosphere.wind = velocity
+	end
+
+	function atmosphere.GetWind()
+		return atmosphere.wind
+	end
+
+	-- how much stronger than the reference breeze the wind is, scales wind animation
+	function atmosphere.GetWindStrength()
+		return atmosphere.wind:GetLength() / REFERENCE_WIND_SPEED
 	end
 end
 
