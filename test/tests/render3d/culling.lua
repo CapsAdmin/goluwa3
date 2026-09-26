@@ -735,6 +735,59 @@ T.Test3D("Graphics render3d gpu culling visible render entries expand GPU-visibl
 	Visual.Library.InvalidateSceneAcceleration()
 end)
 
+T.Test3D("Graphics render3d gpu culling splits batch commands by cull mode", function()
+	local camera = configure_camera()
+	local polygon3d = build_cube_polygon()
+	local single = Material.New()
+	local double = Material.New()
+	double:SetDoubleSided(true)
+	local created = {}
+
+	for i, material in ipairs{single, double} do
+		local ent = Entity.New({Name = "gpu_culling_cull_mode_" .. i})
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(Vec3(i * 2 - 3, 0, -6))
+		attach_visual(ent, polygon3d, material)
+		created[i] = ent
+	end
+
+	Visual.Library.InvalidateSceneAcceleration()
+	Visual.Library.GetVisibleVisuals()
+	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
+	local cull_result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
+	local output = gpu_culling.GetFrameBuffers()[cull_result.frame_index]
+	local commands = ffi.cast(
+		ffi.typeof("$*", vk.VkDrawIndirectCommand),
+		output.visible_batch_indirect_command_buffer:Map()
+	)
+	local half = output.batch_command_capacity
+	local checked = 0
+
+	for _, batch in ipairs(gpu_culling.GetSceneDataset().main_instanced_batches) do
+		local first = commands[batch.batch_index].instanceCount
+		local second = commands[half + batch.batch_index].instanceCount
+
+		if batch.material == single then
+			T(first)["=="](1)
+			T(second)["=="](0)
+			T(commands[batch.batch_index].vertexCount)["=="](polygon3d:GetMesh().index_buffer:GetIndexCount())
+			checked = checked + 1
+		elseif batch.material == double then
+			T(first)["=="](0)
+			T(second)["=="](1)
+			checked = checked + 1
+		end
+	end
+
+	T(checked)["=="](2)
+
+	for _, ent in ipairs(created) do
+		ent:Remove()
+	end
+
+	Visual.Library.InvalidateSceneAcceleration()
+end)
+
 T.Test3D("Graphics render3d gpu culling builds indirect commands from visible entry indices", function()
 	local camera = configure_camera()
 	local polygon3d = build_cube_polygon()

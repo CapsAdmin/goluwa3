@@ -28,6 +28,8 @@ local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local light_components = import("goluwa/entities/components/light.lua")
 local objects = import("goluwa/objects/objects.lua")
+local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
+local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local INSTANCE_MATRIX_ATTRIBUTES = {
 	{
 		lua_name = "instance_world",
@@ -1268,10 +1270,111 @@ function render3d.FlushQueuedGBufferInstances()
 	render3d.ResetQueuedGBufferInstances()
 end
 
-local gbuffer_offsets_by_material = {}
+-- The multi-draw records, one table per pipeline since texture indices are per
+-- pipeline. A cpu copy is rewritten and copied to the frame's own buffer, which
+-- the gpu is done with once the frame's fence was waited on. Every record is
+-- rewritten when a batch got a new mesh or material, or when a buffer whose
+-- address a record may hold went away. Otherwise a window of records is, which
+-- catches material edits and texture indices within a few frames.
+local GBUFFER_BATCH_REFRESH_WINDOW = 256
+local UInt64Ptr = ffi.typeof("uint64_t *")
+local gbuffer_batch_tables = setmetatable({}, {__mode = "k"})
 
+local function update_gbuffer_batch_table(pipeline, batches, batch_serial)
+	local batch_table = gbuffer_batch_tables[pipeline]
+	local frame_index = render.GetCurrentFrame()
+	local full = not batch_table or
+		batch_table.batch_serial ~= batch_serial or
+		batch_table.address_release_serial ~= Buffer.address_release_serial
+
+	if not full and batch_table.frame_number == system.GetFrameNumber() then
+		return batch_table.buffers[frame_index]
+	end
+
+	if not batch_table or batch_table.capacity < #batches then
+		if batch_table then
+			for _, buffer in pairs(batch_table.buffers) do
+				buffer:Remove()
+			end
+		end
+
+		local record_type = model_pipeline.GetPBRBatchRecordType()
+		local capacity = math.max(math.ceil(#batches * 1.5), 1)
+		batch_table = {
+			capacity = capacity,
+			record_size = ffi.sizeof(record_type),
+			records = ffi.typeof("$[?]", record_type)(capacity),
+			buffers = {},
+		}
+		gbuffer_batch_tables[pipeline] = batch_table
+		full = true
+	end
+
+	local first, last = 1, #batches
+
+	if full then
+		batch_table.cursor = 1
+	else
+		first = batch_table.cursor
+
+		if first > last then first = 1 end
+
+		last = math.min(first + GBUFFER_BATCH_REFRESH_WINDOW - 1, last)
+		batch_table.cursor = last + 1
+	end
+
+	for i = first, last do
+		local batch = batches[i]
+		local record = batch_table.records[i - 1]
+		local addresses = ffi.cast(UInt64Ptr, record.addresses)
+		local mesh = batch.mesh
+
+		if mesh:IsValid() then
+			addresses[0] = mesh:GetVertexBufferAddress()
+			addresses[1] = mesh:GetIndexBufferAddress()
+			record.index_is_32 = mesh.index_buffer and mesh.index_buffer:GetIndexType() == "uint32" and 1 or 0
+			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
+			render3d.SetMaterial(batch.material)
+			model_pipeline.WritePBRBatchRecord(pipeline, record)
+		else
+			-- the shader skips batches without a vertex buffer
+			addresses[0] = 0
+			addresses[1] = 0
+		end
+	end
+
+	local buffer = batch_table.buffers[frame_index]
+
+	if not buffer then
+		buffer = render.CreateBuffer{
+			byte_size = batch_table.capacity * batch_table.record_size,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "render3d_gbuffer_batches",
+		}
+		batch_table.buffers[frame_index] = buffer
+	end
+
+	buffer:CopyData(batch_table.records, #batches * batch_table.record_size)
+	batch_table.frame_number = system.GetFrameNumber()
+	batch_table.batch_serial = batch_serial
+	-- read after the old buffers above were removed
+	batch_table.address_release_serial = Buffer.address_release_serial
+	return buffer
+end
+
+-- Draws every gpu culled static batch with two indirect multi-draws, one per
+-- cull mode: the cull wrote each batch's command into the half for its
+-- material's sidedness with its visible instance count, leaving the other at
+-- zero instances.
 function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
-	if not (cull_result and render3d.pipelines and render3d.pipelines.gbuffer_instanced) then
+	if
+		not (
+			cull_result and
+			render3d.pipelines and
+			render3d.pipelines.gbuffer_multi_draw
+		)
+	then
 		return {
 			drew_any = false,
 			submitted_entry_count = 0,
@@ -1313,79 +1416,23 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 		}
 	end
 
-	local active_batch_count_ptr = ffi.cast("uint32_t *", output.active_batch_count_buffer:Map())
-	local active_batch_indices = ffi.cast("uint32_t *", output.active_batch_index_buffer:Map())
-	local drew_any = false
-	local submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0)
-	local draw_call_count = 0
-	local active_batch_count = tonumber(active_batch_count_ptr[0])
-	local indirect_command_size = ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
-	local visible_instance_vertex_buffers = {
-		output.visible_instance_vertex_buffer,
-		output.visible_instance_vertex_buffer,
-	}
-
 	local cmd = render.GetCommandBuffer()
-	local pipeline = render3d.pipelines.gbuffer_instanced
-	local frame_index = render.GetCurrentFrame()
-	local cull_mode
-	table.clear(gbuffer_offsets_by_material)
-
-	-- every batch draws with the same pipeline, so it is bound once and each
-	-- batch only swaps its constants and dynamic offsets
-	if active_batch_count > 0 then
-		pipeline:Bind(cmd)
-		cmd:SetPolygonMode("fill")
-	end
-
-	for active_index = 0, active_batch_count - 1 do
-		local batch_index = tonumber(active_batch_indices[active_index]) + 1
-		local batch = batches[batch_index]
-
-		if batch and batch.mesh:IsValid() then
-			local material = batch.material
-			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
-			render3d.SetMaterial(material)
-			-- the uniform blocks are keyed by material, except the wind block
-			-- which also reads the polygon's branch helpers
-			local offsets = gbuffer_offsets_by_material[material]
-
-			if offsets then
-				pipeline:PushConstantBlocks()
-				pipeline:RebindDescriptor(offsets, frame_index)
-			else
-				pipeline:UploadConstantsRebindDescriptor()
-
-				if not material_has_vertex_animation(material) then
-					gbuffer_offsets_by_material[material] = pipeline.dynamic_offsets
-				end
-			end
-
-			local batch_cull_mode = material:GetDoubleSided() and "none" or orientation.CULL_MODE
-
-			if batch_cull_mode ~= cull_mode then
-				cull_mode = batch_cull_mode
-				cmd:SetCullMode(cull_mode)
-			end
-
-			batch.mesh:DrawInstancedIndirect(
-				cmd,
-				output.visible_batch_indirect_command_buffer,
-				(batch_index - 1) * indirect_command_size,
-				visible_instance_vertex_buffers,
-				1,
-				indirect_command_size
-			)
-			drew_any = true
-			draw_call_count = draw_call_count + 1
-		end
-	end
-
+	local pipeline = render3d.pipelines.gbuffer_multi_draw
+	local stride = gpu_culling.BATCH_DRAW_COMMAND_SIZE
+	local commands = output.visible_batch_indirect_command_buffer
+	pipeline.draw_batches_address = update_gbuffer_batch_table(pipeline, batches, dataset.main.batch_serial):GetDeviceAddress()
+	pipeline.draw_instances_address = output.visible_instance_vertex_buffer.buffer:GetDeviceAddress()
+	pipeline:UploadConstants()
+	cmd:SetPolygonMode("fill")
+	cmd:SetCullMode(orientation.CULL_MODE)
+	cmd:DrawIndirect(commands, 0, #batches, stride)
+	cmd:SetCullMode("none")
+	cmd:DrawIndirect(commands, output.batch_command_capacity * stride, #batches, stride)
 	return {
-		drew_any = drew_any,
-		submitted_entry_count = submitted_entry_count,
-		draw_call_count = draw_call_count,
-		active_batch_count = active_batch_count,
+		drew_any = true,
+		submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0),
+		draw_call_count = 2,
+		active_batch_count = tonumber(ffi.cast("uint32_t *", output.active_batch_count_buffer:Map())[0]),
 		total_batch_count = #batches,
 	}
 end

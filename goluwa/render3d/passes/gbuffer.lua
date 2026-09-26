@@ -4,6 +4,7 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local commands = import("goluwa/cli/commands.lua")
 local grass = import("goluwa/render3d/grass.lua")
+local system = import("goluwa/system.lua")
 local camera_block = {
 	name = "gbuffer_data",
 	binding_index = 3,
@@ -157,6 +158,55 @@ local function build_instanced_pass(fragment_shader)
 	return pass
 end
 
+-- what the multi-draw batches read besides their records: the record buffer,
+-- the culled instance matrices and the time for vertex animation
+local multi_draw_block = {
+	name = "gbuffer_draw",
+	binding_index = 4,
+	block = {
+		{"batches", "uint64_t"},
+		{"instances", "uint64_t"},
+		{"time", "float"},
+		{"prev_time", "float"},
+	},
+	write = function(self, block)
+		block.batches = self.draw_batches_address
+		block.instances = self.draw_instances_address
+		block.time = system.GetElapsedTime()
+		block.prev_time = render3d.GetPreviousElapsedTime()
+		return block
+	end,
+}
+
+-- every gpu culled static batch in one indirect multi-draw, see
+-- render3d.DrawGPUCulledStaticInstanceBatches
+local function build_multi_draw_pass(fragment_shader)
+	local pass = build_base_pass(fragment_shader, true)
+	pass.name = "gbuffer_multi_draw"
+	pass.draw_in_prerender = false
+	pass.dont_create_framebuffers = true
+	pass.on_draw = nil
+	pass.on_pre_draw = nil
+	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
+		normal = true,
+		tangent = true,
+		uv = true,
+		texture_blend = true,
+		vertex_color = true,
+		velocity = true,
+		include_projection_view = false,
+		camera_uniform_block_name = "gbuffer_data",
+		uniform_buffers = {camera_block, multi_draw_block},
+		batches_expr = "gbuffer_draw.batches",
+		instances_expr = "gbuffer_draw.instances",
+		time_expr = "gbuffer_draw.time",
+		prev_time_expr = "gbuffer_draw.prev_time",
+	}
+	pass.fragment.uniform_buffers = {camera_block, multi_draw_block}
+	pass.fragment.custom_declarations = string.format("layout(location = %d) flat in uint in_batch;\n", pass.vertex.batch_location) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(gbuffer_draw.batches).b[in_batch]")
+	return pass
+end
+
 local function build_ssdm_fragment_shader(displacement_var)
 	displacement_var = displacement_var or "model"
 	return [[
@@ -261,4 +311,5 @@ fallback_anim.name = "gbuffer_anim"
 fallback_anim.draw_in_prerender = false
 fallback_anim.dont_create_framebuffers = true
 local instanced = build_instanced_pass(build_ssdm_fragment_shader("displacement_model"))
-return {fallback, fallback_anim, instanced, grass.BuildDrawPass(fallback)}
+local multi_draw = build_multi_draw_pass(build_ssdm_fragment_shader("displacement_model"))
+return {fallback, fallback_anim, instanced, multi_draw, grass.BuildDrawPass(fallback)}

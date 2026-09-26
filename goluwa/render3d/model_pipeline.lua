@@ -501,8 +501,11 @@ local function build_vertex_shader(options)
 	return table.concat(lines, "\n")
 end
 
+-- options.instance_world_expr and instance_prev_world_expr replace the instance
+-- attributes, and options.main_prologue runs first in main, for stages that
+-- fetch their vertex and instance themselves
 local function build_instanced_vertex_shader(options)
-	local world_expr = get_instance_world_expr()
+	local world_expr = options.instance_world_expr or get_instance_world_expr()
 	local enable_vertex_animation = options.enable_vertex_animation ~= false
 	local lines = {}
 
@@ -511,6 +514,9 @@ local function build_instanced_vertex_shader(options)
 	end
 
 	lines[#lines + 1] = "void main() {"
+
+	if options.main_prologue then lines[#lines + 1] = options.main_prologue end
+
 	lines[#lines + 1] = "\tmat4 instance_world = " .. world_expr .. ";"
 	lines[#lines + 1] = "\tvec3 local_position = in_position;"
 	lines[#lines + 1] = "\tvec3 world_position = (instance_world * vec4(local_position, 1.0)).xyz;"
@@ -522,7 +528,10 @@ local function build_instanced_vertex_shader(options)
 	if options.velocity then
 		-- gpu culled static batches bind one buffer to both instance bindings, so
 		-- this is literally the same matrix and the subtraction cancels
-		lines[#lines + 1] = "\tmat4 instance_prev_world = " .. get_instance_prev_world_expr() .. ";"
+		lines[#lines + 1] = "\tmat4 instance_prev_world = " .. (
+				options.instance_prev_world_expr or
+				get_instance_prev_world_expr()
+			) .. ";"
 		lines[#lines + 1] = "\tvec3 prev_world_position = (instance_prev_world * vec4(in_position, 1.0)).xyz;"
 	end
 
@@ -772,6 +781,183 @@ function model_pipeline.CreateInstancedVertexStage(options)
 	end
 
 	return stage
+end
+
+-- Multi-draw batches: one indirect draw covers every instanced batch, so what a
+-- batch would bind comes from a record per batch instead, picked by gl_DrawID:
+-- the buffer addresses of its mesh, the PBR material blocks and the vertex
+-- animation block. The fields are all 4 byte scalars, so the scalar GLSL layout
+-- and the C layout of the record agree without padding.
+do
+	local FFI_FIELD = {
+		float = "float %s;",
+		int = "int32_t %s;",
+		vec2 = "float %s[2];",
+		vec3 = "float %s[3];",
+		vec4 = "float %s[4];",
+	}
+	local record_type
+	local record_blocks
+	local record_glsl
+
+	local function get_record_blocks()
+		if record_blocks then return record_blocks end
+
+		record_blocks = {}
+
+		for _, ubo in ipairs(model_pipeline.GetPBRUniformBuffers()) do
+			record_blocks[#record_blocks + 1] = {name = ubo.name, field = "m_" .. ubo.name, block = ubo.block, write = ubo.write}
+		end
+
+		record_blocks[#record_blocks + 1] = {
+			name = "vertex_animation",
+			field = "m_vertex_animation",
+			block = model_pipeline.GetVertexAnimationBlock(),
+			write = model_pipeline.WriteVertexAnimationBlock,
+		}
+		return record_blocks
+	end
+
+	function model_pipeline.GetPBRBatchRecordType()
+		if record_type then return record_type end
+
+		local ffi_fields = {"uint32_t addresses[4];", "uint32_t index_is_32;"}
+		local glsl = {}
+		local glsl_fields = {"\tuvec4 addresses;", "\tuint index_is_32;"}
+
+		for _, info in ipairs(get_record_blocks()) do
+			local c_fields = {}
+			local struct_name = "PBRBatch_" .. info.name
+			glsl[#glsl + 1] = "struct " .. struct_name .. " {"
+
+			for _, field in ipairs(info.block) do
+				c_fields[#c_fields + 1] = FFI_FIELD[field[2]]:format(field[1])
+				glsl[#glsl + 1] = "\t" .. field[2] .. " " .. field[1] .. ";"
+			end
+
+			glsl[#glsl + 1] = "};"
+			ffi_fields[#ffi_fields + 1] = "struct { " .. table.concat(c_fields, " ") .. " } " .. info.field .. ";"
+			glsl_fields[#glsl_fields + 1] = "\t" .. struct_name .. " " .. info.field .. ";"
+		end
+
+		glsl[#glsl + 1] = "struct PBRBatch {"
+		glsl[#glsl + 1] = table.concat(glsl_fields, "\n")
+		glsl[#glsl + 1] = "};"
+		glsl[#glsl + 1] = "layout(buffer_reference, scalar) readonly buffer PBRBatchData { PBRBatch b[]; };"
+		record_type = ffi.typeof("struct { " .. table.concat(ffi_fields, " ") .. " }")
+		record_glsl = table.concat(glsl, "\n") .. "\n"
+		return record_type
+	end
+
+	-- the record declarations, and with batch_expr a define per material block
+	-- so the PBR surface code reads the batch's record in place of its uniform
+	-- buffers
+	function model_pipeline.BuildPBRBatchRecordGlsl(batch_expr)
+		model_pipeline.GetPBRBatchRecordType()
+
+		if not batch_expr then return record_glsl end
+
+		local defines = {}
+
+		for _, info in ipairs(get_record_blocks()) do
+			if info.name ~= "vertex_animation" then
+				defines[#defines + 1] = "#define " .. info.name .. " (" .. batch_expr .. ")." .. info.field
+			end
+		end
+
+		return record_glsl .. table.concat(defines, "\n") .. "\n"
+	end
+
+	-- the material blocks read render3d's current material, and the vertex
+	-- animation block its current polygon as well
+	function model_pipeline.WritePBRBatchRecord(pipeline, record)
+		for _, info in ipairs(get_record_blocks()) do
+			info.write(pipeline, record[info.field])
+		end
+	end
+
+	-- A vertex stage for multi-draw batches without vertex input: the batch is
+	-- gl_DrawID, its mesh is read through the record's buffer addresses (the
+	-- draw is non-indexed, so gl_VertexIndex walks the index buffer) and the
+	-- instance matrix through options.instances_expr, a uint64_t address of
+	-- mat4s. options.batches_expr is the record buffer address, time_expr and
+	-- prev_time_expr feed the vertex animation. The batch index is passed on as
+	-- the flat varying out_batch at location stage.batch_location.
+	function model_pipeline.CreateMultiDrawVertexStage(options)
+		local outputs = get_vertex_stage_outputs(options)
+		local batch_location = #outputs
+		local fetch = {}
+		local offset = 0
+
+		for _, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
+			local components = {}
+
+			for i = 0, def.float_count - 1 do
+				components[#components + 1] = "data.v[base + " .. (offset + i) .. "u]"
+			end
+
+			fetch[#fetch + 1] = string.format(
+				"\t%s in_%s = %s(%s);",
+				def.type,
+				def.name,
+				def.type,
+				table.concat(components, ", ")
+			)
+			offset = offset + def.float_count
+		end
+
+		local stage_options = table.merge({}, options)
+		stage_options.instance_world_expr = "multi_draw_instance_world"
+		stage_options.instance_prev_world_expr = "multi_draw_instance_world"
+		stage_options.main_prologue = [[
+	uint batch_index = uint(gl_DrawID);
+	out_batch = batch_index;
+	PBRBatchData batch_data = PBRBatchData(]] .. options.batches_expr .. [[);
+	uvec4 addresses = batch_data.b[batch_index].addresses;
+
+	if (addresses.x == 0u && addresses.y == 0u) {
+		gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+		return;
+	}
+
+	uint vertex_index = uint(gl_VertexIndex);
+	uint64_t index_address = packUint2x32(addresses.zw);
+
+	if (index_address != 0ul) {
+		PBRBatchIndexData indices = PBRBatchIndexData(index_address);
+
+		if (batch_data.b[batch_index].index_is_32 != 0u) {
+			vertex_index = indices.i[vertex_index];
+		} else {
+			uint word = indices.i[vertex_index >> 1];
+			vertex_index = (vertex_index & 1u) != 0u ? word >> 16 : word & 0xFFFFu;
+		}
+	}
+
+	PBRBatchVertexData data = PBRBatchVertexData(packUint2x32(addresses.xy));
+	uint base = vertex_index * ]] .. offset .. [[u;
+]] .. table.concat(fetch, "\n") .. [[
+
+	multi_draw_instance_world = PBRBatchInstanceData(]] .. options.instances_expr .. [[).worlds[gl_InstanceIndex];
+	vertex_animation = batch_data.b[batch_index].m_vertex_animation;
+	vertex_animation.Time = ]] .. options.time_expr .. [[;
+	vertex_animation.PrevTime = ]] .. options.prev_time_expr .. [[;
+]]
+		return {
+			outputs = outputs,
+			batch_location = batch_location,
+			uniform_buffers = options.uniform_buffers,
+			custom_declarations = model_pipeline.BuildPBRBatchRecordGlsl() .. [[
+layout(buffer_reference, scalar) readonly buffer PBRBatchVertexData { float v[]; };
+layout(buffer_reference, scalar) readonly buffer PBRBatchIndexData { uint i[]; };
+layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 worlds[]; };
+layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
+mat4 multi_draw_instance_world;
+PBRBatch_vertex_animation vertex_animation;
+]],
+			shader = build_instanced_vertex_shader(stage_options),
+		}
+	end
 end
 
 local function build_material_block(field_defs)

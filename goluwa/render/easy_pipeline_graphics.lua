@@ -21,7 +21,6 @@ local EasyPipelineGraphics = objects.CreateTemplate("render_easy_pipeline_graphi
 
 do
 	EasyPipelineGraphics.Base = EasyPipeline
-
 	local struct_names = {}
 
 	function EasyPipelineGraphics:PushConstantBlocks()
@@ -68,13 +67,6 @@ do
 		self:UploadUniformsAndBind()
 	end
 
-	-- for draws in a row with a pipeline that is already bound: the pipeline
-	-- and its dynamic state stay, only the constants and dynamic offsets change
-	function EasyPipelineGraphics:UploadConstantsRebindDescriptor()
-		self:PushConstantBlocks()
-		self:UploadUniformsRebindDescriptor()
-	end
-
 	local function upload_uniform_offsets(self)
 		local probe_enabled = upload_probe.IsEnabled()
 		local offsets = {}
@@ -109,7 +101,9 @@ do
 		if offsets then self.pipeline:Bind(cmd, frame_index, offsets) end
 	end
 
-	function EasyPipelineGraphics:RebindDescriptor(offsets, frame_index)
+	function EasyPipelineGraphics:UploadUniformsRebindDescriptor()
+		local cmd = render.GetCommandBuffer()
+		local offsets, frame_index = upload_uniform_offsets(self)
 		self.dynamic_offsets = offsets
 		local pipeline = self.pipeline
 		local sets = pipeline.descriptor_sets and
@@ -119,12 +113,8 @@ do
 			)
 
 		if offsets and sets then
-			render.GetCommandBuffer():BindDescriptorSets("graphics", pipeline.pipeline_layout, sets, offsets)
+			cmd:BindDescriptorSets("graphics", pipeline.pipeline_layout, sets, offsets)
 		end
-	end
-
-	function EasyPipelineGraphics:UploadUniformsRebindDescriptor()
-		self:RebindDescriptor(upload_uniform_offsets(self))
 	end
 
 	function EasyPipelineGraphics:BeginDraw(cmd, framebuffer, frame_index)

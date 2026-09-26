@@ -2772,7 +2772,7 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 			output.shadow_visible_batch_indirect_command_buffer,
 			0,
 			#batches,
-			gpu_culling.SHADOW_DRAW_COMMAND_SIZE
+			gpu_culling.BATCH_DRAW_COMMAND_SIZE
 		)
 		indirect_draws = 1
 	end
@@ -2897,7 +2897,19 @@ function ShadowMap:DrawSoup(cascade_index)
 			local a, bb, c = planes[p], planes[p + 1], planes[p + 2]
 
 			if
-				a * (a > 0 and bounds[b + 3] or bounds[b]) + bb * (bb > 0 and bounds[b + 4] or bounds[b + 1]) + c * (c > 0 and bounds[b + 5] or bounds[b + 2]) + planes[p + 3] < 0
+				a * (
+					a > 0 and
+					bounds[b + 3] or
+					bounds[b]
+				) + bb * (
+					bb > 0 and
+					bounds[b + 4] or
+					bounds[b + 1]
+				) + c * (
+					c > 0 and
+					bounds[b + 5] or
+					bounds[b + 2]
+				) + planes[p + 3] < 0
 			then
 				visible = false
 

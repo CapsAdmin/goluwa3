@@ -8,6 +8,7 @@ local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local vk = import("goluwa/bindings/vk.lua")
 local system = import("goluwa/system.lua")
+local Material = import("goluwa/render3d/material.lua")
 local render3d = nil
 local gpu_culling = library()
 gpu_culling.generation = gpu_culling.generation or 0
@@ -32,7 +33,7 @@ local VALID_OCCLUSION_MODES = {
 local UINT32_SIZE = ffi.sizeof("uint32_t")
 local DRAW_INDEXED_INDIRECT_COMMAND_SIZE = ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
 local DRAW_INDIRECT_COMMAND_SIZE = ffi.sizeof(vk.VkDrawIndirectCommand)
-gpu_culling.SHADOW_DRAW_COMMAND_SIZE = DRAW_INDIRECT_COMMAND_SIZE
+gpu_culling.BATCH_DRAW_COMMAND_SIZE = DRAW_INDIRECT_COMMAND_SIZE
 local INVALID_INDEX = 0xFFFFFFFF
 local NO_INDEX_BUFFER_KEY = {}
 local VISUAL_FLAG_VISIBLE = 0x1
@@ -81,8 +82,9 @@ local GPUCullInstancedBatchRecord = ffi.typeof([[struct {
 	uint32_t output_offset;
 	uint32_t max_count;
 	uint32_t index_count;
-	uint32_t reserved1;
+	uint32_t flags;
 }]])
+local BATCH_FLAG_DOUBLE_SIDED = 1
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 -- Async culling needs more slots than the swapchain has frames: at any moment one slot
 -- is being culled into, one is published (its indirect commands are being drawn from),
@@ -368,7 +370,7 @@ function gpu_culling.Initialize()
 				uint output_offset;
 				uint max_count;
 				uint index_count;
-				uint reserved1;
+				uint flags;
 			};
 
 			struct DrawIndexedIndirectCommand {
@@ -431,8 +433,18 @@ function gpu_culling.Initialize()
 				uint active_batch_count[];
 			};
 
+			struct DrawIndirectCommand {
+				uint vertexCount;
+				uint instanceCount;
+				uint firstVertex;
+				uint firstInstance;
+			};
+
+			// one command per batch in each half: single sided batches draw from
+			// the first, double sided ones from the second, with the other left
+			// at zero instances. the draws pull vertices through the index buffer
 			layout(std430, set = 0, binding = 13) buffer VisibleBatchIndirectCommandBuffer {
-				DrawIndexedIndirectCommand batch_commands[];
+				DrawIndirectCommand batch_commands[];
 			};
 
 			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
@@ -446,6 +458,7 @@ function gpu_culling.Initialize()
 			const uint VISUAL_FLAG_VISIBLE = 1u;
 			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
 			const uint INVALID_INDEX = 0xFFFFFFFFu;
+			const uint BATCH_FLAG_DOUBLE_SIDED = ]] .. BATCH_FLAG_DOUBLE_SIDED .. [[u;
 
 			bool is_within_cull_distance(VisualRecord visual_record) {
 				if (visual_record.cull_distance <= 0.0) return true;
@@ -600,16 +613,21 @@ function gpu_culling.Initialize()
 						InstancedBatchRecord batch_record = instanced_batches[entry_record.instanced_batch_index];
 						uint local_index = atomicAdd(visible_instanced_batch_counts[entry_record.instanced_batch_index], 1u);
 
+						uint command_index = entry_record.instanced_batch_index;
+
+						if ((batch_record.flags & BATCH_FLAG_DOUBLE_SIDED) != 0u) {
+							command_index += uint(batch_commands.length()) / 2u;
+						}
+
 						if (local_index == 0u) {
 							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
 							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
-							batch_commands[entry_record.instanced_batch_index].indexCount = batch_record.index_count;
-							batch_commands[entry_record.instanced_batch_index].firstIndex = 0u;
-							batch_commands[entry_record.instanced_batch_index].vertexOffset = 0;
-							batch_commands[entry_record.instanced_batch_index].firstInstance = batch_record.output_offset;
+							batch_commands[command_index].vertexCount = batch_record.index_count;
+							batch_commands[command_index].firstVertex = 0u;
+							batch_commands[command_index].firstInstance = batch_record.output_offset;
 						}
 
-						atomicAdd(batch_commands[entry_record.instanced_batch_index].instanceCount, 1u);
+						atomicAdd(batch_commands[command_index].instanceCount, 1u);
 
 						if (local_index < batch_record.max_count) {
 							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
@@ -809,7 +827,7 @@ function gpu_culling.Initialize()
 				uint output_offset;
 				uint max_count;
 				uint index_count;
-				uint reserved1;
+				uint flags;
 			};
 
 			// shadow draws pull their vertices through the index buffer themselves, so
@@ -1892,9 +1910,10 @@ local function build_frame_buffers(dataset, capacity)
 			),
 			visible_batch_indirect_command_buffer = create_buffer(
 				"gpu_culling_visible_batch_indirect_commands_" .. frame_index,
-				instanced_batch_count * DRAW_INDEXED_INDIRECT_COMMAND_SIZE,
+				instanced_batch_count * 2 * DRAW_INDIRECT_COMMAND_SIZE,
 				{"storage_buffer", "indirect_buffer", "transfer_dst"}
 			),
+			batch_command_capacity = instanced_batch_count,
 			active_batch_index_buffer = create_buffer(
 				"gpu_culling_active_batch_indices_" .. frame_index,
 				instanced_batch_count * UINT32_SIZE,
@@ -2154,6 +2173,15 @@ local function ensure_matrix_capacity(view, count)
 	view.matrix_capacity = capacity
 end
 
+-- unique across views, so a table keyed on a view's serial notices a new
+-- dataset's view as well
+local last_batch_serial = 0
+
+local function next_batch_serial()
+	last_batch_serial = last_batch_serial + 1
+	return last_batch_serial
+end
+
 local function create_view(is_main)
 	local view = {
 		is_main = is_main,
@@ -2169,8 +2197,8 @@ local function create_view(is_main)
 		matrix_free = {},
 		matrix_count = 0,
 		batches = {},
-		-- bumped whenever a batch gets a mesh or material
-		batch_serial = 0,
+		-- changes whenever a batch gets a mesh or material
+		batch_serial = next_batch_serial(),
 		batch_lookup = {},
 		batch_free = {},
 		batch_free_head = 1,
@@ -2266,7 +2294,11 @@ local function write_batch_record(view, batch)
 	record.output_offset = batch.output_offset or 0
 	record.max_count = batch.capacity or 0
 	record.index_count = index_buffer and index_buffer:GetIndexCount() or 0
-	record.reserved1 = 0
+	-- a freed batch has no material and draws nothing
+	record.flags = batch.material and
+		batch.material:GetDoubleSided() and
+		BATCH_FLAG_DOUBLE_SIDED or
+		0
 	local dirty = view.dirty_batches
 	dirty[#dirty + 1] = batch.batch_index
 end
@@ -2335,7 +2367,7 @@ local function acquire_batch(view, entry)
 		batch.mesh = mesh
 		batch.material = entry.batch_material
 		batch.first_polygon3d = entry.source_entry.polygon3d
-		view.batch_serial = view.batch_serial + 1
+		view.batch_serial = next_batch_serial()
 
 		if not view.deferred_layout then
 			if not batch.capacity then allocate_batch_output(view, batch, 2) end
@@ -2760,6 +2792,17 @@ local function flush_scene_dataset()
 	local shadow = dataset.shadow
 	prepare_view(main)
 	prepare_view(shadow)
+
+	-- a material that turned double sided moves its batches to the other half
+	-- of the main batch commands
+	if main.material_flags_generation ~= Material.flags_generation then
+		main.material_flags_generation = Material.flags_generation
+
+		for _, batch in ipairs(main.batches) do
+			write_batch_record(main, batch)
+		end
+	end
+
 	ensure_frame_buffers(dataset)
 	local buffers = gpu_culling.dataset_buffers or {}
 	gpu_culling.dataset_buffers = buffers
@@ -3131,7 +3174,7 @@ local function record_cull_dispatch(
 	pass:DispatchForSize(cmd, visual_count, 1, 1, slot)
 	cmd:PipelineBarrier{
 		srcStage = "compute",
-		dstStage = {"host", "vertex_input", "draw_indirect"},
+		dstStage = {"host", "vertex_input", "vertex_shader", "draw_indirect"},
 		bufferBarriers = {
 			{
 				buffer = output.visible_index_buffer,
@@ -3185,7 +3228,7 @@ local function record_cull_dispatch(
 				buffer = output.visible_instance_vertex_buffer.buffer,
 				size = output.visible_instance_vertex_buffer.byte_size,
 				srcAccessMask = "shader_write",
-				dstAccessMask = "vertex_attribute_read",
+				dstAccessMask = {"vertex_attribute_read", "shader_read"},
 			},
 			{
 				buffer = output.fallback_visible_index_buffer,
@@ -3498,7 +3541,7 @@ function gpu_culling.RecordShadowViewAABBCulling(cmd, query_aabb, shadow_output,
 				buffer = shadow_output.shadow_visible_instance_vertex_buffer.buffer,
 				size = shadow_output.shadow_visible_instance_vertex_buffer.byte_size,
 				srcAccessMask = "shader_write",
-				dstAccessMask = "vertex_attribute_read",
+				dstAccessMask = {"vertex_attribute_read", "shader_read"},
 			},
 		}
 		shadow_output.shadow_cull_draw_barriers = draw_barriers
@@ -3506,7 +3549,7 @@ function gpu_culling.RecordShadowViewAABBCulling(cmd, query_aabb, shadow_output,
 
 	cmd:PipelineBarrier{
 		srcStage = "compute",
-		dstStage = {"draw_indirect", "vertex_input"},
+		dstStage = {"draw_indirect", "vertex_input", "vertex_shader"},
 		bufferBarriers = draw_barriers,
 	}
 	local result = shadow_output.shadow_draw_cull_result or {}
