@@ -9,7 +9,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Material = objects.CreateTemplate("render3d_material")
 -- textures
 Material:StartStorable()
-Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "DetectGrass"})
+Material:GetSet("AlbedoTexture", nil, {type = "render_texture"})
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("HeightTexture", nil, {type = "render_texture", callback = "InvalidateSceneKey"})
 Material:GetSet("MetallicRoughnessTexture", nil, {type = "render_texture"})
@@ -57,6 +57,8 @@ Material:GetSet("TerrainLayerDetailStrength", Color(0.0, 0.0, 0.0, 0.0))
 Material:GetSet("TerrainLayerAdditiveDetail", Color(0.0, 0.0, 0.0, 0.0))
 -- SpecularMultiplier per layer
 Material:GetSet("TerrainLayerSpecular", Color(1.0, 1.0, 1.0, 1.0))
+-- with Grass, how much grass grows where each layer is, 0 to 1. grass thins and shortens across layer transitions
+Material:GetSet("TerrainLayerGrass", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)
 Material:GetSet("RoughnessMultiplier", 1.0)
 -- scales the dielectric reflectance (F0 0.04), 0 to 2
@@ -84,9 +86,9 @@ Material:GetSet("WindPhaseScale", 0.15)
 Material:GetSet("WindNormalInfluence", 0.35)
 Material:GetSet("WindDirection", Vec3(1.0, 0.0, 0.35))
 -- grass
-Material:GetSet("GrassDensity", 300.0)
-Material:GetSet("GrassHeight", 0.2)
-Material:GetSet("GrassHeightVariance", 4)
+Material:GetSet("GrassDensity", 700.0)
+Material:GetSet("GrassHeight", 0.28)
+Material:GetSet("GrassHeightVariance", 2)
 Material:GetSet("GrassWidth", 0.02)
 -- other
 -- how much light passes through the surface, bent by IndexOfRefraction (0..1,
@@ -234,11 +236,11 @@ function Material:InvalidateFlags()
 	self.Flags = flags
 end
 
-Material:GetSet("Name", "", {callback = "DetectGrass"})
+Material:GetSet("Name", "")
 
--- for now any material or albedo texture with grass in its file name grows
--- grass. only the file name, since map folders like gm_flatgrass would match
--- every material in the map
+-- source materials say nothing about grass, so for now any vmt or base texture
+-- with grass in its file name grows it. only the file name, since map folders
+-- like gm_flatgrass would match every material in the map
 function Material:DetectGrass()
 	local texture = self.AlbedoTexture
 
@@ -1159,6 +1161,8 @@ do
 				self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
 			end
 		end
+
+		self:DetectGrass()
 	end
 
 	local special_textures = {

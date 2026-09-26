@@ -1301,6 +1301,15 @@ local function get_or_create_cry_terrain_layers(terrain)
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
 					-- mapped from cry's specular color the same way as for models, most layers have none
 					specular = material:GetSpecularMultiplier(),
+					-- cry layers say nothing about grass, grass in crysis is painted vegetation. layers named for
+					-- grass grow it, except paths like road_grass_patches_brown_soil, which are mostly bare
+					grass = (
+							surface_type.name:lower():find("grass", 1, true) and
+							not surface_type.name:lower():find("road", 1, true)
+						)
+						and
+						1 or
+						0,
 					roughness = 1,
 					ao = 1,
 				}

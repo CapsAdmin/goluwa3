@@ -429,6 +429,7 @@ local showcase_materials = {
 		path = "materials/examples/grass.lua",
 		name = "Grass",
 		config = {
+			Grass = true,
 			Shared = shared,
 			Albedo = [[
 					float f = fbm(p * 3.0) * 0.5 + 0.5;

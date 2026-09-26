@@ -27,7 +27,10 @@ local grass = library()
 -- shrinking as the keep fraction approaches its priority instead of popping.
 grass.MAX_SURFACES = 512
 grass.SURFACE_RING = 4
-grass.MAX_JOBS = 65535
+-- small triangles, like a terrain's, each take a job per tile they touch
+grass.MAX_JOBS = 2 ^ 20
+-- jobs are dispatched as rows of this many workgroups, under the 65535 limit per dimension
+grass.JOB_ROW = 2 ^ 15
 grass.MAX_BLADES = 2 ^ 19
 grass.TILE_CELLS = 32
 grass.MAX_LEVEL = 4
@@ -41,7 +44,7 @@ grass.max_distance = 150
 grass.enabled = grass.enabled ~= false
 local HALF_BLADES = grass.MAX_BLADES / 2
 local BLADE_SIZE = 32
-local SURFACE_FLOATS = 36
+local SURFACE_FLOATS = 56
 local GrassSurface = ffi.typeof([[struct {
 	float world[16];
 	uint32_t addresses[4];
@@ -49,6 +52,11 @@ local GrassSurface = ffi.typeof([[struct {
 	float color[4];
 	float params[4];
 	float wind[4];
+	float layers[4];
+	int32_t layer_textures[4];
+	float layer_scales[4];
+	float layer_detail[4];
+	float layer_additive_detail[4];
 }]])
 local uint64_ptr = ffi.typeof("uint64_t *")
 local int32_ptr = ffi.typeof("int32_t *")
@@ -135,6 +143,9 @@ local COMMON_GLSL = [[
 	#define GRASS_MAX_LEVEL ]] .. grass.MAX_LEVEL .. [[
 
 	#define GRASS_MAX_JOBS ]] .. grass.MAX_JOBS .. [[u
+	#define GRASS_JOB_ROW ]] .. grass.JOB_ROW .. [[u
+	// how far a blade's tip leans out per unit up, lean is stored as a fraction of this
+	#define GRASS_MAX_LEAN 3.0
 	#define GRASS_HALF_BLADES ]] .. HALF_BLADES .. [[u
 	#define GRASS_NEAR_SEGMENTS ]] .. grass.NEAR_SEGMENTS .. [[
 
@@ -147,13 +158,20 @@ local COMMON_GLSL = [[
 		mat4 world;
 		// vertex buffer address, index buffer address (0 when not indexed)
 		uvec4 addresses;
-		// triangle count, 32 bit indices, albedo texture
+		// triangle count, 32 bit indices, albedo texture, layer mask texture
 		uvec4 info;
 		vec4 color;
 		// cell size, height, height variance, width
 		vec4 params;
 		// direction xz, strength, frequency
 		vec4 wind;
+		// how much grass each channel of the layer mask grows
+		vec4 layers;
+		// the layers' albedo textures and how the terrain applies them, see TerrainLayer* in material.lua
+		ivec4 layer_textures;
+		vec4 layer_scales;
+		vec4 layer_detail;
+		vec4 layer_additive_detail;
 	};
 
 	// root xyz, height
@@ -326,6 +344,42 @@ local COMPUTE_GLSL = COMMON_GLSL .. [[
 	float grass_max_height(GrassSurface s) {
 		return s.params.y * (1.0 + s.params.z) * 1.3;
 	}
+
+	// a surface with a layer mask (terrain splat weights) only grows grass where its grassy layers are,
+	// and blends the amount across the transitions to other layers
+	vec4 grass_layer_weights(int mask_texture, vec2 uv) {
+		vec4 weights = max(textureLod(TEXTURE(mask_texture), uv, 0.0), vec4(0.0));
+		float sum = dot(weights, vec4(1.0));
+		return sum > 0.0001 ? weights / sum : vec4(0.0);
+	}
+
+	float grass_layer_amount(GrassSurface s, int mask_texture, vec2 uv) {
+		if (mask_texture < 0) return 1.0;
+
+		return dot(grass_layer_weights(mask_texture, uv), s.layers);
+	}
+
+	// the terrain's albedo under a blade from one layer, like get_terrain_layer_sample in model_pipeline.lua
+	// but from a blurrier mip, since a blade covers more ground than its width
+	vec3 grass_terrain_layer_albedo(GrassSurface s, int layer, vec3 base, vec2 xz) {
+		int tex = s.layer_textures[layer];
+
+		if (tex < 0) return base;
+
+		vec3 albedo = textureLod(TEXTURE(tex), xz / max(s.layer_scales[layer], 0.0001), 0.0).rgb;
+		float detail = s.layer_detail[layer];
+
+		if (detail <= 0.0) return albedo * base;
+
+		float additive = s.layer_additive_detail[layer];
+
+		if (additive > 0.0) {
+			return pow(max(pow(base, vec3(1.0 / 2.2)) + (albedo - 0.5) * detail, vec3(0.0)), vec3(2.2)) * additive;
+		}
+
+		vec3 average = textureLod(TEXTURE(tex), vec2(0.5), 16.0).rgb;
+		return base * mix(vec3(1.0), albedo / max(average, vec3(0.01)), detail);
+	}
 ]]
 local compute_block = {
 	{"view_projection", "mat4"},
@@ -335,6 +389,8 @@ local compute_block = {
 	{"near_distance", "float"},
 	{"surface_index", "int"},
 	{"triangle_count", "int"},
+	-- the surface's layer mask in the tiles pass, whose texture indices differ from the blades pass
+	{"mask_texture", "int"},
 }
 
 local function write_compute_block(self, block)
@@ -350,6 +406,7 @@ local function write_compute_block(self, block)
 	block.near_distance = grass.near_distance
 	block.surface_index = self.surface_index or 0
 	block.triangle_count = self.triangle_count or 0
+	block.mask_texture = self.mask_texture or -1
 	return block
 end
 
@@ -383,6 +440,19 @@ local function get_compute_passes()
 					GrassTriangle t = grass_load_triangle(s, tri);
 
 					if (t.normal.y < GRASS_MIN_UP) return;
+
+					if (compute.mask_texture >= 0) {
+						vec2 center = (t.uv0 + t.uv1 + t.uv2) / 3.0;
+						float amount = grass_layer_amount(s, compute.mask_texture, t.uv0) +
+							grass_layer_amount(s, compute.mask_texture, t.uv1) +
+							grass_layer_amount(s, compute.mask_texture, t.uv2) +
+							grass_layer_amount(s, compute.mask_texture, center) +
+							grass_layer_amount(s, compute.mask_texture, (t.uv0 + t.uv1) * 0.5) +
+							grass_layer_amount(s, compute.mask_texture, (t.uv1 + t.uv2) * 0.5) +
+							grass_layer_amount(s, compute.mask_texture, (t.uv2 + t.uv0) * 0.5);
+
+						if (amount <= 0.0) return;
+					}
 
 					float cell = s.params.x;
 					float tile_size = cell * float(GRASS_TILE_CELLS);
@@ -418,7 +488,8 @@ local function get_compute_passes()
 							if (slot >= GRASS_MAX_JOBS) return;
 
 							grass_jobs[slot] = uvec4(surface_index | (uint(level) << 24), tri, uint(x), uint(z));
-							atomicMax(grass_dispatch[0], slot + 1u);
+							atomicMax(grass_dispatch[0], min(slot + 1u, GRASS_JOB_ROW));
+							atomicMax(grass_dispatch[1], slot / GRASS_JOB_ROW + 1u);
 						}
 					}
 				}
@@ -433,7 +504,11 @@ local function get_compute_passes()
 			write = write_compute_block,
 			shader = COMPUTE_GLSL .. [[
 				void main() {
-					uvec4 job = grass_jobs[gl_WorkGroupID.x];
+					uint job_index = gl_WorkGroupID.y * GRASS_JOB_ROW + gl_WorkGroupID.x;
+
+					if (job_index >= min(grass_job_counter, GRASS_MAX_JOBS)) return;
+
+					uvec4 job = grass_jobs[job_index];
 					uint surface_index = job.x & 0xFFFFFFu;
 					int level = int(job.x >> 24);
 					GrassSurface s = grass_surfaces[surface_index];
@@ -452,6 +527,7 @@ local function get_compute_passes()
 					int step_cells = 1 << level;
 					int per_axis = GRASS_TILE_CELLS >> level;
 					int albedo_texture = int(s.info.z);
+					int mask_texture = int(s.info.w);
 					vec2 packed_normal = grass_oct_encode(t.normal);
 					uint normal_bits = (uint(packed_normal.x * 255.0 + 0.5) << 16) | (uint(packed_normal.y * 255.0 + 0.5) << 24);
 
@@ -475,13 +551,19 @@ local function get_compute_passes()
 
 						if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0) continue;
 
+						vec2 uv = t.uv0 * w0 + t.uv1 * w1 + t.uv2 * w2;
+						vec4 layer_weights = mask_texture >= 0 ? grass_layer_weights(mask_texture, uv) : vec4(0.0);
+						float amount = mask_texture >= 0 ? dot(layer_weights, s.layers) : 1.0;
+
+						if (amount <= 0.0) continue;
+
 						vec3 root = t.p0 * w0 + t.p1 * w1 + t.p2 * w2;
 						float d = distance(root, cam);
 						float lod_keep = grass_keep(d);
 						// low frequency patches of thinner and thicker grass, so a
 						// uniform density doesn't read as a carpet
 						float patches = grass_fbm(xz * 0.09);
-						float density = mix(0.3, 1.0, smoothstep(0.25, 0.65, patches));
+						float density = mix(0.3, 1.0, smoothstep(0.25, 0.65, patches)) * amount;
 						float keep = lod_keep * density;
 
 						if (priority >= keep) continue;
@@ -492,23 +574,46 @@ local function get_compute_passes()
 						float r1 = grass_unorm(h);
 						h = grass_pcg(h);
 						float r2 = grass_unorm(h);
+						h = grass_pcg(h);
+						float r3 = grass_unorm(h);
+						h = grass_pcg(h);
+						float r4 = grass_unorm(h);
 						float fade = clamp((keep - priority) / (keep * 0.3), 0.0, 1.0);
 						float tall = grass_fbm(xz * 0.31 + vec2(31.7, 5.3));
 						float height = s.params.y * mix(1.0 - s.params.z, 1.0 + s.params.z, r0) * mix(0.55, 1.3, tall) * mix(0.7, 1.0, density) * fade;
+						// mostly thin blades with the odd wide one, in patches of finer and coarser grass.
 						// fewer blades further away, so each covers more
-						float width = s.params.w * clamp(inversesqrt(max(lod_keep, 0.0001)), 1.0, 5.0);
+						float width = s.params.w * mix(0.45, 1.9, r3 * r3) *
+							mix(0.75, 1.3, grass_value_noise(xz * 0.8 + vec2(11.3, -4.1))) *
+							clamp(inversesqrt(max(lod_keep, 0.0001)), 1.0, 5.0);
+						// mostly upright with the odd drooping blade, the taller ones and some patches bending more
+						float lean = mix(0.08, 1.8, r4 * r4) *
+							mix(0.6, 1.5, grass_value_noise(xz * 0.5 + vec2(-21.7, 8.9))) *
+							mix(0.8, 1.3, clamp(height / max(s.params.y, 0.0001) - 0.5, 0.0, 1.0));
 
 						if (!grass_sphere_visible(root + vec3(0.0, height * 0.5, 0.0), height * 0.6 + width)) continue;
 
 						// neighbouring blades lean the same way in clumps
 						float clump_angle = grass_value_noise(xz * 1.7 + vec2(-7.1, 3.3)) * 6.2831853 * 2.0;
 						float facing = mix(r1 * 6.2831853, clump_angle, 0.5);
-						vec2 uv = t.uv0 * w0 + t.uv1 * w1 + t.uv2 * w2;
-						vec3 color = s.color.rgb;
+						vec3 color = albedo_texture >= 0 ? textureLod(TEXTURE(albedo_texture), uv, 3.0).rgb : vec3(1.0);
 
-						if (albedo_texture >= 0) {
-							color *= textureLod(TEXTURE(albedo_texture), uv, 3.0).rgb;
+						if (mask_texture >= 0) {
+							vec3 ground = vec3(0.0);
+
+							for (int i = 0; i < 4; i++) {
+								if (layer_weights[i] > 0.001) {
+									ground += grass_terrain_layer_albedo(s, i, color, xz) * layer_weights[i];
+								}
+							}
+
+							color = ground;
 						}
+
+						color *= s.color.rgb;
+						// a blade is its own plant, more saturated and a bit darker than the ground's average, which
+						// mixes in soil and dead bits. lit from all sides it otherwise reads as grey
+						color = max(mix(vec3(dot(color, vec3(0.2126, 0.7152, 0.0722))), color, 1.4), vec3(0.0)) * 0.85;
 
 						float dry = smoothstep(0.45, 0.8, grass_fbm(xz * 0.05 + vec2(3.1, 11.9)));
 						color = mix(color, color * vec3(1.35, 1.12, 0.6), dry * 0.6);
@@ -537,7 +642,7 @@ local function get_compute_passes()
 							packHalf2x16(uv),
 							packHalf2x16(vec2(width, facing)),
 							surface_index | normal_bits,
-							packUnorm4x8(vec4(sqrt(clamp(color, 0.0, 1.0)), r1 * 0.5 + 0.1))
+							packUnorm4x8(vec4(sqrt(clamp(color, 0.0, 1.0)), clamp(lean / GRASS_MAX_LEAN, 0.0, 1.0)))
 						);
 					}
 				}
@@ -582,7 +687,7 @@ local function get_surfaces()
 	return surfaces
 end
 
-local function write_surface(out, surface, texture_index)
+local function write_surface(out, surface, pipeline)
 	local component = surface.component
 	local entry = surface.entry
 	local material = surface.material
@@ -602,7 +707,8 @@ local function write_surface(out, surface, texture_index)
 		out.info[1] = 0
 	end
 
-	ffi.cast(int32_ptr, out.info + 2)[0] = texture_index
+	ffi.cast(int32_ptr, out.info + 2)[0] = pipeline:GetTextureIndex(material:GetAlbedoTexture())
+	ffi.cast(int32_ptr, out.info + 3)[0] = pipeline:GetTextureIndex(material:GetTerrainMaterialTexture())
 	local color = material:GetColorMultiplier()
 	out.color[0] = color.r
 	out.color[1] = color.g
@@ -618,6 +724,30 @@ local function write_surface(out, surface, texture_index)
 	out.wind[1] = wind.z / length
 	out.wind[2] = 0.35
 	out.wind[3] = 1.3
+	local layers = material:GetTerrainLayerGrass()
+	out.layers[0] = layers.r
+	out.layers[1] = layers.g
+	out.layers[2] = layers.b
+	out.layers[3] = layers.a
+	out.layer_textures[0] = pipeline:GetTextureIndex(material:GetTerrainLayer1Texture())
+	out.layer_textures[1] = pipeline:GetTextureIndex(material:GetTerrainLayer2Texture())
+	out.layer_textures[2] = pipeline:GetTextureIndex(material:GetTerrainLayer3Texture())
+	out.layer_textures[3] = pipeline:GetTextureIndex(material:GetTerrainLayer4Texture())
+	local scales = material:GetTerrainLayerScales()
+	out.layer_scales[0] = scales.r
+	out.layer_scales[1] = scales.g
+	out.layer_scales[2] = scales.b
+	out.layer_scales[3] = scales.a
+	local detail = material:GetTerrainLayerDetailStrength()
+	out.layer_detail[0] = detail.r
+	out.layer_detail[1] = detail.g
+	out.layer_detail[2] = detail.b
+	out.layer_detail[3] = detail.a
+	local additive_detail = material:GetTerrainLayerAdditiveDetail()
+	out.layer_additive_detail[0] = additive_detail.r
+	out.layer_additive_detail[1] = additive_detail.g
+	out.layer_additive_detail[2] = additive_detail.b
+	out.layer_additive_detail[3] = additive_detail.a
 end
 
 local function barrier(cmd, buffer, src_stage, dst_stage, src_access, dst_access)
@@ -675,7 +805,8 @@ function grass.Scatter(cmd)
 
 		local mesh = surface.entry.polygon3d:GetMesh()
 
-		if mesh:IsValid() then
+		-- terrain keeps a new level of detail hidden until the one it replaces is gone
+		if mesh:IsValid() and surface.component:GetVisible() then
 			local aabb = surface.component:GetWorldAABB()
 
 			if
@@ -687,12 +818,9 @@ function grass.Scatter(cmd)
 				camera.z < aabb.max_z + reach
 			then
 				local index = ring_base + surface_count
-				write_surface(
-					b.surface_data[index],
-					surface,
-					passes.blades:GetTextureIndex(surface.material:GetAlbedoTexture())
-				)
+				write_surface(b.surface_data[index], surface, passes.blades)
 				passes.tiles.surface_index = index
+				passes.tiles.mask_texture = passes.tiles:GetTextureIndex(surface.material:GetTerrainMaterialTexture())
 				passes.tiles.triangle_count = b.surface_data[index].info[0]
 
 				if passes.tiles.triangle_count > 0 then
@@ -827,7 +955,8 @@ function grass.BuildDrawPass(gbuffer_pass)
 					float height = blade.root.w;
 					vec2 width_facing = unpackHalf2x16(blade.data.y);
 					vec4 color_lean = unpackUnorm4x8(blade.data.w);
-					float seed = color_lean.a * 7.31;
+					float lean = color_lean.a * GRASS_MAX_LEAN;
+					float seed = fract(width_facing.y * 3.7 + root.x * 1.3 + root.z * 0.7) * 7.31;
 					vec3 facing = vec3(cos(width_facing.y), 0.0, sin(width_facing.y));
 					vec3 side = vec3(-facing.z, 0.0, facing.x);
 					int vid = gl_VertexIndex;
@@ -835,13 +964,13 @@ function grass.BuildDrawPass(gbuffer_pass)
 					float across = vid >= segments * 2 ? 0.0 : float(vid & 1) * 2.0 - 1.0;
 					float half_width = width_facing.x * 0.5 * (1.0 - pow(t, 1.4));
 					vec3 p1, p2;
-					grass_curve(root, height, facing, color_lean.a, grass_wind(s, root.xz, grass_data.time, seed), p1, p2);
+					grass_curve(root, height, facing, lean, grass_wind(s, root.xz, grass_data.time, seed), p1, p2);
 					vec3 position = grass_bezier(root, p1, p2, t) + side * across * half_width;
 					vec3 tangent = normalize(2.0 * (1.0 - t) * (p1 - root) + 2.0 * t * (p2 - p1));
 					// rounded across the blade
 					vec3 normal = normalize(normalize(cross(tangent, side)) + side * across * 0.4);
 					vec3 prev_p1, prev_p2;
-					grass_curve(root, height, facing, color_lean.a, grass_wind(s, root.xz, grass_data.prev_time, seed), prev_p1, prev_p2);
+					grass_curve(root, height, facing, lean, grass_wind(s, root.xz, grass_data.prev_time, seed), prev_p1, prev_p2);
 					out_position = position;
 					out_prev_position = grass_bezier(root, prev_p1, prev_p2, t) + side * across * half_width;
 					out_normal = normal;
@@ -864,9 +993,14 @@ function grass.BuildDrawPass(gbuffer_pass)
 
 					if (dot(N, V) < 0.0) N = -N;
 
-					// towards the ground's normal at the root and far away, where
-					// a blade's own normal is mostly noise
-					N = normalize(mix(N, in_ground_normal, 0.25 + (1.0 - t) * 0.25 + smoothstep(15.0, 60.0, dist) * 0.4));
+					// mostly the ground's normal, so a field of blades is lit like the ground it grows from and
+					// blades facing away from the sun don't read as dark spikes. fully the ground's at the root
+					// and far away, where a blade's own normal is mostly noise
+					N = normalize(mix(N, in_ground_normal, min(0.6 + (1.0 - t) * 0.3 + smoothstep(15.0, 60.0, dist) * 0.4, 1.0)));
+					// seen edge on, like the ground's normal from eye height, fresnel turns a field of blades into a
+					// white sheen no matter the specular, so keep the normal turned somewhat towards the viewer
+					vec3 view_dir = V / dist;
+					N = normalize(N + view_dir * max(0.35 - dot(N, view_dir), 0.0));
 					// darker towards the root up close. further away a root is a
 					// pixel peeking between tips and reads as a black speck
 					float far = smoothstep(4.0, 20.0, dist);
@@ -876,9 +1010,9 @@ function grass.BuildDrawPass(gbuffer_pass)
 					set_normal(N * 0.5 + 0.5);
 					set_metallic(0.0);
 					// ggx alpha
-					set_roughness(0.4);
+					set_roughness(0.7);
 					set_ao(mix(mix(0.5, 1.0, smoothstep(0.0, 0.7, t)), 0.85, far));
-					set_specular(0.35);
+					set_specular(0.02);
 					set_transmission(0.4);
 					set_transmission_scattering(0.5);
 					set_emissive(vec3(0.0));

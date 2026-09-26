@@ -23,14 +23,22 @@ function tiles.BuildPolygon(chunk, skirt_depth)
 	local uv_scale = 1 / cells
 
 	for z = 0, cells do
+		local z0 = math.max(z - 1, 0)
+		local z1 = math.min(z + 1, cells)
+
 		for x = 0, cells do
 			local vertex = vertices[z * samples + x]
+			local x0 = math.max(x - 1, 0)
+			local x1 = math.min(x + 1, cells)
+			local nx = (heights[z * samples + x0] - heights[z * samples + x1]) / ((x1 - x0) * step)
+			local nz = (heights[z0 * samples + x] - heights[z1 * samples + x]) / ((z1 - z0) * step)
+			local inv_length = 1 / math.sqrt(nx * nx + 1 + nz * nz)
 			vertex.position[0] = x * step
 			vertex.position[1] = heights[z * samples + x]
 			vertex.position[2] = z * step
-			vertex.normal[0] = 0
-			vertex.normal[1] = 1
-			vertex.normal[2] = 0
+			vertex.normal[0] = nx * inv_length
+			vertex.normal[1] = inv_length
+			vertex.normal[2] = nz * inv_length
 			vertex.uv[0] = x * uv_scale
 			vertex.uv[1] = z * uv_scale
 			vertex.tangent[0] = 1
@@ -132,7 +140,7 @@ end
 
 --[[
 	layers = {
-		{albedo = texture or asset path, normal = texture or asset path, scale = meters per tile, roughness = 1, ao = 1, detail = 0, additive_detail = 0, specular = 1},
+		{albedo = texture or asset path, normal = texture or asset path, scale = meters per tile, roughness = 1, ao = 1, detail = 0, additive_detail = 0, specular = 1, grass = 0},
 		... up to 4
 	}
 ]]
@@ -149,6 +157,7 @@ function tiles.CreateMaterial(chunk, layers)
 	local detail = {}
 	local additive_detail = {}
 	local specular = {}
+	local grass = {}
 
 	for i = 1, 4 do
 		local layer = layers[i] or {}
@@ -160,6 +169,7 @@ function tiles.CreateMaterial(chunk, layers)
 		detail[i] = layer.detail or 0
 		additive_detail[i] = layer.additive_detail or 0
 		specular[i] = layer.specular or 1
+		grass[i] = layer.grass or 0
 	end
 
 	material:SetTerrainLayerScales(Color(scales[1], scales[2], scales[3], scales[4]))
@@ -170,6 +180,8 @@ function tiles.CreateMaterial(chunk, layers)
 		Color(additive_detail[1], additive_detail[2], additive_detail[3], additive_detail[4])
 	)
 	material:SetTerrainLayerSpecular(Color(specular[1], specular[2], specular[3], specular[4]))
+	material:SetTerrainLayerGrass(Color(grass[1], grass[2], grass[3], grass[4]))
+	material:SetGrass(grass[1] > 0 or grass[2] > 0 or grass[3] > 0 or grass[4] > 0)
 	return material
 end
 
