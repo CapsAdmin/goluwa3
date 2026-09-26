@@ -7,6 +7,7 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local ffi = require("ffi")
 local read_u32_le, read_u16_le, read_f32_le
 local sample_terrain_height01_at_world
@@ -1821,6 +1822,10 @@ function crylevel.Apply(steam)
 		end
 
 		steam.active_cry_terrain_renderer = crylevel.SpawnTerrain(data, parent)
+		-- terrain heights start at 0, so an ocean at 0 is always below it and the level has none
+		local water_level = data.terrain and data.terrain.water_level or 0
+		render3d.SetOceanEnabled(water_level > 0)
+		render3d.SetOceanLevel(water_level + 1)
 
 		if not steam.cry_skip_models then
 			for _, entry in ipairs(data.entries) do

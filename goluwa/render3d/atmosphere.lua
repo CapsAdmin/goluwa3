@@ -35,7 +35,7 @@ local SUN_RADIUS = 500.0
 local SUN_DISTANCE = 100000.0
 local DEBUG_DISABLE_SCENERY_FOG = false
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
-atmosphere.fog_density = 0.5
+atmosphere.fog_density = 0.15
 
 local function normalize_components(x, y, z)
 	local length = math.sqrt(x * x + y * y + z * z)

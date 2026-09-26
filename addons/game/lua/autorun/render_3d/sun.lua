@@ -12,7 +12,7 @@ local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
 local sun = Entity.New{
 	Name = "sun",
 	transform = {
-		Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
+		Rotation = Quat(-0.261651, 0.725365, 0.523303, 0.362682),
 	},
 	light_sun = {
 		Color = Color(1.0, 0.98, 1),
