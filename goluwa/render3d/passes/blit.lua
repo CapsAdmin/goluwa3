@@ -62,6 +62,8 @@ render3d.hdr = {
 	peak = 1000,
 }
 render3d.bloom_strength = 0.04
+-- how much of the eye's switch to rod vision in dim light is shown, 0 is off
+render3d.night_vision = 1
 
 commands.Add("r_exposure_lock=number|nil", function(ev)
 	render3d.exposure.lock = ev
@@ -136,6 +138,10 @@ end)
 
 commands.Add("r_bloom_max=number[10000]", function(value)
 	render3d.bloom_max = value
+end)
+
+commands.Add("r_night_vision=number[1]", function(value)
+	render3d.night_vision = value
 end)
 
 local function get_scene_source_texture()
@@ -518,6 +524,17 @@ local compute_shader = [[
 		return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));
 	}
 
+	// Below ~5 cd/m2 the rods take over from the cones (the mesopic range, CIE 191),
+	// and below ~0.005 only rods see. Rods have one kind of receptor, so they see no
+	// colour, and they peak at 507 nm, so reds go dark and blues light up (Purkinje).
+	// Their response to each primary is Larson's scotopic luminance
+	// Y (1.33 (1 + (Y + Z) / X) - 1.68) at that primary, relative to white.
+	const vec3 ROD_RESPONSE = vec3(0.0329, 0.7652, 0.2017);
+	// what rod vision is seen as, chromaticity (0.25, 0.25) (Jensen et al. 2000)
+	const vec3 ROD_TINT = vec3(0.7062, 0.9899, 1.9657);
+	const float MESOPIC_LOG10_MIN = -2.3;
+	const float MESOPIC_LOG10_MAX = 0.7;
+
 	float interleaved_gradient_noise(vec2 p) {
 		return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 	}
@@ -537,7 +554,10 @@ local compute_shader = [[
 		vec3 col = texture(source_tex, uv).rgb;
 		float exposure = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).r : exp2(]] .. LOG_EXPOSURE_AT_EV0 .. [[ - 10.0);
 		// the scene is pre-exposed with last frame's exposure
-		exposure /= pre_exposure_from_exposure(compute.has_exposure_tex != 0 ? texture(prev_exposure_tex, vec2(0.5)).r : 0.0);
+		float pre_exposure = pre_exposure_from_exposure(compute.has_exposure_tex != 0 ? texture(prev_exposure_tex, vec2(0.5)).r : 0.0);
+		exposure /= pre_exposure;
+		// share of the pixel the cones see, from its luminance in cd/m2
+		float cones = smoothstep(MESOPIC_LOG10_MIN, MESOPIC_LOG10_MAX, log(max(dot(col, vec3(0.2126, 0.7152, 0.0722)) / pre_exposure, 1e-9)) * 0.4342945);
 
 		// Local exposure adapts the scene; bloom is scattered light in the
 		// eye, added after at the global exposure. Adapting the bloom as well
@@ -560,6 +580,7 @@ local compute_shader = [[
 		// bloom keeps the scene's energy (see passes/bloom.lua), so it is
 		// mixed in rather than added
 		col = mix(col, bloom, compute.bloom_strength);
+		col = mix(col, ROD_TINT * dot(max(col, vec3(0.0)), ROD_RESPONSE), (1.0 - cones) * compute.night_vision);
 
 		if (compute.output_mode == 0) {
 			col = clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0);
@@ -640,6 +661,7 @@ local r = {
 			{"has_exposure_tex", "int"},
 			{"tonemapper", "int"},
 			{"bloom_strength", "float"},
+			{"night_vision", "float"},
 			{"has_grid_tex", "int"},
 			{"local_shadows", "float"},
 			{"local_highlights", "float"},
@@ -659,6 +681,7 @@ local r = {
 			block.hdr_peak = render3d.hdr.peak
 			block.tonemapper = render3d.tonemapper
 			block.bloom_strength = render3d.bloom_strength
+			block.night_vision = render3d.night_vision
 			block.has_grid_tex = get_pipeline_texture("local_exposure_blur")() and 1 or 0
 			local view = View.GetActive()
 			local local_exposure = view and view.LocalExposure
