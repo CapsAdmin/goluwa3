@@ -1,5 +1,5 @@
 -- render3d first, material.lua can only load from inside it (material -> steam -> crylevel -> render3d -> material)
-import("goluwa/render3d/render3d.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -8,6 +8,8 @@ local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local surface_weather = import("goluwa/render3d/surface_weather.lua")
+local rain = import("goluwa/render3d/rain.lua")
 local weather = {}
 local SUN_TOA_ILLUMINANCE = 126000
 local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
@@ -17,6 +19,23 @@ local MOON_MEAN_DISTANCE_KM = 384400
 local SUN_TINT = Vec3(1.0, 0.98, 0.95)
 -- moonlight is sunlight off a slightly red rock
 local MOON_TINT = SUN_TINT * Vec3(1.0, 0.94, 0.86)
+-- a 2 mm raindrop's terminal velocity (Gunn and Kinzer 1949), the wind slants the rain by it
+local RAIN_FALL_SPEED = 6.5
+local RAIN_OCCLUSION_SIZE = 2048
+-- half the width of the ground the rain occlusion map covers around the camera, in meters
+local RAIN_OCCLUSION_HALF_SIZE = 96
+local RAIN_OCCLUSION_DEPTH = 600
+-- the map follows the camera in steps of this many texels and only renders again when it moves
+local RAIN_OCCLUSION_SNAP_TEXELS = 128
+-- mm of water a surface holds before it is soaked, about what pavement and bark hold
+local SURFACE_WATER_CAPACITY = 0.5
+-- a rough evaporation rate in mm/h: what a still night dries, and what each W/m² of sunlight and each
+-- m/s of wind add. a sunny day dries a soaked surface in under an hour, a still night takes hours
+local EVAPORATION_BASE = 0.04
+local EVAPORATION_PER_WATT = 0.0006
+local EVAPORATION_PER_WIND_SPEED = 0.02
+-- lm/W of sunlight
+local SUN_LUMINOUS_EFFICACY = 105
 weather.latitude = 21.176852
 weather.longitude = 106.068101
 -- 2026-06-21 10:00 local time at the default location
@@ -27,6 +46,8 @@ weather.moon_scale = 1
 weather.sun_rotation_override = nil
 weather.light = nil
 weather.shadow_maps = {}
+weather.rain_occluder = nil
+weather.rain_occlusion_map = nil
 
 local function days_since_j2000(unix_time)
 	return unix_time / 86400 - 10957.5
@@ -189,6 +210,26 @@ function weather.GetWind()
 	return atmosphere.GetWind()
 end
 
+-- in mm/h: 1 is light rain, 5 moderate, 25 heavy, 100 a cloudburst. surfaces get wet while it rains
+-- and dry after, with the sun and the wind
+function weather.SetRain(mm_per_hour)
+	rain.SetRate(mm_per_hour)
+	atmosphere.SetRainRate(mm_per_hour)
+end
+
+function weather.GetRain()
+	return rain.GetRate()
+end
+
+-- 0 is dry, 1 is soaked. sheltered and downward facing surfaces stay dry, the rain falls along the wind
+function weather.SetWetness(wetness)
+	surface_weather.wetness = wetness
+end
+
+function weather.GetWetness()
+	return surface_weather.wetness
+end
+
 -- 0 is a clear sky, 1 a full overcast that hides the sun
 function weather.SetCloudCover(cover)
 	atmosphere.SetCloudCover(cover)
@@ -263,6 +304,8 @@ function weather.UpdateSky()
 end
 
 function weather.Initialize()
+	if weather.light and weather.light:IsValid() then return end
+
 	weather.light = Entity.New{
 		Name = "sky_light",
 		transform = {},
@@ -327,7 +370,55 @@ function weather.Initialize()
 		}
 	end
 
+	weather.rain_occluder = Entity.New{Name = "rain_occluder", transform = {}}
+	weather.rain_occlusion_map = ShadowMap.New{
+		mode = "directional",
+		directional_projection_mode = "orthographic",
+		light = weather.rain_occluder,
+		size = Vec2() + RAIN_OCCLUSION_SIZE,
+		format = "d16_unorm",
+		cascade_count = 1,
+		ortho_size = RAIN_OCCLUSION_HALF_SIZE,
+		far_plane = RAIN_OCCLUSION_DEPTH,
+		role = "rain",
+	}
+	weather.rain_occlusion_map:SetUpdatePolicy{shadow_update_mode = "on_move"}
+	surface_weather.rain_occlusion_map = weather.rain_occlusion_map
 	weather.UpdateSky()
+
+	event.AddListener("Update", "weather_rain", function(dt)
+		local wind = atmosphere.GetWind()
+		local sun_irradiance = weather.light.light_sun:GetLux() * math.max(weather.light.transform:GetRotation():GetBackward().y, 0) / SUN_LUMINOUS_EFFICACY
+		local evaporation = EVAPORATION_BASE + sun_irradiance * EVAPORATION_PER_WATT + wind:GetLength() * EVAPORATION_PER_WIND_SPEED
+		surface_weather.wetness = math.clamp(
+			surface_weather.wetness + (
+					rain.GetRate() - evaporation
+				) / 3600 * dt / SURFACE_WATER_CAPACITY,
+			0,
+			1
+		)
+		weather.rain_occlusion_map:SetEnabled(surface_weather.wetness > 0 or rain.GetRate() > 0)
+
+		if not weather.rain_occlusion_map.enabled then return end
+
+		local dir = Vec3(-wind.x, RAIN_FALL_SPEED, -wind.z):GetNormalized()
+		local rotation = Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize()
+		local right = rotation:GetRight()
+		local up = rotation:GetUp()
+		local step = RAIN_OCCLUSION_HALF_SIZE * 2 / RAIN_OCCLUSION_SIZE * RAIN_OCCLUSION_SNAP_TEXELS
+		local cam = render3d.GetCamera():GetPosition()
+		surface_weather.rain_direction = dir
+		weather.rain_occluder.transform:SetRotation(rotation)
+		weather.rain_occluder.transform:SetPosition(
+			right * (
+					math.floor(cam:Dot(right) / step + 0.5) * step
+				) + up * (
+					math.floor(cam:Dot(up) / step + 0.5) * step
+				) + dir * (
+					math.floor(cam:Dot(dir) / step + 0.5) * step
+				)
+		)
+	end)
 
 	event.AddListener("Update", "weather", function(dt)
 		if weather.time_scale == 0 then return end

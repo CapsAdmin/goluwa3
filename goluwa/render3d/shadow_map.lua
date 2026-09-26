@@ -2998,6 +2998,11 @@ function ShadowMap:GetCascadeDepthTextures()
 end
 
 -- Get the light space matrix for transforming in main pass
+-- false until the cascade has been rendered once
+function ShadowMap:IsCascadeSampleable(cascade_index)
+	return self.cascade[cascade_index].is_sampleable
+end
+
 function ShadowMap:GetLightSpaceMatrix(cascade_index)
 	return self.cascade[cascade_index].light_space_matrix
 end

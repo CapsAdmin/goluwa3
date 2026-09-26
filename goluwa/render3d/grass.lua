@@ -4,6 +4,7 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -880,10 +881,12 @@ function grass.BuildDrawPass(gbuffer_pass)
 				{"time", "float"},
 				{"prev_time", "float"},
 			},
+			surface_weather.block,
 		},
 		write = function(self, block)
 			render3d.WriteCameraBlock(self, block)
 			render3d.WritePreviousCameraBlock(self, block)
+			surface_weather.WriteBlock(self, block)
 			block.time = system.GetElapsedTime()
 			block.prev_time = render3d.GetPreviousElapsedTime()
 			return block
@@ -987,7 +990,7 @@ function grass.BuildDrawPass(gbuffer_pass)
 		},
 		fragment = {
 			uniform_buffers = {grass_block},
-			shader = [[
+			shader = surface_weather.GetGLSL("grass_data") .. [[
 				void main() {
 					float t = in_blade.x;
 					vec3 N = normalize(in_normal);
@@ -1008,12 +1011,15 @@ function grass.BuildDrawPass(gbuffer_pass)
 					// pixel peeking between tips and reads as a black speck
 					float far = smoothstep(4.0, 20.0, dist);
 					vec3 albedo = in_color * mix(mix(0.75, 1.1, t), 1.0, far);
+					// ggx alpha
+					float roughness = 0.7;
+					// blades are waxy, water beads on them rather than soaking in
+					apply_surface_weather(albedo, roughness, 0.2, in_position, in_ground_normal);
 					set_alpha(1.0);
 					set_albedo(albedo);
 					set_normal(N * 0.5 + 0.5);
 					set_metallic(0.0);
-					// ggx alpha
-					set_roughness(0.7);
+					set_roughness(roughness);
 					set_ao(mix(mix(0.5, 1.0, smoothstep(0.0, 0.7, t)), 0.85, far));
 					set_specular(0.02);
 					set_transmission(0.4);

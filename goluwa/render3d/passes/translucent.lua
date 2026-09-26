@@ -9,6 +9,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local rain = import("goluwa/render3d/rain.lua")
 local Texture = import("goluwa/render/texture.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
@@ -218,6 +219,16 @@ local ADDITIVE = {
 	dst_alpha_blend_factor = "one",
 	alpha_blend_op = "add",
 }
+local rain_block = {
+	name = "rain_data",
+	binding_index = BINDING_CAMERA,
+	block = rain.block,
+	write = function(self, block)
+		local b0, moments = get_moments_textures()
+		return rain.WriteBlock(self, block, b0, moments, write_depth_warp)
+	end,
+	upload_scope = "frame",
+}
 return {
 	{
 		name = "translucent_moments",
@@ -271,6 +282,8 @@ return {
 			cmd:Draw(3, 1, 0, 0)
 			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
 			event.Call("Draw3DTranslucent")
+
+			if rain.IsActive() then rain.Draw(render3d.pipelines.rain_moments, cmd) end
 		end,
 		fragment = create_depth_copy_fragment("set_b0(0.0); set_moments(vec4(0.0));"),
 		CullMode = "none",
@@ -341,6 +354,8 @@ return {
 			cmd:Draw(3, 1, 0, 0)
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
 			event.Call("Draw3DTranslucent")
+
+			if rain.IsActive() then rain.Draw(render3d.pipelines.rain_accumulate, cmd) end
 		end,
 		fragment = create_depth_copy_fragment("set_color(vec4(0.0)); set_motion(vec4(0.0));"),
 		CullMode = "none",
@@ -614,6 +629,92 @@ return {
 		},
 		CullMode = orientation.CULL_MODE,
 		FrontFace = orientation.FRONT_FACE,
+		Blend = true,
+		SrcColorBlendFactor = "one",
+		DstColorBlendFactor = "one",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "one",
+		AlphaBlendOp = "add",
+		color_blend = {attachments = {{}, ADDITIVE}},
+		DepthTest = true,
+		DepthWrite = false,
+		DepthCompareOp = "less_or_equal",
+	},
+	-- the falling rain as translucent streaks, see render3d/rain.lua
+	{
+		name = "rain_moments",
+		draw_in_prerender = false,
+		dont_create_framebuffers = true,
+		ColorFormat = {
+			{"r32_sfloat", {"b0", "r"}},
+			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
+		},
+		DepthFormat = "d32_sfloat",
+		Topology = "triangle_strip",
+		vertex = {
+			outputs = rain.vertex_outputs,
+			uniform_buffers = {rain_block},
+			shader = rain.GetVertexGLSL("rain_data"),
+		},
+		fragment = {
+			uniform_buffers = {rain_block},
+			shader = MOMENTS_GLSL .. rain.GetCoverageGLSL() .. [[
+				void main() {
+					float absorbance = -log(max(1.0 - get_rain_alpha(), 1e-3));
+					float depth = moments_warp_depth(distance(in_position, rain_data.camera_position), rain_data.depth_warp);
+					float depth2 = depth * depth;
+					set_b0(absorbance);
+					set_moments(vec4(depth, depth2, depth2 * depth, depth2 * depth2) * absorbance);
+				}
+			]],
+		},
+		CullMode = "none",
+		Blend = true,
+		SrcColorBlendFactor = "one",
+		DstColorBlendFactor = "one",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "one",
+		AlphaBlendOp = "add",
+		color_blend = {attachments = {{}, ADDITIVE}},
+		DepthTest = true,
+		DepthWrite = false,
+		DepthCompareOp = "less_or_equal",
+	},
+	{
+		name = "rain_accumulate",
+		draw_in_prerender = false,
+		dont_create_framebuffers = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
+		},
+		DepthFormat = "d32_sfloat",
+		Topology = "triangle_strip",
+		vertex = {
+			outputs = rain.vertex_outputs,
+			uniform_buffers = {rain_block},
+			shader = rain.GetVertexGLSL("rain_data"),
+		},
+		fragment = {
+			uniform_buffers = {rain_block},
+			shader = post_source.GetPreExposureGLSL("rain_data") .. MOMENTS_GLSL .. rain.GetCoverageGLSL() .. [[
+				void main() {
+					ivec2 pixel = ivec2(gl_FragCoord.xy);
+					float transmittance = moments_transmittance(
+						texelFetch(TEXTURE(rain_data.b0_tex), pixel, 0).r,
+						texelFetch(TEXTURE(rain_data.moments_tex), pixel, 0),
+						moments_warp_depth(distance(in_position, rain_data.camera_position), rain_data.depth_warp)
+					);
+					float alpha = get_rain_alpha();
+					set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
+					// streaks are thin and fast, a pixel with one follows it, or taa would average it away
+					set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
+				}
+			]],
+		},
+		CullMode = "none",
 		Blend = true,
 		SrcColorBlendFactor = "one",
 		DstColorBlendFactor = "one",

@@ -4,6 +4,7 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local commands = import("goluwa/cli/commands.lua")
 local grass = import("goluwa/render3d/grass.lua")
+local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local system = import("goluwa/system.lua")
 local camera_block = {
 	name = "gbuffer_data",
@@ -11,10 +12,12 @@ local camera_block = {
 	block = {
 		render3d.camera_block,
 		render3d.prev_camera_block,
+		surface_weather.block,
 	},
 	write = function(self, block)
 		render3d.WriteCameraBlock(self, block)
 		render3d.WritePreviousCameraBlock(self, block)
+		surface_weather.WriteBlock(self, block)
 		return block
 	end,
 	upload_scope = "frame",
@@ -73,7 +76,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		DepthFormat = "d32_sfloat",
 		fragment = {
 			uniform_buffers = uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_weather.GetGLSL("gbuffer_data") .. [[
 					// both endpoints go through their own frame's camera, so a still
 					// object under a moving camera and a moving object under a still
 					// camera come out of the same subtraction. the divide by w is
@@ -287,18 +290,25 @@ local function build_ssdm_fragment_shader(displacement_var)
 			float alpha = get_alpha_uv(displacement.uv);
 			compute_translucency_and_discard(alpha);
 
+			vec3 albedo = get_albedo_world(displacement.uv, displacement.world_pos);
+			vec3 normal = get_normal(displacement.uv, tbn);
+			float metallic = get_metallic(displacement.uv);
+			float roughness = get_roughness(displacement.uv);
+			float transmission = get_transmission(displacement.uv);
+			// thin translucent leaves are waxy rather than porous
+			apply_surface_weather(albedo, roughness, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, normal);
 			set_alpha(alpha);
-			set_albedo(get_albedo_world(displacement.uv, displacement.world_pos));
-			set_normal(get_normal(displacement.uv, tbn) * 0.5 + 0.5);
+			set_albedo(albedo);
+			set_normal(normal * 0.5 + 0.5);
 			set_transmission_scattering(get_transmission_scattering());
 			vec3 transmission_tint = get_transmission_color();
 			set_transmission_tint_r(transmission_tint.r * 0.5);
 			set_transmission_tint_b(transmission_tint.b * 0.5);
-			set_metallic(get_metallic(displacement.uv));
-			set_roughness(get_roughness(displacement.uv));
+			set_metallic(metallic);
+			set_roughness(roughness);
 			set_ao(get_ao(displacement.uv));
 			set_specular(get_specular(displacement.uv));
-			set_transmission(get_transmission(displacement.uv));
+			set_transmission(transmission);
 			set_emissive(get_emissive(displacement.uv));
 			// the undisplaced position on both sides. parallax shifts the surface
 			// by the same amount in both frames when the view barely changed, so
