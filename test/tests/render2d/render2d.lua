@@ -2,6 +2,7 @@ local T = import("test/environment.lua")
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local Texture = import("goluwa/render/texture.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -1237,3 +1238,19 @@ T.Test2DFrames(
 		}
 	end
 )
+
+T.Test2D("Graphics render2d draws srgb and unorm textures with the same bytes the same", function()
+	local bytes = ffi.new("uint8_t[4]", 188, 100, 40, 255)
+	local srgb = Texture.New{width = 1, height = 1, format = "r8g8b8a8_srgb", buffer = bytes}
+	local unorm = Texture.New{width = 1, height = 1, format = "r8g8b8a8_unorm", buffer = bytes}
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.SetTexture(srgb)
+	render2d.DrawRect(0, 0, 8, 8)
+	render2d.SetTexture(unorm)
+	render2d.DrawRect(8, 0, 8, 8)
+	render2d.SetTexture()
+	return function()
+		T.AssertScreenPixel{pos = {4, 4}, color = {188 / 255, 100 / 255, 40 / 255, 1}, tolerance = 0.02}
+		T.AssertScreenPixel{pos = {12, 4}, color = {188 / 255, 100 / 255, 40 / 255, 1}, tolerance = 0.02}
+	end
+end)

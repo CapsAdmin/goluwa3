@@ -1267,8 +1267,14 @@ function render2d.Initialize()
 					vec4 color = in_color * draw.global_color;
 
 					if (draw.texture_index >= 0) {
-						vec4 tex = texture(TEXTURE(draw.texture_index), uv);
-						color *= apply_swizzle(tex);
+						vec4 tex = apply_swizzle(texture(TEXTURE(draw.texture_index), uv));
+
+						// an srgb format texture is already linear once sampled
+						if (FLAGS_LINEAR_TEXTURE != 0) {
+							return vec4(srgb_to_linear(color.rgb) * tex.rgb, color.a * tex.a);
+						}
+
+						color *= tex;
 					}
 
 					color.rgb = srgb_to_linear(color.rgb);
@@ -1664,6 +1670,7 @@ do
 				},
 			},
 			{name = "CLAMP_BORDER_RADIUS"},
+			{name = "LINEAR_TEXTURE"},
 			{name = "MSDF"},
 			{name = "LIGHTING"},
 			{
@@ -1862,6 +1869,11 @@ do
 
 	function render2d.SetTexture(tex)
 		render2d.state.render.textures.texture = tex
+
+		if tex then
+			render2d.SetFlagBits("LINEAR_TEXTURE", tex ~= nil and tex:IsSRGB())
+		end
+
 		-- Register texture with the pipeline BEFORE sync_pipeline_state is called.
 		-- This ensures the descriptor set includes the texture when it's bound.
 		local pipeline = render2d.GetActivePipeline()
