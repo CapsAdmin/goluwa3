@@ -1353,6 +1353,16 @@ do
 		vc.matrix = v
 		vc.slots = slots
 		vc.slot_count = slot_count
+		vc.alpha_tested = false
+
+		for i = 1, slot_count do
+			if scene_bvh.materials[slots[i].material_id + 1]:GetAlphaTest() then
+				vc.alpha_tested = true
+
+				break
+			end
+		end
+
 		local emissive = false
 		local total = 0
 
@@ -2116,6 +2126,10 @@ do
 	local VK_INDEX_TYPE_NONE = 1000165000
 	local BUILD_PREFER_FAST_TRACE = 4
 	local INSTANCE_FACING_CULL_DISABLE = 0x01000000
+	-- the soup has no uvs to alpha test a hit with, so alpha tested visuals are
+	-- non-opaque and rays that can do without them cull them
+	local INSTANCE_FORCE_OPAQUE = 0x04000000
+	local INSTANCE_FORCE_NO_OPAQUE = 0x08000000
 	local BLAS_ALIGN = 256
 	local BLAS_POOL_BYTES = 64 * 1024 * 1024
 	local SCRATCH_BUDGET = 128 * 1024 * 1024
@@ -2283,7 +2297,11 @@ do
 		instance.transform.matrix[0][0] = 1
 		instance.transform.matrix[1][1] = 1
 		instance.transform.matrix[2][2] = 1
-		instance.sbrtAndFlags = INSTANCE_FACING_CULL_DISABLE
+		instance.sbrtAndFlags = INSTANCE_FACING_CULL_DISABLE + (
+				vc.alpha_tested and
+				INSTANCE_FORCE_NO_OPAQUE or
+				INSTANCE_FORCE_OPAQUE
+			)
 		instance.customAndMask = 0xFF000000 + vc.tri_base / SOUP_ALIGN
 		instance.accelerationStructureReference = vc.rt_address
 	end

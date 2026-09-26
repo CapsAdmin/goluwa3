@@ -146,7 +146,7 @@ return {
 				// off the surface by more than depth reconstruction's error,
 				// which grows with distance like the cascades' texels
 				vec3 origin = world_pos + normal * (0.01 + 0.05 * reach);
-				rayQueryInitializeEXT(query, shadow_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, light_dir, reach);
+				rayQueryInitializeEXT(query, shadow_scene, gl_RayFlagsCullNoOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, light_dir, reach);
 
 				while (rayQueryProceedEXT(query)) {}
 
