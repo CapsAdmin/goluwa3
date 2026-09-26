@@ -34,6 +34,8 @@ local DEFAULT_SUN_ILLUMINANCE = 126000
 local SUN_RADIUS = 500.0
 local SUN_DISTANCE = 100000.0
 local DEBUG_DISABLE_SCENERY_FOG = false
+local SCENERY_FOG_SCALE_HEIGHT = 0.28
+local SCENERY_FOG_EXTINCTION = 0.34
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 atmosphere.fog_density = 0.15
 
@@ -135,10 +137,10 @@ local atmosphere_shared_glsl = [[
 		"0.0" or
 		"1.0"
 	) .. [[;
-	const float SCENERY_FOG_SCALE_HEIGHT = 0.28;
+	const float SCENERY_FOG_SCALE_HEIGHT = ]] .. SCENERY_FOG_SCALE_HEIGHT .. [[;
 	const float SCENERY_FOG_TOP_HEIGHT = 1.1;
 	const float SCENERY_FOG_TOP_SOFTNESS = 0.3;
-	const float SCENERY_FOG_EXTINCTION = 0.34;
+	const float SCENERY_FOG_EXTINCTION = ]] .. SCENERY_FOG_EXTINCTION .. [[;
 	const float SCENERY_FOG_MIE_G = 0.6;
 	const float MIE_BETA = 0.021;
 	const float MIE_BETA_EXT = 0.0231;
@@ -902,6 +904,21 @@ local function destroy_all_sky_view_textures()
 	end
 
 	atmosphere.sky_view_texture_order = {}
+end
+
+do
+	-- koschmieder: the distance where contrast drops to 2%
+	local CONTRAST_THRESHOLD = -math.log(0.02)
+	local SEA_LEVEL_EXTINCTION_PER_METER = SCENERY_FOG_EXTINCTION * math.exp(-SEA_LEVEL_EYE_HEIGHT / SCENERY_FOG_SCALE_HEIGHT) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
+
+	-- visibility at sea level in meters from the low altitude fog alone
+	function atmosphere.SetVisibility(meters)
+		atmosphere.fog_density = CONTRAST_THRESHOLD / meters / SEA_LEVEL_EXTINCTION_PER_METER
+	end
+
+	function atmosphere.GetVisibility()
+		return CONTRAST_THRESHOLD / (atmosphere.fog_density * SEA_LEVEL_EXTINCTION_PER_METER)
+	end
 end
 
 function atmosphere.SetSunIlluminance(illuminance)

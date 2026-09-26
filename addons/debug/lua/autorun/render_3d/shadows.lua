@@ -4,6 +4,7 @@ local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
+local weather = import("goluwa/render3d/weather.lua")
 local Texture = import("goluwa/render/texture.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local Visual = import("goluwa/entities/components/visual.lua").Library
@@ -229,7 +230,7 @@ end
 event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 	if not show_shadow_map and not rawget(_G, "SHADOW_DEBUG_VIEW") then return end
 
-	local sun = _G.SUN_ENTITY
+	local sun = weather.GetSun()
 
 	if not sun then return end
 

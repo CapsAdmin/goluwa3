@@ -587,6 +587,44 @@ function cgf.ExtractStaticMeshData(parsed)
 	return entries
 end
 
+-- like CryEngine, a material name with a path is relative to the game root, ie the folder holding Objects/
+function cgf.ResolveMaterialPath(model_path, material_name)
+	local material_root = file_path.GetFolderFromPath(model_path)
+	local name = file_path.FixPathSlashes(material_name):gsub("%.[mM][tT][lL]$", "")
+
+	if name:find("/", 1, true) then
+		material_root = material_root:sub(1, (material_root:lower():find("/objects/", 1, true) or 0))
+	end
+
+	local material_path = material_root .. name .. ".mtl"
+	return vfs.FindMixedCasePath(material_path) or material_path
+end
+
+function cgf.GetMaterialPaths(path)
+	local parsed = cgf.Open(path)
+	local model_path = parsed.file.path_used or path
+	local out = {}
+	local seen = {}
+
+	for _, chunk in ipairs(parsed.chunks) do
+		if chunk.type == cgf.CHUNK_MTL_NAME then
+			local name = cgf.ReadMaterialNameChunk(parsed.file, chunk).name
+
+			if name ~= "" then
+				local material_path = cgf.ResolveMaterialPath(model_path, name)
+
+				if not seen[material_path] then
+					seen[material_path] = true
+					out[#out + 1] = material_path
+				end
+			end
+		end
+	end
+
+	parsed.file:Close()
+	return out
+end
+
 function cgf.DecodeModel(path, full_path, mesh_callback)
 	local ok_open, parsed_or_err = pcall(cgf.Open, full_path)
 
@@ -595,9 +633,7 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 	end
 
 	local parsed = parsed_or_err
-	local material_root = file_path.GetFolderFromPath(parsed.file.path_used or full_path)
-	-- like CryEngine, a material name with a path is relative to the game root, ie the folder holding Objects/
-	local game_root = material_root:sub(1, (material_root:lower():find("/objects/", 1, true) or 0))
+	local model_path = parsed.file.path_used or full_path
 	local resolved_material_paths = {}
 	local ok, result = xpcall(function()
 		for _, entry in ipairs(cgf.ExtractStaticMeshData(parsed)) do
@@ -605,17 +641,15 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 			local material = nil
 
 			if entry.material_name then
-				local name = file_path.FixPathSlashes(entry.material_name):gsub("%.[mM][tT][lL]$", "")
-				local material_path = (name:find("/", 1, true) and game_root or material_root) .. name .. ".mtl"
-				local resolved_material_path = resolved_material_paths[material_path]
+				local material_path = resolved_material_paths[entry.material_name]
 
-				if resolved_material_path == nil then
-					resolved_material_path = vfs.FindMixedCasePath(material_path) or material_path
-					resolved_material_paths[material_path] = resolved_material_path
+				if not material_path then
+					material_path = cgf.ResolveMaterialPath(model_path, entry.material_name)
+					resolved_material_paths[entry.material_name] = material_path
 				end
 
-				if vfs.IsFile(resolved_material_path) then
-					material = Material.FromCryMTL(resolved_material_path, entry.subset_material_id)
+				if vfs.IsFile(material_path) then
+					material = Material.FromCryMTL(material_path, entry.subset_material_id)
 				else
 					logf(
 						"crytek material not found for %q referenced by model %q\n",

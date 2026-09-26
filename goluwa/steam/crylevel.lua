@@ -253,6 +253,23 @@ end
 function crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
 	-- yaw is a rotation around cry +z, which maps to engine +y with the same handedness
 	local rotation = Quat(0, 0, 0, 1):Rotate(entry.yaw or 0, 0, 1, 0)
+	local position = crylevel.CryVec3ToEngine(entry.position)
+
+	-- cry's fit to terrain moves each vertex up by a fit of the terrain height around the instance and keeps it
+	-- upright, the linear part of that is a shear of the world matrix
+	if entry.fit_to_terrain and entry.terrain_normal then
+		local up = entry.terrain_normal
+		local slope_x = -up.x / up.y
+		local slope_z = -up.z / up.y
+		local matrix = Matrix44():Identity()
+		matrix:SetRotation(rotation)
+		matrix:Scale(entry.scale, entry.scale, entry.scale)
+		matrix.m01 = matrix.m01 + slope_x * matrix.m00 + slope_z * matrix.m02
+		matrix.m11 = matrix.m11 + slope_x * matrix.m10 + slope_z * matrix.m12
+		matrix.m21 = matrix.m21 + slope_x * matrix.m20 + slope_z * matrix.m22
+		matrix:SetTranslation(position.x, position.y, position.z)
+		return {matrix = matrix}
+	end
 
 	if entry.terrain_normal then
 		local up = entry.terrain_normal:GetNormalized()
@@ -265,7 +282,7 @@ function crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
 	end
 
 	return {
-		position = crylevel.CryVec3ToEngine(entry.position),
+		position = position,
 		rotation = rotation:GetNormalized(),
 		scale = Vec3(entry.scale, entry.scale, entry.scale),
 	}
@@ -565,7 +582,39 @@ function crylevel.ParseEditorLevelDocument(document)
 		end
 	end
 
+	local sun_direction
+	local fog_density
+	local missions = find_child_by_tag(root, "Missions")
+
+	for mission in iter_children_by_tag(missions, "Mission") do
+		if mission.attrs.Name == missions.attrs.Current then
+			local time_of_day = find_child_by_tag(mission, "TimeOfDay")
+			local lighting = find_child_by_tag(mission, "Lighting")
+
+			for variable in iter_children_by_tag(time_of_day, "Variable") do
+				if variable.attrs.Name == "Volumetric fog: Global density" then
+					fog_density = tonumber(variable.attrs.Value)
+				end
+			end
+
+			if time_of_day and lighting then
+				-- CTimeOfDay: (0, 1, 0) * RotZ(time) * RotX(longitude) * RotY(-latitude), then y and z swapped
+				local time = ((tonumber(time_of_day.attrs.Time) + 12) / 24) * math.pi * 2
+				local longitude = 0.5 * math.pi - math.rad(tonumber(lighting.attrs.Longitude))
+				local latitude = -math.rad(tonumber(lighting.attrs.SunRotation))
+				local x, y, z = math.sin(time), math.cos(time), 0
+				y, z = y * math.cos(longitude), -y * math.sin(longitude)
+				x, z = x * math.cos(latitude) - z * math.sin(latitude),
+				x * math.sin(latitude) + z * math.cos(latitude)
+				-- toward the sun
+				sun_direction = crylevel.CryVec3ToEngine(Vec3(x, -z, y))
+			end
+		end
+	end
+
 	return {
+		sun_direction = sun_direction,
+		fog_density = fog_density,
 		heightmap_width = tonumber(attrs.HeightmapWidth) or 0,
 		heightmap_height = tonumber(attrs.HeightmapHeight) or 0,
 		tile_count_x = tonumber(attrs.TileCountX) or 0,
@@ -641,15 +690,17 @@ function crylevel.IsVegetationPrototypeSupportedFirstPass(objects, terrain)
 	return objects and (not objects.align_to_terrain or terrain ~= nil)
 end
 
-function crylevel.DecodeVegetationYawFromRecord(data, offset)
-	local packed = read_u32_le(data, offset + (8 * 4)) or 0
-	local x = bit.band(packed, 0xFF) - 128
-	local y = bit.band(bit.rshift(packed, 8), 0xFF) - 128
-	local length = math.sqrt(x * x + y * y)
+-- fit to terrain is a flag of the vegetation shader, so it comes from the override material or the model's own
+function crylevel.IsVegetationFitToTerrain(material_paths)
+	local Material = import("goluwa/render3d/material.lua")
 
-	if length < 8 then return 0, length end
+	for _, material_path in ipairs(material_paths) do
+		if Material.CryMTLHasGenFlag(material_path, "TERRAINHEIGHTADAPTION") then
+			return true
+		end
+	end
 
-	return math.atan2(y, x), length
+	return false
 end
 
 local function sample_terrain_height_at_world(terrain, world_x, world_z)
@@ -683,18 +734,21 @@ end
 function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 	if type(data) ~= "string" or data == "" then return {} end
 
+	-- packed records of what the sandbox vegetation brush painted:
+	-- f32 x, f32 y, f32 z, f32 scale, u8 prototype id, u8 brightness, u8 angle (0-255 around cry +z)
 	local entries = {}
-	local stride = 76
-	local count = math.floor(#data / stride)
+	local stride = 19
 
-	for index = 0, count - 1 do
+	if #data % stride ~= 0 then
+		wlog("cry vegetation instance data size %d is not a multiple of %d", #data, stride)
+	end
+
+	for index = 0, math.floor(#data / stride) - 1 do
 		local offset = index * stride + 1
-		local prototype_bits = read_u32_le(data, offset + 16) or 0
-		local prototype_id = bit.band(prototype_bits, 0xFF)
+		local prototype_id, brightness, angle = data:byte(offset + 16, offset + 18)
 		local prototype = prototypes and prototypes.by_id and prototypes.by_id[prototype_id] or nil
 
 		if crylevel.IsVegetationPrototypeSupportedFirstPass(prototype, terrain) then
-			local yaw, yaw_strength = crylevel.DecodeVegetationYawFromRecord(data, offset)
 			local position = Vec3(
 				read_f32_le(data, offset) or 0,
 				read_f32_le(data, offset + 4) or 0,
@@ -702,7 +756,7 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 			)
 			local terrain_normal
 
-			if prototype.align_to_terrain and terrain then
+			if (prototype.align_to_terrain or prototype.fit_to_terrain) and terrain then
 				local engine_position = crylevel.CryVec3ToEngine(position)
 				terrain_normal = sample_terrain_normal_at_world(terrain, engine_position.x, engine_position.z)
 			end
@@ -714,8 +768,9 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 				prototype_id = prototype_id,
 				position = position,
 				scale = read_f32_le(data, offset + 12) or 1,
-				yaw = yaw,
-				yaw_strength = yaw_strength,
+				yaw = angle / 255 * math.pi * 2,
+				brightness = brightness,
+				fit_to_terrain = prototype.fit_to_terrain,
 				terrain_normal = terrain_normal,
 			}
 		end
@@ -1302,15 +1357,8 @@ local function get_or_create_cry_terrain_layers(terrain)
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
 					-- mapped from cry's specular color the same way as for models, most layers have none
 					specular = material:GetSpecularMultiplier(),
-					-- cry layers say nothing about grass, grass in crysis is painted vegetation. layers named for
-					-- grass grow it, except paths like road_grass_patches_brown_soil, which are mostly bare
-					grass = (
-							surface_type.name:lower():find("grass", 1, true) and
-							not surface_type.name:lower():find("road", 1, true)
-						)
-						and
-						1 or
-						0,
+					-- no procedural grass, grass in crysis is painted vegetation
+					grass = 0,
 					roughness = 1,
 					ao = 1,
 				}
@@ -1745,22 +1793,38 @@ function crylevel.Apply(steam)
 
 		local terrain = select(1, crylevel.LoadTerrainData(steam, level_dir))
 		local vegetation_entries = {}
+		local vegetation_prototypes
 		local vegetation_map_data = editor_level_data
 
 		if vegetation_map_data then
 			local prototypes, vegetation_map_err = crylevel.ParseVegetationMapData(vegetation_map_data)
+			vegetation_prototypes = prototypes
 			local vegetation_instances_data, vegetation_instances_err = vfs.Read(level_dir .. level_name .. ".cry/vegetationinstancesarray.editor_data")
 
 			if prototypes and vegetation_instances_data then
-				vegetation_entries = crylevel.ParseVegetationInstancesData(vegetation_instances_data, prototypes, terrain)
+				for _, prototype in ipairs(prototypes.list) do
+					prototype.model_path = crylevel.ResolveModelPath(steam, level_dir, prototype.model_path)
 
-				for _, entry in ipairs(vegetation_entries) do
-					entry.model_path = crylevel.ResolveModelPath(steam, level_dir, entry.model_path)
+					if prototype.material_path then
+						prototype.material_path = crylevel.ResolveMaterialPath(steam, level_dir, prototype.material_path)
+					end
 
-					if entry.material_path then
-						entry.material_path = crylevel.ResolveMaterialPath(steam, level_dir, entry.material_path)
+					local material_paths = prototype.material_path and
+						{prototype.material_path} or
+						import("goluwa/render3d/model_decoders/cgf.lua").GetMaterialPaths(prototype.model_path)
+					prototype.fit_to_terrain = crylevel.IsVegetationFitToTerrain(material_paths)
+
+					-- the terrain color is set on the materials of the override, so the model's own becomes one
+					if
+						prototype.use_terrain_color and
+						not prototype.material_path and
+						#material_paths == 1
+					then
+						prototype.material_path = material_paths[1]
 					end
 				end
+
+				vegetation_entries = crylevel.ParseVegetationInstancesData(vegetation_instances_data, prototypes, terrain)
 			elseif vegetation_map_err then
 				wlog(
 					"failed to parse cry vegetation map %s: %s",
@@ -1780,6 +1844,7 @@ function crylevel.Apply(steam)
 			level_dir = level_dir,
 			entries = entries,
 			vegetation_entries = vegetation_entries,
+			vegetation_prototypes = vegetation_prototypes,
 			terrain = terrain,
 		}
 		return steam.loaded_cry_levels[level_dir]
@@ -1826,6 +1891,17 @@ function crylevel.Apply(steam)
 		local water_level = data.terrain and data.terrain.water_level or 0
 		render3d.SetOceanEnabled(water_level > 0)
 		render3d.SetOceanLevel(water_level + 1)
+		local editor_level = data.terrain and data.terrain.editor_level
+		local weather = import("goluwa/render3d/weather.lua")
+
+		if editor_level and editor_level.fog_density then
+			-- cry's renderer scales the editor density by 0.01 into extinction per meter
+			weather.SetVisibility(-math.log(0.02) / (editor_level.fog_density * 0.01))
+		end
+
+		if editor_level and editor_level.sun_direction then
+			weather.SetSunDirection(editor_level.sun_direction)
+		end
 
 		if not steam.cry_skip_models then
 			for _, entry in ipairs(data.entries) do
@@ -1845,14 +1921,40 @@ function crylevel.Apply(steam)
 				entity.spawned_from_cry_level = true
 			end
 
+			-- like cry's blend with terrain color, grass with UseTerrainColor takes on the terrain's color below it
+			if data.terrain and data.terrain.cover and data.vegetation_prototypes then
+				local Material = import("goluwa/render3d/material.lua")
+				local texture = get_or_create_cry_albedo_texture(data.terrain)
+				local size = data.terrain.world_size
+				-- the same mapping as cry_terrain_uv, u runs along engine -z and v along engine +x
+				local uv = Color(0, -1 / size, 1 / size, 0)
+
+				for _, prototype in ipairs(data.vegetation_prototypes.list) do
+					if prototype.use_terrain_color and prototype.material_path then
+						for _, material in ipairs(Material.FromCryMTLList(prototype.material_path)) do
+							if material:GetGroundColorBlend() > 0 then
+								material:SetGroundColorTexture(texture)
+								material:SetGroundColorUV(uv)
+							end
+						end
+					end
+				end
+			end
+
 			for _, entry in ipairs(data.vegetation_entries or {}) do
 				local transform_data = crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
 				local entity = Entity.New{Name = entry.name or "cry_vegetation", Parent = parent}
 				local transform = entity:AddComponent("transform")
 				entity:AddComponent("visual")
-				transform:SetPosition(transform_data.position)
-				transform:SetRotation(transform_data.rotation)
-				transform:SetScale(transform_data.scale)
+
+				if transform_data.matrix then
+					transform:SetFromMatrix(transform_data.matrix)
+				else
+					transform:SetPosition(transform_data.position)
+					transform:SetRotation(transform_data.rotation)
+					transform:SetScale(transform_data.scale)
+				end
+
 				entity.visual:SetModelPath(entry.model_path)
 
 				if entry.material_path then

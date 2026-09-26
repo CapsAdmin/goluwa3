@@ -44,8 +44,9 @@ function META:Initialize()
 	update_temp_scale(self)
 end
 
+-- the local matrix is then this one as is, which may have shear, instead of being built from position, rotation and scale
 function META:SetFromMatrix(matrix)
-	self.LocalMatrix = matrix:Copy()
+	self.FromMatrix = matrix:Copy()
 	self:InvalidateMatrices()
 end
 
@@ -192,10 +193,10 @@ function META:GetLocalMatrix()
 	end
 
 	if not self.LocalMatrix or dynamic then
-		self.LocalMatrix = Matrix44()
+		self.LocalMatrix = self.FromMatrix and self.FromMatrix:Copy() or Matrix44()
 		self.LocalMatrixFrame = dynamic and frame or nil
 
-		if not self.SkipRebuild then
+		if not self.FromMatrix and not self.SkipRebuild then
 			-- ORIENTATION / TRANSFORMATION
 			local interpolated_pos, interpolated_rot = self:GetRenderPositionRotation()
 			local pos = self.OverridePosition or interpolated_pos or self.Position

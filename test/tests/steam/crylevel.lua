@@ -248,7 +248,7 @@ T.Test("Cry level parser reads vegetation prototypes from editor xml", function(
 	T(vegetation.by_id[56].random_rotation)["=="](true)
 end)
 
-T.Test("Cry level parser reads first-pass vegetation instances from fixed records", function()
+T.Test("Cry level parser reads painted vegetation instances", function()
 	local vegetation = assert(
 		crylevel.ParseVegetationMapData([[
 <Level>
@@ -262,9 +262,10 @@ T.Test("Cry level parser reads first-pass vegetation instances from fixed record
 </Level>
 		]])
 	)
-	local supported = pack_f32_le(1548.375) .. pack_f32_le(1903.96875) .. pack_f32_le(236.1796875) .. pack_f32_le(0.8685) .. pack_u32_le(65) .. string.rep("\0", 56)
-	local random_yaw = pack_f32_le(100) .. pack_f32_le(200) .. pack_f32_le(300) .. pack_f32_le(1.25) .. pack_u32_le(3) .. string.rep("\0", 12) .. string.char(128, 255, 0, 0) .. string.rep("\0", 40)
-	local unsupported = pack_f32_le(1456.9) .. pack_f32_le(2090.8) .. pack_f32_le(196.9) .. pack_f32_le(0.433) .. pack_u32_le(56) .. string.rep("\0", 56)
+	local supported = pack_f32_le(1548.375) .. pack_f32_le(1903.96875) .. pack_f32_le(236.1796875) .. pack_f32_le(0.8685) .. string.char(65, 30, 0)
+	-- angle 255 is a full turn, so 64 is a quarter turn
+	local random_yaw = pack_f32_le(100) .. pack_f32_le(200) .. pack_f32_le(300) .. pack_f32_le(1.25) .. string.char(3, 30, 64)
+	local unsupported = pack_f32_le(1456.9) .. pack_f32_le(2090.8) .. pack_f32_le(196.9) .. pack_f32_le(0.433) .. string.char(56, 30, 0)
 	local terrain = {
 		world_size = 1,
 		heightmap_max_height = 1,
@@ -290,14 +291,14 @@ T.Test("Cry level parser reads first-pass vegetation instances from fixed record
 	T(transform.scale.z)["~"](0.8685, 0.0001)
 	T(entries[2].prototype_id)["=="](3)
 	T(entries[2].model_path)["=="]("objects/natural/bushes/groundfernbush/ground_fern_bush_big_a.cgf")
-	T(entries[2].yaw)["~"](math.pi / 2, 0.001)
-	T(entries[2].yaw_strength > 120)["=="](true)
+	T(entries[2].yaw)["~"](64 / 255 * math.pi * 2, 0.001)
+	T(entries[2].brightness)["=="](30)
 	local random_transform = crylevel.ConvertCryVegetationInstanceToEngineTransform(entries[2])
 	T(random_transform.position.x)["~"](100, 0.001)
 	T(random_transform.position.y)["~"](300, 0.001)
 	T(random_transform.position.z)["~"](-200, 0.001)
 	local random_right = get_basis(random_transform)
-	T((random_right - Vec3(0, 0, -1)):GetLength())["~"](0, 0.001)
+	T((random_right - Vec3(0, 0, -1)):GetLength())["~"](0, 0.01)
 	T(entries[3].prototype_id)["=="](56)
 	T(entries[3].terrain_normal ~= nil)["=="](true)
 	local aligned_transform = crylevel.ConvertCryVegetationInstanceToEngineTransform(entries[3])
@@ -305,6 +306,17 @@ T.Test("Cry level parser reads first-pass vegetation instances from fixed record
 	T(aligned_up.x)["~"](0, 0.001)
 	T(aligned_up.y)["~"](1, 0.001)
 	T(aligned_up.z)["~"](0, 0.001)
+	-- fit to terrain on ground rising 1 per meter along engine +x shears the model onto it and keeps it upright
+	local fit = crylevel.ConvertCryVegetationInstanceToEngineTransform{
+		position = Vec3(0, 0, 0),
+		scale = 2,
+		yaw = 0,
+		fit_to_terrain = true,
+		terrain_normal = Vec3(-1, 1, 0):GetNormalized(),
+	}
+	local fit_origin = fit.matrix:TransformVector(Vec3(0, 0, 0))
+	T((fit.matrix:TransformVector(Vec3(1, 0, 0)) - fit_origin - Vec3(2, 2, 0)):GetLength())["~"](0, 0.001)
+	T((fit.matrix:TransformVector(Vec3(0, 1, 0)) - fit_origin - Vec3(0, 2, 0)):GetLength())["~"](0, 0.001)
 end)
 
 T.Test("Cry cover parser reads the terrain texture quadtree", function()

@@ -72,6 +72,11 @@ Material:GetSet("HeightLayers", 24)
 Material:GetSet("DetailTiling", Vec2(1.0, 1.0))
 Material:GetSet("DetailBumpScale", 1.0)
 Material:GetSet("DetailBlendAmount", 0.0)
+-- blends the albedo towards a world space ground color texture, ie vegetation picking up the terrain's color
+Material:GetSet("GroundColorTexture", nil, {type = "render_texture"})
+Material:GetSet("GroundColorBlend", 0.0)
+-- the texture's uv is (dot(world.xz, rg), dot(world.xz, ba))
+Material:GetSet("GroundColorUV", Color(1.0, 0.0, 0.0, 1.0))
 -- how much of the diffuse light goes through a thin surface, like a leaf, and out its other side
 Material:GetSet("DiffuseTransmission", 0.0, {callback = "InvalidateFlags"})
 -- tints the light going through, on top of the albedo. only its hue is used
@@ -579,7 +584,13 @@ do
 		},
 		Metal = {DETAIL_BUMP_MAPPING = 0x8000, ALPHAGLOW = 0x20},
 		Cloth = {DETAIL_BUMP_MAPPING = 0x40000},
-		Vegetation = {DETAIL_BUMP_MAPPING = 0x20000, LEAVES = 0x100, GRASS = 0x2000},
+		Vegetation = {
+			DETAIL_BUMP_MAPPING = 0x20000,
+			LEAVES = 0x100,
+			GRASS = 0x2000,
+			-- "fit to terrain", the vertex shader bends the model's height to the terrain's around the instance
+			TERRAINHEIGHTADAPTION = 0x4000,
+		},
 	}
 	-- MtlFlags
 	local MTL_FLAG_2SIDED = 0x2
@@ -667,6 +678,11 @@ do
 		-- leaves and grass light their back face through the opacity map, which is never alpha
 		-- crysis adds BackDiffuse * BackDiffuseMultiplier * albedo of back light next to the albedo of front light,
 		-- so its brightness is the ratio of light going through to light reflected, and its color the tint
+		-- with the vegetation's UseTerrainColor, grass is lerped towards the terrain color by this much
+		if has_gen("GRASS") then
+			self:SetGroundColorBlend(tonumber(params.blendWithTerrainAmount) or 0.5)
+		end
+
 		if leaves then
 			local r, g, b = unpack_csv_numbers(params.BackDiffuse)
 			local multiplier = tonumber(params.BackDiffuseMultiplier) or 1
@@ -1354,6 +1370,47 @@ do
 				end,
 			}
 		)
+	end
+
+	-- the materials a cry mtl override applies, one per sub material or the mtl as a whole
+	function Material.FromCryMTLList(path)
+		local document = load_cry_mtl_document(path)
+		local sub_materials = document and find_child_by_tag(document.children[1], "SubMaterials")
+
+		if not sub_materials then return {Material.FromCryMTL(path)} end
+
+		local out = {}
+
+		for _ in iter_children_by_tag(sub_materials, "Material") do
+			out[#out + 1] = Material.FromCryMTL(path, #out)
+		end
+
+		return out
+	end
+
+	-- whether the material or any of its sub materials sets a GenMask flag from GEN_MASKS
+	function Material.CryMTLHasGenFlag(path, name)
+		local document = load_cry_mtl_document(path)
+
+		if not document then return false end
+
+		local stack = {document.children[1]}
+
+		while stack[1] do
+			local node = table.remove(stack)
+			local attrs = node.attrs or {}
+			local mask = (GEN_MASKS[attrs.Shader or ""] or {})[name]
+
+			if mask and bit.band(tonumber(attrs.GenMask) or 0, mask) ~= 0 then
+				return true
+			end
+
+			for child in iter_children_by_tag(find_child_by_tag(node, "SubMaterials"), "Material") do
+				stack[#stack + 1] = child
+			end
+		end
+
+		return false
 	end
 
 	function Material.FromVMT(path)

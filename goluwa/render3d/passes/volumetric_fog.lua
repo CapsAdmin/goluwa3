@@ -575,6 +575,9 @@ local composite_pass = {
 				} else if (depth < 1.0) {
 					vec4 view_pos = fog_data.inv_projection * vec4(in_uv * 2.0 - 1.0, depth, 1.0);
 					hit_distance = -view_pos.z / view_pos.w * length(get_view_dir(in_uv));
+					// the sky and the ocean already carry the atmosphere in front of them
+					vec3 world_pos = (fog_data.inv_view * vec4(view_pos.xyz / view_pos.w, 1.0)).xyz;
+					scene.rgb = apply_atmospheric_aerial_perspective(scene.rgb, world_pos, get_current_primary_sun_direction(), fog_data.camera_position.xyz, 1.0, 1.0);
 				}
 
 				vec4 fog = get_volumetric_fog(in_uv, hit_distance);

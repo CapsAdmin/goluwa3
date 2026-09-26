@@ -41,6 +41,9 @@ local PBR_DETAIL_FIELDS = {
 	{type = "vec2", name = "DetailTiling", getter = "GetDetailTiling"},
 	{type = "float", name = "DetailBumpScale", getter = "GetDetailBumpScale"},
 	{type = "float", name = "DetailBlendAmount", getter = "GetDetailBlendAmount"},
+	{type = "texture", name = "GroundColorTexture", getter = "GetGroundColorTexture"},
+	{type = "float", name = "GroundColorBlend", getter = "GetGroundColorBlend"},
+	{type = "vec4", name = "GroundColorUV", getter = "GetGroundColorUV"},
 }
 local PBR_AUX_FIELDS = {
 	{
@@ -1186,7 +1189,8 @@ function model_pipeline.GetPBRDetailUploadKey()
 		material:GetAlbedo2Texture() == nil and
 		material:GetNormal2Texture() == nil and
 		material:GetBlendTexture() == nil and
-		material:GetDetailTexture() == nil
+		material:GetDetailTexture() == nil and
+		material:GetGroundColorTexture() == nil
 	then
 		return NO_PBR_DETAIL_KEY
 	end
@@ -1866,13 +1870,22 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				return get_terrain_layer_sample(uv, world_pos).albedo * ]] .. color_var .. [[.ColorMultiplier.rgb;
 			}
 
+			vec3 blend_ground_color(vec3 albedo, vec3 world_pos) {
+				if (]] .. detail_var .. [[.GroundColorTexture == -1) return albedo;
+
+				vec4 m = ]] .. detail_var .. [[.GroundColorUV;
+				vec2 ground_uv = vec2(dot(world_pos.xz, m.xy), dot(world_pos.xz, m.zw));
+				vec3 ground = texture(TEXTURE(]] .. detail_var .. [[.GroundColorTexture), ground_uv).rgb;
+				return mix(albedo, ground, ]] .. detail_var .. [[.GroundColorBlend);
+			}
+
 			vec3 get_albedo_world(vec2 uv, vec3 world_pos) {
 				if (]] .. terrain_var .. [[.TerrainMaterialTexture != -1) {
 					return get_terrain_albedo_uv(uv, world_pos);
 				}
 
 				if (]] .. model_var .. [[.AlbedoTexture == -1) {
-					return ]] .. color_var .. [[.ColorMultiplier.rgb;
+					return blend_ground_color(]] .. color_var .. [[.ColorMultiplier.rgb, world_pos);
 				}
 
 				vec3 rgb1 = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
@@ -1892,7 +1905,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 					rgb1 = mix(rgb1, rgb1 * detail, ]] .. detail_var .. [[.DetailBlendAmount);
 				}
 
-				return rgb1 * ]] .. color_var .. [[.ColorMultiplier.rgb;
+				return blend_ground_color(rgb1 * ]] .. color_var .. [[.ColorMultiplier.rgb, world_pos);
 			}
 
 			vec3 get_albedo_uv(vec2 uv) {
