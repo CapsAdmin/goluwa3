@@ -43,7 +43,7 @@ local function build_virtual_children(entity, guid)
 
 			if
 				type(value) == "table" and
-				value.IsValid and
+				type(value.IsValid) == "function" and
 				value:IsValid() and
 				value.GetGUID
 			then
