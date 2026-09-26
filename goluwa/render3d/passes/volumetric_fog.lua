@@ -274,7 +274,7 @@ local scatter_pass = {
 
 		// radiance of the light around P averaged over all directions
 		vec3 get_ambient(vec3 P, vec2 uv, vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, uint seed) {
-			vec3 sky = get_scenery_fog_sky_ambient(ray_origin, ray_dir, sun_dir);
+			vec3 sky = get_scenery_fog_sky_ambient(ray_origin, ray_dir);
 
 			if (ddgi_data.ddgi_cascade_count > 0 && ddgi_in_volume(P)) {
 				// one random direction a frame; the history averages them

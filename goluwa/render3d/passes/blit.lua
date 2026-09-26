@@ -18,12 +18,16 @@ local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
 --
 -- The eye doesn't fully adapt: a night street stays dark and noon stays
 -- bright. ADAPTATION is how much of the metered EV's distance from REFERENCE_EV
--- is compensated for, 1 for a camera's full auto exposure.
+-- is compensated for, 1 for a camera's full auto exposure. Below NIGHT_EV the
+-- eye adapts much less (it is running out of cones), so moonlight at EV -4
+-- stays a dark night instead of being lifted to dusk.
 render3d.exposure = {
 	lock = nil,
 	compensation = 0,
 	adaptation = 0.85,
 	reference_ev = 9,
+	night_ev = 3,
+	night_adaptation = 0.25,
 	min_ev = -4,
 	max_ev = 18,
 	-- the metered average is taken between these fractions of the (centre
@@ -70,6 +74,10 @@ end)
 
 commands.Add("r_exposure_adaptation=number[0.85]", function(value)
 	render3d.exposure.adaptation = value
+end)
+
+commands.Add("r_exposure_night_adaptation=number[0.5]", function(value)
+	render3d.exposure.night_adaptation = value
 end)
 
 commands.Add("r_tonemapper=string[agx]", function(name)
@@ -202,7 +210,8 @@ local exposure_feedback_shader = [[
 		}
 
 		float metered_ev = log2_to_ev(log_sum / max(weight_sum, 1.0));
-		float ev = compute.reference_ev + (metered_ev - compute.reference_ev) * compute.adaptation;
+		float ev = compute.reference_ev + (max(metered_ev, compute.night_ev) - compute.reference_ev) * compute.adaptation;
+		ev += min(metered_ev - compute.night_ev, 0.0) * compute.night_adaptation;
 		ev = clamp(ev - compute.compensation, compute.min_ev, compute.max_ev);
 
 		if (compute.lock != 0) ev = compute.lock_ev - compute.compensation;
@@ -256,6 +265,8 @@ local exposure_feedback_pass = {
 		{"compensation", "float"},
 		{"adaptation", "float"},
 		{"reference_ev", "float"},
+		{"night_ev", "float"},
+		{"night_adaptation", "float"},
 		{"min_ev", "float"},
 		{"max_ev", "float"},
 		{"low_percent", "float"},
@@ -273,6 +284,8 @@ local exposure_feedback_pass = {
 		block.compensation = view and view.ExposureCompensation or e.compensation
 		block.adaptation = e.adaptation
 		block.reference_ev = e.reference_ev
+		block.night_ev = e.night_ev
+		block.night_adaptation = e.night_adaptation
 		block.min_ev = e.min_ev
 		block.max_ev = e.max_ev
 		block.low_percent = e.low_percent

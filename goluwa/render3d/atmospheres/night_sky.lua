@@ -1,38 +1,55 @@
+-- what is behind the atmosphere: stars, the milky way, the night glow and the moon, in cd/m2 like the sky
+-- the star sphere is turned by ATMOSPHERE_CELESTIAL_X/Y/Z, so it follows render3d/weather.lua's time and place
 return [[
-	float night_hash1(float n) {
-		return fract(sin(n) * 43758.5453);
+	// a magnitude 0 star gives 2.08e-6 lux, and there are 10^(0.5 m) times more stars brighter than m
+	const float STAR_MAX_MAGNITUDE = 7.5;
+	const float STAR_FACE_CELLS = 64.0;
+	// stars are gaussians this wide in radians, about a pixel at 1080p and a 70 degree fov
+	const float STAR_SIGMA = 0.0007;
+	// airglow and zodiacal light at the zenith of a dark site, ~21.8 mag/arcsec2
+	const float NIGHT_GLOW_ZENITH_LUMINANCE = 1.5e-4;
+	// the brightest parts of the milky way, ~20 mag/arcsec2
+	const float MILKY_WAY_LUMINANCE = 1.0e-3;
+	// equatorial (j2000) directions of the galactic north pole and center
+	const vec3 GALACTIC_NORTH_POLE = vec3(-0.8677, -0.1981, 0.4560);
+	const vec3 GALACTIC_CENTER = vec3(-0.0549, -0.8734, -0.4838);
+	// allen's full moon at its mean distance, 0.263 lux, over the disc's 6.42e-5 sr
+	const float MOON_FULL_LUMINANCE = 4098.0;
+	// the full earth lighting the moon's dark side, relative to the sun lighting its bright side
+	const float MOON_EARTHSHINE = 3e-4;
+
+	uvec3 night_pcg3d(uvec3 v) {
+		v = v * 1664525u + 1013904223u;
+		v.x += v.y * v.z;
+		v.y += v.z * v.x;
+		v.z += v.x * v.y;
+		v ^= v >> 16u;
+		v.x += v.y * v.z;
+		v.y += v.z * v.x;
+		v.z += v.x * v.y;
+		return v;
 	}
 
-	float night_hash1v2(vec2 p) {
-		return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+	vec3 night_random3(uvec3 v) {
+		return vec3(night_pcg3d(v)) * (1.0 / 4294967296.0);
 	}
 
-	vec2 night_hash2v2(vec2 p) {
-		p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-		return fract(sin(p) * 43758.5453);
-	}
-
-	float night_hash1v3(vec3 p) {
-		return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
-	}
-
-	float night_noise3(vec3 x) {
-		vec3 i = floor(x);
-		vec3 f = fract(x);
+	float night_noise(vec3 p) {
+		vec3 i = floor(p);
+		vec3 f = fract(p);
 		f = f * f * (3.0 - 2.0 * f);
-
-		float n000 = night_hash1v3(i + vec3(0.0, 0.0, 0.0));
-		float n100 = night_hash1v3(i + vec3(1.0, 0.0, 0.0));
-		float n010 = night_hash1v3(i + vec3(0.0, 1.0, 0.0));
-		float n110 = night_hash1v3(i + vec3(1.0, 1.0, 0.0));
-		float n001 = night_hash1v3(i + vec3(0.0, 0.0, 1.0));
-		float n101 = night_hash1v3(i + vec3(1.0, 0.0, 1.0));
-		float n011 = night_hash1v3(i + vec3(0.0, 1.0, 1.0));
-		float n111 = night_hash1v3(i + vec3(1.0, 1.0, 1.0));
-
+		uvec3 c = uvec3(ivec3(i) + 32768);
 		return mix(
-			mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
-			mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+			mix(
+				mix(night_random3(c).x, night_random3(c + uvec3(1, 0, 0)).x, f.x),
+				mix(night_random3(c + uvec3(0, 1, 0)).x, night_random3(c + uvec3(1, 1, 0)).x, f.x),
+				f.y
+			),
+			mix(
+				mix(night_random3(c + uvec3(0, 0, 1)).x, night_random3(c + uvec3(1, 0, 1)).x, f.x),
+				mix(night_random3(c + uvec3(0, 1, 1)).x, night_random3(c + uvec3(1, 1, 1)).x, f.x),
+				f.y
+			),
 			f.z
 		);
 	}
@@ -42,206 +59,143 @@ return [[
 		float amplitude = 0.5;
 
 		for (int i = 0; i < 5; i++) {
-			value += amplitude * night_noise3(p);
-			p *= 2.07;
+			value += amplitude * night_noise(p);
+			p *= 2.03;
 			amplitude *= 0.5;
 		}
 
-		return value;
+		return value / 0.96875;
 	}
 
-	vec3 night_rotate_y(vec3 dir, float angle) {
-		float c = cos(angle);
-		float s = sin(angle);
-		return vec3(
-			dir.x * c - dir.z * s,
-			dir.y,
-			dir.x * s + dir.z * c
-		);
+	// color of a random naked eye star with luminance 1: many orange giants, fewer blue-white stars
+	vec3 night_star_color(float r) {
+		float t = r < 0.3 ? mix(3500.0, 5000.0, r / 0.3) :
+			r < 0.55 ? mix(5000.0, 6500.0, (r - 0.3) / 0.25) :
+			r < 0.8 ? mix(6500.0, 10000.0, (r - 0.55) / 0.25) :
+			mix(10000.0, 25000.0, (r - 0.8) / 0.2);
+		// tanner helland's blackbody fit, in srgb
+		t /= 100.0;
+		vec3 c;
+		c.r = t <= 66.0 ? 1.0 : clamp(1.29293618606 * pow(t - 60.0, -0.1332047592), 0.0, 1.0);
+		c.g = t <= 66.0 ? clamp(0.39008157876 * log(t) - 0.63184144378, 0.0, 1.0) : clamp(1.12989086089 * pow(t - 60.0, -0.0755148492), 0.0, 1.0);
+		c.b = t >= 66.0 ? 1.0 : (t <= 19.0 ? 0.0 : clamp(0.54320678911 * log(t - 10.0) - 1.19625408914, 0.0, 1.0));
+		c = pow(c, vec3(2.2));
+		// the eye barely sees color in stars
+		c = mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, 0.6);
+		return c / dot(c, vec3(0.2126, 0.7152, 0.0722));
 	}
 
-	vec3 night_rotate_x(vec3 dir, float angle) {
-		float c = cos(angle);
-		float s = sin(angle);
-		return vec3(
-			dir.x,
-			dir.y * c - dir.z * s,
-			dir.y * s + dir.z * c
-		);
-	}
+	// one candidate star in each cell of a cube around the sky
+	vec3 get_stars(vec3 eq) {
+		vec3 a = abs(eq);
+		uint face;
+		vec2 uv;
 
-	vec3 night_rotate_z(vec3 dir, float angle) {
-		float c = cos(angle);
-		float s = sin(angle);
-		return vec3(
-			dir.x * c - dir.y * s,
-			dir.x * s + dir.y * c,
-			dir.z
-		);
-	}
-
-	vec3 night_blackbody(float temperature) {
-		float t = clamp(temperature, 1000.0, 25000.0);
-		float t2 = t * t;
-		float r;
-		float g;
-		float b;
-
-		if (t <= 6600.0) {
-			r = 1.0;
+		if (a.x >= a.y && a.x >= a.z) {
+			face = eq.x > 0.0 ? 0u : 1u;
+			uv = eq.yz / a.x;
+		} else if (a.y >= a.z) {
+			face = eq.y > 0.0 ? 2u : 3u;
+			uv = eq.xz / a.y;
 		} else {
-			r = clamp(1.292 * pow(t / 6600.0 - 0.5, -0.1332), 0.0, 1.0);
+			face = eq.z > 0.0 ? 4u : 5u;
+			uv = eq.xy / a.z;
 		}
 
-		if (t <= 6600.0) {
-			g = clamp(-0.4494 + 0.0101 * log(t) * log(t) - 0.000195 * t + 0.00000001 * t2, 0.0, 1.0);
-		} else {
-			g = clamp(1.130 * pow(t / 6600.0 - 0.5, -0.0755), 0.0, 1.0);
+		vec2 cell = min(floor((uv * 0.5 + 0.5) * STAR_FACE_CELLS), STAR_FACE_CELLS - 1.0);
+		vec3 r = night_random3(uvec3(uvec2(cell), face));
+		vec3 r2 = night_random3(uvec3(uvec2(cell) + 7919u, face + 17u));
+		// kept off the cell's edges so its glow never crosses into the next cell
+		vec2 star_uv = (cell + 0.15 + 0.7 * r.xy) / STAR_FACE_CELLS * 2.0 - 1.0;
+
+		// cells near the cube's corners cover less sky, thinning them keeps the stars even
+		if (r2.x > pow(1.0 + dot(star_uv, star_uv), -1.5)) return vec3(0.0);
+
+		vec3 star = face < 2u ? vec3(face == 0u ? 1.0 : -1.0, star_uv) :
+			face < 4u ? vec3(star_uv.x, face == 2u ? 1.0 : -1.0, star_uv.y) :
+			vec3(star_uv, face == 4u ? 1.0 : -1.0);
+		star = normalize(star);
+		// the inverse of the magnitude counts, a uniform r.z gives the right share of bright stars
+		float magnitude = STAR_MAX_MAGNITUDE + 2.0 * log(max(r.z, 1e-7)) * 0.4342945;
+
+		// faint stars crowd toward the galactic plane
+		if (magnitude > 4.0 && r2.y > mix(1.0, 0.45, smoothstep(0.0, 0.5, abs(dot(star, GALACTIC_NORTH_POLE))))) {
+			return vec3(0.0);
 		}
 
-		if (t >= 6600.0) {
-			b = 1.0;
-		} else if (t <= 1900.0) {
-			b = 0.0;
-		} else {
-			b = clamp(-0.744 + 0.0517 * log(t - 1890.0), 0.0, 1.0);
-		}
-
-		vec3 color = pow(clamp(vec3(r, g, b), 0.0, 1.0), vec3(2.2));
-		float luminance = dot(color, vec3(0.299, 0.587, 0.114));
-		float warm = 1.0 - smoothstep(4200.0, 6500.0, t);
-		float saturation = mix(1.0, 0.45, warm);
-		return mix(vec3(luminance), color, saturation);
+		vec3 d = eq - star;
+		float glow = exp(-dot(d, d) / (2.0 * STAR_SIGMA * STAR_SIGMA)) / (2.0 * PI * STAR_SIGMA * STAR_SIGMA);
+		return night_star_color(r2.z) * (2.08e-6 * pow(10.0, -0.4 * magnitude) * glow);
 	}
 
-	float night_star_temperature(float seed) {
-		float r = night_hash1(seed * 13.1 + 0.7);
-		if (r < 0.22) return mix(3800.0, 5000.0, night_hash1(seed * 3.3));
-		if (r < 0.56) return mix(5000.0, 6200.0, night_hash1(seed * 7.1));
-		if (r < 0.80) return mix(6200.0, 7800.0, night_hash1(seed * 2.9));
-		if (r < 0.93) return mix(7800.0, 12000.0, night_hash1(seed * 5.5));
-		if (r < 0.985) return mix(12000.0, 22000.0, night_hash1(seed * 1.7));
-		return mix(22000.0, 35000.0, night_hash1(seed * 9.3));
+	vec3 get_milky_way(vec3 eq) {
+		float sin_latitude = dot(eq, GALACTIC_NORTH_POLE);
+		float latitude = asin(clamp(sin_latitude, -1.0, 1.0));
+		vec3 in_plane = eq - GALACTIC_NORTH_POLE * sin_latitude;
+		// 1 toward the galactic center, 0 toward the anticenter
+		float toward_center = dot(in_plane / max(length(in_plane), 1e-5), GALACTIC_CENTER) * 0.5 + 0.5;
+		float width = mix(0.10, 0.20, toward_center);
+		float band = exp(-latitude * latitude / (2.0 * width * width)) * mix(0.25, 1.0, toward_center * toward_center);
+		vec3 to_center = eq - GALACTIC_CENTER;
+		float bulge = exp(-dot(to_center, to_center) / 0.06) * 1.2;
+		float clumps = night_fbm(eq * 9.0);
+		// the dark dust lanes along the plane, the great rift toward the center
+		float dust = smoothstep(0.45, 0.7, night_fbm(eq * 6.0 + 3.1)) * exp(-latitude * latitude / (2.0 * 0.05 * 0.05)) * mix(0.3, 1.0, toward_center);
+		vec3 color = mix(vec3(0.85, 0.92, 1.08), vec3(1.08, 0.97, 0.82), toward_center);
+		return color * ((band + bulge) * mix(0.6, 1.4, clumps) * (1.0 - 0.8 * dust) * MILKY_WAY_LUMINANCE);
 	}
 
-	float night_galactic_density(vec3 dir) {
-		float cos_t = 0.866;
-		float sin_t = 0.5;
-		float gy = dir.y * cos_t - dir.z * sin_t;
-		float latitude = asin(clamp(gy, -1.0, 1.0));
-		float plane = exp(-latitude * latitude / 0.055);
-		vec3 galactic_center = vec3(0.0, sin_t, cos_t);
-		float center_glow = exp(-dot(dir - galactic_center, dir - galactic_center) * 4.0) * 2.0;
-		return clamp(plane * (1.0 + center_glow), 0.0, 1.0);
+	// the glowing layer ~100 km up is seen through a longer path toward the horizon (van rhijn)
+	vec3 get_night_glow(vec3 dir) {
+		float sin_zenith_sq = 1.0 - clamp(dir.y, 0.0, 1.0) * clamp(dir.y, 0.0, 1.0);
+		return vec3(0.85, 1.0, 0.8) * (NIGHT_GLOW_ZENITH_LUMINANCE / sqrt(1.0 - 0.9693 * sin_zenith_sq));
 	}
 
-	vec3 night_milky_way(vec3 dir) {
-		float density = night_galactic_density(dir);
-		float dust_a = night_fbm(dir * 3.5 + vec3(2.1, 0.5, 1.3));
-		float dust_b = night_fbm(dir * 8.0 + vec3(0.2, 3.1, 0.8));
-		vec3 color = mix(vec3(0.7, 0.55, 0.35), vec3(0.45, 0.55, 0.85), dust_a);
-		color += vec3(0.25, 0.18, 0.35) * dust_b * 0.4;
-		return color * density * density * 0.07;
+	// everything behind the atmosphere but the moon's disc
+	vec3 get_night_sky(vec3 dir) {
+		vec3 color = get_night_glow(dir);
+
+		// the moon hides what is behind it
+		if (dot(dir, ATMOSPHERE_MOON_DIRECTION) > cos(ATMOSPHERE_MOON_ANGULAR_RADIUS)) return color;
+
+		vec3 eq = normalize(vec3(dot(ATMOSPHERE_CELESTIAL_X, dir), dot(ATMOSPHERE_CELESTIAL_Y, dir), dot(ATMOSPHERE_CELESTIAL_Z, dir)));
+		return color + get_stars(eq) + get_milky_way(eq);
 	}
 
-	vec3 night_airglow(vec3 dir) {
-		float h = clamp(1.0 - dir.y * 5.0, 0.0, 1.0);
-		return vec3(0.05, 0.18, 0.03) * h * h * 0.035;
+	// the dark seas on the face the moon always turns to us, 1 on average
+	float get_moon_albedo(vec2 p) {
+		float seas = smoothstep(0.5, 0.62, night_fbm(vec3(p * 2.2, 5.3)));
+		return mix(1.15, 0.6, seas) * mix(0.9, 1.1, night_fbm(vec3(p * 9.0, 1.7)));
 	}
 
-	vec3 night_rotate_celestial(vec3 dir, vec3 sun_dir) {
-		float sun_azimuth = atan(sun_dir.z, sun_dir.x);
-		float sun_elevation = asin(clamp(sun_dir.y, -1.0, 1.0));
-		float pitch = 0.35 - sun_elevation * 0.65;
-		vec3 rotated = night_rotate_y(dir, -sun_azimuth);
-		rotated = night_rotate_x(rotated, pitch);
-		rotated = night_rotate_z(rotated, 0.41);
-		return normalize(rotated);
-	}
+	vec3 get_moon_disc(vec3 dir, vec3 cam_pos) {
+		float radius = ATMOSPHERE_MOON_ANGULAR_RADIUS;
 
-	vec3 night_star_field(vec3 rotated_dir) {
-		vec3 color = vec3(0.0);
-		float layer_scale[3];
-		layer_scale[0] = 80.0;
-		layer_scale[1] = 300.0;
-		layer_scale[2] = 1100.0;
+		if (radius <= 0.0) return vec3(0.0);
 
-		float layer_brightness[3];
-		layer_brightness[0] = 2.5;
-		layer_brightness[1] = 0.6;
-		layer_brightness[2] = 0.15;
+		vec3 moon = ATMOSPHERE_MOON_DIRECTION;
 
-		for (int layer = 0; layer < 3; layer++) {
-			float scale = layer_scale[layer];
-			float brightness = layer_brightness[layer];
-			vec3 ad = abs(rotated_dir);
-			int face;
-			vec2 uv;
+		if (dot(dir, moon) < cos(radius * 1.03)) return vec3(0.0);
 
-			if (ad.x >= ad.y && ad.x >= ad.z) {
-				face = rotated_dir.x > 0.0 ? 0 : 1;
-				uv = (rotated_dir.x > 0.0 ? vec2(-rotated_dir.z, rotated_dir.y) : vec2(rotated_dir.z, rotated_dir.y)) / ad.x;
-			} else if (ad.y >= ad.z) {
-				face = rotated_dir.y > 0.0 ? 2 : 3;
-				uv = (rotated_dir.y > 0.0 ? vec2(rotated_dir.x, -rotated_dir.z) : vec2(rotated_dir.x, rotated_dir.z)) / ad.y;
-			} else {
-				face = rotated_dir.z > 0.0 ? 4 : 5;
-				uv = (rotated_dir.z > 0.0 ? vec2(rotated_dir.x, rotated_dir.y) : vec2(-rotated_dir.x, rotated_dir.y)) / ad.z;
-			}
+		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
 
-			vec2 scaled = uv * scale;
-			vec2 cell = floor(scaled);
-			vec2 frac_uv = fract(scaled);
+		if (ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS).x > 0.0) return vec3(0.0);
 
-			for (int dy = -1; dy <= 1; dy++) {
-				for (int dx = -1; dx <= 1; dx++) {
-					vec2 nc = cell + vec2(float(dx), float(dy));
-					vec2 jitter = night_hash2v2(nc + float(face) * 37.3 + float(layer) * 113.7);
-					float seed = night_hash1v2(nc + float(face) * 17.1 + float(layer) * 91.3);
-
-					vec2 star_uv = (nc + jitter) / scale;
-					vec3 star_dir;
-					if (face == 0) star_dir = normalize(vec3(1.0, star_uv.y, -star_uv.x));
-					else if (face == 1) star_dir = normalize(vec3(-1.0, star_uv.y, star_uv.x));
-					else if (face == 2) star_dir = normalize(vec3(star_uv.x, 1.0, -star_uv.y));
-					else if (face == 3) star_dir = normalize(vec3(star_uv.x, -1.0, star_uv.y));
-					else if (face == 4) star_dir = normalize(vec3(star_uv.x, star_uv.y, 1.0));
-					else star_dir = normalize(vec3(-star_uv.x, star_uv.y, -1.0));
-
-					float galactic_density = night_galactic_density(star_dir);
-					float probability = mix(0.04, 0.80, galactic_density);
-					if (seed > probability) continue;
-
-					float luminance = pow(night_hash1(seed * 7.3 + 1.1), 3.0) * brightness;
-					if (luminance < 0.0002) continue;
-
-					vec2 delta = frac_uv - jitter - vec2(float(dx), float(dy));
-					vec2 delta_screen = delta * scale;
-					float star_sigma_sq = mix(1.4, 4.0, min(luminance / brightness, 1.0));
-					float final_sigma_sq = max(star_sigma_sq, 1.2 * 1.2);
-					float d2 = dot(delta_screen, delta_screen);
-					float disc = exp(-d2 / (2.0 * final_sigma_sq));
-					disc *= star_sigma_sq / final_sigma_sq;
-					if (disc < 0.00005) continue;
-
-					vec3 star_color = night_blackbody(night_star_temperature(seed * 4.1 + float(layer) * 0.7));
-
-					float altitude = clamp(rotated_dir.y, 0.0, 1.0);
-					float twinkle = mix(1.15, 0.98, altitude);
-					color += star_color * disc * luminance * twinkle;
-				}
-			}
-		}
-
-		return color * 0.05;
-	}
-
-	vec3 get_stars(vec3 dir, vec3 sunDir) {
-		dir = normalize(dir);
-		vec3 celestial_dir = night_rotate_celestial(dir, normalize(sunDir));
-		vec3 hdr = night_star_field(celestial_dir);
-
-		float night_visibility = smoothstep(0.04, -0.18, sunDir.y);
-		return hdr * night_visibility;
+		// the disc's up is the celestial north pole
+		vec3 up = normalize(ATMOSPHERE_CELESTIAL_Z - moon * dot(ATMOSPHERE_CELESTIAL_Z, moon));
+		vec3 right = cross(moon, up);
+		vec2 p = vec2(dot(dir, right), dot(dir, up)) / sin(radius);
+		float r = length(p);
+		float edge = clamp((1.0 - r) / 0.03 + 0.5, 0.0, 1.0);
+		vec3 normal = p.x * right + p.y * up - sqrt(max(1.0 - r * r, 0.0)) * moon;
+		vec3 sun = ATMOSPHERE_SKY_SUN_DIRECTION;
+		// lommel-seeliger, regolith looks like a flat disc at full moon rather than a lit ball
+		float mu0 = dot(normal, sun);
+		float mu = max(dot(normal, -moon), 1e-4);
+		float lit = mu0 > 0.0 ? 2.0 * mu0 / (mu0 + mu) : 0.0;
+		// the earth is full seen from a new moon
+		float earthshine = MOON_EARTHSHINE * (0.5 - 0.5 * dot(sun, -moon));
+		vec3 transmittance = sample_transmittance_lut(ray_origin, moon);
+		return transmittance * (MOON_FULL_LUMINANCE * get_moon_albedo(p) * (lit + earthshine) * edge);
 	}
 ]]

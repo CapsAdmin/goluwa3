@@ -230,7 +230,7 @@ end
 event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 	if not show_shadow_map and not rawget(_G, "SHADOW_DEBUG_VIEW") then return end
 
-	local sun = weather.GetSun()
+	local sun = weather.GetLight()
 
 	if not sun then return end
 

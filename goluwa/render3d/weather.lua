@@ -11,38 +11,115 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local weather = {}
 local SUN_TOA_ILLUMINANCE = 126000
 local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
+local EARTH_RADIUS_KM = 6371
+local MOON_RADIUS_KM = 1737.4
+local MOON_MEAN_DISTANCE_KM = 384400
+local SUN_TINT = Vec3(1.0, 0.98, 0.95)
+-- moonlight is sunlight off a slightly red rock
+local MOON_TINT = SUN_TINT * Vec3(1.0, 0.94, 0.86)
 weather.latitude = 21.176852
 weather.longitude = 106.068101
 -- 2026-06-21 10:00 local time at the default location
 weather.time = 1782010800
 weather.time_scale = 0
+-- the drawn moon's size relative to the real 0.52 degrees, the eye sees it bigger than a camera does
+weather.moon_scale = 1
 weather.sun_rotation_override = nil
-weather.sun = nil
+weather.light = nil
 weather.shadow_maps = {}
 
+local function days_since_j2000(unix_time)
+	return unix_time / 86400 - 10957.5
+end
+
+local function equatorial_vector(right_ascension, declination)
+	return Vec3(
+		math.cos(declination) * math.cos(right_ascension),
+		math.cos(declination) * math.sin(right_ascension),
+		math.sin(declination)
+	)
+end
+
+local function ecliptic_to_equatorial(longitude, latitude, obliquity)
+	local x = math.cos(latitude) * math.cos(longitude)
+	local y = math.cos(latitude) * math.sin(longitude)
+	local z = math.sin(latitude)
+	return Vec3(
+		x,
+		y * math.cos(obliquity) - z * math.sin(obliquity),
+		y * math.sin(obliquity) + z * math.cos(obliquity)
+	)
+end
+
+-- the rows turn a world direction into an equatorial one (x toward the vernal equinox, z the celestial
+-- north pole), the sky turns around the pole once a sidereal day
 -- world directions: east is +x, up is +y, north is -z
-function weather.GetSunDirectionAt(unix_time, latitude, longitude)
-	-- low precision solar position from the astronomical almanac, good to about 0.01 degrees
-	local n = unix_time / 86400 - 10957.5
+function weather.GetCelestialRotationAt(unix_time, latitude, longitude)
+	local sidereal = math.rad((18.697374558 + 24.06570982441908 * days_since_j2000(unix_time)) * 15 + longitude)
+	local lat = math.rad(latitude)
+	local s, c = math.sin(sidereal), math.cos(sidereal)
+	return Vec3(-s, math.cos(lat) * c, math.sin(lat) * c),
+	Vec3(c, math.cos(lat) * s, math.sin(lat) * s),
+	Vec3(0, math.sin(lat), -math.cos(lat))
+end
+
+local function equatorial_to_world(e, x, y, z)
+	return Vec3(
+		x.x * e.x + y.x * e.y + z.x * e.z,
+		x.y * e.x + y.y * e.y + z.y * e.z,
+		x.z * e.x + y.z * e.y + z.z * e.z
+	)
+end
+
+-- low precision solar position from the astronomical almanac, good to about 0.01 degrees
+local function get_sun_equatorial(unix_time)
+	local n = days_since_j2000(unix_time)
 	local mean_longitude = math.rad(280.460 + 0.9856474 * n)
 	local mean_anomaly = math.rad(357.528 + 0.9856003 * n)
 	local ecliptic_longitude = mean_longitude + math.rad(1.915) * math.sin(mean_anomaly) + math.rad(0.020) * math.sin(2 * mean_anomaly)
-	local obliquity = math.rad(23.439 - 0.0000004 * n)
-	local right_ascension = math.atan2(math.cos(obliquity) * math.sin(ecliptic_longitude), math.cos(ecliptic_longitude))
-	local declination = math.asin(math.sin(obliquity) * math.sin(ecliptic_longitude))
-	local sidereal_time = math.rad((18.697374558 + 24.06570982441908 * n) * 15 + longitude)
-	local hour_angle = sidereal_time - right_ascension
-	local lat = math.rad(latitude)
-	local east = -math.cos(declination) * math.sin(hour_angle)
-	local north = math.cos(lat) * math.sin(declination) - math.sin(lat) * math.cos(declination) * math.cos(hour_angle)
-	local up = math.sin(lat) * math.sin(declination) + math.cos(lat) * math.cos(declination) * math.cos(hour_angle)
-	return Vec3(east, up, -north)
+	return ecliptic_to_equatorial(ecliptic_longitude, 0, math.rad(23.439 - 0.0000004 * n))
+end
+
+-- low precision lunar position from the astronomical almanac, good to a few tenths of a degree
+-- returns the geocentric equatorial direction and the distance in km
+local function get_moon_equatorial(unix_time)
+	local n = days_since_j2000(unix_time)
+	local mean_longitude = math.rad(218.316 + 13.176396 * n)
+	local mean_anomaly = math.rad(134.963 + 13.064993 * n)
+	local argument_of_latitude = math.rad(93.272 + 13.229350 * n)
+	local ecliptic_longitude = mean_longitude + math.rad(6.289) * math.sin(mean_anomaly)
+	local ecliptic_latitude = math.rad(5.128) * math.sin(argument_of_latitude)
+	local distance = 385001 - 20905 * math.cos(mean_anomaly)
+	return ecliptic_to_equatorial(ecliptic_longitude, ecliptic_latitude, math.rad(23.439 - 0.0000004 * n)),
+	distance
+end
+
+function weather.GetSunDirectionAt(unix_time, latitude, longitude)
+	return equatorial_to_world(
+		get_sun_equatorial(unix_time),
+		weather.GetCelestialRotationAt(unix_time, latitude, longitude)
+	)
+end
+
+-- the moon's direction from the observer (so shifted by up to a degree from the earth's center),
+-- its distance in km and its top of atmosphere illuminance in lux
+function weather.GetMoonAt(unix_time, latitude, longitude)
+	local equatorial, distance = get_moon_equatorial(unix_time)
+	local geocentric = equatorial_to_world(equatorial, weather.GetCelestialRotationAt(unix_time, latitude, longitude))
+	local topocentric = geocentric * distance - Vec3(0, EARTH_RADIUS_KM, 0)
+	distance = topocentric:GetLength()
+	-- phase angle, sun to moon to observer, the sun being far enough to use its direction from here
+	local phase_angle = math.deg(math.acos(math.clamp(-get_sun_equatorial(unix_time):GetDot(equatorial), -1, 1)))
+	-- allen's lunar magnitude by phase, with magnitude 0 at 2.08e-6 lux
+	local magnitude = -12.73 + 0.026 * phase_angle + 4e-9 * phase_angle ^ 4
+	local illuminance = 10 ^ (-0.4 * (magnitude + 14.18)) * (MOON_MEAN_DISTANCE_KM / distance) ^ 2
+	return topocentric / distance, distance, illuminance
 end
 
 function weather.SetLocation(latitude, longitude)
 	weather.latitude = latitude
 	weather.longitude = longitude
-	weather.UpdateSun()
+	weather.UpdateSky()
 end
 
 function weather.GetLocation()
@@ -51,7 +128,7 @@ end
 
 function weather.SetTime(unix_time)
 	weather.time = unix_time
-	weather.UpdateSun()
+	weather.UpdateSky()
 end
 
 function weather.GetTime()
@@ -68,7 +145,7 @@ end
 
 function weather.SetSunRotation(rotation)
 	weather.sun_rotation_override = rotation:GetNormalized()
-	weather.UpdateSun()
+	weather.UpdateSky()
 end
 
 -- the sun light points along its rotation's backward vector, (0, 0, 1) unrotated
@@ -78,7 +155,7 @@ end
 
 function weather.ClearSunRotation()
 	weather.sun_rotation_override = nil
-	weather.UpdateSun()
+	weather.UpdateSky()
 end
 
 function weather.GetSunRotation()
@@ -115,28 +192,70 @@ end
 -- 0 is a clear sky, 1 a full overcast that hides the sun
 function weather.SetCloudCover(cover)
 	atmosphere.SetCloudCover(cover)
-	weather.UpdateSun()
+	weather.UpdateSky()
 end
 
 function weather.GetCloudCover()
 	return atmosphere.GetCloudCover()
 end
 
-function weather.GetSun()
-	return weather.sun
+function weather.SetMoonScale(scale)
+	weather.moon_scale = scale
+	weather.UpdateSky()
 end
 
-function weather.UpdateSun()
-	if not weather.sun then return end
+function weather.GetMoonScale()
+	return weather.moon_scale
+end
 
-	local rotation = weather.GetSunRotation()
-	weather.sun.transform:SetRotation(rotation)
-	local sun_color = atmosphere.GetSunColor(rotation:GetBackward())
-	weather.sun.light_sun:SetColor(Color(sun_color.x, sun_color.y, sun_color.z, 1))
+-- the directional light, aimed at whichever of the sun and the moon lights the ground more
+function weather.GetLight()
+	return weather.light
+end
+
+function weather.GetMoonDirection()
+	return (weather.GetMoonAt(weather.time, weather.latitude, weather.longitude))
+end
+
+local function luminance(v)
+	return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
+end
+
+function weather.UpdateSky()
+	local sun_dir = weather.GetSunDirection()
+	local moon_dir, moon_distance, moon_illuminance = weather.GetMoonAt(weather.time, weather.latitude, weather.longitude)
+	local x, y, z = weather.GetCelestialRotationAt(weather.time, weather.latitude, weather.longitude)
+	atmosphere.SetSky{
+		sun_direction = sun_dir,
+		moon_direction = moon_dir,
+		moon_illuminance = moon_illuminance,
+		moon_angular_radius = math.asin(MOON_RADIUS_KM / moon_distance) * weather.moon_scale,
+		celestial_x = x,
+		celestial_y = y,
+		celestial_z = z,
+	}
+
+	if not weather.light then return end
+
+	local sun_transmittance = atmosphere.GetTransmittance(sun_dir)
+	local moon_transmittance = atmosphere.GetTransmittance(moon_dir)
+	local dir, color, illuminance
+
+	-- they cross over while both are close to nothing, so the switch is continuous
+	if
+		moon_illuminance * luminance(moon_transmittance) > SUN_TOA_ILLUMINANCE * luminance(sun_transmittance)
+	then
+		dir, color, illuminance = moon_dir, moon_transmittance * MOON_TINT, moon_illuminance
+	else
+		dir, color, illuminance = sun_dir, sun_transmittance * SUN_TINT, SUN_TOA_ILLUMINANCE
+	end
+
+	weather.light.transform:SetRotation(Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize())
+	weather.light.light_sun:SetColor(Color(color.x, color.y, color.z, 1))
 	-- the clouds block the direct light, the sky light they scatter comes from the atmosphere
 	local direct = 1 - atmosphere.GetCloudCover()
-	weather.sun.light_sun:SetLux(SUN_TOA_ILLUMINANCE * direct)
-	local transmittance = math.max(sun_color.x, sun_color.y, sun_color.z) * direct
+	weather.light.light_sun:SetLux(illuminance * direct)
+	local transmittance = math.max(color.x, color.y, color.z) * direct
 
 	for _, shadow_map in ipairs(weather.shadow_maps) do
 		shadow_map:SetEnabled(transmittance > SHADOW_CUTOFF_TRANSMITTANCE)
@@ -144,8 +263,8 @@ function weather.UpdateSun()
 end
 
 function weather.Initialize()
-	weather.sun = Entity.New{
-		Name = "sun",
+	weather.light = Entity.New{
+		Name = "sky_light",
 		transform = {},
 		light_sun = {
 			Color = Color(1.0, 0.98, 1),
@@ -156,7 +275,7 @@ function weather.Initialize()
 	weather.shadow_maps = {
 		ShadowMap.New{
 			mode = "sun",
-			light = weather.sun,
+			light = weather.light,
 			size = Vec2() + 2048,
 			cascade_count = 3,
 			cascade_formats = {
@@ -183,7 +302,7 @@ function weather.Initialize()
 		},
 		ShadowMap.New{
 			mode = "sun",
-			light = weather.sun,
+			light = weather.light,
 			size = Vec2() + 4096,
 			cascade_count = 1,
 			cascade_sizes = {Vec2() + 4096},
@@ -208,14 +327,14 @@ function weather.Initialize()
 		}
 	end
 
-	weather.UpdateSun()
+	weather.UpdateSky()
 
 	event.AddListener("Update", "weather", function(dt)
 		if weather.time_scale == 0 then return end
 
 		weather.time = weather.time + dt * weather.time_scale
 
-		if not weather.sun_rotation_override then weather.UpdateSun() end
+		if not weather.sun_rotation_override then weather.UpdateSky() end
 	end)
 end
 
