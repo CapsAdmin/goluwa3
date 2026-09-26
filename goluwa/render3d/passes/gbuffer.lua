@@ -57,14 +57,16 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 				{"metallic", "r"},
 				{"roughness", "g"},
 				{"ao", "b"},
-				{"subsurface", "a"},
+				{"transmission", "a"},
 			},
 			{"b10g11r11_ufloat_pack32", {"emissive", "rgb"}},
 			{
 				"r8g8b8a8_unorm",
-				{"transmission_blocking", "r"},
-				{"transmission_view_dep", "g"},
+				{"transmission_scattering", "r"},
+				-- the transmission tint's red and blue, halved. its luminance is 1, which gives the green
+				{"transmission_tint_r", "g"},
 				{"specular", "b"},
+				{"transmission_tint_b", "a"},
 			},
 			{"r16g16b16a16_sfloat", {"velocity", "rg"}, {"prev_view_depth", "b"}},
 		},
@@ -288,13 +290,15 @@ local function build_ssdm_fragment_shader(displacement_var)
 			set_alpha(alpha);
 			set_albedo(get_albedo_world(displacement.uv, displacement.world_pos));
 			set_normal(get_normal(displacement.uv, tbn) * 0.5 + 0.5);
-			set_transmission_view_dep(get_transmission_view_dependency());
+			set_transmission_scattering(get_transmission_scattering());
+			vec3 transmission_tint = get_transmission_color();
+			set_transmission_tint_r(transmission_tint.r * 0.5);
+			set_transmission_tint_b(transmission_tint.b * 0.5);
 			set_metallic(get_metallic(displacement.uv));
 			set_roughness(get_roughness(displacement.uv));
 			set_ao(get_ao(displacement.uv));
 			set_specular(get_specular(displacement.uv));
-			set_subsurface(get_subsurface(displacement.uv));
-			set_transmission_blocking(get_transmission_blocking(displacement.uv));
+			set_transmission(get_transmission(displacement.uv));
 			set_emissive(get_emissive(displacement.uv));
 			// the undisplaced position on both sides. parallax shifts the surface
 			// by the same amount in both frames when the view barely changed, so

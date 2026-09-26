@@ -306,3 +306,56 @@ T.Test("Cry level parser reads first-pass vegetation instances from fixed record
 	T(aligned_up.y)["~"](1, 0.001)
 	T(aligned_up.z)["~"](0, 0.001)
 end)
+
+T.Test("Cry cover parser reads the terrain texture quadtree", function()
+	local function u16(v)
+		return string.char(bit.band(v, 0xFF), bit.band(bit.rshift(v, 8), 0xFF))
+	end
+
+	-- 4x4 pixel DXT5 sectors, one layer, root with children in slots 2 and 4
+	local header = "CRY\0" .. "\100\0" .. u16(8) .. u16(1) .. u16(1) .. ffi.string(ffi.new("float[1]", 0.5), 4)
+	local layer = u16(4) .. u16(0) .. pack_u32_le(0x18) .. pack_u32_le(16)
+	local index = {
+		0,
+		0xffff,
+		1,
+		0xffff,
+		0xffff,
+		0xffff,
+		0xffff,
+		0xffff,
+		2,
+		0xffff,
+		0xffff,
+		0xffff,
+		0xffff,
+	}
+	local parts = {header, layer, u16(#index)}
+
+	for _, v in ipairs(index) do
+		parts[#parts + 1] = u16(v)
+	end
+
+	for id = 0, 2 do
+		parts[#parts + 1] = string.rep(string.char(id), 16)
+	end
+
+	local data = table.concat(parts)
+	local cover = assert(crylevel.ParseCoverData(data))
+	T(cover.sector_size)["=="](4)
+	T(cover.max_level)["=="](1)
+	T(#cover.nodes)["=="](3)
+	T(cover.nodes[1].level)["=="](0)
+	local by_offset = {}
+
+	for _, node in ipairs(cover.nodes) do
+		by_offset[data:byte(node.offset + 1)] = node
+	end
+
+	-- slot 2 is the lower left child, slot 4 the lower right
+	T(by_offset[1].x)["=="](0)
+	T(by_offset[1].y)["=="](1)
+	T(by_offset[2].x)["=="](1)
+	T(by_offset[2].y)["=="](1)
+	T(select(2, crylevel.ParseCoverData(data:sub(1, #data - 1))))["=="]("cover.ctc sector data is truncated")
+end)

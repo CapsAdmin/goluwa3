@@ -19,6 +19,10 @@ function META:Darker(factor)
 	return self:Lighter((1 - (factor or .5)) - 1)
 end
 
+function META:GetLuminance()
+	return self.r * 0.2126 + self.g * 0.7152 + self.b * 0.0722
+end
+
 function META:Get255()
 	return META.CType(self.r * 255, self.g * 255, self.b * 255, self.a * 255)
 end

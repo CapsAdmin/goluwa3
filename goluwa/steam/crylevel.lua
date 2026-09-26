@@ -6,7 +6,6 @@ local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
 local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
 local read_u32_le, read_u16_le, read_f32_le
@@ -89,47 +88,85 @@ local function parse_bool_flag(value)
 	return tostring(value or "0") == "1"
 end
 
-local function parse_cover_ctc_metadata(data)
-	if type(data) ~= "string" or #data < 0x2c then
-		return nil, "cover.ctc is truncated"
+-- cover.ctc holds the terrain texture the game renders, the editor's terraintexture.pak is only one input to it.
+-- it is a quadtree of equally sized sectors, each node stores one sector per layer, the first layer is the diffuse
+function crylevel.ParseCoverData(data)
+	if #data < 18 or data:sub(1, 3) ~= "CRY" then
+		return nil, "cover.ctc has invalid magic"
 	end
 
-	local magic = string.char(data:byte(1) or 0, data:byte(2) or 0, data:byte(3) or 0)
+	local layer_count = read_u16_le(data, 9)
+	local index_offset = 17 + layer_count * 12
 
-	if magic ~= "CRY" then return nil, "cover.ctc has invalid magic" end
-
-	local texture_resolution = read_u32_le(data, 0x11) or 0
-	local surface_slot_count = read_u32_le(data, 0x15) or 0
-	local cover_tile_count = read_u32_le(data, 0x29) or 0
-	local transition_lookup = {}
-	local lookup_offset = 0x2d
-	local lookup_entry_count = surface_slot_count * surface_slot_count
-	local lookup_bytes = lookup_entry_count * 2
-
-	if surface_slot_count <= 0 then
-		return nil, "cover.ctc has invalid surface slot count"
+	if layer_count < 1 or #data < index_offset + 1 then
+		return nil, "cover.ctc has an invalid layer count"
 	end
 
-	if #data >= lookup_offset + lookup_bytes - 1 then
-		for row = 1, surface_slot_count do
-			local row_entries = {}
-			local row_base = lookup_offset + ((row - 1) * surface_slot_count * 2)
+	-- each layer header: sector size in pixels (u16), reserved (u16), texture format (u32), sector size in bytes (u32)
+	local sector_size = read_u16_le(data, 17)
+	local sector_bytes = read_u32_le(data, 25)
 
-			for column = 1, surface_slot_count do
-				local value = read_u16_le(data, row_base + ((column - 1) * 2)) or 0xffff
-				row_entries[column] = value ~= 0xffff and value or false
-			end
+	if sector_bytes ~= sector_size * sector_size then
+		return nil,
+		string.format(
+			"cover.ctc diffuse sectors are %d bytes for %dx%d pixels, only DXT5 is supported",
+			sector_bytes,
+			sector_size,
+			sector_size
+		)
+	end
 
-			transition_lookup[row] = row_entries
+	local entry_count = read_u16_le(data, index_offset)
+	local cursor = index_offset + 2
+	local index_end = cursor + entry_count * 2
+	local data_offset = index_end - 1
+	local nodes = {}
+	local max_level = 0
+
+	-- the index lists node ids depth first, each node is followed by its 4 child slots and 0xffff marks an empty slot
+	local function read_node(level, x, y)
+		if cursor >= index_end then error("cover.ctc node index is truncated") end
+
+		local id = read_u16_le(data, cursor)
+		cursor = cursor + 2
+
+		if id == 0xffff then return end
+
+		nodes[#nodes + 1] = {
+			level = level,
+			x = x,
+			y = y,
+			offset = data_offset + id * layer_count * sector_bytes,
+		}
+		max_level = math.max(max_level, level)
+
+		for slot = 0, 3 do
+			read_node(level + 1, x * 2 + math.floor(slot / 2), y * 2 + slot % 2)
 		end
 	end
 
+	local ok, err = pcall(read_node, 0, 0, 0)
+
+	if not ok then return nil, err end
+
+	if cursor ~= index_end then
+		return nil, "cover.ctc node index has trailing entries"
+	end
+
+	if data_offset + #nodes * layer_count * sector_bytes > #data then
+		return nil, "cover.ctc sector data is truncated"
+	end
+
+	table.sort(nodes, function(a, b)
+		return a.level < b.level
+	end)
+
 	return {
-		magic = magic,
-		texture_resolution = texture_resolution,
-		surface_slot_count = surface_slot_count,
-		cover_tile_count = cover_tile_count,
-		transition_lookup = transition_lookup,
+		data = data,
+		sector_size = sector_size,
+		sector_bytes = sector_bytes,
+		max_level = max_level,
+		nodes = nodes,
 	}
 end
 
@@ -735,11 +772,6 @@ local function validate_height_tail_layout(heightmap_data, height_data_offset, h
 	return true
 end
 
-local function get_terrain_texture_tile_size(terrain)
-	local tile_span = math.max(terrain.grid_width or 0, terrain.grid_height or 0, 1)
-	return terrain.world_size > 0 and (terrain.world_size / tile_span) or 0
-end
-
 local function rebuild_terrain_height_cache(terrain)
 	local width = terrain.height_samples_width or terrain.height_samples_per_side or 0
 	local height = terrain.height_samples_height or terrain.height_samples_per_side or width
@@ -761,15 +793,6 @@ local function rebuild_terrain_height_cache(terrain)
 	terrain.height_samples = samples
 end
 
-local function rebuild_terrain_albedo_cache(terrain)
-	local tile_world_size = math.max(terrain.tile_world_size or 0, 1)
-	terrain.albedo_tile_world_size = tile_world_size
-	terrain.albedo_world_to_tile_x = 1 / tile_world_size
-	terrain.albedo_world_to_tile_y = 1 / tile_world_size
-	terrain.albedo_tile_max_x = math.max((terrain.grid_width or 1) - 1, 0)
-	terrain.albedo_tile_max_y = math.max((terrain.grid_height or 1) - 1, 0)
-end
-
 local function rebuild_terrain_surface_slot_cache(terrain)
 	local width = terrain.surface_slot_width or 0
 	local height = terrain.surface_slot_height or width
@@ -789,85 +812,6 @@ local function rebuild_terrain_surface_slot_cache(terrain)
 	terrain.surface_slot_samples = samples
 end
 
-local function decode_terrain_texture_tile(tile)
-	if tile.rgba_buffer then return tile.rgba_buffer, tile.width, tile.height end
-
-	local data, err = vfs.Read(tile.path)
-
-	if not data then
-		return nil, err or ("failed to read terrain tile " .. tostring(tile.path))
-	end
-
-	local width = read_u32_le(data, 1)
-	local height = read_u32_le(data, 5)
-
-	if not width or not height or width <= 0 or height <= 0 then
-		return nil, "invalid terrain tile header " .. tostring(tile.path)
-	end
-
-	local expected_size = 8 + width * height * 3
-
-	if #data < expected_size then
-		return nil,
-		string.format(
-			"terrain tile %s is truncated: got %d bytes expected %d",
-			tostring(tile.path),
-			#data,
-			expected_size
-		)
-	end
-
-	local rgba_buffer = ffi.new("uint8_t[?]", width * height * 4)
-	local src = ffi.cast("const uint8_t *", data) + 8
-	local dst = ffi.cast("uint8_t *", rgba_buffer)
-
-	for _ = 1, width * height do
-		-- source is interleaved BGR, destination is RGBA
-		dst[0] = src[2]
-		dst[1] = src[1]
-		dst[2] = src[0]
-		dst[3] = 255
-		src = src + 3
-		dst = dst + 4
-	end
-
-	tile.width = width
-	tile.height = height
-	tile.rgba_buffer = rgba_buffer
-	return rgba_buffer, width, height
-end
-
-local function get_terrain_tile_material(tile)
-	if tile.material and tile.texture then return tile.material end
-
-	local Texture = import("goluwa/render/texture.lua")
-	local Material = import("goluwa/render3d/material.lua")
-	local buffer, width, height = assert(decode_terrain_texture_tile(tile))
-	tile.texture = tile.texture or
-		Texture.New{
-			width = width,
-			height = height,
-			format = "r8g8b8a8_srgb",
-			buffer = buffer,
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-
-	if not tile.material then
-		local material = Material.New()
-		material:SetAlbedoTexture(tile.texture)
-		material:SetRoughnessMultiplier(1)
-		material:SetMetallicMultiplier(0)
-		tile.material = material
-	end
-
-	return tile.material
-end
-
 function crylevel.LoadTerrainData(steam, level_dir)
 	local level_data_path = level_dir .. "level.pak/leveldata.xml"
 	local level_data_xml, level_data_err = vfs.Read(level_data_path)
@@ -881,58 +825,22 @@ function crylevel.LoadTerrainData(steam, level_dir)
 	if not terrain then return nil, parse_err end
 
 	terrain.level_dir = level_dir
-	local tiles = {}
-	local terrain_texture_dir = level_dir .. "terraintexture.pak/"
-	local cover_texture_path = level_dir .. "level.pak/terrain/cover.ctc"
-	local max_x = -1
-	local max_y = -1
 	local game = steam and select(1, crylevel.FindCryGame(steam)) or nil
 
-	for _, file_name in ipairs(vfs.Find(terrain_texture_dir) or {}) do
-		local tile_x, tile_y = file_name:match("^tile(%d+)_(%d+)%.raw$")
-
-		if tile_x and tile_y then
-			tile_x = tonumber(tile_x)
-			tile_y = tonumber(tile_y)
-			max_x = math.max(max_x, tile_x)
-			max_y = math.max(max_y, tile_y)
-			tiles[#tiles + 1] = {
-				x = tile_x,
-				y = tile_y,
-				path = terrain_texture_dir .. file_name,
-			}
-		end
-	end
-
 	do
-		local cover_data, cover_err = vfs.Read(cover_texture_path)
+		local cover_path = level_dir .. "level.pak/terrain/cover.ctc"
+		local cover_data, cover_err = vfs.Read(cover_path)
 
-		if cover_data then
-			local cover_metadata, cover_parse_err = parse_cover_ctc_metadata(cover_data)
-
-			if cover_metadata then
-				terrain.cover = cover_metadata
-			else
-				wlog(
-					"failed to parse cry terrain cover metadata %s: %s",
-					tostring(cover_texture_path),
-					tostring(cover_parse_err)
-				)
-			end
-		elseif cover_err then
-			wlog(
-				"failed to read cry terrain cover file %s: %s",
-				tostring(cover_texture_path),
-				tostring(cover_err)
-			)
+		if not cover_data then
+			return nil, cover_err or ("failed to read " .. cover_path)
 		end
+
+		local cover, err = crylevel.ParseCoverData(cover_data)
+
+		if not cover then return nil, cover_path .. ": " .. err end
+
+		terrain.cover = cover
 	end
-
-	table.sort(tiles, function(a, b)
-		if a.y == b.y then return a.x < b.x end
-
-		return a.y < b.y
-	end)
 
 	local level_name = level_dir:match("/([^/]+)/$") or ""
 	local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"
@@ -1014,7 +922,6 @@ function crylevel.LoadTerrainData(steam, level_dir)
 			terrain.height_samples_width = height_samples_w
 			terrain.height_samples_height = height_samples_h
 			terrain.height_sample_scale = terrain.heightmap_max_height / 65535
-			terrain.tile_height_resolution = math.floor(height_samples_w / math.max(max_x + 1, 1))
 			rebuild_terrain_height_cache(terrain)
 		else
 			wlog(
@@ -1034,8 +941,6 @@ function crylevel.LoadTerrainData(steam, level_dir)
 		)
 	end
 
-	terrain.tiles = tiles
-	terrain.tile_lookup = {}
 	terrain.surface_types = terrain.surface_types or {}
 
 	for i = 1, #terrain.surface_types do
@@ -1090,125 +995,13 @@ function crylevel.LoadTerrainData(steam, level_dir)
 		terrain.surface_indices = surface_indices
 	end
 
-	for _, tile in ipairs(tiles) do
-		terrain.tile_lookup[tile.y] = terrain.tile_lookup[tile.y] or {}
-		terrain.tile_lookup[tile.y][tile.x] = tile
-	end
-
-	terrain.grid_width = max_x + 1
-	terrain.grid_height = max_y + 1
-	terrain.tile_world_size = get_terrain_texture_tile_size(terrain)
-	rebuild_terrain_albedo_cache(terrain)
 	return terrain
-end
-
-local function get_terrain_height_sample(terrain, sample_x, sample_y)
-	if not terrain.height_data then return 0 end
-
-	local width = terrain.height_sample_width or
-		terrain.height_samples_width or
-		terrain.height_samples_per_side or
-		0
-	local max_x = terrain.height_sample_max_x or (width - 1)
-	local max_y = terrain.height_sample_max_y or
-		(
-			(
-				terrain.height_sample_height or
-				terrain.height_samples_height or
-				terrain.height_samples_per_side or
-				width
-			) - 1
-		)
-	sample_x = math.floor(sample_x)
-	sample_y = math.floor(sample_y)
-
-	if sample_x < 0 then
-		sample_x = 0
-	elseif sample_x > max_x then
-		sample_x = max_x
-	end
-
-	if sample_y < 0 then
-		sample_y = 0
-	elseif sample_y > max_y then
-		sample_y = max_y
-	end
-
-	local raw
-
-	if terrain.height_samples then
-		raw = terrain.height_samples[sample_y * width + sample_x]
-	else
-		local offset = terrain.height_data_offset + (((sample_y * width) + sample_x) * 2)
-		raw = read_u16_le(terrain.height_data, offset) or 0
-	end
-
-	return raw * (terrain.height_sample_scale or 1)
-end
-
-local function build_terrain_tile_heightmap(tile, terrain)
-	if tile.heightmap_info then return tile.heightmap_info end
-
-	local sample_resolution = terrain.tile_height_resolution or 0
-
-	if sample_resolution <= 0 then return nil end
-
-	local sample_dims = sample_resolution + 1
-	local sample_origin_x = tile.x * sample_resolution
-	local sample_origin_y = tile.y * sample_resolution
-	local heights = {}
-	local min_height = math.huge
-	local max_height = -math.huge
-
-	for y = 0, sample_resolution do
-		for x = 0, sample_resolution do
-			local height = get_terrain_height_sample(terrain, sample_origin_x + x, sample_origin_y + y)
-			heights[y * sample_dims + x + 1] = height
-			min_height = math.min(min_height, height)
-			max_height = math.max(max_height, height)
-		end
-	end
-
-	local height_range = max_height - min_height
-	local mid_height = (min_height + max_height) * 0.5
-	local heightmap = {
-		width = sample_resolution,
-		height = sample_resolution,
-		GetSize = function(self)
-			return Vec2(self.width, self.height)
-		end,
-		GetRawPixelColor = function(self, x, y)
-			x = math.clamp(math.floor(x), 0, sample_resolution)
-			y = math.clamp(math.floor(y), 0, sample_resolution)
-			local value = heights[y * sample_dims + x + 1] or mid_height
-
-			if height_range > 0.0001 then
-				value = ((value - min_height) / height_range) * 255
-			else
-				value = 127.5
-			end
-
-			return value, value, value, value
-		end,
-	}
-	tile.heightmap_info = {
-		heightmap = heightmap,
-		height_range = height_range > 0.0001 and height_range or 1,
-		mid_height = mid_height,
-	}
-	return tile.heightmap_info
 end
 
 local function bilerp(a, b, c, d, tx, ty)
 	local ab = a + (b - a) * tx
 	local cd = c + (d - c) * tx
 	return ab + (cd - ab) * ty
-end
-
-local function get_terrain_world_uv(terrain, world_x, world_z)
-	local world_size = math.max(terrain.world_size or 0, 1)
-	return math.clamp((-world_z) / world_size, 0, 1),
-	math.clamp(world_x / world_size, 0, 1)
 end
 
 local function sample_terrain_height_raw(terrain, sample_x, sample_y)
@@ -1285,66 +1078,6 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 	return raw / 65535
 end
 
-local function sample_terrain_tile_rgba(tile, u, v)
-	local buffer, width, height = assert(decode_terrain_texture_tile(tile))
-
-	if u < 0 then u = 0 elseif u > 1 then u = 1 end
-
-	if v < 0 then v = 0 elseif v > 1 then v = 1 end
-
-	local width_max = width - 1
-	local height_max = height - 1
-	local sample_x = u * width_max
-	local sample_y = v * height_max
-	local x0 = math.floor(sample_x)
-	local y0 = math.floor(sample_y)
-	local x1 = x0 < width_max and (x0 + 1) or width_max
-	local y1 = y0 < height_max and (y0 + 1) or height_max
-	local tx = sample_x - x0
-	local ty = sample_y - y0
-	local row0 = y0 * width * 4
-	local row1 = y1 * width * 4
-	local i00 = row0 + x0 * 4
-	local i10 = row0 + x1 * 4
-	local i01 = row1 + x0 * 4
-	local i11 = row1 + x1 * 4
-	local r00, g00, b00, a00 = buffer[i00 + 0], buffer[i00 + 1], buffer[i00 + 2], buffer[i00 + 3]
-	local r10, g10, b10, a10 = buffer[i10 + 0], buffer[i10 + 1], buffer[i10 + 2], buffer[i10 + 3]
-	local r01, g01, b01, a01 = buffer[i01 + 0], buffer[i01 + 1], buffer[i01 + 2], buffer[i01 + 3]
-	local r11, g11, b11, a11 = buffer[i11 + 0], buffer[i11 + 1], buffer[i11 + 2], buffer[i11 + 3]
-	return bilerp(r00, r10, r01, r11, tx, ty),
-	bilerp(g00, g10, g01, g11, tx, ty),
-	bilerp(b00, b10, b01, b11, tx, ty),
-	bilerp(a00, a10, a01, a11, tx, ty)
-end
-
-local function sample_terrain_albedo_at_world(terrain, world_x, world_z)
-	local tile_world_size = terrain.albedo_tile_world_size or math.max(terrain.tile_world_size or 0, 1)
-	local tile_x = math.floor((-world_z) * (terrain.albedo_world_to_tile_x or (1 / tile_world_size)))
-	local tile_y = math.floor(world_x * (terrain.albedo_world_to_tile_y or (1 / tile_world_size)))
-
-	if tile_x < 0 then
-		tile_x = 0
-	elseif tile_x > (terrain.albedo_tile_max_x or 0) then
-		tile_x = terrain.albedo_tile_max_x or 0
-	end
-
-	if tile_y < 0 then
-		tile_y = 0
-	elseif tile_y > (terrain.albedo_tile_max_y or 0) then
-		tile_y = terrain.albedo_tile_max_y or 0
-	end
-
-	local row = terrain.tile_lookup and terrain.tile_lookup[tile_y] or nil
-	local tile = row and row[tile_x] or nil
-
-	if not tile then return 127, 127, 127, 255 end
-
-	local local_x = (-world_z) - tile_x * tile_world_size
-	local local_y = world_x - tile_y * tile_world_size
-	return sample_terrain_tile_rgba(tile, local_x / tile_world_size, local_y / tile_world_size)
-end
-
 local function decode_terrain_surface_slot(raw_value)
 	raw_value = tonumber(raw_value) or 0
 
@@ -1417,22 +1150,25 @@ end
 local get_or_create_cry_albedo_texture
 
 do
-	local AtlasTileConstants = ffi.typeof("struct { int source; int x; int y; int grid_width; int grid_height; }")
-	local ATLAS_TILE_DECLARATIONS = [[
-		layout(push_constant, scalar) uniform CryAtlasTile {
+	local AtlasNodeConstants = ffi.typeof("struct { int source; int x; int y; int span; }")
+	local ATLAS_NODE_DECLARATIONS = [[
+		layout(push_constant, scalar) uniform CryAtlasNode {
 			int source;
 			int x;
 			int y;
-			int grid_width;
-			int grid_height;
-		} atlas_tile;
+			int span;
+		} atlas_node;
 	]]
-	local ATLAS_TILE_GLSL = [[
-		vec2 cell = uv * vec2(atlas_tile.grid_width, atlas_tile.grid_height) - vec2(atlas_tile.x, atlas_tile.y);
+	local ATLAS_NODE_GLSL = [[
+		vec2 cell = uv * float(atlas_node.span) - vec2(atlas_node.x, atlas_node.y);
 
 		if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(1.0)))) discard;
 
-		return texture(TEXTURE(atlas_tile.source), cell);
+		// cry's tex2DTerrain: red and green are the color's share of r + g + b, blue is its brightness.
+		// the red tweak compensates for 565 red only reaching 30/31 for a perfect gray
+		vec4 texel = texture(TEXTURE(atlas_node.source), cell);
+		float red = (texel.r + 0.001012) * (31.0 / 30.0);
+		return vec4(vec3(red, texel.g, 1.0 - red - texel.g) * 3.0 * texel.b, 1.0);
 	]]
 	local LINEAR_CLAMP = {
 		min_filter = "linear",
@@ -1441,24 +1177,18 @@ do
 		wrap_t = "clamp_to_edge",
 	}
 
-	-- tiles have different resolutions, so each one is drawn into its cell of the atlas with bilinear filtering
+	-- every cover node is drawn into its square of the atlas, coarse levels first so finer ones replace them
 	function get_or_create_cry_albedo_texture(terrain)
 		if terrain.albedo_texture and terrain.albedo_texture:IsValid() then
 			return terrain.albedo_texture
 		end
 
-		local tile_width = 0
-		local tile_height = 0
-
-		for _, tile in ipairs(terrain.tiles) do
-			local _, width, height = assert(decode_terrain_texture_tile(tile))
-			tile_width = math.max(tile_width, width)
-			tile_height = math.max(tile_height, height)
-		end
-
+		local cover = terrain.cover
+		local sector_size = cover.sector_size
+		local data = ffi.cast("const uint8_t *", cover.data)
 		local atlas = Texture.New{
-			width = terrain.grid_width * tile_width,
-			height = terrain.grid_height * tile_height,
+			width = sector_size * 2 ^ cover.max_level,
+			height = sector_size * 2 ^ cover.max_level,
 			format = "r8g8b8a8_srgb",
 			mip_map_levels = 1,
 			image = {
@@ -1467,25 +1197,39 @@ do
 			sampler = LINEAR_CLAMP,
 		}
 
-		for i, tile in ipairs(terrain.tiles) do
-			local buffer, width, height = assert(decode_terrain_texture_tile(tile))
+		for i, node in ipairs(cover.nodes) do
 			local source = Texture.New{
-				width = width,
-				height = height,
-				format = "r8g8b8a8_srgb",
-				buffer = buffer,
+				decoded = {
+					width = sector_size,
+					height = sector_size,
+					-- the channels are an encoding, not colors, see ATLAS_NODE_GLSL
+					vulkan_format = "bc3_unorm_block",
+					is_compressed = true,
+					mip_count = 1,
+					mip_info = {
+						{
+							width = sector_size,
+							height = sector_size,
+							depth = 1,
+							size = cover.sector_bytes,
+							offset = 0,
+						},
+					},
+					data_size = cover.sector_bytes,
+					data = data + node.offset,
+				},
 				mip_map_levels = 1,
 				sampler = LINEAR_CLAMP,
 			}
-			local constants = AtlasTileConstants(0, tile.x, tile.y, terrain.grid_width, terrain.grid_height)
+			local constants = AtlasNodeConstants(0, node.x, node.y, 2 ^ node.level)
 			atlas:Shade(
-				ATLAS_TILE_GLSL,
+				ATLAS_NODE_GLSL,
 				{
 					textures = {source},
 					load_op = i == 1 and "clear" or "load",
-					custom_declarations = ATLAS_TILE_DECLARATIONS,
+					custom_declarations = ATLAS_NODE_DECLARATIONS,
 					fragment_push_constants = {
-						size = ffi.sizeof(AtlasTileConstants),
+						size = ffi.sizeof(AtlasNodeConstants),
 						get_data = function(_, _, pipeline)
 							constants.source = pipeline:GetTextureIndex(source)
 							return constants
@@ -1541,17 +1285,19 @@ local function get_or_create_cry_terrain_layers(terrain)
 			local diffuse = material.cry_texture_maps and material.cry_texture_maps.Diffuse
 
 			if diffuse then
-				local specular = material.cry_specular_color
 				-- cry tiles the detail texture every 1 / (surface detail scale * material tiling) meters
 				layers[i] = {
-					albedo = material:GetAlbedoTexture(),
+					-- cry's Terrain.Layer adds (detail - 0.5) * DetailTextureStrength to the terrain color, with the raw
+					-- texel values, and multiplies the sum by the material's diffuse color
+					albedo = diffuse.resolved and
+						Texture.New{path = diffuse.resolved, srgb = false} or
+						material:GetAlbedoTexture(),
 					normal = material:GetNormalTexture(),
 					scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
 					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
-					-- cry's specular color as a reflectance relative to the default F0 of 0.04, most layers have none
-					specular = specular and
-						math.clamp((specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722) / 0.04, 0, 2) or
-						1,
+					additive_detail = material:GetColorMultiplier():GetLuminance(),
+					-- mapped from cry's specular color the same way as for models, most layers have none
+					specular = material:GetSpecularMultiplier(),
 					roughness = 1,
 					ao = 1,
 				}
@@ -1754,14 +1500,7 @@ end
 function crylevel.SpawnTerrain(level_data, parent)
 	local terrain = level_data and level_data.terrain
 
-	if
-		not terrain or
-		not terrain.tiles or
-		not terrain.tiles[1] or
-		not terrain.height_data
-	then
-		return nil
-	end
+	if not terrain or not terrain.height_data then return nil end
 
 	local Terrain = import("goluwa/terrain/terrain.lua")
 	local renderer = Terrain.New{

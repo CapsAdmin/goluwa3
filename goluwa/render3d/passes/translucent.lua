@@ -510,7 +510,7 @@ return {
 					float metallic = get_metallic(in_uv);
 					float roughness = get_roughness(in_uv);
 					float perceptual_roughness = sqrt(roughness);
-					float subsurface = get_subsurface(in_uv);
+					float diffuse_transmission = get_transmission(in_uv);
 					bool refractive = refraction.amount > 0.0;
 					// a refracting surface reflects what its index of refraction
 					// says, and scatters diffusely only what it doesn't transmit
@@ -526,7 +526,7 @@ return {
 					float specular_coverage = refractive ? 1.0 : smoothstep(0.0, 0.1, alpha);
 
 					vec3 direct_specular;
-					vec3 direct_diffuse = get_direct_light(F0, NdotV, diffuse_albedo, roughness, perceptual_roughness, metallic, subsurface, get_transmission_blocking(in_uv), get_transmission_color(), get_transmission_view_dependency(), world_pos, V, N, geometric_N, direct_specular);
+					vec3 direct_diffuse = get_direct_light(F0, NdotV, diffuse_albedo, roughness, perceptual_roughness, metallic, diffuse_transmission, get_transmission_color(), get_transmission_scattering(), world_pos, V, N, geometric_N, direct_specular);
 
 					float sky_visibility;
 					vec3 irradiance = get_gi_irradiance(screen_uv, N, sky_visibility);
@@ -540,7 +540,7 @@ return {
 					vec3 ambient_specular = reflection * (F0 * env_brdf.x + env_brdf.y) * GGXEnergyCompensation(F0, env_brdf);
 
 					if (!refractive) {
-						vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv) * alpha;
+						vec3 emissive = get_emissive(in_uv) * alpha;
 						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
 						// the fog in front of the surface covers what the surface covers
 						color = color * fog.a + fog.rgb * alpha;
@@ -602,7 +602,7 @@ return {
 					// surface, so of that fog only what covers the rest is added,
 					// and taa follows the background there
 					vec3 transmission = albedo * (1.0 - F_ambient) * (1.0 - metallic) * refraction.amount;
-					vec3 emissive = Subsurface ? vec3(0.0) : get_emissive(in_uv);
+					vec3 emissive = get_emissive(in_uv);
 					vec3 color = (direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + emissive) * fog.a + fog.rgb * (1.0 - transmission) + background * transmission;
 					set_color(vec4(min(color * alpha, vec3(65504.0)), alpha) * transmittance);
 					set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance * (1.0 - dot(transmission, vec3(1.0 / 3.0))));

@@ -879,11 +879,12 @@ function grass.BuildDrawPass(gbuffer_pass)
 					set_roughness(0.4);
 					set_ao(mix(mix(0.5, 1.0, smoothstep(0.0, 0.7, t)), 0.85, far));
 					set_specular(0.35);
-					set_subsurface(1.0);
-					set_transmission_blocking(0.25);
-					set_transmission_view_dep(0.5);
-					// the transmission color, when subsurface is set
-					set_emissive(clamp(albedo * vec3(1.6, 1.9, 0.9), 0.0, 1.0));
+					set_transmission(0.4);
+					set_transmission_scattering(0.5);
+					set_emissive(vec3(0.0));
+					// a yellow green transmission tint with luminance 1, red and blue halved
+					set_transmission_tint_r(0.45);
+					set_transmission_tint_b(0.3);
 
 					vec4 clip = grass_data.projection * grass_data.view * vec4(in_position, 1.0);
 					vec4 prev_view_pos = grass_data.prev_view * vec4(in_prev_position, 1.0);

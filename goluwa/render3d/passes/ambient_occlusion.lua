@@ -138,7 +138,7 @@ return {
 				const uint Nb = 32;
 				// how far behind its visible front an occluder is assumed to
 				// extend, in view space units. thin translucent surfaces
-				// (subsurface, like leaves and grass blades) barely extend at
+				// (transmissive, like leaves and grass blades) barely extend at
 				// all, or a field of blades would black out the ground between
 				// them
 				float thickness = 0.5;

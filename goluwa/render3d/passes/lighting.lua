@@ -190,8 +190,8 @@ return {
 				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz * 2.0 - 1.0;
 			}
 
-			float get_transmission_view_dependency() {
-				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).g;
+			float get_transmission_scattering() {
+				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).r;
 			}
 
 			// the gbuffer holds SpecularMultiplier * 0.5; a multiplier of 1 is F0 0.04
@@ -214,7 +214,7 @@ return {
 				return mra.b;
 			}
 
-			float get_subsurface() {
+			float get_transmission() {
 				return texture(TEXTURE(lighting_data.mra_tex), in_uv).a;
 			}
 
@@ -222,12 +222,11 @@ return {
 				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
 			}
 
-			float get_transmission_blocking() {
-				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).r;
-			}
-
 			vec3 get_transmission_color() {
-				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
+				vec4 packed = texture(TEXTURE(lighting_data.transmission_tex), in_uv);
+				float r = packed.g * 2.0;
+				float b = packed.a * 2.0;
+				return vec3(r, max((1.0 - 0.2126 * r - 0.0722 * b) / 0.7152, 0.0), b);
 			}
 
 			]] .. surface_lighting.GetGLSL("lighting_data") .. [[
@@ -277,43 +276,35 @@ return {
 				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
 			}
 
-			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 world_pos, vec3 V, vec3 N)
+			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float transmission, vec3 transmission_color, vec3 world_pos, vec3 V, vec3 N)
 			{
-				float subsurface_factor = subsurface;
-				float blocking_detail = get_transmission_blocking_detail(transmission_blocking);
-				float transmission_amount = 1.0 - blocking_detail;
 				float perceptual_roughness = sqrt(clamp(roughness_alpha, 0.0, 1.0));
 				float sky_visibility;
-				vec3 gi_irradiance = get_gi_irradiance(N, sky_visibility);
-				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, gi_irradiance);
-				float ambient_front_amount = blocking_detail;
-				// the same tint as direct light passing through
-				vec3 ambient_transmission_tint = mix(transmission_color, transmission_color * albedo, blocking_detail);
+				vec3 irradiance = get_gi_irradiance(N, sky_visibility);
+				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, irradiance);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * get_ao();
 
-				vec3 irradiance = gi_irradiance;
-
-				vec3 back_irradiance = irradiance;
 				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 				vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
-				vec3 ambient_diffuse = kD_ambient * irradiance * albedo * ambient_occlusion;
-				ambient_diffuse *= mix(1.0, ambient_front_amount, subsurface_factor);
-				float hemi = saturate(N.y * 0.5 + 0.5);
-				vec3 subsurface_ambient = mix(ambient_diffuse * 0.5, ambient_diffuse, hemi);
-				vec3 ambient_subsurface = back_irradiance * ambient_transmission_tint * transmission_amount * ambient_occlusion;
-				ambient_subsurface *= mix(0.3, 1.0, transmission_view_dependency);
-				subsurface_ambient += ambient_subsurface;
+				vec3 ambient_diffuse = kD_ambient * irradiance * albedo * ambient_occlusion * (1.0 - transmission);
+
+				if (transmission > 0.0) {
+					// the gi only holds the light arriving at the front. the sky's part of it
+					// is taken again from behind, and what bounced is assumed the same on
+					// both sides
+					vec3 front_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, N) * sky_visibility;
+					vec3 back_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, -N) * sky_visibility;
+					vec3 back_irradiance = back_sky + max(irradiance - front_sky, vec3(0.0));
+					ambient_diffuse += transmission * transmission_color * albedo * (1.0 - metallic) * back_irradiance * ambient_occlusion;
+				}
 
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NdotV, perceptual_roughness)).rg;
 
 				vec3 ambient_specular = reflection * (F0 * envBRDF.x + envBRDF.y);
 				ambient_specular *= GGXEnergyCompensation(F0, envBRDF);
 				ambient_specular *= SpecularOcclusion(NdotV, ambient_occlusion, perceptual_roughness);
-				ambient_specular *= 1.0 - subsurface_factor;
 
-				vec3 ambient = ambient_diffuse + ambient_specular;
-				ambient += (subsurface_ambient - ambient_diffuse) * subsurface_factor;
-				return ambient;
+				return ambient_diffuse + ambient_specular;
 			}
 
 
@@ -360,15 +351,14 @@ return {
 				float metallic = get_metallic();
 				float roughness = get_roughness();
 				float perceptual_roughness = sqrt(clamp(roughness, 0.0, 1.0));
-				float subsurface = get_subsurface();
-				float transmission_blocking = get_transmission_blocking();
+				float transmission = get_transmission();
 				vec3 transmission_color = get_transmission_color();
-				float transmission_view_dependency = get_transmission_view_dependency();
-				vec3 emissive = subsurface > 0.0 ? vec3(0.0) : get_emissive();
+				float transmission_scattering = get_transmission_scattering();
+				vec3 emissive = get_emissive();
 				vec3 F0 = mix(vec3(get_dielectric_f0()), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
 				vec3 direct_specular;
-				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N, get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N), direct_specular);
+				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N), direct_specular);
 				direct += direct_specular;
 
 				if (LIGHT_DEBUG_DIRECT > 0) {
@@ -376,7 +366,7 @@ return {
 					return;
 				}
 
-				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, subsurface, transmission_blocking, transmission_color, transmission_view_dependency, world_pos, V, N);
+				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, transmission, transmission_color, world_pos, V, N);
 				vec3 color = direct + indirect + emissive;
 
 				if (lighting_data.gi_debug != 0) {

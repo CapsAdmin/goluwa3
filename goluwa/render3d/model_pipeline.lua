@@ -143,6 +143,11 @@ local PBR_TERRAIN_FIELDS = {
 	},
 	{
 		type = "vec4",
+		name = "TerrainLayerAdditiveDetail",
+		getter = "GetTerrainLayerAdditiveDetail",
+	},
+	{
+		type = "vec4",
 		name = "TerrainLayerSpecular",
 		getter = "GetTerrainLayerSpecular",
 	},
@@ -155,13 +160,13 @@ local PBR_TRANSMISSION_FIELDS = {
 	},
 	{
 		type = "float",
-		name = "TransmissionViewDependency",
-		getter = "GetTransmissionViewDependency",
+		name = "DiffuseTransmission",
+		getter = "GetDiffuseTransmission",
 	},
 	{
 		type = "float",
-		name = "TransmissionBlocking",
-		getter = "GetTransmissionBlocking",
+		name = "TransmissionScattering",
+		getter = "GetTransmissionScattering",
 	},
 }
 local PROBE_MATERIAL_FIELDS = {
@@ -1206,7 +1211,7 @@ function model_pipeline.GetPBRTransmissionUploadKey()
 
 	if not material then return NO_PBR_TRANSMISSION_KEY end
 
-	if not material:GetSubsurface() then return NO_PBR_TRANSMISSION_KEY end
+	if not material:GetTransmissive() then return NO_PBR_TRANSMISSION_KEY end
 
 	return render3d.GetMaterialUploadKey()
 end
@@ -1775,7 +1780,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			TerrainLayerSample terrain_layer_cache;
 			bool terrain_layer_cache_valid = false;
 
-			void accumulate_terrain_layer(inout TerrainLayerSample s, int albedo_tex, int normal_tex, vec3 world_pos, vec3 blend, vec3 N, float weight, float scale, float detail_strength) {
+			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, vec3 world_pos, vec3 blend, vec3 N, float weight, float scale, float detail_strength, float additive_detail) {
 				if (weight <= 0.001) {
 					return;
 				}
@@ -1784,17 +1789,23 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 					vec4 albedo = sample_terrain_layer_triplanar(albedo_tex, world_pos, scale, blend);
 
 					if (detail_strength > 0.0) {
-						// the smallest mip is the average color of the layer
-						vec3 average = textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0).rgb;
-						albedo.rgb = mix(vec3(1.0), albedo.rgb / max(average, vec3(0.01)), detail_strength);
+						if (additive_detail > 0.0) {
+							albedo.rgb = max(base + (albedo.rgb - 0.5) * detail_strength, vec3(0.0)) * additive_detail;
+						} else {
+							// the smallest mip is the average color of the layer
+							vec3 average = textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0).rgb;
+							albedo.rgb = base * mix(vec3(1.0), albedo.rgb / max(average, vec3(0.01)), detail_strength);
+						}
 						// a detail layer's alpha is not roughness, TerrainLayerRoughness alone decides it
 						albedo.a = 1.0;
+					} else {
+						albedo.rgb *= base;
 					}
 
 					s.albedo += albedo.rgb * weight;
 					s.roughness += albedo.a * weight;
 				} else {
-					s.albedo += vec3(weight);
+					s.albedo += base * weight;
 					s.roughness += weight;
 				}
 
@@ -1822,10 +1833,12 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				vec3 blend = get_terrain_triplanar_weights(N);
 				vec4 scales = ]] .. terrain_var .. [[.TerrainLayerScales;
 				vec4 detail = ]] .. terrain_var .. [[.TerrainLayerDetailStrength;
-				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer1Texture, ]] .. terrain_var .. [[.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x, detail.x);
-				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer2Texture, ]] .. terrain_var .. [[.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y, detail.y);
-				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer3Texture, ]] .. terrain_var .. [[.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z, detail.z);
-				accumulate_terrain_layer(s, ]] .. terrain_var .. [[.TerrainLayer4Texture, ]] .. terrain_var .. [[.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w, detail.w);
+				vec4 additive_detail = ]] .. terrain_var .. [[.TerrainLayerAdditiveDetail;
+				vec3 base = ]] .. model_var .. [[.AlbedoTexture != -1 ? texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb : vec3(1.0);
+				accumulate_terrain_layer(s, base, ]] .. terrain_var .. [[.TerrainLayer1Texture, ]] .. terrain_var .. [[.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x, detail.x, additive_detail.x);
+				accumulate_terrain_layer(s, base, ]] .. terrain_var .. [[.TerrainLayer2Texture, ]] .. terrain_var .. [[.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y, detail.y, additive_detail.y);
+				accumulate_terrain_layer(s, base, ]] .. terrain_var .. [[.TerrainLayer3Texture, ]] .. terrain_var .. [[.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z, detail.z, additive_detail.z);
+				accumulate_terrain_layer(s, base, ]] .. terrain_var .. [[.TerrainLayer4Texture, ]] .. terrain_var .. [[.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w, detail.w, additive_detail.w);
 
 				if (s.normal_weight > 0.001) {
 					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
@@ -1847,14 +1860,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 					return ]] .. color_var .. [[.ColorMultiplier.rgb;
 				}
 
-				vec3 color = get_terrain_layer_sample(uv, world_pos).albedo;
-
-				if (]] .. model_var .. [[.AlbedoTexture != -1) {
-					vec3 detail = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
-					color *= detail;
-				}
-
-				return color * ]] .. color_var .. [[.ColorMultiplier.rgb;
+				return get_terrain_layer_sample(uv, world_pos).albedo * ]] .. color_var .. [[.ColorMultiplier.rgb;
 			}
 
 			vec3 get_albedo_world(vec2 uv, vec3 world_pos) {
@@ -1926,9 +1932,12 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				vec3 tangent = normalize(in_tangent.xyz);
 				vec3 bitangent = cross(normal, tangent) * in_tangent.w;
 
+				// the back of a thin surface is the front mirrored through it, so a bump on
+				// one side is a dent on the other and the whole frame flips
 				if (DoubleSided && gl_FrontFacing) {
-					normal = -normal;
+					tangent = -tangent;
 					bitangent = -bitangent;
+					normal = -normal;
 				}
 
 				return mat3(tangent, bitangent, normal);
@@ -1982,13 +1991,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			}
 
 			vec3 get_combined_normal(vec2 uv, mat3 tbn) {
-				vec3 N = tbn * get_normal_map(uv);
-
-				if (DoubleSided && gl_FrontFacing) {
-					N = -N;
-				}
-
-				return normalize(N);
+				return normalize(tbn * get_normal_map(uv));
 			}
 
 			vec3 get_normal(vec2 uv, mat3 tbn) {
@@ -2050,50 +2053,33 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				return val;
 			}
 
-			float get_subsurface(vec2 uv) {
-				if (!Subsurface) return 0.0;
+			float get_transmission(vec2 uv) {
+				if (!Transmissive) return 0.0;
 
-				float strength = DoubleSided ? 1.0 : 0.35;
-
-				if (model.AlbedoTexture != -1) {
-					strength *= clamp(texture(TEXTURE(model.AlbedoTexture), uv).g, 0.35, 1.0);
-				}
-
-				return clamp(strength, 0.0, 1.0);
-			}
-
-			float get_transmission_view_dependency() {
-				if (!Subsurface) return 0.0;
-				return clamp(transmission_model.TransmissionViewDependency, 0.0, 1.0);
-			}
-
-			vec3 get_transmission_color() {
-				if (!Subsurface) return vec3(0.0);
-				return transmission_model.TransmissionColor.rgb * transmission_model.TransmissionColor.a;
-			}
-
-			float get_transmission_blocking(vec2 uv) {
-				if (!Subsurface) return 0.0;
-
-				float blocking = transmission_model.TransmissionBlocking;
+				float amount = transmission_model.DiffuseTransmission;
 
 				if (aux_model.TransmissionTexture != -1) {
-					vec3 transmission = texture(TEXTURE(aux_model.TransmissionTexture), uv).rgb;
-					blocking *= 1.0 - dot(transmission, vec3(0.2126, 0.7152, 0.0722));
-					return clamp(blocking, 0.0, 1.0);
+					amount *= dot(texture(TEXTURE(aux_model.TransmissionTexture), uv).rgb, vec3(0.2126, 0.7152, 0.0722));
 				}
 
-				blocking *= get_alpha_uv(uv);
-				return clamp(blocking, 0.0, 1.0);
+				return clamp(amount, 0.0, 1.0);
+			}
+
+			float get_transmission_scattering() {
+				if (!Transmissive) return 0.0;
+				return clamp(transmission_model.TransmissionScattering, 0.0, 1.0);
+			}
+
+			// only the hue, the brightness comes from DiffuseTransmission
+			vec3 get_transmission_color() {
+				if (!Transmissive) return vec3(1.0);
+				vec3 tint = transmission_model.TransmissionColor.rgb;
+				return tint / max(dot(tint, vec3(0.2126, 0.7152, 0.0722)), 0.001);
 			}
 
 			]] .. render3d.GetEmissiveGLSL() .. [[
 
 			vec3 get_emissive(vec2 uv) {
-				if (Subsurface) {
-					return get_transmission_color();
-				}
-
 				vec3 emissive = vec3(0.0);
 
 				if (AlbedoAlphaIsEmissive) {

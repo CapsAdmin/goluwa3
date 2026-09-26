@@ -36,7 +36,7 @@ Material:GetSet("MetallicTexture", nil, {type = "render_texture"})
 Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
 -- the luminance scales SpecularMultiplier
 Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
--- the luminance is how much light a Subsurface surface lets through
+-- the luminance scales DiffuseTransmission
 Material:GetSet("TransmissionTexture", nil, {type = "render_texture"})
 -- multipliers
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0))
@@ -52,6 +52,9 @@ Material:GetSet("TerrainLayerAmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
 -- 0 uses a layer's albedo as is with alpha as roughness, above 0 the layer only adds its color variation
 -- around its average color to the albedo texture, with that strength, and its alpha is ignored
 Material:GetSet("TerrainLayerDetailStrength", Color(0.0, 0.0, 0.0, 0.0))
+-- above 0 a detail layer is added to the albedo texture around 0.5 with its strength, like cry terrain layers,
+-- and the sum is multiplied by this
+Material:GetSet("TerrainLayerAdditiveDetail", Color(0.0, 0.0, 0.0, 0.0))
 -- SpecularMultiplier per layer
 Material:GetSet("TerrainLayerSpecular", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)
@@ -67,9 +70,12 @@ Material:GetSet("HeightLayers", 24)
 Material:GetSet("DetailTiling", Vec2(1.0, 1.0))
 Material:GetSet("DetailBumpScale", 1.0)
 Material:GetSet("DetailBlendAmount", 0.0)
+-- how much of the diffuse light goes through a thin surface, like a leaf, and out its other side
+Material:GetSet("DiffuseTransmission", 0.0, {callback = "InvalidateFlags"})
+-- tints the light going through, on top of the albedo. only its hue is used
 Material:GetSet("TransmissionColor", Color(1.0, 1.0, 1.0, 1.0))
-Material:GetSet("TransmissionViewDependency", 0.5)
-Material:GetSet("TransmissionBlocking", 1.0)
+-- 0 spreads the light going through evenly, 1 concentrates it around a light behind the surface
+Material:GetSet("TransmissionScattering", 0.5)
 Material:GetSet("WindAmplitude", 0.0)
 Material:GetSet("WindFrequency", 1.0)
 Material:GetSet("WindDetailAmplitude", 0.0)
@@ -108,7 +114,6 @@ Material:GetSet("AlbedoAlphaIsSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
-Material:GetSet("Subsurface", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:EndStorable()
 
@@ -169,6 +174,10 @@ function Material:SetAlphaMode(mode)
 	end
 end
 
+function Material:GetTransmissive()
+	return self.DiffuseTransmission > 0
+end
+
 local FLAGS = {
 	"ReverseXZNormalMap",
 	"Translucent",
@@ -181,7 +190,7 @@ local FLAGS = {
 	"MetallicTextureAlphaIsEmissive",
 	"AlbedoAlphaIsEmissive",
 	"DoubleSided",
-	"Subsurface",
+	"Transmissive",
 	"Grass",
 	"AlbedoAlphaIsSpecular",
 }
@@ -654,14 +663,21 @@ do
 		end
 
 		-- leaves and grass light their back face through the opacity map, which is never alpha
+		-- crysis adds BackDiffuse * BackDiffuseMultiplier * albedo of back light next to the albedo of front light,
+		-- so its brightness is the ratio of light going through to light reflected, and its color the tint
 		if leaves then
 			local r, g, b = unpack_csv_numbers(params.BackDiffuse)
-			self:SetSubsurface(true)
-			self:SetTransmissionColor(Color(r or 1, g or 1, b or 1, tonumber(params.BackDiffuseMultiplier) or 1))
+			local multiplier = tonumber(params.BackDiffuseMultiplier) or 1
+			r, g, b = (r or 1) * multiplier, (g or 1) * multiplier, (b or 1) * multiplier
+			local ratio = r * 0.2126 + g * 0.7152 + b * 0.0722
 
-			if params.BackViewDep then
-				self:SetTransmissionViewDependency(tonumber(params.BackViewDep))
+			if ratio > 0 then
+				self:SetDiffuseTransmission(ratio / (1 + ratio))
+				self:SetTransmissionColor(Color(r, g, b, 1))
 			end
+
+			-- crysis weighs its view dependent term with BackViewDep, unset is -1
+			self:SetTransmissionScattering(math.clamp(tonumber(params.BackViewDep) or 0.5, 0, 1))
 		end
 
 		-- without the detail bump bit, crysis only uses the detail map in a legacy color modulate pass
@@ -710,8 +726,6 @@ do
 						LinearTexture(resolved) or
 						get_missing_cry_texture(material_path, texture_attrs, candidates)
 				)
-
-				if resolved then self:SetReverseXZNormalMap(true) end
 			elseif map_name == "Specular" then
 				-- the gloss map, sampled as srgb
 				self:SetSpecularTexture(
@@ -1418,7 +1432,7 @@ do
 			metallic_roughness = 0,
 			metallic = 0,
 			roughness = 0,
-			transmission = 0,
+			transmission_texture = 0,
 			ambient_occlusion_texture = 0,
 			emissive_texture = 0,
 			nondefault_factor = 0,
@@ -1460,7 +1474,7 @@ do
 			end
 
 			if material:GetTransmissionTexture() ~= nil then
-				counts.transmission = counts.transmission + 1
+				counts.transmission_texture = counts.transmission_texture + 1
 			end
 
 			if material:GetAmbientOcclusionTexture() ~= nil then
@@ -1503,7 +1517,7 @@ do
 				counts.terrain = counts.terrain + 1
 			end
 
-			if material:GetSubsurface() then
+			if material:GetTransmissive() then
 				counts.transmission = counts.transmission + 1
 			end
 		end
@@ -1532,11 +1546,11 @@ do
 		)
 		print(
 			string.format(
-				"[cached_material_features] metallic_roughness=%d metallic=%d roughness=%d transmission=%d",
+				"[cached_material_features] metallic_roughness=%d metallic=%d roughness=%d transmission_texture=%d",
 				counts.metallic_roughness,
 				counts.metallic,
 				counts.roughness,
-				counts.transmission
+				counts.transmission_texture
 			)
 		)
 		print(

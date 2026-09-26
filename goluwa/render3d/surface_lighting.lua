@@ -92,41 +92,25 @@ function surface_lighting.GetGLSL(block_name)
 			return normalize(sunDir);
 		}
 
-		vec3 subsurface_shading_back(vec3 eye_dir, vec3 light_dir, vec3 normal, vec3 transmission_color, float view_dependency)
+		// how a thin surface spreads the light going through it, over the side facing away from the
+		// light. lambert, blended by scattering towards a henyey greenstein lobe around the light's
+		// direction with the same total over that side
+		float transmission_phase(vec3 V, vec3 L, float scattering)
 		{
-			float backlit = saturate(dot(-normal, light_dir));
-			float eye_dot_light = saturate(dot(eye_dir, -light_dir));
-			float eye_dot_light_pow = eye_dot_light * eye_dot_light;
-			eye_dot_light_pow *= eye_dot_light_pow;
-			float focused_backlit = backlit * backlit;
-			float back_wrap = smoothstep(0.45, 0.95, backlit);
-			back_wrap *= back_wrap;
-			float back_shading = mix(eye_dot_light_pow * focused_backlit, back_wrap, view_dependency);
-			return back_shading * transmission_color;
+			const float g = 0.6;
+			float denominator = 1.0 + g * g + 2.0 * g * dot(V, L);
+			float henyey_greenstein = (1.0 - g * g) / (4.0 * BRDF_PI * denominator * sqrt(denominator));
+			return mix(1.0 / BRDF_PI, 2.0 * henyey_greenstein, scattering);
 		}
 
-		float get_transmission_blocking_detail(float transmission_blocking)
-		{
-			return saturate(transmission_blocking + 0.25);
-		}
-
-		void subsurface_shading_front(vec3 eye_dir, vec3 light_dir, vec3 normal, vec3 diffuse_color, vec3 specular_color, float gloss_power, out vec3 out_diffuse, out vec3 out_specular)
-		{
-			float light_dot_normal = saturate(dot(normal, light_dir));
-			vec3 reflected_light = reflect(-light_dir, normal);
-			float specular = pow(saturate(dot(reflected_light, eye_dir)), gloss_power);
-			float wrapped_diffuse = saturate(light_dot_normal * 0.7 + 0.3);
-			out_diffuse = wrapped_diffuse * diffuse_color;
-			out_specular = specular * specular_color;
-		}
-
-		// returns the diffuse part, subsurface included, and the specular part in
-		// specular. a translucent surface scales them differently
-		vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float perceptual_roughness, float metallic, float subsurface, float transmission_blocking, vec3 transmission_color, float transmission_view_dependency, vec3 world_pos, vec3 V, vec3 N, vec3 geometric_N, out vec3 specular)
+		// returns the diffuse part, transmission included, and the specular part in
+		// specular. a translucent surface scales them differently. transmission is
+		// the part of the diffuse light that leaves through the side facing away
+		// from the light instead of the lit one
+		vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float perceptual_roughness, float metallic, float transmission, vec3 transmission_color, float transmission_scattering, vec3 world_pos, vec3 V, vec3 N, vec3 geometric_N, out vec3 specular)
 		{
 			vec3 diffuse = vec3(0.0);
 			specular = vec3(0.0);
-			float subsurface_factor = subsurface;
 
 			int light_cell = light_grid_cell(world_pos);
 
@@ -148,7 +132,7 @@ function surface_lighting.GetGLSL(block_name)
 				// towards the light so edge on doesn't read as facing away
 				vec3 shadow_N = geometric_N;
 
-				if (subsurface > 0.0) {
+				if (transmission > 0.0) {
 					shadow_N = normalize((dot(geometric_N, L) < 0.0 ? -geometric_N : geometric_N) + L);
 				}
 				vec3 H = normalize(V + L);
@@ -195,30 +179,13 @@ function surface_lighting.GetGLSL(block_name)
 
 					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
 				}
-				vec3 radiance = light.color.rgb * light.color.a * attenuation;
-				vec3 transmission = vec3(0.0);
-				vec3 subsurface_front = vec3(0.0);
-				vec3 subsurface_spec = vec3(0.0);
+				vec3 radiance = light.color.rgb * light.color.a * attenuation * shadow_factor;
+				diffuse += Fd * radiance * NoL * (1.0 - transmission);
+				specular += Fr * radiance * NoL;
 
-				if (subsurface > 0.0) {
-					float subsurface_gloss = mix(6.0, 24.0, 1.0 - roughness_alpha);
-					float blocking_detail = get_transmission_blocking_detail(transmission_blocking);
-					float transmission_amount = 1.0 - blocking_detail;
-					float front_amount = blocking_detail;
-					vec3 transmission_tint = mix(transmission_color, transmission_color * albedo, blocking_detail);
-					vec3 front_diffuse = vec3(0.0);
-					vec3 front_specular = vec3(0.0);
-					vec3 subsurface_specular_color = mix(vec3(0.01), albedo * 0.035, 0.5);
-					subsurface_shading_front(V, L, N, light.color.rgb, subsurface_specular_color, subsurface_gloss, front_diffuse, front_specular);
-					transmission = subsurface_shading_back(V, L, N, transmission_tint, transmission_view_dependency) * transmission_amount * radiance * shadow_factor * 1.2;
-					subsurface_front = front_diffuse * albedo * radiance * shadow_factor * front_amount;
-					subsurface_spec = front_specular * radiance * shadow_factor * 0.35 * front_amount;
+				if (transmission > 0.0) {
+					diffuse += transmission * transmission_color * albedo * (1.0 - metallic) * transmission_phase(V, L, transmission_scattering) * saturate(-dot(N, L)) * radiance;
 				}
-
-				float lit = NoL * shadow_factor;
-				vec3 subsurface_light = subsurface_front + subsurface_spec + transmission;
-				diffuse += mix(Fd * radiance * lit, subsurface_light, subsurface_factor);
-				specular += Fr * radiance * lit * (1.0 - subsurface_factor);
 			}
 			}
 
