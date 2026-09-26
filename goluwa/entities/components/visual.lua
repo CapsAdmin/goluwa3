@@ -1293,6 +1293,10 @@ function Visual:RebuildRenderEntries()
 					material = self.MaterialSlotOverrides[polygon3d:GetMaterialSlot()] or material
 				end
 
+				local resolved_material = self.MaterialOverride or material or render3d.GetDefaultMaterial()
+
+				if resolved_material:GetNoDraw() then goto continue end
+
 				local local_matrix = transform and transform:GetLocalMatrix() or nil
 				local local_matrix_inverse = local_matrix and local_matrix:GetInverse() or nil
 				local local_aabb = build_transformed_aabb(source_aabb, local_matrix)
@@ -1308,7 +1312,6 @@ function Visual:RebuildRenderEntries()
 					aabb = local_aabb,
 					source_aabb = source_aabb,
 				}
-				local resolved_material = self.MaterialOverride or material or render3d.GetDefaultMaterial()
 
 				if material_ignores_z(resolved_material) then
 					has_ignore_z_entries = true
@@ -1321,6 +1324,8 @@ function Visual:RebuildRenderEntries()
 				if local_aabb then bounds:Expand(local_aabb) end
 			end
 		end
+
+		::continue::
 	end
 
 	self.RenderEntries = entries

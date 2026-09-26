@@ -1,4 +1,3 @@
-local ffi = require("ffi")
 local commands = import("goluwa/cli/commands.lua")
 local tasks = import("goluwa/tasks.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -35,7 +34,10 @@ Material:GetSet("TerrainLayer3NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer4NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("MetallicTexture", nil, {type = "render_texture"})
 Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
-Material:GetSet("OpacityTexture", nil, {type = "render_texture"})
+-- the luminance scales SpecularMultiplier
+Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
+-- the luminance is how much light a Subsurface surface lets through
+Material:GetSet("TransmissionTexture", nil, {type = "render_texture"})
 -- multipliers
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet(
@@ -91,6 +93,8 @@ Material:GetSet("RefractionThickness", -1.0)
 Material:GetSet("AlphaCutoff", 0.5)
 Material:GetSet("IgnoreZ", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
+-- the primitives drawing with it are left out, ie collision proxies
+Material:GetSet("NoDraw", false, {callback = "InvalidateSceneKey"})
 -- flags
 Material:GetSet("Flags", 0)
 Material:GetSet("ReverseXZNormalMap", false, {callback = "InvalidateFlags"})
@@ -100,6 +104,7 @@ Material:GetSet("AlbedoLuminanceIsRoughness", false, {callback = "InvalidateFlag
 Material:GetSet("BlendTintByBaseAlpha", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicTextureAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoAlphaIsEmissive", false, {callback = "InvalidateFlags"})
+Material:GetSet("AlbedoAlphaIsSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
@@ -128,11 +133,11 @@ function Material:HasExplicitMetallicTexture()
 end
 
 function Material:HasExplicitRoughnessTexture()
-	if self.AlbedoTexture ~= nil and AlbedoTextureAlphaIsRoughness then
+	if self.AlbedoTexture ~= nil and self.AlbedoTextureAlphaIsRoughness then
 		return true
 	end
 
-	if self.NormalTexture ~= nil and NormalTextureAlphaIsRoughness then
+	if self.NormalTexture ~= nil and self.NormalTextureAlphaIsRoughness then
 		return true
 	end
 
@@ -178,6 +183,7 @@ local FLAGS = {
 	"DoubleSided",
 	"Subsurface",
 	"Grass",
+	"AlbedoAlphaIsSpecular",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -391,69 +397,6 @@ do
 		config.srgb = false
 		return Texture.New(config)
 	end
-	local cry_specular_push_constant_t = ffi.typeof("int[1]")
-
-	local function shade_cry_specular_roughness_texture(roughness_texture, source_texture)
-		if not roughness_texture or not source_texture then return end
-
-		if type(roughness_texture.Shade) ~= "function" then return end
-
-		roughness_texture:Shade(
-			[[
-				vec4 spec_sample = texture(TEXTURE(cry_specular.source_tex), uv);
-				float specular_level = clamp(dot(spec_sample.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
-				float roughness_linear = 1.0 - specular_level * 0.5;
-				float roughness_encoded = sqrt(clamp(roughness_linear, 0.0, 1.0));
-				return vec4(roughness_encoded, roughness_encoded, roughness_encoded, spec_sample.a);
-			]],
-			{
-				textures = {source_texture},
-				custom_declarations = [[
-					layout(push_constant, scalar) uniform CrySpecularRoughnessPush {
-						int source_tex;
-					} cry_specular;
-				]],
-				fragment_push_constants = {
-					size = ffi.sizeof(cry_specular_push_constant_t),
-					get_data = function(_, _, pipeline)
-						return cry_specular_push_constant_t(pipeline:GetTextureIndex(source_texture))
-					end,
-				},
-			}
-		)
-	end
-
-	local function CrySpecularRoughnessTexture(path)
-		local roughness_texture
-		local source_texture = LinearTexture(
-			path,
-			{
-				on_ready = function(texture)
-					if roughness_texture then
-						shade_cry_specular_roughness_texture(roughness_texture, texture)
-					end
-				end,
-			}
-		)
-
-		if type(source_texture.Shade) ~= "function" then return source_texture end
-
-		local sampler = source_texture.GetSamplerConfig and
-			table.copy(source_texture:GetSamplerConfig()) or
-			nil
-		roughness_texture = Texture.New{
-			width = math.max(source_texture:GetWidth(), 1),
-			height = math.max(source_texture:GetHeight(), 1),
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = source_texture:GetMipMapLevels() > 1 and "auto" or 1,
-			image = {
-				usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			},
-			sampler = sampler,
-		}
-		shade_cry_specular_roughness_texture(roughness_texture, source_texture)
-		return roughness_texture
-	end
 
 	local function find_child_by_tag(node, tag)
 		if not (node and node.children) then return nil end
@@ -616,42 +559,34 @@ do
 		return Texture.GetFallback()
 	end
 
-	-- %DETAIL_BUMP_MAPPING bit of each shader's GenMask, from Shaders/<shader>.ext
-	local DETAIL_BUMP_MAPPING_MASKS = {
-		Illum = 0x4000,
-		Metal = 0x8000,
-		Vegetation = 0x20000,
-		Cloth = 0x40000,
+	-- GenMask bits from Shaders/<shader>.ext, the mask is stored as a decimal number
+	local GEN_MASKS = {
+		Illum = {
+			DETAIL_BUMP_MAPPING = 0x4000,
+			GLOSS_DIFFUSEALPHA = 0x20,
+			ALPHAGLOW = 0x2000,
+		},
+		Metal = {DETAIL_BUMP_MAPPING = 0x8000, ALPHAGLOW = 0x20},
+		Cloth = {DETAIL_BUMP_MAPPING = 0x40000},
+		Vegetation = {DETAIL_BUMP_MAPPING = 0x20000, LEAVES = 0x100, GRASS = 0x2000},
 	}
+	-- MtlFlags
+	local MTL_FLAG_2SIDED = 0x2
+	local MTL_FLAG_NODRAW = 0x400
 
 	local function apply_cry_material_node(self, material_node, material_path)
-		if not material_node then return self end
+		local attrs = material_node.attrs or {}
+		local shader = attrs.Shader or ""
+		local gen_mask = tonumber(attrs.GenMask) or 0
+		local shader_masks = GEN_MASKS[shader] or {}
+		local mtl_flags = tonumber(attrs.MtlFlags) or 0
 
-		self.cry_texture_maps = self.cry_texture_maps or {}
-		self.cry_public_params = self.cry_public_params or {}
-		local is_vegetation = material_node.attrs and material_node.attrs.Shader == "Vegetation"
-		self:SetMetallicMultiplier(0)
-
-		if is_vegetation then self:SetSubsurface(true) end
-
-		if material_node.attrs and material_node.attrs.Diffuse then
-			local r, g, b = unpack_csv_numbers(material_node.attrs.Diffuse)
-			self:SetColorMultiplier(Color(r, g, b, tonumber(material_node.attrs.Opacity) or 1))
+		local function has_gen(name)
+			return shader_masks[name] ~= nil and bit.band(gen_mask, shader_masks[name]) ~= 0
 		end
 
-		if material_node.attrs and material_node.attrs.Specular then
-			local r, g, b = unpack_csv_numbers(material_node.attrs.Specular)
-			self.cry_specular_color = Color(r or 0, g or 0, b or 0, 1)
-		end
-
-		if material_node.attrs then
-			local alpha_test = tonumber(material_node.attrs.AlphaTest)
-
-			if alpha_test and alpha_test > 0 then
-				self:SetAlphaTest(true)
-				self:SetAlphaCutoff(alpha_test)
-			end
-		end
+		self.cry_texture_maps = {}
+		self.cry_public_params = {}
 
 		do
 			local public_params = find_child_by_tag(material_node, "PublicParams")
@@ -663,8 +598,52 @@ do
 			end
 		end
 
-		if is_vegetation then
-			local public_params = find_child_by_tag(material_node, "PublicParams")
+		local params = self.cry_public_params
+
+		do
+			local r, g, b = unpack_csv_numbers(attrs.Specular)
+			self.cry_specular_color = Color(r or 0, g or 0, b or 0, 1)
+		end
+
+		-- collision proxies and other helpers that CryEngine never draws
+		if shader:lower() == "nodraw" or bit.band(mtl_flags, MTL_FLAG_NODRAW) ~= 0 then
+			self:SetNoDraw(true)
+			return self
+		end
+
+		self:SetMetallicMultiplier(0)
+
+		-- blinn phong: specular = light * phong(Shininess) * gloss map * Specular color, gloss map defaults to white
+		-- turned into GGX with the power's equivalent roughness and F0 from the specular color, 0.5 being the usual 0.04
+		do
+			local specular = self.cry_specular_color
+			self:SetRoughnessMultiplier((2 / ((tonumber(attrs.Shininess) or 0) + 2)) ^ 0.25)
+			self:SetSpecularMultiplier(
+				math.clamp((specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722) * 2, 0, 2)
+			)
+			self:SetAlbedoAlphaIsSpecular(has_gen("GLOSS_DIFFUSEALPHA"))
+		end
+
+		local alpha_test = tonumber(attrs.AlphaTest) or 0
+		local opacity = tonumber(attrs.Opacity) or 1
+
+		do
+			local r, g, b = unpack_csv_numbers(attrs.Diffuse)
+			-- alpha testing ignores the opacity
+			self:SetColorMultiplier(Color(r or 1, g or 1, b or 1, alpha_test > 0 and 1 or opacity))
+		end
+
+		if alpha_test > 0 then
+			self:SetAlphaTest(true)
+			self:SetAlphaCutoff(alpha_test)
+		elseif opacity < 1 or shader == "Glass" then
+			self:SetTranslucent(true)
+		end
+
+		local leaves = has_gen("LEAVES") or has_gen("GRASS")
+		self:SetDoubleSided(leaves or bit.band(mtl_flags, MTL_FLAG_2SIDED) ~= 0)
+
+		if shader == "Vegetation" then
 			self:SetWindAmplitude(0.08)
 			self:SetWindFrequency(0.9)
 			self:SetWindDetailAmplitude(0.03)
@@ -672,27 +651,23 @@ do
 			self:SetWindPhaseScale(0.12)
 			self:SetWindNormalInfluence(0.35)
 			self:SetWindDirection(Vec3(1.0, 0.0, 0.35))
+		end
 
-			if public_params and public_params.attrs then
-				local r, g, b = unpack_csv_numbers(public_params.attrs.BackDiffuse)
-				local multiplier = tonumber(public_params.attrs.BackDiffuseMultiplier) or 1
-				local back_view_dep = tonumber(public_params.attrs.BackViewDep)
-				self:SetTransmissionColor(Color(r or 1, g or 1, b or 1, multiplier))
+		-- leaves and grass light their back face through the opacity map, which is never alpha
+		if leaves then
+			local r, g, b = unpack_csv_numbers(params.BackDiffuse)
+			self:SetSubsurface(true)
+			self:SetTransmissionColor(Color(r or 1, g or 1, b or 1, tonumber(params.BackDiffuseMultiplier) or 1))
 
-				if back_view_dep then self:SetTransmissionViewDependency(back_view_dep) end
+			if params.BackViewDep then
+				self:SetTransmissionViewDependency(tonumber(params.BackViewDep))
 			end
 		end
 
 		-- without the detail bump bit, crysis only uses the detail map in a legacy color modulate pass
-		local detail_bump_mapping = material_node.attrs and
-			DETAIL_BUMP_MAPPING_MASKS[material_node.attrs.Shader] and
-			bit.band(
-				tonumber(material_node.attrs.GenMask) or 0,
-				DETAIL_BUMP_MAPPING_MASKS[material_node.attrs.Shader]
-			) ~= 0
+		local detail_bump_mapping = has_gen("DETAIL_BUMP_MAPPING")
 
 		if detail_bump_mapping then
-			local params = self.cry_public_params
 			self:SetDetailTiling(
 				Vec2(
 					tonumber(params.DetailBumpTillingU) or 1,
@@ -706,58 +681,76 @@ do
 		local textures = find_child_by_tag(material_node, "Textures")
 
 		for texture_node in iter_children_by_tag(textures, "Texture") do
-			local attrs = texture_node.attrs or {}
-			local resolved, candidates = resolve_cry_texture_path(material_path, attrs.File)
+			local texture_attrs = texture_node.attrs or {}
+			local resolved, candidates = resolve_cry_texture_path(material_path, texture_attrs.File)
 			local tex_mod = find_child_by_tag(texture_node, "TexMod")
-			local tex_mod_attrs = tex_mod and tex_mod.attrs or nil
-			local map_name = attrs.Map
-			local map_info = {
-				file = attrs.File,
-				resolved = resolved,
-				tile_u = tex_mod_attrs and tonumber(tex_mod_attrs.TileU) or 1,
-				tile_v = tex_mod_attrs and tonumber(tex_mod_attrs.TileV) or 1,
-			}
+			local tex_mod_attrs = tex_mod and tex_mod.attrs or {}
+			local map_name = texture_attrs.Map
 
 			if map_name and map_name ~= "" then
-				self.cry_texture_maps[map_name] = map_info
+				self.cry_texture_maps[map_name] = {
+					file = texture_attrs.File,
+					resolved = resolved,
+					tile_u = tonumber(tex_mod_attrs.TileU) or 1,
+					tile_v = tonumber(tex_mod_attrs.TileV) or 1,
+					offset_u = tonumber(tex_mod_attrs.OffsetU) or 0,
+					offset_v = tonumber(tex_mod_attrs.OffsetV) or 0,
+				}
 			end
 
-			if attrs.Map == "Diffuse" then
+			if map_name == "Diffuse" then
 				self:SetAlbedoTexture(
 					resolved and
 						SRGBTexture(resolved) or
-						get_missing_cry_texture(material_path, attrs, candidates)
+						get_missing_cry_texture(material_path, texture_attrs, candidates)
 				)
-			elseif attrs.Map == "Normalmap" or attrs.Map == "Bumpmap" then
+			elseif map_name == "Normalmap" or map_name == "Bumpmap" then
 				self:SetNormalTexture(
 					resolved and
 						LinearTexture(resolved) or
-						get_missing_cry_texture(material_path, attrs, candidates)
+						get_missing_cry_texture(material_path, texture_attrs, candidates)
 				)
 
 				if resolved then self:SetReverseXZNormalMap(true) end
-			elseif attrs.Map == "Specular" then
-				self:SetRoughnessTexture(
+			elseif map_name == "Specular" then
+				-- the gloss map, sampled as srgb
+				self:SetSpecularTexture(
 					resolved and
-						CrySpecularRoughnessTexture(resolved) or
-						get_missing_cry_texture(material_path, attrs, candidates)
+						SRGBTexture(resolved) or
+						get_missing_cry_texture(material_path, texture_attrs, candidates)
 				)
-				self:SetInvertRoughnessTexture(false)
-			elseif attrs.Map == "Detail" and detail_bump_mapping then
+			elseif map_name == "Detail" and detail_bump_mapping then
 				self:SetDetailTexture(
 					resolved and
 						LinearTexture(resolved) or
-						get_missing_cry_texture(material_path, attrs, candidates)
+						get_missing_cry_texture(material_path, texture_attrs, candidates)
 				)
-			elseif attrs.Map == "Opacity" then
-				self:SetOpacityTexture(
+			elseif map_name == "Opacity" and leaves then
+				self:SetTransmissionTexture(
 					resolved and
 						LinearTexture(resolved) or
-						get_missing_cry_texture(material_path, attrs, candidates)
+						get_missing_cry_texture(material_path, texture_attrs, candidates)
 				)
-				self:SetAlphaTest(true)
+			end
+		end
 
-				if is_vegetation then self:SetDoubleSided(true) end
+		-- the glow pass adds diffuse * diffuse alpha * GlowAmount, alpha glow adds the same scaled by AmbientMultiplier
+		do
+			local glow = tonumber(attrs.GlowAmount) or 0
+
+			if has_gen("ALPHAGLOW") then
+				glow = glow + (tonumber(params.AmbientMultiplier) or 1)
+			end
+
+			if glow > 0 then
+				self:SetEmissiveMultiplier(Color(1, 1, 1, glow))
+
+				-- alpha testing needs the diffuse alpha, so the glow is masked by the diffuse red channel instead
+				if self.AlphaTest then
+					self:SetEmissiveTexture(self.AlbedoTexture)
+				else
+					self:SetAlbedoAlphaIsEmissive(true)
+				end
 			end
 		end
 
@@ -1425,7 +1418,7 @@ do
 			metallic_roughness = 0,
 			metallic = 0,
 			roughness = 0,
-			opacity = 0,
+			transmission = 0,
 			ambient_occlusion_texture = 0,
 			emissive_texture = 0,
 			nondefault_factor = 0,
@@ -1466,8 +1459,8 @@ do
 				counts.roughness = counts.roughness + 1
 			end
 
-			if material:GetOpacityTexture() ~= nil then
-				counts.opacity = counts.opacity + 1
+			if material:GetTransmissionTexture() ~= nil then
+				counts.transmission = counts.transmission + 1
 			end
 
 			if material:GetAmbientOcclusionTexture() ~= nil then
@@ -1539,11 +1532,11 @@ do
 		)
 		print(
 			string.format(
-				"[cached_material_features] metallic_roughness=%d metallic=%d roughness=%d opacity=%d",
+				"[cached_material_features] metallic_roughness=%d metallic=%d roughness=%d transmission=%d",
 				counts.metallic_roughness,
 				counts.metallic,
 				counts.roughness,
-				counts.opacity
+				counts.transmission
 			)
 		)
 		print(

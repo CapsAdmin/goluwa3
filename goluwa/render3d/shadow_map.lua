@@ -100,10 +100,8 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 
 	local entry = material_cache[pipeline]
 	local albedo_texture = material:GetAlbedoTexture()
-	local opacity_texture = material:GetOpacityTexture()
 	local height_texture = material:GetHeightTexture()
 	local albedo_view = albedo_texture and albedo_texture:GetView() or nil
-	local opacity_view = opacity_texture and opacity_texture:GetView() or nil
 	local height_view = height_texture and height_texture:GetView() or nil
 
 	-- a material without any of these textures compares nil to nil everywhere, so
@@ -112,20 +110,15 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 		not entry or
 		entry.albedo_texture ~= albedo_texture or
 		entry.albedo_view ~= albedo_view or
-		entry.opacity_texture ~= opacity_texture or
-		entry.opacity_view ~= opacity_view or
 		entry.height_texture ~= height_texture or
 		entry.height_view ~= height_view
 	then
 		entry = entry or {}
 		entry.albedo_texture = albedo_texture
 		entry.albedo_view = albedo_view
-		entry.opacity_texture = opacity_texture
-		entry.opacity_view = opacity_view
 		entry.height_texture = height_texture
 		entry.height_view = height_view
 		entry.albedo_texture_index = pipeline:GetTextureIndex(albedo_texture)
-		entry.opacity_texture_index = pipeline:GetTextureIndex(opacity_texture)
 		entry.height_texture_index = pipeline:GetTextureIndex(height_texture)
 		material_cache[pipeline] = entry
 	end
@@ -155,7 +148,6 @@ local ShadowStateUniformDecl = [[
 		float light_position[3];
 		float light_far_plane;
 		int albedo_texture_index;
-		int opacity_texture_index;
 		int height_texture_index;
 		int flags;
 		float color_multiplier_a;
@@ -175,7 +167,6 @@ local SHADOW_STATE_UNIFORM_GLSL = [[
 		vec3 light_position;
 		float light_far_plane;
 		int albedo_texture_index;
-		int opacity_texture_index;
 		int height_texture_index;
 		int flags;
 		float color_multiplier_a;
@@ -255,11 +246,7 @@ local function build_shadow_fragment_shader(bindless_texture_capacity, linear_de
 		linear_depth_output and "layout(location = 1) in vec3 in_world_pos;" or "",
 		linear_depth_output and "layout(location = 0) out float out_distance;" or ""
 	)
-	return prelude .. Material.BuildGlslFlags("shadow_state.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl(
-			"shadow_state.albedo_texture_index",
-			"shadow_state.color_multiplier_a",
-			"shadow_state.opacity_texture_index"
-		) .. model_pipeline.BuildAlphaDiscardGlsl("shadow_state.alpha_cutoff") .. (
+	return prelude .. Material.BuildGlslFlags("shadow_state.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl("shadow_state.albedo_texture_index", "shadow_state.color_multiplier_a") .. model_pipeline.BuildAlphaDiscardGlsl("shadow_state.alpha_cutoff") .. (
 			linear_depth_output and
 			[[
 					void main() {
@@ -509,7 +496,6 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 
 	if material then
 		data.albedo_texture_index = texture_entry and texture_entry.albedo_texture_index or 0
-		data.opacity_texture_index = texture_entry and texture_entry.opacity_texture_index or -1
 		data.height_texture_index = texture_entry and texture_entry.height_texture_index or -1
 		data.flags = material:GetShadowFlags()
 		data.color_multiplier_a = material:GetShadowOpacity()
@@ -518,7 +504,6 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 		data.height_center = material:GetHeightCenter()
 	else
 		data.albedo_texture_index = 0
-		data.opacity_texture_index = -1
 		data.height_texture_index = -1
 		data.flags = 0
 		data.color_multiplier_a = 1.0
@@ -690,7 +675,6 @@ local ShadowBatchRecord = ffi.typeof(
 		uint32_t addresses[4];
 		uint32_t index_is_32;
 		int32_t albedo_texture_index;
-		int32_t opacity_texture_index;
 		int32_t flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
@@ -738,7 +722,6 @@ do
 		uvec4 addresses;
 		uint index_is_32;
 		int albedo_texture_index;
-		int opacity_texture_index;
 		int flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
@@ -873,8 +856,7 @@ local function build_shadow_multi_draw_fragment_stage(bindless_texture_capacity,
 				""
 			) .. "\n" .. Material.BuildGlslFlags("SHADOW_BATCH[in_batch].flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl(
 				"SHADOW_BATCH[in_batch].albedo_texture_index",
-				"SHADOW_BATCH[in_batch].color_multiplier_a",
-				"SHADOW_BATCH[in_batch].opacity_texture_index"
+				"SHADOW_BATCH[in_batch].color_multiplier_a"
 			) .. model_pipeline.BuildAlphaDiscardGlsl("SHADOW_BATCH[in_batch].alpha_cutoff") .. (
 				linear_depth_output and
 				[[
@@ -2706,7 +2688,6 @@ local function update_shadow_batch_table(self, pipeline, batches, batch_serial)
 			addresses[1] = mesh:GetIndexBufferAddress()
 			record.index_is_32 = mesh.index_buffer and mesh.index_buffer:GetIndexType() == "uint32" and 1 or 0
 			record.albedo_texture_index = texture_entry.albedo_texture_index
-			record.opacity_texture_index = texture_entry.opacity_texture_index
 			record.flags = material:GetShadowFlags()
 			record.color_multiplier_a = material:GetShadowOpacity()
 			record.alpha_cutoff = material:GetAlphaCutoff()

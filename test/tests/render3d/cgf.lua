@@ -418,7 +418,7 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	assert(
 		vfs.Write(
 			mount_root .. "/Game/Objects.pak/materials/demo.mtl",
-			[[<Material><SubMaterials><Material Name="rock" Diffuse="0.25,0.5,0.75" Opacity="1" Shader="Vegetation" AlphaTest="0.5"><Textures><Texture Map="Diffuse" File="objects/demo/albedo.tif" /><Texture Map="Normalmap" File="objects/demo/normal.tif" /><Texture Map="Specular" File="textures/demo/spec.tif" /><Texture Map="Opacity" File="objects/demo/spec.tif" /></Textures><PublicParams BackDiffuse="0.2,0.4,0.6" BackDiffuseMultiplier="1.5" BackViewDep="0.7" /></Material></SubMaterials></Material>]]
+			[[<Material><SubMaterials><Material Name="rock" Diffuse="0.25,0.5,0.75" Specular="0.5,0.5,0.5" Shininess="30" Opacity="1" Shader="Vegetation" GenMask="256" AlphaTest="0.5"><Textures><Texture Map="Diffuse" File="objects/demo/albedo.tif" /><Texture Map="Normalmap" File="objects/demo/normal.tif" /><Texture Map="Specular" File="textures/demo/spec.tif" /><Texture Map="Opacity" File="textures/demo/spec.tif" /></Textures><PublicParams BackDiffuse="0.2,0.4,0.6" BackDiffuseMultiplier="1.5" BackViewDep="0.7" /></Material></SubMaterials></Material>]]
 		)
 	)
 	assert(vfs.Write(mount_root .. "/Game/Objects.pak/objects/demo/albedo.dds", "dds"))
@@ -457,22 +457,24 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	local material = Material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/demo.mtl", 0)
 	Texture.New = old_texture_new
 	T(material.cry_sub_material_name)["=="]("rock")
-	T(#created)["=="](5)
+	T(#created)["=="](4)
 	T(created[1].path)["=="](mount_root .. "/Game/Objects.pak/objects/demo/albedo.dds")
 	T(created[1].srgb)["=="](true)
 	T(created[2].path)["=="](mount_root .. "/Game/Objects.pak/objects/demo/normal.dds")
 	T(created[2].srgb)["=="](false)
 	T(created[3].path)["=="](mount_root .. "/Game/Textures.pak/textures/demo/spec.dds")
-	T(created[3].srgb)["=="](false)
-	T(created[4].path)["=="](nil)
-	T(created[5].path)["=="](mount_root .. "/Game/Textures.pak/textures/demo/spec.dds")
-	T(created[5].srgb)["=="](false)
+	T(created[3].srgb)["=="](true)
+	T(created[4].path)["=="](mount_root .. "/Game/Textures.pak/textures/demo/spec.dds")
+	T(created[4].srgb)["=="](false)
 	T(material:GetAlphaTest())["=="](true)
 	T(material:GetAlphaCutoff())["=="](0.5)
 	T(material:GetDoubleSided())["=="](true)
 	T(material:GetSubsurface())["=="](true)
-	T(material:GetOpacityTexture() ~= nil)["=="](true)
-	T(material:GetRoughnessTexture() ~= nil)["=="](true)
+	T(material:GetSpecularTexture() ~= nil)["=="](true)
+	T(material:GetTransmissionTexture() ~= nil)["=="](true)
+	T(material:GetRoughnessTexture())["=="](nil)
+	T(math.abs(material:GetRoughnessMultiplier() - (2 / 32) ^ 0.25))["<"](0.0001)
+	T(math.abs(material:GetSpecularMultiplier() - 1))["<"](0.0001)
 	T(material:GetMetallicMultiplier())["=="](0)
 	T(math.abs(material:GetTransmissionColor().r - 0.2))["<"](0.0001)
 	T(math.abs(material:GetTransmissionColor().g - 0.4))["<"](0.0001)
@@ -497,10 +499,10 @@ T.Test("CryMTL loader logs and falls back when textures are missing", function()
 	assert(
 		vfs.Write(
 			mount_root .. "/Game/Objects.pak/materials/demo_missing.mtl",
-			[[<Material><SubMaterials><Material Name="rock"><Textures><Texture Map="Diffuse" File="objects/demo/missing_albedo.tif" /><Texture Map="Normalmap" File="objects/demo/missing_normal.tif" /><Texture Map="Specular" File="textures/demo/missing_spec.tif" /><Texture Map="Opacity" File="objects/demo/missing_opacity.tif" /></Textures></Material></SubMaterials></Material>]]
+			[[<Material><SubMaterials><Material Name="rock" Shader="Vegetation" GenMask="256"><Textures><Texture Map="Diffuse" File="objects/demo/missing_albedo.tif" /><Texture Map="Normalmap" File="objects/demo/missing_normal.tif" /><Texture Map="Specular" File="textures/demo/missing_spec.tif" /><Texture Map="Opacity" File="objects/demo/missing_opacity.tif" /></Textures></Material></SubMaterials></Material>]]
 		)
 	)
-	local fallback_texture = {tag = "fallback"}
+	local fallback_texture = {tag = "fallback", config = {}}
 	local old_get_fallback = Texture.GetFallback
 	local old_logf = logf
 	local logs = {}
@@ -526,9 +528,8 @@ T.Test("CryMTL loader logs and falls back when textures are missing", function()
 			local material = Material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/demo_missing.mtl", 0)
 			T(material:GetAlbedoTexture())["=="](fallback_texture)
 			T(material:GetNormalTexture())["=="](fallback_texture)
-			T(material:GetRoughnessTexture())["=="](fallback_texture)
-			T(material:GetOpacityTexture())["=="](fallback_texture)
-			T(material:GetAlphaTest())["=="](true)
+			T(material:GetSpecularTexture())["=="](fallback_texture)
+			T(material:GetTransmissionTexture())["=="](fallback_texture)
 			T(count_log_matches("crytek texture not found"))["=="](4)
 			T(count_log_matches("  tried \""))[">"](0)
 			T(table.concat(logs):find("missing_albedo.tif", 1, true) ~= nil)["=="](true)
@@ -541,6 +542,38 @@ T.Test("CryMTL loader logs and falls back when textures are missing", function()
 	if not ok then error(err, 0) end
 
 	vfs.Delete(mount_root .. "/Game/Objects.pak/materials/demo_missing.mtl")
+end)
+
+T.Test("CryMTL loader maps nodraw, glass, opacity, two sided and glow", function()
+	local mount_root = "os:" .. vfs.GetStorageDirectory("shared") .. "cgf_crymtl_flags_test"
+	assert(vfs.CreateDirectory(mount_root))
+	assert(vfs.CreateDirectory(mount_root .. "/Game"))
+	assert(vfs.CreateDirectory(mount_root .. "/Game/Objects.pak"))
+	assert(vfs.CreateDirectory(mount_root .. "/Game/Objects.pak/materials"))
+	local path = mount_root .. "/Game/Objects.pak/materials/demo_flags.mtl"
+	assert(
+		vfs.Write(
+			path,
+			[[<Material><SubMaterials><Material Name="proxy" Shader="Nodraw" /><Material Name="glass" Shader="Glass" Opacity="0.4" /><Material Name="faded" Shader="Illum" Opacity="0.5" MtlFlags="2" /><Material Name="cutout" Shader="Illum" Opacity="0.5" AlphaTest="0.3" /><Material Name="lamp" Shader="Illum" GlowAmount="0.8" /></SubMaterials></Material>]]
+		)
+	)
+	local proxy = Material.FromCryMTL(path, 0)
+	local glass = Material.FromCryMTL(path, 1)
+	local faded = Material.FromCryMTL(path, 2)
+	local cutout = Material.FromCryMTL(path, 3)
+	local lamp = Material.FromCryMTL(path, 4)
+	T(proxy:GetNoDraw())["=="](true)
+	T(glass:GetNoDraw())["=="](false)
+	T(glass:GetTranslucent())["=="](true)
+	T(math.abs(glass:GetColorMultiplier().a - 0.4))["<"](0.0001)
+	T(faded:GetTranslucent())["=="](true)
+	T(faded:GetDoubleSided())["=="](true)
+	T(cutout:GetTranslucent())["=="](false)
+	T(cutout:GetAlphaTest())["=="](true)
+	T(cutout:GetColorMultiplier().a)["=="](1)
+	T(lamp:GetAlbedoAlphaIsEmissive())["=="](true)
+	T(math.abs(lamp:GetEmissiveMultiplier().a - 0.8))["<"](0.0001)
+	vfs.Delete(path)
 end)
 
 T.Test("CryMTL loader resolves demo-style objects.pak and textures.pak roots", function()

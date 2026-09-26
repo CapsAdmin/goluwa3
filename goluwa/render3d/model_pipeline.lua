@@ -62,7 +62,12 @@ local PBR_AUX_FIELDS = {
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
 	{type = "texture", name = "MetallicTexture", getter = "GetMetallicTexture"},
 	{type = "texture", name = "RoughnessTexture", getter = "GetRoughnessTexture"},
-	{type = "texture", name = "OpacityTexture", getter = "GetOpacityTexture"},
+	{type = "texture", name = "SpecularTexture", getter = "GetSpecularTexture"},
+	{
+		type = "texture",
+		name = "TransmissionTexture",
+		getter = "GetTransmissionTexture",
+	},
 }
 local PBR_DISPLACEMENT_FIELDS = {
 	{type = "texture", name = "HeightTexture", getter = "GetHeightTexture"},
@@ -1152,7 +1157,8 @@ function model_pipeline.GetPBRAuxUploadKey()
 	local uses_metallic_detail = material:GetMetallicRoughnessTexture() ~= nil or
 		material:GetMetallicTexture() ~= nil or
 		material:GetRoughnessTexture() ~= nil or
-		material:GetOpacityTexture() ~= nil
+		material:GetSpecularTexture() ~= nil or
+		material:GetTransmissionTexture() ~= nil
 	local uses_ao = material:GetAmbientOcclusionTexture() ~= nil or
 		material:GetAmbientOcclusionMultiplier() ~= 1.0
 	local uses_emissive = material:GetEmissiveTexture() ~= nil or
@@ -1502,18 +1508,12 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr)
 	):format(alpha_cutoff_expr)
 end
 
-function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr, opacity_texture_index_expr)
+function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr)
 	texture_index_expr = texture_index_expr or "pc.albedo_texture_index"
 	color_multiplier_a_expr = color_multiplier_a_expr or "pc.color_multiplier_a"
-	opacity_texture_index_expr = opacity_texture_index_expr or "-1"
 	return (
 		[[
 			float get_alpha_uv(vec2 uv) {
-				if (%s != -1) {
-					vec4 mask = textureLod(textures[nonuniformEXT(%s)], uv, 0.0);
-					return clamp(max(max(mask.r, mask.g), max(mask.b, mask.a)), 0.0, 1.0) * %s;
-				}
-
 				if (
 					%s == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
@@ -1530,9 +1530,6 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 			}
 		]]
 	):format(
-		opacity_texture_index_expr,
-		opacity_texture_index_expr,
-		color_multiplier_a_expr,
 		texture_index_expr,
 		color_multiplier_a_expr,
 		texture_index_expr,
@@ -2080,14 +2077,9 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 
 				float blocking = transmission_model.TransmissionBlocking;
 
-				if (aux_model.RoughnessTexture != -1) {
-					blocking *= texture(TEXTURE(aux_model.RoughnessTexture), uv).a;
-					return clamp(blocking, 0.0, 1.0);
-				}
-
-				if (aux_model.OpacityTexture != -1) {
-					vec4 mask = texture(TEXTURE(aux_model.OpacityTexture), uv);
-					blocking *= max(max(mask.r, mask.g), max(mask.b, mask.a));
+				if (aux_model.TransmissionTexture != -1) {
+					vec3 transmission = texture(TEXTURE(aux_model.TransmissionTexture), uv).rgb;
+					blocking *= 1.0 - dot(transmission, vec3(0.2126, 0.7152, 0.0722));
 					return clamp(blocking, 0.0, 1.0);
 				}
 
@@ -2126,6 +2118,12 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			// half the multiplier, so 1 lands mid range and 2 still fits the unorm target
 			float get_specular(vec2 uv) {
 				float val = factor_model.SpecularMultiplier;
+
+				if (AlbedoAlphaIsSpecular && model.AlbedoTexture != -1) {
+					val *= texture(TEXTURE(model.AlbedoTexture), uv).a;
+				} else if (aux_model.SpecularTexture != -1) {
+					val *= dot(texture(TEXTURE(aux_model.SpecularTexture), uv).rgb, vec3(0.2126, 0.7152, 0.0722));
+				}
 
 				if (terrain_model.TerrainMaterialTexture != -1) {
 					val *= dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerSpecular);

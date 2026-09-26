@@ -627,12 +627,30 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 				end
 			end
 
-			if entry.vertices_shared then
-				mesh:SetVertices(clone_vertices(entry.vertices))
-			else
-				mesh:SetVertices(entry.vertices)
+			local vertices = entry.vertices_shared and clone_vertices(entry.vertices) or entry.vertices
+			-- the diffuse map's TexMod tiling and offset, baked into the uvs for every map
+			local diffuse = material and material.cry_texture_maps and material.cry_texture_maps.Diffuse
+
+			if
+				diffuse and
+				(
+					diffuse.tile_u ~= 1 or
+					diffuse.tile_v ~= 1 or
+					diffuse.offset_u ~= 0 or
+					diffuse.offset_v ~= 0
+				)
+			then
+				for _, vertex in ipairs(vertices) do
+					if vertex.uv then
+						vertex.uv = Vec2(
+							vertex.uv.x * diffuse.tile_u + diffuse.offset_u,
+							vertex.uv.y * diffuse.tile_v + diffuse.offset_v
+						)
+					end
+				end
 			end
 
+			mesh:SetVertices(vertices)
 			mesh:SetBranchHelperPivots(entry.branch_helper_pivots)
 			mesh:SetMaterialSlot(entry.subset_material_id)
 			mesh:SetName(path)
