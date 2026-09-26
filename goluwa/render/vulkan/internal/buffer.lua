@@ -6,6 +6,9 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Buffer = objects.CreateTemplate("vulkan_buffer")
 local VkBufferBox = ffi.typeof("$[1]", vulkan.vk.VkBuffer)
+-- bumped whenever a buffer whose device address was handed out goes away, so
+-- tables of addresses know when they may point at a destroyed buffer
+Buffer.address_release_serial = 0
 
 local function build_buffer_memory_name(name)
 	if not name or name == "" then return nil end
@@ -90,6 +93,10 @@ function Buffer:GetSize()
 end
 
 function Buffer:OnRemove()
+	if self.device_address then
+		Buffer.address_release_serial = Buffer.address_release_serial + 1
+	end
+
 	if
 		self.mapped_data and
 		self.device:IsValid() and
@@ -124,14 +131,21 @@ function Buffer:BindMemory()
 	)
 end
 
+-- a buffer's address is fixed for its lifetime
 function Buffer:GetDeviceAddress()
+	local address = self.device_address
+
+	if address then return address end
+
 	if not vulkan.lib.vkGetBufferDeviceAddress then return 0 end
 
 	local info = vulkan.vk.VkBufferDeviceAddressInfo{
 		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
 		buffer = self.ptr[0],
 	}
-	return vulkan.lib.vkGetBufferDeviceAddress(self.device.ptr[0], info)
+	address = vulkan.lib.vkGetBufferDeviceAddress(self.device.ptr[0], info)
+	self.device_address = address
+	return address
 end
 
 function Buffer:Map(offset, size)

@@ -3,6 +3,8 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local Hash = import("goluwa/hash.lua")
+-- texture.lua imports this module, so it is resolved on first use
+local Texture
 local pipeline_common = {}
 -- ============================================================
 -- SECTION 1: Sampler Config Utilities
@@ -183,7 +185,7 @@ end
 -- SECTION 3: Fallback Helpers
 -- ============================================================
 function pipeline_common.get_fallback_view(self)
-	local Texture = import("goluwa/render/texture.lua")
+	Texture = Texture or import("goluwa/render/texture.lua")
 	local fallback = Texture.GetFallback()
 
 	if fallback and fallback.GetView then return fallback:GetView() end
@@ -192,7 +194,7 @@ function pipeline_common.get_fallback_view(self)
 end
 
 function pipeline_common.get_fallback_sampler_config(self)
-	local Texture = import("goluwa/render/texture.lua")
+	Texture = Texture or import("goluwa/render/texture.lua")
 	local fallback = Texture.GetFallback()
 
 	if fallback and fallback.GetSamplerConfig then
@@ -687,7 +689,7 @@ function pipeline_common.bind_descriptor_set_methods(META)
 	end
 
 	function META:GetFallbackView()
-		local Texture = import("goluwa/render/texture.lua")
+		Texture = Texture or import("goluwa/render/texture.lua")
 		local fallback = Texture.GetFallback()
 
 		if fallback and fallback.GetView then return fallback:GetView() end
@@ -696,7 +698,7 @@ function pipeline_common.bind_descriptor_set_methods(META)
 	end
 
 	function META:GetFallbackSampler()
-		local Texture = import("goluwa/render/texture.lua")
+		Texture = Texture or import("goluwa/render/texture.lua")
 		local fallback = Texture.GetFallback()
 
 		if not fallback then return nil end

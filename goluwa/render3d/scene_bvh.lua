@@ -33,6 +33,7 @@ local TriangleArray = ffi.typeof("$[?]", Triangle)
 local TrianglePtr = ffi.typeof("$*", Triangle)
 local FloatArray = ffi.typeof("float[?]")
 local UInt32Array = ffi.typeof("uint32_t[?]")
+local Int32Array = ffi.typeof("int32_t[?]")
 local NODE_BYTE_SIZE = 32
 local TRIANGLE_BYTE_SIZE = 64
 local BIN_COUNT = 12
@@ -235,8 +236,18 @@ do
 		scene_bvh.triangle_buffer = buffer
 		scene_bvh.triangles = ffi.cast(TrianglePtr, ptr)
 
+		-- a block that is being moved to a bigger range may already hold more
+		-- triangles than its old one. it is written again once it has moved
 		for _, vc in ipairs(scene_bvh.blocks) do
-			ffi.copy(scene_bvh.triangles + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
+			local count = math.min(vc.total, vc.tri_cap)
+			ffi.copy(scene_bvh.triangles + vc.tri_base, vc.world_block, count * TRIANGLE_BYTE_SIZE)
+			ffi.fill(scene_bvh.triangles + vc.tri_base + count, (vc.tri_cap - count) * TRIANGLE_BYTE_SIZE)
+		end
+
+		for cap, list in pairs(scene_bvh.triangle_allocator.free) do
+			for _, base in ipairs(list) do
+				ffi.fill(scene_bvh.triangles + base, cap * TRIANGLE_BYTE_SIZE)
+			end
 		end
 
 		scene_bvh.triangle_capacity = capacity
@@ -271,13 +282,47 @@ do
 		log[n + 2] = count
 	end
 
+	-- zeroed triangles expand to degenerate ones, so the padding of a range
+	-- and a freed range draw nothing. that lets the shadow soup draw runs of
+	-- neighbouring blocks as one range across their padding
+	local function free_soup_range(base, cap)
+		range_free(scene_bvh.triangle_allocator, base, cap)
+		ffi.fill(scene_bvh.triangles + base, cap * TRIANGLE_BYTE_SIZE)
+		log_soup_range(base, cap)
+	end
+
+	-- the raster block of every entry in blocks, by block index: world bounds
+	-- and the padded soup vertex range, for frustum culling the soup without
+	-- touching the block tables
+	local function write_raster_block(vc)
+		local i = vc.block_index - 1
+
+		if i >= scene_bvh.raster_capacity then
+			local capacity = math.max(math.ceil((i + 1) * 1.5), 1024)
+			local bounds = FloatArray(capacity * 6)
+			local ranges = Int32Array(capacity * 2)
+
+			if scene_bvh.raster_bounds then
+				ffi.copy(bounds, scene_bvh.raster_bounds, scene_bvh.raster_capacity * 6 * 4)
+				ffi.copy(ranges, scene_bvh.raster_ranges, scene_bvh.raster_capacity * 2 * 4)
+			end
+
+			scene_bvh.raster_bounds = bounds
+			scene_bvh.raster_ranges = ranges
+			scene_bvh.raster_capacity = capacity
+		end
+
+		ffi.copy(scene_bvh.raster_bounds + i * 6, vc.world_aabb, 6 * 4)
+		scene_bvh.raster_ranges[i * 2] = vc.tri_base * 3
+		scene_bvh.raster_ranges[i * 2 + 1] = (vc.tri_base + vc.tri_cap) * 3
+	end
+
 	local function reset_layout()
 		scene_bvh.node_allocator = create_allocator(1, 1, grow_nodes)
 		scene_bvh.node_allocator.capacity = scene_bvh.node_capacity
 		scene_bvh.triangle_allocator = create_allocator(0, SOUP_ALIGN, grow_triangles)
 		scene_bvh.triangle_allocator.capacity = scene_bvh.triangle_capacity
 		scene_bvh.blocks = {}
-		scene_bvh.raster_blocks = scene_bvh.blocks
 		scene_bvh.top_parent = {}
 		scene_bvh.top_leaf = {}
 		scene_bvh.top_count = 0
@@ -307,7 +352,7 @@ do
 	scene_bvh.soup_log_base = 0
 	scene_bvh.soup_log_sealed = 0
 	scene_bvh.blocks = {}
-	scene_bvh.raster_blocks = scene_bvh.blocks
+	scene_bvh.raster_capacity = 0
 
 	local function surface_area(min_x, min_y, min_z, max_x, max_y, max_z)
 		local dx = max_x - min_x
@@ -1096,17 +1141,10 @@ do
 
 		local aabb = vc.world_aabb
 		transform_box(v, ffi.cast("float*", local_nodes[0].bounds_min), aabb)
-		-- raster block fields, for cascade frustum culling of the expanded
-		-- soup (tri_base/total are soup triangle indices, x3 for the
-		-- one-position-per-vertex layout)
+		-- tri_base/total are soup triangle indices, x3 for the
+		-- one-position-per-vertex layout of the expanded soup
 		vc.first_vertex = vc.tri_base * 3
 		vc.vertex_count = total * 3
-		vc.min_x = aabb[0]
-		vc.min_y = aabb[1]
-		vc.min_z = aabb[2]
-		vc.max_x = aabb[3]
-		vc.max_y = aabb[4]
-		vc.max_z = aabb[5]
 	end
 
 	local function child_leaf_writer(node, first, count)
@@ -1126,7 +1164,7 @@ do
 
 		if not vc.block_index then return end
 
-		range_free(scene_bvh.triangle_allocator, vc.tri_base, vc.tri_cap)
+		free_soup_range(vc.tri_base, vc.tri_cap)
 		range_free(scene_bvh.node_allocator, vc.block_base, vc.node_cap)
 		vc.tri_base = nil
 		vc.block_base = nil
@@ -1138,6 +1176,8 @@ do
 		last.block_index = vc.block_index
 		blocks[#blocks] = nil
 		vc.block_index = nil
+
+		if last ~= vc then write_raster_block(last) end
 
 		if scene_bvh.changed_blocks then
 			scene_bvh.changed_blocks[vc] = true
@@ -1382,7 +1422,7 @@ do
 			scene_bvh.triangle_count = scene_bvh.triangle_count - vc.drawn_total
 
 			if vc.tri_cap < vc.total or range_class(vc.total, SOUP_ALIGN) * 2 <= vc.tri_cap then
-				range_free(scene_bvh.triangle_allocator, vc.tri_base, vc.tri_cap)
+				free_soup_range(vc.tri_base, vc.tri_cap)
 				vc.tri_base, vc.tri_cap = range_alloc(scene_bvh.triangle_allocator, vc.total)
 			end
 
@@ -1403,13 +1443,18 @@ do
 		bake_visual_world(vc, v)
 		vc.baked_matrix = v
 		ffi.copy(scene_bvh.triangles + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
+		ffi.fill(
+			scene_bvh.triangles + vc.tri_base + vc.total,
+			(vc.tri_cap - vc.total) * TRIANGLE_BYTE_SIZE
+		)
 		ffi.copy(scene_bvh.nodes + vc.block_base, vc.child_world_nodes, vc.node_count * NODE_BYTE_SIZE)
 		ffi.copy(
 			scene_bvh.node_ptr + vc.block_base,
 			vc.child_world_nodes,
 			vc.node_count * NODE_BYTE_SIZE
 		)
-		log_soup_range(vc.tri_base, vc.total)
+		log_soup_range(vc.tri_base, vc.tri_cap)
+		write_raster_block(vc)
 		-- the ray tracing blas of this block follows this
 		vc.soup_serial = (vc.soup_serial or 0) + 1
 		scene_bvh.soup_dirty = true

@@ -1268,6 +1268,8 @@ function render3d.FlushQueuedGBufferInstances()
 	render3d.ResetQueuedGBufferInstances()
 end
 
+local gbuffer_offsets_by_material = {}
+
 function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 	if not (cull_result and render3d.pipelines and render3d.pipelines.gbuffer_instanced) then
 		return {
@@ -1323,16 +1325,51 @@ function render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
 		output.visible_instance_vertex_buffer,
 	}
 
+	local cmd = render.GetCommandBuffer()
+	local pipeline = render3d.pipelines.gbuffer_instanced
+	local frame_index = render.GetCurrentFrame()
+	local cull_mode
+	table.clear(gbuffer_offsets_by_material)
+
+	-- every batch draws with the same pipeline, so it is bound once and each
+	-- batch only swaps its constants and dynamic offsets
+	if active_batch_count > 0 then
+		pipeline:Bind(cmd)
+		cmd:SetPolygonMode("fill")
+	end
+
 	for active_index = 0, active_batch_count - 1 do
 		local batch_index = tonumber(active_batch_indices[active_index]) + 1
 		local batch = batches[batch_index]
 
 		if batch and batch.mesh:IsValid() then
+			local material = batch.material
 			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
-			render3d.SetMaterial(batch.material)
-			render3d.UploadInstancedGBufferConstants()
+			render3d.SetMaterial(material)
+			-- the uniform blocks are keyed by material, except the wind block
+			-- which also reads the polygon's branch helpers
+			local offsets = gbuffer_offsets_by_material[material]
+
+			if offsets then
+				pipeline:PushConstantBlocks()
+				pipeline:RebindDescriptor(offsets, frame_index)
+			else
+				pipeline:UploadConstantsRebindDescriptor()
+
+				if not material_has_vertex_animation(material) then
+					gbuffer_offsets_by_material[material] = pipeline.dynamic_offsets
+				end
+			end
+
+			local batch_cull_mode = material:GetDoubleSided() and "none" or orientation.CULL_MODE
+
+			if batch_cull_mode ~= cull_mode then
+				cull_mode = batch_cull_mode
+				cmd:SetCullMode(cull_mode)
+			end
+
 			batch.mesh:DrawInstancedIndirect(
-				render.GetCommandBuffer(),
+				cmd,
 				output.visible_batch_indirect_command_buffer,
 				(batch_index - 1) * indirect_command_size,
 				visible_instance_vertex_buffers,

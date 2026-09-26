@@ -2169,6 +2169,8 @@ local function create_view(is_main)
 		matrix_free = {},
 		matrix_count = 0,
 		batches = {},
+		-- bumped whenever a batch gets a mesh or material
+		batch_serial = 0,
 		batch_lookup = {},
 		batch_free = {},
 		batch_free_head = 1,
@@ -2333,6 +2335,7 @@ local function acquire_batch(view, entry)
 		batch.mesh = mesh
 		batch.material = entry.batch_material
 		batch.first_polygon3d = entry.source_entry.polygon3d
+		view.batch_serial = view.batch_serial + 1
 
 		if not view.deferred_layout then
 			if not batch.capacity then allocate_batch_output(view, batch, 2) end

@@ -3317,23 +3317,26 @@ function Visual:OnFirstCreated()
 
 			if entry_records and visible_entry_index_ptr then
 				local gpu_instanced_result = render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
-				local gpu_instanced_drawn = gpu_instanced_result.drew_any
 				local fallback_submitted_entry_count = 0
+
+				-- the cull also lists the visible entries that are not in an
+				-- instanced batch, which is all that is left to draw once the
+				-- batches drew
+				if gpu_instanced_result.drew_any then
+					visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, false)
+				end
 
 				for i = 0, visible_entry_count - 1 do
 					local record = entry_records[tonumber(visible_entry_index_ptr[i]) + 1]
 
-					if record and record.component and record.source_entry then
-						if gpu_instanced_drawn and record.instanced_batch_index ~= nil then
-							goto continue
-						end
-
-						if draw_geometry_entry(record.component, record.source_entry) then
-							fallback_submitted_entry_count = fallback_submitted_entry_count + 1
-						end
+					if
+						record and
+						record.component and
+						record.source_entry and
+						draw_geometry_entry(record.component, record.source_entry)
+					then
+						fallback_submitted_entry_count = fallback_submitted_entry_count + 1
 					end
-
-					::continue::
 				end
 
 				record_main_gpu_culling_stats{

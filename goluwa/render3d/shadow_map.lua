@@ -6,6 +6,7 @@ local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
+local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -704,6 +705,8 @@ local ShadowMultiDrawPushConstants = ffi.typeof([[
 		float light_position[3];
 		float light_far_plane;
 		int32_t disable_vertex_animation;
+		float time;
+		float prev_time;
 		int32_t pad;
 		uint64_t batches;
 		uint64_t instances;
@@ -751,6 +754,8 @@ do
 		vec3 light_position;
 		float light_far_plane;
 		int disable_vertex_animation;
+		float time;
+		float prev_time;
 		int pad;
 		uint64_t batches;
 		uint64_t instances;
@@ -829,6 +834,8 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 					)
 				) {
 					vertex_animation = SHADOW_BATCH[batch_index].anim;
+					vertex_animation.Time = pc.time;
+					vertex_animation.PrevTime = pc.prev_time;
 					vec3 local_normal = normalize(vec3(data.v[base + 3u], data.v[base + 4u], data.v[base + 5u]));
 					vec3 local_tangent = normalize(vec3(data.v[base + 8u], data.v[base + 9u], data.v[base + 10u]));
 					float texture_blend = data.v[base + 12u];
@@ -2213,6 +2220,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		then
 			self.expander.version = scene_bvh.soup_version
 			local vertex_count, position_buffer = scene_bvh.ExpandPositions(self.cmd, self.expander)
+			self.expander.vertex_count = vertex_count
 
 			if vertex_count > 0 then
 				self.cmd:PipelineBarrier{
@@ -2635,15 +2643,23 @@ function ShadowMap:DrawVisibleEntries(visible_entries, cascade_index, track_comp
 end
 
 -- One record per instanced batch, indexed by gl_DrawID in the multi-draw pipeline.
--- Texture indices are per pipeline and wind time moves every frame, so each map
--- refreshes its table once per submission, after its fence says the gpu is done
--- reading the previous contents.
-local function update_shadow_batch_table(self, pipeline, batches)
+-- Each map writes its table once per submission, after its fence says the gpu is
+-- done reading the previous contents. Every record is rewritten when a batch got
+-- a new mesh or material, or when a buffer whose address a record may hold went
+-- away. Otherwise a window of records is, which catches texture indices changing
+-- as textures finish loading within a few frames.
+local SHADOW_BATCH_REFRESH_WINDOW = 256
+
+local function update_shadow_batch_table(self, pipeline, batches, batch_serial)
 	local batch_table = self.shadow_batch_tables[pipeline]
 
 	if batch_table and batch_table.serial == self.batch_serial then
 		return batch_table
 	end
+
+	local full = not batch_table or
+		batch_table.batch_serial ~= batch_serial or
+		batch_table.address_release_serial ~= Buffer.address_release_serial
 
 	if not batch_table or batch_table.capacity < #batches then
 		if batch_table then batch_table.buffer:Remove() end
@@ -2661,9 +2677,24 @@ local function update_shadow_batch_table(self, pipeline, batches)
 		}
 		batch_table.address = batch_table.buffer:GetDeviceAddress()
 		self.shadow_batch_tables[pipeline] = batch_table
+		full = true
 	end
 
-	for i, batch in ipairs(batches) do
+	local first, last = 1, #batches
+
+	if full then
+		batch_table.cursor = 1
+	else
+		first = batch_table.cursor
+
+		if first > last then first = 1 end
+
+		last = math.min(first + SHADOW_BATCH_REFRESH_WINDOW - 1, last)
+		batch_table.cursor = last + 1
+	end
+
+	for i = first, last do
+		local batch = batches[i]
 		local record = batch_table.records[i - 1]
 		local addresses = ffi.cast("uint64_t *", record.addresses)
 		local mesh = batch.mesh
@@ -2688,8 +2719,16 @@ local function update_shadow_batch_table(self, pipeline, batches)
 		end
 	end
 
-	batch_table.buffer:CopyData(batch_table.records, #batches * ffi.sizeof(ShadowBatchRecord))
+	local record_size = ffi.sizeof(ShadowBatchRecord)
+	batch_table.buffer:CopyData(
+		batch_table.records + (first - 1),
+		(last - first + 1) * record_size,
+		(first - 1) * record_size
+	)
 	batch_table.serial = self.batch_serial
+	batch_table.batch_serial = batch_serial
+	-- read after the old table buffer above was removed
+	batch_table.address_release_serial = Buffer.address_release_serial
 	return batch_table
 end
 
@@ -2708,7 +2747,7 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 		local pipeline = self.mode == "point" and
 			self.multi_draw_pipeline or
 			self.multi_draw_pipeline_variants[self.cascade[cascade_index].format]
-		local batch_table = update_shadow_batch_table(self, pipeline, batches)
+		local batch_table = update_shadow_batch_table(self, pipeline, batches, dataset.shadow.batch_serial)
 		local depth_texture = self.mode == "point" and
 			self.point_depth_buffer or
 			self.cascade[cascade_index].depth_texture
@@ -2719,6 +2758,8 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 		push_constants.light_position[2] = self.point_light_position.z
 		push_constants.light_far_plane = self.far_plane
 		push_constants.disable_vertex_animation = self:ShouldDisableVertexAnimation(cascade_index) and 1 or 0
+		push_constants.time = system.GetElapsedTime()
+		push_constants.prev_time = render3d.GetPreviousElapsedTime()
 		push_constants.batches = batch_table.address
 		push_constants.instances = output.shadow_visible_instance_vertex_buffer.buffer:GetDeviceAddress()
 		pipeline:Bind(self.cmd, render.GetCurrentFrame())
@@ -2836,29 +2877,48 @@ function ShadowMap:DrawSoup(cascade_index)
 	self.cmd:SetCullMode("none")
 	self.cmd:BindVertexBuffers(0, {self.expander.position_buffer})
 	local planes = cascade.frustum_planes
-	local blocks = scene_bvh.raster_blocks
+	local bounds = scene_bvh.raster_bounds
+	local ranges = scene_bvh.raster_ranges
 
-	if not (blocks and planes) then return end
+	if not (bounds and planes) then return end
 
-	-- the blocks are laid out back to back in the soup, so runs of visible
-	-- blocks are drawn as one range
-	local first, count = 0, 0
+	-- a block's padding is degenerate, so visible blocks that are neighbours
+	-- in the soup are drawn as one range
+	local first, stop = 0, 0
+	-- blocks placed by a build that is still running can lie past what was
+	-- expanded
+	local limit = self.expander.vertex_count or 0
 
-	for i = 1, #blocks do
-		local block = blocks[i]
+	for i = 0, #scene_bvh.blocks - 1 do
+		local b = i * 6
+		local visible = true
 
-		if is_aabb_visible_frustum(block, planes) then
-			if count > 0 and first + count == block.first_vertex then
-				count = count + block.vertex_count
-			else
-				if count > 0 then self.cmd:Draw(count, 1, first, 0) end
+		for p = 0, 20, 4 do
+			local a, bb, c = planes[p], planes[p + 1], planes[p + 2]
 
-				first, count = block.first_vertex, block.vertex_count
+			if
+				a * (a > 0 and bounds[b + 3] or bounds[b]) + bb * (bb > 0 and bounds[b + 4] or bounds[b + 1]) + c * (c > 0 and bounds[b + 5] or bounds[b + 2]) + planes[p + 3] < 0
+			then
+				visible = false
+
+				break
 			end
+		end
+
+		if visible and ranges[i * 2 + 1] <= limit then
+			local block_first = ranges[i * 2]
+
+			if block_first ~= stop then
+				if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
+
+				first = block_first
+			end
+
+			stop = ranges[i * 2 + 1]
 		end
 	end
 
-	if count > 0 then self.cmd:Draw(count, 1, first, 0) end
+	if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
 end
 
 function ShadowMap:PrimeMaterial(material)

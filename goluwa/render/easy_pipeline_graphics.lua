@@ -22,7 +22,9 @@ local EasyPipelineGraphics = objects.CreateTemplate("render_easy_pipeline_graphi
 do
 	EasyPipelineGraphics.Base = EasyPipeline
 
-	function EasyPipelineGraphics:UploadConstants()
+	local struct_names = {}
+
+	function EasyPipelineGraphics:PushConstantBlocks()
 		local cmd = render.GetCommandBuffer()
 		local pipeline_key = self.pipeline
 		local probe_enabled = upload_probe.IsEnabled()
@@ -31,12 +33,16 @@ do
 			local stage_blocks = self._per_stage_push_blocks[stage_name]
 
 			if stage_blocks then
-				local stages_to_push = {}
-
 				for _, name in ipairs(self.push_constant_block_order) do
 					if stage_blocks[name] then
 						local block = self.push_constant_blocks[name]
-						local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
+						local struct_name = struct_names[name]
+
+						if not struct_name then
+							struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
+							struct_names[name] = struct_name
+						end
+
 						local constants = self.constant_structs[struct_name]
 						local offset = self.push_constant_block_offsets[name]
 						local constants_size = ffi.sizeof(constants)
@@ -49,23 +55,24 @@ do
 								upload_probe.RecordUpload(block.debug_name, block.field_descriptors, constants, constants_size, true)
 							end
 
-							stages_to_push[#stages_to_push + 1] = {
-								block = block,
-								offset = offset,
-								data = constants,
-								size = constants_size,
-							}
+							self.pipeline:PushConstants(cmd, stage_name, offset, constants, constants_size)
 						end
 					end
 				end
-
-				for _, entry in ipairs(stages_to_push) do
-					self.pipeline:PushConstants(cmd, {stage_name}, entry.offset, entry.data, entry.size)
-				end
 			end
 		end
+	end
 
+	function EasyPipelineGraphics:UploadConstants()
+		self:PushConstantBlocks()
 		self:UploadUniformsAndBind()
+	end
+
+	-- for draws in a row with a pipeline that is already bound: the pipeline
+	-- and its dynamic state stay, only the constants and dynamic offsets change
+	function EasyPipelineGraphics:UploadConstantsRebindDescriptor()
+		self:PushConstantBlocks()
+		self:UploadUniformsRebindDescriptor()
 	end
 
 	local function upload_uniform_offsets(self)
@@ -102,9 +109,7 @@ do
 		if offsets then self.pipeline:Bind(cmd, frame_index, offsets) end
 	end
 
-	function EasyPipelineGraphics:UploadUniformsRebindDescriptor()
-		local cmd = render.GetCommandBuffer()
-		local offsets, frame_index = upload_uniform_offsets(self)
+	function EasyPipelineGraphics:RebindDescriptor(offsets, frame_index)
 		self.dynamic_offsets = offsets
 		local pipeline = self.pipeline
 		local sets = pipeline.descriptor_sets and
@@ -114,8 +119,12 @@ do
 			)
 
 		if offsets and sets then
-			cmd:BindDescriptorSets("graphics", pipeline.pipeline_layout, sets, offsets)
+			render.GetCommandBuffer():BindDescriptorSets("graphics", pipeline.pipeline_layout, sets, offsets)
 		end
+	end
+
+	function EasyPipelineGraphics:UploadUniformsRebindDescriptor()
+		self:RebindDescriptor(upload_uniform_offsets(self))
 	end
 
 	function EasyPipelineGraphics:BeginDraw(cmd, framebuffer, frame_index)
