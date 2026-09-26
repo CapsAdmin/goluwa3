@@ -47,7 +47,7 @@ end
 
 do
 	-- the sun disc's angular radius, and how wide thin clouds spread it into a glow
-	local CLEAR_SUN_RADIUS_TAN = 0.0047
+	local CLEAR_SUN_RADIUS_TAN = math.tan(atmosphere.SUN_ANGULAR_RADIUS)
 	local OVERCAST_SUN_RADIUS_TAN = math.tan(math.rad(6))
 	-- the direct light is mostly gone past this cover, the glow is at its widest
 	local FULL_SPREAD_CLOUD_COVER = 0.6

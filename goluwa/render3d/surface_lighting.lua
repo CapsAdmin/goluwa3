@@ -7,6 +7,7 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
+local post_source = import("goluwa/render3d/post_source.lua")
 local surface_lighting = library()
 -- What shading a surface at a world position takes, shared by the deferred
 -- lighting pass and the forward passes that draw what the gbuffer can't hold.
@@ -29,6 +30,7 @@ surface_lighting.block = {
 	{"env_irradiance_tex", "int"},
 	envprobe.GetProbeBlockLayout(),
 	{"gi_screen_tex", "int"},
+	post_source.pre_exposure_block,
 }
 
 function surface_lighting.WriteBlock(self, block)
@@ -55,6 +57,7 @@ function surface_lighting.WriteBlock(self, block)
 	local gi_provider = render3d.GetGIProvider()
 	local gi_texture = gi_provider and gi_provider.GetScreenTexture() or nil
 	block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
+	post_source.WritePreExposureBlock(self, block)
 	return block
 end
 
@@ -63,9 +66,7 @@ function surface_lighting.GetDeclarationGLSL(grid_binding, occlusion_binding)
 end
 
 function surface_lighting.GetGLSL(block_name)
-	return atmosphere.GetGLSLDefines(block_name, block_name .. ".primary_sun_illuminance") .. atmosphere.GetGLSLCode() .. [[
-
-		const float SUN_ANGULAR_RADIUS_TAN = 0.0047;
+	return atmosphere.GetGLSLDefines(block_name, block_name .. ".primary_sun_illuminance") .. atmosphere.GetGLSLCode() .. post_source.GetPreExposureGLSL(block_name) .. [[
 
 		#define saturate(x) clamp(x, 0.0, 1.0)
 		]] .. ibl.GetBRDFGLSLCode() .. [[
@@ -144,7 +145,7 @@ function surface_lighting.GetGLSL(block_name)
 				float lobe_energy = 1.0;
 
 				if (type == 0) {
-					lobe_alpha = saturate(roughness_alpha + SUN_ANGULAR_RADIUS_TAN * 0.5);
+					lobe_alpha = saturate(roughness_alpha + SUN_ANGULAR_RADIUS * 0.5);
 					lobe_energy = roughness_alpha / lobe_alpha;
 					lobe_energy *= lobe_energy;
 				}

@@ -551,10 +551,12 @@ local composite_pass = {
 					{"light_count", "int"},
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					atmosphere.GetBlockLayout(),
+					post_source.pre_exposure_block,
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
+					post_source.WritePreExposureBlock(self, block)
 					block.source_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
 					write_ocean_distance_texture(self, block, "ocean_distance_tex")
 					write_gi_screen_texture(self, block, "gi_screen_tex")
@@ -563,9 +565,12 @@ local composite_pass = {
 				end,
 			},
 		},
-		shader = scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data", "get_fog_sun_visibility", "get_current_primary_sun_direction()") .. [[
+		shader = scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("fog_data", "get_fog_sun_visibility") .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data", "get_fog_sun_visibility", "get_current_primary_sun_direction()") .. post_source.GetPreExposureGLSL("fog_data") .. [[
 			void main() {
+				// the scene is pre-exposed, the fog in front of it absolute
+				float pre_exposure = get_pre_exposure();
 				vec4 scene = texture(TEXTURE(fog_data.source_tex), in_uv);
+				scene.rgb /= pre_exposure;
 				float depth = texture(TEXTURE(fog_data.depth_tex), in_uv).r;
 				float ocean_distance = fog_data.ocean_distance_tex != -1 ? texture(TEXTURE(fog_data.ocean_distance_tex), in_uv).r : -1.0;
 				float hit_distance = -1.0;
@@ -581,7 +586,7 @@ local composite_pass = {
 				}
 
 				vec4 fog = get_volumetric_fog(in_uv, hit_distance);
-				set_color(vec4(scene.rgb * fog.a + fog.rgb, scene.a));
+				set_color(vec4(min((scene.rgb * fog.a + fog.rgb) * pre_exposure, vec3(65504.0)), scene.a));
 			}
 		]],
 	},

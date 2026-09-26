@@ -65,6 +65,55 @@ function post_source.GetExposureTexture(previous)
 	return pipeline:GetFramebuffer():GetAttachment(previous and 3 - current or current)
 end
 
+-- Scene color is stored pre-exposed: absolute luminance (cd/m2) times last frame's
+-- exposure over PRE_EXPOSURE_HEADROOM. The metered average then sits near
+-- KEY / PRE_EXPOSURE_HEADROOM whether it is noon or night, so fp16 holds both a
+-- starlit shadow and the sun's disc (~1e9 cd/m2) with room for the exposure to lag.
+-- Lighting stays absolute; passes multiply by get_pre_exposure() when they write
+-- the scene and divide by it when they read it back for anything physical.
+-- Passes without the exposure pipeline (probe captures) use 1, staying absolute.
+post_source.PRE_EXPOSURE_HEADROOM = 32
+post_source.pre_exposure_block = {
+	{"pre_exposure_tex", "int"},
+	{"prev_pre_exposure_tex", "int"},
+}
+
+function post_source.WritePreExposureBlock(self, block)
+	-- before this frame's exposure pass, the attachment it writes still holds the one before last
+	local current = post_source.GetExposureTexture(true)
+	local previous = post_source.GetExposureTexture(false)
+	block.pre_exposure_tex = current and self:GetTextureIndex(current) or -1
+	block.prev_pre_exposure_tex = previous and self:GetTextureIndex(previous) or -1
+	return block
+end
+
+-- pre_exposure_from_exposure(e) for passes that sample an exposure texture themselves
+function post_source.GetPreExposureFromExposureGLSL()
+	return [[
+		float pre_exposure_from_exposure(float exposure) {
+			return exposure > 0.0 ? exposure / ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
+		}
+	]]
+end
+
+-- get_pre_exposure(): what this frame's scene color is multiplied by
+-- get_previous_pre_exposure(): what last frame's was, to bring history into this frame's
+function post_source.GetPreExposureGLSL(block_name)
+	return post_source.GetPreExposureFromExposureGLSL() .. [[
+		float read_pre_exposure(int texture_index) {
+			return texture_index == -1 ? 1.0 : pre_exposure_from_exposure(texture(TEXTURE(texture_index), vec2(0.5)).r);
+		}
+
+		float get_pre_exposure() {
+			return read_pre_exposure(]] .. block_name .. [[.pre_exposure_tex);
+		}
+
+		float get_previous_pre_exposure() {
+			return read_pre_exposure(]] .. block_name .. [[.prev_pre_exposure_tex);
+		}
+	]]
+end
+
 function post_source.WriteSceneSourceTexture(self, block, key)
 	local texture = post_source.GetSceneSourceTexture(self)
 

@@ -121,11 +121,13 @@ return {
 					{"prev_projection", "mat4"},
 					{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 					{"light_count", "int"},
+					post_source.pre_exposure_block,
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
+					post_source.WritePreExposureBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					local exposure = post_source.GetExposureTexture(true)
@@ -217,6 +219,7 @@ return {
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ssr_data") .. [[
 		]] .. screen_reconstruct.GetGeometricNormalGLSL("ssr_data", {world_pos_function = "get_world_pos"}) .. [[
 			#define SSR_MAX_STEPS 48
+]] .. post_source.GetPreExposureGLSL("ssr_data") .. [[
 			#define SSR_BINARY_STEPS 6
 			#define SSR_STRIDE 2.0
 			#define SSR_MAX_DISTANCE 80.0
@@ -402,7 +405,8 @@ return {
 								edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
 								float dist_fade = 1.0 - smoothstep(SSR_MAX_DISTANCE * 0.7, SSR_MAX_DISTANCE, length(hit_vs - pos_vs));
 								float thick_conf = 1.0 - saturate(refined_diff / max(0.15, -z_surf * 0.03));
-								vec3 hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb;
+								// last frame's scene was pre-exposed for last frame, reflections are absolute
+								vec3 hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb / get_previous_pre_exposure();
 
 								if (roughness > SSR_MIRROR_THRESHOLD) {
 									float hit_luma = luminance(hit_color);

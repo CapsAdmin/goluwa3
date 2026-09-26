@@ -31,8 +31,8 @@ local MIE_BETA = 0.021
 local MIE_BETA_EXT = 0.021 * 1.1
 local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
 local DEFAULT_SUN_ILLUMINANCE = 126000
-local SUN_RADIUS = 500.0
-local SUN_DISTANCE = 100000.0
+-- the sun's disc seen from the earth, 0.533 degrees across
+atmosphere.SUN_ANGULAR_RADIUS = 0.00465
 local DEBUG_DISABLE_SCENERY_FOG = false
 local SCENERY_FOG_SCALE_HEIGHT = 0.28
 local SCENERY_FOG_EXTINCTION = 0.34
@@ -539,8 +539,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	const float CAMERA_METERS_TO_KM = ]] .. CAMERA_METERS_TO_KM .. [[;
 	const float CAMERA_TEST_MULTIPLIER = ]] .. CAMERA_TEST_MULTIPLIER .. [[;
 	const float SEA_LEVEL_EYE_HEIGHT = ]] .. SEA_LEVEL_EYE_HEIGHT .. [[;
-	const float SUN_RADIUS = ]] .. SUN_RADIUS .. [[;
-	const float SUN_DISTANCE = ]] .. SUN_DISTANCE .. [[;
+	const float SUN_ANGULAR_RADIUS = ]] .. atmosphere.SUN_ANGULAR_RADIUS .. [[;
 
 	bool ray_hits_planet(vec3 dir, vec3 cam_pos) {
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
@@ -858,21 +857,26 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return apply_scenery_fog(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
+	// the sun's disc at its real luminance, illuminance over its solid angle (~2e9 cd/m2 at noon), darker
+	// and redder toward its edge where the view grazes the photosphere
 	vec3 get_sun_disc(vec3 dir, vec3 cam_pos) {
 		vec3 sun_dir = ATMOSPHERE_SKY_SUN_DIRECTION;
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
-		vec2 ground_hit = ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS);
-		if (ground_hit.x > 0.0) return vec3(0.0);
 
-		float sun_angular_radius = SUN_RADIUS / SUN_DISTANCE;
-		float theta = acos(clamp(dot(normalize(dir), normalize(sun_dir)), -1.0, 1.0));
-		float disk = smoothstep(sun_angular_radius * 1.04, sun_angular_radius * 0.96, theta);
-		float corona_inner = exp(-theta / max(sun_angular_radius * 5.5, 1e-5));
-		float corona_outer = exp(-theta / max(sun_angular_radius * 8.0, 1e-5));
-		vec3 radiance = vec3(16.0 * disk) + vec3(1.0, 0.95, 0.86) * (2.0 * corona_inner) + vec3(1.0, 0.98, 0.95) * corona_outer;
-		vec3 transmittance = sample_transmittance_lut(ray_origin, sun_dir);
-		float horizon_fade = smoothstep(-0.12, 0.04, sun_dir.y);
-		return radiance * ATMOSPHERE_SUN_DISC_ILLUMINANCE * transmittance * horizon_fade;
+		if (ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS).x > 0.0) return vec3(0.0);
+
+		// the chord, acos is too coarse in float this close to 1
+		float r = length(normalize(dir) - sun_dir) / SUN_ANGULAR_RADIUS;
+
+		if (r > 1.02) return vec3(0.0);
+
+		float edge = clamp((1.0 - r) / 0.04 + 0.5, 0.0, 1.0);
+		float mu = sqrt(max(1.0 - r * r, 0.0));
+		// linear limb darkening, the disc's average of 1 - u (1 - mu) is 1 - u / 3
+		const vec3 LIMB_DARKENING = vec3(0.50, 0.62, 0.72);
+		vec3 limb = (1.0 - LIMB_DARKENING * (1.0 - mu)) / (1.0 - LIMB_DARKENING / 3.0);
+		float solid_angle = PI * SUN_ANGULAR_RADIUS * SUN_ANGULAR_RADIUS;
+		return ATMOSPHERE_SUN_DISC_ILLUMINANCE / solid_angle * limb * edge * sample_transmittance_lut(ray_origin, sun_dir);
 	}
 ]]
 )

@@ -156,7 +156,7 @@ return [[
 		vec3 color = get_night_glow(dir);
 
 		// the moon hides what is behind it
-		if (dot(dir, ATMOSPHERE_MOON_DIRECTION) > cos(ATMOSPHERE_MOON_ANGULAR_RADIUS)) return color;
+		if (length(dir - ATMOSPHERE_MOON_DIRECTION) < ATMOSPHERE_MOON_ANGULAR_RADIUS) return color;
 
 		vec3 eq = normalize(vec3(dot(ATMOSPHERE_CELESTIAL_X, dir), dot(ATMOSPHERE_CELESTIAL_Y, dir), dot(ATMOSPHERE_CELESTIAL_Z, dir)));
 		return color + get_stars(eq) + get_milky_way(eq);
@@ -175,7 +175,8 @@ return [[
 
 		vec3 moon = ATMOSPHERE_MOON_DIRECTION;
 
-		if (dot(dir, moon) < cos(radius * 1.03)) return vec3(0.0);
+		// the chord, cos and acos are too coarse in float this close to 1
+		if (length(dir - moon) > radius * 1.03) return vec3(0.0);
 
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
 

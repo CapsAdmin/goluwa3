@@ -70,7 +70,7 @@ return {
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
 						{"translucent_motion_tex", "int"},
-						{"exposure_tex", "int"},
+						post_source.pre_exposure_block,
 						{"history_valid", "int"},
 					},
 					write = function(self, block)
@@ -90,8 +90,7 @@ return {
 						block.translucent_motion_tex = render3d.pipelines.translucent_accumulate and
 							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(2)) or
 							-1
-						local exposure = post_source.GetExposureTexture(true)
-						block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
+						post_source.WritePreExposureBlock(self, block)
 						-- the history is only usable if it was written last frame at
 						-- this size
 						local size = render.GetRenderImageSize()
@@ -126,6 +125,8 @@ return {
 			float get_luma(vec3 c) {
 				return dot(c, vec3(0.2126, 0.7152, 0.0722));
 			}
+
+]] .. post_source.GetPreExposureGLSL("taa_data") .. [[
 
 			// exposed and Reinhard compressed by luminance, so the inverse is exact
 			vec3 compress(vec3 c, float exposure) {
@@ -188,7 +189,8 @@ return {
 					return;
 				}
 
-				float exposure = taa_data.exposure_tex != -1 ? texture(TEXTURE(taa_data.exposure_tex), vec2(0.5)).r : 1.0;
+				// the scene is pre-exposed at last frame's exposure over the headroom
+				float exposure = taa_data.pre_exposure_tex != -1 ? ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
 
 				// the neighbourhood's colour spread, the closest depth (so edges
 				// move with the object in front), and this pixel's colour at its
@@ -277,7 +279,8 @@ return {
 
 				vec3 mean = m1 / 9.0;
 				vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3(0.0)));
-				vec3 history = compress(sample_history(prev_uv, vec2(size)), exposure);
+				// the history was pre-exposed for last frame
+				vec3 history = compress(sample_history(prev_uv, vec2(size)) * (get_pre_exposure() / get_previous_pre_exposure()), exposure);
 				history = clip_to_box(mean - sigma, mean + sigma, history);
 				vec3 result = mix(current, history, 0.9 * history_weight * (1.0 - reactive));
 				set_color(vec4(decompress(result, exposure), view_depth));

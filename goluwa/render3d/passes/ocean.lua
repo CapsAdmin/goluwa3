@@ -6,6 +6,7 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
+local post_source = import("goluwa/render3d/post_source.lua")
 local WAVE_TEX_SIZE = 512
 local WAVE_TEX_WORLD_HALF = 1024.0
 local WAVE_NEAR_WORLD_HALF = 64.0
@@ -258,10 +259,12 @@ return {
 						{"wave_origin", "vec2"},
 						{"wave_near_tex", "int"},
 						{"wave_near_origin", "vec2"},
+						post_source.pre_exposure_block,
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
 						render3d.WriteCommonBlock(self, block)
+						post_source.WritePreExposureBlock(self, block)
 
 						if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 							block.scene_tex = -1
@@ -320,9 +323,16 @@ return {
 				},
 			},
 			shader = [[
+			]] .. post_source.GetPreExposureGLSL("ocean_data") .. [[
+
+			// the lit scene is pre-exposed, the water's shading is absolute
 			vec3 get_scene_color(vec2 uv) {
 				if (ocean_data.scene_tex == -1) return vec3(0.0);
-				return texture(TEXTURE(ocean_data.scene_tex), uv).rgb;
+				return texture(TEXTURE(ocean_data.scene_tex), uv).rgb / get_pre_exposure();
+			}
+
+			void set_scene_color(vec3 color, float alpha) {
+				set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha));
 			}
 
 			const float SEA_PI = 3.14159265359;
@@ -601,8 +611,7 @@ return {
 				color += subsurface_amount * water_scatter * ocean_data.primary_sun_color * max(0.0, 1.0 + p.y - (ocean_data.ocean_level + 0.6 * SEA_HEIGHT));
 				vec3 half_dir = normalize(view_dir + sun_direction);
 				float no_h = max(dot(normal, half_dir), 0.0);
-				const float SUN_ANGULAR_RADIUS_TAN = 0.0047;
-				float glint_alpha = min(0.05 + SUN_ANGULAR_RADIUS_TAN * 0.5, 1.0);
+				float glint_alpha = min(0.05 + SUN_ANGULAR_RADIUS * 0.5, 1.0);
 				float glint_energy = (0.05 / glint_alpha) * (0.05 / glint_alpha);
 				color += sun_radiance * (0.18 * fresnel * D_GGXAlpha(glint_alpha, no_h) * glint_energy / SEA_PI);
 				float foam = smoothstep(0.18, 0.55, p.y - ocean_data.ocean_level) * smoothstep(0.65, 0.15, normal.y);
@@ -634,7 +643,7 @@ return {
 				vec3 scene_color = get_scene_color(in_uv);
 
                 if (ocean_data.ocean_enabled == 0 || ocean_data.scene_tex == -1) {
-					set_color(vec4(scene_color, -1.0));
+					set_scene_color(scene_color, -1.0);
 					set_ocean_distance(-1.0);
 					return;
 				}
@@ -694,7 +703,7 @@ return {
 						}
 
 						vec3 color = get_underwater_surface_color(normal, ray_dir, reflection_color, refracted_scene, ocean_t, fresnel);
-						set_color(vec4(color, 1.0));
+						set_scene_color(color, 1.0);
 						set_ocean_distance(ocean_t);
 						return;
 					}
@@ -710,13 +719,13 @@ return {
 					}
 
 					vec3 color = apply_water_volume(source_color, get_environment_irradiance(vec3(0.0, 1.0, 0.0)), thickness);
-					set_color(vec4(color, 1.0));
+					set_scene_color(color, 1.0);
 					set_ocean_distance(resolve_distance);
 					return;
 				}
 
 				if (trace_anchor_t < 0.0) {
-					set_color(vec4(scene_color, -1.0));
+					set_scene_color(scene_color, -1.0);
 					set_ocean_distance(-1.0);
 					return;
 				}
@@ -725,13 +734,13 @@ return {
 				float ocean_t = height_map_tracing(ray_dir, trace_anchor_t, camera_origin, ocean_local_pos);
 				
 				if (ocean_t <= 0.0) {
-					set_color(vec4(scene_color, -1.0));
+					set_scene_color(scene_color, -1.0);
 					set_ocean_distance(-1.0);
 					return;
 				}
 
 				if (scene_depth < 1.0 && scene_t > 0.0 && scene_t <= ocean_t + 1e-3) {
-					set_color(vec4(scene_color, -1.0));
+					set_scene_color(scene_color, -1.0);
 					set_ocean_distance(-1.0);
 					return;
 				}
@@ -788,7 +797,7 @@ return {
 					sun_direction,
 					ocean_data.camera_position.xyz
 				);
-				set_color(vec4(min(color, vec3(65504.0)), 1.0));
+				set_scene_color(color, 1.0);
 				set_ocean_distance(ocean_t);
 			}
 		]],
@@ -814,9 +823,11 @@ return {
 						{"current_ocean_distance_tex", "int"},
 						{"prev_view", "mat4"},
 						{"prev_projection", "mat4"},
+						post_source.pre_exposure_block,
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
+						post_source.WritePreExposureBlock(self, block)
 
 						if not render3d.pipelines.ocean or not render3d.pipelines.ocean.framebuffers then
 							block.current_ocean_tex = -1
@@ -868,9 +879,13 @@ return {
 				return texture(TEXTURE(ocean_resolve_data.current_ocean_distance_tex), uv).r;
 			}
 
+			]] .. post_source.GetPreExposureGLSL("ocean_resolve_data") .. [[
+
+			// last frame's ocean was pre-exposed for last frame
 			vec4 get_history_ocean(vec2 uv) {
 				if (ocean_resolve_data.history_ocean_tex == -1) return vec4(0.0, 0.0, 0.0, -1.0);
-				return texture(TEXTURE(ocean_resolve_data.history_ocean_tex), uv);
+				vec4 history = texture(TEXTURE(ocean_resolve_data.history_ocean_tex), uv);
+				return vec4(history.rgb * (get_pre_exposure() / get_previous_pre_exposure()), history.a);
 			}
 
 

@@ -1,4 +1,5 @@
 local steam = import("goluwa/steam/steam.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local assets = import("goluwa/assets.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -58,3 +59,6 @@ for i, path in ipairs(vegetation) do
 	)
 	ent.visual:SetModelPath(path)
 end
+
+render3d.SetOceanEnabled(true)
+render3d.SetOceanLevel(-2)

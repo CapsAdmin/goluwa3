@@ -464,8 +464,11 @@ return {
 					float view_depth = max(-(lighting_data.view * vec4(target, 1.0)).z, 1e-3);
 					float blur_pixels = roughness * travel * abs(lighting_data.projection[1][1]) * 0.5 * lighting_data.render_size.y / view_depth;
 
+					// the fogged scene is pre-exposed, the shading here is absolute
+					float to_absolute = 1.0 / get_pre_exposure();
+
 					if (blur_pixels <= 2.0) {
-						return textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb;
+						return textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb * to_absolute;
 					}
 
 					// four taps a level finer than the blur, so the box filtered
@@ -477,7 +480,7 @@ return {
 						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, -0.5), lod).rgb +
 						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, 0.5), lod).rgb +
 						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, 0.5), lod).rgb
-					) * 0.25;
+					) * (0.25 * to_absolute);
 				}
 
 				void main() {
@@ -544,7 +547,7 @@ return {
 						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
 						// the fog in front of the surface covers what the surface covers
 						color = color * fog.a + fog.rgb * alpha;
-						set_color(vec4(min(color, vec3(65504.0)), alpha) * transmittance);
+						set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha) * transmittance);
 						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
 						return;
 					}
@@ -604,7 +607,7 @@ return {
 					vec3 transmission = albedo * (1.0 - F_ambient) * (1.0 - metallic) * refraction.amount;
 					vec3 emissive = get_emissive(in_uv);
 					vec3 color = (direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + emissive) * fog.a + fog.rgb * (1.0 - transmission) + background * transmission;
-					set_color(vec4(min(color * alpha, vec3(65504.0)), alpha) * transmittance);
+					set_color(vec4(min(color * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
 					set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance * (1.0 - dot(transmission, vec3(1.0 / 3.0))));
 				}
 			]],

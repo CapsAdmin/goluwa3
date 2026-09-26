@@ -273,7 +273,7 @@ return {
 
 				]] .. atmosphere.GetGLSLMainCode("sky_dir", "sun_dir", "lighting_data.camera_position.xyz") .. [[
 
-				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
+				return max(sky_color_output, vec3(0.0));
 			}
 
 			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float transmission, vec3 transmission_color, vec3 world_pos, vec3 V, vec3 N)
@@ -328,7 +328,7 @@ return {
 				float depth = get_depth();
 
 				if (depth == 1.0) {
-					set_color(vec4(get_sky(), 1.0));
+					set_color(vec4(min(get_sky() * get_pre_exposure(), vec3(65504.0)), 1.0));
 					return;
 				}
 
@@ -362,7 +362,7 @@ return {
 				direct += direct_specular;
 
 				if (LIGHT_DEBUG_DIRECT > 0) {
-					set_color(vec4(direct, 1.0));
+					set_color(vec4(min(direct * get_pre_exposure(), vec3(65504.0)), 1.0));
 					return;
 				}
 
@@ -374,7 +374,7 @@ return {
 					color = get_gi_irradiance(N, debug_sky_visibility);
 				}
 
-				set_color(vec4(min(color, vec3(65504.0)), alpha));
+				set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha));
 			}
 		]],
 	},

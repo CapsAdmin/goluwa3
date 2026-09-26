@@ -151,12 +151,18 @@ local function get_exposure_feedback_texture()
 	return post_source.GetExposureTexture()
 end
 
+-- what the scene was pre-exposed with (see post_source.PRE_EXPOSURE_HEADROOM)
+local function get_previous_exposure_texture()
+	return post_source.GetExposureTexture(true)
+end
+
 -- r = exposure multiplier, g = the metered EV100 before adaptation and
 -- compensation (for r_exposure_info)
 local exposure_feedback_shader = [[
 	layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_exposure;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 	layout(set = 0, binding = 2) uniform sampler2D prev_exposure_tex;
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. [[
 
 	#define BINS 128
 	// log2 luminance range of the histogram
@@ -176,11 +182,13 @@ local exposure_feedback_shader = [[
 
 		for (uint i = id; i < BINS; i += 256u) bins[i] = 0u;
 
+		// the scene was pre-exposed with last frame's exposure, the meter reads absolute luminance
+		float to_absolute = 1.0 / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 		barrier();
 
 		for (int n = int(id); n < GRID_X * GRID_Y; n += 256) {
 			vec2 uv = (vec2(n % GRID_X, n / GRID_X) + 0.5) / vec2(GRID_X, GRID_Y);
-			float luma = dot(textureLod(source_tex, uv, 0.0).rgb, vec3(0.2126, 0.7152, 0.0722));
+			float luma = dot(textureLod(source_tex, uv, 0.0).rgb, vec3(0.2126, 0.7152, 0.0722)) * to_absolute;
 			float bin = clamp((log2(max(luma, 1e-6)) - LOG_MIN) / (LOG_MAX - LOG_MIN) * float(BINS), 0.0, float(BINS - 1));
 			// the centre of the view counts four times as much as the corners
 			float weight = 1.0 + 3.0 * (1.0 - smoothstep(0.2, 1.0, length(uv * 2.0 - 1.0)));
@@ -349,6 +357,7 @@ local local_exposure_grid_pass = {
 			end,
 		},
 		{binding_index = 2, get_texture = get_exposure_feedback_texture},
+		{binding_index = 3, get_texture = get_previous_exposure_texture},
 	},
 	block = {
 		{"unused", "int"},
@@ -364,6 +373,8 @@ local local_exposure_grid_pass = {
 		layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_grid;
 		layout(set = 0, binding = 1) uniform sampler2D source_tex;
 		layout(set = 0, binding = 2) uniform sampler2D exposure_tex;
+		layout(set = 0, binding = 3) uniform sampler2D prev_exposure_tex;
+		]] .. post_source.GetPreExposureFromExposureGLSL() .. [[
 
 		// fixed point, since shared float atomics are an extension
 		#define FIXED 256.0
@@ -381,7 +392,8 @@ local local_exposure_grid_pass = {
 			barrier();
 			ivec2 tile = ivec2(gl_WorkGroupID.xy);
 			vec2 uv = (vec2(tile) + (vec2(gl_LocalInvocationID.xy) + 0.5) / 16.0) / vec2(GRID_X, GRID_Y);
-			float exposure = texture(exposure_tex, vec2(0.5)).r;
+			// the scene is pre-exposed with last frame's exposure
+			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 			float luma = dot(textureLod(source_tex, uv, 0.0).rgb, vec3(0.2126, 0.7152, 0.0722)) * exposure;
 			float l = clamp(log2(max(luma, 1e-6)) - LOG_KEY, GRID_LOG_MIN, GRID_LOG_MAX);
 			int z = min(int((l - GRID_LOG_MIN) / (GRID_LOG_MAX - GRID_LOG_MIN) * float(GRID_Z)), GRID_Z - 1);
@@ -459,7 +471,8 @@ local compute_shader = [[
 	layout(set = 0, binding = 2) uniform sampler2D bloom_tex;
 	layout(set = 0, binding = 4) uniform sampler2D exposure_tex;
 	layout(set = 0, binding = 5) uniform sampler2D grid_tex;
-	]] .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. GRID_GLSL .. [[
+	layout(set = 0, binding = 6) uniform sampler2D prev_exposure_tex;
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. GRID_GLSL .. [[
 
 	// average exposed log2 luminance (relative to KEY) around uv among
 	// pixels about as bright as l
@@ -519,6 +532,8 @@ local compute_shader = [[
 		vec2 uv = get_screen_uv(pos, size);
 		vec3 col = texture(source_tex, uv).rgb;
 		float exposure = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).r : exp2(]] .. LOG_EXPOSURE_AT_EV0 .. [[ - 10.0);
+		// the scene is pre-exposed with last frame's exposure
+		exposure /= pre_exposure_from_exposure(compute.has_exposure_tex != 0 ? texture(prev_exposure_tex, vec2(0.5)).r : 0.0);
 
 		// Local exposure adapts the scene; bloom is scattered light in the
 		// eye, added after at the global exposure. Adapting the bloom as well
@@ -604,6 +619,10 @@ local r = {
 			{
 				binding_index = 5,
 				get_texture = get_pipeline_texture("local_exposure_blur"),
+			},
+			{
+				binding_index = 6,
+				get_texture = get_previous_exposure_texture,
 			},
 		},
 		block = {

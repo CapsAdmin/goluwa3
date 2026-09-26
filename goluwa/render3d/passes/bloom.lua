@@ -71,6 +71,8 @@ local downsample_glsl = [[
 		#ifdef KARIS
 			float mean = 0.0;
 			float exposure = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).r : 0.0;
+			// the scene is pre-exposed with this exposure, what is left to expose it
+			exposure /= pre_exposure_from_exposure(exposure);
 
 			for (int n = 0; n < 5; n++) {
 				// a NaN or inf from the scene would spread over the whole pyramid
@@ -171,7 +173,8 @@ for i = 1, LEVELS do
 		0.5 ^ i,
 		(
 				i == 1 and
-				"#define KARIS\n#define BLOOM_MAX 32.0\nlayout(set = 0, binding = 2) uniform sampler2D exposure_tex;\n" or
+				"#define KARIS\n#define BLOOM_MAX 32.0\nlayout(set = 0, binding = 2) uniform sampler2D exposure_tex;\n" .. post_source.GetPreExposureFromExposureGLSL()
+				or
 				""
 			) .. common_glsl .. downsample_glsl,
 		{
