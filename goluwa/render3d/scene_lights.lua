@@ -44,6 +44,7 @@ function scene_lights.BuildShadowsBlockLayout()
 		{"directional_shadow_light_index", "int"},
 		{"local_directional_shadow_light_index", "int"},
 		{"cascade_count", "int"},
+		{"sun_angular_radius_tan", "float"},
 	}
 end
 
@@ -270,6 +271,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	shadow_block.local_directional_shadow_light_index = -1
 	shadow_block.local_directional_shadow_texel_world_size = 0
 	shadow_block.cascade_count = 0
+	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
 
 	for i = 0, 15 do
 		shadow_block.local_directional_light_space_matrix[i] = 0

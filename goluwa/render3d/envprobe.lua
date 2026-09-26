@@ -48,6 +48,8 @@ envprobe.REFLECTION_MIN_SPACING = envprobe.REFLECTION_MIN_SPACING or 4
 envprobe.FACES_PER_FRAME = 1 -- anything higher causes invalid captures
 envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25 -- seconds between captures of a dynamic probe
 envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
+envprobe.CLOUD_COVER_CHANGE = envprobe.CLOUD_COVER_CHANGE or 0.02
+envprobe.last_cloud_cover = envprobe.last_cloud_cover or 0
 envprobe.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
 envprobe.enabled = true
 envprobe.reflection_probes_enabled = false
@@ -194,7 +196,13 @@ local function remove_probe_resources(probe)
 		probe.depth_equirect_view:Remove()
 	end
 
-	for _, key in ipairs{"color_equirect", "irradiance_equirect", "depth_equirect", "source_cubemap", "depth_cubemap"} do
+	for _, key in ipairs{
+		"color_equirect",
+		"irradiance_equirect",
+		"depth_equirect",
+		"source_cubemap",
+		"depth_cubemap",
+	} do
 		if probe[key] and probe[key].Remove then probe[key]:Remove() end
 
 		probe[key] = nil
@@ -272,7 +280,6 @@ local function CreateProbeTextures(size, with_irradiance)
 	probe.depth_cubemap = create_cubemap(size, "r32_sfloat", 1, DEPTH_SAMPLER)
 	probe.source_face_views = create_face_views(probe.source_cubemap)
 	probe.depth_face_views = create_face_views(probe.depth_cubemap)
-
 	-- Texture.New recomputes any mip_map_levels > 1 from the texture's own
 	-- width/height (see texture.lua), ignoring whatever count is requested,
 	-- so build the mip views off the count it actually settled on.
@@ -418,7 +425,9 @@ function envprobe.UpdateAutoPlacement(camera_position)
 
 	local now = system.GetTime()
 
-	if now - envprobe.auto_last_update < envprobe.AUTO_PLACEMENT_INTERVAL then return end
+	if now - envprobe.auto_last_update < envprobe.AUTO_PLACEMENT_INTERVAL then
+		return
+	end
 
 	envprobe.auto_last_update = now
 	local spacing = envprobe.AUTO_PLACEMENT_SPACING
@@ -469,8 +478,11 @@ end
 local nearest_probe_sort_position
 
 local function nearest_probe_comparator(a, b)
-	return (a.position - nearest_probe_sort_position):GetLengthSquared() <
-		(b.position - nearest_probe_sort_position):GetLengthSquared()
+	return (
+			a.position - nearest_probe_sort_position
+		):GetLengthSquared() < (
+			b.position - nearest_probe_sort_position
+		):GetLengthSquared()
 end
 
 function envprobe.GetProbesNear(position, limit)
@@ -1091,22 +1103,23 @@ local function get_probe_capture_depth_texture(bundle)
 	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
-function envprobe.HasSunDirectionChanged()
+-- the sky the probes captured is stale once the sun moved or the cloud cover changed
+function envprobe.HasSkyChanged()
 	local sun = get_primary_sun(render3d.GetLights())
 
 	if not sun then return false end
 
 	local current_sun_dir = sun.Owner.transform:GetRotation():GetBackward()
+	local cloud_cover = atmosphere.GetCloudCover()
 
-	if not envprobe.last_sun_direction then
+	if
+		not envprobe.last_sun_direction or
+		current_sun_dir:GetDot(envprobe.last_sun_direction) < math.cos(math.rad(envprobe.SUN_CHANGE_DEGREES))
+		or
+		math.abs(cloud_cover - envprobe.last_cloud_cover) > envprobe.CLOUD_COVER_CHANGE
+	then
 		envprobe.last_sun_direction = current_sun_dir:Copy()
-		return true
-	end
-
-	local cos_angle = current_sun_dir:GetDot(envprobe.last_sun_direction)
-
-	if cos_angle < math.cos(math.rad(envprobe.SUN_CHANGE_DEGREES)) then
-		envprobe.last_sun_direction = current_sun_dir:Copy()
+		envprobe.last_cloud_cover = cloud_cover
 		return true
 	end
 
@@ -1319,12 +1332,26 @@ function envprobe.PrefilterProbe(cmd, probe)
 
 	if probe.irradiance_equirect then
 		local w, h = equirect_dims(envprobe.IRRADIANCE_SIZE)
-		render_equirect(cmd, envprobe.irradiance_pipeline, probe.irradiance_equirect, probe.irradiance_equirect_view, w, h)
+		render_equirect(
+			cmd,
+			envprobe.irradiance_pipeline,
+			probe.irradiance_equirect,
+			probe.irradiance_equirect_view,
+			w,
+			h
+		)
 	end
 
 	if probe.depth_equirect then
 		local w, h = equirect_dims(SIZE)
-		render_equirect(cmd, envprobe.equirect_depth_pipeline, probe.depth_equirect, probe.depth_equirect_view, w, h)
+		render_equirect(
+			cmd,
+			envprobe.equirect_depth_pipeline,
+			probe.depth_equirect,
+			probe.depth_equirect_view,
+			w,
+			h
+		)
 	end
 
 	envprobe.prefilter_pipeline:ReleaseTextureIndex(probe.source_cubemap)
@@ -1344,7 +1371,7 @@ function envprobe.UpdateEnvironmentProbe(cmd, sun_changed)
 	if not envprobe.environment_probe then return end
 
 	local env_probe = envprobe.environment_probe
-	sun_changed = sun_changed == nil and envprobe.HasSunDirectionChanged() or sun_changed
+	sun_changed = sun_changed == nil and envprobe.HasSkyChanged() or sun_changed
 
 	if not sun_changed and not env_probe.needs_update then return end
 
@@ -1401,6 +1428,7 @@ local function is_probe_in_list(probe)
 
 	return false
 end
+
 local function select_probe_to_capture(now, camera_position)
 	local current = envprobe.current_probe
 
@@ -1448,7 +1476,7 @@ event.AddListener("PreRenderPass", "envprobe_update", function()
 	if not envprobe.sky_pipeline then return end
 
 	local cmd, own_cmd = acquire_probe_command_buffer()
-	local sun_changed = envprobe.HasSunDirectionChanged()
+	local sun_changed = envprobe.HasSkyChanged()
 
 	if sun_changed then envprobe.MarkAllReflectionProbesDirty() end
 

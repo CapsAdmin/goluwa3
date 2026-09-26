@@ -45,6 +45,20 @@ function directional_shadows.GetPrimarySunColor(lights)
 	return Vec3(1, 1, 1)
 end
 
+do
+	-- the sun disc's angular radius, and how wide thin clouds spread it into a glow
+	local CLEAR_SUN_RADIUS_TAN = 0.0047
+	local OVERCAST_SUN_RADIUS_TAN = math.tan(math.rad(6))
+	-- the direct light is mostly gone past this cover, the glow is at its widest
+	local FULL_SPREAD_CLOUD_COVER = 0.6
+
+	-- shadow penumbras are the blocker distance times this
+	function directional_shadows.GetSunAngularRadiusTan()
+		local t = math.clamp(atmosphere.GetCloudCover() / FULL_SPREAD_CLOUD_COVER, 0, 1)
+		return math.lerp(t * t * (3 - 2 * t), CLEAR_SUN_RADIUS_TAN, OVERCAST_SUN_RADIUS_TAN)
+	end
+end
+
 function directional_shadows.BuildFogShadowBlockLayout()
 	local max_cascades = directional_shadows.MAX_CASCADES
 	return {
@@ -57,6 +71,7 @@ function directional_shadows.BuildFogShadowBlockLayout()
 		{"shadow_map_indices", "int", max_cascades},
 		{"inset_shadow_map_index", "int"},
 		{"cascade_count", "int"},
+		{"sun_angular_radius_tan", "float"},
 	}
 end
 
@@ -74,6 +89,7 @@ function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
 	shadow_block.inset_shadow_distance = 0
 	shadow_block.inset_shadow_texel_world_size = 0
 	shadow_block.cascade_count = 0
+	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
 
 	for i = 0, 15 do
 		shadow_block.inset_light_space_matrix[i] = 0
@@ -312,6 +328,71 @@ local SHADOW_PROJECTION_GLSL = [[
 				return smoothstep(0.0, 0.1, dot(normal, light_dir));
 			}
 
+			// percentage closer soft shadows: the penumbra is the distance to the blockers times the
+			// tangent of the sun's angular radius, which clouds widen from a disc into a glow
+			const float SOFT_SHADOW_MAX_BLOCKER_DISTANCE = 30.0;
+			const float SOFT_SHADOW_MAX_TEXELS = 32.0;
+
+			// returns -1.0 when the penumbra is no wider than the regular filter
+			float sampleSoftShadowMap(
+				int shadow_map_idx,
+				vec3 proj_coords,
+				vec2 shadow_size,
+				float texel_world_size,
+				float depth_per_meter,
+				float tan_slope,
+				vec3 world_pos,
+				float filter_radius_texels,
+				float sun_radius_tan
+			) {
+				float search_texels = min(sun_radius_tan * SOFT_SHADOW_MAX_BLOCKER_DISTANCE / texel_world_size, SOFT_SHADOW_MAX_TEXELS);
+
+				if (search_texels <= filter_radius_texels) return -1.0;
+
+				// a fixed per point rotation turns the banding of the few taps into grain
+				float angle = fract(52.9829189 * fract(dot(world_pos, vec3(0.06711056, 0.00583715, 0.0891234)) * 31.0)) * 6.2831853;
+				mat2 rotation = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
+				// how much deeper a tilted receiver is at a tap this many meters away, so it doesn't shadow itself
+				float tolerance_per_meter = tan_slope * depth_per_meter;
+				const vec2 SEARCH[5] = vec2[5](vec2(0.0), vec2(0.7, 0.0), vec2(-0.7, 0.0), vec2(0.0, 0.7), vec2(0.0, -0.7));
+				float blocker_sum = 0.0;
+				float blocker_count = 0.0;
+
+				for (int i = 0; i < 5; i++) {
+					vec2 offset = rotation * SEARCH[i] * search_texels;
+					float tolerance = length(offset) * texel_world_size * tolerance_per_meter;
+					vec4 depths = textureGather(TEXTURE(shadow_map_idx), proj_coords.xy + offset / shadow_size, 0);
+					vec4 blocker = vec4(lessThan(depths, vec4(proj_coords.z - tolerance)));
+					blocker_sum += dot(blocker, depths);
+					blocker_count += dot(blocker, vec4(1.0));
+				}
+
+				// nothing found, but a blocker thinner than the taps can still be there
+				if (blocker_count <= 0.0) return -1.0;
+
+				float blocker_distance = (proj_coords.z - blocker_sum / blocker_count) / depth_per_meter;
+				float radius_texels = min(blocker_distance * sun_radius_tan / texel_world_size, SOFT_SHADOW_MAX_TEXELS);
+
+				if (radius_texels <= filter_radius_texels) return -1.0;
+
+				const vec2 POISSON_DISK[12] = vec2[12](
+					]] .. POISSON_DISK_VALUES .. [[
+				);
+				float visibility = 0.0;
+
+				for (int i = 0; i < 12; i++) {
+					vec2 offset = rotation * POISSON_DISK[i] * radius_texels;
+					float tolerance = length(offset) * texel_world_size * tolerance_per_meter;
+					vec2 st = (proj_coords.xy + offset / shadow_size) * shadow_size - 0.5;
+					vec2 f = fract(st);
+					vec4 depths = textureGather(TEXTURE(shadow_map_idx), (floor(st) + 1.0) / shadow_size, 0);
+					vec4 lit = step(vec4(proj_coords.z - tolerance), depths);
+					visibility += mix(mix(lit.w, lit.z, f.x), mix(lit.x, lit.y, f.x), f.y);
+				}
+
+				return visibility / 12.0;
+			}
+
 			// returns -1.0 when the map does not cover the point
 			float sampleShadowMap(
 				int shadow_map_idx,
@@ -320,7 +401,8 @@ local SHADOW_PROJECTION_GLSL = [[
 				vec3 world_pos,
 				vec3 normal,
 				vec3 light_dir,
-				float filter_radius_texels
+				float filter_radius_texels,
+				float sun_radius_tan
 			) {
 				float n_dot_l = clamp(dot(normal, light_dir), 0.0, 1.0);
 				float slope = sqrt(1.0 - n_dot_l * n_dot_l);
@@ -344,9 +426,26 @@ local SHADOW_PROJECTION_GLSL = [[
 					return -1.0;
 				}
 
+				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
+
+				if (sun_radius_tan > 0.0) {
+					float soft = sampleSoftShadowMap(
+						shadow_map_idx,
+						proj_coords,
+						shadow_size,
+						texel_world_size,
+						max(length(depth_row), 1e-8),
+						min(slope / max(n_dot_l, 0.2), 5.0),
+						world_pos,
+						filter_radius_texels,
+						sun_radius_tan
+					);
+
+					if (soft >= 0.0) return soft;
+				}
+
 				// 2x2 bilinear PCF lookups spread over the filter radius, a tent
 				// about two texels wide at radius 1
-				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
 				float visibility = 0.0;
 
 				for (int j = 0; j < 2; ++j) {
@@ -392,7 +491,8 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					world_pos,
 					normal,
 					light_dir,
-					1.0
+					1.0,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan
 				);
 			}
 
@@ -407,7 +507,8 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					world_pos,
 					normal,
 					light_dir,
-					1.0
+					1.0,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan
 				);
 
 				if (result < 0.0) return false;
@@ -463,7 +564,8 @@ function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
 				world_pos,
 				normal,
 				light_dir,
-				2.0
+				2.0,
+				0.0
 			);
 
 			return shadow < 0.0 ? 1.0 : facing * shadow;

@@ -112,6 +112,16 @@ function weather.GetWind()
 	return atmosphere.GetWind()
 end
 
+-- 0 is a clear sky, 1 a full overcast that hides the sun
+function weather.SetCloudCover(cover)
+	atmosphere.SetCloudCover(cover)
+	weather.UpdateSun()
+end
+
+function weather.GetCloudCover()
+	return atmosphere.GetCloudCover()
+end
+
 function weather.GetSun()
 	return weather.sun
 end
@@ -123,7 +133,10 @@ function weather.UpdateSun()
 	weather.sun.transform:SetRotation(rotation)
 	local sun_color = atmosphere.GetSunColor(rotation:GetBackward())
 	weather.sun.light_sun:SetColor(Color(sun_color.x, sun_color.y, sun_color.z, 1))
-	local transmittance = math.max(sun_color.x, sun_color.y, sun_color.z)
+	-- the clouds block the direct light, the sky light they scatter comes from the atmosphere
+	local direct = 1 - atmosphere.GetCloudCover()
+	weather.sun.light_sun:SetLux(SUN_TOA_ILLUMINANCE * direct)
+	local transmittance = math.max(sun_color.x, sun_color.y, sun_color.z) * direct
 
 	for _, shadow_map in ipairs(weather.shadow_maps) do
 		shadow_map:SetEnabled(transmittance > SHADOW_CUTOFF_TRANSMITTANCE)

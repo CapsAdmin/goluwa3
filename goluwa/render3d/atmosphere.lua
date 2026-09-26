@@ -39,6 +39,7 @@ local SCENERY_FOG_EXTINCTION = 0.34
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 atmosphere.fog_density = 0.15
 atmosphere.wind = Vec3(0, 0, 0)
+atmosphere.cloud_cover = 0
 
 local function normalize_components(x, y, z)
 	local length = math.sqrt(x * x + y * y + z * z)
@@ -168,6 +169,12 @@ local atmosphere_shared_glsl = [[
 	#define ATMOSPHERE_STARS_TEXTURE_INDEX -1
 	#endif
 	// the low altitude fog's density at the ground (fog_density)
+	#ifndef ATMOSPHERE_CLOUD_COVER
+	#define ATMOSPHERE_CLOUD_COVER 0.0
+	#endif
+	#ifndef ATMOSPHERE_OVERCAST_LUMINANCE
+	#define ATMOSPHERE_OVERCAST_LUMINANCE 0.0
+	#endif
 	#ifndef ATMOSPHERE_FOG_DENSITY
 	#define ATMOSPHERE_FOG_DENSITY ]] .. string.format("%.6f\n", atmosphere.fog_density) .. [[
 	#endif
@@ -549,12 +556,26 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return vec2(u, clamp(v, 0.0, 1.0));
 	}
 
+	// the cie overcast sky, grey and three times brighter at the zenith than at the horizon
+	// rgb is what the clouds let through, a stays the clear sky's transmittance to the ground
+	vec4 apply_cloud_cover(vec4 clear_sky, vec3 dir, vec3 ray_origin) {
+		if (ATMOSPHERE_CLOUD_COVER <= 0.0) return clear_sky;
+
+		float elevation = dot(dir, normalize(ray_origin));
+		float overcast = ATMOSPHERE_OVERCAST_LUMINANCE * (1.0 + 2.0 * max(elevation, 0.0)) / 3.0;
+
+		// below the horizon only the air in front of the ground scatters it
+		if (elevation < 0.0) overcast *= 1.0 - clear_sky.a;
+
+		return vec4(mix(clear_sky.rgb, vec3(overcast), ATMOSPHERE_CLOUD_COVER), clear_sky.a);
+	}
+
 	vec4 sample_sky_view_lut_from_origin(vec3 dir, vec3 sun_dir, vec3 ray_origin) {
 		if (ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX == -1) {
 			return get_atmosphere_from_origin(ray_origin, dir, sun_dir);
 		}
 
-		return texture(TEXTURE(ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX), get_sky_view_lut_uv(dir, sun_dir, ray_origin));
+		return apply_cloud_cover(texture(TEXTURE(ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX), get_sky_view_lut_uv(dir, sun_dir, ray_origin)), dir, ray_origin);
 	}
 
 	vec4 sample_sky_view_lut(vec3 dir, vec3 sun_dir, vec3 cam_pos) {
@@ -941,6 +962,30 @@ do
 	end
 end
 
+do
+	-- share of the clear day's light a full overcast lets through, thick stratus is ~0.2-0.4
+	local OVERCAST_TRANSMITTANCE = 0.3
+	-- the clear sky adds roughly this much to the direct sun on a horizontal surface
+	local CLEAR_SKY_IRRADIANCE_RATIO = 1.15
+
+	-- 0 is a clear sky, 1 hides the sun and turns the sky into an even grey overcast
+	function atmosphere.SetCloudCover(cover)
+		atmosphere.cloud_cover = cover
+	end
+
+	function atmosphere.GetCloudCover()
+		return atmosphere.cloud_cover
+	end
+
+	-- zenith luminance of the cie overcast sky: it spreads what the clouds let through of a clear
+	-- day's horizontal illuminance, and a cie overcast sky gives 7 pi / 9 times its zenith luminance
+	function atmosphere.GetOvercastLuminance(sun_dir)
+		local transmittance = atmosphere.GetSunColor(sun_dir)
+		local clear_illuminance = atmosphere.GetSunIlluminance() * (transmittance.x * 0.2126 + transmittance.y * 0.7152 + transmittance.z * 0.0722) * math.max(sun_dir.y, 0) * CLEAR_SKY_IRRADIANCE_RATIO
+		return clear_illuminance * OVERCAST_TRANSMITTANCE * 9 / (7 * math.pi)
+	end
+end
+
 function atmosphere.SetSunIlluminance(illuminance)
 	illuminance = illuminance or DEFAULT_SUN_ILLUMINANCE
 
@@ -1019,6 +1064,8 @@ function atmosphere.GetBlockLayout()
 		{"atmosphere_sky_view_texture_index", "int"},
 		{"atmosphere_stars_texture_index", "int"},
 		{"atmosphere_fog_density", "float"},
+		{"atmosphere_cloud_cover", "float"},
+		{"atmosphere_overcast_luminance", "float"},
 	}
 end
 
@@ -1028,10 +1075,12 @@ function atmosphere.WriteBlock(pipeline, block, cam_pos, sun_dir)
 	block.atmosphere_sky_view_texture_index = pipeline:GetTextureIndex(atmosphere.GetSkyViewTexture(cam_pos, sun_dir))
 	block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
 	block.atmosphere_fog_density = atmosphere.fog_density
+	block.atmosphere_cloud_cover = atmosphere.cloud_cover
+	block.atmosphere_overcast_luminance = atmosphere.cloud_cover > 0 and atmosphere.GetOvercastLuminance(sun_dir) or 0
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_FOG_DENSITY " .. uniform_name .. ".atmosphere_fog_density\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_FOG_DENSITY " .. uniform_name .. ".atmosphere_fog_density\n" .. "#define ATMOSPHERE_CLOUD_COVER " .. uniform_name .. ".atmosphere_cloud_cover\n" .. "#define ATMOSPHERE_OVERCAST_LUMINANCE " .. uniform_name .. ".atmosphere_overcast_luminance\n"
 end
 
 function atmosphere.GetGLSLCode()
