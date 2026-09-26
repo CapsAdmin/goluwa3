@@ -52,8 +52,8 @@ Material:GetSet("TerrainLayerAmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
 -- 0 uses a layer's albedo as is with alpha as roughness, above 0 the layer only adds its color variation
 -- around its average color to the albedo texture, with that strength, and its alpha is ignored
 Material:GetSet("TerrainLayerDetailStrength", Color(0.0, 0.0, 0.0, 0.0))
--- above 0 a detail layer is added to the albedo texture around 0.5 with its strength, like cry terrain layers,
--- and the sum is multiplied by this
+-- above 0 a detail layer is added to the gamma encoded albedo texture around 0.5 with its strength, like cry
+-- terrain layers, and the sum is multiplied by this
 Material:GetSet("TerrainLayerAdditiveDetail", Color(0.0, 0.0, 0.0, 0.0))
 -- SpecularMultiplier per layer
 Material:GetSet("TerrainLayerSpecular", Color(1.0, 1.0, 1.0, 1.0))

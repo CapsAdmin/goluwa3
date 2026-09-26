@@ -1790,7 +1790,10 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 
 					if (detail_strength > 0.0) {
 						if (additive_detail > 0.0) {
-							albedo.rgb = max(base + (albedo.rgb - 0.5) * detail_strength, vec3(0.0)) * additive_detail;
+							// the detail is an offset around 0.5 in gamma space, adding it to the linear color
+							// clips each channel at a different point and leaves saturated specks in dark spots
+							vec3 base_gamma = pow(base, vec3(1.0 / 2.2));
+							albedo.rgb = pow(max(base_gamma + (albedo.rgb - 0.5) * detail_strength, vec3(0.0)), vec3(2.2)) * additive_detail;
 						} else {
 							// the smallest mip is the average color of the layer
 							vec3 average = textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0).rgb;

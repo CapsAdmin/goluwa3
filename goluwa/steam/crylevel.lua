@@ -1168,7 +1168,10 @@ do
 		// the red tweak compensates for 565 red only reaching 30/31 for a perfect gray
 		vec4 texel = texture(TEXTURE(atlas_node.source), cell);
 		float red = (texel.r + 0.001012) * (31.0 / 30.0);
-		return vec4(vec3(red, texel.g, 1.0 - red - texel.g) * 3.0 * texel.b, 1.0);
+		vec3 color = vec3(red, texel.g, 1.0 - red - texel.g) * 3.0 * texel.b;
+		// opinionated for goluwa
+		color = pow(color, vec3(1.5)) * 0.5;
+		return vec4(color, 1.0);
 	]]
 	local LINEAR_CLAMP = {
 		min_filter = "linear",
