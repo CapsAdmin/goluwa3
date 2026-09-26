@@ -11,6 +11,7 @@ cgf.FILE_TYPE_GEOMETRY = 0xFFFF0000
 cgf.FILE_TYPE_ANIMATION = 0xFFFF0001
 cgf.VERSION_744 = 0x744
 cgf.VERSION_745 = 0x745
+cgf.VERSION_MESH_COMPILED = 0x800
 cgf.CHUNK_MESH = 0xCCCC0000
 cgf.CHUNK_HELPER = 0xCCCC0001
 cgf.CHUNK_NODE = 0xCCCC000B
@@ -466,8 +467,31 @@ function cgf.ExtractStaticMeshData(parsed)
 					world_transforms,
 					node.id
 				)
+
+				-- 0x744 meshes are the uncompiled format with an unrelated layout
+				if mesh_chunk.version ~= cgf.VERSION_MESH_COMPILED then
+					error(
+						string.format(
+							"unsupported cgf mesh chunk version 0x%X in node %q",
+							mesh_chunk.version,
+							node.name
+						)
+					)
+				end
+
 				local mesh = cgf.ReadMeshChunk(file, mesh_chunk)
 				local subsets_chunk = parsed.chunks_by_id[mesh.subsets_chunk_id]
+
+				if subsets_chunk and subsets_chunk.type ~= cgf.CHUNK_MESH_SUBSETS then
+					error(
+						string.format(
+							"cgf mesh subsets chunk %d has type 0x%X",
+							mesh.subsets_chunk_id,
+							subsets_chunk.type
+						)
+					)
+				end
+
 				local subsets = subsets_chunk and cgf.ReadMeshSubsetsChunk(file, subsets_chunk) or {subsets = {}}
 				local streams_by_type = {}
 				local material = materials_by_id[node.material_chunk_id]
@@ -572,7 +596,8 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 
 	local parsed = parsed_or_err
 	local material_root = file_path.GetFolderFromPath(parsed.file.path_used or full_path)
-	local package_material_root = material_root and ("crytek package:" .. material_root) or nil
+	-- like CryEngine, a material name with a path is relative to the game root, ie the folder holding Objects/
+	local game_root = material_root:sub(1, (material_root:lower():find("/objects/", 1, true) or 0))
 	local resolved_material_paths = {}
 	local ok, result = xpcall(function()
 		for _, entry in ipairs(cgf.ExtractStaticMeshData(parsed)) do
@@ -580,17 +605,12 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 			local material = nil
 
 			if entry.material_name then
-				local material_path = material_root .. entry.material_name .. ".mtl"
+				local name = file_path.FixPathSlashes(entry.material_name):gsub("%.[mM][tT][lL]$", "")
+				local material_path = (name:find("/", 1, true) and game_root or material_root) .. name .. ".mtl"
 				local resolved_material_path = resolved_material_paths[material_path]
 
 				if resolved_material_path == nil then
 					resolved_material_path = vfs.FindMixedCasePath(material_path) or material_path
-
-					if not vfs.IsFile(resolved_material_path) and package_material_root then
-						resolved_material_path = vfs.FindFileByNameRecursive(package_material_root, entry.material_name .. ".mtl") or
-							resolved_material_path
-					end
-
 					resolved_material_paths[material_path] = resolved_material_path
 				end
 
@@ -614,6 +634,7 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 			end
 
 			mesh:SetBranchHelperPivots(entry.branch_helper_pivots)
+			mesh:SetMaterialSlot(entry.subset_material_id)
 			mesh:SetName(path)
 			mesh:BuildBoundingBox()
 			mesh:Upload(entry.indices)

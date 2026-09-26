@@ -291,7 +291,6 @@ do
 	local cry_mtl_material_cache = {}
 	local vmt_material_cache = {}
 	local cry_texture_path_cache = {}
-	local cry_texture_recursive_lookup_cache = {}
 	local material_cache_stats = setmetatable({}, {__mode = "k"})
 
 	local function get_cry_mtl_cache_key(path, sub_material)
@@ -508,6 +507,18 @@ do
 
 		local normalized = file_path.FixPathSlashes(texture_path)
 		local normalized_lower = normalized:lower()
+
+		do
+			-- some materials were saved with the artist's checkout path, ie j:/game02/game/objects/...
+			local game_start = normalized_lower:find("%f[%w]game/objects/") or
+				normalized_lower:find("%f[%w]game/textures/")
+
+			if game_start then
+				normalized = normalized:sub(game_start + 5)
+				normalized_lower = normalized:lower()
+			end
+		end
+
 		local is_game_relative = normalized_lower:starts_with("objects/") or
 			normalized_lower:starts_with("textures/")
 		local game_root = resolve_cry_game_root(material_path)
@@ -534,8 +545,6 @@ do
 		end
 
 		local base = file_path.RemoveExtensionFromPath(normalized)
-		local original_basename = file_path.GetFileNameFromPath(normalized):lower()
-		local basename = file_path.GetFileNameFromPath(base .. ".dds"):lower()
 		local candidates = {}
 
 		local function add(path)
@@ -551,12 +560,8 @@ do
 			add(game_root .. relative_base .. ".dds")
 			add(game_root .. "Objects.pak/" .. relative_path)
 			add(game_root .. "Objects.pak/" .. relative_base .. ".dds")
-			add(game_root .. "objects.pak/" .. relative_path)
-			add(game_root .. "objects.pak/" .. relative_base .. ".dds")
 			add(game_root .. "Textures.pak/" .. relative_path)
 			add(game_root .. "Textures.pak/" .. relative_base .. ".dds")
-			add(game_root .. "textures.pak/" .. relative_path)
-			add(game_root .. "textures.pak/" .. relative_base .. ".dds")
 		end
 
 		if file_path.IsPathAbsolutePath(normalized) then
@@ -566,6 +571,12 @@ do
 			local folder = file_path.GetFolderFromPath(material_path)
 
 			if is_game_relative then
+				-- a material loaded through a mounted game root, ie Objects/..., resolves its textures through the same mounts
+				if not game_root then
+					add(normalized)
+					add(base .. ".dds")
+				end
+
 				add_pak_candidates(normalized, base)
 			else
 				add(folder and (folder .. normalized) or normalized)
@@ -581,32 +592,6 @@ do
 			if found then
 				cry_texture_path_cache[cache_key] = {resolved = found, candidates = candidates}
 				return found, candidates
-			end
-
-			if vfs.IsFile(candidate) then
-				cry_texture_path_cache[cache_key] = {resolved = candidate, candidates = candidates}
-				return candidate, candidates
-			end
-		end
-
-		if game_root and (basename ~= "" or original_basename ~= "") then
-			for _, root in ipairs{game_root .. "Objects.pak/", game_root .. "Textures.pak/"} do
-				for _, recursive_name in ipairs{original_basename, basename} do
-					if recursive_name ~= "" then
-						local recursive_cache_key = root .. "\0" .. recursive_name
-						local resolved = cry_texture_recursive_lookup_cache[recursive_cache_key]
-
-						if resolved == nil then
-							resolved = vfs.FindFileByNameRecursive(root, recursive_name) or false
-							cry_texture_recursive_lookup_cache[recursive_cache_key] = resolved
-						end
-
-						if resolved ~= false then
-							cry_texture_path_cache[cache_key] = {resolved = resolved, candidates = candidates}
-							return resolved, candidates
-						end
-					end
-				end
 			end
 		end
 
@@ -1174,7 +1159,11 @@ do
 		[1] = "error", -- huh
 	}
 
-	function Material:SetError(err) end
+	function Material:SetError(err)
+		self.Error = err
+		logf("material error for %q: %s\n", tostring(self:GetName()), tostring(err))
+		self:SetAlbedoTexture(Texture.GetFallback())
+	end
 
 	local blacklist = {
 		"^surfaceprop",
@@ -1242,6 +1231,29 @@ do
 		values = {},
 	}
 
+	local function load_cry_mtl_document(path)
+		local document = cry_mtl_document_cache[path]
+
+		if document == nil then
+			local data, err = vfs.Read(path)
+
+			if not data then return nil, err or ("unable to read cry mtl " .. path) end
+
+			local ok
+			ok, document = pcall(xml.Decode, data)
+
+			if not ok or not document or not document.children or not document.children[1] then
+				document = false
+			end
+
+			cry_mtl_document_cache[path] = document
+		end
+
+		if document == false then return nil, "unable to parse cry mtl " .. path end
+
+		return document
+	end
+
 	function Material.FromCryMTL(path, sub_material)
 		local cache_key = get_cry_mtl_cache_key(path, sub_material)
 		local cached_material = cry_mtl_material_cache[cache_key]
@@ -1255,67 +1267,46 @@ do
 		self:SetName(path .. (sub_material and ("/" .. sub_material) or ""))
 		self.cry_mtl_path = path
 		self.upload_cache_key = cache_key
-		local document = cry_mtl_document_cache[path]
+		cry_mtl_material_cache[cache_key] = self
+		local document, err = load_cry_mtl_document(path)
 
-		if document == nil then
-			local data, err = vfs.Read(path)
-
-			if not data then
-				self:SetError(err or ("unable to read cry mtl " .. tostring(path)))
-				cry_mtl_material_cache[cache_key] = self
-				return self
-			end
-
-			local ok
-			ok, document = pcall(xml.Decode, data)
-
-			if not ok or not document or not document.children or not document.children[1] then
-				cry_mtl_document_cache[path] = false
-				self:SetError("unable to parse cry mtl " .. tostring(path))
-				cry_mtl_material_cache[cache_key] = self
-				return self
-			end
-
-			cry_mtl_document_cache[path] = document
-		elseif document == false then
-			self:SetError("unable to parse cry mtl " .. tostring(path))
-			cry_mtl_material_cache[cache_key] = self
+		if not document then
+			self:SetError(err)
 			return self
 		end
 
 		local root = document.children[1]
+		local sub_materials = find_child_by_tag(root, "SubMaterials")
 		local material_node = root
 
-		if sub_material ~= nil then
-			local sub_materials = find_child_by_tag(root, "SubMaterials")
+		-- like CryEngine, a material without sub materials is used for every subset
+		if sub_material ~= nil and sub_materials then
+			material_node = nil
+			local index = 0
 
-			if type(sub_material) == "number" then
-				local target_index = sub_material + 1
-				local current_index = 0
+			for child in iter_children_by_tag(sub_materials, "Material") do
+				if
+					(
+						type(sub_material) == "number" and
+						index == sub_material
+					)
+					or
+					(
+						child.attrs and
+						child.attrs.Name == sub_material
+					)
+				then
+					material_node = child
 
-				for child in iter_children_by_tag(sub_materials, "Material") do
-					current_index = current_index + 1
-
-					if current_index == target_index then
-						material_node = child
-
-						break
-					end
+					break
 				end
-			else
-				for child in iter_children_by_tag(sub_materials, "Material") do
-					if child.attrs and child.attrs.Name == sub_material then
-						material_node = child
 
-						break
-					end
-				end
+				index = index + 1
 			end
 		end
 
 		if not material_node then
-			self:SetError("sub material not found in cry mtl " .. tostring(path))
-			cry_mtl_material_cache[cache_key] = self
+			self:SetError("sub material " .. tostring(sub_material) .. " not found in cry mtl " .. path)
 			return self
 		end
 
@@ -1324,9 +1315,32 @@ do
 		end
 
 		apply_cry_material_node(self, material_node, path)
-		cry_mtl_material_cache[cache_key] = self
 		record_material_cache_request("crymtl", cache_key, self)
 		return self
+	end
+
+	-- the sub materials of a cry mtl by 0 based slot, or nil when it has none and applies as a whole
+	-- like CryEngine, a slot the mtl doesn't have resolves to an error material
+	function Material.FromCryMTLSlots(path)
+		local document, err = load_cry_mtl_document(path)
+
+		if not document then return nil, err end
+
+		if not find_child_by_tag(document.children[1], "SubMaterials") then
+			return nil
+		end
+
+		return setmetatable(
+			{},
+			{
+				__index = function(slots, slot)
+					if slot == nil then return nil end
+
+					slots[slot] = Material.FromCryMTL(path, slot)
+					return slots[slot]
+				end,
+			}
+		)
 	end
 
 	function Material.FromVMT(path)

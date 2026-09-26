@@ -1093,6 +1093,7 @@ Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 2000)
 Visual:GetSet("ModelPath", "")
 Visual:GetSet("MaterialOverride", nil)
+Visual:GetSet("MaterialSlotOverrides", nil)
 Visual:GetSet("AABB", create_empty_aabb())
 Visual:EndStorable()
 Visual:IsSet("Loading", false)
@@ -1115,6 +1116,12 @@ end
 -- which pass an entry draws in follows from its material
 function Visual:SetMaterialOverride(material)
 	objects.CommitProperty(self, "MaterialOverride", material)
+	self:InvalidateRenderEntries()
+end
+
+-- materials indexed by each primitive's Polygon3D:GetMaterialSlot(), a primitive without a slot keeps its own material
+function Visual:SetMaterialSlotOverrides(slots)
+	objects.CommitProperty(self, "MaterialSlotOverrides", slots)
 	self:InvalidateRenderEntries()
 end
 
@@ -1281,6 +1288,11 @@ function Visual:RebuildRenderEntries()
 				local source_aabb = primitive:GetLocalAABB()
 				local transform = child.transform
 				local material = primitive:GetMaterial()
+
+				if self.MaterialSlotOverrides then
+					material = self.MaterialSlotOverrides[polygon3d:GetMaterialSlot()] or material
+				end
+
 				local local_matrix = transform and transform:GetLocalMatrix() or nil
 				local local_matrix_inverse = local_matrix and local_matrix:GetInverse() or nil
 				local local_aabb = build_transformed_aabb(source_aabb, local_matrix)

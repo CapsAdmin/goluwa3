@@ -23,6 +23,8 @@ end
 
 Polygon3D:GetSet("Vertices")
 Polygon3D:GetSet("BranchHelperPivots", {})
+-- index into the source model's material list, lets a visual swap materials per slot
+Polygon3D:GetSet("MaterialSlot", nil)
 Polygon3D:GetSet(
 	"AABB",
 	AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)

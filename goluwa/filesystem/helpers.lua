@@ -1,7 +1,7 @@
 local vfs = import("goluwa/filesystem/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local mixed_case_path_cache = {}
-local recursive_basename_index_cache = {}
 
 do
 	local old_clear_call_cache = vfs.ClearCallCache
@@ -9,37 +9,7 @@ do
 	function vfs.ClearCallCache()
 		old_clear_call_cache()
 		table.clear(mixed_case_path_cache)
-		table.clear(recursive_basename_index_cache)
 	end
-end
-
-local function get_recursive_basename_index(root)
-	root = file_path.FixPathSlashes(root)
-	local cached = recursive_basename_index_cache[root]
-
-	if cached then return cached end
-
-	local index = {}
-
-	vfs.GetFilesRecursive(root, nil, function(found_path)
-		local basename = file_path.GetFileNameFromPath(found_path):lower()
-
-		if basename ~= "" and not index[basename] then index[basename] = found_path end
-	end)
-
-	recursive_basename_index_cache[root] = index
-	return index
-end
-
-function vfs.FindFileByNameRecursive(root, file_name)
-	if type(root) ~= "string" or type(file_name) ~= "string" then return nil end
-
-	local normalized_root = file_path.FixPathSlashes(root)
-	local normalized_name = file_path.GetFileNameFromPath(file_path.FixPathSlashes(file_name)):lower()
-
-	if normalized_root == "" or normalized_name == "" then return nil end
-
-	return get_recursive_basename_index(normalized_root)[normalized_name]
 end
 
 function vfs.CopyRecursively(from, to)
@@ -71,15 +41,36 @@ function vfs.FindMixedCasePath(path)
 		return path:lower()
 	end
 
-	local parts = path:split("/")
-	local dir = ""
+	-- keep "/", "C:/" or "filesystem:/" roots as is, only the components after them can differ in case
+	local root = path:match("^[^/]*:/") or path:match("^/") or ""
+	local parts = {}
 
-	for i, str in ipairs(parts) do
+	for _, str in ipairs(path:sub(#root + 1):split("/")) do
+		if str ~= "" then parts[#parts + 1] = str end
+	end
+
+	-- start from the deepest directory that exists verbatim, a filesystem like "crytek package:"
+	-- can't list the real directories leading up to its archive
+	local first = 1
+
+	for i = #parts - 1, 1, -1 do
+		if vfs.IsDirectory(root .. table.concat(parts, "/", 1, i)) then
+			first = i + 1
+
+			break
+		end
+	end
+
+	-- dir always ends with a slash so vfs.Find lists it as a directory
+	local dir = first > 1 and (root .. table.concat(parts, "/", 1, first - 1) .. "/") or root
+
+	for i = first, #parts do
+		local str = parts[i]:lower()
 		local found_match = false
-		local entries = vfs.Find(dir == "" and "." or dir) -- handle root case
-		for _, found in ipairs(entries) do
-			if found:lower() == str:lower() then
-				dir = dir == "" and found or (dir .. "/" .. found)
+
+		for _, found in ipairs(vfs.Find(dir)) do
+			if found:lower() == str then
+				dir = dir .. found .. "/"
 				found_match = true
 
 				break
@@ -91,13 +82,12 @@ function vfs.FindMixedCasePath(path)
 			local abs_dir = vfs.GetAbsolutePath(dir == "" and "." or dir, true)
 
 			if abs_dir then
-				local fs = import("goluwa/filesystem/fs.lua")
 				local files = fs.get_files(abs_dir)
 
 				if files then
 					for _, found in ipairs(files) do
-						if found:lower() == str:lower() then
-							dir = dir == "" and found or (dir .. "/" .. found)
+						if found:lower() == str then
+							dir = dir .. found .. "/"
 							found_match = true
 
 							break
@@ -106,9 +96,14 @@ function vfs.FindMixedCasePath(path)
 				end
 			end
 
-			if not found_match then return nil end
+			if not found_match then
+				mixed_case_path_cache[path] = false
+				return nil
+			end
 		end
 	end
+
+	dir = dir:sub(1, -2)
 
 	if vfs.IsFile(dir) then
 		mixed_case_path_cache[path] = dir
@@ -118,8 +113,6 @@ function vfs.FindMixedCasePath(path)
 	mixed_case_path_cache[path] = false
 	return nil
 end
-
-local fs = import("goluwa/filesystem/fs.lua")
 
 function vfs.Delete(path, a, b, c, d, e, f)
 	assert(f == nil)

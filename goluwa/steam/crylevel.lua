@@ -12,76 +12,16 @@ local ffi = require("ffi")
 local read_u32_le, read_u16_le, read_f32_le
 local sample_terrain_height01_at_world
 local f32_union = ffi.new("union { uint32_t u; float f; }")
-local mounted_case_directory_cache = {}
-local mounted_case_path_cache = {}
 local crylevel = {
 	CRYSIS_APPID = 17300,
 }
 
-local function clear_mounted_case_lookup_cache()
-	mounted_case_directory_cache = {}
-	mounted_case_path_cache = {}
-end
-
 local function clear_mounts(mounts)
-	clear_mounted_case_lookup_cache()
-
 	for _, mount in ipairs(mounts or {}) do
 		vfs.Unmount(mount.where, mount.to)
 	end
 
 	return {}
-end
-
-local function find_mounted_case_path(root, relative_path)
-	local normalized_root = file_path.FixPathSlashes(root or "")
-	local normalized_relative = file_path.FixPathSlashes(relative_path or "")
-
-	if normalized_root == "" or normalized_relative == "" then return nil end
-
-	local cache_key = normalized_root .. "\0" .. normalized_relative
-	local cached = mounted_case_path_cache[cache_key]
-
-	if cached ~= nil then return cached ~= false and cached or nil end
-
-	local current = normalized_root:ends_with("/") and normalized_root or (normalized_root .. "/")
-	local last_part = normalized_relative:match("[^/]+$")
-
-	for part in normalized_relative:gmatch("[^/]+") do
-		local entry_lookup = mounted_case_directory_cache[current]
-
-		if not entry_lookup then
-			entry_lookup = {}
-
-			for _, entry in ipairs(vfs.Find(current) or {}) do
-				entry_lookup[entry:lower()] = entry
-			end
-
-			mounted_case_directory_cache[current] = entry_lookup
-		end
-
-		local matched = entry_lookup[part:lower()]
-
-		if not matched then
-			local resolved = vfs.FindFileByNameRecursive(normalized_root .. "/", part)
-			mounted_case_path_cache[cache_key] = resolved or false
-			return resolved
-		end
-
-		current = current .. matched
-
-		if part ~= last_part then
-			current = current:ends_with("/") and current or (current .. "/")
-		end
-	end
-
-	if vfs.IsFile(current) then
-		mounted_case_path_cache[cache_key] = current
-		return current
-	end
-
-	mounted_case_path_cache[cache_key] = false
-	return nil
 end
 
 local function ensure_trailing_slash(path)
@@ -368,6 +308,7 @@ function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, librarie
 		out[#out + 1] = {
 			name = attrs.Name or file_path.GetFileNameFromPath(model_path),
 			model_path = model_path,
+			material_path = attrs.Material ~= "" and attrs.Material or nil,
 			type = object_type,
 			world_matrix = world_matrix,
 		}
@@ -631,6 +572,7 @@ function crylevel.ParseVegetationMapDocument(document)
 			local prototype = {
 				id = prototype_id,
 				model_path = model_path,
+				material_path = attrs.Material ~= "" and attrs.Material or nil,
 				name = attrs.Name or file_path.GetFileNameFromPath(model_path),
 				align_to_terrain = parse_bool_flag(attrs.AlignToTerrain),
 				random_rotation = parse_bool_flag(attrs.RandomRotation),
@@ -730,6 +672,7 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 			entries[#entries + 1] = {
 				name = string.format("vegetation_%d_%d", prototype_id, index + 1),
 				model_path = prototype.model_path,
+				material_path = prototype.material_path,
 				prototype_id = prototype_id,
 				position = position,
 				scale = read_f32_le(data, offset + 12) or 1,
@@ -1895,13 +1838,9 @@ local function resolve_model_path_impl(steam, level_dir, model_path)
 		nil
 
 	if mounted_root and rest then
-		local mounted = find_mounted_case_path(mounted_root, rest)
+		local mounted = vfs.FindMixedCasePath(mounted_root .. "/" .. rest)
 
 		if mounted then return mounted end
-
-		local mounted_by_name = vfs.FindFileByNameRecursive(mounted_root .. "/", file_path.GetFileNameFromPath(rest))
-
-		if mounted_by_name then return mounted_by_name end
 	end
 
 	if level_dir then
@@ -1939,6 +1878,15 @@ function crylevel.ResolveModelPath(steam, level_dir, model_path)
 	local result = resolve_model_path_impl(steam, level_dir, model_path)
 	resolved_model_path_cache[cache_key] = result
 	return result
+end
+
+-- level objects name their material override like "Objects/Natural/Rocks/foo", relative to the game root
+function crylevel.ResolveMaterialPath(steam, level_dir, material_path)
+	return crylevel.ResolveModelPath(
+		steam,
+		level_dir,
+		file_path.FixPathSlashes(material_path):gsub("%.[mM][tT][lL]$", "") .. ".mtl"
+	)
 end
 
 function crylevel.EnsureLevelMounts(steam, level_dir)
@@ -2037,6 +1985,10 @@ function crylevel.Apply(steam)
 
 		for _, entry in ipairs(entries) do
 			entry.model_path = crylevel.ResolveModelPath(steam, level_dir, entry.model_path)
+
+			if entry.material_path then
+				entry.material_path = crylevel.ResolveMaterialPath(steam, level_dir, entry.material_path)
+			end
 		end
 
 		local terrain = select(1, crylevel.LoadTerrainData(steam, level_dir))
@@ -2052,6 +2004,10 @@ function crylevel.Apply(steam)
 
 				for _, entry in ipairs(vegetation_entries) do
 					entry.model_path = crylevel.ResolveModelPath(steam, level_dir, entry.model_path)
+
+					if entry.material_path then
+						entry.material_path = crylevel.ResolveMaterialPath(steam, level_dir, entry.material_path)
+					end
 				end
 			elseif vegetation_map_err then
 				wlog(
@@ -2077,8 +2033,31 @@ function crylevel.Apply(steam)
 		return steam.loaded_cry_levels[level_dir]
 	end
 
+	-- like CryEngine, an override with sub materials replaces the model's materials per subset,
+	-- and one without replaces all of them
+	local function apply_material_override(visual, material_path, cache)
+		local override = cache[material_path]
+
+		if not override then
+			local Material = import("goluwa/render3d/material.lua")
+			local slots = Material.FromCryMTLSlots(material_path)
+			override = {
+				slots = slots,
+				material = not slots and Material.FromCryMTL(material_path) or nil,
+			}
+			cache[material_path] = override
+		end
+
+		if override.slots then
+			visual:SetMaterialSlotOverrides(override.slots)
+		else
+			visual:SetMaterialOverride(override.material)
+		end
+	end
+
 	function steam.SpawnCryLevel(level, parent)
 		local Entity = import("goluwa/entities/entity.lua")
+		local material_overrides = {}
 		local data = steam.LoadCryLevel(level)
 
 		if steam.active_cry_terrain_renderer then
@@ -2102,6 +2081,11 @@ function crylevel.Apply(steam)
 				transform:SetRotation(transform_data.rotation)
 				transform:SetScale(transform_data.scale)
 				entity.visual:SetModelPath(entry.model_path)
+
+				if entry.material_path then
+					apply_material_override(entity.visual, entry.material_path, material_overrides)
+				end
+
 				entity.spawned_from_cry_level = true
 			end
 
@@ -2114,6 +2098,11 @@ function crylevel.Apply(steam)
 				transform:SetRotation(transform_data.rotation)
 				transform:SetScale(transform_data.scale)
 				entity.visual:SetModelPath(entry.model_path)
+
+				if entry.material_path then
+					apply_material_override(entity.visual, entry.material_path, material_overrides)
+				end
+
 				entity.spawned_from_cry_level = true
 			end
 		end
