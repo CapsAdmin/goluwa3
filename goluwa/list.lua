@@ -205,6 +205,16 @@ function list.map(tbl, cb)
 	return copy
 end
 
+function list.filter(tbl, cb)
+	local copy = {}
+
+	for i, v in ipairs(tbl) do
+		if cb(v, i) then table.insert(copy, v) end
+	end
+
+	return copy
+end
+
 function list.unique(tbl)
 	local seen = {}
 	local out = {}
