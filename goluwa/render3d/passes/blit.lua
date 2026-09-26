@@ -134,6 +134,10 @@ commands.Add("r_bloom_scatter=number[0.7]", function(value)
 	render3d.bloom_scatter = value
 end)
 
+commands.Add("r_bloom_max=number[10000]", function(value)
+	render3d.bloom_max = value
+end)
+
 local function get_scene_source_texture()
 	return post_source.GetSceneSourceTexture({name = "blit_compute"})
 end

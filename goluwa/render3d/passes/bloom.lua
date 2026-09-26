@@ -23,8 +23,8 @@ local common_glsl = compute_helpers.GetScreenHelpersGLSL() .. [[
 -- The first level weighs each box by its brightness relative to the whole
 -- footprint (a scale free Karis average), so a single hot pixel can't
 -- flicker in and out of the pyramid as it moves between texels. It also
--- softly caps what goes in at BLOOM_MAX times white (under last frame's
--- exposure): at night the exposure rises so far that a lamp is hundreds of
+-- softly caps what goes in at render3d.bloom_max times white (under last
+-- frame's exposure, r_bloom_max): at night the exposure rises so far that a lamp is hundreds of
 -- thousands of times brighter than the scene around it, and even a few
 -- percent of that would flood the screen.
 local downsample_glsl = [[
@@ -79,7 +79,7 @@ local downsample_glsl = [[
 				if (any(isnan(box[n])) || any(isinf(box[n]))) box[n] = vec3(0.0);
 
 				box[n] = min(box[n], vec3(60000.0));
-				box[n] /= 1.0 + bloom_luma(box[n]) * exposure / BLOOM_MAX;
+				box[n] /= 1.0 + bloom_luma(box[n]) * exposure / compute.bloom_max;
 				mean += bloom_luma(box[n]) * box_weight[n];
 			}
 		#endif
@@ -135,6 +135,7 @@ local function get_pipeline_texture(name)
 end
 
 render3d.bloom_scatter = 0.7
+render3d.bloom_max = 100000
 
 local function build_pass(name, scale, shader, sampled_images)
 	return {
@@ -149,11 +150,13 @@ local function build_pass(name, scale, shader, sampled_images)
 			{"has_source_tex", "int"},
 			{"has_exposure_tex", "int"},
 			{"scatter", "float"},
+			{"bloom_max", "float"},
 		},
 		write = function(self, block)
 			block.has_source_tex = sampled_images[1].get_texture() and 1 or 0
 			block.has_exposure_tex = sampled_images[2] and sampled_images[2].get_texture() and 1 or 0
 			block.scatter = render3d.bloom_scatter
+			block.bloom_max = render3d.bloom_max
 			return block
 		end,
 		shader = shader,
@@ -173,7 +176,7 @@ for i = 1, LEVELS do
 		0.5 ^ i,
 		(
 				i == 1 and
-				"#define KARIS\n#define BLOOM_MAX 32.0\nlayout(set = 0, binding = 2) uniform sampler2D exposure_tex;\n" .. post_source.GetPreExposureFromExposureGLSL()
+				"#define KARIS\nlayout(set = 0, binding = 2) uniform sampler2D exposure_tex;\n" .. post_source.GetPreExposureFromExposureGLSL()
 				or
 				""
 			) .. common_glsl .. downsample_glsl,
