@@ -300,7 +300,7 @@ return {
 
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NdotV, perceptual_roughness)).rg;
 
-				vec3 ambient_specular = reflection * (F0 * envBRDF.x + envBRDF.y);
+				vec3 ambient_specular = reflection * (F0 * envBRDF.x + F90(F0) * envBRDF.y);
 				ambient_specular *= GGXEnergyCompensation(F0, envBRDF);
 				ambient_specular *= SpecularOcclusion(NdotV, ambient_occlusion, perceptual_roughness);
 

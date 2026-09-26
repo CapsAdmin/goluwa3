@@ -36,14 +36,21 @@ function ibl.GetBRDFGLSLCode()
 				return f0 + (1.0 - f0) * f;
 			}
 
+			// the reflectance at grazing angles. no real material has an F0 below 0.02, so a lower one means
+			// the surface barely reflects at all, like a fine or dusty one, and its grazing reflection fades
+			// with it. otherwise a specular multiplier of 0 would still leave a white sheen at grazing angles
+			float F90(vec3 f0) {
+				return clamp(dot(f0, vec3(50.0 * 0.33)), 0.0, 1.0);
+			}
+
 			vec3 F_Schlick(const vec3 f0, float VoH) {
 				float f = pow5(1.0 - VoH);
-				return f + f0 * (1.0 - f);
+				return f0 + (vec3(F90(f0)) - f0) * f;
 			}
 
 			vec3 F_SchlickRoughness(vec3 f0, float NdotV, float perceptual_roughness) {
 				float f = pow5(1.0 - NdotV);
-				return f0 + (max(vec3(1.0 - perceptual_roughness), f0) - f0) * f;
+				return f0 + (max(vec3((1.0 - perceptual_roughness) * F90(f0)), f0) - f0) * f;
 			}
 
 			float Fd_Lambert() {
