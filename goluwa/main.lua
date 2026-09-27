@@ -33,10 +33,6 @@ commands.Add{
 			type = "boolean",
 			description = "Run in 3D mode (enable 3D and physics)",
 		},
-		["3d-simple"] = {
-			type = "boolean",
-			description = "Run in simple 3D mode",
-		},
 		["physics"] = {type = "boolean", description = "Enable physics"},
 		headless = {type = "boolean", description = "Disable graphics entirely"},
 		screenshot = {
@@ -62,8 +58,7 @@ commands.Add{
 		_G.CLIENT = not SERVER
 		_G.RENDER_NOOP = false
 		_G.RENDER_2D = not flags.headless and not flags.cli and not flags.server
-		_G.RENDER_3D_SIMPLE = flags["3d-simple"]
-		_G.RENDER_3D = flags["3d"] or RENDER_3D_SIMPLE
+		_G.RENDER_3D = flags["3d"]
 		_G.HDR = flags.hdr
 
 		if not flags["no-physics"] then
@@ -154,7 +149,6 @@ local function run_game()
 		if not render.available then
 			logf("[game] Graphics not available - running in headless mode\n")
 			_G.RENDER_2D = false
-			_G.RENDER_3D_SIMPLE = false
 			_G.RENDER_3D = false
 		else
 			if not system.GetWindows()[1] then
@@ -166,21 +160,7 @@ local function run_game()
 		end
 	end
 
-	if RENDER_3D then
-		import("goluwa/render3d/render3d.lua").Initialize(
-			RENDER_3D_SIMPLE and
-				{
-					passes = {
-						import("goluwa/render3d/passes/gbuffer.lua"),
-						import("goluwa/render3d/passes/lighting_simple.lua"),
-						import("goluwa/render3d/passes/forward_overlay.lua"),
-						import("goluwa/render3d/passes/bloom.lua"),
-						import("goluwa/render3d/passes/blit.lua"),
-					},
-				} or
-				nil
-		)
-	end
+	if RENDER_3D then import("goluwa/render3d/render3d.lua").Initialize() end
 
 	if RENDER_3D then import("goluwa/render3d/shot.lua") end
 

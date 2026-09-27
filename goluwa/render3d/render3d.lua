@@ -500,7 +500,6 @@ function render3d.CreatePipelineBundle(options)
 			gi_passes,
 			import("goluwa/render3d/passes/ssr.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
-			--import("goluwa/render3d/passes/lighting_simple.lua"),
 			import("goluwa/render3d/passes/ocean.lua"),
 			import("goluwa/render3d/passes/volumetric_fog.lua"),
 			import("goluwa/render3d/passes/translucent.lua"),
