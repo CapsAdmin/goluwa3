@@ -633,6 +633,14 @@ local function get_descriptor_array_binding_count(self, set_index, binding_index
 	end
 end
 
+function pipeline_common.update_storage_buffer_array(self, frame_index, binding_index, set_index, buffer_infos, count)
+	get_descriptor_array_binding_count(self, set_index, binding_index, count)
+
+	if render.stats then render_stats.AddDescriptorWrites(count) end
+
+	self.vulkan_instance.device:UpdateDescriptorSetBufferArray(self.descriptor_sets[frame_index][set_index + 1], binding_index, buffer_infos, count)
+end
+
 function pipeline_common.update_sampled_image_descriptor_set_array(self, frame_index, binding_index, set_index, view_array, override_count)
 	if _G.type(set_index) ~= "number" then
 		return pipeline_common.update_sampled_image_descriptor_set_array(self, frame_index, binding_index, 0, set_index)
@@ -678,6 +686,10 @@ function pipeline_common.bind_descriptor_set_methods(META)
 
 	function META:UpdateDescriptorSetArray(...)
 		return pipeline_common.update_descriptor_set_array(self, ...)
+	end
+
+	function META:UpdateStorageBufferArray(...)
+		return pipeline_common.update_storage_buffer_array(self, ...)
 	end
 
 	function META:UpdateSampledImageDescriptorSetArray(...)

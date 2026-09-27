@@ -550,7 +550,7 @@ function ddgi.GetEmitterGLSL()
 				vec4 u = ddgi_emitter_random(index, frame, j);
 				int e = ddgi_pick_emitter(u.x, emitter_count);
 				uint triangle = ddgi_emitters[e].triangle;
-				scene_bvh_triangle tri = scene_bvh_triangles[triangle & ~DDGI_EMITTER_DOUBLE_SIDED];
+				scene_bvh_triangle tri = bvh_tri(triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
 				vec3 point = ddgi_emitter_point(tri, u.yz);
 				vec3 to_point = point - origin;
 				float dist2 = dot(to_point, to_point);
@@ -1056,7 +1056,7 @@ do
 		local count, weight = 0, 0
 
 		for _, block in ipairs(scene_bvh.emissive_blocks) do
-			local tris = block.world_block
+			local tris = scene_bvh.triangles + block.tri_base
 
 			for j = 0, block.total - 1 do
 				local tri = tris[j]
@@ -1169,7 +1169,6 @@ function ddgi.WriteMaterialBuffer(self)
 		entry.albedo[2] = color.b
 		local albedo = material:GetAlbedoTexture() or NULL
 		entry.albedo_tex = albedo:IsValid() and self:GetTextureIndex(albedo) or -1
-
 		entry.double_sided = material:GetDoubleSided() and 1 or 0
 	end
 
@@ -1254,6 +1253,7 @@ local raygen_glsl = [[
 #version 460
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
 ]] .. ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_bvh.GetDeclarationsGLSL(7, 5) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
 layout(set = 0, binding = 0) uniform Params
 {
@@ -1388,7 +1388,12 @@ function ddgi.GetRTPipeline()
 						{binding_index = 1, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
 						{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
-						{binding_index = 5, type = "storage_buffer", stageFlags = "all"},
+						{
+							binding_index = 5,
+							type = "storage_buffer",
+							stageFlags = "all",
+							count = scene_bvh.SOUP_CHUNKS,
+						},
 						{binding_index = 6, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 7, type = "storage_buffer", stageFlags = "all"},
 					},

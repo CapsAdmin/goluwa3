@@ -36,6 +36,15 @@ local UInt32Array = ffi.typeof("uint32_t[?]")
 local Int32Array = ffi.typeof("int32_t[?]")
 local NODE_BYTE_SIZE = 32
 local TRIANGLE_BYTE_SIZE = 64
+-- the soup is bound as an array of SOUP_CHUNKS descriptors over one buffer,
+-- each covering 2 GiB of it, so a soup larger than maxStorageBufferRange (and
+-- than what 32 bit byte offsets can address) stays reachable. triangle i lives
+-- in chunk i / SOUP_CHUNK_TRIS at i % SOUP_CHUNK_TRIS
+local SOUP_CHUNK_BYTES = 2147483648
+local SOUP_CHUNKS = 8
+local SOUP_CHUNK_TRIS = SOUP_CHUNK_BYTES / TRIANGLE_BYTE_SIZE
+scene_bvh.SOUP_CHUNKS = SOUP_CHUNKS
+scene_bvh.SOUP_CHUNK_TRIS = SOUP_CHUNK_TRIS
 local BIN_COUNT = 12
 local MAX_LEAF_TRIANGLES = 8
 local MAX_DEPTH = 30
@@ -168,7 +177,9 @@ do
 			base = allocator.top
 			allocator.top = base + cap
 
-			if allocator.top > allocator.capacity then allocator.grow(allocator.top) end
+			if allocator.top > allocator.capacity then
+				allocator.grow(allocator.top, allocator)
+			end
 		end
 
 		allocator.used = allocator.used + cap
@@ -188,8 +199,7 @@ do
 	end
 
 	-- the node mirror is the cpu copy of the node buffer. triangles have no
-	-- mirror: every visual keeps its own world block, which is written
-	-- straight into the mapped buffer
+	-- mirror: they are baked straight into the mapped buffer
 	local function write_node(index)
 		ffi.copy(scene_bvh.node_ptr + index, scene_bvh.nodes + index, NODE_BYTE_SIZE)
 	end
@@ -224,8 +234,10 @@ do
 		scene_bvh.node_allocator.capacity = capacity
 	end
 
-	-- the soup lives only in the mapped buffer, so a grown buffer is refilled
-	-- from every visual's world block. consumers that expand it see the new
+	local bake_triangles
+
+	-- the soup lives only in the mapped buffer, so a grown buffer is baked
+	-- again from every block's shape. consumers that expand it see the new
 	-- generation and redo everything
 	local function grow_triangles(needed)
 		local capacity = math.max(needed, math.ceil(scene_bvh.triangle_capacity * 1.5), 1024)
@@ -236,12 +248,10 @@ do
 		scene_bvh.triangle_buffer = buffer
 		scene_bvh.triangles = ffi.cast(TrianglePtr, ptr)
 
-		-- a block that is being moved to a bigger range may already hold more
-		-- triangles than its old one. it is written again once it has moved
+		-- a block that is not baked yet (being laid out or moved to a bigger
+		-- range) is written once it has its range
 		for _, vc in ipairs(scene_bvh.blocks) do
-			local count = math.min(vc.total, vc.tri_cap)
-			ffi.copy(scene_bvh.triangles + vc.tri_base, vc.world_block, count * TRIANGLE_BYTE_SIZE)
-			ffi.fill(scene_bvh.triangles + vc.tri_base + count, (vc.tri_cap - count) * TRIANGLE_BYTE_SIZE)
+			if vc.baked_matrix then bake_triangles(vc) end
 		end
 
 		for cap, list in pairs(scene_bvh.triangle_allocator.free) do
@@ -928,12 +938,12 @@ do
 		dst[5] = cx2 + rz
 	end
 
-	-- transforms a slot's mesh vertices by its local matrix into
-	-- slot.local_tris. degenerate triangles are dropped, so the returned
+	-- transforms a slot's mesh vertices by the piece's local matrix into
+	-- piece.local_tris. degenerate triangles are dropped, so the returned
 	-- count can be smaller than slot.count
-	local function build_slot_local(slot)
+	local function build_slot_local(slot, piece)
 		local count = slot.count
-		local tris = slot.local_tris
+		local tris = piece.local_tris
 		local indices = scratch.indices
 		local index_buffer = slot.index_buffer
 		local index_count = count * 3
@@ -958,7 +968,7 @@ do
 			end
 		end
 
-		local m = slot.local_matrix
+		local m = piece.matrix
 		local m00, m01, m02 = m.m00, m.m01, m.m02
 		local m10, m11, m12 = m.m10, m.m11, m.m12
 		local m20, m21, m22 = m.m20, m.m21, m.m22
@@ -1014,16 +1024,80 @@ do
 		return written
 	end
 
-	-- per-tri aabbs and centroids of a visual's local soup, for the child SAH
-	local function prepare_child_sah(vc)
-		local slots = vc.slots
-		local slot_of = vc.slot_of
+	-- a mesh's triangles under one entry-local matrix. every visual drawing
+	-- that mesh the same way (instances of a model) shares it. keyed by the
+	-- vertex data and the index buffer, then matched by matrix. held by the
+	-- slots and shapes using it, so an unused piece is collected
+	local pieces = setmetatable({}, {__mode = "k"})
+	local piece_id = 0
+
+	local function get_piece(slot, l)
+		local by_index = pieces[slot.vertex_buffer.data]
+
+		if not by_index then
+			by_index = setmetatable({}, {__mode = "k"})
+			pieces[slot.vertex_buffer.data] = by_index
+		end
+
+		local index_key = slot.index_buffer or false
+		local list = by_index[index_key]
+
+		if not list then
+			list = setmetatable({}, {__mode = "v"})
+			by_index[index_key] = list
+		end
+
+		for _, piece in pairs(list) do
+			if piece.raw_count == slot.count and matrix_equal(piece.matrix, l) then
+				return piece
+			end
+		end
+
+		if not scratch.indices_capacity or scratch.indices_capacity < slot.count * 3 then
+			scratch.indices_capacity = math.max(slot.count * 3, 1)
+			scratch.indices = UInt32Array(scratch.indices_capacity)
+		end
+
+		piece_id = piece_id + 1
+		local piece = {
+			id = piece_id,
+			raw_count = slot.count,
+			local_tris = TriangleArray(slot.count),
+			matrix = {
+				m00 = l.m00,
+				m01 = l.m01,
+				m02 = l.m02,
+				m03 = l.m03,
+				m10 = l.m10,
+				m11 = l.m11,
+				m12 = l.m12,
+				m13 = l.m13,
+				m20 = l.m20,
+				m21 = l.m21,
+				m22 = l.m22,
+				m23 = l.m23,
+				m30 = l.m30,
+				m31 = l.m31,
+				m32 = l.m32,
+				m33 = l.m33,
+			},
+		}
+		piece.count = build_slot_local(slot, piece)
+		list[piece_id] = piece
+		return piece
+	end
+
+	-- per-tri aabbs and centroids of a shape's local soup, for the child SAH
+	local function prepare_child_sah(shape)
+		local pieces = shape.pieces
+		local starts = shape.starts
+		local slot_of = shape.slot_of
 		local tri_bounds = scratch.tri_bounds
 		local tri_centroids = scratch.tri_centroids
 
-		for i = 0, vc.total - 1 do
-			local slot = slots[slot_of[i] + 1]
-			local tri = slot.local_tris[i - slot.start]
+		for i = 0, shape.total - 1 do
+			local s = slot_of[i] + 1
+			local tri = pieces[s].local_tris[i - starts[s]]
 			local x0, y0, z0 = tri.v0[0], tri.v0[1], tri.v0[2]
 			local x1, y1, z1 = x0 + tri.e1[0], y0 + tri.e1[1], z0 + tri.e1[2]
 			local x2, y2, z2 = x0 + tri.e2[0], y0 + tri.e2[1], z0 + tri.e2[2]
@@ -1059,16 +1133,98 @@ do
 		end
 	end
 
-	-- world soup for a visual: local soup x the visual world matrix, in child
-	-- SAH order, plus the child node bounds in world space with internal
-	-- children remapped to the block's global base
-	local function bake_visual_world(vc, v)
-		local total = vc.total
-		local order = vc.order
-		local slot_of = vc.slot_of
+	local function child_leaf_writer(node, first, count)
+		node.left_first = first
+		node.count = count
+	end
+
+	local child_build = {
+		cursor = {1},
+		leaf_size = MAX_LEAF_TRIANGLES,
+		leaf_writer = child_leaf_writer,
+	}
+	-- a visual's local soup (its pieces in slot order) with the local child
+	-- tree over it, shared by every visual made of the same pieces. held by
+	-- the visuals using it
+	local shapes = setmetatable({}, {__mode = "v"})
+	local shape_key = {}
+
+	local function get_shape(slots, slot_count)
+		for i = 1, slot_count do
+			shape_key[i] = slots[i].piece.id
+		end
+
+		local key = table.concat(shape_key, ",", 1, slot_count)
+		local shape = shapes[key]
+
+		if shape then return shape end
+
+		local total = 0
+
+		for i = 1, slot_count do
+			total = total + slots[i].piece.count
+		end
+
+		if total == 0 then return nil end
+
+		shape = {
+			total = total,
+			pieces = {},
+			starts = {},
+			order = UInt32Array(total),
+			slot_of = UInt32Array(total),
+		}
+		local span = 0
+
+		for i = 1, slot_count do
+			local piece = slots[i].piece
+			shape.pieces[i] = piece
+			shape.starts[i] = span
+
+			for t = span, span + piece.count - 1 do
+				shape.slot_of[t] = i - 1
+			end
+
+			span = span + piece.count
+		end
+
+		for i = 0, total - 1 do
+			shape.order[i] = i
+		end
+
+		get_scratch(total, 1)
+
+		if not scratch.child_nodes_capacity or scratch.child_nodes_capacity < total * 2 then
+			scratch.child_nodes_capacity = total * 2
+			scratch.child_nodes = NodeArray(total * 2)
+		end
+
+		prepare_child_sah(shape)
+		child_build.order = shape.order
+		child_build.centroids = scratch.tri_centroids
+		child_build.bounds = scratch.tri_bounds
+		child_build.nodes = scratch.child_nodes
+		child_build.cursor[1] = 1
+		build_sah(child_build, 0, 0, total, 0)
+		shape.node_count = child_build.cursor[1]
+		shape.nodes = NodeArray(shape.node_count)
+		ffi.copy(shape.nodes, scratch.child_nodes, shape.node_count * NODE_BYTE_SIZE)
+		shapes[key] = shape
+		return shape
+	end
+
+	-- writes a block's shape into its soup range in SAH order, transformed by
+	-- its world matrix and with its slots' materials
+	function bake_triangles(vc)
+		local shape = vc.shape
+		local total = shape.total
+		local order = shape.order
+		local slot_of = shape.slot_of
+		local pieces = shape.pieces
+		local starts = shape.starts
 		local slots = vc.slots
-		local world = vc.world_block
-		local block_base = vc.block_base
+		local world = scene_bvh.triangles + vc.tri_base
+		local v = vc.baked_matrix
 		local m00, m01, m02 = v.m00, v.m01, v.m02
 		local m10, m11, m12 = v.m10, v.m11, v.m12
 		local m20, m21, m22 = v.m20, v.m21, v.m22
@@ -1076,8 +1232,9 @@ do
 
 		for i = 0, total - 1 do
 			local l = order[i]
-			local slot = slots[slot_of[l] + 1]
-			local src = slot.local_tris[l - slot.start]
+			local s = slot_of[l] + 1
+			local slot = slots[s]
+			local src = pieces[s].local_tris[l - starts[s]]
 			local dst = world[i]
 			local x0 = src.v0[0] * m00 + src.v0[1] * m10 + src.v0[2] * m20 + m30
 			local y0 = src.v0[0] * m01 + src.v0[1] * m11 + src.v0[2] * m21 + m31
@@ -1110,10 +1267,23 @@ do
 			dst.material = slot.material_id
 		end
 
-		local local_nodes = vc.child_nodes
-		local world_nodes = vc.child_world_nodes
+		ffi.fill(world + total, (vc.tri_cap - total) * TRIANGLE_BYTE_SIZE)
+	end
 
-		for j = 0, vc.node_count - 1 do
+	-- bakes a block into its ranges: the triangles, plus the child node bounds
+	-- in world space with internal children remapped to the block's global
+	-- base
+	local function write_block(vc)
+		local v = vc.matrix
+		local shape = vc.shape
+		local block_base = vc.block_base
+		local tri_base = vc.tri_base
+		vc.baked_matrix = v
+		bake_triangles(vc)
+		local local_nodes = shape.nodes
+		local world_nodes = scene_bvh.nodes + block_base
+
+		for j = 0, shape.node_count - 1 do
 			local ln = local_nodes[j]
 			local wn = world_nodes[j]
 			wn.count = ln.count
@@ -1121,7 +1291,7 @@ do
 			if wn.count == 0 then
 				wn.left_first = block_base + ln.left_first
 			else
-				wn.left_first = vc.tri_base + ln.left_first
+				wn.left_first = tri_base + ln.left_first
 			end
 
 			tmp_box[0] = ln.bounds_min[0]
@@ -1139,24 +1309,14 @@ do
 			wn.bounds_max[2] = tmp_box[5]
 		end
 
-		local aabb = vc.world_aabb
-		transform_box(v, ffi.cast("float*", local_nodes[0].bounds_min), aabb)
+		ffi.copy(scene_bvh.node_ptr + block_base, world_nodes, shape.node_count * NODE_BYTE_SIZE)
+		transform_box(v, ffi.cast("float*", local_nodes[0].bounds_min), vc.world_aabb)
 		-- tri_base/total are soup triangle indices, x3 for the
 		-- one-position-per-vertex layout of the expanded soup
-		vc.first_vertex = vc.tri_base * 3
-		vc.vertex_count = total * 3
+		vc.first_vertex = tri_base * 3
+		vc.vertex_count = shape.total * 3
+		write_raster_block(vc)
 	end
-
-	local function child_leaf_writer(node, first, count)
-		node.left_first = first
-		node.count = count
-	end
-
-	local child_build = {
-		cursor = {1},
-		leaf_size = MAX_LEAF_TRIANGLES,
-		leaf_writer = child_leaf_writer,
-	}
 
 	-- frees a visual's ranges and takes it out of the tree
 	local function release_block(visual, vc, rebuilding_top)
@@ -1285,74 +1445,34 @@ do
 
 		if fast and vc.block_index and vc.baked_matrix == v then return end
 
-		local slow = not vc.total
+		local shape = vc.shape
 
 		if not fast then
-			local raw_total = 0
-
-			for i = 1, slot_count do
-				raw_total = raw_total + slots[i].count
-			end
-
-			if not scratch.indices_capacity or scratch.indices_capacity < raw_total * 3 then
-				scratch.indices_capacity = math.max(raw_total * 3, 1)
-				scratch.indices = UInt32Array(scratch.indices_capacity)
-			end
-
 			local v_inv = v:GetInverse(tmp_v_inv)
 
 			for i = 1, slot_count do
 				local slot = slots[i]
 				local l = slot.matrix:GetMultiplied(v_inv, tmp_l)
 
-				if not (slot.local_tris and matrix_equal(slot.local_matrix, l)) then
-					slot.local_matrix = {
-						m00 = tmp_l.m00,
-						m01 = tmp_l.m01,
-						m02 = tmp_l.m02,
-						m03 = tmp_l.m03,
-						m10 = tmp_l.m10,
-						m11 = tmp_l.m11,
-						m12 = tmp_l.m12,
-						m13 = tmp_l.m13,
-						m20 = tmp_l.m20,
-						m21 = tmp_l.m21,
-						m22 = tmp_l.m22,
-						m23 = tmp_l.m23,
-						m30 = tmp_l.m30,
-						m31 = tmp_l.m31,
-						m32 = tmp_l.m32,
-						m33 = tmp_l.m33,
-					}
-
-					if not slot.local_tris or slot.local_tris_capacity < slot.count then
-						slot.local_tris = TriangleArray(slot.count)
-						slot.local_tris_capacity = slot.count
-					end
-
-					slot.count = build_slot_local(slot)
-					slot.local_version = (slot.local_version or 0) + 1
+				if not (slot.piece and matrix_equal(slot.piece.matrix, l)) then
+					slot.piece = get_piece(slot, l)
 				end
 			end
 
-			-- the child tree only has to be rederived when the local soup
-			-- itself changed, not for a new material or emission
-			if vc.slot_count ~= slot_count then slow = true end
+			shape = get_shape(slots, slot_count)
 
-			for i = 1, slot_count do
-				local slot = slots[i]
-
-				if not vc.slots or vc.slots[i] ~= slot or slot.built_version ~= slot.local_version then
-					slow = true
-				end
-
-				slot.built_version = slot.local_version
+			if not shape then
+				release_block(visual, vc, inserts.rebuild)
+				return
 			end
 		end
 
 		vc.matrix = v
 		vc.slots = slots
 		vc.slot_count = slot_count
+		vc.shape = shape
+		vc.total = shape.total
+		vc.node_count = shape.node_count
 		vc.alpha_tested = false
 
 		for i = 1, slot_count do
@@ -1364,68 +1484,20 @@ do
 		end
 
 		local emissive = false
-		local total = 0
 
 		for i = 1, slot_count do
 			local slot = slots[i]
-			total = total + slot.count
 
-			if slot.emissive_r + slot.emissive_g + slot.emissive_b > 0 then
+			if slot.piece.count > 0 and slot.emissive_r + slot.emissive_g + slot.emissive_b > 0 then
 				emissive = true
 			end
 		end
 
-		if total == 0 then
-			release_block(visual, vc, inserts.rebuild)
-			return
-		end
+		if not vc.world_aabb then vc.world_aabb = FloatArray(6) end
 
-		if slow then
-			vc.total = total
-
-			if not vc.world_aabb then vc.world_aabb = FloatArray(6) end
-
-			if not vc.order_cap or vc.order_cap < total then
-				vc.order_cap = total
-				vc.order = UInt32Array(total)
-				vc.slot_of = UInt32Array(total)
-				vc.world_block = TriangleArray(total)
-			end
-
-			if not vc.child_cap or vc.child_cap < total * 2 then
-				vc.child_cap = total * 2
-				vc.child_nodes = NodeArray(total * 2)
-				vc.child_world_nodes = NodeArray(total * 2)
-			end
-
-			local span = 0
-
-			for i = 1, slot_count do
-				local slot = slots[i]
-				slot.start = span
-
-				for t = span, span + slot.count - 1 do
-					vc.slot_of[t] = i - 1
-				end
-
-				span = span + slot.count
-			end
-
-			get_scratch(total, 1)
-
-			for i = 0, total - 1 do
-				vc.order[i] = i
-			end
-
-			prepare_child_sah(vc)
-			child_build.order = vc.order
-			child_build.centroids = scratch.tri_centroids
-			child_build.bounds = scratch.tri_bounds
-			child_build.nodes = vc.child_nodes
-			child_build.cursor[1] = 1
-			build_sah(child_build, 0, 0, total, 0)
-			vc.node_count = child_build.cursor[1]
-		end
+		-- not baked until it is written below, so a soup grown while its
+		-- ranges move leaves it out
+		vc.baked_matrix = nil
 
 		-- ranges: keep them while the block fits and is not much smaller
 		if vc.block_index then
@@ -1450,21 +1522,7 @@ do
 
 		vc.drawn_total = vc.total
 		scene_bvh.triangle_count = scene_bvh.triangle_count + vc.total
-		bake_visual_world(vc, v)
-		vc.baked_matrix = v
-		ffi.copy(scene_bvh.triangles + vc.tri_base, vc.world_block, vc.total * TRIANGLE_BYTE_SIZE)
-		ffi.fill(
-			scene_bvh.triangles + vc.tri_base + vc.total,
-			(vc.tri_cap - vc.total) * TRIANGLE_BYTE_SIZE
-		)
-		ffi.copy(scene_bvh.nodes + vc.block_base, vc.child_world_nodes, vc.node_count * NODE_BYTE_SIZE)
-		ffi.copy(
-			scene_bvh.node_ptr + vc.block_base,
-			vc.child_world_nodes,
-			vc.node_count * NODE_BYTE_SIZE
-		)
 		log_soup_range(vc.tri_base, vc.tri_cap)
-		write_raster_block(vc)
 		-- the ray tracing blas of this block follows this
 		vc.soup_serial = (vc.soup_serial or 0) + 1
 		scene_bvh.soup_dirty = true
@@ -1481,6 +1539,8 @@ do
 		if emissive then scene_bvh.emissive_changed = true end
 
 		if inserts.rebuild then return end
+
+		write_block(vc)
 
 		if vc.top_slot then
 			ffi.copy(scene_bvh.nodes + vc.top_slot, scene_bvh.nodes + vc.block_base, NODE_BYTE_SIZE)
@@ -1501,6 +1561,12 @@ do
 	scene_bvh.build_backlog = false
 	local build_stamp = 0
 
+	-- the allocators' grow while a reset lays blocks out: only the capacity
+	-- moves, the buffers are grown once the layout is done
+	local function defer_grow(needed, allocator)
+		allocator.capacity = needed
+	end
+
 	-- mode "incremental" looks only at scene_bvh.dirty_components, "scan" at
 	-- every visual (anything whose matrix or entries changed is rebuilt) and
 	-- "reset" throws the layout away and lays every visual out again
@@ -1516,6 +1582,14 @@ do
 
 		inserts.rebuild = mode == "reset"
 		scene_bvh.soup_dirty = mode == "reset"
+
+		-- a reset lays every block out before writing any of them, so the
+		-- buffers grow once to their final size instead of being refilled
+		-- over and over while the soup grows
+		if inserts.rebuild then
+			scene_bvh.triangle_allocator.grow = defer_grow
+			scene_bvh.node_allocator.grow = defer_grow
+		end
 
 		if mode == "incremental" then
 			-- what does not fit in the budget waits for the next frame
@@ -1540,6 +1614,23 @@ do
 
 			for visual, vc in pairs(scene_bvh.visual_cache) do
 				if vc.stamp ~= build_stamp then release_block(visual, vc, inserts.rebuild) end
+			end
+		end
+
+		if inserts.rebuild then
+			scene_bvh.triangle_allocator.grow = grow_triangles
+			scene_bvh.node_allocator.grow = grow_nodes
+
+			if scene_bvh.triangle_allocator.top > scene_bvh.triangle_capacity then
+				grow_triangles(scene_bvh.triangle_allocator.top)
+			end
+
+			if scene_bvh.node_allocator.top > scene_bvh.node_capacity then
+				grow_nodes(scene_bvh.node_allocator.top)
+			end
+
+			for _, vc in ipairs(scene_bvh.blocks) do
+				write_block(vc)
 			end
 		end
 
@@ -1787,6 +1878,39 @@ function scene_bvh.Invalidate(component)
 	scene_bvh.version = scene_bvh.version + 1
 end
 
+-- binds a buffer as the SOUP_CHUNKS descriptors of the soup binding, each
+-- covering its 2 GiB of the buffer. a chunk past the end of the buffer points
+-- at its start (it is never indexed), which also lets a stand-in buffer fill
+-- the binding before there is a soup
+do
+	local chunk_infos = setmetatable({}, {__mode = "k"})
+
+	function scene_bvh.BindTriangleBuffer(pipeline, descriptor_index, binding, buffer)
+		local infos = chunk_infos[buffer]
+
+		if not infos then
+			local size = buffer:GetSize()
+			infos = {}
+
+			for i = 0, SOUP_CHUNKS - 1 do
+				local offset = i * SOUP_CHUNK_BYTES
+
+				if offset >= size then offset = 0 end
+
+				infos[i + 1] = {
+					buffer = buffer,
+					offset = offset,
+					range = math.min(SOUP_CHUNK_BYTES, size - offset),
+				}
+			end
+
+			chunk_infos[buffer] = infos
+		end
+
+		pipeline:UpdateStorageBufferArray(descriptor_index, binding, 0, infos, SOUP_CHUNKS)
+	end
+end
+
 function scene_bvh.BindBuffers(pipeline, descriptor_index, node_binding, triangle_binding)
 	pipeline:UpdateDescriptorSet(
 		"storage_buffer",
@@ -1796,14 +1920,7 @@ function scene_bvh.BindBuffers(pipeline, descriptor_index, node_binding, triangl
 		scene_bvh.node_buffer,
 		scene_bvh.node_buffer:GetSize()
 	)
-	pipeline:UpdateDescriptorSet(
-		"storage_buffer",
-		descriptor_index,
-		triangle_binding,
-		0,
-		scene_bvh.triangle_buffer,
-		scene_bvh.triangle_buffer:GetSize()
-	)
+	scene_bvh.BindTriangleBuffer(pipeline, descriptor_index, triangle_binding, scene_bvh.triangle_buffer)
 end
 
 -- the triangle soup alone, for shaders that only look up hits (by the ray
@@ -1821,10 +1938,16 @@ function scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
 		};
 
 		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHTriangleBuffer {
-			scene_bvh_triangle scene_bvh_triangles[];
-		};
+			scene_bvh_triangle triangles[];
+		} scene_bvh_soup[%d];
+
+		#define SCENE_BVH_SOUP_CHUNK %du
+		scene_bvh_triangle bvh_tri(uint index) {
+			uint chunk = index / SCENE_BVH_SOUP_CHUNK;
+			return scene_bvh_soup[nonuniformEXT(chunk)].triangles[index - chunk * SCENE_BVH_SOUP_CHUNK];
+		}
 	]]
-	):format(triangle_binding)
+	):format(triangle_binding, SOUP_CHUNKS, SOUP_CHUNK_TRIS)
 end
 
 function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
@@ -1891,7 +2014,7 @@ function scene_bvh.GetTraversalGLSL()
 					uint first = node.left_first;
 
 					for (uint i = 0u; i < count; i++) {
-						scene_bvh_triangle tri = scene_bvh_triangles[first + i];
+						scene_bvh_triangle tri = bvh_tri(first + i);
 						vec3 pvec = cross(dir, tri.e2);
 						float det = dot(tri.e1, pvec);
 
@@ -1968,7 +2091,7 @@ function scene_bvh.GetTraversalGLSL()
 
 			if (triangle < 0) return false;
 
-			scene_bvh_triangle final_triangle = scene_bvh_triangles[triangle];
+			scene_bvh_triangle final_triangle = bvh_tri(triangle);
 			hit.position = origin + dir * closest;
 			hit.distance = closest;
 			hit.emissive = final_triangle.emissive;
@@ -2020,7 +2143,7 @@ do
 			-- rewrite the set a pending command buffer still uses
 			DescriptorSetCount = render.GetSwapchainImageCount(),
 			LocalSize = {EXPAND_LOCAL_SIZE, 1, 1},
-			storage_buffers = {{binding_index = 0}, {binding_index = 1}},
+			storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}},
 			block = {
 				{"first_vertex", "int"},
 				{"vertex_count", "int"},
@@ -2030,29 +2153,31 @@ do
 					return block
 				end,
 			},
-			custom_declarations = [[
-				struct scene_bvh_triangle {
-					vec3 v0;
-					vec3 e1;
-					vec3 e2;
-					vec3 normal;
-					vec3 emissive;
-					uint material;
-				};
-				layout(scalar, set = 0, binding = 1) readonly buffer SceneBvhTri {
-					scene_bvh_triangle tris[];
-				};
-				layout(scalar, set = 0, binding = 0) buffer SceneBvhPos {
-					vec3 positions[];
-				};
-			]],
+			custom_declarations = ([=[
+					struct scene_bvh_triangle {
+						vec3 v0;
+						vec3 e1;
+						vec3 e2;
+						vec3 normal;
+						vec3 emissive;
+						uint material;
+					};
+					layout(scalar, set = 0, binding = 1) readonly buffer SceneBvhTri {
+						scene_bvh_triangle tris[];
+					} soup[%d];
+					layout(scalar, set = 0, binding = 0) buffer SceneBvhPos {
+						vec3 positions[];
+					};
+					]=]):format(SOUP_CHUNKS),
 			shader = [[
+				#define SOUP_CHUNK ]] .. SOUP_CHUNK_TRIS .. [[u
 				void main() {
 					uint index = gl_GlobalInvocationID.x;
 					if (index >= uint(compute.vertex_count)) return;
 					uint vid = uint(compute.first_vertex) + index;
 					uint tri = vid / 3u;
-					scene_bvh_triangle t = tris[tri];
+					uint chunk = tri / SOUP_CHUNK;
+					scene_bvh_triangle t = soup[nonuniformEXT(chunk)].tris[tri - chunk * SOUP_CHUNK];
 					uint which = vid - tri * 3u;
 					vec3 p = t.v0;
 					if (which == 1u) p += t.e1;
@@ -2102,14 +2227,7 @@ do
 		local position_buffer = state.position_buffer
 		local pipeline = ensure_expand_pipeline(state)
 		local slot = math.max(render.GetCurrentFrame(), 1)
-		pipeline:UpdateDescriptorSet(
-			"storage_buffer",
-			slot,
-			1,
-			0,
-			scene_bvh.triangle_buffer,
-			scene_bvh.triangle_buffer:GetSize()
-		)
+		scene_bvh.BindTriangleBuffer(pipeline, slot, 1, scene_bvh.triangle_buffer)
 		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, position_buffer:GetSize())
 
 		if full then

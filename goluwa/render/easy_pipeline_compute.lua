@@ -297,6 +297,7 @@ do
 				binding_index = info.binding_index or info.binding,
 				stageFlags = "compute",
 				set_index = info.set_index or 0,
+				count = info.count,
 			}
 		end
 

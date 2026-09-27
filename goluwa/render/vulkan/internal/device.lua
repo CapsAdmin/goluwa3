@@ -65,6 +65,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.insert(finalExtensions, "VK_KHR_dynamic_rendering")
 	end
 
+	if table.has_value(available_extensions, "VK_EXT_shader_64bit_indexing") then
+		table.insert(finalExtensions, "VK_EXT_shader_64bit_indexing")
+	end
+
 	if table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3") then
 		table.insert(finalExtensions, "VK_EXT_extended_dynamic_state3")
 	end
@@ -335,14 +339,15 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			shaderUniformTexelBufferArrayDynamicIndexing = 0,
 			shaderStorageTexelBufferArrayDynamicIndexing = 0,
 			shaderUniformBufferArrayNonUniformIndexing = 0,
-			shaderStorageBufferArrayNonUniformIndexing = 0,
+			-- chunked storage buffer arrays (the scene bvh soup)
+			shaderStorageBufferArrayNonUniformIndexing = availableVulkan12Features.shaderStorageBufferArrayNonUniformIndexing,
 			shaderStorageImageArrayNonUniformIndexing = 0,
 			shaderInputAttachmentArrayNonUniformIndexing = 0,
 			shaderUniformTexelBufferArrayNonUniformIndexing = 0,
 			shaderStorageTexelBufferArrayNonUniformIndexing = 0,
 			descriptorBindingUniformBufferUpdateAfterBind = 0,
 			descriptorBindingStorageImageUpdateAfterBind = 0,
-			descriptorBindingStorageBufferUpdateAfterBind = 0,
+			descriptorBindingStorageBufferUpdateAfterBind = availableVulkan12Features.descriptorBindingStorageBufferUpdateAfterBind,
 			descriptorBindingUniformTexelBufferUpdateAfterBind = 0,
 			descriptorBindingStorageTexelBufferUpdateAfterBind = 0,
 			descriptorBindingUpdateUnusedWhilePending = 0,
@@ -888,6 +893,32 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		descriptorWrites[0].pNext = nil
 	end
 
+	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
+end
+
+-- buffer_infos is an array of {buffer, offset, range}; written as one
+-- descriptor array (dstArrayElement 0 .. count-1) so a single binding can
+-- cover a storage buffer larger than maxStorageBufferRange
+function Device:UpdateDescriptorSetBufferArray(descriptorSet, binding_index, buffer_infos, count)
+	local infoArray = VkDescriptorBufferInfoArray(count)
+
+	for i = 1, count do
+		local info = buffer_infos[i]
+		infoArray[i - 1].buffer = info.buffer.ptr[0]
+		infoArray[i - 1].offset = info.offset
+		infoArray[i - 1].range = info.range
+	end
+
+	local descriptorWrites = VkWriteDescriptorSetArray(1)
+	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
+	descriptorWrites[0].pNext = nil
+	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
+	descriptorWrites[0].dstBinding = binding_index
+	descriptorWrites[0].dstArrayElement = 0
+	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType("storage_buffer")
+	descriptorWrites[0].descriptorCount = count
+	descriptorWrites[0].pBufferInfo = infoArray
+	descriptorWrites[0].pImageInfo = nil
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
 end
 

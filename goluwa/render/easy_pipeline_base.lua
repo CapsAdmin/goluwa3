@@ -608,6 +608,10 @@ do
 		return self.pipeline:UpdateDescriptorSet(...)
 	end
 
+	function EasyPipeline:UpdateStorageBufferArray(...)
+		return self.pipeline:UpdateStorageBufferArray(...)
+	end
+
 	function EasyPipeline:ResetToBase(...)
 		return self.pipeline:ResetToBase(...)
 	end

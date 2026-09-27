@@ -53,7 +53,7 @@ return {
 		},
 		storage_buffers = RAY_QUERY and
 			{
-				{binding_index = BINDING_BVH_TRIANGLES},
+				{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
 				{binding_index = BINDING_MATERIALS},
 				{binding_index = BINDING_LIGHT_GRID},
 			} or
@@ -87,7 +87,7 @@ return {
 
 				-- no soup yet; the shader never reads it while ddgi_rt_ready is 0
 				local triangles = scene_bvh.triangle_buffer or materials
-				self:UpdateDescriptorSet("storage_buffer", desc, BINDING_BVH_TRIANGLES, 0, triangles, triangles:GetSize())
+				scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, triangles)
 			end or
 			nil,
 		uniform_buffers = {
@@ -422,7 +422,7 @@ return {
 				}
 
 				float t = rayQueryGetIntersectionTEXT(query, true);
-				scene_bvh_triangle tri = scene_bvh_triangles[uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true))];
+				scene_bvh_triangle tri = bvh_tri(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true)));
 				ddgi_material material = ddgi_materials[tri.material];
 				// the visible side winds clockwise, so tri.normal points inward
 				vec3 hit_N = -tri.normal;

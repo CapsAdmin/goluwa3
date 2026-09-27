@@ -83,14 +83,7 @@ local function pass_trace()
 			rt:UpdateDescriptorSet("uniform_buffer", desc, 0, 0, params, params:GetSize())
 			rt:UpdateDescriptorSet("storage_buffer", desc, 1, 0, hits, hits:GetSize())
 			local emitters = ddgi.GetEmitterBuffer()
-			rt:UpdateDescriptorSet(
-				"storage_buffer",
-				desc,
-				5,
-				0,
-				scene_bvh.triangle_buffer,
-				scene_bvh.triangle_buffer:GetSize()
-			)
+			scene_bvh.BindTriangleBuffer(rt, desc, 5, scene_bvh.triangle_buffer)
 			rt:UpdateDescriptorSet("storage_buffer", desc, 6, 0, emitters, emitters:GetSize())
 			rt:UpdateDescriptorSet(
 				"storage_buffer",
@@ -153,7 +146,7 @@ local function pass_compute_trace()
 		storage_buffers = {
 			{binding_index = BINDING_RAY_HITS},
 			{binding_index = BINDING_BVH_NODES},
-			{binding_index = BINDING_BVH_TRIANGLES},
+			{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
 			{binding_index = BINDING_EMITTERS},
 		},
 		uniform_buffers = {data_uniform()},
@@ -277,7 +270,7 @@ local function pass_shade()
 		storage_buffers = {
 			{binding_index = BINDING_RAY_HITS},
 			{binding_index = BINDING_BVH_NODES},
-			{binding_index = BINDING_BVH_TRIANGLES},
+			{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
 			{binding_index = BINDING_MATERIALS},
 			{binding_index = BINDING_EMITTERS},
 			{binding_index = BINDING_LIGHT_GRID},
@@ -312,7 +305,7 @@ local function pass_shade()
 			else
 				-- no soup yet; the shader never reads it while rt_ready is 0
 				self:UpdateDescriptorSet("storage_buffer", desc, BINDING_BVH_NODES, 0, hits, hits:GetSize())
-				self:UpdateDescriptorSet("storage_buffer", desc, BINDING_BVH_TRIANGLES, 0, hits, hits:GetSize())
+				scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, hits)
 			end
 		end,
 		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
@@ -448,7 +441,7 @@ local function pass_shade()
 					vec4 result = vec4(0.0);
 
 					if (ddgi_data.ddgi_rt_ready != 0 && weight_sum > 0.0) {
-						scene_bvh_triangle tri = scene_bvh_triangles[ddgi_emitters[hit.y & 0x0FFFFFFFu].triangle & ~DDGI_EMITTER_DOUBLE_SIDED];
+						scene_bvh_triangle tri = bvh_tri(ddgi_emitters[hit.y & 0x0FFFFFFFu].triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
 						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 28u);
 						vec3 dir = normalize(ddgi_emitter_point(tri, u.yz) - origin);
 						vec3 emission = ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material]));
@@ -476,7 +469,7 @@ local function pass_shade()
 					return;
 				}
 
-				scene_bvh_triangle tri = scene_bvh_triangles[hit.y & ~DDGI_SUN_VISIBLE_BIT];
+				scene_bvh_triangle tri = bvh_tri(hit.y & ~DDGI_SUN_VISIBLE_BIT);
 				ddgi_material material = ddgi_materials[tri.material];
 				// the rasterizer culls counter clockwise ("front") faces, so the
 				// visible side winds clockwise and cross(e1, e2) points inward

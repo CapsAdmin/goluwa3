@@ -146,3 +146,93 @@ T.Test3D("Graphics render3d scene bvh incremental build matches full rebuild", f
 		ent:Remove()
 	end
 end)
+
+-- instances of one mesh share their local soup and child tree, so each block
+-- has to come out of the bake with its own transform and material
+T.Test3D("Graphics render3d scene bvh instances share shapes but keep their transforms", function(draw)
+	local polygon3d = Polygon3D.New()
+	polygon3d:CreateCube(1)
+	polygon3d:BuildBoundingBox()
+	polygon3d:Upload()
+	local plain = Material.New{Color = Color(0.8, 0.8, 0.8, 1)}
+	local glowing = Material.New{
+		Color = Color(0.8, 0.8, 0.8, 1),
+		AlbedoAlphaIsEmissive = true,
+		EmissiveMultiplier = Color(1, 0.5, 0.2, 8),
+	}
+	local cases = {
+		{pos = Vec3(0, 0, 0), scale = 2, material = plain},
+		{pos = Vec3(10, 3, -2), scale = 1, material = glowing},
+		{pos = Vec3(-6, 1, 5), scale = 4, material = plain},
+	}
+
+	for i, case in ipairs(cases) do
+		local ent = Entity.New{Name = "sbvh_instance_" .. i}
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(case.pos)
+		ent.transform:SetScale(Vec3(case.scale, case.scale, case.scale))
+		ent:AddComponent("visual")
+		local p = Entity.New{Name = "sbvh_instance_p_" .. i, Parent = ent}
+		p:AddComponent("transform")
+		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
+		p.visual_primitive:SetMaterial(case.material)
+		ent.visual:BuildAABB()
+		case.ent = ent
+	end
+
+	draw()
+
+	local function check()
+		local shape
+
+		for _, case in ipairs(cases) do
+			local vc = scene_bvh.visual_cache[case.ent.visual]
+			shape = shape or vc.shape
+			T(vc.shape == shape)["=="](true)
+			local min_x, min_y, min_z = math.huge, math.huge, math.huge
+			local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+			local emissive = 0
+
+			for i = 0, vc.total - 1 do
+				local tri = scene_bvh.triangles[vc.tri_base + i]
+
+				for _, c in ipairs{0, 1, 2} do
+					for _, v in ipairs{
+						tri.v0[c],
+						tri.v0[c] + tri.e1[c],
+						tri.v0[c] + tri.e2[c],
+					} do
+						if c == 0 then
+							min_x, max_x = math.min(min_x, v), math.max(max_x, v)
+						elseif c == 1 then
+							min_y, max_y = math.min(min_y, v), math.max(max_y, v)
+						else
+							min_z, max_z = math.min(min_z, v), math.max(max_z, v)
+						end
+					end
+				end
+
+				emissive = emissive + tri.emissive[0]
+			end
+
+			local pos = case.ent.transform:GetPosition()
+			local half = case.scale
+			T(math.abs(min_x - (pos.x - half)) < 1e-3)["=="](true)
+			T(math.abs(max_x - (pos.x + half)) < 1e-3)["=="](true)
+			T(math.abs(min_y - (pos.y - half)) < 1e-3)["=="](true)
+			T(math.abs(max_y - (pos.y + half)) < 1e-3)["=="](true)
+			T(math.abs(min_z - (pos.z - half)) < 1e-3)["=="](true)
+			T(math.abs(max_z - (pos.z + half)) < 1e-3)["=="](true)
+		end
+	end
+
+	scene_bvh.Build(true)
+	check()
+	cases[1].ent.transform:SetPosition(Vec3(3, -2, 7))
+	scene_bvh.Build()
+	check()
+
+	for _, case in ipairs(cases) do
+		case.ent:Remove()
+	end
+end)
