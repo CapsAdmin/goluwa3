@@ -4,9 +4,7 @@ local render = import("goluwa/render/render.lua")
 local render3d = nil
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local Texture = import("goluwa/render/texture.lua")
-local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
-local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -23,6 +21,8 @@ local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local event = import("goluwa/event.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local render_stats = import("goluwa/render/stats.lua")
+local BatchTable = import("goluwa/render3d/batch_table.lua")
+local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 512 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
@@ -37,13 +37,6 @@ local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
 -- covers the few meters around the camera
 local SUN_CASTER_REACH = 20000
 local SHADOW_INSTANCE_STRIDE = ffi.sizeof("float[16]")
-local SHADOW_INSTANCE_BUFFER_ATTRIBUTES = {
-	{
-		lua_name = "instance_world",
-		lua_type = ffi.typeof("float[16]"),
-		offset = 0,
-	},
-}
 local SHADOW_INSTANCE_BINDINGS = {
 	model_pipeline.GetVertexBufferBinding(0),
 	{
@@ -683,7 +676,6 @@ local ShadowBatchRecord = ffi.typeof(
 	}]],
 	ffi.typeof(model_pipeline.GetVertexAnimationUniformBufferDecl())
 )
-local ShadowBatchRecordArray = ffi.typeof("$[?]", ShadowBatchRecord)
 local ShadowMultiDrawPushConstants = ffi.typeof([[
 	struct {
 		float light_space_matrix[16];
@@ -1384,6 +1376,9 @@ local function render_shadow_map_pass(self, cascade_index, is_first_in_batch, is
 	)
 end
 
+-- defined next to the shadow draw submission below
+local draw_shadow_single, draw_shadow_instanced
+
 function ShadowMap.New(config)
 	config = config or {}
 	local self = ShadowMap:CreateObject()
@@ -1633,6 +1628,11 @@ function ShadowMap.New(config)
 	self.is_recording_cascades = false
 	self.batch_serial = 0
 	self.shadow_batch_tables = {}
+	self.instance_batcher = InstanceBatcher.New{
+		label = "render3d shadow instances",
+		draw_single = draw_shadow_single,
+		draw_instanced = draw_shadow_instanced,
+	}
 	self.shadow_multi_draw_push_constants = ShadowMultiDrawPushConstants()
 	-- Current cascade being rendered (for Begin/End API)
 	self.current_cascade = 1
@@ -1641,8 +1641,10 @@ end
 
 function ShadowMap:OnRemove()
 	for _, batch_table in pairs(self.shadow_batch_tables) do
-		batch_table.buffer:Remove()
+		batch_table:Remove()
 	end
+
+	self.instance_batcher:Remove()
 
 	if self.expander.position_buffer then self.expander.position_buffer:Remove() end
 
@@ -2326,34 +2328,11 @@ local function shadow_material_has_vertex_animation(material)
 	return material and material:HasVertexAnimation()
 end
 
-local function ensure_shadow_instance_buffer(batch, instance_count)
-	local capacity = batch.instance_capacity or 0
-
-	if capacity >= instance_count and batch.instance_buffer then
-		return batch.instance_buffer
-	end
-
-	capacity = math.max(4, capacity)
-
-	while capacity < instance_count do
-		capacity = capacity * 2
-	end
-
-	if batch.instance_buffer then batch.instance_buffer:Remove() end
-
-	batch.instance_buffer = VertexBuffer.New(capacity, SHADOW_INSTANCE_BUFFER_ATTRIBUTES, "render3d shadow instances")
-	batch.instance_capacity = capacity
-	return batch.instance_buffer
-end
-
 local function get_shadow_draw_submission_context(self, track_component_stats)
 	local context = self.shadow_draw_submission_context
 
 	if not context then
 		context = {
-			instanced_batches = {},
-			ordered_batches = {},
-			used_batch_keys = {},
 			submission_stats = {
 				submitted_entry_count = 0,
 				missing_world_matrix_count = 0,
@@ -2364,13 +2343,6 @@ local function get_shadow_draw_submission_context(self, track_component_stats)
 		self.shadow_draw_submission_context = context
 	end
 
-	for i = 1, #context.used_batch_keys do
-		local batch_key = context.used_batch_keys[i]
-		context.instanced_batches[batch_key] = nil
-		context.used_batch_keys[i] = nil
-	end
-
-	table.clear(context.ordered_batches)
 	context.submission_stats.submitted_entry_count = 0
 	context.submission_stats.missing_world_matrix_count = 0
 
@@ -2379,17 +2351,9 @@ local function get_shadow_draw_submission_context(self, track_component_stats)
 		table.clear(context.missing_world_matrix_components)
 	end
 
-	return context,
-	context.submission_stats,
+	return context.submission_stats,
 	track_component_stats and context.submitted_by_component or nil,
 	track_component_stats and context.missing_world_matrix_components or nil
-end
-
-local function get_shadow_instance_buffer_list(batch, instance_buffer)
-	local list = batch.instance_buffer_list or {}
-	list[1] = instance_buffer
-	batch.instance_buffer_list = list
-	return list
 end
 
 local function get_shadow_draw_result(self)
@@ -2401,29 +2365,6 @@ local function get_shadow_draw_result(self)
 	end
 
 	return result
-end
-
-local function get_shadow_instance_batch(self, batch_key, mesh, material, first_polygon3d, first_world_matrix)
-	self.shadow_instance_batches = self.shadow_instance_batches or {}
-	local batch = self.shadow_instance_batches[batch_key]
-
-	if not batch then
-		batch = {
-			mesh = mesh,
-			material = material,
-			world_matrices = {},
-			components = {},
-			count = 0,
-		}
-		self.shadow_instance_batches[batch_key] = batch
-	end
-
-	batch.mesh = mesh
-	batch.material = material
-	batch.first_polygon3d = first_polygon3d
-	batch.first_world_matrix = first_world_matrix
-	batch.count = 0
-	return batch
 end
 
 local function bind_instanced_shadow_constants(self, material, cascade_index)
@@ -2469,7 +2410,6 @@ local function collect_shadow_visible_entry(
 	component,
 	entry,
 	cascade_index,
-	submission_context,
 	submission_stats,
 	submitted_by_component,
 	missing_world_matrix_components
@@ -2493,37 +2433,14 @@ local function collect_shadow_visible_entry(
 		shadow_material_has_vertex_animation(material)
 
 	if mesh and not uses_vertex_animation then
-		local instanced_pipeline = get_instanced_pipeline_for_cascade(self, cascade_index)
-		local batch_key = tostring(instanced_pipeline) .. ":" .. tostring(mesh) .. ":" .. tostring(material and (material.upload_cache_key or material) or false)
-		local instanced_batches = submission_context.instanced_batches
-		local batch = instanced_batches[batch_key]
-
-		if not batch then
-			batch = get_shadow_instance_batch(
-				self,
-				batch_key,
-				mesh,
-				material,
-				entry.polygon3d,
-				world_matrix
-			)
-			instanced_batches[batch_key] = batch
-			submission_context.ordered_batches[#submission_context.ordered_batches + 1] = batch
-			submission_context.used_batch_keys[#submission_context.used_batch_keys + 1] = batch_key
-		end
-
-		batch.count = batch.count + 1
-		batch.world_matrices[batch.count] = world_matrix
-
-		if submitted_by_component then batch.components[batch.count] = component end
-
-		return
+		self.instance_batcher:Queue(entry.polygon3d, mesh, material, world_matrix)
+	else
+		render3d.SetWorldMatrix(world_matrix)
+		render3d.SetCurrentPolygon3D(entry.polygon3d)
+		self:UploadConstants(world_matrix, material, cascade_index)
+		entry.polygon3d:Draw()
 	end
 
-	render3d.SetWorldMatrix(world_matrix)
-	render3d.SetCurrentPolygon3D(entry.polygon3d)
-	self:UploadConstants(world_matrix, material, cascade_index)
-	entry.polygon3d:Draw()
 	submission_stats.submitted_entry_count = submission_stats.submitted_entry_count + 1
 
 	if submitted_by_component then
@@ -2531,182 +2448,34 @@ local function collect_shadow_visible_entry(
 	end
 end
 
-local function batch_material_less_than(a, b)
-	return tostring(a.material) < tostring(b.material)
+function draw_shadow_single(self, batch)
+	local world_matrix = batch.world_matrices[1]
+	render3d.SetWorldMatrix(world_matrix)
+	render3d.SetCurrentPolygon3D(batch.polygon3d)
+	self:UploadConstants(world_matrix, batch.material, self.flush_cascade_index)
+	batch.polygon3d:Draw()
 end
 
-local function flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
-	local instanced_draws = 0
-	local fallback_draws = 0
-	local ordered_batches = submission_context.ordered_batches
-	local submission_stats = submission_context.submission_stats
-	table.sort(ordered_batches, batch_material_less_than)
-
-	for _, batch in ipairs(ordered_batches) do
-		if not batch.mesh:IsValid() then continue end
-
-		if batch.count <= 1 then
-			local world_matrix = batch.world_matrices[1]
-			render3d.SetWorldMatrix(world_matrix)
-			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
-			self:UploadConstants(world_matrix, batch.material, cascade_index)
-			batch.first_polygon3d:Draw()
-			submission_stats.submitted_entry_count = submission_stats.submitted_entry_count + 1
-
-			if submitted_by_component then
-				local component = batch.components[1]
-				submitted_by_component[component] = (submitted_by_component[component] or 0) + 1
-			end
-
-			fallback_draws = fallback_draws + 1
-		else
-			local instance_buffer = ensure_shadow_instance_buffer(batch, batch.count)
-			local ptr = ffi.cast("float *", instance_buffer.data)
-
-			for instance_index = 1, batch.count do
-				batch.world_matrices[instance_index]:CopyToFloatPointer(ptr + (instance_index - 1) * 16)
-
-				if submitted_by_component then
-					submitted_by_component[batch.components[instance_index]] = (submitted_by_component[batch.components[instance_index]] or 0) + 1
-				end
-			end
-
-			submission_stats.submitted_entry_count = submission_stats.submitted_entry_count + batch.count
-			instance_buffer.buffer:CopyData(instance_buffer.data, batch.count * instance_buffer.stride)
-			render3d.SetWorldMatrix(batch.first_world_matrix)
-			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
-			bind_instanced_shadow_constants(self, batch.material, cascade_index)
-			batch.mesh:DrawInstanced(
-				self.cmd,
-				batch.count,
-				get_shadow_instance_buffer_list(batch, instance_buffer)
-			)
-			instanced_draws = instanced_draws + 1
-		end
-	end
-
-	return instanced_draws, fallback_draws
+function draw_shadow_instanced(self, batch, instance_buffers, first_instance)
+	render3d.SetWorldMatrix(batch.world_matrices[1])
+	render3d.SetCurrentPolygon3D(batch.polygon3d)
+	bind_instanced_shadow_constants(self, batch.material, self.flush_cascade_index)
+	batch.mesh:DrawInstanced(self.cmd, batch.count, instance_buffers, nil, 0, 0, first_instance)
 end
 
-function ShadowMap:DrawVisibleEntries(visible_entries, cascade_index, track_component_stats)
-	cascade_index = cascade_index or self.current_cascade
-	local submission_context, submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
-
-	for _, visible_entry in ipairs(visible_entries or {}) do
-		collect_shadow_visible_entry(
-			self,
-			visible_entry.component,
-			visible_entry.entry,
-			cascade_index,
-			submission_context,
-			submission_stats,
-			submitted_by_component,
-			missing_world_matrix_components
-		)
-	end
-
-	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
-	local result = get_shadow_draw_result(self)
-	result.submitted_entry_count = submission_stats.submitted_entry_count
-	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
-	result.submitted_by_component = submitted_by_component
-	result.missing_world_matrix_components = missing_world_matrix_components
-	result.gpu_instanced_entry_count = 0
-	result.gpu_instanced_draw_calls = 0
-	result.gpu_active_batch_count = 0
-	result.gpu_total_batch_count = 0
-	result.instanced_draws = instanced_draws
-	result.fallback_draws = fallback_draws
-	return result
+local function flush_shadow_instance_batches(self, cascade_index)
+	self.flush_cascade_index = cascade_index
+	return self.instance_batcher:Flush(self, self.batch_serial)
 end
 
--- One record per instanced batch, indexed by gl_DrawID in the multi-draw pipeline.
--- Each map writes its table once per submission, after its fence says the gpu is
--- done reading the previous contents. Every record is rewritten when a batch got
--- a new mesh or material, or when a buffer whose address a record may hold went
--- away. Otherwise a window of records is, which catches texture indices changing
--- as textures finish loading within a few frames.
-local SHADOW_BATCH_REFRESH_WINDOW = 256
-
-local function update_shadow_batch_table(self, pipeline, batches, batch_serial)
-	local batch_table = self.shadow_batch_tables[pipeline]
-
-	if batch_table and batch_table.serial == self.batch_serial then
-		return batch_table
-	end
-
-	local full = not batch_table or
-		batch_table.batch_serial ~= batch_serial or
-		batch_table.address_release_serial ~= Buffer.address_release_serial
-
-	if not batch_table or batch_table.capacity < #batches then
-		if batch_table then batch_table.buffer:Remove() end
-
-		local capacity = math.max(math.ceil(#batches * 1.5), 1)
-		batch_table = {
-			capacity = capacity,
-			records = ShadowBatchRecordArray(capacity),
-			buffer = render.CreateBuffer{
-				byte_size = capacity * ffi.sizeof(ShadowBatchRecord),
-				buffer_usage = {"storage_buffer", "shader_device_address"},
-				memory_property = {"host_visible", "host_coherent"},
-				label = "render3d_shadow_batches",
-			},
-		}
-		batch_table.address = batch_table.buffer:GetDeviceAddress()
-		self.shadow_batch_tables[pipeline] = batch_table
-		full = true
-	end
-
-	local first, last = 1, #batches
-
-	if full then
-		batch_table.cursor = 1
-	else
-		first = batch_table.cursor
-
-		if first > last then first = 1 end
-
-		last = math.min(first + SHADOW_BATCH_REFRESH_WINDOW - 1, last)
-		batch_table.cursor = last + 1
-	end
-
-	for i = first, last do
-		local batch = batches[i]
-		local record = batch_table.records[i - 1]
-		local addresses = ffi.cast("uint64_t *", record.addresses)
-		local mesh = batch.mesh
-
-		if mesh:IsValid() then
-			local material = batch.material
-			local texture_entry = cache_shadow_material_texture_indices(self, material, pipeline)
-			addresses[0] = mesh:GetVertexBufferAddress()
-			addresses[1] = mesh:GetIndexBufferAddress()
-			record.index_is_32 = mesh.index_buffer and mesh.index_buffer:GetIndexType() == "uint32" and 1 or 0
-			record.albedo_texture_index = texture_entry.albedo_texture_index
-			record.flags = material:GetShadowFlags()
-			record.color_multiplier_a = material:GetShadowOpacity()
-			record.alpha_cutoff = material:GetAlphaCutoff()
-			render3d.SetCurrentPolygon3D(batch.first_polygon3d)
-			model_pipeline.FillVertexAnimationData(record.anim, material)
-		else
-			-- the shader skips batches without a vertex buffer
-			addresses[0] = 0
-			addresses[1] = 0
-		end
-	end
-
-	local record_size = ffi.sizeof(ShadowBatchRecord)
-	batch_table.buffer:CopyData(
-		batch_table.records + (first - 1),
-		(last - first + 1) * record_size,
-		(first - 1) * record_size
-	)
-	batch_table.serial = self.batch_serial
-	batch_table.batch_serial = batch_serial
-	-- read after the old table buffer above was removed
-	batch_table.address_release_serial = Buffer.address_release_serial
-	return batch_table
+local function write_shadow_batch_record(self, pipeline, record, batch)
+	local material = batch.material
+	record.albedo_texture_index = cache_shadow_material_texture_indices(self, material, pipeline).albedo_texture_index
+	record.flags = material:GetShadowFlags()
+	record.color_multiplier_a = material:GetShadowOpacity()
+	record.alpha_cutoff = material:GetAlphaCutoff()
+	render3d.SetCurrentPolygon3D(batch.first_polygon3d)
+	model_pipeline.FillVertexAnimationData(record.anim, material)
 end
 
 -- Draws a cascade from its recorded gpu cull with a single indirect multi-draw over
@@ -2714,7 +2483,7 @@ end
 -- with no visible instance draws nothing. Entries that cannot be instanced are
 -- culled on the cpu.
 function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_stats)
-	local submission_context, submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
+	local submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 	local dataset = gpu_culling.GetSceneDataset()
 	local output = cull_result.shadow_output
 	local batches = dataset.shadow_instanced_batches
@@ -2724,7 +2493,19 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 		local pipeline = self.mode == "point" and
 			self.multi_draw_pipeline or
 			self.multi_draw_pipeline_variants[self.cascade[cascade_index].format]
-		local batch_table = update_shadow_batch_table(self, pipeline, batches, dataset.shadow.batch_serial)
+		local batch_table = self.shadow_batch_tables[pipeline]
+
+		if not batch_table then
+			-- the map waits on its fence before recording again, so one buffer
+			-- is enough
+			batch_table = BatchTable.New{
+				label = "render3d_shadow_batches",
+				record_type = ShadowBatchRecord,
+				write_record = write_shadow_batch_record,
+			}
+			self.shadow_batch_tables[pipeline] = batch_table
+		end
+
 		local depth_texture = self.mode == "point" and
 			self.point_depth_buffer or
 			self.cascade[cascade_index].depth_texture
@@ -2737,7 +2518,7 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 		push_constants.disable_vertex_animation = self:ShouldDisableVertexAnimation(cascade_index) and 1 or 0
 		push_constants.time = system.GetElapsedTime()
 		push_constants.prev_time = render3d.GetPreviousElapsedTime()
-		push_constants.batches = batch_table.address
+		push_constants.batches = batch_table:Update(pipeline, batches, dataset.shadow.batch_serial, self.batch_serial, self)
 		push_constants.instances = output.shadow_visible_instance_vertex_buffer.buffer:GetDeviceAddress()
 		pipeline:Bind(self.cmd, render.GetCurrentFrame())
 		self.cmd:SetViewport(0.0, 0.0, depth_texture:GetWidth(), depth_texture:GetHeight(), 0.0, 1.0)
@@ -2773,7 +2554,6 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 				component,
 				entry.source_entry,
 				cascade_index,
-				submission_context,
 				submission_stats,
 				submitted_by_component,
 				missing_world_matrix_components
@@ -2781,7 +2561,7 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 		end
 	end
 
-	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
+	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, cascade_index)
 	local result = get_shadow_draw_result(self)
 	result.submitted_entry_count = submission_stats.submitted_entry_count
 	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
@@ -2798,7 +2578,7 @@ end
 
 function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, track_component_stats)
 	cascade_index = cascade_index or self.current_cascade
-	local submission_context, submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
+	local submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 
 	for _, component in ipairs(visible_components or {}) do
 		for _, entry in ipairs(component:GetRenderEntries() or {}) do
@@ -2807,7 +2587,6 @@ function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, trac
 				component,
 				entry,
 				cascade_index,
-				submission_context,
 				submission_stats,
 				submitted_by_component,
 				missing_world_matrix_components
@@ -2815,7 +2594,7 @@ function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, trac
 		end
 	end
 
-	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, submission_context, submitted_by_component, cascade_index)
+	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, cascade_index)
 	local result = get_shadow_draw_result(self)
 	result.submitted_entry_count = submission_stats.submitted_entry_count
 	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
