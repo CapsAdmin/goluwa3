@@ -1056,33 +1056,23 @@ do
 		local count, weight = 0, 0
 
 		for _, block in ipairs(scene_bvh.emissive_blocks) do
-			local tris = scene_bvh.triangles + block.tri_base
+			local block_emitters = block.emitters
+			local tri_base = block.tri_base
 
-			for j = 0, block.total - 1 do
-				local tri = tris[j]
-				local i = block.tri_base + j
-				local luminance = 0.2126 * tri.emissive[0] + 0.7152 * tri.emissive[1] + 0.0722 * tri.emissive[2]
+			for j = 0, block.emitter_count - 1 do
+				local emitter = block_emitters[j]
+				weight = weight + emitter.power
 
-				if luminance > 0 then
-					local e1, e2 = tri.e1, tri.e2
-					local nx = e1[1] * e2[2] - e1[2] * e2[1]
-					local ny = e1[2] * e2[0] - e1[0] * e2[2]
-					local nz = e1[0] * e2[1] - e1[1] * e2[0]
-					weight = weight + 0.5 * math.sqrt(nx * nx + ny * ny + nz * nz) * luminance
-
-					if count == emitters.capacity then
-						local array = EmitterArray(count * 2)
-						ffi.copy(array, emitters.array, count * ffi.sizeof(Emitter))
-						emitters.array = array
-						emitters.capacity = count * 2
-					end
-
-					emitters.array[count].triangle = scene_bvh.materials[tri.material + 1]:GetDoubleSided() and
-						i + 0x80000000 or
-						i
-					emitters.array[count].cdf = weight
-					count = count + 1
+				if count == emitters.capacity then
+					local array = EmitterArray(count * 2)
+					ffi.copy(array, emitters.array, count * ffi.sizeof(Emitter))
+					emitters.array = array
+					emitters.capacity = count * 2
 				end
+
+				emitters.array[count].triangle = emitter.triangle + tri_base
+				emitters.array[count].cdf = weight
+				count = count + 1
 			end
 		end
 

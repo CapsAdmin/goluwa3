@@ -30,6 +30,14 @@ local Triangle = ffi.typeof([[
 local NodeArray = ffi.typeof("$[?]", Node)
 local NodePtr = ffi.typeof("$*", Node)
 local TriangleArray = ffi.typeof("$[?]", Triangle)
+-- an emissive triangle of a block: its index in the block (high bit set when
+-- double sided) and its power, area x emission luminance
+local Emitter = ffi.typeof([[struct {
+	uint32_t triangle;
+	float power;
+}]])
+local EmitterArray = ffi.typeof("$[?]", Emitter)
+scene_bvh.EmitterArray = EmitterArray
 local TrianglePtr = ffi.typeof("$*", Triangle)
 local FloatArray = ffi.typeof("float[?]")
 local UInt32Array = ffi.typeof("uint32_t[?]")
@@ -1268,6 +1276,49 @@ do
 		end
 
 		ffi.fill(world + total, (vc.tri_cap - total) * TRIANGLE_BYTE_SIZE)
+
+		if not vc.emissive then
+			vc.emitter_count = 0
+			return
+		end
+
+		-- the soup is write combined memory, so the emitters are gathered here
+		-- rather than read back from it
+		local count = 0
+
+		if not vc.emitters or vc.emitter_capacity < total then
+			vc.emitters = EmitterArray(total)
+			vc.emitter_capacity = total
+		end
+
+		local emitters = vc.emitters
+
+		for i = 0, total - 1 do
+			local l = order[i]
+			local s = slot_of[l] + 1
+			local slot = slots[s]
+			local luminance = 0.2126 * slot.emissive_r + 0.7152 * slot.emissive_g + 0.0722 * slot.emissive_b
+
+			if luminance > 0 then
+				local src = pieces[s].local_tris[l - starts[s]]
+				local e1x = src.e1[0] * m00 + src.e1[1] * m10 + src.e1[2] * m20
+				local e1y = src.e1[0] * m01 + src.e1[1] * m11 + src.e1[2] * m21
+				local e1z = src.e1[0] * m02 + src.e1[1] * m12 + src.e1[2] * m22
+				local e2x = src.e2[0] * m00 + src.e2[1] * m10 + src.e2[2] * m20
+				local e2y = src.e2[0] * m01 + src.e2[1] * m11 + src.e2[2] * m21
+				local e2z = src.e2[0] * m02 + src.e2[1] * m12 + src.e2[2] * m22
+				local nx = e1y * e2z - e1z * e2y
+				local ny = e1z * e2x - e1x * e2z
+				local nz = e1x * e2y - e1y * e2x
+				emitters[count].triangle = scene_bvh.materials[slot.material_id + 1]:GetDoubleSided() and
+					i + 0x80000000 or
+					i
+				emitters[count].power = 0.5 * math.sqrt(nx * nx + ny * ny + nz * nz) * luminance
+				count = count + 1
+			end
+		end
+
+		vc.emitter_count = count
 	end
 
 	-- bakes a block into its ranges: the triangles, plus the child node bounds
