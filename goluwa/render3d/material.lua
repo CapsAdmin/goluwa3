@@ -515,7 +515,8 @@ do
 		end
 
 		local is_game_relative = normalized_lower:starts_with("objects/") or
-			normalized_lower:starts_with("textures/")
+			normalized_lower:starts_with("textures/") or
+			normalized_lower:starts_with("languages/")
 		local game_root = resolve_cry_game_root(material_path)
 		local cache_key
 
@@ -557,6 +558,9 @@ do
 			add(game_root .. "Objects.pak/" .. relative_base .. ".dds")
 			add(game_root .. "Textures.pak/" .. relative_path)
 			add(game_root .. "Textures.pak/" .. relative_base .. ".dds")
+			-- like CryEngine's language pak, mounted at the game root for Languages/...
+			add(game_root .. "Localized/english.pak/" .. relative_path)
+			add(game_root .. "Localized/english.pak/" .. relative_base .. ".dds")
 		end
 
 		if file_path.IsPathAbsolutePath(normalized) then

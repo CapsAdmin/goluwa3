@@ -54,37 +54,6 @@ local function transform_direction(matrix, vec)
 	return (matrix:TransformVector(vec) - origin):GetNormalized()
 end
 
-local function clone_vertices(vertices)
-	local out = {}
-
-	for index, vertex in ipairs(vertices) do
-		out[index] = {
-			pos = vertex.pos and vertex.pos:Copy() or nil,
-			normal = vertex.normal and vertex.normal:Copy() or nil,
-			uv = vertex.uv and vertex.uv:Copy() or nil,
-			texture_blend = vertex.texture_blend,
-			vertex_color = vertex.vertex_color and
-				{
-					r = vertex.vertex_color.r,
-					g = vertex.vertex_color.g,
-					b = vertex.vertex_color.b,
-					a = vertex.vertex_color.a,
-				} or
-				nil,
-			tangent = vertex.tangent and
-				{
-					x = vertex.tangent.x or vertex.tangent[1],
-					y = vertex.tangent.y or vertex.tangent[2],
-					z = vertex.tangent.z or vertex.tangent[3],
-					w = vertex.tangent.w or vertex.tangent[4],
-				} or
-				nil,
-		}
-	end
-
-	return out
-end
-
 local function chunk_body_offset(chunk)
 	return chunk.offset + 16
 end
@@ -455,15 +424,42 @@ function cgf.ExtractStaticMeshData(parsed)
 				end
 
 				if subsets.subsets[1] then
-					local shared_vertices = #subsets.subsets > 1
+					local claimed = {}
 
 					for _, subset in ipairs(subsets.subsets) do
 						if subset.num_indices <= 0 then goto continue_subset end
 
+						-- each subset gets only the vertices it uses
 						local subset_indices = {}
+						local subset_vertices = {}
+						local remap = {}
 
 						for index = subset.first_index + 1, subset.first_index + subset.num_indices do
-							subset_indices[#subset_indices + 1] = indices[index]
+							local vertex_index = indices[index]
+							local new_index = remap[vertex_index]
+
+							if not new_index then
+								local vertex = base_vertices[vertex_index]
+								new_index = #subset_vertices + 1
+								remap[vertex_index] = new_index
+
+								-- meshes write normals and tangents into their vertices, so no two may share one
+								if claimed[vertex_index] then
+									vertex = {
+										pos = vertex.pos,
+										normal = vertex.normal,
+										uv = vertex.uv,
+										texture_blend = vertex.texture_blend,
+										vertex_color = vertex.vertex_color,
+									}
+								else
+									claimed[vertex_index] = true
+								end
+
+								subset_vertices[new_index] = vertex
+							end
+
+							subset_indices[#subset_indices + 1] = new_index
 						end
 
 						for index = 1, #subset_indices - 2, 3 do
@@ -477,8 +473,7 @@ function cgf.ExtractStaticMeshData(parsed)
 							material_chunk_id = node.material_chunk_id,
 							material_name = material and material.name or nil,
 							subset_material_id = subset.material_id,
-							vertices_shared = shared_vertices,
-							vertices = base_vertices,
+							vertices = subset_vertices,
 							indices = subset_indices,
 						}
 
@@ -499,7 +494,6 @@ function cgf.ExtractStaticMeshData(parsed)
 						name = node.name,
 						material_chunk_id = node.material_chunk_id,
 						material_name = material and material.name or nil,
-						vertices_shared = false,
 						vertices = base_vertices,
 						indices = fixed_indices,
 					}
@@ -530,9 +524,13 @@ function cgf.GetMaterialPaths(path)
 	local out = {}
 	local seen = {}
 
+	-- only the materials nodes use, the other name chunks are their sub materials
 	for _, chunk in ipairs(parsed.chunks) do
-		if chunk.type == cgf.CHUNK_MTL_NAME then
-			local name = cgf.ReadMaterialNameChunk(parsed.file, chunk).name
+		local material_chunk = chunk.type == cgf.CHUNK_NODE and
+			parsed.chunks_by_id[cgf.ReadNodeChunk(parsed.file, chunk).material_chunk_id]
+
+		if material_chunk and material_chunk.type == cgf.CHUNK_MTL_NAME then
+			local name = cgf.ReadMaterialNameChunk(parsed.file, material_chunk).name
 
 			if name ~= "" then
 				local material_path = cgf.ResolveMaterialPath(model_path, name)
@@ -595,7 +593,7 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 				end
 			end
 
-			local vertices = entry.vertices_shared and clone_vertices(entry.vertices) or entry.vertices
+			local vertices = entry.vertices
 			-- the diffuse map's TexMod tiling and offset, baked into the uvs for every map
 			local diffuse = material and material.cry_texture_maps and material.cry_texture_maps.Diffuse
 
