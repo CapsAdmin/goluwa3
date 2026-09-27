@@ -44,24 +44,24 @@ function model_loader.FindModelDecoder(path)
 end
 
 model_loader.model_cache = {}
-model_loader.model_loader_cb = utility.CreateCallbackThing(model_loader.model_cache)
+model_loader.model_loads = utility.CreateLoadCache(model_loader.model_cache)
 
-local function fail_model_load(cb, path, reason)
+local function fail_model_load(loads, path, reason)
 	local message = tostring(reason)
 	logf("model loader failed for %q: %s\n", path, message)
-	cb:callextra(path, "on_fail", message)
-	cb:uncache(path)
+	loads:Emit(path, "on_fail", message)
+	loads:Forget(path)
 	return message
 end
 
 function model_loader.LoadModel(path, callback, callback2, on_fail)
-	local cb = model_loader.model_loader_cb
+	local loads = model_loader.model_loads
 
-	if cb:check(path, callback, {mesh = callback2, on_fail = on_fail}) then
+	if loads:Join(path, callback, {mesh = callback2, on_fail = on_fail}) then
 		return true
 	end
 
-	local data = cb:get(path)
+	local data = loads:Get(path)
 
 	if data then
 		if callback2 then
@@ -75,14 +75,14 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 	end
 
 	event.Call("PreLoad3DModel", path)
-	cb:start(path, callback, {mesh = callback2, on_fail = on_fail})
+	loads:Begin(path, callback, {mesh = callback2, on_fail = on_fail})
 
 	resource.Download(path, nil, path:ends_with(".mdl")):Then(function(full_path)
 		local out = {}
 
 		local function mesh_callback(mesh, material)
 			local ext = {mesh = mesh, material = material}
-			cb:callextra(path, "mesh", ext)
+			loads:Emit(path, "mesh", ext)
 			list.insert(out, ext)
 		end
 
@@ -90,7 +90,7 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 
 		if decode_callback then
 			local function on_error(task, err)
-				fail_model_load(cb, path, err)
+				fail_model_load(loads, path, err)
 			end
 
 			local thread = tasks.CreateTask(nil, nil, nil, on_error)
@@ -98,17 +98,17 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 
 			function thread:OnStart()
 				decode_callback(path, full_path, mesh_callback)
-				cb:stop(path, out)
+				loads:Finish(path, out)
 			end
 
 			utility.PushTimeWarning()
 			thread:Start()
 			utility.PopTimeWarning("decoding " .. path, 0.5)
 		else
-			fail_model_load(cb, path, "unknown format " .. path)
+			fail_model_load(loads, path, "unknown format " .. path)
 		end
 	end):Catch(function(reason)
-		fail_model_load(cb, path, reason)
+		fail_model_load(loads, path, reason)
 	end)
 
 	return true

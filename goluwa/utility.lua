@@ -353,58 +353,68 @@ function utility.CreateDeferredLibrary(name)
 	)
 end
 
-function utility.CreateCallbackThing(cache)
-	cache = cache or {}
+-- shares loads that take a while and caches their results: the first caller
+-- begins the load, callers asking while it runs join it. their callbacks are kept
+-- in lists, not chained, a model placed thousands of times would overflow the stack
+function utility.CreateLoadCache(cache)
 	local self = {}
 
-	function self:check(path, callback, extra)
-		if cache[path] then
-			if cache[path].extra_callbacks then
-				for key, old in pairs(cache[path].extra_callbacks) do
-					local callback = extra[key]
+	function self:Join(path, callback, extra)
+		local entry = cache[path]
 
-					if callback then
-						cache[path].extra_callbacks[key] = function(...)
-							old(...)
-							callback(...)
-						end
-					end
-				end
-			end
+		if not entry or not entry.loading then return end
 
-			if cache[path].callback then
-				local old = cache[path].callback
-				cache[path].callback = function(...)
-					old(...)
-					callback(...)
-				end
-				return true
-			end
+		list.insert(entry.callbacks, callback)
+
+		for key, extra_callback in pairs(extra) do
+			entry.extra_callbacks[key] = entry.extra_callbacks[key] or {}
+			list.insert(entry.extra_callbacks[key], extra_callback)
+		end
+
+		return true
+	end
+
+	function self:Begin(path, callback, extra)
+		local extra_callbacks = {}
+
+		for key, extra_callback in pairs(extra) do
+			extra_callbacks[key] = {extra_callback}
+		end
+
+		cache[path] = {loading = true, callbacks = {callback}, extra_callbacks = extra_callbacks}
+	end
+
+	function self:Emit(path, key, out)
+		local entry = cache[path]
+
+		if not entry or not entry.loading or not entry.extra_callbacks[key] then
+			return
+		end
+
+		for _, extra_callback in ipairs(entry.extra_callbacks[key]) do
+			extra_callback(out)
 		end
 	end
 
-	function self:start(path, callback, extra)
-		cache[path] = {callback = callback, extra_callbacks = extra}
-	end
+	function self:Finish(path, out, ...)
+		local entry = cache[path]
 
-	function self:callextra(path, key, out)
-		if not cache[path] or not cache[path].extra_callbacks[key] then return end
+		if not entry or not entry.loading then return end
 
-		return cache[path].extra_callbacks[key](out)
-	end
-
-	function self:stop(path, out, ...)
-		if not cache[path] then return end
-
-		cache[path].callback(out, ...)
+		-- callbacks loading the same path again get the result right away
 		cache[path] = out
+
+		for _, callback in ipairs(entry.callbacks) do
+			callback(out, ...)
+		end
 	end
 
-	function self:get(path)
-		return cache[path]
+	function self:Get(path)
+		local entry = cache[path]
+		return entry and not entry.loading and entry or nil
 	end
 
-	function self:uncache(path)
+	function self:Forget(path)
 		cache[path] = nil
 	end
 
