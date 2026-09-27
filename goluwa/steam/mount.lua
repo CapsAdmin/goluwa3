@@ -114,6 +114,13 @@ return function(steam)
 		},
 	}
 
+	commands.Add("crymap=string_trim|nil", function(name)
+		steam.cry_skip_models = false
+		steam.SetCryLevel(
+			"/run/media/caps/extra/SteamLibrary/steamapps/common/Crysis/Game/Levels/Multiplayer/" .. name .. "/"
+		)
+	end)
+
 	commands.Add("map=string_trim|nil", function(name)
 		if not name then
 			for _, path in ipairs(vfs.Find("maps/.-%.bsp")) do
