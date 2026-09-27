@@ -2,6 +2,7 @@ local assets = import("goluwa/assets.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -95,7 +96,7 @@ return {
 				binding_index = 3,
 				block = {
 					render3d.camera_block,
-					render3d.gbuffer_block,
+					gbuffer_layout.block,
 					render3d.last_frame_block,
 					{"blue_noise_tex", "int"},
 					{"exposure_tex", "int"},
@@ -111,7 +112,7 @@ return {
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-					render3d.WriteGBufferBlock(self, block)
+					gbuffer_layout.WriteBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
@@ -194,7 +195,7 @@ return {
 				""
 			),
 		shader = [[
-		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. render3d.GetGBufferGLSL("ssr_data") .. [[
+		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ssr_data") .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. (
 				RAY_QUERY and

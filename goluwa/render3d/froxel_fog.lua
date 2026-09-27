@@ -103,7 +103,7 @@ end
 
 -- froxel_point(id, uv, depth, out point_uv): the view depth and the uv the
 -- froxel id stands for at view depth depth, sampled through uv. block holds
--- render3d.camera_block, render3d.gbuffer_block, froxel_size and
+-- render3d.camera_block, gbuffer_layout.block, froxel_size and
 -- ocean_distance_tex; SLICE_GLSL and GetViewDirGLSL come before it
 function froxel_fog.GetPointGLSL(block)
 	return [[

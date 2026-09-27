@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -97,7 +98,7 @@ local function create_depth_copy_fragment(shader)
 					{"depth_tex", "int"},
 				},
 				write = function(self, block)
-					block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+					block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
 					return block
 				end,
 			},
@@ -181,7 +182,7 @@ table.insert(
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
 			block.fog = render3d.pipelines.volumetric_fog and 1 or 0
-			block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+			block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
 			local b0, moments = get_moments_textures()
 			block.b0_tex = self:GetTextureIndex(b0)
 			block.moments_tex = self:GetTextureIndex(moments)

@@ -194,7 +194,7 @@ function ibl.GetEnvironmentGLSLCode()
 		]]
 end
 
--- needs render3d.GetGBufferGLSL for the same block
+-- needs gbuffer_layout.GetDecodeGLSL for the same block
 function ibl.GetReflectionGLSLCode(uniform_name)
 	uniform_name = uniform_name or "lighting_data"
 	return [[

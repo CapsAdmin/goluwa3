@@ -3,6 +3,7 @@ local system = import("goluwa/system.lua")
 local commands = import("goluwa/cli/commands.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 -- Temporal anti aliasing. The camera is shifted by a different sub pixel
 -- offset every frame (Halton 2,3), and each frame is blended into a history
@@ -82,10 +83,9 @@ return {
 						local frame = system.GetFrameNumber()
 						block.source_tex = self:GetTextureIndex(post_source.GetSceneSourceTexture({name = "taa"}))
 						block.history_tex = self:GetTextureIndex(render3d.pipelines.taa:GetFramebuffer((frame + 1) % 2 + 1):GetAttachment(1))
-						local gbuffer = render3d.pipelines.gbuffer:GetFramebuffer()
-						block.depth_tex = self:GetTextureIndex(gbuffer:GetDepthTexture())
-						block.velocity_tex = render3d.velocity_enabled and
-							self:GetTextureIndex(gbuffer:GetAttachment(6)) or
+						block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
+						block.velocity_tex = render3d.IsVelocityEnabled() and
+							self:GetTextureIndex(gbuffer_layout.GetTexture("velocity")) or
 							-1
 						block.translucent_motion_tex = render3d.pipelines.translucent_accumulate and
 							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(2)) or

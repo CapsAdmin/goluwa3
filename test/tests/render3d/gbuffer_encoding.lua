@@ -1,12 +1,13 @@
 local T = import("test/environment.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
--- decodes the middle of the gbuffer with render3d.GetGBufferGLSL, one texel
+-- decodes the middle of the gbuffer with gbuffer_layout.GetDecodeGLSL, one texel
 -- per group of values, the last one read by pixel instead of uv
 local decode_pass = {
 	name = "gbuffer_decode_test",
@@ -20,16 +21,16 @@ local decode_pass = {
 		{
 			name = "decode_data",
 			binding_index = 1,
-			block = {render3d.gbuffer_block},
+			block = {gbuffer_layout.block},
 			write = function(self, block)
-				return render3d.WriteGBufferBlock(self, block)
+				return gbuffer_layout.WriteBlock(self, block)
 			end,
 		},
 	},
 	custom_declarations = [[
 		layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_decoded;
 	]],
-	shader = render3d.GetGBufferGLSL("decode_data") .. [[
+	shader = gbuffer_layout.GetDecodeGLSL("decode_data") .. [[
 		void main() {
 			int x = int(gl_GlobalInvocationID.x);
 			vec2 uv = vec2(0.5);

@@ -4,6 +4,7 @@ local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
@@ -43,7 +44,7 @@ return {
 					render3d.camera_block,
 					{"ssao_kernel", "vec3", 64},
 					{"blue_noise_tex", "int"},
-					render3d.gbuffer_block,
+					gbuffer_layout.block,
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -53,7 +54,7 @@ return {
 					end
 
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-					render3d.WriteGBufferBlock(self, block)
+					gbuffer_layout.WriteBlock(self, block)
 					return block
 				end,
 			},
@@ -64,7 +65,7 @@ return {
 		shader = [[
             vec2 in_uv;
 
-			]] .. compute_helpers.GetScreenHelpersGLSL() .. render3d.GetGBufferGLSL("lighting_data") .. [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. [[
             ]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
             ]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_uv"}) .. [[
 
@@ -263,12 +264,12 @@ return {
 				binding_index = 3,
 				block = {
 					render3d.camera_block,
-					render3d.gbuffer_block,
+					gbuffer_layout.block,
 					{"ao_tex", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-					render3d.WriteGBufferBlock(self, block)
+					gbuffer_layout.WriteBlock(self, block)
 
 					if
 						not render3d.pipelines.ambient_occlusion or
@@ -287,7 +288,7 @@ return {
 			layout(set = 0, binding = 0, r16f) uniform writeonly image2D out_color;
 			]],
 		shader = [[
-			]] .. compute_helpers.GetScreenHelpersGLSL() .. render3d.GetGBufferGLSL("ao_blur_data") .. [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ao_blur_data") .. [[
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ao_blur_data") .. [[
 
 			vec2 get_compute_uv() {

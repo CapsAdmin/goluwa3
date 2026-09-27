@@ -2,6 +2,7 @@ local event = import("goluwa/event.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local commands = import("goluwa/cli/commands.lua")
 local grass = import("goluwa/render3d/grass.lua")
@@ -53,31 +54,11 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 
 			if render3d.pipelines.grass then grass.Draw(render3d.pipelines.grass, cmd) end
 		end,
-		ColorFormat = {
-			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},
-			{"b10g11r11_ufloat_pack32", {"normal", "rgb"}},
-			{
-				"r8g8b8a8_unorm",
-				{"metallic", "r"},
-				{"roughness", "g"},
-				{"ao", "b"},
-				{"transmission", "a"},
-			},
-			{"b10g11r11_ufloat_pack32", {"emissive", "rgb"}},
-			{
-				"r8g8b8a8_unorm",
-				{"transmission_scattering", "r"},
-				-- the transmission tint's red and blue, halved. its luminance is 1, which gives the green
-				{"transmission_tint_r", "g"},
-				{"specular", "b"},
-				{"transmission_tint_b", "a"},
-			},
-			{"r16g16b16a16_sfloat", {"velocity", "rg"}, {"prev_view_depth", "b"}},
-		},
-		DepthFormat = "d32_sfloat",
+		ColorFormat = gbuffer_layout.color_format,
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		fragment = {
 			uniform_buffers = uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_weather.GetGLSL("gbuffer_data") .. render3d.GetGBufferEncodeGLSL() .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_weather.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
 					// both endpoints go through their own frame's camera, so a still
 					// object under a moving camera and a moving object under a still
 					// camera come out of the same subtraction. the divide by w is

@@ -3,6 +3,7 @@ local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
@@ -896,8 +897,8 @@ function grass.BuildDrawPass(gbuffer_pass)
 		name = "grass",
 		draw_in_prerender = false,
 		dont_create_framebuffers = true,
-		ColorFormat = gbuffer_pass.ColorFormat,
-		DepthFormat = gbuffer_pass.DepthFormat,
+		ColorFormat = gbuffer_layout.color_format,
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		Topology = "triangle_strip",
 		CullMode = "none",
 		FrontFace = orientation.FRONT_FACE,
@@ -989,7 +990,7 @@ function grass.BuildDrawPass(gbuffer_pass)
 		},
 		fragment = {
 			uniform_buffers = {grass_block},
-			shader = surface_weather.GetGLSL("grass_data") .. render3d.GetGBufferEncodeGLSL() .. [[
+			shader = surface_weather.GetGLSL("grass_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
 				void main() {
 					float t = in_blade.x;
 					vec3 N = normalize(in_normal);

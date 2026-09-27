@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -85,9 +86,7 @@ local function draw_center_red(draw, double_sided, count, use_gpu_culling)
 	if not ok then error(err, 0) end
 
 	local size = render.GetRenderImageSize()
-	return (
-		render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):GetPixel(math.floor(size.x / 2), math.floor(size.y / 2))
-	)
+	return (gbuffer_layout.GetTexture("albedo"):GetPixel(math.floor(size.x / 2), math.floor(size.y / 2)))
 end
 
 T.Test3D("Graphics render3d double sided materials draw back faces in single draws", function(draw)

@@ -345,4 +345,43 @@ do
 	end)
 end
 
+-- A material without an albedo texture has to say so (-1). The buffer starts
+-- zeroed and 0 is a valid texture index, so leaving it unwritten tinted every
+-- traced hit on it (reflections, probe rays) with whatever texture came first.
+T.Test3D("Graphics render3d ddgi material buffer marks materials without an albedo texture", function(draw)
+	local ffi = require("ffi")
+	local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+	local polygon3d = Polygon3D.New()
+	polygon3d:CreateCube(1)
+	polygon3d:BuildBoundingBox()
+	polygon3d:Upload()
+	local material = Material.New{ColorMultiplier = Color(0.25, 0.5, 0.75, 1)}
+	local ent = Entity.New{Name = "ddgi_material_box"}
+	ent:AddComponent("transform")
+	ent:AddComponent("visual")
+	local p = Entity.New{Name = "ddgi_material_box_p", Parent = ent}
+	p:AddComponent("transform")
+	p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
+	p.visual_primitive:SetMaterial(material)
+	ent.visual:BuildAABB()
+	scene_bvh.Build()
+	local ok, err = pcall(function()
+		local id = scene_bvh.GetMaterialID(material)
+		local pipeline = {
+			GetTextureIndex = function()
+				return 7
+			end,
+		}
+		local buffer = ddgi.WriteMaterialBuffer(pipeline)
+		-- albedo[3], albedo_tex, double_sided
+		local entry = ffi.cast("int32_t *", buffer:Map(0, buffer:GetSize())) + id * 5
+		T(ffi.cast("float *", entry)[2])["=="](0.75)
+		T(entry[3])["=="](-1)
+	end)
+	ent:Remove()
+	polygon3d:Remove()
+
+	if not ok then error(err, 0) end
+end)
+
 return T

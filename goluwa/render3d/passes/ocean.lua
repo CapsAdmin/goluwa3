@@ -1,6 +1,7 @@
 local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
@@ -242,7 +243,7 @@ return {
 					block = {
 						render3d.camera_block,
 						render3d.common_block,
-						render3d.gbuffer_block,
+						gbuffer_layout.block,
 						{"scene_tex", "int"},
 						{"env_tex", "int"},
 						{"env_irradiance_tex", "int"},
@@ -261,7 +262,7 @@ return {
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
 						render3d.WriteCommonBlock(self, block)
-						render3d.WriteGBufferBlock(self, block)
+						gbuffer_layout.WriteBlock(self, block)
 						post_source.WritePreExposureBlock(self, block)
 
 						if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
@@ -332,7 +333,7 @@ return {
 			const float WAVE_NEAR_WORLD_HALF = ]] .. WAVE_NEAR_WORLD_HALF .. [[;
 			const float WAVE_NEAR_REPEAT_WORLD_HALF = ]] .. WAVE_NEAR_REPEAT_WORLD_HALF .. [[;
 
-			]] .. render3d.GetGBufferGLSL("ocean_data") .. [[
+			]] .. gbuffer_layout.GetDecodeGLSL("ocean_data") .. [[
 
 
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ocean_data") .. [[

@@ -3,6 +3,7 @@ local commands = import("goluwa/cli/commands.lua")
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
@@ -923,7 +924,7 @@ end
 function ddgi.GetBlockLayout()
 	return {
 		render3d.camera_block,
-		render3d.gbuffer_block,
+		gbuffer_layout.block,
 		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 		{"light_count", "int"},
 		unpack(ddgi.GetProbeBlockLayout()),
@@ -1010,7 +1011,7 @@ end
 
 function ddgi.WriteBlock(self, block)
 	render3d.WriteCameraBlock(self, block)
-	render3d.WriteGBufferBlock(self, block)
+	gbuffer_layout.WriteBlock(self, block)
 	-- every light, not just those in view: probes see what the camera doesn't,
 	-- and the shadow rays make that safe
 	local lights = render3d.GetLights()
@@ -1167,10 +1168,7 @@ function ddgi.WriteMaterialBuffer(self)
 		entry.albedo[1] = color.g
 		entry.albedo[2] = color.b
 		local albedo = material:GetAlbedoTexture() or NULL
-
-		if albedo:IsValid() then
-			entry.albedo_tex = albedo and self:GetTextureIndex(albedo) or -1
-		end
+		entry.albedo_tex = albedo:IsValid() and self:GetTextureIndex(albedo) or -1
 
 		entry.double_sided = material:GetDoubleSided() and 1 or 0
 	end

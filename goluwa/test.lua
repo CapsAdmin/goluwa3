@@ -1068,8 +1068,7 @@ function test.Screenshot(path)
 end
 
 function test.ScreenshotAlbedo(path)
-	local render3d = import("goluwa/render3d/render3d.lua")
-	render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):Save(path)
+	import("goluwa/render3d/gbuffer_layout.lua").GetTexture("albedo"):Save(path)
 end
 
 local function get_screen_texture()
@@ -1078,8 +1077,7 @@ local function get_screen_texture()
 end
 
 local function get_albedo_texture()
-	local render3d = import("goluwa/render3d/render3d.lua")
-	return render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1)
+	return import("goluwa/render3d/gbuffer_layout.lua").GetTexture("albedo")
 end
 
 -- Read a normalized screen pixel

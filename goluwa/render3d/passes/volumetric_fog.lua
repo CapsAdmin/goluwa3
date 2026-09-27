@@ -2,6 +2,7 @@ local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
@@ -140,7 +141,7 @@ local scatter_pass = {
 			binding_index = BINDING_FROXEL,
 			block = {
 				render3d.camera_block,
-				render3d.gbuffer_block,
+				gbuffer_layout.block,
 				{"froxel_size", "vec2"},
 				{"frame", "int"},
 				{"gi_screen_tex", "int"},
@@ -153,7 +154,7 @@ local scatter_pass = {
 			},
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
-				render3d.WriteGBufferBlock(self, block)
+				gbuffer_layout.WriteBlock(self, block)
 				block.froxel_size[0] = froxels.width
 				block.froxel_size[1] = froxels.height
 				block.frame = system.GetFrameNumber()
@@ -385,7 +386,7 @@ local temporal_pass = {
 			block = {
 				render3d.camera_block,
 				render3d.prev_camera_block,
-				render3d.gbuffer_block,
+				gbuffer_layout.block,
 				{"froxel_size", "vec2"},
 				{"ocean_distance_tex", "int"},
 				{"history", "float"},
@@ -393,7 +394,7 @@ local temporal_pass = {
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
 				render3d.WritePreviousCameraBlock(self, block)
-				render3d.WriteGBufferBlock(self, block)
+				gbuffer_layout.WriteBlock(self, block)
 				block.froxel_size[0] = froxels.width
 				block.froxel_size[1] = froxels.height
 				write_ocean_distance_texture(self, block, "ocean_distance_tex")
@@ -557,7 +558,7 @@ local composite_pass = {
 				binding_index = 3,
 				block = {
 					render3d.camera_block,
-					render3d.gbuffer_block,
+					gbuffer_layout.block,
 					{"source_tex", "int"},
 					{"ocean_distance_tex", "int"},
 					{"gi_screen_tex", "int"},
@@ -569,7 +570,7 @@ local composite_pass = {
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-					render3d.WriteGBufferBlock(self, block)
+					gbuffer_layout.WriteBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
 					block.source_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
 					write_ocean_distance_texture(self, block, "ocean_distance_tex")

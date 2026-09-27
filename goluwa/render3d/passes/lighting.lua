@@ -2,6 +2,7 @@ local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
@@ -92,7 +93,7 @@ return {
 				binding_index = BINDING_UNIFORM,
 				block = {
 					surface_lighting.block,
-					render3d.gbuffer_block,
+					gbuffer_layout.block,
 					render3d.last_frame_block,
 					{"gi_debug", "int"},
 					{"ssr_tex", "int"},
@@ -101,7 +102,7 @@ return {
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
-					render3d.WriteGBufferBlock(self, block)
+					gbuffer_layout.WriteBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					block.gi_debug = ddgi.DEBUG_GI
 
@@ -170,7 +171,7 @@ return {
 				imageStore(out_color, get_screen_pos(), value);
 			}
 
-			]] .. render3d.GetGBufferGLSL("lighting_data") .. [[
+			]] .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. [[
 
 			]] .. surface_lighting.GetGLSL("lighting_data") .. [[
 
