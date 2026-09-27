@@ -10,12 +10,10 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Matrix44 = import("goluwa/structs/matrix44.lua")
 local META = objects.CreateTemplate("render3d_model_preview")
 local DEFAULT_VIEW_OFFSET = Vec3(1, 1, 1):GetNormalized()
 local DEFAULT_LIGHT_DIRECTION = Vec3(1, 1, 1):GetNormalized()
 local DEFAULT_CLEAR_COLOR = {0, 0, 0, 0}
-local cached_final_matrix = Matrix44()
 local active_preview = nil
 local preview_pipeline = nil
 local aabb_corners = {
@@ -35,38 +33,6 @@ META:GetSet("AmbientStrength", 0.3)
 META:GetSet("LightStrength", 0.9)
 META:GetSet("ViewOffset", DEFAULT_VIEW_OFFSET)
 META:GetSet("LightDirection", DEFAULT_LIGHT_DIRECTION)
-
-local function is_valid_entity(entity)
-	return entity and entity.IsValid and entity:IsValid() or false
-end
-
-local function is_previewable_model_target(target)
-	return type(target) == "table" and
-		type(target.GetWorldMatrix) == "function" and
-		type(target.BuildAABB) == "function"
-end
-
-local function get_preview_entries(model)
-	if not model then return nil end
-
-	return model:GetRenderEntries()
-end
-
-local function get_previewable_model(target)
-	local model = target
-
-	if not is_previewable_model_target(model) then
-		if not is_valid_entity(target) then return nil end
-
-		model = target.visual
-	end
-
-	local entries = get_preview_entries(model)
-
-	if not model or not entries or not entries[1] then return nil end
-
-	return model
-end
 
 local function populate_aabb_corners(aabb)
 	aabb_corners[1].x, aabb_corners[1].y, aabb_corners[1].z = aabb.min_x, aabb.min_y, aabb.min_z
@@ -159,7 +125,7 @@ local function create_preview_pipeline()
 		AlphaBlendOp = "add",
 		ColorWriteMask = "rgba",
 		on_draw = function(self)
-			active_preview:DrawActiveEntity(self)
+			active_preview:DrawTarget(self)
 		end,
 	}
 end
@@ -195,7 +161,7 @@ end
 function META:OnRemove()
 	self:InvalidateFramebuffer()
 	self.camera = nil
-	self.entity = nil
+	self.target = nil
 end
 
 function META:EnsureFramebuffer()
@@ -219,49 +185,27 @@ function META:GetTexture()
 	return self:EnsureFramebuffer():GetColorTexture()
 end
 
-function META:SetTarget(target)
-	self.target = target
-	self.entity = is_valid_entity(target) and target or nil
-	return target
-end
-
-function META:SetEntity(entity)
-	return self:SetTarget(entity)
+-- visual is the visual component to render
+function META:SetTarget(visual)
+	self.target = visual
 end
 
 function META:GetTarget()
-	return self.target or self.entity
+	return self.target
 end
 
-function META:GetEntity()
-	return self.entity
-end
+function META:GetLocalAABB(visual)
+	local aabb = visual.AABB
 
-function META:GetLocalAABB(target)
-	local model = get_previewable_model(target)
-
-	if not model then return nil end
-
-	local aabb = model.AABB
-
-	if not aabb or aabb.min_x > aabb.max_x then aabb = model:BuildAABB() end
+	if aabb.min_x > aabb.max_x then aabb = visual:BuildAABB() end
 
 	return aabb
 end
 
-function META:ConfigureCamera(target)
-	local model = get_previewable_model(target)
-
-	if not model then
-		error("model preview requires an entity with a model component", 2)
-	end
-
-	local local_aabb = self:GetLocalAABB(target)
-	local world_matrix = model:GetWorldMatrix()
-
-	if not world_matrix then error("model preview requires a world matrix", 2) end
-
-	local target = world_matrix:TransformVector(Vec3(0, 0, 0))
+function META:ConfigureCamera(visual)
+	local local_aabb = self:GetLocalAABB(visual)
+	local world_matrix = visual:GetWorldMatrix()
+	local center = world_matrix:TransformVector(Vec3(0, 0, 0))
 	local forward = (-self:GetViewOffset()):GetNormalized()
 	local yaw = math.atan2(-forward.x, -forward.z)
 	local pitch = math.asin(math.max(-1, math.min(1, forward.y)))
@@ -279,7 +223,7 @@ function META:ConfigureCamera(target)
 
 	for _, corner in ipairs(populate_aabb_corners(local_aabb)) do
 		local world_pos = world_matrix:TransformVector(corner)
-		local offset = world_pos - target
+		local offset = world_pos - center
 		max_right = math.max(max_right, math.abs(offset:GetDot(right)))
 		max_up = math.max(max_up, math.abs(offset:GetDot(up)))
 		max_depth = math.max(max_depth, math.abs(offset:GetDot(forward)))
@@ -288,7 +232,7 @@ function META:ConfigureCamera(target)
 	local half_height = math.max(max_up, max_right / aspect)
 	half_height = math.max(half_height * self:GetPadding(), 0.1)
 	local distance = math.max(max_depth + half_height * 2, 1)
-	local position = target - forward * distance
+	local position = center - forward * distance
 	self.camera:SetViewport(Rect(0, 0, self:GetWidth(), self:GetHeight()))
 	self.camera:SetOrthoMode(true)
 	self.camera:SetOrthoHalfHeight(half_height)
@@ -299,54 +243,28 @@ function META:ConfigureCamera(target)
 	return self.camera
 end
 
-function META:DrawActiveEntity(pipeline)
-	local model = get_previewable_model(self:GetTarget())
+function META:DrawTarget(pipeline)
+	local visual = self.target
+	local world_matrix = visual:GetWorldMatrix()
 
-	if not model then return end
-
-	local world_matrix = model:GetWorldMatrix()
-
-	if not world_matrix then return end
-
-	local entries = get_preview_entries(model) or {}
-
-	for _, prim in ipairs(entries) do
-		local polygon = prim.polygon3d
-
-		if polygon then
-			local final_matrix = world_matrix
-			local material = model.GetResolvedMaterial and
-				model:GetResolvedMaterial(prim) or
-				(
-					model.MaterialOverride or
-					prim.material or
-					render3d.GetDefaultMaterial()
-				)
-
-			if prim.transform and prim.transform.GetWorldMatrix then
-				final_matrix = prim.transform:GetWorldMatrix()
-			elseif prim.local_matrix then
-				final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
-			end
-
-			render3d.SetWorldMatrix(final_matrix)
-			render3d.SetCurrentPolygon3D(polygon)
-			render3d.SetMaterial(material)
-			upload_preview_constants(pipeline)
-			polygon:Draw()
-		end
+	for _, entry in ipairs(visual:GetRenderEntries()) do
+		render3d.SetWorldMatrix(entry.transform and entry.transform:GetWorldMatrix() or world_matrix)
+		render3d.SetCurrentPolygon3D(entry.polygon3d)
+		render3d.SetMaterial(visual:GetResolvedMaterial(entry))
+		upload_preview_constants(pipeline)
+		entry.polygon3d:Draw()
 	end
 end
 
-function META:RenderTarget(target)
-	target = self:SetTarget(target)
+function META:RenderTarget(visual)
+	self:SetTarget(visual)
 
-	if not get_previewable_model(target) then
-		error("model preview requires a drawable model target", 2)
+	if not visual:GetRenderEntries()[1] then
+		error("model preview requires a visual with something to draw", 2)
 	end
 
 	self:EnsureFramebuffer()
-	self:ConfigureCamera(target)
+	self:ConfigureCamera(visual)
 	local pipeline = get_preview_pipeline()
 	local cmd = self.framebuffer:GetCommandBuffer()
 	local previous_world = render3d.GetWorldMatrix()
@@ -374,16 +292,10 @@ function META:RenderTarget(target)
 	return self:GetTexture()
 end
 
-function META:RenderEntity(entity)
-	return self:RenderTarget(entity)
-end
-
 function META:Refresh()
-	local target = self:GetTarget()
+	if not self.target then return self:GetTexture() end
 
-	if not target then return self:GetTexture() end
-
-	return self:RenderTarget(target)
+	return self:RenderTarget(self.target)
 end
 
 META:Register()

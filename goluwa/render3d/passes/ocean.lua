@@ -12,9 +12,6 @@ local WAVE_TEX_SIZE = 512
 local WAVE_TEX_WORLD_HALF = 1024.0
 local WAVE_NEAR_WORLD_HALF = 64.0
 local WAVE_NEAR_REPEAT_WORLD_HALF = 64.0
-local get_primary_sun_direction = directional_shadows.GetPrimarySunDirection
-local get_primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance
-local get_primary_sun_color = directional_shadows.GetPrimarySunColor
 
 local function write_wave_precompute(self, block, wave_world_half)
 	render3d.WriteCommonBlock(self, block)
@@ -282,9 +279,10 @@ return {
 							block.ssr_tex = self:GetTextureIndex(render3d.pipelines.ssr:GetFramebuffer(current_idx):GetAttachment(1))
 						end
 
-						get_primary_sun_direction():CopyToFloatPointer(block.sun_direction)
-						block.primary_sun_illuminance = get_primary_sun_illuminance()
-						get_primary_sun_color():CopyToFloatPointer(block.primary_sun_color)
+						local lights = render3d.GetLights()
+						directional_shadows.GetPrimarySunDirection(lights):CopyToFloatPointer(block.sun_direction)
+						block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
+						directional_shadows.GetPrimarySunColor(lights):CopyToFloatPointer(block.primary_sun_color)
 						block.ocean_enabled = render3d.IsOceanEnabled() and 1 or 0
 						block.ocean_level = render3d.GetOceanLevel()
 

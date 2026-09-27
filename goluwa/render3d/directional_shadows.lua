@@ -1,13 +1,10 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local directional_shadows = {}
 directional_shadows.MAX_CASCADES = 4
 
 function directional_shadows.GetPrimarySun(lights)
-	lights = lights or render3d.GetLights()
-
 	for i, light in ipairs(lights) do
 		if light.Type == "light_sun" then return light, i - 1 end
 	end
@@ -16,7 +13,6 @@ function directional_shadows.GetPrimarySun(lights)
 end
 
 function directional_shadows.GetPrimarySunDirection(lights)
-	lights = lights or render3d.GetLights()
 	local sun_dir = Vec3(0, 1, 0)
 	local sun = directional_shadows.GetPrimarySun(lights)
 
@@ -26,7 +22,6 @@ function directional_shadows.GetPrimarySunDirection(lights)
 end
 
 function directional_shadows.GetPrimarySunIlluminance(lights)
-	lights = lights or render3d.GetLights()
 	local sun = directional_shadows.GetPrimarySun(lights)
 
 	if sun then return sun:GetPhotometricAmount() end
@@ -35,12 +30,9 @@ function directional_shadows.GetPrimarySunIlluminance(lights)
 end
 
 function directional_shadows.GetPrimarySunColor(lights)
-	lights = lights or render3d.GetLights()
 	local sun = directional_shadows.GetPrimarySun(lights)
 
-	if sun and sun.Color then
-		return Vec3(sun.Color.x or 1, sun.Color.y or 1, sun.Color.z or 1)
-	end
+	if sun then return Vec3(sun.Color.r, sun.Color.g, sun.Color.b) end
 
 	return Vec3(1, 1, 1)
 end

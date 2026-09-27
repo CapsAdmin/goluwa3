@@ -46,22 +46,8 @@ end
 model_loader.model_cache = {}
 model_loader.model_loader_cb = utility.CreateCallbackThing(model_loader.model_cache)
 
-local function normalize_failure_reason(reason)
-	if type(reason) == "table" then
-		if reason.error ~= nil then return tostring(reason.error) end
-
-		if reason.GetError then
-			local ok, err = pcall(reason.GetError, reason)
-
-			if ok and err ~= nil then return tostring(err) end
-		end
-	end
-
-	return tostring(reason)
-end
-
 local function fail_model_load(cb, path, reason)
-	local message = normalize_failure_reason(reason)
+	local message = tostring(reason)
 	logf("model loader failed for %q: %s\n", path, message)
 	cb:callextra(path, "on_fail", message)
 	cb:uncache(path)
@@ -103,7 +89,7 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 		local decode_callback = model_loader.FindModelDecoder(path)
 
 		if decode_callback then
-			local function on_error(err)
+			local function on_error(task, err)
 				fail_model_load(cb, path, err)
 			end
 

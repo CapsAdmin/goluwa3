@@ -1318,46 +1318,15 @@ local function serialize_aabb(aabb)
 end
 
 local function entry_has_height_displacement(material)
-	return material and
-		material.GetHeightTexture and
-		material:GetHeightTexture() and
-		material:GetHeightScale() > 0 or
-		false
-end
-
-local function entry_can_use_gbuffer_instancing(entry, material)
-	if not material then return false end
-
-	if material.GetIgnoreZ and material:GetIgnoreZ() then return false end
-
-	-- drawn by the forward translucent pass, not the gbuffer
-	if material:IsTransparent() then return false end
-
-	local polygon3d = entry and entry.polygon3d or nil
-	return polygon3d and polygon3d.GetMesh and polygon3d:GetMesh() ~= nil or false
-end
-
-local function entry_can_use_shadow_instancing(entry, material)
-	if not material or entry_has_height_displacement(material) then
-		return false
-	end
-
-	local polygon3d = entry and entry.polygon3d or nil
-	return polygon3d and polygon3d.GetMesh and polygon3d:GetMesh() ~= nil or false
-end
-
-local function get_gbuffer_batch_material_key(material)
-	return material and (material.upload_cache_key or material) or material
+	return material:GetHeightTexture() ~= nil and material:GetHeightScale() > 0
 end
 
 local function get_gbuffer_batch_mesh_keys(mesh)
-	if not mesh or not mesh.vertex_buffer or not mesh.vertex_buffer.GetBuffer then
-		return mesh, NO_INDEX_BUFFER_KEY
-	end
+	-- a mesh not uploaded yet (NULL) gets its own bucket
+	if not mesh:IsValid() then return mesh, NO_INDEX_BUFFER_KEY end
 
-	local vertex_buffer = mesh.vertex_buffer:GetBuffer()
-	local index_buffer = mesh.index_buffer and mesh.index_buffer:GetBuffer() or NO_INDEX_BUFFER_KEY
-	return vertex_buffer, index_buffer
+	return mesh.vertex_buffer:GetBuffer(),
+	mesh.index_buffer and mesh.index_buffer:GetBuffer() or NO_INDEX_BUFFER_KEY
 end
 
 local function get_or_create_instanced_batch_bucket(storage, mesh)
@@ -1380,12 +1349,10 @@ local function get_or_create_instanced_batch_bucket(storage, mesh)
 end
 
 local function ensure_entry_index_buffer(entry)
-	local polygon3d = entry and entry.polygon3d or nil
-	local mesh = polygon3d and polygon3d.GetMesh and polygon3d:GetMesh() or nil
-	local index_buffer = mesh and mesh.index_buffer or nil
+	local mesh = entry.polygon3d:GetMesh()
 
-	if mesh and not index_buffer and mesh.GetVertexCount and mesh.UploadIndices then
-		local vertex_count = mesh:GetVertexCount() or 0
+	if mesh:IsValid() and not mesh.index_buffer then
+		local vertex_count = mesh:GetVertexCount()
 
 		if vertex_count > 0 then
 			local sequential_indices = {}
@@ -1395,37 +1362,38 @@ local function ensure_entry_index_buffer(entry)
 			end
 
 			mesh:UploadIndices(sequential_indices)
-			index_buffer = mesh.index_buffer
 		end
 	end
 
-	return mesh, index_buffer
+	return mesh, mesh.index_buffer
 end
 
 local function serialize_render_entry(component, entry, entry_index, dynamic)
 	local material = component:GetResolvedMaterial(entry)
 	local mesh, index_buffer = ensure_entry_index_buffer(entry)
 	local world_matrix = entry.transform:GetWorldMatrix()
+	local has_height_displacement = entry_has_height_displacement(material)
 	return {
 		component = component,
 		source_entry = entry,
 		entry_index = entry_index,
 		polygon_guid = entry.polygon3d:GetGUID(),
 		material_guid = material:GetGUID(),
-		ignore_z = material and material.GetIgnoreZ and material:GetIgnoreZ() or false,
+		ignore_z = material:GetIgnoreZ(),
 		transparent = material:IsTransparent(),
-		has_height_displacement = entry_has_height_displacement(material),
-		gbuffer_instancing_eligible = entry_can_use_gbuffer_instancing(entry, material),
-		shadow_instancing_eligible = entry_can_use_shadow_instancing(entry, material),
+		has_height_displacement = has_height_displacement,
+		-- ignore z and translucent materials are drawn by the forward passes
+		gbuffer_instancing_eligible = not material:GetIgnoreZ() and not material:IsTransparent(),
+		shadow_instancing_eligible = not has_height_displacement,
 		batch_mesh = mesh,
 		batch_material = material,
-		batch_material_key = get_gbuffer_batch_material_key(material),
+		batch_material_key = material.upload_cache_key or material,
 		world_matrix = world_matrix,
 		instanced_batch_index = nil,
 		static_matrix_index = nil,
 		source_aabb = serialize_aabb(entry.source_aabb),
 		local_aabb = serialize_aabb(entry.aabb),
-		index_count = index_buffer and index_buffer.GetIndexCount and index_buffer:GetIndexCount() or 0,
+		index_count = index_buffer and index_buffer:GetIndexCount() or 0,
 	}
 end
 
@@ -1554,7 +1522,7 @@ local function extract_frustum_planes(proj_view_matrix, out_planes, side_scale)
 end
 
 local function remove_buffer(buffer)
-	if buffer and buffer.Remove then buffer:Remove() end
+	if buffer then buffer:Remove() end
 end
 
 local function grow_capacity(required, previous)

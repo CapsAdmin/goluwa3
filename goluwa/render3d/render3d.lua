@@ -408,9 +408,7 @@ function render3d.Shutdown()
 
 	render3d.pipelines = {}
 	render3d.pipelines_i = {}
-
-	if gpu_culling.Shutdown then gpu_culling.Shutdown() end
-
+	gpu_culling.Shutdown()
 	render.GetDevice():WaitIdle()
 end
 

@@ -13,7 +13,6 @@ local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local system = import("goluwa/system.lua")
 local objects = import("goluwa/objects/objects.lua")
@@ -25,7 +24,6 @@ local BatchTable = import("goluwa/render3d/batch_table.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 -- Default shadow map settings
-local DEFAULT_SIZE = Vec2() + 512 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
@@ -586,16 +584,6 @@ local function build_shadow_pipeline_config(
 	end
 
 	return config
-end
-
-local function normalize_shadow_size(size)
-	if not size then return DEFAULT_SIZE:Copy() end
-
-	if type(size) == "number" then return Vec2(size, size) end
-
-	if size.Copy then return size:Copy() end
-
-	return Vec2(size.w or size.x, size.h or size.y)
 end
 
 local function get_cascade_depth_format(cascade_formats, cascade_index, default_format)
@@ -1285,17 +1273,11 @@ local function get_shadow_scene_world_aabb()
 end
 
 local function get_shadow_volume_change_version(shadow_map, cascade_idx)
-	local visual_library = Visual and Visual.Library
-
-	if not visual_library or not visual_library.GetShadowVolumeChangeVersion then
-		return nil
-	end
-
 	local world_aabb = shadow_map:GetCascadeWorldAABB(cascade_idx)
 
 	if not world_aabb then return nil end
 
-	return visual_library.GetShadowVolumeChangeVersion(world_aabb)
+	return Visual.Library.GetShadowVolumeChangeVersion(world_aabb)
 end
 
 local function build_shadow_cascade_update_mask(self)
@@ -1330,7 +1312,7 @@ local function build_shadow_cascade_update_mask(self)
 	end
 
 	local camera = render3d.GetCamera()
-	local camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
+	local camera_position = camera:GetPosition()
 	local camera_moved = position_changed(
 		camera_position,
 		farthest_cascade.last_camera_position,
@@ -1338,9 +1320,8 @@ local function build_shadow_cascade_update_mask(self)
 	)
 	-- the cascade is fitted to the view frustum slice, so turning the camera
 	-- moves the slice out of the map just like walking does
-	local camera_forward = camera and camera:GetRotation():GetForward() or nil
-	local camera_turned = not camera_forward or
-		not farthest_cascade.last_camera_forward or
+	local camera_forward = camera:GetRotation():GetForward()
+	local camera_turned = not farthest_cascade.last_camera_forward or
 		camera_forward:Dot(farthest_cascade.last_camera_forward) < math.cos(math.rad(policy.farthest_cascade_camera_rotation_threshold or 5))
 	local shadow_volume_change_version = get_shadow_volume_change_version(self, farthest_cascade_idx)
 	local world_changed = shadow_volume_change_version == nil or
@@ -1388,7 +1369,7 @@ function ShadowMap.New(config)
 	end
 
 	self.mode = config.mode or "directional"
-	self.size = normalize_shadow_size(config.size)
+	self.size = config.size:Copy()
 	self.format = config.format or DEFAULT_FORMAT
 	self.directional_projection_mode = config.directional_projection_mode or
 		(
@@ -1400,7 +1381,7 @@ function ShadowMap.New(config)
 	self.near_plane = config.near_plane or 0.1
 	self.far_plane = config.far_plane or 100.0
 	self.ortho_size = config.ortho_size or 50.0 -- Half-size of orthographic projection
-	self.point_color_format = config.point_color_format or DEFAULT_POINT_COLOR_FORMAT
+	self.point_color_format = DEFAULT_POINT_COLOR_FORMAT
 	self.point_light_position = Vec3(0, 0, 0)
 	-- Cascaded shadow map settings
 	self.cascade_count = config.cascade_count or
@@ -1422,7 +1403,6 @@ function ShadowMap.New(config)
 	self.scene_bounds_margin = config.scene_bounds_margin or 16
 	self.current_shadow_distance = self.max_shadow_distance
 	self.min_caster_texel_size = config.min_caster_texel_size or 0
-	self.sticky_cascade_index = config.sticky_cascade_index
 	self.disable_vertex_animation_cascades = config.disable_vertex_animation_cascades or {}
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
 	self.cascade_splits = {} -- Will store the split distances
@@ -1434,7 +1414,6 @@ function ShadowMap.New(config)
 	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
 	self.policy = config.policy or {} -- shadow_update_mode, shadow_update_interval, epsilons, farthest_cascade_*
 	self.directional_rotation_flip = config.directional_rotation_flip
-	self.projection = config.projection
 	self.perspective_fov = config.perspective_fov
 	self.enabled = true
 	self.next_cascade = 1 -- shadow rendering progress
@@ -1534,7 +1513,7 @@ function ShadowMap.New(config)
 
 		-- Initialize cascades
 		for i = 1, self.cascade_count do
-			local cascade_size = normalize_shadow_size(cascade_sizes[i] or self.size)
+			local cascade_size = (cascade_sizes[i] or self.size):Copy()
 			local cascade_format = get_cascade_depth_format(self.cascade_formats, i, self.format)
 
 			if cascade_size.w > max_shadow_width then max_shadow_width = cascade_size.w end
@@ -2423,12 +2402,11 @@ local function collect_shadow_visible_entry(
 	end
 
 	local material = component:GetResolvedMaterial(entry)
-	local mesh = entry.polygon3d and entry.polygon3d.GetMesh and entry.polygon3d:GetMesh() or nil
 	local uses_vertex_animation = not self:ShouldDisableVertexAnimation(cascade_index) and
 		shadow_material_has_vertex_animation(material)
 
-	if mesh and not uses_vertex_animation then
-		self.instance_batcher:Queue(entry.polygon3d, mesh, material, world_matrix)
+	if not uses_vertex_animation then
+		self.instance_batcher:Queue(entry.polygon3d, entry.polygon3d:GetMesh(), material, world_matrix)
 	else
 		render3d.SetWorldMatrix(world_matrix)
 		render3d.SetCurrentPolygon3D(entry.polygon3d)

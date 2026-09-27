@@ -83,7 +83,7 @@ T.Test3D("Model preview renders offscreen and restores the active camera", funct
 	local old_rotation = camera:GetRotation():Copy()
 	local ok, err = xpcall(
 		function()
-			local tex = preview:RenderEntity(entity)
+			local tex = preview:RenderTarget(entity.visual)
 			T.AssertTexturePixel{
 				tex = tex,
 				pos = {128, 128},
@@ -112,7 +112,7 @@ T.Test3D("Model preview samples albedo textures", function()
 	}
 	local ok, err = xpcall(
 		function()
-			local tex = preview:RenderEntity(entity)
+			local tex = preview:RenderTarget(entity.visual)
 			T.AssertTexturePixel{
 				tex = tex,
 				pos = {128, 128},
@@ -163,7 +163,7 @@ T.Test3D("Model preview draws the back faces of double sided materials", functio
 		local preview = ModelPreview.New()
 		local ok, a = xpcall(
 			function()
-				return select(4, preview:RenderEntity(entity):GetPixel(128, 150))
+				return select(4, preview:RenderTarget(entity.visual):GetPixel(128, 150))
 			end,
 			debug.traceback
 		)

@@ -177,24 +177,20 @@ local function remove_views(views)
 	if not views then return end
 
 	for _, view in pairs(views) do
-		if view and view.Remove then view:Remove() end
+		view:Remove()
 	end
 end
 
 local function remove_probe_resources(probe)
-	if not probe then return end
-
 	remove_views(probe.source_face_views)
 	remove_views(probe.depth_face_views)
 	remove_views(probe.color_equirect_mip_views)
 
-	if probe.irradiance_equirect_view and probe.irradiance_equirect_view.Remove then
+	if probe.irradiance_equirect_view then
 		probe.irradiance_equirect_view:Remove()
 	end
 
-	if probe.depth_equirect_view and probe.depth_equirect_view.Remove then
-		probe.depth_equirect_view:Remove()
-	end
+	if probe.depth_equirect_view then probe.depth_equirect_view:Remove() end
 
 	for _, key in ipairs{
 		"color_equirect",
@@ -203,7 +199,7 @@ local function remove_probe_resources(probe)
 		"source_cubemap",
 		"depth_cubemap",
 	} do
-		if probe[key] and probe[key].Remove then probe[key]:Remove() end
+		if probe[key] then probe[key]:Remove() end
 
 		probe[key] = nil
 	end

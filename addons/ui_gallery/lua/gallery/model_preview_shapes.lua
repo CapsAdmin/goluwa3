@@ -103,7 +103,7 @@ local function build_tile(definition)
 						AmbientStrength = definition.ambient or 0.34,
 						LightStrength = definition.light or 0.95,
 					}
-					preview:SetEntity(entity)
+					preview:SetTarget(entity.visual)
 					preview:Refresh()
 				end,
 				OnRemove = function()

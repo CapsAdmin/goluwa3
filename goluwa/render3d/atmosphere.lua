@@ -909,7 +909,7 @@ function atmosphere.GetOceanLevel()
 end
 
 local function destroy_transmittance_texture()
-	if atmosphere.transmittance_texture and atmosphere.transmittance_texture.Remove then
+	if atmosphere.transmittance_texture then
 		atmosphere.transmittance_texture:Remove()
 	end
 
@@ -917,7 +917,7 @@ local function destroy_transmittance_texture()
 end
 
 local function destroy_multi_scatter_texture()
-	if atmosphere.multi_scatter_texture and atmosphere.multi_scatter_texture.Remove then
+	if atmosphere.multi_scatter_texture then
 		atmosphere.multi_scatter_texture:Remove()
 	end
 
@@ -954,7 +954,7 @@ end
 local function destroy_sky_view_texture(key)
 	local tex = atmosphere.sky_view_textures[key]
 
-	if tex and tex.Remove then tex:Remove() end
+	if tex then tex:Remove() end
 
 	atmosphere.sky_view_textures[key] = nil
 end
