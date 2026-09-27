@@ -7,6 +7,7 @@ local event = import("goluwa/event.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
@@ -641,7 +642,7 @@ T.Test3D("Graphics render3d gpu culling rejects cull results from a stale datase
 	-- computed against the old dataset and never re-culled since
 	result.dataset_generation = dataset.generation
 	T(gpu_culling.IsCullResultCurrent(result))["=="](false)
-	local draw_result = render3d.DrawGPUCulledStaticInstanceBatches(result)
+	local draw_result = gbuffer_instancing.DrawGPUCulled(result)
 	T(draw_result.drew_any == false)["=="](true)
 	second:Remove()
 	front:Remove()

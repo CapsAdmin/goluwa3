@@ -2,6 +2,7 @@ local event = import("goluwa/event.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local commands = import("goluwa/cli/commands.lua")
 local grass = import("goluwa/render3d/grass.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
@@ -45,10 +46,10 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			if render3d.pipelines.grass then grass.Scatter(cmd) end
 		end,
 		on_draw = function(self, cmd)
-			render3d.ResetQueuedGBufferInstances()
+			gbuffer_instancing.Reset()
 			event.Call("PreDraw3D", dt)
 			event.Call("Draw3DGeometry", dt)
-			render3d.FlushQueuedGBufferInstances()
+			gbuffer_instancing.Flush()
 
 			if render3d.pipelines.grass then grass.Draw(render3d.pipelines.grass, cmd) end
 		end,
@@ -184,7 +185,7 @@ local multi_draw_block = {
 }
 
 -- every gpu culled static batch in one indirect multi-draw, see
--- render3d.DrawGPUCulledStaticInstanceBatches
+-- gbuffer_instancing.DrawGPUCulled
 local function build_multi_draw_pass(fragment_shader)
 	local pass = build_base_pass(fragment_shader, true)
 	pass.name = "gbuffer_multi_draw"

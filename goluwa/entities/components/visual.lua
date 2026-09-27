@@ -14,6 +14,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local test_helper = import("goluwa/test.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
@@ -1541,8 +1542,7 @@ do
 
 	commands.Add("dump_main_gpu_culling_stats", function()
 		local stats = visual.GetMainGPUCullingStats()
-		local counters = render3d.GetInstancingCounters()
-		local rejected = render3d.GetInstancingRejectionSummary(counters)
+		local instancing = gbuffer_instancing.GetStats()
 
 		if not stats.frame then
 			print("[main_gpu_culling_stats] no stats recorded yet")
@@ -1556,12 +1556,12 @@ do
 			string.format(
 				"[main_gpu_culling_stats] frame=%d instancing_frame=%d",
 				stats.frame,
-				counters.completed_frame or 0
+				instancing.frame
 			)
 		)
 		print(
 			string.format(
-				"[main_gpu_culling_stats] visible=%d gpu_packed_entries=%d gpu_packed_draws=%d gpu_active_batches=%d/%d gpu_entries_per_draw=%.2f fallback_visible=%d fallback_submitted=%d cpu_instanced_draws=%d cpu_singleton_draws=%d queue_attempts=%d queued_instances=%d rejected_total=%d rejected_missing_args=%d rejected_missing_pipeline=%d rejected_wireframe=%d rejected_vertex_animation=%d rejected_missing_mesh=%d",
+				"[main_gpu_culling_stats] visible=%d gpu_packed_entries=%d gpu_packed_draws=%d gpu_active_batches=%d/%d gpu_entries_per_draw=%.2f fallback_visible=%d fallback_submitted=%d cpu_instanced_draws=%d cpu_singleton_draws=%d queued_instances=%d",
 				stats.visible_entry_count or 0,
 				stats.gpu_packed_entry_count or 0,
 				stats.gpu_packed_draw_calls or 0,
@@ -1570,16 +1570,9 @@ do
 				gpu_entries_per_draw,
 				stats.fallback_visible_entry_count or 0,
 				stats.fallback_submitted_entry_count or 0,
-				counters.instanced_draws or 0,
-				counters.singleton_fallback_draws or 0,
-				counters.queue_attempts or 0,
-				counters.queued_instances or 0,
-				rejected.total or 0,
-				rejected.missing_args or 0,
-				rejected.missing_pipeline or 0,
-				rejected.wireframe or 0,
-				rejected.vertex_animation or 0,
-				rejected.missing_mesh or 0
+				instancing.instanced_draws,
+				instancing.singleton_draws,
+				instancing.queued_instances
 			)
 		)
 	end)
@@ -3095,13 +3088,7 @@ function Visual:DrawEntriesForPass(ignore_z, upload_constants, render_entries)
 					not ignore_z and
 					upload_constants == render3d.UploadGBufferConstants and
 					not self.using_conditional_rendering and
-					render3d.QueueGBufferInstance(
-						entry.polygon3d,
-						material,
-						world_matrix,
-						self:GetModelPath(),
-						prev_world_matrix
-					)
+					gbuffer_instancing.Queue(entry.polygon3d, material, world_matrix, prev_world_matrix)
 				then
 					drew_any = true
 				else
@@ -3134,13 +3121,7 @@ local function draw_geometry_entry(component, entry)
 	if not world_matrix then return false end
 
 	if
-		render3d.QueueGBufferInstance(
-			entry.polygon3d,
-			material,
-			world_matrix,
-			component:GetModelPath(),
-			prev_world_matrix
-		)
+		gbuffer_instancing.Queue(entry.polygon3d, material, world_matrix, prev_world_matrix)
 	then
 		return true
 	end
@@ -3333,7 +3314,7 @@ function Visual:OnFirstCreated()
 			local entry_records, visible_entry_index_ptr, visible_entry_count, cull_result = visual.GetVisibleMainGPUEntries()
 
 			if entry_records and visible_entry_index_ptr then
-				local gpu_instanced_result = render3d.DrawGPUCulledStaticInstanceBatches(cull_result)
+				local gpu_instanced_result = gbuffer_instancing.DrawGPUCulled(cull_result)
 				local fallback_submitted_entry_count = 0
 
 				-- the cull also lists the visible entries that are not in an
