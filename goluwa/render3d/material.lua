@@ -6,6 +6,7 @@ local objects = import("goluwa/objects/objects.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
 local Material = objects.CreateTemplate("render3d_material")
 -- textures
 Material:StartStorable()
@@ -125,6 +126,35 @@ Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:EndStorable()
+
+function Material:GetCullMode()
+	return self.DoubleSided and "none" or orientation.CULL_MODE
+end
+
+do
+	local opaque = {
+		src_color_blend_factor = "one",
+		dst_color_blend_factor = "zero",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "zero",
+		alpha_blend_op = "add",
+	}
+	local translucent = {
+		src_color_blend_factor = "src_alpha",
+		dst_color_blend_factor = "one_minus_src_alpha",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "zero",
+		alpha_blend_op = "add",
+	}
+
+	-- for forward drawn surfaces, which blend over what is behind them when
+	-- translucent
+	function Material:GetBlendEquation()
+		return self.Translucent and translucent or opaque
+	end
+end
 
 function Material.New(config)
 	local self = Material:CreateObject()

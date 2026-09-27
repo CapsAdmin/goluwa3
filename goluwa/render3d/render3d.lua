@@ -3,7 +3,6 @@ import.loaded["goluwa/render3d/render3d.lua"] = render3d
 local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local event = import("goluwa/event.lua")
-local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -43,10 +42,6 @@ end
 
 function render3d.GetGPUCulling()
 	return gpu_culling
-end
-
-function render3d.IsWireframeDebugMode()
-	return false
 end
 
 render3d.camera_block = {
@@ -528,28 +523,18 @@ function render3d.GetSceneVoxelizer()
 	return render3d.scene_voxelizer
 end
 
-local function material_has_vertex_animation(material)
-	return material and material:HasVertexAnimation()
-end
-
 local function get_material_upload_key(material)
 	material = material or render3d.GetDefaultMaterial()
 	return material.upload_cache_key or material
 end
 
 function render3d.UploadGBufferConstants()
-	if not render3d.pipelines.gbuffer then return end
-
-	local cmd = render.GetCommandBuffer()
 	local material = render3d.GetMaterial()
-	local animated = material_has_vertex_animation(material)
-	local pipeline = animated and render3d.pipelines.gbuffer_anim or render3d.pipelines.gbuffer
-	local double_sided = material:GetDoubleSided()
-	local cull_mode = double_sided and "none" or orientation.CULL_MODE
-	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
+	local pipeline = material:HasVertexAnimation() and
+		render3d.pipelines.gbuffer_anim or
+		render3d.pipelines.gbuffer
 	pipeline:UploadConstants()
-	cmd:SetPolygonMode(polygon_mode)
-	cmd:SetCullMode(cull_mode)
+	render.GetCommandBuffer():SetCullMode(material:GetCullMode())
 end
 
 -- translucent entries draw twice, once into the moments and once lit, with
@@ -558,12 +543,8 @@ end
 -- it to the object
 function render3d.UploadTranslucentConstants(thickness)
 	render3d.translucent_thickness = thickness
-	local cmd = render.GetCommandBuffer()
-	local cull_mode = render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE
-	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
 	render3d.translucent_pipeline:UploadConstants()
-	cmd:SetPolygonMode(polygon_mode)
-	cmd:SetCullMode(cull_mode)
+	render.GetCommandBuffer():SetCullMode(render3d.GetMaterial():GetCullMode())
 end
 
 -- a refracting material is about to draw, so the translucent pass builds the
@@ -580,51 +561,17 @@ function render3d.ExtendTranslucentDepthRange(near, far)
 end
 
 function render3d.UploadInstancedGBufferConstants()
-	if not render3d.pipelines.gbuffer_instanced then return end
-
-	local cmd = render.GetCommandBuffer()
-	local material = render3d.GetMaterial()
-	local double_sided = material:GetDoubleSided()
-	local cull_mode = double_sided and "none" or orientation.CULL_MODE
-	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
 	render3d.pipelines.gbuffer_instanced:UploadConstants()
-	cmd:SetPolygonMode(polygon_mode)
-	cmd:SetCullMode(cull_mode)
+	render.GetCommandBuffer():SetCullMode(render3d.GetMaterial():GetCullMode())
 end
 
 function render3d.UploadForwardOverlayConstants()
-	if not render3d.pipelines.forward_overlay then return end
-
 	local cmd = render.GetCommandBuffer()
 	local material = render3d.GetMaterial()
-	local double_sided = render3d.GetMaterial():GetDoubleSided()
-	local translucent = material:GetTranslucent()
-	local cull_mode = double_sided and "none" or orientation.CULL_MODE
-	local polygon_mode = render3d.IsWireframeDebugMode() and "line" or "fill"
 	render3d.pipelines.forward_overlay:UploadConstants()
-	cmd:SetPolygonMode(polygon_mode)
-	cmd:SetCullMode(cull_mode)
-	cmd:SetColorBlendEnable(0, translucent)
-	cmd:SetColorBlendEquation(
-		0,
-		translucent and
-			{
-				src_color_blend_factor = "src_alpha",
-				dst_color_blend_factor = "one_minus_src_alpha",
-				color_blend_op = "add",
-				src_alpha_blend_factor = "one",
-				dst_alpha_blend_factor = "zero",
-				alpha_blend_op = "add",
-			} or
-			{
-				src_color_blend_factor = "one",
-				dst_color_blend_factor = "zero",
-				color_blend_op = "add",
-				src_alpha_blend_factor = "one",
-				dst_alpha_blend_factor = "zero",
-				alpha_blend_op = "add",
-			}
-	)
+	cmd:SetCullMode(material:GetCullMode())
+	cmd:SetColorBlendEnable(0, material:GetTranslucent())
+	cmd:SetColorBlendEquation(0, material:GetBlendEquation())
 end
 
 do

@@ -28,22 +28,6 @@ local aabb_corners = {
 	Vec3(),
 	Vec3(),
 }
-local opaque_blend = {
-	src_color_blend_factor = "one",
-	dst_color_blend_factor = "zero",
-	color_blend_op = "add",
-	src_alpha_blend_factor = "one",
-	dst_alpha_blend_factor = "zero",
-	alpha_blend_op = "add",
-}
-local translucent_blend = {
-	src_color_blend_factor = "src_alpha",
-	dst_color_blend_factor = "one_minus_src_alpha",
-	color_blend_op = "add",
-	src_alpha_blend_factor = "one",
-	dst_alpha_blend_factor = "zero",
-	alpha_blend_op = "add",
-}
 META:GetSet("Width", 256, {callback = "InvalidateFramebuffer"})
 META:GetSet("Height", 256, {callback = "InvalidateFramebuffer"})
 META:GetSet("Padding", 1.1)
@@ -99,11 +83,11 @@ end
 local function upload_preview_constants(pipeline)
 	local cmd = render.GetCommandBuffer()
 	local material = render3d.GetMaterial()
-	local translucent = material:GetTranslucent()
-	cmd:SetCullMode(material:GetDoubleSided() and "none" or orientation.CULL_MODE)
-	cmd:SetColorBlendEnable(0, translucent)
-	cmd:SetColorBlendEquation(0, translucent and translucent_blend or opaque_blend)
+	-- binding applies the pipeline's own state, so the material's goes after
 	pipeline:UploadConstants()
+	cmd:SetCullMode(material:GetCullMode())
+	cmd:SetColorBlendEnable(0, material:GetTranslucent())
+	cmd:SetColorBlendEquation(0, material:GetBlendEquation())
 end
 
 local function create_preview_pipeline()

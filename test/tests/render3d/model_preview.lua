@@ -84,7 +84,6 @@ T.Test3D("Model preview renders offscreen and restores the active camera", funct
 	local ok, err = xpcall(
 		function()
 			local tex = preview:RenderEntity(entity)
-
 			T.AssertTexturePixel{
 				tex = tex,
 				pos = {128, 128},
@@ -92,7 +91,6 @@ T.Test3D("Model preview renders offscreen and restores the active camera", funct
 					return r > 0.1 and g > 0.01 and a > 0.9
 				end,
 			}
-
 			T.AssertTexturePixel{tex = tex, pos = {4, 4}, color = {0, 0, 0, 0}, tolerance = 0.05}
 			T(render3d.GetCamera() == camera)["=="](true)
 			T(camera:GetPosition() == old_position)["=="](true)
@@ -115,7 +113,6 @@ T.Test3D("Model preview samples albedo textures", function()
 	local ok, err = xpcall(
 		function()
 			local tex = preview:RenderEntity(entity)
-
 			T.AssertTexturePixel{
 				tex = tex,
 				pos = {128, 128},
@@ -130,6 +127,56 @@ T.Test3D("Model preview samples albedo textures", function()
 	entity:Remove()
 
 	if not ok then error(err, 0) end
+end)
+
+-- binding the preview's pipeline applies its own cull mode, so the
+-- material's has to be set after it
+T.Test3D("Model preview draws the back faces of double sided materials", function()
+	-- the preview looks from +x+y+z, so the cube's -x, -y and -z faces only
+	-- show their backs
+	local function render_far_faces(double_sided)
+		local cube = Polygon3D.New()
+		cube:CreateCube(0.5, 1.0)
+		local poly = Polygon3D.New()
+
+		for i = 1, #cube.Vertices, 3 do
+			local a, b, c = cube.Vertices[i], cube.Vertices[i + 1], cube.Vertices[i + 2]
+			local center = a.pos + b.pos + c.pos
+
+			if center.x + center.y + center.z < 0 then
+				poly:AddVertex(a)
+				poly:AddVertex(b)
+				poly:AddVertex(c)
+			end
+		end
+
+		T(#poly.Vertices)["=="](18)
+		poly:BuildBoundingBox()
+		poly:Upload()
+		local material = Material.New{
+			ColorMultiplier = Color(1, 1, 1, 1),
+			DoubleSided = double_sided,
+		}
+		local entity = Entity.New{Name = "preview_far_faces_model"}
+		entity:AddComponent("transform")
+		attach_visual_primitive(entity, poly, material)
+		local preview = ModelPreview.New()
+		local ok, a = xpcall(
+			function()
+				return select(4, preview:RenderEntity(entity):GetPixel(128, 150))
+			end,
+			debug.traceback
+		)
+		preview:Remove()
+		entity:Remove()
+
+		if not ok then error(a, 0) end
+
+		return a
+	end
+
+	T(render_far_faces(false))["=="](0)
+	T(render_far_faces(true))["=="](255)
 end)
 
 T.Test3D("Visual MakeError creates a cube with the fallback texture", function()

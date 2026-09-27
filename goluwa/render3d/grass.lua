@@ -864,7 +864,6 @@ function grass.Draw(pipeline, cmd)
 	local b = get_buffers()
 	pipeline:UploadConstants()
 	cmd:SetCullMode("none")
-	cmd:SetPolygonMode(render3d.IsWireframeDebugMode() and "line" or "fill")
 	cmd:DrawIndirect(b.args, ARGS_DRAW_NEAR_OFFSET, 1)
 	cmd:DrawIndirect(b.args, ARGS_DRAW_FAR_OFFSET, 1)
 end

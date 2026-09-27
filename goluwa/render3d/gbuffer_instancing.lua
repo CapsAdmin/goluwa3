@@ -122,7 +122,6 @@ do
 		pipeline.draw_batches_address = batch_table:Update(pipeline, batches, dataset.main.batch_serial, system.GetFrameNumber())
 		pipeline.draw_instances_address = output.visible_instance_vertex_buffer.buffer:GetDeviceAddress()
 		pipeline:UploadConstants()
-		cmd:SetPolygonMode("fill")
 		cmd:SetCullMode(orientation.CULL_MODE)
 		cmd:DrawIndirect(commands, 0, #batches, stride)
 		cmd:SetCullMode("none")
