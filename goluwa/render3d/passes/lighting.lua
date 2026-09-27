@@ -1,6 +1,5 @@
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
-local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -12,6 +11,7 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local commands = import("goluwa/cli/commands.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
@@ -22,22 +22,11 @@ local RAY_QUERY = render.GetDevice().ray_query_supported
 -- how many texels of the cascade in use the sun's contact ray reaches, past
 -- the few its lookup offsets skip
 local SHADOW_CONTACT_TEXELS = 8
+local debug_direct = 0
 
-local function resolve_lighting_frame_index(self, frame_index)
-	local descriptor_set_count = self.pipeline.descriptor_sets and #self.pipeline.descriptor_sets or 0
-
-	if descriptor_set_count > 0 then
-		return math.clamp(render.GetCurrentFrame() or frame_index or 1, 1, descriptor_set_count)
-	end
-
-	if frame_index then return frame_index end
-
-	if self.framebuffers and #self.framebuffers > 0 then
-		return system.GetFrameNumber() % #self.framebuffers + 1
-	end
-
-	return 1
-end
+commands.Add("lighting_debug_direct=boolean[true]", function(value)
+	debug_direct = value and 1 or 0
+end)
 
 return {
 	{
@@ -96,6 +85,7 @@ return {
 					gbuffer_layout.block,
 					render3d.last_frame_block,
 					{"gi_debug", "int"},
+					{"direct_debug", "int"},
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
@@ -105,6 +95,7 @@ return {
 					gbuffer_layout.WriteBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					block.gi_debug = ddgi.DEBUG_GI
+					block.direct_debug = debug_direct
 
 					if render3d.pipelines.ambient_occlusion_blur then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -152,10 +143,7 @@ return {
 		]] or
 				""
 			),
-		shader = (
-				"const int LIGHT_DEBUG_DIRECT = %d;\n"
-			):format(os.getenv("FOG_DEBUG") == "lighting" and 1 or 0) .. [[
-			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+		shader = compute_helpers.GetScreenHelpersGLSL() .. [[
 			vec2 get_compute_uv() {
 				return get_screen_uv(get_screen_pos(), imageSize(out_color));
 			}
@@ -305,7 +293,7 @@ return {
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N), direct_specular);
 				direct += direct_specular;
 
-				if (LIGHT_DEBUG_DIRECT > 0) {
+				if (lighting_data.direct_debug != 0) {
 					set_color(vec4(min(direct * get_pre_exposure(), vec3(65504.0)), 1.0));
 					return;
 				}

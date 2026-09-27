@@ -282,32 +282,6 @@ function model_pipeline.GetVertexAttributes()
 	return attributes
 end
 
-local function build_vertex_attribute_name_set(names)
-	local lookup = {}
-
-	for _, name in ipairs(names or {}) do
-		lookup[name] = true
-	end
-
-	return lookup
-end
-
-function model_pipeline.GetVertexAttributesSubset(names)
-	local include = build_vertex_attribute_name_set(names)
-	local attributes = {}
-	local offset = 0
-
-	for _, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
-		if include[def.name] then
-			attributes[#attributes + 1] = {def.name, def.type, def.format, offset}
-		end
-
-		offset = offset + def.float_count * FLOAT_SIZE
-	end
-
-	return attributes
-end
-
 function model_pipeline.GetVertexStride()
 	return get_vertex_stride()
 end
@@ -338,231 +312,63 @@ function model_pipeline.GetVertexAttributeLayout(binding_index)
 	return attributes
 end
 
-function model_pipeline.GetVertexAttributeLayoutSubset(names, binding_index)
-	binding_index = binding_index or 0
-	local include = build_vertex_attribute_name_set(names)
-	local attributes = {}
-	local offset = 0
-	local location = 0
+local INSTANCE_WORLD_EXPR = "mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
+local INSTANCE_PREV_WORLD_EXPR = "mat4(in_instance_prev_world_row_0, in_instance_prev_world_row_1, in_instance_prev_world_row_2, in_instance_prev_world_row_3)"
 
-	for _, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
-		if include[def.name] then
-			attributes[#attributes + 1] = {
-				binding = binding_index,
-				location = location,
-				format = def.format,
-				offset = offset,
-			}
-			location = location + 1
-		end
-
-		offset = offset + def.float_count * FLOAT_SIZE
-	end
-
-	return attributes
-end
-
-function model_pipeline.GetTransformBlock(include_projection_view_world, include_prev_world)
-	local block = {}
-
-	if include_projection_view_world ~= false then
-		block[#block + 1] = {"projection_view_world", "mat4"}
-	end
-
-	block[#block + 1] = {"world", "mat4"}
-
-	if include_prev_world then block[#block + 1] = {"prev_world", "mat4"} end
-
-	return block
-end
-
-function model_pipeline.BuildTransformBlockWriter(
-	include_projection_view_world,
-	get_projection_view_world_matrix,
-	include_prev_world
-)
-	get_projection_view_world_matrix = get_projection_view_world_matrix or render3d.GetProjectionViewWorldMatrix
-	return function(self, block)
-		if include_projection_view_world ~= false then
-			get_projection_view_world_matrix():CopyToFloatPointer(block.projection_view_world)
-		end
-
-		render3d.GetWorldMatrix():CopyToFloatPointer(block.world)
-
-		if include_prev_world then
-			render3d.GetPreviousWorldMatrix():CopyToFloatPointer(block.prev_world)
-		end
-
-		return block
-	end
-end
-
-function model_pipeline.GetInstancedTransformBlock(include_projection_view)
-	local block = {}
-
-	if include_projection_view ~= false then
-		block[#block + 1] = {"projection_view", "mat4"}
-	end
-
-	return block
-end
-
-function model_pipeline.BuildInstancedTransformBlockWriter(include_projection_view, get_projection_view_matrix)
-	get_projection_view_matrix = get_projection_view_matrix or render3d.GetProjectionViewMatrix
-	return function(self, block)
-		if include_projection_view ~= false then
-			get_projection_view_matrix():CopyToFloatPointer(block.projection_view)
-		end
-
-		return block
-	end
-end
-
-function model_pipeline.GetInstanceAttributes()
-	return {
-		{"instance_world", "mat4"},
-	}
-end
-
-function model_pipeline.GetPreviousInstanceAttributes()
-	return {
-		{"instance_prev_world", "mat4"},
-	}
-end
-
-local function get_instance_world_expr()
-	return "mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
-end
-
-local function get_instance_prev_world_expr()
-	return "mat4(in_instance_prev_world_row_0, in_instance_prev_world_row_1, in_instance_prev_world_row_2, in_instance_prev_world_row_3)"
-end
-
-local function build_vertex_shader(options)
-	local enable_vertex_animation = options.enable_vertex_animation ~= false
+-- world_expr and prev_world_expr are where the world matrices come from.
+-- options.camera_block_name is the uniform block with the camera's projection
+-- and view, without it the vertex block carries projection_view_world.
+-- main_prologue runs first in main, for stages that fetch their vertex and
+-- instance themselves
+local function build_vertex_shader(options, world_expr, prev_world_expr, main_prologue)
 	local lines = {}
 
-	if enable_vertex_animation then
-		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl("vertex_animation", "vertex.world")
-	end
-
-	lines[#lines + 1] = "void main() {"
-	lines[#lines + 1] = "\tvec3 local_position = in_position;"
-	lines[#lines + 1] = "\tvec3 world_position = (vertex.world * vec4(local_position, 1.0)).xyz;"
-	lines[#lines + 1] = "\tmat3 world_matrix3 = mat3(vertex.world);"
-	lines[#lines + 1] = "\tmat3 inv_world_matrix3 = inverse(world_matrix3);"
-	lines[#lines + 1] = "\tvec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);"
-	lines[#lines + 1] = "\tvec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);"
-
-	if options.velocity then
-		lines[#lines + 1] = "\tvec3 prev_world_position = (vertex.prev_world * vec4(in_position, 1.0)).xyz;"
-	end
-
-	if enable_vertex_animation then
-		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, in_vertex_color);"
-
-		if options.velocity then
-			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, in_vertex_color);"
-		end
-
-		lines[#lines + 1] = "\tif (dot(world_offset, world_offset) > 0.0) {"
-		lines[#lines + 1] = "\t\tlocal_position += inv_world_matrix3 * world_offset;"
-		lines[#lines + 1] = "\t\tworld_position += world_offset;"
-		lines[#lines + 1] = "\t}"
-	end
-
-	if options.include_projection_view_world == false then
-		local camera_uniform_block_name = options.camera_uniform_block_name or "camera_data"
-		lines[#lines + 1] = "\tgl_Position = " .. camera_uniform_block_name .. ".projection * " .. camera_uniform_block_name .. ".view * vec4(world_position, 1.0);"
-	else
-		lines[#lines + 1] = "\tgl_Position = vertex.projection_view_world * vec4(local_position, 1.0);"
-	end
-
-	if options.position ~= false then
-		lines[#lines + 1] = "\tout_position = world_position;"
-	end
-
-	if options.velocity then
-		lines[#lines + 1] = "\tout_prev_position = prev_world_position;"
-	end
-
-	if options.normal then lines[#lines + 1] = "\tout_normal = world_normal;" end
-
-	if options.tangent then
-		lines[#lines + 1] = "\tout_tangent = vec4(world_tangent, in_tangent.w);"
-	end
-
-	if options.uv then lines[#lines + 1] = "\tout_uv = in_uv;" end
-
-	if options.texture_blend then
-		lines[#lines + 1] = "\tout_texture_blend = in_texture_blend;"
-	end
-
-	if options.vertex_color then
-		lines[#lines + 1] = "\tout_vertex_color = in_vertex_color;"
-	end
-
-	lines[#lines + 1] = "}"
-	return table.concat(lines, "\n")
-end
-
--- options.instance_world_expr and instance_prev_world_expr replace the instance
--- attributes, and options.main_prologue runs first in main, for stages that
--- fetch their vertex and instance themselves
-local function build_instanced_vertex_shader(options)
-	local world_expr = options.instance_world_expr or get_instance_world_expr()
-	local enable_vertex_animation = options.enable_vertex_animation ~= false
-	local lines = {}
-
-	if enable_vertex_animation then
-		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl("vertex_animation", world_expr)
+	if options.enable_vertex_animation ~= false then
+		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl(world_expr)
 	end
 
 	lines[#lines + 1] = "void main() {"
 
-	if options.main_prologue then lines[#lines + 1] = options.main_prologue end
+	if main_prologue then lines[#lines + 1] = main_prologue end
 
-	lines[#lines + 1] = "\tmat4 instance_world = " .. world_expr .. ";"
-	lines[#lines + 1] = "\tvec3 local_position = in_position;"
-	lines[#lines + 1] = "\tvec3 world_position = (instance_world * vec4(local_position, 1.0)).xyz;"
-	lines[#lines + 1] = "\tmat3 world_matrix3 = mat3(instance_world);"
-	lines[#lines + 1] = "\tmat3 inv_world_matrix3 = inverse(world_matrix3);"
-	lines[#lines + 1] = "\tvec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);"
-	lines[#lines + 1] = "\tvec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);"
+	lines[#lines + 1] = "\tmat4 world = " .. world_expr .. ";"
+	lines[#lines + 1] = [[
+	vec3 local_position = in_position;
+	vec3 world_position = (world * vec4(local_position, 1.0)).xyz;
+	mat3 world_matrix3 = mat3(world);
+	mat3 inv_world_matrix3 = inverse(world_matrix3);
+	vec3 world_normal = normalize(transpose(inv_world_matrix3) * in_normal);
+	vec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);]]
 
 	if options.velocity then
 		-- gpu culled static batches bind one buffer to both instance bindings, so
 		-- this is literally the same matrix and the subtraction cancels
-		lines[#lines + 1] = "\tmat4 instance_prev_world = " .. (
-				options.instance_prev_world_expr or
-				get_instance_prev_world_expr()
-			) .. ";"
-		lines[#lines + 1] = "\tvec3 prev_world_position = (instance_prev_world * vec4(in_position, 1.0)).xyz;"
+		lines[#lines + 1] = "\tvec3 prev_world_position = (" .. prev_world_expr .. " * vec4(in_position, 1.0)).xyz;"
 	end
 
-	if enable_vertex_animation then
+	if options.enable_vertex_animation ~= false then
 		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, in_vertex_color);"
 
 		if options.velocity then
 			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, in_vertex_color);"
 		end
 
-		lines[#lines + 1] = "\tif (dot(world_offset, world_offset) > 0.0) {"
-		lines[#lines + 1] = "\t\tlocal_position += inv_world_matrix3 * world_offset;"
-		lines[#lines + 1] = "\t\tworld_position += world_offset;"
-		lines[#lines + 1] = "\t}"
+		lines[#lines + 1] = [[
+	if (dot(world_offset, world_offset) > 0.0) {
+		local_position += inv_world_matrix3 * world_offset;
+		world_position += world_offset;
+	}]]
 	end
 
-	if options.include_projection_view == false then
-		local camera_uniform_block_name = options.camera_uniform_block_name or "camera_data"
-		lines[#lines + 1] = "\tgl_Position = " .. camera_uniform_block_name .. ".projection * " .. camera_uniform_block_name .. ".view * vec4(world_position, 1.0);"
+	if options.camera_block_name then
+		lines[#lines + 1] = (
+			"\tgl_Position = %s.projection * %s.view * vec4(world_position, 1.0);"
+		):format(options.camera_block_name, options.camera_block_name)
 	else
-		lines[#lines + 1] = "\tgl_Position = vertex.projection_view * vec4(world_position, 1.0);"
+		lines[#lines + 1] = "\tgl_Position = vertex.projection_view_world * vec4(local_position, 1.0);"
 	end
 
-	if options.position ~= false then
-		lines[#lines + 1] = "\tout_position = world_position;"
-	end
+	lines[#lines + 1] = "\tout_position = world_position;"
 
 	if options.velocity then
 		lines[#lines + 1] = "\tout_prev_position = prev_world_position;"
@@ -589,11 +395,7 @@ local function build_instanced_vertex_shader(options)
 end
 
 local function get_vertex_stage_outputs(options)
-	local outputs = {}
-
-	if options.position ~= false then
-		outputs[#outputs + 1] = {"position", "vec3"}
-	end
+	local outputs = {{"position", "vec3"}}
 
 	if options.normal then outputs[#outputs + 1] = {"normal", "vec3"} end
 
@@ -614,49 +416,65 @@ local function get_vertex_stage_outputs(options)
 	return outputs
 end
 
-function model_pipeline.CreateVertexStage(options)
-	options = options or {}
-	local storage_key = options.transform_storage or "push_constants"
-	local enable_vertex_animation = options.enable_vertex_animation ~= false
-	local include_projection_view_world = options.include_projection_view_world ~= false
-	local transform_buffers = {
-		{
-			name = options.transform_block_name or "vertex",
-			block = model_pipeline.GetTransformBlock(include_projection_view_world, options.velocity),
-			write = model_pipeline.BuildTransformBlockWriter(
-				include_projection_view_world,
-				options.get_projection_view_world_matrix,
-				options.velocity
-			),
-		},
-	}
-	local animation_buffers = {}
-	local extra_uniform_buffers = {}
+local function get_vertex_stage_uniform_buffers(options)
+	local uniform_buffers = {}
 
 	if options.uniform_buffers then
-		for _, buffer in ipairs(options.uniform_buffers) do
-			extra_uniform_buffers[#extra_uniform_buffers + 1] = buffer
-		end
+		table.add(uniform_buffers, options.uniform_buffers)
 	end
 
-	if enable_vertex_animation then
-		animation_buffers = options.vertex_uniform_buffers or
-			{
-				{
-					name = "vertex_animation",
-					upload_scope = "frame_keyed",
-					upload_key = model_pipeline.GetVertexAnimationUploadKey,
-					block = model_pipeline.GetVertexAnimationBlock(),
-					write = model_pipeline.WriteVertexAnimationBlock,
-				},
-			}
+	if options.enable_vertex_animation ~= false then
+		uniform_buffers[#uniform_buffers + 1] = {
+			name = "vertex_animation",
+			upload_scope = "frame_keyed",
+			upload_key = model_pipeline.GetVertexAnimationUploadKey,
+			block = model_pipeline.GetVertexAnimationBlock(),
+			write = model_pipeline.WriteVertexAnimationBlock,
+		}
 	end
+
+	return uniform_buffers[1] and uniform_buffers or nil
+end
+
+-- the model's world matrix comes from the "vertex" push constants, along with
+-- projection_view_world unless options.camera_block_name is set
+function model_pipeline.CreateVertexStage(options)
+	local camera_block = options.camera_block_name ~= nil
+	local get_projection_view_world_matrix = options.get_projection_view_world_matrix or render3d.GetProjectionViewWorldMatrix
+	local block = {}
+
+	if not camera_block then
+		block[#block + 1] = {"projection_view_world", "mat4"}
+	end
+
+	block[#block + 1] = {"world", "mat4"}
+
+	if options.velocity then block[#block + 1] = {"prev_world", "mat4"} end
 
 	local stage = {
-		binding_index = options.binding_index or 0,
+		binding_index = 0,
 		attributes = model_pipeline.GetVertexAttributes(),
-		[storage_key] = transform_buffers,
-		shader = build_vertex_shader(options),
+		push_constants = {
+			{
+				name = "vertex",
+				block = block,
+				write = function(self, block)
+					if not camera_block then
+						get_projection_view_world_matrix():CopyToFloatPointer(block.projection_view_world)
+					end
+
+					render3d.GetWorldMatrix():CopyToFloatPointer(block.world)
+
+					if options.velocity then
+						render3d.GetPreviousWorldMatrix():CopyToFloatPointer(block.prev_world)
+					end
+
+					return block
+				end,
+			},
+		},
+		uniform_buffers = get_vertex_stage_uniform_buffers(options),
+		shader = build_vertex_shader(options, "vertex.world", "vertex.prev_world"),
 	}
 
 	if options.velocity then
@@ -665,125 +483,38 @@ function model_pipeline.CreateVertexStage(options)
 		stage.outputs = outputs
 	end
 
-	if storage_key == "uniform_buffers" then
-		for _, buffer in ipairs(extra_uniform_buffers) do
-			table.insert(transform_buffers, buffer)
-		end
-
-		for _, buffer in ipairs(animation_buffers) do
-			table.insert(transform_buffers, buffer)
-		end
-
-		stage.uniform_buffers = transform_buffers
-	else
-		local uniform_buffers = {}
-
-		for _, buffer in ipairs(extra_uniform_buffers) do
-			uniform_buffers[#uniform_buffers + 1] = buffer
-		end
-
-		for _, buffer in ipairs(animation_buffers) do
-			uniform_buffers[#uniform_buffers + 1] = buffer
-		end
-
-		stage.uniform_buffers = uniform_buffers[1] and uniform_buffers or nil
-	end
-
 	return stage
 end
 
+-- the world matrices come per instance from the vertex bindings 1 and 2
 function model_pipeline.CreateInstancedVertexStage(options)
-	options = options or {}
-	local storage_key = options.transform_storage or "push_constants"
-	local enable_vertex_animation = options.enable_vertex_animation ~= false
-	local include_projection_view = options.include_projection_view ~= false
-	local transform_buffers = nil
-	local animation_buffers = {}
-	local extra_uniform_buffers = {}
-
-	if options.uniform_buffers then
-		for _, buffer in ipairs(options.uniform_buffers) do
-			extra_uniform_buffers[#extra_uniform_buffers + 1] = buffer
-		end
-	end
-
-	if include_projection_view then
-		transform_buffers = {
-			{
-				name = options.transform_block_name or "vertex",
-				block = model_pipeline.GetInstancedTransformBlock(include_projection_view),
-				write = model_pipeline.BuildInstancedTransformBlockWriter(include_projection_view, options.get_projection_view_matrix),
-			},
-		}
-	end
-
-	if enable_vertex_animation then
-		animation_buffers = options.vertex_uniform_buffers or
-			{
-				{
-					name = "vertex_animation",
-					upload_scope = "frame_keyed",
-					upload_key = model_pipeline.GetVertexAnimationUploadKey,
-					block = model_pipeline.GetVertexAnimationBlock(),
-					write = model_pipeline.WriteVertexAnimationBlock,
-				},
-			}
-	end
-
 	local bindings = {
 		{
-			binding = options.binding_index or 0,
+			binding = 0,
 			input_rate = "vertex",
 			attributes = model_pipeline.GetVertexAttributes(),
 		},
 		{
-			binding = options.instance_binding_index or 1,
+			binding = 1,
 			input_rate = "instance",
-			attributes = model_pipeline.GetInstanceAttributes(),
+			attributes = {{"instance_world", "mat4"}},
 		},
 	}
 
 	if options.velocity then
 		bindings[#bindings + 1] = {
-			binding = options.prev_instance_binding_index or 2,
+			binding = 2,
 			input_rate = "instance",
-			attributes = model_pipeline.GetPreviousInstanceAttributes(),
+			attributes = {{"instance_prev_world", "mat4"}},
 		}
 	end
 
-	local stage = {
+	return {
 		bindings = bindings,
 		outputs = get_vertex_stage_outputs(options),
-		shader = build_instanced_vertex_shader(options),
+		uniform_buffers = get_vertex_stage_uniform_buffers(options),
+		shader = build_vertex_shader(options, INSTANCE_WORLD_EXPR, INSTANCE_PREV_WORLD_EXPR),
 	}
-
-	if transform_buffers then stage[storage_key] = transform_buffers end
-
-	if storage_key == "uniform_buffers" then
-		stage.uniform_buffers = transform_buffers or {}
-
-		for _, buffer in ipairs(extra_uniform_buffers) do
-			table.insert(stage.uniform_buffers, buffer)
-		end
-
-		for _, buffer in ipairs(animation_buffers) do
-			table.insert(stage.uniform_buffers, buffer)
-		end
-	else
-		local uniform_buffers = {}
-
-		for _, buffer in ipairs(extra_uniform_buffers) do
-			uniform_buffers[#uniform_buffers + 1] = buffer
-		end
-
-		for _, buffer in ipairs(animation_buffers) do
-			uniform_buffers[#uniform_buffers + 1] = buffer
-		end
-
-		stage.uniform_buffers = uniform_buffers[1] and uniform_buffers or nil
-	end
-
-	return stage
 end
 
 -- Multi-draw batches: one indirect draw covers every instanced batch, so what a
@@ -909,10 +640,7 @@ do
 			offset = offset + def.float_count
 		end
 
-		local stage_options = table.merge({}, options)
-		stage_options.instance_world_expr = "multi_draw_instance_world"
-		stage_options.instance_prev_world_expr = "multi_draw_instance_world"
-		stage_options.main_prologue = [[
+		local main_prologue = [[
 	uint batch_index = uint(gl_DrawID);
 	out_batch = batch_index;
 	PBRBatchData batch_data = PBRBatchData(]] .. options.batches_expr .. [[);
@@ -958,7 +686,7 @@ layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
 mat4 multi_draw_instance_world;
 PBRBatch_vertex_animation vertex_animation;
 ]],
-			shader = build_instanced_vertex_shader(stage_options),
+			shader = build_vertex_shader(options, "multi_draw_instance_world", "multi_draw_instance_world", main_prologue),
 		}
 	end
 end
@@ -1247,9 +975,7 @@ do
 		]]):format(table.concat(fields, "\n\t\t\t\t"))
 	end
 
-	function model_pipeline.BuildVertexAnimationUniformDeclaration(block_name, binding_index)
-		block_name = block_name or "vertex_animation"
-		binding_index = binding_index or 0
+	function model_pipeline.BuildVertexAnimationUniformDeclaration(binding_index)
 		local fields = {}
 
 		for i, field in ipairs(FIELDS) do
@@ -1260,9 +986,9 @@ do
 			[[
 				layout(scalar, binding = %d) uniform VertexAnimation_t {
 			%s
-				} %s;
+				} vertex_animation;
 		]]
-		):format(binding_index, table.concat(fields, "\n"), block_name)
+		):format(binding_index, table.concat(fields, "\n"))
 	end
 
 	function model_pipeline.GetVertexAnimationBlock()
@@ -1318,12 +1044,10 @@ end
 
 -- cryengine 2's vegetation bending (ModificatorVT.cfi _DetailBending), done in object space
 -- vertex color r: leaf edge flutter, g: branch phase, b: branch stiffness, a: ambient occlusion
-function model_pipeline.BuildVertexAnimationGlsl(block_name, world_matrix_expr)
-	block_name = block_name or "vertex_animation"
-	world_matrix_expr = world_matrix_expr or "mat4(1.0)"
+function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 	return [[
 			bool has_vertex_animation() {
-				return ]] .. block_name .. [[.MainBending > 0.0 || (]] .. block_name .. [[.DetailBending != 0 && ]] .. block_name .. [[.BendSpeed > 0.0);
+				return vertex_animation.MainBending > 0.0 || (vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0);
 			}
 
 			vec4 vegetation_triangle_wave(vec4 x) {
@@ -1345,41 +1069,41 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name, world_matrix_expr)
 				// object space is y up, cryengine's is z up, so its xy is our xz
 				vec3 start_pos = inv_world_matrix3 * (world_pos - origin);
 				vec3 pos = start_pos;
-				float speed = ]] .. block_name .. [[.BendSpeed;
+				float speed = vertex_animation.BendSpeed;
 
-				if (]] .. block_name .. [[.DetailBending != 0) {
+				if (vertex_animation.DetailBending != 0) {
 					vec4 color = clamp(vertex_color, 0.0, 1.0);
 					float edge_atten = color.r;
 					float branch_atten = 1.0 - color.b;
 					float detail_speed = speed;
-					if (]] .. block_name .. [[.DetailBending == 2) detail_speed *= pos.y;
+					if (vertex_animation.DetailBending == 2) detail_speed *= pos.y;
 
 					float branch_phase = color.g + dot(origin, vec3(2.0));
-					float vertex_phase = dot(pos, vec3(]] .. block_name .. [[.DetailPhase + branch_phase));
+					float vertex_phase = dot(pos, vec3(vertex_animation.DetailPhase + branch_phase));
 					vec2 waves_in = anim_time + vec2(vertex_phase, branch_phase);
-					vec4 waves = (fract(waves_in.xxyy * vec4(1.975, 0.793, 0.375, 0.193)) * 2.0 - 1.0) * detail_speed * ]] .. block_name .. [[.DetailFrequency;
+					vec4 waves = (fract(waves_in.xxyy * vec4(1.975, 0.793, 0.375, 0.193)) * 2.0 - 1.0) * detail_speed * vertex_animation.DetailFrequency;
 					waves = vegetation_triangle_wave(waves);
 					vec2 waves_sum = waves.xz + waves.yw;
 					vec3 object_normal = normalize(transpose(world_matrix3) * world_normal);
 					// leaf edges flutter along the horizontal normal, branches move up and down
-					pos.xz += waves_sum.x * edge_atten * ]] .. block_name .. [[.DetailLeafAmplitude * object_normal.xz;
-					pos.y += waves_sum.y * branch_atten * ]] .. block_name .. [[.DetailBranchAmplitude;
+					pos.xz += waves_sum.x * edge_atten * vertex_animation.DetailLeafAmplitude * object_normal.xz;
+					pos.y += waves_sum.y * branch_atten * vertex_animation.DetailBranchAmplitude;
 				}
 
-				if (]] .. block_name .. [[.MainBending > 0.0) {
-					vec3 wind_dir = inv_world_matrix3 * ]] .. block_name .. [[.BendDirection;
+				if (vertex_animation.MainBending > 0.0) {
+					vec3 wind_dir = inv_world_matrix3 * vertex_animation.BendDirection;
 					vec2 bend_dir = normalize(wind_dir.xz);
-					vec2 bend = bend_dir * ]] .. block_name .. [[.MainBending;
+					vec2 bend = bend_dir * vertex_animation.MainBending;
 
 					// gusts, cryengine adds these on its object axes, here along and across the wind
 					float wave_in = (anim_time + length(origin) * 2.0) * 2.0;
 					vec4 waves = (fract(wave_in * vec4(0.95, 0.45793, 0.913, 0.5793) * 0.1) * 2.0 - 1.0) * 0.7 * speed;
 					waves = vegetation_smooth_triangle_wave(waves);
 					vec2 waves_sum = waves.xz + waves.yw;
-					bend += (bend_dir * (waves_sum.x - 1.0) + vec2(-bend_dir.y, bend_dir.x) * (waves_sum.y - 1.0) * 0.5) * (0.3333 * ]] .. block_name .. [[.MainBending);
+					bend += (bend_dir * (waves_sum.x - 1.0) + vec2(-bend_dir.y, bend_dir.x) * (waves_sum.y - 1.0) * 0.5) * (0.3333 * vertex_animation.MainBending);
 					bend *= 0.015;
 
-					float bend_factor = pos.y / ]] .. block_name .. [[.BendHeight + 1.0;
+					float bend_factor = pos.y / vertex_animation.BendHeight + 1.0;
 					bend_factor *= bend_factor;
 					bend_factor = bend_factor * bend_factor - bend_factor;
 					float len = length(pos);
@@ -1396,17 +1120,16 @@ function model_pipeline.BuildVertexAnimationGlsl(block_name, world_matrix_expr)
 			}
 
 			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
-				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, ]] .. block_name .. [[.Time);
+				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_animation.Time);
 			}
 
 			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
-				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, ]] .. block_name .. [[.PrevTime);
+				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_animation.PrevTime);
 			}
 	]]
 end
 
 function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr)
-	alpha_cutoff_expr = alpha_cutoff_expr or "model.AlphaCutoff"
 	return (
 		[[
 			void compute_translucency_and_discard(inout float alpha) {
@@ -1421,8 +1144,6 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr)
 end
 
 function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr)
-	texture_index_expr = texture_index_expr or "pc.albedo_texture_index"
-	color_multiplier_a_expr = color_multiplier_a_expr or "pc.color_multiplier_a"
 	return (
 		[[
 			float get_alpha_uv(vec2 uv) {
@@ -1449,38 +1170,37 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 	)
 end
 
-function model_pipeline.BuildSurfaceSamplingGlsl(model_var)
-	model_var = model_var or "model"
-	return Material.BuildGlslFlags(model_var .. ".Flags") .. [[
+function model_pipeline.BuildSurfaceSamplingGlsl()
+	return Material.BuildGlslFlags("model.Flags") .. [[
 
 			vec4 get_surface_color() {
-				vec4 color = ]] .. model_var .. [[.ColorMultiplier;
+				vec4 color = model.ColorMultiplier;
 
-				if (]] .. model_var .. [[.AlbedoTexture != -1) {
-					color *= texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), in_uv);
+				if (model.AlbedoTexture != -1) {
+					color *= texture(TEXTURE(model.AlbedoTexture), in_uv);
 				}
 
 				return color;
 			}
 
 			void discard_surface_alpha(vec4 color) {
-				if (AlphaTest && color.a < ]] .. model_var .. [[.AlphaCutoff) discard;
+				if (AlphaTest && color.a < model.AlphaCutoff) discard;
 			}
 
 			vec3 get_surface_emissive(vec3 albedo) {
 				if (AlbedoAlphaIsEmissive) {
 					float mask = 1.0;
 
-					if (]] .. model_var .. [[.AlbedoTexture != -1) {
-						mask = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), in_uv).a;
+					if (model.AlbedoTexture != -1) {
+						mask = texture(TEXTURE(model.AlbedoTexture), in_uv).a;
 					}
 
-					return albedo * mask * ]] .. model_var .. [[.EmissiveMultiplier.rgb * ]] .. model_var .. [[.EmissiveMultiplier.a;
+					return albedo * mask * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
 				}
 
-				if (]] .. model_var .. [[.EmissiveTexture != -1) {
-					vec3 emissive = texture(TEXTURE(]] .. model_var .. [[.EmissiveTexture), in_uv).rgb;
-					return emissive * ]] .. model_var .. [[.EmissiveMultiplier.rgb * ]] .. model_var .. [[.EmissiveMultiplier.a;
+				if (model.EmissiveTexture != -1) {
+					vec3 emissive = texture(TEXTURE(model.EmissiveTexture), in_uv).rgb;
+					return emissive * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
 				}
 
 				return vec3(0.0);
@@ -1553,16 +1273,10 @@ end
 -- forward passes shade. Wants the GetPBRUniformBuffers blocks and a vertex
 -- stage with position, normal, tangent, uv, texture_blend and vertex_color.
 function model_pipeline.BuildPBRSurfaceGlsl()
-	local model_var = "model"
-	local terrain_var = "terrain_model"
-	local displacement_var = "displacement_model"
-	local detail_var = "detail_model"
-	local factor_var = "factor_model"
-	local color_var = "color_model"
-	return Material.BuildGlslFlags(model_var .. ".Flags") .. [[
+	return Material.BuildGlslFlags("model.Flags") .. [[
 
 			bool has_heightmap() {
-				return ]] .. displacement_var .. [[.HeightTexture != -1 && ]] .. displacement_var .. [[.HeightScale > 0.0;
+				return displacement_model.HeightTexture != -1 && displacement_model.HeightScale > 0.0;
 			}
 
 			float get_height_sample(vec2 uv) {
@@ -1570,24 +1284,24 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 					return 1.0;
 				}
 
-				return texture(TEXTURE(]] .. displacement_var .. [[.HeightTexture), uv).r;
+				return texture(TEXTURE(displacement_model.HeightTexture), uv).r;
 			}
 
 			float get_height_centered_sample(vec2 uv) {
-				return get_height_sample(uv) - ]] .. displacement_var .. [[.HeightCenter;
+				return get_height_sample(uv) - displacement_model.HeightCenter;
 			}
 
 			int get_height_layers() {
-				return clamp(]] .. displacement_var .. [[.HeightLayers, 4, 64);
+				return clamp(displacement_model.HeightLayers, 4, 64);
 			}
 
 			float get_texture_blend_uv(vec2 uv) {
-				if (]] .. detail_var .. [[.BlendTexture == -1) {
+				if (detail_model.BlendTexture == -1) {
 					return in_texture_blend;
 				}
 
 				// source blendmodulate: g is the transition center, r its half width
-				vec2 modulate = texture(TEXTURE(]] .. detail_var .. [[.BlendTexture), uv).rg;
+				vec2 modulate = texture(TEXTURE(detail_model.BlendTexture), uv).rg;
 				return smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), in_texture_blend);
 			}
 
@@ -1596,11 +1310,11 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			}
 
 			vec3 get_terrain_world_normal(vec2 uv) {
-				if (]] .. model_var .. [[.NormalTexture == -1) {
+				if (model.NormalTexture == -1) {
 					return vec3(0.0, 1.0, 0.0);
 				}
 
-				vec2 n = texture(TEXTURE(]] .. model_var .. [[.NormalTexture), uv).xy * 2.0 - 1.0;
+				vec2 n = texture(TEXTURE(model.NormalTexture), uv).xy * 2.0 - 1.0;
 				return normalize(vec3(n.x, sqrt(max(1.0 - dot(n, n), 0.0)), n.y));
 			}
 
@@ -1661,11 +1375,11 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			}
 
 			vec4 get_terrain_material_weights_uv(vec2 uv) {
-				if (]] .. terrain_var .. [[.TerrainMaterialTexture == -1) {
+				if (terrain_model.TerrainMaterialTexture == -1) {
 					return vec4(0.0);
 				}
 
-				vec4 weights = texture(TEXTURE(]] .. terrain_var .. [[.TerrainMaterialTexture), uv);
+				vec4 weights = texture(TEXTURE(terrain_model.TerrainMaterialTexture), uv);
 				weights = max(weights, vec4(0.0));
 				float weight_sum = dot(weights, vec4(1.0));
 
@@ -1741,14 +1455,14 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				vec4 weights = get_terrain_material_weights_uv(uv);
 				vec3 N = get_terrain_world_normal(uv);
 				vec3 blend = get_terrain_triplanar_weights(N);
-				vec4 scales = ]] .. terrain_var .. [[.TerrainLayerScales;
-				vec4 detail = ]] .. terrain_var .. [[.TerrainLayerDetailStrength;
-				vec4 additive_detail = ]] .. terrain_var .. [[.TerrainLayerAdditiveDetail;
-				vec3 base = ]] .. model_var .. [[.AlbedoTexture != -1 ? texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb : vec3(1.0);
-				accumulate_terrain_layer(s, base, ]] .. terrain_var .. [[.TerrainLayer1Texture, ]] .. terrain_var .. [[.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x, detail.x, additive_detail.x);
-				accumulate_terrain_layer(s, base, ]] .. terrain_var .. [[.TerrainLayer2Texture, ]] .. terrain_var .. [[.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y, detail.y, additive_detail.y);
-				accumulate_terrain_layer(s, base, ]] .. terrain_var .. [[.TerrainLayer3Texture, ]] .. terrain_var .. [[.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z, detail.z, additive_detail.z);
-				accumulate_terrain_layer(s, base, ]] .. terrain_var .. [[.TerrainLayer4Texture, ]] .. terrain_var .. [[.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w, detail.w, additive_detail.w);
+				vec4 scales = terrain_model.TerrainLayerScales;
+				vec4 detail = terrain_model.TerrainLayerDetailStrength;
+				vec4 additive_detail = terrain_model.TerrainLayerAdditiveDetail;
+				vec3 base = model.AlbedoTexture != -1 ? texture(TEXTURE(model.AlbedoTexture), uv).rgb : vec3(1.0);
+				accumulate_terrain_layer(s, base, terrain_model.TerrainLayer1Texture, terrain_model.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x, detail.x, additive_detail.x);
+				accumulate_terrain_layer(s, base, terrain_model.TerrainLayer2Texture, terrain_model.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y, detail.y, additive_detail.y);
+				accumulate_terrain_layer(s, base, terrain_model.TerrainLayer3Texture, terrain_model.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z, detail.z, additive_detail.z);
+				accumulate_terrain_layer(s, base, terrain_model.TerrainLayer4Texture, terrain_model.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w, detail.w, additive_detail.w);
 
 				if (s.normal_weight > 0.001) {
 					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
@@ -1767,48 +1481,48 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				vec4 weights = get_terrain_material_weights_uv(uv);
 
 				if (dot(weights, vec4(1.0)) <= 0.0001) {
-					return ]] .. color_var .. [[.ColorMultiplier.rgb;
+					return color_model.ColorMultiplier.rgb;
 				}
 
-				return get_terrain_layer_sample(uv, world_pos).albedo * ]] .. color_var .. [[.ColorMultiplier.rgb;
+				return get_terrain_layer_sample(uv, world_pos).albedo * color_model.ColorMultiplier.rgb;
 			}
 
 			vec3 blend_ground_color(vec3 albedo, vec3 world_pos) {
-				if (]] .. detail_var .. [[.GroundColorTexture == -1) return albedo;
+				if (detail_model.GroundColorTexture == -1) return albedo;
 
-				vec4 m = ]] .. detail_var .. [[.GroundColorUV;
+				vec4 m = detail_model.GroundColorUV;
 				vec2 ground_uv = vec2(dot(world_pos.xz, m.xy), dot(world_pos.xz, m.zw));
-				vec3 ground = texture(TEXTURE(]] .. detail_var .. [[.GroundColorTexture), ground_uv).rgb;
-				return mix(albedo, ground, ]] .. detail_var .. [[.GroundColorBlend);
+				vec3 ground = texture(TEXTURE(detail_model.GroundColorTexture), ground_uv).rgb;
+				return mix(albedo, ground, detail_model.GroundColorBlend);
 			}
 
 			vec3 get_albedo_world(vec2 uv, vec3 world_pos) {
-				if (]] .. terrain_var .. [[.TerrainMaterialTexture != -1) {
+				if (terrain_model.TerrainMaterialTexture != -1) {
 					return get_terrain_albedo_uv(uv, world_pos);
 				}
 
-				if (]] .. model_var .. [[.AlbedoTexture == -1) {
-					return blend_ground_color(]] .. color_var .. [[.ColorMultiplier.rgb, world_pos);
+				if (model.AlbedoTexture == -1) {
+					return blend_ground_color(color_model.ColorMultiplier.rgb, world_pos);
 				}
 
-				vec3 rgb1 = texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).rgb;
+				vec3 rgb1 = texture(TEXTURE(model.AlbedoTexture), uv).rgb;
 
-				if (]] .. detail_var .. [[.Albedo2Texture != -1) {
+				if (detail_model.Albedo2Texture != -1) {
 					float blend = get_texture_blend_uv(uv);
 
 					if (blend != 0) {
-						vec3 rgb2 = texture(TEXTURE(]] .. detail_var .. [[.Albedo2Texture), uv).rgb;
+						vec3 rgb2 = texture(TEXTURE(detail_model.Albedo2Texture), uv).rgb;
 						rgb1 = mix(rgb1, rgb2, blend);
 					}
 				}
 
-				if (]] .. detail_var .. [[.DetailTexture != -1) {
-					vec2 detail_uv = uv * ]] .. detail_var .. [[.DetailTiling;
-					float detail = texture(TEXTURE(]] .. detail_var .. [[.DetailTexture), detail_uv).a + texture(TEXTURE(]] .. detail_var .. [[.DetailTexture), detail_uv * 2.0).a;
-					rgb1 = mix(rgb1, rgb1 * detail, ]] .. detail_var .. [[.DetailBlendAmount);
+				if (detail_model.DetailTexture != -1) {
+					vec2 detail_uv = uv * detail_model.DetailTiling;
+					float detail = texture(TEXTURE(detail_model.DetailTexture), detail_uv).a + texture(TEXTURE(detail_model.DetailTexture), detail_uv * 2.0).a;
+					rgb1 = mix(rgb1, rgb1 * detail, detail_model.DetailBlendAmount);
 				}
 
-				return blend_ground_color(rgb1 * ]] .. color_var .. [[.ColorMultiplier.rgb, world_pos);
+				return blend_ground_color(rgb1 * color_model.ColorMultiplier.rgb, world_pos);
 			}
 
 			vec3 get_albedo_uv(vec2 uv) {
@@ -1821,15 +1535,15 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 
 			float get_alpha_uv(vec2 uv) {
 				if (
-					]] .. model_var .. [[.AlbedoTexture == -1 ||
+					model.AlbedoTexture == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
 					AlbedoTextureAlphaIsRoughness ||
 					AlbedoAlphaIsEmissive
 				) {
-					return ]] .. color_var .. [[.ColorMultiplier.a;
+					return color_model.ColorMultiplier.a;
 				}
 
-				return texture(TEXTURE(]] .. model_var .. [[.AlbedoTexture), uv).a * ]] .. color_var .. [[.ColorMultiplier.a;
+				return texture(TEXTURE(model.AlbedoTexture), uv).a * color_model.ColorMultiplier.a;
 			}
 
 			float get_alpha() {

@@ -307,8 +307,7 @@ return {
 			uv = true,
 			texture_blend = true,
 			vertex_color = true,
-			include_projection_view_world = false,
-			camera_uniform_block_name = "translucent_camera",
+			camera_block_name = "translucent_camera",
 			uniform_buffers = {camera_block},
 		},
 		fragment = {
@@ -380,8 +379,7 @@ return {
 			texture_blend = true,
 			vertex_color = true,
 			velocity = true,
-			include_projection_view_world = false,
-			camera_uniform_block_name = "translucent_camera",
+			camera_block_name = "translucent_camera",
 			uniform_buffers = {camera_block},
 		},
 		fragment = {

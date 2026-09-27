@@ -45,7 +45,7 @@ return {
 				},
 			},
 			shader = [[
-			]] .. model_pipeline.BuildSurfaceSamplingGlsl("model") .. [[
+			]] .. model_pipeline.BuildSurfaceSamplingGlsl() .. [[
 
 			layout(location = 0) out vec4 frag_color;
 

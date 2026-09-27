@@ -129,7 +129,7 @@ local function create_preview_pipeline()
 				},
 			},
 			shader = [[
-			]] .. model_pipeline.BuildSurfaceSamplingGlsl("model") .. [[
+			]] .. model_pipeline.BuildSurfaceSamplingGlsl() .. [[
 
 			void main() {
 				vec4 albedo = get_surface_color();

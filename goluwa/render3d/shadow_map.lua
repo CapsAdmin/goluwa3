@@ -314,13 +314,10 @@ local function build_shadow_projected_main(
 	)
 end
 
-local function BuildShadowGeometryDeformationGlsl(block_name, shadow_state_var, world_matrix_expr)
-	block_name = block_name or "vertex_animation"
-	shadow_state_var = shadow_state_var or "pc"
-	world_matrix_expr = world_matrix_expr or "pc.world"
-	return model_pipeline.BuildVertexAnimationGlsl(block_name, world_matrix_expr) .. [[
+local function BuildShadowGeometryDeformationGlsl(world_matrix_expr)
+	return model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr) .. [[
 			bool shadow_has_heightmap() {
-				return ]] .. shadow_state_var .. [[.height_texture_index != -1 && ]] .. shadow_state_var .. [[.height_scale > 0.0;
+				return shadow_state.height_texture_index != -1 && shadow_state.height_scale > 0.0;
 			}
 
 			float shadow_get_height_sample(vec2 uv) {
@@ -328,11 +325,11 @@ local function BuildShadowGeometryDeformationGlsl(block_name, shadow_state_var, 
 					return 1.0;
 				}
 
-				return texture(textures[nonuniformEXT(]] .. shadow_state_var .. [[.height_texture_index)], uv).r;
+				return texture(textures[nonuniformEXT(shadow_state.height_texture_index)], uv).r;
 			}
 
 			float shadow_get_height_centered_sample(vec2 uv) {
-				return shadow_get_height_sample(uv) - ]] .. shadow_state_var .. [[.height_center;
+				return shadow_get_height_sample(uv) - shadow_state.height_center;
 			}
 
 			void apply_shadow_geometry_deformation(
@@ -346,7 +343,7 @@ local function BuildShadowGeometryDeformationGlsl(block_name, shadow_state_var, 
 				mat3 inv_world_matrix3
 			) {
 				if (shadow_has_heightmap()) {
-					world_pos += vec3(0.0, 1.0, 0.0) * (shadow_get_height_centered_sample(uv) * ]] .. shadow_state_var .. [[.height_scale);
+					world_pos += vec3(0.0, 1.0, 0.0) * (shadow_get_height_centered_sample(uv) * shadow_state.height_scale);
 				}
 
 				vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, vertex_color);
@@ -378,11 +375,11 @@ local function build_shadow_vertex_stage(self, bindless_texture_capacity)
 
 					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
 				]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
-				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
+				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration(1) .. [[
 					layout(location = 0) out vec2 out_uv;
 					layout(location = 1) out vec3 out_world_pos;
 
-				]] .. BuildShadowGeometryDeformationGlsl("vertex_animation", "shadow_state") .. build_shadow_projected_main(
+				]] .. BuildShadowGeometryDeformationGlsl("pc.world") .. build_shadow_projected_main(
 				"pc.world",
 				"in_position",
 				"in_normal",
@@ -420,13 +417,11 @@ local function build_shadow_instanced_vertex_stage(self, bindless_texture_capaci
 					layout(location = 9) in vec4 in_instance_world_row_3;
 
 				]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
-				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration("vertex_animation", 1) .. [[
+				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration(1) .. [[
 					layout(location = 0) out vec2 out_uv;
 					layout(location = 1) out vec3 out_world_pos;
 
 				]] .. BuildShadowGeometryDeformationGlsl(
-				"vertex_animation",
-				"shadow_state",
 				"mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
 			) .. build_shadow_projected_main(
 				"mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)",
@@ -768,7 +763,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 			mat4 shadow_world;
 			VertexAnimation_t vertex_animation;
 
-			]] .. model_pipeline.BuildVertexAnimationGlsl("vertex_animation", "shadow_world") .. [[
+			]] .. model_pipeline.BuildVertexAnimationGlsl("shadow_world") .. [[
 
 			#define SHADOW_VERTEX_FLOATS ]] .. SHADOW_VERTEX_FLOAT_COUNT .. [[u
 
