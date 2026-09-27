@@ -6,11 +6,11 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
-local voxel_gi = import("goluwa/render3d/voxels/global_illumination.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
+local ddgi = import("goluwa/render3d/ddgi.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
@@ -94,9 +94,6 @@ return {
 					surface_lighting.block,
 					render3d.gbuffer_block,
 					render3d.last_frame_block,
-					-- the lighting shader reads its GI from gi_screen_tex, not
-					-- from the probe cascades, so gi_debug is the only field of
-					-- the voxel gi block it ever touched
 					{"gi_debug", "int"},
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
@@ -106,7 +103,7 @@ return {
 					surface_lighting.WriteBlock(self, block)
 					render3d.WriteGBufferBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
-					block.gi_debug = voxel_gi.debug_mode or 0
+					block.gi_debug = ddgi.DEBUG_GI
 
 					if render3d.pipelines.ambient_occlusion_blur then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -114,8 +111,7 @@ return {
 						block.ambient_occlusion_tex = -1
 					end
 
-					local gi_provider = render3d.GetGIProvider()
-					local overlay = gi_provider and gi_provider.GetDebugOverlayTexture() or nil
+					local overlay = ddgi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
 
 					if render3d.pipelines.ssr then

@@ -536,45 +536,10 @@ local function material_draws_in_gbuffer(material)
 		)
 end
 
-local last_scene_voxelizer_invalidation_frame = -1
-
-local function voxelizer_has_dirty_work(voxelizer)
-	if not voxelizer or not voxelizer.GetClipmaps then return false end
-
-	for _, clipmap in ipairs(voxelizer.GetClipmaps() or {}) do
-		if clipmap.dirty then return true end
-	end
-
-	return false
-end
-
-local function invalidate_scene_voxelizer(full_rebuild)
-	if not render3d or not render3d.GetSceneVoxelizer then return end
-
-	local voxelizer = render3d.GetSceneVoxelizer()
-
-	if not voxelizer or not voxelizer.InvalidateAll then return end
-
-	if voxelizer.IsEnabled and not voxelizer:IsEnabled() then return end
-
-	local frame = system.GetFrameNumber and system.GetFrameNumber() or -1
-
-	if
-		last_scene_voxelizer_invalidation_frame == frame and
-		voxelizer_has_dirty_work(voxelizer)
-	then
-		return
-	end
-
-	last_scene_voxelizer_invalidation_frame = frame
-	voxelizer.InvalidateAll(full_rebuild ~= false)
-end
-
 -- rebuilds the scene acceleration and the gpu dataset from every visual
 local function invalidate_scene_acceleration()
 	visual.scene_full_rebuild = true
 	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
-	invalidate_scene_voxelizer(true)
 end
 
 -- patches only this component into the scene acceleration and the gpu dataset
@@ -584,7 +549,6 @@ local function mark_scene_component_dirty(component, structure)
 	local dirty = visual.scene_dirty_components
 	dirty[component] = structure or dirty[component] or false
 	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
-	invalidate_scene_voxelizer(true)
 end
 
 local function next_shadow_change_version()
@@ -3239,37 +3203,6 @@ function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibil
 	else
 		record_shadow_debug_hit(self, cascade_idx, "no_world_matrix")
 	end
-end
-
-function Visual:DrawVoxelGeometry(scene_voxelizer, clipmap_index, submit_entry)
-	if not self.Visible then return 0 end
-
-	if not self:IsWithinCullDistance() then return 0 end
-
-	local submitted_entries = 0
-
-	for _, entry in ipairs(self:GetRenderEntries()) do
-		local transform = entry.transform
-		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
-
-		if world_matrix then
-			local material = self:GetResolvedMaterial(entry)
-
-			if scene_voxelizer.ShouldVoxelizeMaterial(material) then
-				render3d.SetWorldMatrix(world_matrix)
-				render3d.SetCurrentPolygon3D(entry.polygon3d)
-				render3d.SetMaterial(material)
-
-				if submit_entry then
-					submit_entry(scene_voxelizer, clipmap_index, self, entry, world_matrix, material)
-				end
-
-				submitted_entries = submitted_entries + 1
-			end
-		end
-	end
-
-	return submitted_entries
 end
 
 function Visual:OnChildAdd()

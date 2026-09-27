@@ -87,7 +87,7 @@ local function write_lights_block(self, block)
 end
 
 local function write_gi_screen_texture(self, block, key)
-	local texture = render3d.gi_provider.GetScreenTexture()
+	local texture = ddgi.GetScreenTexture()
 	block[key] = texture and self:GetTextureIndex(texture) or -1
 end
 

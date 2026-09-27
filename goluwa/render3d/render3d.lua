@@ -10,11 +10,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
 local system = import("goluwa/system.lua")
-local commands = import("goluwa/cli/commands.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
-local scene_voxelizer = import("goluwa/render3d/voxels/scene_voxelizer.lua")
-local global_illumination = import("goluwa/render3d/voxels/global_illumination.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local light_components = import("goluwa/entities/components/light.lua")
@@ -92,21 +89,6 @@ function render3d.WriteCommonBlock(self, block)
 end
 
 render3d.velocity_enabled = render3d.velocity_enabled ~= false
--- "rc" (radiance cascades) or "ddgi". Selects which GI passes are built in
--- CreatePipelineBundle and which module provides the screen GI texture the
--- lighting pass consumes. Changes apply on the next render3d.Initialize.
-render3d.gi_backend = render3d.gi_backend or "ddgi"
-render3d.gi_provider = nil
-
-function render3d.SetGIBackend(backend)
-	assert(backend == "rc" or backend == "ddgi", "unknown gi backend " .. tostring(backend))
-	render3d.gi_backend = backend
-end
-
-function render3d.GetGIProvider()
-	return render3d.gi_provider
-end
-
 -- Material emissive multipliers are relative; this is the luminance a
 -- multiplier of 1 stands for. Anything that shades emissive surfaces itself
 -- (the gbuffer, GI hit shading) must scale by the same amount.
@@ -119,12 +101,6 @@ function render3d.GetEmissiveGLSL()
 		"const float EMISSIVE_REFERENCE_LUMINANCE = %.1f;\nconst float EMISSIVE_MAX_LUMINANCE = %.1f;\n"
 	):format(render3d.EMISSIVE_REFERENCE_LUMINANCE, render3d.EMISSIVE_MAX_LUMINANCE)
 end
-
-commands.Add("gi_backend=string[rc]", function(backend)
-	render3d.SetGIBackend(backend)
-	render3d.Initialize()
-	logf("[render3d] gi backend %s\n", backend)
-end)
 
 function render3d.SetVelocityEnabled(enabled)
 	render3d.velocity_enabled = enabled ~= false
@@ -302,20 +278,12 @@ function render3d.CreatePipelineBundle(options)
 	local filter = options.filter
 	local include_names = options.include_names
 	local exclude_names = options.exclude_names or {}
-	local gi_backend = render3d.gi_backend or "rc"
-	render3d.gi_provider = gi_backend == "ddgi" and
-		import("goluwa/render3d/ddgi.lua") or
-		import("goluwa/render3d/radiance_cascades.lua")
-	local gi_passes = gi_backend == "ddgi" and
-		import("goluwa/render3d/passes/ddgi.lua") or
-		import("goluwa/render3d/passes/radiance_cascades.lua")
 	local passes = options.passes or
 		{
 			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/ambient_occlusion.lua"),
-			import("goluwa/render3d/voxels/rasterize_pass.lua"),
-			gi_passes,
+			import("goluwa/render3d/passes/ddgi.lua"),
 			import("goluwa/render3d/passes/ssr.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			import("goluwa/render3d/passes/ocean.lua"),
@@ -402,7 +370,6 @@ function render3d.Initialize(config)
 		end
 
 		scene_bvh.EnsureBuilt()
-		render3d.GetSceneVoxelizer().Update(render3d.GetCamera():GetPosition())
 		local ocean_needed = render3d.IsOceanEnabled()
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
@@ -465,13 +432,6 @@ function render3d.Shutdown()
 
 	render3d.pipelines = {}
 	render3d.pipelines_i = {}
-	local voxelizer = render3d.GetSceneVoxelizer()
-
-	if voxelizer and voxelizer.Shutdown then voxelizer:Shutdown() end
-
-	if global_illumination.RemoveResources then
-		global_illumination.RemoveResources()
-	end
 
 	if gpu_culling.Shutdown then gpu_culling.Shutdown() end
 
@@ -494,7 +454,6 @@ function render3d.ResetState()
 	render3d.environment_texture = nil
 	render3d.ocean_enabled = true
 	render3d.ocean_level = nil
-	render3d.scene_voxelizer = scene_voxelizer.ResetState()
 end
 
 function render3d.Draw(dt)
@@ -516,11 +475,6 @@ end
 
 function render3d.GetPreviousElapsedTime()
 	return render3d.prev_elapsed_time or system.GetElapsedTime()
-end
-
-function render3d.GetSceneVoxelizer()
-	render3d.scene_voxelizer = render3d.scene_voxelizer or scene_voxelizer
-	return render3d.scene_voxelizer
 end
 
 local function get_material_upload_key(material)

@@ -8,6 +8,7 @@ local envprobe = import("goluwa/render3d/envprobe.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
+local ddgi = import("goluwa/render3d/ddgi.lua")
 local surface_lighting = library()
 -- What shading a surface at a world position takes, shared by the deferred
 -- lighting pass and the forward passes that draw what the gbuffer can't hold.
@@ -54,8 +55,7 @@ function surface_lighting.WriteBlock(self, block)
 	atmosphere.WriteBlock(self, block, render3d.GetCamera():GetPosition(), sun_direction)
 	block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 	envprobe.WriteProbeBlock(self, block)
-	local gi_provider = render3d.GetGIProvider()
-	local gi_texture = gi_provider and gi_provider.GetScreenTexture() or nil
+	local gi_texture = ddgi.GetScreenTexture()
 	block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
 	post_source.WritePreExposureBlock(self, block)
 	return block

@@ -1,5 +1,5 @@
 --[[
-	Night light spill test scene for voxel global illumination.
+	Night light spill test scene for global illumination.
 
 	A single sealed box sits on a large plane. Its interior walls and ceiling
 	are emissive, the only opening is a doorway on +z, and the sun is below the
@@ -17,9 +17,9 @@
 	and fall into the coarse ones as you back away, so it also shows how long
 	each cascade takes to settle.
 
-	Useful console commands: voxel_gi_debug (show gi irradiance only),
-	voxel_gi_probes (probe overlay), voxel_gi_invalidate (clear every probe and
-	watch it build back up), voxel_gi_quality.
+	Useful console commands: ddgi_debug_gi (show gi irradiance only),
+	ddgi_debug_probes (probe overlay), ddgi_reset (clear every probe and watch
+	it build back up).
 
 	Run: USE_MOLTENVK=1 luajit glw --3d lua addons/examples/lua/examples/render3d/gi_door.lua
 ]]

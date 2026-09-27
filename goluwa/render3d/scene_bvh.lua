@@ -1854,6 +1854,8 @@ function scene_bvh.GetTraversalGLSL()
 			vec3 normal;
 			vec3 emissive;
 			float distance;
+			// index into scene_bvh_triangles
+			uint triangle;
 		};
 
 		float scene_bvh_slab(uint index, vec3 origin, vec3 inv_dir, float t_min, float t_max) {
@@ -1866,17 +1868,19 @@ function scene_bvh.GetTraversalGLSL()
 			return near_t <= far_t ? near_t : SCENE_BVH_MISS;
 		}
 
-		bool scene_bvh_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_bvh_hit hit) {
+		// the closest triangle hit between t_min and t_max and its distance, or
+		// -1. any_hit returns the first hit found instead, for shadow rays
+		int scene_bvh_intersect(vec3 origin, vec3 dir, float t_min, float t_max, bool any_hit, out float closest) {
 			vec3 inv_dir = 1.0 / mix(dir, vec3(1e-20), lessThan(abs(dir), vec3(1e-20)));
+			closest = t_max;
 
 			if (scene_bvh_slab(0u, origin, inv_dir, t_min, t_max) >= SCENE_BVH_MISS) {
-				return false;
+				return -1;
 			}
 
 			uint stack[SCENE_BVH_STACK_SIZE];
 			int stack_size = 0;
 			uint node_index = 0u;
-			float closest = t_max;
 			int closest_triangle = -1;
 
 			while (true) {
@@ -1909,6 +1913,8 @@ function scene_bvh.GetTraversalGLSL()
 						if (t > t_min && t < closest) {
 							closest = t;
 							closest_triangle = int(first + i);
+
+							if (any_hit) return closest_triangle;
 						}
 					}
 				} else {
@@ -1953,14 +1959,27 @@ function scene_bvh.GetTraversalGLSL()
 				if (!popped) break;
 			}
 
-			if (closest_triangle < 0) return false;
+			return closest_triangle;
+		}
 
-			scene_bvh_triangle final_triangle = scene_bvh_triangles[closest_triangle];
+		bool scene_bvh_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_bvh_hit hit) {
+			float closest;
+			int triangle = scene_bvh_intersect(origin, dir, t_min, t_max, false, closest);
+
+			if (triangle < 0) return false;
+
+			scene_bvh_triangle final_triangle = scene_bvh_triangles[triangle];
 			hit.position = origin + dir * closest;
 			hit.distance = closest;
 			hit.emissive = final_triangle.emissive;
 			hit.normal = dot(final_triangle.normal, dir) > 0.0 ? -final_triangle.normal : final_triangle.normal;
+			hit.triangle = uint(triangle);
 			return true;
+		}
+
+		bool scene_bvh_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
+			float closest;
+			return scene_bvh_intersect(origin, dir, t_min, t_max, true, closest) >= 0;
 		}
 	]]
 end

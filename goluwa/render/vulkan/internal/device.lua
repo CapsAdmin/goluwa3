@@ -410,7 +410,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		pNextChain = demoteFeatures
 	end
 
-	local has_ray_tracing = table.has_value(available_extensions, "VK_KHR_ray_tracing_pipeline")
+	-- GOLUWA_NO_RAY_TRACING=1 runs as if the gpu had no ray tracing, to test
+	-- the fallbacks
+	local has_ray_tracing = os.getenv("GOLUWA_NO_RAY_TRACING") ~= "1" and
+		table.has_value(available_extensions, "VK_KHR_ray_tracing_pipeline")
 	local ray_tracing_supported = false
 	local ray_query_supported = false
 

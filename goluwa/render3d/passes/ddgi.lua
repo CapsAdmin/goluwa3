@@ -139,6 +139,124 @@ local function pass_trace()
 	}
 end
 
+-- The trace pass without ray tracing hardware: the same rays and hit buffer,
+-- traced through scene_bvh in a compute shader.
+local function pass_compute_trace()
+	return {
+		name = "ddgi_trace",
+		ComputePass = true,
+		ColorFormat = {{"r8_unorm", {"ddgi_trace_dummy", "r"}}},
+		FramebufferSize = {x = 1, y = 1},
+		framebuffer_count = 1,
+		LocalSize = {x = 64, y = 1, z = 1},
+		storage_buffers = {
+			{binding_index = BINDING_RAY_HITS},
+			{binding_index = BINDING_BVH_NODES},
+			{binding_index = BINDING_BVH_TRIANGLES},
+			{binding_index = BINDING_EMITTERS},
+		},
+		uniform_buffers = {data_uniform()},
+		on_pre_draw = function(self, cmd, frame, desc)
+			local state = ddgi.GetFrameState()
+			scene_bvh.EnsureBuilt()
+			state.rt_ready = scene_bvh.IsReady()
+			state.tlas = nil
+
+			if not state.rt_ready then return end
+
+			local hits = ddgi.GetRayHitBuffer()
+			local emitters = ddgi.GetEmitterBuffer()
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_RAY_HITS, 0, hits, hits:GetSize())
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
+			scene_bvh.BindBuffers(self, desc, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
+		end,
+		on_draw = function(self, cmd, fb, frame, desc)
+			if not ddgi.GetFrameState().rt_ready then return end
+
+			local hits = ddgi.GetRayHitBuffer()
+			cmd:PipelineBarrier{
+				srcStage = "compute",
+				dstStage = "compute",
+				bufferBarriers = {
+					{buffer = hits, srcAccessMask = "shader_read", dstAccessMask = "shader_write"},
+				},
+			}
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(
+				cmd,
+				ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES,
+				P ^ 3,
+				ddgi.GetFrameState().cascade_count,
+				desc,
+				self.dynamic_offsets
+			)
+			cmd:PipelineBarrier{
+				srcStage = "compute",
+				dstStage = "compute",
+				bufferBarriers = {
+					{buffer = hits, srcAccessMask = "shader_write", dstAccessMask = "shader_read"},
+				},
+			}
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_RAY_HITS .. [[) writeonly buffer DDGIRayHits {
+				uvec2 ddgi_hits[];
+			};
+		]] .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
+		shader = common_glsl() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. [[
+			// see the ray generation shader in ddgi.lua, which this follows
+			void main() {
+				uint ray = gl_GlobalInvocationID.x;
+				int probe = int(gl_GlobalInvocationID.y);
+				int c = int(gl_GlobalInvocationID.z);
+
+				if (ray >= uint(DDGI_RAY_STRIDE) || probe >= ddgi_probe_count(c)) return;
+
+				ivec3 slot = ddgi_slot_from_index(probe, c);
+				vec3 origin = ddgi_probe_origin(slot, c, ddgi_world_from_slot(slot, c));
+				uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
+
+				if (ray >= uint(DDGI_RAYS)) {
+					uvec2 result = uvec2(floatBitsToUint(-1.0), 0u);
+
+					if (ddgi_data.ddgi_emitter_count > 0) {
+						int kept_emitter;
+						uint kept;
+						vec3 kept_point;
+						float weight_sum = ddgi_pick_emitter_sample(index, uint(ddgi_data.ddgi_frame), ddgi_data.ddgi_emitter_count, origin, ddgi_data.ddgi_light_radius * ddgi_spacing(c), kept_emitter, kept, kept_point);
+						vec3 to_point = kept_point - origin;
+						float dist = length(to_point);
+
+						if (weight_sum > 0.0 && dist > DDGI_SHADOW_OFFSET && !scene_bvh_occluded(origin, to_point / dist, 0.0, dist - DDGI_SHADOW_OFFSET)) {
+							result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << 28u));
+						}
+					}
+
+					ddgi_hits[index] = result;
+					return;
+				}
+
+				vec3 dir = ddgi_ray(ray);
+				scene_bvh_hit hit;
+				float hit_t = -1.0;
+				uint primitive = 0u;
+
+				if (scene_bvh_trace(origin, dir, 0.0, ddgi_data.ddgi_max_distance, hit)) {
+					hit_t = hit.distance;
+					primitive = hit.triangle;
+					vec3 sun = ddgi_data.ddgi_sun_direction.xyz;
+
+					if (any(greaterThan(ddgi_data.ddgi_sun_radiance.rgb, vec3(0.0))) && !scene_bvh_occluded(origin + dir * max(hit_t - DDGI_SHADOW_OFFSET, 0.0), normalize(sun), 0.0, ddgi_data.ddgi_max_distance)) {
+						primitive |= DDGI_SUN_VISIBLE_BIT;
+					}
+				}
+
+				ddgi_hits[index] = uvec2(floatBitsToUint(hit_t), primitive);
+			}
+		]],
+	}
+end
+
 -- Radiance leaving each ray's hit towards its probe: direct light and last
 -- frame's probe irradiance at the hit (the infinite bounce). Emission comes
 -- in through the emitter samples instead, which follow the uniform rays. One
@@ -203,14 +321,13 @@ local function pass_shade()
 				uvec2 ddgi_hits[];
 			};
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. [[
+		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. [[
 			// The sun's visibility comes from the trace pass. The local lights in
 			// P's light grid cell are sampled (see ddgi.LIGHT_SAMPLES): each
 			// sample streams over them keeping a light with its share of the
 			// weight summed so far, reusing one random number by rescaling it,
-			// and the kept light's shadow ray is traced here. Without ray
-			// queries the local lights would go unshadowed through walls, so
-			// they're left out.
+			// and the kept light's shadow ray is traced here, through scene_bvh
+			// without ray queries.
 			vec3 ddgi_direct_light(vec3 P, vec3 N, bool sun_visible, float radius, vec4 u) {
 				vec3 L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 				float NoL = max(dot(N, L), 0.0);
@@ -220,7 +337,6 @@ local function pass_shade()
 					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359);
 				}
 
-				#ifdef DDGI_VISIBILITY_RAYS
 				float total = 0.0;
 				vec3 picked_light[DDGI_LIGHT_SAMPLES];
 				// xyz = direction to the light, w = distance along it
@@ -281,17 +397,23 @@ local function pass_shade()
 				for (int k = 0; k < DDGI_LIGHT_SAMPLES; k++) {
 					if (picked_weight[k] <= 0.0) continue;
 
-					rayQueryEXT query;
 					// stops short of the light so a bulb mesh around it doesn't shadow it
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, P, 0.0, picked_ray[k].xyz, max(picked_ray[k].w - DDGI_SHADOW_OFFSET, 0.0));
+					float shadow_distance = max(picked_ray[k].w - DDGI_SHADOW_OFFSET, 0.0);
+					#ifdef DDGI_VISIBILITY_RAYS
+					rayQueryEXT query;
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, P, 0.0, picked_ray[k].xyz, shadow_distance);
 
 					while (rayQueryProceedEXT(query)) {}
 
-					if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+					bool visible = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+					#else
+					bool visible = !scene_bvh_occluded(P, picked_ray[k].xyz, 0.0, shadow_distance);
+					#endif
+
+					if (visible) {
 						direct += picked_light[k] * (total / (picked_weight[k] * float(DDGI_LIGHT_SAMPLES)));
 					}
 				}
-				#endif
 
 				return direct;
 			}
@@ -708,7 +830,7 @@ local function pass_probe_data()
 		storage_images = {
 			{
 				binding_index = BINDING_OUTPUT,
-				dst_stage = {"compute", "ray_tracing_shader_khr"},
+				dst_stage = ddgi.RTSupported() and {"compute", "ray_tracing_shader_khr"} or "compute",
 			},
 		},
 		uniform_buffers = {data_uniform()},
@@ -1028,7 +1150,9 @@ local function pass_resolve()
 end
 
 return {
-	pass_trace(),
+	ddgi.RTSupported() and
+	pass_trace() or
+	pass_compute_trace(),
 	pass_shade(),
 	pass_update("ddgi_irradiance", ddgi.IRRADIANCE_TEXELS, IRRADIANCE_INTEGRATE),
 	pass_update("ddgi_distance", ddgi.DISTANCE_TEXELS, DISTANCE_INTEGRATE),

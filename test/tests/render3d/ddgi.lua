@@ -26,14 +26,11 @@ local function gi_mean()
 end
 
 T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
-	local original_backend = render3d.gi_backend
 	local polygon3d = Polygon3D.New()
 	polygon3d:CreateCube(1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local created = {}
-	-- build a bundle that routes GI through DDGI
-	render3d.gi_backend = "ddgi"
 	render3d.Initialize{
 		passes = {
 			import("goluwa/render3d/passes/gbuffer.lua"),
@@ -48,7 +45,6 @@ T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
 			if e:IsValid() then e:Remove() end
 		end
 
-		render3d.gi_backend = original_backend
 		render3d.Initialize{
 			passes = {
 				import("goluwa/render3d/passes/gbuffer.lua"),
@@ -74,7 +70,6 @@ T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
 		p.visual_primitive:SetMaterial(Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9})
 		ent.visual:BuildAABB()
 		import("goluwa/render3d/scene_bvh.lua").Build()
-		T(render3d.GetGIProvider() == ddgi)["=="](true)
 		T(ddgi.IsActive())["=="](true)
 		T(render3d.pipelines.ddgi_irradiance ~= nil)["=="](true)
 		T(render3d.pipelines.ddgi_resolve ~= nil)["=="](true)
@@ -91,7 +86,6 @@ end)
 
 do
 	local function use_ddgi()
-		render3d.gi_backend = "ddgi"
 		render3d.Initialize{
 			passes = {
 				import("goluwa/render3d/passes/gbuffer.lua"),
@@ -102,8 +96,7 @@ do
 		}
 	end
 
-	local function restore(original_backend)
-		render3d.gi_backend = original_backend
+	local function restore()
 		render3d.Initialize{
 			passes = {
 				import("goluwa/render3d/passes/gbuffer.lua"),
@@ -128,9 +121,6 @@ do
 	end
 
 	T.Test3D("Graphics render3d ddgi rays hit scene geometry", function(draw)
-		if not ddgi.RTSupported() then return end
-
-		local original_backend = render3d.gi_backend
 		local polygon3d = Polygon3D.New()
 		polygon3d:CreateCube(1)
 		polygon3d:BuildBoundingBox()
@@ -167,7 +157,7 @@ do
 			e:Remove()
 		end
 
-		restore(original_backend)
+		restore()
 		polygon3d:Remove()
 
 		if not ok then error(err, 0) end
@@ -176,9 +166,6 @@ do
 	-- Light must not reach the inside of a closed box through its walls, while
 	-- the same box with its roof removed is lit by the sky.
 	T.Test3D("Graphics render3d ddgi does not leak into a sealed box", function(draw)
-		if not ddgi.RTSupported() then return end
-
-		local original_backend = render3d.gi_backend
 		local polygon3d = Polygon3D.New()
 		polygon3d:CreateCube(1)
 		polygon3d:BuildBoundingBox()
@@ -219,7 +206,7 @@ do
 			if e:IsValid() then e:Remove() end
 		end
 
-		restore(original_backend)
+		restore()
 		polygon3d:Remove()
 
 		if not ok then error(err, 0) end
@@ -230,9 +217,6 @@ do
 	-- the room. The light is bright enough that the bit of sky the sealed room
 	-- still picks up is noise next to a leak.
 	T.Test3D("Graphics render3d ddgi point light outside a sealed room does not light it", function(draw)
-		if not ddgi.RTSupported() then return end
-
-		local original_backend = render3d.gi_backend
 		local polygon3d = Polygon3D.New()
 		polygon3d:CreateCube(1)
 		polygon3d:BuildBoundingBox()
@@ -280,7 +264,7 @@ do
 			if e:IsValid() then e:Remove() end
 		end
 
-		restore(original_backend)
+		restore()
 		polygon3d:Remove()
 
 		if not ok then error(err, 0) end
@@ -290,9 +274,6 @@ do
 	-- brightest ray clamp used to drop the few hits it got; the emitter
 	-- samples have to find it for it to light the room.
 	T.Test3D("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
-		if not ddgi.RTSupported() then return end
-
-		local original_backend = render3d.gi_backend
 		local polygon3d = Polygon3D.New()
 		polygon3d:CreateCube(1)
 		polygon3d:BuildBoundingBox()
@@ -357,7 +338,7 @@ do
 			if e:IsValid() then e:Remove() end
 		end
 
-		restore(original_backend)
+		restore()
 		polygon3d:Remove()
 
 		if not ok then error(err, 0) end

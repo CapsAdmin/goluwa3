@@ -106,6 +106,8 @@ ddgi.SMOOTH_BLEND = true
 ddgi.VISIBILITY_RAYS = 2
 -- 0 off, 1 probe irradiance, 2 probe mean hit distance (see passes/ddgi.lua)
 ddgi.DEBUG_PROBES = 0
+-- 1 makes the lighting pass show only the gi irradiance
+ddgi.DEBUG_GI = 0
 -- brightness of the debug view's markers, which have no light of their own
 ddgi.DEBUG_SCALE = 1.0
 -- the cascade whose probes the debug view draws
@@ -450,8 +452,8 @@ function ddgi.GetEmitterDeclarationsGLSL(binding)
 	):format(binding)
 end
 
--- Picking and placing an emitter sample, shared by the ray generation shader
--- (which traces it) and the shade pass (which lights with it); both derive the
+-- Picking and placing an emitter sample, shared by the trace (which traces
+-- it) and the shade pass (which lights with it); both derive the
 -- same random numbers from the sample's ray index and the frame. Needs
 -- ddgi_emitters and scene_bvh_triangles.
 -- The material buffer written by ddgi.WriteMaterialBuffer, indexed by a soup
@@ -528,6 +530,45 @@ function ddgi.GetEmitterGLSL()
 			if (u.x + u.y > 1.0) u = 1.0 - u;
 
 			return tri.v0 + tri.e1 * u.x + tri.e2 * u.y;
+		}
+
+		// An emitter sample seen from origin. Candidates are drawn in proportion
+		// to their triangle's power, and one is kept with a probability
+		// proportional to the light it would bring unshadowed (facing /
+		// distance^2, inside radius flattened like the local lights), relative
+		// to the power it was drawn by, which leaves just that. Returns the
+		// candidates' summed weight, and which one was kept and where; the
+		// shade pass rebuilds its point from the same random numbers.
+		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, vec3 origin, float radius, out int kept_emitter, out uint kept, out vec3 kept_point) {
+			float weight_sum = 0.0;
+			kept = 0u;
+			kept_emitter = 0;
+			kept_point = vec3(0.0);
+
+			for (uint j = 0u; j < uint(DDGI_EMITTER_CANDIDATES); j++) {
+				vec4 u = ddgi_emitter_random(index, frame, j);
+				int e = ddgi_pick_emitter(u.x, emitter_count);
+				uint triangle = ddgi_emitters[e].triangle;
+				scene_bvh_triangle tri = scene_bvh_triangles[triangle & ~DDGI_EMITTER_DOUBLE_SIDED];
+				vec3 point = ddgi_emitter_point(tri, u.yz);
+				vec3 to_point = point - origin;
+				float dist2 = dot(to_point, to_point);
+				// tri.normal points away from the visible side
+				float facing = dot(tri.normal, to_point) * inversesqrt(dist2);
+
+				if ((triangle & DDGI_EMITTER_DOUBLE_SIDED) != 0u) facing = abs(facing);
+
+				float weight = max(facing, 0.0) / max(dist2, radius * radius);
+				weight_sum += weight;
+
+				if (weight > 0.0 && u.w * weight_sum < weight) {
+					kept = j;
+					kept_emitter = e;
+					kept_point = point;
+				}
+			}
+
+			return weight_sum;
 		}
 	]]
 end
@@ -1257,47 +1298,17 @@ void main()
     uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
     const uint shadow_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
 
-    // An emitter sample. Candidates are drawn in proportion to their
-    // triangle's power, and one is kept with a probability proportional to
-    // the light it would bring unshadowed (facing / distance^2, inside the
-    // light radius flattened like the local lights), relative to the power
-    // it was drawn by, which leaves just that. Only the kept one is traced.
-    // Stores the candidates' summed weight and which one was kept (the shade
-    // pass rebuilds its point from the same random numbers), or a negative
-    // weight when it is blocked.
+    // An emitter sample (see ddgi_pick_emitter_sample). Only the kept one is
+    // traced. Stores the candidates' summed weight and which one was kept, or
+    // a negative weight when it is blocked.
     if (ray >= DDGI_RAYS) {
         uvec2 result = uvec2(floatBitsToUint(-1.0), 0u);
 
         if (params.emitter_count > 0) {
-            float radius = params.light_radius * params.cascades[c].w;
-            float weight_sum = 0.0;
-            uint kept = 0u;
-            int kept_emitter = 0;
-            vec3 kept_point = vec3(0.0);
-
-            for (uint j = 0u; j < uint(DDGI_EMITTER_CANDIDATES); j++) {
-                vec4 u = ddgi_emitter_random(index, params.frame, j);
-                int e = ddgi_pick_emitter(u.x, params.emitter_count);
-                uint triangle = ddgi_emitters[e].triangle;
-                scene_bvh_triangle tri = scene_bvh_triangles[triangle & ~DDGI_EMITTER_DOUBLE_SIDED];
-                vec3 point = ddgi_emitter_point(tri, u.yz);
-                vec3 to_point = point - origin;
-                float dist2 = dot(to_point, to_point);
-                // tri.normal points away from the visible side
-                float facing = dot(tri.normal, to_point) * inversesqrt(dist2);
-
-                if ((triangle & DDGI_EMITTER_DOUBLE_SIDED) != 0u) facing = abs(facing);
-
-                float weight = max(facing, 0.0) / max(dist2, radius * radius);
-                weight_sum += weight;
-
-                if (weight > 0.0 && u.w * weight_sum < weight) {
-                    kept = j;
-                    kept_emitter = e;
-                    kept_point = point;
-                }
-            }
-
+            int kept_emitter;
+            uint kept;
+            vec3 kept_point;
+            float weight_sum = ddgi_pick_emitter_sample(index, params.frame, params.emitter_count, origin, params.light_radius * params.cascades[c].w, kept_emitter, kept, kept_point);
             vec3 to_point = kept_point - origin;
             float dist = length(to_point);
 
@@ -1417,6 +1428,10 @@ end)
 
 commands.Add("ddgi_light_radius=number[0.1]", function(value)
 	ddgi.LIGHT_RADIUS = value
+end)
+
+commands.Add("ddgi_debug_gi=boolean[true]", function(value)
+	ddgi.DEBUG_GI = value and 1 or 0
 end)
 
 commands.Add("ddgi_debug_probes=number[1]", function(value)

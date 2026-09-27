@@ -5,7 +5,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
-local radiance_cascades = import("goluwa/render3d/radiance_cascades.lua")
 local render = import("goluwa/render/render.lua")
 local commands = import("goluwa/cli/commands.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
@@ -13,7 +12,6 @@ local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local BINDING_RC_CASCADE = 4
 local BINDING_SCENE = 5
 local BINDING_BVH_TRIANGLES = 6
 local BINDING_MATERIALS = 7
@@ -50,18 +48,6 @@ return {
 				binding_index = 1,
 				attachment = 2,
 				dst_stage = {"compute", "fragment"},
-			},
-		},
-		sampled_images = {
-			{
-				binding_index = BINDING_RC_CASCADE,
-				get_texture = function()
-					local pipeline = render3d.pipelines.radiance_cascade_0
-
-					if not pipeline then return nil end
-
-					return pipeline:GetFramebuffer(1):GetAttachment(1)
-				end,
 			},
 		},
 		storage_buffers = RAY_QUERY and
@@ -196,7 +182,6 @@ return {
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_ssr;
 			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_ssr_depth;
-			layout(set = 0, binding = ]] .. BINDING_RC_CASCADE .. [[) uniform sampler2D ssr_rc_cascade;
 		]] .. (
 				RAY_QUERY and
 				[[
@@ -230,7 +215,6 @@ return {
 			// times white on screen, under last frame's exposure
 			#define SSR_MAX_HIT_LUMINANCE 8.0
 			#define SSR_SPATIAL_NORMAL_POWER 32.0
-			#define SSR_RC_DIRECTIONS ]] .. radiance_cascades.DIRECTIONS_PER_AXIS .. "\n" .. [[
 			#define SSR_TILE_WIDTH ]] .. tostring(COMPUTE_LOCAL_SIZE.x) .. "\n" .. [[
 			#define SSR_TILE_HEIGHT ]] .. tostring(COMPUTE_LOCAL_SIZE.y) .. [[
 
@@ -286,17 +270,6 @@ return {
 				ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
 				vec2 xi = texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
 				return fract(xi + float(ssr_data.frame_index % 64) * vec2(0.7548776662, 0.5698402910));
-			}
-
-			vec2 ssr_oct_encode(vec3 n) {
-				n /= (abs(n.x) + abs(n.y) + abs(n.z));
-				vec2 p = n.xy;
-
-				if (n.z < 0.0) {
-					p = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-				}
-
-				return p * 0.5 + 0.5;
 			}
 
 			void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
@@ -426,44 +399,6 @@ return {
 				return vec4(0.0);
 			}
 
-			vec4 sample_cascade_reflection(vec2 pixel_uv, vec3 R) {
-				ivec2 cascade_size = textureSize(ssr_rc_cascade, 0);
-
-				if (cascade_size.x <= 1) return vec4(0.0);
-
-				ivec2 probe_grid = max(cascade_size / SSR_RC_DIRECTIONS, ivec2(1));
-				vec2 probe_uv = pixel_uv * vec2(probe_grid) - 0.5;
-				ivec2 probe_base = ivec2(floor(probe_uv));
-				vec2 probe_frac = probe_uv - vec2(probe_base);
-
-				vec2 dir_uv = ssr_oct_encode(R) * float(SSR_RC_DIRECTIONS);
-				ivec2 dir_base = ivec2(floor(dir_uv));
-				vec2 dir_frac = dir_uv - vec2(dir_base);
-
-				vec4 total = vec4(0.0);
-				float total_weight = 0.0;
-
-				for (int y = 0; y < 2; y++) {
-					for (int x = 0; x < 2; x++) {
-						ivec2 offset = ivec2(x, y);
-						ivec2 probe = clamp(probe_base + offset, ivec2(0), probe_grid - 1);
-						ivec2 dir = min(dir_base + offset, ivec2(SSR_RC_DIRECTIONS - 1));
-						float weight = (x == 0 ? 1.0 - probe_frac.x : probe_frac.x) *
-							(y == 0 ? 1.0 - probe_frac.y : probe_frac.y) *
-							(x == 0 ? 1.0 - dir_frac.x : dir_frac.x) *
-							(y == 0 ? 1.0 - dir_frac.y : dir_frac.y);
-						total += texelFetch(ssr_rc_cascade, dir * probe_grid + probe, 0) * weight;
-						total_weight += weight;
-					}
-				}
-
-				if (total_weight > 0.0) {
-					total /= total_weight;
-				}
-
-				return vec4(total.rgb, 1.0 - total.a);
-			}
-
 			#ifdef SSR_RAY_QUERY
 			bool ssr_scene_visible(vec3 origin, vec3 dir, float dist) {
 				rayQueryEXT query;
@@ -549,7 +484,7 @@ return {
 			}
 			#endif
 
-			vec4 cast_ssr_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi, vec2 pixel_uv) {
+			vec4 cast_ssr_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
 				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
 				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
 
@@ -603,10 +538,8 @@ return {
 				}
 				#endif
 
-				if (hit.a > 0.0) return hit;
-
 				// lighting fills the rest with its sky visibility aware environment
-				return sample_cascade_reflection(pixel_uv, R_world);
+				return hit.a > 0.0 ? hit : vec4(0.0);
 			}
 
 			void main() {
@@ -637,7 +570,7 @@ return {
 					vec3 pos_vs = (ssr_data.view * vec4(world_pos, 1.0)).xyz;
 					view_depth = -pos_vs.z;
 					vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
-					current = cast_ssr_ray(world_pos, pos_vs, N, get_geometric_normal(gbuffer_pos, world_pos, depth, V, N), V, roughness, blue_noise(pos), uv);
+					current = cast_ssr_ray(world_pos, pos_vs, N, get_geometric_normal(gbuffer_pos, world_pos, depth, V, N), V, roughness, blue_noise(pos));
 				}
 
 				ssr_tile[local_pos.y][local_pos.x] = current;

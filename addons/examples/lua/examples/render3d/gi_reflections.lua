@@ -6,7 +6,7 @@
 	    gap, white box and sphere inside. Look for red/green bounce on the
 	    white surfaces and a lit interior under the roof.
 	  * Emissive tunnel (x 0): a closed tunnel the sun never enters, lit only
-	    by an orange emissive bar through voxel gi.
+	    by an orange emissive bar through gi.
 	  * Reflection stage (x 40): metal spheres sweeping roughness on a polished
 	    floor between coloured walls, covered by the auto-placed reflection
 	    probe grid (see envprobe_auto_placement). The chrome sphere at the far
@@ -18,7 +18,7 @@
 	  * Thin-wall partition (x 120): a lit chamber and a fully sealed dark
 	    chamber share a 0.15 m wall, with an emissive strip right against the
 	    lit side. The dark chamber should stay essentially black; any glow
-	    there is GI leaking through geometry thinner than a voxel.
+	    there is GI leaking through thin geometry.
 	  * Pillar hall (x 160): an emissive back wall, alternating pillars, and a
 	    22 m enclosed hall to a doorway at the front. Exercises the occlusion
 	    march (light should dim as it has to bend around pillars) and probe
@@ -48,10 +48,9 @@
 	light with its occlusion map, and a centre point light with a cube shadow
 	map.
 
-	Useful console commands: voxel_gi_debug (show gi irradiance only),
-	voxel_gi_probes (probe overlay), voxel_gi_occlusion (toggle the occlusion
-	march), voxel_gi_visibility (toggle the Chebyshev visibility test),
-	envprobe_reflection_probes, envprobe_dump, voxel_gi_invalidate.
+	Useful console commands: ddgi_debug_gi (show gi irradiance only),
+	ddgi_debug_probes (probe overlay), ddgi_visibility_rays,
+	envprobe_reflection_probes, envprobe_dump, ddgi_reset.
 
 	Run: USE_MOLTENVK=1 luajit glw --3d lua addons/examples/lua/examples/render3d/gi_reflections.lua
 ]]
@@ -193,7 +192,7 @@ end
 -- thin partition: a lit chamber shares a 0.15 m wall with a fully sealed dark
 -- chamber, with an emissive strip right against the partition on the lit
 -- side. The dark chamber has no light source of its own, so any glow in it
--- is GI leaking through geometry thinner than a voxel rather than around it.
+-- is GI leaking through the thin wall rather than around it.
 do
 	local cx, w, h, d, t, pt = 120, 10, 5, 8, 0.5, 0.15
 	local half = (w - pt) / 2
@@ -503,9 +502,7 @@ do
 
 	local function noise(x, y, z)
 		return (
-				math.sin(x * 1.7 + y * 0.3 + 1.3) * math.sin(y * 2.3 - z * 0.7 + 0.4) * math.sin(z * 1.9 + x * 0.5 + 2.1) +
-				0.5 * math.sin(x * 4.1 - z * 3.3 + 0.7) * math.sin(y * 3.7 + x * 2.9) +
-				0.25 * math.sin(z * 8.3 + y * 7.1 - 1.1) * math.sin(x * 9.7 - y * 5.3)
+				math.sin(x * 1.7 + y * 0.3 + 1.3) * math.sin(y * 2.3 - z * 0.7 + 0.4) * math.sin(z * 1.9 + x * 0.5 + 2.1) + 0.5 * math.sin(x * 4.1 - z * 3.3 + 0.7) * math.sin(y * 3.7 + x * 2.9) + 0.25 * math.sin(z * 8.3 + y * 7.1 - 1.1) * math.sin(x * 9.7 - y * 5.3)
 			)
 	end
 
@@ -602,7 +599,12 @@ do
 		return poly
 	end
 
-	local rock = shapes.Material{Color = Color(0.35, 0.55, 0.6, 1), Roughness = 0.8, Metallic = 0, DoubleSided = true}
+	local rock = shapes.Material{
+		Color = Color(0.35, 0.55, 0.6, 1),
+		Roughness = 0.8,
+		Metallic = 0,
+		DoubleSided = true,
+	}
 	local cave_polygon = build(Polygon3D.New())
 
 	for i, x in ipairs{-40, 0, 40} do
