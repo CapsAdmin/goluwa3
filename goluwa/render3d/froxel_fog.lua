@@ -1,13 +1,15 @@
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local froxel_fog = library()
--- The low altitude fog up to FAR meters of view depth, in a volume of TILE
--- pixel cells, SLICES deep, that passes/volumetric_fog.lua lights and
--- integrates. Slices are thin near the camera and grow with distance.
--- Beyond that the fog is integrated analytically along the rest of the ray.
+-- The low altitude fog and the air up to FAR meters of view depth, in a
+-- volume of TILE pixel cells, SLICES deep, that passes/volumetric_fog.lua
+-- lights and integrates. Slices are thin near the camera and grow with
+-- distance. FAR reaches as far as the sun's shadow map, so everything that
+-- casts a shadow into the air does so here; beyond it the rest of the ray is
+-- integrated analytically and fully lit.
 froxel_fog.TILE = 8
-froxel_fog.SLICES = 64
-froxel_fog.FAR = 150
+froxel_fog.SLICES = 96
+froxel_fog.FAR = 3000
 -- slices are roughly linear up to this many meters and exponential beyond
 froxel_fog.DEPTH_KNEE = 2
 local froxels = {width = 0, height = 0, current = 1}
@@ -99,35 +101,59 @@ function froxel_fog.GetViewDirGLSL(block)
 	]]
 end
 
+-- froxel_point(id, uv, depth, out point_uv): the view depth and the uv the
+-- froxel id stands for at view depth depth, sampled through uv. block holds
+-- render3d.camera_block, render3d.gbuffer_block, froxel_size and
+-- ocean_distance_tex; SLICE_GLSL and GetViewDirGLSL come before it
+function froxel_fog.GetPointGLSL(block)
+	return [[
+		// view depth of the surface seen through uv, the ocean's included
+		float froxel_surface_depth(vec2 uv) {
+			float depth = textureLod(TEXTURE(]] .. block .. [[.depth_tex), uv, 0.0).r;
+			vec4 surface = ]] .. block .. [[.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+			float view_depth = depth < 1.0 ? -surface.z / surface.w : 1e30;
+			float ocean_distance = ]] .. block .. [[.ocean_distance_tex != -1 ? textureLod(TEXTURE(]] .. block .. [[.ocean_distance_tex), uv, 0.0).r : -1.0;
+			return ocean_distance > 0.0 ? min(view_depth, ocean_distance / length(get_view_dir(uv))) : view_depth;
+		}
+
+		// A froxel spans several pixels that see surfaces at different
+		// depths. When the pixel at uv can't see the point (it is behind its
+		// surface), the point is taken on the ray of the froxel's pixel that
+		// sees furthest instead: past a leaf, the mountain's pixels see the
+		// air there, and along a wall the pixels further down it. No pixel
+		// sees past the furthest surface, and a point reaching past it would
+		// bring the light on its other side to the pixels in front of it, so
+		// such points are lit in front of it.
+		float froxel_point(ivec3 id, vec2 uv, float depth, out vec2 point_uv) {
+			point_uv = uv;
+			float surface_depth = froxel_surface_depth(uv);
+
+			if (depth > surface_depth) {
+				for (int i = 0; i < 4; i++) {
+					vec2 corner_uv = (vec2(id.xy) + vec2(i & 1, i >> 1) * 0.8 + 0.1) / ]] .. block .. [[.froxel_size;
+					float corner_depth = froxel_surface_depth(corner_uv);
+
+					if (corner_depth > surface_depth) {
+						surface_depth = corner_depth;
+						point_uv = corner_uv;
+					}
+				}
+			}
+
+			return min(depth, froxel_surface_limit(surface_depth));
+		}
+	]]
+end
+
 -- get_volumetric_fog(uv, hit_distance): the fog in front of the point
 -- hit_distance meters along the ray through uv, or all of it along the ray
 -- when hit_distance is negative (the sky). rgb is the light it scatters
 -- toward the camera, a how much of what is behind it comes through.
 -- block holds render3d.camera_block, atmosphere's block and gi_screen_tex;
 -- the atmosphere defines, SLICE_GLSL, GetViewDirGLSL and a sampler3D
--- froxel_volume come before it. sun_visibility_fn(world_pos, sun_dir) and
--- sun_dir_expr are the sun's shadow and direction
-function froxel_fog.GetGLSL(block, sun_visibility_fn, sun_dir_expr)
+-- froxel_volume come before it. sun_dir_expr is the sun's direction
+function froxel_fog.GetGLSL(block, sun_dir_expr)
 	return [[
-		// sun visibility of the fog segment [near, near + span] (km along
-		// the ray), taken at the density weighted middle of its front part
-		float get_segment_sun_visibility(vec3 fog_origin, vec3 ray_dir, float near, float span, vec3 sun_dir) {
-			const int STEPS = 8;
-			float weighted_distance = 0.0;
-			float total_weight = 0.0;
-
-			for (int i = 0; i < STEPS; i++) {
-				float u = (float(i) + 0.5) / float(STEPS);
-				float t = near + u * span;
-				float weight = max(scenery_fog_density(fog_origin + ray_dir * t) * mix(1.0, 0.35, u), 1e-4);
-				weighted_distance += t * weight;
-				total_weight += weight;
-			}
-
-			float meters = weighted_distance / total_weight / (CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER);
-			return ]] .. sun_visibility_fn .. [[(]] .. block .. [[.camera_position.xyz + ray_dir * meters, sun_dir);
-		}
-
 		vec4 get_volumetric_fog(vec2 uv, float hit_distance) {
 			vec3 view_dir = get_view_dir(uv);
 			vec3 ray_dir = normalize(mat3(]] .. block .. [[.inv_view) * view_dir);
@@ -153,7 +179,8 @@ function froxel_fog.GetGLSL(block, sun_visibility_fn, sun_dir_expr)
 				fog_near = max(fog_near, froxel_end);
 				vec3 sun_dir = ]] .. sun_dir_expr .. [[;
 				vec4 gi = is_sky || ]] .. block .. [[.gi_screen_tex < 0 ? vec4(0.0, 0.0, 0.0, 1.0) : texture(TEXTURE(]] .. block .. [[.gi_screen_tex), uv);
-				float sun_visibility = get_fog_sun_horizon_visibility(sun_dir) <= 0.0001 ? 0.0 : get_segment_sun_visibility(fog_origin, ray_dir, fog_near, fog_length, sun_dir);
+				// past the sun's shadow map
+				float sun_visibility = get_fog_sun_horizon_visibility(sun_dir) <= 0.0001 ? 0.0 : 1.0;
 				vec4 far_fog = integrate_scenery_fog_segment(fog_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi.rgb, clamp(gi.a, 0.0, 1.0));
 				return vec4(far_fog.rgb * near_fog.a + near_fog.rgb, far_fog.a * near_fog.a);
 			}

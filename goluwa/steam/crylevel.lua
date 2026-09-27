@@ -1573,7 +1573,6 @@ function crylevel.SpawnTerrain(level_data, parent)
 		Samples = 65,
 		DetailSize = 256,
 		ColorSize = 256,
-		ShadowLevels = 3,
 		BuildsPerUpdate = 3,
 		Physics = {
 			chunk_size = 64,
@@ -1900,7 +1899,7 @@ function crylevel.Apply(steam)
 
 		if editor_level and editor_level.fog_density then
 			-- cry's renderer scales the editor density by 0.01 into extinction per meter
-			weather.SetVisibility(-math.log(0.02) / (editor_level.fog_density * 0.01))
+			weather.SetVisibility(-math.log(0.02) / (editor_level.fog_density * 0.0025))
 		end
 
 		if editor_level and editor_level.sun_direction then

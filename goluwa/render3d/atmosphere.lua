@@ -735,17 +735,13 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		);
 	}
 
-	// Radiance of the sky light arriving at the low altitude fog from every
-	// direction: the sky seen along the ray, kept just above the horizon so the
-	// ground fill does not leak in.
-	vec3 get_scenery_fog_sky_ambient(vec3 ray_origin, vec3 ray_dir) {
-		vec3 up = normalize(ray_origin);
-		float elevation = max(asin(clamp(dot(ray_dir, up), -1.0, 1.0)), 0.25);
-		vec3 horizontal = ray_dir - up * dot(ray_dir, up);
-		float horizontal_length = length(horizontal);
-		horizontal = horizontal_length > 1e-4 ? horizontal / horizontal_length : get_sky_view_forward(up, ATMOSPHERE_SKY_SUN_DIRECTION);
-		vec3 sky_dir = normalize(horizontal * cos(elevation) + up * sin(elevation));
-		return sample_sky_view_lut_from_origin(sky_dir, ray_origin).rgb;
+	// Radiance arriving at a point in the open air, averaged over every
+	// direction: the sky above and the sky lit ground below, what DDGI's probes
+	// give where there are probes. It doesn't depend on the view, the glow
+	// around the sun is the sun's own scattering, which is shadowed.
+	vec3 get_scenery_fog_sky_ambient(vec3 ray_origin) {
+		vec3 sky_irradiance = get_sky_irradiance(ray_origin);
+		return 0.5 * (vec3(1.0) + GROUND_ALBEDO) * sky_irradiance / PI;
 	}
 
 	// Sunlight scattered toward the viewer by the fog, forward peaked.
@@ -756,7 +752,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	// In-scattered radiance of the low altitude fog. gi_irradiance stands in
 	// for the sky where the sky is hidden (sky_visibility).
 	vec3 get_scenery_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
-		vec3 ambient = mix(gi_irradiance / PI, get_scenery_fog_sky_ambient(ray_origin, ray_dir), clamp(sky_visibility, 0.0, 1.0));
+		vec3 ambient = mix(gi_irradiance / PI, get_scenery_fog_sky_ambient(ray_origin), clamp(sky_visibility, 0.0, 1.0));
 		return ambient + get_scenery_fog_sun(ray_origin, ray_dir, sun_dir) * clamp(sun_visibility, 0.0, 1.0);
 	}
 
@@ -800,7 +796,8 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return scene_color * fog.a + fog.rgb;
 	}
 
-	vec3 apply_atmospheric_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, float sky_visibility) {
+	// the air between start (km along the ray) and world_pos
+	vec3 apply_atmospheric_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, float sky_visibility, float start) {
 		vec3 ray_origin;
 		vec3 ray_dir;
 		float atmosphere_near;
@@ -810,12 +807,17 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			return scene_color;
 		}
 
+		float atmosphere_far = atmosphere_near + segment_length;
+		atmosphere_near = max(atmosphere_near, start);
+
+		if (atmosphere_far <= atmosphere_near) return scene_color;
+
 		vec3 view_transmittance;
 		vec3 scattered_light = integrate_scattering(
 			ray_origin,
 			ray_dir,
 			atmosphere_near,
-			atmosphere_near + segment_length,
+			atmosphere_far,
 			sun_dir,
 			AERIAL_PERSPECTIVE_STEPS,
 			vec2(clamp(sun_visibility, 0.0, 1.0)),
@@ -858,7 +860,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	}
 
 	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
-		scene_color = apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, sky_visibility);
+		scene_color = apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, sky_visibility, 0.0);
 		return apply_scenery_fog(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
@@ -1210,19 +1212,6 @@ end
 
 function atmosphere.GetAerialPerspectiveGLSLCode()
 	return atmosphere_glsl
-end
-
-function atmosphere.GetSurfaceAerialPerspectiveGLSLCode(background_color_expr)
-	background_color_expr = background_color_expr or "vec3(0.0)"
-	return atmosphere_glsl .. [[
-		vec3 get_atmosphere_background_color(vec3 dir) {
-			return clamp(]] .. background_color_expr .. [[, vec3(0.0), vec3(65504.0));
-		}
-
-		vec3 apply_surface_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos) {
-			return apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, 1.0, 1.0);
-		}
-	]]
 end
 
 -- Writes the sky radiance seen along dir_var into a vec3 named

@@ -30,7 +30,9 @@ function Terrain.New(config)
 	self.DetailSize = config.DetailSize or 256
 	self.SplatSize = config.SplatSize or 128
 	self.ColorSize = config.ColorSize
-	self.ShadowLevels = config.ShadowLevels or 3
+	-- how many of the finest levels cast shadows. all of them by default: a
+	-- distant ridge shades the valley and the air in front of it at sunset
+	self.ShadowLevels = config.ShadowLevels or self.Levels
 	self.BuildsPerUpdate = config.BuildsPerUpdate or 2
 	self.UpdateInterval = config.UpdateInterval or 0.05
 	self.PhysicsConfig = config.Physics

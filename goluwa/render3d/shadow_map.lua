@@ -32,6 +32,10 @@ local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local TEMP_IDENTITY_CASCADE_OVERRIDE = false
 local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
+-- how far toward the sun a caster can be and still be drawn. The sun is
+-- infinitely far, so a mountain kilometres away shades even a map that only
+-- covers the few meters around the camera
+local SUN_CASTER_REACH = 20000
 local SHADOW_INSTANCE_STRIDE = ffi.sizeof("float[16]")
 local SHADOW_INSTANCE_BUFFER_ATTRIBUTES = {
 	{
@@ -1910,7 +1914,9 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 		local texel_world_size = self.cascade[cascade_idx].texel_world_size
 		local far_margin = receiver_depth_span * 0.05 + texel_world_size * 4
 		local near_margin = math.max(receiver_depth_span * 0.5, self.current_shadow_distance * 0.5)
-		local cull_near_margin = math.max(receiver_depth_span * 4.0, self.current_shadow_distance * 2)
+		local cull_near_margin = self.mode == "sun" and
+			SUN_CASTER_REACH or
+			math.max(receiver_depth_span * 4.0, self.current_shadow_distance * 2)
 		local caster_min_z = min_z - far_margin
 		local caster_max_z = max_z + near_margin
 		local projection = Matrix44()

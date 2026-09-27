@@ -249,7 +249,6 @@ return {
 						{"env_tex", "int"},
 						{"env_irradiance_tex", "int"},
 						{"ssr_tex", "int"},
-						atmosphere.GetBlockLayout(),
 						{"sun_direction", "vec3"},
 						{"primary_sun_illuminance", "float"},
 						{"primary_sun_color", "vec3"},
@@ -286,12 +285,6 @@ return {
 							block.ssr_tex = self:GetTextureIndex(render3d.pipelines.ssr:GetFramebuffer(current_idx):GetAttachment(1))
 						end
 
-						atmosphere.WriteBlock(
-							self,
-							block,
-							render3d.GetCamera():GetPosition(),
-							get_primary_sun_direction()
-						)
 						get_primary_sun_direction():CopyToFloatPointer(block.sun_direction)
 						block.primary_sun_illuminance = get_primary_sun_illuminance()
 						get_primary_sun_color():CopyToFloatPointer(block.primary_sun_color)
@@ -518,7 +511,7 @@ return {
 				return (1.0 - gg) / (pow(1.0 + gg - 2.0 * g * mu, 1.5) * 4.0 * SEA_PI);
 			}
 
-			]] .. atmosphere.GetGLSLDefines("ocean_data", "ocean_data.primary_sun_illuminance") .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. ibl.GetBRDFGLSLCode() .. [[
 
 			]] .. ibl.GetEnvironmentGLSLCode() .. [[
 
@@ -530,7 +523,9 @@ return {
 
 			]] .. ibl.GetReflectionGLSLCode("ocean_data") .. [[
 
-			]] .. atmosphere.GetSurfaceAerialPerspectiveGLSLCode("get_environment_color(dir, 0.0)") .. [[
+			vec3 get_atmosphere_background_color(vec3 dir) {
+				return clamp(get_environment_color(dir, 0.0), vec3(0.0), vec3(65504.0));
+			}
 
 			float get_ocean_reflection_roughness(vec3 normal) {
 				float slope = sqrt(max(1.0 - clamp(normal.y, 0.0, 1.0), 0.0));
@@ -611,7 +606,7 @@ return {
 				color += subsurface_amount * water_scatter * ocean_data.primary_sun_color * max(0.0, 1.0 + p.y - (ocean_data.ocean_level + 0.6 * SEA_HEIGHT));
 				vec3 half_dir = normalize(view_dir + sun_direction);
 				float no_h = max(dot(normal, half_dir), 0.0);
-				float glint_alpha = min(0.05 + SUN_ANGULAR_RADIUS * 0.5, 1.0);
+				float glint_alpha = min(0.05 + ]] .. atmosphere.SUN_ANGULAR_RADIUS .. [[ * 0.5, 1.0);
 				float glint_energy = (0.05 / glint_alpha) * (0.05 / glint_alpha);
 				color += sun_radiance * (0.18 * fresnel * D_GGXAlpha(glint_alpha, no_h) * glint_energy / SEA_PI);
 				float foam = smoothstep(0.18, 0.55, p.y - ocean_data.ocean_level) * smoothstep(0.65, 0.15, normal.y);
@@ -790,12 +785,6 @@ return {
 					reflection_color,
 					refracted_scene,
 					thickness
-				);
-				color = apply_surface_aerial_perspective(
-					color,
-					ocean_world_pos,
-					sun_direction,
-					ocean_data.camera_position.xyz
 				);
 				set_scene_color(color, 1.0);
 				set_ocean_distance(ocean_t);

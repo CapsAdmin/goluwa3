@@ -427,7 +427,7 @@ return {
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
 					return calculateShadow(world_pos, sun_dir, sun_dir);
 				}
-			]] .. froxel_fog.GetGLSL("lighting_data", "get_fog_sun_visibility", "get_primary_sun_direction()") .. [[
+			]] .. froxel_fog.GetGLSL("lighting_data", "get_primary_sun_direction()") .. [[
 				// the gbuffer's screen space gi, of the opaque surface behind
 				// this one. a thin surface sits in about the same light
 				vec3 get_gi_irradiance(vec2 screen_uv, vec3 N, out float sky_visibility) {
