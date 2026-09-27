@@ -77,7 +77,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		DepthFormat = "d32_sfloat",
 		fragment = {
 			uniform_buffers = uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_weather.GetGLSL("gbuffer_data") .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_weather.GetGLSL("gbuffer_data") .. render3d.GetGBufferEncodeGLSL() .. [[
 					// both endpoints go through their own frame's camera, so a still
 					// object under a moving camera and a moving object under a still
 					// camera come out of the same subtraction. the divide by w is
@@ -300,15 +300,15 @@ local function build_ssdm_fragment_shader(displacement_var)
 			apply_surface_weather(albedo, roughness, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, normal);
 			set_alpha(alpha);
 			set_albedo(albedo);
-			set_normal(normal * 0.5 + 0.5);
+			set_normal(gbuffer_encode_normal(normal));
 			set_transmission_scattering(get_transmission_scattering());
-			vec3 transmission_tint = get_transmission_color();
-			set_transmission_tint_r(transmission_tint.r * 0.5);
-			set_transmission_tint_b(transmission_tint.b * 0.5);
+			vec2 transmission_tint = gbuffer_encode_transmission_tint(get_transmission_color());
+			set_transmission_tint_r(transmission_tint.x);
+			set_transmission_tint_b(transmission_tint.y);
 			set_metallic(metallic);
 			set_roughness(roughness);
 			set_ao(get_ao(displacement.uv));
-			set_specular(get_specular(displacement.uv));
+			set_specular(gbuffer_encode_specular(get_specular(displacement.uv)));
 			set_transmission(transmission);
 			set_emissive(get_emissive(displacement.uv));
 			// the undisplaced position on both sides. parallax shifts the surface

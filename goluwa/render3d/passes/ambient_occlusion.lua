@@ -64,7 +64,7 @@ return {
 		shader = [[
             vec2 in_uv;
 
-			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. render3d.GetGBufferGLSL("lighting_data") .. [[
             ]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
             ]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_uv"}) .. [[
 
@@ -77,20 +77,12 @@ return {
 				imageStore(out_color, get_screen_pos(), vec4(value,0,0,1));
 			}
 
-			float get_depth() {
-				return texture(TEXTURE(lighting_data.depth_tex), in_uv).r;
-			}
-
-			vec3 get_normal() {
-				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz * 2.0 - 1.0;
-			}
-
 			vec3 get_geometric_normal(vec2 uv, vec3 world_pos, float depth, vec3 shading_normal) {
 				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0));
-				float depth_left = texture(TEXTURE(lighting_data.depth_tex), uv - vec2(texel.x, 0.0)).r;
-				float depth_right = texture(TEXTURE(lighting_data.depth_tex), uv + vec2(texel.x, 0.0)).r;
-				float depth_down = texture(TEXTURE(lighting_data.depth_tex), uv - vec2(0.0, texel.y)).r;
-				float depth_up = texture(TEXTURE(lighting_data.depth_tex), uv + vec2(0.0, texel.y)).r;
+				float depth_left = gbuffer_depth(uv - vec2(texel.x, 0.0));
+				float depth_right = gbuffer_depth(uv + vec2(texel.x, 0.0));
+				float depth_down = gbuffer_depth(uv - vec2(0.0, texel.y));
+				float depth_up = gbuffer_depth(uv + vec2(0.0, texel.y));
 				vec3 dx = abs(depth_left - depth) < abs(depth_right - depth) ?
 					world_pos - get_world_pos_uv(uv - vec2(texel.x, 0.0), depth_left) :
 					get_world_pos_uv(uv + vec2(texel.x, 0.0), depth_right) - world_pos;
@@ -111,10 +103,6 @@ return {
 				}
 
 				return n;
-			}
-
-            float get_alpha() {
-				return texture(TEXTURE(lighting_data.albedo_tex), in_uv).a;
 			}
 
 			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
@@ -175,7 +163,7 @@ return {
 							
 							if (sample_uv.x < 0.0 || sample_uv.x > 1.0 || sample_uv.y < 0.0 || sample_uv.y > 1.0) continue;
 
-							float sample_depth = texture(TEXTURE(lighting_data.depth_tex), sample_uv).r;
+							float sample_depth = gbuffer_depth(sample_uv);
 							vec4 sample_clip_pos = vec4(sample_uv * 2.0 - 1.0, sample_depth, 1.0);
 							vec4 sample_view_pos = lighting_data.inv_projection * sample_clip_pos;
 							vec3 sf = sample_view_pos.xyz / sample_view_pos.w;
@@ -185,7 +173,7 @@ return {
 
 							if (dist2 > world_radius * world_radius || dist2 < 0.0001) continue;
 
-							float sample_thickness = texture(TEXTURE(lighting_data.mra_tex), sample_uv).a > 0.0 ? thin_thickness : thickness;
+							float sample_thickness = gbuffer_transmission(sample_uv) > 0.0 ? thin_thickness : thickness;
 
 							// Angles from the view vector, signed by the side of
 							// the slice the sample is on (Therrien 2023). The
@@ -232,14 +220,14 @@ return {
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 				in_uv = get_compute_uv();
 
-				float depth = get_depth();
+				float depth = gbuffer_depth(in_uv);
 
 				if (depth == 1.0) {
 					set_color(1);
 					return;
 				}
 
-				float alpha = get_alpha();
+				float alpha = gbuffer_alpha(in_uv);
 
 				if (alpha == 0.0) {
 					set_color(1);
@@ -247,7 +235,7 @@ return {
 				}
 
 				vec3 world_pos = get_world_pos(depth);
-				vec3 N = get_geometric_normal(in_uv, world_pos, depth, get_normal());
+				vec3 N = get_geometric_normal(in_uv, world_pos, depth, gbuffer_normal(in_uv));
                 float ao = get_ambient_occlusion(in_uv, world_pos, N);
                 set_color(ao);
 			}
@@ -299,7 +287,7 @@ return {
 			layout(set = 0, binding = 0, r16f) uniform writeonly image2D out_color;
 			]],
 		shader = [[
-			]] .. compute_helpers.GetScreenHelpersGLSL() .. [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. render3d.GetGBufferGLSL("ao_blur_data") .. [[
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ao_blur_data") .. [[
 
 			vec2 get_compute_uv() {
@@ -308,10 +296,6 @@ return {
 
 			void set_color(float value) {
 				imageStore(out_color, get_screen_pos(), vec4(value, 0, 0, 1));
-			}
-
-			float get_depth(vec2 uv) {
-				return texture(TEXTURE(ao_blur_data.depth_tex), uv).r;
 			}
 
 			float get_view_depth(vec2 uv, float depth) {
@@ -326,7 +310,7 @@ return {
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
 				vec2 uv = get_compute_uv();
-				float center_depth = get_depth(uv);
+				float center_depth = gbuffer_depth(uv);
 
 				if (center_depth == 1.0 || ao_blur_data.ao_tex == -1) {
 					set_color(1.0);
@@ -345,7 +329,7 @@ return {
 					for (int x = -1; x <= 1; x++) {
 						vec2 offset = vec2(x, y);
 						vec2 sample_uv = clamp(uv + offset * ao_texel, vec2(0.0), vec2(1.0));
-						float sample_depth = get_depth(sample_uv);
+						float sample_depth = gbuffer_depth(sample_uv);
 
 						if (sample_depth == 1.0) continue;
 

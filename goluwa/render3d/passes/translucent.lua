@@ -533,7 +533,7 @@ return {
 					// a refracting surface reflects what its index of refraction
 					// says, and scatters diffusely only what it doesn't transmit
 					float ior_f0 = (refraction.ior - 1.0) / (refraction.ior + 1.0);
-					vec3 F0 = mix(vec3(refractive ? ior_f0 * ior_f0 : get_specular(in_uv) * 0.08), albedo, metallic);
+					vec3 F0 = mix(vec3(refractive ? ior_f0 * ior_f0 : get_specular(in_uv) * 0.04), albedo, metallic);
 					float NdotV = max(dot(N, V), 0.001);
 					// alpha is how much of the pixel the surface covers. a surface
 					// that doesn't refract uses it as its opacity, scaling what it

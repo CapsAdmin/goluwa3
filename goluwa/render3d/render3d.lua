@@ -134,6 +134,66 @@ function render3d.WriteGBufferBlock(self, block)
 	return block
 end
 
+-- How the gbuffer pass packs its targets (see its ColorFormat), for the
+-- shaders writing them
+function render3d.GetGBufferEncodeGLSL()
+	return [[
+		vec3 gbuffer_encode_normal(vec3 N) {
+			return N * 0.5 + 0.5;
+		}
+
+		// a multiplier of 1 is dielectric F0 0.04; up to 2 fits
+		float gbuffer_encode_specular(float multiplier) {
+			return clamp(multiplier * 0.5, 0.0, 1.0);
+		}
+
+		// red and blue, halved to fit up to 2. the tint's luminance is 1, which
+		// gives the green back
+		vec2 gbuffer_encode_transmission_tint(vec3 tint) {
+			return tint.rb * 0.5;
+		}
+	]]
+end
+
+do
+	local decoders = [[
+		vec3 gbuffer_albedo(COORD c) { return gbuffer_fetch(GBUFFER.albedo_tex, c).rgb; }
+		float gbuffer_alpha(COORD c) { return gbuffer_fetch(GBUFFER.albedo_tex, c).a; }
+		float gbuffer_depth(COORD c) { return gbuffer_fetch(GBUFFER.depth_tex, c).r; }
+		vec3 gbuffer_normal(COORD c) { return gbuffer_fetch(GBUFFER.normal_tex, c).xyz * 2.0 - 1.0; }
+		float gbuffer_metallic(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).r; }
+		// ggx alpha
+		float gbuffer_roughness(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).g; }
+		float gbuffer_ao(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).b; }
+		float gbuffer_transmission(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).a; }
+		vec3 gbuffer_emissive(COORD c) { return gbuffer_fetch(GBUFFER.emissive_tex, c).rgb; }
+		float gbuffer_transmission_scattering(COORD c) { return gbuffer_fetch(GBUFFER.transmission_tex, c).r; }
+		float gbuffer_dielectric_f0(COORD c) { return gbuffer_fetch(GBUFFER.transmission_tex, c).b * 0.08; }
+
+		vec3 gbuffer_transmission_color(COORD c) {
+			vec4 packed = gbuffer_fetch(GBUFFER.transmission_tex, c);
+			float r = packed.g * 2.0;
+			float b = packed.a * 2.0;
+			return vec3(r, max((1.0 - 0.2126 * r - 0.0722 * b) / 0.7152, 0.0), b);
+		}
+	]]
+	local code = [[
+		vec4 gbuffer_fetch(int tex, vec2 uv) {
+			return texture(TEXTURE(tex), uv);
+		}
+
+		vec4 gbuffer_fetch(int tex, ivec2 pixel) {
+			return texelFetch(TEXTURE(tex), pixel, 0);
+		}
+	]] .. decoders:gsub("COORD", "vec2") .. decoders:gsub("COORD", "ivec2")
+
+	-- Reading what render3d.GetGBufferEncodeGLSL packed, at a uv or a pixel.
+	-- block_name is the uniform block holding render3d.gbuffer_block
+	function render3d.GetGBufferGLSL(block_name)
+		return (code:gsub("GBUFFER%.", block_name .. "."))
+	end
+end
+
 render3d.last_frame_block = {
 	{"last_frame_tex", "int"},
 }

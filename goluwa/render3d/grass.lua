@@ -989,7 +989,7 @@ function grass.BuildDrawPass(gbuffer_pass)
 		},
 		fragment = {
 			uniform_buffers = {grass_block},
-			shader = surface_weather.GetGLSL("grass_data") .. [[
+			shader = surface_weather.GetGLSL("grass_data") .. render3d.GetGBufferEncodeGLSL() .. [[
 				void main() {
 					float t = in_blade.x;
 					vec3 N = normalize(in_normal);
@@ -1016,17 +1016,19 @@ function grass.BuildDrawPass(gbuffer_pass)
 					apply_surface_weather(albedo, roughness, 0.2, in_position, in_ground_normal);
 					set_alpha(1.0);
 					set_albedo(albedo);
-					set_normal(N * 0.5 + 0.5);
+					set_normal(gbuffer_encode_normal(N));
 					set_metallic(0.0);
 					set_roughness(roughness);
 					set_ao(mix(mix(0.5, 1.0, smoothstep(0.0, 0.7, t)), 0.85, far));
-					set_specular(0.02);
+					// F0 0.02, a bit under the 0.04 default, for the waxy blades
+					set_specular(gbuffer_encode_specular(0.5));
 					set_transmission(0.4);
 					set_transmission_scattering(0.5);
 					set_emissive(vec3(0.0));
-					// a yellow green transmission tint with luminance 1, red and blue halved
-					set_transmission_tint_r(0.45);
-					set_transmission_tint_b(0.3);
+					// a yellow green transmission tint with luminance 1
+					vec2 transmission_tint = gbuffer_encode_transmission_tint(vec3(0.9, 1.07, 0.6));
+					set_transmission_tint_r(transmission_tint.x);
+					set_transmission_tint_b(transmission_tint.y);
 
 					vec4 clip = grass_data.projection * grass_data.view * vec4(in_position, 1.0);
 					vec4 prev_view_pos = grass_data.prev_view * vec4(in_prev_position, 1.0);

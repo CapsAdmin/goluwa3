@@ -194,6 +194,7 @@ function ibl.GetEnvironmentGLSLCode()
 		]]
 end
 
+-- needs render3d.GetGBufferGLSL for the same block
 function ibl.GetReflectionGLSLCode(uniform_name)
 	uniform_name = uniform_name or "lighting_data"
 	return [[
@@ -221,13 +222,13 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				ivec2 gbuffer_size = textureSize(TEXTURE(]] .. uniform_name .. [[.depth_tex), 0);
 				vec2 ratio = vec2(gbuffer_size) / vec2(ssr_size);
 				ivec2 pixel = clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1);
-				float center_depth = texelFetch(TEXTURE(]] .. uniform_name .. [[.depth_tex), pixel, 0).r;
+				float center_depth = gbuffer_depth(pixel);
 
 				if (center_depth >= 1.0) return vec4(0.0);
 
 				float center_view_depth = reconstruct_ssr_view_depth(uv, center_depth);
-				vec3 center_normal = texelFetch(TEXTURE(]] .. uniform_name .. [[.normal_tex), pixel, 0).xyz * 2.0 - 1.0;
-				float center_roughness = texelFetch(TEXTURE(]] .. uniform_name .. [[.mra_tex), pixel, 0).g;
+				vec3 center_normal = gbuffer_normal(pixel);
+				float center_roughness = gbuffer_roughness(pixel);
 				vec2 ssr_coord = uv * vec2(ssr_size) - 0.5;
 				ivec2 ssr_base = ivec2(floor(ssr_coord));
 				vec2 ssr_frac = ssr_coord - vec2(ssr_base);
@@ -240,14 +241,14 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 					ivec2 offset = ivec2(i & 1, i >> 1);
 					ivec2 ssr_pos = clamp(ssr_base + offset, ivec2(0), ssr_size - 1);
 					ivec2 tap_pixel = min(ivec2((vec2(ssr_pos) + 0.5) * ratio), gbuffer_size - 1);
-					float tap_depth = texelFetch(TEXTURE(]] .. uniform_name .. [[.depth_tex), tap_pixel, 0).r;
+					float tap_depth = gbuffer_depth(tap_pixel);
 
 					if (tap_depth >= 1.0) continue;
 
 					vec2 tap_uv = (vec2(tap_pixel) + 0.5) / vec2(gbuffer_size);
 					float tap_view_depth = reconstruct_ssr_view_depth(tap_uv, tap_depth);
-					vec3 tap_normal = texelFetch(TEXTURE(]] .. uniform_name .. [[.normal_tex), tap_pixel, 0).xyz * 2.0 - 1.0;
-					float tap_roughness = texelFetch(TEXTURE(]] .. uniform_name .. [[.mra_tex), tap_pixel, 0).g;
+					vec3 tap_normal = gbuffer_normal(tap_pixel);
+					float tap_roughness = gbuffer_roughness(tap_pixel);
 					float bilinear_weight = (offset.x == 0 ? 1.0 - ssr_frac.x : ssr_frac.x) * (offset.y == 0 ? 1.0 - ssr_frac.y : ssr_frac.y);
 					float depth_weight = exp(-abs(tap_view_depth - center_view_depth) / max(abs(center_view_depth) * 0.03, 0.05));
 					float normal_weight = pow(max(dot(center_normal, tap_normal), 0.0), 16.0);

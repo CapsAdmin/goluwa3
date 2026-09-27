@@ -53,7 +53,7 @@ end
 local function common_glsl()
 	return [[
 		#define saturate(x) clamp(x, 0.0, 1.0)
-	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL()
+	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. render3d.GetGBufferGLSL("ddgi_data") .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL()
 end
 
 -- Traces every probe ray against the scene TLAS. This is a ray tracing
@@ -983,7 +983,7 @@ local function pass_probe_debug()
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
 				in_uv = get_screen_uv(pos, size);
-				float depth = texture(TEXTURE(ddgi_data.depth_tex), in_uv).r;
+				float depth = gbuffer_depth(in_uv);
 				vec3 O = ddgi_data.camera_position.xyz;
 				vec3 D = get_world_ray();
 				int c = min(ddgi_data.ddgi_debug_cascade, ddgi_data.ddgi_cascade_count - 1);
@@ -1124,14 +1124,14 @@ local function pass_resolve()
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
 				vec2 uv = get_screen_uv(pos, size);
-				float depth = texture(TEXTURE(ddgi_data.depth_tex), uv).r;
+				float depth = gbuffer_depth(uv);
 
 				if (depth >= 1.0) {
 					imageStore(out_color, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					return;
 				}
 
-				vec3 N = normalize(texture(TEXTURE(ddgi_data.normal_tex), uv).xyz * 2.0 - 1.0);
+				vec3 N = normalize(gbuffer_normal(uv));
 				vec3 P = get_world_pos(uv, depth);
 				vec3 V = normalize(ddgi_data.camera_position - P);
 				float weight;

@@ -170,60 +170,7 @@ return {
 				imageStore(out_color, get_screen_pos(), value);
 			}
 
-			vec3 get_albedo() {
-				return texture(TEXTURE(lighting_data.albedo_tex), in_uv).rgb;
-			}
-
-			float get_alpha() {
-				return texture(TEXTURE(lighting_data.albedo_tex), in_uv).a;
-			}
-
-			float get_depth() {
-				return texture(TEXTURE(lighting_data.depth_tex), in_uv).r;
-			}
-
-			vec3 get_normal() {
-				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz * 2.0 - 1.0;
-			}
-
-			float get_transmission_scattering() {
-				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).r;
-			}
-
-			// the gbuffer holds SpecularMultiplier * 0.5; a multiplier of 1 is F0 0.04
-			float get_dielectric_f0() {
-				return texture(TEXTURE(lighting_data.transmission_tex), in_uv).b * 0.08;
-			}
-
-			float get_metallic() {
-				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
-				return mra.r;
-			}
-
-			float get_roughness() {
-				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
-				return mra.g;
-			}
-
-			float get_ao() {
-				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
-				return mra.b;
-			}
-
-			float get_transmission() {
-				return texture(TEXTURE(lighting_data.mra_tex), in_uv).a;
-			}
-
-			vec3 get_emissive() {
-				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
-			}
-
-			vec3 get_transmission_color() {
-				vec4 packed = texture(TEXTURE(lighting_data.transmission_tex), in_uv);
-				float r = packed.g * 2.0;
-				float b = packed.a * 2.0;
-				return vec3(r, max((1.0 - 0.2126 * r - 0.0722 * b) / 0.7152, 0.0), b);
-			}
+			]] .. render3d.GetGBufferGLSL("lighting_data") .. [[
 
 			]] .. surface_lighting.GetGLSL("lighting_data") .. [[
 
@@ -278,7 +225,7 @@ return {
 				float sky_visibility;
 				vec3 irradiance = get_gi_irradiance(N, sky_visibility);
 				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, irradiance);
-				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * get_ao();
+				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * gbuffer_ao(in_uv);
 
 				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 				vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
@@ -321,14 +268,14 @@ return {
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 				in_uv = get_compute_uv();
 
-				float depth = get_depth();
+				float depth = gbuffer_depth(in_uv);
 
 				if (depth == 1.0) {
 					set_color(vec4(min(get_sky() * get_pre_exposure(), vec3(65504.0)), 1.0));
 					return;
 				}
 
-				float alpha = get_alpha();
+				float alpha = gbuffer_alpha(in_uv);
 
 				if (alpha == 0.0) {
 					set_color(vec4(0.0, 0.0, 0.0, 0.0));
@@ -340,18 +287,18 @@ return {
 				// a normal map can turn a pixel away from the camera; shading it
 				// like that zeroes both the diffuse (fresnel -> 1) and the
 				// specular (grazing brdf) terms and leaves a black rim
-				vec3 N = bend_normal_to_view(get_normal(), V);
+				vec3 N = bend_normal_to_view(gbuffer_normal(in_uv), V);
 
 
-				vec3 albedo = get_albedo();
-				float metallic = get_metallic();
-				float roughness = get_roughness();
+				vec3 albedo = gbuffer_albedo(in_uv);
+				float metallic = gbuffer_metallic(in_uv);
+				float roughness = gbuffer_roughness(in_uv);
 				float perceptual_roughness = sqrt(clamp(roughness, 0.0, 1.0));
-				float transmission = get_transmission();
-				vec3 transmission_color = get_transmission_color();
-				float transmission_scattering = get_transmission_scattering();
-				vec3 emissive = get_emissive();
-				vec3 F0 = mix(vec3(get_dielectric_f0()), albedo, metallic);
+				float transmission = gbuffer_transmission(in_uv);
+				vec3 transmission_color = gbuffer_transmission_color(in_uv);
+				float transmission_scattering = gbuffer_transmission_scattering(in_uv);
+				vec3 emissive = gbuffer_emissive(in_uv);
+				vec3 F0 = mix(vec3(gbuffer_dielectric_f0(in_uv)), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
 				vec3 direct_specular;
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N), direct_specular);

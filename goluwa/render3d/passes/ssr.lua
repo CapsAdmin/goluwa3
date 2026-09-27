@@ -194,7 +194,7 @@ return {
 				""
 			),
 		shader = [[
-		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. [[
+		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. render3d.GetGBufferGLSL("ssr_data") .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. (
 				RAY_QUERY and
@@ -244,7 +244,7 @@ return {
 			}
 
 			float fetch_depth(vec2 uv) {
-				return texelFetch(TEXTURE(ssr_data.depth_tex), clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1), 0).r;
+				return gbuffer_depth(clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1));
 			}
 
 			bool fetch_surface_motion(vec2 uv, out vec2 prev_uv, out float prev_depth) {
@@ -359,7 +359,7 @@ return {
 									}
 								}
 
-								vec3 hit_normal_vs = mat3(ssr_data.view) * (texture(TEXTURE(ssr_data.normal_tex), uv).xyz * 2.0 - 1.0);
+								vec3 hit_normal_vs = mat3(ssr_data.view) * gbuffer_normal(uv);
 
 								if (dot(hit_normal_vs, R_vs) > 0.0) {
 									t_prev = t;
@@ -555,7 +555,7 @@ return {
 				bool in_bounds = is_screen_pos_in_bounds(pos, ssr_size);
 				ivec2 gbuffer_pos = min(ivec2((vec2(pos) + 0.5) * gbuffer_ratio), gbuffer_size - 1);
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
-				float depth = in_bounds ? texelFetch(TEXTURE(ssr_data.depth_tex), gbuffer_pos, 0).r : 1.0;
+				float depth = in_bounds ? gbuffer_depth(gbuffer_pos) : 1.0;
 				vec4 current = vec4(0.0);
 				vec3 N = vec3(0.0, 1.0, 0.0);
 				vec3 world_pos = vec3(0.0);
@@ -563,9 +563,9 @@ return {
 				float view_depth = 0.0;
 
 				if (depth < 1.0) {
-					N = texelFetch(TEXTURE(ssr_data.normal_tex), gbuffer_pos, 0).xyz * 2.0 - 1.0;
+					N = gbuffer_normal(gbuffer_pos);
 					// the gbuffer stores ggx alpha
-					roughness = sqrt(texelFetch(TEXTURE(ssr_data.mra_tex), gbuffer_pos, 0).g);
+					roughness = sqrt(gbuffer_roughness(gbuffer_pos));
 					world_pos = get_world_pos(uv, depth);
 					vec3 pos_vs = (ssr_data.view * vec4(world_pos, 1.0)).xyz;
 					view_depth = -pos_vs.z;

@@ -2020,7 +2020,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				return min(emissive * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
 			}
 
-			// half the multiplier, so 1 lands mid range and 2 still fits the unorm target
+			// the SpecularMultiplier; 1 is dielectric F0 0.04
 			float get_specular(vec2 uv) {
 				float val = factor_model.SpecularMultiplier;
 
@@ -2034,7 +2034,8 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 					val *= dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerSpecular);
 				}
 
-				return clamp(val * 0.5, 0.0, 1.0);
+				// as much as the gbuffer holds
+				return clamp(val, 0.0, 2.0);
 			}
 
 			float get_ao(vec2 uv) {

@@ -242,10 +242,8 @@ return {
 					block = {
 						render3d.camera_block,
 						render3d.common_block,
+						render3d.gbuffer_block,
 						{"scene_tex", "int"},
-						{"depth_tex", "int"},
-						{"normal_tex", "int"},
-						{"mra_tex", "int"},
 						{"env_tex", "int"},
 						{"env_irradiance_tex", "int"},
 						{"ssr_tex", "int"},
@@ -263,6 +261,7 @@ return {
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
 						render3d.WriteCommonBlock(self, block)
+						render3d.WriteGBufferBlock(self, block)
 						post_source.WritePreExposureBlock(self, block)
 
 						if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
@@ -272,9 +271,6 @@ return {
 							block.scene_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
 						end
 
-						block.depth_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
-						block.normal_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
-						block.mra_tex = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
 						block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 						block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 
@@ -336,10 +332,7 @@ return {
 			const float WAVE_NEAR_WORLD_HALF = ]] .. WAVE_NEAR_WORLD_HALF .. [[;
 			const float WAVE_NEAR_REPEAT_WORLD_HALF = ]] .. WAVE_NEAR_REPEAT_WORLD_HALF .. [[;
 
-			float get_scene_depth(vec2 uv) {
-				if (ocean_data.depth_tex == -1) return 1.0;
-				return texture(TEXTURE(ocean_data.depth_tex), uv).r;
-			}
+			]] .. render3d.GetGBufferGLSL("ocean_data") .. [[
 
 
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ocean_data") .. [[
@@ -643,7 +636,7 @@ return {
 					return;
 				}
 
-				float scene_depth = get_scene_depth(in_uv);
+				float scene_depth = gbuffer_depth(in_uv);
 				vec3 camera_origin = ocean_data.camera_position.xyz;
 				vec3 ray_origin = vec3(0.0);
 				vec3 ray_dir = get_view_ray(in_uv);
