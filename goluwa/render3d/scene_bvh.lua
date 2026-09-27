@@ -5,6 +5,7 @@ local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local scene_bvh = library()
 -- Pre-register to break import cycle: visual -> render3d -> scene_bvh -> visual
 import.loaded["goluwa/render3d/scene_bvh.lua"] = scene_bvh
@@ -2831,6 +2832,7 @@ do
 		end
 
 		process_pending_free(frame)
+		gpu_timing.BeginScope(cmd, "rt_build")
 		local vertex_count, position_buffer = scene_bvh.ExpandPositions(cmd, rt_state)
 		cmd:PipelineBarrier{
 			srcStage = "compute",
@@ -2863,6 +2865,7 @@ do
 				},
 			},
 		}
+		gpu_timing.EndScope(cmd, "rt_build")
 		slot.last_used = frame
 		rt_state.current_slot = slot
 		rt_state.built_version = scene_bvh.soup_version

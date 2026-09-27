@@ -20,6 +20,7 @@ local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local event = import("goluwa/event.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local render_stats = import("goluwa/render/stats.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
@@ -2085,6 +2086,28 @@ function ShadowMap:GetGPUDrawCullResult(cascade_index)
 end
 
 -- Begin shadow pass for a specific cascade (or all cascades if cascade_index is nil)
+-- the gpu timing scope of a cascade (a cube face for point lights), shared by
+-- every shadow map of the same role so their times add up
+function ShadowMap:GetTimingName(cascade_index)
+	local names = self.timing_names
+
+	if not names then
+		names = {}
+		self.timing_names = names
+	end
+
+	local name = names[cascade_index]
+
+	if not name then
+		name = self.mode == "point" and
+			"shadow_point_" .. cascade_index or
+			"shadow_" .. self.role .. "_" .. cascade_index
+		names[cascade_index] = name
+	end
+
+	return name
+end
+
 function ShadowMap:Begin(cascade_index, is_first_in_batch)
 	cascade_index = cascade_index or 1
 	is_first_in_batch = is_first_in_batch == nil and cascade_index == 1 or is_first_in_batch
@@ -2101,10 +2124,12 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 
 			self.cmd:Reset()
 			self.cmd:Begin()
+			gpu_timing.BeginCommandBuffer(self.cmd)
 			self.is_recording_cascades = true
 			self.batch_serial = self.batch_serial + 1
 		end
 
+		gpu_timing.BeginScope(self.cmd, self:GetTimingName(cascade_index))
 		record_shadow_draw_cull(self, cascade_index)
 		local color_view = self.point_face_views[cascade_index]
 		render.TransitionResourceTo(
@@ -2166,6 +2191,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 
 		self.cmd:Reset()
 		self.cmd:Begin()
+		gpu_timing.BeginCommandBuffer(self.cmd)
 		self.is_recording_cascades = true
 		self.batch_serial = self.batch_serial + 1
 
@@ -2177,7 +2203,9 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 			self.expander.version ~= scene_bvh.soup_version
 		then
 			self.expander.version = scene_bvh.soup_version
+			gpu_timing.BeginScope(self.cmd, "shadow_soup_expand")
 			local vertex_count, position_buffer = scene_bvh.ExpandPositions(self.cmd, self.expander)
+			gpu_timing.EndScope(self.cmd, "shadow_soup_expand")
 			self.expander.vertex_count = vertex_count
 
 			if vertex_count > 0 then
@@ -2197,6 +2225,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		end
 	end
 
+	gpu_timing.BeginScope(self.cmd, self:GetTimingName(cascade_index))
 	record_shadow_draw_cull(self, cascade_index)
 	-- Transition depth texture to depth attachment optimal
 	render.TransitionResourceTo(
@@ -2685,6 +2714,7 @@ function ShadowMap:End(cascade_index, is_last_in_batch)
 			}
 		)
 		self.cascade[cascade_index].is_sampleable = true
+		gpu_timing.EndScope(self.cmd, self:GetTimingName(cascade_index))
 
 		if is_last_in_batch then self:CloseBatch() end
 
@@ -2706,6 +2736,7 @@ function ShadowMap:End(cascade_index, is_last_in_batch)
 		}
 	)
 	self.cascade[cascade_index].is_sampleable = true
+	gpu_timing.EndScope(self.cmd, self:GetTimingName(cascade_index))
 
 	if is_last_in_batch then
 		-- Submit once after all cascades are recorded and let the next frame fence-gate reuse.

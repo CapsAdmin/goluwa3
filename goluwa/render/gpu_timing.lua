@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
+local system = import("goluwa/system.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local QueryPool = import("goluwa/render/vulkan/internal/query_pool.lua")
 local render_stats = import("goluwa/render/stats.lua")
@@ -12,17 +13,30 @@ local gpu_timing = {}
 --
 -- Query pools are keyed by command buffer identity rather than frame index:
 -- multiple independent render targets (the swapchain target, offscreen
--- screenshot/capture targets) each number their own frames starting at 1,
--- so keying by frame index alone would let unrelated targets collide on the
--- same pool. Each render target's command buffers are long-lived and reused
--- every frame, so this stays a small, bounded set of pools.
-local MAX_SCOPES = 64
+-- screenshot/capture targets, every shadow map) each record their own
+-- command buffers, and those are long-lived and reused, so this stays a
+-- small, bounded set of pools. Each pool keeps its own latest results; a
+-- scope timed in several command buffers (the cascades of every point light
+-- shadow map, say) is shown as their sum.
+local MAX_SCOPES = 128
+-- a pool result older than this is left out, so work that stopped running
+-- (a shadow cascade that is not re-rendered) drops out of the totals
+local STALE_SECONDS = 1
 local RESULT_FLAGS = bit.bor(
 	vulkan.vk.VkQueryResultFlagBits.VK_QUERY_RESULT_64_BIT,
 	vulkan.vk.VkQueryResultFlagBits.VK_QUERY_RESULT_WITH_AVAILABILITY_BIT
 )
 local slot_by_name = {}
 local slot_order = {}
+-- scope names in the order they run: the order the CPU begins them in a
+-- frame. each frame's sequence re-sorts the names it contains into its own
+-- order while the names it lacks keep their place
+local display_order = {}
+local display_labels = {}
+local sequence = {}
+local sequence_seen = {}
+local sequence_frame
+local positions = {}
 local pools = {}
 local last_ms = {}
 local smoothed_ms = {}
@@ -46,20 +60,89 @@ local function timestamps_are_supported()
 	return timestamps_supported
 end
 
-local function format_gpu_ms(value)
-	return tostring(math.floor((value or 0) + 0.5)) .. " MS"
+render_stats.RegisterGroup{id = "gpu_timing", label = "GPU TIMINGS IN MICROSECONDS", columns = true}
+
+-- the sum of every pool's recent result for name, or nil when none is recent
+local function get_total_ms(name)
+	local now = system.GetElapsedTime()
+	local total
+
+	for _, pool in pairs(pools) do
+		local time = pool.gpu_timing_times[name]
+
+		if time and now - time <= STALE_SECONDS then
+			total = (total or 0) + pool.gpu_timing_ms[name]
+		end
+	end
+
+	return total
 end
 
-render_stats.RegisterGroup{id = "gpu_timing", label = "GPU TIMING"}
+-- the smoothed totals shown this frame, and their range over everything but
+-- the whole frame scope, which would otherwise always be the most expensive
+local shown_ms = {}
+local shown_frame
+local shown_min
+local shown_max
 
-local function register_scope_field(name)
+local function update_shown()
+	local frame = system.GetFrameNumber()
+
+	if shown_frame == frame then return end
+
+	shown_frame = frame
+	shown_min = nil
+	shown_max = nil
+
+	for i = 1, #display_order do
+		local name = display_order[i]
+		local total = get_total_ms(name)
+
+		if total then
+			local smoothed = smoothed_ms[name] and (smoothed_ms[name] * 0.85 + total * 0.15) or total
+			smoothed_ms[name] = smoothed
+			shown_ms[name] = smoothed
+
+			if name ~= "gpu_frame" then
+				shown_min = shown_min and math.min(shown_min, smoothed) or smoothed
+				shown_max = shown_max and math.max(shown_max, smoothed) or smoothed
+			end
+		else
+			smoothed_ms[name] = nil
+			shown_ms[name] = nil
+		end
+	end
+end
+
+-- one overlay row per rank in display_order, so rows follow the run order
+-- even when a scope is first seen after later ones were registered
+local function register_row(rank)
 	render_stats.RegisterField{
-		id = "gpu_timing_" .. name,
-		label = "GPU " .. name,
+		id = "gpu_timing_row_" .. rank,
 		group = "gpu_timing",
-		formatter = format_gpu_ms,
+		glyphs = "-",
+		label_getter = function()
+			return display_labels[display_order[rank]]
+		end,
 		getter = function()
-			return smoothed_ms[name] or 0
+			update_shown()
+			local ms = shown_ms[display_order[rank]]
+			return ms and tostring(math.floor(ms * 1000 + 0.5)) or "-"
+		end,
+		-- green for the cheapest shown scope through yellow to red for the
+		-- most expensive
+		swatch_getter = function()
+			update_shown()
+			local name = display_order[rank]
+			local ms = shown_ms[name]
+
+			if not ms or name == "gpu_frame" then return nil end
+
+			local t = shown_max > shown_min and (ms - shown_min) / (shown_max - shown_min) or 0
+
+			if t < 0.5 then return t * 2, 1, 0 end
+
+			return 1, (1 - t) * 2, 0
 		end,
 	}
 end
@@ -77,8 +160,46 @@ local function get_slot(name)
 
 	slot_by_name[name] = slot
 	slot_order[slot + 1] = name
-	register_scope_field(name)
+	display_labels[name] = name:gsub("^gpu_", ""):gsub("_", " "):upper()
+	display_order[#display_order + 1] = name
+	register_row(#display_order)
 	return slot
+end
+
+-- the slots of display_order that hold names of the finished frame's
+-- sequence, handed out to those names in sequence order
+local function apply_sequence()
+	local count = 0
+
+	for i = 1, #display_order do
+		if sequence_seen[display_order[i]] then
+			count = count + 1
+			positions[count] = i
+		end
+	end
+
+	for i = 1, count do
+		display_order[positions[i]] = sequence[i]
+	end
+
+	for i = 1, #sequence do
+		sequence_seen[sequence[i]] = nil
+		sequence[i] = nil
+	end
+end
+
+local function note_begun(name)
+	local frame = system.GetFrameNumber()
+
+	if sequence_frame ~= frame then
+		apply_sequence()
+		sequence_frame = frame
+	end
+
+	if not sequence_seen[name] then
+		sequence_seen[name] = true
+		sequence[#sequence + 1] = name
+	end
 end
 
 local function get_pool(cmd)
@@ -87,6 +208,10 @@ local function get_pool(cmd)
 	if pool then return pool end
 
 	pool = QueryPool.New(render.GetDevice(), "timestamp", MAX_SCOPES * 2)
+	pool.gpu_timing_ms = {}
+	pool.gpu_timing_times = {}
+	pool.gpu_timing_used = {}
+	pool.gpu_timing_skipped = {}
 	pools[cmd] = pool
 	return pool
 end
@@ -117,6 +242,7 @@ local function read_back_pool(pool)
 		RESULT_FLAGS
 	)
 	local period = get_timestamp_period()
+	local now = system.GetElapsedTime()
 
 	for slot = 0, scope_count - 1 do
 		local begin_value = data[slot * 4 + 0]
@@ -127,8 +253,9 @@ local function read_back_pool(pool)
 		if begin_available ~= 0 and end_available ~= 0 and end_value > begin_value then
 			local name = slot_order[slot + 1]
 			local ms = tonumber(end_value - begin_value) * period / 1e6
+			pool.gpu_timing_ms[name] = ms
+			pool.gpu_timing_times[name] = now
 			last_ms[name] = ms
-			smoothed_ms[name] = smoothed_ms[name] and (smoothed_ms[name] * 0.85 + ms * 0.15) or ms
 		end
 	end
 end
@@ -136,9 +263,8 @@ end
 -- Marks the start of a new recording cycle on this command buffer: reads
 -- back whatever this pool captured last time it was recorded (its GPU work
 -- is guaranteed complete, since the caller only re-records a command buffer
--- after waiting on the fence from its previous submission), resets it, and
--- opens the "gpu_frame" scope spanning the whole recording.
-function gpu_timing.BeginFrame(cmd)
+-- after waiting on the fence from its previous submission) and resets it.
+function gpu_timing.BeginCommandBuffer(cmd)
 	if not render.available or not timestamps_are_supported() then return end
 
 	local pool = get_pool(cmd)
@@ -149,6 +275,12 @@ function gpu_timing.BeginFrame(cmd)
 	pool.gpu_timing_recorded = true
 	pool.gpu_timing_used = {}
 	pool.gpu_timing_skipped = {}
+end
+
+-- BeginCommandBuffer for a frame's main command buffer, plus the
+-- "gpu_frame" scope spanning the whole recording.
+function gpu_timing.BeginFrame(cmd)
+	gpu_timing.BeginCommandBuffer(cmd)
 	gpu_timing.BeginScope(cmd, "gpu_frame")
 end
 
@@ -159,9 +291,8 @@ function gpu_timing.BeginScope(cmd, name)
 	if not render.available or not timestamps_are_supported() then return end
 
 	local slot = get_slot(name)
+	note_begun(name)
 	local pool = get_pool(cmd)
-	pool.gpu_timing_used = pool.gpu_timing_used or {}
-	pool.gpu_timing_skipped = pool.gpu_timing_skipped or {}
 
 	if pool.gpu_timing_used[slot] then
 		pool.gpu_timing_skipped[slot] = (pool.gpu_timing_skipped[slot] or 0) + 1
@@ -180,7 +311,7 @@ function gpu_timing.EndScope(cmd, name)
 	if not slot then return end
 
 	local pool = get_pool(cmd)
-	local skipped = pool.gpu_timing_skipped and pool.gpu_timing_skipped[slot] or 0
+	local skipped = pool.gpu_timing_skipped[slot] or 0
 
 	if skipped > 0 then
 		pool.gpu_timing_skipped[slot] = skipped - 1
@@ -190,8 +321,9 @@ function gpu_timing.EndScope(cmd, name)
 	pool:WriteTimestamp(cmd, slot * 2 + 1, "bottom_of_pipe")
 end
 
+-- the sum of the recent results of every command buffer that timed name
 function gpu_timing.GetMilliseconds(name)
-	return smoothed_ms[name] or 0
+	return get_total_ms(name) or 0
 end
 
 function gpu_timing.GetRawMilliseconds(name)

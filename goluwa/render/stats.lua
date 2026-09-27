@@ -42,6 +42,12 @@ local started = false
 local suppress_depth = 0
 local overlay_pipeline
 local overlay_lines = {}
+local overlay_values = {}
+local overlay_columns = {}
+local overlay_swatch_r = {}
+local overlay_swatch_g = {}
+local overlay_swatch_b = {}
+local column_chars = {}
 local overlay_state_dirty = true
 local overlay_constants_type = ffi.typeof([[
 	struct {
@@ -56,7 +62,7 @@ local OVERLAY_PADDING = 8
 local CHAR_WIDTH = 5
 local CHAR_HEIGHT = 6
 local CHAR_ADVANCE = 6
-local LINE_HEIGHT = 8
+local LINE_HEIGHT = 10
 local GRAPH_HEIGHT = 72
 local GRAPH_BAR_WIDTH = 3
 local GRAPH_BAR_GAP = 1
@@ -316,6 +322,9 @@ end
 local function clear_overlay_lines(start_index)
 	for i = start_index, #overlay_lines do
 		overlay_lines[i] = nil
+		overlay_values[i] = nil
+		overlay_columns[i] = nil
+		overlay_swatch_r[i] = nil
 	end
 end
 
@@ -469,7 +478,7 @@ local function ensure_overlay_state()
 	if overlay_state_dirty then rebuild_compiled_overlay_state() end
 end
 
-local function build_overlay_line(field, bucket)
+local function build_field_text(field, bucket)
 	local value
 
 	if field.getter then
@@ -496,45 +505,57 @@ local function build_overlay_line(field, bucket)
 		text = tostring(value)
 	end
 
-	text = tostring(text or "")
-
-	if field.label and field.label ~= "" then
-		if text == "" then return field.label end
-
-		return field.label .. " " .. text
-	end
-
-	return text
+	return tostring(text or "")
 end
 
-local function build_overlay_entry_line(entry, bucket)
-	if not entry then return nil end
-
-	if entry.kind == "group" then return entry.label end
-
-	if entry.kind == "field" then
-		local line = build_overlay_line(entry.field, bucket)
-
-		if not line or line == "" then return line end
-
-		if entry.indent and entry.indent ~= "" then return entry.indent .. line end
-
-		return line
-	end
-
-	return nil
-end
-
+-- every line is its left text, plus for the fields of a group with columns
+-- its value (drawn at the group's value column) and an optional swatch color
 local function rebuild_overlay_lines(bucket)
 	ensure_overlay_state()
 	local line_count = 0
 
 	for i = 1, #compiled_entries do
-		local line = build_overlay_entry_line(compiled_entries[i], bucket)
+		local entry = compiled_entries[i]
+		local left
+		local value = false
+		local column = false
+		local swatch_r
 
-		if line and line ~= "" then
+		if entry.kind == "group" then
+			left = entry.label
+		elseif entry.kind == "field" then
+			local field = entry.field
+			local label = field.label_getter and field.label_getter(field) or field.label
+			local text = build_field_text(field, bucket)
+			local group = field.group and registered_groups[field.group]
+
+			if group and group.columns then
+				left = entry.indent .. label
+				value = text
+				column = group.id
+
+				if field.swatch_getter then
+					local r, g, b = field.swatch_getter(field)
+
+					if r then
+						swatch_r = r
+						overlay_swatch_g[line_count + 1] = g
+						overlay_swatch_b[line_count + 1] = b
+					end
+				end
+			elseif label and label ~= "" then
+				left = entry.indent .. (text == "" and label or label .. " " .. text)
+			elseif text ~= "" then
+				left = entry.indent .. text
+			end
+		end
+
+		if left and left ~= "" then
 			line_count = line_count + 1
-			overlay_lines[line_count] = tostring(line):upper()
+			overlay_lines[line_count] = left:upper()
+			overlay_values[line_count] = value and value:upper()
+			overlay_columns[line_count] = column
+			overlay_swatch_r[line_count] = swatch_r or false
 		end
 	end
 
@@ -723,6 +744,35 @@ local function draw_overlay_glyph(cmd, pipeline, frame_index, viewport_w, viewpo
 	cmd:Draw(6, 1, 0, 0)
 end
 
+local function draw_overlay_text(cmd, pipeline, frame_index, viewport_w, viewport_h, text, pen_x, pen_y)
+	for i = 1, #text do
+		local byte = text:byte(i)
+
+		if byte ~= 32 then
+			local glyph_index = get_glyph_index(byte)
+
+			if glyph_index then
+				draw_overlay_glyph(
+					cmd,
+					pipeline,
+					frame_index,
+					viewport_w,
+					viewport_h,
+					glyph_index,
+					pen_x,
+					pen_y,
+					1,
+					1,
+					1,
+					1
+				)
+			end
+		end
+
+		pen_x = pen_x + CHAR_ADVANCE
+	end
+end
+
 local function get_frametime_history_value(index)
 	if frametime_history_count == 0 then return 0 end
 
@@ -878,8 +928,23 @@ function stats.DrawOverlay(cmd)
 
 	if line_count == 0 then return end
 
+	for column in pairs(column_chars) do
+		column_chars[column] = nil
+	end
+
 	for i = 1, line_count do
-		max_chars = math.max(max_chars, #overlay_lines[i])
+		local column = overlay_columns[i]
+
+		if column then
+			column_chars[column] = math.max(column_chars[column] or 0, #overlay_lines[i])
+		end
+	end
+
+	-- a column line is its label, a gap, the swatch cell, a gap and the value
+	for i = 1, line_count do
+		local column = overlay_columns[i]
+		local chars = column and column_chars[column] + 3 + #overlay_values[i] or #overlay_lines[i]
+		max_chars = math.max(max_chars, chars)
 	end
 
 	panel_width = math.max(OVERLAY_PADDING * 2 + max_chars * CHAR_ADVANCE, OVERLAY_PADDING * 2 + graph_width)
@@ -900,41 +965,55 @@ function stats.DrawOverlay(cmd)
 		0,
 		0,
 		0,
-		0.7
+		0.9
 	)
 
 	for line_index = 1, line_count do
-		local line = overlay_lines[line_index]
 		local pen_x = x + OVERLAY_PADDING
 		local pen_y = y + OVERLAY_PADDING + ((-(line_index - 1) + line_count)) * LINE_HEIGHT
+		draw_overlay_text(
+			cmd,
+			pipeline,
+			frame_index,
+			viewport_w,
+			viewport_h,
+			overlay_lines[line_index],
+			pen_x,
+			pen_y
+		)
+		local column = overlay_columns[line_index]
 
-		for i = 1, #line do
-			local byte = line:byte(i)
+		if column then
+			local chars = column_chars[column]
 
-			if byte == 32 then
-				pen_x = pen_x + CHAR_ADVANCE
-			else
-				local glyph_index = get_glyph_index(byte)
-
-				if glyph_index then
-					draw_overlay_glyph(
-						cmd,
-						pipeline,
-						frame_index,
-						viewport_w,
-						viewport_h,
-						glyph_index,
-						pen_x,
-						pen_y,
-						1,
-						1,
-						1,
-						1
-					)
-				end
-
-				pen_x = pen_x + CHAR_ADVANCE
+			if overlay_swatch_r[line_index] then
+				draw_overlay_rect(
+					cmd,
+					pipeline,
+					frame_index,
+					viewport_w,
+					viewport_h,
+					pen_x + (chars + 1) * CHAR_ADVANCE,
+					pen_y,
+					CHAR_HEIGHT,
+					CHAR_HEIGHT,
+					overlay_swatch_r[line_index],
+					overlay_swatch_g[line_index],
+					overlay_swatch_b[line_index],
+					1
+				)
 			end
+
+			draw_overlay_text(
+				cmd,
+				pipeline,
+				frame_index,
+				viewport_w,
+				viewport_h,
+				overlay_values[line_index],
+				pen_x + (chars + 3) * CHAR_ADVANCE,
+				pen_y
+			)
 		end
 	end
 
