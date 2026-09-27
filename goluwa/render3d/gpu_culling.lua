@@ -1578,18 +1578,6 @@ local function wait_for_pending_culls()
 	end
 end
 
-function gpu_culling.WaitForCullsSamplingHiZ(hiz_buffer)
-	local queue = render.GetQueue()
-
-	for _, output in ipairs(gpu_culling.frame_buffers or {}) do
-		if output.cull_pending_serial and output.sampled_hiz_buffer == hiz_buffer then
-			output.cull_fence:Wait()
-			queue:RetireFence(output.cull_fence)
-			output.cull_pending_serial = nil
-		end
-	end
-end
-
 local function clear_frame_buffers()
 	wait_for_pending_culls()
 
@@ -1988,6 +1976,20 @@ local function update_async_slot_completion(output, queue)
 	output.cull_result = collect_cull_result(output)
 	output.cull_completed_serial = output.cull_pending_serial
 	output.cull_pending_serial = nil
+end
+
+-- Waiting must still land the cull's result. Dropping it let the slot be dispatched
+-- into again, and when the gpu ran a frame behind every cull was dropped this way,
+-- so the published result stayed stale for seconds.
+function gpu_culling.WaitForCullsSamplingHiZ(hiz_buffer)
+	local queue = render.GetQueue()
+
+	for _, output in ipairs(gpu_culling.frame_buffers or {}) do
+		if output.cull_pending_serial and output.sampled_hiz_buffer == hiz_buffer then
+			output.cull_fence:Wait()
+			update_async_slot_completion(output, queue)
+		end
+	end
 end
 
 -- The freshest slot whose cull has landed. Publishing pins it: nothing may dispatch into
