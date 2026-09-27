@@ -2606,10 +2606,9 @@ function ShadowMap:DrawSoup(cascade_index)
 	self.cmd:SetCullMode("none")
 	self.cmd:BindVertexBuffers(0, {self.expander.position_buffer})
 	local planes = cascade.frustum_planes
-	local bounds = scene_bvh.raster_bounds
 	local ranges = scene_bvh.raster_ranges
 
-	if not (bounds and planes) then return end
+	if not (ranges and planes) then return end
 
 	-- a block's padding is degenerate, so visible blocks that are neighbours
 	-- in the soup are drawn as one range
@@ -2617,45 +2616,24 @@ function ShadowMap:DrawSoup(cascade_index)
 	-- blocks placed by a build that is still running can lie past what was
 	-- expanded
 	local limit = self.expander.vertex_count or 0
+	scene_bvh.MarkVisibleBlocks(planes)
+	local visible = scene_bvh.raster_visible
 
 	for i = 0, #scene_bvh.blocks - 1 do
-		local b = i * 6
-		local visible = true
+		if visible[i] ~= 0 then
+			visible[i] = 0
 
-		for p = 0, 20, 4 do
-			local a, bb, c = planes[p], planes[p + 1], planes[p + 2]
+			if ranges[i * 2 + 1] <= limit then
+				local block_first = ranges[i * 2]
 
-			if
-				a * (
-					a > 0 and
-					bounds[b + 3] or
-					bounds[b]
-				) + bb * (
-					bb > 0 and
-					bounds[b + 4] or
-					bounds[b + 1]
-				) + c * (
-					c > 0 and
-					bounds[b + 5] or
-					bounds[b + 2]
-				) + planes[p + 3] < 0
-			then
-				visible = false
+				if block_first ~= stop then
+					if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
 
-				break
+					first = block_first
+				end
+
+				stop = ranges[i * 2 + 1]
 			end
-		end
-
-		if visible and ranges[i * 2 + 1] <= limit then
-			local block_first = ranges[i * 2]
-
-			if block_first ~= stop then
-				if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
-
-				first = block_first
-			end
-
-			stop = ranges[i * 2 + 1]
 		end
 	end
 

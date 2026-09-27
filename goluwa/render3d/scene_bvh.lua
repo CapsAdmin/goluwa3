@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local band = require("bit").band
 local render = import("goluwa/render/render.lua")
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
@@ -42,6 +43,7 @@ local TrianglePtr = ffi.typeof("$*", Triangle)
 local FloatArray = ffi.typeof("float[?]")
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local Int32Array = ffi.typeof("int32_t[?]")
+local UInt8Array = ffi.typeof("uint8_t[?]")
 local NODE_BYTE_SIZE = 32
 local TRIANGLE_BYTE_SIZE = 64
 -- the soup is bound as an array of SOUP_CHUNKS descriptors over one buffer,
@@ -90,6 +92,9 @@ scene_bvh.top_layout = {}
 scene_bvh.top_node_count = 0
 -- top node index -> the block root it copies (see the top leaf writer)
 scene_bvh.top_leaf_roots = {}
+-- top node index -> the block of a top leaf, and the same as block index + 1
+-- in top_leaf_block (0 for internal nodes) for walks that avoid the tables
+scene_bvh.top_leaf = {}
 -- every material that has been part of a build, indexed by the per-triangle
 -- material id + 1. ids are never reused so a cached block keeps pointing at
 -- the right material across builds
@@ -135,6 +140,101 @@ end
 
 function scene_bvh.IsReady()
 	return scene_bvh.triangle_count > 0
+end
+
+-- sets raster_visible[block index] for every block whose bounds touch the
+-- frustum (planes as a float[24], a b c d per plane) by walking the top tree.
+-- a node inside a plane drops it from the planes its subtree still tests, so
+-- a subtree inside all of them is marked without further tests. the caller
+-- clears the marks it reads
+do
+	local node_stack = {}
+	local mask_stack = {}
+
+	function scene_bvh.MarkVisibleBlocks(planes)
+		local nodes = scene_bvh.nodes
+		local top_leaf_block = scene_bvh.top_leaf_block
+		local visible = scene_bvh.raster_visible
+
+		if not (nodes and visible) then return end
+
+		node_stack[1] = 0
+		mask_stack[1] = 63
+		local top = 1
+
+		while top > 0 do
+			local index = node_stack[top]
+			local mask = mask_stack[top]
+			top = top - 1
+
+			if mask ~= 0 then
+				local node = nodes[index]
+				local min, max = node.bounds_min, node.bounds_max
+				local plane_bit = 1
+
+				for p = 0, 20, 4 do
+					if band(mask, plane_bit) ~= 0 then
+						local a, b, c, d = planes[p], planes[p + 1], planes[p + 2], planes[p + 3]
+
+						if
+							a * (
+								a > 0 and
+								max[0] or
+								min[0]
+							) + b * (
+								b > 0 and
+								max[1] or
+								min[1]
+							) + c * (
+								c > 0 and
+								max[2] or
+								min[2]
+							) + d < 0
+						then
+							goto continue
+						end
+
+						if
+							a * (
+								a > 0 and
+								min[0] or
+								max[0]
+							) + b * (
+								b > 0 and
+								min[1] or
+								max[1]
+							) + c * (
+								c > 0 and
+								min[2] or
+								max[2]
+							) + d >= 0
+						then
+							mask = mask - plane_bit
+						end
+					end
+
+					plane_bit = plane_bit * 2
+				end
+			end
+
+			do
+				local block_index = top_leaf_block[index]
+
+				if block_index ~= 0 then
+					visible[block_index - 1] = 1
+				else
+					local left = nodes[index].left_first
+					node_stack[top + 1] = left
+					mask_stack[top + 1] = mask
+					node_stack[top + 2] = left + 1
+					mask_stack[top + 2] = mask
+					top = top + 2
+				end
+			end
+
+			::continue::
+		end
+	end
 end
 
 do
@@ -236,8 +336,15 @@ do
 		scene_bvh.node_buffer = buffer
 		scene_bvh.node_ptr = ffi.cast(NodePtr, ptr)
 		ffi.copy(scene_bvh.node_ptr, nodes, capacity * NODE_BYTE_SIZE)
+		local top_leaf_block = Int32Array(capacity)
+
+		if scene_bvh.top_leaf_block then
+			ffi.copy(top_leaf_block, scene_bvh.top_leaf_block, scene_bvh.node_capacity * 4)
+		end
+
 		scene_bvh.nodes = nodes
 		scene_bvh.debug_nodes = nodes
+		scene_bvh.top_leaf_block = top_leaf_block
 		scene_bvh.node_capacity = capacity
 		scene_bvh.node_allocator.capacity = capacity
 	end
@@ -327,6 +434,7 @@ do
 
 			scene_bvh.raster_bounds = bounds
 			scene_bvh.raster_ranges = ranges
+			scene_bvh.raster_visible = UInt8Array(capacity)
 			scene_bvh.raster_capacity = capacity
 		end
 
@@ -342,6 +450,11 @@ do
 		scene_bvh.triangle_allocator.capacity = scene_bvh.triangle_capacity
 		scene_bvh.blocks = {}
 		scene_bvh.top_parent = {}
+
+		for index in pairs(scene_bvh.top_leaf) do
+			scene_bvh.top_leaf_block[index] = 0
+		end
+
 		scene_bvh.top_leaf = {}
 		scene_bvh.top_count = 0
 		scene_bvh.top_changes = 0
@@ -707,6 +820,8 @@ do
 		if vc then
 			top_leaf[from] = nil
 			top_leaf[to] = vc
+			scene_bvh.top_leaf_block[from] = 0
+			scene_bvh.top_leaf_block[to] = vc.block_index
 			vc.top_slot = to
 		else
 			local left = nodes[to].left_first
@@ -723,6 +838,7 @@ do
 		if scene_bvh.top_count == 1 then
 			ffi.copy(scene_bvh.nodes, scene_bvh.nodes + vc.block_base, NODE_BYTE_SIZE)
 			top_leaf[0] = vc
+			scene_bvh.top_leaf_block[0] = vc.block_index
 			vc.top_slot = 0
 			write_node(0)
 			return
@@ -761,6 +877,7 @@ do
 		move_top_node(index, pair)
 		ffi.copy(nodes + pair + 1, leaf, NODE_BYTE_SIZE)
 		top_leaf[pair + 1] = vc
+		scene_bvh.top_leaf_block[pair + 1] = vc.block_index
 		vc.top_slot = pair + 1
 		top_parent[pair] = index
 		top_parent[pair + 1] = index
@@ -775,6 +892,7 @@ do
 		local slot = vc.top_slot
 		local top_parent = scene_bvh.top_parent
 		scene_bvh.top_leaf[slot] = nil
+		scene_bvh.top_leaf_block[slot] = 0
 		vc.top_slot = nil
 		scene_bvh.top_count = scene_bvh.top_count - 1
 
@@ -803,6 +921,7 @@ do
 		local vc = scene_bvh.blocks[top_build.order[first] + 1]
 		ffi.copy(scene_bvh.nodes + node_index, scene_bvh.nodes + vc.block_base, NODE_BYTE_SIZE)
 		scene_bvh.top_leaf[node_index] = vc
+		scene_bvh.top_leaf_block[node_index] = vc.block_index
 		vc.top_slot = node_index
 	end
 
@@ -831,6 +950,11 @@ do
 		end
 
 		scene_bvh.top_parent = {}
+
+		for index in pairs(scene_bvh.top_leaf) do
+			scene_bvh.top_leaf_block[index] = 0
+		end
+
 		scene_bvh.top_leaf = {}
 		scene_bvh.top_count = n
 		scene_bvh.top_changes = 0
@@ -1385,6 +1509,11 @@ do
 		local last = blocks[#blocks]
 		blocks[vc.block_index] = last
 		last.block_index = vc.block_index
+
+		if last.top_slot then
+			scene_bvh.top_leaf_block[last.top_slot] = last.block_index
+		end
+
 		blocks[#blocks] = nil
 		vc.block_index = nil
 
