@@ -21,10 +21,11 @@ local BINDING_OCCLUSION_MAP = 21
 -- The moments pass sums, per pixel, each surface's absorbance and its
 -- absorbance weighted powers of its depth. From those the accumulate pass
 -- estimates how much of each surface is seen through the ones in front of it,
--- and sums the lit surfaces weighted by it. The composite lays that sum over
--- the lit opaque scene, which stays untouched for the passes that want what is
--- behind the translucent surfaces. Both geometry passes are depth tested
--- against a copy of the opaque depth.
+-- and sums the lit surfaces weighted by it. The composite blends that sum over
+-- the fogged opaque scene in place; the lit opaque scene before the fog stays
+-- untouched for the passes that want what is behind the translucent surfaces. Both geometry passes are depth tested
+-- against the opaque depth itself, bound read only, which the surfaces also
+-- sample.
 -- Refractive materials see the opaque scene through a mip chain of it, which
 -- rough surfaces sample blurrier. It is only built on frames that draw one.
 -- The opaque scene is fogged before this, so each surface fogs itself at its
@@ -84,32 +85,6 @@ end
 local function get_moments_textures()
 	local fb = render3d.pipelines.translucent_moments:GetFramebuffer()
 	return fb:GetAttachment(1), fb:GetAttachment(2)
-end
-
--- a geometry pass starts with a fullscreen draw that zeroes its targets and
--- copies the opaque depth to test against
-local function create_depth_copy_fragment(shader)
-	return {
-		uniform_buffers = {
-			{
-				name = "depth_copy",
-				binding_index = 3,
-				block = {
-					{"depth_tex", "int"},
-				},
-				write = function(self, block)
-					block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
-					return block
-				end,
-			},
-		},
-		shader = [[
-			void main() {
-				]] .. shader .. [[
-				gl_FragDepth = texelFetch(TEXTURE(depth_copy.depth_tex), ivec2(gl_FragCoord.xy), 0).r;
-			}
-		]],
-	}
 end
 
 local function update_refraction_source(cmd)
@@ -237,7 +212,9 @@ return {
 			{"r32_sfloat", {"b0", "r"}},
 			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
 		},
-		DepthFormat = "d32_sfloat",
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
+		ReadOnlyDepth = gbuffer_layout.GetDepthTexture,
+		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}},
 		-- the light grid and the occlusion map live as long as the engine, so
 		-- each of the surface pipeline's descriptor sets is written once, before
 		-- any frame uses it
@@ -279,8 +256,6 @@ return {
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end
 
-			self:UploadConstants()
-			cmd:Draw(3, 1, 0, 0)
 			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
 			event.Call("Draw3DTranslucent")
 
@@ -288,11 +263,11 @@ return {
 				precipitation.Draw(render3d.pipelines.precipitation_moments, cmd)
 			end
 		end,
-		fragment = create_depth_copy_fragment("set_b0(0.0); set_moments(vec4(0.0));"),
+		-- never drawn, the pass only begins and clears the targets the surfaces draw into
+		fragment = {shader = "void main() { set_b0(0.0); set_moments(vec4(0.0)); }"},
 		CullMode = "none",
-		DepthTest = true,
-		DepthWrite = true,
-		DepthCompareOp = "always",
+		DepthTest = false,
+		DepthWrite = false,
 	},
 	{
 		name = "translucent_moments_surface",
@@ -302,7 +277,7 @@ return {
 			{"r32_sfloat", {"b0", "r"}},
 			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
 		},
-		DepthFormat = "d32_sfloat",
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		vertex = model_pipeline.CreateVertexStage{
 			normal = true,
 			tangent = true,
@@ -348,12 +323,12 @@ return {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
 		},
-		DepthFormat = "d32_sfloat",
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
+		ReadOnlyDepth = gbuffer_layout.GetDepthTexture,
+		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}},
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end
 
-			self:UploadConstants()
-			cmd:Draw(3, 1, 0, 0)
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
 			event.Call("Draw3DTranslucent")
 
@@ -361,11 +336,11 @@ return {
 				precipitation.Draw(render3d.pipelines.precipitation_accumulate, cmd)
 			end
 		end,
-		fragment = create_depth_copy_fragment("set_color(vec4(0.0)); set_motion(vec4(0.0));"),
+		-- never drawn, like translucent_moments
+		fragment = {shader = "void main() { set_color(vec4(0.0)); set_motion(vec4(0.0)); }"},
 		CullMode = "none",
-		DepthTest = true,
-		DepthWrite = true,
-		DepthCompareOp = "always",
+		DepthTest = false,
+		DepthWrite = false,
 	},
 	{
 		name = "translucent_surface",
@@ -375,7 +350,7 @@ return {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
 		},
-		DepthFormat = "d32_sfloat",
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		vertex = model_pipeline.CreateVertexStage{
 			normal = true,
 			tangent = true,
@@ -653,7 +628,7 @@ return {
 			{"r32_sfloat", {"b0", "r"}},
 			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
 		},
-		DepthFormat = "d32_sfloat",
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		Topology = "triangle_strip",
 		vertex = {
 			outputs = precipitation.vertex_outputs,
@@ -693,7 +668,7 @@ return {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
 		},
-		DepthFormat = "d32_sfloat",
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		Topology = "triangle_strip",
 		vertex = {
 			outputs = precipitation.vertex_outputs,
@@ -731,22 +706,37 @@ return {
 		DepthCompareOp = "less_or_equal",
 	},
 	-- what the surfaces leave of the scene behind them, and the surfaces in
-	-- the proportions they are seen in
+	-- the proportions they are seen in, blended over the fogged opaque scene
+	-- in place: dst * transmittance + src. That scene isn't needed on its own
+	-- after this, which saves a screen sized target and a copy of it
 	{
 		name = "translucent",
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		dont_create_framebuffers = true,
+		TargetFramebuffer = function()
+			local fog = assert(
+				render3d.pipelines.volumetric_fog,
+				"the translucent pass composites over volumetric_fog's output, which this bundle lacks"
+			)
+			return fog:GetFramebuffer()
+		end,
+		-- with nothing translucent in view the scene is already the result
+		on_draw = function(self, cmd)
+			if render3d.translucent_depth_far == 0 then return end
+
+			self:UploadConstants()
+			cmd:Draw(3, 1, 0, 0)
+		end,
 		fragment = {
 			uniform_buffers = {
 				{
 					name = "translucent_composite",
 					binding_index = 3,
 					block = {
-						{"scene_tex", "int"},
 						{"b0_tex", "int"},
 						{"accumulated_tex", "int"},
 					},
 					write = function(self, block)
-						block.scene_tex = self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture())
 						block.b0_tex = self:GetTextureIndex(get_moments_textures())
 						block.accumulated_tex = self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(1))
 						return block
@@ -756,21 +746,24 @@ return {
 			shader = [[
 				void main() {
 					ivec2 pixel = ivec2(gl_FragCoord.xy);
-					vec4 scene = texelFetch(TEXTURE(translucent_composite.scene_tex), pixel, 0);
 					vec4 accumulated = texelFetch(TEXTURE(translucent_composite.accumulated_tex), pixel, 0);
 
-					if (accumulated.a <= 0.0) {
-						set_color(scene);
-						return;
-					}
+					if (accumulated.a <= 0.0) discard;
 
 					float transmittance = exp(-texelFetch(TEXTURE(translucent_composite.b0_tex), pixel, 0).r);
-					set_color(vec4(scene.rgb * transmittance + accumulated.rgb * ((1.0 - transmittance) / accumulated.a), scene.a));
+					set_color(vec4(accumulated.rgb * ((1.0 - transmittance) / accumulated.a), transmittance));
 				}
 			]],
 		},
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
+		Blend = true,
+		SrcColorBlendFactor = "one",
+		DstColorBlendFactor = "src_alpha",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "zero",
+		DstAlphaBlendFactor = "one",
+		AlphaBlendOp = "add",
 	},
 }

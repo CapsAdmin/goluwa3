@@ -148,6 +148,14 @@ do
 		vertex_count = vertex_count or 3
 		local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
 		local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
+		local load_op
+
+		-- TargetFramebuffer draws over another pass' output, keeping what is there
+		if not framebuffer and self.config.TargetFramebuffer then
+			fb = self.config.TargetFramebuffer()
+			load_op = "load"
+		end
+
 		local timing_name = self.name
 
 		if timing_name then gpu_timing.BeginScope(cmd, timing_name) end
@@ -156,7 +164,7 @@ do
 
 		if self.on_pre_draw then self.on_pre_draw(self, cmd, resolved_frame_index) end
 
-		if fb then fb:Begin(cmd) end
+		if fb then fb:Begin(cmd, load_op) end
 
 		if not fb then
 			local size = render.GetRenderImageSize()

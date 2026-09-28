@@ -34,12 +34,9 @@ function post_source.GetFoggedOpaqueSceneTexture()
 	return post_source.GetOpaqueSceneTexture()
 end
 
--- the whole scene, before taa
+-- the whole scene, before taa. the translucent pass composites over the
+-- fogged opaque scene in place
 function post_source.GetRawSceneSourceTexture()
-	if render3d.pipelines.translucent then
-		return render3d.pipelines.translucent:GetFramebuffer():GetAttachment(1)
-	end
-
 	return post_source.GetFoggedOpaqueSceneTexture()
 end
 

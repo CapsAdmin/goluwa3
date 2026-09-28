@@ -243,6 +243,7 @@ local function build_texture_descriptor_entry(self, tex)
 		sampler = sampler,
 		sampler_config = sampler_config,
 		sampler_hash = sampler_hash,
+		layout = tex and tex.sampled_layout or "shader_read_only_optimal",
 	}
 end
 
@@ -562,7 +563,8 @@ function pipeline_common.update_descriptor_set(self, descriptor_type, index, bin
 				entry.view,
 				entry.sampler,
 				self:GetFallbackView(),
-				self:GetFallbackSampler()
+				self:GetFallbackSampler(),
+				entry.layout
 			)
 			return
 		end

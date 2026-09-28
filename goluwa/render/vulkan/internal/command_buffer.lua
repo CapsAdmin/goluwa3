@@ -443,8 +443,8 @@ function CommandBuffer:BeginRendering(config)
 			imageLayout = config.depth_layout or "depth_attachment_optimal",
 			resolveMode = "none",
 			resolveImageLayout = "undefined",
-			loadOp = config.load_op or "clear",
-			storeOp = config.depth_store and "store" or "dont_care",
+			loadOp = config.depth_load_op or config.load_op or "clear",
+			storeOp = config.depth_store_op or (config.depth_store and "store" or "dont_care"),
 			clearValue = clearValue,
 		}
 	end

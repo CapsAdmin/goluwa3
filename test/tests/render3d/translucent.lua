@@ -37,6 +37,8 @@ T.Test3D("Graphics render3d translucent materials draw forward over the lit scen
 			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
+			-- the translucent pass composites over its output
+			import("goluwa/render3d/passes/volumetric_fog.lua"),
 			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		},
@@ -112,6 +114,8 @@ T.Test3D("Graphics render3d refractive materials transmit and blur what is behin
 			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
+			-- the translucent pass composites over its output
+			import("goluwa/render3d/passes/volumetric_fog.lua"),
 			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		},
@@ -199,6 +203,8 @@ T.Test3D("Graphics render3d translucent surfaces blend in depth order, whatever 
 			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
+			-- the translucent pass composites over its output
+			import("goluwa/render3d/passes/volumetric_fog.lua"),
 			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		},

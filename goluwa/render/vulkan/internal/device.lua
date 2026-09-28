@@ -8,6 +8,19 @@ local ConstCharArray = ffi.typeof("$[?]", ffi.typeof("const char*"))
 local VkDescriptorBufferInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorBufferInfo)
 local VkDescriptorImageInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorImageInfo)
 local VkWriteDescriptorSetArray = ffi.typeof("$[?]", vulkan.vk.VkWriteDescriptorSet)
+local image_layouts = {}
+
+local function get_image_layout(name)
+	local layout = image_layouts[name]
+
+	if not layout then
+		layout = vulkan.vk.e.VkImageLayout(name)
+		image_layouts[name] = layout
+	end
+
+	return layout
+end
+
 local VkWriteAccelerationStructureKHR = ffi.typeof([[struct {
 	uint32_t sType;
 	void* pNext;
@@ -971,7 +984,7 @@ function Device:UpdateDescriptorSetArray(
 
 		imageInfoArray[i - 1].sampler = sampler_handle
 		imageInfoArray[i - 1].imageView = view_handle
-		imageInfoArray[i - 1].imageLayout = vulkan.vk.e.VkImageLayout("shader_read_only_optimal")
+		imageInfoArray[i - 1].imageLayout = get_image_layout(type(tex) == "table" and tex.layout or "shader_read_only_optimal")
 	end
 
 	local descriptorWrites = VkWriteDescriptorSetArray(1)

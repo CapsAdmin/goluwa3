@@ -1214,14 +1214,8 @@ function gpu_culling.PrepareMainViewHiZ(cmd)
 	gpu_culling.WaitForCullsSamplingHiZ(buffer)
 	local descriptor_base = math.max(render.GetCurrentFrame() or 1, 1) * 16
 	local copy_pass = gpu_culling.main_view_hiz_build_pass
-	copy_pass:UpdateDescriptorSet(
-		"combined_image_sampler",
-		descriptor_base,
-		0,
-		0,
-		depth_texture:GetView(),
-		depth_texture.sampler or render.CreateSampler(depth_texture:GetSamplerConfig())
-	)
+	-- the texture rather than its view and sampler, so the descriptor names its sampled layout
+	copy_pass:UpdateDescriptorSet("combined_image_sampler", descriptor_base, 0, 0, depth_texture)
 	copy_pass:UpdateDescriptorSet("storage_image", descriptor_base, 1, 0, buffer.single_mip_views[1])
 	copy_pass:DispatchForSize(cmd, state.width, state.height, 1, descriptor_base)
 	cmd:PipelineBarrier(buffer.mip_barriers[1])

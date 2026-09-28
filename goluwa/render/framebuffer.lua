@@ -78,6 +78,10 @@ function Framebuffer.New(config)
 
 	self.color_texture = self.color_textures[1]
 	self.clear_color = self.clear_colors[1]
+	-- read_only_depth is a function returning another framebuffer's depth,
+	-- tested against without writing it: it stays in its sampled layout, so
+	-- shaders can sample it in the same pass
+	self.read_only_depth = config.read_only_depth
 
 	if config.depth then
 		self.depth_texture = Texture.New{
@@ -96,6 +100,7 @@ function Framebuffer.New(config)
 				min_filter = "linear",
 				mag_filter = "linear",
 			},
+			sampled_layout = "depth_stencil_read_only_optimal",
 		}
 		self.depth_texture:SetDebugName(debug_name and (debug_name .. " depth") or nil)
 		apply_object_tags(self.depth_texture, config.object_tags)
@@ -110,12 +115,14 @@ function Framebuffer:OnRemove()
 	for _, tex in ipairs(self.color_textures or {}) do
 		if tex and tex.Remove then tex:Remove() end
 	end
+
 	self.color_textures = nil
 	self.color_texture = nil
 
 	if self.depth_texture and self.depth_texture.Remove then
 		self.depth_texture:Remove()
 	end
+
 	self.depth_texture = nil
 end
 
@@ -139,6 +146,7 @@ function Framebuffer:EnableDepth(format)
 			min_filter = "linear",
 			mag_filter = "linear",
 		},
+		sampled_layout = "depth_stencil_read_only_optimal",
 	}
 end
 
@@ -214,6 +222,12 @@ function Framebuffer:Begin(cmd, load_op)
 		rendering_info.depth_image_view = self.depth_texture:GetView()
 		rendering_info.clear_depth = 1.0
 		rendering_info.depth_store = true
+	elseif self.read_only_depth then
+		local depth_texture = self.read_only_depth()
+		rendering_info.depth_image_view = depth_texture:GetView()
+		rendering_info.depth_layout = depth_texture.sampled_layout
+		rendering_info.depth_load_op = "load"
+		rendering_info.depth_store_op = "none"
 	end
 
 	cmd:BeginRendering(rendering_info)
@@ -250,9 +264,10 @@ function Framebuffer:End(cmd)
 			{
 				image = self.depth_texture:GetImage(),
 				srcAccessMask = "depth_stencil_attachment_write",
-				dstAccessMask = "shader_read",
+				-- sampled, or tested against as another framebuffer's read_only_depth
+				dstAccessMask = {"shader_read", "depth_stencil_attachment_read"},
 				oldLayout = "depth_attachment_optimal",
-				newLayout = "shader_read_only_optimal",
+				newLayout = self.depth_texture.sampled_layout,
 			-- aspect is automatically determined from image format by PipelineBarrier
 			}
 		)
@@ -260,7 +275,7 @@ function Framebuffer:End(cmd)
 
 	cmd:PipelineBarrier{
 		srcStage = {"color_attachment_output", "late_fragment_tests"},
-		dstStage = {"fragment", "compute"},
+		dstStage = {"fragment", "compute", "early_fragment_tests", "late_fragment_tests"},
 		imageBarriers = imageBarriers,
 	}
 	self.initialized = true
@@ -270,7 +285,7 @@ function Framebuffer:End(cmd)
 	end
 
 	if self.depth_texture then
-		self.depth_texture:GetImage().layout = "shader_read_only_optimal"
+		self.depth_texture:GetImage().layout = self.depth_texture.sampled_layout
 	end
 
 	if cmd == self.cmd then

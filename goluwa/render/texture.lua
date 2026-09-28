@@ -331,6 +331,10 @@ function Texture.New(config)
 		cache_key = cache_key,
 		debug_name = nil,
 		is_ready = false,
+		-- the layout shaders sample it in, which descriptors must name. a depth
+		-- target samples in its read only depth layout so it can also be bound
+		-- as a read only depth attachment at the same time
+		sampled_layout = config.sampled_layout or "shader_read_only_optimal",
 	}
 
 	local function load(img_or_err)
