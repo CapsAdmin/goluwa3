@@ -52,6 +52,15 @@ local FOURCC_BC4U = 0x55344342 -- "BC4U"
 local FOURCC_BC4S = 0x53344342 -- "BC4S"
 local FOURCC_BC5U = 0x55354342 -- "BC5U"
 local FOURCC_BC5S = 0x53354342 -- "BC5S"
+-- d3d9 writes some formats as their D3DFORMAT number in the fourcc
+local D3DFMT_A8 = 28
+-- CryEngine marks its dds files with FYRC in reserved2, after the image data
+-- come CExt chunks until CEnd, AttC being a whole second dds, the attached alpha
+local CRYTEK_MAGIC = 0x43525946 -- "FYRC"
+local CRYTEK_EXTENSIONS = 0x74784543 -- "CExt"
+local CRYTEK_END = 0x646E4543 -- "CEnd"
+local CRYTEK_ATTACHED_ALPHA = 0x43747441 -- "AttC"
+local UInt32Ptr = ffi.typeof("uint32_t *")
 -- DXGI format enum (subset for common formats)
 local DXGI_FORMAT = {
 	UNKNOWN = 0,
@@ -271,6 +280,8 @@ local function format_to_vulkan(format)
 		R16G16B16A16_FLOAT = "r16g16b16a16_sfloat",
 		R32G32B32A32_FLOAT = "r32g32b32a32_sfloat",
 		R32G32B32_FLOAT = "r32g32b32_sfloat",
+		-- vulkan's a8 needs VK_KHR_maintenance5, single channel textures are read from red
+		A8_UNORM = "r8_unorm",
 	}
 	return format_map[format] or format
 end
@@ -359,6 +370,8 @@ local function determine_format(pf, dx10)
 			return "BC5"
 		elseif pf.fourCC == FOURCC_BC5S then
 			return "BC5_SNORM"
+		elseif pf.fourCC == D3DFMT_A8 then
+			return "A8_UNORM"
 		else
 			-- Unknown FourCC
 			return "FOURCC_" .. fourcc_to_string(pf.fourCC)
@@ -467,7 +480,7 @@ function dds.DecodeBuffer(inputBuffer, opts)
 	header.caps2 = inputBuffer:ReadU32LE()
 	header.caps3 = inputBuffer:ReadU32LE()
 	header.caps4 = inputBuffer:ReadU32LE()
-	inputBuffer:ReadU32LE() -- reserved2
+	header.reserved2 = inputBuffer:ReadU32LE()
 	-- Check for DX10 extended header
 	local dx10 = nil
 
@@ -569,6 +582,34 @@ function dds.DecodeBuffer(inputBuffer, opts)
 	-- Read all image data
 	local data_pos = inputBuffer:GetPosition()
 	local remaining = inputBuffer:GetSize() - data_pos
+	local attached_image
+
+	if header.reserved2 == CRYTEK_MAGIC and remaining > total_size then
+		local chunks = ffi.cast("uint8_t *", inputBuffer:GetBuffer()) + data_pos + total_size
+		local chunks_size = remaining - total_size
+
+		if chunks_size >= 4 and ffi.cast(UInt32Ptr, chunks)[0] == CRYTEK_EXTENSIONS then
+			local offset = 4
+
+			while offset + 8 <= chunks_size do
+				local tag = ffi.cast(UInt32Ptr, chunks + offset)[0]
+
+				if tag == CRYTEK_END then break end
+
+				local size = ffi.cast(UInt32Ptr, chunks + offset)[1]
+
+				if offset + 8 + size > chunks_size then
+					error("CryEngine dds chunk " .. fourcc_to_string(tag) .. " is truncated")
+				end
+
+				if tag == CRYTEK_ATTACHED_ALPHA then
+					attached_image = dds.DecodeBuffer(Buffer.New(chunks + offset + 8, size), opts)
+				end
+
+				offset = offset + 8 + size
+			end
+		end
+	end
 
 	if remaining < total_size then
 		-- Some files may have less data than expected (truncated mipmaps)
@@ -631,6 +672,8 @@ function dds.DecodeBuffer(inputBuffer, opts)
 		block_size = get_block_size(format),
 		bytes_per_pixel = needs_conversion_to_32bit and 4 or get_bytes_per_pixel(format),
 		mip_info = mip_info,
+		-- CryEngine's attached alpha, ie the height map of a normal map
+		attached_image = attached_image,
 		data_size = actual_data_size,
 		data = data_buffer,
 		-- Also provide a Buffer wrapper for consistency with other decoders

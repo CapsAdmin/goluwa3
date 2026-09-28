@@ -1,6 +1,7 @@
 local commands = import("goluwa/cli/commands.lua")
 local tasks = import("goluwa/tasks.lua")
 local Texture = import("goluwa/render/texture.lua")
+local codec = import("goluwa/codec.lua")
 local Color = import("goluwa/structs/color.lua")
 local objects = import("goluwa/objects/objects.lua")
 local file_path = import("goluwa/filesystem/path.lua")
@@ -632,8 +633,10 @@ do
 			DETAIL_BUMP_MAPPING = 0x4000,
 			GLOSS_DIFFUSEALPHA = 0x20,
 			ALPHAGLOW = 0x2000,
+			OFFSETBUMPMAPPING = 0x20000,
+			PARALLAX_OCCLUSION_MAPPING = 0x8000000,
 		},
-		Metal = {DETAIL_BUMP_MAPPING = 0x8000, ALPHAGLOW = 0x20},
+		Metal = {DETAIL_BUMP_MAPPING = 0x8000, ALPHAGLOW = 0x20, OFFSETBUMPMAPPING = 0x4000},
 		Cloth = {DETAIL_BUMP_MAPPING = 0x40000},
 		Vegetation = {
 			DETAIL_BUMP_MAPPING = 0x20000,
@@ -647,6 +650,21 @@ do
 	-- MtlFlags
 	local MTL_FLAG_2SIDED = 0x2
 	local MTL_FLAG_NODRAW = 0x400
+	-- the height offset bump and parallax occlusion mapping read is the alpha
+	-- attached to the normal map's dds. only a few dozen materials use it, so it's
+	-- decoded here rather than through the texture loader
+	local cry_height_texture_cache = {}
+
+	local function get_cry_height_texture(normal_map_path)
+		local cached = cry_height_texture_cache[normal_map_path]
+
+		if cached ~= nil then return cached or nil end
+
+		local attached = codec.DecodeFile(normal_map_path, "dds").attached_image
+		local texture = attached and Texture.New{decoded = attached, srgb = false} or false
+		cry_height_texture_cache[normal_map_path] = texture
+		return texture or nil
+	end
 
 	local function apply_cry_material_node(self, material_node, material_path)
 		local attrs = material_node.attrs or {}
@@ -773,6 +791,23 @@ do
 			self:SetDetailBlendAmount(tonumber(params.DetailBlendAmount) or 0)
 		end
 
+		-- both offset the uv by height * displacement in texture space. POM marches
+		-- down from 1 to 0 like ours, so its displacement is our scale. offset bump
+		-- shifts by (2 * height - 1) * displacement, twice that over the same range.
+		-- illum's offset bump reads ObmDisplacement, older materials still carry a
+		-- Displacement it ignores
+		local height_scale = 0
+
+		if has_gen("PARALLAX_OCCLUSION_MAPPING") then
+			height_scale = tonumber(params.PomDisplacement) or 0.025
+		elseif has_gen("OFFSETBUMPMAPPING") then
+			if shader == "Metal" then
+				height_scale = 2 * (tonumber(params.Displacement) or 0.025)
+			else
+				height_scale = 2 * (tonumber(params.ObmDisplacement) or 0.004)
+			end
+		end
+
 		local textures = find_child_by_tag(material_node, "Textures")
 
 		for texture_node in iter_children_by_tag(textures, "Texture") do
@@ -805,6 +840,13 @@ do
 						LinearTexture(resolved) or
 						get_missing_cry_texture(material_path, texture_attrs, candidates)
 				)
+				-- without an attached alpha crysis reads the flat 1 of the normal map, which displaces nothing
+				local height_texture = height_scale > 0 and resolved and get_cry_height_texture(resolved)
+
+				if height_texture then
+					self:SetHeightTexture(height_texture)
+					self:SetHeightScale(height_scale)
+				end
 			elseif map_name == "Specular" then
 				-- the gloss map, sampled as srgb
 				self:SetSpecularTexture(
