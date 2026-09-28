@@ -34,6 +34,11 @@ Material:GetSet("TerrainLayer1NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer2NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer3NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer4NormalTexture", nil, {type = "render_texture"})
+-- a layer's height, parallax mapped by TerrainLayerHeightScales in texture units
+Material:GetSet("TerrainLayer1HeightTexture", nil, {type = "render_texture"})
+Material:GetSet("TerrainLayer2HeightTexture", nil, {type = "render_texture"})
+Material:GetSet("TerrainLayer3HeightTexture", nil, {type = "render_texture"})
+Material:GetSet("TerrainLayer4HeightTexture", nil, {type = "render_texture"})
 Material:GetSet("MetallicTexture", nil, {type = "render_texture"})
 Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
 -- the luminance scales SpecularMultiplier
@@ -49,6 +54,9 @@ Material:GetSet(
 )
 -- terrain layers: world space texture scale in meters, roughness and ambient occlusion multipliers per layer
 Material:GetSet("TerrainLayerScales", Color(1.0, 1.0, 1.0, 1.0))
+Material:GetSet("TerrainLayerHeightScales", Color(0.0, 0.0, 0.0, 0.0))
+-- the layer heights fade out towards this distance from the camera
+Material:GetSet("TerrainLayerHeightDistance", 128)
 Material:GetSet("TerrainLayerRoughness", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerAmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
 -- 0 uses a layer's albedo as is with alpha as roughness, above 0 the layer only adds its color variation
@@ -637,6 +645,7 @@ do
 			PARALLAX_OCCLUSION_MAPPING = 0x8000000,
 		},
 		Metal = {DETAIL_BUMP_MAPPING = 0x8000, ALPHAGLOW = 0x20, OFFSETBUMPMAPPING = 0x4000},
+		["Terrain.Layer"] = {OFFSETBUMPMAPPING = 0x1000, PARALLAX_OCCLUSION_MAPPING = 0x8000000},
 		Cloth = {DETAIL_BUMP_MAPPING = 0x40000},
 		Vegetation = {
 			DETAIL_BUMP_MAPPING = 0x20000,

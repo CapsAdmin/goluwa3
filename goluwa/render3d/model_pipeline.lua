@@ -148,6 +148,36 @@ local PBR_TERRAIN_FIELDS = {
 		name = "TerrainLayerSpecular",
 		getter = "GetTerrainLayerSpecular",
 	},
+	{
+		type = "texture",
+		name = "TerrainLayer1HeightTexture",
+		getter = "GetTerrainLayer1HeightTexture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer2HeightTexture",
+		getter = "GetTerrainLayer2HeightTexture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer3HeightTexture",
+		getter = "GetTerrainLayer3HeightTexture",
+	},
+	{
+		type = "texture",
+		name = "TerrainLayer4HeightTexture",
+		getter = "GetTerrainLayer4HeightTexture",
+	},
+	{
+		type = "vec4",
+		name = "TerrainLayerHeightScales",
+		getter = "GetTerrainLayerHeightScales",
+	},
+	{
+		type = "float",
+		name = "TerrainLayerHeightDistance",
+		getter = "GetTerrainLayerHeightDistance",
+	},
 }
 local PBR_TRANSMISSION_FIELDS = {
 	{
@@ -1272,8 +1302,12 @@ end
 -- The material side of a lit surface: what the gbuffer writes and the
 -- forward passes shade. Wants the GetPBRUniformBuffers blocks and a vertex
 -- stage with position, normal, tangent, uv, texture_blend and vertex_color.
-function model_pipeline.BuildPBRSurfaceGlsl()
-	return Material.BuildGlslFlags("model.Flags") .. [[
+-- camera_block_name is the uniform block holding render3d.camera_block
+function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
+	return Material.BuildGlslFlags("model.Flags") .. [=[
+			vec3 get_surface_camera_position() {
+				return ]=] .. camera_block_name .. [=[.camera_position;
+			}
 
 			bool has_heightmap() {
 				return displacement_model.HeightTexture != -1 && displacement_model.HeightScale > 0.0;
@@ -1323,32 +1357,37 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				return w / max(w.x + w.y + w.z, 0.0001);
 			}
 
-			vec4 sample_terrain_layer_triplanar(int tex, vec3 world_pos, float scale, vec3 blend) {
-				float safe_scale = max(scale, 0.0001);
+			// a layer's texture coordinates in each of the three projections
+			struct TerrainLayerUV {
+				vec2 x;
+				vec2 y;
+				vec2 z;
+			};
+
+			vec4 sample_terrain_layer_triplanar(int tex, TerrainLayerUV uv, vec3 blend) {
 				vec4 result = vec4(0.0);
 
 				if (blend.y > 0.001) {
-					result += texture(TEXTURE(tex), world_pos.xz / safe_scale) * blend.y;
+					result += texture(TEXTURE(tex), uv.y) * blend.y;
 				}
 
 				if (blend.x > 0.001) {
-					result += texture(TEXTURE(tex), world_pos.zy / safe_scale) * blend.x;
+					result += texture(TEXTURE(tex), uv.x) * blend.x;
 				}
 
 				if (blend.z > 0.001) {
-					result += texture(TEXTURE(tex), world_pos.xy / safe_scale) * blend.z;
+					result += texture(TEXTURE(tex), uv.z) * blend.z;
 				}
 
 				return result;
 			}
 
-			vec4 sample_terrain_layer_normal_triplanar(int tex, vec3 world_pos, float scale, vec3 blend, vec3 N) {
-				float safe_scale = max(scale, 0.0001);
+			vec4 sample_terrain_layer_normal_triplanar(int tex, TerrainLayerUV uv, vec3 blend, vec3 N) {
 				vec3 n = vec3(0.0);
 				float ao = 0.0;
 
 				if (blend.y > 0.001) {
-					vec4 t = texture(TEXTURE(tex), world_pos.xz / safe_scale);
+					vec4 t = texture(TEXTURE(tex), uv.y);
 					vec3 tn = t.xyz * 2.0 - 1.0;
 					tn = vec3(tn.xy + N.xz, abs(tn.z) * N.y);
 					n += tn.xzy * blend.y;
@@ -1356,7 +1395,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				}
 
 				if (blend.x > 0.001) {
-					vec4 t = texture(TEXTURE(tex), world_pos.zy / safe_scale);
+					vec4 t = texture(TEXTURE(tex), uv.x);
 					vec3 tn = t.xyz * 2.0 - 1.0;
 					tn = vec3(tn.xy + N.zy, abs(tn.z) * N.x);
 					n += tn.zyx * blend.x;
@@ -1364,7 +1403,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				}
 
 				if (blend.z > 0.001) {
-					vec4 t = texture(TEXTURE(tex), world_pos.xy / safe_scale);
+					vec4 t = texture(TEXTURE(tex), uv.z);
 					vec3 tn = t.xyz * 2.0 - 1.0;
 					tn = vec3(tn.xy + N.xy, abs(tn.z) * N.z);
 					n += tn.xyz * blend.z;
@@ -1372,6 +1411,50 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				}
 
 				return vec4(n, ao);
+			}
+
+			// crysis' terrain parallax occlusion mapping: march the height from 1 down to 0 along the
+			// view ray, which moves the texture coordinates by up to displacement at the bottom.
+			// view_uv is the direction to the camera along the projection's axes, view_n along its normal
+			vec2 terrain_layer_parallax(int height_tex, vec2 uv, vec2 view_uv, float view_n, float displacement) {
+				const int STEPS = 15;
+				vec2 uv_dx = dFdx(uv);
+				vec2 uv_dy = dFdy(uv);
+				vec2 delta = -view_uv / max(view_n, 0.05) * displacement / float(STEPS);
+				float layer = 1.0;
+				float height = textureGrad(TEXTURE(height_tex), uv, uv_dx, uv_dy).r;
+				vec2 prev_uv = uv;
+				float prev_above = layer - height;
+
+				for (int i = 0; i < STEPS && height < layer; i++) {
+					prev_uv = uv;
+					prev_above = layer - height;
+					uv += delta;
+					layer -= 1.0 / float(STEPS);
+					height = textureGrad(TEXTURE(height_tex), uv, uv_dx, uv_dy).r;
+				}
+
+				float below = height - layer;
+				return mix(prev_uv, uv, prev_above / max(prev_above + below, 0.0001));
+			}
+
+			TerrainLayerUV get_terrain_layer_uv(int height_tex, vec3 world_pos, float scale, vec3 blend, vec3 N, vec3 V, float displacement) {
+				float safe_scale = max(scale, 0.0001);
+				vec2 uv[3] = vec2[3](world_pos.zy / safe_scale, world_pos.xz / safe_scale, world_pos.xy / safe_scale);
+
+				if (height_tex != -1 && displacement > 0.0) {
+					vec2 view_uv[3] = vec2[3](V.zy, V.xz, V.xy);
+					vec3 view_n = V * sign(N);
+
+					// one call site, the driver takes seconds per pipeline when each projection inlines its own march
+					for (int i = 0; i < 3; i++) {
+						if (blend[i] > 0.001) {
+							uv[i] = terrain_layer_parallax(height_tex, uv[i], view_uv[i], view_n[i], displacement);
+						}
+					}
+				}
+
+				return TerrainLayerUV(uv[0], uv[1], uv[2]);
 			}
 
 			vec4 get_terrain_material_weights_uv(vec2 uv) {
@@ -1401,13 +1484,16 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			TerrainLayerSample terrain_layer_cache;
 			bool terrain_layer_cache_valid = false;
 
-			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, vec3 world_pos, vec3 blend, vec3 N, float weight, float scale, float detail_strength, float additive_detail) {
+			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float weight, float scale, float detail_strength, float additive_detail, float displacement) {
 				if (weight <= 0.001) {
 					return;
 				}
 
+				// like crysis, a layer displaces as much as it covers
+				TerrainLayerUV uv = get_terrain_layer_uv(height_tex, world_pos, scale, blend, N, V, displacement * weight);
+
 				if (albedo_tex != -1) {
-					vec4 albedo = sample_terrain_layer_triplanar(albedo_tex, world_pos, scale, blend);
+					vec4 albedo = sample_terrain_layer_triplanar(albedo_tex, uv, blend);
 
 					if (detail_strength > 0.0) {
 						if (additive_detail > 0.0) {
@@ -1434,7 +1520,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				}
 
 				if (normal_tex != -1) {
-					vec4 n = sample_terrain_layer_normal_triplanar(normal_tex, world_pos, scale, blend, N);
+					vec4 n = sample_terrain_layer_normal_triplanar(normal_tex, uv, blend, N);
 					s.normal += n.xyz * weight;
 					s.ao += n.w * weight;
 					s.normal_weight += weight;
@@ -1459,10 +1545,19 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 				vec4 detail = terrain_model.TerrainLayerDetailStrength;
 				vec4 additive_detail = terrain_model.TerrainLayerAdditiveDetail;
 				vec3 base = model.AlbedoTexture != -1 ? texture(TEXTURE(model.AlbedoTexture), uv).rgb : vec3(1.0);
-				accumulate_terrain_layer(s, base, terrain_model.TerrainLayer1Texture, terrain_model.TerrainLayer1NormalTexture, world_pos, blend, N, weights.x, scales.x, detail.x, additive_detail.x);
-				accumulate_terrain_layer(s, base, terrain_model.TerrainLayer2Texture, terrain_model.TerrainLayer2NormalTexture, world_pos, blend, N, weights.y, scales.y, detail.y, additive_detail.y);
-				accumulate_terrain_layer(s, base, terrain_model.TerrainLayer3Texture, terrain_model.TerrainLayer3NormalTexture, world_pos, blend, N, weights.z, scales.z, detail.z, additive_detail.z);
-				accumulate_terrain_layer(s, base, terrain_model.TerrainLayer4Texture, terrain_model.TerrainLayer4NormalTexture, world_pos, blend, N, weights.w, scales.w, detail.w, additive_detail.w);
+				vec3 to_camera = get_surface_camera_position() - world_pos;
+				vec3 V = normalize(to_camera);
+				// crysis fades the displacement out towards the detail layers' view distance
+				float fade = 1.0 - pow(min(length(to_camera) / max(terrain_model.TerrainLayerHeightDistance, 0.001), 1.0), 4.0);
+				vec4 displacement = terrain_model.TerrainLayerHeightScales * fade;
+				ivec4 albedo_textures = ivec4(terrain_model.TerrainLayer1Texture, terrain_model.TerrainLayer2Texture, terrain_model.TerrainLayer3Texture, terrain_model.TerrainLayer4Texture);
+				ivec4 normal_textures = ivec4(terrain_model.TerrainLayer1NormalTexture, terrain_model.TerrainLayer2NormalTexture, terrain_model.TerrainLayer3NormalTexture, terrain_model.TerrainLayer4NormalTexture);
+				ivec4 height_textures = ivec4(terrain_model.TerrainLayer1HeightTexture, terrain_model.TerrainLayer2HeightTexture, terrain_model.TerrainLayer3HeightTexture, terrain_model.TerrainLayer4HeightTexture);
+
+				// a loop rather than four calls so the layer code is compiled once
+				for (int i = 0; i < 4; i++) {
+					accumulate_terrain_layer(s, base, albedo_textures[i], normal_textures[i], height_textures[i], world_pos, blend, N, V, weights[i], scales[i], detail[i], additive_detail[i], displacement[i]);
+				}
 
 				if (s.normal_weight > 0.001) {
 					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
@@ -1549,7 +1644,7 @@ function model_pipeline.BuildPBRSurfaceGlsl()
 			float get_alpha() {
 				return get_alpha_uv(in_uv);
 			}
-	]] .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff") .. [[
+	]=] .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff") .. [[
 			vec3 get_vertex_normal() {
 				vec3 N = in_normal;
 

@@ -140,7 +140,7 @@ end
 
 --[[
 	layers = {
-		{albedo = texture or asset path, normal = texture or asset path, scale = meters per tile, roughness = 1, ao = 1, detail = 0, additive_detail = 0, specular = 1, grass = 0},
+		{albedo = texture or asset path, normal = texture or asset path, height = texture or asset path, height_scale = parallax depth in texture units, scale = meters per tile, roughness = 1, ao = 1, detail = 0, additive_detail = 0, specular = 1, grass = 0},
 		... up to 4
 	}
 ]]
@@ -158,11 +158,14 @@ function tiles.CreateMaterial(chunk, layers)
 	local additive_detail = {}
 	local specular = {}
 	local grass = {}
+	local height_scales = {}
 
 	for i = 1, 4 do
 		local layer = layers[i] or {}
 		material["SetTerrainLayer" .. i .. "Texture"](material, resolve_layer_texture(layer.albedo))
 		material["SetTerrainLayer" .. i .. "NormalTexture"](material, resolve_layer_texture(layer.normal))
+		material["SetTerrainLayer" .. i .. "HeightTexture"](material, resolve_layer_texture(layer.height))
+		height_scales[i] = layer.height and layer.height_scale or 0
 		scales[i] = layer.scale or 1
 		roughness[i] = layer.roughness or 1
 		ao[i] = layer.ao or 1
@@ -181,6 +184,7 @@ function tiles.CreateMaterial(chunk, layers)
 	)
 	material:SetTerrainLayerSpecular(Color(specular[1], specular[2], specular[3], specular[4]))
 	material:SetTerrainLayerGrass(Color(grass[1], grass[2], grass[3], grass[4]))
+	material:SetTerrainLayerHeightScales(Color(height_scales[1], height_scales[2], height_scales[3], height_scales[4]))
 	material:SetGrass(grass[1] > 0 or grass[2] > 0 or grass[3] > 0 or grass[4] > 0)
 	return material
 end

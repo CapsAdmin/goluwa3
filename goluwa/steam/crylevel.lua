@@ -1411,6 +1411,9 @@ local function get_or_create_cry_terrain_layers(terrain)
 						Texture.New{path = diffuse.resolved, srgb = false} or
 						material:GetAlbedoTexture(),
 					normal = material:GetNormalTexture(),
+					-- Terrain.Layer's parallax occlusion or offset bump mapping, see Material.FromCryMTL
+					height = material:HasHeightMap() and material:GetHeightTexture() or nil,
+					height_scale = material:GetHeightScale(),
 					scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
 					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),

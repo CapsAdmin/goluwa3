@@ -58,7 +58,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		fragment = {
 			uniform_buffers = uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_weather.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data") .. surface_weather.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
 					// both endpoints go through their own frame's camera, so a still
 					// object under a moving camera and a moving object under a still
 					// camera come out of the same subtraction. the divide by w is

@@ -314,7 +314,7 @@ return {
 		},
 		fragment = {
 			uniform_buffers = moments_uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. MOMENTS_GLSL .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. MOMENTS_GLSL .. [[
 				void main() {
 					float alpha = get_alpha();
 
@@ -426,7 +426,7 @@ return {
 			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = model_pipeline.BuildPBRSurfaceGlsl() .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
 					return calculateShadow(world_pos, sun_dir, sun_dir);
 				}
