@@ -653,7 +653,7 @@ function ImageRenderTarget:Capture()
 	local width = extent.width
 	local height = extent.height
 	local format = image.format
-	local bytes_per_pixel = Texture.FormatBytesPerPixel(format)
+	local bytes_per_pixel = render.GetVulkanFormatSize(format)
 	local byte_size = width * height * bytes_per_pixel
 	render.FlushCallbacks("capture")
 	cmd:EndRendering()

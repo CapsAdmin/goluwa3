@@ -206,35 +206,6 @@ local function is_valid_vulkan_format(format)
 	return type(format) == "string" and format ~= "" and format ~= "undefined"
 end
 
-local function get_bytes_per_pixel(format)
-	if
-		format == "r8g8b8a8_unorm" or
-		format == "r8g8b8a8_srgb" or
-		format == "b8g8r8a8_unorm" or
-		format == "b8g8r8a8_srgb"
-	then
-		return 4
-	elseif format == "r32g32b32a32_sfloat" then
-		return 16
-	elseif format == "r16g16b16a16_sfloat" or format == "r16g16b16a16_unorm" then
-		return 8
-	elseif format == "r32g32_sfloat" then
-		return 8
-	elseif format == "r16g16_sfloat" or format == "r16g16_unorm" then
-		return 4
-	elseif format == "r32_sfloat" then
-		return 4
-	elseif format == "r16_sfloat" then
-		return 2
-	elseif format == "r8_unorm" then
-		return 1
-	elseif format == "r8g8_unorm" then
-		return 2
-	end
-
-	return 4
-end
-
 -- Fallback checkerboard texture (pink and black)
 local fallback_texture = NULL
 
@@ -784,7 +755,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	if type(buffer) == "table" and buffer.pixels then buffer = buffer.pixels end
 
 	local pixel_count = width * height
-	local bytes_per_pixel = get_bytes_per_pixel(self.format)
+	local bytes_per_pixel = render.GetVulkanFormatSize(self.format)
 	-- Create staging buffer
 	local staging_buffer = Buffer.New{
 		device = device,
@@ -1842,7 +1813,6 @@ do
 
 	TextureDownloaded:Register()
 	Texture.TextureDownloaded = TextureDownloaded
-	Texture.FormatBytesPerPixel = get_bytes_per_pixel
 
 	function Texture:Download(config)
 		config = config or {}
@@ -1850,7 +1820,7 @@ do
 		local width = assert(image:GetWidth(), "Cannot download: texture has no width")
 		local height = assert(image:GetHeight(), "Cannot download: texture has no height")
 		local format = self.format
-		local bytes_per_pixel = get_bytes_per_pixel(format)
+		local bytes_per_pixel = render.GetVulkanFormatSize(format)
 		local base_array_layer = math.max(math.floor(config.base_array_layer or 0), 0)
 
 		if width == 0 or height == 0 then

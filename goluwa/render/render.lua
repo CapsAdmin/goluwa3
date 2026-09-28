@@ -1111,25 +1111,44 @@ function render.GetScreenTexture()
 	return render.target:GetTexture()
 end
 
-local formats = {
-	r8g8b8a8_unorm = (8 + 8 + 8 + 8) / 8,
-	r8g8b8a8_srgb = (8 + 8 + 8 + 8) / 8,
-	b8g8r8a8_unorm = (8 + 8 + 8 + 8) / 8,
-	b8g8r8a8_srgb = (8 + 8 + 8 + 8) / 8,
-	b8g8r8a8_unorm = (8 + 8 + 8 + 8) / 8,
-	b8g8r8a8_srgb = (8 + 8 + 8 + 8) / 8,
-	r16g16_sfloat = (16 + 16) / 8,
-	r16g16b16a16_sfloat = (16 + 16 + 16 + 16) / 8,
-	r32g32b32a32_sfloat = (32 + 32 + 32 + 32) / 8,
-	r32g32b32_sfloat = (32 + 32 + 32) / 8,
-	r32g32_sfloat = (32 + 32) / 8,
-	r32_sfloat = 32 / 8,
-}
+do
+	local cache = {}
 
-function render.GetVulkanFormatSize(format)
-	if not formats[format] then error("unknown format: " .. tostring(format)) end
+	-- bytes per texel of an uncompressed single plane format, read from its name:
+	-- packed formats say their size, the rest are the sum of their channels.
+	-- block compressed, stencil and multi plane formats have no single answer
+	function render.GetVulkanFormatSize(format)
+		local size = cache[format]
 
-	return formats[format]
+		if size then return size end
+
+		local packed = format:match("_pack(%d+)$")
+
+		if packed then
+			size = tonumber(packed) / 8
+		elseif
+			not format:find("_block$") and
+			not format:find("plane")
+			and
+			not format:find("_422_")
+			and
+			not format:find("s8")
+		then
+			local channels = format:match("^([rgbad%d]+)_")
+			local bits = 0
+
+			for _, channel_bits in (channels or ""):gmatch("([rgbad])(%d+)") do
+				bits = bits + tonumber(channel_bits)
+			end
+
+			if bits > 0 and bits % 8 == 0 then size = bits / 8 end
+		end
+
+		if not size then error("no texel size for format: " .. tostring(format), 2) end
+
+		cache[format] = size
+		return size
+	end
 end
 
 function render.CreateBlankTexture(size, format, filtering)
