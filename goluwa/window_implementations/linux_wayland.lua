@@ -527,6 +527,7 @@ return function(META)
 		end
 
 		apply_initial_window_geometry(self, self.width, self.height)
+		self.last_size = Vec2(self.width, self.height)
 		-- Commit
 		self.surface_proxy:commit()
 		wayland.wl_client.wl_display_roundtrip(self.display)
