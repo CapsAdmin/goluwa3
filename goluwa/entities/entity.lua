@@ -21,6 +21,7 @@ function Entity.GetValidComponents()
 			valid_components.shadow_map_sun = import("goluwa/entities/components/shadow_map_sun.lua")
 			valid_components.shadow_map_directional = import("goluwa/entities/components/shadow_map_directional.lua")
 			valid_components.shadow_map_point = import("goluwa/entities/components/shadow_map_point.lua")
+			valid_components.water_volume = import("goluwa/entities/components/water_volume.lua")
 		end
 	end
 

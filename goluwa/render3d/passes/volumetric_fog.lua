@@ -93,7 +93,11 @@ local function write_gi_screen_texture(self, block, key)
 end
 
 local function write_ocean_distance_texture(self, block, key)
-	if render3d.pipelines.ocean and render3d.pipelines.ocean.framebuffers then
+	if
+		render3d.IsWaterEnabled() and
+		render3d.pipelines.ocean and
+		render3d.pipelines.ocean.framebuffers
+	then
 		block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2))
 	else
 		block[key] = -1

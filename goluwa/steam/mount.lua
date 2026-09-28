@@ -116,9 +116,16 @@ return function(steam)
 
 	commands.Add("crymap=string_trim|nil", function(name)
 		steam.cry_skip_models = false
-		steam.SetCryLevel(
-			"/run/media/caps/extra/SteamLibrary/steamapps/common/Crysis/Game/Levels/Multiplayer/" .. name .. "/"
-		)
+
+		if not name:find("/") then
+			steam.SetCryLevel(
+				"/run/media/caps/extra/SteamLibrary/steamapps/common/Crysis/Game/Levels/" .. name .. "/"
+			)
+		else
+			steam.SetCryLevel(
+				"/run/media/caps/extra/SteamLibrary/steamapps/common/Crysis/Game/Levels/Multiplayer/" .. name .. "/"
+			)
+		end
 	end)
 
 	commands.Add("map=string_trim|nil", function(name)

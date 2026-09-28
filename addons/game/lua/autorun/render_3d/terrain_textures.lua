@@ -214,6 +214,50 @@ LAYERS.snow = {
 		return vec4(col, roughness);
 	]=],
 }
+-- 4 meter tile: fine grains in ripples left by wind and waves, a few pebbles and shell bits
+LAYERS.sand = {
+	Depth = 0.03,
+	Height = [=[
+		float sand_ripples(vec2 uv) {
+			float warp = tile_gfbm(uv + 0.2, 3.0, 3, 0.5) * 0.1;
+			float r = sin((uv.y + warp + uv.x * 0.15) * 6.2831853 * 26.0);
+			// ripples are asymmetric, the lee side is steeper
+			r = r * 0.5 + 0.5;
+			r = r * r * (3.0 - 2.0 * r);
+			float mask = smoothstep(0.3, 0.7, tile_fbm(uv + 2.1, 3.0, 3, 0.5));
+			return r * mask;
+		}
+
+		vec3 sand_pebbles(vec2 uv) {
+			vec3 c = tile_cells(tile_warp(uv + 0.3, 8.0, 0.02), 40.0);
+			float present = step(0.93, tile_hash(c.yz + 5.0));
+			float shape = 1.0 - smoothstep(0.08, 0.2, c.x);
+			return vec3(shape * present, c.yz);
+		}
+
+		float layer_height(vec2 uv) {
+			float dunes = tile_fbm(uv, 4.0, 3, 0.5);
+			float grains = tile_fbm(uv + 4.4, 256.0, 2, 0.5);
+			return dunes * 0.35 + sand_ripples(uv) * 0.45 + grains * 0.12 + sand_pebbles(uv).x * 0.15;
+		}
+	]=],
+	Albedo = [=[
+		float h = layer_height(uv);
+		vec3 pebbles = sand_pebbles(uv);
+		float tone = tile_fbm(uv + 7.7, 5.0, 4, 0.5);
+		float grains = tile_fbm(uv + 4.4, 256.0, 2, 0.5);
+		float specks = step(0.975, tile_hash(floor(uv * 700.0)));
+		vec3 pale = vec3(0.66, 0.58, 0.44);
+		vec3 warm = vec3(0.56, 0.46, 0.32);
+		vec3 col = mix(warm, pale, smoothstep(0.3, 0.75, tone));
+		col *= mix(0.88, 1.08, grains);
+		col *= mix(0.9, 1.05, h);
+		col = mix(col, vec3(0.2, 0.19, 0.18), specks * 0.5);
+		vec3 pebble = mix(vec3(0.72, 0.68, 0.62), vec3(0.3, 0.28, 0.26), tile_hash(pebbles.yz + 3.0));
+		col = mix(col, pebble, pebbles.x * 0.8);
+		return vec4(col, 0.92 - pebbles.x * 0.2);
+	]=],
+}
 local terrain_textures = {}
 
 for name, config in pairs(LAYERS) do

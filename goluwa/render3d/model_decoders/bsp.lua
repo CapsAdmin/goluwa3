@@ -34,6 +34,8 @@ local BSP_LUMP_PLANES = 2
 local BSP_CONTENTS_SOLID = 0x1
 local BSP_CONTENTS_WINDOW = 0x2
 local BSP_CONTENTS_GRATE = 0x8
+local BSP_CONTENTS_SLIME = 0x10
+local BSP_CONTENTS_WATER = 0x20
 local BSP_CONTENTS_PLAYERCLIP = 0x10000
 local BSP_CONTENTS_MONSTERCLIP = 0x20000
 local BSP_CONTENTS_DETAIL = 0x8000000
@@ -426,6 +428,206 @@ local function build_bsp_physics_body(header, render_meshes, displacement_meshes
 		displacement_primitives = displacement_primitives,
 		primitives = primitive_count,
 	}
+end
+
+-- Water: vbsp keeps water as brushes with water contents, split up wherever
+-- the bsp cut them. Each becomes a box, the box's top is the surface, and
+-- boxes of the same water at the same level that together fill a rectangle are
+-- merged back into one, since the renderer only draws a few volumes. Merging
+-- into a bounding box would cover the dry land between them.
+local collect_water_volumes
+
+do
+	local water = import("goluwa/render3d/water.lua")
+	-- a volume whose Source fog makes it this dense, per meter, at most
+	local MAX_EXTINCTION = 4
+
+	local function read_vmt(path)
+		local str = vfs.Read(path) or vfs.Read(vfs.FindMixedCasePath(path) or path)
+
+		if not str then return nil end
+
+		local vmt = steam.VDFToTable(str, function(key)
+			return (key:lower():gsub("%$", ""))
+		end)
+		local shader, params = next(vmt or {})
+
+		if type(params) ~= "table" then return nil end
+
+		if shader == "patch" and params.include then
+			local base = read_vmt(params.include)
+
+			if not base then return params.replace or params.insert end
+
+			table.merge(base, params.insert or {})
+			table.merge(base, params.replace or {})
+			return base
+		end
+
+		return params
+	end
+
+	-- the vdf decoder makes "{r g b}" a Color, "[r g b]" stays a string in
+	-- 0..1. both are gamma encoded
+	local function parse_color(value)
+		if type(value) == "string" then
+			local r, g, b = value:match("([%d%.]+)%s+([%d%.]+)%s+([%d%.]+)")
+
+			if not r then return nil end
+
+			value = Color(tonumber(r), tonumber(g), tonumber(b), 1)
+		elseif value == nil then
+			return nil
+		end
+
+		return Vec3(value.r ^ 2.2, value.g ^ 2.2, value.b ^ 2.2)
+	end
+
+	-- Source water fogs linearly to $fogcolor until $fogend, taken as where
+	-- the water is 95% opaque
+	local function water_from_vmt(texname, contents)
+		local vmt = read_vmt("materials/" .. texname .. ".vmt") or {}
+		local fog_color = parse_color(vmt.fogcolor)
+		local fog_end = tonumber(vmt.fogend)
+
+		if not fog_color or not fog_end or fog_end <= 0 then
+			local preset = bit.band(contents, BSP_CONTENTS_SLIME) ~= 0 and
+				water.presets.swamp or
+				water.presets.lake
+			return preset.Absorption:Copy(), preset.Scattering:Copy()
+		end
+
+		return water.MediumFromFog(
+			fog_color,
+			math.min(3 / math.max(fog_end * steam.source2meters, 0.5), MAX_EXTINCTION),
+			4
+		)
+	end
+
+	-- the texture of the brush's upward facing side, the water surface
+	local function get_surface_texture(header, brush)
+		local best, best_up = nil, -math.huge
+
+		for side_index = 0, brush.numsides - 1 do
+			local side = header.brushsides[brush.firstside + side_index + 1]
+			local plane = side and header.planes[side.planenum + 1]
+			local texinfo = plane and side.texinfo >= 0 and header.texinfos[side.texinfo + 1]
+
+			if texinfo and plane.normal.z > best_up then
+				local texdata = header.texdatas[texinfo.texdata + 1]
+				best = texdata and header.texdatastringdata[texdata.nameStringTableID + 1]
+				best_up = plane.normal.z
+			end
+		end
+
+		return best
+	end
+
+	local function area(box)
+		return (box.max.x - box.min.x) * (box.max.z - box.min.z)
+	end
+
+	-- two boxes whose union is filled by them, within a few percent
+	local function try_merge(a, b)
+		if a.key ~= b.key then return nil end
+
+		local min = Vec3(math.min(a.min.x, b.min.x), math.min(a.min.y, b.min.y), math.min(a.min.z, b.min.z))
+		local max = Vec3(math.max(a.max.x, b.max.x), a.max.y, math.max(a.max.z, b.max.z))
+		local union = {min = min, max = max}
+		local overlap_x = math.max(math.min(a.max.x, b.max.x) - math.max(a.min.x, b.min.x), 0)
+		local overlap_z = math.max(math.min(a.max.z, b.max.z) - math.max(a.min.z, b.min.z), 0)
+		local covered = area(a) + area(b) - overlap_x * overlap_z
+
+		if covered < area(union) * 0.98 then return nil end
+
+		return {min = min, max = max, key = a.key, texname = a.texname, contents = a.contents}
+	end
+
+	-- to_engine_box moves a box in the 3D skybox out into the world
+	function collect_water_volumes(header, to_engine_box)
+		local boxes = {}
+
+		for _, brush in ipairs(header.brushes or {}) do
+			local contents = brush.contents or 0
+
+			if bit.band(contents, BSP_CONTENTS_WATER + BSP_CONTENTS_SLIME) ~= 0 then
+				local planes = {}
+
+				for i, plane in ipairs(get_brush_planes(header, brush)) do
+					planes[i] = source_plane_to_engine(plane)
+				end
+
+				local hull = build_brush_hull(planes)
+				local texname = get_surface_texture(header, brush)
+
+				if hull and hull.bounds_min and texname then
+					local min, max = to_engine_box(hull.bounds_min, hull.bounds_max)
+
+					if max.x - min.x > 0.01 and max.z - min.z > 0.01 then
+						list.insert(
+							boxes,
+							{
+								min = min,
+								max = max,
+								texname = texname,
+								contents = contents,
+								-- surfaces within a centimeter are the same water
+								key = texname:lower() .. math.floor(max.y * 100 + 0.5),
+							}
+						)
+					end
+				end
+			end
+		end
+
+		local merged = true
+
+		while merged do
+			merged = false
+
+			for i = 1, #boxes do
+				for j = i + 1, #boxes do
+					local union = try_merge(boxes[i], boxes[j])
+
+					if union then
+						boxes[i] = union
+						list.remove(boxes, j)
+						merged = true
+
+						break
+					end
+				end
+
+				if merged then break end
+			end
+		end
+
+		local volumes = {}
+		local materials = {}
+
+		for _, box in ipairs(boxes) do
+			local material = materials[box.texname]
+
+			if not material then
+				material = {water_from_vmt(box.texname, box.contents)}
+				materials[box.texname] = material
+			end
+
+			list.insert(
+				volumes,
+				{
+					position = Vec3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2),
+					size = box.max - box.min,
+					absorption = material[1],
+					scattering = material[2],
+					slime = bit.band(box.contents, BSP_CONTENTS_SLIME) ~= 0,
+					texname = box.texname,
+				}
+			)
+		end
+
+		return volumes
+	end
 end
 
 local function get_displacement_corners(header, info)
@@ -1137,7 +1339,7 @@ function steam.LoadMap(path)
 	-- every sealed region its own area, so the skybox is the area sky_camera
 	-- is in plus the areas areaportals join to it, and anything in those
 	-- areas is moved out into the world.
-	local sky_origin, sky_scale, sky_cut_min, sky_cut_max, is_sky_face
+	local sky_origin, sky_scale, sky_cut_min, sky_cut_max, is_sky_face, point_leaf_in_sky
 
 	if header.sky_camera then
 		local nodes = read_lump_data(
@@ -1258,6 +1460,10 @@ function steam.LoadMap(path)
 		sky_origin = header.sky_camera.origin
 		sky_scale = header.sky_camera.scale
 
+		function point_leaf_in_sky(pos)
+			return sky_areas[point_leaf(pos).area] == true
+		end
+
 		-- Source draws the skybox behind the world, so its walls and ground
 		-- that end up in the world's place never show there. Here they would,
 		-- in doorways out to the skybox for example, so everything in the
@@ -1309,6 +1515,28 @@ function steam.LoadMap(path)
 				end
 			end
 		end
+	end
+
+	do
+		-- engine space box corners back to source space, through the skybox
+		-- transform if they're in it, and out again
+		local function engine_to_source(pos)
+			return Vec3(-pos.z, -pos.x, pos.y) / steam.source2meters
+		end
+
+		header.water_volumes = collect_water_volumes(header, function(min, max)
+			if not sky_origin then return min, max end
+
+			local center = (engine_to_source(min) + engine_to_source(max)) / 2
+
+			if not (point_leaf_in_sky and point_leaf_in_sky(center)) then return min, max end
+
+			local a = source_pos_to_engine((engine_to_source(min) - sky_origin) * sky_scale)
+			local b = source_pos_to_engine((engine_to_source(max) - sky_origin) * sky_scale)
+			return Vec3(math.min(a.x, b.x), math.min(a.y, b.y), math.min(a.z, b.z)),
+			Vec3(math.max(a.x, b.x), math.max(a.y, b.y), math.max(a.z, b.z))
+		end)
+		logn("found ", #header.water_volumes, " water volumes in map")
 	end
 
 	local models = {}
@@ -1636,6 +1864,7 @@ function steam.LoadMap(path)
 		physics_body = physics_body,
 		physics_body_info = physics_body_info,
 		cubemaps = header.cubemaps,
+		water_volumes = header.water_volumes,
 		ocean_level = ocean_level,
 		path = path, -- Store the absolute path
 	}
@@ -1795,6 +2024,31 @@ function steam.SpawnMapEntities(path, parent)
 			tasks.ReportProgress("spawning entities", count)
 
 			if i % 50 == 0 then tasks.Wait() end
+		end
+
+		if RENDER_3D and data.water_volumes and data.water_volumes[1] then
+			local group = Entity.New{Name = "water", Parent = parent}
+			group.spawned_from_bsp = true
+
+			for _, info in ipairs(data.water_volumes) do
+				local ent = Entity.New{
+					Name = info.texname,
+					Parent = group,
+					transform = {Position = info.position},
+					water_volume = {
+						Size = info.size,
+						Absorption = info.absorption,
+						Scattering = info.scattering,
+						WaveHeight = info.slime and 0 or 0.04,
+						WaveLength = 1.2,
+						Roughness = info.slime and 0.06 or 0.02,
+						Foam = info.slime and 0.1 or 0.25,
+					},
+				}
+				ent.spawned_from_bsp = true
+			end
+
+			handled.water = #data.water_volumes
 		end
 
 		if data.cubemaps then

@@ -4,7 +4,7 @@ local post_source = {}
 
 -- the lit opaque scene, before anything translucent is drawn over it
 function post_source.GetOpaqueSceneTexture()
-	if render3d.IsOceanEnabled() then
+	if render3d.IsWaterEnabled() then
 		if
 			render3d.pipelines.ocean_resolve and
 			render3d.pipelines.ocean_resolve.framebuffers

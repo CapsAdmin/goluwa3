@@ -5,6 +5,7 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
@@ -322,7 +323,39 @@ function crylevel.IsObjectHidden(attrs)
 	return attrs.Hidden == "1" or attrs.HiddenInGame == "1"
 end
 
-function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, libraries)
+-- WaterVolume is a closed polygon whose points lie on the water surface,
+-- River a spline of Bezier segments (each point's Back and Forw handles) Width
+-- wide. both reach VolumeDepth below their surface
+local function extract_water_object(node, world_matrix)
+	local attrs = node.attrs
+	local points = {}
+
+	for point in iter_children_by_tag(find_child_by_tag(node, "Points"), "Point") do
+		local pos = parse_vec3(point.attrs.Pos, 0, 0, 0)
+		points[#points + 1] = {
+			pos = world_matrix:TransformVector(pos),
+			back = world_matrix:TransformVector(parse_vec3(point.attrs.Back, pos.x, pos.y, pos.z)),
+			forw = world_matrix:TransformVector(parse_vec3(point.attrs.Forw, pos.x, pos.y, pos.z)),
+			width = tonumber(point.attrs.Width) or 0,
+		}
+	end
+
+	if not points[2] then return nil end
+
+	return {
+		type = attrs.Type,
+		name = attrs.Name,
+		points = points,
+		width = tonumber(attrs.Width) or 0,
+		depth = tonumber(attrs.VolumeDepth) or 10,
+		stream_speed = tonumber(attrs.StreamSpeed) or 0,
+		fog_density = tonumber(attrs.FogDensity),
+		fog_color = attrs.FogColor and parse_vec3(attrs.FogColor, 0, 0, 0),
+		fog_color_multiplier = tonumber(attrs.FogColorMultiplier) or 1,
+	}
+end
+
+function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, water_out)
 	local attrs = node.attrs or {}
 
 	if crylevel.IsObjectHidden(attrs) then return out end
@@ -330,6 +363,11 @@ function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, librarie
 	local object_type = attrs.Type
 	local world_matrix = crylevel.ComposeCryWorldMatrix(parent_world, attrs)
 	local children
+
+	if object_type == "WaterVolume" or object_type == "River" then
+		water_out[#water_out + 1] = extract_water_object(node, world_matrix)
+		return out
+	end
 
 	if object_type == "Group" then
 		children = find_child_by_tag(node, "Objects")
@@ -350,7 +388,7 @@ function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, librarie
 
 	if children then
 		for child in iter_children_by_tag(children, "Object") do
-			crylevel.ExtractVisualObjectsFromNode(child, world_matrix, out, libraries)
+			crylevel.ExtractVisualObjectsFromNode(child, world_matrix, out, libraries, water_out)
 		end
 
 		return out
@@ -371,11 +409,13 @@ function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, librarie
 	return out
 end
 
--- top level objects can be attached to another object with Parent="{guid}", possibly in another layer
+-- top level objects can be attached to another object with Parent="{guid}", possibly in another layer.
+-- returns the models and the water objects
 function crylevel.ExtractVisualObjects(nodes, libraries)
 	local by_id = {}
 	local world_matrices = {}
 	local out = {}
+	local water_out = {}
 
 	for _, node in ipairs(nodes) do
 		if node.attrs.Id then by_id[node.attrs.Id] = node end
@@ -394,10 +434,10 @@ function crylevel.ExtractVisualObjects(nodes, libraries)
 
 	for _, node in ipairs(nodes) do
 		local parent = node.attrs.Parent and by_id[node.attrs.Parent]
-		crylevel.ExtractVisualObjectsFromNode(node, parent and get_world_matrix(parent, 0) or nil, out, libraries)
+		crylevel.ExtractVisualObjectsFromNode(node, parent and get_world_matrix(parent, 0) or nil, out, libraries, water_out)
 	end
 
-	return out
+	return out, water_out
 end
 
 -- prefab and entity archetype libraries are shared by all levels
@@ -583,10 +623,28 @@ function crylevel.ParseEditorLevelDocument(document)
 
 	local sun_direction
 	local fog_density
+	local ocean
 	local missions = find_child_by_tag(root, "Missions")
 
 	for mission in iter_children_by_tag(missions, "Mission") do
 		if mission.attrs.Name == missions.attrs.Current then
+			local environment = find_child_by_tag(mission, "Environment")
+			local ocean_node = environment and find_child_by_tag(environment, "Ocean")
+			local animation = environment and find_child_by_tag(environment, "OceanAnimation")
+
+			if ocean_node then
+				local animation_attrs = animation and animation.attrs or {}
+				ocean = {
+					-- bytes, unlike the float colours of water volumes
+					fog_color = parse_vec3(ocean_node.attrs.FogColor, 51, 127, 178) / 255,
+					fog_color_multiplier = tonumber(ocean_node.attrs.FogColorMultiplier) or 0.2,
+					fog_density = tonumber(ocean_node.attrs.FogDensity) or 0.1,
+					wind_direction = tonumber(animation_attrs.WindDirection) or 1,
+					wind_speed = tonumber(animation_attrs.WindSpeed) or 4,
+					waves_size = tonumber(animation_attrs.WavesSize) or 0.75,
+				}
+			end
+
 			local time_of_day = find_child_by_tag(mission, "TimeOfDay")
 			local lighting = find_child_by_tag(mission, "Lighting")
 
@@ -614,6 +672,7 @@ function crylevel.ParseEditorLevelDocument(document)
 	return {
 		sun_direction = sun_direction,
 		fog_density = fog_density,
+		ocean = ocean,
 		heightmap_width = tonumber(attrs.HeightmapWidth) or 0,
 		heightmap_height = tonumber(attrs.HeightmapHeight) or 0,
 		tile_count_x = tonumber(attrs.TileCountX) or 0,
@@ -1719,6 +1778,191 @@ function crylevel.EnsureLevelMounts(steam, level_dir)
 	return steam.cry_level_mounts
 end
 
+-- CryEngine's water fogs towards FogColor * FogColorMultiplier with FogDensity
+-- per meter, lit by the sun in its shader. The colour is an editor colour, so
+-- gamma encoded, and this brings the multiplied colour to a scattering albedo.
+local WATER_ALBEDO_SCALE = 4
+-- a river is cut into straight boxes this long at most
+local RIVER_PIECE_LENGTH = 16
+
+local function get_water_medium(water, fog_color, fog_color_multiplier, fog_density)
+	if not fog_color or not fog_density then
+		return water.presets.lake.Absorption:Copy(), water.presets.lake.Scattering:Copy()
+	end
+
+	return water.MediumFromFog(
+		Vec3(fog_color.x ^ 2.2, fog_color.y ^ 2.2, fog_color.z ^ 2.2) * fog_color_multiplier,
+		math.max(fog_density, 0.02),
+		WATER_ALBEDO_SCALE
+	)
+end
+
+-- engine rotation around y that turns +x towards the xz direction dir
+local function yaw_towards(dir)
+	return QuatDeg3(0, math.deg(math.atan2(-dir.z, dir.x)), 0)
+end
+
+-- the smallest rectangle around the xz of points, as center, axis and extents.
+-- one of its sides lies along an edge of their convex hull
+local function fit_rectangle(points)
+	local hull = {}
+
+	do
+		local sorted = {}
+
+		for i, p in ipairs(points) do
+			sorted[i] = p
+		end
+
+		table.sort(sorted, function(a, b)
+			return a.x < b.x or (a.x == b.x and a.z < b.z)
+		end)
+
+		local function cross(o, a, b)
+			return (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x)
+		end
+
+		for pass = 1, 2 do
+			local start = #hull
+
+			for i = pass == 1 and 1 or #sorted, pass == 1 and #sorted or 1, pass == 1 and 1 or -1 do
+				local p = sorted[i]
+
+				while #hull >= start + 2 and cross(hull[#hull - 1], hull[#hull], p) <= 0 do
+					list.remove(hull)
+				end
+
+				list.insert(hull, p)
+			end
+
+			list.remove(hull)
+		end
+	end
+
+	local best
+
+	for i = 1, #hull do
+		local a, b = hull[i], hull[i % #hull + 1]
+		local edge = Vec3(b.x - a.x, 0, b.z - a.z)
+
+		if edge:GetLength() > 1e-4 then
+			local u = edge:GetNormalized()
+			local v = Vec3(-u.z, 0, u.x)
+			local min_u, max_u, min_v, max_v = math.huge, -math.huge, math.huge, -math.huge
+
+			for _, p in ipairs(hull) do
+				local du = p.x * u.x + p.z * u.z
+				local dv = p.x * v.x + p.z * v.z
+				min_u, max_u = math.min(min_u, du), math.max(max_u, du)
+				min_v, max_v = math.min(min_v, dv), math.max(max_v, dv)
+			end
+
+			local area = (max_u - min_u) * (max_v - min_v)
+
+			if not best or area < best.area then
+				local cu, cv = (min_u + max_u) / 2, (min_v + max_v) / 2
+				best = {
+					area = area,
+					center = u * cu + v * cv,
+					axis = u,
+					length = max_u - min_u,
+					width = max_v - min_v,
+				}
+			end
+		end
+	end
+
+	return best
+end
+
+local function bezier(a, b, c, d, t)
+	local s = 1 - t
+	return a * (s * s * s) + b * (3 * s * s * t) + c * (3 * s * t * t) + d * (t * t * t)
+end
+
+-- water_volume configs for a WaterVolume or River in cry coordinates
+function crylevel.BuildWaterVolumes(object, water)
+	local absorption, scattering = get_water_medium(water, object.fog_color, object.fog_color_multiplier, object.fog_density)
+	local out = {}
+
+	local function add(position, axis, length, width, flow_speed)
+		out[#out + 1] = {
+			position = position,
+			rotation = yaw_towards(axis),
+			config = {
+				Size = Vec3(length, object.depth, width),
+				Absorption = absorption:Copy(),
+				Scattering = scattering:Copy(),
+				Flow = Vec2(axis.x, axis.z) * flow_speed,
+				WaveHeight = flow_speed ~= 0 and 0.05 or 0.03,
+				WaveLength = 1.2,
+				Roughness = 0.02,
+				Foam = 0.3,
+			},
+		}
+	end
+
+	if object.type == "WaterVolume" then
+		local points = {}
+		local height = 0
+
+		for i, point in ipairs(object.points) do
+			points[i] = crylevel.CryVec3ToEngine(point.pos)
+			height = height + points[i].y
+		end
+
+		local rect = fit_rectangle(points)
+
+		if rect then
+			add(
+				Vec3(rect.center.x, height / #points, rect.center.z),
+				rect.axis,
+				rect.length,
+				rect.width,
+				object.stream_speed
+			)
+		end
+
+		return out
+	end
+
+	-- a river: straight pieces along its segments, overlapping a little so the
+	-- outside of a bend has no gap
+	for i = 1, #object.points - 1 do
+		local p0, p1 = object.points[i], object.points[i + 1]
+		local a = crylevel.CryVec3ToEngine(p0.pos)
+		local b = crylevel.CryVec3ToEngine(p0.forw)
+		local c = crylevel.CryVec3ToEngine(p1.back)
+		local d = crylevel.CryVec3ToEngine(p1.pos)
+		local width_a = p0.width > 0 and p0.width or object.width
+		local width_b = p1.width > 0 and p1.width or object.width
+		local pieces = math.max(math.ceil((d - a):GetLength() / RIVER_PIECE_LENGTH), 1)
+		local previous = a
+
+		for piece = 1, pieces do
+			local t = piece / pieces
+			local current = bezier(a, b, c, d, t)
+			local along = Vec3(current.x - previous.x, 0, current.z - previous.z)
+			local length = along:GetLength()
+
+			if length > 1e-3 then
+				local width = math.lerp(t - 0.5 / pieces, width_a, width_b)
+				add(
+					(previous + current) / 2,
+					along / length,
+					length + width * 0.3,
+					width,
+					object.stream_speed
+				)
+			end
+
+			previous = current
+		end
+	end
+
+	return out
+end
+
 function crylevel.Apply(steam)
 	steam.loaded_cry_levels = steam.loaded_cry_levels or {}
 
@@ -1781,7 +2025,7 @@ function crylevel.Apply(steam)
 		end
 
 		steam.cry_libraries = steam.cry_libraries or crylevel.LoadLibraries()
-		local entries = crylevel.ExtractVisualObjects(nodes, steam.cry_libraries)
+		local entries, water_objects = crylevel.ExtractVisualObjects(nodes, steam.cry_libraries)
 
 		for _, entry in ipairs(entries) do
 			entry.model_path = crylevel.ResolveModelPath(steam, level_dir, entry.model_path)
@@ -1848,6 +2092,7 @@ function crylevel.Apply(steam)
 			entries = entries,
 			vegetation_entries = vegetation_entries,
 			vegetation_prototypes = vegetation_prototypes,
+			water_objects = water_objects,
 			terrain = terrain,
 		}
 		return steam.loaded_cry_levels[level_dir]
@@ -1894,10 +2139,42 @@ function crylevel.Apply(steam)
 		local water_level = data.terrain and data.terrain.water_level or 0
 		-- imported here: steam loads crylevel, and render3d -> material -> steam
 		local render3d = import("goluwa/render3d/render3d.lua")
-		render3d.SetOceanEnabled(water_level > 0)
-		render3d.SetOceanLevel(water_level + 1)
+		local water = import("goluwa/render3d/water.lua")
 		local editor_level = data.terrain and data.terrain.editor_level
 		local weather = import("goluwa/render3d/weather.lua")
+		render3d.SetOceanEnabled(water_level > 0)
+		-- WaterLevel is cry's mean sea level, like the engine's ocean level
+		render3d.SetOceanLevel(water_level)
+
+		if editor_level and editor_level.ocean then
+			local ocean = editor_level.ocean
+			local absorption, scattering = get_water_medium(water, ocean.fog_color, ocean.fog_color_multiplier, ocean.fog_density)
+			local wind = crylevel.CryVec3ToEngine(Vec3(math.cos(ocean.wind_direction), math.sin(ocean.wind_direction), 0))
+			-- WavesSize is the height of cry's ocean waves above the mean. a fully
+			-- developed sea's significant wave height, about twice that, is
+			-- 0.21 * wind speed^2 / g
+			local wind_speed = math.sqrt(2 * ocean.waves_size * water.GRAVITY / 0.21)
+			water.SetOcean{
+				WindSpeed = wind_speed,
+				WindDirection = math.deg(math.atan2(wind.z, wind.x)),
+				SwellHeight = ocean.waves_size * 0.5,
+				SwellDirection = math.deg(math.atan2(wind.z, wind.x)) + 20,
+				Absorption = absorption,
+				Scattering = scattering,
+			}
+		end
+
+		for _, object in ipairs(data.water_objects or {}) do
+			for _, volume in ipairs(crylevel.BuildWaterVolumes(object, water)) do
+				local entity = Entity.New{
+					Name = object.name or object.type,
+					Parent = parent,
+					transform = {Position = volume.position, Rotation = volume.rotation},
+					water_volume = volume.config,
+				}
+				entity.spawned_from_cry_level = true
+			end
+		end
 
 		if editor_level and editor_level.fog_density then
 			-- cry's renderer scales the editor density by 0.01 into extinction per meter

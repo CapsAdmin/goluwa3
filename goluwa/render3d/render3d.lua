@@ -14,6 +14,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local water = import("goluwa/render3d/water.lua")
 local light_components = import("goluwa/entities/components/light.lua")
 
 local function decorate_pipeline_instance(pipeline, config)
@@ -355,13 +356,12 @@ function render3d.Initialize(config)
 		end
 
 		scene_bvh.EnsureBuilt()
-		local ocean_needed = render3d.IsOceanEnabled()
+		local ocean_enabled = render3d.IsOceanEnabled()
+		local water_needed = render3d.IsWaterEnabled()
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
-			local is_ocean_pass = pipeline.name == "ocean" or
-				pipeline.name == "ocean_resolve" or
-				pipeline.name == "ocean_waves" or
-				pipeline.name == "ocean_waves_near"
+			local is_wave_pass = pipeline.name:starts_with("ocean_waves")
+			local is_ocean_pass = is_wave_pass or pipeline.name == "ocean" or pipeline.name == "ocean_resolve"
 
 			if
 				pipeline.name ~= "blit" and
@@ -373,7 +373,12 @@ function render3d.Initialize(config)
 				and
 				not (
 					is_ocean_pass and
-					not ocean_needed
+					not water_needed
+				)
+				and
+				not (
+					is_wave_pass and
+					not ocean_enabled
 				)
 			then
 				if is_ocean_pass and not pipeline.framebuffers then
@@ -722,6 +727,11 @@ end
 
 function render3d.IsOceanEnabled()
 	return context_bool("ocean_enabled", render3d.ocean_enabled == true)
+end
+
+-- the ocean or any water volume, both drawn by the ocean passes
+function render3d.IsWaterEnabled()
+	return render3d.IsOceanEnabled() or water.HasVolumes()
 end
 
 function render3d.SetOceanLevel(level)
