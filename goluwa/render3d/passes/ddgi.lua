@@ -262,7 +262,12 @@ local function pass_shade()
 	return {
 		name = "ddgi_shade",
 		ComputePass = true,
-		ColorFormat = {{"r32g32b32a32_sfloat", {"ddgi_ray_radiance", "rgba"}}},
+		ColorFormat = {
+			{
+				ddgi.HALF_PRECISION_RAYS and "r16g16b16a16_sfloat" or "r32g32b32a32_sfloat",
+				{"ddgi_ray_radiance", "rgba"},
+			},
+		},
 		FramebufferSize = {x = (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) * CASCADES, y = P ^ 3},
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
@@ -310,12 +315,21 @@ local function pass_shade()
 		end,
 		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
 		custom_declarations = SCENE_GLSL .. [[
-			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform writeonly image2D out_ray;
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, ]] .. (
+				ddgi.HALF_PRECISION_RAYS and
+				"rgba16f" or
+				"rgba32f"
+			) .. [[) uniform writeonly image2D out_ray;
 			layout(set = 0, binding = ]] .. BINDING_RAY_HITS .. [[) readonly buffer DDGIRayHits {
 				uvec2 ddgi_hits[];
 			};
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
 		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. [[
+			// clamped to what the ray texture holds, see ddgi.HALF_PRECISION_RAYS
+			void store_ray(ivec2 pos, vec4 ray) {
+				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
+			}
+
 			// The sun's visibility comes from the trace pass. The local lights in
 			// P's light grid cell are sampled (see ddgi.LIGHT_SAMPLES): each
 			// sample streams over them keeping a light with its share of the
@@ -449,14 +463,14 @@ local function pass_shade()
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
 					}
 
-					imageStore(out_ray, pos, result);
+					store_ray(pos, result);
 					return;
 				}
 
 				vec3 dir = ddgi_ray(ray);
 
 				if (ddgi_data.ddgi_rt_ready == 0) {
-					imageStore(out_ray, pos, vec4(ddgi_sky(dir), DDGI_MISS_DISTANCE));
+					store_ray(pos, vec4(ddgi_sky(dir), DDGI_MISS_DISTANCE));
 					return;
 				}
 
@@ -464,7 +478,7 @@ local function pass_shade()
 				float t = uintBitsToFloat(hit.x);
 
 				if (t < 0.0) {
-					imageStore(out_ray, pos, vec4(ddgi_sky(dir), DDGI_MISS_DISTANCE));
+					store_ray(pos, vec4(ddgi_sky(dir), DDGI_MISS_DISTANCE));
 					return;
 				}
 
@@ -476,7 +490,7 @@ local function pass_shade()
 
 				if (dot(dir, N) > 0.0) {
 					if (material.double_sided == 0) {
-						imageStore(out_ray, pos, vec4(0.0, 0.0, 0.0, -DDGI_BACKFACE_SCALE * t));
+						store_ray(pos, vec4(0.0, 0.0, 0.0, -DDGI_BACKFACE_SCALE * t));
 						return;
 					}
 
@@ -493,7 +507,7 @@ local function pass_shade()
 				float weight;
 				radiance += albedo * ddgi_sample_irradiance(P, N, -dir, false, weight).rgb;
 
-				imageStore(out_ray, pos, vec4(radiance, t));
+				store_ray(pos, vec4(radiance, t));
 			}
 		]],
 	}
@@ -503,11 +517,12 @@ end
 -- probe with one invocation per tile texel; the probe's rays are staged in
 -- shared memory once instead of every texel refetching them.
 local function pass_update(name, texels, integrate)
-	-- x = frames the texel has been accumulated for, yz = left to the
-	-- integrate (the irradiance's mean luminance and noise)
+	-- the state's x = frames the texel has been accumulated for, the rest is
+	-- left to the integrate (the irradiance's mean luminance and noise), which
+	-- also picks the formats: the distance only needs two channels and x
 	local color_formats = {
-		{"r16g16b16a16_sfloat", {name, "rgba"}},
-		{"r16g16b16a16_sfloat", {name .. "_state", "rgba"}},
+		{integrate.atlas_format[1], {name, "rgba"}},
+		{integrate.state_format[1], {name .. "_state", "rgba"}},
 	}
 	local storage_images = {
 		{binding_index = BINDING_OUTPUT, dst_stage = "compute"},
@@ -520,8 +535,8 @@ local function pass_update(name, texels, integrate)
 		},
 	}
 	local declarations = [[
-		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D atlas;
-		layout(set = 0, binding = ]] .. BINDING_STATE .. [[, rgba16f) uniform image2D state_atlas;
+		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, ]] .. integrate.atlas_format[2] .. [[) uniform image2D atlas;
+		layout(set = 0, binding = ]] .. BINDING_STATE .. [[, ]] .. integrate.state_format[2] .. [[) uniform image2D state_atlas;
 	]]
 
 	-- a short term average next to the atlas, to tell a real change in
@@ -713,6 +728,9 @@ end
 -- close and passes through. The outlier's light is lost though, see
 -- ddgi.BRIGHTEST_RAY_CLAMP.
 local IRRADIANCE_INTEGRATE = {
+	atlas_format = {"r16g16b16a16_sfloat", "rgba16f"},
+	-- x = frames accumulated, y = mean luminance, z = noise
+	state_format = {"r16g16b16a16_sfloat", "rgba16f"},
 	declare = [[
 		vec3 brightest = vec3(0.0);
 		float brightest_luma = 0.0;
@@ -790,6 +808,9 @@ local IRRADIANCE_INTEGRATE = {
 -- Mean and mean squared of the hit distance in a sharp lobe. Back face hits
 -- are kept (with their shortened distance) so the probe reads as occluded.
 local DISTANCE_INTEGRATE = {
+	atlas_format = {"r16g16_sfloat", "rg16f"},
+	-- x = frames accumulated, the rest is only used by the irradiance
+	state_format = {"r16_sfloat", "r16f"},
 	loop = [[
 		float w = pow(max(0.0, dot(texel_dir, s_dir[r])), ddgi_data.ddgi_distance_exponent);
 

@@ -37,6 +37,12 @@ ddgi.MIN_COVERAGE = 4
 ddgi.MAX_COVERAGE = 192
 ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
+-- The probe rays (ddgi_shade) in a half float texture instead of a full float
+-- one, which halves it (142 MB to 71 MB at the defaults). A half float holds
+-- at most 65504, so ray radiance is clamped to DDGI_RAY_MAX, a miss is stored
+-- as 60000 m instead of 1e27, and an emitter sample's direction is packed in 6
+-- bits per octahedral axis instead of 12.
+ddgi.HALF_PRECISION_RAYS = true
 -- Emissive surfaces light the probes only through emitter samples: per probe
 -- and frame, EMITTER_SAMPLES shadow rays to points on emissive triangles. A
 -- small or partly hidden emitter is rarely hit by the uniform rays, which
@@ -123,8 +129,9 @@ ddgi.DEBUG_GI = 0
 ddgi.DEBUG_SCALE = 1.0
 -- the cascade whose probes the debug view draws
 ddgi.DEBUG_CASCADE = 0
--- stored in a ray's distance slot when it missed everything
-ddgi.MISS_DISTANCE = 1e27
+-- stored in a ray's distance slot when it missed everything, far past
+-- MAX_RAY_DISTANCE
+ddgi.MISS_DISTANCE = ddgi.HALF_PRECISION_RAYS and 60000 or 1e27
 
 function ddgi.GetCascadeSpacing(cascade)
 	return ddgi.PROBE_SPACING * 2 ^ cascade
@@ -413,6 +420,11 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_IRRADIANCE_TEXELS %d
 		#define DDGI_DISTANCE_TEXELS %d
 		#define DDGI_MISS_DISTANCE %.1e
+		// what the ray texture can hold, and the bits per octahedral axis of an
+		// emitter sample's direction, which has to sit exactly in one of its floats
+		#define DDGI_RAY_MAX %.1e
+		#define DDGI_DIRECTION_BITS %du
+		#define DDGI_DIRECTION_OFFSET %.1f
 		#define DDGI_SUN_VISIBLE_BIT 0x80000000u
 		#define DDGI_SHADOW_OFFSET 0.02
 		#define DDGI_LIGHT_SAMPLES %d
@@ -430,6 +442,10 @@ function ddgi.GetDefinesGLSL()
 		ddgi.IRRADIANCE_TEXELS,
 		ddgi.DISTANCE_TEXELS,
 		ddgi.MISS_DISTANCE,
+		ddgi.HALF_PRECISION_RAYS and 65000 or 3e38,
+		ddgi.HALF_PRECISION_RAYS and 6 or 12,
+		-- a half float is exact from -2048 to 2048, so the 12 packed bits are centred on 0
+		ddgi.HALF_PRECISION_RAYS and 2048 or 0,
 		ddgi.LIGHT_SAMPLES
 	)
 end
@@ -679,15 +695,16 @@ function ddgi.GetCommonGLSL()
 			return normalize(n);
 		}
 
-		// 12 bits per octahedral axis, small enough to sit exactly in a float
 		float ddgi_pack_direction(vec3 d) {
-			uvec2 q = uvec2((ddgi_oct_encode(d) * 0.5 + 0.5) * 4095.0 + 0.5);
-			return float(q.x | (q.y << 12u));
+			const float levels = float((1u << DDGI_DIRECTION_BITS) - 1u);
+			uvec2 q = uvec2((ddgi_oct_encode(d) * 0.5 + 0.5) * levels + 0.5);
+			return float(q.x | (q.y << DDGI_DIRECTION_BITS)) - DDGI_DIRECTION_OFFSET;
 		}
 
 		vec3 ddgi_unpack_direction(float packed) {
-			uint v = uint(packed);
-			return ddgi_oct_decode(vec2(v & 4095u, v >> 12u) / 4095.0 * 2.0 - 1.0);
+			const uint mask = (1u << DDGI_DIRECTION_BITS) - 1u;
+			uint v = uint(packed + DDGI_DIRECTION_OFFSET);
+			return ddgi_oct_decode(vec2(v & mask, v >> DDGI_DIRECTION_BITS) / float(mask) * 2.0 - 1.0);
 		}
 
 		// direction of texel (x, y) in a bordered octahedral tile; border texels
