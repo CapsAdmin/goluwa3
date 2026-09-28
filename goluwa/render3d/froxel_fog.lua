@@ -22,7 +22,7 @@ function froxel_fog.EnsureResources()
 
 	if froxels.width == width and froxels.height == height then return froxels end
 
-	for _, key in ipairs{"raw", "scatter1", "scatter2", "integrated"} do
+	for _, key in ipairs{"raw", "scatter1", "scatter2"} do
 		if froxels[key] then froxels[key]:Remove() end
 
 		froxels[key] = Texture.New{
@@ -47,6 +47,8 @@ function froxel_fog.EnsureResources()
 		froxels[key .. "_sampler"] = render.CreateSampler(froxels[key]:GetSamplerConfig())
 	end
 
+	froxels.integrated = froxels.raw
+	froxels.integrated_sampler = froxels.raw_sampler
 	froxels.width = width
 	froxels.height = height
 	froxels.history_valid = false
