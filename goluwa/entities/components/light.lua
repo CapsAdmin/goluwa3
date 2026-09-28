@@ -5,8 +5,15 @@ Light.instances = {}
 Light:StartStorable()
 Light:GetSet("Color", Color(1, 1, 1, 1))
 Light:GetSet("Lumen", 0, {validate = "number"})
--- flattens the falloff near the light to 1 / (d^2 + r^2), in meters
+-- A light's intensity (Lumen / GetEmissionSolidAngle) falls off with
+-- 1 / (SourceRadius^2 + LinearFalloff * d + QuadraticFalloff * d^2), d in
+-- meters. The defaults are the physical inverse square law, with the source
+-- radius flattening it near the light. LinearFalloff is in meters: with
+-- QuadraticFalloff 0, a light falls off linearly and is as bright as an
+-- inverse square one LinearFalloff meters away.
 Light:GetSet("SourceRadius", 0, {validate = "number"})
+Light:GetSet("LinearFalloff", 0, {validate = "number"})
+Light:GetSet("QuadraticFalloff", 1, {validate = "number"})
 Light:GetSet("OcclusionMap", true)
 Light:EndStorable()
 
@@ -40,6 +47,16 @@ end
 -- and its falloff window (scene_lights, get_light_distance_attenuation)
 -- already took 12% at half of that.
 local CUTOFF_ILLUMINANCE = 0.0005
+-- 0.0005 lux only goes unseen when everything around it is that dark. A light
+-- also lights the surfaces near it, and next to its illuminance 1 m away
+-- something 10 stops dimmer doesn't show either: that's past what the display
+-- shows at once and what local exposure (render3d.local_exposure.max_stops)
+-- brings back. For an inverse square light this ends it at about 32 m however
+-- bright it is.
+local CUTOFF_CONTRAST = 0.001
+-- lights that barely fall off (linear or constant falloff) would otherwise
+-- reach every light grid cell and trace occlusion rays that long
+local MAX_EFFECTIVE_RANGE = 200
 
 function Light:GetPhotometricAmount()
 	return self.Lumen
@@ -72,14 +89,21 @@ function Light:GetEffectiveRange()
 
 	if self.Lumen <= 0 then return 0 end
 
-	return math.sqrt(
-		math.max(
-			self.Lumen / (
-					self:GetEmissionSolidAngle() * CUTOFF_ILLUMINANCE
-				) - self.SourceRadius ^ 2,
-			0
+	local r_sq = self.SourceRadius ^ 2
+	local l = self.LinearFalloff
+	local q = self.QuadraticFalloff
+	-- where the falloff's denominator reaches intensity / cutoff, the larger
+	-- cutoff giving the smaller denominator
+	local c = r_sq - math.min(
+			self.Lumen / (self:GetEmissionSolidAngle() * CUTOFF_ILLUMINANCE),
+			(r_sq + l + q) / CUTOFF_CONTRAST
 		)
-	)
+
+	if c >= 0 then return 0 end
+
+	if q == 0 then return math.min(-c / l, MAX_EFFECTIVE_RANGE) end
+
+	return math.min((math.sqrt(l * l - 4 * q * c) - l) / (2 * q), MAX_EFFECTIVE_RANGE)
 end
 
 return Light:Register()

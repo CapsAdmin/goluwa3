@@ -45,7 +45,7 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_MONSTERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
-local BSP_LIGHT_INTENSITY_SCALE = 0.0025
+local BSP_LIGHT_INTENSITY_SCALE = 2.8
 
 local function build_bounds_from_vertices(vertices)
 	if not (vertices and vertices[1]) then return nil end
@@ -99,20 +99,25 @@ end
 -- brightness by c + 100*l + 100^2*q, so a light is as bright as its brightness
 -- 100 units away whatever its attenuation. With it, c, l and q are fitted
 -- through 1 at 0, 2 at _fifty_percent_distance and 256 at
--- _zero_percent_distance. The engine's lights fall off with
--- 1 / (d^2 + r^2), so the intensity (candela) and source radius r are fitted
--- to vrad's falloff at FIT_NEAR and FIT_FAR units, then scaled to metres and
--- to the engine's light units by BSP_LIGHT_INTENSITY_SCALE. That's exact for
--- constant + quadratic attenuation and within about 2x between 25 and 1600
--- units for linear ones, which vrad's fitted falloffs mostly are.
+-- _zero_percent_distance. The engine's lights fall off the same way (see
+-- Light's SourceRadius, LinearFalloff and QuadraticFalloff): with the distance
+-- d in metres, d / s units, multiplying through by s^2 gives the coefficients
+-- c * s^2, l * s and q and the intensity brightness * s^2 (all divided by q
+-- when there is one), which BSP_LIGHT_INTENSITY_SCALE scales to the engine's
+-- light units.
 --
--- The range is left to the light's brightness (Light:GetEffectiveRange)
--- unless _hardfalloff fades the light out at _zero_percent_distance.
+-- Mappers flatten a light's falloff with a large constant attenuation, which
+-- would make it a source metres across. The source radius is capped at
+-- MAX_SOURCE_RADIUS, which only brightens the light close to it: far away it
+-- falls off with d^2 (or d) and gives off the same light as before.
+--
+-- A light with _fifty_percent_distance ends at _zero_percent_distance, where
+-- vrad has it at 1/256 of its brightness at the light. Other lights are left
+-- to their brightness (Light:GetEffectiveRange).
 local convert_source_light_to_engine
 
 do
-	local FIT_NEAR = 100
-	local FIT_FAR = 800
+	local MAX_SOURCE_RADIUS = 0.25
 
 	-- vrad's SolveInverseQuadratic: a*x^2 + b*x + c through the three points
 	local function solve_quadratic(x1, y1, x2, y2, x3, y3)
@@ -159,6 +164,9 @@ do
 			if d0 < d50 then d0 = 2 * d50 end
 
 			c, l, q = solve_fifty_percent(d50, d0)
+			-- a far _zero_percent_distance can fit a slightly negative q,
+			-- which would make the falloff reach zero and turn negative
+			q = math.max(q, 0)
 		else
 			c = math.max(tonumber(info._constant_attn) or 0, 0)
 			l = math.max(tonumber(info._linear_attn) or 0, 0)
@@ -169,25 +177,32 @@ do
 			brightness = brightness * (c + 100 * l + 100 ^ 2 * q)
 		end
 
-		local near = brightness / (c + l * FIT_NEAR + q * FIT_NEAR ^ 2)
-		local far = brightness / (c + l * FIT_FAR + q * FIT_FAR ^ 2)
-		-- only constant attenuation doesn't fall off at all in vrad, so it
-		-- stays flat out to FIT_FAR instead
-		local radius_sq = near > far and
-			math.max((far * FIT_FAR ^ 2 - near * FIT_NEAR ^ 2) / (near - far), 0) or
-			FIT_FAR ^ 2
-		local range = 0
-
-		if d50 > 0 and tonumber(info._hardfalloff) == 1 then
-			range = d0 * steam.source2meters
+		-- divided through by q, so the light falls off as d^2 far away and
+		-- its lumen is what it gives off. Only linear and constant lights
+		-- keep q = 0, and their lumen is relative to their falloff.
+		if q > 0 then
+			brightness = brightness / q
+			c = c / q
+			l = l / q
+			q = 1
 		end
 
-		return Color(light.r, light.g, light.b, 1),
-		near * (
-				FIT_NEAR ^ 2 + radius_sq
-			) * steam.source2meters ^ 2 * BSP_LIGHT_INTENSITY_SCALE,
-		range,
-		math.sqrt(radius_sq) * steam.source2meters
+		local s = steam.source2meters
+		local source_radius = math.sqrt(c) * s
+
+		-- a constant only light has nothing but its constant to fall off with
+		if l + q > 0 then
+			source_radius = math.min(source_radius, MAX_SOURCE_RADIUS)
+		end
+
+		return {
+			color = Color(light.r, light.g, light.b, 1),
+			intensity = brightness * s ^ 2 * BSP_LIGHT_INTENSITY_SCALE,
+			range = d50 > 0 and d0 * s or 0,
+			source_radius = source_radius,
+			linear_falloff = l * s,
+			quadratic_falloff = q,
+		}
 	end
 end
 
@@ -1692,8 +1707,8 @@ function steam.SpawnMapEntities(path, parent)
 					set_transform(tr, info)
 					local is_spot = info.classname == "light_spot"
 					local light = ent:AddComponent(is_spot and "light_spot" or "light_point")
-					local color, intensity, range, source_radius = convert_source_light_to_engine(info)
-					light:SetColor(color)
+					local params = convert_source_light_to_engine(info)
+					light:SetColor(params.color)
 
 					if is_spot then
 						-- like vrad's ParseLightSpot, 0 counts as unset
@@ -1714,10 +1729,12 @@ function steam.SpawnMapEntities(path, parent)
 						light:SetOuterCone(outer_cone)
 					end
 
-					light:SetRange(range)
-					light:SetSourceRadius(source_radius)
+					light:SetRange(params.range)
+					light:SetSourceRadius(params.source_radius)
+					light:SetLinearFalloff(params.linear_falloff)
+					light:SetQuadraticFalloff(params.quadratic_falloff)
 					-- the colour is vrad's radiance, not a tint: its luminance is part of the brightness
-					light:SetLumen(intensity * color:GetLuminance() * light:GetEmissionSolidAngle())
+					light:SetLumen(params.intensity * params.color:GetLuminance() * light:GetEmissionSolidAngle())
 					--light:SetCastShadows{shadow_update_mode = "on_move"}
 					ent.spawned_from_bsp = true
 					ent.bsp_info = info
@@ -1866,7 +1883,7 @@ commands.Add("bsp_dump_lights", function()
 			end
 
 			lines[#lines + 1] = string.format(
-				"%s #%d at %.2f %.2f %.2f\n  bsp: %s\n  engine: color %.3f %.3f %.3f  lumen %.4g  candela %.4g  range %g  source radius %.2f  effective range %.2f%s",
+				"%s #%d at %.2f %.2f %.2f\n  bsp: %s\n  engine: color %.3f %.3f %.3f  lumen %.4g  candela %.4g  range %g  source radius %.2f  linear %.4g  quadratic %.4g  effective range %.2f%s",
 				ent.bsp_info.classname,
 				#lines + 1,
 				pos.x,
@@ -1880,6 +1897,8 @@ commands.Add("bsp_dump_lights", function()
 				light.Lumen * light:GetInverseEmissionSolidAngle(),
 				light.Range,
 				light.SourceRadius,
+				light.LinearFalloff,
+				light.QuadraticFalloff,
 				light:GetEffectiveRange(),
 				light.Type == "light_spot" and
 					string.format("  cone %g..%g", light.InnerCone, light.OuterCone) or

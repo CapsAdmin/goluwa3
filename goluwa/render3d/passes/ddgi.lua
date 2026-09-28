@@ -364,9 +364,8 @@ local function pass_shade()
 
 					// flatten the falloff inside the light radius
 					vec3 to_light = light.position.xyz - P;
-					float source_radius = get_light_source_radius(light);
-					float light_dist_sq = dot(to_light, to_light) + source_radius * source_radius;
-					attenuation *= light_dist_sq / max(light_dist_sq, radius * radius);
+					float light_dist = length(to_light);
+					attenuation *= get_light_falloff(light, light_dist) / max(get_light_falloff(light, max(light_dist, radius)), 0.0025);
 					vec3 light_radiance = light.color.rgb * light.color.a * attenuation * (light_NoL / 3.14159265359);
 					float weight = dot(light_radiance, vec3(0.2126, 0.7152, 0.0722));
 

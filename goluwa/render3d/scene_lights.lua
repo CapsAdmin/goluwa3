@@ -21,6 +21,7 @@ function scene_lights.BuildLightsBlockLayout()
 		{"direction", "vec4"},
 		{"color", "vec4"},
 		{"params", "vec4"},
+		{"falloff", "vec4"},
 	}
 end
 
@@ -58,18 +59,17 @@ function scene_lights.GetLightGLSLCode()
 				return normalize(light.direction.xyz);
 			}
 
-			// the w of the direction is the light's source radius
-			float get_light_source_radius(lights_t light) {
-				return light.direction.w;
+			// see Light: source radius^2 + linear * d + quadratic * d^2
+			float get_light_falloff(lights_t light, float dist) {
+				return light.falloff.x + dist * (light.falloff.y + dist * light.falloff.z);
 			}
 
-			// Inverse square falloff that reaches exactly zero at the light's
-			// range instead of cutting off with a visible edge. The source
-			// radius flattens it near the light: 1 / (d^2 + r^2).
-			float get_light_distance_attenuation(float dist, float range, float radius) {
+			// 1 / get_light_falloff, windowed so it reaches exactly zero at the
+			// light's range instead of cutting off with a visible edge
+			float get_light_distance_attenuation(lights_t light, float dist, float range) {
 				float ratio = dist / range;
 				float window = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
-				return window * window / max(dist * dist + radius * radius, 0.0025);
+				return window * window / max(get_light_falloff(light, dist), 0.0025);
 			}
 
 			bool get_light_vector_and_attenuation(lights_t light, vec3 world_pos, out vec3 L, out float attenuation) {
@@ -92,7 +92,7 @@ function scene_lights.GetLightGLSLCode()
 					}
 
 					L = light_to_pos / dist;
-					attenuation = get_light_distance_attenuation(dist, range, get_light_source_radius(light)) * light.params.w;
+					attenuation = get_light_distance_attenuation(light, dist, range) * light.params.w;
 					return true;
 				}
 
@@ -114,7 +114,7 @@ function scene_lights.GetLightGLSLCode()
 					}
 
 					L = light_dir;
-					attenuation = in_front * get_light_distance_attenuation(dist, range, get_light_source_radius(light)) * light.params.w;
+					attenuation = in_front * get_light_distance_attenuation(light, dist, range) * light.params.w;
 					return true;
 				}
 
@@ -131,7 +131,7 @@ function scene_lights.GetLightGLSLCode()
 					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
 					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(light_dir, from_light / dist));
 					L = normalize(light.position.xyz - world_pos);
-					attenuation = cone_attenuation * get_light_distance_attenuation(dist, range, get_light_source_radius(light)) * light.params.w;
+					attenuation = cone_attenuation * get_light_distance_attenuation(light, dist, range) * light.params.w;
 					return true;
 				}
 
@@ -152,7 +152,9 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 				rotation:GetForward()
 			light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
 			direction:CopyToFloatPointer(data.direction)
-			data.direction[3] = light.SourceRadius
+			data.falloff[0] = light.SourceRadius ^ 2
+			data.falloff[1] = light.LinearFalloff
+			data.falloff[2] = light.QuadraticFalloff
 
 			if light.Type == "light_sun" then
 				data.position[3] = 0
@@ -201,6 +203,9 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 			data.params[1] = 0
 			data.params[2] = 0
 			data.params[3] = 0
+			data.falloff[0] = 0
+			data.falloff[1] = 0
+			data.falloff[2] = 0
 		end
 	end
 end
