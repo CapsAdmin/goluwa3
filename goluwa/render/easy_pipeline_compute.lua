@@ -336,7 +336,7 @@ do
 
 			local ffi_code = glsl_meta.build_ffi_struct("scalar", info.block)
 			local glsl_fields, glsl_structs = glsl_meta.build_glsl_fields(info.block)
-			local ubo = UniformBuffer.New(ffi_code)
+			local ubo = UniformBuffer.New(ffi_code, (config.name or "pipeline") .. ".ubo." .. info.name)
 			info.source = glsl_meta.normalize_block_source(
 				info,
 				ffi.sizeof(ubo.struct),

@@ -117,7 +117,8 @@ local function pack_glyph(rows)
 
 		for x = 1, #row do
 			if row:sub(x, x) == "1" then
-				local bit_index = 4 - (x - 1) + (y - 1) * 5
+				-- the built in masks store the bottom row first
+				local bit_index = 4 - (x - 1) + (#rows - y) * 5
 				value = bit.bor(value, bit.lshift(1, bit_index))
 			end
 		end

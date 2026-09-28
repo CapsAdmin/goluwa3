@@ -1408,8 +1408,8 @@ function ShadowMap.New(config)
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
 	self.cascade_splits = {} -- Will store the split distances
 	self.cascade = {} -- Per-cascade data
-	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl())
-	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl)
+	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl(), "shadow_map.vertex_animation")
+	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl, "shadow_map.state")
 	self.expander = {}
 	self.light = config.light -- optional source entity whose transform the map follows
 	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
@@ -1558,7 +1558,7 @@ function ShadowMap.New(config)
 		self.instanced_pipeline_variants = {}
 		self.multi_draw_pipeline_variants = {}
 		self.soup_cascade_from = config.soup_cascade_from or 2
-		self.soup_light_buffer = UniformBuffer.New([[struct { float light_space_matrix[16]; }]])
+		self.soup_light_buffer = UniformBuffer.New([[struct { float light_space_matrix[16]; }]], "shadow_map.soup_light")
 		self.soup_pipeline_variants = {}
 
 		for depth_format in pairs(unique_formats) do
