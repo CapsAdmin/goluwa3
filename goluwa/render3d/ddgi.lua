@@ -71,6 +71,16 @@ ddgi.NOISE_RANGE = 0.25
 -- its history, ADAPT_FRAMES frames in a row, catches up quickly
 ddgi.IRRADIANCE_THRESHOLD = 2.0
 ddgi.ADAPT_FRAMES = 6
+-- Clamp each texel's brightest ray to the second brightest every frame (see
+-- IRRADIANCE_INTEGRATE in passes/ddgi.lua). It keeps a small hot spot that one
+-- or two rays hit from flickering the probes, but that light is then dropped
+-- every frame: with a lamp 0.2 m under a ceiling, ~40% of its light lands
+-- within 1 m of it and the bounce light came out at about half of what it
+-- should (tmp/exposure_gi_measure.lua with the render3d/exposure.lua example).
+-- Off, the energy is right but probes that see such a hot spot are noisy: the
+-- gi under that ceiling varied by ~60% over 60 frames against ~7% clamped.
+-- Keeping what the clamp cuts in a slowly averaged store would give both.
+ddgi.BRIGHTEST_RAY_CLAMP = false
 -- local lights are treated as spheres of this radius (in probe spacings) when
 -- lighting ray hits. A probe can't resolve a hot spot smaller than this, and a
 -- ray landing right next to a lamp would otherwise outweigh all the others
@@ -128,13 +138,24 @@ function ddgi.GetRayCount()
 	return ddgi.GetProbeCount() * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES)
 end
 
-function ddgi.IsActive()
+-- Off, the probe passes are skipped (the trace pass still builds the TLAS
+-- ssr and the fog trace against) and surfaces fall back to the environment's
+-- irradiance, unoccluded. Back on, the probes start over.
+function ddgi.SetEnabled(enabled)
+	if enabled and not ddgi.enabled then ddgi.ResetHistory() end
+
+	ddgi.enabled = enabled
+end
+
+function ddgi.IsEnabled()
 	return ddgi.enabled
 end
 
 -- rgb = irradiance, a = sky visibility: the contract the lighting pass reads
 -- through gi_screen_tex
 function ddgi.GetScreenTexture()
+	if not ddgi.enabled then return nil end
+
 	local resolve = render3d.pipelines.ddgi_resolve
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(1) or nil
 end
@@ -630,6 +651,8 @@ function ddgi.GetCommonGLSL()
 
 		// inside the outermost cascade in use
 		bool ddgi_in_volume(vec3 P) {
+			if (ddgi_data.ddgi_cascade_count == 0) return false;
+
 			int c = ddgi_data.ddgi_cascade_count - 1;
 			vec3 grid = P / ddgi_spacing(c) - vec3(ddgi_volume_base(c));
 			return all(greaterThanEqual(grid, vec3(0.0))) && all(lessThanEqual(grid, vec3(ddgi_volume_size(c) - 1)));
@@ -890,6 +913,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_noise_range", "float"},
 		{"ddgi_irradiance_threshold", "float"},
 		{"ddgi_adapt_frames", "float"},
+		{"ddgi_brightest_ray_clamp", "int"},
 		{"ddgi_distance_exponent", "float"},
 		{"ddgi_normal_bias", "float"},
 		{"ddgi_view_bias", "float"},
@@ -978,6 +1002,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_noise_range = ddgi.NOISE_RANGE
 	block.ddgi_irradiance_threshold = ddgi.IRRADIANCE_THRESHOLD
 	block.ddgi_adapt_frames = ddgi.ADAPT_FRAMES
+	block.ddgi_brightest_ray_clamp = ddgi.BRIGHTEST_RAY_CLAMP and 1 or 0
 	block.ddgi_distance_exponent = ddgi.DISTANCE_EXPONENT
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
 	block.ddgi_view_bias = ddgi.VIEW_BIAS
@@ -993,7 +1018,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_debug_cascade = ddgi.DEBUG_CASCADE
 	block.ddgi_smooth_blend = ddgi.SMOOTH_BLEND and 1 or 0
 	block.ddgi_visibility_rays = ddgi.VISIBILITY_RAYS
-	block.ddgi_cascade_count = state.cascade_count
+	block.ddgi_cascade_count = ddgi.enabled and state.cascade_count or 0
 	block.ddgi_reset_mask = state.reset_mask
 	block.ddgi_rt_ready = state.rt_ready and 1 or 0
 	block.ddgi_env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
@@ -1395,6 +1420,10 @@ function ddgi.GetRTPipeline()
 	return rt_pipeline
 end
 
+commands.Add("ddgi_enabled=boolean[true]", function(value)
+	ddgi.SetEnabled(value)
+end)
+
 commands.Add("ddgi_reset", function()
 	ddgi.ResetHistory()
 end)
@@ -1417,6 +1446,10 @@ end)
 
 commands.Add("ddgi_adapt_frames=number[6]", function(value)
 	ddgi.ADAPT_FRAMES = value
+end)
+
+commands.Add("ddgi_brightest_ray_clamp=boolean[false]", function(value)
+	ddgi.BRIGHTEST_RAY_CLAMP = value
 end)
 
 commands.Add("ddgi_light_radius=number[0.1]", function(value)

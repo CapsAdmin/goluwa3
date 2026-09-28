@@ -178,9 +178,10 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 				error("Unknown light type: " .. tostring(light.Type), 2)
 			end
 
-			data.color[0] = light.Color.r
-			data.color[1] = light.Color.g
-			data.color[2] = light.Color.b
+			local color_scale = light:GetColorScale()
+			data.color[0] = light.Color.r * color_scale
+			data.color[1] = light.Color.g * color_scale
+			data.color[2] = light.Color.b * color_scale
 			data.color[3] = light:GetPhotometricAmount()
 			data.params[3] = light:GetInverseEmissionSolidAngle()
 		else

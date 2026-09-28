@@ -309,6 +309,11 @@ local scatter_pass = {
 
 			if (any(greaterThanEqual(id.xy, ivec2(froxel_data.froxel_size)))) return;
 
+			if (ATMOSPHERE_ENABLED == 0) {
+				imageStore(out_scatter, id, vec4(0.0));
+				return;
+			}
+
 			uint seed = froxel_hash(uvec3(id.xy, uint(id.z) + uint(froxel_data.frame) * 128u));
 			vec3 jitter = vec3(uvec3(seed, seed >> 10u, seed >> 20u) & 1023u) / 1023.0 - 0.5;
 			vec2 uv;
@@ -604,7 +609,9 @@ local composite_pass = {
 				float froxel_end = FROXEL_FAR * length(view_dir) * scale;
 				vec3 sun_dir = get_current_primary_sun_direction();
 
-				if (hit_distance < 0.0) {
+				if (ATMOSPHERE_ENABLED == 0) {
+					// a void, no air
+				} else if (hit_distance < 0.0) {
 					// the sky carries all of the air along its ray: take out the
 					// part the volume holds so it isn't there twice
 					vec3 air_transmittance;

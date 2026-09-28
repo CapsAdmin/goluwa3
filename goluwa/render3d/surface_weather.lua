@@ -29,8 +29,9 @@ function surface_weather.GetSnowWetness()
 end
 
 function surface_weather.WriteBlock(self, block)
-	block.surface_wetness = surface_weather.wetness
-	block.surface_snow_depth = surface_weather.snow_depth
+	-- no weather in a void
+	block.surface_wetness = atmosphere.IsEnabled() and surface_weather.wetness or 0
+	block.surface_snow_depth = atmosphere.IsEnabled() and surface_weather.snow_depth or 0
 	block.surface_snow_wetness = surface_weather.GetSnowWetness()
 	local map = surface_weather.shelter_map
 

@@ -1099,7 +1099,8 @@ local function get_probe_capture_depth_texture(bundle)
 	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
--- the sky the probes captured is stale once the sun or the moon moved or the cloud cover changed
+-- the sky the probes captured is stale once the sun or the moon moved, the cloud cover changed or
+-- the atmosphere was switched on or off
 function envprobe.HasSkyChanged()
 	local sun = get_primary_sun(render3d.GetLights())
 
@@ -1115,11 +1116,13 @@ function envprobe.HasSkyChanged()
 		not envprobe.last_sun_direction or
 		sun_dir:GetDot(envprobe.last_sun_direction) < min_cos or
 		moon_dir:GetDot(envprobe.last_moon_direction) < min_cos or
-		math.abs(cloud_cover - envprobe.last_cloud_cover) > envprobe.CLOUD_COVER_CHANGE
+		math.abs(cloud_cover - envprobe.last_cloud_cover) > envprobe.CLOUD_COVER_CHANGE or
+		atmosphere.IsEnabled() ~= envprobe.last_atmosphere_enabled
 	then
 		envprobe.last_sun_direction = sun_dir:Copy()
 		envprobe.last_moon_direction = moon_dir:Copy()
 		envprobe.last_cloud_cover = cloud_cover
+		envprobe.last_atmosphere_enabled = atmosphere.IsEnabled()
 		return true
 	end
 

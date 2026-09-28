@@ -357,7 +357,11 @@ function precipitation.GetCoverageGLSL()
 end
 
 function precipitation.IsActive()
-	return precipitation.rain_rate > 0 or precipitation.snow_rate > 0
+	return atmosphere.IsEnabled() and
+		(
+			precipitation.rain_rate > 0 or
+			precipitation.snow_rate > 0
+		)
 end
 
 function precipitation.Draw(pipeline, cmd)

@@ -14,6 +14,11 @@ function Sun:SetPhotometricAmount(amount)
 	return self:SetLux(amount)
 end
 
+-- the colour is the atmosphere's transmittance, it scales the lux on purpose
+function Sun:GetColorScale()
+	return 1
+end
+
 function Sun:GetInverseEmissionSolidAngle()
 	return 1
 end

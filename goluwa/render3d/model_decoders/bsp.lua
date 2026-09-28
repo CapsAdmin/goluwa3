@@ -1716,7 +1716,8 @@ function steam.SpawnMapEntities(path, parent)
 
 					light:SetRange(range)
 					light:SetSourceRadius(source_radius)
-					light:SetLumen(intensity * light:GetEmissionSolidAngle())
+					-- the colour is vrad's radiance, not a tint: its luminance is part of the brightness
+					light:SetLumen(intensity * color:GetLuminance() * light:GetEmissionSolidAngle())
 					--light:SetCastShadows{shadow_update_mode = "on_move"}
 					ent.spawned_from_bsp = true
 					ent.bsp_info = info

@@ -5,6 +5,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local system = import("goluwa/system.lua")
 local commands = import("goluwa/cli/commands.lua")
 local View = import("goluwa/render3d/view.lua")
+local assets = import("goluwa/assets.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local KEY = 0.28
 -- exposure = 2^(LOG_EXPOSURE_AT_EV0 - ev): KEY / luminance, with luminance =
@@ -16,18 +17,33 @@ local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
 -- average to KEY. That is above photographic middle grey (0.18) because AgX
 -- renders 0.18 darker than the old ACES fit did; 0.28 looks about as bright.
 --
--- The eye doesn't fully adapt: a night street stays dark and noon stays
--- bright. ADAPTATION is how much of the metered EV's distance from REFERENCE_EV
--- is compensated for, 1 for a camera's full auto exposure. Below NIGHT_EV the
--- eye adapts much less (it is running out of cones), so moonlight at EV -4
--- stays a dark night instead of being lifted to dusk.
+-- mode "camera" is a camera's auto exposure: every scene's average is shown at
+-- KEY, and there is no night vision.
+--
+-- mode "eye" shows what a person would see. The eye doesn't fully adapt: a
+-- night street stays dark and noon stays bright. The metered average is shown
+-- adaptation_stops stops above KEY, 0 at a lit room (EV 9). Darker than that
+-- the curve follows Ferwerda et al. 1996 ("A model of visual adaptation for
+-- realistic image synthesis"): brightness goes with L / threshold(L), the
+-- cones' and the rods' threshold versus intensity weighted by the same mesopic
+-- share of cones the night vision uses, so one adaptation state decides both
+-- how dark the night is and how much of its colour is lost. The rods keep a
+-- night 3-4 stops under a lit room, where the cones alone would make it 7-9;
+-- dusk, where the cones are fading and the rods aren't much help yet, is the
+-- hardest to see. Brighter than EV 9 the thresholds grow as fast as the light
+-- (Weber's law) and would show noon as bright as a room; Ward 1994's contrast
+-- based scale factor (for a 100 nit display) keeps noon a little brighter.
+-- The curve is made monotonic: a darker scene is never shown brighter.
+--
+-- Ferwerda's model matches how visible detail is, which makes nights look
+-- brighter than they feel: with rods the curve is almost flat from dusk to
+-- moonlight. rod_adaptation blends its dark end from the cones alone (0, a
+-- night keeps getting darker with the light) to the full rod response (1).
 render3d.exposure = {
+	mode = "eye",
+	rod_adaptation = 0.5,
 	lock = nil,
 	compensation = 0,
-	adaptation = 0.85,
-	reference_ev = 9,
-	night_ev = 3,
-	night_adaptation = 0.25,
 	min_ev = -4,
 	max_ev = 18,
 	-- the metered average is taken between these fractions of the (centre
@@ -62,8 +78,19 @@ render3d.hdr = {
 	peak = 1000,
 }
 render3d.bloom_strength = 0.04
--- how much of the eye's switch to rod vision in dim light is shown, 0 is off
-render3d.night_vision = 1
+-- the eye's switch to rod vision in dim light (mode "eye" only): colour fades
+-- and reds darken (the Purkinje shift). threshold is the luminance in cd/m2 at
+-- which half the colour is gone, the fade spanning 1.5 decades either side of
+-- it; the default is the middle of CIE 191's mesopic range (0.005 to 5). tint
+-- is how blue what the rods see is shown, 0 neutral grey and 1 the film
+-- convention of Jensen et al. 2000. Rods can't tell colours apart, the blue is
+-- a perceptual trick rather than what they see. The adaptation curve keeps
+-- CIE's range, these only change how the loss of colour looks.
+render3d.night_vision = {
+	enabled = true,
+	threshold = 0.03,
+	tint = 0.5,
+}
 
 commands.Add("r_exposure_lock=number|nil", function(ev)
 	render3d.exposure.lock = ev
@@ -74,12 +101,13 @@ commands.Add("r_exposure_compensation=number[0]", function(stops)
 	render3d.exposure.compensation = stops
 end)
 
-commands.Add("r_exposure_adaptation=number[0.85]", function(value)
-	render3d.exposure.adaptation = value
+commands.Add("r_exposure_rod_adaptation=number[0.65]", function(value)
+	render3d.exposure.rod_adaptation = value
 end)
 
-commands.Add("r_exposure_night_adaptation=number[0.5]", function(value)
-	render3d.exposure.night_adaptation = value
+commands.Add("r_exposure_mode=string[eye]", function(mode)
+	assert(mode == "eye" or mode == "camera", "exposure mode is eye or camera")
+	render3d.exposure.mode = mode
 end)
 
 commands.Add("r_tonemapper=string[agx]", function(name)
@@ -140,8 +168,16 @@ commands.Add("r_bloom_max=number[10000]", function(value)
 	render3d.bloom_max = value
 end)
 
-commands.Add("r_night_vision=number[1]", function(value)
-	render3d.night_vision = value
+commands.Add("r_night_vision=boolean[true]", function(enabled)
+	render3d.night_vision.enabled = enabled
+end)
+
+commands.Add("r_night_vision_threshold=number[0.03]", function(cd_m2)
+	render3d.night_vision.threshold = cd_m2
+end)
+
+commands.Add("r_night_vision_tint=number[0.3]", function(value)
+	render3d.night_vision.tint = value
 end)
 
 local function get_scene_source_texture()
@@ -166,10 +202,91 @@ local function get_previous_exposure_texture()
 	return post_source.GetExposureTexture(true)
 end
 
+local MESOPIC_LOG10_MIN = -2.3
+local MESOPIC_LOG10_MAX = 0.7
+local ADAPTATION_CURVE_EV_MIN = -10
+local ADAPTATION_CURVE_EV_STEP = 0.5
+local ADAPTATION_CURVE_COUNT = 65
+-- stops the metered average is shown above KEY in mode "eye", per metered EV
+-- from ADAPTATION_CURVE_EV_MIN in ADAPTATION_CURVE_EV_STEP steps (see
+-- render3d.exposure), with the rods and with the cones alone, as comma
+-- separated GLSL lists
+local ADAPTATION_CURVE_RODS_GLSL
+local ADAPTATION_CURVE_CONES_GLSL
+
+do
+	local function log10(x)
+		return math.log(x) / math.log(10)
+	end
+
+	-- threshold versus intensity in cd/m2, Ferwerda et al. 1996
+	local function cone_threshold(L)
+		local l = log10(L)
+
+		if l <= -2.6 then return 10 ^ -0.72 end
+
+		if l >= 1.9 then return 10 ^ (l - 1.255) end
+
+		return 10 ^ ((0.249 * l + 0.65) ^ 2.7 - 0.72)
+	end
+
+	local function rod_threshold(L)
+		local l = log10(L)
+
+		if l <= -3.94 then return 10 ^ -2.86 end
+
+		if l >= -1.44 then return 10 ^ (l - 0.395) end
+
+		return 10 ^ ((0.405 * l + 1.6) ^ 2.18 - 2.86)
+	end
+
+	local function eye(L)
+		local cones = math.smoothstep(MESOPIC_LOG10_MIN, MESOPIC_LOG10_MAX, log10(L))
+		return cones * L / cone_threshold(L) + (1 - cones) * L / rod_threshold(L)
+	end
+
+	local function ward(L)
+		return ((1.219 + 50 ^ 0.4) / (1.219 + L ^ 0.4)) ^ 2.5 * L
+	end
+
+	local function cones(L)
+		return L / cone_threshold(L)
+	end
+
+	local reference = 2 ^ (9 - 3)
+
+	local function build(response)
+		local curve = {}
+
+		for i = 1, ADAPTATION_CURVE_COUNT do
+			local ev = ADAPTATION_CURVE_EV_MIN + (i - 1) * ADAPTATION_CURVE_EV_STEP
+			local L = 2 ^ (ev - 3)
+			curve[i] = ev >= 9 and
+				math.log(ward(L) / ward(reference)) / math.log(2)
+				or
+				math.log(response(L) / response(reference)) / math.log(2)
+		end
+
+		for i = ADAPTATION_CURVE_COUNT - 1, 1, -1 do
+			curve[i] = math.min(curve[i], curve[i + 1])
+		end
+
+		for i, stops in ipairs(curve) do
+			curve[i] = string.format("%.5f", stops)
+		end
+
+		return table.concat(curve, ", ")
+	end
+
+	ADAPTATION_CURVE_RODS_GLSL = build(eye)
+	ADAPTATION_CURVE_CONES_GLSL = build(cones)
+end
+
 -- r = exposure multiplier, g = the metered EV100 before adaptation and
--- compensation (for r_exposure_info)
+-- compensation (for r_exposure_info), b = the metered EV100 the eye has adapted
+-- to (g smoothed over time, what night vision is driven by)
 local exposure_feedback_shader = [[
-	layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_exposure;
+	layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_exposure;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 	layout(set = 0, binding = 2) uniform sampler2D prev_exposure_tex;
 	]] .. post_source.GetPreExposureFromExposureGLSL() .. [[
@@ -185,6 +302,19 @@ local exposure_feedback_shader = [[
 
 	float log2_to_ev(float log_luma) {
 		return log_luma + 3.0; // log2(100 / 12.5)
+	}
+
+	const float ADAPTATION_CURVE_RODS[]] .. ADAPTATION_CURVE_COUNT .. [[] = float[](]] .. ADAPTATION_CURVE_RODS_GLSL .. [[);
+	const float ADAPTATION_CURVE_CONES[]] .. ADAPTATION_CURVE_COUNT .. [[] = float[](]] .. ADAPTATION_CURVE_CONES_GLSL .. [[);
+
+	float adaptation_stops(float ev) {
+		float x = clamp((ev - ]] .. string.format("%.1f", ADAPTATION_CURVE_EV_MIN) .. [[) / ]] .. string.format("%.2f", ADAPTATION_CURVE_EV_STEP) .. [[, 0.0, ]] .. string.format("%.1f", ADAPTATION_CURVE_COUNT - 1) .. [[);
+		int i = min(int(x), ]] .. (
+		ADAPTATION_CURVE_COUNT - 2
+	) .. [[);
+		float rods = mix(ADAPTATION_CURVE_RODS[i], ADAPTATION_CURVE_RODS[i + 1], x - float(i));
+		float cones = mix(ADAPTATION_CURVE_CONES[i], ADAPTATION_CURVE_CONES[i + 1], x - float(i));
+		return mix(cones, rods, compute.rod_adaptation);
 	}
 
 	void main() {
@@ -228,29 +358,31 @@ local exposure_feedback_shader = [[
 		}
 
 		float metered_ev = log2_to_ev(log_sum / max(weight_sum, 1.0));
-		float ev = compute.reference_ev + (max(metered_ev, compute.night_ev) - compute.reference_ev) * compute.adaptation;
-		ev += min(metered_ev - compute.night_ev, 0.0) * compute.night_adaptation;
+		float ev = compute.eye != 0 ? metered_ev - adaptation_stops(metered_ev) : metered_ev;
 		ev = clamp(ev - compute.compensation, compute.min_ev, compute.max_ev);
 
 		if (compute.lock != 0) ev = compute.lock_ev - compute.compensation;
 
 		float log_target = ]] .. LOG_EXPOSURE_AT_EV0 .. [[ - ev;
-		float prev = texture(prev_exposure_tex, vec2(0.5)).r;
+		vec4 prev = texture(prev_exposure_tex, vec2(0.5));
 
-		if (!(prev > 0.0) || compute.lock != 0) prev = exp2(log_target);
+		if (!(prev.r > 0.0)) prev.b = metered_ev;
 
-		float log_prev = log2(prev);
+		if (!(prev.r > 0.0) || compute.lock != 0) prev.r = exp2(log_target);
+
+		float log_prev = log2(prev.r);
 		float tau = log_target > log_prev ? compute.tau_darken : compute.tau_brighten;
 		float k = 1.0 - exp(-compute.dt / tau);
-		imageStore(out_exposure, ivec2(0, 0), vec4(exp2(log_prev + (log_target - log_prev) * k), metered_ev, 0.0, 1.0));
+		float adapted_k = 1.0 - exp(-compute.dt / (metered_ev < prev.b ? compute.tau_darken : compute.tau_brighten));
+		imageStore(out_exposure, ivec2(0, 0), vec4(exp2(log_prev + (log_target - log_prev) * k), metered_ev, prev.b + (metered_ev - prev.b) * adapted_k, 1.0));
 	}
 ]]
 local exposure_feedback_pass = {
 	name = "exposure_feedback",
 	ComputePass = true,
 	ColorFormat = {
-		{"r32g32_sfloat", {"exposure", "rg"}},
-		{"r32g32_sfloat", {"exposure_prev", "rg"}},
+		{"r32g32b32a32_sfloat", {"exposure", "rgba"}},
+		{"r32g32b32a32_sfloat", {"exposure_prev", "rgba"}},
 	},
 	FramebufferSize = {x = 1, y = 1},
 	framebuffer_count = 1,
@@ -281,10 +413,8 @@ local exposure_feedback_pass = {
 		{"lock", "int"},
 		{"lock_ev", "float"},
 		{"compensation", "float"},
-		{"adaptation", "float"},
-		{"reference_ev", "float"},
-		{"night_ev", "float"},
-		{"night_adaptation", "float"},
+		{"eye", "int"},
+		{"rod_adaptation", "float"},
 		{"min_ev", "float"},
 		{"max_ev", "float"},
 		{"low_percent", "float"},
@@ -300,10 +430,8 @@ local exposure_feedback_pass = {
 		block.lock = lock and 1 or 0
 		block.lock_ev = lock or 0
 		block.compensation = view and view.ExposureCompensation or e.compensation
-		block.adaptation = e.adaptation
-		block.reference_ev = e.reference_ev
-		block.night_ev = e.night_ev
-		block.night_adaptation = e.night_adaptation
+		block.eye = e.mode == "eye" and 1 or 0
+		block.rod_adaptation = e.rod_adaptation
 		block.min_ev = e.min_ev
 		block.max_ev = e.max_ev
 		block.low_percent = e.low_percent
@@ -317,10 +445,12 @@ local exposure_feedback_pass = {
 
 commands.Add("r_exposure_info", function()
 	local texture = get_exposure_feedback_texture()
-	local exposure, metered_ev = texture:Download():GetPixelFloat(0, 0)
+	local exposure, metered_ev, adapted_ev = texture:Download():GetPixelFloat(0, 0)
 	logf(
-		"[blit] metered EV %.2f, exposure %.3g (EV %.2f)\n",
+		"[blit] %s: metered EV %.2f, adapted EV %.2f, exposure %.3g (EV %.2f)\n",
+		render3d.exposure.mode,
 		metered_ev,
+		adapted_ev,
 		exposure,
 		LOG_EXPOSURE_AT_EV0 - math.log(exposure) / math.log(2)
 	)
@@ -340,8 +470,16 @@ local GRID_GLSL = (
 	#define GRID_LOG_MAX 10.0
 	// log2 of KEY, what the metered average is exposed to
 	#define LOG_KEY %.7g
+
+	// log2 of the exposed average of the frame the eye adapted to (b of the
+	// exposure texture), relative to which a region is lighter or darker. In
+	// mode "eye" and with a locked exposure the average isn't at KEY on purpose;
+	// local exposure only evens out the differences within the frame.
+	float get_frame_log_level(vec4 exposure) {
+		return exposure.r > 0.0 ? exposure.b - (%.7g - log2(exposure.r)) + LOG_KEY : LOG_KEY;
+	}
 ]]
-):format(GRID_X, GRID_Y, GRID_Z, math.log(KEY) / math.log(2))
+):format(GRID_X, GRID_Y, GRID_Z, math.log(KEY) / math.log(2), LOG_EXPOSURE_AT_EV0)
 
 local function get_pipeline_texture(name)
 	return function()
@@ -405,7 +543,7 @@ local local_exposure_grid_pass = {
 			// the scene is pre-exposed with last frame's exposure
 			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 			float luma = dot(textureLod(source_tex, uv, 0.0).rgb, vec3(0.2126, 0.7152, 0.0722)) * exposure;
-			float l = clamp(log2(max(luma, 1e-6)) - LOG_KEY, GRID_LOG_MIN, GRID_LOG_MAX);
+			float l = clamp(log2(max(luma, 1e-6)) - get_frame_log_level(texture(exposure_tex, vec2(0.5))), GRID_LOG_MIN, GRID_LOG_MAX);
 			int z = min(int((l - GRID_LOG_MIN) / (GRID_LOG_MAX - GRID_LOG_MIN) * float(GRID_Z)), GRID_Z - 1);
 			atomicAdd(cell_sum[z], uint((l - GRID_LOG_MIN) * FIXED));
 			atomicAdd(cell_count[z], 1u);
@@ -482,6 +620,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 4) uniform sampler2D exposure_tex;
 	layout(set = 0, binding = 5) uniform sampler2D grid_tex;
 	layout(set = 0, binding = 6) uniform sampler2D prev_exposure_tex;
+	layout(set = 0, binding = 7) uniform sampler2D blue_noise_tex;
 	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. GRID_GLSL .. [[
 
 	// average exposed log2 luminance (relative to KEY) around uv among
@@ -502,15 +641,18 @@ local compute_shader = [[
 	}
 
 	// For HDR output: x exposed, returns linear light in units of paper white.
-	// Up to the knee it is left alone, which is about where SDR AgX puts the
-	// same values; above it the brightest channel rolls off smoothly to peak,
-	// and the harder a colour is compressed the more it moves towards white.
-	vec3 tonemap_hdr(vec3 x, float peak) {
+	// The shadows and midtones go through the SDR tonemapper so they look the
+	// same as in SDR: AgX's toe puts an exposed 0.005 at 0.0017, 1.5 stops
+	// darker than leaving it alone would, and a night scene lives down there.
+	// AgX crosses x at 0.335, where it hands over to x. Above the knee the
+	// brightest channel rolls off smoothly to peak, and the harder a colour is
+	// compressed the more it moves towards white.
+	vec3 tonemap_hdr(vec3 x, float peak, int tonemapper) {
 		x = max(x, vec3(0.0));
 		const float knee = 0.6;
 		float m = max(x.r, max(x.g, x.b));
 
-		if (m <= knee) return x;
+		if (m <= knee) return mix(tonemap(x, tonemapper), x, smoothstep(0.25, 0.45, m));
 
 		float range = peak - knee;
 		float mapped = knee + range * (1.0 - exp(-(m - knee) / range));
@@ -524,19 +666,22 @@ local compute_shader = [[
 		return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));
 	}
 
-	// Below ~5 cd/m2 the rods take over from the cones (the mesopic range, CIE 191),
-	// and below ~0.005 only rods see. Rods have one kind of receptor, so they see no
+	// Between ~5 and ~0.005 cd/m2 the rods take over from the cones (the mesopic range, CIE 191).
+	// Rods only see once the eye has adapted to the dark (in a lit room they are saturated), and
+	// only light too dim for the cones: a lamp or a traffic light keeps its colour at night. Rods have one kind of receptor, so they see no
 	// colour, and they peak at 507 nm, so reds go dark and blues light up (Purkinje).
 	// Their response to each primary is Larson's scotopic luminance
 	// Y (1.33 (1 + (Y + Z) / X) - 1.68) at that primary, relative to white.
 	const vec3 ROD_RESPONSE = vec3(0.0329, 0.7652, 0.2017);
 	// what rod vision is seen as, chromaticity (0.25, 0.25) (Jensen et al. 2000)
 	const vec3 ROD_TINT = vec3(0.7062, 0.9899, 1.9657);
-	const float MESOPIC_LOG10_MIN = -2.3;
-	const float MESOPIC_LOG10_MAX = 0.7;
 
-	float interleaved_gradient_noise(vec2 p) {
-		return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+	// Blue noise per channel, moved along the golden ratio each frame so 16
+	// frames in a row see different values (as in NVIDIA's RTXGI sample)
+	vec3 blue_noise(ivec2 pos) {
+		ivec2 size = textureSize(blue_noise_tex, 0);
+		vec3 noise = vec3(texelFetch(blue_noise_tex, pos % size, 0).rg, texelFetch(blue_noise_tex, (pos + ivec2(37, 19)) % size, 0).r);
+		return fract(noise + 0.61803398875 * float(compute.frame % 16));
 	}
 
 	void main() {
@@ -556,8 +701,13 @@ local compute_shader = [[
 		// the scene is pre-exposed with last frame's exposure
 		float pre_exposure = pre_exposure_from_exposure(compute.has_exposure_tex != 0 ? texture(prev_exposure_tex, vec2(0.5)).r : 0.0);
 		exposure /= pre_exposure;
-		// share of the pixel the cones see, from its luminance in cd/m2
-		float cones = smoothstep(MESOPIC_LOG10_MIN, MESOPIC_LOG10_MAX, log(max(dot(col, vec3(0.2126, 0.7152, 0.0722)) / pre_exposure, 1e-9)) * 0.4342945);
+		// Share of vision the cones provide: all of it when the eye is adapted to
+		// light (a dark corner of a lit room) or when the pixel itself is bright
+		// enough for them (a lamp in a dark room). Adapted EV100 to log10 cd/m2 is
+		// (ev - 3) * log10(2).
+		float adapted_ev = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).b : 10.0;
+		float pixel_log10 = log(max(dot(col, vec3(0.2126, 0.7152, 0.0722)) / pre_exposure, 1e-9)) * 0.4342945;
+		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
 		// Local exposure adapts the scene; bloom is scattered light in the
 		// eye, added after at the global exposure. Adapting the bloom as well
@@ -571,7 +721,7 @@ local compute_shader = [[
 
 		if (compute.has_grid_tex != 0) {
 			float luma = dot(col, vec3(0.2126, 0.7152, 0.0722)) * exposure;
-			float l = log2(max(luma, 1e-6)) - LOG_KEY;
+			float l = log2(max(luma, 1e-6)) - get_frame_log_level(texture(exposure_tex, vec2(0.5)));
 			float local_l = local_log_luma(uv, l);
 			float stops = -local_l * (local_l > 0.0 ? compute.local_highlights : compute.local_shadows);
 			col *= exp2(clamp(stops, -compute.local_max_stops, compute.local_max_stops));
@@ -580,20 +730,21 @@ local compute_shader = [[
 		// bloom keeps the scene's energy (see passes/bloom.lua), so it is
 		// mixed in rather than added
 		col = mix(col, bloom, compute.bloom_strength);
-		col = mix(col, ROD_TINT * dot(max(col, vec3(0.0)), ROD_RESPONSE), (1.0 - cones) * compute.night_vision);
+		col = mix(col, mix(vec3(1.0), ROD_TINT, compute.night_vision_tint) * dot(max(col, vec3(0.0)), ROD_RESPONSE), (1.0 - cones) * compute.night_vision);
 
 		if (compute.output_mode == 0) {
 			col = clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0);
 
-			// 8 bit output bands in dark gradients; triangular dither of one
-			// output step in the encoded (sRGB) space hides it
+			// 8 bit output bands in gradients; a dither of one output step hides
+			// it. In the encoded (sRGB) space, where a step is the same size in
+			// the shadows as in the highlights
 			vec3 encoded = LinearToSRGB(col);
-			encoded += (interleaved_gradient_noise(vec2(pos)) + interleaved_gradient_noise(vec2(pos) + vec2(47.0, 17.0)) - 1.0) / 255.0;
+			encoded += (blue_noise(pos) - 0.5) / 255.0;
 			col = SRGBToLinear(clamp(encoded, 0.0, 1.0));
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
 		} else {
-			vec3 nits = tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white) * compute.hdr_paper_white;
+			vec3 nits = tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper) * compute.hdr_paper_white;
 
 			if (compute.output_mode == 1) {
 				// scRGB: linear BT.709, 1.0 = 80 nits
@@ -649,9 +800,16 @@ local r = {
 				binding_index = 6,
 				get_texture = get_previous_exposure_texture,
 			},
+			{
+				binding_index = 7,
+				get_texture = function()
+					return assets.GetTexture("textures/render/blue_noise.lua")
+				end,
+			},
 		},
 		block = {
 			{"has_source_tex", "int"},
+			{"frame", "int"},
 			{"has_bloom_tex", "int"},
 			{"requires_manual_gamma", "int"},
 			-- 0 = SDR, 1 = scRGB, 2 = HDR10
@@ -662,6 +820,8 @@ local r = {
 			{"tonemapper", "int"},
 			{"bloom_strength", "float"},
 			{"night_vision", "float"},
+			{"night_vision_log10_threshold", "float"},
+			{"night_vision_tint", "float"},
 			{"has_grid_tex", "int"},
 			{"local_shadows", "float"},
 			{"local_highlights", "float"},
@@ -669,6 +829,7 @@ local r = {
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
+			block.frame = system.GetFrameNumber()
 			block.has_bloom_tex = get_bloom_texture() and 1 or 0
 			block.has_exposure_tex = get_exposure_feedback_texture() and 1 or 0
 			block.requires_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
@@ -681,7 +842,9 @@ local r = {
 			block.hdr_peak = render3d.hdr.peak
 			block.tonemapper = render3d.tonemapper
 			block.bloom_strength = render3d.bloom_strength
-			block.night_vision = render3d.night_vision
+			block.night_vision = render3d.exposure.mode == "eye" and render3d.night_vision.enabled and 1 or 0
+			block.night_vision_log10_threshold = math.log(render3d.night_vision.threshold) / math.log(10)
+			block.night_vision_tint = render3d.night_vision.tint
 			block.has_grid_tex = get_pipeline_texture("local_exposure_blur")() and 1 or 0
 			local view = View.GetActive()
 			local local_exposure = view and view.LocalExposure
@@ -743,11 +906,4 @@ local r = {
 		DepthWrite = false,
 	},
 }
-
-if HOTRELOAD then
-	import("goluwa/timer.lua").Delay(0, function()
-		render3d.Initialize()
-	end)
-end
-
 return r

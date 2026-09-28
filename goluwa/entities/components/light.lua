@@ -32,10 +32,27 @@ function Light.GetInstances()
 	return Light.instances
 end
 
-local CUTOFF_ILLUMINANCE = 0.0125
+-- Without a Range, a light reaches as far as it lights a surface with more
+-- than this many lux. The eye adapts down to EV -4 at most
+-- (render3d.exposure.min_ev), an average of 0.0078 cd/m2; a mid grey surface
+-- (reflectance 0.5) lit by 0.0005 lux is 1% of that, which even fully dark
+-- adapted doesn't show. The old 0.0125 lux cut a 10 lumen light off at 8 m,
+-- and its falloff window (scene_lights, get_light_distance_attenuation)
+-- already took 12% at half of that.
+local CUTOFF_ILLUMINANCE = 0.0005
 
 function Light:GetPhotometricAmount()
 	return self.Lumen
+end
+
+-- what Color is multiplied by so it's a tint of luminance 1 and the light gives
+-- off exactly Lumen, whatever its colour
+function Light:GetColorScale()
+	local luminance = self.Color:GetLuminance()
+
+	if luminance <= 0 then return 0 end
+
+	return 1 / luminance
 end
 
 function Light:SetPhotometricAmount(amount)
@@ -57,7 +74,9 @@ function Light:GetEffectiveRange()
 
 	return math.sqrt(
 		math.max(
-			self.Lumen / (self:GetEmissionSolidAngle() * CUTOFF_ILLUMINANCE) - self.SourceRadius ^ 2,
+			self.Lumen / (
+					self:GetEmissionSolidAngle() * CUTOFF_ILLUMINANCE
+				) - self.SourceRadius ^ 2,
 			0
 		)
 	)

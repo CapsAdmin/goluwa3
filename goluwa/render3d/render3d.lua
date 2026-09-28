@@ -21,6 +21,8 @@ local function decorate_pipeline_instance(pipeline, config)
 	pipeline.pre_render = config.pre_render
 	pipeline.post_draw = config.post_draw
 	pipeline.draw_in_prerender = config.draw_in_prerender ~= false
+	-- skipped while this returns false
+	pipeline.is_enabled = config.is_enabled
 	return pipeline
 end
 
@@ -317,7 +319,14 @@ function render3d.RunPipelineBundle(bundle, cmd, context)
 
 	render3d.WithRenderContext(active_context, function()
 		for _, pipeline in ipairs(bundle.pipelines_i) do
-			if pipeline.draw_in_prerender and render3d.IsPipelineEnabled(pipeline.name) then
+			if
+				pipeline.draw_in_prerender and
+				render3d.IsPipelineEnabled(pipeline.name) and
+				(
+					not pipeline.is_enabled or
+					pipeline.is_enabled()
+				)
+			then
 				pipeline:Draw(cmd)
 			end
 		end
@@ -357,6 +366,11 @@ function render3d.Initialize(config)
 			if
 				pipeline.name ~= "blit" and
 				pipeline.draw_in_prerender and
+				(
+					not pipeline.is_enabled or
+					pipeline.is_enabled()
+				)
+				and
 				not (
 					is_ocean_pass and
 					not ocean_needed

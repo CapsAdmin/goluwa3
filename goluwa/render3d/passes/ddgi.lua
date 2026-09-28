@@ -105,7 +105,7 @@ local function pass_trace()
 			)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
-			if not ddgi.GetFrameState().rt_ready then return end
+			if not ddgi.IsEnabled() or not ddgi.GetFrameState().rt_ready then return end
 
 			local hits = ddgi.GetRayHitBuffer()
 			cmd:PipelineBarrier{
@@ -708,9 +708,11 @@ end
 --
 -- A texel's frame estimate comes from a few dozen rays, so one ray landing on
 -- a small hot spot (right next to a lamp, say) can carry more light than all
--- the others together and flash the whole probe. The brightest ray is clamped
--- to the second brightest: a lone outlier then counts like a typical ray,
--- while light that many rays see keeps its top two close and passes through.
+-- the others together and flash the whole probe. With ddgi.BRIGHTEST_RAY_CLAMP
+-- the brightest ray is clamped to the second brightest: a lone outlier then
+-- counts like a typical ray, while light that many rays see keeps its top two
+-- close and passes through. The outlier's light is lost though, see
+-- ddgi.BRIGHTEST_RAY_CLAMP.
 local IRRADIANCE_INTEGRATE = {
 	declare = [[
 		vec3 brightest = vec3(0.0);
@@ -739,7 +741,7 @@ local IRRADIANCE_INTEGRATE = {
 		weight_sum += w;
 	]],
 	finish = [[
-		if (brightest_luma > 0.0) {
+		if (ddgi_data.ddgi_brightest_ray_clamp != 0 && brightest_luma > 0.0) {
 			sum.rgb -= brightest * (1.0 - second_luma / brightest_luma);
 		}
 	]],
@@ -1143,10 +1145,7 @@ local function pass_resolve()
 	}
 end
 
-return {
-	ddgi.RTSupported() and
-	pass_trace() or
-	pass_compute_trace(),
+local passes = {
 	pass_shade(),
 	pass_update("ddgi_irradiance", ddgi.IRRADIANCE_TEXELS, IRRADIANCE_INTEGRATE),
 	pass_update("ddgi_distance", ddgi.DISTANCE_TEXELS, DISTANCE_INTEGRATE),
@@ -1154,3 +1153,18 @@ return {
 	pass_resolve(),
 	pass_probe_debug(),
 }
+
+for _, pass in ipairs(passes) do
+	pass.is_enabled = ddgi.IsEnabled
+end
+
+if ddgi.RTSupported() then
+	-- runs while disabled too, it builds the TLAS ssr and the fog trace against
+	table.insert(passes, 1, pass_trace())
+else
+	local trace = pass_compute_trace()
+	trace.is_enabled = ddgi.IsEnabled
+	table.insert(passes, 1, trace)
+end
+
+return passes
