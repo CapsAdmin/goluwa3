@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local atmosphere = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -95,10 +96,6 @@ local function get_normalized_sun_direction(sun_dir)
 	sun_dir = sun_dir or Vec3(0, 1, 0)
 	local x, y, z = normalize_components(sun_dir.x, sun_dir.y, sun_dir.z)
 	return {x = x, y = y, z = z}
-end
-
-local function format_vec3_glsl(vec)
-	return string.format("vec3(%.17g, %.17g, %.17g)", vec.x, vec.y, vec.z)
 end
 
 local function quantize(value, step)
@@ -504,46 +501,50 @@ local multi_scatter_glsl = build_atmosphere_shader_prelude(
 ]],
 	"#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n"
 )
+-- the camera and sun are push constants rather than baked in, so every sky view texture shares one pipeline
+local SkyViewConstants = ffi.typeof([[struct {
+	float camera_position[3];
+	float sun_illuminance;
+	float sun_direction[3];
+}]])
+local SKY_VIEW_DECLARATIONS = [[
+	layout(push_constant) uniform SkyViewConstants {
+		vec3 camera_position;
+		float sun_illuminance;
+		vec3 sun_direction;
+	} sky_view;
+]]
+local sky_view_glsl = build_atmosphere_shader_prelude(
+	[[
+	const int SKY_VIEW_STEPS = ]] .. SKY_VIEW_STEPS .. [[;
 
-local function build_sky_view_glsl(cam_pos, sun_dir)
-	local camera = get_shader_camera_position(cam_pos)
-	local sun = get_normalized_sun_direction(sun_dir)
-	local sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
-	return build_atmosphere_shader_prelude(
-		[[
-		const int SKY_VIEW_STEPS = ]] .. SKY_VIEW_STEPS .. [[;
-		const vec3 SKY_VIEW_CAMERA_POSITION = ]] .. format_vec3_glsl(camera) .. [[;
-		const vec3 SKY_VIEW_SUN_DIRECTION = ]] .. format_vec3_glsl(sun) .. [[;
+	vec3 get_sky_view_ray_dir(vec2 uv, vec3 up) {
+		vec3 forward = get_sky_view_forward(up, sky_view.sun_direction);
+		vec3 right = normalize(cross(forward, up));
+		float azimuth = (uv.x * 2.0 - 1.0) * PI;
+		float elevation = (uv.y * uv.y - 0.5) * PI;
+		float cos_elevation = cos(elevation);
+		vec3 horizontal = cos(azimuth) * forward + sin(azimuth) * right;
+		return normalize(horizontal * cos_elevation + up * sin(elevation));
+	}
 
-		vec3 get_sky_view_ray_dir(vec2 uv, vec3 up) {
-			vec3 forward = get_sky_view_forward(up, SKY_VIEW_SUN_DIRECTION);
-			vec3 right = normalize(cross(forward, up));
-			float azimuth = (uv.x * 2.0 - 1.0) * PI;
-			float elevation = (uv.y * uv.y - 0.5) * PI;
-			float cos_elevation = cos(elevation);
-			vec3 horizontal = cos(azimuth) * forward + sin(azimuth) * right;
-			return normalize(horizontal * cos_elevation + up * sin(elevation));
-		}
+	vec4 shade(vec2 uv, vec3 _cube_dir) {
+		vec3 ray_origin = sky_view.camera_position;
+		vec3 up = normalize(ray_origin);
+		vec3 ray_dir = get_sky_view_ray_dir(uv, up);
+		float t_near;
+		float t_far;
+		bool hits_ground;
 
-		vec4 shade(vec2 uv, vec3 _cube_dir) {
-			vec3 ray_origin = SKY_VIEW_CAMERA_POSITION;
-			vec3 up = normalize(ray_origin);
-			vec3 ray_dir = get_sky_view_ray_dir(uv, up);
-			float t_near;
-			float t_far;
-			bool hits_ground;
+		if (!get_atmosphere_segment(ray_origin, ray_dir, t_near, t_far, hits_ground)) return vec4(0.0, 0.0, 0.0, 1.0);
 
-			if (!get_atmosphere_segment(ray_origin, ray_dir, t_near, t_far, hits_ground)) return vec4(0.0, 0.0, 0.0, 1.0);
-
-			vec3 view_transmittance;
-			vec3 scattered_light = integrate_scattering(ray_origin, ray_dir, t_near, t_far, SKY_VIEW_SUN_DIRECTION, SKY_VIEW_STEPS, vec2(1.0), 1.0, view_transmittance);
-			return vec4(scattered_light, dot(view_transmittance, vec3(1.0 / 3.0)));
-		}
-	]],
-		"#define ATMOSPHERE_SUN_ILLUMINANCE " .. string.format("%.17g", sun_illuminance) .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX 1\n"
-	)
-end
-
+		vec3 view_transmittance;
+		vec3 scattered_light = integrate_scattering(ray_origin, ray_dir, t_near, t_far, sky_view.sun_direction, SKY_VIEW_STEPS, vec2(1.0), 1.0, view_transmittance);
+		return vec4(scattered_light, dot(view_transmittance, vec3(1.0 / 3.0)));
+	}
+]],
+	"#define ATMOSPHERE_SUN_ILLUMINANCE sky_view.sun_illuminance\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX 1\n"
+)
 local atmosphere_glsl = build_atmosphere_shader_prelude(
 	[[
 	const int PRIMARY_STEPS = 32;
@@ -1106,10 +1107,21 @@ end
 
 local function create_sky_view_texture(cam_pos, sun_dir)
 	local tex = create_lut_texture(SKY_VIEW_LUT_WIDTH, SKY_VIEW_LUT_HEIGHT)
+	local camera = get_shader_camera_position(cam_pos)
+	local sun = get_normalized_sun_direction(sun_dir)
 	tex:Shade(
-		build_sky_view_glsl(cam_pos, sun_dir),
+		sky_view_glsl,
 		{
 			textures = {atmosphere.GetTransmittanceTexture(), atmosphere.GetMultiScatterTexture()},
+			custom_declarations = SKY_VIEW_DECLARATIONS,
+			fragment_push_constants = {
+				size = ffi.sizeof(SkyViewConstants),
+				data = SkyViewConstants(
+					{camera.x, camera.y, camera.z},
+					atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE,
+					{sun.x, sun.y, sun.z}
+				),
+			},
 		}
 	)
 	return tex

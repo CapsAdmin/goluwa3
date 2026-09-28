@@ -309,9 +309,10 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	}
 	local ptr = VkPipelineBox()
 	vulkan.assert(
-		vulkan.lib.vkCreateGraphicsPipelines(device.ptr[0], nil, 1, pipelineInfo, nil, ptr),
+		vulkan.lib.vkCreateGraphicsPipelines(device.ptr[0], device.pipeline_cache.ptr[0], 1, pipelineInfo, nil, ptr),
 		"failed to create graphics pipeline"
 	)
+	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 	return GraphicsPipeline:CreateObject{device = device, ptr = ptr, config = config}
 end
 

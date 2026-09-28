@@ -99,6 +99,8 @@ render.available = true
 local VulkanInstance = import("goluwa/render/vulkan/vulkan_instance.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
+local vfs = import("goluwa/vfs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
 local Sampler = import("goluwa/render/vulkan/internal/sampler.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -218,6 +220,7 @@ function render.Shutdown()
 
 	render.shutting_down = true
 	event.RemoveListener("WindowFramebufferResized", "window_resized")
+	event.RemoveListener("Update", "save_pipeline_cache")
 	event.RemoveListener("Update", "window_update")
 
 	if render.target:IsValid() then render.target:Remove() end
@@ -239,10 +242,42 @@ function render.Shutdown()
 	render.shutting_down = false
 end
 
+-- the pipeline cache is saved while running rather than on shutdown, so it survives a crash
+local function start_saving_pipeline_cache(path)
+	local saved_generation = vulkan_instance:GetPipelineCacheGeneration()
+	local seen_generation = saved_generation
+	local changed_at = 0
+
+	event.AddListener("Update", "save_pipeline_cache", function()
+		local generation = vulkan_instance:GetPipelineCacheGeneration()
+
+		if generation == saved_generation then return end
+
+		local time = system.GetTime()
+
+		-- pipelines are usually created in bursts, wait for one to end
+		if generation ~= seen_generation then
+			seen_generation = generation
+			changed_at = time
+			return
+		end
+
+		if time - changed_at < 2 then return end
+
+		saved_generation = generation
+		-- write and rename so another instance or a crash never leaves a partial file behind
+		local temp_path = path .. "." .. tostring(system.GetTimeNS()):strip_suffix("ULL") .. ".tmp"
+		assert(fs.write_file(temp_path, vulkan_instance:GetPipelineCacheData()))
+		assert(os.rename(temp_path, path))
+	end)
+end
+
 function render.Initialize(config)
 	config = config or {}
 	local is_headless = config.headless
 	render.initializing = true
+	local pipeline_cache_path = vfs.GetStorageDirectory("cache") .. "vulkan_pipeline_cache.bin"
+	local pipeline_cache_data = fs.read_file(pipeline_cache_path)
 
 	if not is_headless then
 		-- Windowed mode: create window and surface
@@ -251,7 +286,7 @@ function render.Initialize(config)
 			"render.Initialize() requires a window; call system.OpenWindow() first"
 		)
 		local surface_handle, display_handle = assert(wnd:GetSurfaceHandle())
-		vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
+		vulkan_instance = VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 		local size = wnd:GetSize()
 		render.target = vulkan_instance:CreateWindowRenderTarget{
 			present_mode = "immediate_khr", --"fifo_khr",
@@ -264,7 +299,7 @@ function render.Initialize(config)
 			samples = config.samples,
 		}
 	else
-		vulkan_instance = VulkanInstance.New(nil, nil)
+		vulkan_instance = VulkanInstance.New(nil, nil, pipeline_cache_data)
 		local width = config.width or 512
 		local height = config.height or 512
 		render.target = vulkan_instance:CreateWindowRenderTarget{
@@ -281,6 +316,7 @@ function render.Initialize(config)
 	end
 
 	refresh_bindless_descriptor_capacities()
+	start_saving_pipeline_cache(pipeline_cache_path)
 	event.Call("RendererReady")
 	render.initializing = false
 

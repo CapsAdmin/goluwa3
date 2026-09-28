@@ -18,9 +18,10 @@ function ComputePipeline.New(device, shaderModule, pipelineLayout)
 	}
 	local ptr = VkPipelineBox()
 	vulkan.assert(
-		vulkan.lib.vkCreateComputePipelines(device.ptr[0], nil, 1, computePipelineCreateInfo, nil, ptr),
+		vulkan.lib.vkCreateComputePipelines(device.ptr[0], device.pipeline_cache.ptr[0], 1, computePipelineCreateInfo, nil, ptr),
 		"failed to create compute pipeline"
 	)
+	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 	return ComputePipeline:CreateObject{device = device, ptr = ptr}
 end
 

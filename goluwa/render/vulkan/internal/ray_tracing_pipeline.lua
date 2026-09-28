@@ -126,9 +126,10 @@ function RayTracingPipeline.New(device, config)
 	local create_pipelines = device:GetExtension("vkCreateRayTracingPipelinesKHR")
 	local ptr = VkPipelineBox()
 	vulkan.assert(
-		create_pipelines(device.ptr[0], nil, nil, 1, create_info, nil, ptr),
+		create_pipelines(device.ptr[0], nil, device.pipeline_cache.ptr[0], 1, create_info, nil, ptr),
 		"failed to create ray tracing pipeline"
 	)
+	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 	local get_handle_size = device:TryGetExtension("vkGetRayTracingShaderGroupHandleSizeKHR")
 	local handle_size = get_handle_size and get_handle_size(device.ptr[0]) or 32
 	local group_count = stage_count

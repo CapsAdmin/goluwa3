@@ -6,6 +6,7 @@ local Device = import("goluwa/render/vulkan/internal/device.lua")
 local PhysicalDevice = import("goluwa/render/vulkan/internal/physical_device.lua")
 local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
+local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
 local Surface = import("goluwa/render/vulkan/internal/surface.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
 local ComputePipeline = import("goluwa/render/vulkan/compute_pipeline.lua")
@@ -21,7 +22,8 @@ end
 -- On Linux, VK_LAYER_PATH should be set by the environment (e.g., nix develop)
 local VulkanInstance = objects.CreateTemplate("render_vulkan_instance")
 
-function VulkanInstance.New(surface_handle, display_handle)
+-- pipeline_cache_data is what an earlier run got from GetPipelineCacheData, or nil
+function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 	if jit.os == "OSX" and os.getenv("USE_MOLTENVK") then
 		local icd_path = "/Users/caps/VulkanSDK/1.4.328.1/macOS/share/vulkan/icd.d/MoltenVK_icd.json"
 		process.setenv("VK_ICD_FILENAMES", icd_path)
@@ -171,6 +173,7 @@ function VulkanInstance.New(surface_handle, display_handle)
 	end
 
 	self.device = Device.New(self.physical_device, device_extensions, self.graphics_queue_family)
+	self.device.pipeline_cache = PipelineCache.New(self.device, pipeline_cache_data)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
 	return self
@@ -232,10 +235,20 @@ function VulkanInstance:CreateOcclusionQuery()
 	return OcclusionQuery.New{device = self.device, instance = self.instance}
 end
 
+function VulkanInstance:GetPipelineCacheData()
+	return self.device.pipeline_cache:GetData()
+end
+
+function VulkanInstance:GetPipelineCacheGeneration()
+	return self.device.pipeline_cache.generation
+end
+
 function VulkanInstance:OnRemove()
 	if self.device and self.device:IsValid() then self.device:WaitIdle() end
 
 	if self.command_pool then self.command_pool:Remove() end
+
+	if self.device then self.device.pipeline_cache:Remove() end
 
 	if self.device then self.device:Remove() end
 
