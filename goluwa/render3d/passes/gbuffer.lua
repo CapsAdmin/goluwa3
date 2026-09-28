@@ -275,7 +275,8 @@ local function build_ssdm_fragment_shader(displacement_var)
 			float roughness = get_roughness(displacement.uv);
 			float transmission = get_transmission(displacement.uv);
 			// thin translucent leaves are waxy rather than porous
-			apply_surface_weather(albedo, roughness, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, normal);
+			float snow = apply_surface_weather(albedo, roughness, metallic, normal, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, tbn[2]);
+			transmission *= 1.0 - snow;
 			set_alpha(alpha);
 			set_albedo(albedo);
 			set_normal(gbuffer_encode_normal(normal));
@@ -285,10 +286,11 @@ local function build_ssdm_fragment_shader(displacement_var)
 			set_transmission_tint_b(transmission_tint.y);
 			set_metallic(metallic);
 			set_roughness(roughness);
-			set_ao(get_ao(displacement.uv));
-			set_specular(gbuffer_encode_specular(get_specular(displacement.uv)));
+			set_ao(mix(get_ao(displacement.uv), 1.0, snow));
+			// ice has an F0 of 0.018
+			set_specular(gbuffer_encode_specular(mix(get_specular(displacement.uv), 0.45, snow)));
 			set_transmission(transmission);
-			set_emissive(get_emissive(displacement.uv));
+			set_emissive(get_emissive(displacement.uv) * (1.0 - snow));
 			// the undisplaced position on both sides. parallax shifts the surface
 			// by the same amount in both frames when the view barely changed, so
 			// including it would mostly add noise to the offset

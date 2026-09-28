@@ -1013,17 +1013,18 @@ function grass.BuildDrawPass(gbuffer_pass)
 					vec3 albedo = in_color * mix(mix(0.75, 1.1, t), 1.0, far);
 					// ggx alpha
 					float roughness = 0.7;
+					float metallic = 0.0;
 					// blades are waxy, water beads on them rather than soaking in
-					apply_surface_weather(albedo, roughness, 0.2, in_position, in_ground_normal);
+					float snow = apply_surface_weather(albedo, roughness, metallic, N, 0.2, in_position, in_ground_normal);
 					set_alpha(1.0);
 					set_albedo(albedo);
 					set_normal(gbuffer_encode_normal(N));
-					set_metallic(0.0);
+					set_metallic(metallic);
 					set_roughness(roughness);
 					set_ao(mix(mix(0.5, 1.0, smoothstep(0.0, 0.7, t)), 0.85, far));
 					// F0 0.02, a bit under the 0.04 default, for the waxy blades
 					set_specular(gbuffer_encode_specular(0.5));
-					set_transmission(0.4);
+					set_transmission(0.4 * (1.0 - snow));
 					set_transmission_scattering(0.5);
 					set_emissive(vec3(0.0));
 					// a yellow green transmission tint with luminance 1

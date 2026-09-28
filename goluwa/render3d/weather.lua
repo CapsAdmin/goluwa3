@@ -9,7 +9,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
-local rain = import("goluwa/render3d/rain.lua")
+local precipitation = import("goluwa/render3d/precipitation.lua")
 local weather = {}
 local SUN_TOA_ILLUMINANCE = 126000
 local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
@@ -21,21 +21,14 @@ local SUN_TINT = Vec3(1.0, 0.98, 0.95)
 local MOON_TINT = SUN_TINT * Vec3(1.0, 0.94, 0.86)
 -- a 2 mm raindrop's terminal velocity (Gunn and Kinzer 1949), the wind slants the rain by it
 local RAIN_FALL_SPEED = 6.5
-local RAIN_OCCLUSION_SIZE = 2048
--- half the width of the ground the rain occlusion map covers around the camera, in meters
-local RAIN_OCCLUSION_HALF_SIZE = 96
-local RAIN_OCCLUSION_DEPTH = 600
+-- a dry snowflake's (Locatelli and Hobbs 1974), wet ones fall about twice as fast
+local SNOW_FALL_SPEED = 1
+local SHELTER_SIZE = 2048
+-- half the width of the ground the shelter map covers around the camera, in meters
+local SHELTER_HALF_SIZE = 96
+local SHELTER_DEPTH = 600
 -- the map follows the camera in steps of this many texels and only renders again when it moves
-local RAIN_OCCLUSION_SNAP_TEXELS = 128
--- mm of water a surface holds before it is soaked, about what pavement and bark hold
-local SURFACE_WATER_CAPACITY = 0.5
--- a rough evaporation rate in mm/h: what a still night dries, and what each W/m² of sunlight and each
--- m/s of wind add. a sunny day dries a soaked surface in under an hour, a still night takes hours
-local EVAPORATION_BASE = 0.04
-local EVAPORATION_PER_WATT = 0.0006
-local EVAPORATION_PER_WIND_SPEED = 0.02
--- lm/W of sunlight
-local SUN_LUMINOUS_EFFICACY = 105
+local SHELTER_SNAP_TEXELS = 128
 weather.latitude = 21.176852
 weather.longitude = 106.068101
 -- 2026-06-21 10:00 local time at the default location
@@ -46,8 +39,8 @@ weather.moon_scale = 1
 weather.sun_rotation_override = nil
 weather.light = nil
 weather.shadow_maps = {}
-weather.rain_occluder = nil
-weather.rain_occlusion_map = nil
+weather.shelter_caster = nil
+weather.shelter_map = nil
 
 local function days_since_j2000(unix_time)
 	return unix_time / 86400 - 10957.5
@@ -210,24 +203,56 @@ function weather.GetWind()
 	return atmosphere.GetWind()
 end
 
--- in mm/h: 1 is light rain, 5 moderate, 25 heavy, 100 a cloudburst. surfaces get wet while it rains
--- and dry after, with the sun and the wind
+-- air temperature near the ground in degrees celsius. snow near and above freezing is wet: it falls in
+-- bigger, faster flakes and lies darker and smoother
+function weather.SetTemperature(celsius)
+	atmosphere.SetTemperature(celsius)
+	atmosphere.SetPrecipitationExtinction(precipitation.GetExtinction())
+end
+
+function weather.GetTemperature()
+	return atmosphere.GetTemperature()
+end
+
+-- the falling rain in mm/h: 1 is light rain, 5 moderate, 25 heavy, 100 a cloudburst. it only falls, what
+-- it leaves on surfaces is SetWetness
 function weather.SetRain(mm_per_hour)
-	rain.SetRate(mm_per_hour)
-	atmosphere.SetRainRate(mm_per_hour)
+	precipitation.SetRain(mm_per_hour)
+	atmosphere.SetPrecipitationExtinction(precipitation.GetExtinction())
 end
 
 function weather.GetRain()
-	return rain.GetRate()
+	return precipitation.GetRain()
 end
 
--- 0 is dry, 1 is soaked. sheltered and downward facing surfaces stay dry, the rain falls along the wind
+-- the falling snow in mm/h of melted water: 0.5 is light snow, 1 moderate, 3 heavy. it only falls, what
+-- lies on the ground is SetSnowDepth
+function weather.SetSnow(mm_per_hour)
+	precipitation.SetSnow(mm_per_hour)
+	atmosphere.SetPrecipitationExtinction(precipitation.GetExtinction())
+end
+
+function weather.GetSnow()
+	return precipitation.GetSnow()
+end
+
+-- 0 is dry, 1 is soaked. sheltered and downward facing surfaces stay dry
 function weather.SetWetness(wetness)
 	surface_weather.wetness = wetness
 end
 
 function weather.GetWetness()
 	return surface_weather.wetness
+end
+
+-- meters of snow on open, flat ground: 0.01 is a dusting that lies in patches, 0.05 and more hides the
+-- ground. it slides off steep slopes and sheltered and downward facing surfaces stay bare
+function weather.SetSnowDepth(meters)
+	surface_weather.snow_depth = meters
+end
+
+function weather.GetSnowDepth()
+	return surface_weather.snow_depth
 end
 
 -- 0 is a clear sky, 1 a full overcast that hides the sun
@@ -370,46 +395,49 @@ function weather.Initialize()
 		}
 	end
 
-	weather.rain_occluder = Entity.New{Name = "rain_occluder", transform = {}}
-	weather.rain_occlusion_map = ShadowMap.New{
+	weather.shelter_caster = Entity.New{Name = "shelter_caster", transform = {}}
+	weather.shelter_map = ShadowMap.New{
 		mode = "directional",
 		directional_projection_mode = "orthographic",
-		light = weather.rain_occluder,
-		size = Vec2() + RAIN_OCCLUSION_SIZE,
+		light = weather.shelter_caster,
+		size = Vec2() + SHELTER_SIZE,
 		format = "d16_unorm",
 		cascade_count = 1,
-		ortho_size = RAIN_OCCLUSION_HALF_SIZE,
-		far_plane = RAIN_OCCLUSION_DEPTH,
-		role = "rain",
+		ortho_size = SHELTER_HALF_SIZE,
+		far_plane = SHELTER_DEPTH,
+		role = "shelter",
 	}
-	weather.rain_occlusion_map:SetUpdatePolicy{shadow_update_mode = "on_move"}
-	surface_weather.rain_occlusion_map = weather.rain_occlusion_map
+	weather.shelter_map:SetUpdatePolicy{shadow_update_mode = "on_move"}
+	surface_weather.shelter_map = weather.shelter_map
 	weather.UpdateSky()
 
-	event.AddListener("Update", "weather_rain", function(dt)
-		local wind = atmosphere.GetWind()
-		local sun_irradiance = weather.light.light_sun:GetLux() * math.max(weather.light.transform:GetRotation():GetBackward().y, 0) / SUN_LUMINOUS_EFFICACY
-		local evaporation = EVAPORATION_BASE + sun_irradiance * EVAPORATION_PER_WATT + wind:GetLength() * EVAPORATION_PER_WIND_SPEED
-		surface_weather.wetness = math.clamp(
-			surface_weather.wetness + (
-					rain.GetRate() - evaporation
-				) / 3600 * dt / SURFACE_WATER_CAPACITY,
-			0,
-			1
+	-- the shelter map follows the camera, looking along the falling rain or snow, whichever is heavier.
+	-- what lies on surfaces is sheltered along the same direction
+	event.AddListener("Update", "weather_shelter", function(dt)
+		weather.shelter_map:SetEnabled(
+			precipitation.IsActive() or
+				surface_weather.wetness > 0 or
+				surface_weather.snow_depth > 0
 		)
-		weather.rain_occlusion_map:SetEnabled(surface_weather.wetness > 0 or rain.GetRate() > 0)
 
-		if not weather.rain_occlusion_map.enabled then return end
+		if not weather.shelter_map.enabled then return end
 
-		local dir = Vec3(-wind.x, RAIN_FALL_SPEED, -wind.z):GetNormalized()
+		local wind = atmosphere.GetWind()
+		local fall_speed = precipitation.GetSnow() > precipitation.GetRain() and
+			SNOW_FALL_SPEED * (
+				1 + surface_weather.GetSnowWetness()
+			)
+			or
+			RAIN_FALL_SPEED
+		local dir = Vec3(-wind.x, fall_speed, -wind.z):GetNormalized()
 		local rotation = Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize()
 		local right = rotation:GetRight()
 		local up = rotation:GetUp()
-		local step = RAIN_OCCLUSION_HALF_SIZE * 2 / RAIN_OCCLUSION_SIZE * RAIN_OCCLUSION_SNAP_TEXELS
+		local step = SHELTER_HALF_SIZE * 2 / SHELTER_SIZE * SHELTER_SNAP_TEXELS
 		local cam = render3d.GetCamera():GetPosition()
-		surface_weather.rain_direction = dir
-		weather.rain_occluder.transform:SetRotation(rotation)
-		weather.rain_occluder.transform:SetPosition(
+		surface_weather.precipitation_direction = dir
+		weather.shelter_caster.transform:SetRotation(rotation)
+		weather.shelter_caster.transform:SetPosition(
 			right * (
 					math.floor(cam:Dot(right) / step + 0.5) * step
 				) + up * (

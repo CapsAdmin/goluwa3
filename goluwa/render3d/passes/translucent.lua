@@ -10,7 +10,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
-local rain = import("goluwa/render3d/rain.lua")
+local precipitation = import("goluwa/render3d/precipitation.lua")
 local Texture = import("goluwa/render/texture.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
@@ -220,13 +220,13 @@ local ADDITIVE = {
 	dst_alpha_blend_factor = "one",
 	alpha_blend_op = "add",
 }
-local rain_block = {
-	name = "rain_data",
+local precipitation_block = {
+	name = "precipitation_data",
 	binding_index = BINDING_CAMERA,
-	block = rain.block,
+	block = precipitation.block,
 	write = function(self, block)
 		local b0, moments = get_moments_textures()
-		return rain.WriteBlock(self, block, b0, moments, write_depth_warp)
+		return precipitation.WriteBlock(self, block, b0, moments, write_depth_warp)
 	end,
 	upload_scope = "frame",
 }
@@ -284,7 +284,9 @@ return {
 			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
 			event.Call("Draw3DTranslucent")
 
-			if rain.IsActive() then rain.Draw(render3d.pipelines.rain_moments, cmd) end
+			if precipitation.IsActive() then
+				precipitation.Draw(render3d.pipelines.precipitation_moments, cmd)
+			end
 		end,
 		fragment = create_depth_copy_fragment("set_b0(0.0); set_moments(vec4(0.0));"),
 		CullMode = "none",
@@ -355,7 +357,9 @@ return {
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
 			event.Call("Draw3DTranslucent")
 
-			if rain.IsActive() then rain.Draw(render3d.pipelines.rain_accumulate, cmd) end
+			if precipitation.IsActive() then
+				precipitation.Draw(render3d.pipelines.precipitation_accumulate, cmd)
+			end
 		end,
 		fragment = create_depth_copy_fragment("set_color(vec4(0.0)); set_motion(vec4(0.0));"),
 		CullMode = "none",
@@ -640,9 +644,9 @@ return {
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
 	},
-	-- the falling rain as translucent streaks, see render3d/rain.lua
+	-- the falling rain and snow, see render3d/precipitation.lua
 	{
-		name = "rain_moments",
+		name = "precipitation_moments",
 		draw_in_prerender = false,
 		dont_create_framebuffers = true,
 		ColorFormat = {
@@ -652,16 +656,16 @@ return {
 		DepthFormat = "d32_sfloat",
 		Topology = "triangle_strip",
 		vertex = {
-			outputs = rain.vertex_outputs,
-			uniform_buffers = {rain_block},
-			shader = rain.GetVertexGLSL("rain_data"),
+			outputs = precipitation.vertex_outputs,
+			uniform_buffers = {precipitation_block},
+			shader = precipitation.GetVertexGLSL("precipitation_data"),
 		},
 		fragment = {
-			uniform_buffers = {rain_block},
-			shader = MOMENTS_GLSL .. rain.GetCoverageGLSL() .. [[
+			uniform_buffers = {precipitation_block},
+			shader = MOMENTS_GLSL .. precipitation.GetCoverageGLSL() .. [[
 				void main() {
-					float absorbance = -log(max(1.0 - get_rain_alpha(), 1e-3));
-					float depth = moments_warp_depth(distance(in_position, rain_data.camera_position), rain_data.depth_warp);
+					float absorbance = -log(max(1.0 - get_precipitation_alpha(), 1e-3));
+					float depth = moments_warp_depth(distance(in_position, precipitation_data.camera_position), precipitation_data.depth_warp);
 					float depth2 = depth * depth;
 					set_b0(absorbance);
 					set_moments(vec4(depth, depth2, depth2 * depth, depth2 * depth2) * absorbance);
@@ -682,7 +686,7 @@ return {
 		DepthCompareOp = "less_or_equal",
 	},
 	{
-		name = "rain_accumulate",
+		name = "precipitation_accumulate",
 		draw_in_prerender = false,
 		dont_create_framebuffers = true,
 		ColorFormat = {
@@ -692,21 +696,21 @@ return {
 		DepthFormat = "d32_sfloat",
 		Topology = "triangle_strip",
 		vertex = {
-			outputs = rain.vertex_outputs,
-			uniform_buffers = {rain_block},
-			shader = rain.GetVertexGLSL("rain_data"),
+			outputs = precipitation.vertex_outputs,
+			uniform_buffers = {precipitation_block},
+			shader = precipitation.GetVertexGLSL("precipitation_data"),
 		},
 		fragment = {
-			uniform_buffers = {rain_block},
-			shader = post_source.GetPreExposureGLSL("rain_data") .. MOMENTS_GLSL .. rain.GetCoverageGLSL() .. [[
+			uniform_buffers = {precipitation_block},
+			shader = post_source.GetPreExposureGLSL("precipitation_data") .. MOMENTS_GLSL .. precipitation.GetCoverageGLSL() .. [[
 				void main() {
 					ivec2 pixel = ivec2(gl_FragCoord.xy);
 					float transmittance = moments_transmittance(
-						texelFetch(TEXTURE(rain_data.b0_tex), pixel, 0).r,
-						texelFetch(TEXTURE(rain_data.moments_tex), pixel, 0),
-						moments_warp_depth(distance(in_position, rain_data.camera_position), rain_data.depth_warp)
+						texelFetch(TEXTURE(precipitation_data.b0_tex), pixel, 0).r,
+						texelFetch(TEXTURE(precipitation_data.moments_tex), pixel, 0),
+						moments_warp_depth(distance(in_position, precipitation_data.camera_position), precipitation_data.depth_warp)
 					);
-					float alpha = get_rain_alpha();
+					float alpha = get_precipitation_alpha();
 					set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
 					// streaks are thin and fast, a pixel with one follows it, or taa would average it away
 					set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
