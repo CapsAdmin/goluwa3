@@ -477,10 +477,20 @@ end
 
 function render3d.UploadGBufferConstants()
 	local material = render3d.GetMaterial()
-	local pipeline = material:HasVertexAnimation() and
-		render3d.pipelines.gbuffer_anim or
-		render3d.pipelines.gbuffer
-	pipeline:UploadConstants()
+	local pipelines = render3d.pipelines
+
+	if material:HasHeightMap() then
+		if material:HasVertexAnimation() then
+			pipelines.gbuffer_anim_height_map:UploadConstants()
+		else
+			pipelines.gbuffer_height_map:UploadConstants()
+		end
+	elseif material:HasVertexAnimation() then
+		pipelines.gbuffer_anim:UploadConstants()
+	else
+		pipelines.gbuffer:UploadConstants()
+	end
+
 	render.GetCommandBuffer():SetCullMode(material:GetCullMode())
 end
 
@@ -508,7 +518,12 @@ function render3d.ExtendTranslucentDepthRange(near, far)
 end
 
 function render3d.UploadInstancedGBufferConstants()
-	render3d.pipelines.gbuffer_instanced:UploadConstants()
+	if render3d.GetMaterial():HasHeightMap() then
+		render3d.pipelines.gbuffer_instanced_height_map:UploadConstants()
+	else
+		render3d.pipelines.gbuffer_instanced:UploadConstants()
+	end
+
 	render.GetCommandBuffer():SetCullMode(render3d.GetMaterial():GetCullMode())
 end
 

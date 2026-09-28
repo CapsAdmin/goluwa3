@@ -85,6 +85,9 @@ local GPUCullInstancedBatchRecord = ffi.typeof([[struct {
 	uint32_t flags;
 }]])
 local BATCH_FLAG_DOUBLE_SIDED = 1
+local BATCH_FLAG_HEIGHT_MAP = 2
+-- the main batch commands have one quarter per combination of the flags above
+gpu_culling.BATCH_COMMAND_GROUP_COUNT = 4
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 -- Async culling needs more slots than the swapchain has frames: at any moment one slot
 -- is being culled into, one is published (its indirect commands are being drawn from),
@@ -440,9 +443,9 @@ function gpu_culling.Initialize()
 				uint firstInstance;
 			};
 
-			// one command per batch in each half: single sided batches draw from
-			// the first, double sided ones from the second, with the other left
-			// at zero instances. the draws pull vertices through the index buffer
+			// one command per batch in each quarter, indexed by the batch's double
+			// sided and height map flags, with the others left at zero instances.
+			// the draws pull vertices through the index buffer
 			layout(std430, set = 0, binding = 13) buffer VisibleBatchIndirectCommandBuffer {
 				DrawIndirectCommand batch_commands[];
 			};
@@ -459,6 +462,8 @@ function gpu_culling.Initialize()
 			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
 			const uint INVALID_INDEX = 0xFFFFFFFFu;
 			const uint BATCH_FLAG_DOUBLE_SIDED = ]] .. BATCH_FLAG_DOUBLE_SIDED .. [[u;
+			const uint BATCH_FLAG_HEIGHT_MAP = ]] .. BATCH_FLAG_HEIGHT_MAP .. [[u;
+			const uint BATCH_COMMAND_GROUP_COUNT = ]] .. gpu_culling.BATCH_COMMAND_GROUP_COUNT .. [[u;
 
 			bool is_within_cull_distance(VisualRecord visual_record) {
 				if (visual_record.cull_distance <= 0.0) return true;
@@ -613,11 +618,7 @@ function gpu_culling.Initialize()
 						InstancedBatchRecord batch_record = instanced_batches[entry_record.instanced_batch_index];
 						uint local_index = atomicAdd(visible_instanced_batch_counts[entry_record.instanced_batch_index], 1u);
 
-						uint command_index = entry_record.instanced_batch_index;
-
-						if ((batch_record.flags & BATCH_FLAG_DOUBLE_SIDED) != 0u) {
-							command_index += uint(batch_commands.length()) / 2u;
-						}
+						uint command_index = entry_record.instanced_batch_index + (batch_record.flags & (BATCH_FLAG_DOUBLE_SIDED | BATCH_FLAG_HEIGHT_MAP)) * (uint(batch_commands.length()) / BATCH_COMMAND_GROUP_COUNT);
 
 						if (local_index == 0u) {
 							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
@@ -1317,10 +1318,6 @@ local function serialize_aabb(aabb)
 	}
 end
 
-local function entry_has_height_displacement(material)
-	return material:GetHeightTexture() ~= nil and material:GetHeightScale() > 0
-end
-
 local function get_gbuffer_batch_mesh_keys(mesh)
 	-- a mesh not uploaded yet (NULL) gets its own bucket
 	if not mesh:IsValid() then return mesh, NO_INDEX_BUFFER_KEY end
@@ -1372,7 +1369,7 @@ local function serialize_render_entry(component, entry, entry_index, dynamic)
 	local material = component:GetResolvedMaterial(entry)
 	local mesh, index_buffer = ensure_entry_index_buffer(entry)
 	local world_matrix = entry.transform:GetWorldMatrix()
-	local has_height_displacement = entry_has_height_displacement(material)
+	local has_height_displacement = material:HasHeightMap()
 	return {
 		component = component,
 		source_entry = entry,
@@ -1866,7 +1863,7 @@ local function build_frame_buffers(dataset, capacity)
 			),
 			visible_batch_indirect_command_buffer = create_buffer(
 				"gpu_culling_visible_batch_indirect_commands_" .. frame_index,
-				instanced_batch_count * 2 * DRAW_INDIRECT_COMMAND_SIZE,
+				instanced_batch_count * gpu_culling.BATCH_COMMAND_GROUP_COUNT * DRAW_INDIRECT_COMMAND_SIZE,
 				{"storage_buffer", "indirect_buffer", "transfer_dst"}
 			),
 			batch_command_capacity = instanced_batch_count,
@@ -2266,8 +2263,18 @@ local function write_batch_record(view, batch)
 	record.index_count = index_buffer and index_buffer:GetIndexCount() or 0
 	-- a freed batch has no material and draws nothing
 	record.flags = batch.material and
-		batch.material:GetDoubleSided() and
-		BATCH_FLAG_DOUBLE_SIDED or
+		(
+			(
+				batch.material:GetDoubleSided() and
+				BATCH_FLAG_DOUBLE_SIDED or
+				0
+			) + (
+				batch.material:HasHeightMap() and
+				BATCH_FLAG_HEIGHT_MAP or
+				0
+			)
+		)
+		or
 		0
 	local dirty = view.dirty_batches
 	dirty[#dirty + 1] = batch.batch_index
@@ -2763,8 +2770,8 @@ local function flush_scene_dataset()
 	prepare_view(main)
 	prepare_view(shadow)
 
-	-- a material that turned double sided moves its batches to the other half
-	-- of the main batch commands
+	-- a material that turned double sided or gained a height map moves its
+	-- batches to another quarter of the main batch commands
 	if main.material_flags_generation ~= Material.flags_generation then
 		main.material_flags_generation = Material.flags_generation
 

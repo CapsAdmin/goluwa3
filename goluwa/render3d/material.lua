@@ -12,7 +12,7 @@ local Material = objects.CreateTemplate("render3d_material")
 Material:StartStorable()
 Material:GetSet("AlbedoTexture", nil, {type = "render_texture"})
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
-Material:GetSet("HeightTexture", nil, {type = "render_texture", callback = "InvalidateSceneKey"})
+Material:GetSet("HeightTexture", nil, {type = "render_texture", callback = "InvalidateHeightMap"})
 Material:GetSet("MetallicRoughnessTexture", nil, {type = "render_texture"})
 Material:GetSet("AmbientOcclusionTexture", nil, {type = "render_texture"})
 Material:GetSet(
@@ -66,7 +66,7 @@ Material:GetSet("RoughnessMultiplier", 1.0)
 Material:GetSet("SpecularMultiplier", 1.0)
 Material:GetSet("NormalMapMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
-Material:GetSet("HeightScale", 0.0, {callback = "InvalidateSceneKey"})
+Material:GetSet("HeightScale", 0.0, {callback = "InvalidateHeightMap"})
 Material:GetSet("HeightCenter", 0.0)
 Material:GetSet("HeightLayers", 24)
 -- crysis style detail map: rg offsets the normal, alpha multiplies albedo
@@ -195,6 +195,12 @@ function Material:HasExplicitRoughnessTexture()
 end
 
 -- drawn forward, over the lit opaque scene, instead of into the gbuffer
+-- a height mapped surface writes its own depth, which costs it early depth
+-- testing, so it draws with its own gbuffer pipelines
+function Material:HasHeightMap()
+	return self.HeightTexture ~= nil and self.HeightScale > 0
+end
+
 function Material:HasVertexAnimation()
 	return self.Bending > 0 or self.DetailBending ~= "none"
 end
@@ -244,7 +250,7 @@ for i, flag_name in ipairs(FLAGS) do
 	end
 end
 
--- bumped whenever any material's flags change
+-- bumped whenever any material's flags or HasHeightMap change
 Material.flags_generation = 0
 -- materials whose transparency, depth test or displacement changed, which
 -- moves the visuals drawing with them between passes
@@ -260,6 +266,11 @@ Material.emission_dirty_materials = Material.emission_dirty_materials or {}
 
 function Material:InvalidateEmission()
 	Material.emission_dirty_materials[self] = true
+end
+
+function Material:InvalidateHeightMap()
+	Material.flags_generation = Material.flags_generation + 1
+	self:InvalidateSceneKey()
 end
 
 function Material:InvalidateFlags()
@@ -1622,7 +1633,7 @@ do
 				counts.emissive_enabled = counts.emissive_enabled + 1
 			end
 
-			if material:GetHeightTexture() ~= nil and material:GetHeightScale() > 0 then
+			if material:HasHeightMap() then
 				counts.displacement = counts.displacement + 1
 			end
 

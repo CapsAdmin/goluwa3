@@ -669,9 +669,7 @@ local function can_use_shadow_aabb_cull(component, render_entries)
 	for _, entry in ipairs(render_entries) do
 		local material = component:GetResolvedMaterial(entry)
 
-		if material and material:GetHeightTexture() and material:GetHeightScale() > 0 then
-			return false
-		end
+		if material and material:HasHeightMap() then return false end
 	end
 
 	return true

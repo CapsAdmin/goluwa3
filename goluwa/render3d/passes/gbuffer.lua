@@ -191,8 +191,9 @@ local function build_multi_draw_pass(fragment_shader)
 	return pass
 end
 
-local function build_ssdm_fragment_shader(displacement_var)
-	displacement_var = displacement_var or "model"
+-- writing gl_FragDepth turns off early depth testing, so only the pipelines
+-- for height mapped materials (Material:HasHeightMap) write it
+local function build_ssdm_fragment_shader(write_depth)
 	return [[
 		struct SSDMData {
 			vec2 uv;
@@ -295,16 +296,41 @@ local function build_ssdm_fragment_shader(displacement_var)
 			// by the same amount in both frames when the view barely changed, so
 			// including it would mostly add noise to the offset
 			write_velocity(in_position, in_prev_position);
-			gl_FragDepth = has_heightmap() ? get_projected_depth(displacement.world_pos) : gl_FragCoord.z;
+			]] .. (
+			write_depth and
+			"gl_FragDepth = get_projected_depth(displacement.world_pos);" or
+			""
+		) .. [[
 		}
 	]]
 end
 
-local fallback = build_base_pass(build_ssdm_fragment_shader("displacement_model"), false)
-local fallback_anim = build_base_pass(build_ssdm_fragment_shader("displacement_model"), true)
-fallback_anim.name = "gbuffer_anim"
-fallback_anim.draw_in_prerender = false
-fallback_anim.dont_create_framebuffers = true
-local instanced = build_instanced_pass(build_ssdm_fragment_shader("displacement_model"))
-local multi_draw = build_multi_draw_pass(build_ssdm_fragment_shader("displacement_model"))
-return {fallback, fallback_anim, instanced, multi_draw, grass.BuildDrawPass(fallback)}
+local passes = {}
+
+for _, write_depth in ipairs({false, true}) do
+	local suffix = write_depth and "_height_map" or ""
+	local fragment_shader = build_ssdm_fragment_shader(write_depth)
+	local fallback = build_base_pass(fragment_shader, false)
+	fallback.name = "gbuffer" .. suffix
+
+	if write_depth then
+		fallback.draw_in_prerender = false
+		fallback.dont_create_framebuffers = true
+	end
+
+	local fallback_anim = build_base_pass(fragment_shader, true)
+	fallback_anim.name = "gbuffer_anim" .. suffix
+	fallback_anim.draw_in_prerender = false
+	fallback_anim.dont_create_framebuffers = true
+	local instanced = build_instanced_pass(fragment_shader)
+	instanced.name = "gbuffer_instanced" .. suffix
+	local multi_draw = build_multi_draw_pass(fragment_shader)
+	multi_draw.name = "gbuffer_multi_draw" .. suffix
+	list.insert(passes, fallback)
+	list.insert(passes, fallback_anim)
+	list.insert(passes, instanced)
+	list.insert(passes, multi_draw)
+end
+
+list.insert(passes, grass.BuildDrawPass(passes[1]))
+return passes

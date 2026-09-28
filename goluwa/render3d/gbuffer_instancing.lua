@@ -80,11 +80,14 @@ do
 	end
 
 	local result = {}
+	local pipelines = {}
 
-	-- Draws every gpu culled static batch with two indirect multi-draws, one per
-	-- cull mode: the cull wrote each batch's command into the half for its
-	-- material's sidedness with its visible instance count, leaving the other at
-	-- zero instances.
+	-- Draws every gpu culled static batch with four indirect multi-draws, one
+	-- per cull mode and height map: the cull wrote each batch's command into the
+	-- quarter for its material's sidedness and height map with its visible
+	-- instance count, leaving the others at zero instances. Height mapped
+	-- batches have their own pipeline since writing depth costs early depth
+	-- testing.
 	function gbuffer_instancing.DrawGPUCulled(cull_result)
 		result.drew_any = false
 		result.submitted_entry_count = 0
@@ -107,28 +110,36 @@ do
 		local cmd = render.GetCommandBuffer()
 		local stride = gpu_culling.BATCH_DRAW_COMMAND_SIZE
 		local commands = output.visible_batch_indirect_command_buffer
-		local batch_table = batch_tables[pipeline]
+		local group_size = output.batch_command_capacity * stride
+		local instances_address = output.visible_instance_vertex_buffer.buffer:GetDeviceAddress()
+		pipelines[1] = pipeline
+		pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
 
-		if not batch_table then
-			batch_table = BatchTable.New{
-				label = "render3d_gbuffer_batches",
-				record_type = model_pipeline.GetPBRBatchRecordType(),
-				write_record = write_record,
-				per_frame = true,
-			}
-			batch_tables[pipeline] = batch_table
+		for i, pipeline in ipairs(pipelines) do
+			local batch_table = batch_tables[pipeline]
+
+			if not batch_table then
+				batch_table = BatchTable.New{
+					label = pipeline.name .. "_batches",
+					record_type = model_pipeline.GetPBRBatchRecordType(),
+					write_record = write_record,
+					per_frame = true,
+				}
+				batch_tables[pipeline] = batch_table
+			end
+
+			pipeline.draw_batches_address = batch_table:Update(pipeline, batches, dataset.main.batch_serial, system.GetFrameNumber())
+			pipeline.draw_instances_address = instances_address
+			pipeline:UploadConstants()
+			cmd:SetCullMode(orientation.CULL_MODE)
+			cmd:DrawIndirect(commands, (i - 1) * 2 * group_size, #batches, stride)
+			cmd:SetCullMode("none")
+			cmd:DrawIndirect(commands, ((i - 1) * 2 + 1) * group_size, #batches, stride)
 		end
 
-		pipeline.draw_batches_address = batch_table:Update(pipeline, batches, dataset.main.batch_serial, system.GetFrameNumber())
-		pipeline.draw_instances_address = output.visible_instance_vertex_buffer.buffer:GetDeviceAddress()
-		pipeline:UploadConstants()
-		cmd:SetCullMode(orientation.CULL_MODE)
-		cmd:DrawIndirect(commands, 0, #batches, stride)
-		cmd:SetCullMode("none")
-		cmd:DrawIndirect(commands, output.batch_command_capacity * stride, #batches, stride)
 		result.drew_any = true
 		result.submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0)
-		result.draw_call_count = 2
+		result.draw_call_count = 4
 		result.active_batch_count = ffi.cast(UInt32Ptr, output.active_batch_count_buffer:Map())[0]
 		result.total_batch_count = #batches
 		return result

@@ -736,20 +736,31 @@ T.Test3D("Graphics render3d gpu culling visible render entries expand GPU-visibl
 	Visual.Library.InvalidateSceneAcceleration()
 end)
 
-T.Test3D("Graphics render3d gpu culling splits batch commands by cull mode", function()
+T.Test3D("Graphics render3d gpu culling splits batch commands by cull mode and height map", function()
 	local camera = configure_camera()
 	local polygon3d = build_cube_polygon()
-	local single = Material.New()
-	local double = Material.New()
-	double:SetDoubleSided(true)
+	local materials = {}
+
+	for group = 0, 3 do
+		local material = Material.New()
+		material:SetDoubleSided(group % 2 == 1)
+
+		if group >= 2 then
+			material:SetHeightTexture(Texture.GetFallback())
+			material:SetHeightScale(1)
+		end
+
+		materials[material] = group
+	end
+
 	local created = {}
 
-	for i, material in ipairs{single, double} do
-		local ent = Entity.New({Name = "gpu_culling_cull_mode_" .. i})
+	for material, group in pairs(materials) do
+		local ent = Entity.New({Name = "gpu_culling_command_group_" .. group})
 		ent:AddComponent("transform")
-		ent.transform:SetPosition(Vec3(i * 2 - 3, 0, -6))
+		ent.transform:SetPosition(Vec3(group * 2 - 3, 0, -6))
 		attach_visual(ent, polygon3d, material)
-		created[i] = ent
+		created[#created + 1] = ent
 	end
 
 	Visual.Library.InvalidateSceneAcceleration()
@@ -761,26 +772,23 @@ T.Test3D("Graphics render3d gpu culling splits batch commands by cull mode", fun
 		ffi.typeof("$*", vk.VkDrawIndirectCommand),
 		output.visible_batch_indirect_command_buffer:Map()
 	)
-	local half = output.batch_command_capacity
+	local group_size = output.batch_command_capacity
 	local checked = 0
 
 	for _, batch in ipairs(gpu_culling.GetSceneDataset().main_instanced_batches) do
-		local first = commands[batch.batch_index].instanceCount
-		local second = commands[half + batch.batch_index].instanceCount
+		local expected_group = materials[batch.material]
 
-		if batch.material == single then
-			T(first)["=="](1)
-			T(second)["=="](0)
-			T(commands[batch.batch_index].vertexCount)["=="](polygon3d:GetMesh().index_buffer:GetIndexCount())
-			checked = checked + 1
-		elseif batch.material == double then
-			T(first)["=="](0)
-			T(second)["=="](1)
+		if expected_group then
+			for group = 0, gpu_culling.BATCH_COMMAND_GROUP_COUNT - 1 do
+				T(commands[group * group_size + batch.batch_index].instanceCount)["=="](group == expected_group and 1 or 0)
+			end
+
+			T(commands[expected_group * group_size + batch.batch_index].vertexCount)["=="](polygon3d:GetMesh().index_buffer:GetIndexCount())
 			checked = checked + 1
 		end
 	end
 
-	T(checked)["=="](2)
+	T(checked)["=="](4)
 
 	for _, ent in ipairs(created) do
 		ent:Remove()
