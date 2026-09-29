@@ -504,7 +504,7 @@ return {
 					vec3 N = bend_normal_to_view(get_normal(in_uv, tbn), V);
 					vec3 albedo = get_albedo();
 					float metallic = get_metallic(in_uv);
-					float roughness = get_roughness(in_uv);
+					float roughness = get_antialiased_roughness(N, get_roughness(in_uv));
 					float perceptual_roughness = sqrt(roughness);
 					float diffuse_transmission = get_transmission(in_uv);
 					bool refractive = refraction.amount > 0.0;

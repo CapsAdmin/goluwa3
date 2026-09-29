@@ -1799,6 +1799,22 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return val;
 			}
 
+			// specular antialiasing (Tokuyoshi & Kaplanyan 2019, "Improved
+			// Geometric Specular Antialiasing"). a normal that turns across the
+			// pixel, on a small sphere, a thin pipe or a fine normal map, spreads
+			// the pixel's reflection like roughness does. sampling one normal per
+			// pixel instead catches or misses the highlight, which flickers as
+			// things move. the turn is taken as a gaussian over the pixel filter
+			// and its variance added to the ggx alpha squared, capped so a crease
+			// or a tight curve doesn't go fully rough. ggx alpha in and out
+			float get_antialiased_roughness(vec3 N, float alpha) {
+				vec3 dx = dFdx(N);
+				vec3 dy = dFdy(N);
+				// the pixel filter's variance, 1 / (2 pi)
+				float kernel = 2.0 * 0.15915494 * (dot(dx, dx) + dot(dy, dy));
+				return sqrt(clamp(alpha * alpha + min(kernel, 0.18), 0.0, 1.0));
+			}
+
 			float get_transmission(vec2 uv) {
 				if (!Transmissive) return 0.0;
 

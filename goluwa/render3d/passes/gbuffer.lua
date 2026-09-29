@@ -279,6 +279,7 @@ local function build_ssdm_fragment_shader(write_depth)
 			// thin translucent leaves are waxy rather than porous
 			float snow = apply_surface_weather(albedo, roughness, metallic, normal, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, tbn[2]);
 			transmission *= 1.0 - snow;
+			roughness = get_antialiased_roughness(normal, roughness);
 			set_alpha(alpha);
 			set_albedo(albedo);
 			set_normal(gbuffer_encode_normal(normal));
