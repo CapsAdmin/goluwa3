@@ -503,6 +503,13 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			vec3 albedo;
 			int albedo_tex;
 			int double_sided;
+			// terrain: the layer weights texture, -1 for other materials
+			int terrain_tex;
+			ivec4 terrain_layer_tex;
+			// min x, min z, 1 / size of the square terrain_tex covers
+			vec3 terrain_bounds;
+			vec4 terrain_detail;
+			vec4 terrain_additive_detail;
 		};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -514,8 +521,41 @@ end
 function ddgi.GetMaterialGLSL()
 	return [[
 		// no uvs at a hit, so textured surfaces use the texture's average
-		// colour from its smallest mip
-		vec3 ddgi_albedo(ddgi_material material) {
+		// colour from its smallest mip. terrain finds its uv from where it was
+		// hit and blends its layers' averages like the gbuffer blends the layers
+		vec3 ddgi_albedo(ddgi_material material, vec3 P) {
+			if (material.terrain_tex >= 0) {
+				vec2 uv = (P.xz - material.terrain_bounds.xy) * material.terrain_bounds.z;
+				vec4 weights = max(textureLod(TEXTURE(material.terrain_tex), uv, 0.0), vec4(0.0));
+				float weight_sum = dot(weights, vec4(1.0));
+
+				if (weight_sum <= 0.0001) return material.albedo;
+
+				weights /= weight_sum;
+				vec3 base = material.albedo_tex >= 0 ? textureLod(TEXTURE(material.albedo_tex), uv, 0.0).rgb : vec3(1.0);
+				vec3 albedo = vec3(0.0);
+
+				for (int i = 0; i < 4; i++) {
+					vec3 layer = base;
+
+					if (material.terrain_layer_tex[i] >= 0) {
+						vec3 average = textureLod(TEXTURE(material.terrain_layer_tex[i]), vec2(0.5), 16.0).rgb;
+						float detail = material.terrain_detail[i];
+
+						if (detail <= 0.0) {
+							layer = average * base;
+						} else if (material.terrain_additive_detail[i] > 0.0) {
+							layer = pow(max(pow(base, vec3(1.0 / 2.2)) + (average - 0.5) * detail, vec3(0.0)), vec3(2.2)) * material.terrain_additive_detail[i];
+						}
+						// a non additive detail layer only varies around base
+					}
+
+					albedo += layer * weights[i];
+				}
+
+				return albedo * material.albedo;
+			}
+
 			vec3 albedo = material.albedo;
 
 			if (material.albedo_tex >= 0) {
@@ -1168,10 +1208,15 @@ local Material = ffi.typeof([[struct {
 	float albedo[3];
 	int32_t albedo_tex;
 	int32_t double_sided;
+	int32_t terrain_tex;
+	int32_t terrain_layer_tex[4];
+	float terrain_bounds[3];
+	float terrain_detail[4];
+	float terrain_additive_detail[4];
 }]])
 local MaterialArray = ffi.typeof("$[?]", Material)
 local MaterialPointer = ffi.typeof("$*", Material)
-local MATERIAL_SIZE = 20
+local MATERIAL_SIZE = ffi.sizeof(Material)
 local material_buffers = setmetatable({}, {__mode = "k"})
 
 function ddgi.WriteMaterialBuffer(self)
@@ -1205,6 +1250,33 @@ function ddgi.WriteMaterialBuffer(self)
 		local albedo = material:GetAlbedoTexture() or NULL
 		entry.albedo_tex = albedo:IsValid() and self:GetTextureIndex(albedo) or -1
 		entry.double_sided = material:GetDoubleSided() and 1 or 0
+		local terrain = material:GetTerrainMaterialTexture()
+
+		if terrain and terrain:IsValid() then
+			entry.terrain_tex = self:GetTextureIndex(terrain)
+
+			for layer = 1, 4 do
+				local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
+				entry.terrain_layer_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
+			end
+
+			local bounds = material:GetTerrainBounds()
+			entry.terrain_bounds[0] = bounds.x
+			entry.terrain_bounds[1] = bounds.y
+			entry.terrain_bounds[2] = 1 / bounds.z
+			local detail = material:GetTerrainLayerDetailStrength()
+			local additive = material:GetTerrainLayerAdditiveDetail()
+			entry.terrain_detail[0] = detail.r
+			entry.terrain_detail[1] = detail.g
+			entry.terrain_detail[2] = detail.b
+			entry.terrain_detail[3] = detail.a
+			entry.terrain_additive_detail[0] = additive.r
+			entry.terrain_additive_detail[1] = additive.g
+			entry.terrain_additive_detail[2] = additive.b
+			entry.terrain_additive_detail[3] = additive.a
+		else
+			entry.terrain_tex = -1
+		end
 	end
 
 	return buffer

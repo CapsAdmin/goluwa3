@@ -1790,7 +1790,8 @@ local RIVER_PIECE_LENGTH = 16
 
 local function get_water_medium(water, fog_color, fog_color_multiplier, fog_density)
 	if not fog_color or not fog_density then
-		return water.presets.lake.Absorption:Copy(), water.presets.lake.Scattering:Copy()
+		return water.presets.lake.Absorption:Copy(),
+		water.presets.lake.ParticleScattering:Copy()
 	end
 
 	return water.MediumFromFog(
@@ -1895,7 +1896,7 @@ function crylevel.BuildWaterVolumes(object, water)
 			config = {
 				Size = Vec3(length, object.depth, width),
 				Absorption = absorption:Copy(),
-				Scattering = scattering:Copy(),
+				ParticleScattering = scattering:Copy(),
 				Flow = Vec2(axis.x, axis.z) * flow_speed,
 				WaveHeight = flow_speed ~= 0 and 0.05 or 0.03,
 				WaveLength = 1.2,
@@ -2163,7 +2164,7 @@ function crylevel.Apply(steam)
 				SwellHeight = ocean.waves_size * 0.5,
 				SwellDirection = math.deg(math.atan2(wind.z, wind.x)) + 20,
 				Absorption = absorption,
-				Scattering = scattering,
+				ParticleScattering = scattering,
 			}
 		end
 

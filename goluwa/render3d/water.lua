@@ -13,8 +13,9 @@
 	water whose top face is the surface: lakes, ponds, pools, rivers.
 
 	Both are shaded as a participating medium with an absorption and a
-	scattering coefficient per meter for red, green and blue. See
-	water.presets for measured-ish values.
+	particle scattering coefficient per meter for red, green and blue, on top
+	of pure water's own molecular scattering. See water.presets for
+	measured-ish values.
 ]]
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -27,55 +28,78 @@ water.DETAIL_OCTAVES = 4
 water.MAX_VOLUMES = 64
 -- waves shorter than this many texels of a wave texture are left out of it
 water.WAVE_TEXELS_PER_WAVELENGTH = 3
--- per meter, red green blue
+-- Pure seawater's molecular scattering per meter, red green blue: Morel
+-- 1974's 0.00288 at 500 nm falling with wavelength^-4.32, taken at 620, 550
+-- and 450 nm. It scatters about as much back as forward. Every water has it,
+-- the presets' ParticleScattering is what's suspended in it.
+water.MOLECULAR_SCATTERING = Vec3(0.00114, 0.00191, 0.00454)
+-- Particles scatter mostly forward: a Henyey-Greenstein asymmetry of 0.92
+-- sends 1.8% of it back, Petzold's measured ratio for ocean water.
+water.PARTICLE_PHASE_G = 0.92
+-- Absorption and ParticleScattering per meter, red green blue. Where it says
+-- chlorophyll, the particles are 0.3 * chl^0.62 at 550 nm going with 1 /
+-- wavelength (Gordon and Morel 1983), the absorption pure water plus
+-- phytoplankton (Bricaud 1995) and dissolved organic matter.
 water.presets = {
-	-- open ocean: nearly pure water, blue scattering from tiny particles
+	-- the clearest open ocean, like the Sargasso Sea: 0.03 mg/m3 chlorophyll, violet blue
 	ocean = {
 		Absorption = Vec3(0.45, 0.065, 0.021),
-		Scattering = Vec3(0.0018, 0.0032, 0.0055),
+		ParticleScattering = Vec3(0.030, 0.034, 0.042),
 	},
-	-- shallow tropical sea over sand, turquoise from the absorption alone
+	-- typical open ocean, 0.3 mg/m3 chlorophyll: blue with some green in it
+	open_ocean = {
+		Absorption = Vec3(0.46, 0.072, 0.051),
+		ParticleScattering = Vec3(0.126, 0.142, 0.174),
+	},
+	-- a productive shelf sea like the North Sea, 1.5 mg/m3 chlorophyll and river
+	-- runoff: green grey
+	temperate_sea = {
+		Absorption = Vec3(0.47, 0.089, 0.137),
+		ParticleScattering = Vec3(0.342, 0.386, 0.472),
+	},
+	-- shallow tropical sea over sand, 0.1 mg/m3 chlorophyll, turquoise from the
+	-- absorption and the sand
 	tropical = {
 		Absorption = Vec3(0.42, 0.058, 0.024),
-		Scattering = Vec3(0.006, 0.01, 0.014),
+		ParticleScattering = Vec3(0.064, 0.072, 0.088),
 	},
 	-- plankton and sediment: greener and more turbid
 	coastal = {
 		Absorption = Vec3(0.5, 0.1, 0.13),
-		Scattering = Vec3(0.09, 0.13, 0.11),
+		ParticleScattering = Vec3(0.09, 0.13, 0.11),
 	},
 	-- a clear mountain lake, slightly green from dissolved organic matter
 	lake = {
 		Absorption = Vec3(0.5, 0.11, 0.19),
-		Scattering = Vec3(0.025, 0.035, 0.03),
+		ParticleScattering = Vec3(0.025, 0.035, 0.03),
 	},
 	-- algae and silt, you can see a meter or two into it
 	pond = {
 		Absorption = Vec3(0.95, 0.42, 0.85),
-		Scattering = Vec3(0.3, 0.42, 0.24),
+		ParticleScattering = Vec3(0.3, 0.42, 0.24),
 	},
 	-- tannins make bog water tea coloured
 	swamp = {
 		Absorption = Vec3(0.9, 1.4, 2.6),
-		Scattering = Vec3(0.32, 0.22, 0.08),
+		ParticleScattering = Vec3(0.32, 0.22, 0.08),
 	},
 	-- rock flour from a glacier scatters and makes it milky turquoise
 	glacial = {
 		Absorption = Vec3(0.48, 0.075, 0.07),
-		Scattering = Vec3(0.55, 0.7, 0.78),
+		ParticleScattering = Vec3(0.55, 0.7, 0.78),
 	},
-	-- filtered and chlorinated, the tiles do the rest
+	-- filtered and chlorinated, hardly any particles, the tiles do the rest
 	pool = {
 		Absorption = Vec3(0.34, 0.052, 0.016),
-		Scattering = Vec3(0.0008, 0.0014, 0.0022),
+		ParticleScattering = Vec3(0.003, 0.003, 0.003),
 	},
 }
 
 -- The medium of a game's water fog. Games fog water towards a colour with a
 -- density, which is roughly the extinction per meter. Channels that are dark in
 -- the fog colour are absorbed faster, which tints what's seen through the water,
--- and the colour times albedo_scale is the scattering albedo, which is what deep
--- water ends up looking like. color is linear.
+-- and the colour times albedo_scale is the particles' scattering albedo. color
+-- is linear.
 function water.MediumFromFog(color, extinction, albedo_scale)
 	local brightest = math.max(color.x, color.y, color.z, 1e-4)
 	local absorption = Vec3()
@@ -103,7 +127,7 @@ water.ocean = {
 	SwellWavelength = 140,
 	SwellDirection = 50,
 	Absorption = water.presets.ocean.Absorption:Copy(),
-	Scattering = water.presets.ocean.Scattering:Copy(),
+	ParticleScattering = water.presets.ocean.ParticleScattering:Copy(),
 	IOR = 1.333,
 	Foam = 1,
 	Caustics = 1,

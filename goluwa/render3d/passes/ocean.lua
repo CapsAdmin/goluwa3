@@ -147,7 +147,7 @@ do
 			local i = count
 			local size = volume:GetSize()
 			local absorption = volume:GetAbsorption()
-			local scattering = volume:GetScattering()
+			local scattering = volume:GetParticleScattering()
 			local flow = volume:GetFlow()
 			transform:GetWorldMatrixInverse():CopyToFloatPointer(block.volume_to_local[i])
 			block.volume_shape[i][0] = size.x / 2
@@ -186,9 +186,9 @@ local function write_ocean(self, block)
 	block.ocean_absorption[1] = params.Absorption.y
 	block.ocean_absorption[2] = params.Absorption.z
 	block.ocean_absorption[3] = params.IOR
-	block.ocean_scattering[0] = params.Scattering.x
-	block.ocean_scattering[1] = params.Scattering.y
-	block.ocean_scattering[2] = params.Scattering.z
+	block.ocean_scattering[0] = params.ParticleScattering.x
+	block.ocean_scattering[1] = params.ParticleScattering.y
+	block.ocean_scattering[2] = params.ParticleScattering.z
 	block.ocean_scattering[3] = params.Foam
 	-- about the highest crest of the sea state, 3.5 standard deviations of height
 	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05
@@ -323,6 +323,21 @@ list.insert(
 			}
 
 			const float WATER_PI = 3.14159265359;
+			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. water.MOLECULAR_SCATTERING.x .. ", " .. water.MOLECULAR_SCATTERING.y .. ", " .. water.MOLECULAR_SCATTERING.z .. [[);
+			const float WATER_PARTICLE_G = ]] .. water.PARTICLE_PHASE_G .. [[;
+			// the share of what the particles scatter that goes back
+			const float WATER_PARTICLE_BACKSCATTER = ]] .. string.format(
+					"%.5f",
+					(
+							1 - water.PARTICLE_PHASE_G
+						) / (
+							2 * water.PARTICLE_PHASE_G
+						) * (
+							(
+								1 + water.PARTICLE_PHASE_G
+							) / math.sqrt(1 + water.PARTICLE_PHASE_G ^ 2) - 1
+						)
+				) .. [[;
 			const float WATER_GRAVITY = ]] .. water.GRAVITY .. [[;
 			const int WAVE_CASCADES = ]] .. #WAVE_CASCADES .. [[;
 			const int RIPPLE_OCTAVES = ]] .. water.DETAIL_OCTAVES .. [[;
@@ -355,6 +370,13 @@ list.insert(
 				ivec2 size = textureSize(TEXTURE(ocean_data.blue_noise_tex), 0);
 				float n = texelFetch(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy) % size, 0).r;
 				return fract(n + float(ocean_data.frame) * 0.61803398875);
+			}
+
+			vec2 get_blue_noise2() {
+				if (ocean_data.blue_noise_tex == -1) return vec2(0.5);
+				ivec2 size = textureSize(TEXTURE(ocean_data.blue_noise_tex), 0);
+				vec2 n = texelFetch(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy) % size, 0).rg;
+				return fract(n + float(ocean_data.frame) * vec2(0.7548776662, 0.5698402910));
 			}
 
 			float water_hash(vec2 p) {
@@ -413,11 +435,11 @@ list.insert(
 				return (1.0 - gg) / (4.0 * WATER_PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
 			}
 
-			// clear water scatters a lot sideways and back off the water
-			// molecules, particles scatter mostly forward
-			float water_phase(float mu) {
-				return mix(1.0 / (4.0 * WATER_PI), henyey_greenstein(mu, 0.85), 0.55);
+			// the water molecules' phase function, Rayleigh's with water's depolarization (Morel 1974)
+			float water_molecular_phase(float mu) {
+				return (1.0 + 0.835 * mu * mu) / (4.0 * WATER_PI * (1.0 + 0.835 / 3.0));
 			}
+
 
 			// ---------------------------------------------------------------
 			// ocean waves
@@ -678,7 +700,8 @@ list.insert(
 				// -1 for the ocean, else the volume index
 				int volume;
 				vec3 absorption;
-				vec3 scattering;
+				// what's suspended in it, the water's own scattering is WATER_MOLECULAR_SCATTERING
+				vec3 particles;
 				float ior;
 				float surface_y;
 				float foam;
@@ -690,7 +713,7 @@ list.insert(
 				Water w;
 				w.volume = -1;
 				w.absorption = ocean_data.ocean_absorption.rgb;
-				w.scattering = ocean_data.ocean_scattering.rgb;
+				w.particles = ocean_data.ocean_scattering.rgb;
 				w.ior = ocean_data.ocean_absorption.w;
 				w.surface_y = ocean_data.ocean_level;
 				w.foam = ocean_data.ocean_scattering.w;
@@ -703,7 +726,7 @@ list.insert(
 				Water w;
 				w.volume = i;
 				w.absorption = ocean_data.volume_absorption[i].rgb;
-				w.scattering = ocean_data.volume_scattering[i].rgb;
+				w.particles = ocean_data.volume_scattering[i].rgb;
 				w.ior = ocean_data.volume_absorption[i].w;
 				w.surface_y = ocean_data.volume_shape[i].w;
 				w.foam = ocean_data.volume_waves[i].w;
@@ -713,7 +736,13 @@ list.insert(
 			}
 
 			vec3 get_extinction(Water w) {
-				return w.absorption + w.scattering;
+				return w.absorption + WATER_MOLECULAR_SCATTERING + w.particles;
+			}
+
+			// per meter and steradian, what the water scatters by the cosine mu between where the light
+			// went and where it goes
+			vec3 water_scatter(Water w, float mu) {
+				return WATER_MOLECULAR_SCATTERING * water_molecular_phase(mu) + w.particles * henyey_greenstein(mu, WATER_PARTICLE_G);
 			}
 
 			vec3 get_sun_illuminance() {
@@ -781,10 +810,14 @@ list.insert(
 				}
 
 				// the light that reaches the viewer leaves along -dir
-				vec3 sun_scatter = sun_light * visibility * water_phase(dot(-dir, sun_dir)) * integrate_attenuated(sigma, depth_start, rate, len, sun_mu);
-				// sky light comes down from all over the window above, as if at 40 degrees
-				vec3 sky_scatter = get_sky_irradiance() * WATER_PI * (1.0 / (4.0 * WATER_PI)) * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
-				return w.scattering * (sun_scatter + sky_scatter);
+				vec3 sun_scatter = sun_light * visibility * water_scatter(w, dot(-dir, sun_dir)) * integrate_attenuated(sigma, depth_start, rate, len, sun_mu);
+				// sky light comes down from all over the window above, as if at 40 degrees. the particles
+				// send their backscattered share of it up to a viewer looking down, the rest on down to one
+				// looking up; the molecules half each way
+				float particle_share = mix(WATER_PARTICLE_BACKSCATTER, 1.0 - WATER_PARTICLE_BACKSCATTER, 0.5 + 0.5 * dir.y) / (2.0 * WATER_PI);
+				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * WATER_PI) + w.particles * particle_share;
+				vec3 sky_scatter = get_sky_irradiance() * WATER_PI * sky_phase * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
+				return sun_scatter + sky_scatter;
 			}
 
 			// the lit scene under the surface was lit as if the water weren't
@@ -906,27 +939,42 @@ list.insert(
 				return false;
 			}
 
-			vec3 get_reflection(vec3 surface_pos, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
+			// where a traced reflection may reach, far enough for a coast across the water
+			const float WATER_REFLECTION_TRACE_DISTANCE = 20000.0;
+
+			vec3 get_reflection(vec3 surface_pos, vec3 view_dir, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
 				float perceptual = sqrt(alpha);
 				vec3 reflected = sample_environment_specular(ocean_data.env_tex, reflection_dir, normal, perceptual);
-				float ssr_fade = 1.0 - smoothstep(0.1, 0.35, perceptual);
-
-				if (ssr_fade <= 0.0 || reflection_dir.y <= -0.2) return reflected;
-
+				float ssr_fade = reflection_dir.y > -0.2 ? 1.0 - smoothstep(0.1, 0.35, perceptual) : 0.0;
 				vec3 origin = surface_pos + normal * 0.02;
-				vec3 ssr_color;
-				float ssr_weight;
-				if (!trace_water_reflection(origin, reflection_dir, jitter, ssr_color, ssr_weight)) ssr_weight = 0.0;
+				vec3 ssr_color = vec3(0.0);
+				float ssr_weight = 0.0;
+
+				if (ssr_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, ssr_color, ssr_weight)) ssr_weight *= ssr_fade;
 
 				#ifdef SCENE_REFLECTION
-				// what the screen doesn't hold is traced; faded screen hits blend into it
+				// what the screen doesn't hold is traced, at any roughness: a ray per pixel through the
+				// waves' unresolved slopes, which ocean_resolve averages into the blurred reflection
 				if (ssr_weight < 0.999 && scene_reflection_ready()) {
-					vec3 traced = trace_scene_reflection(origin, reflection_dir, normal, perceptual);
-					return mix(reflected, mix(traced, ssr_color, ssr_weight), ssr_fade);
+					vec3 dir = reflection_dir;
+
+					if (perceptual > 0.1) {
+						vec3 up = abs(normal.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+						vec3 T = normalize(cross(up, normal));
+						vec3 B = cross(normal, T);
+						vec3 V_local = vec3(dot(view_dir, T), dot(view_dir, B), dot(view_dir, normal));
+						vec3 H_local = ImportanceSampleGGXVNDF(V_local, alpha, get_blue_noise2());
+						dir = reflect(-view_dir, normalize(T * H_local.x + B * H_local.y + normal * H_local.z));
+						// like the mirror direction, reflections dip under the horizon on the backs of waves
+						if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
+					}
+
+					vec3 traced = trace_scene_reflection(origin, dir, normal, perceptual, WATER_REFLECTION_TRACE_DISTANCE);
+					return mix(traced, ssr_color, ssr_weight);
 				}
 				#endif
 
-				return mix(reflected, ssr_color, ssr_weight * ssr_fade);
+				return mix(reflected, ssr_color, ssr_weight);
 			}
 
 			// ---------------------------------------------------------------
@@ -988,7 +1036,7 @@ list.insert(
 				vec3 reflection_dir = reflect(ray_dir, normal);
 				// reflections dip under the horizon on the backs of waves
 				if (reflection_dir.y < 0.0) reflection_dir = normalize(vec3(reflection_dir.x, -reflection_dir.y * 0.3, reflection_dir.z));
-				vec3 reflection = get_reflection(surface_pos, reflection_dir, normal, alpha, jitter);
+				vec3 reflection = get_reflection(surface_pos, view_dir, reflection_dir, normal, alpha, jitter);
 
 				// refraction into the water body
 				float path_len;
@@ -1026,15 +1074,21 @@ list.insert(
 					float crest = clamp((surface_pos.y - w.surface_y) / max(ocean_data.ocean_wave_info.x, 0.05), 0.0, 1.0);
 					vec3 sigma = get_extinction(w);
 					float thickness = 1.5;
-					color += (1.0 - fresnel) * sun_light * sun_transmission * w.scattering * henyey_greenstein(dot(-refracted_dir, sun_dir), 0.6) * thickness * exp(-sigma * thickness) * crest * crest * 4.0;
+					color += (1.0 - fresnel) * sun_light * sun_transmission * water_scatter(w, dot(-refracted_dir, sun_dir)) * thickness * exp(-sigma * thickness) * crest * crest * 4.0;
 				}
 
 				// foam: whitecaps where the waves fold, and along shores and
 				// around things in the water
-				float shore_depth = has_floor ? max(w.surface_y - floor_pos.y, 0.0) : 1e3;
+				// the depth of the water under the surface. what's seen through it is only that at steep views,
+				// at grazing ones it lies far off toward the shore, so a floor further away counts as deeper
+				float shore_range = 0.25 * w.foam;
+				float shore_depth = has_floor ? max(w.surface_y - floor_pos.y, length(floor_pos.xz - surface_pos.xz) * 0.5) : 1e3;
+				#ifdef SCENE_REFLECTION
+				if (scene_reflection_ready() && shore_range > 0.0) shore_depth = scene_hit_distance(surface_pos, vec3(0.0, -1.0, 0.0), shore_range);
+				#endif
 				float pattern = foam_pattern(surface_pos.xz, ocean_data.time);
 				float whitecap = smoothstep(0.2, 0.75, fold);
-				float shore = smoothstep(0.25 * w.foam, 0.0, shore_depth);
+				float shore = smoothstep(shore_range, 0.0, shore_depth);
 				// the more foam, the more of the bubble pattern shows
 				float coverage = clamp((whitecap + shore) * w.foam, 0.0, 1.0);
 				float foam = smoothstep(1.0 - coverage, 1.15 - coverage, pattern) * 0.95;

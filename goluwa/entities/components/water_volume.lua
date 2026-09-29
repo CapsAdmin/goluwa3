@@ -3,7 +3,8 @@
 	surface, Size is the box's width, depth and length, so the water fills from
 	the surface down to Size.y below it. Rotate it only around y.
 
-	Absorption and Scattering are per meter for red, green and blue; take them
+	Absorption and ParticleScattering are per meter for red, green and blue,
+	pure water's own scattering is added to them (see water.lua); take them
 	from water.presets or measure your own. WaveHeight is the significant
 	height of the ripples in meters (0 for a mirror), WaveLength the length of
 	the longest ones. Flow moves the ripples along, for rivers and streams.
@@ -16,7 +17,7 @@ local WaterVolume = objects.CreateTemplate("water_volume")
 WaterVolume:StartStorable()
 WaterVolume:GetSet("Size", Vec3(10, 3, 10))
 WaterVolume:GetSet("Absorption", water.presets.lake.Absorption:Copy())
-WaterVolume:GetSet("Scattering", water.presets.lake.Scattering:Copy())
+WaterVolume:GetSet("ParticleScattering", water.presets.lake.ParticleScattering:Copy())
 WaterVolume:GetSet("IOR", 1.333, {validate = "number"})
 WaterVolume:GetSet("WaveHeight", 0.02, {validate = "number"})
 WaterVolume:GetSet("WaveLength", 1.2, {validate = "number"})
@@ -37,7 +38,7 @@ function WaterVolume:SetPreset(name)
 	if not preset then error("unknown water preset " .. tostring(name), 2) end
 
 	self:SetAbsorption(preset.Absorption:Copy())
-	self:SetScattering(preset.Scattering:Copy())
+	self:SetParticleScattering(preset.ParticleScattering:Copy())
 end
 
 function WaterVolume:OnCreate()

@@ -67,6 +67,8 @@ Material:GetSet("TerrainLayerDetailStrength", Color(0.0, 0.0, 0.0, 0.0))
 Material:GetSet("TerrainLayerAdditiveDetail", Color(0.0, 0.0, 0.0, 0.0))
 -- SpecularMultiplier per layer
 Material:GetSet("TerrainLayerSpecular", Color(1.0, 1.0, 1.0, 1.0))
+-- min x, min z and size of the world square TerrainMaterialTexture covers, for lookups without uvs (ray hits)
+Material:GetSet("TerrainBounds", Vec3(0, 0, 0))
 -- with Grass, how much grass grows where each layer is, 0 to 1. grass thins and shortens across layer transitions
 Material:GetSet("TerrainLayerGrass", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)

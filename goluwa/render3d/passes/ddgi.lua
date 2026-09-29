@@ -457,8 +457,9 @@ local function pass_shade()
 					if (ddgi_data.ddgi_rt_ready != 0 && weight_sum > 0.0) {
 						scene_bvh_triangle tri = bvh_tri(ddgi_emitters[hit.y & 0x0FFFFFFFu].triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
 						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 28u);
-						vec3 dir = normalize(ddgi_emitter_point(tri, u.yz) - origin);
-						vec3 emission = ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material]));
+						vec3 point = ddgi_emitter_point(tri, u.yz);
+						vec3 dir = normalize(point - origin);
+						vec3 emission = ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material], point));
 						float luminance = dot(tri.emissive, vec3(0.2126, 0.7152, 0.0722));
 						vec3 estimate = emission / luminance * ddgi_data.ddgi_emitter_weight * weight_sum / float(DDGI_EMITTER_CANDIDATES);
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
@@ -499,7 +500,7 @@ local function pass_shade()
 				}
 
 				vec3 P = origin + dir * t;
-				vec3 albedo = ddgi_albedo(material);
+				vec3 albedo = ddgi_albedo(material, P);
 				vec3 surface = P + N * 0.02;
 				float light_radius = ddgi_data.ddgi_light_radius * ddgi_spacing(c);
 				vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), 0u);

@@ -494,7 +494,7 @@ do
 			local preset = bit.band(contents, BSP_CONTENTS_SLIME) ~= 0 and
 				water.presets.swamp or
 				water.presets.lake
-			return preset.Absorption:Copy(), preset.Scattering:Copy()
+			return preset.Absorption:Copy(), preset.ParticleScattering:Copy()
 		end
 
 		return water.MediumFromFog(
@@ -2038,7 +2038,7 @@ function steam.SpawnMapEntities(path, parent)
 					water_volume = {
 						Size = info.size,
 						Absorption = info.absorption,
-						Scattering = info.scattering,
+						ParticleScattering = info.scattering,
 						WaveHeight = info.slime and 0 or 0.04,
 						WaveLength = 1.2,
 						Roughness = info.slime and 0.06 or 0.02,

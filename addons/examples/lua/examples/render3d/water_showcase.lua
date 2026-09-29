@@ -227,7 +227,7 @@ end
 local function preset(name, config)
 	local out = table.shallow_copy(water.presets[name])
 	out.Absorption = out.Absorption:Copy()
-	out.Scattering = out.Scattering:Copy()
+	out.ParticleScattering = out.ParticleScattering:Copy()
 
 	for k, v in pairs(config) do
 		out[k] = v

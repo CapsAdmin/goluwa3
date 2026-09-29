@@ -126,10 +126,22 @@ function scene_reflection.GetGLSL(block_name)
 			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 		}
 
-		// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit
-		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness) {
+		// how far along dir the scene is, max_distance when nothing is that close
+		float scene_hit_distance(vec3 origin, vec3 dir, float max_distance) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, SCENE_REFLECTION_MAX_DISTANCE);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, max_distance);
+
+			while (rayQueryProceedEXT(query)) {}
+
+			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return max_distance;
+
+			return rayQueryGetIntersectionTEXT(query, true);
+		}
+
+		// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit
+		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance) {
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, max_distance);
 
 			while (rayQueryProceedEXT(query)) {}
 
@@ -151,7 +163,7 @@ function scene_reflection.GetGLSL(block_name)
 
 			vec3 P = origin + dir * t;
 			vec3 surface = P + hit_N * 0.02;
-			vec3 albedo = ddgi_albedo(material);
+			vec3 albedo = ddgi_albedo(material, P);
 			vec3 radiance = ddgi_emission(tri, albedo);
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
