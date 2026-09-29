@@ -30,7 +30,7 @@ render3d.bloom_strength = 1
 -- how long in seconds a bright highlight's glare lingers where it was on screen,
 -- smearing it along the way when it or the camera moves (see passes/blit.lua).
 -- 0 is off
-render3d.bloom_smear = 0.1
+render3d.bloom_smear = 0
 
 commands.Add("r_bloom_strength=number[1]", function(value)
 	render3d.bloom_strength = value
