@@ -273,6 +273,7 @@ local function build_ssdm_fragment_shader(write_depth)
 			vec3 albedo = get_albedo_world(displacement.uv, displacement.world_pos);
 			vec3 normal = get_normal(displacement.uv, tbn);
 			float metallic = get_metallic(displacement.uv);
+			apply_gloss_metallic(displacement.uv, albedo, metallic);
 			float roughness = get_roughness(displacement.uv);
 			float transmission = get_transmission(displacement.uv);
 			// thin translucent leaves are waxy rather than porous

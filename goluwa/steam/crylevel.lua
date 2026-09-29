@@ -1417,7 +1417,7 @@ local function get_or_create_cry_terrain_layers(terrain)
 					scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
 					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
-					-- mapped from cry's specular color the same way as for models, most layers have none
+					-- F0 / 0.04 from cry's specular color and shininess like for models, most layers have none
 					specular = material:GetSpecularMultiplier(),
 					-- no procedural grass, grass in crysis is painted vegetation
 					grass = 0,

@@ -130,6 +130,10 @@ Material:GetSet("BlendTintByBaseAlpha", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicTextureAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoAlphaIsSpecular", false, {callback = "InvalidateFlags"})
+-- the gloss map also scales the phong power RoughnessMultiplier was derived from
+Material:GetSet("GlossIsShininess", false, {callback = "InvalidateFlags"})
+-- a SpecularMultiplier above 1 is solved into metallic with the albedo as the diffuse
+Material:GetSet("SpecularSolvesMetallic", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
@@ -251,6 +255,8 @@ local FLAGS = {
 	"Transmissive",
 	"Grass",
 	"AlbedoAlphaIsSpecular",
+	"GlossIsShininess",
+	"SpecularSolvesMetallic",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -714,15 +720,19 @@ do
 
 		self:SetMetallicMultiplier(0)
 
-		-- blinn phong: specular = light * phong(Shininess) * gloss map * Specular color, gloss map defaults to white
-		-- turned into GGX with the power's equivalent roughness and F0 from the specular color, 0.5 being the usual 0.04
+		-- phong: specular = light * cos^n * gloss map * Specular color S, n being the Shininess, next to a diffuse
+		-- of light * albedo. under the same light, pi of ours, that lobe is the normalized (n + 2) / 2pi phong lobe
+		-- of F0 = 2 S / (n + 2), and (2 / (n + 2))^0.25 is the equivalent perceptual roughness. above the 0.04 of
+		-- a dielectric the gbuffer pass solves the F0 and albedo into metallic, but only for what crysis says is
+		-- metal. glossy leaves, glass, plastic and concrete stay dielectric
 		do
 			local specular = self.cry_specular_color
-			self:SetRoughnessMultiplier((2 / ((tonumber(attrs.Shininess) or 0) + 2)) ^ 0.25)
-			self:SetSpecularMultiplier(
-				math.clamp((specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722) * 2, 0, 2)
-			)
+			local roughness = 2 / ((tonumber(attrs.Shininess) or 0) + 2)
+			self:SetRoughnessMultiplier(roughness ^ 0.25)
+			self:SetSpecularMultiplier((specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722) * roughness / 0.04)
 			self:SetAlbedoAlphaIsSpecular(has_gen("GLOSS_DIFFUSEALPHA"))
+			self:SetGlossIsShininess(true)
+			self:SetSpecularSolvesMetallic(shader == "Metal" or (attrs.SurfaceType or ""):find("metal", 1, true) ~= nil)
 		end
 
 		local alpha_test = tonumber(attrs.AlphaTest) or 0

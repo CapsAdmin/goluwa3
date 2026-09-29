@@ -1732,6 +1732,17 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return N;
 			}
 
+			// the gloss map's luminance, 1 without one
+			float get_gloss(vec2 uv) {
+				if (AlbedoAlphaIsSpecular && model.AlbedoTexture != -1) {
+					return texture(TEXTURE(model.AlbedoTexture), uv).a;
+				} else if (aux_model.SpecularTexture != -1) {
+					return dot(texture(TEXTURE(aux_model.SpecularTexture), uv).rgb, vec3(0.2126, 0.7152, 0.0722));
+				}
+
+				return 1.0;
+			}
+
 			float get_metallic(vec2 uv) {
 				float val = 1.0;
 
@@ -1768,6 +1779,13 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					val = dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerRoughness) * get_terrain_layer_sample(uv, in_position).roughness;
 				} else {
 					val = factor_model.RoughnessMultiplier;
+
+					// the gloss map scales a phong power n whose roughness is (2 / (n + 2))^0.25
+					if (GlossIsShininess) {
+						float r4 = val * val * val * val;
+						val = sqrt(sqrt(r4 / max(get_gloss(uv) * (1.0 - r4) + r4, 0.000001)));
+					}
+
 					return clamp(val * val, 0.002, 1.0);
 				}
 
@@ -1831,13 +1849,10 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			// the SpecularMultiplier; 1 is dielectric F0 0.04
 			float get_specular(vec2 uv) {
-				float val = factor_model.SpecularMultiplier;
+				float val = factor_model.SpecularMultiplier * get_gloss(uv);
 
-				if (AlbedoAlphaIsSpecular && model.AlbedoTexture != -1) {
-					val *= texture(TEXTURE(model.AlbedoTexture), uv).a;
-				} else if (aux_model.SpecularTexture != -1) {
-					val *= dot(texture(TEXTURE(aux_model.SpecularTexture), uv).rgb, vec3(0.2126, 0.7152, 0.0722));
-				}
+				// apply_gloss_metallic takes over above a dielectric
+				if (SpecularSolvesMetallic) return min(val, 1.0);
 
 				if (terrain_model.TerrainMaterialTexture != -1) {
 					val *= dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerSpecular);
@@ -1845,6 +1860,22 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				// as much as the gbuffer holds
 				return clamp(val, 0.0, 2.0);
+			}
+
+			// specular/glossiness to metal/roughness, an F0 above a dielectric's 0.04 with a diffuse of albedo
+			// is metallic that keeps both the diffuse and the specular energy. albedo becomes the base color
+			void apply_gloss_metallic(vec2 uv, inout vec3 albedo, inout float metallic) {
+				if (!SpecularSolvesMetallic) return;
+
+				float f0 = factor_model.SpecularMultiplier * get_gloss(uv) * 0.04;
+
+				if (f0 <= 0.04) return;
+
+				float b = dot(albedo, vec3(0.2126, 0.7152, 0.0722)) * (1.0 - f0) / 0.96 + f0 - 0.08;
+				metallic = clamp((-b + sqrt(b * b + 0.16 * (f0 - 0.04))) / 0.08, 0.0, 1.0);
+				vec3 dielectric = albedo * (1.0 - f0) / (0.96 * max(1.0 - metallic, 0.0001));
+				vec3 metal = vec3((f0 - 0.04 * (1.0 - metallic)) / max(metallic, 0.0001));
+				albedo = clamp(mix(dielectric, metal, metallic * metallic), 0.0, 1.0);
 			}
 
 			float get_ao(vec2 uv) {
