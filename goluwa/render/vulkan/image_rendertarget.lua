@@ -411,6 +411,11 @@ function ImageRenderTarget:RequiresManualGamma()
 	return true
 end
 
+-- bits per colour channel, e.g. 8 for b8g8r8a8_srgb and 16 for r16g16b16a16_sfloat
+function ImageRenderTarget:GetColorBits()
+	return tonumber(self.color_format:match("r(%d+)"))
+end
+
 function ImageRenderTarget:GetColorSpace()
 	return self.surface_format and self.surface_format.color_space or "srgb_nonlinear_khr"
 end

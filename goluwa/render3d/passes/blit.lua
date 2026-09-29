@@ -77,9 +77,10 @@ render3d.local_exposure = {
 	slope = 0.2,
 	ceiling = 1e5,
 }
--- 0 = AgX, 1 = AgX punchy, 2 = ACES (Narkowicz fit). SDR output only; HDR
--- output has its own curve (tonemap_hdr).
-render3d.tonemapper = 0
+-- 0 = AgX, 1 = AgX punchy, 2 = ACES (Narkowicz fit), 3 = GT7. For HDR
+-- output GT7 maps to the display's peak itself, the others go through
+-- tonemap_hdr's generic curve.
+render3d.tonemapper = 3
 -- HDR output (--hdr, see ImageRenderTarget:IsHDR), in nits: paper white is
 -- what SDR white (and the metered average's surroundings) is shown at, 203 by
 -- BT.2408; peak is the brightest the display can show. Vulkan can't query the
@@ -96,6 +97,8 @@ render3d.hdr = {
 -- convention of Jensen et al. 2000. Rods can't tell colours apart, the blue is
 -- a perceptual trick rather than what they see. The adaptation curve keeps
 -- CIE's range, these only change how the loss of colour looks.
+-- dither the output to hide banding from quantizing it
+render3d.dither = true
 render3d.night_vision = {
 	enabled = true,
 	threshold = 0.03,
@@ -120,8 +123,8 @@ commands.Add("r_exposure_mode=string[eye]", function(mode)
 	render3d.exposure.mode = mode
 end)
 
-commands.Add("r_tonemapper=string[agx]", function(name)
-	render3d.tonemapper = assert(({agx = 0, agx_punchy = 1, aces = 2})[name], "tonemapper is one of agx, agx_punchy, aces")
+commands.Add("r_tonemapper=string[gt7]", function(name)
+	render3d.tonemapper = assert(({agx = 0, agx_punchy = 1, aces = 2, gt7 = 3})[name], "tonemapper is one of agx, agx_punchy, aces, gt7")
 end)
 
 commands.Add("r_local_exposure=number[0.4],number|nil", function(shadows, highlights)
@@ -164,6 +167,10 @@ end)
 commands.Add("r_hdr_peak=number[1000]", function(nits)
 	render3d.hdr.peak = nits
 	update_hdr_metadata()
+end)
+
+commands.Add("r_dither=boolean[true]", function(enabled)
+	render3d.dither = enabled
 end)
 
 commands.Add("r_night_vision=boolean[true]", function(enabled)
@@ -779,9 +786,16 @@ local compute_shader = [[
 	// darker than leaving it alone would, and a night scene lives down there.
 	// AgX crosses x at 0.335, where it hands over to x. Above the knee the
 	// brightest channel rolls off smoothly to peak, and the harder a colour is
-	// compressed the more it moves towards white.
+	// compressed the more it moves towards white. GT7 has its own HDR mapping,
+	// with exposed 1.0 at paper white like SDR white is in SDR.
 	vec3 tonemap_hdr(vec3 x, float peak, int tonemapper) {
 		x = max(x, vec3(0.0));
+
+		if (tonemapper == 3) {
+			float paper_white = compute.hdr_paper_white / 100.0;
+			return gt7(x * paper_white, peak * paper_white) / paper_white;
+		}
+
 		const float knee = 0.6;
 		float m = max(x.r, max(x.g, x.b));
 
@@ -797,6 +811,12 @@ local compute_shader = [[
 	vec3 pq_encode(vec3 nits) {
 		vec3 y = pow(clamp(nits / 10000.0, 0.0, 1.0), vec3(0.1593017578125));
 		return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));
+	}
+
+	vec3 pq_decode(vec3 n) {
+		vec3 np = pow(n, vec3(1.0 / 78.84375));
+		vec3 l = max(np - 0.8359375, vec3(0.0)) / (18.8515625 - 18.6875 * np);
+		return pow(l, vec3(1.0 / 0.1593017578125)) * 10000.0;
 	}
 
 	// Between ~5 and ~0.005 cd/m2 the rods take over from the cones (the mesopic range, CIE 191).
@@ -858,20 +878,18 @@ local compute_shader = [[
 		if (compute.output_mode == 0) {
 			col = clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0);
 
-			// 8 bit output bands in gradients; a dither of one output step hides
-			// it. In the encoded (sRGB) space, where a step is the same size in
-			// the shadows as in the highlights
-			vec3 encoded = LinearToSRGB(col);
-			encoded += (blue_noise(pos) - 0.5) / 255.0;
-			col = SRGBToLinear(clamp(encoded, 0.0, 1.0));
+			// dithered in the sRGB encoding the output is quantized in
+			col = SRGBToLinear(dither(LinearToSRGB(col), blue_noise(pos), compute.dither_steps));
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
 		} else {
 			vec3 nits = tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper) * compute.hdr_paper_white;
 
 			if (compute.output_mode == 1) {
-				// scRGB: linear BT.709, 1.0 = 80 nits
-				col = nits / 80.0;
+				// scRGB: linear BT.709, 1.0 = 80 nits. fp16 doesn't band, but the
+				// compositor converts it to what the display takes, usually
+				// 10 bit PQ, which does. Dithered as if in that encoding.
+				col = pq_decode(dither(pq_encode(nits), blue_noise(pos), compute.dither_steps)) / 80.0;
 			} else {
 				// HDR10: PQ encoded BT.2020
 				const mat3 bt709_to_bt2020 = mat3(
@@ -879,7 +897,7 @@ local compute_shader = [[
 					0.3293, 0.9195, 0.0880,
 					0.0433, 0.0114, 0.8956
 				);
-				col = pq_encode(bt709_to_bt2020 * nits);
+				col = dither(pq_encode(bt709_to_bt2020 * nits), blue_noise(pos), compute.dither_steps);
 			}
 		}
 
@@ -968,6 +986,8 @@ for _, pass in ipairs{
 			{"output_mode", "int"},
 			{"hdr_paper_white", "float"},
 			{"hdr_peak", "float"},
+			-- output levels - 1 that dither spreads rounding over
+			{"dither_steps", "float"},
 			{"has_exposure_tex", "int"},
 			{"tonemapper", "int"},
 			{"bloom_strength", "float"},
@@ -989,6 +1009,13 @@ for _, pass in ipairs{
 				0
 			block.hdr_paper_white = render3d.hdr.paper_white
 			block.hdr_peak = render3d.hdr.peak
+			-- a float swapchain is quantized downstream: assume 8 bit for SDR
+			-- and 10 bit PQ for HDR
+			local bits = render.target:GetColorBits()
+
+			if bits >= 16 then bits = render.target:IsHDR() and 10 or 8 end
+
+			block.dither_steps = render3d.dither and 2 ^ bits - 1 or 0
 			block.tonemapper = render3d.tonemapper
 			block.bloom_strength = get_bloom_strength()
 			block.night_vision = render3d.exposure.mode == "eye" and render3d.night_vision.enabled and 1 or 0
