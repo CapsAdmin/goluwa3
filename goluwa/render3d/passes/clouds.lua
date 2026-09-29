@@ -202,9 +202,7 @@ local noise_pass = {
 				) * 0.06;
 				float fibres = cloud_saturate(0.5 + 1.1 * cloud_perlin_fbm(p + warp, ivec3(3, 28, 1), 4, 130u));
 				float veil = cloud_saturate(0.5 + 1.0 * cloud_perlin_fbm(p, ivec3(4, 4, 1), 3, 140u));
-				// which of two differently turned copies of the shape noise is used, see cloud_density
-				float pick = cloud_saturate(0.5 + 1.2 * cloud_perlin_fbm(p, ivec3(7, 7, 1), 2, 150u));
-				imageStore(out_weather, pixel, vec4(coverage, height, fibres * mix(0.4, 1.0, veil), pick));
+				imageStore(out_weather, pixel, vec4(coverage, height, fibres * mix(0.4, 1.0, veil), 0.0));
 			}
 		}
 	]],

@@ -71,6 +71,9 @@ clouds.LAYER_DEFAULTS = {
 	detail_scale = 300,
 	-- how much the weather map varies the coverage from place to place
 	variation = 0.5,
+	-- 0 to 1, how much the clouds are stretched and curled into swirls, as by wind shear and eddies.
+	-- far away they always are a little, which hides the noise's tiling
+	swirl = 0,
 	-- the layer drifts with the surface wind times this, wind is stronger aloft
 	wind_scale = 2.5,
 	-- m/s the noise rises through the layer, the clouds churn even in still air
@@ -270,6 +273,31 @@ clouds.presets = {
 			coverage = 0.45,
 			density = 0.25,
 			flat = true,
+			wind_scale = 6,
+		},
+	},
+	-- cumulus torn and curled by wind shear, under swirling altocumulus
+	windy = {
+		{
+			bottom = 1300,
+			thickness = 1400,
+			coverage = 0.4,
+			density = 0.06,
+			type = 0.8,
+			erosion = 0.5,
+			swirl = 0.5,
+			detail_scale = 250,
+			wind_scale = 4,
+		},
+		{
+			bottom = 4800,
+			thickness = 500,
+			coverage = 0.4,
+			density = 0.035,
+			type = 0.6,
+			shape_scale = 2000,
+			detail_scale = 150,
+			swirl = 0.8,
 			wind_scale = 6,
 		},
 	},
@@ -787,6 +815,7 @@ function clouds.GetBlockLayout()
 		{"cloud_layer_offset", "vec4", clouds.MAX_LAYERS},
 		-- shape offset y, detail offset xyz
 		{"cloud_layer_offset2", "vec4", clouds.MAX_LAYERS},
+		{"cloud_layer_swirl", "float", clouds.MAX_LAYERS},
 		{"cloud_light_direction", "vec4"},
 		{"cloud_light_illuminance", "vec4"},
 	}
@@ -826,6 +855,7 @@ function clouds.WriteBlock(self, block)
 		offset2[1] = layer.detail_offset.x
 		offset2[2] = layer.detail_offset.y
 		offset2[3] = layer.detail_offset.z
+		block.cloud_layer_swirl[k] = layer.swirl
 	end
 
 	local dir = clouds.light_direction
@@ -950,6 +980,14 @@ function clouds.GetGLSL(block)
 		// after this many fine steps in the clear
 		const float CLOUD_COARSE_STEPS = 4.0;
 		const int CLOUD_EMPTY_STEPS = 6;
+		// the warp that breaks up the shape noise's tiling: its field repeats every 1 / (0.889 x
+		// frequency) tiles, is read this coarse, and moves the lookup by up to half this many tiles
+		const float CLOUD_WARP_FREQUENCY = 0.12;
+		const float CLOUD_WARP_LOD = 1.0;
+		const float CLOUD_WARP_AMOUNT = 1.6;
+		// it starts this many tiles away from the camera and is in full this many tiles out
+		const float CLOUD_WARP_NEAR = 2.0;
+		const float CLOUD_WARP_FAR = 8.0;
 
 		float cloud_saturate(float x) {
 			return clamp(x, 0.0, 1.0);
@@ -1075,16 +1113,19 @@ function clouds.GetGLSL(block)
 			profile = max(profile, style.z * smoothstep(0.6, 0.8, hf) * (1.0 - smoothstep(0.92, 1.0, hf)));
 			vec3 uvw = (vec3(p.x + offset.z, alt + offset2.x, p.z + offset.w)) / scale.y;
 			float lod = log2(max(footprint * ]] .. clouds.BASE_NOISE_SIZE .. [[.0 / scale.y, 1.0));
-			// the noise tiles, and toward the horizon every direction along its lattice would line
-			// up into streaks. a second copy, turned and scaled by irrational amounts, takes over in
-			// patches of the weather map
-			vec4 n = textureLod(cloud_base_noise, uvw, lod);
-			float pick = smoothstep(0.35, 0.65, weather.a);
+			// the noise tiles, and toward the horizon the copies along a direction of its lattice would
+			// line up into streaks. a smooth field read from a copy turned and scaled by irrational
+			// amounts pushes the lookup around, differently for every copy. it would shear the clouds
+			// overhead, where only a few copies are in view, so it comes in with distance, unless the
+			// layer asks for swirls
+			float warp = max(smoothstep(CLOUD_WARP_NEAR, CLOUD_WARP_FAR, distance(p.xz, CLOUD_BLOCK.camera_position.xz) / scale.y), CLOUD_BLOCK.cloud_layer_swirl[i]);
 
-			if (pick > 0.0) {
-				vec3 turned = vec3(uvw.x * 0.6663 - uvw.z * 0.5891, uvw.y * 0.8889 + 0.37, uvw.x * 0.5891 + uvw.z * 0.6663 + 0.53);
-				n = mix(n, textureLod(cloud_base_noise, turned, lod), pick);
+			if (warp > 0.0) {
+				vec3 turned = vec3(uvw.x * 0.6663 - uvw.z * 0.5891, uvw.y * 0.8889 + 0.37, uvw.x * 0.5891 + uvw.z * 0.6663 + 0.53) * CLOUD_WARP_FREQUENCY;
+				uvw.xz += (textureLod(cloud_base_noise, turned, max(lod + log2(0.889 * CLOUD_WARP_FREQUENCY), CLOUD_WARP_LOD)).rg - 0.5) * (CLOUD_WARP_AMOUNT * warp);
 			}
+
+			vec4 n = textureLod(cloud_base_noise, uvw, lod);
 
 			// the perlin-worley shape, dented by the finer worley octaves
 			float fbm = dot(n.gba, vec3(0.625, 0.25, 0.125));
