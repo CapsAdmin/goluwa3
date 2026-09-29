@@ -361,34 +361,19 @@ function weather.GetSnowDepth()
 	return surface_weather.snow_depth
 end
 
--- 0 is a clear sky, 1 a full overcast that hides the sun. in between, cumulus that grow and spread
--- into stratocumulus. SetClouds picks the kind of clouds instead
-function weather.SetCloudCover(cover)
-	clouds.SetCover(cover)
+-- a list of layers, see clouds.LAYER_DEFAULTS for their fields. render3d/climate.lua has presets
+function weather.SetCloudLayers(layers)
+	clouds.SetLayers(layers)
 	weather.UpdateSky()
+end
+
+function weather.GetCloudLayers()
+	return clouds.GetLayers()
 end
 
 -- the fraction of the sky the clouds hide
 function weather.GetCloudCover()
 	return clouds.GetCover()
-end
-
--- the name of one of render3d/clouds.lua's presets (clear, fair, cumulus, congestus, stratocumulus,
--- altocumulus, altostratus, overcast, rain, storm, cirrus, cirrostratus, mixed), or a list of layers,
--- see clouds.LAYER_DEFAULTS for their fields
-function weather.SetClouds(clouds_or_preset)
-	if type(clouds_or_preset) == "string" then
-		clouds.SetPreset(clouds_or_preset)
-	else
-		clouds.SetLayers(clouds_or_preset)
-	end
-
-	weather.UpdateSky()
-end
-
--- the preset's name, or the layers when they were set by hand
-function weather.GetClouds()
-	return clouds.GetPreset() or clouds.GetLayers()
 end
 
 function weather.SetMoonScale(scale)
@@ -611,14 +596,6 @@ end
 
 commands.Add("weather_enabled=boolean[true]", function(enabled)
 	weather.SetEnabled(enabled)
-end)
-
-commands.Add("clouds=string", function(preset)
-	weather.SetClouds(preset)
-end)
-
-commands.Add("cloud_cover=number", function(cover)
-	weather.SetCloudCover(cover)
 end)
 
 return weather

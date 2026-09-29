@@ -38,17 +38,21 @@ clouds.DETAIL_NOISE_SIZE = 32
 clouds.WEATHER_SIZE = 512
 -- seconds between environment probe recaptures while the clouds drift
 clouds.SKY_REFRESH_INTERVAL = 2
+-- and while the layers change, as while climate.lua blends between presets
+clouds.SKY_CHANGE_INTERVAL = 0.5
 clouds.enabled = true
 clouds.layers = {}
-clouds.preset = "clear"
 clouds.cover = 0
 clouds.sky_version = 0
+clouds.layers_changed = false
 clouds.light_direction = Vec3(0, 1, 0)
 clouds.light_illuminance = Vec3(0, 0, 0)
 clouds.shadow_direction = Vec3(0, 1, 0)
 clouds.textures = clouds.textures or {}
 -- defaults for a layer's fields, see clouds.SetLayers
 clouds.LAYER_DEFAULTS = {
+	-- a layer given the same name in the next SetLayers keeps drifting from where it was
+	name = false,
 	-- meters above sea level of its base, and how deep it is
 	bottom = 1500,
 	thickness = 1500,
@@ -81,242 +85,6 @@ clouds.LAYER_DEFAULTS = {
 	-- m/s the noise rises through the layer, the clouds churn even in still air
 	evolution = 0.6,
 }
-clouds.presets = {
-	clear = {},
-	-- small fair weather cumulus
-	fair = {
-		{
-			bottom = 1300,
-			thickness = 900,
-			coverage = 0.3,
-			density = 0.06,
-			type = 1,
-			shape_scale = 3500,
-			detail_scale = 250,
-			base_variation = 150,
-		},
-	},
-	-- partly cloudy: taller cumulus and a veil of cirrus
-	cumulus = {
-		{
-			bottom = 1400,
-			thickness = 2000,
-			coverage = 0.42,
-			density = 0.07,
-			type = 1,
-			detail_scale = 250,
-			base_variation = 200,
-		},
-		{
-			bottom = 9000,
-			thickness = 400,
-			coverage = 0.35,
-			density = 0.25,
-			flat = true,
-			weather_scale = 30000,
-			shape_scale = 6000,
-			wind_scale = 6,
-		},
-	},
-	-- towering cumulus, the weather before a storm
-	congestus = {
-		{
-			bottom = 1200,
-			thickness = 4500,
-			coverage = 0.5,
-			density = 0.08,
-			type = 1,
-			erosion = 0.3,
-			shape_scale = 7000,
-			detail_scale = 300,
-			weather_scale = 50000,
-			base_variation = 250,
-		},
-	},
-	stratocumulus = {
-		{
-			bottom = 900,
-			thickness = 700,
-			coverage = 0.72,
-			density = 0.045,
-			type = 0.5,
-			shape_scale = 2500,
-			detail_scale = 250,
-			variation = 0.35,
-			base_variation = 60,
-		},
-	},
-	-- a mackerel sky of small cloudlets in the middle troposphere
-	altocumulus = {
-		{
-			bottom = 4200,
-			thickness = 500,
-			coverage = 0.55,
-			density = 0.04,
-			type = 0.6,
-			shape_scale = 1400,
-			detail_scale = 150,
-			erosion = 0.5,
-			wind_scale = 4,
-		},
-		{
-			bottom = 9500,
-			thickness = 400,
-			coverage = 0.3,
-			density = 0.2,
-			flat = true,
-			wind_scale = 6,
-		},
-	},
-	-- a grey sheet the sun shows through as through frosted glass
-	altostratus = {
-		{
-			bottom = 3500,
-			thickness = 1500,
-			coverage = 0.97,
-			density = 0.004,
-			type = 0,
-			shape_scale = 8000,
-			variation = 0.25,
-			wind_scale = 4,
-		},
-	},
-	-- low grey overcast
-	overcast = {
-		{
-			bottom = 600,
-			thickness = 900,
-			coverage = 1,
-			density = 0.03,
-			type = 0.15,
-			shape_scale = 4000,
-			detail_scale = 300,
-			variation = 0.3,
-		},
-	},
-	-- nimbostratus: thick and dark, the rain falls from it
-	rain = {
-		{
-			bottom = 500,
-			thickness = 3000,
-			coverage = 1,
-			density = 0.05,
-			type = 0.2,
-			shape_scale = 6000,
-			erosion = 0.5,
-			variation = 0.3,
-		},
-	},
-	-- cumulonimbus towers with anvils over ragged low cloud
-	storm = {
-		{
-			bottom = 700,
-			thickness = 700,
-			coverage = 0.6,
-			density = 0.05,
-			type = 0.4,
-			shape_scale = 2500,
-			erosion = 0.6,
-			wind_scale = 3,
-		},
-		{
-			bottom = 1000,
-			thickness = 10000,
-			coverage = 0.45,
-			density = 0.1,
-			type = 1,
-			anvil = 1,
-			shape_scale = 6000,
-			detail_scale = 400,
-			weather_scale = 60000,
-			erosion = 0.5,
-			variation = 0.8,
-			wind_scale = 1.5,
-			base_variation = 200,
-		},
-	},
-	cirrus = {
-		{
-			bottom = 9000,
-			thickness = 400,
-			coverage = 0.6,
-			density = 0.5,
-			flat = true,
-			weather_scale = 30000,
-			shape_scale = 6000,
-			wind_scale = 6,
-		},
-	},
-	-- a milky veil over the whole sky, the sun still casts soft shadows
-	cirrostratus = {
-		{
-			bottom = 8500,
-			thickness = 400,
-			coverage = 1,
-			density = 0.2,
-			flat = true,
-			weather_scale = 40000,
-			shape_scale = 8000,
-			variation = 0.15,
-			wind_scale = 6,
-		},
-	},
-	-- cumulus under altocumulus under cirrus
-	mixed = {
-		{
-			bottom = 1400,
-			thickness = 1500,
-			coverage = 0.35,
-			density = 0.07,
-			type = 1,
-			base_variation = 150,
-		},
-		{
-			bottom = 4500,
-			thickness = 500,
-			coverage = 0.4,
-			density = 0.035,
-			type = 0.6,
-			shape_scale = 1600,
-			detail_scale = 150,
-			wind_scale = 4,
-		},
-		{
-			bottom = 9500,
-			thickness = 400,
-			coverage = 0.45,
-			density = 0.25,
-			flat = true,
-			wind_scale = 6,
-		},
-	},
-	-- cumulus torn and curled by wind shear, under swirling altocumulus
-	windy = {
-		{
-			bottom = 1300,
-			thickness = 1400,
-			coverage = 0.4,
-			density = 0.06,
-			type = 0.8,
-			erosion = 0.5,
-			swirl = 0.5,
-			detail_scale = 250,
-			base_variation = 150,
-			wind_scale = 4,
-		},
-		{
-			bottom = 4800,
-			thickness = 500,
-			coverage = 0.4,
-			density = 0.035,
-			type = 0.6,
-			shape_scale = 2000,
-			detail_scale = 150,
-			swirl = 0.8,
-			wind_scale = 6,
-		},
-	},
-}
 
 local function create_layer(params)
 	local layer = table.copy(clouds.LAYER_DEFAULTS)
@@ -346,63 +114,41 @@ function clouds.SetLayers(list)
 		error("at most " .. clouds.MAX_LAYERS .. " cloud layers", 2)
 	end
 
+	local previous = {}
+
+	for _, layer in ipairs(clouds.layers) do
+		if layer.name then previous[layer.name] = layer end
+	end
+
 	local layers = {}
 
 	for i, params in ipairs(list) do
-		layers[i] = create_layer(params)
-		-- the same pattern shouldn't repeat in every layer
-		layers[i].weather_offset = Vec2(i * 7919, i * 3571)
-		layers[i].shape_offset = Vec3(i * 4271, i * 1523, i * 2963)
-		layers[i].detail_offset = Vec3(i * 613, i * 331, i * 877)
+		local layer = create_layer(params)
+		local old = layer.name and previous[layer.name]
+
+		if old then
+			layer.weather_offset = old.weather_offset
+			layer.shape_offset = old.shape_offset
+			layer.detail_offset = old.detail_offset
+			previous[layer.name] = nil
+		else
+			-- the same pattern shouldn't repeat in every layer
+			layer.weather_offset = Vec2(i * 7919, i * 3571)
+			layer.shape_offset = Vec3(i * 4271, i * 1523, i * 2963)
+			layer.detail_offset = Vec3(i * 613, i * 331, i * 877)
+		end
+
+		layers[i] = layer
 	end
 
 	table.sort(layers, sort_layers)
 	clouds.layers = layers
-	clouds.preset = nil
 	clouds.cover = clouds.EstimateCover()
-	clouds.sky_version = clouds.sky_version + 1
+	clouds.layers_changed = true
 end
 
 function clouds.GetLayers()
 	return clouds.layers
-end
-
--- one of clouds.presets
-function clouds.SetPreset(name)
-	local preset = clouds.presets[name]
-
-	if not preset then error("unknown cloud preset " .. tostring(name), 2) end
-
-	clouds.SetLayers(preset)
-	clouds.preset = name
-end
-
-function clouds.GetPreset()
-	return clouds.preset
-end
-
--- 0 is a clear sky and 1 an overcast that hides the sun. in between, fair weather cumulus that grow
--- and spread into stratocumulus
-function clouds.SetCover(cover)
-	if cover <= 0 then
-		clouds.SetLayers{}
-	else
-		local spread = math.smoothstep(0.5, 1, cover)
-		clouds.SetLayers{
-			{
-				bottom = math.lerp(spread, 1400, 700),
-				thickness = math.lerp(cover, 900, 1400),
-				coverage = cover,
-				density = math.lerp(spread, 0.07, 0.035),
-				type = math.lerp(spread, 1, 0.2),
-				shape_scale = math.lerp(spread, 4000, 3500),
-				variation = math.lerp(spread, 0.5, 0.3),
-				base_variation = math.lerp(spread, 150, 50),
-			},
-		}
-	end
-
-	clouds.cover = cover
 end
 
 -- the fraction of the sky the clouds hide
@@ -514,6 +260,7 @@ do
 		clouds.time = time
 		local wind = atmosphere.GetWind()
 		local moving = false
+		sky_time = sky_time + dt
 
 		for _, layer in ipairs(clouds.layers) do
 			-- the pattern moves with the wind, so it is sampled against it
@@ -532,13 +279,15 @@ do
 			moving = moving or vx ~= 0 or vz ~= 0 or rise ~= 0
 		end
 
-		if moving then
-			sky_time = sky_time + dt
-
-			if sky_time > clouds.SKY_REFRESH_INTERVAL then
-				sky_time = 0
-				clouds.sky_version = clouds.sky_version + 1
-			end
+		if
+			clouds.layers_changed and
+			sky_time > clouds.SKY_CHANGE_INTERVAL or
+			moving and
+			sky_time > clouds.SKY_REFRESH_INTERVAL
+		then
+			sky_time = 0
+			clouds.layers_changed = false
+			clouds.sky_version = clouds.sky_version + 1
 		end
 
 		atmosphere.SetCloudSky(clouds.GetSkyTexture(), clouds.GetMeanTransmittance(clouds.shadow_direction))
