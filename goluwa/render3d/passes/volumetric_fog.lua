@@ -625,12 +625,13 @@ local composite_pass = {
 				vec4 scene = texture(TEXTURE(fog_data.source_tex), in_uv);
 				scene.rgb /= pre_exposure;
 				float depth = texture(TEXTURE(fog_data.depth_tex), in_uv).r;
-				float ocean_distance = fog_data.ocean_distance_tex != -1 ? texture(TEXTURE(fog_data.ocean_distance_tex), in_uv).r : -1.0;
+				// where the air ends at the water, 0 with the camera in it: the water pass fogs what is past it
+				float air_distance = fog_data.ocean_distance_tex != -1 ? texture(TEXTURE(fog_data.ocean_distance_tex), in_uv).g : -1.0;
 				vec3 view_dir = get_view_dir(in_uv);
 				float hit_distance = -1.0;
 
-				if (ocean_distance > 0.0) {
-					hit_distance = ocean_distance;
+				if (air_distance >= 0.0) {
+					hit_distance = air_distance;
 				} else if (depth < 1.0) {
 					vec4 view_pos = fog_data.inv_projection * vec4(in_uv * 2.0 - 1.0, depth, 1.0);
 					hit_distance = -view_pos.z / view_pos.w * length(view_dir);

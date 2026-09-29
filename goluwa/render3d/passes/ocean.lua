@@ -219,7 +219,9 @@ list.insert(
 		name = "ocean",
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			{"r32_sfloat", {"ocean_distance", "r"}},
+			-- r: how far the water or what is seen through it is, for reprojection. g: where the air
+			-- the fog fills ends, 0 with the camera in the water, -1 where there is no water
+			{"r32g32_sfloat", {"ocean_distance", "rg"}},
 		},
 		framebuffer_count = 2,
 		dont_create_framebuffers = true,
@@ -768,14 +770,16 @@ list.insert(
 			// path of length len that starts depth_start below the surface and
 			// goes down by rate per meter. mu is the cosine of the light in the
 			// water. both exponentials are at most 1, so looking up from the
-			// deep doesn't overflow
+			// deep doesn't overflow. near x = 0, where the path climbs as fast as
+			// the light fades with depth, their difference cancels to noise (a
+			// ring at that elevation), so it's a series there. the depth isn't
+			// clamped at the end: under a crest the path ends above the mean level
 			vec3 integrate_attenuated(vec3 sigma, float depth_start, float rate, float len, float mu) {
-				float c = 1.0 + rate / mu;
-				float depth_end = max(depth_start + rate * len, 0.0);
+				vec3 x = sigma * ((1.0 + rate / mu) * len);
 				vec3 first = exp(-sigma * (depth_start / mu));
-				vec3 last = exp(-sigma * (len + depth_end / mu));
-				vec3 denom = sigma * c;
-				return mix((first - last) / denom, vec3(len) * first, lessThan(abs(denom), vec3(1e-5)));
+				vec3 last = exp(-sigma * (depth_start / mu) - x);
+				vec3 series = first * (1.0 - x * (0.5 - x / 6.0));
+				return len * mix((first - last) / x, series, lessThan(abs(x), vec3(1e-3)));
 			}
 
 			// what the water between origin and origin + dir * len adds by
@@ -1162,7 +1166,7 @@ list.insert(
 
 			void write_passthrough(vec3 scene_color) {
 				set_scene_color(scene_color, -1.0);
-				set_ocean_distance(-1.0);
+				set_ocean_distance(vec2(-1.0));
 			}
 
 			void main() {
@@ -1226,7 +1230,9 @@ list.insert(
 						trace_anchor_t = 0.0;
 					}
 
-					if (camera_under_ocean && trace_anchor_t < 0.0) trace_anchor_t = -1.0;
+					// under the water the surface is above: marched from the camera when it is between the
+					// troughs and the crests, where the plane of the troughs is behind it
+					if (camera_under_ocean && trace_anchor_t < 0.0) trace_anchor_t = ray_dir.y > 0.0 ? 0.0 : -1.0;
 
 					if (trace_anchor_t >= 0.0) {
 						ocean_t = height_map_tracing(ray_dir, trace_anchor_t, camera_origin, ocean_local_pos);
@@ -1258,7 +1264,7 @@ list.insert(
 
 						color = shade_underwater(w, camera_origin, ray_dir, surface_t, normal_up, volume_exit, scene_t, scene_color, scene_pos, jitter, distance);
 						set_scene_color(color, 1.0);
-						set_ocean_distance(distance);
+						set_ocean_distance(vec2(distance, 0.0));
 						return;
 					}
 
@@ -1278,7 +1284,7 @@ list.insert(
 						vec3 transmittance;
 						vec3 inscatter = get_water_inscatter(w, surface_pos, ray_dir, len, jitter, transmittance);
 						set_scene_color(behind * transmittance + inscatter, 1.0);
-						set_ocean_distance(volume_entry);
+						set_ocean_distance(vec2(volume_entry));
 						return;
 					}
 
@@ -1289,7 +1295,7 @@ list.insert(
 					float alpha = sqrt(w.roughness * w.roughness + lost_variance);
 					color = shade_surface_from_above(w, surface_pos, normal, alpha, 0.0, ray_dir, volume_entry, scene_t < 1e29 ? max(scene_t - volume_entry, 0.0) : 1e30, jitter);
 					set_scene_color(color, 1.0);
-					set_ocean_distance(volume_entry);
+					set_ocean_distance(vec2(volume_entry));
 					return;
 				}
 
@@ -1317,7 +1323,7 @@ list.insert(
 					float distance;
 					vec3 color = shade_underwater(w, camera_origin, ray_dir, surface_t, normal_up, WATER_OPEN_DEPTH, scene_t, scene_color, scene_pos, jitter, distance);
 					set_scene_color(color, 1.0);
-					set_ocean_distance(distance);
+					set_ocean_distance(vec2(distance, 0.0));
 					return;
 				}
 
@@ -1336,7 +1342,7 @@ list.insert(
 				vec3 normal = normalize(vec3(-grad.x, 1.0, -grad.y));
 				vec3 color = shade_surface_from_above(w, surface_pos, normal, alpha, wd.a, ray_dir, ocean_t, scene_t < 1e29 ? max(scene_t - ocean_t, 0.0) : 1e30, jitter);
 				set_scene_color(color, 1.0);
-				set_ocean_distance(ocean_t);
+				set_ocean_distance(vec2(ocean_t));
 			}
 		]],
 		},
