@@ -1020,7 +1020,7 @@ function grass.BuildDrawPass(gbuffer_pass)
 					set_albedo(albedo);
 					set_normal(gbuffer_encode_normal(N));
 					set_metallic(metallic);
-					set_roughness(roughness);
+					set_roughness(gbuffer_encode_roughness(roughness));
 					set_ao(mix(mix(0.5, 1.0, smoothstep(0.0, 0.7, t)), 0.85, far));
 					// F0 0.02, a bit under the 0.04 default, for the waxy blades
 					set_specular(gbuffer_encode_specular(0.5));

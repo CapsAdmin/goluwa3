@@ -524,12 +524,11 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				]] .. body .. [[
 			}
 
+			// normal offsets the lookup. fading out towards the terminator is left to the
+			// caller (get_shadow_facing), with a smooth normal: the geometric normal of a
+			// tessellated surface would fade it triangle by triangle
 			float DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 normal, vec3 light_dir) {
-				float facing = get_shadow_facing(normal, light_dir);
-
-				if (facing <= 0.0) return 0.0;
-
-				float shadow = facing * calculateShadowUnfaded(world_pos, normal, light_dir);
+				float shadow = calculateShadowUnfaded(world_pos, normal, light_dir);
 
 				#ifdef SHADOW_CONTACT_RAYS
 				// the offsets that keep a surface from shadowing itself also carry
@@ -556,10 +555,6 @@ function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
 
 			if (shadow_map_idx < 0) return 1.0;
 
-			float facing = get_shadow_facing(normal, light_dir);
-
-			if (facing <= 0.0) return 0.0;
-
 			float shadow = sampleShadowMap(
 				shadow_map_idx,
 				]] .. block_name .. [[.shadows.local_directional_light_space_matrix,
@@ -571,7 +566,7 @@ function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
 				0.0
 			);
 
-			return shadow < 0.0 ? 1.0 : facing * shadow;
+			return shadow < 0.0 ? 1.0 : shadow;
 		}
 		]]
 		)

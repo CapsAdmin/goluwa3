@@ -287,7 +287,7 @@ local function build_ssdm_fragment_shader(write_depth)
 			set_transmission_tint_r(transmission_tint.x);
 			set_transmission_tint_b(transmission_tint.y);
 			set_metallic(metallic);
-			set_roughness(roughness);
+			set_roughness(gbuffer_encode_roughness(roughness));
 			set_ao(mix(get_ao(displacement.uv), 1.0, snow));
 			// ice has an F0 of 0.018
 			set_specular(gbuffer_encode_specular(mix(get_specular(displacement.uv), 0.45, snow)));

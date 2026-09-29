@@ -133,8 +133,13 @@ function surface_lighting.GetGLSL(block_name)
 				// towards the light so edge on doesn't read as facing away
 				vec3 shadow_N = geometric_N;
 
+				// the shadow maps' self shadowing fades out towards the terminator, by the
+				// smooth normal since the geometric one of a tessellated surface would step
+				float shadow_facing = get_shadow_facing(N, L);
+
 				if (transmission > 0.0) {
 					shadow_N = normalize((dot(geometric_N, L) < 0.0 ? -geometric_N : geometric_N) + L);
+					shadow_facing = 1.0;
 				}
 				vec3 H = normalize(V + L);
 				float NoL = saturate(dot(N, L));
@@ -164,7 +169,7 @@ function surface_lighting.GetGLSL(block_name)
 					]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0 &&
 					type == 0
 				) {
-					shadow_factor = calculateShadow(world_pos, shadow_N, L);
+					shadow_factor = calculateShadow(world_pos, shadow_N, L) * shadow_facing;
 				}
 
 				if (type == 0) {
@@ -174,7 +179,7 @@ function surface_lighting.GetGLSL(block_name)
 					]] .. block_name .. [[.shadows.local_directional_shadow_map_index >= 0 &&
 					type == 2
 				) {
-					shadow_factor = calculateLocalDirectionalShadow(world_pos, shadow_N, L);
+					shadow_factor = calculateLocalDirectionalShadow(world_pos, shadow_N, L) * shadow_facing;
 				} else if (type == 1 || type == 3) {
 					int point_shadow_slot = getPointShadowSlot(i);
 

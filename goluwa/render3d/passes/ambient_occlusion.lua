@@ -44,6 +44,7 @@ return {
 					render3d.camera_block,
 					{"ssao_kernel", "vec3", 64},
 					{"blue_noise_tex", "int"},
+					{"frame", "int"},
 					gbuffer_layout.block,
 				},
 				write = function(self, block)
@@ -54,6 +55,7 @@ return {
 					end
 
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+					block.frame = system.GetFrameNumber() % 4096
 					gbuffer_layout.WriteBlock(self, block)
 					return block
 				end,
@@ -114,7 +116,8 @@ return {
 				ivec2 screen_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
 				ivec2 pixel = ivec2(uv * vec2(screen_size));
 				ivec2 noise_size = textureSize(TEXTURE(lighting_data.blue_noise_tex), 0);
-				vec2 noise = texelFetch(TEXTURE(lighting_data.blue_noise_tex), pixel % noise_size, 0).rg;
+				// a different pattern every frame (R2 sequence), for taa to average
+				vec2 noise = fract(texelFetch(TEXTURE(lighting_data.blue_noise_tex), pixel % noise_size, 0).rg + float(lighting_data.frame) * vec2(0.7548776662, 0.5698402910));
 				
 				float random_offset = noise.x;
 				float random_rotation = noise.y * 6.28318;
@@ -174,6 +177,11 @@ return {
 
 							if (dist2 > world_radius * world_radius || dist2 < 0.0001) continue;
 
+							// at or below the tangent plane nothing can occlude, and on flat
+							// or convex faceted surfaces that is where every sample lands, a
+							// hair above or below. without a margin those set a bit each
+							if (dot(v_f, view_normal) < 0.1 * sqrt(dist2)) continue;
+
 							float sample_thickness = gbuffer_transmission(sample_uv) > 0.0 ? thin_thickness : thickness;
 
 							// Angles from the view vector, signed by the side of
@@ -193,8 +201,8 @@ return {
 							float theta_min = clamp(min(diff_f, diff_b), -1.5708, 1.5708);
 							float theta_max = clamp(max(diff_f, diff_b), -1.5708, 1.5708);
 							
-							uint a = uint(floor((theta_min + 1.5708) / 3.14159 * float(Nb)));
-							uint b = uint(ceil((theta_max + 1.5708) / 3.14159 * float(Nb)));
+							uint a = uint(round((theta_min + 1.5708) / 3.14159 * float(Nb)));
+							uint b = uint(round((theta_max + 1.5708) / 3.14159 * float(Nb)));
 							
 							a = clamp(a, 0u, Nb);
 							b = clamp(b, 0u, Nb);
@@ -325,9 +333,10 @@ return {
 
 				float total = 0.0;
 				float weight_sum = 0.0;
+				vec3 center_normal = gbuffer_normal(uv);
 
-				for (int y = -1; y <= 1; y++) {
-					for (int x = -1; x <= 1; x++) {
+				for (int y = -2; y <= 2; y++) {
+					for (int x = -2; x <= 2; x++) {
 						vec2 offset = vec2(x, y);
 						vec2 sample_uv = clamp(uv + offset * ao_texel, vec2(0.0), vec2(1.0));
 						float sample_depth = gbuffer_depth(sample_uv);
@@ -337,8 +346,9 @@ return {
 						float sample_view_depth = get_view_depth(sample_uv, sample_depth);
 						float depth_diff = sample_view_depth - center_view_depth;
 						float depth_weight = exp(-(depth_diff * depth_diff) / (2.0 * depth_sigma * depth_sigma));
-						float spatial_weight = exp(-dot(offset, offset) / (2.0 * 1.2 * 1.2));
-						float weight = depth_weight * spatial_weight;
+						float spatial_weight = exp(-dot(offset, offset) / (2.0 * 2.0 * 2.0));
+						float normal_weight = pow(max(dot(center_normal, gbuffer_normal(sample_uv)), 0.0), 8.0);
+						float weight = depth_weight * spatial_weight * normal_weight;
 						float sample_ao = texture(TEXTURE(ao_blur_data.ao_tex), sample_uv).r;
 						total += sample_ao * weight;
 						weight_sum += weight;

@@ -12,13 +12,16 @@ gbuffer_layout.targets = {
 	},
 	{
 		texture = "normal",
-		format = "b10g11r11_ufloat_pack32",
-		channels = {{"normal", "rgb"}},
+		-- octahedral. a mirror or a sun highlight on a smooth surface bands at
+		-- 10 bits per component already
+		format = "r16g16_unorm",
+		channels = {{"normal", "rg"}},
 	},
 	{
 		texture = "mra",
 		format = "r8g8b8a8_unorm",
-		-- roughness is ggx alpha
+		-- roughness is stored perceptual (sqrt of ggx alpha): 8 bits of alpha put
+		-- everything smoother than 0.06 perceptual on its first step or 0
 		channels = {{"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}, {"transmission", "a"}},
 	},
 	{
@@ -78,8 +81,15 @@ end
 -- for the shaders writing the gbuffer
 function gbuffer_layout.GetEncodeGLSL()
 	return [[
-		vec3 gbuffer_encode_normal(vec3 N) {
-			return N * 0.5 + 0.5;
+		vec2 gbuffer_encode_normal(vec3 N) {
+			N /= abs(N.x) + abs(N.y) + abs(N.z);
+			vec2 e = N.z >= 0.0 ? N.xy : (1.0 - abs(N.yx)) * vec2(N.x >= 0.0 ? 1.0 : -1.0, N.y >= 0.0 ? 1.0 : -1.0);
+			return e * 0.5 + 0.5;
+		}
+
+		// ggx alpha in, gbuffer_roughness gives it back
+		float gbuffer_encode_roughness(float alpha) {
+			return sqrt(alpha);
 		}
 
 		// a multiplier of 1 is dielectric F0 0.04; up to 2 fits
@@ -100,9 +110,17 @@ do
 		vec3 gbuffer_albedo(COORD c) { return gbuffer_fetch(GBUFFER.albedo_tex, c).rgb; }
 		float gbuffer_alpha(COORD c) { return gbuffer_fetch(GBUFFER.albedo_tex, c).a; }
 		float gbuffer_depth(COORD c) { return gbuffer_fetch(GBUFFER.depth_tex, c).r; }
-		vec3 gbuffer_normal(COORD c) { return gbuffer_fetch(GBUFFER.normal_tex, c).xyz * 2.0 - 1.0; }
+		// never filtered, texels on either side of the octahedral fold don't blend
+		vec3 gbuffer_normal(COORD c) {
+			vec2 e = gbuffer_fetch_nearest(GBUFFER.normal_tex, c).xy * 2.0 - 1.0;
+			vec3 N = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+			float t = max(-N.z, 0.0);
+			N.xy += vec2(N.x >= 0.0 ? -t : t, N.y >= 0.0 ? -t : t);
+			return normalize(N);
+		}
 		float gbuffer_metallic(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).r; }
-		float gbuffer_roughness(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).g; }
+		// ggx alpha
+		float gbuffer_roughness(COORD c) { float r = gbuffer_fetch(GBUFFER.mra_tex, c).g; return r * r; }
 		float gbuffer_ao(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).b; }
 		float gbuffer_transmission(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).a; }
 		vec3 gbuffer_emissive(COORD c) { return gbuffer_fetch(GBUFFER.emissive_tex, c).rgb; }
@@ -122,6 +140,15 @@ do
 		}
 
 		vec4 gbuffer_fetch(int tex, ivec2 pixel) {
+			return texelFetch(TEXTURE(tex), pixel, 0);
+		}
+
+		vec4 gbuffer_fetch_nearest(int tex, vec2 uv) {
+			ivec2 size = textureSize(TEXTURE(tex), 0);
+			return texelFetch(TEXTURE(tex), clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1), 0);
+		}
+
+		vec4 gbuffer_fetch_nearest(int tex, ivec2 pixel) {
 			return texelFetch(TEXTURE(tex), pixel, 0);
 		}
 	]] .. decoders:gsub("COORD", "vec2") .. decoders:gsub("COORD", "ivec2")

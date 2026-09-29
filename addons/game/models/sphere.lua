@@ -7,7 +7,7 @@ return {
 		options = options or {}
 		local radius = options.radius or 0.5
 		local poly = Polygon3D.New()
-		poly:CreateSphere(radius, options.segments or 16, options.rings or 12)
+		poly:CreateSphere(radius, options.segments or 64, options.rings or 32)
 		poly:BuildBoundingBox()
 		poly:Upload()
 		return {
