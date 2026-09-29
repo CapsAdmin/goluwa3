@@ -67,14 +67,17 @@ local function scalar_to_shader(value)
 	return string.format("return vec4(%f);", value or 0)
 end
 
-local function resolve_texture(source, shared)
-	if not RENDER_3D then return end
+local resolve_texture
 
-	local TextureClass = import("goluwa/render/texture.lua")
+do
+	-- a solid color or value is the same 4x4 texture wherever it's used, and
+	-- each one costs a submit and a gpu wait to make
+	local constant_textures = {}
 
-	if source == nil then return nil end
+	local function constant_texture(glsl)
+		if constant_textures[glsl] then return constant_textures[glsl] end
 
-	if is_color(source) then
+		local TextureClass = import("goluwa/render/texture.lua")
 		local tex = TextureClass.New{
 			width = 4,
 			height = 4,
@@ -90,14 +93,28 @@ local function resolve_texture(source, shared)
 				wrap_t = "repeat",
 			},
 		}
-		tex:Shade(color_to_shader(source), {custom_declarations = shared})
+		tex:Shade(glsl)
+		constant_textures[glsl] = tex
 		return tex
 	end
 
-	if type(source) == "number" then
+	function resolve_texture(source, shared)
+		if not RENDER_3D then return end
+
+		if source == nil then return nil end
+
+		if is_color(source) then return constant_texture(color_to_shader(source)) end
+
+		if type(source) == "number" then
+			return constant_texture(scalar_to_shader(source))
+		end
+
+		if type(source) ~= "string" then return source end
+
+		local TextureClass = import("goluwa/render/texture.lua")
 		local tex = TextureClass.New{
-			width = 4,
-			height = 4,
+			width = 1024,
+			height = 1024,
 			format = "r8g8b8a8_unorm",
 			mip_map_levels = "auto",
 			image = {
@@ -107,32 +124,12 @@ local function resolve_texture(source, shared)
 				min_filter = "linear",
 				mag_filter = "linear",
 				wrap_s = "repeat",
-				wrap_t = "repeat",
+				wrap_t = "clamp_to_edge",
 			},
 		}
-		tex:Shade(scalar_to_shader(source), {custom_declarations = shared})
+		tex:Shade(source, {custom_declarations = shared})
 		return tex
 	end
-
-	if type(source) ~= "string" then return source end
-
-	local tex = TextureClass.New{
-		width = 1024,
-		height = 1024,
-		format = "r8g8b8a8_unorm",
-		mip_map_levels = "auto",
-		image = {
-			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		},
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "repeat",
-			wrap_t = "clamp_to_edge",
-		},
-	}
-	tex:Shade(source, {custom_declarations = shared})
-	return tex
 end
 
 function shapes.Texture(source, shared)

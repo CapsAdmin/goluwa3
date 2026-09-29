@@ -73,6 +73,11 @@ local function add_asset_model(ent, path, material, options)
 			Parent = ent,
 		}
 		primitive_entity:AddComponent("transform")
+
+		if primitive.scale then
+			primitive_entity.transform:SetScale(primitive.scale)
+		end
+
 		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
 		visual_primitive:SetPolygon3D(primitive.mesh or primitive.polygon3d or primitive)
 		visual_primitive:SetMaterial(primitive.material or material)
