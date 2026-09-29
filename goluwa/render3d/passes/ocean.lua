@@ -895,9 +895,11 @@ list.insert(
 
 			// marches the reflected ray through the depth buffer. the lit scene
 			// where it meets something is what the water reflects there
-			bool trace_water_reflection(vec3 origin, vec3 dir, float jitter, out vec3 color, out float weight) {
+			// hit_uv is where on screen, hit_t how far along dir, weight how far from the screen's edge
+			bool trace_water_reflection(vec3 origin, vec3 dir, float jitter, out vec2 hit_uv, out float hit_t, out float weight) {
 				float previous = 0.0;
-				color = vec3(0.0);
+				hit_uv = vec2(0.0);
+				hit_t = 0.0;
 				weight = 0.0;
 
 				for (int i = 1; i <= 24; i++) {
@@ -932,7 +934,8 @@ list.insert(
 						if (length(scene_pos - ray_pos) > max(0.4, far * 0.04)) return false;
 
 						vec2 edge = min(hit.xy, 1.0 - hit.xy);
-						color = get_scene_color(hit.xy);
+						hit_uv = hit.xy;
+						hit_t = far;
 						weight = smoothstep(0.0, 0.06, min(edge.x, edge.y));
 						return true;
 					}
@@ -953,8 +956,13 @@ list.insert(
 				vec3 origin = surface_pos + normal * 0.02;
 				vec3 ssr_color = vec3(0.0);
 				float ssr_weight = 0.0;
+				vec2 ssr_uv;
+				float ssr_t;
 
-				if (ssr_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, ssr_color, ssr_weight)) ssr_weight *= ssr_fade;
+				if (ssr_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, ssr_uv, ssr_t, ssr_weight)) {
+					ssr_color = get_scene_color(ssr_uv);
+					ssr_weight *= ssr_fade;
+				}
 
 				#ifdef SCENE_REFLECTION
 				// what the screen doesn't hold is traced, at any roughness: a ray per pixel through the
@@ -973,7 +981,8 @@ list.insert(
 						if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
 					}
 
-					vec3 traced = trace_scene_reflection(origin, dir, normal, perceptual, WATER_REFLECTION_TRACE_DISTANCE);
+					float traced_t;
+					vec3 traced = trace_scene_reflection(origin, dir, normal, perceptual, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
 					return mix(traced, ssr_color, ssr_weight);
 				}
 				#endif
@@ -1107,6 +1116,53 @@ list.insert(
 
 			// the surface seen from under the water: what's above comes through
 			// snell's window, outside it the water reflects its own depths
+			// the light at a submerged point of the scene, relative to above the water: the sun's path
+			// down through the water to it, for a traced hit that was lit as if there were none
+			vec3 get_submerged_light(Water w, vec3 world_pos) {
+				float sun_transmission;
+				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
+				return sun_transmission * exp(-get_extinction(w) * (max(w.surface_y - world_pos.y, 0.0) / max(-sun_dir.y, 0.05)));
+			}
+
+			// what the surface reflects back down into the water: the underwater scene along the
+			// mirrored ray, seen through the water like the view straight into it. off the screen it's
+			// traced; what's hit there was lit without the water, so it is dimmed by its depth
+			vec3 get_underwater_reflection(Water w, vec3 surface_pos, vec3 dir, float jitter) {
+				vec3 origin = surface_pos + dir * 0.02;
+				// a volume's walls are usually right on its sides, so what's hit a little past where the
+				// ray leaves it still counts
+				float len = w.volume >= 0 ? get_volume_exit(w.volume, origin, dir) + 0.25 : WATER_OPEN_DEPTH;
+				vec3 behind = vec3(0.0);
+				vec2 hit_uv;
+				float hit_t;
+				float weight;
+
+				if (trace_water_reflection(origin, dir, jitter, hit_uv, hit_t, weight) && hit_t < len) {
+					vec3 scene_pos = get_world_pos(hit_uv, scene_depth_at(hit_uv));
+					float footprint = get_pixel_footprint(length(scene_pos - ocean_data.camera_position.xyz), 1.0);
+					behind = relight_submerged(w, hit_uv, get_scene_color(hit_uv), scene_pos, get_caustic(w, scene_pos, footprint));
+					len = hit_t;
+				} else {
+					weight = 0.0;
+				}
+
+				#ifdef SCENE_REFLECTION
+				if (weight < 0.999 && scene_reflection_ready()) {
+					float traced_t;
+					vec3 traced = trace_scene_reflection(origin, dir, -dir, 0.0, len, traced_t);
+
+					if (traced_t < len) {
+						behind = mix(traced * get_submerged_light(w, origin + dir * traced_t), behind, weight);
+						if (weight <= 0.0) len = traced_t;
+					}
+				}
+				#endif
+
+				vec3 transmittance;
+				vec3 inscatter = get_water_inscatter(w, origin, dir, len, jitter, transmittance);
+				return behind * transmittance + inscatter;
+			}
+
 			vec3 shade_surface_from_below(Water w, vec3 surface_pos, vec3 normal_up, vec3 ray_dir, float jitter) {
 				vec3 normal = -normal_up;
 				vec3 view_dir = -ray_dir;
@@ -1116,10 +1172,24 @@ list.insert(
 				if (fresnel < 1.0) {
 					vec3 refracted_dir = normalize(refract(ray_dir, normal, w.ior));
 					above = sample_environment_specular(ocean_data.env_tex, refracted_dir, normal_up, 0.05);
+					bool traced = false;
+
+					// from below, what's above the water is mostly hidden on screen, behind the parts
+					// of things under it (the top of something floating), so it's traced where it can be
+					#ifdef SCENE_REFLECTION
+					if (scene_reflection_ready()) {
+						float traced_t;
+						above = trace_scene_reflection(surface_pos + normal_up * 0.02, refracted_dir, normal_up, 0.05, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
+						traced = true;
+					}
+					#endif
+
 					vec2 uv;
 					float hit;
 
-					if (screen_refraction_trace(surface_pos, surface_pos, refracted_dir, 200.0, jitter, uv, hit)) {
+					// only what the ray really met: where it stopped without meeting anything the screen
+					// holds something else
+					if (!traced && screen_refraction_trace(surface_pos, surface_pos, refracted_dir, 200.0, jitter, uv, hit) && hit < 200.0) {
 						if (scene_depth_at(uv) < 1.0) above = get_scene_color(uv);
 					}
 
@@ -1128,9 +1198,7 @@ list.insert(
 					above += get_sun_illuminance() * get_water_sun_visibility(surface_pos, sun) * smoothstep(0.9995, 0.99995, cos_sun) * 2000.0;
 				}
 
-				vec3 reflected_dir = reflect(ray_dir, normal);
-				vec3 transmittance;
-				vec3 depths = get_water_inscatter(w, surface_pos, reflected_dir, WATER_OPEN_DEPTH, jitter, transmittance);
+				vec3 depths = get_underwater_reflection(w, surface_pos, reflect(ray_dir, normal), jitter);
 				return mix(above, depths, fresnel);
 			}
 

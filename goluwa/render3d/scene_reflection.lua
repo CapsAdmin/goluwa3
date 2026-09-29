@@ -138,18 +138,22 @@ function scene_reflection.GetGLSL(block_name)
 			return rayQueryGetIntersectionTEXT(query, true);
 		}
 
-		// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit
-		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance) {
+		// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit. hit_t is how far
+		// the hit is, max_distance when the ray went on to the sky
+		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, max_distance);
 
 			while (rayQueryProceedEXT(query)) {}
+
+			hit_t = max_distance;
 
 			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
 				return sample_environment_specular(]] .. block_name .. [[.env_tex, dir, N, roughness);
 			}
 
 			float t = rayQueryGetIntersectionTEXT(query, true);
+			hit_t = t;
 			scene_bvh_triangle tri = bvh_tri(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true)));
 			ddgi_material material = ddgi_materials[tri.material];
 			// the visible side winds clockwise, so tri.normal points inward

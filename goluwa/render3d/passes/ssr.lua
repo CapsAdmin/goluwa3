@@ -368,7 +368,8 @@ return {
 				// facing the camera) is traced; faded screen hits blend into it
 				if (scene_reflection_ready() && hit.a < 0.999) {
 					vec3 origin = world_pos + geometric_N * (0.02 + 0.002 * -pos_vs.z);
-					vec3 traced = trace_scene_reflection(origin, R_world, N, roughness, SCENE_REFLECTION_MAX_DISTANCE);
+					float traced_t;
+					vec3 traced = trace_scene_reflection(origin, R_world, N, roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
 
 					if (roughness > SSR_MIRROR_THRESHOLD) {
 						float traced_luma = luminance(traced);
