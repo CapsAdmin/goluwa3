@@ -202,7 +202,9 @@ local noise_pass = {
 				) * 0.06;
 				float fibres = cloud_saturate(0.5 + 1.1 * cloud_perlin_fbm(p + warp, ivec3(3, 28, 1), 4, 130u));
 				float veil = cloud_saturate(0.5 + 1.0 * cloud_perlin_fbm(p, ivec3(4, 4, 1), 3, 140u));
-				imageStore(out_weather, pixel, vec4(coverage, height, fibres * mix(0.4, 1.0, veil), 0.0));
+				// where the base sits within the layer's base_variation, drifting over a few kilometers
+				float base = cloud_saturate(0.5 + 1.1 * cloud_perlin_fbm(p, ivec3(8, 8, 1), 3, 150u));
+				imageStore(out_weather, pixel, vec4(coverage, height, fibres * mix(0.4, 1.0, veil), base));
 			}
 		}
 	]],

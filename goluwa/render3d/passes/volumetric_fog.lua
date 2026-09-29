@@ -612,6 +612,12 @@ local composite_pass = {
 			float get_cloud_shadow_km(vec3 point) {
 				return get_cloud_shadow(vec3(point.x, point.y - PLANET_RADIUS - SEA_LEVEL_EYE_HEIGHT, point.z) / (CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER));
 			}
+
+			// km from the camera along dir to the planet's surface, 1e30 when it misses
+			float get_planet_distance(vec3 dir) {
+				float t = ray_sphere_intersect(get_atmosphere_camera_origin(fog_data.camera_position.xyz), dir, PLANET_RADIUS).x;
+				return t > 0.0 ? t : 1e30;
+			}
 		]] .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data", "get_current_primary_sun_direction()") .. post_source.GetPreExposureGLSL("fog_data") .. [[
 			void main() {
 				// the scene is pre-exposed, the fog in front of it absolute
@@ -637,9 +643,12 @@ local composite_pass = {
 				vec3 sun_dir = get_current_primary_sun_direction();
 				vec3 ray_dir = normalize(mat3(fog_data.inv_view) * view_dir);
 				fog_jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy + 5.588238 * float(fog_data.frame), vec2(0.06711056, 0.00583715))));
-				// the clouds in front of what the pixel sees, premultiplied, and how far they are
+				// the clouds in front of what the pixel sees, premultiplied, and how far they are.
+				// cloud_front is what is at the clouds, the air up to them included, and scene becomes
+				// what shows through them, so the fog can be split there
 				vec4 cloud = vec4(0.0, 0.0, 0.0, 1.0);
 				float cloud_depth = 1e30;
+				vec3 cloud_front = vec3(0.0);
 
 				if (fog_data.cloud_view_tex >= 0) {
 					cloud = textureLod(TEXTURE(fog_data.cloud_view_tex), in_uv, 0.0);
@@ -656,24 +665,28 @@ local composite_pass = {
 					// part the volume holds so it isn't there twice
 					fog_cloud_shadows = false;
 					vec3 air_transmittance;
-					vec3 air = integrate_scattering(get_atmosphere_camera_origin(fog_data.camera_position.xyz), ray_dir, 0.0, froxel_end, sun_dir, 16, vec2(1.0), 1.0, air_transmittance);
+					vec3 air = integrate_scattering(get_atmosphere_camera_origin(fog_data.camera_position.xyz), ray_dir, 0.0, min(froxel_end, get_planet_distance(ray_dir)), sun_dir, 16, vec2(1.0), 1.0, air_transmittance);
 					scene.rgb = max(scene.rgb - air, vec3(0.0)) / air_transmittance;
 				} else if (hit_distance < 0.0) {
 					// the sky with clouds: the air the volume holds, then the air up to the clouds
 					// in their shadows, the clouds, and the sky behind them. the sky's air is
 					// unshadowed, so the air in front of the clouds is taken out of it
 					vec3 origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
-					float far = clamp(cloud_depth * scale, froxel_end, ]] .. string.format("%.1f", CLOUD_SHAFT_DISTANCE) .. [[);
+					// from high up the sky's rays below the horizon end on the planet
+					float ground = get_planet_distance(ray_dir);
+					float near = min(froxel_end, ground);
+					float far = min(clamp(cloud_depth * scale, near, ]] .. string.format("%.1f", CLOUD_SHAFT_DISTANCE) .. [[), ground);
 					fog_cloud_shadows = false;
 					vec3 near_transmittance;
-					vec3 near_air = integrate_scattering(origin, ray_dir, 0.0, froxel_end, sun_dir, 8, vec2(1.0), 1.0, near_transmittance);
+					vec3 near_air = integrate_scattering(origin, ray_dir, 0.0, near, sun_dir, 8, vec2(1.0), 1.0, near_transmittance);
 					vec3 far_transmittance;
-					vec3 far_air = integrate_scattering(origin, ray_dir, froxel_end, far, sun_dir, 12, vec2(1.0), 1.0, far_transmittance);
+					vec3 far_air = integrate_scattering(origin, ray_dir, near, far, sun_dir, 12, vec2(1.0), 1.0, far_transmittance);
 					fog_cloud_shadows = true;
 					vec3 shadowed_transmittance;
-					vec3 shadowed_air = integrate_scattering(origin, ray_dir, froxel_end, far, sun_dir, 16, vec2(1.0), 1.0, shadowed_transmittance);
+					vec3 shadowed_air = integrate_scattering(origin, ray_dir, near, far, sun_dir, 16, vec2(1.0), 1.0, shadowed_transmittance);
 					vec3 behind = max(scene.rgb - near_air - near_transmittance * far_air, vec3(0.0)) / max(near_transmittance * far_transmittance, vec3(1e-4));
-					scene.rgb = shadowed_air + far_transmittance * (cloud.rgb + cloud.a * behind);
+					cloud_front = shadowed_air + far_transmittance * cloud.rgb;
+					scene.rgb = far_transmittance * cloud.a * behind;
 				} else if (hit_distance * scale > froxel_end) {
 					// the air beyond the volume, past the sun's shadow map
 					vec3 world_pos = fog_data.camera_position.xyz + normalize(mat3(fog_data.inv_view) * view_dir) * hit_distance;
@@ -682,10 +695,22 @@ local composite_pass = {
 					scene.rgb = apply_atmospheric_aerial_perspective(scene.rgb, world_pos, sun_dir, fog_data.camera_position.xyz, sun_visibility, sky_visibility, froxel_end);
 				}
 
-				if (hit_distance >= 0.0) scene.rgb = scene.rgb * cloud.a + cloud.rgb;
+				if (hit_distance >= 0.0) {
+					cloud_front = cloud.rgb;
+					scene.rgb *= cloud.a;
+				}
 
 				vec4 fog = get_volumetric_fog(in_uv, hit_distance);
-				set_color(vec4(min((scene.rgb * fog.a + fog.rgb) * pre_exposure, vec3(65504.0)), scene.a));
+				vec3 color = scene.rgb * fog.a + fog.rgb;
+
+				if (fog_data.cloud_view_tex >= 0 && (hit_distance < 0.0 || cloud.a < 1.0)) {
+					// the fog in front of the clouds covers them, the rest is behind them and shows
+					// through as much as they let through
+					vec4 front = get_volumetric_fog(in_uv, cloud_depth);
+					color = front.rgb + front.a * cloud_front + cloud.a * (fog.rgb - front.rgb) + fog.a * scene.rgb;
+				}
+
+				set_color(vec4(min(color * pre_exposure, vec3(65504.0)), scene.a));
 			}
 		]],
 	},

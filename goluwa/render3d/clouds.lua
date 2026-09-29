@@ -71,6 +71,8 @@ clouds.LAYER_DEFAULTS = {
 	detail_scale = 300,
 	-- how much the weather map varies the coverage from place to place
 	variation = 0.5,
+	-- meters the base rises and sinks from place to place, so not every cloud sits on the same floor
+	base_variation = 0,
 	-- 0 to 1, how much the clouds are stretched and curled into swirls, as by wind shear and eddies.
 	-- far away they always are a little, which hides the noise's tiling
 	swirl = 0,
@@ -91,6 +93,7 @@ clouds.presets = {
 			type = 1,
 			shape_scale = 3500,
 			detail_scale = 250,
+			base_variation = 150,
 		},
 	},
 	-- partly cloudy: taller cumulus and a veil of cirrus
@@ -102,6 +105,7 @@ clouds.presets = {
 			density = 0.07,
 			type = 1,
 			detail_scale = 250,
+			base_variation = 200,
 		},
 		{
 			bottom = 9000,
@@ -126,6 +130,7 @@ clouds.presets = {
 			shape_scale = 7000,
 			detail_scale = 300,
 			weather_scale = 50000,
+			base_variation = 250,
 		},
 	},
 	stratocumulus = {
@@ -138,6 +143,7 @@ clouds.presets = {
 			shape_scale = 2500,
 			detail_scale = 250,
 			variation = 0.35,
+			base_variation = 60,
 		},
 	},
 	-- a mackerel sky of small cloudlets in the middle troposphere
@@ -226,6 +232,7 @@ clouds.presets = {
 			erosion = 0.5,
 			variation = 0.8,
 			wind_scale = 1.5,
+			base_variation = 200,
 		},
 	},
 	cirrus = {
@@ -256,7 +263,14 @@ clouds.presets = {
 	},
 	-- cumulus under altocumulus under cirrus
 	mixed = {
-		{bottom = 1400, thickness = 1500, coverage = 0.35, density = 0.07, type = 1},
+		{
+			bottom = 1400,
+			thickness = 1500,
+			coverage = 0.35,
+			density = 0.07,
+			type = 1,
+			base_variation = 150,
+		},
 		{
 			bottom = 4500,
 			thickness = 500,
@@ -287,6 +301,7 @@ clouds.presets = {
 			erosion = 0.5,
 			swirl = 0.5,
 			detail_scale = 250,
+			base_variation = 150,
 			wind_scale = 4,
 		},
 		{
@@ -337,6 +352,8 @@ function clouds.SetLayers(list)
 		layers[i] = create_layer(params)
 		-- the same pattern shouldn't repeat in every layer
 		layers[i].weather_offset = Vec2(i * 7919, i * 3571)
+		layers[i].shape_offset = Vec3(i * 4271, i * 1523, i * 2963)
+		layers[i].detail_offset = Vec3(i * 613, i * 331, i * 877)
 	end
 
 	table.sort(layers, sort_layers)
@@ -380,6 +397,7 @@ function clouds.SetCover(cover)
 				type = math.lerp(spread, 1, 0.2),
 				shape_scale = math.lerp(spread, 4000, 3500),
 				variation = math.lerp(spread, 0.5, 0.3),
+				base_variation = math.lerp(spread, 150, 50),
 			},
 		}
 	end
@@ -715,7 +733,7 @@ do
 		local top = 0
 
 		for _, layer in ipairs(clouds.layers) do
-			top = math.max(top, layer.bottom + layer.thickness)
+			top = math.max(top, layer.bottom + layer.thickness + layer.base_variation)
 		end
 
 		shadow_frame.right = right
@@ -815,7 +833,8 @@ function clouds.GetBlockLayout()
 		{"cloud_layer_offset", "vec4", clouds.MAX_LAYERS},
 		-- shape offset y, detail offset xyz
 		{"cloud_layer_offset2", "vec4", clouds.MAX_LAYERS},
-		{"cloud_layer_swirl", "float", clouds.MAX_LAYERS},
+		-- swirl, base variation
+		{"cloud_layer_vary", "vec4", clouds.MAX_LAYERS},
 		{"cloud_light_direction", "vec4"},
 		{"cloud_light_illuminance", "vec4"},
 	}
@@ -855,7 +874,9 @@ function clouds.WriteBlock(self, block)
 		offset2[1] = layer.detail_offset.x
 		offset2[2] = layer.detail_offset.y
 		offset2[3] = layer.detail_offset.z
-		block.cloud_layer_swirl[k] = layer.swirl
+		local vary = block.cloud_layer_vary[k]
+		vary[0] = layer.swirl
+		vary[1] = layer.flat and 0 or layer.base_variation
 	end
 
 	local dir = clouds.light_direction
@@ -980,6 +1001,15 @@ function clouds.GetGLSL(block)
 		// after this many fine steps in the clear
 		const float CLOUD_COARSE_STEPS = 4.0;
 		const int CLOUD_EMPTY_STEPS = 6;
+		// past this transmittance a march stops lighting its samples, what is further in adds no
+		// light that shows
+		const float CLOUD_LIT_TRANSMITTANCE = 0.003;
+		// the sun's disc is ~1e5 times brighter than the sky and would show through much denser cloud,
+		// but a real cloud that thick scatters so much light forward that the disc is lost in it (the
+		// scattering approximation doesn't carry that light). what comes through fades out over the
+		// tenfold above this and is gone below it, where the march stops. higher hides the sun behind
+		// thinner cloud: 1e-3 is an optical depth of 6.9, 1e-4 9.2, 1e-5 11.5
+		const float CLOUD_HIDDEN_TRANSMITTANCE = 1e-4;
 		// the warp that breaks up the shape noise's tiling: its field repeats every 1 / (0.889 x
 		// frequency) tiles, is read this coarse, and moves the lookup by up to half this many tiles
 		const float CLOUD_WARP_FREQUENCY = 0.12;
@@ -988,6 +1018,8 @@ function clouds.GetGLSL(block)
 		// it starts this many tiles away from the camera and is in full this many tiles out
 		const float CLOUD_WARP_NEAR = 2.0;
 		const float CLOUD_WARP_FAR = 8.0;
+		// how coarse the shape noise is read for how tall each heap grows
+		const float CLOUD_TOP_CELL_LOD = 3.0;
 
 		float cloud_saturate(float x) {
 			return clamp(x, 0.0, 1.0);
@@ -1088,29 +1120,26 @@ function clouds.GetGLSL(block)
 		// footprint is how many meters the sample stands for, the noise is read that coarse
 		float cloud_density(int i, vec3 p, float alt, bool detail, float footprint) {
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
-			float hf = (alt - shape.x) / shape.y;
+			vec4 vary = CLOUD_BLOCK.cloud_layer_vary[i];
 
-			if (hf <= 0.0 || hf >= 1.0) return 0.0;
+			if (alt <= shape.x - vary.y || alt >= shape.x + shape.y + vary.y) return 0.0;
 
 			vec4 style = CLOUD_BLOCK.cloud_layer_style[i];
 			vec4 scale = CLOUD_BLOCK.cloud_layer_scale[i];
 			vec4 offset = CLOUD_BLOCK.cloud_layer_offset[i];
 			vec4 offset2 = CLOUD_BLOCK.cloud_layer_offset2[i];
 			vec4 weather = textureLod(TEXTURE(CLOUD_BLOCK.cloud_weather_tex), (p.xz + offset.xy) / scale.x, 0.0);
+			// the base rises and sinks from place to place, as the air is more or less humid
+			float hf = (alt - shape.x - (weather.a * 2.0 - 1.0) * vary.y) / shape.y;
+
+			if (hf <= 0.0 || hf >= 1.0) return 0.0;
+
 			float coverage = cloud_saturate(shape.z + (weather.r - 0.5) * scale.w);
 			// cumulonimbus spread out into an anvil near the top
 			coverage = mix(coverage, cloud_saturate(coverage * 1.4 + 0.25), style.z * smoothstep(0.65, 0.9, hf));
 
 			if (coverage <= 0.0) return 0.0;
 
-			// heaps grow taller where the weather map says so, stratus doesn't vary
-			float top = mix(1.0, mix(0.45, 1.0, weather.g), style.x * (1.0 - style.z));
-			float h = hf / top;
-
-			if (h >= 1.0) return 0.0;
-
-			float profile = cloud_height_profile(h, style.x);
-			profile = max(profile, style.z * smoothstep(0.6, 0.8, hf) * (1.0 - smoothstep(0.92, 1.0, hf)));
 			vec3 uvw = (vec3(p.x + offset.z, alt + offset2.x, p.z + offset.w)) / scale.y;
 			float lod = log2(max(footprint * ]] .. clouds.BASE_NOISE_SIZE .. [[.0 / scale.y, 1.0));
 			// the noise tiles, and toward the horizon the copies along a direction of its lattice would
@@ -1118,13 +1147,30 @@ function clouds.GetGLSL(block)
 			// amounts pushes the lookup around, differently for every copy. it would shear the clouds
 			// overhead, where only a few copies are in view, so it comes in with distance, unless the
 			// layer asks for swirls
-			float warp = max(smoothstep(CLOUD_WARP_NEAR, CLOUD_WARP_FAR, distance(p.xz, CLOUD_BLOCK.camera_position.xz) / scale.y), CLOUD_BLOCK.cloud_layer_swirl[i]);
+			float warp = max(smoothstep(CLOUD_WARP_NEAR, CLOUD_WARP_FAR, distance(p.xz, CLOUD_BLOCK.camera_position.xz) / scale.y), vary.x);
 
 			if (warp > 0.0) {
 				vec3 turned = vec3(uvw.x * 0.6663 - uvw.z * 0.5891, uvw.y * 0.8889 + 0.37, uvw.x * 0.5891 + uvw.z * 0.6663 + 0.53) * CLOUD_WARP_FREQUENCY;
 				uvw.xz += (textureLod(cloud_base_noise, turned, max(lod + log2(0.889 * CLOUD_WARP_FREQUENCY), CLOUD_WARP_LOD)).rg - 0.5) * (CLOUD_WARP_AMOUNT * warp);
 			}
 
+			// heaps grow to different heights: a region's weather sets how tall they get, and the
+			// coarsest cells of the shape noise, about a cloud across, make neighbours differ.
+			// stratus doesn't vary
+			float heaps = style.x * (1.0 - style.z);
+			float top = 1.0;
+
+			if (heaps > 0.0) {
+				float cell = cloud_saturate((textureLod(cloud_base_noise, vec3(uvw.x, offset2.x / scale.y, uvw.z), max(lod, CLOUD_TOP_CELL_LOD)).g - 0.3) / 0.4);
+				top = mix(1.0, mix(0.3, 1.0, mix(weather.g, cell, 0.6)), heaps);
+			}
+
+			float h = hf / top;
+
+			if (h >= 1.0) return 0.0;
+
+			float profile = cloud_height_profile(h, style.x);
+			profile = max(profile, style.z * smoothstep(0.6, 0.8, hf) * (1.0 - smoothstep(0.92, 1.0, hf)));
 			vec4 n = textureLod(cloud_base_noise, uvw, lod);
 
 			// the perlin-worley shape, dented by the finer worley octaves
@@ -1212,7 +1258,7 @@ function clouds.GetGLSL(block)
 				float s = t + ds * 0.5;
 				float a = alt + L_up * s;
 
-				if (a > shape.x + shape.y) break;
+				if (a > shape.x + shape.y + CLOUD_BLOCK.cloud_layer_vary[i].y) break;
 
 				od += cloud_density(i, p + L * s, a, k < 2, ds) * ds;
 				t += ds;
@@ -1225,13 +1271,13 @@ function clouds.GetGLSL(block)
 		float cloud_upper_transmittance(int i, vec3 p, float alt, vec3 L, float L_up) {
 			// one sample stands for the whole column
 			const float COLUMN_FOOTPRINT = 400.0;
-			float top = CLOUD_BLOCK.cloud_layer_shape[i].x + CLOUD_BLOCK.cloud_layer_shape[i].y;
+			float top = CLOUD_BLOCK.cloud_layer_shape[i].x + CLOUD_BLOCK.cloud_layer_shape[i].y + CLOUD_BLOCK.cloud_layer_vary[i].y;
 			float od = 0.0;
 
 			for (int j = 0; j < CLOUD_BLOCK.cloud_layer_count; j++) {
 				vec4 shape = CLOUD_BLOCK.cloud_layer_shape[j];
 
-				if (j == i || shape.x < top) continue;
+				if (j == i || shape.x - CLOUD_BLOCK.cloud_layer_vary[j].y < top) continue;
 
 				float mid = shape.x + shape.y * 0.5;
 				float s = (mid - alt) / L_up;
@@ -1254,6 +1300,10 @@ function clouds.GetGLSL(block)
 		// the number of steps
 		vec4 cloud_march(vec3 origin, vec3 dir, float t_max, float jitter, float quality, out float depth) {
 			cloud_ray_t r = cloud_ray(origin, dir);
+			// the planet's surface hides what is past it, from high up the clouds on its far side too
+			vec2 ground = cloud_sphere(r, 0.0);
+
+			if (ground.x > 0.0 && ground.x <= ground.y) t_max = min(t_max, ground.x);
 			int count = 0;
 			vec2 segs[CLOUD_MAX_SEGMENTS];
 			int seg_layer[CLOUD_MAX_SEGMENTS];
@@ -1261,7 +1311,8 @@ function clouds.GetGLSL(block)
 			for (int i = 0; i < CLOUD_BLOCK.cloud_layer_count; i++) {
 				vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 				vec4 seg;
-				int n = cloud_shell(r, shape.x, shape.x + shape.y, t_max, seg);
+				float vary = CLOUD_BLOCK.cloud_layer_vary[i].y;
+				int n = cloud_shell(r, shape.x - vary, shape.x + shape.y + vary, t_max, seg);
 
 				for (int k = 0; k < n; k++) {
 					vec2 s = k == 0 ? seg.xy : seg.zw;
@@ -1302,7 +1353,7 @@ function clouds.GetGLSL(block)
 			float depth_weight = 0.0;
 			int light_steps = quality >= 1.0 ? 6 : 4;
 
-			for (int s = 0; s < count && transmittance > 0.003; s++) {
+			for (int s = 0; s < count && transmittance > CLOUD_HIDDEN_TRANSMITTANCE; s++) {
 				int i = seg_layer[s];
 				vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 				float t0 = segs[s].x;
@@ -1373,6 +1424,16 @@ function clouds.GetGLSL(block)
 
 					empty = 0;
 
+					// what is still to come adds no light that shows, but the sun behind is bright enough
+					// to show through until the cloud is much denser
+					if (transmittance < CLOUD_LIT_TRANSMITTANCE) {
+						transmittance *= exp(-density * dt);
+
+						if (transmittance < CLOUD_HIDDEN_TRANSMITTANCE) break;
+
+						continue;
+					}
+
 					vec3 up = cloud_up(p);
 					float L_up = dot(up, L);
 					float light_od = cloud_light_optical_depth(i, p, alt, L, max(L_up, 0.02), light_steps);
@@ -1392,14 +1453,12 @@ function clouds.GetGLSL(block)
 					depth_sum += ts * transmittance * (1.0 - T);
 					depth_weight += transmittance * (1.0 - T);
 					transmittance *= T;
-
-					if (transmittance < 0.003) break;
 				}
 			}
 
 			if (depth_weight > 1e-3) depth = depth_sum / depth_weight;
 
-			if (transmittance < 0.003) transmittance = 0.0;
+			transmittance *= smoothstep(CLOUD_HIDDEN_TRANSMITTANCE, CLOUD_HIDDEN_TRANSMITTANCE * 10.0, transmittance);
 
 			return vec4(radiance, transmittance);
 		}
@@ -1415,7 +1474,8 @@ function clouds.GetGLSL(block)
 			for (int i = 0; i < CLOUD_BLOCK.cloud_layer_count; i++) {
 				vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 				vec4 seg;
-				int n = cloud_shell(r, shape.x, shape.x + shape.y, t_max, seg);
+				float vary = CLOUD_BLOCK.cloud_layer_vary[i].y;
+				int n = cloud_shell(r, shape.x - vary, shape.x + shape.y + vary, t_max, seg);
 
 				for (int k = 0; k < n; k++) {
 					vec2 s = k == 0 ? seg.xy : seg.zw;

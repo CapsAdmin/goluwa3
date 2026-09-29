@@ -174,7 +174,7 @@ function froxel_fog.GetGLSL(block, sun_dir_expr)
 
 			if (
 				(is_sky || hit_distance * scale > froxel_end) &&
-				get_scenery_fog_segment_with_ground_clip(fog_origin, ray_dir, is_sky ? -1.0 : hit_distance * scale, false, fog_near, fog_length) &&
+				get_scenery_fog_segment_with_ground_clip(fog_origin, ray_dir, is_sky ? -1.0 : hit_distance * scale, is_sky, fog_near, fog_length) &&
 				fog_near + fog_length > froxel_end
 			) {
 				fog_length += fog_near - max(fog_near, froxel_end);
