@@ -41,7 +41,6 @@ weather.time = 1782010800
 weather.time_scale = 0
 -- the drawn moon's size relative to the real 0.52 degrees, the eye sees it bigger than a camera does
 weather.moon_scale = 1
-weather.sun_rotation_override = nil
 -- off: no sun, moon, sky, air, fog, rain or snow, a black void
 weather.enabled = true
 weather.light = nil
@@ -72,11 +71,16 @@ local function ecliptic_to_equatorial(longitude, latitude, obliquity)
 	)
 end
 
+-- the angle the earth has turned at this longitude, from facing the vernal equinox
+local function get_sidereal(unix_time, longitude)
+	return math.rad((18.697374558 + 24.06570982441908 * days_since_j2000(unix_time)) * 15 + longitude)
+end
+
 -- the rows turn a world direction into an equatorial one (x toward the vernal equinox, z the celestial
 -- north pole), the sky turns around the pole once a sidereal day
 -- world directions: east is +x, up is +y, north is -z
 function weather.GetCelestialRotationAt(unix_time, latitude, longitude)
-	local sidereal = math.rad((18.697374558 + 24.06570982441908 * days_since_j2000(unix_time)) * 15 + longitude)
+	local sidereal = get_sidereal(unix_time, longitude)
 	local lat = math.rad(latitude)
 	local s, c = math.sin(sidereal), math.cos(sidereal)
 	return Vec3(-s, math.cos(lat) * c, math.sin(lat) * c),
@@ -164,32 +168,127 @@ function weather.GetTimeScale()
 	return weather.time_scale
 end
 
-function weather.SetSunRotation(rotation)
-	weather.sun_rotation_override = rotation:GetNormalized()
-	weather.UpdateSky()
+do
+	local SIDEREAL_RADIANS_PER_SECOND = math.rad(24.06570982441908 * 15) / 86400
+	local MAX_LATITUDE = math.rad(89)
+	-- just under the obliquity so the date search always finds a day that reaches it
+	local MAX_SIN_DECLINATION = math.sin(math.rad(23.43))
+	local LATITUDE_STEP = math.rad(0.1)
+	-- how many degrees of latitude moving the date by one degree of declination is worth
+	local DECLINATION_COST = 2
+	-- and how much each degree past the polar circles costs on top, so the sun doesn't end up
+	-- somewhere nobody lives
+	local POLAR_LATITUDE = math.rad(66.5)
+	local POLAR_COST = 4
+
+	local function wrap_angle(a)
+		return (a + math.pi) % (2 * math.pi) - math.pi
+	end
+
+	-- moves the latitude, the date and the time of day to where and when the sun stands in dir, the
+	-- longitude stays. the celestial pole (0, sin(lat), -cos(lat)) has to be 90 degrees minus the sun's
+	-- declination away from dir, so each latitude asks for a declination and so a date. the latitude
+	-- that needs the least change of both is kept. then the time of day turns the sky around the pole
+	-- until the sun is in dir, the nearest such time to the current one is kept
+	function weather.SetSunDirection(dir)
+		local time = weather.time
+		local latitude = math.rad(weather.latitude)
+		local r = math.sqrt(dir.y * dir.y + dir.z * dir.z)
+		local theta = math.atan2(-dir.z, dir.y)
+		local declination = math.asin(get_sun_equatorial(time).z)
+
+		do
+			local best, best_declination, best_cost = latitude, declination, math.huge
+			local roots = math.asin(math.clamp(math.sin(declination) / r, -1, 1))
+			-- the exact latitudes for today's declination first, then the others on a grid
+			local lat = wrap_angle(roots - theta)
+			local i = -2
+
+			while true do
+				if lat >= -MAX_LATITUDE and lat <= MAX_LATITUDE then
+					local sin_declination = r * math.sin(lat + theta)
+
+					if math.abs(sin_declination) <= MAX_SIN_DECLINATION then
+						local needed = math.asin(sin_declination)
+						local cost = math.abs(lat - latitude) + math.abs(needed - declination) * DECLINATION_COST + math.max(0, math.abs(lat) - POLAR_LATITUDE) * POLAR_COST
+
+						if cost < best_cost then
+							best, best_declination, best_cost = lat, needed, cost
+						end
+					end
+				end
+
+				i = i + 1
+
+				if i == -1 then
+					lat = wrap_angle(math.pi - roots - theta)
+				elseif i * LATITUDE_STEP > 2 * MAX_LATITUDE then
+					break
+				else
+					lat = -MAX_LATITUDE + i * LATITUDE_STEP
+				end
+			end
+
+			latitude = best
+
+			-- the nearest day, before or after, that the declination passes the one needed
+			if math.abs(best_declination - declination) > 1e-6 then
+				local before, after = declination, declination
+
+				for day = 1, 183 do
+					local next_after = math.asin(get_sun_equatorial(time + day * 86400).z)
+
+					if (after - best_declination) * (next_after - best_declination) <= 0 then
+						time = time + (day - 1 + (best_declination - after) / (next_after - after)) * 86400
+
+						break
+					end
+
+					local next_before = math.asin(get_sun_equatorial(time - day * 86400).z)
+
+					if (before - best_declination) * (next_before - best_declination) <= 0 then
+						time = time - (day - 1 + (best_declination - before) / (next_before - before)) * 86400
+
+						break
+					end
+
+					after, before = next_after, next_before
+				end
+			end
+		end
+
+		-- the declination drifts a little with the date and time found, so settle the exact latitude
+		-- nearest the chosen one and the time of day together
+		for _ = 1, 4 do
+			local sun = get_sun_equatorial(time)
+			local roots = math.asin(math.clamp(sun.z / r, -1, 1))
+			local a = wrap_angle(roots - theta)
+			local b = wrap_angle(math.pi - roots - theta)
+			latitude = math.clamp(math.abs(a - latitude) < math.abs(b - latitude) and a or b, -math.pi / 2, math.pi / 2)
+			local meridian = math.cos(latitude) * dir.y + math.sin(latitude) * dir.z
+			local sidereal = math.atan2(sun.y, sun.x) - math.atan2(dir.x, meridian)
+			time = time + wrap_angle(sidereal - get_sidereal(time, weather.longitude)) / SIDEREAL_RADIANS_PER_SECOND
+		end
+
+		weather.latitude = math.deg(latitude)
+		weather.time = time
+		weather.UpdateSky()
+	end
 end
 
 -- the sun light points along its rotation's backward vector, (0, 0, 1) unrotated
-function weather.SetSunDirection(dir)
-	weather.SetSunRotation(Quat(-dir.y, dir.x, 0, 1 + dir.z))
+function weather.SetSunRotation(rotation)
+	weather.SetSunDirection(rotation:GetBackward())
 end
 
-function weather.ClearSunRotation()
-	weather.sun_rotation_override = nil
-	weather.UpdateSky()
-end
-
+-- yaw around up, then pitch around the horizontal right axis, no roll
 function weather.GetSunRotation()
-	if weather.sun_rotation_override then
-		return weather.sun_rotation_override:Copy()
-	end
-
-	local dir = weather.GetSunDirectionAt(weather.time, weather.latitude, weather.longitude)
-	return Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize()
+	local dir = weather.GetSunDirection()
+	return QuatFromAxis(math.atan2(dir.x, dir.z), Vec3(0, 1, 0)) * QuatFromAxis(-math.asin(dir.y), Vec3(1, 0, 0))
 end
 
 function weather.GetSunDirection()
-	return weather.GetSunRotation():GetBackward()
+	return weather.GetSunDirectionAt(weather.time, weather.latitude, weather.longitude)
 end
 
 -- meteorological visibility at sea level in meters
@@ -506,8 +605,7 @@ function weather.Initialize()
 		if weather.time_scale == 0 then return end
 
 		weather.time = weather.time + dt * weather.time_scale
-
-		if not weather.sun_rotation_override then weather.UpdateSky() end
+		weather.UpdateSky()
 	end)
 end
 
