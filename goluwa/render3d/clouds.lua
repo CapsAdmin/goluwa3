@@ -68,7 +68,7 @@ clouds.LAYER_DEFAULTS = {
 	-- how far apart in meters: the weather map's pattern, the base shape noise and the detail noise tile
 	weather_scale = 40000,
 	shape_scale = 5000,
-	detail_scale = 800,
+	detail_scale = 300,
 	-- how much the weather map varies the coverage from place to place
 	variation = 0.5,
 	-- the layer drifts with the surface wind times this, wind is stronger aloft
@@ -87,12 +87,19 @@ clouds.presets = {
 			density = 0.06,
 			type = 1,
 			shape_scale = 3500,
-			detail_scale = 600,
+			detail_scale = 250,
 		},
 	},
 	-- partly cloudy: taller cumulus and a veil of cirrus
 	cumulus = {
-		{bottom = 1400, thickness = 2000, coverage = 0.42, density = 0.07, type = 1},
+		{
+			bottom = 1400,
+			thickness = 2000,
+			coverage = 0.42,
+			density = 0.07,
+			type = 1,
+			detail_scale = 250,
+		},
 		{
 			bottom = 9000,
 			thickness = 400,
@@ -114,6 +121,7 @@ clouds.presets = {
 			type = 1,
 			erosion = 0.3,
 			shape_scale = 7000,
+			detail_scale = 300,
 			weather_scale = 50000,
 		},
 	},
@@ -125,7 +133,7 @@ clouds.presets = {
 			density = 0.045,
 			type = 0.5,
 			shape_scale = 2500,
-			detail_scale = 500,
+			detail_scale = 250,
 			variation = 0.35,
 		},
 	},
@@ -138,7 +146,7 @@ clouds.presets = {
 			density = 0.04,
 			type = 0.6,
 			shape_scale = 1400,
-			detail_scale = 300,
+			detail_scale = 150,
 			erosion = 0.5,
 			wind_scale = 4,
 		},
@@ -173,7 +181,7 @@ clouds.presets = {
 			density = 0.03,
 			type = 0.15,
 			shape_scale = 4000,
-			detail_scale = 700,
+			detail_scale = 300,
 			variation = 0.3,
 		},
 	},
@@ -210,7 +218,7 @@ clouds.presets = {
 			type = 1,
 			anvil = 1,
 			shape_scale = 6000,
-			detail_scale = 900,
+			detail_scale = 400,
 			weather_scale = 60000,
 			erosion = 0.5,
 			variation = 0.8,
@@ -253,7 +261,7 @@ clouds.presets = {
 			density = 0.035,
 			type = 0.6,
 			shape_scale = 1600,
-			detail_scale = 300,
+			detail_scale = 150,
 			wind_scale = 4,
 		},
 		{
@@ -938,6 +946,10 @@ function clouds.GetGLSL(block)
 		const int CLOUD_MAX_SEGMENTS = ]] .. (
 			clouds.MAX_LAYERS * 2
 		) .. [[;
+		// a march through empty space takes steps this many fine steps long, and falls back to them
+		// after this many fine steps in the clear
+		const float CLOUD_COARSE_STEPS = 4.0;
+		const int CLOUD_EMPTY_STEPS = 6;
 
 		float cloud_saturate(float x) {
 			return clamp(x, 0.0, 1.0);
@@ -1077,8 +1089,11 @@ function clouds.GetGLSL(block)
 			// the perlin-worley shape, dented by the finer worley octaves
 			float fbm = dot(n.gba, vec3(0.625, 0.25, 0.125));
 			float base = cloud_saturate(cloud_remap(n.r, (1.0 - fbm) * 0.3, 1.0, 0.0, 1.0));
-			// clouds have sharp edges and a fairly even inside, a steep ramp from the threshold
-			float d = cloud_saturate(cloud_remap(base * profile, 1.0 - coverage, 1.0, 0.0, 1.0) * 3.0);
+			// thin at the edge and denser toward the core, so the detail erodes a soft rim instead of
+			// carving a hard outline
+			float d = pow(cloud_saturate(cloud_remap(base * profile, 1.0 - coverage, 1.0, 0.0, 1.0)), 0.7);
+			// heaps are thin and ragged at the base, and denser up where they billow
+			d *= mix(1.0, mix(0.6, 1.0, smoothstep(0.0, 0.5, hf)), style.x);
 			// a full cover has no gaps
 			d = mix(d, profile * (0.55 + 0.45 * base), smoothstep(0.9, 1.0, coverage));
 
@@ -1091,7 +1106,8 @@ function clouds.GetGLSL(block)
 				float dfbm = dot(dn, vec3(0.625, 0.25, 0.125));
 				// wispy at the base, billowing above
 				float erode = mix(dfbm, 1.0 - dfbm, cloud_saturate(hf * 5.0));
-				// once the detail is much finer than the sample it only greys the edges out
+				// once the detail is much finer than the sample it only greys the edges out. it eats the
+				// thin rim and leaves the core
 				d = cloud_saturate(cloud_remap(d, erode * style.y * (1.0 - smoothstep(2.0, 4.0, detail_lod)), 1.0, 0.0, 1.0));
 			}
 
@@ -1276,22 +1292,45 @@ function clouds.GetGLSL(block)
 					continue;
 				}
 
-				// steps shrink with the layer's depth, and grow with distance where the detail is lost anyway
-				float step_size = max(clamp(shape.y / 32.0, 25.0, 80.0) / quality, t0 * 0.004 / quality);
-				int steps = int(clamp(ceil(length_ / step_size), 4.0, 128.0 * quality));
-				float dt = length_ / float(steps);
+				// empty space is crossed in coarse steps without the detail. once one lands in a cloud the
+				// ray steps back and goes on in fine steps with it, until it has been in the clear for a
+				// while. steps shrink with the layer's depth, and grow with distance where the detail is
+				// lost anyway
+				float fine_size = clamp(shape.y / 120.0, 8.0, 30.0) / quality;
+				float t = t0 + jitter * fine_size * CLOUD_COARSE_STEPS;
+				int empty = CLOUD_EMPTY_STEPS;
+				int budget = int(256.0 * quality);
 
-				for (int k = 0; k < steps; k++) {
-					float t = t0 + (float(k) + jitter) * dt;
-					vec3 p = origin + dir * t;
-					float alt = cloud_altitude(r, t);
-					float density = cloud_density(i, p, alt, false, dt);
+				for (int k = 0; k < budget && t < t1; k++) {
+					float dt = max(fine_size, t * 0.002 / quality);
 
-					if (density <= 0.0) continue;
+					if (empty >= CLOUD_EMPTY_STEPS) {
+						dt *= CLOUD_COARSE_STEPS;
+						float tc = t + dt * 0.5;
 
-					density = cloud_density(i, p, alt, true, dt);
+						if (cloud_density(i, origin + dir * tc, cloud_altitude(r, tc), false, dt) <= 0.0) {
+							t += dt;
+							continue;
+						}
 
-					if (density <= 0.0) continue;
+						// the cloud starts somewhere within this coarse step
+						empty = 0;
+						dt /= CLOUD_COARSE_STEPS;
+					}
+
+					dt = min(dt, t1 - t);
+					float ts = t + dt * 0.5;
+					t += dt;
+					vec3 p = origin + dir * ts;
+					float alt = cloud_altitude(r, ts);
+					float density = cloud_density(i, p, alt, true, dt);
+
+					if (density <= 0.0) {
+						empty++;
+						continue;
+					}
+
+					empty = 0;
 
 					vec3 up = cloud_up(p);
 					float L_up = dot(up, L);
@@ -1309,7 +1348,7 @@ function clouds.GetGLSL(block)
 					float T = exp(-density * dt);
 					// the scattering within the step, attenuated on its way out (Hillaire 2015)
 					radiance += transmittance * (S - S * T) / density;
-					depth_sum += t * transmittance * (1.0 - T);
+					depth_sum += ts * transmittance * (1.0 - T);
 					depth_weight += transmittance * (1.0 - T);
 					transmittance *= T;
 
