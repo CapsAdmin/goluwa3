@@ -1024,7 +1024,15 @@ do
 		if not vmt.envmap and vmt.phong ~= 1 then self:SetSpecularMultiplier(0) end
 
 		if vmt.selfillum == 1 then
-			if vmt.selfillumtint then self:SetEmissiveMultiplier(vmt.selfillumtint) end
+			if vmt.selfillumtint then
+				if typex(vmt.selfillumtint) == "vec3" then
+					self:SetEmissiveMultiplier(Color(vmt.selfillumtint.x, vmt.selfillumtint.y, vmt.selfillumtint.z, 1))
+				elseif typex(vmt.selfillumtint) == "vec3" then
+					self:SetEmissiveMultiplier(vmt.selfillumtint)
+				else
+					print("wtf ", vmt.selfillumtint)
+				end
+			end
 
 			if vmt.selfillummask then
 				self:SetEmissiveTexture(LinearTexture(vmt.selfillummask))
