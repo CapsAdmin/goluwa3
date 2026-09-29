@@ -25,12 +25,19 @@ local MOON_TINT = SUN_TINT * Vec3(1.0, 0.94, 0.86)
 local RAIN_FALL_SPEED = 6.5
 -- a dry snowflake's (Locatelli and Hobbs 1974), wet ones fall about twice as fast
 local SNOW_FALL_SPEED = 1
-local SHELTER_SIZE = 2048
+-- how far rain and snow stray from their mean direction in still air, as the tangent of the angle:
+-- flakes flutter and tumble, drops fall nearly straight
+local RAIN_SPREAD = 0.05
+local SNOW_SPREAD = 0.3
+-- the wind's gusts near the ground, its turbulence intensity, stray them further
+local WIND_TURBULENCE = 0.25
+-- the shelter's edges are softened by meters, finer texels would be wasted
+local SHELTER_SIZE = 1024
 -- half the width of the ground the shelter map covers around the camera, in meters
 local SHELTER_HALF_SIZE = 96
 local SHELTER_DEPTH = 600
 -- the map follows the camera in steps of this many texels and only renders again when it moves
-local SHELTER_SNAP_TEXELS = 128
+local SHELTER_SNAP_TEXELS = 64
 -- the clouds are lit by whichever of the sun and the moon is brighter up here, the sun still lights
 -- them for a while after it set on the ground
 local CLOUD_LIGHT_ALTITUDE = Vec3(0, 2000, 0)
@@ -559,12 +566,21 @@ function weather.Initialize()
 		if not weather.shelter_map.enabled then return end
 
 		local wind = atmosphere.GetWind()
-		local fall_speed = precipitation.GetSnow() > precipitation.GetRain() and
+		-- the snow lying on the ground fell as snow
+		local snowing = precipitation.GetSnow() > precipitation.GetRain() or
+			precipitation.GetRain() == 0 and
+			surface_weather.snow_depth > 0
+		local fall_speed = snowing and
 			SNOW_FALL_SPEED * (
 				1 + surface_weather.GetSnowWetness()
 			)
 			or
 			RAIN_FALL_SPEED
+		surface_weather.precipitation_spread = (
+				snowing and
+				SNOW_SPREAD or
+				RAIN_SPREAD
+			) + WIND_TURBULENCE * math.sqrt(wind.x * wind.x + wind.z * wind.z) / fall_speed
 		local dir = Vec3(-wind.x, fall_speed, -wind.z):GetNormalized()
 		local rotation = Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize()
 		local right = rotation:GetRight()

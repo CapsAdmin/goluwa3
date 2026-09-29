@@ -1,4 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 -- What the weather does to surfaces as they are written to the gbuffer, so lighting, reflections and
 -- gi all see it. render3d/weather.lua sets the state and owns the shelter map, a depth map rendered
@@ -10,6 +11,9 @@ surface_weather.wetness = 0
 surface_weather.snow_depth = 0
 -- toward where the rain and snow come from
 surface_weather.precipitation_direction = Vec3(0, 1, 0)
+-- the tangent of the angle the falling rain or snow strays from precipitation_direction, so the higher
+-- an occluder is the softer the edge of its shelter
+surface_weather.precipitation_spread = 0.2
 -- a ShadowMap rendered along the precipitation, nil without render3d/weather.lua
 surface_weather.shelter_map = nil
 surface_weather.block = {
@@ -18,6 +22,8 @@ surface_weather.block = {
 	{"surface_snow_wetness", "float"},
 	{"shelter_texture", "int"},
 	{"shelter_texel_size", "float"},
+	{"precipitation_spread", "float"},
+	{"surface_frame", "int"},
 	{"precipitation_direction", "vec3"},
 	{"shelter_matrix", "mat4"},
 }
@@ -43,6 +49,8 @@ function surface_weather.WriteBlock(self, block)
 		block.shelter_texture = -1
 	end
 
+	block.precipitation_spread = surface_weather.precipitation_spread
+	block.surface_frame = system.GetFrameNumber() % 64
 	surface_weather.precipitation_direction:CopyToFloatPointer(block.precipitation_direction)
 	return block
 end
@@ -56,12 +64,17 @@ function surface_weather.GetGLSL(block_name)
 		// an occluder has to be this far up the precipitation from a surface to shelter it, so a surface
 		// doesn't shelter itself and pebbles don't leave dry spots
 		const float SHELTER_MIN_HEIGHT = 0.3;
-		// how far the dry edge under a roof or canopy is smeared, the spread of the rain and its splashes
+		// how far the dry edge right under an occluder is smeared, the splashes and the drops that bounce
 		const float SHELTER_BLUR = 0.3;
+		// m, the widest the edge of a shelter gets, and so how far around a point occluders are looked for
+		const float SHELTER_MAX_BLUR = 8.0;
 		// m of snow that hides flat open ground completely, less of it lies in patches
 		const float SNOW_FULL_COVER_DEPTH = 0.05;
+		const vec2 SHELTER_TAPS[4] = vec2[4](vec2(0.2, 0.55), vec2(-0.55, 0.2), vec2(-0.2, -0.55), vec2(0.55, -0.2));
 
-		// how much of the falling rain or snow reaches this surface, 0 in a sheltered or downward facing spot
+		// how much of the falling rain or snow reaches this surface, 0 in a sheltered or downward facing spot.
+		// it falls within a cone around its direction, so an occluder shelters what is right under it and the
+		// edge of its shelter widens the higher above it is, as a soft shadow's does (Fernando 2005)
 		float get_precipitation_exposure(vec3 world_pos, vec3 normal) {
 			vec3 dir = ]] .. block_name .. [[.precipitation_direction;
 			// rain runs down walls a little, but never wets a ceiling
@@ -77,21 +90,54 @@ function surface_weather.GetGLSL(block_name)
 
 			if (any(lessThan(coords, vec3(0.0))) || any(greaterThan(coords, vec3(1.0)))) return facing;
 
-			float depth_per_meter = length(vec3(m[0].z, m[1].z, m[2].z));
-			// a surface tilted away from the precipitation is higher up at the taps around it
-			float n_dot_d = clamp(dot(normal, dir), 0.05, 1.0);
-			float tan_slope = min(sqrt(1.0 - n_dot_d * n_dot_d) / n_dot_d, 4.0);
-			float receiver = coords.z - (SHELTER_MIN_HEIGHT + tan_slope * SHELTER_BLUR) * depth_per_meter;
-			// a fixed per point rotation turns the banding of the few taps into grain
-			float angle = fract(52.9829189 * fract(dot(world_pos, vec3(0.06711056, 0.00583715, 0.0891234)) * 31.0)) * 6.2831853;
+			vec3 row_x = vec3(m[0].x, m[1].x, m[2].x);
+			vec3 row_y = vec3(m[0].y, m[1].y, m[2].y);
+			vec3 row_z = vec3(m[0].z, m[1].z, m[2].z);
+			float depth_per_meter = length(row_z);
+			vec2 meters_to_uv = 1.0 / (texel * vec2(textureSize(TEXTURE(]] .. block_name .. [[.shelter_texture), 0)));
+			// the surface's plane in the map, as meters it rises up the precipitation per meter across it.
+			// the precipitation mostly comes in slanted, so even flat ground is tilted in the map, and the taps
+			// around a point are compared with the plane there rather than with the point
+			vec3 g = vec3(dot(row_x, normal) / dot(row_x, row_x), dot(row_y, normal) / dot(row_y, row_y), dot(row_z, normal) / dot(row_z, row_z));
+			vec2 slope = -2.0 * g.xy * meters_to_uv / (g.z * depth_per_meter);
+			slope *= min(1.0, 4.0 / max(length(slope), 1e-6));
+			// what is less than this far up the precipitation from the plane doesn't shelter it, and the texels
+			// a gather reads are up to one away
+			float receiver = coords.z - (SHELTER_MIN_HEIGHT + length(slope) * texel) * depth_per_meter;
+			// interleaved gradient noise, a different rotation of the few taps each frame, the taa averages
+			// them into a smooth edge
+			vec2 pixel = gl_FragCoord.xy + 5.588238 * float(]] .. block_name .. [[.surface_frame);
+			float angle = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715)))) * 6.2831853;
 			mat2 rotation = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
-			vec2 radius = vec2(SHELTER_BLUR / (texel * vec2(textureSize(TEXTURE(]] .. block_name .. [[.shelter_texture), 0))));
-			const vec2 TAPS[4] = vec2[4](vec2(0.2, 0.55), vec2(-0.55, 0.2), vec2(-0.2, -0.55), vec2(0.55, -0.2));
+			// how far up the precipitation the occluder is, what is right above the surface if anything is, or
+			// else the average of the occluders around it. the nearest texel, a filtered depth at a silhouette
+			// would be an occluder at every height in between
+			float blocker = texelFetch(TEXTURE(]] .. block_name .. [[.shelter_texture), ivec2(coords.xy * vec2(textureSize(TEXTURE(]] .. block_name .. [[.shelter_texture), 0))), 0).r;
+
+			if (blocker >= receiver) {
+				float blocker_sum = 0.0;
+				float blocker_count = 0.0;
+
+				for (int i = 0; i < 4; i++) {
+					vec2 offset = rotation * SHELTER_TAPS[i] * SHELTER_MAX_BLUR;
+					vec4 depths = textureGather(TEXTURE(]] .. block_name .. [[.shelter_texture), coords.xy + offset * meters_to_uv, 0);
+					vec4 blocked = vec4(lessThan(depths, vec4(receiver + dot(slope, offset) * depth_per_meter)));
+					blocker_sum += dot(depths - dot(slope, offset) * depth_per_meter, blocked);
+					blocker_count += dot(blocked, vec4(1.0));
+				}
+
+				if (blocker_count == 0.0) return facing;
+
+				blocker = blocker_sum / blocker_count;
+			}
+
+			float blur = clamp(SHELTER_BLUR + (coords.z - blocker) / depth_per_meter * ]] .. block_name .. [[.precipitation_spread, SHELTER_BLUR, SHELTER_MAX_BLUR);
 			float open = 0.0;
 
 			for (int i = 0; i < 4; i++) {
-				vec4 depths = textureGather(TEXTURE(]] .. block_name .. [[.shelter_texture), coords.xy + rotation * TAPS[i] * radius, 0);
-				open += dot(vec4(greaterThanEqual(depths, vec4(receiver))), vec4(0.0625));
+				vec2 offset = rotation * SHELTER_TAPS[i] * blur;
+				vec4 depths = textureGather(TEXTURE(]] .. block_name .. [[.shelter_texture), coords.xy + offset * meters_to_uv, 0);
+				open += dot(vec4(greaterThanEqual(depths, vec4(receiver + dot(slope, offset) * depth_per_meter))), vec4(0.0625));
 			}
 
 			return facing * open;
