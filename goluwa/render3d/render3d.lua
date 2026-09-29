@@ -261,6 +261,7 @@ function render3d.CreatePipelineBundle(options)
 		{
 			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/clouds.lua"),
 			import("goluwa/render3d/passes/ambient_occlusion.lua"),
 			import("goluwa/render3d/passes/ddgi.lua"),
 			import("goluwa/render3d/passes/ssr.lua"),

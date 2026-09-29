@@ -1,6 +1,7 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 local scene_lights = {}
 scene_lights.MAX_LIGHTS = 256
 scene_lights.MAX_CASCADES = directional_shadows.MAX_CASCADES
@@ -46,6 +47,7 @@ function scene_lights.BuildShadowsBlockLayout()
 		{"local_directional_shadow_light_index", "int"},
 		{"cascade_count", "int"},
 		{"sun_angular_radius_tan", "float"},
+		unpack(clouds.GetShadowBlockLayout()),
 	}
 end
 
@@ -278,6 +280,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	shadow_block.local_directional_shadow_texel_world_size = 0
 	shadow_block.cascade_count = 0
 	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
+	clouds.WriteShadowBlock(self, shadow_block)
 
 	for i = 0, 15 do
 		shadow_block.local_directional_light_space_matrix[i] = 0

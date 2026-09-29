@@ -34,6 +34,8 @@ local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
 local DEFAULT_SUN_ILLUMINANCE = 126000
 -- the sun's disc seen from the earth, 0.533 degrees across
 atmosphere.SUN_ANGULAR_RADIUS = 0.00465
+-- the cloud textures hold radiance times this, see render3d/clouds.lua
+atmosphere.CLOUD_RADIANCE_SCALE = 1 / 16
 local DEBUG_DISABLE_SCENERY_FOG = false
 local SCENERY_FOG_SCALE_HEIGHT = 0.28
 local SCENERY_FOG_EXTINCTION = 0.34
@@ -44,7 +46,10 @@ atmosphere.precipitation_fog_density = 0
 atmosphere.wind = Vec3(0, 0, 0)
 -- air temperature near the ground in degrees celsius
 atmosphere.temperature = 15
-atmosphere.cloud_cover = 0
+-- the clouds seen from the camera (see render3d/clouds.lua), and the share of the direct light
+-- they let through on average
+atmosphere.cloud_sky_texture = nil
+atmosphere.cloud_transmittance = 1
 -- the sun, moon and star sphere, set by render3d/weather.lua. without it the sky is lit by the primary light
 atmosphere.sky = nil
 -- off: no sky, air or fog, a black void (see weather.SetEnabled)
@@ -207,11 +212,20 @@ local atmosphere_shared_glsl = [[
 	#ifndef ATMOSPHERE_CELESTIAL_Z
 	#define ATMOSPHERE_CELESTIAL_Z vec3(0.0, 0.0, 1.0)
 	#endif
-	#ifndef ATMOSPHERE_CLOUD_COVER
-	#define ATMOSPHERE_CLOUD_COVER 0.0
+	#ifndef ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX
+	#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX -1
 	#endif
-	#ifndef ATMOSPHERE_OVERCAST_LUMINANCE
-	#define ATMOSPHERE_OVERCAST_LUMINANCE 0.0
+	#ifndef ATMOSPHERE_CLOUD_TRANSMITTANCE
+	#define ATMOSPHERE_CLOUD_TRANSMITTANCE 1.0
+	#endif
+	// what the clouds let through of the sun to a point (km, planet centered). a pass that has the
+	// clouds' shadow map defines it to shadow the air, which gives crepuscular rays
+	#ifndef ATMOSPHERE_CLOUD_SHADOW
+	#define ATMOSPHERE_CLOUD_SHADOW(point) 1.0
+	#endif
+	// where in each step integrate_scattering samples, a pass can jitter it against banding
+	#ifndef ATMOSPHERE_SCATTER_JITTER
+	#define ATMOSPHERE_SCATTER_JITTER 0.5
 	#endif
 	#ifndef ATMOSPHERE_FOG_DENSITY
 	#define ATMOSPHERE_FOG_DENSITY ]] .. string.format("%.6f\n", atmosphere.fog_density) .. [[
@@ -316,7 +330,7 @@ local atmosphere_shared_glsl = [[
 		float phase_m = MIE_BETA * mie_phase(mu) * single_scatter_visibility.y;
 
 		for (int i = 0; i < steps; i++) {
-			float t = t_near + (float(i) + 0.5) * step_size;
+			float t = t_near + (float(i) + ATMOSPHERE_SCATTER_JITTER) * step_size;
 			vec3 sample_point = ray_origin + ray_dir * t;
 			float density_r = rayleigh_density(sample_point);
 			float density_m = mie_density(sample_point);
@@ -325,7 +339,7 @@ local atmosphere_shared_glsl = [[
 			mie_od += density_m * step_size;
 			ozone_od += density_o * step_size;
 			vec3 view_t = exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od));
-			vec3 sun_t = sample_transmittance_lut(sample_point, sun_dir);
+			vec3 sun_t = sample_transmittance_lut(sample_point, sun_dir) * ATMOSPHERE_CLOUD_SHADOW(sample_point);
 			vec3 single = (phase_r * density_r + vec3(phase_m * density_m)) * sun_t;
 			vec3 multi = sample_multi_scatter_lut(sample_point, sun_dir) * (RAYLEIGH_BETA * density_r + vec3(MIE_BETA * density_m)) * multi_scatter_visibility;
 			total += (single + multi) * view_t * step_size;
@@ -553,6 +567,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	const float CAMERA_TEST_MULTIPLIER = ]] .. CAMERA_TEST_MULTIPLIER .. [[;
 	const float SEA_LEVEL_EYE_HEIGHT = ]] .. SEA_LEVEL_EYE_HEIGHT .. [[;
 	const float SUN_ANGULAR_RADIUS = ]] .. atmosphere.SUN_ANGULAR_RADIUS .. [[;
+	const float CLOUD_RADIANCE_SCALE = ]] .. string.format("%.8f", atmosphere.CLOUD_RADIANCE_SCALE) .. [[;
 
 	bool ray_hits_planet(vec3 dir, vec3 cam_pos) {
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
@@ -600,21 +615,23 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return vec2(u, clamp(v, 0.0, 1.0));
 	}
 
-	// the cie overcast sky, grey and three times brighter at the zenith than at the horizon
-	// rgb is what the clouds let through, a stays the clear sky's transmittance to the ground
-	vec4 apply_cloud_cover(vec4 clear_sky, vec3 dir, vec3 ray_origin) {
-		if (ATMOSPHERE_CLOUD_COVER <= 0.0) return clear_sky;
-
-		float elevation = dot(dir, normalize(ray_origin));
-		float overcast = ATMOSPHERE_OVERCAST_LUMINANCE * (1.0 + 2.0 * max(elevation, 0.0)) / 3.0;
-
-		// below the horizon only the air in front of the ground scatters it
-		if (elevation < 0.0) overcast *= 1.0 - clear_sky.a;
-
-		return vec4(mix(clear_sky.rgb, vec3(overcast), ATMOSPHERE_CLOUD_COVER), clear_sky.a);
+	// the cloud sky dome is an equirect around the camera, denser toward the horizon
+	vec2 get_cloud_sky_uv(vec3 dir) {
+		float u = atan(dir.z, dir.x) / (2.0 * PI) + 0.5;
+		float e = asin(clamp(dir.y, -1.0, 1.0)) / (0.5 * PI);
+		return vec2(u, 0.5 + 0.5 * sign(e) * sqrt(abs(e)));
 	}
 
-	// the sky lit by the sun and the moon, not by the primary light which is the moon at night
+	// the clouds in front of the sky seen along dir: what they let through of it, and the light they
+	// and the air in front of them add
+	vec3 apply_sky_clouds(vec3 sky, vec3 dir) {
+		if (ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX == -1) return sky;
+
+		vec4 clouds = textureLod(TEXTURE(ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX), get_cloud_sky_uv(dir), 0.0);
+		return sky * clouds.a + clouds.rgb / CLOUD_RADIANCE_SCALE;
+	}
+
+	// the clear sky lit by the sun and the moon, not by the primary light which is the moon at night
 	vec4 sample_sky_view_lut_from_origin(vec3 dir, vec3 ray_origin) {
 		if (ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX == -1) {
 			return get_atmosphere_from_origin(ray_origin, dir, ATMOSPHERE_SKY_SUN_DIRECTION);
@@ -626,7 +643,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			sky.rgb += texture(TEXTURE(ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX), get_sky_view_lut_uv(dir, ATMOSPHERE_MOON_DIRECTION, ray_origin)).rgb * ATMOSPHERE_MOON_SKY_SCALE;
 		}
 
-		return apply_cloud_cover(sky, dir, ray_origin);
+		return sky;
 	}
 
 	vec4 sample_sky_view_lut(vec3 dir, vec3 cam_pos) {
@@ -636,18 +653,32 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	// Irradiance arriving on an upward facing surface from the sky dome,
 	// estimated from five sky samples: the zenith and four directions at 30
 	// degrees elevation around the sun azimuth.
-	vec3 get_sky_irradiance(vec3 ray_origin) {
+	vec3 get_sky_irradiance_sample(vec3 dir, vec3 ray_origin, bool with_clouds) {
+		vec3 sky = sample_sky_view_lut_from_origin(dir, ray_origin).rgb;
+		return with_clouds ? apply_sky_clouds(sky, dir) : sky;
+	}
+
+	vec3 get_sky_irradiance_ex(vec3 ray_origin, bool with_clouds) {
 		vec3 up = normalize(ray_origin);
 		vec3 forward = get_sky_view_forward(up, ATMOSPHERE_SKY_SUN_DIRECTION);
 		vec3 right = normalize(cross(forward, up));
 		const float cos_elevation = 0.8660254;
 		const float sin_elevation = 0.5;
-		vec3 radiance = sample_sky_view_lut_from_origin(up, ray_origin).rgb * 0.25;
-		radiance += sample_sky_view_lut_from_origin(normalize(forward * cos_elevation + up * sin_elevation), ray_origin).rgb * 0.1875;
-		radiance += sample_sky_view_lut_from_origin(normalize(-forward * cos_elevation + up * sin_elevation), ray_origin).rgb * 0.1875;
-		radiance += sample_sky_view_lut_from_origin(normalize(right * cos_elevation + up * sin_elevation), ray_origin).rgb * 0.1875;
-		radiance += sample_sky_view_lut_from_origin(normalize(-right * cos_elevation + up * sin_elevation), ray_origin).rgb * 0.1875;
+		vec3 radiance = get_sky_irradiance_sample(up, ray_origin, with_clouds) * 0.25;
+		radiance += get_sky_irradiance_sample(normalize(forward * cos_elevation + up * sin_elevation), ray_origin, with_clouds) * 0.1875;
+		radiance += get_sky_irradiance_sample(normalize(-forward * cos_elevation + up * sin_elevation), ray_origin, with_clouds) * 0.1875;
+		radiance += get_sky_irradiance_sample(normalize(right * cos_elevation + up * sin_elevation), ray_origin, with_clouds) * 0.1875;
+		radiance += get_sky_irradiance_sample(normalize(-right * cos_elevation + up * sin_elevation), ray_origin, with_clouds) * 0.1875;
 		return radiance * PI;
+	}
+
+	vec3 get_sky_irradiance(vec3 ray_origin) {
+		return get_sky_irradiance_ex(ray_origin, true);
+	}
+
+	// without the clouds, the light falling on them from above
+	vec3 get_sky_irradiance_clear(vec3 ray_origin) {
+		return get_sky_irradiance_ex(ray_origin, false);
 	}
 
 	// Radiance of the Lambertian planet surface seen along dir, before the
@@ -657,7 +688,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec2 ground_hit = ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS);
 		vec3 ground_point = ray_origin + dir * max(ground_hit.x, 0.0);
 		vec3 ground_up = normalize(ground_point);
-		vec3 direct = ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ground_point, sun_dir) * max(dot(ground_up, sun_dir), 0.0);
+		vec3 direct = ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ground_point, sun_dir) * max(dot(ground_up, sun_dir), 0.0) * ATMOSPHERE_CLOUD_TRANSMITTANCE;
 		vec3 sky = get_sky_irradiance(ray_origin);
 		return GROUND_ALBEDO / PI * (direct + sky);
 	}
@@ -1046,15 +1077,6 @@ do
 	-- the clear sky adds roughly this much to the direct sun on a horizontal surface
 	local CLEAR_SKY_IRRADIANCE_RATIO = 1.15
 
-	-- 0 is a clear sky, 1 hides the sun and turns the sky into an even grey overcast
-	function atmosphere.SetCloudCover(cover)
-		atmosphere.cloud_cover = cover
-	end
-
-	function atmosphere.GetCloudCover()
-		return atmosphere.cloud_cover
-	end
-
 	local function luminance(v)
 		return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
 	end
@@ -1082,6 +1104,12 @@ end
 
 function atmosphere.GetSky()
 	return atmosphere.sky
+end
+
+-- set by render3d/clouds.lua
+function atmosphere.SetCloudSky(texture, mean_transmittance)
+	atmosphere.cloud_sky_texture = texture
+	atmosphere.cloud_transmittance = mean_transmittance
 end
 
 function atmosphere.SetEnabled(enabled)
@@ -1182,8 +1210,8 @@ function atmosphere.GetBlockLayout()
 		{"atmosphere_stars_texture_index", "int"},
 		{"atmosphere_fog_density", "float"},
 		{"atmosphere_precipitation_fog_density", "float"},
-		{"atmosphere_cloud_cover", "float"},
-		{"atmosphere_overcast_luminance", "float"},
+		{"atmosphere_cloud_sky_texture_index", "int"},
+		{"atmosphere_cloud_transmittance", "float"},
 		{"atmosphere_sun_direction", "vec3"},
 		{"atmosphere_sun_disc_illuminance", "float"},
 		{"atmosphere_moon_direction", "vec3"},
@@ -1215,12 +1243,12 @@ do
 		block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
 		block.atmosphere_fog_density = atmosphere.fog_density
 		block.atmosphere_precipitation_fog_density = atmosphere.precipitation_fog_density
-		block.atmosphere_cloud_cover = atmosphere.cloud_cover
-		block.atmosphere_overcast_luminance = atmosphere.cloud_cover > 0 and
-			atmosphere.GetOvercastLuminance(sky_sun_dir, sky and sky.moon_direction, sky and sky.moon_illuminance) or
-			0
+		block.atmosphere_cloud_sky_texture_index = atmosphere.cloud_sky_texture and
+			pipeline:GetTextureIndex(atmosphere.cloud_sky_texture) or
+			-1
+		block.atmosphere_cloud_transmittance = atmosphere.cloud_transmittance
 		write_vec3(block.atmosphere_sun_direction, sky_sun_dir)
-		block.atmosphere_sun_disc_illuminance = atmosphere.GetSunIlluminance() * (1 - atmosphere.cloud_cover)
+		block.atmosphere_sun_disc_illuminance = atmosphere.GetSunIlluminance()
 
 		if sky then
 			write_vec3(block.atmosphere_moon_direction, sky.moon_direction)
@@ -1244,7 +1272,7 @@ do
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_FOG_DENSITY " .. uniform_name .. ".atmosphere_fog_density\n" .. "#define ATMOSPHERE_PRECIPITATION_FOG_DENSITY " .. uniform_name .. ".atmosphere_precipitation_fog_density\n" .. "#define ATMOSPHERE_CLOUD_COVER " .. uniform_name .. ".atmosphere_cloud_cover\n" .. "#define ATMOSPHERE_OVERCAST_LUMINANCE " .. uniform_name .. ".atmosphere_overcast_luminance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_FOG_DENSITY " .. uniform_name .. ".atmosphere_fog_density\n" .. "#define ATMOSPHERE_PRECIPITATION_FOG_DENSITY " .. uniform_name .. ".atmosphere_precipitation_fog_density\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
 function atmosphere.GetGLSLCode()
@@ -1258,13 +1286,14 @@ end
 -- Writes the sky radiance seen along dir_var into a vec3 named
 -- sky_color_output that must already be declared. options.include_sun_disc
 -- defaults to true; environment probes leave it out since the sun is lit
--- analytically.
+-- analytically. options.clouds is a GLSL condition for putting the cloud sky
+-- dome in front, "true" by default; the main view draws its own clouds.
 function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 	options = options or {}
 	local disc_code = ""
 
 	if options.include_sun_disc ~= false then
-		disc_code = "atmosphere_color += get_sun_disc(atmos_dir, atmos_cam_pos) + get_moon_disc(atmos_dir, atmos_cam_pos) * (1.0 - ATMOSPHERE_CLOUD_COVER);"
+		disc_code = "atmosphere_color += get_sun_disc(atmos_dir, atmos_cam_pos) + get_moon_disc(atmos_dir, atmos_cam_pos);"
 	end
 
 	return [[
@@ -1291,8 +1320,15 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 					space_color = get_night_sky(atmos_dir);
 				}
 
-				// space is behind the air and the clouds, by day the sky outshines it
-				sky_color_output = atmosphere_color + space_color * atmosphere_sample.a * (1.0 - ATMOSPHERE_CLOUD_COVER);
+				// space is behind the air, by day the sky outshines it
+				sky_color_output = atmosphere_color + space_color * atmosphere_sample.a;
+			}
+
+			if (ATMOSPHERE_ENABLED != 0 && (]] .. (
+			options.clouds or
+			"true"
+		) .. [[)) {
+				sky_color_output = apply_sky_clouds(sky_color_output, atmos_dir);
 			}
 		}
 	]]

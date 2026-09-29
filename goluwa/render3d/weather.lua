@@ -11,6 +11,7 @@ local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local precipitation = import("goluwa/render3d/precipitation.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 local weather = {}
 local SUN_TOA_ILLUMINANCE = 126000
 local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
@@ -30,6 +31,9 @@ local SHELTER_HALF_SIZE = 96
 local SHELTER_DEPTH = 600
 -- the map follows the camera in steps of this many texels and only renders again when it moves
 local SHELTER_SNAP_TEXELS = 128
+-- the clouds are lit by whichever of the sun and the moon is brighter up here, the sun still lights
+-- them for a while after it set on the ground
+local CLOUD_LIGHT_ALTITUDE = Vec3(0, 2000, 0)
 weather.latitude = 21.176852
 weather.longitude = 106.068101
 -- 2026-06-21 10:00 local time at the default location
@@ -258,14 +262,34 @@ function weather.GetSnowDepth()
 	return surface_weather.snow_depth
 end
 
--- 0 is a clear sky, 1 a full overcast that hides the sun
+-- 0 is a clear sky, 1 a full overcast that hides the sun. in between, cumulus that grow and spread
+-- into stratocumulus. SetClouds picks the kind of clouds instead
 function weather.SetCloudCover(cover)
-	atmosphere.SetCloudCover(cover)
+	clouds.SetCover(cover)
 	weather.UpdateSky()
 end
 
+-- the fraction of the sky the clouds hide
 function weather.GetCloudCover()
-	return atmosphere.GetCloudCover()
+	return clouds.GetCover()
+end
+
+-- the name of one of render3d/clouds.lua's presets (clear, fair, cumulus, congestus, stratocumulus,
+-- altocumulus, altostratus, overcast, rain, storm, cirrus, cirrostratus, mixed), or a list of layers,
+-- see clouds.LAYER_DEFAULTS for their fields
+function weather.SetClouds(clouds_or_preset)
+	if type(clouds_or_preset) == "string" then
+		clouds.SetPreset(clouds_or_preset)
+	else
+		clouds.SetLayers(clouds_or_preset)
+	end
+
+	weather.UpdateSky()
+end
+
+-- the preset's name, or the layers when they were set by hand
+function weather.GetClouds()
+	return clouds.GetPreset() or clouds.GetLayers()
 end
 
 function weather.SetMoonScale(scale)
@@ -314,6 +338,14 @@ function weather.UpdateSky()
 		celestial_z = z,
 	}
 
+	if
+		moon_illuminance * luminance(atmosphere.GetTransmittance(moon_dir, CLOUD_LIGHT_ALTITUDE)) > SUN_TOA_ILLUMINANCE * luminance(atmosphere.GetTransmittance(sun_dir, CLOUD_LIGHT_ALTITUDE))
+	then
+		clouds.SetLight(moon_dir, MOON_TINT * moon_illuminance)
+	else
+		clouds.SetLight(sun_dir, SUN_TINT * SUN_TOA_ILLUMINANCE)
+	end
+
 	if not weather.light then return end
 
 	local sun_transmittance = atmosphere.GetTransmittance(sun_dir)
@@ -331,10 +363,14 @@ function weather.UpdateSky()
 
 	weather.light.transform:SetRotation(Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize())
 	weather.light.light_sun:SetColor(Color(color.x, color.y, color.z, 1))
-	-- the clouds block the direct light, the sky light they scatter comes from the atmosphere
-	local direct = 1 - atmosphere.GetCloudCover()
-	weather.light.light_sun:SetLux(weather.enabled and illuminance * direct or 0)
-	local transmittance = weather.enabled and math.max(color.x, color.y, color.z) * direct or 0
+	-- the clouds' shadow map takes the direct light where they are, see render3d/clouds.lua
+	clouds.SetShadowDirection(dir)
+	weather.light.light_sun:SetLux(weather.enabled and illuminance or 0)
+	-- no shadow maps under an overcast without gaps
+	local transmittance = weather.enabled and
+		math.max(color.x, color.y, color.z) * clouds.GetMaxTransmittance(dir)
+		or
+		0
 
 	for _, shadow_map in ipairs(weather.shadow_maps) do
 		shadow_map:SetEnabled(transmittance > SHADOW_CUTOFF_TRANSMITTANCE)
@@ -465,6 +501,8 @@ function weather.Initialize()
 	end)
 
 	event.AddListener("Update", "weather", function(dt)
+		clouds.Update(dt)
+
 		if weather.time_scale == 0 then return end
 
 		weather.time = weather.time + dt * weather.time_scale
@@ -475,6 +513,14 @@ end
 
 commands.Add("weather_enabled=boolean[true]", function(enabled)
 	weather.SetEnabled(enabled)
+end)
+
+commands.Add("clouds=string", function(preset)
+	weather.SetClouds(preset)
+end)
+
+commands.Add("cloud_cover=number", function(cover)
+	weather.SetCloudCover(cover)
 end)
 
 return weather

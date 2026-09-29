@@ -72,6 +72,7 @@ function Image.New(config)
 		device = config.device,
 		width = config.width,
 		height = config.height,
+		depth = config.depth or 1,
 		format = config.format,
 		samples = config.samples or "1",
 		usage = config.usage,
@@ -134,6 +135,10 @@ end
 
 function Image:GetHeight()
 	return self.height
+end
+
+function Image:GetDepth()
+	return self.depth
 end
 
 function Image:GetMipLevels()

@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 local directional_shadows = {}
 directional_shadows.MAX_CASCADES = 4
 
@@ -41,12 +42,12 @@ do
 	-- the sun disc's angular radius, and how wide thin clouds spread it into a glow
 	local CLEAR_SUN_RADIUS_TAN = math.tan(atmosphere.SUN_ANGULAR_RADIUS)
 	local OVERCAST_SUN_RADIUS_TAN = math.tan(math.rad(6))
-	-- the direct light is mostly gone past this cover, the glow is at its widest
-	local FULL_SPREAD_CLOUD_COVER = 0.6
+	-- the glow is at its widest once thin cloud diffuses this much of the sun
+	local FULL_SPREAD_DIFFUSION = 0.6
 
 	-- shadow penumbras are the blocker distance times this
 	function directional_shadows.GetSunAngularRadiusTan()
-		local t = math.clamp(atmosphere.GetCloudCover() / FULL_SPREAD_CLOUD_COVER, 0, 1)
+		local t = math.clamp(clouds.GetSunDiffusion() / FULL_SPREAD_DIFFUSION, 0, 1)
 		return math.lerp(t * t * (3 - 2 * t), CLEAR_SUN_RADIUS_TAN, OVERCAST_SUN_RADIUS_TAN)
 	end
 end
@@ -64,6 +65,7 @@ function directional_shadows.BuildFogShadowBlockLayout()
 		{"inset_shadow_map_index", "int"},
 		{"cascade_count", "int"},
 		{"sun_angular_radius_tan", "float"},
+		unpack(clouds.GetShadowBlockLayout()),
 	}
 end
 
@@ -82,6 +84,7 @@ function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
 	shadow_block.inset_shadow_texel_world_size = 0
 	shadow_block.cascade_count = 0
 	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
+	clouds.WriteShadowBlock(self, shadow_block)
 
 	for i = 0, 15 do
 		shadow_block.inset_light_space_matrix[i] = 0
@@ -223,7 +226,7 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 		"sampleMediumShadowCascade(%s, world_pos, light_dir)",
 		"sampleMediumInsetShadow(world_pos, light_dir, %s)"
 	)
-	return header .. getCascadeIndexGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK") .. [[
+	return header .. clouds.GetShadowGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK") .. [[
 			// the texel size of the coarsest cascade the last lookup used
 			float shadow_texel_world_size = 0.0;
 
@@ -292,16 +295,24 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 				return true;
 			}
 
-			float MEDIUM_DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 light_dir) {
-				if (get_fog_sun_horizon_visibility(light_dir) <= 0.0001) {
-					return 0.0;
-				}
-
+			float ]] .. result_fn_name .. [[_without_clouds(vec3 world_pos, vec3 light_dir) {
 				if (MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count <= 0 || MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.shadow_map_indices[0] < 0) {
 					return 1.0;
 				}
 
 				]] .. body .. [[
+			}
+
+			float MEDIUM_DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 light_dir) {
+				if (get_fog_sun_horizon_visibility(light_dir) <= 0.0001) {
+					return 0.0;
+				}
+
+				float cloud_shadow = get_cloud_shadow(world_pos);
+
+				if (cloud_shadow <= 0.0001) return 0.0;
+
+				return cloud_shadow * ]] .. result_fn_name .. [[_without_clouds(world_pos, light_dir);
 			}
 
 				#undef MEDIUM_DIRECTIONAL_SHADOW_FN
@@ -464,7 +475,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 		"sampleShadowCascade(%s, world_pos, normal, light_dir)",
 		"sampleInsetShadow(world_pos, normal, light_dir, %s)"
 	)
-	return header .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
+	return header .. clouds.GetShadowGLSL("DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
 			// the texel size of the coarsest cascade the last lookup used
 			float shadow_texel_world_size = 0.0;
 

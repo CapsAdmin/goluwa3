@@ -165,6 +165,10 @@ function surface_lighting.GetGLSL(block_name)
 					type == 0
 				) {
 					shadow_factor = calculateShadow(world_pos, shadow_N, L);
+				}
+
+				if (type == 0) {
+					shadow_factor *= get_cloud_shadow(world_pos);
 				} else if (
 					i == ]] .. block_name .. [[.shadows.local_directional_shadow_light_index &&
 					]] .. block_name .. [[.shadows.local_directional_shadow_map_index >= 0 &&

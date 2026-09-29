@@ -13,6 +13,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 --[[
 	The low altitude fog (atmosphere.lua's scenery fog) and the clear air
 	(rayleigh and mie) in two parts:
@@ -25,9 +26,13 @@ local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 	marches each column once front to back.
 
 	Beyond that, past the sun's shadow map, the composite integrates the
-	rest of the ray analytically. The sky holds all of the air along its ray,
-	so the composite takes the unshadowed share of the volume's out of it.
+	rest of the ray analytically, shadowed by the clouds' shadow map. The sky
+	holds all of the air along its ray, so the composite takes the unshadowed
+	share of the volume's out of it, and puts the clouds (clouds.lua) in
+	front of what is behind them.
 ]]
+-- km of air in front of the clouds the sky's crepuscular rays are traced through
+local CLOUD_SHAFT_DISTANCE = 60
 -- history kept per 60hz frame
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
@@ -576,11 +581,18 @@ local composite_pass = {
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					atmosphere.GetBlockLayout(),
 					post_source.pre_exposure_block,
+					{"cloud_view_tex", "int"},
+					{"cloud_view_depth_tex", "int"},
+					{"frame", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					gbuffer_layout.WriteBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
+					local cloud_view, cloud_view_depth = clouds.GetViewTextures()
+					block.cloud_view_tex = cloud_view and self:GetTextureIndex(cloud_view) or -1
+					block.cloud_view_depth_tex = cloud_view and self:GetTextureIndex(cloud_view_depth) or -1
+					block.frame = system.GetFrameNumber() % 64
 					block.source_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
 					write_ocean_distance_texture(self, block, "ocean_distance_tex")
 					write_gi_screen_texture(self, block, "gi_screen_tex")
@@ -589,7 +601,18 @@ local composite_pass = {
 				end,
 			},
 		},
-		shader = scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data", "get_current_primary_sun_direction()") .. post_source.GetPreExposureGLSL("fog_data") .. [[
+		shader = scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. [[
+			// the air is shadowed by the clouds where fog_cloud_shadows is on, and sampled with jitter
+			float get_cloud_shadow_km(vec3 point);
+			bool fog_cloud_shadows = true;
+			float fog_jitter = 0.5;
+			#define ATMOSPHERE_CLOUD_SHADOW(point) (fog_cloud_shadows ? get_cloud_shadow_km(point) : 1.0)
+			#define ATMOSPHERE_SCATTER_JITTER fog_jitter
+		]] .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. clouds.GetShadowGLSL("fog_data.shadows") .. [[
+			float get_cloud_shadow_km(vec3 point) {
+				return get_cloud_shadow(vec3(point.x, point.y - PLANET_RADIUS - SEA_LEVEL_EYE_HEIGHT, point.z) / (CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER));
+			}
+		]] .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data", "get_current_primary_sun_direction()") .. post_source.GetPreExposureGLSL("fog_data") .. [[
 			void main() {
 				// the scene is pre-exposed, the fog in front of it absolute
 				float pre_exposure = get_pre_exposure();
@@ -612,15 +635,45 @@ local composite_pass = {
 				float scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 				float froxel_end = FROXEL_FAR * length(view_dir) * scale;
 				vec3 sun_dir = get_current_primary_sun_direction();
+				vec3 ray_dir = normalize(mat3(fog_data.inv_view) * view_dir);
+				fog_jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy + 5.588238 * float(fog_data.frame), vec2(0.06711056, 0.00583715))));
+				// the clouds in front of what the pixel sees, premultiplied, and how far they are
+				vec4 cloud = vec4(0.0, 0.0, 0.0, 1.0);
+				float cloud_depth = 1e30;
+
+				if (fog_data.cloud_view_tex >= 0) {
+					cloud = textureLod(TEXTURE(fog_data.cloud_view_tex), in_uv, 0.0);
+					cloud.rgb /= CLOUD_RADIANCE_SCALE;
+					cloud_depth = textureLod(TEXTURE(fog_data.cloud_view_depth_tex), in_uv, 0.0).r;
+
+					if (hit_distance >= 0.0 && hit_distance < cloud_depth) cloud = vec4(0.0, 0.0, 0.0, 1.0);
+				}
 
 				if (ATMOSPHERE_ENABLED == 0) {
 					// a void, no air
-				} else if (hit_distance < 0.0) {
+				} else if (hit_distance < 0.0 && fog_data.cloud_view_tex < 0) {
 					// the sky carries all of the air along its ray: take out the
 					// part the volume holds so it isn't there twice
+					fog_cloud_shadows = false;
 					vec3 air_transmittance;
-					vec3 air = integrate_scattering(get_atmosphere_camera_origin(fog_data.camera_position.xyz), normalize(mat3(fog_data.inv_view) * view_dir), 0.0, froxel_end, sun_dir, 16, vec2(1.0), 1.0, air_transmittance);
+					vec3 air = integrate_scattering(get_atmosphere_camera_origin(fog_data.camera_position.xyz), ray_dir, 0.0, froxel_end, sun_dir, 16, vec2(1.0), 1.0, air_transmittance);
 					scene.rgb = max(scene.rgb - air, vec3(0.0)) / air_transmittance;
+				} else if (hit_distance < 0.0) {
+					// the sky with clouds: the air the volume holds, then the air up to the clouds
+					// in their shadows, the clouds, and the sky behind them. the sky's air is
+					// unshadowed, so the air in front of the clouds is taken out of it
+					vec3 origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
+					float far = clamp(cloud_depth * scale, froxel_end, ]] .. string.format("%.1f", CLOUD_SHAFT_DISTANCE) .. [[);
+					fog_cloud_shadows = false;
+					vec3 near_transmittance;
+					vec3 near_air = integrate_scattering(origin, ray_dir, 0.0, froxel_end, sun_dir, 8, vec2(1.0), 1.0, near_transmittance);
+					vec3 far_transmittance;
+					vec3 far_air = integrate_scattering(origin, ray_dir, froxel_end, far, sun_dir, 12, vec2(1.0), 1.0, far_transmittance);
+					fog_cloud_shadows = true;
+					vec3 shadowed_transmittance;
+					vec3 shadowed_air = integrate_scattering(origin, ray_dir, froxel_end, far, sun_dir, 16, vec2(1.0), 1.0, shadowed_transmittance);
+					vec3 behind = max(scene.rgb - near_air - near_transmittance * far_air, vec3(0.0)) / max(near_transmittance * far_transmittance, vec3(1e-4));
+					scene.rgb = shadowed_air + far_transmittance * (cloud.rgb + cloud.a * behind);
 				} else if (hit_distance * scale > froxel_end) {
 					// the air beyond the volume, past the sun's shadow map
 					vec3 world_pos = fog_data.camera_position.xyz + normalize(mat3(fog_data.inv_view) * view_dir) * hit_distance;
@@ -628,6 +681,8 @@ local composite_pass = {
 					float sky_visibility = fog_data.gi_screen_tex < 0 ? 1.0 : clamp(texture(TEXTURE(fog_data.gi_screen_tex), in_uv).a, 0.0, 1.0);
 					scene.rgb = apply_atmospheric_aerial_perspective(scene.rgb, world_pos, sun_dir, fog_data.camera_position.xyz, sun_visibility, sky_visibility, froxel_end);
 				}
+
+				if (hit_distance >= 0.0) scene.rgb = scene.rgb * cloud.a + cloud.rgb;
 
 				vec4 fog = get_volumetric_fog(in_uv, hit_distance);
 				set_color(vec4(min((scene.rgb * fog.a + fog.rgb) * pre_exposure, vec3(65504.0)), scene.a));

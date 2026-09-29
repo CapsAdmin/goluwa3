@@ -89,6 +89,8 @@ return {
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
+					-- the main view's clouds are composited over the fog, probe captures take the sky dome's
+					{"sky_clouds", "int"},
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
@@ -96,6 +98,7 @@ return {
 					render3d.WriteLastFrameBlock(self, block)
 					block.gi_debug = ddgi.DEBUG_GI
 					block.direct_debug = debug_direct
+					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
 
 					if render3d.pipelines.ambient_occlusion_blur then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -203,7 +206,12 @@ return {
 				vec3 sun_dir = get_primary_sun_direction();
 				vec3 sky_color_output = vec3(0.0);
 
-				]] .. atmosphere.GetGLSLMainCode("sky_dir", "sun_dir", "lighting_data.camera_position.xyz") .. [[
+				]] .. atmosphere.GetGLSLMainCode(
+				"sky_dir",
+				"sun_dir",
+				"lighting_data.camera_position.xyz",
+				{clouds = "lighting_data.sky_clouds != 0"}
+			) .. [[
 
 				return max(sky_color_output, vec3(0.0));
 			}

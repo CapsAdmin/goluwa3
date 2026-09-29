@@ -403,7 +403,7 @@ return {
 			]],
 			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
-					return calculateShadow(world_pos, sun_dir, sun_dir);
+					return calculateShadow(world_pos, sun_dir, sun_dir) * get_cloud_shadow(world_pos);
 				}
 			]] .. froxel_fog.GetGLSL("lighting_data", "get_primary_sun_direction()") .. [[
 				// the gbuffer's screen space gi, of the opaque surface behind

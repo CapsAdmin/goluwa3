@@ -10,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local trace = import("goluwa/physics/trace.lua")
 local envprobe = library()
@@ -48,8 +49,6 @@ envprobe.REFLECTION_MIN_SPACING = envprobe.REFLECTION_MIN_SPACING or 4
 envprobe.FACES_PER_FRAME = 1 -- anything higher causes invalid captures
 envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25 -- seconds between captures of a dynamic probe
 envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
-envprobe.CLOUD_COVER_CHANGE = envprobe.CLOUD_COVER_CHANGE or 0.02
-envprobe.last_cloud_cover = envprobe.last_cloud_cover or 0
 envprobe.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
 envprobe.enabled = true
 envprobe.reflection_probes_enabled = false
@@ -1099,8 +1098,8 @@ local function get_probe_capture_depth_texture(bundle)
 	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
--- the sky the probes captured is stale once the sun or the moon moved, the cloud cover changed or
--- the atmosphere was switched on or off
+-- the sky the probes captured is stale once the sun or the moon moved, the clouds changed or drifted
+-- or the atmosphere was switched on or off
 function envprobe.HasSkyChanged()
 	local sun = get_primary_sun(render3d.GetLights())
 
@@ -1109,19 +1108,19 @@ function envprobe.HasSkyChanged()
 	local sky = atmosphere.GetSky()
 	local sun_dir = sky and sky.sun_direction or sun.Owner.transform:GetRotation():GetBackward()
 	local moon_dir = sky and sky.moon_direction or sun_dir
-	local cloud_cover = atmosphere.GetCloudCover()
+	local cloud_version = clouds.GetSkyVersion()
 	local min_cos = math.cos(math.rad(envprobe.SUN_CHANGE_DEGREES))
 
 	if
 		not envprobe.last_sun_direction or
 		sun_dir:GetDot(envprobe.last_sun_direction) < min_cos or
 		moon_dir:GetDot(envprobe.last_moon_direction) < min_cos or
-		math.abs(cloud_cover - envprobe.last_cloud_cover) > envprobe.CLOUD_COVER_CHANGE or
+		cloud_version ~= envprobe.last_cloud_version or
 		atmosphere.IsEnabled() ~= envprobe.last_atmosphere_enabled
 	then
 		envprobe.last_sun_direction = sun_dir:Copy()
 		envprobe.last_moon_direction = moon_dir:Copy()
-		envprobe.last_cloud_cover = cloud_cover
+		envprobe.last_cloud_version = cloud_version
 		envprobe.last_atmosphere_enabled = atmosphere.IsEnabled()
 		return true
 	end

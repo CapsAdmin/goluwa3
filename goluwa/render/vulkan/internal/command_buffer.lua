@@ -1611,14 +1611,14 @@ function CommandBuffer:BlitImage(config)
 	region.srcOffsets[0].z = 0
 	region.srcOffsets[1].x = config.src_width
 	region.srcOffsets[1].y = config.src_height
-	region.srcOffsets[1].z = 1
+	region.srcOffsets[1].z = config.src_depth or 1
 	region.dstSubresource = dstSubresource
 	region.dstOffsets[0].x = 0
 	region.dstOffsets[0].y = 0
 	region.dstOffsets[0].z = 0
 	region.dstOffsets[1].x = config.dst_width
 	region.dstOffsets[1].y = config.dst_height
-	region.dstOffsets[1].z = 1
+	region.dstOffsets[1].z = config.dst_depth or 1
 	vulkan.lib.vkCmdBlitImage(
 		self.ptr[0],
 		config.src_image.ptr[0],

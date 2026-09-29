@@ -5,6 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 -- Falling rain and snow around the camera, drawn with the translucent surfaces (passes/translucent.lua)
 -- so they sort and fog with them. The particles further out are too small to see one by one, they are
 -- part of the fog (atmosphere.SetPrecipitationExtinction).
@@ -167,13 +168,13 @@ do
 		-- the light the particles scatter: the sun and the moon through the clouds, and the sky and the
 		-- ground around them
 		local sky = atmosphere.GetSky()
-		local cover = atmosphere.GetCloudCover()
+		local cover = clouds.GetCover()
 		local sun_dir = sky and sky.sun_direction or Vec3(0, 1, 0)
 		local sun = atmosphere.GetTransmittance(sun_dir) * atmosphere.GetSunIlluminance()
 		local moon_dir = sky and sky.moon_direction or Vec3(0, -1, 0)
 		local moon = atmosphere.GetTransmittance(moon_dir) * (sky and sky.moon_illuminance or 0)
-		local direct_sun = sun * (1 - cover)
-		local direct_moon = moon * (1 - cover)
+		local direct_sun = sun * clouds.GetMeanTransmittance(sun_dir)
+		local direct_moon = moon * clouds.GetMeanTransmittance(moon_dir)
 		local horizontal = luminance(sun) * math.max(sun_dir.y, 0) + luminance(moon) * math.max(moon_dir.y, 0)
 		local sky_irradiance = horizontal * CLEAR_SKY_DIFFUSE_RATIO * (
 				1 - cover

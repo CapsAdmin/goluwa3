@@ -1018,12 +1018,16 @@ function Texture:OnRemove()
 	self.image_data_cache = nil
 end
 
-function Texture:GenerateMipmaps(initial_layout)
+-- config.cmd records into that command buffer, config.src_stage and config.dst_stage are the stages
+-- that last wrote the image and that read the mips
+function Texture:GenerateMipmaps(initial_layout, config)
 	if not self.image or self.mip_map_levels <= 1 then return end
 
+	config = config or {}
 	local command_pool = render.GetCommandPool()
-	local cmd = render.GetCommandBuffer()
+	local cmd = config.cmd or render.GetCommandBuffer()
 	local own_cmd = false
+	local dst_stage = config.dst_stage or "fragment"
 
 	-- PipelineBarrier cannot be called inside a dynamic render pass.
 	-- If the current command buffer is mid-render (e.g. download callback
@@ -1046,7 +1050,7 @@ function Texture:GenerateMipmaps(initial_layout)
 		src_stage = "transfer"
 	elseif old_layout == "shader_read_only_optimal" then
 		src_access = "shader_read"
-		src_stage = "fragment"
+		src_stage = config.src_stage or "fragment"
 	elseif old_layout == "color_attachment_optimal" then
 		src_access = "color_attachment_write"
 		src_stage = "color_attachment_output"
@@ -1067,7 +1071,7 @@ function Texture:GenerateMipmaps(initial_layout)
 	if not blit_dst_supported or not blit_src_supported then
 		cmd:PipelineBarrier{
 			srcStage = src_stage,
-			dstStage = "fragment",
+			dstStage = dst_stage,
 			imageBarriers = {
 				{
 					image = self.image,
@@ -1110,11 +1114,13 @@ function Texture:GenerateMipmaps(initial_layout)
 	}
 	local mip_width = self.image:GetWidth()
 	local mip_height = self.image:GetHeight()
+	local mip_depth = self.image:GetDepth()
 
 	-- Generate each mip level by blitting from the previous level
 	for i = 1, self.mip_map_levels - 1 do
 		local next_mip_width = math.max(1, math.floor(mip_width / 2))
 		local next_mip_height = math.max(1, math.floor(mip_height / 2))
+		local next_mip_depth = math.max(1, math.floor(mip_depth / 2))
 		-- Transition current mip level to transfer_dst before blitting into it
 		cmd:PipelineBarrier{
 			srcStage = "transfer",
@@ -1142,6 +1148,8 @@ function Texture:GenerateMipmaps(initial_layout)
 			src_height = mip_height,
 			dst_width = next_mip_width,
 			dst_height = next_mip_height,
+			src_depth = mip_depth,
+			dst_depth = next_mip_depth,
 			src_layout = "transfer_src_optimal",
 			dst_layout = "transfer_dst_optimal",
 			filter = "linear",
@@ -1167,12 +1175,13 @@ function Texture:GenerateMipmaps(initial_layout)
 		}
 		mip_width = next_mip_width
 		mip_height = next_mip_height
+		mip_depth = next_mip_depth
 	end
 
 	-- Transition all mip levels to shader_read_only_optimal for sampling
 	cmd:PipelineBarrier{
 		srcStage = "transfer",
-		dstStage = "fragment",
+		dstStage = dst_stage,
 		imageBarriers = {
 			{
 				image = self.image,

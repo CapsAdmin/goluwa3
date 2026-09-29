@@ -8,6 +8,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 local P = ddgi.PROBES_PER_AXIS
 local CASCADES = ddgi.CASCADES
 local BINDING_OUTPUT = 0
@@ -324,7 +325,7 @@ local function pass_shade()
 				uvec2 ddgi_hits[];
 			};
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. [[
+		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. [[
 			// clamped to what the ray texture holds, see ddgi.HALF_PRECISION_RAYS
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
@@ -342,7 +343,7 @@ local function pass_shade()
 				vec3 direct = vec3(0.0);
 
 				if (sun_visible) {
-					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359);
+					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P);
 				}
 
 				float total = 0.0;

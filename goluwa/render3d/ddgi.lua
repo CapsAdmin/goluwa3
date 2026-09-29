@@ -7,6 +7,7 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 local ddgi = library()
 -- Dynamic diffuse global illumination (Majercik et al. 2019) over hardware ray
 -- tracing. A camera-centred grid of probes each trace RAYS_PER_PROBE rays per
@@ -968,6 +969,7 @@ function ddgi.GetBlockLayout()
 		gbuffer_layout.block,
 		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 		{"light_count", "int"},
+		clouds.GetShadowBlockLayout(),
 		unpack(ddgi.GetProbeBlockLayout()),
 	}
 end
@@ -1059,6 +1061,7 @@ function ddgi.WriteBlock(self, block)
 	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	scene_lights.WriteLightsBlock(block.lights, lights)
+	clouds.WriteShadowBlock(self, block)
 	return ddgi.WriteProbeBlock(self, block)
 end
 
