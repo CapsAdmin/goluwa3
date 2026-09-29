@@ -1,5 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local system = import("goluwa/system.lua")
+local assets = import("goluwa/assets.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 -- What the weather does to surfaces as they are written to the gbuffer, so lighting, reflections and
 -- gi all see it. render3d/weather.lua sets the state and owns the shelter map, a depth map rendered
@@ -16,6 +17,12 @@ surface_weather.precipitation_direction = Vec3(0, 1, 0)
 surface_weather.precipitation_spread = 0.2
 -- a ShadowMap rendered along the precipitation, nil without render3d/weather.lua
 surface_weather.shelter_map = nil
+-- lying snow takes its albedo, roughness and normal from this material, loaded once snow first lies.
+-- its textures tile every SNOW_TEXTURE_SIZE meters, projected from above
+surface_weather.SNOW_MATERIAL = "materials/examples/snow.lua"
+surface_weather.SNOW_TEXTURE_SIZE = 2.4
+-- nil until snow first lies, false when there is no such material
+surface_weather.snow_material = nil
 surface_weather.block = {
 	{"surface_wetness", "float"},
 	{"surface_snow_depth", "float"},
@@ -24,6 +31,10 @@ surface_weather.block = {
 	{"shelter_texel_size", "float"},
 	{"precipitation_spread", "float"},
 	{"surface_frame", "int"},
+	{"snow_albedo_tex", "int"},
+	{"snow_roughness_tex", "int"},
+	{"snow_normal_tex", "int"},
+	{"snow_texture_scale", "float"},
 	{"precipitation_direction", "vec3"},
 	{"shelter_matrix", "mat4"},
 }
@@ -51,6 +62,22 @@ function surface_weather.WriteBlock(self, block)
 
 	block.precipitation_spread = surface_weather.precipitation_spread
 	block.surface_frame = system.GetFrameNumber() % 64
+
+	if block.surface_snow_depth > 0 and surface_weather.snow_material == nil then
+		surface_weather.snow_material = assets.Load(surface_weather.SNOW_MATERIAL) or false
+	end
+
+	local snow = surface_weather.snow_material
+
+	if snow then
+		block.snow_albedo_tex = self:GetTextureIndex(snow:GetAlbedoTexture())
+		block.snow_roughness_tex = self:GetTextureIndex(snow:GetRoughnessTexture())
+		block.snow_normal_tex = self:GetTextureIndex(snow:GetNormalTexture())
+	else
+		block.snow_albedo_tex = -1
+	end
+
+	block.snow_texture_scale = 1 / surface_weather.SNOW_TEXTURE_SIZE
 	surface_weather.precipitation_direction:CopyToFloatPointer(block.precipitation_direction)
 	return block
 end
@@ -213,14 +240,29 @@ function surface_weather.GetGLSL(block_name)
 			if (cover <= 0.0) return 0.0;
 
 			// fresh dry snow reflects ~90% of visible light, wet snow holds water between coarser grains
-			// and drops to ~60%
+			// and drops to ~60%, and is smoother
 			float snow_wetness = ]] .. block_name .. [[.surface_snow_wetness;
-			float snow_roughness = mix(0.75, 0.55, snow_wetness);
-			albedo = mix(albedo, vec3(mix(0.9, 0.6, snow_wetness)), cover);
+			vec3 snow_albedo = vec3(0.9);
+			float snow_roughness = 0.75;
+			// the snow fills in the surface's detail
+			vec3 snow_normal = geometric_normal;
+
+			if (]] .. block_name .. [[.snow_albedo_tex >= 0) {
+				// projected from above, u along +x and v along -z so the tangent frame is right handed
+				vec2 uv = vec2(world_pos.x, -world_pos.z) * ]] .. block_name .. [[.snow_texture_scale;
+				snow_albedo = texture(TEXTURE(]] .. block_name .. [[.snow_albedo_tex), uv).rgb;
+				snow_roughness = texture(TEXTURE(]] .. block_name .. [[.snow_roughness_tex), uv).r;
+				vec3 t = texture(TEXTURE(]] .. block_name .. [[.snow_normal_tex), uv).rgb * 2.0 - 1.0;
+				// the grains' normal against straight up, tilted along with the surface under the snow
+				snow_normal = normalize(vec3(t.x, t.z, -t.y) + geometric_normal - vec3(0.0, 1.0, 0.0));
+			}
+
+			snow_albedo *= mix(1.0, 0.6 / 0.9, snow_wetness);
+			snow_roughness *= mix(1.0, 0.55 / 0.75, snow_wetness);
+			albedo = mix(albedo, snow_albedo, cover);
 			alpha_roughness = mix(alpha_roughness, snow_roughness * snow_roughness, cover);
 			metallic *= 1.0 - cover;
-			// the snow fills in the surface's detail
-			normal = normalize(mix(normal, geometric_normal, cover));
+			normal = normalize(mix(normal, snow_normal, cover));
 			return cover;
 		}
 	]]

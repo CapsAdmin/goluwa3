@@ -2,7 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local shapes = import("lua/shapes.lua")
-local Texture = import("goluwa/render/texture.lua")
+local assets = import("goluwa/assets.lua")
 -- probe visibility rays leave hard dark crescents on the spheres
 import("goluwa/render3d/ddgi.lua").VISIBILITY_RAYS = 0
 local root = Entity.New{Name = "pbr_parameters"}
@@ -54,26 +54,6 @@ local shared = [[
 
 	vec4 height_to_normal(float h, float hu, float hv, float strength) {
 		return vec4(normalize(vec3((h - hu) * strength, (h - hv) * strength, 1.0)) * 0.5 + 0.5, 1.0);
-	}
-
-	// a texel's grain tilted up to max_slope in a random direction
-	vec3 grain_normal(vec2 uv, float seed, float max_slope) {
-		vec2 r = hash22(floor(uv * TEXELS) + seed) * 2.0 - 1.0;
-		return normalize(vec3(r * max_slope, 1.0));
-	}
-
-	// a fraction of the texels are smooth facets: a fresh quartz face, a mica
-	// flake, an ice crystal, each catching the sun at its own angle
-	bool is_facet(vec2 uv, float fraction) {
-		return hash12(floor(uv * TEXELS) + 71.3) < fraction;
-	}
-
-	// a facet's normal, anywhere within 60 degrees of the surface's
-	vec3 facet_normal(vec2 uv) {
-		vec2 r = hash22(floor(uv * TEXELS) + 13.7);
-		float cos_theta = mix(1.0, 0.5, r.x);
-		float phi = r.y * 6.2831853;
-		return vec3(vec2(cos(phi), sin(phi)) * sqrt(1.0 - cos_theta * cos_theta), cos_theta);
 	}
 
 	// hemispherical dents of hammered metal, the distance to the nearest
@@ -136,18 +116,6 @@ local shared = [[
 		return 0.5 + 0.5 * sin(uv.y * 6.2831853 * 160.0);
 	}
 
-	// wind ripples a few cm apart, a gentle windward slope and a steep lee
-	float sand_height(vec2 uv) {
-		float x = uv.y * 30.0 + fbm(uv, 3.0, 4) * 4.0;
-		float t = fract(x);
-		return (t < 0.75 ? t / 0.75 : (1.0 - t) / 0.25) * 0.5 + fbm(uv, 12.0, 4) * 0.5;
-	}
-
-	// wind crust over soft drifts
-	float snow_height(vec2 uv) {
-		return fbm(uv, 4.0, 6);
-	}
-
 	// a pointed ellipse along v, x across it from -1 to 1
 	float leaf_mask(vec2 uv) {
 		vec2 p = (vec2(uv.x, 1.0 - uv.y) - 0.5) * 2.0;
@@ -172,29 +140,6 @@ local function normal_map(height_function, strength)
 		return height_to_normal(h, %s(uv + e.xy), %s(uv + e.yx), %s);
 	]]
 	):format(height_function, height_function, height_function, strength)
-end
-
--- a grain or a facet per texel, sampled nearest and without mips: filtering
--- would average the facets' normals away and their glints with them. far away
--- the texels alias and TAA averages them over frames, as the eye does grains
--- smaller than it can resolve, leaving the brightest glints
-local function grain_texture(glsl)
-	local tex = Texture.New{
-		width = 1024,
-		height = 1024,
-		format = "r8g8b8a8_unorm",
-		image = {
-			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		},
-		sampler = {
-			min_filter = "nearest",
-			mag_filter = "nearest",
-			wrap_s = "repeat",
-			wrap_t = "repeat",
-		},
-	}
-	tex:Shade(glsl, {custom_declarations = shared})
-	return tex
 end
 
 local function material(config)
@@ -389,50 +334,9 @@ swatch(
 )
 -- in front: materials made of many small grains and facets, and ones light goes through
 local FRONT = 3.2
--- dry sand: grains of quartz, feldspar and a few dark ones, a smooth quartz or
--- mica facet among them here and there
-tile(
-	-5,
-	FRONT,
-	material{
-		Color = [[
-			float r = hash12(floor(uv * TEXELS) + 3.1);
-			vec3 grain = vec3(0.42, 0.33, 0.22) * mix(0.75, 1.2, hash12(floor(uv * TEXELS) + 9.4));
-			grain = r < 0.07 ? vec3(0.07, 0.06, 0.05) : r > 0.9 ? vec3(0.62, 0.58, 0.52) : grain;
-			return vec4(grain * mix(0.85, 1.1, fbm(uv, 6.0, 4)), 1.0);
-		]],
-		Metallic = 0,
-		Roughness = grain_texture("return vec4(is_facet(uv, 0.05) ? 0.15 : 0.9);"),
-		Specular = grain_texture("return vec4(is_facet(uv, 0.05) ? 1.0 : 0.5);"),
-		SpecularMultiplier = 2,
-		Normal = grain_texture([[
-			vec2 e = vec2(1.0 / TEXELS, 0.0);
-			float h = sand_height(uv);
-			vec3 ripples = height_to_normal(h, sand_height(uv + e.xy), sand_height(uv + e.yx), 4.0).xyz * 2.0 - 1.0;
-			vec3 grain = is_facet(uv, 0.05) ? facet_normal(uv) : grain_normal(uv, 0.0, 0.3);
-			return vec4(normalize(vec3(ripples.xy + grain.xy, ripples.z)) * 0.5 + 0.5, 1.0);
-		]]),
-	}
-)
--- snow: ice grains, bright and mostly rough, with the odd crystal face
--- catching the sun. ice's F0 is 0.018
-tile(
-	-2.5,
-	FRONT,
-	material{
-		Color = "return vec4(vec3(0.9, 0.92, 0.94) * mix(0.95, 1.02, fbm(uv, 20.0, 4)), 1.0);",
-		Metallic = 0,
-		Roughness = grain_texture("return vec4(is_facet(uv, 0.08) ? 0.1 : mix(0.6, 0.8, hash12(floor(uv * TEXELS))));"),
-		SpecularMultiplier = 0.45,
-		Normal = grain_texture([[
-			vec2 e = vec2(1.0 / TEXELS, 0.0);
-			float h = snow_height(uv);
-			vec3 drifts = height_to_normal(h, snow_height(uv + e.xy), snow_height(uv + e.yx), 6.0).xyz * 2.0 - 1.0;
-			vec3 grain = is_facet(uv, 0.08) ? facet_normal(uv) : grain_normal(uv, 5.0, 0.15);
-			return vec4(normalize(vec3(drifts.xy + grain.xy, drifts.z)) * 0.5 + 0.5, 1.0);
-		]]),
-	}
-)
+-- sand and snow, see lua/autorun/render_3d/example_materials.lua
+tile(-5, FRONT, assets.Load("materials/examples/sand.lua"))
+tile(-2.5, FRONT, assets.Load("materials/examples/snow.lua"))
 -- the glass balls sit on a tiled floor to show what they bend
 local grid = material{
 	Color = [[
