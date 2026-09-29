@@ -1017,7 +1017,8 @@ function grass.BuildDrawPass(gbuffer_pass)
 					// blades are waxy, water beads on them rather than soaking in
 					float clearcoat = 0.0;
 					float clearcoat_roughness = 1.0;
-					float snow = apply_surface_weather(albedo, roughness, metallic, N, 0.2, in_position, in_ground_normal, clearcoat, clearcoat_roughness);
+					float rain;
+					float snow = apply_surface_weather(albedo, roughness, metallic, N, 0.2, in_position, in_ground_normal, clearcoat, clearcoat_roughness, rain);
 					set_alpha(1.0);
 					set_albedo(albedo);
 					set_normal(gbuffer_encode_normal(N));
@@ -1028,6 +1029,8 @@ function grass.BuildDrawPass(gbuffer_pass)
 					set_specular(gbuffer_encode_specular(0.5));
 					set_clearcoat(clearcoat);
 					set_clearcoat_roughness(gbuffer_encode_roughness(clearcoat_roughness));
+					set_clearcoat_rain(rain);
+					set_clearcoat_normal(gbuffer_encode_normal(in_ground_normal));
 					set_transmission(0.4 * (1.0 - snow));
 					set_transmission_scattering(0.5);
 					set_emissive(vec3(0.0));

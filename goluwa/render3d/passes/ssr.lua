@@ -3,6 +3,7 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
+local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -97,6 +98,7 @@ return {
 				block = {
 					render3d.camera_block,
 					gbuffer_layout.block,
+					surface_weather.rain_surface_block,
 					render3d.last_frame_block,
 					{"blue_noise_tex", "int"},
 					{"exposure_tex", "int"},
@@ -113,6 +115,7 @@ return {
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					gbuffer_layout.WriteBlock(self, block)
+					surface_weather.WriteRainSurfaceBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
@@ -195,7 +198,7 @@ return {
 				""
 			),
 		shader = [[
-		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ssr_data") .. [[
+		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ssr_data") .. surface_weather.GetRainSurfaceGLSL("ssr_data") .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. (
 				RAY_QUERY and
@@ -573,10 +576,17 @@ return {
 					vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
 					vec3 geometric_N = get_geometric_normal(gbuffer_pos, world_pos, depth, V, N);
 
-					// a clearcoat is smoother than the surface under it, the sharp reflection is its
+					// a clearcoat is smoother than the surface under it, the sharp reflection is its. traced off the
+					// flat film: the rain's waves on it are too fine and too quick for the ssr's resolution and
+					// history, the lighting pass bends what this finds by them. far away they roughen the film
 					if (gbuffer_clearcoat(gbuffer_pos) > 0.5) {
-						N = geometric_N;
-						roughness = sqrt(gbuffer_clearcoat_roughness(gbuffer_pos));
+						float coat_alpha = gbuffer_clearcoat_roughness(gbuffer_pos);
+						vec3 coat_N = gbuffer_clearcoat_normal(gbuffer_pos);
+						vec3 rain_N = coat_N;
+						float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * ssr_data.inv_projection[1][1] / float(gbuffer_size.y);
+						apply_rain_surface(world_pos, footprint, gbuffer_clearcoat_rain(gbuffer_pos), rain_N, coat_alpha);
+						N = coat_N;
+						roughness = sqrt(coat_alpha);
 					}
 
 					current = cast_ssr_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(pos));

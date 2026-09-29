@@ -10,6 +10,7 @@ local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
+local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local commands = import("goluwa/cli/commands.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
@@ -83,6 +84,7 @@ return {
 				block = {
 					surface_lighting.block,
 					gbuffer_layout.block,
+					surface_weather.rain_surface_block,
 					render3d.last_frame_block,
 					{"gi_debug", "int"},
 					{"direct_debug", "int"},
@@ -95,6 +97,7 @@ return {
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
 					gbuffer_layout.WriteBlock(self, block)
+					surface_weather.WriteRainSurfaceBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					block.gi_debug = ddgi.DEBUG_GI
 					block.direct_debug = debug_direct
@@ -162,13 +165,15 @@ return {
 				imageStore(out_color, get_screen_pos(), value);
 			}
 
-			]] .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. [[
+			]] .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. surface_weather.GetRainSurfaceGLSL("lighting_data") .. [[
 
 			]] .. surface_lighting.GetGLSL("lighting_data") .. [[
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
-			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback) {
+			// ssr_uv is where the screen space reflection is read, moved off the pixel by what the ssr can't
+			// resolve, like the rain's waves
+			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 ssr_uv) {
 				vec3 raw_R = reflect(-V, normal);
 				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
@@ -177,7 +182,7 @@ return {
 
 				if (lighting_data.ssr_tex == -1) return env_reflection;
 
-				vec4 ssr = get_filtered_ssr_reflection(in_uv);
+				vec4 ssr = get_filtered_ssr_reflection(ssr_uv);
 				return combine_reflections(env_reflection, ssr, get_ssr_blend_weight(roughness));
 			}
 
@@ -216,12 +221,12 @@ return {
 				return max(sky_color_output, vec3(0.0));
 			}
 
-			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float transmission, vec3 transmission_color, vec3 world_pos, vec3 V, vec3 N, vec3 geometric_N, float clearcoat, float clearcoat_alpha)
+			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float transmission, vec3 transmission_color, vec3 world_pos, vec3 V, vec3 N, float clearcoat, float clearcoat_alpha, vec3 coat_smooth_N, vec3 coat_N)
 			{
 				float perceptual_roughness = sqrt(clamp(roughness_alpha, 0.0, 1.0));
 				float sky_visibility;
 				vec3 irradiance = get_gi_irradiance(N, sky_visibility);
-				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, irradiance);
+				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, irradiance, in_uv);
 				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * gbuffer_ao(in_uv);
 
 				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
@@ -246,10 +251,14 @@ return {
 
 				if (clearcoat > 0.0) {
 					// the coat reflects its share, the rest goes through to the surface and back out
-					float coat_NdotV = max(dot(geometric_N, V), 0.001);
+					float coat_NdotV = max(dot(coat_N, V), 0.001);
 					float coat_roughness = sqrt(clamp(clearcoat_alpha, 0.0, 1.0));
 					float Fc = F_SchlickScalar(CLEARCOAT_F0, coat_NdotV) * clearcoat;
-					vec3 coat_reflection = get_reflection(geometric_N, coat_roughness, V, world_pos, sky_visibility, irradiance);
+					// the ssr traced the flat film, the rain's waves bend what it found as they would bend the ray. by
+					// their tilt on screen, less so further away where the rings are smaller
+					vec3 tilt = mat3(lighting_data.view) * (coat_N - coat_smooth_N);
+					vec2 ssr_uv = in_uv + vec2(tilt.x, -tilt.y) * (0.1 / max(length(lighting_data.camera_position.xyz - world_pos), 1.0));
+					vec3 coat_reflection = get_reflection(coat_N, coat_roughness, V, world_pos, sky_visibility, irradiance, ssr_uv);
 					return (ambient_diffuse + ambient_specular) * (1.0 - Fc) + coat_reflection * Fc * SpecularOcclusion(coat_NdotV, ambient_occlusion, coat_roughness);
 				}
 
@@ -309,8 +318,21 @@ return {
 				vec3 geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N);
 				float clearcoat = gbuffer_clearcoat(in_uv);
 				float clearcoat_alpha = gbuffer_clearcoat_roughness(in_uv);
+				vec3 coat_smooth_N = geometric_N;
+
+				if (clearcoat > 0.0) coat_smooth_N = gbuffer_clearcoat_normal(in_uv);
+
+				vec3 coat_N = coat_smooth_N;
+
+				if (clearcoat > 0.0) {
+					// meters a pixel covers on the surface. at a glancing angle it stretches along the view only,
+					// across it the rings stay as sharp, so the mean of both
+					float footprint = length(world_pos - lighting_data.camera_position.xyz) * 2.0 * lighting_data.inv_projection[1][1] / float(size.y) / sqrt(max(dot(geometric_N, V), 0.01));
+					apply_rain_surface(world_pos, footprint, gbuffer_clearcoat_rain(in_uv), coat_N, clearcoat_alpha);
+				}
+
 				vec3 direct_specular;
-				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, geometric_N, clearcoat, clearcoat_alpha, direct_specular);
+				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, geometric_N, clearcoat, clearcoat_alpha, coat_N, direct_specular);
 				direct += direct_specular;
 
 				if (lighting_data.direct_debug != 0) {
@@ -318,7 +340,7 @@ return {
 					return;
 				}
 
-				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, transmission, transmission_color, world_pos, V, N, geometric_N, clearcoat, clearcoat_alpha);
+				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, transmission, transmission_color, world_pos, V, N, clearcoat, clearcoat_alpha, coat_smooth_N, coat_N);
 				vec3 color = direct + indirect + emissive;
 
 				if (lighting_data.gi_debug != 0) {

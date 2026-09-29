@@ -331,6 +331,8 @@ end
 -- it leaves on surfaces is SetWetness
 function weather.SetRain(mm_per_hour)
 	precipitation.SetRain(mm_per_hour)
+	surface_weather.rain_impact_rate = precipitation.GetRainImpactRate(surface_weather.AGITATION_MIN_DIAMETER)
+	surface_weather.splash_rate = precipitation.GetRainImpactRate(surface_weather.SPLASH_MIN_DIAMETER)
 	atmosphere.SetPrecipitationExtinction(precipitation.GetExtinction())
 end
 

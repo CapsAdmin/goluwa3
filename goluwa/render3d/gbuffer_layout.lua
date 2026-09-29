@@ -41,10 +41,17 @@ gbuffer_layout.targets = {
 	},
 	{
 		texture = "clearcoat",
-		format = "r8g8_unorm",
+		format = "r8g8b8a8_unorm",
 		-- a smooth dielectric layer over the surface, as a water film or a lacquer. roughness is
-		-- perceptual like the base's
-		channels = {{"clearcoat", "r"}, {"clearcoat_roughness", "g"}},
+		-- perceptual like the base's. rain is how much of the falling rain lands on it, for its waves
+		channels = {{"clearcoat", "r"}, {"clearcoat_roughness", "g"}, {"clearcoat_rain", "b"}},
+	},
+	{
+		texture = "clearcoat_normal",
+		-- octahedral like normal. the coat fills in the normal map, it follows the smooth vertex normals.
+		-- the one rebuilt from depth is flat on each triangle and a mirror-like coat shows every facet
+		format = "r16g16_unorm",
+		channels = {{"clearcoat_normal", "rg"}},
 	},
 	{
 		texture = "velocity",
@@ -132,6 +139,13 @@ do
 			N.xy += vec2(N.x >= 0.0 ? -t : t, N.y >= 0.0 ? -t : t);
 			return normalize(N);
 		}
+		vec3 gbuffer_clearcoat_normal(COORD c) {
+			vec2 e = gbuffer_fetch_nearest(GBUFFER.clearcoat_normal_tex, c).xy * 2.0 - 1.0;
+			vec3 N = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+			float t = max(-N.z, 0.0);
+			N.xy += vec2(N.x >= 0.0 ? -t : t, N.y >= 0.0 ? -t : t);
+			return normalize(N);
+		}
 		float gbuffer_metallic(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).r; }
 		// ggx alpha
 		float gbuffer_roughness(COORD c) { float r = gbuffer_fetch(GBUFFER.mra_tex, c).g; return r * r; }
@@ -142,6 +156,7 @@ do
 		float gbuffer_clearcoat(COORD c) { return gbuffer_fetch(GBUFFER.clearcoat_tex, c).r; }
 		// ggx alpha
 		float gbuffer_clearcoat_roughness(COORD c) { float r = gbuffer_fetch(GBUFFER.clearcoat_tex, c).g; return r * r; }
+		float gbuffer_clearcoat_rain(COORD c) { return gbuffer_fetch(GBUFFER.clearcoat_tex, c).b; }
 		float gbuffer_dielectric_f0(COORD c) { return gbuffer_fetch(GBUFFER.transmission_tex, c).b * 0.08; }
 
 		vec3 gbuffer_transmission_color(COORD c) {

@@ -304,7 +304,8 @@ local function build_ssdm_fragment_shader(write_depth)
 			// thin translucent leaves are waxy rather than porous
 			float clearcoat = get_clearcoat();
 			float clearcoat_roughness = get_clearcoat_roughness();
-			float snow = apply_surface_weather(albedo, roughness, metallic, normal, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, tbn[2], clearcoat, clearcoat_roughness);
+			float rain;
+			float snow = apply_surface_weather(albedo, roughness, metallic, normal, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, tbn[2], clearcoat, clearcoat_roughness, rain);
 			transmission *= 1.0 - snow;
 			roughness = get_antialiased_roughness(normal, roughness);
 			set_alpha(alpha);
@@ -322,6 +323,8 @@ local function build_ssdm_fragment_shader(write_depth)
 			set_transmission(transmission);
 			set_clearcoat(clearcoat);
 			set_clearcoat_roughness(gbuffer_encode_roughness(clearcoat_roughness));
+			set_clearcoat_rain(rain);
+			set_clearcoat_normal(gbuffer_encode_normal(tbn[2]));
 			set_emissive(gbuffer_encode_emissive(get_emissive(displacement.uv) * (1.0 - snow)));
 			// the undisplaced position on both sides. parallax shifts the surface
 			// by the same amount in both frames when the view barely changed, so

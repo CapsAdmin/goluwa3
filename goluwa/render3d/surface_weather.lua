@@ -28,6 +28,14 @@ surface_weather.snow_material = nil
 surface_weather.RAIN_MATERIAL = "materials/examples/rain.lua"
 -- nil until something is first wet, false when there is no such material
 surface_weather.rain_material = nil
+-- drops of every size that land on each m² of open ground per second, and those big enough to splash,
+-- render3d/weather.lua sets them with the rain. together they stir the film on wet surfaces up into a
+-- restless surface that runs down slopes, with the odd ring from a big drop on flat ground
+surface_weather.rain_impact_rate = 0
+surface_weather.splash_rate = 0
+-- mm, the drops counted by each
+surface_weather.AGITATION_MIN_DIAMETER = 0.5
+surface_weather.SPLASH_MIN_DIAMETER = 3
 surface_weather.block = {
 	{"surface_wetness", "float"},
 	{"surface_snow_depth", "float"},
@@ -104,8 +112,232 @@ function surface_weather.WriteBlock(self, block)
 	return block
 end
 
+do
+	-- m across the stirred film's waves, their larger octave
+	local AGITATION_SIZE = 0.05
+	-- the waves' rms slope at 1000 drops per m² per second. the waves of many drops add up at random, so
+	-- the slope goes as the square root of how many land
+	local AGITATION_SLOPE = 0.06 * 1
+	-- noise cells per second the film churns through in place
+	local AGITATION_SPEED = 30
+	-- m/s the film runs down a wall, down a slope times the sine of its angle
+	local FLOW_SPEED = 0.5 * 10
+	-- s before the flowing noise starts over, a whole number of splash lifetimes so the time's wrap
+	-- doesn't cut it off. it moves by the direction downhill, which turns along a curved surface, so
+	-- two copies half a period apart start over in turn and the pattern never tears (the flow map
+	-- technique, Vlachos 2010)
+	local FLOW_PERIOD = 1.6
+	-- the noise is this much coarser upward, so the water running down walls draws out into streaks
+	local AGITATION_STREAK = 0.25
+	-- the big drops' rings: a grid of cells in a few offset layers, each cell a drop landing somewhere in it
+	-- once a lifetime, or not. a ring spreads to a cell so the neighbouring cells hold every ring
+	local SPLASH_CELL = 0.15
+	local SPLASH_LAYERS = 2
+	local SPLASH_LIFETIME = 0.8
+	local SPLASH_RADIUS = SPLASH_CELL
+	-- m across a ring's crests, and the steepest slope of its waves
+	local SPLASH_WIDTH = 0.03
+	local SPLASH_SLOPE = 0.3
+	surface_weather.rain_surface_block = {
+		{"rain_time", "float"},
+		{"rain_agitation", "float"},
+		{"splash_chance", "float"},
+		{"splash_alpha", "float"},
+	}
+
+	function surface_weather.WriteRainSurfaceBlock(self, block)
+		-- a whole number of splash lifetimes, so the wrap cuts no ring off. the churning jumps once
+		block.rain_time = system.GetElapsedTime() % (SPLASH_LIFETIME * 4096)
+		block.rain_agitation = AGITATION_SLOPE * math.sqrt(surface_weather.rain_impact_rate / 1000)
+		-- the chance a cell's drop lands in a lifetime, to land the big drops on each m². heavy rain has
+		-- more than the cells hold, the rest is in the churning
+		local chance = math.min(surface_weather.splash_rate * SPLASH_LIFETIME * SPLASH_CELL * SPLASH_CELL / SPLASH_LAYERS, 1)
+		block.splash_chance = chance
+		-- far away the rings are too fine to see and only spread the film's reflection: the share of the
+		-- surface a ring's waves are passing times their slope
+		local coverage = math.min(
+			chance * SPLASH_LAYERS * math.pi * SPLASH_RADIUS * 2 * SPLASH_WIDTH / (
+					SPLASH_CELL * SPLASH_CELL
+				),
+			1
+		)
+		block.splash_alpha = SPLASH_SLOPE * math.sqrt(coverage)
+	end
+
+	-- apply_rain_surface(world_pos, footprint, rain, coat_N, coat_alpha) for a pass with rain_surface_block in
+	-- block_name. rain is how much of the rain lands on the coat (gbuffer_clearcoat_rain), footprint the
+	-- meters a pixel covers. it tilts the coat's normal where the waves are resolved and roughens the coat
+	-- where they aren't
+	function surface_weather.GetRainSurfaceGLSL(block_name)
+		return (
+			(
+				[[
+			const float AGITATION_SIZE = %f;
+			const float AGITATION_SPEED = %f;
+			const float FLOW_SPEED = %f;
+			const float FLOW_PERIOD = %f;
+			const float AGITATION_STREAK = %f;
+			const float SPLASH_CELL = %f;
+			const int SPLASH_LAYERS = %d;
+			const float SPLASH_LIFETIME = %f;
+			const float SPLASH_RADIUS = %f;
+			const float SPLASH_WIDTH = %f;
+			const float SPLASH_SLOPE = %f;
+			// three crests across a ring
+			const float SPLASH_CRESTS = 3.0 * 3.14159265;
+
+			vec3 rain_hash(vec3 p) {
+				p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+				p += dot(p, p.yxz + 33.33);
+				return fract((p.xxy + p.yxx) * p.zyx);
+			}
+
+			// gradient noise, the value in x and its gradient in yzw (Quilez)
+			vec4 rain_noise(vec3 x) {
+				vec3 i = floor(x);
+				vec3 f = fract(x);
+				vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+				vec3 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+				vec3 ga = rain_hash(i) * 2.0 - 1.0;
+				vec3 gb = rain_hash(i + vec3(1.0, 0.0, 0.0)) * 2.0 - 1.0;
+				vec3 gc = rain_hash(i + vec3(0.0, 1.0, 0.0)) * 2.0 - 1.0;
+				vec3 gd = rain_hash(i + vec3(1.0, 1.0, 0.0)) * 2.0 - 1.0;
+				vec3 ge = rain_hash(i + vec3(0.0, 0.0, 1.0)) * 2.0 - 1.0;
+				vec3 gf = rain_hash(i + vec3(1.0, 0.0, 1.0)) * 2.0 - 1.0;
+				vec3 gg = rain_hash(i + vec3(0.0, 1.0, 1.0)) * 2.0 - 1.0;
+				vec3 gh = rain_hash(i + vec3(1.0, 1.0, 1.0)) * 2.0 - 1.0;
+				float va = dot(ga, f);
+				float vb = dot(gb, f - vec3(1.0, 0.0, 0.0));
+				float vc = dot(gc, f - vec3(0.0, 1.0, 0.0));
+				float vd = dot(gd, f - vec3(1.0, 1.0, 0.0));
+				float ve = dot(ge, f - vec3(0.0, 0.0, 1.0));
+				float vf = dot(gf, f - vec3(1.0, 0.0, 1.0));
+				float vg = dot(gg, f - vec3(0.0, 1.0, 1.0));
+				float vh = dot(gh, f - vec3(1.0, 1.0, 1.0));
+				return vec4(
+					va + u.x * (vb - va) + u.y * (vc - va) + u.z * (ve - va) + u.x * u.y * (va - vb - vc + vd) + u.y * u.z * (va - vc - ve + vg) + u.z * u.x * (va - vb - ve + vf) + (-va + vb + vc - vd + ve - vf - vg + vh) * u.x * u.y * u.z,
+					ga + u.x * (gb - ga) + u.y * (gc - ga) + u.z * (ge - ga) + u.x * u.y * (ga - gb - gc + gd) + u.y * u.z * (ga - gc - ge + gg) + u.z * u.x * (ga - gb - ge + gf) + (-ga + gb + gc - gd + ge - gf - gg + gh) * u.x * u.y * u.z +
+					du * (vec3(vb, vc, ve) - va + u.yzx * vec3(va - vb - vc + vd, va - vc - ve + vg, va - vb - ve + vf) + u.zxy * vec3(va - vb - ve + vf, va - vb - vc + vd, va - vc - ve + vg) + u.yzx * u.zxy * (-va + vb + vc - vd + ve - vf - vg + vh))
+				);
+			}
+
+			// the slope of the churning film at p, as the gradient of its height in world space
+			// on the surface with normal N: it runs downhill, gravity along the surface, and churns in place by
+			// moving through the noise along N
+			vec3 get_rain_agitation_slope(vec3 p, vec3 N) {
+				vec3 scale = vec3(1.0, AGITATION_STREAK, 1.0) / AGITATION_SIZE;
+				vec3 downhill = N * N.y - vec3(0.0, 1.0, 0.0);
+				vec3 gradient = vec3(0.0);
+				float weight_sum = 0.0;
+
+				for (int copy = 0; copy < 2; copy++) {
+					float cycle = fract(BLOCK.rain_time / FLOW_PERIOD + float(copy) * 0.5);
+					// faded out as it starts over
+					float weight = 1.0 - abs(cycle * 2.0 - 1.0);
+					float t = cycle * FLOW_PERIOD;
+					vec3 moved = p - downhill * (FLOW_SPEED * t) - N * (AGITATION_SPEED * AGITATION_SIZE * t);
+					// each copy a different stretch of the noise, and each period too
+					vec3 q = moved * scale + vec3(float(copy) * 31.7 + floor(BLOCK.rain_time / FLOW_PERIOD + float(copy) * 0.5) * 7.3);
+					gradient += (rain_noise(q).yzw + 0.6 * rain_noise(q * 2.3 + 17.1).yzw) * weight;
+					weight_sum += weight * weight;
+				}
+
+				// two unrelated noises mixed lose contrast, as much as their weights' length falls below 1
+				return gradient * inversesqrt(max(weight_sum, 1e-4)) * vec3(1.0, AGITATION_STREAK, 1.0) * BLOCK.rain_agitation;
+			}
+
+			// the slope of the big drops' rings at p in world xz
+			vec2 get_rain_splash_slope(vec2 p) {
+				vec2 slope = vec2(0.0);
+
+				for (int layer = 0; layer < SPLASH_LAYERS; layer++) {
+					vec2 q = p / SPLASH_CELL + vec2(float(layer) * 0.37, float(layer) * 0.71);
+					vec2 cell = floor(q);
+
+					for (int y = -1; y <= 1; y++) {
+						for (int x = -1; x <= 1; x++) {
+							vec2 c = cell + vec2(x, y);
+							// each cell's drops come at its own phase, and land somewhere else each lifetime
+							float t = BLOCK.rain_time / SPLASH_LIFETIME + rain_hash(vec3(c, float(layer))).x;
+							vec3 drop = rain_hash(vec3(c + floor(t) * 17.13, float(layer) + 7.0));
+
+							if (drop.z >= BLOCK.splash_chance) continue;
+
+							float age = fract(t);
+							vec2 delta = (q - c - drop.xy) * SPLASH_CELL;
+							float d = length(delta);
+							// across the ring's crests, -1 to 1
+							float r = (d - age * SPLASH_RADIUS) / SPLASH_WIDTH;
+
+							if (abs(r) >= 1.0 || d < 1e-5) continue;
+
+							// three crests under a smooth window, their slope across the ring, fading as it spreads
+							float w = 1.0 - r * r;
+							float wave = SPLASH_CRESTS * cos(SPLASH_CRESTS * r) * w * w - 4.0 * r * w * sin(SPLASH_CRESTS * r);
+							float fade = (1.0 - age) * (1.0 - age);
+							slope += delta / d * (wave / SPLASH_CRESTS * fade * SPLASH_SLOPE);
+						}
+					}
+				}
+
+				return slope;
+			}
+
+			void apply_rain_surface(vec3 world_pos, float footprint, float rain, inout vec3 coat_N, inout float coat_alpha) {
+				if (rain <= 0.0 || BLOCK.rain_agitation <= 0.0) return;
+
+				vec3 N = coat_N;
+				vec3 slope = vec3(0.0);
+				float spread = 0.0;
+				// resolved while the waves are a few pixels across
+				float resolved = 1.0 - smoothstep(AGITATION_SIZE * 0.3, AGITATION_SIZE, footprint);
+
+				if (resolved > 0.0) {
+					slope += get_rain_agitation_slope(world_pos, N) * resolved;
+				}
+
+				spread += BLOCK.rain_agitation * (1.0 - resolved);
+
+				// the rings only show where the water lies still, on flat ground
+				float flatness = smoothstep(0.9, 0.98, N.y);
+
+				if (BLOCK.splash_chance > 0.0 && flatness > 0.0) {
+					float splash_resolved = 1.0 - smoothstep(SPLASH_WIDTH * 0.3, SPLASH_WIDTH, footprint);
+
+					if (splash_resolved > 0.0) {
+						vec2 s = get_rain_splash_slope(world_pos.xz) * flatness * splash_resolved;
+						slope += vec3(s.x, 0.0, s.y);
+					}
+
+					spread = length(vec2(spread, BLOCK.splash_alpha * flatness * (1.0 - splash_resolved)));
+				}
+
+				// only the part of the slope along the surface tilts it
+				slope -= N * dot(slope, N);
+				coat_N = normalize(N - slope * rain);
+				spread *= rain;
+				coat_alpha = min(sqrt(coat_alpha * coat_alpha + spread * spread), 1.0);
+			}
+		]]
+			):format(
+				AGITATION_SIZE,
+				AGITATION_SPEED,
+				FLOW_SPEED,
+				FLOW_PERIOD,
+				AGITATION_STREAK,
+				SPLASH_CELL,
+				SPLASH_LAYERS,
+				SPLASH_LIFETIME,
+				SPLASH_RADIUS,
+				SPLASH_WIDTH,
+				SPLASH_SLOPE
+			):gsub("BLOCK%.", block_name .. ".")
+		)
+	end
+end
+
 -- apply_surface_weather(albedo, alpha_roughness, metallic, normal, porosity, world_pos, geometric_normal, clearcoat,
--- clearcoat_alpha)
+-- clearcoat_alpha, rain). rain comes out as how much of the falling rain lands on the surface, for its ripples
 -- for a shader with surface_weather.block in the uniform block block_name. it returns how much snow
 -- covers the surface, for what else the snow hides. get_porosity(alpha_roughness, metallic) is the usual
 -- guess for materials that don't know their own
@@ -120,6 +352,13 @@ function surface_weather.GetGLSL(block_name)
 		const float SHELTER_MAX_BLUR = 8.0;
 		// m of snow that hides flat open ground completely, less of it lies in patches
 		const float SNOW_FULL_COVER_DEPTH = 0.05;
+		// the up component of a surface's normal where the rain starts to pool into a film (about 12
+		// degrees), and below which it only runs off (about 45). a run off film covers this much, and is
+		// this rough, perceptual
+		const float RAIN_POOL_SLOPE = 0.98;
+		const float RAIN_RUNOFF_SLOPE = 0.7;
+		const float RAIN_RUNOFF_FILM = 0.35;
+		const float RAIN_RUNOFF_ROUGHNESS = 0.3;
 		const vec2 SHELTER_TAPS[4] = vec2[4](vec2(0.2, 0.55), vec2(-0.55, 0.2), vec2(-0.2, -0.55), vec2(0.55, -0.2));
 
 		// how much of the falling rain or snow reaches this surface, 0 in a sheltered or downward facing spot.
@@ -231,9 +470,10 @@ function surface_weather.GetGLSL(block_name)
 			return clamp((sqrt(alpha_roughness) - 0.5) / 0.4, 0.0, 1.0) * (1.0 - metallic);
 		}
 
-		float apply_surface_weather(inout vec3 albedo, inout float alpha_roughness, inout float metallic, inout vec3 normal, float porosity, vec3 world_pos, vec3 geometric_normal, inout float clearcoat, inout float clearcoat_alpha) {
+		float apply_surface_weather(inout vec3 albedo, inout float alpha_roughness, inout float metallic, inout vec3 normal, float porosity, vec3 world_pos, vec3 geometric_normal, inout float clearcoat, inout float clearcoat_alpha, out float rain) {
 			float wetness = ]] .. block_name .. [[.surface_wetness;
 			float snow_depth = ]] .. block_name .. [[.surface_snow_depth;
+			rain = 0.0;
 
 			if (wetness <= 0.0 && snow_depth <= 0.0) return 0.0;
 
@@ -245,13 +485,18 @@ function surface_weather.GetGLSL(block_name)
 			if (wetness > 0.0) {
 				float wet = wetness * exposure;
 				albedo *= mix(1.0, mix(1.0, 0.2, porosity), wet);
-				float film = wet * ]] .. block_name .. [[.rain_clearcoat;
+				// the water pools into a film on flat ground. down a slope it runs off, thinner the steeper it
+				// is, too thin to fill in the surface's roughness: a patchy, blurred sheen
+				float pooling = smoothstep(RAIN_RUNOFF_SLOPE, RAIN_POOL_SLOPE, geometric_normal.y);
+				float film = wet * ]] .. block_name .. [[.rain_clearcoat * mix(RAIN_RUNOFF_FILM, 1.0, pooling);
 
 				if (film > clearcoat) {
-					float film_roughness = ]] .. block_name .. [[.rain_clearcoat_roughness;
+					float film_roughness = mix(RAIN_RUNOFF_ROUGHNESS, ]] .. block_name .. [[.rain_clearcoat_roughness, pooling);
 					clearcoat_alpha = mix(clearcoat_alpha, film_roughness * film_roughness, (film - clearcoat) / film);
 					clearcoat = film;
 				}
+
+				rain = exposure;
 			}
 
 			if (snow_depth <= 0.0) return 0.0;
@@ -293,6 +538,7 @@ function surface_weather.GetGLSL(block_name)
 			normal = normalize(mix(normal, snow_normal, cover));
 			// the snow covers the water
 			clearcoat *= 1.0 - cover;
+			rain *= 1.0 - cover;
 			return cover;
 		}
 	]]

@@ -85,6 +85,22 @@ function precipitation.GetRainDropCount()
 	)
 end
 
+-- drops of at least min_diameter mm that land on each m² of open ground per second. the marshall palmer
+-- spectrum times each size's atlas fall speed 9.65 - 10.3 exp(-0.6 D), integrated over D
+function precipitation.GetRainImpactRate(min_diameter)
+	if precipitation.rain_rate <= 0 then return 0 end
+
+	local lambda = get_rain_lambda()
+	local k = lambda + 0.6
+	return MARSHALL_PALMER_N0 * (
+			9.65 / lambda * (
+				math.exp(-lambda * min_diameter) - math.exp(-lambda * RAIN_MAX_DIAMETER)
+			) - 10.3 / k * (
+				math.exp(-k * min_diameter) - math.exp(-k * RAIN_MAX_DIAMETER)
+			)
+		)
+end
+
 function precipitation.GetSnowflakeCount()
 	if precipitation.snow_rate <= 0 then return 0, 0 end
 
