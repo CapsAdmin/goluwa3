@@ -121,6 +121,15 @@ water.ocean = {
 	WindDirection = 30,
 	-- how far the Gerstner waves pull towards their crests, 0 gives sine waves
 	Choppiness = 1.1,
+	-- how much of the slope of the waves too short for the wave textures is drawn as moving
+	-- ripples, 0 to 1. the rest is the surface's roughness, the sea is as rough either way
+	RippleStrength = 0.5,
+	-- stretches those ripples, as steep, so taller too. 1 starts them at the shortest wave the
+	-- textures hold
+	RippleScale = 10,
+	-- how many of its periods a ripple lives before it fades out and comes back going somewhere
+	-- else. fewer is more random, more slides along further
+	RippleLifetime = 5,
 	-- how much of the wind waves are grown yet, 1 is a fully developed sea
 	Development = 1,
 	SwellHeight = 0.35,
@@ -236,10 +245,17 @@ do
 	-- wave texture texel size in meters of the near wave texture; the main
 	-- waves go down to where that stops resolving them and the per pixel
 	-- ripples take over
+	-- m/s: below this wind no waves grow and the sea is glassy but for the swell, above this one
+	-- the wind sea is all there (Kahma and Donelan 1988, ripples start at 1 to 3 m/s)
+	water.WIND_SEA_ONSET = 1
+	water.WIND_SEA_GROWN = 3
+
 	function water.BuildOceanWaves(near_texel_size)
 		local params = water.ocean
 		local state = {params.Seed * 7919 + 17}
-		local wind = math.max(params.WindSpeed, 0.5)
+		local wind_sea = math.smoothstep(water.WIND_SEA_ONSET, water.WIND_SEA_GROWN, params.WindSpeed)
+		-- Pierson-Moskowitz's shape doesn't hold for lighter winds, it is faded in there instead
+		local wind = math.max(params.WindSpeed, water.WIND_SEA_GROWN)
 		local wind_angle = math.rad(params.WindDirection)
 		local development = math.clamp(params.Development, 0.05, 1)
 		-- a younger sea peaks at shorter waves and holds less energy
@@ -250,16 +266,21 @@ do
 		local omega_to = math.sqrt(2 * math.pi * water.GRAVITY / 0.06)
 		local swell_count = params.SwellHeight > 0 and 3 or 0
 		local main = {}
-		spectrum_band(
-			main,
-			state,
-			water.MAX_OCEAN_WAVES - swell_count,
-			omega_from,
-			math.max(omega_split, omega_from * 1.5),
-			peak_omega,
-			wind_angle,
-			development
-		)
+
+		-- the wave textures hold what they can resolve, down to split_wavelength. a sea whose
+		-- waves are all shorter than that is all ripples
+		if wind_sea > 0 and omega_from < omega_split then
+			spectrum_band(
+				main,
+				state,
+				water.MAX_OCEAN_WAVES - swell_count,
+				omega_from,
+				omega_split,
+				peak_omega,
+				wind_angle,
+				development * wind_sea
+			)
+		end
 
 		if swell_count > 0 then
 			-- significant height is 4 standard deviations, a sine's is amplitude / sqrt(2)
@@ -279,18 +300,22 @@ do
 
 		table.sort(main, by_wavelength)
 		-- only the slopes of the waves shorter than that matter, the per
-		-- pixel ripples are noise with the same slope variance
+		-- pixel ripples are drawn with the same slope variance
 		local detail = {}
-		spectrum_band(
-			detail,
-			state,
-			16,
-			math.max(omega_split, omega_from * 1.5),
-			omega_to,
-			peak_omega,
-			wind_angle,
-			development
-		)
+
+		if wind_sea > 0 then
+			spectrum_band(
+				detail,
+				state,
+				16,
+				math.max(omega_split, omega_from),
+				omega_to,
+				peak_omega,
+				wind_angle,
+				development * wind_sea
+			)
+		end
+
 		local height_variance = 0
 		local steepness = 0
 
@@ -300,7 +325,7 @@ do
 		end
 
 		-- Cox and Munk's slope variance of the sea surface for a wind speed
-		local total_slope_variance = 0.003 + 0.00512 * wind * development
+		local total_slope_variance = 0.003 + 0.00512 * params.WindSpeed * development
 		local main_slope_variance = 0
 		local detail_slope_variance = 0
 

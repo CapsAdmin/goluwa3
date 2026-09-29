@@ -211,6 +211,9 @@ local function write_ocean(self, block)
 	block.detail_info[1] = math.sin(waves.wind_angle)
 	block.detail_info[2] = waves.detail_wavelength
 	block.detail_info[3] = waves.detail_slope_variance / water.DETAIL_OCTAVES
+	block.ripple_info[0] = params.RippleStrength
+	block.ripple_info[1] = params.RippleScale
+	block.ripple_info[2] = params.RippleLifetime
 end
 
 list.insert(
@@ -263,6 +266,8 @@ list.insert(
 						{"wave_origin", "vec4", #WAVE_CASCADES},
 						-- wind direction, longest ripple, slope variance per octave
 						{"detail_info", "vec4"},
+						-- RippleStrength, RippleScale, RippleLifetime
+						{"ripple_info", "vec4"},
 						{"volume_to_local", "mat4", water.MAX_VOLUMES},
 						-- half width, depth, half length, surface height
 						{"volume_shape", "vec4", water.MAX_VOLUMES},
@@ -483,74 +488,66 @@ list.insert(
 				return ocean_data.ocean_level + get_wave_data(world_xz, 0.0, variance).r;
 			}
 
-			vec2 water_hash2(vec2 p) {
-				vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-				p3 += dot(p3, p3.yzx + 33.33);
-				return fract((p3.xx + p3.yz) * p3.zy) * 2.0 - 1.0;
-			}
+			// the ripples too short for the wave textures: a sum of sine waves around the wind, each at
+			// the speed the dispersion of capillary-gravity waves gives its length. real ripples aren't
+			// endless trains: they are groups that rise, run a few wavelengths and die out (capillary
+			// ones are damped within seconds, and gusts and walls keep making new ones), and a few
+			// endless trains read as rigid layers sliding over each other. so each wave lives
+			// lifetime periods, fading in and out as sin(pi u), and comes back with a new
+			// direction and phase while it is gone. the two waves of a pair share a length and are half
+			// a life apart, sin^2 + cos^2 keeps their sum as steep all the time. RIPPLE_WAVES per
+			// octave, each octave half the length of the last and slope_variance steep. adds their
+			// slope and the height's second derivatives (xx, zz, xz), and returns the slope variance of
+			// the waves the pixel can't resolve
+			const int RIPPLE_WAVES = 12;
+			const float VOLUME_RIPPLE_LIFETIME = 10.0;
+			// the share of ripples going against the wind. the sea's are blown along with it; in a pool
+			// or a lake the walls and shores throw them back and they cross every which way, so the
+			// pattern churns in place instead of drifting as a whole
+			const float OCEAN_RIPPLE_UPWIND_SHARE = 0.1;
+			const float VOLUME_RIPPLE_UPWIND_SHARE = 0.5;
 
-			// the gradient of quintic gradient noise. value noise's is
-			// bilinear across each cell and its lattice shows as straight
-			// edges, which caustics turn into triangles
-			vec2 water_noise_gradient(vec2 p) {
-				vec2 i = floor(p);
-				vec2 f = p - i;
-				vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-				vec2 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
-				vec2 ga = water_hash2(i);
-				vec2 gb = water_hash2(i + vec2(1.0, 0.0));
-				vec2 gc = water_hash2(i + vec2(0.0, 1.0));
-				vec2 gd = water_hash2(i + vec2(1.0, 1.0));
-				float va = dot(ga, f);
-				float vb = dot(gb, f - vec2(1.0, 0.0));
-				float vc = dot(gc, f - vec2(0.0, 1.0));
-				float vd = dot(gd, f - vec2(1.0, 1.0));
-				float k = va - vb - vc + vd;
-				return ga + u.x * (gb - ga) + u.y * (gc - ga) + u.x * u.y * (ga - gb - gc + gd) + du * (u.yx * k + vec2(vb, vc) - va);
-			}
-
-			// rms of the noise's gradient along one axis, per unit of p
-			const float NOISE_GRADIENT_RMS = 0.5;
-			// across the wind the ripples are longer
-			const float RIPPLE_CROSSWIND_SCALE = 0.6;
-
-			// octaves of noise ripples stretched across the wind, each half the
-			// length and height of the last so all are as steep. they drift
-			// with the flow and at their own phase speed, and two crossing
-			// layers per octave make them change rather than slide. adds their
-			// slope, and returns the slope variance of the octaves the pixel
-			// can't resolve
-			float add_ripples(vec2 p, float footprint, vec2 wind, vec2 flow, float amplitude, float wavelength, inout vec2 grad) {
+			float add_ripples(vec2 p, float footprint, vec2 wind, vec2 flow, float slope_variance, float wavelength, float upwind_share, float lifetime, inout vec2 grad, inout vec3 hess) {
 				float lost_variance = 0.0;
 				float time = ocean_data.time;
-				vec2 across = vec2(-wind.y, wind.x);
+				float wind_angle = atan(wind.y, wind.x);
+				const int PAIRS = RIPPLE_WAVES / 2;
 				p -= flow * time;
 
 				for (int o = 0; o < RIPPLE_OCTAVES; o++) {
-					// a noise cell is half a wavelength
-					float freq = 2.0 / wavelength;
-					float slope = NOISE_GRADIENT_RMS * freq * amplitude;
-					float resolve = get_wave_resolve(wavelength, footprint);
-					lost_variance += 2.0 * (1.0 + RIPPLE_CROSSWIND_SCALE * RIPPLE_CROSSWIND_SCALE) * slope * slope * (1.0 - resolve);
+					for (int i = 0; i < PAIRS; i++) {
+						float pair_seed = float(o * PAIRS + i);
+						// stratified across the octave so its lengths are covered evenly
+						float length = wavelength * exp2(-(float(i) + water_hash(vec2(pair_seed, 1.7))) / float(PAIRS));
+						float k = 6.28318530718 / length;
+						float resolve = get_wave_resolve(length, footprint);
+						lost_variance += slope_variance / float(PAIRS) * (1.0 - resolve);
 
-					if (resolve > 0.0) {
-						float speed = sqrt(WATER_GRAVITY * wavelength / 6.28318530718 + 0.074e-3 * 6.28318530718 / wavelength);
-						vec2 scale = vec2(freq, freq * RIPPLE_CROSSWIND_SCALE);
+						if (resolve <= 0.0) continue;
 
-						for (int layer = 0; layer < 2; layer++) {
-							float angle = (layer == 0 ? 0.35 : -0.35) + float(o) * 0.9;
-							vec2 dir = mat2(cos(angle), sin(angle), -sin(angle), cos(angle)) * wind;
-							vec2 side = vec2(-dir.y, dir.x);
-							vec2 q = vec2(dot(p, dir), dot(p, side)) * scale;
-							q.x -= speed * freq * time;
-							q += vec2(float(o) * 17.3, float(layer) * 41.7);
-							vec2 n = water_noise_gradient(q);
-							grad += (dir * (n.x * scale.x) + side * (n.y * scale.y)) * (amplitude * resolve);
+						// a sine wave's slope variance is (a k)^2 / 2
+						float amplitude = sqrt(2.0 * slope_variance / float(PAIRS)) / k * resolve;
+						float omega = sqrt(WATER_GRAVITY * k + 0.074e-3 * k * k * k);
+						float life = lifetime * 6.28318530718 / omega;
+						float age = time / life + water_hash(vec2(pair_seed, 3.1));
+
+						for (int half_life = 0; half_life < 2; half_life++) {
+							float u = age + float(half_life) * 0.5;
+							float generation = floor(u);
+							float seed = pair_seed * 2.0 + float(half_life) + generation * 97.0;
+							// spread around the wind's axis, most within 60 degrees of it and some across it,
+							// upwind_share of them going against it
+							float angle = wind_angle + (water_hash(vec2(seed, 5.3)) + water_hash(vec2(seed, 9.1)) - 1.0) * 2.0;
+							if (water_hash(vec2(seed, 7.7)) < upwind_share) angle += 3.14159265359;
+							vec2 kv = vec2(cos(angle), sin(angle)) * k;
+							float phase = dot(kv, p) - omega * time + water_hash(vec2(seed, 13.9)) * 6.28318530718;
+							float a = amplitude * sin(3.14159265359 * (u - generation));
+							grad += kv * (a * cos(phase));
+							hess -= vec3(kv.x * kv.x, kv.y * kv.y, kv.x * kv.y) * (a * sin(phase));
 						}
 					}
 
 					wavelength *= 0.5;
-					amplitude *= 0.5;
 				}
 
 				return lost_variance;
@@ -558,11 +555,13 @@ list.insert(
 
 			// the ocean's ripples shorter than the finest cascade, with the
 			// slope variance the spectrum has there
-			float add_detail_ripples(vec2 p, float footprint, inout vec2 grad) {
+			float add_detail_ripples(vec2 p, float footprint, inout vec2 grad, inout vec3 hess) {
 				vec4 info = ocean_data.detail_info;
-				float freq = 2.0 / info.z;
-				float amplitude = sqrt(info.w / (2.0 * (1.0 + RIPPLE_CROSSWIND_SCALE * RIPPLE_CROSSWIND_SCALE))) / (NOISE_GRADIENT_RMS * freq);
-				return add_ripples(p, footprint, info.xy, vec2(0.0), amplitude, info.z, grad);
+				vec4 ripple = ocean_data.ripple_info;
+				// RippleStrength of their slope variance is drawn, the rest is left to the roughness.
+				// RippleScale stretches them, as steep, so taller too
+				float drawn = info.w * ripple.x;
+				return add_ripples(p, footprint, info.xy, vec2(0.0), drawn, info.z * ripple.y, OCEAN_RIPPLE_UPWIND_SHARE, ripple.z, grad, hess) + (info.w - drawn) * float(RIPPLE_OCTAVES);
 			}
 
 			float height_map_tracing(vec3 ray_dir, float plane_t, vec3 camera_origin, out vec3 hit_pos) {
@@ -687,11 +686,13 @@ list.insert(
 
 			// the ripples on volume i, wave height is the significant height
 			// of the longest ones
-			float get_volume_ripples(int i, vec2 world_xz, float footprint, out vec2 grad) {
+			// each octave as steep as the noise ripples these replaced made WaveHeight and WaveLength
+			float get_volume_ripples(int i, vec2 world_xz, float footprint, out vec2 grad, inout vec3 hess) {
 				vec4 waves = ocean_data.volume_waves[i];
 				grad = vec2(0.0);
 				if (waves.x <= 0.0) return 0.0;
-				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), ocean_data.volume_flow[i].xy, waves.x * 0.25, waves.y, grad);
+				float slope = waves.x * 0.25 / waves.y;
+				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), ocean_data.volume_flow[i].xy, 2.72 * slope * slope, waves.y, VOLUME_RIPPLE_UPWIND_SHARE, VOLUME_RIPPLE_LIFETIME, grad, hess);
 			}
 
 			// ---------------------------------------------------------------
@@ -845,21 +846,6 @@ list.insert(
 				return direct * sun_path * (sun_transmission * caustic) + rest * sky_path;
 			}
 
-			// the slope of the surface at xz, the ripples filtered for footprint
-			vec2 get_surface_slope(Water w, vec2 xz, float footprint) {
-				vec2 grad;
-
-				if (w.volume >= 0) {
-					get_volume_ripples(w.volume, xz, footprint, grad);
-					return grad;
-				}
-
-				float variance;
-				grad = get_wave_data(xz, footprint, variance).gb;
-				add_detail_ripples(xz, footprint, grad);
-				return grad;
-			}
-
 			// sunlight through a sloped surface lands offset by the slope times
 			// depth * (1 - 1 / ior). where the offsets converge the light is
 			// focused into caustics, by one over the jacobian determinant of
@@ -874,11 +860,23 @@ list.insert(
 				// where the light that reaches world_pos came through the surface
 				vec2 xz = world_pos.xz - sun_dir.xz * (depth / max(-sun_dir.y, 0.05));
 				float filter_size = max(footprint, depth * 0.012);
-				float e = filter_size;
-				vec2 gx = get_surface_slope(w, xz + vec2(e, 0.0), filter_size) - get_surface_slope(w, xz - vec2(e, 0.0), filter_size);
-				vec2 gz = get_surface_slope(w, xz + vec2(0.0, e), filter_size) - get_surface_slope(w, xz - vec2(0.0, e), filter_size);
-				float s = depth * (1.0 - 1.0 / w.ior) / (2.0 * e);
-				float jacobian = (1.0 + s * gx.x) * (1.0 + s * gz.y) - s * gx.y * s * gz.x;
+				// the surface's curvature: the ripples' exactly, the wave textures' (slopes only) across the filter
+				vec2 grad = vec2(0.0);
+				vec3 hess = vec3(0.0);
+
+				if (w.volume >= 0) {
+					get_volume_ripples(w.volume, xz, filter_size, grad, hess);
+				} else {
+					float e = filter_size;
+					float variance;
+					vec2 gx = get_wave_data(xz + vec2(e, 0.0), filter_size, variance).gb - get_wave_data(xz - vec2(e, 0.0), filter_size, variance).gb;
+					vec2 gz = get_wave_data(xz + vec2(0.0, e), filter_size, variance).gb - get_wave_data(xz - vec2(0.0, e), filter_size, variance).gb;
+					hess = vec3(gx.x, gz.y, 0.5 * (gx.y + gz.x)) / (2.0 * e);
+					add_detail_ripples(xz, filter_size, grad, hess);
+				}
+
+				float s = depth * (1.0 - 1.0 / w.ior);
+				float jacobian = (1.0 + s * hess.x) * (1.0 + s * hess.y) - s * s * hess.z * hess.z;
 				float intensity = 1.0 / max(abs(jacobian), 0.2);
 				// the sun's disc blurs them deeper down, and so does distance
 				float blur = clamp(smoothstep(4.0, 30.0, depth) + smoothstep(0.3, 2.0, footprint), 0.0, 1.0);
@@ -1238,6 +1236,8 @@ list.insert(
 			}
 
 			void main() {
+				// the surface's curvature, only the caustics need it
+				vec3 unused_hess = vec3(0.0);
 				vec3 scene_color = get_scene_color(in_uv);
 
 				if (ocean_data.scene_tex == -1 || (ocean_data.ocean_enabled == 0 && ocean_data.volume_count == 0)) {
@@ -1326,7 +1326,7 @@ list.insert(
 						if (surface_t > 0.0) {
 							vec3 p = camera_origin + ray_dir * surface_t;
 							vec2 grad;
-							get_volume_ripples(volume, p.xz, get_pixel_footprint(surface_t, ray_dir.y), grad);
+							get_volume_ripples(volume, p.xz, get_pixel_footprint(surface_t, ray_dir.y), grad, unused_hess);
 							normal_up = normalize(vec3(-grad.x, 1.0, -grad.y));
 						}
 
@@ -1358,7 +1358,7 @@ list.insert(
 
 					float footprint = get_pixel_footprint(volume_entry, ray_dir.y);
 					vec2 grad;
-					float lost_variance = get_volume_ripples(volume, surface_pos.xz, footprint, grad);
+					float lost_variance = get_volume_ripples(volume, surface_pos.xz, footprint, grad, unused_hess);
 					vec3 normal = normalize(vec3(-grad.x, 1.0, -grad.y));
 					float alpha = sqrt(w.roughness * w.roughness + lost_variance);
 					color = shade_surface_from_above(w, surface_pos, normal, alpha, 0.0, ray_dir, volume_entry, scene_t < 1e29 ? max(scene_t - volume_entry, 0.0) : 1e30, jitter);
@@ -1384,7 +1384,7 @@ list.insert(
 						float variance;
 						vec4 wd = get_wave_data(p.xz, footprint, variance);
 						vec2 grad = wd.gb;
-						add_detail_ripples(p.xz, footprint, grad);
+						add_detail_ripples(p.xz, footprint, grad, unused_hess);
 						normal_up = normalize(vec3(-grad.x, 1.0, -grad.y));
 					}
 
@@ -1400,7 +1400,7 @@ list.insert(
 				float resolved_variance;
 				vec4 wd = get_wave_data(surface_pos.xz, footprint, resolved_variance);
 				vec2 grad = wd.gb;
-				float detail_lost = add_detail_ripples(surface_pos.xz, footprint, grad);
+				float detail_lost = add_detail_ripples(surface_pos.xz, footprint, grad, unused_hess);
 				float detail_total = ocean_data.detail_info.w * float(RIPPLE_OCTAVES);
 
 				// the slopes of the sea no wave here shows make up the roughness,
