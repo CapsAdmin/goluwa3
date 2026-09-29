@@ -107,8 +107,10 @@ function surface_lighting.GetGLSL(block_name)
 		// returns the diffuse part, transmission included, and the specular part in
 		// specular. a translucent surface scales them differently. transmission is
 		// the part of the diffuse light that leaves through the side facing away
-		// from the light instead of the lit one
-		vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float perceptual_roughness, float metallic, float transmission, vec3 transmission_color, float transmission_scattering, vec3 world_pos, vec3 V, vec3 N, vec3 geometric_N, out vec3 specular)
+		// from the light instead of the lit one. a clearcoat lies over the surface along
+		// geometric_N, a film that fills in the surface's detail, and what it reflects
+		// doesn't reach the surface
+		vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float perceptual_roughness, float metallic, float transmission, vec3 transmission_color, float transmission_scattering, vec3 world_pos, vec3 V, vec3 N, vec3 geometric_N, float clearcoat, float clearcoat_alpha, out vec3 specular)
 		{
 			vec3 diffuse = vec3(0.0);
 			specular = vec3(0.0);
@@ -190,6 +192,23 @@ function surface_lighting.GetGLSL(block_name)
 					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
 				}
 				vec3 radiance = light.color.rgb * light.color.a * attenuation * shadow_factor;
+
+				if (clearcoat > 0.0) {
+					float coat_NoL = saturate(dot(geometric_N, L));
+					float coat_alpha = clearcoat_alpha;
+					float coat_energy = 1.0;
+
+					if (type == 0) {
+						coat_alpha = saturate(clearcoat_alpha + SUN_ANGULAR_RADIUS * 0.5);
+						coat_energy = clearcoat_alpha / coat_alpha;
+						coat_energy *= coat_energy;
+					}
+
+					float Fc = F_SchlickScalar(CLEARCOAT_F0, LoH) * clearcoat;
+					specular += D_GGXAlpha(coat_alpha, saturate(dot(geometric_N, H))) * coat_energy * V_Kelemen(LoH) * Fc * radiance * coat_NoL;
+					radiance *= 1.0 - Fc;
+				}
+
 				diffuse += Fd * radiance * NoL * (1.0 - transmission);
 				specular += Fr * radiance * NoL;
 

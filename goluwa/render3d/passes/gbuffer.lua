@@ -211,56 +211,81 @@ local function build_ssdm_fragment_shader(write_depth)
 			return clamp(clip_pos.z / clip_w, 0.0, 1.0);
 		}
 
+		// parallax occlusion mapping (Tatarchuk 2006). the height field is a slab around the polygon, from
+		// (1 - HeightMidlevel) above it to HeightMidlevel below it, HeightScale texture units thick. the view
+		// ray is marched from where it enters the slab's top down to its bottom in layers, and the uv, height
+		// and world position are where it first goes below the height field
 		SSDMData get_ssdm_data(mat3 tbn) {
 			SSDMData data;
 			data.uv = in_uv;
 			data.height = 0.0;
 			data.world_pos = in_position;
+			// the derivatives before any branch, they need the whole quad
+			vec3 dp1 = dFdx(in_position);
+			vec3 dp2 = dFdy(in_position);
+			vec2 duv1 = dFdx(in_uv);
+			vec2 duv2 = dFdy(in_uv);
 
 			if (!has_heightmap()) {
 				return data;
 			}
 
-			vec3 view_dir_world = get_view_dir_world(in_position);
-			vec3 view_dir_tangent = normalize(transpose(tbn) * view_dir_world);
-			float view_z = max(view_dir_tangent.z, 0.05);
+			// how u and v change per meter across the surface, from the screen derivatives (Schüler 2013),
+			// so the march doesn't depend on how the uv or the tangents were made
+			vec3 N = tbn[2];
+			vec3 dp2perp = cross(dp2, N);
+			vec3 dp1perp = cross(N, dp1);
+			float det = dot(dp1, dp2perp);
+
+			if (abs(det) < 1e-12) {
+				return data;
+			}
+
+			vec3 grad_u = (dp2perp * duv1.x + dp1perp * duv2.x) / det;
+			vec3 grad_v = (dp2perp * duv1.y + dp1perp * duv2.y) / det;
+			// the slab's thickness in meters, one texture unit being this many meters across
+			float thickness = displacement_model.HeightScale / sqrt(max(length(grad_u) * length(grad_v), 1e-12));
+			vec3 V = get_view_dir_world(in_position);
+			float view_n = max(dot(V, N), 0.05);
+			// the uv the ray moves per meter it goes down
+			vec2 uv_per_depth = -vec2(dot(grad_u, V), dot(grad_v, V)) / view_n;
+			float midlevel = displacement_model.HeightMidlevel;
 			int layer_count = get_height_layers();
-			float layer_depth = 1.0 / float(layer_count);
-			float current_layer_depth = 0.0;
-			vec2 current_uv = in_uv;
-			vec2 delta_uv = -(view_dir_tangent.xy / view_z) * displacement_model.HeightScale / float(layer_count);
-			float current_map_depth = 1.0 - (get_height_centered_sample(current_uv) + displacement_model.HeightCenter);
-			vec2 previous_uv = current_uv;
-			float previous_layer_depth = current_layer_depth;
-			float previous_map_depth = current_map_depth;
+			float layer_height = 1.0 / float(layer_count);
+			// the ray starts at the slab's top, above the polygon by the part of the heights above the midlevel
+			vec2 top_uv = in_uv - uv_per_depth * (1.0 - midlevel) * thickness;
+			vec2 uv_step = uv_per_depth * thickness * layer_height;
+			float level = 1.0;
+			vec2 current_uv = top_uv;
+			// with the pixel's own gradients, a march that stops early in some pixels of a quad would
+			// otherwise pick the wrong mip
+			float current_height = textureGrad(TEXTURE(displacement_model.HeightTexture), current_uv, duv1, duv2).r;
+			float previous_level = level;
+			float previous_height = current_height;
 
 			for (int i = 0; i < 64; i++) {
-				if (i >= layer_count || current_layer_depth >= current_map_depth) {
+				if (i >= layer_count || level <= current_height) {
 					break;
 				}
 
-				previous_uv = current_uv;
-				previous_layer_depth = current_layer_depth;
-				previous_map_depth = current_map_depth;
-				current_uv = current_uv + delta_uv;
-				current_layer_depth += layer_depth;
-				current_map_depth = 1.0 - (get_height_centered_sample(current_uv) + displacement_model.HeightCenter);
+				previous_level = level;
+				previous_height = current_height;
+				level -= layer_height;
+				current_uv += uv_step;
+				current_height = textureGrad(TEXTURE(displacement_model.HeightTexture), current_uv, duv1, duv2).r;
 			}
 
-			float after_depth = current_map_depth - current_layer_depth;
-			float before_depth = previous_map_depth - previous_layer_depth;
-			float weight = 0.0;
-			float denominator = after_depth - before_depth;
-
-			if (abs(denominator) > 0.0001) {
-				weight = clamp(after_depth / denominator, 0.0, 1.0);
-			}
-
-			float parallax_depth = mix(current_layer_depth, previous_layer_depth, weight);
-			float centered_height = parallax_depth - displacement_model.HeightCenter;
-			data.uv = mix(current_uv, previous_uv, weight);
-			data.height = centered_height * displacement_model.HeightScale;
-			data.world_pos = in_position - view_dir_world * (data.height / view_z);
+			// between the last layer above the height field and the first below it, where the ray crosses it
+			float after = current_height - level;
+			float before = previous_height - previous_level;
+			float weight = abs(after - before) > 0.0001 ? clamp(after / (after - before), 0.0, 1.0) : 0.0;
+			float hit_level = mix(level, previous_level, weight);
+			data.uv = top_uv + uv_per_depth * (1.0 - hit_level) * thickness;
+			// meters above the polygon
+			data.height = (hit_level - midlevel) * thickness;
+			// what is below the polygon stays on it: the shadow maps only see the polygon, and would shadow
+			// everything under it
+			data.world_pos = in_position + V * (max(data.height, 0.0) / view_n);
 			return data;
 		}
 
@@ -277,7 +302,9 @@ local function build_ssdm_fragment_shader(write_depth)
 			float roughness = get_roughness(displacement.uv);
 			float transmission = get_transmission(displacement.uv);
 			// thin translucent leaves are waxy rather than porous
-			float snow = apply_surface_weather(albedo, roughness, metallic, normal, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, tbn[2]);
+			float clearcoat = get_clearcoat();
+			float clearcoat_roughness = get_clearcoat_roughness();
+			float snow = apply_surface_weather(albedo, roughness, metallic, normal, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, tbn[2], clearcoat, clearcoat_roughness);
 			transmission *= 1.0 - snow;
 			roughness = get_antialiased_roughness(normal, roughness);
 			set_alpha(alpha);
@@ -293,6 +320,8 @@ local function build_ssdm_fragment_shader(write_depth)
 			// ice has an F0 of 0.018
 			set_specular(gbuffer_encode_specular(mix(get_specular(displacement.uv), 0.45, snow)));
 			set_transmission(transmission);
+			set_clearcoat(clearcoat);
+			set_clearcoat_roughness(gbuffer_encode_roughness(clearcoat_roughness));
 			set_emissive(gbuffer_encode_emissive(get_emissive(displacement.uv) * (1.0 - snow)));
 			// the undisplaced position on both sides. parallax shifts the surface
 			// by the same amount in both frames when the view barely changed, so

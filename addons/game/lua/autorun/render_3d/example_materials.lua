@@ -10,6 +10,7 @@ local CHANNELS = {
 	{key = "Roughness", srgb = false},
 	{key = "Specular", srgb = false},
 	{key = "Normal", srgb = false},
+	{key = "Height", srgb = false},
 }
 
 local function build_default_sampler()
@@ -276,6 +277,9 @@ local DETAIL_TEXTURE = {
 		wrap_t = "repeat",
 	},
 }
+-- how deep the snow's drifts are in texture units, 2.4 cm on the 2.4 m tile. its normal map shades
+-- them with the same depth
+local SNOW_HEIGHT_SCALE = 0.01
 local showcase_materials = {
 	{
 		path = "materials/examples/polished_gold.lua",
@@ -748,6 +752,7 @@ local showcase_materials = {
 			Albedo = DETAIL_TEXTURE,
 			Roughness = GRAIN_TEXTURE,
 			Normal = GRAIN_TEXTURE,
+			Height = DETAIL_TEXTURE,
 		},
 		config = {
 			Shared = grain_shared,
@@ -755,10 +760,15 @@ local showcase_materials = {
 			Metallic = "return vec4(0.0);",
 			Roughness = "return vec4(is_facet(uv, 0.08) ? 0.1 : mix(0.6, 0.8, hash12(floor(uv * TEXELS))));",
 			SpecularMultiplier = 0.45,
+			-- the drifts the normal map shades, parallax mapped around the surface
+			Height = "return vec4(snow_height(uv));",
+			HeightScale = SNOW_HEIGHT_SCALE,
+			HeightMidlevel = 0.5,
+			-- the drifts' slope is the height's per texel times the texels in one texture unit times the depth
 			Normal = [[
 				vec2 e = vec2(1.0 / TEXELS, 0.0);
 				float h = snow_height(uv);
-				vec3 drifts = height_to_normal(h, snow_height(uv + e.xy), snow_height(uv + e.yx), 6.0).xyz * 2.0 - 1.0;
+				vec3 drifts = height_to_normal(h, snow_height(uv + e.xy), snow_height(uv + e.yx), TEXELS * ]] .. string.format("%.6f", SNOW_HEIGHT_SCALE) .. [[).xyz * 2.0 - 1.0;
 				vec3 grain = is_facet(uv, 0.08) ? facet_normal(uv) : grain_normal(uv, 5.0, 0.15);
 				return vec4(normalize(vec3(drifts.xy + grain.xy, drifts.z)) * 0.5 + 0.5, 1.0);
 			]],
@@ -780,6 +790,29 @@ local showcase_materials = {
 					return vec4(0.7 + 0.15 * f);
 				]],
 			Normal = "return vec4(getDetailNormal(p, n, 0.5) * 0.5 + 0.5, 1.0);",
+		},
+	},
+	{
+		-- the water film rain leaves, render3d/surface_weather.lua lays its clearcoat over whatever gets
+		-- wet. shown here on asphalt, darkened as its pores soak it up
+		path = "materials/examples/rain.lua",
+		name = "Rain",
+		config = {
+			Shared = shared,
+			Albedo = [[
+					float f = fbm(p * 8.0) * 0.5 + 0.5;
+					float speck = step(0.8, perlin_noise(p * 35.0) * 0.5 + 0.5) * 0.5;
+					return vec4((vec3(0.055 + 0.02 * f) + vec3(0.02) * speck) * 0.5, 1.0);
+				]],
+			Metallic = "return vec4(0.0);",
+			Roughness = [[
+					float f = fbm(p * 8.0) * 0.5 + 0.5;
+					return vec4(0.7 + 0.15 * f);
+				]],
+			Normal = "return vec4(getDetailNormal(p, n, 0.5) * 0.5 + 0.5, 1.0);",
+			-- a film broken up by the drops landing in it
+			Clearcoat = 1,
+			ClearcoatRoughness = 0.08,
 		},
 	},
 	{

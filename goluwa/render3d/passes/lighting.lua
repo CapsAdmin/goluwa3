@@ -216,7 +216,7 @@ return {
 				return max(sky_color_output, vec3(0.0));
 			}
 
-			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float transmission, vec3 transmission_color, vec3 world_pos, vec3 V, vec3 N)
+			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float transmission, vec3 transmission_color, vec3 world_pos, vec3 V, vec3 N, vec3 geometric_N, float clearcoat, float clearcoat_alpha)
 			{
 				float perceptual_roughness = sqrt(clamp(roughness_alpha, 0.0, 1.0));
 				float sky_visibility;
@@ -243,6 +243,15 @@ return {
 				vec3 ambient_specular = reflection * (F0 * envBRDF.x + F90(F0) * envBRDF.y);
 				ambient_specular *= GGXEnergyCompensation(F0, envBRDF);
 				ambient_specular *= SpecularOcclusion(NdotV, ambient_occlusion, perceptual_roughness);
+
+				if (clearcoat > 0.0) {
+					// the coat reflects its share, the rest goes through to the surface and back out
+					float coat_NdotV = max(dot(geometric_N, V), 0.001);
+					float coat_roughness = sqrt(clamp(clearcoat_alpha, 0.0, 1.0));
+					float Fc = F_SchlickScalar(CLEARCOAT_F0, coat_NdotV) * clearcoat;
+					vec3 coat_reflection = get_reflection(geometric_N, coat_roughness, V, world_pos, sky_visibility, irradiance);
+					return (ambient_diffuse + ambient_specular) * (1.0 - Fc) + coat_reflection * Fc * SpecularOcclusion(coat_NdotV, ambient_occlusion, coat_roughness);
+				}
 
 				return ambient_diffuse + ambient_specular;
 			}
@@ -297,8 +306,11 @@ return {
 				vec3 emissive = gbuffer_emissive(in_uv);
 				vec3 F0 = mix(vec3(gbuffer_dielectric_f0(in_uv)), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
+				vec3 geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N);
+				float clearcoat = gbuffer_clearcoat(in_uv);
+				float clearcoat_alpha = gbuffer_clearcoat_roughness(in_uv);
 				vec3 direct_specular;
-				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N), direct_specular);
+				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, geometric_N, clearcoat, clearcoat_alpha, direct_specular);
 				direct += direct_specular;
 
 				if (lighting_data.direct_debug != 0) {
@@ -306,7 +318,7 @@ return {
 					return;
 				}
 
-				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, transmission, transmission_color, world_pos, V, N);
+				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, transmission, transmission_color, world_pos, V, N, geometric_N, clearcoat, clearcoat_alpha);
 				vec3 color = direct + indirect + emissive;
 
 				if (lighting_data.gi_debug != 0) {

@@ -31,6 +31,15 @@ function ibl.GetBRDFGLSLCode()
 				return 0.5 / (lambdaV + lambdaL);
 			}
 
+			// a clearcoat is water, a lacquer's would be 0.04
+			const float CLEARCOAT_F0 = 0.02;
+
+			// the visibility of a smooth coat, whose lobe is too narrow for the full smith term to matter
+			// (Kelemen 2001)
+			float V_Kelemen(float LoH) {
+				return 0.25 / max(LoH * LoH, 1e-4);
+			}
+
 			float F_SchlickScalar(float f0, float VoH) {
 				float f = pow5(1.0 - VoH);
 				return f0 + (1.0 - f0) * f;

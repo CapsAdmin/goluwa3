@@ -23,6 +23,11 @@ surface_weather.SNOW_MATERIAL = "materials/examples/snow.lua"
 surface_weather.SNOW_TEXTURE_SIZE = 2.4
 -- nil until snow first lies, false when there is no such material
 surface_weather.snow_material = nil
+-- the water film rain leaves on wet surfaces is this material's clearcoat, loaded once something is
+-- first wet
+surface_weather.RAIN_MATERIAL = "materials/examples/rain.lua"
+-- nil until something is first wet, false when there is no such material
+surface_weather.rain_material = nil
 surface_weather.block = {
 	{"surface_wetness", "float"},
 	{"surface_snow_depth", "float"},
@@ -35,6 +40,8 @@ surface_weather.block = {
 	{"snow_roughness_tex", "int"},
 	{"snow_normal_tex", "int"},
 	{"snow_texture_scale", "float"},
+	{"rain_clearcoat", "float"},
+	{"rain_clearcoat_roughness", "float"},
 	{"precipitation_direction", "vec3"},
 	{"shelter_matrix", "mat4"},
 }
@@ -78,11 +85,27 @@ function surface_weather.WriteBlock(self, block)
 	end
 
 	block.snow_texture_scale = 1 / surface_weather.SNOW_TEXTURE_SIZE
+
+	if block.surface_wetness > 0 and surface_weather.rain_material == nil then
+		surface_weather.rain_material = assets.Load(surface_weather.RAIN_MATERIAL) or false
+	end
+
+	local rain = surface_weather.rain_material
+
+	if rain then
+		block.rain_clearcoat = rain:GetClearcoat()
+		block.rain_clearcoat_roughness = rain:GetClearcoatRoughness()
+	else
+		block.rain_clearcoat = 0
+		block.rain_clearcoat_roughness = 1
+	end
+
 	surface_weather.precipitation_direction:CopyToFloatPointer(block.precipitation_direction)
 	return block
 end
 
--- apply_surface_weather(albedo, alpha_roughness, metallic, normal, porosity, world_pos, geometric_normal)
+-- apply_surface_weather(albedo, alpha_roughness, metallic, normal, porosity, world_pos, geometric_normal, clearcoat,
+-- clearcoat_alpha)
 -- for a shader with surface_weather.block in the uniform block block_name. it returns how much snow
 -- covers the surface, for what else the snow hides. get_porosity(alpha_roughness, metallic) is the usual
 -- guess for materials that don't know their own
@@ -208,7 +231,7 @@ function surface_weather.GetGLSL(block_name)
 			return clamp((sqrt(alpha_roughness) - 0.5) / 0.4, 0.0, 1.0) * (1.0 - metallic);
 		}
 
-		float apply_surface_weather(inout vec3 albedo, inout float alpha_roughness, inout float metallic, inout vec3 normal, float porosity, vec3 world_pos, vec3 geometric_normal) {
+		float apply_surface_weather(inout vec3 albedo, inout float alpha_roughness, inout float metallic, inout vec3 normal, float porosity, vec3 world_pos, vec3 geometric_normal, inout float clearcoat, inout float clearcoat_alpha) {
 			float wetness = ]] .. block_name .. [[.surface_wetness;
 			float snow_depth = ]] .. block_name .. [[.surface_snow_depth;
 
@@ -216,14 +239,19 @@ function surface_weather.GetGLSL(block_name)
 
 			float exposure = get_precipitation_exposure(world_pos, geometric_normal);
 
-			// water in the pores scatters less light back out, so a porous surface darkens, and the water
-			// on it smooths it (Lagarde 2013, "Water drop 3b - Physically based wet surfaces")
+			// water in the pores scatters less light back out, so a porous surface darkens (Lagarde 2013,
+			// "Water drop 3b - Physically based wet surfaces"), and a film of it lies on top, a smooth
+			// reflection over the rough surface under it
 			if (wetness > 0.0) {
 				float wet = wetness * exposure;
-				float factor = mix(1.0, 0.2, porosity);
-				albedo *= mix(1.0, factor, wet);
-				float roughness = sqrt(alpha_roughness) * mix(1.0, factor, 0.5 * wet);
-				alpha_roughness = clamp(roughness * roughness, 0.002, 1.0);
+				albedo *= mix(1.0, mix(1.0, 0.2, porosity), wet);
+				float film = wet * ]] .. block_name .. [[.rain_clearcoat;
+
+				if (film > clearcoat) {
+					float film_roughness = ]] .. block_name .. [[.rain_clearcoat_roughness;
+					clearcoat_alpha = mix(clearcoat_alpha, film_roughness * film_roughness, (film - clearcoat) / film);
+					clearcoat = film;
+				}
 			}
 
 			if (snow_depth <= 0.0) return 0.0;
@@ -263,6 +291,8 @@ function surface_weather.GetGLSL(block_name)
 			alpha_roughness = mix(alpha_roughness, snow_roughness * snow_roughness, cover);
 			metallic *= 1.0 - cover;
 			normal = normalize(mix(normal, snow_normal, cover));
+			// the snow covers the water
+			clearcoat *= 1.0 - cover;
 			return cover;
 		}
 	]]

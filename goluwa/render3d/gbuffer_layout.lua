@@ -40,6 +40,13 @@ gbuffer_layout.targets = {
 		},
 	},
 	{
+		texture = "clearcoat",
+		format = "r8g8_unorm",
+		-- a smooth dielectric layer over the surface, as a water film or a lacquer. roughness is
+		-- perceptual like the base's
+		channels = {{"clearcoat", "r"}, {"clearcoat_roughness", "g"}},
+	},
+	{
 		texture = "velocity",
 		format = "r16g16b16a16_sfloat",
 		channels = {{"velocity", "rg"}, {"prev_view_depth", "b"}},
@@ -132,6 +139,9 @@ do
 		float gbuffer_transmission(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).a; }
 		vec3 gbuffer_emissive(COORD c) { return gbuffer_fetch(GBUFFER.emissive_tex, c).rgb * 256.0; }
 		float gbuffer_transmission_scattering(COORD c) { return gbuffer_fetch(GBUFFER.transmission_tex, c).r; }
+		float gbuffer_clearcoat(COORD c) { return gbuffer_fetch(GBUFFER.clearcoat_tex, c).r; }
+		// ggx alpha
+		float gbuffer_clearcoat_roughness(COORD c) { float r = gbuffer_fetch(GBUFFER.clearcoat_tex, c).g; return r * r; }
 		float gbuffer_dielectric_f0(COORD c) { return gbuffer_fetch(GBUFFER.transmission_tex, c).b * 0.08; }
 
 		vec3 gbuffer_transmission_color(COORD c) {

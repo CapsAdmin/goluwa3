@@ -571,7 +571,15 @@ return {
 					vec3 pos_vs = (ssr_data.view * vec4(world_pos, 1.0)).xyz;
 					view_depth = -pos_vs.z;
 					vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
-					current = cast_ssr_ray(world_pos, pos_vs, N, get_geometric_normal(gbuffer_pos, world_pos, depth, V, N), V, roughness, blue_noise(pos));
+					vec3 geometric_N = get_geometric_normal(gbuffer_pos, world_pos, depth, V, N);
+
+					// a clearcoat is smoother than the surface under it, the sharp reflection is its
+					if (gbuffer_clearcoat(gbuffer_pos) > 0.5) {
+						N = geometric_N;
+						roughness = sqrt(gbuffer_clearcoat_roughness(gbuffer_pos));
+					}
+
+					current = cast_ssr_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(pos));
 				}
 
 				ssr_tile[local_pos.y][local_pos.x] = current;

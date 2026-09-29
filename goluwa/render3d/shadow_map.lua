@@ -96,26 +96,19 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 
 	local entry = material_cache[pipeline]
 	local albedo_texture = material:GetAlbedoTexture()
-	local height_texture = material:GetHeightTexture()
 	local albedo_view = albedo_texture and albedo_texture:GetView() or nil
-	local height_view = height_texture and height_texture:GetView() or nil
 
 	-- a material without any of these textures compares nil to nil everywhere, so
 	-- a new entry has to be filled regardless
 	if
 		not entry or
 		entry.albedo_texture ~= albedo_texture or
-		entry.albedo_view ~= albedo_view or
-		entry.height_texture ~= height_texture or
-		entry.height_view ~= height_view
+		entry.albedo_view ~= albedo_view
 	then
 		entry = entry or {}
 		entry.albedo_texture = albedo_texture
 		entry.albedo_view = albedo_view
-		entry.height_texture = height_texture
-		entry.height_view = height_view
 		entry.albedo_texture_index = pipeline:GetTextureIndex(albedo_texture)
-		entry.height_texture_index = pipeline:GetTextureIndex(height_texture)
 		material_cache[pipeline] = entry
 	end
 
@@ -144,12 +137,9 @@ local ShadowStateUniformDecl = [[
 		float light_position[3];
 		float light_far_plane;
 		int albedo_texture_index;
-		int height_texture_index;
 		int flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
-		float height_scale;
-		float height_center;
 	}
 ]]
 local SHADOW_PUSH_CONSTANT_GLSL = [[
@@ -163,12 +153,9 @@ local SHADOW_STATE_UNIFORM_GLSL = [[
 		vec3 light_position;
 		float light_far_plane;
 		int albedo_texture_index;
-		int height_texture_index;
 		int flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
-		float height_scale;
-		float height_center;
 	} shadow_state;
 ]]
 local NO_SHADOW_STATE_MATERIAL = {}
@@ -315,22 +302,6 @@ end
 
 local function BuildShadowGeometryDeformationGlsl(world_matrix_expr)
 	return model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr) .. [[
-			bool shadow_has_heightmap() {
-				return shadow_state.height_texture_index != -1 && shadow_state.height_scale > 0.0;
-			}
-
-			float shadow_get_height_sample(vec2 uv) {
-				if (!shadow_has_heightmap()) {
-					return 1.0;
-				}
-
-				return texture(textures[nonuniformEXT(shadow_state.height_texture_index)], uv).r;
-			}
-
-			float shadow_get_height_centered_sample(vec2 uv) {
-				return shadow_get_height_sample(uv) - shadow_state.height_center;
-			}
-
 			void apply_shadow_geometry_deformation(
 				inout vec3 local_pos,
 				inout vec3 world_pos,
@@ -341,10 +312,6 @@ local function BuildShadowGeometryDeformationGlsl(world_matrix_expr)
 				vec4 vertex_color,
 				mat3 inv_world_matrix3
 			) {
-				if (shadow_has_heightmap()) {
-					world_pos += vec3(0.0, 1.0, 0.0) * (shadow_get_height_centered_sample(uv) * shadow_state.height_scale);
-				}
-
 				vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, vertex_color);
 
 				if (dot(world_offset, world_offset) > 0.0) {
@@ -487,20 +454,14 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 
 	if material then
 		data.albedo_texture_index = texture_entry and texture_entry.albedo_texture_index or 0
-		data.height_texture_index = texture_entry and texture_entry.height_texture_index or -1
 		data.flags = material:GetShadowFlags()
 		data.color_multiplier_a = material:GetShadowOpacity()
 		data.alpha_cutoff = material:GetAlphaCutoff()
-		data.height_scale = material:GetHeightScale()
-		data.height_center = material:GetHeightCenter()
 	else
 		data.albedo_texture_index = 0
-		data.height_texture_index = -1
 		data.flags = 0
 		data.color_multiplier_a = 1.0
 		data.alpha_cutoff = 0.5
-		data.height_scale = 0.0
-		data.height_center = 0.5
 	end
 
 	local offset = self.shadow_state_buffer:Upload(frame_index)

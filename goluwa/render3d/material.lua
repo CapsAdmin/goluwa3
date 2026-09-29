@@ -73,10 +73,20 @@ Material:GetSet("MetallicMultiplier", 1.0)
 Material:GetSet("RoughnessMultiplier", 1.0)
 -- scales the dielectric reflectance (F0 0.04), 0 to 2
 Material:GetSet("SpecularMultiplier", 1.0)
+-- 0 to 1, a clear smooth layer over the surface, as a water film. it reflects like water, F0 0.02,
+-- and what it reflects doesn't reach the surface under it
+Material:GetSet("Clearcoat", 0.0)
+-- the layer's perceptual roughness
+Material:GetSet("ClearcoatRoughness", 0.05)
 Material:GetSet("NormalMapMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
+-- parallax occlusion mapping. HeightTexture's red channel is the height, 0 lowest and 1 highest.
+-- HeightScale is how deep 0 is below 1 in texture units, as in crysis and unreal: on a texture that
+-- covers 2 m, 0.01 is 2 cm
 Material:GetSet("HeightScale", 0.0, {callback = "InvalidateHeightMap"})
-Material:GetSet("HeightCenter", 0.0)
+-- the height that lies on the polygon, as blender's midlevel. 1 carves everything into the surface,
+-- 0.5 raises the highs above it as much as it sinks the lows
+Material:GetSet("HeightMidlevel", 1.0)
 Material:GetSet("HeightLayers", 24)
 -- crysis style detail map: rg offsets the normal, alpha multiplies albedo
 Material:GetSet("DetailTiling", Vec2(1.0, 1.0))

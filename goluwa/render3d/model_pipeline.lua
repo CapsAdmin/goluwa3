@@ -26,6 +26,8 @@ local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
 	{type = "float", name = "SpecularMultiplier", getter = "GetSpecularMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
+	{type = "float", name = "Clearcoat", getter = "GetClearcoat"},
+	{type = "float", name = "ClearcoatRoughness", getter = "GetClearcoatRoughness"},
 }
 local PBR_DETAIL_FIELDS = {
 	{type = "texture", name = "Albedo2Texture", getter = "GetAlbedo2Texture"},
@@ -69,7 +71,7 @@ local PBR_AUX_FIELDS = {
 local PBR_DISPLACEMENT_FIELDS = {
 	{type = "texture", name = "HeightTexture", getter = "GetHeightTexture"},
 	{type = "float", name = "HeightScale", getter = "GetHeightScale"},
-	{type = "float", name = "HeightCenter", getter = "GetHeightCenter"},
+	{type = "float", name = "HeightMidlevel", getter = "GetHeightMidlevel"},
 	{type = "int", name = "HeightLayers", getter = "GetHeightLayers"},
 }
 local PBR_TERRAIN_FIELDS = {
@@ -264,7 +266,7 @@ local PROBE_MATERIAL_FIELDS = {
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
 	{type = "float", name = "HeightScale", getter = "GetHeightScale"},
-	{type = "float", name = "HeightCenter", getter = "GetHeightCenter"},
+	{type = "float", name = "HeightMidlevel", getter = "GetHeightMidlevel"},
 	{type = "int", name = "HeightLayers", getter = "GetHeightLayers"},
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
 }
@@ -898,7 +900,8 @@ function model_pipeline.GetPBRFactorUploadKey()
 	local has_default_scalars = material:GetMetallicMultiplier() == 1.0 and
 		material:GetRoughnessMultiplier() == 1.0 and
 		material:GetSpecularMultiplier() == 1.0 and
-		material:GetAlphaCutoff() == 0.5
+		material:GetAlphaCutoff() == 0.5 and
+		material:GetClearcoat() == 0.0
 
 	if has_default_scalars then return NO_PBR_FACTOR_KEY end
 
@@ -1321,10 +1324,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return texture(TEXTURE(displacement_model.HeightTexture), uv).r;
 			}
 
-			float get_height_centered_sample(vec2 uv) {
-				return get_height_sample(uv) - displacement_model.HeightCenter;
-			}
-
 			int get_height_layers() {
 				return clamp(displacement_model.HeightLayers, 4, 64);
 			}
@@ -1673,11 +1672,12 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			vec3 get_height_normal_tangent(vec2 uv) {
 				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(displacement_model.HeightTexture), 0));
-				float left = get_height_centered_sample(uv - vec2(texel.x, 0.0));
-				float right = get_height_centered_sample(uv + vec2(texel.x, 0.0));
-				float down = get_height_centered_sample(uv - vec2(0.0, texel.y));
-				float up = get_height_centered_sample(uv + vec2(0.0, texel.y));
-				return normalize(vec3(left - right, down - up, max(displacement_model.HeightScale, 0.0001)));
+				float left = get_height_sample(uv - vec2(texel.x, 0.0));
+				float right = get_height_sample(uv + vec2(texel.x, 0.0));
+				float down = get_height_sample(uv - vec2(0.0, texel.y));
+				float up = get_height_sample(uv + vec2(0.0, texel.y));
+				// the slope in texture units, the height being HeightScale texture units deep
+				return normalize(vec3((left - right) / (2.0 * texel.x), (down - up) / (2.0 * texel.y), 1.0 / displacement_model.HeightScale));
 			}
 
 			vec3 decode_normal_map(vec2 xy) {
@@ -1861,6 +1861,15 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				}
 
 				return min(emissive * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+			}
+
+			float get_clearcoat() {
+				return factor_model.Clearcoat;
+			}
+
+			// ggx alpha
+			float get_clearcoat_roughness() {
+				return factor_model.ClearcoatRoughness * factor_model.ClearcoatRoughness;
 			}
 
 			// the SpecularMultiplier; 1 is dielectric F0 0.04
