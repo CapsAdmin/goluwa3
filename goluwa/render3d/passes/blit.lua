@@ -60,11 +60,22 @@ render3d.exposure = {
 -- screen AND close to it in brightness (a bilateral grid, as in Unreal's local
 -- exposure), so the window's light doesn't bleed a halo over the wall next to
 -- it. A strength of 1 would expose every region to KEY (flat); 0 is
--- off. The adjustment is capped at max_stops either way.
+-- off. Shadows are lifted by at most max_stops.
+--
+-- Highlights past headroom stops over KEY keep only slope of every further
+-- stop, as long as the eye could adapt to them: looking at the full moon,
+-- sunlit rock at ~4000 cd/m2 in a night sky 18 stops darker, shows its seas
+-- rather than a white blob, and is still brighter than its glow.
+-- The cones stop telling brightnesses apart toward ceiling cd/m2 (Hood and
+-- Finkelstein 1986), so this fades out for regions approaching it: the sun
+-- at 1.6e9 and the glare right around it stay blinding however long you look.
 render3d.local_exposure = {
 	shadows = 0.4,
 	highlights = 0.4,
 	max_stops = 4,
+	headroom = 2.5,
+	slope = 0.2,
+	ceiling = 1e5,
 }
 -- 0 = AgX, 1 = AgX punchy, 2 = ACES (Narkowicz fit). SDR output only; HDR
 -- output has its own curve (tonemap_hdr).
@@ -77,7 +88,6 @@ render3d.hdr = {
 	paper_white = 203,
 	peak = 1000,
 }
-render3d.bloom_strength = 0.04
 -- the eye's switch to rod vision in dim light (mode "eye" only): colour fades
 -- and reds darken (the Purkinje shift). threshold is the luminance in cd/m2 at
 -- which half the colour is gone, the fade spanning 1.5 decades either side of
@@ -119,10 +129,6 @@ commands.Add("r_local_exposure=number[0.4],number|nil", function(shadows, highli
 	render3d.local_exposure.highlights = highlights or shadows
 end)
 
-commands.Add("r_bloom_strength=number[0.04]", function(value)
-	render3d.bloom_strength = value
-end)
-
 -- Tells the compositor or display the range our HDR output uses (see
 -- VK_EXT_hdr_metadata): nothing brighter than peak, frames averaging no more
 -- than paper white, in BT.709's gamut (scRGB's primaries; HDR10 output is
@@ -158,14 +164,6 @@ end)
 commands.Add("r_hdr_peak=number[1000]", function(nits)
 	render3d.hdr.peak = nits
 	update_hdr_metadata()
-end)
-
-commands.Add("r_bloom_scatter=number[0.7]", function(value)
-	render3d.bloom_scatter = value
-end)
-
-commands.Add("r_bloom_max=number[10000]", function(value)
-	render3d.bloom_max = value
 end)
 
 commands.Add("r_night_vision=boolean[true]", function(enabled)
@@ -460,14 +458,14 @@ end)
 -- luminance from GRID_LOG_MIN to GRID_LOG_MAX stops around KEY, laid
 -- out as GRID_Z slices side by side. Each cell holds (sum of log luminance,
 -- count) so blurring it stays a weighted average.
-local GRID_X, GRID_Y, GRID_Z = 64, 36, 16
+local GRID_X, GRID_Y, GRID_Z = 64, 36, 48
 local GRID_GLSL = (
 	[[
 	#define GRID_X %d
 	#define GRID_Y %d
 	#define GRID_Z %d
-	#define GRID_LOG_MIN -10.0
-	#define GRID_LOG_MAX 10.0
+	#define GRID_LOG_MIN -12.0
+	#define GRID_LOG_MAX 20.0
 	// log2 of KEY, what the metered average is exposed to
 	#define LOG_KEY %.7g
 
@@ -486,6 +484,18 @@ local function get_pipeline_texture(name)
 		local pipeline = render3d.pipelines[name]
 		return pipeline and pipeline:GetFramebuffer():GetAttachment(1) or nil
 	end
+end
+
+local function get_bloom_texture()
+	local pipeline = render3d.pipelines.bloom_up1
+	return pipeline and pipeline:GetFramebuffer():GetAttachment(1) or nil
+end
+
+-- the share of the light the glare takes, 0 without it
+local function get_bloom_strength()
+	return get_bloom_texture() and
+		math.min(select(2, render3d.GetBloomWeights()) * render3d.bloom_strength, 1) or
+		0
 end
 
 local local_exposure_grid_pass = {
@@ -607,22 +617,9 @@ local local_exposure_blur_pass = {
 		}
 	]],
 }
-
-local function get_bloom_texture()
-	local pipeline = render3d.pipelines.bloom_up1
-	return pipeline and pipeline:GetFramebuffer():GetAttachment(1) or nil
-end
-
-local compute_shader = [[
-	layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
-	layout(set = 0, binding = 1) uniform sampler2D source_tex;
-	layout(set = 0, binding = 2) uniform sampler2D bloom_tex;
-	layout(set = 0, binding = 4) uniform sampler2D exposure_tex;
-	layout(set = 0, binding = 5) uniform sampler2D grid_tex;
-	layout(set = 0, binding = 6) uniform sampler2D prev_exposure_tex;
-	layout(set = 0, binding = 7) uniform sampler2D blue_noise_tex;
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. GRID_GLSL .. [[
-
+-- the stops local exposure moves a pixel by, from the grid (grid_tex) and the
+-- exposure texture, with the local_* settings in the compute block
+local LOCAL_ADAPTATION_GLSL = [[
 	// average exposed log2 luminance (relative to KEY) around uv among
 	// pixels about as bright as l
 	float local_log_luma(vec2 uv, float l) {
@@ -639,6 +636,142 @@ local compute_shader = [[
 		// towards no adjustment smoothly instead of switching to it
 		return (cell.x + l) / (cell.y + 1.0);
 	}
+
+
+	float get_local_adaptation(vec2 uv, float exposed_luma, vec4 exposure) {
+		float l = log2(max(exposed_luma, 1e-6)) - get_frame_log_level(exposure);
+		float local_l = local_log_luma(uv, l);
+
+		if (local_l <= 0.0) return min(-local_l * compute.local_shadows, compute.local_max_stops);
+
+		// how far the eye can adapt to the region, fading out over the 5
+		// stops up to the ceiling. the luminance it adapted to for the frame
+		// is from its EV100
+		float region_luminance = exp2(exposure.b + local_l) * 0.125;
+		float adaptable = clamp((log2(compute.local_ceiling) - log2(region_luminance)) / 5.0, 0.0, 1.0);
+		float fixation = compute.local_highlights > 0.0 ? (local_l - compute.local_headroom) * (1.0 - compute.local_slope) : 0.0;
+		return -max(local_l * compute.local_highlights, fixation) * adaptable;
+	}
+]]
+local local_exposure_block = {
+	{"has_grid_tex", "int"},
+	{"local_shadows", "float"},
+	{"local_highlights", "float"},
+	{"local_max_stops", "float"},
+	{"local_headroom", "float"},
+	{"local_slope", "float"},
+	{"local_ceiling", "float"},
+}
+
+local function write_local_exposure_block(block)
+	block.has_grid_tex = get_pipeline_texture("local_exposure_blur")() and 1 or 0
+	local view = View.GetActive()
+	local local_exposure = view and view.LocalExposure
+	block.local_shadows = local_exposure or render3d.local_exposure.shadows
+	block.local_highlights = local_exposure or render3d.local_exposure.highlights
+	block.local_max_stops = render3d.local_exposure.max_stops
+	block.local_headroom = render3d.local_exposure.headroom
+	block.local_slope = render3d.local_exposure.slope
+	block.local_ceiling = render3d.local_exposure.ceiling
+end
+
+-- The glare in exposed units, blended with what it was last frame at the same
+-- place on screen. Afterimages are on the retina: the history isn't
+-- reprojected, so a highlight moving over the screen leaves a fading trail,
+-- and it is kept as the response it was, so it doesn't jump with the exposure.
+local glare_pass
+
+do
+	local last_frame = -1
+	local last_width, last_height = 0, 0
+
+	local function get_history_texture()
+		return render3d.pipelines.glare:GetFramebuffer((system.GetFrameNumber() + 1) % 2 + 1):GetAttachment(1)
+	end
+
+	glare_pass = {
+		name = "glare",
+		ComputePass = true,
+		ColorFormat = {{"r16g16b16a16_sfloat", {"glare", "rgba"}}},
+		-- full resolution, since the adaptation changes sharply at a bright disc's edge
+		framebuffer_count = 2,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
+		sampled_images = {
+			{binding_index = 1, get_texture = get_bloom_texture},
+			{binding_index = 2, get_texture = get_history_texture},
+			{binding_index = 3, get_texture = get_exposure_feedback_texture},
+			{binding_index = 4, get_texture = get_previous_exposure_texture},
+		},
+		block = {
+			{"bloom_strength", "float"},
+			{"history_valid", "int"},
+			{"persistence", "float"},
+		},
+		write = function(self, block)
+			local frame = system.GetFrameNumber()
+			local size = render.GetRenderImageSize()
+			block.bloom_strength = get_bloom_strength()
+			-- the history is only usable if it was written last frame at this size
+			block.history_valid = (
+					render3d.bloom_smear > 0 and
+					last_frame == frame - 1 and
+					last_width == size.x and
+					last_height == size.y
+				)
+				and
+				1 or
+				0
+			block.persistence = render3d.bloom_smear > 0 and
+				math.exp(-system.GetFrameTime() / render3d.bloom_smear) or
+				0
+			last_frame = frame
+			last_width, last_height = size.x, size.y
+			return block
+		end,
+		shader = [[
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_glare;
+			layout(set = 0, binding = 1) uniform sampler2D bloom_tex;
+			layout(set = 0, binding = 2) uniform sampler2D history_tex;
+			layout(set = 0, binding = 3) uniform sampler2D exposure_tex;
+			layout(set = 0, binding = 4) uniform sampler2D prev_exposure_tex;
+		]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. [[
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_glare);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				vec2 uv = get_screen_uv(pos, size);
+				vec2 half_texel = 0.5 / vec2(textureSize(bloom_tex, 0));
+				// the scene is pre-exposed with last frame's exposure
+				float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
+				vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * compute.bloom_strength * exposure;
+
+				if (compute.history_valid != 0) {
+					glare = mix(glare, texelFetch(history_tex, pos, 0).rgb, compute.persistence);
+				}
+
+				imageStore(out_glare, pos, vec4(glare, 1.0));
+			}
+		]],
+	}
+end
+
+local function get_glare_texture()
+	return render3d.pipelines.glare:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+end
+
+local compute_shader = [[
+	layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+	layout(set = 0, binding = 1) uniform sampler2D source_tex;
+	layout(set = 0, binding = 2) uniform sampler2D bloom_tex;
+	layout(set = 0, binding = 3) uniform sampler2D glare_tex;
+	layout(set = 0, binding = 4) uniform sampler2D exposure_tex;
+	layout(set = 0, binding = 5) uniform sampler2D grid_tex;
+	layout(set = 0, binding = 6) uniform sampler2D prev_exposure_tex;
+	layout(set = 0, binding = 7) uniform sampler2D blue_noise_tex;
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
 
 	// For HDR output: x exposed, returns linear light in units of paper white.
 	// The shadows and midtones go through the SDR tonemapper so they look the
@@ -709,27 +842,17 @@ local compute_shader = [[
 		float pixel_log10 = log(max(dot(col, vec3(0.2126, 0.7152, 0.0722)) / pre_exposure, 1e-9)) * 0.4342945;
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
-		// Local exposure adapts the scene; bloom is scattered light in the
-		// eye, added after at the global exposure. Adapting the bloom as well
-		// would lift a bright light's faint glow over a dark area into a halo.
-		vec3 bloom = col;
+		// Local exposure adapts the scene. The glare was made from the light as
+		// the eye adapted to it (see passes/bloom.lua), so a region adapted down
+		// scatters less and its glow never outshines it; it is added on top.
+		if (compute.has_grid_tex != 0) {
+			col *= exp2(get_local_adaptation(uv, dot(col, vec3(0.2126, 0.7152, 0.0722)) * exposure, texture(exposure_tex, vec2(0.5))));
+		}
 
 		if (compute.has_bloom_tex != 0) {
-			vec2 half_texel = 0.5 / vec2(textureSize(bloom_tex, 0));
-			bloom = texture(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel)).rgb;
+			col = col * (1.0 - compute.bloom_strength) + texelFetch(glare_tex, pos, 0).rgb / exposure;
 		}
 
-		if (compute.has_grid_tex != 0) {
-			float luma = dot(col, vec3(0.2126, 0.7152, 0.0722)) * exposure;
-			float l = log2(max(luma, 1e-6)) - get_frame_log_level(texture(exposure_tex, vec2(0.5)));
-			float local_l = local_log_luma(uv, l);
-			float stops = -local_l * (local_l > 0.0 ? compute.local_highlights : compute.local_shadows);
-			col *= exp2(clamp(stops, -compute.local_max_stops, compute.local_max_stops));
-		}
-
-		// bloom keeps the scene's energy (see passes/bloom.lua), so it is
-		// mixed in rather than added
-		col = mix(col, bloom, compute.bloom_strength);
 		col = mix(col, mix(vec3(1.0), ROD_TINT, compute.night_vision_tint) * dot(max(col, vec3(0.0)), ROD_RESPONSE), (1.0 - cones) * compute.night_vision);
 
 		if (compute.output_mode == 0) {
@@ -767,6 +890,31 @@ local r = {
 	exposure_feedback_pass,
 	local_exposure_grid_pass,
 	local_exposure_blur_pass,
+}
+
+-- the glare, from the light as the eye adapted to it
+for _, pass in ipairs(
+	import("goluwa/render3d/passes/bloom.lua"){
+		glsl = [[
+				layout(set = 0, binding = 2) uniform sampler2D grid_tex;
+				layout(set = 0, binding = 3) uniform sampler2D exposure_tex;
+				layout(set = 0, binding = 4) uniform sampler2D prev_exposure_tex;
+			]] .. post_source.GetPreExposureFromExposureGLSL() .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL,
+		sampled_images = {
+			{binding_index = 2, get_texture = get_pipeline_texture("local_exposure_blur")},
+			{binding_index = 3, get_texture = get_exposure_feedback_texture},
+			{binding_index = 4, get_texture = get_previous_exposure_texture},
+		},
+		block = local_exposure_block,
+		write = write_local_exposure_block,
+	}
+) do
+	r[#r + 1] = pass
+end
+
+r[#r + 1] = glare_pass
+
+for _, pass in ipairs{
 	{
 		name = "blit_compute",
 		ComputePass = true,
@@ -787,6 +935,10 @@ local r = {
 			{
 				binding_index = 2,
 				get_texture = get_bloom_texture,
+			},
+			{
+				binding_index = 3,
+				get_texture = get_glare_texture,
 			},
 			{
 				binding_index = 4,
@@ -822,10 +974,7 @@ local r = {
 			{"night_vision", "float"},
 			{"night_vision_log10_threshold", "float"},
 			{"night_vision_tint", "float"},
-			{"has_grid_tex", "int"},
-			{"local_shadows", "float"},
-			{"local_highlights", "float"},
-			{"local_max_stops", "float"},
+			local_exposure_block,
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
@@ -841,16 +990,11 @@ local r = {
 			block.hdr_paper_white = render3d.hdr.paper_white
 			block.hdr_peak = render3d.hdr.peak
 			block.tonemapper = render3d.tonemapper
-			block.bloom_strength = render3d.bloom_strength
+			block.bloom_strength = get_bloom_strength()
 			block.night_vision = render3d.exposure.mode == "eye" and render3d.night_vision.enabled and 1 or 0
 			block.night_vision_log10_threshold = math.log(render3d.night_vision.threshold) / math.log(10)
 			block.night_vision_tint = render3d.night_vision.tint
-			block.has_grid_tex = get_pipeline_texture("local_exposure_blur")() and 1 or 0
-			local view = View.GetActive()
-			local local_exposure = view and view.LocalExposure
-			block.local_shadows = local_exposure or render3d.local_exposure.shadows
-			block.local_highlights = local_exposure or render3d.local_exposure.highlights
-			block.local_max_stops = render3d.local_exposure.max_stops
+			write_local_exposure_block(block)
 			return block
 		end,
 		shader = compute_shader,
@@ -905,5 +1049,8 @@ local r = {
 		DepthTest = false,
 		DepthWrite = false,
 	},
-}
+} do
+	r[#r + 1] = pass
+end
+
 return r

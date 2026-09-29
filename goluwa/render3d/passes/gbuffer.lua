@@ -292,7 +292,7 @@ local function build_ssdm_fragment_shader(write_depth)
 			// ice has an F0 of 0.018
 			set_specular(gbuffer_encode_specular(mix(get_specular(displacement.uv), 0.45, snow)));
 			set_transmission(transmission);
-			set_emissive(get_emissive(displacement.uv) * (1.0 - snow));
+			set_emissive(gbuffer_encode_emissive(get_emissive(displacement.uv) * (1.0 - snow)));
 			// the undisplaced position on both sides. parallax shifts the surface
 			// by the same amount in both frames when the view barely changed, so
 			// including it would mostly add noise to the offset

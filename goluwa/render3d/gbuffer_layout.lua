@@ -87,6 +87,13 @@ function gbuffer_layout.GetEncodeGLSL()
 			return e * 0.5 + 0.5;
 		}
 
+		// cd/m2 in. b10g11r11 stops at 64512, a frosted bulb is ~1e5 and a clear
+		// filament ~1e7; scaled down it reaches 1.7e7 (render3d.EMISSIVE_MAX_LUMINANCE)
+		// and keeps full precision down to 0.016
+		vec3 gbuffer_encode_emissive(vec3 luminance) {
+			return luminance * (1.0 / 256.0);
+		}
+
 		// ggx alpha in, gbuffer_roughness gives it back
 		float gbuffer_encode_roughness(float alpha) {
 			return sqrt(alpha);
@@ -123,7 +130,7 @@ do
 		float gbuffer_roughness(COORD c) { float r = gbuffer_fetch(GBUFFER.mra_tex, c).g; return r * r; }
 		float gbuffer_ao(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).b; }
 		float gbuffer_transmission(COORD c) { return gbuffer_fetch(GBUFFER.mra_tex, c).a; }
-		vec3 gbuffer_emissive(COORD c) { return gbuffer_fetch(GBUFFER.emissive_tex, c).rgb; }
+		vec3 gbuffer_emissive(COORD c) { return gbuffer_fetch(GBUFFER.emissive_tex, c).rgb * 256.0; }
 		float gbuffer_transmission_scattering(COORD c) { return gbuffer_fetch(GBUFFER.transmission_tex, c).r; }
 		float gbuffer_dielectric_f0(COORD c) { return gbuffer_fetch(GBUFFER.transmission_tex, c).b * 0.08; }
 

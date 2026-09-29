@@ -1,37 +1,111 @@
+local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local system = import("goluwa/system.lua")
+local commands = import("goluwa/cli/commands.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
--- Bloom as in Jimenez 2014 (Call of Duty: Advanced Warfare). The scene is
--- halved LEVELS times with a 13 tap filter, then walked back up to half
--- resolution with a tent filter, blending each level in on the way (see
--- render3d.bloom_scatter). There is no threshold. The blit pass
--- mixes it in linearly (before exposure), so it looks the same at any
--- exposure and only what is actually bright shows a visible glow.
-local LEVELS = 6
+-- Glare: the light scattered inside the eye. Stiles and Holladay's disability
+-- glare puts a veil of 10 E / theta^2 cd/m2 at theta degrees from a source
+-- that lights the eye with E lux. That is linear in the light, so it is there
+-- for every pixel, but a normal scene only loses a little contrast to it,
+-- while the sun or a glint of it, thousands of times brighter than anything
+-- around, drowns everything within a few degrees in its glow.
+--
+-- 1 / theta^2 over the area around the source is the same energy in every
+-- octave of angle, 0.0191 ln 2 of the light. The scene is halved LEVELS times
+-- with a 13 tap filter (Jimenez 2014, Call of Duty: Advanced Warfare), each
+-- level blurring over twice the angle of the last, then walked back up with a
+-- tent filter, adding each level in with the energy of the octave it covers.
+-- The levels are measured in degrees through the camera's field of view, so
+-- the glare is the same size on screen at any fov or resolution. The blit
+-- pass mixes it in linearly (before exposure) by the total weight.
+local LEVELS = 10
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
+local ENERGY_PER_OCTAVE = 0.0191 * math.log(2)
+-- the range CIE 146's glare spread function is fitted over is 0.1 to 100 degrees.
+-- past 30 the veil is spread evenly over most of the screen anyway
+local MIN_DEGREES = 0.1
+local MAX_DEGREES = 30
+render3d.bloom_strength = 1
+-- how long in seconds a bright highlight's glare lingers where it was on screen,
+-- smearing it along the way when it or the camera moves (see passes/blit.lua).
+-- 0 is off
+render3d.bloom_smear = 0.1
+
+commands.Add("r_bloom_strength=number[1]", function(value)
+	render3d.bloom_strength = value
+end)
+
+commands.Add("r_bloom_smear=number[0.1]", function(value)
+	render3d.bloom_smear = value
+end)
+
+-- the weight each level is added in with, normalized, and their total
+do
+	local weights = {}
+	local total = 0
+	local last_frame = -1
+
+	function render3d.GetBloomWeights()
+		local frame = system.GetFrameNumber()
+
+		if frame == last_frame then return weights, total end
+
+		last_frame = frame
+		-- full resolution pixels per degree at the center of the screen
+		local pixels_per_degree = render.GetRenderImageSize().y / 2 / math.tan(render3d.GetCamera():GetFOV() / 2) * math.pi / 180
+		total = 0
+
+		for i = 1, LEVELS do
+			-- level i blurs over about 2^i pixels, the octave around it
+			local degrees = 2 ^ i / pixels_per_degree
+			local low = math.log(math.max(degrees / math.sqrt(2), MIN_DEGREES)) / math.log(2)
+			local high = math.log(math.min(degrees * math.sqrt(2), MAX_DEGREES)) / math.log(2)
+			weights[i] = math.max(high - low, 0) * ENERGY_PER_OCTAVE
+			total = total + weights[i]
+		end
+
+		for i = 1, LEVELS do
+			weights[i] = weights[i] / total
+		end
+
+		return weights, total
+	end
+end
+
 local common_glsl = compute_helpers.GetScreenHelpersGLSL() .. [[
 	layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_bloom;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 
+	#ifdef ADAPT
+		// set by main, what the scene is exposed with and the exposure texture
+		float adapt_exposure;
+		vec4 adapt_exposure_sample;
+	#endif
+
 	// the attachments wrap, which would pull the opposite edge in
 	vec3 bloom_sample(vec2 uv) {
 		vec2 half_texel = 0.5 / vec2(textureSize(source_tex, 0));
-		return textureLod(source_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb;
+		uv = clamp(uv, half_texel, 1.0 - half_texel);
+		vec3 c = textureLod(source_tex, uv, 0.0).rgb;
+		#ifdef ADAPT
+			// glare comes from the light as the eye adapted to it: a region it
+			// adapted down scatters that much less. lifted shadows don't add any
+			if (compute.has_grid_tex != 0) {
+				c *= exp2(min(get_local_adaptation(uv, dot(c, vec3(0.2126, 0.7152, 0.0722)) * adapt_exposure, adapt_exposure_sample), 0.0));
+			}
+		#endif
+		return c;
 	}
 ]]
 -- 13 taps over a 4x4 source texel footprint, as five overlapping 2x2 boxes.
--- The first level weighs each box by its brightness relative to the whole
--- footprint (a scale free Karis average), so a single hot pixel can't
--- flicker in and out of the pyramid as it moves between texels. It also
--- softly caps what goes in at render3d.bloom_max times white (under last
--- frame's exposure, r_bloom_max): at night the exposure rises so far that a lamp is hundreds of
--- thousands of times brighter than the scene around it, and even a few
--- percent of that would flood the screen.
+-- No Karis average: it keeps a hot pixel from flickering by weighing boxes
+-- down by their brightness, which throws away most of the sun and its glints,
+-- the very things the glare is for. For the same reason the glare comes from
+-- the scene before TAA, whose blend on compressed colour loses half of the
+-- sun's disc. The blur hides the jitter and the smear (passes/blit.lua) keeps
+-- it steady.
 local downsample_glsl = [[
-	float bloom_luma(vec3 c) {
-		return dot(c, vec3(0.2126, 0.7152, 0.0722));
-	}
-
 	void main() {
 		ivec2 pos = get_screen_pos();
 		ivec2 size = imageSize(out_bloom);
@@ -44,6 +118,11 @@ local downsample_glsl = [[
 		}
 
 		vec2 uv = get_screen_uv(pos, size);
+		#ifdef ADAPT
+			adapt_exposure_sample = texture(exposure_tex, vec2(0.5));
+			// the scene is pre-exposed with last frame's exposure
+			adapt_exposure = adapt_exposure_sample.r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
+		#endif
 		vec2 t = 1.0 / vec2(textureSize(source_tex, 0));
 		vec3 a = bloom_sample(uv + t * vec2(-2.0, 2.0));
 		vec3 b = bloom_sample(uv + t * vec2(0.0, 2.0));
@@ -65,43 +144,16 @@ local downsample_glsl = [[
 			(d + e + g + h) * 0.25,
 			(e + f + h + i) * 0.25
 		);
-		float box_weight[5] = float[5](0.5, 0.125, 0.125, 0.125, 0.125);
-		vec3 result = vec3(0.0);
-		float weight_sum = 0.0;
-		#ifdef KARIS
-			float mean = 0.0;
-			float exposure = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).r : 0.0;
-			// the scene is pre-exposed with this exposure, what is left to expose it
-			exposure /= pre_exposure_from_exposure(exposure);
+		vec3 result = (box[0] * 0.5 + (box[1] + box[2] + box[3] + box[4]) * 0.125);
 
-			for (int n = 0; n < 5; n++) {
-				// a NaN or inf from the scene would spread over the whole pyramid
-				if (any(isnan(box[n])) || any(isinf(box[n]))) box[n] = vec3(0.0);
+		// a NaN or inf from the scene would spread over the whole pyramid
+		if (any(isnan(result)) || any(isinf(result))) result = vec3(0.0);
 
-				box[n] = min(box[n], vec3(60000.0));
-				box[n] /= 1.0 + bloom_luma(box[n]) * exposure / compute.bloom_max;
-				mean += bloom_luma(box[n]) * box_weight[n];
-			}
-		#endif
-
-		for (int n = 0; n < 5; n++) {
-			float w = box_weight[n];
-			#ifdef KARIS
-				w /= 1.0 + bloom_luma(box[n]) / max(mean, 1e-6);
-			#endif
-			result += box[n] * w;
-			weight_sum += w;
-		}
-
-		imageStore(out_bloom, pos, vec4(result / weight_sum, 1.0));
+		imageStore(out_bloom, pos, vec4(result, 1.0));
 	}
 ]]
--- 3x3 tent over the next smaller level, blended with this level's
--- downsample by scatter. Level n ends up weighted (1 - scatter) * scatter^n
--- (the smallest gets the remainder), so the glow is concentrated around its
--- source with a long faint tail, rather than every level counting the same and
--- a very bright source spreading into a wide flat blob. The weights sum to 1,
--- so bloom keeps the scene's energy.
+-- 3x3 tent over the next smaller level, plus this level's downsample by its
+-- weight. The smallest level comes in by its own weight.
 local upsample_glsl = [[
 	layout(set = 0, binding = 2) uniform sampler2D merge_tex;
 
@@ -124,7 +176,7 @@ local upsample_glsl = [[
 			bloom_sample(uv + t * vec2(1.0, -1.0)) +
 			bloom_sample(uv + t * vec2(-1.0, 1.0)) +
 			bloom_sample(uv + t * vec2(1.0, 1.0));
-		imageStore(out_bloom, pos, vec4(mix(texelFetch(merge_tex, pos, 0).rgb, sum / 16.0, compute.scatter), 1.0));
+		imageStore(out_bloom, pos, vec4(sum / 16.0 * compute.source_weight + texelFetch(merge_tex, pos, 0).rgb * compute.merge_weight, 1.0));
 	}
 ]]
 
@@ -134,10 +186,13 @@ local function get_pipeline_texture(name)
 	end
 end
 
-render3d.bloom_scatter = 0.7
-render3d.bloom_max = 100000
+local block = {
+	{"has_source_tex", "int"},
+	{"source_weight", "float"},
+	{"merge_weight", "float"},
+}
 
-local function build_pass(name, scale, shader, sampled_images)
+local function build_pass(name, scale, shader, sampled_images, write, extra_block)
 	return {
 		name = name,
 		ComputePass = true,
@@ -146,67 +201,82 @@ local function build_pass(name, scale, shader, sampled_images)
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
 		sampled_images = sampled_images,
-		block = {
-			{"has_source_tex", "int"},
-			{"has_exposure_tex", "int"},
-			{"scatter", "float"},
-			{"bloom_max", "float"},
-		},
+		block = extra_block and {block, extra_block} or block,
 		write = function(self, block)
 			block.has_source_tex = sampled_images[1].get_texture() and 1 or 0
-			block.has_exposure_tex = sampled_images[2] and sampled_images[2].get_texture() and 1 or 0
-			block.scatter = render3d.bloom_scatter
-			block.bloom_max = render3d.bloom_max
+
+			if write then write(block) end
+
 			return block
 		end,
 		shader = shader,
 	}
 end
 
-local r = {}
+-- The passes, given the eye's local adaptation for the first downsample
+-- (see passes/blit.lua): glsl declaring grid_tex (binding 2), exposure_tex (3)
+-- and prev_exposure_tex (4) and defining get_local_adaptation, textures for
+-- those bindings, and the block and its writer that function reads.
+return function(adaptation)
+	local r = {}
 
-for i = 1, LEVELS do
-	local get_source_texture = i == 1 and
-		function()
-			return post_source.GetSceneSourceTexture({name = "bloom_down1"})
-		end or
-		get_pipeline_texture("bloom_down" .. (i - 1))
-	r[#r + 1] = build_pass(
-		"bloom_down" .. i,
-		0.5 ^ i,
-		(
-				i == 1 and
-				"#define KARIS\nlayout(set = 0, binding = 2) uniform sampler2D exposure_tex;\n" .. post_source.GetPreExposureFromExposureGLSL()
-				or
-				""
-			) .. common_glsl .. downsample_glsl,
-		{
-			{binding_index = 1, get_texture = get_source_texture},
-			i == 1 and
-			{
-				binding_index = 2,
-				get_texture = function()
-					return post_source.GetExposureTexture(true)
-				end,
-			} or
-			nil,
-		}
-	)
-end
+	for i = 1, LEVELS do
+		if i == 1 then
+			local sampled_images = {
+				{
+					binding_index = 1,
+					get_texture = function()
+						return post_source.GetRawSceneSourceTexture()
+					end,
+				},
+			}
 
-for i = LEVELS - 1, 1, -1 do
-	r[#r + 1] = build_pass(
-		"bloom_up" .. i,
-		0.5 ^ i,
-		common_glsl .. upsample_glsl,
-		{
+			for _, info in ipairs(adaptation.sampled_images) do
+				sampled_images[#sampled_images + 1] = info
+			end
+
+			r[#r + 1] = build_pass(
+				"bloom_down1",
+				0.5,
+				"#define ADAPT\n" .. adaptation.glsl .. common_glsl .. downsample_glsl,
+				sampled_images,
+				adaptation.write,
+				adaptation.block
+			)
+		else
+			r[#r + 1] = build_pass(
+				"bloom_down" .. i,
+				0.5 ^ i,
+				common_glsl .. downsample_glsl,
+				{
+					{binding_index = 1, get_texture = get_pipeline_texture("bloom_down" .. (i - 1))},
+				}
+			)
+		end
+	end
+
+	for i = LEVELS - 1, 1, -1 do
+		r[#r + 1] = build_pass(
+			"bloom_up" .. i,
+			0.5 ^ i,
+			common_glsl .. upsample_glsl,
 			{
-				binding_index = 1,
-				get_texture = get_pipeline_texture(i == LEVELS - 1 and "bloom_down" .. LEVELS or "bloom_up" .. (i + 1)),
+				{
+					binding_index = 1,
+					get_texture = get_pipeline_texture(i == LEVELS - 1 and "bloom_down" .. LEVELS or "bloom_up" .. (i + 1)),
+				},
+				{
+					binding_index = 2,
+					get_texture = get_pipeline_texture("bloom_down" .. i),
+				},
 			},
-			{binding_index = 2, get_texture = get_pipeline_texture("bloom_down" .. i)},
-		}
-	)
-end
+			function(block)
+				local weights = render3d.GetBloomWeights()
+				block.source_weight = i == LEVELS - 1 and weights[LEVELS] or 1
+				block.merge_weight = weights[i]
+			end
+		)
+	end
 
-return r
+	return r
+end

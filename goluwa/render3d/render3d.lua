@@ -96,8 +96,9 @@ render3d.velocity_enabled = render3d.velocity_enabled ~= false
 -- multiplier of 1 stands for. Anything that shades emissive surfaces itself
 -- (the gbuffer, GI hit shading) must scale by the same amount.
 render3d.EMISSIVE_REFERENCE_LUMINANCE = 2000.0
--- the largest value the gbuffer's b10g11r11 emissive target can hold
-render3d.EMISSIVE_MAX_LUMINANCE = 64512.0
+-- the largest value the gbuffer's emissive target can hold, b10g11r11's
+-- 64512 times the 256 gbuffer_encode_emissive scales it down by
+render3d.EMISSIVE_MAX_LUMINANCE = 64512.0 * 256.0
 
 function render3d.GetEmissiveGLSL()
 	return (
@@ -271,7 +272,6 @@ function render3d.CreatePipelineBundle(options)
 			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/forward_overlay.lua"),
 			import("goluwa/render3d/passes/taa.lua"),
-			import("goluwa/render3d/passes/bloom.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		}
 

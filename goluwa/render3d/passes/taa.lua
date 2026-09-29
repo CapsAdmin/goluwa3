@@ -128,7 +128,8 @@ return {
 
 ]] .. post_source.GetPreExposureGLSL("taa_data") .. [[
 
-			// exposed and Reinhard compressed by luminance, so the inverse is exact
+			// exposed and Reinhard compressed by luminance, so the inverse is exact. 1 - luma
+			// keeps float precision to ~1e6 exposed, the sun's disc is ~5e4 at noon
 			vec3 compress(vec3 c, float exposure) {
 				c *= exposure;
 				return rgb_to_ycocg(c / (1.0 + get_luma(c)));
@@ -136,7 +137,7 @@ return {
 
 			vec3 decompress(vec3 c, float exposure) {
 				vec3 rgb = max(ycocg_to_rgb(c), vec3(0.0));
-				return rgb / max(1.0 - get_luma(rgb), 1e-4) / exposure;
+				return rgb / max(1.0 - get_luma(rgb), 1e-6) / exposure;
 			}
 
 			float get_view_depth(vec2 uv, float depth) {
