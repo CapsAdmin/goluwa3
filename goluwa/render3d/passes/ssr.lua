@@ -7,28 +7,10 @@ local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
-local render = import("goluwa/render/render.lua")
-local commands = import("goluwa/cli/commands.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
-local scene_lights = import("goluwa/render3d/scene_lights.lua")
-local light_grid = import("goluwa/render3d/light_grid.lua")
+local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local BINDING_SCENE = 5
-local BINDING_BVH_TRIANGLES = 6
-local BINDING_MATERIALS = 7
-local BINDING_DDGI = 8
-local BINDING_LIGHT_GRID = 9
--- Rays that miss on screen are traced against the scene (the ddgi TLAS) and
--- their hits shaded like the ddgi probe rays: material colour, direct light
--- with shadow rays and probe irradiance.
-local RAY_QUERY = render.GetDevice().ray_query_supported
-local ray_query_enabled = true
-
-commands.Add("ssr_ray_query=boolean[true]", function(value)
-	ray_query_enabled = value
-end)
-
+local RAY_QUERY = scene_reflection.RAY_QUERY
+local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9}
 return {
 	{
 		name = "ssr",
@@ -52,43 +34,12 @@ return {
 				dst_stage = {"compute", "fragment"},
 			},
 		},
-		storage_buffers = RAY_QUERY and
-			{
-				{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
-				{binding_index = BINDING_MATERIALS},
-				{binding_index = BINDING_LIGHT_GRID},
-			} or
-			nil,
 		descriptor_sets = RAY_QUERY and
-			{
-				{
-					type = "acceleration_structure_khr",
-					binding_index = BINDING_SCENE,
-					stageFlags = "compute",
-				},
-			} or
+			scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
 			nil,
 		on_pre_draw = RAY_QUERY and
 			function(self, cmd, frame, desc)
-				local materials = ddgi.WriteMaterialBuffer(self)
-				self:UpdateDescriptorSet("storage_buffer", desc, BINDING_MATERIALS, 0, materials, materials:GetSize())
-				light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
-
-				if render3d.pipelines.ddgi_trace then
-					self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
-				else
-					self:UpdateDescriptorSet(
-						"acceleration_structure_khr",
-						desc,
-						BINDING_SCENE,
-						0,
-						scene_bvh.GetPlaceholderTLAS(cmd)
-					)
-				end
-
-				-- no soup yet; the shader never reads it while ddgi_rt_ready is 0
-				local triangles = scene_bvh.triangle_buffer or materials
-				scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, triangles)
+				scene_reflection.Bind(self, cmd, desc, REFLECTION_BINDINGS)
 			end or
 			nil,
 		uniform_buffers = {
@@ -108,9 +59,8 @@ return {
 					{"frame_index", "int"},
 					{"prev_view", "mat4"},
 					{"prev_projection", "mat4"},
-					{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
-					{"light_count", "int"},
 					post_source.pre_exposure_block,
+					RAY_QUERY and scene_reflection.block or nil,
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -141,10 +91,8 @@ return {
 						block.history_depth_tex = -1
 					end
 
-					-- every light: a reflected ray sees what the camera doesn't
-					local lights = render3d.GetLights()
-					block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-					scene_lights.WriteLightsBlock(block.lights, lights)
+					if RAY_QUERY then scene_reflection.WriteBlock(self, block) end
+
 					local prev_view = render3d.GetPreviousViewMatrix()
 					local prev_projection = render3d.GetPreviousProjectionMatrix()
 
@@ -163,46 +111,22 @@ return {
 					return block
 				end,
 			},
-			-- after ssr_data: dynamic offsets go in binding order
-			{
-				name = "ddgi_data",
-				binding_index = BINDING_DDGI,
-				block = ddgi.GetProbeBlockLayout(),
-				write = function(self, block)
-					if render3d.pipelines.ddgi_trace then
-						ddgi.WriteProbeBlock(self, block)
-					else
-						block.ddgi_cascade_count = 0
-						block.ddgi_rt_ready = 0
-					end
-
-					-- also switches off the probes' visibility rays, only used by traced hits here
-					if not ray_query_enabled then block.ddgi_rt_ready = 0 end
-
-					return block
-				end,
-			},
+			RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_ssr;
 			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_ssr_depth;
 		]] .. (
 				RAY_QUERY and
-				[[
-			#extension GL_EXT_ray_query : require
-			#define DDGI_VISIBILITY_RAYS
-			#define SSR_RAY_QUERY
-			layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT ddgi_scene;
-		]] .. scene_bvh.GetTriangleDeclarationGLSL(BINDING_BVH_TRIANGLES) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. light_grid.GetGLSL(BINDING_LIGHT_GRID)
-				or
+				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or
 				""
 			),
 		shader = [[
 		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ssr_data") .. surface_weather.GetRainSurfaceGLSL("ssr_data") .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
-		]] .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. (
+		]] .. ibl.GetEnvironmentGLSLCode() .. (
 				RAY_QUERY and
-				ddgi.GetMaterialGLSL() or
+				scene_reflection.GetGLSL("ssr_data") or
 				""
 			) .. [[
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ssr_data") .. [[
@@ -214,7 +138,6 @@ return {
 			#define SSR_MAX_DISTANCE 80.0
 			// where lighting stops using ssr (get_ssr_blend_weight)
 			#define SSR_ROUGHNESS_CUTOFF 0.45
-			#define SSR_RT_MAX_DISTANCE 1000.0
 			#define SSR_MIRROR_THRESHOLD 0.06
 			// times white on screen, under last frame's exposure
 			#define SSR_MAX_HIT_LUMINANCE 8.0
@@ -403,91 +326,6 @@ return {
 				return vec4(0.0);
 			}
 
-			#ifdef SSR_RAY_QUERY
-			bool ssr_scene_visible(vec3 origin, vec3 dir, float dist) {
-				rayQueryEXT query;
-				rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, dir, dist);
-
-				while (rayQueryProceedEXT(query)) {}
-
-				return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
-			}
-
-			// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit
-			vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, vec3 V, float roughness) {
-				rayQueryEXT query;
-				rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, SSR_RT_MAX_DISTANCE);
-
-				while (rayQueryProceedEXT(query)) {}
-
-				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
-					return sample_environment_specular(ssr_data.env_tex, dir, N, roughness);
-				}
-
-				float t = rayQueryGetIntersectionTEXT(query, true);
-				scene_bvh_triangle tri = bvh_tri(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true)));
-				ddgi_material material = ddgi_materials[tri.material];
-				// the visible side winds clockwise, so tri.normal points inward
-				vec3 hit_N = -tri.normal;
-
-				if (dot(dir, hit_N) > 0.0) {
-					if (material.double_sided == 0) return vec3(0.0);
-
-					hit_N = -hit_N;
-				}
-
-				vec3 P = origin + dir * t;
-				vec3 surface = P + hit_N * 0.02;
-				vec3 albedo = ddgi_albedo(material);
-				vec3 radiance = ddgi_emission(tri, albedo);
-				vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
-				float sun_NoL = dot(hit_N, sun_L);
-
-				if (sun_NoL > 0.0 && ssr_scene_visible(surface, sun_L, SSR_RT_MAX_DISTANCE)) {
-					radiance += albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
-				}
-
-				int light_cell = light_grid_cell(surface);
-
-				for (int w = 0; w < light_grid_words(ssr_data.light_count); w++) {
-				uint light_bits = light_grid_word(light_cell, w, ssr_data.light_count);
-
-				while (light_bits != 0u) {
-					int i = w * 32 + findLSB(light_bits);
-					light_bits &= light_bits - 1u;
-					lights_t light = ssr_data.lights[i];
-
-					if (get_light_type(light) == 0) continue;
-
-					vec3 L;
-					float attenuation;
-
-					if (!get_light_vector_and_attenuation(light, surface, L, attenuation)) continue;
-
-					float NoL = dot(hit_N, L);
-
-					if (NoL <= 0.0) continue;
-
-					// stops short of the light so a bulb mesh around it doesn't shadow it
-					float dist = dot(light.position.xyz - surface, L);
-
-					if (dist > 0.05 && !ssr_scene_visible(surface, L, dist - 0.05)) continue;
-
-					radiance += albedo * light.color.rgb * light.color.a * attenuation * (NoL / 3.14159265359);
-				}
-				}
-
-				float weight;
-				vec4 gi = ddgi_sample_irradiance(P, hit_N, -dir, false, weight);
-
-				if (weight <= 0.0 && !ddgi_in_volume(P)) {
-					gi.rgb = sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, hit_N);
-				}
-
-				return radiance + albedo * gi.rgb;
-			}
-			#endif
-
 			vec4 cast_ssr_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
 				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
 				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
@@ -525,12 +363,12 @@ return {
 				vec4 hit = trace_ssr_direction(pos_vs, R_vs, roughness, xi.y);
 				vec3 R_world = (ssr_data.inv_view * vec4(R_vs, 0.0)).xyz;
 
-				#ifdef SSR_RAY_QUERY
+				#ifdef SCENE_REFLECTION
 				// what the screen doesn't hold (off screen, behind something or
 				// facing the camera) is traced; faded screen hits blend into it
-				if (ddgi_data.ddgi_rt_ready != 0 && hit.a < 0.999) {
+				if (scene_reflection_ready() && hit.a < 0.999) {
 					vec3 origin = world_pos + geometric_N * (0.02 + 0.002 * -pos_vs.z);
-					vec3 traced = trace_scene_reflection(origin, R_world, N, V, roughness);
+					vec3 traced = trace_scene_reflection(origin, R_world, N, roughness);
 
 					if (roughness > SSR_MIRROR_THRESHOLD) {
 						float traced_luma = luminance(traced);

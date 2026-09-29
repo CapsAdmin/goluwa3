@@ -2853,10 +2853,10 @@ do
 		local count = #scene_bvh.blocks
 		local slot = get_free_tlas_slot(frame, count)
 		build_tlas(cmd, slot, count)
-		-- compute shaders trace it with ray queries (ddgi)
+		-- compute and fragment shaders trace it with ray queries (ddgi, ssr, water)
 		cmd:PipelineBarrier{
 			srcStage = "acceleration_structure_build_khr",
-			dstStage = {"ray_tracing_shader_khr", "compute"},
+			dstStage = {"ray_tracing_shader_khr", "compute", "fragment"},
 			bufferBarriers = {
 				{
 					buffer = slot.buffer,
@@ -2883,7 +2883,7 @@ do
 		slot.tlas:Build(cmd, 1, slot.geometry, ranges, BUILD_PREFER_FAST_TRACE)
 		cmd:PipelineBarrier{
 			srcStage = "acceleration_structure_build_khr",
-			dstStage = {"ray_tracing_shader_khr", "compute"},
+			dstStage = {"ray_tracing_shader_khr", "compute", "fragment"},
 			bufferBarriers = {
 				{
 					buffer = slot.buffer,

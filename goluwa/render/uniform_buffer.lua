@@ -17,7 +17,7 @@ local function create(struct, name)
 	-- slots per frame, shared by persistent and transient uploads. the heaviest scenes measured
 	-- need about 220 (translucent draws and per material persistent slots), and the ring does
 	-- not grow, so running out is an error rather than overwriting earlier draws in the frame
-	self.max_uploads = 1024
+	self.max_uploads = 1024 * 4
 	self.frame_count = 3
 	self.ring_size = self.aligned_size * self.max_uploads * self.frame_count
 	self.data = struct()

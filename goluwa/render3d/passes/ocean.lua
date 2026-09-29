@@ -24,6 +24,10 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local water = import("goluwa/render3d/water.lua")
+local render = import("goluwa/render/render.lua")
+local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local RAY_QUERY = scene_reflection.RAY_QUERY
+local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9}
 local WAVE_TEX_SIZE = 512
 -- world half size of each wave cascade, nearest first
 local WAVE_CASCADES = {
@@ -219,7 +223,18 @@ list.insert(
 		},
 		framebuffer_count = 2,
 		dont_create_framebuffers = true,
+		-- the traced reflections' bindings change every frame, so each frame in flight has its own set
+		DescriptorSetCount = RAY_QUERY and render.GetSwapchainImageCount() or nil,
+		on_pre_draw = RAY_QUERY and
+			function(self, cmd)
+				scene_reflection.Bind(self, cmd, render.GetCurrentFrame(), REFLECTION_BINDINGS)
+			end or
+			nil,
 		fragment = {
+			descriptor_sets = RAY_QUERY and
+				scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "fragment") or
+				nil,
+			custom_declarations = RAY_QUERY and scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or nil,
 			uniform_buffers = {
 				{
 					name = "ocean_data",
@@ -260,6 +275,7 @@ list.insert(
 						{"volume_count", "int"},
 						{"shadows", directional_shadows.BuildFogShadowBlockLayout()},
 						post_source.pre_exposure_block,
+						RAY_QUERY and scene_reflection.block or nil,
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
@@ -285,9 +301,13 @@ list.insert(
 						directional_shadows.WriteFogShadowBlock(self, block.shadows, lights)
 						write_ocean(self, block)
 						write_volumes(block)
+
+						if RAY_QUERY then scene_reflection.WriteBlock(self, block) end
+
 						return block
 					end,
 				},
+				RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
 			},
 			shader = [[
 			]] .. post_source.GetPreExposureGLSL("ocean_data") .. [[
@@ -323,7 +343,12 @@ list.insert(
 
 			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("ocean_data", "get_water_sun_visibility") .. [[
 			]] .. ibl.GetBRDFGLSLCode() .. [[
-			]] .. ibl.GetEnvironmentGLSLCode() .. [[
+			]] .. ibl.GetEnvironmentGLSLCode() .. (
+					RAY_QUERY and
+					render3d.GetEmissiveGLSL() .. scene_reflection.GetGLSL("ocean_data")
+					or
+					""
+				) .. [[
 
 			float get_blue_noise() {
 				if (ocean_data.blue_noise_tex == -1) return 0.5;
@@ -886,16 +911,22 @@ list.insert(
 				vec3 reflected = sample_environment_specular(ocean_data.env_tex, reflection_dir, normal, perceptual);
 				float ssr_fade = 1.0 - smoothstep(0.1, 0.35, perceptual);
 
-				if (ssr_fade > 0.0 && reflection_dir.y > -0.2) {
-					vec3 ssr_color;
-					float ssr_weight;
+				if (ssr_fade <= 0.0 || reflection_dir.y <= -0.2) return reflected;
 
-					if (trace_water_reflection(surface_pos + normal * 0.02, reflection_dir, jitter, ssr_color, ssr_weight)) {
-						reflected = mix(reflected, ssr_color, ssr_weight * ssr_fade);
-					}
+				vec3 origin = surface_pos + normal * 0.02;
+				vec3 ssr_color;
+				float ssr_weight;
+				if (!trace_water_reflection(origin, reflection_dir, jitter, ssr_color, ssr_weight)) ssr_weight = 0.0;
+
+				#ifdef SCENE_REFLECTION
+				// what the screen doesn't hold is traced; faded screen hits blend into it
+				if (ssr_weight < 0.999 && scene_reflection_ready()) {
+					vec3 traced = trace_scene_reflection(origin, reflection_dir, normal, perceptual);
+					return mix(reflected, mix(traced, ssr_color, ssr_weight), ssr_fade);
 				}
+				#endif
 
-				return reflected;
+				return mix(reflected, ssr_color, ssr_weight * ssr_fade);
 			}
 
 			// ---------------------------------------------------------------

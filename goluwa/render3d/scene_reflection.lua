@@ -1,0 +1,206 @@
+--[[
+	Reflection rays the screen can't answer (off screen, behind something or
+	facing the camera) traced against the scene (the ddgi TLAS), their hits
+	shaded like the ddgi probe rays: material colour, direct light with shadow
+	rays and probe irradiance. Shared by the ssr and the water.
+
+	A pass using it adds GetDescriptorSets to its descriptor sets, calls Bind
+	in on_pre_draw, puts GetDeclarationGLSL in its declarations, block in its
+	uniform block (next to an env_tex) with WriteBlock, GetDDGIUniformBuffer
+	after that block, and GetGLSL after ibl.GetEnvironmentGLSLCode and
+	render3d.GetEmissiveGLSL. All of it only when RAY_QUERY.
+]]
+local render = import("goluwa/render/render.lua")
+local commands = import("goluwa/cli/commands.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local ddgi = import("goluwa/render3d/ddgi.lua")
+local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_lights = import("goluwa/render3d/scene_lights.lua")
+local light_grid = import("goluwa/render3d/light_grid.lua")
+local scene_reflection = {}
+scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
+scene_reflection.MAX_DISTANCE = 1000
+local enabled = true
+
+commands.Add("reflection_ray_query=boolean[true]", function(value)
+	enabled = value
+end)
+
+-- bindings: scene, triangles, materials, light_grid
+function scene_reflection.GetDescriptorSets(bindings, stage)
+	return {
+		{
+			type = "acceleration_structure_khr",
+			binding_index = bindings.scene,
+			stageFlags = stage,
+		},
+		{
+			type = "storage_buffer",
+			binding_index = bindings.triangles,
+			stageFlags = stage,
+			count = scene_bvh.SOUP_CHUNKS,
+		},
+		{type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage},
+		{
+			type = "storage_buffer",
+			binding_index = bindings.light_grid,
+			stageFlags = stage,
+		},
+	}
+end
+
+function scene_reflection.Bind(self, cmd, desc, bindings)
+	local materials = ddgi.WriteMaterialBuffer(self)
+	self:UpdateDescriptorSet("storage_buffer", desc, bindings.materials, 0, materials, materials:GetSize())
+	light_grid.Bind(self, cmd, desc, bindings.light_grid)
+	self:UpdateDescriptorSet(
+		"acceleration_structure_khr",
+		desc,
+		bindings.scene,
+		0,
+		render3d.pipelines.ddgi_trace and
+			ddgi.GetFrameState().tlas or
+			scene_bvh.GetPlaceholderTLAS(cmd)
+	)
+	-- no soup yet; the shader never reads it while ddgi_rt_ready is 0
+	scene_bvh.BindTriangleBuffer(self, desc, bindings.triangles, scene_bvh.triangle_buffer or materials)
+end
+
+function scene_reflection.GetDeclarationGLSL(bindings)
+	return [[
+		#extension GL_EXT_ray_query : require
+		#define DDGI_VISIBILITY_RAYS
+		#define SCENE_REFLECTION
+		layout(set = 0, binding = ]] .. bindings.scene .. [[) uniform accelerationStructureEXT ddgi_scene;
+	]] .. scene_bvh.GetTriangleDeclarationGLSL(bindings.triangles) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. light_grid.GetGLSL(bindings.light_grid)
+end
+
+-- every light: a reflected ray sees what the camera doesn't
+scene_reflection.block = {
+	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+	{"light_count", "int"},
+}
+
+function scene_reflection.WriteBlock(self, block)
+	local lights = render3d.GetLights()
+	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+	scene_lights.WriteLightsBlock(block.lights, lights)
+end
+
+-- dynamic offsets go in binding order, so its binding comes after the pass' own block
+function scene_reflection.GetDDGIUniformBuffer(binding)
+	return {
+		name = "ddgi_data",
+		binding_index = binding,
+		block = ddgi.GetProbeBlockLayout(),
+		write = function(self, block)
+			if render3d.pipelines.ddgi_trace then
+				ddgi.WriteProbeBlock(self, block)
+			else
+				block.ddgi_cascade_count = 0
+				block.ddgi_rt_ready = 0
+			end
+
+			-- also switches off the probes' visibility rays, only used by traced hits here
+			if not enabled then block.ddgi_rt_ready = 0 end
+
+			return block
+		end,
+	}
+end
+
+function scene_reflection.GetGLSL(block_name)
+	return ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. ddgi.GetMaterialGLSL() .. [[
+		#define SCENE_REFLECTION_MAX_DISTANCE ]] .. string.format("%.1f", scene_reflection.MAX_DISTANCE) .. [[
+
+		bool scene_reflection_ready() {
+			return ddgi_data.ddgi_rt_ready != 0;
+		}
+
+		bool scene_reflection_visible(vec3 origin, vec3 dir, float dist) {
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, dir, dist);
+
+			while (rayQueryProceedEXT(query)) {}
+
+			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+		}
+
+		// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit
+		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness) {
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, SCENE_REFLECTION_MAX_DISTANCE);
+
+			while (rayQueryProceedEXT(query)) {}
+
+			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+				return sample_environment_specular(]] .. block_name .. [[.env_tex, dir, N, roughness);
+			}
+
+			float t = rayQueryGetIntersectionTEXT(query, true);
+			scene_bvh_triangle tri = bvh_tri(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true)));
+			ddgi_material material = ddgi_materials[tri.material];
+			// the visible side winds clockwise, so tri.normal points inward
+			vec3 hit_N = -tri.normal;
+
+			if (dot(dir, hit_N) > 0.0) {
+				if (material.double_sided == 0) return vec3(0.0);
+
+				hit_N = -hit_N;
+			}
+
+			vec3 P = origin + dir * t;
+			vec3 surface = P + hit_N * 0.02;
+			vec3 albedo = ddgi_albedo(material);
+			vec3 radiance = ddgi_emission(tri, albedo);
+			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
+			float sun_NoL = dot(hit_N, sun_L);
+
+			if (sun_NoL > 0.0 && scene_reflection_visible(surface, sun_L, SCENE_REFLECTION_MAX_DISTANCE)) {
+				radiance += albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
+			}
+
+			int light_cell = light_grid_cell(surface);
+			int light_count = ]] .. block_name .. [[.light_count;
+
+			for (int w = 0; w < light_grid_words(light_count); w++) {
+				uint light_bits = light_grid_word(light_cell, w, light_count);
+
+				while (light_bits != 0u) {
+					int i = w * 32 + findLSB(light_bits);
+					light_bits &= light_bits - 1u;
+					lights_t light = ]] .. block_name .. [[.lights[i];
+
+					if (get_light_type(light) == 0) continue;
+
+					vec3 L;
+					float attenuation;
+
+					if (!get_light_vector_and_attenuation(light, surface, L, attenuation)) continue;
+
+					float NoL = dot(hit_N, L);
+
+					if (NoL <= 0.0) continue;
+
+					// stops short of the light so a bulb mesh around it doesn't shadow it
+					float dist = dot(light.position.xyz - surface, L);
+
+					if (dist > 0.05 && !scene_reflection_visible(surface, L, dist - 0.05)) continue;
+
+					radiance += albedo * light.color.rgb * light.color.a * attenuation * (NoL / 3.14159265359);
+				}
+			}
+
+			float weight;
+			vec4 gi = ddgi_sample_irradiance(P, hit_N, -dir, false, weight);
+
+			if (weight <= 0.0 && !ddgi_in_volume(P)) {
+				gi.rgb = sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, hit_N);
+			}
+
+			return radiance + albedo * gi.rgb;
+		}
+	]]
+end
+
+return scene_reflection
