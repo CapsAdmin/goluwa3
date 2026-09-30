@@ -33,10 +33,14 @@ local NodeArray = ffi.typeof("$[?]", Node)
 local NodePtr = ffi.typeof("$*", Node)
 local TriangleArray = ffi.typeof("$[?]", Triangle)
 -- an emissive triangle of a block: its index in the block (high bit set when
--- double sided) and its power, area x emission luminance
+-- double sided), its power (area x emission luminance), its centroid, and
+-- whether it is only emissive because its material is additive (a light shaft,
+-- water foam, a sparkle: an effect, not a light)
 local Emitter = ffi.typeof([[struct {
 	uint32_t triangle;
 	float power;
+	float x, y, z;
+	uint32_t additive;
 }]])
 local EmitterArray = ffi.typeof("$[?]", Emitter)
 scene_bvh.EmitterArray = EmitterArray
@@ -1441,6 +1445,9 @@ do
 
 			if luminance > 0 then
 				local src = pieces[s].local_tris[l - starts[s]]
+				local x0 = src.v0[0] * m00 + src.v0[1] * m10 + src.v0[2] * m20 + m30
+				local y0 = src.v0[0] * m01 + src.v0[1] * m11 + src.v0[2] * m21 + m31
+				local z0 = src.v0[0] * m02 + src.v0[1] * m12 + src.v0[2] * m22 + m32
 				local e1x = src.e1[0] * m00 + src.e1[1] * m10 + src.e1[2] * m20
 				local e1y = src.e1[0] * m01 + src.e1[1] * m11 + src.e1[2] * m21
 				local e1z = src.e1[0] * m02 + src.e1[1] * m12 + src.e1[2] * m22
@@ -1450,10 +1457,18 @@ do
 				local nx = e1y * e2z - e1z * e2y
 				local ny = e1z * e2x - e1x * e2z
 				local nz = e1x * e2y - e1y * e2x
-				emitters[count].triangle = scene_bvh.materials[slot.material_id + 1]:GetDoubleSided() and
-					i + 0x80000000 or
-					i
+				local material = scene_bvh.materials[slot.material_id + 1]
+				emitters[count].triangle = material:GetDoubleSided() and i + 0x80000000 or i
+				emitters[count].additive = material:GetAdditive() and
+					not material:GetAlbedoAlphaIsEmissive()
+					and
+					material:GetEmissiveTexture() == nil and
+					1 or
+					0
 				emitters[count].power = 0.5 * math.sqrt(nx * nx + ny * ny + nz * nz) * luminance
+				emitters[count].x = x0 + (e1x + e2x) / 3
+				emitters[count].y = y0 + (e1y + e2y) / 3
+				emitters[count].z = z0 + (e1z + e2z) / 3
 				count = count + 1
 			end
 		end

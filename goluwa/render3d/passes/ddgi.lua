@@ -231,7 +231,7 @@ local function pass_compute_trace()
 						int kept_emitter;
 						uint kept;
 						vec3 kept_point;
-						float weight_sum = ddgi_pick_emitter_sample(index, uint(ddgi_data.ddgi_frame), ddgi_data.ddgi_emitter_count, uint(ddgi_data.ddgi_emitter_candidates), origin, ddgi_data.ddgi_light_radius * ddgi_spacing(c), kept_emitter, kept, kept_point);
+						float weight_sum = ddgi_pick_emitter_sample(index, uint(ddgi_data.ddgi_frame), ddgi_data.ddgi_emitter_count, uint(ddgi_data.ddgi_emitter_candidates), ddgi_data.ddgi_emitter_grid, origin, ddgi_data.ddgi_light_radius * ddgi_spacing(c), kept_emitter, kept, kept_point);
 						vec3 to_point = kept_point - origin;
 						float dist = length(to_point);
 
@@ -470,13 +470,13 @@ local function pass_shade()
 					vec4 result = vec4(0.0);
 
 					if (ddgi_data.ddgi_rt_ready != 0 && weight_sum > 0.0) {
-						scene_bvh_triangle tri = bvh_tri(ddgi_emitters[hit.y & DDGI_EMITTER_MASK].triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
+						scene_bvh_triangle tri = bvh_tri(ddgi_emitter_triangle(int(hit.y & DDGI_EMITTER_MASK)) & ~DDGI_EMITTER_DOUBLE_SIDED);
 						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> DDGI_EMITTER_SHIFT);
 						vec3 point = ddgi_emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
 						vec3 emission = ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material], point));
 						float luminance = dot(tri.emissive, vec3(0.2126, 0.7152, 0.0722));
-						vec3 estimate = emission / luminance * ddgi_data.ddgi_emitter_weight * weight_sum / float(ddgi_data.ddgi_emitter_candidates);
+						vec3 estimate = emission / luminance * weight_sum / float(ddgi_data.ddgi_emitter_candidates);
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
 					}
 
