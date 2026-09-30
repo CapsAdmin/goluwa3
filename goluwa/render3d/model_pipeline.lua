@@ -1690,11 +1690,30 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
 			}
 
+			// source's bump basis, the directions an ssbump texel holds the light of
+			vec3 decode_normal_texture(vec4 texel) {
+				if (!NormalTextureIsSSBump) {
+					return decode_normal_map(texel.xy);
+				}
+
+				vec3 n = normalize(
+					texel.r * vec3(0.81649661, 0.0, 0.57735026) +
+					texel.g * vec3(-0.40824821, 0.70710677, 0.57735026) +
+					texel.b * vec3(-0.40824821, -0.70710677, 0.57735026)
+				);
+
+				if (ReverseXZNormalMap) {
+					n.xy = -n.xy;
+				}
+
+				return n;
+			}
+
 			vec3 get_normal_map(vec2 uv) {
 				vec3 N = vec3(0.0, 0.0, 1.0);
 
 				if (model.NormalTexture != -1) {
-					N = decode_normal_map(texture(TEXTURE(model.NormalTexture), uv).xy);
+					N = decode_normal_texture(texture(TEXTURE(model.NormalTexture), uv));
 				} else if (has_heightmap()) {
 					N = get_height_normal_tangent(uv);
 				}
@@ -1703,7 +1722,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					float blend = get_texture_blend_uv(uv);
 
 					if (blend != 0) {
-						N = normalize(mix(N, decode_normal_map(texture(TEXTURE(detail_model.Normal2Texture), uv).xy), blend));
+						N = normalize(mix(N, decode_normal_texture(texture(TEXTURE(detail_model.Normal2Texture), uv)), blend));
 					}
 				}
 

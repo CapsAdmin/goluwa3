@@ -136,6 +136,9 @@ Material:GetSet("NoDraw", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("Flags", 0)
 Material:GetSet("ReverseXZNormalMap", false, {callback = "InvalidateFlags"})
 Material:GetSet("NormalTextureAlphaIsRoughness", false, {callback = "InvalidateFlags"})
+-- the normal textures are source's self shadowed bump maps, the light each of
+-- the three radiosity basis directions receives instead of a normal
+Material:GetSet("NormalTextureIsSSBump", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoTextureAlphaIsRoughness", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoLuminanceIsRoughness", false, {callback = "InvalidateFlags"})
 Material:GetSet("BlendTintByBaseAlpha", false, {callback = "InvalidateFlags"})
@@ -259,6 +262,7 @@ local FLAGS = {
 	"BlendTintByBaseAlpha",
 	"InvertRoughnessTexture",
 	"NormalTextureAlphaIsRoughness",
+	"NormalTextureIsSSBump",
 	"AlbedoTextureAlphaIsRoughness",
 	"AlbedoLuminanceIsRoughness",
 	"MetallicTextureAlphaIsEmissive",
@@ -943,9 +947,7 @@ do
 
 			if vmt.bumpmap2 then self:SetNormal2Texture(LinearTexture(vmt.bumpmap2)) end
 
-			local ssbump = vmt.ssbump == 1
-
-			if ssbump then print("Warning: SSBump is not supported!") end
+			if vmt.ssbump == 1 then self:SetNormalTextureIsSSBump(true) end
 		end
 
 		if vmt.blendmodulatetexture then
