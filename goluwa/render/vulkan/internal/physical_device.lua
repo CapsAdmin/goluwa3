@@ -59,6 +59,30 @@ function PhysicalDevice:FindMemoryType(typeFilter, properties)
 	error("failed to find suitable memory type!")
 end
 
+-- The memory type for host visible buffers the gpu reads or writes a lot. The
+-- first host visible type is usually system memory, which the gpu reaches over
+-- pcie, several times slower than its own memory. With resizable BAR the gpu's
+-- memory is host visible too, as a device local type. A BAR that only spans a
+-- small window of it is not worth filling, so a heap under min_heap_size is
+-- skipped. Returns nil when there is none.
+function PhysicalDevice:FindFastHostMemoryType(typeFilter, min_heap_size)
+	local memProperties = vulkan.vk.VkPhysicalDeviceMemoryProperties()
+	vulkan.lib.vkGetPhysicalDeviceMemoryProperties(self.ptr[0], memProperties)
+	local e = vulkan.vk.e.VkMemoryPropertyFlagBits({"device_local", "host_visible", "host_coherent"})
+
+	for i = 0, memProperties.memoryTypeCount - 1 do
+		local memory_type = memProperties.memoryTypes[i]
+
+		if
+			bit.band(typeFilter, bit.lshift(1, i)) ~= 0 and
+			bit.band(memory_type.propertyFlags, e) == e and
+			tonumber(memProperties.memoryHeaps[memory_type.heapIndex].size) >= min_heap_size
+		then
+			return i
+		end
+	end
+end
+
 function PhysicalDevice:FindGraphicsQueueFamily(surface)
 	if not surface then
 		local graphicsQueueFamily = nil

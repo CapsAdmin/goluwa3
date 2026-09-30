@@ -33,6 +33,25 @@ vulkan.SetupDebugFunctions(
 	}
 )
 
+-- buffers that ask for plain host visible memory get the gpu's own where the
+-- device has a big enough host visible heap of it, see FindFastHostMemoryType
+local MIN_FAST_HEAP_SIZE = 2 ^ 30
+
+local function is_plain_host_memory(properties)
+	if not properties then return true end
+
+	if type(properties) ~= "table" or #properties ~= 2 then return false end
+
+	local visible, coherent
+
+	for _, name in ipairs(properties) do
+		visible = visible or name == "host_visible"
+		coherent = coherent or name == "host_coherent"
+	end
+
+	return visible and coherent
+end
+
 function Buffer.New(config)
 	local device = config.device
 	local size = config.size
@@ -76,14 +95,33 @@ function Buffer.New(config)
 		end
 	end
 
-	self.memory = Memory.New(
-		device,
-		{
-			size = requirements.size,
-			type_index = device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"}),
-			flags = allocate_flags,
-		}
-	)
+	local fast_type
+
+	if is_plain_host_memory(properties) then
+		fast_type = device.physical_device:FindFastHostMemoryType(requirements.memoryTypeBits, MIN_FAST_HEAP_SIZE)
+	end
+
+	if fast_type then
+		local ok, memory = pcall(
+			Memory.New,
+			device,
+			{size = requirements.size, type_index = fast_type, flags = allocate_flags}
+		)
+
+		if ok then self.memory = memory end
+	end
+
+	if not self.memory then
+		self.memory = Memory.New(
+			device,
+			{
+				size = requirements.size,
+				type_index = device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"}),
+				flags = allocate_flags,
+			}
+		)
+	end
+
 	self:BindMemory()
 	return self
 end
