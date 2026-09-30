@@ -371,6 +371,11 @@ Material:GetSet("Name", "")
 -- source materials say nothing about grass, so for now any vmt or base texture
 -- with grass in its file name grows it. only the file name, since map folders
 -- like gm_flatgrass would match every material in the map
+function Material.IsGrassTexture(texture)
+	return texture.config.path and
+		file_path.GetFileNameFromPath(texture.config.path):lower():find("grass", 1, true) ~= nil
+end
+
 function Material:DetectGrass()
 	local texture = self.AlbedoTexture
 
@@ -378,8 +383,7 @@ function Material:DetectGrass()
 		file_path.GetFileNameFromPath(self.Name):lower():find("grass", 1, true) or
 		(
 			texture and
-			texture.config.path and
-			file_path.GetFileNameFromPath(texture.config.path):lower():find("grass", 1, true)
+			Material.IsGrassTexture(texture)
 		)
 	then
 		self:SetGrass(true)

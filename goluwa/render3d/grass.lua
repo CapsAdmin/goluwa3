@@ -9,6 +9,7 @@ local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
+local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local grass = library()
 -- Procedural grass blades on every surface whose material has the Grass flag.
 -- Everything after picking the surfaces is on the GPU:
@@ -47,7 +48,7 @@ grass.max_distance = 150
 grass.enabled = grass.enabled ~= false
 local HALF_BLADES = grass.MAX_BLADES / 2
 local BLADE_SIZE = 32
-local SURFACE_FLOATS = 56
+local SURFACE_FLOATS = 60
 local GrassSurface = ffi.typeof([[struct {
 	float world[16];
 	uint32_t addresses[4];
@@ -60,6 +61,7 @@ local GrassSurface = ffi.typeof([[struct {
 	float layer_scales[4];
 	float layer_detail[4];
 	float layer_additive_detail[4];
+	int32_t blend[4];
 }]])
 local uint64_ptr = ffi.typeof("uint64_t *")
 local int32_ptr = ffi.typeof("int32_t *")
@@ -140,6 +142,8 @@ local BINDING_SURFACES = 4
 local BINDING_JOBS = 5
 local BINDING_BLADES = 6
 local BINDING_ARGS = 7
+local BINDING_SCENE = 8
+local RAY_QUERY = render.GetDevice().ray_query_supported
 local COMMON_GLSL = [[
 	#define GRASS_TILE_CELLS ]] .. grass.TILE_CELLS .. [[
 
@@ -149,6 +153,9 @@ local COMMON_GLSL = [[
 	#define GRASS_JOB_ROW ]] .. grass.JOB_ROW .. [[u
 	// how far a blade's tip leans out per unit up, lean is stored as a fraction of this
 	#define GRASS_MAX_LEAN 3.0
+	// blades lean away from anything within this distance along the ground
+	#define GRASS_BEND_REACH 0.4
+	#define GRASS_BEND_RAYS 4
 	#define GRASS_HALF_BLADES ]] .. HALF_BLADES .. [[u
 	#define GRASS_NEAR_SEGMENTS ]] .. grass.NEAR_SEGMENTS .. [[
 
@@ -175,6 +182,8 @@ local COMMON_GLSL = [[
 		vec4 layer_scales;
 		vec4 layer_detail;
 		vec4 layer_additive_detail;
+		// grows on the first texture of a displacement blend: 1 when the material blends two, and its blend modulate texture
+		ivec4 blend;
 	};
 
 	// root xyz, height
@@ -284,6 +293,7 @@ local COMPUTE_GLSL = COMMON_GLSL .. [[
 		vec2 uv0;
 		vec2 uv1;
 		vec2 uv2;
+		vec3 blend;
 		vec3 normal;
 	};
 
@@ -302,6 +312,7 @@ local COMPUTE_GLSL = COMMON_GLSL .. [[
 		t.uv0 = vec2(data.v[a + 6u], data.v[a + 7u]);
 		t.uv1 = vec2(data.v[b + 6u], data.v[b + 7u]);
 		t.uv2 = vec2(data.v[c + 6u], data.v[c + 7u]);
+		t.blend = vec3(data.v[a + 12u], data.v[b + 12u], data.v[c + 12u]);
 		vec3 n = vec3(data.v[a + 3u], data.v[a + 4u], data.v[a + 5u]) +
 			vec3(data.v[b + 3u], data.v[b + 4u], data.v[b + 5u]) +
 			vec3(data.v[c + 3u], data.v[c + 4u], data.v[c + 5u]);
@@ -354,6 +365,18 @@ local COMPUTE_GLSL = COMMON_GLSL .. [[
 		vec4 weights = max(textureLod(TEXTURE(mask_texture), uv, 0.0), vec4(0.0));
 		float sum = dot(weights, vec4(1.0));
 		return sum > 0.0001 ? weights / sum : vec4(0.0);
+	}
+
+	// how much of the surface's first texture shows at a point of a displacement blend, like get_texture_blend_uv in model_pipeline.lua
+	float grass_blend_amount(GrassSurface s, vec2 uv, float blend) {
+		if (s.blend.x == 0) return 1.0;
+
+		if (s.blend.y >= 0) {
+			vec2 modulate = textureLod(TEXTURE(s.blend.y), uv, 0.0).rg;
+			blend = smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), blend);
+		}
+
+		return 1.0 - smoothstep(0.1, 0.6, blend);
 	}
 
 	float grass_layer_amount(GrassSurface s, int mask_texture, vec2 uv) {
@@ -424,6 +447,17 @@ local function get_compute_passes()
 		storage_buffer(BINDING_BLADES, "blades", "compute"),
 		storage_buffer(BINDING_ARGS, "args", "compute"),
 	}
+	local blade_descriptor_sets = {unpack(descriptor_sets)}
+
+	if RAY_QUERY then
+		blade_descriptor_sets[#blade_descriptor_sets + 1] = {
+			type = "acceleration_structure_khr",
+			binding_index = BINDING_SCENE,
+			stageFlags = "compute",
+			set_index = 0,
+		}
+	end
+
 	compute_passes = {
 		tiles = EasyPipeline.Compute{
 			name = "grass_scatter_tiles",
@@ -443,6 +477,8 @@ local function get_compute_passes()
 					GrassTriangle t = grass_load_triangle(s, tri);
 
 					if (t.normal.y < GRASS_MIN_UP) return;
+
+					if (s.blend.x != 0 && s.blend.y < 0 && grass_blend_amount(s, t.uv0, min(min(t.blend.x, t.blend.y), t.blend.z)) <= 0.0) return;
 
 					if (compute.mask_texture >= 0) {
 						vec2 center = (t.uv0 + t.uv1 + t.uv2) / 3.0;
@@ -500,12 +536,19 @@ local function get_compute_passes()
 		},
 		blades = EasyPipeline.Compute{
 			name = "grass_scatter_blades",
-			DescriptorSetCount = 1,
+			DescriptorSetCount = render.GetSwapchainImageCount(),
 			LocalSize = {x = 64, y = 1, z = 1},
-			descriptor_sets = descriptor_sets,
+			descriptor_sets = blade_descriptor_sets,
 			block = compute_block,
 			write = write_compute_block,
-			shader = COMPUTE_GLSL .. [[
+			shader = (
+					RAY_QUERY and
+					[[
+				#extension GL_EXT_ray_query : require
+				layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT grass_scene;
+			]] or
+					""
+				) .. COMPUTE_GLSL .. [[
 				void main() {
 					uint job_index = gl_WorkGroupID.y * GRASS_JOB_ROW + gl_WorkGroupID.x;
 
@@ -556,7 +599,7 @@ local function get_compute_passes()
 
 						vec2 uv = t.uv0 * w0 + t.uv1 * w1 + t.uv2 * w2;
 						vec4 layer_weights = mask_texture >= 0 ? grass_layer_weights(mask_texture, uv) : vec4(0.0);
-						float amount = mask_texture >= 0 ? dot(layer_weights, s.layers) : 1.0;
+						float amount = (mask_texture >= 0 ? dot(layer_weights, s.layers) : 1.0) * grass_blend_amount(s, uv, dot(t.blend, vec3(w0, w1, w2)));
 
 						if (amount <= 0.0) continue;
 
@@ -596,9 +639,60 @@ local function get_compute_passes()
 
 						if (!grass_sphere_visible(root + vec3(0.0, height * 0.5, 0.0), height * 0.6 + width)) continue;
 
+						// a brush over the ground, like a road laid on a displacement, would have blades poking through it, so they shrink to fit under it
+						]] .. (
+					RAY_QUERY and
+					[[
+						rayQueryEXT cover;
+						rayQueryInitializeEXT(cover, grass_scene, gl_RayFlagsOpaqueEXT, 0xFF, root + vec3(0.0, 0.005, 0.0), 0.0, vec3(0.0, 1.0, 0.0), height + 0.05);
+
+						while (rayQueryProceedEXT(cover)) {}
+
+						if (rayQueryGetIntersectionTypeEXT(cover, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+							height = min(height, rayQueryGetIntersectionTEXT(cover, true) * 0.5);
+						}
+						]] or
+					""
+				) .. [[
+
 						// neighbouring blades lean the same way in clumps
 						float clump_angle = grass_value_noise(xz * 1.7 + vec2(-7.1, 3.3)) * 6.2831853 * 2.0;
 						float facing = mix(r1 * 6.2831853, clump_angle, 0.5);
+						]] .. (
+					RAY_QUERY and
+					[[
+						// blades near something standing on the ground, like a box, lean away from it. a few rays
+						// along the ground, at a height blades reach, sum up which way and how hard
+						if (d < compute.near_distance) {
+							vec3 ground_normal = t.normal;
+							vec3 push = vec3(0.0);
+							float base_angle = r1 * 1.5707963;
+
+							for (int i = 0; i < GRASS_BEND_RAYS; i++) {
+								float angle = base_angle + float(i) * (6.2831853 / float(GRASS_BEND_RAYS));
+								vec3 direction = vec3(cos(angle), 0.0, sin(angle));
+								direction = normalize(direction - ground_normal * dot(direction, ground_normal));
+								rayQueryEXT bend;
+								rayQueryInitializeEXT(bend, grass_scene, gl_RayFlagsOpaqueEXT, 0xFF, root + ground_normal * height * 0.4, 0.0, direction, GRASS_BEND_REACH);
+
+								while (rayQueryProceedEXT(bend)) {}
+
+								if (rayQueryGetIntersectionTypeEXT(bend, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+									push -= direction * (1.0 - rayQueryGetIntersectionTEXT(bend, true) / GRASS_BEND_REACH);
+								}
+							}
+
+							float strength = clamp(length(push.xz), 0.0, 1.0);
+
+							if (strength > 0.001) {
+								vec2 away = mix(vec2(cos(facing), sin(facing)), normalize(push.xz), strength);
+								facing = atan(away.y, away.x);
+								lean = mix(lean, 1.5, strength);
+							}
+						}
+					]] or
+					""
+				) .. [[
 						vec3 color = albedo_texture >= 0 ? textureLod(TEXTURE(albedo_texture), uv, 3.0).rgb : vec3(1.0);
 
 						if (mask_texture >= 0) {
@@ -748,6 +842,9 @@ local function write_surface(out, surface, pipeline)
 	out.layer_detail[1] = detail.g
 	out.layer_detail[2] = detail.b
 	out.layer_detail[3] = detail.a
+	local albedo2 = material:GetAlbedo2Texture()
+	out.blend[0] = albedo2 and not Material.IsGrassTexture(albedo2) and 1 or 0
+	out.blend[1] = pipeline:GetTextureIndex(material:GetBlendTexture())
 	local additive_detail = material:GetTerrainLayerAdditiveDetail()
 	out.layer_additive_detail[0] = additive_detail.r
 	out.layer_additive_detail[1] = additive_detail.g
@@ -846,7 +943,19 @@ function grass.Scatter(cmd)
 		"shader_write",
 		{"indirect_command_read", "shader_read", "shader_write"}
 	)
-	passes.blades:DispatchIndirect(cmd, b.args, 0, 1)
+	local blade_slot = system.GetFrameNumber() % render.GetSwapchainImageCount() + 1
+
+	if RAY_QUERY then
+		passes.blades:UpdateDescriptorSet(
+			"acceleration_structure_khr",
+			blade_slot,
+			BINDING_SCENE,
+			0,
+			scene_bvh.EnsureRTBuilt(cmd) or scene_bvh.GetPlaceholderTLAS(cmd)
+		)
+	end
+
+	passes.blades:DispatchIndirect(cmd, b.args, 0, blade_slot)
 	barrier(
 		cmd,
 		b.args,
