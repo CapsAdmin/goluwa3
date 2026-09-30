@@ -104,6 +104,15 @@ local function pass_trace()
 				probe_data:GetView(),
 				render.CreateSampler(probe_data:GetSamplerConfig())
 			)
+			local guide = render3d.pipelines.ddgi_guide:GetFramebuffer(1):GetAttachment(1)
+			rt:UpdateDescriptorSet(
+				"combined_image_sampler",
+				desc,
+				4,
+				0,
+				guide:GetView(),
+				render.CreateSampler(guide:GetSamplerConfig())
+			)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
 			if not ddgi.IsEnabled() or not ddgi.GetFrameState().rt_ready then return end
@@ -210,7 +219,8 @@ local function pass_compute_trace()
 				if (ray >= uint(DDGI_RAY_STRIDE) || probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
-				vec3 origin = ddgi_probe_origin(slot, c, ddgi_world_from_slot(slot, c));
+				ivec3 world = ddgi_world_from_slot(slot, c);
+				vec3 origin = ddgi_probe_origin(slot, c, world);
 				uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
 
 				if (ray >= uint(DDGI_RAYS)) {
@@ -233,7 +243,8 @@ local function pass_compute_trace()
 					return;
 				}
 
-				vec3 dir = ddgi_ray(ray);
+				ivec2 tile = ddgi_tile(slot, c);
+				vec3 dir = ddgi_ray(ray, tile, ddgi_guide_valid(tile, world, c));
 				scene_bvh_hit hit;
 				float hit_t = -1.0;
 				uint primitive = 0u;
@@ -441,7 +452,8 @@ local function pass_shade()
 				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0 || probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
-				vec3 origin = ddgi_probe_origin(slot, c, ddgi_world_from_slot(slot, c));
+				ivec3 world = ddgi_world_from_slot(slot, c);
+				vec3 origin = ddgi_probe_origin(slot, c, world);
 				uint hit_index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
 
 				// An emitter sample that got through (see the ray generation
@@ -471,7 +483,8 @@ local function pass_shade()
 					return;
 				}
 
-				vec3 dir = ddgi_ray(ray);
+				ivec2 tile = ddgi_tile(slot, c);
+				vec3 dir = ddgi_ray(ray, tile, ddgi_guide_valid(tile, world, c));
 
 				if (ddgi_data.ddgi_rt_ready == 0) {
 					store_ray(pos, vec4(ddgi_sky(dir), DDGI_MISS_DISTANCE));
@@ -585,6 +598,8 @@ local function pass_update(name, texels, integrate)
 
 			shared vec4 s_ray[DDGI_RAYS];
 			shared vec3 s_dir[DDGI_RAYS];
+			// what each ray counts for, see ddgi_ray_weight
+			shared float s_q[DDGI_RAYS];
 
 			void main() {
 				ivec2 tile = ivec2(gl_WorkGroupID.xy);
@@ -596,22 +611,26 @@ local function pass_update(name, texels, integrate)
 				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0 || probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
+				ivec3 world = ddgi_world_from_slot(slot, c);
 				float spacing = ddgi_spacing(c);
+				bool guided = ddgi_guide_valid(tile, world, c);
 
 				for (int r = local.y * TEXELS + local.x; r < DDGI_RAYS; r += TEXELS * TEXELS) {
 					s_ray[r] = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0);
-					s_dir[r] = ddgi_ray(uint(r));
+					s_dir[r] = ddgi_ray(uint(r), tile, guided);
+					s_q[r] = ddgi_ray_q(s_dir[r], tile, guided);
 				}
 
 				barrier();
 				// count back face hits from this frame's rays for the validity check,
 				// so a probe that just escaped geometry is valid immediately
-				// instead of waiting for the probe_data pass (which runs later)
+				// instead of waiting for the probe_data pass (which runs later).
+				// Only the uniform rays count, the others look where the light is.
 				float backface_count = 0.0;
-				for (int r = 0; r < DDGI_RAYS; r++) {
+				for (int r = 0; r < ddgi_data.ddgi_uniform_rays; r++) {
 					if (s_ray[r].a < 0.0) backface_count += 1.0;
 				}
-				float backface_fraction = backface_count / float(DDGI_RAYS);
+				float backface_fraction = backface_count / float(ddgi_data.ddgi_uniform_rays);
 
 				vec3 texel_dir = ddgi_texel_direction(local, TEXELS);
 				vec4 sum = vec4(0.0);
@@ -632,7 +651,6 @@ local function pass_update(name, texels, integrate)
 			) .. [[
 
 				ivec2 texel = tile * TEXELS + local;
-				ivec3 world = ddgi_world_from_slot(slot, c);
 				// On a reset frame the probe data itself is garbage. A disabled
 				// probe's history is never shaded with and may hold light from
 				// hitting the inside of geometry, so it starts over as well, before
@@ -745,25 +763,30 @@ local IRRADIANCE_INTEGRATE = {
 
 		if (ddgi_data.ddgi_ray_clamp > 0.0) {
 			float ray_sum = 0.0;
-			float ray_top = 0.0;
 			float ray_count = 0.0;
+			float top_luma = 0.0;
+			float top_q = 0.0;
 
 			for (int r = 0; r < DDGI_RAYS; r++) {
 				if (s_ray[r].a < 0.0) continue;
 
 				float l = dot(s_ray[r].rgb, vec3(0.2126, 0.7152, 0.0722));
-				ray_sum += l;
-				ray_top = max(ray_top, l);
-				ray_count += 1.0;
+				ray_sum += l * s_q[r];
+				ray_count += s_q[r];
+
+				if (l > top_luma) {
+					top_luma = l;
+					top_q = s_q[r];
+				}
 			}
 
-			ray_cap = ddgi_data.ddgi_ray_clamp * max((ray_sum - ray_top) / max(ray_count - 1.0, 1.0), 1e-4);
+			ray_cap = ddgi_data.ddgi_ray_clamp * max((ray_sum - top_luma * top_q) / max(ray_count - top_q, 1e-4), 1e-4);
 		}
 	]],
 	loop = [[
 		if (ray.a < 0.0) continue;
 
-		float w = max(0.0, dot(texel_dir, s_dir[r]));
+		float w = max(0.0, dot(texel_dir, s_dir[r])) * s_q[r];
 
 		if (w <= 0.0) continue;
 
@@ -825,7 +848,7 @@ local DISTANCE_INTEGRATE = {
 	-- x = frames accumulated, the rest is only used by the irradiance
 	state_format = {"r16_sfloat", "r16f"},
 	loop = [[
-		float w = pow(max(0.0, dot(texel_dir, s_dir[r])), ddgi_data.ddgi_distance_exponent);
+		float w = pow(max(0.0, dot(texel_dir, s_dir[r])), ddgi_data.ddgi_distance_exponent) * s_q[r];
 
 		if (w <= 0.0) continue;
 
@@ -898,8 +921,10 @@ local function pass_probe_data()
 				float closest_back = 1e30;
 				vec3 closest_back_dir = vec3(0.0);
 				float min_distance = ddgi_data.ddgi_relocation_distance * spacing;
+				ivec2 tile = ddgi_tile(slot, c);
 
-				for (int r = 0; r < DDGI_RAYS; r++) {
+				// only the uniform rays, the others look where the light is
+				for (int r = 0; r < ddgi_data.ddgi_uniform_rays; r++) {
 					float a = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0).a;
 
 					if (a < 0.0) {
@@ -908,12 +933,12 @@ local function pass_probe_data()
 
 						if (d < closest_back) {
 							closest_back = d;
-							closest_back_dir = ddgi_ray(uint(r));
+							closest_back_dir = ddgi_ray(uint(r), tile, false);
 						}
 					}
 				}
 
-				float backface_fraction = backfaces / float(DDGI_RAYS);
+				float backface_fraction = backfaces / float(ddgi_data.ddgi_uniform_rays);
 				vec3 previous_offset = offset;
 				vec3 moved = offset;
 
@@ -929,6 +954,132 @@ local function pass_probe_data()
 
 				bool relocated = dot(offset - previous_offset, offset - previous_offset) > 1e-8 * spacing * spacing;
 				imageStore(out_data, pos, vec4(vec3(world) + offset / spacing, 1.0 + backface_fraction + (relocated ? 2.0 : 0.0)));
+			}
+		]],
+	}
+end
+
+-- The guide that aims a probe's rays (see ddgi_guided_rays and ddgi_ray_direction
+-- in ddgi.lua): an octahedral map of the radiance its rays returned, kept as a
+-- running average per cell, and from it the probability of a guided ray landing
+-- in each cell and the cumulative probability the rays are drawn with. The
+-- probability follows the radiance plus a floor, so a dark cell is still looked
+-- at now and then. It runs after everything that reads this frame's ray
+-- directions, which the guide it replaces determined, and rebuilds them once
+-- (in shared memory) before writing, one workgroup per probe.
+local function pass_guide()
+	return {
+		name = "ddgi_guide",
+		ComputePass = true,
+		ColorFormat = {{"r32g32b32a32_sfloat", {"ddgi_guide", "rgba"}}},
+		FramebufferSize = {x = P * P * 8, y = P * 8 * CASCADES},
+		framebuffer_count = 1,
+		LocalSize = {x = 8, y = 8, z = 1},
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				dst_stage = ddgi.RTSupported() and {"compute", "ray_tracing_shader_khr"} or "compute",
+			},
+		},
+		uniform_buffers = {data_uniform()},
+		on_draw = function(self, cmd, fb, frame, desc)
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(
+				cmd,
+				fb.width,
+				P * 8 * ddgi.GetFrameState().cascade_count,
+				1,
+				desc,
+				self.dynamic_offsets
+			)
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform image2D guide_atlas;
+		]],
+		shader = [[
+			#define DDGI_GUIDE_FETCH(texel) imageLoad(guide_atlas, texel)
+		]] .. common_glsl() .. [[
+			shared vec4 s_ray[DDGI_RAYS];
+			shared vec3 s_dir[DDGI_RAYS];
+			shared float s_q[DDGI_RAYS];
+			shared int s_cell[DDGI_RAYS];
+			shared float s_value[DDGI_GUIDE_CELLS];
+			shared float s_cdf[DDGI_GUIDE_CELLS];
+			shared float s_floor;
+			shared float s_total;
+
+			void main() {
+				ivec2 tile = ivec2(gl_WorkGroupID.xy);
+				ivec2 local = ivec2(gl_LocalInvocationID.xy);
+				int c = tile.y / DDGI_P;
+				int probe = tile.x + DDGI_P * DDGI_P * (tile.y % DDGI_P);
+
+				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0 || probe >= ddgi_probe_count(c)) return;
+
+				ivec3 slot = ddgi_slot_from_index(probe, c);
+				ivec3 world = ddgi_world_from_slot(slot, c);
+				bool guided = ddgi_guide_valid(tile, world, c);
+				bool has_history = guided && !ddgi_cascade_reset(c);
+				int cell = local.y * DDGI_GUIDE_TEXELS + local.x;
+				float previous = imageLoad(guide_atlas, tile * DDGI_GUIDE_TEXELS + local).r;
+
+				for (int r = cell; r < DDGI_RAYS; r += DDGI_GUIDE_CELLS) {
+					s_ray[r] = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0);
+					s_dir[r] = ddgi_ray(uint(r), tile, guided);
+					s_q[r] = ddgi_ray_q(s_dir[r], tile, guided);
+					ivec2 ray_cell = clamp(ivec2((ddgi_oct_encode(s_dir[r]) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS)), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
+					s_cell[r] = ray_cell.y * DDGI_GUIDE_TEXELS + ray_cell.x;
+				}
+
+				barrier();
+				float sum = 0.0;
+				float weight = 0.0;
+				float all_sum = 0.0;
+				float all_weight = 0.0;
+
+				for (int r = 0; r < DDGI_RAYS; r++) {
+					float luma = dot(s_ray[r].rgb, vec3(0.2126, 0.7152, 0.0722));
+					all_sum += luma * s_q[r];
+					all_weight += s_q[r];
+
+					if (s_cell[r] == cell) {
+						sum += luma * s_q[r];
+						weight += s_q[r];
+					}
+				}
+
+				// a cell no ray landed in keeps its history, and starts at the
+				// probe's mean without one
+				float value = weight > 0.0 ? sum / weight : (has_history ? previous : all_sum / all_weight);
+
+				if (weight > 0.0 && has_history) value = mix(value, previous, ddgi_data.ddgi_cascade_update[c].y);
+
+				s_value[cell] = value;
+				barrier();
+
+				if (cell == 0) {
+					float total = 0.0;
+
+					for (int i = 0; i < DDGI_GUIDE_CELLS; i++) total += s_value[i];
+
+					s_floor = total / float(DDGI_GUIDE_CELLS) * 0.25 + 1e-6;
+					s_total = total + s_floor * float(DDGI_GUIDE_CELLS);
+					float running = 0.0;
+
+					for (int i = 0; i < DDGI_GUIDE_CELLS; i++) {
+						running += s_value[i] + s_floor;
+						s_cdf[i] = running / s_total;
+					}
+
+					s_cdf[DDGI_GUIDE_CELLS - 1] = 1.0;
+				}
+
+				barrier();
+				imageStore(
+					guide_atlas,
+					tile * DDGI_GUIDE_TEXELS + local,
+					vec4(value, (value + s_floor) / s_total, s_cdf[cell], ddgi_guide_stamp(world, c))
+				);
 			}
 		]],
 	}
@@ -1166,6 +1317,7 @@ local passes = {
 	pass_update("ddgi_irradiance", ddgi.IRRADIANCE_TEXELS, IRRADIANCE_INTEGRATE),
 	pass_update("ddgi_distance", ddgi.DISTANCE_TEXELS, DISTANCE_INTEGRATE),
 	pass_probe_data(),
+	pass_guide(),
 	pass_resolve(),
 	pass_probe_debug(),
 }

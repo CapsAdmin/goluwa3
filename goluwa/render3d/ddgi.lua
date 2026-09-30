@@ -169,6 +169,24 @@ local ray_clamp = pvars.Setup2{
 	min = 0,
 	help = "cap each ray's radiance at this many times the probe's mean ray luminance, 0 is off",
 }
+-- Rays are steered by what the probe has seen. Each probe keeps an octahedral
+-- map of the radiance its rays returned (see pass_guide in passes/ddgi.lua), and
+-- this share of its rays is aimed at the cells in proportion to it, so a small
+-- bright opening that one uniform ray in fifty goes through gets many. Every ray
+-- carries the inverse of the density it was drawn with, so the estimate stays
+-- unbiased. 0 is uniform rays only.
+local guided_ray_fraction = pvars.Setup2{
+	key = "ddgi_guided_rays",
+	default = 0.5,
+	min = 0,
+	max = 0.75,
+	help = "share of each probe's rays aimed by its own radiance map, 0 is uniform rays only",
+}
+
+function ddgi.GetUniformRays()
+	return ddgi.RAYS_PER_PROBE - math.floor(ddgi.RAYS_PER_PROBE * guided_ray_fraction:Get() + 0.5)
+end
+
 -- local lights are treated as spheres of this radius (in probe spacings) when
 -- lighting ray hits. A probe can't resolve a hot spot smaller than this, and a
 -- ray landing right next to a lamp would otherwise outweigh all the others
@@ -553,9 +571,9 @@ do
 	end
 end
 
--- The same spherical fibonacci + rotation as ddgi_ray_direction in GLSL.
-function ddgi.GetRayDirection(index, rotation)
-	local n = ddgi.RAYS_PER_PROBE
+-- The same spherical fibonacci + rotation as ddgi_fibonacci in GLSL, for the n
+-- uniform rays of a probe.
+function ddgi.GetRayDirection(index, n, rotation)
 	local golden = (math.sqrt(5) - 1) / 2
 	local phi = 2 * math.pi * ((index * golden) % 1)
 	local cos_theta = 1 - (2 * index + 1) / n
@@ -618,13 +636,106 @@ end
 
 function ddgi.GetRayDirectionGLSL()
 	return [[
-		vec3 ddgi_ray_direction(uint index, vec4 q) {
+		#define DDGI_GUIDE_TEXELS 8
+		#define DDGI_GUIDE_CELLS 64
+		// what reads the guide texel of a probe's tile, so that the ray generation
+		// shader and the guide pass can use their own bindings
+		#ifndef DDGI_GUIDE_FETCH
+		#define DDGI_GUIDE_FETCH(texel) texelFetch(TEXTURE(ddgi_data.ddgi_guide_tex), texel, 0)
+		#endif
+
+		vec2 ddgi_oct_encode(vec3 n) {
+			n /= abs(n.x) + abs(n.y) + abs(n.z);
+			vec2 p = n.xy;
+
+			if (n.z < 0.0) p = (1.0 - abs(p.yx)) * vec2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
+
+			return p;
+		}
+
+		vec3 ddgi_oct_decode(vec2 p) {
+			vec3 n = vec3(p, 1.0 - abs(p.x) - abs(p.y));
+
+			if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+
+			return normalize(n);
+		}
+
+		// index of count spherical fibonacci points, rotated by q
+		vec3 ddgi_fibonacci(uint index, uint count, vec4 q) {
 			const float golden = 0.61803398875;
 			float phi = 6.28318530718 * fract(float(index) * golden);
-			float cos_theta = 1.0 - (2.0 * float(index) + 1.0) / float(DDGI_RAYS);
+			float cos_theta = 1.0 - (2.0 * float(index) + 1.0) / float(count);
 			float sin_theta = sqrt(max(0.0, 1.0 - cos_theta * cos_theta));
 			vec3 v = vec3(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
 			return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+		}
+
+		// The guide is one 8x8 octahedral tile per probe, in world space. Per
+		// cell: r = mean radiance luminance, g = the probability a guided ray
+		// picks the cell, b = cumulative probability up to and including it,
+		// a = stamp of the probe that wrote it. A slot that a different probe
+		// scrolled into has a stamp that does not match, and its rays are uniform.
+		float ddgi_guide_stamp(ivec3 world, int c) {
+			uint h = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u ^ uint(c + 1) * 2654435761u;
+			return float(h & 0xFFFFFFu) + 1.0;
+		}
+
+		ivec2 ddgi_guide_texel(ivec2 tile, int cell) {
+			return tile * DDGI_GUIDE_TEXELS + ivec2(cell % DDGI_GUIDE_TEXELS, cell / DDGI_GUIDE_TEXELS);
+		}
+
+		bool ddgi_guide_valid(ivec2 tile, ivec3 world, int c) {
+			return DDGI_GUIDE_FETCH(ddgi_guide_texel(tile, 0)).a == ddgi_guide_stamp(world, c);
+		}
+
+		// The first uniform_count rays of a probe are uniform, the rest are drawn
+		// from the guide: stratified along its cumulative probability, then
+		// anywhere in the cell. The jitter is derived from the frame's random
+		// rotation.
+		vec3 ddgi_ray_direction(uint index, uint uniform_count, vec4 q, ivec2 tile, bool guided) {
+			if (index < uniform_count) return ddgi_fibonacci(index, uniform_count, q);
+
+			uint k = index - uniform_count;
+			uint guided_count = uint(DDGI_RAYS) - uniform_count;
+
+			if (!guided) return ddgi_fibonacci(k, guided_count, q);
+
+			vec3 jitter = fract(abs(q.xyz) * 1000.0 + q.w * 7.0);
+			float u = fract((float(k) + 0.5) / float(guided_count) + jitter.x);
+			int lo = 0;
+			int hi = DDGI_GUIDE_CELLS - 1;
+
+			while (lo < hi) {
+				int mid = (lo + hi) / 2;
+
+				if (DDGI_GUIDE_FETCH(ddgi_guide_texel(tile, mid)).b < u) {
+					lo = mid + 1;
+				} else {
+					hi = mid;
+				}
+			}
+
+			vec2 inner = fract(vec2(0.7548776662, 0.5698402910) * float(k) + jitter.yz);
+			vec2 p = (vec2(lo % DDGI_GUIDE_TEXELS, lo / DDGI_GUIDE_TEXELS) + inner) / float(DDGI_GUIDE_TEXELS) * 2.0 - 1.0;
+			return ddgi_oct_decode(p);
+		}
+
+		// What a ray of direction d counts for: the inverse of the density it was
+		// drawn with (the uniform rays' and the guide's mixed by their share of
+		// the rays), scaled so that uniform rays alone weigh 1. A cell's
+		// probability spreads over its share of the octahedron's plane, and a
+		// unit of that plane covers |d|_1^3 steradians.
+		float ddgi_ray_weight(vec3 d, uint uniform_count, ivec2 tile, bool guided) {
+			if (!guided || uniform_count >= uint(DDGI_RAYS)) return 1.0;
+
+			ivec2 cell = clamp(ivec2((ddgi_oct_encode(d) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS)), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
+			float probability = DDGI_GUIDE_FETCH(tile * DDGI_GUIDE_TEXELS + cell).g;
+			vec3 a = abs(d);
+			float l1 = a.x + a.y + a.z;
+			float density = probability * float(DDGI_GUIDE_TEXELS * DDGI_GUIDE_TEXELS) * 0.25 / (l1 * l1 * l1);
+			float share = float(uniform_count) / float(DDGI_RAYS);
+			return 1.0 / (share + (1.0 - share) * density * 12.5663706144);
 		}
 	]]
 end
@@ -880,27 +991,6 @@ function ddgi.GetCommonGLSL()
 			return all(greaterThanEqual(grid, vec3(0.0))) && all(lessThanEqual(grid, vec3(ddgi_volume_size(c) - 1)));
 		}
 
-		vec3 ddgi_ray(uint index) {
-			return ddgi_ray_direction(index, ddgi_data.ddgi_rotation);
-		}
-
-		vec2 ddgi_oct_encode(vec3 n) {
-			n /= abs(n.x) + abs(n.y) + abs(n.z);
-			vec2 p = n.xy;
-
-			if (n.z < 0.0) p = (1.0 - abs(p.yx)) * vec2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
-
-			return p;
-		}
-
-		vec3 ddgi_oct_decode(vec2 p) {
-			vec3 n = vec3(p, 1.0 - abs(p.x) - abs(p.y));
-
-			if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-
-			return normalize(n);
-		}
-
 		float ddgi_pack_direction(vec3 d) {
 			const float levels = float((1u << DDGI_DIRECTION_BITS) - 1u);
 			uvec2 q = uvec2((ddgi_oct_encode(d) * 0.5 + 0.5) * levels + 0.5);
@@ -980,6 +1070,15 @@ function ddgi.GetCommonGLSL()
 
 		bool ddgi_cascade_reset(int c) {
 			return (ddgi_data.ddgi_reset_mask & (1 << c)) != 0;
+		}
+
+		// a probe's ray index, from its tile and whether its guide is usable
+		vec3 ddgi_ray(uint index, ivec2 tile, bool guided) {
+			return ddgi_ray_direction(index, uint(ddgi_data.ddgi_uniform_rays), ddgi_data.ddgi_rotation, tile, guided);
+		}
+
+		float ddgi_ray_q(vec3 d, ivec2 tile, bool guided) {
+			return ddgi_ray_weight(d, uint(ddgi_data.ddgi_uniform_rays), tile, guided);
 		}
 
 		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 V, bool smooth_blend, out float weight) {
@@ -1174,6 +1273,9 @@ function ddgi.GetProbeBlockLayout()
 		-- the summed power of all emitters
 		{"ddgi_emitter_weight", "float"},
 		{"ddgi_frame", "int"},
+		-- the rays of a probe that are not aimed by its guide
+		{"ddgi_uniform_rays", "int"},
+		{"ddgi_guide_tex", "int"},
 	}
 end
 
@@ -1271,6 +1373,8 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_emitter_count = emitters.count
 	block.ddgi_emitter_weight = emitters.weight
 	block.ddgi_frame = state.frame
+	block.ddgi_uniform_rays = ddgi.GetUniformRays()
+	block.ddgi_guide_tex = pipeline_texture_index(self, "ddgi_guide")
 	return block
 end
 
@@ -1523,6 +1627,7 @@ local RTParams = ffi.typeof(
 	uint32_t frame;
 	float light_radius;
 	int32_t update_mask;
+	int32_t uniform_rays;
 }]]
 	):format(ddgi.CASCADES, ddgi.CASCADES)
 )
@@ -1574,6 +1679,7 @@ function ddgi.WriteRTParams()
 	p.frame = state.frame
 	p.light_radius = light_radius:Get()
 	p.update_mask = state.update_mask
+	p.uniform_rays = ddgi.GetUniformRays()
 	return buffer
 end
 
@@ -1589,7 +1695,11 @@ local raygen_glsl = [[
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
-]] .. ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_bvh.GetDeclarationsGLSL(7, 5) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
+]] .. ddgi.GetDefinesGLSL() .. [[
+// see ddgi_guide_texel
+layout(set = 0, binding = 4) uniform sampler2D guide;
+#define DDGI_GUIDE_FETCH(texel) texelFetch(guide, texel, 0)
+]] .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_bvh.GetDeclarationsGLSL(7, 5) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
 layout(set = 0, binding = 0) uniform Params
 {
     // see ddgi_cascades and ddgi_cascade_size
@@ -1605,6 +1715,8 @@ layout(set = 0, binding = 0) uniform Params
     float light_radius;
     // bit c: cascade c traces this frame
     int update_mask;
+    // rays of a probe that are not aimed by its guide
+    int uniform_rays;
 } params;
 layout(set = 0, binding = 1) writeonly buffer Hits
 {
@@ -1630,7 +1742,8 @@ void main()
     ivec3 base = ivec3(params.cascades[c].xyz);
     ivec3 slot = ivec3(probe % n.x, (probe / n.x) % n.y, probe / (n.x * n.y));
     ivec3 world = base + DDGI_WRAP(slot - DDGI_WRAP(base, n), n);
-    vec4 data = texelFetch(probe_data, ivec2(probe % (DDGI_P * DDGI_P), probe / (DDGI_P * DDGI_P) + DDGI_P * c), 0);
+    ivec2 tile = ivec2(probe % (DDGI_P * DDGI_P), probe / (DDGI_P * DDGI_P) + DDGI_P * c);
+    vec4 data = texelFetch(probe_data, tile, 0);
     bool current = data.w >= 1.0 && ivec3(round(data.xyz)) == world;
     vec3 origin = (current ? data.xyz : vec3(world)) * params.cascades[c].w;
     uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
@@ -1662,7 +1775,7 @@ void main()
         return;
     }
 
-    vec3 dir = ddgi_ray_direction(ray, params.rotation);
+    vec3 dir = ddgi_ray_direction(ray, uint(params.uniform_rays), params.rotation, tile, ddgi_guide_valid(tile, world, c));
     traceRayEXT(scene, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
     uint primitive = payload.primitive;
@@ -1728,6 +1841,7 @@ function ddgi.GetRTPipeline()
 						{binding_index = 1, type = "storage_buffer", stageFlags = "all"},
 						{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
 						{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
+						{binding_index = 4, type = "combined_image_sampler", stageFlags = "all"},
 						{
 							binding_index = 5,
 							type = "storage_buffer",

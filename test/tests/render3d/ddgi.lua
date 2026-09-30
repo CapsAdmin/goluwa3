@@ -140,8 +140,9 @@ do
 			local height = 2 * cascade.spacing
 			local probe = 0 + cascade.size.x * (2 + cascade.size.y * 0)
 
-			for ray = 0, ddgi.RAYS_PER_PROBE - 1 do
-				local _, dy = ddgi.GetRayDirection(ray, state.rotation)
+			-- the uniform rays; the guided ones follow the light
+			for ray = 0, ddgi.GetUniformRays() - 1 do
+				local _, dy = ddgi.GetRayDirection(ray, ddgi.GetUniformRays(), state.rotation)
 				local hit_t = hits[(probe * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) + ray) * 2]
 
 				-- rays shallow enough to run off the 100 m floor's edge are skipped
