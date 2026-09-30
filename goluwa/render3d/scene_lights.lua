@@ -2,6 +2,8 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local system = import("goluwa/system.lua")
+local ffi = require("ffi")
 local scene_lights = {}
 scene_lights.MAX_LIGHTS = 256
 scene_lights.MAX_CASCADES = directional_shadows.MAX_CASCADES
@@ -142,7 +144,24 @@ function scene_lights.GetLightGLSLCode()
 		]=]
 end
 
+-- every pass writes the same lights each frame, so the first write is kept and copied into the rest
+local cached_bytes
+local cached_size = 0
+local cached_frame = -1
+local cached_lights
+
 function scene_lights.WriteLightsBlock(lights_block, lights)
+	local size = ffi.sizeof(lights_block)
+
+	if
+		cached_frame == system.GetFrameNumber() and
+		cached_lights == lights and
+		cached_size == size
+	then
+		ffi.copy(lights_block, cached_bytes, size)
+		return
+	end
+
 	for i = 0, scene_lights.MAX_LIGHTS - 1 do
 		local data = lights_block[i]
 		local light = lights[i + 1]
@@ -210,6 +229,15 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 			data.falloff[2] = 0
 		end
 	end
+
+	if cached_size ~= size then
+		cached_bytes = ffi.new("uint8_t[?]", size)
+		cached_size = size
+	end
+
+	ffi.copy(cached_bytes, lights_block, size)
+	cached_frame = system.GetFrameNumber()
+	cached_lights = lights
 end
 
 local function write_sun_shadows(self, shadow_block, sun)
