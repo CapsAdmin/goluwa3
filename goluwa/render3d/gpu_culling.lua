@@ -9,6 +9,7 @@ local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local vk = import("goluwa/bindings/vk.lua")
 local system = import("goluwa/system.lua")
 local Material = import("goluwa/render3d/material.lua")
+local index_pool = import("goluwa/render3d/index_pool.lua")
 local render3d = nil
 local gpu_culling = library()
 gpu_culling.generation = gpu_culling.generation or 0
@@ -34,6 +35,7 @@ local UINT32_SIZE = ffi.sizeof("uint32_t")
 local DRAW_INDEXED_INDIRECT_COMMAND_SIZE = ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
 local DRAW_INDIRECT_COMMAND_SIZE = ffi.sizeof(vk.VkDrawIndirectCommand)
 gpu_culling.BATCH_DRAW_COMMAND_SIZE = DRAW_INDIRECT_COMMAND_SIZE
+gpu_culling.MAIN_BATCH_DRAW_COMMAND_SIZE = DRAW_INDEXED_INDIRECT_COMMAND_SIZE
 local INVALID_INDEX = 0xFFFFFFFF
 local NO_INDEX_BUFFER_KEY = {}
 local VISUAL_FLAG_VISIBLE = 0x1
@@ -83,6 +85,7 @@ local GPUCullInstancedBatchRecord = ffi.typeof([[struct {
 	uint32_t max_count;
 	uint32_t index_count;
 	uint32_t flags;
+	uint32_t first_index;
 }]])
 local BATCH_FLAG_DOUBLE_SIDED = 1
 local BATCH_FLAG_HEIGHT_MAP = 2
@@ -374,6 +377,7 @@ function gpu_culling.Initialize()
 				uint max_count;
 				uint index_count;
 				uint flags;
+				uint first_index;
 			};
 
 			struct DrawIndexedIndirectCommand {
@@ -436,18 +440,11 @@ function gpu_culling.Initialize()
 				uint active_batch_count[];
 			};
 
-			struct DrawIndirectCommand {
-				uint vertexCount;
-				uint instanceCount;
-				uint firstVertex;
-				uint firstInstance;
-			};
-
 			// one command per batch in each quarter, indexed by the batch's double
 			// sided and height map flags, with the others left at zero instances.
-			// the draws pull vertices through the index buffer
+			// the draws index the shared index pool (see index_pool.lua)
 			layout(std430, set = 0, binding = 13) buffer VisibleBatchIndirectCommandBuffer {
-				DrawIndirectCommand batch_commands[];
+				DrawIndexedIndirectCommand batch_commands[];
 			};
 
 			layout(set = 0, binding = 14) uniform sampler2D source_depth_tex;
@@ -623,8 +620,9 @@ function gpu_culling.Initialize()
 						if (local_index == 0u) {
 							uint active_batch_write_index = atomicAdd(active_batch_count[0], 1u);
 							active_batch_indices[active_batch_write_index] = entry_record.instanced_batch_index;
-							batch_commands[command_index].vertexCount = batch_record.index_count;
-							batch_commands[command_index].firstVertex = 0u;
+							batch_commands[command_index].indexCount = batch_record.index_count;
+							batch_commands[command_index].firstIndex = batch_record.first_index;
+							batch_commands[command_index].vertexOffset = 0;
 							batch_commands[command_index].firstInstance = batch_record.output_offset;
 						}
 
@@ -829,6 +827,7 @@ function gpu_culling.Initialize()
 				uint max_count;
 				uint index_count;
 				uint flags;
+				uint first_index;
 			};
 
 			// shadow draws pull their vertices through the index buffer themselves, so
@@ -1857,7 +1856,7 @@ local function build_frame_buffers(dataset, capacity)
 			),
 			visible_batch_indirect_command_buffer = create_buffer(
 				"gpu_culling_visible_batch_indirect_commands_" .. frame_index,
-				instanced_batch_count * gpu_culling.BATCH_COMMAND_GROUP_COUNT * DRAW_INDIRECT_COMMAND_SIZE,
+				instanced_batch_count * gpu_culling.BATCH_COMMAND_GROUP_COUNT * DRAW_INDEXED_INDIRECT_COMMAND_SIZE,
 				{"storage_buffer", "indirect_buffer", "transfer_dst"}
 			),
 			batch_command_capacity = instanced_batch_count,
@@ -2255,6 +2254,7 @@ local function write_batch_record(view, batch)
 	record.output_offset = batch.output_offset or 0
 	record.max_count = batch.capacity or 0
 	record.index_count = index_buffer and index_buffer:GetIndexCount() or 0
+	record.first_index = batch.material and index_buffer and index_pool.GetFirstIndex(index_buffer) or 0
 	-- a freed batch has no material and draws nothing
 	record.flags = batch.material and
 		(

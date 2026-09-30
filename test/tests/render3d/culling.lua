@@ -769,7 +769,7 @@ T.Test3D("Graphics render3d gpu culling splits batch commands by cull mode and h
 	local cull_result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
 	local output = gpu_culling.GetFrameBuffers()[cull_result.frame_index]
 	local commands = ffi.cast(
-		ffi.typeof("$*", vk.VkDrawIndirectCommand),
+		ffi.typeof("$*", vk.VkDrawIndexedIndirectCommand),
 		output.visible_batch_indirect_command_buffer:Map()
 	)
 	local group_size = output.batch_command_capacity
@@ -783,7 +783,7 @@ T.Test3D("Graphics render3d gpu culling splits batch commands by cull mode and h
 				T(commands[group * group_size + batch.batch_index].instanceCount)["=="](group == expected_group and 1 or 0)
 			end
 
-			T(commands[expected_group * group_size + batch.batch_index].vertexCount)["=="](polygon3d:GetMesh().index_buffer:GetIndexCount())
+			T(commands[expected_group * group_size + batch.batch_index].indexCount)["=="](polygon3d:GetMesh().index_buffer:GetIndexCount())
 			checked = checked + 1
 		end
 	end

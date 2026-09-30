@@ -7,6 +7,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
+local index_pool = import("goluwa/render3d/index_pool.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local gbuffer_instancing = library()
 local UInt32Ptr = ffi.typeof("uint32_t *")
@@ -108,7 +109,7 @@ do
 		if not (output and batches and batches[1]) then return result end
 
 		local cmd = render.GetCommandBuffer()
-		local stride = gpu_culling.BATCH_DRAW_COMMAND_SIZE
+		local stride = gpu_culling.MAIN_BATCH_DRAW_COMMAND_SIZE
 		local commands = output.visible_batch_indirect_command_buffer
 		local group_size = output.batch_command_capacity * stride
 		local instances_address = output.visible_instance_vertex_buffer.buffer:GetDeviceAddress()
@@ -132,9 +133,10 @@ do
 			pipeline.draw_instances_address = instances_address
 			pipeline:UploadConstants()
 			cmd:SetCullMode(orientation.CULL_MODE)
-			cmd:DrawIndirect(commands, (i - 1) * 2 * group_size, #batches, stride)
+			cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
+			cmd:DrawIndexedIndirect(commands, (i - 1) * 2 * group_size, #batches, stride)
 			cmd:SetCullMode("none")
-			cmd:DrawIndirect(commands, ((i - 1) * 2 + 1) * group_size, #batches, stride)
+			cmd:DrawIndexedIndirect(commands, ((i - 1) * 2 + 1) * group_size, #batches, stride)
 		end
 
 		result.drew_any = true

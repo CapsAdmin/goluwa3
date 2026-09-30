@@ -643,8 +643,8 @@ do
 	end
 
 	-- A vertex stage for multi-draw batches without vertex input: the batch is
-	-- gl_DrawID, its mesh is read through the record's buffer addresses (the
-	-- draw is non-indexed, so gl_VertexIndex walks the index buffer) and the
+	-- gl_DrawID, its mesh is read through the record's buffer address (the
+	-- draw is indexed, so gl_VertexIndex is the mesh local vertex index) and the
 	-- instance matrix through options.instances_expr, a uint64_t address of
 	-- mat4s. options.batches_expr is the record buffer address, time_expr and
 	-- prev_time_expr feed the vertex animation. The batch index is passed on as
@@ -684,19 +684,6 @@ do
 	}
 
 	uint vertex_index = uint(gl_VertexIndex);
-	uint64_t index_address = packUint2x32(addresses.zw);
-
-	if (index_address != 0ul) {
-		PBRBatchIndexData indices = PBRBatchIndexData(index_address);
-
-		if (batch_data.b[batch_index].index_is_32 != 0u) {
-			vertex_index = indices.i[vertex_index];
-		} else {
-			uint word = indices.i[vertex_index >> 1];
-			vertex_index = (vertex_index & 1u) != 0u ? word >> 16 : word & 0xFFFFu;
-		}
-	}
-
 	PBRBatchVertexData data = PBRBatchVertexData(packUint2x32(addresses.xy));
 	uint base = vertex_index * ]] .. offset .. [[u;
 ]] .. table.concat(fetch, "\n") .. [[
@@ -712,7 +699,6 @@ do
 			uniform_buffers = options.uniform_buffers,
 			custom_declarations = model_pipeline.BuildPBRBatchRecordGlsl() .. [[
 layout(buffer_reference, scalar) readonly buffer PBRBatchVertexData { float v[]; };
-layout(buffer_reference, scalar) readonly buffer PBRBatchIndexData { uint i[]; };
 layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 worlds[]; };
 layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
 mat4 multi_draw_instance_world;
