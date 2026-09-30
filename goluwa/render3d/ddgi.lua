@@ -25,6 +25,14 @@ ddgi.PROBE_SPACING = 1.0
 -- over CASCADE_BLEND cells before that cascade's edge.
 ddgi.CASCADES = 4
 ddgi.CASCADE_BLEND = 2.0
+-- How often each cascade traces its rays and blends them into its probes, in
+-- frames: cascade i updates every UPDATE_INTERVALS[i]th frame, staggered so the
+-- cascades' frames do not all coincide. The outer cascades' light changes
+-- slowly, so they can update rarely and cost a fraction of the finest one. A
+-- cascade updates early when its volume scrolled to a new cell or its history
+-- was reset. Hysteresis is scaled by the time since the cascade's last update,
+-- so light settles as fast in real time at any interval.
+ddgi.UPDATE_INTERVALS = {1, 2, 4, 8}
 -- The cascades are fitted to the scene's bounds. Each cascade has a budget of
 -- P^3 probes at its fixed spacing; an axis the scene is short along (the
 -- height of a flat level) only gets the probes that cover it plus a cell on
@@ -123,6 +131,12 @@ ddgi.SMOOTH_BLEND = true
 -- probes (which can come out of a wall on its far side), 2 all of them (walls
 -- thinner than the distance test can resolve). Needs ray queries.
 ddgi.VISIBILITY_RAYS = 2
+-- Visibility rays only hit front faces. The TLAS is rebuilt a few frames behind
+-- a moving object, so a point on a face that moves away from its probes sits
+-- just inside the object's stale copy and would otherwise see every probe
+-- through that copy's back face (a black shadow trailing the object). The cost
+-- is that fast moving objects can leak light where a back face should block.
+ddgi.VISIBILITY_FRONT_FACES_ONLY = true
 -- 0 off, 1 probe irradiance, 2 probe mean hit distance (see passes/ddgi.lua)
 ddgi.DEBUG_PROBES = 0
 -- 1 makes the lighting pass show only the gi irradiance
@@ -192,6 +206,7 @@ do
 		region = {},
 		rotation = {x = 0, y = 0, z = 0, w = 1},
 		reset_mask = 0,
+		update_mask = 0,
 		rt_ready = false,
 	}
 
@@ -300,6 +315,8 @@ do
 		local irradiance = render3d.pipelines.ddgi_irradiance
 		local framebuffers = irradiance and irradiance.framebuffers
 		local reset_mask = 0
+		local update_mask = 0
+		local frame_time = system.GetFrameTime()
 
 		if ddgi.force_reset or framebuffers ~= state.history_framebuffers then
 			reset_mask = bit.lshift(1, ddgi.CASCADES) - 1
@@ -340,6 +357,26 @@ do
 			cascade.x, holds_x = fit_base(position.x, region.min_x, region.max_x, spacing, size.x)
 			cascade.y, holds_y = fit_base(position.y, region.min_y, region.max_y, spacing, size.y)
 			cascade.z, holds_z = fit_base(position.z, region.min_z, region.max_z, spacing, size.z)
+			cascade.elapsed = (cascade.elapsed or 0) + frame_time
+			local interval = ddgi.UPDATE_INTERVALS[c]
+
+			-- a probe that scrolled into a slot is not usable until its cascade
+			-- updates, so scrolling does not wait for the interval
+			if
+				(
+					frame + c - 1
+				) % interval == 0 or
+				bit.band(reset_mask, bit.lshift(1, c - 1)) ~= 0 or
+				cascade.x ~= cascade.updated_x or
+				cascade.y ~= cascade.updated_y or
+				cascade.z ~= cascade.updated_z
+			then
+				update_mask = bit.bor(update_mask, bit.lshift(1, c - 1))
+				cascade.updated_x, cascade.updated_y, cascade.updated_z = cascade.x, cascade.y, cascade.z
+				cascade.update_time = cascade.elapsed
+				cascade.elapsed = 0
+			end
+
 			-- only before the scene is built does a cube not know where it ends
 			cascade.holds = bounds_min and
 				(
@@ -375,6 +412,7 @@ do
 
 		state.cascade_count = count
 		state.reset_mask = reset_mask
+		state.update_mask = bit.band(update_mask, bit.lshift(1, count) - 1)
 
 		if ddgi.RANDOM_ROTATION then
 			random_rotation(state.rotation)
@@ -848,12 +886,8 @@ function ddgi.GetCommonGLSL()
 					// a ray query with a nan or zero direction is undefined
 					if (!(len > 1e-4)) continue;
 
-					// Only front faces block. The TLAS is rebuilt a few frames
-					// behind a moving object, so a point on a face that moves away
-					// from its probes sits just inside the object's stale copy and
-					// would otherwise see every probe through that copy's back face.
 					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsCullBackFacingTrianglesEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, to_probe / len, len);
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | (ddgi_data.ddgi_visibility_front_faces_only != 0 ? gl_RayFlagsCullBackFacingTrianglesEXT : 0u), 0xFF, origin, 0.0, to_probe / len, len);
 
 					while (rayQueryProceedEXT(query)) {}
 
@@ -965,8 +999,9 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_sun_direction", "vec4"},
 		{"ddgi_sun_radiance", "vec4"},
 		{"ddgi_max_distance", "float"},
-		{"ddgi_hysteresis", "float"},
-		{"ddgi_min_hysteresis", "float"},
+		-- x = hysteresis, y = minimum hysteresis, scaled by the time since the
+		-- cascade's last update
+		{"ddgi_cascade_update", "vec4", ddgi.CASCADES},
 		{"ddgi_noise_range", "float"},
 		{"ddgi_irradiance_threshold", "float"},
 		{"ddgi_adapt_frames", "float"},
@@ -985,9 +1020,12 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_debug_cascade", "int"},
 		{"ddgi_smooth_blend", "int"},
 		{"ddgi_visibility_rays", "int"},
+		{"ddgi_visibility_front_faces_only", "int"},
 		{"ddgi_cascade_count", "int"},
 		-- bit c: cascade c's history is garbage
 		{"ddgi_reset_mask", "int"},
+		-- bit c: cascade c traces and blends this frame
+		{"ddgi_update_mask", "int"},
 		{"ddgi_rt_ready", "int"},
 		{"ddgi_env_tex", "int"},
 		{"ddgi_env_irradiance_tex", "int"},
@@ -1053,10 +1091,15 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_rotation[2] = state.rotation.z
 	block.ddgi_rotation[3] = state.rotation.w
 	block.ddgi_max_distance = ddgi.MAX_RAY_DISTANCE
-	-- a hitch shouldn't throw the history away
-	local frames = math.min(system.GetFrameTime(), 0.1) * 60
-	block.ddgi_hysteresis = ddgi.HYSTERESIS ^ frames
-	block.ddgi_min_hysteresis = ddgi.MIN_HYSTERESIS ^ frames
+
+	for c = 1, ddgi.CASCADES do
+		local cascade = state.cascades[c]
+		-- a hitch shouldn't throw the history away
+		local frames = math.min(cascade.update_time, 0.1 * ddgi.UPDATE_INTERVALS[c]) * 60
+		block.ddgi_cascade_update[c - 1][0] = ddgi.HYSTERESIS ^ frames
+		block.ddgi_cascade_update[c - 1][1] = ddgi.MIN_HYSTERESIS ^ frames
+	end
+
 	block.ddgi_noise_range = ddgi.NOISE_RANGE
 	block.ddgi_irradiance_threshold = ddgi.IRRADIANCE_THRESHOLD
 	block.ddgi_adapt_frames = ddgi.ADAPT_FRAMES
@@ -1076,8 +1119,10 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_debug_cascade = ddgi.DEBUG_CASCADE
 	block.ddgi_smooth_blend = ddgi.SMOOTH_BLEND and 1 or 0
 	block.ddgi_visibility_rays = ddgi.VISIBILITY_RAYS
+	block.ddgi_visibility_front_faces_only = ddgi.VISIBILITY_FRONT_FACES_ONLY and 1 or 0
 	block.ddgi_cascade_count = ddgi.enabled and state.cascade_count or 0
 	block.ddgi_reset_mask = state.reset_mask
+	block.ddgi_update_mask = state.update_mask
 	block.ddgi_rt_ready = state.rt_ready and 1 or 0
 	block.ddgi_env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 	block.ddgi_env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
@@ -1340,6 +1385,7 @@ local RTParams = ffi.typeof(
 	int32_t emitter_count;
 	uint32_t frame;
 	float light_radius;
+	int32_t update_mask;
 }]]
 	):format(ddgi.CASCADES, ddgi.CASCADES)
 )
@@ -1390,6 +1436,7 @@ function ddgi.WriteRTParams()
 	p.emitter_count = ddgi.GetEmitters().count
 	p.frame = state.frame
 	p.light_radius = ddgi.LIGHT_RADIUS
+	p.update_mask = state.update_mask
 	return buffer
 end
 
@@ -1419,6 +1466,8 @@ layout(set = 0, binding = 0) uniform Params
     uint frame;
     // in spacings, see ddgi.LIGHT_RADIUS
     float light_radius;
+    // bit c: cascade c traces this frame
+    int update_mask;
 } params;
 layout(set = 0, binding = 1) writeonly buffer Hits
 {
@@ -1434,6 +1483,9 @@ void main()
     uint ray = gl_LaunchIDEXT.x;
     int probe = int(gl_LaunchIDEXT.y);
     int c = int(gl_LaunchIDEXT.z);
+
+    if ((params.update_mask & (1 << c)) == 0) return;
+
     ivec3 n = ivec3(params.size[c].xyz);
 
     if (probe >= n.x * n.y * n.z) return;
@@ -1604,8 +1656,21 @@ commands.Add("ddgi_debug_scale=number[1]", function(value)
 	ddgi.DEBUG_SCALE = value
 end)
 
+commands.Add("ddgi_update_interval=number,number", function(cascade, frames)
+	assert(ddgi.UPDATE_INTERVALS[cascade + 1], "cascade " .. cascade .. " does not exist")
+	assert(
+		frames >= 1 and frames == math.floor(frames),
+		"the interval is a whole number of frames"
+	)
+	ddgi.UPDATE_INTERVALS[cascade + 1] = frames
+end)
+
 commands.Add("ddgi_visibility_rays=number[2]", function(value)
 	ddgi.VISIBILITY_RAYS = value
+end)
+
+commands.Add("ddgi_visibility_front_faces_only=boolean[true]", function(value)
+	ddgi.VISIBILITY_FRONT_FACES_ONLY = value
 end)
 
 commands.Add("ddgi_smooth_blend=boolean[true]", function(value)
@@ -1634,10 +1699,11 @@ commands.Add("ddgi_info", function()
 	for c = 1, ddgi.CASCADES do
 		local cascade = state.cascades[c]
 		logf(
-			"  cascade %d%s: spacing %.2f, %d x %d x %d probes (%d), spans %.1f %.1f %.1f m from %.1f %.1f %.1f\n",
+			"  cascade %d%s: spacing %.2f, updates every %d frames, %d x %d x %d probes (%d), spans %.1f %.1f %.1f m from %.1f %.1f %.1f\n",
 			c - 1,
 			c > state.cascade_count and " (unused)" or "",
 			cascade.spacing,
+			ddgi.UPDATE_INTERVALS[c],
 			cascade.size.x,
 			cascade.size.y,
 			cascade.size.z,

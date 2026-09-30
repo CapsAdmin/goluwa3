@@ -205,6 +205,8 @@ local function pass_compute_trace()
 				int probe = int(gl_GlobalInvocationID.y);
 				int c = int(gl_GlobalInvocationID.z);
 
+				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0) return;
+
 				if (ray >= uint(DDGI_RAY_STRIDE) || probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
@@ -436,7 +438,7 @@ local function pass_shade()
 				int c = pos.x / DDGI_RAY_STRIDE;
 				int probe = pos.y;
 
-				if (probe >= ddgi_probe_count(c)) return;
+				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0 || probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				vec3 origin = ddgi_probe_origin(slot, c, ddgi_world_from_slot(slot, c));
@@ -591,7 +593,7 @@ local function pass_update(name, texels, integrate)
 				int probe = tile.x + DDGI_P * DDGI_P * (tile.y % DDGI_P);
 
 				// a whole workgroup is one probe, so this leaves no one at the barrier
-				if (probe >= ddgi_probe_count(c)) return;
+				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0 || probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				float spacing = ddgi_spacing(c);
@@ -704,7 +706,7 @@ local function pass_update(name, texels, integrate)
 				integrate.result or
 				""
 			) .. [[
-				float hysteresis = ddgi_data.ddgi_hysteresis;
+				float hysteresis = ddgi_data.ddgi_cascade_update[c].x;
 				]] .. (
 				integrate.adapt or
 				""
@@ -789,9 +791,9 @@ local IRRADIANCE_INTEGRATE = {
 	adapt = [[
 		float luma = dot(result.rgb, vec3(0.2126, 0.7152, 0.0722));
 		float deviation = state.x > 0.0 ? min(abs(luma - state.y) / max(state.y, 1e-4), 4.0) : 1.0;
-		state.y = state.x > 0.0 ? mix(luma, state.y, ddgi_data.ddgi_min_hysteresis) : luma;
-		state.z = state.x > 0.0 ? mix(deviation, state.z, ddgi_data.ddgi_min_hysteresis) : deviation;
-		hysteresis = mix(ddgi_data.ddgi_min_hysteresis, ddgi_data.ddgi_hysteresis, clamp(state.z / ddgi_data.ddgi_noise_range, 0.0, 1.0));
+		state.y = state.x > 0.0 ? mix(luma, state.y, ddgi_data.ddgi_cascade_update[c].y) : luma;
+		state.z = state.x > 0.0 ? mix(deviation, state.z, ddgi_data.ddgi_cascade_update[c].y) : deviation;
+		hysteresis = mix(ddgi_data.ddgi_cascade_update[c].y, ddgi_data.ddgi_cascade_update[c].x, clamp(state.z / ddgi_data.ddgi_noise_range, 0.0, 1.0));
 
 		vec4 trend = current ? imageLoad(trend_atlas, texel) : vec4(result.rgb, 0.0);
 		trend.rgb = mix(result.rgb, trend.rgb, 0.75);
@@ -876,7 +878,7 @@ local function pass_probe_data()
 				int c = pos.y / DDGI_P;
 				int probe = pos.x + DDGI_P * DDGI_P * (pos.y % DDGI_P);
 
-				if (probe >= ddgi_probe_count(c)) return;
+				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0 || probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				ivec3 world = ddgi_world_from_slot(slot, c);
