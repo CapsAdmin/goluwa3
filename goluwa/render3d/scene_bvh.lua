@@ -1583,7 +1583,11 @@ do
 					local material = visual:GetResolvedMaterial(entry)
 					local emissive_r, emissive_g, emissive_b = 0, 0, 0
 
-					if material:GetAlbedoAlphaIsEmissive() or material:GetEmissiveTexture() ~= nil then
+					if
+						material:GetAlbedoAlphaIsEmissive() or
+						material:GetAdditive() or
+						material:GetEmissiveTexture() ~= nil
+					then
 						local multiplier = material:GetEmissiveMultiplier()
 						emissive_r = multiplier.r * multiplier.a
 						emissive_g = multiplier.g * multiplier.a

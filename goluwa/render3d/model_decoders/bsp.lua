@@ -1291,6 +1291,25 @@ function steam.LoadMap(path)
 		tasks.Wait()
 	end
 
+	header.overlays = read_lump_data(
+		"reading overlays",
+		bsp_file,
+		header,
+		46,
+		352,
+		[[
+		int id;
+		short texinfo;
+		unsigned short face_count_and_render_order;
+		int faces[64];
+		float u_range[2];
+		float v_range[2];
+		float uv_points[12];
+		vec3 origin;
+		vec3 normal;
+	]]
+	)
+
 	do
 		local structure = [[
 			vec3 startPosition; // start position used for orientation
@@ -2055,6 +2074,255 @@ function steam.LoadMap(path)
 
 			-- only world needed
 			break
+		end
+
+		-- overlays and decals are rectangles of a material laid over faces. one
+		-- fragment is the part of a face inside the rectangle, which is given
+		-- by two axes in the plane and its extents along them from origin
+		local add_decal_fragment
+
+		do
+			local offset_from_surface = 0.3
+			local edges = {
+				{"x", 1},
+				{"x", -1},
+				{"y", 1},
+				{"y", -1},
+			}
+
+			function add_decal_fragment(
+				face_index,
+				origin,
+				normal,
+				u_axis,
+				v_axis,
+				min_x,
+				max_x,
+				min_y,
+				max_y,
+				u_range,
+				v_range,
+				texname
+			)
+				local face = header.faces[1 + face_index]
+
+				if face.dispinfo ~= -1 then return end
+
+				local area = get_face_area(face_index + 1)
+
+				if sky_areas[area] then return end
+
+				local polygon = {}
+
+				for j = 1, face.numedges do
+					local surfedge = header.surfedges[face.firstedge + j]
+					local position = header.vertices[1 + header.edges[1 + math.abs(surfedge)][surfedge < 0 and
+					2 or
+					1]]
+					local offset = position - origin
+					polygon[j] = {x = offset:Dot(u_axis), y = offset:Dot(v_axis), pos = position}
+				end
+
+				for _, edge in ipairs(edges) do
+					local axis, sign = edge[1], edge[2]
+					local limit = axis == "x" and (sign == 1 and min_x or max_x) or (sign == 1 and min_y or max_y)
+					local clipped = {}
+					local previous = polygon[#polygon]
+					local previous_d = (previous[axis] - limit) * sign
+
+					for _, vertex in ipairs(polygon) do
+						local d = (vertex[axis] - limit) * sign
+
+						if (previous_d < 0) ~= (d < 0) then
+							local t = previous_d / (previous_d - d)
+							list.insert(
+								clipped,
+								{
+									x = previous.x + (vertex.x - previous.x) * t,
+									y = previous.y + (vertex.y - previous.y) * t,
+									pos = previous.pos + (vertex.pos - previous.pos) * t,
+								}
+							)
+						end
+
+						if d >= 0 then list.insert(clipped, vertex) end
+
+						previous, previous_d = vertex, d
+					end
+
+					polygon = clipped
+
+					if #polygon < 3 then return end
+				end
+
+				local group = area_groups[area]
+				local key = (group or 0) .. " overlay " .. texname
+
+				if not meshes[key] then
+					local mesh = Polygon3D.New()
+					mesh:SetName(path .. ": overlay " .. texname)
+					local material = Material.FromVMT("materials/" .. texname .. ".vmt")
+					mesh.material = material
+					meshes[key] = {mesh = mesh, material = material, visibility_group = group}
+					list.insert(models, meshes[key])
+				end
+
+				local mesh = meshes[key].mesh
+
+				for j = 2, #polygon - 1 do
+					for _, vertex in ipairs{polygon[1], polygon[j], polygon[j + 1]} do
+						local position = vertex.pos + normal * offset_from_surface
+						mesh:AddVertex{
+							pos = Vec3(-position.y, position.z, -position.x) * steam.source2meters,
+							texture_blend = 0,
+							uv = Vec2(
+								u_range[1] + (u_range[2] - u_range[1]) * (vertex.x - min_x) / (max_x - min_x),
+								v_range[1] + (v_range[2] - v_range[1]) * (vertex.y - min_y) / (max_y - min_y)
+							),
+						}
+					end
+				end
+			end
+		end
+
+		-- the overlay lump stores a quad's corners as offsets along the overlay's
+		-- own u and v axes, and which way u points as its coefficients along the
+		-- two axes of a frame built from the normal (the z of the first two
+		-- corners). the frame's axes are world axes, not the viewer's right and
+		-- up, so walls facing the other way come out upside down until the
+		-- flipped u and v ranges turn them
+		if RENDER_2D and header.overlays then
+			for _, overlay in ipairs(header.overlays) do
+				local normal = overlay.normal
+				local points = overlay.uv_points
+				local dominant_x, dominant_y = math.abs(normal.x), math.abs(normal.y)
+				local axis_a, axis_b
+
+				if dominant_x > dominant_y and dominant_x >= math.abs(normal.z) then
+					axis_b = (Vec3(0, 1, 0) - normal * normal.y):GetNormalized()
+					axis_a = axis_b:GetCross(normal)
+				else
+					axis_a = (Vec3(1, 0, 0) - normal * normal.x):GetNormalized()
+					axis_b = normal:GetCross(axis_a)
+				end
+
+				local u_axis = (axis_a * points[3] + axis_b * points[6]):GetNormalized()
+				local v_axis = normal:GetCross(u_axis)
+				local texinfo = header.texinfos[1 + overlay.texinfo]
+				local texname = header.texdatastringdata[1 + header.texdatas[1 + texinfo.texdata].nameStringTableID]
+
+				for i = 1, bit.band(overlay.face_count_and_render_order, 0x3fff) do
+					local face_index = overlay.faces[i]
+
+					-- the overlay's normal is its face's plane normal as stored, whatever
+					-- the face's side. a face at an angle to it, like a stair riser
+					-- under a runner, would only smear it
+					if
+						header.planes[header.faces[1 + face_index].planenum + 1].normal:Dot(normal) >= 0.5
+					then
+						add_decal_fragment(
+							face_index,
+							overlay.origin,
+							normal,
+							u_axis,
+							v_axis,
+							points[1],
+							points[7],
+							points[2],
+							points[5],
+							overlay.u_range,
+							overlay.v_range,
+							texname
+						)
+					end
+				end
+			end
+		end
+
+		-- an infodecal is only a texture and an origin on a surface. it covers
+		-- the texture's size times the material's $decalscale, laid over the
+		-- faces the origin is on along their own texture axes
+		if RENDER_2D then
+			local unit_range = {0, 1}
+			local decal_sizes = {}
+			local world = header.models[1]
+			local decal_count = 0
+
+			for _, ent in ipairs(header.entities) do
+				if ent.classname ~= "infodecal" or ent.model_size_mult or not ent.texture then
+					goto next_decal
+				end
+
+				do
+					local size = decal_sizes[ent.texture]
+
+					if size == nil then
+						size = false
+						local material = Material.FromVMT("materials/" .. ent.texture .. ".vmt")
+						local vmt = material.vmt
+						local data = vmt and vmt.basetexture and vfs.Read(vmt.basetexture)
+
+						if data then
+							-- width and height are 16 bit little endian at byte 16 of a vtf header
+							local scale = tonumber(vmt.decalscale) or 1
+							size = {
+								(
+									data:byte(17) + data:byte(18) * 256
+								) * scale,
+								(
+									data:byte(19) + data:byte(20) * 256
+								) * scale,
+							}
+						end
+
+						decal_sizes[ent.texture] = size
+					end
+
+					if not size then goto next_decal end
+
+					local half_width, half_height = size[1] / 2, size[2] / 2
+
+					for i = 1, world.numfaces do
+						local face = header.faces[world.firstface + i]
+						local plane = header.planes[face.planenum + 1]
+
+						if math.abs(plane.normal:Dot(ent.origin) - plane.dist) < 1.5 then
+							local normal = plane.normal
+							local vecs = header.texinfos[1 + face.texinfo].textureVecs
+							local u_axis = (
+								Vec3(vecs[1], vecs[2], vecs[3]) - normal * (
+									vecs[1] * normal.x + vecs[2] * normal.y + vecs[3] * normal.z
+								)
+							):GetNormalized()
+							local v_axis = Vec3(vecs[5], vecs[6], vecs[7])
+							v_axis = (
+								v_axis - u_axis * u_axis:Dot(v_axis) - normal * normal:Dot(v_axis)
+							):GetNormalized()
+							add_decal_fragment(
+								world.firstface + i - 1,
+								ent.origin,
+								normal,
+								u_axis,
+								v_axis,
+								-half_width,
+								half_width,
+								-half_height,
+								half_height,
+								unit_range,
+								unit_range,
+								ent.texture
+							)
+						end
+					end
+
+					decal_count = decal_count + 1
+					tasks.Wait()
+				end
+
+				::next_decal::
+			end
+
+			logn("placed ", decal_count, " infodecals")
 		end
 	end
 

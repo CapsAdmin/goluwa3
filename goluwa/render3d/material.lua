@@ -187,6 +187,8 @@ Material:GetSet("GlossIsShininess", false, {callback = "InvalidateFlags"})
 Material:GetSet("SpecularSolvesMetallic", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
+-- source's $additive: the albedo is emitted whole, and how much of the surface covers what is behind follows its brightness. always Translucent
+Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:EndStorable()
@@ -309,6 +311,7 @@ local FLAGS = {
 	"AlbedoAlphaIsSpecular",
 	"GlossIsShininess",
 	"SpecularSolvesMetallic",
+	"Additive",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -1103,6 +1106,11 @@ do
 
 		if vmt.translucent == 1 then self:SetTranslucent(true) end
 
+		if vmt.additive == 1 then
+			self:SetAdditive(true)
+			self:SetTranslucent(true)
+		end
+
 		-- the refract shader distorts what is behind it by its normal map
 		if vmt.shader:lower() == "refract" then
 			self:SetRefraction(1)
@@ -1761,6 +1769,7 @@ do
 			if
 				material:GetEmissiveTexture() ~= nil or
 				material:GetAlbedoAlphaIsEmissive() or
+				material:GetAdditive() or
 				material:GetMetallicTextureAlphaIsEmissive()
 			then
 				counts.emissive_enabled = counts.emissive_enabled + 1

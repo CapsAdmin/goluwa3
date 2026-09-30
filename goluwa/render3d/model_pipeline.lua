@@ -922,6 +922,7 @@ function model_pipeline.GetPBRAuxUploadKey()
 		material:GetAmbientOcclusionMultiplier() ~= 1.0
 	local uses_emissive = material:GetEmissiveTexture() ~= nil or
 		material:GetAlbedoAlphaIsEmissive() or
+		material:GetAdditive() or
 		material:GetMetallicTextureAlphaIsEmissive()
 
 	if not (uses_metallic_detail or uses_ao or uses_emissive) then
@@ -1637,6 +1638,11 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return color_model.ColorMultiplier.a;
 				}
 
+				if (Additive) {
+					vec3 albedo = get_albedo_uv(uv);
+					return max(albedo.r, max(albedo.g, albedo.b)) * color_model.ColorMultiplier.a;
+				}
+
 				return texture(TEXTURE(model.AlbedoTexture), uv).a * color_model.ColorMultiplier.a;
 			}
 
@@ -1863,7 +1869,9 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			vec3 get_emissive(vec2 uv) {
 				vec3 emissive = vec3(0.0);
 
-				if (AlbedoAlphaIsEmissive) {
+				if (Additive) {
+					emissive = get_albedo_uv(uv) * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+				} else if (AlbedoAlphaIsEmissive) {
 					float mask = 1.0;
 					if (model.AlbedoTexture != -1) {
 						mask = texture(TEXTURE(model.AlbedoTexture), uv).a;
