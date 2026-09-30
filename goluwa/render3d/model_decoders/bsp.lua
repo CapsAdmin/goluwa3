@@ -1986,7 +1986,10 @@ function steam.SpawnMapEntities(path, parent)
 				and
 				info.classname ~= "env_sprite"
 			then
-				if vfs.IsFile(info.model) then
+				-- source's file system ignores case, the entity lump and static props don't match the vpks
+				local model_path = vfs.FindMixedCasePath(info.model)
+
+				if model_path then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or
 						Entity.New{Name = info.classname, Parent = parent}
@@ -2000,7 +2003,7 @@ function steam.SpawnMapEntities(path, parent)
 					end
 
 					ent:AddComponent("visual")
-					ent.visual:SetModelPath(info.model)
+					ent.visual:SetModelPath(model_path)
 
 					if false then
 						logf(
