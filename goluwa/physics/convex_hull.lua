@@ -346,6 +346,61 @@ local function build_triangle_components(triangles, epsilon)
 	return components
 end
 
+-- plane_groups are {normal = outward normal, distance = distance, vertices = {[point index] = true}}
+local function build_faces(points, plane_groups, plane_epsilon, epsilon)
+	local faces = {}
+	local indices = {}
+
+	for _, group in pairs(plane_groups) do
+		local face_indices = {}
+		local face_center = Vec3(0, 0, 0)
+
+		for index in pairs(group.vertices) do
+			face_indices[#face_indices + 1] = index
+			face_center = face_center + points[index]
+		end
+
+		if #face_indices >= 3 then
+			face_center = face_center / #face_indices
+			local tangent, bitangent = get_plane_basis(group.normal)
+			local projected = {}
+
+			for _, index in ipairs(face_indices) do
+				local point = points[index]
+				local relative = point - face_center
+				projected[#projected + 1] = {
+					x = relative:Dot(tangent),
+					y = relative:Dot(bitangent),
+					index = index,
+				}
+			end
+
+			local ordered = build_convex_hull_2d(projected, plane_epsilon)
+
+			if #ordered >= 3 then
+				local ordered_indices = {}
+
+				for _, point in ipairs(ordered) do
+					ordered_indices[#ordered_indices + 1] = point.index
+				end
+
+				faces[#faces + 1] = {
+					indices = ordered_indices,
+					normal = copy_vec3(group.normal),
+				}
+
+				for i = 2, #ordered_indices - 1 do
+					indices[#indices + 1] = ordered_indices[1]
+					indices[#indices + 1] = ordered_indices[i]
+					indices[#indices + 1] = ordered_indices[i + 1]
+				end
+			end
+		end
+	end
+
+	return finalize_convex_hull(points, faces, indices, epsilon)
+end
+
 local function build_convex_hull(points, epsilon)
 	epsilon = epsilon or 0.0001
 	points = dedupe_points(points, epsilon)
@@ -421,57 +476,7 @@ local function build_convex_hull(points, epsilon)
 		end
 	end
 
-	local faces = {}
-	local indices = {}
-
-	for _, group in pairs(plane_groups) do
-		local face_indices = {}
-		local face_center = Vec3(0, 0, 0)
-
-		for index in pairs(group.vertices) do
-			face_indices[#face_indices + 1] = index
-			face_center = face_center + points[index]
-		end
-
-		if #face_indices >= 3 then
-			face_center = face_center / #face_indices
-			local tangent, bitangent = get_plane_basis(group.normal)
-			local projected = {}
-
-			for _, index in ipairs(face_indices) do
-				local point = points[index]
-				local relative = point - face_center
-				projected[#projected + 1] = {
-					x = relative:Dot(tangent),
-					y = relative:Dot(bitangent),
-					index = index,
-				}
-			end
-
-			local ordered = build_convex_hull_2d(projected, plane_epsilon)
-
-			if #ordered >= 3 then
-				local ordered_indices = {}
-
-				for _, point in ipairs(ordered) do
-					ordered_indices[#ordered_indices + 1] = point.index
-				end
-
-				faces[#faces + 1] = {
-					indices = ordered_indices,
-					normal = copy_vec3(group.normal),
-				}
-
-				for i = 2, #ordered_indices - 1 do
-					indices[#indices + 1] = ordered_indices[1]
-					indices[#indices + 1] = ordered_indices[i]
-					indices[#indices + 1] = ordered_indices[i + 1]
-				end
-			end
-		end
-	end
-
-	return finalize_convex_hull(points, faces, indices, epsilon)
+	return build_faces(points, plane_groups, plane_epsilon, epsilon)
 end
 
 function convex_hull.Normalize(hull, epsilon)
@@ -487,6 +492,36 @@ function convex_hull.Normalize(hull, epsilon)
 	end
 
 	return build_convex_hull(hull.vertices or hull, epsilon)
+end
+
+-- the hull of points known to lie on or inside planes, like a brush's corners. each plane with
+-- three or more points on it is a face, which skips searching every triple of points for them
+function convex_hull.BuildFromPlanes(points, planes, epsilon)
+	epsilon = epsilon or 0.0001
+	points = dedupe_points(points, epsilon)
+
+	if #points < 4 then return nil end
+
+	local plane_groups = {}
+	local plane_epsilon = math.max(epsilon * 4, 0.000000001)
+
+	for _, plane in ipairs(planes) do
+		local key = vec3_key(plane.normal, plane_epsilon) .. ":" .. quantize(plane.dist, plane_epsilon)
+
+		if not plane_groups[key] then
+			local group = {normal = plane.normal, distance = plane.dist, vertices = {}}
+
+			for m = 1, #points do
+				if math.abs(points[m]:Dot(plane.normal) - plane.dist) <= plane_epsilon then
+					group.vertices[m] = true
+				end
+			end
+
+			plane_groups[key] = group
+		end
+	end
+
+	return build_faces(points, plane_groups, plane_epsilon, epsilon)
 end
 
 function convex_hull.BuildFromTriangles(source, epsilon)

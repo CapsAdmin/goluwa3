@@ -287,6 +287,7 @@ local function build_primitive_from_hull(hull, brush_planes)
 
 	return {
 		brush_planes = brush_planes,
+		brush_hull = hull,
 		aabb = AABB(
 			hull.bounds_min.x,
 			hull.bounds_min.y,
@@ -1975,10 +1976,12 @@ function steam.SpawnMapEntities(path, parent)
 				end
 			end
 
+			-- "*n" models are the map's brush entities, their faces are already part of the world
 			if
 				info.origin and
 				info.angles and
 				info.model and
+				info.model:sub(1, 1) ~= "*" and
 				not info.classname:lower():find("npc")
 				and
 				info.classname ~= "env_sprite"
