@@ -10,6 +10,7 @@ local Material = import("goluwa/render3d/material.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local post_source = import("goluwa/render3d/post_source.lua")
 local ddgi = library()
 -- Dynamic diffuse global illumination (Majercik et al. 2019) over hardware ray
 -- tracing. A camera-centred grid of probes each trace RAYS_PER_PROBE rays per
@@ -99,11 +100,27 @@ ddgi.HALF_PRECISION_RAYS = true
 -- and frame, EMITTER_SAMPLES shadow rays to points on emissive triangles. A
 -- small or partly hidden emitter is rarely hit by the uniform rays, which
 -- made it flicker (and the brightest ray clamp mostly dropped it). Each sample
--- draws EMITTER_CANDIDATES points in proportion to their triangle's power and
+-- draws ddgi_emitter_candidates points in proportion to their triangle's power and
 -- keeps one by how much light it would bring the probe (resampled importance
 -- sampling), so samples aren't spent on faces turned away or far off.
 ddgi.EMITTER_SAMPLES = 32
-ddgi.EMITTER_CANDIDATES = 8
+local emitters_enabled = pvars.Setup2{
+	key = "ddgi_emitters",
+	default = true,
+	help = "emissive surfaces light the probes, off is for telling whether they cause noise",
+}
+-- The candidates are drawn by power alone, wherever the emitters are, so with
+-- many tiny emitters spread over a map (glowing crystals) a probe seldom draws
+-- the few that are near it. More candidates is the brute force answer. At most
+-- 63: the kept one's index shares a word with the emitter's (see DDGI_EMITTER_SHIFT).
+local emitter_candidates = pvars.Setup2{
+	key = "ddgi_emitter_candidates",
+	default = 8,
+	integer = true,
+	min = 1,
+	max = 63,
+	help = "emitters drawn per emitter sample, one is kept by how much light it brings the probe",
+}
 -- A ray hit is lit by LIGHT_SAMPLES of the local lights in its light grid
 -- cell with a shadow ray each, not all of them: each picked in proportion to
 -- the light it would bring unshadowed and weighted back by that probability,
@@ -266,7 +283,8 @@ local debug_gi = pvars.Setup2{
 	default = false,
 	help = "show only the gi irradiance",
 }
--- brightness of the debug view's markers, which have no light of their own
+-- brightness of the debug view, which is shown in display units: 1 is about as
+-- bright as the image gets before it would bloom
 local debug_scale = pvars.Setup2{
 	key = "ddgi_debug_scale",
 	default = 1.0,
@@ -596,7 +614,9 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_CASCADES %d
 		#define DDGI_RAYS %d
 		#define DDGI_EMITTER_SAMPLES %d
-		#define DDGI_EMITTER_CANDIDATES %d
+		// a kept emitter sample's hit word: the emitter's index, and above DDGI_EMITTER_SHIFT which candidate it was
+		#define DDGI_EMITTER_SHIFT 26u
+		#define DDGI_EMITTER_MASK 0x03FFFFFFu
 		// ddgi_emitter.triangle: the soup index, and the material's double sidedness
 		#define DDGI_EMITTER_DOUBLE_SIDED 0x80000000u
 		// a probe's uniform rays followed by its emitter samples
@@ -622,7 +642,6 @@ function ddgi.GetDefinesGLSL()
 		ddgi.CASCADES,
 		ddgi.RAYS_PER_PROBE,
 		ddgi.EMITTER_SAMPLES,
-		ddgi.EMITTER_CANDIDATES,
 		ddgi.IRRADIANCE_TEXELS,
 		ddgi.DISTANCE_TEXELS,
 		ddgi.MISS_DISTANCE,
@@ -894,13 +913,13 @@ function ddgi.GetEmitterGLSL()
 		// to the power it was drawn by, which leaves just that. Returns the
 		// candidates' summed weight, and which one was kept and where; the
 		// shade pass rebuilds its point from the same random numbers.
-		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, vec3 origin, float radius, out int kept_emitter, out uint kept, out vec3 kept_point) {
+		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, uint candidates, vec3 origin, float radius, out int kept_emitter, out uint kept, out vec3 kept_point) {
 			float weight_sum = 0.0;
 			kept = 0u;
 			kept_emitter = 0;
 			kept_point = vec3(0.0);
 
-			for (uint j = 0u; j < uint(DDGI_EMITTER_CANDIDATES); j++) {
+			for (uint j = 0u; j < candidates; j++) {
 				vec4 u = ddgi_emitter_random(index, frame, j);
 				int e = ddgi_pick_emitter(u.x, emitter_count);
 				uint triangle = ddgi_emitters[e].triangle;
@@ -1283,19 +1302,22 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_frame", "int"},
 		-- the rays of a probe that are not aimed by its guide
 		{"ddgi_uniform_rays", "int"},
+		{"ddgi_emitter_candidates", "int"},
 		{"ddgi_guide_tex", "int"},
 	}
 end
 
 function ddgi.GetBlockLayout()
-	return {
+	local layout = {
 		render3d.camera_block,
 		gbuffer_layout.block,
 		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 		{"light_count", "int"},
 		clouds.GetShadowBlockLayout(),
-		unpack(ddgi.GetProbeBlockLayout()),
 	}
+	table.add(layout, ddgi.GetProbeBlockLayout())
+	table.add(layout, post_source.pre_exposure_block)
+	return layout
 end
 
 local function pipeline_texture_index(self, name)
@@ -1378,10 +1400,11 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_distance_tex = pipeline_texture_index(self, "ddgi_distance")
 	block.ddgi_probe_data_tex = pipeline_texture_index(self, "ddgi_probe_data")
 	local emitters = ddgi.GetEmitters()
-	block.ddgi_emitter_count = emitters.count
+	block.ddgi_emitter_count = emitters_enabled:Get() and emitters.count or 0
 	block.ddgi_emitter_weight = emitters.weight
 	block.ddgi_frame = state.frame
 	block.ddgi_uniform_rays = ddgi.GetUniformRays()
+	block.ddgi_emitter_candidates = emitter_candidates:Get()
 	block.ddgi_guide_tex = pipeline_texture_index(self, "ddgi_guide")
 	return block
 end
@@ -1395,6 +1418,7 @@ function ddgi.WriteBlock(self, block)
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 	clouds.WriteShadowBlock(self, block)
+	post_source.WritePreExposureBlock(self, block)
 	return ddgi.WriteProbeBlock(self, block)
 end
 
@@ -1636,6 +1660,7 @@ local RTParams = ffi.typeof(
 	float light_radius;
 	int32_t update_mask;
 	int32_t uniform_rays;
+	int32_t emitter_candidates;
 }]]
 	):format(ddgi.CASCADES, ddgi.CASCADES)
 )
@@ -1683,11 +1708,12 @@ function ddgi.WriteRTParams()
 	p.sun_direction[3] = directional_shadows.GetPrimarySunIlluminance(lights) > 0 and 1 or 0
 	p.max_ray_distance = max_ray_distance:Get()
 	p.tmin = 0.0
-	p.emitter_count = ddgi.GetEmitters().count
+	p.emitter_count = emitters_enabled:Get() and ddgi.GetEmitters().count or 0
 	p.frame = state.frame
 	p.light_radius = light_radius:Get()
 	p.update_mask = state.update_mask
 	p.uniform_rays = ddgi.GetUniformRays()
+	p.emitter_candidates = emitter_candidates:Get()
 	return buffer
 end
 
@@ -1725,6 +1751,8 @@ layout(set = 0, binding = 0) uniform Params
     int update_mask;
     // rays of a probe that are not aimed by its guide
     int uniform_rays;
+    // see ddgi_emitter_candidates
+    int emitter_candidates;
 } params;
 layout(set = 0, binding = 1) writeonly buffer Hits
 {
@@ -1767,7 +1795,7 @@ void main()
             int kept_emitter;
             uint kept;
             vec3 kept_point;
-            float weight_sum = ddgi_pick_emitter_sample(index, params.frame, params.emitter_count, origin, params.light_radius * params.cascades[c].w, kept_emitter, kept, kept_point);
+            float weight_sum = ddgi_pick_emitter_sample(index, params.frame, params.emitter_count, uint(params.emitter_candidates), origin, params.light_radius * params.cascades[c].w, kept_emitter, kept, kept_point);
             vec3 to_point = kept_point - origin;
             float dist = length(to_point);
 
@@ -1775,7 +1803,7 @@ void main()
                 payload.hit_t = 1.0;
                 traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin, 0.0, to_point / dist, dist - DDGI_SHADOW_OFFSET, 0);
 
-                if (payload.hit_t < 0.0) result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << 28u));
+                if (payload.hit_t < 0.0) result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << DDGI_EMITTER_SHIFT));
             }
         }
 

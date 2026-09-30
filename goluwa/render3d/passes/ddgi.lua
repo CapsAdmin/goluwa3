@@ -9,6 +9,7 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local post_source = import("goluwa/render3d/post_source.lua")
 local P = ddgi.PROBES_PER_AXIS
 local CASCADES = ddgi.CASCADES
 local BINDING_OUTPUT = 0
@@ -230,12 +231,12 @@ local function pass_compute_trace()
 						int kept_emitter;
 						uint kept;
 						vec3 kept_point;
-						float weight_sum = ddgi_pick_emitter_sample(index, uint(ddgi_data.ddgi_frame), ddgi_data.ddgi_emitter_count, origin, ddgi_data.ddgi_light_radius * ddgi_spacing(c), kept_emitter, kept, kept_point);
+						float weight_sum = ddgi_pick_emitter_sample(index, uint(ddgi_data.ddgi_frame), ddgi_data.ddgi_emitter_count, uint(ddgi_data.ddgi_emitter_candidates), origin, ddgi_data.ddgi_light_radius * ddgi_spacing(c), kept_emitter, kept, kept_point);
 						vec3 to_point = kept_point - origin;
 						float dist = length(to_point);
 
 						if (weight_sum > 0.0 && dist > DDGI_SHADOW_OFFSET && !scene_bvh_occluded(origin, to_point / dist, 0.0, dist - DDGI_SHADOW_OFFSET)) {
-							result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << 28u));
+							result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << DDGI_EMITTER_SHIFT));
 						}
 					}
 
@@ -469,13 +470,13 @@ local function pass_shade()
 					vec4 result = vec4(0.0);
 
 					if (ddgi_data.ddgi_rt_ready != 0 && weight_sum > 0.0) {
-						scene_bvh_triangle tri = bvh_tri(ddgi_emitters[hit.y & 0x0FFFFFFFu].triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
-						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 28u);
+						scene_bvh_triangle tri = bvh_tri(ddgi_emitters[hit.y & DDGI_EMITTER_MASK].triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
+						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> DDGI_EMITTER_SHIFT);
 						vec3 point = ddgi_emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
 						vec3 emission = ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material], point));
 						float luminance = dot(tri.emissive, vec3(0.2126, 0.7152, 0.0722));
-						vec3 estimate = emission / luminance * ddgi_data.ddgi_emitter_weight * weight_sum / float(DDGI_EMITTER_CANDIDATES);
+						vec3 estimate = emission / luminance * ddgi_data.ddgi_emitter_weight * weight_sum / float(ddgi_data.ddgi_emitter_candidates);
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
 					}
 
@@ -1102,6 +1103,11 @@ end
 -- line back to its grid point, and a disabled one (inside geometry) is tinted
 -- red. Draws one cascade at a time (ddgi_debug_cascade, clamped to the ones
 -- in use). The lighting pass blends this over the image by its alpha.
+--
+-- The overlay is written like the scene color, pre-exposed, and kept below 1 in
+-- display units: irradiance is what the exposure makes of it (as a white diffuse
+-- sphere), rolled off smoothly, everything else sits at a fixed display level.
+-- Anything brighter would bloom and be fought over by the tone mapping.
 local function pass_probe_debug()
 	return {
 		name = "ddgi_probe_debug",
@@ -1120,7 +1126,7 @@ local function pass_probe_debug()
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 		]],
-		shader = common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
+		shader = common_glsl() .. post_source.GetPreExposureGLSL("ddgi_data") .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
 			vec2 in_uv;
 		]] .. screen_reconstruct.GetWorldRayGLSL("ddgi_data") .. [[
 
@@ -1164,6 +1170,8 @@ local function pass_probe_debug()
 				float spacing = ddgi_spacing(c);
 				float best = depth >= 1.0 ? 1e9 : length(get_world_pos(in_uv, depth) - O);
 				float radius = spacing * 0.12;
+				// display units per absolute unit, the exposure the scene is shown with
+				float exposure = get_pre_exposure() * ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[;
 				// clip the ray to the volume, grown by a cell for the offsets
 				vec3 inv = 1.0 / (D + vec3(equal(D, vec3(0.0))) * 1e-7);
 				vec3 box_min = vec3(ddgi_volume_base(c) - 1) * spacing;
@@ -1214,19 +1222,18 @@ local function pass_probe_debug()
 
 								if (ddgi_data.ddgi_debug_probes == 2) {
 									float mean = texture(TEXTURE(ddgi_data.ddgi_distance_tex), ddgi_atlas_uv(slot, c, n, DDGI_DISTANCE_TEXELS)).r;
-									hit_color = vec3(mean / (spacing * 2.6)) * ddgi_data.ddgi_debug_scale;
+									hit_color = vec3(mean / (spacing * 2.6));
 								} else {
-									hit_color = texture(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, n, DDGI_IRRADIANCE_TEXELS)).rgb;
+									vec3 shown = texture(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, n, DDGI_IRRADIANCE_TEXELS)).rgb / 3.14159265359 * exposure;
+									hit_color = shown / (1.0 + shown);
 								}
 
-								if (disabled) hit_color = mix(hit_color, vec3(ddgi_data.ddgi_debug_scale, 0.0, 0.0), 0.7);
+								// a disabled probe's atlas is a fresh noisy estimate every frame, nothing shades with it
+								if (disabled) hit_color = vec3(0.8, 0.0, 0.0);
 							}
 
 							if (distance(center, grid) > radius) {
-								// as bright as the probe itself, so the markers
-								// hold up under any exposure
-								vec3 up = texture(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, vec3(0.0, 1.0, 0.0), DDGI_IRRADIANCE_TEXELS)).rgb;
-								vec3 marker = vec3(1.0, 0.6, 0.0) * max(dot(up, vec3(0.2126, 0.7152, 0.0722)), 1e-3) * 2.0 * ddgi_data.ddgi_debug_scale;
+								vec3 marker = vec3(0.7, 0.42, 0.0);
 								hit = ddgi_capsule(O, D, grid, center, radius * 0.15);
 
 								if (hit > 0.0 && hit < best) {
@@ -1259,7 +1266,7 @@ local function pass_probe_debug()
 					}
 
 					if (best < 1e9 && (depth >= 1.0 || best < length(get_world_pos(in_uv, depth) - O) - 1e-4)) {
-						result = vec4(hit_color, 1.0);
+						result = vec4(hit_color * (0.8 * ddgi_data.ddgi_debug_scale / ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[), 1.0);
 					}
 				}
 
