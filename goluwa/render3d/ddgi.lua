@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -16,9 +17,28 @@ local ddgi = library()
 -- for the infinite bounce) and blended into two octahedral atlases per probe:
 -- irradiance, and the mean/mean^2 hit distance used for the Chebyshev
 -- visibility test that keeps light from leaking through walls.
-ddgi.enabled = true
+pvars.StartGroup("ddgi", {store = false})
+-- Off, the probe passes are skipped (the trace pass still builds the TLAS
+-- ssr and the fog trace against) and surfaces fall back to the environment's
+-- irradiance, unoccluded. Back on, the probes start over.
+local was_enabled = true
+local enabled = pvars.Setup2{
+	key = "ddgi_enabled",
+	default = true,
+	help = "off, the probe passes are skipped and surfaces fall back to the environment's irradiance",
+	callback = function(value)
+		if value and not was_enabled then ddgi.ResetHistory() end
+
+		was_enabled = value
+	end,
+}
 ddgi.PROBES_PER_AXIS = 24
-ddgi.PROBE_SPACING = 1.0
+local probe_spacing = pvars.Setup2{
+	key = "ddgi_probe_spacing",
+	default = 1.0,
+	min = 0.1,
+	help = "meters between the finest cascade's probes",
+}
 -- Nested volumes of the same P^3 probes, each twice the spacing of the one
 -- inside it, so the probes reach far while the view stays on the fine ones.
 -- A point is shaded by the finest cascade that holds it, fading into the next
@@ -32,7 +52,19 @@ ddgi.CASCADE_BLEND = 2.0
 -- cascade updates early when its volume scrolled to a new cell or its history
 -- was reset. Hysteresis is scaled by the time since the cascade's last update,
 -- so light settles as fast in real time at any interval.
-ddgi.UPDATE_INTERVALS = {1, 2, 4, 8}
+local update_intervals = {}
+
+for c, frames in ipairs{1, 2, 4, 8} do
+	update_intervals[c] = pvars.Setup2{
+		key = "ddgi_update_interval_" .. c - 1,
+		default = frames,
+		integer = true,
+		min = 1,
+		max = 64,
+		help = "frames between updates of cascade " .. c - 1,
+	}
+end
+
 -- The cascades are fitted to the scene's bounds. Each cascade has a budget of
 -- P^3 probes at its fixed spacing; an axis the scene is short along (the
 -- height of a flat level) only gets the probes that cover it plus a cell on
@@ -43,8 +75,18 @@ ddgi.UPDATE_INTERVALS = {1, 2, 4, 8}
 -- metres from the camera (infinite terrain, a stray far away object) and at
 -- least MIN_COVERAGE metres from its centre to each side (a single small
 -- model). Changing an axis' probe count throws the cascade's history away.
-ddgi.MIN_COVERAGE = 4
-ddgi.MAX_COVERAGE = 192
+local min_coverage = pvars.Setup2{
+	key = "ddgi_min_coverage",
+	default = 4,
+	min = 0,
+	help = "least meters the fitted region reaches from its centre to each side",
+}
+local max_coverage = pvars.Setup2{
+	key = "ddgi_max_coverage",
+	default = 192,
+	min = 0,
+	help = "most meters the fitted region reaches from the camera",
+}
 ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
 -- The probe rays (ddgi_shade) in a half float texture instead of a full float
@@ -80,13 +122,41 @@ ddgi.MAX_RAY_DISTANCE = 1000.0
 -- relative deviation from the texel's average at which it counts as fully
 -- noisy. A probe that just scrolled in averages its frames evenly until it
 -- has had enough of them for the hysteresis to take over.
-ddgi.HYSTERESIS = 0.99
-ddgi.MIN_HYSTERESIS = 0.95
-ddgi.NOISE_RANGE = 0.25
+local hysteresis = pvars.Setup2{
+	key = "ddgi_hysteresis",
+	default = 0.99,
+	min = 0,
+	max = 1,
+	help = "how much of a noisy texel's history survives a frame at 60 fps",
+}
+local min_hysteresis = pvars.Setup2{
+	key = "ddgi_min_hysteresis",
+	default = 0.95,
+	min = 0,
+	max = 1,
+	help = "how much of a steady texel's history survives a frame at 60 fps",
+}
+local noise_range = pvars.Setup2{
+	key = "ddgi_noise_range",
+	default = 0.25,
+	min = 0.001,
+	help = "mean relative deviation at which a texel counts as fully noisy",
+}
 -- a texel whose every frame grew or shrank by more than this factor against
 -- its history, ADAPT_FRAMES frames in a row, catches up quickly
-ddgi.IRRADIANCE_THRESHOLD = 2.0
-ddgi.ADAPT_FRAMES = 6
+local irradiance_threshold = pvars.Setup2{
+	key = "ddgi_irradiance_threshold",
+	default = 2.0,
+	min = 1,
+	help = "factor against its history a texel must differ by to adapt quickly",
+}
+local adapt_frames = pvars.Setup2{
+	key = "ddgi_adapt_frames",
+	default = 6,
+	integer = true,
+	min = 1,
+	help = "frames in a row a texel must differ by the threshold to adapt quickly",
+}
 -- Clamp each texel's brightest ray to the second brightest every frame (see
 -- IRRADIANCE_INTEGRATE in passes/ddgi.lua). It keeps a small hot spot that one
 -- or two rays hit from flickering the probes, but that light is then dropped
@@ -96,12 +166,21 @@ ddgi.ADAPT_FRAMES = 6
 -- Off, the energy is right but probes that see such a hot spot are noisy: the
 -- gi under that ceiling varied by ~60% over 60 frames against ~7% clamped.
 -- Keeping what the clamp cuts in a slowly averaged store would give both.
-ddgi.BRIGHTEST_RAY_CLAMP = false
+local brightest_ray_clamp = pvars.Setup2{
+	key = "ddgi_brightest_ray_clamp",
+	default = false,
+	help = "clamp each texel's brightest ray to the second brightest",
+}
 -- local lights are treated as spheres of this radius (in probe spacings) when
 -- lighting ray hits. A probe can't resolve a hot spot smaller than this, and a
 -- ray landing right next to a lamp would otherwise outweigh all the others
 -- and light up the whole probe for a frame
-ddgi.LIGHT_RADIUS = 0.1
+local light_radius = pvars.Setup2{
+	key = "ddgi_light_radius",
+	default = 0.1,
+	min = 0,
+	help = "radius of local lights in probe spacings when lighting ray hits",
+}
 -- sharpness of the cosine lobe the hit distances are averaged with
 ddgi.DISTANCE_EXPONENT = 50.0
 -- surface bias along the normal and towards the viewer, in probe spacings
@@ -113,7 +192,11 @@ ddgi.BACKFACE_THRESHOLD = 0.25
 -- get out of geometry they landed in and away from surfaces closer than
 -- RELOCATION_DISTANCE spacings. A probe inside a box would otherwise be
 -- disabled, and the probes that take over its corner may be behind a wall.
-ddgi.RELOCATION = true
+local relocation = pvars.Setup2{
+	key = "ddgi_relocation",
+	default = true,
+	help = "move probes out of geometry and away from close surfaces",
+}
 ddgi.RELOCATION_DISTANCE = 0.25
 ddgi.PROBE_MAX_OFFSET = 0.45
 ddgi.SKY_INTENSITY = 1.0
@@ -125,32 +208,75 @@ ddgi.RESOLVE_SCALE = 1.0
 -- light that falls off steeply (lamps at night). The B-spline's slope is
 -- continuous too, at the cost of a little extra blur and 27 probe lookups.
 -- Probe rays always use trilinear; their light is blurred into the probes.
-ddgi.SMOOTH_BLEND = true
+local smooth_blend = pvars.Setup2{
+	key = "ddgi_smooth_blend",
+	default = true,
+	help = "blend 3x3x3 probes with quadratic B-spline weights",
+}
 -- Probes a point blends are checked with a ray from the point, and dropped
 -- when something is in the way (see ddgi_sample_cascade): 0 none, 1 relocated
 -- probes (which can come out of a wall on its far side), 2 all of them (walls
 -- thinner than the distance test can resolve). Needs ray queries.
-ddgi.VISIBILITY_RAYS = 2
+local visibility_rays = pvars.Setup2{
+	key = "ddgi_visibility_rays",
+	default = 2,
+	enums = {0, 1, 2},
+	help = "probes checked with a ray: 0 none, 1 relocated ones, 2 all",
+}
 -- Visibility rays only hit front faces. The TLAS is rebuilt a few frames behind
 -- a moving object, so a point on a face that moves away from its probes sits
 -- just inside the object's stale copy and would otherwise see every probe
 -- through that copy's back face (a black shadow trailing the object). The cost
 -- is that fast moving objects can leak light where a back face should block.
-ddgi.VISIBILITY_FRONT_FACES_ONLY = true
+local visibility_front_faces_only = pvars.Setup2{
+	key = "ddgi_visibility_front_faces_only",
+	default = true,
+	help = "visibility rays only hit front faces",
+}
 -- 0 off, 1 probe irradiance, 2 probe mean hit distance (see passes/ddgi.lua)
-ddgi.DEBUG_PROBES = 0
+local debug_probes = pvars.Setup2{
+	key = "ddgi_debug_probes",
+	default = 0,
+	enums = {0, 1, 2},
+	help = "0 off, 1 probe irradiance, 2 probe mean hit distance",
+}
 -- 1 makes the lighting pass show only the gi irradiance
-ddgi.DEBUG_GI = 0
+local debug_gi = pvars.Setup2{
+	key = "ddgi_debug_gi",
+	default = false,
+	help = "show only the gi irradiance",
+}
 -- brightness of the debug view's markers, which have no light of their own
-ddgi.DEBUG_SCALE = 1.0
+local debug_scale = pvars.Setup2{
+	key = "ddgi_debug_scale",
+	default = 1.0,
+	min = 0,
+	help = "brightness of the debug markers",
+}
 -- the cascade whose probes the debug view draws
-ddgi.DEBUG_CASCADE = 0
+local debug_cascade = pvars.Setup2{
+	key = "ddgi_debug_cascade",
+	default = 0,
+	integer = true,
+	min = 0,
+	max = ddgi.CASCADES - 1,
+	help = "the cascade whose probes the debug view draws",
+}
+pvars.EndGroup()
 -- stored in a ray's distance slot when it missed everything, far past
 -- MAX_RAY_DISTANCE
 ddgi.MISS_DISTANCE = ddgi.HALF_PRECISION_RAYS and 60000 or 1e27
 
+function ddgi.GetDebugProbes()
+	return debug_probes:Get()
+end
+
+function ddgi.IsDebugGI()
+	return debug_gi:Get()
+end
+
 function ddgi.GetCascadeSpacing(cascade)
-	return ddgi.PROBE_SPACING * 2 ^ cascade
+	return probe_spacing:Get() * 2 ^ cascade
 end
 
 function ddgi.GetProbeCount()
@@ -161,23 +287,14 @@ function ddgi.GetRayCount()
 	return ddgi.GetProbeCount() * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES)
 end
 
--- Off, the probe passes are skipped (the trace pass still builds the TLAS
--- ssr and the fog trace against) and surfaces fall back to the environment's
--- irradiance, unoccluded. Back on, the probes start over.
-function ddgi.SetEnabled(enabled)
-	if enabled and not ddgi.enabled then ddgi.ResetHistory() end
-
-	ddgi.enabled = enabled
-end
-
 function ddgi.IsEnabled()
-	return ddgi.enabled
+	return enabled:Get()
 end
 
 -- rgb = irradiance, a = sky visibility: the contract the lighting pass reads
 -- through gi_screen_tex
 function ddgi.GetScreenTexture()
-	if not ddgi.enabled then return nil end
+	if not enabled:Get() then return nil end
 
 	local resolve = render3d.pipelines.ddgi_resolve
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(1) or nil
@@ -185,7 +302,7 @@ end
 
 -- drawn over the lit image by the lighting pass; rgb = colour, a = coverage
 function ddgi.GetDebugOverlayTexture()
-	if ddgi.DEBUG_PROBES == 0 then return nil end
+	if debug_probes:Get() == 0 then return nil end
 
 	return render3d.pipelines.ddgi_probe_debug:GetFramebuffer(1):GetAttachment(1)
 end
@@ -222,21 +339,21 @@ do
 
 	-- one axis of the region the cascades are fitted to
 	local function fit_region(axis, camera, bounds_min, bounds_max)
-		local lo, hi = camera - ddgi.MIN_COVERAGE, camera + ddgi.MIN_COVERAGE
+		local lo, hi = camera - min_coverage:Get(), camera + min_coverage:Get()
 
 		if bounds_min then
-			lo = math.max(bounds_min[axis], camera - ddgi.MAX_COVERAGE)
-			hi = math.min(bounds_max[axis], camera + ddgi.MAX_COVERAGE)
+			lo = math.max(bounds_min[axis], camera - max_coverage:Get())
+			hi = math.min(bounds_max[axis], camera + max_coverage:Get())
 
 			-- the scene lies entirely beyond MAX_COVERAGE
 			if hi < lo then
-				lo, hi = camera - ddgi.MIN_COVERAGE, camera + ddgi.MIN_COVERAGE
+				lo, hi = camera - min_coverage:Get(), camera + min_coverage:Get()
 			end
 		end
 
-		if hi - lo < ddgi.MIN_COVERAGE * 2 then
+		if hi - lo < min_coverage:Get() * 2 then
 			local mid = (lo + hi) / 2
-			lo, hi = mid - ddgi.MIN_COVERAGE, mid + ddgi.MIN_COVERAGE
+			lo, hi = mid - min_coverage:Get(), mid + min_coverage:Get()
 		end
 
 		return lo, hi
@@ -358,7 +475,7 @@ do
 			cascade.y, holds_y = fit_base(position.y, region.min_y, region.max_y, spacing, size.y)
 			cascade.z, holds_z = fit_base(position.z, region.min_z, region.max_z, spacing, size.z)
 			cascade.elapsed = (cascade.elapsed or 0) + frame_time
-			local interval = ddgi.UPDATE_INTERVALS[c]
+			local interval = update_intervals[c]:Get()
 
 			-- a probe that scrolled into a slot is not usable until its cascade
 			-- updates, so scrolling does not wait for the interval
@@ -1095,32 +1212,32 @@ function ddgi.WriteProbeBlock(self, block)
 	for c = 1, ddgi.CASCADES do
 		local cascade = state.cascades[c]
 		-- a hitch shouldn't throw the history away
-		local frames = math.min(cascade.update_time, 0.1 * ddgi.UPDATE_INTERVALS[c]) * 60
-		block.ddgi_cascade_update[c - 1][0] = ddgi.HYSTERESIS ^ frames
-		block.ddgi_cascade_update[c - 1][1] = ddgi.MIN_HYSTERESIS ^ frames
+		local frames = math.min(cascade.update_time, 0.1 * update_intervals[c]:Get()) * 60
+		block.ddgi_cascade_update[c - 1][0] = hysteresis:Get() ^ frames
+		block.ddgi_cascade_update[c - 1][1] = min_hysteresis:Get() ^ frames
 	end
 
-	block.ddgi_noise_range = ddgi.NOISE_RANGE
-	block.ddgi_irradiance_threshold = ddgi.IRRADIANCE_THRESHOLD
-	block.ddgi_adapt_frames = ddgi.ADAPT_FRAMES
-	block.ddgi_brightest_ray_clamp = ddgi.BRIGHTEST_RAY_CLAMP and 1 or 0
+	block.ddgi_noise_range = noise_range:Get()
+	block.ddgi_irradiance_threshold = irradiance_threshold:Get()
+	block.ddgi_adapt_frames = adapt_frames:Get()
+	block.ddgi_brightest_ray_clamp = brightest_ray_clamp:Get() and 1 or 0
 	block.ddgi_distance_exponent = ddgi.DISTANCE_EXPONENT
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
 	block.ddgi_view_bias = ddgi.VIEW_BIAS
 	block.ddgi_backface_threshold = ddgi.BACKFACE_THRESHOLD
 	-- in spacings, like the biases and the light radius
-	block.ddgi_relocation_distance = ddgi.RELOCATION and ddgi.RELOCATION_DISTANCE or 0
-	block.ddgi_max_offset = ddgi.RELOCATION and ddgi.PROBE_MAX_OFFSET or 0
+	block.ddgi_relocation_distance = relocation:Get() and ddgi.RELOCATION_DISTANCE or 0
+	block.ddgi_max_offset = relocation:Get() and ddgi.PROBE_MAX_OFFSET or 0
 	block.ddgi_sky_intensity = ddgi.SKY_INTENSITY
-	block.ddgi_light_radius = ddgi.LIGHT_RADIUS
+	block.ddgi_light_radius = light_radius:Get()
 	block.ddgi_cascade_blend = ddgi.CASCADE_BLEND
-	block.ddgi_debug_scale = ddgi.DEBUG_SCALE
-	block.ddgi_debug_probes = ddgi.DEBUG_PROBES
-	block.ddgi_debug_cascade = ddgi.DEBUG_CASCADE
-	block.ddgi_smooth_blend = ddgi.SMOOTH_BLEND and 1 or 0
-	block.ddgi_visibility_rays = ddgi.VISIBILITY_RAYS
-	block.ddgi_visibility_front_faces_only = ddgi.VISIBILITY_FRONT_FACES_ONLY and 1 or 0
-	block.ddgi_cascade_count = ddgi.enabled and state.cascade_count or 0
+	block.ddgi_debug_scale = debug_scale:Get()
+	block.ddgi_debug_probes = debug_probes:Get()
+	block.ddgi_debug_cascade = debug_cascade:Get()
+	block.ddgi_smooth_blend = smooth_blend:Get() and 1 or 0
+	block.ddgi_visibility_rays = visibility_rays:Get()
+	block.ddgi_visibility_front_faces_only = visibility_front_faces_only:Get() and 1 or 0
+	block.ddgi_cascade_count = enabled:Get() and state.cascade_count or 0
 	block.ddgi_reset_mask = state.reset_mask
 	block.ddgi_update_mask = state.update_mask
 	block.ddgi_rt_ready = state.rt_ready and 1 or 0
@@ -1435,7 +1552,7 @@ function ddgi.WriteRTParams()
 	p.tmin = 0.0
 	p.emitter_count = ddgi.GetEmitters().count
 	p.frame = state.frame
-	p.light_radius = ddgi.LIGHT_RADIUS
+	p.light_radius = light_radius:Get()
 	p.update_mask = state.update_mask
 	return buffer
 end
@@ -1464,7 +1581,7 @@ layout(set = 0, binding = 0) uniform Params
     float tmin;
     int emitter_count;
     uint frame;
-    // in spacings, see ddgi.LIGHT_RADIUS
+    // in spacings, see ddgi_light_radius
     float light_radius;
     // bit c: cascade c traces this frame
     int update_mask;
@@ -1608,77 +1725,8 @@ function ddgi.GetRTPipeline()
 	return rt_pipeline
 end
 
-commands.Add("ddgi_enabled=boolean[true]", function(value)
-	ddgi.SetEnabled(value)
-end)
-
 commands.Add("ddgi_reset", function()
 	ddgi.ResetHistory()
-end)
-
-commands.Add("ddgi_hysteresis=number[0.99]", function(value)
-	ddgi.HYSTERESIS = value
-end)
-
-commands.Add("ddgi_min_hysteresis=number[0.95]", function(value)
-	ddgi.MIN_HYSTERESIS = value
-end)
-
-commands.Add("ddgi_noise_range=number[0.25]", function(value)
-	ddgi.NOISE_RANGE = value
-end)
-
-commands.Add("ddgi_irradiance_threshold=number[2]", function(value)
-	ddgi.IRRADIANCE_THRESHOLD = value
-end)
-
-commands.Add("ddgi_adapt_frames=number[6]", function(value)
-	ddgi.ADAPT_FRAMES = value
-end)
-
-commands.Add("ddgi_brightest_ray_clamp=boolean[false]", function(value)
-	ddgi.BRIGHTEST_RAY_CLAMP = value
-end)
-
-commands.Add("ddgi_light_radius=number[0.1]", function(value)
-	ddgi.LIGHT_RADIUS = value
-end)
-
-commands.Add("ddgi_debug_gi=boolean[true]", function(value)
-	ddgi.DEBUG_GI = value and 1 or 0
-end)
-
-commands.Add("ddgi_debug_probes=number[1]", function(value)
-	ddgi.DEBUG_PROBES = value
-end)
-
-commands.Add("ddgi_debug_scale=number[1]", function(value)
-	ddgi.DEBUG_SCALE = value
-end)
-
-commands.Add("ddgi_update_interval=number,number", function(cascade, frames)
-	assert(ddgi.UPDATE_INTERVALS[cascade + 1], "cascade " .. cascade .. " does not exist")
-	assert(
-		frames >= 1 and frames == math.floor(frames),
-		"the interval is a whole number of frames"
-	)
-	ddgi.UPDATE_INTERVALS[cascade + 1] = frames
-end)
-
-commands.Add("ddgi_visibility_rays=number[2]", function(value)
-	ddgi.VISIBILITY_RAYS = value
-end)
-
-commands.Add("ddgi_visibility_front_faces_only=boolean[true]", function(value)
-	ddgi.VISIBILITY_FRONT_FACES_ONLY = value
-end)
-
-commands.Add("ddgi_smooth_blend=boolean[true]", function(value)
-	ddgi.SMOOTH_BLEND = value
-end)
-
-commands.Add("ddgi_debug_cascade=number[0]", function(value)
-	ddgi.DEBUG_CASCADE = value
 end)
 
 commands.Add("ddgi_info", function()
@@ -1703,7 +1751,7 @@ commands.Add("ddgi_info", function()
 			c - 1,
 			c > state.cascade_count and " (unused)" or "",
 			cascade.spacing,
-			ddgi.UPDATE_INTERVALS[c],
+			update_intervals[c]:Get(),
 			cascade.size.x,
 			cascade.size.y,
 			cascade.size.z,
@@ -1716,22 +1764,6 @@ commands.Add("ddgi_info", function()
 			cascade.z * cascade.spacing
 		)
 	end
-end)
-
-commands.Add("ddgi_probe_spacing=number[2]", function(value)
-	ddgi.PROBE_SPACING = value
-end)
-
-commands.Add("ddgi_min_coverage=number[4]", function(value)
-	ddgi.MIN_COVERAGE = value
-end)
-
-commands.Add("ddgi_max_coverage=number[192]", function(value)
-	ddgi.MAX_COVERAGE = value
-end)
-
-commands.Add("ddgi_relocation=boolean[true]", function(value)
-	ddgi.RELOCATION = value
 end)
 
 return ddgi

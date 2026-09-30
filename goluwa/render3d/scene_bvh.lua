@@ -64,7 +64,6 @@ local MAX_DEPTH = 30
 local SOUP_ALIGN = 4
 scene_bvh.SOUP_ALIGN = SOUP_ALIGN
 scene_bvh.STACK_SIZE = 32
-scene_bvh.LightOcclusion = scene_bvh.LightOcclusion ~= false
 scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
 scene_bvh.build_time = 0

@@ -1,4 +1,5 @@
 local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
@@ -13,14 +14,64 @@ local light_occlusion = library()
 -- lookup can estimate how much of that neighbourhood hides a point
 -- (Chebyshev, like variance shadow maps). The blur trades accuracy for soft
 -- edges that don't show the map's low resolution.
-light_occlusion.oct_size = 128
-light_occlusion.subs = 1
-light_occlusion.bias = 0.01
+pvars.StartGroup("light_occlusion", {store = false})
+local enabled = pvars.Setup2{
+	key = "scene_bvh_light_occlusion",
+	default = true,
+	friendly = "enabled",
+	help = "trace per light occlusion maps against the scene bvh",
+}
+local oct_size = pvars.Setup2{
+	key = "light_occlusion_size",
+	default = 128,
+	integer = true,
+	min = 16,
+	max = 256,
+	help = "octahedral map size in texels, maps that exist keep theirs",
+}
+local subs = pvars.Setup2{
+	key = "light_occlusion_subs",
+	default = 1,
+	integer = true,
+	min = 1,
+	max = 32,
+	help = "sub rays per texel",
+	callback = function(_, is_init)
+		if not is_init and light_occlusion.trace_pipeline then
+			light_occlusion.trace_pipeline = nil
+			light_occlusion.Reset()
+		end
+	end,
+}
+local bias = pvars.Setup2{
+	key = "light_occlusion_bias",
+	default = 0.01,
+	min = 0,
+	help = "variance bias of the Chebyshev test",
+}
 -- blur radius in texels
-light_occlusion.blur = 1.5
+local blur = pvars.Setup2{
+	key = "light_occlusion_blur",
+	default = 1.5,
+	min = 0,
+	help = "blur radius of the maps in texels",
+	callback = function(_, is_init)
+		if is_init then return end
+
+		light_occlusion.blur_pipelines = nil
+		light_occlusion.Reset()
+	end,
+}
 -- how much of the Chebyshev bound's tail is cut off, against light bleeding
 -- through where occluders at different distances overlap
-light_occlusion.bleed_reduction = 0.5
+local bleed_reduction = pvars.Setup2{
+	key = "light_occlusion_bleed_reduction",
+	default = 0.5,
+	min = 0,
+	max = 0.95,
+	help = "how much of the Chebyshev bound's tail is cut off",
+}
+pvars.EndGroup()
 local LIGHT_OCCL_MAX_TRACES_PER_FRAME = 4
 local LIGHT_OCCL_RETRACE_INTERVAL = 4
 local LIGHT_OCCL_MOVE_TOLERANCE_SQ = 0.02 * 0.02
@@ -91,7 +142,7 @@ local function get_frame_span()
 end
 
 local function get_map_size()
-	return light_occlusion.map_size or light_occlusion.oct_size
+	return light_occlusion.map_size or oct_size:Get()
 end
 
 local function is_occlusion_light(light)
@@ -217,7 +268,7 @@ local function build_trace_pipeline()
 
 			]] .. scene_bvh.GetTraversalGLSL() .. [[
 
-			const int LIGHT_OCCL_SUBS = ]] .. light_occlusion.subs .. [[;
+			const int LIGHT_OCCL_SUBS = ]] .. subs:Get() .. [[;
 
 			void main() {
 				ivec2 p = ivec2(gl_GlobalInvocationID.xy);
@@ -276,7 +327,7 @@ local function build_blur_pipeline(horizontal)
 					end
 
 					block.oct_size = get_map_size()
-					block.radius = math.ceil(light_occlusion.blur)
+					block.radius = math.ceil(blur:Get())
 					return block
 				end,
 			},
@@ -287,7 +338,7 @@ local function build_blur_pipeline(horizontal)
 		]]):format(BINDING_BLUR_SRC, BINDING_BLUR_DST),
 		shader = [[
 			const bool HORIZONTAL = ]] .. tostring(horizontal) .. [[;
-			const float SIGMA = ]] .. string.format("%.4f", math.max(light_occlusion.blur, 0.5) * 0.5 + 0.25) .. [[;
+			const float SIGMA = ]] .. string.format("%.4f", math.max(blur:Get(), 0.5) * 0.5 + 0.25) .. [[;
 
 			ivec2 oct_wrap(ivec2 p, int n) {
 				if (p.x < 0) {
@@ -333,7 +384,7 @@ end
 
 local function ensure_map_texture()
 	if not light_occlusion.map_texture then
-		local size = light_occlusion.oct_size
+		local size = oct_size:Get()
 		light_occlusion.map_texture = create_map_texture(
 			size,
 			MAX_LIGHTS,
@@ -374,9 +425,7 @@ light_occlusion.last_dispatches = 0
 function light_occlusion.Draw(cmd)
 	light_occlusion.last_dispatches = 0
 
-	if not (scene_bvh.IsReady() and scene_bvh.LightOcclusion ~= false) then
-		return
-	end
+	if not (scene_bvh.IsReady() and enabled:Get()) then return end
 
 	local lights = render3d.GetLights()
 	local frame = system.GetFrameNumber()
@@ -486,7 +535,7 @@ function light_occlusion.Draw(cmd)
 		pipeline.dynamic_offsets
 	)
 
-	if light_occlusion.blur > 0 then
+	if blur:Get() > 0 then
 		for pass = 1, 2 do
 			local blur = light_occlusion.blur_pipelines[pass]
 			local src, dst = map_texture, scratch_texture
@@ -576,9 +625,9 @@ function light_occlusion.GetDebugState()
 	local lights = render3d.GetLights()
 	local out = {
 		frame = system.GetFrameNumber(),
-		bias = light_occlusion.bias,
-		blur = light_occlusion.blur,
-		bleed_reduction = light_occlusion.bleed_reduction,
+		bias = bias:Get(),
+		blur = blur:Get(),
+		bleed_reduction = bleed_reduction:Get(),
 		oct_size = get_map_size(),
 		max_traces = LIGHT_OCCL_MAX_TRACES_PER_FRAME,
 		lights = {},
@@ -655,7 +704,7 @@ function light_occlusion.WriteOcclusionBlock(block, lights)
 
 	local active = 0
 
-	if scene_bvh.IsReady() and scene_bvh.LightOcclusion ~= false then
+	if scene_bvh.IsReady() and enabled:Get() then
 		for light_index = 1, math.min(#lights, MAX_LIGHTS) do
 			local info = state[light_index]
 
@@ -668,8 +717,8 @@ function light_occlusion.WriteOcclusionBlock(block, lights)
 
 	block.bvh_oct_active = active
 	block.bvh_oct_size = get_map_size()
-	block.bvh_oct_bias = light_occlusion.bias
-	block.bvh_oct_bleed_reduction = light_occlusion.bleed_reduction
+	block.bvh_oct_bias = bias:Get()
+	block.bvh_oct_bleed_reduction = bleed_reduction:Get()
 end
 
 function light_occlusion.GetSamplingGLSL(data_block)
@@ -706,43 +755,6 @@ function light_occlusion.GetSamplingGLSL(data_block)
 		)
 end
 
-commands.Add("light_occlusion_bias=number[0.01]", function(bias)
-	light_occlusion.bias = bias
-	logf("[light_occlusion] bias %g\n", bias)
-end)
-
-commands.Add("light_occlusion_blur=number[1.5]", function(blur)
-	light_occlusion.blur = math.max(0, blur)
-	light_occlusion.blur_pipelines = nil
-	light_occlusion.Reset()
-	logf("[light_occlusion] blur radius %.1f texels\n", light_occlusion.blur)
-end)
-
-commands.Add("light_occlusion_bleed_reduction=number[0.5]", function(amount)
-	light_occlusion.bleed_reduction = math.clamp(amount, 0, 0.95)
-	logf("[light_occlusion] bleed reduction %g\n", light_occlusion.bleed_reduction)
-end)
-
-commands.Add("light_occlusion_subs=number[1]", function(subs)
-	light_occlusion.subs = math.clamp(math.floor(subs), 1, 32)
-
-	if light_occlusion.trace_pipeline then
-		light_occlusion.trace_pipeline = nil
-		light_occlusion.Reset()
-	end
-
-	logf("[light_occlusion] sub rays per texel %d\n", light_occlusion.subs)
-end)
-
-commands.Add("light_occlusion_size=number[128]", function(size)
-	light_occlusion.oct_size = math.clamp(math.floor(size), 16, 256)
-	logf(
-		"[light_occlusion] octahedral map size %d%s\n",
-		light_occlusion.oct_size,
-		light_occlusion.map_texture and " (current maps keep their size)" or ""
-	)
-end)
-
 commands.Add("lo_debug", function()
 	local debug_state = light_occlusion.GetDebugState()
 	logf(
@@ -771,14 +783,6 @@ commands.Add("lo_debug", function()
 			light.in_frustum and "" or " OUT_OF_FRUSTUM"
 		)
 	end
-end)
-
-commands.Add("scene_bvh_light_occlusion=boolean[true]", function(enabled)
-	scene_bvh.LightOcclusion = enabled ~= false
-	logf(
-		"[scene_bvh] light occlusion %s\n",
-		scene_bvh.LightOcclusion and "enabled" or "disabled"
-	)
 end)
 
 return light_occlusion

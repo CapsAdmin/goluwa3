@@ -87,7 +87,7 @@ function gbuffer_layout.WriteBlock(self, block)
 		block[target.texture .. "_tex"] = self:GetTextureIndex(framebuffer:GetAttachment(i))
 	end
 
-	if not render3d.IsVelocityEnabled() then block.velocity_tex = -1 end
+	if not render3d.velocity_enabled:Get() then block.velocity_tex = -1 end
 
 	return block
 end

@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local atmosphere = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
-local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 atmosphere.stars_texture = nil
 atmosphere.transmittance_texture = nil
 atmosphere.multi_scatter_texture = nil
@@ -40,7 +40,14 @@ local DEBUG_DISABLE_SCENERY_FOG = false
 local SCENERY_FOG_SCALE_HEIGHT = 0.28
 local SCENERY_FOG_EXTINCTION = 0.34
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
-atmosphere.fog_density = 0.15
+pvars.StartGroup("atmosphere", {store = false})
+local fog_density = pvars.Setup2{
+	key = "fog_density",
+	default = 0.15,
+	min = 0,
+	help = "density of the low altitude fog at the ground, weather sets it from the visibility",
+}
+pvars.EndGroup()
 -- the falling rain and snow's density in the same units, even up to where the fog ends
 atmosphere.precipitation_fog_density = 0
 atmosphere.wind = Vec3(0, 0, 0)
@@ -52,7 +59,7 @@ atmosphere.cloud_sky_texture = nil
 atmosphere.cloud_transmittance = 1
 -- the sun, moon and star sphere, set by render3d/weather.lua. without it the sky is lit by the primary light
 atmosphere.sky = nil
--- off: no sky, air or fog, a black void (see weather.SetEnabled)
+-- off: no sky, air or fog, a black void (see the weather_enabled pvar)
 atmosphere.enabled = true
 
 local function normalize_components(x, y, z)
@@ -228,7 +235,7 @@ local atmosphere_shared_glsl = [[
 	#define ATMOSPHERE_SCATTER_JITTER 0.5
 	#endif
 	#ifndef ATMOSPHERE_FOG_DENSITY
-	#define ATMOSPHERE_FOG_DENSITY ]] .. string.format("%.6f\n", atmosphere.fog_density) .. [[
+	#define ATMOSPHERE_FOG_DENSITY ]] .. string.format("%.6f\n", fog_density:Get()) .. [[
 	#endif
 	#ifndef ATMOSPHERE_PRECIPITATION_FOG_DENSITY
 	#define ATMOSPHERE_PRECIPITATION_FOG_DENSITY 0.0
@@ -1031,11 +1038,11 @@ do
 
 	-- visibility at sea level in meters from the low altitude fog alone
 	function atmosphere.SetVisibility(meters)
-		atmosphere.fog_density = CONTRAST_THRESHOLD / meters / SEA_LEVEL_EXTINCTION_PER_METER
+		fog_density:Set(CONTRAST_THRESHOLD / meters / SEA_LEVEL_EXTINCTION_PER_METER)
 	end
 
 	function atmosphere.GetVisibility()
-		return CONTRAST_THRESHOLD / (atmosphere.fog_density * SEA_LEVEL_EXTINCTION_PER_METER)
+		return CONTRAST_THRESHOLD / (fog_density:Get() * SEA_LEVEL_EXTINCTION_PER_METER)
 	end
 
 	-- the falling rain and snow's extinction, see render3d/precipitation.lua
@@ -1241,7 +1248,7 @@ do
 		block.atmosphere_multi_scatter_texture_index = pipeline:GetTextureIndex(atmosphere.GetMultiScatterTexture())
 		block.atmosphere_sky_view_texture_index = pipeline:GetTextureIndex(atmosphere.GetSkyViewTexture(cam_pos, sky_sun_dir))
 		block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
-		block.atmosphere_fog_density = atmosphere.fog_density
+		block.atmosphere_fog_density = fog_density:Get()
 		block.atmosphere_precipitation_fog_density = atmosphere.precipitation_fog_density
 		block.atmosphere_cloud_sky_texture_index = atmosphere.cloud_sky_texture and
 			pipeline:GetTextureIndex(atmosphere.cloud_sky_texture) or
@@ -1374,9 +1381,5 @@ if HOTRELOAD then
 	destroy_multi_scatter_texture()
 	destroy_all_sky_view_textures()
 end
-
-commands.Add("fog_density=number[0.5]", function(value)
-	atmosphere.fog_density = value
-end)
 
 return atmosphere

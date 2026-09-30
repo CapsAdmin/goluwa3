@@ -4,7 +4,6 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
-local commands = import("goluwa/cli/commands.lua")
 local grass = import("goluwa/render3d/grass.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local system = import("goluwa/system.lua")
@@ -24,17 +23,6 @@ local camera_block = {
 	end,
 	upload_scope = "frame",
 }
-
-commands.Add("velocity_buffer=boolean[true]", function(enabled)
-	render3d.SetVelocityEnabled(enabled)
-	logf(
-		"[gbuffer] velocity buffer %s, consumers %s\n",
-		enabled ~= false and "enabled" or "disabled",
-		enabled ~= false and
-			"follow moving surfaces" or
-			"reproject through the previous camera only"
-	)
-end)
 
 local function build_base_pass(fragment_shader, enable_vertex_animation)
 	local uniform_buffers = model_pipeline.GetPBRUniformBuffers()

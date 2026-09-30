@@ -4,6 +4,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local system = import("goluwa/system.lua")
 local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local assets = import("goluwa/assets.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
@@ -39,11 +40,41 @@ local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
 -- brighter than they feel: with rods the curve is almost flat from dusk to
 -- moonlight. rod_adaptation blends its dark end from the cones alone (0, a
 -- night keeps getting darker with the light) to the full rod response (1).
+pvars.StartGroup("exposure", {store = false})
+local exposure_mode = pvars.Setup2{
+	key = "r_exposure_mode",
+	default = "eye",
+	enums = {"eye", "camera"},
+	help = "eye shows what a person would see, camera shows every scene's average at the same brightness",
+}
+local exposure_rod_adaptation = pvars.Setup2{
+	key = "r_exposure_rod_adaptation",
+	default = 0.5,
+	min = 0,
+	max = 1,
+	help = "how bright a night is in mode eye, from the cones alone (0) to the full rod response (1)",
+}
+local exposure_lock = pvars.Setup2{
+	key = "r_exposure_lock",
+	type = "number",
+	min = -10,
+	max = 25,
+	help = "EV100 to lock the exposure at, unset for auto exposure",
+	callback = function(ev, is_init)
+		if not is_init then
+			logf("[blit] exposure %s\n", ev and ("locked at EV " .. ev) or "auto")
+		end
+	end,
+}
+local exposure_compensation = pvars.Setup2{
+	key = "r_exposure_compensation",
+	default = 0,
+	min = -10,
+	max = 10,
+	help = "stops added to the exposure",
+}
+pvars.EndGroup()
 render3d.exposure = {
-	mode = "eye",
-	rod_adaptation = 0.5,
-	lock = nil,
-	compensation = 0,
 	min_ev = -4,
 	max_ev = 18,
 	-- the metered average is taken between these fractions of the (centre
@@ -69,9 +100,23 @@ render3d.exposure = {
 -- The cones stop telling brightnesses apart toward ceiling cd/m2 (Hood and
 -- Finkelstein 1986), so this fades out for regions approaching it: the sun
 -- at 1.6e9 and the glare right around it stay blinding however long you look.
+pvars.StartGroup("exposure", {store = false})
+local local_exposure_shadows = pvars.Setup2{
+	key = "r_local_exposure_shadows",
+	default = 0.4,
+	min = 0,
+	max = 1,
+	help = "how much dark regions are exposed for their surroundings, 0 is off",
+}
+local local_exposure_highlights = pvars.Setup2{
+	key = "r_local_exposure_highlights",
+	default = 0.4,
+	min = 0,
+	max = 1,
+	help = "how much bright regions are exposed for their surroundings, 0 is off",
+}
+pvars.EndGroup()
 render3d.local_exposure = {
-	shadows = 0.4,
-	highlights = 0.4,
 	max_stops = 4,
 	headroom = 2.5,
 	slope = 0.2,
@@ -80,14 +125,36 @@ render3d.local_exposure = {
 -- 0 = AgX, 1 = AgX punchy, 2 = ACES (Narkowicz fit), 3 = GT7. For HDR
 -- output GT7 maps to the display's peak itself, the others go through
 -- tonemap_hdr's generic curve.
-render3d.tonemapper = 3
+local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3}
+pvars.StartGroup("display", {store = false})
+local tonemapper = pvars.Setup2{
+	key = "r_tonemapper",
+	default = "gt7",
+	enums = {"agx", "agx_punchy", "aces", "gt7"},
+	help = "the curve that maps the exposed scene to the display",
+}
 -- HDR output (--hdr, see ImageRenderTarget:IsHDR), in nits: paper white is
 -- what SDR white (and the metered average's surroundings) is shown at, 203 by
 -- BT.2408; peak is the brightest the display can show. Vulkan can't query the
 -- display, so match these to it (KDE's HDR settings show both).
-render3d.hdr = {
-	paper_white = 203,
-	peak = 1000,
+local update_hdr_metadata
+local hdr_paper_white = pvars.Setup2{
+	key = "r_hdr_paper_white",
+	default = 203,
+	min = 1,
+	help = "nits SDR white is shown at in HDR output",
+	callback = function(_, is_init)
+		if not is_init then update_hdr_metadata() end
+	end,
+}
+local hdr_peak = pvars.Setup2{
+	key = "r_hdr_peak",
+	default = 1000,
+	min = 1,
+	help = "nits of the brightest the display can show in HDR output",
+	callback = function(_, is_init)
+		if not is_init then update_hdr_metadata() end
+	end,
 }
 -- the eye's switch to rod vision in dim light (mode "eye" only): colour fades
 -- and reds darken (the Purkinje shift). threshold is the luminance in cd/m2 at
@@ -98,39 +165,30 @@ render3d.hdr = {
 -- a perceptual trick rather than what they see. The adaptation curve keeps
 -- CIE's range, these only change how the loss of colour looks.
 -- dither the output to hide banding from quantizing it
-render3d.dither = true
-render3d.night_vision = {
-	enabled = true,
-	threshold = 0.03,
-	tint = 0.5,
+local dither = pvars.Setup2{
+	key = "r_dither",
+	default = true,
+	help = "dither the output to hide banding",
 }
-
-commands.Add("r_exposure_lock=number|nil", function(ev)
-	render3d.exposure.lock = ev
-	logf("[blit] exposure %s\n", ev and ("locked at EV " .. ev) or "auto")
-end)
-
-commands.Add("r_exposure_compensation=number[0]", function(stops)
-	render3d.exposure.compensation = stops
-end)
-
-commands.Add("r_exposure_rod_adaptation=number[0.65]", function(value)
-	render3d.exposure.rod_adaptation = value
-end)
-
-commands.Add("r_exposure_mode=string[eye]", function(mode)
-	assert(mode == "eye" or mode == "camera", "exposure mode is eye or camera")
-	render3d.exposure.mode = mode
-end)
-
-commands.Add("r_tonemapper=string[gt7]", function(name)
-	render3d.tonemapper = assert(({agx = 0, agx_punchy = 1, aces = 2, gt7 = 3})[name], "tonemapper is one of agx, agx_punchy, aces, gt7")
-end)
-
-commands.Add("r_local_exposure=number[0.4],number|nil", function(shadows, highlights)
-	render3d.local_exposure.shadows = shadows
-	render3d.local_exposure.highlights = highlights or shadows
-end)
+local night_vision_enabled = pvars.Setup2{
+	key = "r_night_vision",
+	default = true,
+	help = "rod vision in dim light, in exposure mode eye",
+}
+local night_vision_threshold = pvars.Setup2{
+	key = "r_night_vision_threshold",
+	default = 0.03,
+	min = 0.0001,
+	help = "luminance in cd/m2 at which half the colour is gone",
+}
+local night_vision_tint = pvars.Setup2{
+	key = "r_night_vision_tint",
+	default = 0.5,
+	min = 0,
+	max = 1,
+	help = "how blue what the rods see is shown, 0 neutral grey",
+}
+pvars.EndGroup()
 
 -- Tells the compositor or display the range our HDR output uses (see
 -- VK_EXT_hdr_metadata): nothing brighter than peak, frames averaging no more
@@ -139,51 +197,25 @@ end)
 -- compresses our highlights instead of clipping them, and one that can passes
 -- them through without tonemapping them a second time. Set when it changes,
 -- not per frame, since displays may visibly re-adapt on every change.
-local function update_hdr_metadata()
+function update_hdr_metadata()
 	if not render.target:IsHDR() then return end
 
 	local told = render.target:SetHDRMetadata{
 		primaries = {{0.64, 0.33}, {0.30, 0.60}, {0.15, 0.06}, {0.3127, 0.3290}},
-		max_luminance = render3d.hdr.peak,
+		max_luminance = hdr_peak:Get(),
 		min_luminance = 0,
-		max_content_light_level = render3d.hdr.peak,
-		max_frame_average_light_level = render3d.hdr.paper_white,
+		max_content_light_level = hdr_peak:Get(),
+		max_frame_average_light_level = hdr_paper_white:Get(),
 	}
 	logf(
 		"[blit] HDR metadata %s: peak %d nits, paper white %d nits\n",
 		told and "set" or "unavailable",
-		render3d.hdr.peak,
-		render3d.hdr.paper_white
+		hdr_peak:Get(),
+		hdr_paper_white:Get()
 	)
 end
 
 update_hdr_metadata()
-
-commands.Add("r_hdr_paper_white=number[203]", function(nits)
-	render3d.hdr.paper_white = nits
-	update_hdr_metadata()
-end)
-
-commands.Add("r_hdr_peak=number[1000]", function(nits)
-	render3d.hdr.peak = nits
-	update_hdr_metadata()
-end)
-
-commands.Add("r_dither=boolean[true]", function(enabled)
-	render3d.dither = enabled
-end)
-
-commands.Add("r_night_vision=boolean[true]", function(enabled)
-	render3d.night_vision.enabled = enabled
-end)
-
-commands.Add("r_night_vision_threshold=number[0.03]", function(cd_m2)
-	render3d.night_vision.threshold = cd_m2
-end)
-
-commands.Add("r_night_vision_tint=number[0.3]", function(value)
-	render3d.night_vision.tint = value
-end)
 
 local function get_scene_source_texture()
 	return post_source.GetSceneSourceTexture({name = "blit_compute"})
@@ -430,13 +462,13 @@ local exposure_feedback_pass = {
 	write = function(self, block)
 		local e = render3d.exposure
 		local view = View.GetActive()
-		local lock = view and view.ExposureLock or e.lock
+		local lock = view and view.ExposureLock or exposure_lock:Get()
 		block.dt = get_exposure_dt()
 		block.lock = lock and 1 or 0
 		block.lock_ev = lock or 0
-		block.compensation = view and view.ExposureCompensation or e.compensation
-		block.eye = e.mode == "eye" and 1 or 0
-		block.rod_adaptation = e.rod_adaptation
+		block.compensation = view and view.ExposureCompensation or exposure_compensation:Get()
+		block.eye = exposure_mode:Get() == "eye" and 1 or 0
+		block.rod_adaptation = exposure_rod_adaptation:Get()
 		block.min_ev = e.min_ev
 		block.max_ev = e.max_ev
 		block.low_percent = e.low_percent
@@ -453,7 +485,7 @@ commands.Add("r_exposure_info", function()
 	local exposure, metered_ev, adapted_ev = texture:Download():GetPixelFloat(0, 0)
 	logf(
 		"[blit] %s: metered EV %.2f, adapted EV %.2f, exposure %.3g (EV %.2f)\n",
-		render3d.exposure.mode,
+		exposure_mode:Get(),
 		metered_ev,
 		adapted_ev,
 		exposure,
@@ -501,7 +533,7 @@ end
 -- the share of the light the glare takes, 0 without it
 local function get_bloom_strength()
 	return get_bloom_texture() and
-		math.min(select(2, render3d.GetBloomWeights()) * render3d.bloom_strength, 1) or
+		math.min(select(2, render3d.GetBloomWeights()) * render3d.bloom_strength:Get(), 1) or
 		0
 end
 
@@ -674,8 +706,8 @@ local function write_local_exposure_block(block)
 	block.has_grid_tex = get_pipeline_texture("local_exposure_blur")() and 1 or 0
 	local view = View.GetActive()
 	local local_exposure = view and view.LocalExposure
-	block.local_shadows = local_exposure or render3d.local_exposure.shadows
-	block.local_highlights = local_exposure or render3d.local_exposure.highlights
+	block.local_shadows = local_exposure or local_exposure_shadows:Get()
+	block.local_highlights = local_exposure or local_exposure_highlights:Get()
 	block.local_max_stops = render3d.local_exposure.max_stops
 	block.local_headroom = render3d.local_exposure.headroom
 	block.local_slope = render3d.local_exposure.slope
@@ -721,7 +753,7 @@ do
 			block.bloom_strength = get_bloom_strength()
 			-- the history is only usable if it was written last frame at this size
 			block.history_valid = (
-					render3d.bloom_smear > 0 and
+					render3d.bloom_smear:Get() > 0 and
 					last_frame == frame - 1 and
 					last_width == size.x and
 					last_height == size.y
@@ -729,8 +761,8 @@ do
 				and
 				1 or
 				0
-			block.persistence = render3d.bloom_smear > 0 and
-				math.exp(-system.GetFrameTime() / render3d.bloom_smear) or
+			block.persistence = render3d.bloom_smear:Get() > 0 and
+				math.exp(-system.GetFrameTime() / render3d.bloom_smear:Get()) or
 				0
 			last_frame = frame
 			last_width, last_height = size.x, size.y
@@ -1007,20 +1039,20 @@ for _, pass in ipairs{
 				render.target:GetColorSpace() == "hdr10_st2084_ext" and
 				2 or
 				0
-			block.hdr_paper_white = render3d.hdr.paper_white
-			block.hdr_peak = render3d.hdr.peak
+			block.hdr_paper_white = hdr_paper_white:Get()
+			block.hdr_peak = hdr_peak:Get()
 			-- a float swapchain is quantized downstream: assume 8 bit for SDR
 			-- and 10 bit PQ for HDR
 			local bits = render.target:GetColorBits()
 
 			if bits >= 16 then bits = render.target:IsHDR() and 10 or 8 end
 
-			block.dither_steps = render3d.dither and 2 ^ bits - 1 or 0
-			block.tonemapper = render3d.tonemapper
+			block.dither_steps = dither:Get() and 2 ^ bits - 1 or 0
+			block.tonemapper = tonemappers[tonemapper:Get()]
 			block.bloom_strength = get_bloom_strength()
-			block.night_vision = render3d.exposure.mode == "eye" and render3d.night_vision.enabled and 1 or 0
-			block.night_vision_log10_threshold = math.log(render3d.night_vision.threshold) / math.log(10)
-			block.night_vision_tint = render3d.night_vision.tint
+			block.night_vision = exposure_mode:Get() == "eye" and night_vision_enabled:Get() and 1 or 0
+			block.night_vision_log10_threshold = math.log(night_vision_threshold:Get()) / math.log(10)
+			block.night_vision_tint = night_vision_tint:Get()
 			write_local_exposure_block(block)
 			return block
 		end,

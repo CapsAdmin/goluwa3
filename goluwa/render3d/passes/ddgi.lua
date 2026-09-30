@@ -958,7 +958,7 @@ local function pass_probe_debug()
 		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = {"compute", "fragment"}}},
 		uniform_buffers = {data_uniform()},
 		on_draw = function(self, cmd, fb, frame, desc)
-			if ddgi.DEBUG_PROBES == 0 then return end
+			if ddgi.GetDebugProbes() == 0 then return end
 
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(cmd, fb.width, fb.height, 1, desc, self.dynamic_offsets)

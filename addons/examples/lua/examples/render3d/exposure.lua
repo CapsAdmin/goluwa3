@@ -36,6 +36,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local shapes = import("lua/shapes.lua")
 local root = Entity.New{Name = "exposure_example"}
 
@@ -131,7 +132,7 @@ local function update_lamp()
 end
 
 update_lamp()
-weather.SetEnabled(false)
+pvars.SetSession("weather_enabled", false)
 
 commands.Add("exposure_lumen=number", function(value)
 	lumen = value

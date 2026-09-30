@@ -1,5 +1,6 @@
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
@@ -51,12 +52,39 @@ envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25 -- seconds between
 envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
 envprobe.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
 envprobe.enabled = true
-envprobe.reflection_probes_enabled = false
+pvars.StartGroup("envprobe", {store = false})
+envprobe.reflection_probes_enabled = pvars.Setup2{
+	key = "envprobe_reflection_probes",
+	default = false,
+	friendly = "reflection probes",
+	help = "capture reflection probes",
+	callback = function(value, is_init)
+		if value and not is_init then envprobe.MarkAllReflectionProbesDirty() end
+	end,
+}
+envprobe.auto_placement_enabled = pvars.Setup2{
+	key = "envprobe_auto_placement",
+	default = true,
+	friendly = "auto placement",
+	help = "place reflection probes on a grid around the camera",
+	callback = function(value, is_init)
+		if is_init then return end
+
+		if value then
+			envprobe.auto_last_update = 0
+		else
+			for key, probe in pairs(envprobe.auto_grid) do
+				envprobe.RemoveReflectionProbe(probe)
+				envprobe.auto_grid[key] = nil
+			end
+		end
+	end,
+}
+pvars.EndGroup()
 envprobe.capture_pipeline_flags = envprobe.capture_pipeline_flags or {
 	ssr = false,
 	ocean = true,
 }
-envprobe.auto_placement_enabled = envprobe.auto_placement_enabled ~= false
 envprobe.AUTO_PLACEMENT_SPACING = 24
 envprobe.AUTO_PLACEMENT_RADIUS_CELLS = 4
 envprobe.AUTO_PLACEMENT_MIN_RADIUS = 24
@@ -416,7 +444,7 @@ local function find_auto_placement_height(gx, gz, camera_y, spacing)
 end
 
 function envprobe.UpdateAutoPlacement(camera_position)
-	if not envprobe.auto_placement_enabled then return end
+	if not envprobe.auto_placement_enabled:Get() then return end
 
 	local now = system.GetTime()
 
@@ -454,19 +482,6 @@ function envprobe.UpdateAutoPlacement(camera_position)
 			envprobe.RemoveReflectionProbe(probe)
 			envprobe.auto_grid[key] = nil
 		end
-	end
-end
-
-function envprobe.SetAutoPlacementEnabled(enabled)
-	envprobe.auto_placement_enabled = enabled ~= false
-
-	if not envprobe.auto_placement_enabled then
-		for key, probe in pairs(envprobe.auto_grid) do
-			envprobe.RemoveReflectionProbe(probe)
-			envprobe.auto_grid[key] = nil
-		end
-	else
-		envprobe.auto_last_update = 0
 	end
 end
 
@@ -526,7 +541,7 @@ function envprobe.WriteProbeBlock(self, block, camera_position)
 	if
 		not (
 			envprobe.IsEnabled() and
-			envprobe.AreReflectionProbesEnabled() and
+			envprobe.reflection_probes_enabled:Get() and
 			render3d.ShouldUseProbeReflections()
 		)
 	then
@@ -607,7 +622,9 @@ event.AddListener("SpawnProbe", "envprobe", function(position, radius, update_mo
 end)
 
 event.AddListener("Update", "envprobe_auto_placement", function()
-	if not envprobe.enabled or not envprobe.reflection_probes_enabled then return end
+	if not envprobe.enabled or not envprobe.reflection_probes_enabled:Get() then
+		return
+	end
 
 	local camera = render3d.GetCamera()
 
@@ -1401,20 +1418,6 @@ function envprobe.IsEnabled()
 	return envprobe.enabled
 end
 
-function envprobe.SetReflectionProbesEnabled(enabled)
-	local value = enabled ~= false
-
-	if envprobe.reflection_probes_enabled == value then return end
-
-	envprobe.reflection_probes_enabled = value
-
-	if value then envprobe.MarkAllReflectionProbesDirty() end
-end
-
-function envprobe.AreReflectionProbesEnabled()
-	return envprobe.reflection_probes_enabled
-end
-
 function envprobe.SetStarsTexture(texture)
 	atmosphere.SetStarsTexture(texture)
 end
@@ -1484,7 +1487,7 @@ event.AddListener("PreRenderPass", "envprobe_update", function()
 
 	envprobe.UpdateEnvironmentProbe(cmd, sun_changed)
 
-	if envprobe.reflection_probes_enabled and #envprobe.probes > 0 then
+	if envprobe.reflection_probes_enabled:Get() and #envprobe.probes > 0 then
 		local now = system.GetTime()
 		local probe = select_probe_to_capture(now, render3d.GetCamera():GetPosition())
 
@@ -1510,22 +1513,12 @@ event.AddListener("PreRenderPass", "envprobe_update", function()
 	submit_probe_command_buffer(cmd, own_cmd)
 end)
 
-commands.Add("envprobe_reflection_probes=boolean[true]", function(enabled)
-	envprobe.SetReflectionProbesEnabled(enabled)
-	logf("[envprobe] reflection probes %s\n", enabled and "enabled" or "disabled")
-end)
-
-commands.Add("envprobe_auto_placement=boolean[true]", function(enabled)
-	envprobe.SetAutoPlacementEnabled(enabled)
-	logf("[envprobe] auto placement %s\n", enabled and "enabled" or "disabled")
-end)
-
 commands.Add("envprobe_spawn=number|nil,string|nil", function(radius, update_mode)
 	if update_mode == "" then update_mode = nil end
 
 	local position = render3d.GetCamera():GetPosition()
 	local probe, created = envprobe.EnsureReflectionProbe(position, radius, update_mode or envprobe.UPDATE_STATIC)
-	envprobe.SetReflectionProbesEnabled(true)
+	envprobe.reflection_probes_enabled:Set(true)
 	logf(
 		"[envprobe] %s reflection probe at (%.1f %.1f %.1f) radius %.1f\n",
 		created and "spawned" or "reused",

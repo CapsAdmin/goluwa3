@@ -1,7 +1,7 @@
 -- render3d first, material.lua can only load from inside it (material -> steam -> crylevel -> render3d -> material)
 local render3d = import("goluwa/render3d/render3d.lua")
 local event = import("goluwa/event.lua")
-local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -49,7 +49,19 @@ weather.time_scale = 0
 -- the drawn moon's size relative to the real 0.52 degrees, the eye sees it bigger than a camera does
 weather.moon_scale = 1
 -- off: no sun, moon, sky, air, fog, rain or snow, a black void
-weather.enabled = true
+pvars.StartGroup("weather", {store = false})
+local enabled = pvars.Setup2{
+	key = "weather_enabled",
+	default = true,
+	help = "the sun, sky and air",
+	callback = function(value, is_init)
+		if is_init then return end
+
+		atmosphere.SetEnabled(value)
+		weather.UpdateSky()
+	end,
+}
+pvars.EndGroup()
 weather.light = nil
 weather.shadow_maps = {}
 weather.shelter_caster = nil
@@ -395,14 +407,8 @@ function weather.GetMoonScale()
 end
 
 -- the directional light, aimed at whichever of the sun and the moon lights the ground more
-function weather.SetEnabled(enabled)
-	weather.enabled = enabled
-	atmosphere.SetEnabled(enabled)
-	weather.UpdateSky()
-end
-
 function weather.IsEnabled()
-	return weather.enabled
+	return enabled:Get()
 end
 
 function weather.GetLight()
@@ -458,9 +464,9 @@ function weather.UpdateSky()
 	weather.light.light_sun:SetColor(Color(color.x, color.y, color.z, 1))
 	-- the clouds' shadow map takes the direct light where they are, see render3d/clouds.lua
 	clouds.SetShadowDirection(dir)
-	weather.light.light_sun:SetLux(weather.enabled and illuminance or 0)
+	weather.light.light_sun:SetLux(enabled:Get() and illuminance or 0)
 	-- no shadow maps under an overcast without gaps
-	local transmittance = weather.enabled and
+	local transmittance = enabled:Get() and
 		math.max(color.x, color.y, color.z) * clouds.GetMaxTransmittance(dir)
 		or
 		0
@@ -554,7 +560,7 @@ function weather.Initialize()
 	event.AddListener("Update", "weather_shelter", function(dt)
 		weather.shelter_map:SetEnabled(
 			precipitation.IsActive() or
-				weather.enabled and
+				enabled:Get() and
 				(
 					surface_weather.wetness > 0 or
 					surface_weather.snow_depth > 0
@@ -607,9 +613,5 @@ function weather.Initialize()
 		weather.UpdateSky()
 	end)
 end
-
-commands.Add("weather_enabled=boolean[true]", function(enabled)
-	weather.SetEnabled(enabled)
-end)
 
 return weather

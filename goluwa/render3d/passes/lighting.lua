@@ -10,7 +10,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
@@ -23,12 +23,13 @@ local SCREEN_SHADOW_MIN_REACH = 0.5
 local SCREEN_SHADOW_MAX_REACH = 4
 local SCREEN_SHADOW_MAX_STEPS = 24
 local SCREEN_SHADOW_STRIDE = 1.5
-local debug_direct = 0
-
-commands.Add("lighting_debug_direct=boolean[true]", function(value)
-	debug_direct = value and 1 or 0
-end)
-
+pvars.StartGroup("lighting", {store = false})
+local debug_direct = pvars.Setup2{
+	key = "lighting_debug_direct",
+	default = false,
+	help = "show only the direct light",
+}
+pvars.EndGroup()
 return {
 	{
 		name = "lighting",
@@ -80,8 +81,8 @@ return {
 					gbuffer_layout.WriteBlock(self, block)
 					surface_weather.WriteRainSurfaceBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
-					block.gi_debug = ddgi.DEBUG_GI
-					block.direct_debug = debug_direct
+					block.gi_debug = ddgi.IsDebugGI() and 1 or 0
+					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
 
 					if render3d.pipelines.ambient_occlusion_blur then

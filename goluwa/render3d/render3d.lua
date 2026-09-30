@@ -10,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
 local system = import("goluwa/system.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -91,7 +92,14 @@ function render3d.WriteCommonBlock(self, block)
 	return block
 end
 
-render3d.velocity_enabled = render3d.velocity_enabled ~= false
+pvars.StartGroup("gbuffer", {store = false})
+render3d.velocity_enabled = pvars.Setup2{
+	key = "velocity_buffer",
+	default = true,
+	friendly = "velocity buffer",
+	help = "consumers follow moving surfaces, off they reproject through the previous camera only",
+}
+pvars.EndGroup()
 -- Material emissive multipliers are relative; this is the luminance a
 -- multiplier of 1 stands for. Anything that shades emissive surfaces itself
 -- (the gbuffer, GI hit shading) must scale by the same amount.
@@ -104,14 +112,6 @@ function render3d.GetEmissiveGLSL()
 	return (
 		"const float EMISSIVE_REFERENCE_LUMINANCE = %.1f;\nconst float EMISSIVE_MAX_LUMINANCE = %.1f;\n"
 	):format(render3d.EMISSIVE_REFERENCE_LUMINANCE, render3d.EMISSIVE_MAX_LUMINANCE)
-end
-
-function render3d.SetVelocityEnabled(enabled)
-	render3d.velocity_enabled = enabled ~= false
-end
-
-function render3d.IsVelocityEnabled()
-	return render3d.velocity_enabled
 end
 
 render3d.last_frame_block = {

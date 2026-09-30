@@ -11,7 +11,7 @@
 	render3d.GetEmissiveGLSL. All of it only when RAY_QUERY.
 ]]
 local render = import("goluwa/render/render.lua")
-local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -20,11 +20,13 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local scene_reflection = {}
 scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
 scene_reflection.MAX_DISTANCE = 1000
-local enabled = true
-
-commands.Add("reflection_ray_query=boolean[true]", function(value)
-	enabled = value
-end)
+pvars.StartGroup("reflection", {store = false})
+local enabled = pvars.Setup2{
+	key = "reflection_ray_query",
+	default = true,
+	help = "trace screen space reflection misses with ray queries",
+}
+pvars.EndGroup()
 
 -- bindings: scene, triangles, materials, light_grid
 function scene_reflection.GetDescriptorSets(bindings, stage)
@@ -102,7 +104,7 @@ function scene_reflection.GetDDGIUniformBuffer(binding)
 			end
 
 			-- also switches off the probes' visibility rays, only used by traced hits here
-			if not enabled then block.ddgi_rt_ready = 0 end
+			if not enabled:Get() then block.ddgi_rt_ready = 0 end
 
 			return block
 		end,

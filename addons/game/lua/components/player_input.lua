@@ -143,7 +143,8 @@ function META:OnUpdate(dt)
 	self.look_delta = system.GetWindow():GetMouseDelta() / self.MouseDivisor
 	self.look_nudge = Vec2()
 	self.move_local = Vec3()
-	self.mouse_trapped = system.GetWindow():GetMouseTrapped()
+	local window = system.GetWindow()
+	self.mouse_trapped = window:GetMouseTrapped() and not window:HasMouseTrapRequests()
 	self.roll_mode = input.IsMouseDown("button_2")
 	self.speed_multiplier = self:GetSpeedMultiplier(self.crouching)
 

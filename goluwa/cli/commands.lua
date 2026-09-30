@@ -905,15 +905,22 @@ do -- commands
 		if pvars then
 			local key, val = line:match("^([%w_]+)%s+(.+)")
 
-			if key and val and pvars.Get(key) ~= nil then
-				pvars.SetString(key, val)
-				logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
+			if key and val and pvars.IsSetup(key) then
+				local ok, err = pcall(pvars.SetString, key, val)
+
+				if ok then
+					logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
+				else
+					io.stderr:write(err, "\n")
+					io.stderr:flush()
+				end
+
 				return
 			end
 
 			local key = line:match("^([%w_]+)$")
 
-			if key and pvars.Get(key) ~= nil then
+			if key and pvars.IsSetup(key) then
 				logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
 				logn(pvars.GetObject(key):GetHelp())
 				return
@@ -934,15 +941,22 @@ do -- commands
 		local pvars = import("goluwa/cli/pvars.lua")
 		local key, val = line:match("^([%w_]+)%s+(.+)")
 
-		if key and val and pvars.Get(key) ~= nil then
-			pvars.SetString(key, val)
+		if key and val and pvars.IsSetup(key) then
+			local ok, err = pcall(pvars.SetString, key, val)
+
+			if not ok then
+				io.stderr:write(err, "\n")
+				io.stderr:flush()
+				return false, err
+			end
+
 			logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
 			return true
 		end
 
 		local key = line:match("^([%w_]+)$")
 
-		if key and pvars.Get(key) ~= nil then
+		if key and pvars.IsSetup(key) then
 			logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
 			logn(pvars.GetObject(key):GetHelp())
 			return true

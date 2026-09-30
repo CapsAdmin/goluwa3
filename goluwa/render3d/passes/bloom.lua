@@ -1,7 +1,7 @@
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
-local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 -- Glare: the light scattered inside the eye. Stiles and Holladay's disability
@@ -26,19 +26,23 @@ local ENERGY_PER_OCTAVE = 0.0191 * math.log(2)
 -- past 30 the veil is spread evenly over most of the screen anyway
 local MIN_DEGREES = 0.1
 local MAX_DEGREES = 30
-render3d.bloom_strength = 1
+pvars.StartGroup("bloom", {store = false})
+render3d.bloom_strength = pvars.Setup2{
+	key = "r_bloom_strength",
+	default = 1,
+	min = 0,
+	help = "scales the share of the light the glare takes",
+}
 -- how long in seconds a bright highlight's glare lingers where it was on screen,
 -- smearing it along the way when it or the camera moves (see passes/blit.lua).
 -- 0 is off
-render3d.bloom_smear = 0
-
-commands.Add("r_bloom_strength=number[1]", function(value)
-	render3d.bloom_strength = value
-end)
-
-commands.Add("r_bloom_smear=number[0.1]", function(value)
-	render3d.bloom_smear = value
-end)
+render3d.bloom_smear = pvars.Setup2{
+	key = "r_bloom_smear",
+	default = 0,
+	min = 0,
+	help = "seconds a bright highlight's glare lingers on screen, 0 is off",
+}
+pvars.EndGroup()
 
 -- the weight each level is added in with, normalized, and their total
 do

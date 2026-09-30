@@ -478,6 +478,8 @@ return function(props)
 				info.panel = self
 			end,
 			Name = "PropertyLabelRow",
+			Tooltip = entry.node.Description,
+			TooltipMaxWidth = 420,
 			transform = true,
 			layout = {
 				Direction = "x",
@@ -494,6 +496,10 @@ return function(props)
 					self.Owner:SetState("alternate", is_alternate)
 					self.Owner:SetState("hovered", info.is_hovered)
 					theme.active:Draw(self.Owner)
+
+					if entry.node.Default ~= nil and entry.node.Value ~= entry.node.Default then
+						theme.active:DrawRoundRect(0, 0, 3, self.Owner.transform:GetSize().y, 0, theme.active:GetColor("primary"), 1)
+					end
 				end,
 			},
 			mouse_input = {
@@ -547,6 +553,8 @@ return function(props)
 
 		return Panel.New{
 			Name = "PropertyEditorRow",
+			Tooltip = entry.node.Description,
+			TooltipMaxWidth = 420,
 			transform = true,
 			layout = {
 				Direction = "x",

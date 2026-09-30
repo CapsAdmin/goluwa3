@@ -104,6 +104,10 @@ function Window:PopMouseTrapRequest(id)
 	return self:UpdateMouseTrapState()
 end
 
+function Window:HasMouseTrapRequests()
+	return self.mouse_trap_requests ~= nil
+end
+
 function Window:SetMouseTrapped(b)
 	b = not not b
 	self.MouseTrapped = b

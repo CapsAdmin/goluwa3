@@ -85,9 +85,7 @@ local function get_probe_debug_color(index, probe)
 		return Color(0.35, 0.65, 1.0, 0.16)
 	end
 
-	if probe == envprobe.current_probe then
-		return Color(1.0, 0.55, 0.2, 0.22)
-	end
+	if probe == envprobe.current_probe then return Color(1.0, 0.55, 0.2, 0.22) end
 
 	if probe.needs_update then return Color(1.0, 0.86, 0.2, 0.18) end
 
@@ -464,7 +462,7 @@ local function dump_envprobe(limit)
 	logf(
 		"[envprobe] enabled=%s reflection_probes=%s count=%d current_face=%d\n",
 		tostring(envprobe.enabled == true),
-		tostring(envprobe.reflection_probes_enabled == true),
+		tostring(envprobe.reflection_probes_enabled:Get()),
 		#envprobe.probes,
 		envprobe.current_face or 0
 	)
