@@ -530,12 +530,12 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 			float DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 normal, vec3 light_dir) {
 				float shadow = calculateShadowUnfaded(world_pos, normal, light_dir);
 
-				#ifdef SHADOW_CONTACT_RAYS
-				// the offsets that keep a surface from shadowing itself also carry
-				// the lookup past an occluder closer than them, like the other
-				// side of a thin fold, so that span is traced instead
+				#ifdef SHADOW_SCREEN_SPACE
+				// the shadow maps' texels are too coarse for detail like grass, and their
+				// offsets against self shadowing carry the lookup past close occluders,
+				// so what the gbuffer shows is marched on top
 				if (shadow > 0.0) {
-					shadow *= shadow_contact_visibility(world_pos, normal, light_dir, SHADOW_CONTACT_TEXELS * shadow_texel_world_size);
+					shadow *= screen_space_shadow_visibility(world_pos, normal, light_dir, shadow_texel_world_size);
 				}
 				#endif
 

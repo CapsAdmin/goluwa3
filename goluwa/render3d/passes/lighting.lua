@@ -1,12 +1,10 @@
 local system = import("goluwa/system.lua")
-local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
@@ -18,11 +16,13 @@ local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
-local BINDING_SCENE = 6
-local RAY_QUERY = render.GetDevice().ray_query_supported
--- how many texels of the cascade in use the sun's contact ray reaches, past
--- the few its lookup offsets skip
-local SHADOW_CONTACT_TEXELS = 8
+-- how far the sun's screen space shadow reaches: this many texels of the
+-- cascade in use, within these limits in meters
+local SCREEN_SHADOW_TEXELS = 8
+local SCREEN_SHADOW_MIN_REACH = 0.5
+local SCREEN_SHADOW_MAX_REACH = 4
+local SCREEN_SHADOW_MAX_STEPS = 24
+local SCREEN_SHADOW_STRIDE = 1.5
 local debug_direct = 0
 
 commands.Add("lighting_debug_direct=boolean[true]", function(value)
@@ -46,28 +46,9 @@ return {
 			},
 		},
 		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
-		descriptor_sets = RAY_QUERY and
-			{
-				{
-					type = "acceleration_structure_khr",
-					binding_index = BINDING_SCENE,
-					stageFlags = "compute",
-				},
-			} or
-			nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			light_occlusion.Draw(cmd)
 			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
-
-			if RAY_QUERY then
-				self:UpdateDescriptorSet(
-					"acceleration_structure_khr",
-					desc,
-					BINDING_SCENE,
-					0,
-					scene_bvh.EnsureRTBuilt(cmd) or scene_bvh.GetPlaceholderTLAS(cmd)
-				)
-			end
 		end,
 		sampled_images = {
 			{
@@ -126,29 +107,8 @@ return {
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. (
-				RAY_QUERY and
-				[[
-			#extension GL_EXT_ray_query : require
-			#define SHADOW_CONTACT_RAYS
-			#define SHADOW_CONTACT_TEXELS ]] .. string.format("%.1f", SHADOW_CONTACT_TEXELS) .. [[
-
-			layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT shadow_scene;
-
-			float shadow_contact_visibility(vec3 world_pos, vec3 normal, vec3 light_dir, float reach) {
-				rayQueryEXT query;
-				// off the surface by more than depth reconstruction's error,
-				// which grows with distance like the cascades' texels
-				vec3 origin = world_pos + normal * (0.01 + 0.05 * reach);
-				rayQueryInitializeEXT(query, shadow_scene, gl_RayFlagsCullNoOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, light_dir, reach);
-
-				while (rayQueryProceedEXT(query)) {}
-
-				return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
-			}
-		]] or
-				""
-			),
+			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. [[
+		]],
 		shader = compute_helpers.GetScreenHelpersGLSL() .. [[
 			vec2 get_compute_uv() {
 				return get_screen_uv(get_screen_pos(), imageSize(out_color));
@@ -166,6 +126,67 @@ return {
 			}
 
 			]] .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. surface_weather.GetRainSurfaceGLSL("lighting_data") .. [[
+
+			#define SHADOW_SCREEN_SPACE
+
+			// marches the depth buffer from the surface towards the sun. what the gbuffer holds,
+			// grass and other detail the shadow maps are too coarse for included, shadows it.
+			// what is off screen doesn't
+			float screen_space_shadow_visibility(vec3 world_pos, vec3 normal, vec3 light_dir, float texel_world_size) {
+				float reach = clamp(texel_world_size * ]] .. string.format("%.1f", SCREEN_SHADOW_TEXELS) .. [[, ]] .. string.format("%.2f", SCREEN_SHADOW_MIN_REACH) .. [[, ]] .. string.format("%.2f", SCREEN_SHADOW_MAX_REACH) .. [[);
+				vec3 start_vs = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
+				// off the surface by more than the depth reconstruction's error, which grows with distance
+				start_vs += mat3(lighting_data.view) * normal * (0.004 + 0.001 * -start_vs.z);
+				vec3 dir_vs = mat3(lighting_data.view) * light_dir;
+				float ray_len = reach;
+
+				if (start_vs.z + dir_vs.z * ray_len > -0.05) ray_len = (-0.05 - start_vs.z) / dir_vs.z;
+
+				if (ray_len <= 1e-4) return 1.0;
+
+				vec3 end_vs = start_vs + dir_vs * ray_len;
+				vec4 h0 = lighting_data.projection * vec4(start_vs, 1.0);
+				vec4 h1 = lighting_data.projection * vec4(end_vs, 1.0);
+				float k0 = 1.0 / h0.w;
+				float k1 = 1.0 / h1.w;
+				vec2 p0 = h0.xy * k0 * 0.5 + 0.5;
+				vec2 p1 = h1.xy * k1 * 0.5 + 0.5;
+				float q0 = start_vs.z * k0;
+				float q1 = end_vs.z * k1;
+				ivec2 depth_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
+				vec2 delta_px = (p1 - p0) * vec2(depth_size);
+				int steps = clamp(int(max(abs(delta_px.x), abs(delta_px.y)) / ]] .. string.format("%.2f", SCREEN_SHADOW_STRIDE) .. [[), 2, ]] .. SCREEN_SHADOW_MAX_STEPS .. [[);
+				float dt = 1.0 / float(steps);
+				// interleaved gradient noise, moved on every frame so the taa resolves the banding of the steps
+				float jitter = fract(52.9829189 * fract(dot(gl_GlobalInvocationID.xy, vec2(0.06711056, 0.00583715))) + float(int(lighting_data.time * 60.0) % 16) * 0.618034);
+				float step_z = abs(dir_vs.z) * ray_len * dt;
+				float depth_a = lighting_data.inv_projection[2][2];
+				float depth_b = lighting_data.inv_projection[3][2];
+				float depth_c = lighting_data.inv_projection[2][3];
+				float depth_d = lighting_data.inv_projection[3][3];
+
+				for (int i = 0; i < steps; i++) {
+					float t = (float(i) + jitter) * dt;
+					vec2 uv = mix(p0, p1, t);
+
+					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 1.0;
+
+					float depth = texelFetch(TEXTURE(lighting_data.depth_tex), min(ivec2(uv * vec2(depth_size)), depth_size - 1), 0).r;
+
+					if (depth >= 1.0) continue;
+
+					float z_surf = (depth_a * depth + depth_b) / (depth_c * depth + depth_d);
+					float z_ray = mix(q0, q1, t) / mix(k0, k1, t);
+					float diff = z_surf - z_ray;
+					float bias = 0.005 + 0.002 * -z_surf;
+					float thickness = 0.05 + 0.005 * -z_surf + step_z;
+
+					// fades out towards the end of the reach, so it doesn't end in an edge
+					if (diff > bias && diff < thickness) return smoothstep(0.7, 1.0, t);
+				}
+
+				return 1.0;
+			}
 
 			]] .. surface_lighting.GetGLSL("lighting_data") .. [[
 
