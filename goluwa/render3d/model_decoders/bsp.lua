@@ -1699,15 +1699,21 @@ function steam.LoadMap(path)
 	header.ocean_level = nil
 
 	do
-		local function add_vertex(model, texinfo, texdata, in_sky, pos, blend)
+		local function add_vertex(model, texinfo, texdata, in_sky, pos, blend, uv_pos, disp_normal)
 			local a = texinfo.textureVecs
+			-- displacements are mapped as the flat surface they displace
+			local uv_source = uv_pos or pos
 
 			if blend then blend = blend / 255 else blend = 0 end
 
 			blend = math.clamp(blend, 0, 1)
 			local uv = Vec2(
-				(a[1] * pos.x + a[2] * pos.y + a[3] * pos.z + a[4]) / texdata.width,
-				(a[5] * pos.x + a[6] * pos.y + a[7] * pos.z + a[8]) / texdata.height
+				(
+						a[1] * uv_source.x + a[2] * uv_source.y + a[3] * uv_source.z + a[4]
+					) / texdata.width,
+				(
+						a[5] * uv_source.x + a[6] * uv_source.y + a[7] * uv_source.z + a[8]
+					) / texdata.height
 			)
 
 			if in_sky then pos = (pos - sky_origin) * sky_scale end
@@ -1720,6 +1726,7 @@ function steam.LoadMap(path)
 				pos = Vec3(-pos.y, pos.z, -pos.x) * steam.source2meters,
 				texture_blend = blend,
 				uv = uv,
+				disp_normal = disp_normal,
 			}
 
 			if model.AddVertex then
@@ -1748,6 +1755,7 @@ function steam.LoadMap(path)
 						local mid = {
 							pos = prev.pos + (vertex.pos - prev.pos) * t,
 							blend = prev.blend + (vertex.blend - prev.blend) * t,
+							flat = prev.flat and prev.flat + (vertex.flat - prev.flat) * t,
 						}
 						list.insert(below, mid)
 						list.insert(above, mid)
@@ -1762,9 +1770,36 @@ function steam.LoadMap(path)
 
 			local function add_polygon(mesh, texinfo, texdata, polygon)
 				for i = 2, #polygon - 1 do
-					add_vertex(mesh, texinfo, texdata, true, polygon[1].pos, polygon[1].blend)
-					add_vertex(mesh, texinfo, texdata, true, polygon[i].pos, polygon[i].blend)
-					add_vertex(mesh, texinfo, texdata, true, polygon[i + 1].pos, polygon[i + 1].blend)
+					add_vertex(
+						mesh,
+						texinfo,
+						texdata,
+						true,
+						polygon[1].pos,
+						polygon[1].blend,
+						polygon[1].flat,
+						polygon[1].dn
+					)
+					add_vertex(
+						mesh,
+						texinfo,
+						texdata,
+						true,
+						polygon[i].pos,
+						polygon[i].blend,
+						polygon[i].flat,
+						polygon[i].dn
+					)
+					add_vertex(
+						mesh,
+						texinfo,
+						texdata,
+						true,
+						polygon[i + 1].pos,
+						polygon[i + 1].blend,
+						polygon[i + 1].flat,
+						polygon[i + 1].dn
+					)
 				end
 			end
 
@@ -1787,17 +1822,32 @@ function steam.LoadMap(path)
 		local function lerp_corners(dims, corners, start_corner, dispinfo, x, y)
 			local index = (y - 1) * dims + x
 			local data = dispinfo.heightmap[index]
-			return math3d.BilerpVec3(
-					corners[1 + (start_corner + 0) % 4],
-					corners[1 + (start_corner + 1) % 4],
-					corners[1 + (start_corner + 3) % 4],
-					corners[1 + (start_corner + 2) % 4],
-					(y - 1) / (dims - 1),
-					(x - 1) / (dims - 1)
-				) + (
-					data.pos * data.dist
-				),
-			data.alpha
+			local flat = math3d.BilerpVec3(
+				corners[1 + (start_corner + 0) % 4],
+				corners[1 + (start_corner + 1) % 4],
+				corners[1 + (start_corner + 3) % 4],
+				corners[1 + (start_corner + 2) % 4],
+				(y - 1) / (dims - 1),
+				(x - 1) / (dims - 1)
+			)
+			return flat + data.pos * data.dist, data.alpha, flat
+		end
+
+		-- Displacement normals come from the displacement's own grid instead of
+		-- smoothing the merged mesh: each patch adds the area weighted normals of
+		-- its triangles to its grid vertices, and vertices on a patch's edge
+		-- share one accumulator with the coincident vertices of its neighbours.
+		local welded_normals = {}
+		local disp_x, disp_y, disp_z = {}, {}, {}
+		local disp_nx, disp_ny, disp_nz = {}, {}, {}
+
+		local function accumulate_triangle(i, j, k)
+			local ux, uy, uz = disp_x[k] - disp_x[i], disp_y[k] - disp_y[i], disp_z[k] - disp_z[i]
+			local vx, vy, vz = disp_x[j] - disp_x[i], disp_y[j] - disp_y[i], disp_z[j] - disp_z[i]
+			local nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+			disp_nx[i], disp_ny[i], disp_nz[i] = disp_nx[i] + nx, disp_ny[i] + ny, disp_nz[i] + nz
+			disp_nx[j], disp_ny[j], disp_nz[j] = disp_nx[j] + nx, disp_ny[j] + ny, disp_nz[j] + nz
+			disp_nx[k], disp_ny[k], disp_nz[k] = disp_nx[k] + nx, disp_ny[k] + ny, disp_nz[k] + nz
 		end
 
 		local meshes = {}
@@ -1838,7 +1888,11 @@ function steam.LoadMap(path)
 					local mesh = RENDER_2D and Polygon3D.New() or {}
 					local material_path = "materials/" .. texname .. ".vmt"
 					local material = RENDER_2D and Material.FromVMT(material_path)
-					meshes[key] = {mesh = mesh, material = material, visibility_group = group}
+					meshes[key] = {
+						mesh = mesh,
+						material = material,
+						visibility_group = group,
+					}
 
 					if RENDER_2D then
 						mesh:SetName(path .. ": " .. texname)
@@ -1891,13 +1945,64 @@ function steam.LoadMap(path)
 						local info = header.displacements[face.dispinfo + 1]
 						local corners, start_corner = get_displacement_corners(header, info)
 						local dims = 2 ^ info.power + 1
+						local positions, blends, flats, normals = {}, {}, {}, {}
+						local scale = steam.source2meters
+
+						for y = 1, dims do
+							for x = 1, dims do
+								local i = (y - 1) * dims + x
+								local pos, blend, flat = lerp_corners(dims, corners, start_corner, info, x, y)
+								positions[i], blends[i], flats[i] = pos, blend, flat
+								disp_x[i], disp_y[i], disp_z[i] = -pos.y * scale, pos.z * scale, -pos.x * scale
+								disp_nx[i], disp_ny[i], disp_nz[i] = 0, 0, 0
+							end
+						end
 
 						for x = 1, dims - 1 do
 							for y = 1, dims - 1 do
-								local a, a_blend = lerp_corners(dims, corners, start_corner, info, x, y + 1)
-								local b, b_blend = lerp_corners(dims, corners, start_corner, info, x, y)
-								local c, c_blend = lerp_corners(dims, corners, start_corner, info, x + 1, y + 1)
-								local d, d_blend = lerp_corners(dims, corners, start_corner, info, x + 1, y)
+								local a = y * dims + x
+								local b = (y - 1) * dims + x
+								local c = a + 1
+								local d = b + 1
+								accumulate_triangle(a, c, b)
+								accumulate_triangle(c, d, b)
+							end
+						end
+
+						for y = 1, dims do
+							for x = 1, dims do
+								local i = (y - 1) * dims + x
+
+								if x == 1 or y == 1 or x == dims or y == dims then
+									local pos = positions[i]
+									local key = (
+											(
+												math.floor(pos.x * 4 + 0.5) + 65536
+											) * 131072 + math.floor(pos.y * 4 + 0.5) + 65536
+										) * 131072 + math.floor(pos.z * 4 + 0.5) + 65536
+									local normal = welded_normals[key]
+
+									if not normal then
+										normal = Vec3(0, 0, 0)
+										welded_normals[key] = normal
+									end
+
+									normal.x = normal.x + disp_nx[i]
+									normal.y = normal.y + disp_ny[i]
+									normal.z = normal.z + disp_nz[i]
+									normals[i] = normal
+								else
+									normals[i] = Vec3(disp_nx[i], disp_ny[i], disp_nz[i])
+								end
+							end
+						end
+
+						for x = 1, dims - 1 do
+							for y = 1, dims - 1 do
+								local a = y * dims + x
+								local b = (y - 1) * dims + x
+								local c = a + 1
+								local d = b + 1
 
 								if in_sky then
 									add_sky_polygon(
@@ -1905,9 +2010,9 @@ function steam.LoadMap(path)
 										texinfo,
 										texdata,
 										{
-											{pos = a, blend = a_blend},
-											{pos = c, blend = c_blend},
-											{pos = b, blend = b_blend},
+											{pos = positions[a], blend = blends[a], flat = flats[a], dn = normals[a]},
+											{pos = positions[c], blend = blends[c], flat = flats[c], dn = normals[c]},
+											{pos = positions[b], blend = blends[b], flat = flats[b], dn = normals[b]},
 										}
 									)
 									add_sky_polygon(
@@ -1915,20 +2020,19 @@ function steam.LoadMap(path)
 										texinfo,
 										texdata,
 										{
-											{pos = c, blend = c_blend},
-											{pos = d, blend = d_blend},
-											{pos = b, blend = b_blend},
+											{pos = positions[c], blend = blends[c], flat = flats[c], dn = normals[c]},
+											{pos = positions[d], blend = blends[d], flat = flats[d], dn = normals[d]},
+											{pos = positions[b], blend = blends[b], flat = flats[b], dn = normals[b]},
 										}
 									)
 								else
 									-- CW winding (matches coordinate transform from Source)
-									add_vertex(mesh, texinfo, texdata, false, a, a_blend)
-									add_vertex(mesh, texinfo, texdata, false, c, c_blend)
-									add_vertex(mesh, texinfo, texdata, false, b, b_blend)
-									-- 
-									add_vertex(mesh, texinfo, texdata, false, c, c_blend)
-									add_vertex(mesh, texinfo, texdata, false, d, d_blend)
-									add_vertex(mesh, texinfo, texdata, false, b, b_blend)
+									add_vertex(mesh, texinfo, texdata, false, positions[a], blends[a], flats[a], normals[a])
+									add_vertex(mesh, texinfo, texdata, false, positions[c], blends[c], flats[c], normals[c])
+									add_vertex(mesh, texinfo, texdata, false, positions[b], blends[b], flats[b], normals[b])
+									add_vertex(mesh, texinfo, texdata, false, positions[c], blends[c], flats[c], normals[c])
+									add_vertex(mesh, texinfo, texdata, false, positions[d], blends[d], flats[d], normals[d])
+									add_vertex(mesh, texinfo, texdata, false, positions[b], blends[b], flats[b], normals[b])
 								end
 							end
 						end
@@ -1940,8 +2044,6 @@ function steam.LoadMap(path)
 								list.insert(displacement_collision_meshes, collision_shape)
 							end
 						end
-
-						mesh.smooth_normals = true
 					end
 				end
 
@@ -1972,6 +2074,16 @@ function steam.LoadMap(path)
 				b.normal = normal
 				c.normal = normal
 
+				for k = 0, 2 do
+					local vertex = vertices[i + k]
+					local disp_normal = vertex.disp_normal
+
+					if disp_normal and (disp_normal.x ~= 0 or disp_normal.y ~= 0 or disp_normal.z ~= 0) then
+						disp_normal:Normalize()
+						vertex.normal = disp_normal
+					end
+				end
+
 				if i % 3000 == 0 then tasks.Wait() end
 			end
 
@@ -1981,13 +2093,6 @@ function steam.LoadMap(path)
 
 		for _, data in ipairs(models) do
 			data.mesh:BuildBoundingBox()
-			tasks.Wait()
-		end
-
-		for _, data in ipairs(models) do
-			if data.mesh.smooth_normals then data.mesh:SmoothNormals() end
-
-			tasks.Report("smoothing displacements", #models)
 			tasks.Wait()
 		end
 
