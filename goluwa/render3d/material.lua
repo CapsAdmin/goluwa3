@@ -1578,8 +1578,7 @@ do
 			self:SetError(err)
 		end)
 
-		--if tasks.GetActiveTask() then pcall(cb.Get, cb) end
-		if tasks.GetActiveTask() then cb:Get() end
+		if tasks.GetActiveTask() then cb:TryGet() end
 
 		record_material_cache_request("vmt", cache_key, self)
 		return self
