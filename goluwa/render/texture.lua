@@ -565,6 +565,8 @@ function Texture.New(config)
 
 			if ok and img_or_err then
 				load(img_or_err)
+				-- pipelines registered it with the fallback's view
+				import("goluwa/event.lua").Call("TextureViewChanged", self)
 			else
 				if ok == false then
 					debug.trace()

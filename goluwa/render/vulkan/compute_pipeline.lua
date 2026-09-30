@@ -278,6 +278,10 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 		self:ReleaseViewIndex(removed_tex)
 	end)
 
+	event.AddListener("TextureViewChanged", self, function(tex)
+		self:RefreshTextureView(tex)
+	end)
+
 	return self
 end
 

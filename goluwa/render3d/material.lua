@@ -11,7 +11,11 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Material = objects.CreateTemplate("render3d_material")
 -- textures
 Material:StartStorable()
-Material:GetSet("AlbedoTexture", nil, {type = "render_texture"})
+Material:GetSet(
+	"AlbedoTexture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("HeightTexture", nil, {type = "render_texture", callback = "InvalidateHeightMap"})
 Material:GetSet("MetallicRoughnessTexture", nil, {type = "render_texture"})
@@ -25,11 +29,31 @@ Material:GetSet("Albedo2Texture", nil, {type = "render_texture"})
 Material:GetSet("Normal2Texture", nil, {type = "render_texture"})
 Material:GetSet("BlendTexture", nil, {type = "render_texture"})
 Material:GetSet("DetailTexture", nil, {type = "render_texture"})
-Material:GetSet("TerrainMaterialTexture", nil, {type = "render_texture"})
-Material:GetSet("TerrainLayer1Texture", nil, {type = "render_texture"})
-Material:GetSet("TerrainLayer2Texture", nil, {type = "render_texture"})
-Material:GetSet("TerrainLayer3Texture", nil, {type = "render_texture"})
-Material:GetSet("TerrainLayer4Texture", nil, {type = "render_texture"})
+Material:GetSet(
+	"TerrainMaterialTexture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
+Material:GetSet(
+	"TerrainLayer1Texture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
+Material:GetSet(
+	"TerrainLayer2Texture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
+Material:GetSet(
+	"TerrainLayer3Texture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
+Material:GetSet(
+	"TerrainLayer4Texture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
 Material:GetSet("TerrainLayer1NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer2NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer3NormalTexture", nil, {type = "render_texture"})
@@ -46,7 +70,11 @@ Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
 -- the luminance scales DiffuseTransmission
 Material:GetSet("TransmissionTexture", nil, {type = "render_texture"})
 -- multipliers
-Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0))
+Material:GetSet(
+	"ColorMultiplier",
+	Color(1.0, 1.0, 1.0, 1.0),
+	{callback = "InvalidateRayMaterial"}
+)
 Material:GetSet(
 	"EmissiveMultiplier",
 	Color(1.0, 1.0, 1.0, 1.0),
@@ -61,14 +89,22 @@ Material:GetSet("TerrainLayerRoughness", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerAmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
 -- 0 uses a layer's albedo as is with alpha as roughness, above 0 the layer only adds its color variation
 -- around its average color to the albedo texture, with that strength, and its alpha is ignored
-Material:GetSet("TerrainLayerDetailStrength", Color(0.0, 0.0, 0.0, 0.0))
+Material:GetSet(
+	"TerrainLayerDetailStrength",
+	Color(0.0, 0.0, 0.0, 0.0),
+	{callback = "InvalidateRayMaterial"}
+)
 -- above 0 a detail layer is added to the gamma encoded albedo texture around 0.5 with its strength, like cry
 -- terrain layers, and the sum is multiplied by this
-Material:GetSet("TerrainLayerAdditiveDetail", Color(0.0, 0.0, 0.0, 0.0))
+Material:GetSet(
+	"TerrainLayerAdditiveDetail",
+	Color(0.0, 0.0, 0.0, 0.0),
+	{callback = "InvalidateRayMaterial"}
+)
 -- SpecularMultiplier per layer
 Material:GetSet("TerrainLayerSpecular", Color(1.0, 1.0, 1.0, 1.0))
 -- min x, min z and size of the world square TerrainMaterialTexture covers, for lookups without uvs (ray hits)
-Material:GetSet("TerrainBounds", Vec3(0, 0, 0))
+Material:GetSet("TerrainBounds", Vec3(0, 0, 0), {callback = "InvalidateRayMaterial"})
 -- with Grass, how much grass grows where each layer is, 0 to 1. grass thins and shortens across layer transitions
 Material:GetSet("TerrainLayerGrass", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)
@@ -299,6 +335,16 @@ function Material:InvalidateEmission()
 	Material.emission_dirty_materials[self] = true
 end
 
+-- bumped whenever a property changes that ray hits read from ddgi's material
+-- buffer, and stamped on the material so only its entry is rewritten
+Material.ray_material_generation = 0
+Material.ray_material_stamp = 0
+
+function Material:InvalidateRayMaterial()
+	Material.ray_material_generation = Material.ray_material_generation + 1
+	self.ray_material_stamp = Material.ray_material_generation
+end
+
 function Material:InvalidateHeightMap()
 	Material.flags_generation = Material.flags_generation + 1
 	self:InvalidateSceneKey()
@@ -308,6 +354,7 @@ function Material:InvalidateFlags()
 	Material.flags_generation = Material.flags_generation + 1
 	self:InvalidateSceneKey()
 	self:InvalidateEmission()
+	self:InvalidateRayMaterial()
 	local flags = 0
 
 	for i, flag_name in ipairs(FLAGS) do

@@ -281,6 +281,7 @@ local function release_texture_index(self, tex, set_index)
 		slot.registry[tex] = nil
 		table.insert(slot.free_list, index)
 		slot.array[index + 1] = build_texture_descriptor_entry(self)
+		self.texture_index_releases = self.texture_index_releases + 1
 		mark_all_descriptor_frames_dirty(self)
 	end
 end
@@ -428,6 +429,25 @@ local function get_view_index(self, tex)
 	return acquire_view_index(self, tex)
 end
 
+-- descriptor entries hold the view a texture had when it was registered, so a
+-- texture that swaps its view (an async load replacing the fallback) is
+-- refreshed here instead of relying on callers to ask for its index again
+local function refresh_texture_view(self, tex)
+	if self.texture_slot.registry[tex] then
+		acquire_texture_index(self, self.texture_slot, tex)
+	end
+
+	if self.cubemap_slot.registry[tex] then
+		acquire_texture_index(self, self.cubemap_slot, tex)
+	end
+
+	if self.view_slot.registry[tex] then acquire_view_index(self, tex) end
+end
+
+local function get_texture_index_releases(self)
+	return self.texture_index_releases
+end
+
 -- ============================================================
 -- SECTION 5c: Decoupled Sampler Registry (sampler-only bindless array)
 -- ============================================================
@@ -473,6 +493,9 @@ function pipeline_common.bind_texture_registry(META)
 		self.texture_array = {}
 		self.next_texture_index = 0
 		self.texture_free_list = {}
+		-- bumped whenever an index is freed for reuse, which invalidates any
+		-- index a caller stored
+		self.texture_index_releases = 0
 		self.cubemap_registry = setmetatable({}, {__mode = "k"})
 		self.cubemap_array = {}
 		self.next_cubemap_index = 0
@@ -517,6 +540,8 @@ function pipeline_common.bind_texture_registry(META)
 	META.GetCubeMapTextureIndex = get_cubemap_texture_index
 	META.ReleaseTextureIndex = release_texture_index
 	META.GetViewIndex = get_view_index
+	META.RefreshTextureView = refresh_texture_view
+	META.GetTextureIndexReleases = get_texture_index_releases
 	META.ReleaseViewIndex = release_view_index
 	META.GetSamplerIndex = get_sampler_index
 end

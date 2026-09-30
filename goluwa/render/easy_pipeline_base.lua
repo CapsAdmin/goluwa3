@@ -648,6 +648,10 @@ do
 		return self.pipeline:GetTextureIndex(texture, 1)
 	end
 
+	function EasyPipeline:GetTextureIndexReleases()
+		return self.pipeline:GetTextureIndexReleases()
+	end
+
 	function EasyPipeline:GetCubeMapTextureIndex(texture)
 		return self.pipeline:GetCubeMapTextureIndex(texture, 1)
 	end

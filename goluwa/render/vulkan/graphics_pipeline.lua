@@ -2063,6 +2063,10 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		self:ReleaseViewIndex(removed_tex)
 	end)
 
+	event.AddListener("TextureViewChanged", self, function(tex)
+		self:RefreshTextureView(tex)
+	end)
+
 	-- Initialize all descriptor sets with the same initial bindings
 	for frame_index = 1, descriptor_set_count do
 		for i, stage in ipairs(config.shader_stages) do
@@ -2320,6 +2324,7 @@ end
 function GraphicsPipeline:OnRemove()
 	local event = import("goluwa/event.lua")
 	event.RemoveListener("TextureRemoved", self)
+	event.RemoveListener("TextureViewChanged", self)
 
 	if self.descriptorPools then
 		for _, pool in pairs(self.descriptorPools) do

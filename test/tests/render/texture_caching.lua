@@ -152,3 +152,24 @@ T.Test3D("Texture decoding is rerun after texture cache clear", function()
 		T(decode_calls)["=="](2)
 	end)
 end)
+
+T.Test2D("Pipeline descriptors follow an async texture's view once it loads", function()
+	local render2d = import("goluwa/render2d/render2d.lua")
+	local pipeline = render2d.pipeline.pipeline
+	local pending = callback.Create()
+
+	with_stubbed_texture_loading(function(path)
+		return pending
+	end, function(path)
+		return make_decoded_rgba(0, 255, 0, 255)
+	end, function()
+		local tex = Texture.New{path = "textures/pipeline_view_refresh.png"}
+		local index = pipeline:GetTextureIndex(tex)
+		local fallback_view = tex:GetView()
+		T(pipeline.texture_array[index + 1].view == fallback_view)["=="](true)
+		pending:Resolve("os:fake/pipeline_view_refresh.png")
+		T(tex:GetView() ~= fallback_view)["=="](true)
+		T(pipeline.texture_array[index + 1].view == tex:GetView())["=="](true)
+		T(pipeline:GetTextureIndex(tex))["=="](index)
+	end)
+end)

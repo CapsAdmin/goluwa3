@@ -367,16 +367,33 @@ T.Test3D("Graphics render3d ddgi material buffer marks materials without an albe
 	scene_bvh.Build()
 	local ok, err = pcall(function()
 		local id = scene_bvh.GetMaterialID(material)
+		local releases = 0
 		local pipeline = {
 			GetTextureIndex = function()
 				return 7
 			end,
+			GetTextureIndexReleases = function()
+				return releases
+			end,
 		}
 		local buffer = ddgi.WriteMaterialBuffer(pipeline)
-		-- albedo[3], albedo_tex, double_sided
-		local entry = ffi.cast("int32_t *", buffer:Map(0, buffer:GetSize())) + id * 5
+		-- albedo[3], albedo_tex, double_sided, followed by 16 terrain ints
+		local entry = ffi.cast("int32_t *", buffer:Map(0, buffer:GetSize())) + id * 21
 		T(ffi.cast("float *", entry)[2])["=="](0.75)
 		T(entry[3])["=="](-1)
+		-- only stamped materials are rewritten
+		entry[4] = 99
+		T(ddgi.WriteMaterialBuffer(pipeline) == buffer)["=="](true)
+		T(entry[4])["=="](99)
+		material:SetColorMultiplier(Color(1, 0.5, 0.125, 1))
+		ddgi.WriteMaterialBuffer(pipeline)
+		T(ffi.cast("float *", entry)[2])["=="](0.125)
+		T(entry[4])["=="](0)
+		-- a freed texture index may be reused, so every entry is rewritten
+		entry[4] = 99
+		releases = releases + 1
+		ddgi.WriteMaterialBuffer(pipeline)
+		T(entry[4])["=="](0)
 	end)
 	ent:Remove()
 	polygon3d:Remove()

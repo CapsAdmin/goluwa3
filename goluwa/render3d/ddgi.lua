@@ -5,6 +5,7 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local Material = import("goluwa/render3d/material.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
@@ -1203,8 +1204,10 @@ end
 
 -- The per-material data read through the soup's material id, one
 -- host-visible copy per pipeline (texture indices are per pipeline) and frame
--- in flight.
-local Material = ffi.typeof([[struct {
+-- in flight. scene_bvh.materials only grows, so an entry is only rewritten when
+-- it is new, its material was stamped by InvalidateRayMaterial since, or the
+-- pipeline freed a texture index that an entry may still hold.
+local MaterialEntry = ffi.typeof([[struct {
 	float albedo[3];
 	int32_t albedo_tex;
 	int32_t double_sided;
@@ -1214,72 +1217,100 @@ local Material = ffi.typeof([[struct {
 	float terrain_detail[4];
 	float terrain_additive_detail[4];
 }]])
-local MaterialArray = ffi.typeof("$[?]", Material)
-local MaterialPointer = ffi.typeof("$*", Material)
-local MATERIAL_SIZE = ffi.sizeof(Material)
+local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
+local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
+local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)
 local material_buffers = setmetatable({}, {__mode = "k"})
 
 function ddgi.WriteMaterialBuffer(self)
 	local frame = render.GetCurrentFrame()
-	local count = math.max(#scene_bvh.materials, 1)
+	local materials = scene_bvh.materials
+	local count = #materials
 	material_buffers[self] = material_buffers[self] or {}
-	local buffers = material_buffers[self]
-	local buffer = buffers[frame]
+	local states = material_buffers[self]
+	local state = states[frame]
 
-	if not buffer or buffer:GetSize() < count * MATERIAL_SIZE then
-		if buffer then buffer:Remove() end
+	if not state or state.buffer:GetSize() < count * MATERIAL_ENTRY_SIZE then
+		if state then state.buffer:Remove() end
 
-		buffer = render.CreateBuffer{
-			byte_size = count * 2 * MATERIAL_SIZE,
-			buffer_usage = {"storage_buffer"},
-			memory_property = {"host_visible", "host_coherent"},
-			label = "ddgi_materials",
-			data = MaterialArray(count * 2),
+		local capacity = math.max(count, 1) * 2
+		state = {
+			buffer = render.CreateBuffer{
+				byte_size = capacity * MATERIAL_ENTRY_SIZE,
+				buffer_usage = {"storage_buffer"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "ddgi_materials",
+				data = MaterialEntryArray(capacity),
+			},
+			written = 0,
+			generation = 0,
+			releases = -1,
 		}
-		buffers[frame] = buffer
+		states[frame] = state
 	end
 
-	local out = ffi.cast(MaterialPointer, buffer:Map(0, buffer:GetSize()))
+	local generation = Material.ray_material_generation
+	local releases = self:GetTextureIndexReleases()
 
-	for i, material in ipairs(scene_bvh.materials) do
-		local entry = out[i - 1]
-		local color = material:GetColorMultiplier()
-		entry.albedo[0] = color.r
-		entry.albedo[1] = color.g
-		entry.albedo[2] = color.b
-		local albedo = material:GetAlbedoTexture() or NULL
-		entry.albedo_tex = albedo:IsValid() and self:GetTextureIndex(albedo) or -1
-		entry.double_sided = material:GetDoubleSided() and 1 or 0
-		local terrain = material:GetTerrainMaterialTexture()
+	if
+		state.written == count and
+		state.generation == generation and
+		state.releases == releases
+	then
+		return state.buffer
+	end
 
-		if terrain and terrain:IsValid() then
-			entry.terrain_tex = self:GetTextureIndex(terrain)
+	local rewrite_all = state.releases ~= releases
+	local written = state.written
+	local stamp = state.generation
+	local out = ffi.cast(MaterialEntryPointer, state.buffer:Map(0, state.buffer:GetSize()))
 
-			for layer = 1, 4 do
-				local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
-				entry.terrain_layer_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
+	for i = 1, count do
+		local material = materials[i]
+
+		if rewrite_all or i > written or material.ray_material_stamp > stamp then
+			local entry = out[i - 1]
+			local color = material:GetColorMultiplier()
+			entry.albedo[0] = color.r
+			entry.albedo[1] = color.g
+			entry.albedo[2] = color.b
+			local albedo = material:GetAlbedoTexture() or NULL
+			entry.albedo_tex = albedo:IsValid() and self:GetTextureIndex(albedo) or -1
+			entry.double_sided = material:GetDoubleSided() and 1 or 0
+			local terrain = material:GetTerrainMaterialTexture()
+
+			if terrain and terrain:IsValid() then
+				entry.terrain_tex = self:GetTextureIndex(terrain)
+
+				for layer = 1, 4 do
+					local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
+					entry.terrain_layer_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
+				end
+
+				local bounds = material:GetTerrainBounds()
+				entry.terrain_bounds[0] = bounds.x
+				entry.terrain_bounds[1] = bounds.y
+				entry.terrain_bounds[2] = 1 / bounds.z
+				local detail = material:GetTerrainLayerDetailStrength()
+				local additive = material:GetTerrainLayerAdditiveDetail()
+				entry.terrain_detail[0] = detail.r
+				entry.terrain_detail[1] = detail.g
+				entry.terrain_detail[2] = detail.b
+				entry.terrain_detail[3] = detail.a
+				entry.terrain_additive_detail[0] = additive.r
+				entry.terrain_additive_detail[1] = additive.g
+				entry.terrain_additive_detail[2] = additive.b
+				entry.terrain_additive_detail[3] = additive.a
+			else
+				entry.terrain_tex = -1
 			end
-
-			local bounds = material:GetTerrainBounds()
-			entry.terrain_bounds[0] = bounds.x
-			entry.terrain_bounds[1] = bounds.y
-			entry.terrain_bounds[2] = 1 / bounds.z
-			local detail = material:GetTerrainLayerDetailStrength()
-			local additive = material:GetTerrainLayerAdditiveDetail()
-			entry.terrain_detail[0] = detail.r
-			entry.terrain_detail[1] = detail.g
-			entry.terrain_detail[2] = detail.b
-			entry.terrain_detail[3] = detail.a
-			entry.terrain_additive_detail[0] = additive.r
-			entry.terrain_additive_detail[1] = additive.g
-			entry.terrain_additive_detail[2] = additive.b
-			entry.terrain_additive_detail[3] = additive.a
-		else
-			entry.terrain_tex = -1
 		end
 	end
 
-	return buffer
+	state.written = count
+	state.generation = generation
+	state.releases = releases
+	return state.buffer
 end
 
 -- Ray generation parameters, one host-visible copy per frame in flight since
