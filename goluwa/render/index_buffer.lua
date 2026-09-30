@@ -133,10 +133,6 @@ function IndexBuffer:GetIndexCount()
 	return self.index_count
 end
 
-function IndexBuffer:GetIndexType()
-	return self.index_type
-end
-
 function IndexBuffer:LoadIndices(count)
 	-- Create sequential indices array
 	self.indices = {}

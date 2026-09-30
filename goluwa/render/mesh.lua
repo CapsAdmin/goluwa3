@@ -104,6 +104,20 @@ function Mesh:GetVertexAttributeInfo(name)
 	return attribute
 end
 
+local function assert_indices_reach_vertices(self)
+	local index_buffer = self.index_buffer
+
+	if
+		index_buffer:GetIndexType() == "uint16" and
+		self.vertex_buffer:GetVertexCount() > 65536
+	then
+		error(
+			"mesh " .. tostring(self.debug_name) .. " has " .. self.vertex_buffer:GetVertexCount() .. " vertices but 16 bit indices",
+			3
+		)
+	end
+end
+
 function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name)
 	local self = Mesh:CreateObject()
 	self.debug_name = name
@@ -117,6 +131,8 @@ function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count,
 		else
 			self.index_buffer = IndexBuffer.New(indices, index_type, build_mesh_buffer_name(name, "indices"))
 		end
+
+		assert_indices_reach_vertices(self)
 	end
 
 	return self
@@ -472,6 +488,7 @@ end
 function Mesh:UploadIndices(indices, index_type)
 	if not self.index_buffer then
 		self.index_buffer = IndexBuffer.New(indices, index_type, build_mesh_buffer_name(self.debug_name, "indices"))
+		assert_indices_reach_vertices(self)
 	else
 		-- Update existing index buffer
 		self.index_buffer.indices = indices

@@ -1352,7 +1352,7 @@ local function ensure_entry_index_buffer(entry)
 				sequential_indices[i] = i - 1
 			end
 
-			mesh:UploadIndices(sequential_indices)
+			mesh:UploadIndices(sequential_indices, vertex_count > 65535 and "uint32_t" or "uint16_t")
 		end
 	end
 
