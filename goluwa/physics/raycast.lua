@@ -2,9 +2,11 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
-local Visual = RENDER_3D and import("goluwa/entities/components/visual.lua")
 local system = import("goluwa/system.lua")
 local raycast = library()
+-- visual imports render3d, whose envprobe traces through physics/trace.lua back to here
+import.loaded["goluwa/physics/raycast.lua"] = raycast
+local Visual = RENDER_3D and import("goluwa/entities/components/visual.lua")
 local BVH_BUILD_TRIANGLE_THRESHOLD = 8
 local BVH_LEAF_TRIANGLE_COUNT = 8
 local MODEL_BVH_LEAF_ITEM_COUNT = 8
