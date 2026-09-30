@@ -611,7 +611,13 @@ do
 
 					local ffi_code = glsl_meta.build_ffi_struct("scalar", block.block)
 					local glsl_fields, glsl_structs = glsl_meta.build_glsl_fields(block.block)
-					local ubo = UniformBuffer.New(ffi_code, (config.name or "pipeline") .. ".ubo." .. block.name)
+					local ubo = UniformBuffer.New(
+						ffi_code,
+						(config.name or "pipeline") .. ".ubo." .. block.name,
+						block.upload_scope == "persistent_keyed" and
+							UniformBuffer.PERSISTENT_KEYED_INITIAL_SLOTS or
+							nil
+					)
 					glsl_meta.verify_layout("scalar", block.name, block.block, ubo.struct)
 					block.source = glsl_meta.normalize_block_source(
 						block,

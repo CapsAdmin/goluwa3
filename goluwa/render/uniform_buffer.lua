@@ -3,30 +3,44 @@ local render = import("goluwa/render/render.lua")
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local render_stats = import("goluwa/render/stats.lua")
+local event = import("goluwa/event.lua")
 local UniformBuffer = objects.CreateTemplate("render_uniform_buffer")
 -- every live ring, for the stats overlay
 local instances = setmetatable({}, {__mode = "k"})
+-- slots per frame a new ring starts with unless told otherwise, fewer for big blocks since
+-- those are per pass data uploaded a few times a frame. rings grow between frames once they're
+-- half used, as the slots of the frame being recorded can't move, so only running out within a
+-- frame is an error
+local INITIAL_FRAME_BYTES = 256 * 1024
+local MIN_SLOTS = 16
+local MAX_INITIAL_SLOTS = 1024
+-- blocks keyed per material keep a slot per material, and a map's world brings about a
+-- thousand new materials into a single frame
+UniformBuffer.PERSISTENT_KEYED_INITIAL_SLOTS = 4096
 
-local function create(struct, name)
+local function create_ring_buffer(self)
+	self.ring_size = self.aligned_size * self.max_uploads * self.frame_count
+	self.buffer = render.CreateBuffer{
+		byte_size = self.ring_size,
+		buffer_usage = {"uniform_buffer"},
+		memory_property = {"host_visible", "host_coherent"},
+	}
+	self.mapped = self.buffer:Map()
+end
+
+local function create(struct, name, initial_slots)
 	assert(ffi.sizeof(struct) > 0, "UniformBuffer struct size must be greater than 0")
 	local self = UniformBuffer:CreateObject()
 	self.name = name
 	self.size = ffi.sizeof(struct)
 	-- Align to 256 for maximum compatibility across GPUs (standard for dynamic offsets)
 	self.aligned_size = math.ceil(self.size / 256) * 256
-	-- slots per frame, shared by persistent and transient uploads. the heaviest scenes measured
-	-- need about 220 (translucent draws and per material persistent slots), and the ring does
-	-- not grow, so running out is an error rather than overwriting earlier draws in the frame
-	self.max_uploads = 1024
+	self.max_uploads = initial_slots or
+		math.clamp(math.floor(INITIAL_FRAME_BYTES / self.aligned_size), MIN_SLOTS, MAX_INITIAL_SLOTS)
 	self.frame_count = 3
-	self.ring_size = self.aligned_size * self.max_uploads * self.frame_count
 	self.data = struct()
 	self.struct = struct
-	self.buffer = render.CreateBuffer{
-		byte_size = self.ring_size,
-		buffer_usage = {"uniform_buffer"},
-		memory_property = {"host_visible", "host_coherent"},
-	}
+	create_ring_buffer(self)
 	self.current_offset = 0
 	self.current_slot = 0
 	self.persistent_slot_count = 0
@@ -39,8 +53,8 @@ local function create(struct, name)
 end
 
 -- name identifies the ring in the stats overlay
-function UniformBuffer.New(decl, name)
-	if type(decl) ~= "string" then return create(decl, name) end
+function UniformBuffer.New(decl, name, initial_slots)
+	if type(decl) ~= "string" then return create(decl, name, initial_slots) end
 
 	-- Check if this declaration contains $ placeholders (indicating nested structs)
 	local has_nested = decl:match("%$")
@@ -96,11 +110,11 @@ function UniformBuffer.New(decl, name)
 		struct = ffi.typeof(decl)
 	end
 
-	return create(struct, name)
+	return create(struct, name, initial_slots)
 end
 
 function UniformBuffer:OnRemove()
-	if self.buffer and self.buffer.Remove then self.buffer:Remove() end
+	self.buffer:Remove()
 end
 
 function UniformBuffer:GetData()
@@ -114,8 +128,81 @@ end
 
 function UniformBuffer:UploadToSlot(frame_index, slot)
 	local offset = self:GetOffset(frame_index, slot)
-	self.buffer:CopyData(self.data, self.size, offset)
+	ffi.copy(self.mapped + offset, self.data, self.size)
+
+	if render.stats then render_stats.AddUploadedBytes(self.size) end
+
 	return offset
+end
+
+-- only between frames: waits for the gpu and rewrites the descriptors of every pipeline using the ring
+function UniformBuffer:Grow(max_uploads)
+	local old_buffer = self.buffer
+	local old_mapped = self.mapped
+	local old_max_uploads = self.max_uploads
+	render.GetDevice():WaitIdle()
+	self.max_uploads = max_uploads
+	create_ring_buffer(self)
+
+	for frame_index = 0, self.frame_count - 1 do
+		ffi.copy(
+			self.mapped + self:GetOffset(frame_index, 0),
+			old_mapped + frame_index * old_max_uploads * self.aligned_size,
+			self.persistent_slot_count * self.aligned_size
+		)
+	end
+
+	self.current_slot = 0
+
+	for pipeline, bindings in pairs(old_buffer.descriptor_users or {}) do
+		if pipeline:IsValid() then
+			for _, b in pairs(bindings) do
+				pipeline:UpdateDescriptorSet(
+					"uniform_buffer_dynamic",
+					b.index,
+					b.binding_index,
+					b.set_index,
+					self.buffer,
+					self.aligned_size
+				)
+			end
+		end
+	end
+
+	old_buffer:Remove()
+end
+
+do
+	local growing = {}
+
+	function UniformBuffer:CheckGrowth()
+		if (self.persistent_slot_count + self.peak_frame_uploads) * 2 > self.max_uploads then
+			growing[self] = true
+		end
+	end
+
+	event.AddListener(
+		"PreFrame",
+		"uniform_buffer_grow",
+		function()
+			if not next(growing) then return end
+
+			for ubo in pairs(growing) do
+				if ubo:IsValid() then
+					local max_uploads = ubo.max_uploads
+
+					while (ubo.persistent_slot_count + ubo.peak_frame_uploads) * 2 > max_uploads do
+						max_uploads = max_uploads * 2
+					end
+
+					ubo:Grow(max_uploads)
+				end
+			end
+
+			table.clear(growing)
+		end,
+		{priority = 100}
+	)
 end
 
 function UniformBuffer:AllocatePersistentSlot()
@@ -131,6 +218,7 @@ function UniformBuffer:AllocatePersistentSlot()
 
 	local slot = self.persistent_slot_count
 	self.persistent_slot_count = self.persistent_slot_count + 1
+	self:CheckGrowth()
 	return slot
 end
 
@@ -178,6 +266,7 @@ function UniformBuffer:Upload(frame_index)
 
 	if self.frame_uploads > self.peak_frame_uploads then
 		self.peak_frame_uploads = self.frame_uploads
+		self:CheckGrowth()
 	end
 
 	self.current_slot = (self.current_slot + 1) % transient_capacity

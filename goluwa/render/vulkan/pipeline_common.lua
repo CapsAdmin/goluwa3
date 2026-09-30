@@ -532,6 +532,14 @@ function pipeline_common.update_descriptor_set(self, descriptor_type, index, bin
 	local count = select("#", ...)
 	local args = {...}
 
+	-- a uniform ring that grows replaces its buffer and rewrites every descriptor pointing at it
+	if descriptor_type == "uniform_buffer_dynamic" then
+		local buffer = args[1]
+		buffer.descriptor_users = buffer.descriptor_users or setmetatable({}, {__mode = "k"})
+		buffer.descriptor_users[self] = buffer.descriptor_users[self] or {}
+		buffer.descriptor_users[self][index .. " " .. binding_index .. " " .. set_index] = {index = index, binding_index = binding_index, set_index = set_index}
+	end
+
 	if descriptor_type == "combined_image_sampler" then
 		local tex_count = 0
 
