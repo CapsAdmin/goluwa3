@@ -853,11 +853,9 @@ function ddgi.GetCommonGLSL()
 					// from its probes sits just inside the object's stale copy and
 					// would otherwise see every probe through that copy's back face.
 					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, to_probe / len, len);
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsCullBackFacingTrianglesEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, to_probe / len, len);
 
-					while (rayQueryProceedEXT(query)) {
-						if (!rayQueryGetIntersectionFrontFaceEXT(query, false)) rayQueryConfirmIntersectionEXT(query);
-					}
+					while (rayQueryProceedEXT(query)) {}
 
 					if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) continue;
 				}

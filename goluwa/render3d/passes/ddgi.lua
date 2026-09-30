@@ -286,8 +286,8 @@ local function pass_shade()
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(
 				cmd,
-				(ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) * ddgi.GetFrameState().cascade_count,
 				fb.height,
+				(ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) * ddgi.GetFrameState().cascade_count,
 				1,
 				desc,
 				self.dynamic_offsets
@@ -427,7 +427,7 @@ local function pass_shade()
 			}
 
 			void main() {
-				ivec2 pos = get_screen_pos();
+				ivec2 pos = get_screen_pos().yx;
 				ivec2 size = imageSize(out_ray);
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
