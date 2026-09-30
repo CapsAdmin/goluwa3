@@ -113,7 +113,6 @@ ddgi.LIGHT_SAMPLES = 2
 -- sampling wrap correctly across the octahedron's edges
 ddgi.IRRADIANCE_TEXELS = 8
 ddgi.DISTANCE_TEXELS = 16
-ddgi.MAX_RAY_DISTANCE = 1000.0
 -- How much of a probe texel's history survives a frame, given for 60 fps and
 -- scaled by the frame time, so light takes as long to settle at any frame
 -- rate. A texel whose per frame estimates jump around (a doorway that one or
@@ -157,19 +156,18 @@ local adapt_frames = pvars.Setup2{
 	min = 1,
 	help = "frames in a row a texel must differ by the threshold to adapt quickly",
 }
--- Clamp each texel's brightest ray to the second brightest every frame (see
--- IRRADIANCE_INTEGRATE in passes/ddgi.lua). It keeps a small hot spot that one
--- or two rays hit from flickering the probes, but that light is then dropped
--- every frame: with a lamp 0.2 m under a ceiling, ~40% of its light lands
--- within 1 m of it and the bounce light came out at about half of what it
--- should (tmp/exposure_gi_measure.lua with the render3d/exposure.lua example).
--- Off, the energy is right but probes that see such a hot spot are noisy: the
--- gi under that ceiling varied by ~60% over 60 frames against ~7% clamped.
--- Keeping what the clamp cuts in a slowly averaged store would give both.
-local brightest_ray_clamp = pvars.Setup2{
-	key = "ddgi_brightest_ray_clamp",
-	default = false,
-	help = "clamp each texel's brightest ray to the second brightest",
+-- Caps every ray's radiance at this many times the probe's mean ray luminance
+-- (see IRRADIANCE_INTEGRATE in passes/ddgi.lua), 0 is off. The mean leaves the
+-- probe's brightest ray out, so a hot spot that one or two rays hit (a lit room
+-- seen through a doorway, right next to a lamp) counts like a typical ray
+-- instead of flashing the whole probe, while light that many rays see raises
+-- the mean and passes through. The light above the cap is lost, so small bright
+-- sources come out dimmer: the lower the factor, the calmer and the darker.
+local ray_clamp = pvars.Setup2{
+	key = "ddgi_ray_clamp",
+	default = 0,
+	min = 0,
+	help = "cap each ray's radiance at this many times the probe's mean ray luminance, 0 is off",
 }
 -- local lights are treated as spheres of this radius (in probe spacings) when
 -- lighting ray hits. A probe can't resolve a hot spot smaller than this, and a
@@ -188,14 +186,18 @@ ddgi.NORMAL_BIAS = 0.1
 ddgi.VIEW_BIAS = 0.3
 -- probes whose rays mostly hit back faces are inside geometry and are skipped
 ddgi.BACKFACE_THRESHOLD = 0.25
--- Probes move off their grid point (by at most PROBE_MAX_OFFSET spacings) to
--- get out of geometry they landed in and away from surfaces closer than
--- RELOCATION_DISTANCE spacings. A probe inside a box would otherwise be
--- disabled, and the probes that take over its corner may be behind a wall.
+-- Probes that land inside geometry move out of it (by at most
+-- PROBE_MAX_OFFSET spacings), so that a probe inside a box does not get
+-- disabled while the probes that take over its corner may be behind a wall.
+-- Probes are not pushed off nearby surfaces: the rays are rotated every frame,
+-- so that push is noisy, and visibility rays already stop the leaks it targeted.
 local relocation = pvars.Setup2{
 	key = "ddgi_relocation",
 	default = true,
-	help = "move probes out of geometry and away from close surfaces",
+	help = "move probes out of geometry",
+	callback = function()
+		ddgi.ResetHistory()
+	end,
 }
 ddgi.RELOCATION_DISTANCE = 0.25
 ddgi.PROBE_MAX_OFFSET = 0.45
@@ -261,6 +263,13 @@ local debug_cascade = pvars.Setup2{
 	min = 0,
 	max = ddgi.CASCADES - 1,
 	help = "the cascade whose probes the debug view draws",
+}
+local max_ray_distance = pvars.Setup2{
+	key = "ddgi_max_ray_distance",
+	default = 1000,
+	integer = true,
+	min = 0,
+	help = "max distance a ray can travel",
 }
 pvars.EndGroup()
 -- stored in a ray's distance slot when it missed everything, far past
@@ -943,6 +952,17 @@ function ddgi.GetCommonGLSL()
 			return data.w >= 1.0 && ivec3(round(data.xyz)) == world;
 		}
 
+		// w is 1 + the fraction of back face hits, plus 2 on the update that
+		// moved the probe: the rays it was last integrated from started
+		// somewhere else
+		bool ddgi_probe_moved(vec4 data) {
+			return data.w >= 3.0;
+		}
+
+		float ddgi_probe_backfaces(vec4 data) {
+			return data.w - (ddgi_probe_moved(data) ? 3.0 : 1.0);
+		}
+
 		// where the probe's rays start; one that just scrolled into its slot
 		// sits on its grid point
 		vec3 ddgi_probe_origin(ivec3 slot, int c, ivec3 world) {
@@ -990,7 +1010,7 @@ function ddgi.GetCommonGLSL()
 				ivec3 slot = ddgi_slot(world, c);
 				vec4 data = ddgi_probe_data(slot, c);
 
-				if (!ddgi_probe_is_current(data, world) || data.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
+				if (!ddgi_probe_is_current(data, world) || ddgi_probe_backfaces(data) > ddgi_data.ddgi_backface_threshold) continue;
 
 				vec3 probe_pos = data.xyz * spacing;
 
@@ -1122,7 +1142,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_noise_range", "float"},
 		{"ddgi_irradiance_threshold", "float"},
 		{"ddgi_adapt_frames", "float"},
-		{"ddgi_brightest_ray_clamp", "int"},
+		{"ddgi_ray_clamp", "float"},
 		{"ddgi_distance_exponent", "float"},
 		{"ddgi_normal_bias", "float"},
 		{"ddgi_view_bias", "float"},
@@ -1207,7 +1227,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_rotation[1] = state.rotation.y
 	block.ddgi_rotation[2] = state.rotation.z
 	block.ddgi_rotation[3] = state.rotation.w
-	block.ddgi_max_distance = ddgi.MAX_RAY_DISTANCE
+	block.ddgi_max_distance = max_ray_distance:Get()
 
 	for c = 1, ddgi.CASCADES do
 		local cascade = state.cascades[c]
@@ -1220,7 +1240,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_noise_range = noise_range:Get()
 	block.ddgi_irradiance_threshold = irradiance_threshold:Get()
 	block.ddgi_adapt_frames = adapt_frames:Get()
-	block.ddgi_brightest_ray_clamp = brightest_ray_clamp:Get() and 1 or 0
+	block.ddgi_ray_clamp = ray_clamp:Get()
 	block.ddgi_distance_exponent = ddgi.DISTANCE_EXPONENT
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
 	block.ddgi_view_bias = ddgi.VIEW_BIAS
@@ -1548,7 +1568,7 @@ function ddgi.WriteRTParams()
 	p.sun_direction[1] = sun_direction.y
 	p.sun_direction[2] = sun_direction.z
 	p.sun_direction[3] = directional_shadows.GetPrimarySunIlluminance(lights) > 0 and 1 or 0
-	p.max_ray_distance = ddgi.MAX_RAY_DISTANCE
+	p.max_ray_distance = max_ray_distance:Get()
 	p.tmin = 0.0
 	p.emitter_count = ddgi.GetEmitters().count
 	p.frame = state.frame

@@ -641,13 +641,17 @@ local function pass_update(name, texels, integrate)
 				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && backface_fraction <= ddgi_data.ddgi_backface_threshold;
 				vec4 previous = imageLoad(atlas, texel);
 
-				vec4 state = current ? imageLoad(state_atlas, texel) : vec4(0.0);
+				// a probe that moved was last integrated from rays that started somewhere
+				// else, so that history does not describe where it is now
+				vec4 state = current && !ddgi_probe_moved(data) ? imageLoad(state_atlas, texel) : vec4(0.0);
 
 				// A probe that just became valid has no history. Seed it from its
 				// valid neighbours so it starts close to the right answer instead
 				// of black, and give it a small age so the hysteresis keeps most
-				// of the seed value on the first frame.
-				if (current && state.x <= 0.0) {
+				// of the seed value on the first frame. A relocated probe is not
+				// seeded: it sits off its grid point, possibly on the other side
+				// of a wall from its neighbours, whose light would leak in.
+				if (current && state.x <= 0.0 && data.xyz == vec3(world)) {
 					vec3 seed = vec3(0.0);
 					float seed_count = 0.0;
 					ivec3 nbase = ddgi_volume_base(c);
@@ -660,7 +664,7 @@ local function pass_update(name, texels, integrate)
 						if (any(lessThan(nworld, nbase)) || any(greaterThanEqual(nworld, nbase + nsize))) continue;
 						ivec3 nslot = ddgi_slot(nworld, c);
 						vec4 ndata = ddgi_probe_data(nslot, c);
-						if (!ddgi_probe_is_current(ndata, nworld) || ndata.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
+						if (!ddgi_probe_is_current(ndata, nworld) || ddgi_probe_backfaces(ndata) > ddgi_data.ddgi_backface_threshold) continue;
 						ivec2 ntile = ddgi_tile(nslot, c);
 						seed += imageLoad(atlas, ntile * TEXELS + local).rgb;
 						seed_count += 1.0;
@@ -682,7 +686,7 @@ local function pass_update(name, texels, integrate)
 							if (any(lessThan(pw, pbase)) || any(greaterThanEqual(pw, pbase + psize))) continue;
 							ivec3 pslot = ddgi_slot(pw, pc);
 							vec4 pdata = ddgi_probe_data(pslot, pc);
-							if (!ddgi_probe_is_current(pdata, pw) || pdata.w - 1.0 > ddgi_data.ddgi_backface_threshold) continue;
+							if (!ddgi_probe_is_current(pdata, pw) || ddgi_probe_backfaces(pdata) > ddgi_data.ddgi_backface_threshold) continue;
 							ivec2 ptile = ddgi_tile(pslot, pc);
 							seed += imageLoad(atlas, ptile * TEXELS + local).rgb;
 							seed_count += 1.0;
@@ -726,19 +730,35 @@ end
 --
 -- A texel's frame estimate comes from a few dozen rays, so one ray landing on
 -- a small hot spot (right next to a lamp, say) can carry more light than all
--- the others together and flash the whole probe. With ddgi.BRIGHTEST_RAY_CLAMP
--- the brightest ray is clamped to the second brightest: a lone outlier then
--- counts like a typical ray, while light that many rays see keeps its top two
--- close and passes through. The outlier's light is lost though, see
--- ddgi.BRIGHTEST_RAY_CLAMP.
+-- the others together and flash the whole probe. With ddgi_ray_clamp every
+-- ray's radiance is capped at a multiple of the probe's mean ray luminance, so
+-- a lone outlier counts like a few typical rays, while light that many rays see
+-- raises the mean and passes through. The outlier's light is lost though.
 local IRRADIANCE_INTEGRATE = {
 	atlas_format = {"r16g16b16a16_sfloat", "rgba16f"},
 	-- x = frames accumulated, y = mean luminance, z = noise
 	state_format = {"r16g16b16a16_sfloat", "rgba16f"},
 	declare = [[
-		vec3 brightest = vec3(0.0);
-		float brightest_luma = 0.0;
-		float second_luma = 0.0;
+		// mean luminance of the probe's rays without its brightest, the
+		// reference a ray is capped against
+		float ray_cap = 1e30;
+
+		if (ddgi_data.ddgi_ray_clamp > 0.0) {
+			float ray_sum = 0.0;
+			float ray_top = 0.0;
+			float ray_count = 0.0;
+
+			for (int r = 0; r < DDGI_RAYS; r++) {
+				if (s_ray[r].a < 0.0) continue;
+
+				float l = dot(s_ray[r].rgb, vec3(0.2126, 0.7152, 0.0722));
+				ray_sum += l;
+				ray_top = max(ray_top, l);
+				ray_count += 1.0;
+			}
+
+			ray_cap = ddgi_data.ddgi_ray_clamp * max((ray_sum - ray_top) / max(ray_count - 1.0, 1.0), 1e-4);
+		}
 	]],
 	loop = [[
 		if (ray.a < 0.0) continue;
@@ -747,24 +767,13 @@ local IRRADIANCE_INTEGRATE = {
 
 		if (w <= 0.0) continue;
 
-		vec3 contribution = ray.rgb * w;
-		float luma = dot(contribution, vec3(0.2126, 0.7152, 0.0722));
+		vec3 radiance = ray.rgb;
+		float radiance_luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
 
-		if (luma > brightest_luma) {
-			second_luma = brightest_luma;
-			brightest_luma = luma;
-			brightest = contribution;
-		} else if (luma > second_luma) {
-			second_luma = luma;
-		}
+		if (radiance_luma > ray_cap) radiance *= ray_cap / radiance_luma;
 
-		sum += vec4(contribution, ray.a >= DDGI_MISS_DISTANCE * 0.5 ? w : 0.0);
+		sum += vec4(radiance * w, ray.a >= DDGI_MISS_DISTANCE * 0.5 ? w : 0.0);
 		weight_sum += w;
-	]],
-	finish = [[
-		if (ddgi_data.ddgi_brightest_ray_clamp != 0 && brightest_luma > 0.0) {
-			sum.rgb -= brightest * (1.0 - second_luma / brightest_luma);
-		}
 	]],
 	-- the emitter samples are already weighted estimates of their own
 	result = [[
@@ -887,11 +896,8 @@ local function pass_probe_data()
 				vec3 offset = !ddgi_cascade_reset(c) && ddgi_probe_is_current(previous, world) ? (previous.xyz - vec3(world)) * spacing : vec3(0.0);
 				float backfaces = 0.0;
 				float closest_back = 1e30;
-				float closest_front = 1e30;
 				vec3 closest_back_dir = vec3(0.0);
 				float min_distance = ddgi_data.ddgi_relocation_distance * spacing;
-				vec3 push = vec3(0.0);
-				float close_rays = 0.0;
 
 				for (int r = 0; r < DDGI_RAYS; r++) {
 					float a = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0).a;
@@ -904,39 +910,25 @@ local function pass_probe_data()
 							closest_back = d;
 							closest_back_dir = ddgi_ray(uint(r));
 						}
-					} else {
-						closest_front = min(closest_front, a);
-
-						if (a < min_distance) {
-							push -= ddgi_ray(uint(r)) * (min_distance - a);
-							close_rays += 1.0;
-						}
 					}
 				}
 
 				float backface_fraction = backfaces / float(DDGI_RAYS);
+				vec3 previous_offset = offset;
 				vec3 moved = offset;
-				bool cramped = false;
 
-				if (min_distance <= 0.0) {
-					moved = vec3(0.0);
-				} else if (backface_fraction > ddgi_data.ddgi_backface_threshold) {
+				if (min_distance > 0.0 && backface_fraction > ddgi_data.ddgi_backface_threshold) {
 					moved += closest_back_dir * (closest_back + min_distance * 0.5);
-				} else if (close_rays > 0.0) {
-					push /= close_rays;
-					cramped = length(push) < (min_distance - closest_front) * 0.25;
-
-					// the set of rays that land too close changes with every
-					// frame's rotation; ignore the wobble that leaves behind
-					if (!cramped && length(push) > spacing * 0.01) moved += push;
-				} else if (closest_front > min_distance * 2.0 && dot(offset, offset) > 0.0) {
-					float back = min(closest_front - min_distance * 2.0, length(offset));
-					moved -= normalize(offset) * back;
 				}
 
-				if (all(lessThan(abs(moved), vec3(ddgi_data.ddgi_max_offset * spacing)))) offset = moved;
+				if (min_distance <= 0.0) {
+					offset = vec3(0.0);
+				} else if (all(lessThan(abs(moved), vec3(ddgi_data.ddgi_max_offset * spacing)))) {
+					offset = moved;
+				}
 
-				imageStore(out_data, pos, vec4(vec3(world) + offset / spacing, cramped ? 2.0 : 1.0 + backface_fraction));
+				bool relocated = dot(offset - previous_offset, offset - previous_offset) > 1e-8 * spacing * spacing;
+				imageStore(out_data, pos, vec4(vec3(world) + offset / spacing, 1.0 + backface_fraction + (relocated ? 2.0 : 0.0)));
 			}
 		]],
 	}
@@ -1051,7 +1043,7 @@ local function pass_probe_debug()
 
 							vec3 center = data.xyz * spacing;
 							vec3 grid = vec3(world) * spacing;
-							bool disabled = data.w - 1.0 > ddgi_data.ddgi_backface_threshold;
+							bool disabled = ddgi_probe_backfaces(data) > ddgi_data.ddgi_backface_threshold;
 							float hit = ddgi_sphere(O, D, center, radius);
 
 							if (hit > 0.0 && hit < best) {
