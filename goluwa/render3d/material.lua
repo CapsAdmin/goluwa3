@@ -153,7 +153,7 @@ Material:GetSet("BendDetailPhase", 100.0)
 -- grass
 Material:GetSet("GrassDensity", 700.0)
 Material:GetSet("GrassHeight", 0.28)
-Material:GetSet("GrassHeightVariance", 2)
+Material:GetSet("GrassHeightVariance", 0)
 Material:GetSet("GrassWidth", 0.02)
 -- other
 -- how much light passes through the surface, bent by IndexOfRefraction (0..1,
