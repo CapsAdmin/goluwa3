@@ -1042,15 +1042,23 @@ function ddgi.GetCommonGLSL()
 			return data.w >= 1.0 && ivec3(round(data.xyz)) == world;
 		}
 
-		// w is 1 + the fraction of back face hits, plus 2 on the update that
-		// moved the probe: the rays it was last integrated from started
-		// somewhere else
+		// w is 1 + the smoothed fraction of back face hits, plus 2 when the update
+		// moved the probe (the rays it was last integrated from started somewhere
+		// else), plus 4 when the probe is disabled (inside geometry)
+		int ddgi_probe_flags(vec4 data) {
+			return int((data.w - 1.0) * 0.5);
+		}
+
 		bool ddgi_probe_moved(vec4 data) {
-			return data.w >= 3.0;
+			return (ddgi_probe_flags(data) & 1) != 0;
+		}
+
+		bool ddgi_probe_disabled(vec4 data) {
+			return (ddgi_probe_flags(data) & 2) != 0;
 		}
 
 		float ddgi_probe_backfaces(vec4 data) {
-			return data.w - (ddgi_probe_moved(data) ? 3.0 : 1.0);
+			return data.w - 1.0 - 2.0 * float(ddgi_probe_flags(data));
 		}
 
 		// where the probe's rays start; one that just scrolled into its slot
@@ -1109,7 +1117,7 @@ function ddgi.GetCommonGLSL()
 				ivec3 slot = ddgi_slot(world, c);
 				vec4 data = ddgi_probe_data(slot, c);
 
-				if (!ddgi_probe_is_current(data, world) || ddgi_probe_backfaces(data) > ddgi_data.ddgi_backface_threshold) continue;
+				if (!ddgi_probe_is_current(data, world) || ddgi_probe_disabled(data)) continue;
 
 				vec3 probe_pos = data.xyz * spacing;
 

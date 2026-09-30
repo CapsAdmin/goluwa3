@@ -656,7 +656,10 @@ local function pass_update(name, texels, integrate)
 				// hitting the inside of geometry, so it starts over as well, before
 				// relocation can carry it out into the open.
 				vec4 data = ddgi_probe_data(slot, c);
-				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && backface_fraction <= ddgi_data.ddgi_backface_threshold;
+				// a probe that just moved is judged by this frame's rays, which start
+				// where it is now; any other by the probe data's smoothed verdict
+				bool disabled = ddgi_probe_moved(data) ? backface_fraction > ddgi_data.ddgi_backface_threshold : ddgi_probe_disabled(data);
+				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && !disabled;
 				vec4 previous = imageLoad(atlas, texel);
 
 				// a probe that moved was last integrated from rays that started somewhere
@@ -682,7 +685,7 @@ local function pass_update(name, texels, integrate)
 						if (any(lessThan(nworld, nbase)) || any(greaterThanEqual(nworld, nbase + nsize))) continue;
 						ivec3 nslot = ddgi_slot(nworld, c);
 						vec4 ndata = ddgi_probe_data(nslot, c);
-						if (!ddgi_probe_is_current(ndata, nworld) || ddgi_probe_backfaces(ndata) > ddgi_data.ddgi_backface_threshold) continue;
+						if (!ddgi_probe_is_current(ndata, nworld) || ddgi_probe_disabled(ndata)) continue;
 						ivec2 ntile = ddgi_tile(nslot, c);
 						seed += imageLoad(atlas, ntile * TEXELS + local).rgb;
 						seed_count += 1.0;
@@ -704,7 +707,7 @@ local function pass_update(name, texels, integrate)
 							if (any(lessThan(pw, pbase)) || any(greaterThanEqual(pw, pbase + psize))) continue;
 							ivec3 pslot = ddgi_slot(pw, pc);
 							vec4 pdata = ddgi_probe_data(pslot, pc);
-							if (!ddgi_probe_is_current(pdata, pw) || ddgi_probe_backfaces(pdata) > ddgi_data.ddgi_backface_threshold) continue;
+							if (!ddgi_probe_is_current(pdata, pw) || ddgi_probe_disabled(pdata)) continue;
 							ivec2 ptile = ddgi_tile(pslot, pc);
 							seed += imageLoad(atlas, ptile * TEXELS + local).rgb;
 							seed_count += 1.0;
@@ -938,11 +941,19 @@ local function pass_probe_data()
 					}
 				}
 
+				// One frame's fraction of a few dozen rays is too noisy to decide on:
+				// a probe near the threshold would switch on and off (and relocate
+				// back and forth) with every rotation of the rays. It is averaged
+				// over frames, and a disabled probe needs a clearly lower fraction
+				// to come back.
+				bool settled = !ddgi_cascade_reset(c) && ddgi_probe_is_current(previous, world) && !ddgi_probe_moved(previous);
 				float backface_fraction = backfaces / float(ddgi_data.ddgi_uniform_rays);
+				float smoothed = settled ? mix(backface_fraction, ddgi_probe_backfaces(previous), 0.8) : backface_fraction;
+				bool disabled = smoothed > ddgi_data.ddgi_backface_threshold * (settled && ddgi_probe_disabled(previous) ? 0.6 : 1.0);
 				vec3 previous_offset = offset;
 				vec3 moved = offset;
 
-				if (min_distance > 0.0 && backface_fraction > ddgi_data.ddgi_backface_threshold) {
+				if (min_distance > 0.0 && disabled) {
 					moved += closest_back_dir * (closest_back + min_distance * 0.5);
 				}
 
@@ -953,7 +964,7 @@ local function pass_probe_data()
 				}
 
 				bool relocated = dot(offset - previous_offset, offset - previous_offset) > 1e-8 * spacing * spacing;
-				imageStore(out_data, pos, vec4(vec3(world) + offset / spacing, 1.0 + backface_fraction + (relocated ? 2.0 : 0.0)));
+				imageStore(out_data, pos, vec4(vec3(world) + offset / spacing, 1.0 + smoothed + (relocated ? 2.0 : 0.0) + (disabled ? 4.0 : 0.0)));
 			}
 		]],
 	}
@@ -1194,7 +1205,7 @@ local function pass_probe_debug()
 
 							vec3 center = data.xyz * spacing;
 							vec3 grid = vec3(world) * spacing;
-							bool disabled = ddgi_probe_backfaces(data) > ddgi_data.ddgi_backface_threshold;
+							bool disabled = ddgi_probe_disabled(data);
 							float hit = ddgi_sphere(O, D, center, radius);
 
 							if (hit > 0.0 && hit < best) {
