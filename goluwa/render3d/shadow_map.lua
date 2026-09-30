@@ -1631,7 +1631,7 @@ function ShadowMap:UpdatePointLightMatrices(light_position)
 			light_position.z + self.far_plane
 		)
 		self.cascade[face].cull_aabb = cull_aabb
-		self.cascade[face].world_cull_aabb = build_world_aabb_from_local_aabb(cull_aabb, self.cascade[face].view_matrix:GetInverse())
+		self.cascade[face].world_cull_aabb = cull_aabb
 		update_cascade_frustum_planes(self.cascade[face])
 	end
 
