@@ -26,6 +26,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local water = import("goluwa/render3d/water.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local View = import("goluwa/render3d/view.lua")
+local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local commands = import("goluwa/cli/commands.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -218,6 +219,25 @@ local function sphere(name, position, radius, material, scale)
 			RigidBody = false,
 		}
 	)
+end
+
+local function lamp(name, position, color, lumen, range)
+	local ent = track(Entity.New{Name = name})
+	ent:AddComponent("transform")
+	ent.transform:SetPosition(position)
+	local light = ent:AddComponent("light_point")
+	light:SetColor(color)
+	light:SetLumen(lumen)
+	light:SetRange(range)
+	light:SetOcclusionMap(false)
+	ShadowMap.New{
+		mode = "point",
+		light = ent,
+		size = Vec2() + 512,
+		near_plane = 0.05,
+		far_plane = range,
+	}
+	return light
 end
 
 local function volume(name, position, config)
@@ -645,6 +665,23 @@ do -- an aquarium on the deck, seen through its sides
 	)
 end
 
+do -- lights in and over the water. the lake's lantern hangs over the jetty, whose deck shades the
+	-- water under it, the pond's lamp has a canopy over it, the pool has lights in its walls and
+	-- the swamp a will-o-wisp between the logs
+	local iron = mat(Color(0.08, 0.08, 0.09, 1), 0.5, 1)
+	local lantern_pos = Vec3(LAKE.x + 18, LAKE.surface + 3.2, LAKE.z - 2)
+	box("lantern_post", Vec3(LAKE.x + 19.6, LAKE.surface + 1.8, LAKE.z - 2), Vec3(0.12, 3.6, 0.12), iron)
+	box("lantern_arm", Vec3(LAKE.x + 18.8, LAKE.surface + 3.6, LAKE.z - 2), Vec3(1.8, 0.08, 0.08), iron)
+	lamp("lake_lantern", lantern_pos, Color(1, 0.72, 0.4, 1), 12000, 40)
+	lamp("lake_underwater", Vec3(LAKE.x - 6, LAKE.surface - 4.5, LAKE.z - 2), Color(0.3, 0.8, 1, 1), 15000, 30)
+	box("pond_post", Vec3(POND.x - 4, POND.surface + 1.5, POND.z), Vec3(0.12, 3, 0.12), iron)
+	box("pond_canopy", Vec3(POND.x - 1.5, POND.surface + 2.6, POND.z), Vec3(4.5, 0.12, 4.5), iron)
+	lamp("pond_lamp", Vec3(POND.x - 1.5, POND.surface + 2.3, POND.z), Color(1, 0.85, 0.55, 1), 6000, 30)
+	lamp("pool_light_1", Vec3(POOL.x - 9.6, LAND_HEIGHT - 1.4, POOL.z - 2.5), Color(0.6, 0.9, 1, 1), 6000, 25)
+	lamp("pool_light_2", Vec3(POOL.x + 9.6, LAND_HEIGHT - 1.4, POOL.z + 2.5), Color(1, 0.5, 0.9, 1), 6000, 25)
+	lamp("swamp_wisp", Vec3(SWAMP.x, SWAMP.surface + 0.6, SWAMP.z + 2), Color(0.5, 1, 0.4, 1), 3000, 20)
+end
+
 showcase.views = {
 	{name = "beach", pos = Vec3(-45, 6, -28), target = Vec3(0, 0, -22)},
 	{name = "ocean", pos = Vec3(40, 2.5, -45), target = Vec3(80, 0, -200)},
@@ -680,6 +717,11 @@ showcase.views = {
 		target = Vec3(LAKE.x + 18, LAKE.surface - 1.5, LAKE.z - 4),
 	},
 	{
+		name = "in_lake_lamp",
+		pos = Vec3(LAKE.x - 18, LAKE.surface - 3.5, LAKE.z - 2),
+		target = Vec3(LAKE.x - 6, LAKE.surface - 4.5, LAKE.z - 2),
+	},
+	{
 		name = "in_pool",
 		pos = Vec3(POOL.x - 8, LAND_HEIGHT - 1.5, POOL.z - 3),
 		target = Vec3(POOL.x + 4, LAND_HEIGHT - 1.2, POOL.z + 2),
@@ -700,6 +742,11 @@ function showcase.GetView(index)
 		FOV = math.rad(65),
 	}
 end
+
+-- the sun below the horizon, what the lights in and over the water have to light it by
+commands.Add("water_night", function()
+	weather.SetSunDirection(Vec3(0.35, -0.6, -0.84):GetNormalized())
+end)
 
 commands.Add("water_view=number[0]", function(index)
 	if showcase.view then

@@ -763,8 +763,19 @@ list.insert(
 				return dot(refracted, refracted) > 0.0 ? normalize(refracted) : vec3(0.0, -1.0, 0.0);
 			}
 
-			vec3 get_sky_irradiance() {
-				return sample_environment_irradiance(ocean_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
+			// the light from above at P: the ddgi probes' where there are any, so shores, bridges and
+			// night lights tint the water, the sky's elsewhere
+			vec3 get_ambient_irradiance(vec3 P) {
+				vec3 sky = sample_environment_irradiance(ocean_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
+				#ifdef SCENE_REFLECTION
+				if (scene_reflection_ready()) {
+					float weight;
+					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, weight);
+					// the weight only fades out near walls, the sky would leak in under a roof
+					if (weight > 0.0) return gi.rgb;
+				}
+				#endif
+				return sky;
 			}
 
 			// light arriving at depth z along a path, integrated over a straight
@@ -780,8 +791,14 @@ list.insert(
 				vec3 first = exp(-sigma * (depth_start / mu));
 				vec3 last = exp(-sigma * (depth_start / mu) - x);
 				vec3 series = first * (1.0 - x * (0.5 - x / 6.0));
-				return len * mix((first - last) / x, series, lessThan(abs(x), vec3(1e-3)));
+				return len * mix((first - last) / max(x, vec3(1e-3)), series, lessThan(abs(x), vec3(1e-3)));
 			}
+
+			// how far along a path lights scatter, at how many points, and how many of the lights in a
+			// point's cell are shadow traced
+			const float WATER_LIGHT_RANGE = 40.0;
+			const int WATER_LIGHT_SAMPLES = 4;
+			const int WATER_LIGHT_MAX_PER_SAMPLE = 6;
 
 			// what the water between origin and origin + dir * len adds by
 			// scattering sun and sky light towards the viewer, and how much of
@@ -821,8 +838,58 @@ list.insert(
 				// looking up; the molecules half each way
 				float particle_share = mix(WATER_PARTICLE_BACKSCATTER, 1.0 - WATER_PARTICLE_BACKSCATTER, 0.5 + 0.5 * dir.y) / (2.0 * WATER_PI);
 				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * WATER_PI) + w.particles * particle_share;
-				vec3 sky_scatter = get_sky_irradiance() * WATER_PI * sky_phase * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
-				return sun_scatter + sky_scatter;
+				vec3 sky_scatter = get_ambient_irradiance(vec3(origin.x, w.surface_y + 0.1, origin.z)) * WATER_PI * sky_phase * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
+				vec3 light_scatter = vec3(0.0);
+
+				#ifdef SCENE_REFLECTION
+				// lights scatter towards the viewer from a few points along the path: through the water
+				// between the light and the point, and from the point to the viewer
+				if (scene_reflection_ready()) {
+					float light_len = min(len, WATER_LIGHT_RANGE);
+
+					for (int i = 0; i < WATER_LIGHT_SAMPLES; i++) {
+						float t = light_len * (float(i) + jitter) / float(WATER_LIGHT_SAMPLES);
+						vec3 p = origin + dir * t;
+						int light_cell = light_grid_cell(p);
+						int light_count = ocean_data.light_count;
+						float point_depth = max(w.surface_y - p.y, 0.0);
+						vec3 point_light = vec3(0.0);
+						int shaded = 0;
+
+						for (int word = 0; word < light_grid_words(light_count) && shaded < WATER_LIGHT_MAX_PER_SAMPLE; word++) {
+							uint light_bits = light_grid_word(light_cell, word, light_count);
+
+							while (light_bits != 0u && shaded < WATER_LIGHT_MAX_PER_SAMPLE) {
+								int li = word * 32 + findLSB(light_bits);
+								light_bits &= light_bits - 1u;
+								lights_t light = ocean_data.lights[li];
+
+								if (get_light_type(light) == 0) continue;
+
+								vec3 L;
+								float attenuation;
+
+								if (!get_light_vector_and_attenuation(light, p, L, attenuation)) continue;
+
+								float dist = dot(light.position.xyz - p, L);
+
+								if (dist > 0.05) {
+									shaded++;
+									if (!scene_reflection_visible(p, L, dist - 0.05)) continue;
+								}
+
+								// a light above the water reaches the point through the surface above it
+								float light_path = light.position.y > w.surface_y ? min(dist, point_depth / max(L.y, 0.1)) : dist;
+								point_light += light.color.rgb * light.color.a * attenuation * water_scatter(w, dot(dir, L)) * exp(-sigma * light_path);
+							}
+						}
+
+						light_scatter += point_light * exp(-sigma * t) * (light_len / float(WATER_LIGHT_SAMPLES));
+					}
+				}
+				#endif
+
+				return sun_scatter + sky_scatter + light_scatter;
 			}
 
 			// the lit scene under the surface was lit as if the water weren't
@@ -1056,7 +1123,7 @@ list.insert(
 				bool has_floor;
 				vec3 behind = get_refracted_scene(w, surface_pos, ray_dir, normal, scene_distance, path_len, floor_pos, floor_uv, has_floor);
 				// the water between the surface and what's behind it
-				vec3 refracted_dir = has_floor ? normalize(floor_pos - surface_pos) : normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / w.ior));
+				vec3 refracted_dir = has_floor && path_len > 1e-3 ? normalize(floor_pos - surface_pos) : normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / w.ior));
 				refracted_dir.y = min(refracted_dir.y, -0.02);
 				refracted_dir = normalize(refracted_dir);
 				float footprint = get_pixel_footprint(t, ray_dir.y);
@@ -1095,7 +1162,12 @@ list.insert(
 				float shore_range = 0.25 * w.foam;
 				float shore_depth = has_floor ? max(w.surface_y - floor_pos.y, length(floor_pos.xz - surface_pos.xz) * 0.5) : 1e3;
 				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready() && shore_range > 0.0) shore_depth = scene_hit_distance(surface_pos, vec3(0.0, -1.0, 0.0), shore_range);
+				if (scene_reflection_ready() && shore_range > 0.0) {
+					// measured from above the crests: from the surface itself a trough beside the shore
+					// starts inside the ground, reads no water, and the foam blazes up there
+					float rise = max(ocean_data.ocean_wave_info.x, 0.05);
+					shore_depth = max(scene_hit_distance(vec3(surface_pos.x, w.surface_y + rise, surface_pos.z), vec3(0.0, -1.0, 0.0), shore_range + rise) - rise, 0.0);
+				}
 				#endif
 				float pattern = foam_pattern(surface_pos.xz, ocean_data.time);
 				float whitecap = smoothstep(0.2, 0.75, fold);
@@ -1105,7 +1177,7 @@ list.insert(
 				float foam = smoothstep(1.0 - coverage, 1.15 - coverage, pattern) * 0.95;
 
 				if (foam > 0.0) {
-					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / WATER_PI) + get_sky_irradiance();
+					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / WATER_PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0));
 					color = mix(color, vec3(0.9) * foam_light, foam);
 				}
 
