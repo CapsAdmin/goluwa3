@@ -73,6 +73,11 @@ scene_bvh.version = 0
 -- invalidation, so whatever is derived from the triangles themselves (the ray
 -- tracing BLAS, the expanded shadow soup, the emitter list) follows this one
 scene_bvh.soup_version = 0
+-- bumped when a block of a hidden visual leaves the top tree or comes back.
+-- its triangles, nodes and blas stay where they are, so the soup is the same
+-- and only what is built over the blocks (the top tree, the tlas, the emitter
+-- list) changes
+scene_bvh.top_version = 0
 -- world aabbs that changed while the tree was dirty. recorded by the shared
 -- aabb scan in visual.lua, consumed by light occlusion when the version
 -- bumps, so it does not have to rescan every visual's aabb on its own
@@ -957,9 +962,39 @@ do
 		end
 
 		scene_bvh.top_leaf = {}
-		scene_bvh.top_count = n
 		scene_bvh.top_changes = 0
 		scene_bvh.top_incremental_count = 0
+		get_scratch(1, math.max(n, 1))
+		local top_bounds = scratch.top_bounds
+		local top_centroids = scratch.top_centroids
+		local top_order = scratch.top_order
+		local count = 0
+
+		for i = 1, n do
+			local vc = blocks[i]
+			vc.top_slot = nil
+
+			-- the sah reads bounds and centroids by block index, only the
+			-- order it partitions leaves hidden blocks out
+			if not vc.hidden then
+				local aabb = vc.world_aabb
+				local t = i - 1
+				top_order[count] = t
+				top_bounds[t * 6 + 0] = aabb[0]
+				top_bounds[t * 6 + 1] = aabb[1]
+				top_bounds[t * 6 + 2] = aabb[2]
+				top_bounds[t * 6 + 3] = aabb[3]
+				top_bounds[t * 6 + 4] = aabb[4]
+				top_bounds[t * 6 + 5] = aabb[5]
+				top_centroids[t * 3 + 0] = (aabb[0] + aabb[3]) / 2
+				top_centroids[t * 3 + 1] = (aabb[1] + aabb[4]) / 2
+				top_centroids[t * 3 + 2] = (aabb[2] + aabb[5]) / 2
+				count = count + 1
+			end
+		end
+
+		n = count
+		scene_bvh.top_count = n
 
 		if n == 0 then
 			set_top_empty()
@@ -970,25 +1005,6 @@ do
 		-- mirror move under it
 		if allocator.top + n * 2 > allocator.capacity then
 			grow_nodes(allocator.top + n * 2)
-		end
-
-		get_scratch(1, n)
-		local top_bounds = scratch.top_bounds
-		local top_centroids = scratch.top_centroids
-		local top_order = scratch.top_order
-
-		for i = 1, n do
-			local aabb = blocks[i].world_aabb
-			top_order[i - 1] = i - 1
-			top_bounds[(i - 1) * 6 + 0] = aabb[0]
-			top_bounds[(i - 1) * 6 + 1] = aabb[1]
-			top_bounds[(i - 1) * 6 + 2] = aabb[2]
-			top_bounds[(i - 1) * 6 + 3] = aabb[3]
-			top_bounds[(i - 1) * 6 + 4] = aabb[4]
-			top_bounds[(i - 1) * 6 + 5] = aabb[5]
-			top_centroids[(i - 1) * 3 + 0] = (aabb[0] + aabb[3]) / 2
-			top_centroids[(i - 1) * 3 + 1] = (aabb[1] + aabb[4]) / 2
-			top_centroids[(i - 1) * 3 + 2] = (aabb[2] + aabb[5]) / 2
 		end
 
 		top_build.order = top_order
@@ -1623,8 +1639,38 @@ do
 		vc = vc or {}
 		cache[visual] = vc
 		vc.stamp = stamp
+		local hidden = not visual.Visible
 
-		if fast and vc.block_index and vc.baked_matrix == v then return end
+		-- a hidden visual keeps its ranges and blas, it only leaves the top
+		-- tree, so showing it again is cheap
+		if (vc.hidden or false) ~= hidden then
+			vc.hidden = hidden
+			scene_bvh.top_version = scene_bvh.top_version + 1
+
+			if vc.block_index then
+				if scene_bvh.changed_blocks then scene_bvh.changed_blocks[vc] = true end
+
+				if vc.emissive then scene_bvh.emissive_changed = true end
+
+				if scene_bvh.dirty_boxes then
+					local box = vc.world_aabb
+					list.insert(scene_bvh.dirty_boxes, {box[0], box[1], box[2], box[3], box[4], box[5]})
+				end
+
+				if hidden and vc.top_slot and not inserts.rebuild then
+					remove_top_leaf(vc)
+					scene_bvh.top_changes = scene_bvh.top_changes + 1
+				end
+			end
+		end
+
+		if fast and vc.block_index and vc.baked_matrix == v then
+			if not hidden and not vc.top_slot and not inserts.rebuild then
+				inserts[#inserts + 1] = vc
+			end
+
+			return
+		end
 
 		local shape = vc.shape
 
@@ -1727,7 +1773,7 @@ do
 			ffi.copy(scene_bvh.nodes + vc.top_slot, scene_bvh.nodes + vc.block_base, NODE_BYTE_SIZE)
 			write_node(vc.top_slot)
 			refit_top(scene_bvh.top_parent[vc.top_slot])
-		else
+		elseif not hidden then
 			inserts[#inserts + 1] = vc
 		end
 	end
@@ -1839,7 +1885,7 @@ do
 			local emissive_blocks = {}
 
 			for vc in pairs(scene_bvh.emissive_set) do
-				emissive_blocks[#emissive_blocks + 1] = vc
+				if not vc.hidden then emissive_blocks[#emissive_blocks + 1] = vc end
 			end
 
 			scene_bvh.emissive_blocks = emissive_blocks
@@ -2620,7 +2666,9 @@ do
 				INSTANCE_FORCE_NO_OPAQUE or
 				INSTANCE_FORCE_OPAQUE
 			)
-		instance.customAndMask = 0xFF000000 + vc.tri_base / SOUP_ALIGN
+		-- a hidden block keeps its instance, so instances stay in block order,
+		-- but with a mask no ray matches
+		instance.customAndMask = (vc.hidden and 0 or 0xFF000000) + vc.tri_base / SOUP_ALIGN
 		instance.accelerationStructureReference = vc.rt_address
 	end
 
@@ -2826,7 +2874,11 @@ do
 
 		local frame = system.GetFrameNumber()
 
-		if rt_state.built_version == scene_bvh.soup_version and rt_state.current_slot then
+		if
+			rt_state.built_version == scene_bvh.soup_version and
+			rt_state.built_top_version == scene_bvh.top_version and
+			rt_state.current_slot
+		then
 			rt_state.current_slot.last_used = frame
 			return rt_state.current_slot.tlas
 		end
@@ -2869,6 +2921,7 @@ do
 		slot.last_used = frame
 		rt_state.current_slot = slot
 		rt_state.built_version = scene_bvh.soup_version
+		rt_state.built_top_version = scene_bvh.top_version
 		return slot.tlas
 	end
 

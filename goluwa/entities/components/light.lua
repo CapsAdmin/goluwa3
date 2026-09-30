@@ -15,15 +15,18 @@ Light:GetSet("SourceRadius", 0, {validate = "number"})
 Light:GetSet("LinearFalloff", 0, {validate = "number"})
 Light:GetSet("QuadraticFalloff", 1, {validate = "number"})
 Light:GetSet("OcclusionMap", true)
+-- a hidden light is left out of the light list, so it takes no slot in the
+-- shaders
+Light:GetSet("Visible", true)
 Light:EndStorable()
 
--- all light components share this list so the render passes can iterate the
--- whole light set in a single pass
+-- all visible light components share this list so the render passes can
+-- iterate the whole light set in a single pass
 function Light:OnCreate()
-	list.insert(Light.instances, self)
+	if self.Visible then list.insert(Light.instances, self) end
 end
 
-function Light:OnRemove()
+local function remove_instance(self)
 	local instances = Light.instances
 
 	for i, other in ipairs(instances) do
@@ -32,6 +35,22 @@ function Light:OnRemove()
 
 			break
 		end
+	end
+end
+
+function Light:OnRemove()
+	remove_instance(self)
+end
+
+function Light:SetVisible(visible)
+	if self.Visible == visible then return end
+
+	objects.CommitProperty(self, "Visible", visible)
+
+	if visible then
+		list.insert(Light.instances, self)
+	else
+		remove_instance(self)
 	end
 end
 

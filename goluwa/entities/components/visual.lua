@@ -679,7 +679,7 @@ end
 -- shadow is false, "static", "dynamic" or "non_aabb". static visuals need
 -- bounds to live in the trees
 local function classify_scene_component(component)
-	if component.scene_removed then return false, false end
+	if component.scene_removed or not component.Visible then return false, false end
 
 	local render_entries = component:GetRenderEntries()
 
@@ -1100,7 +1100,11 @@ function Visual:SetVisible(visible)
 	if self.Visible == visible then return end
 
 	objects.CommitProperty(self, "Visible", visible)
+	-- a hidden visual leaves the scene, which cached shadows only notice
+	-- through the versions of what they cover
+	mark_shadow_change(self)
 	mark_scene_component_dirty(self)
+	scene_bvh.Invalidate(self)
 end
 
 function Visual:SetCullDistance(distance)

@@ -1132,12 +1132,25 @@ do
 		float cdf;
 	}]])
 	local EmitterArray = ffi.typeof("$[?]", Emitter)
-	local emitters = {array = EmitterArray(1), capacity = 1, count = 0, weight = 0, version = -1}
+	local emitters = {
+		array = EmitterArray(1),
+		capacity = 1,
+		count = 0,
+		weight = 0,
+		version = 0,
+		soup_version = -1,
+		top_version = -1,
+	}
 	local buffers = {}
 	local buffer_versions = {}
 
 	function ddgi.GetEmitters()
-		if emitters.version == scene_bvh.soup_version then return emitters end
+		if
+			emitters.soup_version == scene_bvh.soup_version and
+			emitters.top_version == scene_bvh.top_version
+		then
+			return emitters
+		end
 
 		local count, weight = 0, 0
 
@@ -1168,7 +1181,9 @@ do
 
 		emitters.count = count
 		emitters.weight = weight
-		emitters.version = scene_bvh.soup_version
+		emitters.soup_version = scene_bvh.soup_version
+		emitters.top_version = scene_bvh.top_version
+		emitters.version = emitters.version + 1
 		return emitters
 	end
 

@@ -30,6 +30,8 @@ WaterVolume:GetSet("Roughness", 0.015, {validate = "number"})
 -- foam where the water is shallow along the shore and around objects
 WaterVolume:GetSet("Foam", 0.4, {validate = "number"})
 WaterVolume:GetSet("Caustics", 1, {validate = "number"})
+-- a hidden volume is left out of the water, as if it wasn't there
+WaterVolume:GetSet("Visible", true)
 WaterVolume:EndStorable()
 
 function WaterVolume:SetPreset(name)
@@ -42,7 +44,15 @@ function WaterVolume:SetPreset(name)
 end
 
 function WaterVolume:OnCreate()
-	water.AddVolume(self)
+	if self.Visible then water.AddVolume(self) end
+end
+
+function WaterVolume:SetVisible(visible)
+	if self.Visible == visible then return end
+
+	objects.CommitProperty(self, "Visible", visible)
+
+	if visible then water.AddVolume(self) else water.RemoveVolume(self) end
 end
 
 function WaterVolume:OnRemove()

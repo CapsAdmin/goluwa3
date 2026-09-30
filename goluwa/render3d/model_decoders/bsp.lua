@@ -25,11 +25,15 @@ local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local bit = require("bit")
 local Entity = import("goluwa/entities/entity.lua")
+local VisibilityGroup = import("goluwa/entities/components/visibility_group.lua")
 local utility = import("goluwa/utility.lua")
 local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
 -- how far past the world's bounds, in metres, the 3D skybox is cut away
 local SKY_CUT_MARGIN = 0.5
+-- how far outside a visibility group, in source units, the camera still
+-- counts as inside one of the group's walls
+local GROUP_WALL_MARGIN = 256
 local BSP_LUMP_PLANES = 2
 local BSP_CONTENTS_SOLID = 0x1
 local BSP_CONTENTS_WINDOW = 0x2
@@ -541,10 +545,18 @@ do
 
 		if covered < area(union) * 0.98 then return nil end
 
-		return {min = min, max = max, key = a.key, texname = a.texname, contents = a.contents}
+		return {
+			min = min,
+			max = max,
+			key = a.key,
+			texname = a.texname,
+			contents = a.contents,
+			visibility_group = a.visibility_group,
+		}
 	end
 
-	-- to_engine_box moves a box in the 3D skybox out into the world
+	-- to_engine_box moves a box in the 3D skybox out into the world, and says
+	-- which visibility group it's in
 	function collect_water_volumes(header, to_engine_box)
 		local boxes = {}
 
@@ -562,7 +574,7 @@ do
 				local texname = get_surface_texture(header, brush)
 
 				if hull and hull.bounds_min and texname then
-					local min, max = to_engine_box(hull.bounds_min, hull.bounds_max)
+					local min, max, visibility_group = to_engine_box(hull.bounds_min, hull.bounds_max)
 
 					if max.x - min.x > 0.01 and max.z - min.z > 0.01 then
 						list.insert(
@@ -572,8 +584,9 @@ do
 								max = max,
 								texname = texname,
 								contents = contents,
+								visibility_group = visibility_group,
 								-- surfaces within a centimeter are the same water
-								key = texname:lower() .. math.floor(max.y * 100 + 0.5),
+								key = texname:lower() .. math.floor(max.y * 100 + 0.5) .. " " .. tostring(visibility_group),
 							}
 						)
 					end
@@ -623,6 +636,7 @@ do
 					scattering = material[2],
 					slime = bit.band(box.contents, BSP_CONTENTS_SLIME) ~= 0,
 					texname = box.texname,
+					visibility_group = box.visibility_group,
 				}
 			)
 		end
@@ -757,28 +771,26 @@ function steam.SetMap(name)
 	steam.bsp_world = steam.bsp_world or Entity.New({Name = "bsp_world"})
 	steam.bsp_world:SetName(name)
 	steam.bsp_world:AddComponent("transform")
-	steam.bsp_world:AddComponent("visual")
-	steam.bsp_world.visual:SetModelPath(path)
-	-- Note: SetPhysicsModelPath removed - physics component not yet ported
 	steam.bsp_world:RemoveChildren()
 	-- Store the relative path for later lookup
 	steam.bsp_world.bsp_relative_path = path
 
-	-- hack because promises will force SetModelPath to run one frame later
-	timer.Delay(0.1, function()
-		tasks.WaitForTask(path, function()
-			utility.PushTimeWarning()
-
-			-- The resolved path will be available after the model is loaded
-			if steam.bsp_world.bsp_resolved_path then
+	-- the world's meshes are spawned along with the map's entities, split up by
+	-- visibility group
+	model_loader.LoadModel(
+		path,
+		function()
+			timer.Delay(0, function()
+				utility.PushTimeWarning()
 				steam.SpawnMapEntities(steam.bsp_world.bsp_resolved_path, steam.bsp_world)
-			else
-				wlog("BSP model loaded but no resolved path available")
-			end
-
-			utility.PopTimeWarning("spawning map entities")
-		end)
-	end)
+				utility.PopTimeWarning("spawning map entities")
+			end)
+		end,
+		nil,
+		function(err)
+			wlog("failed to load map " .. path .. ": " .. err)
+		end
+	)
 end
 
 do
@@ -1335,129 +1347,240 @@ function steam.LoadMap(path)
 		int numfaces;
 	]]
 	)
-	-- The 3D skybox is a sealed room somewhere in the map that Source draws
-	-- scaled up by sky_camera's scale around sky_camera's origin. vbsp gives
-	-- every sealed region its own area, so the skybox is the area sky_camera
-	-- is in plus the areas areaportals join to it, and anything in those
-	-- areas is moved out into the world.
-	local sky_origin, sky_scale, sky_cut_min, sky_cut_max, is_sky_face, point_leaf_in_sky
-
-	if header.sky_camera then
-		local nodes = read_lump_data(
-			"reading nodes",
+	-- vbsp gives every region that is sealed off from the rest of the map its
+	-- own area, and splits regions further at areaportals. Areas joined by
+	-- areaportals can see into each other, so together they make up one
+	-- visibility group, and nothing of one group can be seen from another.
+	--
+	-- The 3D skybox is one of these regions, somewhere in the map, that Source
+	-- draws scaled up by sky_camera's scale around sky_camera's origin. Its
+	-- areas are the group sky_camera is in, and anything in them is moved out
+	-- into the world, where it belongs to no group.
+	local sky_origin, sky_scale, sky_cut_min, sky_cut_max, point_leaf_in_sky
+	local nodes = read_lump_data(
+		"reading nodes",
+		bsp_file,
+		header,
+		6,
+		32,
+		function()
+			local node = {bsp_file:ReadI32(), bsp_file:ReadI32(), bsp_file:ReadI32()}
+			bsp_file:Advance(20)
+			return node
+		end
+	)
+	local leaf_size = header.lumps[11].version == 0 and 56 or 32
+	local leafs = read_lump_data(
+		"reading leafs",
+		bsp_file,
+		header,
+		11,
+		leaf_size,
+		function()
+			local contents = bsp_file:ReadI32()
+			bsp_file:Advance(2)
+			-- the low 9 bits of a bitfield, the rest are flags
+			local area = bit.band(bsp_file:ReadU16(), 0x1FF)
+			local mins = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
+			local maxs = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
+			local first_leaf_face = bsp_file:ReadU16()
+			local leaf_face_count = bsp_file:ReadU16()
+			bsp_file:Advance(leaf_size - 24)
+			return {
+				contents = contents,
+				area = area,
+				mins = mins,
+				maxs = maxs,
+				first_leaf_face = first_leaf_face,
+				leaf_face_count = leaf_face_count,
+			}
+		end
+	)
+	local leaf_faces = read_lump_data(
+			"reading leaf faces",
 			bsp_file,
 			header,
-			6,
-			32,
+			17,
+			2,
 			function()
-				local node = {bsp_file:ReadI32(), bsp_file:ReadI32(), bsp_file:ReadI32()}
-				bsp_file:Advance(20)
-				return node
+				return bsp_file:ReadU16()
 			end
-		)
-		local leaf_size = header.lumps[11].version == 0 and 56 or 32
-		local leafs = read_lump_data(
-			"reading leafs",
+		) or
+		{}
+	local areas = read_lump_data(
+			"reading areas",
 			bsp_file,
 			header,
-			11,
-			leaf_size,
+			21,
+			8,
+			"int numareaportals; int firstareaportal;"
+		) or
+		{}
+	local areaportals = read_lump_data(
+			"reading areaportals",
+			bsp_file,
+			header,
+			22,
+			12,
 			function()
-				local contents = bsp_file:ReadI32()
 				bsp_file:Advance(2)
-				-- the low 9 bits of a bitfield, the rest are flags
-				local area = bit.band(bsp_file:ReadU16(), 0x1FF)
-				local mins = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
-				local maxs = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
-				bsp_file:Advance(leaf_size - 20)
-				return {contents = contents, area = area, mins = mins, maxs = maxs}
+				local other_area = bsp_file:ReadU16()
+				bsp_file:Advance(8)
+				return other_area
 			end
-		)
-		local areas = read_lump_data(
-				"reading areas",
-				bsp_file,
-				header,
-				21,
-				8,
-				"int numareaportals; int firstareaportal;"
-			) or
-			{}
-		local areaportals = read_lump_data(
-				"reading areaportals",
-				bsp_file,
-				header,
-				22,
-				12,
-				function()
-					bsp_file:Advance(2)
-					local other_area = bsp_file:ReadU16()
-					bsp_file:Advance(8)
-					return other_area
-				end
-			) or
-			{}
-		local headnode = header.models[1].headnode
+		) or
+		{}
+	local headnode = header.models[1].headnode
 
-		local function point_leaf(pos)
-			local node = headnode
+	local function point_leaf(pos)
+		local node = headnode
 
-			while node >= 0 do
-				local n = nodes[node + 1]
-				local plane = header.planes[n[1] + 1]
-				node = plane.normal:Dot(pos) >= plane.dist and n[2] or n[3]
-			end
-
-			return leafs[-node]
+		while node >= 0 do
+			local n = nodes[node + 1]
+			local plane = header.planes[n[1] + 1]
+			node = plane.normal:Dot(pos) >= plane.dist and n[2] or n[3]
 		end
 
-		local sky_areas = {}
+		return leafs[-node]
+	end
 
-		do
-			local stack = {point_leaf(header.sky_camera.origin).area}
+	-- the area of the open leaf nearest to pos, for what is in a wall and
+	-- doesn't touch any open leaf nearby
+	local function nearest_area(pos)
+		local best_area, best_distance = 0, math.huge
 
-			while stack[1] do
-				local area = list.remove(stack)
+		for _, leaf in ipairs(leafs) do
+			if leaf.area ~= 0 and bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 then
+				local dx = math.max(leaf.mins.x - pos.x, 0, pos.x - leaf.maxs.x)
+				local dy = math.max(leaf.mins.y - pos.y, 0, pos.y - leaf.maxs.y)
+				local dz = math.max(leaf.mins.z - pos.z, 0, pos.z - leaf.maxs.z)
+				local distance = dx * dx + dy * dy + dz * dz
 
-				if not sky_areas[area] then
-					sky_areas[area] = true
-					local info = areas[area + 1]
+				if distance < best_distance then
+					best_area, best_distance = leaf.area, distance
+				end
+			end
+		end
 
-					if info then
-						for i = 1, info.numareaportals do
-							list.insert(stack, areaportals[info.firstareaportal + i])
-						end
+		return best_area
+	end
+
+	-- the areas areaportals join to area, and area itself
+	local function get_joined_areas(area)
+		local out = {}
+		local stack = {area}
+
+		while stack[1] do
+			local area = list.remove(stack)
+
+			if not out[area] then
+				out[area] = true
+				local info = areas[area + 1]
+
+				if info then
+					for i = 1, info.numareaportals do
+						list.insert(stack, areaportals[info.firstareaportal + i])
 					end
 				end
 			end
 		end
 
-		-- a face lies on the boundary between leafs, so look just in front of
-		-- it, or behind it when that's solid. A displacement's face is its base
-		-- face.
-		function is_sky_face(face)
-			local center = Vec3()
+		return out
+	end
 
-			for j = 1, face.numedges do
-				local surfedge = header.surfedges[face.firstedge + j]
-				center = center + header.vertices[1 + header.edges[1 + math.abs(surfedge)][surfedge < 0 and
-					2 or
-					1]]
+	local sky_areas = header.sky_camera and
+		get_joined_areas(point_leaf(header.sky_camera.origin).area) or
+		{}
+	-- area 0 is the solid space outside of every area
+	local area_groups = {}
+	local group_count = 0
+
+	for area = 1, #areas - 1 do
+		if not area_groups[area] and not sky_areas[area] then
+			group_count = group_count + 1
+
+			for joined in pairs(get_joined_areas(area)) do
+				area_groups[joined] = group_count
+			end
+		end
+	end
+
+	logn("found ", group_count, " visibility groups in ", #areas - 1, " areas")
+	-- the box around a group's open leafs, grown by as much as a thick wall,
+	-- tells being inside one of its walls from being outside of it
+	local group_bounds = {}
+
+	for _, leaf in ipairs(leafs) do
+		local id = area_groups[leaf.area]
+
+		if id and bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 then
+			local bounds = group_bounds[id]
+
+			if not bounds then
+				bounds = {
+					min = Vec3(math.huge, math.huge, math.huge),
+					max = Vec3(-math.huge, -math.huge, -math.huge),
+				}
+				group_bounds[id] = bounds
 			end
 
-			center = center / face.numedges
-			local normal = header.planes[face.planenum + 1].normal
-
-			if face.side ~= 0 then normal = normal * -1 end
-
-			local leaf = point_leaf(center + normal)
-
-			if bit.band(leaf.contents, BSP_CONTENTS_SOLID) ~= 0 then
-				leaf = point_leaf(center - normal)
+			for _, axis in ipairs({"x", "y", "z"}) do
+				bounds.min[axis] = math.min(bounds.min[axis], leaf.mins[axis] - GROUP_WALL_MARGIN)
+				bounds.max[axis] = math.max(bounds.max[axis], leaf.maxs[axis] + GROUP_WALL_MARGIN)
 			end
+		end
+	end
 
-			return sky_areas[leaf.area] == true
+	-- the leafs a face can be seen from list it
+	local face_areas = {}
+
+	for _, leaf in ipairs(leafs) do
+		if leaf.area ~= 0 then
+			for j = 1, leaf.leaf_face_count do
+				local index = leaf_faces[leaf.first_leaf_face + j] + 1
+				face_areas[index] = face_areas[index] or leaf.area
+			end
+		end
+	end
+
+	-- displacements aren't listed. Their base face can be buried below the
+	-- surface they make, so look in front of it, or behind it when that's
+	-- solid, a little further away each time, and failing that take the
+	-- nearest open leaf
+	local probe_distances = {1, 16, 64, 256}
+
+	local function get_face_area(index)
+		if face_areas[index] then return face_areas[index] end
+
+		local face = header.faces[index]
+		local center = Vec3()
+
+		for j = 1, face.numedges do
+			local surfedge = header.surfedges[face.firstedge + j]
+			center = center + header.vertices[1 + header.edges[1 + math.abs(surfedge)][surfedge < 0 and
+				2 or
+				1]]
 		end
 
+		center = center / face.numedges
+		local normal = header.planes[face.planenum + 1].normal
+
+		if face.side ~= 0 then normal = normal * -1 end
+
+		for _, distance in ipairs(probe_distances) do
+			local leaf = point_leaf(center + normal * distance)
+
+			if bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 then return leaf.area end
+
+			leaf = point_leaf(center - normal * distance)
+
+			if bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 then return leaf.area end
+		end
+
+		return nearest_area(center)
+	end
+
+	if header.sky_camera then
 		sky_origin = header.sky_camera.origin
 		sky_scale = header.sky_camera.scale
 
@@ -1469,54 +1592,83 @@ function steam.LoadMap(path)
 		-- that end up in the world's place never show there. Here they would,
 		-- in doorways out to the skybox for example, so everything in the
 		-- skybox within the world's bounds is cut away.
-		do
-			local world_min = Vec3(math.huge, math.huge, math.huge)
-			local world_max = Vec3(-math.huge, -math.huge, -math.huge)
+		local world_min = Vec3(math.huge, math.huge, math.huge)
+		local world_max = Vec3(-math.huge, -math.huge, -math.huge)
 
-			for _, leaf in ipairs(leafs) do
-				if
-					bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 and
-					leaf.area ~= 0 and
-					not sky_areas[leaf.area]
-				then
-					for _, axis in ipairs({"x", "y", "z"}) do
-						world_min[axis] = math.min(world_min[axis], leaf.mins[axis])
-						world_max[axis] = math.max(world_max[axis], leaf.maxs[axis])
-					end
+		for _, leaf in ipairs(leafs) do
+			if
+				bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 and
+				leaf.area ~= 0 and
+				not sky_areas[leaf.area]
+			then
+				for _, axis in ipairs({"x", "y", "z"}) do
+					world_min[axis] = math.min(world_min[axis], leaf.mins[axis])
+					world_max[axis] = math.max(world_max[axis], leaf.maxs[axis])
 				end
 			end
-
-			local margin = SKY_CUT_MARGIN / steam.source2meters
-			sky_cut_min = (world_min - Vec3(margin, margin, margin)) / sky_scale + sky_origin
-			sky_cut_max = (world_max + Vec3(margin, margin, margin)) / sky_scale + sky_origin
-			print("SKYCHECK cut", world_min, world_max, sky_cut_min, sky_cut_max)
 		end
+
+		local margin = SKY_CUT_MARGIN / steam.source2meters
+		sky_cut_min = (world_min - Vec3(margin, margin, margin)) / sky_scale + sky_origin
+		sky_cut_max = (world_max + Vec3(margin, margin, margin)) / sky_scale + sky_origin
+	end
+
+	do
+		-- an entity inside a wall (a model's origin often is) looks around it
+		local probe_offsets = {
+			Vec3(0, 0, 16),
+			Vec3(0, 0, -16),
+			Vec3(16, 0, 0),
+			Vec3(-16, 0, 0),
+			Vec3(0, 16, 0),
+			Vec3(0, -16, 0),
+		}
 
 		for _, ent in ipairs(header.entities) do
 			if ent.origin then
-				local in_sky = false
+				local area = 0
 
-				-- a static prop's origin is often inside the ground, but it
-				-- knows which leafs it touches
+				-- a static prop knows which leafs it touches, the skybox's first
 				if ent.classname == "static_entity" and ent.leaf_count > 0 then
 					for i = 1, ent.leaf_count do
-						if sky_areas[leafs[header.static_prop_leafs[ent.first_leaf + i] + 1].area] then
-							in_sky = true
+						local leaf_area = leafs[header.static_prop_leafs[ent.first_leaf + i] + 1].area
+
+						if sky_areas[leaf_area] then
+							area = leaf_area
 
 							break
 						end
+
+						if area == 0 then area = leaf_area end
 					end
 				else
-					in_sky = sky_areas[point_leaf(ent.origin).area] == true
+					area = point_leaf(ent.origin).area
+
+					for _, offset in ipairs(probe_offsets) do
+						if area ~= 0 then break end
+
+						area = point_leaf(ent.origin + offset).area
+					end
+
+					if area == 0 then area = nearest_area(ent.origin) end
 				end
 
-				if in_sky then
+				ent.visibility_group = area_groups[area]
+
+				if sky_areas[area] then
 					ent.origin = (ent.origin - sky_origin) * sky_scale
 					ent.model_size_mult = sky_scale
 				end
 			end
 		end
 	end
+
+	header.visibility = {
+		point_leaf = point_leaf,
+		area_groups = area_groups,
+		group_count = group_count,
+		group_bounds = group_bounds,
+	}
 
 	do
 		-- engine space box corners back to source space, through the skybox
@@ -1526,11 +1678,12 @@ function steam.LoadMap(path)
 		end
 
 		header.water_volumes = collect_water_volumes(header, function(min, max)
-			if not sky_origin then return min, max end
-
 			local center = (engine_to_source(min) + engine_to_source(max)) / 2
+			local area = point_leaf(center).area
 
-			if not (point_leaf_in_sky and point_leaf_in_sky(center)) then return min, max end
+			if area == 0 then area = nearest_area(center) end
+
+			if not sky_areas[area] then return min, max, area_groups[area] end
 
 			local a = source_pos_to_engine((engine_to_source(min) - sky_origin) * sky_scale)
 			local b = source_pos_to_engine((engine_to_source(max) - sky_origin) * sky_scale)
@@ -1652,11 +1805,16 @@ function steam.LoadMap(path)
 		for _, model in ipairs(header.models) do
 			for i = 1, model.numfaces do
 				local face = header.faces[model.firstface + i]
-				local in_sky = is_sky_face and is_sky_face(face)
+				local area = get_face_area(model.firstface + i)
+				local in_sky = sky_areas[area] == true
+				local group = area_groups[area]
 				local texinfo = header.texinfos[1 + face.texinfo]
 				local texdata = texinfo and header.texdatas[1 + texinfo.texdata]
 				local texname = header.texdatastringdata[1 + texdata.nameStringTableID]
 				local texname_lower = texname:lower()
+				-- the world is split up into sub models by visibility group and
+				-- texture
+				local key = (group or 0) .. " " .. texname
 
 				if texname_lower:find("skyb", nil, true) then goto continue end
 
@@ -1676,23 +1834,22 @@ function steam.LoadMap(path)
 					goto continue
 				end
 
-				-- split the world up into sub models by texture
-				if not meshes[texname] then
+				if not meshes[key] then
 					local mesh = RENDER_2D and Polygon3D.New() or {}
 					local material_path = "materials/" .. texname .. ".vmt"
 					local material = RENDER_2D and Material.FromVMT(material_path)
-					meshes[texname] = {mesh = mesh, material = material}
+					meshes[key] = {mesh = mesh, material = material, visibility_group = group}
 
 					if RENDER_2D then
 						mesh:SetName(path .. ": " .. texname)
 						mesh.material = material
 					end
 
-					list.insert(models, meshes[texname])
+					list.insert(models, meshes[key])
 				end
 
 				do
-					local mesh = meshes[texname].mesh
+					local mesh = meshes[key].mesh
 
 					if face.dispinfo == -1 and in_sky then
 						local polygon = {}
@@ -1865,6 +2022,7 @@ function steam.LoadMap(path)
 		physics_body = physics_body,
 		physics_body_info = physics_body_info,
 		cubemaps = header.cubemaps,
+		visibility = header.visibility,
 		water_volumes = header.water_volumes,
 		ocean_level = ocean_level,
 		path = path, -- Store the absolute path
@@ -1912,6 +2070,107 @@ function steam.SpawnMapEntities(path, parent)
 			if v.spawned_from_bsp then v:Remove() end
 		end
 
+		VisibilityGroup.SetLocator(nil)
+		VisibilityGroup.SetActive(nil)
+		local groups = {}
+
+		-- what belongs to no group (the skybox, what's inside walls) goes
+		-- straight under the world
+		local function get_container(id)
+			if not id then return parent end
+
+			if not groups[id] then
+				local group = Entity.New{Name = "visibility_group_" .. id, Parent = parent}
+				group:AddComponent("transform")
+				group:AddComponent("visibility_group")
+				group.spawned_from_bsp = true
+				groups[id] = group
+			end
+
+			return groups[id]
+		end
+
+		-- lights, water and each class of prop are kept together in a container
+		local sub_groups = {}
+
+		local function get_sub_group(container, name)
+			sub_groups[container] = sub_groups[container] or {}
+			local sub_group = sub_groups[container][name]
+
+			if not sub_group then
+				sub_group = Entity.New{Name = name, Parent = container}
+				sub_group.spawned_from_bsp = true
+				sub_groups[container][name] = sub_group
+			end
+
+			return sub_group
+		end
+
+		if RENDER_2D then
+			local worlds = {}
+
+			for _, prim in ipairs(data.render_meshes) do
+				local container = get_container(prim.visibility_group)
+				local world = worlds[container]
+
+				if not world then
+					world = Entity.New{Name = "world", Parent = container}
+					world:AddComponent("transform")
+					world:AddComponent("visual")
+					world.spawned_from_bsp = true
+					worlds[container] = world
+				end
+
+				world.visual:CreatePrimitiveEntity(prim.mesh, prim.material, "world_primitive")
+			end
+
+			for _, world in pairs(worlds) do
+				world.visual:BuildAABB()
+			end
+		end
+
+		if data.visibility.group_count > 0 then
+			local point_leaf = data.visibility.point_leaf
+			local area_groups = data.visibility.area_groups
+			local group_bounds = data.visibility.group_bounds
+			local group_ids = {}
+
+			-- every group, so being in one that has nothing in it still hides
+			-- the others
+			for id = 1, data.visibility.group_count do
+				group_ids[get_container(id).visibility_group] = id
+			end
+
+			-- in solid space the camera is either in a wall of the group it's in,
+			-- and keeps it, or outside of the map, where it sees every group
+			VisibilityGroup.SetLocator(function(pos)
+				local source = Vec3(-pos.z, -pos.x, pos.y) / steam.source2meters
+				local area = point_leaf(source).area
+
+				if area ~= 0 then
+					local id = area_groups[area]
+					return id and groups[id].visibility_group or false
+				end
+
+				local active = VisibilityGroup.GetActive()
+				local bounds = active and group_bounds[group_ids[active]]
+
+				if
+					bounds and
+					source.x >= bounds.min.x and
+					source.y >= bounds.min.y and
+					source.z >= bounds.min.z and
+					source.x <= bounds.max.x and
+					source.y <= bounds.max.y and
+					source.z <= bounds.max.z
+				then
+					return nil
+				end
+
+				return false
+			end)
+		end
+
 		local count = table.count(data.entities)
 		logn("spawning ", count, " entities from BSP")
 		local handled = {}
@@ -1930,9 +2189,10 @@ function steam.SpawnMapEntities(path, parent)
 				--parent.world_params:SetSunIlluminance(126000)
 				elseif info.classname:lower():find("light") and (info._lightHDR or info._light) then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
-					parent.light_group = parent.light_group or Entity.New{Name = "lights", Parent = parent}
-					parent.light_group:SetName("lights")
-					local ent = Entity.New{Name = info.classname, Parent = parent.light_group}
+					local ent = Entity.New{
+						Name = info.classname,
+						Parent = get_sub_group(get_container(info.visibility_group), "lights"),
+					}
 					local tr = ent:AddComponent("transform")
 					set_transform(tr, info)
 					local is_spot = info.classname == "light_spot"
@@ -1991,10 +2251,10 @@ function steam.SpawnMapEntities(path, parent)
 
 				if model_path then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
-					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or
-						Entity.New{Name = info.classname, Parent = parent}
-					parent[info.classname .. "_group"]:SetName(info.classname)
-					local ent = Entity.New{Name = "prop", Parent = parent[info.classname .. "_group"]}
+					local ent = Entity.New{
+						Name = "prop",
+						Parent = get_sub_group(get_container(info.visibility_group), info.classname),
+					}
 					local tr = ent:AddComponent("transform")
 					set_transform(tr, info)
 
@@ -2033,13 +2293,10 @@ function steam.SpawnMapEntities(path, parent)
 		end
 
 		if RENDER_3D and data.water_volumes and data.water_volumes[1] then
-			local group = Entity.New{Name = "water", Parent = parent}
-			group.spawned_from_bsp = true
-
 			for _, info in ipairs(data.water_volumes) do
 				local ent = Entity.New{
 					Name = info.texname,
-					Parent = group,
+					Parent = get_sub_group(get_container(info.visibility_group), "water"),
 					transform = {Position = info.position},
 					water_volume = {
 						Size = info.size,
