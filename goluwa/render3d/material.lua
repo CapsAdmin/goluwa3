@@ -1085,8 +1085,8 @@ do
 			if vmt.selfillumtint then
 				if typex(vmt.selfillumtint) == "vec3" then
 					self:SetEmissiveMultiplier(Color(vmt.selfillumtint.x, vmt.selfillumtint.y, vmt.selfillumtint.z, 1))
-				elseif typex(vmt.selfillumtint) == "vec3" then
-					self:SetEmissiveMultiplier(vmt.selfillumtint)
+				elseif typex(vmt.selfillumtint) == "color" then
+					self:SetEmissiveMultiplier(Color(vmt.selfillumtint.r, vmt.selfillumtint.g, vmt.selfillumtint.b, 1))
 				else
 					print("wtf ", vmt.selfillumtint)
 				end
