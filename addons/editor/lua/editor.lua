@@ -556,7 +556,7 @@ return function(props)
 	editor_window:CallOnRemove(
 		function()
 			highlight.SetEntity()
-			Gizmo.Clear(editor_window)
+			Gizmo.Clear()
 			view:Remove()
 			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
 		end,
