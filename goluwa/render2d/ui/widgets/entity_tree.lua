@@ -352,8 +352,10 @@ function META:is_expanded(node, path, key, has_children)
 end
 
 function META:set_selected(node, path, key)
-	if node and node.Entity and node.Entity:IsValid() then
-		self._selected_entity_guid = node.Entity:GetGUID()
+	local target = node and (node.Entity or node.Object)
+
+	if target and target:IsValid() then
+		self._selected_entity_guid = target:GetGUID()
 	end
 
 	META.BaseClass.set_selected(self, node, path, key)
