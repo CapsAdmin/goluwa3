@@ -1066,6 +1066,16 @@ for _, pass in ipairs{
 		on_pre_draw = function(self)
 			self._cached_blit_source_tex = -1
 
+			for _, pipeline in ipairs(render3d.pipelines_i) do
+				local texture = pipeline.present_texture and pipeline.present_texture()
+
+				if texture then
+					self._cached_blit_source_tex = self:GetTextureIndex(texture)
+
+					return
+				end
+			end
+
 			if not render3d.pipelines.blit_compute then return end
 
 			local framebuffer = render3d.pipelines.blit_compute:GetFramebuffer()

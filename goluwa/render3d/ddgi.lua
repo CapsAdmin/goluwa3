@@ -305,6 +305,13 @@ local debug_probes = pvars.Setup2{
 	enums = {0, 1, 2},
 	help = "0 off, 1 probe irradiance, 2 probe mean hit distance",
 }
+-- 0 off, 1 albedo, 2 normals, 3 hit distance (see passes/ddgi.lua)
+local debug_scene = pvars.Setup2{
+	key = "ddgi_debug_scene",
+	default = 0,
+	enums = {0, 1, 2, 3},
+	help = "0 off, 1 albedo, 2 normals, 3 hit distance of the scene the probe rays trace",
+}
 -- 1 makes the lighting pass show only the gi irradiance
 local debug_gi = pvars.Setup2{
 	key = "ddgi_debug_gi",
@@ -371,6 +378,10 @@ function ddgi.GetScreenTexture()
 
 	local resolve = render3d.pipelines.ddgi_resolve
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(1) or nil
+end
+
+function ddgi.GetDebugSceneMode()
+	return debug_scene:Get()
 end
 
 -- drawn over the lit image by the lighting pass; rgb = colour, a = coverage
@@ -1421,6 +1432,8 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_debug_scale", "float"},
 		{"ddgi_debug_probes", "int"},
 		{"ddgi_debug_cascade", "int"},
+		{"ddgi_debug_scene", "int"},
+		{"ddgi_debug_manual_gamma", "int"},
 		{"ddgi_smooth_blend", "int"},
 		{"ddgi_visibility_rays", "int"},
 		{"ddgi_visibility_front_faces_only", "int"},
@@ -1527,6 +1540,8 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_debug_scale = debug_scale:Get()
 	block.ddgi_debug_probes = debug_probes:Get()
 	block.ddgi_debug_cascade = debug_cascade:Get()
+	block.ddgi_debug_scene = debug_scene:Get()
+	block.ddgi_debug_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
 	block.ddgi_smooth_blend = smooth_blend:Get() and 1 or 0
 	block.ddgi_visibility_rays = visibility_rays:Get()
 	block.ddgi_visibility_front_faces_only = visibility_front_faces_only:Get() and 1 or 0

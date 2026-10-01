@@ -1276,6 +1276,99 @@ local function pass_probe_debug()
 	}
 end
 
+-- Debug view of the scene the probe rays trace (ddgi_debug_scene): the camera
+-- looks through the same scene_bvh soup and materials as the probes, shaded by
+-- albedo (1), normal (2) or hit distance (3). A hit on the back of a single
+-- sided surface, which the probes treat as being inside geometry, is red, a
+-- miss is the dark void the probes see sky in. It is presented as is, in
+-- place of the finished frame (see present_texture in blit.lua), so it skips
+-- lighting, exposure, bloom and tone mapping.
+local function pass_scene_debug()
+	return {
+		name = "ddgi_scene_debug",
+		ComputePass = true,
+		ColorFormat = {{"r16g16b16a16_sfloat", {"ddgi_scene_debug", "rgba"}}},
+		framebuffer_count = 1,
+		LocalSize = {x = 8, y = 8, z = 1},
+		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = {"compute", "fragment"}}},
+		present_texture = function()
+			if ddgi.GetDebugSceneMode() == 0 or not scene_bvh.triangle_buffer then
+				return nil
+			end
+
+			return render3d.pipelines.ddgi_scene_debug:GetFramebuffer(1):GetAttachment(1)
+		end,
+		storage_buffers = {
+			{binding_index = BINDING_BVH_NODES},
+			{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
+			{binding_index = BINDING_MATERIALS},
+		},
+		uniform_buffers = {data_uniform()},
+		on_pre_draw = function(self, cmd, frame, desc)
+			if ddgi.GetDebugSceneMode() == 0 or not scene_bvh.triangle_buffer then return end
+
+			local materials = ddgi.WriteMaterialBuffer(self)
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_MATERIALS, 0, materials, materials:GetSize())
+			scene_bvh.BindBuffers(self, desc, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
+		end,
+		on_draw = function(self, cmd, fb, frame, desc)
+			if ddgi.GetDebugSceneMode() == 0 or not scene_bvh.triangle_buffer then return end
+
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(cmd, fb.width, fb.height, 1, desc, self.dynamic_offsets)
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+		]] .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES),
+		shader = common_glsl() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetMaterialGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
+			vec2 in_uv;
+		]] .. screen_reconstruct.GetWorldRayGLSL("ddgi_data") .. [[
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_color);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				in_uv = get_screen_uv(pos, size);
+				vec3 O = ddgi_data.camera_position.xyz;
+				vec3 D = get_world_ray();
+				vec3 color = vec3(0.01, 0.015, 0.03);
+				scene_bvh_hit hit;
+
+				if (ddgi_data.ddgi_rt_ready != 0 && scene_bvh_trace(O, D, 0.0, ddgi_data.ddgi_max_distance, hit)) {
+					scene_bvh_triangle tri = bvh_tri(hit.triangle);
+					ddgi_material material = ddgi_materials[tri.material];
+					// see the shade pass: cross(e1, e2) points inward
+					vec3 N = -tri.normal;
+					bool back = dot(D, N) > 0.0;
+
+					if (back) N = -N;
+
+					float facing = 0.3 + 0.7 * max(dot(N, -D), 0.0);
+
+					if (back && material.double_sided == 0) {
+						color = vec3(0.8, 0.0, 0.0) * facing;
+					} else if (ddgi_data.ddgi_debug_scene == 2) {
+						color = (N * 0.5 + 0.5) * facing;
+					} else if (ddgi_data.ddgi_debug_scene == 3) {
+						color = vec3(1.0 / (1.0 + hit.distance / (ddgi_spacing(0) * 4.0)));
+					} else {
+						color = ddgi_albedo(material, hit.position) * facing;
+					}
+				}
+
+				color = clamp(color * ddgi_data.ddgi_debug_scale, 0.0, 1.0);
+
+				if (ddgi_data.ddgi_debug_manual_gamma == 1) {
+					color = mix(color * 12.92, 1.055 * pow(color, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, color));
+				}
+
+				imageStore(out_color, pos, vec4(color, 1.0));
+			}
+		]],
+	}
+end
+
 local function pass_resolve()
 	return {
 		name = "ddgi_resolve",
@@ -1338,6 +1431,7 @@ local passes = {
 	pass_guide(),
 	pass_resolve(),
 	pass_probe_debug(),
+	pass_scene_debug(),
 }
 
 for _, pass in ipairs(passes) do

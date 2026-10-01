@@ -25,6 +25,8 @@ local function decorate_pipeline_instance(pipeline, config)
 	pipeline.draw_in_prerender = config.draw_in_prerender ~= false
 	-- skipped while this returns false
 	pipeline.is_enabled = config.is_enabled
+	-- returns a finished frame to present instead of the blit's, nil for none
+	pipeline.present_texture = config.present_texture
 	return pipeline
 end
 
