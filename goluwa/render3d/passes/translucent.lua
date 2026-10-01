@@ -9,6 +9,7 @@ local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
+local ddgi = import("goluwa/render3d/ddgi.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local precipitation = import("goluwa/render3d/precipitation.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -170,6 +171,23 @@ table.insert(
 		upload_scope = "frame",
 	}
 )
+-- the probes themselves, to light a surface where it is
+table.insert(
+	surface_uniform_buffers,
+	{
+		name = "ddgi_data",
+		block = ddgi.GetProbeBlockLayout(),
+		write = function(self, block)
+			if render3d.pipelines.ddgi_resolve then
+				return ddgi.WriteProbeBlock(self, block)
+			end
+
+			block.ddgi_cascade_count = 0
+			return block
+		end,
+		upload_scope = "frame",
+	}
+)
 local moments_uniform_buffers = model_pipeline.GetPBRUniformBuffers()
 table.insert(moments_uniform_buffers, 1, camera_block)
 table.insert(
@@ -295,7 +313,8 @@ return {
 
 					if (AlphaTest && alpha < factor_model.AlphaCutoff) discard;
 
-					float absorbance = -log(max(1.0 - alpha, 1e-3));
+					// an additive surface only adds light, the scene behind it stays
+					float absorbance = Additive ? 0.0 : -log(max(1.0 - alpha, 1e-3));
 					float depth = moments_warp_depth(distance(in_position, translucent_camera.camera_position), moments_data.depth_warp);
 					float depth2 = depth * depth;
 					set_b0(absorbance);
@@ -322,10 +341,11 @@ return {
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
+			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
 		},
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		ReadOnlyDepth = gbuffer_layout.GetDepthTexture,
-		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}},
+		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end
 
@@ -337,7 +357,9 @@ return {
 			end
 		end,
 		-- never drawn, like translucent_moments
-		fragment = {shader = "void main() { set_color(vec4(0.0)); set_motion(vec4(0.0)); }"},
+		fragment = {
+			shader = "void main() { set_color(vec4(0.0)); set_motion(vec4(0.0)); set_additive(vec4(0.0)); }",
+		},
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
@@ -349,6 +371,7 @@ return {
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
+			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
 		},
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		vertex = model_pipeline.CreateVertexStage{
@@ -401,24 +424,37 @@ return {
 			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_lighting.GetGLSL("lighting_data") .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
 					return calculateShadow(world_pos, sun_dir, sun_dir) * get_cloud_shadow(world_pos);
 				}
 			]] .. froxel_fog.GetGLSL("lighting_data", "get_primary_sun_direction()") .. [[
-				// the gbuffer's screen space gi, of the opaque surface behind
-				// this one. a thin surface sits in about the same light
-				vec3 get_gi_irradiance(vec2 screen_uv, vec3 N, out float sky_visibility) {
+				// the gi at the surface itself, from the probes, for the side the
+				// viewer is on. the gbuffer's screen space gi is the light of the
+				// opaque surface behind, which is another place with another
+				// normal, and only stands in where there are no probes
+				vec3 get_gi_irradiance(vec2 screen_uv, vec3 world_pos, vec3 facing_N, vec3 V, out float sky_visibility) {
+					vec3 irradiance;
 					bool behind_is_sky = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r >= 1.0;
 
 					if (lighting_data.gi_screen_tex < 0 || behind_is_sky) {
 						sky_visibility = 1.0;
-						return sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
+						irradiance = sample_environment_irradiance(lighting_data.env_irradiance_tex, facing_N);
+					} else {
+						vec4 gi = texture(TEXTURE(lighting_data.gi_screen_tex), screen_uv);
+						sky_visibility = gi.a;
+						irradiance = gi.rgb;
 					}
 
-					vec4 gi = texture(TEXTURE(lighting_data.gi_screen_tex), screen_uv);
-					sky_visibility = gi.a;
-					return gi.rgb;
+					if (!ddgi_in_volume(world_pos)) return irradiance;
+
+					float weight;
+					vec4 probes = ddgi_sample_irradiance(world_pos, facing_N, V, ddgi_data.ddgi_smooth_blend != 0, weight);
+					// where the probes are all but hidden the sample fades to nothing,
+					// which gives way to the fallback just as smoothly
+					float confidence = saturate(weight / ]] .. ddgi.MIN_WEIGHT .. [[);
+					sky_visibility = mix(sky_visibility, probes.a, confidence);
+					return mix(irradiance, probes.rgb, confidence);
 				}
 
 				// how far the surface moved on screen since last frame
@@ -525,7 +561,7 @@ return {
 					vec3 direct_diffuse = get_direct_light(F0, NdotV, diffuse_albedo, roughness, perceptual_roughness, metallic, diffuse_transmission, get_transmission_color(), get_transmission_scattering(), world_pos, V, N, geometric_N, 0.0, 1.0, geometric_N, direct_specular);
 
 					float sky_visibility;
-					vec3 irradiance = get_gi_irradiance(screen_uv, N, sky_visibility);
+					vec3 irradiance = get_gi_irradiance(screen_uv, world_pos, dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N, V, sky_visibility);
 					vec3 raw_R = reflect(-V, N);
 					vec3 R = get_specular_dominant_direction(raw_R, N, perceptual_roughness);
 					vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, N, perceptual_roughness);
@@ -535,6 +571,16 @@ return {
 					vec3 ambient_diffuse = (1.0 - F_ambient) * (1.0 - metallic) * irradiance * diffuse_albedo * get_ao(in_uv);
 					vec3 ambient_specular = reflection * (F0 * env_brdf.x + F90(F0) * env_brdf.y) * GGXEnergyCompensation(F0, env_brdf);
 
+					if (Additive) {
+						// source's $additive: the albedo is added to the scene, nothing
+						// of it is taken away, and it lights nothing but its reflection
+						vec3 added = get_emissive(in_uv) * color_model.ColorMultiplier.a + (direct_specular + ambient_specular) * specular_coverage;
+						set_color(vec4(0.0));
+						set_motion(vec4(0.0));
+						set_additive(vec4(min(added * fog.a * get_pre_exposure(), vec3(65504.0)), 0.0) * transmittance);
+						return;
+					}
+
 					if (!refractive) {
 						vec3 emissive = get_emissive(in_uv) * alpha;
 						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
@@ -542,6 +588,7 @@ return {
 						color = color * fog.a + fog.rgb * alpha;
 						set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha) * transmittance);
 						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
+						set_additive(vec4(0.0));
 						return;
 					}
 
@@ -602,6 +649,7 @@ return {
 					vec3 color = (direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + emissive) * fog.a + fog.rgb * (1.0 - transmission) + background * transmission;
 					set_color(vec4(min(color * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
 					set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance * (1.0 - dot(transmission, vec3(1.0 / 3.0))));
+					set_additive(vec4(0.0));
 				}
 			]],
 		},
@@ -614,7 +662,7 @@ return {
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, ADDITIVE}},
+		color_blend = {attachments = {{}, ADDITIVE, ADDITIVE}},
 		DepthTest = true,
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
@@ -667,6 +715,7 @@ return {
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
+			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
 		},
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		Topology = "triangle_strip",
@@ -689,6 +738,7 @@ return {
 					set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
 					// streaks are thin and fast, a pixel with one follows it, or taa would average it away
 					set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
+						set_additive(vec4(0.0));
 				}
 			]],
 		},
@@ -700,7 +750,7 @@ return {
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, ADDITIVE}},
+		color_blend = {attachments = {{}, ADDITIVE, ADDITIVE}},
 		DepthTest = true,
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
@@ -735,10 +785,13 @@ return {
 					block = {
 						{"b0_tex", "int"},
 						{"accumulated_tex", "int"},
+						{"additive_tex", "int"},
 					},
 					write = function(self, block)
 						block.b0_tex = self:GetTextureIndex(get_moments_textures())
-						block.accumulated_tex = self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(1))
+						local accumulate = render3d.pipelines.translucent_accumulate:GetFramebuffer()
+						block.accumulated_tex = self:GetTextureIndex(accumulate:GetAttachment(1))
+						block.additive_tex = self:GetTextureIndex(accumulate:GetAttachment(3))
 						return block
 					end,
 				},
@@ -748,10 +801,13 @@ return {
 					ivec2 pixel = ivec2(gl_FragCoord.xy);
 					vec4 accumulated = texelFetch(TEXTURE(translucent_composite.accumulated_tex), pixel, 0);
 
-					if (accumulated.a <= 0.0) discard;
+					vec3 additive = texelFetch(TEXTURE(translucent_composite.additive_tex), pixel, 0).rgb;
+
+					if (accumulated.a <= 0.0 && dot(additive, vec3(1.0)) <= 0.0) discard;
 
 					float transmittance = exp(-texelFetch(TEXTURE(translucent_composite.b0_tex), pixel, 0).r);
-					set_color(vec4(accumulated.rgb * ((1.0 - transmittance) / accumulated.a), transmittance));
+					vec3 covering = accumulated.a > 0.0 ? accumulated.rgb * ((1.0 - transmittance) / accumulated.a) : vec3(0.0);
+					set_color(vec4(covering + additive, transmittance));
 				}
 			]],
 		},

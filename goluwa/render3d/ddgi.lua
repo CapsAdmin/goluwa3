@@ -815,6 +815,7 @@ end
 
 -- total probe weight below which a lookup is darkened rather than normalized
 local MIN_WEIGHT = "0.05"
+ddgi.MIN_WEIGHT = MIN_WEIGHT
 
 -- Probe addressing. A probe is named by its cascade c and integer world
 -- coordinate w (it sits at w * the cascade's spacing) and stored in slot
@@ -1394,9 +1395,10 @@ function ddgi.GetCommonGLSL()
 
 				vec3 probe_to_point = biased - probe_pos;
 				float dist = length(probe_to_point);
-				vec2 moments = texture(
+				vec2 moments = textureLod(
 					TEXTURE(ddgi_data.ddgi_distance_tex),
-					ddgi_atlas_uv(slot, c, probe_to_point / max(dist, 1e-4), DDGI_DISTANCE_TEXELS)
+					ddgi_atlas_uv(slot, c, probe_to_point / max(dist, 1e-4), DDGI_DISTANCE_TEXELS),
+					0.0
 				).rg;
 				float chebyshev = 1.0;
 
@@ -1414,9 +1416,10 @@ function ddgi.GetCommonGLSL()
 				if (w < 0.2) w *= w * w / 0.04;
 
 				w *= kernel.x * kernel.y * kernel.z;
-				sum += texture(
+				sum += textureLod(
 					TEXTURE(ddgi_data.ddgi_irradiance_tex),
-					ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS)
+					ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS),
+					0.0
 				) * w;
 				weight += w;
 			}

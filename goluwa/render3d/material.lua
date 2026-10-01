@@ -1466,8 +1466,10 @@ do
 		end
 
 		-- source glass is often $additive or a bare $translucent with no
-		-- envmap, which lights up or vanishes. a translucent glass surface
-		-- becomes a smooth dielectric that keeps its own textures
+		-- envmap, which lights up or vanishes. glass transmits what is behind it and reflects by its index
+		-- of refraction, it has no diffuse of its own, so it becomes a thin
+		-- refractive dielectric that keeps its own textures. its alpha stays
+		-- the coverage of the tint
 		if
 			self.Translucent and
 			(
@@ -1478,8 +1480,15 @@ do
 				)
 			)
 		then
-			--self:SetAdditive(false)
+			-- glass doesn't emit, even when its vmt is $additive
+			self:SetAdditive(false)
+			self:SetRefraction(1)
+			self:SetRefractionThickness(0)
 			self:SetAlbedoAlphaIsEmissive(false)
+			-- an envmapmask is how much it reflects, as a roughness texture it
+			-- would frost what is seen through the glass
+			self:SetRoughnessTexture(nil)
+			self:SetInvertRoughnessTexture(false)
 			self:SetMetallicMultiplier(0)
 			self:SetRoughnessMultiplier(0.04)
 			self:SetSpecularMultiplier(1)
