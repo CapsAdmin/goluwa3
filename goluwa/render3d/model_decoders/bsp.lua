@@ -86,18 +86,35 @@ local function source_height_to_engine_y(height)
 	return height * steam.source2meters
 end
 
-local function set_transform(tr, info)
-	local rotation = Quat()
-	rotation:SetAngles(
-		Deg3(
-			info.pitch or info.angles and info.angles.x or 0,
-			info.angles and info.angles.y or 0,
-			info.angles and info.angles.z or 0
-		)
-	)
-	local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
-	tr:SetPosition(position)
-	tr:SetRotation(rotation)
+local set_transform
+
+do
+	local axis_x = Vec3(1, 0, 0)
+	local axis_y = Vec3(0, 1, 0)
+	local axis_z = Vec3(0, 0, 1)
+
+	function set_transform(tr, info, is_light)
+		local rotation = Quat()
+		local angles = info.angles
+
+		if is_light then
+			rotation:SetAngles(
+				Deg3(
+					info.pitch or angles and angles.x or 0,
+					angles and angles.y or 0,
+					angles and angles.z or 0
+				)
+			)
+		elseif angles then
+			-- source rotates yaw about up, pitch about left and roll about forward,
+			-- all right handed in source space, which maps to engine -x for pitch
+			-- (positive looks down) and -z for roll
+			rotation = QuatFromAxis(math.rad(angles.y), axis_y) * QuatFromAxis(math.rad(-angles.x), axis_x) * QuatFromAxis(math.rad(-angles.z), axis_z)
+		end
+
+		tr:SetPosition(Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters)
+		tr:SetRotation(rotation)
+	end
 end
 
 -- vrad lights a surface d units away with brightness / (c + l*d + q*d^2)
@@ -2567,7 +2584,7 @@ function steam.SpawnMapEntities(path, parent)
 						Parent = get_sub_group(get_container(info.visibility_group), "lights"),
 					}
 					local tr = ent:AddComponent("transform")
-					set_transform(tr, info)
+					set_transform(tr, info, true)
 					local is_spot = info.classname == "light_spot"
 					local light = ent:AddComponent(is_spot and "light_spot" or "light_point")
 					local params = convert_source_light_to_engine(info)
