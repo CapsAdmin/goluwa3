@@ -803,12 +803,10 @@ do -- get is set
 		local set_name = info.set_name
 		local get_name = info.get_name
 		meta[set_name] = meta[set_name] or commit
-		meta[get_name] = meta[get_name] or
-			function(self)
-				if self[info.var_name] ~= nil then return self[info.var_name] end
-
-				return info.default
-			end
+		local var_name = info.var_name
+		meta[get_name] = meta[get_name] or function(self)
+			return self[var_name]
+		end
 		meta[info.var_name] = info.default
 		info.type = info.type or get_type(info.default)
 
