@@ -78,21 +78,16 @@ function META:OnCreate(props)
 	self._pending_expand_animation_key = nil
 	self._drag_enabled = true
 
-	-- Add OnUpdate for deferred refresh
-	if self._refresh_debounce > 0 then
-		local tree = self
-
-		function self:OnUpdate()
-			if not tree._pending_refresh then return end
-
-			if system.GetElapsedTime() < tree._refresh_deadline then return end
-
-			tree._pending_refresh = false
-			tree:Rebuild(true)
+	function self:OnUpdate()
+		if self._pending_refresh and system.GetElapsedTime() >= self._refresh_deadline then
+			self._pending_refresh = false
+			self:Rebuild(true)
 		end
 
-		self:AddGlobalEvent("Update")
+		self:materialize_visible_rows()
 	end
+
+	self:AddGlobalEvent("Update")
 end
 
 function META.OnGetText() end
@@ -760,27 +755,27 @@ end
 function META:update_row_display(info)
 	if not self._ready then return end
 
-	if
-		not (
-			info and
-			info.clip and
-			info.clip:IsValid() and
-			info.body and
-			info.body:IsValid()
-		)
-	then
+	if not (info and info.clip and info.clip:IsValid()) then return end
+
+	local open_fraction = info.open_fraction or 0
+
+	if not info.body then
+		local target_h = (self._row_height or 0) * open_fraction
+		info.clip.transform:SetHeight(target_h)
+		info.clip.visual:SetVisible(target_h > 0.001)
 		return
 	end
 
+	if not info.body:IsValid() then return end
+
 	local clip_w = info.clip.transform:GetWidth()
-	local open_fraction = info.open_fraction or 0
 
 	if open_fraction > 0.001 then info.clip.visual:SetVisible(true) end
 
 	info.body.transform:SetWidth(clip_w)
 	local body_h = info.body.transform:GetHeight()
 
-	if open_fraction > 0.001 and body_h <= 0.001 then
+	if open_fraction > 0.001 and body_h <= 0.001 and not self._materializing then
 		self:update_layout_now(info.clip)
 		body_h = info.body.transform:GetHeight()
 	end
@@ -951,33 +946,21 @@ end
 -- ---------------------------------------------------------------------------
 -- Row / node building
 -- ---------------------------------------------------------------------------
-function META:add_node(node, meta, parent_path, insert_index)
-	insert_index = insert_index or 1
-	local path = build_path(parent_path, meta.index)
-	local key = self:get_key(node, path)
-	local include = self.OnIncludeNode(node, path, key)
-
-	if include ~= nil and not include then return insert_index end
-
-	local children = self:get_children(node, path)
-	local has_children = next(children) ~= nil or self:has_unexpanded_children(node, path)
-	local expanded = self:is_expanded(node, path, key, has_children)
-	local selected = self:is_selected(node, path, key)
-	local custom_panel = self:get_node_panel(node, path, key, selected, has_children, expanded)
+function META:materialize_row(row_info)
 	local tree = self
-	local row_info = {
-		tree = tree,
-		node = node,
-		path = path,
-		key = key,
-		surface = selected and self.SelectedColor or nil,
-		parent_key = meta.parent_key,
-		has_children = has_children,
-		open_fraction = self:should_seed_open_fraction(meta) and 0 or nil,
-		toggle = nil,
-	}
-	self._row_infos[key] = row_info
-	table.insert(self._row_order, insert_index, key)
+	local node = row_info.node
+	local path = row_info.path
+	local key = row_info.key
+	local meta = row_info.meta
+	local has_children = row_info.has_children
+	local selected = self:is_selected(node, path, key)
+	local expanded = self:is_expanded(node, path, key, has_children)
+	local custom_panel = self:get_node_panel(node, path, key, selected, has_children, expanded)
+
+	local function on_row_layout_changed()
+		tree:update_row_display(row_info)
+	end
+
 	local label = self:make_label(node, path, key, selected, row_info)
 	local row_children = {
 		has_children and
@@ -993,11 +976,6 @@ function META:add_node(node, meta, parent_path, insert_index)
 		row_children[#row_children + 1] = label
 
 		if custom_panel then row_children[#row_children + 1] = custom_panel end
-	end
-
-	-- Shared listener setup for clip/body transform changes
-	local function on_row_layout_changed()
-		tree:update_row_display(row_info)
 	end
 
 	local row = Panel.New{
@@ -1069,6 +1047,110 @@ function META:add_node(node, meta, parent_path, insert_index)
 	row_info.body = row
 	row:AddLocalListener("OnTransformChanged", on_row_layout_changed)
 	row:AddLocalListener("OnLayoutUpdated", on_row_layout_changed)
+	row_info.clip:AddChild(row)
+	self:update_row_display(row_info)
+end
+
+do
+	local VIEW_MARGIN = 160
+
+	function META:materialize_visible_rows()
+		local _, y1, _, y2 = self.transform:GetVisibleLocalRect(0, 0, self.transform:GetWidth(), 1000000)
+
+		if not y1 then return end
+
+		if not self._row_height then
+			local first = self._row_infos[self._row_order[1]]
+
+			if not first then return end
+
+			if not first.body then self:materialize_row(first) end
+
+			self:update_layout_now(self)
+			self:update_row_display(first)
+			local height = first.body.transform:GetHeight()
+
+			if height <= 4 then return end
+
+			self._row_height = height
+
+			for _, key in ipairs(self._row_order) do
+				self:update_row_display(self._row_infos[key])
+			end
+
+			self:update_layout_now(self)
+			return
+		end
+
+		y1 = y1 - VIEW_MARGIN
+		y2 = y2 + VIEW_MARGIN
+		local pending
+
+		for _, key in ipairs(self._row_order) do
+			local info = self._row_infos[key]
+			local clip = info.clip
+
+			if not info.body and clip.visual:GetVisible() then
+				local y = clip.transform:GetY()
+
+				if y + clip.transform:GetHeight() >= y1 and y <= y2 then
+					pending = pending or {}
+					pending[#pending + 1] = info
+				end
+			end
+		end
+
+		if not pending then return end
+
+		self._materializing = true
+
+		for _, info in ipairs(pending) do
+			self:materialize_row(info)
+		end
+
+		self._materializing = false
+		self:update_layout_now(self)
+
+		for _, info in ipairs(pending) do
+			self:update_row_display(info)
+		end
+
+		self:update_layout_now(self)
+	end
+end
+
+function META:add_node(node, meta, parent_path, insert_index)
+	insert_index = insert_index or 1
+	local path = build_path(parent_path, meta.index)
+	local key = self:get_key(node, path)
+	local include = self.OnIncludeNode(node, path, key)
+
+	if include ~= nil and not include then return insert_index end
+
+	local children = self:get_children(node, path)
+	local has_children = next(children) ~= nil or self:has_unexpanded_children(node, path)
+	local expanded = self:is_expanded(node, path, key, has_children)
+	local selected = self:is_selected(node, path, key)
+	local tree = self
+	local row_info = {
+		tree = tree,
+		node = node,
+		path = path,
+		key = key,
+		surface = selected and self.SelectedColor or nil,
+		parent_key = meta.parent_key,
+		has_children = has_children,
+		open_fraction = self:should_seed_open_fraction(meta) and 0 or nil,
+		toggle = nil,
+	}
+	self._row_infos[key] = row_info
+	table.insert(self._row_order, insert_index, key)
+	row_info.meta = meta
+
+	local function on_row_layout_changed()
+		tree:update_row_display(row_info)
+	end
+
 	local clip = Panel.New{
 		IsInternal = true,
 		Name = "TreeRow",

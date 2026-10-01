@@ -588,7 +588,6 @@ return function(props)
 		camera.SetRotation(render3d.GetCamera():GetRotation():Copy())
 		Gizmo.SetMode(props.GizmoMode or Gizmo.GetMode())
 		Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
-		tree_view:Refresh(true)
 		pending_selection_sync = true
 	end
 

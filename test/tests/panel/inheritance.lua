@@ -121,6 +121,12 @@ T.Test2D("inheritance - tree widget with items produces rows", function()
 	T(#tree_view._items)["=="](1, "should have 1 root item")
 	T(#tree_view._row_order)[">"](#items, "should have rows for root + children")
 	T(#tree_view:GetChildren())[">"](#items, "should have child panels for rows")
+
+	-- row contents are materialized on update once the tree has a size
+	T.WaitUntil(function()
+		return on_get_text_called
+	end)
+
 	-- Verify the callback was used (proves inheritance of callback mechanism works)
 	T(on_get_text_called)["=="](true, "OnGetText callback should have been called during row creation")
 	-- Verify row info is populated
