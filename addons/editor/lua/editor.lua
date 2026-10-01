@@ -305,6 +305,7 @@ return function(props)
 						local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
 						Gizmo.EnableGizmo(target)
 						pending_selection_sync = true
+						_G.SELECTED_OBJECT = target
 					end,
 					OnNodeHover = function(node, key, path, row_info, hovered)
 						local entity = node and node.Entity or nil
