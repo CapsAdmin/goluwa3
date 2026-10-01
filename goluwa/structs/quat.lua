@@ -65,6 +65,20 @@ end
 
 do -- ORIENTATION / TRANSFORMATION
 	-- Coordinate system defined in orientation.lua
+	local BACK_VECTOR = -orientation.FORWARD_VECTOR
+
+	function META.SetRightAxis(out, rotation)
+		return META.SetVecMul(out, rotation, orientation.RIGHT_VECTOR)
+	end
+
+	function META.SetUpAxis(out, rotation)
+		return META.SetVecMul(out, rotation, orientation.UP_VECTOR)
+	end
+
+	function META.SetBackAxis(out, rotation)
+		return META.SetVecMul(out, rotation, BACK_VECTOR)
+	end
+
 	function META:Right()
 		return self:VecMul(orientation.RIGHT_VECTOR)
 	end
@@ -96,7 +110,7 @@ do -- ORIENTATION / TRANSFORMATION
 	META.GetFront = META.Front
 
 	function META:Back()
-		return self:VecMul(-orientation.FORWARD_VECTOR)
+		return self:VecMul(BACK_VECTOR)
 	end
 
 	META.GetBack = META.Back
