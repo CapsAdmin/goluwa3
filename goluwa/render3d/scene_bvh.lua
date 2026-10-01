@@ -57,10 +57,13 @@ local TRIANGLE_BYTE_SIZE = 64
 scene_bvh.SOUP_UVS = true
 local SOUP_UVS = scene_bvh.SOUP_UVS
 scene_bvh.RAY_MASK_SOLID = 0x01
--- three uvs of a triangle, indexed like the triangle buffer
-local UV_BYTE_SIZE = 24
--- position and normal come first in a mesh vertex
+-- three uvs and three texture blend weights of a triangle, indexed like the
+-- triangle buffer
+local UV_FLOATS = 9
+local UV_BYTE_SIZE = UV_FLOATS * 4
+-- position, normal, uv, tangent come first in a mesh vertex
 local UV_FLOAT_OFFSET = 6
+local BLEND_FLOAT_OFFSET = 12
 -- the soup is bound as an array of SOUP_CHUNKS descriptors over one buffer,
 -- each covering 2 GiB of it, so a soup larger than maxStorageBufferRange (and
 -- than what 32 bit byte offsets can address) stays reachable. triangle i lives
@@ -1199,13 +1202,16 @@ do
 				record.emissive[2] = 0
 
 				if local_uvs then
-					local uv = written * 6
+					local uv = written * UV_FLOATS
 					local_uvs[uv] = vertices[a + UV_FLOAT_OFFSET]
 					local_uvs[uv + 1] = vertices[a + UV_FLOAT_OFFSET + 1]
 					local_uvs[uv + 2] = vertices[b + UV_FLOAT_OFFSET]
 					local_uvs[uv + 3] = vertices[b + UV_FLOAT_OFFSET + 1]
 					local_uvs[uv + 4] = vertices[c + UV_FLOAT_OFFSET]
 					local_uvs[uv + 5] = vertices[c + UV_FLOAT_OFFSET + 1]
+					local_uvs[uv + 6] = vertices[a + BLEND_FLOAT_OFFSET]
+					local_uvs[uv + 7] = vertices[b + BLEND_FLOAT_OFFSET]
+					local_uvs[uv + 8] = vertices[c + BLEND_FLOAT_OFFSET]
 				end
 
 				written = written + 1
@@ -1254,7 +1260,7 @@ do
 			id = piece_id,
 			raw_count = slot.count,
 			local_tris = TriangleArray(slot.count),
-			local_uvs = SOUP_UVS and FloatArray(slot.count * 6) or nil,
+			local_uvs = SOUP_UVS and FloatArray(slot.count * UV_FLOATS) or nil,
 			matrix = {
 				m00 = l.m00,
 				m01 = l.m01,
@@ -1460,8 +1466,8 @@ do
 
 			if SOUP_UVS then
 				ffi.copy(
-					scene_bvh.uvs + (vc.tri_base + i) * 6,
-					pieces[s].local_uvs + (l - starts[s]) * 6,
+					scene_bvh.uvs + (vc.tri_base + i) * UV_FLOATS,
+					pieces[s].local_uvs + (l - starts[s]) * UV_FLOATS,
 					UV_BYTE_SIZE
 				)
 			end
@@ -2285,6 +2291,7 @@ function scene_bvh.GetUvDeclarationGLSL(uv_binding)
 			vec2 uv0;
 			vec2 uv1;
 			vec2 uv2;
+			vec3 blend;
 		};
 
 		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHUvBuffer {
@@ -2521,6 +2528,7 @@ do
 						vec2 uv0;
 						vec2 uv1;
 						vec2 uv2;
+						vec3 blend;
 					};
 					layout(scalar, set = 0, binding = 4) buffer SceneBvhVertexUv {
 						vec2 vertex_uvs[];

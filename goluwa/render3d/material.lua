@@ -21,9 +21,17 @@ Material:GetSet(
 	nil,
 	{type = "render_texture", callback = "InvalidateEmission"}
 )
-Material:GetSet("Albedo2Texture", nil, {type = "render_texture"})
+Material:GetSet(
+	"Albedo2Texture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
 Material:GetSet("Normal2Texture", nil, {type = "render_texture"})
-Material:GetSet("BlendTexture", nil, {type = "render_texture"})
+Material:GetSet(
+	"BlendTexture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
 Material:GetSet("DetailTexture", nil, {type = "render_texture"})
 Material:GetSet(
 	"TerrainMaterialTexture",

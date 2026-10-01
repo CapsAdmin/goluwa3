@@ -869,6 +869,9 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			int alpha_test;
 			// the sun's shadow ray passes through it, tinted (see glass_tint.lua)
 			int glass;
+			// displacement blending: the second albedo and the blend modulate texture, -1 without
+			int albedo2_tex;
+			int blend_tex;
 		};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -961,7 +964,25 @@ function ddgi.GetHitAlbedoGLSL()
 			vec2 coord = uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w;
 			ivec2 size = textureSize(TEXTURE(material.albedo_tex), 0);
 			float lod = max(log2(float(max(size.x, size.y)) / DDGI_ALBEDO_UV_TEXELS), 0.0);
-			return material.albedo * textureLod(TEXTURE(material.albedo_tex), coord, lod).rgb;
+			vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, lod).rgb;
+
+			if (material.albedo2_tex >= 0) {
+				float blend = uv.blend.x * (1.0 - v - w) + uv.blend.y * v + uv.blend.z * w;
+
+				if (material.blend_tex >= 0) {
+					// source blendmodulate: g is the transition center, r its half width
+					vec2 modulate = textureLod(TEXTURE(material.blend_tex), coord, lod).rg;
+					blend = smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), blend);
+				}
+
+				if (blend != 0.0) {
+					ivec2 size2 = textureSize(TEXTURE(material.albedo2_tex), 0);
+					float lod2 = max(log2(float(max(size2.x, size2.y)) / DDGI_ALBEDO_UV_TEXELS), 0.0);
+					rgb = mix(rgb, textureLod(TEXTURE(material.albedo2_tex), coord, lod2).rgb, blend);
+				}
+			}
+
+			return material.albedo * rgb;
 		}
 	]]
 end
@@ -1919,6 +1940,8 @@ local MaterialEntry = ffi.typeof([[struct {
 	float alpha_cutoff;
 	int32_t alpha_test;
 	int32_t glass;
+	int32_t albedo2_tex;
+	int32_t blend_tex;
 }]])
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
@@ -1992,6 +2015,13 @@ function ddgi.WriteMaterialBuffer(self)
 			end
 
 			entry.glass = (glass_enabled and material:IsGlass()) and 1 or 0
+			local albedo2 = material:GetAlbedo2Texture()
+			entry.albedo2_tex = albedo2 and albedo2:IsValid() and self:GetTextureIndex(albedo2) or -1
+			local blend_texture = material:GetBlendTexture()
+			entry.blend_tex = blend_texture and
+				blend_texture:IsValid() and
+				self:GetTextureIndex(blend_texture) or
+				-1
 			local terrain = material:GetTerrainMaterialTexture()
 
 			if terrain and terrain:IsValid() then
