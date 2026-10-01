@@ -1149,18 +1149,20 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 	]]
 end
 
-function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr)
+-- translucent surfaces are dithered, keeping a fragment as often as
+-- coverage_expr says. a shadow map keeps them as often as they stop light
+function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr)
 	return (
 		[[
 			void compute_translucency_and_discard(inout float alpha) {
 				if (AlphaTest) {
 					if (alpha < %s) discard;
 				} else if (Translucent) {
-					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
+					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (%s)) discard;
 				}
 			}
 		]]
-	):format(alpha_cutoff_expr)
+	):format(alpha_cutoff_expr, coverage_expr or "alpha * alpha")
 end
 
 function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr)

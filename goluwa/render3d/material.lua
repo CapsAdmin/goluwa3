@@ -70,11 +70,7 @@ Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
 -- the luminance scales DiffuseTransmission
 Material:GetSet("TransmissionTexture", nil, {type = "render_texture"})
 -- multipliers
-Material:GetSet(
-	"ColorMultiplier",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{callback = "InvalidateRayMaterial"}
-)
+Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0), {callback = "InvalidateColor"})
 Material:GetSet(
 	"EmissiveMultiplier",
 	Color(1.0, 1.0, 1.0, 1.0),
@@ -158,12 +154,12 @@ Material:GetSet("GrassWidth", 0.02)
 -- other
 -- how much light passes through the surface, bent by IndexOfRefraction (0..1,
 -- gltf's transmission). the transmitted light is tinted by the albedo
-Material:GetSet("Refraction", 0.0, {callback = "InvalidateSceneKey"})
+Material:GetSet("Refraction", 0.0, {callback = "InvalidateTransparency"})
 Material:GetSet("IndexOfRefraction", 1.5)
 -- how far light travels inside, in world units. 0 is a thin wall (a window,
 -- a bubble) and below 0 takes the object's thinnest extent
 Material:GetSet("RefractionThickness", -1.0)
-Material:GetSet("AlphaCutoff", 0.5)
+Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateShadow"})
 Material:GetSet("IgnoreZ", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
 -- the primitives drawing with it are left out, ie collision proxies
@@ -353,6 +349,16 @@ function Material:InvalidateHeightMap()
 	self:InvalidateSceneKey()
 end
 
+function Material:InvalidateColor()
+	self:InvalidateRayMaterial()
+	self:InvalidateShadow()
+end
+
+function Material:InvalidateTransparency()
+	self:InvalidateSceneKey()
+	self:InvalidateShadow()
+end
+
 function Material:InvalidateFlags()
 	Material.flags_generation = Material.flags_generation + 1
 	self:InvalidateSceneKey()
@@ -367,6 +373,7 @@ function Material:InvalidateFlags()
 	end
 
 	self.Flags = flags
+	self:InvalidateShadow()
 end
 
 Material:GetSet("Name", "")
@@ -407,20 +414,74 @@ function Material:GetFillFlags()
 	return self.Flags
 end
 
--- a shadow map sees light pass through a refracting surface as through a
--- translucent one: dithered, blocking what its two faces reflect (~10%)
+-- a shadow map sees light pass through a refracting or additive surface as
+-- through a translucent one, dithered by GetShadowOpacity
 do
 	local TRANSLUCENT_FLAG = 2
+	-- what the two faces of a refracting surface do not reflect
+	local REFRACTION_TRANSMITTANCE = 0.9
 
 	function Material:GetShadowFlags()
-		if self.Refraction > 0 then return bit.bor(self.Flags, TRANSLUCENT_FLAG) end
+		if self.Refraction > 0 or self.Additive then
+			return bit.bor(self.Flags, TRANSLUCENT_FLAG)
+		end
 
 		return self.Flags
 	end
 
+	-- the share of the sun's light the surface stops, 0 to 1. the shadow maps
+	-- only hold depth, so a tinted surface casts a grey shadow, as dark as its
+	-- luminance says
 	function Material:GetShadowOpacity()
-		return self.ColorMultiplier.a * (1 - 0.9 * self.Refraction)
+		local color = self.ColorMultiplier
+
+		-- an additive surface only adds light
+		if self.Additive then return 0 end
+
+		if self.Refraction == 0 then return color.a end
+
+		local transmittance = REFRACTION_TRANSMITTANCE * (
+				0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
+			)
+		local covering = self.Translucent and color.a or 1
+		return 1 - (
+				self.Refraction * transmittance + (
+					1 - self.Refraction
+				) * (
+					1 - covering
+				)
+			)
 	end
+
+	-- the same from what the triangle soup knows of a surface, which has no
+	-- uvs, so the alpha of a texture is out of reach
+	function Material:GetSoupShadowOpacity()
+		if self.Additive then return 0 end
+
+		if self.Refraction > 0 or self.Translucent then
+			return self:GetShadowOpacity()
+		end
+
+		if self.AlphaTest and self.AlbedoTexture == nil then
+			return self.ColorMultiplier.a >= self.AlphaCutoff and 1 or 0
+		end
+
+		return 1
+	end
+end
+
+-- bumped when what the soup shadow of any material changes, so the shadow
+-- maps expand the soup again
+Material.shadow_generation = 0
+
+function Material:InvalidateShadow()
+	local opacity = self:GetSoupShadowOpacity()
+
+	if self.soup_shadow_opacity ~= nil and self.soup_shadow_opacity ~= opacity then
+		Material.shadow_generation = Material.shadow_generation + 1
+	end
+
+	self.soup_shadow_opacity = opacity
 end
 
 function Material:GetLightFlags()

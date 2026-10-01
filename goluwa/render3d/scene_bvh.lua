@@ -442,11 +442,19 @@ do
 			end
 
 			scene_bvh.raster_bounds = bounds
+			local dithered = UInt8Array(capacity)
+
+			if scene_bvh.raster_dithered then
+				ffi.copy(dithered, scene_bvh.raster_dithered, scene_bvh.raster_capacity)
+			end
+
 			scene_bvh.raster_ranges = ranges
 			scene_bvh.raster_visible = UInt8Array(capacity)
+			scene_bvh.raster_dithered = dithered
 			scene_bvh.raster_capacity = capacity
 		end
 
+		scene_bvh.raster_dithered[i] = vc.shadow_dithered and 1 or 0
 		ffi.copy(scene_bvh.raster_bounds + i * 6, vc.world_aabb, 6 * 4)
 		scene_bvh.raster_ranges[i * 2] = vc.tri_base * 3
 		scene_bvh.raster_ranges[i * 2 + 1] = (vc.tri_base + vc.tri_cap) * 3
@@ -1682,6 +1690,37 @@ do
 			end
 		end
 
+		-- whether a block's materials let light through follows the materials,
+		-- which change without the block being baked again
+		local non_opaque, dithered = false, false
+
+		for i = 1, slot_count do
+			local material = scene_bvh.materials[slots[i].material_id + 1]
+			local opacity = material:GetSoupShadowOpacity()
+
+			if material:GetAlphaTest() or opacity < 1 then non_opaque = true end
+
+			if opacity > 0 and opacity < 1 then dithered = true end
+		end
+
+		if
+			vc.block_index and
+			(
+				vc.non_opaque ~= non_opaque or
+				vc.shadow_dithered ~= dithered
+			)
+		then
+			-- the ray tracing instance carries the flag
+			scene_bvh.top_version = scene_bvh.top_version + 1
+
+			if scene_bvh.changed_blocks then scene_bvh.changed_blocks[vc] = true end
+
+			scene_bvh.raster_dithered[vc.block_index - 1] = dithered and 1 or 0
+		end
+
+		vc.non_opaque = non_opaque
+		vc.shadow_dithered = dithered
+
 		if fast and vc.block_index and vc.baked_matrix == v then
 			if not hidden and not vc.top_slot and not inserts.rebuild then
 				inserts[#inserts + 1] = vc
@@ -1718,16 +1757,6 @@ do
 		vc.shape = shape
 		vc.total = shape.total
 		vc.node_count = shape.node_count
-		vc.alpha_tested = false
-
-		for i = 1, slot_count do
-			if scene_bvh.materials[slots[i].material_id + 1]:GetAlphaTest() then
-				vc.alpha_tested = true
-
-				break
-			end
-		end
-
 		local emissive = false
 
 		for i = 1, slot_count do
@@ -2381,6 +2410,30 @@ do
 	local function ensure_expand_pipeline(state)
 		if state.expand_pipeline then return state.expand_pipeline end
 
+		local storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}}
+		local opacity_declarations = ""
+		local opacity_write = "positions[vid] = p;"
+
+		-- the shadow soup also gets the share of light each vertex's material
+		-- stops, and nothing is drawn for a material that stops none
+		if state.with_opacity then
+			storage_buffers[3] = {binding_index = 2}
+			storage_buffers[4] = {binding_index = 3}
+			opacity_declarations = [=[
+				layout(scalar, set = 0, binding = 2) buffer SceneBvhOpacity {
+					float opacities[];
+				};
+				layout(scalar, set = 0, binding = 3) readonly buffer SceneBvhMaterialOpacity {
+					float material_opacities[];
+				};
+			]=]
+			opacity_write = [=[
+				float opacity = material_opacities[t.material];
+				opacities[vid] = opacity;
+				positions[vid] = opacity > 0.0 ? p : vec3(0.0);
+			]=]
+		end
+
 		state.expand_pipeline = EasyPipeline.Compute{
 			name = "scene_bvh_expand_positions",
 			dont_create_framebuffers = true,
@@ -2388,7 +2441,7 @@ do
 			-- rewrite the set a pending command buffer still uses
 			DescriptorSetCount = render.GetSwapchainImageCount(),
 			LocalSize = {EXPAND_LOCAL_SIZE, 1, 1},
-			storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}},
+			storage_buffers = storage_buffers,
 			block = {
 				{"first_vertex", "int"},
 				{"vertex_count", "int"},
@@ -2398,7 +2451,8 @@ do
 					return block
 				end,
 			},
-			custom_declarations = ([=[
+			custom_declarations = (
+					[=[
 					struct scene_bvh_triangle {
 						vec3 v0;
 						vec3 e1;
@@ -2413,7 +2467,8 @@ do
 					layout(scalar, set = 0, binding = 0) buffer SceneBvhPos {
 						vec3 positions[];
 					};
-					]=]):format(SOUP_CHUNKS),
+					]=]
+				):format(SOUP_CHUNKS) .. opacity_declarations,
 			shader = [[
 				#define SOUP_CHUNK ]] .. SOUP_CHUNK_TRIS .. [[u
 				void main() {
@@ -2427,7 +2482,7 @@ do
 					vec3 p = t.v0;
 					if (which == 1u) p += t.e1;
 					else if (which == 2u) p += t.e2;
-					positions[vid] = p;
+					]] .. opacity_write .. [[
 				}
 			]],
 		}
@@ -2445,6 +2500,46 @@ do
 	-- ranges written since the state's last call are expanded, unless its
 	-- buffer is new or the soup was laid out again. returns the vertex count
 	-- the buffer covers and the buffer
+	local shadow_materials = {capacity = 0, filled = 0, generation = -1}
+
+	-- the share of light each material stops, by material id, written again
+	-- in full when a material's opacity changed and appended to otherwise
+	local function update_shadow_materials()
+		local materials = scene_bvh.materials
+		local count = #materials
+
+		if count > shadow_materials.capacity then
+			local capacity = math.max(count, math.ceil(shadow_materials.capacity * 1.5), 256)
+			local buffer = render.CreateBuffer{
+				byte_size = capacity * 4,
+				buffer_usage = {"storage_buffer"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "scene_bvh_shadow_materials",
+			}
+			local ptr = ffi.cast("float*", buffer:Map())
+
+			if shadow_materials.buffer then
+				ffi.copy(ptr, shadow_materials.ptr, shadow_materials.filled * 4)
+				shadow_materials.buffer:Remove()
+			end
+
+			shadow_materials.buffer = buffer
+			shadow_materials.ptr = ptr
+			shadow_materials.capacity = capacity
+		end
+
+		local first = shadow_materials.generation == Material.shadow_generation and
+			shadow_materials.filled or
+			0
+
+		for i = first, count - 1 do
+			shadow_materials.ptr[i] = materials[i + 1]:GetSoupShadowOpacity()
+		end
+
+		shadow_materials.filled = count
+		shadow_materials.generation = Material.shadow_generation
+	end
+
 	function scene_bvh.ExpandPositions(cmd, state)
 		if not scene_bvh.IsReady() then return 0, nil end
 
@@ -2457,15 +2552,37 @@ do
 				-1
 			) < log_base
 
+		if state.with_opacity then
+			update_shadow_materials()
+
+			if state.shadow_generation ~= Material.shadow_generation then
+				state.shadow_generation = Material.shadow_generation
+				full = true
+			end
+		end
+
 		if not state.position_buffer or state.position_buffer:GetSize() < vertex_count * 12 then
 			if state.position_buffer then state.position_buffer:Remove() end
 
+			local capacity = math.ceil(vertex_count * 1.25)
 			state.position_buffer = render.CreateBuffer{
-				byte_size = math.ceil(vertex_count * 1.25) * 12,
+				byte_size = capacity * 12,
 				buffer_usage = state.buffer_usage or {"vertex_buffer", "storage_buffer"},
 				memory_property = {"device_local"},
 				label = "scene_bvh_raster_positions",
 			}
+
+			if state.with_opacity then
+				if state.opacity_buffer then state.opacity_buffer:Remove() end
+
+				state.opacity_buffer = render.CreateBuffer{
+					byte_size = capacity * 4,
+					buffer_usage = {"vertex_buffer", "storage_buffer"},
+					memory_property = {"device_local"},
+					label = "scene_bvh_raster_opacities",
+				}
+			end
+
 			full = true
 		end
 
@@ -2474,6 +2591,25 @@ do
 		local slot = math.max(render.GetCurrentFrame(), 1)
 		scene_bvh.BindTriangleBuffer(pipeline, slot, 1, scene_bvh.triangle_buffer)
 		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, position_buffer:GetSize())
+
+		if state.with_opacity then
+			pipeline:UpdateDescriptorSet(
+				"storage_buffer",
+				slot,
+				2,
+				0,
+				state.opacity_buffer,
+				state.opacity_buffer:GetSize()
+			)
+			pipeline:UpdateDescriptorSet(
+				"storage_buffer",
+				slot,
+				3,
+				0,
+				shadow_materials.buffer,
+				shadow_materials.buffer:GetSize()
+			)
+		end
 
 		if full then
 			expand_range(cmd, pipeline, slot, 0, vertex_count)
@@ -2486,6 +2622,31 @@ do
 		state.generation = scene_bvh.soup_generation
 		state.log_position = log_base + #log
 		return vertex_count, position_buffer
+	end
+
+	-- blocks whose materials let some of the light through draw dithered in
+	-- the shadow soup. their share is worked out again when a material's
+	-- opacity changes
+	function scene_bvh.RefreshShadowClasses()
+		local blocks = scene_bvh.blocks
+
+		for index = 1, #blocks do
+			local vc = blocks[index]
+			local dithered = false
+
+			for i = 1, vc.slot_count do
+				local opacity = scene_bvh.materials[vc.slots[i].material_id + 1]:GetSoupShadowOpacity()
+
+				if opacity > 0 and opacity < 1 then
+					dithered = true
+
+					break
+				end
+			end
+
+			vc.shadow_dithered = dithered
+			scene_bvh.raster_dithered[index - 1] = dithered and 1 or 0
+		end
 	end
 
 	-- Hardware ray tracing backend over the same soup: one BLAS per visual,
@@ -2508,8 +2669,9 @@ do
 	local VK_INDEX_TYPE_NONE = 1000165000
 	local BUILD_PREFER_FAST_TRACE = 4
 	local INSTANCE_FACING_CULL_DISABLE = 0x01000000
-	-- the soup has no uvs to alpha test a hit with, so alpha tested visuals are
-	-- non-opaque and rays that can do without them cull them
+	-- the soup has no uvs to alpha test a hit with, and no way to blend, so
+	-- alpha tested and see through visuals are non-opaque and rays that can do
+	-- without them cull them
 	local INSTANCE_FORCE_OPAQUE = 0x04000000
 	local INSTANCE_FORCE_NO_OPAQUE = 0x08000000
 	local BLAS_ALIGN = 256
@@ -2680,7 +2842,7 @@ do
 		instance.transform.matrix[1][1] = 1
 		instance.transform.matrix[2][2] = 1
 		instance.sbrtAndFlags = INSTANCE_FACING_CULL_DISABLE + (
-				vc.alpha_tested and
+				vc.non_opaque and
 				INSTANCE_FORCE_NO_OPAQUE or
 				INSTANCE_FORCE_OPAQUE
 			)

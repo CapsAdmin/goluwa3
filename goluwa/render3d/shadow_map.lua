@@ -229,7 +229,7 @@ local function build_shadow_fragment_shader(bindless_texture_capacity, linear_de
 		linear_depth_output and "layout(location = 1) in vec3 in_world_pos;" or "",
 		linear_depth_output and "layout(location = 0) out float out_distance;" or ""
 	)
-	return prelude .. Material.BuildGlslFlags("shadow_state.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl("shadow_state.albedo_texture_index", "shadow_state.color_multiplier_a") .. model_pipeline.BuildAlphaDiscardGlsl("shadow_state.alpha_cutoff") .. (
+	return prelude .. Material.BuildGlslFlags("shadow_state.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl("shadow_state.albedo_texture_index", "shadow_state.color_multiplier_a") .. model_pipeline.BuildAlphaDiscardGlsl("shadow_state.alpha_cutoff", "alpha") .. (
 			linear_depth_output and
 			[[
 					void main() {
@@ -792,7 +792,7 @@ local function build_shadow_multi_draw_fragment_stage(bindless_texture_capacity,
 			) .. "\n" .. Material.BuildGlslFlags("SHADOW_BATCH[in_batch].flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl(
 				"SHADOW_BATCH[in_batch].albedo_texture_index",
 				"SHADOW_BATCH[in_batch].color_multiplier_a"
-			) .. model_pipeline.BuildAlphaDiscardGlsl("SHADOW_BATCH[in_batch].alpha_cutoff") .. (
+			) .. model_pipeline.BuildAlphaDiscardGlsl("SHADOW_BATCH[in_batch].alpha_cutoff", "alpha") .. (
 				linear_depth_output and
 				[[
 					void main() {
@@ -1188,6 +1188,73 @@ local function create_soup_pipeline_variant(self, depth_format, max_shadow_width
 	)
 end
 
+-- the soup of the blocks whose materials let some light through: each vertex
+-- carries the share of light it stops and is dithered like a translucent
+-- surface of the raster passes
+local SOUP_DITHER_VERTEX_GLSL = [[
+		#version 450
+		#extension GL_EXT_scalar_block_layout : require
+
+		layout(location = 0) in vec3 in_position;
+		layout(location = 1) in float in_opacity;
+		layout(location = 0) flat out float out_opacity;
+		layout(scalar, binding = 0) uniform SoupLight_t {
+			mat4 light_space_matrix;
+		} soup_light;
+
+		void main() {
+			gl_Position = soup_light.light_space_matrix * vec4(in_position, 1.0);
+			out_opacity = in_opacity;
+		}
+	]]
+local SOUP_DITHER_FRAGMENT_GLSL = [[
+		#version 450
+
+		layout(location = 0) flat in float in_opacity;
+
+		void main() {
+			if (fract(dot(vec2(171.0, 231.0) + in_opacity * 0.00001, gl_FragCoord.xy) / 103.0) > in_opacity) discard;
+		}
+	]]
+local SOUP_OPACITY_BINDING = {
+	binding = 1,
+	stride = 4,
+	input_rate = "vertex",
+}
+local SOUP_DITHER_ATTRIBUTES = {
+	{binding = 0, location = 0, format = "r32g32b32_sfloat", offset = 0},
+	{binding = 1, location = 1, format = "r32_sfloat", offset = 0},
+}
+
+local function create_soup_dither_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
+	return render.CreateGraphicsPipeline(
+		build_shadow_pipeline_config(
+			depth_format,
+			max_shadow_width,
+			max_shadow_height,
+			{
+				{
+					type = "vertex",
+					code = SOUP_DITHER_VERTEX_GLSL,
+					bindings = {SOUP_VERTEX_BINDING, SOUP_OPACITY_BINDING},
+					attributes = SOUP_DITHER_ATTRIBUTES,
+					descriptor_sets = {
+						{
+							type = "uniform_buffer_dynamic",
+							binding_index = 0,
+							args = {self.soup_light_buffer.buffer, self.soup_light_buffer.aligned_size},
+						},
+					},
+				},
+				{type = "fragment", code = SOUP_DITHER_FRAGMENT_GLSL},
+			},
+			"triangle_list",
+			nil,
+			nil
+		)
+	)
+end
+
 -- Shadow maps render their shadow passes from a single PreFrame coordinator
 -- that distributes the global per-frame pass budget round-robin across all
 -- active maps so one map cannot starve the others.
@@ -1371,7 +1438,7 @@ function ShadowMap.New(config)
 	self.cascade = {} -- Per-cascade data
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl(), "shadow_map.vertex_animation")
 	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl, "shadow_map.state")
-	self.expander = {}
+	self.expander = {with_opacity = true}
 	self.light = config.light -- optional source entity whose transform the map follows
 	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
 	self.policy = config.policy or {} -- shadow_update_mode, shadow_update_interval, epsilons, farthest_cascade_*
@@ -1521,6 +1588,7 @@ function ShadowMap.New(config)
 		self.soup_cascade_from = config.soup_cascade_from or 2
 		self.soup_light_buffer = UniformBuffer.New([[struct { float light_space_matrix[16]; }]], "shadow_map.soup_light")
 		self.soup_pipeline_variants = {}
+		self.soup_dither_pipeline_variants = {}
 
 		for depth_format in pairs(unique_formats) do
 			self.pipeline_variants[depth_format] = create_shadow_pipeline_variant(
@@ -1550,11 +1618,13 @@ function ShadowMap.New(config)
 				nil
 			)
 			self.soup_pipeline_variants[depth_format] = create_soup_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
+			self.soup_dither_pipeline_variants[depth_format] = create_soup_dither_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
 		end
 
 		self.pipeline = self.pipeline_variants[self.format]
 		self.instanced_pipeline = self.instanced_pipeline_variants[self.format]
 		self.soup_pipeline = self.soup_pipeline_variants[self.format]
+		self.soup_dither_pipeline = self.soup_dither_pipeline_variants[self.format]
 	end
 
 	-- Command buffer for shadow pass
@@ -1583,6 +1653,8 @@ function ShadowMap:OnRemove()
 	self.instance_batcher:Remove()
 
 	if self.expander.position_buffer then self.expander.position_buffer:Remove() end
+
+	if self.expander.opacity_buffer then self.expander.opacity_buffer:Remove() end
 
 	if self.expander.expand_pipeline then self.expander.expand_pipeline:Remove() end
 
@@ -2161,15 +2233,20 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		if
 			self.mode ~= "point" and
 			self.soup_cascade_from <= self.cascade_count and
-			self.expander.version ~= scene_bvh.soup_version
+			(
+				self.expander.version ~= scene_bvh.soup_version or
+				self.expander.shadow_generation ~= Material.shadow_generation
+			)
 		then
 			self.expander.version = scene_bvh.soup_version
+			self.expander.shadow_generation = Material.shadow_generation
 			gpu_timing.BeginScope(self.cmd, "shadow_soup_expand")
 			local vertex_count, position_buffer = scene_bvh.ExpandPositions(self.cmd, self.expander)
 			gpu_timing.EndScope(self.cmd, "shadow_soup_expand")
 			self.expander.vertex_count = vertex_count
 
 			if vertex_count > 0 then
+				scene_bvh.RefreshShadowClasses()
 				self.cmd:PipelineBarrier{
 					srcStage = "compute",
 					dstStage = "vertex_input",
@@ -2177,6 +2254,12 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 						{
 							buffer = position_buffer,
 							size = vertex_count * 12,
+							srcAccessMask = "shader_write",
+							dstAccessMask = "vertex_attribute_read",
+						},
+						{
+							buffer = self.expander.opacity_buffer,
+							size = vertex_count * 4,
 							srcAccessMask = "shader_write",
 							dstAccessMask = "vertex_attribute_read",
 						},
@@ -2576,58 +2659,96 @@ function ShadowMap:UsesSoup(cascade_index)
 	return self.mode ~= "point" and cascade_index >= self.soup_cascade_from
 end
 
-function ShadowMap:DrawSoup(cascade_index)
-	cascade_index = cascade_index or self.current_cascade
-	local cascade = self.cascade[cascade_index]
+do
+	-- merged runs of the visible blocks that draw dithered, as first / stop pairs
+	local dither_runs = {}
 
-	if not cascade then return end
+	function ShadowMap:DrawSoup(cascade_index)
+		cascade_index = cascade_index or self.current_cascade
+		local cascade = self.cascade[cascade_index]
 
-	local pipeline = self.soup_pipeline_variants[cascade.format] or self.soup_pipeline
-	local frame_index = render.GetCurrentFrame()
-	local data = self.soup_light_buffer:GetData()
-	data.light_space_matrix = cascade.light_space_matrix:GetFloatCopy()
-	local offset = self.soup_light_buffer:Upload(frame_index)
-	pipeline:Bind(self.cmd, frame_index, {offset})
-	local depth_texture = cascade.depth_texture
-	local w = depth_texture:GetWidth()
-	local h = depth_texture:GetHeight()
-	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
-	self.cmd:SetScissor(0, 0, w, h)
-	self.cmd:SetCullMode("none")
-	self.cmd:BindVertexBuffers(0, {self.expander.position_buffer})
-	local planes = cascade.frustum_planes
-	local ranges = scene_bvh.raster_ranges
+		if not cascade then return end
 
-	if not (ranges and planes) then return end
+		local frame_index = render.GetCurrentFrame()
+		local data = self.soup_light_buffer:GetData()
+		data.light_space_matrix = cascade.light_space_matrix:GetFloatCopy()
+		local offset = self.soup_light_buffer:Upload(frame_index)
+		local depth_texture = cascade.depth_texture
+		local w = depth_texture:GetWidth()
+		local h = depth_texture:GetHeight()
+		self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
+		self.cmd:SetScissor(0, 0, w, h)
+		self.cmd:SetCullMode("none")
+		local planes = cascade.frustum_planes
+		local ranges = scene_bvh.raster_ranges
 
-	-- a block's padding is degenerate, so visible blocks that are neighbours
-	-- in the soup are drawn as one range
-	local first, stop = 0, 0
-	-- blocks placed by a build that is still running can lie past what was
-	-- expanded
-	local limit = self.expander.vertex_count or 0
-	scene_bvh.MarkVisibleBlocks(planes)
-	local visible = scene_bvh.raster_visible
+		if not (ranges and planes) then return end
 
-	for i = 0, #scene_bvh.blocks - 1 do
-		if visible[i] ~= 0 then
-			visible[i] = 0
+		local pipeline = self.soup_pipeline_variants[cascade.format] or self.soup_pipeline
+		pipeline:Bind(self.cmd, frame_index, {offset})
+		self.cmd:BindVertexBuffers(0, {self.expander.position_buffer})
+		-- a block's padding is degenerate, so visible blocks that are neighbours
+		-- in the soup are drawn as one range
+		local first, stop = 0, 0
+		local dither_count = 0
+		local dither_first, dither_stop = 0, 0
+		-- blocks placed by a build that is still running can lie past what was
+		-- expanded
+		local limit = self.expander.vertex_count or 0
+		scene_bvh.MarkVisibleBlocks(planes)
+		local visible = scene_bvh.raster_visible
+		local dithered = scene_bvh.raster_dithered
 
-			if ranges[i * 2 + 1] <= limit then
-				local block_first = ranges[i * 2]
+		for i = 0, #scene_bvh.blocks - 1 do
+			if visible[i] ~= 0 then
+				visible[i] = 0
 
-				if block_first ~= stop then
-					if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
+				if ranges[i * 2 + 1] <= limit then
+					local block_first = ranges[i * 2]
 
-					first = block_first
+					if dithered[i] ~= 0 then
+						if block_first ~= dither_stop then
+							if dither_stop > dither_first then
+								dither_runs[dither_count + 1] = dither_first
+								dither_runs[dither_count + 2] = dither_stop
+								dither_count = dither_count + 2
+							end
+
+							dither_first = block_first
+						end
+
+						dither_stop = ranges[i * 2 + 1]
+					else
+						if block_first ~= stop then
+							if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
+
+							first = block_first
+						end
+
+						stop = ranges[i * 2 + 1]
+					end
 				end
-
-				stop = ranges[i * 2 + 1]
 			end
 		end
-	end
 
-	if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
+		if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
+
+		if dither_stop > dither_first then
+			dither_runs[dither_count + 1] = dither_first
+			dither_runs[dither_count + 2] = dither_stop
+			dither_count = dither_count + 2
+		end
+
+		if dither_count == 0 then return end
+
+		local dither_pipeline = self.soup_dither_pipeline_variants[cascade.format] or self.soup_dither_pipeline
+		dither_pipeline:Bind(self.cmd, frame_index, {offset})
+		self.cmd:BindVertexBuffers(0, {self.expander.position_buffer, self.expander.opacity_buffer})
+
+		for i = 1, dither_count, 2 do
+			self.cmd:Draw(dither_runs[i + 1] - dither_runs[i], 1, dither_runs[i], 0)
+		end
+	end
 end
 
 function ShadowMap:PrimeMaterial(material)

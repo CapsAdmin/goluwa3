@@ -880,6 +880,21 @@ local function reset_visible_caches(acceleration)
 end
 
 local function rebuild_scene_acceleration()
+	-- entries built before a material changed still carry the pass it drew in
+	if next(Material.scene_dirty_materials) then
+		for _, component in ipairs(Visual.Instances) do
+			if not component.RenderEntriesDirty then
+				for _, entry in ipairs(component.RenderEntries) do
+					if Material.scene_dirty_materials[component:GetResolvedMaterial(entry)] then
+						component:InvalidateRenderEntries()
+
+						break
+					end
+				end
+			end
+		end
+	end
+
 	visual.scene_full_rebuild = false
 	visual.scene_publish_pending = false
 	visual.scene_dirty_components = {}
@@ -914,17 +929,18 @@ end
 
 local function patch_scene_acceleration(acceleration)
 	visual.scene_publish_pending = false
-	local dirty = visual.scene_dirty_components
-	visual.scene_dirty_components = {}
-	local users = visual.material_users
 
+	-- which pass an entry draws in, and the translucent registry, follow from
+	-- its material, so the render entries of its users are built again
 	for material in pairs(Material.scene_dirty_materials) do
-		for component in pairs(users[material] or {}) do
-			dirty[component] = true
+		for component in pairs(visual.material_users[material] or {}) do
+			component:InvalidateRenderEntries()
 		end
 	end
 
 	table.clear(Material.scene_dirty_materials)
+	local dirty = visual.scene_dirty_components
+	visual.scene_dirty_components = {}
 
 	for component, structure in pairs(dirty) do
 		-- removed components left the scene in OnRemove
