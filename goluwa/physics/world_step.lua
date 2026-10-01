@@ -7,31 +7,47 @@ local RigidBody = import("goluwa/physics/rigid_body.lua")
 local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local stats = import("goluwa/physics/stats.lua")
 local world_step = {}
+local NEWLY_AWOKEN_BODIES = {}
+
+local function build_support_entry_list(body)
+	local colliders = body:GetColliders()
+
+	if #colliders == 1 then
+		local shape = body:GetPhysicsShape()
+
+		if shape then return {{body, shape}} end
+
+		return false
+	end
+
+	local entries = false
+
+	for _, collider in ipairs(colliders) do
+		local shape = collider:GetPhysicsShape()
+
+		if shape then
+			entries = entries or {}
+			entries[#entries + 1] = {collider, shape}
+		end
+	end
+
+	return entries
+end
 
 local function refresh_support_entries(bodies)
 	for _, body in ipairs(bodies) do
-		local entries = nil
-
 		if body:IsDynamic() and body.CollisionEnabled and body:GetGravityScale() ~= 0 then
-			local colliders = body:GetColliders()
+			local entries = body._SupportEntryList
 
-			if #colliders == 1 then
-				local shape = body:GetPhysicsShape()
-
-				if shape then entries = {{body, shape}} end
-			else
-				for _, collider in ipairs(colliders) do
-					local shape = collider:GetPhysicsShape()
-
-					if shape then
-						entries = entries or {}
-						entries[#entries + 1] = {collider, shape}
-					end
-				end
+			if entries == nil then
+				entries = build_support_entry_list(body)
+				body._SupportEntryList = entries
 			end
-		end
 
-		body._SupportEntries = entries
+			body._SupportEntries = entries or nil
+		else
+			body._SupportEntries = nil
+		end
 	end
 end
 
@@ -119,6 +135,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	local iterations = math.max(1, physics.RigidBodyIterations or 1)
 	local sub_dt = dt / substeps
 	local collision_pairs = physics.collision_pairs
+	physics.candidate_pairs = physics.candidate_pairs or {}
 	collision_pairs:BeginCollisionFrame()
 	stats:Gauge("bodies", #bodies)
 	stats:Gauge("substeps", substeps)
@@ -147,20 +164,20 @@ function world_step.UpdateRigidBodies(physics, dt)
 				body:SetGroundNormal(physics_constants.UP)
 				body:Integrate(sub_dt, physics.Gravity)
 			else
-				body.PreviousPosition = body.Position:Copy()
-				body.PreviousRotation = body.Rotation:Copy()
+				body.PreviousPosition:CopyFrom(body.Position)
+				body.PreviousRotation:CopyFrom(body.Rotation)
 			end
 		end
 
 		stats:Gauge("awake_bodies", awake_count)
 		stats:PopTime()
 		stats:PushTime("broadphase")
-		local rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
+		local rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
 		stats:PopTime()
 		local constraints = physics.GetConstraints()
 		stats:PushTime("islands")
 		local simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
-		local newly_awoken_bodies = {}
+		local newly_awoken_bodies = NEWLY_AWOKEN_BODIES
 
 		if simulation_islands and simulation_islands[1] then
 			local woke_any
@@ -180,7 +197,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 				stats:PopTime()
 				stats:PushTime("broadphase")
-				rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
+				rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
 				stats:PopTime()
 				stats:PushTime("islands")
 				simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
@@ -216,7 +233,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 					if not islands.IsSleepingIsland(island) then
 						stats:PushTime("solve_pairs")
-						solver:SolveRigidBodyPairs(island.pairs, sub_dt, iter)
+						solver:SolveRigidBodyPairs(island.pairs, sub_dt, iter, iter == iterations)
 						stats:PopTime()
 						stats:PushTime("support")
 						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
@@ -233,7 +250,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 				end
 			else
 				stats:PushTime("solve_pairs")
-				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt, iter)
+				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt, iter, iter == iterations)
 				stats:PopTime()
 				stats:PushTime("support")
 
@@ -254,7 +271,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 		for _, body in ipairs(bodies) do
 			body:UpdateVelocities(sub_dt)
-			body:UpdateSleepState(sub_dt)
+			body:UpdateSleepState(sub_dt, islands.IsConstrainedBody(body))
 		end
 
 		if simulation_islands and simulation_islands[1] then

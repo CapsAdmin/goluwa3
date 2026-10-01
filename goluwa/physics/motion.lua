@@ -27,13 +27,13 @@ function motion.ShiftBodyPosition(body, delta)
 end
 
 function motion.SetBodyVelocityFromCurrentPosition(body, velocity, dt)
-	body.Velocity = velocity:Copy()
+	body.Velocity:CopyFrom(velocity)
 end
 
 function motion.SetBodyAngularVelocityFromCurrentRotation(body, angular_velocity, dt)
 	if body:IsSolverImmovable() then return end
 
-	body.AngularVelocity = angular_velocity:Copy()
+	body.AngularVelocity:CopyFrom(angular_velocity)
 end
 
 function motion.SetBodyMotionFromCurrentState(body, linear_velocity, angular_velocity, dt)

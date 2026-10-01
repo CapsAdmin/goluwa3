@@ -95,6 +95,7 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 	fill_cast_vectors(cast_up, cast_distance)
 
 	if stats:IsEnabled() then stats:PushTime("support_point_sweeps") end
+
 	for i = 1, #support_points do
 		local local_point = support_points[i]
 		local point = body:GeometryLocalToWorld(local_point)
@@ -114,6 +115,7 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 			end
 		end
 	end
+
 	if stats:IsEnabled() then stats:PopTime() end
 end
 
@@ -257,17 +259,20 @@ function support_contacts.BeginSupportDetection(body)
 		return false
 	end
 
-	body._WorldSupportContacts = {
-		substep = substep,
-		contacts = {},
-		px = position.x,
-		py = position.y,
-		pz = position.z,
-		rx = rotation.x,
-		ry = rotation.y,
-		rz = rotation.z,
-		rw = rotation.w,
-	}
+	if not cache then
+		cache = {contacts = {}}
+		body._WorldSupportContacts = cache
+	end
+
+	cache.substep = substep
+	table.clear(cache.contacts)
+	cache.px = position.x
+	cache.py = position.y
+	cache.pz = position.z
+	cache.rx = rotation.x
+	cache.ry = rotation.y
+	cache.rz = rotation.z
+	cache.rw = rotation.w
 	return true
 end
 
@@ -277,6 +282,7 @@ function support_contacts.ResolveCachedSupportContacts(body, dt)
 	if not cache then return end
 
 	if stats:IsEnabled() then stats:PushTime("support_resolve") end
+
 	local contacts = cache.contacts
 	local margin = body:GetCollisionMargin() or 0
 
@@ -300,6 +306,7 @@ function support_contacts.ResolveCachedSupportContacts(body, dt)
 			end
 		end
 	end
+
 	if stats:IsEnabled() then stats:PopTime() end
 end
 

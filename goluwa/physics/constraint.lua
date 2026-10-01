@@ -234,7 +234,21 @@ function DistanceConstraint:Solve(dt)
 	return delta_lambda / (dt * dt)
 end
 
-local keep_alive = {}
+local tracked = {}
+
+function DistanceConstraint.Track(constraint)
+	tracked[#tracked + 1] = constraint
+	return constraint
+end
+
+function DistanceConstraint.Untrack(constraint)
+	for i = 1, #tracked do
+		if tracked[i] == constraint then
+			table.remove(tracked, i)
+			return
+		end
+	end
+end
 
 function DistanceConstraint.New(body0, body1, pos0, pos1, distance, compliance, unilateral)
 	local constraint = DistanceConstraint:CreateObject{
@@ -261,23 +275,22 @@ function DistanceConstraint.New(body0, body1, pos0, pos1, distance, compliance, 
 
 	constraint:SetCompliance(compliance)
 	constraint:SetDistance(distance or ((pos1 - pos0):GetLength()))
-	keep_alive[constraint] = true
-	return constraint
+	return DistanceConstraint.Track(constraint)
 end
 
 function DistanceConstraint:OnRemove()
 	self.Enabled = false
 	self.AccumulatedLambda = 0
-	keep_alive[self] = nil
+	DistanceConstraint.Untrack(self)
 end
 
 function DistanceConstraint.GetConstraints()
-	return DistanceConstraint.Instances
+	return tracked
 end
 
 function DistanceConstraint.RemoveAllConstraints()
-	for _, constraint in ipairs(DistanceConstraint.Instances) do
-		constraint:Remove()
+	for i = #tracked, 1, -1 do
+		tracked[i]:Remove()
 	end
 end
 

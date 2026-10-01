@@ -30,20 +30,37 @@ local function build_entry_bounds(body, out)
 	return out
 end
 
+-- poses are stored by value: bodies mutate their position/rotation in place
 local function store_entry_pose(entry, body)
-	entry.pose_position = body:GetPosition()
-	entry.pose_rotation = body:GetRotation()
-	entry.pose_prev_position = body:GetPreviousPosition()
-	entry.pose_prev_rotation = body:GetPreviousRotation()
+	local p = body.Position
+	local r = body.Rotation
+	local pp = body.PreviousPosition
+	local pr = body.PreviousRotation
+	entry.px, entry.py, entry.pz = p.x, p.y, p.z
+	entry.rx, entry.ry, entry.rz, entry.rw = r.x, r.y, r.z, r.w
+	entry.ppx, entry.ppy, entry.ppz = pp.x, pp.y, pp.z
+	entry.prx, entry.pry, entry.prz, entry.prw = pr.x, pr.y, pr.z, pr.w
 end
 
 local function is_entry_pose_current(entry, body)
-	return entry.pose_position == body:GetPosition() and
-		entry.pose_rotation == body:GetRotation()
-		and
-		entry.pose_prev_position == body:GetPreviousPosition()
-		and
-		entry.pose_prev_rotation == body:GetPreviousRotation()
+	local p = body.Position
+	local r = body.Rotation
+	local pp = body.PreviousPosition
+	local pr = body.PreviousRotation
+	return entry.px == p.x and
+		entry.py == p.y and
+		entry.pz == p.z and
+		entry.rx == r.x and
+		entry.ry == r.y and
+		entry.rz == r.z and
+		entry.rw == r.w and
+		entry.ppx == pp.x and
+		entry.ppy == pp.y and
+		entry.ppz == pp.z and
+		entry.prx == pr.x and
+		entry.pry == pr.y and
+		entry.prz == pr.z and
+		entry.prw == pr.w
 end
 
 local function get_cell_index(value, cell_size)
@@ -284,7 +301,6 @@ local function create_entry(self, body)
 		id = self.NextEntryId,
 		body = body,
 		bounds = AABB(0, 0, 0, 0, 0, 0),
-		center = body:GetPosition(),
 		cell_keys = {},
 		index = #self.Entries + 1,
 		last_seen_step = self.StepStamp,
@@ -298,6 +314,14 @@ end
 
 local function destroy_entry(self, entry)
 	remove_entry_from_spatial_index(self, entry)
+	entry.overflow_pairs = nil
+
+	for i = 1, #self.OverflowEntries do
+		local overflow_pairs = self.OverflowEntries[i].overflow_pairs
+
+		if overflow_pairs then overflow_pairs[entry.id] = nil end
+	end
+
 	self.BodyEntries[entry.body] = nil
 	stats:Count("broadphase_entries_removed")
 	local index = entry.index
@@ -463,7 +487,6 @@ function Broadphase:TrackBodies(bodies, physics_override)
 				if entry then
 					-- mutate the entry's own AABB in place; no per-substep allocation
 					build_entry_bounds(body, entry.bounds)
-					entry.center = body:GetPosition()
 					store_entry_pose(entry, body)
 					entry.last_seen_step = self.StepStamp
 					stats:Count("broadphase_bounds_updates")
@@ -528,11 +551,27 @@ function Broadphase:GetCandidatePairs(out)
 				local key = get_pair_key(entry, other)
 
 				if not pair_lookup[key] and entry.bounds:IsBoxIntersecting(other.bounds) then
+					-- pair objects are cached on the overflow entry so islands
+					-- keep seeing the same object step after step
+					local overflow_pairs = entry.overflow_pairs
+
+					if not overflow_pairs then
+						overflow_pairs = {}
+						entry.overflow_pairs = overflow_pairs
+					end
+
+					local pair = overflow_pairs[other.id]
+
+					if not pair then
+						pair = {
+							entry_a = other.id < entry.id and other or entry,
+							entry_b = other.id < entry.id and entry or other,
+						}
+						overflow_pairs[other.id] = pair
+					end
+
 					count = count + 1
-					out[count] = {
-						entry_a = other.id < entry.id and other or entry,
-						entry_b = other.id < entry.id and entry or other,
-					}
+					out[count] = pair
 					pair_lookup[key] = true
 					used_keys[#used_keys + 1] = key
 				end

@@ -426,8 +426,9 @@ local function append_rigid_body_candidate(
 		not should_skip_rigid_body(body, ignore_entity, filter_fn, options)
 	then
 		local bounds = entry.bounds
+		local position = body.Position
 
-		if entry.center ~= body:GetPosition() then
+		if entry.px ~= position.x or entry.py ~= position.y or entry.pz ~= position.z then
 			-- body moved since the broadphase last tracked it (e.g. transform
 			-- changes between physics steps), fall back to the pose-cached bounds
 			bounds = get_rigid_body_candidate_aabb(body) or bounds

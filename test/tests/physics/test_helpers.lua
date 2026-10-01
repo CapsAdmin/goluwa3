@@ -289,16 +289,24 @@ function module.CreateStubBody(data)
 		self.GroundNormal = normal
 	end
 
-	function body:WorldToLocal(point, position_override, rotation_override)
+	function body:WorldToLocal(point, position_override, rotation_override, out)
 		local position_value = position_override or self.Position
 		local rotation_value = rotation_override or self.Rotation
-		return rotation_value:GetConjugated():VecMul(point - position_value)
+		local result = rotation_value:GetConjugated():VecMul(point - position_value)
+
+		if out then return out:CopyFrom(result) end
+
+		return result
 	end
 
-	function body:LocalToWorld(point, position_override, rotation_override)
+	function body:LocalToWorld(point, position_override, rotation_override, out)
 		local position_value = position_override or self.Position
 		local rotation_value = rotation_override or self.Rotation
-		return position_value + rotation_value:VecMul(point)
+		local result = position_value + rotation_value:VecMul(point)
+
+		if out then return out:CopyFrom(result) end
+
+		return result
 	end
 
 	function body:GetSphereRadius()

@@ -9,6 +9,7 @@ local Collider = import("goluwa/physics/collider.lua")
 local islands = import("goluwa/physics/islands.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local stats = import("goluwa/physics/stats.lua")
+local motion = import("goluwa/physics/motion.lua")
 local RigidBody = objects.CreateTemplate("rigid_body")
 RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
 RigidBody:GetSet("Shapes", nil, {callback = "OnGeometryChanged"})
@@ -128,23 +129,35 @@ local function integrate_rotation(rotation, angular_velocity, dt)
 	return rotation
 end
 
-local function build_ground_support_basis(normal)
-	local tangent
+-- writes an orthonormal tangent basis for the normal into tangent/bitangent,
+-- returns false when the normal is degenerate
+local function build_ground_support_basis(normal, tangent, bitangent)
+	local nx, ny, nz = normal.x, normal.y, normal.z
+	local tx, ty, tz
 
-	if math.abs(normal.x) < 0.8 then
-		tangent = normal:GetCross(Vec3(1, 0, 0))
+	if math.abs(nx) < 0.8 then
+		tx, ty, tz = 0, nz, -ny
 	else
-		tangent = normal:GetCross(Vec3(0, 1, 0))
+		tx, ty, tz = -nz, 0, nx
 	end
 
-	if tangent:GetLength() <= physics_constants.EPSILON then
-		tangent = normal:GetCross(Vec3(0, 0, 1))
+	local length = math.sqrt(tx * tx + ty * ty + tz * tz)
+
+	if length <= physics_constants.EPSILON then
+		tx, ty, tz = ny, -nx, 0
+		length = math.sqrt(tx * tx + ty * ty + tz * tz)
+
+		if length <= physics_constants.EPSILON then return false end
 	end
 
-	if tangent:GetLength() <= physics_constants.EPSILON then return nil, nil end
-
-	tangent = tangent:GetNormalized()
-	return tangent, normal:GetCross(tangent):GetNormalized()
+	tx, ty, tz = tx / length, ty / length, tz / length
+	tangent.x, tangent.y, tangent.z = tx, ty, tz
+	local bx = ny * tz - nz * ty
+	local by = nz * tx - nx * tz
+	local bz = nx * ty - ny * tx
+	length = math.sqrt(bx * bx + by * by + bz * bz)
+	bitangent.x, bitangent.y, bitangent.z = bx / length, by / length, bz / length
+	return true
 end
 
 function RigidBody:Initialize()
@@ -184,10 +197,6 @@ end
 
 function RigidBody:ResetGroundSupport()
 	self.GroundSupportCount = 0
-	self.GroundSupportNormal = nil
-	self.GroundSupportPoint = nil
-	self.GroundSupportTangent = nil
-	self.GroundSupportBitangent = nil
 	self.GroundSupportMinU = math.huge
 	self.GroundSupportMaxU = -math.huge
 	self.GroundSupportMinV = math.huge
@@ -195,23 +204,32 @@ function RigidBody:ResetGroundSupport()
 end
 
 function RigidBody:AccumulateGroundSupportContact(normal, point)
-	if not (normal and point) then return end
+	if self.GroundSupportCount == 0 then
+		if not self.GroundSupportNormal then
+			self.GroundSupportNormal = Vec3()
+			self.GroundSupportPoint = Vec3()
+			self.GroundSupportTangent = Vec3()
+			self.GroundSupportBitangent = Vec3()
+		end
 
-	if self.GroundSupportCount == 0 or not self.GroundSupportNormal then
-		local tangent, bitangent = build_ground_support_basis(normal)
+		if
+			not build_ground_support_basis(normal, self.GroundSupportTangent, self.GroundSupportBitangent)
+		then
+			return
+		end
 
-		if not tangent or not bitangent then return end
-
-		self.GroundSupportNormal = normal:Copy()
-		self.GroundSupportTangent = tangent
-		self.GroundSupportBitangent = bitangent
-		self.GroundSupportPoint = point:Copy()
+		self.GroundSupportNormal:CopyFrom(normal)
+		self.GroundSupportPoint:CopyFrom(point)
 	end
 
-	local origin = self.GroundSupportPoint or point
-	local delta = point - origin
-	local u = delta:Dot(self.GroundSupportTangent)
-	local v = delta:Dot(self.GroundSupportBitangent)
+	local origin = self.GroundSupportPoint
+	local dx = point.x - origin.x
+	local dy = point.y - origin.y
+	local dz = point.z - origin.z
+	local tangent = self.GroundSupportTangent
+	local bitangent = self.GroundSupportBitangent
+	local u = dx * tangent.x + dy * tangent.y + dz * tangent.z
+	local v = dx * bitangent.x + dy * bitangent.y + dz * bitangent.z
 	self.GroundSupportMinU = math.min(self.GroundSupportMinU, u)
 	self.GroundSupportMaxU = math.max(self.GroundSupportMaxU, u)
 	self.GroundSupportMinV = math.min(self.GroundSupportMinV, v)
@@ -219,66 +237,89 @@ function RigidBody:AccumulateGroundSupportContact(normal, point)
 	self.GroundSupportCount = self.GroundSupportCount + 1
 end
 
+-- the returned metrics table is reused per body, callers read it immediately
 function RigidBody:GetGroundSupportMetrics()
-	local count = self.GroundSupportCount or 0
+	local metrics = self._GroundSupportMetrics
 
-	if count <= 0 then
-		return {
-			count = 0,
-			min_u = 0,
-			max_u = 0,
-			min_v = 0,
-			max_v = 0,
-			span_u = 0,
-			span_v = 0,
-			max_span = 0,
-			normal = nil,
-			point = nil,
-		}
+	if not metrics then
+		metrics = {overhang = Vec3()}
+		self._GroundSupportMetrics = metrics
 	end
 
-	local span_u = math.max(0, (self.GroundSupportMaxU or 0) - (self.GroundSupportMinU or 0))
-	local span_v = math.max(0, (self.GroundSupportMaxV or 0) - (self.GroundSupportMinV or 0))
-	return {
-		count = count,
-		min_u = self.GroundSupportMinU or 0,
-		max_u = self.GroundSupportMaxU or 0,
-		min_v = self.GroundSupportMinV or 0,
-		max_v = self.GroundSupportMaxV or 0,
-		span_u = span_u,
-		span_v = span_v,
-		max_span = math.max(span_u, span_v),
-		normal = self.GroundSupportNormal,
-		point = self.GroundSupportPoint,
-	}
+	local count = self.GroundSupportCount or 0
+	metrics.count = count
+	metrics.projected_u = nil
+	metrics.projected_v = nil
+	metrics.clamped_u = nil
+	metrics.clamped_v = nil
+	metrics.overhang_u = nil
+	metrics.overhang_v = nil
+	metrics.overhang_length = nil
+	metrics.tangent = nil
+	metrics.bitangent = nil
+	metrics.has_overhang = false
+
+	if count <= 0 then
+		metrics.min_u = 0
+		metrics.max_u = 0
+		metrics.min_v = 0
+		metrics.max_v = 0
+		metrics.span_u = 0
+		metrics.span_v = 0
+		metrics.max_span = 0
+		metrics.normal = nil
+		metrics.point = nil
+		return metrics
+	end
+
+	local min_u = self.GroundSupportMinU
+	local max_u = self.GroundSupportMaxU
+	local min_v = self.GroundSupportMinV
+	local max_v = self.GroundSupportMaxV
+	local span_u = math.max(0, max_u - min_u)
+	local span_v = math.max(0, max_v - min_v)
+	metrics.min_u = min_u
+	metrics.max_u = max_u
+	metrics.min_v = min_v
+	metrics.max_v = max_v
+	metrics.span_u = span_u
+	metrics.span_v = span_v
+	metrics.max_span = math.max(span_u, span_v)
+	metrics.normal = self.GroundSupportNormal
+	metrics.point = self.GroundSupportPoint
+	return metrics
 end
 
 function RigidBody:GetGroundSupportProjectionMetrics()
 	local support = self:GetGroundSupportMetrics()
 
-	if support.count <= 0 or not support.point then return support end
+	if support.count <= 0 then return support end
 
 	local tangent = self.GroundSupportTangent
 	local bitangent = self.GroundSupportBitangent
-
-	if not tangent or not bitangent then return support end
-
-	local delta = self.Position - support.point
-	local projected_u = delta:Dot(tangent)
-	local projected_v = delta:Dot(bitangent)
+	local point = support.point
+	local position = self.Position
+	local dx = position.x - point.x
+	local dy = position.y - point.y
+	local dz = position.z - point.z
+	local projected_u = dx * tangent.x + dy * tangent.y + dz * tangent.z
+	local projected_v = dx * bitangent.x + dy * bitangent.y + dz * bitangent.z
 	local clamped_u = math.max(support.min_u, math.min(support.max_u, projected_u))
 	local clamped_v = math.max(support.min_v, math.min(support.max_v, projected_v))
 	local overhang_u = projected_u - clamped_u
 	local overhang_v = projected_v - clamped_v
-	local overhang = tangent * overhang_u + bitangent * overhang_v
+	local overhang = support.overhang
+	overhang.x = tangent.x * overhang_u + bitangent.x * overhang_v
+	overhang.y = tangent.y * overhang_u + bitangent.y * overhang_v
+	overhang.z = tangent.z * overhang_u + bitangent.z * overhang_v
 	support.projected_u = projected_u
 	support.projected_v = projected_v
 	support.clamped_u = clamped_u
 	support.clamped_v = clamped_v
 	support.overhang_u = overhang_u
 	support.overhang_v = overhang_v
-	support.overhang = overhang
-	support.overhang_length = overhang:GetLength()
+	support.has_overhang = true
+	support.overhang_length = math.sqrt(overhang.x * overhang.x + overhang.y * overhang.y + overhang.z * overhang.z)
 	support.tangent = tangent
 	support.bitangent = bitangent
 	return support
@@ -291,7 +332,7 @@ function RigidBody:IsGroundSupportStable()
 
 	local support = self:GetGroundSupportProjectionMetrics()
 
-	if support.count <= 0 or not support.point then return false, support end
+	if support.count <= 0 then return false, support end
 
 	local tolerance = math.max(
 		(self:GetCollisionMargin() or 0) * 2,
@@ -302,6 +343,7 @@ function RigidBody:IsGroundSupportStable()
 end
 
 function RigidBody:RebuildColliders()
+	self._SupportEntryList = nil
 	local colliders = {}
 
 	for index, entry in ipairs(Collider.BuildEntries(self)) do
@@ -542,7 +584,7 @@ function RigidBody:GetGroundNormal()
 end
 
 function RigidBody:SetGroundNormal(vec)
-	self.GroundNormal = vec:Copy()
+	self.GroundNormal:CopyFrom(vec)
 end
 
 function RigidBody:SetGrounded(grounded)
@@ -657,10 +699,10 @@ function RigidBody:Sleep()
 
 	self.Awake = false
 	self.SleepTimer = 0
-	self.Velocity = Vec3(0, 0, 0)
-	self.AngularVelocity = Vec3(0, 0, 0)
-	self.PreviousPosition = self.Position:Copy()
-	self.PreviousRotation = self.Rotation:Copy()
+	self.Velocity:Set(0, 0, 0)
+	self.AngularVelocity:Set(0, 0, 0)
+	self.PreviousPosition:CopyFrom(self.Position)
+	self.PreviousRotation:CopyFrom(self.Rotation)
 end
 
 local function get_sleep_state_metrics(self)
@@ -734,20 +776,22 @@ function RigidBody:CanSleepNow()
 	force_grounded_sleep
 end
 
-function RigidBody:UpdateSleepState(dt)
+-- defer_sleep: only advance the sleep timer, the caller puts the whole group
+-- of jointed bodies to sleep together
+function RigidBody:UpdateSleepState(dt, defer_sleep)
 	if not self:HasSolverMass() or not self.CanSleep then return end
 
 	if not self.Awake then
-		self.Velocity = Vec3(0, 0, 0)
-		self.AngularVelocity = Vec3(0, 0, 0)
-		self.PreviousPosition = self.Position:Copy()
-		self.PreviousRotation = self.Rotation:Copy()
+		self.Velocity:Set(0, 0, 0)
+		self.AngularVelocity:Set(0, 0, 0)
+		self.PreviousPosition:CopyFrom(self.Position)
+		self.PreviousRotation:CopyFrom(self.Rotation)
 		return
 	end
 
 	local ready_to_sleep, force_grounded_sleep = self:IsReadyToSleep()
 
-	if force_grounded_sleep then
+	if force_grounded_sleep and not defer_sleep then
 		self:Sleep()
 		return
 	end
@@ -755,11 +799,16 @@ function RigidBody:UpdateSleepState(dt)
 	if ready_to_sleep then
 		self.SleepTimer = self.SleepTimer + dt
 
-		if self.SleepTimer >= get_effective_sleep_delay(self) then self:Sleep() end
+		if not defer_sleep and self.SleepTimer >= get_effective_sleep_delay(self) then
+			self:Sleep()
+		end
 	else
 		self.SleepTimer = 0
 	end
 end
+
+-- the returned vector is shared, callers must not mutate it
+local DEFAULT_HALF_EXTENTS = Vec3(0.5, 0.5, 0.5)
 
 function RigidBody:GetHalfExtents()
 	local bounds = self.LocalBounds
@@ -767,13 +816,13 @@ function RigidBody:GetHalfExtents()
 	if not bounds then
 		local min_bounds, max_bounds = get_bounds_from_points(self:GetCollisionLocalPoints())
 
-		if not (min_bounds and max_bounds) then return Vec3(0.5, 0.5, 0.5) end
+		if not (min_bounds and max_bounds) then return DEFAULT_HALF_EXTENTS end
 
-		bounds = {min = min_bounds, max = max_bounds}
+		bounds = {min = min_bounds, max = max_bounds, half = (max_bounds - min_bounds) * 0.5}
 		self.LocalBounds = bounds
 	end
 
-	return (bounds.max - bounds.min) * 0.5
+	return bounds.half
 end
 
 function RigidBody:IsStatic()
@@ -796,8 +845,27 @@ function RigidBody:IsSolverImmovable()
 	return not self:HasSolverMass()
 end
 
+function RigidBody:IgnoreCollisionWith(body)
+	self.IgnoredBodies = self.IgnoredBodies or table.weak("k")
+	self.IgnoredBodies[body] = (self.IgnoredBodies[body] or 0) + 1
+	body.IgnoredBodies = body.IgnoredBodies or table.weak("k")
+	body.IgnoredBodies[self] = (body.IgnoredBodies[self] or 0) + 1
+end
+
+function RigidBody:RestoreCollisionWith(body)
+	self.IgnoredBodies[body] = self.IgnoredBodies[body] - 1
+
+	if self.IgnoredBodies[body] == 0 then self.IgnoredBodies[body] = nil end
+
+	body.IgnoredBodies[self] = body.IgnoredBodies[self] - 1
+
+	if body.IgnoredBodies[self] == 0 then body.IgnoredBodies[self] = nil end
+end
+
 function RigidBody:ShouldCollide(body)
 	if self == body then return false end
+
+	if self.IgnoredBodies and self.IgnoredBodies[body] then return false end
 
 	local group_a = self.CollisionGroup or 1
 	local group_b = body.CollisionGroup or 1
@@ -809,28 +877,51 @@ function RigidBody:ShouldCollide(body)
 end
 
 function RigidBody:SynchronizeFromTransform()
-	if not (self.Owner and self.Owner.transform) then return end
+	local transform = self.Owner and self.Owner.transform
 
-	local position = self.Owner.transform:GetPosition():Copy()
-	local rotation = self.Owner.transform:GetRotation():Copy()
+	if not transform then return end
 
 	if self:IsKinematic() then
-		self.PreviousPosition = self.Position:Copy()
-		self.PreviousRotation = self.Rotation:Copy()
+		self.PreviousPosition:CopyFrom(self.Position)
+		self.PreviousRotation:CopyFrom(self.Rotation)
+		self.Position:CopyFrom(transform:GetPosition())
+		self.Rotation:CopyFrom(transform:GetRotation())
 	else
-		self.PreviousPosition = position:Copy()
-		self.PreviousRotation = rotation:Copy()
+		self.Position:CopyFrom(transform:GetPosition())
+		self.Rotation:CopyFrom(transform:GetRotation())
+		self.PreviousPosition:CopyFrom(self.Position)
+		self.PreviousRotation:CopyFrom(self.Rotation)
 	end
-
-	self.Position = position
-	self.Rotation = rotation
 end
 
+-- writing a transform invalidates its matrices and fires change events, so
+-- bodies that did not move (sleeping, static) leave it alone
 function RigidBody:WriteToTransform()
-	if not (self.Owner and self.Owner.transform) then return end
+	local transform = self.Owner and self.Owner.transform
 
-	self.Owner.transform:SetPosition(self.Position:Copy())
-	self.Owner.transform:SetRotation(self.Rotation:Copy())
+	if not transform then return end
+
+	local position = self.Position
+	local rotation = self.Rotation
+	local transform_position = transform:GetPosition()
+	local transform_rotation = transform:GetRotation()
+
+	if
+		transform_position.x ~= position.x or
+		transform_position.y ~= position.y or
+		transform_position.z ~= position.z
+	then
+		transform:SetPosition(position:Copy())
+	end
+
+	if
+		transform_rotation.x ~= rotation.x or
+		transform_rotation.y ~= rotation.y or
+		transform_rotation.z ~= rotation.z or
+		transform_rotation.w ~= rotation.w
+	then
+		transform:SetRotation(rotation:Copy())
+	end
 end
 
 function RigidBody:ShouldInterpolateTransform()
@@ -987,8 +1078,8 @@ end
 
 function RigidBody:Integrate(dt, gravity)
 	self.StepDt = dt
-	self.PreviousPosition = self.Position:Copy()
-	self.PreviousRotation = self.Rotation:Copy()
+	self.PreviousPosition:CopyFrom(self.Position)
+	self.PreviousRotation:CopyFrom(self.Rotation)
 
 	if self:IsKinematic() then return end
 
@@ -1017,22 +1108,22 @@ function RigidBody:UpdateVelocities(dt)
 
 		if UPDATE_DELTA.w < 0 then self.AngularVelocity:Scale(-1) end
 
-		self.PreviousPosition = self.Position:Copy()
-		self.PreviousRotation = self.Rotation:Copy()
+		self.PreviousPosition:CopyFrom(self.Position)
+		self.PreviousRotation:CopyFrom(self.Rotation)
 		return
 	end
 
 	if not self:HasSolverMass() then
-		self.Velocity = Vec3(0, 0, 0)
-		self.AngularVelocity = Vec3(0, 0, 0)
+		self.Velocity:Set(0, 0, 0)
+		self.AngularVelocity:Set(0, 0, 0)
 		return
 	end
 
 	if not self.Awake then
-		self.Velocity = Vec3(0, 0, 0)
-		self.AngularVelocity = Vec3(0, 0, 0)
-		self.PreviousPosition = self.Position:Copy()
-		self.PreviousRotation = self.Rotation:Copy()
+		self.Velocity:Set(0, 0, 0)
+		self.AngularVelocity:Set(0, 0, 0)
+		self.PreviousPosition:CopyFrom(self.Position)
+		self.PreviousRotation:CopyFrom(self.Rotation)
 		return
 	end
 
@@ -1136,6 +1227,12 @@ function RigidBody:_ApplyCorrection(correction, pos)
 	self.Rotation.z = self.Rotation.z + 0.5 * delta.z
 	self.Rotation.w = self.Rotation.w + 0.5 * delta.w
 	self.Rotation:Normalize()
+end
+
+function RigidBody:_ApplyAngularCorrection(world_angle_impulse)
+	if not self:HasSolverMass() then return end
+
+	motion.IntegrateRotation(self.Rotation, self:GetAngularVelocityDelta(world_angle_impulse), 1)
 end
 
 function RigidBody:ApplyCorrection(compliance, correction, pos, other_body, other_pos, dt)

@@ -4,6 +4,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local manifold = {}
 local EPSILON = physics_constants.EPSILON
 local SOLVER_TANGENT = Vec3()
+local EMPTY_CONTACTS = {}
 local SOLVER_BITANGENT = Vec3()
 
 local function project_tangent_into(out, tangent, normal)
@@ -116,24 +117,45 @@ local function supports_persistent_tangent(body_a, body_b, manifold_data)
 		shape_b == "capsule"
 end
 
+local CLAIMED = {}
+
+-- contacts are rebuilt into the spare list from the previous substep and the
+-- two lists swap, so matched contacts carry their impulses over without any
+-- per-rebuild allocation
 function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
-	local previous_contacts = manifold_data.contacts or {}
-	local rebuilt = {}
-	local claimed = {}
+	local previous_contacts = manifold_data.contacts or EMPTY_CONTACTS
+	local previous_count = #previous_contacts
+	local rebuilt = manifold_data.spare_contacts or {}
+	local claimed = CLAIMED
 
-	for _, contact in ipairs(contacts) do
-		local local_point_a = body_a:WorldToLocal(contact.point_a)
-		local local_point_b = body_b:WorldToLocal(contact.point_b)
+	for i = 1, previous_count do
+		claimed[i] = false
+	end
+
+	for contact_index = 1, #contacts do
+		local contact = contacts[contact_index]
+		local rebuilt_contact = rebuilt[contact_index]
+
+		if not rebuilt_contact then
+			rebuilt_contact = {local_point_a = Vec3(), local_point_b = Vec3(), tangent_store = Vec3()}
+			rebuilt[contact_index] = rebuilt_contact
+		end
+
+		local local_point_a = body_a:WorldToLocal(contact.point_a, nil, nil, rebuilt_contact.local_point_a)
+		local local_point_b = body_b:WorldToLocal(contact.point_b, nil, nil, rebuilt_contact.local_point_b)
 		local matched_index
-
 		-- contacts carrying a feature key match by exact feature pair first
 		-- (box3d b3MakeFeatureId); proximity is only the fallback
 		local feature_key = contact.feature_key
 
 		if feature_key then
-			for previous_index, previous in ipairs(previous_contacts) do
-				if not claimed[previous_index] and previous.feature_key == feature_key then
+			for previous_index = 1, previous_count do
+				if
+					not claimed[previous_index] and
+					previous_contacts[previous_index].feature_key == feature_key
+				then
 					matched_index = previous_index
+
 					break
 				end
 			end
@@ -142,26 +164,23 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 		if not matched_index then
 			local best_distance = 0.25
 
-			for previous_index, previous in ipairs(previous_contacts) do
-				if claimed[previous_index] then
-					goto continue
+			for previous_index = 1, previous_count do
+				if not claimed[previous_index] then
+					local previous = previous_contacts[previous_index]
+					local dx = previous.local_point_a.x - local_point_a.x
+					local dy = previous.local_point_a.y - local_point_a.y
+					local dz = previous.local_point_a.z - local_point_a.z
+					local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+					dx = previous.local_point_b.x - local_point_b.x
+					dy = previous.local_point_b.y - local_point_b.y
+					dz = previous.local_point_b.z - local_point_b.z
+					distance = distance + math.sqrt(dx * dx + dy * dy + dz * dz)
+
+					if distance < best_distance then
+						best_distance = distance
+						matched_index = previous_index
+					end
 				end
-
-				local dx = previous.local_point_a.x - local_point_a.x
-				local dy = previous.local_point_a.y - local_point_a.y
-				local dz = previous.local_point_a.z - local_point_a.z
-				local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-				dx = previous.local_point_b.x - local_point_b.x
-				dy = previous.local_point_b.y - local_point_b.y
-				dz = previous.local_point_b.z - local_point_b.z
-				distance = distance + math.sqrt(dx * dx + dy * dy + dz * dz)
-
-				if distance < best_distance then
-					best_distance = distance
-					matched_index = previous_index
-				end
-
-				::continue::
 			end
 		end
 
@@ -169,31 +188,45 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 
 		if matched_index then claimed[matched_index] = true end
 
-		rebuilt[#rebuilt + 1] = {
-			local_point_a = local_point_a,
-			local_point_b = local_point_b,
-			normal_impulse = matched_contact and matched_contact.normal_impulse or 0,
-			tangent_impulse = matched_contact and matched_contact.tangent_impulse or 0,
-			tangent_impulse_1 = matched_contact and
-				(
-					matched_contact.tangent_impulse_1 or
-					matched_contact.tangent_impulse
-				)
-				or
-				0,
-			tangent_impulse_2 = matched_contact and matched_contact.tangent_impulse_2 or 0,
-			separation = contact.separation or 0,
-			v_pre = matched_contact and matched_contact.v_pre or nil,
-			static_friction_active = matched_contact and matched_contact.static_friction_active == true or false,
-			tangent = matched_contact and
-				matched_contact.tangent and
-				matched_contact.tangent:Copy() or
-				nil,
-			feature_key = contact.feature_key,
-		}
+		if matched_contact then
+			local tangent_impulse = matched_contact.tangent_impulse
+			rebuilt_contact.normal_impulse = matched_contact.normal_impulse
+			rebuilt_contact.tangent_impulse = tangent_impulse
+			rebuilt_contact.tangent_impulse_1 = matched_contact.tangent_impulse_1 or tangent_impulse
+			rebuilt_contact.tangent_impulse_2 = matched_contact.tangent_impulse_2
+			rebuilt_contact.v_pre = matched_contact.v_pre
+			rebuilt_contact.static_friction_active = matched_contact.static_friction_active == true
+
+			if matched_contact.tangent then
+				rebuilt_contact.tangent_store:CopyFrom(matched_contact.tangent)
+				rebuilt_contact.tangent = rebuilt_contact.tangent_store
+			else
+				rebuilt_contact.tangent = nil
+			end
+		else
+			rebuilt_contact.normal_impulse = 0
+			rebuilt_contact.tangent_impulse = 0
+			rebuilt_contact.tangent_impulse_1 = 0
+			rebuilt_contact.tangent_impulse_2 = 0
+			rebuilt_contact.v_pre = nil
+			rebuilt_contact.static_friction_active = false
+			rebuilt_contact.tangent = nil
+		end
+
+		rebuilt_contact.separation = contact.separation or 0
+		rebuilt_contact.feature_key = feature_key
+		rebuilt_contact.normal_impulse = rebuilt_contact.normal_impulse or 0
+		rebuilt_contact.tangent_impulse = rebuilt_contact.tangent_impulse or 0
+		rebuilt_contact.tangent_impulse_1 = rebuilt_contact.tangent_impulse_1 or 0
+		rebuilt_contact.tangent_impulse_2 = rebuilt_contact.tangent_impulse_2 or 0
+	end
+
+	for i = #contacts + 1, #rebuilt do
+		rebuilt[i] = nil
 	end
 
 	manifold_data.contacts = rebuilt
+	manifold_data.spare_contacts = previous_contacts ~= EMPTY_CONTACTS and previous_contacts or nil
 	return rebuilt
 end
 
@@ -215,6 +248,13 @@ end
 
 function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
+
+	-- a sleeping body never integrated gravity this step, so the impulse that
+	-- used to balance it would only kick it awake
+	if body_a.Awake == false then state_a.immovable = true end
+
+	if body_b.Awake == false then state_b.immovable = true end
+
 	local did_apply = false
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local physics = body_a:GetPhysics()
@@ -421,7 +461,15 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 							contact.tangent_impulse_1 = new_tangent_impulse_1
 							contact.tangent_impulse_2 = new_tangent_impulse_2
 							contact.static_friction_active = use_static_friction
-							contact.tangent = tangent:Copy()
+							local tangent_store = contact.tangent_store
+
+							if not tangent_store then
+								tangent_store = Vec3()
+								contact.tangent_store = tangent_store
+							end
+
+							tangent_store:CopyFrom(tangent)
+							contact.tangent = tangent_store
 						else
 							contact.static_friction_active = use_static_friction
 						end

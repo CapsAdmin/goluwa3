@@ -189,9 +189,16 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 	return pair_solver_helpers.ResolveSweptHit(box_body, sphere_body, start_world, movement_world, earliest_hit, dt, true)
 end
 
+local SPHERE_BOX_CONTACT = {}
+local SPHERE_BOX_CONTACTS = {SPHERE_BOX_CONTACT}
+
 local function resolve_top_face_hit(sphere_body, box_body, dt, local_center, extents)
 	local top_world = box_body:LocalToWorld(
-		Vec3(math.clamp(local_center.x, -extents.x, extents.x), extents.y, math.clamp(local_center.z, -extents.z, extents.z))
+		Vec3(
+			math.clamp(local_center.x, -extents.x, extents.x),
+			extents.y,
+			math.clamp(local_center.z, -extents.z, extents.z)
+		)
 	)
 	local top_delta = sphere_body:GetPosition() - top_world
 	local top_distance = top_delta:GetLength()
@@ -207,6 +214,9 @@ local function resolve_top_face_hit(sphere_body, box_body, dt, local_center, ext
 		top_normal = box_body:GetUp():GetNormalized()
 	end
 
+	local point_b = sphere_body:GetPosition() - top_normal * sphere_body:GetSphereRadius()
+	SPHERE_BOX_CONTACT.point_a = top_world
+	SPHERE_BOX_CONTACT.point_b = point_b
 	contact_resolution.ResolvePairPenetration(
 		box_body,
 		sphere_body,
@@ -214,7 +224,8 @@ local function resolve_top_face_hit(sphere_body, box_body, dt, local_center, ext
 		math.max(top_overlap, EPSILON),
 		dt,
 		top_world,
-		sphere_body:GetPosition() - top_normal * sphere_body:GetSphereRadius()
+		point_b,
+		SPHERE_BOX_CONTACTS
 	)
 	return true
 end
@@ -246,6 +257,8 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 		return solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 	end
 
+	SPHERE_BOX_CONTACT.point_a = contact.point_a
+	SPHERE_BOX_CONTACT.point_b = contact.point_b
 	return contact_resolution.ResolvePairPenetration(
 		box_body,
 		sphere_body,
@@ -253,7 +266,8 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 		contact.overlap,
 		dt,
 		contact.point_a,
-		contact.point_b
+		contact.point_b,
+		SPHERE_BOX_CONTACTS
 	)
 end
 

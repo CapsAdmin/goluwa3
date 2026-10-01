@@ -392,7 +392,7 @@ local function pair_pose_invalidated(body, cached_pose, squared_threshold)
 	return abs_dot < 0.995
 end
 
-function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass)
+function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, last_pass)
 	local pairs = bodies_or_pairs
 
 	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
@@ -419,7 +419,11 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass)
 		local physics = self:GetPhysics()
 		local handled = false
 
-		if body_a:ShouldCollide(body_b) then
+		-- pairs that found no contact in the first iteration of this substep stay
+		-- skipped, bodies only move by small corrections between iterations
+		if cached_iteration and pair.idle_stamp == self.StepStamp then
+			stats:Count("solver_pairs_idle")
+		elseif body_a:ShouldCollide(body_b) then
 			if cached_iteration then
 				local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
 
@@ -440,7 +444,7 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass)
 						manifold.last_rebuild_step = -1
 					else
 						stats:Count("solver_pairs_cached")
-						contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt)
+						contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, nil, last_pass == false)
 						handled = true
 					end
 				end
@@ -454,11 +458,13 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass)
 					pair_solver_helpers.IsSimpleBody(colliders_a) and
 					pair_solver_helpers.IsSimpleBody(colliders_b)
 				then
-					local _, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, entry_a, entry_b, dt)
+					local result, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, entry_a, entry_b, dt)
 
 					if not found then
 						stats:Count("pairs_fallback")
 						fallback_solve_aabb_pair_collision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
+					elseif not cached_iteration and not result then
+						pair.idle_stamp = self.StepStamp
 					end
 				else
 					pair_solver_helpers.DispatchColliderPairs(self, colliders_a, colliders_b, entry_a, entry_b, dt)

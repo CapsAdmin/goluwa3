@@ -13,6 +13,7 @@ local CORRECTION_SHIFT = Vec3()
 local GROUND_OFFSET_A = Vec3()
 local GROUND_OFFSET_B = Vec3()
 local GROUND_CANDIDATE = Vec3()
+local GROUND_NORMAL_SCRATCH = Vec3()
 
 function contact_resolution.MarkPairGrounding(body_a, body_b, normal, rolling_friction)
 	if rolling_friction == nil then
@@ -21,7 +22,7 @@ function contact_resolution.MarkPairGrounding(body_a, body_b, normal, rolling_fr
 
 	if -normal.y >= body_a:GetMinGroundNormalY() then
 		body_a:SetGrounded(true)
-		body_a:SetGroundNormal(-normal)
+		body_a:SetGroundNormal(Vec3.SetScaled(GROUND_NORMAL_SCRATCH, normal, -1))
 		body_a:SetGroundRollingFriction(rolling_friction)
 		body_a:SetGroundBody(body_b)
 		body_a:SetGroundEntity(body_b:GetOwner())
@@ -188,7 +189,9 @@ local ITERATE_WORLD_POINT_B = {
 	Vec3(),
 }
 
-function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fresh_contacts)
+-- defer_grounding: skip the ground bookkeeping, it only needs to see the poses
+-- the last solver iteration leaves behind
+function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fresh_contacts, defer_grounding)
 	local physics = body_a:GetPhysics()
 	local contacts = assert(fresh_contacts or manifold.contacts)
 
@@ -245,7 +248,13 @@ function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fr
 		end
 	end
 
-	if not (manifold.resolve_options and manifold.resolve_options.skip_grounding) then
+	if
+		not defer_grounding and
+		not (
+			manifold.resolve_options and
+			manifold.resolve_options.skip_grounding
+		)
+	then
 		contact_resolution.MarkPairGrounding(body_a, body_b, manifold.normal, manifold.rolling_friction)
 		mark_pair_grounding_from_contacts(body_a, body_b, contacts)
 		local support_tolerance = math.max(physics.solver.PENETRATION_SLOP or 0, 0.005)

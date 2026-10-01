@@ -8,6 +8,8 @@ local function create_mock_body(data)
 
 	if data.Friction == nil then data.Friction = 1 end
 
+	if data.Awake == nil then data.Awake = true end
+
 	-- the persistent-tangent manifold path is modeled on sphere/capsule pairs,
 	-- which is what opens supports_persistent_tangent
 	if data.ShapeType == nil then data.ShapeType = "capsule" end
@@ -234,4 +236,23 @@ T.TestPhysics("Manifold solver uses extra passes only for slow resting multi-con
 	physics.instance.solver.RESTING_MANIFOLD_MAX_ANGULAR_SPEED = old_max_angular
 	T(slow_passes)["=="](2)
 	T(fast_passes)["=="](1)
+end)
+
+T.TestPhysics("Manifold warm start does not push sleeping bodies", function()
+	local body_a = create_mock_body{Awake = false}
+	local body_b = create_mock_body{Position = Vec3(0, 1, 0)}
+	local data = {
+		contacts = {
+			{
+				local_point_a = Vec3(),
+				local_point_b = Vec3(0, -1, 0),
+				normal_impulse = 4,
+				tangent_impulse = 0,
+			},
+		},
+	}
+	manifold.WarmStart(body_a, body_b, Vec3(0, 1, 0), data, 1 / 60)
+	T(body_a:GetVelocity():GetLength())["=="](0)
+	T(body_a:GetAwake())["=="](false)
+	T(body_b:GetVelocity().y)[">"](0)
 end)

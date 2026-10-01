@@ -22,6 +22,8 @@ local island_pos = {} -- island -> index in active_islands
 local body_island = table.weak("k") -- dynamic member body -> island
 local prev_pair_links = {} -- pair key -> {a = body, b = body}
 local prev_constraints = {} -- constraint -> true
+local spare_pair_links = {}
+local spare_constraints = {}
 local next_body_rank = 0
 local constraint_body_seen = {}
 local constraint_body_stamp = 0
@@ -136,9 +138,7 @@ local function remove_member(island, body)
 			local candidate = dynamic_bodies[i]
 			local rank = get_body_rank(candidate)
 
-			if not root or rank < root_rank then
-				root, root_rank = candidate, rank
-			end
+			if not root or rank < root_rank then root, root_rank = candidate, rank end
 		end
 
 		if root then
@@ -609,7 +609,8 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 		end
 	end
 
-	local curr_links = {}
+	local curr_links = spare_pair_links
+	table.clear(curr_links)
 
 	for i = 1, #candidate_pairs do
 		local pair = candidate_pairs[i]
@@ -687,8 +688,10 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 		end
 	end
 
+	spare_pair_links = prev_pair_links
 	prev_pair_links = curr_links
-	local curr_constraints = {}
+	local curr_constraints = spare_constraints
+	table.clear(curr_constraints)
 
 	for i = 1, #constraints do
 		local constraint = constraints[i]
@@ -726,6 +729,7 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 		end
 	end
 
+	spare_constraints = prev_constraints
 	prev_constraints = curr_constraints
 	local island_count = #active_islands
 
@@ -912,6 +916,11 @@ function islands.FinalizeSimulationIslands(simulation_islands)
 	return slept_any
 end
 
+function islands.IsConstrainedBody(body)
+	local island = body_island[body]
+	return island ~= nil and island.has_constraints == true
+end
+
 function islands.IsSleepingIsland(island)
 	return island and island.sleeping == true or false
 end
@@ -978,6 +987,8 @@ function islands.ResetState()
 	body_island = table.weak("k")
 	prev_pair_links = {}
 	prev_constraints = {}
+	spare_pair_links = {}
+	spare_constraints = {}
 	next_body_rank = 0
 end
 
