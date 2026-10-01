@@ -113,7 +113,7 @@ function picker.find_3d_pick_target(mouse_pos)
 
 	if fallback_hit then return fallback_hit.entity end
 
-	if visual_hit then return visual_hit.entity end
+	if visual_hit then return visual_hit.primitive.entity end
 
 	return NULL
 end
