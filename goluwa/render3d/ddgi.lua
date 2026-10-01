@@ -131,7 +131,7 @@ local emitter_grid = pvars.Setup2{
 -- light shaft billboard was 99.9% of one map's emitter power.
 local additive_emitters = pvars.Setup2{
 	key = "ddgi_additive_emitters",
-	default = false,
+	default = true,
 	help = "additive materials light the probes like emissive surfaces do",
 }
 local emitter_cell_size = pvars.Setup2{
