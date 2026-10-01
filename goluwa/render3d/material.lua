@@ -14,7 +14,7 @@ Material:StartStorable()
 Material:GetSet(
 	"AlbedoTexture",
 	nil,
-	{type = "render_texture", callback = "InvalidateRayMaterial"}
+	{type = "render_texture", callback = "InvalidateAlbedo"}
 )
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("HeightTexture", nil, {type = "render_texture", callback = "InvalidateHeightMap"})
@@ -354,6 +354,16 @@ function Material:InvalidateColor()
 	self:InvalidateShadow()
 end
 
+-- bumped when any material's albedo texture changes, which the soup's shadow
+-- samples by bindless index
+Material.albedo_generation = 0
+
+function Material:InvalidateAlbedo()
+	Material.albedo_generation = Material.albedo_generation + 1
+	self:InvalidateRayMaterial()
+	self:InvalidateShadow()
+end
+
 function Material:InvalidateTransparency()
 	self:InvalidateSceneKey()
 	self:InvalidateShadow()
@@ -468,6 +478,20 @@ do
 
 		return 1
 	end
+end
+
+-- whether the alpha of the albedo texture shapes the shadow, which the soup
+-- only draws when it has uvs
+function Material:HasShadowTexture()
+	return self.AlbedoTexture ~= nil and
+		not self.AlbedoTextureAlphaIsRoughness and
+		not self.AlbedoAlphaIsEmissive and
+		not self.Additive and
+		(
+			self.AlphaTest or
+			self.Translucent or
+			self.Refraction > 0
+		)
 end
 
 -- bumped when what the soup shadow of any material changes, so the shadow

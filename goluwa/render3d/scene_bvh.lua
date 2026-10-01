@@ -51,6 +51,15 @@ local Int32Array = ffi.typeof("int32_t[?]")
 local UInt8Array = ffi.typeof("uint8_t[?]")
 local NODE_BYTE_SIZE = 32
 local TRIANGLE_BYTE_SIZE = 64
+-- static: keeps a uv per triangle vertex beside the soup, so the shadow soup
+-- can alpha test and blend with a material's albedo texture. set
+-- GOLUWA_SOUP_UVS=1 to measure what it costs
+scene_bvh.SOUP_UVS = true
+local SOUP_UVS = scene_bvh.SOUP_UVS
+-- three uvs of a triangle, indexed like the triangle buffer
+local UV_BYTE_SIZE = 24
+-- position and normal come first in a mesh vertex
+local UV_FLOAT_OFFSET = 6
 -- the soup is bound as an array of SOUP_CHUNKS descriptors over one buffer,
 -- each covering 2 GiB of it, so a soup larger than maxStorageBufferRange (and
 -- than what 32 bit byte offsets can address) stays reachable. triangle i lives
@@ -59,6 +68,7 @@ local SOUP_CHUNK_BYTES = 2147483648
 local SOUP_CHUNKS = 8
 local SOUP_CHUNK_TRIS = SOUP_CHUNK_BYTES / TRIANGLE_BYTE_SIZE
 scene_bvh.SOUP_CHUNKS = SOUP_CHUNKS
+scene_bvh.UV_CHUNK_BYTES = SOUP_CHUNK_TRIS * UV_BYTE_SIZE
 scene_bvh.SOUP_CHUNK_TRIS = SOUP_CHUNK_TRIS
 local BIN_COUNT = 12
 local MAX_LEAF_TRIANGLES = 8
@@ -371,6 +381,14 @@ do
 		local buffer, ptr = create_mapped_buffer("scene_bvh_triangles", capacity * TRIANGLE_BYTE_SIZE)
 		scene_bvh.triangle_buffer = buffer
 		scene_bvh.triangles = ffi.cast(TrianglePtr, ptr)
+
+		if SOUP_UVS then
+			if scene_bvh.uv_buffer then scene_bvh.uv_buffer:Remove() end
+
+			local uv_buffer, uv_ptr = create_mapped_buffer("scene_bvh_uvs", capacity * UV_BYTE_SIZE)
+			scene_bvh.uv_buffer = uv_buffer
+			scene_bvh.uvs = ffi.cast("float*", uv_ptr)
+		end
 
 		-- a block that is not baked yet (being laid out or moved to a bigger
 		-- range) is written once it has its range
@@ -1136,6 +1154,7 @@ do
 		local vertices = ffi.cast("float*", slot.vertex_buffer.data)
 		local stride = slot.vertex_buffer.stride / 4
 		local written = 0
+		local local_uvs = piece.local_uvs
 
 		for triangle = 0, count - 1 do
 			local a = indices[triangle * 3 + 0] * stride
@@ -1177,6 +1196,17 @@ do
 				record.emissive[0] = 0
 				record.emissive[1] = 0
 				record.emissive[2] = 0
+
+				if local_uvs then
+					local uv = written * 6
+					local_uvs[uv] = vertices[a + UV_FLOAT_OFFSET]
+					local_uvs[uv + 1] = vertices[a + UV_FLOAT_OFFSET + 1]
+					local_uvs[uv + 2] = vertices[b + UV_FLOAT_OFFSET]
+					local_uvs[uv + 3] = vertices[b + UV_FLOAT_OFFSET + 1]
+					local_uvs[uv + 4] = vertices[c + UV_FLOAT_OFFSET]
+					local_uvs[uv + 5] = vertices[c + UV_FLOAT_OFFSET + 1]
+				end
+
 				written = written + 1
 			end
 		end
@@ -1223,6 +1253,7 @@ do
 			id = piece_id,
 			raw_count = slot.count,
 			local_tris = TriangleArray(slot.count),
+			local_uvs = SOUP_UVS and FloatArray(slot.count * 6) or nil,
 			matrix = {
 				m00 = l.m00,
 				m01 = l.m01,
@@ -1425,6 +1456,14 @@ do
 			dst.emissive[1] = slot.emissive_g
 			dst.emissive[2] = slot.emissive_b
 			dst.material = slot.material_id
+
+			if SOUP_UVS then
+				ffi.copy(
+					scene_bvh.uvs + (vc.tri_base + i) * 6,
+					pieces[s].local_uvs + (l - starts[s]) * 6,
+					UV_BYTE_SIZE
+				)
+			end
 		end
 
 		ffi.fill(world + total, (vc.tri_cap - total) * TRIANGLE_BYTE_SIZE)
@@ -1700,7 +1739,9 @@ do
 
 			if material:GetAlphaTest() or opacity < 1 then non_opaque = true end
 
-			if opacity > 0 and opacity < 1 then dithered = true end
+			if opacity > 0 and (opacity < 1 or (SOUP_UVS and material:HasShadowTexture())) then
+				dithered = true
+			end
 		end
 
 		if
@@ -2159,7 +2200,8 @@ end
 do
 	local chunk_infos = setmetatable({}, {__mode = "k"})
 
-	function scene_bvh.BindTriangleBuffer(pipeline, descriptor_index, binding, buffer)
+	function scene_bvh.BindTriangleBuffer(pipeline, descriptor_index, binding, buffer, chunk_bytes)
+		chunk_bytes = chunk_bytes or SOUP_CHUNK_BYTES
 		local infos = chunk_infos[buffer]
 
 		if not infos then
@@ -2167,14 +2209,14 @@ do
 			infos = {}
 
 			for i = 0, SOUP_CHUNKS - 1 do
-				local offset = i * SOUP_CHUNK_BYTES
+				local offset = i * chunk_bytes
 
 				if offset >= size then offset = 0 end
 
 				infos[i + 1] = {
 					buffer = buffer,
 					offset = offset,
-					range = math.min(SOUP_CHUNK_BYTES, size - offset),
+					range = math.min(chunk_bytes, size - offset),
 				}
 			end
 
@@ -2413,6 +2455,7 @@ do
 		local storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}}
 		local opacity_declarations = ""
 		local opacity_write = "positions[vid] = p;"
+		local uv_write = ""
 
 		-- the shadow soup also gets the share of light each vertex's material
 		-- stops, and nothing is drawn for a material that stops none
@@ -2432,6 +2475,37 @@ do
 				opacities[vid] = opacity;
 				positions[vid] = opacity > 0.0 ? p : vec3(0.0);
 			]=]
+
+			-- and its uv and material, for the shadow to sample the albedo
+			-- texture with
+			if SOUP_UVS then
+				storage_buffers[5] = {binding_index = 4}
+				storage_buffers[6] = {binding_index = 5}
+				storage_buffers[7] = {binding_index = 6, count = SOUP_CHUNKS}
+				opacity_declarations = opacity_declarations .. (
+						[=[
+					struct scene_bvh_uv {
+						vec2 uv0;
+						vec2 uv1;
+						vec2 uv2;
+					};
+					layout(scalar, set = 0, binding = 4) buffer SceneBvhVertexUv {
+						vec2 vertex_uvs[];
+					};
+					layout(scalar, set = 0, binding = 5) buffer SceneBvhVertexMaterial {
+						uint vertex_materials[];
+					};
+					layout(scalar, set = 0, binding = 6) readonly buffer SceneBvhUv {
+						scene_bvh_uv tri_uvs[];
+					} uv_soup[%d];
+				]=]
+					):format(SOUP_CHUNKS)
+				uv_write = [=[
+					scene_bvh_uv tuv = uv_soup[nonuniformEXT(chunk)].tri_uvs[tri - chunk * SOUP_CHUNK];
+					vertex_uvs[vid] = which == 0u ? tuv.uv0 : (which == 1u ? tuv.uv1 : tuv.uv2);
+					vertex_materials[vid] = t.material;
+				]=]
+			end
 		end
 
 		state.expand_pipeline = EasyPipeline.Compute{
@@ -2482,7 +2556,7 @@ do
 					vec3 p = t.v0;
 					if (which == 1u) p += t.e1;
 					else if (which == 2u) p += t.e2;
-					]] .. opacity_write .. [[
+					]] .. opacity_write .. uv_write .. [[
 				}
 			]],
 		}
@@ -2501,6 +2575,15 @@ do
 	-- buffer is new or the soup was laid out again. returns the vertex count
 	-- the buffer covers and the buffer
 	local shadow_materials = {capacity = 0, filled = 0, generation = -1}
+
+	local function create_vertex_buffer(label, byte_size)
+		return render.CreateBuffer{
+			byte_size = byte_size,
+			buffer_usage = {"vertex_buffer", "storage_buffer"},
+			memory_property = {"device_local"},
+			label = label,
+		}
+	end
 
 	-- the share of light each material stops, by material id, written again
 	-- in full when a material's opacity changed and appended to otherwise
@@ -2575,12 +2658,16 @@ do
 			if state.with_opacity then
 				if state.opacity_buffer then state.opacity_buffer:Remove() end
 
-				state.opacity_buffer = render.CreateBuffer{
-					byte_size = capacity * 4,
-					buffer_usage = {"vertex_buffer", "storage_buffer"},
-					memory_property = {"device_local"},
-					label = "scene_bvh_raster_opacities",
-				}
+				state.opacity_buffer = create_vertex_buffer("scene_bvh_raster_opacities", capacity * 4)
+
+				if SOUP_UVS then
+					if state.uv_buffer then state.uv_buffer:Remove() end
+
+					if state.material_buffer then state.material_buffer:Remove() end
+
+					state.uv_buffer = create_vertex_buffer("scene_bvh_raster_uvs", capacity * 8)
+					state.material_buffer = create_vertex_buffer("scene_bvh_raster_materials", capacity * 4)
+				end
 			end
 
 			full = true
@@ -2609,6 +2696,19 @@ do
 				shadow_materials.buffer,
 				shadow_materials.buffer:GetSize()
 			)
+
+			if SOUP_UVS then
+				pipeline:UpdateDescriptorSet("storage_buffer", slot, 4, 0, state.uv_buffer, state.uv_buffer:GetSize())
+				pipeline:UpdateDescriptorSet(
+					"storage_buffer",
+					slot,
+					5,
+					0,
+					state.material_buffer,
+					state.material_buffer:GetSize()
+				)
+				scene_bvh.BindTriangleBuffer(pipeline, slot, 6, scene_bvh.uv_buffer, scene_bvh.UV_CHUNK_BYTES)
+			end
 		end
 
 		if full then
@@ -2635,9 +2735,10 @@ do
 			local dithered = false
 
 			for i = 1, vc.slot_count do
-				local opacity = scene_bvh.materials[vc.slots[i].material_id + 1]:GetSoupShadowOpacity()
+				local material = scene_bvh.materials[vc.slots[i].material_id + 1]
+				local opacity = material:GetSoupShadowOpacity()
 
-				if opacity > 0 and opacity < 1 then
+				if opacity > 0 and (opacity < 1 or (SOUP_UVS and material:HasShadowTexture())) then
 					dithered = true
 
 					break

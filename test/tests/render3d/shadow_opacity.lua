@@ -40,6 +40,17 @@ T.Test("Graphics render3d the triangle soup alpha tests a material without a tex
 	T(Material.New():GetSoupShadowOpacity())["=="](1)
 end)
 
+T.Test3D("Graphics render3d only see through materials with an albedo texture have a shadow texture", function()
+	local Texture = import("goluwa/render/texture.lua")
+	local texture = Texture.New{width = 1, height = 1, format = "r8g8b8a8_unorm"}
+	T(Material.New{AlphaTest = true}:HasShadowTexture())["=="](false)
+	T(Material.New{AlphaTest = true, AlbedoTexture = texture}:HasShadowTexture())["=="](true)
+	T(Material.New{Translucent = true, AlbedoTexture = texture}:HasShadowTexture())["=="](true)
+	T(Material.New{AlbedoTexture = texture}:HasShadowTexture())["=="](false)
+	T(Material.New{Translucent = true, Additive = true, AlbedoTexture = texture}:HasShadowTexture())["=="](false)
+	T(Material.New{AlphaTest = true, AlbedoTexture = texture, AlbedoAlphaIsEmissive = true}:HasShadowTexture())["=="](false)
+end)
+
 T.Test("Graphics render3d the soup shadow generation follows what a material's opacity changes to", function()
 	local material = Material.New{ColorMultiplier = Color(1, 1, 1, 0.5)}
 	local generation = Material.shadow_generation
