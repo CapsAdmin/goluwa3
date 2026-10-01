@@ -11,11 +11,7 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Material = objects.CreateTemplate("render3d_material")
 -- textures
 Material:StartStorable()
-Material:GetSet(
-	"AlbedoTexture",
-	nil,
-	{type = "render_texture", callback = "InvalidateAlbedo"}
-)
+Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "InvalidateAlbedo"})
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("HeightTexture", nil, {type = "render_texture", callback = "InvalidateHeightMap"})
 Material:GetSet("MetallicRoughnessTexture", nil, {type = "render_texture"})
@@ -159,7 +155,7 @@ Material:GetSet("IndexOfRefraction", 1.5)
 -- how far light travels inside, in world units. 0 is a thin wall (a window,
 -- a bubble) and below 0 takes the object's thinnest extent
 Material:GetSet("RefractionThickness", -1.0)
-Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateShadow"})
+Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateColor"})
 Material:GetSet("IgnoreZ", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
 -- the primitives drawing with it are left out, ie collision proxies
@@ -396,18 +392,9 @@ function Material.IsGrassTexture(texture)
 		file_path.GetFileNameFromPath(texture.config.path):lower():find("grass", 1, true) ~= nil
 end
 
-function Material:DetectGrass()
-	local texture = self.AlbedoTexture
-
-	if
-		file_path.GetFileNameFromPath(self.Name):lower():find("grass", 1, true) or
-		(
-			texture and
-			Material.IsGrassTexture(texture)
-		)
-	then
-		self:SetGrass(true)
-	end
+function Material.IsGlassTexture(texture)
+	return texture.config.path and
+		file_path.GetFileNameFromPath(texture.config.path):lower():find("glass", 1, true) ~= nil
 end
 
 function Material:GetDebugFlagMap()
@@ -1468,7 +1455,35 @@ do
 			end
 		end
 
-		self:DetectGrass()
+		if
+			file_path.GetFileNameFromPath(self.Name):lower():find("grass", 1, true) or
+			(
+				self.AlbedoTexture and
+				Material.IsGrassTexture(self.AlbedoTexture)
+			)
+		then
+			self:SetGrass(true)
+		end
+
+		-- source glass is often $additive or a bare $translucent with no
+		-- envmap, which lights up or vanishes. a translucent glass surface
+		-- becomes a smooth dielectric that keeps its own textures
+		if
+			self.Translucent and
+			(
+				file_path.GetFileNameFromPath(self.Name):lower():find("glass", 1, true) or
+				(
+					self.AlbedoTexture and
+					Material.IsGlassTexture(self.AlbedoTexture)
+				)
+			)
+		then
+			--self:SetAdditive(false)
+			self:SetAlbedoAlphaIsEmissive(false)
+			self:SetMetallicMultiplier(0)
+			self:SetRoughnessMultiplier(0.04)
+			self:SetSpecularMultiplier(1)
+		end
 	end
 
 	local special_textures = {

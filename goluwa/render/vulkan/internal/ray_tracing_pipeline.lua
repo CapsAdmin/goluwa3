@@ -19,7 +19,7 @@ function RayTracingPipeline.New(device, config)
 		raygeneration = "raygen_khr",
 		closesthit = "closest_hit_khr",
 		miss = "miss_khr",
-		anyhit = "anyhit_khr",
+		anyhit = "any_hit_khr",
 		intersection = "intersection_khr",
 		callable = "callable_khr",
 	}
@@ -40,31 +40,46 @@ function RayTracingPipeline.New(device, config)
 		stage_flags[i] = name_to_flag[stage.name] or "raygen_khr"
 	end
 
-	local groups = VkRayTracingShaderGroupCreateInfoArray(stage_count)
+	local any_hit_shader = 0xFFFFFFFF
 
 	for i, stage in ipairs(config.stages) do
-		local type_name
-		local general_shader = i - 1
-		local closest_hit_shader = 0xFFFFFFFF
+		if stage.name == "anyhit" then any_hit_shader = i - 1 end
+	end
 
-		if stage.name == "closesthit" then
-			type_name = "triangles_hit_group_khr"
-			general_shader = 0xFFFFFFFF
-			closest_hit_shader = i - 1
-		else
-			type_name = "general_khr"
+	local group_count = stage_count - (any_hit_shader == 0xFFFFFFFF and 0 or 1)
+	local groups = VkRayTracingShaderGroupCreateInfoArray(group_count)
+	local stage_index = {}
+	local group = 0
+
+	for i, stage in ipairs(config.stages) do
+		if stage.name ~= "anyhit" then
+			local type_name
+			local general_shader = i - 1
+			local closest_hit_shader = 0xFFFFFFFF
+			local group_any_hit_shader = 0xFFFFFFFF
+
+			if stage.name == "closesthit" then
+				type_name = "triangles_hit_group_khr"
+				general_shader = 0xFFFFFFFF
+				closest_hit_shader = i - 1
+				group_any_hit_shader = any_hit_shader
+			else
+				type_name = "general_khr"
+			end
+
+			groups[group] = vulkan.vk.s.RayTracingShaderGroupCreateInfoKHR{
+				sType = "ray_tracing_shader_group_create_info_khr",
+				pNext = nil,
+				type = type_name,
+				generalShader = general_shader,
+				closestHitShader = closest_hit_shader,
+				anyHitShader = group_any_hit_shader,
+				intersectionShader = 0xFFFFFFFF,
+				pShaderGroupCaptureReplayHandle = nil,
+			}
+			group = group + 1
+			stage_index[stage.name] = group
 		end
-
-		groups[i - 1] = vulkan.vk.s.RayTracingShaderGroupCreateInfoKHR{
-			sType = "ray_tracing_shader_group_create_info_khr",
-			pNext = nil,
-			type = type_name,
-			generalShader = general_shader,
-			closestHitShader = closest_hit_shader,
-			anyHitShader = 0xFFFFFFFF,
-			intersectionShader = 0xFFFFFFFF,
-			pShaderGroupCaptureReplayHandle = nil,
-		}
 	end
 
 	local stages = VkPipelineShaderStageCreateInfoArray(stage_count)
@@ -112,7 +127,7 @@ function RayTracingPipeline.New(device, config)
 		flags = 0,
 		stageCount = stage_count,
 		pStages = stages,
-		groupCount = stage_count,
+		groupCount = group_count,
 		pGroups = groups,
 		maxPipelineRayRecursionDepth = config.max_recursion_depth or 1,
 		maxPipelineRayPayloadSize = config.max_ray_payload_size or 64,
@@ -132,7 +147,6 @@ function RayTracingPipeline.New(device, config)
 	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 	local get_handle_size = device:TryGetExtension("vkGetRayTracingShaderGroupHandleSizeKHR")
 	local handle_size = get_handle_size and get_handle_size(device.ptr[0]) or 32
-	local group_count = stage_count
 	local get_handles = device:GetExtension("vkGetRayTracingShaderGroupHandlesKHR")
 	local handles = ffi.new("uint8_t[?]", handle_size * group_count)
 	vulkan.assert(
@@ -148,13 +162,7 @@ function RayTracingPipeline.New(device, config)
 	vulkan.lib.vkGetPhysicalDeviceProperties2(device.physical_device.ptr[0], pd2)
 	local base_align = props.shaderGroupBaseAlignment
 	local record_stride = (base_align + 63) & ~63
-	local stage_index = {}
-
-	for i, stage in ipairs(config.stages) do
-		stage_index[stage.name] = i
-	end
-
-	local total_size = record_stride * stage_count
+	local total_size = record_stride * group_count
 	local sbt = ffi.new("uint8_t[?]", total_size)
 	local sbt_ptr = ffi.cast("uint8_t*", sbt)
 	local handles_ptr = ffi.cast("uint8_t*", handles)
@@ -208,9 +216,9 @@ local function shader_record_region(self, name)
 	}
 end
 
-function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_set)
+function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_sets)
 	vulkan.lib.vkCmdBindPipeline(cmd.ptr[0], vulkan.vk.e.VkPipelineBindPoint("ray_tracing_khr"), self.pipeline)
-	cmd:BindDescriptorSets("ray_tracing_khr", self.pipeline_layout, {descriptor_set}, nil, 0)
+	cmd:BindDescriptorSets("ray_tracing_khr", self.pipeline_layout, descriptor_sets, nil, 0)
 	local region_t = ffi.typeof("$[1]", vulkan.vk.VkStridedDeviceAddressRegionKHR)
 	local rgs = region_t()
 	local chs = region_t()

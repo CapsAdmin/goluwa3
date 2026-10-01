@@ -96,6 +96,18 @@ ddgi.RAYS_PER_PROBE = 128
 -- as 60000 m instead of 1e27, and an emitter sample's direction is packed in 6
 -- bits per octahedral axis instead of 12.
 ddgi.HALF_PRECISION_RAYS = true
+-- static: the probe rays and the sun's shadow ray from their hits see through
+-- alpha tested materials (leaves, fences) by sampling the albedo alpha in an
+-- any hit shader, instead of hitting them as solids. everything else, the
+-- translucent materials included, stays solid. needs scene_bvh.SOUP_UVS and
+-- ray tracing. set to false to measure what it costs
+ddgi.ALPHA_TEST = scene_bvh.SOUP_UVS
+-- static: a ray hit's albedo is the albedo texture sampled at the hit's uv, at
+-- the mip where the texture is about ALBEDO_UV_TEXELS wide, instead of the
+-- texture's average colour. terrain keeps its own lookup. needs
+-- scene_bvh.SOUP_UVS. set to false to compare with the average
+ddgi.ALBEDO_UVS = scene_bvh.SOUP_UVS
+ddgi.ALBEDO_UV_TEXELS = 8
 -- Emissive surfaces light the probes only through emitter samples: per probe
 -- and frame, EMITTER_SAMPLES shadow rays to points on emissive triangles. A
 -- small or partly hidden emitter is rarely hit by the uniform rays, which
@@ -675,6 +687,8 @@ function ddgi.GetDefinesGLSL()
 		// GLSL leaves %% undefined for negative operands (NVIDIA treats them
 		// as unsigned), so shift into the positive range before wrapping
 		#define DDGI_WRAP(v, n) (((v) + (n) * 65536) %% (n))
+		// the instances a probe's visibility ray can hit, which leaves out foliage with ddgi.ALPHA_TEST
+		#define DDGI_VISIBILITY_MASK %d
 	]]
 	):format(
 		ddgi.PROBES_PER_AXIS,
@@ -688,7 +702,8 @@ function ddgi.GetDefinesGLSL()
 		ddgi.HALF_PRECISION_RAYS and 6 or 12,
 		-- a half float is exact from -2048 to 2048, so the 12 packed bits are centred on 0
 		ddgi.HALF_PRECISION_RAYS and 2048 or 0,
-		ddgi.LIGHT_SAMPLES
+		ddgi.LIGHT_SAMPLES,
+		ddgi.ALPHA_TEST and scene_bvh.RAY_MASK_SOLID or 0xFF
 	)
 end
 
@@ -846,6 +861,10 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			vec3 terrain_bounds;
 			vec4 terrain_detail;
 			vec4 terrain_additive_detail;
+			float alpha;
+			float alpha_cutoff;
+			// 0 solid, 1 alpha tested by alpha alone, 2 by the albedo texture's alpha times alpha
+			int alpha_test;
 		};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -903,6 +922,65 @@ function ddgi.GetMaterialGLSL()
 
 		vec3 ddgi_emission(scene_bvh_triangle tri, vec3 albedo) {
 			return min(tri.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+		}
+	]]
+end
+
+-- The albedo at a ray hit on a soup triangle, with the uv lookup of
+-- ddgi.ALBEDO_UVS when it is on (needs the uv declaration then).
+function ddgi.GetHitAlbedoGLSL()
+	if not ddgi.ALBEDO_UVS then
+		return [[
+			vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint triangle) {
+				return ddgi_albedo(material, P);
+			}
+		]]
+	end
+
+	return [[
+		#define DDGI_ALBEDO_UV_TEXELS ]] .. string.format("%.1f", ddgi.ALBEDO_UV_TEXELS) .. [[
+
+		vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint triangle) {
+			if (material.terrain_tex >= 0 || material.albedo_tex < 0) return ddgi_albedo(material, P);
+
+			scene_bvh_triangle tri = bvh_tri(triangle);
+			vec3 p = P - tri.v0;
+			float d00 = dot(tri.e1, tri.e1);
+			float d01 = dot(tri.e1, tri.e2);
+			float d11 = dot(tri.e2, tri.e2);
+			float d20 = dot(p, tri.e1);
+			float d21 = dot(p, tri.e2);
+			float inv = 1.0 / (d00 * d11 - d01 * d01);
+			float v = (d11 * d20 - d01 * d21) * inv;
+			float w = (d00 * d21 - d01 * d20) * inv;
+			scene_bvh_uv uv = bvh_uv(triangle);
+			vec2 coord = uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w;
+			ivec2 size = textureSize(TEXTURE(material.albedo_tex), 0);
+			float lod = max(log2(float(max(size.x, size.y)) / DDGI_ALBEDO_UV_TEXELS), 0.0);
+			return material.albedo * textureLod(TEXTURE(material.albedo_tex), coord, lod).rgb;
+		}
+	]]
+end
+
+-- Whether a hit on a soup triangle counts, for the alpha tested materials
+-- (see ddgi.ALPHA_TEST). Needs the material and uv declarations, bvh_tri and a
+-- TEXTURE macro.
+function ddgi.GetAlphaTestGLSL()
+	return [[
+		bool ddgi_alpha_passes(uint triangle, vec2 barycentrics) {
+			ddgi_material material = ddgi_materials[bvh_tri(triangle).material];
+
+			if (material.alpha_test == 0) return true;
+
+			float alpha = material.alpha;
+
+			if (material.alpha_test == 2) {
+				scene_bvh_uv uv = bvh_uv(triangle);
+				vec2 coord = uv.uv0 * (1.0 - barycentrics.x - barycentrics.y) + uv.uv1 * barycentrics.x + uv.uv2 * barycentrics.y;
+				alpha *= textureLod(TEXTURE(material.albedo_tex), coord, 0.0).a;
+			}
+
+			return alpha >= material.alpha_cutoff;
 		}
 	]]
 end
@@ -1301,7 +1379,7 @@ function ddgi.GetCommonGLSL()
 					if (!(len > 1e-4)) continue;
 
 					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | (ddgi_data.ddgi_visibility_front_faces_only != 0 ? gl_RayFlagsCullBackFacingTrianglesEXT : 0u), 0xFF, origin, 0.0, to_probe / len, len);
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | (ddgi_data.ddgi_visibility_front_faces_only != 0 ? gl_RayFlagsCullBackFacingTrianglesEXT : 0u), DDGI_VISIBILITY_MASK, origin, 0.0, to_probe / len, len);
 
 					while (rayQueryProceedEXT(query)) {}
 
@@ -1829,6 +1907,9 @@ local MaterialEntry = ffi.typeof([[struct {
 	float terrain_bounds[3];
 	float terrain_detail[4];
 	float terrain_additive_detail[4];
+	float alpha;
+	float alpha_cutoff;
+	int32_t alpha_test;
 }]])
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
@@ -1890,6 +1971,15 @@ function ddgi.WriteMaterialBuffer(self)
 			local albedo = material:GetAlbedoTexture() or NULL
 			entry.albedo_tex = albedo:IsValid() and self:GetTextureIndex(albedo) or -1
 			entry.double_sided = material:GetDoubleSided() and 1 or 0
+			entry.alpha = color.a
+			entry.alpha_cutoff = material:GetAlphaCutoff()
+
+			if not material:GetAlphaTest() then
+				entry.alpha_test = 0
+			else
+				entry.alpha_test = material:HasShadowTexture() and 2 or 1
+			end
+
 			local terrain = material:GetTerrainMaterialTexture()
 
 			if terrain and terrain:IsValid() then
@@ -2008,12 +2098,15 @@ struct Payload
     uint primitive;
 };
 ]]
+ddgi.SCENE_FLAGS_GLSL = ddgi.ALPHA_TEST and
+	"#define DDGI_SCENE_FLAGS 0u\n" or
+	"#define DDGI_SCENE_FLAGS gl_RayFlagsOpaqueEXT\n"
 local raygen_glsl = [[
 #version 460
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
-]] .. ddgi.GetDefinesGLSL() .. [[
+]] .. ddgi.SCENE_FLAGS_GLSL .. ddgi.GetDefinesGLSL() .. [[
 // see ddgi_guide_texel
 layout(set = 0, binding = 4) uniform sampler2D guide;
 #define DDGI_GUIDE_FETCH(texel) texelFetch(guide, texel, 0)
@@ -2069,7 +2162,7 @@ void main()
     bool current = data.w >= 1.0 && ivec3(round(data.xyz)) == world;
     vec3 origin = (current ? data.xyz : vec3(world)) * params.cascades[c].w;
     uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
-    const uint shadow_flags = gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
+    const uint shadow_flags = DDGI_SCENE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
 
     // An emitter sample (see ddgi_pick_emitter_sample). Only the kept one is
     // traced. Stores the candidates' summed weight and which one was kept, or
@@ -2098,7 +2191,7 @@ void main()
     }
 
     vec3 dir = ddgi_ray_direction(ray, uint(params.uniform_rays), params.rotation, tile, ddgi_guide_valid(tile, world, c));
-    traceRayEXT(scene, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
+    traceRayEXT(scene, DDGI_SCENE_FLAGS, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
     uint primitive = payload.primitive;
 
@@ -2129,6 +2222,28 @@ void main()
     payload.primitive = uint(gl_InstanceCustomIndexEXT) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(gl_PrimitiveID);
 }
 ]]
+
+local function build_anyhit_glsl()
+	return [[
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_nonuniform_qualifier : require
+layout(set = 1, binding = 0) uniform sampler2D textures[]] .. render.GetBindlessDescriptorCapacities().textures .. [[];
+#define TEXTURE(idx) textures[nonuniformEXT(idx)]
+hitAttributeEXT vec2 barycentrics;
+]] .. scene_bvh.GetTriangleDeclarationGLSL(5) .. scene_bvh.GetUvDeclarationGLSL(8) .. ddgi.GetMaterialDeclarationsGLSL(9) .. ddgi.GetAlphaTestGLSL() .. [[
+
+void main()
+{
+    // one instance per visual, its custom index is the visual's soup range start
+    uint triangle = uint(gl_InstanceCustomIndexEXT) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(gl_PrimitiveID);
+
+    if (!ddgi_alpha_passes(triangle, barycentrics)) ignoreIntersectionEXT;
+}
+]]
+end
+
 local miss_glsl = [[
 #version 460
 #extension GL_EXT_ray_tracing : require
@@ -2146,34 +2261,47 @@ local rt_pipeline = nil
 function ddgi.GetRTPipeline()
 	if not rt_pipeline then
 		local RayTracingPipeline = import("goluwa/render/vulkan/ray_tracing_pipeline.lua")
+		local stages = {
+			{name = "raygeneration", code = raygen_glsl},
+			{name = "closesthit", code = closesthit_glsl},
+			{name = "miss", code = miss_glsl},
+		}
+		local bindings = {
+			{binding_index = 0, type = "uniform_buffer", stageFlags = "all"},
+			{binding_index = 1, type = "storage_buffer", stageFlags = "all"},
+			{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
+			{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
+			{binding_index = 4, type = "combined_image_sampler", stageFlags = "all"},
+			{
+				binding_index = 5,
+				type = "storage_buffer",
+				stageFlags = "all",
+				count = scene_bvh.SOUP_CHUNKS,
+			},
+			{binding_index = 6, type = "storage_buffer", stageFlags = "all"},
+			{binding_index = 7, type = "storage_buffer", stageFlags = "all"},
+		}
+
+		if ddgi.ALPHA_TEST then
+			stages[#stages + 1] = {name = "anyhit", code = build_anyhit_glsl()}
+			bindings[#bindings + 1] = {
+				binding_index = 8,
+				type = "storage_buffer",
+				stageFlags = "all",
+				count = scene_bvh.SOUP_CHUNKS,
+			}
+			bindings[#bindings + 1] = {binding_index = 9, type = "storage_buffer", stageFlags = "all"}
+		end
+
 		rt_pipeline = RayTracingPipeline.New(
 			render.GetDevice(),
 			{
-				stages = {
-					{name = "raygeneration", code = raygen_glsl},
-					{name = "closesthit", code = closesthit_glsl},
-					{name = "miss", code = miss_glsl},
-				},
+				stages = stages,
+				bindless = ddgi.ALPHA_TEST,
 				max_recursion_depth = 1,
 				max_ray_payload_size = 8,
 				DescriptorSetCount = render.GetSwapchainImageCount() * 16,
-				descriptor_sets = {
-					{
-						{binding_index = 0, type = "uniform_buffer", stageFlags = "all"},
-						{binding_index = 1, type = "storage_buffer", stageFlags = "all"},
-						{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
-						{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
-						{binding_index = 4, type = "combined_image_sampler", stageFlags = "all"},
-						{
-							binding_index = 5,
-							type = "storage_buffer",
-							stageFlags = "all",
-							count = scene_bvh.SOUP_CHUNKS,
-						},
-						{binding_index = 6, type = "storage_buffer", stageFlags = "all"},
-						{binding_index = 7, type = "storage_buffer", stageFlags = "all"},
-					},
-				},
+				descriptor_sets = {bindings},
 			}
 		)
 	end

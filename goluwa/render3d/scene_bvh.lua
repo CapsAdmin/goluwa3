@@ -56,6 +56,7 @@ local TRIANGLE_BYTE_SIZE = 64
 -- GOLUWA_SOUP_UVS=1 to measure what it costs
 scene_bvh.SOUP_UVS = true
 local SOUP_UVS = scene_bvh.SOUP_UVS
+scene_bvh.RAY_MASK_SOLID = 0x01
 -- three uvs of a triangle, indexed like the triangle buffer
 local UV_BYTE_SIZE = 24
 -- position and normal come first in a mesh vertex
@@ -1732,6 +1733,7 @@ do
 		-- whether a block's materials let light through follows the materials,
 		-- which change without the block being baked again
 		local non_opaque, dithered = false, false
+		local alpha_tested, total = 0, 0
 
 		for i = 1, slot_count do
 			local material = scene_bvh.materials[slots[i].material_id + 1]
@@ -1739,15 +1741,22 @@ do
 
 			if material:GetAlphaTest() or opacity < 1 then non_opaque = true end
 
+			total = total + slots[i].count
+
+			if material:GetAlphaTest() then alpha_tested = alpha_tested + slots[i].count end
+
 			if opacity > 0 and (opacity < 1 or (SOUP_UVS and material:HasShadowTexture())) then
 				dithered = true
 			end
 		end
 
+		local foliage = alpha_tested * 2 > total
+
 		if
 			vc.block_index and
 			(
 				vc.non_opaque ~= non_opaque or
+				vc.foliage ~= foliage or
 				vc.shadow_dithered ~= dithered
 			)
 		then
@@ -1760,6 +1769,7 @@ do
 		end
 
 		vc.non_opaque = non_opaque
+		vc.foliage = foliage
 		vc.shadow_dithered = dithered
 
 		if fast and vc.block_index and vc.baked_matrix == v then
@@ -2264,6 +2274,29 @@ function scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
 		}
 	]]
 	):format(triangle_binding, SOUP_CHUNKS, SOUP_CHUNK_TRIS)
+end
+
+-- the three uvs of a soup triangle, bound with BindTriangleBuffer and
+-- UV_CHUNK_BYTES. only exists with SOUP_UVS
+function scene_bvh.GetUvDeclarationGLSL(uv_binding)
+	return (
+		[[
+		struct scene_bvh_uv {
+			vec2 uv0;
+			vec2 uv1;
+			vec2 uv2;
+		};
+
+		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHUvBuffer {
+			scene_bvh_uv uvs[];
+		} scene_bvh_uv_soup[%d];
+
+		scene_bvh_uv bvh_uv(uint index) {
+			uint chunk = index / SCENE_BVH_SOUP_CHUNK;
+			return scene_bvh_uv_soup[nonuniformEXT(chunk)].uvs[index - chunk * SCENE_BVH_SOUP_CHUNK];
+		}
+	]]
+	):format(uv_binding, SOUP_CHUNKS)
 end
 
 function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
@@ -2775,6 +2808,10 @@ do
 	-- without them cull them
 	local INSTANCE_FORCE_OPAQUE = 0x04000000
 	local INSTANCE_FORCE_NO_OPAQUE = 0x08000000
+	-- the top byte of customAndMask is the ray mask. a visual that is mostly
+	-- alpha tested is foliage, which a ray skips with a cull mask of RAY_MASK_SOLID
+	local INSTANCE_MASK_SOLID = scene_bvh.RAY_MASK_SOLID * 0x1000000
+	local INSTANCE_MASK_FOLIAGE = 0x02 * 0x1000000
 	local BLAS_ALIGN = 256
 	local BLAS_POOL_BYTES = 64 * 1024 * 1024
 	local SCRATCH_BUDGET = 128 * 1024 * 1024
@@ -2949,7 +2986,15 @@ do
 			)
 		-- a hidden block keeps its instance, so instances stay in block order,
 		-- but with a mask no ray matches
-		instance.customAndMask = (vc.hidden and 0 or 0xFF000000) + vc.tri_base / SOUP_ALIGN
+		instance.customAndMask = (
+				vc.hidden and
+				0 or
+				(
+					vc.foliage and
+					INSTANCE_MASK_FOLIAGE or
+					INSTANCE_MASK_SOLID
+				)
+			) + vc.tri_base / SOUP_ALIGN
 		instance.accelerationStructureReference = vc.rt_address
 	end
 
