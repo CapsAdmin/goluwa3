@@ -267,6 +267,17 @@ function Material:IsTransparent()
 	return self.Translucent or self.Refraction > 0
 end
 
+-- a surface that transmits what is behind it. the sun's light through it is the
+-- business of render3d/glass_tint.lua
+function Material:IsGlass()
+	return self.Refraction > 0 and not self.Additive
+end
+
+-- whether glass dithers the shadow maps. glass_tint takes over while its maps are on
+Material.GlassCastsShadow = function()
+	return true
+end
+
 -- just a shortcut for gltf
 function Material:SetAlphaMode(mode)
 	if mode == "MASK" then
@@ -434,6 +445,9 @@ do
 
 		-- an additive surface only adds light
 		if self.Additive then return 0 end
+
+		-- and glass lets the light through in the glass tint maps instead
+		if self.Refraction > 0 and not Material.GlassCastsShadow() then return 0 end
 
 		if self.Refraction == 0 then return color.a end
 

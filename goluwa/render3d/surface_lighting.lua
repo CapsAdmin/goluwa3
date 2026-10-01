@@ -9,6 +9,7 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local surface_lighting = library()
 -- What shading a surface at a world position takes, shared by the deferred
 -- lighting pass and the forward passes that draw what the gbuffer can't hold.
@@ -31,6 +32,7 @@ surface_lighting.block = {
 	{"env_irradiance_tex", "int"},
 	envprobe.GetProbeBlockLayout(),
 	{"gi_screen_tex", "int"},
+	glass_tint.cascade_block,
 	post_source.pre_exposure_block,
 }
 
@@ -57,6 +59,7 @@ function surface_lighting.WriteBlock(self, block)
 	envprobe.WriteProbeBlock(self, block)
 	local gi_texture = ddgi.GetScreenTexture()
 	block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
+	glass_tint.WriteCascadeBlock(self, block)
 	post_source.WritePreExposureBlock(self, block)
 	return block
 end
@@ -84,6 +87,8 @@ function surface_lighting.GetGLSL(block_name)
 		]] .. scene_lights.GetPointShadowGLSL(block_name) .. [[
 
 		]] .. directional_shadows.GetLocalDirectionalShadowGLSL(block_name) .. [[
+
+		]] .. glass_tint.GetCascadeGLSL(block_name) .. [[
 
 		vec3 get_primary_sun_direction() {
 			vec3 sunDir = ]] .. block_name .. [[.primary_sun_direction.xyz;
@@ -192,6 +197,8 @@ function surface_lighting.GetGLSL(block_name)
 					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
 				}
 				vec3 radiance = light.color.rgb * light.color.a * attenuation * shadow_factor;
+
+				if (type == 0) radiance *= get_glass_tint(world_pos);
 
 				if (clearcoat > 0.0) {
 					float coat_NoL = saturate(dot(coat_N, L));

@@ -266,6 +266,7 @@ function render3d.CreatePipelineBundle(options)
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/clouds.lua"),
 			import("goluwa/render3d/passes/ambient_occlusion.lua"),
+			import("goluwa/render3d/passes/glass_tint.lua"),
 			import("goluwa/render3d/passes/ddgi.lua"),
 			import("goluwa/render3d/passes/ssr.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),

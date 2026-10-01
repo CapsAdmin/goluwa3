@@ -11,6 +11,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
+local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local ddgi = library()
 -- Dynamic diffuse global illumination (Majercik et al. 2019) over hardware ray
 -- tracing. A camera-centred grid of probes each trace RAYS_PER_PROBE rays per
@@ -866,6 +867,8 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			float alpha_cutoff;
 			// 0 solid, 1 alpha tested by alpha alone, 2 by the albedo texture's alpha times alpha
 			int alpha_test;
+			// the sun's shadow ray passes through it, tinted (see glass_tint.lua)
+			int glass;
 		};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -1552,6 +1555,7 @@ function ddgi.GetBlockLayout()
 	}
 	table.add(layout, ddgi.GetProbeBlockLayout())
 	table.add(layout, post_source.pre_exposure_block)
+	layout[#layout + 1] = glass_tint.block
 	return layout
 end
 
@@ -1656,6 +1660,7 @@ function ddgi.WriteBlock(self, block)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 	clouds.WriteShadowBlock(self, block)
 	post_source.WritePreExposureBlock(self, block)
+	glass_tint.WriteBlock(self, block)
 	return ddgi.WriteProbeBlock(self, block)
 end
 
@@ -1913,6 +1918,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	float alpha;
 	float alpha_cutoff;
 	int32_t alpha_test;
+	int32_t glass;
 }]])
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
@@ -1948,16 +1954,18 @@ function ddgi.WriteMaterialBuffer(self)
 
 	local generation = Material.ray_material_generation
 	local releases = self:GetTextureIndexReleases()
+	local glass_enabled = glass_tint.IsSunThrough()
 
 	if
 		state.written == count and
 		state.generation == generation and
-		state.releases == releases
+		state.releases == releases and
+		state.glass == glass_enabled
 	then
 		return state.buffer
 	end
 
-	local rewrite_all = state.releases ~= releases
+	local rewrite_all = state.releases ~= releases or state.glass ~= glass_enabled
 	local written = state.written
 	local stamp = state.generation
 	local out = ffi.cast(MaterialEntryPointer, state.buffer:Map(0, state.buffer:GetSize()))
@@ -1983,6 +1991,7 @@ function ddgi.WriteMaterialBuffer(self)
 				entry.alpha_test = material:HasShadowTexture() and 2 or 1
 			end
 
+			entry.glass = (glass_enabled and material:IsGlass()) and 1 or 0
 			local terrain = material:GetTerrainMaterialTexture()
 
 			if terrain and terrain:IsValid() then
@@ -2016,6 +2025,7 @@ function ddgi.WriteMaterialBuffer(self)
 	state.written = count
 	state.generation = generation
 	state.releases = releases
+	state.glass = glass_enabled
 	return state.buffer
 end
 
@@ -2099,6 +2109,8 @@ struct Payload
 {
     float hit_t;
     uint primitive;
+    // 1 for the sun's shadow ray, which passes through glass (see ddgi_material.glass)
+    uint sun;
 };
 ]]
 ddgi.SCENE_FLAGS_GLSL = ddgi.ALPHA_TEST and
@@ -2183,6 +2195,7 @@ void main()
 
             if (weight_sum > 0.0 && dist > DDGI_SHADOW_OFFSET) {
                 payload.hit_t = 1.0;
+                payload.sun = 0u;
                 traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin, 0.0, to_point / dist, dist - DDGI_SHADOW_OFFSET, 0);
 
                 if (payload.hit_t < 0.0) result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << DDGI_EMITTER_SHIFT));
@@ -2194,6 +2207,7 @@ void main()
     }
 
     vec3 dir = ddgi_ray_direction(ray, uint(params.uniform_rays), params.rotation, tile, ddgi_guide_valid(tile, world, c));
+    payload.sun = 0u;
     traceRayEXT(scene, DDGI_SCENE_FLAGS, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
     uint primitive = payload.primitive;
@@ -2204,6 +2218,7 @@ void main()
     // only a miss changes the payload.
     if (hit_t >= 0.0 && params.sun_direction.w > 0.0) {
         payload.hit_t = 1.0;
+        payload.sun = 1u;
         traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin + dir * max(hit_t - DDGI_SHADOW_OFFSET, 0.0), 0.0, normalize(params.sun_direction.xyz), params.max_ray_distance, 0);
 
         if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
@@ -2235,12 +2250,17 @@ local function build_anyhit_glsl()
 layout(set = 1, binding = 0) uniform sampler2D textures[]] .. render.GetBindlessDescriptorCapacities().textures .. [[];
 #define TEXTURE(idx) textures[nonuniformEXT(idx)]
 hitAttributeEXT vec2 barycentrics;
+]] .. payload_glsl .. [[
+layout(location = 0) rayPayloadInEXT Payload payload;
 ]] .. scene_bvh.GetTriangleDeclarationGLSL(5) .. scene_bvh.GetUvDeclarationGLSL(8) .. ddgi.GetMaterialDeclarationsGLSL(9) .. ddgi.GetAlphaTestGLSL() .. [[
 
 void main()
 {
     // one instance per visual, its custom index is the visual's soup range start
     uint triangle = uint(gl_InstanceCustomIndexEXT) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(gl_PrimitiveID);
+
+    // the sun's light goes on through glass, tinted by the lookup in the shade pass
+    if (payload.sun != 0u && ddgi_materials[bvh_tri(triangle).material].glass != 0) ignoreIntersectionEXT;
 
     if (!ddgi_alpha_passes(triangle, barycentrics)) ignoreIntersectionEXT;
 }
@@ -2302,7 +2322,7 @@ function ddgi.GetRTPipeline()
 				stages = stages,
 				bindless = ddgi.ALPHA_TEST,
 				max_recursion_depth = 1,
-				max_ray_payload_size = 8,
+				max_ray_payload_size = 12,
 				DescriptorSetCount = render.GetSwapchainImageCount() * 16,
 				descriptor_sets = {bindings},
 			}

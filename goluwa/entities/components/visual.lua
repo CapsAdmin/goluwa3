@@ -3428,6 +3428,35 @@ function Visual:OnFirstCreated()
 			end
 		end)
 
+		-- every glass entry, culled from the view or not: the glass out of sight
+		-- can still tint what is in it
+		event.AddListener("CollectGlassTint", "visual_glass_tint_collect", function(out)
+			for _, component in ipairs(visual.translucent_components) do
+				if component.Visible then
+					for _, entry in ipairs(component:GetRenderEntries()) do
+						local material = component:GetResolvedMaterial(entry)
+						local world_matrix = entry.transform and
+							entry.transform:GetWorldMatrix() or
+							component:GetWorldMatrix()
+
+						if
+							entry.source_aabb and
+							world_matrix and
+							material:IsGlass() and
+							material_is_translucent(material)
+						then
+							out[#out + 1] = {
+								entry = entry,
+								material = material,
+								world_matrix = world_matrix,
+								prev_world_matrix = world_matrix,
+							}
+						end
+					end
+				end
+			end
+		end)
+
 		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
 			for _, draw in ipairs(draws) do
 				render3d.SetWorldMatrix(draw.world_matrix, draw.prev_world_matrix)

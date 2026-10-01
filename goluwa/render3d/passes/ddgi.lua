@@ -9,6 +9,7 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local P = ddgi.PROBES_PER_AXIS
 local CASCADES = ddgi.CASCADES
@@ -361,7 +362,7 @@ local function pass_shade()
 				scene_bvh.GetUvDeclarationGLSL(BINDING_UVS) or
 				""
 			) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. [[
+		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. glass_tint.GetGLSL("ddgi_data") .. [[
 			// clamped to what the ray texture holds, see ddgi.HALF_PRECISION_RAYS
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
@@ -379,7 +380,7 @@ local function pass_shade()
 				vec3 direct = vec3(0.0);
 
 				if (sun_visible) {
-					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P);
+					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * get_glass_transmittance(P);
 				}
 
 				float total = 0.0;
