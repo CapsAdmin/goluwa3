@@ -52,6 +52,7 @@ do
 	-- against its bounds; testing every model of a busy scene against every
 	-- sweep was most of its step.
 	local static_models = {}
+	local static_bounds = {}
 	local static_model_count = 0
 	local stale = true
 	local known_instance_count = -1
@@ -78,28 +79,46 @@ do
 				static_model_count = 0
 
 				for i = 1, count do
-					local owner = models[i].Owner
+					local model = models[i]
+					local owner = model.Owner
 
 					if not (owner and owner.rigid_body) then
 						static_model_count = static_model_count + 1
-						static_models[static_model_count] = models[i]
+						static_models[static_model_count] = model
+						static_bounds[static_model_count] = model:GetWorldAABB() or false
 					end
 				end
 
 				for i = static_model_count + 1, #static_models do
 					static_models[i] = nil
+					static_bounds[i] = nil
 				end
 			end
 
-			models = static_models
-			count = static_model_count
+			stats:Count("world_models_scanned", static_model_count)
+
+			for i = 1, static_model_count do
+				local bounds = static_bounds[i]
+
+				if bounds then
+					if AABB.IsBoxIntersecting(world_aabb, bounds) then
+						stats:Count("world_model_candidates")
+						out[#out + 1] = static_models[i]
+					end
+				elseif include_unbounded then
+					out[#out + 1] = static_models[i]
+				end
+			end
+
+			stats:PopTime()
+			return out
 		end
 
 		stats:Count("world_models_scanned", count)
 
 		for i = 1, count do
 			local model = models[i]
-			local bounds = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
+			local bounds = model:GetWorldAABB()
 
 			if bounds then
 				if AABB.IsBoxIntersecting(world_aabb, bounds) then
@@ -135,7 +154,7 @@ function static_model_query.ForEachWorldPrimitiveCandidate(body, callback, world
 
 		if filter_fn and not filter_fn(entity) then goto continue_model end
 
-		local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
+		local model_aabb = model:GetWorldAABB()
 
 		if model_aabb and not AABB.IsBoxIntersecting(body_aabb, model_aabb) then
 			goto continue_model

@@ -129,7 +129,7 @@ local function collect_spatial_model_items()
 			if is_dynamic_model(model) then
 				dynamic_models[#dynamic_models + 1] = model
 			else
-				add_model_acceleration_item(items, model, model.GetWorldAABB and model:GetWorldAABB() or model.AABB)
+				add_model_acceleration_item(items, model, model:GetWorldAABB())
 			end
 		end
 	end
@@ -168,7 +168,7 @@ local function build_static_model_source(models)
 
 	for _, model in ipairs(models or {}) do
 		if has_model_geometry(model) then
-			add_model_acceleration_item(items, model, model.GetWorldAABB and model:GetWorldAABB() or model.AABB)
+			add_model_acceleration_item(items, model, model:GetWorldAABB())
 		end
 	end
 

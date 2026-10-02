@@ -12,8 +12,12 @@ do
 	-- CreateModelSource instead of visual components.
 	--
 	-- model.AABB is the local-space bounds used for local ray culling.
-	-- model:GetWorldAABB() (or model.AABB) is the broad bound used by the
-	-- source BVH; pass a world_offset when the owner transform moves it.
+	-- model:GetWorldAABB() is the broad bound used by the source BVH; pass a
+	-- world_offset when the owner transform moves it.
+	local function get_local_aabb(model)
+		return model.AABB
+	end
+
 	local function make_model(ent, poly, world_offset)
 		local aabb = poly.AABB
 		local model = {
@@ -39,6 +43,8 @@ do
 					max_z = aabb.max_z + world_offset.z,
 				}
 			end
+		else
+			model.GetWorldAABB = get_local_aabb
 		end
 
 		return model
@@ -248,6 +254,7 @@ do
 				Owner = ent,
 				Visible = true,
 				WorldSpaceVertices = true,
+				GetWorldAABB = get_local_aabb,
 				AABB = poly.AABB,
 				Primitives = {
 					{
@@ -273,6 +280,7 @@ do
 				Owner = ent,
 				Visible = true,
 				WorldSpaceVertices = true,
+				GetWorldAABB = get_local_aabb,
 				AABB = AABB(-1, -1, -1, 1, 1, 1),
 				Primitives = {
 					{
@@ -306,6 +314,7 @@ do
 				Owner = ent,
 				Visible = true,
 				WorldSpaceVertices = true,
+				GetWorldAABB = get_local_aabb,
 				AABB = AABB(-1, -1, -1, 1, 1, 1),
 				Primitives = {
 					{

@@ -1114,7 +1114,7 @@ local function test_model_sweep(
 		return nil
 	end
 
-	local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
+	local model_aabb = model:GetWorldAABB()
 	local end_position = start_position + movement * best_fraction
 	local world_aabb = build_swept_aabb(start_position, end_position, radius)
 
@@ -1247,7 +1247,7 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 			local model = model_candidates[i]
 
 			if model and not should_skip_model(model, ignore_entity, filter_fn, options) then
-				local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
+				local model_aabb = model:GetWorldAABB()
 
 				if not model_aabb or AABB.IsBoxIntersecting(world_aabb, model_aabb) then
 					local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
@@ -1341,7 +1341,7 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 		local model = model_candidates[i]
 
 		if model and not should_skip_model(model, ignore_entity, filter_fn, options) then
-			local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
+			local model_aabb = model:GetWorldAABB()
 
 			if not model_aabb or AABB.IsBoxIntersecting(world_aabb, model_aabb) then
 				local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
