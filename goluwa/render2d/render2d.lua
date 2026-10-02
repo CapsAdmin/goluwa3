@@ -2701,9 +2701,8 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 		projected:GetMultiplied(render2d.GetProjectionViewMatrix(), projected)
 	end
 
-	local batch_mode = render2d.GetRectBatchMode()
 	local entry = next_pooled_item(render2d.rect_batch_entries, "next_entry_slot", new_table)
-	entry.batch_mode = batch_mode
+	entry.batch_mode = render2d.GetRectBatchMode()
 	entry.use_float = use_float
 	entry.x = x
 	entry.y = y
@@ -2725,7 +2724,7 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 		render2d.state.runtime.batch.rect_key_version = render2d.state.runtime.batch.rect_state_version
 		render2d.state.runtime.batch.rect_key = rect_key_interner:intern_scalars(
 			{
-				render2d.state.runtime.batch.mode_ids[batch_mode] or
+				render2d.state.runtime.batch.mode_ids[entry.batch_mode] or
 				0,
 				state.blend_mode.batch_key,
 				state.rect_state_snapshot.nine_patch_x_count,
