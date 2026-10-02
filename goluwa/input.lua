@@ -231,4 +231,6 @@ do
 	end)
 end
 
+input.TriggerKey = input.SetupInputEvent("Key")
+input.TriggerMouse = input.SetupInputEvent("Mouse")
 return input

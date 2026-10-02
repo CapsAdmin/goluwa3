@@ -9,7 +9,7 @@ local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local scene_bvh = library()
 -- Pre-register to break import cycle: visual -> render3d -> scene_bvh -> visual
 import.loaded["goluwa/render3d/scene_bvh.lua"] = scene_bvh
-local Visual = import("goluwa/entities/components/visual.lua")
+local Visual
 local Material = import("goluwa/render3d/material.lua")
 local Node = ffi.typeof([[
 	struct {
@@ -3284,4 +3284,5 @@ do
 	end
 end
 
+Visual = import("goluwa/entities/components/visual.lua")
 return scene_bvh

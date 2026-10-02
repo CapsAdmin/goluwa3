@@ -7,8 +7,6 @@ local SCENES_DIR = "addons/gltf/scenes/"
 commands.Add("gltf_scene=string", function(name)
 	local path = SCENES_DIR .. name .. "/scene.gltf"
 
-	-- Decoding textures/meshes is expensive and must run as a task so it yields between
-	-- resources (goluwa/tasks.lua) instead of blocking frame presentation for the whole load
 	tasks.CreateTask(
 		function()
 			local root_entity, gltf_data = gltf_scene_loader.Load(path, {name = name})

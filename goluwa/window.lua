@@ -356,8 +356,8 @@ function Window.New(width, height, title, flags)
 
 	self:Initialize()
 	system.RegisterWindow(self)
-	self.key_trigger = input.SetupInputEvent("Key")
-	self.mouse_trigger = input.SetupInputEvent("Mouse")
+	self.key_trigger = input.TriggerKey
+	self.mouse_trigger = input.TriggerMouse
 	event.Call("WindowOpened", self)
 	self:AddGlobalEvent("Update", {priority = 1000}) -- calls :OnUpdate, before everything that reads the input it gathers
 	return self

@@ -440,9 +440,7 @@ local function build_bsp_brush_model(header, owner)
 end
 
 local function build_bsp_physics_body(header, render_meshes, displacement_meshes, owner)
-
 	local collidable_brushes = #get_world_collision_brushes(header)
-
 	local brush_model = build_bsp_brush_model(header, owner)
 	local render_model = build_source_model_from_meshes(render_meshes, owner)
 	local shapes = {}
@@ -820,6 +818,8 @@ function steam.SetMap(name)
 	model_loader.LoadModel(
 		path,
 		function()
+			if not RENDER_3D then return end
+
 			timer.Delay(0, function()
 				utility.PushTimeWarning()
 				steam.SpawnMapEntities(steam.bsp_world.bsp_resolved_path, steam.bsp_world)

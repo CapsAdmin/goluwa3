@@ -1,4 +1,7 @@
 local ffi = require("ffi")
+local objects = import("goluwa/objects/objects.lua")
+local Texture = objects.CreateTemplate("render_texture")
+import.loaded["goluwa/render/texture.lua"] = Texture
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -8,9 +11,6 @@ local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
 local codec = import("goluwa/codec.lua")
 local resource = import("goluwa/resource.lua")
-local objects = import("goluwa/objects/objects.lua")
-local Texture = objects.CreateTemplate("render_texture")
--- Texture cache for path-based textures
 local texture_cache = {}
 local shade_pipeline_cache = {}
 local DEFAULT_SAMPLER_ANISOTROPY = 16
