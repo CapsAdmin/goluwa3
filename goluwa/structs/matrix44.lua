@@ -44,40 +44,29 @@ function META.GetInverse(m, o)
 	return o
 end
 
+-- o may be a, but not b: rows of a are read before they are overwritten
 function META.GetMultiplied(a, b, o)
 	o = o or META.CType()
-	local o00 = a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20 + a.m03 * b.m30
-	local o01 = a.m00 * b.m01 + a.m01 * b.m11 + a.m02 * b.m21 + a.m03 * b.m31
-	local o02 = a.m00 * b.m02 + a.m01 * b.m12 + a.m02 * b.m22 + a.m03 * b.m32
-	local o03 = a.m00 * b.m03 + a.m01 * b.m13 + a.m02 * b.m23 + a.m03 * b.m33
-	local o10 = a.m10 * b.m00 + a.m11 * b.m10 + a.m12 * b.m20 + a.m13 * b.m30
-	local o11 = a.m10 * b.m01 + a.m11 * b.m11 + a.m12 * b.m21 + a.m13 * b.m31
-	local o12 = a.m10 * b.m02 + a.m11 * b.m12 + a.m12 * b.m22 + a.m13 * b.m32
-	local o13 = a.m10 * b.m03 + a.m11 * b.m13 + a.m12 * b.m23 + a.m13 * b.m33
-	local o20 = a.m20 * b.m00 + a.m21 * b.m10 + a.m22 * b.m20 + a.m23 * b.m30
-	local o21 = a.m20 * b.m01 + a.m21 * b.m11 + a.m22 * b.m21 + a.m23 * b.m31
-	local o22 = a.m20 * b.m02 + a.m21 * b.m12 + a.m22 * b.m22 + a.m23 * b.m32
-	local o23 = a.m20 * b.m03 + a.m21 * b.m13 + a.m22 * b.m23 + a.m23 * b.m33
-	local o30 = a.m30 * b.m00 + a.m31 * b.m10 + a.m32 * b.m20 + a.m33 * b.m30
-	local o31 = a.m30 * b.m01 + a.m31 * b.m11 + a.m32 * b.m21 + a.m33 * b.m31
-	local o32 = a.m30 * b.m02 + a.m31 * b.m12 + a.m32 * b.m22 + a.m33 * b.m32
-	local o33 = a.m30 * b.m03 + a.m31 * b.m13 + a.m32 * b.m23 + a.m33 * b.m33
-	o.m00 = o00
-	o.m01 = o01
-	o.m02 = o02
-	o.m03 = o03
-	o.m10 = o10
-	o.m11 = o11
-	o.m12 = o12
-	o.m13 = o13
-	o.m20 = o20
-	o.m21 = o21
-	o.m22 = o22
-	o.m23 = o23
-	o.m30 = o30
-	o.m31 = o31
-	o.m32 = o32
-	o.m33 = o33
+	local a0, a1, a2, a3 = a.m00, a.m01, a.m02, a.m03
+	o.m00 = a0 * b.m00 + a1 * b.m10 + a2 * b.m20 + a3 * b.m30
+	o.m01 = a0 * b.m01 + a1 * b.m11 + a2 * b.m21 + a3 * b.m31
+	o.m02 = a0 * b.m02 + a1 * b.m12 + a2 * b.m22 + a3 * b.m32
+	o.m03 = a0 * b.m03 + a1 * b.m13 + a2 * b.m23 + a3 * b.m33
+	a0, a1, a2, a3 = a.m10, a.m11, a.m12, a.m13
+	o.m10 = a0 * b.m00 + a1 * b.m10 + a2 * b.m20 + a3 * b.m30
+	o.m11 = a0 * b.m01 + a1 * b.m11 + a2 * b.m21 + a3 * b.m31
+	o.m12 = a0 * b.m02 + a1 * b.m12 + a2 * b.m22 + a3 * b.m32
+	o.m13 = a0 * b.m03 + a1 * b.m13 + a2 * b.m23 + a3 * b.m33
+	a0, a1, a2, a3 = a.m20, a.m21, a.m22, a.m23
+	o.m20 = a0 * b.m00 + a1 * b.m10 + a2 * b.m20 + a3 * b.m30
+	o.m21 = a0 * b.m01 + a1 * b.m11 + a2 * b.m21 + a3 * b.m31
+	o.m22 = a0 * b.m02 + a1 * b.m12 + a2 * b.m22 + a3 * b.m32
+	o.m23 = a0 * b.m03 + a1 * b.m13 + a2 * b.m23 + a3 * b.m33
+	a0, a1, a2, a3 = a.m30, a.m31, a.m32, a.m33
+	o.m30 = a0 * b.m00 + a1 * b.m10 + a2 * b.m20 + a3 * b.m30
+	o.m31 = a0 * b.m01 + a1 * b.m11 + a2 * b.m21 + a3 * b.m31
+	o.m32 = a0 * b.m02 + a1 * b.m12 + a2 * b.m22 + a3 * b.m32
+	o.m33 = a0 * b.m03 + a1 * b.m13 + a2 * b.m23 + a3 * b.m33
 	return o
 end
 

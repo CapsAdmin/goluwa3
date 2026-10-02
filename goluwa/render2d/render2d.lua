@@ -2630,6 +2630,36 @@ do
 	utility.MakePushPopFunction(render2d, "Margin", 1)
 end
 
+local compute_rect_key
+
+do
+	local scratch = {}
+
+	function compute_rect_key(batch_mode, state)
+		local snapshot = state.rect_state_snapshot
+		scratch[1] = render2d.state.runtime.batch.mode_ids[batch_mode] or 0
+		scratch[2] = state.blend_mode.batch_key
+		scratch[3] = snapshot.nine_patch_x_count
+		scratch[4] = snapshot.nine_patch_y_count
+
+		for i = 0, 5 do
+			scratch[5 + i] = snapshot.nine_patch_x_stretch[i]
+			scratch[11 + i] = snapshot.nine_patch_y_stretch[i]
+		end
+
+		scratch[17] = snapshot.depth_mode_id
+		scratch[18] = snapshot.depth_write
+		scratch[19] = snapshot.stencil_mode_id
+		scratch[20] = snapshot.stencil_ref
+
+		for i = 0, 3 do
+			scratch[21 + i] = snapshot.scissor[i]
+		end
+
+		return rect_key_interner:intern_scalars(scratch, 24)
+	end
+end
+
 local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 	local margin = render2d.GetMargin(w, h)
 
@@ -2722,56 +2752,28 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 		render2d.state.runtime.batch.rect_key_version ~= render2d.state.runtime.batch.rect_state_version
 	then
 		render2d.state.runtime.batch.rect_key_version = render2d.state.runtime.batch.rect_state_version
-		render2d.state.runtime.batch.rect_key = rect_key_interner:intern_scalars(
-			{
-				render2d.state.runtime.batch.mode_ids[entry.batch_mode] or
-				0,
-				state.blend_mode.batch_key,
-				state.rect_state_snapshot.nine_patch_x_count,
-				state.rect_state_snapshot.nine_patch_y_count,
-				state.rect_state_snapshot.nine_patch_x_stretch[0],
-				state.rect_state_snapshot.nine_patch_x_stretch[1],
-				state.rect_state_snapshot.nine_patch_x_stretch[2],
-				state.rect_state_snapshot.nine_patch_x_stretch[3],
-				state.rect_state_snapshot.nine_patch_x_stretch[4],
-				state.rect_state_snapshot.nine_patch_x_stretch[5],
-				state.rect_state_snapshot.nine_patch_y_stretch[0],
-				state.rect_state_snapshot.nine_patch_y_stretch[1],
-				state.rect_state_snapshot.nine_patch_y_stretch[2],
-				state.rect_state_snapshot.nine_patch_y_stretch[3],
-				state.rect_state_snapshot.nine_patch_y_stretch[4],
-				state.rect_state_snapshot.nine_patch_y_stretch[5],
-				state.rect_state_snapshot.depth_mode_id,
-				state.rect_state_snapshot.depth_write,
-				state.rect_state_snapshot.stencil_mode_id,
-				state.rect_state_snapshot.stencil_ref,
-				state.rect_state_snapshot.scissor[0],
-				state.rect_state_snapshot.scissor[1],
-				state.rect_state_snapshot.scissor[2],
-				state.rect_state_snapshot.scissor[3],
-			},
-			24
-		)
+		render2d.state.runtime.batch.rect_key = compute_rect_key(entry.batch_mode, state)
 	end
 
-	local segment = render2d.state.runtime.batch.state.segments[#render2d.state.runtime.batch.state.segments]
-	assert(render2d.state.runtime.batch.rect_key ~= nil, "rect batch key hash is required")
+	local batch_state = render2d.state.runtime.batch.state
+	local segments = batch_state.segments
+	local segment = segments[#segments]
 
 	if
-		not segment or
-		segment.kind ~= "rect" or
-		segment.key_hash ~= render2d.state.runtime.batch.rect_key
+		segment and
+		segment.kind == "rect" and
+		segment.key_hash == render2d.state.runtime.batch.rect_key
 	then
-		segment = {
+		segment.entries[#segment.entries + 1] = entry
+	else
+		segments[#segments + 1] = {
 			kind = "rect",
 			key_hash = render2d.state.runtime.batch.rect_key,
-			entries = {},
+			entries = {entry},
 		}
-		render2d.state.runtime.batch.state.segments[#render2d.state.runtime.batch.state.segments + 1] = segment
 	end
 
-	segment.entries[#segment.entries + 1] = entry
-	render2d.state.runtime.batch.state.pending_draws = render2d.state.runtime.batch.state.pending_draws + 1
+	batch_state.pending_draws = batch_state.pending_draws + 1
 	return true
 end
 

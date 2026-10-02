@@ -84,18 +84,20 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 
 	if length_0 < 1e-6 or length_1 < 1e-6 then return end
 
+	-- g is positive while the rope has slack; the tension is the impulse
+	-- along the gradient of g, which pulls both anchors toward their pulleys
+	local gap = self.TotalLength - (length_0 + ratio * length_1)
 	d0x, d0y, d0z = d0x / length_0, d0y / length_0, d0z / length_0
 	d1x, d1y, d1z = d1x / length_1, d1y / length_1, d1z / length_1
 	-- the anchors are separate points, so each side is its own one body row
-	local m0 = 0
-	local m1 = 0
+	local inverse_mass = 0
 
 	if s0.body then
 		local cx = s0.ry * d0z - s0.rz * d0y
 		local cy = s0.rz * d0x - s0.rx * d0z
 		local cz = s0.rx * d0y - s0.ry * d0x
 		local ux, uy, uz = rows.MulInertia(s0, cx, cy, cz)
-		m0 = s0.inverse_mass + cx * ux + cy * uy + cz * uz
+		inverse_mass = s0.inverse_mass + cx * ux + cy * uy + cz * uz
 	end
 
 	if s1.body then
@@ -103,10 +105,8 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 		local cy = s1.rz * d1x - s1.rx * d1z
 		local cz = s1.rx * d1y - s1.ry * d1x
 		local ux, uy, uz = rows.MulInertia(s1, cx, cy, cz)
-		m1 = s1.inverse_mass + cx * ux + cy * uy + cz * uz
+		inverse_mass = inverse_mass + ratio * ratio * (s1.inverse_mass + cx * ux + cy * uy + cz * uz)
 	end
-
-	local inverse_mass = m0 + ratio * ratio * m1
 
 	if inverse_mass == 0 then return end
 
@@ -165,9 +165,6 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 		end
 	end
 
-	-- g is positive while the rope has slack; the tension is the impulse
-	-- along the gradient of g, which pulls both anchors toward their pulleys
-	local gap = self.TotalLength - (length_0 + ratio * length_1)
 	local bias, mass_scale, impulse_scale
 	local lo = -INFINITY
 
