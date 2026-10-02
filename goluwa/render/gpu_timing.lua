@@ -18,6 +18,11 @@ local gpu_timing = {}
 -- small, bounded set of pools. Each pool keeps its own latest results; a
 -- scope timed in several command buffers (the cascades of every point light
 -- shadow map, say) is shown as their sum.
+-- with GOLUWA_GPU_SERIALIZE=1 (or SetSerialized) every timed scope is walled
+-- off by full barriers, also against the command buffers submitted before it,
+-- so scopes cannot overlap each other. the frame is slower, but every scope
+-- then measures its own work, and the scopes add up to the gpu time
+local serialized = os.getenv("GOLUWA_GPU_SERIALIZE") == "1"
 local MAX_SCOPES = 128
 -- a pool result older than this is left out, so work that stopped running
 -- (a shadow cascade that is not re-rendered) drops out of the totals
@@ -62,8 +67,32 @@ end
 
 render_stats.RegisterGroup{id = "gpu_timing", label = "GPU TIMINGS IN MICROSECONDS", columns = true}
 
+-- the frame scope plus every shadow scope. the shadows are recorded in
+-- command buffers of their own, so the frame scope does not contain them.
+-- scopes that overlap are counted twice unless serialized
+local TOTAL_NAME = "gpu_total"
+local get_total_ms
+
+local function get_everything_ms()
+	local total
+
+	for i = 1, #slot_order do
+		local name = slot_order[i]
+
+		if name == "gpu_frame" or name:find("^shadow_") then
+			local ms = get_total_ms(name)
+
+			if ms then total = (total or 0) + ms end
+		end
+	end
+
+	return total
+end
+
 -- the sum of every pool's recent result for name, or nil when none is recent
-local function get_total_ms(name)
+function get_total_ms(name)
+	if name == TOTAL_NAME then return get_everything_ms() end
+
 	local now = system.GetElapsedTime()
 	local total
 
@@ -103,7 +132,7 @@ local function update_shown()
 			smoothed_ms[name] = smoothed
 			shown_ms[name] = smoothed
 
-			if name ~= "gpu_frame" then
+			if name ~= "gpu_frame" and name ~= TOTAL_NAME then
 				shown_min = shown_min and math.min(shown_min, smoothed) or smoothed
 				shown_max = shown_max and math.max(shown_max, smoothed) or smoothed
 			end
@@ -136,7 +165,7 @@ local function register_row(rank)
 			local name = display_order[rank]
 			local ms = shown_ms[name]
 
-			if not ms or name == "gpu_frame" then return nil end
+			if not ms or name == "gpu_frame" or name == TOTAL_NAME then return nil end
 
 			local t = shown_max > shown_min and (ms - shown_min) / (shown_max - shown_min) or 0
 
@@ -300,6 +329,11 @@ function gpu_timing.BeginScope(cmd, name)
 	end
 
 	pool.gpu_timing_used[slot] = true
+
+	if serialized then
+		cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "all_commands", memoryBarrier = true}
+	end
+
 	pool:WriteTimestamp(cmd, slot * 2, "top_of_pipe")
 end
 
@@ -319,6 +353,10 @@ function gpu_timing.EndScope(cmd, name)
 	end
 
 	pool:WriteTimestamp(cmd, slot * 2 + 1, "bottom_of_pipe")
+
+	if serialized then
+		cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "all_commands", memoryBarrier = true}
+	end
 end
 
 -- the sum of the recent results of every command buffer that timed name
@@ -329,5 +367,17 @@ end
 function gpu_timing.GetRawMilliseconds(name)
 	return last_ms[name] or 0
 end
+
+function gpu_timing.SetSerialized(value)
+	serialized = value
+end
+
+function gpu_timing.IsSerialized()
+	return serialized
+end
+
+-- a row for the sum of the frame and its shadows, last so it follows the
+-- scopes it adds up
+get_slot(TOTAL_NAME)
 
 return gpu_timing

@@ -2022,8 +2022,6 @@ do
 
 		vc.drawn_total = vc.total
 		scene_bvh.triangle_count = scene_bvh.triangle_count + vc.total
-		-- the ray tracing blas of this block follows this
-		vc.soup_serial = (vc.soup_serial or 0) + 1
 		scene_bvh.soup_dirty = true
 
 		if scene_bvh.changed_blocks then scene_bvh.changed_blocks[vc] = true end
@@ -2760,14 +2758,18 @@ do
 		end
 	end
 
-	-- Hardware ray tracing backend over the same soup: one BLAS per visual,
-	-- built from its range of the expanded positions (non-indexed, in world
-	-- space), and a TLAS with an identity instance per visual whose custom
-	-- index is the visual's soup range start / SOUP_ALIGN, so a hit's soup
-	-- triangle index is custom index * SOUP_ALIGN + primitive index. A changed
-	-- visual only rebuilds its own BLAS and the TLAS.
+	-- Hardware ray tracing backend over the same soup: one BLAS per shape,
+	-- built from the soup range of the first visual of it that needs one
+	-- (non-indexed, in that visual's world space), and a TLAS with an instance
+	-- per visual. The instance's transform takes the BLAS to the visual's own
+	-- world space, and its custom index is the visual's soup range start /
+	-- SOUP_ALIGN, so a hit's soup triangle index is custom index *
+	-- SOUP_ALIGN + primitive index (every visual of a shape bakes its
+	-- triangles in the same order). A moved visual only rewrites its instance;
+	-- a changed shape builds a new BLAS.
 	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	local AccelerationStructure = import("goluwa/render/vulkan/internal/acceleration_structure.lua")
+	local Matrix44 = import("goluwa/structs/matrix44.lua")
 	local VkRangeInfoArray = ffi.typeof("$[?]", vulkan.vk.VkAccelerationStructureBuildRangeInfoKHR)
 	local VkRangePointerArray = ffi.typeof("const $*[?]", vulkan.vk.VkAccelerationStructureBuildRangeInfoKHR)
 	local VkGeometryArray = ffi.typeof("$[?]", vulkan.vk.VkAccelerationStructureGeometryKHR)
@@ -2860,7 +2862,6 @@ do
 		}
 		vc.rt_blas = nil
 		vc.rt_pool = nil
-		vc.rt_serial = nil
 	end
 
 	local function process_pending_free(frame)
@@ -2966,6 +2967,8 @@ do
 		triangles.indexType = VK_INDEX_TYPE_NONE
 	end
 
+	local instance_matrix = Matrix44()
+
 	local function write_instance(vc)
 		local index = vc.block_index - 1
 
@@ -2978,9 +2981,12 @@ do
 		end
 
 		local instance = rt_state.instances[index]
-		instance.transform.matrix[0][0] = 1
-		instance.transform.matrix[1][1] = 1
-		instance.transform.matrix[2][2] = 1
+		local group = vc.rt_group
+		local m = group.inverse:GetMultiplied(vc.baked_matrix, instance_matrix)
+		local t = instance.transform.matrix
+		t[0][0], t[0][1], t[0][2], t[0][3] = m.m00, m.m10, m.m20, m.m30
+		t[1][0], t[1][1], t[1][2], t[1][3] = m.m01, m.m11, m.m21, m.m31
+		t[2][0], t[2][1], t[2][2], t[2][3] = m.m02, m.m12, m.m22, m.m32
 		instance.sbrtAndFlags = INSTANCE_FACING_CULL_DISABLE + (
 				vc.non_opaque and
 				INSTANCE_FORCE_NO_OPAQUE or
@@ -2997,7 +3003,19 @@ do
 					INSTANCE_MASK_SOLID
 				)
 			) + vc.tri_base / SOUP_ALIGN
-		instance.accelerationStructureReference = vc.rt_address
+		instance.accelerationStructureReference = group.rt_address
+	end
+
+	local function leave_group(vc, frame)
+		local group = vc.rt_group
+		vc.rt_group = nil
+		group.count = group.count - 1
+
+		if group.count == 0 then
+			if group.rt_blas then release_blas(group, frame) end
+
+			group.shape.rt_group = nil
+		end
 	end
 
 	-- builds the blas of every visual whose soup range was rewritten since its
@@ -3017,15 +3035,50 @@ do
 			end
 		end
 
+		-- the groups that need a blas built, and the visuals whose instance
+		-- waits for it
 		local dirty = {}
+		local waiting = {}
 
 		for vc in pairs(changed) do
+			local group = vc.rt_group
+
 			if not vc.block_index then
-				if vc.rt_blas then release_blas(vc, frame) end
-			elseif vc.rt_serial ~= vc.soup_serial then
-				dirty[#dirty + 1] = vc
-			else
-				write_instance(vc)
+				if group then leave_group(vc, frame) end
+			elseif vc.baked_matrix then
+				local shape = vc.shape
+
+				if group and group.shape ~= shape then
+					leave_group(vc, frame)
+					group = nil
+				end
+
+				if not group then
+					group = shape.rt_group
+
+					if not group then
+						group = {shape = shape, count = 0}
+						shape.rt_group = group
+					end
+
+					group.count = group.count + 1
+					vc.rt_group = group
+				end
+
+				if group.rt_blas then
+					write_instance(vc)
+				else
+					waiting[#waiting + 1] = vc
+
+					if not group.builder then
+						group.builder = vc
+						group.inverse = vc.baked_matrix:GetInverse(Matrix44())
+						group.first_vertex = vc.first_vertex
+						group.vertex_count = vc.vertex_count
+						group.total = vc.total
+						dirty[#dirty + 1] = group
+					end
+				end
 			end
 		end
 
@@ -3047,7 +3100,6 @@ do
 		local scratch_total = 0
 		local largest = 0
 		local largest_vertices = 0
-		local rebuilt = false
 
 		for i = 1, n do
 			local vc = dirty[i]
@@ -3064,32 +3116,19 @@ do
 				}
 			)
 
-			-- a rebuild that still fits the size class of the old structure
-			-- is built in place, keeping its storage, handle and address
-			if
-				vc.rt_blas and
-				range_class(math.ceil(storage_size / BLAS_ALIGN), 1) == vc.rt_units
-			then
-				rebuilt = true
-			else
-				if vc.rt_blas then release_blas(vc, frame) end
-
-				local pool, offset, units = pool_alloc(storage_size)
-				vc.rt_pool = pool
-				vc.rt_offset = offset
-				vc.rt_units = units
-				vc.rt_blas = AccelerationStructure.New(
-					device,
-					"bottom_level_khr",
-					pool.buffer,
-					offset * BLAS_ALIGN,
-					units * BLAS_ALIGN
-				)
-				vc.rt_address = vc.rt_blas:Data()
-			end
-
-			vc.rt_serial = vc.soup_serial
-			write_instance(vc)
+			local pool, offset, units = pool_alloc(storage_size)
+			vc.rt_pool = pool
+			vc.rt_offset = offset
+			vc.rt_units = units
+			vc.rt_blas = AccelerationStructure.New(
+				device,
+				"bottom_level_khr",
+				pool.buffer,
+				offset * BLAS_ALIGN,
+				units * BLAS_ALIGN
+			)
+			vc.rt_address = vc.rt_blas:Data()
+			vc.builder = nil
 			scratch_size = math.ceil(scratch_size / scratch_alignment) * scratch_alignment
 			scratch_offsets[i] = scratch_size
 			scratch_total = scratch_total + scratch_size
@@ -3113,23 +3152,8 @@ do
 		-- scratch may still be in use by builds of an earlier frame
 		scratch_barrier(cmd)
 
-		if rebuilt then
-			-- earlier frames may still trace the structures being rebuilt
-			local barriers = {}
-
-			for i, pool in ipairs(rt_state.pools) do
-				barriers[i] = {
-					buffer = pool.buffer,
-					srcAccessMask = "acceleration_structure_read_khr",
-					dstAccessMask = "acceleration_structure_write_khr",
-				}
-			end
-
-			cmd:PipelineBarrier{
-				srcStage = {"ray_tracing_shader_khr", "compute", "fragment"},
-				dstStage = "acceleration_structure_build_khr",
-				bufferBarriers = barriers,
-			}
+		for i = 1, #waiting do
+			write_instance(waiting[i])
 		end
 
 		ensure_staging(largest_vertices)

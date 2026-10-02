@@ -13,6 +13,7 @@ local VkClearRectArray = ffi.typeof("$[?]", vulkan.vk.VkClearRect)
 local VkRenderingAttachmentInfoArray = ffi.typeof("$[?]", vulkan.vk.VkRenderingAttachmentInfo)
 local VkImageMemoryBarrier2Array = ffi.typeof("$[?]", vulkan.vk.VkImageMemoryBarrier2)
 local VkBufferMemoryBarrier2Array = ffi.typeof("$[?]", vulkan.vk.VkBufferMemoryBarrier2)
+local VkMemoryBarrier2Array = ffi.typeof("$[?]", vulkan.vk.VkMemoryBarrier2)
 local VkCommandBufferBox = ffi.typeof("$[1]", vulkan.vk.VkCommandBuffer)
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local UInt32Array1 = ffi.typeof("uint32_t[1]")
@@ -1392,6 +1393,21 @@ function CommandBuffer:PipelineBarrier(config)
 	local imageBarrierCount = 0
 	local bufferBarriers = nil
 	local bufferBarrierCount = 0
+	local memoryBarriers = nil
+	local memoryBarrierCount = 0
+
+	-- a barrier on all memory between srcStage and dstStage, for ordering
+	-- whole stages without naming resources
+	if config.memoryBarrier then
+		memoryBarrierCount = 1
+		memoryBarriers = VkMemoryBarrier2Array(1)
+		local mb = memoryBarriers[0]
+		mb.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_MEMORY_BARRIER_2
+		mb.srcStageMask = srcStage
+		mb.dstStageMask = dstStage
+		mb.srcAccessMask = vulkan.vk.e.VkAccessFlagBits({"memory_read", "memory_write"})
+		mb.dstAccessMask = vulkan.vk.e.VkAccessFlagBits({"memory_read", "memory_write"})
+	end
 
 	if config.imageBarriers then
 		imageBarrierCount = #config.imageBarriers
@@ -1479,8 +1495,8 @@ function CommandBuffer:PipelineBarrier(config)
 		self.ptr[0],
 		vulkan.vk.s.DependencyInfo{
 			dependencyFlags = 0,
-			memoryBarrierCount = 0,
-			pMemoryBarriers = nil,
+			memoryBarrierCount = memoryBarrierCount,
+			pMemoryBarriers = memoryBarriers,
 			bufferMemoryBarrierCount = bufferBarrierCount,
 			pBufferMemoryBarriers = bufferBarrierCount > 0 and bufferBarriers or nil,
 			imageMemoryBarrierCount = imageBarrierCount,
