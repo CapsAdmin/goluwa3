@@ -351,25 +351,19 @@ function META:ShouldForceGroundedSleep(body)
 		math.abs(ground_normal:Dot(BODY_UP)),
 		math.abs(ground_normal:Dot(BODY_BACK))
 	)
-	return (
-			metrics.stable and
-			face_alignment >= 0.983 and
-			metrics.support_width_coverage >= 0.82 and
-			metrics.min_coverage >= 0.08
-		)
-		or
-		(
-			metrics.stable and
-			face_alignment >= 0.983 and
-			metrics.support_width_coverage >= 0.96
-		)
-		or
-		(
-			metrics.stable and
-			face_alignment < 0.97 and
-			metrics.support_width_coverage >= 0.7 and
-			metrics.min_coverage >= 0.35
-		)
+	if not metrics.stable then return false end
+
+	if face_alignment >= 0.983 then
+		return metrics.support_width_coverage >= 0.96 or
+			(
+				metrics.support_width_coverage >= 0.82 and
+				metrics.min_coverage >= 0.08
+			)
+	end
+
+	return face_alignment < 0.97 and
+		metrics.support_width_coverage >= 0.7 and
+		metrics.min_coverage >= 0.35
 end
 
 local axis_data = {

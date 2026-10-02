@@ -188,18 +188,14 @@ function rows.AddAngularMass(k, state)
 end
 
 function rows.Solve3(k, bx, by, bz)
-	local a, b, c, d, e, f, g, h, i = k[1], k[2], k[3], k[4], k[5], k[6], k[7], k[8], k[9]
-	local c11 = e * i - f * h
-	local c12 = c * h - b * i
-	local c13 = b * f - c * e
-	local det = a * c11 + d * c12 + g * c13
+	local det = k[1] * (k[5] * k[9] - k[6] * k[8]) + k[4] * (k[3] * k[8] - k[2] * k[9]) + k[7] * (k[2] * k[6] - k[3] * k[5])
 
 	if det < 1e-30 and det > -1e-30 then return 0, 0, 0 end
 
-	local inv = 1 / det
-	return (c11 * bx + c12 * by + c13 * bz) * inv,
-	((f * g - d * i) * bx + (a * i - c * g) * by + (c * d - a * f) * bz) * inv,
-	((d * h - e * g) * bx + (b * g - a * h) * by + (a * e - b * d) * bz) * inv
+	det = 1 / det
+	return ((k[5] * k[9] - k[6] * k[8]) * bx + (k[3] * k[8] - k[2] * k[9]) * by + (k[2] * k[6] - k[3] * k[5]) * bz) * det,
+	((k[6] * k[7] - k[4] * k[9]) * bx + (k[1] * k[9] - k[3] * k[7]) * by + (k[3] * k[4] - k[1] * k[6]) * bz) * det,
+	((k[4] * k[8] - k[5] * k[7]) * bx + (k[2] * k[7] - k[1] * k[8]) * by + (k[1] * k[5] - k[2] * k[4]) * bz) * det
 end
 
 function rows.Solve2(a, b, c, d, x, y)

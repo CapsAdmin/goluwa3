@@ -171,11 +171,9 @@ do
 	local cos = math.cos
 	local sqrt = math.sqrt
 
-	function META:Rotate(a, x, y, z, out)
+	function META:Rotate(a, x, y, z)
 		if a == 0 then return self end
 
-		out = out or META.CType(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-		-- Normalize axis vector
 		local mag = sqrt(x * x + y * y + z * z)
 
 		if mag <= 1.0e-4 then return self end
@@ -183,38 +181,60 @@ do
 		x = x / mag
 		y = y / mag
 		z = z / mag
-		-- Rodrigues' rotation formula (axis-angle to matrix)
+		-- Rodrigues' rotation formula, applied to self in place as R * self
 		local s = sin(a)
 		local c = cos(a)
+		-- rotation about z only touches the first two rows
+		if x == 0 and y == 0 then
+			s = z * s
+			local c0, c1 = self.m00, self.m10
+			self.m00, self.m10 = c * c0 + s * c1, c * c1 - s * c0
+			c0, c1 = self.m01, self.m11
+			self.m01, self.m11 = c * c0 + s * c1, c * c1 - s * c0
+			c0, c1 = self.m02, self.m12
+			self.m02, self.m12 = c * c0 + s * c1, c * c1 - s * c0
+			c0, c1 = self.m03, self.m13
+			self.m03, self.m13 = c * c0 + s * c1, c * c1 - s * c0
+			return self
+		end
+
 		local t = 1 - c
-		-- Build rotation matrix (branchless, works for any axis)
-		out.m00 = t * x * x + c
-		out.m10 = t * x * y - z * s
-		out.m20 = t * z * x + y * s
-		out.m01 = t * x * y + z * s
-		out.m11 = t * y * y + c
-		out.m21 = t * y * z - x * s
-		out.m02 = t * z * x - y * s
-		out.m12 = t * y * z + x * s
-		out.m22 = t * z * z + c
-		self.GetMultiplied(out, self:Copy(), self)
+		local r00, r10, r20 = t * x * x + c, t * x * y - z * s, t * z * x + y * s
+		local r01, r11, r21 = t * x * y + z * s, t * y * y + c, t * y * z - x * s
+		local r02, r12, r22 = t * z * x - y * s, t * y * z + x * s, t * z * z + c
+		local c0, c1, c2 = self.m00, self.m10, self.m20
+		self.m00 = r00 * c0 + r01 * c1 + r02 * c2
+		self.m10 = r10 * c0 + r11 * c1 + r12 * c2
+		self.m20 = r20 * c0 + r21 * c1 + r22 * c2
+		c0, c1, c2 = self.m01, self.m11, self.m21
+		self.m01 = r00 * c0 + r01 * c1 + r02 * c2
+		self.m11 = r10 * c0 + r11 * c1 + r12 * c2
+		self.m21 = r20 * c0 + r21 * c1 + r22 * c2
+		c0, c1, c2 = self.m02, self.m12, self.m22
+		self.m02 = r00 * c0 + r01 * c1 + r02 * c2
+		self.m12 = r10 * c0 + r11 * c1 + r12 * c2
+		self.m22 = r20 * c0 + r21 * c1 + r22 * c2
+		c0, c1, c2 = self.m03, self.m13, self.m23
+		self.m03 = r00 * c0 + r01 * c1 + r02 * c2
+		self.m13 = r10 * c0 + r11 * c1 + r12 * c2
+		self.m23 = r20 * c0 + r21 * c1 + r22 * c2
 		return self
 	end
 
 	-- ORIENTATION / TRANSFORMATION: Helper rotation methods using orientation module
-	function META:RotatePitch(angle, out)
+	function META:RotatePitch(angle)
 		local x, y, z = orientation.RIGHT_VECTOR:Unpack()
-		return self:Rotate(angle, x, y, z, out)
+		return self:Rotate(angle, x, y, z)
 	end
 
-	function META:RotateYaw(angle, out)
+	function META:RotateYaw(angle)
 		local x, y, z = orientation.UP_VECTOR:Unpack()
-		return self:Rotate(angle, x, y, z, out)
+		return self:Rotate(angle, x, y, z)
 	end
 
-	function META:RotateRoll(angle, out)
+	function META:RotateRoll(angle)
 		local x, y, z = orientation.FORWARD_VECTOR:Unpack()
-		return self:Rotate(angle, x, y, z, out)
+		return self:Rotate(angle, x, y, z)
 	end
 end
 
