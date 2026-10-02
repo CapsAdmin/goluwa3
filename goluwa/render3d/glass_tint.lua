@@ -236,6 +236,7 @@ do
 			if was_enabled ~= enabled then
 				was_enabled = enabled
 				Material.shadow_generation = Material.shadow_generation + 1
+				Material.shadow_full_generation = Material.shadow_full_generation + 1
 			end
 
 			local draws = {}

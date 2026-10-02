@@ -2809,9 +2809,49 @@ do
 	end
 
 	-- blocks whose materials let some of the light through draw dithered in
-	-- the shadow soup. their share is worked out again when a material's
-	-- opacity changes
+	-- the shadow soup. a build works out the class of the blocks it writes, so
+	-- this is for when a material's class changed. it looks at the materials
+	-- stamped since it last ran, and only goes over the blocks when the class
+	-- of one that was classified before is different now
+	local classified_stamp = 0
+	local classified_full_generation = -1
+
 	function scene_bvh.RefreshShadowClasses()
+		local materials = scene_bvh.materials
+		local full = classified_full_generation ~= Material.shadow_full_generation
+		local changed = full
+
+		for i = 1, #materials do
+			local material = materials[i]
+			local class = material.soup_dither_class
+
+			if full or class == nil or (material.shadow_stamp or 0) > classified_stamp then
+				local opacity = material:GetSoupShadowOpacity()
+				local new_class = (
+						opacity > 0 and
+						(
+							opacity < 1 or
+							(
+								SOUP_UVS and
+								material:HasShadowTexture()
+							)
+						)
+					)
+					and
+					1 or
+					0
+
+				if class ~= nil and class ~= new_class then changed = true end
+
+				material.soup_dither_class = new_class
+			end
+		end
+
+		classified_stamp = Material.shadow_stamp
+		classified_full_generation = Material.shadow_full_generation
+
+		if not changed then return end
+
 		local blocks = scene_bvh.blocks
 
 		for index = 1, #blocks do
@@ -2819,10 +2859,7 @@ do
 			local dithered = false
 
 			for i = 1, vc.slot_count do
-				local material = scene_bvh.materials[vc.slots[i].material_id + 1]
-				local opacity = material:GetSoupShadowOpacity()
-
-				if opacity > 0 and (opacity < 1 or (SOUP_UVS and material:HasShadowTexture())) then
+				if materials[vc.slots[i].material_id + 1].soup_dither_class == 1 then
 					dithered = true
 
 					break

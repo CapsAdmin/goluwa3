@@ -372,9 +372,19 @@ end
 -- bumped when any material's albedo texture changes, which the soup's shadow
 -- samples by bindless index
 Material.albedo_generation = 0
+-- stamped on a material whenever what its soup shadow needs of it changed, so
+-- a table of those can rewrite just the entries of the materials stamped
+-- since it last looked
+Material.shadow_stamp = 0
+
+function Material:StampShadow()
+	Material.shadow_stamp = Material.shadow_stamp + 1
+	self.shadow_stamp = Material.shadow_stamp
+end
 
 function Material:InvalidateAlbedo()
 	Material.albedo_generation = Material.albedo_generation + 1
+	self:StampShadow()
 	self:InvalidateRayMaterial()
 	self:InvalidateShadow()
 end
@@ -506,12 +516,15 @@ end
 -- bumped when what the soup shadow of any material changes, so the shadow
 -- maps expand the soup again
 Material.shadow_generation = 0
+-- bumped when the soup shadow of every material may have changed
+Material.shadow_full_generation = 0
 
 function Material:InvalidateShadow()
 	local opacity = self:GetSoupShadowOpacity()
 
 	if self.soup_shadow_opacity ~= nil and self.soup_shadow_opacity ~= opacity then
 		Material.shadow_generation = Material.shadow_generation + 1
+		self:StampShadow()
 	end
 
 	self.soup_shadow_opacity = opacity

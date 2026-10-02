@@ -1310,8 +1310,8 @@ local function create_soup_material_table(capacity)
 		ptr = ffi.cast(SoupShadowMaterialPtr, buffer:Map()),
 		capacity = capacity,
 		filled = 0,
-		generation = -1,
-		albedo_generation = -1,
+		full_generation = -1,
+		stamp = 0,
 	}
 end
 
@@ -1360,13 +1360,13 @@ local function create_soup_uv_pipeline_variant(
 	)
 end
 
--- writes what the fragments of a pipeline need of every material in the soup,
--- all of them when one changed and the new ones otherwise
+-- writes what the fragments of a pipeline need of the materials in the soup:
+-- the ones that are new or were stamped since last time, or all of them when
+-- the shadow of every material may have changed
 local function update_soup_material_table(pipeline, table_state)
 	local materials = scene_bvh.materials
 	local count = #materials
-	local full = table_state.generation ~= Material.shadow_generation or
-		table_state.albedo_generation ~= Material.albedo_generation
+	local full = table_state.full_generation ~= Material.shadow_full_generation
 
 	if count > table_state.capacity then
 		local grown = create_soup_material_table(math.max(count, math.ceil(table_state.capacity * 1.5)))
@@ -1378,25 +1378,31 @@ local function update_soup_material_table(pipeline, table_state)
 		table_state.capacity = grown.capacity
 	end
 
-	for i = full and 0 or table_state.filled, count - 1 do
+	local stamp = table_state.stamp
+	local filled = table_state.filled
+
+	for i = 0, count - 1 do
 		local material = materials[i + 1]
-		local entry = table_state.ptr[i]
-		local texture = material:HasShadowTexture() and material:GetAlbedoTexture() or nil
-		entry.alpha = material:GetShadowOpacity()
-		entry.albedo_texture = texture and pipeline:GetTextureIndex(texture) or -1
-		entry.cutoff = material:GetAlphaCutoff()
-		entry.mode = material:GetAlphaTest() and
-			1 or
-			(
-				bit.band(material:GetShadowFlags(), 2) ~= 0 and
-				2 or
-				0
-			)
+
+		if full or i >= filled or (material.shadow_stamp or 0) > stamp then
+			local entry = table_state.ptr[i]
+			local texture = material:HasShadowTexture() and material:GetAlbedoTexture() or nil
+			entry.alpha = material:GetShadowOpacity()
+			entry.albedo_texture = texture and pipeline:GetTextureIndex(texture) or -1
+			entry.cutoff = material:GetAlphaCutoff()
+			entry.mode = material:GetAlphaTest() and
+				1 or
+				(
+					bit.band(material:GetShadowFlags(), 2) ~= 0 and
+					2 or
+					0
+				)
+		end
 	end
 
 	table_state.filled = count
-	table_state.generation = Material.shadow_generation
-	table_state.albedo_generation = Material.albedo_generation
+	table_state.full_generation = Material.shadow_full_generation
+	table_state.stamp = Material.shadow_stamp
 	pipeline:UpdateDescriptorSet("storage_buffer", 1, 1, 0, table_state.buffer, table_state.buffer:GetSize())
 end
 
@@ -2398,6 +2404,10 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 				state.albedo_generation ~= Material.albedo_generation
 			)
 		then
+			-- a build keeps the class of the blocks it wrote, so going over every
+			-- block again is for when what a material does to a shadow changed
+			local materials_changed = state.shadow_generation ~= Material.shadow_generation or
+				state.albedo_generation ~= Material.albedo_generation
 			state.version = scene_bvh.soup_version
 			state.shadow_generation = Material.shadow_generation
 			state.albedo_generation = Material.albedo_generation
@@ -2412,7 +2422,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 			state.vertex_count = scene_bvh.IsReady() and scene_bvh.soup_triangle_count * 3 or 0
 
 			if state.vertex_count > 0 then
-				scene_bvh.RefreshShadowClasses()
+				if materials_changed then scene_bvh.RefreshShadowClasses() end
 
 				-- the buffers are replaced when they grow
 				if
