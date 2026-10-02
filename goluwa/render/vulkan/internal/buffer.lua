@@ -32,7 +32,6 @@ vulkan.SetupDebugFunctions(
 		end,
 	}
 )
-
 -- buffers that ask for plain host visible memory get the gpu's own where the
 -- device has a big enough host visible heap of it, see FindFastHostMemoryType
 local MIN_FAST_HEAP_SIZE = 2 ^ 30
@@ -95,6 +94,7 @@ function Buffer.New(config)
 		end
 	end
 
+	local memory_label = string.format("buffer %s size=%d", config.label or "unnamed", requirements.size)
 	local fast_type
 
 	if is_plain_host_memory(properties) then
@@ -105,7 +105,12 @@ function Buffer.New(config)
 		local ok, memory = pcall(
 			Memory.New,
 			device,
-			{size = requirements.size, type_index = fast_type, flags = allocate_flags}
+			{
+				size = requirements.size,
+				type_index = fast_type,
+				flags = allocate_flags,
+				label = memory_label,
+			}
 		)
 
 		if ok then self.memory = memory end
@@ -118,6 +123,7 @@ function Buffer.New(config)
 				size = requirements.size,
 				type_index = device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"}),
 				flags = allocate_flags,
+				label = memory_label,
 			}
 		)
 	end

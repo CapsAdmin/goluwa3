@@ -1489,6 +1489,13 @@ function CommandBuffer:PipelineBarrier(config)
 	)
 end
 
+-- regions is a VkBufferCopy array of srcOffset / dstOffset / size
+function CommandBuffer:CopyBuffer(src, dst, regions, region_count)
+	keepalive(self, src)
+	keepalive(self, dst)
+	vulkan.lib.vkCmdCopyBuffer(self.ptr[0], src.ptr[0], dst.ptr[0], region_count, regions)
+end
+
 function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height, srcX, srcY, dstX, dstY)
 	local config
 

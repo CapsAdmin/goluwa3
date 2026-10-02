@@ -6,6 +6,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local scene_bvh = library()
 -- Pre-register to break import cycle: visual -> render3d -> scene_bvh -> visual
 import.loaded["goluwa/render3d/scene_bvh.lua"] = scene_bvh
@@ -335,14 +336,34 @@ do
 		ffi.copy(scene_bvh.node_ptr + index, scene_bvh.nodes + index, NODE_BYTE_SIZE)
 	end
 
-	local function create_mapped_buffer(label, byte_size)
+	local function create_mapped_buffer(label, byte_size, usage, properties)
 		local buffer = render.CreateBuffer{
 			byte_size = byte_size,
-			buffer_usage = {"storage_buffer"},
-			memory_property = {"host_visible", "host_coherent"},
+			buffer_usage = usage,
+			memory_property = properties,
 			label = label,
 		}
 		return buffer, buffer:Map()
+	end
+
+	-- the soup and its uvs are written by the cpu into staging buffers in
+	-- cached system memory, and the ranges rewritten since the last upload
+	-- are copied into device local buffers, which is where shaders read them
+	-- from (system memory is read over pcie)
+	local STAGING_PROPERTIES = {"host_visible", "host_coherent", "host_cached"}
+	local soup_dirty = {}
+	local soup_upload_all = false
+
+	local function mark_soup_dirty(first, count)
+		local n = #soup_dirty
+
+		if n > 0 and soup_dirty[n - 1] + soup_dirty[n] == first then
+			soup_dirty[n] = soup_dirty[n] + count
+			return
+		end
+
+		soup_dirty[n + 1] = first
+		soup_dirty[n + 2] = count
 	end
 
 	local function grow_nodes(needed)
@@ -353,9 +374,17 @@ do
 			ffi.copy(nodes, scene_bvh.nodes, scene_bvh.node_capacity * NODE_BYTE_SIZE)
 		end
 
-		if scene_bvh.node_buffer then scene_bvh.node_buffer:Remove() end
+		if scene_bvh.node_buffer then
+			scene_bvh.node_buffer:Remove()
+			render.GetDevice():WaitIdle()
+		end
 
-		local buffer, ptr = create_mapped_buffer("scene_bvh_nodes", capacity * NODE_BYTE_SIZE)
+		local buffer, ptr = create_mapped_buffer(
+			"scene_bvh_nodes",
+			capacity * NODE_BYTE_SIZE,
+			{"storage_buffer"},
+			{"host_visible", "host_coherent"}
+		)
 		scene_bvh.node_buffer = buffer
 		scene_bvh.node_ptr = ffi.cast(NodePtr, ptr)
 		ffi.copy(scene_bvh.node_ptr, nodes, capacity * NODE_BYTE_SIZE)
@@ -375,24 +404,57 @@ do
 	local bake_triangles
 
 	-- the soup lives only in the mapped buffer, so a grown buffer is baked
-	-- again from every block's shape. consumers that expand it see the new
-	-- generation and redo everything
+	-- again from every block's shape
 	local function grow_triangles(needed)
-		local capacity = math.max(needed, math.ceil(scene_bvh.triangle_capacity * 1.5), 1024)
+		local capacity = math.max(needed, math.ceil(scene_bvh.triangle_capacity * 1.25), 1024)
 
 		if scene_bvh.triangle_buffer then scene_bvh.triangle_buffer:Remove() end
 
-		local buffer, ptr = create_mapped_buffer("scene_bvh_triangles", capacity * TRIANGLE_BYTE_SIZE)
-		scene_bvh.triangle_buffer = buffer
-		scene_bvh.triangles = ffi.cast(TrianglePtr, ptr)
+		if scene_bvh.triangle_staging then scene_bvh.triangle_staging:Remove() end
 
 		if SOUP_UVS then
 			if scene_bvh.uv_buffer then scene_bvh.uv_buffer:Remove() end
 
-			local uv_buffer, uv_ptr = create_mapped_buffer("scene_bvh_uvs", capacity * UV_BYTE_SIZE)
-			scene_bvh.uv_buffer = uv_buffer
-			scene_bvh.uvs = ffi.cast("float*", uv_ptr)
+			if scene_bvh.uv_staging then scene_bvh.uv_staging:Remove() end
 		end
+
+		-- a build can grow the soup many times before a frame completes, and
+		-- the replaced buffers would all wait for it. the soup is baked again
+		-- and uploaded in full anyway, so nothing of the old one is needed
+		render.GetDevice():WaitIdle()
+		local staging, ptr = create_mapped_buffer(
+			"scene_bvh_triangles_staging",
+			capacity * TRIANGLE_BYTE_SIZE,
+			{"transfer_src"},
+			STAGING_PROPERTIES
+		)
+		scene_bvh.triangle_staging = staging
+		scene_bvh.triangles = ffi.cast(TrianglePtr, ptr)
+		scene_bvh.triangle_buffer = render.CreateBuffer{
+			byte_size = capacity * TRIANGLE_BYTE_SIZE,
+			buffer_usage = {"storage_buffer", "transfer_dst"},
+			memory_property = {"device_local"},
+			label = "scene_bvh_triangles",
+		}
+
+		if SOUP_UVS then
+			local uv_staging, uv_ptr = create_mapped_buffer(
+				"scene_bvh_uvs_staging",
+				capacity * UV_BYTE_SIZE,
+				{"transfer_src"},
+				STAGING_PROPERTIES
+			)
+			scene_bvh.uv_staging = uv_staging
+			scene_bvh.uvs = ffi.cast("float*", uv_ptr)
+			scene_bvh.uv_buffer = render.CreateBuffer{
+				byte_size = capacity * UV_BYTE_SIZE,
+				buffer_usage = {"storage_buffer", "transfer_dst"},
+				memory_property = {"device_local"},
+				label = "scene_bvh_uvs",
+			}
+		end
+
+		soup_upload_all = true
 
 		-- a block that is not baked yet (being laid out or moved to a bigger
 		-- range) is written once it has its range
@@ -408,34 +470,6 @@ do
 
 		scene_bvh.triangle_capacity = capacity
 		scene_bvh.triangle_allocator.capacity = capacity
-		scene_bvh.soup_generation = scene_bvh.soup_generation + 1
-	end
-
-	-- ranges of the soup rewritten since the consumers last looked (see
-	-- ExpandPositions), as flat triangle index / count pairs
-	local SOUP_LOG_LIMIT = 8192
-
-	local function log_soup_range(first, count)
-		local log = scene_bvh.soup_log
-		local n = #log
-
-		-- entries of earlier builds may already have been consumed, so only
-		-- this build's entries are extended
-		if n > scene_bvh.soup_log_sealed and log[n - 1] + log[n] == first then
-			log[n] = log[n] + count
-			return
-		end
-
-		if n >= SOUP_LOG_LIMIT * 2 then
-			scene_bvh.soup_log_base = scene_bvh.soup_log_base + n
-			log = {}
-			scene_bvh.soup_log = log
-			scene_bvh.soup_log_sealed = 0
-			n = 0
-		end
-
-		log[n + 1] = first
-		log[n + 2] = count
 	end
 
 	-- zeroed triangles expand to degenerate ones, so the padding of a range
@@ -444,7 +478,146 @@ do
 	local function free_soup_range(base, cap)
 		range_free(scene_bvh.triangle_allocator, base, cap)
 		ffi.fill(scene_bvh.triangles + base, cap * TRIANGLE_BYTE_SIZE)
-		log_soup_range(base, cap)
+		mark_soup_dirty(base, cap)
+	end
+
+	do
+		local BufferCopyArray = ffi.typeof("$[?]", import("goluwa/render/vulkan/internal/vulkan.lua").vk.VkBufferCopy)
+		local SOUP_MERGE_GAP = 256
+		local order = {}
+		local ranges = {}
+		local triangle_copies, uv_copies
+		local copy_capacity = 0
+		-- uploads in flight at once. a slot's fence is waited on before reuse
+		local UPLOAD_SLOTS = 4
+		local slots = {}
+		local next_slot = 0
+
+		local function by_first(a, b)
+			return soup_dirty[a * 2 - 1] < soup_dirty[b * 2 - 1]
+		end
+
+		-- the dirty ranges as merged first / count pairs, sorted
+		local function collect_ranges()
+			local n = #soup_dirty / 2
+			table.clear(ranges)
+
+			if soup_upload_all then
+				ranges[1] = 0
+				ranges[2] = scene_bvh.triangle_allocator.top
+				return
+			end
+
+			for i = 1, n do
+				order[i] = i
+			end
+
+			for i = n + 1, #order do
+				order[i] = nil
+			end
+
+			table.sort(order, by_first)
+			local first = soup_dirty[order[1] * 2 - 1]
+			local stop = first + soup_dirty[order[1] * 2]
+
+			for i = 2, n do
+				local f = soup_dirty[order[i] * 2 - 1]
+				local c = soup_dirty[order[i] * 2]
+
+				if f <= stop + SOUP_MERGE_GAP then
+					stop = math.max(stop, f + c)
+				else
+					ranges[#ranges + 1] = first
+					ranges[#ranges + 1] = stop - first
+					first = f
+					stop = f + c
+				end
+			end
+
+			ranges[#ranges + 1] = first
+			ranges[#ranges + 1] = stop - first
+		end
+
+		-- copies what the cpu wrote into the soup staging buffers since the
+		-- last call into the device local soup, in a command buffer of its
+		-- own that is submitted before anything of the frame reads the soup.
+		-- its barrier covers the commands submitted after it
+		function scene_bvh.UploadSoup()
+			if not soup_upload_all and not soup_dirty[1] then return end
+
+			if not scene_bvh.triangle_staging then return end
+
+			collect_ranges()
+			local region_count = #ranges / 2
+
+			if copy_capacity < region_count then
+				copy_capacity = math.max(region_count, copy_capacity * 2, 64)
+				triangle_copies = BufferCopyArray(copy_capacity)
+				uv_copies = BufferCopyArray(copy_capacity)
+			end
+
+			next_slot = next_slot % UPLOAD_SLOTS + 1
+			local slot = slots[next_slot]
+			local queue = render.GetQueue()
+
+			if not slot then
+				slot = {
+					cmd = render.GetCommandPool():AllocateCommandBuffer(),
+					fence = Fence.New(render.GetDevice()),
+				}
+				slots[next_slot] = slot
+			end
+
+			if queue:HasPendingSubmission(slot.fence) then
+				slot.fence:Wait()
+				queue:RetireFence(slot.fence)
+			end
+
+			for i = 0, region_count - 1 do
+				local first = ranges[i * 2 + 1]
+				local count = ranges[i * 2 + 2]
+				triangle_copies[i].srcOffset = first * TRIANGLE_BYTE_SIZE
+				triangle_copies[i].dstOffset = first * TRIANGLE_BYTE_SIZE
+				triangle_copies[i].size = count * TRIANGLE_BYTE_SIZE
+
+				if SOUP_UVS then
+					uv_copies[i].srcOffset = first * UV_BYTE_SIZE
+					uv_copies[i].dstOffset = first * UV_BYTE_SIZE
+					uv_copies[i].size = count * UV_BYTE_SIZE
+				end
+			end
+
+			local cmd = slot.cmd
+			cmd:Reset()
+			cmd:Begin()
+			cmd:CopyBuffer(scene_bvh.triangle_staging, scene_bvh.triangle_buffer, triangle_copies, region_count)
+			local barriers = {
+				{
+					buffer = scene_bvh.triangle_buffer,
+					srcAccessMask = "transfer_write",
+					dstAccessMask = "shader_read",
+				},
+			}
+
+			if SOUP_UVS then
+				cmd:CopyBuffer(scene_bvh.uv_staging, scene_bvh.uv_buffer, uv_copies, region_count)
+				barriers[2] = {
+					buffer = scene_bvh.uv_buffer,
+					srcAccessMask = "transfer_write",
+					dstAccessMask = "shader_read",
+				}
+			end
+
+			cmd:PipelineBarrier{
+				srcStage = "transfer",
+				dstStage = {"vertex", "fragment", "compute", "ray_tracing_shader_khr"},
+				bufferBarriers = barriers,
+			}
+			cmd:End()
+			render.Submit(cmd, slot.fence)
+			table.clear(soup_dirty)
+			soup_upload_all = false
+		end
 	end
 
 	-- the raster block of every entry in blocks, by block index: world bounds
@@ -498,7 +671,6 @@ do
 		scene_bvh.top_count = 0
 		scene_bvh.top_changes = 0
 		scene_bvh.triangle_count = 0
-		scene_bvh.soup_generation = scene_bvh.soup_generation + 1
 
 		for _, vc in pairs(scene_bvh.visual_cache) do
 			if scene_bvh.changed_blocks then scene_bvh.changed_blocks[vc] = true end
@@ -517,10 +689,6 @@ do
 
 	scene_bvh.node_capacity = 0
 	scene_bvh.triangle_capacity = 0
-	scene_bvh.soup_generation = 0
-	scene_bvh.soup_log = {}
-	scene_bvh.soup_log_base = 0
-	scene_bvh.soup_log_sealed = 0
 	scene_bvh.blocks = {}
 	scene_bvh.raster_capacity = 0
 
@@ -1474,6 +1642,7 @@ do
 		end
 
 		ffi.fill(world + total, (vc.tri_cap - total) * TRIANGLE_BYTE_SIZE)
+		mark_soup_dirty(vc.tri_base, vc.tri_cap)
 
 		if not vc.emissive then
 			vc.emitter_count = 0
@@ -1853,7 +2022,6 @@ do
 
 		vc.drawn_total = vc.total
 		scene_bvh.triangle_count = scene_bvh.triangle_count + vc.total
-		log_soup_range(vc.tri_base, vc.tri_cap)
 		-- the ray tracing blas of this block follows this
 		vc.soup_serial = (vc.soup_serial or 0) + 1
 		scene_bvh.soup_dirty = true
@@ -2002,11 +2170,12 @@ do
 		scene_bvh.build_time = system.GetElapsedTime() - start_time
 		scene_bvh.has_built = true
 		scene_bvh.version = scene_bvh.version + 1
-		scene_bvh.soup_log_sealed = #scene_bvh.soup_log
 
 		if scene_bvh.soup_dirty then
 			scene_bvh.soup_version = scene_bvh.soup_version + 1
 		end
+
+		scene_bvh.UploadSoup()
 
 		if scene_bvh.triangle_count > 0 and not scene_bvh.readied then
 			event.Call("BVHSceneReady")
@@ -2457,70 +2626,9 @@ do
 	local expand_count = 0
 	local expand_base = 0
 
+	-- expands ranges of the soup into one world space position per vertex,
+	-- which is what a blas is built from
 	function scene_bvh.CreateExpander(state)
-		local storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}}
-		local opacity_declarations = ""
-		local opacity_write = "positions[oid] = p;"
-		local uv_write = ""
-
-		-- the shadow soup also gets the share of light each vertex's material
-		-- stops, and nothing is drawn for a material that stops none
-		if state.with_opacity then
-			storage_buffers[3] = {binding_index = 3}
-			opacity_declarations = [=[
-				layout(scalar, set = 0, binding = 3) readonly buffer SceneBvhMaterialOpacity {
-					float material_opacities[];
-				};
-			]=]
-			opacity_write = [=[
-				float opacity = material_opacities[t.material];
-				positions[oid] = opacity > 0.0 ? p : vec3(0.0);
-			]=]
-
-			-- without uvs the shadow soup dithers by a per vertex opacity
-			if not SOUP_UVS then
-				storage_buffers[#storage_buffers + 1] = {binding_index = 2}
-				opacity_declarations = opacity_declarations .. [=[
-					layout(scalar, set = 0, binding = 2) buffer SceneBvhOpacity {
-						float opacities[];
-					};
-				]=]
-				opacity_write = opacity_write .. "opacities[oid] = opacity;"
-			end
-
-			-- and its uv and material, for the shadow to sample the albedo
-			-- texture with
-			if SOUP_UVS then
-				storage_buffers[#storage_buffers + 1] = {binding_index = 4}
-				storage_buffers[#storage_buffers + 1] = {binding_index = 5}
-				storage_buffers[#storage_buffers + 1] = {binding_index = 6, count = SOUP_CHUNKS}
-				opacity_declarations = opacity_declarations .. (
-						[=[
-					struct scene_bvh_uv {
-						vec2 uv0;
-						vec2 uv1;
-						vec2 uv2;
-						vec3 blend;
-					};
-					layout(scalar, set = 0, binding = 4) buffer SceneBvhVertexUv {
-						vec2 vertex_uvs[];
-					};
-					layout(scalar, set = 0, binding = 5) buffer SceneBvhVertexMaterial {
-						uint vertex_materials[];
-					};
-					layout(scalar, set = 0, binding = 6) readonly buffer SceneBvhUv {
-						scene_bvh_uv tri_uvs[];
-					} uv_soup[%d];
-				]=]
-					):format(SOUP_CHUNKS)
-				uv_write = [=[
-					scene_bvh_uv tuv = uv_soup[nonuniformEXT(chunk)].tri_uvs[tri - chunk * SOUP_CHUNK];
-					vertex_uvs[oid] = which == 0u ? tuv.uv0 : (which == 1u ? tuv.uv1 : tuv.uv2);
-					vertex_materials[oid] = t.material;
-				]=]
-			end
-		end
-
 		state.expand_pipeline = EasyPipeline.Compute{
 			name = "scene_bvh_expand_positions",
 			dont_create_framebuffers = true,
@@ -2528,7 +2636,7 @@ do
 			-- rewrite the set a pending command buffer still uses
 			DescriptorSetCount = render.GetSwapchainImageCount(),
 			LocalSize = {EXPAND_LOCAL_SIZE, 1, 1},
-			storage_buffers = storage_buffers,
+			storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}},
 			block = {
 				{"first_vertex", "int"},
 				{"vertex_count", "int"},
@@ -2540,8 +2648,7 @@ do
 					return block
 				end,
 			},
-			custom_declarations = (
-					[=[
+			custom_declarations = ([=[
 					struct scene_bvh_triangle {
 						vec3 v0;
 						vec3 e1;
@@ -2556,15 +2663,13 @@ do
 					layout(scalar, set = 0, binding = 0) buffer SceneBvhPos {
 						vec3 positions[];
 					};
-					]=]
-				):format(SOUP_CHUNKS) .. opacity_declarations,
+					]=]):format(SOUP_CHUNKS),
 			shader = [[
 				#define SOUP_CHUNK ]] .. SOUP_CHUNK_TRIS .. [[u
 				void main() {
 					uint index = gl_GlobalInvocationID.x;
 					if (index >= uint(compute.vertex_count)) return;
 					uint vid = uint(compute.first_vertex) + index;
-					uint oid = vid - uint(compute.base_vertex);
 					uint tri = vid / 3u;
 					uint chunk = tri / SOUP_CHUNK;
 					scene_bvh_triangle t = soup[nonuniformEXT(chunk)].tris[tri - chunk * SOUP_CHUNK];
@@ -2572,7 +2677,7 @@ do
 					vec3 p = t.v0;
 					if (which == 1u) p += t.e1;
 					else if (which == 2u) p += t.e2;
-					]] .. opacity_write .. uv_write .. [[
+					positions[vid - uint(compute.base_vertex)] = p;
 				}
 			]],
 		}
@@ -2586,25 +2691,13 @@ do
 		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
 	end
 
-	-- expands the soup into one position per vertex in state.position_buffer,
-	-- for rasterizing it or building acceleration structures from it. only the
-	-- ranges written since the state's last call are expanded, unless its
-	-- buffer is new or the soup was laid out again. returns the vertex count
-	-- the buffer covers and the buffer
+	-- the share of light each material stops, by material id, for the
+	-- shadow soup to read. written again in full when a material's opacity
+	-- changed and appended to otherwise. returns the buffer, which is
+	-- replaced when it grows
 	local shadow_materials = {capacity = 0, filled = 0, generation = -1}
 
-	local function create_vertex_buffer(label, byte_size)
-		return render.CreateBuffer{
-			byte_size = byte_size,
-			buffer_usage = {"vertex_buffer", "storage_buffer"},
-			memory_property = {"device_local"},
-			label = label,
-		}
-	end
-
-	-- the share of light each material stops, by material id, written again
-	-- in full when a material's opacity changed and appended to otherwise
-	local function update_shadow_materials()
+	function scene_bvh.UpdateShadowMaterials()
 		local materials = scene_bvh.materials
 		local count = #materials
 
@@ -2638,110 +2731,7 @@ do
 
 		shadow_materials.filled = count
 		shadow_materials.generation = Material.shadow_generation
-	end
-
-	function scene_bvh.ExpandPositions(cmd, state)
-		if not scene_bvh.IsReady() then return 0, nil end
-
-		local vertex_count = scene_bvh.soup_triangle_count * 3
-		local log = scene_bvh.soup_log
-		local log_base = scene_bvh.soup_log_base
-		local full = state.generation ~= scene_bvh.soup_generation or
-			(
-				state.log_position or
-				-1
-			) < log_base
-
-		if state.with_opacity then
-			update_shadow_materials()
-
-			if state.shadow_generation ~= Material.shadow_generation then
-				state.shadow_generation = Material.shadow_generation
-				full = true
-			end
-		end
-
-		if not state.position_buffer or state.position_buffer:GetSize() < vertex_count * 12 then
-			if state.position_buffer then state.position_buffer:Remove() end
-
-			local capacity = math.ceil(vertex_count * 1.25)
-			state.position_buffer = render.CreateBuffer{
-				byte_size = capacity * 12,
-				buffer_usage = {"vertex_buffer", "storage_buffer"},
-				memory_property = {"device_local"},
-				label = "scene_bvh_raster_positions",
-			}
-
-			if state.with_opacity then
-				if SOUP_UVS then
-					if state.uv_buffer then state.uv_buffer:Remove() end
-
-					if state.material_buffer then state.material_buffer:Remove() end
-
-					state.uv_buffer = create_vertex_buffer("scene_bvh_raster_uvs", capacity * 8)
-					state.material_buffer = create_vertex_buffer("scene_bvh_raster_materials", capacity * 4)
-				else
-					if state.opacity_buffer then state.opacity_buffer:Remove() end
-
-					state.opacity_buffer = create_vertex_buffer("scene_bvh_raster_opacities", capacity * 4)
-				end
-			end
-
-			full = true
-		end
-
-		local position_buffer = state.position_buffer
-		local pipeline = state.expand_pipeline
-		local slot = math.max(render.GetCurrentFrame(), 1)
-		scene_bvh.BindTriangleBuffer(pipeline, slot, 1, scene_bvh.triangle_buffer)
-		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, position_buffer:GetSize())
-
-		if state.with_opacity then
-			if not SOUP_UVS then
-				pipeline:UpdateDescriptorSet(
-					"storage_buffer",
-					slot,
-					2,
-					0,
-					state.opacity_buffer,
-					state.opacity_buffer:GetSize()
-				)
-			end
-
-			pipeline:UpdateDescriptorSet(
-				"storage_buffer",
-				slot,
-				3,
-				0,
-				shadow_materials.buffer,
-				shadow_materials.buffer:GetSize()
-			)
-
-			if SOUP_UVS then
-				pipeline:UpdateDescriptorSet("storage_buffer", slot, 4, 0, state.uv_buffer, state.uv_buffer:GetSize())
-				pipeline:UpdateDescriptorSet(
-					"storage_buffer",
-					slot,
-					5,
-					0,
-					state.material_buffer,
-					state.material_buffer:GetSize()
-				)
-				scene_bvh.BindTriangleBuffer(pipeline, slot, 6, scene_bvh.uv_buffer, scene_bvh.UV_CHUNK_BYTES)
-			end
-		end
-
-		if full then
-			expand_range(cmd, pipeline, slot, 0, vertex_count, 0)
-		else
-			for i = state.log_position - log_base + 1, #log, 2 do
-				expand_range(cmd, pipeline, slot, log[i] * 3, log[i + 1] * 3, 0)
-			end
-		end
-
-		state.generation = scene_bvh.soup_generation
-		state.log_position = log_base + #log
-		return vertex_count, position_buffer
+		return shadow_materials.buffer
 	end
 
 	-- blocks whose materials let some of the light through draw dithered in

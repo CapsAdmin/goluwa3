@@ -201,6 +201,7 @@ function VulkanInstance:CreateBuffer(config)
 		size = byte_size,
 		usage = config.buffer_usage,
 		properties = config.memory_property,
+		label = config.name or config.label,
 	}
 
 	if config.name or config.label then

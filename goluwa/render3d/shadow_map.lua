@@ -1132,32 +1132,100 @@ local function quickselect_depth_value(values, target_index)
 	return nil
 end
 
-local SOUP_VERTEX_GLSL = [[
+-- the shadow soup is drawn straight from the scene bvh's soup: a vertex
+-- shader looks its triangle up by vertex index (so nothing is bound as a
+-- vertex buffer) and collapses the triangles of materials that stop no light
+local SOUP_TRIANGLE_BINDING = 2
+local SOUP_OPACITY_BINDING = 3
+local SOUP_UV_BINDING = 4
+local SOUP_VERTEX_BODY = [[
+		uint vid = uint(gl_VertexIndex);
+		uint tri = vid / 3u;
+		uint which = vid - tri * 3u;
+		scene_bvh_triangle t = bvh_tri(tri);
+		vec3 p = vec3(0.0);
+
+		if (material_opacities[t.material] > 0.0) {
+			p = t.v0;
+
+			if (which == 1u) p += t.e1;
+			else if (which == 2u) p += t.e2;
+		}
+
+		gl_Position = soup_light.light_space_matrix * vec4(p, 1.0);
+]]
+local soup_vertex_glsl = {}
+
+-- built on first use: the scene bvh is still loading when this file is
+local function get_soup_vertex_glsl(uvs)
+	local code = soup_vertex_glsl[uvs]
+
+	if code then return code end
+
+	code = [[
 		#version 450
 		#extension GL_EXT_scalar_block_layout : require
-
-		layout(location = 0) in vec3 in_position;
-		layout(scalar, binding = 0) uniform SoupLight_t {
+		#extension GL_EXT_nonuniform_qualifier : require
+	]] .. scene_bvh.GetTriangleDeclarationGLSL(SOUP_TRIANGLE_BINDING) .. [[
+		layout(scalar, set = 0, binding = ]] .. SOUP_OPACITY_BINDING .. [[) readonly buffer SoupShadowOpacity {
+			float material_opacities[];
+		};
+		layout(scalar, set = 0, binding = 0) uniform SoupLight_t {
 			mat4 light_space_matrix;
 		} soup_light;
+	]]
+
+	if uvs then
+		code = code .. scene_bvh.GetUvDeclarationGLSL(SOUP_UV_BINDING) .. [[
+		layout(location = 0) out vec2 out_uv;
+		layout(location = 1) flat out uint out_material;
 
 		void main() {
-			gl_Position = soup_light.light_space_matrix * vec4(in_position, 1.0);
+]] .. SOUP_VERTEX_BODY .. [[
+			scene_bvh_uv tuv = bvh_uv(tri);
+			out_uv = which == 0u ? tuv.uv0 : (which == 1u ? tuv.uv1 : tuv.uv2);
+			out_material = t.material;
 		}
 	]]
+	else
+		code = code .. "void main() {\n" .. SOUP_VERTEX_BODY .. "}\n"
+	end
+
+	soup_vertex_glsl[uvs] = code
+	return code
+end
+
 local SOUP_FRAGMENT_GLSL = [[
 		#version 450
 
 		void main() {}
 	]]
-local SOUP_VERTEX_BINDING = {
-	binding = 0,
-	stride = 12,
-	input_rate = "vertex",
-}
-local SOUP_VERTEX_ATTRIBUTES = {
-	{binding = 0, location = 0, format = "r32g32b32_sfloat", offset = 0},
-}
+
+local function get_soup_descriptor_sets(self, uvs)
+	local sets = {
+		{
+			type = "uniform_buffer_dynamic",
+			binding_index = 0,
+			args = {self.soup_light_buffer.buffer, self.soup_light_buffer.aligned_size},
+		},
+		{
+			type = "storage_buffer",
+			binding_index = SOUP_TRIANGLE_BINDING,
+			count = scene_bvh.SOUP_CHUNKS,
+		},
+		{type = "storage_buffer", binding_index = SOUP_OPACITY_BINDING},
+	}
+
+	if uvs then
+		sets[4] = {
+			type = "storage_buffer",
+			binding_index = SOUP_UV_BINDING,
+			count = scene_bvh.SOUP_CHUNKS,
+		}
+	end
+
+	return sets
+end
 
 local function create_soup_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
 	return render.CreateGraphicsPipeline(
@@ -1168,16 +1236,8 @@ local function create_soup_pipeline_variant(self, depth_format, max_shadow_width
 			{
 				{
 					type = "vertex",
-					code = SOUP_VERTEX_GLSL,
-					bindings = {SOUP_VERTEX_BINDING},
-					attributes = SOUP_VERTEX_ATTRIBUTES,
-					descriptor_sets = {
-						{
-							type = "uniform_buffer_dynamic",
-							binding_index = 0,
-							args = {self.soup_light_buffer.buffer, self.soup_light_buffer.aligned_size},
-						},
-					},
+					code = get_soup_vertex_glsl(false),
+					descriptor_sets = get_soup_descriptor_sets(self, false),
 				},
 				{type = "fragment", code = SOUP_FRAGMENT_GLSL},
 			},
@@ -1188,96 +1248,10 @@ local function create_soup_pipeline_variant(self, depth_format, max_shadow_width
 	)
 end
 
--- the soup of the blocks whose materials let some light through: each vertex
--- carries the share of light it stops and is dithered like a translucent
--- surface of the raster passes
-local SOUP_DITHER_VERTEX_GLSL = [[
-		#version 450
-		#extension GL_EXT_scalar_block_layout : require
-
-		layout(location = 0) in vec3 in_position;
-		layout(location = 1) in float in_opacity;
-		layout(location = 0) flat out float out_opacity;
-		layout(scalar, binding = 0) uniform SoupLight_t {
-			mat4 light_space_matrix;
-		} soup_light;
-
-		void main() {
-			gl_Position = soup_light.light_space_matrix * vec4(in_position, 1.0);
-			out_opacity = in_opacity;
-		}
-	]]
-local SOUP_DITHER_FRAGMENT_GLSL = [[
-		#version 450
-
-		layout(location = 0) flat in float in_opacity;
-
-		void main() {
-			if (fract(dot(vec2(171.0, 231.0) + in_opacity * 0.00001, gl_FragCoord.xy) / 103.0) > in_opacity) discard;
-		}
-	]]
-local SOUP_OPACITY_BINDING = {
-	binding = 1,
-	stride = 4,
-	input_rate = "vertex",
-}
-local SOUP_DITHER_ATTRIBUTES = {
-	{binding = 0, location = 0, format = "r32g32b32_sfloat", offset = 0},
-	{binding = 1, location = 1, format = "r32_sfloat", offset = 0},
-}
-
-local function create_soup_dither_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
-	return render.CreateGraphicsPipeline(
-		build_shadow_pipeline_config(
-			depth_format,
-			max_shadow_width,
-			max_shadow_height,
-			{
-				{
-					type = "vertex",
-					code = SOUP_DITHER_VERTEX_GLSL,
-					bindings = {SOUP_VERTEX_BINDING, SOUP_OPACITY_BINDING},
-					attributes = SOUP_DITHER_ATTRIBUTES,
-					descriptor_sets = {
-						{
-							type = "uniform_buffer_dynamic",
-							binding_index = 0,
-							args = {self.soup_light_buffer.buffer, self.soup_light_buffer.aligned_size},
-						},
-					},
-				},
-				{type = "fragment", code = SOUP_DITHER_FRAGMENT_GLSL},
-			},
-			"triangle_list",
-			nil,
-			nil
-		)
-	)
-end
-
--- with uvs in the soup (scene_bvh.SOUP_UVS) the dithered blocks sample the
--- albedo texture too. what a fragment needs of its material is looked up by
--- the vertex's material id, in a table of its own per pipeline because the
+-- the blocks whose materials let some light through also sample the albedo
+-- texture. what a fragment needs of its material is looked up by the
+-- vertex's material id, in a table of its own per pipeline because the
 -- bindless texture indices belong to the pipeline
-local SOUP_UV_VERTEX_GLSL = [[
-		#version 450
-		#extension GL_EXT_scalar_block_layout : require
-
-		layout(location = 0) in vec3 in_position;
-		layout(location = 1) in vec2 in_uv;
-		layout(location = 2) in uint in_material;
-		layout(location = 0) out vec2 out_uv;
-		layout(location = 1) flat out uint out_material;
-		layout(scalar, binding = 0) uniform SoupLight_t {
-			mat4 light_space_matrix;
-		} soup_light;
-
-		void main() {
-			gl_Position = soup_light.light_space_matrix * vec4(in_position, 1.0);
-			out_uv = in_uv;
-			out_material = in_material;
-		}
-	]]
 -- mode 0 draws, 1 alpha tests and 2 dithers by alpha, as the raster passes do
 local SOUP_UV_FRAGMENT_GLSL = [[
 		#version 450
@@ -1315,16 +1289,6 @@ local SOUP_UV_FRAGMENT_GLSL = [[
 			}
 		}
 	]]
-local SOUP_UV_BINDINGS = {
-	SOUP_VERTEX_BINDING,
-	{binding = 1, stride = 8, input_rate = "vertex"},
-	{binding = 2, stride = 4, input_rate = "vertex"},
-}
-local SOUP_UV_ATTRIBUTES = {
-	{binding = 0, location = 0, format = "r32g32b32_sfloat", offset = 0},
-	{binding = 1, location = 1, format = "r32g32_sfloat", offset = 0},
-	{binding = 2, location = 2, format = "r32_uint", offset = 0},
-}
 local SoupShadowMaterial = ffi.typeof([[struct {
 	float alpha;
 	int32_t albedo_texture;
@@ -1367,16 +1331,8 @@ local function create_soup_uv_pipeline_variant(
 			{
 				{
 					type = "vertex",
-					code = SOUP_UV_VERTEX_GLSL,
-					bindings = SOUP_UV_BINDINGS,
-					attributes = SOUP_UV_ATTRIBUTES,
-					descriptor_sets = {
-						{
-							type = "uniform_buffer_dynamic",
-							binding_index = 0,
-							args = {self.soup_light_buffer.buffer, self.soup_light_buffer.aligned_size},
-						},
-					},
+					code = get_soup_vertex_glsl(true),
+					descriptor_sets = get_soup_descriptor_sets(self, true),
 				},
 				{
 					type = "fragment",
@@ -1627,7 +1583,12 @@ function ShadowMap.New(config)
 	self.cascade = {} -- Per-cascade data
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl(), "shadow_map.vertex_animation")
 	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl, "shadow_map.state")
-	self.expander = scene_bvh.CreateExpander{with_opacity = true}
+	self.soup_state = {
+		version = -1,
+		shadow_generation = -1,
+		albedo_generation = -1,
+		vertex_count = 0,
+	}
 	self.light = config.light -- optional source entity whose transform the map follows
 	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
 	self.policy = config.policy or {} -- shadow_update_mode, shadow_update_interval, epsilons, farthest_cascade_*
@@ -1777,7 +1738,6 @@ function ShadowMap.New(config)
 		self.soup_cascade_from = config.soup_cascade_from or 2
 		self.soup_light_buffer = UniformBuffer.New([[struct { float light_space_matrix[16]; }]], "shadow_map.soup_light")
 		self.soup_pipeline_variants = {}
-		self.soup_dither_pipeline_variants = {}
 		self.soup_uv_pipeline_variants = {}
 		self.soup_material_tables = {}
 
@@ -1809,26 +1769,21 @@ function ShadowMap.New(config)
 				nil
 			)
 			self.soup_pipeline_variants[depth_format] = create_soup_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
-			self.soup_dither_pipeline_variants[depth_format] = create_soup_dither_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
-
-			if scene_bvh.SOUP_UVS then
-				local table_state = create_soup_material_table(256)
-				self.soup_material_tables[depth_format] = table_state
-				self.soup_uv_pipeline_variants[depth_format] = create_soup_uv_pipeline_variant(
-					self,
-					depth_format,
-					max_shadow_width,
-					max_shadow_height,
-					bindless_texture_capacity,
-					table_state
-				)
-			end
+			local table_state = create_soup_material_table(256)
+			self.soup_material_tables[depth_format] = table_state
+			self.soup_uv_pipeline_variants[depth_format] = create_soup_uv_pipeline_variant(
+				self,
+				depth_format,
+				max_shadow_width,
+				max_shadow_height,
+				bindless_texture_capacity,
+				table_state
+			)
 		end
 
 		self.pipeline = self.pipeline_variants[self.format]
 		self.instanced_pipeline = self.instanced_pipeline_variants[self.format]
 		self.soup_pipeline = self.soup_pipeline_variants[self.format]
-		self.soup_dither_pipeline = self.soup_dither_pipeline_variants[self.format]
 	end
 
 	-- Command buffer for shadow pass
@@ -1856,19 +1811,9 @@ function ShadowMap:OnRemove()
 
 	self.instance_batcher:Remove()
 
-	if self.expander.position_buffer then self.expander.position_buffer:Remove() end
-
-	if self.expander.opacity_buffer then self.expander.opacity_buffer:Remove() end
-
-	if self.expander.uv_buffer then self.expander.uv_buffer:Remove() end
-
-	if self.expander.material_buffer then self.expander.material_buffer:Remove() end
-
 	for _, table_state in pairs(self.soup_material_tables or {}) do
 		table_state.buffer:Remove()
 	end
-
-	if self.expander.expand_pipeline then self.expander.expand_pipeline:Remove() end
 
 	for i, map in ipairs(active_maps) do
 		if map == self then
@@ -2439,73 +2384,57 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		gpu_timing.BeginCommandBuffer(self.cmd)
 		self.is_recording_cascades = true
 		self.batch_serial = self.batch_serial + 1
+		-- the outer cascades rasterize the triangle soup as a single merged
+		-- mesh straight from the scene bvh. what its vertex shaders read is
+		-- refreshed only when the soup or a material's shadow changed
+		local state = self.soup_state
 
-		-- expand the triangle soup so the outer cascades can rasterize it as a
-		-- single merged mesh, only when the soup changed
 		if
 			self.mode ~= "point" and
 			self.soup_cascade_from <= self.cascade_count and
 			(
-				self.expander.version ~= scene_bvh.soup_version or
-				self.expander.shadow_generation ~= Material.shadow_generation or
-				self.expander.albedo_generation ~= Material.albedo_generation
+				state.version ~= scene_bvh.soup_version or
+				state.shadow_generation ~= Material.shadow_generation or
+				state.albedo_generation ~= Material.albedo_generation
 			)
 		then
-			self.expander.version = scene_bvh.soup_version
-			self.expander.shadow_generation = Material.shadow_generation
-			self.expander.albedo_generation = Material.albedo_generation
+			state.version = scene_bvh.soup_version
+			state.shadow_generation = Material.shadow_generation
+			state.albedo_generation = Material.albedo_generation
 
 			-- the tables are written here, before anything of this recording
 			-- binds their descriptors, which a later write would invalidate
-			if scene_bvh.SOUP_UVS then
-				for format, table_state in pairs(self.soup_material_tables) do
-					update_soup_material_table(self.soup_uv_pipeline_variants[format], table_state)
-				end
+			for format, table_state in pairs(self.soup_material_tables) do
+				update_soup_material_table(self.soup_uv_pipeline_variants[format], table_state)
 			end
 
-			gpu_timing.BeginScope(self.cmd, "shadow_soup_expand")
-			local vertex_count, position_buffer = scene_bvh.ExpandPositions(self.cmd, self.expander)
-			gpu_timing.EndScope(self.cmd, "shadow_soup_expand")
-			self.expander.vertex_count = vertex_count
+			local opacities = scene_bvh.UpdateShadowMaterials()
+			state.vertex_count = scene_bvh.IsReady() and scene_bvh.soup_triangle_count * 3 or 0
 
-			if vertex_count > 0 then
+			if state.vertex_count > 0 then
 				scene_bvh.RefreshShadowClasses()
-				local barriers = {
-					{
-						buffer = position_buffer,
-						size = vertex_count * 12,
-						srcAccessMask = "shader_write",
-						dstAccessMask = "vertex_attribute_read",
-					},
-				}
 
-				if scene_bvh.SOUP_UVS then
-					barriers[2] = {
-						buffer = self.expander.uv_buffer,
-						size = vertex_count * 8,
-						srcAccessMask = "shader_write",
-						dstAccessMask = "vertex_attribute_read",
-					}
-					barriers[3] = {
-						buffer = self.expander.material_buffer,
-						size = vertex_count * 4,
-						srcAccessMask = "shader_write",
-						dstAccessMask = "vertex_attribute_read",
-					}
-				else
-					barriers[2] = {
-						buffer = self.expander.opacity_buffer,
-						size = vertex_count * 4,
-						srcAccessMask = "shader_write",
-						dstAccessMask = "vertex_attribute_read",
-					}
+				-- the buffers are replaced when they grow
+				if
+					state.triangle_buffer ~= scene_bvh.triangle_buffer or
+					state.uv_buffer ~= scene_bvh.uv_buffer or
+					state.opacity_buffer ~= opacities
+				then
+					state.triangle_buffer = scene_bvh.triangle_buffer
+					state.uv_buffer = scene_bvh.uv_buffer
+					state.opacity_buffer = opacities
+
+					for _, pipeline in pairs(self.soup_pipeline_variants) do
+						scene_bvh.BindTriangleBuffer(pipeline, 1, SOUP_TRIANGLE_BINDING, scene_bvh.triangle_buffer)
+						pipeline:UpdateDescriptorSet("storage_buffer", 1, SOUP_OPACITY_BINDING, 0, opacities, opacities:GetSize())
+					end
+
+					for _, pipeline in pairs(self.soup_uv_pipeline_variants) do
+						scene_bvh.BindTriangleBuffer(pipeline, 1, SOUP_TRIANGLE_BINDING, scene_bvh.triangle_buffer)
+						pipeline:UpdateDescriptorSet("storage_buffer", 1, SOUP_OPACITY_BINDING, 0, opacities, opacities:GetSize())
+						scene_bvh.BindTriangleBuffer(pipeline, 1, SOUP_UV_BINDING, scene_bvh.uv_buffer, scene_bvh.UV_CHUNK_BYTES)
+					end
 				end
-
-				self.cmd:PipelineBarrier{
-					srcStage = "compute",
-					dstStage = "vertex_input",
-					bufferBarriers = barriers,
-				}
 			end
 		end
 	end
@@ -2927,7 +2856,6 @@ do
 
 		local pipeline = self.soup_pipeline_variants[cascade.format] or self.soup_pipeline
 		pipeline:Bind(self.cmd, frame_index, {offset})
-		self.cmd:BindVertexBuffers(0, {self.expander.position_buffer})
 		-- a block's padding is degenerate, so visible blocks that are neighbours
 		-- in the soup are drawn as one range
 		local first, stop = 0, 0
@@ -2935,7 +2863,7 @@ do
 		local dither_first, dither_stop = 0, 0
 		-- blocks placed by a build that is still running can lie past what was
 		-- expanded
-		local limit = self.expander.vertex_count or 0
+		local limit = self.soup_state.vertex_count
 		scene_bvh.MarkVisibleBlocks(planes)
 		local visible = scene_bvh.raster_visible
 		local dithered = scene_bvh.raster_dithered
@@ -2982,22 +2910,7 @@ do
 
 		if dither_count == 0 then return end
 
-		if scene_bvh.SOUP_UVS then
-			local uv_pipeline = self.soup_uv_pipeline_variants[cascade.format]
-			uv_pipeline:Bind(self.cmd, frame_index, {offset})
-			self.cmd:BindVertexBuffers(
-				0,
-				{
-					self.expander.position_buffer,
-					self.expander.uv_buffer,
-					self.expander.material_buffer,
-				}
-			)
-		else
-			local dither_pipeline = self.soup_dither_pipeline_variants[cascade.format] or self.soup_dither_pipeline
-			dither_pipeline:Bind(self.cmd, frame_index, {offset})
-			self.cmd:BindVertexBuffers(0, {self.expander.position_buffer, self.expander.opacity_buffer})
-		end
+		self.soup_uv_pipeline_variants[cascade.format]:Bind(self.cmd, frame_index, {offset})
 
 		for i = 1, dither_count, 2 do
 			self.cmd:Draw(dither_runs[i + 1] - dither_runs[i], 1, dither_runs[i], 0)

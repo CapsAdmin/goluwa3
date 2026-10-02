@@ -58,6 +58,17 @@ local function get_device_heap_bytes()
 	return total
 end
 
+local function take_pending_groups()
+	local sorted = {}
+
+	for label, bytes in pairs(vulkan_memory.pending_release_by_name) do
+		sorted[#sorted + 1] = {label = label, bytes = bytes}
+	end
+
+	table.sort(sorted, by_bytes)
+	return sorted
+end
+
 local function take_snapshot()
 	local groups = {}
 	local total = 0
@@ -65,7 +76,13 @@ local function take_snapshot()
 
 	for _, memory in pairs(vulkan_memory.Instances) do
 		if memory:IsValid() then
-			local label = memory.debug_name and memory.debug_name:gsub(" memory$", "") or "(unnamed)"
+			local label = (
+					memory.debug_name and
+					memory.debug_name:gsub(" memory$", "") or
+					"(unnamed)"
+				) .. (
+					" [type " .. memory.type_index .. "]"
+				)
 			local group = groups[label]
 
 			if not group then
@@ -88,7 +105,14 @@ local function take_snapshot()
 	end
 
 	table.sort(sorted, by_bytes)
-	return {groups = sorted, total = total, count = count, heap = get_device_heap_bytes()}
+	return {
+		groups = sorted,
+		total = total,
+		count = count,
+		heap = get_device_heap_bytes(),
+		pending = vulkan_memory.pending_release_bytes,
+		pending_groups = take_pending_groups(),
+	}
 end
 
 local function text(x, panel_x, label, color)
@@ -111,11 +135,12 @@ local function draw_snapshot(x, y)
 		10,
 		x,
 		string.format(
-			"vram  %s of %s device local (%.0f%%)  %d allocations",
+			"vram  %s of %s device local (%.0f%%)  %d allocations  +%s awaiting release",
 			format_bytes(s.total),
 			format_bytes(s.heap),
 			fraction * 100,
-			s.count
+			s.count,
+			format_bytes(s.pending)
 		),
 		fraction > 0.9 and WARN or HEAD
 	)
@@ -143,6 +168,17 @@ local function draw_snapshot(x, y)
 		text(10, x, string.format("%d more labels", #s.groups - MAX_ROWS), DIM)
 		text(SIZE_X, x, format_bytes(rest), DIM)
 		row_y = row_y + LINE_HEIGHT
+	end
+
+	if s.pending_groups[1] then
+		text(10, x, "awaiting release", DIM)
+		row_y = row_y + LINE_HEIGHT
+
+		for i = 1, math.min(5, #s.pending_groups) do
+			text(10, x, s.pending_groups[i].label, DIM)
+			text(SIZE_X, x, format_bytes(s.pending_groups[i].bytes), DIM)
+			row_y = row_y + LINE_HEIGHT
+		end
 	end
 
 	panel_height = row_y - y + 10
@@ -174,13 +210,24 @@ commands.Add("vram_dump=number[40]", function(limit)
 	local s = take_snapshot()
 	logn(
 		string.format(
-			"VRAM: %s of %s device local, %d allocations, %d labels",
+			"VRAM: %s of %s device local, %d allocations, %d labels, %s awaiting release",
 			format_bytes(s.total),
 			format_bytes(s.heap),
 			s.count,
-			#s.groups
+			#s.groups,
+			format_bytes(s.pending)
 		)
 	)
+
+	for i = 1, math.min(10, #s.pending_groups) do
+		logn(
+			string.format(
+				"awaiting release: %10s  %s",
+				format_bytes(s.pending_groups[i].bytes),
+				s.pending_groups[i].label
+			)
+		)
+	end
 
 	for i = 1, math.min(limit, #s.groups) do
 		local group = s.groups[i]

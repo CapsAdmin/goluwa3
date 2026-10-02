@@ -178,7 +178,7 @@ function RayTracingPipeline.New(device, config)
 	local records_buffer = render.CreateBuffer{
 		byte_size = total_size,
 		buffer_usage = {"shader_device_address", "shader_binding_table_khr", "transfer_src"},
-		memory_property = {"host_visible", "device_local"},
+		memory_property = {"host_visible", "host_coherent"},
 		label = "ray_tracing_shader_binding_table",
 		data = sbt,
 	}
