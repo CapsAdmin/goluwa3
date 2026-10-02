@@ -355,20 +355,16 @@ function RigidBody:GetGroundSupportProjectionMetrics()
 end
 
 function RigidBody:IsGroundSupportStable()
-	if not self:GetGrounded() then
-		return false, self:GetGroundSupportProjectionMetrics()
-	end
-
 	local support = self:GetGroundSupportProjectionMetrics()
 
-	if support.count <= 0 then return false, support end
+	if not self:GetGrounded() or support.count <= 0 then return false, support end
 
-	local tolerance = math.max(
+	return (support.overhang_length or math.huge) <= math.max(
 		(self:GetCollisionMargin() or 0) * 2,
 		(self:GetCollisionProbeDistance() or 0) * 0.5,
 		0.1
-	)
-	return (support.overhang_length or math.huge) <= tolerance, support
+	),
+	support
 end
 
 function RigidBody:RebuildColliders()

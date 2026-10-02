@@ -647,11 +647,7 @@ end
 -- coefficients pull it back. The relax calls judge the current pose.
 -- Returns bias, mass_scale, impulse_scale.
 function rows.GetLimitSoftness(gap, dt, relax, bias_rate, soft_mass_scale, soft_impulse_scale, gap_rate)
-	if relax then
-		if gap > 0 then return gap / dt, 1, 0 end
-
-		return 0, 1, 0
-	end
+	if relax then return math.max(gap, 0) / dt, 1, 0 end
 
 	local start_gap = gap - gap_rate * dt
 

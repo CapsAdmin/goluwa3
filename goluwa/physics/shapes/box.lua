@@ -203,57 +203,38 @@ function META:BuildSupportLocalPoints()
 	return sample_points.BuildBoxSupportGridPoints(self:GetExtents())
 end
 
-function META:GetSupportFootprintMetrics(body, ground_normal)
-	ground_normal = ground_normal or body.GroundNormal or Vec3(0, 1, 0)
-	local support = body:GetGroundSupportProjectionMetrics()
-	local tangent = support.tangent
-	local bitangent = support.bitangent
+do
+	-- shared by every caller in this file, which only read it right away
+	local metrics = {min_coverage = 0, area_coverage = 0, support_width_coverage = 0, stable = false}
 
-	if not tangent or not bitangent then
-		tangent, bitangent = build_support_plane_basis(ground_normal)
+	function META:GetSupportFootprintMetrics(body, ground_normal)
+		local support = body:GetGroundSupportProjectionMetrics()
+		local tangent = support.tangent
+		local bitangent = support.bitangent
+
+		if not tangent or not bitangent then
+			tangent, bitangent = build_support_plane_basis(ground_normal or body.GroundNormal or Vec3(0, 1, 0))
+		end
+
+		local extents = self:GetExtents()
+		fill_body_axes(body)
+		local span_u = 2 * (extents.x * math.abs(tangent:Dot(BODY_RIGHT)) + extents.y * math.abs(tangent:Dot(BODY_UP)) + extents.z * math.abs(tangent:Dot(BODY_BACK)))
+		local span_v = 2 * (extents.x * math.abs(bitangent:Dot(BODY_RIGHT)) + extents.y * math.abs(bitangent:Dot(BODY_UP)) + extents.z * math.abs(bitangent:Dot(BODY_BACK)))
+		local support_span_u = support.span_u or 0
+		local support_span_v = support.span_v or 0
+		local coverage_u = span_u > 0.0001 and math.min(1, support_span_u / span_u) or 0
+		local coverage_v = span_v > 0.0001 and math.min(1, support_span_v / span_v) or 0
+		local minor_span = math.min(span_u, span_v)
+		metrics.min_coverage = math.min(coverage_u, coverage_v)
+		metrics.area_coverage = span_u * span_v > 0.0001 and
+			math.min(1, support_span_u * support_span_v / (span_u * span_v)) or
+			0
+		metrics.support_width_coverage = minor_span > 0.0001 and
+			math.min(1, (support.max_span or 0) / minor_span) or
+			0
+		metrics.stable = (support.overhang_length or math.huge) <= get_ground_support_tolerance(body)
+		return metrics
 	end
-
-	local extents = self:GetExtents()
-	fill_body_axes(body)
-	local right = BODY_RIGHT
-	local up = BODY_UP
-	local forward = BODY_BACK
-	local footprint_half_u = extents.x * math.abs(tangent:Dot(right)) + extents.y * math.abs(tangent:Dot(up)) + extents.z * math.abs(tangent:Dot(forward))
-	local footprint_half_v = extents.x * math.abs(bitangent:Dot(right)) + extents.y * math.abs(bitangent:Dot(up)) + extents.z * math.abs(bitangent:Dot(forward))
-	local footprint_span_u = footprint_half_u * 2
-	local footprint_span_v = footprint_half_v * 2
-	local major_footprint_span = math.max(footprint_span_u, footprint_span_v)
-	local minor_footprint_span = math.min(footprint_span_u, footprint_span_v)
-	local support_span_u = support.span_u or 0
-	local support_span_v = support.span_v or 0
-	local coverage_u = footprint_span_u > 0.0001 and
-		math.min(1, support_span_u / footprint_span_u) or
-		0
-	local coverage_v = footprint_span_v > 0.0001 and
-		math.min(1, support_span_v / footprint_span_v) or
-		0
-	local footprint_area = footprint_span_u * footprint_span_v
-	local support_area = support_span_u * support_span_v
-	local area_coverage = footprint_area > 0.0001 and math.min(1, support_area / footprint_area) or 0
-	return {
-		support = support,
-		tangent = tangent,
-		bitangent = bitangent,
-		footprint_span_u = footprint_span_u,
-		footprint_span_v = footprint_span_v,
-		major_footprint_span = major_footprint_span,
-		minor_footprint_span = minor_footprint_span,
-		support_span_u = support_span_u,
-		support_span_v = support_span_v,
-		coverage_u = coverage_u,
-		coverage_v = coverage_v,
-		min_coverage = math.min(coverage_u, coverage_v),
-		area_coverage = area_coverage,
-		support_width_coverage = minor_footprint_span > 0.0001 and
-			math.min(1, (support.max_span or 0) / minor_footprint_span) or
-			0,
-		stable = (support.overhang_length or math.huge) <= get_ground_support_tolerance(body),
-	}
 end
 
 function META:ShouldUseBroadSupportContact(body, ground_normal)
