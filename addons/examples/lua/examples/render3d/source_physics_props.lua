@@ -34,12 +34,11 @@ for i, path in ipairs(models) do
 		function(data)
 			local row = math.floor((i - 1) / PER_ROW)
 			local column = (i - 1) % PER_ROW - (PER_ROW - 1) / 2
+			local center_of_mass = data.physics.center_of_mass
 			local ent = Entity.New({Name = "source_physics_prop_" .. path})
 			ent:AddComponent("transform")
-			ent.transform:SetPosition(ORIGIN + Vec3(column * SPACING, 1.5 + row * 2, row * SPACING))
+			ent.transform:SetPosition(ORIGIN + Vec3(column * SPACING, 1.5 + row * 2, row * SPACING) + center_of_mass)
 			ent.transform:SetRotation(Quat():SetAngles(Deg3(0, i * 37, 0)))
-			ent:AddComponent("visual")
-			ent.visual:SetModelPath(path)
 			ent:AddComponent(
 				"rigid_body",
 				{
@@ -52,6 +51,14 @@ for i, path in ipairs(models) do
 					AngularDamping = 0.1,
 				}
 			)
+			-- the body origin is the center of mass, the model origin is not
+			local visual = Entity.New({Name = "source_physics_visual_" .. path})
+			visual.PhysicsNoCollision = true
+			visual:AddComponent("transform")
+			visual.transform:SetPosition(center_of_mass * -1)
+			visual:AddComponent("visual")
+			visual.visual:SetModelPath(path)
+			visual:SetParent(ent)
 		end,
 		nil,
 		function(err)

@@ -352,8 +352,8 @@ end
 -- response per unit impulse and the effective mass stay valid for every pass.
 local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 	local nx, ny, nz = normal.x, normal.y, normal.z
-	local position_a = body_a.Position
-	local position_b = body_b.Position
+	local position_a = body_a:GetBody().Position
+	local position_b = body_b:GetBody().Position
 	local mass_a = body_a:HasSolverMass() and body_a.InverseMass or 0
 	local mass_b = body_b:HasSolverMass() and body_b.InverseMass or 0
 	local movable_a = body_a:IsSolverImmovable() and 0 or 1
@@ -457,6 +457,7 @@ end
 
 -- world-space inverse inertia applied to a world vector: R * I^-1 * R^T * v
 local function inverse_inertia_apply(body, vx, vy, vz)
+	body = body:GetBody()
 	local tx = 2 * (-body.Rotation.y * vz + body.Rotation.z * vy)
 	local ty = 2 * (-body.Rotation.z * vx + body.Rotation.x * vz)
 	local tz = 2 * (-body.Rotation.x * vy + body.Rotation.y * vx)

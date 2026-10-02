@@ -91,7 +91,7 @@ end
 function motion.GetPointVelocity(body, linear_velocity, angular_velocity, point)
 	if not point then return linear_velocity end
 
-	return linear_velocity + angular_velocity:GetCross(point - body:GetPosition())
+	return linear_velocity + angular_velocity:GetCross(point - body:GetBody():GetPosition())
 end
 
 function motion.ApplyImpulseToMotion(body, linear_velocity, angular_velocity, impulse, point)
@@ -100,7 +100,7 @@ function motion.ApplyImpulseToMotion(body, linear_velocity, angular_velocity, im
 	linear_velocity = linear_velocity + impulse * body.InverseMass
 
 	if point then
-		angular_velocity = angular_velocity + body:GetAngularVelocityDelta((point - body:GetPosition()):GetCross(impulse))
+		angular_velocity = angular_velocity + body:GetAngularVelocityDelta((point - body:GetBody():GetPosition()):GetCross(impulse))
 	end
 
 	return linear_velocity, angular_velocity

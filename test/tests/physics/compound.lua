@@ -5,6 +5,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
 local CompoundShape = import("goluwa/physics/shapes/compound.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
@@ -132,6 +133,116 @@ T.TestPhysics("Dynamic compound of convex hulls rests on ground", function()
 	T(#body:GetColliders())["=="](2)
 	T(position.y)[">="](0.4)
 	T(position.y)["<"](0.6)
+	ent:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("Impulses through a child collider use the body center of mass as lever arm", function()
+	local motion = import("goluwa/physics/motion.lua")
+	local points = {}
+
+	for _, sx in ipairs{-0.15, 0.15} do
+		for _, sy in ipairs{-0.15, 0.15} do
+			for _, sz in ipairs{-0.15, 0.15} do
+				points[#points + 1] = Vec3(sx, sy, sz)
+			end
+		end
+	end
+
+	local hull = convex_hull.Normalize(points)
+	local ent = Entity.New({Name = "compound_lever"})
+	ent:AddComponent("transform")
+	ent.transform:SetPosition(Vec3(0, 5, 0))
+	local body = ent:AddComponent(
+		"rigid_body",
+		{
+			Shapes = {
+				{ConvexHull = hull, Position = Vec3(-1, 0, 0)},
+				{ConvexHull = hull, Position = Vec3(1, 0, 0)},
+			},
+			Mass = 5,
+			AutomaticMass = false,
+		}
+	)
+	local collider = body:GetColliders()[2]
+	local point = Vec3(1, 0, 0) + body:GetPosition()
+	local impulse = Vec3(0, 1, 0)
+	local _, angular_body = motion.ApplyImpulseToMotion(body, Vec3(), Vec3(), impulse, point)
+	local _, angular_collider = motion.ApplyImpulseToMotion(collider, Vec3(), Vec3(), impulse, point)
+	T(angular_body:GetLength())[">"](0)
+	T((angular_collider - angular_body):GetLength())["<"](0.00001)
+	ent:Remove()
+end)
+
+T.TestPhysics("Writes through a child collider reach the body", function()
+	local ent = Entity.New({Name = "compound_write"})
+	ent:AddComponent("transform")
+	local body = ent:AddComponent(
+		"rigid_body",
+		{
+			Shapes = {
+				{Shape = sphere_shape(0.2), Position = Vec3(-1, 0, 0)},
+				{Shape = sphere_shape(0.2), Position = Vec3(1, 0, 0)},
+			},
+			Mass = 1,
+			AutomaticMass = false,
+		}
+	)
+	local collider = body:GetColliders()[2]
+	collider.PositionCorrection = 0.25
+	T(body.PositionCorrection)["=="](0.25)
+	T(rawget(collider, "PositionCorrection"))["=="](nil)
+	ent:Remove()
+end)
+
+T.TestPhysics("Four-legged compound settles to rest", function()
+	local ground = Entity.New({Name = "compound_legs_ground"})
+	ground:AddComponent("transform")
+	ground.transform:SetPosition(Vec3(0, -0.5, 0))
+	ground:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(30, 1, 30)),
+			Size = Vec3(30, 1, 30),
+			MotionType = "static",
+			Friction = 0.9,
+		}
+	)
+
+	local function box_hull(sx, sy, sz)
+		local points = {}
+
+		for _, x in ipairs{-sx / 2, sx / 2} do
+			for _, y in ipairs{-sy / 2, sy / 2} do
+				for _, z in ipairs{-sz / 2, sz / 2} do
+					points[#points + 1] = Vec3(x, y, z)
+				end
+			end
+		end
+
+		return convex_hull.Normalize(points)
+	end
+
+	local children = {{ConvexHull = box_hull(1.4, 0.08, 0.4), Position = Vec3(0, 0.3, 0)}}
+
+	for _, x in ipairs{-0.65, 0.65} do
+		for _, z in ipairs{-0.15, 0.15} do
+			children[#children + 1] = {ConvexHull = box_hull(0.06, 0.6, 0.06), Position = Vec3(x, 0, z)}
+		end
+	end
+
+	local ent = Entity.New({Name = "compound_legs"})
+	ent:AddComponent("transform")
+	ent.transform:SetPosition(Vec3(0, 0.6, 0))
+	ent.transform:SetAngles(Deg3(0, 30, 15))
+	local body = ent:AddComponent(
+		"rigid_body",
+		{Shapes = children, Mass = 20, AutomaticMass = false, Friction = 0.7}
+	)
+	test_helpers.Simulate(300)
+	T(body:GetVelocity():GetLength())["<"](0.01)
+	T(body:GetAngularVelocity():GetLength())["<"](0.01)
+	T(body:GetRotation():VecMul(Vec3(0, 1, 0)).y)[">"](0.99)
 	ent:Remove()
 	ground:Remove()
 end)

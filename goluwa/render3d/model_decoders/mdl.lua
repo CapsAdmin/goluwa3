@@ -10,6 +10,7 @@ local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
+local render = import("goluwa/render/render.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local bit = require("bit")
@@ -781,6 +782,8 @@ local function load_phy(path)
 		local solid_start = buffer:GetPosition()
 		-- compactsurfaceheader_t is 28 bytes after the size, then the ivp compact surface
 		local surface_start = solid_start + 28
+		buffer:SetPosition(surface_start)
+		local cx, cy, cz = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
 		buffer:SetPosition(surface_start + 32)
 		local ledgetree_root = surface_start + buffer:ReadI32()
 		local ledges = {}
@@ -838,7 +841,7 @@ local function load_phy(path)
 			end
 		end
 
-		solids[solid_i] = {ledges = ledges}
+		solids[solid_i] = {ledges = ledges, mass_center = Vec3(-cz, -cy, -cx) * PHY_TO_METERS}
 		buffer:SetPosition(solid_start + surface_size)
 	end
 
@@ -872,7 +875,57 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 	--utility.PushTimeWarning()
 	local mdl = load_mdl(full_path)
 
-	if mdl.bodypart_count == 0 then return models end
+	if pcall(find_file, companion_path, ".phy") then
+		local solids = load_phy(companion_path)
+		local children = {}
+		local mass = 0
+		local surface_property
+		local center_of_mass = Vec3(0, 0, 0)
+
+		for _, solid in ipairs(solids) do
+			local weight = solid.mass or 1
+			center_of_mass = center_of_mass + solid.mass_center * weight
+			mass = mass + weight
+			surface_property = surface_property or solid.surface_property
+		end
+
+		center_of_mass = center_of_mass / mass
+
+		for _, solid in ipairs(solids) do
+			for _, points in ipairs(solid.ledges) do
+				local min = Vec3(math.huge, math.huge, math.huge)
+				local max = Vec3(-math.huge, -math.huge, -math.huge)
+
+				for _, point in ipairs(points) do
+					min.x, min.y, min.z = math.min(min.x, point.x), math.min(min.y, point.y), math.min(min.z, point.z)
+					max.x, max.y, max.z = math.max(max.x, point.x), math.max(max.y, point.y), math.max(max.z, point.z)
+				end
+
+				local center = (min + max) * 0.5
+
+				for i, point in ipairs(points) do
+					points[i] = point - center
+				end
+
+				local hull = convex_hull.Normalize(points)
+
+				if hull then
+					children[#children + 1] = {ConvexHull = hull, Position = center - center_of_mass}
+				end
+			end
+		end
+
+		if children[1] then
+			physics_callback{
+				children = children,
+				mass = solids[1].mass and mass or mdl.mass,
+				surface_property = surface_property,
+				center_of_mass = center_of_mass,
+			}
+		end
+	end
+
+	if mdl.bodypart_count == 0 or not render.IsInitialized() then return models end
 
 	local vvd = load_vvd(companion_path)
 	local vtx = load_vtx(companion_path)
@@ -959,45 +1012,6 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 				-- Only process first LOD per body part for highest quality
 				break
 			end
-		end
-	end
-
-	if pcall(find_file, companion_path, ".phy") then
-		local children = {}
-		local mass = 0
-		local surface_property
-
-		for _, solid in ipairs(load_phy(companion_path)) do
-			for _, points in ipairs(solid.ledges) do
-				local min = Vec3(math.huge, math.huge, math.huge)
-				local max = Vec3(-math.huge, -math.huge, -math.huge)
-
-				for _, point in ipairs(points) do
-					min.x, min.y, min.z = math.min(min.x, point.x), math.min(min.y, point.y), math.min(min.z, point.z)
-					max.x, max.y, max.z = math.max(max.x, point.x), math.max(max.y, point.y), math.max(max.z, point.z)
-				end
-
-				local center = (min + max) * 0.5
-
-				for i, point in ipairs(points) do
-					points[i] = point - center
-				end
-
-				local hull = convex_hull.Normalize(points)
-
-				if hull then children[#children + 1] = {ConvexHull = hull, Position = center} end
-			end
-
-			mass = mass + (solid.mass or 0)
-			surface_property = surface_property or solid.surface_property
-		end
-
-		if children[1] then
-			physics_callback{
-				children = children,
-				mass = mass > 0 and mass or mdl.mass,
-				surface_property = surface_property,
-			}
 		end
 	end
 

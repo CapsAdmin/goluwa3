@@ -17,6 +17,7 @@ local body_overlay_states = setmetatable({}, {__mode = "k"})
 local rigid_body_component
 local get_debug_snapshot
 local focused_body
+local locked_body
 local overlay_config = {
 	contact_marker_radius = 4,
 	contact_normal_length = 0.35,
@@ -396,7 +397,11 @@ end
 local function build_focus_overlay_lines(body, snapshot, hit, contacts)
 	local top_contact = contacts[1]
 	local lines = {
-		tostring(snapshot.owner_name or "rigid body"),
+		tostring(snapshot.owner_name or "rigid body") .. (
+			locked_body and
+			" [locked]" or
+			""
+		),
 		string.format(
 			"%s | %s | grounded %s",
 			tostring(snapshot.motion_type or "unknown"),
@@ -502,6 +507,18 @@ local function draw_broadphase_bounds(body, snapshot)
 		aabb = bounds,
 		color = {0.4, 0.95, 1.0, 0.95},
 		width = 1,
+		time = overlay_config.debug_draw_time,
+	}
+end
+
+local function draw_center_of_mass(body)
+	local position = get_body_render_position_rotation(body)
+	debug_draw.DrawSphere{
+		id = "physics_debug_com_" .. get_body_debug_id(body),
+		position = position,
+		radius = 0.03,
+		color = {1.0, 0.2, 0.2, 1},
+		ignore_z = true,
 		time = overlay_config.debug_draw_time,
 	}
 end
@@ -618,6 +635,9 @@ local function draw_hovered_body_info()
 	if not debug_enabled then return end
 
 	local body, hit = get_look_body_hit()
+
+	if locked_body then body, hit = locked_body, nil end
+
 	focused_body = body
 
 	if not body then return end
@@ -638,6 +658,7 @@ local function draw_hovered_body_info()
 	local title_r, title_g, title_b = get_awake_color(snapshot)
 	draw_trace_hit(body, hit)
 	draw_broadphase_bounds(body, snapshot)
+	draw_center_of_mass(body)
 	draw_contact_markers(body, contacts)
 	draw_contact_links(body, contacts)
 	draw_partner_badges(body, contacts)
@@ -735,11 +756,10 @@ local function append_shape(model, body, shape, local_matrix)
 end
 
 local function get_shape_signature(body)
-	local shape = body:GetPhysicsShape() or body.Shape
-	local shape_type = body:GetShapeType()
-	local hull = shape and shape.GetResolvedHull and shape:GetResolvedHull(body) or nil
-	local children = shape and shape.GetChildren and shape:GetChildren() or nil
-	return shape, shape_type, hull, children and #children or 0
+	local colliders = body:GetColliders()
+	local shape = colliders[1]:GetPhysicsShape()
+	local hull = shape.GetResolvedHull and shape:GetResolvedHull(colliders[1]) or nil
+	return shape, body:GetShapeType(), hull, #colliders
 end
 
 local function sync_debug_transform(body, debug_ent)
@@ -778,7 +798,15 @@ local function rebuild_debug_model(body, entry)
 		child:Remove()
 	end
 
-	append_shape(debug_ent.visual, body, body:GetPhysicsShape() or body.Shape, Matrix44():Identity())
+	for _, collider in ipairs(body:GetColliders()) do
+		append_shape(
+			debug_ent.visual,
+			collider,
+			collider:GetPhysicsShape(),
+			debug_draw.MakeMatrix(collider:GetLocalPosition(), collider:GetLocalRotation())
+		)
+	end
+
 	debug_ent.visual:BuildAABB()
 	debug_ent.visual:SetVisible(debug_enabled and body == focused_body)
 	entry.shape, entry.shape_type, entry.hull, entry.child_count = get_shape_signature(body)
@@ -841,12 +869,24 @@ event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
 	if key == "n" then
 		debug_enabled = not debug_enabled
 		focused_body = nil
+		locked_body = nil
 		update_debug_visibility()
 
 		if debug_enabled then
 			event.AddListener("Draw2D", "physics_debug_hover_info", draw_hovered_body_info)
+
+			event.AddListener("MouseInput", "physics_debug_lock", function(button, press)
+				if button ~= "button_2" or not press then return end
+
+				if locked_body then
+					locked_body = nil
+				else
+					locked_body = focused_body
+				end
+			end)
 		else
 			event.RemoveListener("Draw2D", "physics_debug_hover_info")
+			event.RemoveListener("MouseInput", "physics_debug_lock")
 		end
 
 		print("[Physics Debug] " .. (debug_enabled and "Enabled" or "Disabled"))
@@ -856,7 +896,12 @@ event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
 
 			event.AddListener("Update", "physics_debug_sync", function()
 				cleanup_removed_bodies()
-				focused_body = get_look_body_hit()
+
+				if locked_body and not (locked_body.Owner and locked_body.Owner:IsValid()) then
+					locked_body = nil
+				end
+
+				focused_body = locked_body or get_look_body_hit()
 
 				if
 					focused_body and

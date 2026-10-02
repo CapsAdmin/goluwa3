@@ -214,6 +214,60 @@ function META:GetSupportRadiusAlongNormal(body, normal)
 	return max_projection
 end
 
+function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
+	local hull = self:GetResolvedHull(collider)
+
+	if not (hull and hull.faces) then return nil end
+
+	local distance_limit = max_distance or math.huge
+	local movement_world = direction and direction:GetNormalized() * distance_limit or Vec3(0, 0, 0)
+
+	if movement_world:GetLength() <= 0.00001 then return nil end
+
+	local start_local = collider:WorldToLocal(origin)
+	local movement_local = collider:WorldToLocal(origin + movement_world) - start_local
+	local expansion = math.max(trace_radius or 0, 0)
+	local vertices = hull.vertices
+	local t_enter = -math.huge
+	local t_exit = math.huge
+	local hit_normal_local
+
+	for _, face in ipairs(hull.faces) do
+		local normal = face.normal
+		local plane_distance = normal:Dot(vertices[face.indices[1]]) + expansion
+		local distance = normal:Dot(start_local) - plane_distance
+		local speed = normal:Dot(movement_local)
+
+		if speed == 0 then
+			if distance > 0 then return nil end
+		else
+			local t = -distance / speed
+
+			if speed < 0 then
+				if t > t_enter then
+					t_enter = t
+					hit_normal_local = normal
+				end
+			elseif t < t_exit then
+				t_exit = t
+			end
+
+			if t_enter > t_exit then return nil end
+		end
+	end
+
+	if not hit_normal_local or t_enter < 0 or t_enter > 1 then return nil end
+
+	local normal = collider:GetRotation():VecMul(hit_normal_local):GetNormalized()
+	return {
+		entity = collider:GetOwner(),
+		distance = distance_limit * t_enter,
+		position = origin + movement_world * t_enter - normal * expansion,
+		normal = normal,
+		rigid_body = collider:GetBody(),
+	}
+end
+
 function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
 	return sweep_helpers.SweepPointAgainstPolyhedronBody(
 		collider,

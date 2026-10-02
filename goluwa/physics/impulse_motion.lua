@@ -10,8 +10,9 @@ local CROSS_IMPULSE = Vec3()
 local function capture_body_motion(state, body)
 	state.body = body
 	-- position and immovability are invariant during the impulse pass, so
-	-- capturing them here avoids re-fetching them per contact
-	state.position = body:GetPosition()
+	-- capturing them here avoids re-fetching them per contact. lever arms
+	-- run from the body's center of mass, not from a child collider
+	state.position = body:GetBody():GetPosition()
 	state.immovable = body:IsSolverImmovable()
 	local linear = body:GetVelocity()
 	local angular = body:GetAngularVelocity()

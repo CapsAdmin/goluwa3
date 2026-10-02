@@ -168,6 +168,10 @@ function module.CreateStubBody(data)
 
 	if body.Awake == nil then body.Awake = motion_type ~= "dynamic" end
 
+	function body:GetBody()
+		return self
+	end
+
 	function body:GetMass()
 		return data.Mass or 0
 	end
