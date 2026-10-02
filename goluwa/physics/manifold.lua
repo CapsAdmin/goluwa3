@@ -666,67 +666,48 @@ function manifold.SolveImpulses(
 				)
 
 				if tangent_speed > EPSILON then
-					local px, py, pz
+					-- tangent direction: the cached one while it is still usable,
+					-- otherwise the sliding direction
+					local px, py, pz = rel_x - normal.x * normal_dot,
+					rel_y - normal.y * normal_dot,
+					rel_z - normal.z * normal_dot
+					local inv = 1 / tangent_speed
 					local cached = allow_persistent_tangent and contact.tangent
 
 					if cached then
 						local dot = cached.x * normal.x + cached.y * normal.y + cached.z * normal.z
-						px, py, pz = cached.x - normal.x * dot, cached.y - normal.y * dot, cached.z - normal.z * dot
-						local length = math.sqrt(px * px + py * py + pz * pz)
+						local cx, cy, cz = cached.x - normal.x * dot, cached.y - normal.y * dot, cached.z - normal.z * dot
+						local length_squared = cx * cx + cy * cy + cz * cz
 
-						if length > EPSILON then
-							local inv = 1 / length
-							px, py, pz = px * inv, py * inv, pz * inv
-						else
-							cached = nil
-						end
-					end
-
-					if not cached then
-						local inv = 1 / tangent_speed
-						px, py, pz = (rel_x - normal.x * normal_dot) * inv,
-						(rel_y - normal.y * normal_dot) * inv,
-						(rel_z - normal.z * normal_dot) * inv
-						local dot = px * normal.x + py * normal.y + pz * normal.z
-						px, py, pz = px - normal.x * dot, py - normal.y * dot, pz - normal.z * dot
-						local length = math.sqrt(px * px + py * py + pz * pz)
-
-						if length > EPSILON then
-							local inv = 1 / length
-							px, py, pz = px * inv, py * inv, pz * inv
-						else
-							px = nil
+						if length_squared > EPSILON * EPSILON then
+							px, py, pz = cx, cy, cz
+							inv = 1 / math.sqrt(length_squared)
 						end
 					end
 
 					-- bitangent = t x n, then re-orthogonalise t = n x b
-					local bx, by, bz
-					local tx, ty, tz
+					local bx, by, bz = (py * normal.z - pz * normal.y) * inv,
+					(pz * normal.x - px * normal.z) * inv,
+					(px * normal.y - py * normal.x) * inv
+					px, py, pz = px * inv, py * inv, pz * inv
 
-					if px then
-						bx, by, bz = py * normal.z - pz * normal.y,
-						pz * normal.x - px * normal.z,
-						px * normal.y - py * normal.x
-					end
-
-					if not px or bx * bx + by * by + bz * bz <= EPSILON * EPSILON then
+					if bx * bx + by * by + bz * bz <= EPSILON * EPSILON then
 						local ax, ay, az = 1, 0, 0
 
 						if math.abs(normal.y) < 0.9 then ax, ay = 0, 1 end
 
 						local dot = ax * normal.x + ay * normal.y + az * normal.z
 						px, py, pz = ax - normal.x * dot, ay - normal.y * dot, az - normal.z * dot
-						local length = math.sqrt(px * px + py * py + pz * pz)
-						local inv = 1 / length
+						inv = 1 / math.sqrt(px * px + py * py + pz * pz)
 						px, py, pz = px * inv, py * inv, pz * inv
 						bx, by, bz = py * normal.z - pz * normal.y,
 						pz * normal.x - px * normal.z,
 						px * normal.y - py * normal.x
 					end
 
-					local inv = 1 / math.sqrt(bx * bx + by * by + bz * bz)
+					inv = 1 / math.sqrt(bx * bx + by * by + bz * bz)
 					bx, by, bz = bx * inv, by * inv, bz * inv
-					tx, ty, tz = normal.y * bz - normal.z * by,
+					local tx, ty, tz = normal.y * bz - normal.z * by,
 					normal.z * bx - normal.x * bz,
 					normal.x * by - normal.y * bx
 					inv = 1 / math.sqrt(tx * tx + ty * ty + tz * tz)
