@@ -353,9 +353,6 @@ function utility.CreateDeferredLibrary(name)
 	)
 end
 
--- shares loads that take a while and caches their results: the first caller
--- begins the load, callers asking while it runs join it. their callbacks are kept
--- in lists, not chained, a model placed thousands of times would overflow the stack
 function utility.CreateLoadCache(cache)
 	local self = {}
 
@@ -364,35 +361,23 @@ function utility.CreateLoadCache(cache)
 
 		if not entry or not entry.loading then return end
 
-		list.insert(entry.callbacks, callback)
-
-		for key, extra_callback in pairs(extra) do
-			entry.extra_callbacks[key] = entry.extra_callbacks[key] or {}
-			list.insert(entry.extra_callbacks[key], extra_callback)
-		end
-
+		list.insert(entry.joiners, {callback = callback, extra = extra})
 		return true
 	end
 
 	function self:Begin(path, callback, extra)
-		local extra_callbacks = {}
-
-		for key, extra_callback in pairs(extra) do
-			extra_callbacks[key] = {extra_callback}
-		end
-
-		cache[path] = {loading = true, callbacks = {callback}, extra_callbacks = extra_callbacks}
+		cache[path] = {loading = true, joiners = {{callback = callback, extra = extra}}}
 	end
 
 	function self:Emit(path, key, out)
 		local entry = cache[path]
 
-		if not entry or not entry.loading or not entry.extra_callbacks[key] then
-			return
-		end
+		if not entry or not entry.loading then return end
 
-		for _, extra_callback in ipairs(entry.extra_callbacks[key]) do
-			extra_callback(out)
+		for _, joiner in ipairs(entry.joiners) do
+			local extra_callback = joiner.extra[key]
+
+			if extra_callback then extra_callback(out) end
 		end
 	end
 
@@ -404,8 +389,16 @@ function utility.CreateLoadCache(cache)
 		-- callbacks loading the same path again get the result right away
 		cache[path] = out
 
-		for _, callback in ipairs(entry.callbacks) do
-			callback(out, ...)
+		for _, joiner in ipairs(entry.joiners) do
+			local ok, err = xpcall(joiner.callback, debug.traceback, out, ...)
+
+			if not ok then
+				local on_fail = joiner.extra.on_fail
+
+				if not on_fail then error(err, 0) end
+
+				on_fail(err)
+			end
 		end
 	end
 
