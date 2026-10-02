@@ -825,7 +825,7 @@ local function build_scene_tree(items, annotate_shadow_versions)
 		item.pending_index = nil
 	end
 
-	local tree = BVH.Build(
+	local tree = BVH.BuildFast(
 		items,
 		get_scene_acceleration_item_bounds,
 		get_scene_acceleration_item_centroid,

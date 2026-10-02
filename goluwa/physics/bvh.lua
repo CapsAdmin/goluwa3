@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local bvh = library()
 bvh.DefaultLeafItemCount = bvh.DefaultLeafItemCount or 8
 
@@ -154,6 +155,181 @@ local function build_node(items, first, last, get_bounds, get_centroid, leaf_ite
 		left = build_node(items, first, mid, get_bounds, get_centroid, leaf_item_count),
 		right = build_node(items, mid + 1, last, get_bounds, get_centroid, leaf_item_count),
 	}
+end
+
+-- Build, for big item lists: the median of a node is found by quickselect over
+-- a permutation of the items instead of sorting them, and the bounds and
+-- centroids of the items are read once. every node splits its items at the same
+-- median (the lower half of the longest centroid axis to the left), but the
+-- items of a half come in no particular order, so the tree differs from
+-- Build's in which leaf holds a tie
+local DoubleArray = ffi.typeof("double[?]")
+local IntArray = ffi.typeof("int32_t[?]")
+
+local function select_nth(order, keys, lo, hi, k)
+	while hi > lo do
+		local a, b, c = keys[order[lo]], keys[order[math.floor((lo + hi) / 2)]], keys[order[hi]]
+		local pivot
+
+		if a < b then
+			if b < c then
+				pivot = b
+			elseif a < c then
+				pivot = c
+			else
+				pivot = a
+			end
+		else
+			if a < c then
+				pivot = a
+			elseif b < c then
+				pivot = c
+			else
+				pivot = b
+			end
+		end
+
+		local i, j = lo, hi
+
+		while i <= j do
+			while keys[order[i]] < pivot do
+				i = i + 1
+			end
+
+			while keys[order[j]] > pivot do
+				j = j - 1
+			end
+
+			if i <= j then
+				order[i], order[j] = order[j], order[i]
+				i = i + 1
+				j = j - 1
+			end
+		end
+
+		if k <= j then
+			hi = j
+		elseif k >= i then
+			lo = i
+		else
+			return
+		end
+	end
+end
+
+local function build_fast_node(data, first, last)
+	local order = data.order
+	local min_x_a, min_y_a, min_z_a = data.min_x, data.min_y, data.min_z
+	local max_x_a, max_y_a, max_z_a = data.max_x, data.max_y, data.max_z
+	local cx_a, cy_a, cz_a = data.cx, data.cy, data.cz
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+	local cmin_x, cmin_y, cmin_z = math.huge, math.huge, math.huge
+	local cmax_x, cmax_y, cmax_z = -math.huge, -math.huge, -math.huge
+
+	for p = first, last do
+		local i = order[p]
+
+		if min_x_a[i] < min_x then min_x = min_x_a[i] end
+
+		if min_y_a[i] < min_y then min_y = min_y_a[i] end
+
+		if min_z_a[i] < min_z then min_z = min_z_a[i] end
+
+		if max_x_a[i] > max_x then max_x = max_x_a[i] end
+
+		if max_y_a[i] > max_y then max_y = max_y_a[i] end
+
+		if max_z_a[i] > max_z then max_z = max_z_a[i] end
+
+		if cx_a[i] < cmin_x then cmin_x = cx_a[i] end
+
+		if cx_a[i] > cmax_x then cmax_x = cx_a[i] end
+
+		if cy_a[i] < cmin_y then cmin_y = cy_a[i] end
+
+		if cy_a[i] > cmax_y then cmax_y = cy_a[i] end
+
+		if cz_a[i] < cmin_z then cmin_z = cz_a[i] end
+
+		if cz_a[i] > cmax_z then cmax_z = cz_a[i] end
+	end
+
+	local bounds = {
+		min_x = min_x,
+		min_y = min_y,
+		min_z = min_z,
+		max_x = max_x,
+		max_y = max_y,
+		max_z = max_z,
+	}
+
+	if last - first + 1 <= data.leaf_item_count then
+		return {aabb = bounds, first = first + 1, last = last + 1}
+	end
+
+	local size_x, size_y, size_z = cmax_x - cmin_x, cmax_y - cmin_y, cmax_z - cmin_z
+	local keys, extent
+
+	if size_x >= size_y and size_x >= size_z then
+		keys, extent = cx_a, size_x
+	elseif size_y >= size_z then
+		keys, extent = cy_a, size_y
+	else
+		keys, extent = cz_a, size_z
+	end
+
+	if extent <= 0 then return {aabb = bounds, first = first + 1, last = last + 1} end
+
+	local mid = math.floor((first + last) / 2)
+	select_nth(order, keys, first, last, mid)
+	return {
+		aabb = bounds,
+		left = build_fast_node(data, first, mid),
+		right = build_fast_node(data, mid + 1, last),
+	}
+end
+
+function bvh.BuildFast(items, get_bounds, get_centroid, leaf_item_count)
+	local count = items and #items or 0
+
+	if count == 0 then return nil end
+
+	local data = {
+		leaf_item_count = leaf_item_count or bvh.DefaultLeafItemCount,
+		order = IntArray(count),
+		min_x = DoubleArray(count),
+		min_y = DoubleArray(count),
+		min_z = DoubleArray(count),
+		max_x = DoubleArray(count),
+		max_y = DoubleArray(count),
+		max_z = DoubleArray(count),
+		cx = DoubleArray(count),
+		cy = DoubleArray(count),
+		cz = DoubleArray(count),
+	}
+
+	for i = 0, count - 1 do
+		local item = items[i + 1]
+		local item_bounds = get_bounds(item)
+		data.min_x[i], data.min_y[i], data.min_z[i] = item_bounds.min_x, item_bounds.min_y, item_bounds.min_z
+		data.max_x[i], data.max_y[i], data.max_z[i] = item_bounds.max_x, item_bounds.max_y, item_bounds.max_z
+		data.cx[i], data.cy[i], data.cz[i] = get_centroid(item)
+		data.order[i] = i
+	end
+
+	local root = build_fast_node(data, 0, count - 1)
+	local ordered = {}
+
+	for p = 0, count - 1 do
+		ordered[p + 1] = items[data.order[p] + 1]
+	end
+
+	for i = 1, count do
+		items[i] = ordered[i]
+	end
+
+	return {items = items, root = root}
 end
 
 function bvh.Build(items, get_bounds, get_centroid, leaf_item_count)
