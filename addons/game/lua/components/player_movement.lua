@@ -4,6 +4,7 @@ local steam = import("goluwa/steam/steam.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
+local event = import("goluwa/event.lua")
 local META = objects.CreateTemplate("player_movement")
 -- Source's player (GMod defaults) in Source units, converted to meters. Source
 -- uses a 32 x 72 box hull that moves by itself; this is a capsule on a rigid
@@ -20,10 +21,13 @@ META:GetSet("Acceleration", 10)
 META:GetSet("AirAcceleration", 10)
 META:GetSet("Friction", 6)
 META:GetSet("StopSpeed", 100 * UNIT)
-META:GetSet("JumpSpeed", 200 * UNIT)
+META:GetSet("JumpSpeed", 196.75 * UNIT)
 META:GetSet("Gravity", 600 * UNIT)
 META:GetSet("StepHeight", 18 * UNIT)
 META:GetSet("GroundReach", 2 * UNIT)
+-- Source's sv_sticktoground: keep the body on the ground over crests and down
+-- slopes instead of letting it leave the surface
+META:IsSet("StickToGround", true)
 -- Source leaves the ground at 140 u/s, which running up a 30 degree ramp
 -- already reaches; here only a jump or a real launch does
 META:GetSet("LeaveGroundSpeed", 250 * UNIT)
@@ -148,6 +152,18 @@ end
 
 -- the probes start a little above the ground, a capsule resting on it already
 -- touches it and would report the ground instead of what is in front of it
+-- handed to the PlayerMove event every fixed step, like Source's CMoveData:
+-- hooks read and change velocity and grounded before the controller applies
+-- friction, acceleration and its own jump
+local MOVE = {
+	velocity = Vec3(),
+	position = Vec3(),
+	grounded = false,
+	jump_pressed = false,
+	jump_down = false,
+	pitch = 0,
+	dt = 0,
+}
 local STEP_PROBE_LIFT = 0.04
 -- the body rests a margin away from what it touches
 local STEP_REACH_MARGIN = 0.03
@@ -219,6 +235,20 @@ function META:TryStepUp(direction, distance)
 	return true
 end
 
+-- sweeps the player's own capsule from where it is, for movement hooks
+function META:SweepHull(direction, length)
+	local body = self.Owner.rigid_body
+	STEP_OPTIONS.Rotation = body:GetRotation()
+	return body:GetPhysics().SweepCollider(
+		body:GetColliders()[1],
+		body:GetPosition(),
+		direction * length,
+		self.Owner,
+		body:GetFilterFunction(),
+		STEP_OPTIONS
+	)
+end
+
 -- Source's ground check: the body is on the ground when walkable ground is
 -- within reach below it. Right after standing it reaches a whole step, so
 -- walking down a ramp or stairs, where the body would fall off every edge and
@@ -244,7 +274,6 @@ function META:FindGround(reach)
 		body:GetFilterFunction(),
 		STEP_OPTIONS
 	)
-
 	local ground_distance
 
 	if hit and hit.normal.y >= self.MinGroundNormalY then
@@ -453,10 +482,30 @@ do
 			if rising then
 				grounded = false
 			elseif not grounded and (y <= 0 or self.was_grounded) then
-				grounded, snap_down = self:FindGround(self.was_grounded and self.StepHeight or self.GroundReach)
+				grounded, snap_down = self:FindGround(
+					self.was_grounded and
+						self:IsStickToGround() and
+						self.StepHeight or
+						self.GroundReach
+				)
 			end
 
 			if grounded then y = -snap_down / dt end
+
+			local position = body:GetPosition()
+			MOVE.velocity:Set(x, y, z)
+			MOVE.position:Set(position.x, position.y, position.z)
+			MOVE.grounded = grounded
+			MOVE.jump_pressed = jump_requested
+			MOVE.jump_down = state.jump_down
+			MOVE.pitch = math.asin(math.clamp(look:GetForward().y, -1, 1))
+			MOVE.dt = dt
+			event.Call("PlayerMove", self.Owner, MOVE)
+			x, y, z = MOVE.velocity.x, MOVE.velocity.y, MOVE.velocity.z
+
+			if grounded and not MOVE.grounded then body:SetGrounded(false) end
+
+			grounded = MOVE.grounded
 
 			if grounded and jump_requested then
 				y = self.JumpSpeed

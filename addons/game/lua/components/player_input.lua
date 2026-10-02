@@ -35,6 +35,7 @@ function META:Initialize()
 	self.crouching = false
 	self.speed_multiplier = 1
 	self.jump_pressed = false
+	self.jump_down = false
 	self:ApplyMode(self.Mode)
 	self:AddGlobalEvent("Update", {priority = 100})
 end
@@ -147,6 +148,7 @@ function META:OnUpdate(dt)
 	self.mouse_trapped = window:GetMouseTrapped() and not window:HasMouseTrapRequests()
 	self.roll_mode = input.IsMouseDown("button_2")
 	self.speed_multiplier = self:GetSpeedMultiplier(self.crouching)
+	self.jump_down = input.IsKeyDown("space")
 
 	if input.IsKeyDown("left") then
 		self.look_nudge.x = self.look_nudge.x - dt
