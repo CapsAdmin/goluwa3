@@ -533,7 +533,7 @@ function rows.AngularRow(s0, s1, x, y, z, target, bias, mass_scale, impulse_scal
 		) / inverse_mass - impulse_scale * accumulated
 	local new = accumulated + impulse
 
-	if new < lo then new = lo elseif new > hi then new = hi end
+	new = math.min(math.max(new, lo), hi)
 
 	impulse = new - accumulated
 	rows.Apply(s1, 1, 0, 0, 0, x * impulse, y * impulse, z * impulse)
@@ -574,7 +574,7 @@ function rows.LinearRow(s0, s1, x, y, z, target, bias, mass_scale, impulse_scale
 		) / inverse_mass - impulse_scale * accumulated
 	local new = accumulated + impulse
 
-	if new < lo then new = lo elseif new > hi then new = hi end
+	new = math.min(math.max(new, lo), hi)
 
 	impulse = new - accumulated
 	rows.Apply(s1, 1, x * impulse, y * impulse, z * impulse, 0, 0, 0)

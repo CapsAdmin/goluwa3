@@ -190,7 +190,7 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 	local before = self.Impulse
 	local new = before - mass_scale * (bias - speed) / inverse_mass - impulse_scale * before
 
-	if new < lo then new = lo end
+	new = math.max(new, lo)
 
 	local delta = new - before
 	self.Impulse = new
