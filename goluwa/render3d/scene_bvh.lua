@@ -2455,38 +2455,45 @@ do
 	local EXPAND_LOCAL_SIZE = 256
 	local expand_first = 0
 	local expand_count = 0
+	local expand_base = 0
 
 	function scene_bvh.CreateExpander(state)
 		local storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}}
 		local opacity_declarations = ""
-		local opacity_write = "positions[vid] = p;"
+		local opacity_write = "positions[oid] = p;"
 		local uv_write = ""
 
 		-- the shadow soup also gets the share of light each vertex's material
 		-- stops, and nothing is drawn for a material that stops none
 		if state.with_opacity then
-			storage_buffers[3] = {binding_index = 2}
-			storage_buffers[4] = {binding_index = 3}
+			storage_buffers[3] = {binding_index = 3}
 			opacity_declarations = [=[
-				layout(scalar, set = 0, binding = 2) buffer SceneBvhOpacity {
-					float opacities[];
-				};
 				layout(scalar, set = 0, binding = 3) readonly buffer SceneBvhMaterialOpacity {
 					float material_opacities[];
 				};
 			]=]
 			opacity_write = [=[
 				float opacity = material_opacities[t.material];
-				opacities[vid] = opacity;
-				positions[vid] = opacity > 0.0 ? p : vec3(0.0);
+				positions[oid] = opacity > 0.0 ? p : vec3(0.0);
 			]=]
+
+			-- without uvs the shadow soup dithers by a per vertex opacity
+			if not SOUP_UVS then
+				storage_buffers[#storage_buffers + 1] = {binding_index = 2}
+				opacity_declarations = opacity_declarations .. [=[
+					layout(scalar, set = 0, binding = 2) buffer SceneBvhOpacity {
+						float opacities[];
+					};
+				]=]
+				opacity_write = opacity_write .. "opacities[oid] = opacity;"
+			end
 
 			-- and its uv and material, for the shadow to sample the albedo
 			-- texture with
 			if SOUP_UVS then
-				storage_buffers[5] = {binding_index = 4}
-				storage_buffers[6] = {binding_index = 5}
-				storage_buffers[7] = {binding_index = 6, count = SOUP_CHUNKS}
+				storage_buffers[#storage_buffers + 1] = {binding_index = 4}
+				storage_buffers[#storage_buffers + 1] = {binding_index = 5}
+				storage_buffers[#storage_buffers + 1] = {binding_index = 6, count = SOUP_CHUNKS}
 				opacity_declarations = opacity_declarations .. (
 						[=[
 					struct scene_bvh_uv {
@@ -2508,8 +2515,8 @@ do
 					):format(SOUP_CHUNKS)
 				uv_write = [=[
 					scene_bvh_uv tuv = uv_soup[nonuniformEXT(chunk)].tri_uvs[tri - chunk * SOUP_CHUNK];
-					vertex_uvs[vid] = which == 0u ? tuv.uv0 : (which == 1u ? tuv.uv1 : tuv.uv2);
-					vertex_materials[vid] = t.material;
+					vertex_uvs[oid] = which == 0u ? tuv.uv0 : (which == 1u ? tuv.uv1 : tuv.uv2);
+					vertex_materials[oid] = t.material;
 				]=]
 			end
 		end
@@ -2525,9 +2532,11 @@ do
 			block = {
 				{"first_vertex", "int"},
 				{"vertex_count", "int"},
+				{"base_vertex", "int"},
 				write = function(self, block)
 					block.first_vertex = expand_first
 					block.vertex_count = expand_count
+					block.base_vertex = expand_base
 					return block
 				end,
 			},
@@ -2555,6 +2564,7 @@ do
 					uint index = gl_GlobalInvocationID.x;
 					if (index >= uint(compute.vertex_count)) return;
 					uint vid = uint(compute.first_vertex) + index;
+					uint oid = vid - uint(compute.base_vertex);
 					uint tri = vid / 3u;
 					uint chunk = tri / SOUP_CHUNK;
 					scene_bvh_triangle t = soup[nonuniformEXT(chunk)].tris[tri - chunk * SOUP_CHUNK];
@@ -2569,9 +2579,10 @@ do
 		return state
 	end
 
-	local function expand_range(cmd, pipeline, slot, first_vertex, vertex_count)
+	local function expand_range(cmd, pipeline, slot, first_vertex, vertex_count, base_vertex)
 		expand_first = first_vertex
 		expand_count = vertex_count
+		expand_base = base_vertex
 		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
 	end
 
@@ -2656,16 +2667,12 @@ do
 			local capacity = math.ceil(vertex_count * 1.25)
 			state.position_buffer = render.CreateBuffer{
 				byte_size = capacity * 12,
-				buffer_usage = state.buffer_usage or {"vertex_buffer", "storage_buffer"},
+				buffer_usage = {"vertex_buffer", "storage_buffer"},
 				memory_property = {"device_local"},
 				label = "scene_bvh_raster_positions",
 			}
 
 			if state.with_opacity then
-				if state.opacity_buffer then state.opacity_buffer:Remove() end
-
-				state.opacity_buffer = create_vertex_buffer("scene_bvh_raster_opacities", capacity * 4)
-
 				if SOUP_UVS then
 					if state.uv_buffer then state.uv_buffer:Remove() end
 
@@ -2673,6 +2680,10 @@ do
 
 					state.uv_buffer = create_vertex_buffer("scene_bvh_raster_uvs", capacity * 8)
 					state.material_buffer = create_vertex_buffer("scene_bvh_raster_materials", capacity * 4)
+				else
+					if state.opacity_buffer then state.opacity_buffer:Remove() end
+
+					state.opacity_buffer = create_vertex_buffer("scene_bvh_raster_opacities", capacity * 4)
 				end
 			end
 
@@ -2686,14 +2697,17 @@ do
 		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, position_buffer:GetSize())
 
 		if state.with_opacity then
-			pipeline:UpdateDescriptorSet(
-				"storage_buffer",
-				slot,
-				2,
-				0,
-				state.opacity_buffer,
-				state.opacity_buffer:GetSize()
-			)
+			if not SOUP_UVS then
+				pipeline:UpdateDescriptorSet(
+					"storage_buffer",
+					slot,
+					2,
+					0,
+					state.opacity_buffer,
+					state.opacity_buffer:GetSize()
+				)
+			end
+
 			pipeline:UpdateDescriptorSet(
 				"storage_buffer",
 				slot,
@@ -2718,10 +2732,10 @@ do
 		end
 
 		if full then
-			expand_range(cmd, pipeline, slot, 0, vertex_count)
+			expand_range(cmd, pipeline, slot, 0, vertex_count, 0)
 		else
 			for i = state.log_position - log_base + 1, #log, 2 do
-				expand_range(cmd, pipeline, slot, log[i] * 3, log[i + 1] * 3)
+				expand_range(cmd, pipeline, slot, log[i] * 3, log[i + 1] * 3, 0)
 			end
 		end
 
@@ -2789,13 +2803,13 @@ do
 	local BLAS_POOL_BYTES = 64 * 1024 * 1024
 	local SCRATCH_BUDGET = 128 * 1024 * 1024
 	local TLAS_SLOT_COUNT = 4
+	-- blas builds read their positions from a staging buffer that is filled
+	-- with the world space triangles of the blocks being built, a batch at a
+	-- time, so no copy of the whole soup is kept around. blocks that are less
+	-- than RUN_GAP vertices apart in the soup are expanded as one run
+	local STAGING_VERTICES = 12 * 1024 * 1024
+	local RUN_GAP = 16384
 	local rt_state = {
-		buffer_usage = {
-			"vertex_buffer",
-			"storage_buffer",
-			"shader_device_address",
-			"acceleration_structure_build_input_read_only_khr",
-		},
 		built_version = -1,
 		-- blas storage comes from big shared buffers, split into ranges of
 		-- BLAS_ALIGN units
@@ -2925,6 +2939,31 @@ do
 		}
 	end
 
+	local function ensure_staging(vertex_count)
+		if rt_state.staging and rt_state.staging_capacity >= vertex_count then return end
+
+		if rt_state.staging then rt_state.staging:Remove() end
+
+		rt_state.staging_capacity = math.max(STAGING_VERTICES, vertex_count)
+		rt_state.staging = render.CreateBuffer{
+			byte_size = rt_state.staging_capacity * 12,
+			buffer_usage = {
+				"storage_buffer",
+				"shader_device_address",
+				"acceleration_structure_build_input_read_only_khr",
+			},
+			memory_property = {"device_local"},
+			label = "scene_bvh_blas_staging",
+		}
+		rt_state.staging_address = rt_state.staging:GetDeviceAddress()
+	end
+
+	local function by_first_vertex(a, b)
+		return a.first_vertex < b.first_vertex
+	end
+
+	local expand_runs = {}
+
 	local function fill_triangle_geometry(geometry, vertex_address, vertex_count)
 		geometry.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR
 		geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES
@@ -2974,7 +3013,7 @@ do
 	-- builds the blas of every visual whose soup range was rewritten since its
 	-- blas was built, in batches that fit the scratch budget, and keeps the
 	-- instance list (one per block, in block order) in step
-	local function build_blases(cmd, position_buffer, frame)
+	local function build_blases(cmd, frame)
 		local device = render.GetDevice()
 		local changed = scene_bvh.changed_blocks
 		scene_bvh.changed_blocks = {}
@@ -3008,7 +3047,7 @@ do
 		local ranges = VkRangeInfoArray(n)
 		local range_pointers = VkRangePointerArray(n)
 		local scratch_offsets = {}
-		local position_address = position_buffer:GetDeviceAddress()
+		table.sort(dirty, by_first_vertex)
 		rt_state.scratch_alignment = rt_state.scratch_alignment or
 			math.max(
 				tonumber(device.physical_device:GetAccelerationStructureProperties().minAccelerationStructureScratchOffsetAlignment),
@@ -3017,12 +3056,13 @@ do
 		local scratch_alignment = rt_state.scratch_alignment
 		local scratch_total = 0
 		local largest = 0
+		local largest_vertices = 0
 		local rebuilt = false
 
 		for i = 1, n do
 			local vc = dirty[i]
 			local geometry = geometries[i - 1]
-			fill_triangle_geometry(geometry, position_address + vc.first_vertex * 12, vc.vertex_count)
+			fill_triangle_geometry(geometry, 0, vc.vertex_count)
 			local storage_size, scratch_size = AccelerationStructure.QueryBuildSize(
 				device,
 				{
@@ -3064,6 +3104,7 @@ do
 			scratch_offsets[i] = scratch_size
 			scratch_total = scratch_total + scratch_size
 			largest = math.max(largest, scratch_size)
+			largest_vertices = math.max(largest_vertices, vc.vertex_count)
 			local info = infos[i - 1]
 			info.sType = 1000150000
 			info.type = 1
@@ -3101,18 +3142,99 @@ do
 			}
 		end
 
+		ensure_staging(largest_vertices)
+		local staging = rt_state.staging
+		local capacity = rt_state.staging_capacity
+		local pipeline = rt_state.expand_pipeline
+		local slot = math.max(render.GetCurrentFrame(), 1)
+		scene_bvh.BindTriangleBuffer(pipeline, slot, 1, scene_bvh.triangle_buffer)
+		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, staging, staging:GetSize())
 		local first = 0
 
 		while first < n do
 			local count = 0
 			local used = 0
+			local run_count = 0
+			local run_first, run_end, run_base = 0, 0, 0
 
-			while first + count < n and used + scratch_offsets[first + count + 1] <= scratch_size do
-				infos[first + count].scratchData.deviceAddress = rt_state.scratch_address + used
-				used = used + scratch_offsets[first + count + 1]
+			while first + count < n do
+				local j = first + count + 1
+				local vc = dirty[j]
+				local v_first = vc.first_vertex
+				local v_end = v_first + vc.vertex_count
+				local extend = count > 0 and v_first - run_end <= RUN_GAP
+				local stage_end
+
+				if extend then
+					stage_end = run_base + v_end - run_first
+				elseif count > 0 then
+					stage_end = run_base + run_end - run_first + vc.vertex_count
+				else
+					stage_end = vc.vertex_count
+				end
+
+				if used + scratch_offsets[j] > scratch_size or stage_end > capacity then
+					break
+				end
+
+				if not extend then
+					if count > 0 then
+						expand_runs[run_count + 1] = run_first
+						expand_runs[run_count + 2] = run_end
+						expand_runs[run_count + 3] = run_base
+						run_count = run_count + 3
+						run_base = run_base + run_end - run_first
+					end
+
+					run_first = v_first
+				end
+
+				run_end = v_end
+				geometries[j - 1].geometry.triangles.vertexData = rt_state.staging_address + (run_base + v_first - run_first) * 12
+				infos[j - 1].scratchData.deviceAddress = rt_state.scratch_address + used
+				used = used + scratch_offsets[j]
 				count = count + 1
 			end
 
+			expand_runs[run_count + 1] = run_first
+			expand_runs[run_count + 2] = run_end
+			expand_runs[run_count + 3] = run_base
+			run_count = run_count + 3
+			-- the previous batch may still be reading the staging buffer
+			cmd:PipelineBarrier{
+				srcStage = "acceleration_structure_build_khr",
+				dstStage = "compute",
+				bufferBarriers = {
+					{
+						buffer = staging,
+						srcAccessMask = "acceleration_structure_read_khr",
+						dstAccessMask = "shader_write",
+					},
+				},
+			}
+
+			for i = 1, run_count, 3 do
+				expand_range(
+					cmd,
+					pipeline,
+					slot,
+					expand_runs[i],
+					expand_runs[i + 1] - expand_runs[i],
+					expand_runs[i] - expand_runs[i + 2]
+				)
+			end
+
+			cmd:PipelineBarrier{
+				srcStage = "compute",
+				dstStage = "acceleration_structure_build_khr",
+				bufferBarriers = {
+					{
+						buffer = staging,
+						srcAccessMask = "shader_write",
+						dstAccessMask = "acceleration_structure_read_khr",
+					},
+				},
+			}
 			cmd_build(cmd.ptr[0], count, infos + first, range_pointers + first)
 			first = first + count
 
@@ -3215,20 +3337,8 @@ do
 
 		process_pending_free(frame)
 		gpu_timing.BeginScope(cmd, "rt_build")
-		local vertex_count, position_buffer = scene_bvh.ExpandPositions(cmd, rt_state)
-		cmd:PipelineBarrier{
-			srcStage = "compute",
-			dstStage = "acceleration_structure_build_khr",
-			bufferBarriers = {
-				{
-					buffer = position_buffer,
-					srcAccessMask = "shader_write",
-					dstAccessMask = "acceleration_structure_read_khr",
-				},
-			},
-		}
 
-		if build_blases(cmd, position_buffer, frame) then
+		if build_blases(cmd, frame) then
 			blas_barrier(cmd, "acceleration_structure_build_khr")
 		end
 

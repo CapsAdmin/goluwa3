@@ -2477,23 +2477,24 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 						srcAccessMask = "shader_write",
 						dstAccessMask = "vertex_attribute_read",
 					},
-					{
-						buffer = self.expander.opacity_buffer,
-						size = vertex_count * 4,
-						srcAccessMask = "shader_write",
-						dstAccessMask = "vertex_attribute_read",
-					},
 				}
 
 				if scene_bvh.SOUP_UVS then
-					barriers[3] = {
+					barriers[2] = {
 						buffer = self.expander.uv_buffer,
 						size = vertex_count * 8,
 						srcAccessMask = "shader_write",
 						dstAccessMask = "vertex_attribute_read",
 					}
-					barriers[4] = {
+					barriers[3] = {
 						buffer = self.expander.material_buffer,
+						size = vertex_count * 4,
+						srcAccessMask = "shader_write",
+						dstAccessMask = "vertex_attribute_read",
+					}
+				else
+					barriers[2] = {
+						buffer = self.expander.opacity_buffer,
 						size = vertex_count * 4,
 						srcAccessMask = "shader_write",
 						dstAccessMask = "vertex_attribute_read",
