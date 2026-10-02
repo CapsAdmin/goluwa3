@@ -446,8 +446,9 @@ do
 		end
 
 		local state = look
-		local jump_requested = self.jump_requested
+		local jump_requested = self.jump_requested or state.jump_pressed
 		self.jump_requested = false
+		state.jump_pressed = false
 
 		if look.Mode == "walk" then
 			local move = Vec3()
