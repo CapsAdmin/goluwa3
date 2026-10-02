@@ -111,3 +111,27 @@ T.TestPhysics("Static compound collider preserves concave gap from generated chi
 	support_ent:Remove()
 	ground:Remove()
 end)
+
+T.TestPhysics("Dynamic compound of convex hulls rests on ground", function()
+	local ground = test_helpers.CreateFlatGround("compound_convex_drop_ground", 12)
+	local compound_desc = convex_hull.BuildCompoundShapeFromTriangles(create_split_box_mesh())
+	local ent = Entity.New({Name = "compound_convex_drop"})
+	ent:AddComponent("transform")
+	ent.transform:SetPosition(Vec3(0, 2, 0))
+	local body = ent:AddComponent(
+		"rigid_body",
+		{
+			Shapes = compound_desc.children,
+			Mass = 5,
+			AutomaticMass = false,
+			Friction = 0.7,
+		}
+	)
+	test_helpers.Simulate(300)
+	local position = ent.transform:GetPosition()
+	T(#body:GetColliders())["=="](2)
+	T(position.y)[">="](0.4)
+	T(position.y)["<"](0.6)
+	ent:Remove()
+	ground:Remove()
+end)

@@ -9,8 +9,10 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
+local convex_hull = import("goluwa/physics/convex_hull.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
+local bit = require("bit")
 local fs = import("goluwa/filesystem/fs.lua")
 local _debug = false
 local header = [[
@@ -763,7 +765,99 @@ local function load_vvd(path)
 	return vvd
 end
 
-model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
+-- phy points are ivp meters, 1 ivp meter = 39.37 source units, and ivp y/z are swapped relative to source
+local PHY_TO_METERS = steam.source2meters / 0.0254
+
+local function load_phy(path)
+	local buffer = find_file(path, ".phy")
+	local header_size = buffer:ReadI32()
+	buffer:Advance(4)
+	local solid_count = buffer:ReadI32()
+	buffer:SetPosition(header_size)
+	local solids = {}
+
+	for solid_i = 1, solid_count do
+		local surface_size = buffer:ReadI32()
+		local solid_start = buffer:GetPosition()
+		-- compactsurfaceheader_t is 28 bytes after the size, then the ivp compact surface
+		local surface_start = solid_start + 28
+		buffer:SetPosition(surface_start + 32)
+		local ledgetree_root = surface_start + buffer:ReadI32()
+		local ledges = {}
+		local stack = {ledgetree_root}
+
+		while stack[1] do
+			local node_pos = table.remove(stack)
+			assert(
+				node_pos >= solid_start and node_pos < solid_start + surface_size,
+				"phy ledge tree node out of range"
+			)
+			buffer:SetPosition(node_pos)
+			local right_offset = buffer:ReadI32()
+			local convex_offset = buffer:ReadI32()
+
+			if right_offset == 0 then
+				local ledge_pos = node_pos + convex_offset
+				buffer:SetPosition(ledge_pos)
+				local point_offset = buffer:ReadI32()
+				buffer:Advance(8)
+				local triangle_count = buffer:ReadI16()
+				buffer:Advance(2)
+				assert(
+					triangle_count > 0 and triangle_count < 4096,
+					"phy ledge triangle count out of range"
+				)
+				local used = {}
+				local indices = {}
+
+				for i = 1, triangle_count do
+					buffer:Advance(4)
+
+					for edge = 1, 3 do
+						local index = bit.band(buffer:ReadI32(), 0xffff)
+
+						if not used[index] then
+							used[index] = true
+							indices[#indices + 1] = index
+						end
+					end
+				end
+
+				local points = {}
+
+				for i, index in ipairs(indices) do
+					buffer:SetPosition(ledge_pos + point_offset + index * 16)
+					local x, y, z = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
+					points[i] = Vec3(-z, -y, -x) * PHY_TO_METERS
+				end
+
+				ledges[#ledges + 1] = points
+			else
+				stack[#stack + 1] = node_pos + right_offset
+				stack[#stack + 1] = node_pos + 28
+			end
+		end
+
+		solids[solid_i] = {ledges = ledges}
+		buffer:SetPosition(solid_start + surface_size)
+	end
+
+	local text = buffer:ReadString(buffer:GetSize() - buffer:GetPosition())
+	local index = 0
+
+	for block in text:gmatch("solid%s*(%b{})") do
+		local solid = solids[tonumber(block:match("\"index\"%s*\"([^\"]*)\"")) + 1]
+
+		if solid then
+			solid.mass = tonumber(block:match("\"mass\"%s*\"([^\"]*)\""))
+			solid.surface_property = block:match("\"surfaceprop\"%s*\"([^\"]*)\"")
+		end
+	end
+
+	return solids
+end
+
+model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, physics_callback)
 	local models = {}
 	local companion_path = path
 
@@ -865,6 +959,45 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 				-- Only process first LOD per body part for highest quality
 				break
 			end
+		end
+	end
+
+	if pcall(find_file, companion_path, ".phy") then
+		local children = {}
+		local mass = 0
+		local surface_property
+
+		for _, solid in ipairs(load_phy(companion_path)) do
+			for _, points in ipairs(solid.ledges) do
+				local min = Vec3(math.huge, math.huge, math.huge)
+				local max = Vec3(-math.huge, -math.huge, -math.huge)
+
+				for _, point in ipairs(points) do
+					min.x, min.y, min.z = math.min(min.x, point.x), math.min(min.y, point.y), math.min(min.z, point.z)
+					max.x, max.y, max.z = math.max(max.x, point.x), math.max(max.y, point.y), math.max(max.z, point.z)
+				end
+
+				local center = (min + max) * 0.5
+
+				for i, point in ipairs(points) do
+					points[i] = point - center
+				end
+
+				local hull = convex_hull.Normalize(points)
+
+				if hull then children[#children + 1] = {ConvexHull = hull, Position = center} end
+			end
+
+			mass = mass + (solid.mass or 0)
+			surface_property = surface_property or solid.surface_property
+		end
+
+		if children[1] then
+			physics_callback{
+				children = children,
+				mass = mass > 0 and mass or mdl.mass,
+				surface_property = surface_property,
+			}
 		end
 	end
 

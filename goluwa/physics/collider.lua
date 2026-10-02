@@ -250,6 +250,14 @@ function META:GetShapeType()
 	return self.Shape:GetTypeName()
 end
 
+function META:GetBodyPolyhedron()
+	local shape = self.Shape
+
+	if not shape.GetPolyhedron then return nil end
+
+	return shape:GetPolyhedron(self)
+end
+
 function META:GetResolvedConvexHull()
 	return self.Shape:GetResolvedHull(self)
 end
@@ -309,7 +317,6 @@ for _, name in ipairs{
 	"ApplyForce",
 	"ApplyTorque",
 	"GetSphereRadius",
-	"GetBodyPolyhedron",
 	"BodyHasSignificantRotation",
 } do
 	objects.Delegate(META, "Body", name)
