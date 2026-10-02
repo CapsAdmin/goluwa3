@@ -1902,7 +1902,7 @@ do
 	-- every visual (anything whose matrix or entries changed is rebuilt) and
 	-- "reset" throws the layout away and lays every visual out again
 	local function build(mode)
-		local start_time = os.clock()
+		local start_time = system.GetElapsedTime()
 		build_stamp = build_stamp + 1
 		local inserts = {}
 
@@ -1931,7 +1931,7 @@ do
 				update_visual(visual, build_stamp, inserts)
 				dirty[visual] = nil
 
-				if os.clock() > deadline then break end
+				if system.GetElapsedTime() > deadline then break end
 			end
 
 			scene_bvh.build_backlog = next(dirty) ~= nil
@@ -1999,7 +1999,7 @@ do
 		scene_bvh.debug_node_count = scene_bvh.node_allocator.top
 		scene_bvh.node_count = scene_bvh.node_allocator.top
 		scene_bvh.soup_triangle_count = scene_bvh.triangle_allocator.top
-		scene_bvh.build_time = os.clock() - start_time
+		scene_bvh.build_time = system.GetElapsedTime() - start_time
 		scene_bvh.has_built = true
 		scene_bvh.version = scene_bvh.version + 1
 		scene_bvh.soup_log_sealed = #scene_bvh.soup_log
