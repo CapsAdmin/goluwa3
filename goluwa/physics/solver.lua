@@ -273,29 +273,35 @@ function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, r
 	local dx = velocity_b.x - velocity_a.x
 	local dy = velocity_b.y - velocity_a.y
 	local dz = velocity_b.z - velocity_a.z
-	local max_relative_speed = math.max(0, self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 0)
-
-	if dx * dx + dy * dy + dz * dz > max_relative_speed * max_relative_speed then
-		return base_passes
-	end
-
-	local normal_dot = dx * normal.x + dy * normal.y + dz * normal.z
-	local tangent_x = dx - normal.x * normal_dot
-	local tangent_y = dy - normal.y * normal_dot
-	local tangent_z = dz - normal.z * normal_dot
-	local max_tangent_speed = math.max(0, self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0)
 
 	if
-		tangent_x * tangent_x + tangent_y * tangent_y + tangent_z * tangent_z > max_tangent_speed * max_tangent_speed
+		dx * dx + dy * dy + dz * dz > math.max(0, self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 0) ^ 2
 	then
 		return base_passes
 	end
 
-	local angular_speed_a = body_a:GetAngularVelocity():GetLength()
-	local angular_speed_b = body_b:GetAngularVelocity():GetLength()
+	local normal_dot = dx * normal.x + dy * normal.y + dz * normal.z
 
 	if
-		math.max(angular_speed_a, angular_speed_b) > math.max(0, self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or 0)
+		(
+			dx - normal.x * normal_dot
+		) ^ 2 + (
+			dy - normal.y * normal_dot
+		) ^ 2 + (
+			dz - normal.z * normal_dot
+		) ^ 2 > math.max(0, self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0) ^ 2
+	then
+		return base_passes
+	end
+
+	local angular_a = body_a:GetAngularVelocity()
+	local angular_b = body_b:GetAngularVelocity()
+
+	if
+		math.max(
+			angular_a.x * angular_a.x + angular_a.y * angular_a.y + angular_a.z * angular_a.z,
+			angular_b.x * angular_b.x + angular_b.y * angular_b.y + angular_b.z * angular_b.z
+		) > math.max(0, self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or 0) ^ 2
 	then
 		return base_passes
 	end
