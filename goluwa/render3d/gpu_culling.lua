@@ -1652,13 +1652,13 @@ local function create_shadow_query_output(
 		shadow_entry_capacity = shadow_entry_capacity,
 		shadow_instanced_batch_count = shadow_instanced_batch_count,
 		shadow_instance_capacity = shadow_instance_capacity,
-		shadow_visible_index_buffer = create_buffer(
+		shadow_visible_index_buffer = create_readback_buffer(
 			label_prefix .. "_visible_indices",
 			shadow_entry_capacity * UINT32_SIZE,
 			{"storage_buffer"}
 		),
 		shadow_visible_count_buffer = create_buffer(label_prefix .. "_visible_count", UINT32_SIZE, {"storage_buffer", "transfer_dst"}),
-		shadow_fallback_visible_index_buffer = create_buffer(
+		shadow_fallback_visible_index_buffer = create_readback_buffer(
 			label_prefix .. "_fallback_visible_indices",
 			shadow_entry_capacity * UINT32_SIZE,
 			{"storage_buffer"}
@@ -1825,7 +1825,7 @@ local function build_frame_buffers(dataset, capacity)
 			visible_entry_capacity = visible_entry_capacity,
 			entry_visibility_capacity = visible_entry_capacity,
 			instanced_batch_count = instanced_batch_count,
-			visible_index_buffer = create_buffer(
+			visible_index_buffer = create_readback_buffer(
 				"gpu_culling_visible_indices_" .. frame_index,
 				visible_entry_capacity * UINT32_SIZE,
 				{"storage_buffer"}
@@ -1835,7 +1835,7 @@ local function build_frame_buffers(dataset, capacity)
 				visible_entry_capacity * UINT32_SIZE,
 				{"storage_buffer", "transfer_dst"}
 			),
-			fallback_visible_index_buffer = create_buffer(
+			fallback_visible_index_buffer = create_readback_buffer(
 				"gpu_culling_fallback_visible_indices_" .. frame_index,
 				visible_entry_capacity * UINT32_SIZE,
 				{"storage_buffer"}
