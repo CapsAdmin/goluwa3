@@ -236,7 +236,7 @@ local function read_back_pool(pool)
 		pool.ptr[0],
 		0,
 		query_count,
-		ffi.sizeof(data),
+		ffi.sizeof("uint64_t") * query_count * 2,
 		data,
 		ffi.sizeof("uint64_t") * 2,
 		RESULT_FLAGS

@@ -703,7 +703,7 @@ local local_exposure_block = {
 }
 
 local function write_local_exposure_block(block)
-	block.has_grid_tex = get_pipeline_texture("local_exposure_blur")() and 1 or 0
+	block.has_grid_tex = render3d.pipelines.local_exposure_blur and 1 or 0
 	local view = View.GetActive()
 	local local_exposure = view and view.LocalExposure
 	block.local_shadows = local_exposure or local_exposure_shadows:Get()
@@ -1071,7 +1071,6 @@ for _, pass in ipairs{
 
 				if texture then
 					self._cached_blit_source_tex = self:GetTextureIndex(texture)
-
 					return
 				end
 			end

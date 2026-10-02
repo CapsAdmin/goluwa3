@@ -216,10 +216,11 @@ local function shader_record_region(self, name)
 	}
 end
 
+local region_t = ffi.typeof("$[1]", vulkan.vk.VkStridedDeviceAddressRegionKHR)
+
 function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_sets)
 	vulkan.lib.vkCmdBindPipeline(cmd.ptr[0], vulkan.vk.e.VkPipelineBindPoint("ray_tracing_khr"), self.pipeline)
 	cmd:BindDescriptorSets("ray_tracing_khr", self.pipeline_layout, descriptor_sets, nil, 0)
-	local region_t = ffi.typeof("$[1]", vulkan.vk.VkStridedDeviceAddressRegionKHR)
 	local rgs = region_t()
 	local chs = region_t()
 	local miss = region_t()
