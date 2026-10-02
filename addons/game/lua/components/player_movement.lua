@@ -485,13 +485,29 @@ do
 			elseif not grounded and (y <= 0 or self.was_grounded) then
 				grounded, snap_down = self:FindGround(
 					self.was_grounded and
-						self:IsStickToGround() and
+						(
+							y > 0 or
+							self:IsStickToGround()
+						)
+						and
 						self.StepHeight or
 						self.GroundReach
 				)
 			end
 
-			if grounded then y = -snap_down / dt end
+			if grounded then
+				if self.was_grounded and y > 0 and self.ground_speed then
+					local speed = math.sqrt(x * x + z * z)
+
+					if speed > 0.0001 and speed < self.ground_speed then
+						local scale = self.ground_speed / speed
+						x = x * scale
+						z = z * scale
+					end
+				end
+
+				y = -snap_down / dt
+			end
 
 			local position = body:GetPosition()
 			MOVE.velocity:Set(x, y, z)
@@ -543,6 +559,7 @@ do
 
 			body:ApplyImpulse(Vec3(x - velocity.x, y - velocity.y, z - velocity.z) / body.InverseMass)
 			self.was_grounded = grounded
+			self.ground_speed = grounded and math.sqrt(x * x + z * z) or nil
 
 			if grounded and wish_speed > 0 then
 				local along = x * move.x + z * move.z
