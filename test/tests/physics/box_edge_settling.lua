@@ -375,19 +375,19 @@ T.TestPhysics("Twenty meter beam resting on one end settles quickly from forty f
 	)
 	local support_radius = beam:GetPhysicsShape():GetSupportRadiusAlongNormal(beam, Vec3(0, 1, 0))
 	beam_ent.transform:SetPosition(Vec3(0, 1 + support_radius, 0))
-	test_helpers.Simulate(30)
+	test_helpers.Simulate(51)
 	local early_rotation = beam_ent.transform:GetRotation()
 	local early_tilt = math.abs(early_rotation:GetRight().y)
 	local early_angvel = beam:GetAngularVelocity():GetLength()
-	test_helpers.Simulate(30)
+	test_helpers.Simulate(51)
 	local half_second_rotation = beam_ent.transform:GetRotation()
 	local half_second_tilt = math.abs(half_second_rotation:GetRight().y)
 	local half_second_angvel = beam:GetAngularVelocity():GetLength()
-	test_helpers.Simulate(120)
+	test_helpers.Simulate(204)
 	local one_and_half_second_rotation = beam_ent.transform:GetRotation()
 	local one_and_half_second_tilt = math.abs(one_and_half_second_rotation:GetRight().y)
 	local one_and_half_second_angvel = beam:GetAngularVelocity():GetLength()
-	test_helpers.Simulate(60)
+	test_helpers.Simulate(102)
 	local two_second_rotation = beam_ent.transform:GetRotation()
 	local two_second_tilt = math.abs(two_second_rotation:GetRight().y)
 	local two_second_angvel = beam:GetAngularVelocity():GetLength()
@@ -847,7 +847,7 @@ T.TestPhysics("Boxes dropped at awkward angles fall flat instead of standing on 
 		}
 	end
 
-	test_helpers.Simulate(300, 1 / 60)
+	test_helpers.Simulate(1500, 1 / 60)
 	local results = {}
 
 	for i, item in ipairs(items) do
@@ -902,7 +902,7 @@ T.TestPhysics("A tilted box lowers onto its face quickly after landing", functio
 		return math.deg(math.acos(math.min(1, alignment)))
 	end
 
-	test_helpers.Simulate(55, 1 / 60)
+	test_helpers.Simulate(94, 1 / 60)
 	local early_tilt = tilt()
 	local early_y = body:GetPosition().y
 	test_helpers.Simulate(95, 1 / 60)

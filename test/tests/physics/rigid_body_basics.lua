@@ -78,7 +78,7 @@ T.TestPhysics("Rigid sphere can move along uneven ground", function()
 			AngularDamping = 0,
 		}
 	)
-	test_helpers.Simulate(120)
+	test_helpers.Simulate(240)
 	local position = body_ent.transform:GetPosition()
 	T(body:GetGrounded())["=="](true)
 	T(position.x)[">"](0.5)

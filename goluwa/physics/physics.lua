@@ -29,7 +29,7 @@ function Physics.New(config)
 	self.RigidBodyIterations = config.RigidBodyIterations or 1
 	self.RigidBodyRelaxIterations = config.RigidBodyRelaxIterations or 3
 	self.RigidBodySubsteps = config.RigidBodySubsteps or 4
-	self.Gravity = config.Gravity or Vec3(0, -28, 0)
+	self.Gravity = config.Gravity or Vec3(0, -9.81, 0)
 	self.Up = config.Up or physics_constants.UP
 	self.DefaultCollisionMargin = config.DefaultCollisionMargin or physics_constants.DEFAULT_COLLISION_MARGIN
 	self.MaxFrameTime = config.MaxFrameTime or 0.1

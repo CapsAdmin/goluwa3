@@ -375,7 +375,7 @@ T.TestPhysics("Sphere dropped above the scene box edge does not snag on the plat
 			Restitution = 0.25,
 		}
 	)
-	test_helpers.Simulate(480)
+	test_helpers.Simulate(960)
 	local position = sphere_ent.transform:GetPosition()
 	sphere_ent:Remove()
 	platform_ent:Remove()

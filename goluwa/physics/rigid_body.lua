@@ -186,6 +186,7 @@ function RigidBody:Initialize()
 	self.StepDt = self.StepDt or 0
 	self.SleepTimer = self.SleepTimer or 0
 	self.SleepDt = 1
+	self.SleepSpeedScale = 1
 	self.PositionCorrection = 0
 	self.SolverVelocity0 = self.SolverVelocity0 or Vec3()
 	self.SolverAngularVelocity0 = self.SolverAngularVelocity0 or Vec3()
@@ -775,9 +776,13 @@ end
 local UPDATE_DELTA = Quat()
 local UPDATE_CONJUGATE = Quat()
 
+-- the sleep thresholds are tuned for this gravity: the speed a slowly toppling
+-- body picks up scales with the square root of it
+local SLEEP_REFERENCE_GRAVITY = 28
+
 local function get_sleep_state_metrics(self)
-	local linear_threshold = self.SleepLinearThreshold
-	local angular_threshold = self.SleepAngularThreshold
+	local linear_threshold = self.SleepLinearThreshold * self.SleepSpeedScale
+	local angular_threshold = self.SleepAngularThreshold * self.SleepSpeedScale
 	local linear_speed = self.Velocity:GetLength()
 	local angular_speed = self.AngularVelocity:GetLength()
 	local force_grounded_sleep = false
@@ -1208,6 +1213,7 @@ end
 
 function RigidBody:Integrate(dt, gravity)
 	self.StepDt = dt
+	self.SleepSpeedScale = math.sqrt(gravity:GetLength() / SLEEP_REFERENCE_GRAVITY)
 	self.PreviousPosition:CopyFrom(self.Position)
 	self.PreviousRotation:CopyFrom(self.Rotation)
 
