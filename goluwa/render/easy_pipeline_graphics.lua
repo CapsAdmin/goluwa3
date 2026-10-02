@@ -105,16 +105,22 @@ do
 		local cmd = render.GetCommandBuffer()
 		local offsets, frame_index = upload_uniform_offsets(self)
 		self.dynamic_offsets = offsets
-		local pipeline = self.pipeline
-		local sets = pipeline.descriptor_sets and
-			(
-				pipeline.descriptor_sets[frame_index] or
-				pipeline.descriptor_sets[1]
-			)
 
-		if offsets and sets then
-			cmd:BindDescriptorSets("graphics", pipeline.pipeline_layout, sets, offsets)
+		if offsets then self.pipeline:BindDescriptors(cmd, frame_index, offsets) end
+	end
+
+	-- UploadConstants for a draw of a pipeline that is bound already: only the
+	-- dynamic offsets of its uniforms changed, so the pipeline and its dynamic
+	-- state are left as they are
+	function EasyPipelineGraphics:UploadConstantsBound()
+		local bound = render.GetCommandBuffer().bound_pipelines
+
+		if not (bound and bound.graphics == self.pipeline.pipeline) then
+			return self:UploadConstants()
 		end
+
+		self:PushConstantBlocks()
+		self:UploadUniformsRebindDescriptor()
 	end
 
 	function EasyPipelineGraphics:BeginDraw(cmd, framebuffer, frame_index)

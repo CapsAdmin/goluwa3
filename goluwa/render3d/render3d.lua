@@ -505,7 +505,7 @@ end
 -- it to the object
 function render3d.UploadTranslucentConstants(thickness)
 	render3d.translucent_thickness = thickness
-	render3d.translucent_pipeline:UploadConstants()
+	render3d.translucent_pipeline:UploadConstantsBound()
 	render.GetCommandBuffer():SetCullMode(render3d.GetMaterial():GetCullMode())
 end
 

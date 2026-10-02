@@ -2199,8 +2199,18 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		fn(cmd)
 	end
 
-	-- Bind descriptor sets
+	self:BindDescriptors(cmd, frame_index, dynamic_offsets)
+end
+
+-- binds the descriptor sets of the pipeline, and brings its bindless arrays
+-- up to date. a draw that only has new dynamic offsets needs nothing more
+-- than this while the pipeline is still bound
+function GraphicsPipeline:BindDescriptors(cmd, frame_index, dynamic_offsets)
 	if self.descriptor_sets then
+		if frame_index < 1 or self.descriptor_sets[frame_index] == nil then
+			frame_index = 1
+		end
+
 		do
 			if
 				self.bindless_descriptor_sets_dirty and
