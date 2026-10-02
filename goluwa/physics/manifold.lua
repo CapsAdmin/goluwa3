@@ -477,21 +477,26 @@ end
 
 manifold.PrepareContacts = prepare_contacts
 
-function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt, relax)
+function manifold.SolveImpulses(
+	body_a,
+	body_b,
+	normal,
+	manifold_data,
+	dt,
+	relax,
+	restitution,
+	dynamic_friction,
+	static_friction
+)
 	local physics = body_a:GetPhysics()
-	local solver = physics.solver
-	local stamp = solver.StepStamp or 0
+	local stamp = physics.solver.StepStamp or 0
 
 	if manifold_data.prepared_step ~= stamp then
 		prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 	end
 
-	local restitution = manifold_data.restitution or solver:GetPairRestitution(body_a, body_b)
-	local dynamic_friction = manifold_data.friction or solver:GetPairFriction(body_a, body_b)
-	local static_friction = manifold_data.static_friction or
-		math.max(dynamic_friction, solver:GetPairStaticFriction(body_a, body_b))
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
-	local passes = solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
+	local passes = physics.solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
 	-- soft contact: a spring-damper per contact (Box2D soft step), static
 	-- pairs twice as stiff. The relax pass solves rigidly with no bias
 	-- (rate 0, full mass scale, no impulse scale) and no speculative gap.
@@ -499,21 +504,25 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt, relax
 	local soft_mass_scale = 1
 	local soft_impulse_scale = 0
 	local speculative = 0
+
 	-- a sleeping body skipped gravity this substep, so the soft solve would
 	-- relax the support impulse it still carries and kick it awake
-	local asleep = (
-			manifold_data.prepared_mass_a > 0 and
-			body_a.Awake == false
+	if
+		not relax and
+		not (
+			(
+				manifold_data.prepared_mass_a > 0 and
+				body_a.Awake == false
+			)
+			or
+			(
+				manifold_data.prepared_mass_b > 0 and
+				body_b.Awake == false
+			)
 		)
-		or
-		(
-			manifold_data.prepared_mass_b > 0 and
-			body_b.Awake == false
-		)
-
-	if not relax and not asleep then
-		local hertz = math.min(solver.CONTACT_HERTZ, 0.25 / dt)
-		local damping_ratio = solver.CONTACT_DAMPING_RATIO
+	then
+		local hertz = math.min(physics.solver.CONTACT_HERTZ, 0.25 / dt)
+		local damping_ratio = physics.solver.CONTACT_DAMPING_RATIO
 
 		if manifold_data.prepared_mass_a == 0 or manifold_data.prepared_mass_b == 0 then
 			hertz = hertz * 2
@@ -532,16 +541,15 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt, relax
 	for pass = 1, passes do
 		for contact_index = 1, #manifold_data.contacts do
 			local contact = manifold_data.contacts[contact_index]
-			local normal_speed = (
-					body_b.Velocity.x - body_a.Velocity.x
-				) * normal.x + (
-					body_b.Velocity.y - body_a.Velocity.y
-				) * normal.y + (
-					body_b.Velocity.z - body_a.Velocity.z
-				) * normal.z + body_b.AngularVelocity.x * contact.cb_x + body_b.AngularVelocity.y * contact.cb_y + body_b.AngularVelocity.z * contact.cb_z - body_a.AngularVelocity.x * contact.ca_x - body_a.AngularVelocity.y * contact.ca_y - body_a.AngularVelocity.z * contact.ca_z
-			local inverse_mass = contact.normal_inverse_mass
 
-			if inverse_mass > EPSILON then
+			if contact.normal_inverse_mass > EPSILON then
+				local normal_speed = (
+						body_b.Velocity.x - body_a.Velocity.x
+					) * normal.x + (
+						body_b.Velocity.y - body_a.Velocity.y
+					) * normal.y + (
+						body_b.Velocity.z - body_a.Velocity.z
+					) * normal.z + body_b.AngularVelocity.x * contact.cb_x + body_b.AngularVelocity.y * contact.cb_y + body_b.AngularVelocity.z * contact.cb_z - body_a.AngularVelocity.x * contact.ca_x - body_a.AngularVelocity.y * contact.ca_y - body_a.AngularVelocity.z * contact.ca_z
 				local effective_speed = normal_speed
 				-- the gap before this substep's motion; bodies already moved by v_pre * dt.
 				-- A closed gap solves softly with a push-out bias, an open gap is
@@ -553,13 +561,16 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt, relax
 				-- its support, but one that is clearly open stays open: solved as
 				-- touching it would prop up the side of a tilted box that should
 				-- be falling flat
-				if relax and gap > solver.RELAX_OPEN_GAP then open_gap = 1 end
+				if relax and gap > physics.solver.RELAX_OPEN_GAP then open_gap = 1 end
 
 				local bias = open_gap * gap / dt + (
 						1 - open_gap
-					) * math.max(bias_rate * (gap + solver.PENETRATION_SLOP), -solver.CONTACT_PUSH_SPEED)
-				body_a.PositionCorrection = math.max(body_a.PositionCorrection, -(gap + solver.PENETRATION_SLOP) * (1 - open_gap))
-				body_b.PositionCorrection = math.max(body_b.PositionCorrection, -(gap + solver.PENETRATION_SLOP) * (1 - open_gap))
+					) * math.max(
+						bias_rate * (gap + physics.solver.PENETRATION_SLOP),
+						-physics.solver.CONTACT_PUSH_SPEED
+					)
+				body_a.PositionCorrection = math.max(body_a.PositionCorrection, -(gap + physics.solver.PENETRATION_SLOP) * (1 - open_gap))
+				body_b.PositionCorrection = math.max(body_b.PositionCorrection, -(gap + physics.solver.PENETRATION_SLOP) * (1 - open_gap))
 				local normal_impulse = -(
 						1 + (
 							1 - open_gap
@@ -568,7 +579,7 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt, relax
 						)
 					) * (
 						effective_speed + bias
-					) / inverse_mass - (
+					) / contact.normal_inverse_mass - (
 						1 - open_gap
 					) * soft_impulse_scale * (
 						contact.normal_impulse or
@@ -754,8 +765,11 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt, relax
 											) * 1e8 + 1
 									)
 								),
-							math.min(1, math.max(0, (solver.STATIC_FRICTION_SPEED - tangent_speed) * 1e8 + 1)),
-							contact.static_friction_active * math.min(1, math.max(0, (solver.STATIC_FRICTION_EXIT_SPEED - tangent_speed) * 1e8 + 1))
+							math.min(1, math.max(0, (physics.solver.STATIC_FRICTION_SPEED - tangent_speed) * 1e8 + 1)),
+							contact.static_friction_active * math.min(
+									1,
+									math.max(0, (physics.solver.STATIC_FRICTION_EXIT_SPEED - tangent_speed) * 1e8 + 1)
+								)
 						)
 						local max_tangent_impulse = normal_impulse * (
 								dynamic_friction + (

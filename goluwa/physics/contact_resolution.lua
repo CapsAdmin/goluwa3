@@ -202,7 +202,17 @@ local function solve_single_manifold_velocity(body_a, body_b, manifold, dt, rela
 	end
 
 	refresh_pair_materials(solver, body_a, body_b, manifold)
-	manifolds.SolveImpulses(body_a, body_b, manifold.normal, manifold, dt, relax)
+	manifolds.SolveImpulses(
+		body_a,
+		body_b,
+		manifold.normal,
+		manifold,
+		dt,
+		relax,
+		manifold.restitution,
+		manifold.friction,
+		manifold.static_friction
+	)
 end
 
 -- A pair can own several manifolds, one per distinct contact normal (a capsule
@@ -477,7 +487,16 @@ function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluste
 
 		if pick then
 			used[pick] = true
-			fill_manifold(members[pick], body_a, body_b, cluster.normal, cluster.overlap, cluster.contacts, options, solver)
+			fill_manifold(
+				members[pick],
+				body_a,
+				body_b,
+				cluster.normal,
+				cluster.overlap,
+				cluster.contacts,
+				options,
+				solver
+			)
 		end
 	end
 

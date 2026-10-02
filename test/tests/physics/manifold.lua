@@ -17,6 +17,22 @@ local function create_mock_body(data)
 	return test_helpers.CreateStubBody(data)
 end
 
+local function solve_impulses(body_a, body_b, data)
+	local solver = body_a:GetPhysics().solver
+	local friction = solver:GetPairFriction(body_a, body_b)
+	manifold.SolveImpulses(
+		body_a,
+		body_b,
+		Vec3(0, 1, 0),
+		data,
+		1 / 60,
+		nil,
+		solver:GetPairRestitution(body_a, body_b),
+		friction,
+		math.max(friction, solver:GetPairStaticFriction(body_a, body_b))
+	)
+end
+
 T.TestPhysics("Manifold rebuild preserves tangent impulse state for matched contacts", function()
 	local body_a = create_mock_body()
 	local body_b = create_mock_body{Position = Vec3(0, 1, 0)}
@@ -89,7 +105,7 @@ T.TestPhysics("Manifold impulse solve accumulates tangent impulses across frames
 		},
 	}
 	local previous_impulse = data.contacts[1].tangent_impulse
-	manifold.SolveImpulses(body_a, body_b, Vec3(0, 1, 0), data, 1 / 60)
+	solve_impulses(body_a, body_b, data)
 	T(data.contacts[1].tangent ~= nil)["=="](true)
 	T(math.abs(data.contacts[1].tangent_impulse))[">="](math.abs(previous_impulse))
 	T(math.abs(data.contacts[1].tangent_impulse_2))[">"](0)
@@ -123,7 +139,7 @@ T.TestPhysics("Manifold impulse solve uses static friction for low tangential sp
 			},
 		},
 	}
-	manifold.SolveImpulses(body_a, body_b, Vec3(0, 1, 0), data, 1 / 60)
+	solve_impulses(body_a, body_b, data)
 	T(math.abs(body_a:GetVelocity().x))["<"](0.03)
 	T(math.abs(data.contacts[1].tangent_impulse_1))[">"](0.01)
 end)
@@ -152,7 +168,7 @@ T.TestPhysics("Manifold impulse solve falls back to dynamic friction above stati
 			},
 		},
 	}
-	manifold.SolveImpulses(body_a, body_b, Vec3(0, 1, 0), data, 1 / 60)
+	solve_impulses(body_a, body_b, data)
 	T(math.abs(body_a:GetVelocity().x))[">"](0.9)
 	T(math.abs(data.contacts[1].tangent_impulse_1))["<"](0.02)
 end)
@@ -179,7 +195,7 @@ T.TestPhysics("Manifold static friction hysteresis keeps sticking slightly above
 			},
 		},
 	}
-	manifold.SolveImpulses(body_a, body_b, Vec3(0, 1, 0), data, 1 / 60)
+	solve_impulses(body_a, body_b, data)
 	T(data.contacts[1].static_friction_active)["=="](1)
 	T(math.abs(body_a:GetVelocity().x))["<"](0.08)
 end)
