@@ -168,7 +168,11 @@ local function upload_ubo(
 		end
 	end
 
-	if upload_scope == "persistent_keyed" and cache_key ~= nil then
+	-- a key written earlier this frame keeps what it wrote: drawing the same
+	-- material again must not write and compare its whole block again
+	if persistent_entry and persistent_entry.frame == frame_number then
+		cache_hit = true
+	elseif upload_scope == "persistent_keyed" and cache_key ~= nil then
 		local ubo_data = info.ubo:GetData()
 
 		if info.block.source then
@@ -215,6 +219,8 @@ local function upload_ubo(
 			ffi.copy(persistent_entry.snapshot, src, info.ubo.size)
 			offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
 		end
+
+		persistent_entry.frame = frame_number
 	elseif offset == nil then
 		local ubo_data = info.ubo:GetData()
 
