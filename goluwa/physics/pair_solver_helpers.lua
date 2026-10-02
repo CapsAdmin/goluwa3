@@ -181,16 +181,21 @@ function pair_solver_helpers.IsPoseInvalidated(body, cached_pose, squared_thresh
 	if not cached_pose then return false end
 
 	local position = body:GetPosition()
-	local dx = position.x - cached_pose.px
-	local dy = position.y - cached_pose.py
-	local dz = position.z - cached_pose.pz
 
-	if dx * dx + dy * dy + dz * dz > squared_threshold then return true end
+	if
+		(
+			position.x - cached_pose.px
+		) ^ 2 + (
+			position.y - cached_pose.py
+		) ^ 2 + (
+			position.z - cached_pose.pz
+		) ^ 2 > squared_threshold
+	then
+		return true
+	end
 
 	local rotation = body:GetRotation()
-	local dot = rotation.x * cached_pose.rx + rotation.y * cached_pose.ry + rotation.z * cached_pose.rz + rotation.w * cached_pose.rw
-	local abs_dot = dot >= 0 and dot or -dot
-	return abs_dot < min_rotation_dot
+	return math.abs(rotation.x * cached_pose.rx + rotation.y * cached_pose.ry + rotation.z * cached_pose.rz + rotation.w * cached_pose.rw) < min_rotation_dot
 end
 
 -- bounds of the other body, padded by the contact margins, for culling the

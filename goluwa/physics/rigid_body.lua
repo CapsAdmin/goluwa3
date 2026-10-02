@@ -1095,17 +1095,14 @@ function RigidBody:WorldToLocal(world_pos, position, rotation, out)
 	local dx = world_pos.x - position.x
 	local dy = world_pos.y - position.y
 	local dz = world_pos.z - position.z
-	local qx = -rotation.x
-	local qy = -rotation.y
-	local qz = -rotation.z
-	local qw = rotation.w
-	local tx = 2 * (qy * dz - qz * dy)
-	local ty = 2 * (qz * dx - qx * dz)
-	local tz = 2 * (qx * dy - qy * dx)
+	-- rotate by the conjugate of the rotation
+	local tx = 2 * (-rotation.y * dz + rotation.z * dy)
+	local ty = 2 * (-rotation.z * dx + rotation.x * dz)
+	local tz = 2 * (-rotation.x * dy + rotation.y * dx)
 	out = out or Vec3()
-	out.x = dx + qw * tx + (qy * tz - qz * ty)
-	out.y = dy + qw * ty + (qz * tx - qx * tz)
-	out.z = dz + qw * tz + (qx * ty - qy * tx)
+	out.x = dx + rotation.w * tx + (-rotation.y * tz + rotation.z * ty)
+	out.y = dy + rotation.w * ty + (-rotation.z * tx + rotation.x * tz)
+	out.z = dz + rotation.w * tz + (-rotation.x * ty + rotation.y * tx)
 	return out
 end
 
