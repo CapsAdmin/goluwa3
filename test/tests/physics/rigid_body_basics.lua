@@ -6,10 +6,10 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local create_flat_ground = test_helpers.CreateFlatGround
-
 
 T.TestPhysics("Rigid body smoke test lands on ground mesh", function()
 	local ground = create_flat_ground("rigid_body_ground", 4)
@@ -188,4 +188,27 @@ T.TestPhysics("Locked rotation keeps a body upright under off-center impulses an
 	ground:Remove()
 	T(body:GetAngularVelocity():GetLength())["=="](0)
 	T(math.abs(rotation.x) + math.abs(rotation.y) + math.abs(rotation.z))["<"](0.0001)
+end)
+
+T.TestPhysics("Rigid body Inertia replaces the tensor built from its shapes", function()
+	local ent = Entity.New({Name = "inertia_override"})
+	ent:AddComponent("transform")
+	local body = ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+			Size = Vec3(1, 1, 1),
+			Mass = 4,
+			AutomaticMass = false,
+		}
+	)
+	local computed = body.InertiaTensor.m00
+	body:SetInertia(Vec3(2, 3, 5))
+	T(body.InertiaTensor.m00)["=="](2)
+	T(body.InertiaTensor.m11)["=="](3)
+	T(body.InertiaTensor.m22)["=="](5)
+	T(body.InverseInertiaTensor.m22)["~"](0.2)
+	body:SetInertia(nil)
+	T(body.InertiaTensor.m00)["~"](computed)
+	ent:Remove()
 end)

@@ -784,6 +784,7 @@ local function load_phy(path)
 		local surface_start = solid_start + 28
 		buffer:SetPosition(surface_start)
 		local cx, cy, cz = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
+		local ix, iy, iz = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
 		buffer:SetPosition(surface_start + 32)
 		local ledgetree_root = surface_start + buffer:ReadI32()
 		local ledges = {}
@@ -841,7 +842,11 @@ local function load_phy(path)
 			end
 		end
 
-		solids[solid_i] = {ledges = ledges, mass_center = Vec3(-cz, -cy, -cx) * PHY_TO_METERS}
+		solids[solid_i] = {
+			ledges = ledges,
+			mass_center = Vec3(-cz, -cy, -cx) * PHY_TO_METERS,
+			rotation_inertia = Vec3(ix, iy, iz),
+		}
 		buffer:SetPosition(solid_start + surface_size)
 	end
 
@@ -881,15 +886,21 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 		local mass = 0
 		local surface_property
 		local center_of_mass = Vec3(0, 0, 0)
+		local damping = 0
+		local rotation_damping = 0
 
 		for _, solid in ipairs(solids) do
 			local weight = solid.mass or 1
 			center_of_mass = center_of_mass + solid.mass_center * weight
+			damping = damping + (solid.damping or 0) * weight
+			rotation_damping = rotation_damping + (solid.rotation_damping or 0) * weight
 			mass = mass + weight
 			surface_property = surface_property or solid.surface_property
 		end
 
 		center_of_mass = center_of_mass / mass
+		damping = damping / mass
+		rotation_damping = rotation_damping / mass
 
 		for _, solid in ipairs(solids) do
 			for _, points in ipairs(solid.ledges) do
@@ -921,6 +932,14 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 				mass = solids[1].mass and mass or mdl.mass,
 				surface_property = surface_property,
 				center_of_mass = center_of_mass,
+				damping = damping,
+				rotation_damping = rotation_damping,
+				inertia = #solids == 1 and
+					Vec3(solids[1].rotation_inertia.z, solids[1].rotation_inertia.y, solids[1].rotation_inertia.x) * (
+						mass * PHY_TO_METERS * PHY_TO_METERS
+					)
+					or
+					nil,
 			}
 		end
 	end

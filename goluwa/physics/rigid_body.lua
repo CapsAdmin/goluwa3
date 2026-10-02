@@ -23,6 +23,7 @@ RigidBody:GetSet(
 RigidBody:GetSet("Density", 1, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("Mass", 1, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("AutomaticMass", true, {callback = "RefreshMassProperties"})
+RigidBody:GetSet("Inertia", nil, {callback = "RefreshMassProperties"})
 -- infinite rotational inertia: contacts and impulses can never turn the body
 RigidBody:GetSet("LockRotation", false, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("GravityScale", 1)
@@ -520,6 +521,12 @@ function RigidBody:ComputeMassProperties()
 	end
 
 	self.InverseMass = 1 / mass
+
+	if self.Inertia then
+		self.InertiaTensor = Matrix33():SetDiagonal(self.Inertia.x, self.Inertia.y, self.Inertia.z)
+		self.InverseInertiaTensor = get_inverse_tensor(self.InertiaTensor)
+		return
+	end
 
 	if has_collider_inertia and computed_mass > 0 then
 		if not self:GetAutomaticMass() and mass ~= computed_mass then
