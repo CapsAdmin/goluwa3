@@ -1690,10 +1690,11 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return decode_normal_map(texel.xy);
 				}
 
+				vec3 w = sqrt(texel.rgb);
 				vec3 n = normalize(
-					texel.r * vec3(0.81649661, 0.0, 0.57735026) +
-					texel.g * vec3(-0.40824821, 0.70710677, 0.57735026) +
-					texel.b * vec3(-0.40824821, -0.70710677, 0.57735026)
+					w.r * vec3(0.81649661, 0.0, 0.57735026) +
+					w.g * vec3(-0.40824821, 0.70710677, 0.57735026) +
+					w.b * vec3(-0.40824821, -0.70710677, 0.57735026)
 				);
 
 				if (ReverseXZNormalMap) {
