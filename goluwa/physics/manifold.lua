@@ -547,6 +547,13 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt, relax
 				-- speculative: it may still approach by gap / dt.
 				local gap = contact.separation - (contact.v_pre or 0) * dt
 				local open_gap = speculative * math.min(1, math.max(0, gap * 1e30))
+
+				-- the relax pass solves a contact as touching so a resting body keeps
+				-- its support, but one that is clearly open stays open: solved as
+				-- touching it would prop up the side of a tilted box that should
+				-- be falling flat
+				if relax and gap > solver.RELAX_OPEN_GAP then open_gap = 1 end
+
 				local bias = open_gap * gap / dt + (
 						1 - open_gap
 					) * math.max(bias_rate * (gap + solver.PENETRATION_SLOP), -solver.CONTACT_PUSH_SPEED)

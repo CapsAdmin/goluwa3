@@ -440,7 +440,9 @@ T.TestPhysics("Long box overhanging a static platform tips instead of hovering f
 	top_ent:Remove()
 	platform_ent:Remove()
 	ground:Remove()
-	T(position.x)[">"](2.5)
+	-- it rolled off the platform edge: tilted well past flat and lower than it started
+	T(math.abs(angles.z))[">"](0.2)
+	T(position.x)[">"](2.35)
 	T(position.y)["<"](2.2)
 end)
 
@@ -794,4 +796,121 @@ T.TestPhysics("Evenly spaced playground boxes settle onto stable upright faces",
 		T(metric.sleep_linear)["<"](0.05)
 		T(metric.sleep_angular)["<"](0.08)
 	end
+end)
+
+T.TestPhysics("Boxes dropped at awkward angles fall flat instead of standing on an edge", function()
+	local floor_ent = spawn_box_platform(
+		"rigid_box_edge_floor",
+		Vec3(0, -0.5, 0),
+		Vec3(60, 1, 60),
+		{
+			MotionType = "static",
+			Friction = 0.7,
+			Restitution = 0,
+		}
+	)
+	local Quat = import("goluwa/structs/quat.lua")
+	local rotations = {
+		-- this one used to come to rest balanced on a single edge, awake and still
+		Quat(-0.09113884717226, -0.74621677398682, -0.64941048622131, 0.11454381793737),
+		Deg3(45, 0, 0),
+		Deg3(0, 0, 45),
+		Deg3(35, 20, 10),
+		Deg3(54.7, 0, 45),
+	}
+	local items = {}
+
+	for i, rotation in ipairs(rotations) do
+		local ent = Entity.New({Name = "rigid_box_edge_box"})
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(Vec3(i * 3 - 9, 3, 0))
+
+		if rotation.w and not rotation.p then
+			ent.transform:SetRotation(rotation)
+		else
+			ent.transform:SetAngles(rotation)
+		end
+
+		items[i] = {
+			ent = ent,
+			body = ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = BoxShape.New(Vec3(1, 1, 1)),
+					Size = Vec3(1, 1, 1),
+					Mass = 1,
+					AutomaticMass = false,
+					Friction = 0.7,
+					Restitution = 0,
+				}
+			),
+		}
+	end
+
+	test_helpers.Simulate(300, 1 / 60)
+	local results = {}
+
+	for i, item in ipairs(items) do
+		local body = item.body
+		local alignment = 0
+
+		for _, axis in ipairs{body:GetRight(), body:GetUp(), body:GetForward()} do
+			alignment = math.max(alignment, math.abs(axis.y))
+		end
+
+		results[i] = {
+			tilt = math.deg(math.acos(math.min(1, alignment))),
+			asleep = not body:GetAwake(),
+		}
+		item.ent:Remove()
+	end
+
+	floor_ent:Remove()
+
+	for _, result in ipairs(results) do
+		T(result.tilt)["<"](2)
+		T(result.asleep)["=="](true)
+	end
+end)
+
+T.TestPhysics("A tilted box lowers onto its face quickly after landing", function()
+	local floor_ent = spawn_box_platform(
+		"rigid_box_lowering_floor",
+		Vec3(0, -0.5, 0),
+		Vec3(60, 1, 60),
+		{
+			MotionType = "static",
+			Friction = 0.7,
+			Restitution = 0,
+		}
+	)
+	local ent, body = spawn_tilted_box(
+		"rigid_box_lowering_box",
+		Vec3(0, 1, 0),
+		Vec3(1, 1, 1),
+		Deg3(20, 80, 20),
+		{Mass = 1, Friction = 0.7, CanSleep = false}
+	)
+
+	local function tilt()
+		local alignment = 0
+
+		for _, axis in ipairs{body:GetRight(), body:GetUp(), body:GetForward()} do
+			alignment = math.max(alignment, math.abs(axis.y))
+		end
+
+		return math.deg(math.acos(math.min(1, alignment)))
+	end
+
+	test_helpers.Simulate(55, 1 / 60)
+	local early_tilt = tilt()
+	local early_y = body:GetPosition().y
+	test_helpers.Simulate(95, 1 / 60)
+	local final_y = body:GetPosition().y
+	ent:Remove()
+	floor_ent:Remove()
+	-- about 0.4 s after it lands the box has stopped lowering itself: the side
+	-- that is off the ground used to be propped up and sank over most of a second
+	T(early_tilt)["<"](0.5)
+	T(math.abs(early_y - final_y))["<"](0.003)
 end)

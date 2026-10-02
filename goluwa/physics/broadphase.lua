@@ -18,10 +18,11 @@ local entry_aabb_scratch_previous = AABB(0, 0, 0, 0, 0, 0)
 -- is nil); the per-pose shape aabbs are written into module scratch boxes
 local look_ahead_position = Vec3()
 local entry_aabb_scratch_ahead = AABB(0, 0, 0, 0, 0, 0)
-
 -- look_ahead is the time the body keeps moving after this pose before the
 -- next collide pass: the bounds also cover where its velocity carries it, so
 -- pairs found now stay valid for every substep of the step
+local CANDIDATE_PAD = 0.04
+
 local function build_entry_bounds(body, out, look_ahead)
 	local bounds = body:GetBroadphaseAABB(nil, nil, entry_aabb_scratch_current)
 	local previous_bounds = body:GetBroadphaseAABB(
@@ -45,6 +46,13 @@ local function build_entry_bounds(body, out, look_ahead)
 		)
 	end
 
+	-- bodies a little apart are candidates too, they get speculative contacts
+	out.min_x = out.min_x - CANDIDATE_PAD
+	out.min_y = out.min_y - CANDIDATE_PAD
+	out.min_z = out.min_z - CANDIDATE_PAD
+	out.max_x = out.max_x + CANDIDATE_PAD
+	out.max_y = out.max_y + CANDIDATE_PAD
+	out.max_z = out.max_z + CANDIDATE_PAD
 	return out
 end
 

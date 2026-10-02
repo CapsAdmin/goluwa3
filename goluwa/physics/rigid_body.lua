@@ -11,9 +11,15 @@ local Entity = import("goluwa/entities/entity.lua")
 local stats = import("goluwa/physics/stats.lua")
 local motion = import("goluwa/physics/motion.lua")
 local RigidBody = objects.CreateTemplate("rigid_body")
+local COMBINE_MODES = {"average", "min", "multiply", "max"}
 RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
 RigidBody:GetSet("Shapes", nil, {callback = "OnGeometryChanged"})
-RigidBody:GetSet("MotionType", "dynamic", {callback = "OnMotionTypeChanged"})
+RigidBody:StartStorable()
+RigidBody:GetSet(
+	"MotionType",
+	"dynamic",
+	{callback = "OnMotionTypeChanged", enums = {"dynamic", "kinematic", "static"}}
+)
 RigidBody:GetSet("Density", 1, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("Mass", 1, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("AutomaticMass", true, {callback = "RefreshMassProperties"})
@@ -26,29 +32,30 @@ RigidBody:GetSet("AirLinearDamping", 0)
 RigidBody:GetSet("AirAngularDamping", 0)
 RigidBody:GetSet("CollisionEnabled", true)
 RigidBody:GetSet("WorldGeometry", false, {callback = "OnWorldGeometryChanged"})
-RigidBody:GetSet("CollisionGroup", 1)
-RigidBody:GetSet("CollisionMask", -1)
+RigidBody:GetSet("CollisionGroup", 1, {validate = "integer"})
+RigidBody:GetSet("CollisionMask", -1, {validate = "integer"})
 RigidBody:GetSet("CCD", false)
 RigidBody:GetSet("AutoCCD", true)
 RigidBody:GetSet("AutoCCDThreshold", 0.5)
 RigidBody:GetSet("CollisionMargin", physics_constants.DEFAULT_COLLISION_MARGIN)
-RigidBody:GetSet("CollisionProbeDistance", 0.125)
+RigidBody:GetSet("CollisionProbeDistance", nil, {type = "number"})
 RigidBody:GetSet("Friction", 0)
-RigidBody:GetSet("StaticFriction", nil)
+RigidBody:GetSet("StaticFriction", nil, {type = "number"})
 RigidBody:GetSet("RollingFriction", 0)
 RigidBody:GetSet("Restitution", 0)
-RigidBody:GetSet("FrictionCombineMode", nil)
-RigidBody:GetSet("StaticFrictionCombineMode", nil)
-RigidBody:GetSet("RollingFrictionCombineMode", nil)
-RigidBody:GetSet("RestitutionCombineMode", nil)
-RigidBody:GetSet("Awake", true)
+RigidBody:GetSet("FrictionCombineMode", nil, {enums = COMBINE_MODES})
+RigidBody:GetSet("StaticFrictionCombineMode", nil, {enums = COMBINE_MODES})
+RigidBody:GetSet("RollingFrictionCombineMode", nil, {enums = COMBINE_MODES})
+RigidBody:GetSet("RestitutionCombineMode", nil, {enums = COMBINE_MODES})
 RigidBody:GetSet("CanSleep", true)
-RigidBody:GetSet("SleepLinearThreshold", 0.15)
-RigidBody:GetSet("SleepAngularThreshold", 0.15)
+RigidBody:GetSet("SleepLinearThreshold", 0.06)
+RigidBody:GetSet("SleepAngularThreshold", 0.06)
 RigidBody:GetSet("SleepDelay", 0.5)
 RigidBody:GetSet("MaxLinearSpeed", 240)
 RigidBody:GetSet("MaxAngularSpeed", 60)
 RigidBody:GetSet("MinGroundNormalY", 0.2)
+RigidBody:EndStorable()
+RigidBody:GetSet("Awake", true)
 RigidBody:GetSet("FilterFunction", nil)
 RigidBody:GetSet("Grounded", false)
 RigidBody:GetSet("GroundRollingFriction", 0)
@@ -197,6 +204,18 @@ function RigidBody:OnMotionTypeChanged()
 	self:RefreshMassProperties()
 	-- membership (dynamic vs anchor) changed: re-sync with the island system
 	islands.RemoveBody(self)
+end
+
+-- How far above a surface a body already counts as standing on it. A capsule
+-- (the player) wants a few centimeters of reach so it keeps its footing over
+-- bumps; for anything else it would hold the body in the air that far above
+-- the ground, with its fall speed cleared, until it creeps down.
+function RigidBody:GetCollisionProbeDistance()
+	local distance = self.CollisionProbeDistance
+
+	if distance ~= nil then return distance end
+
+	return self:GetShapeType() == "capsule" and 0.125 or 0
 end
 
 function RigidBody:GetOwner()
@@ -849,6 +868,11 @@ do
 				linear_speed <= linear_threshold and
 				angular_speed <= angular_threshold
 			)
+
+		if ready and not force_grounded_sleep and self.Grounded then
+			local shape = self:GetPhysicsShape()
+			ready = not shape or shape:CanRestOnSupport(self)
+		end
 
 		if sleep_pass_active and cycle_guard_hits == guard_hits_before then
 			self.ReadyToSleepPass = sleep_pass

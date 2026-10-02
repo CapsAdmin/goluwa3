@@ -172,3 +172,88 @@ T.TestPhysics("Capsule driven into a static mesh wall stays in front of it", fun
 	-- the wall and the floor are held together, not one at a time
 	T(grounded_flips)["<"](10)
 end)
+
+T.TestPhysics("Boxes dropped onto world geometry land without stalling above it and settle flat", function()
+	local ground_ent = Entity.New({Name = "box_landing_ground"})
+	ground_ent:AddComponent("transform")
+	ground_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New(create_quad_mesh(30)),
+			MotionType = "static",
+			WorldGeometry = true,
+			Friction = 0.7,
+		}
+	)
+	local rotations = {
+		Deg3(0, 0, 0),
+		Deg3(8, 0, 5),
+		Deg3(30, 40, 10),
+		Deg3(60, 10, 75),
+		Deg3(120, 200, 33),
+		Deg3(45, 45, 45),
+	}
+	local boxes = {}
+
+	for i, rotation in ipairs(rotations) do
+		local ent = Entity.New({Name = "box_landing_box"})
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(Vec3(i * 3 - 10, 3, 0))
+		ent.transform:SetAngles(rotation)
+		boxes[i] = {
+			ent = ent,
+			body = ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = BoxShape.New(Vec3(1, 1, 1)),
+					Size = Vec3(1, 1, 1),
+					Mass = 1,
+					AutomaticMass = false,
+					Friction = 0.7,
+				}
+			),
+			slowest_fall = 0,
+		}
+	end
+
+	-- a box hanging in the air above the ground must keep falling at full speed
+	for _ = 1, 40 do
+		test_helpers.Simulate(1, 1 / 60)
+
+		for _, item in ipairs(boxes) do
+			local body = item.body
+			local height = body:GetPosition().y
+
+			if height > 1.4 and height < 2.5 and body:GetVelocity().y > -3 then
+				item.slowest_fall = item.slowest_fall + 1
+			end
+		end
+	end
+
+	test_helpers.Simulate(240, 1 / 60)
+	local results = {}
+
+	for i, item in ipairs(boxes) do
+		local body = item.body
+		local alignment = 0
+
+		for _, axis in ipairs{body:GetRight(), body:GetUp(), body:GetForward()} do
+			alignment = math.max(alignment, math.abs(axis.y))
+		end
+
+		results[i] = {
+			tilt = math.deg(math.acos(math.min(1, alignment))),
+			asleep = not body:GetAwake(),
+			stalled = item.slowest_fall,
+		}
+		item.ent:Remove()
+	end
+
+	ground_ent:Remove()
+
+	for _, result in ipairs(results) do
+		T(result.stalled)["=="](0)
+		T(result.tilt)["<"](2)
+		T(result.asleep)["=="](true)
+	end
+end)

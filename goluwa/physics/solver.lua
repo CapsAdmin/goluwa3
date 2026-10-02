@@ -175,6 +175,8 @@ function Solver.New(config)
 	self.JOINT_DAMPING_RATIO = config.JOINT_DAMPING_RATIO or self.JOINT_DAMPING_RATIO or 2
 	-- joints are cheap next to contacts and chains need the sweeps to carry a load
 	self.JOINT_ITERATIONS = config.JOINT_ITERATIONS or self.JOINT_ITERATIONS or 2
+	-- a contact this far apart is not held by the relax pass
+	self.RELAX_OPEN_GAP = config.RELAX_OPEN_GAP or self.RELAX_OPEN_GAP or 0.02
 	self.CONTACT_PUSH_SPEED = config.CONTACT_PUSH_SPEED or self.CONTACT_PUSH_SPEED or 3
 	self.REBUILD_POSE_THRESHOLD = config.REBUILD_POSE_THRESHOLD or self.REBUILD_POSE_THRESHOLD or 0.01
 	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or 0.9

@@ -69,6 +69,8 @@ local function build_support_plane_basis(normal)
 	return tangent, bitangent
 end
 
+local MIN_RESTING_COVERAGE = 0.25
+
 local function get_ground_support_tolerance(body)
 	return math.max(
 		(body:GetCollisionMargin() or 0) * 2,
@@ -334,62 +336,10 @@ function META:GetPolyhedron()
 	return self.Polyhedron
 end
 
-do
-	local function damp_tangent_velocity(body, ground_normal, damping_strength, dt)
-		local normal_velocity = ground_normal * body.Velocity:Dot(ground_normal)
-		local tangent_velocity = body.Velocity - normal_velocity
-		local damped = tangent_velocity * math.exp(-damping_strength * dt)
-
-		if damped:GetLength() < 0.015 then damped = Vec3(0, 0, 0) end
-
-		body.Velocity = normal_velocity + damped
-	end
-
-	local function damp_tangent_angular(body, ground_normal, damping_strength, dt)
-		local tangent_angular = body.AngularVelocity - ground_normal * body.AngularVelocity:Dot(ground_normal)
-		local damped = tangent_angular * math.exp(-(damping_strength * 1.35) * dt)
-
-		if damped:GetLength() < 0.035 then damped = Vec3(0, 0, 0) end
-
-		body.AngularVelocity = damped + ground_normal * body.AngularVelocity:Dot(ground_normal)
-	end
-
-	function META:OnGroundedVelocityUpdate(body, dt)
-		if not dt or dt <= 0 then return end
-
-		local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
-		local support_metrics = self:GetSupportFootprintMetrics(body, ground_normal)
-
-		if not support_metrics.stable or support_metrics.support_width_coverage < 0.45 then
-			return
-		end
-
-		local friction = math.max(body:GetGroundRollingFriction() or 0, body:GetFriction() or 0)
-
-		if friction <= 0 then return end
-
-		local coverage = math.max(
-			support_metrics.min_coverage,
-			support_metrics.area_coverage,
-			support_metrics.support_width_coverage
-		)
-		local damping_strength = friction * (2.5 + coverage * 2.5)
-		local normal_velocity = ground_normal * body.Velocity:Dot(ground_normal)
-		local tangent_velocity = body.Velocity - normal_velocity
-		local tangent_speed = tangent_velocity:GetLength()
-		local tangent_angular = body.AngularVelocity - ground_normal * body.AngularVelocity:Dot(ground_normal)
-		local tangent_angular_speed = tangent_angular:GetLength()
-
-		if tangent_speed > 0.08 or tangent_angular_speed > 0.22 then return end
-
-		if tangent_speed > 0.0001 then
-			damp_tangent_velocity(body, ground_normal, damping_strength, dt)
-		end
-
-		if tangent_angular_speed > 0.0001 then
-			damp_tangent_angular(body, ground_normal, damping_strength, dt)
-		end
-	end
+-- a box touching along one edge or a corner is balanced, not resting: it only
+-- looks still for the moment it takes to start falling over
+function META:CanRestOnSupport(body)
+	return self:GetSupportFootprintMetrics(body).min_coverage >= MIN_RESTING_COVERAGE
 end
 
 function META:ShouldForceGroundedSleep(body)
