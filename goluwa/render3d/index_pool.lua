@@ -13,7 +13,10 @@ local MIN_RANGE = 64
 -- a freed range or a replaced buffer may still be read by frames in flight
 local REUSE_DELAY = 16
 local buffer
+-- the pool's memory is not cpu cached, reading it back is slow. what is in it is
+-- kept in memory of the cpu too, which is what a larger buffer is filled from
 local pointer
+local shadow
 local capacity = 0
 local top = 0
 local entries = setmetatable({}, {__mode = "k"})
@@ -59,14 +62,17 @@ local function grow(needed)
 		label = "index_pool",
 	}
 	local new_pointer = ffi.cast(UInt32Array, new_buffer:Map())
+	local new_shadow = ffi.new("uint32_t[?]", new_capacity)
 
 	if buffer then
-		ffi.copy(new_pointer, pointer, top * 4)
+		ffi.copy(new_shadow, shadow, top * 4)
+		ffi.copy(new_pointer, new_shadow, top * 4)
 		retired[#retired + 1] = {buffer = buffer, frame = system.GetFrameNumber()}
 	end
 
 	buffer = new_buffer
 	pointer = new_pointer
+	shadow = new_shadow
 	capacity = new_capacity
 end
 
@@ -94,7 +100,7 @@ function index_pool.GetFirstIndex(index_buffer)
 	local size = get_range_size(count)
 	local first = alloc(size)
 	local data = index_buffer:GetData()
-	local destination = pointer + first
+	local destination = shadow + first
 
 	if type(data) == "cdata" then
 		local typed = ffi.cast(index_buffer:GetIndexTypeFFI() .. "*", data)
@@ -108,6 +114,7 @@ function index_pool.GetFirstIndex(index_buffer)
 		end
 	end
 
+	ffi.copy(pointer + first, destination, count * 4)
 	-- the range goes back once the index buffer is collected and its entry with it
 	entry = {
 		first = first,
