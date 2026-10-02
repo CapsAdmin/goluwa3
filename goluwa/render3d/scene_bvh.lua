@@ -2023,34 +2023,6 @@ do
 	end
 end
 
-local function ensure_placeholder_buffers()
-	if scene_bvh.node_buffer then return end
-
-	local nodes = NodeArray(1)
-	nodes[0].bounds_min[0] = 1
-	nodes[0].bounds_min[1] = 1
-	nodes[0].bounds_min[2] = 1
-	nodes[0].bounds_max[0] = -1
-	nodes[0].bounds_max[1] = -1
-	nodes[0].bounds_max[2] = -1
-	nodes[0].left_first = 0
-	nodes[0].count = 0
-	scene_bvh.node_buffer = render.CreateBuffer{
-		byte_size = NODE_BYTE_SIZE,
-		buffer_usage = {"storage_buffer"},
-		memory_property = {"host_visible", "host_coherent"},
-		label = "scene_bvh_nodes_empty",
-		data = nodes,
-	}
-	scene_bvh.triangle_buffer = render.CreateBuffer{
-		byte_size = TRIANGLE_BYTE_SIZE,
-		buffer_usage = {"storage_buffer"},
-		memory_property = {"host_visible", "host_coherent"},
-		label = "scene_bvh_triangles_empty",
-		data = TriangleArray(1),
-	}
-end
-
 -- lights are not part of the bvh geometry, but their transforms invalidate
 -- the light space data (occlusion maps, shadows). tracked so consumers and the
 -- debug overlay can see when the light set moved
@@ -2160,11 +2132,6 @@ function scene_bvh.EnsureBuilt()
 	end
 
 	if not scene_bvh.dirty_since then return end
-
-	if not scene_bvh.node_buffer then
-		ensure_placeholder_buffers()
-		return
-	end
 
 	local settled = (scene_bvh.last_change_frame or 0) < frame - 1 or scene_bvh.build_backlog
 	local max_wait = math.max(0.02, scene_bvh.build_time * 20)
@@ -2489,9 +2456,7 @@ do
 	local expand_first = 0
 	local expand_count = 0
 
-	local function ensure_expand_pipeline(state)
-		if state.expand_pipeline then return state.expand_pipeline end
-
+	function scene_bvh.CreateExpander(state)
 		local storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}}
 		local opacity_declarations = ""
 		local opacity_write = "positions[vid] = p;"
@@ -2601,7 +2566,7 @@ do
 				}
 			]],
 		}
-		return state.expand_pipeline
+		return state
 	end
 
 	local function expand_range(cmd, pipeline, slot, first_vertex, vertex_count)
@@ -2715,7 +2680,7 @@ do
 		end
 
 		local position_buffer = state.position_buffer
-		local pipeline = ensure_expand_pipeline(state)
+		local pipeline = state.expand_pipeline
 		local slot = math.max(render.GetCurrentFrame(), 1)
 		scene_bvh.BindTriangleBuffer(pipeline, slot, 1, scene_bvh.triangle_buffer)
 		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, position_buffer, position_buffer:GetSize())
@@ -3052,6 +3017,7 @@ do
 		local scratch_alignment = rt_state.scratch_alignment
 		local scratch_total = 0
 		local largest = 0
+		local rebuilt = false
 
 		for i = 1, n do
 			local vc = dirty[i]
@@ -3068,20 +3034,30 @@ do
 				}
 			)
 
-			if vc.rt_blas then release_blas(vc, frame) end
+			-- a rebuild that still fits the size class of the old structure
+			-- is built in place, keeping its storage, handle and address
+			if
+				vc.rt_blas and
+				range_class(math.ceil(storage_size / BLAS_ALIGN), 1) == vc.rt_units
+			then
+				rebuilt = true
+			else
+				if vc.rt_blas then release_blas(vc, frame) end
 
-			local pool, offset, units = pool_alloc(storage_size)
-			vc.rt_pool = pool
-			vc.rt_offset = offset
-			vc.rt_units = units
-			vc.rt_blas = AccelerationStructure.New(
-				device,
-				"bottom_level_khr",
-				pool.buffer,
-				offset * BLAS_ALIGN,
-				storage_size
-			)
-			vc.rt_address = vc.rt_blas:Data()
+				local pool, offset, units = pool_alloc(storage_size)
+				vc.rt_pool = pool
+				vc.rt_offset = offset
+				vc.rt_units = units
+				vc.rt_blas = AccelerationStructure.New(
+					device,
+					"bottom_level_khr",
+					pool.buffer,
+					offset * BLAS_ALIGN,
+					units * BLAS_ALIGN
+				)
+				vc.rt_address = vc.rt_blas:Data()
+			end
+
 			vc.rt_serial = vc.soup_serial
 			write_instance(vc)
 			scratch_size = math.ceil(scratch_size / scratch_alignment) * scratch_alignment
@@ -3105,6 +3081,26 @@ do
 		local cmd_build = device:GetExtension("vkCmdBuildAccelerationStructuresKHR")
 		-- scratch may still be in use by builds of an earlier frame
 		scratch_barrier(cmd)
+
+		if rebuilt then
+			-- earlier frames may still trace the structures being rebuilt
+			local barriers = {}
+
+			for i, pool in ipairs(rt_state.pools) do
+				barriers[i] = {
+					buffer = pool.buffer,
+					srcAccessMask = "acceleration_structure_read_khr",
+					dstAccessMask = "acceleration_structure_write_khr",
+				}
+			end
+
+			cmd:PipelineBarrier{
+				srcStage = {"ray_tracing_shader_khr", "compute", "fragment"},
+				dstStage = "acceleration_structure_build_khr",
+				bufferBarriers = barriers,
+			}
+		end
+
 		local first = 0
 
 		while first < n do
@@ -3281,6 +3277,35 @@ do
 		}
 		rt_state.placeholder = slot
 		return slot.tlas
+	end
+
+	function scene_bvh.Initialize()
+		if scene_bvh.node_buffer then return end
+
+		local nodes = NodeArray(1)
+		nodes[0].bounds_min[0] = 1
+		nodes[0].bounds_min[1] = 1
+		nodes[0].bounds_min[2] = 1
+		nodes[0].bounds_max[0] = -1
+		nodes[0].bounds_max[1] = -1
+		nodes[0].bounds_max[2] = -1
+		nodes[0].left_first = 0
+		nodes[0].count = 0
+		scene_bvh.node_buffer = render.CreateBuffer{
+			byte_size = NODE_BYTE_SIZE,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scene_bvh_nodes_empty",
+			data = nodes,
+		}
+		scene_bvh.triangle_buffer = render.CreateBuffer{
+			byte_size = TRIANGLE_BYTE_SIZE,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scene_bvh_triangles_empty",
+			data = TriangleArray(1),
+		}
+		scene_bvh.CreateExpander(rt_state)
 	end
 end
 

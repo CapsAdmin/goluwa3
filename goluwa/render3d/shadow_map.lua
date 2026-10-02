@@ -1351,7 +1351,14 @@ local function create_soup_material_table(capacity)
 	}
 end
 
-local function create_soup_uv_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height, bindless_texture_capacity, table_state)
+local function create_soup_uv_pipeline_variant(
+	self,
+	depth_format,
+	max_shadow_width,
+	max_shadow_height,
+	bindless_texture_capacity,
+	table_state
+)
 	return render.CreateGraphicsPipeline(
 		build_shadow_pipeline_config(
 			depth_format,
@@ -1620,7 +1627,7 @@ function ShadowMap.New(config)
 	self.cascade = {} -- Per-cascade data
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl(), "shadow_map.vertex_animation")
 	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl, "shadow_map.state")
-	self.expander = {with_opacity = true}
+	self.expander = scene_bvh.CreateExpander{with_opacity = true}
 	self.light = config.light -- optional source entity whose transform the map follows
 	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
 	self.policy = config.policy or {} -- shadow_update_mode, shadow_update_interval, epsilons, farthest_cascade_*
@@ -2455,6 +2462,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 					update_soup_material_table(self.soup_uv_pipeline_variants[format], table_state)
 				end
 			end
+
 			gpu_timing.BeginScope(self.cmd, "shadow_soup_expand")
 			local vertex_count, position_buffer = scene_bvh.ExpandPositions(self.cmd, self.expander)
 			gpu_timing.EndScope(self.cmd, "shadow_soup_expand")
@@ -2972,7 +2980,6 @@ do
 		end
 
 		if dither_count == 0 then return end
-
 
 		if scene_bvh.SOUP_UVS then
 			local uv_pipeline = self.soup_uv_pipeline_variants[cascade.format]

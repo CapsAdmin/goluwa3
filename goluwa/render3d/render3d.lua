@@ -340,6 +340,7 @@ end
 
 function render3d.Initialize(config)
 	render3d.initializing = true
+	scene_bvh.Initialize()
 
 	if render3d.main_pipeline_bundle then
 		render3d.RemovePipelineBundle(render3d.main_pipeline_bundle)
