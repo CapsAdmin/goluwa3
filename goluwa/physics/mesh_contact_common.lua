@@ -69,6 +69,7 @@ local SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT = {
 	combined_margin = 0,
 	step_dt = 0,
 	cluster_count = 0,
+	bottom_y = 0,
 }
 -- the deepest contact per distinct surface normal: a capsule against a wall
 -- and a floor keeps both instead of alternating between the two
@@ -76,10 +77,26 @@ local MAX_CONTACT_CLUSTERS = 4
 local CLUSTER_NORMAL_DOT = 0.9
 local CLUSTER_TIE_OVERLAP = 0.001
 local RESTING_CONTACT_SLACK = 0.01
+-- a contact whose normal is not its triangle's face normal comes from an edge
+-- or a vertex. Its normal turns as the body passes over it, so the gap along
+-- today's normal says little about when it is reached; one that lies at the
+-- level of the surface the body rests on is just the seam of that surface, and
+-- deflecting the body off it kicks it sideways on flat ground. Such a contact
+-- only counts once it touches. A stair's nosing or a ledge's edge stands above
+-- the body's lowest point and is still approached speculatively
+local FEATURE_FACE_DOT = 0.999
+local FEATURE_FLOOR_TOLERANCE = 0.02
+local BODY_BOUNDS = {}
 local CLUSTERS = {}
 
 for i = 1, MAX_CONTACT_CLUSTERS do
-	CLUSTERS[i] = {normal = nil, overlap = 0, lever_squared = 0, contacts = {{point_a = nil, point_b = nil}}}
+	CLUSTERS[i] = {
+		normal = nil,
+		overlap = 0,
+		lever_squared = 0,
+		feature = false,
+		contacts = {{point_a = nil, point_b = nil}},
+	}
 end
 
 local HEIGHTMAP_CAPSULE_OPTIONS = {friction_scale = 0.25}
@@ -139,7 +156,9 @@ local function evaluate_triangle_contact(
 		point_b = local_point_to_world(mesh_body, point_b)
 	end
 
-	return mesh_contact_common.UpdateBestContact(nil, triangle_index, normal, overlap, point_a, point_b, polygon)
+	local best = mesh_contact_common.UpdateBestContact(nil, triangle_index, normal, overlap, point_a, point_b, polygon)
+	best.feature = normal:Dot(fallback_normal) < FEATURE_FACE_DOT
+	return best
 end
 
 local function query_mesh_sphere_contact(handlers, v0, v1, v2)
@@ -284,11 +303,21 @@ local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, 
 	-- it before the next narrow phase; otherwise it would hold the body back
 	-- from a surface it is not approaching
 	if best.overlap < 0 then
+		if
+			best.feature and
+			best.overlap < -RESTING_CONTACT_SLACK and
+			best.point_a.y < context.bottom_y + FEATURE_FLOOR_TOLERANCE
+		then
+			return
+		end
+
 		local velocity = context.other_body.Velocity
 		local normal = best.normal
 		local approach_speed = -(velocity.x * normal.x + velocity.y * normal.y + velocity.z * normal.z)
 
-		if best.overlap < -(approach_speed * context.step_dt + RESTING_CONTACT_SLACK) then return end
+		if best.overlap < -(approach_speed * context.step_dt + RESTING_CONTACT_SLACK) then
+			return
+		end
 	end
 
 	local center = context.other_body.Position
@@ -325,7 +354,13 @@ local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, 
 		target = CLUSTERS[count]
 	else
 		for i = 1, count do
-			if best.overlap > CLUSTERS[i].overlap and (not target or CLUSTERS[i].overlap < target.overlap) then
+			if
+				best.overlap > CLUSTERS[i].overlap and
+				(
+					not target or
+					CLUSTERS[i].overlap < target.overlap
+				)
+			then
 				target = CLUSTERS[i]
 			end
 		end
@@ -336,6 +371,7 @@ local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, 
 	target.normal = best.normal
 	target.overlap = best.overlap
 	target.lever_squared = lever_squared
+	target.feature = best.feature
 	target.contacts[1].point_a = best.point_a
 	target.contacts[1].point_b = best.point_b
 end
@@ -429,7 +465,7 @@ function mesh_contact_common.SolveBestTriangleContact(mesh_body, other_body, mes
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.step_dt = other_body:GetPhysics().solver.StepDt
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.use_local_space = handlers.QuerySpace == "local"
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.cluster_count = 0
-
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.bottom_y = other_body:GetBroadphaseAABB(nil, nil, BODY_BOUNDS).min_y
 	mesh_contact_common.ForEachOverlappingMeshTriangle(
 		mesh_body,
 		mesh_shape,
