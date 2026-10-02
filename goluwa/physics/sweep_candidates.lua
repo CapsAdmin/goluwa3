@@ -445,6 +445,26 @@ local function collect_rigid_body_candidates(physics, world_aabb, ignore_entity,
 	local effective_options = options or EMPTY_OPTIONS
 	local broadphase = physics.broadphase
 
+	if effective_options.IgnoreRigidBodies ~= false then
+		if effective_options.IgnoreWorld == true then return out end
+
+		local world_bodies = RigidBody.WorldGeometryBodies
+
+		for i = 1, #world_bodies do
+			local body = world_bodies[i]
+
+			if not should_skip_rigid_body(body, ignore_entity, filter_fn, options) then
+				local bounds = get_rigid_body_candidate_aabb(body)
+
+				if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
+					out[#out + 1] = body
+				end
+			end
+		end
+
+		return out
+	end
+
 	if broadphase then
 		local entries = broadphase:QueryAABB(world_aabb, query_entry_cache)
 

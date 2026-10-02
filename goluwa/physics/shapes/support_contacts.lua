@@ -6,6 +6,9 @@ local support_contacts = {}
 local cast_origin_offset = Vec3(0, 0, 0)
 local cast_delta = Vec3(0, 0, 0)
 local sweep_origin = Vec3(0, 0, 0)
+-- the support sweep only looks downward: a hit on a wall or ceiling is the body
+-- already touching it, its normal is arbitrary and the pair solver owns it
+local MIN_SUPPORT_NORMAL_Y = 0.1
 
 local function fill_cast_vectors(cast_up, cast_distance)
 	local up = physics_constants.UP
@@ -103,7 +106,7 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 		sweep_origin.y = point.y + cast_origin_offset.y
 		sweep_origin.z = point.z + cast_origin_offset.z
 		local hit = physics.Sweep(sweep_origin, cast_delta, 0, owner, filter_function)
-		stats:Count("support_sweeps")
+		stats:Count("sweeps_support_points")
 
 		if hit then
 			support_contacts.AccumulatePointSweepSupport(body, point, hit)
@@ -122,6 +125,12 @@ end
 function support_contacts.ApplyWorldSupportContact(body, normal, contact_position, support_radius, hit, dt)
 	if not (normal and contact_position) then return false end
 
+	if normal.y < MIN_SUPPORT_NORMAL_Y then return false end
+
+	-- a sweep that starts overlapping geometry reports an arbitrary feature
+	-- normal; the contact solver already owns that overlap
+	if hit.distance <= 0 then return false end
+
 	local physics = body:GetPhysics()
 	local margin = body:GetCollisionMargin() or 0
 	local center = body:GetPosition()
@@ -132,6 +141,14 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 
 	if depth > 0 then
 		body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
+		-- the push-out moved the body without touching its velocity; keeping the
+		-- inward speed would let gravity re-penetrate it and pump energy back in
+		local normal_speed = body.Velocity:Dot(normal)
+
+		if normal_speed < 0 then
+			body.Velocity:AddScaled(normal, -normal_speed)
+			body:SyncSolverVelocity()
+		end
 
 		if normal.y >= body:GetMinGroundNormalY() then
 			apply_support_grounding_metadata(body, hit, normal)
@@ -166,6 +183,18 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 
 	if depth > 0 then
 		body:ApplyCorrection(0, normal * depth, support_point, nil, nil, dt)
+		-- the push-out moved the body without touching its velocity; cancel the
+		-- speed it still has into the surface at this point
+		local point_velocity = body.Velocity + body.AngularVelocity:GetCross(support_point - body.Position)
+		local normal_speed = point_velocity:Dot(normal)
+
+		if normal_speed < 0 then
+			body:ApplyImpulse(
+				normal * (-normal_speed / body:GetInverseMassAlong(normal, support_point)),
+				support_point
+			)
+			body:SyncSolverVelocity()
+		end
 	end
 
 	if depth < -support_tolerance then return false end
@@ -196,7 +225,7 @@ function support_contacts.SweepCollider(body, dt)
 		body:GetFilterFunction(),
 		{Rotation = body:GetRotation()}
 	)
-	stats:Count("support_sweeps")
+	stats:Count("sweeps_support_body")
 	return hit
 end
 
@@ -209,7 +238,7 @@ function support_contacts.SweepSphere(body, dt, radius)
 	sweep_origin.y = center.y + cast_origin_offset.y
 	sweep_origin.z = center.z + cast_origin_offset.z
 	local hit = physics.Sweep(sweep_origin, cast_delta, radius, body:GetOwner(), body:GetFilterFunction())
-	stats:Count("support_sweeps")
+	stats:Count("sweeps_support_sphere")
 	return hit
 end
 

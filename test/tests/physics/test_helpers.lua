@@ -5,6 +5,7 @@ local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local Matrix33 = import("goluwa/structs/matrix33.lua")
 local module = {}
 
 local function copy_position(position)
@@ -95,7 +96,7 @@ function module.AttachWorldGeometryBody(entity, source)
 			WorldGeometry = true,
 		}
 	)
-	body.WorldGeometry = true
+	body:SetWorldGeometry(true)
 	return body
 end
 
@@ -148,6 +149,8 @@ function module.CreateStubBody(data)
 		Velocity = velocity,
 		AngularVelocity = angular_velocity,
 		InverseMass = data.InverseMass == nil and 1 or data.InverseMass,
+		InverseInertiaTensor = Matrix33():SetZero(),
+		PositionCorrection = 0,
 		MotionType = motion_type,
 		Awake = data.Awake,
 		WakeCount = data.WakeCount or 0,
@@ -449,28 +452,12 @@ function module.CreateStubBody(data)
 				return 0
 			end
 
-			function solver:ShouldUseStaticFriction(contact, tangent_speed, tangent_impulse_length, max_static_impulse)
-				local enter_speed = solver.STATIC_FRICTION_SPEED or 0
-				local exit_speed = solver.STATIC_FRICTION_EXIT_SPEED or enter_speed
-				max_static_impulse = math.max(max_static_impulse or 0, 0)
-
-				if
-					max_static_impulse > 0 and
-					(
-						tangent_impulse_length or
-						math.huge
-					) <= max_static_impulse
-				then
-					return true
-				end
-
-				if tangent_speed <= enter_speed then return true end
-
-				return contact and
-					contact.static_friction_active == true and
-					tangent_speed <= exit_speed or
-					false
-			end
+			solver.CONTACT_HERTZ = 30
+			solver.CONTACT_DAMPING_RATIO = 10
+			solver.CONTACT_PUSH_SPEED = 3
+			solver.PENETRATION_SLOP = 0.005
+			solver.STATIC_FRICTION_SPEED = 0
+			solver.STATIC_FRICTION_EXIT_SPEED = 0
 
 			function solver:GetManifoldSolverPasses()
 				return math.max(1, solver.MANIFOLD_SOLVER_PASSES or 1)

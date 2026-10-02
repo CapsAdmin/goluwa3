@@ -15,12 +15,17 @@ local section_names = {
 	"solve_pairs",
 	"support",
 	"constraints",
+	"positions",
+	"relax",
 	"velocities_sleep",
+	"restitution",
 	"finalize",
 }
 -- nested sections measured inside a top-level section; printed indented and
 -- excluded from the accounted-for sum
 local subsection_names = {
+	"kinematic",
+	"mesh_contacts",
 	"temporal_toi",
 	"box_sat",
 	"box_face_contacts",
@@ -34,6 +39,10 @@ local subsection_names = {
 	"face_rank",
 	"face_select",
 }
+-- query entry points the game calls from anywhere (inside the step, between
+-- steps, from a controller); they overlap the sections above or run outside
+-- the step entirely, so they are reported on their own
+local query_names = {"sweep", "sweep_candidates", "sweep_bodies", "sweep_models", "trace"}
 local BUCKET_EDGES_MS = {1, 4, 8, 16, 32}
 local BUCKET_LABELS = {"<1ms", "1-4ms", "4-8ms", "8-16ms", "16-32ms", ">32ms"}
 local state = nil
@@ -62,7 +71,36 @@ function stats:Enable()
 	for i = 1, #subsection_names do
 		all_section_names[#all_section_names + 1] = subsection_names[i]
 	end
+
+	for i = 1, #query_names do
+		all_section_names[#all_section_names + 1] = query_names[i]
+	end
 end
+
+-- Returns what was measured since the last snapshot (or Enable/Reset) and
+-- starts a new window: {steps, total_time, max_step_time, sections, counts,
+-- gauges}. Section times are seconds, counts are window totals.
+function stats:TakeSnapshot()
+	if not state then return nil end
+
+	local snapshot = {
+		steps = state.steps,
+		total_time = state.total_time,
+		max_step_time = state.max_step_time,
+		sections = state.sections,
+		counts = state.counts,
+		gauges = state.gauges,
+	}
+	local gauges = state.gauges
+	self:Reset()
+	-- gauges are last-value metrics, they stay valid across windows
+	state.gauges = gauges
+	return snapshot
+end
+
+stats.SectionNames = section_names
+stats.SubsectionNames = subsection_names
+stats.QueryNames = query_names
 
 function stats:Disable()
 	state = nil
@@ -80,6 +118,8 @@ function stats:Reset()
 	state.min_step_time = math.huge
 	state.max_step_time = 0
 	state.stack_depth = 0
+	-- fresh tables: a snapshot taken earlier keeps its own
+	state.sections = {}
 
 	for i = 1, #all_section_names do
 		state.sections[all_section_names[i]] = 0
@@ -222,6 +262,11 @@ function stats:Summary()
 	for i = 1, #subsection_names do
 		local name = subsection_names[i]
 		out[#out + 1] = "  " .. format_line(name, state.sections[name] or 0, total)
+	end
+
+	for i = 1, #query_names do
+		local name = query_names[i]
+		out[#out + 1] = "  query " .. format_line(name, state.sections[name] or 0, total)
 	end
 
 	local gauge_names = {}

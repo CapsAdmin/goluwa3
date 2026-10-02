@@ -1,4 +1,5 @@
 local AABB = import("goluwa/structs/aabb.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local stats = import("goluwa/physics/stats.lua")
 local broadphase = {}
 local Broadphase = {}
@@ -13,10 +14,15 @@ end
 
 local entry_aabb_scratch_current = AABB(0, 0, 0, 0, 0, 0)
 local entry_aabb_scratch_previous = AABB(0, 0, 0, 0, 0, 0)
-
 -- writes the swept broadphase bounds into out (allocating a new AABB when out
 -- is nil); the per-pose shape aabbs are written into module scratch boxes
-local function build_entry_bounds(body, out)
+local look_ahead_position = Vec3()
+local entry_aabb_scratch_ahead = AABB(0, 0, 0, 0, 0, 0)
+
+-- look_ahead is the time the body keeps moving after this pose before the
+-- next collide pass: the bounds also cover where its velocity carries it, so
+-- pairs found now stay valid for every substep of the step
+local function build_entry_bounds(body, out, look_ahead)
 	local bounds = body:GetBroadphaseAABB(nil, nil, entry_aabb_scratch_current)
 	local previous_bounds = body:GetBroadphaseAABB(
 		body:GetPreviousPosition(),
@@ -27,6 +33,18 @@ local function build_entry_bounds(body, out)
 	if not out then out = AABB(0, 0, 0, 0, 0, 0) end
 
 	AABB.Union(out, previous_bounds, bounds)
+
+	if look_ahead > 0 then
+		look_ahead_position.x = body.Position.x + body.Velocity.x * look_ahead
+		look_ahead_position.y = body.Position.y + body.Velocity.y * look_ahead
+		look_ahead_position.z = body.Position.z + body.Velocity.z * look_ahead
+		AABB.Union(
+			out,
+			out,
+			body:GetBroadphaseAABB(look_ahead_position, nil, entry_aabb_scratch_ahead)
+		)
+	end
+
 	return out
 end
 
@@ -307,7 +325,7 @@ local function create_entry(self, body)
 	}
 	self.Entries[entry.index] = entry
 	self.BodyEntries[body] = entry
-	build_entry_bounds(body, entry.bounds)
+	build_entry_bounds(body, entry.bounds, self.LookAhead)
 	assign_entry_cells(self, entry, entry.bounds)
 	return entry
 end
@@ -345,6 +363,7 @@ function broadphase.New(config)
 			Cells = {},
 			Pairs = {},
 			StepStamp = 0,
+			LookAhead = 0,
 			QueryStamp = 0,
 			NextEntryId = 0,
 		},
@@ -359,6 +378,7 @@ function Broadphase:ResetState()
 	self.Cells = {}
 	self.Pairs = {}
 	self.StepStamp = 0
+	self.LookAhead = 0
 	self.QueryStamp = 0
 	self.NextEntryId = 0
 	return self
@@ -486,7 +506,7 @@ function Broadphase:TrackBodies(bodies, physics_override)
 			else
 				if entry then
 					-- mutate the entry's own AABB in place; no per-substep allocation
-					build_entry_bounds(body, entry.bounds)
+					build_entry_bounds(body, entry.bounds, self.LookAhead)
 					store_entry_pose(entry, body)
 					entry.last_seen_step = self.StepStamp
 					stats:Count("broadphase_bounds_updates")

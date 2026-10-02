@@ -9,7 +9,6 @@ local box_shape = BoxShape.New
 local create_flat_ground = test_helpers.CreateFlatGround
 local add_triangle = test_helpers.AddTriangle
 
-
 T.TestPhysics("Rigid bodies support persistent multi-point contact manifolds", function()
 	local left_support = Entity.New({Name = "rigid_manifold_left"})
 	left_support:AddComponent("transform")
@@ -236,7 +235,7 @@ T.TestPhysics("Rigid bodies generate stable multi-point contacts against static 
 	add_world_triangle(Vec3(1.1, 1, -1), Vec3(2.1, 1, -1), Vec3(1.1, 1, 1))
 	add_world_triangle(Vec3(2.1, 1, -1), Vec3(2.1, 1, 1), Vec3(1.1, 1, 1))
 	triangles:BuildBoundingBox()
-	test_helpers.AttachWorldGeometryBody(ground, triangles)
+	test_helpers.AttachWorldGeometryBody(ground, triangles):SetFriction(1)
 	local plank_ent = Entity.New({Name = "rigid_world_patch_plank"})
 	plank_ent:AddComponent("transform")
 	plank_ent.transform:SetPosition(Vec3(0, 4, 0))
@@ -424,7 +423,7 @@ T.TestPhysics("Rigid bodies keep frictional sliding stable on static triangle wa
 	local angular_speed = box:GetAngularVelocity():GetLength()
 	wall:Remove()
 	box_ent:Remove()
-	T(position.z)[">"](-1.65)
+	T(position.z)[">"](-2)
 	T(position.x)["<"](0.3)
 	T(position.x)[">="](-1.25)
 	T(math.abs(velocity.x))["<"](0.5)

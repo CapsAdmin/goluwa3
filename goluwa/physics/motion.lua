@@ -77,7 +77,15 @@ function motion.ApplyBodyMotionDelta(body, previous_position, previous_rotation,
 	Vec3.SetSub(POSITION_DELTA, body.Position, previous_position)
 	POSITION_DELTA:Scale(1 / dt)
 	body.Velocity:Add(POSITION_DELTA)
-	body.AngularVelocity:Add(motion.GetAngularVelocityFromRotationDelta(previous_rotation, body.Rotation, dt))
+	local angular_delta = motion.GetAngularVelocityFromRotationDelta(previous_rotation, body.Rotation, dt)
+	body.AngularVelocity:Add(angular_delta)
+
+	-- the body already moved by this delta, so the solver velocity delta that
+	-- gets integrated into its pose must not include it again
+	if body.HasSolverVelocity0 then
+		body.SolverVelocity0:Add(POSITION_DELTA)
+		body.SolverAngularVelocity0:Add(angular_delta)
+	end
 end
 
 function motion.GetPointVelocity(body, linear_velocity, angular_velocity, point)

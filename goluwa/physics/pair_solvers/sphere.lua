@@ -70,10 +70,11 @@ function sphere.SolveSpherePairCollision(body_a, body_b, dt)
 	local radius_b = body_b:GetSphereRadius()
 	local min_distance = radius_a + radius_b
 	local distance = delta:GetLength()
+	local use_ccd = pair_solver_helpers.ShouldUsePairCCD(body_a, body_b)
 
-	if distance >= min_distance then
-		if not pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then return end
+	if distance >= min_distance and not use_ccd then return end
 
+	if use_ccd then
 		local start_a = body_a:GetPreviousPosition()
 		local start_b = body_b:GetPreviousPosition()
 		local move_a = pos_a - start_a
@@ -87,7 +88,7 @@ function sphere.SolveSpherePairCollision(body_a, body_b, dt)
 			local sweep_c = relative_start:Dot(relative_start) - min_distance * min_distance
 			local discriminant = sweep_b * sweep_b - 4 * sweep_a * sweep_c
 
-			if discriminant >= 0 and sweep_c > EPSILON then
+			if discriminant >= 0 and sweep_c > -EPSILON then
 				local sqrt_discriminant = math.sqrt(discriminant)
 				local hit_fraction = (-sweep_b - sqrt_discriminant) / (2 * sweep_a)
 
@@ -122,9 +123,9 @@ function sphere.SolveSpherePairCollision(body_a, body_b, dt)
 				end
 			end
 		end
-
-		return
 	end
+
+	if distance >= min_distance then return end
 
 	local normal
 	normal, distance = pair_solver_helpers.GetSafeCollisionNormal(
@@ -203,12 +204,22 @@ local function resolve_top_face_hit(sphere_body, box_body, dt, local_center, ext
 	local top_delta = sphere_body:GetPosition() - top_world
 	local top_distance = top_delta:GetLength()
 	local top_overlap = sphere_body:GetSphereRadius() - top_distance
-
-	if top_overlap <= -EPSILON then return false end
-
 	local top_normal
 
-	if top_distance > EPSILON then
+	if
+		local_center.y < extents.y and
+		local_center.y > -extents.y and
+		math.abs(local_center.x) <= extents.x and
+		math.abs(local_center.z) <= extents.z
+	then
+		-- the sphere fell onto the top face from above and its centre ended the
+		-- step inside the slab; the closest-point delta would point down and
+		-- push it out of the bottom. Past the slab the swept path takes over
+		top_normal = box_body:GetUp():GetNormalized()
+		top_overlap = sphere_body:GetSphereRadius() + top_distance
+	elseif top_overlap <= -EPSILON then
+		return false
+	elseif top_distance > EPSILON then
 		top_normal = top_delta / top_distance
 	else
 		top_normal = box_body:GetUp():GetNormalized()
@@ -234,6 +245,17 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 	local local_center = box_body:WorldToLocal(sphere_body:GetPosition())
 	local previous_local_center = box_body:WorldToLocal(sphere_body:GetPreviousPosition())
 	local extents = box_body:GetPhysicsShape():GetExtents()
+
+	-- a centre that crossed the whole slab in one substep would be pushed
+	-- further down by the closest-point contact, the swept path finds the
+	-- face it entered through
+	if
+		previous_local_center.y > extents.y + EPSILON and
+		local_center.y < -extents.y and
+		solve_swept_sphere_box_collision(sphere_body, box_body, dt)
+	then
+		return true
+	end
 
 	if
 		previous_local_center.y > extents.y + EPSILON and
@@ -301,6 +323,21 @@ function sphere.SolveSphereConvexCollision(sphere_body, convex_body, dt)
 
 	if not (hull and hull.vertices and hull.indices and hull.indices[1]) then
 		return false
+	end
+
+	-- a sphere that travelled further than its radius may have passed through
+	-- a thin hull, where the discrete contact would push it out the far side
+	if
+		(
+			sphere_body.Position.x - sphere_body.PreviousPosition.x
+		) ^ 2 + (
+			sphere_body.Position.y - sphere_body.PreviousPosition.y
+		) ^ 2 + (
+			sphere_body.Position.z - sphere_body.PreviousPosition.z
+		) ^ 2 > sphere_body:GetSphereRadius() ^ 2 and
+		solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
+	then
+		return true
 	end
 
 	local center = sphere_body:GetPosition()

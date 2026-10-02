@@ -156,3 +156,36 @@ T.Test("Rigid body removal prunes Instances immediately", function()
 		T(instances[i])["~="](body)
 	end
 end)
+
+T.TestPhysics("Locked rotation keeps a body upright under off-center impulses and contacts", function()
+	local ground = create_flat_ground("rigid_body_lock_ground", 6)
+	local body_ent = Entity.New({Name = "rigid_body_lock"})
+	body_ent:AddComponent("transform")
+	body_ent.transform:SetPosition(Vec3(0, 1.5, 0))
+	local body = body_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = import("goluwa/physics/shapes/capsule.lua").New(0.3, 1.2),
+			Radius = 0.3,
+			Height = 1.2,
+			LockRotation = true,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 0.8,
+		}
+	)
+
+	for step = 1, 120 do
+		if step % 10 == 0 then
+			body:ApplyImpulse(Vec3(3, 0, 1), body:GetPosition() + Vec3(0, 0.5, 0))
+		end
+
+		test_helpers.Simulate(1)
+	end
+
+	local rotation = body_ent.transform:GetRotation()
+	body_ent:Remove()
+	ground:Remove()
+	T(body:GetAngularVelocity():GetLength())["=="](0)
+	T(math.abs(rotation.x) + math.abs(rotation.y) + math.abs(rotation.z))["<"](0.0001)
+end)

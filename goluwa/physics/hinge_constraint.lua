@@ -5,12 +5,12 @@ local constraint = import("goluwa/physics/constraint.lua")
 local objects = import("goluwa/objects/objects.lua")
 -- Revolute joint: 3 rows pin the anchors together, 2 rows keep the hinge axes
 -- parallel, leaving one free rotation around the axis. Solved at velocity level
--- with a split-impulse position projection, matching how contacts are solved.
+-- as a soft constraint, matching how contacts are solved: the biased call
+-- feeds the anchor and axis error back as velocity, the relax calls are rigid.
 local HingeConstraint = objects.CreateTemplate("physics_hinge_constraint")
 local BASIS = Vec3()
 local WORLD_VEC = Vec3()
 local CONJUGATE = Quat()
-local ANCHOR = Vec3()
 
 local function new_state()
 	return {
@@ -222,14 +222,6 @@ end
 
 local JV = {0, 0, 0}
 
-local function shift_previous(body, before_x, before_y, before_z)
-	local position = body.Position
-	local previous = body.PreviousPosition
-	previous.x = previous.x + position.x - before_x
-	previous.y = previous.y + position.y - before_y
-	previous.z = previous.z + position.z - before_z
-end
-
 function HingeConstraint:SetEnabled(enabled)
 	self.Enabled = enabled ~= false
 	return self
@@ -239,7 +231,7 @@ function HingeConstraint:BeginStep()
 	return self
 end
 
-function HingeConstraint:Solve(dt)
+function HingeConstraint:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 	if not self.Enabled then return 0 end
 
 	local body_0 = self.Body0
@@ -284,101 +276,46 @@ function HingeConstraint:Solve(dt)
 
 	add_point_mass(K, STATE_0)
 	add_point_mass(K, STATE_1)
-	-- point constraint, velocity level
+	local bias_rate = relax and 0 or joint_bias_rate
+	local mass_scale = relax and 1 or 1 - joint_impulse_scale
+	-- point constraint, velocity level plus the anchor error as bias
 	JV[1], JV[2], JV[3] = 0, 0, 0
 	get_point_velocity(STATE_1, 1, JV)
 	get_point_velocity(STATE_0, -1, JV)
-	local lx, ly, lz = solve_3x3(K, -JV[1], -JV[2], -JV[3])
+	local lx, ly, lz = solve_3x3(
+		K,
+		-mass_scale * (JV[1] + bias_rate * (STATE_1.px - STATE_0.px)),
+		-mass_scale * (JV[2] + bias_rate * (STATE_1.py - STATE_0.py)),
+		-mass_scale * (JV[3] + bias_rate * (STATE_1.pz - STATE_0.pz))
+	)
 	apply_velocity_impulse(STATE_1, 1, lx, ly, lz, 0, 0, 0)
 	apply_velocity_impulse(STATE_0, -1, lx, ly, lz, 0, 0, 0)
-	-- axis alignment, velocity level
+	-- axis alignment, velocity level; the error e = A x B is the bias
+	local ex = STATE_0.ay * STATE_1.az - STATE_0.az * STATE_1.ay
+	local ey = STATE_0.az * STATE_1.ax - STATE_0.ax * STATE_1.az
+	local ez = STATE_0.ax * STATE_1.ay - STATE_0.ay * STATE_1.ax
 	local t1x, t1y, t1z, t2x, t2y, t2z = build_axis_rows(STATE_0, STATE_1)
 	local m1, m2 = solve_2x2(
 		K2[1],
 		K2[2],
 		K2[3],
 		K2[4],
-		-get_relative_angular(STATE_0, STATE_1, t1x, t1y, t1z),
-		-get_relative_angular(STATE_0, STATE_1, t2x, t2y, t2z)
+		-mass_scale * (
+				get_relative_angular(STATE_0, STATE_1, t1x, t1y, t1z) + bias_rate * (
+					t1x * ex + t1y * ey + t1z * ez
+				)
+			),
+		-mass_scale * (
+				get_relative_angular(STATE_0, STATE_1, t2x, t2y, t2z) + bias_rate * (
+					t2x * ex + t2y * ey + t2z * ez
+				)
+			)
 	)
 	local lax = t1x * m1 + t2x * m2
 	local lay = t1y * m1 + t2y * m2
 	local laz = t1z * m1 + t2z * m2
 	apply_velocity_impulse(STATE_1, 1, 0, 0, 0, lax, lay, laz)
 	apply_velocity_impulse(STATE_0, -1, 0, 0, 0, lax, lay, laz)
-	-- position projection (split impulse: does not feed back into velocity)
-	local factor = self.PositionCorrection
-	local cx = (STATE_1.px - STATE_0.px) * factor
-	local cy = (STATE_1.py - STATE_0.py) * factor
-	local cz = (STATE_1.pz - STATE_0.pz) * factor
-
-	if cx * cx + cy * cy + cz * cz > 1e-14 then
-		local px, py, pz = solve_3x3(K, -cx, -cy, -cz)
-		WORLD_VEC.x, WORLD_VEC.y, WORLD_VEC.z = px, py, pz
-
-		if STATE_1.body then
-			local p = STATE_1.body.Position
-			local bx, by, bz = p.x, p.y, p.z
-			ANCHOR.x, ANCHOR.y, ANCHOR.z = STATE_1.px, STATE_1.py, STATE_1.pz
-			STATE_1.body:_ApplyCorrection(WORLD_VEC, ANCHOR)
-			shift_previous(STATE_1.body, bx, by, bz)
-		end
-
-		if STATE_0.body then
-			local p = STATE_0.body.Position
-			local bx, by, bz = p.x, p.y, p.z
-			WORLD_VEC.x, WORLD_VEC.y, WORLD_VEC.z = -px, -py, -pz
-			ANCHOR.x, ANCHOR.y, ANCHOR.z = STATE_0.px, STATE_0.py, STATE_0.pz
-			STATE_0.body:_ApplyCorrection(WORLD_VEC, ANCHOR)
-			shift_previous(STATE_0.body, bx, by, bz)
-		end
-
-		load_state(
-			STATE_0,
-			body_0,
-			self.LocalAnchor0,
-			self.WorldAnchor,
-			self.LocalAxis0,
-			self.WorldAxis
-		)
-		load_state(
-			STATE_1,
-			body_1,
-			self.LocalAnchor1,
-			self.WorldAnchor,
-			self.LocalAxis1,
-			self.WorldAxis
-		)
-		build_axis_rows(STATE_0, STATE_1)
-	end
-
-	-- axis error e = A x B, corrected so that (IA + IB) L = -e
-	local ex = STATE_0.ay * STATE_1.az - STATE_0.az * STATE_1.ay
-	local ey = STATE_0.az * STATE_1.ax - STATE_0.ax * STATE_1.az
-	local ez = STATE_0.ax * STATE_1.ay - STATE_0.ay * STATE_1.ax
-
-	if ex * ex + ey * ey + ez * ez > 1e-14 then
-		t1x, t1y, t1z, t2x, t2y, t2z = build_axis_rows(STATE_0, STATE_1)
-		m1, m2 = solve_2x2(
-			K2[1],
-			K2[2],
-			K2[3],
-			K2[4],
-			-(t1x * ex + t1y * ey + t1z * ez) * factor,
-			-(t2x * ex + t2y * ey + t2z * ez) * factor
-		)
-		WORLD_VEC.x = t1x * m1 + t2x * m2
-		WORLD_VEC.y = t1y * m1 + t2y * m2
-		WORLD_VEC.z = t1z * m1 + t2z * m2
-
-		if STATE_1.body then STATE_1.body:_ApplyAngularCorrection(WORLD_VEC) end
-
-		if STATE_0.body then
-			WORLD_VEC.x, WORLD_VEC.y, WORLD_VEC.z = -WORLD_VEC.x, -WORLD_VEC.y, -WORLD_VEC.z
-			STATE_0.body:_ApplyAngularCorrection(WORLD_VEC)
-		end
-	end
-
 	return 0
 end
 
@@ -432,7 +369,6 @@ local function to_local_direction(body, world_axis)
 end
 
 -- config.CollideConnected: keep collisions between the two bodies (default false)
--- config.PositionCorrection: fraction of the anchor/axis error removed per solve
 function HingeConstraint.New(body_0, body_1, world_anchor, world_axis, config)
 	config = config or {}
 	local axis = world_axis:GetNormalized()
@@ -441,7 +377,6 @@ function HingeConstraint.New(body_0, body_1, world_anchor, world_axis, config)
 		Body1 = body_1,
 		Enabled = true,
 		CollideConnected = config.CollideConnected or false,
-		PositionCorrection = config.PositionCorrection or 0.8,
 	}
 
 	if body_0 then

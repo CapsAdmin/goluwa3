@@ -248,8 +248,12 @@ local function merge_islands(island_a, island_b)
 		main, other = island_b, island_a
 	end
 
-	for body in pairs(other.body_set) do
-		add_member(main, body)
+	-- the ordered array, not the body-keyed set: pairs() order over object
+	-- keys follows addresses, which differ between processes
+	local other_bodies = other.bodies
+
+	for i = 1, #other_bodies do
+		add_member(main, other_bodies[i])
 	end
 
 	for key, link in pairs(other.pair_links) do

@@ -1,8 +1,10 @@
 local physics_constants = import("goluwa/physics/constants.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+local triangle_scalar = import("goluwa/physics/triangle_scalar.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_contact_queries = {}
+local SCRATCH_FACE_NORMAL = Vec3()
 local polyhedron_triangle_contacts = nil
 
 function triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
@@ -171,6 +173,113 @@ function triangle_contact_queries.BuildCapsuleTrianglePair(start_point, end_poin
 		distance = result.distance,
 		face_normal = result.face_normal,
 		segment_point = result.segment_point,
+	}
+end
+
+local PARALLEL_CONTACT_TOLERANCE = 0.001
+-- Same result as BuildCapsuleTrianglePair, computed on numbers and only
+-- turned into vectors for triangles within max_distance of the capsule
+-- segment; farther triangles return nil. This is the per-triangle hot path of
+-- walking on a mesh.
+function triangle_contact_queries.BuildCapsuleTrianglePairWithin(
+	start_point,
+	end_point,
+	radius,
+	center,
+	v0,
+	v1,
+	v2,
+	epsilon,
+	fallback_normal,
+	max_distance
+)
+	local nx, ny, nz, normal_length_squared = triangle_scalar.TriangleNormalRaw(v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z)
+	local normal_length = math.sqrt(normal_length_squared)
+	local face_normal = nil
+
+	if normal_length > epsilon then
+		SCRATCH_FACE_NORMAL.x = nx / normal_length
+		SCRATCH_FACE_NORMAL.y = ny / normal_length
+		SCRATCH_FACE_NORMAL.z = nz / normal_length
+		face_normal = SCRATCH_FACE_NORMAL
+	end
+
+	local distance_squared, sx, sy, sz, tx, ty, tz = triangle_scalar.SegmentToTriangleSq(
+		start_point.x,
+		start_point.y,
+		start_point.z,
+		end_point.x,
+		end_point.y,
+		end_point.z,
+		v0.x,
+		v0.y,
+		v0.z,
+		v1.x,
+		v1.y,
+		v1.z,
+		v2.x,
+		v2.y,
+		v2.z,
+		face_normal,
+		epsilon
+	)
+	local distance = math.sqrt(distance_squared)
+
+	if distance > max_distance then return nil end
+
+	-- a capsule running parallel to a surface touches it along a whole
+	-- interval and the closest pair lands on an arbitrary end; a contact there
+	-- gets a lever arm that spins the body, so use the segment midpoint
+	if distance > epsilon then
+		local mx = (start_point.x + end_point.x) * 0.5
+		local my = (start_point.y + end_point.y) * 0.5
+		local mz = (start_point.z + end_point.z) * 0.5
+		local mid_squared, qx, qy, qz = triangle_scalar.PointToTriangleSq(mx, my, mz, v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z)
+		local mid_distance = math.sqrt(mid_squared)
+
+		if mid_distance <= distance + PARALLEL_CONTACT_TOLERANCE then
+			distance = mid_distance
+			sx, sy, sz, tx, ty, tz = mx, my, mz, qx, qy, qz
+		end
+	end
+
+	local normal_x, normal_y, normal_z
+
+	if distance > epsilon then
+		normal_x, normal_y, normal_z = (sx - tx) / distance, (sy - ty) / distance, (sz - tz) / distance
+	else
+		local center_x = center and center.x or (start_point.x + end_point.x) * 0.5
+		local center_y = center and center.y or (start_point.y + end_point.y) * 0.5
+		local center_z = center and center.z or (start_point.z + end_point.z) * 0.5
+		local dx, dy, dz = center_x - tx, center_y - ty, center_z - tz
+		local center_distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+		if center_distance > epsilon then
+			normal_x, normal_y, normal_z = dx / center_distance, dy / center_distance, dz / center_distance
+		elseif face_normal then
+			normal_x, normal_y, normal_z = face_normal.x, face_normal.y, face_normal.z
+		else
+			normal_x, normal_y, normal_z = fallback_normal.x, fallback_normal.y, fallback_normal.z
+		end
+	end
+
+	local face = nil
+
+	if face_normal then
+		face = Vec3(face_normal.x, face_normal.y, face_normal.z)
+	elseif distance > epsilon then
+		face = Vec3(normal_x, normal_y, normal_z)
+	else
+		face = fallback_normal
+	end
+
+	return {
+		point = Vec3(sx - normal_x * radius, sy - normal_y * radius, sz - normal_z * radius),
+		position = Vec3(tx, ty, tz),
+		normal = Vec3(normal_x, normal_y, normal_z),
+		distance = distance,
+		face_normal = face,
+		segment_point = Vec3(sx, sy, sz),
 	}
 end
 

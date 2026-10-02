@@ -1,4 +1,5 @@
 local physics_constants = import("goluwa/physics/constants.lua")
+local stats = import("goluwa/physics/stats.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
@@ -12,33 +13,16 @@ local mesh_contact_common = {}
 local EPSILON = physics_constants.EPSILON
 local SPHERE_TRIANGLE_CONTACT_HANDLERS = {}
 local CAPSULE_TRIANGLE_CONTACT_HANDLERS = {}
-local NARROW_PHASE_PAIR_CACHE = table.weak("k")
-local NARROW_PHASE_CACHE_ENABLED = true
+local MAX_SPECULATIVE_DISTANCE = 0.5
+-- a body behind a face is pushed out along the face normal only when the
+-- closest point is on the face; at an edge, like a stair nosing the body is
+-- above, the direction to the edge is the normal
+local FACE_BEHIND_DOT = 0.99
 local LOCAL_SPACE_NARROW_PHASE_ENABLED = true
-local MAX_NARROW_CACHE_TRIANGLES = 4
-local MAX_NARROW_CACHE_NEIGHBORS = 6
 
 function mesh_contact_common.GetMeshShape(body)
 	local shape = body:GetPhysicsShape()
 	return shape and shape:GetTypeName() == "mesh" and shape or nil
-end
-
-function mesh_contact_common.SetNarrowPhaseCacheEnabled(enabled)
-	NARROW_PHASE_CACHE_ENABLED = enabled ~= false
-
-	if not NARROW_PHASE_CACHE_ENABLED then
-		NARROW_PHASE_PAIR_CACHE = table.weak("k")
-	end
-
-	return NARROW_PHASE_CACHE_ENABLED
-end
-
-function mesh_contact_common.GetNarrowPhaseCacheEnabled()
-	return NARROW_PHASE_CACHE_ENABLED
-end
-
-function mesh_contact_common.ClearNarrowPhaseCache()
-	NARROW_PHASE_PAIR_CACHE = table.weak("k")
 end
 
 function mesh_contact_common.SetLocalSpaceNarrowPhaseEnabled(enabled)
@@ -83,166 +67,22 @@ local SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT = {
 	other_body = nil,
 	handlers = nil,
 	combined_margin = 0,
-	best = nil,
+	step_dt = 0,
+	cluster_count = 0,
 }
+-- the deepest contact per distinct surface normal: a capsule against a wall
+-- and a floor keeps both instead of alternating between the two
+local MAX_CONTACT_CLUSTERS = 4
+local CLUSTER_NORMAL_DOT = 0.9
+local CLUSTER_TIE_OVERLAP = 0.001
+local RESTING_CONTACT_SLACK = 0.01
+local CLUSTERS = {}
 
-local function get_narrow_phase_pair_cache(mesh_body, other_body)
-	if not (mesh_body and other_body) then return nil end
-
-	local row = NARROW_PHASE_PAIR_CACHE[mesh_body]
-
-	if not row then
-		row = table.weak("k")
-		NARROW_PHASE_PAIR_CACHE[mesh_body] = row
-	end
-
-	local entry = row[other_body]
-
-	if entry then return entry end
-
-	entry = {}
-	row[other_body] = entry
-	return entry
+for i = 1, MAX_CONTACT_CLUSTERS do
+	CLUSTERS[i] = {normal = nil, overlap = 0, lever_squared = 0, contacts = {{point_a = nil, point_b = nil}}}
 end
 
-local function clear_cached_triangle_fields(pair)
-	if not pair then return end
-
-	pair.mesh_cached_polygon = nil
-	pair.mesh_cached_triangle_index = nil
-	pair.mesh_cached_triangle_normal = nil
-	pair.mesh_cached_triangle_overlap = nil
-	pair.mesh_cached_triangles = nil
-end
-
-local function same_cached_triangle(candidate, polygon, triangle_index)
-	return candidate and
-		candidate.polygon == polygon and
-		candidate.triangle_index == triangle_index
-end
-
-local function push_cached_triangle(pair, polygon, triangle_index, normal, overlap)
-	if not (pair and polygon and triangle_index ~= nil) then return end
-
-	local list = pair.mesh_cached_triangles
-
-	if not list then
-		list = {}
-		pair.mesh_cached_triangles = list
-	end
-
-	for i = 1, #list do
-		local candidate = list[i]
-
-		if same_cached_triangle(candidate, polygon, triangle_index) then
-			table.remove(list, i)
-
-			break
-		end
-	end
-
-	table.insert(
-		list,
-		1,
-		{
-			polygon = polygon,
-			triangle_index = triangle_index,
-			normal = normal,
-			overlap = overlap,
-		}
-	)
-
-	while #list > MAX_NARROW_CACHE_TRIANGLES do
-		list[#list] = nil
-	end
-
-	pair.mesh_cached_polygon = polygon
-	pair.mesh_cached_triangle_index = triangle_index
-	pair.mesh_cached_triangle_normal = normal
-	pair.mesh_cached_triangle_overlap = overlap
-end
-
-local function append_cached_triangle_candidate(candidates, seen, polygon, triangle_index)
-	if not (polygon and triangle_index ~= nil) then return false end
-
-	local polygon_seen = seen[polygon]
-
-	if not polygon_seen then
-		polygon_seen = {}
-		seen[polygon] = polygon_seen
-	end
-
-	if polygon_seen[triangle_index] then return false end
-
-	polygon_seen[triangle_index] = true
-	candidates[#candidates + 1] = {polygon = polygon, triangle_index = triangle_index}
-	return true
-end
-
-local function append_from_vertex(candidates, seen, feature_cache, polygon, triangle_index, vertex_index, added)
-	local faces = feature_cache.faces_by_vertex_index[vertex_index]
-
-	if not faces then return added end
-
-	for _, face_index in ipairs(faces) do
-		if
-			face_index ~= triangle_index and
-			append_cached_triangle_candidate(candidates, seen, polygon, face_index)
-		then
-			added = added + 1
-
-			if added >= MAX_NARROW_CACHE_NEIGHBORS then return added end
-		end
-	end
-
-	return added
-end
-
-local function append_neighbor_triangle_candidates(candidates, seen, polygon, triangle_index)
-	if not (polygon and triangle_index ~= nil) then return 0 end
-
-	local feature_cache = triangle_mesh.GetPolygonFeatureCache(polygon)
-	local _, _, _, i0, i1, i2 = triangle_mesh.GetPolygonTriangleLocalVertices(polygon, triangle_index)
-
-	if not (feature_cache and i0 and i1 and i2) then return 0 end
-
-	local added = append_from_vertex(candidates, seen, feature_cache, polygon, triangle_index, i0, 0)
-
-	if added < MAX_NARROW_CACHE_NEIGHBORS then
-		added = append_from_vertex(candidates, seen, feature_cache, polygon, triangle_index, i1, added)
-	end
-
-	if added < MAX_NARROW_CACHE_NEIGHBORS then
-		added = append_from_vertex(candidates, seen, feature_cache, polygon, triangle_index, i2, added)
-	end
-
-	return added
-end
-
-local function collect_cached_triangle_candidates(pair)
-	local candidates = {}
-	local seen = {}
-	local list = pair and pair.mesh_cached_triangles or nil
-
-	if list and list[1] then
-		for _, candidate in ipairs(list) do
-			append_cached_triangle_candidate(candidates, seen, candidate.polygon, candidate.triangle_index)
-		end
-	elseif pair and pair.mesh_cached_polygon and pair.mesh_cached_triangle_index ~= nil then
-		append_cached_triangle_candidate(candidates, seen, pair.mesh_cached_polygon, pair.mesh_cached_triangle_index)
-	end
-
-	local base_count = #candidates
-
-	for i = 1, base_count do
-		local candidate = candidates[i]
-		append_neighbor_triangle_candidates(candidates, seen, candidate.polygon, candidate.triangle_index)
-
-		if #candidates >= base_count + MAX_NARROW_CACHE_NEIGHBORS then break end
-	end
-
-	return candidates
-end
+local HEIGHTMAP_CAPSULE_OPTIONS = {friction_scale = 0.25}
 
 local function local_vector_to_world(mesh_body, value)
 	if not value then return nil end
@@ -290,7 +130,7 @@ local function evaluate_triangle_contact(
 	)
 	local overlap = combined_margin - result.surface_distance
 
-	if not normal then return nil end
+	if not normal or overlap < -handlers.speculative_distance then return nil end
 
 	local point_a, point_b = handlers.GetContactPoints(handlers, result, normal, v0, v1, v2)
 
@@ -300,74 +140,6 @@ local function evaluate_triangle_contact(
 	end
 
 	return mesh_contact_common.UpdateBestContact(nil, triangle_index, normal, overlap, point_a, point_b, polygon)
-end
-
-local function cache_best_triangle(mesh_body, other_body, best)
-	if not NARROW_PHASE_CACHE_ENABLED then return end
-
-	if not (best and best.polygon and best.triangle_index ~= nil) then return end
-
-	local pair = get_narrow_phase_pair_cache(mesh_body, other_body)
-
-	if not pair then return end
-
-	push_cached_triangle(pair, best.polygon, best.triangle_index, best.normal, best.overlap)
-end
-
-local function try_cached_triangle(mesh_body, other_body, handlers, combined_margin)
-	local pair = get_narrow_phase_pair_cache(mesh_body, other_body)
-
-	if not NARROW_PHASE_CACHE_ENABLED then return nil end
-
-	if not pair then return nil end
-
-	local candidates = collect_cached_triangle_candidates(pair)
-
-	if not candidates[1] then return nil end
-
-	local cached_normal = pair_solver_helpers.GetCachedPairNormal(mesh_body, other_body)
-
-	for _, candidate in ipairs(candidates) do
-		local polygon = candidate.polygon
-		local triangle_index = candidate.triangle_index
-		local local_v0, local_v1, local_v2 = triangle_mesh.GetPolygonTriangleLocalVertices(polygon, triangle_index)
-
-		if local_v0 and local_v1 and local_v2 then
-			local v0 = local_v0
-			local v1 = local_v1
-			local v2 = local_v2
-
-			if handlers.QuerySpace ~= "local" then
-				v0 = mesh_body:LocalToWorld(local_v0)
-				v1 = mesh_body:LocalToWorld(local_v1)
-				v2 = mesh_body:LocalToWorld(local_v2)
-			end
-
-			local best = evaluate_triangle_contact(
-				mesh_body,
-				other_body,
-				handlers,
-				combined_margin,
-				v0,
-				v1,
-				v2,
-				triangle_index,
-				polygon
-			)
-
-			if best then
-				if cached_normal and cached_normal:Dot(best.normal) < 0.8 then
-
-				else
-					push_cached_triangle(pair, polygon, triangle_index, best.normal, best.overlap)
-					return best
-				end
-			end
-		end
-	end
-
-	clear_cached_triangle_fields(pair)
-	return nil
 end
 
 local function query_mesh_sphere_contact(handlers, v0, v1, v2)
@@ -425,7 +197,7 @@ local function query_mesh_capsule_contact(handlers, v0, v1, v2)
 		)
 	end
 
-	local result = triangle_contact_queries.BuildCapsuleTrianglePair(
+	local result = triangle_contact_queries.BuildCapsuleTrianglePairWithin(
 		handlers.start_local,
 		handlers.end_local,
 		handlers.radius,
@@ -433,10 +205,9 @@ local function query_mesh_capsule_contact(handlers, v0, v1, v2)
 		v0,
 		v1,
 		v2,
-		{
-			epsilon = EPSILON,
-			fallback_normal = handlers.fallback_normal_local or physics_constants.UP,
-		}
+		EPSILON,
+		handlers.fallback_normal_local or physics_constants.UP,
+		handlers.radius + handlers.max_surface_distance
 	)
 
 	if not result then return nil end
@@ -468,6 +239,7 @@ CAPSULE_TRIANGLE_CONTACT_HANDLERS.GetFallbackDelta = get_mesh_capsule_fallback_d
 CAPSULE_TRIANGLE_CONTACT_HANDLERS.GetContactPoints = get_mesh_capsule_contact_points
 
 local function invoke_overlapping_mesh_triangle(v0, v1, v2, triangle_index, context)
+	stats:Count("mesh_triangles")
 	local mesh_body = context.mesh_body
 	local user_context = context.user_context
 	local previous_entry = user_context and user_context.entry or nil
@@ -508,19 +280,68 @@ local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, 
 
 	if not best then return end
 
-	context.best = mesh_contact_common.UpdateBestContact(
-		context.best,
-		best.triangle_index,
-		best.normal,
-		best.overlap,
-		best.point_a,
-		best.point_b,
-		best.polygon
-	)
+	-- a contact that is not touching yet only matters if the body can reach
+	-- it before the next narrow phase; otherwise it would hold the body back
+	-- from a surface it is not approaching
+	if best.overlap < 0 then
+		local velocity = context.other_body.Velocity
+		local normal = best.normal
+		local approach_speed = -(velocity.x * normal.x + velocity.y * normal.y + velocity.z * normal.z)
+
+		if best.overlap < -(approach_speed * context.step_dt + RESTING_CONTACT_SLACK) then return end
+	end
+
+	local center = context.other_body.Position
+	local lever_x = best.point_a.x - center.x
+	local lever_y = best.point_a.y - center.y
+	local lever_z = best.point_a.z - center.z
+	local lever_squared = lever_x * lever_x + lever_y * lever_y + lever_z * lever_z
+	local count = context.cluster_count
+	local target = nil
+
+	for i = 1, count do
+		if CLUSTERS[i].normal:Dot(best.normal) > CLUSTER_NORMAL_DOT then
+			target = CLUSTERS[i]
+
+			break
+		end
+	end
+
+	if target then
+		-- coplanar triangles tie on depth; the contact nearest the body's
+		-- centre wins, a far one would turn the push into a torque
+		if
+			best.overlap < target.overlap - CLUSTER_TIE_OVERLAP or
+			(
+				best.overlap <= target.overlap + CLUSTER_TIE_OVERLAP and
+				lever_squared >= target.lever_squared
+			)
+		then
+			return
+		end
+	elseif count < MAX_CONTACT_CLUSTERS then
+		count = count + 1
+		context.cluster_count = count
+		target = CLUSTERS[count]
+	else
+		for i = 1, count do
+			if best.overlap > CLUSTERS[i].overlap and (not target or CLUSTERS[i].overlap < target.overlap) then
+				target = CLUSTERS[i]
+			end
+		end
+
+		if not target then return end
+	end
+
+	target.normal = best.normal
+	target.overlap = best.overlap
+	target.lever_squared = lever_squared
+	target.contacts[1].point_a = best.point_a
+	target.contacts[1].point_b = best.point_b
 end
 
-function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback, context)
-	local bounds = static_model_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body)
+function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback, context, extra_pad)
+	local bounds = static_model_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body, extra_pad)
 	local local_bounds = AABB.BuildLocalAABBFromWorldAABBInternal(
 		bounds,
 		mesh_body.WorldToLocal,
@@ -543,60 +364,6 @@ function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shap
 	return result
 end
 
-function mesh_contact_common.ForEachCachedMeshTriangle(mesh_body, other_body, callback, context)
-	if not NARROW_PHASE_CACHE_ENABLED then return 0 end
-
-	local pair = get_narrow_phase_pair_cache(mesh_body, other_body)
-
-	if not pair then return 0 end
-
-	local candidates = collect_cached_triangle_candidates(pair)
-	local use_local_space = context and context.use_local_space
-	local previous_entry = context and context.entry or nil
-	local count = 0
-
-	for _, candidate in ipairs(candidates) do
-		local polygon = candidate.polygon
-		local triangle_index = candidate.triangle_index
-		local local_v0, local_v1, local_v2 = triangle_mesh.GetPolygonTriangleLocalVertices(polygon, triangle_index)
-
-		if local_v0 and local_v1 and local_v2 then
-			if context then context.entry = {polygon = polygon} end
-
-			if use_local_space then
-				callback(local_v0, local_v1, local_v2, triangle_index, context)
-			else
-				callback(
-					mesh_body:LocalToWorld(local_v0),
-					mesh_body:LocalToWorld(local_v1),
-					mesh_body:LocalToWorld(local_v2),
-					triangle_index,
-					context
-				)
-			end
-
-			count = count + 1
-		end
-	end
-
-	if context then context.entry = previous_entry end
-
-	return count
-end
-
-function mesh_contact_common.CacheTriangle(mesh_body, other_body, polygon, triangle_index, normal, overlap)
-	if not NARROW_PHASE_CACHE_ENABLED then return false end
-
-	if not (polygon and triangle_index ~= nil) then return false end
-
-	local pair = get_narrow_phase_pair_cache(mesh_body, other_body)
-
-	if not pair then return false end
-
-	push_cached_triangle(pair, polygon, triangle_index, normal, overlap)
-	return true
-end
-
 function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
 	local normal = select(
 		1,
@@ -615,7 +382,7 @@ function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, 
 		shape and
 		shape.IsOutwardWound and
 		shape:IsOutwardWound(mesh_body) and
-		normal:Dot(fallback_normal) < 0
+		normal:Dot(fallback_normal) < -FACE_BEHIND_DOT
 	then
 		normal = fallback_normal
 	end
@@ -624,7 +391,7 @@ function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, 
 end
 
 function mesh_contact_common.UpdateBestContact(best, triangle_index, normal, overlap, point_a, point_b, polygon)
-	if not normal or overlap <= EPSILON then return best end
+	if not normal then return best end
 
 	if not best or overlap > best.overlap then
 		return {
@@ -640,37 +407,6 @@ function mesh_contact_common.UpdateBestContact(best, triangle_index, normal, ove
 	return best
 end
 
-function mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
-	if not best then return false end
-
-	local options = nil
-	local mesh_shape = mesh_contact_common.GetMeshShape(mesh_body)
-
-	if
-		mesh_shape and
-		mesh_shape.IsHeightmap and
-		other_body:GetShapeType() == "capsule" and
-		best.normal and
-		best.normal.y >= math.max(other_body:GetMinGroundNormalY() or 0, 0.45)
-	then
-		options = {
-			friction_scale = 0.25,
-		}
-	end
-
-	return contact_resolution.ResolvePairPenetration(
-		mesh_body,
-		other_body,
-		best.normal,
-		best.overlap,
-		dt,
-		best.point_a,
-		best.point_b,
-		nil,
-		options
-	)
-end
-
 function mesh_contact_common.SolveBestTriangleContact(mesh_body, other_body, mesh_shape, dt, handlers)
 	local combined_margin = handlers.combined_margin
 
@@ -678,43 +414,52 @@ function mesh_contact_common.SolveBestTriangleContact(mesh_body, other_body, mes
 		combined_margin = (other_body:GetCollisionMargin() or 0) + (mesh_body:GetCollisionMargin() or 0)
 	end
 
+	-- a contact may open up to the distance the body can travel before the
+	-- next narrow phase; the manifold solves it as a speculative gap
+	local speculative_distance = math.min(
+		other_body.Velocity:GetLength() * other_body:GetPhysics().solver.StepDt,
+		MAX_SPECULATIVE_DISTANCE
+	)
+	handlers.speculative_distance = speculative_distance
+	handlers.max_surface_distance = combined_margin + speculative_distance
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.mesh_body = mesh_body
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.other_body = other_body
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.handlers = handlers
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.combined_margin = combined_margin
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.step_dt = other_body:GetPhysics().solver.StepDt
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.use_local_space = handlers.QuerySpace == "local"
-	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best = try_cached_triangle(mesh_body, other_body, handlers, combined_margin)
-
-	if SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best then
-		local best = SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best
-		cache_best_triangle(mesh_body, other_body, best)
-		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.mesh_body = nil
-		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.other_body = nil
-		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.handlers = nil
-		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.combined_margin = 0
-		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best = nil
-		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.entry = nil
-		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.use_local_space = nil
-		return mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
-	end
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.cluster_count = 0
 
 	mesh_contact_common.ForEachOverlappingMeshTriangle(
 		mesh_body,
 		mesh_shape,
 		other_body,
 		solve_best_triangle_contact_callback,
-		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT
+		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT,
+		speculative_distance
 	)
-	local best = SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best
-	cache_best_triangle(mesh_body, other_body, best)
+	local cluster_count = SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.cluster_count
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.mesh_body = nil
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.other_body = nil
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.handlers = nil
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.combined_margin = 0
-	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best = nil
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.cluster_count = 0
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.entry = nil
 	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.use_local_space = nil
-	return mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
+
+	if cluster_count == 0 then return false end
+
+	local options = nil
+
+	if
+		mesh_shape.IsHeightmap and
+		other_body:GetShapeType() == "capsule" and
+		CLUSTERS[1].normal.y >= math.max(other_body:GetMinGroundNormalY() or 0, 0.45)
+	then
+		options = HEIGHTMAP_CAPSULE_OPTIONS
+	end
+
+	return contact_resolution.ResolvePairClusters(mesh_body, other_body, CLUSTERS, cluster_count, dt, options)
 end
 
 function mesh_contact_common.SolveMeshSphereCollision(mesh_body, sphere_body, mesh_shape, dt)

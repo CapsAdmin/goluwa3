@@ -568,6 +568,46 @@ local function build_single_contact(scratch, point_a, point_b, separation, featu
 	return list.clear_from_index(contacts, 2)
 end
 
+-- The depth along each face plane is exact for a capsule (segment plus
+-- radius), so the shallowest face is a cheap upper bound on the minimum
+-- translation. EPA can return a longer way out for a capsule that is partly
+-- sunk into a slab (the bottom face of a thin box), which pushes it through.
+local FACE_AXIS_OVERRIDE_MARGIN = 0.05
+
+local function find_minimum_face_axis(polyhedron_body, polyhedron, segment_a, segment_b, radius)
+	local best_index
+	local best_depth = math.huge
+	local best_normal
+
+	for face_index = 1, #polyhedron.faces do
+		local face = polyhedron_cache.GetPolyhedronWorldFace(polyhedron_body, polyhedron, face_index)
+		local normal = face and face.normal
+		local first = face and face.points and face.points[1]
+
+		if not (normal and first) then return nil end
+
+		local length = normal:GetLength()
+		local nx, ny, nz = normal.x / length, normal.y / length, normal.z / length
+		local plane = nx * first.x + ny * first.y + nz * first.z
+		local lowest = math.min(
+			nx * segment_a.x + ny * segment_a.y + nz * segment_a.z,
+			nx * segment_b.x + ny * segment_b.y + nz * segment_b.z
+		)
+		local depth = plane + radius - lowest
+
+		-- outside any one face means no penetration to resolve here
+		if depth <= 0 then return nil end
+
+		if depth < best_depth then
+			best_depth = depth
+			best_index = face_index
+			best_normal = normal / length
+		end
+	end
+
+	return best_index, best_normal, best_depth
+end
+
 -- The capsule is treated as an analytic segment with a radius, the same way
 -- box3d collides hull-and-capsule: GJK/EPA on the two segment endpoints plus
 -- reference-face clipping. No point sampling of the capsule surface.
@@ -639,7 +679,29 @@ local function solve_capsule_polyhedron_core(capsule_body, polyhedron_body, poly
 		then
 			normal = penetration.normal
 			overlap = penetration.depth
-			local face_index, alignment = find_best_face_index(polyhedron, rotation, normal)
+			local axis_index, axis_normal, axis_depth = find_minimum_face_axis(polyhedron_body, polyhedron, segment_a, segment_b, radius)
+
+			if axis_index and axis_depth < overlap - FACE_AXIS_OVERRIDE_MARGIN then
+				normal = axis_normal
+				overlap = axis_depth
+				contacts = build_capsule_face_contacts(polyhedron_body, polyhedron, axis_index, axis_normal, radius, scratch)
+
+				if not (contacts and contacts[1]) then
+					local lowest_point = (
+							segment_a:Dot(axis_normal) <= segment_b:Dot(axis_normal)
+						) and
+						segment_a or
+						segment_b
+					local surface = lowest_point - axis_normal * radius
+					contacts = build_single_contact(scratch, surface + axis_normal * axis_depth, surface, -axis_depth)
+				end
+			end
+
+			local face_index, alignment = nil, nil
+
+			if not contacts then
+				face_index, alignment = find_best_face_index(polyhedron, rotation, normal)
+			end
 
 			if face_index and alignment >= CAPSULE_DEEP_FACE_ALIGNMENT then
 				local face = polyhedron_cache.GetPolyhedronWorldFace(polyhedron_body, polyhedron, face_index)
@@ -667,6 +729,28 @@ local function solve_capsule_polyhedron_core(capsule_body, polyhedron_body, poly
 
 			contacts = build_single_contact(scratch, distance.point_a, distance.point_b - normal * radius, -overlap)
 		end
+	end
+
+	-- the penetration axis is the shortest way out, so a capsule that went deep
+	-- in a single step gets pushed out the far side. A real contact never
+	-- pushes the capsule along the way it just travelled; recover from the
+	-- previous pose instead
+	local position = capsule_body.Position
+	local previous_position = capsule_body.PreviousPosition
+	local travel_along_normal = (
+			position.x - previous_position.x
+		) * normal.x + (
+			position.y - previous_position.y
+		) * normal.y + (
+			position.z - previous_position.z
+		) * normal.z
+
+	if
+		travel_along_normal > radius * 0.5 and
+		pair_solver_helpers.IsSolverImmovable(polyhedron_body) and
+		solve_swept_capsule_polyhedron_collision(capsule_body, polyhedron_body, polyhedron, dt)
+	then
+		return true
 	end
 
 	scratch.last_normal = normal

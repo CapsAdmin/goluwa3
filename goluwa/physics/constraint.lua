@@ -1,28 +1,8 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Quat = import("goluwa/structs/quat.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
-local motion = import("goluwa/physics/motion.lua")
 local objects = import("goluwa/objects/objects.lua")
 local DistanceConstraint = objects.CreateTemplate("physics_constraint")
-
-local function integrate_rotation(rotation, angular_velocity, dt)
-	if angular_velocity:GetLength() == 0 then return rotation:Copy() end
-
-	local delta = Quat(angular_velocity.x, angular_velocity.y, angular_velocity.z, 0) * rotation
-	return Quat(
-		rotation.x + 0.5 * dt * delta.x,
-		rotation.y + 0.5 * dt * delta.y,
-		rotation.z + 0.5 * dt * delta.z,
-		rotation.w + 0.5 * dt * delta.w
-	):GetNormalized()
-end
-
-local function preserve_body_motion(body, dt)
-	if not body then return end
-
-	body.PreviousPosition = body.Position - body:GetVelocity() * dt
-	body.PreviousRotation = integrate_rotation(body.Rotation, body:GetAngularVelocity(), -dt)
-end
+local IMPULSE = Vec3()
 
 local function copy_vec(vec)
 	return vec and vec:Copy() or nil
@@ -159,7 +139,10 @@ function DistanceConstraint:GetSolveDirection(world_pos0, world_pos1)
 	return self.LastDirection, 0
 end
 
-function DistanceConstraint:Solve(dt)
+-- Soft velocity constraint along the anchor axis. A rigid rod pulls its error
+-- in with the solver's joint softness; a compliant one is a spring. A rope
+-- only pulls: a slack rope is speculative, it may still close by its slack.
+function DistanceConstraint:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 	if not self.Enabled then return 0 end
 
 	local world_pos0 = self:GetWorldPosition0()
@@ -168,20 +151,6 @@ function DistanceConstraint:Solve(dt)
 	if not (world_pos0 and world_pos1) then return 0 end
 
 	local normal, length = self:GetSolveDirection(world_pos0, world_pos1)
-	local error = self:GetConstraintError(length)
-
-	if not error then return 0 end
-
-	if math.abs(error) <= physics_constants.EPSILON then
-		if self.Unilateral then self.AccumulatedLambda = 0 end
-
-		return 0
-	end
-
-	dt = dt or 0
-
-	if dt <= 0 then dt = 1 / 60 end
-
 	local inverse_mass = 0
 
 	if self.Body0 then
@@ -194,44 +163,88 @@ function DistanceConstraint:Solve(dt)
 
 	if inverse_mass == 0 then return 0 end
 
-	local alpha = (self.Compliance or 0) / (dt * dt)
-	local accumulated_lambda = self.AccumulatedLambda or 0
-	local delta_lambda = -(error + alpha * accumulated_lambda) / (inverse_mass + alpha)
+	local bias_rate = joint_bias_rate
+	local impulse_scale = joint_impulse_scale
 
-	if delta_lambda == 0 then return 0 end
+	if self.Compliance > 0 then
+		-- implicit spring k = 1 / compliance on the effective mass
+		local omega = math.sqrt(inverse_mass / self.Compliance)
+		local a1 = dt * omega
+		impulse_scale = 1 / (1 + dt * omega * a1)
+		bias_rate = omega / a1
+	elseif relax then
+		bias_rate = 0
+		impulse_scale = 0
+	end
 
-	self.AccumulatedLambda = accumulated_lambda + delta_lambda
-	local correction = normal * -delta_lambda
+	local unilateral = self.Unilateral
+	local gap = length - (unilateral and self.MaxDistance or self.Distance)
+	local bias
+
+	if unilateral and gap <= 0 then
+		bias = gap / dt
+		impulse_scale = 0
+	else
+		bias = bias_rate * gap
+	end
+
+	local speed = 0
 
 	if self.Body0 then
-		if self.Body0:HasSolverMass() then self.Body0:Wake() end
-
-		local previous_position = self.Body0.Position:Copy()
-		local previous_rotation = self.Body0.Rotation:Copy()
-		self.Body0:_ApplyCorrection(correction, world_pos0)
-
-		if not self.Unilateral then
-			motion.ApplyBodyMotionDelta(self.Body0, previous_position, previous_rotation, dt)
-		end
-
-		if self.Unilateral then preserve_body_motion(self.Body0, dt) end
+		local body = self.Body0
+		local rx, ry, rz = world_pos0.x - body.Position.x,
+		world_pos0.y - body.Position.y,
+		world_pos0.z - body.Position.z
+		speed = speed - (
+				normal.x * (
+					body.Velocity.x + body.AngularVelocity.y * rz - body.AngularVelocity.z * ry
+				) + normal.y * (
+					body.Velocity.y + body.AngularVelocity.z * rx - body.AngularVelocity.x * rz
+				) + normal.z * (
+					body.Velocity.z + body.AngularVelocity.x * ry - body.AngularVelocity.y * rx
+				)
+			)
 	end
 
 	if self.Body1 then
-		if self.Body1:HasSolverMass() then self.Body1:Wake() end
-
-		local previous_position = self.Body1.Position:Copy()
-		local previous_rotation = self.Body1.Rotation:Copy()
-		self.Body1:_ApplyCorrection(correction * -1, world_pos1)
-
-		if not self.Unilateral then
-			motion.ApplyBodyMotionDelta(self.Body1, previous_position, previous_rotation, dt)
-		end
-
-		if self.Unilateral then preserve_body_motion(self.Body1, dt) end
+		local body = self.Body1
+		local rx, ry, rz = world_pos1.x - body.Position.x,
+		world_pos1.y - body.Position.y,
+		world_pos1.z - body.Position.z
+		speed = speed + (
+				normal.x * (
+					body.Velocity.x + body.AngularVelocity.y * rz - body.AngularVelocity.z * ry
+				) + normal.y * (
+					body.Velocity.y + body.AngularVelocity.z * rx - body.AngularVelocity.x * rz
+				) + normal.z * (
+					body.Velocity.z + body.AngularVelocity.x * ry - body.AngularVelocity.y * rx
+				)
+			)
 	end
 
-	return delta_lambda / (dt * dt)
+	local accumulated_lambda = self.AccumulatedLambda
+	local lambda = accumulated_lambda - (
+			(
+				1 - impulse_scale
+			) * (
+				speed + bias
+			) / inverse_mass + impulse_scale * accumulated_lambda
+		)
+
+	if unilateral then lambda = math.min(lambda, 0) end
+
+	local delta_lambda = lambda - accumulated_lambda
+	self.AccumulatedLambda = lambda
+
+	if math.abs(delta_lambda) <= physics_constants.EPSILON then return 0 end
+
+	IMPULSE:CopyFrom(normal):Scale(delta_lambda)
+
+	if self.Body0 then self.Body0:ApplyImpulse(IMPULSE * -1, world_pos0) end
+
+	if self.Body1 then self.Body1:ApplyImpulse(IMPULSE, world_pos1) end
+
+	return delta_lambda / dt
 end
 
 local tracked = {}

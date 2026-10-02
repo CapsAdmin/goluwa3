@@ -80,7 +80,7 @@ T.TestPhysics("Fast rigid sphere tunnels through thin static box with auto CCD d
 			MaxLinearSpeed = 1000,
 		}
 	)
-	sphere:SetVelocity(Vec3(0, -320, 0))
+	sphere:SetVelocity(Vec3(0, -1000, 0))
 	test_helpers.Simulate(1, 1 / 10)
 	local position = sphere_ent.transform:GetPosition()
 	blocker_ent:Remove()

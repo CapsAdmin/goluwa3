@@ -1,5 +1,9 @@
 local physics_constants = import("goluwa/physics/constants.lua")
 local BVH = import("goluwa/physics/bvh.lua")
+local stats = import("goluwa/physics/stats.lua")
+local collider_index = import("goluwa/physics/collider_index.lua")
+local SWEEP_COLLIDER_TARGETS = {}
+local SWEEP_POINT_TARGETS = {}
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
@@ -41,46 +45,22 @@ local should_skip_model = sweep_candidates.ShouldSkipModel
 local should_skip_rigid_body = sweep_candidates.ShouldSkipRigidBody
 local get_rigid_body_candidate_aabb = sweep_candidates.GetRigidBodyCandidateAABB
 local get_collider_candidate_aabb = sweep_candidates.GetColliderCandidateAABB
-local collect_rigid_body_candidates = sweep_candidates.CollectRigidBodyCandidates
+local function collect_rigid_body_candidates(...)
+	stats:PushTime("sweep_candidates")
+	sweep_candidates.CollectRigidBodyCandidates(...)
+	stats:PopTime()
+end
 
--- the world-geometry body scan is cached per physics substep: it only matters
--- which render meshes get queried, and the body set is stable within a step.
--- the cache lives on the engine (physics.step_state) and is keyed on the
--- engine's StepIndex
-local function has_world_geometry_bodies(physics)
-	local instances = RigidBodyComponent.Instances
-	local step = physics.StepIndex or 0
-	local count = #instances
-	local state = physics.step_state
-
-	if not state or state.step ~= step or state.count ~= count then
-		state = state or {}
-		state.step = step
-		state.count = count
-		state.present = false
-
-		for i = 1, count do
-			local body = instances[i]
-
-			if body.WorldGeometry == true then
-				state.present = true
-
-				break
-			end
-		end
-
-		physics.step_state = state
-	end
-
-	return state.present
+local function has_world_geometry_bodies()
+	return RigidBodyComponent.WorldGeometryBodies[1] ~= nil
 end
 
 local empty_options = {}
 local empty_no_mesh_options = {UseRenderMeshes = false}
 
-local function normalize_query_options(physics, options)
+local function normalize_query_options(options)
 	if options == nil then
-		if has_world_geometry_bodies(physics) then return empty_no_mesh_options end
+		if has_world_geometry_bodies() then return empty_no_mesh_options end
 
 		return empty_options
 	end
@@ -100,7 +80,7 @@ local function normalize_query_options(physics, options)
 	if
 		options.UseRenderMeshes == nil and
 		options.IgnoreWorld ~= true and
-		has_world_geometry_bodies(physics)
+		has_world_geometry_bodies()
 	then
 		options.UseRenderMeshes = false
 	end
@@ -649,7 +629,7 @@ function get_polyhedron_contact_for_point_at_pose(collider, polyhedron, point, r
 	}
 end
 
-local function test_rigid_body_sweep(origin, movement, radius, body, ignore_entity, filter_fn, options, best_fraction)
+local function test_rigid_body_sweep_untimed(origin, movement, radius, body, ignore_entity, filter_fn, options, best_fraction)
 	if should_skip_rigid_body(body, ignore_entity, filter_fn, options) then
 		return nil
 	end
@@ -668,8 +648,10 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 	end
 
 	local best_hit = nil
+	local colliders, collider_count = collider_index.Query(body, world_aabb, SWEEP_POINT_TARGETS)
 
-	for _, collider in ipairs(body:GetColliders()) do
+	for collider_index_in_list = 1, collider_count do
+		local collider = colliders[collider_index_in_list]
 		local collider_bounds = get_collider_candidate_aabb(collider)
 
 		if not collider_bounds or AABB.IsBoxIntersecting(world_aabb, collider_bounds) then
@@ -742,7 +724,7 @@ function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, poly_b
 	}
 end
 
-local function test_rigid_body_collider_sweep(
+local function test_rigid_body_collider_sweep_untimed(
 	collider,
 	polyhedron,
 	start_position,
@@ -769,8 +751,10 @@ local function test_rigid_body_collider_sweep(
 
 	local query_shape_type = collider:GetShapeType()
 	local best_hit
+	local target_colliders, target_count = collider_index.Query(body, world_aabb, SWEEP_COLLIDER_TARGETS)
 
-	for _, target_collider in ipairs(body:GetColliders() or {}) do
+	for target_index = 1, target_count do
+		local target_collider = target_colliders[target_index]
 		local target_bounds = get_collider_candidate_aabb(target_collider)
 
 		if not target_bounds or AABB.IsBoxIntersecting(world_aabb, target_bounds) then
@@ -813,6 +797,20 @@ local function test_rigid_body_collider_sweep(
 	end
 
 	return best_hit
+end
+
+local function test_rigid_body_sweep(...)
+	stats:PushTime("sweep_bodies")
+	local hit = test_rigid_body_sweep_untimed(...)
+	stats:PopTime()
+	return hit
+end
+
+local function test_rigid_body_collider_sweep(...)
+	stats:PushTime("sweep_bodies")
+	local hit = test_rigid_body_collider_sweep_untimed(...)
+	stats:PopTime()
+	return hit
 end
 
 local function build_world_hit(
@@ -1169,7 +1167,7 @@ local function test_model_sweep(
 end
 
 local function sweep_world(physics, origin, movement, radius, ignore_entity, filter_fn, options)
-	options = normalize_query_options(physics, options)
+	options = normalize_query_options(options)
 	radius = math.max(radius or 0, 0)
 
 	if not movement then movement = ZERO_MOVEMENT end
@@ -1219,7 +1217,7 @@ local function sweep_world(physics, origin, movement, radius, ignore_entity, fil
 end
 
 local function sweep_collider_world(physics, collider, start_position, movement, ignore_entity, filter_fn, options)
-	options = normalize_query_options(physics, options)
+	options = normalize_query_options(options)
 	local polyhedron = collider:GetBodyPolyhedron()
 	local rotation = options.Rotation or collider:GetRotation()
 	local shape = collider:GetPhysicsShape()
@@ -1411,11 +1409,19 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 end
 
 function sweep.SweepCollider(physics, collider, start_position, movement, ignore_entity, filter_fn, options)
-	return sweep_collider_world(physics, collider, start_position, movement, ignore_entity, filter_fn, options)
+	stats:PushTime("sweep")
+	stats:Count("sweeps")
+	local hit = sweep_collider_world(physics, collider, start_position, movement, ignore_entity, filter_fn, options)
+	stats:PopTime()
+	return hit
 end
 
 function sweep.Sweep(physics, origin, movement, radius, ignore_entity, filter_fn, options)
-	return sweep_world(physics, origin, movement, radius, ignore_entity, filter_fn, options)
+	stats:PushTime("sweep")
+	stats:Count("sweeps")
+	local hit = sweep_world(physics, origin, movement, radius, ignore_entity, filter_fn, options)
+	stats:PopTime()
+	return hit
 end
 
 return sweep

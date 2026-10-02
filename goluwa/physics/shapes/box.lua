@@ -4,6 +4,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("physics_shape_box")
 META.Base = BaseShape
 META:GetSet("Size", Vec3(1, 1, 1))
@@ -37,6 +38,19 @@ local BOX_EDGE_PAIRS = {
 	{3, 7},
 	{4, 8},
 }
+local BODY_RIGHT = Vec3()
+local BODY_UP = Vec3()
+local BODY_BACK = Vec3()
+
+-- axes are only ever used through absolute dot products, so the back axis
+-- stands in for forward
+local function fill_body_axes(body)
+	local rotation = body.Rotation
+	Quat.SetRightAxis(BODY_RIGHT, rotation)
+	Quat.SetUpAxis(BODY_UP, rotation)
+	Quat.SetBackAxis(BODY_BACK, rotation)
+end
+
 local BOX_SUPPORT_CONTACT_CONTEXT = {
 	best_point = nil,
 }
@@ -198,9 +212,10 @@ function META:GetSupportFootprintMetrics(body, ground_normal)
 	end
 
 	local extents = self:GetExtents()
-	local right = body:GetRight()
-	local up = body:GetUp()
-	local forward = body:GetForward()
+	fill_body_axes(body)
+	local right = BODY_RIGHT
+	local up = BODY_UP
+	local forward = BODY_BACK
 	local footprint_half_u = extents.x * math.abs(tangent:Dot(right)) + extents.y * math.abs(tangent:Dot(up)) + extents.z * math.abs(tangent:Dot(forward))
 	local footprint_half_v = extents.x * math.abs(bitangent:Dot(right)) + extents.y * math.abs(bitangent:Dot(up)) + extents.z * math.abs(bitangent:Dot(forward))
 	local footprint_span_u = footprint_half_u * 2
@@ -295,7 +310,8 @@ end
 function META:GetSupportRadiusAlongNormal(body, normal)
 	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
 	local extents = self:GetExtents()
-	return extents.x * math.abs(normal:Dot(body:GetRight())) + extents.y * math.abs(normal:Dot(body:GetUp())) + extents.z * math.abs(normal:Dot(body:GetForward()))
+	fill_body_axes(body)
+	return extents.x * math.abs(normal:Dot(BODY_RIGHT)) + extents.y * math.abs(normal:Dot(BODY_UP)) + extents.z * math.abs(normal:Dot(BODY_BACK))
 end
 
 function META:GetPolyhedron()
@@ -379,10 +395,11 @@ end
 function META:ShouldForceGroundedSleep(body)
 	local metrics = self:GetSupportFootprintMetrics(body)
 	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
+	fill_body_axes(body)
 	local face_alignment = math.max(
-		math.abs(ground_normal:Dot(body:GetRight())),
-		math.abs(ground_normal:Dot(body:GetUp())),
-		math.abs(ground_normal:Dot(body:GetForward()))
+		math.abs(ground_normal:Dot(BODY_RIGHT)),
+		math.abs(ground_normal:Dot(BODY_UP)),
+		math.abs(ground_normal:Dot(BODY_BACK))
 	)
 	return (
 			metrics.stable and

@@ -6,6 +6,7 @@ local toi = import("goluwa/physics/toi.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local stats = import("goluwa/physics/stats.lua")
+local collider_index = import("goluwa/physics/collider_index.lua")
 local pair_solver_helpers = {}
 local EPSILON = physics_constants.EPSILON
 local axis_data = {
@@ -75,20 +76,22 @@ local function get_body_ccd_motion_scales(body)
 	max_scale or min_scale or fallback_scale
 end
 
+local function get_ccd_motion(body)
+	local linear_motion = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
+	local min_scale, max_scale = get_body_ccd_motion_scales(body)
+	local current_rotation = body:GetRotation()
+	local previous_rotation = body:GetPreviousRotation()
+	local dot = math.min(1, math.max(-1, math.abs(previous_rotation:Dot(current_rotation))))
+	local angle = math.acos(dot) * 2
+	return math.max(linear_motion, angle * max_scale), min_scale
+end
+
 local function should_use_auto_ccd(body)
 	if body:GetAutoCCD() ~= true then return false end
 
 	if body:IsStatic() then return false end
 
-	local linear_motion = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
-	local min_scale, max_scale = get_body_ccd_motion_scales(body)
-	local angular_motion = 0
-	local current_rotation = body:GetRotation()
-	local previous_rotation = body:GetPreviousRotation()
-	local dot = math.min(1, math.max(-1, math.abs(previous_rotation:Dot(current_rotation))))
-	local angle = math.acos(dot) * 2
-	angular_motion = angle * max_scale
-	local motion = math.max(linear_motion, angular_motion)
+	local motion, min_scale = get_ccd_motion(body)
 	local threshold_ratio = body:GetAutoCCDThreshold() or 0.5
 	local threshold = math.max(
 		min_scale * math.max(threshold_ratio, 0),
@@ -102,6 +105,22 @@ function pair_solver_helpers.ShouldUseCCD(body)
 	if body:GetCCD() == true then return true end
 
 	return should_use_auto_ccd(body)
+end
+
+-- Bodies that force CCD on sweep unless they moved less than a quarter of
+-- their own size in the substep (walking, standing): a swept hit needs motion,
+-- and the discrete contacts catch slow bodies. The automatic rule uses half
+-- the size, but a forced body slowed by an impact still needs the sweep to
+-- stop at thin brush walls, so it keeps a lower cut-off.
+local FORCED_CCD_SIZE_RATIO = 0.25
+
+function pair_solver_helpers.ShouldSweepBody(body)
+	if body:GetCCD() ~= true then return should_use_auto_ccd(body) end
+
+	if body:IsStatic() then return false end
+
+	local motion, min_scale = get_ccd_motion(body)
+	return motion > math.max(min_scale * FORCED_CCD_SIZE_RATIO, 0.01)
 end
 
 function pair_solver_helpers.ShouldUsePairCCD(body_a, body_b)
@@ -146,22 +165,145 @@ function pair_solver_helpers.TryInvokePairHandler(solver, body_a, body_b, entry_
 	return false, false
 end
 
-function pair_solver_helpers.DispatchColliderPairs(solver, colliders_a, colliders_b, entry_a, entry_b, dt)
-	local handled = false
+local DISPATCH_QUERY_AABB = AABB(0, 0, 0, 0, 0, 0)
+local DISPATCH_COLLIDERS_A = {}
+local DISPATCH_COLLIDERS_B = {}
+-- A manifold built in an earlier step is recycled while both bodies stay this
+-- close to the pose it was built at; within a step mesh contacts may drift
+-- further (their anchors move with the bodies and the normal stays valid over
+-- a surface patch), like Box3D's contact recycle distance.
+local RECYCLE_POSE_THRESHOLD = 0.005
+local RECYCLE_ROTATION_DOT = 0.99995
+local STEP_REUSE_POSE_THRESHOLD = 0.05
+local STEP_REUSE_ROTATION_DOT = 0.995
 
-	for _, collider_a in ipairs(colliders_a or {}) do
-		for _, collider_b in ipairs(colliders_b or {}) do
-			local body_a = collider_a:GetBody()
-			local body_b = collider_b:GetBody()
+function pair_solver_helpers.IsPoseInvalidated(body, cached_pose, squared_threshold, min_rotation_dot)
+	if not cached_pose then return false end
+
+	local position = body:GetPosition()
+	local dx = position.x - cached_pose.px
+	local dy = position.y - cached_pose.py
+	local dz = position.z - cached_pose.pz
+
+	if dx * dx + dy * dy + dz * dz > squared_threshold then return true end
+
+	local rotation = body:GetRotation()
+	local dot = rotation.x * cached_pose.rx + rotation.y * cached_pose.ry + rotation.z * cached_pose.rz + rotation.w * cached_pose.rw
+	local abs_dot = dot >= 0 and dot or -dot
+	return abs_dot < min_rotation_dot
+end
+
+-- bounds of the other body, padded by the contact margins, for culling the
+-- colliders of a big static body
+local function build_dispatch_query_aabb(body, other_body, bounds)
+	local pad = math.max(
+		(body:GetCollisionMargin() or 0) + (body:GetCollisionProbeDistance() or 0) + (other_body:GetCollisionMargin() or 0) + (other_body:GetCollisionProbeDistance() or 0),
+		physics_constants.DEFAULT_COLLISION_MARGIN,
+		physics_constants.EPSILON
+	)
+	local query = DISPATCH_QUERY_AABB
+	query.min_x = bounds.min_x - pad
+	query.min_y = bounds.min_y - pad
+	query.min_z = bounds.min_z - pad
+	query.max_x = bounds.max_x + pad
+	query.max_y = bounds.max_y + pad
+	query.max_z = bounds.max_z + pad
+	return query
+end
+
+-- Pairs of bodies with more than one collider. Their manifolds are keyed by
+-- collider pair and built by the shape handlers. mode:
+--   "collide": the narrowphase substep, recycle what is still valid and run
+--     the handlers for the rest to find new contacts
+--   "reuse": a later substep, only existing manifolds are solved (rebuilt by
+--     their handler once the bodies moved too far); colliders that found no
+--     contact stay quiet until the next collide substep
+--   "relax": the rigid sweeps over the manifolds the substep just solved
+-- The manifolds solved in a substep are remembered on the pair for its relax
+-- sweeps.
+function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
+	local step_stamp = solver.StepStamp
+
+	if mode == "relax" then
+		if pair.active_stamp ~= step_stamp then return false end
+
+		local active = pair.active_manifolds
+
+		for i = 1, pair.active_count do
+			local manifold = active[i]
+			contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, true)
+		end
+
+		return true
+	end
+
+	local handled = false
+	local entry_a = pair.entry_a
+	local entry_b = pair.entry_b
+	local body_a = entry_a.body
+	local body_b = entry_b.body
+	local list_a, count_a = collider_index.Query(body_a, build_dispatch_query_aabb(body_a, body_b, entry_b.bounds), DISPATCH_COLLIDERS_A)
+	local list_b, count_b = collider_index.Query(body_b, build_dispatch_query_aabb(body_b, body_a, entry_a.bounds), DISPATCH_COLLIDERS_B)
+	local persistent_manifolds = solver.PersistentManifolds
+	local collide_stamp = solver.CollideStamp
+	local recycle_squared = RECYCLE_POSE_THRESHOLD * RECYCLE_POSE_THRESHOLD
+	local reuse_squared = STEP_REUSE_POSE_THRESHOLD * STEP_REUSE_POSE_THRESHOLD
+	local active = pair.active_manifolds
+
+	if not active then
+		active = {}
+		pair.active_manifolds = active
+	end
+
+	local active_count = 0
+	pair.active_stamp = step_stamp
+
+	for i = 1, count_a do
+		local collider_a = list_a[i]
+
+		for j = 1, count_b do
+			local collider_b = list_b[j]
 
 			if body_a:ShouldCollide(body_b) then
-				local result, found = pair_solver_helpers.TryInvokePairHandler(solver, collider_a, collider_b, entry_a, entry_b, dt)
+				local manifold = contact_resolution.GetPairManifold(persistent_manifolds, collider_a, collider_b)
 
-				if found and result then handled = true end
+				if manifold and not manifold.solve_a then manifold = nil end
+
+				local usable = false
+
+				if manifold and manifold.last_rebuild_step >= 0 then
+					local recycled = manifold.last_rebuild_step < collide_stamp
+					local squared = recycled and recycle_squared or reuse_squared
+					local rotation_dot = recycled and RECYCLE_ROTATION_DOT or STEP_REUSE_ROTATION_DOT
+					usable = not (
+						pair_solver_helpers.IsPoseInvalidated(manifold.solve_a, manifold.rebuild_pose_a, squared, rotation_dot) or
+						pair_solver_helpers.IsPoseInvalidated(manifold.solve_b, manifold.rebuild_pose_b, squared, rotation_dot)
+					)
+				end
+
+				if usable then
+					manifold.last_seen_step = step_stamp
+					stats:Count("collider_pairs_reused")
+					contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, false)
+					handled = true
+				elseif mode == "collide" or manifold then
+					stats:Count("collider_pairs_rebuilt")
+					local result, found = pair_solver_helpers.TryInvokePairHandler(solver, collider_a, collider_b, entry_a, entry_b, dt)
+
+					if found and result then handled = true end
+
+					manifold = contact_resolution.GetPairManifold(persistent_manifolds, collider_a, collider_b)
+				end
+
+				if manifold and manifold.solve_a and manifold.last_warm_step == step_stamp then
+					active_count = active_count + 1
+					active[active_count] = manifold
+				end
 			end
 		end
 	end
 
+	pair.active_count = active_count
 	return handled
 end
 
@@ -733,6 +875,7 @@ function pair_solver_helpers.ResolveSweptHit(
 		end
 	end
 
+	dynamic_body:SyncSolverVelocity()
 	return true, hit_fraction, normal
 end
 
@@ -772,6 +915,8 @@ function pair_solver_helpers.ResolveRelativeSweptPairHit(
 		end
 	end
 
+	body_a:SyncSolverVelocity()
+	body_b:SyncSolverVelocity()
 	return true, hit_fraction, normal
 end
 

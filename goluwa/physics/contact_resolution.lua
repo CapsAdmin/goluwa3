@@ -139,40 +139,13 @@ local function refresh_pair_materials(solver, body_a, body_b, manifold)
 	manifold.material_step = solver.StepStamp
 end
 
-local function pair_breaks_lifted_support(solver, body_a, body_b)
-	local velocity_a = body_a.Velocity
-	local velocity_b = body_b.Velocity
-	local speed_a = velocity_a and velocity_a:GetLength() or 0
-	local speed_b = velocity_b and velocity_b:GetLength() or 0
-	return math.max(speed_a, speed_b) <= (solver.LIFT_BREAK_SPEED or 0.5)
-end
-
-local function get_positional_correction_length(solver, overlap, dt)
-	local slop = math.max(solver.PENETRATION_SLOP or 0, 0)
-	local factor = math.max(solver.POSITIONAL_CORRECTION_FACTOR or 0, 0)
-	local max_correction = math.max(solver.MAX_POSITIONAL_CORRECTION or 0, 0)
-	local correction_length = math.max(overlap - slop, 0) * factor
-
-	if dt and dt > 0 then
-		local max_depenetration_speed = math.max(solver.MAX_DEPENETRATION_SPEED or 0, 0)
-
-		if max_depenetration_speed > 0 then
-			correction_length = math.min(correction_length, max_depenetration_speed * dt)
-		end
-	end
-
-	if max_correction > 0 then
-		correction_length = math.min(correction_length, max_correction)
-	end
-
-	return correction_length
-end
-
 local EMPTY_OPTIONS = {}
+local SINGLE_CONTACT = {}
+local SINGLE_CONTACTS = {SINGLE_CONTACT}
 -- one scratch point per contact slot; a single shared scratch would alias
--- every contact's world point to the last contact and corrupt the correction
--- torque arms and the ground support polygon
-local ITERATE_WORLD_POINT_A = {
+-- every contact's world point to the last contact and corrupt the ground
+-- support polygon
+local FINISH_WORLD_POINT_A = {
 	Vec3(),
 	Vec3(),
 	Vec3(),
@@ -180,7 +153,7 @@ local ITERATE_WORLD_POINT_A = {
 	Vec3(),
 	Vec3(),
 }
-local ITERATE_WORLD_POINT_B = {
+local FINISH_WORLD_POINT_B = {
 	Vec3(),
 	Vec3(),
 	Vec3(),
@@ -189,89 +162,119 @@ local ITERATE_WORLD_POINT_B = {
 	Vec3(),
 }
 
--- defer_grounding: skip the ground bookkeeping, it only needs to see the poses
--- the last solver iteration leaves behind
-function contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, fresh_contacts, defer_grounding)
+function contact_resolution.ApplyManifoldRestitution(body_a, body_b, manifold, dt)
+	if not manifold.idle then
+		manifolds.ApplyRestitution(body_a, body_b, manifold.normal, manifold, dt)
+	end
+
+	local extra = manifold.extra
+
+	if extra then
+		for i = 1, #extra do
+			contact_resolution.ApplyManifoldRestitution(body_a, body_b, extra[i], dt)
+		end
+	end
+end
+
+-- Velocity phase of a manifold pair: impulses only, bodies do not move. The
+-- first solve of a substep also warm starts, reports the collision and queues
+-- the pair for the position phase.
+local function solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
 	local physics = body_a:GetPhysics()
-	local contacts = assert(fresh_contacts or manifold.contacts)
+	local solver = physics.solver
 
-	if manifold.last_warm_step ~= physics.solver.StepStamp then
-		manifolds.CaptureRestitutionBias(body_a, body_b, manifold.normal, manifold)
+	if manifold.last_warm_step ~= solver.StepStamp then
+		manifolds.CaptureRestitutionBias(body_a, body_b, manifold.normal, manifold, solver.CollideStamp)
+
+		-- warm starting skips contacts that have separated, so it needs this
+		-- substep's separation and not the one from when the manifold was built
+		if manifold.prepared_step ~= solver.StepStamp then
+			manifolds.PrepareContacts(body_a, body_b, manifold.normal, manifold, solver.StepStamp)
+		end
+
 		manifolds.WarmStart(body_a, body_b, manifold.normal, manifold, dt)
-		manifold.last_warm_step = physics.solver.StepStamp
+		manifold.last_warm_step = solver.StepStamp
+		solver:QueuePositionPair(body_a, body_b, manifold)
+
+		if manifold.overlap > 0 then
+			physics.collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, manifold.overlap)
+		end
 	end
 
-	refresh_pair_materials(physics.solver, body_a, body_b, manifold)
+	refresh_pair_materials(solver, body_a, body_b, manifold)
+	manifolds.SolveImpulses(body_a, body_b, manifold.normal, manifold, dt, relax)
+end
 
-	-- world points are re-derived from the local contact points in cached
-	-- iterations because corrections move the bodies between passes; the first
-	-- iteration reuses the handler's fresh points untouched
-	if not fresh_contacts then
+-- A pair can own several manifolds, one per distinct contact normal (a capsule
+-- against a wall and a floor). The manifold the solver looks up is the group
+-- head, the others hang off its extra list and are solved with it.
+function contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, relax)
+	if manifold.idle then
+		-- the head stays stamped while it holds no contact so the solver
+		-- still relaxes and bounces the extra manifolds behind it
+		manifold.last_warm_step = body_a:GetPhysics().solver.StepStamp
+	else
+		solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
+	end
+
+	local extra = manifold.extra
+
+	if extra then
+		for i = 1, #extra do
+			contact_resolution.SolveManifoldVelocity(body_a, body_b, extra[i], dt, relax)
+		end
+	end
+end
+
+-- Ground bookkeeping, once per substep against the poses the biased solve
+-- left behind.
+function contact_resolution.FinishManifold(body_a, body_b, manifold)
+	local contacts = manifold.contacts
+
+	for i = 1, #contacts do
+		local contact = contacts[i]
+
+		if i <= 6 then
+			contact.point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, FINISH_WORLD_POINT_A[i])
+			contact.point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, FINISH_WORLD_POINT_B[i])
+		else
+			contact.point_a = body_a:LocalToWorld(contact.local_point_a)
+			contact.point_b = body_b:LocalToWorld(contact.local_point_b)
+		end
+	end
+
+	if manifold.resolve_options and manifold.resolve_options.skip_grounding then
+		return
+	end
+
+	local support_tolerance = math.max(body_a:GetPhysics().solver.PENETRATION_SLOP or 0, 0.005)
+
+	-- a manifold built outside the collision margin is only speculative and
+	-- is not support until it closes
+	if manifold.overlap <= 0 then
+		local touching = false
+
 		for i = 1, #contacts do
-			local contact = contacts[i]
+			if (contacts[i].separation or 0) <= support_tolerance then
+				touching = true
 
-			if i <= 6 then
-				contact.point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, ITERATE_WORLD_POINT_A[i])
-				contact.point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, ITERATE_WORLD_POINT_B[i])
-			else
-				contact.point_a = body_a:LocalToWorld(contact.local_point_a)
-				contact.point_b = body_b:LocalToWorld(contact.local_point_b)
-			end
-		end
-	end
-
-	manifolds.SolveImpulses(body_a, body_b, manifold.normal, manifold, dt)
-	local correction_length = get_positional_correction_length(physics.solver, manifold.overlap or 0, dt)
-
-	if correction_length > EPSILON then
-		manifold.overlap = math.max(0, (manifold.overlap or 0) - correction_length)
-		local lifts_broken = pair_breaks_lifted_support(physics.solver, body_a, body_b)
-		local separation_tolerance = lifts_broken and 0 or math.huge
-		local active_count = 0
-
-		for i = 1, #contacts do
-			if (contacts[i].separation or 0) <= separation_tolerance then
-				active_count = active_count + 1
+				break
 			end
 		end
 
-		if active_count == 0 then active_count = #contacts end
+		if not touching then return end
+	end
 
-		local correction = CORRECTION:CopyFrom(manifold.normal):Scale(-(correction_length / active_count))
+	contact_resolution.MarkPairGrounding(body_a, body_b, manifold.normal, manifold.rolling_friction)
+	mark_pair_grounding_from_contacts(body_a, body_b, contacts)
 
-		for i = 1, #contacts do
-			local contact = contacts[i]
+	for i = 1, #contacts do
+		local contact = contacts[i]
 
-			if (contact.separation or 0) <= separation_tolerance then
-				body_a:ApplyCorrection(0, correction, contact.point_a, body_b, contact.point_b, dt)
-			end
+		if (contact.separation or 0) <= support_tolerance then
+			accumulate_pair_ground_support(body_a, body_b, manifold.normal, contact.point_a, contact.point_b)
 		end
 	end
-
-	if
-		not defer_grounding and
-		not (
-			manifold.resolve_options and
-			manifold.resolve_options.skip_grounding
-		)
-	then
-		contact_resolution.MarkPairGrounding(body_a, body_b, manifold.normal, manifold.rolling_friction)
-		mark_pair_grounding_from_contacts(body_a, body_b, contacts)
-		local support_tolerance = math.max(physics.solver.PENETRATION_SLOP or 0, 0.005)
-
-		for _, contact in ipairs(contacts) do
-			if (contact.separation or 0) <= support_tolerance then
-				accumulate_pair_ground_support(body_a, body_b, manifold.normal, contact.point_a, contact.point_b)
-			end
-		end
-	end
-
-	if manifold.last_record_step ~= physics.solver.StepStamp then
-		physics.collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, manifold.overlap)
-		manifold.last_record_step = physics.solver.StepStamp
-	end
-
-	return true
 end
 
 function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
@@ -333,6 +336,171 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	impulse_motion.CommitPairMotion(state_a, state_b, dt)
 end
 
+local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts, options, solver)
+	manifold.last_seen_step = solver.StepStamp
+	manifold.idle = false
+	-- the narrowphase handler only runs in the first solver iteration of the
+	-- substep; later iterations re-solve this manifold through
+	-- IterateResolvedPair, so the normal must not alias the handler's
+	-- scratch vectors
+	manifold.normal = normal:Copy()
+	-- the normal points from solve_a to solve_b; compound pairs reuse the
+	-- manifold later without knowing which way the handler ordered them
+	manifold.solve_a = body_a
+	manifold.solve_b = body_b
+	manifold.overlap = overlap
+	manifold.resolve_options = options
+
+	-- the manifold only needs rebuilding once per substep; the contacts are
+	-- identical between iterations of the same substep
+	if manifold.last_rebuild_step ~= solver.StepStamp then
+		manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
+		manifold.prepared_step = nil
+		local deepest = -math.huge
+		local normal_x, normal_y, normal_z = normal.x, normal.y, normal.z
+
+		for i = 1, #contacts do
+			local contact = contacts[i]
+			local depth = (
+					contact.point_a.x - contact.point_b.x
+				) * normal_x + (
+					contact.point_a.y - contact.point_b.y
+				) * normal_y + (
+					contact.point_a.z - contact.point_b.z
+				) * normal_z
+
+			if depth > deepest then deepest = depth end
+		end
+
+		-- the narrowphase overlap can include margins the anchors do not
+		manifold.depth_offset = overlap - deepest
+		manifold.last_rebuild_step = solver.StepStamp
+		stats:Count("contact_points", #contacts)
+	end
+end
+
+local function store_rebuild_pose(manifold, body_a, body_b)
+	local pose_a = manifold.rebuild_pose_a or {}
+	local pose_b = manifold.rebuild_pose_b or {}
+	local position_a = body_a:GetPosition()
+	local position_b = body_b:GetPosition()
+	local rotation_a = body_a:GetRotation()
+	local rotation_b = body_b:GetRotation()
+	pose_a.px = position_a.x
+	pose_a.py = position_a.y
+	pose_a.pz = position_a.z
+	pose_a.rx = rotation_a.x
+	pose_a.ry = rotation_a.y
+	pose_a.rz = rotation_a.z
+	pose_a.rw = rotation_a.w
+	pose_b.px = position_b.x
+	pose_b.py = position_b.y
+	pose_b.pz = position_b.z
+	pose_b.rx = rotation_b.x
+	pose_b.ry = rotation_b.y
+	pose_b.rz = rotation_b.z
+	pose_b.rw = rotation_b.w
+	manifold.rebuild_pose_a = pose_a
+	manifold.rebuild_pose_b = pose_b
+end
+
+local CLUSTER_MEMBERS = {}
+local CLUSTER_USED = {}
+local CLUSTER_MATCH_DOT = 0.9
+local MAX_CLUSTER_MANIFOLDS = 4
+
+-- clusters: {normal, overlap, contacts} entries, one per distinct contact
+-- normal the narrowphase found. A manifold keeps its warm start by taking the
+-- cluster with the closest normal; manifolds without a cluster go idle.
+function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluster_count, dt, options)
+	if body_a.InverseMass + body_b.InverseMass <= 0 then return false end
+
+	local solver = body_a:GetPhysics().solver
+	local head = get_pair_manifold(solver.PersistentManifolds, body_a, body_b) or {}
+	local extra = head.extra
+
+	if not extra then
+		extra = {}
+		head.extra = extra
+	end
+
+	local members = CLUSTER_MEMBERS
+	local used = CLUSTER_USED
+	local member_count = 1 + #extra
+	members[1] = head
+
+	for i = 1, #extra do
+		members[i + 1] = extra[i]
+	end
+
+	for i = 1, member_count do
+		used[i] = false
+	end
+
+	for cluster_index = 1, cluster_count do
+		local cluster = clusters[cluster_index]
+		local pick = nil
+		local best_dot = CLUSTER_MATCH_DOT
+
+		for member_index = 1, member_count do
+			local member = members[member_index]
+
+			if not used[member_index] and not member.idle and member.normal then
+				local dot = member.normal:Dot(cluster.normal)
+
+				if dot > best_dot then
+					best_dot = dot
+					pick = member_index
+				end
+			end
+		end
+
+		if not pick then
+			for member_index = 1, member_count do
+				local member = members[member_index]
+
+				if not used[member_index] and (member.idle or not member.normal) then
+					pick = member_index
+
+					break
+				end
+			end
+		end
+
+		if not pick and member_count < MAX_CLUSTER_MANIFOLDS then
+			member_count = member_count + 1
+			members[member_count] = {idle = true}
+			extra[member_count - 1] = members[member_count]
+			used[member_count] = false
+			pick = member_count
+		end
+
+		if pick then
+			used[pick] = true
+			fill_manifold(members[pick], body_a, body_b, cluster.normal, cluster.overlap, cluster.contacts, options, solver)
+		end
+	end
+
+	for member_index = 1, member_count do
+		local member = members[member_index]
+
+		if not used[member_index] and not member.idle then
+			member.idle = true
+			member.contacts = {}
+			member.overlap = -1
+		end
+	end
+
+	head.last_seen_step = solver.StepStamp
+	head.last_rebuild_step = solver.StepStamp
+	head.solve_a = body_a
+	head.solve_b = body_b
+	store_rebuild_pose(head, body_a, body_b)
+	set_pair_manifold(solver.PersistentManifolds, body_a, body_b, head)
+	contact_resolution.SolveManifoldVelocity(body_a, body_b, head, dt)
+	return true
+end
+
 function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overlap, dt, point_a, point_b, contacts, options)
 	local physics = body_a:GetPhysics()
 	local inverse_mass_a = body_a.InverseMass
@@ -340,53 +508,25 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
 	options = options or EMPTY_OPTIONS
 
-	if inverse_mass_sum <= 0 or overlap <= 0 then return false end
+	if inverse_mass_sum <= 0 then return false end
+
+	if not contacts and point_a and point_b then
+		SINGLE_CONTACT.point_a = point_a
+		SINGLE_CONTACT.point_b = point_b
+		contacts = SINGLE_CONTACTS
+	end
 
 	if contacts and #contacts > 0 then
 		local solver = physics.solver
 		local manifold = get_pair_manifold(solver.PersistentManifolds, body_a, body_b) or {}
-		manifold.last_seen_step = solver.StepStamp
-		-- the narrowphase handler only runs in the first solver iteration of the
-		-- substep; later iterations re-solve this manifold through
-		-- IterateResolvedPair, so the normal must not alias the handler's
-		-- scratch vectors
-		manifold.normal = normal:Copy()
-		manifold.overlap = overlap
-		manifold.resolve_options = options
-
-		-- the manifold only needs rebuilding once per substep; the contacts are
-		-- identical between iterations of the same substep
-		if manifold.last_rebuild_step ~= solver.StepStamp then
-			manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
-			manifold.last_rebuild_step = solver.StepStamp
-			stats:Count("contact_points", #contacts)
-		end
-
-		local pose_a = manifold.rebuild_pose_a or {}
-		local pose_b = manifold.rebuild_pose_b or {}
-		local position_a = body_a:GetPosition()
-		local position_b = body_b:GetPosition()
-		local rotation_a = body_a:GetRotation()
-		local rotation_b = body_b:GetRotation()
-		pose_a.px = position_a.x
-		pose_a.py = position_a.y
-		pose_a.pz = position_a.z
-		pose_a.rx = rotation_a.x
-		pose_a.ry = rotation_a.y
-		pose_a.rz = rotation_a.z
-		pose_a.rw = rotation_a.w
-		pose_b.px = position_b.x
-		pose_b.py = position_b.y
-		pose_b.pz = position_b.z
-		pose_b.rx = rotation_b.x
-		pose_b.ry = rotation_b.y
-		pose_b.rz = rotation_b.z
-		pose_b.rw = rotation_b.w
-		manifold.rebuild_pose_a = pose_a
-		manifold.rebuild_pose_b = pose_b
+		fill_manifold(manifold, body_a, body_b, normal, overlap, contacts, options, solver)
+		store_rebuild_pose(manifold, body_a, body_b)
 		set_pair_manifold(solver.PersistentManifolds, body_a, body_b, manifold)
-		return contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, contacts)
+		contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt)
+		return true
 	end
+
+	if overlap <= 0 then return false end
 
 	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
 	local correction = CORRECTION:CopyFrom(normal):Scale(overlap)

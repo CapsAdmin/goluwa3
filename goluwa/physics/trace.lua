@@ -1,6 +1,7 @@
 local mesh_surface_contact = import("goluwa/physics/mesh_surface_contact.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
+local stats = import("goluwa/physics/stats.lua")
 local trace = {}
 
 local function should_query_body_as_world(body, options)
@@ -8,11 +9,7 @@ local function should_query_body_as_world(body, options)
 end
 
 local function has_world_geometry_bodies()
-	for _, body in ipairs(RigidBodyComponent.Instances) do
-		if body.WorldGeometry == true then return true end
-	end
-
-	return false
+	return RigidBodyComponent.WorldGeometryBodies[1] ~= nil
 end
 
 local function normalize_query_options(options)
@@ -126,7 +123,17 @@ local function pick_best_world_hit(hits, direction)
 	return hits[1]
 end
 
+local ray_cast
+
 function trace.RayCast(origin, direction, max_distance, ignore_entity, filter_fn, options)
+	stats:PushTime("trace")
+	stats:Count("traces")
+	local hit = ray_cast(origin, direction, max_distance, ignore_entity, filter_fn, options)
+	stats:PopTime()
+	return hit
+end
+
+function ray_cast(origin, direction, max_distance, ignore_entity, filter_fn, options)
 	options = normalize_query_options(options)
 	local allow_rigid = options.IgnoreRigidBodies == false
 	local hits = cast_with_filter(

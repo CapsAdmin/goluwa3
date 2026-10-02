@@ -55,6 +55,7 @@ end
 local function get_collider_sweep_hit(dynamic_body, collider, physics)
 	if not (collider and dynamic_body) then return nil end
 
+	stats:Count("sweeps_ccd")
 	local previous_position = collider:GetPreviousPosition()
 	local current_position = collider:GetPosition()
 	local movement = current_position - previous_position
@@ -168,9 +169,11 @@ function Solver.New(config)
 		2.5
 	self.PENETRATION_SLOP = config.PENETRATION_SLOP or self.PENETRATION_SLOP or 0.005
 	self.LIFT_BREAK_SPEED = config.LIFT_BREAK_SPEED or self.LIFT_BREAK_SPEED or 0.5
-	self.POSITIONAL_CORRECTION_FACTOR = config.POSITIONAL_CORRECTION_FACTOR or self.POSITIONAL_CORRECTION_FACTOR or 0.9
-	self.MAX_POSITIONAL_CORRECTION = config.MAX_POSITIONAL_CORRECTION or self.MAX_POSITIONAL_CORRECTION or 0.5
-	self.MAX_DEPENETRATION_SPEED = config.MAX_DEPENETRATION_SPEED or self.MAX_DEPENETRATION_SPEED or 24
+	self.CONTACT_HERTZ = config.CONTACT_HERTZ or self.CONTACT_HERTZ or 30
+	self.CONTACT_DAMPING_RATIO = config.CONTACT_DAMPING_RATIO or self.CONTACT_DAMPING_RATIO or 10
+	self.JOINT_HERTZ = config.JOINT_HERTZ or self.JOINT_HERTZ or 60
+	self.JOINT_DAMPING_RATIO = config.JOINT_DAMPING_RATIO or self.JOINT_DAMPING_RATIO or 2
+	self.CONTACT_PUSH_SPEED = config.CONTACT_PUSH_SPEED or self.CONTACT_PUSH_SPEED or 3
 	self.REBUILD_POSE_THRESHOLD = config.REBUILD_POSE_THRESHOLD or self.REBUILD_POSE_THRESHOLD or 0.01
 	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or 0.9
 	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or self.TANGENT_WARM_START_SCALE or 0.1
@@ -178,6 +181,10 @@ function Solver.New(config)
 	self.STATIC_FRICTION_SPEED = config.STATIC_FRICTION_SPEED or self.STATIC_FRICTION_SPEED or 0.08
 	self.STATIC_FRICTION_EXIT_SPEED = config.STATIC_FRICTION_EXIT_SPEED or self.STATIC_FRICTION_EXIT_SPEED or 0.12
 	self.PersistentManifolds = table.weak("k")
+	self.PositionPairCount = 0
+	self.PositionPairsA = {}
+	self.PositionPairsB = {}
+	self.PositionPairManifolds = {}
 	self.PairHandlers = {}
 	self.MissingPairWarnings = {}
 	self.StepStamp = config.StepStamp or 0
@@ -189,6 +196,10 @@ function Solver:GetPhysics()
 end
 
 function Solver:ResetState()
+	self.PositionPairCount = 0
+	table.clear(self.PositionPairsA)
+	table.clear(self.PositionPairsB)
+	table.clear(self.PositionPairManifolds)
 	table.clear(self.PersistentManifolds)
 end
 
@@ -229,29 +240,6 @@ function Solver:GetPairRollingFriction(body_a, body_b)
 	local friction_b = math.max(body_b:GetRollingFriction() or 0, 0)
 	local mode = resolve_pair_combine_mode(body_a:GetRollingFrictionCombineMode(), body_b:GetRollingFrictionCombineMode())
 	return combine_material_value(friction_a, friction_b, mode, "friction")
-end
-
-function Solver:ShouldUseStaticFriction(contact, tangent_speed, tangent_impulse_length, max_static_impulse)
-	local enter_speed = math.max(self.STATIC_FRICTION_SPEED or 0, 0)
-	local exit_speed = math.max(self.STATIC_FRICTION_EXIT_SPEED or enter_speed, enter_speed)
-	max_static_impulse = math.max(max_static_impulse or 0, 0)
-
-	if
-		max_static_impulse > 0 and
-		(
-			tangent_impulse_length or
-			math.huge
-		) <= max_static_impulse
-	then
-		return true
-	end
-
-	if tangent_speed <= enter_speed then return true end
-
-	return contact and
-		contact.static_friction_active == true and
-		tangent_speed <= exit_speed or
-		false
 end
 
 function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
@@ -311,9 +299,13 @@ function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, r
 	return resting_passes
 end
 
-function Solver:BeginStep()
+function Solver:BeginStep(collide)
 	local physics = self:GetPhysics()
 	self.StepStamp = (self.StepStamp or 0) + 1
+
+	if collide then self.CollideStamp = self.StepStamp end
+
+	self.PositionPairCount = 0
 	manifolds.PruneOld(
 		self.PersistentManifolds,
 		self.StepStamp,
@@ -324,6 +316,32 @@ function Solver:BeginStep()
 	for i = 1, #constraints do
 		constraints[i]:BeginStep()
 	end
+end
+
+-- manifold pairs solved this substep, in the order the velocity phase first
+-- touched them; cleared every substep so no body is kept alive from here
+function Solver:QueuePositionPair(body_a, body_b, manifold)
+	local count = self.PositionPairCount + 1
+	self.PositionPairCount = count
+	self.PositionPairsA[count] = body_a
+	self.PositionPairsB[count] = body_b
+	self.PositionPairManifolds[count] = manifold
+end
+
+function Solver:FinishRigidBodyPairs()
+	local count = self.PositionPairCount
+	local bodies_a = self.PositionPairsA
+	local bodies_b = self.PositionPairsB
+	local pair_manifolds = self.PositionPairManifolds
+
+	for i = 1, count do
+		contact_resolution.FinishManifold(bodies_a[i], bodies_b[i], pair_manifolds[i])
+		bodies_a[i] = nil
+		bodies_b[i] = nil
+		pair_manifolds[i] = nil
+	end
+
+	self.PositionPairCount = 0
 end
 
 function Solver:RegisterPairHandler(shape_a, shape_b, handler)
@@ -363,36 +381,31 @@ function Solver:WarnMissingPairHandler(shape_a, shape_b)
 	end
 end
 
-function Solver:SolveDistanceConstraints(dt, constraints_override)
+-- Joints are soft constraints solved at velocity level next to the contacts:
+-- the biased call (relax false) pulls the error in with the joint softness,
+-- the relax calls solve rigidly with no bias.
+function Solver:SolveConstraints(dt, constraints_override, relax)
 	local physics = self:GetPhysics()
 	local constraints = constraints_override or physics:GetConstraints()
+	local omega = 2 * math.pi * math.min(self.JOINT_HERTZ, 0.25 / dt)
+	local a1 = 2 * self.JOINT_DAMPING_RATIO + dt * omega
+	local impulse_scale = 1 / (1 + dt * omega * a1)
+	local bias_rate = omega / a1
 
 	for i = #constraints, 1, -1 do
 		local constraint = constraints[i]
 
-		if constraint and constraint.Enabled ~= false then constraint:Solve(dt) end
+		if constraint and constraint.Enabled ~= false then
+			constraint:Solve(dt, relax, bias_rate, impulse_scale)
+		end
 	end
 end
 
-Solver.SolveConstraints = Solver.SolveDistanceConstraints
+local RECYCLE_POSE_THRESHOLD = 0.005
+local RECYCLE_ROTATION_DOT = 0.99995
+local REBUILD_ROTATION_DOT = 0.995
 
-local function pair_pose_invalidated(body, cached_pose, squared_threshold)
-	if not cached_pose then return false end
-
-	local position = body:GetPosition()
-	local dx = position.x - cached_pose.px
-	local dy = position.y - cached_pose.py
-	local dz = position.z - cached_pose.pz
-
-	if dx * dx + dy * dy + dz * dz > squared_threshold then return true end
-
-	local rotation = body:GetRotation()
-	local dot = rotation.x * cached_pose.rx + rotation.y * cached_pose.ry + rotation.z * cached_pose.rz + rotation.w * cached_pose.rw
-	local abs_dot = dot >= 0 and dot or -dot
-	return abs_dot < 0.995
-end
-
-function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, last_pass)
+function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 	local pairs = bodies_or_pairs
 
 	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
@@ -406,9 +419,11 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, last_pass)
 
 	stats:Count("solver_pairs", #pairs)
 	local cached_iteration = (pass or 1) > 1
+	local reuse_manifolds = cached_iteration or self.CollideStamp ~= self.StepStamp
 	local persistent_manifolds = self.PersistentManifolds
 	local rebuild_pose_threshold = self.REBUILD_POSE_THRESHOLD or 0.01
 	local squared_rebuild_pose_threshold = rebuild_pose_threshold * rebuild_pose_threshold
+	local squared_recycle_pose_threshold = RECYCLE_POSE_THRESHOLD * RECYCLE_POSE_THRESHOLD
 
 	for i = 1, #pairs do
 		local pair = pairs[i]
@@ -419,32 +434,54 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, last_pass)
 		local physics = self:GetPhysics()
 		local handled = false
 
+		if relax then
+			-- the relax pass only re-solves manifolds the substep already
+			-- touched, it never runs the narrowphase
+			local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
+
+			if manifold and manifold.last_warm_step == self.StepStamp then
+				contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, true)
+			elseif
+				not (
+					pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
+					pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
+				)
+			then
+				pair_solver_helpers.DispatchColliderPairs(self, pair, dt, "relax")
+			end
 		-- pairs that found no contact in the first iteration of this substep stay
 		-- skipped, bodies only move by small corrections between iterations
-		if cached_iteration and pair.idle_stamp == self.StepStamp then
+		elseif cached_iteration and pair.idle_stamp == self.StepStamp then
 			stats:Count("solver_pairs_idle")
 		elseif body_a:ShouldCollide(body_b) then
-			if cached_iteration then
+			if reuse_manifolds then
 				local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
 
-				if
-					manifold and
-					manifold.last_rebuild_step == self.StepStamp and
-					(
-						manifold.overlap or
-						0
-					) > 0
-				then
-					local geometry_stale = pair_pose_invalidated(body_a, manifold.rebuild_pose_a, squared_rebuild_pose_threshold) or
-						pair_pose_invalidated(body_b, manifold.rebuild_pose_b, squared_rebuild_pose_threshold)
+				-- a manifold from an earlier step is recycled while both bodies
+				-- stay inside a tighter pose tolerance than within a step
+				if manifold and manifold.last_rebuild_step >= 0 then
+					manifold.last_seen_step = self.StepStamp
+					local recycled = manifold.last_rebuild_step < self.CollideStamp
+					local geometry_stale = pair_solver_helpers.IsPoseInvalidated(
+							body_a,
+							manifold.rebuild_pose_a,
+							recycled and squared_recycle_pose_threshold or squared_rebuild_pose_threshold,
+							recycled and RECYCLE_ROTATION_DOT or REBUILD_ROTATION_DOT
+						) or
+						pair_solver_helpers.IsPoseInvalidated(
+							body_b,
+							manifold.rebuild_pose_b,
+							recycled and squared_recycle_pose_threshold or squared_rebuild_pose_threshold,
+							recycled and RECYCLE_ROTATION_DOT or REBUILD_ROTATION_DOT
+						)
 
 					if geometry_stale then
 						-- force the full dispatch to rebuild the manifold from the
 						-- current pose
 						manifold.last_rebuild_step = -1
 					else
-						stats:Count("solver_pairs_cached")
-						contact_resolution.IterateResolvedPair(body_a, body_b, manifold, dt, nil, last_pass == false)
+						stats:Count(recycled and "solver_pairs_recycled" or "solver_pairs_cached")
+						contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, relax)
 						handled = true
 					end
 				end
@@ -467,9 +504,22 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, last_pass)
 						pair.idle_stamp = self.StepStamp
 					end
 				else
-					pair_solver_helpers.DispatchColliderPairs(self, colliders_a, colliders_b, entry_a, entry_b, dt)
+					pair_solver_helpers.DispatchColliderPairs(self, pair, dt, reuse_manifolds and "reuse" or "collide")
 				end
 			end
+		end
+	end
+end
+
+-- bounces every pair the step solved; pairs is the same list the substeps used
+function Solver:ApplyRestitution(pairs, dt)
+	for i = 1, #pairs do
+		local body_a = pairs[i].entry_a.body
+		local body_b = pairs[i].entry_b.body
+		local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
+
+		if manifold and manifold.last_warm_step >= self.CollideStamp then
+			contact_resolution.ApplyManifoldRestitution(body_a, body_b, manifold, dt)
 		end
 	end
 end
@@ -492,7 +542,7 @@ end
 function Solver:SolveBodyContacts(body, dt)
 	if not (body and body.CollisionEnabled) then return false end
 
-	if not pair_solver_helpers.ShouldUseCCD(body) then return false end
+	if not pair_solver_helpers.ShouldSweepBody(body) then return false end
 
 	local physics = self:GetPhysics()
 	local best = nil

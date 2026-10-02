@@ -77,15 +77,24 @@ local function get_other_axis_indices(axis_index)
 	return 1, 2
 end
 
-local function add_box_contact_point(contacts, point_a, point_b, separation)
-	return convex_manifold.AddContactPoint(contacts, point_a, point_b, 0.12, separation)
-end
-
 -- face corners reuse the same SetVecMul world transform as the old cached
 -- polyhedron path (bit-identical values) but only for the four corners of the
 -- requested face, into the slot's persistent points, without the 8-vertex
 -- polyhedron rebuild or allocations
 local FACE_LOCAL_POINT = Vec3(0, 0, 0)
+local FACE_AXES = {Vec3(), Vec3(), Vec3()}
+local EDGE_AXES = {Vec3(), Vec3(), Vec3()}
+local SAT_AXES_A = {Vec3(), Vec3(), Vec3()}
+local SAT_AXES_B = {Vec3(), Vec3(), Vec3()}
+
+local function fill_body_axes(axes, body)
+	local rotation = body.Rotation
+	Quat.SetRightAxis(axes[1], rotation)
+	Quat.SetUpAxis(axes[2], rotation)
+	Quat.SetBackAxis(axes[3], rotation)
+	return axes
+end
+
 -- local corner coefficients per face, in the same per-face ordering as the
 -- polyhedron's BOX_FACE_INDICES so clipping sees identical point sequences
 local FACE_CORNERS = {
@@ -143,7 +152,7 @@ local function get_box_face(body, desired_normal)
 	local ex = size.x * 0.5
 	local ey = size.y * 0.5
 	local ez = size.z * 0.5
-	local axes = {body:GetRight(), body:GetUp(), body:GetBack()}
+	local axes = fill_body_axes(FACE_AXES, body)
 	local axis_index = 1
 	local best_alignment = -math.huge
 
@@ -303,7 +312,7 @@ end
 
 local function get_support_edge(body, edge_axis_index, support_direction)
 	local extents = body:GetPhysicsShape():GetExtents()
-	local axes = {body:GetRight(), body:GetUp(), body:GetBack()}
+	local axes = fill_body_axes(EDGE_AXES, body)
 	local local_start = Vec3(0, 0, 0)
 	local local_end = Vec3(0, 0, 0)
 
@@ -403,22 +412,33 @@ local function build_face_contacts(body_a, body_b, candidate)
 	if stats:IsEnabled() then stats:PopTime() end
 
 	local contacts = BOX_CONTACT_OUTPUT_SCRATCH.face_contacts
-
-	for i = 1, #contacts do
-		contacts[i] = nil
-	end
+	local contact_count = 0
 
 	for i = 1, math.min(ranked_count, 4) do
 		local entry = ranked_contacts[i]
 
 		if reference_is_a then
-			add_box_contact_point(contacts, entry.point_reference, entry.point_incident, entry.separation)
+			contact_count = convex_manifold.AddContactPointReused(
+				contacts,
+				contact_count,
+				entry.point_reference,
+				entry.point_incident,
+				0.12,
+				entry.separation
+			)
 		else
-			add_box_contact_point(contacts, entry.point_incident, entry.point_reference, entry.separation)
+			contact_count = convex_manifold.AddContactPointReused(
+				contacts,
+				contact_count,
+				entry.point_incident,
+				entry.point_reference,
+				0.12,
+				entry.separation
+			)
 		end
 	end
 
-	return contacts
+	return convex_manifold.TrimContacts(contacts, contact_count)
 end
 
 local function build_edge_contacts(body_a, body_b, candidate)
@@ -616,6 +636,28 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 		if temporal then return true end
 	end
 
+	-- a body that travelled further than its smallest half extent may have
+	-- crossed a thin static box, where the SAT would push it out the far side
+	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+
+	if static_body then
+		local extents = dynamic_body:GetPhysicsShape():GetExtents()
+		local min_extent = math.min(extents.x, extents.y, extents.z)
+
+		if
+			(
+				dynamic_body.Position.x - dynamic_body.PreviousPosition.x
+			) ^ 2 + (
+				dynamic_body.Position.y - dynamic_body.PreviousPosition.y
+			) ^ 2 + (
+				dynamic_body.Position.z - dynamic_body.PreviousPosition.z
+			) ^ 2 > min_extent * min_extent and
+			solve_swept_box_box_collision(dynamic_body, static_body, dt)
+		then
+			return true
+		end
+	end
+
 	local center_a = body_a:GetPosition()
 	local center_b = body_b:GetPosition()
 	SAT_DELTA.x = center_b.x - center_a.x
@@ -624,8 +666,8 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 	local delta = SAT_DELTA
 	local extents_a = body_a:GetPhysicsShape():GetExtents()
 	local extents_b = body_b:GetPhysicsShape():GetExtents()
-	local axes_a = {body_a:GetRight(), body_a:GetUp(), body_a:GetBack()}
-	local axes_b = {body_b:GetRight(), body_b:GetUp(), body_b:GetBack()}
+	local axes_a = fill_body_axes(SAT_AXES_A, body_a)
+	local axes_b = fill_body_axes(SAT_AXES_B, body_b)
 	local best = BOX_SAT_BEST
 	convex_sat.ResetBestAxisTracker(best)
 	stats:PushTime("box_sat")

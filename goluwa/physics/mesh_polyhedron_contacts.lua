@@ -112,17 +112,6 @@ end
 local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	if not (state.best_normal and state.best_overlap > EPSILON) then return false end
 
-	if state.best_polygon and state.best_triangle_index ~= nil then
-		mesh_contact_common.CacheTriangle(
-			mesh_body,
-			poly_body,
-			state.best_polygon,
-			state.best_triangle_index,
-			state.best_normal,
-			state.best_overlap
-		)
-	end
-
 	if state.contacts[1] then
 		return contact_resolution.ResolvePairPenetration(
 			mesh_body,
@@ -211,8 +200,6 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 				if overlap > (state.best_overlap or 0) then
 					state.best_overlap = overlap
 					state.best_normal = normal
-					state.best_triangle_index = triangle_index
-					state.best_polygon = polygon
 					state.best_point_a = position
 					state.best_point_b = sample.point
 				end
@@ -233,7 +220,6 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 	local mesh_body = context.mesh_body
 	local poly_body = context.poly_body
 	local state = context.state
-	local polygon = context.entry and context.entry.polygon or nil
 	local query_v0 = v0
 	local query_v1 = v1
 	local query_v2 = v2
@@ -259,11 +245,6 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 	)
 
 	if result and result.normal and result.contacts and result.contacts[1] then
-		if (result.overlap or 0) > (state.best_overlap or 0) then
-			state.best_triangle_index = triangle_index
-			state.best_polygon = polygon
-		end
-
 		polyhedron_triangle_aggregator.AccumulateMeshContacts(
 			state,
 			mesh_body,
@@ -314,7 +295,6 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 	local state = {
 		best_overlap = 0,
 		best_normal = nil,
-		best_triangle_index = nil,
 		contacts = {},
 	}
 	local use_local_space = false

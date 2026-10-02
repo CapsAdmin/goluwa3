@@ -1,10 +1,12 @@
 local physics_constants = import("goluwa/physics/constants.lua")
 local impulse_motion = import("goluwa/physics/impulse_motion.lua")
+local motion = import("goluwa/physics/motion.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local manifold = {}
 local EPSILON = physics_constants.EPSILON
 local SOLVER_TANGENT = Vec3()
 local EMPTY_CONTACTS = {}
+local PREPARE_CROSS = Vec3()
 local SOLVER_BITANGENT = Vec3()
 
 local function project_tangent_into(out, tangent, normal)
@@ -137,7 +139,13 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 		local rebuilt_contact = rebuilt[contact_index]
 
 		if not rebuilt_contact then
-			rebuilt_contact = {local_point_a = Vec3(), local_point_b = Vec3(), tangent_store = Vec3()}
+			rebuilt_contact = {
+				local_point_a = Vec3(),
+				local_point_b = Vec3(),
+				world_a = Vec3(),
+				world_b = Vec3(),
+				tangent_store = Vec3(),
+			}
 			rebuilt[contact_index] = rebuilt_contact
 		end
 
@@ -195,7 +203,11 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 			rebuilt_contact.tangent_impulse_1 = matched_contact.tangent_impulse_1 or tangent_impulse
 			rebuilt_contact.tangent_impulse_2 = matched_contact.tangent_impulse_2
 			rebuilt_contact.v_pre = matched_contact.v_pre
-			rebuilt_contact.static_friction_active = matched_contact.static_friction_active == true
+			rebuilt_contact.rest_stamp = matched_contact.rest_stamp
+			rebuilt_contact.rest_speed = matched_contact.rest_speed
+			rebuilt_contact.rest_total = matched_contact.rest_total
+			rebuilt_contact.rest_impulse = matched_contact.rest_impulse
+			rebuilt_contact.static_friction_active = matched_contact.static_friction_active
 
 			if matched_contact.tangent then
 				rebuilt_contact.tangent_store:CopyFrom(matched_contact.tangent)
@@ -209,11 +221,16 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 			rebuilt_contact.tangent_impulse_1 = 0
 			rebuilt_contact.tangent_impulse_2 = 0
 			rebuilt_contact.v_pre = nil
-			rebuilt_contact.static_friction_active = false
+			rebuilt_contact.rest_stamp = nil
+			rebuilt_contact.rest_speed = nil
+			rebuilt_contact.rest_total = nil
+			rebuilt_contact.rest_impulse = nil
+			rebuilt_contact.static_friction_active = 0
 			rebuilt_contact.tangent = nil
 		end
 
-		rebuilt_contact.separation = contact.separation or 0
+		rebuilt_contact.separation = contact.separation
+		rebuilt_contact.base_depth = nil
 		rebuilt_contact.feature_key = feature_key
 		rebuilt_contact.normal_impulse = rebuilt_contact.normal_impulse or 0
 		rebuilt_contact.tangent_impulse = rebuilt_contact.tangent_impulse or 0
@@ -236,13 +253,22 @@ local SOLVER_TANGENT_VELOCITY = Vec3()
 local BIAS_POINT_A = Vec3()
 local BIAS_POINT_B = Vec3()
 
-function manifold.CaptureRestitutionBias(body_a, body_b, normal, manifold_data)
+function manifold.CaptureRestitutionBias(body_a, body_b, normal, manifold_data, stamp)
 	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
 
 	for _, contact in ipairs(manifold_data.contacts or {}) do
 		local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, BIAS_POINT_A)
 		local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, BIAS_POINT_B)
 		contact.v_pre = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b):Dot(normal)
+
+		-- restitution bounces off the speed the contact first arrived with in
+		-- this step, before any of its substeps solved it
+		if contact.rest_stamp ~= stamp then
+			contact.rest_stamp = stamp
+			contact.rest_speed = contact.v_pre
+			contact.rest_total = 0
+			contact.rest_impulse = 0
+		end
 	end
 end
 
@@ -256,13 +282,12 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	if body_b.Awake == false then state_b.immovable = true end
 
 	local did_apply = false
+	manifold_data.twist_impulse = 0
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local physics = body_a:GetPhysics()
 	local solver = physics.solver
 
 	for _, contact in ipairs(manifold_data.contacts or {}) do
-		if (contact.separation or 0) > 0 then goto continue end
-
 		local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, SOLVER_POINT_A)
 		local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, SOLVER_POINT_B)
 		local normal_impulse = math.max(contact.normal_impulse or 0, 0) * solver.WARM_START_SCALE
@@ -278,6 +303,11 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 			impulse_motion.ApplyPairImpulse(state_a, state_b, normal, normal_impulse, point_a, point_b)
 			did_apply = true
 		end
+
+		-- the solver accumulates impulses and clamps them against the contact's
+		-- friction cone, so what it holds must be exactly what was applied here
+		local applied_tangent_1 = 0
+		local applied_tangent_2 = 0
 
 		if
 			has_tangent_basis and
@@ -296,171 +326,458 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 			then
 				if math.abs(tangent_impulse_1) > EPSILON then
 					impulse_motion.ApplyPairImpulse(state_a, state_b, SOLVER_TANGENT, tangent_impulse_1, point_a, point_b)
+					applied_tangent_1 = tangent_impulse_1
 					did_apply = true
 				end
 
 				if math.abs(tangent_impulse_2) > EPSILON then
 					impulse_motion.ApplyPairImpulse(state_a, state_b, SOLVER_BITANGENT, tangent_impulse_2, point_a, point_b)
+					applied_tangent_2 = tangent_impulse_2
 					did_apply = true
 				end
 			end
 		end
 
-		::continue::
+		contact.tangent_impulse = applied_tangent_1
+		contact.tangent_impulse_1 = applied_tangent_1
+		contact.tangent_impulse_2 = applied_tangent_2
 	end
 
 	if did_apply then impulse_motion.CommitPairMotion(state_a, state_b, dt) end
 end
 
-function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
-	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
+-- Everything the normal row needs that only depends on the poses is computed
+-- once per substep (contacts are rebuilt or the substep changes): bodies do not
+-- move while velocity impulses are solved, so the lever arms, the angular
+-- response per unit impulse and the effective mass stay valid for every pass.
+local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
+	local nx, ny, nz = normal.x, normal.y, normal.z
+	local position_a = body_a.Position
+	local position_b = body_b.Position
+	local mass_a = body_a:HasSolverMass() and body_a.InverseMass or 0
+	local mass_b = body_b:HasSolverMass() and body_b.InverseMass or 0
+	local movable_a = body_a:IsSolverImmovable() and 0 or 1
+	local movable_b = body_b:IsSolverImmovable() and 0 or 1
+	local has_inertia_a = body_a:HasSolverMass()
+	local has_inertia_b = body_b:HasSolverMass()
+	local contacts = manifold_data.contacts
+
+	for i = 1, #contacts do
+		local contact = contacts[i]
+		local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, contact.world_a)
+		local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, contact.world_b)
+		contact.world_a = point_a
+		contact.world_b = point_b
+		local depth = (
+				point_a.x - point_b.x
+			) * nx + (
+				point_a.y - point_b.y
+			) * ny + (
+				point_a.z - point_b.z
+			) * nz
+
+		-- the anchors are fixed to the bodies and the normal to the rebuild
+		-- pose, so the gap follows from how far the anchors moved along the
+		-- normal since the narrowphase measured it
+		if contact.base_depth then
+			contact.separation = contact.base_separation - (depth - contact.base_depth)
+		else
+			-- narrowphases that clip against a reference face report a signed
+			-- gap, the others only the manifold overlap
+			contact.separation = contact.separation or -(depth + (manifold_data.depth_offset or 0))
+			contact.base_separation = contact.separation
+			contact.base_depth = depth
+		end
+
+		local rx, ry, rz = point_a.x - position_a.x, point_a.y - position_a.y, point_a.z - position_a.z
+		contact.ra_x, contact.ra_y, contact.ra_z = rx, ry, rz
+		local cx, cy, cz = ry * nz - rz * ny, rz * nx - rx * nz, rx * ny - ry * nx
+		contact.ca_x, contact.ca_y, contact.ca_z = cx, cy, cz
+		local inverse_mass = 0
+
+		if has_inertia_a then
+			local delta = body_a:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, cx, cy, cz))
+			contact.wa_x, contact.wa_y, contact.wa_z = delta.x, delta.y, delta.z
+			inverse_mass = inverse_mass + mass_a + cx * delta.x + cy * delta.y + cz * delta.z
+		else
+			contact.wa_x, contact.wa_y, contact.wa_z = 0, 0, 0
+		end
+
+		rx, ry, rz = point_b.x - position_b.x, point_b.y - position_b.y, point_b.z - position_b.z
+		contact.rb_x, contact.rb_y, contact.rb_z = rx, ry, rz
+		cx, cy, cz = ry * nz - rz * ny, rz * nx - rx * nz, rx * ny - ry * nx
+		contact.cb_x, contact.cb_y, contact.cb_z = cx, cy, cz
+
+		if has_inertia_b then
+			local delta = body_b:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, cx, cy, cz))
+			contact.wb_x, contact.wb_y, contact.wb_z = delta.x, delta.y, delta.z
+			inverse_mass = inverse_mass + mass_b + cx * delta.x + cy * delta.y + cz * delta.z
+		else
+			contact.wb_x, contact.wb_y, contact.wb_z = 0, 0, 0
+		end
+
+		contact.normal_inverse_mass = inverse_mass
+	end
+
+	-- twist friction resists spin about the normal; contacts further from
+	-- the manifold centre give it more leverage, a lone contact gives none
+	local count = #contacts
+	local centre_x, centre_y, centre_z = 0, 0, 0
+
+	for i = 1, count do
+		centre_x = centre_x + contacts[i].world_a.x
+		centre_y = centre_y + contacts[i].world_a.y
+		centre_z = centre_z + contacts[i].world_a.z
+	end
+
+	centre_x, centre_y, centre_z = centre_x / count, centre_y / count, centre_z / count
+
+	for i = 1, count do
+		local dx, dy, dz = contacts[i].world_a.x - centre_x, contacts[i].world_a.y - centre_y, contacts[i].world_a.z - centre_z
+		contacts[i].lever_arm = math.sqrt(dx * dx + dy * dy + dz * dz)
+	end
+
+	local twist_inverse_mass = 0
+
+	if has_inertia_a then
+		local delta = body_a:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, nx, ny, nz))
+		twist_inverse_mass = twist_inverse_mass + nx * delta.x + ny * delta.y + nz * delta.z
+	end
+
+	if has_inertia_b then
+		local delta = body_b:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, nx, ny, nz))
+		twist_inverse_mass = twist_inverse_mass + nx * delta.x + ny * delta.y + nz * delta.z
+	end
+
+	manifold_data.twist_mass = twist_inverse_mass > EPSILON and 1 / twist_inverse_mass or 0
+	manifold_data.prepared_step = stamp
+	manifold_data.prepared_mass_a = mass_a * movable_a
+	manifold_data.prepared_mass_b = mass_b * movable_b
+end
+
+-- world-space inverse inertia applied to a world vector: R * I^-1 * R^T * v
+local function inverse_inertia_apply(body, vx, vy, vz)
+	local tx = 2 * (-body.Rotation.y * vz + body.Rotation.z * vy)
+	local ty = 2 * (-body.Rotation.z * vx + body.Rotation.x * vz)
+	local tz = 2 * (-body.Rotation.x * vy + body.Rotation.y * vx)
+	local lx = vx + body.Rotation.w * tx + (-body.Rotation.y * tz + body.Rotation.z * ty)
+	local ly = vy + body.Rotation.w * ty + (-body.Rotation.z * tx + body.Rotation.x * tz)
+	local lz = vz + body.Rotation.w * tz + (-body.Rotation.x * ty + body.Rotation.y * tx)
+	local ix = body.InverseInertiaTensor.m00 * lx + body.InverseInertiaTensor.m01 * ly + body.InverseInertiaTensor.m02 * lz
+	local iy = body.InverseInertiaTensor.m10 * lx + body.InverseInertiaTensor.m11 * ly + body.InverseInertiaTensor.m12 * lz
+	local iz = body.InverseInertiaTensor.m20 * lx + body.InverseInertiaTensor.m21 * ly + body.InverseInertiaTensor.m22 * lz
+	tx = 2 * (body.Rotation.y * iz - body.Rotation.z * iy)
+	ty = 2 * (body.Rotation.z * ix - body.Rotation.x * iz)
+	tz = 2 * (body.Rotation.x * iy - body.Rotation.y * ix)
+	return ix + body.Rotation.w * tx + (body.Rotation.y * tz - body.Rotation.z * ty),
+	iy + body.Rotation.w * ty + (body.Rotation.z * tx - body.Rotation.x * tz),
+	iz + body.Rotation.w * tz + (body.Rotation.x * ty - body.Rotation.y * tx)
+end
+
+manifold.PrepareContacts = prepare_contacts
+
+function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt, relax)
 	local physics = body_a:GetPhysics()
 	local solver = physics.solver
+	local stamp = solver.StepStamp or 0
+
+	if manifold_data.prepared_step ~= stamp then
+		prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
+	end
+
 	local restitution = manifold_data.restitution or solver:GetPairRestitution(body_a, body_b)
 	local dynamic_friction = manifold_data.friction or solver:GetPairFriction(body_a, body_b)
 	local static_friction = manifold_data.static_friction or
 		math.max(dynamic_friction, solver:GetPairStaticFriction(body_a, body_b))
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local passes = solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
-	local lifted_support_cap = 0.01
-	local contacts = manifold_data.contacts or {}
-	local restitution_bias_threshold
+	-- soft contact: a spring-damper per contact (Box2D soft step), static
+	-- pairs twice as stiff. The relax pass solves rigidly with no bias
+	-- (rate 0, full mass scale, no impulse scale) and no speculative gap.
+	local bias_rate = 0
+	local soft_mass_scale = 1
+	local soft_impulse_scale = 0
+	local speculative = 0
+	-- a sleeping body skipped gravity this substep, so the soft solve would
+	-- relax the support impulse it still carries and kick it awake
+	local asleep = (
+			manifold_data.prepared_mass_a > 0 and
+			body_a.Awake == false
+		)
+		or
+		(
+			manifold_data.prepared_mass_b > 0 and
+			body_b.Awake == false
+		)
 
-	if restitution > EPSILON and dt and dt > 0 then
-		local gravity = physics.Gravity
-		local gravity_speed = math.sqrt(gravity.x * gravity.x + gravity.y * gravity.y + gravity.z * gravity.z) * dt
-		restitution_bias_threshold = math.max(0.33, gravity_speed * 2)
+	if not relax and not asleep then
+		local hertz = math.min(solver.CONTACT_HERTZ, 0.25 / dt)
+		local damping_ratio = solver.CONTACT_DAMPING_RATIO
+
+		if manifold_data.prepared_mass_a == 0 or manifold_data.prepared_mass_b == 0 then
+			hertz = hertz * 2
+			damping_ratio = damping_ratio * 0.5
+		end
+
+		local omega = 2 * math.pi * hertz
+		local a1 = 2 * damping_ratio + dt * omega
+		local a2 = dt * omega * a1
+		soft_impulse_scale = 1 / (1 + a2)
+		soft_mass_scale = a2 * soft_impulse_scale
+		bias_rate = omega / a1
+		speculative = 1
 	end
 
 	for pass = 1, passes do
-		for _, contact in ipairs(contacts) do
-			local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, SOLVER_POINT_A)
-			local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, SOLVER_POINT_B)
-			local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
-			local normal_speed = relative_velocity:Dot(normal)
-			local separation = contact.separation or 0
-
-			if
-				separation > 0 and
-				(
-					normal_speed * dt > -separation or
-					separation > lifted_support_cap
-				)
-			then
-				contact.normal_impulse = 0
-				contact.tangent_impulse = 0
-				contact.tangent_impulse_1 = 0
-				contact.tangent_impulse_2 = 0
-				contact.static_friction_active = false
-
-				goto continue
-			end
-
-			local inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
+		for contact_index = 1, #manifold_data.contacts do
+			local contact = manifold_data.contacts[contact_index]
+			local normal_speed = (
+					body_b.Velocity.x - body_a.Velocity.x
+				) * normal.x + (
+					body_b.Velocity.y - body_a.Velocity.y
+				) * normal.y + (
+					body_b.Velocity.z - body_a.Velocity.z
+				) * normal.z + body_b.AngularVelocity.x * contact.cb_x + body_b.AngularVelocity.y * contact.cb_y + body_b.AngularVelocity.z * contact.cb_z - body_a.AngularVelocity.x * contact.ca_x - body_a.AngularVelocity.y * contact.ca_y - body_a.AngularVelocity.z * contact.ca_z
+			local inverse_mass = contact.normal_inverse_mass
 
 			if inverse_mass > EPSILON then
-				local v_pre = contact.v_pre
 				local effective_speed = normal_speed
-
-				if
-					restitution_bias_threshold and
-					v_pre and
-					v_pre < -restitution_bias_threshold
-				then
-					effective_speed = normal_speed + restitution * v_pre
-				end
-
-				local normal_impulse = -effective_speed / inverse_mass
+				-- the gap before this substep's motion; bodies already moved by v_pre * dt.
+				-- A closed gap solves softly with a push-out bias, an open gap is
+				-- speculative: it may still approach by gap / dt.
+				local gap = contact.separation - (contact.v_pre or 0) * dt
+				local open_gap = speculative * math.min(1, math.max(0, gap * 1e30))
+				local bias = open_gap * gap / dt + (
+						1 - open_gap
+					) * math.max(bias_rate * (gap + solver.PENETRATION_SLOP), -solver.CONTACT_PUSH_SPEED)
+				body_a.PositionCorrection = math.max(body_a.PositionCorrection, -(gap + solver.PENETRATION_SLOP) * (1 - open_gap))
+				body_b.PositionCorrection = math.max(body_b.PositionCorrection, -(gap + solver.PENETRATION_SLOP) * (1 - open_gap))
+				local normal_impulse = -(
+						1 + (
+							1 - open_gap
+						) * (
+							soft_mass_scale - 1
+						)
+					) * (
+						effective_speed + bias
+					) / inverse_mass - (
+						1 - open_gap
+					) * soft_impulse_scale * (
+						contact.normal_impulse or
+						0
+					)
 				local new_impulse = math.max((contact.normal_impulse or 0) + normal_impulse, 0)
 				local impulse_delta = new_impulse - (contact.normal_impulse or 0)
 				contact.normal_impulse = new_impulse
 
+				if restitution > 0 then
+					contact.rest_total = (contact.rest_total or 0) + new_impulse
+				end
+
 				if math.abs(impulse_delta) > EPSILON then
-					impulse_motion.ApplyPairImpulse(state_a, state_b, normal, impulse_delta, point_a, point_b)
+					if manifold_data.prepared_mass_a > 0 then
+						local scale = impulse_delta * manifold_data.prepared_mass_a
+						body_a.Velocity.x = body_a.Velocity.x - normal.x * scale
+						body_a.Velocity.y = body_a.Velocity.y - normal.y * scale
+						body_a.Velocity.z = body_a.Velocity.z - normal.z * scale
+						body_a.AngularVelocity.x = body_a.AngularVelocity.x - impulse_delta * contact.wa_x
+						body_a.AngularVelocity.y = body_a.AngularVelocity.y - impulse_delta * contact.wa_y
+						body_a.AngularVelocity.z = body_a.AngularVelocity.z - impulse_delta * contact.wa_z
+					end
+
+					if manifold_data.prepared_mass_b > 0 then
+						local scale = impulse_delta * manifold_data.prepared_mass_b
+						body_b.Velocity.x = body_b.Velocity.x + normal.x * scale
+						body_b.Velocity.y = body_b.Velocity.y + normal.y * scale
+						body_b.Velocity.z = body_b.Velocity.z + normal.z * scale
+						body_b.AngularVelocity.x = body_b.AngularVelocity.x + impulse_delta * contact.wb_x
+						body_b.AngularVelocity.y = body_b.AngularVelocity.y + impulse_delta * contact.wb_y
+						body_b.AngularVelocity.z = body_b.AngularVelocity.z + impulse_delta * contact.wb_z
+					end
 				end
 			end
 
-			relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
-			local normal_dot = relative_velocity.x * normal.x + relative_velocity.y * normal.y + relative_velocity.z * normal.z
-			local tangent_velocity = SOLVER_TANGENT_VELOCITY
-			tangent_velocity.x = relative_velocity.x - normal.x * normal_dot
-			tangent_velocity.y = relative_velocity.y - normal.y * normal_dot
-			tangent_velocity.z = relative_velocity.z - normal.z * normal_dot
-			local tangent_speed = math.sqrt(
-				tangent_velocity.x * tangent_velocity.x + tangent_velocity.y * tangent_velocity.y + tangent_velocity.z * tangent_velocity.z
-			)
-
 			if
 				pass == passes and
-				tangent_speed > EPSILON and
 				(
 					dynamic_friction > 0 or
 					static_friction > 0
 				)
 			then
-				local tangent_source
+				local rel_x = body_b.Velocity.x + body_b.AngularVelocity.y * (
+						contact.rb_z
+					) - body_b.AngularVelocity.z * (
+						contact.rb_y
+					) - body_a.Velocity.x - body_a.AngularVelocity.y * (
+						contact.ra_z
+					) + body_a.AngularVelocity.z * (
+						contact.ra_y
+					)
+				local rel_y = body_b.Velocity.y + body_b.AngularVelocity.z * (
+						contact.rb_x
+					) - body_b.AngularVelocity.x * (
+						contact.rb_z
+					) - body_a.Velocity.y - body_a.AngularVelocity.z * (
+						contact.ra_x
+					) + body_a.AngularVelocity.x * (
+						contact.ra_z
+					)
+				local rel_z = body_b.Velocity.z + body_b.AngularVelocity.x * (
+						contact.rb_y
+					) - body_b.AngularVelocity.y * (
+						contact.rb_x
+					) - body_a.Velocity.z - body_a.AngularVelocity.x * (
+						contact.ra_y
+					) + body_a.AngularVelocity.y * (
+						contact.ra_x
+					)
+				local normal_dot = rel_x * normal.x + rel_y * normal.y + rel_z * normal.z
+				local tangent_speed = math.sqrt(
+					(
+							rel_x - normal.x * normal_dot
+						) ^ 2 + (
+							rel_y - normal.y * normal_dot
+						) ^ 2 + (
+							rel_z - normal.z * normal_dot
+						) ^ 2
+				)
 
-				if
-					allow_persistent_tangent and
-					get_cached_tangent_into(SOLVER_TANGENT, contact, normal)
-				then
-					tangent_source = SOLVER_TANGENT
-				else
-					local inv_speed = 1 / tangent_speed
-					tangent_velocity.x = tangent_velocity.x * inv_speed
-					tangent_velocity.y = tangent_velocity.y * inv_speed
-					tangent_velocity.z = tangent_velocity.z * inv_speed
-					tangent_source = tangent_velocity
-				end
+				if tangent_speed > EPSILON then
+					local px, py, pz
+					local cached = allow_persistent_tangent and contact.tangent
 
-				if
-					build_tangent_basis_into(SOLVER_TANGENT, SOLVER_BITANGENT, normal, tangent_source)
-				then
-					local tangent = SOLVER_TANGENT
-					local bitangent = SOLVER_BITANGENT
-					local tangent_inverse_mass_1 = body_a:GetInverseMassAlong(tangent, point_a) + body_b:GetInverseMassAlong(tangent, point_b)
-					local tangent_inverse_mass_2 = body_a:GetInverseMassAlong(bitangent, point_a) + body_b:GetInverseMassAlong(bitangent, point_b)
+					if cached then
+						local dot = cached.x * normal.x + cached.y * normal.y + cached.z * normal.z
+						px, py, pz = cached.x - normal.x * dot, cached.y - normal.y * dot, cached.z - normal.z * dot
+						local length = math.sqrt(px * px + py * py + pz * pz)
 
-					if tangent_inverse_mass_1 > EPSILON and tangent_inverse_mass_2 > EPSILON then
-						local tangent_impulse_1 = -relative_velocity:Dot(tangent) / tangent_inverse_mass_1
-						local tangent_impulse_2 = -relative_velocity:Dot(bitangent) / tangent_inverse_mass_2
-						local static_impulse_limit = (contact.normal_impulse or 0) * static_friction
-						local desired_tangent_impulse_length = math.sqrt(tangent_impulse_1 * tangent_impulse_1 + tangent_impulse_2 * tangent_impulse_2)
-						local use_static_friction = solver:ShouldUseStaticFriction(contact, tangent_speed, desired_tangent_impulse_length, static_impulse_limit)
-						local friction_limit = use_static_friction and static_friction or dynamic_friction
-						local max_tangent_impulse = (contact.normal_impulse or 0) * friction_limit
-						local previous_tangent_impulse_1 = allow_persistent_tangent and
-							(
-								contact.tangent_impulse_1 or
-								contact.tangent_impulse or
-								0
-							)
-							or
-							0
-						local previous_tangent_impulse_2 = allow_persistent_tangent and (contact.tangent_impulse_2 or 0) or 0
-						local new_tangent_impulse_1 = previous_tangent_impulse_1 + tangent_impulse_1
-						local new_tangent_impulse_2 = previous_tangent_impulse_2 + tangent_impulse_2
-						local tangent_impulse_length = math.sqrt(
-							new_tangent_impulse_1 * new_tangent_impulse_1 + new_tangent_impulse_2 * new_tangent_impulse_2
-						)
-
-						if
-							tangent_impulse_length > max_tangent_impulse and
-							tangent_impulse_length > EPSILON
-						then
-							local scale = max_tangent_impulse / tangent_impulse_length
-							new_tangent_impulse_1 = new_tangent_impulse_1 * scale
-							new_tangent_impulse_2 = new_tangent_impulse_2 * scale
+						if length > EPSILON then
+							local inv = 1 / length
+							px, py, pz = px * inv, py * inv, pz * inv
+						else
+							cached = nil
 						end
+					end
 
-						local impulse_delta_1 = new_tangent_impulse_1 - previous_tangent_impulse_1
-						local impulse_delta_2 = new_tangent_impulse_2 - previous_tangent_impulse_2
+					if not cached then
+						local inv = 1 / tangent_speed
+						px, py, pz = (rel_x - normal.x * normal_dot) * inv,
+						(rel_y - normal.y * normal_dot) * inv,
+						(rel_z - normal.z * normal_dot) * inv
+						local dot = px * normal.x + py * normal.y + pz * normal.z
+						px, py, pz = px - normal.x * dot, py - normal.y * dot, pz - normal.z * dot
+						local length = math.sqrt(px * px + py * py + pz * pz)
+
+						if length > EPSILON then
+							local inv = 1 / length
+							px, py, pz = px * inv, py * inv, pz * inv
+						else
+							px = nil
+						end
+					end
+
+					-- bitangent = t x n, then re-orthogonalise t = n x b
+					local bx, by, bz
+					local tx, ty, tz
+
+					if px then
+						bx, by, bz = py * normal.z - pz * normal.y,
+						pz * normal.x - px * normal.z,
+						px * normal.y - py * normal.x
+					end
+
+					if not px or bx * bx + by * by + bz * bz <= EPSILON * EPSILON then
+						local ax, ay, az = 1, 0, 0
+
+						if math.abs(normal.y) < 0.9 then ax, ay = 0, 1 end
+
+						local dot = ax * normal.x + ay * normal.y + az * normal.z
+						px, py, pz = ax - normal.x * dot, ay - normal.y * dot, az - normal.z * dot
+						local length = math.sqrt(px * px + py * py + pz * pz)
+						local inv = 1 / length
+						px, py, pz = px * inv, py * inv, pz * inv
+						bx, by, bz = py * normal.z - pz * normal.y,
+						pz * normal.x - px * normal.z,
+						px * normal.y - py * normal.x
+					end
+
+					local inv = 1 / math.sqrt(bx * bx + by * by + bz * bz)
+					bx, by, bz = bx * inv, by * inv, bz * inv
+					tx, ty, tz = normal.y * bz - normal.z * by,
+					normal.z * bx - normal.x * bz,
+					normal.x * by - normal.y * bx
+					inv = 1 / math.sqrt(tx * tx + ty * ty + tz * tz)
+					tx, ty, tz = tx * inv, ty * inv, tz * inv
+					local inverse_mass_1, inverse_mass_2 = 0, 0
+
+					if manifold_data.prepared_mass_a > 0 then
+						local rax, ray, raz = contact.ra_x, contact.ra_y, contact.ra_z
+						local c1x, c1y, c1z = ray * tz - raz * ty, raz * tx - rax * tz, rax * ty - ray * tx
+						local dx, dy, dz = inverse_inertia_apply(body_a, c1x, c1y, c1z)
+						inverse_mass_1 = manifold_data.prepared_mass_a + c1x * dx + c1y * dy + c1z * dz
+						c1x, c1y, c1z = ray * bz - raz * by, raz * bx - rax * bz, rax * by - ray * bx
+						dx, dy, dz = inverse_inertia_apply(body_a, c1x, c1y, c1z)
+						inverse_mass_2 = manifold_data.prepared_mass_a + c1x * dx + c1y * dy + c1z * dz
+					end
+
+					if manifold_data.prepared_mass_b > 0 then
+						local rbx, rby, rbz = contact.rb_x, contact.rb_y, contact.rb_z
+						local c1x, c1y, c1z = rby * tz - rbz * ty, rbz * tx - rbx * tz, rbx * ty - rby * tx
+						local dx, dy, dz = inverse_inertia_apply(body_b, c1x, c1y, c1z)
+						inverse_mass_1 = inverse_mass_1 + manifold_data.prepared_mass_b + c1x * dx + c1y * dy + c1z * dz
+						c1x, c1y, c1z = rby * bz - rbz * by, rbz * bx - rbx * bz, rbx * by - rby * bx
+						dx, dy, dz = inverse_inertia_apply(body_b, c1x, c1y, c1z)
+						inverse_mass_2 = inverse_mass_2 + manifold_data.prepared_mass_b + c1x * dx + c1y * dy + c1z * dz
+					end
+
+					if inverse_mass_1 > EPSILON and inverse_mass_2 > EPSILON then
+						local impulse_1 = -(rel_x * tx + rel_y * ty + rel_z * tz) / inverse_mass_1
+						local impulse_2 = -(rel_x * bx + rel_y * by + rel_z * bz) / inverse_mass_2
+						local normal_impulse = contact.normal_impulse or 0
+						local static_flag = math.max(
+							math.min(1, math.max(0, (normal_impulse * static_friction) * 1e8)) * math.min(
+									1,
+									math.max(
+										0,
+										(
+												(
+													normal_impulse * static_friction
+												) ^ 2 - impulse_1 * impulse_1 - impulse_2 * impulse_2
+											) * 1e8 + 1
+									)
+								),
+							math.min(1, math.max(0, (solver.STATIC_FRICTION_SPEED - tangent_speed) * 1e8 + 1)),
+							contact.static_friction_active * math.min(1, math.max(0, (solver.STATIC_FRICTION_EXIT_SPEED - tangent_speed) * 1e8 + 1))
+						)
+						local max_tangent_impulse = normal_impulse * (
+								dynamic_friction + (
+									static_friction - dynamic_friction
+								) * static_flag
+							)
+						local previous_1 = 0
+						local previous_2 = 0
 
 						if allow_persistent_tangent then
-							contact.tangent_impulse = new_tangent_impulse_1
-							contact.tangent_impulse_1 = new_tangent_impulse_1
-							contact.tangent_impulse_2 = new_tangent_impulse_2
-							contact.static_friction_active = use_static_friction
+							previous_1 = contact.tangent_impulse_1 or contact.tangent_impulse or 0
+							previous_2 = contact.tangent_impulse_2 or 0
+						end
+
+						local new_1 = previous_1 + impulse_1
+						local new_2 = previous_2 + impulse_2
+						local cone_scale = math.min(
+							1,
+							max_tangent_impulse / math.max(math.sqrt(new_1 * new_1 + new_2 * new_2), EPSILON)
+						)
+						new_1 = new_1 * cone_scale
+						new_2 = new_2 * cone_scale
+						local delta_1 = new_1 - previous_1
+						local delta_2 = new_2 - previous_2
+						contact.static_friction_active = static_flag
+
+						if allow_persistent_tangent then
+							contact.tangent_impulse = new_1
+							contact.tangent_impulse_1 = new_1
+							contact.tangent_impulse_2 = new_2
 							local tangent_store = contact.tangent_store
 
 							if not tangent_store then
@@ -468,28 +785,163 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 								contact.tangent_store = tangent_store
 							end
 
-							tangent_store:CopyFrom(tangent)
+							tangent_store.x, tangent_store.y, tangent_store.z = tx, ty, tz
 							contact.tangent = tangent_store
-						else
-							contact.static_friction_active = use_static_friction
 						end
 
-						if math.abs(impulse_delta_1) > EPSILON then
-							impulse_motion.ApplyPairImpulse(state_a, state_b, tangent, impulse_delta_1, point_a, point_b)
+						-- r x (d1 t + d2 b) is linear, so one inverse inertia call covers both rows
+						local wx, wy, wz = delta_1 * tx + delta_2 * bx,
+						delta_1 * ty + delta_2 * by,
+						delta_1 * tz + delta_2 * bz
+
+						if manifold_data.prepared_mass_a > 0 then
+							body_a.Velocity.x = body_a.Velocity.x - wx * manifold_data.prepared_mass_a
+							body_a.Velocity.y = body_a.Velocity.y - wy * manifold_data.prepared_mass_a
+							body_a.Velocity.z = body_a.Velocity.z - wz * manifold_data.prepared_mass_a
+							local rax, ray, raz = contact.ra_x, contact.ra_y, contact.ra_z
+							local dx, dy, dz = inverse_inertia_apply(body_a, ray * wz - raz * wy, raz * wx - rax * wz, rax * wy - ray * wx)
+							body_a.AngularVelocity.x = body_a.AngularVelocity.x - dx
+							body_a.AngularVelocity.y = body_a.AngularVelocity.y - dy
+							body_a.AngularVelocity.z = body_a.AngularVelocity.z - dz
 						end
 
-						if math.abs(impulse_delta_2) > EPSILON then
-							impulse_motion.ApplyPairImpulse(state_a, state_b, bitangent, impulse_delta_2, point_a, point_b)
+						if manifold_data.prepared_mass_b > 0 then
+							body_b.Velocity.x = body_b.Velocity.x + wx * manifold_data.prepared_mass_b
+							body_b.Velocity.y = body_b.Velocity.y + wy * manifold_data.prepared_mass_b
+							body_b.Velocity.z = body_b.Velocity.z + wz * manifold_data.prepared_mass_b
+							local rbx, rby, rbz = contact.rb_x, contact.rb_y, contact.rb_z
+							local dx, dy, dz = inverse_inertia_apply(body_b, rby * wz - rbz * wy, rbz * wx - rbx * wz, rbx * wy - rby * wx)
+							body_b.AngularVelocity.x = body_b.AngularVelocity.x + dx
+							body_b.AngularVelocity.y = body_b.AngularVelocity.y + dy
+							body_b.AngularVelocity.z = body_b.AngularVelocity.z + dz
 						end
 					end
 				end
 			end
+		end
 
-			::continue::
+		if pass == passes and manifold_data.twist_mass > 0 and dynamic_friction > 0 then
+			local twist_limit = 0
+
+			for contact_index = 1, #manifold_data.contacts do
+				twist_limit = twist_limit + manifold_data.contacts[contact_index].lever_arm * (
+						manifold_data.contacts[contact_index].normal_impulse or
+						0
+					)
+			end
+
+			twist_limit = twist_limit * dynamic_friction
+			local twist_speed = (
+					body_b.AngularVelocity.x - body_a.AngularVelocity.x
+				) * normal.x + (
+					body_b.AngularVelocity.y - body_a.AngularVelocity.y
+				) * normal.y + (
+					body_b.AngularVelocity.z - body_a.AngularVelocity.z
+				) * normal.z
+			local previous = manifold_data.twist_impulse
+			local new_impulse = math.min(
+				math.max(previous - manifold_data.twist_mass * twist_speed, -twist_limit),
+				twist_limit
+			)
+			manifold_data.twist_impulse = new_impulse
+			local delta = new_impulse - previous
+
+			if manifold_data.prepared_mass_a > 0 then
+				local d = body_a:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, normal.x * delta, normal.y * delta, normal.z * delta))
+				body_a.AngularVelocity.x = body_a.AngularVelocity.x - d.x
+				body_a.AngularVelocity.y = body_a.AngularVelocity.y - d.y
+				body_a.AngularVelocity.z = body_a.AngularVelocity.z - d.z
+			end
+
+			if manifold_data.prepared_mass_b > 0 then
+				local d = body_b:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, normal.x * delta, normal.y * delta, normal.z * delta))
+				body_b.AngularVelocity.x = body_b.AngularVelocity.x + d.x
+				body_b.AngularVelocity.y = body_b.AngularVelocity.y + d.y
+				body_b.AngularVelocity.z = body_b.AngularVelocity.z + d.z
+			end
 		end
 	end
 
-	impulse_motion.CommitPairMotion(state_a, state_b, dt)
+	-- a sleeping body only wakes once the impulses push it past its thresholds
+	if body_a.Awake == false then
+		motion.SetBodyMotionFromCurrentState(body_a, body_a.Velocity, body_a.AngularVelocity, dt)
+	end
+
+	if body_b.Awake == false then
+		motion.SetBodyMotionFromCurrentState(body_b, body_b.Velocity, body_b.AngularVelocity, dt)
+	end
+end
+
+-- Bounce after the substeps: contacts that took compression impulse and
+-- arrived faster than the threshold get the velocity that makes them leave
+-- at restitution times their arrival speed. Runs on velocities only.
+function manifold.ApplyRestitution(body_a, body_b, normal, manifold_data, dt)
+	local physics = body_a:GetPhysics()
+	local solver = physics.solver
+	local restitution = manifold_data.restitution or solver:GetPairRestitution(body_a, body_b)
+
+	if restitution <= EPSILON then return end
+
+	local gravity = physics.Gravity
+	local threshold = math.max(
+		0.33,
+		math.sqrt(gravity.x * gravity.x + gravity.y * gravity.y + gravity.z * gravity.z) * dt * 2
+	)
+
+	for contact_index = 1, #manifold_data.contacts do
+		local contact = manifold_data.contacts[contact_index]
+
+		if
+			contact.rest_stamp == solver.CollideStamp and
+			contact.rest_speed < -threshold and
+			contact.rest_total > 0 and
+			contact.normal_inverse_mass > EPSILON
+		then
+			local normal_speed = (
+					body_b.Velocity.x - body_a.Velocity.x
+				) * normal.x + (
+					body_b.Velocity.y - body_a.Velocity.y
+				) * normal.y + (
+					body_b.Velocity.z - body_a.Velocity.z
+				) * normal.z + body_b.AngularVelocity.x * contact.cb_x + body_b.AngularVelocity.y * contact.cb_y + body_b.AngularVelocity.z * contact.cb_z - body_a.AngularVelocity.x * contact.ca_x - body_a.AngularVelocity.y * contact.ca_y - body_a.AngularVelocity.z * contact.ca_z
+			local new_impulse = math.max(
+				contact.rest_impulse - (
+						normal_speed + restitution * contact.rest_speed
+					) / contact.normal_inverse_mass,
+				0
+			)
+			local impulse_delta = new_impulse - contact.rest_impulse
+			contact.rest_impulse = new_impulse
+
+			if manifold_data.prepared_mass_a > 0 then
+				local scale = impulse_delta * manifold_data.prepared_mass_a
+				body_a.Velocity.x = body_a.Velocity.x - normal.x * scale
+				body_a.Velocity.y = body_a.Velocity.y - normal.y * scale
+				body_a.Velocity.z = body_a.Velocity.z - normal.z * scale
+				body_a.AngularVelocity.x = body_a.AngularVelocity.x - impulse_delta * contact.wa_x
+				body_a.AngularVelocity.y = body_a.AngularVelocity.y - impulse_delta * contact.wa_y
+				body_a.AngularVelocity.z = body_a.AngularVelocity.z - impulse_delta * contact.wa_z
+			end
+
+			if manifold_data.prepared_mass_b > 0 then
+				local scale = impulse_delta * manifold_data.prepared_mass_b
+				body_b.Velocity.x = body_b.Velocity.x + normal.x * scale
+				body_b.Velocity.y = body_b.Velocity.y + normal.y * scale
+				body_b.Velocity.z = body_b.Velocity.z + normal.z * scale
+				body_b.AngularVelocity.x = body_b.AngularVelocity.x + impulse_delta * contact.wb_x
+				body_b.AngularVelocity.y = body_b.AngularVelocity.y + impulse_delta * contact.wb_y
+				body_b.AngularVelocity.z = body_b.AngularVelocity.z + impulse_delta * contact.wb_z
+			end
+		end
+	end
+
+	if body_a.Awake == false then
+		motion.SetBodyMotionFromCurrentState(body_a, body_a.Velocity, body_a.AngularVelocity, dt)
+	end
+
+	if body_b.Awake == false then
+		motion.SetBodyMotionFromCurrentState(body_b, body_b.Velocity, body_b.AngularVelocity, dt)
+	end
 end
 
 function manifold.PruneOld(manifolds, step_stamp, prune_steps)

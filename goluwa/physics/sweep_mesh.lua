@@ -14,6 +14,23 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local sweep_mesh = {}
 local EPSILON = physics_constants.EPSILON
+-- Vec3 is single precision, so a position 200 m from the origin carries a
+-- rounding error of about 1.5e-5, far above EPSILON: a point that lies exactly
+-- on a triangle or plane measures a few 1e-6 away and a fixed tolerance
+-- rejects the hit. The touching tolerance of a sweep grows with the size of
+-- the coordinates involved (four float32 steps of them).
+local FLOAT_COORDINATE_ERROR = 4.8e-7
+
+local function get_sweep_epsilon(start_position, movement)
+	return EPSILON + FLOAT_COORDINATE_ERROR * math.max(
+			math.abs(start_position.x),
+			math.abs(start_position.y),
+			math.abs(start_position.z),
+			math.abs(movement.x),
+			math.abs(movement.y),
+			math.abs(movement.z)
+		)
+end
 local POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS = 4
 local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 64
 local POLYHEDRON_SWEEP_REFINE_STEPS = 10
@@ -507,7 +524,7 @@ local function sweep_polyhedron_against_planes(
 		return nil
 	end
 
-	local epsilon = EPSILON
+	local epsilon = get_sweep_epsilon(start_position, movement)
 	local start_local_vertices = build_polyhedron_local_vertices(
 		polyhedron,
 		start_position,
@@ -1130,7 +1147,7 @@ local function sweep_capsule_against_planes(
 )
 	if not (planes and planes[1]) then return nil end
 
-	local epsilon = EPSILON
+	local epsilon = get_sweep_epsilon(start_position, movement)
 	local start_a, start_b, radius = get_capsule_segment_world(collider, start_position, rotation)
 	local start_local_a = world_to_local and world_to_local:TransformVector(start_a) or start_a
 	local start_local_b = world_to_local and world_to_local:TransformVector(start_b) or start_b
@@ -1226,7 +1243,7 @@ local function get_point_triangle_separation(center, v0, v1, v2, movement)
 end
 
 function sweep_sphere_against_triangle(start_position, movement, radius, v0, v1, v2, max_fraction)
-	local epsilon = EPSILON
+	local epsilon = get_sweep_epsilon(start_position, movement)
 	local end_position = start_position + movement * max_fraction
 	local start_closest, start_distance, start_normal = get_point_triangle_separation(start_position, v0, v1, v2, movement)
 
@@ -1298,7 +1315,7 @@ end
 local function sweep_sphere_against_planes(start_position, movement, radius, planes, max_fraction)
 	if not (planes and planes[1]) then return nil end
 
-	local epsilon = EPSILON
+	local epsilon = get_sweep_epsilon(start_position, movement)
 	local t_enter = 0
 	local t_exit = max_fraction
 	local enter_normal = nil

@@ -110,3 +110,65 @@ T.TestPhysics("Static mesh rigid bodies collide with falling spheres", function(
 	T(math.abs(position.z))["<"](0.1)
 	T(sphere:GetVelocity():GetLength())["<"](0.8)
 end)
+
+T.TestPhysics("Capsule driven into a static mesh wall stays in front of it", function()
+	local poly = Polygon3D.New()
+	add_triangle(poly, Vec3(-8, 0, -8), Vec3(8, 0, -8), Vec3(-8, 0, 8))
+	add_triangle(poly, Vec3(8, 0, -8), Vec3(8, 0, 8), Vec3(-8, 0, 8))
+	add_triangle(poly, Vec3(3, 0, -8), Vec3(3, 0, 8), Vec3(3, 4, -8))
+	add_triangle(poly, Vec3(3, 4, -8), Vec3(3, 0, 8), Vec3(3, 4, 8))
+	poly:BuildBoundingBox()
+	local world_ent = Entity.New({Name = "capsule_wall_world"})
+	world_ent:AddComponent("transform")
+	world_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New(poly),
+			MotionType = "static",
+			WorldGeometry = true,
+			Friction = 0.5,
+		}
+	)
+	local capsule_ent = Entity.New({Name = "capsule_wall_player"})
+	capsule_ent:AddComponent("transform")
+	capsule_ent.transform:SetPosition(Vec3(0, 0.9, 0))
+	local capsule = capsule_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = import("goluwa/physics/shapes/capsule.lua").New(0.3, 1.2),
+			Radius = 0.3,
+			Height = 1.2,
+			Mass = 80,
+			AutomaticMass = false,
+			CanSleep = false,
+			CCD = true,
+			Friction = 0.5,
+			Restitution = 0,
+		}
+	)
+	local max_x = -math.huge
+	local grounded_flips = 0
+	local was_grounded = nil
+
+	for step = 1, 300 do
+		local velocity = capsule:GetVelocity()
+		capsule:SetVelocity(Vec3(3.8, velocity.y, velocity.z))
+		capsule:SetAngularVelocity(Vec3())
+		test_helpers.Simulate(1)
+		max_x = math.max(max_x, capsule_ent.transform:GetPosition().x)
+
+		if step > 60 then
+			if was_grounded ~= nil and capsule:GetGrounded() ~= was_grounded then
+				grounded_flips = grounded_flips + 1
+			end
+
+			was_grounded = capsule:GetGrounded()
+		end
+	end
+
+	capsule_ent:Remove()
+	world_ent:Remove()
+	T(max_x)["<"](3 - 0.3 + 0.05)
+	-- the wall and the floor are held together, not one at a time
+	T(grounded_flips)["<"](10)
+end)

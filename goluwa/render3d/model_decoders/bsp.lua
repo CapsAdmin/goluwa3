@@ -8,7 +8,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
-local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -20,7 +19,6 @@ local fs = import("goluwa/filesystem/fs.lua")
 local transform = import("goluwa/entities/components/transform.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local brush_hull = import("goluwa/physics/brush_hull.lua")
-local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local bit = require("bit")
@@ -41,14 +39,12 @@ local BSP_CONTENTS_GRATE = 0x8
 local BSP_CONTENTS_SLIME = 0x10
 local BSP_CONTENTS_WATER = 0x20
 local BSP_CONTENTS_PLAYERCLIP = 0x10000
-local BSP_CONTENTS_MONSTERCLIP = 0x20000
 local BSP_CONTENTS_DETAIL = 0x8000000
 local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_SOLID,
 	BSP_CONTENTS_WINDOW,
 	BSP_CONTENTS_GRATE,
-	BSP_CONTENTS_PLAYERCLIP,
-	BSP_CONTENTS_MONSTERCLIP
+	BSP_CONTENTS_PLAYERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
 local BSP_LIGHT_INTENSITY_SCALE = 2.8
@@ -358,6 +354,62 @@ local function build_source_model_from_meshes(meshes, owner)
 	return source_model
 end
 
+-- the brushes of one model (0 is the world, "*n" entities are the others), by
+-- walking its tree: a brush is listed in every leaf it touches, so the set is
+-- what keeps a trigger's or a door's brushes out of the world's collision
+local function get_model_brush_set(header, model_index)
+	local set = {}
+	local stack = {header.models[model_index + 1].headnode}
+	local visited_leafs = {}
+
+	while #stack > 0 do
+		local node = table.remove(stack)
+
+		if node >= 0 then
+			local n = header.nodes[node + 1]
+			stack[#stack + 1] = n[2]
+			stack[#stack + 1] = n[3]
+		else
+			local leaf_index = -node
+
+			if not visited_leafs[leaf_index] then
+				visited_leafs[leaf_index] = true
+				local leaf = header.leafs[leaf_index]
+
+				for i = leaf.first_leaf_brush, leaf.first_leaf_brush + leaf.leaf_brush_count - 1 do
+					set[header.leaf_brushes[i + 1]] = true
+				end
+			end
+		end
+	end
+
+	return set
+end
+
+-- The world model's brushes that block movement. Brush entities (triggers,
+-- doors, clips, effect volumes) have brushes of their own in the same lump,
+-- often with solid contents, but they are not part of the world and this
+-- loader does not draw them either, so they would be invisible walls. A brush
+-- that is in no leaf of any model is never collided with by Source.
+local function get_world_collision_brushes(header)
+	local indices = {}
+
+	for index in pairs(get_model_brush_set(header, 0)) do
+		indices[#indices + 1] = index
+	end
+
+	table.sort(indices)
+	local brushes = {}
+
+	for _, index in ipairs(indices) do
+		local brush = header.brushes[index + 1]
+
+		if is_collidable_brush(brush) then brushes[#brushes + 1] = brush end
+	end
+
+	return brushes
+end
+
 local function build_bsp_brush_model(header, owner)
 	local model = {
 		Owner = owner,
@@ -367,21 +419,18 @@ local function build_bsp_brush_model(header, owner)
 		AABB = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge),
 	}
 
-	for _, brush in ipairs(header.brushes or {}) do
-		if is_collidable_brush(brush) then
-			local source_planes = get_brush_planes(header, brush)
-			local brush_planes = {}
+	for _, brush in ipairs(get_world_collision_brushes(header)) do
+		local brush_planes = {}
 
-			for i, plane in ipairs(source_planes) do
-				brush_planes[i] = source_plane_to_engine(plane)
-			end
+		for i, plane in ipairs(get_brush_planes(header, brush)) do
+			brush_planes[i] = source_plane_to_engine(plane)
+		end
 
-			local primitive = build_primitive_from_hull(build_brush_hull(brush_planes), brush_planes)
+		local primitive = build_primitive_from_hull(build_brush_hull(brush_planes), brush_planes)
 
-			if primitive and primitive.aabb then
-				model.Primitives[#model.Primitives + 1] = primitive
-				model.AABB:Expand(primitive.aabb)
-			end
+		if primitive and primitive.aabb then
+			model.Primitives[#model.Primitives + 1] = primitive
+			model.AABB:Expand(primitive.aabb)
 		end
 	end
 
@@ -391,13 +440,8 @@ local function build_bsp_brush_model(header, owner)
 end
 
 local function build_bsp_physics_body(header, render_meshes, displacement_meshes, owner)
-	local collidable_brushes = 0
 
-	for _, brush in ipairs(header.brushes or {}) do
-		if is_collidable_brush(brush) then
-			collidable_brushes = collidable_brushes + 1
-		end
-	end
+	local collidable_brushes = #get_world_collision_brushes(header)
 
 	local brush_model = build_bsp_brush_model(header, owner)
 	local render_model = build_source_model_from_meshes(render_meshes, owner)
@@ -686,61 +730,40 @@ local function get_displacement_corners(header, info)
 	return corners, start_corner
 end
 
-local function build_displacement_heightmap_shape(header, info, lerp_corners)
-	local corners, start_corner = get_displacement_corners(header, info)
-	local dims = 2 ^ info.power + 1
-	local resolution = dims - 1
-	local top_left = source_pos_to_engine(corners[1 + (start_corner + 0) % 4])
-	local top_right = source_pos_to_engine(corners[1 + (start_corner + 1) % 4])
-	local bottom_left = source_pos_to_engine(corners[1 + (start_corner + 3) % 4])
-	local bottom_right = source_pos_to_engine(corners[1 + (start_corner + 2) % 4])
-	local right_vector = ((top_right - top_left) + (bottom_right - bottom_left)) * 0.5
-	local forward_vector = ((bottom_left - top_left) + (bottom_right - top_right)) * 0.5
-	local width = right_vector:GetLength()
-	local depth = forward_vector:GetLength()
+-- A displacement is not a heightmap: each vertex is the flat grid position
+-- plus an arbitrary offset vector times a distance, so a patch can overhang or
+-- curve back on itself. The collider is the triangle mesh of the grid, built
+-- from the same vertices the visual mesh uses, so the two cannot disagree.
+-- positions are the Source space vertices in the visual's (y * dims + x)
+-- order; the triangles keep the visual's diagonal and face the same way.
+local function build_displacement_collision_shape(positions, dims)
+	local scale = steam.source2meters
+	local poly = Polygon3D.New()
+	local vertices = poly.Vertices
 
-	if width <= 0.0001 or depth <= 0.0001 then return nil end
+	for i = 1, dims * dims do
+		local pos = positions[i]
+		vertices[i] = {pos = Vec3(-pos.y * scale, pos.z * scale, -pos.x * scale)}
+	end
 
-	local right = right_vector / width
-	local up = forward_vector:GetCross(right):GetNormalized()
+	local indices = {}
+	local count = 0
 
-	if up:GetLength() <= 0.0001 then return nil end
+	for x = 1, dims - 1 do
+		for y = 1, dims - 1 do
+			local a = y * dims + x
+			local b = (y - 1) * dims + x
+			local c = a + 1
+			local d = b + 1
+			indices[count + 1], indices[count + 2], indices[count + 3] = a - 1, b - 1, c - 1
+			indices[count + 4], indices[count + 5], indices[count + 6] = c - 1, b - 1, d - 1
+			count = count + 6
+		end
+	end
 
-	local forward = right:GetCross(up):GetNormalized()
-	local center = (top_left + top_right + bottom_left + bottom_right) / 4
-	local samples = HeightmapShape.SamplesFromFunction(dims, dims, function(x, z)
-		local world_pos = source_pos_to_engine(select(1, lerp_corners(dims, corners, start_corner, info, x + 1, z + 1)))
-		local plane_pos = center + right * (
-				(
-					x / resolution - 0.5
-				) * width
-			) + forward * (
-				(
-					z / resolution - 0.5
-				) * depth
-			)
-		return (world_pos - plane_pos):Dot(up)
-	end)
-	local rotation_matrix = Matrix33()
-	rotation_matrix.m00 = right.x
-	rotation_matrix.m01 = right.y
-	rotation_matrix.m02 = right.z
-	rotation_matrix.m10 = up.x
-	rotation_matrix.m11 = up.y
-	rotation_matrix.m12 = up.z
-	rotation_matrix.m20 = forward.x
-	rotation_matrix.m21 = forward.y
-	rotation_matrix.m22 = forward.z
-	return {
-		Heightmap = {
-			Samples = samples,
-			SamplesX = dims,
-			SamplesZ = dims,
-			Size = Vec2(width, depth),
-		},
-		Position = center,
-		Rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
-	}
+	poly.indices = indices
+	poly:BuildBoundingBox()
+	return {Polygon3D = poly}
 end
 
 function steam.SetMap(name)
@@ -1421,7 +1444,9 @@ function steam.LoadMap(path)
 			local maxs = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
 			local first_leaf_face = bsp_file:ReadU16()
 			local leaf_face_count = bsp_file:ReadU16()
-			bsp_file:Advance(leaf_size - 24)
+			local first_leaf_brush = bsp_file:ReadU16()
+			local leaf_brush_count = bsp_file:ReadU16()
+			bsp_file:Advance(leaf_size - 28)
 			return {
 				contents = contents,
 				area = area,
@@ -1429,6 +1454,8 @@ function steam.LoadMap(path)
 				maxs = maxs,
 				first_leaf_face = first_leaf_face,
 				leaf_face_count = leaf_face_count,
+				first_leaf_brush = first_leaf_brush,
+				leaf_brush_count = leaf_brush_count,
 			}
 		end
 	)
@@ -1443,6 +1470,20 @@ function steam.LoadMap(path)
 			end
 		) or
 		{}
+	local leaf_brushes = read_lump_data(
+			"reading leaf brushes",
+			bsp_file,
+			header,
+			18,
+			2,
+			function()
+				return bsp_file:ReadU16()
+			end
+		) or
+		{}
+	header.nodes = nodes
+	header.leafs = leafs
+	header.leaf_brushes = leaf_brushes
 	local areas = read_lump_data(
 			"reading areas",
 			bsp_file,
@@ -2074,7 +2115,7 @@ function steam.LoadMap(path)
 						end
 
 						do
-							local collision_shape = build_displacement_heightmap_shape(header, info, lerp_corners)
+							local collision_shape = build_displacement_collision_shape(positions, dims)
 
 							if collision_shape then
 								list.insert(displacement_collision_meshes, collision_shape)

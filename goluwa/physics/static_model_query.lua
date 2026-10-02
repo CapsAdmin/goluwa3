@@ -1,4 +1,5 @@
 local raycast = import("goluwa/physics/raycast.lua")
+local stats = import("goluwa/physics/stats.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -14,7 +15,7 @@ local function for_each_spatial_component(callback)
 	end
 end
 
-function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_body)
+function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_body, extra_pad)
 	local margin = body and (body:GetCollisionMargin() or 0) or 0
 	local probe_distance = body and (body:GetCollisionProbeDistance() or 0) or 0
 	local extra_margin = extra_body and (extra_body:GetCollisionMargin() or 0) or 0
@@ -23,7 +24,7 @@ function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_bo
 		margin + probe_distance + extra_margin + extra_probe_distance,
 		physics_constants.DEFAULT_COLLISION_MARGIN,
 		physics_constants.EPSILON
-	)
+	) + (extra_pad or 0)
 	return {
 		min_x = bounds.min_x - pad,
 		min_y = bounds.min_y - pad,
@@ -47,12 +48,17 @@ function static_model_query.CollectWorldModelCandidates(world_aabb, out, include
 
 	if not world_aabb or not VisualComponent then return out end
 
+	stats:PushTime("sweep_models")
+	stats:Count("world_model_scans")
+	stats:Count("world_models_scanned", #VisualComponent.Instances)
+
 	-- inlined spatial component scan: no per-call closure, no per-model callback
 	for _, model in ipairs(VisualComponent.Instances) do
 		local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
 
 		if bounds then
 			if AABB.IsBoxIntersecting(world_aabb, bounds) then
+				stats:Count("world_model_candidates")
 				out[#out + 1] = model
 			end
 		elseif include_unbounded and model then
@@ -60,6 +66,7 @@ function static_model_query.CollectWorldModelCandidates(world_aabb, out, include
 		end
 	end
 
+	stats:PopTime()
 	return out
 end
 

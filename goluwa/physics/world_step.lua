@@ -8,6 +8,8 @@ local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local stats = import("goluwa/physics/stats.lua")
 local world_step = {}
 local NEWLY_AWOKEN_BODIES = {}
+local MIN_REMAINDER_STEP = 1e-6
+local RESTITUTION_ITERATIONS = 2
 
 local function build_support_entry_list(body)
 	local colliders = body:GetColliders()
@@ -79,7 +81,8 @@ function world_step.Update(physics, dt)
 	if not dt or dt <= 0 then return 0 end
 
 	physics.FrameAccumulator = 0
-	physics.InterpolationAlpha = 0
+	-- the bodies end the call at their latest pose, there is nothing to blend
+	physics.InterpolationAlpha = 1
 	local fixed_dt = get_fixed_step(physics)
 	local steps = 0
 
@@ -89,7 +92,9 @@ function world_step.Update(physics, dt)
 		steps = steps + 1
 	end
 
-	if dt > 0 then
+	-- a remainder this small is float residue, and velocities derived from
+	-- position differences over it would just amplify rounding noise
+	if dt > MIN_REMAINDER_STEP then
 		physics.Step(dt)
 		steps = steps + 1
 	end
@@ -110,6 +115,7 @@ function world_step.UpdateFixed(physics, dt)
 	local steps = 0
 
 	while steps < max_steps and accumulator >= fixed_dt do
+		event.Call("PhysicsUpdate", fixed_dt)
 		physics.Step(fixed_dt)
 		accumulator = accumulator - fixed_dt
 		steps = steps + 1
@@ -133,7 +139,9 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 	local substeps = math.max(1, physics.RigidBodySubsteps or 1)
 	local iterations = math.max(1, physics.RigidBodyIterations or 1)
+	local relax_iterations = math.max(1, physics.RigidBodyRelaxIterations or 1)
 	local sub_dt = dt / substeps
+	solver.StepDt = dt
 	local collision_pairs = physics.collision_pairs
 	physics.candidate_pairs = physics.candidate_pairs or {}
 	collision_pairs:BeginCollisionFrame()
@@ -144,22 +152,30 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 	for _, body in ipairs(bodies) do
 		body:SynchronizeFromTransform()
+		body.StepStartPosition:CopyFrom(body.Position)
+		body.StepStartRotation:CopyFrom(body.Rotation)
 	end
 
 	stats:PopTime()
+	local rigid_body_pairs
+	local simulation_islands
+	local constraints = physics.GetConstraints()
 
-	for _ = 1, substeps do
-		if solver.BeginStep then solver:BeginStep() end
-
+	for substep = 1, substeps do
+		local collide = substep == 1
+		solver:BeginStep(collide)
 		stats:PushTime("integrate")
 		local awake_count = 0
 
 		for _, body in ipairs(bodies) do
 			if body:IsKinematic() or body:HasKinematicController() then
+				stats:PushTime("kinematic")
 				kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
+				stats:PopTime()
 			elseif body:GetAwake() then
 				awake_count = awake_count + 1
 				body:ResetGroundSupport()
+				body.PositionCorrection = 0
 				body:SetGrounded(false)
 				body:SetGroundNormal(physics_constants.UP)
 				body:Integrate(sub_dt, physics.Gravity)
@@ -171,44 +187,49 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 		stats:Gauge("awake_bodies", awake_count)
 		stats:PopTime()
-		stats:PushTime("broadphase")
-		local rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
-		stats:PopTime()
-		local constraints = physics.GetConstraints()
-		stats:PushTime("islands")
-		local simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
-		local newly_awoken_bodies = NEWLY_AWOKEN_BODIES
 
-		if simulation_islands and simulation_islands[1] then
-			local woke_any
-			woke_any, newly_awoken_bodies = islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+		if collide then
+			physics.broadphase.LookAhead = dt - sub_dt
+			stats:PushTime("broadphase")
+			rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
+			stats:PopTime()
+			stats:PushTime("islands")
+			simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
+			local newly_awoken_bodies = NEWLY_AWOKEN_BODIES
 
-			if woke_any then
-				for body_index = 1, #newly_awoken_bodies do
-					local body = newly_awoken_bodies[body_index]
+			if simulation_islands and simulation_islands[1] then
+				local woke_any
+				woke_any, newly_awoken_bodies = islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
 
-					if body:GetAwake() then
-						body:ResetGroundSupport()
-						body:SetGrounded(false)
-						body:SetGroundNormal(physics_constants.UP)
-						body:Integrate(sub_dt, physics.Gravity)
+				if woke_any then
+					for body_index = 1, #newly_awoken_bodies do
+						local body = newly_awoken_bodies[body_index]
+
+						if body:GetAwake() then
+							body:ResetGroundSupport()
+							body:SetGrounded(false)
+							body:SetGroundNormal(physics_constants.UP)
+							body:Integrate(sub_dt, physics.Gravity)
+						end
+					end
+
+					stats:PopTime()
+					stats:PushTime("broadphase")
+					rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
+					stats:PopTime()
+					stats:PushTime("islands")
+					simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
+
+					if simulation_islands and simulation_islands[1] then
+						islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
 					end
 				end
-
-				stats:PopTime()
-				stats:PushTime("broadphase")
-				rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
-				stats:PopTime()
-				stats:PushTime("islands")
-				simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
-
-				if simulation_islands and simulation_islands[1] then
-					islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
-				end
 			end
+
+			stats:PopTime()
+			physics.broadphase.LookAhead = 0
 		end
 
-		stats:PopTime()
 		stats:Gauge("candidate_pairs", #rigid_body_pairs)
 		stats:Gauge("islands", simulation_islands and #simulation_islands or 0)
 		-- CCD is resolved once per substep: its sweep window is the substep
@@ -233,7 +254,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 					if not islands.IsSleepingIsland(island) then
 						stats:PushTime("solve_pairs")
-						solver:SolveRigidBodyPairs(island.pairs, sub_dt, iter, iter == iterations)
+						solver:SolveRigidBodyPairs(island.pairs, sub_dt, iter)
 						stats:PopTime()
 						stats:PushTime("support")
 						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
@@ -244,13 +265,13 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 						stats:PopTime()
 						stats:PushTime("constraints")
-						solver:SolveDistanceConstraints(sub_dt, island.constraints)
+						solver:SolveConstraints(sub_dt, island.constraints)
 						stats:PopTime()
 					end
 				end
 			else
 				stats:PushTime("solve_pairs")
-				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt, iter, iter == iterations)
+				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt, iter)
 				stats:PopTime()
 				stats:PushTime("support")
 
@@ -262,12 +283,40 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 				stats:PopTime()
 				stats:PushTime("constraints")
-				solver:SolveDistanceConstraints(sub_dt, constraints)
+				solver:SolveConstraints(sub_dt, constraints)
 				stats:PopTime()
 			end
 		end
 
+		stats:PushTime("positions")
+
+		for _, body in ipairs(bodies) do
+			body:ApplySolverVelocityDelta(sub_dt)
+		end
+
+		stats:PopTime()
+		stats:PushTime("relax")
+
+		for _ = 1, relax_iterations do
+			if simulation_islands and simulation_islands[1] then
+				for island_index = 1, #simulation_islands do
+					local island = simulation_islands[island_index]
+
+					if not islands.IsSleepingIsland(island) then
+						solver:SolveRigidBodyPairs(island.pairs, sub_dt, iterations + 1, true)
+						solver:SolveConstraints(sub_dt, island.constraints, true)
+					end
+				end
+			else
+				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt, iterations + 1, true)
+				solver:SolveConstraints(sub_dt, constraints, true)
+			end
+		end
+
+		solver:FinishRigidBodyPairs()
+		stats:PopTime()
 		stats:PushTime("velocities_sleep")
+		RigidBody.BeginSleepPass()
 
 		for _, body in ipairs(bodies) do
 			body:UpdateVelocities(sub_dt)
@@ -278,9 +327,27 @@ function world_step.UpdateRigidBodies(physics, dt)
 			islands.FinalizeSimulationIslands(simulation_islands)
 		end
 
+		RigidBody.EndSleepPass()
 		stats:PopTime()
 	end
 
+	stats:PushTime("restitution")
+
+	for _ = 1, RESTITUTION_ITERATIONS do
+		if simulation_islands and simulation_islands[1] then
+			for island_index = 1, #simulation_islands do
+				local island = simulation_islands[island_index]
+
+				if not islands.IsSleepingIsland(island) then
+					solver:ApplyRestitution(island.pairs, sub_dt)
+				end
+			end
+		else
+			solver:ApplyRestitution(rigid_body_pairs, sub_dt)
+		end
+	end
+
+	stats:PopTime()
 	stats:PushTime("finalize")
 
 	for _, body in ipairs(bodies) do

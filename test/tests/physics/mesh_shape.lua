@@ -228,7 +228,7 @@ T.TestPhysics("World geometry rigid bodies are traced by default world queries",
 		Shape = MeshShape.New{Model = owner.visual},
 		Owner = owner,
 	}
-	body.WorldGeometry = true
+	body:SetWorldGeometry(true)
 	local hit = physics.RayCast(
 		Vec3(0, 2, 0),
 		Vec3(0, -1, 0),

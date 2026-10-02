@@ -386,7 +386,7 @@ end)
 
 T.TestPhysics("Physics sweep hits world geometry rigid body by default", function()
 	local target = create_mesh_body("sweep_target_world_mesh", Vec3(0, 0, 0))
-	target.rigid_body.WorldGeometry = true
+	target.rigid_body:SetWorldGeometry(true)
 	local hit = physics.Sweep(
 		Vec3(0, 2, 0),
 		Vec3(0, -3, 0),
@@ -526,4 +526,36 @@ T.TestPhysics("Physics sweep sphere handles rotating rigid body target pose", fu
 	T(hit.rigid_body)["=="](target_body)
 	T(hit.normal.x)[">"](0.7)
 	target:Remove()
+end)
+
+-- Vec3 is single precision: 200 m from the origin a point on a triangle
+-- measures a few 1e-6 away from it, more than the fixed sweep tolerance
+T.TestPhysics("Point sweep hits triangles far from the origin", function()
+	local sweep_mesh = import("goluwa/physics/sweep_mesh.lua")
+	local triangles = {
+		{
+			Vec3(-62.788799285888672, 205.604248046875, 31.089822769165039),
+			Vec3(-51.206401824951172, 204.50349426269531, 43.078632354736328),
+			Vec3(-51.206401824951172, 204.09580993652344, 31.089822769165039),
+		},
+		{
+			Vec3(-39.462074279785156, 209.23002624511719, 24.236129760742188),
+			Vec3(-39.462074279785156, 209.27342224121094, 25.482742309570312),
+			Vec3(-39.109649658203125, 209.24285888671875, 24.917135238647461),
+		},
+		{
+			Vec3(4.3338737487792969, 3.357410192489624, 77.114402770996094),
+			Vec3(6.0198001861572266, 3.3704972267150879, 75.209396362304688),
+			Vec3(4.3338737487792969, 3.0459420680999756, 75.209396362304688),
+		},
+	}
+
+	for _, triangle in ipairs(triangles) do
+		local a, b, c = triangle[1], triangle[2], triangle[3]
+		local normal = (b - a):GetCross(c - a):GetNormalized()
+		local centroid = (a + b + c) / 3
+		local hit = sweep_mesh.SweepSphereAgainstTriangle(centroid + normal * 0.02, normal * -0.04, 0, a, b, c, 1)
+		T(hit)["~="](nil)
+		T(math.abs(hit.t - 0.5))["<"](0.01)
+	end
 end)

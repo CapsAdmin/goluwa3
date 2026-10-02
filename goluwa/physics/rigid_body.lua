@@ -17,13 +17,15 @@ RigidBody:GetSet("MotionType", "dynamic", {callback = "OnMotionTypeChanged"})
 RigidBody:GetSet("Density", 1, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("Mass", 1, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("AutomaticMass", true, {callback = "RefreshMassProperties"})
+-- infinite rotational inertia: contacts and impulses can never turn the body
+RigidBody:GetSet("LockRotation", false, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("GravityScale", 1)
 RigidBody:GetSet("LinearDamping", 0)
 RigidBody:GetSet("AngularDamping", 0)
 RigidBody:GetSet("AirLinearDamping", 0)
 RigidBody:GetSet("AirAngularDamping", 0)
 RigidBody:GetSet("CollisionEnabled", true)
-RigidBody:GetSet("WorldGeometry", false)
+RigidBody:GetSet("WorldGeometry", false, {callback = "OnWorldGeometryChanged"})
 RigidBody:GetSet("CollisionGroup", 1)
 RigidBody:GetSet("CollisionMask", -1)
 RigidBody:GetSet("CCD", false)
@@ -167,12 +169,18 @@ function RigidBody:Initialize()
 	self.PreviousPosition = self.PreviousPosition or Vec3(0, 0, 0)
 	self.Rotation = self.Rotation or Quat(0, 0, 0, 1)
 	self.PreviousRotation = self.PreviousRotation or Quat(0, 0, 0, 1)
+	self.StepStartPosition = self.StepStartPosition or Vec3(0, 0, 0)
+	self.StepStartRotation = self.StepStartRotation or Quat(0, 0, 0, 1)
 	self.GroundNormal = self.GroundNormal or Vec3(0, 1, 0)
 	self.InverseMass = self.InverseMass or 0
 	self.InertiaTensor = self.InertiaTensor or new_zero_matrix()
 	self.InverseInertiaTensor = self.InverseInertiaTensor or new_zero_matrix()
 	self.StepDt = self.StepDt or 0
 	self.SleepTimer = self.SleepTimer or 0
+	self.SleepDt = 1
+	self.PositionCorrection = 0
+	self.SolverVelocity0 = self.SolverVelocity0 or Vec3()
+	self.SolverAngularVelocity0 = self.SolverAngularVelocity0 or Vec3()
 	self.AccumulatedForce = self.AccumulatedForce or Vec3()
 	self.AccumulatedTorque = self.AccumulatedTorque or Vec3()
 	self:ResetGroundSupport()
@@ -391,8 +399,33 @@ function RigidBody:OnAdd()
 	if self.Owner.transform then self:SynchronizeFromTransform() end
 end
 
+-- sweeps that only target world geometry iterate this list instead of
+-- querying the broadphase for every dynamic body
+RigidBody.WorldGeometryBodies = {}
+
+local function remove_world_geometry_body(body)
+	local bodies = RigidBody.WorldGeometryBodies
+
+	for i = 1, #bodies do
+		if bodies[i] == body then
+			table.remove(bodies, i)
+			return
+		end
+	end
+end
+
+function RigidBody:OnWorldGeometryChanged()
+	remove_world_geometry_body(self)
+
+	if self.WorldGeometry == true then
+		local bodies = RigidBody.WorldGeometryBodies
+		bodies[#bodies + 1] = self
+	end
+end
+
 function RigidBody:OnRemove()
 	islands.RemoveBody(self)
+	remove_world_geometry_body(self)
 end
 
 function RigidBody:OnGeometryChanged()
@@ -427,6 +460,12 @@ function RigidBody:GetResolvedConvexHull()
 end
 
 function RigidBody:RefreshMassProperties()
+	self:ComputeMassProperties()
+
+	if self.LockRotation then self.InverseInertiaTensor = new_zero_matrix() end
+end
+
+function RigidBody:ComputeMassProperties()
 	local computed_mass = 0
 	local inertia_tensor = new_zero_matrix()
 	local has_collider_inertia = false
@@ -688,6 +727,7 @@ function RigidBody:Wake()
 	if not self.Awake then
 		self.Awake = true
 		self.SleepTimer = 0
+		self.ReadyToSleepPass = nil
 		stats:Count("woken_bodies")
 	end
 end
@@ -699,11 +739,15 @@ function RigidBody:Sleep()
 
 	self.Awake = false
 	self.SleepTimer = 0
+	self.ReadyToSleepPass = nil
 	self.Velocity:Set(0, 0, 0)
 	self.AngularVelocity:Set(0, 0, 0)
 	self.PreviousPosition:CopyFrom(self.Position)
 	self.PreviousRotation:CopyFrom(self.Rotation)
 end
+
+local UPDATE_DELTA = Quat()
+local UPDATE_CONJUGATE = Quat()
 
 local function get_sleep_state_metrics(self)
 	local linear_threshold = self.SleepLinearThreshold
@@ -711,6 +755,21 @@ local function get_sleep_state_metrics(self)
 	local linear_speed = self.Velocity:GetLength()
 	local angular_speed = self.AngularVelocity:GetLength()
 	local force_grounded_sleep = false
+	-- position correction moves a body without leaving velocity behind, so
+	-- sleep also watches how far the body actually travelled this substep
+	local inverse_dt = 0.5 / self.SleepDt
+	local dx = self.Position.x - self.PreviousPosition.x
+	local dy = self.Position.y - self.PreviousPosition.y
+	local dz = self.Position.z - self.PreviousPosition.z
+	linear_speed = math.max(linear_speed, math.sqrt(dx * dx + dy * dy + dz * dz) * inverse_dt)
+	Quat.SetConjugated(UPDATE_CONJUGATE, self.PreviousRotation)
+	Quat.SetMul(UPDATE_DELTA, self.Rotation, UPDATE_CONJUGATE)
+	angular_speed = math.max(
+		angular_speed,
+		2 * math.sqrt(
+				UPDATE_DELTA.x * UPDATE_DELTA.x + UPDATE_DELTA.y * UPDATE_DELTA.y + UPDATE_DELTA.z * UPDATE_DELTA.z
+			) * 2 * inverse_dt
+	)
 
 	if self:GetGrounded() then
 		linear_threshold = linear_threshold * 1.2
@@ -746,21 +805,59 @@ local function get_effective_sleep_delay(self)
 	return math.max(self.SleepDelay or 0, 0)
 end
 
-function RigidBody:IsReadyToSleep()
-	if not self:HasSolverMass() or not self.CanSleep then return false, false end
+do
+	-- a body's readiness depends on the readiness of its ground body, which
+	-- depends on its own ground body, and so on: evaluating a stack of height
+	-- H cost O(H) per body. Inside a sleep pass (the world step's per-substep
+	-- velocity and sleep update, where nothing but UpdateVelocities, Sleep and
+	-- Wake changes the inputs) results are memoized. A result that hit the
+	-- cycle guard depends on where the chain was entered, so only guard-free
+	-- evaluations are cached.
+	local cycle_guard_hits = 0
+	local sleep_pass = 0
+	local sleep_pass_active = false
 
-	if not self.Awake then return true, false end
+	function RigidBody.BeginSleepPass()
+		sleep_pass = sleep_pass + 1
+		sleep_pass_active = true
+	end
 
-	if self._evaluating_ready_to_sleep then return false, false end
+	function RigidBody.EndSleepPass()
+		sleep_pass_active = false
+	end
 
-	self._evaluating_ready_to_sleep = true
-	local linear_speed, angular_speed, linear_threshold, angular_threshold, force_grounded_sleep = get_sleep_state_metrics(self)
-	self._evaluating_ready_to_sleep = nil
+	function RigidBody:IsReadyToSleep()
+		if not self:HasSolverMass() or not self.CanSleep then return false, false end
 
-	if force_grounded_sleep then return true, true end
+		if not self.Awake then return true, false end
 
-	return linear_speed <= linear_threshold and angular_speed <= angular_threshold,
-	false
+		if self._evaluating_ready_to_sleep then
+			cycle_guard_hits = cycle_guard_hits + 1
+			return false, false
+		end
+
+		if sleep_pass_active and self.ReadyToSleepPass == sleep_pass then
+			return self.ReadyToSleepValue, self.ReadyToSleepForced
+		end
+
+		local guard_hits_before = cycle_guard_hits
+		self._evaluating_ready_to_sleep = true
+		local linear_speed, angular_speed, linear_threshold, angular_threshold, force_grounded_sleep = get_sleep_state_metrics(self)
+		self._evaluating_ready_to_sleep = nil
+		local ready = force_grounded_sleep or
+			(
+				linear_speed <= linear_threshold and
+				angular_speed <= angular_threshold
+			)
+
+		if sleep_pass_active and cycle_guard_hits == guard_hits_before then
+			self.ReadyToSleepPass = sleep_pass
+			self.ReadyToSleepValue = ready
+			self.ReadyToSleepForced = force_grounded_sleep
+		end
+
+		return ready, force_grounded_sleep
+	end
 end
 
 function RigidBody:CanSleepNow()
@@ -926,22 +1023,24 @@ end
 
 function RigidBody:ShouldInterpolateTransform()
 	return self:IsDynamic() and
-		self.PreviousPosition and
-		self.PreviousRotation and
+		self.StepStartPosition and
+		self.StepStartRotation and
 		self.Position and
 		self.Rotation
 end
 
+-- blends from where the body was when the last physics step began (the
+-- substeps move PreviousPosition, which only spans the last of them)
 function RigidBody:GetInterpolatedPosition(alpha)
 	if not self:ShouldInterpolateTransform() then return self.Position end
 
-	return self.PreviousPosition:GetLerped(math.clamp(alpha or 0, 0, 1), self.Position)
+	return self.StepStartPosition:GetLerped(math.clamp(alpha or 0, 0, 1), self.Position)
 end
 
 function RigidBody:GetInterpolatedRotation(alpha)
 	if not self:ShouldInterpolateTransform() then return self.Rotation end
 
-	return self.PreviousRotation:Interpolate(self.Rotation, math.clamp(alpha or 0, 0, 1))
+	return self.StepStartRotation:Interpolate(self.Rotation, math.clamp(alpha or 0, 0, 1))
 end
 
 function RigidBody:LocalToWorld(local_pos, position, rotation, out)
@@ -1091,12 +1190,44 @@ function RigidBody:Integrate(dt, gravity)
 	self.AngularVelocity:Add(self:GetAngularVelocityDelta(TEMPORARY_TORQUE))
 	self.Velocity = clamp_vec_length(self.Velocity, self.MaxLinearSpeed)
 	self.AngularVelocity = clamp_vec_length(self.AngularVelocity, self.MaxAngularSpeed)
+	self.SolverVelocity0:CopyFrom(self.Velocity)
+	self.SolverAngularVelocity0:CopyFrom(self.AngularVelocity)
+	self.HasSolverVelocity0 = true
 	self.Position:AddScaled(self.Velocity, dt)
 	self.Rotation = integrate_rotation(self.Rotation, self.AngularVelocity, dt)
 end
 
-local UPDATE_DELTA = Quat()
-local UPDATE_CONJUGATE = Quat()
+local SOLVER_ANGULAR_DELTA = Vec3()
+
+-- for code that already moved the body to match its current velocity (swept
+-- hits re-integrate the remaining motion), so the solver delta must start over
+function RigidBody:SyncSolverVelocity()
+	if not self.HasSolverVelocity0 then return end
+
+	self.SolverVelocity0:CopyFrom(self.Velocity)
+	self.SolverAngularVelocity0:CopyFrom(self.AngularVelocity)
+end
+
+-- Integrate moved the body with the velocity it had before the contact solve.
+-- What the biased solve added to that velocity (the contact push-out and the
+-- impulses) is integrated here, so the relax pass can then strip the push-out
+-- velocity again without it having moved the body twice.
+function RigidBody:ApplySolverVelocityDelta(dt)
+	if not self.HasSolverVelocity0 then return end
+
+	self.HasSolverVelocity0 = false
+	local velocity = self.Velocity
+	local velocity_0 = self.SolverVelocity0
+	local position = self.Position
+	position.x = position.x + (velocity.x - velocity_0.x) * dt
+	position.y = position.y + (velocity.y - velocity_0.y) * dt
+	position.z = position.z + (velocity.z - velocity_0.z) * dt
+	local delta = SOLVER_ANGULAR_DELTA
+	delta.x = self.AngularVelocity.x - self.SolverAngularVelocity0.x
+	delta.y = self.AngularVelocity.y - self.SolverAngularVelocity0.y
+	delta.z = self.AngularVelocity.z - self.SolverAngularVelocity0.z
+	self.Rotation = integrate_rotation(self.Rotation, delta, dt)
+end
 
 function RigidBody:UpdateVelocities(dt)
 	if self:IsKinematic() then
@@ -1126,6 +1257,9 @@ function RigidBody:UpdateVelocities(dt)
 		self.PreviousRotation:CopyFrom(self.Rotation)
 		return
 	end
+
+	self.ReadyToSleepPass = nil
+	self.SleepDt = dt
 
 	if self.Grounded then
 		local use_grounded_velocity_constraints = self:IsGroundSupportStable()

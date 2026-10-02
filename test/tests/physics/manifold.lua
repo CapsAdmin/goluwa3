@@ -80,6 +80,7 @@ T.TestPhysics("Manifold impulse solve accumulates tangent impulses across frames
 			{
 				local_point_a = Vec3(),
 				local_point_b = Vec3(0, -1, 0),
+				static_friction_active = 0,
 				normal_impulse = 1,
 				tangent_impulse = 0.2,
 				tangent_impulse_2 = 0,
@@ -114,6 +115,7 @@ T.TestPhysics("Manifold impulse solve uses static friction for low tangential sp
 			{
 				local_point_a = Vec3(),
 				local_point_b = Vec3(0, -1, 0),
+				static_friction_active = 0,
 				normal_impulse = 1,
 				tangent_impulse = 0,
 				tangent_impulse_2 = 0,
@@ -142,6 +144,7 @@ T.TestPhysics("Manifold impulse solve falls back to dynamic friction above stati
 			{
 				local_point_a = Vec3(),
 				local_point_b = Vec3(0, -1, 0),
+				static_friction_active = 0,
 				normal_impulse = 1,
 				tangent_impulse = 0,
 				tangent_impulse_2 = 0,
@@ -171,13 +174,13 @@ T.TestPhysics("Manifold static friction hysteresis keeps sticking slightly above
 				local_point_a = Vec3(),
 				local_point_b = Vec3(0, -1, 0),
 				normal_impulse = 1,
-				static_friction_active = true,
+				static_friction_active = 1,
 				tangent = Vec3(1, 0, 0),
 			},
 		},
 	}
 	manifold.SolveImpulses(body_a, body_b, Vec3(0, 1, 0), data, 1 / 60)
-	T(data.contacts[1].static_friction_active)["=="](true)
+	T(data.contacts[1].static_friction_active)["=="](1)
 	T(math.abs(body_a:GetVelocity().x))["<"](0.08)
 end)
 

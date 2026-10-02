@@ -5,6 +5,7 @@ import("goluwa/physics/convex_hull.lua")
 local sweep = import("goluwa/physics/sweep.lua")
 local trace = import("goluwa/physics/trace.lua")
 local constraint = import("goluwa/physics/constraint.lua")
+local stats = import("goluwa/physics/stats.lua")
 local Solver = import("goluwa/physics/solver.lua")
 local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
 local mesh_polyhedron_contacts = import("goluwa/physics/mesh_polyhedron_contacts.lua")
@@ -25,8 +26,9 @@ function Physics.New(config)
 	local self = Physics:CreateObject(config.instance)
 	-- todo
 	self.FixedTimeStep = config.FixedTimeStep or (1 / 60)
-	self.RigidBodyIterations = config.RigidBodyIterations or 8
-	self.RigidBodySubsteps = config.RigidBodySubsteps or 1
+	self.RigidBodyIterations = config.RigidBodyIterations or 1
+	self.RigidBodyRelaxIterations = config.RigidBodyRelaxIterations or 3
+	self.RigidBodySubsteps = config.RigidBodySubsteps or 4
 	self.Gravity = config.Gravity or Vec3(0, -28, 0)
 	self.Up = config.Up or physics_constants.UP
 	self.DefaultCollisionMargin = config.DefaultCollisionMargin or physics_constants.DEFAULT_COLLISION_MARGIN
@@ -54,7 +56,7 @@ function Physics.New(config)
 			self:_ResetState()
 		end
 		self.GetInterpolationAlpha = function()
-			self:_GetInterpolationAlpha()
+			return self:_GetInterpolationAlpha()
 		end
 	end
 
@@ -123,7 +125,14 @@ local function solve_registered_mesh_pair(body_a, body_b, _, _, dt)
 	if not mesh_body then return false end
 
 	local solver_fn = MESH_CONTACT_SOLVERS[dynamic_body:GetShapeType()]
-	return solver_fn and solver_fn(mesh_body, dynamic_body, mesh_shape, dt) or false
+
+	if not solver_fn then return false end
+
+	stats:PushTime("mesh_contacts")
+	stats:Count("mesh_pairs")
+	local result = solver_fn(mesh_body, dynamic_body, mesh_shape, dt)
+	stats:PopTime()
+	return result or false
 end
 
 function Physics:RegisterPairHandlers(solver)
