@@ -1380,6 +1380,8 @@ function ddgi.GetCommonGLSL()
 			ivec3 volume_min = ddgi_volume_base(c);
 			ivec3 volume_max = volume_min + ddgi_volume_size(c) - 1;
 			vec4 sum = vec4(0.0);
+			vec4 hidden_sum = vec4(0.0);
+			float hidden_weight = 0.0;
 
 			for (int i = 0; i < side * side * side; i++) {
 				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
@@ -1393,6 +1395,7 @@ function ddgi.GetCommonGLSL()
 				if (!ddgi_probe_is_current(data, world) || ddgi_probe_disabled(data)) continue;
 
 				vec3 probe_pos = data.xyz * spacing;
+				bool hidden = false;
 
 				#ifdef DDGI_VISIBILITY_RAYS
 				if (ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
@@ -1408,7 +1411,7 @@ function ddgi.GetCommonGLSL()
 
 					while (rayQueryProceedEXT(query)) {}
 
-					if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) continue;
+					hidden = rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
 				}
 				#endif
 
@@ -1440,13 +1443,24 @@ function ddgi.GetCommonGLSL()
 				if (w < 0.2) w *= w * w / 0.04;
 
 				w *= kernel.x * kernel.y * kernel.z;
-				sum += textureLod(
+				vec4 irradiance = textureLod(
 					TEXTURE(ddgi_data.ddgi_irradiance_tex),
 					ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS),
 					0.0
-				) * w;
-				weight += w;
+				);
+
+				if (hidden) {
+					hidden_sum += irradiance * w;
+					hidden_weight += w;
+				} else {
+					sum += irradiance * w;
+					weight += w;
+				}
 			}
+
+			float fallback = 1.0 - smoothstep(0.0, 0.025, weight);
+			sum += hidden_sum * fallback;
+			weight += hidden_weight * fallback;
 
 			// When every probe is all but hidden (a point inside geometry, or
 			// on an edge where the reconstructed position slips behind a wall)
