@@ -495,14 +495,15 @@ do
 				)
 			end
 
-			if grounded then
-				if self.was_grounded and y > 0 and self.ground_speed then
-					local speed = math.sqrt(x * x + z * z)
+			-- how fast the physics left the body moving the way it wants to go, a
+			-- stalled one has a step to take
+			local along = x * move.x + z * move.z
 
-					if speed > 0.0001 and speed < self.ground_speed then
-						local scale = self.ground_speed / speed
-						x = x * scale
-						z = z * scale
+			if grounded then
+				if self.was_grounded and y > 0 and self.ground_x then
+					if x * x + z * z < self.ground_x * self.ground_x + self.ground_z * self.ground_z then
+						x = self.ground_x
+						z = self.ground_z
 					end
 				end
 
@@ -559,11 +560,10 @@ do
 
 			body:ApplyImpulse(Vec3(x - velocity.x, y - velocity.y, z - velocity.z) / body.InverseMass)
 			self.was_grounded = grounded
-			self.ground_speed = grounded and math.sqrt(x * x + z * z) or nil
+			self.ground_x = grounded and x or nil
+			self.ground_z = grounded and z or nil
 
 			if grounded and wish_speed > 0 then
-				local along = x * move.x + z * move.z
-
 				if along < wish_speed * 0.5 then
 					self:TryStepUp(move, math.sqrt(x * x + z * z) * dt)
 				end
