@@ -949,12 +949,12 @@ return function(META)
 
 				-- Always set delta from motion events
 				if event.delta_x and event.delta_y then
-					self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
+					self:SetMouseDelta(self:GetMouseDelta() + Vec2(event.delta_x, event.delta_y))
 				end
 			elseif event.type == "mouse_move_relative" then
 				-- Handle relative motion from locked pointer
 				if event.delta_x and event.delta_y then
-					self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
+					self:SetMouseDelta(self:GetMouseDelta() + Vec2(event.delta_x, event.delta_y))
 				end
 			elseif event.type == "mouse_scroll" then
 				if self:OnMouseScroll(Vec2(event.delta_x, event.delta_y)) == false then

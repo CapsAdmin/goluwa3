@@ -746,7 +746,7 @@ return function(META)
 			elseif event.type == "mouse_button" then
 				if self:OnMouseInput(event.button, event.pressed) == false then break end
 			elseif event.type == "mouse_move" then
-				self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
+				self:SetMouseDelta(self:GetMouseDelta() + Vec2(event.delta_x, event.delta_y))
 				self:OnCursorPosition(Vec2(event.x, event.y))
 			elseif event.type == "mouse_scroll" then
 				if self:OnMouseScroll(Vec2(event.delta_x, event.delta_y)) == false then
