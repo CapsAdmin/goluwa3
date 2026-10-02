@@ -256,7 +256,8 @@ local BIAS_POINT_B = Vec3()
 function manifold.CaptureRestitutionBias(body_a, body_b, normal, manifold_data, stamp)
 	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
 
-	for _, contact in ipairs(manifold_data.contacts or {}) do
+	for i = 1, #manifold_data.contacts do
+		local contact = manifold_data.contacts[i]
 		local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, BIAS_POINT_A)
 		local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, BIAS_POINT_B)
 		contact.v_pre = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b):Dot(normal)
@@ -287,7 +288,8 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	local physics = body_a:GetPhysics()
 	local solver = physics.solver
 
-	for _, contact in ipairs(manifold_data.contacts or {}) do
+	for i = 1, #manifold_data.contacts do
+		local contact = manifold_data.contacts[i]
 		local point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, SOLVER_POINT_A)
 		local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, SOLVER_POINT_B)
 		local normal_impulse = math.max(contact.normal_impulse or 0, 0) * solver.WARM_START_SCALE
@@ -356,10 +358,6 @@ local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 	local position_b = body_b:GetBody().Position
 	local mass_a = body_a:HasSolverMass() and body_a.InverseMass or 0
 	local mass_b = body_b:HasSolverMass() and body_b.InverseMass or 0
-	local movable_a = body_a:IsSolverImmovable() and 0 or 1
-	local movable_b = body_b:IsSolverImmovable() and 0 or 1
-	local has_inertia_a = body_a:HasSolverMass()
-	local has_inertia_b = body_b:HasSolverMass()
 	local contacts = manifold_data.contacts
 
 	for i = 1, #contacts do
@@ -395,7 +393,7 @@ local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 		contact.ca_x, contact.ca_y, contact.ca_z = cx, cy, cz
 		local inverse_mass = 0
 
-		if has_inertia_a then
+		if mass_a > 0 then
 			local delta = body_a:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, cx, cy, cz))
 			contact.wa_x, contact.wa_y, contact.wa_z = delta.x, delta.y, delta.z
 			inverse_mass = inverse_mass + mass_a + cx * delta.x + cy * delta.y + cz * delta.z
@@ -408,7 +406,7 @@ local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 		cx, cy, cz = ry * nz - rz * ny, rz * nx - rx * nz, rx * ny - ry * nx
 		contact.cb_x, contact.cb_y, contact.cb_z = cx, cy, cz
 
-		if has_inertia_b then
+		if mass_b > 0 then
 			local delta = body_b:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, cx, cy, cz))
 			contact.wb_x, contact.wb_y, contact.wb_z = delta.x, delta.y, delta.z
 			inverse_mass = inverse_mass + mass_b + cx * delta.x + cy * delta.y + cz * delta.z
@@ -439,20 +437,20 @@ local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 
 	local twist_inverse_mass = 0
 
-	if has_inertia_a then
+	if mass_a > 0 then
 		local delta = body_a:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, nx, ny, nz))
 		twist_inverse_mass = twist_inverse_mass + nx * delta.x + ny * delta.y + nz * delta.z
 	end
 
-	if has_inertia_b then
+	if mass_b > 0 then
 		local delta = body_b:GetAngularVelocityDelta(Vec3.Set(PREPARE_CROSS, nx, ny, nz))
 		twist_inverse_mass = twist_inverse_mass + nx * delta.x + ny * delta.y + nz * delta.z
 	end
 
 	manifold_data.twist_mass = twist_inverse_mass > EPSILON and 1 / twist_inverse_mass or 0
 	manifold_data.prepared_step = stamp
-	manifold_data.prepared_mass_a = mass_a * movable_a
-	manifold_data.prepared_mass_b = mass_b * movable_b
+	manifold_data.prepared_mass_a = mass_a
+	manifold_data.prepared_mass_b = mass_b
 end
 
 -- world-space inverse inertia applied to a world vector: R * I^-1 * R^T * v
