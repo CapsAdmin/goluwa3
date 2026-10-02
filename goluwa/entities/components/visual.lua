@@ -72,6 +72,14 @@ local function refresh_translucent_registry(component)
 	end
 end
 
+local function refresh_glass_registry(component)
+	if component.HasGlassRenderEntries then
+		registry_insert(visual.glass_components, "glass_registry_index", component)
+	else
+		registry_remove(visual.glass_components, "glass_registry_index", component)
+	end
+end
+
 local function refresh_occlusion_registries(component)
 	component.using_conditional_rendering = component.UseOcclusionCulling and
 		visual.IsOcclusionCullingEnabled and
@@ -1083,6 +1091,7 @@ function Visual:Initialize()
 	self.LoadGeneration = 0
 	refresh_forward_overlay_registry(self)
 	refresh_translucent_registry(self)
+	refresh_glass_registry(self)
 end
 
 function Visual:SetUseOcclusionCulling(enabled)
@@ -1135,6 +1144,7 @@ function Visual:InvalidateRenderEntries()
 	self.HasIgnoreZRenderEntries = false
 	self.HasOpaqueRenderEntries = false
 	self.HasTranslucentRenderEntries = false
+	self.HasGlassRenderEntries = false
 	self.gpu_dataset_static_serialized = nil
 	self.gpu_dataset_shadow_serialized = nil
 	self.WorldAABBCache = nil
@@ -1144,6 +1154,7 @@ function Visual:InvalidateRenderEntries()
 	mark_shadow_change(self)
 	refresh_forward_overlay_registry(self)
 	refresh_translucent_registry(self)
+	refresh_glass_registry(self)
 	mark_scene_component_dirty(self, true)
 	-- the triangle soup is baked from render entries, so a change in entry
 	-- topology invalidates it even when no transform moved
@@ -1260,6 +1271,7 @@ function Visual:RebuildRenderEntries()
 	local has_ignore_z_entries = false
 	local has_opaque_entries = false
 	local has_translucent_entries = false
+	local has_glass_entries = false
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
 		local primitive = child.visual_primitive
@@ -1300,6 +1312,8 @@ function Visual:RebuildRenderEntries()
 					has_ignore_z_entries = true
 				elseif material_is_translucent(resolved_material) then
 					has_translucent_entries = true
+
+					if resolved_material:IsGlass() then has_glass_entries = true end
 				else
 					has_opaque_entries = true
 				end
@@ -1316,9 +1330,11 @@ function Visual:RebuildRenderEntries()
 	self.HasIgnoreZRenderEntries = has_ignore_z_entries
 	self.HasOpaqueRenderEntries = has_opaque_entries
 	self.HasTranslucentRenderEntries = has_translucent_entries
+	self.HasGlassRenderEntries = has_glass_entries
 	self:SetAABB(bounds)
 	refresh_forward_overlay_registry(self)
 	refresh_translucent_registry(self)
+	refresh_glass_registry(self)
 	return entries
 end
 
@@ -1436,6 +1452,7 @@ do
 	visual.shadow_casters = visual.shadow_casters or {}
 	visual.forward_overlay_components = visual.forward_overlay_components or {}
 	visual.translucent_components = visual.translucent_components or {}
+	visual.glass_components = visual.glass_components or {}
 
 	function visual.EnableShadowDrawDebug(filter, should_log)
 		visual.shadow_debug_filter = filter == nil and true or filter
@@ -3243,6 +3260,7 @@ function Visual:OnRemove()
 	registry_remove(visual.shadow_casters, "shadow_registry_index", self)
 	registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", self)
 	registry_remove(visual.translucent_components, "translucent_registry_index", self)
+	registry_remove(visual.glass_components, "glass_registry_index", self)
 	self.scene_removed = true
 	self.RenderEntries = {}
 	self:InvalidateRenderEntries()
@@ -3431,7 +3449,7 @@ function Visual:OnFirstCreated()
 		-- every glass entry, culled from the view or not: the glass out of sight
 		-- can still tint what is in it
 		event.AddListener("CollectGlassTint", "visual_glass_tint_collect", function(out)
-			for _, component in ipairs(visual.translucent_components) do
+			for _, component in ipairs(visual.glass_components) do
 				if component.Visible then
 					for _, entry in ipairs(component:GetRenderEntries()) do
 						local material = component:GetResolvedMaterial(entry)

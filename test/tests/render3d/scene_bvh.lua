@@ -236,3 +236,118 @@ T.Test3D("Graphics render3d scene bvh instances share shapes but keep their tran
 		case.ent:Remove()
 	end
 end)
+
+-- the frustum walk of the top tree marks a subtree inside the planes from a
+-- cached run of its leaves. it has to mark exactly the blocks a test of every
+-- block's bounds against the planes does, after the tree grew, lost blocks
+-- and had blocks moved
+T.Test3D("Graphics render3d scene bvh frustum marks match testing every block", function(draw)
+	local polygon3d = Polygon3D.New()
+	polygon3d:CreateCube(1)
+	polygon3d:BuildBoundingBox()
+	polygon3d:Upload()
+	local material = Material.New{Color = Color(0.8, 0.8, 0.8, 1)}
+	local ents = {}
+	local seed = 12345
+
+	local function random()
+		seed = (seed * 1103515245 + 12345) % 2147483648
+		return seed / 2147483648
+	end
+
+	local function add(i)
+		local ent = Entity.New{Name = "sbvh_frustum_" .. i}
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(Vec3(random() * 400 - 200, random() * 60, random() * 400 - 200))
+		local s = 1 + random() * 6
+		ent.transform:SetScale(Vec3(s, s, s))
+		ent:AddComponent("visual")
+		local p = Entity.New{Name = "sbvh_frustum_p_" .. i, Parent = ent}
+		p:AddComponent("transform")
+		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
+		p.visual_primitive:SetMaterial(material)
+		ent.visual:BuildAABB()
+		ents[#ents + 1] = ent
+	end
+
+	for i = 1, 300 do
+		add(i)
+	end
+
+	draw()
+
+	local function check(label)
+		local count = #scene_bvh.blocks
+
+		for frustum = 1, 12 do
+			local planes = ffi.new("float[24]")
+
+			for p = 0, 5 do
+				local nx, ny, nz = random() - 0.5, random() - 0.5, random() - 0.5
+				local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+				nx, ny, nz = nx / length, ny / length, nz / length
+				-- a point inside a box that holds the scene, the planes
+				-- cut it at random, a few cut away little of it
+				local px, py, pz = random() * 500 - 250, random() * 100 - 20, random() * 500 - 250
+				local push = frustum <= 4 and 400 or 0
+				planes[p * 4], planes[p * 4 + 1], planes[p * 4 + 2] = nx, ny, nz
+				planes[p * 4 + 3] = -(nx * px + ny * py + nz * pz) + push
+			end
+
+			scene_bvh.MarkVisibleBlocks(planes)
+			local marked = 0
+
+			for i = 0, count - 1 do
+				local b = scene_bvh.raster_bounds + i * 6
+				local inside = true
+
+				for p = 0, 5 do
+					local a, bb, c, d = planes[p * 4], planes[p * 4 + 1], planes[p * 4 + 2], planes[p * 4 + 3]
+					local x = a > 0 and b[3] or b[0]
+					local y = bb > 0 and b[4] or b[1]
+					local z = c > 0 and b[5] or b[2]
+
+					if a * x + bb * y + c * z + d < 0 then
+						inside = false
+
+						break
+					end
+				end
+
+				local got = scene_bvh.raster_visible[i] ~= 0
+				scene_bvh.raster_visible[i] = 0
+				T(got)["=="](inside)
+
+				if got then marked = marked + 1 end
+			end
+		end
+	end
+
+	scene_bvh.Build(true)
+	check("built")
+
+	for i = 1, 100 do
+		ents[i]:Remove()
+	end
+
+	scene_bvh.Build()
+	check("after removing")
+
+	for i = 101, 160 do
+		ents[i].transform:SetPosition(Vec3(random() * 400 - 200, random() * 60, random() * 400 - 200))
+	end
+
+	scene_bvh.Build()
+	check("after moving")
+
+	for i = 301, 360 do
+		add(i)
+	end
+
+	scene_bvh.Build()
+	check("after adding")
+
+	for _, ent in ipairs(ents) do
+		if ent:IsValid() then ent:Remove() end
+	end
+end)

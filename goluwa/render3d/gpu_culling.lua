@@ -1574,6 +1574,17 @@ local function create_buffer(label, byte_size, usage, data)
 	}
 end
 
+-- for what the cpu reads every frame. memory the gpu also uses well is
+-- uncached for the cpu, which makes every read cross the bus
+local function create_readback_buffer(label, byte_size, usage)
+	return render.CreateBuffer{
+		byte_size = byte_size,
+		buffer_usage = usage,
+		memory_property = {"host_visible", "host_coherent", "host_cached"},
+		label = label,
+	}
+end
+
 local function create_buffer_with_data(label, byte_capacity, usage, data, data_byte_size)
 	local buffer = render.CreateBuffer{
 		byte_size = math.max(byte_capacity, 1),
@@ -1819,7 +1830,7 @@ local function build_frame_buffers(dataset, capacity)
 				visible_entry_capacity * UINT32_SIZE,
 				{"storage_buffer"}
 			),
-			entry_visibility_buffer = create_buffer(
+			entry_visibility_buffer = create_readback_buffer(
 				"gpu_culling_entry_visibility_" .. frame_index,
 				visible_entry_capacity * UINT32_SIZE,
 				{"storage_buffer", "transfer_dst"}

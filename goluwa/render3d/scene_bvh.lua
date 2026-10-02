@@ -174,13 +174,81 @@ end
 do
 	local node_stack = {}
 	local mask_stack = {}
+	-- the leaves of every top node's subtree are a run of leaf_blocks, in tree
+	-- order, so a subtree inside the frustum is marked with one loop instead
+	-- of a walk over its nodes. rebuilt when a build changed the tree
+	local leaf_first = Int32Array(1)
+	local leaf_count = Int32Array(1)
+	local leaf_blocks = Int32Array(1)
+	local node_capacity = 1
+	local leaf_capacity = 1
+	local ranges_version = -1
+	local walk_stack = {}
+
+	local function grow_leaf_ranges(node_needed, leaf_needed)
+		if node_needed > node_capacity then
+			local capacity = math.max(node_needed, node_capacity * 2)
+			local first, count = Int32Array(capacity), Int32Array(capacity)
+			ffi.copy(first, leaf_first, node_capacity * 4)
+			ffi.copy(count, leaf_count, node_capacity * 4)
+			leaf_first, leaf_count, node_capacity = first, count, capacity
+		end
+
+		if leaf_needed > leaf_capacity then
+			local capacity = math.max(leaf_needed, leaf_capacity * 2)
+			local blocks = Int32Array(capacity)
+			ffi.copy(blocks, leaf_blocks, leaf_capacity * 4)
+			leaf_blocks, leaf_capacity = blocks, capacity
+		end
+	end
+
+	local function build_leaf_ranges()
+		local nodes = scene_bvh.nodes
+		local top_leaf_block = scene_bvh.top_leaf_block
+		grow_leaf_ranges(scene_bvh.top_count * 2 + 16, scene_bvh.top_count + 8)
+		local written = 0
+		local top = 1
+		walk_stack[1] = 0
+
+		while top > 0 do
+			local entry = walk_stack[top]
+			top = top - 1
+
+			if entry >= 0 then
+				leaf_first[entry] = written
+				local block_index = top_leaf_block[entry]
+
+				if block_index ~= 0 then
+					grow_leaf_ranges(0, written + 1)
+					leaf_blocks[written] = block_index - 1
+					written = written + 1
+					leaf_count[entry] = 1
+				else
+					local left = nodes[entry].left_first
+					grow_leaf_ranges(left + 2, 0)
+					walk_stack[top + 1] = -entry - 1
+					walk_stack[top + 2] = left + 1
+					walk_stack[top + 3] = left
+					top = top + 3
+				end
+			else
+				local index = -entry - 1
+				leaf_count[index] = written - leaf_first[index]
+			end
+		end
+	end
 
 	function scene_bvh.MarkVisibleBlocks(planes)
 		local nodes = scene_bvh.nodes
 		local top_leaf_block = scene_bvh.top_leaf_block
 		local visible = scene_bvh.raster_visible
 
-		if not (nodes and visible) then return end
+		if not (nodes and visible) or scene_bvh.top_count == 0 then return end
+
+		if ranges_version ~= scene_bvh.version then
+			build_leaf_ranges()
+			ranges_version = scene_bvh.version
+		end
 
 		node_stack[1] = 0
 		mask_stack[1] = 63
@@ -242,17 +310,25 @@ do
 			end
 
 			do
-				local block_index = top_leaf_block[index]
+				if mask == 0 then
+					local first = leaf_first[index]
 
-				if block_index ~= 0 then
-					visible[block_index - 1] = 1
+					for i = first, first + leaf_count[index] - 1 do
+						visible[leaf_blocks[i]] = 1
+					end
 				else
-					local left = nodes[index].left_first
-					node_stack[top + 1] = left
-					mask_stack[top + 1] = mask
-					node_stack[top + 2] = left + 1
-					mask_stack[top + 2] = mask
-					top = top + 2
+					local block_index = top_leaf_block[index]
+
+					if block_index ~= 0 then
+						visible[block_index - 1] = 1
+					else
+						local left = nodes[index].left_first
+						node_stack[top + 1] = left
+						mask_stack[top + 1] = mask
+						node_stack[top + 2] = left + 1
+						mask_stack[top + 2] = mask
+						top = top + 2
+					end
 				end
 			end
 
