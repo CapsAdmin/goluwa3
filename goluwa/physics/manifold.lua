@@ -495,6 +495,7 @@ function manifold.SolveImpulses(
 		prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 	end
 
+	local bounces = restitution > 0
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local passes = physics.solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
 	-- soft contact: a spring-damper per contact (Box2D soft step), static
@@ -503,7 +504,7 @@ function manifold.SolveImpulses(
 	local bias_rate = 0
 	local soft_mass_scale = 1
 	local soft_impulse_scale = 0
-	local speculative = 0
+	local speculative = false
 
 	-- a sleeping body skipped gravity this substep, so the soft solve would
 	-- relax the support impulse it still carries and kick it awake
@@ -535,8 +536,10 @@ function manifold.SolveImpulses(
 		soft_impulse_scale = 1 / (1 + a2)
 		soft_mass_scale = a2 * soft_impulse_scale
 		bias_rate = omega / a1
-		speculative = 1
+		speculative = true
 	end
+
+	local position_correction = -math.huge
 
 	for pass = 1, passes do
 		for contact_index = 1, #manifold_data.contacts do
@@ -555,7 +558,9 @@ function manifold.SolveImpulses(
 				-- A closed gap solves softly with a push-out bias, an open gap is
 				-- speculative: it may still approach by gap / dt.
 				local gap = contact.separation - (contact.v_pre or 0) * dt
-				local open_gap = speculative * math.min(1, math.max(0, gap * 1e30))
+				local open_gap = 0
+
+				if speculative then open_gap = math.min(1, math.max(0, gap * 1e30)) end
 
 				-- the relax pass solves a contact as touching so a resting body keeps
 				-- its support, but one that is clearly open stays open: solved as
@@ -569,8 +574,7 @@ function manifold.SolveImpulses(
 						bias_rate * (gap + physics.solver.PENETRATION_SLOP),
 						-physics.solver.CONTACT_PUSH_SPEED
 					)
-				body_a.PositionCorrection = math.max(body_a.PositionCorrection, -(gap + physics.solver.PENETRATION_SLOP) * (1 - open_gap))
-				body_b.PositionCorrection = math.max(body_b.PositionCorrection, -(gap + physics.solver.PENETRATION_SLOP) * (1 - open_gap))
+				position_correction = math.max(position_correction, -(gap + physics.solver.PENETRATION_SLOP) * (1 - open_gap))
 				local normal_impulse = -(
 						1 + (
 							1 - open_gap
@@ -589,7 +593,7 @@ function manifold.SolveImpulses(
 				local impulse_delta = new_impulse - (contact.normal_impulse or 0)
 				contact.normal_impulse = new_impulse
 
-				if restitution > 0 then
+				if bounces then
 					contact.rest_total = (contact.rest_total or 0) + new_impulse
 				end
 
@@ -883,6 +887,9 @@ function manifold.SolveImpulses(
 			end
 		end
 	end
+
+	body_a.PositionCorrection = math.max(body_a.PositionCorrection, position_correction)
+	body_b.PositionCorrection = math.max(body_b.PositionCorrection, position_correction)
 
 	-- a sleeping body only wakes once the impulses push it past its thresholds
 	if body_a.Awake == false then
