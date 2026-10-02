@@ -2263,7 +2263,7 @@ local function ensure_shadow_cull_output(self, cascade_index, key)
 	if output then gpu_culling.RemoveShadowQueryOutput(output) end
 
 	output = gpu_culling.CreateShadowQueryOutput(
-		string.format("render3d_%s_%s_%d", key, tostring(self), cascade_index),
+		string.format("shadow_%s_%d", key, cascade_index),
 		shadow_entry_capacity,
 		shadow_instanced_batch_count,
 		shadow_instance_capacity,

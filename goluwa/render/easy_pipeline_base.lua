@@ -779,6 +779,7 @@ do
 
 			local function build_framebuffer_config()
 				local config = {
+					name = (self.config.name or "pipeline") .. " framebuffer",
 					width = size.x,
 					height = size.y,
 					formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,

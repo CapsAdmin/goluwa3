@@ -81,7 +81,7 @@ local function normalize_primitive_topology(mode)
 end
 
 local function build_mesh_buffer_name(name, suffix)
-	if not name or name == "" then return nil end
+	if not name or name == "" then return "mesh " .. suffix end
 
 	return name .. " " .. suffix
 end

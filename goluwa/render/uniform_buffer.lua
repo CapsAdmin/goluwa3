@@ -24,6 +24,7 @@ local function create_ring_buffer(self)
 		byte_size = self.ring_size,
 		buffer_usage = {"uniform_buffer"},
 		memory_property = {"host_visible", "host_coherent"},
+		label = self.name or "uniform_buffer",
 	}
 	self.mapped = self.buffer:Map()
 end

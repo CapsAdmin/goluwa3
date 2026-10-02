@@ -510,7 +510,13 @@ function Texture.New(config)
 		self.is_compressed = is_compressed
 		self.vulkan_info = vulkan_info
 
-		if self.debug_name then self:SetDebugName(self.debug_name) end
+		if self.debug_name then
+			self:SetDebugName(self.debug_name)
+		elseif image and not image.debug_name then
+			image:SetDebugName(
+				(config.path or string.format("texture %sx%s %s", image.width, image.height, format)) .. " image"
+			)
+		end
 
 		if self.object_tags then
 			for key, value in pairs(self.object_tags) do

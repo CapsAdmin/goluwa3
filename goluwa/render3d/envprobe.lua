@@ -703,6 +703,7 @@ function envprobe.CreatePipelines()
 	end
 
 	envprobe.sky_pipeline = EasyPipeline.New{
+		name = "envprobe_sky",
 		ColorFormat = {
 			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
 			{"r32_sfloat", {"linear_depth", "r"}},

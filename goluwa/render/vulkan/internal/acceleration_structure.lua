@@ -149,8 +149,8 @@ function AccelerationStructure:EnsureScratch(size)
 		size = size,
 		usage = {"shader_device_address", "storage_buffer"},
 		properties = {"device_local"},
-		label = "acceleration_structure_scratch_" .. self.type,
 	}
+	self.scratch:SetDebugName("acceleration_structure_scratch_" .. self.type)
 	self.scratch_size = size
 	self.scratch_data = self.scratch:GetDeviceAddress()
 	return self.scratch_data
