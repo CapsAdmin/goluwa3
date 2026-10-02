@@ -16,7 +16,7 @@ local function example_material(name)
 	return assets.Load("materials/examples/" .. name .. ".lua")
 end
 
-local DistanceConstraint = import("goluwa/physics/constraint.lua")
+local DistanceConstraint = import("goluwa/physics/constraints/distance.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local shapes = import("lua/shapes.lua")
@@ -284,7 +284,7 @@ do -- distance constraints: unilateral rope vs compliant spring
 			Friction = 0.4,
 		}
 	)
-	rope_constraint = DistanceConstraint.New(nil, rope_ball, rope_anchor, rope_ball:GetPosition(), 6.5, 0, false)
+	rope_constraint = DistanceConstraint.New(nil, rope_ball, rope_anchor, rope_ball:GetPosition(), {Length = 6.5})
 	rope_ball:SetVelocity(Vec3(4.5, 0, 0))
 	_, spring_ball = spawn_dynamic_sphere(
 		spring_anchor + Vec3(2.2, -3.2, 0),
@@ -298,7 +298,13 @@ do -- distance constraints: unilateral rope vs compliant spring
 			Friction = 0.4,
 		}
 	)
-	spring_constraint = DistanceConstraint.New(nil, spring_ball, spring_anchor, spring_ball:GetPosition(), 4.2, 0.05, false)
+	spring_constraint = DistanceConstraint.New(
+		nil,
+		spring_ball,
+		spring_anchor,
+		spring_ball:GetPosition(),
+		{Length = 4.2, Stiffness = 20}
+	)
 	spring_ball:SetVelocity(Vec3(-2.5, 0, 0))
 end
 
@@ -526,7 +532,7 @@ do -- per-frame forces: ApplyForce hover + ApplyTorque spin
 			Restitution = 0.1,
 		}
 	)
-	DistanceConstraint.New(nil, spinner_body, spinner_anchor, spinner_body:GetPosition(), 3.5, 0, false)
+	DistanceConstraint.New(nil, spinner_body, spinner_anchor, spinner_body:GetPosition(), {Length = 3.5})
 end
 
 local bullet_a_body

@@ -173,6 +173,8 @@ function Solver.New(config)
 	self.CONTACT_DAMPING_RATIO = config.CONTACT_DAMPING_RATIO or self.CONTACT_DAMPING_RATIO or 10
 	self.JOINT_HERTZ = config.JOINT_HERTZ or self.JOINT_HERTZ or 60
 	self.JOINT_DAMPING_RATIO = config.JOINT_DAMPING_RATIO or self.JOINT_DAMPING_RATIO or 2
+	-- joints are cheap next to contacts and chains need the sweeps to carry a load
+	self.JOINT_ITERATIONS = config.JOINT_ITERATIONS or self.JOINT_ITERATIONS or 2
 	self.CONTACT_PUSH_SPEED = config.CONTACT_PUSH_SPEED or self.CONTACT_PUSH_SPEED or 3
 	self.REBUILD_POSE_THRESHOLD = config.REBUILD_POSE_THRESHOLD or self.REBUILD_POSE_THRESHOLD or 0.01
 	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or 0.9
@@ -299,7 +301,7 @@ function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, r
 	return resting_passes
 end
 
-function Solver:BeginStep(collide)
+function Solver:BeginStep(collide, dt)
 	local physics = self:GetPhysics()
 	self.StepStamp = (self.StepStamp or 0) + 1
 
@@ -313,8 +315,9 @@ function Solver:BeginStep(collide)
 	)
 	local constraints = physics:GetConstraints()
 
-	for i = 1, #constraints do
-		constraints[i]:BeginStep()
+	-- a joint that breaks removes itself from the list
+	for i = #constraints, 1, -1 do
+		constraints[i]:BeginStep(dt)
 	end
 end
 
@@ -381,6 +384,14 @@ function Solver:WarnMissingPairHandler(shape_a, shape_b)
 	end
 end
 
+function Solver:WarmStartConstraints(dt, constraints)
+	for i = #constraints, 1, -1 do
+		local constraint = constraints[i]
+
+		if constraint.Enabled ~= false then constraint:WarmStart(dt) end
+	end
+end
+
 -- Joints are soft constraints solved at velocity level next to the contacts:
 -- the biased call (relax false) pulls the error in with the joint softness,
 -- the relax calls solve rigidly with no bias.
@@ -392,11 +403,13 @@ function Solver:SolveConstraints(dt, constraints_override, relax)
 	local impulse_scale = 1 / (1 + dt * omega * a1)
 	local bias_rate = omega / a1
 
-	for i = #constraints, 1, -1 do
-		local constraint = constraints[i]
+	for _ = 1, self.JOINT_ITERATIONS do
+		for i = #constraints, 1, -1 do
+			local constraint = constraints[i]
 
-		if constraint and constraint.Enabled ~= false then
-			constraint:Solve(dt, relax, bias_rate, impulse_scale)
+			if constraint and constraint.Enabled ~= false then
+				constraint:Solve(dt, relax, bias_rate, impulse_scale)
+			end
 		end
 	end
 end

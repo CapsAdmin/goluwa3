@@ -4,7 +4,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
-local DistanceConstraint = import("goluwa/physics/constraint.lua")
+local DistanceConstraint = import("goluwa/physics/constraints/distance.lua")
 local sphere_shape = SphereShape.New
 
 local function create_dynamic_sphere(name, position, config)
@@ -43,9 +43,7 @@ T.TestPhysics("Distance constraint keeps two dynamic bodies linked", function()
 		body1,
 		ent0.transform:GetPosition(),
 		ent1.transform:GetPosition(),
-		2,
-		0,
-		false
+		{Length = 2}
 	)
 	body0:ApplyImpulse(Vec3(10, 0, 0))
 	test_helpers.Simulate(90, 1 / 120)
@@ -67,7 +65,7 @@ T.TestPhysics("Distance constraint supports world anchors", function()
 	physics.RemoveAllConstraints()
 	local anchor = Vec3(0, 2, 0)
 	local ent, body = create_dynamic_sphere("constraint_anchor_body", Vec3(3, 2, 0))
-	local constraint = DistanceConstraint.New(nil, body, anchor, ent.transform:GetPosition(), 1, 0, false)
+	local constraint = DistanceConstraint.New(nil, body, anchor, ent.transform:GetPosition(), {Length = 1})
 	test_helpers.Simulate(10, 1 / 60)
 	local position = ent.transform:GetPosition():Copy()
 	local anchored_distance = (position - anchor):GetLength()
@@ -84,7 +82,7 @@ T.TestPhysics("Unilateral distance constraint behaves like a rope", function()
 	physics.RemoveAllConstraints()
 	local anchor = Vec3(0, 0, 0)
 	local ent, body = create_dynamic_sphere("constraint_rope_body", Vec3(1, 0, 0))
-	local constraint = DistanceConstraint.New(nil, body, anchor, ent.transform:GetPosition(), 2, 0, true)
+	local constraint = DistanceConstraint.New(nil, body, anchor, ent.transform:GetPosition(), {Length = 2, Unilateral = true})
 	test_helpers.Simulate(12, 1 / 120)
 	local relaxed_distance = (ent.transform:GetPosition() - anchor):GetLength()
 	ent.transform:SetPosition(Vec3(4, 0, 0))

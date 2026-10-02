@@ -1260,8 +1260,12 @@ function RigidBody:UpdateVelocities(dt)
 
 	self.ReadyToSleepPass = nil
 	self.SleepDt = dt
+	-- the ground clamp zeroes the speed into the ground, which is only right
+	-- for ground that does not move: a body standing on another body has to
+	-- hand that speed over to it, and the contact solve does exactly that
+	local ground_body = self.GroundBody
 
-	if self.Grounded then
+	if self.Grounded and not (ground_body and ground_body:HasSolverMass()) then
 		local use_grounded_velocity_constraints = self:IsGroundSupportStable()
 		local shape = self:GetPhysicsShape()
 

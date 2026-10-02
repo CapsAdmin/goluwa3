@@ -547,7 +547,18 @@ local function split_island(island)
 				local body_a = constraint.Body0
 				local body_b = constraint.Body1
 
-				if new_island.body_set[body_a] and new_island.body_set[body_b] then
+				-- a nil body is the world, which belongs to every island
+				if
+					(
+						not body_a or
+						new_island.body_set[body_a]
+					)
+					and
+					(
+						not body_b or
+						new_island.body_set[body_b]
+					)
+				then
 					new_island.constraint_set[constraint] = true
 					new_island.constraints[#new_island.constraints + 1] = constraint
 					new_island.needs_constraint_refresh = true
@@ -580,7 +591,19 @@ local function split_island(island)
 		local body_a = constraint.Body0
 		local body_b = constraint.Body1
 
-		if not (island.body_set[body_a] and island.body_set[body_b]) then
+		if
+			not (
+				(
+					not body_a or
+					island.body_set[body_a]
+				)
+				and
+				(
+					not body_b or
+					island.body_set[body_b]
+				)
+			)
+		then
 			island.constraint_set[constraint] = nil
 			local constraints = island.constraints
 
@@ -950,6 +973,18 @@ local function detach_body_from_island(island, body)
 			prev_constraints[constraint] = nil
 		end
 	end
+end
+
+-- A removed constraint is cleared on the next update, which forgets its
+-- bodies, so it has to leave its island while it still knows them.
+function islands.RemoveConstraint(constraint)
+	local island = body_island[constraint.Body0] or body_island[constraint.Body1]
+
+	if island and island.constraint_set[constraint] then
+		remove_constraint_from_island(island, constraint)
+	end
+
+	prev_constraints[constraint] = nil
 end
 
 function islands.RemoveBody(body)

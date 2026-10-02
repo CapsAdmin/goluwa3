@@ -5,7 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
-local HingeConstraint = import("goluwa/physics/hinge_constraint.lua")
+local HingeConstraint = import("goluwa/physics/constraints/hinge.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 
 local function spawn_box(name, position, size, config)

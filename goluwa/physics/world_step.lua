@@ -1,4 +1,6 @@
+local static_model_query = import("goluwa/physics/static_model_query.lua")
 local event = import("goluwa/event.lua")
+local constraint = import("goluwa/physics/constraint.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local islands = import("goluwa/physics/islands.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
@@ -74,6 +76,7 @@ function world_step.Step(physics, dt)
 	if not dt or dt <= 0 then return end
 
 	physics.StepIndex = (physics.StepIndex or 0) + 1
+	static_model_query.InvalidateWorldModels()
 	physics.UpdateRigidBodies(dt)
 end
 
@@ -163,7 +166,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 	for substep = 1, substeps do
 		local collide = substep == 1
-		solver:BeginStep(collide)
+		constraint.InvalidatePoses()
+		solver:BeginStep(collide, sub_dt)
 		stats:PushTime("integrate")
 		local awake_count = 0
 
@@ -246,6 +250,21 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PopTime()
 		refresh_support_entries(bodies)
 		local substep_id = solver.StepStamp or 0
+		stats:PushTime("constraints")
+
+		if simulation_islands and simulation_islands[1] then
+			for island_index = 1, #simulation_islands do
+				local island = simulation_islands[island_index]
+
+				if not islands.IsSleepingIsland(island) then
+					solver:WarmStartConstraints(sub_dt, island.constraints)
+				end
+			end
+		else
+			solver:WarmStartConstraints(sub_dt, constraints)
+		end
+
+		stats:PopTime()
 
 		for iter = 1, iterations do
 			if simulation_islands and simulation_islands[1] then
@@ -295,6 +314,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 		end
 
 		stats:PopTime()
+		-- the bodies moved with the solver delta, the joints see the new pose
+		constraint.InvalidatePoses()
 		stats:PushTime("relax")
 
 		for _ = 1, relax_iterations do
@@ -359,6 +380,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	end
 
 	collision_pairs:DispatchCollisionEvents()
+	constraint.RemoveBroken()
 	stats:PopTime()
 	stats:PopTime()
 end

@@ -45,6 +45,7 @@ local should_skip_model = sweep_candidates.ShouldSkipModel
 local should_skip_rigid_body = sweep_candidates.ShouldSkipRigidBody
 local get_rigid_body_candidate_aabb = sweep_candidates.GetRigidBodyCandidateAABB
 local get_collider_candidate_aabb = sweep_candidates.GetColliderCandidateAABB
+
 local function collect_rigid_body_candidates(...)
 	stats:PushTime("sweep_candidates")
 	sweep_candidates.CollectRigidBodyCandidates(...)
@@ -1185,7 +1186,7 @@ local function sweep_world(physics, origin, movement, radius, ignore_entity, fil
 	local best_fraction = 1
 
 	if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
-		static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates)
+		static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates, options.IgnoreRigidBodies ~= false)
 	end
 
 	collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
@@ -1237,7 +1238,7 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 		local best_fraction = 1
 
 		if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
-			static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates)
+			static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates, options.IgnoreRigidBodies ~= false)
 		end
 
 		collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
@@ -1331,7 +1332,7 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 	local best_fraction = 1
 
 	if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
-		static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates)
+		static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates, options.IgnoreRigidBodies ~= false)
 	end
 
 	collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
