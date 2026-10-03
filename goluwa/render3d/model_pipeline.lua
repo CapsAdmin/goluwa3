@@ -1177,7 +1177,8 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 				if (
 					%s == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
-					AlbedoAlphaIsEmissive
+					AlbedoAlphaIsEmissive ||
+					BlendTintByBaseAlpha
 				) {
 					return %s;
 				}
@@ -1204,7 +1205,13 @@ function model_pipeline.BuildSurfaceSamplingGlsl()
 				vec4 color = model.ColorMultiplier;
 
 				if (model.AlbedoTexture != -1) {
-					color *= texture(TEXTURE(model.AlbedoTexture), in_uv);
+					vec4 texel = texture(TEXTURE(model.AlbedoTexture), in_uv);
+
+					if (BlendTintByBaseAlpha) {
+						color = vec4(mix(vec3(1.0), color.rgb, texel.a) * texel.rgb, color.a);
+					} else {
+						color *= texel;
+					}
 				}
 
 				return color;
@@ -1593,7 +1600,13 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return blend_ground_color(color_model.ColorMultiplier.rgb, world_pos);
 				}
 
-				vec3 rgb1 = texture(TEXTURE(model.AlbedoTexture), uv).rgb;
+				vec4 albedo_texel = texture(TEXTURE(model.AlbedoTexture), uv);
+				vec3 rgb1 = albedo_texel.rgb;
+				vec3 tint = color_model.ColorMultiplier.rgb;
+
+				if (BlendTintByBaseAlpha) {
+					tint = mix(vec3(1.0), tint, albedo_texel.a);
+				}
 
 				if (detail_model.Albedo2Texture != -1) {
 					float blend = get_texture_blend_uv(uv);
@@ -1610,7 +1623,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					rgb1 = mix(rgb1, rgb1 * detail, detail_model.DetailBlendAmount);
 				}
 
-				return blend_ground_color(rgb1 * color_model.ColorMultiplier.rgb, world_pos);
+				return blend_ground_color(rgb1 * tint, world_pos);
 			}
 
 			vec3 get_albedo_uv(vec2 uv) {
@@ -1625,8 +1638,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				if (
 					model.AlbedoTexture == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
-					AlbedoTextureAlphaIsRoughness ||
-					AlbedoAlphaIsEmissive
+					AlbedoAlphaIsEmissive ||
+					BlendTintByBaseAlpha
 				) {
 					return color_model.ColorMultiplier.a;
 				}
@@ -1682,10 +1695,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			vec3 decode_normal_map(vec2 xy) {
 				xy = xy * 2.0 - 1.0;
 
-				if (ReverseXZNormalMap) {
-					xy = -xy;
-				}
-
 				return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
 			}
 
@@ -1701,10 +1710,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					w.g * vec3(-0.40824821, 0.70710677, 0.57735026) +
 					w.b * vec3(-0.40824821, -0.70710677, 0.57735026)
 				);
-
-				if (ReverseXZNormalMap) {
-					n.xy = -n.xy;
-				}
 
 				return n;
 			}
@@ -1731,7 +1736,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					vec2 detail_uv = uv * detail_model.DetailTiling;
 					vec2 detail = texture(TEXTURE(detail_model.DetailTexture), detail_uv).xy + texture(TEXTURE(detail_model.DetailTexture), detail_uv * 2.0).xy;
 					detail = (detail - 1.0) * detail_model.DetailBumpScale;
-					N.xy += ReverseXZNormalMap ? -detail : detail;
+					N.xy += detail;
 				}
 
 				return normalize(N);

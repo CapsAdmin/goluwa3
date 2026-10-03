@@ -484,7 +484,6 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	T(math.abs(material:GetTransmissionColor().g - 0.6))["<"](0.0001)
 	T(math.abs(material:GetTransmissionColor().b - 0.9))["<"](0.0001)
 	T(math.abs(material:GetTransmissionScattering() - 0.7))["<"](0.0001)
-	T(material:GetReverseXZNormalMap())["=="](false)
 	T(material:GetInvertRoughnessTexture())["=="](false)
 	vfs.Delete(mount_root .. "/Game/Objects.pak/materials/demo.mtl")
 	vfs.Delete(mount_root .. "/Game/Objects.pak/objects/demo/albedo.dds")

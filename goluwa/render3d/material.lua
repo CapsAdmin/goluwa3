@@ -170,7 +170,6 @@ Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
 Material:GetSet("NoDraw", false, {callback = "InvalidateSceneKey"})
 -- flags
 Material:GetSet("Flags", 0)
-Material:GetSet("ReverseXZNormalMap", false, {callback = "InvalidateFlags"})
 Material:GetSet("NormalTextureAlphaIsRoughness", false, {callback = "InvalidateFlags"})
 -- the normal textures are source's self shadowed bump maps, the light each of
 -- the three radiosity basis directions receives instead of a normal
@@ -270,7 +269,13 @@ do
 
 		if is_color(source) then
 			return constant_texture(
-				string.format("return vec4(%f, %f, %f, %f);", source.r or 0, source.g or 0, source.b or 0, source.a or 1)
+				string.format(
+					"return vec4(%f, %f, %f, %f);",
+					source.r or 0,
+					source.g or 0,
+					source.b or 0,
+					source.a or 1
+				)
 			)
 		end
 
@@ -419,7 +424,6 @@ function Material:GetTransmissive()
 end
 
 local FLAGS = {
-	"ReverseXZNormalMap",
 	"Translucent",
 	"AlphaTest",
 	"BlendTintByBaseAlpha",
@@ -619,6 +623,7 @@ function Material:HasShadowTexture()
 	return self.AlbedoTexture ~= nil and
 		not self.AlbedoTextureAlphaIsRoughness and
 		not self.AlbedoAlphaIsEmissive and
+		not self.BlendTintByBaseAlpha and
 		not self.Additive and
 		(
 			self.AlphaTest or
@@ -1204,7 +1209,6 @@ do
 
 	local function on_load_vmt(self, vmt)
 		self.vmt = vmt -- store for debugging
-		--self:SetReverseXZNormalMap(true) -- Source engine normals need XY flip
 		self:SetMetallicMultiplier(0)
 
 		do -- main diffuse texture
@@ -1230,8 +1234,7 @@ do
 		end
 
 		if vmt.blendtintbybasealpha == 1 then
-			-- this should be a mask for color multiplier
-			-- it allows changing the color of specific parts of the texture while keeping others unaffected
+			-- the base alpha masks where the color multiplier tints the albedo
 			self:SetBlendTintByBaseAlpha(true)
 		end
 
