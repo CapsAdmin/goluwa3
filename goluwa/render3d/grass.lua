@@ -907,7 +907,7 @@ function grass.Scatter(cmd)
 	)
 	barrier(cmd, b.blades, "vertex", "compute", "shader_read", "shader_write")
 	local camera = render3d.GetCamera():GetPosition()
-	local ring_base = (system.GetFrameNumber() % grass.SURFACE_RING) * grass.MAX_SURFACES
+	local ring_base = ((render.GetCurrentFrame() - 1) % grass.SURFACE_RING) * grass.MAX_SURFACES
 	local reach = grass.max_distance
 
 	for _, surface in ipairs(candidates) do
@@ -951,7 +951,7 @@ function grass.Scatter(cmd)
 		"shader_write",
 		{"indirect_command_read", "shader_read", "shader_write"}
 	)
-	local blade_slot = system.GetFrameNumber() % render.GetSwapchainImageCount() + 1
+	local blade_slot = render.GetCurrentFrame()
 
 	if RAY_QUERY then
 		passes.blades:UpdateDescriptorSet(
