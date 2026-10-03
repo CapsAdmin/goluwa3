@@ -245,7 +245,7 @@ local function write_sun_shadows(self, shadow_block, sun)
 	local sun_entity = sun.Owner
 
 	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
-		if shadow_map.enabled and shadow_map.light == sun_entity then
+		if shadow_map:IsEnabled() and shadow_map.light == sun_entity then
 			if shadow_map.role == "inset" then
 				shadow_block.inset_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
 				shadow_map:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)
@@ -278,7 +278,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	local maps_by_light = {}
 
 	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
-		if shadow_map.enabled and shadow_map.light then
+		if shadow_map:IsEnabled() and shadow_map.light then
 			local list = maps_by_light[shadow_map.light]
 
 			if not list then

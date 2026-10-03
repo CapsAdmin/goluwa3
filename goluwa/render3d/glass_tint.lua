@@ -203,7 +203,7 @@ local function fit_cascades(draws)
 	local slot = 1
 
 	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
-		if shadow_map.enabled and shadow_map.light == sun.Owner then
+		if shadow_map:IsEnabled() and shadow_map.light == sun.Owner then
 			if shadow_map.role == "inset" then
 				slot_matrices[INSET_SLOT] = shadow_map:GetLightSpaceMatrix(1)
 				slot_draws[INSET_SLOT] = cull(slot_matrices[INSET_SLOT], draws)

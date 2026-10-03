@@ -332,10 +332,12 @@ function render3d.CreatePipelineBundle(options)
 	end
 
 	for _, module in ipairs(passes) do
-		local pass_name = assert(pass_name_of_module[module], "pass is not one of the default passes")
+		local pass_name = pass_name_of_module[module]
 
-		for _, config in ipairs(list.flatten({module})) do
-			pass_of_config[config] = pass_name
+		if pass_name then
+			for _, config in ipairs(list.flatten({module})) do
+				pass_of_config[config] = pass_name
+			end
 		end
 	end
 
@@ -356,12 +358,15 @@ function render3d.CreatePipelineBundle(options)
 		then
 			local config = table.copy(source_config)
 			local pass_name = pass_of_config[source_config]
-			local enabled_var = pass_vars[pass_name]
-			local is_enabled = config.is_enabled
-			bundle.passes[pass_name] = true
-			local is_fallback = config.fallback == true
-			config.is_enabled = function()
-				return enabled_var:Get() ~= is_fallback and (not is_enabled or is_enabled())
+
+			if pass_name then
+				local enabled_var = pass_vars[pass_name]
+				local is_enabled = config.is_enabled
+				local is_fallback = config.fallback == true
+				bundle.passes[pass_name] = true
+				config.is_enabled = function()
+					return enabled_var:Get() ~= is_fallback and (not is_enabled or is_enabled())
+				end
 			end
 
 			if framebuffer_size and not config.FramebufferSize then

@@ -67,7 +67,7 @@ function surface_weather.WriteBlock(self, block)
 	block.surface_snow_wetness = surface_weather.GetSnowWetness()
 	local map = surface_weather.shelter_map
 
-	if map and map.enabled and map:IsCascadeSampleable(1) then
+	if map and map:IsEnabled() and map:IsCascadeSampleable(1) then
 		block.shelter_texture = self:GetTextureIndex(map:GetDepthTexture(1))
 		block.shelter_texel_size = map:GetCascadeTexelWorldSize(1)
 		map:GetLightSpaceMatrix(1):CopyToFloatPointer(block.shelter_matrix)

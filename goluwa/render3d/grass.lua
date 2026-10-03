@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -45,7 +46,14 @@ grass.full_density_distance = 8
 -- near blades get NEAR_SEGMENTS, the rest FAR_SEGMENTS
 grass.near_distance = 15
 grass.max_distance = 150
-grass.enabled = grass.enabled ~= false
+pvars.StartGroup("feature", {store = false})
+local enabled = pvars.Setup2{
+	key = "r_feature_grass",
+	default = true,
+	friendly = "grass",
+	help = "the grass blades scattered over surfaces that ask for them",
+}
+pvars.EndGroup()
 local HALF_BLADES = grass.MAX_BLADES / 2
 local BLADE_SIZE = 32
 local SURFACE_FLOATS = 60
@@ -871,7 +879,7 @@ end
 function grass.Scatter(cmd)
 	surface_count = 0
 
-	if not grass.enabled then return end
+	if not enabled:Get() then return end
 
 	local candidates = get_surfaces()
 
@@ -969,7 +977,7 @@ end
 
 -- inside the gbuffer's rendering, after the scene's geometry
 function grass.Draw(pipeline, cmd)
-	if not grass.enabled or surface_count == 0 then return end
+	if not enabled:Get() or surface_count == 0 then return end
 
 	local b = get_buffers()
 	pipeline:UploadConstants()

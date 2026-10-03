@@ -1,5 +1,6 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local event = import("goluwa/event.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
@@ -373,8 +374,18 @@ function precipitation.GetCoverageGLSL()
 	]]
 end
 
+pvars.StartGroup("feature", {store = false})
+local enabled = pvars.Setup2{
+	key = "r_feature_precipitation",
+	default = true,
+	friendly = "precipitation",
+	help = "falling rain and snow around the camera",
+}
+pvars.EndGroup()
+
 function precipitation.IsActive()
-	return atmosphere.IsEnabled() and
+	return enabled:Get() and
+		atmosphere.IsEnabled() and
 		(
 			precipitation.rain_rate > 0 or
 			precipitation.snow_rate > 0

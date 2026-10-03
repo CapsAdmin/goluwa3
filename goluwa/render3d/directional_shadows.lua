@@ -96,7 +96,7 @@ function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
 	local sun_entity = sun.Owner
 
 	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
-		if shadow_map.enabled and shadow_map.light == sun_entity then
+		if shadow_map:IsEnabled() and shadow_map.light == sun_entity then
 			if shadow_map.role == "inset" then
 				shadow_block.inset_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
 				shadow_map:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)

@@ -18,6 +18,7 @@ local system = import("goluwa/system.lua")
 local objects = import("goluwa/objects/objects.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local event = import("goluwa/event.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
@@ -3069,6 +3070,20 @@ function ShadowMap:SetRole(role)
 	self.role = role
 end
 
+pvars.StartGroup("feature", {store = false})
+local shadows = pvars.Setup2{
+	key = "r_feature_shadows",
+	default = true,
+	friendly = "shadows",
+	help = "every shadow map, off nothing is rendered or sampled and everything is lit unshadowed",
+}
+pvars.EndGroup()
+
+-- the weather's shelter map keeps rain out of covered places, it isn't a shadow
+function ShadowMap:IsEnabled()
+	return self.enabled and (self.role == "shelter" or shadows:Get())
+end
+
 function ShadowMap:SetEnabled(enabled)
 	self.enabled = enabled
 end
@@ -3108,7 +3123,7 @@ end
 -- Decides whether this map needs shadow passes this frame, updates its
 -- matrices, and returns the list of cascades eligible for rendering, or nil.
 function ShadowMap:PrepareFrameUpdate()
-	if not self.enabled then return nil end
+	if not self:IsEnabled() then return nil end
 
 	local policy = self.policy
 	local transform = self.light and self.light.transform
@@ -3376,7 +3391,7 @@ local function get_shadow_overlay_summary()
 	local seen_sources = {}
 
 	for _, shadow_map in ipairs(active_maps) do
-		if not shadow_map.enabled then goto continue end
+		if not shadow_map:IsEnabled() then goto continue end
 
 		if shadow_map.light and not seen_sources[shadow_map.light] then
 			seen_sources[shadow_map.light] = true
