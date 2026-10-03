@@ -76,7 +76,6 @@ local function write_file()
 
 	for key, val in pairs(pvars.vars) do
 		local info = pvars.infos[key]
-
 		local session = pvars.session[key]
 
 		if session ~= nil then
@@ -206,6 +205,12 @@ function pvars.Setup2(info)
 		info.friendly = friendly:gsub("_", " ")
 	end
 
+	if group then
+		local previous = pvars.infos[info.key]
+		pvars.order_count = (pvars.order_count or 0) + 1
+		info.order = previous and previous.order or pvars.order_count
+	end
+
 	pvars.infos[info.key] = info
 	info.object = META:CreateObject({key = info.key})
 	load(info.key, info.store and pvars.vars[info.key] or nil)
@@ -258,7 +263,12 @@ function pvars.GetGroups()
 	end)
 
 	for _, entry in ipairs(out) do
+		-- pvars made inside a group keep the order they were made in, the rest follow by key
 		table.sort(entry.infos, function(a, b)
+			if a.order and b.order then return a.order < b.order end
+
+			if a.order or b.order then return a.order ~= nil end
+
 			return a.key < b.key
 		end)
 	end
