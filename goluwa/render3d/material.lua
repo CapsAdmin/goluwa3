@@ -222,15 +222,129 @@ do
 	end
 end
 
+local function is_color(value)
+	local value_type = type(value)
+
+	if value_type ~= "table" and value_type ~= "cdata" and value_type ~= "userdata" then
+		return false
+	end
+
+	return value.r ~= nil and value.g ~= nil and value.b ~= nil
+end
+
+do
+	-- a solid color or value is the same 4x4 texture wherever it's used, and
+	-- each one costs a submit and a gpu wait to make
+	local constant_textures = {}
+
+	local function constant_texture(glsl)
+		if constant_textures[glsl] then return constant_textures[glsl] end
+
+		local tex = Texture.New{
+			width = 4,
+			height = 4,
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = "auto",
+			image = {
+				usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
+			},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "repeat",
+				wrap_t = "repeat",
+			},
+		}
+		tex:Shade(glsl)
+		constant_textures[glsl] = tex
+		return tex
+	end
+
+	-- a texture from whatever describes it: a color or a number is a solid
+	-- texture, a string is the body of a GLSL function returning a vec4 (shared
+	-- is declared before it), anything else, a texture, is used as it is
+	function Material.ResolveTexture(source, shared)
+		if not RENDER_3D then return end
+
+		if source == nil then return nil end
+
+		if is_color(source) then
+			return constant_texture(
+				string.format("return vec4(%f, %f, %f, %f);", source.r or 0, source.g or 0, source.b or 0, source.a or 1)
+			)
+		end
+
+		if type(source) == "number" then
+			return constant_texture(string.format("return vec4(%f);", source))
+		end
+
+		if type(source) ~= "string" then return source end
+
+		local tex = Texture.New{
+			width = 1024,
+			height = 1024,
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = "auto",
+			image = {
+				usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
+			},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "repeat",
+				wrap_t = "clamp_to_edge",
+			},
+		}
+		tex:Shade(source, {custom_declarations = shared})
+		return tex
+	end
+end
+
+-- config sets properties by name: SetX(value), or for a texture property X a
+-- value that stands in for the texture. a color or number is the multiplier of
+-- the property with no texture at all (Albedo = Color(1, 0, 0, 1) is
+-- ColorMultiplier, Roughness = 0.5 is RoughnessMultiplier), a string is the body of a
+-- GLSL function returning a vec4 (Shared is declared before it), and a texture
+-- is used as it is. Color is the same as Albedo. an unknown key is an error
 function Material.New(config)
 	local self = Material:CreateObject()
 
 	if config then
-		for k, v in pairs(config) do
-			if self["Set" .. k] then
-				self["Set" .. k](self, v)
-			else
-				self[k] = v
+		local shared = config.Shared
+
+		if config.Color and config.Albedo then
+			error("Color and Albedo both set the albedo", 2)
+		end
+
+		if config.ColorMultiplier and (config.Color or is_color(config.Albedo)) then
+			error("Color and ColorMultiplier both set the color", 2)
+		end
+
+		for key, value in pairs(config) do
+			if key == "Color" then key = "Albedo" end
+
+			if key ~= "Shared" then
+				local multiplier = key == "Albedo" and "ColorMultiplier" or key .. "Multiplier"
+				local current = self[multiplier]
+
+				if
+					self["Set" .. key .. "Texture"] and
+					current ~= nil and
+					(
+						type(value) == "number" and
+						type(current) == "number" or
+						is_color(value) and
+						is_color(current)
+					)
+				then
+					self["Set" .. multiplier](self, value)
+				elseif self["Set" .. key .. "Texture"] then
+					self["Set" .. key .. "Texture"](self, Material.ResolveTexture(value, shared))
+				elseif self["Set" .. key] then
+					self["Set" .. key](self, value)
+				else
+					error("unknown material key: " .. tostring(key), 2)
+				end
 			end
 		end
 	end

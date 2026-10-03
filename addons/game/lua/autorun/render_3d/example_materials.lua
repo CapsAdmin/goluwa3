@@ -80,7 +80,20 @@ local function register_material(entry)
 			kind = "lua",
 			load = function()
 				if not material then
-					material = Material.New(config)
+					-- the channels hold GLSL here, the textures are made above on request
+					local material_config = {}
+
+					for key, value in pairs(config) do
+						material_config[key] = value
+					end
+
+					material_config.Shared = nil
+
+					for _, channel in ipairs(CHANNELS) do
+						material_config[channel.key] = nil
+					end
+
+					material = Material.New(material_config)
 					material:SetName(entry.name)
 
 					for _, channel in ipairs(CHANNELS) do

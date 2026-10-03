@@ -44,141 +44,27 @@ local function is_material(value)
 	return type(value) == "table" and (value.SetAlbedoTexture or value.GetAlbedoTexture)
 end
 
-local function is_color(value)
-	local value_type = type(value)
-
-	if value_type ~= "table" and value_type ~= "cdata" and value_type ~= "userdata" then
-		return false
-	end
-
-	return value.r ~= nil and value.g ~= nil and value.b ~= nil
-end
-
-local function color_to_shader(color)
-	return string.format(
-		"return vec4(%f, %f, %f, %f);",
-		color.r or 0,
-		color.g or 0,
-		color.b or 0,
-		color.a or 1
-	)
-end
-
-local function scalar_to_shader(value)
-	return string.format("return vec4(%f);", value or 0)
-end
-
-local resolve_texture
-
-do
-	-- a solid color or value is the same 4x4 texture wherever it's used, and
-	-- each one costs a submit and a gpu wait to make
-	local constant_textures = {}
-
-	local function constant_texture(glsl)
-		if constant_textures[glsl] then return constant_textures[glsl] end
-
-		local TextureClass = import("goluwa/render/texture.lua")
-		local tex = TextureClass.New{
-			width = 4,
-			height = 4,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			image = {
-				usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			},
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "repeat",
-				wrap_t = "repeat",
-			},
-		}
-		tex:Shade(glsl)
-		constant_textures[glsl] = tex
-		return tex
-	end
-
-	function resolve_texture(source, shared)
-		if not RENDER_3D then return end
-
-		if source == nil then return nil end
-
-		if is_color(source) then return constant_texture(color_to_shader(source)) end
-
-		if type(source) == "number" then
-			return constant_texture(scalar_to_shader(source))
-		end
-
-		if type(source) ~= "string" then return source end
-
-		local TextureClass = import("goluwa/render/texture.lua")
-		local tex = TextureClass.New{
-			width = 1024,
-			height = 1024,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			image = {
-				usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			},
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "repeat",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-		tex:Shade(source, {custom_declarations = shared})
-		return tex
-	end
-end
-
 function shapes.Texture(source, shared)
-	return resolve_texture(source, shared)
+	return import("goluwa/render3d/material.lua").ResolveTexture(source, shared)
 end
 
+-- Material.New with the defaults of a dull dielectric. a plain Material is a fully
+-- metallic, mirror like surface unless a texture says otherwise, which suits
+-- loaded assets but not a shape made from a color
 function shapes.Material(config)
 	if not RENDER_3D then return end
-
-	local MaterialClass = import("goluwa/render3d/material.lua")
 
 	if is_material(config) then return config end
 
 	config = config or {}
-	local material = MaterialClass.New()
+	local material = import("goluwa/render3d/material.lua").New(config)
 
-	-- a plain material is a dull dielectric. MaterialClass defaults to a fully
-	-- metallic, mirror like surface unless a texture says otherwise
 	if config.Metallic == nil and config.MetallicMultiplier == nil then
 		material:SetMetallicMultiplier(0)
 	end
 
 	if config.Roughness == nil and config.RoughnessMultiplier == nil then
 		material:SetRoughnessMultiplier(0.6)
-	end
-
-	local shared = config.Shared
-	local consumed = {
-		Shared = true,
-		Color = true,
-	}
-
-	if config.Color and not config.Albedo then
-		material:SetAlbedoTexture(resolve_texture(config.Color, shared))
-	end
-
-	for k, v in pairs(config) do
-		if not consumed[k] then
-			local texture_setter = material["Set" .. k .. "Texture"]
-
-			if texture_setter then
-				texture_setter(material, resolve_texture(v, shared))
-			elseif material["Set" .. k] then
-				material["Set" .. k](material, v)
-			else
-				error("unknown material key: " .. tostring(k))
-			end
-		end
 	end
 
 	return material
