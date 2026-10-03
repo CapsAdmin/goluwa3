@@ -2338,8 +2338,8 @@ do
 		scene_bvh.UploadSoup()
 
 		if scene_bvh.triangle_count > 0 and not scene_bvh.readied then
-			event.Call("BVHSceneReady")
 			scene_bvh.readied = true
+			event.Call("BVHSceneReady")
 		end
 	end
 

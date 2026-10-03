@@ -6,6 +6,8 @@ render.flush_callbacks = render.flush_callbacks or {}
 render.flush_callback_order = render.flush_callback_order or {}
 render.is_flushing_callbacks = false
 render.stats = false
+-- with render.stats on, whether the overlay is drawn or the counters only run
+render.stats_overlay = true
 local render_stats = import("goluwa/render/stats.lua")
 
 local function run_flush_callbacks(reason)
@@ -340,7 +342,7 @@ function render.Initialize(config)
 			event.Call("Draw", dt)
 			event.Call("PostDraw", dt)
 
-			if render.stats then render_stats.DrawOverlay(render.GetCommandBuffer()) end
+			if render.stats and render.stats_overlay then render_stats.DrawOverlay(render.GetCommandBuffer()) end
 
 			render.EndFrame()
 		end

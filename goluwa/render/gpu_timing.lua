@@ -368,6 +368,11 @@ function gpu_timing.GetRawMilliseconds(name)
 	return last_ms[name] or 0
 end
 
+-- every scope name seen so far, for iterating GetRawMilliseconds
+function gpu_timing.GetScopeNames()
+	return slot_order
+end
+
 function gpu_timing.SetSerialized(value)
 	serialized = value
 end

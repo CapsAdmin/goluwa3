@@ -1,3 +1,4 @@
+-- glw: --cli
 local benchmark = import("goluwa/benchmark.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 
@@ -22,3 +23,4 @@ end)
 benchmark.Run("Matrix44 Inverse", function()
 	c = a:GetInverse()
 end)
+benchmark.Finish("matrix44")

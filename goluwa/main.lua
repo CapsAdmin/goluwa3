@@ -24,6 +24,7 @@ import.loadfile = vfs.LoadFile
 vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
 import("goluwa/test.lua") -- add test command
+import("goluwa/cli/bench.lua") -- add bench command
 commands.Add{
 	command = "global_flags",
 	flags = {
@@ -258,6 +259,9 @@ crash_trace.Run(function()
 
 		if captured_flags[1] then
 			commands.RunArguments({"global_flags", unpack(captured_flags)})
+		elseif remaining_args and remaining_args[1] == "bench" then
+			-- bench starts a process per benchmark, it needs no gpu itself
+			commands.RunArguments({"global_flags", "--cli"})
 		else
 			commands.RunArguments({"global_flags", "--3d"})
 		end
