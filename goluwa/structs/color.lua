@@ -406,21 +406,15 @@ function META:ToHex()
 	)
 end
 
-local function to_linear_channel(channel)
-	if channel <= 0.04045 then return channel / 12.92 end
-
-	return ((channel + 0.055) / 1.055) ^ 2.4
-end
-
 local function hue_distance(a, b)
 	local diff = math.abs(a - b)
 	return math.min(diff, 1 - diff)
 end
 
 function META:GetRelativeLuminance()
-	local r = to_linear_channel(self.r)
-	local g = to_linear_channel(self.g)
-	local b = to_linear_channel(self.b)
+	local r = math.srgb_to_linear(self.r)
+	local g = math.srgb_to_linear(self.g)
+	local b = math.srgb_to_linear(self.b)
 	return 0.2126 * r + 0.7152 * g + 0.0722 * b
 end
 

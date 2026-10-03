@@ -307,7 +307,7 @@ do
 
 		if line_count == 0 then return 0, 0 end
 
-		return max_width, line_height + (line_count - 1) * (line_height + spacing)
+		return math.round(max_width), math.round(line_height + (line_count - 1) * (line_height + spacing))
 	end
 
 	local function with_current_font(font, callback, str)

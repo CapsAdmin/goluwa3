@@ -135,9 +135,9 @@ function Canvas:clear(...)
 
 	for i, color in ipairs(colors) do
 		-- Canvas:clear API receives 0-255 color values; normalize to 0-1 for Vulkan
-		local r = math.min(color[1] / 255, 1)
-		local g = math.min(color[2] / 255, 1)
-		local b = math.min(color[3] / 255, 1)
+		local r = math.srgb_to_linear(math.min(color[1] / 255, 1))
+		local g = math.srgb_to_linear(math.min(color[2] / 255, 1))
+		local b = math.srgb_to_linear(math.min(color[3] / 255, 1))
 		local a = math.min(color[4] / 255, 1)
 		cmd:ClearAttachments{
 			color = {r, g, b, a},

@@ -1556,7 +1556,7 @@ do
 			w = logical_parent.transform:GetWidth()
 		end
 
-		return w, h
+		return math.round(w), math.round(h)
 	end
 
 	function META:SizeToContents()

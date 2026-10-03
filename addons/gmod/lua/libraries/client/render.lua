@@ -35,35 +35,13 @@ render.GetMoBlurTex1 = get_error_texture
 render.GetSuperFPTex = get_error_texture
 render.GetMorphTex0 = get_error_texture
 
-do
-	local texfilter = gine.env.TEXFILTER
-	local filter_translate = {
-		[texfilter.POINT] = "nearest",
-		[texfilter.LINEAR] = "linear",
-		[texfilter.ANISOTROPIC] = "anisotropic",
-	}
-	local reverse_filter_translate = {
-		nearest = texfilter.POINT,
-		linear = texfilter.LINEAR,
-		anisotropic = texfilter.ANISOTROPIC,
-	}
+function render.PushFilterMin(filter) end
 
-	function render.PushFilterMin(filter)
-		lib.PushFilterMin(assert(filter_translate[filter], "expected TEXFILTER enum"))
-	end
+function render.PushFilterMag(filter) end
 
-	function render.PushFilterMag(filter)
-		lib.PushFilterMag(assert(filter_translate[filter], "expected TEXFILTER enum"))
-	end
-end
+function render.PopFilterMin() end
 
-function render.PopFilterMin()
-	lib.PopFilterMin()
-end
-
-function render.PopFilterMag()
-	lib.PopFilterMag()
-end
+function render.PopFilterMag() end
 
 function render.SetLocalModelLights() end
 

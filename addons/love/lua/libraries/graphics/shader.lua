@@ -5,6 +5,24 @@ local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local shared = import("addons/love/lua/libraries/graphics/shared.lua")
+local love_srgb_helper = [[
+vec3 love_srgb_to_linear(vec3 c) {
+	vec3 low = c / 12.92;
+	vec3 high = pow(max((c + 0.055) / 1.055, vec3(0.0)), vec3(2.4));
+	return mix(low, high, step(vec3(0.0031308), c));
+}
+
+vec3 love_linear_to_srgb(vec3 c) {
+	vec3 low = c * 12.92;
+	vec3 high = 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
+	return mix(low, high, step(vec3(0.0031308), c));
+}
+
+vec4 love_authored_texel(int tex, vec4 c) {
+	if (tex == U.texture_index && U.texture_is_srgb != 0) c.rgb = love_linear_to_srgb(c.rgb);
+	return c;
+}
+]]
 local love = ...
 
 if type(love) == "string" then love = nil end
@@ -454,6 +472,7 @@ local function write_love_shader_fragment_uniforms(self, data)
 	data.alpha_multiplier = render2d.GetAlphaMultiplier()
 	local texture = render2d.GetTexture()
 	data.texture_index = texture and self:GetTextureIndex(texture) or -1
+	data.texture_is_srgb = texture and texture:IsSRGB() and 1 or 0
 	local compare_mode = render2d.GetDepthMode()
 	data.discard_zero_alpha = compare_mode ~= "none" and 1 or 0
 	local x, y, w, h = render2d.GetColorUVTransformed()
@@ -584,6 +603,7 @@ local function build_fragment_pipeline(obj, source)
 						{"global_color", "vec4"},
 						{"alpha_multiplier", "float"},
 						{"texture_index", "int"},
+						{"texture_is_srgb", "int"},
 						{"discard_zero_alpha", "int"},
 						{"uv_offset", "vec2"},
 						{"uv_scale", "vec2"},
@@ -595,11 +615,11 @@ local function build_fragment_pipeline(obj, source)
 					block = block,
 				},
 			},
-			custom_declarations = table.concat(defines, "\n") .. [[
+			custom_declarations = love_srgb_helper .. table.concat(defines, "\n") .. [[
 
 					vec4 love_texel(int tex, vec2 coords) {
 						if (tex < 0) return vec4(0.0);
-						return texture(TEXTURE(tex), coords);
+						return love_authored_texel(tex, texture(TEXTURE(tex), coords));
 					}
 
 					vec4 love_image_texelFetch(int tex, ivec2 coords, int lod) {
@@ -621,6 +641,7 @@ local function build_fragment_pipeline(obj, source)
 						vec4 love_color = in_color * U.global_color;
 						vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
 						out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);
+						out_color.rgb = love_srgb_to_linear(out_color.rgb);
 						out_color.a *= U.alpha_multiplier;
 						if (U.discard_zero_alpha != 0 && out_color.a <= 0.0) discard;
 					}
@@ -698,7 +719,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 
 	obj.instance_attributes = attributes
 	obj.instance_binding = #attributes > 0 and 1 or nil
-	local love_texel_helper
+local love_texel_helper
 
 	if #attributes > 0 then
 		love_texel_helper = [[
@@ -706,14 +727,14 @@ local function build_vertex_fragment_pipeline(obj, source)
 						if (tex < 0) return vec4(0.0);
 						vec2 tex_size = vec2(textureSize(TEXTURE(tex), 0));
 						vec2 pixel = floor(clamp(coords, vec2(0.0), vec2(0.999999)) * tex_size);
-						return texture(TEXTURE(tex), (pixel + 0.5) / max(tex_size, vec2(1.0)));
+						return love_authored_texel(tex, texture(TEXTURE(tex), (pixel + 0.5) / max(tex_size, vec2(1.0))));
 					}
 		]]
 	else
 		love_texel_helper = [[
 					vec4 love_texel(int tex, vec2 coords) {
 						if (tex < 0) return vec4(0.0);
-						return texture(TEXTURE(tex), coords);
+						return love_authored_texel(tex, texture(TEXTURE(tex), coords));
 					}
 		]]
 	end
@@ -766,6 +787,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 						{"global_color", "vec4"},
 						{"alpha_multiplier", "float"},
 						{"texture_index", "int"},
+						{"texture_is_srgb", "int"},
 						{"discard_zero_alpha", "int"},
 						{"uv_offset", "vec2"},
 						{"uv_scale", "vec2"},
@@ -777,7 +799,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 					block = user_block,
 				},
 			},
-			custom_declarations = [[
+			custom_declarations = love_srgb_helper .. [[
 					#define number float
 					#define Image int
 					#define extern
@@ -808,6 +830,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 						"out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);" or
 						"out_color = love_texel(U.texture_index, love_texture_coords) * love_color;"
 					) .. [[
+						out_color.rgb = love_srgb_to_linear(out_color.rgb);
 						out_color.a *= U.alpha_multiplier;
 						if (U.discard_zero_alpha != 0 && out_color.a <= 0.0) discard;
 					}

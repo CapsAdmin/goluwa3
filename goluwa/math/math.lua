@@ -51,6 +51,12 @@ function math.round(num, idp)
 	return math.floor(num + 0.5)
 end
 
+function math.srgb_to_linear(channel)
+	if channel <= 0.04045 then return channel / 12.92 end
+
+	return ((channel + 0.055) / 1.055) ^ 2.4
+end
+
 function math.randomf(min, max)
 	min = min or -1
 	max = max or 1

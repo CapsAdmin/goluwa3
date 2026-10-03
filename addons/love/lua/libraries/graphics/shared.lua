@@ -115,7 +115,7 @@ local function create(love)
 			ENV.graphics_clear_color_a or 1
 		end
 
-		return r, g, b, a or 1
+		return math.srgb_to_linear(r), math.srgb_to_linear(g), math.srgb_to_linear(b), a or 1
 	end
 
 	function ctx.translate_wrap_mode(mode)

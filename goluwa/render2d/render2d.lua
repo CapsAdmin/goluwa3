@@ -1170,6 +1170,7 @@ function render2d.Initialize()
 
 				float edge(float x) {
 					float softness = shape.sdf_softness;
+					if (softness <= 0.0) return x >= 0.0 ? 1.0 : 0.0;
 					return smoothstep(-softness, softness, x);
 				}
 					

@@ -58,7 +58,16 @@ Texture:GetSet("Anisotropy", DEFAULT_SAMPLER_ANISOTROPY)
 Texture:GetSet(
 	"BorderColor",
 	"int_opaque_black",
-	{enums = {"int_opaque_black", "int_opaque_white"}}
+	{
+		enums = {
+			"int_opaque_black",
+			"int_opaque_white",
+			"int_transparent_black",
+			"float_opaque_black",
+			"float_opaque_white",
+			"float_transparent_black",
+		},
+	}
 )
 Texture:GetSet("UnnormalizedCoordinates", false)
 Texture:GetSet("CompareEnable", false)
