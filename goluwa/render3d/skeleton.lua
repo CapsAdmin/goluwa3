@@ -12,9 +12,14 @@ Skeleton.__index = Skeleton
 -- a clip has
 --   Name, Duration (seconds), Loop
 --   clip:Sample(cycle, pose_parameters, out)  writes a local pose like BindLocal for cycle 0..1. bones the clip does not animate keep the bind pose
+-- there are two levels of api. decoders and clips use the raw float arrays (CreatePose, BlendPoses,
+-- ComputeSkinMatrices). everything else uses Pose, an opaque local pose with no ffi in its interface, and the rig
+-- (render3d/rig.lua) that turns a pose into skinned vertices
 Skeleton.PoseSize = 7
 Skeleton.MatrixSize = 12
-local Pose = ffi.typeof("float[?]")
+local Floats = ffi.typeof("float[?]")
+local Pose = {}
+Pose.__index = Pose
 
 function Skeleton.New(config)
 	local self = setmetatable({}, Skeleton)
@@ -32,7 +37,32 @@ function Skeleton.New(config)
 		self.parents[i - 1] = config.Parents[i]
 	end
 
-	self.world = Pose(self.BoneCount * 12)
+	return self
+end
+
+function Skeleton:NewPose()
+	return setmetatable({skeleton = self, data = Floats(self.BoneCount * 7)}, Pose):Reset()
+end
+
+function Pose:Reset()
+	ffi.copy(self.data, self.skeleton.BindLocal, self.skeleton.BoneCount * 7 * 4)
+	return self
+end
+
+function Pose:Copy(other)
+	ffi.copy(self.data, other.data, self.skeleton.BoneCount * 7 * 4)
+	return self
+end
+
+-- the pose of a clip at a cycle from 0 to 1, bones the clip does not animate keep the bind pose
+function Pose:Sample(clip, cycle, pose_parameters)
+	clip:Sample(cycle, pose_parameters, self.data)
+	return self
+end
+
+-- a crossfade, a at t = 0 and b at t = 1. self may be a or b
+function Pose:Blend(a, b, t)
+	self.skeleton:BlendPoses(a.data, b.data, t, self.data)
 	return self
 end
 
@@ -42,11 +72,24 @@ function Skeleton:AddClip(clip)
 end
 
 function Skeleton:CreatePose()
-	return Pose(self.BoneCount * 7)
+	return Floats(self.BoneCount * 7)
 end
 
 function Skeleton:CreateMatrices()
-	return Pose(self.BoneCount * 12)
+	return Floats(self.BoneCount * 12)
+end
+
+-- bones that are moved on top of their pose: a local matrix is applied in the space of the bone, a model matrix
+-- replaces the matrix of the bone in model space. both are 3x4 row major, translation in the last column
+function Skeleton:CreateBoneOverrides()
+	local count = self.BoneCount
+	return {
+		count = 0,
+		local_set = ffi.new("uint8_t[?]", count),
+		local_data = Floats(count * 12),
+		model_set = ffi.new("uint8_t[?]", count),
+		model_data = Floats(count * 12),
+	}
 end
 
 function Skeleton:GetBoneIndex(name)
@@ -82,9 +125,9 @@ function Skeleton:BlendPoses(a, b, t, out)
 	end
 end
 
--- local pose -> per bone matrix taking a bind pose vertex to where the pose puts it
-function Skeleton:ComputeSkinMatrices(pose, out)
-	local world = self.world
+-- local pose -> per bone matrix taking a bind pose vertex to where the pose puts it. world gets the matrices of the
+-- bones in model space on the way, overrides is nil when no bone is moved
+function Skeleton:ComputeSkinMatrices(pose, out, world, overrides)
 	local parents = self.parents
 	local inverse_bind = self.InverseBind
 
@@ -100,6 +143,25 @@ function Skeleton:ComputeSkinMatrices(pose, out)
 		local tx, ty, tz = pose[p], pose[p + 1], pose[p + 2]
 		local w = i * 12
 		local parent = parents[i]
+
+		if overrides and overrides.local_set[i] ~= 0 then
+			local o = overrides.local_data
+			local q00, q01, q02, q03 = o[w], o[w + 1], o[w + 2], o[w + 3]
+			local q10, q11, q12, q13 = o[w + 4], o[w + 5], o[w + 6], o[w + 7]
+			local q20, q21, q22, q23 = o[w + 8], o[w + 9], o[w + 10], o[w + 11]
+			tx, ty, tz = r00 * q03 + r01 * q13 + r02 * q23 + tx,
+			r10 * q03 + r11 * q13 + r12 * q23 + ty,
+			r20 * q03 + r21 * q13 + r22 * q23 + tz
+			r00, r01, r02, r10, r11, r12, r20, r21, r22 = r00 * q00 + r01 * q10 + r02 * q20,
+			r00 * q01 + r01 * q11 + r02 * q21,
+			r00 * q02 + r01 * q12 + r02 * q22,
+			r10 * q00 + r11 * q10 + r12 * q20,
+			r10 * q01 + r11 * q11 + r12 * q21,
+			r10 * q02 + r11 * q12 + r12 * q22,
+			r20 * q00 + r21 * q10 + r22 * q20,
+			r20 * q01 + r21 * q11 + r22 * q21,
+			r20 * q02 + r21 * q12 + r22 * q22
+		end
 
 		if parent < 0 then
 			world[w], world[w + 1], world[w + 2], world[w + 3] = r00, r01, r02, tx
@@ -122,6 +184,10 @@ function Skeleton:ComputeSkinMatrices(pose, out)
 			world[w + 9] = a20 * r01 + a21 * r11 + a22 * r21
 			world[w + 10] = a20 * r02 + a21 * r12 + a22 * r22
 			world[w + 11] = a20 * tx + a21 * ty + a22 * tz + a23
+		end
+
+		if overrides and overrides.model_set[i] ~= 0 then
+			ffi.copy(world + w, overrides.model_data + w, 48)
 		end
 
 		local a00, a01, a02, a03 = world[w], world[w + 1], world[w + 2], world[w + 3]

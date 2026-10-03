@@ -4,11 +4,12 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local system = import("goluwa/system.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local skinning = library()
--- Skeletal animation on the gpu. An animator computes its bone matrices on the
--- cpu each frame and queues itself; Dispatch, before the passes of the frame,
+-- Skeletal animation on the gpu. A rig (render3d/rig.lua) computes its bone matrices on the
+-- cpu and queues itself; Dispatch, before the passes of the frame,
 -- skins every queued vertex array in one dispatch: a workgroup row per job, a
 -- job being a bind pose vertex array, the vertex array it writes, the bone
--- weights of its vertices and the bone matrices to use. Buffers are addressed
+-- weights of its vertices, the bone matrices to use and optionally the morph targets (facial flexes)
+-- to add to the bind pose first. Buffers are addressed
 -- by device address, so a job can point at any mesh.
 skinning.MAX_JOBS = 4096
 skinning.MAX_MATRIX_FLOATS = 12 * 65536
@@ -22,15 +23,18 @@ local LOCAL_SIZE = 64
 -- the workgroups of all jobs are laid out one after another over rows of this many, the guaranteed limit of one dimension.
 -- a 2D dispatch of 32768 x 2 workgroups lost the device on the gm_construct stress test, so rows stay a last resort
 local ROW = 65535
--- group_start is the first workgroup of the flat dispatch that works on a job
+-- group_start is the first workgroup of the flat dispatch that works on a job. the morph addresses are zero when the job
+-- has no morphs to apply
 local Job = ffi.typeof([[struct {
 	uint32_t bind[2];
 	uint32_t destination[2];
 	uint32_t bones[2];
 	uint32_t matrices[2];
+	uint32_t morph_ranges[2];
+	uint32_t morph_entries[2];
+	uint32_t morph_weights[2];
 	uint32_t count;
 	uint32_t group_start;
-	uint32_t padding[2];
 }]])
 local JobPtr = ffi.typeof("$ *", Job)
 local uint64_ptr = ffi.typeof("uint64_t *")
@@ -103,15 +107,26 @@ local function get_pipeline()
 			};
 			layout(buffer_reference, scalar) readonly buffer SkinBones { SkinBone b[]; };
 			layout(buffer_reference, scalar) readonly buffer SkinMatrices { float m[]; };
+			// the morph entries of a vertex are the ones from range.x to range.x + range.y. a weight is picked between the two
+			// weights of the flex by the side of the vertex
+			layout(buffer_reference, scalar) readonly buffer MorphRanges { uvec2 r[]; };
+			struct MorphEntry {
+				vec3 delta;
+				vec3 normal_delta;
+				uint entry_side;
+			};
+			layout(buffer_reference, scalar) readonly buffer MorphEntries { MorphEntry e[]; };
+			layout(buffer_reference, scalar) readonly buffer MorphWeights { float w[]; };
 			struct SkinJob {
 				uvec2 bind;
 				uvec2 destination;
 				uvec2 bones;
 				uvec2 matrices;
+				uvec2 morph_ranges;
+				uvec2 morph_entries;
+				uvec2 morph_weights;
 				uint count;
 				uint group_start;
-				uint padding0;
-				uint padding1;
 			};
 			layout(scalar, set = 0, binding = 0) readonly buffer SkinJobs {
 				SkinJob jobs[];
@@ -164,6 +179,23 @@ local function get_pipeline()
 				vec3 position = vec3(bind.v[o], bind.v[o + 1u], bind.v[o + 2u]);
 				vec3 normal = vec3(bind.v[o + 3u], bind.v[o + 4u], bind.v[o + 5u]);
 				vec3 tangent = vec3(bind.v[o + 8u], bind.v[o + 9u], bind.v[o + 10u]);
+
+				if (job.morph_ranges.x != 0u || job.morph_ranges.y != 0u) {
+					uvec2 range = MorphRanges(packUint2x32(job.morph_ranges)).r[i];
+					MorphEntries entries = MorphEntries(packUint2x32(job.morph_entries));
+					MorphWeights weights = MorphWeights(packUint2x32(job.morph_weights));
+
+					for (uint k = range.x; k < range.x + range.y; k++) {
+						MorphEntry entry = entries.e[k];
+						uint index = entry.entry_side >> 8u;
+						float w1 = weights.w[index * 2u];
+						float w2 = weights.w[index * 2u + 1u];
+						float w = w1 + (w2 - w1) * float(entry.entry_side & 255u) / 255.0;
+						position += entry.delta * w;
+						normal += entry.normal_delta * w;
+					}
+				}
+
 				// the position this vertex had when the pass last ran, if it ran on it before
 				vec3 previous = position;
 				bool had_previous = destination.v[o + 16u] < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
@@ -228,10 +260,92 @@ function skinning.GetBoneBuffer(skin, vertex_count)
 	return skin.GpuBuffer
 end
 
--- animator.matrices are skinned into animator.skinned[].vertex_buffer at the next Dispatch
-function skinning.Queue(animator)
+-- gpu copy of the morph targets of a skin, shared by every rig of the model: per vertex the range of its entries and
+-- the entries themselves, a position and normal delta of a flex entry (skin.Flexes[n]) and which entry and side it is.
+-- false when the skin has none
+function skinning.GetMorphData(skin, vertex_count)
+	if skin.GpuMorph ~= nil then return skin.GpuMorph end
+
+	local flexes = skin.Flexes
+
+	if not (flexes and flexes[1]) then
+		skin.GpuMorph = false
+		return false
+	end
+
+	local counts = ffi.new("uint32_t[?]", vertex_count)
+	local total = 0
+
+	for _, flex in ipairs(flexes) do
+		for k = 0, flex.Count - 1 do
+			local vertex = flex.Indices[k]
+
+			if vertex < vertex_count then
+				counts[vertex] = counts[vertex] + 1
+				total = total + 1
+			end
+		end
+	end
+
+	local ranges = ffi.new("uint32_t[?]", vertex_count * 2)
+	local cursors = ffi.new("uint32_t[?]", vertex_count)
+	local first = 0
+
+	for i = 0, vertex_count - 1 do
+		ranges[i * 2] = first
+		ranges[i * 2 + 1] = counts[i]
+		cursors[i] = first
+		first = first + counts[i]
+	end
+
+	local entries = ffi.new("float[?]", total * 7)
+	local entry_words = ffi.cast("uint32_t *", entries)
+
+	for entry_index, flex in ipairs(flexes) do
+		for k = 0, flex.Count - 1 do
+			local vertex = flex.Indices[k]
+
+			if vertex < vertex_count then
+				local o = cursors[vertex] * 7
+				cursors[vertex] = cursors[vertex] + 1
+
+				for c = 0, 5 do
+					entries[o + c] = flex.Deltas[k * 6 + c]
+				end
+
+				entry_words[o + 6] = bit.bor(bit.lshift(entry_index - 1, 8), flex.Sides[k])
+			end
+		end
+	end
+
+	local ranges_buffer = render.CreateBuffer{
+		byte_size = vertex_count * 8,
+		buffer_usage = {"storage_buffer", "shader_device_address"},
+		memory_property = {"host_visible", "host_coherent"},
+		data = ranges,
+		label = "skin morph ranges",
+	}
+	local entries_buffer = render.CreateBuffer{
+		byte_size = total * 28,
+		buffer_usage = {"storage_buffer", "shader_device_address"},
+		memory_property = {"host_visible", "host_coherent"},
+		data = entries,
+		label = "skin morph entries",
+	}
+	skin.GpuMorph = {
+		ranges = ranges_buffer,
+		entries = entries_buffer,
+		ranges_address = ranges_buffer:GetDeviceAddress(),
+		entries_address = entries_buffer:GetDeviceAddress(),
+		entry_count = #flexes,
+	}
+	return skin.GpuMorph
+end
+
+-- the rig's matrices are skinned into its skinned[].vertex_buffer at the next Dispatch
+function skinning.Queue(rig)
 	queued_count = queued_count + 1
-	queue[queued_count] = animator
+	queue[queued_count] = rig
 end
 
 function skinning.Dispatch(cmd)
@@ -246,39 +360,62 @@ function skinning.Dispatch(cmd)
 	local groups = 0
 
 	for i = 1, queued_count do
-		local animator = queue[i]
+		local rig = queue[i]
 		queue[i] = nil
 
 		-- removed since it queued
-		if not animator:IsValid() or not animator.skeleton then goto continue end
+		if rig.removed then goto continue end
 
-		local matrix_count = animator.skeleton.BoneCount * 12
+		local matrix_count = rig.skeleton.BoneCount * 12
+		local weight_count = rig.morph_weight_count
 
 		if
-			floats + matrix_count > skinning.MAX_MATRIX_FLOATS or
-			jobs + #animator.skinned > skinning.MAX_JOBS
+			floats + matrix_count + weight_count > skinning.MAX_MATRIX_FLOATS or
+			jobs + #rig.skinned > skinning.MAX_JOBS
 		then
 			if not skinning.warned then
 				skinning.warned = true
-				llog("skinning is full (%d jobs, %d bone matrices), the rest of the animated models are not skinned", jobs, floats / 12)
+				llog(
+					"skinning is full (%d jobs, %d bone matrices), the rest of the animated models are not skinned",
+					jobs,
+					floats / 12
+				)
 			end
 		else
-			ffi.copy(b.matrix_data + matrix_offset + floats, animator.matrices, matrix_count * 4)
+			ffi.copy(b.matrix_data + matrix_offset + floats, rig.matrices, matrix_count * 4)
 			local matrix_address = b.matrix_address + (matrix_offset + floats) * 4
+			local weights_address = b.matrix_address + (matrix_offset + floats + matrix_count) * 4
 
-			for _, skinned in ipairs(animator.skinned) do
+			if weight_count > 0 then
+				ffi.copy(
+					b.matrix_data + matrix_offset + floats + matrix_count,
+					rig.morph_weights,
+					weight_count * 4
+				)
+			end
+
+			for _, skinned in ipairs(rig.skinned) do
 				local job = b.job_data[job_base + jobs]
 				ffi.cast(uint64_ptr, job.bind)[0] = skinned.bind_address
 				ffi.cast(uint64_ptr, job.destination)[0] = skinned.destination_address
 				ffi.cast(uint64_ptr, job.bones)[0] = skinned.bones_address
 				ffi.cast(uint64_ptr, job.matrices)[0] = matrix_address
+
+				if skinned.morph_active then
+					ffi.cast(uint64_ptr, job.morph_ranges)[0] = skinned.morph.ranges_address
+					ffi.cast(uint64_ptr, job.morph_entries)[0] = skinned.morph.entries_address
+					ffi.cast(uint64_ptr, job.morph_weights)[0] = weights_address + skinned.weight_offset * 4
+				else
+					ffi.cast(uint64_ptr, job.morph_ranges)[0] = 0
+				end
+
 				job.count = skinned.count
 				job.group_start = groups
 				groups = groups + math.ceil(skinned.count / LOCAL_SIZE)
 				jobs = jobs + 1
 			end
 
-			floats = floats + matrix_count
+			floats = floats + matrix_count + weight_count
 		end
 
 		::continue::

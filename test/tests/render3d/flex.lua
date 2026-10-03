@@ -77,12 +77,20 @@ local function create_flex_entity(skeleton)
 	return entity, primitive, poly
 end
 
+local function read_vertices(primitive, count)
+	local mapped = ffi.cast("float*", primitive:GetPolygon3D().mesh.vertex_buffer:GetBuffer():Map())
+	local copy = ffi.new("float[?]", count * 17)
+	ffi.copy(copy, mapped, count * 17 * 4)
+	return copy
+end
+
 T.Test3D("flex moves vertices by its weights before skinning", function(draw)
 	local skeleton = create_flex_skeleton()
 	local entity, primitive, poly = create_flex_entity(skeleton)
 	local animator = entity:AddComponent("animator")
 	local flex = entity:AddComponent("flex")
 	local bind = ffi.cast("float*", poly.mesh.vertex_buffer.data)
+	local count = poly.mesh.vertex_buffer:GetVertexCount()
 	local bind_x, bind_y1, bind_y2 = bind[0], bind[17 + 1], bind[34 + 1]
 	animator:Bind(skeleton)
 	flex:SetFlexByName("open", 0.5)
@@ -90,27 +98,28 @@ T.Test3D("flex moves vertices by its weights before skinning", function(draw)
 	animator:Animate(0)
 	draw()
 	render.GetDevice():WaitIdle()
-	local skinned = ffi.cast("float*", primitive:GetPolygon3D().mesh.vertex_buffer:GetBuffer():Map())
+	local skinned = read_vertices(primitive, count)
 	T(math.abs(skinned[0] - (bind_x + 0.05)))["<"](1e-4)
 	-- a pair takes the weight of its first flex on side 0 and of the second on side 255
 	T(math.abs(skinned[17 + 1] - (bind_y1 + 0.1)))["<"](1e-4)
 	T(math.abs(skinned[34 + 1] - bind_y2))["<"](1e-4)
-	local target = flex.targets[1]
 	flex:SetFlexByName("wink", 1)
-	flex:Update()
-	T(math.abs(target.scratch[34 + 1] - (bind_y2 + 0.2)))["<"](1e-4)
-	-- past target3 a flex has no weight, and the bind pose is skinned again
+	animator:Animate(0)
+	draw()
+	render.GetDevice():WaitIdle()
+	skinned = read_vertices(primitive, count)
+	T(math.abs(skinned[34 + 1] - (bind_y2 + 0.2)))["<"](1e-4)
+	-- past target3 a flex has no weight
 	flex:SetFlexByName("open", 12)
 	flex:SetFlexByName("wink", 0)
-	flex:Update()
-	T(target.skinned.bind_address == target.rest_address)["=="](true)
+	animator:Animate(0)
+	draw()
+	render.GetDevice():WaitIdle()
+	skinned = read_vertices(primitive, count)
+	T(math.abs(skinned[0] - bind_x))["<"](1e-4)
+	T(math.abs(skinned[17 + 1] - bind_y1))["<"](1e-4)
+	-- the shared bind pose was never written
 	T(math.abs(bind[0] - bind_x))["<"](1e-6)
-	-- removing the component gives the animator its bind pose back
-	flex:SetFlexByName("open", 1)
-	flex:Update()
-	T(target.skinned.bind_address ~= target.rest_address)["=="](true)
-	entity:RemoveComponent("flex")
-	T(target.skinned.bind_address == target.rest_address)["=="](true)
 	animator:Unbind()
 	entity:Remove()
 end)
@@ -135,17 +144,18 @@ T.Test3D("flex lists the controllers of the model as dynamic properties", functi
 	T(properties[1].var_name)["=="]("flex open")
 	properties[1].set(flex, 0.75)
 	T(properties[1].get(flex))["=="](0.75)
+	T(animator:GetRig():GetFlex("open"))["=="](0.75)
 	T(changes[#changes])["=="]("flex open")
 	T(flex:OnSerialize().values.open)["=="](0.75)
 	flex:ClearFlexes()
 	T(properties[1].get(flex))["=="](0)
 	flex:OnDeserialize{values = {wink = 0.25}}
 	T(properties[2].get(flex))["=="](0.25)
-	-- values set before a model is bound are kept
+	-- values set before a model is bound are kept, a new rig gets them again
 	animator:Unbind()
 	animator:Bind(skeleton)
 	flex:Update()
-	T(flex.controller[1])["=="](0.25)
+	T(animator:GetRig():GetFlex("wink"))["=="](0.25)
 	entity:Remove()
 end)
 
@@ -164,27 +174,48 @@ T.Test3D("source engine faces are flexed by their controllers", function()
 	local flex = entity:AddComponent("flex")
 
 	T.WaitUntil(function()
-		return flex.targets[1] ~= nil
+		return entity.animator:GetRig() ~= nil
 	end, 30)
 
+	flex:Update()
+	local rig = entity.animator:GetRig()
 	local names = flex:GetFlexNames()
 	T(#names)[">"](20)
 	T(#flex:GetDynamicProperties())["=="](#names)
+	local head
+
 	-- the head is one of the models of the body
-	local target = flex.targets[1]
-	T(target.skinned.bind_address == target.rest_address)["=="](true)
+	for _, skinned in ipairs(rig.skinned) do
+		if skinned.morph then head = skinned end
+	end
+
+	T(head ~= nil)["=="](true)
 
 	for _, name in ipairs(names) do
 		flex:SetFlexByName(name, 1)
 	end
 
-	flex:Update()
-	T(target.skinned.bind_address ~= target.rest_address)["=="](true)
+	rig:Update()
+	T(head.morph_active)["=="](true)
+	-- what the shader adds to a vertex, from the weights the rig uploads
+	local moved = {}
 	local largest = 0
 
-	for i = 0, target.skinned.count - 1 do
-		for c = 0, 2 do
-			largest = math.max(largest, math.abs(target.scratch[i * 17 + c] - target.bind_data[i * 17 + c]))
+	for i, entry in ipairs(head.skin.Flexes) do
+		local w1, w2 = rig.morph_weights[head.weight_offset + i * 2 - 2],
+		rig.morph_weights[head.weight_offset + i * 2 - 1]
+
+		for k = 0, entry.Count - 1 do
+			local w = w1 + (w2 - w1) * entry.Sides[k] / 255
+			local vertex = entry.Indices[k]
+			local offset = moved[vertex] or {0, 0, 0}
+			moved[vertex] = offset
+
+			for c = 1, 3 do
+				offset[c] = offset[c] + entry.Deltas[k * 6 + c - 1] * w
+			end
+
+			largest = math.max(largest, math.sqrt(offset[1] ^ 2 + offset[2] ^ 2 + offset[3] ^ 2))
 		end
 	end
 

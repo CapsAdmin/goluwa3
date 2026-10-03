@@ -2,9 +2,8 @@ local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local AABB = import("goluwa/structs/aabb.lua")
-local Skeleton = import("goluwa/render3d/skeleton.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
-local ffi = require("ffi")
+local Rig = import("goluwa/render3d/rig.lua")
 local Animator = objects.CreateTemplate("animator")
 Animator.Is3D = true
 -- how far past the bind pose bounds an animated mesh may reach before it is frustum culled, as a fraction of its size
@@ -52,7 +51,6 @@ Animator:EndStorable()
 
 function Animator:Initialize()
 	self.targets = {}
-	self.skinned = {}
 	self.time = 0
 	self.pose_parameters = self.pose_parameters or {}
 	self.dirty = true
@@ -138,7 +136,14 @@ function Animator:GetClip()
 	return self.clip
 end
 
+-- the rig that skins the model, for what moves bones and faces on top of the animation
+function Animator:GetRig()
+	return self.rig
+end
+
 function Animator:Unbind()
+	if self.rig then self.rig:Remove() end
+
 	for _, target in ipairs(self.targets) do
 		if target.primitive:IsValid() then
 			target.primitive:SetPolygon3D(target.original)
@@ -146,7 +151,7 @@ function Animator:Unbind()
 	end
 
 	self.targets = {}
-	self.skinned = {}
+	self.rig = nil
 	self.skeleton = nil
 	self.clip = nil
 end
@@ -159,11 +164,10 @@ function Animator:Bind(skeleton)
 
 	if not skeleton then return end
 
-	self.pose = skeleton:CreatePose()
-	self.clip_pose = skeleton:CreatePose()
-	self.fade_pose = skeleton:CreatePose()
-	self.matrices = skeleton:CreateMatrices()
-	ffi.copy(self.pose, skeleton.BindLocal, skeleton.BoneCount * Skeleton.PoseSize * 4)
+	self.pose = skeleton:NewPose()
+	self.clip_pose = skeleton:NewPose()
+	self.fade_pose = skeleton:NewPose()
+	local parts = {}
 	-- the primitives of a model share one skin and one vertex array, so they share the buffer that is skinned too
 	local by_skin = {}
 
@@ -193,20 +197,17 @@ function Animator:Bind(skeleton)
 
 			if not shared then
 				local vertex_buffer = clone.mesh.vertex_buffer
-				local count = vertex_buffer:GetVertexCount()
 				by_skin[polygon.Skin] = {vertex_buffer = vertex_buffer}
-				self.skinned[#self.skinned + 1] = {
-					vertex_buffer = vertex_buffer,
+				parts[#parts + 1] = {
 					bind_vertex_buffer = polygon.mesh.vertex_buffer,
-					count = count,
-					bind_address = polygon.mesh.vertex_buffer:GetBuffer():GetDeviceAddress(),
-					destination_address = vertex_buffer:GetBuffer():GetDeviceAddress(),
-					bones_address = skinning.GetBoneBuffer(polygon.Skin, count):GetDeviceAddress(),
+					vertex_buffer = vertex_buffer,
 					skin = polygon.Skin,
 				}
 			end
 		end
 	end
+
+	self.rig = Rig.New(skeleton, parts)
 end
 
 function Animator:OnRemove()
@@ -239,7 +240,7 @@ function Animator:ResolveClip()
 		self.time = 0
 
 		if self.BlendTime > 0 then
-			ffi.copy(self.fade_pose, self.pose, skeleton.BoneCount * Skeleton.PoseSize * 4)
+			self.fade_pose:Copy(self.pose)
 			self.fade = 0
 		end
 	end
@@ -253,68 +254,72 @@ function Animator:Settle()
 	if (self.settle or 0) == 0 then return end
 
 	self.settle = 0
-	skinning.Queue(self)
+	skinning.Queue(self.rig)
 end
 
 function Animator:Animate(dt)
-	local skeleton = self.skeleton
+	local rig = self.rig
 
 	if self.clip_dirty then self:ResolveClip() end
 
 	local clip = self.clip
+	local pose_changed = false
 
 	if not clip then
-		if not self.dirty then return self:Settle() end
-
-		ffi.copy(self.pose, skeleton.BindLocal, skeleton.BoneCount * Skeleton.PoseSize * 4)
+		if self.dirty then
+			self.pose:Reset()
+			pose_changed = true
+		end
 	else
 		local advancing = self.Playing and clip.Duration > 0
 
-		if not (advancing or self.dirty or self.fade) then return self:Settle() end
+		if advancing or self.dirty or self.fade then
+			pose_changed = true
 
-		if advancing then self.time = self.time + dt * self.Speed end
+			if advancing then self.time = self.time + dt * self.Speed end
 
-		local cycle = 0
+			local cycle = 0
 
-		if clip.Duration > 0 then
-			cycle = self.time / clip.Duration
+			if clip.Duration > 0 then
+				cycle = self.time / clip.Duration
 
-			if self.Loop and clip.Loop ~= false then
-				cycle = cycle % 1
-			else
-				cycle = math.clamp(cycle, 0, 1)
+				if self.Loop and clip.Loop ~= false then
+					cycle = cycle % 1
+				else
+					cycle = math.clamp(cycle, 0, 1)
+				end
+
+				self.time = cycle * clip.Duration
 			end
 
-			self.time = cycle * clip.Duration
-		end
+			self.clip_pose:Sample(clip, cycle, self.pose_parameters)
 
-		clip:Sample(cycle, self.pose_parameters, self.clip_pose)
+			if self.fade then
+				self.fade = self.fade + dt / self.BlendTime
 
-		if self.fade then
-			self.fade = self.fade + dt / self.BlendTime
-
-			if self.fade >= 1 then
-				self.fade = nil
-			else
-				skeleton:BlendPoses(
-					self.fade_pose,
-					self.clip_pose,
-					self.fade * self.fade * (3 - 2 * self.fade),
-					self.pose
-				)
+				if self.fade >= 1 then
+					self.fade = nil
+				else
+					self.pose:Blend(self.fade_pose, self.clip_pose, self.fade * self.fade * (3 - 2 * self.fade))
+				end
 			end
-		end
 
-		if not self.fade then
-			ffi.copy(self.pose, self.clip_pose, skeleton.BoneCount * Skeleton.PoseSize * 4)
+			if not self.fade then self.pose:Copy(self.clip_pose) end
 		end
 	end
 
+	-- bones and flexes set on the rig also need the vertices skinned again
+	if not (pose_changed or rig.dirty or rig.needs_skin) then
+		return self:Settle()
+	end
+
 	self.dirty = false
-	skeleton:ComputeSkinMatrices(self.pose, self.matrices)
+
+	if pose_changed then rig:SetPose(self.pose) end
+
+	rig:Update()
 	self.settle = 1
 	self.skin_version = (self.skin_version or 0) + 1
-	skinning.Queue(self)
 	self.Owner.visual:NotifyGeometryChanged()
 end
 

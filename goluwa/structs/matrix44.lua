@@ -184,6 +184,7 @@ do
 		-- Rodrigues' rotation formula, applied to self in place as R * self
 		local s = sin(a)
 		local c = cos(a)
+
 		-- rotation about z only touches the first two rows
 		if x == 0 and y == 0 then
 			s = z * s
@@ -434,6 +435,7 @@ end
 
 function META:SetAngles(ang)
 	self:SetRotation(Quat():SetAngles(ang))
+	return self
 end
 
 function META:GetAngles()
