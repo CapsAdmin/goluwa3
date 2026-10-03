@@ -82,7 +82,11 @@ function META:Start(now, ...)
 	self.Running = true
 	self.run_me = nil
 	local co = coroutine.create(function(...)
-		return self:OnStart(...)
+		local res = {callstack.pcall(self.OnStart, self, ...)}
+
+		if not res[1] then error(res[2], 0) end
+
+		return unpack(res, 2)
 	end)
 	tasks.coroutine_lookup[co] = self
 	self.co = co
