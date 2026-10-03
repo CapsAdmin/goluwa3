@@ -19,8 +19,6 @@ local CCD_MAX_SAMPLE_STEPS = 96
 local CCD_REFINE_STEPS = 14
 local TEMPORAL_TOI_MIN_SAMPLE_STEPS = 10
 local TEMPORAL_TOI_MAX_SAMPLE_STEPS = 48
--- 7 bisection steps shrink the hit interval to ~1/128 of a sample step, far
--- below the substep timescale CCD needs to be accurate to
 local TEMPORAL_TOI_REFINE_STEPS = 7
 local MOTION_SCALE_AABB = AABB(0, 0, 0, 0, 0, 0)
 
@@ -107,11 +105,6 @@ function pair_solver_helpers.ShouldUseCCD(body)
 	return should_use_auto_ccd(body)
 end
 
--- Bodies that force CCD on sweep unless they moved less than a quarter of
--- their own size in the substep (walking, standing): a swept hit needs motion,
--- and the discrete contacts catch slow bodies. The automatic rule uses half
--- the size, but a forced body slowed by an impact still needs the sweep to
--- stop at thin brush walls, so it keeps a lower cut-off.
 local FORCED_CCD_SIZE_RATIO = 0.25
 
 function pair_solver_helpers.ShouldSweepBody(body)
@@ -168,10 +161,6 @@ end
 local DISPATCH_QUERY_AABB = AABB(0, 0, 0, 0, 0, 0)
 local DISPATCH_COLLIDERS_A = {}
 local DISPATCH_COLLIDERS_B = {}
--- A manifold built in an earlier step is recycled while both bodies stay this
--- close to the pose it was built at; within a step mesh contacts may drift
--- further (their anchors move with the bodies and the normal stays valid over
--- a surface patch), like Box3D's contact recycle distance.
 local RECYCLE_POSE_THRESHOLD = 0.005
 local RECYCLE_ROTATION_DOT = 0.99995
 local STEP_REUSE_POSE_THRESHOLD = 0.05
@@ -195,14 +184,26 @@ function pair_solver_helpers.IsPoseInvalidated(body, cached_pose, squared_thresh
 	end
 
 	local rotation = body:GetRotation()
-	return math.abs(rotation.x * cached_pose.rx + rotation.y * cached_pose.ry + rotation.z * cached_pose.rz + rotation.w * cached_pose.rw) < min_rotation_dot
+	return math.abs(
+			rotation.x * cached_pose.rx + rotation.y * cached_pose.ry + rotation.z * cached_pose.rz + rotation.w * cached_pose.rw
+		) < min_rotation_dot
 end
 
--- bounds of the other body, padded by the contact margins, for culling the
--- colliders of a big static body
 local function build_dispatch_query_aabb(body, other_body, bounds)
 	local pad = math.max(
-		(body:GetCollisionMargin() or 0) + (body:GetCollisionProbeDistance() or 0) + (other_body:GetCollisionMargin() or 0) + (other_body:GetCollisionProbeDistance() or 0),
+		(
+				body:GetCollisionMargin() or
+				0
+			) + (
+				body:GetCollisionProbeDistance() or
+				0
+			) + (
+				other_body:GetCollisionMargin() or
+				0
+			) + (
+				other_body:GetCollisionProbeDistance() or
+				0
+			),
 		physics_constants.DEFAULT_COLLISION_MARGIN,
 		physics_constants.EPSILON
 	)
@@ -216,16 +217,6 @@ local function build_dispatch_query_aabb(body, other_body, bounds)
 	return query
 end
 
--- Pairs of bodies with more than one collider. Their manifolds are keyed by
--- collider pair and built by the shape handlers. mode:
---   "collide": the narrowphase substep, recycle what is still valid and run
---     the handlers for the rest to find new contacts
---   "reuse": a later substep, only existing manifolds are solved (rebuilt by
---     their handler once the bodies moved too far); colliders that found no
---     contact stay quiet until the next collide substep
---   "relax": the rigid sweeps over the manifolds the substep just solved
--- The manifolds solved in a substep are remembered on the pair for its relax
--- sweeps.
 function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 	local step_stamp = solver.StepStamp
 
@@ -247,8 +238,16 @@ function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 	local entry_b = pair.entry_b
 	local body_a = entry_a.body
 	local body_b = entry_b.body
-	local list_a, count_a = collider_index.Query(body_a, build_dispatch_query_aabb(body_a, body_b, entry_b.bounds), DISPATCH_COLLIDERS_A)
-	local list_b, count_b = collider_index.Query(body_b, build_dispatch_query_aabb(body_b, body_a, entry_a.bounds), DISPATCH_COLLIDERS_B)
+	local list_a, count_a = collider_index.Query(
+		body_a,
+		build_dispatch_query_aabb(body_a, body_b, entry_b.bounds),
+		DISPATCH_COLLIDERS_A
+	)
+	local list_b, count_b = collider_index.Query(
+		body_b,
+		build_dispatch_query_aabb(body_b, body_a, entry_a.bounds),
+		DISPATCH_COLLIDERS_B
+	)
 	local persistent_manifolds = solver.PersistentManifolds
 	local collide_stamp = solver.CollideStamp
 	local recycle_squared = RECYCLE_POSE_THRESHOLD * RECYCLE_POSE_THRESHOLD
@@ -392,7 +391,6 @@ function pair_solver_helpers.FindEarliestBodyPointSweepHit(
 	return best_hit
 end
 
--- returns a per-body persistent table so sweep solves do not allocate per call
 function pair_solver_helpers.GetBodySweepMotion(body)
 	local out = body._SweepMotion
 
@@ -439,7 +437,6 @@ function pair_solver_helpers.FindSampledTemporalHit(evaluate, sample_steps, refi
 		refine_steps or TEMPORAL_TOI_REFINE_STEPS
 	)
 
-	-- a hit at t = 0 means the pair is already penetrating; no TOI to report
 	if not result or hit_t == 0 then return nil end
 
 	result.t = hit_t

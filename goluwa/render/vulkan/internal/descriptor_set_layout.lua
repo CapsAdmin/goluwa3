@@ -7,7 +7,6 @@ local VkDescriptorBindingFlagsArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorB
 local VkDescriptorSetLayoutBox = ffi.typeof("$[1]", vulkan.vk.VkDescriptorSetLayout)
 
 function DescriptorSetLayout.New(device, bindings)
-	-- bindings is an array of tables: {{binding, type, stageFlags, count}, ...}
 	local bindingArray = VkDescriptorSetLayoutBindingArray(#bindings)
 	local bindingFlagsArray = VkDescriptorBindingFlagsArray(#bindings)
 	local has_dynamic_buffer = false
@@ -28,8 +27,6 @@ function DescriptorSetLayout.New(device, bindings)
 		bindingArray[i - 1].pImmutableSamplers = nil
 		local binding_flags = 0
 
-		-- For bindless (large arrays), set flags for dynamic updates.
-		-- But ONLY if there are no dynamic buffers, as required by Vulkan spec VUID-VkDescriptorSetLayoutCreateInfo-descriptorType-03001.
 		if (b.count or 1) > 1 and not has_dynamic_buffer then
 			binding_flags = bit.bor(
 				binding_flags,
@@ -46,7 +43,8 @@ function DescriptorSetLayout.New(device, bindings)
 		end
 
 		bindingFlagsArray[i - 1] = binding_flags
-	end -- Add binding flags for descriptor indexing
+	end
+
 	local ptr = VkDescriptorSetLayoutBox()
 	local flags = has_dynamic_buffer and 0 or {"update_after_bind_pool"}
 	vulkan.assert(

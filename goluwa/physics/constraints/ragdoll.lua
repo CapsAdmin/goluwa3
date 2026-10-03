@@ -1,23 +1,15 @@
 local Constraint = import("goluwa/physics/constraint.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
 local objects = import("goluwa/objects/objects.lua")
--- Ball and socket with per axis angle limits, the shape of a ragdoll joint.
--- The x axis of the joint frame is the twist axis, the swing is limited about
--- the y and z axes. Each limit is an angle in radians from the pose at
--- creation; nil leaves that side free.
 local META = objects.CreateTemplate("physics_ragdoll_constraint")
 META.Base = Constraint
 local INFINITY = math.huge
--- lower limit key, upper limit key, friction key of the three axes
 local LIMIT_KEYS = {
 	{"TwistMin", "TwistMax", "TwistFriction"},
 	{"SwingYMin", "SwingYMax", "SwingFriction"},
 	{"SwingZMin", "SwingZMax", "SwingFriction"},
 }
 
--- config: CollideConnected (default false), TwistMin, TwistMax, SwingYMin,
--- SwingYMax, SwingZMin, SwingZMax, TwistFriction and SwingFriction (torque),
--- BreakForce, BreakTorque
 function META.New(body_0, body_1, world_anchor, world_axis, config)
 	config = config or {}
 	local self = META:CreateObject{
@@ -67,7 +59,6 @@ function META:WarmStart()
 	end
 end
 
--- twist, swing about y, swing about z
 function META:GetAngles()
 	return rows.GetSwingTwist(self:LoadStates())
 end

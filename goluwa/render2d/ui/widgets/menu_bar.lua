@@ -210,7 +210,7 @@ function META:OpenMenu(index)
 	end
 
 	self.active_index = index
-	self.context_menu:Remove() -- remove immedeatly
+	self.context_menu:Remove()
 	self.context_menu = Panel.OpenContextMenu(
 		{
 			Anchor = button,

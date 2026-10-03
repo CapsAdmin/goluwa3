@@ -42,9 +42,6 @@ end
 
 local CLIP_DELTA = Vec3(0, 0, 0)
 
--- intersection points are freshly allocated: out-array slots may be shared
--- with the input polygon through pass-through references, so writing into
--- an existing slot would corrupt points the input loop still reads
 local function emit_clip_point(out, count, previous, t)
 	out[count] = Vec3(
 		previous.x + CLIP_DELTA.x * t,
@@ -191,8 +188,22 @@ function convex_face_clipping.ClipFacePolygonToReference(reference_body, referen
 			-reference_face.tangent_v_extent,
 			math.min(reference_face.tangent_v_extent, get_component(point, reference_face.tangent_v_index))
 		)
-		if reference_face.tangent_u_index == 1 then point.x = clamped_u elseif reference_face.tangent_u_index == 2 then point.y = clamped_u else point.z = clamped_u end
-		if reference_face.tangent_v_index == 1 then point.x = clamped_v elseif reference_face.tangent_v_index == 2 then point.y = clamped_v else point.z = clamped_v end
+
+		if reference_face.tangent_u_index == 1 then
+			point.x = clamped_u
+		elseif reference_face.tangent_u_index == 2 then
+			point.y = clamped_u
+		else
+			point.z = clamped_u
+		end
+
+		if reference_face.tangent_v_index == 1 then
+			point.x = clamped_v
+		elseif reference_face.tangent_v_index == 2 then
+			point.y = clamped_v
+		else
+			point.z = clamped_v
+		end
 	end
 
 	return polygon

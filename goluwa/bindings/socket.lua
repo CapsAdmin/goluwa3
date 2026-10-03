@@ -2,7 +2,6 @@ local ffi = require("ffi")
 local socket = {}
 local e
 local errno
---
 local pollfd
 local sockaddr
 local sockaddr_in
@@ -99,7 +98,6 @@ do
 		} u6_addr; 
 	}]])
 
-	-- https://www.cs.dartmouth.edu/~sergey/cs60/on-sockaddr-structs.txt
 	if jit.os == "OSX" then
 		sockaddr = ffi.typeof([[
 			struct {
@@ -203,7 +201,7 @@ do
 		is_invalid_socket = function(fd)
 			return ffi.cast("intptr_t", fd) == -1
 		end
-	else -- posix
+	else
 		sockaddr = ffi.typeof([[
 			struct {
 				uint16_t sa_family;
@@ -267,7 +265,7 @@ do
 	]], SOCKET)
 
 	if ffi.os == "Windows" then
-		do -- last error
+		do
 			local FormatMessageA = load_c_function(
 				ffi.C,
 				"FormatMessageA",
@@ -301,7 +299,7 @@ do
 			end
 		end
 
-		do -- init
+		do
 			local wsa_data
 
 			if jit.arch == "x64" then
@@ -341,7 +339,7 @@ do
 			end
 		end
 
-		do -- cleanup
+		do
 			local WSACleanup = load_c_function(SocketLib, "WSACleanup", "int NAME()")
 
 			function socket.shutdown()
@@ -351,7 +349,7 @@ do
 			end
 		end
 
-		if jit.arch == "x32" then -- xp or something
+		if jit.arch == "x32" then
 			local WSAAddressToStringA = load_c_function(
 				SocketLib,
 				"WSAAddressToStringA",
@@ -361,7 +359,6 @@ do
 			)
 
 			function socket.inet_ntop(family, pAddr, strptr, strlen)
-				-- win XP: http://memset.wordpress.com/2010/10/09/inet_ntop-for-win32/
 				local srcaddr = sockaddr_in()
 				ffi.copy(srcaddr.sin_addr, pAddr, ffi.sizeof(srcaddr.sin_addr))
 				srcaddr.sin_family = family
@@ -393,7 +390,8 @@ do
 				)
 			end
 
-			local FIONBIO = _IOW(string.byte("f"), 126, "uint32_t") -- -2147195266 -- 2147772030ULL
+			local FIONBIO = _IOW(string.byte("f"), 126, "uint32_t")
+
 			function socket.blocking(fd, b)
 				local ret = ioctlsocket(fd, FIONBIO, ffi.new("int[1]", b and 0 or 1))
 
@@ -451,8 +449,7 @@ do
 			function socket.blocking(fd, b)
 				local flags = fcntl(fd, F_GETFL, 0)
 
-				if flags < 0 then -- error
-				return nil, socket.lasterror() end
+				if flags < 0 then return nil, socket.lasterror() end
 
 				if b then
 					flags = bit.band(flags, bit.bnot(O_NONBLOCK))
@@ -833,7 +830,7 @@ do
 	errno = {
 		EBADF = 9,
 		EAGAIN = 11,
-		EWOULDBLOCK = 11, -- is errno.EAGAIN
+		EWOULDBLOCK = 11,
 		EINVAL = 22,
 		ENOTCONN = 107,
 		ENOTSOCK = 88,
@@ -873,7 +870,7 @@ do
 		e.SO_RCVLOWAT = 4100
 		errno.EBADF = 10009
 		errno.EINVAL = 10022
-		errno.EAGAIN = 10035 -- Note: Does not exist on Windows
+		errno.EAGAIN = 10035
 		errno.EWOULDBLOCK = 10035
 		errno.EINPROGRESS = 10036
 		errno.ENOTCONN = 10057
@@ -1087,7 +1084,7 @@ function M.bind(host, service)
 	return server
 end
 
-do -- addrinfo
+do
 	local addrinfo_ptr = ffi.typeof("$*", addrinfo_out)
 
 	do
@@ -1150,7 +1147,6 @@ do -- addrinfo
 		function meta:free()
 			if not self.addrinfo then return end
 
-			--socket.freeaddrinfo(self.addrinfo)
 			self.addrinfo = nil
 		end
 
@@ -1288,13 +1284,11 @@ do
 	function meta:set_option(key, val, level)
 		level = level or "socket"
 
-		-- Windows doesn't support SO_BROADCAST on SOCK_STREAM sockets
 		if
 			ffi.os == "Windows" and
 			key:lower() == "broadcast" and
 			self.socket_type == "stream"
 		then
-			-- Store the value for later retrieval and silently succeed
 			if type(val) == "boolean" then
 				self._broadcast_fake = val and 1 or 0
 			elseif type(val) == "number" then
@@ -1341,13 +1335,11 @@ do
 	function meta:get_option(key, level)
 		level = level or "socket"
 
-		-- Windows doesn't support SO_BROADCAST on SOCK_STREAM sockets
 		if
 			ffi.os == "Windows" and
 			key:lower() == "broadcast" and
 			self.socket_type == "stream"
 		then
-			-- Return the value from our fake storage if it was set, otherwise 0
 			return self._broadcast_fake or 0
 		end
 
@@ -1358,7 +1350,6 @@ do
 		local val
 		local size
 
-		-- Determine the appropriate type and size for the option
 		if key:lower() == "rcvtimeo" or key:lower() == "sndtimeo" then
 			if ffi.os == "Windows" then
 				val = ffi.new("int[1]")
@@ -1368,7 +1359,6 @@ do
 				size = ffi.new("uint32_t[1]", ffi.sizeof(timeval))
 			end
 		else
-			-- Default to int for most socket options
 			val = ffi.new("int[1]")
 			size = ffi.new("uint32_t[1]", ffi.sizeof("int"))
 		end
@@ -1383,7 +1373,6 @@ do
 
 		if not ok then return ok, err, num end
 
-		-- Convert the result based on the option type
 		if key:lower() == "rcvtimeo" or key:lower() == "sndtimeo" then
 			if ffi.os == "Windows" then
 				return val[0]
@@ -1391,7 +1380,6 @@ do
 				return val.tv_usec / 1000
 			end
 		else
-			-- Return as number for most options
 			return val[0]
 		end
 	end
@@ -1636,7 +1624,6 @@ do
 		end
 
 		if len == 0 then
-			-- Connection closed gracefully by remote end (FIN received)
 			if self.debug then print(tostring(self), ": connection closed by peer") end
 
 			return nil, "closed", 0

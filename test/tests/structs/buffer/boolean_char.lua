@@ -43,10 +43,13 @@ end)
 T.Test("Buffer WriteChar ReadChar all ascii", function()
 	local buf = ffi.new("uint8_t[26]")
 	local buffer = Buffer.New(buf, 26)
+
 	for i = 0, 25 do
 		buffer:WriteChar(string.char(65 + i))
 	end
+
 	buffer:SetPosition(0)
+
 	for i = 0, 25 do
 		T(buffer:ReadChar())["=="](string.char(65 + i))
 	end

@@ -78,9 +78,6 @@ function Framebuffer.New(config)
 
 	self.color_texture = self.color_textures[1]
 	self.clear_color = self.clear_colors[1]
-	-- read_only_depth is a function returning another framebuffer's depth,
-	-- tested against without writing it: it stays in its sampled layout, so
-	-- shaders can sample it in the same pass
 	self.read_only_depth = config.read_only_depth
 
 	if config.depth then
@@ -160,7 +157,6 @@ function Framebuffer:Begin(cmd, load_op)
 		self.cmd:Begin()
 	end
 
-	-- Transition color attachments to optimal layout
 	local imageBarriers = {}
 
 	for _, tex in ipairs(self.color_textures) do
@@ -187,7 +183,6 @@ function Framebuffer:Begin(cmd, load_op)
 				dstAccessMask = "depth_stencil_attachment_write",
 				oldLayout = depth_image.layout or "undefined",
 				newLayout = "depth_stencil_attachment_optimal",
-			-- aspect is automatically determined from image format by PipelineBarrier
 			}
 		)
 	end
@@ -197,7 +192,6 @@ function Framebuffer:Begin(cmd, load_op)
 		dstStage = {"color_attachment_output", "early_fragment_tests", "late_fragment_tests"},
 		imageBarriers = imageBarriers,
 	}
-	-- Begin rendering
 	local color_attachments = {}
 
 	for i, tex in ipairs(self.color_textures) do
@@ -242,7 +236,6 @@ function Framebuffer:End(cmd)
 
 	cmd = cmd or render.GetCommandBuffer() or self.cmd
 	cmd:EndRendering()
-	-- Transition color attachments to shader read layout
 	local imageBarriers = {}
 
 	for _, tex in ipairs(self.color_textures) do
@@ -264,11 +257,9 @@ function Framebuffer:End(cmd)
 			{
 				image = self.depth_texture:GetImage(),
 				srcAccessMask = "depth_stencil_attachment_write",
-				-- sampled, or tested against as another framebuffer's read_only_depth
 				dstAccessMask = {"shader_read", "depth_stencil_attachment_read"},
 				oldLayout = "depth_attachment_optimal",
 				newLayout = self.depth_texture.sampled_layout,
-			-- aspect is automatically determined from image format by PipelineBarrier
 			}
 		)
 	end
@@ -323,13 +314,9 @@ function Framebuffer:GetExtent()
 end
 
 function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
-	-- Detect if first arg is a command buffer or a clear parameter
 	local is_cmd = type(cmd) == "table" and cmd.GetImage
 
 	if not is_cmd then
-		-- First arg is actually 'key', shift everything
-		-- User passes: Clear(key, r, g, b, depth, stencil)
-		-- Lua sees: cmd=key, key=r, g=g, b=b, depth=depth, stencil=stencil
 		local saved_depth = depth
 		local saved_stencil = stencil
 		b = g
@@ -338,14 +325,12 @@ function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
 		key = cmd
 		cmd = self._active_cmd or self.cmd
 
-		-- Restore depth/stencil for color clears (they were shifted into b/g)
 		if type(key) == "string" and key ~= "depth" then
 			depth = saved_depth
 			stencil = saved_stencil
 		end
 	end
 
-	-- Validate state: command buffer must exist and be usable
 	assert(cmd, "Framebuffer:Clear requires a command buffer")
 	assert(
 		type(cmd) == "table" and cmd.ClearAttachments,
@@ -357,7 +342,6 @@ function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
 			key = 1
 		elseif key == "depth" then
 			assert(self.depth_texture, "Framebuffer has no depth texture")
-			-- After shift: r=depth_val, g=stencil_val (from user's Clear("depth", depth_val, stencil_val))
 			cmd:ClearAttachments{
 				depth = r or 1.0,
 				stencil = g or 0,
@@ -386,7 +370,6 @@ end
 
 function Framebuffer:ClearAll(cmd, r, g, b, a, depth, stencil)
 	if type(cmd) ~= "table" or not cmd.GetImage then
-		-- First arg is actually 'r', shift everything
 		depth = b
 		b = a
 		a = g
@@ -401,7 +384,6 @@ function Framebuffer:ClearAll(cmd, r, g, b, a, depth, stencil)
 		"Framebuffer:ClearAll: argument must be a command buffer table"
 	)
 
-	-- Clear each color attachment
 	for i = 1, #self.color_textures do
 		local clear_color = r ~= nil and {r, g, b, a} or self.clear_colors[i]
 		cmd:ClearAttachments{
@@ -412,7 +394,6 @@ function Framebuffer:ClearAll(cmd, r, g, b, a, depth, stencil)
 		}
 	end
 
-	-- Clear depth and stencil if present
 	if self.depth_texture then
 		cmd:ClearAttachments{
 			depth = depth or 1.0,

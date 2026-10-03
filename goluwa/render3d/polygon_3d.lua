@@ -22,9 +22,7 @@ function Polygon3D:__tostring2()
 end
 
 Polygon3D:GetSet("Vertices")
--- height of the whole model above its origin, the scale of vegetation main bending
 Polygon3D:GetSet("BendHeight", 0)
--- index into the source model's material list, lets a visual swap materials per slot
 Polygon3D:GetSet("MaterialSlot", nil)
 Polygon3D:GetSet(
 	"AABB",
@@ -152,7 +150,6 @@ function Polygon3D:Upload(indices)
 		indices = gpu_indices
 	end
 
-	-- Convert Lua table vertices to FFI structured array
 	local vertex_count = #self.Vertices
 
 	if vertex_count == 0 then return end
@@ -165,22 +162,18 @@ function Polygon3D:Upload(indices)
 
 	if not self.Vertices[1].tangent then self:BuildTangents() end
 
-	-- Define vertex structure matching render3d pipeline: position, normal, uv, tangent, texture_blend, vertex_color
 	local vertices = VertexType(vertex_count)
 
-	-- Copy vertex data from Lua tables to FFI array
 	for i = 1, vertex_count do
 		local v = self.Vertices[i]
 		local idx = i - 1
 
-		-- Position
 		if v.pos then
 			vertices[idx].position[0] = v.pos.x or v.pos[1] or 0
 			vertices[idx].position[1] = v.pos.y or v.pos[2] or 0
 			vertices[idx].position[2] = v.pos.z or v.pos[3] or 0
 		end
 
-		-- Normal
 		if v.normal then
 			vertices[idx].normal[0] = v.normal.x or v.normal[1] or 0
 			vertices[idx].normal[1] = v.normal.y or v.normal[2] or 0
@@ -191,13 +184,11 @@ function Polygon3D:Upload(indices)
 			vertices[idx].normal[2] = 1
 		end
 
-		-- UV
 		if v.uv then
 			vertices[idx].uv[0] = v.uv.x or v.uv[1] or 0
 			vertices[idx].uv[1] = v.uv.y or v.uv[2] or 0
 		end
 
-		-- Tangent
 		if v.tangent then
 			vertices[idx].tangent[0] = v.tangent.x or v.tangent[1] or 0
 			vertices[idx].tangent[1] = v.tangent.y or v.tangent[2] or 0
@@ -210,9 +201,7 @@ function Polygon3D:Upload(indices)
 			vertices[idx].tangent[3] = 1
 		end
 
-		-- Texture Blend
 		vertices[idx].texture_blend = v.texture_blend or 0
-		-- Vertex Color
 		local vertex_color = v.vertex_color or v.color
 
 		if vertex_color then
@@ -228,8 +217,6 @@ function Polygon3D:Upload(indices)
 		end
 	end
 
-	-- Same layout as VERTEX_ATTRIBUTES above - reused (not rebuilt) so its identity stays stable
-	-- across calls, which Mesh.NewDeduped's content key relies on
 	local vertex_attributes = VERTEX_ATTRIBUTES
 	local index_type = "uint16_t"
 
@@ -237,8 +224,6 @@ function Polygon3D:Upload(indices)
 
 	local index_count
 
-	-- Dedup needs the final content as cdata to hash it; converting up front here also lets
-	-- Mesh.New take the cheaper FromPointer path below instead of re-converting this same table
 	if indices then
 		index_count = #indices
 		indices = IndexBuffer.IndicesToArray(indices, index_type)
@@ -256,7 +241,6 @@ function Polygon3D:CloneDynamic(vertex_buffer)
 	clone:SetMaterialSlot(self.MaterialSlot)
 	clone.indices = self.indices
 	clone.Skin = self.Skin
-	-- its vertices are rewritten every frame, unlike the shared mesh it came from
 	clone.Dynamic = true
 	clone.mesh = self.mesh:CloneDynamic(vertex_buffer)
 	return clone
@@ -270,7 +254,7 @@ function Polygon3D:Draw()
 	mesh:Draw()
 end
 
-do -- helpers
+do
 	function Polygon3D:BuildBoundingBox()
 		self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 
@@ -301,7 +285,7 @@ do -- helpers
 				u, v = vertex.pos.z, vertex.pos.y
 			elseif axis == "y" then
 				u, v = vertex.pos.x, vertex.pos.z
-			else -- "z"
+			else
 				u, v = vertex.pos.x, vertex.pos.y
 			end
 
@@ -529,11 +513,6 @@ do -- helpers
 		end
 	end
 
-	--[[
-		2___1
-		|  /
-	   3|/
-	]]
 	function Polygon3D:LoadObj(data, generate_normals)
 		local positions = {}
 		local texcoords = {}
@@ -617,7 +596,6 @@ do -- helpers
 
 			for i = 1, count do
 				local a, b, c = output[1 + (i - 1) * 3 + 0], output[1 + (i - 1) * 3 + 1], output[1 + (i - 1) * 3 + 2]
-				-- For counter-clockwise winding: (B-A) × (C-A)
 				local normal = (b.pos - a.pos):Cross(c.pos - a.pos):GetNormalized()
 				vertex_normals[a.pos_index] = vertex_normals[a.pos_index] or Vec3()
 				vertex_normals[a.pos_index] = (vertex_normals[a.pos_index] + normal)
@@ -643,7 +621,6 @@ do -- helpers
 
 		return output
 	end
-
 end
 
 Polygon3D:Register()

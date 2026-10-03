@@ -1,19 +1,14 @@
 local T = import("test/environment.lua")
 local test_render = import("test/test_render.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
-
--- Helper to run framebuffer tests in isolation (not inside test_render.Draw2D)
--- because Framebuffer allocates its own command buffer which can conflict
--- with the swapchain's command buffer when tests run in parallel.
 test_render.Init()
 
 local function run_fb_test(name, cb)
 	return T.Test(name, function()
 		local success, err = pcall(cb)
 		T(success)["=="](true)
-		if not success then
-			error(err)
-		end
+
+		if not success then error(err) end
 	end)
 end
 
@@ -68,7 +63,6 @@ run_fb_test("Graphics framebuffer ClearAll uses correct command buffer", functio
 		clear_colors = {{0.9, 0.8, 0.7, 1}},
 	}
 	fb:Begin()
-	-- ClearAll should not error - it uses the active command buffer
 	fb:ClearAll(0.5, 0.5, 0.5, 1)
 	fb:End()
 	T(true)["=="](true)
@@ -109,21 +103,17 @@ run_fb_test("Graphics framebuffer Clear depth and stencil", function()
 		clear_colors = {{0.5, 0.5, 0.5, 1}},
 	}
 	fb:Begin()
-	-- Clear depth to 0.5, stencil to 128
 	fb:Clear("depth", 0.5, 128)
 	fb:End()
-	-- Verify depth buffer was cleared by downloading and checking bytes
 	local depth_tex = fb:GetDepthTexture()
 	local downloaded = depth_tex:Download()
 	T(downloaded)["~="](nil)
 	T(downloaded.width)["=="](128)
 	T(downloaded.height)["=="](128)
-	-- For d32_sfloat, each pixel is 4 bytes representing the depth value
-	-- After clearing to 0.5, the bytes should be non-zero (0x0000003f in little-endian)
 	local pixels = downloaded.pixels
 	T(pixels)["~="](nil)
-	-- Check that at least some bytes are non-zero (indicating clear happened)
 	local has_data = false
+
 	for i = 0, 15 do
 		if pixels[i] ~= 0 then
 			has_data = true
@@ -131,6 +121,7 @@ run_fb_test("Graphics framebuffer Clear depth and stencil", function()
 			break
 		end
 	end
+
 	T(has_data)["=="](true)
 end)
 
@@ -207,7 +198,6 @@ run_fb_test("Graphics framebuffer GetDepthTexture", function()
 		format = "r8g8b8a8_unorm",
 	}
 	T(fb_no_depth:GetDepthTexture())["=="](nil)
-
 	local fb_with_depth = Framebuffer.New{
 		width = 128,
 		height = 128,

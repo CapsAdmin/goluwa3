@@ -1,11 +1,9 @@
 local Constraint = import("goluwa/physics/constraint.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
 local objects = import("goluwa/objects/objects.lua")
--- Locks two bodies together in the pose they had when it was created.
 local META = objects.CreateTemplate("physics_weld_constraint")
 META.Base = Constraint
 
--- config: CollideConnected (default false), BreakForce, BreakTorque
 function META.New(body_0, body_1, world_anchor, config)
 	config = config or {}
 	local self = META:CreateObject{

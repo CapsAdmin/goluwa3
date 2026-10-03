@@ -1,20 +1,6 @@
 local ffi = require("ffi")
 local Skeleton = {}
 Skeleton.__index = Skeleton
--- a skeleton is what a model decoder hands to the renderer for animation, all in engine space:
---   BoneNames    1 based list of names
---   Parents      1 based list of 0 based parent bone indices, -1 for roots. parents come before their children
---   BindLocal    float[bone_count * 7] local bind pose per bone: position xyz, rotation quaternion xyzw
---   InverseBind  float[bone_count * 12] inverse of the bind pose in model space, 3x4 row major
---   Clips        list of clips, see below
---   PoseParameterNames  names clips can be driven by, filled by the decoder as it adds clips
---   PoseParameterRanges  name -> {min, max}
--- a clip has
---   Name, Duration (seconds), Loop
---   clip:Sample(cycle, pose_parameters, out)  writes a local pose like BindLocal for cycle 0..1. bones the clip does not animate keep the bind pose
--- there are two levels of api. decoders and clips use the raw float arrays (CreatePose, BlendPoses,
--- ComputeSkinMatrices). everything else uses Pose, an opaque local pose with no ffi in its interface, and the rig
--- (render3d/rig.lua) that turns a pose into skinned vertices
 Skeleton.PoseSize = 7
 Skeleton.MatrixSize = 12
 local Floats = ffi.typeof("float[?]")
@@ -54,13 +40,11 @@ function Pose:Copy(other)
 	return self
 end
 
--- the pose of a clip at a cycle from 0 to 1, bones the clip does not animate keep the bind pose
 function Pose:Sample(clip, cycle, pose_parameters)
 	clip:Sample(cycle, pose_parameters, self.data)
 	return self
 end
 
--- a crossfade, a at t = 0 and b at t = 1. self may be a or b
 function Pose:Blend(a, b, t)
 	self.skeleton:BlendPoses(a.data, b.data, t, self.data)
 	return self
@@ -79,8 +63,6 @@ function Skeleton:CreateMatrices()
 	return Floats(self.BoneCount * 12)
 end
 
--- bones that are moved on top of their pose: a local matrix is applied in the space of the bone, a model matrix
--- replaces the matrix of the bone in model space. both are 3x4 row major, translation in the last column
 function Skeleton:CreateBoneOverrides()
 	local count = self.BoneCount
 	return {
@@ -100,7 +82,6 @@ function Skeleton:GetBoneIndex(name)
 	end
 end
 
--- crossfade of two local poses, a at t = 0
 function Skeleton:BlendPoses(a, b, t, out)
 	local s = 1 - t
 
@@ -125,8 +106,6 @@ function Skeleton:BlendPoses(a, b, t, out)
 	end
 end
 
--- local pose -> per bone matrix taking a bind pose vertex to where the pose puts it. world gets the matrices of the
--- bones in model space on the way, overrides is nil when no bone is moved
 function Skeleton:ComputeSkinMatrices(pose, out, world, overrides)
 	local parents = self.parents
 	local inverse_bind = self.InverseBind

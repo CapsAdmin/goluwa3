@@ -33,7 +33,6 @@ local mt_C = {
 local function quick_LCS(t1, t2)
 	local m = #t1
 	local n = #t2
-	-- Build matrix on demand
 	local C = {}
 	setmetatable(C, mt_C)
 	local max = math.max
@@ -54,28 +53,26 @@ local function quick_LCS(t1, t2)
 	return C
 end
 
--- ANSI color codes
 local reset = "\027[0m"
-local green = "\027[32m" -- for additions
-local red = "\027[31m" -- for deletions
-local dim = "\027[2m" -- for whitespace visualization
+local green = "\027[32m"
+local red = "\027[31m"
+local dim = "\027[2m"
+
 local function make_whitespace_visible(str)
-	str = str:gsub(" ", dim .. "⣿" .. reset) -- middle dot for spaces
-	str = str:gsub("\t", dim .. "\\t\t" .. reset) -- arrow for tabs
-	str = str:gsub("\n", dim .. "\\n\n" .. reset) -- pilcrow for newlines
-	str = str:gsub("\r", dim .. "\\r\r" .. reset) -- return symbol for carriage returns
+	str = str:gsub(" ", dim .. "⣿" .. reset)
+	str = str:gsub("\t", dim .. "\\t\t" .. reset)
+	str = str:gsub("\n", dim .. "\\n\n" .. reset)
+	str = str:gsub("\r", dim .. "\\r\r" .. reset)
 	return str
 end
 
 local function format_as_ascii(tokens)
 	local diff_buffer = ""
 
-	-- Function to make whitespace visible
 	for i, token_record in ipairs(tokens) do
 		local token = token_record[1]
 		local status = token_record[2]
 
-		-- Make whitespace visible for all tokens
 		if status == "in" then
 			diff_buffer = diff_buffer .. green .. make_whitespace_visible(token) .. reset
 		elseif status == "out" then
@@ -88,7 +85,6 @@ local function format_as_ascii(tokens)
 	return diff_buffer
 end
 
--- this will scan the LCS matrix backwards and build the diff output recursively.
 local function get_diff(rev_diff, C, old, new, i, j)
 	local old_i = old[i]
 	local new_j = new[j]
@@ -112,12 +108,9 @@ local function get_diff(rev_diff, C, old, new, i, j)
 end
 
 local function diff_tokens(old, new)
-	-- First, compare the beginnings and ends of strings to remove the common
-	-- prefix and suffix.  Chances are, there is only a small number of tokens
-	-- in the middle that differ, in which case  we can save ourselves a lot
-	-- in terms of LCS computation.
-	local prefix = "" -- common text in the beginning
-	local suffix = "" -- common text in the end
+	local prefix = ""
+	local suffix = ""
+
 	while old[1] and old[1] == new[1] do
 		local token = table.remove(old, 1)
 		table.remove(new, 1)
@@ -130,18 +123,10 @@ local function diff_tokens(old, new)
 		suffix = token .. suffix
 	end
 
-	-- Setup a table that will store the diff (an upvalue for get_diff). We'll
-	-- store it in the reverse order to allow for tail calls.  We'll also keep
-	-- in this table functions to handle different events.
 	local rev_diff = {}
-	-- Put the suffix as the first token (we are storing the diff in the
-	-- reverse order)
 	table.insert(rev_diff, {suffix, "same"})
-	-- Then call it.
 	get_diff(rev_diff, quick_LCS(old, new), old, new, #old + 1, #new + 1)
-	-- Put the prefix in at the end
 	table.insert(rev_diff, {prefix, "same"})
-	-- Reverse the diff.
 	local diff = {}
 
 	for i = #rev_diff, 1, -1 do

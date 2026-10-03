@@ -75,8 +75,7 @@ function render.ResetModelLighting() end
 
 function render.SetColorModulation(r, g, b) end
 
-function render.SetBlend(a) --render2d.SetAlphaMultiplier(a)
-end
+function render.SetBlend(a) end
 
 function render.SetModelLighting() end
 
@@ -154,8 +153,7 @@ function render.SupportsPixelShaders_2_0()
 end
 
 do
-	function render.SetStencilWriteMask(val) --lib.StencilMask(val)
-	end
+	function render.SetStencilWriteMask(val) end
 
 	do
 		local translate = {}

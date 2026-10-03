@@ -10,8 +10,6 @@ local function create_mock_body(data)
 
 	if data.Awake == nil then data.Awake = true end
 
-	-- the persistent-tangent manifold path is modeled on sphere/capsule pairs,
-	-- which is what opens supports_persistent_tangent
 	if data.ShapeType == nil then data.ShapeType = "capsule" end
 
 	return test_helpers.CreateStubBody(data)

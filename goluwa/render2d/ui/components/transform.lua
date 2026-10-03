@@ -246,9 +246,6 @@ function META:GetLocalMatrix()
 		if perspective ~= 0 then
 			local p = Matrix44()
 			p:Identity()
-			-- CSS perspective projection: divides x,y by (1 - z/d)
-			-- In TransformVectorUnpacked: w = z * m23 + m33, then x/w, y/w
-			-- For w = 1 - z/d: m23 = -1/d, m33 = 1
 			p.m23 = -1 / perspective
 			self.LocalMatrix = p * self.LocalMatrix
 		end

@@ -125,7 +125,6 @@ function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count,
 	self.mode = "triangle_list"
 
 	if indices then
-		-- Check if indices is FFI cdata and we have a count
 		if type(indices) == "cdata" and index_count then
 			self.index_buffer = IndexBuffer.FromPointer(indices, index_count, index_type, build_mesh_buffer_name(name, "indices"))
 		else
@@ -178,7 +177,6 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 	return self
 end
 
--- shared index buffer and a vertex buffer of its own, a copy of this one's contents unless one is given. for geometry that is rewritten every frame
 function Mesh:CloneDynamic(vertex_buffer)
 	local clone = Mesh:CreateObject()
 	clone.debug_name = self.debug_name
@@ -441,7 +439,6 @@ function Mesh:GetDrawHint()
 	return self.draw_hint
 end
 
--- Compute AABB from vertex positions
 function Mesh:ComputeAABB()
 	local AABB = import("goluwa/structs/aabb.lua")
 	local vertices = self:GetVertices()
@@ -452,15 +449,12 @@ function Mesh:ComputeAABB()
 
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
 	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
-	-- Check if we have structured vertices or raw float array
 	local attrs = self.vertex_buffer.vertex_attributes
 	local has_lua_type = attrs[1] and attrs[1].lua_type
 
 	if has_lua_type then
-		-- Structured vertices with position accessor
 		for i = 0, self.vertex_buffer.vertex_count - 1 do
 			local v = vertices[i]
-			-- Access position - assumes first attribute is position (vec3)
 			local x, y, z = v.position[0], v.position[1], v.position[2]
 
 			if x < min_x then min_x = x end
@@ -476,7 +470,6 @@ function Mesh:ComputeAABB()
 			if z > max_z then max_z = z end
 		end
 	else
-		-- Raw float array - position is first 3 floats of each vertex
 		local stride_floats = self.vertex_buffer.stride / require("ffi").sizeof("float")
 
 		for i = 0, self.vertex_buffer.vertex_count - 1 do
@@ -505,7 +498,6 @@ function Mesh:UploadIndices(indices, index_type)
 		self.index_buffer = IndexBuffer.New(indices, index_type, build_mesh_buffer_name(self.debug_name, "indices"))
 		assert_indices_reach_vertices(self)
 	else
-		-- Update existing index buffer
 		self.index_buffer.indices = indices
 		self.index_buffer.index_count = #indices
 		local index_data = ffi.new(self.index_buffer.index_type .. "[?]", #indices)

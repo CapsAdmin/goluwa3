@@ -137,23 +137,20 @@ function META:GetHSV()
 	v = max
 	local delta = max - min
 
-	-- xxx: how do we deal with complete black?
-	if min == 0 and max == 0 then
-		-- we have complete darkness; make it cheap.
-		return 0, 0, 0
-	end
+	if min == 0 and max == 0 then return 0, 0, 0 end
 
 	if max == 0 then return 0, 0, v end
 
-	s = delta / max -- rofl deltamax :|
+	s = delta / max
+
 	if delta == 0 then return 0, 0, v end
 
 	if r == max then
-		h = (g - b) / delta -- yellow/magenta
+		h = (g - b) / delta
 	elseif g == max then
-		h = 2 + (b - r) / delta -- cyan/yellow
+		h = 2 + (b - r) / delta
 	else
-		h = 4 + (r - g) / delta -- magenta/cyan
+		h = 4 + (r - g) / delta
 	end
 
 	h = h / 6
@@ -366,7 +363,6 @@ function META.ToName(color)
 	return found[1].name
 end
 
--- http://code.google.com/p/sm-ssc/source/browse/Themes/_fallback/Scripts/02+Colors.lua?spec=svnca631130221f6ed8b9065685186fb696660bc79a&name=ca63113022&r=ca631130221f6ed8b9065685186fb696660bc79a
 function META.FromHSV(h, s, v)
 	h = (h % 1 * 360) / 60
 	s = s or 1

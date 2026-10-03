@@ -4,11 +4,9 @@ end
 
 local META = objects.CreateTemplate()
 META.Name = "network"
--- these are either part the base object or the entity itself
 META.Network = {
 	Name = {"string", 1 / 10, "reliable"},
 	Parent = {"entity", 1 / 5, "reliable"},
-	--	HideFromEditor = {"boolean", 1/5, "reliable"},
 	GUID = {"string", 1 / 5, "reliable"},
 }
 META:GetSet("NetworkId", -1)
@@ -148,7 +146,8 @@ if NETWORK then
 						if not done[key] then
 							local name = component.Name
 
-							if name == "network" then name = "unknown" end -- see top of script
+							if name == "network" then name = "unknown" end
+
 							self:ServerSyncVar(name, key, unpack(info))
 							done[key] = true
 						end
@@ -182,7 +181,7 @@ if NETWORK then
 		end
 	end
 
-	do -- synchronization server > client
+	do
 		local function handle_packet(buffer)
 			local what = buffer:ReadNetString()
 			local id = buffer:ReadShort()
@@ -227,15 +226,11 @@ if NETWORK then
 						end
 
 						if self.debug then logf("%s - %s: received %s\n", self, info.component, var) end
-					--elseif info.flags == "reliable" then
-					--buffer:SetPosition(1)
-					--list.insert(self.queued_packets, buffer)
 					end
 				end
 			else
 				buffer:SetPosition(1)
 				list.insert(queued_packets, buffer)
-			--logf("received sync packet %s but entity[%s] is NULL\n", typ, id)
 			end
 		end
 
@@ -322,8 +317,6 @@ if NETWORK then
 
 			function META:OnClientEntered(client)
 				self:SpawnEntityOnClient(client, self.NetworkId, self:GetEntity().config)
-				-- force send all packets once to this new client as reliable
-				-- so all the entities' positions will update properly
 				self:UpdateVars(client, true)
 				self:SendCallOnClientToClient(client)
 			end
@@ -336,7 +329,6 @@ if NETWORK then
 			buffer:WriteNetString("entity_networked_spawn")
 			buffer:WriteShort(id)
 			buffer:WriteString(config)
-			--logf("spawning entity %s with id %s for %s\n", config, id, client)
 			packet.Send("ecs_network", buffer, client, "reliable")
 		end
 
@@ -378,7 +370,7 @@ if NETWORK then
 		return NULL
 	end)
 
-	do -- call on client
+	do
 		if CLIENT then
 			message.AddListener("ecs_network_call_on_client", function(id, component, name, ...)
 				local self = spawned_networked[id] or NULL

@@ -1,15 +1,3 @@
---[[
-	Reflection rays the screen can't answer (off screen, behind something or
-	facing the camera) traced against the scene (the ddgi TLAS), their hits
-	shaded like the ddgi probe rays: material colour, direct light with shadow
-	rays and probe irradiance. Shared by the ssr and the water.
-
-	A pass using it adds GetDescriptorSets to its descriptor sets, calls Bind
-	in on_pre_draw, puts GetDeclarationGLSL in its declarations, block in its
-	uniform block (next to an env_tex) with WriteBlock, GetDDGIUniformBuffer
-	after that block, and GetGLSL after ibl.GetEnvironmentGLSLCode and
-	render3d.GetEmissiveGLSL. All of it only when RAY_QUERY.
-]]
 local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -28,7 +16,6 @@ local enabled = pvars.Setup2{
 }
 pvars.EndGroup()
 
--- bindings: scene, triangles, materials, light_grid
 function scene_reflection.GetDescriptorSets(bindings, stage)
 	return {
 		{
@@ -64,7 +51,6 @@ function scene_reflection.Bind(self, cmd, desc, bindings)
 			ddgi.GetFrameState().tlas or
 			scene_bvh.GetPlaceholderTLAS(cmd)
 	)
-	-- no soup yet; the shader never reads it while ddgi_rt_ready is 0
 	scene_bvh.BindTriangleBuffer(self, desc, bindings.triangles, scene_bvh.triangle_buffer or materials)
 end
 
@@ -77,7 +63,6 @@ function scene_reflection.GetDeclarationGLSL(bindings)
 	]] .. scene_bvh.GetTriangleDeclarationGLSL(bindings.triangles) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. light_grid.GetGLSL(bindings.light_grid)
 end
 
--- every light: a reflected ray sees what the camera doesn't
 scene_reflection.block = {
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 	{"light_count", "int"},
@@ -89,7 +74,6 @@ function scene_reflection.WriteBlock(self, block)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
 
--- dynamic offsets go in binding order, so its binding comes after the pass' own block
 function scene_reflection.GetDDGIUniformBuffer(binding)
 	return {
 		name = "ddgi_data",
@@ -103,7 +87,6 @@ function scene_reflection.GetDDGIUniformBuffer(binding)
 				block.ddgi_rt_ready = 0
 			end
 
-			-- also switches off the probes' visibility rays, only used by traced hits here
 			if not enabled:Get() then block.ddgi_rt_ready = 0 end
 
 			return block

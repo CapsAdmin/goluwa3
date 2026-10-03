@@ -14,11 +14,6 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local sweep_mesh = {}
 local EPSILON = physics_constants.EPSILON
--- Vec3 is single precision, so a position 200 m from the origin carries a
--- rounding error of about 1.5e-5, far above EPSILON: a point that lies exactly
--- on a triangle or plane measures a few 1e-6 away and a fixed tolerance
--- rejects the hit. The touching tolerance of a sweep grows with the size of
--- the coordinates involved (four float32 steps of them).
 local FLOAT_COORDINATE_ERROR = 4.8e-7
 
 local function get_sweep_epsilon(start_position, movement)
@@ -31,6 +26,7 @@ local function get_sweep_epsilon(start_position, movement)
 			math.abs(movement.z)
 		)
 end
+
 local POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS = 4
 local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 64
 local POLYHEDRON_SWEEP_REFINE_STEPS = 10
@@ -117,9 +113,6 @@ local function fill_triangle_prism_vertices(out, v0, v1, v2, normal, half_thickn
 	return out
 end
 
--- triangle vertices are shared between neighbouring triangles (a heightmap
--- cell reuses its corner points 4+ times), so world-space transforms are
--- cached per sweep and keyed by the local vertex's pointer.
 local function get_cached_world_vertex(context, v)
 	local cache = context.wv_cache
 	local wv = cache[v]
@@ -632,8 +625,6 @@ local function sweep_polyhedron_against_planes(
 	}
 end
 
--- invariants are built once per sweep and shared by every triangle test:
--- the capsule's start segment, radius and movement-derived constants.
 local function build_capsule_sweep_invariants(collider, start_position, rotation, movement, out)
 	out = out or {}
 	local segment_a, segment_b, radius = capsule_geometry.GetSegmentWorld(collider, start_position, rotation)
@@ -658,9 +649,6 @@ local function get_capsule_sweep_sample_steps(invariants, max_fraction)
 	return math.max(4, math.min(64, math.ceil(scaled_length / invariants.distance_scale) * 2))
 end
 
--- takes the unnormalized face normal: "signed distance > radius" becomes
--- "d > 0 and d^2 > (radius * len)^2", exact for same-sign sides and free of
--- the normalization sqrt
 local function is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, normal_len_sq)
 	local segment_a = invariants.segment_a
 	local segment_b = invariants.segment_b
@@ -764,8 +752,6 @@ local SWEEP_STATS = {
 	high_newton_available = 0,
 }
 
--- Vec3-based separation; fallback for triangles the scalar kernel can't
--- handle, and source of the exact contact for the final hit build.
 local function get_capsule_triangle_separation_sq(invariants, t, v0, v1, v2, face_normal)
 	local delta = invariants.movement * t
 	local result = triangle_contact_queries.GetCapsuleTriangleSeparation(
@@ -793,8 +779,6 @@ local function get_capsule_triangle_separation_sq(invariants, t, v0, v1, v2, fac
 	return result.segment_point, result.position, distance * distance, result.normal
 end
 
--- squared-distance sweep predicate on the allocation-free scalar kernel:
--- no Vec3 construction, no sqrt, no normalization on this path.
 local function eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
 	local movement = invariants.movement
 	local dx = movement.x * t
@@ -838,8 +822,6 @@ local function eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face
 	triangle_point.z
 end
 
--- full Vec3 re-query of the closest pair; only used for degenerate
--- triangles, where the scalar kernel falls back to the Vec3 pipeline anyway
 local function build_capsule_triangle_sweep_hit_vec3(invariants, v0, v1, v2, face_normal, t)
 	local delta = invariants.movement * t
 	local result = triangle_contact_queries.GetCapsuleTriangleSeparation(
@@ -878,10 +860,6 @@ local function build_capsule_triangle_sweep_hit_vec3(invariants, v0, v1, v2, fac
 	}
 end
 
--- direct hit construction from the scalar closest pair: no re-query of the
--- triangle. normal semantics match GetCapsuleTriangleSeparation: the pair
--- direction when separated, the face normal oriented against the motion
--- when penetrating
 local function build_capsule_triangle_sweep_hit(invariants, face_normal, t, sp_x, sp_y, sp_z, tp_x, tp_y, tp_z, distance_sq)
 	local epsilon = EPSILON
 	local radius = invariants.radius
@@ -930,8 +908,6 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		return nil
 	end
 
-	-- the unit normal is only needed by triangles that survived both
-	-- rejections; those ran on the unnormalized cross product
 	local face_normal = nil
 
 	if not is_degenerate then
@@ -999,13 +975,6 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 	if not hit_t then return nil end
 
 	SWEEP_STATS.hits = SWEEP_STATS.hits + 1
-	-- refine the first penetration time in (low, high]. the squared distance
-	-- along the sweep is a smooth near-quadratic function of t, so Newton
-	-- with the velocity-projection derivative converges in a few steps. the
-	-- step is only taken from a bracket end where the capsule is still
-	-- approaching the triangle (closing < 0); anything that would leave the
-	-- bracket (kinks, tangential approach, flat regions) falls back to
-	-- bisection, so progress is guaranteed.
 	local high = hit_t
 	local high_sx = segment_x
 	local high_sy = segment_y
@@ -1015,8 +984,6 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 	local high_qz = triangle_z
 	local high_distance_sq = distance_sq
 	local consecutive_bisects = 0
-	-- 1/4096 of the sample bracket matches the precision of the old 12-step
-	-- bisection; 12 iterations is the worst case if every step bisects
 	local tol_width = (high - low) * 2.4e-4
 
 	for _ = 1, 12 do
@@ -1087,8 +1054,6 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		end
 	end
 
-	-- final polish: one Newton step from the current best estimate, accepted
-	-- only if it stays inside the radius
 	local closing = (
 			high_sx - high_qx
 		) * movement.x + (
@@ -1114,8 +1079,6 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		return build_capsule_triangle_sweep_hit_vec3(invariants, v0, v1, v2, nil, high)
 	end
 
-	-- one final scalar evaluation at the accepted t so the contact pair
-	-- matches the t the polish may have moved
 	SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
 	local hit_distance_sq, sp_x, sp_y, sp_z, tp_x, tp_y, tp_z = eval_capsule_triangle_distance_sq(invariants, high, v0, v1, v2, face_normal)
 

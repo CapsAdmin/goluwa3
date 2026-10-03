@@ -8,10 +8,6 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
--- VRAM overlay. F2 toggles it (or the vram command). Allocations are grouped
--- by the label the object was created with, so a buffer made with
--- label = "scene_bvh_triangles" shows up as that. Numbers are the sizes of the
--- live device memory allocations, which is what counts against the heap.
 local WINDOW = 0.5
 local MAX_ROWS = 28
 local LINE_HEIGHT = 15

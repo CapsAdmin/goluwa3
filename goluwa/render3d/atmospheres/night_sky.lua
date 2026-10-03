@@ -1,5 +1,3 @@
--- what is behind the atmosphere: stars, the milky way, the night glow and the moon, in cd/m2 like the sky
--- the star sphere is turned by ATMOSPHERE_CELESTIAL_X/Y/Z, so it follows render3d/weather.lua's time and place
 return [[
 	// a magnitude 0 star gives 2.08e-6 lux, and there are 10^(0.5 m) times more stars brighter than m
 	const float STAR_MAX_MAGNITUDE = 7.5;

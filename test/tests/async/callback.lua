@@ -160,7 +160,8 @@ T.Test("callback.Create done callback", function()
 	local done_called = false
 	local cb = callback.Create()
 
-	cb:Then(function() end) -- Need a resolve handler to avoid warning
+	cb:Then(function() end)
+
 	cb:Done(function()
 		done_called = true
 	end)
@@ -177,7 +178,8 @@ T.Test("callback.Create done callback on reject", function()
 		done_called = true
 	end)
 
-	cb:Catch(function() end) -- Handle rejection
+	cb:Catch(function() end)
+
 	cb:Reject("error")
 	T(done_called)["=="](true)
 end)
@@ -218,7 +220,8 @@ T.Test("callback.Create cannot reject resolved callback", function()
 	local rejected = false
 	local cb = callback.Create()
 
-	cb:Then(function() end) -- Need resolve handler
+	cb:Then(function() end)
+
 	cb:Catch(function()
 		rejected = true
 	end)
@@ -274,7 +277,6 @@ T.Test("callback.WrapTask basic usage", function()
 		executed = true
 		passed_value = value
 
-		-- Use timer to resolve asynchronously
 		timer.Delay(0, function()
 			self.callbacks.resolve("result")
 		end)
@@ -287,14 +289,12 @@ T.Test("callback.WrapTask basic usage", function()
 
 	T(executed)["=="](true)
 	T(passed_value)["=="]("test_arg")
-	-- Result should not be set yet
 	T(result_value)["=="](nil)
 
 	do
 		return
 	end
 
-	-- After event loop runs, result should be set
 	T.Sleep(0.02)
 	T(result_value)["=="]("result")
 end)
@@ -363,12 +363,7 @@ T.Test("callback.WrapKeyedTask basic usage", function()
 		table.insert(results, value)
 	end)
 
-	-- T(#executions)["=="](2)
-	-- T(executions[1].key)["=="]("key1")
-	-- T(executions[1].value)["=="]("val1")
-	-- Results not yet set
 	T(#results)["=="](0)
-	-- After event loop
 	T.Sleep(0.02)
 	T(results[1])["=="]("key1_result")
 	T(results[2])["=="]("key2_result")
@@ -389,7 +384,6 @@ T.Test("callback.WrapKeyedTask same key reuses callback when resolved", function
 
 	T.Sleep(0.02)
 	T(execution_count)["=="](1)
-	-- Same key after resolution should create new callback
 	local cb2 = task("same_key")
 
 	cb2:Then(function() end)
@@ -403,7 +397,6 @@ T.Test("callback.WrapKeyedTask same key shares callback when pending", function(
 	local start_count = 0
 	local task = callback.WrapKeyedTask(function(self, key)
 		start_count = start_count + 1
-	-- Don't resolve immediately
 	end)
 	local cb1 = task("same_key")
 
@@ -417,11 +410,8 @@ T.Test("callback.WrapKeyedTask same key shares callback when pending", function(
 		execution_count = execution_count + 1
 	end)
 
-	-- Should only start once
 	T(start_count)["=="](1)
-	-- Both callbacks should be the same
 	T(cb1)["=="](cb2)
-	-- When we resolve, both should fire
 	cb1:Resolve("shared")
 	T(execution_count)["=="](2)
 end)
@@ -436,10 +426,9 @@ T.Test("callback.WrapKeyedTask max concurrent limit", function()
 			table.insert(started, key)
 
 			if active_count > max_active then max_active = active_count end
-		-- Don't auto-resolve
 		end,
 		2
-	) -- Max 2 concurrent
+	)
 	local cb1 = task("key1")
 	local cb2 = task("key2")
 	local cb3 = task("key3")
@@ -450,21 +439,17 @@ T.Test("callback.WrapKeyedTask max concurrent limit", function()
 
 	cb3:Then(function() end)
 
-	-- Only first 2 should start
 	T(#started)["=="](2)
 	T(max_active)["=="](2)
-	-- Complete first task
 	cb1:Resolve()
 	active_count = active_count - 1
-	-- Third should now start
 	T.Sleep(0.01)
 	T(#started)["=="](3)
 end)
 
 T.Test("callback.WrapKeyedTask queue callback notification", function()
 	local queue_events = {}
-	local task = callback.WrapKeyedTask(function(self, key) -- Don't resolve
-	end, 1, function(what, cb, key, queue)
+	local task = callback.WrapKeyedTask(function(self, key) end, 1, function(what, cb, key, queue)
 		table.insert(queue_events, {what = what, key = key, queue_size = #queue})
 	end)
 	local cb1 = task("key1")
@@ -474,11 +459,9 @@ T.Test("callback.WrapKeyedTask queue callback notification", function()
 
 	cb2:Then(function() end)
 
-	-- Should have one push event for key2
 	T(#queue_events)["=="](1)
 	T(queue_events[1].what)["=="]("push")
 	T(queue_events[1].key)["=="]("key2")
-	-- Complete first, should trigger pop
 	cb1:Resolve()
 	T.Sleep(0.01)
 	T(#queue_events)["=="](2)
@@ -496,12 +479,10 @@ T.Test("callback.WrapKeyedTask start_on_callback delayed start", function()
 		nil,
 		nil,
 		true
-	) -- start_on_callback = true
+	)
 	local cb = task("key1")
-	-- Should not start immediately
 	T(started)["=="](false)
 
-	-- Should start when Then is called
 	cb:Then(function() end)
 
 	T(started)["=="](true)
@@ -517,9 +498,7 @@ T.Test("callback.Resolve creates auto-resolving callback", function()
 		value = val
 	end)
 
-	-- Should not resolve immediately
 	T(resolved)["=="](false)
-	-- Should resolve after timer delay
 	T.Sleep(0.02)
 	T(resolved)["=="](true)
 	T(value)["=="]("test_value")
@@ -592,7 +571,6 @@ T.Test("callback Get waits for resolution", function()
 		end)
 	end)
 	cb:Start()
-	-- This should block until resolved
 	local result = cb:Get()
 	T(result)["=="]("delayed_value")
 end)
@@ -655,7 +633,6 @@ T.Test("callback parent subscribe propagates to children", function()
 	local child1 = parent:Then(function() end)
 	local child2 = child1:Then(function() end)
 
-	-- Subscribe on child should affect parent
 	child2:Subscribe("custom", function(value)
 		table.insert(events, value)
 	end)
@@ -762,8 +739,6 @@ T.Test("callback.Trigger on root should trigger child subscribers logic check", 
 	end)
 	local results = {}
 
-	-- In our new model, Subscribe always goes to root.
-	-- Trigger always goes to root.
 	child:Subscribe("chunk", function(c)
 		table.insert(results, c)
 	end)
@@ -780,8 +755,6 @@ T.Test("callback.Subscribe before trigger should catch all chunks", function()
 		return val
 	end)
 
-	-- In the real world, POST() triggers chunks
-	-- But the user calls :Subscribe() ON the child/parent.
 	child:Subscribe("chunk", function(c)
 		table.insert(results, c)
 	end)
@@ -805,10 +778,6 @@ T.Test("callback.WrapKeyedTask trigger propagation", function()
 		table.insert(results, c)
 	end)
 
-	-- In WrapKeyedTask, the real work doesn't start until Get() is called
-	-- (due to the tasks logic at the bottom of add)
-	-- BUT in this test environment, tasks are disabled or we are at root.
-	-- Let's force start.
 	child:Start()
 	T(root_cb ~= nil)["=="](true)
 	T(root_cb)["=="](child)

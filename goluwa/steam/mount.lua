@@ -186,7 +186,7 @@ return function(steam)
 			end
 		end
 
-		return path --lfs.symlinkattributes(path, "mode") and path or nil
+		return path
 	end
 
 	function steam.GetLibraryFolders()
@@ -671,13 +671,11 @@ return function(steam)
 						local tbl = type(v) == "string" and {v} or v
 
 						for _, path in pairs(tbl) do
-							-- First, resolve any path variables
 							if path:find("|", nil, true) then
 								path = path:replace("|gameinfo_path|", vdf_directory)
 								path = path:replace("|all_source_engine_paths|", dir)
 							end
 
-							-- Make ALL relative paths absolute by prepending vdf_directory
 							if not file_path.IsPathAbsolutePath(path) then
 								path = gameinfo.game_dir .. path
 							end
@@ -720,7 +718,6 @@ return function(steam)
 										end
 									end
 
-									-- Only prepend game_dir if path is not already an absolute path
 									if path:sub(1, 1) ~= "/" then
 										test = gameinfo.game_dir .. path
 

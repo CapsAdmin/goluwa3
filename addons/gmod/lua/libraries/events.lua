@@ -33,8 +33,7 @@ local function unwrap_ang3(val)
 	return nil
 end
 
-function gine.env.gameevent.Listen() -- this is always on
-end
+function gine.env.gameevent.Listen() end
 
 local hud_element_list = {
 	"CHudAmmo",
@@ -92,7 +91,6 @@ local hud_element_list = {
 gine.hud_elements = {}
 
 function gine.ToggleHUDElement(what, b)
-	--llog("hud element: %s = %s", what, b)
 	if what == "CHudChat" and chathud then
 		if b then chathud.Show() else chathud.Hide() end
 	end
@@ -127,14 +125,9 @@ gine.AddEvent("Update", function()
 			if tbl.znear then render3d.camera:SetNearZ(tbl.znear) end
 
 			if tbl.zfar then render3d.camera:SetFarZ(tbl.zfar) end
-		--if tbl.drawviewer then  end
 		end
 
-		--gine.env.gamemode.Call("CalcViewModelView", )
 		local frac = gine.env.gamemode.Call("AdjustMouseSensitivity", 0, 90, 90)
-	--gine.env.gamemode.Call("CalcMainActivity", )
-	--gine.env.gamemode.Call("TranslateActivity", )
-	--gine.env.gamemode.Call("UpdateAnimation", )
 	end
 
 	run_gmod_frame_hooks_once()
@@ -163,18 +156,13 @@ gine.AddEvent("Draw3DGeometry", function()
 	gine.env.gamemode.Call("NeedsDepthPass")
 	gine.env.gamemode.Call("SetupWorldFog")
 	gine.env.gamemode.Call("PreDrawOpaqueRenderables", false, false)
-	--gine.env.gamemode.Call("ShouldDrawLocalPlayer", player)
 	gine.env.gamemode.Call("PostDrawOpaqueRenderables", false, false)
 	gine.env.gamemode.Call("PreDrawTranslucentRenderables", false, false)
-	--gine.env.gamemode.Call("DrawPhysgunBeam", player)
 	gine.env.gamemode.Call("PostDrawTranslucentRenderables", false, false)
 end)
 
 gine.AddEvent("PostGBufferModelPass", function()
 	gine.env.gamemode.Call("GetMotionBlurValues", 0, 0, 0, 0)
-	--gine.env.gamemode.Call("PreDrawViewModel")
-	--gine.env.gamemode.Call("PreDrawViewModel")
-	--gine.env.gamemode.Call("PostDrawViewModel")
 	gine.env.gamemode.Call("PreDrawEffects")
 end)
 

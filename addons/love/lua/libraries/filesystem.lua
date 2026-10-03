@@ -246,7 +246,7 @@ function love.filesystem.append(name, data, size) end
 
 function love.filesystem.setSymlinksEnabled() end
 
-do -- File object
+do
 	local File = line.TypeTemplate("File", love)
 
 	function File:close()
@@ -347,7 +347,7 @@ do -- File object
 	line.RegisterType(File, love)
 end
 
-do -- FileData object
+do
 	local FileData = line.TypeTemplate("FileData", love)
 	local ffi = require("ffi")
 	ENV.transport_deserializers = ENV.transport_deserializers or {}

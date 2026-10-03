@@ -1,5 +1,4 @@
 local system = import("goluwa/system.lua")
--- used like <tag=[pi * rand()]>
 local expression = {}
 local lib = {
 	PI = math.pi,

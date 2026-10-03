@@ -8,7 +8,6 @@ T.Test("AddGlobalEvent dispatches to registered object methods", function()
 	META:Register()
 	local obj = objects.CreateObject(META)
 	local calls = {}
-
 	obj:AddGlobalEvent("Test_GlobalDispatch", {func_name = "OnTestGlobalDispatch"})
 
 	function obj:OnTestGlobalDispatch(a, b)
@@ -28,7 +27,6 @@ T.Test("AddGlobalEvent propagates return values through event.Call", function()
 	META:GetSet("Val", 0)
 	META:Register()
 	local obj = objects.CreateObject(META)
-
 	obj:AddGlobalEvent("Test_GlobalReturn", {func_name = "OnTestGlobalReturn"})
 
 	function obj:OnTestGlobalReturn(a, b)
@@ -43,15 +41,11 @@ T.Test("AddGlobalEvent propagates return values through event.Call", function()
 end)
 
 T.Test("AddGlobalEvent no self-recursion from config.callback", function()
-	-- Regression test: config.callback was being set by AddListener to the
-	-- anonymous wrapper, causing func = config.callback to point back at
-	-- itself and recurse infinitely.
 	local META = objects.CreateTemplate("test_global_event_no_recurse")
 	META:GetSet("Val", 0)
 	META:Register()
 	local obj = objects.CreateObject(META)
 	local call_count = 0
-
 	obj:AddGlobalEvent("Test_NoRecurse", {func_name = "OnTestNoRecurse"})
 
 	function obj:OnTestNoRecurse(x)
@@ -60,7 +54,6 @@ T.Test("AddGlobalEvent no self-recursion from config.callback", function()
 		if call_count > 100 then error("infinite recursion detected!", 0) end
 	end
 
-	-- This would stack overflow before the fix
 	event.Call("Test_NoRecurse", "ping")
 	T(call_count)["=="](1)
 	obj:RemoveEvent("Test_NoRecurse")
@@ -74,7 +67,6 @@ T.Test("AddGlobalEvent multiple objects all receive the event", function()
 	local obj2 = objects.CreateObject(META)
 	local obj3 = objects.CreateObject(META)
 	local order = {}
-
 	obj1:AddGlobalEvent("Test_Multi", {func_name = "OnTestMulti"})
 	obj2:AddGlobalEvent("Test_Multi", {func_name = "OnTestMulti"})
 	obj3:AddGlobalEvent("Test_Multi", {func_name = "OnTestMulti"})
@@ -96,20 +88,17 @@ T.Test("AddGlobalEvent multiple objects all receive the event", function()
 	T(order[1])["=="]("obj1:tick")
 	T(order[2])["=="]("obj2:tick")
 	T(order[3])["=="]("obj3:tick")
-
 	obj1:RemoveEvent("Test_Multi")
 	obj2:RemoveEvent("Test_Multi")
 	obj3:RemoveEvent("Test_Multi")
 end)
 
 T.Test("AddGlobalEvent last handler return value wins", function()
-	-- Matches event.Call behavior: the last listener's return values are used.
 	local META = objects.CreateTemplate("test_global_event_last_wins")
 	META:GetSet("Val", 0)
 	META:Register()
 	local obj1 = objects.CreateObject(META)
 	local obj2 = objects.CreateObject(META)
-
 	obj1:AddGlobalEvent("Test_LastWins", {func_name = "OnTestLastWins"})
 	obj2:AddGlobalEvent("Test_LastWins", {func_name = "OnTestLastWins"})
 
@@ -123,7 +112,6 @@ T.Test("AddGlobalEvent last handler return value wins", function()
 
 	local result = event.Call("Test_LastWins", "x")
 	T(result)["=="]("second")
-
 	obj1:RemoveEvent("Test_LastWins")
 	obj2:RemoveEvent("Test_LastWins")
 end)
@@ -134,7 +122,6 @@ T.Test("AddGlobalEvent RemoveEvent stops dispatch", function()
 	META:Register()
 	local obj = objects.CreateObject(META)
 	local call_count = 0
-
 	obj:AddGlobalEvent("Test_Remove", {func_name = "OnTestRemove"})
 
 	function obj:OnTestRemove()
@@ -145,41 +132,32 @@ T.Test("AddGlobalEvent RemoveEvent stops dispatch", function()
 	T(call_count)["=="](1)
 	obj:RemoveEvent("Test_Remove")
 	event.Call("Test_Remove")
-	T(call_count)["=="](1) -- Should NOT have incremented
+	T(call_count)["=="](1)
 end)
 
 T.Test("AddGlobalEvent skipping nil handler methods", function()
-	-- If a registered object doesn't have the expected method, it should be
-	-- logged and removed, but not crash.
 	local META = objects.CreateTemplate("test_global_event_nil_handler")
 	META:GetSet("Val", 0)
 	META:Register()
 	local obj = objects.CreateObject(META)
 	local call_count = 0
-
 	obj:AddGlobalEvent("Test_NilHandler", {func_name = "OnTestNilHandler"})
-
-	-- Intentionally NOT defining OnTestNilHandler
 
 	event.AddListener("Test_NilHandler", "other", function()
 		call_count = call_count + 1
 	end)
 
-	-- Should not error, just log and remove the broken handler
 	event.Call("Test_NilHandler")
-	T(call_count)["=="](1) -- The other listener still works
+	T(call_count)["=="](1)
 	T(event.IsListenerActive("Test_NilHandler", "objects_events:Test_NilHandler"))["=="](false)
 	event.RemoveListener("Test_NilHandler", "other")
 end)
 
 T.Test("AddGlobalEvent return values propagate through entity-like property flow", function()
-	-- Integration-style test: simulates how entities/base.lua uses
-	-- event.Call("OnEntitySetProperty", ...) and relies on the return value.
 	local META = objects.CreateTemplate("test_global_event_property_flow")
 	META:GetSet("Val", 0)
 	META:Register()
 	local theme_obj = objects.CreateObject(META)
-
 	theme_obj:AddGlobalEvent("OnEntitySetProperty", {func_name = "OnEntitySetProperty"})
 
 	function theme_obj:OnEntitySetProperty(entity, key, val)
@@ -197,9 +175,7 @@ T.Test("AddGlobalEvent return values propagate through entity-like property flow
 	T(new_val.y)["=="](10)
 	T(new_val.w)["=="](10)
 	T(new_val.h)["=="](10)
-
 	local no_convert = event.Call("OnEntitySetProperty", entity, "Color", "red")
 	T(no_convert)["=="](nil)
-
 	theme_obj:RemoveEvent("OnEntitySetProperty")
 end)

@@ -9,7 +9,6 @@ local vfs = import("goluwa/vfs.lua")
 local render = import("goluwa/render/render.lua")
 local ffi = require("ffi")
 
--- one bone that stays where it is, and a face: controller "open" drives flex 0 and "wink" flex 1
 local function create_flex_skeleton()
 	local skeleton = Skeleton.New{
 		BoneNames = {"root"},
@@ -30,7 +29,6 @@ local function create_flex_skeleton()
 	return skeleton
 end
 
--- vertex 0 follows flex 0 on its own, vertex 1 is half way between flex 0 (side 0) and flex 1 (side 255)
 local function create_flex_entity(skeleton)
 	local poly = Polygon3D.New()
 	shapes.BuildCube(poly, 0.5, 1.0)
@@ -100,7 +98,6 @@ T.Test3D("flex moves vertices by its weights before skinning", function(draw)
 	render.GetDevice():WaitIdle()
 	local skinned = read_vertices(primitive, count)
 	T(math.abs(skinned[0] - (bind_x + 0.05)))["<"](1e-4)
-	-- a pair takes the weight of its first flex on side 0 and of the second on side 255
 	T(math.abs(skinned[17 + 1] - (bind_y1 + 0.1)))["<"](1e-4)
 	T(math.abs(skinned[34 + 1] - bind_y2))["<"](1e-4)
 	flex:SetFlexByName("wink", 1)
@@ -109,7 +106,6 @@ T.Test3D("flex moves vertices by its weights before skinning", function(draw)
 	render.GetDevice():WaitIdle()
 	skinned = read_vertices(primitive, count)
 	T(math.abs(skinned[34 + 1] - (bind_y2 + 0.2)))["<"](1e-4)
-	-- past target3 a flex has no weight
 	flex:SetFlexByName("open", 12)
 	flex:SetFlexByName("wink", 0)
 	animator:Animate(0)
@@ -118,7 +114,6 @@ T.Test3D("flex moves vertices by its weights before skinning", function(draw)
 	skinned = read_vertices(primitive, count)
 	T(math.abs(skinned[0] - bind_x))["<"](1e-4)
 	T(math.abs(skinned[17 + 1] - bind_y1))["<"](1e-4)
-	-- the shared bind pose was never written
 	T(math.abs(bind[0] - bind_x))["<"](1e-6)
 	animator:Unbind()
 	entity:Remove()
@@ -151,7 +146,6 @@ T.Test3D("flex lists the controllers of the model as dynamic properties", functi
 	T(properties[1].get(flex))["=="](0)
 	flex:OnDeserialize{values = {wink = 0.25}}
 	T(properties[2].get(flex))["=="](0.25)
-	-- values set before a model is bound are kept, a new rig gets them again
 	animator:Unbind()
 	animator:Bind(skeleton)
 	flex:Update()
@@ -184,7 +178,6 @@ T.Test3D("source engine faces are flexed by their controllers", function()
 	T(#flex:GetDynamicProperties())["=="](#names)
 	local head
 
-	-- the head is one of the models of the body
 	for _, skinned in ipairs(rig.skinned) do
 		if skinned.morph then head = skinned end
 	end
@@ -197,7 +190,6 @@ T.Test3D("source engine faces are flexed by their controllers", function()
 
 	rig:Update()
 	T(head.morph_active)["=="](true)
-	-- what the shader adds to a vertex, from the weights the rig uploads
 	local moved = {}
 	local largest = 0
 
@@ -219,7 +211,6 @@ T.Test3D("source engine faces are flexed by their controllers", function()
 		end
 	end
 
-	-- facial expressions move the face by centimeters
 	T(largest)[">"](0.002)
 	T(largest)["<"](0.1)
 	entity:Remove()

@@ -9,7 +9,6 @@ local mode = "luadata"
 pvars.vars = pvars.vars or {}
 pvars.infos = pvars.infos or {}
 pvars.groups = pvars.groups or {}
--- key -> the value on disk (false for none) of a pvar set with SetSession
 pvars.session = pvars.session or {}
 
 do
@@ -28,7 +27,6 @@ do
 	end
 end
 
--- returns the value to store, or nil and why it can't be
 local function validate(info, val)
 	if val == nil then val = info.default end
 
@@ -57,8 +55,6 @@ local function validate(info, val)
 	return val
 end
 
--- values that came from a file or a definition fall back to the default when
--- they are no longer valid, values from Set are errors
 local function load(key, val)
 	local info = pvars.infos[key]
 	local checked, err = validate(info, val)
@@ -263,7 +259,6 @@ function pvars.GetGroups()
 	end)
 
 	for _, entry in ipairs(out) do
-		-- pvars made inside a group keep the order they were made in, the rest follow by key
 		table.sort(entry.infos, function(a, b)
 			if a.order and b.order then return a.order < b.order end
 
@@ -334,8 +329,6 @@ function pvars.Set(key, val)
 	set(key, val, false)
 end
 
--- like Set, but the value is not written to disk: the next run starts from the
--- value that was there before
 function pvars.SetSession(key, val)
 	set(key, val, true)
 end

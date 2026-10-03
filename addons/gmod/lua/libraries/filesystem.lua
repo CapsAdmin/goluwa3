@@ -100,7 +100,6 @@ end
 do
 	function gine.env.file.Open(path, how, where)
 		path, where = resolve_path(path, where)
-		--llog("file.Open(%s, %s, %s)", R(path), how, where)
 		how = how:gsub("b", "")
 
 		if how == "w" then how = "write" end
@@ -109,12 +108,7 @@ do
 
 		local self, err = vfs.Open(path, how)
 
-		if self then
-			return gine.WrapObject(self, "File")
-		else
-
-		--llog("file.Open failed: ", err)
-		end
+		if self then return gine.WrapObject(self, "File") else  end
 	end
 
 	local META = gine.EnsureMetaTable("File")

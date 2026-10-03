@@ -133,7 +133,7 @@ function SoundData:setSample(i, sample)
 	if not self.samples then return end
 
 	self.samples[i] = sample * 127
-	self.buffer:SetData(self.buffer:GetData()) -- slow!!!
+	self.buffer:SetData(self.buffer:GetData())
 end
 
 local al = desire("al")

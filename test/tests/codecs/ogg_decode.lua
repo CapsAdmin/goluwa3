@@ -15,7 +15,6 @@ T.Test("Ogg/Vorbis decoder", function()
 	T(res.pages)["~="](nil)
 	T(#res.pages)[">"](0)
 	T(#res.packets)[">"](0)
-	-- Verify Vorbis header extraction
 	T(res.channels)[">="](1)
 	T(res.sample_rate)[">="](8000)
 	T(res.vorbis_version)["~="](nil)
@@ -30,11 +29,9 @@ T.Test("Ogg/Vorbis decoder", function()
 	T(#res.setup.mappings)[">"](0)
 	T(res.setup.modes)["~="](nil)
 	T(#res.setup.modes)[">"](0)
-	-- Verify PCM buffer allocation
 	T(res.data)["~="](nil)
-	T(type(res.data))["=="]("cdata") -- ffi pointer/buffer
+	T(type(res.data))["=="]("cdata")
 	T(tonumber(res.samples))[">"](0)
-	-- Verify sample range and sanity
 	local num_samples = tonumber(res.samples)
 	local channels = res.channels
 	local ptr = ffi.cast("float*", res.data)
@@ -84,9 +81,6 @@ T.Test("Ogg/Vorbis decoder", function()
 	T(non_zero)["=="](true)
 end)
 
--- Frequency verification test using a sine sweep
--- Decodes a 100Hz->1000Hz sweep and verifies the dominant frequency
--- increases over time using zero-crossing analysis
 T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	local data = fs.read_file(
 		resource.Download(
@@ -100,7 +94,6 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	local num_samples = tonumber(res.samples)
 	local sr = res.sample_rate
 	local ptr = ffi.cast("float*", res.data)
-	-- Also load the reference raw PCM for correlation
 	local ref_data = fs.read_file(
 		resource.Download(
 			"https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep_ref.raw"
@@ -108,23 +101,19 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	)
 	T(ref_data)["~="](nil)
 	local ref_ptr = ffi.cast("float*", ref_data)
-	local ref_samples = #ref_data / 4 / 2 -- float32, stereo
-	-- Extract left channel from decoded output
+	local ref_samples = #ref_data / 4 / 2
 	local decoded_left = {}
 
 	for i = 0, math.min(num_samples, ref_samples) - 1 do
-		decoded_left[i] = ptr[i * 2] -- left channel, interleaved stereo
+		decoded_left[i] = ptr[i * 2]
 	end
 
-	-- Extract left channel from reference
 	local ref_left = {}
 
 	for i = 0, math.min(num_samples, ref_samples) - 1 do
 		ref_left[i] = ref_ptr[i * 2]
 	end
 
-	-- Measure dominant frequency via zero-crossing rate in time windows
-	-- A sine at freq F has ~2*F zero crossings per second
 	local function measure_freq_zc(samples, start_sample, window_size)
 		local crossings = 0
 
@@ -193,7 +182,6 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 		return sum / math.max(#values - 1, 1)
 	end
 
-	-- Split into 10 windows and verify frequency increases
 	local n_windows = 10
 	local usable_samples = math.min(num_samples, ref_samples)
 	local window_size = math.floor(usable_samples / n_windows)
@@ -224,8 +212,6 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 		end
 	end
 
-	-- Verify: decoded frequencies should roughly track reference frequencies
-	-- Allow generous tolerance since Vorbis is lossy
 	local good_windows = 0
 
 	for w = 0, n_windows - 1 do
@@ -234,11 +220,8 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 		if ratio > 0.5 and ratio < 2.0 then good_windows = good_windows + 1 end
 	end
 
-	T(good_windows)[">="](n_windows * 0.7) -- at least 70% of windows should track
-	-- Verify the sweep goes up: last window freq > first window freq
+	T(good_windows)[">="](n_windows * 0.7)
 	T(decoded_freqs[n_windows - 1])[">"](decoded_freqs[0] * 1.5)
-	-- Cross-correlation of a small segment to check waveform similarity
-	-- Use a segment from the middle of the file where the sweep is well-established
 	local mid = math.floor(usable_samples / 2)
 	local corr_len = math.min(4096, usable_samples - mid)
 	local sum_xy, sum_xx, sum_yy = 0, 0, 0
@@ -252,14 +235,9 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	end
 
 	local correlation = sum_xy / (math.sqrt(sum_xx * sum_yy) + 1e-10)
-	-- For a properly decoded sine sweep, correlation should be positive
-	-- (Vorbis is lossy so we can't expect perfect correlation, but it should be > 0)
 	T(correlation)[">"](0.1)
-	-- Verify volume envelope stays consistent over time and does not flutter.
-	-- Measure short-time RMS and compare the normalized envelope to the
-	-- reference PCM, which should have a stable sweep amplitude.
-	local env_window_size = math.max(64, math.floor(sr * 0.020)) -- 20 ms
-	local env_hop_size = math.max(32, math.floor(sr * 0.005)) -- 5 ms
+	local env_window_size = math.max(64, math.floor(sr * 0.020))
+	local env_hop_size = math.max(32, math.floor(sr * 0.005))
 	local decoded_env = {}
 	local ref_env = {}
 
@@ -285,8 +263,6 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	local env_max_err = max_abs_diff(decoded_env_norm, ref_env_norm)
 	local decoded_flutter = mean_adjacent_change(decoded_env_norm)
 	local ref_flutter = mean_adjacent_change(ref_env_norm)
-	-- Allow some deviation because Vorbis is lossy, but sustained amplitude
-	-- modulation should still stay close to the reference envelope.
 	T(volume_ratio)[">"](0.2)
 	T(env_mae)["<"](0.12)
 	T(decoded_flutter)["<"](ref_flutter * 2.5 + 0.02)

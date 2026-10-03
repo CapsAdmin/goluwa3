@@ -18,7 +18,6 @@ local function draw(cmd, dt)
 		if hit and hit.primitive and hit.primitive.material then
 			local mat = hit.primitive.material
 
-			-- Cache the result if material is the same as last frame
 			if mat ~= cached_material then
 				cached_material = mat
 				cached_lines = {}
@@ -31,7 +30,6 @@ local function draw(cmd, dt)
 					table.insert(tbl, {key = "vmt surface prop", val = tostring_object(mat.vmt_surfaceprop)})
 				end
 
-				-- Process all properties except Flags
 				for i, prop in ipairs(tbl) do
 					local is_texture = type(prop.val) == "table" and prop.val.GetSize
 					table.insert(
@@ -45,7 +43,6 @@ local function draw(cmd, dt)
 				end
 			end
 
-			-- Draw cached lines
 			local y = 50
 			local x = 10
 			local line_height = 15
@@ -55,14 +52,11 @@ local function draw(cmd, dt)
 
 			for i, line in ipairs(cached_lines) do
 				local indent_offset = line.indent * indent_size
-				-- Draw black background rectangle
 				render2d.SetColor(0, 0, 0, 0.7)
 				render2d.DrawRect(x + indent_offset - padding, y - padding, 400, line_height + padding)
-				-- Draw text
 				render2d.DrawText{text = line.text, x = x + indent_offset, y = y}
 				y = y + line_height
 
-				-- Draw texture preview if this is a texture
 				if line.texture then
 					local tex_size = 100
 					render2d.SetTexture(line.texture)
@@ -74,7 +68,6 @@ local function draw(cmd, dt)
 			end
 		end
 	else
-		-- Clear cache when nothing is hit
 		cached_material = nil
 		cached_lines = {}
 	end

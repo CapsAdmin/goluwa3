@@ -6,10 +6,7 @@ local VkDescriptorSetLayoutArray = ffi.typeof("$[?]", vulkan.vk.VkDescriptorSetL
 local VkPushConstantRangeArray = ffi.typeof("$[?]", vulkan.vk.VkPushConstantRange)
 local VkPipelineLayoutBox = ffi.typeof("$[1]", vulkan.vk.VkPipelineLayout)
 
--- used to pass data to shaders
 function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
-	-- descriptorSetLayouts is an optional array of DescriptorSetLayout objects
-	-- pushConstantRanges is an optional array of {stage, offset, size}
 	local setLayoutArray = nil
 	local setLayoutCount = 0
 

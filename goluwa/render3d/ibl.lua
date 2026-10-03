@@ -131,7 +131,6 @@ function ibl.GetBRDFGLSLCode()
 		]]
 end
 
--- prefiltered cubemap mips with faces smaller than this are not used for roughness lookups
 ibl.ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE = 16
 
 function ibl.GetPrefilterMipCount(size)
@@ -203,7 +202,6 @@ function ibl.GetEnvironmentGLSLCode()
 		]]
 end
 
--- needs gbuffer_layout.GetDecodeGLSL for the same block
 function ibl.GetReflectionGLSLCode(uniform_name)
 	uniform_name = uniform_name or "lighting_data"
 	return [[
@@ -282,9 +280,6 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 		]]
 end
 
--- Samples reflection probes uploaded to uniform_name.probe_color_textures /
--- probe_depth_textures / probe_positions (see envprobe.GetProbeBlockLayout
--- / WriteProbeBlock) and blends them over global_env.
 function ibl.GetProbeReflectionGLSLCode(uniform_name)
 	uniform_name = uniform_name or "lighting_data"
 	return [[

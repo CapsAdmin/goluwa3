@@ -59,7 +59,6 @@ function Image.New(config)
 				usage = config.usage,
 				sharingMode = config.sharing_mode or "exclusive",
 				initialLayout = config.initial_layout or "undefined",
-				--
 				queueFamilyIndexCount = 0,
 			},
 			nil,
@@ -163,8 +162,6 @@ function Image:CreateView(config)
 	}
 end
 
--- records into cmd when given, otherwise submits a one-off command buffer
--- and waits for it
 function Image:TransitionLayout(old_layout, new_layout, cmd)
 	local render = import("goluwa/render/render.lua")
 	local owns_cmd = not cmd
@@ -174,7 +171,6 @@ function Image:TransitionLayout(old_layout, new_layout, cmd)
 		cmd:Begin()
 	end
 
-	-- Determine access masks and stages based on layouts
 	local src_access = "none"
 	local dst_access = "none"
 	local src_stage = "top_of_pipe"
@@ -190,7 +186,6 @@ function Image:TransitionLayout(old_layout, new_layout, cmd)
 		dst_stage = "fragment"
 	end
 
-	-- Transition image layout
 	cmd:PipelineBarrier{
 		srcStage = src_stage,
 		dstStage = dst_stage,

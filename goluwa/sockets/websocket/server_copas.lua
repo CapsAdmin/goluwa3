@@ -53,14 +53,12 @@ local listen = function(opts)
 		end
 	end
 
-	-- true is the 'magic' index for the default handler
 	clients[true] = {}
 
 	copas.addserver(listener, function(sock)
 		local request = {}
 
 		repeat
-			-- no timeout used, so should either return with line or err
 			local line, err = copas.receive(sock, "*l")
 
 			if line then
@@ -95,7 +93,6 @@ local listen = function(opts)
 			protocol_index = protocol
 			handler = opts.protocols[protocol]
 		elseif opts.default then
-			-- true is the 'magic' index for the default handler
 			protocol_index = true
 			handler = opts.default
 		else
@@ -110,9 +107,6 @@ local listen = function(opts)
 		clients[protocol_index][new_client] = true
 		handler(new_client)
 
-		-- this is a dirty trick for preventing
-		-- copas from automatically and prematurely closing
-		-- the socket
 		while new_client.state ~= "CLOSED" do
 			local dummy = {
 				send = function() end,

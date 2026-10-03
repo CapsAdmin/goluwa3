@@ -38,7 +38,6 @@ local receive = function(self)
 			if opcode == frame.CLOSE then
 				if not self.is_closing then
 					local code, reason = frame.decode_close(decoded)
-					-- echo code
 					local msg = frame.encode_close(code)
 					local encoded = frame.encode(msg, frame.CLOSE, not self.is_server)
 					local n, err = self:sock_send(encoded)
@@ -124,7 +123,6 @@ local connect = function(self, ws_url, ws_protocol, ssl_params)
 	if self.state ~= "CLOSED" then return nil, "wrong state", nil end
 
 	local protocol, host, port, uri = tools.parse_url(ws_url)
-	-- Preconnect (for SSL if needed)
 	local _, err = self:sock_connect(host, port)
 
 	if err then return nil, err, nil end

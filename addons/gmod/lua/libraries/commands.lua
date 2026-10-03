@@ -20,7 +20,8 @@ function gine.env.AddConsoleCommand(name)
 end
 
 local function cmd(str)
-	if str:find("utime", nil, true) then return end -- sigh
+	if str:find("utime", nil, true) then return end
+
 	logn("gine cmd: ", str)
 	local ok, err = pcall(commands.RunCommandString, str, true)
 

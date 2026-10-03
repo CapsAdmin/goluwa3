@@ -1,22 +1,6 @@
---[[
-	Procedural terrain layer textures, registered as texture assets so any
-	scene can use them:
-
-		textures/terrain/<name>_albedo.lua  rgb albedo, roughness in alpha
-		textures/terrain/<name>_normal.lua  tangent space normal, ambient occlusion in alpha
-
-	Each layer defines a tileable relief function `layer_height(vec2 uv)` and
-	an albedo body. Normals and ambient occlusion are derived from the relief.
-	uv covers 0..1 over one tile, so a feature of period 8 repeats 8 times per
-	tile. See goluwa/terrain/noise.lua for the tile_* functions. Cell patterns
-	are always domain warped, plain voronoi reads as cracked mud or paving.
-
-	Returns {name = {albedo = path, normal = path}} for every layer.
-]]
 local assets = import("goluwa/assets.lua")
 local layer_texture = import("goluwa/terrain/layer_texture.lua")
 local LAYERS = {}
--- 3 meter tile: low, irregular tufts with fine blade streaks between them
 LAYERS.grass = {
 	Depth = 0.04,
 	Height = [=[
@@ -70,7 +54,6 @@ LAYERS.grass = {
 		return vec4(col, roughness);
 	]=],
 }
--- 3 meter tile: packed soil with a few embedded stones
 LAYERS.dirt = {
 	Depth = 0.07,
 	Height = [=[
@@ -112,7 +95,6 @@ LAYERS.dirt = {
 		return vec4(col, roughness);
 	]=],
 }
--- 11 meter tile: weathered blocks with strata, cracks only partly exposed
 LAYERS.rock = {
 	Depth = 0.06,
 	Height = [=[
@@ -181,7 +163,6 @@ LAYERS.rock = {
 		return vec4(col, roughness);
 	]=],
 }
--- 7 meter tile: wind packed drifts with meandering ripples and a grainy crust
 LAYERS.snow = {
 	Depth = 0.045,
 	Height = [=[
@@ -214,7 +195,6 @@ LAYERS.snow = {
 		return vec4(col, roughness);
 	]=],
 }
--- 4 meter tile: fine grains in ripples left by wind and waves, a few pebbles and shell bits
 LAYERS.sand = {
 	Depth = 0.03,
 	Height = [=[

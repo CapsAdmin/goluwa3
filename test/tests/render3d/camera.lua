@@ -72,18 +72,14 @@ end
 
 local white_tex
 
--- Create 6 quads for the inverted cube
 local function create_face(pos, normal, up, color)
 	local poly = Polygon3D.New()
 	local right = normal:GetCross(up)
-	local size = 10 -- Large enough to cover the view
-	-- Vertices for a quad
+	local size = 10
 	local v1 = pos - right * size + up * size
 	local v2 = pos + right * size + up * size
 	local v3 = pos + right * size - up * size
 	local v4 = pos - right * size - up * size
-	-- CCW winding for looking from origin (inside)
-	-- Triangle 1: v1, v3, v4
 	poly:AddVertex({pos = v1})
 	poly:AddVertex({pos = v3})
 	poly:AddVertex({pos = v4})
@@ -118,24 +114,17 @@ local function TestCamera(name, cb, opts)
 			white_tex:Shade("return vec4(1, 1, 1, 1);")
 		end
 
-		--
-		do -- faces
-			-- Forward (+Z): Blue
+		do
 			table.insert(ents, create_face(Vec3(0, 0, 10), Vec3(0, 0, 1), Vec3(0, 1, 0), Color(0, 0, 1)))
-			-- Backward (-Z): Yellow
 			table.insert(ents, create_face(Vec3(0, 0, -10), Vec3(0, 0, -1), Vec3(0, 1, 0), Color(1, 1, 0)))
-			-- Right (+X): Red
 			table.insert(ents, create_face(Vec3(10, 0, 0), Vec3(1, 0, 0), Vec3(0, 1, 0), Color(1, 0, 0)))
-			-- Left (-X): Cyan
 			table.insert(ents, create_face(Vec3(-10, 0, 0), Vec3(-1, 0, 0), Vec3(0, 1, 0), Color(0, 1, 1)))
-			-- Up (+Y): Green
 			table.insert(ents, create_face(Vec3(0, 10, 0), Vec3(0, 1, 0), Vec3(0, 0, -1), Color(0, 1, 0)))
-			-- Down (-Y): Magenta
 			table.insert(ents, create_face(Vec3(0, -10, 0), Vec3(0, -1, 0), Vec3(0, 0, 1), Color(1, 0, 1)))
 		end
 
 		if not opts.skip_center_cube then
-			do -- small white cube in the center
+			do
 				local poly = Polygon3D.New()
 				shapes.BuildCube(poly, 0.5, 1.0)
 				poly:Upload()
@@ -180,7 +169,7 @@ TestCamera(
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat(0, 0, 0, 1))
 		draw()
-		test_color("center", "yellow") -- Should see Yellow (-Z)
+		test_color("center", "yellow")
 	end,
 	{skip_center_cube = true}
 )
@@ -194,13 +183,13 @@ end)
 TestCamera("Yaw 180 degrees should look Forward", function(draw)
 	orient_camera(Deg3(0, 179, 0))
 	draw()
-	test_color("center", "blue") -- Should see Blue (+Z)
+	test_color("center", "blue")
 end)
 
 TestCamera("Yaw 90 degrees should look Right", function(draw)
 	orient_camera(Deg3(0, -89, 0))
 	draw()
-	test_color("center", "red") -- Should see Red (+X)
+	test_color("center", "red")
 end)
 
 TestCamera("Camera look left and up", function(draw)
@@ -209,8 +198,8 @@ TestCamera("Camera look left and up", function(draw)
 	cam:SetPosition(Vec3(0, 0, 0))
 	local q = Quat()
 	q:Identity()
-	q:RotateYaw(math.rad(89)) -- Turn Left
-	q:RotatePitch(math.rad(89)) -- Look Up
+	q:RotateYaw(math.rad(89))
+	q:RotatePitch(math.rad(89))
 	cam:SetRotation(q)
 	draw()
 	test_color("center", "green")
@@ -222,8 +211,8 @@ TestCamera("Camera look left and up 2", function(draw)
 	cam:SetPosition(Vec3(0, 0, 0))
 	local q = Quat()
 	q:Identity()
-	q:RotateYaw(math.rad(179)) -- Turn Backward (to Forward)
-	q:RotatePitch(math.rad(89)) -- Look Up
+	q:RotateYaw(math.rad(179))
+	q:RotatePitch(math.rad(89))
 	cam:SetRotation(q)
 	draw()
 	test_color("center", "green")
@@ -276,10 +265,6 @@ TestCamera("Camera movement left", function(draw)
 	cam:SetFOV(math.rad(120))
 	cam:SetPosition(Vec3(-10, 0, 0))
 	draw()
-	-- left half of the screen should be black
-	-- top right should be green 
-	-- right should be yellow 
-	-- bottom right should be magenta
 	test_color("left_center", "black")
 	test_color("top_right", "green")
 	test_color("right_center", "yellow")
@@ -300,22 +285,22 @@ end)
 TestCamera("Camera near plane clipping", function(draw)
 	local cam = render3d.GetCamera()
 	cam:SetNearZ(2.0)
-	cam:SetPosition(Vec3(0, 0, 1)) -- 1 unit away from center cube
-	cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at center cube
+	cam:SetPosition(Vec3(0, 0, 1))
+	cam:SetRotation(Quat(0, 0, 0, 1))
 	draw()
 	test_color("center", "yellow")
 end)
 
 TestCamera("Camera far plane clipping", function(draw)
 	local cam = render3d.GetCamera()
-	cam:SetFarZ(10 - 0.1) -- Just before the Yellow face
+	cam:SetFarZ(10 - 0.1)
 	cam:SetFOV(math.rad(120))
 	cam:SetPosition(Vec3(0, 0, 0))
-	cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at Yellow face (-Z)
+	cam:SetRotation(Quat(0, 0, 0, 1))
 	draw()
-	test_color("center", "black") -- center is clipped, so black
-	test_color("top_center", "green") -- top is green
-	test_color("bottom_center", "magenta") -- bottom is magenta
-	test_color("left_center", "cyan") -- left is cyan
-	test_color("right_center", "red") -- right is red
+	test_color("center", "black")
+	test_color("top_center", "green")
+	test_color("bottom_center", "magenta")
+	test_color("left_center", "cyan")
+	test_color("right_center", "red")
 end)

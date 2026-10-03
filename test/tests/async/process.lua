@@ -1,7 +1,6 @@
 local T = import("test/environment.lua")
 local process = import("goluwa/bindings/process.lua")
 
--- Helper to read all output with retries
 local function read_all_stdout(proc)
 	local result = ""
 
@@ -54,13 +53,11 @@ T.Test("try_wait non-blocking check", function()
 end)
 
 T.Test("directory listing with ls", function()
-	local proc = assert(
-		process.spawn{
-			command = "ls",
-			args = {"-1"}, -- one file per line
-			stdout = "pipe",
-		}
-	)
+	local proc = assert(process.spawn{
+		command = "ls",
+		args = {"-1"},
+		stdout = "pipe",
+	})
 	local ls_output = read_all_stdout(proc)
 	local lines = {}
 
@@ -90,7 +87,6 @@ T.Test("stderr capture with invalid path", function()
 		local done = proc:try_wait()
 
 		if done then
-			-- One more read to catch remaining data
 			local final = proc:read_err(4096)
 
 			if final and final ~= "" then stderr = stderr .. final end
@@ -103,7 +99,6 @@ T.Test("stderr capture with invalid path", function()
 	T(success)["=="](true)
 	local stdout = proc:read(4096) or ""
 	T(#stderr)[">"](0)
-	-- ls returns non-zero exit code for errors
 	local exit_code = assert(proc:wait())
 	T(exit_code)["~="](0)
 end)

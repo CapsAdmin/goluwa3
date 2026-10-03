@@ -6,13 +6,6 @@ local Quat = import("goluwa/structs/quat.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local event = import("goluwa/event.lua")
 local META = objects.CreateTemplate("player_movement")
--- Source's player (GMod defaults) in Source units, converted to meters. Source
--- uses a 32 x 72 box hull that moves by itself; this is a capsule on a rigid
--- body, so the width becomes its diameter and the height its total height.
--- The velocity follows Source's friction and acceleration (sv_friction,
--- sv_stopspeed, sv_accelerate, sv_airaccelerate), applied to the body as
--- impulses. The body's own friction and damping are off, the solver only
--- provides the collision response.
 local UNIT = steam.source2meters
 META:IsSet("Crouching", false)
 META:GetSet("GroundSpeed", 200 * UNIT)
@@ -25,11 +18,7 @@ META:GetSet("JumpSpeed", 196.75 * UNIT)
 META:GetSet("Gravity", 600 * UNIT)
 META:GetSet("StepHeight", 18 * UNIT)
 META:GetSet("GroundReach", 2 * UNIT)
--- Source's sv_sticktoground: keep the body on the ground over crests and down
--- slopes instead of letting it leave the surface
 META:IsSet("StickToGround", true)
--- Source leaves the ground at 140 u/s, which running up a 30 degree ramp
--- already reaches; here only a jump or a real launch does
 META:GetSet("LeaveGroundSpeed", 250 * UNIT)
 META:GetSet("MinGroundNormalY", 0.7)
 META:GetSet("Radius", 16 * UNIT)
@@ -150,11 +139,6 @@ function META:ResetBodyRotation()
 	body:SetAngularVelocity(Vec3())
 end
 
--- the probes start a little above the ground, a capsule resting on it already
--- touches it and would report the ground instead of what is in front of it
--- handed to the PlayerMove event every fixed step, like Source's CMoveData:
--- hooks read and change velocity and grounded before the controller applies
--- friction, acceleration and its own jump
 local MOVE = {
 	velocity = Vec3(),
 	position = Vec3(),
@@ -165,7 +149,6 @@ local MOVE = {
 	dt = 0,
 }
 local STEP_PROBE_LIFT = 0.04
--- the body rests a margin away from what it touches
 local STEP_REACH_MARGIN = 0.03
 local STEP_PROBE_BACKOFF = 0.05
 local STEP_MIN_GAIN = 0.005
@@ -182,13 +165,6 @@ function META:MoveBodyBy(body, offset)
 	body:SetVelocity(velocity)
 end
 
--- Source's StepMove: if the flat move is blocked, try the same move from a
--- step height up, come back down, and keep it when it goes further and lands on
--- walkable ground. direction is the horizontal unit direction of the move and
--- distance how far this tick moves the body.
--- A box hull is flat on a ledge as soon as its edge is over it, a capsule is
--- round: its centre has to get close to the ledge's edge before it lands on
--- the top, so the probe moves at least half a radius.
 function META:TryStepUp(direction, distance)
 	local body = self.Owner.rigid_body
 	local physics = body:GetPhysics()
@@ -197,9 +173,6 @@ function META:TryStepUp(direction, distance)
 	local filter = body:GetFilterFunction()
 	local position = body:GetPosition()
 	STEP_OPTIONS.Rotation = body:GetRotation()
-	-- the contact solver lets the body sink a little into what it pushes
-	-- against, and a sweep that starts overlapping hits at once whatever way it
-	-- goes, so the probes start behind the body
 	local start = position + Vec3(0, STEP_PROBE_LIFT, 0) - direction * STEP_PROBE_BACKOFF
 	local reach_length = STEP_PROBE_BACKOFF + math.max(distance + STEP_REACH_MARGIN, self.Radius * 0.5)
 	local reach = direction * reach_length
@@ -229,13 +202,10 @@ function META:TryStepUp(direction, distance)
 	end
 
 	self:MoveBodyBy(body, Vec3(0, lift, 0))
-	-- the body is above the step and still has to move onto it, putting it
-	-- back on the ground now would undo the step
 	self.snap_hold = STEP_SNAP_HOLD_TICKS
 	return true
 end
 
--- sweeps the player's own capsule from where it is, for movement hooks
 function META:SweepHull(direction, length)
 	local body = self.Owner.rigid_body
 	STEP_OPTIONS.Rotation = body:GetRotation()
@@ -249,20 +219,10 @@ function META:SweepHull(direction, length)
 	)
 end
 
--- Source's ground check: the body is on the ground when walkable ground is
--- within reach below it. Right after standing it reaches a whole step, so
--- walking down a ramp or stairs, where the body would fall off every edge and
--- lose its ground friction for a tick, puts it back on the ground (Source's
--- StayOnGround). Otherwise it reaches 2 units, which is how close a landing
--- body has to be to count as standing. The second result is how far the body
--- is above the ground when it should be put back on it; the caller does that
--- with a velocity, so the physics moves the body and it stays interpolated.
 function META:FindGround(reach)
 	local body = self.Owner.rigid_body
 	local physics = body:GetPhysics()
 	STEP_OPTIONS.Rotation = body:GetRotation()
-	-- a body rests a margin away from the ground and the ground a margin away
-	-- from it, the reach is measured from there
 	local resting_gap = body:GetCollisionMargin() * 2
 	local sweep_length = reach + resting_gap
 	local drop = Vec3(0, -sweep_length, 0)
@@ -279,9 +239,6 @@ function META:FindGround(reach)
 	if hit and hit.normal.y >= self.MinGroundNormalY then
 		ground_distance = sweep_length * hit.fraction
 	else
-		-- a round bottom touching a stair's edge reports a sloped contact
-		-- where a box hull would stand flat on the step: the surface right
-		-- under the body decides
 		local _, height = self:GetDimensions()
 		local origin = body:GetPosition() - Vec3(0, height * 0.5 - GROUND_RAY_LIFT, 0)
 		local ray = physics.RayCast(
@@ -336,7 +293,8 @@ function META:OnCameraModeChanged(mode)
 	local camera = self.Owner.camera
 	local input = self.Owner.player_input
 
-	if not body then return end -- too early
+	if not body then return end
+
 	local radius, height = self:GetDimensions()
 	body:SetMotionType("dynamic")
 	body:SetShape(CapsuleShape.New(radius, height))
@@ -352,8 +310,6 @@ function META:OnCameraModeChanged(mode)
 
 	if mode == "walk" then
 		body:SetCollisionEnabled(true)
-		-- the world's gravity is tuned for other things, the player falls like
-		-- a Source player
 		body:SetGravityScale(self.Gravity / body:GetPhysics().Gravity:GetLength())
 		body:SetMinGroundNormalY(self.MinGroundNormalY)
 		body:SetMaxLinearSpeed(self.WalkMaxLinearSpeed)
@@ -404,8 +360,6 @@ do
 		return dir:GetNormalized()
 	end
 
-	-- once per rendered frame: everything that follows the camera and the
-	-- player's input state; the body itself is driven from OnPhysicsUpdate
 	function META:OnCameraInputUpdate(dt, state)
 		local transform = self.Owner.transform
 		local look = self.Owner.player_input
@@ -415,8 +369,6 @@ do
 
 		self.input_frame = system.GetFrameNumber()
 
-		-- the input clears jump_pressed after every frame, and a frame may run
-		-- no physics step at all
 		if state.jump_pressed then self.jump_requested = true end
 
 		if look.Mode == "walk" then
@@ -431,16 +383,12 @@ do
 		if not state.mouse_trapped then self.fly_speed_multiplier = 1 end
 	end
 
-	-- once per fixed physics step, with the fixed step as dt, so the movement
-	-- does not depend on the frame rate
 	function META:OnPhysicsUpdate(dt)
 		local look = self.Owner.player_input
 		local body = self.Owner.rigid_body
 
 		if not (look and body) then return end
 
-		-- no camera input update ran recently (the camera is not rendered): the
-		-- body keeps its velocity
 		if not self.input_frame or system.GetFrameNumber() - self.input_frame > 1 then
 			return
 		end
@@ -474,9 +422,6 @@ do
 				self.snap_hold = self.snap_hold > 1 and self.snap_hold - 1 or nil
 			end
 
-			-- like Source, rising faster than a slope can lift a walker means
-			-- the body left the ground; below that, going over a crest keeps it
-			-- on the ground and whatever vertical speed the slope gave it is dropped
 			local rising = y > self.LeaveGroundSpeed
 			local snap_down = 0
 
@@ -495,8 +440,6 @@ do
 				)
 			end
 
-			-- how fast the physics left the body moving the way it wants to go, a
-			-- stalled one has a step to take
 			local along = x * move.x + z * move.z
 
 			if grounded then
@@ -532,8 +475,6 @@ do
 			end
 
 			if grounded then
-				-- Source's Friction: the drop is a fraction of the speed, but
-				-- never of less than the stop speed, so a slow body stops
 				local speed = math.sqrt(x * x + z * z)
 
 				if speed >= 0.0001 then
@@ -545,8 +486,6 @@ do
 			end
 
 			if wish_speed > 0 then
-				-- Source's Accelerate and AirAccelerate: accelerate along the wish
-				-- direction up to the wish speed, in the air up to a small cap
 				local limit = grounded and wish_speed or math.min(wish_speed, self.AirSpeed)
 				local acceleration = grounded and self.Acceleration or self.AirAcceleration
 				local add_speed = limit - (x * move.x + z * move.z)

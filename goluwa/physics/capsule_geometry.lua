@@ -5,7 +5,6 @@ local CAPSULE_LOCAL_SEGMENT_POINTS = {
 	top = Vec3(0, 0, 0),
 }
 
--- owner is a capsule rigid body or a capsule collider
 function capsule_geometry.GetCapsuleShape(owner)
 	local shape = owner:GetPhysicsShape()
 	assert(

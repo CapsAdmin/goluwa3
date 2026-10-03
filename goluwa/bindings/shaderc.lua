@@ -2,8 +2,6 @@ local ffi = require("ffi")
 local mod = {}
 
 function mod.find_library()
-	-- Internal helper function to attempt loading from a list of names/paths.
-	-- It returns the first one that succeeds.
 	local function try_load(tbl)
 		local errors = {}
 
@@ -13,7 +11,6 @@ function mod.find_library()
 			if status then
 				return lib
 			else
-				-- Store the error message for a comprehensive final error.
 				table.insert(errors, "  - tried '" .. name .. "': " .. tostring(lib))
 			end
 		end
@@ -32,20 +29,15 @@ function mod.find_library()
 
 		local vulkan_sdk = os.getenv("VULKAN_SDK")
 
-		-- 1. Prioritize the VULKAN_SDK environment variable, as it's explicit.
 		if vulkan_sdk then
 			table.insert(paths, vulkan_sdk .. "/lib/libshaderc_shared.dylib")
 		end
 
-		-- 2. Check standard Homebrew path for Apple Silicon.
 		table.insert(paths, "/opt/homebrew/lib/libshaderc_shared.dylib")
-		-- 3. Check standard Homebrew path for Intel Macs.
 		table.insert(paths, "/usr/local/lib/libshaderc_shared.dylib")
-		-- 4. As a fallback, try loading directly in case it's in the system's default search path.
 		table.insert(paths, "libshaderc_shared.dylib")
 		return assert(try_load(paths))
 	elseif ffi.os == "Windows" then
-		-- For Windows, lib.dll is usually in the Vulkan SDK's Bin directory.
 		local vulkan_sdk = os.getenv("VULKAN_SDK")
 		local paths = {}
 
@@ -53,13 +45,13 @@ function mod.find_library()
 			table.insert(paths, vulkan_sdk .. "/Bin/shaderc_shared.dll")
 		end
 
-		table.insert(paths, "shaderc_shared.dll") -- Fallback
+		table.insert(paths, "shaderc_shared.dll")
 		local lib, err = try_load(paths)
 
 		if not lib then return nil, err end
 
 		return lib
-	else -- Assuming Linux
+	else
 		local lib, err = try_load({"libshaderc_shared.so", "libshaderc_shared.so.1"})
 
 		if not lib then return nil, err end
@@ -77,7 +69,6 @@ if not lib then
 end
 
 mod.available = true
--- Define the shaderc C API for LuaJIT
 ffi.cdef[[
     // Opaque handles
     typedef struct shaderc_compiler* shaderc_compiler_t;

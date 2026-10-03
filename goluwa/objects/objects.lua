@@ -140,7 +140,6 @@ function objects.RebuildMetatables(what)
 			local component_set = {}
 			local cmp = {}
 
-			-- first add all the base functions from the base object
 			for k, v in pairs(objects.base_metatable) do
 				copy[k] = v
 
@@ -151,7 +150,6 @@ function objects.RebuildMetatables(what)
 				end
 			end
 
-			-- then go through the list of bases and derive from them in reversed order
 			local base_list = {}
 
 			if meta.Base then
@@ -169,8 +167,6 @@ function objects.RebuildMetatables(what)
 				for _, v in ipairs(base_list) do
 					local base = objects.registered[v]
 
-					-- the base might not be registered yet
-					-- however this will be run again once it actually is
 					if base then
 						for k, val in pairs(base) do
 							copy[k] = val
@@ -207,7 +203,6 @@ function objects.RebuildMetatables(what)
 				end
 			end
 
-			-- finally the actual metatable
 			for k, v in pairs(meta) do
 				copy[k] = v
 
@@ -450,7 +445,7 @@ function objects.DumpObjectCount()
 	end
 end
 
-do -- get is set
+do
 	local __store = false
 	local __meta
 	local __options

@@ -24,7 +24,6 @@ Physics.EPSILON = physics_constants.EPSILON
 function Physics.New(config)
 	config = config or {}
 	local self = Physics:CreateObject(config.instance)
-	-- todo
 	self.FixedTimeStep = config.FixedTimeStep or (1 / 60)
 	self.RigidBodyIterations = config.RigidBodyIterations or 1
 	self.RigidBodyRelaxIterations = config.RigidBodyRelaxIterations or 3
@@ -42,8 +41,6 @@ function Physics.New(config)
 		self.RayCast = trace.RayCast
 		self.GetHitNormal = trace.GetHitNormal
 		self.GetHitSurfaceContact = trace.GetHitSurfaceContact
-		-- query entry points receive the engine as an explicit argument so the
-		-- sweep modules never have to reach back up to the engine module
 		self.SweepCollider = function(...)
 			return sweep.SweepCollider(self, ...)
 		end
@@ -87,7 +84,6 @@ local function solve_box_pair(body_a, body_b, _, _, dt)
 	return box_pair_solver.SolveBoxPairCollision(body_a, body_b, dt)
 end
 
--- {shape_a, shape_b, solver, swap_bodies}
 local PAIR_SOLVERS = {
 	{"convex", "box", solve_polyhedron_pair},
 	{"box", "convex", solve_polyhedron_pair},

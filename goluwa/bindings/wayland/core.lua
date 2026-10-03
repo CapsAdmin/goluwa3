@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local wayland = {}
--- Wayland core types and functions (libwayland-client)
 ffi.cdef[[
 	typedef int32_t wl_fixed_t;
 	
@@ -113,11 +112,9 @@ ffi.cdef[[
 	struct wl_cursor *wl_cursor_theme_get_cursor(struct wl_cursor_theme *theme, const char *name);
 	struct wl_buffer *wl_cursor_image_get_buffer(struct wl_cursor_image *image);
 ]]
---import("goluwa/bindings/wayland/rebuild.lua")
-wayland.xkb = ffi.load("xkbcommon", true) -- load globally
-wayland.wl_client = ffi.load("wayland-client", true) -- load globally
-wayland.wl_cursor = ffi.load("wayland-cursor", true) -- load globally
--- Load generated bindings
+wayland.xkb = ffi.load("xkbcommon", true)
+wayland.wl_client = ffi.load("wayland-client", true)
+wayland.wl_cursor = ffi.load("wayland-cursor", true)
 import("goluwa/bindings/wayland/wayland.lua")
 local xdg_bindings = import("goluwa/bindings/wayland/xdg_shell.lua")
 

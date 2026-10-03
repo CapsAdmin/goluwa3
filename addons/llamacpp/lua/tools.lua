@@ -306,7 +306,6 @@ return {
 
 			local new_content = content:replace(args.old_string, args.new_string)
 
-			-- Syntax check for Lua files
 			if args.path:match("%.lua$") then
 				local ok, err = loadstring(new_content, "@" .. args.path)
 

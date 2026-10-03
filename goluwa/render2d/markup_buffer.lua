@@ -87,7 +87,6 @@ function MarkupBuffer:Insert(pos, str)
 
 				break
 			elseif pos == current_pos then
-				-- Insert before this non-string chunk
 				table.insert(self.chunks, i, {type = "string", val = str})
 				inserted = true
 
@@ -119,26 +118,21 @@ function MarkupBuffer:InsertChunks(pos, chunks)
 		end
 
 		if pos >= current_pos and pos <= current_pos + chunk_len then
-			-- Insert at this chunk boundary or within it
 			if chunk.type == "string" and pos > current_pos and pos < current_pos + chunk_len then
-				-- Split string chunk
 				local offset = pos - current_pos
 				local part1 = utf8.sub(chunk.val, 1, offset)
 				local part2 = utf8.sub(chunk.val, offset + 1)
 				chunk.val = part1
 
-				-- Insert chunks after part1
 				for j = 1, #chunks do
 					table.insert(self.chunks, i + j, chunks[j])
 				end
 
-				-- Insert part2 after the new chunks
 				table.insert(self.chunks, i + #chunks + 1, {type = "string", val = part2})
 				inserted = true
 
 				break
 			else
-				-- Boundary (start or end of chunk)
 				local insert_at = i
 
 				if pos > current_pos then insert_at = i + 1 end
@@ -184,11 +178,9 @@ function MarkupBuffer:RemoveRange(start, stop)
 		local chunk_end = current_pos + chunk_len
 
 		if chunk_start < stop and chunk_end >= start then
-			-- Overlap
 			if chunk.type == "string" then
 				local rel_start = math.max(1, start - chunk_start + 1)
 				local rel_stop = math.min(chunk_len, stop - chunk_start)
-				-- remove rel_start to rel_stop inclusive (in utf8 terms)
 				chunk.val = utf8.sub(chunk.val, 1, rel_start - 1) .. utf8.sub(chunk.val, rel_stop + 1)
 
 				if chunk.val == "" then
@@ -196,7 +188,6 @@ function MarkupBuffer:RemoveRange(start, stop)
 					i = i - 1
 				end
 			else
-				-- non-string chunk (newline or object)
 				table.remove(self.chunks, i)
 				i = i - 1
 			end

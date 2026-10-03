@@ -111,9 +111,9 @@ if SERVER then
 	end
 end
 
-do -- user command
-	local client_command_length = 33 -- sample length in ms
-	local client_tick_rate = 33 -- in ms
+do
+	local client_command_length = 33
+	local client_tick_rate = 33
 	local server_command_length = client_command_length
 	local server_tick_rate = 10
 	local layout = {
@@ -143,8 +143,9 @@ do -- user command
 
 	event.AddListener("NetworkStarted", function()
 		local function read_buffer(client, buffer)
-			local cmd = client:GetCurrentCommand() -- get or create the cmd table
-			local time_stamp -- first time is the base time
+			local cmd = client:GetCurrentCommand()
+			local time_stamp
+
 			for i = 1, 32 do
 				local time = buffer:ReadDouble()
 
@@ -166,7 +167,6 @@ do -- user command
 
 				if i == 32 then wlog("command too big: ", client, 2) end
 			end
-		--list.sort(client.current_command.queue, function(a, b) return a.time > b.time end)
 		end
 
 		local function process_usercommand(client)
@@ -290,7 +290,7 @@ do -- user command
 	end)
 end
 
-do -- input
+do
 	local function add_event(name, check)
 		input.SetupAccessorFunctions(META, name, nil, nil, true)
 
@@ -334,7 +334,7 @@ do -- input
 	add_event("Mouse")
 end
 
-do -- send lua
+do
 	if CLIENT then
 		message.AddListener("sendlua", function(code, env)
 			lrun.Execute(code, {log_error = true, name = "sendlua"})

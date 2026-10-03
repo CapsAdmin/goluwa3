@@ -1,16 +1,11 @@
 local Constraint = import("goluwa/physics/constraint.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
 local objects = import("goluwa/objects/objects.lua")
--- A rope over two fixed pulley points: length0 + ratio * length1 stays at the
--- total it had when the joint was created, where length0 runs from the first
--- pulley point to the anchor on body 0 and length1 from the second to body 1.
--- A rope pulley (the default) only pulls; Rigid also pushes.
 local META = objects.CreateTemplate("physics_pulley_constraint")
 META.Base = Constraint
 META.CollideConnected = true
 local INFINITY = math.huge
 
--- config: Ratio (default 1), Rigid, CollideConnected (default true), BreakForce
 function META.New(body_0, body_1, ground_0, ground_1, anchor_0, anchor_1, config)
 	config = config or {}
 	local ratio = config.Ratio or 1
@@ -84,12 +79,9 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 
 	if length_0 < 1e-6 or length_1 < 1e-6 then return end
 
-	-- g is positive while the rope has slack; the tension is the impulse
-	-- along the gradient of g, which pulls both anchors toward their pulleys
 	local gap = self.TotalLength - (length_0 + ratio * length_1)
 	d0x, d0y, d0z = d0x / length_0, d0y / length_0, d0z / length_0
 	d1x, d1y, d1z = d1x / length_1, d1y / length_1, d1z / length_1
-	-- the anchors are separate points, so each side is its own one body row
 	local inverse_mass = 0
 
 	if s0.body then
@@ -189,9 +181,7 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 
 	local before = self.Impulse
 	local new = before - mass_scale * (bias - speed) / inverse_mass - impulse_scale * before
-
 	new = math.max(new, lo)
-
 	local delta = new - before
 	self.Impulse = new
 

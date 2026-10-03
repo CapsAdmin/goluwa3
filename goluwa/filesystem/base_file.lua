@@ -38,7 +38,6 @@ do
 			cache[func_name][self.Name][path_info.full_path] = packed
 		end
 
-		-- might have been cleared inbetween
 		cache[func_name] = cache[func_name] or {}
 		cache[func_name][self.Name] = cache[func_name][self.Name] or {}
 		packed = cache[func_name][self.Name][path_info.full_path] or packed

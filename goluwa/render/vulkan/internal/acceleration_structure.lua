@@ -45,8 +45,6 @@ function AccelerationStructure.QueryBuildSize(device, build_info)
 	tonumber(sizes.updateScratchSize)
 end
 
--- offset and size place it inside a larger buffer, so many small structures
--- can share one allocation
 function AccelerationStructure.New(device, type, buffer, offset, size)
 	local create_as = device:GetExtension("vkCreateAccelerationStructureKHR")
 	local ptr = VkAccelerationStructureBox()

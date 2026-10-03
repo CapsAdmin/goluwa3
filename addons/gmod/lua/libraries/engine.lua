@@ -23,14 +23,6 @@ function engine.GetGames()
 			mounted = false,
 			installed = false,
 		},
-		--[[{
-			depot = 300,
-			title = "Day of Defeat",
-			owned = false,
-			folder = dod,
-			mounted = false,
-			installed = false,
-		},]]
 		{
 			depot = 440,
 			title = "Team Fortress 2",

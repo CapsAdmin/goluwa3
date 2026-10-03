@@ -4,26 +4,9 @@ local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
--- Glare: the light scattered inside the eye. Stiles and Holladay's disability
--- glare puts a veil of 10 E / theta^2 cd/m2 at theta degrees from a source
--- that lights the eye with E lux. That is linear in the light, so it is there
--- for every pixel, but a normal scene only loses a little contrast to it,
--- while the sun or a glint of it, thousands of times brighter than anything
--- around, drowns everything within a few degrees in its glow.
---
--- 1 / theta^2 over the area around the source is the same energy in every
--- octave of angle, 0.0191 ln 2 of the light. The scene is halved LEVELS times
--- with a 13 tap filter (Jimenez 2014, Call of Duty: Advanced Warfare), each
--- level blurring over twice the angle of the last, then walked back up with a
--- tent filter, adding each level in with the energy of the octave it covers.
--- The levels are measured in degrees through the camera's field of view, so
--- the glare is the same size on screen at any fov or resolution. The blit
--- pass mixes it in linearly (before exposure) by the total weight.
 local LEVELS = 10
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local ENERGY_PER_OCTAVE = 0.0191 * math.log(2)
--- the range CIE 146's glare spread function is fitted over is 0.1 to 100 degrees.
--- past 30 the veil is spread evenly over most of the screen anyway
 local MIN_DEGREES = 0.1
 local MAX_DEGREES = 30
 pvars.StartGroup("bloom", {store = false})
@@ -33,9 +16,6 @@ render3d.bloom_strength = pvars.Setup2{
 	min = 0,
 	help = "scales the share of the light the glare takes",
 }
--- how long in seconds a bright highlight's glare lingers where it was on screen,
--- smearing it along the way when it or the camera moves (see passes/blit.lua).
--- 0 is off
 render3d.bloom_smear = pvars.Setup2{
 	key = "r_bloom_smear",
 	default = 0,
@@ -44,7 +24,6 @@ render3d.bloom_smear = pvars.Setup2{
 }
 pvars.EndGroup()
 
--- the weight each level is added in with, normalized, and their total
 do
 	local weights = {}
 	local total = 0
@@ -56,12 +35,10 @@ do
 		if frame == last_frame then return weights, total end
 
 		last_frame = frame
-		-- full resolution pixels per degree at the center of the screen
 		local pixels_per_degree = render.GetRenderImageSize().y / 2 / math.tan(render3d.GetCamera():GetFOV() / 2) * math.pi / 180
 		total = 0
 
 		for i = 1, LEVELS do
-			-- level i blurs over about 2^i pixels, the octave around it
 			local degrees = 2 ^ i / pixels_per_degree
 			local low = math.log(math.max(degrees / math.sqrt(2), MIN_DEGREES)) / math.log(2)
 			local high = math.log(math.min(degrees * math.sqrt(2), MAX_DEGREES)) / math.log(2)
@@ -102,13 +79,6 @@ local common_glsl = compute_helpers.GetScreenHelpersGLSL() .. [[
 		return c;
 	}
 ]]
--- 13 taps over a 4x4 source texel footprint, as five overlapping 2x2 boxes.
--- No Karis average: it keeps a hot pixel from flickering by weighing boxes
--- down by their brightness, which throws away most of the sun and its glints,
--- the very things the glare is for. For the same reason the glare comes from
--- the scene before TAA, whose blend on compressed colour loses half of the
--- sun's disc. The blur hides the jitter and the smear (passes/blit.lua) keeps
--- it steady.
 local downsample_glsl = [[
 	void main() {
 		ivec2 pos = get_screen_pos();
@@ -156,8 +126,6 @@ local downsample_glsl = [[
 		imageStore(out_bloom, pos, vec4(result, 1.0));
 	}
 ]]
--- 3x3 tent over the next smaller level, plus this level's downsample by its
--- weight. The smallest level comes in by its own weight.
 local upsample_glsl = [[
 	layout(set = 0, binding = 2) uniform sampler2D merge_tex;
 
@@ -217,10 +185,6 @@ local function build_pass(name, scale, shader, sampled_images, write, extra_bloc
 	}
 end
 
--- The passes, given the eye's local adaptation for the first downsample
--- (see passes/blit.lua): glsl declaring grid_tex (binding 2), exposure_tex (3)
--- and prev_exposure_tex (4) and defining get_local_adaptation, textures for
--- those bindings, and the block and its writer that function reads.
 return function(adaptation)
 	local r = {}
 

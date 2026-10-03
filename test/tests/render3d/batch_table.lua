@@ -66,7 +66,6 @@ T.Test3D("Graphics render3d batch table writes mesh addresses and records", func
 		T(record.value)["=="](i)
 		T(addresses[0] == mesh:GetVertexBufferAddress())["=="](true)
 		T(addresses[1] == mesh:GetIndexBufferAddress())["=="](true)
-		-- the cube is uploaded without indices
 		T(record.index_is_32)["=="](0)
 	end
 
@@ -103,15 +102,11 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	end
 
 	T(update(1, 1))["=="](300)
-	-- the same submission reuses what it wrote
 	T(update(1, 1))["=="](0)
-	-- later submissions refresh a window of records and wrap around
 	T(update(1, 2))["=="](256)
 	T(update(1, 3))["=="](44)
 	T(update(1, 4))["=="](256)
-	-- a changed dataset rewrites everything, even within a submission
 	T(update(2, 4))["=="](300)
-	-- as does a removed buffer whose address a record may hold
 	local release_serial = Buffer.address_release_serial
 	local buffer = render.CreateBuffer{
 		byte_size = 16,
@@ -122,7 +117,6 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	buffer:Remove()
 	T(Buffer.address_release_serial > release_serial)["=="](true)
 	T(update(2, 5))["=="](300)
-	-- a record rewritten by a window update reaches the gpu copy
 	batches[1].value = 1000
 	T(update(2, 6))["=="](256)
 	T(read_record(batch_table.buffers[1], 1).value)["=="](1000)
@@ -147,7 +141,6 @@ T.Test3D("Graphics render3d batch table grows and keeps a buffer per frame in fl
 		single:Update(pipeline, batches, 1, 2, context)
 		T(per_frame.buffers[1] ~= per_frame.buffers[2])["=="](true)
 		T(single.buffers[2])["=="](nil)
-		-- every frame's buffer holds the whole table, not only what changed
 		T(read_record(per_frame.buffers[1], 4).value)["=="](4)
 		T(read_record(per_frame.buffers[2], 4).value)["=="](4)
 		local old = single.buffers[1]

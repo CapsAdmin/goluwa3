@@ -4,7 +4,6 @@ local surface_properties = {}
 local entries
 local resolved = {}
 
--- names are case insensitive and later files add to or override earlier ones
 local function load_entries()
 	entries = {}
 	local manifest = steam.VDFToTable(vfs.Read("scripts/surfaceproperties_manifest.txt")).surfaceproperties_manifest
@@ -24,8 +23,6 @@ local function load_entries()
 	end
 end
 
--- density (kg/m^3), elasticity, friction and dampening, with "default" as the
--- root and each entry's "base" chain applied from the root down
 function surface_properties.Get(name)
 	if not entries then load_entries() end
 

@@ -128,10 +128,6 @@ local function get_wrap_width(self, available_width)
 			parent_width = parent_width - parent_padding.x - parent_padding.w
 		end
 
-		-- If the parent chain hasn't been laid out yet (width collapsed to
-		-- the 1px default or negative from cascading padding), fall back to
-		-- the element's own transform width which may have been set by
-		-- cross-axis stretch during a previous Arrange pass.
 		if parent_width >= 10 then width = parent_width end
 	end
 
@@ -234,7 +230,6 @@ local function build_wrap_layout(self, font, text, width)
 			}
 		end
 
-		-- Handle trailing newline by adding an empty line for proper caret positioning
 		local ends_with_newline = raw_length > 0 and utf8.sub(text, raw_length, raw_length) == "\n"
 
 		if ends_with_newline then
@@ -438,11 +433,6 @@ function META:Initialize()
 		if self:GetWrap() then
 			local width = get_wrap_width(self)
 
-			-- On the first layout pass, the wrap layout was built at the
-			-- default 1px transform width, producing an incorrect height.
-			-- Always rebuild on the first transform change after init so we
-			-- get the correct wrapping based on the actually allocated width;
-			-- subsequent changes only rebuild when the width differs.
 			if not self._wrap_layout_initialized or self.last_wrap_width ~= width then
 				self.last_wrap_width = width
 				self._wrap_layout_initialized = true
@@ -555,7 +545,8 @@ function META:Measure(available_width, available_height)
 end
 
 function META:OnTextChanged()
-	if not self.Owner.transform then return end -- not ready yet
+	if not self.Owner.transform then return end
+
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self:GetText()
 
@@ -595,9 +586,6 @@ function META:OnTextChanged()
 	if not self:GetWrap() and not self:GetElide() then
 		self.Owner.transform:SetSize(Vec2(w, h))
 	else
-		-- When wrapping, we update our height to match the text
-		-- but we don't want to shrink our width to the tight bounding box
-		-- as that causes feedback loops with layouts that FitWidth.
 		self.Owner.transform:SetHeight(h)
 	end
 
@@ -681,7 +669,6 @@ function META:OnDraw()
 		foreground = theme.active:ResolveColor(foreground, background)
 	end
 
-	-- Use hint text when actual text is empty
 	local use_hint = text == "" and self:GetHint() ~= ""
 
 	if use_hint then
@@ -692,7 +679,6 @@ function META:OnDraw()
 			foreground = theme.active:ResolveColor(foreground, background)
 		end
 
-		-- Use hint text dimensions so clipping rect is non-zero
 		tw, th = font:GetTextSize(text)
 	end
 
@@ -910,12 +896,12 @@ function META:GetIndexAtPosition(mx, my)
 
 	if line_idx < 1 then
 		line_idx = 1
-		rx = -1e9 -- Force to start of first line
+		rx = -1e9
 	end
 
 	if line_idx > #wrapped_lines then
 		line_idx = #wrapped_lines
-		rx = 1e9 -- Force to end of last line
+		rx = 1e9
 	end
 
 	local line_text = wrapped_lines[line_idx] or ""
@@ -1065,7 +1051,6 @@ function META:OnMouseInput(button, press, local_pos)
 				self.last_click_index = index
 
 				if self.click_count == 2 then
-					-- Double click: select word
 					local buffer = self.editor.Buffer
 					local text_len = buffer:GetLength()
 					local char = buffer:Sub(index, index)
@@ -1104,7 +1089,6 @@ function META:OnMouseInput(button, press, local_pos)
 					self.dragging = false
 					self:ResetCaretBlink()
 				elseif self.click_count >= 3 then
-					-- Triple click: select line
 					local buffer = self.editor.Buffer
 					local text_len = buffer:GetLength()
 					local start_idx = index

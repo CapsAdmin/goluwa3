@@ -80,8 +80,6 @@ function motion.ApplyBodyMotionDelta(body, previous_position, previous_rotation,
 	local angular_delta = motion.GetAngularVelocityFromRotationDelta(previous_rotation, body.Rotation, dt)
 	body.AngularVelocity:Add(angular_delta)
 
-	-- the body already moved by this delta, so the solver velocity delta that
-	-- gets integrated into its pose must not include it again
 	if body.HasSolverVelocity0 then
 		body.SolverVelocity0:Add(POSITION_DELTA)
 		body.SolverAngularVelocity0:Add(angular_delta)

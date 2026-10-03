@@ -229,7 +229,7 @@ do
 	end
 
 	function META:UserID()
-		return math.abs(tonumber(self:UniqueID()) % 333) -- todo
+		return math.abs(tonumber(self:UniqueID()) % 333)
 	end
 
 	function META:GetFriendStatus()
@@ -268,12 +268,10 @@ do
 		return false
 	end
 
-	--if SERVER then
 	function META:IPAddress()
 		return "192.168.1.101:27005"
 	end
 
-	--end
 	function META:IsSpeaking()
 		return false
 	end
@@ -315,7 +313,7 @@ do
 				networkid = ply:SteamID(),
 				address = ply:IPAddress(),
 				userid = ply:UserID(),
-				bot = 0, -- ply:IsBot(),
+				bot = 0,
 				index = ply:EntIndex(),
 			}
 		)

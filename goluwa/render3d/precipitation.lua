@@ -7,37 +7,19 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
--- Falling rain and snow around the camera, drawn with the translucent surfaces (passes/translucent.lua)
--- so they sort and fog with them. The particles further out are too small to see one by one, they are
--- part of the fog (atmosphere.SetPrecipitationExtinction).
--- Nothing is simulated: each particle's size, speed and place follow from its index, and it falls through
--- a box that wraps around the camera. A particle is drawn as the path it covers while the shutter is open,
--- so it covers each point on it for only its own width of that path.
--- Rain drop sizes follow Marshall and Palmer (1948), their speeds Atlas et al. (1973).
--- Snowflake sizes follow Gunn and Marshall (1958) by melted diameter, turned into flake diameters with
--- Holroyd's (1971) aggregate density of 0.17/D g/cm³, their speeds Locatelli and Hobbs (1974).
 local precipitation = library()
--- mm/h
 precipitation.rain_rate = 0
--- mm/h of melted water
 precipitation.snow_rate = 0
--- drops per m³ per mm of diameter, at any rain rate
 local MARSHALL_PALMER_N0 = 8000
--- mm, smaller drops are only part of the fog
 local RAIN_MIN_DIAMETER = 1
 local RAIN_MAX_DIAMETER = 6
--- mm of melted diameter
 local SNOW_MIN_MELTED_DIAMETER = 0.5
 local SNOW_MAX_MELTED_DIAMETER = 3
--- g/cm³ times mm, a flake of diameter D mm has density SNOW_DENSITY_SCALE / D
 local SNOW_DENSITY_SCALE = 0.17
--- m, the width of the box of particles around the camera
 local BOX_SIZE = 20
 local MAX_RAIN_DROPS = 131072
 local MAX_SNOWFLAKES = 131072
--- s, a camera's shutter at 60 fps
 local EXPOSURE_TIME = 1 / 60
--- a clear sky adds roughly this much diffuse light to the direct light on a horizontal surface
 local CLEAR_SKY_DIFFUSE_RATIO = 0.15
 local GROUND_ALBEDO = 0.2
 
@@ -57,18 +39,15 @@ function precipitation.GetSnow()
 	return precipitation.snow_rate
 end
 
--- the marshall palmer slope, 1/mm
 local function get_rain_lambda()
 	return 4.1 * precipitation.rain_rate ^ -0.21
 end
 
--- the gunn marshall intercept, per m³ per mm, and slope, 1/mm
 local function get_snow_distribution()
 	local rate = precipitation.snow_rate
 	return 3800 * rate ^ -0.87, 2.55 * rate ^ -0.48
 end
 
--- how many of the particles the box physically holds are drawn, and how much each drawn one stands for
 local function get_drawn(physical, max)
 	if physical <= 0 then return 0, 0 end
 
@@ -86,8 +65,6 @@ function precipitation.GetRainDropCount()
 	)
 end
 
--- drops of at least min_diameter mm that land on each m² of open ground per second. the marshall palmer
--- spectrum times each size's atlas fall speed 9.65 - 10.3 exp(-0.6 D), integrated over D
 function precipitation.GetRainImpactRate(min_diameter)
 	if precipitation.rain_rate <= 0 then return 0 end
 
@@ -112,18 +89,13 @@ function precipitation.GetSnowflakeCount()
 	)
 end
 
--- extinction per km of the air the rain and snow fall through
 function precipitation.GetExtinction()
 	local extinction = 0
 
-	-- rain dims visible light by 1.076 R^0.67 dB/km at R mm/h (Carbonneau 1998), heavy rain of 25 mm/h
-	-- alone brings visibility down to ~2 km
 	if precipitation.rain_rate > 0 then
 		extinction = extinction + 1.076 * precipitation.rain_rate ^ 0.67 / (10 / math.log(10))
 	end
 
-	-- twice the flakes' cross section: the gunn marshall distribution over melted diameters d, each flake
-	-- d³ / SNOW_DENSITY_SCALE mm² across. 1 mm/h of dry snow leaves ~800 m of visibility
 	if precipitation.snow_rate > 0 then
 		local n0, lambda = get_snow_distribution()
 		local size_scale = 1 + surface_weather.GetSnowWetness()
@@ -164,7 +136,6 @@ do
 		return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
 	end
 
-	-- the moment textures and write_depth_warp(field) of passes/translucent.lua
 	function precipitation.WriteBlock(self, block, b0_tex, moments_tex, write_depth_warp)
 		render3d.WriteCameraBlock(self, block)
 		render3d.WritePreviousCameraBlock(self, block)
@@ -173,7 +144,6 @@ do
 		block.b0_tex = self:GetTextureIndex(b0_tex)
 		block.moments_tex = self:GetTextureIndex(moments_tex)
 		write_depth_warp(block.depth_warp)
-		-- wrapped so the particle positions keep their precision, they jump once when it wraps
 		block.precipitation_time = system.GetElapsedTime() % 1024
 		block.precipitation_dt = system.GetElapsedTime() - render3d.GetPreviousElapsedTime()
 		block.rain_count, block.rain_coverage_scale = precipitation.GetRainDropCount()
@@ -182,8 +152,6 @@ do
 		block.snow_lambda = precipitation.snow_rate > 0 and select(2, get_snow_distribution()) or 1
 		block.snow_wetness = surface_weather.GetSnowWetness()
 		atmosphere.GetWind():CopyToFloatPointer(block.precipitation_wind)
-		-- the light the particles scatter: the sun and the moon through the clouds, and the sky and the
-		-- ground around them
 		local sky = atmosphere.GetSky()
 		local cover = clouds.GetCover()
 		local sun_dir = sky and sky.sun_direction or Vec3(0, 1, 0)
@@ -207,8 +175,6 @@ do
 	end
 end
 
--- a vertex stage drawing each instance as one particle's path, a 4 vertex triangle strip. the first
--- rain_count instances are rain drops, the rest snowflakes
 function precipitation.GetVertexGLSL(block_name)
 	return [[
 		const float BOX_SIZE = ]] .. string.format("%.1f", BOX_SIZE) .. [[;
@@ -364,7 +330,6 @@ precipitation.vertex_outputs = {
 	{"motion", "vec2"},
 }
 
--- a particle's coverage across its path, round rather than a flat strip and the same on average
 function precipitation.GetCoverageGLSL()
 	return [[
 		float get_precipitation_alpha() {

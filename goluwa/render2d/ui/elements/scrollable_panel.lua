@@ -157,7 +157,6 @@ function META:ScrollChildIntoView(child, padding)
 	return self:ScrollRectIntoView(x, y, x + size.x, y + size.y, padding)
 end
 
--- Scrollbar state computation
 function META:computeScrollbarState(content_size, view_size)
 	content_size = content_size or Vec2(0, 0)
 	view_size = view_size or Vec2(0, 0)
@@ -224,14 +223,12 @@ function META:computeScrollbarState(content_size, view_size)
 	}
 end
 
--- Scrollbar handle update
 function META:updateHandle()
 	if not self.HandleY or not self.HandleX then return end
 
 	local content_size = self.Viewport.layout.content_size
 	local view_size = self.Viewport.transform.Size:Copy()
 	local state = self:computeScrollbarState(content_size, view_size)
-	-- Update viewport padding for scrollbar reserve
 	local new_padding = Rect(
 		self.Padding.x,
 		self.Padding.y,
@@ -256,7 +253,6 @@ function META:updateHandle()
 		current_padding.h ~= new_padding.h
 	then
 		self.Viewport.layout:SetPadding(new_padding)
-		-- Recompute after layout may have shifted available dimensions
 		view_size = self.Viewport.transform.Size:Copy()
 		content_size = self.Viewport.layout.content_size
 		state = self:computeScrollbarState(content_size, view_size)
@@ -357,7 +353,6 @@ function META:clampScrollToBounds(content_size, view_size)
 	return next_scroll, changed
 end
 
--- Wheel scrolling
 function META:handleWheelScroll(target, button)
 	local content_size = target.layout and target.layout.content_size
 	local view_size = target.transform and target.transform.Size
@@ -393,7 +388,6 @@ function META:handleWheelScroll(target, button)
 	return true
 end
 
--- Scroll-into-view helpers
 function META:ScrollRectIntoView(x1, y1, x2, y2, padding)
 	padding = padding or self.Padding
 	local content_size = self.Viewport.layout and self.Viewport.layout.content_size
@@ -462,7 +456,6 @@ function META:updateDirtyLayout(entity)
 	if root_layout then root_layout:UpdateLayout() end
 end
 
--- Track and handle creation
 do
 	function META:createTrack(axis)
 		return Panel.New{

@@ -1,7 +1,6 @@
 local crypto = library()
 
 do
-	-- https://github.com/lancelijade/qqwry.lua/blob/master/crc32.lua#L133
 	local CRC32 = {
 		0x00000000,
 		0x77073096,
@@ -316,16 +315,12 @@ do
 		local h3 = 0x10325476
 		local h4 = 0xC3D2E1F0
 		local bits = #msg * 8
-		-- append b10000000
 		msg = msg .. string.char(0x80)
-		-- 64 bit length will be appended
 		local bytes = #msg + 8
-		-- 512 bit append stuff
 		local fill_bytes = 64 - (bytes % 64)
 
 		if fill_bytes ~= 64 then msg = msg .. string.rep(string.char(0), fill_bytes) end
 
-		-- append 64 big endian length
 		local high = math.floor(bits / 2 ^ 32)
 		local low = bits - high * 2 ^ 32
 		msg = msg .. write_int32(high) .. write_int32(low)
@@ -388,7 +383,6 @@ do
 			h4 = h4 + e
 		end
 
-		-- necessary on sizeof(int) == 32 machines
 		h0 = bit.band(h0, 0xffffffff)
 		h1 = bit.band(h1, 0xffffffff)
 		h2 = bit.band(h2, 0xffffffff)

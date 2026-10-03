@@ -15,7 +15,6 @@ T.Test("Buffer ReadBits single bits", function()
 	local buf = ffi.new("uint8_t[1]", {0b10110100})
 	local buffer = Buffer.New(buf, 1)
 	buffer:RestartReadBits()
-	-- Read LSB to MSB
 	T(buffer:ReadBits(1))["=="](0)
 	T(buffer:ReadBits(1))["=="](0)
 	T(buffer:ReadBits(1))["=="](1)
@@ -138,11 +137,9 @@ T.Test("Buffer PeekBits basic", function()
 	local buf = ffi.new("uint8_t[2]", {0xAB, 0xCD})
 	local buffer = Buffer.New(buf, 2)
 	buffer:RestartReadBits()
-	-- Peek should not consume bits
 	T(buffer:PeekBits(4))["=="](0xB)
 	T(buffer:PeekBits(4))["=="](0xB)
 	T(buffer:PeekBits(8))["=="](0xAB)
-	-- Now consume and peek again
 	buffer:SkipBits(4)
 	T(buffer:PeekBits(4))["=="](0xA)
 	T(buffer:PeekBits(8))["=="](0xDA)
@@ -155,7 +152,6 @@ T.Test("Buffer PeekBits + SkipBits matches ReadBits", function()
 	local b2 = Buffer.New(buf2, 4)
 	b1:RestartReadBits()
 	b2:RestartReadBits()
-	-- Read various widths with both methods and compare
 	local widths = {3, 5, 7, 1, 8, 4, 4}
 
 	for _, w in ipairs(widths) do

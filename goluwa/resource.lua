@@ -10,7 +10,6 @@ resource.providers = resource.providers or {}
 local DOWNLOAD_FOLDER = vfs.GetStorageDirectory("shared") .. "downloads/"
 local R = vfs.GetAbsolutePath
 local etags_file = DOWNLOAD_FOLDER .. "resource_etags.txt"
---os.execute("rm -rf " .. R(DOWNLOAD_FOLDER))
 local ok, err = vfs.CreateDirectory("os:" .. DOWNLOAD_FOLDER)
 
 if not ok then wlog(err) end
@@ -320,13 +319,9 @@ local function download_from_providers(path, callback, on_fail, check_etag)
 		return
 	end
 
-	-- if not check_etag then
-	-- 	llog("downloading ", path)
-	-- end
 	local failed = 0
 	local max = #resource.providers
 
-	-- this does not work very well if a resource provider is added during download
 	for _, provider in ipairs(resource.providers) do
 		local client
 		client = download(
@@ -425,9 +420,6 @@ resource.Download = callback.WrapKeyedTask(
 		end end
 
 		if url then
-			-- if not check_etag then
-			-- 	llog("downloading ", url)
-			-- end
 			download(
 				url,
 				path,
@@ -436,7 +428,6 @@ resource.Download = callback.WrapKeyedTask(
 					reject(... or path .. " not found")
 				end,
 				function(header)
-					-- check file crc stuff here/
 					return true
 				end,
 				check_etag,

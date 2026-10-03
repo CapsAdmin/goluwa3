@@ -60,9 +60,7 @@ function UDPClient:OnPollReady(events)
 	local chunk, err = self.socket:receive_from()
 
 	if chunk then
-		if self.OnReceiveChunk then
-			self:OnReceiveChunk(chunk, err)
-		end
+		if self.OnReceiveChunk then self:OnReceiveChunk(chunk, err) end
 	else
 		if err == "closed" then
 			self:OnClose("receive")

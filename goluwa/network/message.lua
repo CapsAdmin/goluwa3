@@ -13,7 +13,6 @@ import.loaded["goluwa/network/message.lua"] = message
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local packet = import("goluwa/network/packet.lua")
--- "-1" is a reserved id
 local packet_id = -1
 
 function message.Initialize()
@@ -76,7 +75,7 @@ if SERVER then
 	end
 end
 
-do -- console extension
+do
 	message.server_commands = message.server_commands or {}
 
 	function commands.SetClient(client)
@@ -117,7 +116,7 @@ do -- console extension
 	end
 end
 
-do -- event extension
+do
 	if CLIENT then
 		message.AddListener("evtmsg", function(...)
 			for i = 1, select("#", ...) do

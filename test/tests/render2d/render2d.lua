@@ -10,20 +10,17 @@ local Color = import("goluwa/structs/color.lua")
 render2d.enable_batch_recording = true
 
 T.Test2D("Graphics render2d SetColor and GetColor", function()
-	-- Test RGB
 	render2d.SetColor(0.5, 0.6, 0.7)
 	local r, g, b, a = render2d.GetColor()
 	T(r)["~"](0.5)
 	T(g)["~"](0.6)
 	T(b)["~"](0.7)
-	-- Test RGBA
 	render2d.SetColor(0.1, 0.2, 0.3, 0.4)
 	r, g, b, a = render2d.GetColor()
 	T(r)["~"](0.1)
 	T(g)["~"](0.2)
 	T(b)["~"](0.3)
 	T(a)["~"](0.4)
-	-- Reset to white
 	render2d.SetColor(1, 1, 1, 1)
 end)
 
@@ -242,7 +239,6 @@ T.Test2D("Graphics render2d multiple instanced segments render in order", functi
 	render2d.DrawRect(80, 96, 96, 72)
 	local state = render2d.GetBatchState()
 	T(state.pending_draws)["=="](2)
-	-- In instanced mode color is per-instance data, so both rects share one segment
 	T(#state.segments)["=="](1)
 	render2d.SetRectBatchMode("replay")
 	T(state.pending_draws)["=="](2)
@@ -387,9 +383,6 @@ T.Test2D("Graphics render2d alpha multiplier rendering", function()
 	render2d.SetAlphaMultiplier(1)
 	T(render2d.GetAlphaMultiplier())["=="](1.0)
 	return function()
-		-- Blending happens in linear space: linear white (1.0) at 0.5 alpha
-		-- over black = 0.5 linear, which the sRGB framebuffer encodes to
-		-- 1.055 * 0.5^(1/2.4) - 0.055 ~= 0.736 (188/255)
 		T.AssertScreenPixel{
 			pos = {20, 20},
 			color = {0.736, 0.736, 0.736, 0.5},
@@ -425,7 +418,6 @@ T.Test2D("Graphics render2d SetBlendPreset and GetBlendMode", function()
 	assert_blend_mode_matches_preset("screen")
 	render2d.SetBlendPreset("none")
 	assert_blend_mode_matches_preset("none")
-	-- Reset to alpha
 	render2d.SetBlendPreset("alpha")
 	assert_blend_mode_matches_preset("alpha")
 end)
@@ -477,7 +469,6 @@ T.Test2D("Graphics render2d PushMatrix and PopMatrix", function()
 	render2d.PushMatrix()
 	render2d.Translate(100, 100)
 	render2d.PopMatrix()
-	-- Should not error
 	T(true)["=="](true)
 end)
 
@@ -494,7 +485,6 @@ T.Test2D("Graphics render2d LoadIdentity", function()
 	render2d.Translate(100, 100)
 	render2d.Scale(2, 2)
 	render2d.LoadIdentity()
-	-- After LoadIdentity, transformations should be reset
 	render2d.PopMatrix()
 	T(true)["=="](true)
 end)
@@ -505,7 +495,6 @@ T.Test2D("Graphics render2d Translate", function()
 	render2d.Translate(50, 50)
 	render2d.DrawRect(0, 0, 1, 1)
 	render2d.PopMatrix()
-	-- Pixel should be at (50, 50)
 	return function()
 		T.AssertScreenPixel{
 			pos = {50, 50},
@@ -521,7 +510,6 @@ T.Test2D("Graphics render2d Translatef", function()
 	render2d.Translatef(60.5, 60.5)
 	render2d.DrawRect(0, 0, 1, 1)
 	render2d.PopMatrix()
-	-- Should be near (60, 60) or (61, 61) due to sub-pixel positioning
 	return function()
 		T.AssertScreenPixel{pos = {60, 60}, color = {0, 1, 0, 1}, tolerance = 0.8}
 	end
@@ -533,7 +521,6 @@ T.Test2D("Graphics render2d Scale", function()
 	render2d.Scale(2, 2)
 	render2d.DrawRect(0, 0, 1, 1)
 	render2d.PopMatrix()
-	-- Should be scaled to 2x2
 	return function()
 		T.AssertScreenPixel{
 			pos = {0, 0},
@@ -555,13 +542,11 @@ T.Test2D("Graphics render2d Rotate", function()
 	render2d.Rotate(math.rad(45))
 	render2d.DrawRect(-5, -5, 10, 10)
 	render2d.PopMatrix()
-	-- Center pixel should be rendered
 	return function()
 		T.AssertScreenPixel{pos = {100, 100}, color = {1, 1, 0, 1}, tolerance = 0.1}
 	end
 end)
 
--- Note: Matrix44.Shear is not implemented, so render2d.Shear is not available
 T.Test2D("Graphics render2d combined transforms", function()
 	render2d.SetColor(1, 0, 1, 1)
 	render2d.PushMatrix()
@@ -570,7 +555,6 @@ T.Test2D("Graphics render2d combined transforms", function()
 	render2d.Scale(2, 2)
 	render2d.DrawRect(-2, -2, 4, 4)
 	render2d.PopMatrix()
-	-- Center should have the color
 	return function()
 		T.AssertScreenPixel{pos = {150, 150}, color = {1, 0, 1, 1}, tolerance = 0.1}
 	end
@@ -578,7 +562,6 @@ end)
 
 T.Test2D("Graphics render2d PushMatrix with parameters", function()
 	render2d.SetColor(0, 1, 1, 1)
-	-- x, y, w, h, a
 	render2d.PushMatrix(200, 200, 10, 10, math.rad(0))
 	render2d.DrawRect(0, 0, 1, 1)
 	render2d.PopMatrix()
@@ -591,7 +574,6 @@ T.Test2D("Graphics render2d PushMatrix dont_multiply", function()
 	render2d.PushMatrix()
 	render2d.Translate(100, 100)
 	render2d.PushWorldMatrix(true)
-	-- This matrix should be independent
 	render2d.PopMatrix()
 	render2d.PopMatrix()
 	T(true)["=="](true)
@@ -616,14 +598,12 @@ end)
 
 T.Test2D("Graphics render2d DrawRect with rotation", function()
 	render2d.SetColor(0.5, 0.5, 1, 1)
-	-- Rotate around center by translating first
 	render2d.PushMatrix()
 	render2d.Translate(300, 300)
 	render2d.Rotate(math.rad(45))
-	render2d.Translate(-10, -10) -- Center the 20x20 rect
+	render2d.Translate(-10, -10)
 	render2d.DrawRect(0, 0, 20, 20)
 	render2d.PopMatrix()
-	-- Center of rotated rectangle should have the color
 	return function()
 		T.AssertScreenPixel{pos = {300, 300}, color = {0.5, 0.5, 1, 1}, tolerance = 0.1}
 	end
@@ -632,7 +612,6 @@ end)
 T.Test2D("Graphics render2d DrawRect with offset", function()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.DrawRect(350, 350, 20, 20, 0, 10, 10)
-	-- Should be offset by (10, 10)
 	return function()
 		T.AssertScreenPixel{pos = {340, 340}, color = {1, 1, 1, 1}, tolerance = 0.1}
 	end
@@ -641,8 +620,6 @@ end)
 T.Test2D("Graphics render2d DrawTriangle basic", function()
 	render2d.SetColor(1, 0, 0.5, 1)
 	render2d.DrawTriangle(400, 400, 20, 20)
-	-- Triangle vertices at (-0.5,-0.5), (0.5,0.5), (-0.5,0.5) in local space
-	-- Scaled by 20x20 at (400,400): check upper-left area around (395, 405)
 	return function()
 		T.AssertScreenPixel{pos = {395, 405}, color = {1, 0, 0.5, 1}, tolerance = 0.1}
 	end
@@ -651,7 +628,6 @@ end)
 T.Test2D("Graphics render2d DrawTriangle with rotation", function()
 	render2d.SetColor(0, 1, 0.5, 1)
 	render2d.DrawTriangle(450, 450, 20, 20, math.rad(60))
-	-- With rotation, check a point that should be inside
 	return function()
 		T.AssertScreenPixel{pos = {445, 455}, color = {0, 1, 0.5, 1}, tolerance = 0.2}
 	end
@@ -923,9 +899,7 @@ T.Test2DFrames(
 )
 
 T.Test2D("Graphics render2d SetTexture and GetTexture", function()
-	-- Initially no texture
 	T(render2d.GetTexture())["=="](nil)
-	-- Reset
 	render2d.SetTexture()
 	T(render2d.GetTexture())["=="](nil)
 end)
@@ -940,14 +914,12 @@ end)
 
 T.Test2D("Graphics render2d draw with zero size", function()
 	render2d.SetColor(1, 1, 1, 1)
-	-- Should not crash
 	render2d.DrawRect(50, 50, 0, 0)
 	T(true)["=="](true)
 end)
 
 T.Test2D("Graphics render2d draw with negative size", function()
 	render2d.SetColor(1, 1, 1, 1)
-	-- Should not crash
 	render2d.DrawRect(50, 50, -10, -10)
 	T(true)["=="](true)
 end)
@@ -975,7 +947,6 @@ T.Test2D("Graphics render2d nested PushMatrix calls", function()
 	render2d.PopMatrix()
 	render2d.PopMatrix()
 	render2d.PopMatrix()
-	-- Should be at (60, 60)
 	return function()
 		T.AssertScreenPixel{
 			pos = {60, 60},
@@ -986,14 +957,11 @@ T.Test2D("Graphics render2d nested PushMatrix calls", function()
 end)
 
 T.Test2D("Graphics render2d color clamping", function()
-	-- Values outside 0-1 range
 	render2d.SetColor(2, -1, 1.5, 0.5)
 	local r, g, b, a = render2d.GetColor()
-	-- The values are stored as-is (no clamping in Lua)
 	T(r)["~"](2)
 	T(g)["~"](-1)
 	T(b)["~"](1.5)
-	-- Reset
 	render2d.SetColor(1, 1, 1, 1)
 end)
 
@@ -1001,7 +969,6 @@ T.Test2D("Graphics render2d complex scene", function(width, height)
 	render2d.SetColor(0.1, 0.1, 0.1, 1)
 	render2d.DrawRect(0, 0, width, height)
 
-	-- Grid of rectangles
 	for i = 0, 4 do
 		for j = 0, 4 do
 			local hue = (i * 5 + j) / 25
@@ -1010,50 +977,42 @@ T.Test2D("Graphics render2d complex scene", function(width, height)
 		end
 	end
 
-	-- Rotated rectangles
 	for i = 0, 7 do
 		render2d.SetColor(1, 0.5, 0, 0.7)
 		render2d.DrawRect(256, 256, 100, 20, math.rad(i * 45))
 	end
 
-	-- Triangles
 	for i = 0, 3 do
 		render2d.SetColor(0, 1, 1, 0.8)
 		render2d.DrawTriangle(400 + i * 30, 400, 25, 25, math.rad(i * 30))
 	end
 
 	T(true)["=="](true)
-	return function() --render.GetScreenTexture():Save("render2d_complex_scene")
-	end
+	return function() end
 end)
 
 T.Test2D("Graphics render2d blend modes visual", function(width, height)
-	-- Clear background
 	render2d.SetColor(0.2, 0.2, 0.2, 1)
 	render2d.DrawRect(0, 0, width, height)
 	local x_offset = 50
 	local y_base = 100
-	-- Alpha blending
 	render2d.SetBlendPreset("alpha")
 	render2d.SetColor(1, 0, 0, 0.5)
 	render2d.DrawRect(x_offset, y_base, 50, 50)
 	render2d.SetColor(0, 0, 1, 0.5)
 	render2d.DrawRect(x_offset + 25, y_base, 50, 50)
-	-- Additive blending
 	x_offset = 150
 	render2d.SetBlendPreset("additive")
 	render2d.SetColor(1, 0, 0, 0.5)
 	render2d.DrawRect(x_offset, y_base, 50, 50)
 	render2d.SetColor(0, 0, 1, 0.5)
 	render2d.DrawRect(x_offset + 25, y_base, 50, 50)
-	-- Multiply blending
 	x_offset = 250
 	render2d.SetBlendPreset("multiply")
 	render2d.SetColor(1, 0.5, 0.5, 1)
 	render2d.DrawRect(x_offset, y_base, 50, 50)
 	render2d.SetColor(0.5, 0.5, 1, 1)
 	render2d.DrawRect(x_offset + 25, y_base, 50, 50)
-	-- Screen blending
 	x_offset = 350
 	render2d.SetBlendPreset("screen")
 	render2d.SetColor(0.5, 0, 0, 1)
@@ -1095,7 +1054,7 @@ T.Pending("Graphics render2d performance test", function(width, height)
 	end
 
 	local elapsed = os.clock() - start_time
-	T(elapsed)["<"](0.25) -- Should complete in reasonable time
+	T(elapsed)["<"](0.25)
 end)
 
 T.Test2D("Graphics render2d PushClipRect clips contents", function()

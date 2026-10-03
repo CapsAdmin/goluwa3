@@ -1,5 +1,4 @@
---[[# --ANALYZE
-local type State = {
+--[[#local type State = {
 	depth = 0 .. inf,
 	max_depth = 1 .. inf,
 	expand_metatables = boolean,

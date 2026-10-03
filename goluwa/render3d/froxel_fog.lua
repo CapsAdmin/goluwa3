@@ -1,16 +1,9 @@
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local froxel_fog = library()
--- The low altitude fog and the air up to FAR meters of view depth, in a
--- volume of TILE pixel cells, SLICES deep, that passes/volumetric_fog.lua
--- lights and integrates. Slices are thin near the camera and grow with
--- distance. FAR reaches as far as the sun's shadow map, so everything that
--- casts a shadow into the air does so here; beyond it the rest of the ray is
--- integrated analytically and fully lit.
 froxel_fog.TILE = 8
 froxel_fog.SLICES = 96
 froxel_fog.FAR = 3000
--- slices are roughly linear up to this many meters and exponential beyond
 froxel_fog.DEPTH_KNEE = 2
 local froxels = {width = 0, height = 0, current = 1}
 froxel_fog.froxels = froxels
@@ -60,14 +53,11 @@ function froxel_fog.GetScatterTexture(index)
 	return froxels[key], froxels[key .. "_sampler"]
 end
 
--- the integrated volume a pass samples as froxel_volume, for a
--- combined_image_sampler descriptor's args
 function froxel_fog.GetVolumeDescriptor()
 	froxel_fog.EnsureResources()
 	return {froxels.integrated:GetView(), froxels.integrated_sampler}
 end
 
--- slice coordinate s (slice k spans [k, k + 1)) <-> view depth in meters
 froxel_fog.SLICE_GLSL = (
 	[[
 	const float FROXEL_SLICES = %d.0;
@@ -103,10 +93,6 @@ function froxel_fog.GetViewDirGLSL(block)
 	]]
 end
 
--- froxel_point(id, uv, depth, out point_uv): the view depth and the uv the
--- froxel id stands for at view depth depth, sampled through uv. block holds
--- render3d.camera_block, gbuffer_layout.block, froxel_size and
--- ocean_distance_tex; SLICE_GLSL and GetViewDirGLSL come before it
 function froxel_fog.GetPointGLSL(block)
 	return [[
 		// view depth of the surface seen through uv, the ocean's included
@@ -148,13 +134,6 @@ function froxel_fog.GetPointGLSL(block)
 	]]
 end
 
--- get_volumetric_fog(uv, hit_distance): the fog in front of the point
--- hit_distance meters along the ray through uv, or all of it along the ray
--- when hit_distance is negative (the sky). rgb is the light it scatters
--- toward the camera, a how much of what is behind it comes through.
--- block holds render3d.camera_block, atmosphere's block and gi_screen_tex;
--- the atmosphere defines, SLICE_GLSL, GetViewDirGLSL and a sampler3D
--- froxel_volume come before it. sun_dir_expr is the sun's direction
 function froxel_fog.GetGLSL(block, sun_dir_expr)
 	return [[
 		vec4 get_volumetric_fog(vec2 uv, float hit_distance) {

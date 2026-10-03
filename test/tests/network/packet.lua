@@ -20,9 +20,9 @@ end)
 
 T.Test("Packet buffer write and read bytes", function()
 	local buffer = packet.CreateBuffer()
-	buffer:WriteByte(65) -- 'A'
-	buffer:WriteByte(66) -- 'B'
-	buffer:WriteByte(67) -- 'C'
+	buffer:WriteByte(65)
+	buffer:WriteByte(66)
+	buffer:WriteByte(67)
 	buffer:SetPosition(1)
 	local b1 = buffer:ReadByte()
 	local b2 = buffer:ReadByte()

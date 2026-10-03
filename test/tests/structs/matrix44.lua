@@ -114,8 +114,7 @@ end)
 
 T.Test("Matrix44 rotation around Z axis", function()
 	local m = Matrix44()
-	m:Rotate(math.pi / 2, 0, 0, 1) -- 90 degrees around Z
-	-- Rotating (1,0,0) by 90 degrees around Z should give (0,1,0)
+	m:Rotate(math.pi / 2, 0, 0, 1)
 	local x, y, z = m:TransformVectorUnpacked(1, 0, 0)
 	T(x)["~"](0)
 	T(y)["~"](1)
@@ -182,7 +181,6 @@ end)
 T.Test("Matrix44 Perspective", function()
 	local m = Matrix44()
 	m:Perspective(math.rad(60), 0.1, 100, 16 / 9)
-	-- Just check it doesn't crash and produces non-identity
 	T(m.m00)["~="](1)
 	T(m.m11)["~="](1)
 end)

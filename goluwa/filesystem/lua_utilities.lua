@@ -60,8 +60,6 @@ local function loadfile(path, chunkname)
 			end
 		end
 
-		-- prepend "@" in front of the path so it will be treated as a lua file and not a string by lua internally
-		-- for nicer error messages and debug
 		if vfs.modify_chunkname then chunkname = vfs.modify_chunkname(full_path) end
 
 		if not chunkname then
@@ -97,7 +95,7 @@ function vfs.DoFile(path, ...)
 	return assert(vfs.LoadFile(path))(...)
 end
 
-do -- runfile
+do
 	local filerun_stack = vfs.filerun_stack or {}
 	vfs.filerun_stack = filerun_stack
 
@@ -231,8 +229,6 @@ do -- runfile
 			end
 
 			if not func then
-				-- try first with the last directory
-				-- once with lua prepended
 				path = dir .. file
 				func, err, full_path = vfs.LoadFile(path)
 
@@ -242,8 +238,6 @@ do -- runfile
 						func, err, full_path = vfs.LoadFile(path)
 					end
 
-					-- and without the last directory
-					-- once with lua prepended
 					if not_found(err) then
 						path = source
 						func, err, full_path = vfs.LoadFile(path)
@@ -298,7 +292,6 @@ do -- runfile
 		if system_pcall and full_path then
 			err = err or "no error"
 			logn(source:sub(1) .. " " .. err)
-		--debug.openscript(full_path, err:match(":(%d+)"))
 		end
 
 		return false, err
@@ -379,7 +372,6 @@ do
 	end
 
 	local function load(path, full_path)
-		-- look first in the vfs' bin directories
 		codec.StoreInFile("luadata", "shared/library_crashes.lua", full_path, true)
 		local ok, clib = pcall(_OLD_G.ffi.load, full_path)
 		codec.StoreInFile("luadata", "shared/library_crashes.lua", full_path, nil)
@@ -390,7 +382,6 @@ do
 		clib .. "\n" .. utility.GetLikelyLibraryDependenciesFormatted(full_path)
 	end
 
-	-- make ffi.load search using our file system
 	function vfs.FFILoadLibrary(path, ...)
 		local errors = {}
 

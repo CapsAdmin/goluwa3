@@ -253,4 +253,4 @@ spawn_box(
 	room_center + Vec3(18, -8.5, 16),
 	Vec3(6.0, 5.0, 6.0),
 	floor_material
-)--frame_camera()
+)

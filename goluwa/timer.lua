@@ -238,7 +238,6 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 
 				if data.times_ran == data.repeats then
 					remove_these[data] = true
-				--profiler.RemoveSection(data.id)
 				else
 					data.times_ran = data.times_ran + 1
 					data.realtime = cur + data.time

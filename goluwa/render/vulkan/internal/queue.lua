@@ -11,8 +11,7 @@ function Queue.New(device, graphicsQueueFamily)
 	return Queue:CreateObject{ptr = ptr, device = device, pending_submissions = {}}
 end
 
-function Queue:OnRemove() -- Queues are managed by the device, so nothing to do here
-end
+function Queue:OnRemove() end
 
 function Queue:TrackSubmission(commandBuffer, fence, submissionResources)
 	local serial = self.device:AllocateSubmissionSerial()

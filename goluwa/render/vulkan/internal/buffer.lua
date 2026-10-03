@@ -6,8 +6,6 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Buffer = objects.CreateTemplate("vulkan_buffer")
 local VkBufferBox = ffi.typeof("$[1]", vulkan.vk.VkBuffer)
--- bumped whenever a buffer whose device address was handed out goes away, so
--- tables of addresses know when they may point at a destroyed buffer
 Buffer.address_release_serial = 0
 
 local function build_buffer_memory_name(name)
@@ -32,8 +30,6 @@ vulkan.SetupDebugFunctions(
 		end,
 	}
 )
--- buffers that ask for plain host visible memory get the gpu's own where the
--- device has a big enough host visible heap of it, see FindFastHostMemoryType
 local MIN_FAST_HEAP_SIZE = 2 ^ 30
 
 local function is_plain_host_memory(properties)
@@ -175,7 +171,6 @@ function Buffer:BindMemory()
 	)
 end
 
--- a buffer's address is fixed for its lifetime
 function Buffer:GetDeviceAddress()
 	local address = self.device_address
 

@@ -437,7 +437,6 @@ temporal_toi_intersects = function(context, t)
 	pos_b.x = prev_b.x + (cur_b.x - prev_b.x) * t
 	pos_b.y = prev_b.y + (cur_b.y - prev_b.y) * t
 	pos_b.z = prev_b.z + (cur_b.z - prev_b.z) * t
-	-- sphere bounds are rotation invariant, so disjoint bounds can't overlap at t
 	local dx = pos_b.x - pos_a.x
 	local dy = pos_b.y - pos_a.y
 	local dz = pos_b.z - pos_a.z
@@ -511,8 +510,6 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	local radius_b = poly_b._SphereRadius or polyhedron_sphere_radius(poly_b)
 	poly_b._SphereRadius = radius_b
 
-	-- swept sphere pretest: relative motion is linear so min separation along the
-	-- sweep is a convex quadratic in t; disjoint sphere bounds mean no TOI exists
 	do
 		local px = previous_position_b.x - previous_position_a.x
 		local py = previous_position_b.y - previous_position_a.y
@@ -563,7 +560,6 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	if not hit then return nil end
 
 	stats:Count("toi_hits")
-
 	local hit_t = hit.t or 1
 	local result = evaluate_polyhedron_pair_at_transforms(
 		poly_a,
@@ -601,8 +597,6 @@ local temporal_aabb_temp = AABB()
 function polyhedron.SolveTemporalPolyhedronPairCollision(body_a, body_b, poly_a, poly_b, dt)
 	if not pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then return false end
 
-	-- swept AABB prefilter: the union of a body's previous and current bounds
-	-- contains its motion this frame, so disjoint swept bounds can't produce a TOI
 	local swept_a = body_a:GetBroadphaseAABB(body_a:GetPreviousPosition(), body_a:GetPreviousRotation(), temporal_swept_aabb_a)
 	local swept_b = body_b:GetBroadphaseAABB(body_b:GetPreviousPosition(), body_b:GetPreviousRotation(), temporal_swept_aabb_b)
 	AABB.Union(

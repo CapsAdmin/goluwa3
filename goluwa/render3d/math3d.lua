@@ -1,5 +1,3 @@
---local render3d = import("goluwa/render3d/render3d.lua")
---local cam = render3d.GetCamera()
 local math3d = library()
 
 function math3d.BilerpVec3(a, b, c, d, alpha1, alpha2)
@@ -64,14 +62,10 @@ function math3d.ScreenToWorldDirection(screen_pos, cam_pos, cam_ang, cam_fov, sc
 	cam_fov = cam_fov or cam:GetFOV()
 	screen_width = screen_width or render.GetWidth()
 	screen_height = screen_height or render.GetHeight()
-	--This code works by basically treating the camera like a frustrum of a pyramid.
-	--We slice this frustrum at a distance "d" from the camera, where the slice will be a rectangle whose width equals the "4:3" width corresponding to the given screen height.
 	local d = 4 * screen_height / (8 * math.tan(0.5 * cam_fov))
-	--Forward, right, and up vectors (need these to convert from local to world coordinates
 	local fwd = cam_ang:GetForward()
 	local rgt = -cam_ang:GetRight()
 	local upw = cam_ang:GetUp()
-	--Then convert vec to proper world coordinates and return it
 	local dir = (
 			fwd * d
 		) + (
@@ -95,28 +89,19 @@ function math3d.WorldPositionToScreen(position, cam_pos, cam_ang, screen_width, 
 	cam_fov = cam_fov or cam:GetFOV()
 	local dir = cam_pos - position
 	dir:Normalize()
-	--Same as we did above, we found distance the camera to a rectangular slice of the camera's frustrum, whose width equals the "4:3" width corresponding to the given screen height.
 	local d = 4 * screen_height / (8 * math.tan(0.5 * cam_fov))
 	local fdp = cam_ang:GetForward():GetDot(dir)
 
-	--fdp must be nonzero ( in other words, vDir must not be perpendicular to angCamRot:Forward() )
-	--or we will get a divide by zero error when calculating vProj below.
 	if fdp == 0 then return Vec2(0, 0), -1 end
 
-	--Using linear projection, project this vector onto the plane of the slice
 	local proj = dir * (d / fdp)
-	--Dotting the projected vector onto the right and up vectors gives us screen positions relative to the center of the screen.
-	--We add half-widths / half-heights to these coordinates to give us screen positions relative to the upper-left corner of the screen.
-	--We have to subtract from the "up" instead of adding, since screen coordinates decrease as they go upwards.
 	local x = 0.5 * screen_width + cam_ang:GetRight():GetDot(proj)
 	local y = 0.5 * screen_height - cam_ang:GetUp():GetDot(proj)
-	--Lastly we have to ensure these screen positions are actually on the screen.
 	local vis
 
-	--Simple check to see if the object is in front of the camera
 	if fdp < 0 then
 		vis = 1
-	elseif x < 0 or x > screen_width or y < 0 or y > screen_height then --We've already determined the object is in front of us, but it may be lurking just outside our field of vision.
+	elseif x < 0 or x > screen_width or y < 0 or y > screen_height then
 		vis = 0
 	else
 		vis = -1

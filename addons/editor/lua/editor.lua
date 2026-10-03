@@ -47,7 +47,8 @@ end
 local function entity_tree_filter_callback(entity, editor_window)
 	if is_hidden(entity, editor_window) then return true end
 
-	local parent = entity:GetRoot(1) or NULL -- one off from Panel.World
+	local parent = entity:GetRoot(1) or NULL
+
 	if parent:IsValid() and is_hidden(parent, editor_window) then return true end
 
 	return false
@@ -444,7 +445,6 @@ return function(props)
 			},
 		},
 	}
-	-- Create picker button, positioned at bottom-right of tree view
 	local picker_button = Panel.New{
 		Name = "PickerButton",
 		transform = {
@@ -464,7 +464,6 @@ return function(props)
 
 				render2d.DrawRect(0, 0, btn_size.x, btn_size.y)
 				render2d.SetColor(1, 1, 1, 1)
-				-- crosshair icon
 				local cx, cy = btn_size.x / 2, btn_size.y / 2
 				render2d.DrawRect(cx - 1, cy - 6, 2, 5)
 				render2d.DrawRect(cx - 1, cy + 1, 2, 5)
@@ -478,13 +477,11 @@ return function(props)
 				if button ~= "button_1" or not press then return end
 
 				if picker.IsActive() then
-					-- Cancel picker
 					if picker_cancel_fn then
 						picker_cancel_fn()
 						picker_cancel_fn = nil
 					end
 				else
-					-- Start picker
 					self:SetCursorOverride("crosshair")
 					picker_cancel_fn = picker.StartEntityPicker{
 						on_pick = function(target)

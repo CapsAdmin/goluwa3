@@ -131,7 +131,6 @@ function Instance.New(extensions, layers)
 		engineVersion = 1,
 		apiVersion = version,
 	}
-	-- Enable debug utils when available so RenderDoc and validation can both see object names.
 	local has_validation = layers and #layers > 0
 	local has_debug_utils = false
 	extensions = extensions or {}
@@ -161,7 +160,6 @@ function Instance.New(extensions, layers)
 
 	local extension_names = extensions and ConstCharArray(#extensions, extensions) or nil
 	local layer_names = layers and ConstCharArray(#layers, layers) or nil
-	-- Create debug messenger create info
 	local debug_create_info
 
 	if has_validation then
@@ -175,7 +173,6 @@ function Instance.New(extensions, layers)
 		self.debug_create_info_ref = debug_create_info
 	end
 
-	-- Only use portability enumeration on macOS
 	local instance_flags = 0
 
 	if jit.os == "OSX" then instance_flags = "enumerate_portability_khr" end
@@ -199,7 +196,6 @@ function Instance.New(extensions, layers)
 	)
 	self.ptr = ptr
 
-	-- Create debug messenger
 	if
 		has_validation and
 		has_debug_utils and

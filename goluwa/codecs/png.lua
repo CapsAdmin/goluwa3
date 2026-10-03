@@ -1,4 +1,3 @@
--- initially based on https://github.com/DelusionalLogic/pngLua
 local ffi = require("ffi")
 local bit_band = require("bit").band
 local bit_rshift = require("bit").rshift
@@ -33,9 +32,6 @@ end
 
 local function getDataPLTE(buffer, length)
 	local numColors = math.floor(length / 3)
-	-- flat byte array instead of an array of {R,G,B} tables - indexed pngs are
-	-- decoded one pixel at a time, so this avoids a table lookup plus 3 hash
-	-- field lookups per pixel in favor of 3 array reads
 	local colors = ffi.new("uint8_t[?]", numColors * 3)
 
 	for i = 0, numColors - 1 do
@@ -116,7 +112,6 @@ local FILTER_SUB = 1
 local FILTER_UP = 2
 local FILTER_AVERAGE = 3
 local FILTER_PAETH = 4
---
 local COLOR_TYPE_GRAYSCALE = 0
 local COLOR_TYPE_RGB = 2
 local COLOR_TYPE_INDEXED = 3
@@ -133,8 +128,6 @@ local function get_packed_sample(row, x, bitDepth)
 	return bit_band(bit_rshift(row[byteIndex], shift), mask)
 end
 
--- Optimized getPixels that writes directly to output buffer
--- Returns the output buffer with RGBA pixels, flipped vertically for Vulkan
 local function getPixels(buffer, data)
 	local colorType = data.IHDR.colorType
 	local width = data.IHDR.width
@@ -142,10 +135,8 @@ local function getPixels(buffer, data)
 	local bitDepth = data.IHDR.bitDepth
 	local src = buffer.Buffer
 	local src_pos = buffer.Position
-	-- Determine output format: 8-bit or 16-bit RGBA
 	local is16bit = (bitDepth == 16)
-	local bytesPerPixel = is16bit and 8 or 4 -- 16-bit = 8 bytes (R16G16B16A16), 8-bit = 4 bytes (R8G8B8A8)
-	-- Calculate bytes per pixel in the input (before adding alpha)
+	local bytesPerPixel = is16bit and 8 or 4
 	local samplesPerPixel = (
 			colorType == COLOR_TYPE_RGB and
 			3
@@ -169,18 +160,14 @@ local function getPixels(buffer, data)
 		1
 	local bitsPerInputPixel = samplesPerPixel * bitDepth
 	local bytesPerInputPixel = math.max(1, math_ceil(bitsPerInputPixel / 8))
-	-- Create output buffer for RGBA pixels
 	local outputSize = width * height * bytesPerPixel
 	local outputData = is16bit and
 		ffi.new("uint16_t[?]", width * height * 4) or
 		ffi.new("uint8_t[?]", outputSize)
 	local out = outputData
-	-- Previous and current row buffers store RAW BYTES (not reconstructed values)
-	-- For PNG filtering, we work with bytes regardless of bit depth
 	local rowBytes = math_ceil(width * bitsPerInputPixel / 8)
 	local prevRow = ffi.new("uint8_t[?]", rowBytes)
 	local currRow = ffi.new("uint8_t[?]", rowBytes)
-	-- Maximum value for alpha channel (255 for 8-bit, 65535 for 16-bit)
 	local maxAlpha = is16bit and 65535 or 255
 	local packedSamples = bitDepth < 8
 	local packedScale = packedSamples and math.floor(255 / (2 ^ bitDepth - 1)) or 1
@@ -235,7 +222,6 @@ local function getPixels(buffer, data)
 		end
 
 		src_pos = src_pos + rowBytes
-		-- Now convert the reconstructed bytes to output format (RGBA)
 		local outIdx = (height - y) * width * 4
 
 		if is16bit then
@@ -411,26 +397,19 @@ local function getPixels(buffer, data)
 			end
 		end
 
-		-- Swap buffers for next iteration
 		prevRow, currRow = currRow, prevRow
 	end
 
 	buffer.Position = src_pos
-	-- Return raw buffer data and size
 	return outputData, outputSize
 end
 
--- Map PNG format to Vulkan format name
--- Supports both 8-bit and 16-bit RGBA outputs
 local function png_to_vulkan_format(colorType, bitDepth)
 	if bitDepth == 8 then
-		-- 8-bit output: R8G8B8A8_UNORM
 		return "r8g8b8a8_unorm"
 	elseif bitDepth == 16 then
-		-- 16-bit output: R16G16B16A16_UNORM
 		return "r16g16b16a16_unorm"
 	else
-		-- Fallback for unusual bit depths
 		return "r8g8b8a8_unorm"
 	end
 end
@@ -443,9 +422,7 @@ function png.DecodeBuffer(inputBuffer)
 	local data = extractChunkData(inputBuffer)
 	local colorType = data.IHDR.colorType
 	local bitDepth = data.IHDR.bitDepth
-	-- Determine Vulkan format based on source format
 	local vulkan_format = png_to_vulkan_format(colorType, bitDepth)
-	-- Get the decoded pixel buffer
 	local pixelData, pixelSize = getPixels(deflate.inflate_zlib{
 		input = data.IDAT.data,
 		disable_crc = true,
@@ -457,13 +434,11 @@ function png.DecodeBuffer(inputBuffer)
 		depth = bitDepth,
 		colorType = colorType,
 		vulkan_format = vulkan_format,
-		-- Provide both data (raw buffer pointer) and buffer (Buffer wrapper)
 		data = decodedBuffer.Buffer,
 		buffer = decodedBuffer,
 	}
 end
 
---ffipng.lua
 local bit = require("bit")
 local Png = {}
 Png.__index = Png
@@ -494,23 +469,14 @@ local function putBigUint32(val, buf, offset)
 	buf[offset + 3] = band(val, 0xFF)
 end
 
----Writes bytes to the output buffer
----@param data userdata The data to write (ffi array)
----@param index number The index of the first byte to write
----@param len number The number of bytes to write
 function Png:writeBytes(data, index, len)
 	self.output[#self.output + 1] = ffi.string(ffi_cast("uint8_t*", data) + index, len)
 end
 
----Initializes the CRC
 function Png:initCrc()
 	self.crc = 0xFFFFFFFF
 end
 
----Updates the CRC
----@param data userdata The data to update the CRC with (ffi array)
----@param index number|nil The index of the first byte to update
----@param len number|nil The number of bytes to update
 function Png:crc32(data, index, len)
 	local crc = self.crc
 	index = index or 0
@@ -524,15 +490,10 @@ function Png:crc32(data, index, len)
 	self.crc = crc
 end
 
----Finalizes the CRC, returning the result
 function Png:finalizeCrc()
 	return bnot(self.crc)
 end
 
----Updates the Adler32
----@param data userdata The data to update the Adler32 with (ffi array)
----@param index number|nil The index of the first byte to update
----@param len number|nil The number of bytes to update
 function Png:adler32(data, index, len)
 	local s1 = ffi.new("uint64_t", band(self.adler, 0xFFFF))
 	local s2 = ffi.new("uint64_t", rshift(self.adler, 16))
@@ -548,9 +509,6 @@ function Png:adler32(data, index, len)
 	self.adler = tonumber(bor(lshift(tonumber(s1 == 0 and 0 or s2), 16), tonumber(s1)))
 end
 
----Writes pixels to the PNG file
----@param pixels userdata The pixels to write (ffi array)
----@param count number The number of bytes to write
 function Png:write(pixels, count)
 	count = count or self.lineSize * self.height
 	local pixelPointer = 0
@@ -719,15 +677,10 @@ local function begin(width, height, colorMode)
 	return state
 end
 
----Returns the PNG data to be written to a file
 function Png:getData()
 	return table.concat(self.output)
 end
 
----Creates a new Png object
----@param width number
----@param height number
----@param colorMode string One of "rgb" or "rgba"
 function png.Encode(width, height, colorMode)
 	return begin(width, height, colorMode)
 end

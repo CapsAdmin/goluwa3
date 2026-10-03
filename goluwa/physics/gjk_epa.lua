@@ -8,8 +8,6 @@ local EPA_MAX_VERTICES = 64
 local EPA_MAX_FACES = 96
 local EPA_FACE_EPSILON = 0.00001
 local EPA_CONVERGENCE_EPSILON = 0.0005
--- shared temporaries: GJK/EPA runs sequentially and every temporary is fully
--- consumed before the code path that reuses it
 local TEMP_A = Vec3()
 local TEMP_B = Vec3()
 local TEMP_C = Vec3()
@@ -69,7 +67,6 @@ local function get_any_perpendicular(direction)
 		math.abs(direction.y) < 0.577 and
 		AXIS_Y or
 		AXIS_Z
-	-- TEMP_D is dedicated here: direction may alias TEMP_A/B/C at the call sites
 	Vec3.SetCross(TEMP_D, direction, axis)
 
 	if TEMP_D:GetLength() <= EPSILON then
@@ -125,10 +122,6 @@ local function make_support_slot()
 	}
 end
 
--- GJK simplexes hold at most 4 supports, so support tables are pooled in
--- fixed slots owned by the simplex instead of being allocated per
--- iteration. A slot is free when no entry of its simplex references it;
--- the pool holds 5 slots so a free slot always exists.
 local function get_simplex_slots(simplex)
 	local slots = simplex._slots
 
@@ -283,7 +276,6 @@ local function build_epa_face(vertices, ia, ib, ic)
 		ib, ic = ic, ib
 	end
 
-	-- face tables outlive this call, so the normal is owned by the face
 	return {
 		a = ia,
 		b = ib,
@@ -387,7 +379,6 @@ local function get_face_witness(vertices, face)
 	local c = vertices[face.c]
 	local closest_point = TEMP_D:CopyFrom(face.normal):Scale(face.distance)
 	local wa, wb, wc = get_triangle_barycentric(closest_point, a.point, b.point, c.point)
-	-- witnesses are stored in the result, so they are owned vecs
 	local point_a = Vec3()
 	local point_b = Vec3()
 	point_a:AddScaled(a.point_a, wa)
@@ -441,8 +432,6 @@ local function rebuild_simplex_from_weights(simplex, weights)
 	return simplex
 end
 
--- weight buffers are shared: distance queries run sequentially and weights
--- are only consumed within a single get_distance_simplex_closest call
 local DISTANCE_WEIGHTS = {}
 
 local function set_weights(w1, w2, w3)
@@ -854,9 +843,6 @@ function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 
 		local support_distance = support.point:Dot(direction)
 
-		-- the closest point on the simplex is the true minimum distance only when
-		-- the farthest support in the search direction does not extend past the
-		-- hyperplane through the origin perpendicular to it: support.dot(u) <= -|c|
 		if support_distance + distance <= EPA_CONVERGENCE_EPSILON then break end
 
 		simplex[#simplex + 1] = support

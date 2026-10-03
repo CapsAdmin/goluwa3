@@ -102,7 +102,6 @@ function META:Build()
 		if not page then error("texture " .. tostring(data) .. " is too big", 2) end
 
 		local x, y, w, h = node.x, node.y, node.w, node.h
-		-- Center the glyph within the padded area
 		local half_pad = math.floor(self.Padding / 2)
 		data.page_x = x + half_pad
 		data.page_y = y + half_pad
@@ -123,7 +122,6 @@ function META:Build()
 		page.dirty = true
 	end
 
-	-- Check if there are any dirty pages
 	local dirty = false
 
 	for _, page in ipairs(self.pages) do
@@ -144,7 +142,6 @@ function META:Build()
 
 		for _, page in ipairs(self.pages) do
 			if page.dirty then
-				-- Transition page texture to transfer_dst
 				render.TransitionResourceTo(
 					page.texture,
 					"transfer_dst_optimal",
@@ -159,9 +156,6 @@ function META:Build()
 					if not data.uploaded then
 						if data.buffer then
 
-						-- For now, buffer uploads still use staging and its own cmd submission
-						-- unless we want to integrate it here. Let's stick to CopyFrom for performance.
-						-- Wait, buffer is probably slower.
 						elseif data.texture then
 							local other = data.texture
 							page.texture:CopyFrom(other, data.w, data.h, 0, 0, data.page_x, data.page_y)
@@ -171,7 +165,6 @@ function META:Build()
 					end
 				end
 
-				-- Transition page texture back to shader_read
 				if page.texture:GetMipMapLevels() > 1 then
 					page.texture:GenerateMipmaps("transfer_dst_optimal")
 				else

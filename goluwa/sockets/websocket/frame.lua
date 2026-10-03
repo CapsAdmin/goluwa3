@@ -1,4 +1,3 @@
--- Following Websocket RFC: http://tools.ietf.org/html/rfc6455
 local band = bit.band
 local bxor = bit.bxor
 local bor = bit.bor
@@ -38,9 +37,6 @@ local bit_0_6 = bits(0, 1, 2, 3, 4, 5, 6)
 local xor_mask = function(encoded, mask, payload)
 	local transformed, transformed_arr = {}, {}
 
-	-- xor chunk-wise to prevent stack overflow.
-	-- sbyte and schar multiple in/out values
-	-- which require stack
 	for p = 1, payload, 2000 do
 		local last = mmin(p + 1999, payload)
 		local original = {sbyte(encoded, p, last)}
@@ -66,7 +62,8 @@ local encode_header_big = function(header, payload, high, low)
 	return schar(header, payload) .. write_int32(high) .. write_int32(low)
 end
 local encode = function(data, opcode, masked, fin)
-	local header = opcode or 1 -- TEXT is default opcode
+	local header = opcode or 1
+
 	if fin == nil or fin == true then header = bor(header, bit_7) end
 
 	local payload = 0

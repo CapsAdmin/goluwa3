@@ -48,9 +48,6 @@ function shapes.Texture(source, shared)
 	return import("goluwa/render3d/material.lua").ResolveTexture(source, shared)
 end
 
--- Material.New with the defaults of a dull dielectric. a plain Material is a fully
--- metallic, mirror like surface unless a texture says otherwise, which suits
--- loaded assets but not a shape made from a color
 function shapes.Material(config)
 	if not RENDER_3D then return end
 
@@ -76,8 +73,6 @@ do
 	local up_axis = Vec3(0, 1, 0)
 	local forward_axis = Vec3(0, 0, 1)
 
-	-- a plane facing normal. right and up come from the up hint, the world up
-	-- axis unless the normal is parallel to it
 	function shapes.BuildPlane(poly, pos, normal, size_x, size_y, texture_scale, segments_x, segments_y, up_hint)
 		normal = normal:GetNormalized()
 		up_hint = up_hint or up_axis
@@ -86,11 +81,32 @@ do
 
 		local up = (up_hint - normal * up_hint:GetDot(normal)):GetNormalized()
 		local right = up:GetCross(normal)
-		build_plane(poly, pos, normal, right, up, size_x, size_y, texture_scale, segments_x, segments_y)
+		build_plane(
+			poly,
+			pos,
+			normal,
+			right,
+			up,
+			size_x,
+			size_y,
+			texture_scale,
+			segments_x,
+			segments_y
+		)
 	end
 
-	-- the face is visible from the side its normal points to when right x up = normal
-	function build_plane(poly, pos, normal, right, up, size_x, size_y, texture_scale, segments_x, segments_y)
+	function build_plane(
+		poly,
+		pos,
+		normal,
+		right,
+		up,
+		size_x,
+		size_y,
+		texture_scale,
+		segments_x,
+		segments_y
+	)
 		right = right:GetNormalized()
 		up = up:GetNormalized()
 
@@ -154,13 +170,78 @@ function shapes.BuildCube(poly, size, texture_scale, subdivisions)
 		segments_z = math.max(math.floor(subdivisions.z or subdivisions[3] or segments_x), 1)
 	end
 
-	-- +Z, -Z, +Y, -Y, +X, -X
-	build_plane(poly, Vec3(0, 0, size), Vec3(0, 0, 1), Vec3(1, 0, 0), Vec3(0, 1, 0), size, size, texture_scale, segments_x, segments_y)
-	build_plane(poly, Vec3(0, 0, -size), Vec3(0, 0, -1), Vec3(-1, 0, 0), Vec3(0, 1, 0), size, size, texture_scale, segments_x, segments_y)
-	build_plane(poly, Vec3(0, size, 0), Vec3(0, 1, 0), Vec3(1, 0, 0), Vec3(0, 0, -1), size, size, texture_scale, segments_x, segments_z)
-	build_plane(poly, Vec3(0, -size, 0), Vec3(0, -1, 0), Vec3(1, 0, 0), Vec3(0, 0, 1), size, size, texture_scale, segments_x, segments_z)
-	build_plane(poly, Vec3(size, 0, 0), Vec3(1, 0, 0), Vec3(0, 0, -1), Vec3(0, 1, 0), size, size, texture_scale, segments_z, segments_y)
-	build_plane(poly, Vec3(-size, 0, 0), Vec3(-1, 0, 0), Vec3(0, 0, 1), Vec3(0, 1, 0), size, size, texture_scale, segments_z, segments_y)
+	build_plane(
+		poly,
+		Vec3(0, 0, size),
+		Vec3(0, 0, 1),
+		Vec3(1, 0, 0),
+		Vec3(0, 1, 0),
+		size,
+		size,
+		texture_scale,
+		segments_x,
+		segments_y
+	)
+	build_plane(
+		poly,
+		Vec3(0, 0, -size),
+		Vec3(0, 0, -1),
+		Vec3(-1, 0, 0),
+		Vec3(0, 1, 0),
+		size,
+		size,
+		texture_scale,
+		segments_x,
+		segments_y
+	)
+	build_plane(
+		poly,
+		Vec3(0, size, 0),
+		Vec3(0, 1, 0),
+		Vec3(1, 0, 0),
+		Vec3(0, 0, -1),
+		size,
+		size,
+		texture_scale,
+		segments_x,
+		segments_z
+	)
+	build_plane(
+		poly,
+		Vec3(0, -size, 0),
+		Vec3(0, -1, 0),
+		Vec3(1, 0, 0),
+		Vec3(0, 0, 1),
+		size,
+		size,
+		texture_scale,
+		segments_x,
+		segments_z
+	)
+	build_plane(
+		poly,
+		Vec3(size, 0, 0),
+		Vec3(1, 0, 0),
+		Vec3(0, 0, -1),
+		Vec3(0, 1, 0),
+		size,
+		size,
+		texture_scale,
+		segments_z,
+		segments_y
+	)
+	build_plane(
+		poly,
+		Vec3(-size, 0, 0),
+		Vec3(-1, 0, 0),
+		Vec3(0, 0, 1),
+		Vec3(0, 1, 0),
+		size,
+		size,
+		texture_scale,
+		segments_z,
+		segments_y
+	)
 end
 
 do
@@ -173,7 +254,6 @@ do
 		return {x = tangent.x, y = tangent.y, z = tangent.z, w = -1}
 	end
 
-	-- a UV sphere for Y up, counter clockwise winding seen from outside
 	function shapes.BuildSphere(poly, radius, segments, rings, texture_scale)
 		radius = radius or 1
 		segments = segments or 32
@@ -212,7 +292,6 @@ do
 				local t3 = sphere_tangent(n3)
 				local t4 = sphere_tangent(n4)
 
-				-- the poles would give degenerate triangles
 				if ring > 0 then
 					poly:AddVertex{pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1, tangent = t1}
 					poly:AddVertex{pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2, tangent = t2}

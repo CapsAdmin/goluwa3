@@ -250,7 +250,6 @@ local function create_value(props)
 
 	local main_direction = has_bottom and "y" or "x"
 	local main_children = {}
-	-- Build the input row: text field + optional right elements
 	local input_row_children = {
 		Text{
 			Ref = function(self)
@@ -302,7 +301,6 @@ local function create_value(props)
 		main_children[#main_children + 1] = input_row_children[1]
 	end
 
-	-- Append bottom elements
 	for _, element in ipairs(bottom_elements) do
 		main_children[#main_children + 1] = element
 	end

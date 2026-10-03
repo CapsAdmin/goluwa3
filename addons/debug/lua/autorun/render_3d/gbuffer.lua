@@ -120,7 +120,6 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		end
 	end
 
-	-- Draw depth texture
 	if render3d.pipelines.gbuffer:GetFramebuffer().depth_texture then
 		draw_debug_tile(
 			x,

@@ -1,10 +1,8 @@
 local T = import("test/environment.lua")
 local http = import("goluwa/sockets/http.lua")
 local HTTPServer = import("goluwa/sockets/http/http11_server.lua")
--- Use high port numbers to avoid conflicts
 local test_port = 55000
 
--- Helper function to create and host a test server
 local function host_server(on_receive_header)
 	local last_err
 
@@ -18,7 +16,6 @@ local function host_server(on_receive_header)
 
 		if ok and res then
 			server.OnReceiveHeader = on_receive_header
-			-- Give server time to start accepting connections
 			T.Sleep(0.1)
 			return server, port
 		end
@@ -31,7 +28,6 @@ local function host_server(on_receive_header)
 	error(last_err or "unable to find free test port")
 end
 
--- Helper function to download with callbacks and wait for completion
 local function download_and_wait(url, callbacks, timeout)
 	local done = false
 	local result = {
@@ -84,13 +80,11 @@ local function download_and_wait(url, callbacks, timeout)
 end
 
 T.Test("http.Download basic functionality", function()
-	-- Create test server
 	local server, port = host_server(function(self, client, header)
 		local test_data = "Hello from download test!"
 		client:Send(http.HTTPResponse(200, "OK", {["Content-Length"] = #test_data}, test_data))
 		client:Close()
 	end)
-	-- Test download
 	local result = download_and_wait(
 		"http://127.0.0.1:" .. port .. "/test.txt",
 		{
@@ -182,7 +176,6 @@ T.Test("http.Download can be accessed from active_downloads", function()
 	local found_in_active = false
 	local test_url = "http://127.0.0.1:" .. test_port .. "/active"
 	local server, port = host_server(function(self, client, header)
-		-- Check if download is in active list
 		for _, download in ipairs(http.active_downloads) do
 			if download.url == test_url then
 				found_in_active = true
@@ -197,7 +190,6 @@ T.Test("http.Download can be accessed from active_downloads", function()
 	local result = download_and_wait(test_url)
 	server:Close()
 	T(found_in_active)["=="](true)
-	-- Verify it's removed after completion
 	local still_active = false
 
 	for _, download in ipairs(http.active_downloads) do
@@ -214,9 +206,7 @@ end)
 T.Test("http.StopDownload cancels active download", function()
 	local finished = false
 	local test_url = "http://127.0.0.1:" .. test_port .. "/cancel"
-	local server, port = host_server(function(self, client, header) -- Server will just hold the connection open without responding
-	-- The download will be cancelled before a response is sent
-	end)
+	local server, port = host_server(function(self, client, header) end)
 	local done = false
 	local client = http.DownloadSocket(test_url, function(data)
 		finished = true
@@ -224,9 +214,7 @@ T.Test("http.StopDownload cancels active download", function()
 	end, function(err)
 		done = true
 	end)
-	-- Wait a bit then cancel
 	T.Sleep(0.05)
-	-- Verify it's in active downloads
 	local was_active = false
 
 	for _, download in ipairs(http.active_downloads) do
@@ -237,9 +225,7 @@ T.Test("http.StopDownload cancels active download", function()
 		end
 	end
 
-	-- Cancel the download
 	http.StopDownload(test_url)
-	-- Verify it's removed
 	local is_active = false
 
 	for _, download in ipairs(http.active_downloads) do
@@ -253,5 +239,5 @@ T.Test("http.StopDownload cancels active download", function()
 	server:Close()
 	T(was_active)["=="](true)
 	T(is_active)["=="](false)
-	T(finished)["=="](false) -- Should not have finished since we cancelled
+	T(finished)["=="](false)
 end)

@@ -528,8 +528,6 @@ T.TestPhysics("Physics sweep sphere handles rotating rigid body target pose", fu
 	target:Remove()
 end)
 
--- Vec3 is single precision: 200 m from the origin a point on a triangle
--- measures a few 1e-6 away from it, more than the fixed sweep tolerance
 T.TestPhysics("Point sweep hits triangles far from the origin", function()
 	local sweep_mesh = import("goluwa/physics/sweep_mesh.lua")
 	local triangles = {

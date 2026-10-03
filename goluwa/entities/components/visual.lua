@@ -2,7 +2,6 @@ local event = import("goluwa/event.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local commands = import("goluwa/cli/commands.lua")
 local objects = import("goluwa/objects/objects.lua")
--- Pre-register to break import cycle: visual -> render3d -> light -> visual
 local Visual = objects.CreateTemplate("visual")
 import.loaded["goluwa/entities/components/visual.lua"] = Visual
 Visual.Is3D = true
@@ -529,15 +528,10 @@ local function material_ignores_z(material)
 	return material and material.GetIgnoreZ and material:GetIgnoreZ() or false
 end
 
--- translucent and refractive materials draw in the forward translucent pass
--- instead of the gbuffer, unless they ignore z, which the forward overlay
--- draws either way
 local function material_is_translucent(material)
 	return material:IsTransparent() and not material_ignores_z(material)
 end
 
--- a renderer without the translucent pass (the simple one) dithers them in the
--- gbuffer instead
 local function material_draws_in_gbuffer(material)
 	return not material_ignores_z(material) and
 		(
@@ -546,15 +540,11 @@ local function material_draws_in_gbuffer(material)
 		)
 end
 
--- rebuilds the scene acceleration and the gpu dataset from every visual
 local function invalidate_scene_acceleration()
 	visual.scene_full_rebuild = true
 	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
 end
 
--- patches only this component into the scene acceleration and the gpu dataset
--- on the next ensure. structure means its render entries changed, which
--- re-serializes it, otherwise its bounds and flags are refreshed in place
 local function mark_scene_component_dirty(component, structure)
 	local dirty = visual.scene_dirty_components
 	dirty[component] = structure or dirty[component] or false
@@ -576,8 +566,6 @@ local function is_visual_dynamic(component)
 	local owner = component and component.Owner
 	local body = owner and owner.rigid_body
 
-	-- a static rigid body never moves on its own, so its visual can be treated
-	-- as static for acceleration structures and instance uploads
 	if body then return body:IsKinematic() or body:IsDynamic() end
 
 	local transform = owner and owner.transform
@@ -685,9 +673,6 @@ local function can_use_shadow_aabb_cull(component, render_entries)
 	return true
 end
 
--- which lists a component belongs to: main is false, "static" or "dynamic",
--- shadow is false, "static", "dynamic" or "non_aabb". static visuals need
--- bounds to live in the trees
 local function classify_scene_component(component)
 	if component.scene_removed or not component.Visible then return false, false end
 
@@ -717,8 +702,6 @@ local function classify_scene_component(component)
 	return has_bounds and "static" or false, shadow_kind, bounds
 end
 
--- a static item leaves the tree by being marked dead, and joins the pending
--- list, which every query walks linearly until the next tree rebuild
 local function remove_scene_item(acceleration, pending_field, dead_field, item)
 	if item.pending_index then
 		registry_remove(acceleration[pending_field], "pending_index", item)
@@ -735,8 +718,6 @@ local function add_pending_scene_item(pending, component, bounds)
 end
 
 local function set_component_scene_items(acceleration, component, main_kind, shadow_kind, bounds)
-	-- fields left over from an acceleration that was rebuilt without this
-	-- component point into lists that no longer exist
 	if component.scene_acceleration_owner ~= acceleration then
 		component.scene_acceleration_owner = acceleration
 		component.scene_acceleration_item = nil
@@ -781,8 +762,6 @@ local function set_component_scene_items(acceleration, component, main_kind, sha
 	end
 end
 
--- a material whose transparency or displacement changes moves its users
--- between passes, so each material knows which components draw with it
 local function refresh_material_users(component, in_scene)
 	local users = visual.material_users
 
@@ -890,7 +869,6 @@ local function reset_visible_caches(acceleration)
 end
 
 local function rebuild_scene_acceleration()
-	-- entries built before a material changed still carry the pass it drew in
 	if next(Material.scene_dirty_materials) then
 		for _, component in ipairs(Visual.Instances) do
 			if not component.RenderEntriesDirty then
@@ -940,8 +918,6 @@ end
 local function patch_scene_acceleration(acceleration)
 	visual.scene_publish_pending = false
 
-	-- which pass an entry draws in, and the translucent registry, follow from
-	-- its material, so the render entries of its users are built again
 	for material in pairs(Material.scene_dirty_materials) do
 		for component in pairs(visual.material_users[material] or {}) do
 			component:InvalidateRenderEntries()
@@ -953,7 +929,6 @@ local function patch_scene_acceleration(acceleration)
 	visual.scene_dirty_components = {}
 
 	for component, structure in pairs(dirty) do
-		-- removed components left the scene in OnRemove
 		if component:IsValid() then
 			local main_kind, shadow_kind, bounds = classify_scene_component(component)
 			set_component_scene_items(acceleration, component, main_kind, shadow_kind, bounds)
@@ -1086,7 +1061,6 @@ Visual:GetSet("MaterialSlotOverrides", nil)
 Visual:GetSet("AABB", create_empty_aabb())
 Visual:EndStorable()
 
--- a loading visual holds the scene back from being ready, see scene_loading
 function Visual:SetLoading(loading)
 	loading = loading and true or false
 
@@ -1115,13 +1089,11 @@ function Visual:SetUseOcclusionCulling(enabled)
 	refresh_occlusion_registries(self)
 end
 
--- which pass an entry draws in follows from its material
 function Visual:SetMaterialOverride(material)
 	objects.CommitProperty(self, "MaterialOverride", material)
 	self:InvalidateRenderEntries()
 end
 
--- materials indexed by each primitive's Polygon3D:GetMaterialSlot(), a primitive without a slot keeps its own material
 function Visual:SetMaterialSlotOverrides(slots)
 	objects.CommitProperty(self, "MaterialSlotOverrides", slots)
 	self:InvalidateRenderEntries()
@@ -1139,8 +1111,6 @@ function Visual:SetVisible(visible)
 	if self.Visible == visible then return end
 
 	objects.CommitProperty(self, "Visible", visible)
-	-- a hidden visual leaves the scene, which cached shadows only notice
-	-- through the versions of what they cover
 	mark_shadow_change(self)
 	mark_scene_component_dirty(self)
 	scene_bvh.Invalidate(self)
@@ -1170,12 +1140,9 @@ function Visual:InvalidateRenderEntries()
 	refresh_translucent_registry(self)
 	refresh_glass_registry(self)
 	mark_scene_component_dirty(self, true)
-	-- the triangle soup is baked from render entries, so a change in entry
-	-- topology invalidates it even when no transform moved
 	scene_bvh.Invalidate(self)
 end
 
--- vertex data of a primitive was rewritten in place (skinning), which cached shadows only notice through the change version
 function Visual:NotifyGeometryChanged()
 	mark_shadow_change(self)
 end
@@ -1432,20 +1399,12 @@ do
 	visual.noculling = false
 	visual.freeze_frustum_planes = false
 	visual.occlusion_culling_enabled = true
-	-- a world aabb has to move by more than this (world units) before the scan
-	-- marks the scene changed; shared by scene_bvh's rebuild throttle and the
-	-- scene acceleration's tree-rebuild decision
 	visual.AABB_TOLERANCE = 0.005
-	-- per-frame cap on tracked dirty boxes before giving up and invalidating
-	-- everything at once
 	visual.DIRTY_BOX_CAP = 4096
 	visual.aabb_signatures = nil
 	visual.aabb_scan_frame = -1
 	visual.aabb_forgotten_boxes = {}
-	-- set when a transform with children moved, since any visual below it may
-	-- have moved too, which takes a walk over every visual
 	visual.aabb_changes_pending = false
-	-- visuals that may have new bounds; the scan only looks at these otherwise
 	visual.aabb_scan_candidates = {}
 	visual.aabb_scan_changed = false
 	visual.AABB_CHANGED_BOXES = nil
@@ -1509,12 +1468,6 @@ do
 		return get_main_gpu_culling_stats_store()
 	end
 
-	-- The GPU-driven static instance batcher (gpu_culling.lua) is what actually merges repeated
-	-- static geometry (e.g. a gltf scene's duplicated meshes) into instanced draw calls - it's a
-	-- separate system from render3d's "RENDER3D INSTANCING" HUD group, which only covers the
-	-- per-frame CPU fallback path used for dynamic (moving) entities and reads 0 for static
-	-- content regardless of how well that content batches. Expose its counters here so batching
-	-- (or the lack of it) is visible on the same HUD instead of only via dump_main_gpu_culling_stats.
 	render_stats.RegisterGroup{
 		id = "render3d_static_batching",
 		label = "RENDER3D STATIC BATCHING",
@@ -1896,7 +1849,6 @@ do
 
 	local function get_frustum_planes()
 		if visual.freeze_frustum_planes and cached_frustum_frame >= 0 then
-			--time = dt or 0.05,
 			print(cached_frustum_planes)
 			return cached_frustum_planes
 		end
@@ -2094,11 +2046,6 @@ do
 		end
 	end
 
-	-- per-frame check of which visuals' world aabbs moved. scene_bvh's rebuild
-	-- throttle and the scene acceleration's dirty marking both consume it. Only
-	-- visuals that were added, invalidated or had their transform moved are
-	-- looked at, unless a transform with children moved, and movement below
-	-- AABB_TOLERANCE triggers no rebuilds at all
 	function visual.ScanWorldAABBs()
 		local frame = system.GetFrameNumber()
 
@@ -2132,7 +2079,6 @@ do
 			for _, component in ipairs(Visual.Instances) do
 				local aabb = component:GetWorldAABB()
 
-				-- visuals without geometry contribute nothing
 				if aabb then
 					fresh[component] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
 				end
@@ -2158,7 +2104,6 @@ do
 			end
 		else
 			for component in pairs(candidates) do
-				-- a removed visual's box was already forgotten
 				if component:IsValid() and not component.scene_removed then
 					scan_component(component, signatures, boxes, components, tolerance)
 				end
@@ -2183,8 +2128,6 @@ do
 		return changed
 	end
 
-	-- drops a visual's signature so the next scan reports its old box and, if
-	-- it still has geometry, its new one
 	function visual.ForgetWorldAABB(component)
 		local signatures = visual.aabb_signatures
 		visual.aabb_scan_candidates[component] = true
@@ -2529,8 +2472,6 @@ do
 		return out
 	end
 
-	-- with a component only that component is patched, without one the whole
-	-- scene is rebuilt
 	function visual.InvalidateSceneAcceleration(component)
 		if component then
 			mark_scene_component_dirty(component)
@@ -2544,18 +2485,8 @@ do
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local read_visible_entry_indices = include_visible_entry_indices ~= false
 		local cached_result = acceleration.visible_gpu_cull_result
-		-- render3d.GetCamera() can be a different camera within the same
-		-- real frame (e.g. a reflection probe capture pushes its own camera),
-		-- so the cache must be keyed on the camera too, not just the frame
-		-- number, or a probe's cull result gets handed back to the main view.
 		local camera = render3d.GetCamera()
 
-		-- gpu_culling.RunMainViewFrustumCulling dispatches into per-real-frame
-		-- GPU buffers shared by every caller that frame, regardless of which
-		-- camera asked - it is only safe for the actual top-level main
-		-- camera. Anything rendered from a pushed camera (reflection probe
-		-- captures, etc.) falls back to the CPU frustum cull instead of
-		-- racing the main view for those buffers.
 		if render3d.camera_stack and #render3d.camera_stack > 1 then return nil, nil end
 
 		if
@@ -2711,10 +2642,6 @@ do
 				end
 			end
 		elseif acceleration.visible_components then
-			-- No GPU cull result this call (GPU culling off, or a nested
-			-- camera context like a reflection probe capture that
-			-- deliberately skips the shared main-view GPU path) - GetVisibleVisuals
-			-- already computed a plain CPU-culled component list instead.
 			for _, component in ipairs(acceleration.visible_components) do
 				append_component_render_entries(out, component, payloads)
 			end
@@ -2935,14 +2862,11 @@ do
 		return visual.shadow_visible_list_version or 0
 	end
 
-	-- the bounds of every shadow caster in the scene, or nil without any
 	function visual.GetShadowCasterWorldAABB()
 		local acceleration = ensure_scene_acceleration()
 		local out = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 		local tree = acceleration.shadow_tree
 
-		-- the tree's bounds still cover items that died since it was built,
-		-- which only makes them conservative
 		if tree then AABB.Expand(out, tree.root.aabb) end
 
 		for _, item in ipairs(acceleration.shadow_pending) do
@@ -2964,13 +2888,11 @@ do
 		return out.min_x <= out.max_x and out or nil
 	end
 
-	-- bumped whenever a visual joins, leaves or changes in the scene
 	function visual.GetSceneVersion()
 		ensure_scene_acceleration()
 		return visual.scene_version
 	end
 
-	-- material -> set of components in the scene drawing with it
 	function visual.GetSceneMaterialUsers()
 		ensure_scene_acceleration()
 		return visual.material_users
@@ -3286,8 +3208,6 @@ function Visual:OnRemove()
 	self.scene_removed = true
 	self.RenderEntries = {}
 	self:InvalidateRenderEntries()
-	-- a removed component is wiped before the next patch could see it, so it
-	-- leaves the scene now
 	visual.scene_dirty_components[self] = nil
 	local acceleration = visual.scene_acceleration
 
@@ -3308,9 +3228,6 @@ function Visual:OnFirstCreated()
 				local gpu_instanced_result = gbuffer_instancing.DrawGPUCulled(cull_result)
 				local fallback_submitted_entry_count = 0
 
-				-- the cull also lists the visible entries that are not in an
-				-- instanced batch, which is all that is left to draw once the
-				-- batches drew
 				if gpu_instanced_result.drew_any then
 					visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, false)
 				end
@@ -3389,8 +3306,6 @@ function Visual:OnFirstCreated()
 	do
 		local draws = {}
 
-		-- a refracting entry that leaves its thickness to the object uses its
-		-- thinnest extent: a window's pane, a sphere's diameter
 		local function get_refraction_thickness(material, entry, world_matrix)
 			local thickness = material:GetRefractionThickness()
 
@@ -3408,8 +3323,6 @@ function Visual:OnFirstCreated()
 			)
 		end
 
-		-- collected before the translucent pass begins, so it knows how far
-		-- away the surfaces are and whether any of them refracts
 		event.AddListener("PreDraw3DTranslucent", "visual_translucent_collect", function()
 			local camera_position = render3d.GetCamera():GetPosition()
 			draws = {}
@@ -3468,8 +3381,6 @@ function Visual:OnFirstCreated()
 			end
 		end)
 
-		-- every glass entry, culled from the view or not: the glass out of sight
-		-- can still tint what is in it
 		event.AddListener("CollectGlassTint", "visual_glass_tint_collect", function(out)
 			for _, component in ipairs(visual.glass_components) do
 				if component.Visible then
@@ -3578,8 +3489,6 @@ function Visual:OnFirstCreated()
 				end
 			end
 
-			-- entry visibility of the gpu packed batches stays on the gpu, so only
-			-- draw calls are known for them
 			record_shadow_gpu_culling_stats(
 				shadow_map,
 				cascade_idx,

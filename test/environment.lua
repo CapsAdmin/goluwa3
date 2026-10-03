@@ -6,7 +6,7 @@ import.loadfile = vfs.LoadFile
 vfs.Mount("os:" .. vfs.GetStorageDirectory("working_directory"))
 vfs.MountStorageDirectories()
 
-do -- have all branches execute
+do
 	_G.AUDIO = true
 	_G.SERVER = true
 	_G.CLIENT = true
@@ -214,16 +214,16 @@ end
 T.TestPhysics = function(name, cb)
 	return T.Test(name, function()
 		local physics = import("goluwa/physics.lua")
+
 		if not physics.instance then physics.Initialize() end
+
 		local Entity = import("goluwa/entities/entity.lua")
 		cb()
 
-		-- Clean up entities created during test
 		for _, ent in ipairs(Entity.World:GetChildrenList()) do
 			if ent:IsValid() then ent:Remove() end
 		end
 
-		-- Reset physics state (broadphase, solver, collision pairs)
 		physics.ResetState()
 	end)
 end

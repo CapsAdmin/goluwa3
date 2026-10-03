@@ -348,11 +348,6 @@ end
 local INSTANCE_WORLD_EXPR = "mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
 local INSTANCE_PREV_WORLD_EXPR = "mat4(in_instance_prev_world_row_0, in_instance_prev_world_row_1, in_instance_prev_world_row_2, in_instance_prev_world_row_3)"
 
--- world_expr and prev_world_expr are where the world matrices come from.
--- options.camera_block_name is the uniform block with the camera's projection
--- and view, without it the vertex block carries projection_view_world.
--- main_prologue runs first in main, for stages that fetch their vertex and
--- instance themselves
 local function build_vertex_shader(options, world_expr, prev_world_expr, main_prologue)
 	local lines = {}
 
@@ -377,9 +372,6 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	vec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);]]
 
 	if options.velocity then
-		-- gpu culled static batches bind one buffer to both instance bindings, so
-		-- this is literally the same matrix and the subtraction cancels.
-		-- skinned vertices carry how far skinning moved them since the last frame
 		lines[#lines + 1] = "\tvec3 prev_world_position = (" .. prev_world_expr .. " * vec4(in_position - skin_motion, 1.0)).xyz;"
 	end
 
@@ -446,8 +438,6 @@ local function get_vertex_stage_outputs(options)
 
 	if options.vertex_color then outputs[#outputs + 1] = {"vertex_color", "vec4"} end
 
-	-- appended rather than placed next to position, so that turning velocity on
-	-- does not renumber the outputs every other stage already agrees on
 	if options.velocity then outputs[#outputs + 1] = {"prev_position", "vec3"} end
 
 	return outputs
@@ -473,8 +463,6 @@ local function get_vertex_stage_uniform_buffers(options)
 	return uniform_buffers[1] and uniform_buffers or nil
 end
 
--- the model's world matrix comes from the "vertex" push constants, along with
--- projection_view_world unless options.camera_block_name is set
 function model_pipeline.CreateVertexStage(options)
 	local camera_block = options.camera_block_name ~= nil
 	local get_projection_view_world_matrix = options.get_projection_view_world_matrix or render3d.GetProjectionViewWorldMatrix
@@ -523,7 +511,6 @@ function model_pipeline.CreateVertexStage(options)
 	return stage
 end
 
--- the world matrices come per instance from the vertex bindings 1 and 2
 function model_pipeline.CreateInstancedVertexStage(options)
 	local bindings = {
 		{
@@ -554,11 +541,6 @@ function model_pipeline.CreateInstancedVertexStage(options)
 	}
 end
 
--- Multi-draw batches: one indirect draw covers every instanced batch, so what a
--- batch would bind comes from a record per batch instead, picked by gl_DrawID:
--- the buffer addresses of its mesh, the PBR material blocks and the vertex
--- animation block. The fields are all 4 byte scalars, so the scalar GLSL layout
--- and the C layout of the record agree without padding.
 do
 	local FFI_FIELD = {
 		float = "float %s;",
@@ -620,9 +602,6 @@ do
 		return record_type
 	end
 
-	-- the record declarations, and with batch_expr a define per material block
-	-- so the PBR surface code reads the batch's record in place of its uniform
-	-- buffers
 	function model_pipeline.BuildPBRBatchRecordGlsl(batch_expr)
 		model_pipeline.GetPBRBatchRecordType()
 
@@ -639,21 +618,12 @@ do
 		return record_glsl .. table.concat(defines, "\n") .. "\n"
 	end
 
-	-- the material blocks read render3d's current material, and the vertex
-	-- animation block its current polygon as well
 	function model_pipeline.WritePBRBatchRecord(pipeline, record)
 		for _, info in ipairs(get_record_blocks()) do
 			info.write(pipeline, record[info.field])
 		end
 	end
 
-	-- A vertex stage for multi-draw batches without vertex input: the batch is
-	-- gl_DrawID, its mesh is read through the record's buffer address (the
-	-- draw is indexed, so gl_VertexIndex is the mesh local vertex index) and the
-	-- instance matrix through options.instances_expr, a uint64_t address of
-	-- mat4s. options.batches_expr is the record buffer address, time_expr and
-	-- prev_time_expr feed the vertex animation. The batch index is passed on as
-	-- the flat varying out_batch at location stage.batch_location.
 	function model_pipeline.CreateMultiDrawVertexStage(options)
 		local outputs = get_vertex_stage_outputs(options)
 		local batch_location = #outputs
@@ -964,7 +934,6 @@ function model_pipeline.GetPBRTransmissionUploadKey()
 end
 
 do
-	-- the uniform block, in order: name, glsl type, ffi decl
 	local FIELDS = {
 		{"Time", "float", "float Time;"},
 		{"PrevTime", "float", "float PrevTime;"},
@@ -979,11 +948,8 @@ do
 		{"DetailPhase", "float", "float DetailPhase;"},
 	}
 	local DETAIL_BENDING_MODES = {none = 0, leaves = 1, grass = 2}
-	-- cryengine softens the wind's pull on vegetation: wind * 0.25, soft clamped to 2
 	local BEND_RESPONSE = 0.25
 	local MAX_BENDING = 2
-	-- main bending offset at the top of the tree relative to its height, per unit of bending
-	-- cryengine 2's cpu side isn't public, this makes a 4 m/s breeze sway a tree ~3 degrees
 	local BEND_PER_HEIGHT = 0.25
 
 	function model_pipeline.GetVertexAnimationUniformBufferDecl()
@@ -1039,7 +1005,6 @@ do
 		block.PrevTime = render3d.GetPreviousElapsedTime()
 		block.MainBending = height > 0 and bending * material:GetBending() * height * BEND_PER_HEIGHT or 0
 		block.BendHeight = height
-		-- the trunk's lean is clamped, the flutter and gusts keep speeding up with the wind
 		block.BendSpeed = wind_length
 		block.BendDirection[0] = wind_length > 0 and wind_x / wind_length or 1
 		block.BendDirection[1] = 0
@@ -1067,8 +1032,6 @@ function model_pipeline.GetVertexAnimationUploadKey()
 	return render3d.GetMaterialUploadKey()
 end
 
--- cryengine 2's vegetation bending (ModificatorVT.cfi _DetailBending), done in object space
--- vertex color r: leaf edge flutter, g: branch phase, b: branch stiffness, a: ambient occlusion
 function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 	return [[
 			bool has_vertex_animation() {
@@ -1154,8 +1117,6 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 	]]
 end
 
--- translucent surfaces are dithered, keeping a fragment as often as
--- coverage_expr says. a shadow map keeps them as often as they stop light
 function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr)
 	return (
 		[[
@@ -1303,10 +1264,6 @@ function model_pipeline.GetPBRUniformBuffers()
 	}
 end
 
--- The material side of a lit surface: what the gbuffer writes and the
--- forward passes shade. Wants the GetPBRUniformBuffers blocks and a vertex
--- stage with position, normal, tangent, uv, texture_blend and vertex_color.
--- camera_block_name is the uniform block holding render3d.camera_block
 function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 	return Material.BuildGlslFlags("model.Flags") .. [=[
 			vec3 get_surface_camera_position() {

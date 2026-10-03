@@ -23,7 +23,6 @@ local new = function(ws)
 		return self.sock:receive(...)
 	end
 	self.sock_close = function(self)
-		--self.sock:shutdown() Causes errors?
 		self.sock:close()
 	end
 	self = sync.extend(self)

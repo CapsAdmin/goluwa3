@@ -15,29 +15,20 @@ T.Test("objects property callback stabilizer", function()
 	META:GetSet("Pos", Vec2(0, 0), {callback = "OnChanged"})
 	META:Register()
 	local obj = objects.CreateObject(META)
-	-- 1. Initial set to a NEW value
 	obj:SetVal(10)
 	T(call_count)["=="](1)
-	-- 2. Set to the SAME value (number)
 	obj:SetVal(10)
-	T(call_count)["=="](1) -- Should NOT increase
-	-- 3. Set to a NEW value (string)
+	T(call_count)["=="](1)
 	obj:SetText("world")
 	T(call_count)["=="](2)
-	-- 4. Set to the SAME value (string)
 	obj:SetText("world")
-	T(call_count)["=="](2) -- Should NOT increase
-	-- 5. Set to a NEW value (Vec2)
+	T(call_count)["=="](2)
 	obj:SetPos(Vec2(10, 20))
 	T(call_count)["=="](3)
-	-- 6. Set to the SAME value (Vec2)
-	-- This works because Vec2 has __eq overloaded in structs.lua
 	obj:SetPos(Vec2(10, 20))
-	T(call_count)["=="](3) -- Should NOT increase
-	-- 7. Set to a different Vec2
+	T(call_count)["=="](3)
 	obj:SetPos(Vec2(10, 21))
 	T(call_count)["=="](4)
-	-- 8. Set via nil (should reset to default)
 	obj:SetVal(100)
 	T(call_count)["=="](5)
 	T(obj:GetVal())["=="](100)
@@ -45,7 +36,7 @@ T.Test("objects property callback stabilizer", function()
 	T(call_count)["=="](6)
 	T(obj:GetVal())["=="](0)
 	obj:SetVal(nil)
-	T(call_count)["=="](6) -- Should NOT increase
+	T(call_count)["=="](6)
 end)
 
 T.Test("objects property callback stabilizer IsSet", function()

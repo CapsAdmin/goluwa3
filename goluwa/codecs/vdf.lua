@@ -110,7 +110,7 @@ function vdf.Decode(data, lower_or_modify_keys, preprocess)
 
 		local b = data:byte(pos)
 
-		if b == 34 then -- "
+		if b == 34 then
 			pos = pos + 1
 			local start = pos
 
@@ -126,7 +126,6 @@ function vdf.Decode(data, lower_or_modify_keys, preprocess)
 
 					if not escaped then
 						local s = data:sub(start, pos - 1)
-						-- s = s:gsub("\\\"", "\"") -- Removed to match old behavior
 						pos = pos + 1
 						return s
 					end
@@ -244,14 +243,13 @@ function vdf.Decode(data, lower_or_modify_keys, preprocess)
 				current = stack[#stack]
 			else
 
-			-- error or ignore
 			end
 		else
 			local next_t = peek()
 			local condition_met = true
 
 			if next_t == "[" then
-				consume() -- [
+				consume()
 				local cond = ""
 
 				while pos <= len do
@@ -272,14 +270,14 @@ function vdf.Decode(data, lower_or_modify_keys, preprocess)
 			end
 
 			if next_t == "{" then
-				consume() -- {
+				consume()
+
 				if condition_met then
 					local new_table = {}
 					insert_key_value(current, key, new_table, lower_or_modify_keys)
 					table.insert(stack, new_table)
 					current = new_table
 				else
-					-- skip block
 					local depth = 1
 
 					while depth > 0 do
@@ -295,14 +293,12 @@ function vdf.Decode(data, lower_or_modify_keys, preprocess)
 					end
 				end
 			else
-				-- Value
 				local val = consume()
 
 				if val == nil then break end
 
-				-- Possible condition after value: "key" "value" [condition]
 				if peek() == "[" then
-					consume() -- [
+					consume()
 					local cond = ""
 
 					while pos <= len do

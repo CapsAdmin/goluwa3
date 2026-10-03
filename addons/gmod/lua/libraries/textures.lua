@@ -223,7 +223,8 @@ do
 	end
 
 	function META:SetTexture(key, val)
-		if key == nil or val == nil then return end -- ?? gmod doesn't error
+		if key == nil or val == nil then return end
+
 		key = key:lower():sub(2)
 		self.__obj.gine_texture_vars = self.__obj.gine_texture_vars or {}
 		self.__obj.gine_texture_vars[key] = val.__obj

@@ -1,5 +1,3 @@
--- glw: --3d
--- sun and local shadow maps on, off and on again, from the same view on gm_construct
 local commands = import("goluwa/cli/commands.lua")
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")

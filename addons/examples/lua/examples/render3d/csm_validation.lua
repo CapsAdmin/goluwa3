@@ -1,20 +1,3 @@
---[[
-	Cascaded shadow map validation scene.
-
-	Each station is a caster box in front of a receiver wall that faces the
-	camera, so the shadow patch stays readable at every distance instead of
-	collapsing into a one pixel strip on the ground. The sun points along
-	(1, 1, -1)/sqrt(3) toward the sun, so light travels -x, -y, +z and a caster
-	at z = d shadows the receiver at z = d + L shifted -L in x and lowered by L.
-
-	Layouts (set _G.CSM_VALIDATION_LAYOUT before importing):
-		"float"  stations from 8 to 2200 units floating at distinct elevations and
-		         alternating sides so no receiver hides another
-		"ground" four ground level stations at distinct azimuths
-
-	Returns the station list with probe positions so a script can sample the
-	screenshot numerically. tmp/csm_test.lua does that.
-]]
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -60,7 +43,6 @@ if LAYOUT == "float" then
 	for i, d in ipairs{8, 20, 45, 100, 180, 300, 480, 700, 1000, 1500, 2200} do
 		local h = math.max(6, d * 0.13)
 		local side = (i % 2 == 1) and 1 or -1
-		-- elevation slot from -20 to +40 degrees seen from the camera
 		local elevation = math.rad(-20 + (i - 1) * 6)
 		placements[#placements + 1] = {
 			distance = d,
@@ -69,8 +51,6 @@ if LAYOUT == "float" then
 		}
 	end
 else
-	-- four azimuth slots so no receiver hides another and the caster's
-	-- perspective shift stays clear of the probes
 	for i, d in ipairs{330, 700, 1200, 2200} do
 		placements[#placements + 1] = {
 			distance = d,
@@ -108,10 +88,8 @@ for _, placement in ipairs(placements) do
 		distance = d,
 		height = h,
 		caster_top = Vec3(x, base_y + h, d),
-		-- shadow on the receiver spans x in [x - w/2 - l, x + w/2 - l], y in [base_y, base_y + h - l]
 		shadow_probe = Vec3(x - h * 0.62, base_y + (h - l) * 0.5, receiver_z),
 		lit_probe = Vec3(x + h * 0.75, base_y + (h - l) * 0.5, receiver_z),
-		-- ground patch away from every station, used to detect shadow acne
 		acne_probe = Vec3(d * 1.2, 0, d),
 	}
 end

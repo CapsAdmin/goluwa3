@@ -628,7 +628,7 @@ local function promote_panel_overlay_order(panel)
 	panel:SetChildOrder(next_overlay_child_order)
 end
 
-do -- chatbox
+do
 	local chat = gine.env.chat
 	local lib = _G.chat
 
@@ -730,11 +730,11 @@ do
 	end
 
 	function gui.ScreenToVector(x, y)
-		return gine.env.Vector() --(math3d.ScreenToWorldDirection(Vec2(x, y)):Unpack())
+		return gine.env.Vector()
 	end
 
 	function gui.IsGameUIVisible()
-		return false --menu.IsVisible()
+		return false
 	end
 
 	function gui.EnableScreenClicker(b)
@@ -767,7 +767,6 @@ do
 	end
 
 	local function hook(obj, func_name, callback)
-		--print(obj, func_name, callback)
 		local old = obj[func_name]
 
 		if not old then
@@ -795,7 +794,6 @@ do
 			gine.gui_world = create_panel("base")
 			gine.gui_world.no_draw = true
 			set_panel_ignore_layout(gine.gui_world, true)
-			--gine.gui_world:SetIgnoreMouse(true)
 			gine.gui_world.__class = "CGModBase"
 
 			function gine.gui_world:OnLayout()
@@ -814,9 +812,7 @@ do
 			set_panel_multiline(obj, false)
 			set_panel_editable(obj, false)
 			obj.label.markup:SetPreserveTabsOnEnter(false)
-			--local draw_func = obj.label.OnPostDraw
 			obj.label.DrawTextEntryText = function() end
-		--obj.label.OnPostDraw = function() end
 		elseif class == "richtext" then
 			obj = create_panel("scroll")
 			local markup = create_panel("text", obj, "text")
@@ -841,12 +837,10 @@ do
 		obj.vgui_type = class
 		obj.gmod_stub_model_preview = stub_model_preview
 		obj.gine_init_complete = false
-		--self:SetPaintBackgroundEnabled(true)
 		obj.transform:SetSize(Vec2(64, 24))
 		set_panel_margin(obj, Rect())
 		set_panel_padding(obj, Rect())
 		reset_panel_layout(obj)
-		--		obj:SetAllowKeyboardInput(false)
 		set_panel_focus_on_click(obj, false)
 		set_panel_bring_to_front_on_click(obj, false)
 		set_panel_clipping(obj, true)
@@ -1108,7 +1102,8 @@ do
 		end
 	end
 
-	META.__eq = nil -- no need
+	META.__eq = nil
+
 	function META:SelectAll() end
 
 	function META:SetParent(panel)
@@ -1307,7 +1302,6 @@ do
 			local font = gine.render2d_fonts[self.__obj.font_internal:lower()]
 
 			if not font then
-				--llog("font ", self.__obj.font_internal, " does not exist")
 				self.__obj.font_internal = "default"
 			else
 				if self.__obj.vgui_type == "richtext" then
@@ -1329,7 +1323,6 @@ do
 			else
 				self.__obj.gmod_has_wrapper_text = true
 				self.__obj.text_internal = gine.translation2[text] or text
-			--	self.__obj.label_settext = system.GetFrameNumber()
 			end
 		end
 	end
@@ -1503,13 +1496,6 @@ do
 			wrap_width = logical_parent.transform:GetWidth()
 		end
 
-		-- in gmod the text size isn't correct until next frame
-		--[[if panel.label_settext then
-			if panel.label_settext == system.GetFrameNumber() then
-				return 0, 0
-			end
-			panel.label_settext = nil
-		end]]
 		local font = gine.render2d_fonts[panel.font_internal:lower()]
 		local text = tostring(panel.text_internal or "")
 
@@ -1615,21 +1601,6 @@ do
 
 		if size_h == nil then size_h = true end
 
-		--[[
-
-		for _, v in ipairs(self.__obj.Children) do
-			v.old_size = v:GetSize()
-
-			if not v.Children[1] and v.vgui_type == "label" then
-				local w, h = v.gine_pnl:GetTextSize()
-
-				if not size_h then h = v:GetHeight() end
-				if not size_w then w = v:GetWidth() end
-
-				v.Size = Vec2(w, h)
-			end
-		end
-]]
 		local size = get_size_of_children(self.__obj)
 
 		if size_w and size_h then
@@ -1639,11 +1610,6 @@ do
 		elseif size_h then
 			self:SetTall(size.y)
 		end
-	--[[
-		for _, v in ipairs(self.__obj.Children) do
-			v.Size = v.old_size
-		end
-]]
 	end
 
 	function META:SetVisible(b)
@@ -1714,7 +1680,7 @@ do
 		if b then promote_panel_overlay_order(self.__obj) end
 	end
 
-	do -- z pos stuff
+	do
 		function META:SetZPos(pos)
 			pos = pos or 0
 			self.__obj:SetChildOrder(pos)
@@ -1811,10 +1777,9 @@ do
 		self.__obj.gmod_wrap = b
 	end
 
-	--function META:SetWorldClicker() end
 	function META:SetAllowNonAsciiCharacters() end
 
-	do -- html
+	do
 		function META:IsLoading()
 			return true
 		end
@@ -1828,7 +1793,6 @@ do
 		function META:SetHTML() end
 	end
 
-	-- edit
 	do
 		do
 			function META:GetCaretPos()

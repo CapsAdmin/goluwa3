@@ -20,8 +20,6 @@ function mix.MixOutputBuffer(state, out_buffer, num_samples)
 	end
 
 	local master_volume = state.master_volume
-	-- listener state is the same for every slot, so read it once per callback
-	-- instead of once per active sound.
 	local listener_position = state.listener_position
 	local listener_velocity = state.listener_velocity
 	local listener_forward = state.listener_forward

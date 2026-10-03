@@ -192,9 +192,7 @@ T.Test2D("love graphics stencil write and greater-zero test clip drawing", funct
 	love.graphics.circle("fill", W / 2, 3 * H / 4, W / 2, 50)
 	love.graphics.setStencilTest()
 	return function()
-		--black stencil border
 		T.AssertScreenPixel{pos = {5, 5}, color = {0, 0, 0, 1}, tolerance = 0.08}
-		-- colors blended
 		T.AssertScreenPixel{pos = {250, 250}, color = {1, 1, 1, 1}, tolerance = 0.08}
 		T.AssertScreenPixel{pos = {250, 60}, color = {1, 1, 0, 1}, tolerance = 0.08}
 		T.AssertScreenPixel{pos = {60, 100}, color = {1, 0, 0, 1}, tolerance = 0.08}
@@ -1748,7 +1746,6 @@ T.Test2D("love graphics fully transparent shader output does not block later dep
 		}
 		#endif
 	]])
-	-- Use a canvas with depth buffer for reliable depth testing
 	local canvas = love.graphics.newCanvas(256, 256)
 	love.graphics.setCanvas({canvas, depth = true})
 	love.graphics.clear(0, 0, 0, 1, true, 0)

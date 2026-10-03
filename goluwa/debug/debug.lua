@@ -232,7 +232,6 @@ function debug.trace(skip_print)
 
 	if debug.debugging then
 		str = {}
-		-- this doesn't really be long here..
 		local stop = #lines
 
 		for i = 2, #lines do
@@ -348,7 +347,6 @@ function debug.dump_call(level, line, info_match)
 	logn("LOCALS: ")
 
 	for _, data in pairs(debug.get_paramsx(level + 1)) do
-		--if not data.key:find("(",nil,true) then
 		local val
 
 		if type(data.val) == "table" then
@@ -364,7 +362,6 @@ function debug.dump_call(level, line, info_match)
 		end
 
 		logf("%s = %s\n", data.key, val)
-	--end
 	end
 
 	logn(debug.traceback())

@@ -2,18 +2,11 @@ local Constraint = import("goluwa/physics/constraint.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
 local objects = import("goluwa/objects/objects.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
--- One row along the line between two anchors. Depending on its settings it is
--- a rod (fixed length), a rope (Unilateral: only pulls once taut), a spring
--- (Stiffness > 0), or any of them with a length that is driven over time, which
--- is a hydraulic or a winch; a sinusoidal drive is a muscle.
 local META = objects.CreateTemplate("physics_distance_constraint")
 META.Base = Constraint
 META.CollideConnected = true
 local INFINITY = math.huge
 
--- config: Length (default the current distance), Unilateral, Stiffness and
--- Damping (N/m and N*s/m), MaxForce, CollideConnected (default true),
--- BreakForce
 function META.New(body_0, body_1, world_anchor_0, world_anchor_1, config)
 	config = config or {}
 	local self = META:CreateObject{
@@ -38,7 +31,6 @@ function META:SetLength(length)
 	return self
 end
 
--- moves the length to `length` at no more than `speed` meters per second
 function META:SetTargetLength(length, speed)
 	self.TargetLength = length
 	self.LengthSpeed = speed
@@ -46,7 +38,6 @@ function META:SetTargetLength(length, speed)
 	return self
 end
 
--- length = center + amplitude * sin(2 pi t / period)
 function META:SetOscillation(center, amplitude, period)
 	self.OscillationCenter = center
 	self.OscillationAmplitude = amplitude
@@ -77,7 +68,6 @@ function META:BeginStep(dt)
 	self.LengthRate = (self.Length - previous) / dt
 end
 
--- the direction between the anchors, the last one when they coincide
 function META:GetDirection(s0, s1)
 	local dx, dy, dz = s1.px - s0.px, s1.py - s0.py, s1.pz - s0.pz
 	local length = math.sqrt(dx * dx + dy * dy + dz * dz)
@@ -115,7 +105,6 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 	local stiffness = self.Stiffness
 
 	if stiffness > 0 then
-		-- a spring that only stretches pushes nothing while it is slack
 		if unilateral and gap <= 0 then return end
 
 		local inverse_mass = rows.GetLinearRowMass(s0, s1, nx, ny, nz)

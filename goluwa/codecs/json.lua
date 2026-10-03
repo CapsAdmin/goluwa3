@@ -71,13 +71,11 @@ function json.isObject(t)
 end
 
 if debug and debug.upvalueid then
-	-- Generate a lightuserdata
 	json.null = debug.upvalueid(json.createEmptyObject, 1)
 else
 	json.null = function() end
 end
 
--- json.encode --
 local statusVisited--[[#: Map<|any, boolean|>]]
 local statusBuilder--[[#: List<|string|>]]
 local encode_map = {}
@@ -231,9 +229,7 @@ function encode_map.table(t--[[#: any]])
 			error("invalid table: sparse array is not supported")
 		end
 
-		---@diagnostic disable-next-line: undefined-global
 		if jit and t[0] ~= nil then
-			-- 0 is the first index in luajit
 			error("invalid table: mixed or invalid key types: " .. 0)
 		end
 
@@ -263,11 +259,7 @@ function encode_map.table(t--[[#: any]])
 end
 
 local function encode_unexpected(v--[[#: any]])
-	if v == json.null then
-		return "null"
-	else
-		return "null" --error("unexpected type '" .. type(v) .. "'")
-	end
+	if v == json.null then return "null" else return "null" end
 end
 
 encode_map["function"] = encode_unexpected
@@ -283,7 +275,6 @@ end
 
 json._encode_map = encode_map
 json._encode_string = encode_string
--- json.decode --
 local statusBuf--[[#: string]]
 local statusPos--[[#: number]]
 local statusTop--[[#: number]]
@@ -378,8 +369,7 @@ local function decode_string()--[[#: string]]
 			decode_error("control character in string")
 		end
 
-		if x == 34 --[[ '"' ]]
-		then
+		if x == 34 then
 			local s = string_sub(statusBuf, statusPos + 1, i - 1)
 
 			if has_unicode_escape then
@@ -400,11 +390,9 @@ local function decode_string()--[[#: string]]
 			return s
 		end
 
-		--assert(x == 92 --[[ "\\" ]])
 		local nx = string_byte(statusBuf, i + 1)
 
-		if nx == 117 --[[ "u" ]]
-		then
+		if nx == 117 then
 			if not string_match(statusBuf, "^%x%x%x%x", i + 2) then
 				statusPos = i
 				decode_error("invalid unicode escape in string")
@@ -427,8 +415,7 @@ end
 local function decode_number()--[[#: number]]
 	local num, c = string_match(statusBuf, "^([0-9]+%.?[0-9]*)([eE]?)", statusPos)
 
-	if not num or string_byte(num, -1) == 0x2E --[[ "." ]]
-	then
+	if not num or string_byte(num, -1) == 0x2E then
 		decode_error("invalid number '" .. get_word() .. "'")
 	end
 
@@ -450,8 +437,7 @@ local function decode_number_zero()--[[#: number]]
 
 	if
 		not num or
-		string_byte(num, -1) == 0x2E --[[ "." ]]
-		or
+		string_byte(num, -1) == 0x2E or
 		string_match(statusBuf, "^.[0-9]+", statusPos)
 	then
 		decode_error("invalid number '" .. get_word() .. "'")
@@ -595,15 +581,12 @@ local function decode_item()
 			local chr = next_byte()
 			statusPos = statusPos + 1
 
-			if chr == 44 --[[ "," ]]
-			then return end
+			if chr == 44 then return end
 
 			if statusAry[statusTop] then
-				if chr ~= 93 --[[ "]" ]]
-				then decode_error("expected ']' or ','") end
+				if chr ~= 93 then decode_error("expected ']' or ','") end
 			else
-				if chr ~= 125 --[[ "}" ]]
-				then decode_error("expected '}' or ','") end
+				if chr ~= 125 then decode_error("expected '}' or ','") end
 			end
 
 			statusTop = statusTop - 1		

@@ -3,9 +3,7 @@ local TCPClient = import("goluwa/sockets/tcp_client.lua")
 local IRCClient = objects.CreateTemplate("irc_client")
 IRCClient:GetSet("Nick", USERNAME:gsub("^(.)", string.upper) .. "Bot")
 IRCClient:GetSet("Users", {})
--- https://github.com/msva/lua-irc/blob/master/src/irc/constants.lua
 local replies = {
-	-- Command responses
 	[001] = "RPL_WELCOME",
 	[002] = "RPL_YOURHOST",
 	[003] = "RPL_CREATED",
@@ -91,61 +89,59 @@ local replies = {
 	[258] = "RPL_ADMINLOC2",
 	[259] = "RPL_ADMINEMAIL",
 	[263] = "RPL_TRYAGAIN",
-	-- Error codes
-	[401] = "ERR_NOSUCHNICK", -- No such nick/channel
-	[402] = "ERR_NOSUCHSERVER", -- No such server
-	[403] = "ERR_NOSUCHCHANNEL", -- No such channel
-	[404] = "ERR_CANNOTSENDTOCHAN", -- Cannot send to channel
-	[405] = "ERR_TOOMANYCHANNELS", -- You have joined too many channels
-	[406] = "ERR_WASNOSUCHNICK", -- There was no such nickname
-	[407] = "ERR_TOOMANYTARGETS", -- Duplicate recipients. No message delivered
-	[408] = "ERR_NOSUCHSERVICE", -- No such service
-	[409] = "ERR_NOORIGIN", -- No origin specified
-	[411] = "ERR_NORECIPIENT", -- No recipient given
-	[412] = "ERR_NOTEXTTOSEND", -- No text to send
-	[413] = "ERR_NOTOPLEVEL", -- No toplevel domain specified
-	[414] = "ERR_WILDTOPLEVEL", -- Wildcard in toplevel domain
-	[415] = "ERR_BADMASK", -- Bad server/host mask
-	[421] = "ERR_UNKNOWNCOMMAND", -- Unknown command
-	[422] = "ERR_NOMOTD", -- MOTD file is missing
-	[423] = "ERR_NOADMININFO", -- No administrative info available
-	[424] = "ERR_FILEERROR", -- File error
-	[431] = "ERR_NONICKNAMEGIVEN", -- No nickname given
-	[432] = "ERR_ERRONEUSNICKNAME", -- Erroneus nickname
-	[433] = "ERR_NICKNAMEINUSE", -- Nickname is already in use
-	[436] = "ERR_NICKCOLLISION", -- Nickname collision KILL
-	[437] = "ERR_UNAVAILRESOURCE", -- Nick/channel is temporarily unavailable
-	[441] = "ERR_USERNOTINCHANNEL", -- They aren't on that channel
-	[442] = "ERR_NOTONCHANNEL", -- You're not on that channel
-	[443] = "ERR_USERONCHANNEL", -- User is already on channel
-	[444] = "ERR_NOLOGIN", -- User not logged in
-	[445] = "ERR_SUMMONDISABLED", -- SUMMON has been disabled
-	[446] = "ERR_USERSDISABLED", -- USERS has been disabled
-	[451] = "ERR_NOTREGISTERED", -- You have not registered
-	[461] = "ERR_NEEDMOREPARAMS", -- Not enough parameters
-	[462] = "ERR_ALREADYREGISTERED", -- You may not reregister
-	[463] = "ERR_NOPERMFORHOST", -- Your host isn't among the privileged
-	[464] = "ERR_PASSWDMISMATCH", -- Password incorrect
-	[465] = "ERR_YOUREBANNEDCREEP", -- You are banned from this server
+	[401] = "ERR_NOSUCHNICK",
+	[402] = "ERR_NOSUCHSERVER",
+	[403] = "ERR_NOSUCHCHANNEL",
+	[404] = "ERR_CANNOTSENDTOCHAN",
+	[405] = "ERR_TOOMANYCHANNELS",
+	[406] = "ERR_WASNOSUCHNICK",
+	[407] = "ERR_TOOMANYTARGETS",
+	[408] = "ERR_NOSUCHSERVICE",
+	[409] = "ERR_NOORIGIN",
+	[411] = "ERR_NORECIPIENT",
+	[412] = "ERR_NOTEXTTOSEND",
+	[413] = "ERR_NOTOPLEVEL",
+	[414] = "ERR_WILDTOPLEVEL",
+	[415] = "ERR_BADMASK",
+	[421] = "ERR_UNKNOWNCOMMAND",
+	[422] = "ERR_NOMOTD",
+	[423] = "ERR_NOADMININFO",
+	[424] = "ERR_FILEERROR",
+	[431] = "ERR_NONICKNAMEGIVEN",
+	[432] = "ERR_ERRONEUSNICKNAME",
+	[433] = "ERR_NICKNAMEINUSE",
+	[436] = "ERR_NICKCOLLISION",
+	[437] = "ERR_UNAVAILRESOURCE",
+	[441] = "ERR_USERNOTINCHANNEL",
+	[442] = "ERR_NOTONCHANNEL",
+	[443] = "ERR_USERONCHANNEL",
+	[444] = "ERR_NOLOGIN",
+	[445] = "ERR_SUMMONDISABLED",
+	[446] = "ERR_USERSDISABLED",
+	[451] = "ERR_NOTREGISTERED",
+	[461] = "ERR_NEEDMOREPARAMS",
+	[462] = "ERR_ALREADYREGISTERED",
+	[463] = "ERR_NOPERMFORHOST",
+	[464] = "ERR_PASSWDMISMATCH",
+	[465] = "ERR_YOUREBANNEDCREEP",
 	[466] = "ERR_YOUWILLBEBANNED",
-	[467] = "ERR_KEYSET", -- Channel key already set
-	[471] = "ERR_CHANNELISFULL", -- Cannot join channel (+l)
-	[472] = "ERR_UNKNOWNMODE", -- Unknown mode char
-	[473] = "ERR_INVITEONLYCHAN", -- Cannot join channel (+i)
-	[474] = "ERR_BANNEDFROMCHAN", -- Cannot join channel (+b)
-	[475] = "ERR_BADCHANNELKEY", -- Cannot join channel (+k)
-	[476] = "ERR_BADCHANMASK", -- Bad channel mask
-	[477] = "ERR_NOCHANMODES", -- Channel doesn't support modes
-	[478] = "ERR_BANLISTFULL", -- Channel list is full
-	[481] = "ERR_NOPRIVILEGES", -- Permission denied- You're not an IRC operator
-	[482] = "ERR_CHANOPRIVSNEEDED", -- You're not channel operator
-	[483] = "ERR_CANTKILLSERVER", -- You can't kill a server!
-	[484] = "ERR_RESTRICTED", -- Your connection is restricted!
-	[485] = "ERR_UNIQOPPRIVSNEEDED", -- You're not the original channel operator
-	[491] = "ERR_NOOPERHOST", -- No O-lines for your host
-	[501] = "ERR_UMODEUNKNOWNFLAG", -- Unknown MODE flag
-	[502] = "ERR_USERSDONTMATCH", -- Can't change mode for other users
-	-- unused
+	[467] = "ERR_KEYSET",
+	[471] = "ERR_CHANNELISFULL",
+	[472] = "ERR_UNKNOWNMODE",
+	[473] = "ERR_INVITEONLYCHAN",
+	[474] = "ERR_BANNEDFROMCHAN",
+	[475] = "ERR_BADCHANNELKEY",
+	[476] = "ERR_BADCHANMASK",
+	[477] = "ERR_NOCHANMODES",
+	[478] = "ERR_BANLISTFULL",
+	[481] = "ERR_NOPRIVILEGES",
+	[482] = "ERR_CHANOPRIVSNEEDED",
+	[483] = "ERR_CANTKILLSERVER",
+	[484] = "ERR_RESTRICTED",
+	[485] = "ERR_UNIQOPPRIVSNEEDED",
+	[491] = "ERR_NOOPERHOST",
+	[501] = "ERR_UMODEUNKNOWNFLAG",
+	[502] = "ERR_USERSDONTMATCH",
 	[231] = "RPL_SERVICEINFO",
 	[232] = "RPL_ENDOFSERVICES",
 	[233] = "RPL_SERVICE",
@@ -169,9 +165,8 @@ local replies = {
 	[247] = "RPL_STATSBLINE",
 	[250] = "RPL_STATSDLINE",
 	[492] = "ERR_NOSERVICEHOST",
-	-- guesses
-	[333] = "RPL_TOPICDATE", -- date the topic was set, in seconds since the epoch
-	[505] = "ERR_NOTREGISTERED", -- freenode blocking privmsg from unreged users
+	[333] = "RPL_TOPICDATE",
+	[505] = "ERR_NOTREGISTERED",
 }
 
 function IRCClient:HandleMessage(line)
@@ -193,7 +188,6 @@ function IRCClient:HandleMessage(line)
 
 			return
 		end
-	--print(name, id, target, chanmode, str)
 	else
 		local nick, username, ip, cmd, str = line:match(":(.-)!(.-)@(.-) (.-) (.+)")
 
@@ -240,11 +234,9 @@ function IRCClient:HandleMessage(line)
 				return
 			end
 
-			--print(nick, username, ip, cmd, str)
 			return
 		end
 	end
---print(line)
 end
 
 function IRCClient:OnPrivateMessage(message, nick, ip) end
@@ -297,12 +289,10 @@ function IRCClient:Connect(address, port)
 end
 
 function IRCClient:Send(line)
-	--logn("<< ", line)
 	if self.socket then self.socket:Send(("%s\r\n"):format(line)) end
 end
 
-function IRCClient:OnReceive(line) --logn(">> ", line)
-end
+function IRCClient:OnReceive(line) end
 
 function IRCClient:__index2(key)
 	if key == key:upper() then

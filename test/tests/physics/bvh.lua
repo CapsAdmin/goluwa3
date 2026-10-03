@@ -1,6 +1,3 @@
--- BuildFast finds each node's median with quickselect instead of sorting. The
--- tree has to hold every item exactly once, every node's bounds have to hold the
--- items under it, and a box query has to find what testing every item finds
 local T = import("test/environment.lua")
 local bvh = import("goluwa/physics/bvh.lua")
 
@@ -16,7 +13,6 @@ local function make_items(count, seed)
 		local x, y, z = random() * 500, random() * 80, random() * 500
 		local sx, sy, sz = random() * 8, random() * 8, random() * 8
 
-		-- duplicated centroids and flat extents are what make a median split hard
 		if i % 7 == 0 then x, y, z, sx, sy, sz = 10, 10, 10, 1, 1, 1 end
 
 		items[i] = {

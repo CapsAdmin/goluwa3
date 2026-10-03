@@ -1342,13 +1342,10 @@ if true then
 			local aspect
 
 			if format:match("d%d+.*s%d+") or format:match("s%d+.*d%d+") then
-				-- Depth-stencil format (e.g., D24_UNORM_S8_UINT)
 				aspect = {"depth", "stencil"}
 			elseif format:match("^d%d") or format:match("depth") then
-				-- Depth-only format (e.g., D32_SFLOAT)
 				aspect = "depth"
 			elseif format:match("^s%d") or format:match("stencil") then
-				-- Stencil-only format
 				aspect = "stencil"
 			else
 				aspect = "color"
@@ -1396,8 +1393,6 @@ function CommandBuffer:PipelineBarrier(config)
 	local memoryBarriers = nil
 	local memoryBarrierCount = 0
 
-	-- a barrier on all memory between srcStage and dstStage, for ordering
-	-- whole stages without naming resources
 	if config.memoryBarrier then
 		memoryBarrierCount = 1
 		memoryBarriers = VkMemoryBarrier2Array(1)
@@ -1421,14 +1416,10 @@ function CommandBuffer:PipelineBarrier(config)
 			end
 
 			aspect = aspect or "color"
-			-- Handle combined depth-stencil formats
-			-- When aspect is a table (e.g., {"depth", "stencil"}), we need to use depth-stencil layouts
 			local old_layout = barrier.oldLayout or "undefined"
 			local new_layout = barrier.newLayout or "general"
 
-			-- Fix layouts for combined depth-stencil formats
 			if type(aspect) == "table" then
-				-- Replace depth-only layouts with depth-stencil layouts
 				if old_layout == "depth_attachment_optimal" then
 					old_layout = "depth_stencil_attachment_optimal"
 				elseif old_layout == "depth_read_only_optimal" then
@@ -1505,7 +1496,6 @@ function CommandBuffer:PipelineBarrier(config)
 	)
 end
 
--- regions is a VkBufferCopy array of srcOffset / dstOffset / size
 function CommandBuffer:CopyBuffer(src, dst, regions, region_count)
 	keepalive(self, src)
 	keepalive(self, dst)

@@ -1,6 +1,3 @@
--- VTF (Valve Texture Format) decoder for LuaJIT
--- Decodes VTF textures, returning compressed data as-is for GPU upload (like DDS decoder)
--- Supports DXT1/3/5, RGBA8888, RGB888, BGR888, BGRA8888, and other common formats
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = import("goluwa/structs/buffer.lua")
@@ -8,7 +5,6 @@ local vtf = library()
 vtf.file_extensions = {"vtf"}
 vtf.magic_headers = {"VTF\0"}
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift
--- VTF image format enum
 local VTF_IMAGE_FORMAT = {
 	RGBA8888 = 0,
 	ABGR8888 = 1,
@@ -44,7 +40,6 @@ local VTF_IMAGE_FORMAT = {
 	ATI1N = 38,
 }
 
--- Get bytes per pixel for uncompressed formats
 local function get_bytes_per_pixel(format)
 	if
 		format == VTF_IMAGE_FORMAT.RGBA8888 or
@@ -94,7 +89,6 @@ local function get_bytes_per_pixel(format)
 	return nil
 end
 
--- Check if format is DXT compressed
 local function is_compressed(format)
 	return format == VTF_IMAGE_FORMAT.DXT1 or
 		format == VTF_IMAGE_FORMAT.DXT3 or
@@ -104,7 +98,6 @@ local function is_compressed(format)
 		format == VTF_IMAGE_FORMAT.ATI2N
 end
 
--- Get block size for compressed formats
 local function get_block_size(format)
 	if
 		format == VTF_IMAGE_FORMAT.DXT1 or
@@ -123,7 +116,6 @@ local function get_block_size(format)
 	return nil
 end
 
--- Calculate image data size
 local function compute_image_size(width, height, depth, format)
 	if is_compressed(format) then
 		local block_size = get_block_size(format)
@@ -139,7 +131,6 @@ local function compute_image_size(width, height, depth, format)
 	return nil
 end
 
--- Map VTF format to Vulkan format name
 local function vtf_to_vulkan_format(format)
 	local format_map = {
 		[VTF_IMAGE_FORMAT.DXT1] = "bc1_rgb_unorm_block",
@@ -151,8 +142,7 @@ local function vtf_to_vulkan_format(format)
 		[VTF_IMAGE_FORMAT.RGBA8888] = "r8g8b8a8_unorm",
 		[VTF_IMAGE_FORMAT.BGRA8888] = "b8g8r8a8_unorm",
 		[VTF_IMAGE_FORMAT.ABGR8888] = "a8b8g8r8_unorm_pack32",
-		[VTF_IMAGE_FORMAT.ARGB8888] = "b8g8r8a8_unorm", -- Close approximation
-		-- 24-bit formats converted to 32-bit (not widely supported)
+		[VTF_IMAGE_FORMAT.ARGB8888] = "b8g8r8a8_unorm",
 		[VTF_IMAGE_FORMAT.RGB888] = "r8g8b8a8_unorm",
 		[VTF_IMAGE_FORMAT.BGR888] = "b8g8r8a8_unorm",
 		[VTF_IMAGE_FORMAT.RGBA16161616F] = "r16g16b16a16_sfloat",
@@ -162,10 +152,8 @@ local function vtf_to_vulkan_format(format)
 	return format_map[format] or "undefined"
 end
 
--- Parse VTF header
 local function parse_header(buffer)
 	local header = {}
-	-- Read file header
 	local signature = buffer:ReadBytes(4)
 
 	if signature ~= "VTF\0" then
@@ -175,21 +163,17 @@ local function parse_header(buffer)
 	header.version_major = buffer:ReadU32LE()
 	header.version_minor = buffer:ReadU32LE()
 	header.header_size = buffer:ReadU32LE()
-	-- Read image properties
 	header.width = buffer:ReadU16LE()
 	header.height = buffer:ReadU16LE()
 	header.flags = buffer:ReadU32LE()
 	header.frames = buffer:ReadU16LE()
 	header.first_frame = buffer:ReadU16LE()
-	-- Skip padding
 	buffer:ReadBytes(4)
-	-- Reflectivity
 	header.reflectivity = {
 		buffer:ReadFloat(),
 		buffer:ReadFloat(),
 		buffer:ReadFloat(),
 	}
-	-- Skip padding
 	buffer:ReadBytes(4)
 	header.bump_scale = buffer:ReadFloat()
 	header.image_format = buffer:ReadU32LE()
@@ -198,44 +182,36 @@ local function parse_header(buffer)
 	header.lowres_width = buffer:ReadByte()
 	header.lowres_height = buffer:ReadByte()
 
-	-- Version 7.2+ has depth
 	if header.version_minor >= 2 then
 		header.depth = buffer:ReadU16LE()
 	else
 		header.depth = 1
 	end
 
-	-- Version 7.3+ has resources
 	if header.version_minor >= 3 then
-		buffer:ReadBytes(3) -- padding
+		buffer:ReadBytes(3)
 		header.resource_count = buffer:ReadU32LE()
-		buffer:ReadBytes(8) -- more padding
-		-- Skip resources for now - we only need the main image
+		buffer:ReadBytes(8)
+
 		if header.resource_count > 0 then
-			buffer:ReadBytes(header.resource_count * 8) -- Skip resource entries
+			buffer:ReadBytes(header.resource_count * 8)
 		end
 	end
 
 	return header
 end
 
--- Main VTF decode function
 function vtf.DecodeBuffer(input_buffer)
 	local header, err = parse_header(input_buffer)
 
 	if not header then return nil, err end
 
-	-- Position at start of image data using header_size
-	-- This accounts for variable header sizes (v7.3+ has resources)
 	input_buffer:SetPosition(header.header_size)
 
-	-- The lowres image comes first (if present)
 	if header.lowres_width > 0 and header.lowres_height > 0 then
 		local lowres_size = compute_image_size(header.lowres_width, header.lowres_height, 1, header.lowres_image_format)
 
-		if lowres_size then
-			input_buffer:ReadBytes(lowres_size) -- Skip lowres image
-		end
+		if lowres_size then input_buffer:ReadBytes(lowres_size) end
 	end
 
 	local width = header.width
@@ -244,9 +220,6 @@ function vtf.DecodeBuffer(input_buffer)
 	local format = header.image_format
 	local mip_count = header.mip_count
 	local frames = header.frames
-	-- Calculate mipmap info and total data size
-	-- VTF stores mipmaps from smallest to largest in the file
-	-- First pass: calculate sizes for each mip level
 	local mip_sizes = {}
 	local total_size = 0
 
@@ -269,20 +242,15 @@ function vtf.DecodeBuffer(input_buffer)
 		total_size = total_size + mip_size
 	end
 
-	-- Second pass: calculate offsets in file order (smallest to largest)
-	-- and build mip_info in API order (largest first)
-	-- VTF stores: for each mip level { for each frame { for each face { data } } }
 	local mip_info = {}
 	local file_offset = 0
-	local face_count = 1 -- Most textures have 1 face, cubemaps have 6
+	local face_count = 1
+
 	if band(header.flags, 0x00004000) ~= 0 then face_count = 6 end
 
 	for file_mip_index = 0, mip_count - 1 do
-		-- File stores smallest first, so file_mip_index 0 = mip level (mip_count-1)
 		local mip_level = mip_count - 1 - file_mip_index
 		local mip_data = mip_sizes[mip_level]
-		-- Store in API order: index 1 = mip level 0 (largest)
-		-- The offset points to frame 0, face 0 of this mip level
 		mip_info[mip_level + 1] = {
 			width = mip_data.width,
 			height = mip_data.height,
@@ -290,23 +258,17 @@ function vtf.DecodeBuffer(input_buffer)
 			size = mip_data.size,
 			file_offset = file_offset,
 		}
-		-- Each mip level contains data for ALL frames and faces
 		file_offset = file_offset + (mip_data.size * frames * face_count)
 	end
 
-	-- For multiple frames, we only read the first frame
-	-- Calculate how much data to skip for other frames
 	local frame_data_size = total_size
-	-- Read all mipmap data for the first frame
 	local data_pos = input_buffer:GetPosition()
-	-- Check if we need to convert 24-bit to 32-bit
 	local bpp = get_bytes_per_pixel(format)
-	local needs_conversion_to_32bit = (bpp == 3) -- 24-bit RGB/BGR
+	local needs_conversion_to_32bit = (bpp == 3)
 	local data_buffer
 	local actual_data_size = total_size
 
 	if needs_conversion_to_32bit then
-		-- Convert 24-bit to 32-bit by adding alpha/X channel
 		local pixel_count = 0
 
 		for i = 0, mip_count - 1 do
@@ -314,26 +276,24 @@ function vtf.DecodeBuffer(input_buffer)
 			pixel_count = pixel_count + (mip_data.width * mip_data.height * mip_data.depth)
 		end
 
-		local new_size = pixel_count * 4 -- 4 bytes per pixel
+		local new_size = pixel_count * 4
 		data_buffer = ffi.new("uint8_t[?]", new_size)
 		local dst = data_buffer
 		local dst_idx = 0
 
-		-- Copy RGB and add 255 for X channel (unused alpha)
 		for i = 1, mip_count do
 			local mip = mip_info[i]
 			local src = input_buffer:GetBuffer() + data_pos + mip.file_offset
 			local mip_pixel_count = mip.width * mip.height * mip.depth
 
 			for j = 0, mip_pixel_count - 1 do
-				dst[dst_idx] = src[j * 3] -- R or B
-				dst[dst_idx + 1] = src[j * 3 + 1] -- G
-				dst[dst_idx + 2] = src[j * 3 + 2] -- B or R
-				dst[dst_idx + 3] = 255 -- X (unused, fully opaque)
+				dst[dst_idx] = src[j * 3]
+				dst[dst_idx + 1] = src[j * 3 + 1]
+				dst[dst_idx + 2] = src[j * 3 + 2]
+				dst[dst_idx + 3] = 255
 				dst_idx = dst_idx + 4
 			end
 
-			-- Update mip_info to point to the new buffer
 			mip.offset = dst_idx - (mip_pixel_count * 4)
 			mip.size = mip_pixel_count * 4
 		end
@@ -355,15 +315,13 @@ function vtf.DecodeBuffer(input_buffer)
 		end
 	end
 
-	-- Get Vulkan format string
 	local vulkan_format = vtf_to_vulkan_format(format)
-	-- Return result matching DDS decoder pattern
 	return {
 		width = width,
 		height = height,
 		depth = depth,
 		format = format,
-		vtf_format = format, -- Keep VTF-specific format enum
+		vtf_format = format,
 		vulkan_format = vulkan_format,
 		mip_count = mip_count,
 		frames = frames,
@@ -373,7 +331,6 @@ function vtf.DecodeBuffer(input_buffer)
 		mip_info = mip_info,
 		data_size = actual_data_size,
 		data = data_buffer,
-		-- Also provide a Buffer wrapper for consistency
 		buffer = Buffer.New(data_buffer, actual_data_size),
 		reflectivity = header.reflectivity,
 	}

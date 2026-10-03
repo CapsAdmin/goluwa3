@@ -59,7 +59,6 @@ do
 		META.typeOf = base_typeOf
 		META.type = base_type
 		get_registered_table(love)[META.__line_type] = META
-		-- some löve scripts get it from here
 		debug.getregistry()[META.__line_type] = META
 		local created_table = get_created_table(love)
 
@@ -458,10 +457,7 @@ function line.RunGame(folder, ...)
 			prepare_module_function
 		)
 
-		if res ~= nil then
-			--llog("require: ", name, " (", path, ")")
-			return finalize_required_module(name, res)
-		end
+		if res ~= nil then return finalize_required_module(name, res) end
 
 		local ok, fallback = pcall(module_require, name)
 
@@ -543,7 +539,7 @@ function line.RunGame(folder, ...)
 	)
 	love.filesystem.setIdentity(get_game_identity(folder))
 
-	do -- config
+	do
 		local config = {
 			screen = {},
 			window = {},
@@ -568,7 +564,6 @@ function line.RunGame(folder, ...)
 	local config = love._line_env.config
 	love.filesystem.setIdentity(config.identity or love.filesystem.getIdentity())
 
-	--check if config.screen exists
 	if not config.screen then config.screen = {} end
 
 	local w = config.screen.width or config.window.width
@@ -623,7 +618,6 @@ function line.RunGame(folder, ...)
 	)
 	line.current_game = love
 	love._line_env.love_game_update_draw_hack = false
-	-- swap the default env for easier hot reloading
 	import.loaded["lua/love.lua"] = love
 	return love
 end

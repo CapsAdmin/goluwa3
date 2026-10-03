@@ -123,7 +123,6 @@ local function set_uv(self, i, x, y, w, h, sx, sy)
 end
 
 function Polygon2D:SetVertex(i, x, y, u, v, r, g, b, a)
-	--if i > self.vertex_count or i < 0 then logf("i = %i vertex_count = %i\n", i, self.vertex_count) return end
 	x = x or 0
 	y = y or 0
 
@@ -144,7 +143,7 @@ function Polygon2D:SetVertex(i, x, y, u, v, r, g, b, a)
 	vtx[i].pos[0] = x
 	vtx[i].pos[1] = y
 	vtx[i].pos[2] = 0
-vtx[i].color[0] = r or self.R
+	vtx[i].color[0] = r or self.R
 	vtx[i].color[1] = g or self.G
 	vtx[i].color[2] = b or self.B
 	vtx[i].color[3] = a or self.A
@@ -205,7 +204,6 @@ function Polygon2D:Draw(count)
 	end
 
 	if self.WorldMatrixMultiply then
-		-- Vertices are already transformed, use identity matrix
 		render2d.PushWorldMatrix(true)
 		render2d.LoadIdentity()
 	end
@@ -242,7 +240,6 @@ function Polygon2D:SetNinePatch(
 
 	if h / 2 < corner_size then corner_size = h / 2 end
 
-	-- 1
 	self:SetUV(
 		u_offset,
 		v_offset,
@@ -252,7 +249,6 @@ function Polygon2D:SetNinePatch(
 		skin_h
 	)
 	self:SetRect(i + 0, x, y, corner_size, corner_size)
-	-- 2
 	self:SetUV(
 		u_offset + corner_size,
 		v_offset,
@@ -262,7 +258,6 @@ function Polygon2D:SetNinePatch(
 		skin_h
 	)
 	self:SetRect(i + 1, x + corner_size, y, w - corner_size * 2, corner_size)
-	-- 3
 	self:SetUV(
 		u_offset + patch_size_w - corner_size / uv_scale,
 		v_offset,
@@ -272,7 +267,6 @@ function Polygon2D:SetNinePatch(
 		skin_h
 	)
 	self:SetRect(i + 2, x + w - corner_size, y, corner_size, corner_size)
-	-- 4
 	self:SetUV(
 		u_offset,
 		v_offset + corner_size,
@@ -282,7 +276,6 @@ function Polygon2D:SetNinePatch(
 		skin_h
 	)
 	self:SetRect(i + 3, x, y + corner_size, corner_size, h - corner_size * 2)
-	-- 5
 	self:SetUV(
 		u_offset + corner_size,
 		v_offset + corner_size,
@@ -298,7 +291,6 @@ function Polygon2D:SetNinePatch(
 		w - corner_size * 2,
 		h - corner_size * 2
 	)
-	-- 6
 	self:SetUV(
 		u_offset + patch_size_w - corner_size / uv_scale,
 		v_offset + corner_size / uv_scale,
@@ -314,7 +306,6 @@ function Polygon2D:SetNinePatch(
 		corner_size,
 		h - corner_size * 2
 	)
-	-- 7
 	self:SetUV(
 		u_offset,
 		v_offset + patch_size_h - corner_size / uv_scale,
@@ -324,7 +315,6 @@ function Polygon2D:SetNinePatch(
 		skin_h
 	)
 	self:SetRect(i + 6, x, y + h - corner_size, corner_size, corner_size)
-	-- 8
 	self:SetUV(
 		u_offset + corner_size / uv_scale,
 		v_offset + patch_size_h - corner_size / uv_scale,
@@ -340,7 +330,6 @@ function Polygon2D:SetNinePatch(
 		w - corner_size * 2,
 		corner_size
 	)
-	-- 9
 	self:SetUV(
 		u_offset + patch_size_w - corner_size / uv_scale,
 		v_offset + patch_size_h - corner_size / uv_scale,

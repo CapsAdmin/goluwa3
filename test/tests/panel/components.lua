@@ -37,8 +37,6 @@ T.Test("panel mouse input states", function()
 	pnl.mouse_input:SetFocusOnClick(true)
 	T(pnl.mouse_input:GetFocusOnClick())["=="](true)
 	T(pnl.mouse_input:GetHovered())["=="](false)
-	-- Note: Simulating actual mouse events usually requires more setup 
-	-- in the GUI system, but we can check the component state.
 	pnl.mouse_input:SetCursor("hand")
 	T(pnl.mouse_input:GetCursor())["=="]("hand")
 end)
@@ -86,9 +84,6 @@ T.Test("panel flex layout", function()
 	local child2 = Panel.New{Parent = parent, transform = true}
 	child2.transform:SetSize(Vec2(50, 50))
 	parent.layout:UpdateLayout()
-	-- With column flex and 10px gap:
-	-- Child 1 at (0,0) (assuming no padding)
-	-- Child 2 at (0, 50 + 10) = (0, 60)
 	T(child1.transform:GetPosition())["=="](Vec2(0, 0))
 	T(child2.transform:GetPosition())["=="](Vec2(0, 60))
 end)
@@ -101,8 +96,6 @@ T.Test("panel animations basic", function()
 		animation = true,
 	}
 	local animated_color = Color(1, 0, 0, 1)
-	-- Animations usually require time to pass, 
-	-- but we can check if the component exists and responds to Animate.
 	T(pnl.animation)["~="](nil)
 	pnl.animation:Animate{
 		id = "color",
@@ -116,8 +109,6 @@ T.Test("panel animations basic", function()
 		to = Color(0, 1, 0, 1),
 		time = 0.1,
 	}
--- Without a system update, it might not change immediately
--- but we check it doesn't crash and initializes the animation.
 end)
 
 T.Pending("panel mouse simulation and hover", function()
@@ -151,17 +142,14 @@ T.Pending("panel mouse simulation and hover", function()
 
 	local window = system.GetWindow()
 	local old_GetMousePosition = window.GetMousePosition
-	-- 1. Enter
 	window.GetMousePosition = function()
 		return Vec2(125, 125)
 	end
 	event.Call("Update")
 	T(entered)["=="](true)
 	T(pnl.mouse_input:GetHovered())["=="](true)
-	-- 2. Click
 	event.Call("MouseInput", "button_1", true)
 	T(clicked)["=="](true)
-	-- 3. Leave
 	window.GetMousePosition = function()
 		return Vec2(0, 0)
 	end

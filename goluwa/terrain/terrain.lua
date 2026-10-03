@@ -31,8 +31,6 @@ function Terrain.New(config)
 	self.DetailSize = config.DetailSize or 256
 	self.SplatSize = config.SplatSize or 128
 	self.ColorSize = config.ColorSize
-	-- how many of the finest levels cast shadows. all of them by default: a
-	-- distant ridge shades the valley and the air in front of it at sunset
 	self.ShadowLevels = config.ShadowLevels or self.Levels
 	self.BuildsPerUpdate = config.BuildsPerUpdate or 2
 	self.UpdateInterval = config.UpdateInterval or 0.05
@@ -281,14 +279,6 @@ local function set_tile_hidden(self, tile, hidden)
 	tile.entity.visual:SetCastShadows(not hidden and tile.level < self.ShadowLevels)
 end
 
---[[
-	When the camera moves, tiles that are no longer wanted keep rendering until
-	every wanted tile overlapping their area has been built, so no holes open.
-	Meanwhile the newly built tiles stay hidden, because the levels differ in
-	height and overlapping them would z-fight and cast stray shadows. Once the
-	last replacement is built, the old tile goes and the new ones appear in
-	the same update.
-]]
 function Terrain:IsTileReplaced(tile)
 	for key, want in pairs(self.Desired) do
 		if tiles_overlap(self, tile, want) then
@@ -418,7 +408,6 @@ function Terrain:Start()
 	end)
 
 	self.time_until_update = 0
-	-- the scene is loading until the tiles around the camera exist
 	self.holding_scene_load = true
 	scene_loading.Begin()
 	self:Update(0)

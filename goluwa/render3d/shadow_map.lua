@@ -25,16 +25,12 @@ local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
--- Default shadow map settings
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
-local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
+local DEFAULT_CASCADE_COUNT = 3
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local TEMP_IDENTITY_CASCADE_OVERRIDE = false
 local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
--- how far toward the sun a caster can be and still be drawn. The sun is
--- infinitely far, so a mountain kilometres away shades even a map that only
--- covers the few meters around the camera
 local SUN_CASTER_REACH = 20000
 local SHADOW_INSTANCE_STRIDE = ffi.sizeof("float[16]")
 local SHADOW_INSTANCE_BINDINGS = {
@@ -99,8 +95,6 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 	local albedo_texture = material:GetAlbedoTexture()
 	local albedo_view = albedo_texture and albedo_texture:GetView() or nil
 
-	-- a material without any of these textures compares nil to nil everywhere, so
-	-- a new entry has to be filled regardless
 	if
 		not entry or
 		entry.albedo_texture ~= albedo_texture or
@@ -126,7 +120,6 @@ local function get_cached_shadow_material_texture_indices(self, material, pipeli
 	return nil
 end
 
--- Push constants for shadow pass (MVP matrix + texture index for alpha testing)
 local ShadowDrawPushConstants = ffi.typeof([[
 	struct {
 		float world[16];
@@ -606,10 +599,6 @@ local function create_shadow_instanced_pipeline_variant(
 	)
 end
 
--- Multi-draw shadow pipeline: one DrawIndirect per cascade covers every instanced
--- batch. The gpu cull writes one command per batch (zero instances when nothing is
--- visible), gl_DrawID picks the batch's record and the vertex shader pulls the mesh
--- through its buffer addresses, so no per-batch binding is needed.
 local ShadowBatchRecord = ffi.typeof(
 	[[struct {
 		uint32_t addresses[4];
@@ -1018,9 +1007,6 @@ local function update_local_directional_orthographic(self, light_position, light
 	)
 end
 
--- Renders the shadow from the light position itself, so the map matches the
--- light's own inverse-square falloff and only covers the cone in front of
--- the light.
 local function update_local_directional_perspective(self, light_position, light_rotation, range, fov)
 	local near = math.max(self.near_plane, 0.001)
 	local view = Matrix44()
@@ -1133,9 +1119,6 @@ local function quickselect_depth_value(values, target_index)
 	return nil
 end
 
--- the shadow soup is drawn straight from the scene bvh's soup: a vertex
--- shader looks its triangle up by vertex index (so nothing is bound as a
--- vertex buffer) and collapses the triangles of materials that stop no light
 local SOUP_TRIANGLE_BINDING = 2
 local SOUP_OPACITY_BINDING = 3
 local SOUP_UV_BINDING = 4
@@ -1157,7 +1140,6 @@ local SOUP_VERTEX_BODY = [[
 ]]
 local soup_vertex_glsl = {}
 
--- built on first use: the scene bvh is still loading when this file is
 local function get_soup_vertex_glsl(uvs)
 	local code = soup_vertex_glsl[uvs]
 
@@ -1249,11 +1231,6 @@ local function create_soup_pipeline_variant(self, depth_format, max_shadow_width
 	)
 end
 
--- the blocks whose materials let some light through also sample the albedo
--- texture. what a fragment needs of its material is looked up by the
--- vertex's material id, in a table of its own per pipeline because the
--- bindless texture indices belong to the pipeline
--- mode 0 draws, 1 alpha tests and 2 dithers by alpha, as the raster passes do
 local SOUP_UV_FRAGMENT_GLSL = [[
 		#version 450
 		#extension GL_EXT_nonuniform_qualifier : require
@@ -1361,9 +1338,6 @@ local function create_soup_uv_pipeline_variant(
 	)
 end
 
--- writes what the fragments of a pipeline need of the materials in the soup:
--- the ones that are new or were stamped since last time, or all of them when
--- the shadow of every material may have changed
 local function update_soup_material_table(pipeline, table_state)
 	local materials = scene_bvh.materials
 	local count = #materials
@@ -1407,9 +1381,6 @@ local function update_soup_material_table(pipeline, table_state)
 	pipeline:UpdateDescriptorSet("storage_buffer", 1, 1, 0, table_state.buffer, table_state.buffer:GetSize())
 end
 
--- Shadow maps render their shadow passes from a single PreFrame coordinator
--- that distributes the global per-frame pass budget round-robin across all
--- active maps so one map cannot starve the others.
 local MAX_SHADOW_PASSES_PER_FRAME = 4
 local shadow_pass_budget_frame = -1
 local shadow_passes_used = 0
@@ -1499,8 +1470,6 @@ local function build_shadow_cascade_update_mask(self)
 		farthest_cascade.last_camera_position,
 		policy.farthest_cascade_camera_position_threshold or 0
 	)
-	-- the cascade is fitted to the view frustum slice, so turning the camera
-	-- moves the slice out of the map just like walking does
 	local camera_forward = camera:GetRotation():GetForward()
 	local camera_turned = not farthest_cascade.last_camera_forward or
 		camera_forward:Dot(farthest_cascade.last_camera_forward) < math.cos(math.rad(policy.farthest_cascade_camera_rotation_threshold or 5))
@@ -1533,7 +1502,6 @@ local function render_shadow_map_pass(self, cascade_index, is_first_in_batch, is
 	)
 end
 
--- defined next to the shadow draw submission below
 local draw_shadow_single, draw_shadow_instanced
 
 function ShadowMap.New(config)
@@ -1561,10 +1529,9 @@ function ShadowMap.New(config)
 	self.cascade_formats = config.cascade_formats
 	self.near_plane = config.near_plane or 0.1
 	self.far_plane = config.far_plane or 100.0
-	self.ortho_size = config.ortho_size or 50.0 -- Half-size of orthographic projection
+	self.ortho_size = config.ortho_size or 50.0
 	self.point_color_format = DEFAULT_POINT_COLOR_FORMAT
 	self.point_light_position = Vec3(0, 0, 0)
-	-- Cascaded shadow map settings
 	self.cascade_count = config.cascade_count or
 		(
 			self.mode == "point" and
@@ -1578,16 +1545,16 @@ function ShadowMap.New(config)
 		assert(self.cascade_count <= 4, "shadow maps currently support up to 4 cascades")
 	end
 
-	self.cascade_split_lambda = config.cascade_split_lambda or 0.75 -- Blend between linear and logarithmic split
-	self.max_shadow_distance = config.max_shadow_distance or 500.0 -- Maximum shadow distance (clamps view far plane)
-	self.scene_world_aabb = nil -- when set, the cascade fit is clamped to the scene's world AABB extent
+	self.cascade_split_lambda = config.cascade_split_lambda or 0.75
+	self.max_shadow_distance = config.max_shadow_distance or 500.0
+	self.scene_world_aabb = nil
 	self.scene_bounds_margin = config.scene_bounds_margin or 16
 	self.current_shadow_distance = self.max_shadow_distance
 	self.min_caster_texel_size = config.min_caster_texel_size or 0
 	self.disable_vertex_animation_cascades = config.disable_vertex_animation_cascades or {}
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
-	self.cascade_splits = {} -- Will store the split distances
-	self.cascade = {} -- Per-cascade data
+	self.cascade_splits = {}
+	self.cascade = {}
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl(), "shadow_map.vertex_animation")
 	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl, "shadow_map.state")
 	self.soup_state = {
@@ -1596,13 +1563,13 @@ function ShadowMap.New(config)
 		albedo_generation = -1,
 		vertex_count = 0,
 	}
-	self.light = config.light -- optional source entity whose transform the map follows
-	self.role = config.role or "cascades" -- "cascades" or "inset", used by the shader upload
-	self.policy = config.policy or {} -- shadow_update_mode, shadow_update_interval, epsilons, farthest_cascade_*
+	self.light = config.light
+	self.role = config.role or "cascades"
+	self.policy = config.policy or {}
 	self.directional_rotation_flip = config.directional_rotation_flip
 	self.perspective_fov = config.perspective_fov
 	self.enabled = true
-	self.next_cascade = 1 -- shadow rendering progress
+	self.next_cascade = 1
 	self.needs_completion = false
 	self.last_update_frame = nil
 	self.last_position = nil
@@ -1697,7 +1664,6 @@ function ShadowMap.New(config)
 	else
 		local unique_formats = {}
 
-		-- Initialize cascades
 		for i = 1, self.cascade_count do
 			local cascade_size = (cascade_sizes[i] or self.size):Copy()
 			local cascade_format = get_cascade_depth_format(self.cascade_formats, i, self.format)
@@ -1793,7 +1759,6 @@ function ShadowMap.New(config)
 		self.soup_pipeline = self.soup_pipeline_variants[self.format]
 	end
 
-	-- Command buffer for shadow pass
 	self.command_pool = render.GetCommandPool()
 	self.cmd = self.command_pool:AllocateCommandBuffer()
 	self.fence = Fence.New(render.GetDevice())
@@ -1806,7 +1771,6 @@ function ShadowMap.New(config)
 		draw_instanced = draw_shadow_instanced,
 	}
 	self.shadow_multi_draw_push_constants = ShadowMultiDrawPushConstants()
-	-- Current cascade being rendered (for Begin/End API)
 	self.current_cascade = 1
 	return self
 end
@@ -1888,8 +1852,6 @@ function ShadowMap:UpdateLocalDirectionalLightMatrices(light_position, light_rot
 	end
 end
 
--- Calculate cascade split distances using practical split scheme
--- Blends between logarithmic and linear split based on lambda parameter
 function ShadowMap:CalculateCascadeSplits()
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
 	local cam = render3d.GetCamera()
@@ -1924,11 +1886,8 @@ function ShadowMap:CalculateCascadeSplits()
 
 	for i = 1, n do
 		local p = i / n
-		-- Logarithmic split
 		local log_split = view_near * math.pow(view_far / view_near, p)
-		-- Linear split
 		local linear_split = view_near + (view_far - view_near) * p
-		-- Blend between the two
 		self.cascade_splits[i] = lambda * log_split + (1 - lambda) * linear_split
 	end
 end
@@ -1964,9 +1923,6 @@ function get_frustum_slice_corners(cam, split_near, split_far)
 	}
 end
 
--- Update all cascade light matrices for cascaded shadow mapping
--- view_camera: the main view camera to calculate frustum splits from
--- light_rotation: quaternion rotation of the directional light
 function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mask)
 	if self.mode == "point" then return end
 
@@ -2078,12 +2034,6 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 		max_x = radius
 		min_y = -radius
 		max_y = radius
-		-- light view looks down -z, so +z is toward the sun. Casters sit at higher
-		-- z than the receivers in this slice, anything below the slice cannot
-		-- shadow it. The projection keeps a tight depth range for precision and
-		-- relies on depth clamping to pancake casters beyond the near plane, the
-		-- cull volume reaches much further toward the sun so those casters are
-		-- still drawn.
 		local receiver_depth_span = max_z - min_z
 		local texel_world_size = self.cascade[cascade_idx].texel_world_size
 		local far_margin = receiver_depth_span * 0.05 + texel_world_size * 4
@@ -2132,7 +2082,6 @@ function ShadowMap:IsWorldAABBVisible(cascade_index, world_aabb)
 	if not cascade then return true end
 
 	if self.mode == "point" then
-		-- world_aabb may be a plain bounds table (BVH nodes), not an AABB struct
 		return AABB.IsOverlappedSphereInside(world_aabb, self.point_light_position, self.far_plane) and
 			is_aabb_visible_frustum(world_aabb, cascade.frustum_planes)
 	end
@@ -2190,9 +2139,6 @@ local function get_shadow_cull_output_requirements()
 	math.max(layout and layout.shadow_instance_capacity or 0, 1)
 end
 
--- queries read their output back on the cpu while shadow draws consume theirs on the
--- gpu, so each cascade keeps one output per purpose and neither can overwrite a
--- result the other still needs
 local function ensure_shadow_cull_output(self, cascade_index, key)
 	local cascade = self.cascade and self.cascade[cascade_index] or nil
 
@@ -2247,9 +2193,6 @@ function ShadowMap:GetGPUCullOptions(cascade_index)
 	return options
 end
 
--- Records this cascade's gpu cull into self.cmd. It has to run before rendering
--- begins, since the cull ends in a barrier. The draws later in self.cmd then read
--- the indirect commands it writes, so the cpu never waits on the cull.
 local function record_shadow_draw_cull(self, cascade_index)
 	local cascade = self.cascade[cascade_index]
 	cascade.gpu_draw_cull_result = nil
@@ -2282,9 +2225,6 @@ function ShadowMap:GetGPUDrawCullResult(cascade_index)
 	return nil
 end
 
--- Begin shadow pass for a specific cascade (or all cascades if cascade_index is nil)
--- the gpu timing scope of a cascade (a cube face for point lights), shared by
--- every shadow map of the same role so their times add up
 function ShadowMap:GetTimingName(cascade_index)
 	local names = self.timing_names
 
@@ -2391,9 +2331,6 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		gpu_timing.BeginCommandBuffer(self.cmd)
 		self.is_recording_cascades = true
 		self.batch_serial = self.batch_serial + 1
-		-- the outer cascades rasterize the triangle soup as a single merged
-		-- mesh straight from the scene bvh. what its vertex shaders read is
-		-- refreshed only when the soup or a material's shadow changed
 		local state = self.soup_state
 
 		if
@@ -2405,16 +2342,12 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 				state.albedo_generation ~= Material.albedo_generation
 			)
 		then
-			-- a build keeps the class of the blocks it wrote, so going over every
-			-- block again is for when what a material does to a shadow changed
 			local materials_changed = state.shadow_generation ~= Material.shadow_generation or
 				state.albedo_generation ~= Material.albedo_generation
 			state.version = scene_bvh.soup_version
 			state.shadow_generation = Material.shadow_generation
 			state.albedo_generation = Material.albedo_generation
 
-			-- the tables are written here, before anything of this recording
-			-- binds their descriptors, which a later write would invalidate
 			for format, table_state in pairs(self.soup_material_tables) do
 				update_soup_material_table(self.soup_uv_pipeline_variants[format], table_state)
 			end
@@ -2425,7 +2358,6 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 			if state.vertex_count > 0 then
 				if materials_changed then scene_bvh.RefreshShadowClasses() end
 
-				-- the buffers are replaced when they grow
 				if
 					state.triangle_buffer ~= scene_bvh.triangle_buffer or
 					state.uv_buffer ~= scene_bvh.uv_buffer or
@@ -2452,7 +2384,6 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 
 	gpu_timing.BeginScope(self.cmd, self:GetTimingName(cascade_index))
 	record_shadow_draw_cull(self, cascade_index)
-	-- Transition depth texture to depth attachment optimal
 	render.TransitionResourceTo(
 		depth_texture,
 		"depth_attachment_optimal",
@@ -2464,28 +2395,21 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 			dstAccess = "depth_stencil_attachment_write",
 		}
 	)
-	-- Use integer values from the depth texture to ensure consistency
 	local w = depth_texture:GetWidth()
 	local h = depth_texture:GetHeight()
-	-- Begin rendering (depth-only)
 	self.cmd:BeginRendering{
 		depth_image_view = depth_texture:GetView(),
-		depth_store = true, -- We need to store the depth for sampling later
+		depth_store = true,
 		depth_layout = "depth_attachment_optimal",
 		w = w,
 		h = h,
 		clear_depth = 1.0,
 	}
-	-- Set viewport and scissor (dynamic states)
 	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
 	self.cmd:SetScissor(0, 0, w, h)
-	-- NOTE: Pipeline barriers are not allowed inside dynamic rendering!
-	-- Synchronization between shadow map and main pass happens via fence/submit
 	return self.cmd
 end
 
--- Begin rendering all cascades (helper for cascaded shadow mapping)
--- Returns a table of command buffers, one per cascade
 function ShadowMap:BeginAllCascades()
 	local cmds = {}
 
@@ -2496,15 +2420,12 @@ function ShadowMap:BeginAllCascades()
 	return cmds
 end
 
--- Upload shadow pass constants (light-space matrix; world transform is applied in shader)
--- material: optional Material object for alpha testing (will use albedo texture)
 function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local push_constants = ShadowDrawPushConstants()
 	local pipeline = get_pipeline_for_cascade(self, cascade_index)
 	local texture_entry = nil
 
-	-- If material is provided, get its albedo texture index and flags for alpha testing
 	if material then
 		texture_entry = get_cached_shadow_material_texture_indices(self, material, pipeline)
 
@@ -2523,8 +2444,6 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	local frame_index = render.GetCurrentFrame()
 	local vertex_animation_offset = get_vertex_animation_offset(self, vertex_animation_material, frame_index)
 	local shadow_state_offset = get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
-	-- must be a fresh table each call: CommandBuffer:BindDescriptorSets fast-paths
-	-- on dynamic_offsets table identity and would skip rebinding a reused/mutated one
 	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_state_offset})
 
 	do
@@ -2616,11 +2535,7 @@ local function bind_instanced_shadow_constants(self, material, cascade_index)
 	local frame_index = render.GetCurrentFrame()
 	local vertex_animation_offset = get_vertex_animation_offset(self, vertex_animation_material, frame_index)
 	local shadow_state_offset = get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
-	-- must be a fresh table each call: CommandBuffer:BindDescriptorSets fast-paths
-	-- on dynamic_offsets table identity and would skip rebinding a reused/mutated one
 	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_state_offset})
-	-- the pipeline is built for the largest cascade, binding it resets the
-	-- viewport to that size so it has to follow the cascade's own texture
 	local depth_texture = self.mode == "point" and
 		self.point_depth_buffer or
 		self.cascade[cascade_index].depth_texture
@@ -2705,10 +2620,6 @@ local function write_shadow_batch_record(self, pipeline, record, batch)
 	model_pipeline.FillVertexAnimationData(record.anim, material)
 end
 
--- Draws a cascade from its recorded gpu cull with a single indirect multi-draw over
--- every instanced batch: the cull wrote each batch's instance count, so a batch
--- with no visible instance draws nothing. Entries that cannot be instanced are
--- culled on the cpu.
 function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_stats)
 	local submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 	local dataset = gpu_culling.GetSceneDataset()
@@ -2723,8 +2634,6 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 		local batch_table = self.shadow_batch_tables[pipeline]
 
 		if not batch_table then
-			-- the map waits on its fence before recording again, so one buffer
-			-- is enough
 			batch_table = BatchTable.New{
 				label = "render3d_shadow_batches",
 				record_type = ShadowBatchRecord,
@@ -2841,7 +2750,6 @@ function ShadowMap:UsesSoup(cascade_index)
 end
 
 do
-	-- merged runs of the visible blocks that draw dithered, as first / stop pairs
 	local dither_runs = {}
 
 	function ShadowMap:DrawSoup(cascade_index)
@@ -2867,13 +2775,9 @@ do
 
 		local pipeline = self.soup_pipeline_variants[cascade.format] or self.soup_pipeline
 		pipeline:Bind(self.cmd, frame_index, {offset})
-		-- a block's padding is degenerate, so visible blocks that are neighbours
-		-- in the soup are drawn as one range
 		local first, stop = 0, 0
 		local dither_count = 0
 		local dither_first, dither_stop = 0, 0
-		-- blocks placed by a build that is still running can lie past what was
-		-- expanded
 		local limit = self.soup_state.vertex_count
 		scene_bvh.MarkVisibleBlocks(planes)
 		local visible = scene_bvh.raster_visible
@@ -2949,7 +2853,6 @@ function ShadowMap:PrimeMaterial(material)
 	end
 end
 
--- End shadow pass for current cascade
 function ShadowMap:End(cascade_index, is_last_in_batch)
 	cascade_index = cascade_index or self.current_cascade
 	is_last_in_batch = is_last_in_batch == nil and
@@ -2983,7 +2886,6 @@ function ShadowMap:End(cascade_index, is_last_in_batch)
 
 	local depth_texture = self.cascade[cascade_index].depth_texture
 	self.cmd:EndRendering()
-	-- Transition depth texture to shader read optimal for sampling
 	render.TransitionResourceFrom(
 		depth_texture,
 		"shader_read_only_optimal",
@@ -2998,20 +2900,15 @@ function ShadowMap:End(cascade_index, is_last_in_batch)
 	self.cascade[cascade_index].is_sampleable = true
 	gpu_timing.EndScope(self.cmd, self:GetTimingName(cascade_index))
 
-	if is_last_in_batch then
-		-- Submit once after all cascades are recorded and let the next frame fence-gate reuse.
-		self:CloseBatch()
-	end
+	if is_last_in_batch then self:CloseBatch() end
 end
 
--- Get the depth texture for sampling in main pass
 function ShadowMap:GetDepthTexture(cascade_index)
 	if self.mode == "point" then return self.point_depth_cubemap end
 
 	return self.cascade[cascade_index].depth_texture
 end
 
--- Get all cascade depth textures
 function ShadowMap:GetCascadeDepthTextures()
 	if self.mode == "point" then return {self.point_depth_cubemap} end
 
@@ -3024,8 +2921,6 @@ function ShadowMap:GetCascadeDepthTextures()
 	return textures
 end
 
--- Get the light space matrix for transforming in main pass
--- false until the cascade has been rendered once
 function ShadowMap:IsCascadeSampleable(cascade_index)
 	return self.cascade[cascade_index].is_sampleable
 end
@@ -3050,12 +2945,10 @@ function ShadowMap:GetCascadeTexelWorldSize(cascade_index)
 	return self.cascade[cascade_index].texel_world_size or 0
 end
 
--- Get cascade split distances (view-space depth values)
 function ShadowMap:GetCascadeSplits()
 	return self.cascade_splits
 end
 
--- Source entity (with .transform) the map follows for position/rotation.
 function ShadowMap:SetLightSource(entity)
 	self.light = entity
 	self.last_position = nil
@@ -3079,7 +2972,6 @@ local shadows = pvars.Setup2{
 }
 pvars.EndGroup()
 
--- the weather's shelter map keeps rain out of covered places, it isn't a shadow
 function ShadowMap:IsEnabled()
 	return self.enabled and (self.role == "shelter" or shadows:Get())
 end
@@ -3092,9 +2984,6 @@ function ShadowMap.GetActiveMaps()
 	return active_maps
 end
 
--- true when a visual's world aabb changed this frame (union of before and
--- after) somewhere this map can see. point maps only care about their sphere,
--- so moving geometry across the room does not rerender every light
 local function geometry_changed_for(self, transform)
 	local library = Visual.Library
 
@@ -3120,8 +3009,6 @@ local function geometry_changed_for(self, transform)
 	return false
 end
 
--- Decides whether this map needs shadow passes this frame, updates its
--- matrices, and returns the list of cascades eligible for rendering, or nil.
 function ShadowMap:PrepareFrameUpdate()
 	if not self:IsEnabled() then return nil end
 
@@ -3136,8 +3023,6 @@ function ShadowMap:PrepareFrameUpdate()
 	local restart = false
 
 	if mode == "on_move" then
-		-- sticky until a full render starts, so a change seen while the light is
-		-- off screen or mid-render is not lost
 		if geometry_changed_for(self, transform) then self.geometry_dirty = true end
 
 		restart = self.geometry_dirty
@@ -3181,8 +3066,6 @@ function ShadowMap:PrepareFrameUpdate()
 		end
 	end
 
-	-- a change seen mid-render keeps geometry_dirty set, so the next full render
-	-- picks it up once this one completes
 	if restart and not self.needs_completion then
 		self.next_cascade = 1
 		self.geometry_dirty = false
@@ -3329,12 +3212,10 @@ function ShadowMap:UpdateMatrices(update_mask)
 	end
 end
 
--- Get number of cascades
 function ShadowMap:GetCascadeCount()
 	return self.cascade_count
 end
 
--- Get shadow map size
 function ShadowMap:GetSize()
 	return self.size
 end

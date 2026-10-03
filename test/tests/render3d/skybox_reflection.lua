@@ -99,17 +99,11 @@ T.Pending("Graphics Polygon3D environment map reflection colors", function(draw)
 	T.Test3D("Graphics Polygon3D environment map reflection colors", function()
 		sphere(90, 0, {metallic = 0.5, roughness = 0.1, color = Color(1, 1, 1, 1)})
 		local tolerance = 0.6
-		-- Center: Blue (Left -X)
 		T.AssertScreenPixel{pos = {256, 256}, color = {0, 0, 1, 1}, tolerance = tolerance}
-		-- Top: Green (Up +Y)
 		T.AssertScreenPixel{pos = {256, 128}, color = {0, 1, 0, 1}, tolerance = tolerance}
-		-- Bottom: Pink (Down -Y)
 		T.AssertScreenPixel{pos = {256, 384}, color = {1, 0, 1, 1}, tolerance = tolerance}
-		-- Left: Red (Back +Z)
 		T.AssertScreenPixel{pos = {128, 256}, color = {1, 0, 0, 1}, tolerance = tolerance}
-		-- Right: Teal (Front -Z)
 		T.AssertScreenPixel{pos = {384, 256}, color = {0, 1, 1, 1}, tolerance = tolerance}
-		-- Rim: Yellow (Right +X)
 		T.AssertScreenPixel{pos = {256, 10}, color = {1, 1, 0, 1}, tolerance = tolerance}
 	end)
 end)

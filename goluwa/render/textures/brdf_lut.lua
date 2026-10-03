@@ -1,11 +1,4 @@
 local Texture = import("goluwa/render/texture.lua")
--- Split-sum BRDF LUT using the same height-correlated Smith GGX visibility as direct lighting
--- X axis: NdotV (0.0 = grazing, 1.0 = straight-on)
--- Y axis: roughness (0.0 = smooth at bottom, 1.0 = rough at top)
--- R channel: scale (DFG1, multiply by F0 at runtime)
--- G channel: bias  (DFG2, add as constant at runtime)
--- Usage: vec2 dfg = texture(brdf_lut, vec2(NdotV, roughness)).rg;
---        specular = F0 * dfg.r + dfg.g;
 local size = 512
 local tex = Texture.New{
 	width = size,

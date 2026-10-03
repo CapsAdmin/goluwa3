@@ -232,18 +232,13 @@ T.Test("text component caret moves to new line after trailing newline", function
 	pnl.text:SetWrap(true)
 	pnl.text:SetWrapToParent(true)
 	pnl.text:SetText("foo")
-	-- Move cursor to the end (simulating having typed "foo")
 	pnl.text.editor:SetCursor(#pnl.text:GetText() + 1)
-	-- Simulate pressing Enter at the end
 	pnl.text.editor:OnKeyInput("enter")
-	-- After Enter, text should be "foo\n"
 	T(pnl.text:GetText())["=="]("foo\n")
-	-- Cursor should be at position 5 (after newline)
 	T(pnl.text.editor.Cursor)["=="](5)
 	local line, col = pnl.text:GetLineColFromIndex(pnl.text.editor.Cursor)
 	T(line)["=="](2)
 	T(col)["=="](1)
-	-- wrap_layout_info should have 2 lines
 	T(#pnl.text.wrap_layout_info.lines)["=="](2)
 	T(pnl.text.wrap_layout_info.lines[2])["=="]("")
 	pnl:Remove()

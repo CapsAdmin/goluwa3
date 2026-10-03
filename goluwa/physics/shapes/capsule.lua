@@ -296,10 +296,6 @@ local CAPSULE_AABB_BOTTOM = Vec3(0, 0, 0)
 local CAPSULE_AABB_TOP = Vec3(0, 0, 0)
 
 function META:GetBroadphaseAABB(body, position, rotation, out)
-	-- the capsule is the Minkowski sum of its axis segment and a sphere, so
-	-- its exact range along any axis is the segment's range plus the radius;
-	-- a sampled AABB under-covers a tilted capsule and makes the broadphase
-	-- drop resting pairs every other frame
 	local half_height = self:GetCylinderHalfHeight()
 	local radius = self:GetRadius()
 	CAPSULE_AABB_BOTTOM.y = -half_height

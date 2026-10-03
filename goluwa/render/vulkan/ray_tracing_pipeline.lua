@@ -27,8 +27,6 @@ end
 
 common.bind_texture_registry(RayTracingPipeline)
 
--- config.bindless adds the bindless texture arrays as a second descriptor
--- set, laid out like the one compute pipelines have
 local function bindless_bindings()
 	local capacities = render.GetBindlessDescriptorCapacities()
 	return {

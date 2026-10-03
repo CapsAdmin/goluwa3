@@ -6,10 +6,7 @@ local callstack = import("goluwa/debug/callstack.lua")
 local VkDeviceMemoryBox = ffi.typeof("$[1]", vulkan.vk.VkDeviceMemory)
 Memory.total_freed_count = Memory.total_freed_count or 0
 Memory.total_freed_bytes = Memory.total_freed_bytes or 0
--- bytes of removed allocations the device still holds until the submissions
--- that may use them are done
 Memory.pending_release_bytes = Memory.pending_release_bytes or 0
--- the same by debug name, to see what is waiting
 Memory.pending_release_by_name = Memory.pending_release_by_name or {}
 vulkan.SetupDebugFunctions(Memory, vulkan.vk.VkObjectType.VK_OBJECT_TYPE_DEVICE_MEMORY)
 

@@ -9,37 +9,7 @@ local View = import("goluwa/render3d/view.lua")
 local assets = import("goluwa/assets.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local KEY = 0.28
--- exposure = 2^(LOG_EXPOSURE_AT_EV0 - ev): KEY / luminance, with luminance =
--- 2^ev * 12.5 / 100
 local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
--- Exposure is metered in EV100 (log2 of scene luminance * 100 / 12.5, the
--- reflected light meter calibration): about 15 in sunlight, 8-10 in a lit
--- room, 0-3 at night. exposure = KEY / (average luminance) maps the metered
--- average to KEY. That is above photographic middle grey (0.18) because AgX
--- renders 0.18 darker than the old ACES fit did; 0.28 looks about as bright.
---
--- mode "camera" is a camera's auto exposure: every scene's average is shown at
--- KEY, and there is no night vision.
---
--- mode "eye" shows what a person would see. The eye doesn't fully adapt: a
--- night street stays dark and noon stays bright. The metered average is shown
--- adaptation_stops stops above KEY, 0 at a lit room (EV 9). Darker than that
--- the curve follows Ferwerda et al. 1996 ("A model of visual adaptation for
--- realistic image synthesis"): brightness goes with L / threshold(L), the
--- cones' and the rods' threshold versus intensity weighted by the same mesopic
--- share of cones the night vision uses, so one adaptation state decides both
--- how dark the night is and how much of its colour is lost. The rods keep a
--- night 3-4 stops under a lit room, where the cones alone would make it 7-9;
--- dusk, where the cones are fading and the rods aren't much help yet, is the
--- hardest to see. Brighter than EV 9 the thresholds grow as fast as the light
--- (Weber's law) and would show noon as bright as a room; Ward 1994's contrast
--- based scale factor (for a 100 nit display) keeps noon a little brighter.
--- The curve is made monotonic: a darker scene is never shown brighter.
---
--- Ferwerda's model matches how visible detail is, which makes nights look
--- brighter than they feel: with rods the curve is almost flat from dusk to
--- moonlight. rod_adaptation blends its dark end from the cones alone (0, a
--- night keeps getting darker with the light) to the full rod response (1).
 pvars.StartGroup("exposure", {store = false})
 local exposure_mode = pvars.Setup2{
 	key = "r_exposure_mode",
@@ -77,29 +47,11 @@ pvars.EndGroup()
 render3d.exposure = {
 	min_ev = -4,
 	max_ev = 18,
-	-- the metered average is taken between these fractions of the (centre
-	-- weighted) luminance histogram, ignoring the darkest corners and the
-	-- brightest highlights
 	low_percent = 0.4,
 	high_percent = 0.95,
 	tau_brighten = 0.5,
 	tau_darken = 1.5,
 }
--- Local exposure (the eye's local adaptation): each pixel is exposed partly
--- for its surroundings, so a dark corner next to a bright window both read.
--- The surroundings are the average log luminance of the pixels near it on
--- screen AND close to it in brightness (a bilateral grid, as in Unreal's local
--- exposure), so the window's light doesn't bleed a halo over the wall next to
--- it. A strength of 1 would expose every region to KEY (flat); 0 is
--- off. Shadows are lifted by at most max_stops.
---
--- Highlights past headroom stops over KEY keep only slope of every further
--- stop, as long as the eye could adapt to them: looking at the full moon,
--- sunlit rock at ~4000 cd/m2 in a night sky 18 stops darker, shows its seas
--- rather than a white blob, and is still brighter than its glow.
--- The cones stop telling brightnesses apart toward ceiling cd/m2 (Hood and
--- Finkelstein 1986), so this fades out for regions approaching it: the sun
--- at 1.6e9 and the glare right around it stay blinding however long you look.
 pvars.StartGroup("exposure", {store = false})
 local local_exposure_shadows = pvars.Setup2{
 	key = "r_local_exposure_shadows",
@@ -122,9 +74,6 @@ render3d.local_exposure = {
 	slope = 0.2,
 	ceiling = 1e5,
 }
--- 0 = AgX, 1 = AgX punchy, 2 = ACES (Narkowicz fit), 3 = GT7. For HDR
--- output GT7 maps to the display's peak itself, the others go through
--- tonemap_hdr's generic curve.
 local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3}
 pvars.StartGroup("display", {store = false})
 local tonemapper = pvars.Setup2{
@@ -133,10 +82,6 @@ local tonemapper = pvars.Setup2{
 	enums = {"agx", "agx_punchy", "aces", "gt7"},
 	help = "the curve that maps the exposed scene to the display",
 }
--- HDR output (--hdr, see ImageRenderTarget:IsHDR), in nits: paper white is
--- what SDR white (and the metered average's surroundings) is shown at, 203 by
--- BT.2408; peak is the brightest the display can show. Vulkan can't query the
--- display, so match these to it (KDE's HDR settings show both).
 local update_hdr_metadata
 local hdr_paper_white = pvars.Setup2{
 	key = "r_hdr_paper_white",
@@ -156,15 +101,6 @@ local hdr_peak = pvars.Setup2{
 		if not is_init then update_hdr_metadata() end
 	end,
 }
--- the eye's switch to rod vision in dim light (mode "eye" only): colour fades
--- and reds darken (the Purkinje shift). threshold is the luminance in cd/m2 at
--- which half the colour is gone, the fade spanning 1.5 decades either side of
--- it; the default is the middle of CIE 191's mesopic range (0.005 to 5). tint
--- is how blue what the rods see is shown, 0 neutral grey and 1 the film
--- convention of Jensen et al. 2000. Rods can't tell colours apart, the blue is
--- a perceptual trick rather than what they see. The adaptation curve keeps
--- CIE's range, these only change how the loss of colour looks.
--- dither the output to hide banding from quantizing it
 local dither = pvars.Setup2{
 	key = "r_dither",
 	default = true,
@@ -190,13 +126,6 @@ local night_vision_tint = pvars.Setup2{
 }
 pvars.EndGroup()
 
--- Tells the compositor or display the range our HDR output uses (see
--- VK_EXT_hdr_metadata): nothing brighter than peak, frames averaging no more
--- than paper white, in BT.709's gamut (scRGB's primaries; HDR10 output is
--- converted from BT.709 too). With that, one whose display can't reach peak
--- compresses our highlights instead of clipping them, and one that can passes
--- them through without tonemapping them a second time. Set when it changes,
--- not per frame, since displays may visibly re-adapt on every change.
 function update_hdr_metadata()
 	if not render.target:IsHDR() then return end
 
@@ -234,7 +163,6 @@ local function get_exposure_feedback_texture()
 	return post_source.GetExposureTexture()
 end
 
--- what the scene was pre-exposed with (see post_source.PRE_EXPOSURE_HEADROOM)
 local function get_previous_exposure_texture()
 	return post_source.GetExposureTexture(true)
 end
@@ -244,10 +172,6 @@ local MESOPIC_LOG10_MAX = 0.7
 local ADAPTATION_CURVE_EV_MIN = -10
 local ADAPTATION_CURVE_EV_STEP = 0.5
 local ADAPTATION_CURVE_COUNT = 65
--- stops the metered average is shown above KEY in mode "eye", per metered EV
--- from ADAPTATION_CURVE_EV_MIN in ADAPTATION_CURVE_EV_STEP steps (see
--- render3d.exposure), with the rods and with the cones alone, as comma
--- separated GLSL lists
 local ADAPTATION_CURVE_RODS_GLSL
 local ADAPTATION_CURVE_CONES_GLSL
 
@@ -256,7 +180,6 @@ do
 		return math.log(x) / math.log(10)
 	end
 
-	-- threshold versus intensity in cd/m2, Ferwerda et al. 1996
 	local function cone_threshold(L)
 		local l = log10(L)
 
@@ -319,9 +242,6 @@ do
 	ADAPTATION_CURVE_CONES_GLSL = build(cones)
 end
 
--- r = exposure multiplier, g = the metered EV100 before adaptation and
--- compensation (for r_exposure_info), b = the metered EV100 the eye has adapted
--- to (g smoothed over time, what night vision is driven by)
 local exposure_feedback_shader = [[
 	layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_exposure;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
@@ -493,10 +413,6 @@ commands.Add("r_exposure_info", function()
 	)
 end)
 
--- The grid: GRID_X x GRID_Y screen tiles x GRID_Z bins of exposed log2
--- luminance from GRID_LOG_MIN to GRID_LOG_MAX stops around KEY, laid
--- out as GRID_Z slices side by side. Each cell holds (sum of log luminance,
--- count) so blurring it stays a weighted average.
 local GRID_X, GRID_Y, GRID_Z = 64, 36, 48
 local GRID_GLSL = (
 	[[
@@ -530,7 +446,6 @@ local function get_bloom_texture()
 	return pipeline and pipeline:GetFramebuffer():GetAttachment(1) or nil
 end
 
--- the share of the light the glare takes, 0 without it
 local function get_bloom_strength()
 	return get_bloom_texture() and
 		math.min(select(2, render3d.GetBloomWeights()) * render3d.bloom_strength:Get(), 1) or
@@ -543,7 +458,6 @@ local local_exposure_grid_pass = {
 	ColorFormat = {{"r32g32_sfloat", {"grid", "rg"}}},
 	FramebufferSize = {x = GRID_X * GRID_Z, y = GRID_Y},
 	framebuffer_count = 1,
-	-- one workgroup per tile, each invocation one sample of it
 	LocalSize = {x = 16, y = 16, z = 1},
 	storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
 	sampled_images = {
@@ -606,7 +520,6 @@ local local_exposure_grid_pass = {
 		}
 	]],
 }
--- 5x5 across the screen, 3 across luminance
 local local_exposure_blur_pass = {
 	name = "local_exposure_blur",
 	ComputePass = true,
@@ -656,8 +569,6 @@ local local_exposure_blur_pass = {
 		}
 	]],
 }
--- the stops local exposure moves a pixel by, from the grid (grid_tex) and the
--- exposure texture, with the local_* settings in the compute block
 local LOCAL_ADAPTATION_GLSL = [[
 	// average exposed log2 luminance (relative to KEY) around uv among
 	// pixels about as bright as l
@@ -714,10 +625,6 @@ local function write_local_exposure_block(block)
 	block.local_ceiling = render3d.local_exposure.ceiling
 end
 
--- The glare in exposed units, blended with what it was last frame at the same
--- place on screen. Afterimages are on the retina: the history isn't
--- reprojected, so a highlight moving over the screen leaves a fading trail,
--- and it is kept as the response it was, so it doesn't jump with the exposure.
 local glare_pass
 
 do
@@ -732,7 +639,6 @@ do
 		name = "glare",
 		ComputePass = true,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"glare", "rgba"}}},
-		-- full resolution, since the adaptation changes sharply at a bright disc's edge
 		framebuffer_count = 2,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
@@ -751,7 +657,6 @@ do
 			local frame = system.GetFrameNumber()
 			local size = render.GetRenderImageSize()
 			block.bloom_strength = get_bloom_strength()
-			-- the history is only usable if it was written last frame at this size
 			block.history_valid = (
 					render3d.bloom_smear:Get() > 0 and
 					last_frame == frame - 1 and
@@ -942,7 +847,6 @@ local r = {
 	local_exposure_blur_pass,
 }
 
--- the glare, from the light as the eye adapted to it
 for _, pass in ipairs(
 	import("goluwa/render3d/passes/bloom.lua"){
 		glsl = [[
@@ -1014,11 +918,9 @@ for _, pass in ipairs{
 			{"frame", "int"},
 			{"has_bloom_tex", "int"},
 			{"requires_manual_gamma", "int"},
-			-- 0 = SDR, 1 = scRGB, 2 = HDR10
 			{"output_mode", "int"},
 			{"hdr_paper_white", "float"},
 			{"hdr_peak", "float"},
-			-- output levels - 1 that dither spreads rounding over
 			{"dither_steps", "float"},
 			{"has_exposure_tex", "int"},
 			{"tonemapper", "int"},
@@ -1041,8 +943,6 @@ for _, pass in ipairs{
 				0
 			block.hdr_paper_white = hdr_paper_white:Get()
 			block.hdr_peak = hdr_peak:Get()
-			-- a float swapchain is quantized downstream: assume 8 bit for SDR
-			-- and 10 bit PQ for HDR
 			local bits = render.target:GetColorBits()
 
 			if bits >= 16 then bits = render.target:IsHDR() and 10 or 8 end
@@ -1119,8 +1019,6 @@ for _, pass in ipairs{
 	},
 	{
 		name = "blit_scene",
-		-- presents the scene as the passes before left it while the blit pass is off: no exposure,
-		-- bloom or tonemapping
 		fallback = true,
 		draw_in_prerender = false,
 		RasterizationSamples = function()

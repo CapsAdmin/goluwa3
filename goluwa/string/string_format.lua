@@ -52,7 +52,6 @@ function string.trim(self, char)
 	return self
 end
 
--- gsub doesn't seem to remove \0
 function string.remove_padding(str, padding)
 	padding = padding or "\0"
 	local new = {}
@@ -250,7 +249,7 @@ function string.oct_format(str, row_width, space_separator, with_hex)
 
 		if with_hex then list.insert(out, ("%02X/"):format(char:byte())) end
 
-		list.insert(out, bin) --:sub(0, 4) .. "-" .. bin:sub(5, 8))
+		list.insert(out, bin)
 		list.insert(out, space_separator)
 
 		if row_i >= row_width then

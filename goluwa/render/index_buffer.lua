@@ -3,7 +3,6 @@ local render = import("goluwa/render/render.lua")
 local objects = import("goluwa/objects/objects.lua")
 local IndexBuffer = objects.CreateTemplate("render_index_buffer")
 
--- Convert indices to appropriate format
 local function indices_to_array(indices, index_type)
 	index_type = index_type or "uint16_t"
 
@@ -26,7 +25,6 @@ function IndexBuffer.New(indices, index_type, name)
 	self.index_type = index_type or "uint16_t"
 	self.debug_name = name
 
-	-- If indices is nil, create an empty buffer for dynamic usage
 	if not indices then
 		self.indices = {}
 		self.index_count = 0
@@ -35,10 +33,8 @@ function IndexBuffer.New(indices, index_type, name)
 
 	self.indices = indices
 	self.index_count = #indices
-	-- Convert to array for initial upload
 	local index_data, byte_size = indices_to_array(indices, self.index_type)
 	self.byte_size = byte_size
-	-- Create the GPU buffer
 	self.buffer = render.CreateBuffer{
 		buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},
 		data_type = self.index_type,
@@ -55,10 +51,8 @@ function IndexBuffer.FromPointer(ptr, len, index_type, name)
 	self.debug_name = name
 	self.indices = ptr
 	self.index_count = len
-	-- Calculate byte size
 	local byte_size = ffi.sizeof(self:GetIndexTypeFFI()) * len
 	self.byte_size = byte_size
-	-- Create the GPU buffer directly from the pointer
 	self.buffer = render.CreateBuffer{
 		buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},
 		data_type = self.index_type,
@@ -103,7 +97,6 @@ function IndexBuffer:SetIndex(index, value)
 end
 
 function IndexBuffer:Upload()
-	-- Reflatten the indices and upload
 	local index_data, byte_size = indices_to_array(self.indices, self.index_type)
 	self.byte_size = byte_size
 
@@ -134,7 +127,6 @@ function IndexBuffer:GetIndexCount()
 end
 
 function IndexBuffer:LoadIndices(count)
-	-- Create sequential indices array
 	self.indices = {}
 
 	for i = 1, count do
@@ -142,12 +134,9 @@ function IndexBuffer:LoadIndices(count)
 	end
 
 	self.index_count = count
-	-- Calculate byte size
 	self.byte_size = ffi.sizeof(self.index_type) * count
-	-- Convert to array for upload
 	local index_data, byte_size = indices_to_array(self.indices, self.index_type)
 
-	-- Create or recreate the GPU buffer
 	if not self.buffer or self.buffer_size ~= byte_size then
 		self.buffer = render.CreateBuffer{
 			buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},

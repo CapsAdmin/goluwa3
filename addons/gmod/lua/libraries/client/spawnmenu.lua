@@ -6,7 +6,7 @@ function spawnmenu.PopulateFromTextFiles()
 	return {}
 end
 
-do -- presets
+do
 	function gine.env.LoadPresets()
 		local out = {}
 

@@ -1,32 +1,3 @@
---[[
-	A terrain source answers chunk requests. The terrain object never cares
-	where the data comes from, so a source can be procedural, a heightmap
-	texture, or something fetched over the network.
-
-	request = {
-		min_x, min_z, size,  -- world bounds of the square chunk
-		samples,             -- CPU height samples per side (nil = none wanted)
-		detail_size,         -- normal map size (nil = none)
-		splat_size,          -- material weight texture size (nil = none)
-		color_size,          -- albedo texture size (nil = none)
-	}
-
-	The callback receives a chunk:
-
-	chunk = {
-		request = request,
-		heights = float[samples * samples] in meters, row major, z rows, x columns, inclusive of both edges
-		min_height, max_height,
-		normal_texture = rgba8 normal map (texel centers), x and z in rg, y in b, or nil
-		splat_texture = rgba8 layer weights, or nil
-		color_texture = rgba8 albedo, or nil
-	}
-
-	Sources may answer synchronously inside RequestChunk or later. The terrain
-	calls Submit after each round of requests and Update every frame, so a
-	source can batch the requests of a round and answer them from Update.
-	Finish must answer everything still outstanding.
-]]
 local TerrainSource = {}
 TerrainSource.__index = TerrainSource
 

@@ -9,9 +9,6 @@ function Screenshot(cb, opt)
 	end
 
 	local function capture_swapchain()
-		-- called at PostRenderPass: the frame's command buffer is still
-		-- recording, so the copy is recorded before present and the pixels are
-		-- read once the frame is submitted
 		local texture = render.target:GetTexture():Download()
 
 		event.AddListener("FrameEnd", function()
@@ -22,8 +19,6 @@ function Screenshot(cb, opt)
 
 	local function schedule()
 		if render.target.config.offscreen then
-			-- the frame's command buffer is only submitted at the end of
-			-- EndFrame, so wait for FrameEnd before downloading
 			event.AddListener("FrameEnd", function()
 				cb(render.target:GetTexture():Download())
 			end)
@@ -62,8 +57,6 @@ function Screenshot(cb, opt)
 			error("Screenshot: rendering is disabled (headless mode)", 2)
 		end
 
-		-- rendering initializes after the user script runs (e.g. the
-		-- --screenshot flag), so wait for the first frame
 		event.AddListener("PostRenderPass", function()
 			if render.target.config.offscreen then
 				schedule()

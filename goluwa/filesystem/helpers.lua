@@ -29,19 +29,16 @@ function vfs.FindMixedCasePath(path)
 
 	if cached ~= nil then return cached ~= false and cached or nil end
 
-	-- try exact path first
 	if vfs.IsFile(path) then
 		mixed_case_path_cache[path] = path
 		return path
 	end
 
-	-- try exact lowercase
 	if vfs.IsFile(path:lower()) then
 		mixed_case_path_cache[path] = path:lower()
 		return path:lower()
 	end
 
-	-- keep "/", "C:/" or "filesystem:/" roots as is, only the components after them can differ in case
 	local root = path:match("^[^/]*:/") or path:match("^/") or ""
 	local parts = {}
 
@@ -49,8 +46,6 @@ function vfs.FindMixedCasePath(path)
 		if str ~= "" then parts[#parts + 1] = str end
 	end
 
-	-- start from the deepest directory that exists verbatim, a filesystem like "crytek package:"
-	-- can't list the real directories leading up to its archive
 	local first = 1
 
 	for i = #parts - 1, 1, -1 do
@@ -61,7 +56,6 @@ function vfs.FindMixedCasePath(path)
 		end
 	end
 
-	-- dir always ends with a slash so vfs.Find lists it as a directory
 	local dir = first > 1 and (root .. table.concat(parts, "/", 1, first - 1) .. "/") or root
 
 	for i = first, #parts do
@@ -78,7 +72,6 @@ function vfs.FindMixedCasePath(path)
 		end
 
 		if not found_match then
-			-- VFS search failed, try using fs module with absolute path
 			local abs_dir = vfs.GetAbsolutePath(dir == "" and "." or dir, true)
 
 			if abs_dir then
@@ -329,8 +322,7 @@ add_helper(
 	"write",
 	function(path, content, on_change)
 		path = path:gsub("(.+/)(.+)", function(folder, file_name)
-			for _, char in ipairs{--[['\\', '/', ]]
-			":", "%*", "%?", "\"", "<", ">", "|"} do
+			for _, char in ipairs{":", "%*", "%?", "\"", "<", ">", "|"} do
 				file_name = file_name:gsub(char, "_il" .. char:byte() .. "_")
 			end
 

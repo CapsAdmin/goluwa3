@@ -2,7 +2,8 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local love = ... or _G.love
-local line = import("lua/line.lua") -- line_update and line_draw
+local line = import("lua/line.lua")
+
 function love.load() end
 
 function love.conf(t) end
@@ -16,7 +17,7 @@ end
 
 function love.line_update(dt)
 	if love._line_env.love_game_update_draw_hack == false then
-		love._line_env.love_game_update_draw_hack = true -- this is stupid but it's because some games rely on update being called before draw
+		love._line_env.love_game_update_draw_hack = true
 	end
 
 	if love.update then line.pcall(love, love.update, dt) end

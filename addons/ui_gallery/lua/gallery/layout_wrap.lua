@@ -9,7 +9,6 @@ local Checkbox = import("goluwa/render2d/ui/elements/checkbox.lua")
 local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-
 local alignment_options = {
 	{Text = "Start", Value = "start"},
 	{Text = "Center", Value = "center"},
@@ -19,12 +18,10 @@ local alignment_options = {
 	{Text = "Space Around", Value = "space_around"},
 	{Text = "Space Evenly", Value = "space_evenly"},
 }
-
 local direction_options = {
 	{Text = "Horizontal (row)", Value = "x"},
 	{Text = "Vertical (column)", Value = "y"},
 }
-
 return {
 	Name = "layout_wrap",
 	Create = function()
@@ -36,11 +33,9 @@ return {
 			wrap = true,
 			child_gap = 10,
 		}
-
 		local preview_host
 
 		local function hsl_to_rgb(h, s, l)
-			-- Simple HSL to RGB conversion
 			h = h % 360
 			local c = (1 - math.abs(2 * l - 1)) * s
 			local x = c * (1 - math.abs((h / 60) % 2 - 1))
@@ -73,7 +68,6 @@ return {
 		local function build_tile(index)
 			local color = get_item_color(index)
 			local size = state.item_size
-
 			return Panel.New{
 				{
 					Name = "Tile " .. index,
@@ -110,12 +104,15 @@ return {
 
 		local function update_alignment_display()
 			local label_text = alignment_options[1].Text
+
 			for _, opt in ipairs(alignment_options) do
 				if opt.Value == state.alignment then
 					label_text = opt.Text
+
 					break
 				end
 			end
+
 			return label_text
 		end
 
@@ -172,17 +169,17 @@ return {
 						GrowWidth = 1,
 					},
 				},
-					Text{
-						Ref = function(self)
-							self.text:SetText(tostring(state.count))
-						end,
-						Text = tostring(state.count),
-						IgnoreMouseInput = true,
-						AlignX = 1,
-						layout = {
-							FitWidth = true,
-						},
+				Text{
+					Ref = function(self)
+						self.text:SetText(tostring(state.count))
+					end,
+					Text = tostring(state.count),
+					IgnoreMouseInput = true,
+					AlignX = 1,
+					layout = {
+						FitWidth = true,
 					},
+				},
 			},
 			Row{
 				layout = {
@@ -210,17 +207,17 @@ return {
 						GrowWidth = 1,
 					},
 				},
-					Text{
-						Ref = function(self)
-							self.text:SetText(tostring(state.item_size) .. "px")
-						end,
-						Text = tostring(state.item_size) .. "px",
-						IgnoreMouseInput = true,
-						AlignX = 1,
-						layout = {
-							FitWidth = true,
-						},
+				Text{
+					Ref = function(self)
+						self.text:SetText(tostring(state.item_size) .. "px")
+					end,
+					Text = tostring(state.item_size) .. "px",
+					IgnoreMouseInput = true,
+					AlignX = 1,
+					layout = {
+						FitWidth = true,
 					},
+				},
 			},
 			Row{
 				layout = {
@@ -248,17 +245,17 @@ return {
 						GrowWidth = 1,
 					},
 				},
-					Text{
-						Ref = function(self)
-							self.text:SetText(tostring(state.child_gap))
-						end,
-						Text = tostring(state.child_gap),
-						IgnoreMouseInput = true,
-						AlignX = 1,
-						layout = {
-							FitWidth = true,
-						},
+				Text{
+					Ref = function(self)
+						self.text:SetText(tostring(state.child_gap))
+					end,
+					Text = tostring(state.child_gap),
+					IgnoreMouseInput = true,
+					AlignX = 1,
+					layout = {
+						FitWidth = true,
 					},
+				},
 			},
 			Row{
 				layout = {
@@ -317,6 +314,7 @@ return {
 					end,
 					GetText = function()
 						if state.direction == "x" then return "Horizontal (row)" end
+
 						return "Vertical (column)"
 					end,
 					OnSelect = function(value)
@@ -376,19 +374,15 @@ return {
 				}{},
 			},
 		}
-
-		-- Override rebuild to update layout props dynamically
 		local original_rebuild = rebuild_preview
 		rebuild_preview = function()
 			if not preview_host or not preview_host:IsValid() then return end
 
 			preview_host:RemoveChildren()
-
 			local layout = preview_host.layout
 			layout:SetDirection(state.direction)
 			layout:SetWrapChildren(state.wrap)
 
-			-- Set the appropriate alignment based on direction
 			if state.direction == "x" then
 				layout:SetAlignmentX(state.alignment)
 				layout:SetAlignmentY("start")
@@ -396,6 +390,7 @@ return {
 				layout:SetAlignmentY(state.alignment)
 				layout:SetAlignmentX("start")
 			end
+
 			layout:SetChildGap(state.child_gap)
 
 			for i = 1, state.count do
@@ -404,7 +399,6 @@ return {
 
 			layout:InvalidateLayout(true)
 		end
-
 		rebuild_preview()
 		return pnl
 	end,

@@ -9,7 +9,6 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local scene_bvh = library()
--- Pre-register to break import cycle: visual -> render3d -> scene_bvh -> visual
 import.loaded["goluwa/render3d/scene_bvh.lua"] = scene_bvh
 local Visual
 local Material = import("goluwa/render3d/material.lua")
@@ -34,10 +33,6 @@ local Triangle = ffi.typeof([[
 local NodeArray = ffi.typeof("$[?]", Node)
 local NodePtr = ffi.typeof("$*", Node)
 local TriangleArray = ffi.typeof("$[?]", Triangle)
--- an emissive triangle of a block: its index in the block (high bit set when
--- double sided), its power (area x emission luminance), its centroid, and
--- whether it is only emissive because its material is additive (a light shaft,
--- water foam, a sparkle: an effect, not a light)
 local Emitter = ffi.typeof([[struct {
 	uint32_t triangle;
 	float power;
@@ -54,23 +49,13 @@ local Int32Array = ffi.typeof("int32_t[?]")
 local UInt8Array = ffi.typeof("uint8_t[?]")
 local NODE_BYTE_SIZE = 32
 local TRIANGLE_BYTE_SIZE = 64
--- static: keeps a uv per triangle vertex beside the soup, so the shadow soup
--- can alpha test and blend with a material's albedo texture. set
--- GOLUWA_SOUP_UVS=1 to measure what it costs
 scene_bvh.SOUP_UVS = true
 local SOUP_UVS = scene_bvh.SOUP_UVS
 scene_bvh.RAY_MASK_SOLID = 0x01
--- three uvs and three texture blend weights of a triangle, indexed like the
--- triangle buffer
 local UV_FLOATS = 9
 local UV_BYTE_SIZE = UV_FLOATS * 4
--- position, normal, uv, tangent come first in a mesh vertex
 local UV_FLOAT_OFFSET = 6
 local BLEND_FLOAT_OFFSET = 12
--- the soup is bound as an array of SOUP_CHUNKS descriptors over one buffer,
--- each covering 2 GiB of it, so a soup larger than maxStorageBufferRange (and
--- than what 32 bit byte offsets can address) stays reachable. triangle i lives
--- in chunk i / SOUP_CHUNK_TRIS at i % SOUP_CHUNK_TRIS
 local SOUP_CHUNK_BYTES = 2147483648
 local SOUP_CHUNKS = 8
 local SOUP_CHUNK_TRIS = SOUP_CHUNK_BYTES / TRIANGLE_BYTE_SIZE
@@ -80,8 +65,6 @@ scene_bvh.SOUP_CHUNK_TRIS = SOUP_CHUNK_TRIS
 local BIN_COUNT = 12
 local MAX_LEAF_TRIANGLES = 8
 local MAX_DEPTH = 30
--- every visual's soup range starts at a multiple of this, so the ray tracing
--- instance of a visual can store its range start in the 24 bit custom index
 local SOUP_ALIGN = 4
 scene_bvh.SOUP_ALIGN = SOUP_ALIGN
 scene_bvh.STACK_SIZE = 32
@@ -89,49 +72,20 @@ scene_bvh.node_count = 0
 scene_bvh.triangle_count = 0
 scene_bvh.build_time = 0
 scene_bvh.version = 0
--- bumped only when a build writes new triangles. version also bumps on every
--- invalidation, so whatever is derived from the triangles themselves (the ray
--- tracing BLAS, the expanded shadow soup, the emitter list) follows this one
 scene_bvh.soup_version = 0
--- bumped when a block of a hidden visual leaves the top tree or comes back.
--- its triangles, nodes and blas stay where they are, so the soup is the same
--- and only what is built over the blocks (the top tree, the tlas, the emitter
--- list) changes
 scene_bvh.top_version = 0
--- world aabbs that changed while the tree was dirty. recorded by the shared
--- aabb scan in visual.lua, consumed by light occlusion when the version
--- bumps, so it does not have to rescan every visual's aabb on its own
 scene_bvh.dirty_boxes = {}
--- blocks holding emissive triangles (see the end of a build)
 scene_bvh.emissive_blocks = {}
--- visuals that changed while the tree was dirty. nil means a resnapshot
--- happened (everything is dirty); an empty set means no tracked change yet
 scene_bvh.dirty_components = {}
--- per-visual local soup (mesh x entry-local matrix) and local child tree,
--- cached across builds so a moved visual only re-transforms its own block
 scene_bvh.visual_cache = {}
--- blocks of visuals with a skeleton, rewritten by the gpu every frame
 scene_bvh.animated_blocks = {}
--- top tree layout from the last full sah (block_base per visual in block
--- order). while the layout is unchanged and few aabbs moved, a build can
--- keep the split structure and only re-derive node bounds bottom-up, which
--- is much cheaper than re-running sah over every visual
 scene_bvh.top_layout = {}
 scene_bvh.top_node_count = 0
--- top node index -> the block root it copies (see the top leaf writer)
 scene_bvh.top_leaf_roots = {}
--- top node index -> the block of a top leaf, and the same as block index + 1
--- in top_leaf_block (0 for internal nodes) for walks that avoid the tables
 scene_bvh.top_leaf = {}
--- every material that has been part of a build, indexed by the per-triangle
--- material id + 1. ids are never reused so a cached block keeps pointing at
--- the right material across builds
 scene_bvh.materials = {}
 scene_bvh.material_ids = {}
 
--- ranges (of the soup, the node buffer, blas storage) are rounded up to size
--- classes at most 1/8 larger than needed, so freed ranges can be reused by
--- ranges of a similar size
 local function range_class(n, align)
 	if n <= 16 then return math.ceil(n / align) * align end
 
@@ -157,8 +111,6 @@ function scene_bvh.GetMaterialID(material)
 	return id
 end
 
--- world bounds of everything in the tree (the root node's box) as two float
--- arrays, nil while nothing with triangles has been built
 function scene_bvh.GetBounds()
 	if scene_bvh.triangle_count == 0 then return nil end
 
@@ -170,17 +122,9 @@ function scene_bvh.IsReady()
 	return scene_bvh.triangle_count > 0
 end
 
--- sets raster_visible[block index] for every block whose bounds touch the
--- frustum (planes as a float[24], a b c d per plane) by walking the top tree.
--- a node inside a plane drops it from the planes its subtree still tests, so
--- a subtree inside all of them is marked without further tests. the caller
--- clears the marks it reads
 do
 	local node_stack = {}
 	local mask_stack = {}
-	-- the leaves of every top node's subtree are a run of leaf_blocks, in tree
-	-- order, so a subtree inside the frustum is marked with one loop instead
-	-- of a walk over its nodes. rebuilt when a build changed the tree
 	local leaf_first = Int32Array(1)
 	local leaf_count = Int32Array(1)
 	local leaf_blocks = Int32Array(1)
@@ -362,9 +306,6 @@ do
 		return scratch
 	end
 
-	-- every visual owns a fixed range of triangles and a fixed range of nodes,
-	-- so a change to one visual rewrites only its own ranges. freed ranges
-	-- are reused by the next range of the same size class
 	local function create_allocator(first, align, grow)
 		return {
 			top = first,
@@ -410,8 +351,6 @@ do
 		allocator.used = allocator.used - cap
 	end
 
-	-- the node mirror is the cpu copy of the node buffer. triangles have no
-	-- mirror: they are baked straight into the mapped buffer
 	local function write_node(index)
 		ffi.copy(scene_bvh.node_ptr + index, scene_bvh.nodes + index, NODE_BYTE_SIZE)
 	end
@@ -426,10 +365,6 @@ do
 		return buffer, buffer:Map()
 	end
 
-	-- the soup and its uvs are written by the cpu into staging buffers in
-	-- cached system memory, and the ranges rewritten since the last upload
-	-- are copied into device local buffers, which is where shaders read them
-	-- from (system memory is read over pcie)
 	local STAGING_PROPERTIES = {"host_visible", "host_coherent", "host_cached"}
 	local soup_dirty = {}
 	local soup_upload_all = false
@@ -485,8 +420,6 @@ do
 
 	local bake_triangles
 
-	-- the soup lives only in the mapped buffer, so a grown buffer is baked
-	-- again from every block's shape
 	local function grow_triangles(needed)
 		local capacity = math.max(needed, math.ceil(scene_bvh.triangle_capacity * 1.25), 1024)
 
@@ -500,9 +433,6 @@ do
 			if scene_bvh.uv_staging then scene_bvh.uv_staging:Remove() end
 		end
 
-		-- a build can grow the soup many times before a frame completes, and
-		-- the replaced buffers would all wait for it. the soup is baked again
-		-- and uploaded in full anyway, so nothing of the old one is needed
 		render.GetDevice():WaitIdle()
 		local staging, ptr = create_mapped_buffer(
 			"scene_bvh_triangles_staging",
@@ -538,8 +468,6 @@ do
 
 		soup_upload_all = true
 
-		-- a block that is not baked yet (being laid out or moved to a bigger
-		-- range) is written once it has its range
 		for _, vc in ipairs(scene_bvh.blocks) do
 			if vc.baked_matrix then bake_triangles(vc) end
 		end
@@ -554,9 +482,6 @@ do
 		scene_bvh.triangle_allocator.capacity = capacity
 	end
 
-	-- zeroed triangles expand to degenerate ones, so the padding of a range
-	-- and a freed range draw nothing. that lets the shadow soup draw runs of
-	-- neighbouring blocks as one range across their padding
 	local function free_soup_range(base, cap)
 		range_free(scene_bvh.triangle_allocator, base, cap)
 		ffi.fill(scene_bvh.triangles + base, cap * TRIANGLE_BYTE_SIZE)
@@ -570,7 +495,6 @@ do
 		local ranges = {}
 		local triangle_copies, uv_copies
 		local copy_capacity = 0
-		-- uploads in flight at once. a slot's fence is waited on before reuse
 		local UPLOAD_SLOTS = 4
 		local slots = {}
 		local next_slot = 0
@@ -579,7 +503,6 @@ do
 			return soup_dirty[a * 2 - 1] < soup_dirty[b * 2 - 1]
 		end
 
-		-- the dirty ranges as merged first / count pairs, sorted
 		local function collect_ranges()
 			local n = #soup_dirty / 2
 			table.clear(ranges)
@@ -623,10 +546,6 @@ do
 			ranges[#ranges + 1] = stop - first
 		end
 
-		-- copies what the cpu wrote into the soup staging buffers since the
-		-- last call into the device local soup, in a command buffer of its
-		-- own that is submitted before anything of the frame reads the soup.
-		-- its barrier covers the commands submitted after it
 		function scene_bvh.UploadSoup()
 			if not soup_upload_all and not soup_dirty[1] then return end
 
@@ -640,7 +559,6 @@ do
 				return
 			end
 
-			-- the copy brings the cpu bake of a range, which an animated block has to be rewritten over
 			for vc in pairs(scene_bvh.animated_blocks) do
 				for i = 1, #ranges, 2 do
 					if vc.tri_base < ranges[i] + ranges[i + 1] and ranges[i] < vc.tri_base + vc.tri_cap then
@@ -721,9 +639,6 @@ do
 		end
 	end
 
-	-- the raster block of every entry in blocks, by block index: world bounds
-	-- and the padded soup vertex range, for frustum culling the soup without
-	-- touching the block tables
 	local function write_raster_block(vc)
 		local i = vc.block_index - 1
 
@@ -811,14 +726,6 @@ do
 	local min = math.min
 	local max = math.max
 
-	-- SAH over the items in the order[] range [first, first+count). Item i
-	-- holds its centroid at centroids[i*3] and its aabb at bounds[i*6]. Child
-	-- pairs come from cfg.allocator when given, otherwise from cfg.cursor,
-	-- which tracks the next free slot. Leaves are finalized by
-	-- cfg.leaf_writer(node, first, count, node_index). force_split turns
-	-- failed splits into mid splits instead of leaves, for trees whose leaves
-	-- must hold exactly one item. has_bounds says the node's bounds were
-	-- already written by the parent's split
 	local function build_sah(cfg, node_index, first, count, depth, has_bounds)
 		local order = cfg.order
 		local centroids = cfg.centroids
@@ -1001,8 +908,6 @@ do
 		end
 
 		local left_count = i - first
-		-- a failed split falls back to a mid split, whose child bounds are
-		-- not known from the bins
 		local split_bounds = left_count > 0 and left_count < count
 
 		if not split_bounds then left_count = math.floor(count / 2) end
@@ -1050,13 +955,6 @@ do
 		)
 	end
 
-	-- the top tree sits above the per-visual trees: its leaves are copies of
-	-- visual root nodes, so traversal continues straight into that visual's
-	-- tree (or its triangles, for a one leaf tree). node 0 is its root and
-	-- every internal node's children are a pair from the node allocator.
-	-- visuals are inserted and removed one at a time (the dynamic aabb tree
-	-- scheme), with a fresh sah over all visuals when many change at once or
-	-- enough changes have piled up to degrade it
 	local function node_union_area(a, b)
 		return surface_area(
 			a.bounds_min[0] < b.bounds_min[0] and a.bounds_min[0] or b.bounds_min[0],
@@ -1079,7 +977,6 @@ do
 		)
 	end
 
-	-- recomputes the bounds of index and every ancestor from their children
 	local function refit_top(index)
 		local nodes = scene_bvh.nodes
 		local top_parent = scene_bvh.top_parent
@@ -1105,8 +1002,6 @@ do
 
 	local function set_top_empty()
 		local root = scene_bvh.nodes[0]
-		-- a count 0 node is an inner node, so the empty root must never be
-		-- entered: a point further away than any ray reaches
 		root.bounds_min[0] = -1e30
 		root.bounds_min[1] = -1e30
 		root.bounds_min[2] = -1e30
@@ -1118,7 +1013,6 @@ do
 		write_node(0)
 	end
 
-	-- moves the node at from (a top leaf or top internal node) into slot to
 	local function move_top_node(from, to)
 		local nodes = scene_bvh.nodes
 		local top_leaf = scene_bvh.top_leaf
@@ -1157,7 +1051,6 @@ do
 		local leaf = nodes[vc.block_base]
 		local index = 0
 
-		-- descend toward the sibling that grows the tree's surface area least
 		while not top_leaf[index] do
 			local node = nodes[index]
 			local area = node_area(node)
@@ -1180,8 +1073,6 @@ do
 			index = cost_left <= cost_right and node.left_first or node.left_first + 1
 		end
 
-		-- the sibling moves down into the new pair and its slot becomes the
-		-- parent of both, so nothing above it has to be repointed
 		move_top_node(index, pair)
 		ffi.copy(nodes + pair + 1, leaf, NODE_BYTE_SIZE)
 		top_leaf[pair + 1] = vc
@@ -1209,7 +1100,6 @@ do
 			return
 		end
 
-		-- the sibling takes over the parent's slot and the pair is freed
 		local parent = top_parent[slot]
 		local pair = scene_bvh.nodes[parent].left_first
 		move_top_node(slot == pair and pair + 1 or pair, parent)
@@ -1223,9 +1113,6 @@ do
 	local top_build = {}
 
 	local function top_leaf_writer(node, first, count, node_index)
-		-- first is a sah position; the item at that position is
-		-- top_order[first] (sah reordered it in place), which is the
-		-- block's 0-based index
 		local vc = scene_bvh.blocks[top_build.order[first] + 1]
 		ffi.copy(scene_bvh.nodes + node_index, scene_bvh.nodes + vc.block_base, NODE_BYTE_SIZE)
 		scene_bvh.top_leaf[node_index] = vc
@@ -1240,7 +1127,6 @@ do
 		local blocks = scene_bvh.blocks
 		local n = #blocks
 
-		-- free the old internal pairs
 		if scene_bvh.top_count >= 2 then
 			local stack = {0}
 
@@ -1276,8 +1162,6 @@ do
 			local vc = blocks[i]
 			vc.top_slot = nil
 
-			-- the sah reads bounds and centroids by block index, only the
-			-- order it partitions leaves hidden blocks out
 			if not vc.hidden then
 				local aabb = vc.world_aabb
 				local t = i - 1
@@ -1303,8 +1187,6 @@ do
 			return
 		end
 
-		-- the sah allocates up to n - 1 pairs, and must not see the node
-		-- mirror move under it
 		if allocator.top + n * 2 > allocator.capacity then
 			grow_nodes(allocator.top + n * 2)
 		end
@@ -1318,7 +1200,6 @@ do
 		top_build.force_split = true
 		top_build.leaf_writer = top_leaf_writer
 		build_sah(top_build, 0, 0, n, 0)
-		-- parents, and the new top nodes to the gpu
 		nodes = scene_bvh.nodes
 		top_leaf = scene_bvh.top_leaf
 		local top_parent = scene_bvh.top_parent
@@ -1363,7 +1244,6 @@ do
 			math.abs(a.m33 - b.m33) <= eps
 	end
 
-	-- exact aabb of an oriented box (src = 6 floats) transformed by a matrix
 	local function transform_box(m, src, dst)
 		local cx = (src[0] + src[3]) / 2
 		local cy = (src[1] + src[4]) / 2
@@ -1389,9 +1269,6 @@ do
 		dst[5] = cx2 + rz
 	end
 
-	-- transforms a slot's mesh vertices by the piece's local matrix into
-	-- piece.local_tris. degenerate triangles are dropped, so the returned
-	-- count can be smaller than slot.count
 	local function build_slot_local(slot, piece)
 		local count = slot.count
 		local tris = piece.local_tris
@@ -1498,10 +1375,6 @@ do
 		return written
 	end
 
-	-- a mesh's triangles under one entry-local matrix. every visual drawing
-	-- that mesh the same way (instances of a model) shares it. keyed by the
-	-- vertex data and the index buffer, then matched by matrix. held by the
-	-- slots and shapes using it, so an unused piece is collected
 	local pieces = setmetatable({}, {__mode = "k"})
 	local piece_id = 0
 
@@ -1538,7 +1411,6 @@ do
 			raw_count = slot.count,
 			local_tris = TriangleArray(slot.count),
 			local_uvs = SOUP_UVS and FloatArray(slot.count * UV_FLOATS) or nil,
-			-- the three vertex indices of each kept triangle, for blocks the gpu rewrites every frame
 			local_source = slot.animated and UInt32Array(slot.count * 3) or nil,
 			matrix = {
 				m00 = l.m00,
@@ -1564,7 +1436,6 @@ do
 		return piece
 	end
 
-	-- per-tri aabbs and centroids of a shape's local soup, for the child SAH
 	local function prepare_child_sah(shape)
 		local pieces = shape.pieces
 		local starts = shape.starts
@@ -1620,9 +1491,6 @@ do
 		leaf_size = MAX_LEAF_TRIANGLES,
 		leaf_writer = child_leaf_writer,
 	}
-	-- a visual's local soup (its pieces in slot order) with the local child
-	-- tree over it, shared by every visual made of the same pieces. held by
-	-- the visuals using it
 	local shapes = setmetatable({}, {__mode = "v"})
 	local shape_key = {}
 
@@ -1688,7 +1556,6 @@ do
 		ffi.copy(shape.nodes, scratch.child_nodes, shape.node_count * NODE_BYTE_SIZE)
 
 		if shape.pieces[1].local_source then
-			-- per soup triangle, in soup order: the three vertex indices and the slot they index into
 			local source = UInt32Array(total * 4)
 
 			for i = 0, total - 1 do
@@ -1715,8 +1582,6 @@ do
 		return shape
 	end
 
-	-- writes a block's shape into its soup range in SAH order, transformed by
-	-- its world matrix and with its slots' materials
 	function bake_triangles(vc)
 		vc.animate_dirty = true
 		local shape = vc.shape
@@ -1786,8 +1651,6 @@ do
 			return
 		end
 
-		-- the soup is write combined memory, so the emitters are gathered here
-		-- rather than read back from it
 		local count = 0
 
 		if not vc.emitters or vc.emitter_capacity < total then
@@ -1836,19 +1699,12 @@ do
 		vc.emitter_count = count
 	end
 
-	-- bakes a block into its ranges: the triangles, plus the child node bounds
-	-- in world space with internal children remapped to the block's global
-	-- base
 	local function write_block(vc)
 		local v = vc.matrix
 		local shape = vc.shape
 		local block_base = vc.block_base
 		local tri_base = vc.tri_base
 		vc.baked_matrix = v
-
-		-- the gpu rewrites the triangle positions of an animated block every
-		-- frame, so a move only needs the bake that gave its range the
-		-- materials, uvs and emissive values
 		local signature = shape.total
 
 		for i = 1, vc.slot_count do
@@ -1899,14 +1755,11 @@ do
 
 		ffi.copy(scene_bvh.node_ptr + block_base, world_nodes, shape.node_count * NODE_BYTE_SIZE)
 		transform_box(v, ffi.cast("float*", local_nodes[0].bounds_min), vc.world_aabb)
-		-- tri_base/total are soup triangle indices, x3 for the
-		-- one-position-per-vertex layout of the expanded soup
 		vc.first_vertex = tri_base * 3
 		vc.vertex_count = shape.total * 3
 		write_raster_block(vc)
 	end
 
-	-- frees a visual's ranges and takes it out of the tree
 	local function release_block(visual, vc, rebuilding_top)
 		scene_bvh.visual_cache[visual] = nil
 		scene_bvh.animated_blocks[vc] = nil
@@ -1949,9 +1802,6 @@ do
 		end
 	end
 
-	-- brings one visual's block up to date. the local soup and child tree are
-	-- only rederived when its entries changed, the world bake only when it
-	-- moved, and the ranges are kept whenever the block still fits
 	local function update_visual(visual, stamp, inserts)
 		local cache = scene_bvh.visual_cache
 		local vc = cache[visual]
@@ -1971,10 +1821,7 @@ do
 		for _, entry in ipairs(visual:GetRenderEntries()) do
 			local mesh = entry.polygon3d.mesh
 
-			-- skinned meshes change every frame, the soup would keep their bind pose
 			if mesh and mesh.Type ~= "null" then
-				-- only with a vertex array of its own: skinned meshes that are not bound to an animator are
-				-- shared between all instances of the model, and so are their shape and blas
 				animated = animated or entry.polygon3d.Dynamic == true
 				local index_buffer = mesh.index_buffer
 				local count = index_buffer and
@@ -2049,13 +1896,10 @@ do
 		vc = vc or {}
 		cache[visual] = vc
 		vc.stamp = stamp
-		-- only where ray tracing is, which is what the gpu rewrite and the blas update serve
 		vc.animated = animated and render.GetDevice().ray_tracing_supported
 		scene_bvh.animated_blocks[vc] = vc.animated or nil
 		local hidden = not visual.Visible
 
-		-- a hidden visual keeps its ranges and blas, it only leaves the top
-		-- tree, so showing it again is cheap
 		if (vc.hidden or false) ~= hidden then
 			vc.hidden = hidden
 			scene_bvh.top_version = scene_bvh.top_version + 1
@@ -2077,8 +1921,6 @@ do
 			end
 		end
 
-		-- whether a block's materials let light through follows the materials,
-		-- which change without the block being baked again
 		local non_opaque, dithered = false, false
 		local alpha_tested, total = 0, 0
 
@@ -2107,7 +1949,6 @@ do
 				vc.shadow_dithered ~= dithered
 			)
 		then
-			-- the ray tracing instance carries the flag
 			scene_bvh.top_version = scene_bvh.top_version + 1
 
 			if scene_bvh.changed_blocks then scene_bvh.changed_blocks[vc] = true end
@@ -2167,11 +2008,8 @@ do
 
 		if not vc.world_aabb then vc.world_aabb = FloatArray(6) end
 
-		-- not baked until it is written below, so a soup grown while its
-		-- ranges move leaves it out
 		vc.baked_matrix = nil
 
-		-- ranges: keep them while the block fits and is not much smaller
 		if vc.block_index then
 			scene_bvh.triangle_count = scene_bvh.triangle_count - vc.drawn_total
 
@@ -2221,24 +2059,16 @@ do
 	end
 
 	scene_bvh.emissive_set = {}
-	-- blocks that were written, moved in the block list or released since the
-	-- ray tracing backend last looked. nil until it first does
 	scene_bvh.changed_blocks = nil
 	scene_bvh.top_incremental_count = 0
-	-- seconds an incremental build may spend per frame
 	scene_bvh.BUILD_BUDGET = 0.004
 	scene_bvh.build_backlog = false
 	local build_stamp = 0
 
-	-- the allocators' grow while a reset lays blocks out: only the capacity
-	-- moves, the buffers are grown once the layout is done
 	local function defer_grow(needed, allocator)
 		allocator.capacity = needed
 	end
 
-	-- mode "incremental" looks only at scene_bvh.dirty_components, "scan" at
-	-- every visual (anything whose matrix or entries changed is rebuilt) and
-	-- "reset" throws the layout away and lays every visual out again
 	local function build(mode)
 		local start_time = system.GetElapsedTime()
 		build_stamp = build_stamp + 1
@@ -2252,16 +2082,12 @@ do
 		inserts.rebuild = mode == "reset"
 		scene_bvh.soup_dirty = mode == "reset"
 
-		-- a reset lays every block out before writing any of them, so the
-		-- buffers grow once to their final size instead of being refilled
-		-- over and over while the soup grows
 		if inserts.rebuild then
 			scene_bvh.triangle_allocator.grow = defer_grow
 			scene_bvh.node_allocator.grow = defer_grow
 		end
 
 		if mode == "incremental" then
-			-- what does not fit in the budget waits for the next frame
 			local dirty = scene_bvh.dirty_components
 			local deadline = start_time + scene_bvh.BUILD_BUDGET
 
@@ -2303,9 +2129,6 @@ do
 			end
 		end
 
-		-- many new visuals at once get a fresh sah, which is both better and
-		-- cheaper than inserting them one by one, and so does a tree that has
-		-- seen as many changes as it has leaves
 		scene_bvh.top_changes = scene_bvh.top_changes + #inserts
 
 		if
@@ -2355,16 +2178,11 @@ do
 
 	scene_bvh.BuildIncremental = build
 
-	-- brings the tree up to date with every visual. force_full also lays the
-	-- soup out from scratch and rebuilds the top tree with a fresh sah
 	function scene_bvh.Build(force_full)
 		build(force_full and "reset" or "scan")
 	end
 end
 
--- lights are not part of the bvh geometry, but their transforms invalidate
--- the light space data (occlusion maps, shadows). tracked so consumers and the
--- debug overlay can see when the light set moved
 local function diff_lights()
 	local light = import.loaded["goluwa/entities/components/light.lua"]
 
@@ -2406,10 +2224,7 @@ local function diff_lights()
 	return changed
 end
 
--- the first build waits for everything loading (see scene_loading) and then
--- for this long without changes, so spawns that arrive together share one build
 scene_bvh.FIRST_BUILD_QUIET_TIME = 0.25
--- unless the scene keeps changing after loading ended
 scene_bvh.FIRST_BUILD_MAX_WAIT = 2
 
 function scene_bvh.EnsureBuilt()
@@ -2423,8 +2238,6 @@ function scene_bvh.EnsureBuilt()
 	local changed = library.ScanWorldAABBs()
 	diff_lights()
 
-	-- a new emission or material on a material only rewrites the world bake
-	-- of the visuals using it
 	if next(Material.emission_dirty_materials) then
 		local users = library.GetSceneMaterialUsers()
 
@@ -2467,8 +2280,6 @@ function scene_bvh.EnsureBuilt()
 				end
 
 				if #dirty >= library.DIRTY_BOX_CAP then
-					-- a long dirty window with lots of moving geometry: stop
-					-- tracking per box and invalidate everything at once
 					scene_bvh.dirty_boxes = nil
 					scene_bvh.dirty_all = true
 				end
@@ -2513,8 +2324,6 @@ function scene_bvh.Invalidate(component)
 		scene_bvh.dirty_components[component] = true
 	end
 
-	-- keep the first change time so the wait window is not slid by every
-	-- subsequent transform change
 	if not scene_bvh.dirty_since then
 		scene_bvh.dirty_since = system.GetElapsedTime()
 	end
@@ -2523,10 +2332,6 @@ function scene_bvh.Invalidate(component)
 	scene_bvh.version = scene_bvh.version + 1
 end
 
--- binds a buffer as the SOUP_CHUNKS descriptors of the soup binding, each
--- covering its 2 GiB of the buffer. a chunk past the end of the buffer points
--- at its start (it is never indexed), which also lets a stand-in buffer fill
--- the binding before there is a soup
 do
 	local chunk_infos = setmetatable({}, {__mode = "k"})
 
@@ -2569,8 +2374,6 @@ function scene_bvh.BindBuffers(pipeline, descriptor_index, node_binding, triangl
 	scene_bvh.BindTriangleBuffer(pipeline, descriptor_index, triangle_binding, scene_bvh.triangle_buffer)
 end
 
--- the triangle soup alone, for shaders that only look up hits (by the ray
--- query's primitive index, which is the soup index)
 function scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
 	return (
 		[[
@@ -2596,8 +2399,6 @@ function scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
 	):format(triangle_binding, SOUP_CHUNKS, SOUP_CHUNK_TRIS)
 end
 
--- the three uvs of a soup triangle, bound with BindTriangleBuffer and
--- UV_CHUNK_BYTES. only exists with SOUP_UVS
 function scene_bvh.GetUvDeclarationGLSL(uv_binding)
 	return (
 		[[
@@ -2804,14 +2605,10 @@ do
 	local expand_count = 0
 	local expand_base = 0
 
-	-- expands ranges of the soup into one world space position per vertex,
-	-- which is what a blas is built from
 	function scene_bvh.CreateExpander(state)
 		state.expand_pipeline = EasyPipeline.Compute{
 			name = "scene_bvh_expand_positions",
 			dont_create_framebuffers = true,
-			-- one per frame in flight: a rebuild on the next frame mustn't
-			-- rewrite the set a pending command buffer still uses
 			DescriptorSetCount = render.GetSwapchainImageCount(),
 			LocalSize = {EXPAND_LOCAL_SIZE, 1, 1},
 			storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}},
@@ -2869,10 +2666,6 @@ do
 		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
 	end
 
-	-- the share of light each material stops, by material id, for the
-	-- shadow soup to read. written again in full when a material's opacity
-	-- changed and appended to otherwise. returns the buffer, which is
-	-- replaced when it grows
 	local shadow_materials = {capacity = 0, filled = 0, generation = -1}
 
 	function scene_bvh.UpdateShadowMaterials()
@@ -2912,11 +2705,6 @@ do
 		return shadow_materials.buffer
 	end
 
-	-- blocks whose materials let some of the light through draw dithered in
-	-- the shadow soup. a build works out the class of the blocks it writes, so
-	-- this is for when a material's class changed. it looks at the materials
-	-- stamped since it last ran, and only goes over the blocks when the class
-	-- of one that was classified before is different now
 	local classified_stamp = 0
 	local classified_full_generation = -1
 
@@ -2975,15 +2763,6 @@ do
 		end
 	end
 
-	-- Hardware ray tracing backend over the same soup: one BLAS per shape,
-	-- built from the soup range of the first visual of it that needs one
-	-- (non-indexed, in that visual's world space), and a TLAS with an instance
-	-- per visual. The instance's transform takes the BLAS to the visual's own
-	-- world space, and its custom index is the visual's soup range start /
-	-- SOUP_ALIGN, so a hit's soup triangle index is custom index *
-	-- SOUP_ALIGN + primitive index (every visual of a shape bakes its
-	-- triangles in the same order). A moved visual only rewrites its instance;
-	-- a changed shape builds a new BLAS.
 	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	local AccelerationStructure = import("goluwa/render/vulkan/internal/acceleration_structure.lua")
 	local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -2998,40 +2777,24 @@ do
 	local VK_GEOMETRY_TYPE_INSTANCES = 2
 	local VK_INDEX_TYPE_NONE = 1000165000
 	local BUILD_PREFER_FAST_TRACE = 4
-	-- the blas of an animated visual is updated in place every frame
 	local BUILD_ALLOW_UPDATE = 1
 	local BUILD_MODE_UPDATE = 1
 	local INSTANCE_FACING_CULL_DISABLE = 0x01000000
-	-- the soup has no uvs to alpha test a hit with, and no way to blend, so
-	-- alpha tested and see through visuals are non-opaque and rays that can do
-	-- without them cull them
 	local INSTANCE_FORCE_OPAQUE = 0x04000000
 	local INSTANCE_FORCE_NO_OPAQUE = 0x08000000
-	-- the top byte of customAndMask is the ray mask. a visual that is mostly
-	-- alpha tested is foliage, which a ray skips with a cull mask of RAY_MASK_SOLID
 	local INSTANCE_MASK_SOLID = scene_bvh.RAY_MASK_SOLID * 0x1000000
 	local INSTANCE_MASK_FOLIAGE = 0x02 * 0x1000000
 	local BLAS_ALIGN = 256
 	local BLAS_POOL_BYTES = 64 * 1024 * 1024
 	local SCRATCH_BUDGET = 128 * 1024 * 1024
 	local TLAS_SLOT_COUNT = 4
-	-- blas builds read their positions from a staging buffer that is filled
-	-- with the world space triangles of the blocks being built, a batch at a
-	-- time, so no copy of the whole soup is kept around. blocks that are less
-	-- than RUN_GAP vertices apart in the soup are expanded as one run
 	local STAGING_VERTICES = 12 * 1024 * 1024
 	local RUN_GAP = 16384
 	local rt_state = {
 		built_version = -1,
-		-- blas storage comes from big shared buffers, split into ranges of
-		-- BLAS_ALIGN units
 		pools = {},
-		-- cpu copy of the tlas instances, copied into the tlas slot on a
-		-- rebuild
 		instances = nil,
 		instance_capacity = 0,
-		-- blas storage waits a few frames before reuse, since frames in
-		-- flight may still trace the old one
 		pending_free = {},
 		tlas_slots = {},
 	}
@@ -3207,8 +2970,9 @@ do
 	local function write_instance(vc)
 		local instance = get_instance(vc)
 		local group = vc.rt_group
-		-- the blas of an animated visual is rewritten in world space every frame
-		local m = vc.animated and identity_matrix or group.inverse:GetMultiplied(vc.baked_matrix, instance_matrix)
+		local m = vc.animated and
+			identity_matrix or
+			group.inverse:GetMultiplied(vc.baked_matrix, instance_matrix)
 		local t = instance.transform.matrix
 		t[0][0], t[0][1], t[0][2], t[0][3] = m.m00, m.m10, m.m20, m.m30
 		t[1][0], t[1][1], t[1][2], t[1][3] = m.m01, m.m11, m.m21, m.m31
@@ -3218,8 +2982,6 @@ do
 				INSTANCE_FORCE_NO_OPAQUE or
 				INSTANCE_FORCE_OPAQUE
 			)
-		-- a hidden block keeps its instance, so instances stay in block order,
-		-- but with a mask no ray matches
 		instance.customAndMask = (
 				vc.hidden and
 				0 or
@@ -3244,12 +3006,6 @@ do
 		end
 	end
 
-	-- Animated blocks: the soup range of a visual with a skeleton is rewritten
-	-- by the gpu every frame, from the skinned vertex arrays, in world space.
-	-- the range keeps the materials, uvs and emissive values of its cpu bake.
-	-- a job is a block: its range, the per soup triangle source table (three
-	-- vertex indices and a slot) and its slots (the vertex array and the world
-	-- matrix of each entry)
 	local ANIMATE_LOCAL_SIZE = 64
 	local ANIMATE_ROW = 65535
 	local ANIMATE_MAX_JOBS = 2048
@@ -3272,11 +3028,7 @@ do
 	local AnimateSlotPtr = ffi.typeof("$ *", AnimateSlot)
 	local animate_uint64_ptr = ffi.typeof("uint64_t *")
 	local animate = {job_base = 0, job_count = 0, group_count = 0}
-	-- animated blocks farther than this from the camera keep the pose they had, in meters
 	scene_bvh.ANIMATION_DISTANCE = 150
-	-- the first blas builds of animated visuals allowed per frame, in triangles. every animated visual has a blas of
-	-- its own, so a crowd appearing at once is hundreds of builds, which the gpu can't be pre-empted in for long enough
-	-- to lose the device. the rest wait for the frames after
 	scene_bvh.ANIMATED_BLAS_BUILD_TRIANGLES = 500000
 
 	local function get_animate_pipeline()
@@ -3402,8 +3154,6 @@ do
 		return animate.pipeline
 	end
 
-	-- rewrites the soup ranges of the animated blocks that are shown. returns
-	-- whether any were, in which case their blas needs to follow
 	function scene_bvh.RewriteAnimatedBlocks(cmd)
 		if not next(scene_bvh.animated_blocks) then return false end
 
@@ -3431,8 +3181,6 @@ do
 				math.abs((vc.world_aabb[1] + vc.world_aabb[4]) / 2 - camera.y) < reach and
 				math.abs((vc.world_aabb[2] + vc.world_aabb[5]) / 2 - camera.z) < reach
 			then
-				-- a block is rewritten when its skinned vertices or an entry's world matrix changed, or its
-				-- range was written by the cpu since
 				local animator = vc.slots[1].entry.entity.VisualOwner.Owner.animator
 				local version = animator and animator.skin_version or 0
 				local needs = vc.animate_dirty ~= false or vc.animate_version ~= version
@@ -3504,7 +3252,6 @@ do
 		local slot = math.max(render.GetCurrentFrame(), 1)
 		scene_bvh.BindTriangleBuffer(pipeline, slot, 1, scene_bvh.triangle_buffer)
 		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, animate.jobs, animate.jobs:GetSize())
-		-- the skinned vertex arrays were written earlier in this command buffer, and earlier frames may still read the soup
 		cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
 		animate.job_count = jobs
 		animate.group_count = groups
@@ -3515,16 +3262,12 @@ do
 		return true
 	end
 
-	-- builds the blas of every visual whose soup range was rewritten since its
-	-- blas was built, in batches that fit the scratch budget, and keeps the
-	-- instance list (one per block, in block order) in step
 	local function build_blases(cmd, frame)
 		local device = render.GetDevice()
 		local changed = scene_bvh.changed_blocks
 		scene_bvh.changed_blocks = {}
 		rt_state.blas_backlog = false
 
-		-- the first look covers every block
 		if not changed then
 			changed = {}
 
@@ -3533,8 +3276,6 @@ do
 			end
 		end
 
-		-- the groups that need a blas built, and the visuals whose instance
-		-- waits for it
 		local dirty = {}
 		local waiting = {}
 
@@ -3580,14 +3321,19 @@ do
 			end
 		end
 
-		-- the blas of an animated visual is updated in place from its rewritten soup range
 		local has_update = false
 
 		if scene_bvh.animated_frame == frame then
 			for vc in pairs(scene_bvh.animated_blocks) do
 				local group = vc.rt_group
 
-				if group and group.rt_blas and group.allow_update and vc.animate_frame == frame and not group.update then
+				if
+					group and
+					group.rt_blas and
+					group.allow_update and
+					vc.animate_frame == frame and
+					not group.update
+				then
 					group.update = true
 					group.first_vertex = vc.first_vertex
 					group.vertex_count = vc.vertex_count
@@ -3606,7 +3352,10 @@ do
 
 			if group.rt_blas or not group.allow_update then goto keep end
 
-			if built_triangles > 0 and built_triangles + group.total > scene_bvh.ANIMATED_BLAS_BUILD_TRIANGLES then
+			if
+				built_triangles > 0 and
+				built_triangles + group.total > scene_bvh.ANIMATED_BLAS_BUILD_TRIANGLES
+			then
 				group.builder = nil
 				postponed = postponed or {}
 				postponed[group] = true
@@ -3635,7 +3384,6 @@ do
 			for _, vc in ipairs(waiting) do
 				if postponed[vc.rt_group] then
 					scene_bvh.changed_blocks[vc] = true
-					-- the slot may still hold a released block's blas, which nothing may trace until its own is built
 					local instance = get_instance(vc)
 					instance.accelerationStructureReference = 0
 					instance.customAndMask = 0
@@ -3692,7 +3440,6 @@ do
 						maxPrimitiveCount = vc.total,
 					}
 				)
-				-- an update needs its own scratch size, which is not the build's
 				vc.rt_scratch_size = vc.allow_update and math.max(scratch_size, update_scratch_size) or scratch_size
 				scratch_size = vc.rt_scratch_size
 				local pool, offset, units = pool_alloc(storage_size)
@@ -3733,10 +3480,8 @@ do
 		ensure_scratch(math.max(math.min(SCRATCH_BUDGET, scratch_total), largest))
 		local scratch_size = rt_state.scratch:GetSize()
 		local cmd_build = device:GetExtension("vkCmdBuildAccelerationStructuresKHR")
-		-- scratch may still be in use by builds of an earlier frame
 		scratch_barrier(cmd)
 
-		-- and so may the blas that is about to be updated by rays of an earlier frame
 		if has_update then
 			cmd:PipelineBarrier{
 				srcStage = "all_commands",
@@ -3807,7 +3552,6 @@ do
 			expand_runs[run_count + 2] = run_end
 			expand_runs[run_count + 3] = run_base
 			run_count = run_count + 3
-			-- the previous batch may still be reading the staging buffer
 			cmd:PipelineBarrier{
 				srcStage = "acceleration_structure_build_khr",
 				dstStage = "compute",
@@ -3894,7 +3638,6 @@ do
 		slot.instance_buffer:Remove()
 	end
 
-	-- a tlas that no frame in flight can still be tracing
 	local function get_free_tlas_slot(frame, capacity)
 		local delay = render.GetSwapchainImageCount() + 1
 
@@ -3924,8 +3667,6 @@ do
 		slot.tlas:Build(cmd, 1, slot.geometry, ranges, BUILD_PREFER_FAST_TRACE)
 	end
 
-	-- Returns the TLAS for the current soup, rebuilding what changed into cmd.
-	-- Must be recorded outside of a render pass.
 	function scene_bvh.EnsureRTBuilt(cmd)
 		if not render.GetDevice().ray_tracing_supported or not scene_bvh.IsReady() then
 			return nil
@@ -3934,15 +3675,14 @@ do
 		local frame = system.GetFrameNumber()
 		local animated = false
 
-		-- once per frame: the soup ranges of animated blocks are rewritten and their blas updated, which the tlas has to follow
 		if scene_bvh.animated_frame ~= frame then
 			animated = scene_bvh.RewriteAnimatedBlocks(cmd)
 			scene_bvh.animated_frame = frame
 		end
 
-		-- a backlog of blas builds is another reason to build, but not twice in a frame: the tlas slots are
-		-- handed out by frame
-		if rt_state.blas_backlog and rt_state.built_frame ~= frame then animated = true end
+		if rt_state.blas_backlog and rt_state.built_frame ~= frame then
+			animated = true
+		end
 
 		if
 			not animated and
@@ -3965,7 +3705,6 @@ do
 		local count = #scene_bvh.blocks
 		local slot = get_free_tlas_slot(frame, count)
 		build_tlas(cmd, slot, count)
-		-- compute and fragment shaders trace it with ray queries (ddgi, ssr, water)
 		cmd:PipelineBarrier{
 			srcStage = "acceleration_structure_build_khr",
 			dstStage = {"ray_tracing_shader_khr", "compute", "fragment"},
@@ -3985,8 +3724,6 @@ do
 		return slot.tlas
 	end
 
-	-- An empty TLAS, for descriptors that must hold a valid one before the
-	-- scene's first build (null descriptors need a feature many devices lack).
 	function scene_bvh.GetPlaceholderTLAS(cmd)
 		if rt_state.placeholder then return rt_state.placeholder.tlas end
 

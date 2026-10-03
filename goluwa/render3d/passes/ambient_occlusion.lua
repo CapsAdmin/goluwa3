@@ -262,7 +262,6 @@ return {
 			{
 				binding_index = 0,
 				attachment = 1,
-				-- consumed by the lighting pass, which is a compute pass
 				dst_stage = "compute",
 			},
 		},

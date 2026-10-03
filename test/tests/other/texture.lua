@@ -18,24 +18,18 @@ T.Test2D("texture bindless index reuse with __gc", function()
 	T(pipeline.pipeline.next_texture_index)["=="](start_index + 10)
 
 	for _, tex in ipairs(textures) do
-		-- The user specifically asked to call :__gc() manually
-		-- In this engine, __gc is set to remove_callback which calls :Remove()
 		if tex.__gc then tex:__gc() else tex:Remove() end
 	end
 
 	textures = {}
 
-	-- Indices should now be in the free list.
-	-- Let's verify we can reuse them.
 	for i = 1, 10 do
 		local tex = Texture.New{width = 1, height = 1}
 		local index = pipeline:GetTextureIndex(tex)
 		table.insert(textures, tex)
 	end
 
-	-- next_texture_index should NOT have increased because we reused from free list
 	T(pipeline.pipeline.next_texture_index)["=="](start_index + 10)
-	-- If we add one more, it should increase
 	local one_more = Texture.New{width = 1, height = 1}
 	pipeline:GetTextureIndex(one_more)
 	T(pipeline.pipeline.next_texture_index)["=="](start_index + 11)

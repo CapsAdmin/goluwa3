@@ -212,9 +212,6 @@ local function resolve_top_face_hit(sphere_body, box_body, dt, local_center, ext
 		math.abs(local_center.x) <= extents.x and
 		math.abs(local_center.z) <= extents.z
 	then
-		-- the sphere fell onto the top face from above and its centre ended the
-		-- step inside the slab; the closest-point delta would point down and
-		-- push it out of the bottom. Past the slab the swept path takes over
 		top_normal = box_body:GetUp():GetNormalized()
 		top_overlap = sphere_body:GetSphereRadius() + top_distance
 	elseif top_overlap <= -EPSILON then
@@ -246,9 +243,6 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 	local previous_local_center = box_body:WorldToLocal(sphere_body:GetPreviousPosition())
 	local extents = box_body:GetPhysicsShape():GetExtents()
 
-	-- a centre that crossed the whole slab in one substep would be pushed
-	-- further down by the closest-point contact, the swept path finds the
-	-- face it entered through
 	if
 		previous_local_center.y > extents.y + EPSILON and
 		local_center.y < -extents.y and
@@ -325,8 +319,6 @@ function sphere.SolveSphereConvexCollision(sphere_body, convex_body, dt)
 		return false
 	end
 
-	-- a sphere that travelled further than its radius may have passed through
-	-- a thin hull, where the discrete contact would push it out the far side
 	if
 		(
 			sphere_body.Position.x - sphere_body.PreviousPosition.x

@@ -230,8 +230,6 @@ local function draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy
 
 	render2d.Scalef(sx, sy)
 	render2d.UploadConstants()
-	-- Sync pipeline state to bind descriptor set with registered textures
-	--render2d.BindPipeline()
 	drawable:DrawInstanced(instance_count, {instance_mesh.vertex_buffer})
 	render2d.PopMatrix()
 	render2d.PopTexture()
@@ -286,7 +284,6 @@ local function draw_instanced_mesh(drawable, instance_count, x, y, r, sx, sy, ox
 		local inst_x, inst_y = get_attached_mesh_attribute(drawable, "InstancePosition", index, 0, 0)
 		local uv_x, uv_y = get_attached_mesh_attribute(drawable, "UVOffset", index, 0, 0)
 		local img_w, img_h = get_attached_mesh_attribute(drawable, "ImageDim", index, 0, 0)
-		--local shade = select(1, get_attached_mesh_attribute(drawable, "ImageShade", index, 1)) or 1
 		local scale_x, scale_y = get_attached_mesh_attribute(drawable, "Scale", index, 1, 1)
 
 		if img_w ~= 0 and img_h ~= 0 then

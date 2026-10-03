@@ -34,7 +34,7 @@ function Fence:Reset()
 end
 
 do
-	local max= ffi.cast("uint64_t", -1)
+	local max = ffi.cast("uint64_t", -1)
 
 	function Fence:Wait()
 		vulkan.lib.vkWaitForFences(self.device.ptr[0], 1, self.ptr, 1, max)

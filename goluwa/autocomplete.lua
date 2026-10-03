@@ -1,7 +1,7 @@
 local autocomplete = library()
 local env = {}
 
-do -- lists
+do
 	autocomplete.lists = autocomplete.lists or {}
 
 	function autocomplete.RemoveList(id)
@@ -68,7 +68,6 @@ end
 function autocomplete.Search(str, id)
 	local found = {}
 
-	-- check if it's a valid string pattern
 	if not pcall(string.find, "", str) then return found end
 
 	if type(id) == "string" then

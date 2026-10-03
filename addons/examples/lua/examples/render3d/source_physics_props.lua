@@ -1,4 +1,3 @@
--- Source engine props colliding using the hulls and mass from their .phy files.
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -66,7 +65,6 @@ for i, path in ipairs(models) do
 					AirAngularDamping = physics.rotation_damping,
 				}
 			)
-			-- the body origin is the center of mass, the model origin is not
 			local visual = Entity.New({Name = "source_physics_visual_" .. path})
 			visual.PhysicsNoCollision = true
 			visual:AddComponent("transform")

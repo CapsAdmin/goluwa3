@@ -1,6 +1,4 @@
--- Generated from xdg_shell protocol
 local ffi = require("ffi")
--- Global table to keep listener callbacks alive (prevent GC)
 local listeners_registry = {}
 ffi.cdef[[
 // Protocol: xdg_shell
@@ -107,11 +105,11 @@ enum xdg_popup_error {
 };
 ]]
 local output_table = {}
--- Create complete wl_interface structures
 local interfaces = {}
 local interface_ptrs = {}
-local interface_data = {} -- Keep all C data alive (prevent GC)
-local deferred_type_assignments = {} -- For forward references
+local interface_data = {}
+local deferred_type_assignments = {}
+
 do
 	local data = {}
 	local methods = ffi.new("struct wl_message[4]")
@@ -835,17 +833,14 @@ do
 	interface_data["xdg_popup"] = data
 end
 
--- Execute deferred type assignments for forward references
 for _, fn in ipairs(deferred_type_assignments) do
 	fn()
 end
 
--- Helper to get interface
 function output_table.get_interface(name)
 	return {name = name, ptr = interface_ptrs[name]}
 end
 
--- Interface: xdg_wm_base
 do
 	local meta = {}
 	meta.__index = meta
@@ -958,10 +953,9 @@ do
 		version = 7,
 	}
 
-	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -969,7 +963,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -981,7 +974,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -993,7 +985,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -1042,7 +1033,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -1063,7 +1053,6 @@ do
 		end
 	end
 
-	-- Request: create_positioner
 	function meta:create_positioner(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -1074,7 +1063,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -1086,7 +1074,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -1098,7 +1085,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -1147,7 +1133,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -1168,7 +1153,6 @@ do
 		end
 	end
 
-	-- Request: get_xdg_surface
 	function meta:get_xdg_surface(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -1179,7 +1163,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -1191,7 +1174,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -1203,7 +1185,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -1252,7 +1233,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -1273,7 +1253,6 @@ do
 		end
 	end
 
-	-- Request: pong
 	function meta:pong(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -1284,7 +1263,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -1296,7 +1274,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -1308,7 +1285,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -1357,7 +1333,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -1378,7 +1353,6 @@ do
 		end
 	end
 
-	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
 		local listener = ffi.new("void*[" .. count .. "]")
@@ -1455,7 +1429,6 @@ do
 	ffi.metatype("struct xdg_wm_base", meta)
 end
 
--- Interface: xdg_positioner
 do
 	local meta = {}
 	meta.__index = meta
@@ -1727,10 +1700,9 @@ do
 		version = 7,
 	}
 
-	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -1738,7 +1710,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -1750,7 +1721,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -1762,7 +1732,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -1811,7 +1780,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -1832,7 +1800,6 @@ do
 		end
 	end
 
-	-- Request: set_size
 	function meta:set_size(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -1843,7 +1810,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -1855,7 +1821,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -1867,7 +1832,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -1916,7 +1880,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -1937,7 +1900,6 @@ do
 		end
 	end
 
-	-- Request: set_anchor_rect
 	function meta:set_anchor_rect(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[4]")
@@ -1948,7 +1910,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -1960,7 +1921,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -1972,7 +1932,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -2021,7 +1980,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -2042,7 +2000,6 @@ do
 		end
 	end
 
-	-- Request: set_anchor
 	function meta:set_anchor(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -2053,7 +2010,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -2065,7 +2021,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -2077,7 +2032,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -2126,7 +2080,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -2147,7 +2100,6 @@ do
 		end
 	end
 
-	-- Request: set_gravity
 	function meta:set_gravity(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -2158,7 +2110,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[5].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -2170,7 +2121,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[5].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -2182,7 +2132,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -2231,7 +2180,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -2252,7 +2200,6 @@ do
 		end
 	end
 
-	-- Request: set_constraint_adjustment
 	function meta:set_constraint_adjustment(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -2263,7 +2210,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[6].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -2275,7 +2221,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[6].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -2287,7 +2232,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -2336,7 +2280,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -2357,7 +2300,6 @@ do
 		end
 	end
 
-	-- Request: set_offset
 	function meta:set_offset(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -2368,7 +2310,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[7].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -2380,7 +2321,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[7].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -2392,7 +2332,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -2441,7 +2380,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -2462,10 +2400,9 @@ do
 		end
 	end
 
-	-- Request: set_reactive
 	function meta:set_reactive(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -2473,7 +2410,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[8].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -2485,7 +2421,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[8].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -2497,7 +2432,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -2546,7 +2480,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -2567,7 +2500,6 @@ do
 		end
 	end
 
-	-- Request: set_parent_size
 	function meta:set_parent_size(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -2578,7 +2510,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[9].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -2590,7 +2521,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[9].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -2602,7 +2532,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -2651,7 +2580,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -2672,7 +2600,6 @@ do
 		end
 	end
 
-	-- Request: set_parent_configure
 	function meta:set_parent_configure(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -2683,7 +2610,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[10].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -2695,7 +2621,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[10].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -2707,7 +2632,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -2756,7 +2680,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -2777,7 +2700,6 @@ do
 		end
 	end
 
-	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
 		local listener = ffi.new("void*[" .. count .. "]")
@@ -2854,7 +2776,6 @@ do
 	ffi.metatype("struct xdg_positioner", meta)
 end
 
--- Interface: xdg_surface
 do
 	local meta = {}
 	meta.__index = meta
@@ -2994,10 +2915,9 @@ do
 		version = 7,
 	}
 
-	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3005,7 +2925,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -3017,7 +2936,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -3029,7 +2947,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -3078,7 +2995,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -3099,7 +3015,6 @@ do
 		end
 	end
 
-	-- Request: get_toplevel
 	function meta:get_toplevel(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -3110,7 +3025,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -3122,7 +3036,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -3134,7 +3047,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -3183,7 +3095,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -3204,7 +3115,6 @@ do
 		end
 	end
 
-	-- Request: get_popup
 	function meta:get_popup(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[4]")
@@ -3215,7 +3125,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -3227,7 +3136,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -3239,7 +3147,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -3288,7 +3195,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -3309,7 +3215,6 @@ do
 		end
 	end
 
-	-- Request: set_window_geometry
 	function meta:set_window_geometry(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[4]")
@@ -3320,7 +3225,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -3332,7 +3236,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -3344,7 +3247,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -3393,7 +3295,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -3414,7 +3315,6 @@ do
 		end
 	end
 
-	-- Request: ack_configure
 	function meta:ack_configure(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -3425,7 +3325,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[5].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -3437,7 +3336,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[5].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -3449,7 +3347,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -3498,7 +3395,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -3519,7 +3415,6 @@ do
 		end
 	end
 
-	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
 		local listener = ffi.new("void*[" .. count .. "]")
@@ -3596,7 +3491,6 @@ do
 	ffi.metatype("struct xdg_surface", meta)
 end
 
--- Interface: xdg_toplevel
 do
 	local meta = {}
 	meta.__index = meta
@@ -3979,10 +3873,9 @@ do
 		version = 7,
 	}
 
-	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3990,7 +3883,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4002,7 +3894,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4014,7 +3905,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4063,7 +3953,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4084,7 +3973,6 @@ do
 		end
 	end
 
-	-- Request: set_parent
 	function meta:set_parent(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -4095,7 +3983,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4107,7 +3994,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4119,7 +4005,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4168,7 +4053,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4189,7 +4073,6 @@ do
 		end
 	end
 
-	-- Request: set_title
 	function meta:set_title(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -4200,7 +4083,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4212,7 +4094,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4224,7 +4105,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4273,7 +4153,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4294,7 +4173,6 @@ do
 		end
 	end
 
-	-- Request: set_app_id
 	function meta:set_app_id(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[1]")
@@ -4305,7 +4183,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4317,7 +4194,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4329,7 +4205,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4378,7 +4253,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4399,7 +4273,6 @@ do
 		end
 	end
 
-	-- Request: show_window_menu
 	function meta:show_window_menu(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[4]")
@@ -4410,7 +4283,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[5].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4422,7 +4294,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[5].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4434,7 +4305,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4483,7 +4353,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4504,7 +4373,6 @@ do
 		end
 	end
 
-	-- Request: move
 	function meta:move(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -4515,7 +4383,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[6].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4527,7 +4394,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[6].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4539,7 +4405,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4588,7 +4453,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4609,7 +4473,6 @@ do
 		end
 	end
 
-	-- Request: resize
 	function meta:resize(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[3]")
@@ -4620,7 +4483,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[7].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4632,7 +4494,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[7].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4644,7 +4505,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4693,7 +4553,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4714,7 +4573,6 @@ do
 		end
 	end
 
-	-- Request: set_max_size
 	function meta:set_max_size(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -4725,7 +4583,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[8].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4737,7 +4594,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[8].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4749,7 +4605,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4798,7 +4653,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4819,7 +4673,6 @@ do
 		end
 	end
 
-	-- Request: set_min_size
 	function meta:set_min_size(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -4830,7 +4683,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[9].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4842,7 +4694,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[9].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4854,7 +4705,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -4903,7 +4753,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -4924,10 +4773,9 @@ do
 		end
 	end
 
-	-- Request: set_maximized
 	function meta:set_maximized(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -4935,7 +4783,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[10].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -4947,7 +4794,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[10].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -4959,7 +4805,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -5008,7 +4853,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -5029,10 +4873,9 @@ do
 		end
 	end
 
-	-- Request: unset_maximized
 	function meta:unset_maximized(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5040,7 +4883,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[11].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -5052,7 +4894,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[11].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -5064,7 +4905,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -5113,7 +4953,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -5134,7 +4973,6 @@ do
 		end
 	end
 
-	-- Request: set_fullscreen
 	function meta:set_fullscreen(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -5145,7 +4983,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[12].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -5157,7 +4994,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[12].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -5169,7 +5005,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -5218,7 +5053,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -5239,10 +5073,9 @@ do
 		end
 	end
 
-	-- Request: unset_fullscreen
 	function meta:unset_fullscreen(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5250,7 +5083,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[13].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -5262,7 +5094,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[13].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -5274,7 +5105,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -5323,7 +5153,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -5344,10 +5173,9 @@ do
 		end
 	end
 
-	-- Request: set_minimized
 	function meta:set_minimized(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5355,7 +5183,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[14].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -5367,7 +5194,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[14].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -5379,7 +5205,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -5428,7 +5253,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -5449,7 +5273,6 @@ do
 		end
 	end
 
-	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
 		local listener = ffi.new("void*[" .. count .. "]")
@@ -5526,7 +5349,6 @@ do
 	ffi.metatype("struct xdg_toplevel", meta)
 end
 
--- Interface: xdg_popup
 do
 	local meta = {}
 	meta.__index = meta
@@ -5629,10 +5451,9 @@ do
 		version = 7,
 	}
 
-	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5640,7 +5461,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -5652,7 +5472,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -5664,7 +5483,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -5713,7 +5531,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -5734,7 +5551,6 @@ do
 		end
 	end
 
-	-- Request: grab
 	function meta:grab(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -5745,7 +5561,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -5757,7 +5572,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -5769,7 +5583,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -5818,7 +5631,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -5839,7 +5651,6 @@ do
 		end
 	end
 
-	-- Request: reposition
 	function meta:reposition(...)
 		local args = {...}
 		local args_array = ffi.new("union wl_argument[2]")
@@ -5850,7 +5661,6 @@ do
 		local generic_new_id = false
 		local version_for_generic = nil
 
-		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				has_new_id = true
@@ -5862,7 +5672,6 @@ do
 			end
 		end
 
-		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
 			if arg.type == "new_id" then
 				if not arg.interface then
@@ -5874,7 +5683,6 @@ do
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
 						args_array[array_idx + 2].n = 0
-						-- Extract pointer if it's a table with .ptr field
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
@@ -5923,7 +5731,6 @@ do
 			end
 		end
 
-		-- Call appropriate marshal function
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
@@ -5944,7 +5751,6 @@ do
 		end
 	end
 
-	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
 		local listener = ffi.new("void*[" .. count .. "]")

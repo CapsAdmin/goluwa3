@@ -14,10 +14,8 @@ end
 
 function TuiPanel.GetValidComponents()
 	if not valid_components.animation then
-		-- reuse 2d components
 		valid_components.transform = import("goluwa/render2d/ui/components/transform.lua")
 		valid_components.layout = import("goluwa/render2d/ui/components/layout.lua")
-		-- tui-specific  components
 		valid_components.tui_element = import("goluwa/cli/ui/components/element.lua")
 		valid_components.tui_text = import("goluwa/cli/ui/components/text.lua")
 		valid_components.tui_border = import("goluwa/cli/ui/components/border.lua")
@@ -89,7 +87,6 @@ do
 		needs_redraw = true
 	end
 
-	-- Ctrl+C → back to REPL (high priority so it runs before other key handlers)
 	event.AddListener(
 		"TerminalKeyInput",
 		"tui_panel",
@@ -101,7 +98,6 @@ do
 		{priority = 100}
 	)
 
-	-- Any input marks the UI dirty so it redraws.
 	event.AddListener("TerminalMouseInput", "tui_panel", function()
 		needs_redraw = true
 	end)
@@ -114,7 +110,6 @@ do
 		needs_redraw = true
 	end)
 
-	-- Animations running → keep redrawing until they finish.
 	event.AddListener("TuiAnimating", "tui_panel", function()
 		needs_redraw = true
 	end)
@@ -123,14 +118,10 @@ do
 		needs_redraw = true
 	end)
 
-	-- Resize → update root transform (OnLayoutUpdated will set needs_redraw).
 	event.AddListener("TerminalResized", "tui_panel", function(w, h)
 		last_term_w, last_term_h = w, h
 	end)
 
-	-- ── draw loop ──────────────────────────────────────────────────────────────
-	-- Layout auto-updates via its own "Update" listener at priority=-100.
-	-- We run at priority=-200 (after layout) so transforms are already settled.
 	event.AddListener(
 		"Update",
 		"tui_panel_draw",

@@ -4,21 +4,6 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
--- Temporal anti aliasing. The camera is shifted by a different sub pixel
--- offset every frame (Halton 2,3), and each frame is blended into a history
--- that follows the surfaces through the gbuffer velocity. Over the 8 offsets
--- every pixel ends up covered by many samples, which smooths edges and thin
--- geometry like grass that a single sample per pixel can't resolve.
---
--- The history is kept in linear HDR with the view depth it saw in alpha. It
--- is sampled with a Catmull-Rom filter to stay sharp under motion, dropped
--- where the depth says a surface was hidden last frame, and clipped to the
--- colour range of the current pixel's neighbourhood so it can't ghost. The
--- blend happens on exposed, Reinhard compressed colour so a few very bright
--- samples don't dominate it.
---
--- Translucent surfaces aren't in the gbuffer; the translucent pass sums how
--- they move, weighted by how much of each pixel they make up.
 local SAMPLES = {}
 
 do
@@ -88,8 +73,6 @@ return {
 							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(2)) or
 							-1
 						post_source.WritePreExposureBlock(self, block)
-						-- the history is only usable if it was written last frame at
-						-- this size
 						local size = render.GetRenderImageSize()
 						block.history_valid = (
 								last_frame == frame - 1 and

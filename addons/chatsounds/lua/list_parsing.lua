@@ -149,7 +149,7 @@ function chatsounds.TableToTree(tbl)
 					if next[word].SOUND_DATA.realms then
 						next[word].SOUND_DATA.realms[realm] = {sounds = sounds, realm = realm}
 					else
-						logn(word) -- ???
+						logn(word)
 					end
 				end
 

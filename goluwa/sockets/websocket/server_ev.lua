@@ -203,7 +203,6 @@ local listen = function(opts)
 									protocol_index = protocol
 									protocol_handler = opts.protocols[protocol]
 								elseif opts.default then
-									-- true is the 'magic' index for the default handler
 									protocol_index = true
 									protocol_handler = opts.default
 								else

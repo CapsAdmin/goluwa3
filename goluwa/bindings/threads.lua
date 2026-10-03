@@ -123,13 +123,9 @@ if ffi.os == "Windows" then
 		error(string.format("Thread operation failed: %s (Error code: %d)", err_msg, error_code), 2)
 	end
 
-	-- Constants
 	local INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
-	local WAIT_FAILED = 0xFFFFFFFF -- as Lua number, for comparison with tonumber() result
+	local WAIT_FAILED = 0xFFFFFFFF
 	local THREAD_ALL_ACCESS = 0x1F03FF
-	-- Main-thread handle to the worker mutex. This serializes state creation
-	-- and destruction in the main thread with worker execution, preventing
-	-- concurrent access to LuaJIT's non-thread-safe x64 allocator.
 	local main_worker_mutex = kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex")
 
 	function acquire_worker_mutex()
@@ -291,7 +287,6 @@ else
 	]]
 	local pt = ffi.load("pthread")
 
-	-- Enhanced pthread error checking
 	local function check_pthread(int)
 		if int == 0 then return end
 
@@ -795,7 +790,6 @@ do
 				end
 			end
 
-			-- Shared memory mode: no result to deserialize if successful
 			self.buffer = nil
 			close_thread_signal(self.input_data)
 			self.input_data = nil
@@ -848,12 +842,9 @@ do
 	end
 end
 
--- Thread pool implementation using shared memory
 do
 	local pool_meta = {}
 	pool_meta.__index = pool_meta
-	-- Define shared memory structure for thread pool communication
-	-- Each thread has: work_available, work_done, should_exit flags
 	local thread_control_t = ffi.typeof(
 		[[
 		struct {
@@ -874,11 +865,6 @@ do
 	threads.thread_control_ptr_t = ffi.typeof("$*", thread_control_t)
 	local thread_control_array_t = ffi.typeof("$[?]", thread_control_t)
 
-	-- Create a new thread pool
-	-- worker_source is a source code string, same contract as threads.new:
-	-- the chunk is called with the work item and must return the result.
-	-- The result payload is wrapped as {ok, result} or {ok, err} so worker
-	-- errors surface in pool:wait instead of killing the persistent worker.
 	function threads.new_pool(worker_source, num_threads)
 		local self = setmetatable({}, pool_meta)
 		self.num_threads = num_threads or 8
@@ -889,10 +875,8 @@ do
 		self.worker_source = worker_source
 		self.thread_objects = {}
 		self.busy = {}
-		-- Allocate shared control structures (one per thread)
 		self.control = thread_control_array_t(num_threads)
 
-		-- Initialize control structures
 		for i = 0, num_threads - 1 do
 			local ctrl = self.control[i]
 			ctrl.should_exit = 0
@@ -902,7 +886,8 @@ do
 			ctrl.work_data_len = 0
 			ctrl.result_data = nil
 			ctrl.result_data_len = 0
-			ctrl.thread_id = i + 1 -- 1-based for Lua
+			ctrl.thread_id = i + 1
+
 			if ffi.os ~= "Windows" then
 				ctrl.work_read_fd = -1
 				ctrl.work_write_fd = -1
@@ -913,10 +898,8 @@ do
 			init_pool_signals(ctrl)
 		end
 
-		-- Keep buffers alive so pointers remain valid
 		self.work_buffers = {}
 		self.result_buffers = {}
-		-- Create persistent worker that loops waiting for work
 		local persistent_worker = [=[
 			local shared_ptr = ...
 			local ffi = require("ffi")
@@ -949,11 +932,8 @@ do
 			return thread_id
 		]=]
 
-		-- Create and start persistent threads
 		for i = 1, num_threads do
 			local thread = threads.new(persistent_worker)
-			-- Pass the control structure pointer as shared memory
-			-- and the worker function as serialized data
 			local control_ptr = self.control + (i - 1)
 			thread:run(control_ptr, true)
 			self.thread_objects[i] = thread
@@ -962,7 +942,6 @@ do
 		return self
 	end
 
-	-- Submit work to a specific thread
 	function pool_meta:submit(thread_id, work)
 		local idx = thread_id - 1
 		assert(not self.busy[thread_id], "Thread " .. thread_id .. " is still busy")
@@ -974,8 +953,7 @@ do
 		end
 
 		local buf, work_ptr, work_len = threads.pointer_encode(work)
-		self.work_buffers[thread_id] = buf -- Keep buffer alive
-		-- Set work data in shared control structure
+		self.work_buffers[thread_id] = buf
 		self.control[idx].work_data = work_ptr
 		self.control[idx].work_data_len = work_len
 		self.busy[thread_id] = true
@@ -983,8 +961,6 @@ do
 		signal_pool_work(self.control[idx])
 	end
 
-	-- Wait for a specific thread to complete. Returns the result, or
-	-- nil, err if the worker source errored on this work item.
 	function pool_meta:wait(thread_id)
 		local idx = thread_id - 1
 		wait_pool_done(self.control[idx])
@@ -999,7 +975,6 @@ do
 		return nil, payload.err
 	end
 
-	-- Submit work to all threads
 	function pool_meta:submit_all(work_items)
 		assert(
 			#work_items == self.num_threads,
@@ -1011,8 +986,6 @@ do
 		end
 	end
 
-	-- Wait for all threads to complete. Returns results and an errs table
-	-- (nil when every worker succeeded).
 	function pool_meta:wait_all()
 		local results = {}
 		local errs
@@ -1030,15 +1003,12 @@ do
 		return results, errs
 	end
 
-	-- Shutdown the thread pool
 	function pool_meta:shutdown()
-		-- Signal all threads to exit
 		for i = 0, self.num_threads - 1 do
 			self.control[i].should_exit = 1
 			signal_pool_work(self.control[i])
 		end
 
-		-- Wait for threads to exit and clean up
 		for i = 1, self.num_threads do
 			self.thread_objects[i]:join()
 			self.thread_objects[i]:close()
@@ -1057,7 +1027,6 @@ do
 		self.thread_objects = {}
 	end
 
-	-- Cleanup on garbage collection
 	function pool_meta:__gc()
 		if self.thread_objects and #self.thread_objects > 0 then self:shutdown() end
 	end

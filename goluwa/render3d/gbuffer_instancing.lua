@@ -51,7 +51,6 @@ function gbuffer_instancing.Reset()
 	queued_instances = 0
 end
 
--- returns false when the draw can't be queued and has to be drawn directly
 function gbuffer_instancing.Queue(polygon3d, material, world_matrix, prev_world_matrix)
 	if not render3d.pipelines.gbuffer_instanced then return false end
 
@@ -83,12 +82,6 @@ do
 	local result = {}
 	local pipelines = {}
 
-	-- Draws every gpu culled static batch with four indirect multi-draws, one
-	-- per cull mode and height map: the cull wrote each batch's command into the
-	-- quarter for its material's sidedness and height map with its visible
-	-- instance count, leaving the others at zero instances. Height mapped
-	-- batches have their own pipeline since writing depth costs early depth
-	-- testing.
 	function gbuffer_instancing.DrawGPUCulled(cull_result)
 		result.drew_any = false
 		result.submitted_entry_count = 0

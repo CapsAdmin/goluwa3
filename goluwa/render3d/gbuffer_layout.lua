@@ -1,9 +1,5 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = library()
--- The gbuffer's targets in attachment order: the format, the channels the
--- gbuffer shaders write through set_<name>, and the texture a pass reads
--- them from (<texture>_tex in gbuffer_layout.block). How the values are
--- packed into the channels is in the GLSL below.
 gbuffer_layout.targets = {
 	{
 		texture = "albedo",
@@ -12,16 +8,12 @@ gbuffer_layout.targets = {
 	},
 	{
 		texture = "normal",
-		-- octahedral. a mirror or a sun highlight on a smooth surface bands at
-		-- 10 bits per component already
 		format = "r16g16_unorm",
 		channels = {{"normal", "rg"}},
 	},
 	{
 		texture = "mra",
 		format = "r8g8b8a8_unorm",
-		-- roughness is stored perceptual (sqrt of ggx alpha): 8 bits of alpha put
-		-- everything smoother than 0.06 perceptual on its first step or 0
 		channels = {{"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}, {"transmission", "a"}},
 	},
 	{
@@ -42,14 +34,10 @@ gbuffer_layout.targets = {
 	{
 		texture = "clearcoat",
 		format = "r8g8b8a8_unorm",
-		-- a smooth dielectric layer over the surface, as a water film or a lacquer. roughness is
-		-- perceptual like the base's. rain is how much of the falling rain lands on it, for its waves
 		channels = {{"clearcoat", "r"}, {"clearcoat_roughness", "g"}, {"clearcoat_rain", "b"}},
 	},
 	{
 		texture = "clearcoat_normal",
-		-- octahedral like normal. the coat fills in the normal map, it follows the smooth vertex normals.
-		-- the one rebuilt from depth is flat on each triangle and a mirror-like coat shows every facet
 		format = "r16g16_unorm",
 		channels = {{"clearcoat_normal", "rg"}},
 	},
@@ -70,7 +58,6 @@ for i, target in ipairs(gbuffer_layout.targets) do
 	gbuffer_layout.attachment_index[target.texture] = i
 end
 
--- the target called name ("albedo", "normal", ...) of the main gbuffer
 function gbuffer_layout.GetTexture(name)
 	return render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(gbuffer_layout.attachment_index[name])
 end
@@ -92,7 +79,6 @@ function gbuffer_layout.WriteBlock(self, block)
 	return block
 end
 
--- for the shaders writing the gbuffer
 function gbuffer_layout.GetEncodeGLSL()
 	return [[
 		vec2 gbuffer_encode_normal(vec3 N) {
@@ -185,8 +171,6 @@ do
 		}
 	]] .. decoders:gsub("COORD", "vec2") .. decoders:gsub("COORD", "ivec2")
 
-	-- reading what GetEncodeGLSL packed, at a uv or a pixel. block_name is the
-	-- uniform block holding gbuffer_layout.block
 	function gbuffer_layout.GetDecodeGLSL(block_name)
 		return (code:gsub("GBUFFER%.", block_name .. "."))
 	end

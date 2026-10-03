@@ -398,7 +398,6 @@ T.TestPhysics("Twenty meter beam resting on one end settles quickly from forty f
 	T(half_second_tilt)["<"](early_tilt - 0.1)
 	T(one_and_half_second_tilt)["<"](half_second_tilt - 0.12)
 	T(half_second_angvel)[">"](early_angvel)
-	-- the beam comes to rest by 1.5 s: flat and no longer spinning in place
 	T(one_and_half_second_tilt)["<"](0.08)
 	T(one_and_half_second_angvel)["<"](0.5)
 	T(two_second_tilt)["<"](0.08)
@@ -440,7 +439,6 @@ T.TestPhysics("Long box overhanging a static platform tips instead of hovering f
 	top_ent:Remove()
 	platform_ent:Remove()
 	ground:Remove()
-	-- it rolled off the platform edge: tilted well past flat and lower than it started
 	T(math.abs(angles.z))[">"](0.2)
 	T(position.x)[">"](2.35)
 	T(position.y)["<"](2.2)
@@ -811,7 +809,6 @@ T.TestPhysics("Boxes dropped at awkward angles fall flat instead of standing on 
 	)
 	local Quat = import("goluwa/structs/quat.lua")
 	local rotations = {
-		-- this one used to come to rest balanced on a single edge, awake and still
 		Quat(-0.09113884717226, -0.74621677398682, -0.64941048622131, 0.11454381793737),
 		Deg3(45, 0, 0),
 		Deg3(0, 0, 45),
@@ -909,8 +906,6 @@ T.TestPhysics("A tilted box lowers onto its face quickly after landing", functio
 	local final_y = body:GetPosition().y
 	ent:Remove()
 	floor_ent:Remove()
-	-- about 0.4 s after it lands the box has stopped lowering itself: the side
-	-- that is off the ground used to be propped up and sank over most of a second
 	T(early_tilt)["<"](0.5)
 	T(math.abs(early_y - final_y))["<"](0.003)
 end)

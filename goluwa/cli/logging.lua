@@ -61,7 +61,6 @@ do
 	end
 end
 
--- library log
 function logging.LibraryLog(fmt, ...)
 	fmt = tostringx(fmt)
 	local level = tonumber(select(fmt:count("%") + 1, ...) or 1) or 1
@@ -92,7 +91,6 @@ function logging.LibraryLog(fmt, ...)
 	return str
 end
 
--- warning log
 function logging.WarningLog(fmt, ...)
 	fmt = tostringx(fmt)
 	local level = tonumber(select(fmt:count("%") + 1, ...) or 1) or 1
@@ -126,7 +124,7 @@ do
 	end
 end
 
-do -- nospam
+do
 	local system = import("goluwa/system.lua")
 	local last = {}
 

@@ -29,7 +29,6 @@ function utility.GetLikelyLibraryDependencies(path)
 					done[name] = true
 				end
 			end
-		--original = list.remove(found, 1).name
 		elseif ext == "dylib" then
 			for name in content:gmatch("([%.%w_-]+%.dylib)\0") do
 				if not done[name] then
@@ -47,7 +46,6 @@ function utility.GetLikelyLibraryDependencies(path)
 
 			if found[1] then
 				for _, full_path in ipairs(found) do
-					-- look first in the vfs' bin directories
 					fs.PushWorkingDirectory(full_path:match("(.+/)"))
 					local ok, err, what = package.loadlib(info.name, "")
 
@@ -173,12 +171,10 @@ do
 
 	function utility.RunOnNextGarbageCollection(callback, ...)
 		local obj = setmetatable({callback = callback, args = list.pack(...)}, meta)
-	-- obj will get collected at some point
 	end
 
 	function utility.RunOnNextGarbageCollectionId(callback, id, ...)
 		local obj = setmetatable({callback = callback, id = id, args = list.pack(...)}, meta)
-	-- obj will get collected at some point
 	end
 end
 
@@ -386,7 +382,6 @@ function utility.CreateLoadCache(cache)
 
 		if not entry or not entry.loading then return end
 
-		-- callbacks loading the same path again get the result right away
 		cache[path] = out
 
 		for _, joiner in ipairs(entry.joiners) do

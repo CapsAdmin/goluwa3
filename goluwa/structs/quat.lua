@@ -63,8 +63,7 @@ function META.SetVecMul(out, a, b)
 	return out
 end
 
-do -- ORIENTATION / TRANSFORMATION
-	-- Coordinate system defined in orientation.lua
+do
 	local BACK_VECTOR = -orientation.FORWARD_VECTOR
 
 	function META.SetRightAxis(out, rotation)
@@ -152,8 +151,6 @@ end
 
 structs.AddGetFunc(META, "Lerp", "Lerped")
 
--- Shortest-arc interpolation between two quats (double-cover aware),
--- returns a new normalized quat
 function META:Interpolate(other, t)
 	local target = other
 
@@ -195,45 +192,33 @@ end
 
 structs.AddGetFunc(META, "Normalize", "Normalized")
 
--- ORIENTATION / TRANSFORMATION: Converts Euler angles to quaternion
--- ang.x = pitch (rotation around orientation.RIGHT_VECTOR axis)
--- ang.y = yaw (rotation around orientation.UP_VECTOR axis)
--- ang.z = roll (rotation around orientation.FORWARD_VECTOR axis)
--- Builds quaternion by composing rotations in same order as Ang3:GetDirection
--- This ensures Quat():SetAngles(ang):VecMul(v) == ang:GetDirection(v)
 function META:SetAngles(ang)
-	-- Build quaternion by composing axis rotations in same order as Ang3.GetDirection
-	-- Order: Roll (Z), then Pitch (X), then Yaw (Y)
-	-- Start with identity
 	self:Identity()
 
-	-- Apply roll around BACKWARD axis
 	if ang.z ~= 0 then
 		local fx, fy, fz = (-orientation.FORWARD_VECTOR):Unpack()
 		local half = ang.z * 0.5
 		local s = math.sin(half)
 		local roll_q = CTOR(fx * s, fy * s, fz * s, math.cos(half))
-		local result = roll_q * self -- apply in world space
+		local result = roll_q * self
 		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
 	end
 
-	-- Apply pitch around RIGHT axis
 	if ang.x ~= 0 then
 		local rx, ry, rz = orientation.RIGHT_VECTOR:Unpack()
 		local half = ang.x * 0.5
 		local s = math.sin(half)
 		local pitch_q = CTOR(rx * s, ry * s, rz * s, math.cos(half))
-		local result = pitch_q * self -- apply in world space
+		local result = pitch_q * self
 		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
 	end
 
-	-- Apply yaw around UP axis
 	if ang.y ~= 0 then
 		local ux, uy, uz = orientation.UP_VECTOR:Unpack()
 		local half = ang.y * 0.5
 		local s = math.sin(half)
 		local yaw_q = CTOR(ux * s, uy * s, uz * s, math.cos(half))
-		local result = yaw_q * self -- apply in world space
+		local result = yaw_q * self
 		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
 	end
 
@@ -241,7 +226,6 @@ function META:SetAngles(ang)
 end
 
 do
-	-- https://github.com/grrrwaaa/gct753/blob/master/modules/quat.lua#L465
 	local function twoaxisrot(r11, r12, r21, r31, r32)
 		return Ang3(math.atan2(r11, r12), math.acos(r21), math.atan2(r31, r32))
 	end
@@ -251,9 +235,6 @@ do
 	end
 
 	function META.GetAngles(q, seq)
-		-- Extract Euler angles from quaternion
-		-- Default extraction matches SetAngles: Yaw (Y) → Pitch (X, negated) → Roll (Z)
-		-- This ensures roundtrip: Quat():SetAngles(ang):GetAngles() == ang
 		if not seq then
 			local x, y, z, w = q.x, q.y, q.z, q.w
 			local pitch = math.asin(math.max(-1, math.min(1, 2.0 * (w * x - y * z))))
@@ -262,7 +243,6 @@ do
 			return Ang3(pitch, yaw, roll)
 		end
 
-		-- For other sequences, use the library functions below
 		if seq == "zxy" then
 			return threeaxisrot(
 				2 * (q.x * q.y + q.w * q.z),
@@ -393,11 +373,9 @@ function META:GetMatrix()
 	return m
 end
 
--- Rotate quaternion by angle around axis
 function META:Rotate(angle, x, y, z)
 	if angle == 0 then return self end
 
-	-- Normalize axis vector
 	local mag = math.sqrt(x * x + y * y + z * z)
 
 	if mag <= 1.0e-4 then return self end
@@ -405,11 +383,9 @@ function META:Rotate(angle, x, y, z)
 	x = x / mag
 	y = y / mag
 	z = z / mag
-	-- Create rotation quaternion from axis-angle
 	local half_angle = angle * 0.5
 	local s = math.sin(half_angle)
 	local rotation = CTOR(x * s, y * s, z * s, math.cos(half_angle))
-	-- Multiply self by rotation quaternion
 	local result = self * rotation
 	self.x = result.x
 	self.y = result.y
@@ -418,7 +394,6 @@ function META:Rotate(angle, x, y, z)
 	return self
 end
 
--- ORIENTATION / TRANSFORMATION: Helper rotation methods using orientation module
 function META:RotatePitch(angle)
 	local x, y, z = orientation.RIGHT_VECTOR:Unpack()
 	return self:Rotate(angle, x, y, z)

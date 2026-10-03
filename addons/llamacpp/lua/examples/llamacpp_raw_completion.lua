@@ -12,7 +12,6 @@ local function get_tool_call_format(model)
 	assert(caps.supports_tools, "model does not support tools")
 	local tmpl = props.chat_template
 	assert(tmpl, "model has no chat_template")
-	-- render a dummy tool call through the template to discover tags from output
 	local SENTINEL_FUNC = "___sentinel_func___"
 	local SENTINEL_PARAM = "___sentinel_param___"
 	local SENTINEL_VALUE = "___sentinel_value___"

@@ -83,8 +83,6 @@ end
 function gine.LoadFonts()
 	local screen_res = system.GetCurrentWindow():GetSize()
 	local found = {}
-	--table.merge(found, steam.VDFToTable(vfs.Read("resource/SourceScheme.res"), true).scheme.fonts)
-	--table.merge(found, steam.VDFToTable(vfs.Read("resource/ChatScheme.res"), true).scheme.fonts)
 	table.merge(
 		found,
 		steam.VDFToTable(vfs.Read("resource/ClientScheme.res"), true).scheme.fonts
@@ -110,8 +108,7 @@ function gine.LoadFonts()
 		local info = (candidates[1] and candidates[1].info) or select(2, next(sub_fonts))
 
 		if info then
-			if type(info.tall) == "table" then info.tall = info.tall[1] -- what
-			end
+			if type(info.tall) == "table" then info.tall = info.tall[1] end
 
 			gine.render2d_fonts[font_name:lower()] = create_font{
 				path = gine.TranslateFontName(info.name),
@@ -156,15 +153,12 @@ do
 
 		local options = {}
 		options.path = gine.TranslateFontName(tbl.font)
-		--logn("[", id, "] ", tbl.font, " >> ", options.path)
 		options.size = math.round(tbl.size / 1.25)
 
-		-- hmm
 		if options.path:lower():find("mono") then
 			options.monospace = true
 			options.spacing = options.size / 2
 			options.tab_width_multiplier = 1
-		--logn("forcing mono: ", options.size / 2)
 		end
 
 		if tbl.shadow then options.shadow = 2 end
@@ -307,7 +301,8 @@ do
 
 		if line_count == 0 then return 0, 0 end
 
-		return math.round(max_width), math.round(line_height + (line_count - 1) * (line_height + spacing))
+		return math.round(max_width),
+		math.round(line_height + (line_count - 1) * (line_height + spacing))
 	end
 
 	local function with_current_font(font, callback, str)

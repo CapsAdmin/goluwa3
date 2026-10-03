@@ -8,8 +8,6 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
--- decodes the middle of the gbuffer with gbuffer_layout.GetDecodeGLSL, one texel
--- per group of values, the last one read by pixel instead of uv
 local decode_pass = {
 	name = "gbuffer_decode_test",
 	ComputePass = true,
@@ -116,22 +114,18 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 	T(albedo[1])["~"](0.5, 0.02)
 	T(albedo[2])["~"](0.25, 0.02)
 	T(albedo[3])["~"](0.75, 0.02)
-	-- the +z face looks at the camera
 	T(normal[1])["~"](0, 0.01)
 	T(normal[2])["~"](0, 0.01)
 	T(normal[3])["~"](1, 0.01)
-	-- a specular multiplier of 1 is F0 0.04
 	T(normal[4])["~"](0.06, 0.001)
 	T(mra[1])["~"](0.25, 0.01)
 	T(mra[4])["~"](0.5, 0.01)
-	-- the tint comes back scaled to luminance 1
 	local lum = 0.2126 + 0.7152 * 0.6 + 0.0722 * 0.2
 	T(transmission[1])["~"](1 / lum, 0.02)
 	T(transmission[2])["~"](0.6 / lum, 0.02)
 	T(transmission[3])["~"](0.2 / lum, 0.02)
 	T(transmission[4])["~"](0.3, 0.01)
 
-	-- reading by pixel agrees with reading by uv
 	for i = 1, 4 do
 		T(by_pixel[i])["~"](normal[i], 1e-4)
 	end

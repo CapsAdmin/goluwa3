@@ -2,12 +2,9 @@ local physics_constants = import("goluwa/physics/constants.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local stats = import("goluwa/physics/stats.lua")
 local support_contacts = {}
--- reusable cast vectors for the per-frame support sweep path
 local cast_origin_offset = Vec3(0, 0, 0)
 local cast_delta = Vec3(0, 0, 0)
 local sweep_origin = Vec3(0, 0, 0)
--- the support sweep only looks downward: a hit on a wall or ceiling is the body
--- already touching it, its normal is arbitrary and the pair solver owns it
 local MIN_SUPPORT_NORMAL_Y = 0.1
 
 local function fill_cast_vectors(cast_up, cast_distance)
@@ -48,8 +45,6 @@ end
 local function record_support_contact(body, hit, contact)
 	local hit_body = hit and hit.rigid_body
 
-	-- a moving ground body invalidates the cached hit pose, so drop the cache
-	-- and fall back to re-detecting on every solver iteration
 	if hit_body and hit_body:HasSolverMass() then
 		body._WorldSupportContacts = nil
 		return
@@ -127,8 +122,6 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 
 	if normal.y < MIN_SUPPORT_NORMAL_Y then return false end
 
-	-- a sweep that starts overlapping geometry reports an arbitrary feature
-	-- normal; the contact solver already owns that overlap
 	if hit.distance <= 0 then return false end
 
 	local physics = body:GetPhysics()
@@ -141,8 +134,6 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 
 	if depth > 0 then
 		body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
-		-- the push-out moved the body without touching its velocity; keeping the
-		-- inward speed would let gravity re-penetrate it and pump energy back in
 		local normal_speed = body.Velocity:Dot(normal)
 
 		if normal_speed < 0 then
@@ -161,8 +152,6 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 
 	if depth < -support_tolerance then return false end
 
-	-- within probe tolerance above the surface: no correction or grounding, but
-	-- the contact still anchors the body if it gets pushed back down mid-substep
 	record_support_contact(
 		body,
 		hit,
@@ -183,8 +172,6 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 
 	if depth > 0 then
 		body:ApplyCorrection(0, normal * depth, support_point, nil, nil, dt)
-		-- the push-out moved the body without touching its velocity; cancel the
-		-- speed it still has into the surface at this point
 		local point_velocity = body.Velocity + body.AngularVelocity:GetCross(support_point - body.Position)
 		local normal_speed = point_velocity:Dot(normal)
 
@@ -248,13 +235,6 @@ function support_contacts.SolveShapeSupportContacts(body, shape, dt)
 	return shape:SolveSupportContacts(body, dt, support_contacts)
 end
 
--- World support contact detection (sweeps) is expensive, so each shape caches
--- its resolved contacts on the body for the rest of the substep. The cache is
--- keyed on the body pose it was validated at: any correction applied in a
--- detection or resolve pass moves the body, which invalidates the cache and
--- forces a fresh re-sweep on the next solver iteration. This keeps the
--- iterative surface-fit (re-probing after every correction) while skipping
--- the re-sweeps that would have found the body already seated.
 function support_contacts.GetSubstepId(body)
 	local physics = body:GetPhysics()
 	local solver = physics and physics.solver

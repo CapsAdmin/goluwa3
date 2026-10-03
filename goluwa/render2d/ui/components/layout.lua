@@ -306,14 +306,12 @@ function META:Measure()
 	if uses_dock_layout then
 		intrinsic, count = measure_docked_children(children, padding)
 	elseif self:GetWrapChildren() then
-		-- Wrap layout: build lines, measure each line
 		local lines = {}
 		local current_line = {}
 		local current_line_main = 0
 		local current_line_cross_max = 0
 		local available_main = tr_size[axis.main] - padding[axis.main_margin_start] - padding[axis.main_margin_end]
 
-		-- If container has no useful size yet, measure assuming single line to get intrinsic
 		if available_main < 10 then
 			for _, child in ipairs(children) do
 				if should_layout_child(child) then
@@ -363,7 +361,6 @@ function META:Measure()
 				lines[#lines + 1] = {cross = current_line_cross_max}
 			end
 
-			-- Sum up line cross-sizes with gaps
 			local total_cross = 0
 
 			for i, line in ipairs(lines) do
@@ -404,7 +401,6 @@ function META:Measure()
 		end
 	end
 
-	-- If we have no children but have a text component, use its size as the intrinsic size
 	if count == 0 and self.Owner.text then
 		local text_component = self.Owner.text
 		local font = text_component:GetFont()
@@ -414,9 +410,6 @@ function META:Measure()
 			local w, h
 
 			if text_component:GetWrap() then
-				-- Wrapped text should measure against the current inner width constraint,
-				-- not the widest stale wrapped line, otherwise parent layouts can get stuck
-				-- widening to an old unwrapped width and never shrink again.
 				local current_inner_width = math.max(0, tr_size.x - padding.x - padding.w)
 
 				if text_component:GetWrapToParent() then
@@ -434,14 +427,6 @@ function META:Measure()
 					end
 				end
 
-				-- On the first measurement pass, neither the text's transform nor
-				-- its parent's transform has been laid out yet (still at default
-				-- ~1px). Wrapping at 1px produces absurdly tall lines that inflate
-				-- every ancestor layout.
-				-- Estimate a reasonable wrap width from the font's space advance
-				-- (~60 chars per line) so the intrinsic height is realistic;
-				-- Arrange then sets the real width, triggering OnTransformChanged →
-				-- re-measure with proper wrapping on the next pass.
 				if current_inner_width < 10 then
 					local space_advance = font:GetSpaceAdvance()
 					local estimated_width = space_advance and (space_advance * 60) or 600
@@ -465,9 +450,6 @@ function META:Measure()
 	end
 
 	self.content_size = intrinsic:Copy()
-	-- Heuristic to prevent feedback loops:
-	-- If we are being stretched or grown by a parent layout, we shouldn't use our current size
-	-- as our intrinsic "basis", otherwise we can never shrink.
 	local parent = self.Owner:GetParent()
 	local is_being_managed_x = self:GetFitWidth() or self:GetGrowWidth() > 0
 	local is_being_managed_y = self:GetFitHeight() or self:GetGrowHeight() > 0
@@ -513,7 +495,6 @@ function META:Measure()
 
 	if not is_being_managed_y then intrinsic.y = tr_size.y end
 
-	-- Min/Max constraints
 	local min = self:GetMinSize()
 	local max = self:GetMaxSize()
 
@@ -623,7 +604,6 @@ function META:Arrange()
 	end
 
 	if self:GetWrapChildren() then
-		-- Wrap layout: build lines, then position each line
 		local lines = {}
 		local current_line = {}
 		local current_line_main = 0
@@ -665,11 +645,9 @@ function META:Arrange()
 
 		if #current_line > 0 then lines[#lines + 1] = current_line end
 
-		-- Position each line
 		local line_cross_pos = padding[axis.cross_margin_start]
 
 		for line_idx, line in ipairs(lines) do
-			-- Calculate line metrics
 			local line_main_total = 0
 			local line_cross_max = 0
 			local line_total_grow = 0
@@ -689,9 +667,7 @@ function META:Arrange()
 
 			local line_extra = math.max(0, available_main - line_main_total)
 			local line_shrink = math.max(0, line_main_total - available_main)
-			-- Position children in this line
 			local child_main_pos = padding[axis.main_margin_start]
-			-- Handle line alignment
 			local alignment = (dir == "x") and self:GetAlignmentX() or self:GetAlignmentY()
 			local line_gap = child_gap
 
@@ -703,13 +679,10 @@ function META:Arrange()
 				elseif alignment == "space_between" and #line > 1 then
 					line_gap = child_gap + line_extra / (#line - 1)
 				elseif alignment == "space_around" then
-					-- gap/2 + children + (n-1)*gap + gap/2 = available
-					-- so: children_total + n * line_gap = available
 					local children_total = line_main_total - (#line - 1) * child_gap
 					line_gap = math.min(child_gap + line_extra / #line, (available_main - children_total) / #line)
 					child_main_pos = child_main_pos + line_gap / 2
 				elseif alignment == "space_evenly" then
-					-- (n+1) gaps + children = available
 					local children_total = line_main_total - (#line - 1) * child_gap
 					line_gap = math.min(
 						child_gap + line_extra / (#line + 1),
@@ -729,7 +702,6 @@ function META:Arrange()
 				end
 
 				child_tr:SetAxisPosition(axis.main, child_main_pos)
-				-- Position on cross axis
 				local cross_alignment = c.entity.layout and
 					get_child_cross_alignment(self, c.entity.layout) or
 					(
@@ -768,7 +740,6 @@ function META:Arrange()
 			line_cross_pos = line_cross_pos + line_cross_max + child_gap
 		end
 	else
-		-- Single line layout (original behavior)
 		for _, child in ipairs(children) do
 			if should_layout_child(child) then
 				local l = child.layout
@@ -816,11 +787,9 @@ function META:Arrange()
 		local main_space_delta = available_main - fixed_main_size
 		local extra_space = math.max(0, main_space_delta)
 		local shrink_space = math.max(0, -main_space_delta)
-		-- Position children
 		local current_main = padding[axis.main_margin_start]
 		local effective_gap = child_gap
 
-		-- Handle Alignment (JustifyContent)
 		if total_grow == 0 then
 			local alignment = (dir == "x") and self:GetAlignmentX() or self:GetAlignmentY()
 
@@ -863,7 +832,6 @@ function META:Arrange()
 
 			local final_main = c.base_size + grow_size - shrink_size
 			local child_tr = c.entity.transform
-			-- Position on main axis
 			current_main = current_main + c.margin[axis.main_margin_start]
 
 			if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.main) then
@@ -871,7 +839,6 @@ function META:Arrange()
 			end
 
 			child_tr:SetAxisPosition(axis.main, current_main)
-			-- Position on cross axis
 			local cross_alignment = c.entity.layout and
 				get_child_cross_alignment(self, c.entity.layout) or
 				(
@@ -905,7 +872,6 @@ function META:Arrange()
 			child_tr:SetAxisPosition(axis.cross, cross_pos)
 			current_main = current_main + final_main + c.margin[axis.main_margin_end] + effective_gap
 
-			-- Recursive align/arrange if child has layout
 			if c.entity.layout then c.entity.layout:UpdateLayout() end
 		end
 	end
@@ -927,19 +893,13 @@ function META:UpdateLayout()
 	if not self:GetDirty() then return end
 
 	self:SetDirty(false)
-	-- Measure Pass
 	local intrinsic_size = self:Measure()
-	-- If we are FitWidth/Height, we update our own transform size
 	self.busy = self.busy + 1
 	local tr = self.Owner.transform
 
 	if self:GetFitWidth() then
 		tr:SetWidth(intrinsic_size.x)
 	elseif self:GetGrowWidth() > 0 and tr:GetSize().x <= 1 then
-		-- GrowWidth signals the layout wants to fill available space, but no
-		-- parent layout has constrained it yet (still at the 1px default).
-		-- Expand to intrinsic width so children — especially wrapped text —
-		-- have a reasonable cross-axis size instead of collapsing.
 		tr:SetWidth(intrinsic_size.x)
 	end
 
@@ -952,7 +912,6 @@ function META:UpdateLayout()
 	UIDebug.OnDebugLayout(self)
 end
 
--- not sure if this is needed
 local signature = {}
 
 function META:OnFirstCreated()
@@ -962,7 +921,6 @@ function META:OnFirstCreated()
 		function()
 			for _, layout in ipairs(META.Instances) do
 				if layout:GetDirty() then
-					-- Find the root-most dirty layout
 					local root = layout
 					local parent = layout.Owner:GetParent()
 

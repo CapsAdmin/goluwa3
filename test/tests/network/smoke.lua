@@ -1,5 +1,4 @@
 local T = import("test/environment.lua")
--- Set up CLIENT/SERVER globals before importing network modules
 _G.CLIENT = true
 _G.SERVER = true
 _G.e = _G.e or {USERNAME = "testuser"}
@@ -23,7 +22,6 @@ end)
 
 T.Test("network transport_layer mock provides Initialize", function()
 	local transport_layer = import("goluwa/network/transport_layer.lua")
-	-- Should not error
 	transport_layer.Initialize()
 end)
 
@@ -34,7 +32,6 @@ T.Test("network transport_layer mock creates peer and server", function()
 	T(peer:IsConnected())["=="](true)
 	T(peer:GetIP())["=="]("127.0.0.1")
 	T(peer:GetPort())["=="](27015)
-	-- No-ops should not error
 	peer:Connect("127.0.0.1", 27015)
 	peer:Disconnect(0)
 	peer:Send("test", "reliable", 0)
@@ -54,7 +51,6 @@ T.Test("network client creation and properties", function()
 	T(client:GetUniqueID())["=="]("test_client_1")
 	T(client:IsBot())["=="](false)
 	T(client:GetNick())["~="](nil)
-	-- Cleanup
 	client:Remove()
 end)
 
@@ -80,7 +76,6 @@ T.Test("network message add and trigger listener", function()
 		received_args = {...}
 	end)
 
-	-- Trigger the listener directly (simulating message dispatch)
 	if message.listeners["test_msg"] then
 		message.listeners["test_msg"]("arg1", "arg2")
 	end
@@ -101,7 +96,6 @@ end)
 T.Test("network packet extend buffer", function()
 	local packet = import("goluwa/network/packet.lua")
 
-	-- Extend with a custom type
 	packet.ExtendBuffer("TestExtend", function(buffer, val)
 		buffer:WriteString(val)
 	end, function(buffer)
@@ -110,7 +104,7 @@ T.Test("network packet extend buffer", function()
 
 	local buffer = packet.CreateBuffer()
 	buffer:WriteTestExtend("hello")
-	T(buffer:GetPosition())["=="](1) -- Position should advance
+	T(buffer:GetPosition())["=="](1)
 end)
 
 T.Test("network client filter", function()
@@ -137,7 +131,6 @@ T.Test("network client unique color", function()
 	local client = clients.Create("color_test", false)
 	local color = client:GetUniqueColor()
 	T(color)["~="](nil)
-	-- Color should be a table with r, g, b, a
 	T(color.r)["~="](nil)
 	T(color.g)["~="](nil)
 	T(color.b)["~="](nil)
@@ -164,7 +157,6 @@ T.Test("network packet add listener", function()
 	end)
 
 	T(packet.listeners[999])["~="](nil)
-	-- Remove listener
 	packet.RemoveListener(999)
 	T(packet.listeners[999])["=="](nil)
 end)

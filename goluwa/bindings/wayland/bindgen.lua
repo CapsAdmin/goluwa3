@@ -1,17 +1,14 @@
 local xml = import("goluwa/codecs/xml.lua")
 local scanner = {}
 
--- Helper to escape strings for Lua code generation
 local function escape_string(s)
 	return s:replace("\\", "\\\\"):replace("\n", "\\n"):replace("\r", "\\r"):replace("\"", "\\\"")
 end
 
--- Helper to serialize a Lua table as code
 local function serialize_table(t, indent)
 	indent = indent or ""
 	local parts = {}
 	table.insert(parts, "{\n")
-	-- Collect and sort keys for deterministic output
 	local keys = {}
 
 	for k in pairs(t) do
@@ -19,7 +16,6 @@ local function serialize_table(t, indent)
 	end
 
 	table.sort(keys, function(a, b)
-		-- Sort numbers first, then strings
 		if type(a) == type(b) then
 			return tostring(a) < tostring(b)
 		else
@@ -49,7 +45,6 @@ local function serialize_table(t, indent)
 	return table.concat(parts)
 end
 
--- Helper to generate message signature from args
 local function generate_signature(args)
 	local sig = {}
 
@@ -67,13 +62,7 @@ local function generate_signature(args)
 		elseif arg.type == "object" then
 			char = arg.allow_null and "?o" or "o"
 		elseif arg.type == "new_id" then
-			if arg.interface then
-				-- Typed new_id - include 'n' in signature
-				char = "n"
-			else
-				-- Generic new_id: string, uint, new_id
-				char = "sun"
-			end
+			if arg.interface then char = "n" else char = "sun" end
 		elseif arg.type == "array" then
 			char = arg.allow_null and "?a" or "a"
 		elseif arg.type == "fd" then
@@ -88,20 +77,14 @@ local function generate_signature(args)
 	return table.concat(sig)
 end
 
--- Generate list of interface names for types array (for objects/new_ids)
 local function generate_types_list(args)
 	local types = {}
 
 	for _, arg in ipairs(args) do
 		if arg.type == "object" then
-			-- Add interface name for objects
 			table.insert(types, arg.interface or "nil")
 		elseif arg.type == "new_id" then
-			if arg.interface then
-				-- Typed new_id - add interface to types array
-				table.insert(types, arg.interface)
-			end
-		-- Generic new_id doesn't add to types (it's in the signature as sun)
+			if arg.interface then table.insert(types, arg.interface) end
 		end
 	end
 
@@ -110,7 +93,7 @@ end
 
 function scanner.generate(xml_path, output_file)
 	local doc = xml.parse_file(xml_path)
-	local protocol = doc.children[1] -- <protocol>
+	local protocol = doc.children[1]
 	local protocol_name = protocol.attrs.name
 	local interfaces = {}
 
@@ -129,7 +112,7 @@ function scanner.generate(xml_path, output_file)
 					local req = {
 						name = item.attrs.name,
 						args = {},
-						type = item.attrs.type, -- destructor?
+						type = item.attrs.type,
 						since = tonumber(item.attrs.since) or 1,
 					}
 
@@ -197,14 +180,11 @@ function scanner.generate(xml_path, output_file)
 		end
 	end
 
-	-- Start building the output Lua file
 	local output = {}
 	table.insert(output, "-- Generated from " .. protocol_name .. " protocol\n")
 	table.insert(output, "local ffi = require('ffi')\n\n")
-	-- Global listener registry
 	table.insert(output, "-- Global table to keep listener callbacks alive (prevent GC)\n")
 	table.insert(output, "local listeners_registry = {}\n\n")
-	-- Generate C definitions
 	table.insert(output, "ffi.cdef[[\n")
 	table.insert(output, "// Protocol: " .. protocol_name .. "\n")
 
@@ -213,7 +193,6 @@ function scanner.generate(xml_path, output_file)
 		table.insert(output, "extern const struct wl_interface " .. iface.name .. "_interface;\n")
 	end
 
-	-- Generate Enums
 	for _, iface in ipairs(interfaces) do
 		for _, enum in ipairs(iface.enums) do
 			table.insert(output, "enum " .. iface.name .. "_" .. enum.name .. " {\n")
@@ -228,10 +207,8 @@ function scanner.generate(xml_path, output_file)
 	end
 
 	table.insert(output, "]]\n\n")
-	-- Generate the output_table
 	table.insert(output, "local output_table = {}\n\n")
 
-	-- Generate stub wl_interface structures for protocols not in wayland-client
 	if protocol_name ~= "wayland" then
 		table.insert(output, "-- Create complete wl_interface structures\n")
 		table.insert(output, "local interfaces = {}\n")
@@ -243,7 +220,6 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "do\n")
 			table.insert(output, "\tlocal data = {}\n")
 
-			-- Generate method messages
 			if #iface.requests > 0 then
 				table.insert(
 					output,
@@ -260,7 +236,6 @@ function scanner.generate(xml_path, output_file)
 					table.insert(output, "\t\tlocal sig_str = ffi.new('char[?]', #'" .. sig .. "' + 1)\n")
 					table.insert(output, "\t\tffi.copy(sig_str, '" .. sig .. "')\n")
 
-					-- Generate types array if needed
 					if #types_list > 0 then
 						table.insert(
 							output,
@@ -272,11 +247,9 @@ function scanner.generate(xml_path, output_file)
 								if protocol_name == "wayland" then
 									table.insert(output, "\t\ttypes[" .. (ti - 1) .. "] = ffi.C." .. iface_name .. "_interface\n")
 								else
-									-- For xdg protocol, check if it's a wayland core interface or xdg interface
 									if iface_name:starts_with("wl_") then
 										table.insert(output, "\t\ttypes[" .. (ti - 1) .. "] = ffi.C." .. iface_name .. "_interface\n")
 									else
-										-- Defer assignment for forward references to xdg interfaces
 										table.insert(output, "\t\ttable.insert(deferred_type_assignments, function()\n")
 										table.insert(
 											output,
@@ -306,7 +279,6 @@ function scanner.generate(xml_path, output_file)
 				end
 			end
 
-			-- Generate event messages
 			if #iface.events > 0 then
 				table.insert(
 					output,
@@ -323,7 +295,6 @@ function scanner.generate(xml_path, output_file)
 					table.insert(output, "\t\tlocal sig_str = ffi.new('char[?]', #'" .. sig .. "' + 1)\n")
 					table.insert(output, "\t\tffi.copy(sig_str, '" .. sig .. "')\n")
 
-					-- Generate types array if needed
 					if #types_list > 0 then
 						table.insert(
 							output,
@@ -335,11 +306,9 @@ function scanner.generate(xml_path, output_file)
 								if protocol_name == "wayland" then
 									table.insert(output, "\t\ttypes[" .. (ti - 1) .. "] = ffi.C." .. iface_name .. "_interface\n")
 								else
-									-- For xdg protocol, check if it's a wayland core interface or xdg interface
 									if iface_name:match("^wl_") then
 										table.insert(output, "\t\ttypes[" .. (ti - 1) .. "] = ffi.C." .. iface_name .. "_interface\n")
 									else
-										-- Defer assignment for forward references to xdg interfaces
 										table.insert(output, "\t\ttable.insert(deferred_type_assignments, function()\n")
 										table.insert(
 											output,
@@ -369,7 +338,6 @@ function scanner.generate(xml_path, output_file)
 				end
 			end
 
-			-- Create interface structure
 			table.insert(output, "\tlocal name_str = ffi.new('char[?]', #'" .. iface.name .. "' + 1)\n")
 			table.insert(output, "\tffi.copy(name_str, '" .. iface.name .. "')\n")
 			table.insert(output, "\tlocal iface_ptr = ffi.new('struct wl_interface[1]')\n")
@@ -399,7 +367,6 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "end\n\n")
 		end
 
-		-- Execute deferred type assignments now that all interfaces are created
 		table.insert(output, "-- Execute deferred type assignments for forward references\n")
 		table.insert(output, "for _, fn in ipairs(deferred_type_assignments) do\n")
 		table.insert(output, "\tfn()\n")
@@ -413,16 +380,13 @@ function scanner.generate(xml_path, output_file)
 		table.insert(output, "end\n\n")
 	end
 
-	-- Generate Lua bindings for each interface
 	for _, iface in ipairs(interfaces) do
 		table.insert(output, "-- Interface: " .. iface.name .. "\n")
 		table.insert(output, "do\n")
 		table.insert(output, "\tlocal meta = {}\n")
 		table.insert(output, "\tmeta.__index = meta\n\n")
-		-- Store interface data for runtime use
 		table.insert(output, "\tlocal iface = " .. serialize_table(iface, "\t") .. "\n\n")
 
-		-- Generate request methods
 		for opcode, req in ipairs(iface.requests) do
 			local op = opcode - 1
 			local sig = generate_signature(req.args)
@@ -449,7 +413,6 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "\t\tlocal new_id_interface = nil\n")
 			table.insert(output, "\t\tlocal generic_new_id = false\n")
 			table.insert(output, "\t\tlocal version_for_generic = nil\n\n")
-			-- Check for new_id
 			table.insert(output, "\t\t-- Check if this request has a new_id (constructor)\n")
 			table.insert(output, "\t\tfor _, arg in ipairs(iface.requests[" .. opcode .. "].args) do\n")
 			table.insert(output, "\t\t\tif arg.type == 'new_id' then\n")
@@ -459,7 +422,6 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "\t\t\t\tbreak\n")
 			table.insert(output, "\t\t\tend\n")
 			table.insert(output, "\t\tend\n\n")
-			-- Process arguments
 			table.insert(output, "\t\t-- Process arguments\n")
 			table.insert(output, "\t\tfor i, arg in ipairs(iface.requests[" .. opcode .. "].args) do\n")
 			table.insert(output, "\t\t\tif arg.type == 'new_id' then\n")
@@ -525,7 +487,6 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "\t\t\t\tarray_idx = array_idx + 1\n")
 			table.insert(output, "\t\t\tend\n")
 			table.insert(output, "\t\tend\n\n")
-			-- Call marshal function
 			table.insert(output, "\t\t-- Call appropriate marshal function\n")
 			table.insert(output, "\t\tif has_new_id then\n")
 			table.insert(output, "\t\t\tif generic_new_id then\n")
@@ -574,7 +535,6 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "\tend\n\n")
 		end
 
-		-- Generate add_listener method
 		table.insert(output, "\t-- Helper to create listener\n")
 		table.insert(output, "\tfunction meta:add_listener(callbacks, data)\n")
 		table.insert(output, "\t\tlocal count = #iface.events\n")
@@ -617,7 +577,6 @@ function scanner.generate(xml_path, output_file)
 		table.insert(output, "\t\t\t\t\tlocal args = {...}\n")
 		table.insert(output, "\t\t\t\t\tlocal lua_args = {}\n")
 		table.insert(output, "\t\t\t\t\tlocal arg_idx = 1\n\n")
-		-- Cast proxy to correct interface
 		table.insert(output, "\t\t\t\t\tproxy = ffi.cast('struct " .. iface.name .. "*', proxy)\n\n")
 		table.insert(output, "\t\t\t\t\tfor _, arg in ipairs(evt.args) do\n")
 		table.insert(output, "\t\t\t\t\t\tlocal val = args[arg_idx]\n")
@@ -648,7 +607,6 @@ function scanner.generate(xml_path, output_file)
 		table.insert(output, "\t\t\tffi.cast('void*', data)\n")
 		table.insert(output, "\t\t)\n")
 		table.insert(output, "\tend\n\n")
-		-- Register interface
 		table.insert(output, "\toutput_table['" .. iface.name .. "'] = meta\n")
 		table.insert(output, "\tffi.metatype('struct " .. iface.name .. "', meta)\n")
 		table.insert(output, "end\n\n")

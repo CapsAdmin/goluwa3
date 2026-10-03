@@ -667,7 +667,6 @@ assets.RegisterCategory("scenes", {
 })
 
 function assets.RefreshInternalTextures()
-	-- Clear old internal texture registrations
 	for virtual_path in pairs(assets.virtual_assets) do
 		if virtual_path:starts_with("textures/internals/") then
 			assets.virtual_assets[virtual_path] = nil
@@ -775,9 +774,6 @@ function assets.GetTexture(path, options)
 	options.category = "textures"
 	local config = options.config or {}
 
-	-- Image files are authored in sRGB, so store them in sRGB formats to
-	-- keep authored values intact through the linear pipeline. Data textures
-	-- (.lua texture scripts, LUTs) and explicit srgb = false stay linear.
 	if config.srgb == nil then
 		local ext = path:lower():match("%.(%w+)$")
 		config.srgb = srgb_image_extensions[ext] or false

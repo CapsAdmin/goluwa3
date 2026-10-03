@@ -9,7 +9,6 @@ local math2d = import("goluwa/render2d/math2d.lua")
 local objects = import("goluwa/objects/objects.lua")
 local SVG = objects.CreateTemplate("svg")
 
--- Convert a flat contour {x1, y1, x2, y2, ...} to polyline points {{x, y}, ...}
 local function contour_to_polyline(contour)
 	local poly = {}
 
@@ -20,7 +19,6 @@ local function contour_to_polyline(contour)
 	return poly
 end
 
--- Extract and color edges from SVG contours, transformed to final texture coordinates
 local function extract_svg_edges(contours, view_box, width, height)
 	local scale_x = width / view_box.w
 	local scale_y = height / view_box.h
@@ -31,7 +29,6 @@ local function extract_svg_edges(contours, view_box, width, height)
 	for _, contour in ipairs(contours) do
 		local poly = contour_to_polyline(contour)
 
-		-- Transform to texture coordinates (match mask rendering)
 		for _, pt in ipairs(poly) do
 			pt.x = pt.x * scale_x + offset_x
 			pt.y = pt.y * scale_y + offset_y

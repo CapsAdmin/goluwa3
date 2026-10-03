@@ -1,5 +1,3 @@
--- Tests for ACK tracking (Step 3)
-
 local T = import("test/environment.lua")
 local ack = import("goluwa/network/ack.lua")
 local sequence = import("goluwa/network/sequence.lua")
@@ -10,10 +8,8 @@ T.Test("ACK header serialization — no bitmap", function()
 		ack_count = 5,
 		bitmap = {},
 	}
-
 	local bytes = ack.SerializeAckHeader(header)
-	T(#bytes)["=="](7) -- 4 (base_seq) + 2 (ack_count) + 1 (flags byte = 0)
-
+	T(#bytes)["=="](7)
 	local deserialized = ack.DeserializeAckHeader(bytes)
 	T(deserialized)["~="](nil)
 	T(deserialized.base_sequence)["=="](100)
@@ -25,12 +21,10 @@ T.Test("ACK header serialization — with bitmap", function()
 	local header = {
 		base_sequence = 200,
 		ack_count = 3,
-		bitmap = {0x0A}, -- Bits 1 and 3 set
+		bitmap = {0x0A},
 	}
-
 	local bytes = ack.SerializeAckHeader(header)
-	T(#bytes)["=="](8) -- 6 + 1 (bitmap size byte + 1 byte data)
-
+	T(#bytes)["=="](8)
 	local deserialized = ack.DeserializeAckHeader(bytes)
 	T(deserialized.base_sequence)["=="](200)
 	T(deserialized.ack_count)["=="](3)
@@ -42,12 +36,10 @@ T.Test("ACK header serialization — multiple bitmap bytes", function()
 	local header = {
 		base_sequence = 50,
 		ack_count = 10,
-		bitmap = {0xFF, 0x00, 0x01}, -- 3 bytes
+		bitmap = {0xFF, 0x00, 0x01},
 	}
-
 	local bytes = ack.SerializeAckHeader(header)
-	T(#bytes)["=="](10) -- 6 + 1 + 3
-
+	T(#bytes)["=="](10)
 	local deserialized = ack.DeserializeAckHeader(bytes)
 	T(deserialized.ack_count)["=="](10)
 	T(#deserialized.bitmap)["=="](3)
@@ -57,7 +49,7 @@ T.Test("ACK header serialization — multiple bitmap bytes", function()
 end)
 
 T.Test("ACK header deserialization — too short", function()
-	local bytes = {1, 2, 3} -- Less than 6 bytes
+	local bytes = {1, 2, 3}
 	local header = ack.DeserializeAckHeader(bytes)
 	T(header)["=="](nil)
 end)
@@ -67,21 +59,18 @@ T.Test("Create ACK header — contiguous packets", function()
 	receiver:Receive(100)
 	receiver:Receive(101)
 	receiver:Receive(102)
-
 	local header = ack.CreateAckHeader(receiver, 100)
 	T(header.base_sequence)["=="](100)
-	T(header.ack_count)["=="](3) -- All 3 contiguous
+	T(header.ack_count)["=="](3)
 end)
 
 T.Test("Create ACK header — non-contiguous packets", function()
 	local receiver = sequence.Receiver.New()
 	receiver:Receive(100)
-	receiver:Receive(102) -- Skip 101
-
+	receiver:Receive(102)
 	local header = ack.CreateAckHeader(receiver, 100)
 	T(header.base_sequence)["=="](100)
-	T(header.ack_count)["=="](1) -- Only 100 is contiguous
-	-- 102 should be in the bitmap
+	T(header.ack_count)["=="](1)
 end)
 
 T.Test("Apply ACK header — advance receiver window", function()
@@ -89,13 +78,8 @@ T.Test("Apply ACK header — advance receiver window", function()
 	receiver:Receive(100)
 	receiver:Receive(101)
 	receiver:Receive(102)
-
-	-- Create and apply ACK for all 3 packets
 	local header = ack.CreateAckHeader(receiver, 100)
 	ack.ApplyAckHeader(receiver, header)
-
-	-- Receiver should have advanced past these packets
-	-- (AdvanceWindow should be called explicitly in real usage)
 	T(receiver.received_count)["=="](3)
 end)
 
@@ -105,10 +89,8 @@ T.Test("ACK piggybacking — serialize then deserialize", function()
 		ack_count = 7,
 		bitmap = {0xAB, 0xCD},
 	}
-
 	local bytes = ack.SerializeAckHeader(original)
 	local deserialized = ack.DeserializeAckHeader(bytes)
-
 	T(deserialized.base_sequence)["=="](original.base_sequence)
 	T(deserialized.ack_count)["=="](original.ack_count)
 	T(#deserialized.bitmap)["=="](#original.bitmap)
@@ -133,10 +115,8 @@ T.Test("ACK round-trip — various sequence numbers", function()
 			ack_count = tc.count,
 			bitmap = {},
 		}
-
 		local bytes = ack.SerializeAckHeader(header)
 		local deserialized = ack.DeserializeAckHeader(bytes)
-
 		T(deserialized.base_sequence)["=="](tc.base)
 		T(deserialized.ack_count)["=="](tc.count)
 	end
@@ -146,12 +126,10 @@ T.Test("ACK bitmap — bit position accuracy", function()
 	local header = {
 		base_sequence = 0,
 		ack_count = 0,
-		bitmap = {0x01, 0x80}, -- Bit 0 and bit 15 set
+		bitmap = {0x01, 0x80},
 	}
-
 	local bytes = ack.SerializeAckHeader(header)
 	local deserialized = ack.DeserializeAckHeader(bytes)
-
 	T(#deserialized.bitmap)["=="](2)
 	T(deserialized.bitmap[1])["=="](0x01)
 	T(deserialized.bitmap[2])["=="](0x80)

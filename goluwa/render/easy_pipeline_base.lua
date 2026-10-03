@@ -84,8 +84,6 @@ local function upload_block(self, block, data, name)
 	if block.write then block.write(self, data, block) end
 end
 
--- Upload and cache a uniform buffer block, returning the dynamic offset
--- This is a hot code path - no closures inside
 local function upload_ubo(
 	self,
 	info,
@@ -168,8 +166,6 @@ local function upload_ubo(
 		end
 	end
 
-	-- a key written earlier this frame keeps what it wrote: drawing the same
-	-- material again must not write and compare its whole block again
 	if persistent_entry and persistent_entry.frame == frame_number then
 		cache_hit = true
 	elseif upload_scope == "persistent_keyed" and cache_key ~= nil then
@@ -306,7 +302,6 @@ local function resolve_constant_placement(config, possible_stages)
 	local constant_order = 0
 	local seen_explicit_push_blocks = {}
 
-	-- First pass: measure explicit push constant blocks
 	for _, stage_name in ipairs(possible_stages) do
 		local stage_config = get_constant_stage_config(config, stage_name)
 
@@ -328,7 +323,6 @@ local function resolve_constant_placement(config, possible_stages)
 		end
 	end
 
-	-- Second pass: process constant blocks
 	for _, stage_name in ipairs(possible_stages) do
 		local stage_config = get_constant_stage_config(config, stage_name)
 
@@ -375,7 +369,6 @@ local function resolve_constant_placement(config, possible_stages)
 		end
 	end
 
-	-- Validate budget
 	if explicit_push_span + hard_push_size > push_budget then
 		error(
 			string.format(
@@ -387,7 +380,6 @@ local function resolve_constant_placement(config, possible_stages)
 		)
 	end
 
-	-- Sort auto blocks by preference (push first), priority, size (smaller first), then order
 	table.sort(auto_blocks, function(a, b)
 		local a_push = a._preferred_storage == "push" and 1 or 0
 		local b_push = b._preferred_storage == "push" and 1 or 0
@@ -401,7 +393,6 @@ local function resolve_constant_placement(config, possible_stages)
 		return a._constant_order < b._constant_order
 	end)
 
-	-- Assign storage based on budget
 	local remaining_push_budget = push_budget - explicit_push_span - hard_push_size
 
 	for _, block in ipairs(auto_blocks) do
@@ -423,7 +414,6 @@ local function resolve_constant_placement(config, possible_stages)
 		end
 	end
 
-	-- Reassign blocks to push_constants or uniform_buffers based on resolved storage
 	for _, stage_name in ipairs(possible_stages) do
 		local stage_config = get_constant_stage_config(config, stage_name)
 
@@ -444,11 +434,8 @@ local function resolve_constant_placement(config, possible_stages)
 	}
 end
 
--- Build FFI type and metadata for a push constant block
--- Handles both wrapped blocks (block.block) and direct blocks (the block itself is the field list)
 local function build_push_constant_block(name, block)
 	glsl_meta.hoist_inline_block_metadata(block)
-	-- Determine the actual field list: block.block if present, otherwise block itself
 	local raw_block = block.block or block
 
 	if type(raw_block) ~= "table" or #raw_block == 0 then return nil, nil end
@@ -471,7 +458,6 @@ local function build_push_constant_block(name, block)
 		glsl_meta.get_scalar_block_alignment(flat_block),
 		"push constant block"
 	)
-	-- Store flattened block in block.block for consistency
 	block.block = flat_block
 	return struct_name, ctype
 end
@@ -479,12 +465,9 @@ end
 local EasyPipeline = objects.CreateTemplate("render_easy_pipeline")
 
 do
-	-- Static methods (shared across all variants)
 	EasyPipeline.BuildFFIType = glsl_meta.build_ffi_type
-	-- Shared push constant block builder (used by both graphics and compute constructors)
 	EasyPipeline.BuildPushConstantBlock = build_push_constant_block
 
-	-- Delegate storable variable methods from GraphicsPipeline
 	for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		EasyPipeline[info.set_name] = function(self, ...)
 			return self.pipeline[info.set_name](self.pipeline, ...)
@@ -494,7 +477,6 @@ do
 		end
 	end
 
-	-- Shared instance methods (available on all pipeline variants)
 	function EasyPipeline:OnRemove()
 		if self.framebuffers then
 			for _, fb in ipairs(self.framebuffers) do
@@ -518,7 +500,6 @@ do
 		end
 	end
 
-	-- Push constant upload helpers (shared by graphics and compute)
 	function EasyPipeline:_BytesEqual(lhs, rhs, size)
 		if not size or size <= 0 then return false end
 
@@ -541,7 +522,6 @@ do
 		local entries = cache.entries
 		local src = ffi.cast("uint8_t *", data)
 
-		-- Remove overlapping entries from previous pushes in this frame
 		for i = #entries, 1, -1 do
 			local entry = entries[i]
 
@@ -557,7 +537,6 @@ do
 			end
 		end
 
-		-- Record this push
 		entries[#entries + 1] = {
 			pipeline_key = pipeline_key,
 			stage_key = stage_key,
@@ -569,8 +548,6 @@ do
 		return true
 	end
 
-	-- Default: upload all push constant blocks and push once
-	-- Override in graphics pipeline for per-stage uploads
 	function EasyPipeline:UploadPushConstants()
 		if not self.push_constant_block_order or #self.push_constant_block_order == 0 then
 			return
@@ -789,7 +766,6 @@ do
 					width = size.x,
 					height = size.y,
 					formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
-					-- ReadOnlyDepth tests against another pass' depth instead of owning one
 					depth = self.config.DepthFormat ~= nil and not self.config.ReadOnlyDepth,
 					depth_format = self.config.DepthFormat,
 					read_only_depth = self.config.ReadOnlyDepth,

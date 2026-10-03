@@ -2,19 +2,11 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local index_pool = {}
--- One uint32 index buffer that the indices of every mesh drawn by the
--- multi-draws are copied into, so a draw is a firstIndex into it instead of a
--- buffer of its own. Indices stay mesh local: the vertices are pulled through
--- the mesh's buffer address, so vertexOffset is 0. Hardware indexed draws
--- shade each vertex once per draw, not once per triangle corner.
 local UInt32Array = ffi.typeof("uint32_t *")
 local MIN_CAPACITY = 2 ^ 20
 local MIN_RANGE = 64
--- a freed range or a replaced buffer may still be read by frames in flight
 local REUSE_DELAY = 16
 local buffer
--- the pool's memory is not cpu cached, reading it back is slow. what is in it is
--- kept in memory of the cpu too, which is what a larger buffer is filled from
 local pointer
 local shadow
 local capacity = 0
@@ -24,7 +16,6 @@ local free_ranges = {}
 local pending_frees = {}
 local retired = {}
 
--- 1/8 steps of a power of two, so reusing a range wastes at most an eighth
 local function get_range_size(count)
 	if count <= MIN_RANGE then return MIN_RANGE end
 
@@ -88,8 +79,6 @@ local function alloc(size)
 	return first
 end
 
--- the index in the pool of the first index of index_buffer's indices, copying
--- them in the first time. call it before GetBuffer, the buffer can be replaced
 function index_pool.GetFirstIndex(index_buffer)
 	local entry = entries[index_buffer]
 
@@ -115,7 +104,6 @@ function index_pool.GetFirstIndex(index_buffer)
 	end
 
 	ffi.copy(pointer + first, destination, count * 4)
-	-- the range goes back once the index buffer is collected and its entry with it
 	entry = {
 		first = first,
 		guard = ffi.gc(ffi.new("char[1]"), function()

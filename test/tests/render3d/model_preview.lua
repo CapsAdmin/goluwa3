@@ -130,11 +130,7 @@ T.Test3D("Model preview samples albedo textures", function()
 	if not ok then error(err, 0) end
 end)
 
--- binding the preview's pipeline applies its own cull mode, so the
--- material's has to be set after it
 T.Test3D("Model preview draws the back faces of double sided materials", function()
-	-- the preview looks from +x+y+z, so the cube's -x, -y and -z faces only
-	-- show their backs
 	local function render_far_faces(double_sided)
 		local cube = Polygon3D.New()
 		shapes.BuildCube(cube, 0.5, 1.0)

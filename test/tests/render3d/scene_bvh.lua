@@ -1,11 +1,3 @@
--- The per-visual cache, the stable per-visual ranges and the incrementally
--- updated top tree in scene_bvh are pure optimizations: they decide what to
--- recompute, not what the result is. So a warm (incremental) build and a
--- cold (full) build of the same
--- scene state must produce the same triangle soup, the same node count, the
--- same global bounds, and both node trees must be valid (every node's bounds
--- enclose its children). If that ever breaks, occlusion and shadows silently
--- diverge from what a full rebuild would produce.
 local T = import("test/environment.lua")
 local ffi = require("ffi")
 local Entity = import("goluwa/entities/entity.lua")
@@ -15,12 +7,8 @@ local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
--- must match the node/triangle struct layout in scene_bvh
 local TRI_BYTES = 64
 
--- every node's bounds must enclose the bounds of both children (internal
--- nodes only; a sentinel has inverted bounds and is never descended into).
--- an invalid tree means some ray could be culled that should have hit
 local function tree_valid(nodes)
 	local root = nodes[0]
 
@@ -111,15 +99,10 @@ T.Test3D("Graphics render3d scene bvh incremental build matches full rebuild", f
 		ffi.string(scene_bvh.triangles, scene_bvh.soup_triangle_count * TRI_BYTES)
 	end
 
-	-- cold build: the soup is laid out from scratch and the top tree gets a
-	-- fresh sah
 	scene_bvh.Build(true)
 	local nodes_a = snapshot()
 	T(scene_bvh.triangle_count == 72)["=="](true)
 	T(tree_valid(scene_bvh.debug_nodes))["=="](true)
-	-- move the mover, then a warm build: static visuals keep their blocks,
-	-- the mover is baked again in place, and the top tree is refitted (split
-	-- structure kept)
 	mover.transform:SetPosition(Vec3(6, 4, -6))
 	scene_bvh.Build()
 	local nodes_b, tris_b = snapshot()
@@ -127,20 +110,15 @@ T.Test3D("Graphics render3d scene bvh incremental build matches full rebuild", f
 	local root_bounds_b = ffi.string(ffi.cast("float*", scene_bvh.debug_nodes) + 2, 24)
 	T(scene_bvh.top_incremental_count == 1)["=="](true)
 	T(tree_valid(scene_bvh.debug_nodes))["=="](true)
-	-- full rebuild of the same scene state
 	scene_bvh.Build(true)
 	local nodes_c, tris_c = snapshot()
 	local node_count_c = scene_bvh.debug_node_count
 	local root_bounds_c = ffi.string(ffi.cast("float*", scene_bvh.debug_nodes) + 2, 24)
 	T(scene_bvh.top_incremental_count == 0)["=="](true)
 	T(tree_valid(scene_bvh.debug_nodes))["=="](true)
-	-- the triangle soup is independent of the top tree shape
 	T(tris_b == tris_c)["=="](true)
-	-- both trees cover the same geometry
 	T(node_count_b == node_count_c)["=="](true)
 	T(root_bounds_b == root_bounds_c)["=="](true)
-	-- the refitted tree is not required to match the fresh sah byte for byte,
-	-- but the move must have changed the tree
 	T(nodes_b ~= nodes_a)["=="](true)
 
 	for _, ent in ipairs(ents) do
@@ -148,8 +126,6 @@ T.Test3D("Graphics render3d scene bvh incremental build matches full rebuild", f
 	end
 end)
 
--- instances of one mesh share their local soup and child tree, so each block
--- has to come out of the bake with its own transform and material
 T.Test3D("Graphics render3d scene bvh instances share shapes but keep their transforms", function(draw)
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)
@@ -238,10 +214,6 @@ T.Test3D("Graphics render3d scene bvh instances share shapes but keep their tran
 	end
 end)
 
--- the frustum walk of the top tree marks a subtree inside the planes from a
--- cached run of its leaves. it has to mark exactly the blocks a test of every
--- block's bounds against the planes does, after the tree grew, lost blocks
--- and had blocks moved
 T.Test3D("Graphics render3d scene bvh frustum marks match testing every block", function(draw)
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)
@@ -287,8 +259,6 @@ T.Test3D("Graphics render3d scene bvh frustum marks match testing every block", 
 				local nx, ny, nz = random() - 0.5, random() - 0.5, random() - 0.5
 				local length = math.sqrt(nx * nx + ny * ny + nz * nz)
 				nx, ny, nz = nx / length, ny / length, nz / length
-				-- a point inside a box that holds the scene, the planes
-				-- cut it at random, a few cut away little of it
 				local px, py, pz = random() * 500 - 250, random() * 100 - 20, random() * 500 - 250
 				local push = frustum <= 4 and 400 or 0
 				planes[p * 4], planes[p * 4 + 1], planes[p * 4 + 2] = nx, ny, nz

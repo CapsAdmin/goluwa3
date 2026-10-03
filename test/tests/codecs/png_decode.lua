@@ -4,7 +4,6 @@ local Buffer = import("goluwa/structs/buffer.lua")
 local png = import("goluwa/codecs/png.lua")
 local resource = import("goluwa/resource.lua")
 
--- Helper to load PNG file into buffer
 local function load_png_file(path)
 	local file = assert(io.open(path, "rb"), "Could not open PNG file: " .. path)
 	local file_data = file:read("*a")

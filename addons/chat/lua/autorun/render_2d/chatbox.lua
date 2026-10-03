@@ -5,7 +5,7 @@ local Color = import("goluwa/structs/color.lua")
 local resource = import("goluwa/resource.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
-local Markup = import("goluwa/render2d/markup.lua") -- The markup rendering template
+local Markup = import("goluwa/render2d/markup.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -26,7 +26,6 @@ local panel_width = 400
 local input_height = 50
 
 do
-	-- Initialize global markup template
 	chatbox.markup_chatbox = Markup.New()
 	chatbox.markup_chatbox:SetEditable(false)
 	chatbox.markup_chatbox:SetSelectable(true)
@@ -96,14 +95,14 @@ function chatbox.AddText(...)
 	chatbox.markup_hud:BeginLifeTime(chatbox.life_time)
 
 	do
-		chatbox.markup_hud:AddFont(chatbox.font) -- also reset the font just in case
+		chatbox.markup_hud:AddFont(chatbox.font)
 		chatbox.markup_hud:AddTable(args, true)
 		chatbox.markup_hud:AddTagStopper()
 		chatbox.markup_hud:AddString("\n")
 	end
 
 	do
-		chatbox.markup_chatbox:AddFont(chatbox.font) -- also reset the font just in case
+		chatbox.markup_chatbox:AddFont(chatbox.font)
 		chatbox.markup_chatbox:AddTable(args, true)
 		chatbox.markup_chatbox:AddTagStopper()
 		chatbox.markup_chatbox:AddString("\n")
@@ -111,7 +110,6 @@ function chatbox.AddText(...)
 
 	chatbox.markup_hud:EndLifeTime()
 
-	--markup:SetMaxWidth(render2d.GetSize() * pos_mult:Get().x)
 	for k, v in pairs(chatbox.tags) do
 		chatbox.markup_chatbox.tags[k] = v
 		chatbox.markup_hud.tags[k] = v
@@ -172,7 +170,6 @@ function chatbox.Show()
 					GrowHeight = 1,
 				},
 			}{
-				-- Container panel that draws the global markup object
 				Panel.New{
 					Name = "markup_container",
 					transform = true,
@@ -274,12 +271,10 @@ function chatbox.Hide()
 	chatbox.text_edit:RequestTextUnFocus()
 end
 
--- Bind Y key to open/close chat input 
 input.Bind("y", "show_chat", function()
 	chatbox.Show()
 end)
 
--- Listen for chat messages
 event.AddListener("Chat", "chatbox", function(name, str, client)
 	local tbl = chat.AddTimeStamp()
 

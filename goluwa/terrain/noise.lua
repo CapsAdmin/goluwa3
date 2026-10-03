@@ -1,12 +1,3 @@
---[[
-	GLSL noise snippets shared by terrain sources and layer texture bakes.
-
-	WORLD is meant for world-space sampling (heights, splat masks): gradient
-	noise, fbm, ridged multifractal and cellular noise, all non-tiling.
-
-	TILE is meant for texture bakes: the same kinds of noise, but they repeat
-	every `period` units so a texture baked over uv 0..1 tiles seamlessly.
-]]
 local noise = {}
 noise.WORLD = [=[
 const mat2 PN_ROT = mat2(0.80, 0.60, -0.60, 0.80);

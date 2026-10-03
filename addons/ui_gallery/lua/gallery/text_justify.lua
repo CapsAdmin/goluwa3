@@ -40,7 +40,6 @@ local function paragraph_card(title, align_x, justify)
 			Text{
 				Text = title,
 				FontSize = "L",
-				--Color = Color(0.62, 0.82, 1.0, 1),
 				layout = {
 					GrowWidth = 1,
 				},

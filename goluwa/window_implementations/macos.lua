@@ -12,7 +12,6 @@ return function(META)
 		return mode
 	end
 
-	-- Button translation from cocoa to window system
 	local button_translate = {
 		left = "button_1",
 		right = "button_2",
@@ -32,22 +31,14 @@ return function(META)
 	end
 
 	function META:Initialize()
-		-- Create the cocoa window wrapper
 		self.cocoa_window = cocoa.window(self.Size.x, self.Size.y)
 		self.cocoa_window:Initialize()
 
-		-- Set initial title and size if provided
 		if self.Title then self.cocoa_window:SetTitle(self.Title) end
 
-		if self.Size and (self.Size.x > 0 and self.Size.y > 0) then
+		if self.Size and (self.Size.x > 0 and self.Size.y > 0) then  end
 
-		-- Note: Cocoa doesn't expose SetSize in the current implementation
-		-- Size would need to be set via NSWindow's setFrame method
-		end
-
-		-- Open the window
 		self.cocoa_window:OpenWindow()
-		-- Cache values
 		self.cached_pos = nil
 		self.cached_size = nil
 		self.cached_fb_size = nil
@@ -62,7 +53,6 @@ return function(META)
 
 	function META:OnUpdate(dt)
 		self:SetMouseDelta(Vec2(0, 0))
-		-- Read all events from cocoa
 		local events = self.cocoa_window:ReadEvents()
 
 		for _, event in ipairs(events) do
@@ -167,14 +157,12 @@ return function(META)
 
 	function META:OnRemove()
 		if self.cocoa_window then
-			-- Release mouse if captured
 			if self.cocoa_window:IsMouseCaptured() then
 				self.cocoa_window:ReleaseMouse()
 			end
 
 			self.cocoa_window:Destroy()
 
-			-- Window cleanup would go here if cocoa exposed it
 			if base_on_remove then base_on_remove(self) end
 		end
 	end
@@ -240,8 +228,6 @@ return function(META)
 
 	function META:GetFramebufferSize()
 		if not self.cached_fb_size then
-			-- On macOS, framebuffer size is same as window size for Metal
-			-- unless dealing with Retina displays
 			self.cached_fb_size = Vec2(self.cocoa_window:GetSize())
 		end
 
@@ -253,7 +239,6 @@ return function(META)
 	end
 
 	function META:GetMousePosition()
-		-- Return cached mouse position from move events
 		return self.last_mouse_pos
 	end
 

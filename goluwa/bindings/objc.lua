@@ -1,10 +1,5 @@
--- https://github.com/mogenson/lua-utils/blob/main/objc.lua
 local ffi = require("ffi")
 local C = ffi.C
----@alias cdata  userdata C types returned from FFI
----@alias id     cdata    Objective-C object
----@alias Class  cdata    Objective-C Class
----@alias SEL    cdata    Objective-C Selector
 ffi.cdef([[
 // types
 typedef signed char   BOOL;
@@ -62,11 +57,11 @@ local type_encoding = setmetatable(
 			assert(type(k) == "string" and #k > 2)
 			local first_letter = k:sub(1, 1)
 
-			if first_letter == "{" or first_letter == "(" then -- named struct or union
+			if first_letter == "{" or first_letter == "(" then
 				return assert(select(3, k:find("%" .. first_letter .. "(%a+)=")))
 			end
 		end,
-		__newindex = nil, -- read only table
+		__newindex = nil,
 	}
 )
 local cast_cache = {}
@@ -75,10 +70,6 @@ local cls
 local ptr
 local sel
 
----cast an object to C type using cached type
----@param typedef string C type definition
----@param object any object to cast
----@return cdata c
 local function cast(typedef, object)
 	local typeobj = cast_cache[typedef]
 
@@ -345,34 +336,21 @@ local function bind(definition)
 	return bindings
 end
 
----convert a NULL pointer to nil
----@param p cdata pointer
----@return cdata | nil
 function ptr(p)
 	if p == nil then return nil else return p end
 end
 
----return a Class from name or object
----@param name string | Class | id
----@return Class
 function cls(name)
 	assert(name)
 
-	if ffi.istype("id", name) then
-		return assert(ptr(C.object_getClass(name))) -- get class from object
-	end
+	if ffi.istype("id", name) then return assert(ptr(C.object_getClass(name))) end
 
-	if type(name) == "cdata" and ffi.istype("Class", name) then
-		return name -- already a Class
-	end
+	if type(name) == "cdata" and ffi.istype("Class", name) then return name end
 
 	assert(type(name) == "string")
 	return assert(ptr(C.objc_lookUpClass(name)))
 end
 
----return SEL from name
----@param name string | SEL
----@return SEL
 function sel(name)
 	assert(name)
 
@@ -382,41 +360,29 @@ function sel(name)
 	return C.sel_registerName(name)
 end
 
----load a Framework
----@param framework string framework name without the '.framework' extension
 local function loadFramework(framework)
-	-- on newer versions of MacOS this is a broken symbolic link, but dlopen() still succeeds
 	assert(
 		ffi.load(string.format("/System/Library/Frameworks/%s.framework/%s", framework, framework), true)
 	)
 end
 
----create a new custom class from an optional base class
----@param name string name of new class
----@param super_class? string | Class parent class, or NSObject if omitted
----@return Class
 local function newClass(name, super_class)
 	assert(name and type(name) == "string")
-	local super_class = cls(super_class or "NSObject") ---@diagnostic disable-line: redefined-local
+	local super_class = cls(super_class or "NSObject")
 	local class = assert(ptr(C.objc_allocateClassPair(super_class, name, 0)))
 	C.objc_registerClassPair(class)
 	return class
 end
 
----add a method to a custom class
----@param class string | Class class created with newClass()
----@param selector string | SEL name of method
----@param types string Objective-C type encoded method arguments and return type
----@param func function lua callback function for method implementation
----@return cdata ffi callback
 local function addMethod(class, selector, types, func)
 	assert(type(func) == "function")
 	assert(type(types) == "string")
-	local class = cls(class) ---@diagnostic disable-line: redefined-local
-	local selector = sel(selector) ---@diagnostic disable-line: redefined-local
+	local class = cls(class)
+	local selector = sel(selector)
 	local signature = {}
-	table.insert(signature, type_encoding[types:sub(1, 1)]) -- return type
-	table.insert(signature, "(*)(") -- anonymous function
+	table.insert(signature, type_encoding[types:sub(1, 1)])
+	table.insert(signature, "(*)(")
+
 	for i = 2, #types do
 		table.insert(signature, type_encoding[types:sub(i, i)])
 
@@ -424,7 +390,7 @@ local function addMethod(class, selector, types, func)
 	end
 
 	table.insert(signature, ")")
-	local signature = table.concat(signature) ---@diagnostic disable-line: redefined-local
+	local signature = table.concat(signature)
 	jit.off(func)
 	local imp = cast("IMP", cast(signature, func))
 	assert(C.class_addMethod(class, selector, imp, types) == 1)

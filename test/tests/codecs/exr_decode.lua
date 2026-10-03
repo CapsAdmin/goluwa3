@@ -26,10 +26,10 @@ T.Pending("Decode EXR Texture", function()
 		T.AssertScreenPixel{
 			pos = {50, 50},
 			color = function(r, g, b, a)
-				T(r)["~="](0) -- "Red channel should not be zero"
-				T(g)["~="](0) -- "Green channel should not be zero"
-				T(b)["~="](0) -- "Blue channel should not be zero"
-				T(a)["=="](1) -- "Alpha channel should be 1.0"
+				T(r)["~="](0)
+				T(g)["~="](0)
+				T(b)["~="](0)
+				T(a)["=="](1)
 				return true
 			end,
 			msg = "decoded EXR pixel should be non-black and opaque",

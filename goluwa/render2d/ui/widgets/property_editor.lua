@@ -1131,7 +1131,6 @@ return function(props)
 					if not self:IsValid() then return end
 
 					if key == "DynamicProperties" then
-						-- the listeners are being walked right now, rebuilding adds new ones
 						timer.Delay(0, function()
 							if self:IsValid() then self:SetObject(obj) end
 						end)

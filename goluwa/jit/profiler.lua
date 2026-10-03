@@ -1,4 +1,3 @@
---ANALYZE
 local buffer = require("string.buffer")
 local jutil = require("jit.util")
 local vmdef = require("jit.vmdef")
@@ -210,7 +209,7 @@ local BIN_DICT = {
 	"abort_code",
 	"abort_reason",
 }
-local HTML_TEMPLATE--[[#: string]] -- forward declaration, assigned at bottom of file
+local HTML_TEMPLATE--[[#: string]]
 local Profiler = {}
 Profiler.__index = Profiler
 --[[#type TEvent = {
@@ -259,8 +258,7 @@ Profiler.__index = Profiler
 		type = "trace_flush",
 		time = number | nil,
 	}]]
---[[#-- --- Type Definitions ---
-type Profiler.@SelfArgument = {
+--[[#type Profiler.@SelfArgument = {
 	id = string,
 	path = string,
 	file_url = string,
@@ -498,7 +496,6 @@ do
 		self.trace_generation = self.trace_generation + 1
 	end
 
-	-- --- Constructor ---
 	function Profiler.New(
 		config--[[#: {
 			id = string | nil,
@@ -519,7 +516,6 @@ do
 		config.maxmcode = jit_params.maxmcode
 		config.sizemcode = jit_params.sizemcode
 		local self = setmetatable({}, Profiler)--[[# as TProfile]]
-		-- Config
 		self.id = config.id or "jit_profiler"
 		self.path = config.path or "./profiler_output.html"
 		self.format = config.format or (self.path:sub(-5) == ".glwp" and "bin" or "html")
@@ -531,29 +527,23 @@ do
 		self.sampling_rate = config.sampling_rate or 1
 		self.flush_interval = config.flush_interval or 3
 		self.get_time = config.get_time or get_time_function()
-		-- Lifecycle
 		self.time_start = self.get_time()
 		self.running = true
-		-- Event accumulation
 		self.events = {}
 		self.event_count = 0
 		self.last_flush_time = self.time_start
-		-- String interning
 		self.strings = {}
 		self.string_lookup = {}
 		self.string_count = 0
 		self.strings_flushed = 0
-		-- Section tracking
 		self.section_stack = {}
 		self.section_path = ""
-		-- Trace tracking
 		self.traces = {}
 		self.trace_count = 0
 		self.trace_generation = 0
 		self.aborted = {}
 		self.should_warn_mcode = create_warn_log(2)
 		self.should_warn_abort = create_warn_log(8)
-		-- Output file
 		self.last_flushed_idx = 0
 
 		if self.format == "bin" then
@@ -627,7 +617,6 @@ do
 			jprofile.start((self.profile_mode == "line" and "l" or "f") .. "i" .. self.sampling_rate, function(thread, sample_count, vmstate)
 				self:EmitEvent{
 					type = "sample",
-					-- note, this does not respect the name of a loadstring function,but can be worked around if you prepend @ to its name
 					stack = dumpstack(thread, "pl\n", depth),
 					sample_count = sample_count,
 					vm_state = vmstate,
@@ -945,7 +934,6 @@ function Profiler:Stop()
 	self.running = false
 	jprofile.stop()
 
-	-- Detach trace events
 	if self.trace_event_safe_fn then
 		jit.attach(self.trace_event_safe_fn)
 		self.trace_event_fn = nil
@@ -958,7 +946,6 @@ function Profiler:Stop()
 		self.record_event_safe_fn = nil
 	end
 
-	-- Write remaining events and close file
 	self:Save()
 	local f = self.file
 
@@ -1200,7 +1187,6 @@ local function print_top_inclusive_buckets(
 	end
 
 	for key, value in pairs(counts) do
-		-- synthesized "(via ...)" rows duplicate their inner source row
 		if is_source_location(key) then
 			local pct = value / total * 100
 
@@ -1225,7 +1211,6 @@ local function print_top_inclusive_buckets(
 
 		w(string_format("  %s (%d):\n", INCLUSIVE_BUCKETS[i].label, #items))
 
-		-- only the count matters for the low buckets
 		if i <= 5 then
 			for j = 1, math.min(n, #items) do
 				w(
@@ -1383,9 +1368,6 @@ function Profiler.Summary(
 							is_self = false
 						end
 
-						-- non-source lines (xpcall, C frames, ...) are not actionable
-						-- on their own, so attribute them to the nearest outer source
-						-- location to keep their callers distinguishable
 						local key = line
 
 						if not is_source_location(line) then
@@ -1398,7 +1380,6 @@ function Profiler.Summary(
 							end
 						end
 
-						-- count each key at most once per sample
 						if not seen[key] then
 							seen[key] = true
 							all_frames[key] = (all_frames[key] or 0) + 1
@@ -1424,7 +1405,6 @@ function Profiler.Summary(
 						end
 					end
 				else
-					-- old files carry no trace path, fall back to the stop/abort location
 					keep = loc_filter(ev.func_info)
 				end
 			end
@@ -1437,8 +1417,6 @@ function Profiler.Summary(
 				pending_starts[key] = nil
 				local span
 
-				-- same supersession key as the html timeline view: an abort only
-				-- counts as resolved if this exact recording slot later succeeds
 				if start then
 					local loc = ev.func_info or start.func_info
 					span = {
@@ -1474,7 +1452,6 @@ function Profiler.Summary(
 		end
 	end
 
-	-- aborts whose recording slot later compiled successfully are superseded
 	do
 		local seen_successful = {}
 
@@ -1561,7 +1538,6 @@ function Profiler.Summary(
 		if ev.type == "section_start" then
 			section_start_paths[ev.section_path] = ev.time
 		elseif ev.type == "section_end" then
-			-- end events carry the parent path, reconstruct the full one
 			local path = ev.section_path ~= "" and (ev.section_path .. " > " .. ev.name) or ev.name
 			local st = section_start_paths[path]
 
@@ -1575,7 +1551,6 @@ function Profiler.Summary(
 	local section_names = {}
 
 	for name in pairs(section_samples) do
-		-- skip the implicit "no section" bucket unless it carries a section time
 		if name ~= "" or section_times[name] then
 			section_names[#section_names + 1] = name
 		end

@@ -41,7 +41,6 @@ local function flatten_contour(raw_contour, curve_steps)
 
 	if n == 0 then return {} end
 
-	-- normalize starting point to an on-curve point if one exists
 	local start = 1
 
 	for i = 1, n do
@@ -82,7 +81,7 @@ local function flatten_contour(raw_contour, curve_steps)
 				end_pt = {x = nxt.x, y = nxt.y}
 				i = i + 2
 			else
-				end_pt = lerp(cur, nxt, 0.5) -- implied on-curve point
+				end_pt = lerp(cur, nxt, 0.5)
 				i = i + 1
 			end
 
@@ -91,7 +90,6 @@ local function flatten_contour(raw_contour, curve_steps)
 		end
 	end
 
-	-- drop duplicate closing point if flatten produced it
 	local first, last = poly[1], poly[#poly]
 
 	if math.abs(first.x - last.x) < 1e-6 and math.abs(first.y - last.y) < 1e-6 then
@@ -121,7 +119,6 @@ local function extract_glyph_edges(self, glyph, curve_steps, scale)
 		local colored = msdf.ColorPolyline(poly)
 
 		for _, e in ipairs(colored) do
-			-- Transform edge coordinates to (super) texture space
 			out[#out + 1] = {
 				p0 = {
 					x = ((e.p0.x * scale1) - glyph.bitmap_left) * scale + scale2,

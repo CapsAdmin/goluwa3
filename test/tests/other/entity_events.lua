@@ -50,7 +50,6 @@ T.Test("entity hierarchy change event fires on Remove", function()
 	T(events[1].entity)["=="](child)
 	T(events[1].action)["=="]("unparented")
 	T(events[1].parent)["=="](Entity.World)
-	-- entity.World is stable during removal, GetRoot() is not
 	T(events[1].entity.World)["=="](Entity.World)
 end)
 

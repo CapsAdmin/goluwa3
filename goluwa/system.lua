@@ -37,7 +37,6 @@ do
 	end
 
 	function os.realexit(code)
-		-- Flush stdout pipe before exiting so any pending output is captured
 		local output = import("goluwa/cli/output.lua")
 		output.Flush()
 		output.Shutdown()
@@ -55,59 +54,55 @@ local function not_implemented()
 	logn("this function is not yet implemented!")
 end
 
-do -- frame time
+do
 	local frame_time = 0.1
 
 	function system.GetFrameTime()
 		return frame_time
 	end
 
-	-- used internally in main_loop.lua
 	function system.SetFrameTime(dt)
 		frame_time = dt
 	end
 end
 
-do -- frame time
+do
 	local frame_time = 0.1
 
 	function system.GetInternalFrameTime()
 		return frame_time
 	end
 
-	-- used internally in main_loop.lua
 	function system.SetInternalFrameTime(dt)
 		frame_time = dt
 	end
 end
 
-do -- frame number
+do
 	local frame_number = 0
 
 	function system.GetFrameNumber()
 		return frame_number
 	end
 
-	-- used internally in main_loop.lua
 	function system.SetFrameNumber(num)
 		frame_number = num
 	end
 end
 
-do -- elapsed time (avanved from frame time)
+do
 	local elapsed_time = 0
 
 	function system.GetElapsedTime()
 		return elapsed_time
 	end
 
-	-- used internally in main_loop.lua
 	function system.SetElapsedTime(num)
 		elapsed_time = num
 	end
 end
 
-do -- server time (synchronized across client and server)
+do
 	local server_time = 0
 
 	function system.SetServerTime(time)
@@ -119,7 +114,7 @@ do -- server time (synchronized across client and server)
 	end
 end
 
-do -- arg is made from luajit.exe
+do
 	local arg = _G.arg or {}
 	local executable_path = arg[-1]
 	local script_path = arg[0]
@@ -158,7 +153,8 @@ function system.IsTTY()
 	return ffi.C.isatty(0) == 1
 end
 
-local sleep = import("goluwa/bindings/threads.lua").sleep -- in ms
+local sleep = import("goluwa/bindings/threads.lua").sleep
+
 function system.Sleep(seconds)
 	sleep(seconds * 1000)
 end

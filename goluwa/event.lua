@@ -54,7 +54,6 @@ function event.AddListener(event_type, id, callback, config)
 	config.callback = config.callback or callback
 	config.priority = config.priority or 0
 
-	-- useful for initialize events
 	if config.id == nil then
 		config.id = {}
 		config.remove_after_one_call = true
@@ -105,12 +104,10 @@ function event.RemoveListener(event_type, id)
 		end
 	else
 
-	--logn(("Tried to remove non existing event '%s:%s'"):format(event, tostring(unique)))
 	end
 end
 
 function event.SkipCallback(cb)
-	-- used by objects CallLocalEvent
 	event.skip_callback = cb
 end
 

@@ -11,11 +11,6 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local surface_lighting = library()
--- What shading a surface at a world position takes, shared by the deferred
--- lighting pass and the forward passes that draw what the gbuffer can't hold.
--- A pass puts surface_lighting.block in a uniform block, writes it with
--- WriteBlock, binds the light grid and the occlusion map at the bindings it
--- gave GetDeclarationGLSL, and shades with get_direct_light from GetGLSL.
 surface_lighting.block = {
 	render3d.camera_block,
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},

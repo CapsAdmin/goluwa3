@@ -28,10 +28,7 @@ local VisibilityGroup = import("goluwa/entities/components/visibility_group.lua"
 local utility = import("goluwa/utility.lua")
 local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
--- how far past the world's bounds, in metres, the 3D skybox is cut away
 local SKY_CUT_MARGIN = 0.5
--- how far outside a visibility group, in source units, the camera still
--- counts as inside one of the group's walls
 local GROUP_WALL_MARGIN = 256
 local BSP_LUMP_PLANES = 2
 local BSP_CONTENTS_SOLID = 0x1
@@ -103,9 +100,6 @@ do
 				)
 			)
 		elseif angles then
-			-- source rotates yaw about up, pitch about left and roll about forward,
-			-- all right handed in source space, which maps to engine -x for pitch
-			-- (positive looks down) and -z for roll
 			rotation = QuatFromAxis(math.rad(angles.y), axis_y) * QuatFromAxis(math.rad(-angles.x), axis_x) * QuatFromAxis(math.rad(-angles.z), axis_z)
 		end
 
@@ -114,32 +108,11 @@ do
 	end
 end
 
--- vrad lights a surface d units away with brightness / (c + l*d + q*d^2)
--- (SetLightFalloffParams). Without _fifty_percent_distance it scales the
--- brightness by c + 100*l + 100^2*q, so a light is as bright as its brightness
--- 100 units away whatever its attenuation. With it, c, l and q are fitted
--- through 1 at 0, 2 at _fifty_percent_distance and 256 at
--- _zero_percent_distance. The engine's lights fall off the same way (see
--- Light's SourceRadius, LinearFalloff and QuadraticFalloff): with the distance
--- d in metres, d / s units, multiplying through by s^2 gives the coefficients
--- c * s^2, l * s and q and the intensity brightness * s^2 (all divided by q
--- when there is one), which BSP_LIGHT_INTENSITY_SCALE scales to the engine's
--- light units.
---
--- Mappers flatten a light's falloff with a large constant attenuation, which
--- would make it a source metres across. The source radius is capped at
--- MAX_SOURCE_RADIUS, which only brightens the light close to it: far away it
--- falls off with d^2 (or d) and gives off the same light as before.
---
--- A light with _fifty_percent_distance ends at _zero_percent_distance, where
--- vrad has it at 1/256 of its brightness at the light. Other lights are left
--- to their brightness (Light:GetEffectiveRange).
 local convert_source_light_to_engine
 
 do
 	local MAX_SOURCE_RADIUS = 0.25
 
-	-- vrad's SolveInverseQuadratic: a*x^2 + b*x + c through the three points
 	local function solve_quadratic(x1, y1, x2, y2, x3, y3)
 		local det = (x1 - x2) * (x1 - x3) * (x2 - x3)
 		local a = (x3 * (y2 - y1) + x2 * (y1 - y3) + x1 * (y3 - y2)) / det
@@ -156,9 +129,6 @@ do
 		return a, b, c
 	end
 
-	-- vrad's SolveInverseQuadraticMonotonic, for 1 at 0, 2 at d50, 256 at d0:
-	-- moves the middle point towards the line between the ends until the
-	-- curve rises
 	local function solve_fifty_percent(d50, d0)
 		local a, b, c
 
@@ -184,8 +154,6 @@ do
 			if d0 < d50 then d0 = 2 * d50 end
 
 			c, l, q = solve_fifty_percent(d50, d0)
-			-- a far _zero_percent_distance can fit a slightly negative q,
-			-- which would make the falloff reach zero and turn negative
 			q = math.max(q, 0)
 		else
 			c = math.max(tonumber(info._constant_attn) or 0, 0)
@@ -197,9 +165,6 @@ do
 			brightness = brightness * (c + 100 * l + 100 ^ 2 * q)
 		end
 
-		-- divided through by q, so the light falls off as d^2 far away and
-		-- its lumen is what it gives off. Only linear and constant lights
-		-- keep q = 0, and their lumen is relative to their falloff.
 		if q > 0 then
 			brightness = brightness / q
 			c = c / q
@@ -210,7 +175,6 @@ do
 		local s = steam.source2meters
 		local source_radius = math.sqrt(c) * s
 
-		-- a constant only light has nothing but its constant to fall off with
 		if l + q > 0 then
 			source_radius = math.min(source_radius, MAX_SOURCE_RADIUS)
 		end
@@ -355,9 +319,6 @@ local function build_source_model_from_meshes(meshes, owner)
 	return source_model
 end
 
--- the brushes of one model (0 is the world, "*n" entities are the others), by
--- walking its tree: a brush is listed in every leaf it touches, so the set is
--- what keeps a trigger's or a door's brushes out of the world's collision
 local function get_model_brush_set(header, model_index)
 	local set = {}
 	local stack = {header.models[model_index + 1].headnode}
@@ -387,11 +348,6 @@ local function get_model_brush_set(header, model_index)
 	return set
 end
 
--- The world model's brushes that block movement. Brush entities (triggers,
--- doors, clips, effect volumes) have brushes of their own in the same lump,
--- often with solid contents, but they are not part of the world and this
--- loader does not draw them either, so they would be invisible walls. A brush
--- that is in no leaf of any model is never collided with by Source.
 local function get_world_collision_brushes(header)
 	local indices = {}
 
@@ -495,16 +451,10 @@ local function build_bsp_physics_body(header, render_meshes, displacement_meshes
 	}
 end
 
--- Water: vbsp keeps water as brushes with water contents, split up wherever
--- the bsp cut them. Each becomes a box, the box's top is the surface, and
--- boxes of the same water at the same level that together fill a rectangle are
--- merged back into one, since the renderer only draws a few volumes. Merging
--- into a bounding box would cover the dry land between them.
 local collect_water_volumes
 
 do
 	local water = import("goluwa/render3d/water.lua")
-	-- a volume whose Source fog makes it this dense, per meter, at most
 	local MAX_EXTINCTION = 4
 
 	local function read_vmt(path)
@@ -532,8 +482,6 @@ do
 		return params
 	end
 
-	-- the vdf decoder makes "{r g b}" a Color, "[r g b]" stays a string in
-	-- 0..1. both are gamma encoded
 	local function parse_color(value)
 		if type(value) == "string" then
 			local r, g, b = value:match("([%d%.]+)%s+([%d%.]+)%s+([%d%.]+)")
@@ -548,8 +496,6 @@ do
 		return Vec3(value.r ^ 2.2, value.g ^ 2.2, value.b ^ 2.2)
 	end
 
-	-- Source water fogs linearly to $fogcolor until $fogend, taken as where
-	-- the water is 95% opaque
 	local function water_from_vmt(texname, contents)
 		local vmt = read_vmt("materials/" .. texname .. ".vmt") or {}
 		local fog_color = parse_color(vmt.fogcolor)
@@ -569,7 +515,6 @@ do
 		)
 	end
 
-	-- the texture of the brush's upward facing side, the water surface
 	local function get_surface_texture(header, brush)
 		local best, best_up = nil, -math.huge
 
@@ -592,7 +537,6 @@ do
 		return (box.max.x - box.min.x) * (box.max.z - box.min.z)
 	end
 
-	-- two boxes whose union is filled by them, within a few percent
 	local function try_merge(a, b)
 		if a.key ~= b.key then return nil end
 
@@ -615,8 +559,6 @@ do
 		}
 	end
 
-	-- to_engine_box moves a box in the 3D skybox out into the world, and says
-	-- which visibility group it's in
 	function collect_water_volumes(header, to_engine_box)
 		local boxes = {}
 
@@ -645,7 +587,6 @@ do
 								texname = texname,
 								contents = contents,
 								visibility_group = visibility_group,
-								-- surfaces within a centimeter are the same water
 								key = texname:lower() .. math.floor(max.y * 100 + 0.5) .. " " .. tostring(visibility_group),
 							}
 						)
@@ -729,12 +670,6 @@ local function get_displacement_corners(header, info)
 	return corners, start_corner
 end
 
--- A displacement is not a heightmap: each vertex is the flat grid position
--- plus an arbitrary offset vector times a distance, so a patch can overhang or
--- curve back on itself. The collider is the triangle mesh of the grid, built
--- from the same vertices the visual mesh uses, so the two cannot disagree.
--- positions are the Source space vertices in the visual's (y * dims + x)
--- order; the triangles keep the visual's diagonal and face the same way.
 local function build_displacement_collision_shape(positions, dims)
 	local scale = steam.source2meters
 	local poly = Polygon3D.New()
@@ -811,13 +746,9 @@ function steam.SetMap(name)
 	steam.bsp_world:SetName(name)
 	steam.bsp_world:AddComponent("transform")
 	steam.bsp_world:RemoveChildren()
-	-- Store the relative path for later lookup
 	steam.bsp_world.bsp_relative_path = path
-
-	-- the world's meshes are spawned along with the map's entities, split up by
-	-- visibility group. the scene is loading from here until the spawn task
-	-- has taken over
 	scene_loading.Begin()
+
 	model_loader.LoadModel(
 		path,
 		function()
@@ -849,7 +780,6 @@ do
 			return
 		end
 
-		--print("NYI")
 		local tex = Texture.New("cube_map")
 		tex:SetMinFilter("linear")
 		tex:SetMagFilter("linear")
@@ -922,7 +852,6 @@ end
 function steam.LoadMap(path)
 	path = assert(R(path) or nil)
 
-	-- Check if already loaded
 	if steam.loaded_bsp[path] then
 		logn("map already loaded: ", path)
 		return steam.loaded_bsp[path]
@@ -974,7 +903,7 @@ function steam.LoadMap(path)
 
 	do
 		tasks.Wait()
-		tasks.Report("mounting pak") -- pak
+		tasks.Report("mounting pak")
 		local lump = header.lumps[41]
 		local length = lump.filelen
 		bsp_file:SetPosition(lump.fileofs)
@@ -1014,11 +943,6 @@ function steam.LoadMap(path)
 				if k == "angles" then
 					v = Ang3(unpack_numbers(v))
 				elseif k == "_light" or k == "_lightHDR" or k == "_ambient" or k == "_ambientHDR" then
-					-- "R G B brightness" with R G B in 0-255 gamma 2.2, read like
-					-- vrad's LightForString: one value is grey, no brightness is
-					-- 255, and eight values carry the HDR ones after the LDR ones.
-					-- A negative value (the "-1 -1 -1 1" default of _lightHDR)
-					-- means unset.
 					local r, g, b, brightness, r_hdr, g_hdr, b_hdr, brightness_hdr = unpack_numbers(v)
 
 					if brightness_hdr then
@@ -1141,7 +1065,6 @@ function steam.LoadMap(path)
 					if version >= 7 then lump.rendercolor = bsp_file:ReadByteColor() end
 
 					if version == 11 then
-						-- not sure what this padding is
 						bsp_file:Advance(4)
 
 						if version == 9 or version == 10 then
@@ -1154,7 +1077,6 @@ function steam.LoadMap(path)
 					else
 						local remaining = tonumber(lump_size - (bsp_file:GetPosition() - pos))
 						bsp_file:Advance(remaining)
-					--local bytes = bsp_file:ReadBytes(remaining)
 					end
 
 					lump.model = paths[lump.prop_type + 1] or paths[1]
@@ -1169,36 +1091,6 @@ function steam.LoadMap(path)
 
 				bsp_file:PopPosition()
 			end
-		--[[if id == "prpd" then
-				bsp_file:PushPosition(fileofs)
-
-				local count = bsp_file:ReadI32()
-				local paths = {}
-				logf("prpd paths = %s\n", count)
-
-				-- for i = 1, count do
-					-- local str = bsp_file:ReadString()
-					-- if str ~= "" then
-						-- paths[i] = str
-					-- end
-				-- end
-
-				bsp_file:PopPosition()
-			end
-
-			if id == "tlpd" then
-				bsp_file:PushPosition(fileofs)
-
-				local count = bsp_file:ReadI32()
-				logf("tlpd paths = %s\n", count)
-				--for i = 1, count do
-				--	local a = bsp_file:ReadBytes(4)
-				--	local b = bsp_file:ReadByte()
-				--
-				--end
-
-				bsp_file:PopPosition()
-			end]]
 		end
 	end
 
@@ -1416,15 +1308,6 @@ function steam.LoadMap(path)
 		int numfaces;
 	]]
 	)
-	-- vbsp gives every region that is sealed off from the rest of the map its
-	-- own area, and splits regions further at areaportals. Areas joined by
-	-- areaportals can see into each other, so together they make up one
-	-- visibility group, and nothing of one group can be seen from another.
-	--
-	-- The 3D skybox is one of these regions, somewhere in the map, that Source
-	-- draws scaled up by sky_camera's scale around sky_camera's origin. Its
-	-- areas are the group sky_camera is in, and anything in them is moved out
-	-- into the world, where it belongs to no group.
 	local sky_origin, sky_scale, sky_cut_min, sky_cut_max, point_leaf_in_sky
 	local nodes = read_lump_data(
 		"reading nodes",
@@ -1448,7 +1331,6 @@ function steam.LoadMap(path)
 		function()
 			local contents = bsp_file:ReadI32()
 			bsp_file:Advance(2)
-			-- the low 9 bits of a bitfield, the rest are flags
 			local area = bit.band(bsp_file:ReadU16(), 0x1FF)
 			local mins = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
 			local maxs = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
@@ -1531,8 +1413,6 @@ function steam.LoadMap(path)
 		return leafs[-node]
 	end
 
-	-- the area of the open leaf nearest to pos, for what is in a wall and
-	-- doesn't touch any open leaf nearby
 	local function nearest_area(pos)
 		local best_area, best_distance = 0, math.huge
 
@@ -1552,7 +1432,6 @@ function steam.LoadMap(path)
 		return best_area
 	end
 
-	-- the areas areaportals join to area, and area itself
 	local function get_joined_areas(area)
 		local out = {}
 		local stack = {area}
@@ -1578,7 +1457,6 @@ function steam.LoadMap(path)
 	local sky_areas = header.sky_camera and
 		get_joined_areas(point_leaf(header.sky_camera.origin).area) or
 		{}
-	-- area 0 is the solid space outside of every area
 	local area_groups = {}
 	local group_count = 0
 
@@ -1593,8 +1471,6 @@ function steam.LoadMap(path)
 	end
 
 	logn("found ", group_count, " visibility groups in ", #areas - 1, " areas")
-	-- the box around a group's open leafs, grown by as much as a thick wall,
-	-- tells being inside one of its walls from being outside of it
 	local group_bounds = {}
 
 	for _, leaf in ipairs(leafs) do
@@ -1618,7 +1494,6 @@ function steam.LoadMap(path)
 		end
 	end
 
-	-- the leafs a face can be seen from list it
 	local face_areas = {}
 
 	for _, leaf in ipairs(leafs) do
@@ -1630,10 +1505,6 @@ function steam.LoadMap(path)
 		end
 	end
 
-	-- displacements aren't listed. Their base face can be buried below the
-	-- surface they make, so look in front of it, or behind it when that's
-	-- solid, a little further away each time, and failing that take the
-	-- nearest open leaf
 	local probe_distances = {1, 16, 64, 256}
 
 	local function get_face_area(index)
@@ -1675,10 +1546,6 @@ function steam.LoadMap(path)
 			return sky_areas[point_leaf(pos).area] == true
 		end
 
-		-- Source draws the skybox behind the world, so its walls and ground
-		-- that end up in the world's place never show there. Here they would,
-		-- in doorways out to the skybox for example, so everything in the
-		-- skybox within the world's bounds is cut away.
 		local world_min = Vec3(math.huge, math.huge, math.huge)
 		local world_max = Vec3(-math.huge, -math.huge, -math.huge)
 
@@ -1701,7 +1568,6 @@ function steam.LoadMap(path)
 	end
 
 	do
-		-- an entity inside a wall (a model's origin often is) looks around it
 		local probe_offsets = {
 			Vec3(0, 0, 16),
 			Vec3(0, 0, -16),
@@ -1715,7 +1581,6 @@ function steam.LoadMap(path)
 			if ent.origin then
 				local area = 0
 
-				-- a static prop knows which leafs it touches, the skybox's first
 				if ent.classname == "static_entity" and ent.leaf_count > 0 then
 					for i = 1, ent.leaf_count do
 						local leaf_area = leafs[header.static_prop_leafs[ent.first_leaf + i] + 1].area
@@ -1758,8 +1623,6 @@ function steam.LoadMap(path)
 	}
 
 	do
-		-- engine space box corners back to source space, through the skybox
-		-- transform if they're in it, and out again
 		local function engine_to_source(pos)
 			return Vec3(-pos.z, -pos.x, pos.y) / steam.source2meters
 		end
@@ -1788,7 +1651,6 @@ function steam.LoadMap(path)
 	do
 		local function add_vertex(model, texinfo, texdata, in_sky, pos, blend, uv_pos, disp_normal)
 			local a = texinfo.textureVecs
-			-- displacements are mapped as the flat surface they displace
 			local uv_source = uv_pos or pos
 
 			if blend then blend = blend / 255 else blend = 0 end
@@ -1806,10 +1668,6 @@ function steam.LoadMap(path)
 			if in_sky then pos = (pos - sky_origin) * sky_scale end
 
 			local vertex = {
-				-- Convert from Source Z-up to engine Y-up
-				-- Source: X=forward, Y=left, Z=up
-				-- Engine: X=right, Y=up, Z=forward
-				-- Transformation: engine(x, y, z) = source(-y, z, -x) * scale
 				pos = Vec3(-pos.y, pos.z, -pos.x) * steam.source2meters,
 				texture_blend = blend,
 				uv = uv,
@@ -1823,12 +1681,9 @@ function steam.LoadMap(path)
 			end
 		end
 
-		-- adds what's outside the skybox cut of a convex polygon of
-		-- {pos = pos, blend = blend} vertices
 		local add_sky_polygon
 
 		do
-			-- the parts of a polygon below and above an axis aligned plane
 			local function split_polygon(polygon, axis, value)
 				local below, above = {}, {}
 				local prev = polygon[#polygon]
@@ -1920,10 +1775,6 @@ function steam.LoadMap(path)
 			return flat + data.pos * data.dist, data.alpha, flat
 		end
 
-		-- Displacement normals come from the displacement's own grid instead of
-		-- smoothing the merged mesh: each patch adds the area weighted normals of
-		-- its triangles to its grid vertices, and vertices on a patch's edge
-		-- share one accumulator with the coincident vertices of its neighbours.
 		local welded_normals = {}
 		local disp_x, disp_y, disp_z = {}, {}, {}
 		local disp_nx, disp_ny, disp_nz = {}, {}, {}
@@ -1949,8 +1800,6 @@ function steam.LoadMap(path)
 				local texdata = texinfo and header.texdatas[1 + texinfo.texdata]
 				local texname = header.texdatastringdata[1 + texdata.nameStringTableID]
 				local texname_lower = texname:lower()
-				-- the world is split up into sub models by visibility group and
-				-- texture
 				local key = (group or 0) .. " " .. texname
 
 				if texname_lower:find("skyb", nil, true) then goto continue end
@@ -2017,7 +1866,6 @@ function steam.LoadMap(path)
 									local a = header.vertices[first]
 									local b = header.vertices[previous]
 									local c = header.vertices[current]
-									-- CW winding (matches coordinate transform from Source)
 									add_vertex(mesh, texinfo, texdata, false, a)
 									add_vertex(mesh, texinfo, texdata, false, b)
 									add_vertex(mesh, texinfo, texdata, false, c)
@@ -2113,7 +1961,6 @@ function steam.LoadMap(path)
 										}
 									)
 								else
-									-- CW winding (matches coordinate transform from Source)
 									add_vertex(mesh, texinfo, texdata, false, positions[a], blends[a], flats[a], normals[a])
 									add_vertex(mesh, texinfo, texdata, false, positions[c], blends[c], flats[c], normals[c])
 									add_vertex(mesh, texinfo, texdata, false, positions[b], blends[b], flats[b], normals[b])
@@ -2140,13 +1987,9 @@ function steam.LoadMap(path)
 				tasks.Wait()
 			end
 
-			-- only world needed
 			break
 		end
 
-		-- overlays and decals are rectangles of a material laid over faces. one
-		-- fragment is the part of a face inside the rectangle, which is given
-		-- by two axes in the plane and its extents along them from origin
 		local add_decal_fragment
 
 		do
@@ -2253,12 +2096,6 @@ function steam.LoadMap(path)
 			end
 		end
 
-		-- the overlay lump stores a quad's corners as offsets along the overlay's
-		-- own u and v axes, and which way u points as its coefficients along the
-		-- two axes of a frame built from the normal (the z of the first two
-		-- corners). the frame's axes are world axes, not the viewer's right and
-		-- up, so walls facing the other way come out upside down until the
-		-- flipped u and v ranges turn them
 		if RENDER_2D and header.overlays then
 			for _, overlay in ipairs(header.overlays) do
 				local normal = overlay.normal
@@ -2282,9 +2119,6 @@ function steam.LoadMap(path)
 				for i = 1, bit.band(overlay.face_count_and_render_order, 0x3fff) do
 					local face_index = overlay.faces[i]
 
-					-- the overlay's normal is its face's plane normal as stored, whatever
-					-- the face's side. a face at an angle to it, like a stair riser
-					-- under a runner, would only smear it
 					if
 						header.planes[header.faces[1 + face_index].planenum + 1].normal:Dot(normal) >= 0.5
 					then
@@ -2307,9 +2141,6 @@ function steam.LoadMap(path)
 			end
 		end
 
-		-- an infodecal is only a texture and an origin on a surface. it covers
-		-- the texture's size times the material's $decalscale, laid over the
-		-- faces the origin is on along their own texture axes
 		if RENDER_2D then
 			local unit_range = {0, 1}
 			local decal_sizes = {}
@@ -2331,7 +2162,6 @@ function steam.LoadMap(path)
 						local data = vmt and vmt.basetexture and vfs.Read(vmt.basetexture)
 
 						if data then
-							-- width and height are 16 bit little endian at byte 16 of a vtf header
 							local scale = tonumber(vmt.decalscale) or 1
 							size = {
 								(
@@ -2397,14 +2227,12 @@ function steam.LoadMap(path)
 	if RENDER_2D then
 		for i, data in ipairs(models) do
 			local mesh = data.mesh
-			-- BSP uses CW winding due to coordinate transform, so build normals accordingly
 			local vertices = mesh:GetVertices()
 
 			for i = 1, #vertices, 3 do
 				local a = vertices[i + 0]
 				local b = vertices[i + 1]
 				local c = vertices[i + 2]
-				-- For CW winding: (C-A) × (B-A) to get outward normal
 				local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
 				a.normal = normal
 				b.normal = normal
@@ -2456,7 +2284,6 @@ function steam.LoadMap(path)
 	if ocean_level == nil then ocean_level = header.lowest_point or 0 end
 
 	render3d.SetOceanLevel(ocean_level - 2)
-	--render3d.SetOceanEnabled(true)
 	steam.loaded_bsp[path] = {
 		render_meshes = render_meshes,
 		entities = header.entities,
@@ -2466,7 +2293,7 @@ function steam.LoadMap(path)
 		visibility = header.visibility,
 		water_volumes = header.water_volumes,
 		ocean_level = ocean_level,
-		path = path, -- Store the absolute path
+		path = path,
 	}
 
 	if physics_body_info then
@@ -2489,7 +2316,6 @@ function steam.LoadMap(path)
 end
 
 function steam.SpawnMapEntities(path, parent)
-	-- path should already be absolute
 	local data = steam.loaded_bsp[path]
 
 	if not data then
@@ -2516,8 +2342,6 @@ function steam.SpawnMapEntities(path, parent)
 		VisibilityGroup.SetActive(nil)
 		local groups = {}
 
-		-- what belongs to no group (the skybox, what's inside walls) goes
-		-- straight under the world
 		local function get_container(id)
 			if not id then return parent end
 
@@ -2532,7 +2356,6 @@ function steam.SpawnMapEntities(path, parent)
 			return groups[id]
 		end
 
-		-- lights, water and each class of prop are kept together in a container
 		local sub_groups = {}
 
 		local function get_sub_group(container, name)
@@ -2577,14 +2400,10 @@ function steam.SpawnMapEntities(path, parent)
 			local group_bounds = data.visibility.group_bounds
 			local group_ids = {}
 
-			-- every group, so being in one that has nothing in it still hides
-			-- the others
 			for id = 1, data.visibility.group_count do
 				group_ids[get_container(id).visibility_group] = id
 			end
 
-			-- in solid space the camera is either in a wall of the group it's in,
-			-- and keeps it, or outside of the map, where it sees every group
 			VisibilityGroup.SetLocator(function(pos)
 				local source = Vec3(-pos.z, -pos.x, pos.y) / steam.source2meters
 				local area = point_leaf(source).area
@@ -2620,15 +2439,9 @@ function steam.SpawnMapEntities(path, parent)
 		for i, info in pairs(data.entities) do
 			if RENDER_2D then
 				if info.skyname then
-					--steam.LoadSkyTexture(info.skyname)
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 				elseif info.classname and info.classname:find("light_environment") then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
-				--local p, y = info.pitch, info.angles.y
-				--parent.world_params:SetSunAngles(Deg3(p or 0, y+180, 0))
-				--info._light.a = 1
-				--parent.world_params:SetSunColor(Color(info._light.r, info._light.g, info._light.b))
-				--parent.world_params:SetSunIlluminance(126000)
 				elseif info.classname:lower():find("light") and (info._lightHDR or info._light) then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 					local ent = Entity.New{
@@ -2643,14 +2456,10 @@ function steam.SpawnMapEntities(path, parent)
 					light:SetColor(params.color)
 
 					if is_spot then
-						-- like vrad's ParseLightSpot, 0 counts as unset
 						local inner_cone = math.clamp((tonumber(info._inner_cone) or 0) > 0 and info._inner_cone or 10, 0, 180)
 						local outer_cone = math.clamp((tonumber(info._cone) or 0) > 0 and info._cone or inner_cone, inner_cone, 180)
 						local exponent = tonumber(info._exponent) or 0
 
-						-- vrad also scales the whole cone by cos(angle)^_exponent.
-						-- The engine's cone is a smoothstep, so it's narrowed around
-						-- the angle whose cap has the same flux, 1 - cos = 1 / (n + 1)
 						if exponent > 1 then
 							local mid = math.deg(math.acos(exponent / (exponent + 1)))
 							inner_cone = math.min(inner_cone, mid * 0.5)
@@ -2665,20 +2474,14 @@ function steam.SpawnMapEntities(path, parent)
 					light:SetSourceRadius(params.source_radius)
 					light:SetLinearFalloff(params.linear_falloff)
 					light:SetQuadraticFalloff(params.quadratic_falloff)
-					-- the colour is vrad's radiance, not a tint: its luminance is part of the brightness
 					light:SetLumen(params.intensity * params.color:GetLuminance() * light:GetEmissionSolidAngle())
-					--light:SetCastShadows{shadow_update_mode = "on_move"}
 					ent.spawned_from_bsp = true
 					ent.bsp_info = info
 				elseif info.classname == "env_fog_controller" then
 
-				--parent.world_params:SetFogColor(Color(info.fogcolor.r, info.fogcolor.g, info.fogcolor.b, info.fogcolor.a * (info.fogmaxdensity or 1)/4))
-				--parent.world_params:SetFogStart(info.fogstart* steam.source2meters)
-				--parent.world_params:SetFogEnd(info.fogend * steam.source2meters)
 				end
 			end
 
-			-- "*n" models are the map's brush entities, their faces are already part of the world
 			if
 				info.origin and
 				info.angles and
@@ -2688,7 +2491,6 @@ function steam.SpawnMapEntities(path, parent)
 				and
 				info.classname ~= "env_sprite"
 			then
-				-- source's file system ignores case, the entity lump and static props don't match the vpks
 				local model_path = vfs.FindMixedCasePath(info.model)
 
 				if model_path then
@@ -2801,7 +2603,6 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 		error("BSP LoadMap returned invalid data")
 	end
 
-	-- Store the resolved path on the world entity for later use
 	if steam.bsp_world and steam.bsp_world:IsValid() then
 		steam.bsp_world.bsp_resolved_path = full_path
 	end
@@ -2823,8 +2624,6 @@ end)
 
 event.AddListener("PreLoad3DModel", "bsp_mount_games", steam.MountGamesFromMapPath)
 
--- every light spawned from a map: the entity's keys as the map has them, then
--- what the engine made of them
 commands.Add("bsp_dump_lights", function()
 	local lines = {}
 

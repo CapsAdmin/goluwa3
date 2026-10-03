@@ -27,7 +27,6 @@ test.Test("plain characters and control keys", function()
 	local ctrl_a = decode_one(string.char(1))
 	attest.equal(ctrl_a.key, "a")
 	attest.equal(ctrl_a.modifiers.ctrl, true)
-	-- Ctrl+W is remapped to backspace
 	local ctrl_w = decode_one(string.char(23))
 	attest.equal(ctrl_w.key, "backspace")
 	attest.equal(ctrl_w.modifiers.ctrl, true)
@@ -51,7 +50,6 @@ test.Test("plain arrow/nav keys via escape_sequences table", function()
 end)
 
 test.Test("CSI sequences with modifiers", function()
-	-- \x1b[1;MODkey form
 	local ctrl_right = decode_one("\27[1;5C")
 	attest.equal(ctrl_right.key, "right")
 	attest.equal(ctrl_right.modifiers.ctrl, true)
@@ -63,7 +61,6 @@ test.Test("CSI sequences with modifiers", function()
 	local alt_right = decode_one("\27[1;3C")
 	attest.equal(alt_right.key, "right")
 	attest.equal(alt_right.modifiers.alt, true)
-	-- \x1b[MODkey form (no literal "1;")
 	local ctrl_right_short = decode_one("\27[5C")
 	attest.equal(ctrl_right_short.key, "right")
 	attest.equal(ctrl_right_short.modifiers.ctrl, true)
@@ -79,7 +76,6 @@ test.Test("SS3 sequences", function()
 	local up = decode_one("\27OA")
 	attest.equal(up.key, "up")
 	attest.equal(up.modifiers.shift, false)
-	-- SS3 M is treated as Shift+Enter
 	local shift_enter = decode_one("\27OM")
 	attest.equal(shift_enter.key, "enter")
 	attest.equal(shift_enter.modifiers.shift, true)
@@ -109,14 +105,11 @@ test.Test("SGR mouse events", function()
 	attest.equal(press.y, 20)
 	local release = decode_one("\27[<0;10;20m")
 	attest.equal(release.action, "released")
-	-- button_code 0x10 = ctrl held
 	local ctrl_click = decode_one("\27[<16;3;4M")
 	attest.equal(ctrl_click.modifiers.ctrl, true)
 	attest.equal(ctrl_click.modifiers.shift, false)
-	-- motion bit (0x20) set -> drag/move
 	local moved = decode_one("\27[<32;5;5M")
 	attest.equal(moved.action, "moved")
-	-- wheel bit (0x40) set
 	local wheel = decode_one("\27[<64;1;1M")
 	attest.equal(wheel.button, "wheel_up")
 end)
@@ -128,7 +121,6 @@ test.Test("mouse events are swallowed when mouse reporting is disabled", functio
 end)
 
 test.Test("malformed SGR-like sequence does not crash and falls back to escape", function()
-	-- Looks terminated (digits/`;` then `M`) but has no leading button number.
 	local event = decode_one("\27[<;M")
 	attest.equal(event.mouse, nil)
 	attest.equal(event.key, "escape")
@@ -167,10 +159,6 @@ test.Test("cursor position report parsing", function()
 end)
 
 test.Test("read_coordinates accumulates bytes across multiple Read() calls", function()
-	-- Regression test: read_coordinates() used to hand each single byte from
-	-- Read() straight to the parser without accumulating, so a real multi-byte
-	-- CPR response like "\27[12;34R" (fed one byte at a time, as Read() does)
-	-- could never match and the loop would spin forever.
 	local bytes = "\27[12;34R"
 	local pos = 0
 	local fake_self = {

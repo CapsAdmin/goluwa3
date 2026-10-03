@@ -9,8 +9,6 @@ local Shot = import("goluwa/render3d/shot.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local test_scene = library()
--- everything the helpers make hangs under this entity, so Reset only removes
--- what the helpers made
 local root
 
 function test_scene.GetRoot()
@@ -22,7 +20,6 @@ function test_scene.GetRoot()
 	return root
 end
 
--- an env var that is unset or empty is the default
 function test_scene.GetNumber(name, default)
 	local value = os.getenv(name)
 
@@ -39,8 +36,6 @@ function test_scene.GetString(name, default)
 	return value
 end
 
--- a known world: no ocean, no helper made entities, a fixed sun, clear sky and
--- dry weather. sun is {elevation = deg, azimuth = deg} or a vec3 towards the sun
 function test_scene.Reset(config)
 	config = config or {}
 
@@ -69,7 +64,6 @@ function test_scene.Reset(config)
 	if config.visibility then weather.SetVisibility(config.visibility) end
 end
 
--- a dull dielectric. value is a grey level or a color
 function test_scene.Matte(value, roughness)
 	if type(value) == "number" then value = Color(value, value, value, 1) end
 
@@ -88,14 +82,12 @@ function test_scene.Box(config)
 		RigidBody = config.collision and config.rigid_body or false,
 	}
 
-	-- far test geometry would silently vanish from the main view otherwise
 	if entity.visual then entity.visual:SetCullDistance(0) end
 
 	test_scene.GetRoot():AddChild(entity)
 	return entity, body
 end
 
--- top is the height of the surface
 function test_scene.Ground(config)
 	config = config or {}
 	local size = config.size or 400
@@ -108,9 +100,6 @@ function test_scene.Ground(config)
 	}
 end
 
--- a sealed room. the inside is size (x, y, z) with its floor at pos and centered
--- on it in x and z. an opening is {wall = "+z"|"-z"|"+x"|"-x", x = horizontal
--- center in the wall, y = center above the floor, width, height}
 function test_scene.Room(config)
 	local pos = config.pos or Vec3(0, 0, 0)
 	local size = config.size
@@ -138,7 +127,6 @@ function test_scene.Room(config)
 	for _, wall in ipairs{"+z", "-z", "+x", "-x"} do
 		local sign = wall:sub(1, 1) == "+" and 1 or -1
 		local along_x = wall:sub(2, 2) == "z"
-		-- the z walls span the corners
 		local width = along_x and size.x + 2 * t or size.z
 		local distance = (along_x and size.z or size.x) / 2 + t / 2
 		local height = size.y
@@ -180,7 +168,6 @@ function test_scene.Room(config)
 	end
 end
 
--- a mirror facing normal
 function test_scene.Mirror(config)
 	local normal = config.normal or Vec3(0, 0, 1)
 	local size = config.size or {1, 1}
@@ -206,8 +193,6 @@ function test_scene.Mirror(config)
 	return entity
 end
 
--- calls cb once the scene bvh was built, which is when traced reflections and
--- GI have something to work with. the scene needs some geometry
 function test_scene.WhenReady(cb)
 	if scene_bvh.readied then
 		cb()
@@ -220,10 +205,6 @@ function test_scene.WhenReady(cb)
 	end)
 end
 
--- views is a list of {name, pos, ang = {pitch, yaw, roll} degrees, fov degrees,
--- ev = EV100 or "auto", local_exposure}. each view is held until it settles, and
--- each(texture, info, view, index) gets the capture. the default saves
--- tmp/shots/<name>.png. the engine shuts down after the last view
 function test_scene.Run(config)
 	local views = config.views
 	local properties = {}
@@ -252,7 +233,10 @@ function test_scene.Run(config)
 				if config.each then
 					config.each(texture, info, views[i], i)
 				else
-					logf("[test_scene] saved %s\n", texture:SaveWithoutAlpha("tmp/shots/" .. (views[i].name or i) .. ".png"))
+					logf(
+						"[test_scene] saved %s\n",
+						texture:SaveWithoutAlpha("tmp/shots/" .. (views[i].name or i) .. ".png")
+					)
 				end
 			end,
 			{

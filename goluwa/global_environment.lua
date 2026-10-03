@@ -1,4 +1,3 @@
--- only load from goluwa/ directory
 if not _G._OLD_G then
 	local _OLD_G = {}
 
@@ -64,7 +63,6 @@ do
 
 		if key:sub(1, 1) == "@" then
 			key = key:sub(2)
-			-- normalize path
 			key = key:gsub("^%./", "")
 			key = key:gsub("//+", "/")
 		end

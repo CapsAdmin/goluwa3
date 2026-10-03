@@ -43,8 +43,6 @@ do
 			projection:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
 		end
 
-		-- Jitter is in pixels, applied after the projection so it shifts the
-		-- whole image by that much regardless of depth
 		self.UnjitteredProjectionMatrix = projection
 		self.JitterMatrix = Matrix44():Translate(self.Jitter.x * 2 / self.Viewport.w, self.Jitter.y * 2 / self.Viewport.h, 0)
 		self.ProjectionMatrix = projection:GetMultiplied(self.JitterMatrix)
@@ -156,8 +154,6 @@ do
 		)
 	end
 
-	-- like WorldPositionToScreen but with the TAA jitter stripped from the
-	-- projection, so screen-aligned overlays (debug text, ...) stay crisp
 	function META:WorldPositionToScreenUnjittered(position, screen_width, screen_height, skip_bounds_check)
 		return self:ProjectPositionToScreen(
 			position,
@@ -217,8 +213,6 @@ do
 		return self:ProjectLineToScreen(from, to, screen_width, screen_height, self:BuildProjectionMatrix())
 	end
 
-	-- like WorldLineToScreen but with the TAA jitter stripped from the
-	-- projection, so screen-aligned overlays (debug lines, ...) stay crisp
 	function META:WorldLineToScreenUnjittered(from, to, screen_width, screen_height)
 		return self:ProjectLineToScreen(
 			from,

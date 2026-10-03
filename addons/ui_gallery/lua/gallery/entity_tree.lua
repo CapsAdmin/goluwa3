@@ -69,7 +69,6 @@ return {
 		local function create_test_entity()
 			if not RENDER_3D then return end
 
-			-- Create a material so the entity has a virtual child reference
 			local Material = import("goluwa/render3d/material.lua")
 			local test_material = Material.New()
 			test_material:SetName("TestMaterial")

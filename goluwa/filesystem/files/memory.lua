@@ -10,7 +10,6 @@ function CONTEXT:VFSOpened()
 end
 
 function CONTEXT:VFSClosed()
-	-- yeah right as if this is ever going to happen cleanly
 	codec.WriteFile("luadata", "vfs_memory", file_tree)
 end
 
@@ -18,8 +17,6 @@ local function get_folder(path_info, remove_last)
 	local next = file_tree
 	local folders = path_info:GetFolders()
 
-	-- when creating a folder the folder doesn't exist
-	-- so remove it
 	if remove_last then list.remove(folders) end
 
 	for _, folder in ipairs(folders) do
@@ -96,7 +93,6 @@ local function save_file(self)
 end
 
 function CONTEXT:Write(str)
-	-- save 0.5 seconds after a write
 	timer.Delay(0.5, CONTEXT.VFSClosed, nil, CONTEXT.VFSClosed)
 	timer.Delay(0.1, save_file, self, save_file)
 	self.file.last_modified = os.time()
@@ -124,8 +120,7 @@ function CONTEXT:GetPosition()
 	return self.file.buffer:GetPosition()
 end
 
-function CONTEXT:OnRemove() -- hmm
-end
+function CONTEXT:OnRemove() end
 
 function CONTEXT:GetSize()
 	return self.file.buffer:GetSize()

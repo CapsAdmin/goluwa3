@@ -3,15 +3,11 @@ local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local assets = import("goluwa/assets.lua")
--- probe visibility rays leave hard dark crescents on the spheres
 import("goluwa/render3d/ddgi.lua").VISIBILITY_RAYS = 0
 local root = Entity.New{Name = "pbr_parameters"}
 local COLUMNS = 9
 local SPACING = 1.2
 local RADIUS = 0.45
--- height fields and noise for the textures below, which are 1024 texels a
--- side. noise is periodic in uv so it wraps around the spheres' seam. the
--- normal map is the height's gradient, so the same height can drive roughness too
 local shared = [[
 	#define TEXELS 1024.0
 
@@ -157,14 +153,12 @@ local function sphere(x, z, mat)
 	}
 end
 
--- a row of spheres from t = 0 on the left to t = 1 on the right
 local function sweep(z, build)
 	for i = 0, COLUMNS - 1 do
 		sphere((i - (COLUMNS - 1) / 2) * SPACING, z, build(i / (COLUMNS - 1)))
 	end
 end
 
--- a floor tile and a sphere on it
 local function tile(x, z, tile_mat, sphere_mat)
 	shapes.Box{
 		Parent = root,
@@ -176,7 +170,6 @@ local function tile(x, z, tile_mat, sphere_mat)
 	shapes.Sphere{
 		Parent = root,
 		Position = Vec3(x, 0.02 + RADIUS, z),
-		-- the u seam faces the viewer otherwise
 		Rotation = QuatDeg3(0, 180, 0),
 		Radius = RADIUS,
 		Material = sphere_mat or tile_mat,
@@ -184,7 +177,6 @@ local function tile(x, z, tile_mat, sphere_mat)
 	}
 end
 
--- a standing panel with a tile in front of it reflecting the panel and a sphere on the tile, all with the material
 local function swatch(x, mat)
 	shapes.Box{
 		Parent = root,
@@ -205,22 +197,18 @@ shapes.Box{
 	RigidBody = false,
 }
 
--- dielectric roughness
 sweep(0, function(t)
 	return material{Color = Color(0.6, 0.08, 0.06, 1), Roughness = t, Metallic = 0}
 end)
 
--- metal roughness
 sweep(-1.2, function(t)
 	return material{Color = Color(1, 0.78, 0.34, 1), Roughness = t, Metallic = 1}
 end)
 
--- metallic at a fixed roughness
 sweep(-2.4, function(t)
 	return material{Color = Color(0.95, 0.64, 0.54, 1), Roughness = 0.25, Metallic = t}
 end)
 
--- dielectric F0 from water's 0.02 to 0.08 on black, only the reflection is left
 sweep(-3.6, function(t)
 	return material{
 		Color = Color(0, 0, 0, 1),
@@ -230,12 +218,10 @@ sweep(-3.6, function(t)
 	}
 end)
 
--- albedo from black to white on a rough dielectric
 sweep(-4.8, function(t)
 	return material{Color = Color(t, t, t, 1), Roughness = 0.6, Metallic = 0}
 end)
 
--- glass roughness, clear to frosted
 sweep(-6, function(t)
 	return material{
 		Color = Color(1, 1, 1, 1),
@@ -246,7 +232,6 @@ sweep(-6, function(t)
 	}
 end)
 
--- roughness across u on chrome
 swatch(
 	-8.75,
 	material{
@@ -255,7 +240,6 @@ swatch(
 		Metallic = 1,
 	}
 )
--- metallic across u on gold
 swatch(
 	-6.25,
 	material{
@@ -264,7 +248,6 @@ swatch(
 		Metallic = "return vec4(uv.x);",
 	}
 )
--- metallic across u, roughness across v
 swatch(
 	-3.75,
 	material{
@@ -273,7 +256,6 @@ swatch(
 		Metallic = "return vec4(uv.x);",
 	}
 )
--- chipped paint over steel, red primer at the chips' edges
 swatch(
 	-1.25,
 	material{
@@ -287,11 +269,9 @@ swatch(
 			float wear = paint_wear(uv);
 			return vec4(mix(mix(0.35, 0.5, fbm(uv, 24.0, 4)), mix(0.6, 0.3, wear - 1.0), step(0.5, wear)));
 		]],
-		-- the paint stands a little above the primer and the steel
 		Normal = normal_map("-paint_wear", "3.0"),
 	}
 )
--- hammered steel, the dents getting deeper across u
 swatch(
 	1.25,
 	material{
@@ -301,7 +281,6 @@ swatch(
 		Normal = normal_map("dents_height", "mix(1.0, 40.0, uv.x)"),
 	}
 )
--- brushed aluminium, grooves along u
 swatch(
 	3.75,
 	material{
@@ -311,7 +290,6 @@ swatch(
 		Normal = normal_map("brushed_height", "2.0"),
 	}
 )
--- scratched and smudged copper, the scratches expose rougher bright metal
 swatch(
 	6.25,
 	material{
@@ -321,7 +299,6 @@ swatch(
 		Normal = normal_map("scratches_height", "20.0"),
 	}
 )
--- dielectric specular map from none to twice the usual F0 across u on black
 swatch(
 	8.75,
 	material{
@@ -332,12 +309,9 @@ swatch(
 		SpecularMultiplier = 2,
 	}
 )
--- in front: materials made of many small grains and facets, and ones light goes through
 local FRONT = 3.2
--- sand and snow, see lua/autorun/render_3d/example_materials.lua
 tile(-5, FRONT, assets.Load("materials/examples/sand.lua"))
 tile(-2.5, FRONT, assets.Load("materials/examples/snow.lua"))
--- the glass balls sit on a tiled floor to show what they bend
 local grid = material{
 	Color = [[
 		vec2 line = step(0.95, fract(uv * 12.0));
@@ -346,7 +320,6 @@ local grid = material{
 	Roughness = 0.6,
 	Metallic = 0,
 }
--- green bottle glass
 tile(
 	0,
 	FRONT,
@@ -359,7 +332,6 @@ tile(
 		IndexOfRefraction = 1.52,
 	}
 )
--- diamond
 tile(
 	2.5,
 	FRONT,
@@ -372,7 +344,6 @@ tile(
 		IndexOfRefraction = 2.42,
 	}
 )
--- a leaf standing on its stem, the sun shows through it from behind and lights its veins
 shapes.Box{
 	Parent = root,
 	Position = Vec3(5, 0.8, FRONT),
@@ -385,7 +356,6 @@ shapes.Box{
 		AlphaTest = true,
 		Roughness = 0.45,
 		Metallic = 0,
-		-- the veins are thicker and let less through
 		DiffuseTransmission = 0.5,
 		Transmission = "return vec4(1.0 - leaf_veins(uv) * 0.6);",
 		TransmissionColor = Color(0.55, 1, 0.1, 1),
@@ -393,11 +363,7 @@ shapes.Box{
 	},
 	RigidBody = false,
 }
--- on the right: glossy detail a pixel or smaller from a few meters away, where
--- sampling one normal per pixel catches or misses the highlight and it
--- flickers as the view moves (see get_antialiased_roughness in model_pipeline.lua)
 local ALIAS_X = 9.5
--- chrome ball bearings
 local bearing = material{Color = Color(0.95, 0.95, 0.95, 1), Roughness = 0.05, Metallic = 1}
 
 for x = 0, 29 do
@@ -413,7 +379,6 @@ for x = 0, 29 do
 	end
 end
 
--- a grill of thin glossy steel pipes
 local pipe = material{Color = Color(0.56, 0.57, 0.58, 1), Roughness = 0.1, Metallic = 1}
 
 for i = 0, 59 do
@@ -429,8 +394,6 @@ for i = 0, 59 do
 	}
 end
 
--- corrugated glossy sheet. far away its mips flatten the ridges into a mirror,
--- which the antialiasing can't see
 shapes.Box{
 	Parent = root,
 	Position = Vec3(ALIAS_X + 1.5, 0.01, -3),
@@ -443,7 +406,6 @@ shapes.Box{
 	},
 	RigidBody = false,
 }
--- glossy black spheres with fine bumps, further and further back
 local bumpy = material{
 	Color = Color(0.04, 0.04, 0.04, 1),
 	Roughness = 0.1,

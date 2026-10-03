@@ -370,9 +370,6 @@ local untracked_cache = {stamp = nil, instance_count = nil, body_entries = nil, 
 local CANDIDATE_AABB_CURRENT = AABB(0, 0, 0, 0, 0, 0)
 local CANDIDATE_AABB_PREVIOUS = AABB(0, 0, 0, 0, 0, 0)
 
--- the set of bodies the broadphase has never tracked only changes when a
--- physics substep re-tracks bodies, the body entries table is replaced (e.g.
--- a physics ResetState), or the instance list changes, so cache it
 local function get_untracked_bodies(broadphase)
 	local cache = untracked_cache
 	local instances = RigidBody.Instances
@@ -429,8 +426,6 @@ local function append_rigid_body_candidate(
 		local position = body.Position
 
 		if entry.px ~= position.x or entry.py ~= position.y or entry.pz ~= position.z then
-			-- body moved since the broadphase last tracked it (e.g. transform
-			-- changes between physics steps), fall back to the pose-cached bounds
 			bounds = get_rigid_body_candidate_aabb(body) or bounds
 		end
 
@@ -478,8 +473,6 @@ local function collect_rigid_body_candidates(physics, world_aabb, ignore_entity,
 			append_rigid_body_candidate(overflow_entries[i], world_aabb, ignore_entity, filter_fn, options, effective_options, out)
 		end
 
-		-- bodies the broadphase has never tracked (queries run before/between
-		-- physics steps) still go through the pose-cached bounds
 		local untracked = get_untracked_bodies(broadphase)
 
 		for i = 1, #untracked do

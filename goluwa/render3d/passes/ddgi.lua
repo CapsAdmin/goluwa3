@@ -25,9 +25,6 @@ local BINDING_STATE = 9
 local BINDING_SCENE = 10
 local BINDING_LIGHT_GRID = 11
 local BINDING_UVS = 12
--- Probes are checked with ray queries against the scene (ddgi.VISIBILITY_RAYS),
--- in the resolve and when shading ray hits, which would otherwise feed light
--- leaked at a hit back into the probes.
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local SCENE_DESCRIPTOR = {
 	{
@@ -61,8 +58,6 @@ local function common_glsl()
 	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ddgi_data") .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL()
 end
 
--- Traces every probe ray against the scene TLAS. This is a ray tracing
--- dispatch, not a compute one; the 1x1 framebuffer only satisfies ComputePass.
 local function pass_trace()
 	return {
 		name = "ddgi_trace",
@@ -153,8 +148,6 @@ local function pass_trace()
 	}
 end
 
--- The trace pass without ray tracing hardware: the same rays and hit buffer,
--- traced through scene_bvh in a compute shader.
 local function pass_compute_trace()
 	return {
 		name = "ddgi_trace",
@@ -275,13 +268,6 @@ local function pass_compute_trace()
 	}
 end
 
--- Radiance leaving each ray's hit towards its probe: direct light and last
--- frame's probe irradiance at the hit (the infinite bounce). Emission comes
--- in through the emitter samples instead, which follow the uniform rays. One
--- texel per ray, x = ray + ray stride * cascade, y = probe slot (see
--- ddgi_ray_texel); a = hit distance, negative for a
--- back face hit (the probe is probably inside geometry) and
--- DDGI_MISS_DISTANCE for a miss.
 local function pass_shade()
 	local shade_buffers = {
 		{binding_index = BINDING_RAY_HITS},
@@ -338,7 +324,6 @@ local function pass_shade()
 			if scene_bvh.triangle_buffer then
 				scene_bvh.BindBuffers(self, desc, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
 			else
-				-- no soup yet; the shader never reads it while rt_ready is 0
 				self:UpdateDescriptorSet("storage_buffer", desc, BINDING_BVH_NODES, 0, hits, hits:GetSize())
 				scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, hits)
 			end
@@ -555,13 +540,7 @@ local function pass_shade()
 	}
 end
 
--- Blends this frame's rays into a probe's octahedral tile. One workgroup per
--- probe with one invocation per tile texel; the probe's rays are staged in
--- shared memory once instead of every texel refetching them.
 local function pass_update(name, texels, integrate)
-	-- the state's x = frames the texel has been accumulated for, the rest is
-	-- left to the integrate (the irradiance's mean luminance and noise), which
-	-- also picks the formats: the distance only needs two channels and x
 	local color_formats = {
 		{integrate.atlas_format[1], {name, "rgba"}},
 		{integrate.state_format[1], {name .. "_state", "rgba"}},
@@ -581,8 +560,6 @@ local function pass_update(name, texels, integrate)
 		layout(set = 0, binding = ]] .. BINDING_STATE .. [[, ]] .. integrate.state_format[2] .. [[) uniform image2D state_atlas;
 	]]
 
-	-- a short term average next to the atlas, to tell a real change in
-	-- lighting from a noisy frame
 	if integrate.trend then
 		color_formats[3] = {"r16g16b16a16_sfloat", {name .. "_trend", "rgba"}}
 		storage_images[3] = {
@@ -771,18 +748,8 @@ local function pass_update(name, texels, integrate)
 	}
 end
 
--- Cosine weighted radiance; a = the cosine weighted fraction of rays that
--- saw the sky. Back face hits carry no light and are left out.
---
--- A texel's frame estimate comes from a few dozen rays, so one ray landing on
--- a small hot spot (right next to a lamp, say) can carry more light than all
--- the others together and flash the whole probe. With ddgi_ray_clamp every
--- ray's radiance is capped at a multiple of the probe's mean ray luminance, so
--- a lone outlier counts like a few typical rays, while light that many rays see
--- raises the mean and passes through. The outlier's light is lost though.
 local IRRADIANCE_INTEGRATE = {
 	atlas_format = {"r16g16b16a16_sfloat", "rgba16f"},
-	-- x = frames accumulated, y = mean luminance, z = noise
 	state_format = {"r16g16b16a16_sfloat", "rgba16f"},
 	declare = [[
 		// mean luminance of the probe's rays without its brightest, the
@@ -826,27 +793,12 @@ local IRRADIANCE_INTEGRATE = {
 		sum += vec4(radiance * w, ray.a >= DDGI_MISS_DISTANCE * 0.5 ? w : 0.0);
 		weight_sum += w;
 	]],
-	-- the emitter samples are already weighted estimates of their own
 	result = [[
 		for (int k = 0; k < DDGI_EMITTER_SAMPLES; k++) {
 			vec4 emitter = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(DDGI_RAYS + k), slot, c), 0);
 			result.rgb += emitter.rgb * max(0.0, dot(texel_dir, ddgi_unpack_direction(emitter.a)));
 		}
 	]],
-	-- A real change in lighting shows up in every frame, noise does not. A
-	-- probe that sees a lit room through a doorway gets 0, 1 or 2 rays through
-	-- it per frame, and at night its history is close to 0, so any one frame
-	-- (or a short average holding one) can be many times the history. Only
-	-- when ddgi.ADAPT_FRAMES frames in a row all differ from the history by
-	-- more than the threshold (a ratio, since irradiance is in physical
-	-- units), in the same direction, does the history jump to the trend, a
-	-- short term average of about 4 frames. The run length is kept, signed
-	-- by direction, in the trend's alpha.
-	--
-	-- Otherwise the hysteresis goes from the minimum for a texel whose frames
-	-- agree with its average to the maximum for one whose frames deviate from
-	-- it by NOISE_RANGE or more, both averaged over about as many frames as the
-	-- minimum hysteresis keeps.
 	trend = true,
 	adapt = [[
 		float luma = dot(result.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -869,11 +821,8 @@ local IRRADIANCE_INTEGRATE = {
 		}
 	]],
 }
--- Mean and mean squared of the hit distance in a sharp lobe. Back face hits
--- are kept (with their shortened distance) so the probe reads as occluded.
 local DISTANCE_INTEGRATE = {
 	atlas_format = {"r16g16_sfloat", "rg16f"},
-	-- x = frames accumulated, the rest is only used by the irradiance
 	state_format = {"r16_sfloat", "r16f"},
 	loop = [[
 		float w = pow(max(0.0, dot(texel_dir, s_dir[r])), ddgi_data.ddgi_distance_exponent) * s_q[r];
@@ -887,18 +836,6 @@ local DISTANCE_INTEGRATE = {
 	]],
 }
 
--- Records which world probe each slot now holds, how many of its rays hit
--- back faces, and moves it (Majercik et al. 2021, probe relocation): out
--- through the closest back face when it is inside geometry, away from
--- surfaces that are too close, and back towards its grid point when there is
--- room. The push away is averaged over every ray that hit too close. When
--- those pushes mostly cancel the probe is squeezed between surfaces (a gap
--- between furniture and a wall): there is nowhere better to go, and a probe
--- that only sees two surfaces a hand's width away is no use for shading, so
--- it stays put and is disabled like a probe inside geometry. The rays were traced from the old offset, so their distances are
--- relative to it. Runs after the atlas updates, which read last frame's copy
--- to tell a probe that scrolled into a slot (history must be dropped) from
--- one that stayed.
 local function pass_probe_data()
 	return {
 		name = "ddgi_probe_data",
@@ -995,14 +932,6 @@ local function pass_probe_data()
 	}
 end
 
--- The guide that aims a probe's rays (see ddgi_guided_rays and ddgi_ray_direction
--- in ddgi.lua): an octahedral map of the radiance its rays returned, kept as a
--- running average per cell, and from it the probability of a guided ray landing
--- in each cell and the cumulative probability the rays are drawn with. The
--- probability follows the radiance plus a floor, so a dark cell is still looked
--- at now and then. It runs after everything that reads this frame's ray
--- directions, which the guide it replaces determined, and rebuilds them once
--- (in shared memory) before writing, one workgroup per probe.
 local function pass_guide()
 	return {
 		name = "ddgi_guide",
@@ -1121,17 +1050,6 @@ local function pass_guide()
 	}
 end
 
--- Debug view of the probes (ddgi_debug_probes): each probe is a sphere
--- shaded with its irradiance (1) or mean hit distance (2) in the direction of
--- the sphere's normal, drawn where its rays start. A relocated probe gets a
--- line back to its grid point, and a disabled one (inside geometry) is tinted
--- red. Draws one cascade at a time (ddgi_debug_cascade, clamped to the ones
--- in use). The lighting pass blends this over the image by its alpha.
---
--- The overlay is written like the scene color, pre-exposed, and kept below 1 in
--- display units: irradiance is what the exposure makes of it (as a white diffuse
--- sphere), rolled off smoothly, everything else sits at a fixed display level.
--- Anything brighter would bloom and be fought over by the tone mapping.
 local function pass_probe_debug()
 	return {
 		name = "ddgi_probe_debug",
@@ -1300,15 +1218,6 @@ local function pass_probe_debug()
 	}
 end
 
--- Debug view of the scene the probe rays trace (ddgi_debug_scene): the camera
--- looks through the same scene_bvh soup and materials as the probes, shaded by
--- albedo (1), normal (2) or hit distance (3). A hit on the back of a single
--- sided surface, which the probes treat as being inside geometry, is red, a
--- miss is the dark void the probes see sky in. It is presented as is, in
--- place of the finished frame (see present_texture in blit.lua), so it skips
--- lighting, exposure, bloom and tone mapping. With ray tracing the camera rays
--- are ray queries on the probe trace's TLAS and flags, alpha tested like it,
--- otherwise they walk the software BVH.
 local function pass_scene_debug()
 	local rays = VISIBILITY_RAYS and ddgi.RTSupported()
 	local alpha_test = rays and ddgi.ALPHA_TEST
@@ -1536,7 +1445,6 @@ local passes = {
 }
 
 if ddgi.RTSupported() then
-	-- builds the TLAS ssr and the fog trace against
 	table.insert(passes, 1, pass_trace())
 else
 	table.insert(passes, 1, pass_compute_trace())

@@ -182,7 +182,6 @@ function SequenceEditor:OnKeyInput(key)
 		if self.OnMoveUp then
 			self.OnMoveUp(self)
 		else
-			-- Fallback: move to previous line same column
 			local line, col = self:GetVisualLineCol()
 			self.PreferredVCol = self.PreferredVCol or col
 
@@ -192,7 +191,6 @@ function SequenceEditor:OnKeyInput(key)
 		if self.OnMoveDown then
 			self.OnMoveDown(self)
 		else
-			-- Fallback: move to next line same column
 			local line, col = self:GetVisualLineCol()
 			self.PreferredVCol = self.PreferredVCol or col
 			local line_count = self:GetVisualLineCount()
@@ -320,7 +318,6 @@ function SequenceEditor:SetVisualLineCol(target_line, target_col)
 		local logical_col = 1
 		local tab_size = 4
 
-		-- Iterate through characters to find the logical column that matches target_col
 		for char in line_text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
 			local char_vwidth = 1
 
@@ -328,7 +325,6 @@ function SequenceEditor:SetVisualLineCol(target_line, target_col)
 				char_vwidth = tab_size - ((current_vcol - 1) % tab_size)
 			end
 
-			-- If the next expansion would pass our target, we've found the closest logical position
 			if current_vcol + char_vwidth > target_col then break end
 
 			current_vcol = current_vcol + char_vwidth
@@ -501,15 +497,12 @@ function SequenceEditor:Indent(back)
 		return
 	end
 
-	-- Multiline indentation
 	self:SaveUndoState()
 
-	-- Expand selection to full lines
 	for i = start_line, stop_line do
 		self.Buffer:IndentLine(i, back)
 	end
 
-	-- Re-calculate selection and cursor
 	self:SetCursorLineCol(start_line, 1)
 	self.SelectionStart = self.Cursor
 	self:SetCursorLineCol(stop_line, self.Buffer:GetLength(self.Buffer:GetLine(stop_line)) + 1)

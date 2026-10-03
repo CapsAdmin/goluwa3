@@ -12,7 +12,6 @@ function transport_layer.Update()
 		if server:IsValid() then
 			server:Update()
 
-			-- Update ping on all connected peers (RTT not yet measured, set to 0)
 			for _, peer in pairs(server.peers) do
 				if peer:IsValid() then peer:SetPing(0) end
 			end
@@ -20,9 +19,8 @@ function transport_layer.Update()
 	end
 end
 
-do -- peer template
+do
 	local PeerClient = objects.CreateTemplate("peer_client")
-	-- Ping property (RTT not yet measured, defaults to 0)
 	PeerClient.ping = 0
 
 	function PeerClient:SetPing(val)
@@ -37,7 +35,6 @@ do -- peer template
 		if not self.socket then
 			self.socket = UDPClient.New()
 			self.socket:SetAddress(ip, port)
-			-- Wire up receive callback to forward to peer
 			local peer = self
 
 			function self.socket:OnReceiveChunk(chunk, address)
@@ -124,7 +121,7 @@ do -- peer template
 	objects.Register(PeerClient)
 end
 
-do -- server template
+do
 	local PeerServer = objects.CreateTemplate("peer_server")
 	PeerServer.Base = import("goluwa/sockets/udp_server.lua")
 
@@ -165,13 +162,11 @@ do -- server template
 		self.peers = {}
 
 		if self.socket then
-			-- server.socket is a raw socket, not a UDPServer. Remove from pool directly.
 			socket_pool:remove(self)
 			self.socket:close()
 			self.socket = nil
 		end
 
-		-- Remove from transport_layer.servers
 		for i, s in ipairs(transport_layer.servers) do
 			if s == self then
 				table.remove(transport_layer.servers, i)
@@ -190,7 +185,6 @@ do -- server template
 			local peer = objects.CreateObject(objects.GetRegistered("peer_client"))
 			peer.address = {ip = address:get_ip(), port = address:get_port()}
 			peer.connected = true
-			-- Create a UDP socket for this peer so we can send data back
 			peer.socket = UDPClient.New()
 			peer.socket:SetAddress(peer.address.ip, peer.address.port)
 			list.insert(transport_layer.sockets, peer)
@@ -217,7 +211,6 @@ do -- server template
 		server:Initialize()
 		server.peers = {}
 		server:SetAddress(ip, port)
-		-- Bind the socket to the address
 		server.socket:bind(ip, port)
 		table.insert(transport_layer.servers, server)
 		return server

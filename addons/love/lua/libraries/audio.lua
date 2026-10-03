@@ -94,11 +94,11 @@ function love.audio.setVolume(vol)
 	audio.SetListenerGain(vol or 1)
 end
 
-function love.audio.newEffect(...) --line only
+function love.audio.newEffect(...)
 	return audio.CreateEffect(...)
 end
 
-function love.audio.newFilter(...) --line only
+function love.audio.newFilter(...)
 	return audio.CreateFilter(...)
 end
 
@@ -108,7 +108,7 @@ function love.audio.stop()
 	end
 end
 
-do -- Source
+do
 	local Source = line.TypeTemplate("Source", love)
 
 	function Source:getChannels()
@@ -116,7 +116,7 @@ do -- Source
 			return self.source:GetChannels()
 		end
 
-		return 2 --stereo
+		return 2
 	end
 
 	function Source:getDirection()
@@ -314,11 +314,11 @@ do -- Source
 		return 1
 	end
 
-	function Source:addEffect(...) --line only
+	function Source:addEffect(...)
 		if self.source then return self.source:AddEffect(...) end
 	end
 
-	function Source:setFilter(...) --line only
+	function Source:setFilter(...)
 		if self.source then return self.source:SetFilter(...) end
 	end
 

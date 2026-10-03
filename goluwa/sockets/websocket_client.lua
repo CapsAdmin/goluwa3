@@ -93,7 +93,6 @@ function WebSocketClient.New()
 		self.socket:Send(req)
 	end
 	self.socket.OnClose = function(socket, why)
-		--if why == "receive" then return end
 		self:Remove()
 	end
 	local in_header = true

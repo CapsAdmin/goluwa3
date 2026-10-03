@@ -7,7 +7,7 @@ weather.SetWind(Vec3(1, 0, 0.35):GetNormalized() * 0.5)
 
 local function parse_time(str, utc_offset)
 	local y, m, d, h, min = str:match("(%d+)-(%d+)-(%d+) (%d+):(%d+)")
-	local days = os.time{year = y, month = m, day = d, hour = 12} / 86400 -- the date as a day count, the noon keeps it on the right day in any zone
+	local days = os.time{year = y, month = m, day = d, hour = 12} / 86400
 	return days * 86400 + (h - utc_offset) * 3600 + min * 60
 end
 

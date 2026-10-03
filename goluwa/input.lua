@@ -58,9 +58,7 @@ function input.CallOnTable(tbl, name, key, press, up_id, down_id)
 		if type(key) == "string" and #key == 1 then
 			local byte = string.byte(key)
 
-			if byte >= 65 and byte <= 90 then -- Uppercase letters
-				key = string.char(byte + 32)
-			end
+			if byte >= 65 and byte <= 90 then key = string.char(byte + 32) end
 		end
 
 		if press and not tbl[down_id][key] then

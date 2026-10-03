@@ -19,7 +19,7 @@ return function(steam)
 	}
 	local special_textures = {
 		_rt_fullframefb = "error",
-		[1] = "error", -- huh
+		[1] = "error",
 	}
 
 	function steam.LoadVMT(path, on_load, on_error)
@@ -104,16 +104,16 @@ return function(steam)
 				end
 			end
 
-			-- Auto-discover normal maps - these will be resolved later by the resource.Download loop
 			if not vmt.bumpmap and vmt.basetexture and not special_textures[vmt.basetexture] then
 				local new_path = file_path.FixPathSlashes(vmt.basetexture)
 
 				if vfs.IsFile("materials/" .. new_path .. "_normal.vtf") then
-					vmt.bumpmap = new_path .. "_normal" -- Set without materials/ prefix or .vtf, will be resolved later
+					vmt.bumpmap = new_path .. "_normal"
 				end
 			end
 
-			local pending = 1 -- Start at 1 to prevent early resolution
+			local pending = 1
+
 			local function check_done()
 				if pending == 0 then
 					on_load(vmt)
@@ -125,10 +125,8 @@ return function(steam)
 				if type(v) == "string" and texture_paths[k] then
 					if special_textures[v] or special_textures[v:lower()] then
 
-					-- Keep special textures as-is
 					elseif v == "black" or v == "white" then
 
-					-- Keep the value as-is for black/white
 					else
 						local new_path = file_path.FixPathSlashes("materials/" .. v)
 
@@ -142,7 +140,6 @@ return function(steam)
 						end)
 
 						cb:Catch(function(reason)
-							-- Try mixed case path before giving up
 							local mixed_path = vfs.FindMixedCasePath(new_path)
 
 							if mixed_path then
@@ -152,7 +149,7 @@ return function(steam)
 									on_error("texture " .. k .. " " .. new_path .. " not found: " .. reason)
 								end
 
-								vmt[k] = nil -- Remove failed texture from vmt
+								vmt[k] = nil
 							end
 
 							pending = pending - 1
@@ -166,7 +163,6 @@ return function(steam)
 				end
 			end
 
-			-- Decrement the initial pending count now that loop is complete
 			pending = pending - 1
 			check_done()
 		end):Catch(function(reason)

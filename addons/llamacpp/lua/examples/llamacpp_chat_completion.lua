@@ -23,14 +23,7 @@ agent:AddMessage{
 			type = "text",
 			text = "use a subagent to summarize /home/caps/projects/goluwa3/addons/test/lua/examples/llamacpp_chat_completion.lua",
 		},
-	--[[
-			{
-				type = "image_url",
-				image_url = {
-					url = image("/home/caps/Pictures/Simmons_idle.jpg"),
-				},
-			},]]
 	},
 }
-agent:Run() -- will be sent after an assistant message (not right after tool message)
+agent:Run()
 agent:QueueMessage{role = "user", content = "good job"}

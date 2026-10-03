@@ -11,18 +11,15 @@ T.Test("animation override with spring and single target", function()
 	local set = function(v)
 		val = v
 	end
-	-- Start an animation
 	animations.Animate{
 		id = "test",
 		group = "test_group",
 		get = get,
 		set = set,
-		to = Ang3(0, 0, 0), -- Redundant target
+		to = Ang3(0, 0, 0),
 		interpolation = {type = "spring"},
 		time = 1,
 	}
-	-- Override it immediately
-	-- This should not crash even if the first one was redundant
 	animations.Animate{
 		id = "test",
 		group = "test_group",
@@ -32,7 +29,7 @@ T.Test("animation override with spring and single target", function()
 		interpolation = {type = "spring"},
 		time = 1,
 	}
-	T(true)["=="](true) -- If we reached here, it didn't crash
+	T(true)["=="](true)
 end)
 
 T.Test("animation override with cdata types", function()
@@ -51,11 +48,9 @@ T.Test("animation override with cdata types", function()
 		to = Vec2(100, 100),
 		time = 1,
 	}
-	-- Manually update a bit
 	animations.Update(0.1, "test_group")
 	local mid_val = val:Copy()
 	T(val.x > 0)["=="](true)
-	-- Override
 	animations.Animate{
 		id = "test2",
 		group = "test_group",
@@ -64,8 +59,6 @@ T.Test("animation override with cdata types", function()
 		to = Vec2(200, 200),
 		time = 1,
 	}
-	-- The fix ensures that mid_val (which was 'val' at the time of override)
-	-- is used as the starting point, instead of being mutated by the new animation initialization logic.
 	T(val.x)["=="](mid_val.x)
 	T(val.y)["=="](mid_val.y)
 end)

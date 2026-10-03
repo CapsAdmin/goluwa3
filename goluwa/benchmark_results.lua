@@ -2,9 +2,7 @@ local json = import("goluwa/codecs/json.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local vfs = import("goluwa/vfs.lua")
 local benchmark_results = library()
--- a difference smaller than this share of the baseline is never reported
 local MIN_RELATIVE_BAND = 0.02
--- draws per frame that differ more than this from the baseline mean the scene was in another state
 local FINGERPRINT_TOLERANCE = 0.1
 local META = {}
 META.__index = META
@@ -40,15 +38,11 @@ function benchmark_results.New(name)
 	return setmetatable({name = name, entries = {}, fingerprints = {}}, META)
 end
 
--- a number that should be low. noise is how much it varies on its own, in the
--- same unit. a change inside twice the noise of both runs is not a change
 function META:Add(key, value, noise, unit)
 	assert(value == value and math.abs(value) ~= math.huge, key .. " is not a finite number")
 	self.entries[#self.entries + 1] = {key = key, value = value, noise = noise or 0, unit = unit or ""}
 end
 
--- something that says what state the scene was in, such as draw calls per
--- frame. when it differs from the baseline the timings can't be compared
 function META:AddFingerprint(key, value)
 	self.fingerprints[#self.fingerprints + 1] = {key = key, value = value}
 end
@@ -143,9 +137,6 @@ local function print_compare(self, baseline, label)
 	)
 end
 
--- compares with the baseline (or else the previous run) and then saves this run
--- as the latest. GOLUWA_BENCH_BASELINE=1 also makes it the baseline,
--- GOLUWA_BENCH_COMPARE=0 skips the comparison
 function META:Finish()
 	local directory = get_directory(self.name)
 	fs.create_directory_recursive(directory)

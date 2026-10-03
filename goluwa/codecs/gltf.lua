@@ -58,7 +58,6 @@ local function load_buffer(base_dir, buffer_info)
 	return nil
 end
 
--- Read accessor data as a raw C array (position/normal/... stay in glTF's own layout, no coordinate or engine translation)
 local function read_accessor_raw(gltf_data, accessor_index, buffers)
 	local accessor = gltf_data.accessors[accessor_index + 1]
 	local buffer_view = gltf_data.bufferViews[accessor.bufferView + 1]
@@ -161,9 +160,6 @@ local function decode_material(material_info)
 	return material
 end
 
--- Decode a glTF file into plain data: buffers, accessors, materials, meshes, nodes and scenes,
--- kept in glTF's own vocabulary and coordinate system. Building an engine entity hierarchy,
--- GPU meshes/materials/textures out of this data is the job of whatever uses this codec.
 function gltf.Load(path)
 	local base_dir = get_directory(path)
 	local json_data = fs.read_file(path)
@@ -243,7 +239,6 @@ function gltf.Load(path)
 		for i, texture_info in ipairs(gltf_data.textures) do
 			local source = texture_info.source
 
-			-- Prefer DDS over the default source when present
 			if texture_info.extensions and texture_info.extensions.MSFT_texture_dds then
 				source = texture_info.extensions.MSFT_texture_dds.source
 			end
@@ -296,9 +291,6 @@ function gltf.Load(path)
 				scale = node_info.scale or {1, 1, 1},
 				matrix = node_info.matrix,
 			}
-			-- EXT_mesh_gpu_instancing: one node + mesh represents many instances via
-			-- per-instance TRANSLATION/ROTATION/SCALE accessor arrays, instead of one
-			-- node per instance (what exporters use for large scatter/foliage counts)
 			local instancing_ext = node_info.extensions and node_info.extensions.EXT_mesh_gpu_instancing
 
 			if instancing_ext and instancing_ext.attributes then

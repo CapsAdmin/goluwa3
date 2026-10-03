@@ -1,7 +1,3 @@
--- glw: --3d
--- grids of animated player models on gm_construct seen from above, a phase per grid size
--- env: ANIM_SIDES="25" grid sides (default 0,5,10,15,20), ANIM_SECONDS measure time per phase,
--- ANIM_NO_LOD, ANIM_NO_BVH_ANIM, ANIM_STATIC (models without an animator)
 local commands = import("goluwa/cli/commands.lua")
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
 local raycast = import("goluwa/physics/raycast.lua")
@@ -63,8 +59,6 @@ local function spawn_grid(side)
 	end
 end
 
--- every model loaded and bound to its skeleton. a model without the animation
--- keeps its bind pose
 local function characters_ready()
 	for _, entity in ipairs(characters) do
 		if

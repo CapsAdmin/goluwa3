@@ -1,5 +1,3 @@
--- JPEG decoder ported from jpeg-js (https://github.com/eugeneware/jpeg-js)
--- Original JavaScript code is MIT licensed
 local ffi = require("ffi")
 local Buffer = import("goluwa/structs/buffer.lua")
 local jpg = library()
@@ -9,41 +7,39 @@ local bit_band = bit.band
 local bit_bor = bit.bor
 local bit_lshift = bit.lshift
 local bit_rshift = bit.rshift
-local bit_arshift = bit.arshift -- arithmetic (signed) right shift for IDCT
+local bit_arshift = bit.arshift
 local math_floor = math.floor
 local math_ceil = math.ceil
 local math_max = math.max
 local math_min = math.min
--- JPEG marker constants
-local MARKER_SOI = 0xFFD8 -- Start of Image
-local MARKER_EOI = 0xFFD9 -- End of Image
-local MARKER_START_OF_FRAME_0 = 0xFFC0 -- Start of Frame (Baseline DCT)
-local MARKER_START_OF_FRAME_1 = 0xFFC1 -- Start of Frame (Extended sequential DCT)
-local MARKER_START_OF_FRAME_2 = 0xFFC2 -- Start of Frame (Progressive DCT)
-local MARKER_DHT = 0xFFC4 -- Define Huffman Table
-local MARKER_DQT = 0xFFDB -- Define Quantization Table
-local MARKER_DEFINE_RESTART_INTERVAL = 0xFFDD -- Define Restart Interval
-local MARKER_DEFINE_NUMBER_OF_LINES = 0xFFDC -- Define Number of Lines
-local MARKER_START_OF_SCAN = 0xFFDA -- Start of Scan
-local MARKER_RST0 = 0xFFD0 -- Restart marker 0
-local MARKER_RST7 = 0xFFD7 -- Restart marker 7
-local MARKER_APP0 = 0xFFE0 -- Application marker 0 (JFIF)
-local MARKER_APP1 = 0xFFE1 -- Application marker 1 (EXIF)
-local MARKER_APP14 = 0xFFEE -- Application marker 14 (Adobe)
-local MARKER_APP15 = 0xFFEF -- Application marker 15
-local MARKER_COMMENT = 0xFFFE -- Comment
-local MARKER_FILL = 0xFFFF -- Fill bytes
-local MARKER_STUFF = 0xFF00 -- Byte stuffing
-local MARKER_PREFIX = 0xFF -- Marker prefix byte
-local MARKER_BYTE_MIN = 0xC0 -- Minimum marker byte (after 0xFF)
-local MARKER_BYTE_MAX = 0xFE -- Maximum marker byte (after 0xFF)
-local STUFFED_ZERO = 0x00 -- Byte stuffing zero byte
-local MALFORMED_APP0 = 0xE0 -- Malformed data marker (APP0 without prefix)
-local MALFORMED_APP1 = 0xE1 -- Malformed data marker (APP1 without prefix)
-local BYTE_MAX = 0xFF -- Maximum byte value (255) for clamping
+local MARKER_SOI = 0xFFD8
+local MARKER_EOI = 0xFFD9
+local MARKER_START_OF_FRAME_0 = 0xFFC0
+local MARKER_START_OF_FRAME_1 = 0xFFC1
+local MARKER_START_OF_FRAME_2 = 0xFFC2
+local MARKER_DHT = 0xFFC4
+local MARKER_DQT = 0xFFDB
+local MARKER_DEFINE_RESTART_INTERVAL = 0xFFDD
+local MARKER_DEFINE_NUMBER_OF_LINES = 0xFFDC
+local MARKER_START_OF_SCAN = 0xFFDA
+local MARKER_RST0 = 0xFFD0
+local MARKER_RST7 = 0xFFD7
+local MARKER_APP0 = 0xFFE0
+local MARKER_APP1 = 0xFFE1
+local MARKER_APP14 = 0xFFEE
+local MARKER_APP15 = 0xFFEF
+local MARKER_COMMENT = 0xFFFE
+local MARKER_FILL = 0xFFFF
+local MARKER_STUFF = 0xFF00
+local MARKER_PREFIX = 0xFF
+local MARKER_BYTE_MIN = 0xC0
+local MARKER_BYTE_MAX = 0xFE
+local STUFFED_ZERO = 0x00
+local MALFORMED_APP0 = 0xE0
+local MALFORMED_APP1 = 0xE1
+local BYTE_MAX = 0xFF
 local idct_R = ffi.new("int32_t[64]")
 local idct_r = ffi.new("uint8_t[64]")
--- DCT zigzag ordering
 local dctZigZag = {
 	[0] = 0,
 	1,
@@ -110,16 +106,14 @@ local dctZigZag = {
 	62,
 	63,
 }
--- DCT constants
-local dctCos1 = 4017 -- cos(pi/16)
-local dctSin1 = 799 -- sin(pi/16)
-local dctCos3 = 3406 -- cos(3*pi/16)
-local dctSin3 = 2276 -- sin(3*pi/16)
-local dctCos6 = 1567 -- cos(6*pi/16)
-local dctSin6 = 3784 -- sin(6*pi/16)
-local dctSqrt2 = 5793 -- sqrt(2)
-local dctSqrt1d2 = 2896 -- sqrt(2) / 2
--- Scan state structure (used to avoid closures in decodeScan)
+local dctCos1 = 4017
+local dctSin1 = 799
+local dctCos3 = 3406
+local dctSin3 = 2276
+local dctCos6 = 1567
+local dctSin6 = 3784
+local dctSqrt2 = 5793
+local dctSqrt1d2 = 2896
 local ScanState = {}
 ScanState.__index = ScanState
 
@@ -156,7 +150,6 @@ local function readBit(state)
 				"unexpected marker: " .. string.format("%04x", bit_bor(bit_lshift(state.bitsData, 8), nextByte))
 			)
 		end
-	-- unstuff 0
 	end
 
 	state.bitsCount = 7
@@ -326,13 +319,7 @@ local function decodeACSuccessive(state, component, zz, spectralStart, spectralE
 			k = k + 1
 		end
 
-		if state.successiveACState == 0 then
-
-		-- continue without incrementing k
-		else
-
-		-- k already incremented in state handlers
-		end
+		if state.successiveACState == 0 then  else  end
 	end
 
 	if state.successiveACState == 4 then
@@ -388,7 +375,6 @@ local function decodeBlock(state, component, decodeFn, mcu, opts, spectralStart,
 	)
 end
 
--- Build Huffman table from code lengths and values
 local function buildHuffmanTable(codeLengths, values)
 	local k = 0
 	local code = {}
@@ -439,7 +425,6 @@ local function buildHuffmanTable(codeLengths, values)
 	return code[1].children
 end
 
--- Decode scan data
 local function decodeScan(
 	data,
 	offset,
@@ -483,7 +468,6 @@ local function decodeScan(
 	end
 
 	while mcu < mcuExpected do
-		-- reset interval stuff
 		for i = 1, componentsLength do
 			components[i].pred = 0
 		end
@@ -530,7 +514,6 @@ local function decodeScan(
 		end
 
 		if mcu == mcuExpected then
-			-- Skip trailing bytes at the end of the scan
 			while state.offset < data:GetSize() - 2 do
 				if data:GetByte(state.offset) == MARKER_PREFIX then
 					if data:GetByte(state.offset + 1) ~= STUFFED_ZERO then break end
@@ -540,13 +523,12 @@ local function decodeScan(
 			end
 		end
 
-		-- find marker
 		state.bitsCount = 0
 		local marker = bit_bor(bit_lshift(data:GetByte(state.offset), 8), data:GetByte(state.offset + 1))
 
 		if marker < MARKER_STUFF then error("marker was not found") end
 
-		if marker >= MARKER_RST0 and marker <= MARKER_RST7 then -- RSTx
+		if marker >= MARKER_RST0 and marker <= MARKER_RST7 then
 			state.offset = state.offset + 2
 		else
 			break
@@ -556,21 +538,17 @@ local function decodeScan(
 	return state.offset - startOffset
 end
 
--- Quantize and inverse DCT (IDCT and dequantization)
 local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 	local v0, v1, v2, v3, v4, v5, v6, v7, t
 	local p = dataIn
 
-	-- dequant
 	for i = 0, 63 do
 		p[i] = zz[i] * qt[i]
 	end
 
-	-- inverse DCT on rows
 	for i = 0, 7 do
 		local row = 8 * i
 
-		-- check for all-zero AC coefficients
 		if
 			p[1 + row] == 0 and
 			p[2 + row] == 0 and
@@ -590,7 +568,6 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 			p[6 + row] = t
 			p[7 + row] = t
 		else
-			-- stage 4
 			v0 = bit_arshift(dctSqrt2 * p[0 + row] + 128, 8)
 			v1 = bit_arshift(dctSqrt2 * p[4 + row] + 128, 8)
 			v2 = p[2 + row]
@@ -599,7 +576,6 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 			v7 = bit_arshift(dctSqrt1d2 * (p[1 + row] + p[7 + row]) + 128, 8)
 			v5 = bit_lshift(p[3 + row], 4)
 			v6 = bit_lshift(p[5 + row], 4)
-			-- stage 3
 			t = bit_arshift(v0 - v1 + 1, 1)
 			v0 = bit_arshift(v0 + v1 + 1, 1)
 			v1 = t
@@ -612,7 +588,6 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 			t = bit_arshift(v7 + v5 + 1, 1)
 			v5 = bit_arshift(v7 - v5 + 1, 1)
 			v7 = t
-			-- stage 2
 			t = bit_arshift(v0 - v3 + 1, 1)
 			v0 = bit_arshift(v0 + v3 + 1, 1)
 			v3 = t
@@ -625,7 +600,6 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 			t = bit_arshift(v5 * dctSin1 + v6 * dctCos1 + 2048, 12)
 			v5 = bit_arshift(v5 * dctCos1 - v6 * dctSin1 + 2048, 12)
 			v6 = t
-			-- stage 1
 			p[0 + row] = v0 + v7
 			p[7 + row] = v0 - v7
 			p[1 + row] = v1 + v6
@@ -637,11 +611,9 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 		end
 	end
 
-	-- inverse DCT on columns
 	for i = 0, 7 do
 		local col = i
 
-		-- check for all-zero AC coefficients
 		if
 			p[1 * 8 + col] == 0 and
 			p[2 * 8 + col] == 0 and
@@ -661,7 +633,6 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 			p[6 * 8 + col] = t
 			p[7 * 8 + col] = t
 		else
-			-- stage 4
 			v0 = bit_arshift(dctSqrt2 * p[0 * 8 + col] + 2048, 12)
 			v1 = bit_arshift(dctSqrt2 * p[4 * 8 + col] + 2048, 12)
 			v2 = p[2 * 8 + col]
@@ -670,7 +641,6 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 			v7 = bit_arshift(dctSqrt1d2 * (p[1 * 8 + col] + p[7 * 8 + col]) + 2048, 12)
 			v5 = p[3 * 8 + col]
 			v6 = p[5 * 8 + col]
-			-- stage 3
 			t = bit_arshift(v0 - v1 + 1, 1)
 			v0 = bit_arshift(v0 + v1 + 1, 1)
 			v1 = t
@@ -683,7 +653,6 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 			t = bit_arshift(v7 + v5 + 1, 1)
 			v5 = bit_arshift(v7 - v5 + 1, 1)
 			v7 = t
-			-- stage 2
 			t = bit_arshift(v0 - v3 + 1, 1)
 			v0 = bit_arshift(v0 + v3 + 1, 1)
 			v3 = t
@@ -696,7 +665,6 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 			t = bit_arshift(v5 * dctSin1 + v6 * dctCos1 + 2048, 12)
 			v5 = bit_arshift(v5 * dctCos1 - v6 * dctSin1 + 2048, 12)
 			v6 = t
-			-- stage 1
 			p[0 * 8 + col] = v0 + v7
 			p[7 * 8 + col] = v0 - v7
 			p[1 * 8 + col] = v1 + v6
@@ -708,14 +676,12 @@ local function quantizeAndInverse(zz, dataOut, dataIn, qt)
 		end
 	end
 
-	-- convert to 8-bit integers
 	for i = 0, 63 do
 		local sample = 128 + bit_arshift(p[i] + 8, 4)
 		dataOut[i] = sample < 0 and 0 or (sample > BYTE_MAX and BYTE_MAX or sample)
 	end
 end
 
--- Build component data (IDCT and dequantization)
 local function buildComponentData(component)
 	local lines = {}
 	local blocksPerLine = component.blocksPerLine
@@ -749,12 +715,10 @@ local function buildComponentData(component)
 	return lines
 end
 
--- Clamp value to 8-bit range
 local function clampTo8bit(a)
 	return a < 0 and 0 or (a > 255 and 255 or math_floor(a + 0.5))
 end
 
--- Decoder state structure (used to avoid closures in decode)
 local DecoderState = {}
 DecoderState.__index = DecoderState
 
@@ -822,7 +786,6 @@ local function prepareComponents(frame)
 	frame.mcusPerColumn = mcusPerColumn
 end
 
--- Get pixel data from decoded components
 local function getData(w, h, width, height, decodedComponents, formatAsRGBA, colorTransform, adobe)
 	local scaleX = width / w
 	local scaleY = height / h
@@ -955,7 +918,6 @@ local function getData(w, h, width, height, decodedComponents, formatAsRGBA, col
 					Ye = 255 - clampTo8bit(Y + 1.772 * (Cb - 128))
 				end
 
-				-- CMYK to RGB conversion
 				local R = 255 - clampTo8bit(C * (1 - K / 255) + K)
 				local G = 255 - clampTo8bit(M * (1 - K / 255) + K)
 				local B = 255 - clampTo8bit(Ye * (1 - K / 255) + K)
@@ -978,7 +940,6 @@ local function getData(w, h, width, height, decodedComponents, formatAsRGBA, col
 	return outputData
 end
 
--- Main decode function
 function jpg.DecodeBuffer(inputBuffer, opts)
 	opts = opts or {}
 	local colorTransform = opts.colorTransform
@@ -1007,7 +968,6 @@ function jpg.DecodeBuffer(inputBuffer, opts)
 	while fileMarker ~= MARKER_EOI do
 		if fileMarker == MARKER_STUFF then
 
-		-- skip
 		elseif fileMarker >= MARKER_APP0 and fileMarker <= MARKER_APP15 then
 			local blockStart, blockLen = readDataBlock(state)
 
@@ -1057,14 +1017,12 @@ function jpg.DecodeBuffer(inputBuffer, opts)
 				local tableData = ffi.new("int32_t[64]")
 
 				if bit_rshift(quantizationTableSpec, 4) == 0 then
-					-- 8 bit values
 					for j = 0, 63 do
 						local z = dctZigZag[j]
 						tableData[z] = data:GetByte(state.offset)
 						state.offset = state.offset + 1
 					end
 				elseif bit_rshift(quantizationTableSpec, 4) == 1 then
-					-- 16 bit values
 					for j = 0, 63 do
 						local z = dctZigZag[j]
 						tableData[z] = readUint16(state)
@@ -1080,7 +1038,7 @@ function jpg.DecodeBuffer(inputBuffer, opts)
 			fileMarker == MARKER_START_OF_FRAME_1 or
 			fileMarker == MARKER_START_OF_FRAME_2
 		then
-			readUint16(state) -- skip data length
+			readUint16(state)
 			frame = {}
 			frame.extended = (fileMarker == MARKER_START_OF_FRAME_1)
 			frame.progressive = (fileMarker == MARKER_START_OF_FRAME_2)
@@ -1152,12 +1110,11 @@ function jpg.DecodeBuffer(inputBuffer, opts)
 				htable[bit_band(huffmanTableSpec, 15)] = buildHuffmanTable(codeLengths, huffmanValues)
 			end
 		elseif fileMarker == MARKER_DEFINE_RESTART_INTERVAL then
-			readUint16(state) -- skip data length
+			readUint16(state)
 			resetInterval = readUint16(state)
 		elseif fileMarker == MARKER_DEFINE_NUMBER_OF_LINES then
-			-- Number of Lines marker
-			readUint16(state) -- skip data length
-			readUint16(state) -- ignore this data
+			readUint16(state)
+			readUint16(state)
 		elseif fileMarker == MARKER_START_OF_SCAN then
 			local scanLength = readUint16(state)
 			local selectorsCount = data:GetByte(state.offset)
@@ -1232,7 +1189,6 @@ function jpg.DecodeBuffer(inputBuffer, opts)
 
 	if #frames ~= 1 then error("only single frame JPEGs supported") end
 
-	-- set each frame's components quantization table
 	for i = 1, #frames do
 		local cp = frames[i].components
 
@@ -1244,7 +1200,6 @@ function jpg.DecodeBuffer(inputBuffer, opts)
 
 	local width = frame.samplesPerLine
 	local height = frame.scanLines
-	-- Build component data
 	local decodedComponents = {}
 
 	for i = 1, #frame.componentsOrder do
@@ -1256,7 +1211,6 @@ function jpg.DecodeBuffer(inputBuffer, opts)
 		}
 	end
 
-	-- Create output buffer with pixel data (flipped vertically for Vulkan)
 	local channels = formatAsRGBA and 4 or 3
 	local outputSize = width * height * channels
 	local pixelData = getData(

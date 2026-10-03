@@ -21,30 +21,26 @@ test.Test("repl input", function()
 		repl.history_index = 1
 	end
 
-	-- 1. Basic typing
 	reset()
 	send_key("a")
 	send_key("b")
 	attest.equal(repl.input_buffer, "ab")
 	attest.equal(repl.input_cursor, 3)
-	-- 2. Home/End
 	send_key("home")
 	attest.equal(repl.input_cursor, 1)
 	send_key("end")
 	attest.equal(repl.input_cursor, 3)
-	-- 3. Ctrl + Left/Right (Word jumping)
 	reset()
 	repl.input_buffer = "hello world"
 	repl.input_cursor = 1
 	send_key("right", {ctrl = true})
-	attest.equal(repl.input_cursor, 6) -- after "hello"
+	attest.equal(repl.input_cursor, 6)
 	send_key("right", {ctrl = true})
-	attest.equal(repl.input_cursor, 12) -- after "world"
+	attest.equal(repl.input_cursor, 12)
 	send_key("left", {ctrl = true})
-	attest.equal(repl.input_cursor, 7) -- before "world"
+	attest.equal(repl.input_cursor, 7)
 	send_key("left", {ctrl = true})
-	attest.equal(repl.input_cursor, 1) -- before "hello"
-	-- 4. Shift + Navigation (Selection)
+	attest.equal(repl.input_cursor, 1)
 	reset()
 	repl.input_buffer = "hello"
 	repl.input_cursor = 1
@@ -59,33 +55,27 @@ test.Test("repl input", function()
 	start, stop = repl.GetSelection()
 	attest.equal(start, 1)
 	attest.equal(stop, 3)
-	-- 5. Ctrl + X/C/V (Clipboard)
-	-- Copy
 	send_key("c", {ctrl = true})
 	attest.equal(clipboard.Get(), "he")
-	-- Cut
 	send_key("x", {ctrl = true})
 	attest.equal(clipboard.Get(), "he")
 	attest.equal(repl.input_buffer, "llo")
 	attest.equal(repl.input_cursor, 1)
 	attest.equal(repl.selection_start, nil)
-	-- Paste
 	send_key("v", {ctrl = true})
 	attest.equal(repl.input_buffer, "hello")
 	attest.equal(repl.input_cursor, 3)
-	-- 6. Shift + Enter (Newline) - changed from Ctrl+Enter
 	reset()
 	send_key("a")
 	send_key("enter", {shift = true})
 	send_key("b")
 	attest.equal(repl.input_buffer, "a\nb")
 	attest.equal(repl.input_cursor, 4)
-	-- 7. Backspace/Delete with selection
 	reset()
 	repl.input_buffer = "hello"
 	repl.input_cursor = 1
 	send_key("right", {shift = true})
-	send_key("right", {shift = true}) -- "he" selected
+	send_key("right", {shift = true})
 	send_key("backspace")
 	attest.equal(repl.input_buffer, "llo")
 	attest.equal(repl.input_cursor, 1)
@@ -93,24 +83,22 @@ test.Test("repl input", function()
 	repl.input_buffer = "hello"
 	repl.input_cursor = 1
 	send_key("right", {shift = true})
-	send_key("right", {shift = true}) -- "he" selected
+	send_key("right", {shift = true})
 	send_key("delete")
 	attest.equal(repl.input_buffer, "llo")
 	attest.equal(repl.input_cursor, 1)
-	-- 8. Ctrl + Backspace / Ctrl + Delete
 	reset()
 	repl.input_buffer = "hello world"
-	repl.input_cursor = 7 -- at 'w'
+	repl.input_cursor = 7
 	send_key("backspace", {ctrl = true})
 	attest.equal(repl.input_buffer, "world")
 	attest.equal(repl.input_cursor, 1)
 	reset()
 	repl.input_buffer = "hello world"
-	repl.input_cursor = 6 -- at ' '
+	repl.input_cursor = 6
 	send_key("delete", {ctrl = true})
 	attest.equal(repl.input_buffer, "hello")
 	attest.equal(repl.input_cursor, 6)
-	-- 9. Ctrl + Shift + Navigation (Word selection)
 	reset()
 	repl.input_buffer = "hello world"
 	repl.input_cursor = 1
@@ -123,14 +111,12 @@ test.Test("repl input", function()
 	send_key("left", {ctrl = true, shift = true})
 	attest.equal(repl.input_cursor, 7)
 	attest.equal(repl.selection_start, 1)
-	-- 10. Shift + Enter (Multiline input)
 	reset()
 	send_key("a")
 	send_key("enter", {shift = true})
 	send_key("b")
 	attest.equal(repl.input_buffer, "a\nb")
 	attest.equal(repl.input_cursor, 4)
-	-- 11. Multiple newlines
 	reset()
 	send_key("l")
 	send_key("i")
@@ -150,25 +136,21 @@ test.Test("repl input", function()
 	send_key("e")
 	send_key("3")
 	attest.equal(repl.input_buffer, "line1\nline2\nline3")
-	-- 12. Shift + Enter with selection (should delete selection first)
 	reset()
 	repl.input_buffer = "hello"
 	repl.input_cursor = 1
 	send_key("right", {shift = true})
-	send_key("right", {shift = true}) -- "he" selected
+	send_key("right", {shift = true})
 	send_key("enter", {shift = true})
 	attest.equal(repl.input_buffer, "\nllo")
 	attest.equal(repl.input_cursor, 2)
 	attest.equal(repl.selection_start, nil)
-	-- 13. Input scroll offset on multiline
 	reset()
 	repl.input_buffer = "line1\nline2\nline3\nline4\nline5\nline6"
 	repl.input_cursor = #repl.input_buffer + 1
-	attest.equal(repl.input_scroll_offset, 0) -- Not scrolled yet
+	attest.equal(repl.input_scroll_offset, 0)
 	send_key("enter", {shift = true})
-	-- After entering line 7, should auto-scroll since we have more than 5 lines
-	attest.equal(repl.input_scroll_offset, 2) -- Lines 3-7 visible
-	-- 14. Ctrl + Up/Down for input scrolling
+	attest.equal(repl.input_scroll_offset, 2)
 	reset()
 	repl.input_buffer = "line1\nline2\nline3\nline4\nline5\nline6"
 	repl.input_scroll_offset = 1
@@ -177,7 +159,7 @@ test.Test("repl input", function()
 	send_key("down", {ctrl = true})
 	attest.equal(repl.input_scroll_offset, 1)
 	send_key("down", {ctrl = true})
-	attest.equal(repl.input_scroll_offset, 1) -- max is 1 (6 lines - 5 visible)
+	attest.equal(repl.input_scroll_offset, 1)
 end)
 
 test.Test("repl multiline navigation", function()
@@ -191,56 +173,49 @@ test.Test("repl multiline navigation", function()
 		repl.input_scroll_offset = 0
 	end
 
-	-- 1. Up/down navigation between lines
 	reset()
 	repl.input_buffer = "hello\nworld"
-	repl.input_cursor = 9 -- at 'o' in "world"
+	repl.input_cursor = 9
 	send_key("up")
-	attest.equal(repl.input_cursor, 3) -- at 'l' in "hello"
+	attest.equal(repl.input_cursor, 3)
 	send_key("down")
-	attest.equal(repl.input_cursor, 9) -- back to 'o' in "world"
-	-- 2. Home/End on multiline (current line only)
+	attest.equal(repl.input_cursor, 9)
 	reset()
 	repl.input_buffer = "hello\nworld\ntest"
-	repl.input_cursor = 10 -- at 'l' in "world"
+	repl.input_cursor = 10
 	send_key("home")
-	attest.equal(repl.input_cursor, 7) -- start of "world" line
+	attest.equal(repl.input_cursor, 7)
 	send_key("end")
-	attest.equal(repl.input_cursor, 12) -- end of "world" line (at \n)
-	-- 3. History navigation from first line
+	attest.equal(repl.input_cursor, 12)
 	reset()
 	commands.history = {"prev1", "prev2"}
 	commands.history_map = {prev1 = true, prev2 = true}
 	repl.history_index = 3
 	repl.input_buffer = "line1\nline2"
 	repl.input_cursor = 1
-	send_key("up") -- Should navigate to history
+	send_key("up")
 	attest.equal(repl.input_buffer, "prev2")
-	-- 4. History navigation: pressing down at last history entry restores empty input
 	reset()
 	commands.history = {"prev1"}
 	commands.history_map = {prev1 = true}
-	repl.history_index = 2 -- Currently at fresh input (beyond history)
+	repl.history_index = 2
 	repl.input_buffer = "line1\nline2"
-	repl.input_cursor = 1 -- On first line so up will navigate to history
-	-- First, go up to enter history
+	repl.input_cursor = 1
 	send_key("up")
-	attest.equal(repl.input_buffer, "prev1") -- Now viewing history[1]
+	attest.equal(repl.input_buffer, "prev1")
 	attest.equal(repl.history_index, 1)
-	-- Now press down to go back to fresh input
 	send_key("down")
-	attest.equal(repl.input_buffer, "line1\nline2") -- Should restore saved input
-	-- 5. Saved input restoration
+	attest.equal(repl.input_buffer, "line1\nline2")
 	reset()
 	commands.history = {"prev1"}
 	commands.history_map = {prev1 = true}
 	repl.history_index = 2
 	repl.input_buffer = "typing"
 	repl.input_cursor = 1
-	send_key("up") -- Enter history mode
+	send_key("up")
 	attest.equal(repl.input_buffer, "prev1")
-	send_key("down") -- Go back
-	attest.equal(repl.input_buffer, "typing") -- Should restore saved input
+	send_key("down")
+	attest.equal(repl.input_buffer, "typing")
 end)
 
 test.Test("repl wrapped visual navigation", function()
@@ -287,7 +262,6 @@ test.Test("repl advanced editing", function()
 		repl.selection_start = nil
 	end
 
-	-- 1. Ctrl+A to select all
 	reset()
 	repl.input_buffer = "hello world"
 	repl.input_cursor = 5
@@ -297,31 +271,27 @@ test.Test("repl advanced editing", function()
 	local start, stop = repl.GetSelection()
 	attest.equal(start, 1)
 	attest.equal(stop, 12)
-	-- 2. Ctrl+X to cut current line (no selection)
 	reset()
 	repl.input_buffer = "line1\nline2\nline3"
-	repl.input_cursor = 9 -- in "line2"
+	repl.input_cursor = 9
 	send_key("x", {ctrl = true})
 	attest.equal(clipboard.Get(), "line2\n")
 	attest.equal(repl.input_buffer, "line1\nline3")
-	attest.equal(repl.input_cursor, 7) -- start of where line2 was
-	-- 3. Ctrl+D to duplicate line
+	attest.equal(repl.input_cursor, 7)
 	reset()
 	repl.input_buffer = "line1\nline2\nline3"
-	repl.input_cursor = 9 -- in "line2"
+	repl.input_cursor = 9
 	send_key("d", {ctrl = true})
 	attest.equal(repl.input_buffer, "line1\nline2\nline2\nline3")
-	attest.equal(repl.input_cursor, 13) -- start of duplicated line
-	-- 4. Ctrl+X with selection (should cut selection)
+	attest.equal(repl.input_cursor, 13)
 	reset()
 	repl.input_buffer = "hello world"
 	repl.input_cursor = 1
 	repl.selection_start = 1
-	repl.input_cursor = 6 -- "hello" selected
+	repl.input_cursor = 6
 	send_key("x", {ctrl = true})
 	attest.equal(clipboard.Get(), "hello")
 	attest.equal(repl.input_buffer, " world")
-	-- 5. Bracketed paste style event inserts multiline text without executing
 	reset()
 	repl.HandleEvent{paste = true, text = "print(1)\nprint(2)", raw_input = ""}
 	attest.equal(repl.input_buffer, "print(1)\nprint(2)")
@@ -337,7 +307,6 @@ test.Test("repl history", function()
 		repl.history_index = 1
 	end
 
-	-- 1. No duplicate history entries
 	reset()
 	repl.input_buffer = "asdf"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
@@ -345,12 +314,10 @@ test.Test("repl history", function()
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	attest.equal(#commands.history, 1)
 	attest.equal(commands.history[1], "asdf")
-	-- 2. No empty history entries
 	reset()
 	repl.input_buffer = ""
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	attest.equal(#commands.history, 0)
-	-- 3. Different entries are added
 	reset()
 	repl.input_buffer = "first"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
@@ -359,7 +326,6 @@ test.Test("repl history", function()
 	attest.equal(#commands.history, 2)
 	attest.equal(commands.history[1], "first")
 	attest.equal(commands.history[2], "second")
-	-- 4. Move to top
 	repl.input_buffer = "first"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	attest.equal(#commands.history, 2)

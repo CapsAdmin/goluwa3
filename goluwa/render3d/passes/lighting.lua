@@ -18,8 +18,6 @@ local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
--- how far the sun's screen space shadow reaches: this many texels of the
--- cascade in use, within these limits in meters
 local SCREEN_SHADOW_TEXELS = 8
 local SCREEN_SHADOW_MIN_REACH = 0.5
 local SCREEN_SHADOW_MAX_REACH = 4
@@ -75,7 +73,6 @@ return {
 					{"ssr_tex", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
-					-- the main view's clouds are composited over the fog, probe captures take the sky dome's
 					{"sky_clouds", "int"},
 				},
 				write = function(self, block)
@@ -378,7 +375,6 @@ return {
 	},
 	{
 		name = "lighting_albedo",
-		-- stands in for lighting while its pass is off, the surfaces as bare as the gbuffer holds them
 		fallback = true,
 		ComputePass = true,
 		ColorFormat = {

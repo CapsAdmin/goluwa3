@@ -9,22 +9,7 @@ local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local glass_tint = library()
--- What the sun's light is left with after the glass it passes through. A pane
--- dithers the shadow maps by its colour multiplier alone, a grey shadow without
--- the albedo texture, and the probe rays would hit it as a solid. So while this
--- is on, glass casts nothing in the shadow maps (Material.GlassCastsShadow) and
--- is drawn from the sun into maps of its own instead: what the face of it
--- nearest the sun lets through, and how far from the sun that is. A surface
--- behind that depth gets the sun's light multiplied by it, in colour when it is
--- tinted (r_glass_tint).
--- There is a map per shadow cascade and one for the inset, drawn with the
--- cascade's own light space matrix so it lines up with its shadow map, and
--- one fitted to all the glass in the scene, which the probes' shade pass takes
--- the sun's light through glass from. With r_glass_sun on their sun rays go
--- through glass at all.
--- It covers the sun only, and a surface between two panes is not lit through them.
 glass_tint.SIZE = 1024
--- slot 0 is the map of all the glass, 1 to 4 the cascades, 5 the inset
 glass_tint.SLOT_NAMES = {
 	[0] = "glass_tint",
 	"glass_tint_c1",
@@ -74,14 +59,11 @@ local state = {
 	size_y = 0,
 	size_z = 0,
 }
--- per slot, what is drawn into it this frame and with which matrix
 local slot_draws = {}
 local slot_matrices = {}
 glass_tint.draws = {}
 
--- whether the maps are drawn at all, which takes a renderer that has the passes
 function glass_tint.IsEnabled()
-	-- materials are made before the renderer is
 	return (
 			tinted:Get() or
 			through:Get()
@@ -94,7 +76,6 @@ function glass_tint.IsTinted()
 	return tinted:Get()
 end
 
--- whether the probes' sun rays go through glass
 function glass_tint.IsSunThrough()
 	return glass_tint.IsEnabled()
 end
@@ -107,7 +88,6 @@ Material.GlassCastsShadow = function()
 	return not glass_tint.IsEnabled()
 end
 
--- the world space corners of the aabb of each draw, flat
 local function build_corners(draws)
 	for _, draw in ipairs(draws) do
 		local aabb = draw.entry.source_aabb
@@ -126,7 +106,6 @@ local function build_corners(draws)
 	end
 end
 
--- fits the map of all the glass to draws, from the sun
 local function fit_all(draws)
 	state.active = false
 
@@ -152,8 +131,6 @@ local function fit_all(draws)
 		end
 	end
 
-	-- the light looks down -z, see ShadowMap:UpdateCascadeLightMatrices. the
-	-- y flip of Ortho leaves the offset alone, so the box is centred
 	local pad = 0.25
 	local center = rotation:GetMatrix():TransformVector(Vec3((min_x + max_x) / 2, (min_y + max_y) / 2, (min_z + max_z) / 2))
 	local half_x, half_y, half_z = (max_x - min_x) / 2 + pad, (max_y - min_y) / 2 + pad, (max_z - min_z) / 2 + 1
@@ -170,7 +147,6 @@ local function fit_all(draws)
 	return true
 end
 
--- the draws a cascade's matrix can see
 local function cull(matrix, draws)
 	local visible = {}
 
@@ -193,8 +169,6 @@ local function cull(matrix, draws)
 	return visible
 end
 
--- the slots the sun's shadow maps fill in the shadow block, in its order, see
--- directional_shadows.WriteFogShadowBlock
 local function fit_cascades(draws)
 	local sun = directional_shadows.GetPrimarySun(render3d.GetLights())
 
@@ -220,7 +194,6 @@ local function fit_cascades(draws)
 	end
 end
 
--- collects the glass, and fits every map to it, once a frame
 do
 	local frame = -1
 	local was_enabled = nil
@@ -232,7 +205,6 @@ do
 			frame = current
 			local enabled = glass_tint.IsEnabled()
 
-			-- the shadow maps expand the soup again, and glass takes or gives up its shadow
 			if was_enabled ~= enabled then
 				was_enabled = enabled
 				Material.shadow_generation = Material.shadow_generation + 1
@@ -262,7 +234,6 @@ do
 	end
 end
 
--- whether a slot has glass to draw this frame
 function glass_tint.PrepareSlot(slot)
 	glass_tint.Prepare()
 	return slot_draws[slot] ~= nil and #slot_draws[slot] > 0
@@ -280,7 +251,6 @@ do
 		current_matrix = matrix
 	end
 
-	-- what the glass is drawn through, world * the map's light space matrix
 	function glass_tint.GetProjectionViewWorldMatrix()
 		render3d.GetWorldMatrix():GetMultiplied(current_matrix, pvw)
 		return pvw
@@ -317,8 +287,6 @@ commands.Add("glass_tint_info", function()
 	)
 end)
 
--- the pass' camera block, which the glass is not drawn through, see
--- GetProjectionViewWorldMatrix
 local identity = Matrix44()
 
 function glass_tint.WriteCameraBlock(self, block)
@@ -334,7 +302,6 @@ function glass_tint.WriteCameraBlock(self, block)
 	return block
 end
 
--- the map of all the glass, for the probes
 function glass_tint.WriteBlock(self, block)
 	if not state.active or not render3d.IsPassEnabled("glass_tint") then
 		block.glass_tint_tex = -1
@@ -351,7 +318,6 @@ function glass_tint.WriteBlock(self, block)
 	return block
 end
 
--- the cascade maps, a slot with no glass in it is -1
 function glass_tint.WriteCascadeBlock(self, block)
 	local any = 0
 	block.glass_tint_inset_tex = -1
@@ -388,7 +354,6 @@ function glass_tint.WriteCascadeBlock(self, block)
 	return block
 end
 
--- the light that gets through, in colour only when the glass is tinted
 local function glass_light_glsl(block_name)
 	return [[
 		vec3 glass_light(vec3 transmitted) {
@@ -397,7 +362,6 @@ local function glass_light_glsl(block_name)
 	]]
 end
 
--- the probes' side, needs the block to hold glass_tint.block
 function glass_tint.GetGLSL(block_name)
 	return glass_light_glsl(block_name) .. [[
 		// what the sun's light is multiplied by at world_pos after the glass in
@@ -421,8 +385,6 @@ function glass_tint.GetGLSL(block_name)
 	]]
 end
 
--- the lit surfaces' side, needs the block to hold glass_tint.cascade_block and
--- the shadow block, and getCascadeIndex
 function glass_tint.GetCascadeGLSL(block_name)
 	return glass_light_glsl(block_name) .. [[
 		// a = -1 when the cascade's map does not cover the point. rgb is what the

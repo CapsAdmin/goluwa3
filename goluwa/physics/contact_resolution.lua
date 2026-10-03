@@ -125,9 +125,6 @@ local function set_pair_manifold(manifolds, body_a, body_b, manifold)
 	get_or_create_manifold_row(manifolds, body_b)[body_a] = manifold
 end
 
--- material properties and solver pass counts are constant for a pair within a
--- substep, but were previously re-derived on every solver iteration from a
--- dozen object property lookups
 local function refresh_pair_materials(solver, body_a, body_b, manifold)
 	if manifold.material_step == solver.StepStamp then return end
 
@@ -142,9 +139,6 @@ end
 local EMPTY_OPTIONS = {}
 local SINGLE_CONTACT = {}
 local SINGLE_CONTACTS = {SINGLE_CONTACT}
--- one scratch point per contact slot; a single shared scratch would alias
--- every contact's world point to the last contact and corrupt the ground
--- support polygon
 local FINISH_WORLD_POINT_A = {
 	Vec3(),
 	Vec3(),
@@ -176,9 +170,6 @@ function contact_resolution.ApplyManifoldRestitution(body_a, body_b, manifold, d
 	end
 end
 
--- Velocity phase of a manifold pair: impulses only, bodies do not move. The
--- first solve of a substep also warm starts, reports the collision and queues
--- the pair for the position phase.
 local function solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
 	local physics = body_a:GetPhysics()
 	local solver = physics.solver
@@ -186,8 +177,6 @@ local function solve_single_manifold_velocity(body_a, body_b, manifold, dt, rela
 	if manifold.last_warm_step ~= solver.StepStamp then
 		manifolds.CaptureRestitutionBias(body_a, body_b, manifold.normal, manifold, solver.CollideStamp)
 
-		-- warm starting skips contacts that have separated, so it needs this
-		-- substep's separation and not the one from when the manifold was built
 		if manifold.prepared_step ~= solver.StepStamp then
 			manifolds.PrepareContacts(body_a, body_b, manifold.normal, manifold, solver.StepStamp)
 		end
@@ -215,13 +204,8 @@ local function solve_single_manifold_velocity(body_a, body_b, manifold, dt, rela
 	)
 end
 
--- A pair can own several manifolds, one per distinct contact normal (a capsule
--- against a wall and a floor). The manifold the solver looks up is the group
--- head, the others hang off its extra list and are solved with it.
 function contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, relax)
 	if manifold.idle then
-		-- the head stays stamped while it holds no contact so the solver
-		-- still relaxes and bounces the extra manifolds behind it
 		manifold.last_warm_step = body_a:GetPhysics().solver.StepStamp
 	else
 		solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
@@ -236,8 +220,6 @@ function contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, 
 	end
 end
 
--- Ground bookkeeping, once per substep against the poses the biased solve
--- left behind.
 function contact_resolution.FinishManifold(body_a, body_b, manifold)
 	local contacts = manifold.contacts
 
@@ -259,8 +241,6 @@ function contact_resolution.FinishManifold(body_a, body_b, manifold)
 
 	local support_tolerance = math.max(body_a:GetPhysics().solver.PENETRATION_SLOP or 0, 0.005)
 
-	-- a manifold built outside the collision margin is only speculative and
-	-- is not support until it closes
 	if manifold.overlap <= 0 then
 		local touching = false
 
@@ -349,20 +329,12 @@ end
 local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts, options, solver)
 	manifold.last_seen_step = solver.StepStamp
 	manifold.idle = false
-	-- the narrowphase handler only runs in the first solver iteration of the
-	-- substep; later iterations re-solve this manifold through
-	-- IterateResolvedPair, so the normal must not alias the handler's
-	-- scratch vectors
 	manifold.normal = normal:Copy()
-	-- the normal points from solve_a to solve_b; compound pairs reuse the
-	-- manifold later without knowing which way the handler ordered them
 	manifold.solve_a = body_a
 	manifold.solve_b = body_b
 	manifold.overlap = overlap
 	manifold.resolve_options = options
 
-	-- the manifold only needs rebuilding once per substep; the contacts are
-	-- identical between iterations of the same substep
 	if manifold.last_rebuild_step ~= solver.StepStamp then
 		manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
 		manifold.prepared_step = nil
@@ -382,7 +354,6 @@ local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts
 			if depth > deepest then deepest = depth end
 		end
 
-		-- the narrowphase overlap can include margins the anchors do not
 		manifold.depth_offset = overlap - deepest
 		manifold.last_rebuild_step = solver.StepStamp
 		stats:Count("contact_points", #contacts)
@@ -419,9 +390,6 @@ local CLUSTER_USED = {}
 local CLUSTER_MATCH_DOT = 0.9
 local MAX_CLUSTER_MANIFOLDS = 4
 
--- clusters: {normal, overlap, contacts} entries, one per distinct contact
--- normal the narrowphase found. A manifold keeps its warm start by taking the
--- cluster with the closest normal; manifolds without a cluster go idle.
 function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluster_count, dt, options)
 	if body_a.InverseMass + body_b.InverseMass <= 0 then return false end
 

@@ -84,7 +84,6 @@ function world_step.Update(physics, dt)
 	if not dt or dt <= 0 then return 0 end
 
 	physics.FrameAccumulator = 0
-	-- the bodies end the call at their latest pose, there is nothing to blend
 	physics.InterpolationAlpha = 1
 	local fixed_dt = get_fixed_step(physics)
 	local steps = 0
@@ -95,8 +94,6 @@ function world_step.Update(physics, dt)
 		steps = steps + 1
 	end
 
-	-- a remainder this small is float residue, and velocities derived from
-	-- position differences over it would just amplify rounding noise
 	if dt > MIN_REMAINDER_STEP then
 		physics.Step(dt)
 		steps = steps + 1
@@ -124,7 +121,6 @@ function world_step.UpdateFixed(physics, dt)
 		steps = steps + 1
 	end
 
-	-- dropped the rest of the backlog to avoid spiralling into further steps
 	if steps == max_steps then accumulator = 0 end
 
 	physics.FrameAccumulator = accumulator
@@ -236,9 +232,6 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 		stats:Gauge("candidate_pairs", #rigid_body_pairs)
 		stats:Gauge("islands", simulation_islands and #simulation_islands or 0)
-		-- CCD is resolved once per substep: its sweep window is the substep
-		-- movement, so re-sweeping it after the first TOI rewind only paid the
-		-- sweep cost against an already shrunken window
 		stats:PushTime("ccd")
 
 		for _, body in ipairs(bodies) do
@@ -314,7 +307,6 @@ function world_step.UpdateRigidBodies(physics, dt)
 		end
 
 		stats:PopTime()
-		-- the bodies moved with the solver delta, the joints see the new pose
 		constraint.InvalidatePoses()
 		stats:PushTime("relax")
 

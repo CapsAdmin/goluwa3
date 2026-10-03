@@ -29,8 +29,6 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 	table.insert(uniform_buffers, 1, camera_block)
 	return {
 		name = "gbuffer",
-		-- compute has to run before the gbuffer begins rendering. a bundle
-		-- without the grass pass (env probes) draws no grass
 		on_pre_draw = function(self, cmd)
 			if render3d.pipelines.grass then grass.Scatter(cmd) end
 		end,
@@ -131,8 +129,6 @@ local function build_instanced_pass(fragment_shader)
 	return pass
 end
 
--- what the multi-draw batches read besides their records: the record buffer,
--- the culled instance matrices and the time for vertex animation
 local multi_draw_block = {
 	name = "gbuffer_draw",
 	binding_index = 4,
@@ -151,8 +147,6 @@ local multi_draw_block = {
 	end,
 }
 
--- every gpu culled static batch in one indirect multi-draw, see
--- gbuffer_instancing.DrawGPUCulled
 local function build_multi_draw_pass(fragment_shader)
 	local pass = build_base_pass(fragment_shader, true)
 	pass.name = "gbuffer_multi_draw"
@@ -179,8 +173,6 @@ local function build_multi_draw_pass(fragment_shader)
 	return pass
 end
 
--- writing gl_FragDepth turns off early depth testing, so only the pipelines
--- for height mapped materials (Material:HasHeightMap) write it
 local function build_ssdm_fragment_shader(write_depth)
 	return [[
 		struct SSDMData {

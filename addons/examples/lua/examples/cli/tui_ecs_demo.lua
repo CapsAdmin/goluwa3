@@ -1,22 +1,11 @@
 local HOTRELOAD = _G.HOTRELOAD
 _G.HOTRELOAD = false
--- TUI ECS Demo
--- Showcases TuiPanel / tui_element / tui_text / tui_border
--- alongside the reused ecs.components.2d.layout + transform.
---
--- Run with:  goluwa cli
--- then type: runfile("addons/test/lua/examples/tui_ecs_demo.lua")
---
--- Ctrl+C returns to the REPL.
 local TuiPanel = import("goluwa/cli/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
 local repl = import("goluwa/cli/repl.lua")
 local Rect = import("goluwa/structs/rect.lua")
 
--- ── helpers ────────────────────────────────────────────────────────────────
--- Shorthand that always adds transform + tui_element + layout to the component
--- set, plus any extras supplied via `extra_components`.
 local function Node(config, extra_components)
 	config.ComponentSet = config.ComponentSet or {}
 
@@ -43,21 +32,15 @@ local function Node(config, extra_components)
 	return TuiPanel.New(config)
 end
 
--- A bordered box: layout container whose own border is drawn by tui_border.
--- Content should be a child with Margin=Rect(1,1,1,1).
 local function BorderBox(config)
 	return Node(config, {"tui_border"})
 end
 
--- A plain text node (no border).
 local function TextNode(config)
 	return Node(config, {"tui_text"})
 end
 
--- ── clean up any prior run ─────────────────────────────────────────────────
 TuiPanel.World:RemoveChildren()
--- ── root ───────────────────────────────────────────────────────────────────
--- Fills the terminal; sized every frame before layout runs.
 local root = Node{
 	Name = "root",
 	Parent = TuiPanel.World,
@@ -67,9 +50,6 @@ local root = Node{
 		GrowHeight = 1,
 	},
 }
--- ── header ─────────────────────────────────────────────────────────────────
--- Fixed height 3 rows (border line + 1 content row + border line),
--- split horizontally into a title section and a status section.
 local header = BorderBox{
 	Name = "header",
 	Parent = root,
@@ -80,13 +60,11 @@ local header = BorderBox{
 		GrowWidth = 1,
 		MinSize = Vec2(0, 3),
 		MaxSize = Vec2(0, 3),
-		-- Padding pushes children 1 col/row inside the border lines.
 		Padding = Rect(1, 1, 1, 1),
 		ChildGap = 2,
 		AlignmentY = "center",
 	},
 }
--- Title text (left side, grows to fill)
 local header_title = TextNode{
 	Name = "header_title",
 	Parent = header,
@@ -94,7 +72,6 @@ local header_title = TextNode{
 	tui_text = {Text = "**Terminal UI** powered by the ECS layout engine"},
 	layout = {GrowWidth = 1, FitHeight = true},
 }
--- Status text (right side, fixed)
 local header_status = TextNode{
 	Name = "header_status",
 	Parent = header,
@@ -102,8 +79,6 @@ local header_status = TextNode{
 	tui_text = {Text = "ctrl+c → repl"},
 	layout = {FitWidth = true, FitHeight = true},
 }
--- ── main area ──────────────────────────────────────────────────────────────
--- Grows vertically, split horizontally into sidebar + content.
 local main = Node{
 	Name = "main",
 	Parent = root,
@@ -114,8 +89,6 @@ local main = Node{
 		ChildGap = 1,
 	},
 }
--- ── sidebar ────────────────────────────────────────────────────────────────
--- Fixed width, vertical list of menu items.
 local sidebar = BorderBox{
 	Name = "sidebar",
 	Parent = main,
@@ -168,7 +141,6 @@ for i, item in ipairs(sidebar_items) do
 	end
 
 	function row:OnClick()
-		-- Deselect old
 		local old = sidebar_rows[selected_sidebar]
 
 		if old and old:IsValid() then
@@ -182,7 +154,6 @@ for i, item in ipairs(sidebar_items) do
 			old.tui_text:SetText("  " .. old_item.label)
 		end
 
-		-- Select new
 		selected_sidebar = my_i
 		self.tui_animation:AnimateForeground("fg", my_item.color, 0.2)
 		self.tui_text:SetText("> " .. my_item.label)
@@ -190,9 +161,6 @@ for i, item in ipairs(sidebar_items) do
 	end
 end
 
--- ── content area ───────────────────────────────────────────────────────────
--- Grows to fill remaining horizontal space.
--- Split vertically into: text demo, divider, flex demo.
 local content = BorderBox{
 	Name = "content",
 	Parent = main,
@@ -206,7 +174,6 @@ local content = BorderBox{
 		ChildGap = 1,
 	},
 }
--- ── text rendering demo ────────────────────────────────────────────────────
 local text_demo = BorderBox{
 	Name = "text_demo",
 	Parent = content,
@@ -241,8 +208,6 @@ local text_demo_content = TextNode{
 	},
 	layout = {GrowWidth = 1, FitHeight = true},
 }
--- ── layout flexbox demo ────────────────────────────────────────────────────
--- A row of boxes demonstrating GrowWidth proportions.
 local flex_demo = BorderBox{
 	Name = "flex_demo",
 	Parent = content,
@@ -288,8 +253,6 @@ for _, fi in ipairs(flex_items) do
 	}
 end
 
--- ── alignment demo ─────────────────────────────────────────────────────────
--- Three sub-boxes aligned left / center / right on the cross axis.
 local align_demo = BorderBox{
 	Name = "align_demo",
 	Parent = content,
@@ -337,7 +300,6 @@ for _, ai in ipairs(align_items) do
 		Parent = col,
 		tui_element = {ForegroundColor = ai.color},
 		tui_border = {},
-		-- Fixed-width inner box so we can see the alignment working
 		layout = {
 			MinSize = Vec2(9, 3),
 			MaxSize = Vec2(9, 3),
@@ -356,9 +318,6 @@ for _, ai in ipairs(align_items) do
 	}
 end
 
--- ── editor demo ───────────────────────────────────────────────────────────
--- tui_text with Editable=true wires up sequence_editor automatically:
--- click to focus, type/select/scroll, cursor blink, scrollbar.
 local input_demo = BorderBox{
 	Name = "input_demo",
 	Parent = content,
@@ -384,8 +343,6 @@ local input_field = TextNode{
 	},
 	layout = {GrowWidth = 1, GrowHeight = 1},
 }
--- ── footer ─────────────────────────────────────────────────────────────────
--- Three equal-width stat columns, direction=x.
 local footer = BorderBox{
 	Name = "footer",
 	Parent = root,
@@ -417,8 +374,6 @@ for i, fc in ipairs(footer_cols) do
 	}
 end
 
--- ── draggable floating panel ───────────────────────────────────────────────
--- Floating = true removes it from normal flow; position is in root-local cells.
 local popup = BorderBox{
 	Name = "popup",
 	Parent = root,
@@ -436,7 +391,7 @@ local popup = BorderBox{
 	},
 }
 popup.transform:SetSize(Vec2(24, 5))
-popup.transform:SetPosition(Vec2(4, -5)) -- start off-screen above
+popup.transform:SetPosition(Vec2(4, -5))
 popup.tui_animation:AnimatePosition("slide_in", Vec2(4, 6), 0.35, "out_cubic")
 TextNode{
 	Name = "popup_text",
@@ -446,13 +401,10 @@ TextNode{
 	layout = {GrowWidth = 1, FitHeight = true},
 }
 
--- Any layout update in the tree bubbles up and settles at root;
--- fire needs_redraw so we draw exactly once after each change.
 root:AddLocalListener("OnLayoutUpdated", function()
 	TuiPanel.NeedsRedraw()
 end)
 
--- Resize → update root transform (OnLayoutUpdated will set needs_redraw).
 event.AddListener("TerminalResized", "tui_ecs_demo_resize", function(w, h)
 	root.transform:SetSize(Vec2(w, h))
 end)

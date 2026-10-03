@@ -13,15 +13,6 @@ local INSTANCE_MATRIX_ATTRIBUTES = {
 	},
 }
 
--- Groups draws queued between flushes by mesh and material upload key. A
--- group of one is drawn with draw_single(context, batch), a larger one with
--- draw_instanced(context, batch, instance_buffers, first_instance).
---
--- A flush writes the world matrices of every instanced group (and the previous
--- frame's with prev_matrices) into one buffer, after what earlier flushes of the
--- same submission wrote, since the gpu reads all of them later. per_frame keeps
--- a buffer per frame in flight. Without it the caller must know the gpu is done
--- with the previous submission, like shadow maps that wait on their own fence.
 function InstanceBatcher.New(config)
 	return InstanceBatcher:CreateObject{
 		label = config.label,
@@ -29,8 +20,6 @@ function InstanceBatcher.New(config)
 		per_frame = config.per_frame,
 		draw_single = config.draw_single,
 		draw_instanced = config.draw_instanced,
-		-- mesh -> material upload key -> batch. a batch only holds the mesh while
-		-- queued, so removed meshes drop out
 		batches = setmetatable({}, {__mode = "k"}),
 		queued = {},
 		queued_count = 0,
@@ -108,9 +97,6 @@ do
 		slot.used = 0
 	end
 
-	-- a slot's buffers may be read by commands recorded earlier in its
-	-- submission, so outgrowing them mid submission retires them until the slot
-	-- starts its next one
 	local function reserve(self, slot, submission, count)
 		if slot.submission ~= submission then
 			slot.submission = submission
@@ -143,8 +129,6 @@ do
 		end
 	end
 
-	-- submission identifies the gpu submission the draws are recorded into.
-	-- returns the number of instanced and single draws
 	function InstanceBatcher:Flush(context, submission)
 		local queued = self.queued
 		local queued_count = self.queued_count

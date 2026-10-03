@@ -24,9 +24,7 @@ local function decorate_pipeline_instance(pipeline, config)
 	pipeline.pre_render = config.pre_render
 	pipeline.post_draw = config.post_draw
 	pipeline.draw_in_prerender = config.draw_in_prerender ~= false
-	-- skipped while this returns false
 	pipeline.is_enabled = config.is_enabled
-	-- returns a finished frame to present instead of the blit's, nil for none
 	pipeline.present_texture = config.present_texture
 	return pipeline
 end
@@ -103,12 +101,7 @@ render3d.velocity_enabled = pvars.Setup2{
 	help = "consumers follow moving surfaces, off they reproject through the previous camera only",
 }
 pvars.EndGroup()
--- Material emissive multipliers are relative; this is the luminance a
--- multiplier of 1 stands for. Anything that shades emissive surfaces itself
--- (the gbuffer, GI hit shading) must scale by the same amount.
 render3d.EMISSIVE_REFERENCE_LUMINANCE = 2000.0
--- the largest value the gbuffer's emissive target can hold, b10g11r11's
--- 64512 times the 256 gbuffer_encode_emissive scales it down by
 render3d.EMISSIVE_MAX_LUMINANCE = 64512.0 * 256.0
 
 function render3d.GetEmissiveGLSL()
@@ -182,9 +175,6 @@ end
 do
 	local jittered = Matrix44()
 
-	-- prev_projection_matrix is stored without jitter. It is handed out with
-	-- this frame's jitter applied, so reprojecting through it and the current
-	-- projection cancels the jitter and leaves only the motion
 	function render3d.GetPreviousProjectionMatrix()
 		local context = render3d.GetActiveRenderContext()
 
@@ -284,13 +274,10 @@ end
 
 pvars.EndGroup()
 
--- whether a pass is in the bundle and switched on. the passes that read another
--- pass's output ask this and then assume the output is there
 function render3d.IsBundlePassEnabled(bundle, name)
 	return bundle.passes[name] == true and pass_vars[name]:Get()
 end
 
--- whether the active bundle was built with the pass, switched on or not
 function render3d.HasPass(name)
 	return bundle_of_pipelines[render3d.pipelines].passes[name] == true
 end
@@ -534,7 +521,6 @@ function render3d.Draw(dt)
 	if not render3d.pipelines.blit then return end
 
 	local cmd = render.GetCommandBuffer()
-	-- render to the screen
 	render3d.pipelines[render3d.IsPassEnabled("blit") and "blit" or "blit_scene"]:Draw(cmd)
 
 	for _, pipeline in ipairs(render3d.pipelines_i) do
@@ -575,24 +561,16 @@ function render3d.UploadGBufferConstants()
 	render.GetCommandBuffer():SetCullMode(material:GetCullMode())
 end
 
--- translucent entries draw twice, once into the moments and once lit, with
--- whichever pipeline the translucent pass is at. a refracting draw's thickness
--- is what its material says, or its thinnest extent when the material leaves
--- it to the object
 function render3d.UploadTranslucentConstants(thickness)
 	render3d.translucent_thickness = thickness
 	render3d.translucent_pipeline:UploadConstantsBound()
 	render.GetCommandBuffer():SetCullMode(render3d.GetMaterial():GetCullMode())
 end
 
--- a refracting material is about to draw, so the translucent pass builds the
--- blurred scene it looks through
 function render3d.RequestRefractionSource()
 	render3d.refraction_source_requested = true
 end
 
--- the distances from the camera the translucent surfaces drawn this frame
--- span, which the translucent pass fits its depth precision to
 function render3d.ExtendTranslucentDepthRange(near, far)
 	render3d.translucent_depth_near = math.min(render3d.translucent_depth_near, near)
 	render3d.translucent_depth_far = math.max(render3d.translucent_depth_far, far)
@@ -630,8 +608,6 @@ do
 		return render3d.camera
 	end
 
-	-- the camera the screen is rendered from, driven by the active view (see
-	-- view.lua); GetCamera is whichever camera is pushed while rendering
 	function render3d.GetMainCamera()
 		return render3d.main_camera
 	end
@@ -667,16 +643,12 @@ do
 	local pvm_cached = Matrix44()
 
 	function render3d.GetProjectionViewMatrix()
-		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
-		-- Row-major: v * V * P
 		local camera = render3d.GetCamera()
 		camera:BuildViewMatrix():GetMultiplied(camera:BuildProjectionMatrix(), pv_cached)
 		return pv_cached
 	end
 
 	function render3d.GetProjectionViewWorldMatrix()
-		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
-		-- Row-major: v * W * V * P
 		local camera = render3d.GetCamera()
 		render3d.world_matrix:GetMultiplied(camera:BuildViewMatrix(), pvm_cached)
 		pvm_cached:GetMultiplied(camera:BuildProjectionMatrix(), pvm_cached)
@@ -825,7 +797,6 @@ function render3d.IsOceanEnabled()
 	return context_bool("ocean_enabled", render3d.ocean_enabled == true)
 end
 
--- the ocean or any water volume, both drawn by the ocean passes
 function render3d.IsWaterEnabled()
 	return render3d.IsOceanEnabled() or water.HasVolumes()
 end
@@ -844,7 +815,7 @@ function render3d.GetOceanLevel()
 	return atmosphere.GetOceanLevel()
 end
 
-do -- mesh
+do
 	local Mesh = import("goluwa/render/mesh.lua")
 
 	function render3d.CreateMesh(vertices, indices, index_type, index_count, deduped, name)

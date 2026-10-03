@@ -7,7 +7,6 @@ local VkDescriptorPoolBox = ffi.typeof("$[1]", vulkan.vk.VkDescriptorPool)
 local VkDescriptorSetBox = ffi.typeof("$[1]", vulkan.vk.VkDescriptorSet)
 
 function DescriptorPool.New(device, poolSizes, maxSets)
-	-- poolSizes is an array of tables: {{type, count}, ...}
 	local poolSizeArray = VkDescriptorPoolSizeArray(#poolSizes)
 	local has_dynamic_buffer = false
 

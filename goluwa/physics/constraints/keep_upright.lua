@@ -3,9 +3,6 @@ local rows = import("goluwa/physics/constraint_rows.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
--- Turns a body so that one of its local axes points along a world axis (up by
--- default) while it stays free to spin about that axis. MaxTorque caps how
--- hard it can turn the body, so a strong enough push still tips it over.
 local META = objects.CreateTemplate("physics_keep_upright_constraint")
 META.Base = Constraint
 META.CollideConnected = true
@@ -13,8 +10,6 @@ local CONJUGATE = Quat()
 local WORLD_AXIS = Vec3()
 local INFINITY = math.huge
 
--- config: LocalAxis (default the body's current up), WorldAxis (default up),
--- MaxTorque
 function META.New(body, config)
 	config = config or {}
 	local world_axis = (config.WorldAxis or Vec3(0, 1, 0)):GetNormalized()
@@ -70,7 +65,6 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 
 	if length > limit then
 		local scale = limit / length
-		-- take back what the cap does not allow
 		local cx, cy, cz = acc[1] * (scale - 1), acc[2] * (scale - 1), acc[3] * (scale - 1)
 		rows.Apply(s1, 1, 0, 0, 0, cx, cy, cz)
 		rows.Apply(s0, -1, 0, 0, 0, cx, cy, cz)

@@ -9,11 +9,6 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local system = import("goluwa/system.lua")
 local light_occlusion = library()
--- Per light octahedral maps of the distance to the nearest hit, stored as
--- the mean and mean square over a blurred neighbourhood of directions so a
--- lookup can estimate how much of that neighbourhood hides a point
--- (Chebyshev, like variance shadow maps). The blur trades accuracy for soft
--- edges that don't show the map's low resolution.
 pvars.StartGroup("light_occlusion", {store = false})
 local enabled = pvars.Setup2{
 	key = "scene_bvh_light_occlusion",
@@ -49,7 +44,6 @@ local bias = pvars.Setup2{
 	min = 0,
 	help = "variance bias of the Chebyshev test",
 }
--- blur radius in texels
 local blur = pvars.Setup2{
 	key = "light_occlusion_blur",
 	default = 1.5,
@@ -62,8 +56,6 @@ local blur = pvars.Setup2{
 		light_occlusion.Reset()
 	end,
 }
--- how much of the Chebyshev bound's tail is cut off, against light bleeding
--- through where occluders at different distances overlap
 local bleed_reduction = pvars.Setup2{
 	key = "light_occlusion_bleed_reduction",
 	default = 0.5,
@@ -168,10 +160,6 @@ local function sphere_overlaps_box(px, py, pz, radius_sq, box)
 	return dx * dx + dy * dy + dz * dz <= radius_sq
 end
 
--- consumes the boxes scene_bvh recorded while the tree was dirty and marks
--- every light whose range overlaps one of them as stale. Invalidate bumps the
--- version before the rebuild, so while one is pending the boxes wait for it,
--- or the lights would be retraced against the old tree and never again.
 local function process_geometry_change(lights)
 	local version = scene_bvh.version
 
@@ -299,10 +287,6 @@ local function build_trace_pipeline()
 	}
 end
 
--- One gaussian pass along x or y over the maps just traced: horizontal reads
--- the light's layer and writes the scratch layer, vertical writes it back.
--- A texel past an edge of the octahedral map is the one mirrored across that
--- edge's midpoint, the direction the edge folds onto.
 local function build_blur_pipeline(horizontal)
 	return EasyPipeline.Compute{
 		name = horizontal and "light_occlusion_blur_x" or "light_occlusion_blur_y",
@@ -620,7 +604,6 @@ function light_occlusion.Reset()
 	end
 end
 
--- per-light debug state for the console and the stress scene overlay
 function light_occlusion.GetDebugState()
 	local lights = render3d.GetLights()
 	local out = {
@@ -695,8 +678,6 @@ function light_occlusion.GetBlockLayout()
 	}
 end
 
--- lights is render3d.GetLights, which the occlusion maps and their state are
--- keyed by
 function light_occlusion.WriteOcclusionBlock(block, lights)
 	for i = 0, MAX_LIGHTS - 1 do
 		block.bvh_oct_slot[i] = -1

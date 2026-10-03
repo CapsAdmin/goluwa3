@@ -24,7 +24,6 @@ RigidBody:GetSet("Density", 1, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("Mass", 1, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("AutomaticMass", true, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("Inertia", nil, {callback = "RefreshMassProperties"})
--- infinite rotational inertia: contacts and impulses can never turn the body
 RigidBody:GetSet("LockRotation", false, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("GravityScale", 1)
 RigidBody:GetSet("LinearDamping", 0)
@@ -139,8 +138,6 @@ local function integrate_rotation(rotation, angular_velocity, dt)
 	return rotation
 end
 
--- writes an orthonormal tangent basis for the normal into tangent/bitangent,
--- returns false when the normal is degenerate
 local function build_ground_support_basis(normal, tangent, bitangent)
 	local nx, ny, nz = normal.x, normal.y, normal.z
 	local tx, ty, tz
@@ -204,14 +201,9 @@ end
 
 function RigidBody:OnMotionTypeChanged()
 	self:RefreshMassProperties()
-	-- membership (dynamic vs anchor) changed: re-sync with the island system
 	islands.RemoveBody(self)
 end
 
--- How far above a surface a body already counts as standing on it. A capsule
--- (the player) wants a few centimeters of reach so it keeps its footing over
--- bumps; for anything else it would hold the body in the air that far above
--- the ground, with its fall speed cleared, until it creeps down.
 function RigidBody:GetCollisionProbeDistance()
 	local distance = self.CollisionProbeDistance
 
@@ -266,7 +258,6 @@ function RigidBody:AccumulateGroundSupportContact(normal, point)
 	self.GroundSupportCount = self.GroundSupportCount + 1
 end
 
--- the returned metrics table is reused per body, callers read it immediately
 function RigidBody:GetGroundSupportMetrics()
 	local metrics = self._GroundSupportMetrics
 
@@ -359,11 +350,14 @@ function RigidBody:IsGroundSupportStable()
 
 	if not self:GetGrounded() or support.count <= 0 then return false, support end
 
-	return (support.overhang_length or math.huge) <= math.max(
-		(self:GetCollisionMargin() or 0) * 2,
-		(self:GetCollisionProbeDistance() or 0) * 0.5,
-		0.1
-	),
+	return (
+			support.overhang_length or
+			math.huge
+		) <= math.max(
+			(self:GetCollisionMargin() or 0) * 2,
+			(self:GetCollisionProbeDistance() or 0) * 0.5,
+			0.1
+		),
 	support
 end
 
@@ -416,8 +410,6 @@ function RigidBody:OnAdd()
 	if self.Owner.transform then self:SynchronizeFromTransform() end
 end
 
--- sweeps that only target world geometry iterate this list instead of
--- querying the broadphase for every dynamic body
 RigidBody.WorldGeometryBodies = {}
 
 local function remove_world_geometry_body(body)
@@ -742,11 +734,6 @@ RigidBody.AddImpulse = RigidBody.ApplyImpulse
 function RigidBody:Wake()
 	if not self:HasSolverMass() then return end
 
-	-- only a genuine asleep-to-awake transition resets the sleep timer; an
-	-- already awake body keeps accumulating its delay, otherwise resting
-	-- micro-corrections that wake a body every substep would starve it of
-	-- sleep forever. Real motion resets the timer through the speed check
-	-- in UpdateSleepState
 	if not self.Awake then
 		self.Awake = true
 		self.SleepTimer = 0
@@ -771,9 +758,6 @@ end
 
 local UPDATE_DELTA = Quat()
 local UPDATE_CONJUGATE = Quat()
-
--- the sleep thresholds are tuned for this gravity: the speed a slowly toppling
--- body picks up scales with the square root of it
 local SLEEP_REFERENCE_GRAVITY = 28
 
 local function get_sleep_state_metrics(self)
@@ -782,8 +766,6 @@ local function get_sleep_state_metrics(self)
 	local linear_speed = self.Velocity:GetLength()
 	local angular_speed = self.AngularVelocity:GetLength()
 	local force_grounded_sleep = false
-	-- position correction moves a body without leaving velocity behind, so
-	-- sleep also watches how far the body actually travelled this substep
 	local inverse_dt = 0.5 / self.SleepDt
 	local dx = self.Position.x - self.PreviousPosition.x
 	local dy = self.Position.y - self.PreviousPosition.y
@@ -833,13 +815,6 @@ local function get_effective_sleep_delay(self)
 end
 
 do
-	-- a body's readiness depends on the readiness of its ground body, which
-	-- depends on its own ground body, and so on: evaluating a stack of height
-	-- H cost O(H) per body. Inside a sleep pass (the world step's per-substep
-	-- velocity and sleep update, where nothing but UpdateVelocities, Sleep and
-	-- Wake changes the inputs) results are memoized. A result that hit the
-	-- cycle guard depends on where the chain was entered, so only guard-free
-	-- evaluations are cached.
 	local cycle_guard_hits = 0
 	local sleep_pass = 0
 	local sleep_pass_active = false
@@ -905,8 +880,6 @@ function RigidBody:CanSleepNow()
 	force_grounded_sleep
 end
 
--- defer_sleep: only advance the sleep timer, the caller puts the whole group
--- of jointed bodies to sleep together
 function RigidBody:UpdateSleepState(dt, defer_sleep)
 	if not self:HasSolverMass() or not self.CanSleep then return end
 
@@ -936,7 +909,6 @@ function RigidBody:UpdateSleepState(dt, defer_sleep)
 	end
 end
 
--- the returned vector is shared, callers must not mutate it
 local DEFAULT_HALF_EXTENTS = Vec3(0.5, 0.5, 0.5)
 
 function RigidBody:GetHalfExtents()
@@ -1023,8 +995,6 @@ function RigidBody:SynchronizeFromTransform()
 	end
 end
 
--- writing a transform invalidates its matrices and fires change events, so
--- bodies that did not move (sleeping, static) leave it alone
 function RigidBody:WriteToTransform()
 	local transform = self.Owner and self.Owner.transform
 
@@ -1061,8 +1031,6 @@ function RigidBody:ShouldInterpolateTransform()
 		self.Rotation
 end
 
--- blends from where the body was when the last physics step began (the
--- substeps move PreviousPosition, which only spans the last of them)
 function RigidBody:GetInterpolatedPosition(alpha)
 	if not self:ShouldInterpolateTransform() then return self.Position end
 
@@ -1095,7 +1063,6 @@ function RigidBody:WorldToLocal(world_pos, position, rotation, out)
 	local dx = world_pos.x - position.x
 	local dy = world_pos.y - position.y
 	local dz = world_pos.z - position.z
-	-- rotate by the conjugate of the rotation
 	local tx = 2 * (-rotation.y * dz + rotation.z * dy)
 	local ty = 2 * (-rotation.z * dx + rotation.x * dz)
 	local tz = 2 * (-rotation.x * dy + rotation.y * dx)
@@ -1118,8 +1085,6 @@ function RigidBody:GetBroadphaseAABB(position, rotation, out)
 		local local_position = collider:GetLocalPosition()
 		local local_rotation = collider:GetLocalRotation()
 
-		-- collider at the body origin with identity local rotation:
-		-- the shape aabb is the body aabb, no intermediate allocations
 		if
 			local_position.x == 0 and
 			local_position.y == 0 and
@@ -1229,8 +1194,6 @@ end
 
 local SOLVER_ANGULAR_DELTA = Vec3()
 
--- for code that already moved the body to match its current velocity (swept
--- hits re-integrate the remaining motion), so the solver delta must start over
 function RigidBody:SyncSolverVelocity()
 	if not self.HasSolverVelocity0 then return end
 
@@ -1238,10 +1201,6 @@ function RigidBody:SyncSolverVelocity()
 	self.SolverAngularVelocity0:CopyFrom(self.AngularVelocity)
 end
 
--- Integrate moved the body with the velocity it had before the contact solve.
--- What the biased solve added to that velocity (the contact push-out and the
--- impulses) is integrated here, so the relax pass can then strip the push-out
--- velocity again without it having moved the body twice.
 function RigidBody:ApplySolverVelocityDelta(dt)
 	if not self.HasSolverVelocity0 then return end
 
@@ -1290,9 +1249,6 @@ function RigidBody:UpdateVelocities(dt)
 
 	self.ReadyToSleepPass = nil
 	self.SleepDt = dt
-	-- the ground clamp zeroes the speed into the ground, which is only right
-	-- for ground that does not move: a body standing on another body has to
-	-- hand that speed over to it, and the contact solve does exactly that
 	local ground_body = self.GroundBody
 
 	if self.Grounded and not (ground_body and ground_body:HasSolverMass()) then

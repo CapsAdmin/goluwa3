@@ -59,10 +59,7 @@ function import:__call(path)
 	self.loading_stack[#self.loading_stack] = nil
 	self.loading[path] = nil
 
-	if type(result) ~= "table" then
-
-	--error("imported file " .. path .. " did not return a table", 2)
-	end
+	if type(result) ~= "table" then  end
 
 	if not ok then error(result, 0) end
 

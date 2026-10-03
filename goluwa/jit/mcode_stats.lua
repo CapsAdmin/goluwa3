@@ -27,7 +27,6 @@ local function fillsymtab_tr(tr--[[#: number]], nexit--[[#: number]])
 	if addr then t[addr] = "stack_check" end
 end
 
--- Fill symbol table with trace exit stub addresses.
 local function fillsymtab(tr--[[#: number]], nexit--[[#: number]])
 	local t = symtab
 
@@ -48,13 +47,13 @@ local function fillsymtab(tr--[[#: number]], nexit--[[#: number]])
 		end
 	end
 
-	if nexitsym == 1000000 then -- Per-trace exit stubs.
+	if nexitsym == 1000000 then
 		fillsymtab_tr(tr, nexit)
-	elseif nexit > nexitsym then -- Shared exit stubs.
+	elseif nexit > nexitsym then
 		for i = nexitsym, nexit - 1 do
 			local addr = jutil.traceexitstub(i)
 
-			if addr == nil then -- Fall back to per-trace exit stubs.
+			if addr == nil then
 				fillsymtab_tr(tr, nexit)
 				setmetatable(symtab, symtabmt)
 				nexit = 1000000

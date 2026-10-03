@@ -80,7 +80,6 @@ do
 		end
 
 		if not handled and self.warn_unhandled then
-			-- Check if any child (or descendant) has rejection handlers
 			local function child_has_reject_handlers(cb)
 				for _, c in ipairs(cb.children) do
 					if c.funcs.rejected[1] or child_has_reject_handlers(c) then
@@ -391,9 +390,6 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 			end
 		end
 
-		--if tasks and tasks.IsEnabled() and tasks.GetActiveTask() then
-		--if not tasks.GetActiveTask().is_test_task then return cb:Get() end
-		--end
 		return cb
 	end
 end

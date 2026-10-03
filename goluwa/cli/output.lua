@@ -22,14 +22,11 @@ function output.Initialize()
 end
 
 function output.Write(str)
-	-- Always write to log file first, regardless of event handler result
 	if output.file and not suppress_print then
 		assert(output.file:write(str, 1, #str))
 		assert(output.file:flush())
 	end
 
-	-- CanWrite fires the StdOutWrite event; if a listener returns false it means
-	-- it handled the terminal output itself (e.g. the REPL), so skip io.write.
 	if not output.CanWrite(str) then return end
 
 	io.write(str)
@@ -42,9 +39,9 @@ do
 
 		if not file then return "", 0 end
 
-		file:seek(0, 2) -- SEEK_END
+		file:seek(0, 2)
 		local size = tonumber(file:tell())
-		file:seek(0, 0) -- SEEK_SET
+		file:seek(0, 0)
 		local content = file:read(size, 1)
 		file:close()
 		return content or "", size
@@ -67,9 +64,9 @@ end
 function output.GetLogLines(count)
 	count = count or 50
 	local file = fs.file_open(LOG_FILE, "r")
-	file:seek(0, 2) -- SEEK_END
+	file:seek(0, 2)
 	local fsize = tonumber(file:tell())
-	file:seek(0, 0) -- SEEK_SET
+	file:seek(0, 0)
 	local content = file:read(fsize, 1)
 	file:close()
 	local lines = content:split("\n")

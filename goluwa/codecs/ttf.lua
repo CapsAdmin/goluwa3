@@ -14,13 +14,11 @@ end
 
 function ttf.DecodeBuffer(input_buffer)
 	local font = {}
-	-- Offset Table
 	font.scaler_type = input_buffer:ReadU32BE()
 	font.num_tables = input_buffer:ReadU16BE()
 	font.search_range = input_buffer:ReadU16BE()
 	font.entry_selector = input_buffer:ReadU16BE()
 	font.range_shift = input_buffer:ReadU16BE()
-	-- Table Directory
 	font.tables = {}
 
 	for i = 1, font.num_tables do
@@ -32,7 +30,6 @@ function ttf.DecodeBuffer(input_buffer)
 		}
 	end
 
-	-- Helper to read a table by tag
 	function font:GetTableBuffer(tag)
 		local info = self.tables[tag]
 
@@ -45,7 +42,6 @@ function ttf.DecodeBuffer(input_buffer)
 		return Buffer.New(data)
 	end
 
-	-- Parse 'name' table for basic font info if available
 	local name_table = font:GetTableBuffer("name")
 
 	if name_table then
@@ -65,18 +61,9 @@ function ttf.DecodeBuffer(input_buffer)
 			name_table:SetPosition(string_offset + offset)
 			local name_bytes = name_table:ReadBytes(length)
 			name_table:SetPosition(pos)
-			-- We mostly care about English (language_id 0x409 in platform 3, or language 0 in platform 1)
-			-- For now just store them. 
-			-- Platform 3 (Windows) uses UTF-16BE.
-			-- Platform 1 (Macintosh) uses Roman (usually ASCII for names).
 			font.names[name_id] = font.names[name_id] or {}
 			font.names[name_id][platform_id .. "_" .. encoding_id .. "_" .. language_id] = name_bytes
 
-			-- Common name IDs:
-			-- 1: Font Family
-			-- 2: Font Subfamily
-			-- 4: Full Name
-			-- 6: PostScript Name
 			if platform_id == 1 and language_id == 0 then
 				if name_id == 1 then font.family = name_bytes end
 
@@ -84,7 +71,6 @@ function ttf.DecodeBuffer(input_buffer)
 
 				if name_id == 4 then font.full_name = name_bytes end
 			elseif platform_id == 3 and language_id == 0x0409 then
-				-- Basic UTF-16BE to ASCII conversion (only works for ASCII characters)
 				local ascii = {}
 
 				for j = 1, #name_bytes, 2 do
@@ -102,40 +88,36 @@ function ttf.DecodeBuffer(input_buffer)
 		end
 	end
 
-	-- Parse 'head' for unitsPerEm
 	local head_table = font:GetTableBuffer("head")
 
 	if head_table then
-		head_table:Advance(18) -- Skip version, revision, checksumAdj, magicNumber, flags
+		head_table:Advance(18)
 		font.units_per_em = head_table:ReadU16BE()
 	end
 
-	-- Parse 'hhea' for ascent, descent, lineGap
 	local hhea_table = font:GetTableBuffer("hhea")
 
 	if hhea_table then
-		hhea_table:Advance(4) -- Skip version
+		hhea_table:Advance(4)
 		font.ascent = hhea_table:ReadI16BE()
 		font.descent = hhea_table:ReadI16BE()
 		font.line_gap = hhea_table:ReadI16BE()
 	end
 
-	-- Parse 'maxp' for numGlyphs
 	local maxp_table = font:GetTableBuffer("maxp")
 
 	if maxp_table then
-		maxp_table:Advance(4) -- Skip version
+		maxp_table:Advance(4)
 		font.num_glyphs = maxp_table:ReadU16BE()
 	end
 
-	-- Parse 'OS/2' for extra metrics
 	local os2_table = font:GetTableBuffer("OS/2")
 
 	if os2_table then
 		local version = os2_table:ReadU16BE()
-		os2_table:Advance(6) -- Skip xAvgCharWidth, usWeightClass, usWidthClass
+		os2_table:Advance(6)
 		font.fs_type = os2_table:ReadU16BE()
-		os2_table:Advance(58) -- Skip a lot of fields
+		os2_table:Advance(58)
 		font.typo_ascent = os2_table:ReadI16BE()
 		font.typo_descent = os2_table:ReadI16BE()
 		font.typo_line_gap = os2_table:ReadI16BE()
@@ -143,21 +125,19 @@ function ttf.DecodeBuffer(input_buffer)
 		font.win_descent = os2_table:ReadU16BE()
 
 		if version >= 2 then
-			os2_table:Advance(8) -- Skip ulCodePageRange1, ulCodePageRange2
+			os2_table:Advance(8)
 			font.x_height = os2_table:ReadI16BE()
 			font.cap_height = os2_table:ReadI16BE()
 		end
 	end
 
-	-- Parse 'cmap' to map characters to glyph indices
 	local cmap_table = font:GetTableBuffer("cmap")
 
 	if cmap_table then
-		cmap_table:Advance(2) -- Skip version
+		cmap_table:Advance(2)
 		local num_subtables = cmap_table:ReadU16BE()
 		local subtable_offset = nil
 
-		-- Prefer Windows Unicode (3, 1) or Unicode (0, 3)
 		for i = 1, num_subtables do
 			local platform_id = cmap_table:ReadU16BE()
 			local encoding_id = cmap_table:ReadU16BE()
@@ -176,17 +156,17 @@ function ttf.DecodeBuffer(input_buffer)
 
 			if format == 4 then
 				local length = cmap_table:ReadU16BE()
-				cmap_table:Advance(2) -- Skip language
+				cmap_table:Advance(2)
 				local seg_count_x2 = cmap_table:ReadU16BE()
 				local seg_count = seg_count_x2 / 2
-				cmap_table:Advance(6) -- Skip searchRange, entrySelector, rangeShift
+				cmap_table:Advance(6)
 				local end_codes = {}
 
 				for i = 1, seg_count do
 					end_codes[i] = cmap_table:ReadU16BE()
 				end
 
-				cmap_table:Advance(2) -- Skip reservedPad
+				cmap_table:Advance(2)
 				local start_codes = {}
 
 				for i = 1, seg_count do
@@ -241,12 +221,11 @@ function ttf.DecodeBuffer(input_buffer)
 		end
 	end
 
-	-- Parse 'hhea' and 'hmtx' for horizontal metrics
 	local hhea_table = font:GetTableBuffer("hhea")
 	local hmtx_table = font:GetTableBuffer("hmtx")
 
 	if hhea_table and hmtx_table then
-		hhea_table:Advance(34) -- Skip to numberOfHMetrics
+		hhea_table:Advance(34)
 		local num_h_metrics = hhea_table:ReadU16BE()
 		local h_metrics = {}
 
@@ -261,7 +240,6 @@ function ttf.DecodeBuffer(input_buffer)
 			if glyph_index < num_h_metrics then
 				return h_metrics[glyph_index]
 			else
-				-- For glyphs beyond num_h_metrics, advance width is the same as the last one
 				local last = h_metrics[num_h_metrics - 1]
 				hmtx_table:SetPosition(num_h_metrics * 4 + (glyph_index - num_h_metrics) * 2)
 				return {
@@ -272,13 +250,12 @@ function ttf.DecodeBuffer(input_buffer)
 		end
 	end
 
-	-- Parse 'loca' and 'glyf' for actual glyph shapes
 	local loca_table = font:GetTableBuffer("loca")
 	local glyf_table = font:GetTableBuffer("glyf")
 	local head_table = font:GetTableBuffer("head")
 
 	if loca_table and glyf_table and head_table then
-		head_table:Advance(50) -- Skip to indexToLocFormat
+		head_table:Advance(50)
 		local index_to_loc_format = head_table:ReadI16BE()
 
 		function font:GetGlyphData(glyph_index)
@@ -294,7 +271,8 @@ function ttf.DecodeBuffer(input_buffer)
 				end_offset = loca_table:ReadU32BE()
 			end
 
-			if start_offset == end_offset then return nil end -- Empty glyph (like space)
+			if start_offset == end_offset then return nil end
+
 			glyf_table:SetPosition(start_offset)
 			local glyph = {}
 			glyph.num_contours = glyf_table:ReadI16BE()
@@ -304,7 +282,6 @@ function ttf.DecodeBuffer(input_buffer)
 			glyph.y_max = glyf_table:ReadI16BE()
 
 			if glyph.num_contours >= 0 then
-				-- Simple glyph
 				local end_pts_of_contours = {}
 
 				for i = 1, glyph.num_contours do
@@ -322,7 +299,7 @@ function ttf.DecodeBuffer(input_buffer)
 					flags[i] = flag
 					i = i + 1
 
-					if bit.band(flag, 8) ~= 0 then -- Repeat flag
+					if bit.band(flag, 8) ~= 0 then
 						local count = glyf_table:ReadByte()
 
 						for j = 1, count do
@@ -338,7 +315,7 @@ function ttf.DecodeBuffer(input_buffer)
 				for i = 1, num_points do
 					local flag = flags[i]
 
-					if bit.band(flag, 2) ~= 0 then -- X Short Vector
+					if bit.band(flag, 2) ~= 0 then
 						local val = glyf_table:ReadByte()
 
 						if bit.band(flag, 16) == 0 then val = -val end
@@ -359,7 +336,7 @@ function ttf.DecodeBuffer(input_buffer)
 				for i = 1, num_points do
 					local flag = flags[i]
 
-					if bit.band(flag, 4) ~= 0 then -- Y Short Vector
+					if bit.band(flag, 4) ~= 0 then
 						local val = glyf_table:ReadByte()
 
 						if bit.band(flag, 32) == 0 then val = -val end
@@ -386,7 +363,6 @@ function ttf.DecodeBuffer(input_buffer)
 
 				glyph.end_pts_of_contours = end_pts_of_contours
 			else
-				-- Compound glyph
 				glyph.is_compound = true
 				glyph.components = {}
 				local ARG_1_AND_2_ARE_WORDS = 0x0001
@@ -409,7 +385,8 @@ function ttf.DecodeBuffer(input_buffer)
 						arg2 = glyf_table:ReadI8()
 					end
 
-					local m = {1, 0, 0, 1, 0, 0} -- transform matrix [a b c d e f]
+					local m = {1, 0, 0, 1, 0, 0}
+
 					if bit.band(flags, ARGS_ARE_XY_VALUES) ~= 0 then
 						m[5] = arg1
 						m[6] = arg2
@@ -442,7 +419,7 @@ function ttf.DecodeBuffer(input_buffer)
 	return font
 end
 
-if false then --test
+if false then
 	local file = assert(vfs.Open("/home/caps/Downloads/Roboto/static/Roboto-Regular.ttf"))
 	local file_content = file:ReadAll()
 	local input_buffer = Buffer.New(file_content, #file_content)

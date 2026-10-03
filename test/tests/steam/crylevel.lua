@@ -152,7 +152,6 @@ T.Test("Cry quaternions are w first and cry yaw maps to engine yaw", function()
 	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(crylevel.BuildCryLocalMatrix{Pos = "1967,2682,203", Rotate = "0.70710659,0,0,0.70710695"})
 	local right, up, forward = get_basis(transform)
 	T((transform.position - Vec3(1967, 203, -2682)):GetLength())["~"](0, 0.001)
-	-- cry +x rotated 90 degrees around cry +z is cry +y, which is engine -z
 	T((right - Vec3(0, 0, -1)):GetLength())["~"](0, 0.001)
 	T((up - Vec3(0, 1, 0)):GetLength())["~"](0, 0.001)
 	T((forward - Vec3(-1, 0, 0)):GetLength())["~"](0, 0.001)
@@ -221,7 +220,6 @@ T.Test("Cry prefabs, archetypes, entity models, parents and hidden groups", func
 	T(by_name.hidden_child)["=="](nil)
 	T(by_name.archetype.model_path)["=="]("objects/archetype.cgf")
 	T(by_name.entity.model_path)["=="]("objects/entity.cgf")
-	-- child is at local +y of a root yawed 90 degrees, so it ends up at cry -x of the root
 	local child = crylevel.ConvertCryWorldMatrixToEngineTransform(by_name.child.world_matrix)
 	T((child.position - Vec3(99, 0, 0)):GetLength())["~"](0, 0.001)
 	local prefab_child = crylevel.ConvertCryWorldMatrixToEngineTransform(by_name.prefab_child.world_matrix)
@@ -263,7 +261,6 @@ T.Test("Cry level parser reads painted vegetation instances", function()
 		]])
 	)
 	local supported = pack_f32_le(1548.375) .. pack_f32_le(1903.96875) .. pack_f32_le(236.1796875) .. pack_f32_le(0.8685) .. string.char(65, 30, 0)
-	-- angle 255 is a full turn, so 64 is a quarter turn
 	local random_yaw = pack_f32_le(100) .. pack_f32_le(200) .. pack_f32_le(300) .. pack_f32_le(1.25) .. string.char(3, 30, 64)
 	local unsupported = pack_f32_le(1456.9) .. pack_f32_le(2090.8) .. pack_f32_le(196.9) .. pack_f32_le(0.433) .. string.char(56, 30, 0)
 	local terrain = {
@@ -306,7 +303,6 @@ T.Test("Cry level parser reads painted vegetation instances", function()
 	T(aligned_up.x)["~"](0, 0.001)
 	T(aligned_up.y)["~"](1, 0.001)
 	T(aligned_up.z)["~"](0, 0.001)
-	-- fit to terrain on ground rising 1 per meter along engine +x shears the model onto it and keeps it upright
 	local fit = crylevel.ConvertCryVegetationInstanceToEngineTransform{
 		position = Vec3(0, 0, 0),
 		scale = 2,
@@ -324,7 +320,6 @@ T.Test("Cry cover parser reads the terrain texture quadtree", function()
 		return string.char(bit.band(v, 0xFF), bit.band(bit.rshift(v, 8), 0xFF))
 	end
 
-	-- 4x4 pixel DXT5 sectors, one layer, root with children in slots 2 and 4
 	local header = "CRY\0" .. "\100\0" .. u16(8) .. u16(1) .. u16(1) .. ffi.string(ffi.new("float[1]", 0.5), 4)
 	local layer = u16(4) .. u16(0) .. pack_u32_le(0x18) .. pack_u32_le(16)
 	local index = {
@@ -364,7 +359,6 @@ T.Test("Cry cover parser reads the terrain texture quadtree", function()
 		by_offset[data:byte(node.offset + 1)] = node
 	end
 
-	-- slot 2 is the lower left child, slot 4 the lower right
 	T(by_offset[1].x)["=="](0)
 	T(by_offset[1].y)["=="](1)
 	T(by_offset[2].x)["=="](1)

@@ -78,7 +78,6 @@ local function cleanup(...)
 	end
 end
 
--- inverse inertia of the body about a world axis
 local function inverse_inertia(body, x, y, z)
 	local delta = body:GetAngularVelocityDelta(Vec3(x, y, z))
 	return delta.x * x + delta.y * y + delta.z * z
@@ -98,7 +97,6 @@ T.TestPhysics("Weld holds a body to the world against gravity and knocks", funct
 	T(anchor_error)["<"](0.01)
 	T(rotation_error)["<"](0.02)
 	T(position:Distance(Vec3(0, 5, 0)))["<"](0.02)
-	-- the weld carries the weight of the body
 	T(math.abs(reaction - 3 * gravity()) / (3 * gravity()))["<"](0.1)
 end)
 
@@ -137,7 +135,6 @@ T.TestPhysics("Ball socket swings like a pendulum and rotates freely", function(
 	cleanup(ent)
 	T(max_error)["<"](0.01)
 	T(lowest)["<"](3.2)
-	-- a socket at the center of mass leaves every rotation free
 	local spin_ent, spinner = spawn_box(Vec3(0, 8, 0), Vec3(0.6, 0.4, 0.5), {Mass = 1})
 	constraints.BallSocket(nil, spinner, Vec3(0, 8, 0))
 	spinner:SetAngularVelocity(Vec3(0, 6, 0))
@@ -151,7 +148,6 @@ end)
 
 T.TestPhysics("Hinge limits stop a swinging bar at the limit angle", function()
 	physics.RemoveAllConstraints()
-	-- a bar hinged at one end about z, starting horizontal, falls toward negative angles
 	local ent, bar = spawn_box(Vec3(1, 5, 0), Vec3(2, 0.2, 0.2), {Mass = 2})
 	local hinge = constraints.Hinge(nil, bar, Vec3(0, 5, 0), Vec3(0, 0, 1), {LowerAngle = -1.0, UpperAngle = 0.3})
 	local lowest_angle = math.huge
@@ -189,7 +185,6 @@ T.TestPhysics("Hinge motor reaches its target speed within the torque limit", fu
 	local limited = wheel:GetAngularVelocity().z
 	cleanup(ent)
 	T(fast)["~"](4, 0.1)
-	-- 0.5 N*m over a quarter second can only change the speed by torque * time / inertia
 	T(math.abs(limited - start))["~"](0.5 * 0.25 * inverse, 0.05 * math.max(1, 0.5 * 0.25 * inverse))
 end)
 
@@ -229,7 +224,6 @@ T.TestPhysics("Slider confines motion to its axis and stops at the limits", func
 	local position = ent.transform:GetPosition():Copy()
 	local rotation_error = slider:GetRotationError()
 	cleanup(ent)
-	-- gravity pulls along y and the sideways speed is absorbed
 	T(math.abs(position.y - 5))["<"](0.02)
 	T(math.abs(position.z))["<"](0.02)
 	T(highest)["<"](2.06)
@@ -246,7 +240,6 @@ T.TestPhysics("Slider motor drives along the axis and friction resists", functio
 	slider:SetMotor(0, 0)
 	slider:SetFriction(1)
 	test_helpers.Simulate(30, DT)
-	-- friction of 1 N on 2 kg slows 0.5 m/s per second
 	local slowed = block:GetVelocity().x
 	cleanup(ent)
 	T(driven)["~"](3, 0.1)
@@ -255,7 +248,6 @@ end)
 
 T.TestPhysics("Ragdoll joint limits twist and swing", function()
 	physics.RemoveAllConstraints()
-	-- an arm hanging from a shoulder; its joint x axis points along the arm
 	local ent, arm = spawn_box(Vec3(0, 4, 0), Vec3(0.3, 2, 0.3), {Mass = 2})
 	local joint = constraints.Ragdoll(
 		nil,
@@ -349,7 +341,6 @@ T.TestPhysics("Rope pulls once taut and a slack rope is free", function()
 	test_helpers.Simulate(360, DT)
 	local taut_length = rope:GetCurrentLength()
 	cleanup(ent)
-	-- fell freely while slack
 	T(slack_y)["<"](4.99)
 	T(taut_length)["~"](3, 0.03)
 end)
@@ -393,10 +384,8 @@ T.TestPhysics("Pulley moves two weights like an Atwood machine", function()
 	local heavy, light = 2, 1
 	local ent_a, a = spawn_sphere(Vec3(-1, 4, 0), 0.2, {Mass = heavy})
 	local ent_b, b = spawn_sphere(Vec3(1, 4, 0), 0.2, {Mass = light})
-	-- keep the weights from colliding with each other
 	constraints.NoCollide(a, b)
 	local pulley = constraints.Pulley(a, b, Vec3(-1, 8, 0), Vec3(1, 8, 0), Vec3(-1, 4, 0), Vec3(1, 4, 0))
-	-- half a second, the weights have 4 m of rope to run
 	test_helpers.Simulate(60, DT)
 	local drop = 4 - ent_a.transform:GetPosition().y
 	local rise = ent_b.transform:GetPosition().y - 4
@@ -427,8 +416,6 @@ T.TestPhysics("Pulley with a ratio trades travel for tension", function()
 	local drop = 4 - ent_a.transform:GetPosition().y
 	local rise = ent_b.transform:GetPosition().y - 4
 	cleanup(ent_a, ent_b)
-	-- the light side runs through half the rope of the heavy side, which gives
-	-- 4 g - T = 4 a and 2 T - g = a / 2
 	local expected = 0.5 * (7 / 8.5) * gravity() * 0.25
 	T(length_0 + 2 * length_1)["~"](12, 0.04)
 	T(rise)["~"](drop / 2, 0.03)
@@ -495,7 +482,6 @@ end)
 
 T.TestPhysics("A hinge between two dynamic bodies limits the angle between them", function()
 	physics.RemoveAllConstraints()
-	-- a door leaf on a frame that is itself free to move
 	local frame_ent, frame = spawn_box(Vec3(0, 5, 0), Vec3(0.3, 2, 0.3), {Mass = 20, GravityScale = 0})
 	local door_ent, door = spawn_box(Vec3(0.8, 5, 0), Vec3(1.2, 1.8, 0.1), {Mass = 4, GravityScale = 0})
 	local hinge = constraints.Hinge(
@@ -553,7 +539,6 @@ T.TestPhysics("A hanging load on a chain of lighter links stays together", funct
 	cleanup(unpack(ents))
 	T(worst)["<"](0.06)
 	T(end_y)[">"](20 - 12 * 0.5 - 0.5)
-	-- the top joint carries the whole chain
 	T(math.abs(top_force - (11 + 20) * gravity()) / ((11 + 20) * gravity()))["<"](0.1)
 end)
 
@@ -569,7 +554,6 @@ T.TestPhysics("A spring between two bodies pulls both and keeps their center", f
 	local center = (a.Position * 1 + b.Position * 3) / 4
 	cleanup(ent_a, ent_b)
 	T(length)["~"](1, 0.02)
-	-- no external force: the center of mass does not move
 	T(center:Distance(Vec3(1, 5, 0)))["<"](0.01)
 end)
 
@@ -597,7 +581,6 @@ T.TestPhysics("A world anchored joint keeps holding after its island splits", fu
 	local bob_ent, bob = spawn_sphere(Vec3(0, 0.6, 0), 0.5, {Mass = 4})
 	local rod = constraints.Rod(nil, bob, Vec3(0, 3, 0), Vec3(0, 0.6, 0), {Length = 2.4})
 	local roller_ent, roller = spawn_sphere(Vec3(-4, 0.4, 0.86), 0.4, {Mass = 2})
-	-- the roller touches the bob, which joins their islands, then rolls on and leaves it
 	roller:SetVelocity(Vec3(5, 0, 0))
 	test_helpers.Simulate(360, DT)
 	local stretch = bob.Position:Distance(Vec3(0, 3, 0))
@@ -637,14 +620,12 @@ T.TestPhysics("A weight on a hinged plank tips it to the limit and stays on it",
 
 	for _ = 1, 120 do
 		test_helpers.Simulate(1, 1 / 60)
-		-- the weight never sinks into the plank, whose half thickness is 0.1
 		seated = seated and plank:WorldToLocal(weight.Position).y > 0.3
 	end
 
 	local angle = hinge:GetAngle()
 	local speed = plank:GetAngularVelocity():GetLength()
 	cleanup(plank_ent, weight_ent, pivot.Owner)
-	-- a body that rests on another body loads it with its weight
 	T(angle)["~"](0.3, 0.005)
 	T(speed)["<"](0.1)
 	T(seated)["=="](true)
@@ -652,14 +633,12 @@ end)
 
 T.TestPhysics("A removed joint leaves its island even after the object is cleared", function()
 	physics.RemoveAllConstraints()
-	-- touching crates share an island, so the removed rod is still in it
 	local ent_a, a = spawn_box(Vec3(0, 3, 0), Vec3(0.8, 0.8, 0.8), {Mass = 2})
 	local ent_b, b = spawn_box(Vec3(0.8, 3, 0), Vec3(0.8, 0.8, 0.8), {Mass = 2})
 	local rod_a = constraints.Rod(nil, a, Vec3(0, 5, 0), Vec3(0, 3.4, 0))
 	local rod_b = constraints.Rod(nil, b, Vec3(0.8, 5, 0), Vec3(0.8, 3.4, 0))
 	test_helpers.Simulate(30, 1 / 60)
 	rod_a:Remove()
-	-- removed objects are cleared on the next update, which wipes their bodies
 	import("goluwa/objects/objects.lua").CheckRemovedObjects()
 	test_helpers.Simulate(60, 1 / 60)
 	local intact = rod_b:IsValid()

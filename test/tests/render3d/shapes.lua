@@ -3,7 +3,6 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
--- the front face of a triangle is the side (v3 - v1) x (v2 - v1) points to
 local function winding_dot(poly, first)
 	local a, b, c = poly.Vertices[first].pos, poly.Vertices[first + 1].pos, poly.Vertices[first + 2].pos
 	local geometric = (c - a):GetCross(b - a):GetNormalized()

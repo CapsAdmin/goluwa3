@@ -93,7 +93,7 @@ do
 	end
 end
 
-do -- commands
+do
 	commands.added = commands.added or {}
 	commands.added2 = commands.added2 or {}
 	commands.history = commands.history or {}
@@ -443,7 +443,6 @@ do -- commands
 			commands.added2[alias] = commands.added[aliases[1]]
 		end
 
-		-- sub commands
 		if #aliases == 1 and aliases[1]:find(" ", nil, true) then
 			if not table.has_value(commands.sub_commands, aliases[1]) then
 				list.insert(commands.sub_commands, aliases[1])

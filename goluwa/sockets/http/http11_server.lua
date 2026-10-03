@@ -35,7 +35,8 @@ function HTTPServer:OnReceiveHeader(client, header) end
 
 function HTTPServer:OnReceiveBody(client, body) end
 
-function HTTPServer:OnClientConnected2() end -- idk what to do here
+function HTTPServer:OnClientConnected2() end
+
 function HTTPServer.New(socket)
 	local self = HTTPServer:CreateObject()
 	self:Initialize(socket)

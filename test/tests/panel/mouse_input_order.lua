@@ -31,7 +31,6 @@ T.Test("mouse input event order (local and global)", function()
 
 		pnl:AddLocalListener("OnGlobalMouseInput", function(self, button, press, pos)
 			table.insert(call_stack, {name = name, type = "global", press = press})
-		-- return nil so others get it too, unless we want to test blocking
 		end)
 
 		pnl:AddLocalListener("OnGlobalMouseMove", function(self, pos)
@@ -41,11 +40,8 @@ T.Test("mouse input event order (local and global)", function()
 		return pnl
 	end
 
-	-- p1 is created first (bottom)
 	local p1 = create_panel("p1")
-	-- p2 is created second (top)
 	local p2 = create_panel("p2")
-	-- Mock window for mouse position
 	local window = system.GetWindow()
 	local old_get_mouse_pos = window.GetMousePosition
 	window.GetMousePosition = function()
@@ -55,7 +51,6 @@ T.Test("mouse input event order (local and global)", function()
 	window.GetSize = function()
 		return Vec2(1000, 1000)
 	end
-	-- Test 1: Global event order (should be p2 then p1)
 	call_stack = {}
 	event.Call("MouseInput", "button_1", true)
 	local global_calls = {}
@@ -66,7 +61,6 @@ T.Test("mouse input event order (local and global)", function()
 
 	T(global_calls[1])["=="]("p2")
 	T(global_calls[2])["=="]("p1")
-	-- Test 2: Local event target (should be p2)
 	local local_calls = {}
 
 	for _, call in ipairs(call_stack) do
@@ -75,7 +69,6 @@ T.Test("mouse input event order (local and global)", function()
 
 	T(local_calls[1])["=="]("p2")
 
-	-- Test 3: Blocking global event
 	p2:AddLocalListener("OnGlobalMouseInput", function()
 		return true
 	end, "blocker")
@@ -90,8 +83,7 @@ T.Test("mouse input event order (local and global)", function()
 
 	T(#global_calls)["=="](1)
 	T(global_calls[1])["=="]("p2")
-	-- Test 4: Bring to front
-	p1:BringToFront() -- p1 is now on top
+	p1:BringToFront()
 	call_stack = {}
 	event.Call("MouseInput", "button_1", true)
 	global_calls = {}
@@ -100,23 +92,19 @@ T.Test("mouse input event order (local and global)", function()
 		if call.type == "global" then table.insert(global_calls, call.name) end
 	end
 
-	-- note: p2 still has the "blocker" but p1 is now checked first
 	T(global_calls[1])["=="]("p1")
 	T(global_calls[2])["=="]("p2")
 	T(#global_calls)["=="](2)
-	-- Test 5: Global mouse move order
 	call_stack = {}
-	import("goluwa/event.lua").Call("Update") -- ecs_gui_system listens to Update for mouse move
+	import("goluwa/event.lua").Call("Update")
 	local move_calls = {}
 
 	for _, call in ipairs(call_stack) do
 		if call.type == "move" then table.insert(move_calls, call.name) end
 	end
 
-	-- p1 is on top from Test 4
 	T(move_calls[1])["=="]("p1")
 	T(move_calls[2])["=="]("p2")
-	-- Clean up
 	window.GetMousePosition = old_get_mouse_pos
 	window.GetSize = old_get_size
 	Panel.World = old_world

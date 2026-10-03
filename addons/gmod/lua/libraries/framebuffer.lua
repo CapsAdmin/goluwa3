@@ -118,16 +118,6 @@ function gine.env.GetRenderTargetEx(name, w, h, size_mode, depth_mode, texture_f
 	end
 
 	rt_flags_str = "[" .. list.concat(rt_flags_str, ", ") .. "]"
-	--[[llog("GetRenderTarget(Ex):")
-	table.print({
-		name = name,
-		size = size,
-		size_mode = size_mode,
-		depth_mode = depth_mode,
-		texture_flags = texture_flags_str,
-		rt_flags = rt_flags_str,
-		image_format = image_format,
-	})]]
 	local ok, fb = pcall(lib.CreateFrameBuffer, size)
 
 	if not ok or not fb then

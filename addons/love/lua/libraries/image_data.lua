@@ -297,7 +297,7 @@ function love.image.newCompressedData(source)
 	return create_compressed_data(decoded)
 end
 
-do -- compressed data
+do
 	local CompressedData = line.TypeTemplate("CompressedData", love)
 	ENV.transport_deserializers = ENV.transport_deserializers or {}
 
@@ -361,7 +361,7 @@ do -- compressed data
 	line.RegisterType(CompressedData, love)
 end
 
-do -- image data
+do
 	local ImageData = line.TypeTemplate("ImageData", love)
 
 	local function get_offset(self, x, y)

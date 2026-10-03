@@ -11,12 +11,10 @@ T.Test("objects parenting hooks", function()
 	local parent = objects.CreateObject(META)
 	local child1 = objects.CreateObject(CHILD_META)
 	local child2 = objects.CreateObject(CHILD_META)
-	-- 1. Test standard AddChild
 	parent:AddChild(child1)
 	T(#parent:GetChildren())["=="](1)
 	T(child1:GetParent())["=="](parent)
 
-	-- 2. Test PreChildAdd blocking
 	function parent:PreChildAdd(obj)
 		if obj == child2 then return false end
 	end
@@ -24,7 +22,6 @@ T.Test("objects parenting hooks", function()
 	parent:AddChild(child2)
 	T(#parent:GetChildren())["=="](1)
 	T(child2:HasParent())["=="](false)
-	-- 2.1 Test PreChildAdd receiving pos
 	local captured_pos
 
 	function parent:PreChildAdd(obj, pos)
@@ -34,7 +31,6 @@ T.Test("objects parenting hooks", function()
 
 	parent:AddChild(child2, 5)
 	T(captured_pos)["=="](5)
-	-- 3. Test PreChildAdd redirection
 	local container = objects.CreateObject(CHILD_META)
 	parent:AddChild(container)
 	T(#parent:GetChildren())["=="](2)
@@ -48,9 +44,8 @@ T.Test("objects parenting hooks", function()
 
 	local child3 = objects.CreateObject(CHILD_META)
 	parent:AddChild(child3)
-	T(#parent:GetChildren())["=="](2) -- Should still be 2 (container and child1)
-	T(child3:GetParent())["=="](container) -- Should be redirected to container
-	-- 4. Test PreRemoveChildren blocking
+	T(#parent:GetChildren())["=="](2)
+	T(child3:GetParent())["=="](container)
 	local p2 = objects.CreateObject(META)
 	local c1 = objects.CreateObject(CHILD_META)
 	p2:AddChild(c1)
@@ -61,16 +56,16 @@ T.Test("objects parenting hooks", function()
 	end
 
 	p2:RemoveChildren()
-	T(#p2:GetChildren())["=="](1) -- Should NOT be removed
+	T(#p2:GetChildren())["=="](1)
 	T(c1:IsValid())["=="](true)
-	-- 5. Test PreRemoveChildren custom logic
 	local p3 = objects.CreateObject(META)
 	local sub_container = objects.CreateObject(CHILD_META)
 	p3:AddChild(sub_container)
 
 	function sub_container:PreChildAdd()
 		return true
-	end -- allow all
+	end
+
 	local internal_child = objects.CreateObject(CHILD_META)
 	internal_child.IsInternal = true
 	sub_container:AddChild(internal_child)
@@ -222,14 +217,12 @@ T.Test("objects PreRemoveChildren protects subtree during bulk removal", functio
 	protected_child:AddChild(grandchild)
 	T(#parent:GetChildren())["=="](1)
 	T(#parent:GetChildrenList())["=="](2)
-
 	parent:RemoveChildren()
 	T(#parent:GetChildren())["=="](0)
 	T(protected_child:IsValid())["=="](true)
 	T(grandchild:IsValid())["=="](true)
 	T(protected_child:HasParent())["=="](false)
 	T(grandchild:HasParent())["=="](false)
-	-- The whole subtree is unparented, so grandchild's parent is also cleared
 	T(grandchild:GetParent():IsValid())["=="](false)
 end)
 
@@ -260,7 +253,6 @@ T.Test("objects PreRemoveChildren with nested protected objects", function()
 	protected_outer:AddChild(protected_inner)
 	protected_inner:AddChild(leaf)
 	T(#parent:GetChildrenList())["=="](3)
-
 	parent:RemoveChildren()
 	T(#parent:GetChildren())["=="](0)
 	T(protected_outer:IsValid())["=="](true)

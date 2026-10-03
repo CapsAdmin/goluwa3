@@ -1,8 +1,6 @@
 --[[HOTRELOAD 
     run_file("test/xml.lua")
 ]]
---  XML Parser
--- A simple XML parser that converts XML documents into Lua tables
 local xml = library()
 xml.file_extensions = {"xml"}
 local ffi = require("ffi")
@@ -71,17 +69,17 @@ for i = 0, 255 do
 	local valid = (
 			i >= 65 and
 			i <= 90
-		) -- A-Z
+		)
 		or
 		(
 			i >= 97 and
 			i <= 122
-		) -- a-z
+		)
 		or
 		(
 			i >= 48 and
 			i <= 57
-		) -- 0-9
+		)
 		or
 		i == BYTE_DASH or
 		i == BYTE_COLON or
@@ -147,36 +145,28 @@ local function addtext(t, txt)
 	end
 end
 
--- Parse an XML string into a Lua table structure
--- Returns a table with:
---   children: array of parsed elements
---   entities: document entities
---   tentities: (reserved)
 function xml.Decode(s)
 	local entities, tentities = {n = 0}, nil
 	local t, l = {n = 0}, {n = 0}
 	local pos = 1
 	local len = #s
-	local p = cast(uint8_ptr_t, s) -- keep s as reference to prevent GC
+	local p = cast(uint8_ptr_t, s)
+
 	while pos <= len do
-		-- Find next '<'
 		local lt_pos = find(s, "<", pos, true)
 
 		if not lt_pos then
-			-- No more tags, add remaining text
 			local txt = sub(s, pos)
 			addtext(t, txt)
 
 			break
 		end
 
-		-- Add text before the tag
 		if lt_pos > pos then
 			local txt = sub(s, pos, lt_pos - 1)
 			addtext(t, txt)
 		end
 
-		-- Check for comment
 		if
 			p[lt_pos - 1] == BYTE_LT and
 			p[lt_pos] == BYTE_EXCLAIM and
@@ -187,7 +177,6 @@ function xml.Decode(s)
 
 			if comment_end then pos = comment_end + 3 else pos = len + 1 end
 		else
-			-- Find closing '>'
 			local gt_pos = find(s, ">", lt_pos + 1, true)
 
 			if gt_pos then
@@ -195,7 +184,6 @@ function xml.Decode(s)
 				local first_char = p[tag_start - 1]
 
 				if first_char == BYTE_SLASH then
-					-- Close tag
 					tag_start = tag_start + 1
 					local tag_name, name_end = read_name(s, p, tag_start)
 
@@ -206,14 +194,11 @@ function xml.Decode(s)
 					end
 				elseif first_char == BYTE_QUESTION then
 
-				-- Processing instruction, skip it
 				elseif first_char == BYTE_EXCLAIM then
-					-- DOCTYPE or ENTITY
 					tag_start = tag_start + 1
 					local name, name_end = read_name(s, p, tag_start)
 
 					if name and sub(name, 1, 6) == "ENTITY" then
-						-- Parse entity: <!ENTITY name "value">
 						local entity_pos = skip_whitespace(p, name_end)
 						local entity_name, entity_name_end = read_name(s, p, entity_pos)
 
@@ -235,7 +220,6 @@ function xml.Decode(s)
 						end
 					end
 				else
-					-- Open tag
 					local tag_name, name_end = read_name(s, p, tag_start)
 
 					if tag_name then
@@ -244,12 +228,10 @@ function xml.Decode(s)
 						local attr_pos = skip_whitespace(p, name_end)
 						local self_closing = false
 
-						-- Check for self-closing before '>'
 						if p[gt_pos - 2] == BYTE_SLASH then self_closing = true end
 
 						local attr_end_pos = self_closing and (gt_pos - 1) or gt_pos
 
-						-- Parse attributes
 						while attr_pos < attr_end_pos do
 							local c = p[attr_pos - 1]
 
@@ -302,9 +284,6 @@ function xml.Decode(s)
 	return {children = t, entities = entities, tentities = tentities}
 end
 
--- Parse an XML file
--- Returns parsed document table and nil on success
--- Returns nil and error message on failure
 function xml.parse_file(filename)
 	local f, err = io.open(filename)
 

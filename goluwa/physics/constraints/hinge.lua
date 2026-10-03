@@ -1,16 +1,10 @@
 local Constraint = import("goluwa/physics/constraint.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
 local objects = import("goluwa/objects/objects.lua")
--- Revolute joint: three rows pin the anchors together, two keep the hinge axes
--- parallel, leaving one free rotation about the axis. The free rotation can be
--- limited, driven by a motor and slowed by friction.
 local META = objects.CreateTemplate("physics_hinge_constraint")
 META.Base = Constraint
 local INFINITY = math.huge
 
--- config: CollideConnected (default false), LowerAngle and UpperAngle (radians
--- from the pose at creation), MotorSpeed with MaxMotorTorque, Friction (torque),
--- BreakForce, BreakTorque
 function META.New(body_0, body_1, world_anchor, world_axis, config)
 	config = config or {}
 	local self = META:CreateObject{
@@ -55,7 +49,6 @@ function META:WarmStart()
 	if not self:Prepare() then return end
 
 	local s0, s1 = self.State0, self.State1
-	-- the angle only changes between substeps, the limit rows read it
 	self:UpdateAngle(s0, s1)
 	local point = self.PointImpulse
 	local axis = self.AxisImpulse
@@ -69,7 +62,6 @@ function META:WarmStart()
 	self:AddAngularImpulse(axis[1] + ax, axis[2] + ay, axis[3] + az)
 end
 
--- the angle about the axis, accumulated over turns, 0 in the pose at creation
 function META:UpdateAngle(s0, s1)
 	local raw = rows.GetTwist(s0, s1)
 	local delta = raw - self.RawAngle

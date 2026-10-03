@@ -33,8 +33,6 @@ return function(props)
 			AlignX = 0.5,
 			AlignY = 0.5,
 			layout = {
-				--MinSize = icon_size,
-				--MaxSize = icon_size,
 				FitWidth = false,
 				FitHeight = false,
 			},

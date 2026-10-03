@@ -1,5 +1,3 @@
--- LZMA file decoder
--- Based on LZMA SDK and .lzma file format specification
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = import("goluwa/structs/buffer.lua")
@@ -8,11 +6,9 @@ local bit_band = bit.band
 local bit_bor = bit.bor
 local bit_rshift = bit.rshift
 local bit_lshift = bit.lshift
--- LZMA constants
 local LZMA_PROPS_SIZE = 5
-local LZMA_MAGIC = "\xFD\x37\x7A\x58\x5A\x00" -- XZ magic (for .xz format)
-local LZMA_ALONE_MAGIC_SIZE = 13 -- LZMA alone header size
--- Bit reader for LZMA range decoder
+local LZMA_MAGIC = "\xFD\x37\x7A\x58\x5A\x00"
+local LZMA_ALONE_MAGIC_SIZE = 13
 local BitReader = {}
 BitReader.__index = BitReader
 
@@ -22,7 +18,6 @@ function BitReader.new(buffer)
 	self.range = 0xFFFFFFFF
 	self.code = 0
 
-	-- Initialize range decoder
 	for i = 1, 5 do
 		self.code = bit_lshift(self.code, 8)
 
@@ -43,7 +38,6 @@ function BitReader:normalize()
 			self.code = bit_bor(self.code, self.buffer:ReadU8())
 		end
 
-		-- Keep values in 32-bit range
 		self.range = bit_band(self.range, 0xFFFFFFFF)
 		self.code = bit_band(self.code, 0xFFFFFFFF)
 	end
@@ -88,13 +82,11 @@ function BitReader:decodeDirectBits(count)
 	return result
 end
 
--- LZMA Decoder
 local LZMADecoder = {}
 LZMADecoder.__index = LZMADecoder
 
 function LZMADecoder.new(properties)
 	local self = setmetatable({}, LZMADecoder)
-	-- Parse properties byte
 	local d = properties
 
 	if d >= 9 * 5 * 5 then error("Invalid LZMA properties") end
@@ -103,10 +95,9 @@ function LZMADecoder.new(properties)
 	d = math.floor(d / 9)
 	self.pb = math.floor(d / 5)
 	self.lp = d % 5
-	-- Initialize probability arrays
 	self.probs = {}
 
-	for i = 0, 1983 do -- Total number of probabilities for LZMA
+	for i = 0, 1983 do
 		self.probs[i] = 1024
 	end
 
@@ -141,13 +132,10 @@ function LZMADecoder:decode(bitReader, uncompressedSize)
 		outputBuffer:WriteByte(b)
 	end
 
-	-- Simplified LZMA decoding (basic implementation)
 	while getPos() < uncompressedSize do
 		local posState = bit_band(getPos(), (bit_lshift(1, self.pb) - 1))
 
-		-- Decode literal or match
 		if bitReader:decodeBit(0, self.probs) == 0 then
-			-- Literal
 			local prevByte = getByte(1)
 			local symbol = 1
 
@@ -173,20 +161,16 @@ function LZMADecoder:decode(bitReader, uncompressedSize)
 			putByte(byte)
 			state = state < 4 and 0 or (state < 10 and (state - 3) or (state - 6))
 		else
-			-- Match or rep
 			local len
 
 			if bitReader:decodeBit(1, self.probs) == 0 then
-				-- Simple match
 				rep3 = rep2
 				rep2 = rep1
 				rep1 = rep0
 				len = 2
 				state = state < 7 and 7 or 10
-				-- Decode distance
 				local distance = 0
 				local lenState = math.min(len - 2, 3)
-				-- Simplified distance decoding
 				local distSlot = 0
 
 				for i = 0, 5 do
@@ -205,7 +189,6 @@ function LZMADecoder:decode(bitReader, uncompressedSize)
 
 				rep0 = distance + 1
 			else
-				-- Rep match
 				if bitReader:decodeBit(2, self.probs) == 0 then
 					len = 1
 					state = state < 7 and 9 or 11
@@ -232,7 +215,6 @@ function LZMADecoder:decode(bitReader, uncompressedSize)
 				end
 			end
 
-			-- Copy match
 			for i = 1, len do
 				local byte = getByte(rep0)
 				putByte(byte)
@@ -240,34 +222,26 @@ function LZMADecoder:decode(bitReader, uncompressedSize)
 		end
 	end
 
-	-- Reset buffer position to beginning for reading
 	outputBuffer:SetPosition(0)
 	return outputBuffer
 end
 
--- Parse LZMA alone format header
 local function parseLZMAAloneHeader(buffer)
 	local header = {}
-	-- Read properties (1 byte)
 	header.properties = buffer:ReadU8()
-	-- Read dictionary size (4 bytes, little-endian)
 	header.dictSize = buffer:ReadU32LE()
-	-- Read uncompressed size (8 bytes, little-endian)
 	local sizeLow = buffer:ReadU32LE()
 	local sizeHigh = buffer:ReadU32LE()
 
-	-- Handle 0xFFFFFFFF_FFFFFFFF as unknown size
 	if sizeLow == 0xFFFFFFFF and sizeHigh == 0xFFFFFFFF then
 		header.uncompressedSize = nil
 	else
-		-- For simplicity, assume size fits in 32 bits
 		header.uncompressedSize = sizeLow
 	end
 
 	return header
 end
 
--- Check if buffer contains XZ format
 local function isXZFormat(buffer)
 	local savedPos = buffer:GetPosition()
 	buffer:SetPosition(0)
@@ -282,42 +256,30 @@ local function isXZFormat(buffer)
 	return magic == LZMA_MAGIC
 end
 
--- Decompress LZMA data
 local function decompressLZMA(buffer)
-	-- Save current position
 	local savedPos = buffer:GetPosition()
 	buffer:SetPosition(0)
 
-	-- Check format
 	if isXZFormat(buffer) then
 		error("XZ format is not yet supported, only LZMA alone format")
 	end
 
-	-- Parse LZMA alone header
 	local header = parseLZMAAloneHeader(buffer)
 
 	if not header.uncompressedSize then
 		error("LZMA streams with unknown size are not supported")
 	end
 
-	-- Create LZMA decoder
 	local decoder = LZMADecoder.new(header.properties)
-	-- Create bit reader for compressed data
 	local bitReader = BitReader.new(buffer)
-	-- Decode
 	local outputBuffer = decoder:decode(bitReader, header.uncompressedSize)
-	-- Restore position
 	buffer:SetPosition(savedPos)
 	return outputBuffer
 end
 
--- Main entry point - decode LZMA file
 function lzma.DecodeBuffer(inputBuffer)
-	-- Verify this is an LZMA file
 	local savedPos = inputBuffer:GetPosition()
 	inputBuffer:SetPosition(0)
-	-- LZMA alone format doesn't have a distinct magic number
-	-- but we can validate the properties byte
 	local props = inputBuffer:ReadU8()
 	inputBuffer:SetPosition(savedPos)
 
@@ -325,7 +287,6 @@ function lzma.DecodeBuffer(inputBuffer)
 		error("Not a valid LZMA file (invalid properties byte)")
 	end
 
-	-- Decompress the data
 	local outputBuffer = decompressLZMA(inputBuffer)
 	return outputBuffer
 end

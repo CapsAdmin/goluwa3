@@ -119,7 +119,7 @@ function http.MixinHTTP(META)
 
 				if start then
 					local header = state.raw_header:sub(1, stop)
-					chunk = state.raw_header:sub(stop + 1) -- resume body here
+					chunk = state.raw_header:sub(stop + 1)
 					state.raw_header = header
 
 					do
@@ -155,7 +155,6 @@ function http.MixinHTTP(META)
 							end
 						end
 
-						-- normalize some values
 						do
 							local content_length = tonumber(keyvalues["content-length"])
 
@@ -262,7 +261,6 @@ function http.MixinHTTP(META)
 	end
 
 	function META:OnHTTPEvent(what) end
---function META:Error(what) return false end
 end
 
 local function default_header(header, key, val)

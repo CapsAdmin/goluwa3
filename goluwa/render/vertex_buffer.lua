@@ -3,7 +3,6 @@ local render = import("goluwa/render/render.lua")
 local objects = import("goluwa/objects/objects.lua")
 local VertexBuffer = objects.CreateTemplate("render_vertex_buffer")
 
--- Calculate vertex stride from vertex attributes
 local function calculate_stride(vertex_attributes)
 	local max_offset = 0
 	local last_size = 0
@@ -12,7 +11,6 @@ local function calculate_stride(vertex_attributes)
 		if attr.offset >= max_offset then
 			max_offset = attr.offset
 
-			-- Handle both lua_type (for structured data) and format (for raw data)
 			if attr.lua_type then
 				last_size = ffi.sizeof(attr.lua_type)
 			elseif attr.format then
@@ -44,25 +42,20 @@ function VertexBuffer.New(vertices, vertex_attributes, name)
 	self.stride = calculate_stride(vertex_attributes)
 
 	if type(vertices) == "number" then
-		-- Allocate zeroed vertex data
 		local count = vertices
 		self.vertex_count = count
 		self.byte_size = self.stride * count
 		self.data = ffi.new("uint8_t[?]", self.byte_size)
 	elseif type(vertices) == "cdata" then
-		-- FFI cdata - copy directly
-		-- Calculate vertex count from the data
 		local cdata_size = ffi.sizeof(vertices)
 		self.vertex_count = cdata_size / self.stride
 		self.byte_size = cdata_size
 		self.data = ffi.new("uint8_t[?]", self.byte_size)
 		ffi.copy(self.data, vertices, self.byte_size)
 	elseif type(vertices) == "table" then
-		-- Check if it's a raw float array or structured vertex array
 		local is_raw_floats = type(vertices[1]) == "number"
 
 		if is_raw_floats then
-			-- Raw float array - copy directly
 			self.vertex_count = #vertices / (self.stride / ffi.sizeof("float"))
 			self.byte_size = #vertices * ffi.sizeof("float")
 			self.data = ffi.new("uint8_t[?]", self.byte_size)
@@ -72,13 +65,11 @@ function VertexBuffer.New(vertices, vertex_attributes, name)
 				float_ptr[i - 1] = v
 			end
 		else
-			-- Structured vertex array
 			local count = #vertices
 			self.vertex_count = count
 			self.byte_size = self.stride * count
 			self.data = ffi.new("uint8_t[?]", self.byte_size)
 
-			-- Fill data
 			for i, vertex in ipairs(vertices) do
 				local base_offset = (i - 1) * self.stride
 
@@ -106,9 +97,7 @@ function VertexBuffer.New(vertices, vertex_attributes, name)
 
 		table.sort(sorted_attrs, sort_offset)
 
-		-- Only create structured vertex accessor if attributes have lua_type
 		if sorted_attrs[1] and sorted_attrs[1].lua_type then
-			-- Build struct definition with $ placeholders and collect types
 			local fields = {}
 			local types = {}
 
@@ -122,13 +111,11 @@ function VertexBuffer.New(vertices, vertex_attributes, name)
 			cached[struct_def] = vertex_type
 			self.vertices = ffi.cast(vertex_type, self.data)
 		else
-			-- For raw vertex data, just provide a float pointer
 			self.vertices = ffi.cast("float*", self.data)
 		end
 	end
 
 	if render.IsReady() then
-		-- Create GPU buffer
 		self.buffer = render.CreateBuffer{
 			buffer_usage = {"vertex_buffer", "storage_buffer", "shader_device_address"},
 			data_type = "float",

@@ -178,7 +178,6 @@ return function(texture, texture_path)
 						render2d.DrawRect(draw_x, draw_y, draw_w, draw_h)
 						render2d.PopSwizzleMode()
 
-						-- grid overlay
 						if show_grid and zoom >= 0.5 then
 							render2d.SetTexture(nil)
 							render2d.SetColor(0.5, 0.5, 0.5, 0.3)
@@ -217,7 +216,6 @@ return function(texture, texture_path)
 							zoom = math.min(32.0, zoom * 1.25)
 						end
 
-						-- zoom toward cursor
 						local w, h = self.transform:GetSize().x, self.transform:GetSize().y
 						local old_dx, old_dy, old_dw, old_dh = compute_draw_rect(w, h, old_zoom)
 						local new_dx, new_dy, new_dw, new_dh = compute_draw_rect(w, h, zoom)

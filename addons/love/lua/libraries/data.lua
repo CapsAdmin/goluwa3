@@ -61,9 +61,6 @@ function love.data.decompress(container, format, compressed_data)
 			return wrap_output(container, result, "decompressed.bin")
 		end
 
-		-- Some Love games save plain text through the compatibility layer when no
-		-- matching compressor exists yet. Returning the original payload keeps the
-		-- load path working for those saves while still decoding real deflate data.
 		return wrap_output(container, compressed_data, "decompressed.bin")
 	end
 

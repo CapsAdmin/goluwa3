@@ -1,9 +1,3 @@
---[[
-	Terrain layer texture preview. A small, gently rolling terrain shows each
-	layer in a strip along x (grass, dirt, rock, snow from -x to +x) through
-	the real terrain shader path, and a sphere above each strip shows the
-	same textures on an ordinary material.
-]]
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")

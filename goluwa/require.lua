@@ -26,7 +26,7 @@ local function get_vfs()
 	return nil
 end
 
-do -- loaders
+do
 	local file_path
 	local importing = false
 	local normalize_path = function(path)
@@ -245,7 +245,6 @@ do -- loaders
 		require.loaders[i] = v
 	end
 
-	-- we don't need the default loaders since we reimplement them here
 	for i = #require.loaders, 1, -1 do
 		if debug.getinfo(require.loaders[i]).what == "C" then
 			table.remove(require.loaders, i)
@@ -386,7 +385,6 @@ function require.require_function(name, func, path, arg_override, loaded)
 		if res and not loaded[path] and not loaded[name] then
 			loaded[name] = res
 		elseif not res and loaded[name] == nil and loaded[path] == nil then
-			--wlog("module %s (%s) was required but nothing was returned", name, path)
 			loaded[name] = true
 		end
 	end

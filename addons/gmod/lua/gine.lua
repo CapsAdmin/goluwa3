@@ -1,4 +1,3 @@
--- todo
 _G.CLIENT = true
 _G.SERVER = false
 local gine = library()
@@ -601,14 +600,11 @@ function gine.Initialize(gamemode, skip_addons)
 		gine.MountGLuaSourceOverlay()
 		steam.MountSourceGame("gmod", skip_addons)
 		pvars.Setup("sv_allowcslua", 1)
-		-- figure out the base gmod folder
 		gine.dir = R("garrysmod_dir.vpk"):match("(.+/)")
 		gine.AddGLuaPath(gine.dir)
 		import("lua/material.lua")
-		-- setup engine functions
 		import("lua/environment.lua")
 		gine.AddPackageLoaderDir(gine.dir .. "lua/includes/modules")
-		-- include and init files in the right order
 		gine.init = true
 
 		if not skip_addons then
@@ -664,16 +660,14 @@ function gine.Initialize(gamemode, skip_addons)
 		vfs.RunFile("lua/includes/init.lua")
 
 		if CLIENT then
-			--runfile("lua/includes/init_menu.lua")
 			gine.env.require("notification")
-			vfs.RunFile("lua/derma/init.lua") -- the gui
+			vfs.RunFile("lua/derma/init.lua")
 		end
 
 		gine.LoadGamemode("base")
 
 		if gamemode ~= "base" then gine.LoadGamemode(gamemode) end
 
-		-- autorun lua files
 		vfs.RunFile("lua/autorun/*")
 
 		if CLIENT then vfs.RunFile("lua/autorun/client/*") end
@@ -682,7 +676,6 @@ function gine.Initialize(gamemode, skip_addons)
 
 		if CLIENT then ensure_client_graphics_bootstrap() end
 
-		--gine.env.DCollapsibleCategory.LoadCookies = nil -- DUCT TAPE FIX
 		for name in pairs(gine.gamemodes) do
 			local entities_dir = R("gamemodes/" .. name .. "/entities/", true)
 
@@ -770,7 +763,6 @@ function gine.Run(skip_addons)
 	gine.env.gamemode.Call("InitPostEntity")
 
 	if CLIENT and CAPS then
-		--		require("opengl").Disable("GL_SCISSOR_TEST")
 		if gine.env.notagain then
 			gine.env.LocalPlayer():SetNWBool("rpg", true)
 			gine.env.LocalPlayer():SetHealth(250)

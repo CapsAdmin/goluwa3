@@ -157,12 +157,6 @@ local function build_node(items, first, last, get_bounds, get_centroid, leaf_ite
 	}
 end
 
--- Build, for big item lists: the median of a node is found by quickselect over
--- a permutation of the items instead of sorting them, and the bounds and
--- centroids of the items are read once. every node splits its items at the same
--- median (the lower half of the longest centroid axis to the left), but the
--- items of a half come in no particular order, so the tree differs from
--- Build's in which leaf holds a tie
 local DoubleArray = ffi.typeof("double[?]")
 local IntArray = ffi.typeof("int32_t[?]")
 
@@ -207,13 +201,7 @@ local function select_nth(order, keys, lo, hi, k)
 			end
 		end
 
-		if k <= j then
-			hi = j
-		elseif k >= i then
-			lo = i
-		else
-			return
-		end
+		if k <= j then hi = j elseif k >= i then lo = i else return end
 	end
 end
 
@@ -279,7 +267,9 @@ local function build_fast_node(data, first, last)
 		keys, extent = cz_a, size_z
 	end
 
-	if extent <= 0 then return {aabb = bounds, first = first + 1, last = last + 1} end
+	if extent <= 0 then
+		return {aabb = bounds, first = first + 1, last = last + 1}
+	end
 
 	local mid = math.floor((first + last) / 2)
 	select_nth(order, keys, first, last, mid)

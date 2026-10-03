@@ -6,7 +6,6 @@ function codegen.join(list, sep, transform)
 end
 
 function codegen.each(list, sep, transform)
-	-- transform(element, default_line) -> line to emit
 	return {kind = "each", list = list, sep = sep or ", ", transform = transform}
 end
 

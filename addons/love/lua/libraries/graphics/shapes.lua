@@ -68,7 +68,6 @@ local function polygon(mode, points, join)
 	local mesh_idx = slot.idx
 	render2d.PushTexture()
 	render2d.PushColor(ctx.get_draw_fg_color())
-	--render2d.PushRectBatchMode("replay")
 	local idx = 1
 
 	if mode == "line" then
@@ -120,7 +119,6 @@ local function polygon(mode, points, join)
 	render2d.BindMesh(mesh)
 	render2d.UploadConstants()
 	mesh:Draw(mesh_idx, idx)
-	--render2d.PopRectBatchMode()
 	render2d.PopColor()
 	render2d.PopTexture()
 end

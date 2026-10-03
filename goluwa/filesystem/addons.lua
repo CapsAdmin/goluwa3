@@ -149,7 +149,6 @@ function vfs.AutorunAddon(addon, folder, force)
 				return
 			end
 
-			-- autorun folders
 			for path in vfs.Iterate(info.path .. "lua/autorun/" .. folder, true) do
 				if path:find("%.lua") then
 					local ok, err = callstack.pcall(vfs.RunFile, path)
@@ -171,7 +170,6 @@ function vfs.AutorunAddon(addon, folder, force)
 		_G.INFO = nil
 	else
 
-	--logf("the addon %q does not want to be loaded\n", info.name)
 	end
 end
 

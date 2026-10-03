@@ -187,9 +187,6 @@ T.TestPhysics("Rolling capsule on shallow terrain rolls to a stop", function()
 	local angular_speed = body:GetAngularVelocity():GetLength()
 	local horizontal_speed = Vec3(velocity.x, 0, velocity.z):GetLength()
 	T(body:GetGrounded())["=="](true)
-	-- friction ends the slide within 2 s: the capsule is at rest or rolling
-	-- without slipping (a cylinder keeps rolling, the engine has no rolling
-	-- resistance)
 	T(math.abs(horizontal_speed - angular_speed * 0.5))["<"](0.25)
 	body_ent:Remove()
 	ground:Remove()
@@ -567,11 +564,8 @@ T.TestPhysics("Rolling capsule on flat box settles without sinking or jittering"
 		max_y = math.max(max_y, y)
 	end
 
-	-- the box top is at y = 0; the center stays inside the capsule vertical
-	-- extent whether rolling tilted or standing upright
 	T(max_y)["<="](1.15)
 	T(min_y)[">="](0.05)
-	-- settled rolling must not bounce or jitter
 	T(max_y - min_y)["<="](0.05)
 	T(capsule:GetGrounded())["=="](true)
 	capsule_ent:Remove()
@@ -592,7 +586,6 @@ T.TestPhysics("Capsule spawned deep inside a static box recovers to the surface"
 	)
 	local capsule_ent = Entity.New({Name = "capsule_deep_body"})
 	capsule_ent:AddComponent("transform")
-	-- box top is at y = 1.5, capsule bottom at 0.7: 0.8 deep in the box
 	capsule_ent.transform:SetPosition(Vec3(0, 1.7, 0))
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
@@ -636,7 +629,6 @@ T.TestPhysics("Parallel capsules overlapping side by side settle stably", functi
 	)
 	test_helpers.Simulate(300)
 	local position = capsule_ent.transform:GetPosition()
-	-- pushed apart to the combined radii, still upright next to the blocker
 	T(math.abs(position.x))[">="](0.9)
 	T(math.abs(position.x))["<="](1.15)
 	T(math.abs(position.y))["<"](0.15)

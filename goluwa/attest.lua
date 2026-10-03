@@ -47,7 +47,6 @@ function attest.almost_equal(a, b, epsilon, LEVEL)
 	return true
 end
 
--- Alias for AlmostEqual
 attest.close = attest.almost_equal
 
 function attest.in_range(value, min, max, LEVEL)
@@ -148,7 +147,6 @@ function attest.fails(func, expected_pattern, LEVEL)
 	return true
 end
 
--- Alias for Fails
 attest.throws = attest.fails
 
 function attest.diff(input, expect)
@@ -194,5 +192,4 @@ function attest.AssertHelper(val)
 	)
 end
 
---setmetatable(attest, function() end)
 return attest

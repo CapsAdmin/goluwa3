@@ -35,7 +35,6 @@ local function create_constraint(body_a, body_b)
 	}
 end
 
--- islands are persistent module state; every test starts from a clean slate
 local function build_islands(bodies, candidate_pairs, constraints)
 	islands.ResetState()
 	return islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, nil)
@@ -56,7 +55,6 @@ T.Test("Simulation islands do not merge dynamic bodies only linked through the s
 	T(#built)["=="](2)
 	T(#built[1].pairs)["=="](1)
 	T(#built[2].pairs)["=="](1)
-	-- the anchor joins both islands but does not bridge the two dynamic islands
 	T(#built[1].bodies + #built[2].bodies)["=="](4)
 	T(#built[1].dynamic_bodies)["=="](1)
 	T(#built[2].dynamic_bodies)["=="](1)
@@ -115,10 +113,8 @@ T.Test("Simulation islands include kinematic anchors without traversing through 
 	T(#built)["=="](2)
 	T(#built[1].dynamic_bodies)["=="](1)
 	T(#built[2].dynamic_bodies)["=="](1)
-	-- each pair lives in the island of its dynamic body
 	T(#built[1].pairs)["=="](1)
 	T(#built[2].pairs)["=="](1)
-	-- the anchor is a member of both islands
 	T(#built[1].bodies + #built[2].bodies)["=="](4)
 end)
 
@@ -183,7 +179,6 @@ T.Test("Simulation islands merge when a new pair links two dynamic bodies", func
 	local dynamic_b = create_mock_body("dynamic_b", "dynamic")
 	local built = build_islands({dynamic_a, dynamic_b}, {}, {})
 	T(#built)["=="](2)
-	-- a new candidate pair merges the two islands
 	built = islands.UpdateSimulationIslands({dynamic_a, dynamic_b}, {create_pair(dynamic_a, dynamic_b)}, {}, nil)
 	T(#built)["=="](1)
 	T(#built[1].dynamic_bodies)["=="](2)
@@ -197,7 +192,6 @@ T.Test("Simulation islands split when the only link between dynamics is removed"
 	local built = build_islands({dynamic_a, dynamic_b}, {pair}, {})
 	T(#built)["=="](1)
 	T(#built[1].dynamic_bodies)["=="](2)
-	-- the pair leaves the candidate set: the island splits back apart
 	built = islands.UpdateSimulationIslands({dynamic_a, dynamic_b}, {}, {}, nil)
 	T(#built)["=="](2)
 
@@ -211,8 +205,6 @@ T.Test("Simulation islands keep links alive while pairs keep being candidates", 
 	local dynamic_b = create_mock_body("dynamic_b", "dynamic")
 	local built = build_islands({dynamic_a, dynamic_b}, {create_pair(dynamic_a, dynamic_b)}, {})
 	T(#built)["=="](1)
-	-- fresh pair objects every update (broadphase recreates overflow pairs);
-	-- the same link keeps the island merged
 	built = islands.UpdateSimulationIslands({dynamic_a, dynamic_b}, {create_pair(dynamic_a, dynamic_b)}, {}, nil)
 	T(#built)["=="](1)
 	T(#built[1].pairs)["=="](1)
@@ -227,10 +219,8 @@ T.Test("Simulation islands split when a constraint is removed", function()
 	local constraint = create_constraint(dynamic_a, dynamic_b)
 	local built = build_islands({dynamic_a, dynamic_b}, {}, {constraint})
 	T(#built)["=="](1)
-	-- removing the constraint splits the island
 	built = islands.UpdateSimulationIslands({dynamic_a, dynamic_b}, {}, {}, nil)
 	T(#built)["=="](2)
-	-- re-adding the constraint merges it back
 	built = islands.UpdateSimulationIslands({dynamic_a, dynamic_b}, {}, {constraint}, nil)
 	T(#built)["=="](1)
 	T(#built[1].constraints)["=="](1)
@@ -245,7 +235,6 @@ T.Test("Simulation islands drop removed bodies and destroy empty islands", funct
 	T(#built)["=="](1)
 	T(#built[1].dynamic_bodies)["=="](1)
 	T(#built[1].bodies)["=="](1)
-	-- removing the last dynamic body destroys the island
 	islands.RemoveBody(dynamic_a)
 	T(#built)["=="](0)
 end)
@@ -257,8 +246,6 @@ T.Test("Simulation islands do not re-link removed bodies through live constraint
 	local built = build_islands({dynamic_a, dynamic_b}, {}, {constraint})
 	T(#built)["=="](1)
 	T(#built[1].dynamic_bodies)["=="](2)
-	-- the body is removed while its constraint stays alive; the next update
-	-- must not pull the dead body back into an island
 	dynamic_b.__removed = true
 	islands.RemoveBody(dynamic_b)
 	built = islands.UpdateSimulationIslands({dynamic_a}, {}, {constraint}, nil)

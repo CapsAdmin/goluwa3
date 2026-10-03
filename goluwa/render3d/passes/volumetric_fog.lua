@@ -14,26 +14,7 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
---[[
-	The low altitude fog (atmosphere.lua's scenery fog) and the clear air
-	(rayleigh and mie) in two parts:
-
-	Up to froxel_fog.FAR meters of view depth they live in froxel_fog.lua's
-	froxel volume. volumetric_froxel_scatter
-	lights one jittered point per froxel (sun with its shadow, sky or DDGI
-	ambient, local lights with their shadows), volumetric_froxel_temporal
-	blends that into last frame's volume and volumetric_froxel_integrate
-	marches each column once front to back.
-
-	Beyond that, past the sun's shadow map, the composite integrates the
-	rest of the ray analytically, shadowed by the clouds' shadow map. The sky
-	holds all of the air along its ray, so the composite takes the unshadowed
-	share of the volume's out of it, and puts the clouds (clouds.lua) in
-	front of what is behind them.
-]]
--- km of air in front of the clouds the sky's crepuscular rays are traced through
 local CLOUD_SHAFT_DISTANCE = 60
--- history kept per 60hz frame
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
 local BINDING_OUTPUT = 0
@@ -45,9 +26,6 @@ local BINDING_SCATTER = 5
 local BINDING_RAW = 6
 local BINDING_LIGHT_GRID = 7
 local BINDING_SCENE = 8
--- the ambient's probes are checked with rays like the DDGI resolve does: the
--- distance test alone can't resolve a wall thinner than a coarse cascade's
--- spacing, so far froxels inside a building would see the probes outside
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local froxels = froxel_fog.froxels
 local FROXEL_SLICES = froxel_fog.SLICES
@@ -357,11 +335,6 @@ local scatter_pass = {
 		}
 	]],
 }
--- Blends this frame's samples into the reprojected history. The history is
--- clamped to the range of the new samples around the froxel: resampling it
--- every frame while the camera moves drags light between neighbouring
--- froxels, which a froxel next to a bright one (a lit doorway behind a
--- wall) would otherwise keep for as long as the history lasts.
 local temporal_pass = {
 	name = "volumetric_froxel_temporal",
 	ComputePass = true,
@@ -549,8 +522,6 @@ local integrate_pass = {
 		}
 	]],
 }
--- fogs the lit opaque scene. the translucent surfaces drawn over it fog
--- themselves with the same volume
 local composite_pass = {
 	name = "volumetric_fog",
 	ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},

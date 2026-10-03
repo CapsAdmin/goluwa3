@@ -1,27 +1,11 @@
 local stats = import("goluwa/physics/stats.lua")
 local islands = {}
--- Persistent simulation islands.
---
--- Island objects survive across substeps instead of being rebuilt from scratch
--- every substep. Island membership is maintained incrementally:
--- - a new link (candidate pair or constraint) between bodies of different
---   islands merges the islands
--- - a removed link marks the island dirty
--- - a dirty island is re-partitioned (union-find) and split if its
---   connectivity actually changed
---
--- Island identity is stable: the root is the dynamic member with the lowest
--- creation rank. Dynamic bodies belong to exactly one island (tracked in a
--- weak body_island map); anchors (static/kinematic/removed-mass bodies) may
--- belong to many islands, matching the old DFS rebuild where an anchor joined
--- every island whose dynamic bodies it touched.
--- packed pair key limit, same scheme as broadphase
 local PAIR_KEY_ID_LIMIT = 2097152
 local active_islands = {}
-local island_pos = {} -- island -> index in active_islands
-local body_island = table.weak("k") -- dynamic member body -> island
-local prev_pair_links = {} -- pair key -> {a = body, b = body}
-local prev_constraints = {} -- constraint -> true
+local island_pos = {}
+local body_island = table.weak("k")
+local prev_pair_links = {}
+local prev_constraints = {}
 local spare_pair_links = {}
 local spare_constraints = {}
 local next_body_rank = 0
@@ -248,8 +232,6 @@ local function merge_islands(island_a, island_b)
 		main, other = island_b, island_a
 	end
 
-	-- the ordered array, not the body-keyed set: pairs() order over object
-	-- keys follows addresses, which differ between processes
 	local other_bodies = other.bodies
 
 	for i = 1, #other_bodies do
@@ -285,10 +267,6 @@ local function merge_islands(island_a, island_b)
 	return main
 end
 
--- attach a body to an island and return the island it now belongs to. Dynamic
--- bodies belong to exactly one island, so attaching one that belongs elsewhere
--- merges the islands; anchors may belong to many islands and are simply
--- (re)added
 local function attach_body(island, body)
 	if not body then return island end
 
@@ -309,8 +287,6 @@ local function attach_body(island, body)
 	return island
 end
 
--- link two bodies into a shared island. Anchors never bridge two dynamic
--- islands; they simply join the island of the dynamic side
 local function link_bodies(body_a, body_b)
 	local dynamic_a = is_dynamic_body(body_a)
 	local dynamic_b = is_dynamic_body(body_b)
@@ -357,7 +333,6 @@ end
 
 local function clear_membership(island)
 	for body in pairs(island.body_set) do
-		-- a non-kept dynamic may have been re-mapped to a fresh island above
 		if body_island[body] == island then body_island[body] = nil end
 	end
 
@@ -381,8 +356,6 @@ local function union(parent, i, j)
 	if i ~= j then parent[j] = i end
 end
 
--- re-partition a dirty island; components other than the root's spawn new
--- islands, anchors re-attach to every component a live link connects them to
 local function split_island(island)
 	island.dirty = false
 	local dynamics = island.dynamic_bodies
@@ -503,7 +476,6 @@ local function split_island(island)
 		end
 	end
 
-	-- connectivity is intact: nothing to do
 	if component_count == 1 and dropped_anchor_count == 0 then return end
 
 	local root_index = index_of[island.root]
@@ -511,7 +483,6 @@ local function split_island(island)
 	local kept = keep_root and components[keep_root] or nil
 
 	if not kept then
-		-- root is gone; keep the first component found
 		for r, comp in pairs(components) do
 			keep_root = r
 			kept = comp
@@ -520,8 +491,6 @@ local function split_island(island)
 		end
 	end
 
-	-- copy the links of every other component into fresh islands before
-	-- pruning the root island
 	for r, comp in pairs(components) do
 		if r ~= keep_root then
 			local new_island = create_island(comp.dynamics[1])
@@ -547,7 +516,6 @@ local function split_island(island)
 				local body_a = constraint.Body0
 				local body_b = constraint.Body1
 
-				-- a nil body is the world, which belongs to every island
 				if
 					(
 						not body_a or
@@ -569,7 +537,6 @@ local function split_island(island)
 
 	if component_count > 1 then stats:Count("island_split") end
 
-	-- rebuild the root island from its component
 	clear_membership(island)
 
 	for i = 1, #kept.dynamics do
@@ -669,12 +636,10 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 					link.b = body_b
 				end
 
-				-- mark the link as current so the removal pass keeps it
 				curr_links[key] = link
 				local slot = island.pair_slot[key]
 
 				if slot and island.pairs[slot] ~= pair then
-					-- the pair object was recreated (overflow entries); replace in place
 					island.pairs[slot] = pair
 				elseif not slot then
 					island.pair_links[key] = link
@@ -729,8 +694,6 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 			if prev_constraints[constraint] == nil then
 				local body_a = constraint.Body0
 				local body_b = constraint.Body1
-				-- a constraint outlives its bodies; a body removed since the
-				-- constraint was created must not be (re)linked into an island
 				local bodies_valid = (not body_a or body_a:IsValid()) and (not body_b or body_b:IsValid())
 
 				if bodies_valid and (is_dynamic_body(body_a) or is_dynamic_body(body_b)) then
@@ -952,8 +915,6 @@ function islands.IsSleepingIsland(island)
 	return island and island.sleeping == true or false
 end
 
--- remove a body from island membership. Dynamic bodies leave their single
--- island; anchors are removed from every island they belong to
 local function detach_body_from_island(island, body)
 	remove_member(island, body)
 
@@ -968,15 +929,11 @@ local function detach_body_from_island(island, body)
 	for constraint in pairs(island.constraint_set) do
 		if constraint.Body0 == body or constraint.Body1 == body then
 			remove_constraint_from_island(island, constraint)
-			-- so the next constraint diff re-evaluates the link instead of
-			-- treating it as unchanged
 			prev_constraints[constraint] = nil
 		end
 	end
 end
 
--- A removed constraint is cleared on the next update, which forgets its
--- bodies, so it has to leave its island while it still knows them.
 function islands.RemoveConstraint(constraint)
 	local island = body_island[constraint.Body0] or body_island[constraint.Body1]
 
@@ -1003,7 +960,6 @@ function islands.RemoveBody(body)
 		return
 	end
 
-	-- a body that just lost its dynamic-ness still maps to its old island
 	body_island[body] = nil
 
 	for i = #active_islands, 1, -1 do

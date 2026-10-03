@@ -5,13 +5,13 @@ local Buffer = import("goluwa/structs/buffer.lua")
 
 local function build_dds(fourcc, block)
 	local header = ffi.new("uint32_t[32]")
-	header[0] = 0x20534444 -- "DDS "
+	header[0] = 0x20534444
 	header[1] = 124
-	header[3] = 4 -- height
-	header[4] = 4 -- width
-	header[7] = 1 -- mip count
-	header[19] = 32 -- pixel format size
-	header[20] = 0x4 -- DDPF_FOURCC
+	header[3] = 4
+	header[4] = 4
+	header[7] = 1
+	header[19] = 32
+	header[20] = 0x4
 	header[21] = fourcc
 	local data = ffi.new("uint8_t[?]", 128 + 16)
 	ffi.copy(data, header, 128)
@@ -44,7 +44,7 @@ T.Test("DDS CryEngine attached alpha decodes as a single channel image", functio
 	attached_header[7] = 1
 	attached_header[19] = 32
 	attached_header[20] = 0x4
-	attached_header[21] = 28 -- D3DFMT_A8
+	attached_header[21] = 28
 	ffi.copy(attached, attached_header, 128)
 
 	for i = 0, 15 do
@@ -55,7 +55,7 @@ T.Test("DDS CryEngine attached alpha decodes as a single channel image", functio
 	local size = 128 + 16 + 4 + 8 + (128 + 16) + 4
 	local data = ffi.new("uint8_t[?]", size)
 	ffi.copy(data, main:GetBuffer(), 128 + 16)
-	ffi.cast("uint32_t *", data)[31] = 0x43525946 -- "FYRC" in reserved2
+	ffi.cast("uint32_t *", data)[31] = 0x43525946
 	local chunks = data + 128 + 16
 	ffi.copy(chunks, "CExtAttC", 8)
 	ffi.cast("uint32_t *", chunks + 8)[0] = 128 + 16

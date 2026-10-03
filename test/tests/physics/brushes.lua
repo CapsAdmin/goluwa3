@@ -7,7 +7,6 @@ local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 
-
 local function create_brush_primitive(mins, maxs)
 	return {
 		brush_planes = {

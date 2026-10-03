@@ -7,9 +7,6 @@ local fs = import("goluwa/filesystem/fs.lua")
 local width = 512
 local height = 512
 
--- ============================================================================
--- Polygon2D Creation Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D creation", function()
 	local poly = Polygon2D.New(6)
 	T(poly.vertex_count)["=="](6)
@@ -23,9 +20,6 @@ T.Test2D("Graphics Polygon2D creation with mapping", function()
 	T(poly.mapped)["=="](true)
 end)
 
--- ============================================================================
--- Polygon2D Color Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D SetColor", function()
 	local poly = Polygon2D.New(6)
 	poly:SetColor(0.5, 0.6, 0.7, 0.8)
@@ -45,9 +39,6 @@ T.Test2D("Graphics Polygon2D SetColor defaults", function()
 	T(poly.A)["=="](1)
 end)
 
--- ============================================================================
--- Polygon2D UV Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D SetUV", function()
 	local poly = Polygon2D.New(6)
 	poly:SetUV(0.1, 0.2, 0.9, 0.8, 256, 256)
@@ -60,9 +51,6 @@ T.Test2D("Graphics Polygon2D SetUV", function()
 	T(poly.dirty)["=="](true)
 end)
 
--- ============================================================================
--- Polygon2D Vertex Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D SetVertex", function()
 	local poly = Polygon2D.New(6)
 	poly:SetVertex(0, 10, 20)
@@ -115,9 +103,6 @@ T.Test2D("Graphics Polygon2D SetTriangle with UVs", function()
 	T(vtx[2].uv[1])["~"](1)
 end)
 
--- ============================================================================
--- Polygon2D Rectangle Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D SetRect basic", function()
 	local poly = Polygon2D.New(6)
 	poly:SetRect(1, 10, 20, 50, 30)
@@ -139,14 +124,10 @@ T.Test2D("Graphics Polygon2D SetRect with offset", function()
 	T(poly.OY)["~"](5)
 end)
 
--- ============================================================================
--- Polygon2D DrawLine Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D DrawLine", function()
 	local poly = Polygon2D.New(6)
 	poly:DrawLine(1, 0, 0, 100, 100, 5)
 	T(poly.dirty)["=="](true)
-	-- Line should be drawn at angle
 	local expected_ang = math.atan2(100, 100)
 	T(poly.ROT)["~"](-expected_ang)
 end)
@@ -154,20 +135,15 @@ end)
 T.Test2D("Graphics Polygon2D DrawLine default width", function()
 	local poly = Polygon2D.New(6)
 	poly:DrawLine(1, 0, 0, 50, 50)
-	-- Should not error and use default width of 1
 	T(true)["=="](true)
 end)
 
--- ============================================================================
--- Polygon2D Rendering Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D render simple rect", function()
 	local poly = Polygon2D.New(6)
 	poly:SetColor(1, 0, 0, 1)
 	poly:SetRect(1, 100, 100, 10, 10)
 	poly:Draw()
 	return function()
-		-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
 		T.AssertScreenPixel{pos = {105, 105}, color = {1, 0, 0, 1}, tolerance = 0.25}
 	end
 end)
@@ -177,7 +153,6 @@ T.Test2D("Graphics Polygon2D render triangle", function()
 	poly:SetColor(0, 1, 0, 1)
 	poly:SetTriangle(1, 150, 150, 160, 150, 155, 160)
 	poly:Draw()
-	-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
 	return function()
 		T.AssertScreenPixel{pos = {155, 155}, color = {0, 1, 0, 1}, tolerance = 0.2}
 	end
@@ -190,7 +165,6 @@ T.Test2D("Graphics Polygon2D render with custom count", function()
 	poly:SetRect(2, 210, 210, 5, 5)
 	poly:Draw(12)
 	return function()
-		-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
 		T.AssertScreenPixel{pos = {202, 202}, color = {0, 0, 1, 1}, tolerance = 0.25}
 		T.AssertScreenPixel{pos = {212, 212}, color = {0, 0, 1, 1}, tolerance = 0.25}
 	end
@@ -201,25 +175,19 @@ T.Test2D("Graphics Polygon2D render line", function()
 	poly:SetColor(1, 1, 0, 1)
 	poly:DrawLine(1, 250, 250, 260, 260, 2)
 	poly:Draw()
-	-- Check midpoint of line
-	-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
 	return function()
 		T.AssertScreenPixel{pos = {255, 255}, color = {1, 1, 0, 1}, tolerance = 0.25}
 	end
 end)
 
--- ============================================================================
--- Polygon2D NinePatch Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D SetNinePatch basic", function()
-	local poly = Polygon2D.New(54) -- 9 rects * 6 vertices
+	local poly = Polygon2D.New(54)
 	poly:SetNinePatch(1, 10, 10, 100, 100, 64, 64, 16, 0, 0, 1, 64, 64)
 	T(poly.dirty)["=="](true)
 end)
 
 T.Test2D("Graphics Polygon2D SetNinePatch corner size clamping", function()
 	local poly = Polygon2D.New(54)
-	-- Width is 50, height is 40, corner_size of 30 should be clamped to 25 (50/2)
 	poly:SetNinePatch(1, 10, 10, 50, 40, 64, 64, 30, 0, 0, 1, 64, 64)
 	T(poly.dirty)["=="](true)
 end)
@@ -230,17 +198,12 @@ T.Test2D("Graphics Polygon2D render NinePatch", function()
 	poly:SetNinePatch(1, 300, 300, 80, 80, 64, 64, 8, 0, 0, 1, 64, 64)
 	poly:Draw()
 	return function()
-		-- Check corners and center
-		-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
-		T.AssertScreenPixel{pos = {305, 305}, color = {1, 0, 1, 1}, tolerance = 0.25} -- Top-left
-		T.AssertScreenPixel{pos = {340, 340}, color = {1, 0, 1, 1}, tolerance = 0.25} -- Center
-		T.AssertScreenPixel{pos = {375, 375}, color = {1, 0, 1, 1}, tolerance = 0.25} -- Bottom-right
+		T.AssertScreenPixel{pos = {305, 305}, color = {1, 0, 1, 1}, tolerance = 0.25}
+		T.AssertScreenPixel{pos = {340, 340}, color = {1, 0, 1, 1}, tolerance = 0.25}
+		T.AssertScreenPixel{pos = {375, 375}, color = {1, 0, 1, 1}, tolerance = 0.25}
 	end
 end)
 
--- ============================================================================
--- Polygon2D AddRect and AddNinePatch Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D AddRect", function()
 	local poly = Polygon2D.New(12)
 	poly:AddRect(10, 10, 5, 5)
@@ -255,9 +218,6 @@ T.Test2D("Graphics Polygon2D AddNinePatch", function()
 	T(poly.added)["=="](10)
 end)
 
--- ============================================================================
--- Polygon2D WorldMatrixMultiply Tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D SetWorldMatrixMultiply", function()
 	local poly = Polygon2D.New(6)
 	poly:SetWorldMatrixMultiply(true)
@@ -276,15 +236,10 @@ T.Test2D("Graphics Polygon2D render with world matrix", function()
 	poly:Draw()
 	render2d.PopMatrix()
 	return function()
-		-- Should be drawn at (50, 50) due to world matrix
-		-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
 		T.AssertScreenPixel{pos = {52, 52}, color = {0, 1, 1, 1}, tolerance = 0.25}
 	end
 end)
 
--- ============================================================================
--- Polygon2D rotation tests
--- ============================================================================
 T.Test2D("Graphics Polygon2D render with rotation", function()
 	local poly = Polygon2D.New(6)
 	poly:SetColor(1, 0.5, 0, 1)
@@ -295,7 +250,6 @@ end)
 T.Test2D("Graphics Polygon2D render with rotation origin", function()
 	local poly = Polygon2D.New(6)
 	poly:SetColor(0.5, 0, 1, 1)
-	-- Rotate around custom origin
 	poly:SetRect(1, 450, 450, 20, 20, math.rad(45), 0, 0, 10, 10)
 	poly:Draw()
 end)

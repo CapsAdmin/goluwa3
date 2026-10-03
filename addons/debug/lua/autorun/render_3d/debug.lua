@@ -5,7 +5,6 @@ local steam = import("goluwa/steam/steam.lua")
 local Visual = import("goluwa/entities/components/visual.lua").Library
 local Color = import("goluwa/structs/color.lua")
 local renderdoc = import("goluwa/bindings/renderdoc.lua")
--- Debug: Draw SSR buffer
 local show_ssr_buffer = false
 local show_cry_terrain_textures = false
 

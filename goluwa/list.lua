@@ -148,7 +148,6 @@ function list.scroll(tbl, offset)
 	end
 end
 
--- http://stackoverflow.com/questions/6077006/how-can-i-check-if-a-lua-table-contains-only-sequential-numeric-indices
 function list.is_list(t)
 	if type(t) ~= "table" then return false end
 
@@ -180,7 +179,7 @@ do
 	end
 end
 
-do -- negative pairs
+do
 	local v
 
 	local function iter(a, i)
@@ -239,7 +238,6 @@ function list.remove_value(tbl, val)
 	end
 end
 
--- 12:34 - <mniip> http://codepad.org/cLaX7lVn
 function list.multi_remove(tbl, locations)
 	if locations[1] then
 		local off = 0
@@ -283,7 +281,6 @@ function list.fix_indices(tbl)
 		end
 	end
 
-	-- Check for non-numeric keys or keys beyond #tbl
 	local has_extra = false
 
 	for k, v in pairs(tbl) do
@@ -296,7 +293,6 @@ function list.fix_indices(tbl)
 
 	if not has_extra then return end
 
-	-- Slow path for tables with non-numeric keys or large gaps
 	local keys = {}
 	local kn = 0
 

@@ -110,14 +110,6 @@ local function create_edge_buffer(edges, channel_override)
 	return edge_buffer
 end
 
--- Build an SDF or MSDF texture from edges.
--- Per-channel distances and the inside/outside sign are computed directly from
--- the edges at width x height, so edges must be in final texture space and
--- spread is in final texels.
--- mode = "msdf" uses each edge's channel flags; any other mode puts every edge
--- in all channels, producing a plain SDF in every channel.
--- @param opts  { width, height, spread, format?, filter?, mode?, edges }
--- @return      The final SDF/MSDF texture at width x height
 function M.Build(opts)
 	opts = opts or {}
 	local width = assert(opts.width, "msdf.Build requires width")
@@ -158,8 +150,9 @@ end
 
 do
 	local CHANNEL_R, CHANNEL_G, CHANNEL_B = 1, 2, 4
-	local CHANNEL_CYCLE = {CHANNEL_R + CHANNEL_G, CHANNEL_G + CHANNEL_B, CHANNEL_B + CHANNEL_R} -- yellow, cyan, magenta
-	local CORNER_ANGLE_THRESHOLD = math.rad(3) -- msdfgen default-ish
+	local CHANNEL_CYCLE = {CHANNEL_R + CHANNEL_G, CHANNEL_G + CHANNEL_B, CHANNEL_B + CHANNEL_R}
+	local CORNER_ANGLE_THRESHOLD = math.rad(3)
+
 	local function normalize(v)
 		local len = math.sqrt(v.x * v.x + v.y * v.y)
 
@@ -174,9 +167,6 @@ do
 		return math.atan2(math.abs(cross), dot)
 	end
 
-	-- Color a polyline with MSDF channel flags.
-	-- @param poly  Array of {x, y} points
-	-- @return      Array of {p0, p1, channel} edges
 	function M.ColorPolyline(poly)
 		local n = #poly
 
@@ -190,7 +180,8 @@ do
 			dirs[i] = normalize{x = b.x - a.x, y = b.y - a.y}
 		end
 
-		local corner_before = {} -- corner_before[i] == true means edge i starts right after a corner
+		local corner_before = {}
+
 		for i = 1, n do
 			local prev_dir = dirs[((i - 2) % n) + 1]
 			local this_dir = dirs[i]

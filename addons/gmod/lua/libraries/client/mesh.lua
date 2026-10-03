@@ -10,5 +10,4 @@ function META:Destroy()
 	self.__obj:Remove()
 end
 
-function META:Draw() --self.__obj:Draw()
-end
+function META:Draw() end

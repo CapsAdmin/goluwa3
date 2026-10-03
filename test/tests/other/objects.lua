@@ -27,11 +27,10 @@ T.Test("objects .Instances feature", function()
 	T(#obj1.Instances)["=="](2)
 	T(obj1.Instances[1])["=="](obj1)
 	T(obj1.Instances[2])["=="](obj2)
-	-- Instances is on the prepared metatable, not the original template
 	local prepared = objects.GetRegistered(META.Type)
 	T(obj1.Instances)["=="](prepared.Instances)
 	obj1:Remove()
-	event.Call("Update") -- prototype_remove_objects is called on Update
+	event.Call("Update")
 	T(#obj2.Instances)["=="](1)
 	T(obj2.Instances[1])["=="](obj2)
 end)
@@ -156,7 +155,6 @@ T.Test("objects registered lookup by Type string", function()
 	end
 
 	BASE:Register()
-	-- Looking up by .Type string should work
 	T(objects.registered[BASE.Type])["=="](BASE)
 end)
 
@@ -166,7 +164,6 @@ T.Test("objects registered has string keys", function()
 	local T2 = objects.CreateTemplate("diag_t2")
 	T2.Base = T1
 	T2:Register()
-	-- Check that registered keys are strings (type names)
 	local key_types = {}
 
 	for k, v in pairs(objects.registered) do
@@ -174,9 +171,7 @@ T.Test("objects registered has string keys", function()
 	end
 
 	T(key_types["string"])["=="](true)
-	-- Check that looking up by table fails
 	T(objects.registered[T1])["=="](nil)
-	-- Check that looking up by .Type works
 	T(objects.registered[T1.Type])["=="](T1)
 end)
 
@@ -267,16 +262,13 @@ T.Test("objects parenting OnUnParent once", function()
 	end
 
 	META:Register()
-	--	
 	local parent = objects.CreateObject(META)
 	parent:SetName("parent")
 	parent:AddLocalListener("OnUnParent", parent.OnUnParent)
-	--
 	local child = objects.CreateObject(META)
 	child:SetName("child")
 	child:AddLocalListener("OnUnParent", child.OnUnParent)
 	child:SetParent(parent)
-	--
 	unparent_count = 0
 	child:UnParent()
 	T(unparent_count)["=="](1)
@@ -292,7 +284,6 @@ T.Test("objects UpdateObjects hot reload", function()
 	META:Register()
 	local obj = objects.CreateObject(META)
 	T(obj:Foo())["=="]("old")
-	-- Simulate reload
 	local META2 = objects.CreateTemplate("update_test")
 
 	function META2:Foo()
@@ -307,7 +298,6 @@ T.Test("objects UpdateObjects hot reload", function()
 	objects.UpdateObjects(META2)
 	T(obj:Foo())["=="]("new")
 	T(obj:Bar())["=="]("bar")
-	-- Check if it shadowed (it should NOT ideally, but let's see what it does now)
 	T(rawget(obj, "Foo"))["~="](nil)
 end)
 
@@ -327,7 +317,6 @@ T.Test("objects GC callback", function()
 
 	collectgarbage()
 	collectgarbage()
-	-- Note: This might not work if __gc is not supported on tables in LuaJIT without 5.2 compat
 	T(gc_called)["=="](true)
 end)
 
@@ -338,11 +327,9 @@ T.Pending("objects PropertyLink memory leak and removal", function()
 	local obj1 = objects.CreateObject(META)
 	local obj2 = objects.CreateObject(META)
 	objects.AddPropertyLink(obj1, obj2, "Value", "Value")
-	-- Check if it works (obj1 pulls from obj2)
 	obj2:SetValue(123)
 	event.Call("Update")
 	T(obj1:GetValue())["=="](123)
-	-- Test removal
 	objects.RemovePropertyLinks(obj1)
 	obj2:SetValue(456)
 	event.Call("Update")
@@ -375,7 +362,6 @@ T.Test("objects parenting cycle", function()
 	local c = objects.CreateObject(META)
 	b:SetParent(a)
 	c:SetParent(b)
-	-- This should fail to prevent cycle A -> B -> C -> A
 	T(a:SetParent(c))["=="](false)
 end)
 
@@ -391,12 +377,9 @@ T.Test("objects OnFirstCreated", function()
 	T(first_created_called)["=="](false)
 	local obj1 = objects.CreateObject(META)
 	T(first_created_called)["=="](true)
-	-- Reset flag
 	first_created_called = false
-	-- Second creation should NOT call OnFirstCreated
 	local obj2 = objects.CreateObject(META)
 	T(first_created_called)["=="](false)
-	-- Clean up
 	obj1:Remove()
 	obj2:Remove()
 	event.Call("Update")
@@ -414,11 +397,9 @@ T.Test("objects OnLastRemoved", function()
 	local obj1 = objects.CreateObject(META)
 	local obj2 = objects.CreateObject(META)
 	T(last_removed_called)["=="](false)
-	-- Remove first object, should NOT call OnLastRemoved yet
 	obj1:Remove()
 	event.Call("Update")
 	T(last_removed_called)["=="](false)
-	-- Remove second object, should call OnLastRemoved
 	obj2:Remove()
 	event.Call("Update")
 	T(last_removed_called)["=="](true)
@@ -438,7 +419,6 @@ T.Test("objects OnFirstCreated and OnLastRemoved cycle", function()
 	end
 
 	META:Register()
-	-- First cycle
 	local obj1 = objects.CreateObject(META)
 	T(first_count)["=="](1)
 	T(last_count)["=="](0)
@@ -446,7 +426,6 @@ T.Test("objects OnFirstCreated and OnLastRemoved cycle", function()
 	event.Call("Update")
 	T(first_count)["=="](1)
 	T(last_count)["=="](1)
-	-- Second cycle - OnFirstCreated should be called again
 	local obj2 = objects.CreateObject(META)
 	T(first_count)["=="](2)
 	T(last_count)["=="](1)
@@ -462,26 +441,21 @@ T.Test("objects .Instances sequential list", function()
 	local obj1 = objects.CreateObject(META)
 	local obj2 = objects.CreateObject(META)
 	local obj3 = objects.CreateObject(META)
-	-- Check initial state
 	T(#obj1.Instances)["=="](3)
 	T(obj1.Instances[1])["=="](obj1)
 	T(obj1.Instances[2])["=="](obj2)
 	T(obj1.Instances[3])["=="](obj3)
-	-- Remove middle object
 	obj2:Remove()
 	event.Call("Update")
-	-- Check that list remains sequential without holes
 	T(#obj1.Instances)["=="](2)
 	T(obj1.Instances[1])["=="](obj1)
 	T(obj1.Instances[2])["=="](obj3)
 	T(obj1.Instances[3])["=="](nil)
-	-- Remove first object
 	obj1:Remove()
 	event.Call("Update")
 	T(#obj3.Instances)["=="](1)
 	T(obj3.Instances[1])["=="](obj3)
 	T(obj3.Instances[2])["=="](nil)
-	-- Remove last object
 	obj3:Remove()
 	event.Call("Update")
 end)
@@ -491,32 +465,26 @@ T.Test("objects .Instances no holes after multiple removals", function()
 	META:Register()
 	local objs = {}
 
-	-- Create 10 objects
 	for i = 1, 10 do
 		objs[i] = objects.CreateObject(META)
 	end
 
 	T(#objs[1].Instances)["=="](10)
-	-- Remove objects 2, 4, 6, 8
 	objs[2]:Remove()
 	objs[4]:Remove()
 	objs[6]:Remove()
 	objs[8]:Remove()
 	event.Call("Update")
-	-- Should have 6 objects, no holes
 	local instances = objs[1].Instances
 	T(#instances)["=="](6)
 
-	-- Verify all indices are valid and sequential
 	for i = 1, #instances do
 		T(instances[i])["~="](nil)
 		T(instances[i]:IsValid())["=="](true)
 	end
 
-	-- Verify no holes beyond the length
 	T(instances[7])["=="](nil)
 
-	-- Clean up remaining
 	for i = 1, 10 do
 		if objs[i]:IsValid() then objs[i]:Remove() end
 	end
@@ -530,21 +498,17 @@ T.Test("objects .Instances integrity after mixed operations", function()
 	local obj1 = objects.CreateObject(META)
 	local obj2 = objects.CreateObject(META)
 	T(#obj1.Instances)["=="](2)
-	-- Remove first
 	obj1:Remove()
 	event.Call("Update")
 	T(#obj2.Instances)["=="](1)
 	T(obj2.Instances[1])["=="](obj2)
-	-- Create new object
 	local obj3 = objects.CreateObject(META)
 	T(#obj2.Instances)["=="](2)
 	T(obj2.Instances[1])["=="](obj2)
 	T(obj2.Instances[2])["=="](obj3)
-	-- Remove both
 	obj2:Remove()
 	obj3:Remove()
 	event.Call("Update")
-	-- Create again after all removed
 	local obj4 = objects.CreateObject(META)
 	T(#obj4.Instances)["=="](1)
 	T(obj4.Instances[1])["=="](obj4)
@@ -564,15 +528,12 @@ T.Test("objects local event system", function()
 		last_args = {a, b}
 	end)
 
-	-- 1. Test basic call
 	obj:CallLocalEvent("OnSomething", 1, 2)
 	T(call_count)["=="](1)
 	T(last_args[1])["=="](1)
 	T(last_args[2])["=="](2)
-	-- 2. Test that it's NOT triggerable via global event.Call with string
 	event.Call("OnSomething", 3, 4)
 	T(call_count)["=="](1)
-	-- 3. Test multiple listeners
 	local second_called = false
 
 	obj:AddLocalListener("OnSomething", function()
@@ -582,7 +543,6 @@ T.Test("objects local event system", function()
 	obj:CallLocalEvent("OnSomething")
 	T(call_count)["=="](2)
 	T(second_called)["=="](true)
-	-- 4. Test removal function
 	call_count = 0
 	local remove = obj:AddLocalListener("OnRemoveMe", function()
 		call_count = call_count + 1
@@ -591,8 +551,7 @@ T.Test("objects local event system", function()
 	T(call_count)["=="](1)
 	remove()
 	obj:CallLocalEvent("OnRemoveMe")
-	T(call_count)["=="](1) -- Should not have increased
-	-- 5. Test use with unique event object
+	T(call_count)["=="](1)
 	local my_unique = event.UniqueEvent("my_unique")
 	local unique_called = false
 
@@ -615,9 +574,7 @@ T.Test("objects local event cleanup on remove", function()
 	unique_event = obj.local_events["OnDraw"]
 	T(event.active[unique_event] and #event.active[unique_event])["=="](1)
 	obj:Remove()
-	-- Prototype cleanup happens on Update
 	event.Call("Update")
-	-- It should be cleaned up from the event system
 	local count = 0
 
 	if event.active[unique_event] then
@@ -642,7 +599,6 @@ T.Test("objects global event cleanup on remove", function()
 	obj:AddGlobalEvent("MyGlobalEvent")
 	T(event.active["MyGlobalEvent"] and #event.active["MyGlobalEvent"])["=="](1)
 	obj:Remove()
-	-- Prototype cleanup/removal calls RemoveEvent
 	T(event.active["MyGlobalEvent"] == nil or #event.active["MyGlobalEvent"] == 0)["=="](true)
 end)
 
@@ -656,6 +612,5 @@ T.Test("objects global event with custom name cleanup", function()
 	obj:AddGlobalEvent("Test", {event_name = "RealEventName"})
 	T(event.active["RealEventName"] and #event.active["RealEventName"])["=="](1)
 	obj:Remove()
-	-- This is where it's expected to fail if not fixed
 	T(event.active["RealEventName"] == nil or #event.active["RealEventName"] == 0)["=="](true)
 end)

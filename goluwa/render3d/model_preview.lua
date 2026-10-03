@@ -49,7 +49,6 @@ end
 local function upload_preview_constants(pipeline)
 	local cmd = render.GetCommandBuffer()
 	local material = render3d.GetMaterial()
-	-- binding applies the pipeline's own state, so the material's goes after
 	pipeline:UploadConstants()
 	cmd:SetCullMode(material:GetCullMode())
 	cmd:SetColorBlendEnable(0, material:GetTranslucent())
@@ -185,7 +184,6 @@ function META:GetTexture()
 	return self:EnsureFramebuffer():GetColorTexture()
 end
 
--- visual is the visual component to render
 function META:SetTarget(visual)
 	self.target = visual
 end

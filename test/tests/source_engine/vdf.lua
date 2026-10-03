@@ -87,8 +87,6 @@ T.Test("vdf: types (Color and Vec3)", function()
 end)
 
 T.Test("vdf: conditionals (basic)", function()
-	-- We can't easily mock jit.os here without affecting other things, 
-	-- but we can test that the parser handles the syntax.
 	local test = [[
 "root"
 {
@@ -115,7 +113,7 @@ T.Test("vdf: escape sequences", function()
     "key" "value with \"quotes\""
 }]]
 	local out = vdf.Decode(test)
-	T(out.root.key)["=="]([[value with \"quotes\"]]) -- vdf.lua doesn't seem to unescape \", it just keeps them
+	T(out.root.key)["=="]([[value with \"quotes\"]])
 end)
 
 T.Test("vdf: key modification", function()
@@ -124,7 +122,7 @@ T.Test("vdf: key modification", function()
 {
     "Key" "Value"
 }]]
-	local out = vdf.Decode(test, true) -- lower_or_modify_keys = true
+	local out = vdf.Decode(test, true)
 	T(out.root.key)["=="]("Value")
 end)
 

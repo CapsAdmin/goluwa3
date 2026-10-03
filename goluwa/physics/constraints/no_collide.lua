@@ -1,7 +1,6 @@
 local Constraint = import("goluwa/physics/constraint.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
--- Two bodies that pass through each other for as long as this exists.
 local META = objects.CreateTemplate("physics_no_collide_constraint")
 META.Base = Constraint
 

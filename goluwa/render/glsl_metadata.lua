@@ -845,7 +845,6 @@ local function get_color_formats(config)
 			if type(format) == "table" then
 				local actual_format = format[1]
 
-				-- Resolve function to get actual format
 				if type(actual_format) == "function" then
 					actual_format = actual_format()
 				end
@@ -860,7 +859,6 @@ local function get_color_formats(config)
 					}
 				)
 			else
-				-- Resolve function to get actual format
 				if type(format) == "function" then format = format() end
 
 				table.insert(formats, format)
@@ -880,7 +878,6 @@ local function get_color_formats(config)
 end
 
 return {
-	-- FFI / struct layout
 	build_ffi_type = build_ffi_type,
 	build_glsl_fields = build_glsl_fields,
 	build_field_descriptors = build_field_descriptors,
@@ -891,7 +888,6 @@ return {
 	get_layout_info = get_layout_info,
 	get_scalar_field_size = get_scalar_field_size,
 	get_scalar_layout_alignment = get_scalar_layout_alignment,
-	-- Block normalization
 	normalize_block_source = normalize_block_source,
 	get_scalar_block_alignment = get_scalar_block_alignment,
 	align_offset = align_offset,
@@ -899,14 +895,12 @@ return {
 	clone_constant_block = clone_constant_block,
 	normalize_block_type_name = normalize_block_type_name,
 	GLSL_TO_LUA_TYPE = GLSL_TO_LUA_TYPE,
-	-- Config normalization
 	sanitize_color_blend_attachments = sanitize_color_blend_attachments,
 	get_nested_property_path = get_nested_property_path,
 	has_nested_value = has_nested_value,
 	get_constant_stage_config = get_constant_stage_config,
 	normalize_fragment_adapter = normalize_fragment_adapter,
 	get_color_formats = get_color_formats,
-	-- GLSL code generation
 	build_shader_header = build_shader_header,
 	build_base_descriptor_sets = build_base_descriptor_sets,
 	escape_lua_pattern = escape_lua_pattern,

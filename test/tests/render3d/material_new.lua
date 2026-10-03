@@ -3,7 +3,12 @@ local Material = import("goluwa/render3d/material.lua")
 local Color = import("goluwa/structs/color.lua")
 
 T.Test3D("Material.New sets multipliers from colors and numbers, without textures", function()
-	local material = Material.New{Color = Color(1, 0, 0, 1), Roughness = 0.3, Metallic = 0, Emissive = Color(0, 1, 0, 1)}
+	local material = Material.New{
+		Color = Color(1, 0, 0, 1),
+		Roughness = 0.3,
+		Metallic = 0,
+		Emissive = Color(0, 1, 0, 1),
+	}
 	T(material:GetAlbedoTexture())["=="](nil)
 	T(material:GetRoughnessTexture())["=="](nil)
 	T(material:GetMetallicTexture())["=="](nil)
@@ -28,7 +33,9 @@ T.Test3D("Material.New rejects keys that are not properties", function()
 end)
 
 T.Test3D("Material.New rejects two ways of setting the color", function()
-	T(pcall(Material.New, {Color = Color(1, 0, 0, 1), ColorMultiplier = Color(1, 1, 1, 1)}))["=="](false)
+	T(
+		pcall(Material.New, {Color = Color(1, 0, 0, 1), ColorMultiplier = Color(1, 1, 1, 1)})
+	)["=="](false)
 	T(pcall(Material.New, {Color = Color(1, 0, 0, 1), Albedo = Color(0, 1, 0, 1)}))["=="](false)
 end)
 

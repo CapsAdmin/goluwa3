@@ -23,16 +23,11 @@ T.Test("layout - horizontal fit", function()
 	child1:SetParent(parent)
 	local child2 = NewBox("Child2", Vec2(20, 50))
 	child2:SetParent(parent)
-	-- Force layout update
 	parent.layout:UpdateLayout()
-	-- Padding(10) + child1(30) + gap(5) + child2(20) + padding(10) = 75
 	T(parent.transform:GetWidth())["=="](75)
-	-- Padding(10) + max(40, 50) + padding(10) = 70
 	T(parent.transform:GetHeight())["=="](70)
-	-- Child positions
 	T(child1.transform:GetX())["=="](10)
-	T(child2.transform:GetX())["=="](45) -- 10 + 30 + 5
-	-- Cleanup
+	T(child2.transform:GetX())["=="](45)
 	parent:Remove()
 end)
 
@@ -51,7 +46,6 @@ T.Test("layout - grow", function()
 	child2:AddComponent("layout")
 	child2.layout:SetGrowWidth(1)
 	parent.layout:UpdateLayout()
-	-- 200 total, 50 + 50 fixed = 100 leftover. 50 + 50 = 100 each.
 	T(child1.transform:GetWidth())["=="](100)
 	T(child2.transform:GetWidth())["=="](100)
 	T(child2.transform:GetX())["=="](100)
@@ -89,9 +83,7 @@ T.Test("layout - alignment", function()
 	local child = NewBox("Child", Vec2(50, 50))
 	child:SetParent(parent)
 	parent.layout:UpdateLayout()
-	-- Center X: (200 - 50) / 2 = 75
 	T(child.transform:GetX())["=="](75)
-	-- End Y: 200 - 50 = 150
 	T(child.transform:GetY())["=="](150)
 	parent:Remove()
 end)
@@ -133,13 +125,10 @@ T.Test("layout - reactive invalidation", function()
 	local child = NewBox("Child", Vec2(50, 50))
 	child:SetParent(parent)
 	child:AddComponent("layout")
-	-- First layout
 	parent.layout:UpdateLayout()
 	T(parent.transform:GetWidth())["=="](50)
-	-- Change child size - should invalidate parent
 	child.transform:SetWidth(100)
 	T(parent.layout:GetDirty())["=="](true)
-	-- Update again
 	parent.layout:UpdateLayout()
 	T(parent.transform:GetWidth())["=="](100)
 	parent:Remove()
@@ -159,7 +148,7 @@ T.Test("layout - collapse repro", function()
 		Name = "Child1",
 		transform = true,
 		layout = {
-			FitHeight = true, -- This will collapse to 0 because no children
+			FitHeight = true,
 		},
 	}
 	local child2 = Panel.New{
@@ -167,11 +156,10 @@ T.Test("layout - collapse repro", function()
 		Name = "Child2",
 		transform = true,
 		layout = {
-			FitHeight = true, -- Also collapses to 0
+			FitHeight = true,
 		},
 	}
 	parent.layout:UpdateLayout()
-	-- If they collapse to 0, they both sit at 0
 	T(child1.transform:GetY())["=="](0)
 	T(child1.transform:GetHeight())["=="](0)
 	T(child2.transform:GetY())["=="](0)
@@ -197,7 +185,6 @@ T.Test2D("layout - text content intrinsic size", function()
 			FitHeight = true,
 		},
 	}
-	-- Mock font size for consistent testing in headless
 	local font = text.text:GetFont()
 	local w, h = 100, 20
 	font.GetTextSize = function()
@@ -228,7 +215,7 @@ T.Test("layout - nested grow and fit", function()
 		transform = true,
 		layout = {
 			Direction = "x",
-			GrowWidth = 1, -- Conflicts with FitWidth on parent if not handled
+			GrowWidth = 1,
 			FitHeight = true,
 			MinSize = Vec2(0, 50),
 			AlignmentY = "center",
@@ -243,7 +230,6 @@ T.Test("layout - nested grow and fit", function()
 			FitHeight = true,
 		},
 	}
-	-- Mock intrinsic size for item
 	item:AddComponent("text")
 	item.text.GetFont = function()
 		return {
@@ -253,13 +239,10 @@ T.Test("layout - nested grow and fit", function()
 		}
 	end
 	outer.layout:UpdateLayout()
-	-- Inner item should be 100x20
 	T(item.transform:GetWidth())["=="](100)
 	T(item.transform:GetHeight())["=="](20)
-	-- Row should be 100x50 (MinSize.y = 50)
 	T(row.transform:GetWidth())["=="](100)
 	T(row.transform:GetHeight())["=="](50)
-	-- Outer should be 100+padding x 50+padding = 120x70
 	T(outer.transform:GetWidth())["=="](120)
 	T(outer.transform:GetHeight())["=="](70)
 	outer:Remove()
@@ -271,7 +254,7 @@ T.Test("layout - default cross axis stretch", function()
 		transform = true,
 		Size = Vec2(200, 200),
 		layout = {
-			Direction = "y", -- Vertical
+			Direction = "y",
 			Padding = Rect(0, 0, 0, 0),
 		},
 	}
@@ -285,9 +268,6 @@ T.Test("layout - default cross axis stretch", function()
 		},
 	}
 	parent.layout:UpdateLayout()
-	-- Direction is Y, so cross axis is X. 
-	-- AlignmentX defaults to stretch.
-	-- Parent is 200px wide. Child should be 200px wide.
 	T(child.transform:GetWidth())["=="](200)
 	parent:Remove()
 end)
@@ -314,7 +294,6 @@ T.Test("layout - text wrapping", function()
 		},
 	}
 	local text_comp = text_panel:AddComponent("text")
-	-- Use glyph metrics that exercise the same pretext-driven wrapping path as runtime.
 	local font = {
 		GetTextSize = function(self, text)
 			local width = 0
@@ -361,15 +340,11 @@ T.Test("layout - text wrapping", function()
 	end
 	text_comp:SetText("A B C")
 	text_comp:SetWrap(true)
-	-- Force layout multiple times to converge
 	container.layout:UpdateLayout()
 	container.layout:UpdateLayout()
-	-- 100px is wide enough NOT to wrap (width > 30).
 	T(text_panel.transform:GetHeight())["=="](20)
-	-- Now change container width to 20px
 	container.layout:SetMinSize(Vec2(20, 0))
 	container.layout:SetMaxSize(Vec2(20, 0))
-	-- Converge
 	container.layout:UpdateLayout()
 	container.layout:UpdateLayout()
 	T(text_panel.transform:GetHeight())["=="](60)
@@ -378,11 +353,6 @@ T.Test("layout - text wrapping", function()
 end)
 
 T.Test2D("layout - wrapped text in nested fit layouts does not inflate on first measure", function()
-	-- Regression: when a Text(Wrap) sits inside nested FitHeight layouts whose
-	-- transforms have not been laid out yet, the measurement must not use the
-	-- default 1px transform width as the wrap width. Doing so wraps every
-	-- character on its own line and inflates the intrinsic height into the
-	-- thousands, which propagates up and creates huge gaps between rows.
 	local function make_tile(parent)
 		local tile = Panel.New{
 			Parent = parent,
@@ -535,10 +505,6 @@ T.Test2D("layout - wrapped text in nested fit layouts does not inflate on first 
 		},
 	}
 	inner_col:SetParent(outer_col)
-	-- Measure WITHOUT setting any transform sizes first.
-	-- Before the fix the wrapped description would wrap at ~1px and produce
-	-- an intrinsic height in the thousands. After the fix it should stay
-	-- reasonable (under 300px for the whole tree).
 	outer_col.layout:UpdateLayout()
 	T(outer_col.layout.intrinsic_size.y)["<"](300)
 	outer_col:Remove()

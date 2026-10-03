@@ -1,5 +1,3 @@
--- Comprehensive test suite for goluwa/event.lua
--- Some tests are designed to fail to highlight strange behaviors/bugs.
 local T = import("test/environment.lua")
 local event = import("goluwa/event.lua")
 
@@ -109,7 +107,7 @@ T.Test("self_arg validity", function()
 	T(called)["=="](1)
 	obj.valid = false
 	event.Call("Test_Self")
-	T(called)["=="](1) -- should not have incremented
+	T(called)["=="](1)
 	T(event.IsListenerActive("Test_Self", "id1"))["=="](false)
 end)
 
@@ -134,7 +132,6 @@ T.Test("EventAdded and EventRemoved basic", function()
 	event.RemoveListener("EventRemoved", "detect_remove")
 end)
 
--- Strange Behavior / Bugs found below:
 T.Test("CreateRealm", function()
 	local realm = event.CreateRealm("my_realm")
 	local called = 0
@@ -145,7 +142,6 @@ T.Test("CreateRealm", function()
 	T(called)["=="](1)
 	realm.MyEvent = nil
 	event.Call("MyEvent")
-	-- Fails because RemoveListener has a bug with table arguments
 	T(called)["=="](1)
 end)
 
@@ -178,8 +174,7 @@ T.Test("Nested event call removing listener from parent event stops parent chain
 
 	event.Call("Parent")
 	T(called1)["=="](true)
-	T(called2)["=="](false) -- L2 correctly removed and not called
-	-- Fails because holes in the table stop the event loop
+	T(called2)["=="](false)
 	T(called3)["=="](true)
 	event.RemoveListener("Parent", "L1")
 	event.RemoveListener("Parent", "L3")
@@ -197,7 +192,6 @@ T.Test("remove_after_one_call with return value", function()
 	)
 
 	local res = event.Call("Test_OnceReturn")
-	-- Fails because Call returns nil when a listener is removed
 	T(res)["=="]("val")
 end)
 

@@ -719,7 +719,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 
 	obj.instance_attributes = attributes
 	obj.instance_binding = #attributes > 0 and 1 or nil
-local love_texel_helper
+	local love_texel_helper
 
 	if #attributes > 0 then
 		love_texel_helper = [[
@@ -954,14 +954,11 @@ function love.graphics.newShader(frag, vert)
 	obj.uniform_names = {}
 	obj.source = {fragment = frag, vertex = vert}
 	obj.warning_message = nil
-	-- Construct combined source for pipeline building
 	local source
 
 	if frag and vert then
-		-- Both provided: combine with guards
 		source = "#ifdef VERTEX\n" .. vert .. "\n#endif\n#ifdef PIXEL\n" .. frag .. "\n#endif\n"
 	else
-		-- Only fragment provided, assume it contains both sections
 		source = frag
 	end
 

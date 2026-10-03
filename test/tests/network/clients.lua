@@ -3,7 +3,6 @@ _G.CLIENT = true
 _G.SERVER = true
 _G.e = _G.e or {USERNAME = "testuser"}
 
--- Add Color constructor if not present (needed by client:GetUniqueColor)
 if not _G.Color then
 	_G.Color = function(r, g, b, a)
 		local c = {r = r or 0, g = g or 0, b = b or 0, a = a or 255}
@@ -127,7 +126,6 @@ end)
 T.Test("Clients client tostring includes unique ID", function()
 	local client = clients.Create("tostring_test", false)
 	local str = tostring(client)
-	-- Verify the string contains the unique ID (using string.find with proper escaping)
 	T(type(str))["=="]("string")
 	T(#str)[">"](0)
 	client:Remove()

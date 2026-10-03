@@ -1,33 +1,3 @@
---[[
-	Dynamic stress scene for the scene_bvh partial rebuild work.
-
-	Mixes a large static environment with four groups of continuous movers so
-	the fraction of the scene that is dirty per frame varies a lot:
-
-	Static, left to right along x:
-	  * Cornell room (x -16): coloured walls, box and sphere.
-	  * Emissive tunnel (x 0): closed tunnel with an orange emissive bar.
-	  * Pillar hall (x 16): pillars along an enclosed hall.
-
-	Dynamic, left to right:
-	  * Big sweep (x 32): one large box shuttling back and forth. High dirty
-	    triangle fraction from a single visual.
-	  * Orbit ring (x 44): six spheres on a shared orbit. Several medium
-	    movers, all moving every frame.
-	  * Swarm (x 56): many small boxes on dephased sinusoidal paths. High
-	    visual count, low fraction per visual.
-	  * Rig (x 68): one parent box with three children. One transform change
-	    moves four visuals, exercising the subtree cascade.
-
-	Motion is continuous on purpose: the scene never settles, so the bvh dirty
-	window stays open and the rebuild throttle is exercised every frame. Point
-	lights above each dynamic group keep the occlusion dirty-box path warm.
-
-	Useful console commands: scene_bvh_info (triangle/node counts, dirty
-	window), scene_bvh_rebuild.
-
-	Run: luajit glw --3d lua addons/examples/lua/examples/render3d/bvh_dynamic.lua
-]]
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -92,7 +62,6 @@ local yellow = mat(Color(0.9, 0.75, 0.15, 1), 0.7)
 local orange = mat(Color(0.9, 0.4, 0.05, 1), 0.9)
 box("ground", Vec3(28, -1, 0), Vec3(110, 2, 40), mat(Color(0.9, 0.9, 0.9, 1), 1, 1))
 
--- cornell room, open towards +z, roof with a gap so the sun gets in
 do
 	local cx, w, h, d, t = -16, 12, 8, 12, 0.5
 	box("cornell_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
@@ -105,7 +74,6 @@ do
 	sphere("cornell_sphere", Vec3(cx + 2.5, 1.5, 1.5), 1.5, white)
 end
 
--- emissive tunnel, closed at both ends except a doorway on +z
 do
 	local cx, w, h, d, t = 0, 6, 4, 14, 0.5
 	box("tunnel_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
@@ -126,7 +94,6 @@ do
 	box("tunnel_pillar", Vec3(cx + 1.5, 1.25, -1), Vec3(1, 2.5, 1), blue)
 end
 
--- pillar hall
 do
 	local cx, w, h, d, t = 16, 8, 5, 22, 0.5
 	box("hall_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
@@ -145,10 +112,8 @@ do
 	end
 end
 
--- big sweep: one large box, high dirty fraction from a single visual
 local big_sweep = box("big_sweep", Vec3(32, 2, 0), Vec3(3, 3, 3), yellow)
 light("big_sweep_light", Vec3(32, 8, 0), 18, Color(1, 0, 0, 1))
--- orbit ring: several medium movers, all moving every frame
 local orbiters = {}
 
 for i = 1, 6 do
@@ -156,7 +121,6 @@ for i = 1, 6 do
 end
 
 light("orbit_light", Vec3(44, 8, 0), 18, Color(0, 1, 0, 1))
--- swarm: many small boxes on dephased paths
 local SWARM_COUNT = 24
 local swarm = {}
 
@@ -165,7 +129,6 @@ for i = 1, SWARM_COUNT do
 end
 
 light("swarm_light", Vec3(56, 8, 0), 18, Color(0, 0, 1, 1))
--- rig: one parent transform change moves four visuals (subtree cascade)
 local rig = box("rig_parent", Vec3(68, 2, 0), Vec3(1.5, 1.5, 1.5), blue)
 local rig_children = {}
 

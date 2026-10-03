@@ -14,9 +14,6 @@ local EPSILON = physics_constants.EPSILON
 local SPHERE_TRIANGLE_CONTACT_HANDLERS = {}
 local CAPSULE_TRIANGLE_CONTACT_HANDLERS = {}
 local MAX_SPECULATIVE_DISTANCE = 0.5
--- a body behind a face is pushed out along the face normal only when the
--- closest point is on the face; at an edge, like a stair nosing the body is
--- above, the direction to the edge is the normal
 local FACE_BEHIND_DOT = 0.99
 local LOCAL_SPACE_NARROW_PHASE_ENABLED = true
 
@@ -71,19 +68,10 @@ local SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT = {
 	cluster_count = 0,
 	bottom_y = 0,
 }
--- the deepest contact per distinct surface normal: a capsule against a wall
--- and a floor keeps both instead of alternating between the two
 local MAX_CONTACT_CLUSTERS = 4
 local CLUSTER_NORMAL_DOT = 0.9
 local CLUSTER_TIE_OVERLAP = 0.001
 local RESTING_CONTACT_SLACK = 0.01
--- a contact whose normal is not its triangle's face normal comes from an edge
--- or a vertex. Its normal turns as the body passes over it, so the gap along
--- today's normal says little about when it is reached; one that lies at the
--- level of the surface the body rests on is just the seam of that surface, and
--- deflecting the body off it kicks it sideways on flat ground. Such a contact
--- only counts once it touches. A stair's nosing or a ledge's edge stands above
--- the body's lowest point and is still approached speculatively
 local FEATURE_FACE_DOT = 0.999
 local FEATURE_FLOOR_TOLERANCE = 0.02
 local BODY_BOUNDS = {}
@@ -299,9 +287,6 @@ local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, 
 
 	if not best then return end
 
-	-- a contact that is not touching yet only matters if the body can reach
-	-- it before the next narrow phase; otherwise it would hold the body back
-	-- from a surface it is not approaching
 	if best.overlap < 0 then
 		if
 			best.feature and
@@ -337,8 +322,6 @@ local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, 
 	end
 
 	if target then
-		-- coplanar triangles tie on depth; the contact nearest the body's
-		-- centre wins, a far one would turn the push into a torque
 		if
 			best.overlap < target.overlap - CLUSTER_TIE_OVERLAP or
 			(
@@ -450,8 +433,6 @@ function mesh_contact_common.SolveBestTriangleContact(mesh_body, other_body, mes
 		combined_margin = (other_body:GetCollisionMargin() or 0) + (mesh_body:GetCollisionMargin() or 0)
 	end
 
-	-- a contact may open up to the distance the body can travel before the
-	-- next narrow phase; the manifold solves it as a speculative gap
 	local speculative_distance = math.min(
 		other_body.Velocity:GetLength() * other_body:GetPhysics().solver.StepDt,
 		MAX_SPECULATIVE_DISTANCE

@@ -109,9 +109,6 @@ do
 		if offsets then self.pipeline:BindDescriptors(cmd, frame_index, offsets) end
 	end
 
-	-- UploadConstants for a draw of a pipeline that is bound already: only the
-	-- dynamic offsets of its uniforms changed, so the pipeline and its dynamic
-	-- state are left as they are
 	function EasyPipelineGraphics:UploadConstantsBound()
 		local bound = render.GetCommandBuffer().bound_pipelines
 
@@ -129,7 +126,6 @@ do
 
 		if fb then fb:Begin(cmd) end
 
-		-- If drawing directly to the main target, reset viewport/scissor to full size
 		if not fb then
 			local size = render.GetRenderImageSize()
 
@@ -156,7 +152,6 @@ do
 		local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
 		local load_op
 
-		-- TargetFramebuffer draws over another pass' output, keeping what is there
 		if not framebuffer and self.config.TargetFramebuffer then
 			fb = self.config.TargetFramebuffer()
 			load_op = "load"
@@ -262,8 +257,6 @@ do
 
 		str = str .. "} pc;\n\n"
 
-		-- Emit shortcut #defines: named block -> #define name pc.name
-		-- unnamed block -> #define U pc._u
 		for _, block in ipairs(blocks) do
 			if block._is_unnamed then
 				str = str .. "#define U pc." .. block.name .. "\n"
@@ -286,7 +279,6 @@ do
 		for _, block in ipairs(stage_config.uniform_buffers) do
 			glsl = glsl .. uniform_buffer_types[block.name].glsl .. "\n\n"
 
-			-- Emit #define U for unnamed UBOs
 			if block._is_unnamed then
 				glsl = glsl .. "#define U " .. block.name .. "\n\n"
 			end
@@ -295,7 +287,6 @@ do
 		return glsl
 	end
 
-	-- Build a shader stage table from config
 	local function build_shader_stage(
 		config,
 		type_name,
@@ -318,7 +309,6 @@ do
 			type_name ~= "vertex" or
 			not shader
 		then
-			-- For vertex, shader may be nil if using passthrough
 			if type_name == "vertex" and (not stage_config or not stage_config.shader) then
 				return
 			end
@@ -339,7 +329,6 @@ do
 		}
 	end
 
-	-- Build task/mesh shader stage with pragma injection
 	local function build_task_mesh_stage(config, type_name, pragma, header, ds, pc_info, pcbo)
 		local stage_config = get_constant_stage_config(config, type_name)
 
@@ -358,7 +347,6 @@ do
 		}
 	end
 
-	-- Graphics constructor
 	function EasyPipelineGraphics.New(config)
 		if config.ComputePass or config.compute_pass then
 			return EasyPipelineCompute.ComputePass(config)
@@ -372,7 +360,6 @@ do
 		local rasterization_samples = config.RasterizationSamples
 		local descriptor_set_count = config.DescriptorSetCount
 
-		-- Resolve format functions if they exist
 		if type(color_format) == "function" then color_format = color_format() end
 
 		if type(depth_format) == "function" then depth_format = depth_format() end
@@ -403,11 +390,9 @@ do
 		]]
 		end
 
-		-- Resolve color format functions
 		if type(color_format) == "table" then
 			for i, format in ipairs(color_format) do
 				if type(format) == "table" then
-					-- Resolve first element if it's a function
 					if type(format[1]) == "function" then format[1] = format[1]() end
 				end
 			end
@@ -516,14 +501,11 @@ do
 
 		local constant_resolution = resolve_constant_placement(config, possible_stages)
 
-		-- Process push constants and uniform buffers
-		-- First pass: Collect all unique push constant blocks across all stages to assign shared offsets
 		for _, stage_name in ipairs(possible_stages) do
 			local stage_config = get_constant_stage_config(config, stage_name)
 
 			if type(stage_config) == "table" and stage_config.push_constants then
 				for _, block in ipairs(stage_config.push_constants) do
-					-- Auto-assign a stable internal name for unnamed blocks (stage-specific to avoid collision)
 					if block.name == nil then
 						block.name = "_u_" .. stage_name
 						block._is_unnamed = true
@@ -532,7 +514,7 @@ do
 					if not push_constant_blocks[block.name] then
 						local struct_name, ctype = EasyPipeline.BuildPushConstantBlock(block.name, block)
 						push_constant_types[struct_name] = ctype
-						push_constant_block_offsets[block.name] = 0 -- placeholder
+						push_constant_block_offsets[block.name] = 0
 						push_constant_blocks[block.name] = block
 						table.insert(push_constant_block_order, block.name)
 					end
@@ -540,7 +522,6 @@ do
 			end
 		end
 
-		-- Assign offsets sequentially based on order of appearance in possible_stages
 		local current_push_offset = 0
 
 		for _, name in ipairs(push_constant_block_order) do
@@ -564,10 +545,8 @@ do
 			)
 		end
 
-		-- Auto binding index counter starts at 2 (0=textures, 1=cubemaps are reserved)
 		local next_auto_binding = 2
 
-		-- Pre-scan all explicit binding indices so auto-assignment skips them
 		for _, sc in pairs(config) do
 			if type(sc) == "table" and sc.uniform_buffers then
 				for _, b in ipairs(sc.uniform_buffers) do
@@ -585,16 +564,13 @@ do
 
 			if type(stage_config) ~= "table" then goto continue end
 
-			-- Process uniform buffers
 			if stage_config.uniform_buffers then
 				for _, block in ipairs(stage_config.uniform_buffers) do
-					-- Auto-assign a stable internal name for unnamed blocks (stage-specific to avoid collision)
 					if block.name == nil then
 						block.name = "_u_" .. stage_name
 						block._is_unnamed = true
 					end
 
-					-- Auto-assign binding index if not specified
 					next_auto_binding = assign_auto_binding(block, next_auto_binding, uniform_buffer_types)
 					glsl_meta.hoist_inline_block_metadata(block)
 					block.block = glsl_meta.flatten_fields(block.block)
@@ -647,7 +623,7 @@ do
 						glsl = glsl_declaration,
 						debug_name = (config.name or "pipeline") .. ".ubo." .. block.name,
 						field_descriptors = glsl_meta.build_field_descriptors(ubo.struct, block.block),
-						offsets = {}, -- Tracks offsets used in the current frame
+						offsets = {},
 					}
 					uniform_buffers[block.name] = ubo
 
@@ -673,7 +649,6 @@ do
 			return a < b
 		end)
 
-		-- Build constants upload function
 		local constant_structs = {}
 
 		for struct_name, ctype in pairs(push_constant_types) do
@@ -686,8 +661,6 @@ do
 			local stage_config = get_constant_stage_config(config, s)
 
 			if stage_config then
-				-- Only consider it an active shader stage if it has a shader or if it's vertex/fragment (which might have default shaders in some systems, but here we check for .shader)
-				-- Actually, for vertex we only add it if .shader is present now.
 				if stage_config.shader then table.insert(active_stages, s) end
 			end
 		end
@@ -706,7 +679,6 @@ do
 		self.uniform_buffer_types = uniform_buffer_types
 		self.uniform_buffers = uniform_buffers
 		self.push_constant_cache_by_cmd = setmetatable({}, {__mode = "k"})
-		-- Map each stage to the push constant blocks it uses
 		self._per_stage_push_blocks = {}
 
 		for _, stage_name in ipairs(possible_stages) do
@@ -721,7 +693,6 @@ do
 			end
 		end
 
-		-- Build vertex attributes
 		local attributes = {}
 		local logical_attributes = {}
 		local bindings = {}
@@ -833,7 +804,6 @@ do
 			or
 			tess_control_outputs
 		local final_fragment_inputs = config.tessellation_evaluation and tess_eval_outputs or shader_outputs
-		-- Build shader header and I/O
 		local mesh_ext = config.mesh or config.mesh_ext or config.task or config.task_ext
 		local shader_header = glsl_meta.build_shader_header(
 			bindless_texture_capacity,
@@ -880,14 +850,12 @@ do
 			resolved_fragment_shader = glsl_meta.build_fragment_shader(config.fragment)
 		end
 
-		-- Build descriptor sets
 		local descriptor_sets = glsl_meta.build_base_descriptor_sets(
 			bindless_texture_capacity,
 			bindless_cubemap_capacity,
 			bindless_view_capacity,
 			bindless_sampler_capacity
 		)
-		-- Add uniform buffers from and descriptors from all stages
 		local uniform_buffer_order_desc = {}
 
 		for _, stage_name in ipairs(possible_stages) do
@@ -919,7 +887,6 @@ do
 			end
 		end
 
-		-- Build shader stages
 		local shader_stages = {}
 		local push_constant_info = nil
 
@@ -930,7 +897,6 @@ do
 			}
 		end
 
-		-- Task stage
 		local task_stage = build_task_mesh_stage(
 			config,
 			"task_ext",
@@ -944,7 +910,6 @@ do
 
 		if task_stage then table.insert(shader_stages, task_stage) end
 
-		-- Mesh stage
 		local mesh_stage = build_task_mesh_stage(
 			config,
 			"mesh_ext",
@@ -958,7 +923,6 @@ do
 
 		if mesh_stage then table.insert(shader_stages, mesh_stage) end
 
-		-- Vertex stage
 		if config.vertex and resolved_vertex_shader then
 			local vertex_stage = build_shader_stage(
 				config,
@@ -982,7 +946,6 @@ do
 			end
 		end
 
-		-- Tessellation control stage
 		local tess_control_stage = build_shader_stage(
 			config,
 			"tessellation_control",
@@ -1000,7 +963,6 @@ do
 
 		if tess_control_stage then table.insert(shader_stages, tess_control_stage) end
 
-		-- Tessellation evaluation stage
 		local tess_eval_stage = build_shader_stage(
 			config,
 			"tessellation_evaluation",
@@ -1019,7 +981,6 @@ do
 
 		if tess_eval_stage then table.insert(shader_stages, tess_eval_stage) end
 
-		-- Fragment stage
 		local fragment_stage = build_shader_stage(
 			config,
 			"fragment",
@@ -1037,7 +998,6 @@ do
 
 		if fragment_stage then table.insert(shader_stages, fragment_stage) end
 
-		-- Create pipeline
 		local color_blend = config.color_blend or {}
 		local sanitized_color_blend = glsl_meta.sanitize_color_blend_attachments(color_blend.attachments)
 		local pipeline_config = {
@@ -1124,7 +1084,6 @@ do
 		self.config = config
 		self.actual_color_formats = actual_color_formats
 
-		-- Create framebuffer(s) if this pipeline has color or depth outputs
 		if
 			not config.dont_create_framebuffers and
 			(

@@ -41,7 +41,6 @@ function Surface.New(instance, surface_handle, display_handle)
 		assert(proc ~= nil, "vkCreateWin32SurfaceKHR not found")
 		vkCreateSurface = ffi.cast(PFN_vkCreateWin32SurfaceKHR, proc)
 	else
-		-- wayland 
 		assert(surface_handle ~= nil, "surface_handle cannot be nil")
 		assert(display_handle ~= nil, "display_handle cannot be nil")
 		info = vulkan.vk.s.WaylandSurfaceCreateInfoKHR{

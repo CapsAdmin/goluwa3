@@ -16,24 +16,7 @@ local Texture = import("goluwa/render/texture.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
--- Translucent materials, which the gbuffer can't hold, drawn forward and lit
--- like the gbuffer's surfaces, in any order: moment based order independent
--- transparency (Münstermann et al. 2018).
--- The moments pass sums, per pixel, each surface's absorbance and its
--- absorbance weighted powers of its depth. From those the accumulate pass
--- estimates how much of each surface is seen through the ones in front of it,
--- and sums the lit surfaces weighted by it. The composite blends that sum over
--- the fogged opaque scene in place; the lit opaque scene before the fog stays
--- untouched for the passes that want what is behind the translucent surfaces. Both geometry passes are depth tested
--- against the opaque depth itself, bound read only, which the surfaces also
--- sample.
--- Refractive materials see the opaque scene through a mip chain of it, which
--- rough surfaces sample blurrier. It is only built on frames that draw one.
--- The opaque scene is fogged before this, so each surface fogs itself at its
--- own depth, and sums how it moves for taa.
 local refraction_source = nil
--- depth is warped logarithmically into -1..1 over the distances the
--- translucent surfaces span this frame, which the moments resolve best
 local MOMENTS_GLSL = [[
 	float moments_warp_depth(float distance, vec2 warp) {
 		return clamp(log(max(distance, 1e-4)) * warp.x + warp.y, -1.0, 1.0);
@@ -171,7 +154,6 @@ table.insert(
 		upload_scope = "frame",
 	}
 )
--- the probes themselves, to light a surface where it is
 table.insert(
 	surface_uniform_buffers,
 	{
@@ -233,12 +215,8 @@ return {
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		ReadOnlyDepth = gbuffer_layout.GetDepthTexture,
 		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}},
-		-- the light grid and the occlusion map live as long as the engine, so
-		-- each of the surface pipeline's descriptor sets is written once, before
-		-- any frame uses it
 		on_pre_draw = function(self, cmd)
 			local surface = render3d.pipelines.translucent_surface
-			-- the set Bind will pick
 			local frame = render.GetCurrentFrame()
 
 			if not surface.pipeline.descriptor_sets[frame] then frame = 1 end
@@ -258,8 +236,6 @@ return {
 				)
 			end
 
-			-- what draws this frame, how far away it is, and whether any of it
-			-- refracts
 			render3d.refraction_source_requested = false
 			render3d.translucent_depth_near = math.huge
 			render3d.translucent_depth_far = 0
@@ -269,8 +245,6 @@ return {
 				update_refraction_source(cmd)
 			end
 		end,
-		-- with nothing translucent in view, the cleared targets composite to the
-		-- scene as it is
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end
 
@@ -281,7 +255,6 @@ return {
 				precipitation.Draw(render3d.pipelines.precipitation_moments, cmd)
 			end
 		end,
-		-- never drawn, the pass only begins and clears the targets the surfaces draw into
 		fragment = {shader = "void main() { set_b0(0.0); set_moments(vec4(0.0)); }"},
 		CullMode = "none",
 		DepthTest = false,
@@ -356,7 +329,6 @@ return {
 				precipitation.Draw(render3d.pipelines.precipitation_accumulate, cmd)
 			end
 		end,
-		-- never drawn, like translucent_moments
 		fragment = {
 			shader = "void main() { set_color(vec4(0.0)); set_motion(vec4(0.0)); set_additive(vec4(0.0)); }",
 		},
@@ -667,7 +639,6 @@ return {
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
 	},
-	-- the falling rain and snow, see render3d/precipitation.lua
 	{
 		name = "precipitation_moments",
 		draw_in_prerender = false,
@@ -755,16 +726,11 @@ return {
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
 	},
-	-- what the surfaces leave of the scene behind them, and the surfaces in
-	-- the proportions they are seen in, blended over the fogged opaque scene
-	-- in place: dst * transmittance + src. That scene isn't needed on its own
-	-- after this, which saves a screen sized target and a copy of it
 	{
 		name = "translucent",
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		dont_create_framebuffers = true,
 		TargetFramebuffer = post_source.GetFoggedOpaqueSceneFramebuffer,
-		-- with nothing translucent in view the scene is already the result
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end
 

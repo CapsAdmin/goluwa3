@@ -4,27 +4,13 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local system = import("goluwa/system.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local skinning = library()
--- Skeletal animation on the gpu. A rig (render3d/rig.lua) computes its bone matrices on the
--- cpu and queues itself; Dispatch, before the passes of the frame,
--- skins every queued vertex array in one dispatch: a workgroup row per job, a
--- job being a bind pose vertex array, the vertex array it writes, the bone
--- weights of its vertices, the bone matrices to use and optionally the morph targets (facial flexes)
--- to add to the bind pose first. Buffers are addressed
--- by device address, so a job can point at any mesh.
 skinning.MAX_JOBS = 4096
 skinning.MAX_MATRIX_FLOATS = 12 * 65536
 skinning.RING = 4
--- the skinning pass leaves how far it moved a vertex since the previous frame in the vertex color of the vertex
--- arrays it writes, rgb being the object space offset, with a marking the vertex as skinned. the vertex stages
--- read it back for motion vectors and then treat the vertex color as black
 skinning.MOTION_MARK = -1000000
 skinning.MOTION_THRESHOLD = -500000
 local LOCAL_SIZE = 64
--- the workgroups of all jobs are laid out one after another over rows of this many, the guaranteed limit of one dimension.
--- a 2D dispatch of 32768 x 2 workgroups lost the device on the gm_construct stress test, so rows stay a last resort
 local ROW = 65535
--- group_start is the first workgroup of the flat dispatch that works on a job. the morph addresses are zero when the job
--- has no morphs to apply
 local Job = ffi.typeof([[struct {
 	uint32_t bind[2];
 	uint32_t destination[2];
@@ -229,7 +215,6 @@ local function get_pipeline()
 	return pipeline
 end
 
--- gpu copy of a skin's bone indices and weights, one 16 byte record per vertex. kept on the skin
 function skinning.GetBoneBuffer(skin, vertex_count)
 	if skin.GpuBuffer then return skin.GpuBuffer end
 
@@ -260,9 +245,6 @@ function skinning.GetBoneBuffer(skin, vertex_count)
 	return skin.GpuBuffer
 end
 
--- gpu copy of the morph targets of a skin, shared by every rig of the model: per vertex the range of its entries and
--- the entries themselves, a position and normal delta of a flex entry (skin.Flexes[n]) and which entry and side it is.
--- false when the skin has none
 function skinning.GetMorphData(skin, vertex_count)
 	if skin.GpuMorph ~= nil then return skin.GpuMorph end
 
@@ -342,7 +324,6 @@ function skinning.GetMorphData(skin, vertex_count)
 	return skin.GpuMorph
 end
 
--- the rig's matrices are skinned into its skinned[].vertex_buffer at the next Dispatch
 function skinning.Queue(rig)
 	queued_count = queued_count + 1
 	queue[queued_count] = rig
@@ -363,7 +344,6 @@ function skinning.Dispatch(cmd)
 		local rig = queue[i]
 		queue[i] = nil
 
-		-- removed since it queued
 		if rig.removed then goto continue end
 
 		local matrix_count = rig.skeleton.BoneCount * 12
@@ -425,7 +405,6 @@ function skinning.Dispatch(cmd)
 
 	if jobs == 0 then return end
 
-	-- earlier frames may still be reading the vertex arrays that are about to be rewritten
 	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
 	job_count = jobs
 	group_count = groups

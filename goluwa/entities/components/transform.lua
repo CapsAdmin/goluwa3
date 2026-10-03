@@ -44,7 +44,6 @@ function META:Initialize()
 	update_temp_scale(self)
 end
 
--- the local matrix is then this one as is, which may have shear, instead of being built from position, rotation and scale
 function META:SetFromMatrix(matrix)
 	self.FromMatrix = matrix:Copy()
 	self:InvalidateMatrices()
@@ -183,7 +182,6 @@ function META:GetRenderPositionRotation()
 	return self.InterpolatedPosition, self.InterpolatedRotation
 end
 
--- Get local matrix (without parent transforms)
 function META:GetLocalMatrix()
 	local frame = system.GetFrameNumber()
 	local dynamic = self:IsFrameDynamic()
@@ -197,7 +195,6 @@ function META:GetLocalMatrix()
 		self.LocalMatrixFrame = dynamic and frame or nil
 
 		if not self.FromMatrix and not self.SkipRebuild then
-			-- ORIENTATION / TRANSFORMATION
 			local interpolated_pos, interpolated_rot = self:GetRenderPositionRotation()
 			local pos = self.OverridePosition or interpolated_pos or self.Position
 			local rot = self.OverrideRotation or interpolated_rot or self.Rotation
@@ -205,7 +202,6 @@ function META:GetLocalMatrix()
 			self.LocalMatrix:Identity()
 			self.LocalMatrix:SetRotation(rot)
 
-			-- Apply scale if needed
 			if temp_scale.x ~= 1 or temp_scale.y ~= 1 or temp_scale.z ~= 1 then
 				self.LocalMatrix:Scale(temp_scale.x, temp_scale.y, temp_scale.z)
 			end
@@ -217,7 +213,6 @@ function META:GetLocalMatrix()
 	return self.LocalMatrix
 end
 
--- Get world matrix (with parent transforms applied)
 function META:GetWorldMatrix()
 	local frame = system.GetFrameNumber()
 	local dynamic = self:IsFrameDynamic()

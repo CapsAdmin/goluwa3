@@ -1,7 +1,6 @@
 local utility = import("goluwa/utility.lua")
 local tostringx = import("goluwa/tostring_object.lua").tostring_object
 local traceback = library()
--- this should be used for xpcall
 local suppress = false
 
 function traceback.OnError(msg, ...)
@@ -25,8 +24,6 @@ function traceback.OnError(msg, ...)
 		logn(msg)
 		table.print(debug.getinfo(3))
 	elseif msg:find("\n") then
-		-- if the message contains a newline it's
-		-- probably not a good idea to do anything fancy
 		logn(msg)
 	else
 		logn("STACK TRACE:")
@@ -100,7 +97,6 @@ function traceback.OnError(msg, ...)
 		logn("{")
 
 		for _, param in pairs(debug.get_paramsx(4)) do
-			--if not param.key:find("(",nil,true) then
 			local val
 
 			if type(param.val) == "table" then
@@ -116,7 +112,6 @@ function traceback.OnError(msg, ...)
 			end
 
 			list.insert(data, {key = param.key, value = val})
-		--end
 		end
 
 		list.insert(data, {key = "KEY:", value = "VALUE:"})

@@ -265,7 +265,6 @@ T.TestPhysics("Car with hinged wheels rolls down a ramp and topples a stack of b
 		max_speed = math.max(max_speed, car:GetVelocity():GetLength())
 
 		if step == 240 then
-			-- rolling without slipping on the ramp: |w| * r ~= |v|
 			local spin = wheel_bodies[1]:GetAngularVelocity():GetLength() * 0.4
 			local speed = wheel_bodies[1]:GetVelocity():GetLength()
 			max_spin_ratio_error = math.abs(spin - speed) / math.max(speed, 0.001)

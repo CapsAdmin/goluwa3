@@ -30,8 +30,6 @@ T.Test("fps-limited thinkers still make progress during a slow frame", function(
 		return not (timer.IsTimer(id) or false)
 	end, 1)
 
-	-- Tasks use fps-limited thinkers for `EnsureFPS`, so a slow frame should not
-	-- force cheap callbacks to advance only once per update.
 	T(observed)[">="](5)
 	T(timer.IsTimer(id) or false)["=="](false)
 end)

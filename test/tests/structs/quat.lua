@@ -115,7 +115,6 @@ T.Test("Quat lerp", function()
 end)
 
 T.Test("Quat SetAngles and GetAngles roundtrip", function()
-	-- Use zero angles for a clean roundtrip test
 	local ang = Ang3(0, 0, 0)
 	local q = Quat():SetAngles(ang)
 	local ang2 = q:GetAngles()
@@ -127,9 +126,7 @@ end)
 T.Test("Quat SetAngles produces valid quaternion", function()
 	local ang = Ang3(0.5, 0.3, 0.1)
 	local q = Quat():SetAngles(ang)
-	-- A rotation quaternion should be normalized
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
-	-- GetAngles should return an Ang3
 	local ang2 = q:GetAngles()
 	T(ang2 ~= nil)["=="](true)
 end)
@@ -145,7 +142,7 @@ end)
 
 T.Test("QuatFromAxis", function()
 	local axis = Vec3(0, 0, 1)
-	local q = QuatFromAxis(math.pi / 2, axis) -- 90 degrees around Z
+	local q = QuatFromAxis(math.pi / 2, axis)
 	T(q ~= nil)["=="](true)
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
 end)
@@ -193,8 +190,8 @@ end)
 T.Test("Quat Rotate around X axis", function()
 	local q = Quat()
 	q:Identity()
-	local angle = math.pi / 2 -- 90 degrees
-	q:Rotate(angle, 1, 0, 0) -- Rotate around X axis
+	local angle = math.pi / 2
+	q:Rotate(angle, 1, 0, 0)
 	T(q.x ~= 0)["=="](true)
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
 end)
@@ -202,8 +199,8 @@ end)
 T.Test("Quat Rotate around Y axis", function()
 	local q = Quat()
 	q:Identity()
-	local angle = math.pi / 2 -- 90 degrees
-	q:Rotate(angle, 0, 1, 0) -- Rotate around Y axis
+	local angle = math.pi / 2
+	q:Rotate(angle, 0, 1, 0)
 	T(q.y ~= 0)["=="](true)
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
 end)
@@ -211,8 +208,8 @@ end)
 T.Test("Quat Rotate around Z axis", function()
 	local q = Quat()
 	q:Identity()
-	local angle = math.pi / 2 -- 90 degrees
-	q:Rotate(angle, 0, 0, 1) -- Rotate around Z axis
+	local angle = math.pi / 2
+	q:Rotate(angle, 0, 0, 1)
 	T(q.z ~= 0)["=="](true)
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
 end)
@@ -221,7 +218,7 @@ T.Test("Quat Rotate modifies quaternion in place", function()
 	local q = Quat()
 	q:Identity()
 	local original_w = q.w
-	q:Rotate(0.1, 1, 0, 0) -- Small rotation around X
+	q:Rotate(0.1, 1, 0, 0)
 	T(q.w ~= original_w)["=="](true)
 	T(q.x ~= 0)["=="](true)
 end)
@@ -229,17 +226,16 @@ end)
 T.Test("Quat RotatePitch", function()
 	local q = Quat()
 	q:Identity()
-	local angle = math.pi / 4 -- 45 degrees
+	local angle = math.pi / 4
 	q:RotatePitch(angle)
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
-	-- Pitch should modify the quaternion
 	T(not (q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1))["=="](true)
 end)
 
 T.Test("Quat RotateYaw", function()
 	local q = Quat()
 	q:Identity()
-	local angle = math.pi / 4 -- 45 degrees
+	local angle = math.pi / 4
 	q:RotateYaw(angle)
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
 	T(not (q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1))["=="](true)
@@ -270,7 +266,7 @@ end)
 T.Test("Quat RotateRoll", function()
 	local q = Quat()
 	q:Identity()
-	local angle = math.pi / 4 -- 45 degrees
+	local angle = math.pi / 4
 	q:RotateRoll(angle)
 	T(math.abs(q:GetLength() - 1) < 0.0001)["=="](true)
 	T(not (q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1))["=="](true)

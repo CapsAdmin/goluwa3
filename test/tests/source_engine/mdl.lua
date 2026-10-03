@@ -20,7 +20,6 @@ local tasks = import("goluwa/tasks.lua")
 local system = import("goluwa/system.lua")
 local vfs = import("goluwa/vfs.lua")
 
---T.Test3D
 T.Pending("mdl rendering", function(draw)
 	steam.MountSourceGame("gmod")
 	tasks.WaitAll(15)
@@ -44,7 +43,6 @@ T.Pending("mdl rendering", function(draw)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	tasks.WaitAll(15)
 	draw()
-
 	T.AssertAlbedoPixel{
 		pos = {256, 256},
 		color = function(r, g, b, a)
@@ -52,8 +50,6 @@ T.Pending("mdl rendering", function(draw)
 		end,
 		msg = "mdl center should be non-black",
 	}
-
-	-- check the pixel between left arm and leg and make sure it hits the skybox as to not be corrupt
 	T.AssertAlbedoPixel{
 		pos = {170, 300},
 		color = function(r, g, b, a)
@@ -64,12 +60,10 @@ T.Pending("mdl rendering", function(draw)
 		end,
 		msg = "gap between arm and leg should hit the skybox, not be corrupt",
 	}
-
 	ent.visual:SetModelPath("models/player/alyx.mdl")
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	tasks.WaitAll(15)
 	draw()
-
 	T.AssertAlbedoPixel{
 		pos = {256, 256},
 		color = function(r, g, b, a)
@@ -77,8 +71,6 @@ T.Pending("mdl rendering", function(draw)
 		end,
 		msg = "mdl center should be non-black",
 	}
-
-	-- check the pixel between left arm and leg and make sure it hits the skybox
 	T.AssertAlbedoPixel{
 		pos = {170, 300},
 		color = function(r, g, b, a)
@@ -89,7 +81,6 @@ T.Pending("mdl rendering", function(draw)
 		end,
 		msg = "gap between arm and leg should hit the skybox, not be corrupt",
 	}
-
 	ent:Remove()
 	sun:Remove()
 end)

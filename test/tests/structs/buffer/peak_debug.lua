@@ -7,7 +7,6 @@ T.Test("Buffer PeakByte peeks and rewinds", function()
 	local buffer = Buffer.New(buf, 5)
 	local byte = buffer:PeakByte()
 	T(byte)["=="](10)
-	-- Position should be unchanged after peek
 	T(buffer:GetPosition())["=="](0)
 	byte = buffer:PeakByte()
 	T(byte)["=="](10)
@@ -18,9 +17,7 @@ T.Test("Buffer PeakBytes peeks multiple bytes and rewinds", function()
 	local buffer = Buffer.New(buf, 5)
 	local str = buffer:PeakBytes(3)
 	T(str)["=="]("\x0A\x14\x1E")
-	-- Position should be unchanged after peek
 	T(buffer:GetPosition())["=="](0)
-	-- Can still read from the same position
 	T(buffer:ReadByte())["=="](10)
 end)
 
@@ -30,7 +27,6 @@ T.Test("Buffer GetDebugString returns hex dump", function()
 	local hex = buffer:GetDebugString()
 	T(type(hex))["=="]("string")
 	T(#hex > 0)["=="](true)
-	-- Should contain the hex representation
 	T(hex:find("DE", 1, true) or hex:find("de", 1, true))
 end)
 

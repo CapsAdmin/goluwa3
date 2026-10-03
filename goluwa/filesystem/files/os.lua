@@ -21,7 +21,6 @@ function CONTEXT:CreateFolder(path_info, force)
 		end
 
 		local path = path_info.full_path
-		--if path:ends_with("/") then path = path:sub(0, -2) end
 		local ok, err = fs.create_directory(path)
 		vfs.ClearCallCache()
 		return ok or false, err
@@ -62,8 +61,6 @@ local translate_mode = {
 	read_write = bit.bor(fs.O_RDWR, fs.O_CREAT),
 }
 
--- if CONTEXT:Open errors the virtual file system will assume
--- the file doesn't exist and will go to the next mounted context
 function CONTEXT:Open(path_info, ...)
 	local mode = translate_mode[self:GetMode()]
 
@@ -108,7 +105,6 @@ end
 local ctype = ffi.typeof("uint8_t[?]")
 local ffi_string = ffi.string
 local math_min = math.min
--- without this cache thing loading gm_construct takes 30 sec opposed to 15
 local cache = {}
 
 for i = 1, 32 do
@@ -179,7 +175,7 @@ function CONTEXT:GetSize()
 	self.file:seek(0, fs.SEEK_END)
 	local size = self.file:seek(0, fs.SEEK_CUR)
 	self.file:seek(pos, fs.SEEK_SET)
-	return tonumber(size) -- hmm, 64bit?
+	return tonumber(size)
 end
 
 function CONTEXT:GetLastModified()
@@ -190,7 +186,6 @@ function CONTEXT:GetLastAccessed()
 	return self.attributes.last_accessed
 end
 
-function CONTEXT:Flush() --self.file:flush()
-end
+function CONTEXT:Flush() end
 
 return CONTEXT:Register()

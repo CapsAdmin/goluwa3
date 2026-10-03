@@ -4,7 +4,6 @@ local Color = import("goluwa/structs/color.lua")
 local SDFFont = import("goluwa/render2d/fonts/sdf.lua")
 local RasterFont = import("goluwa/render2d/fonts/raster.lua")
 local fonts = library()
--- Font management
 local current_font = nil
 local default_font = nil
 
@@ -97,7 +96,6 @@ function fonts.GetSystemFonts()
 		table.insert(paths, "/usr/local/share/fonts")
 		table.insert(paths, os.getenv("HOME") .. "/.fonts")
 		table.insert(paths, os.getenv("HOME") .. "/.local/share/fonts")
-		-- NixOS support
 		table.insert(paths, "/run/current-system/sw/share/X11/fonts")
 		table.insert(paths, "/run/current-system/sw/share/fonts")
 		table.insert(paths, os.getenv("HOME") .. "/.nix-profile/share/fonts")
@@ -171,7 +169,6 @@ function fonts.GetDefaultSystemFontPath()
 	elseif jit.os == "OSX" then
 		return "/Library/Fonts/Arial Unicode.ttf"
 	elseif jit.os == "Linux" then
-		-- Try fc-match first (most reliable on Linux)
 		local handle = io.popen("fc-match -f '%{file}'")
 
 		if handle then
@@ -188,7 +185,6 @@ function fonts.GetDefaultSystemFontPath()
 		local home = os.getenv("HOME")
 		local font_name = nil
 
-		-- Try GTK 3/4
 		if not font_name then
 			local path = home .. "/.config/gtk-3.0/settings.ini"
 
@@ -200,7 +196,6 @@ function fonts.GetDefaultSystemFontPath()
 			end
 		end
 
-		-- Try GTK 2
 		if not font_name then
 			local path = home .. "/.gtkrc-2.0"
 
@@ -210,13 +205,11 @@ function fonts.GetDefaultSystemFontPath()
 			end
 		end
 
-		-- Try KDE (Plasma)
 		if not font_name then
 			local path = home .. "/.config/kdeglobals"
 
 			if fs.exists(path) then
 				local content = fs.read_file(path)
-				-- General font entry format: font=Noto Sans,10,-1,5,50,0,0,0,0,0
 				local font_line = content:match("font=([^,\n]+)")
 
 				if font_line then font_name = font_line end
@@ -224,7 +217,6 @@ function fonts.GetDefaultSystemFontPath()
 		end
 
 		if font_name then
-			-- Strip size if present (e.g. "Noto Sans 10")
 			font_name = font_name:gsub("%s+%d+$", "")
 			local clean_name = font_name:lower():gsub("[%s%-_]", "")
 			local list = fonts.GetSystemFonts()
@@ -232,7 +224,6 @@ function fonts.GetDefaultSystemFontPath()
 			for _, path in ipairs(list) do
 				local file_name = path:match("([^/]+)$"):lower():gsub("[%s%-_]", "")
 
-				-- Prefer Regular fonts
 				if
 					file_name:find(clean_name) and
 					(
@@ -267,7 +258,7 @@ function fonts.GetDefaultSystemFontPath()
 	end
 end
 
-do -- google fonts
+do
 	local http = import("goluwa/sockets/http.lua")
 	local resource = import("goluwa/resource.lua")
 	local callback = import("goluwa/callback.lua")
@@ -292,12 +283,9 @@ do -- google fonts
 
 		local resolve = self.callbacks.resolve
 		local reject = self.callbacks.reject
-		-- Construct URL for CSS API v1
 		local url = (
 			"https://fonts.googleapis.com/css?family=%s:%d"
 		):format(name:gsub(" ", "+"), weight)
-		-- We need to spoof the User-Agent to get TTF files. 
-		-- Android 2.2 User-Agent is known to return TTF.
 		local headers = {
 			["User-Agent"] = "Mozilla/5.0 (Linux; U; Android 2.2; en-us; Nexus One Build/FRF91) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1",
 		}
@@ -329,7 +317,6 @@ do -- google fonts
 					return
 				end
 
-				-- Use resource.Download to actually get the file and cache it
 				resource.Download(ttf_url):Then(function(full_path, changed)
 					resolve(full_path, changed)
 				end):Catch(function(err)

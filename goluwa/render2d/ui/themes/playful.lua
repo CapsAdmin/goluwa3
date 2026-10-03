@@ -1,7 +1,3 @@
--- Playful theme: a late-90s mish mash of DK-BALL arcade splash screens,
--- DOSBox/Win95 config dialogs, and demoscene. Small repeating pattern
--- textures, hard 2px bevels, chrome gradient text, hot saturated palette.
--- Square corners, hard offset shadows, no blur, no rounded corners.
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
@@ -41,8 +37,6 @@ local surface_alt_navy = Color.FromHex("#1d1a4e")
 local surface_deep = Color.FromHex("#100e33")
 local disabled_gray = Color.FromHex("#8a8a96")
 local RAINBOW = {"#ff3030", "#ffa020", "#ffe020", "#40d040", "#30a0ff", "#6040e0", "#c030e0"}
--- Button color tokens that get the colorful arcade treatment; everything
--- else falls back to the silver Win95 chrome button.
 local ARCADA_TOKENS = {
 	primary = true,
 	secondary = true,
@@ -215,14 +209,12 @@ local function make_textures()
 		return t
 	end
 
-	-- subtle 45deg pinstripes, 4px period (seamless: x+y is periodic on the tile)
 	local pinstripe = pat{
 		glsl = [[
 		float s = step(0.5, fract((uv.x + uv.y) * 4.0));
 		return vec4(vec3(mix(0.84, 1.0, s)), 1.0);
 	]],
 	}
-	-- dot grid, 4px period
 	local dots = pat{
 		glsl = [[
 		float d = length(fract(uv * 4.0) - 0.5);
@@ -230,21 +222,18 @@ local function make_textures()
 		return vec4(vec3(mix(0.8, 1.0, s)), 1.0);
 	]],
 	}
-	-- fine checker, 2px cells
 	local check = pat{
 		glsl = [[
 		float s = mod(floor(uv.x * 8.0) + floor(uv.y * 8.0), 2.0);
 		return vec4(vec3(mix(0.88, 1.0, s)), 1.0);
 	]],
 	}
-	-- bold diagonal stripes, 8px period, strong contrast
 	local stripes = pat{
 		glsl = [[
 		float s = step(0.5, fract((uv.x + uv.y) * 2.0));
 		return vec4(vec3(mix(0.68, 1.0, s)), 1.0);
 	]],
 	}
-	-- chevron / zigzag, 8px period
 	local zigzag = pat{
 		glsl = [[
 		float v = fract(uv.y * 2.0 + abs(fract(uv.x * 2.0) - 0.5));
@@ -252,7 +241,6 @@ local function make_textures()
 		return vec4(vec3(mix(0.78, 1.0, s)), 1.0);
 	]],
 	}
-	-- brushed metal: 16 horizontal noise rows (periodic in y so the tile seams)
 	local brushed = pat{
 		w = 32,
 		h = 16,
@@ -263,7 +251,6 @@ local function make_textures()
 		return vec4(vec3(mix(0.78, 1.0, n) * fine), 1.0);
 	]],
 	}
-	-- crt scanlines, 2px period
 	local scanlines = pat{
 		w = 8,
 		h = 4,
@@ -272,7 +259,6 @@ local function make_textures()
 		return vec4(vec3(mix(0.75, 1.0, s)), 1.0);
 	]],
 	}
-	-- subtle 16px grid for window body
 	local grid = pat{
 		w = 32,
 		h = 32,
@@ -282,7 +268,6 @@ local function make_textures()
 		return vec4(vec3(mix(1.0, 0.86, g)), 1.0);
 	]],
 	}
-	-- starfield with a few hot stars
 	local starfield = Texture.New{
 		width = 1024,
 		height = 576,
@@ -310,7 +295,6 @@ local function make_textures()
 		vec3 col = bg + hot * star * (0.5 + 0.5 * h2) + vec3(0.6, 0.7, 1.0) * big;
 		return vec4(col, 1.0);
 	]])
-	-- checker ball
 	local ball = Texture.New{
 		width = 256,
 		height = 256,
@@ -448,8 +432,6 @@ local function bevel_off()
 	render2d.SetLighting(false)
 end
 
--- Hard Win95-style bevel box: 2px light/dark edges + 1px black outer ring.
--- raised = light top-left; sunken inverts. fill can carry a pattern texture.
 function PlayfulTheme:DrawHardBox(x, y, w, h, opts)
 	opts = opts or {}
 	local t = opts.thickness or 2
@@ -485,7 +467,6 @@ function PlayfulTheme:DrawHardBox(x, y, w, h, opts)
 	}
 end
 
--- Hard offset black shadow, no blur.
 function PlayfulTheme:DrawHardShadow(x, y, w, h, opts)
 	opts = opts or {}
 	local off = opts.off or 4
@@ -500,7 +481,6 @@ function PlayfulTheme:DrawHardShadow(x, y, w, h, opts)
 	}
 end
 
--- Silver Win95 chrome button with an optional pattern texture.
 function PlayfulTheme:DrawSilverButton(x, y, w, h, opts)
 	opts = opts or {}
 	local fill = opts.fill or w95_fill
@@ -541,8 +521,6 @@ function PlayfulTheme:DrawSilverButton(x, y, w, h, opts)
 	)
 end
 
--- DK-BALL style colorful beveled button: SDF beveled gradient face, scrolling
--- stripe overlay, dark edge ring, hard offset shadow.
 function PlayfulTheme:DrawArcadeButton(x, y, w, h, token, opts)
 	opts = opts or {}
 	local tex = self:GetTextures()
@@ -602,7 +580,6 @@ function PlayfulTheme:DrawArcadeButton(x, y, w, h, token, opts)
 	}
 end
 
--- Seven hard rainbow bands with a black ring.
 function PlayfulTheme:DrawRainbowBar(x, y, w, h)
 	local layers = {}
 
@@ -622,7 +599,6 @@ function PlayfulTheme:DrawRainbowBar(x, y, w, h)
 	}
 end
 
--- Gradient-filled text: style is "chrome", "gold", "cyan" or "rainbow".
 function PlayfulTheme:DrawGradientText(text, x, y, size, style, opts)
 	opts = opts or {}
 	local tex = self:GetTextures()
@@ -685,8 +661,6 @@ function PlayfulTheme:DrawCheckerBall(x, y, size)
 end
 
 do
-	-- Resolves the colors for a clickable's current state. Silver chrome
-	-- buttons get ink text; arcade buttons get paper text.
 	function PlayfulTheme:ResolveButtonStyleContext(state)
 		local accent = self:GetColor(state.button_color or "primary")
 		local background_token

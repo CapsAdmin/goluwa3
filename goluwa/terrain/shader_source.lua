@@ -42,8 +42,6 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 	int layer3;
 } terrain_bake;
 ]]
--- available to the source GLSL: the world distance between samples of the
--- current bake, so height functions can fade detail that a coarse LOD cannot represent
 local BAKE_STEP_HELPER = [[
 float terrain_bake_step() {
 	return terrain_bake.sample_step;
@@ -110,8 +108,6 @@ function ShaderSource.New(config)
 	self.HasSplat = config.SplatGLSL ~= nil
 	self.HasColor = config.ColorGLSL ~= nil
 	self.ColorFormat = config.ColorFormat or "r8g8b8a8_unorm"
-	-- SelectChunkLayers(request) returns the layers of one chunk and up to 4 ids
-	-- the splat bake can read as terrain_bake.layer0-3
 	self.SelectChunkLayers = config.SelectChunkLayers
 	self.ShaderHeader = table.concat(
 		{
@@ -137,12 +133,6 @@ function ShaderSource:GetShaderHeader()
 	return self.ShaderHeader
 end
 
---[[
-	Every chunk requested between two Submit calls is baked by one command
-	buffer, and the heights come back through one staging buffer. The chunks
-	are handed out by Update once the gpu has finished, so streaming never
-	waits on the queue.
-]]
 do
 	local bake = {}
 
@@ -169,8 +159,6 @@ do
 	local NO_LAYER_IDS = {}
 	local push_constants = {size = ffi.sizeof(BakeConstants), get_data = get_bake_constants}
 
-	-- texel_centered bakes sample at texel centers, otherwise the texels
-	-- land exactly on the chunk edges so neighbouring chunks share samples
 	local function record_bake(self, batch, size, format, glsl, request, texel_centered, layer_ids)
 		local texture = make_bake_texture(size, format, batch.cmd)
 		local step = texel_centered and request.size / size or request.size / (size - 1)

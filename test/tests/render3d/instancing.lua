@@ -15,8 +15,6 @@ local Entity = import("goluwa/entities/entity.lua")
 local objects = import("goluwa/objects/objects.lua")
 local FloatPtr = ffi.typeof("float *")
 
--- identical cubes share a deduplicated mesh, so different sizes give different
--- meshes
 local function create_cube(size)
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, size or 1)
@@ -31,7 +29,6 @@ local function create_matrix(x)
 	return m
 end
 
--- records what the batcher asks to draw
 local draws
 
 local function draw_single(context, batch)
@@ -150,8 +147,6 @@ T.Test3D("Graphics render3d instance batcher appends flushes of one submission a
 	T(#draws)["=="](2)
 	T(draws[1].first_instance)["=="](0)
 	T(draws[2].first_instance)["=="](3)
-	-- both flushes are in the buffers the draws reference, the first one wasn't
-	-- overwritten by the second
 	T(draws[1].instance_buffers)["=="](draws[2].instance_buffers)
 	local buffers = draws[2].instance_buffers
 	T(#buffers)["=="](2)
@@ -193,7 +188,6 @@ T.Test3D("Graphics render3d instance batcher keeps outgrown buffers until the ne
 	local second_buffer = draws[2].instance_buffers[1]
 	T(second_buffer ~= first_buffer)["=="](true)
 	T(draws[2].first_instance)["=="](0)
-	-- the first flush's draw was recorded against it and hasn't run yet
 	T(first_buffer:IsValid())["=="](true)
 	batcher:Queue(cube, cube:GetMesh(), material, create_matrix(1))
 	batcher:Queue(cube, cube:GetMesh(), material, create_matrix(2))
@@ -254,7 +248,6 @@ do
 		visual_primitive:SetPolygon3D(polygon3d)
 		visual_primitive:SetMaterial(material)
 		entity.visual:BuildAABB()
-		-- conditional rendering draws directly instead of queueing
 		entity.visual:SetUseOcclusionCulling(false)
 		return entity.visual
 	end
@@ -267,8 +260,6 @@ do
 		return entity
 	end
 
-	-- with gpu culling the static batches are drawn by the gpu and never reach
-	-- the cpu queue
 	local function draw_without_gpu_culling(draw)
 		local camera = render3d.GetCamera()
 		camera:SetFOV(math.rad(90))

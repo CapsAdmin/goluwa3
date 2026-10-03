@@ -1,8 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
--- facial expressions. a model's flex controllers (the sliders of a face poser) are set by name, and on an entity with an
--- animator they move the vertices of the face before it is skinned. the values live here, the rig of the animator does
--- the work. controllers are model specific so the editor gets them as dynamic properties
 local Flex = objects.CreateTemplate("flex")
 Flex.Is3D = true
 
@@ -73,7 +70,6 @@ function Flex:OnDeserialize(data)
 	end
 end
 
--- the animator makes a new rig every time it binds a model, which starts with no flexes set
 function Flex:Update()
 	local animator = self.Owner.animator
 	local rig = animator and animator.rig

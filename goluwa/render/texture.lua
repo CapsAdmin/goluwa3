@@ -215,7 +215,6 @@ local function is_valid_vulkan_format(format)
 	return type(format) == "string" and format ~= "" and format ~= "undefined"
 end
 
--- Fallback checkerboard texture (pink and black)
 local fallback_texture = NULL
 
 local function build_texture_debug_name(base, suffix)
@@ -277,7 +276,6 @@ local function create_fallback_texture()
 	if fallback_texture:IsValid() then return fallback_texture end
 
 	fallback_texture = NULL
-	-- Create 8x8 pink/black checkerboard pattern
 	local size = 8
 	local buffer = ffi.new("uint8_t[?]", size * size * 4)
 	local pink = {255, 0, 255, 255}
@@ -326,7 +324,6 @@ end
 function Texture.New(config)
 	assert(render.CanCreateResources(), "Texture.New requires render.Initialize() first")
 	config = config or {}
-	-- Check cache if path is provided
 	local cache_key = build_texture_cache_key(config)
 
 	if cache_key and texture_cache[cache_key] then
@@ -340,14 +337,11 @@ function Texture.New(config)
 		cache_key = cache_key,
 		debug_name = nil,
 		is_ready = false,
-		-- the layout shaders sample it in, which descriptors must name. a depth
-		-- target samples in its read only depth layout so it can also be bound
-		-- as a read only depth attachment at the same time
 		sampled_layout = config.sampled_layout or "shader_read_only_optimal",
 	}
 
 	local function load(img_or_err)
-		local reflectivity = nil -- VTF specifc
+		local reflectivity = nil
 		local buffer_data = nil
 		local is_compressed = false
 		local vulkan_info = nil
@@ -359,7 +353,6 @@ function Texture.New(config)
 			config.width = config.width or img.width
 			config.height = config.height or img.height
 
-			-- Handle images that already have a vulkan format (DDS, EXR, etc.)
 			if img.vulkan_format then
 				config.format = config.format or img.vulkan_format
 				is_compressed = img.is_compressed
@@ -371,14 +364,11 @@ function Texture.New(config)
 			end
 		end
 
-		-- Use buffer from config or from path loading
 		buffer_data = config.buffer or buffer_data
-		-- Calculate mip levels
 		local mip_levels = config.mip_map_levels or 1
 
 		if mip_levels == "auto" then mip_levels = 999 end
 
-		-- For compressed images, use mip count from file and don't generate mipmaps
 		if vulkan_info and vulkan_info.mip_count and vulkan_info.mip_count > 1 then
 			mip_levels = vulkan_info.mip_count
 		elseif mip_levels > 1 then
@@ -386,7 +376,6 @@ function Texture.New(config)
 			mip_levels = math.floor(math.log(math.max(config.width, config.height), 2)) + 1
 		end
 
-		-- Shared parameters for overriding
 		local width = config.width
 		local height = config.height
 		local format = config.format or "r8g8b8a8_unorm"
@@ -416,18 +405,14 @@ function Texture.New(config)
 			return
 		end
 
-		-- Create or use image
 		local image
 
 		if config.image == false then
 			image = nil
 		elseif config.image and config.image.ptr then
-			-- Already an Image object
 			image = config.image
 		else
-			-- Create image from config
 			local image_config = config.image or {}
-			-- Compressed formats cannot be used as color attachments or transfer_src
 			local default_usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"}
 
 			if is_compressed then default_usage = {"sampled", "transfer_dst"} end
@@ -464,16 +449,13 @@ function Texture.New(config)
 			}
 		end
 
-		-- Create or use view
 		local view
 
 		if config.view == false then
 			view = nil
 		elseif config.view and config.view.ptr then
-			-- Already a View object
 			view = config.view
 		elseif image then
-			-- Create view from config
 			local view_config = config.view or {}
 			view = image:CreateView{
 				view_type = view_config.view_type,
@@ -523,7 +505,10 @@ function Texture.New(config)
 			self:SetDebugName(self.debug_name)
 		elseif image and not image.debug_name then
 			image:SetDebugName(
-				(config.path or string.format("texture %sx%s %s", image.width, image.height, format)) .. " image"
+				(
+						config.path or
+						string.format("texture %sx%s %s", image.width, image.height, format)
+					) .. " image"
 			)
 		end
 
@@ -535,18 +520,13 @@ function Texture.New(config)
 
 		if buffer_data and image then
 			if is_compressed and vulkan_info then
-				-- Upload compressed data with all mipmaps
 				self:UploadCompressed(buffer_data, vulkan_info)
 			else
-				-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
 				self:Upload(buffer_data, mip_levels > 1)
 
-				-- Auto-generate mipmaps if requested
 				if mip_levels > 1 then self:GenerateMipmaps() end
 			end
 		elseif image then
-			-- If no buffer is provided, transition the image to an appropriate layout
-			-- Only transition to shader_read_only_optimal if the image has sampled usage
 			local has_sampled = false
 
 			if type(image.usage) == "table" then
@@ -580,7 +560,6 @@ function Texture.New(config)
 
 			if ok and img_or_err then
 				load(img_or_err)
-				-- pipelines registered it with the fallback's view
 				import("goluwa/event.lua").Call("TextureViewChanged", self)
 			else
 				if ok == false then
@@ -658,13 +637,10 @@ function Texture.LoadNinePatch(path, on_ready)
 				return regions
 			end
 
-			-- Top/Left lines define stretchable regions
 			local x_stretch_raw = find_regions(1, h - 1, 1, 0, w - 2)
 			local y_stretch_raw = find_regions(0, 1, 0, 1, h - 2)
-			-- Bottom/Right lines define content regions
 			local x_content_raw = find_regions(1, 0, 1, 0, w - 2)
 			local y_content_raw = find_regions(w - 1, 1, 0, 1, h - 2)
-			-- Crop the texture to remove the 1px metadata border
 			local clean_tex = self:Crop(1, 1, w - 2, h - 2)
 			local cw, ch = w - 2, h - 2
 			local x_stretch = {}
@@ -702,7 +678,6 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 		own_cmd = true
 	end
 
-	-- Transition both resources
 	local src_old_layout, dst_old_layout = render.TransitionResources(
 		other,
 		self,
@@ -715,7 +690,6 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 		}
 	)
 	cmd:CopyImageToImage(other:GetImage(), self:GetImage(), width, height, srcX, srcY, dstX, dstY)
-	-- Restore both resources
 	render.RestoreResources(
 		other,
 		self,
@@ -777,7 +751,6 @@ function Texture:Upload(data, keep_in_transfer_dst)
 
 	local pixel_count = width * height
 	local bytes_per_pixel = render.GetVulkanFormatSize(self.format)
-	-- Create staging buffer
 	local staging_buffer = Buffer.New{
 		device = device,
 		size = pixel_count * bytes_per_pixel,
@@ -786,12 +759,10 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "upload staging"),
 	}
 	staging_buffer:CopyData(buffer, pixel_count * bytes_per_pixel)
-	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	render.KeepCommandBufferResource(staging_buffer, cmd)
-	-- Transition image to transfer dst (only mip level 0)
 	render.TransitionResourceTo(
 		self,
 		"transfer_dst_optimal",
@@ -805,12 +776,9 @@ function Texture:Upload(data, keep_in_transfer_dst)
 			level_count = 1,
 		}
 	)
-	-- Copy buffer to image
 	cmd:CopyBufferToImage(staging_buffer, self.image, width, height, x, y)
 
-	-- Only transition to final layout if not keeping in transfer_dst for mipmap generation
 	if not keep_in_transfer_dst then
-		-- Determine final layout based on image usage
 		local final_layout = "general"
 		local dst_stage = "compute"
 
@@ -825,7 +793,6 @@ function Texture:Upload(data, keep_in_transfer_dst)
 			end
 		end
 
-		-- Transition to final layout
 		render.TransitionResourceFrom(
 			self,
 			final_layout,
@@ -853,7 +820,6 @@ function Texture:UploadCompressed(data, vulkan_info)
 	local queue = render.GetQueue()
 	local mip_count = vulkan_info.mip_count
 	local total_size = vulkan_info.data_size
-	-- Create staging buffer for all data
 	local staging_buffer = Buffer.New{
 		device = device,
 		size = total_size,
@@ -862,12 +828,10 @@ function Texture:UploadCompressed(data, vulkan_info)
 		name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "compressed upload staging"),
 	}
 	staging_buffer:CopyData(data, total_size)
-	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	render.KeepCommandBufferResource(staging_buffer, cmd)
-	-- Transition all mip levels to transfer dst
 	render.TransitionResourceTo(
 		self,
 		"transfer_dst_optimal",
@@ -882,7 +846,6 @@ function Texture:UploadCompressed(data, vulkan_info)
 		}
 	)
 
-	-- Copy each mip level from the staging buffer
 	for mip = 1, mip_count do
 		local mip_info = vulkan_info.mip_info[mip]
 
@@ -892,14 +855,13 @@ function Texture:UploadCompressed(data, vulkan_info)
 				self.image,
 				mip_info.width,
 				mip_info.height,
-				mip - 1, -- mip level (0-indexed)
+				mip - 1,
 				mip_info.offset,
 				mip_info.size
 			)
 		end
 	end
 
-	-- Transition all mip levels to shader read optimal
 	render.TransitionResourceFrom(
 		self,
 		"shader_read_only_optimal",
@@ -1035,8 +997,6 @@ function Texture:OnRemove()
 	self.image_data_cache = nil
 end
 
--- config.cmd records into that command buffer, config.src_stage and config.dst_stage are the stages
--- that last wrote the image and that read the mips
 function Texture:GenerateMipmaps(initial_layout, config)
 	if not self.image or self.mip_map_levels <= 1 then return end
 
@@ -1046,9 +1006,6 @@ function Texture:GenerateMipmaps(initial_layout, config)
 	local own_cmd = false
 	local dst_stage = config.dst_stage or "fragment"
 
-	-- PipelineBarrier cannot be called inside a dynamic render pass.
-	-- If the current command buffer is mid-render (e.g. download callback
-	-- firing during render2d), allocate our own buffer instead.
 	if not cmd or cmd.is_rendering then
 		cmd = command_pool:AllocateCommandBuffer()
 		cmd:Begin()
@@ -1057,7 +1014,6 @@ function Texture:GenerateMipmaps(initial_layout, config)
 
 	local is_cube = self:IsCubemap()
 	local layers = is_cube and 6 or 1
-	-- Determine initial layout
 	local old_layout = initial_layout or "transfer_dst_optimal"
 	local src_access = "transfer_read"
 	local src_stage = "transfer"
@@ -1073,7 +1029,6 @@ function Texture:GenerateMipmaps(initial_layout, config)
 		src_stage = "color_attachment_output"
 	end
 
-	-- Check if blitting is supported for this format
 	local props = self.image.device.physical_device:GetFormatProperties(self.config.format)
 	local features = tonumber(props.optimalTilingFeatures)
 	local blit_dst_supported = bit.band(
@@ -1112,7 +1067,6 @@ function Texture:GenerateMipmaps(initial_layout, config)
 		return
 	end
 
-	-- Transition first mip level (0) to transfer_src
 	cmd:PipelineBarrier{
 		srcStage = src_stage,
 		dstStage = "transfer",
@@ -1133,12 +1087,10 @@ function Texture:GenerateMipmaps(initial_layout, config)
 	local mip_height = self.image:GetHeight()
 	local mip_depth = self.image:GetDepth()
 
-	-- Generate each mip level by blitting from the previous level
 	for i = 1, self.mip_map_levels - 1 do
 		local next_mip_width = math.max(1, math.floor(mip_width / 2))
 		local next_mip_height = math.max(1, math.floor(mip_height / 2))
 		local next_mip_depth = math.max(1, math.floor(mip_depth / 2))
-		-- Transition current mip level to transfer_dst before blitting into it
 		cmd:PipelineBarrier{
 			srcStage = "transfer",
 			dstStage = "transfer",
@@ -1155,7 +1107,6 @@ function Texture:GenerateMipmaps(initial_layout, config)
 				},
 			},
 		}
-		-- Blit from previous mip level to current mip level
 		cmd:BlitImage{
 			src_image = self.image,
 			dst_image = self.image,
@@ -1173,7 +1124,6 @@ function Texture:GenerateMipmaps(initial_layout, config)
 			src_layer_count = layers,
 			dst_layer_count = layers,
 		}
-		-- Transition current mip level from transfer_dst to transfer_src
 		cmd:PipelineBarrier{
 			srcStage = "transfer",
 			dstStage = "transfer",
@@ -1195,7 +1145,6 @@ function Texture:GenerateMipmaps(initial_layout, config)
 		mip_depth = next_mip_depth
 	end
 
-	-- Transition all mip levels to shader_read_only_optimal for sampling
 	cmd:PipelineBarrier{
 		srcStage = "transfer",
 		dstStage = dst_stage,
@@ -1242,7 +1191,6 @@ function Texture:Shade(glsl, extra_config)
 
 	if glsl:find("vec4 shade") then
 
-	-- Already a full function
 	else
 		glsl = [[
 			vec4 shade(vec2 uv, vec3 _cube_dir) {
@@ -1256,7 +1204,6 @@ function Texture:Shade(glsl, extra_config)
 	local queue = render.GetQueue()
 	local is_cube = self:IsCubemap()
 	local layers = is_cube and 6 or 1
-	-- Create views for each layer (face) if it's a cubemap, or just one for 2D
 	local views = {}
 
 	for i = 0, layers - 1 do
@@ -1275,8 +1222,6 @@ function Texture:Shade(glsl, extra_config)
 		)
 	end
 
-	-- with extra_config.cmd the draw is only recorded; the caller submits it
-	-- and keeps the returned views alive until the gpu is done
 	local command_pool = render.GetCommandPool()
 	local owns_cmd = not extra_config.cmd
 	local cmd = extra_config.cmd or command_pool:AllocateCommandBuffer()
@@ -1450,7 +1395,6 @@ function Texture:Shade(glsl, extra_config)
 		cmd:Begin()
 	end
 
-	-- Transition image to color_attachment_optimal
 	render.TransitionResourceTo(
 		self,
 		"color_attachment_optimal",
@@ -1481,7 +1425,6 @@ function Texture:Shade(glsl, extra_config)
 		end
 
 		pipeline:PushConstants(cmd, "vertex", face_push_constant_offset, face_const)
-		-- Begin rendering
 		cmd:BeginRendering{
 			color_image_view = views[i + 1],
 			w = self.image:GetWidth(),
@@ -1489,11 +1432,9 @@ function Texture:Shade(glsl, extra_config)
 			clear_color = extra_config.clear_color or {0, 0, 0, 0},
 			load_op = extra_config.load_op or "clear",
 		}
-		-- Draw fullscreen triangle
 		cmd:SetViewport(0.0, 0.0, self.image:GetWidth(), self.image:GetHeight(), 0.0, 1.0)
 		cmd:SetScissor(0, 0, self.image:GetWidth(), self.image:GetHeight())
 		cmd:Draw(3, 1, 0, 0)
-		-- End rendering
 		cmd:EndRendering()
 	end
 
@@ -1502,7 +1443,6 @@ function Texture:Shade(glsl, extra_config)
 		self:GenerateMipmaps("color_attachment_optimal")
 		render.PopCommandBuffer()
 	else
-		-- Transition to shader_read_only_optimal
 		render.TransitionResourceFrom(
 			self,
 			"shader_read_only_optimal",
@@ -1538,9 +1478,7 @@ do
 	function TextureDownloaded:Resolve()
 		if not self.deferred then return self end
 
-		-- Wait for GPU to finish
 		render.GetDevice():WaitIdle()
-		-- Map staging buffer and copy pixel data
 		local pixel_data = assert(self.staging_buffer:Map(), "Cannot download: failed to map staging buffer")
 		self.pixels = ffi.new("uint8_t[?]", self.size)
 		ffi.copy(self.pixels, pixel_data, self.size)
@@ -1580,7 +1518,6 @@ do
 		local FloatPointer = ffi.typeof("float*")
 		local Uint32Pointer = ffi.typeof("uint32_t*")
 
-		-- unsigned small float with a 5 bit exponent and mantissa_bits of mantissa
 		local function ufloat(bits, mantissa_bits)
 			local mantissa = bits % 2 ^ mantissa_bits
 			local exponent = math.floor(bits / 2 ^ mantissa_bits)
@@ -1592,7 +1529,6 @@ do
 			return 2 ^ (exponent - 15) * (1 + mantissa / 2 ^ mantissa_bits)
 		end
 
-		-- rgba of an rgba float format as floats, unclamped
 		function TextureDownloaded:GetPixelFloat(x, y)
 			local index = (y * self.width + x) * 4
 
@@ -1655,8 +1591,6 @@ do
 		end
 	end
 
-	-- mean absolute difference of the rgb channels (0-255) to another download
-	-- of the same size and 8 bit format
 	function TextureDownloaded:GetMeanDifference(other)
 		if self.bytes_per_pixel ~= 4 or self.format ~= other.format then
 			error(
@@ -1789,8 +1723,6 @@ do
 				if not without_alpha then pixel_buffer[i * bpp + 3] = 255 end
 			end
 		elseif format == "r32g32b32a32_sfloat" or format == "r16g16b16a16_sfloat" then
-			-- float colour is linear light (an scRGB swapchain included), so it
-			-- is sRGB encoded for the PNG; anything above 1 clips
 			local half = format == "r16g16b16a16_sfloat"
 			local fpixels = ffi.cast(half and "uint16_t*" or "float*", self.pixels)
 
@@ -1866,7 +1798,6 @@ do
 			)
 		end
 
-		-- Create staging buffer
 		local device = render.GetDevice()
 		local staging_buffer = Buffer.New{
 			device = device,
@@ -1875,7 +1806,6 @@ do
 			properties = {"host_visible", "host_coherent"},
 			name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "download staging"),
 		}
-		-- For swapchain images, use the current render command buffer to avoid sync issues
 		local use_current_cmd = image.is_swapchain and render.GetCommandBuffer() ~= nil
 		local copy_cmd = use_current_cmd and
 			render.GetCommandBuffer() or
@@ -1884,7 +1814,6 @@ do
 
 		if owns_cmd then copy_cmd:Begin() end
 
-		-- Transition to transfer_src for copy
 		local old_layout = render.TransitionResourceTo(
 			self,
 			"transfer_src_optimal",
@@ -1907,7 +1836,6 @@ do
 			depth = 1,
 		}
 
-		-- Restore original layout
 		if old_layout ~= "transfer_src_optimal" then
 			render.TransitionResourceFrom(
 				self,
@@ -1924,7 +1852,6 @@ do
 			copy_cmd:End()
 			render.SubmitAndWait(copy_cmd)
 			copy_cmd:Remove()
-			-- Map staging buffer and copy pixel data
 			local pixel_data = assert(staging_buffer:Map(), "Cannot download: failed to map staging buffer")
 			local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
 			ffi.copy(pixels, pixel_data, width * height * bytes_per_pixel)
@@ -1939,7 +1866,6 @@ do
 				size = width * height * bytes_per_pixel,
 			}
 		else
-			-- Swapchain: return deferred download that resolves after frame ends
 			return TextureDownloaded:CreateObject{
 				staging_buffer = staging_buffer,
 				width = width,

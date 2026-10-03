@@ -41,9 +41,7 @@ local write_int32 = function(v)
 		band(v, 0xFF)
 	)
 end
--- used for generate key random ops
 math.randomseed(os.time())
--- from wiki article, not particularly clever impl
 local sha1_wiki = function(msg)
 	local h0 = 0x67452301
 	local h1 = 0xEFCDAB89
@@ -51,16 +49,12 @@ local sha1_wiki = function(msg)
 	local h3 = 0x10325476
 	local h4 = 0xC3D2E1F0
 	local bits = #msg * 8
-	-- append b10000000
 	msg = msg .. schar(0x80)
-	-- 64 bit length will be appended
 	local bytes = #msg + 8
-	-- 512 bit append stuff
 	local fill_bytes = 64 - (bytes % 64)
 
 	if fill_bytes ~= 64 then msg = msg .. srep(schar(0), fill_bytes) end
 
-	-- append 64 big endian length
 	local high = math.floor(bits / 2 ^ 32)
 	local low = bits - high * 2 ^ 32
 	msg = msg .. write_int32(high) .. write_int32(low)
@@ -123,7 +117,6 @@ local sha1_wiki = function(msg)
 		h4 = h4 + e
 	end
 
-	-- necessary on sizeof(int) == 32 machines
 	h0 = band(h0, 0xffffffff)
 	h1 = band(h1, 0xffffffff)
 	h2 = band(h2, 0xffffffff)

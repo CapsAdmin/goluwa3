@@ -142,18 +142,15 @@ function META:ConstructMesh(width, quality, stretch, mesh)
 		b.color[3] = color_white.a
 	end
 
-	-- Create index buffer for triangle strip converted to triangle list
 	local segment_count = #positive_points - 1
-	local index_count = segment_count * 6 -- 2 triangles per segment, 3 indices each
+	local index_count = segment_count * 6
 	local indices = {}
 
 	for i = 0, segment_count - 1 do
 		local base = i * 2
-		-- First triangle (counter-clockwise winding)
 		table.insert(indices, base + 1)
 		table.insert(indices, base + 2)
 		table.insert(indices, base)
-		-- Second triangle (counter-clockwise winding)
 		table.insert(indices, base + 3)
 		table.insert(indices, base + 2)
 		table.insert(indices, base + 1)

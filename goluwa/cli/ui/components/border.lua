@@ -2,11 +2,8 @@ local objects = import("goluwa/objects/objects.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local META = objects.CreateTemplate("tui_border")
 META:StartStorable()
--- Optional title shown in the top border ("" = no title)
 META:GetSet("Title", "")
--- "left" | "right"  — which side the title label is placed on
 META:GetSet("TitleAlign", "left")
--- Border drawing characters (defaults match tui.lua)
 META:GetSet("TopLeft", "╭")
 META:GetSet("TopRight", "╮")
 META:GetSet("BottomLeft", "╰")
@@ -34,7 +31,7 @@ function META:OnDraw(term, abs_x, abs_y, w, h)
 	local vt = self:GetVertical()
 	local title = self:GetTitle()
 	local title_align = self:GetTitleAlign()
-	local inner_w = w - 2 -- space between corner characters
+	local inner_w = w - 2
 	local top_border
 
 	if title and title ~= "" then
@@ -43,7 +40,7 @@ function META:OnDraw(term, abs_x, abs_y, w, h)
 		local start_pos
 
 		if title_align == "right" then
-			start_pos = w - label_len -- 1-based position of label start (inclusive corners)
+			start_pos = w - label_len
 		else
 			start_pos = 2
 		end

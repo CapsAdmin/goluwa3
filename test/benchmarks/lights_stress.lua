@@ -1,6 +1,3 @@
--- glw: --3d
--- a grid of closed rooms with doorways and point lights spread over them, like
--- the lights of a BSP map. each phase swaps the lights for another count and range
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
 local test_scene = import("goluwa/render3d/test_scene.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
@@ -21,18 +18,33 @@ local function build_scene()
 		test_scene.Matte(Color(0.2, 0.3, 0.75, 1)),
 	}
 	local extent = ROOMS * W
-	test_scene.Box{pos = Vec3(extent / 2, -0.5, extent / 2), size = Vec3(extent + 4, 1, extent + 4), material = white}
-	test_scene.Box{pos = Vec3(extent / 2, H + T / 2, extent / 2), size = Vec3(extent + 4, T, extent + 4), material = white}
+	test_scene.Box{
+		pos = Vec3(extent / 2, -0.5, extent / 2),
+		size = Vec3(extent + 4, 1, extent + 4),
+		material = white,
+	}
+	test_scene.Box{
+		pos = Vec3(extent / 2, H + T / 2, extent / 2),
+		size = Vec3(extent + 4, T, extent + 4),
+		material = white,
+	}
 
-	-- walls along x and z at every room boundary, each with a doorway in the middle
 	for i = 0, ROOMS do
 		for j = 0, ROOMS - 1 do
 			local a, seg = i * W, (W - DOOR) / 2
 			local material = tints[(i + j) % 3 + 1]
 			local b0, b1 = j * W + seg / 2, j * W + W - seg / 2
 			local closed = i == 0 or i == ROOMS
-			test_scene.Box{pos = Vec3(a, H / 2, b0), size = Vec3(T, H, closed and W or seg), material = material}
-			test_scene.Box{pos = Vec3(b0, H / 2, a), size = Vec3(closed and W or seg, H, T), material = material}
+			test_scene.Box{
+				pos = Vec3(a, H / 2, b0),
+				size = Vec3(T, H, closed and W or seg),
+				material = material,
+			}
+			test_scene.Box{
+				pos = Vec3(b0, H / 2, a),
+				size = Vec3(closed and W or seg, H, T),
+				material = material,
+			}
 
 			if not closed then
 				test_scene.Box{pos = Vec3(a, H / 2, b1), size = Vec3(T, H, seg), material = material}
@@ -57,8 +69,6 @@ local function build_scene()
 	end
 end
 
--- lights round robin over the rooms, several per room once there are more
--- lights than rooms
 local function set_lights(count, range)
 	return function()
 		for _, light in ipairs(lights) do

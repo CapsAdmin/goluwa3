@@ -5,17 +5,10 @@ local system = import("goluwa/system.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local event = import("goluwa/event.lua")
 local UniformBuffer = objects.CreateTemplate("render_uniform_buffer")
--- every live ring, for the stats overlay
 local instances = setmetatable({}, {__mode = "k"})
--- slots per frame a new ring starts with unless told otherwise, fewer for big blocks since
--- those are per pass data uploaded a few times a frame. rings grow between frames once they're
--- half used, as the slots of the frame being recorded can't move, so only running out within a
--- frame is an error
 local INITIAL_FRAME_BYTES = 256 * 1024
 local MIN_SLOTS = 16
 local MAX_INITIAL_SLOTS = 1024
--- blocks keyed per material keep a slot per material, and a map's world brings about a
--- thousand new materials into a single frame
 UniformBuffer.PERSISTENT_KEYED_INITIAL_SLOTS = 4096
 
 local function create_ring_buffer(self)
@@ -34,7 +27,6 @@ local function create(struct, name, initial_slots)
 	local self = UniformBuffer:CreateObject()
 	self.name = name
 	self.size = ffi.sizeof(struct)
-	-- Align to 256 for maximum compatibility across GPUs (standard for dynamic offsets)
 	self.aligned_size = math.ceil(self.size / 256) * 256
 	self.max_uploads = initial_slots or
 		math.clamp(math.floor(INITIAL_FRAME_BYTES / self.aligned_size), MIN_SLOTS, MAX_INITIAL_SLOTS)
@@ -45,7 +37,6 @@ local function create(struct, name, initial_slots)
 	self.current_offset = 0
 	self.current_slot = 0
 	self.persistent_slot_count = 0
-	-- the most transient uploads made in one frame, what the ring actually needs per frame
 	self.upload_frame = -1
 	self.frame_uploads = 0
 	self.peak_frame_uploads = 0
@@ -53,28 +44,23 @@ local function create(struct, name, initial_slots)
 	return self
 end
 
--- name identifies the ring in the stats overlay
 function UniformBuffer.New(decl, name, initial_slots)
 	if type(decl) ~= "string" then return create(decl, name, initial_slots) end
 
-	-- Check if this declaration contains $ placeholders (indicating nested structs)
 	local has_nested = decl:match("%$")
 	local struct
 	local nested_ctypes = {}
 
 	if has_nested then
-		-- Has nested structs - split them out
 		local nested_struct_defs = {}
 		local main_lines = {}
 		local current_struct_lines = {}
 		local brace_depth = 0
 		local structs = {}
 
-		-- First pass: split into individual struct definitions
 		for line in decl:gmatch("[^\n]+") do
 			table.insert(current_struct_lines, line)
 
-			-- Count braces to know when a struct ends
 			for c in line:gmatch(".") do
 				if c == "{" then
 					brace_depth = brace_depth + 1
@@ -82,7 +68,6 @@ function UniformBuffer.New(decl, name, initial_slots)
 					brace_depth = brace_depth - 1
 
 					if brace_depth == 0 then
-						-- Complete struct found
 						local struct_def = table.concat(current_struct_lines, "\n")
 						table.insert(structs, struct_def)
 						current_struct_lines = {}
@@ -91,15 +76,12 @@ function UniformBuffer.New(decl, name, initial_slots)
 			end
 		end
 
-		-- Last struct is the main struct (has $ placeholders)
-		-- All others are nested struct definitions
 		local main_struct = structs[#structs]
 
 		for i = 1, #structs - 1 do
 			table.insert(nested_struct_defs, structs[i])
 		end
 
-		-- Create ctypes for all nested structs first
 		for _, nested_def in ipairs(nested_struct_defs) do
 			local ctype = ffi.typeof(nested_def)
 			table.insert(nested_ctypes, ctype)
@@ -107,7 +89,6 @@ function UniformBuffer.New(decl, name, initial_slots)
 
 		struct = ffi.typeof(main_struct, unpack(nested_ctypes))
 	else
-		-- No nested structs, just create the struct directly
 		struct = ffi.typeof(decl)
 	end
 
@@ -136,7 +117,6 @@ function UniformBuffer:UploadToSlot(frame_index, slot)
 	return offset
 end
 
--- only between frames: waits for the gpu and rewrites the descriptors of every pipeline using the ring
 function UniformBuffer:Grow(max_uploads)
 	local old_buffer = self.buffer
 	local old_mapped = self.mapped
@@ -307,7 +287,6 @@ do
 			return count .. " RINGS " .. render_stats.FormatBytes(bytes)
 		end,
 	}
-	-- all time peaks rather than per second, since the capacity has to cover the worst frame
 	render_stats.RegisterField{
 		id = "uniform_ring_peak_uploads",
 		label = "PEAK UPLOADS/FRAME",

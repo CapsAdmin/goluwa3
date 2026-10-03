@@ -410,7 +410,7 @@ return function(props)
 
 		child.Visible = false
 		child.ignore_layout = true
-		return true -- we allow adding it as a child, but hidden
+		return true
 	end
 
 	function dropdown:PreRemoveChildren()

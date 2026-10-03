@@ -17,7 +17,6 @@ local state_defaults = {}
 local hash_key_groups = {}
 local cache_rules = {}
 local vulkan_bindings = {}
--- Dynamic state availability callbacks
 local has_dynamic_state_basic = function()
 	return true
 end
@@ -908,18 +907,14 @@ for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section][info.state_key] = info
 	end
 
-	-- Derive metadata only for properties with a valid state_section and state_key
 	if not info.state_section or not info.state_key then goto continue end
 
-	-- Derive state_keys (for assert_known_keys validation)
 	local section = info.state_section
 	local key = info.state_key
 	local subkey = info.state_subkey
 
 	if not section or not key then goto continue end
 
-	-- Derive state_keys for all properties except color_blend attachment properties
-	-- (color_blend attachment properties are validated separately)
 	if not info.is_color_blend_attachment_property then
 		state_keys[section] = state_keys[section] or {}
 
@@ -930,7 +925,6 @@ for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 			state_keys[section][key] = true
 		end
 
-		-- Derive state_defaults
 		state_defaults[section] = state_defaults[section] or {}
 
 		if subkey then
@@ -940,8 +934,6 @@ for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 			state_defaults[section][key] = info.default
 		end
 
-		-- Derive hash_key_groups (ordered list of keys per section/subsection)
-		-- We collect them in registration order, which gives stable hash ordering
 		if subkey then
 			hash_key_groups[section] = hash_key_groups[section] or {}
 			hash_key_groups[section][subkey] = hash_key_groups[section][subkey] or {}
@@ -954,10 +946,8 @@ for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 			end
 		end
 
-		-- Derive cache_rules and vulkan_bindings from dynamic_state_name
 		if info.dynamic_state_name then
 			local ds = info.dynamic_state_name
-			-- For stencil face subkeys, prefix with "stencil_" to match expected cache field names
 			local field
 
 			if section == "depth_stencil" and subkey then
@@ -966,7 +956,6 @@ for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 				field = info.state_key
 			end
 
-			-- Determine if value needs normalization (only for booleans)
 			local normalize = false
 
 			if info.validate == "boolean" then normalize = true end
@@ -997,7 +986,6 @@ for _, info in ipairs(objects.GetStorableVariables(GraphicsPipeline)) do
 		end
 	end
 
-	-- Derive color_blend state_keys (includes both top-level and attachment properties)
 	if section == "color_blend" then
 		state_keys.color_blend = state_keys.color_blend or {}
 		state_keys.color_blend[key] = true
@@ -1094,7 +1082,6 @@ do
 		end
 
 		assert_known_keys("depth_stencil", depth_stencil, state_keys.depth_stencil)
-		-- Build args list: depth_stencil fields
 		local args = {
 			depth_stencil.depth_test,
 			depth_stencil.depth_write,
@@ -1103,7 +1090,6 @@ do
 			depth_stencil.stencil_test,
 		}
 
-		-- Add stencil face values using derived hash_key_groups
 		for _, face in ipairs({"front", "back"}) do
 			local f = depth_stencil[face]
 			local keys = hash_key_groups.depth_stencil and hash_key_groups.depth_stencil[face]
@@ -1113,7 +1099,6 @@ do
 					table.insert(args, f[k])
 				end
 			else
-				-- No keys defined for this face, insert nil values for each expected key
 				local expected_keys = state_defaults.depth_stencil and state_defaults.depth_stencil[face]
 
 				if expected_keys then
@@ -1153,7 +1138,6 @@ do
 		assert_known_keys("color_blend", color_blend, state_keys.color_blend)
 		local attachments = color_blend.attachments
 		local attachment_count = attachments and #attachments or 0
-		-- Build args list: color_blend fields + attachment_count + attachment values
 		local args = {
 			color_blend.blend,
 			color_blend.src_color_blend_factor,
@@ -1169,7 +1153,6 @@ do
 			attachment_count,
 		}
 
-		-- Add each attachment's values as separate arguments (matching original descend_color_blend_attachment)
 		if attachment_count > 0 then
 			for i = 1, attachment_count do
 				local a = attachments[i]
@@ -1213,7 +1196,6 @@ do
 	function GraphicsPipeline:GetVariantId(overrides, signature)
 		signature = signature or self.base_pipeline_signature
 		local signature_id = get_signature_id(self, signature)
-		-- Generate a cache key for this variant using only STATIC overrides
 		local static_overrides = {}
 
 		for section, changes in pairs(overrides or {}) do
@@ -1320,36 +1302,30 @@ local function resolve_color_blend_state(self, index, key)
 	local overridden = self.overridden_state.color_blend
 	local config = self:GetConfig().color_blend
 
-	-- 1. overridden attachment
 	if overridden and overridden.attachments then
 		local a = overridden.attachments[index]
 
 		if a and a[key] ~= nil then return a[key] end
 	end
 
-	-- 2. top-level override (get_state checks overrides)
 	if key ~= "blend" then
 		local val = get_state(self, "color_blend", key)
 
 		if val ~= nil then return val end
 	end
 
-	-- 3. config attachment
 	if config and config.attachments then
 		local a = config.attachments[index]
 
 		if a and a[key] ~= nil then return a[key] end
 
-		-- 4. config first attachment fallback
 		local first = config.attachments[1]
 
 		if first and first[key] ~= nil then return first[key] end
 	end
 
-	-- 5. overridden top-level
 	if overridden and overridden[key] ~= nil then return overridden[key] end
 
-	-- 6. config first attachment final fallback
 	if config and config.attachments and config.attachments[1] then
 		return config.attachments[1][key]
 	end
@@ -1375,9 +1351,6 @@ local graphics_pipeline_switch_count = 0
 local graphics_pipeline_switch_frame = -1
 local warned_graphics_pipeline_switch_frame = -1
 
--- self.dynamic_states never changes after New, so which of these three
--- color_blend sub-blocks apply can be decided once instead of re-checking
--- self.dynamic_states.X on every cache rebuild.
 local function build_color_blend_cache_func(self)
 	local do_enable = self.dynamic_states.color_blend_enable_ext
 	local do_equation = self.dynamic_states.color_blend_equation_ext
@@ -1497,10 +1470,6 @@ local function build_scissor_cache_func(self)
 	end
 end
 
--- Generic dynamic-state region driven by cache_rules. Which region names
--- exist and whether self.dynamic_states enables them is fixed per pipeline,
--- so the rules list and the dynamic_states check are resolved once here
--- instead of on every cache rebuild.
 local function build_generic_cache_region_func(self, region)
 	local rules = cache_rules[region]
 
@@ -1516,12 +1485,10 @@ local function build_generic_cache_region_func(self, region)
 				val = get_state(self, rule.section, rule.key)
 			end
 
-			-- Apply normalization if needed
 			if rule.normalize and val ~= nil and val ~= false and val ~= 0 then
 				val = true
 			end
 
-			-- Apply default if nil
 			if val == nil then val = rule.default end
 
 			cache[rule.field] = val
@@ -1529,9 +1496,6 @@ local function build_generic_cache_region_func(self, region)
 	end
 end
 
--- Maps region name -> function(cache), built once in New. Used both for a
--- full cache rebuild (build_bind_state_cache) and for refreshing a single
--- dirty region (see Bind's bind_state_dirty_regions handling).
 local function build_cache_region_funcs(self)
 	local funcs = {}
 	funcs.color_blend = build_color_blend_cache_func(self)
@@ -1917,7 +1881,6 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		table.insert(pool_sizes, {type = type, count = count})
 	end
 
-	-- Validate push constant ranges don't exceed device limits
 	if #push_constant_ranges > 0 then
 		local device_properties = vulkan_instance.physical_device:GetProperties()
 		local max_push_constants_size = device_properties.limits.maxPushConstantsSize
@@ -1944,22 +1907,17 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local pipelineLayout = PipelineLayout.New(vulkan_instance.device, descriptorSetLayouts, push_constant_ranges)
 	self.push_constant_ranges = push_constant_ranges
 	self.dynamic_descriptor_count = dynamic_descriptor_count
-	-- BINDLESS DESCRIPTOR SET MANAGEMENT:
-	-- For bindless rendering, we create one descriptor set per frame containing
-	-- an array of all textures. The descriptor sets are updated when new textures
-	-- are registered, not per-draw. Each draw just pushes a texture index.
 	local descriptor_set_count = config.DescriptorSetCount or 1
 	local descriptorPools = {}
 	local descriptorSets = {}
 
 	for frame = 1, descriptor_set_count do
-		-- Create a pool for this frame - just needs space for all descriptor sets
 		local frame_pool_sizes = {}
 
 		for i, pool_size in ipairs(pool_sizes) do
 			frame_pool_sizes[i] = {
 				type = pool_size.type,
-				count = pool_size.count, -- count already accounts for array size from descriptor_sets config
+				count = pool_size.count,
 			}
 		end
 
@@ -1976,7 +1934,6 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local vertex_bindings
 	local vertex_attributes
 
-	-- Update descriptor sets
 	for i, stage in ipairs(config.shader_stages) do
 		if stage.type == "vertex" then
 			vertex_bindings = stage.bindings
@@ -1997,7 +1954,6 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		self.dynamic_states = {}
 	end
 
-	-- Always use format and samples to ensure they match
 	local multisampling_config = config.multisampling or {}
 	multisampling_config.rasterization_samples = config.RasterizationSamples or "1"
 	pipeline, shader_modules = build_internal_pipeline(vulkan_instance, pipelineLayout, config, self.dynamic_state_list)
@@ -2011,9 +1967,8 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.uniform_buffers = uniform_buffers
 	self.descriptor_set_layouts = descriptorSetLayouts
 	self.descriptor_binding_counts = descriptor_binding_counts
-	self.descriptorPools = descriptorPools -- Array of pools, one per frame
-	self.shader_modules = shader_modules -- Keep shader modules alive to prevent GC
-	-- GraphicsPipeline variant caching for compatibility and static state emulation
+	self.descriptorPools = descriptorPools
+	self.shader_modules = shader_modules
 	self.base_pipeline = pipeline
 	self.base_pipeline_signature = {
 		color_format = config.ColorFormat,
@@ -2067,7 +2022,6 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		self:RefreshTextureView(tex)
 	end)
 
-	-- Initialize all descriptor sets with the same initial bindings
 	for frame_index = 1, descriptor_set_count do
 		for i, stage in ipairs(config.shader_stages) do
 			if stage.descriptor_sets then
@@ -2202,9 +2156,6 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	self:BindDescriptors(cmd, frame_index, dynamic_offsets)
 end
 
--- binds the descriptor sets of the pipeline, and brings its bindless arrays
--- up to date. a draw that only has new dynamic offsets needs nothing more
--- than this while the pipeline is still bound
 function GraphicsPipeline:BindDescriptors(cmd, frame_index, dynamic_offsets)
 	if self.descriptor_sets then
 		if frame_index < 1 or self.descriptor_sets[frame_index] == nil then
@@ -2238,7 +2189,6 @@ function GraphicsPipeline:BindDescriptors(cmd, frame_index, dynamic_offsets)
 end
 
 function GraphicsPipeline:GetVertexAttributes()
-	-- Find the vertex shader stage in config
 	for _, stage in ipairs(self:GetConfig().shader_stages) do
 		if stage.type == "vertex" then return stage.attributes end
 	end
@@ -2374,8 +2324,6 @@ function GraphicsPipeline:OnRemove()
 	if self.pipeline_layout then self.pipeline_layout:Remove() end
 end
 
--- Rebuild pipeline with modified state
--- overrides: table where keys are sections (e.g., "color_blend") and values are change tables
 function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	signature = signature or self.base_pipeline_signature
 	local variant_id = self:GetVariantId(overrides, signature)
@@ -2390,7 +2338,6 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 		return
 	end
 
-	-- Return cached variant if it exists
 	local cached = self.pipeline_variants[variant_id]
 
 	if cached then
@@ -2403,13 +2350,11 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 		return
 	end
 
-	-- Create a modified config
 	local modified_config = table.copy(self.config, true)
 	modified_config.ColorFormat = signature.color_format
 	modified_config.DepthFormat = signature.depth_format
 	modified_config.RasterizationSamples = signature.samples
 
-	-- Apply ALL overrides (both static and dynamic ones, though dynamic ones don't STRICTLY need to be in the baked pipeline, it's safer)
 	for section, changes in pairs(overrides) do
 		if section == "color_blend" then
 			modified_config.color_blend = modified_config.color_blend or {}
@@ -2460,7 +2405,6 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	self.static_variant_dirty = false
 end
 
--- Reset to base pipeline
 function GraphicsPipeline:ResetToBase()
 	self.pipeline = self.base_pipeline
 	self.active_config = self.config
@@ -2471,7 +2415,6 @@ function GraphicsPipeline:ResetToBase()
 	build_bind_state_cache(self)
 end
 
--- Get information about cached variants (for debugging)
 function GraphicsPipeline:GetVariantInfo()
 	local count = 0
 	local keys = {}

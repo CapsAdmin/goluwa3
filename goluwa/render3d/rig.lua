@@ -1,21 +1,9 @@
 local ffi = require("ffi")
 local skinning = import("goluwa/render3d/skinning.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
--- A rig is a skeleton made visible: it takes a pose, bones moved on top of it and the flex (facial expression)
--- controllers of the model, and skins the vertex arrays it was made for with them on the gpu. none of its interface
--- needs ffi, bones and flexes are named by strings and bone matrices are Matrix44
---   Rig.New(skeleton, parts)   parts is a list of {bind_vertex_buffer, vertex_buffer, skin}: a vertex array of the model,
---                              the vertex array to write the skinned vertices to and the skin (bone weights, flexes)
---   rig:SetPose(pose)          a Pose of the skeleton
---   rig:SetBone(name, matrix, space)  "local" applies the matrix in the space of the bone, on top of the pose.
---                              "model" replaces the matrix of the bone in model space. children follow either
---   rig:GetBone(name)          the final model space Matrix44 of a bone
---   rig:SetFlex(name, value), rig:GetFlex(name), rig:GetFlexNames(), rig:GetFlexRange(name)
---   rig:Update()               computes what changed and queues the skinning
 local Rig = {}
 Rig.__index = Rig
 
--- the weight a flex has at a controller weight: zero up to target0 and past target3, one between target1 and target2
 local function flex_ramp(weight, target0, target1, target2, target3)
 	if weight <= target0 or weight >= target3 then return 0 end
 
@@ -26,8 +14,6 @@ local function flex_ramp(weight, target0, target1, target2, target3)
 	return (target3 - weight) / (target3 - target2)
 end
 
--- Matrix44 has the translation in its last row and transforms row vectors, the matrices of a rig are 3x4 and row major
--- with the translation in the last column
 local function write_matrix(m, out, o)
 	out[o], out[o + 1], out[o + 2], out[o + 3] = m.m00, m.m10, m.m20, m.m30
 	out[o + 4], out[o + 5], out[o + 6], out[o + 7] = m.m01, m.m11, m.m21, m.m31
@@ -90,7 +76,6 @@ function Rig.New(skeleton, parts)
 			self.flex_indices[name] = i - 1
 		end
 
-		-- the rules of a model give some flexes a weight even with every controller at zero
 		self.flex_dirty = true
 	end
 
@@ -192,7 +177,6 @@ function Rig:SetFlex(name, value)
 	self.dirty = true
 end
 
--- the weights of the flex descriptors from the rules of the model, then the weights of every morph entry of the model
 function Rig:ComputeFlex()
 	self.flex_dirty = false
 	self.skeleton.Flex:Compute(self.flex_controllers, self.flex_descriptors)
@@ -209,7 +193,6 @@ function Rig:ComputeFlex()
 			for i, entry in ipairs(skinned.skin.Flexes) do
 				local t = entry.Targets
 				local w1 = flex_ramp(descriptors[entry.Desc], t[1], t[2], t[3], t[4])
-				-- an entry without a pair has the same weight on both sides
 				local w2 = entry.Pair ~= 0 and
 					flex_ramp(descriptors[entry.Pair], t[1], t[2], t[3], t[4]) or
 					w1
@@ -237,7 +220,6 @@ function Rig:Compute()
 	self.needs_skin = true
 end
 
--- skinning once more with what was computed last, for when only the vertices need to be rewritten
 function Rig:Skin()
 	self.needs_skin = false
 	self.version = self.version + 1

@@ -1,11 +1,6 @@
---ANALYZE
 local callstack = {}
 local debug = _G.debug
 
--- jit.profile.dumpstack is much faster than the debug library, but it writes
--- into a process-wide scratch buffer, so it must never be called concurrently from
--- multiple VMs. Worker threads run their own VM and must use the per-thread debug library. 
--- The main VM keeps the fast dumpstack path, since no worker ever calls dumpstack
 if rawget(_G, "_WORKER_THREAD") then
 	local getinfo = debug.getinfo
 	local traceback = debug.traceback

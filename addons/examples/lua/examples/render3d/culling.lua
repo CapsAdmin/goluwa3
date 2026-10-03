@@ -31,14 +31,9 @@ local function spawn_sphere(pos, scale, color, use_occlusion)
 	return ent
 end
 
--- Set occlusion culling to 1 to see its effect
 Visual.Library.SetOcclusionCulling(true)
--- Create a large wall to block things (Occluder)
--- We don't enable occlusion culling on it so it's always drawn first in the query pass
 spawn_sphere(Vec3(0, 0, -5), Vec3(10, 10, 0.1), Color(0.2, 0.2, 0.2, 1), false)
 
--- Create a grid of spheres behind the wall (Occludees)
--- These use occlusion culling and should be culled on the GPU
 for x = -8, 8 do
 	for y = -5, 5 do
 		spawn_sphere(
@@ -50,6 +45,5 @@ for x = -8, 8 do
 	end
 end
 
--- Create some spheres clearly visible on the sides
 spawn_sphere(Vec3(-10, 0, -10), Vec3(1, 1, 1), Color(1, 0, 0, 1), true)
 spawn_sphere(Vec3(10, 0, -10), Vec3(1, 1, 1), Color(0, 1, 0, 1), true)

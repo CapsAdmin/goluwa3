@@ -75,8 +75,6 @@ return {
 					local frame = system.GetFrameNumber()
 					block.frame_index = frame
 
-					-- history is the framebuffer written last frame. recreated framebuffers hold garbage
-					-- until they have been written once, so skip history for one frame after that
 					if self.ssr_history_framebuffers ~= self.framebuffers then
 						self.ssr_history_framebuffers = self.framebuffers
 						self.ssr_history_reset_frame = frame

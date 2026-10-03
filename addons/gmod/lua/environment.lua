@@ -22,7 +22,7 @@ env.Ang3 = Ang3
 gine.env = env
 local data = import("lua/" .. (CLIENT and "cl_" or SERVER and "sv_") .. "exported.lua")
 
-do -- copy standard libraries
+do
 	local function add_lib_copy(name)
 		local lib = {}
 
@@ -49,7 +49,6 @@ do -- copy standard libraries
 	env.debug.getregistry = function()
 		return env._R
 	end
-	--env.debug.getinfo = function(...) local t = debug.getinfo(...) if t then t.short_src = t.source end return t end
 	env.package = package
 
 	for k in pairs(_OLD_G) do
@@ -60,7 +59,7 @@ do -- copy standard libraries
 	env.module = require("goluwa.require").module
 end
 
-do -- enums
+do
 	env.gine_enums = data.enums
 
 	for enum_name, value in pairs(data.enums) do
@@ -297,7 +296,6 @@ do
 	end
 end
 
--- global functions
 for func_name, type in pairs(data.globals) do
 	if type == "C" then
 		env[func_name] = env[func_name] or
@@ -307,7 +305,6 @@ for func_name, type in pairs(data.globals) do
 	end
 end
 
--- metatables
 for meta_name, functions in pairs(data.meta) do
 	functions.__tostring = nil
 	functions.__newindex = nil
@@ -349,7 +346,6 @@ for meta_name, functions in pairs(data.meta) do
 	gine.objects[meta_name] = gine.objects[meta_name] or {}
 end
 
--- libraries
 for lib_name, functions in pairs(data.functions) do
 	env[lib_name] = env[lib_name] or {}
 

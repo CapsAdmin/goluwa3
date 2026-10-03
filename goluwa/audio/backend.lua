@@ -72,7 +72,6 @@ function module.Attach(audio)
 
 		if audio.thread or audio.main_audio_buffer then return end
 
-		-- Create audio mixer thread with proper string source
 		local ok, thread_or_err = pcall(threads.new, mixer_worker_source)
 
 		if not ok or not thread_or_err then
@@ -83,7 +82,6 @@ function module.Attach(audio)
 		audio.thread:run(audio.state, true)
 		audio.backend_mode = "thread"
 
-		-- Verify thread started successfully
 		import("goluwa/timer.lua").Delay(0.1, function()
 			if audio.thread and threads.get_status(audio.thread) == threads.STATUS_ERROR then
 				local ok2, err = audio.thread:join()
@@ -118,7 +116,6 @@ function module.Attach(audio)
 	event.AddListener("Update", "audio_backend_watchdog", function()
 		if not audio.initialized then return end
 
-		-- Thread should never be nil once started, but handle gracefully
 		if audio.backend_mode == "none" and next(audio.active_sounds) ~= nil then
 			error("Audio thread exited unexpectedly while sounds are active")
 		end

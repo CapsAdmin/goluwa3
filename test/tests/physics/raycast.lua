@@ -8,13 +8,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 
 do
-	-- Build a raycast model source entry from a polygon. The physics engine
-	-- must not depend on render3d, so tests drive raycasts through
-	-- CreateModelSource instead of visual components.
-	--
-	-- model.AABB is the local-space bounds used for local ray culling.
-	-- model:GetWorldAABB() is the broad bound used by the source BVH; pass a
-	-- world_offset when the owner transform moves it.
 	local function get_local_aabb(model)
 		return model.AABB
 	end
@@ -82,7 +75,6 @@ do
 		ent:AddComponent("transform")
 		local poly = make_triangle(Vec3(0, 0, 1))
 		local source = make_source{make_model(ent, poly)}
-		-- Cast ray at triangle from +Z toward -Z
 		local hits = raycast.CastFromSource(source, Vec3(0, 0, 2), Vec3(0, 0, -1), 10)
 		T(#hits)["=="](1)
 		T(hits[1].entity)["=="](ent)
@@ -96,9 +88,8 @@ do
 		ent:AddComponent("transform")
 		local poly = make_triangle(Vec3(0, 0, -1))
 		local source = make_source{make_model(ent, poly)}
-		-- Cast ray away from triangle
 		local origin = Vec3(0, 0, -2)
-		local direction = Vec3(1, 0, 0) -- Perpendicular to triangle
+		local direction = Vec3(1, 0, 0)
 		local hits = raycast.CastFromSource(source, origin, direction, 10)
 		T(#hits)["=="](0)
 		ent:Remove()
@@ -111,7 +102,6 @@ do
 		shapes.BuildCube(poly, 1, 1)
 		poly:BuildBoundingBox()
 		local source = make_source{make_model(ent, poly)}
-		-- Cast ray at center of cube from different directions
 		local tests = {
 			{origin = Vec3(0, 0, -3), dir = Vec3(0, 0, 1), name = "front"},
 			{origin = Vec3(0, 0, 3), dir = Vec3(0, 0, -1), name = "back"},
@@ -130,18 +120,14 @@ do
 	end)
 
 	T.TestPhysics("Raycast with transform", function()
-		-- Create entity with triangle mesh at offset position
 		local ent = Entity.New({Name = "test_triangle"})
 		ent:AddComponent("transform")
-		-- Position entity to the right
 		local position = Vec3(5, 0, 0)
 		ent.transform:SetPosition(position)
 		local poly = make_triangle(Vec3(0, 0, -1))
 		local source = make_source{make_model(ent, poly, position)}
-		-- Cast ray at origin (should miss)
 		local hits1 = raycast.CastFromSource(source, Vec3(0, 0, -2), Vec3(0, 0, 1), 10)
 		T(#hits1)["=="](0)
-		-- Cast ray at offset position (should hit)
 		local hits2 = raycast.CastFromSource(source, Vec3(5, 0, -2), Vec3(0, 0, 1), 10)
 		T(#hits2)["=="](1)
 		T(hits2[1].entity)["=="](ent)
@@ -149,20 +135,17 @@ do
 	end)
 
 	T.TestPhysics("Raycast multiple entities", function()
-		-- Create two entities at different positions
 		local ent1, poly1 = make_cube_entity("cube1", Vec3(0, 0, 0))
 		local ent2, poly2 = make_cube_entity("cube2", Vec3(0, 0, 3))
 		local source = make_source{
 			make_model(ent1, poly1),
 			make_model(ent2, poly2, Vec3(0, 0, 3)),
 		}
-		-- Cast ray through both
 		local origin = Vec3(0, 0, -5)
 		local direction = Vec3(0, 0, 1)
 		local hits = raycast.CastFromSource(source, origin, direction, 20)
-		-- Should hit both entities, sorted by distance
 		T(#hits)["=="](2)
-		T(hits[1].entity)["=="](ent1) -- Closer one first
+		T(hits[1].entity)["=="](ent1)
 		T(hits[2].entity)["=="](ent2)
 		T(hits[1].distance)["<"](hits[2].distance)
 		ent1:Remove()
@@ -170,14 +153,12 @@ do
 	end)
 
 	T.TestPhysics("Raycast with filter", function()
-		-- Create two entities
 		local ent1, poly1 = make_cube_entity("include_me", Vec3(0, 0, 0))
 		local ent2, poly2 = make_cube_entity("exclude_me", Vec3(0, 0, 3))
 		local source = make_source{
 			make_model(ent1, poly1),
 			make_model(ent2, poly2, Vec3(0, 0, 3)),
 		}
-		-- Cast ray with filter that only includes entities with the right name
 		local origin = Vec3(0, 0, -5)
 		local direction = Vec3(0, 0, 1)
 		local hits = raycast.CastFromSource(
@@ -189,7 +170,6 @@ do
 				return entity:GetName() == "include_me"
 			end
 		)
-		-- Should only hit first entity
 		T(#hits)["=="](1)
 		T(hits[1].entity)["=="](ent1)
 		ent1:Remove()
@@ -203,7 +183,6 @@ do
 		shapes.BuildCube(poly, 1, 1)
 		poly:BuildBoundingBox()
 		local source = make_source{make_model(ent, poly)}
-		-- Cast and get only closest
 		local hit = raycast.CastClosestFromSource(source, Vec3(0, 0, -5), Vec3(0, 0, 1), 10)
 		T(hit)["~="](nil)
 		T(hit.entity)["=="](ent)
@@ -217,10 +196,8 @@ do
 		shapes.BuildCube(poly, 1, 1)
 		poly:BuildBoundingBox()
 		local source = make_source{make_model(ent, poly)}
-		-- Check if ray hits anything
 		local hit = raycast.CastClosestFromSource(source, Vec3(0, 0, -5), Vec3(0, 0, 1), 10)
 		T(hit ~= nil)["=="](true)
-		-- Check miss
 		local miss = raycast.CastClosestFromSource(source, Vec3(10, 0, -5), Vec3(0, 0, 1), 10)
 		T(miss == nil)["=="](true)
 		ent:Remove()

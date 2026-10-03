@@ -1,7 +1,5 @@
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
--- Garry's Mod's bhop script as a PlayerMove hook: a faster jump, a launch when
--- jumping while looking down, and wall bounces while jump is held in the air.
 local WALL_NORMAL_MAX_Y = 0.7
 local WALL_BOUNCE_SPEED = 1.1
 local DOWN_LOOK_PITCH = math.rad(89)
@@ -18,13 +16,10 @@ local multiplier = pvars.Setup2{
 	help = "how much a jump from the ground multiplies the speed, 1 turns the extra movement off",
 }
 pvars.EndGroup()
--- per player: whether it is set up and where it last bounced off a wall
 local players = table.weak("k")
+
 local function setup_player(entity)
 	local movement = entity.player_movement
-	-- sv_airaccelerate 1000000, sv_maxvelocity and sv_sticktoground 0. Source's
-	-- 140 units/s for leaving the ground stays out: climbing a stair edge
-	-- already reaches it
 	movement:SetAirAcceleration(1000000)
 	movement:SetStickToGround(false)
 	movement:SetWalkMaxLinearSpeed(MAX_SPEED)
@@ -49,7 +44,6 @@ event.AddListener("PlayerMove", "bhop", function(entity, move)
 
 	if jump_multiplier ~= 1 and move.jump_pressed and move.grounded then
 		velocity:Set(velocity.x * jump_multiplier, velocity.y * jump_multiplier, velocity.z * jump_multiplier)
-		-- looking down: the jump turns speed into height instead
 		local look_down = math.clamp(-move.pitch / DOWN_LOOK_PITCH, 0, 1) ^ 3
 
 		if look_down > DOWN_LOOK_MIN then

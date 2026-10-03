@@ -59,7 +59,6 @@ return function(props)
 		clickable = true,
 		animation = true,
 	}{
-		-- header
 		Panel.New{
 			IsInternal = true,
 			Name = "WindowHeader",
@@ -141,7 +140,6 @@ return function(props)
 				},
 			},
 		},
-		-- content
 		Panel.New{
 			Ref = function(self)
 				content = self

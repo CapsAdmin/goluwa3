@@ -69,7 +69,6 @@ local tools = {
 				return event.destroy_tag
 			end)
 
-			-- cb:Get() blocks until resolved (works in coroutine context)
 			local result = cb:Get()
 			return {message = result}
 		end,
@@ -152,7 +151,6 @@ local function handle_mcp_request(json_str)
 			return jsonrpc_response(req_id, {error = {code = -32603, message = tostring(result)}})
 		end
 
-		-- Check if result is an image
 		if result.image then
 			llog("[MCP] Screenshot result, image data size: " .. #result.image .. " bytes")
 			return jsonrpc_response(
@@ -228,7 +226,6 @@ function mcp.StartServer(port)
 		local response_client = client
 		llog("[MCP] Received body, size: " .. #body .. " bytes")
 
-		-- Handle request in a task coroutine so async operations can yield
 		tasks.CreateTask(
 			function()
 				llog("[MCP] Processing request...")
@@ -286,7 +283,7 @@ function mcp.StartServer(port)
 				end
 			end,
 			nil,
-			true -- run immediately
+			true
 		)
 	end
 

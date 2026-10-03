@@ -5,7 +5,6 @@ do
 	pretty_prints.table = function(t)
 		local str = tostring(t)
 		str = str .. " [" .. table.count(t) .. " subtables]"
-		-- guessing the location of a library
 		local sources = {}
 
 		for _, v in pairs(t) do
@@ -97,7 +96,7 @@ function desire(name)
 	return res
 end
 
-do -- wait
+do
 	local temp = {}
 
 	function wait(seconds)
@@ -176,7 +175,6 @@ do
 
 		str = table_concat(str, "\t") .. "\n"
 		local path = callstack.get_line(2)
-		-- fallback to io.write for earlier printing
 		local log_func = logging.RawLog or io.write
 
 		if path then

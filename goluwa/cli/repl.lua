@@ -57,7 +57,7 @@ function repl.CopyText()
 		local line_end = repl.editor:GetCursor()
 		local str = buffer:Sub(line_start, line_end - 1)
 		repl.editor:SetClipboard(str)
-		repl.editor:SetCursor(line_start) -- restore cursor roughly
+		repl.editor:SetCursor(line_start)
 		return str
 	end
 
@@ -127,14 +127,13 @@ repl.needs_redraw = repl.needs_redraw or true
 repl.debug = false
 repl.last_event = repl.last_event or nil
 repl.raw_input = repl.raw_input or nil
-repl.saved_input = repl.saved_input or "" -- Saves current input when navigating history
-repl.is_executing = repl.is_executing or false -- Tracks if we're executing a command
-repl.last_drawn_lines = 0 -- Track how many lines we drew last frame
+repl.saved_input = repl.saved_input or ""
+repl.is_executing = repl.is_executing or false
+repl.last_drawn_lines = 0
 repl.last_cursor_bottom_offset = repl.last_cursor_bottom_offset or 0
 repl.enabled = true
 local INPUT_PREFIX_WIDTH = 2
 local MAX_VISIBLE_INPUT_LINES = 5
--- Pre-declare local function to be accessible by SetEnabled
 local clear_display
 
 local function get_terminal_width()
@@ -303,7 +302,6 @@ do
 		local ok, tokens = pcall(lex_string, str)
 
 		if not ok then
-			-- Lexer failed, just write plain text
 			term:Write(str)
 			return
 		end
@@ -321,7 +319,6 @@ do
 		end
 
 		for _, token in ipairs(tokens) do
-			-- Write whitespace if present
 			if token:HasWhitespace() then
 				for _, v in ipairs(token:GetWhitespace()) do
 					if v.Type == "line_comment" or v.Type == "multiline_comment" then
@@ -332,7 +329,6 @@ do
 				end
 			end
 
-			-- Always write the token itself
 			if token:IsKeyword() then
 				set_color("keyword")
 			elseif token:IsKeywordValue() then
@@ -380,7 +376,6 @@ function repl.InputLua(str)
 		lrun.Execute(str, {log_error = true})
 	end
 
-	-- Flush stdout to capture any pending print() output
 	output.Flush()
 	repl.is_executing = false
 end
@@ -448,14 +443,11 @@ function repl.HandleEvent(ev)
 			local current_visual_line = repl.editor:GetVisualLineCol()
 
 			if ev.modifiers and ev.modifiers.ctrl then
-				-- Scroll input view up (by wrapped lines)
 				repl.input_scroll_offset = math.max(0, repl.input_scroll_offset - 1)
 			elseif current_visual_line > 1 then
 				repl.editor:OnKeyInput("up")
 				keep_cursor_visible = true
 			elseif current_visual_line == 1 and repl.history_index > 1 then
-				-- At first line, trying to go up - navigate history
-				-- Save current input if we're leaving fresh input mode
 				if repl.history_index > #commands.history then
 					repl.saved_input = buffer
 				end
@@ -472,7 +464,6 @@ function repl.HandleEvent(ev)
 			local total_visual_lines = get_wrapped_line_count(width)
 
 			if ev.modifiers and ev.modifiers.ctrl then
-				-- Scroll input view down (by wrapped lines)
 				repl.input_scroll_offset = math.min(
 					math.max(0, total_visual_lines - MAX_VISIBLE_INPUT_LINES),
 					repl.input_scroll_offset + 1
@@ -484,7 +475,6 @@ function repl.HandleEvent(ev)
 				current_visual_line == total_visual_lines and
 				repl.history_index < #commands.history
 			then
-				-- At last line, trying to go down - navigate history
 				repl.history_index = repl.history_index + 1
 				repl.editor:SetText(commands.history[repl.history_index])
 				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
@@ -495,7 +485,6 @@ function repl.HandleEvent(ev)
 				current_visual_line == total_visual_lines and
 				repl.history_index == #commands.history
 			then
-				-- Restore saved input when going back to fresh input mode
 				repl.history_index = #commands.history + 1
 				repl.editor:SetText(repl.saved_input)
 				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
@@ -542,27 +531,22 @@ function repl.HandleEvent(ev)
 	end
 end
 
--- Clear the display area we drew last time
 clear_display = function(term)
 	if repl.last_drawn_lines > 0 then
-		-- Move to beginning of current line first
 		term:Write("\r")
 
 		if repl.last_cursor_bottom_offset > 0 then
 			term:MoveDown(repl.last_cursor_bottom_offset)
 		end
 
-		-- Move up to the start of our display area
 		if repl.last_drawn_lines > 1 then term:MoveUp(repl.last_drawn_lines - 1) end
 
-		-- Clear each line
 		for i = 1, repl.last_drawn_lines do
 			term:ClearCurrentLine()
 
 			if i < repl.last_drawn_lines then term:MoveDown(1) end
 		end
 
-		-- Move back to the start
 		if repl.last_drawn_lines > 1 then term:MoveUp(repl.last_drawn_lines - 1) end
 
 		term:Write("\r")
@@ -577,25 +561,20 @@ local function draw(term)
 	local w, h = term:GetSize()
 	sync_wrap_width(w)
 	clamp_input_scroll_offset(w)
-	-- Clear previous display
 	clear_display(term)
 	local wrapped_lines = build_wrapped_lines(w)
-	-- Calculate visible input lines (max 5 wrapped lines)
 	local visible_input_lines = math.min(MAX_VISIBLE_INPUT_LINES, #wrapped_lines)
 	local total_display_lines = visible_input_lines
-	-- Draw input
 	local sel_start, sel_stop = repl.editor:GetSelection()
 	local current_char_idx = 1
-	-- Calculate which lines to show with scrolling
 	local start_line = repl.input_scroll_offset + 1
 	local end_line = math.min(#wrapped_lines, start_line + visible_input_lines - 1)
 
-	-- Skip characters before the visible range
 	for i = 1, start_line - 1 do
 		local wrapped_info = wrapped_lines[i]
 
 		if i > 1 and wrapped_lines[i - 1].original_line ~= wrapped_info.original_line then
-			current_char_idx = current_char_idx + 1 -- +1 for newline between original lines
+			current_char_idx = current_char_idx + 1
 		end
 
 		current_char_idx = current_char_idx + wrapped_info.wrapped_text:utf8_length()
@@ -611,14 +590,11 @@ local function draw(term)
 		local display_line_num = i - start_line + 1
 		term:Write(prefix)
 
-		-- Use styled rendering if no selection, otherwise render char by char with selection
 		if not sel_start then
-			-- No selection - use syntax highlighting
 			repl.ColorizeAndWrite(term, line)
 			term:NoAttributes()
 			current_char_idx = current_char_idx + line:utf8_length()
 		else
-			-- Has selection - render char by char with selection highlighting
 			for j = 1, line:utf8_length() do
 				local char = line:utf8_sub(j, j)
 				local is_selected = current_char_idx >= sel_start and current_char_idx < sel_stop
@@ -635,12 +611,10 @@ local function draw(term)
 			end
 		end
 
-		-- Handle the newline character between original lines
 		if i < #wrapped_lines then
 			local next_wrapped = wrapped_lines[i + 1]
 
 			if next_wrapped.original_line ~= wrapped_info.original_line then
-				-- This is the end of an original line, account for newline character
 				if sel_start then
 					local is_selected = current_char_idx >= sel_start and current_char_idx < sel_stop
 
@@ -660,16 +634,13 @@ local function draw(term)
 		if display_line_num < visible_input_lines then term:Write("\n") end
 	end
 
-	-- Calculate cursor position in wrapped lines
 	local cursor_wrapped_line, cursor_wrapped_col = repl.editor:GetVisualLineCol()
 
-	-- Only position cursor if it's in the visible range
 	if cursor_wrapped_line >= start_line and cursor_wrapped_line <= end_line then
 		cursor_screen_line = cursor_wrapped_line - start_line + 1
 		cursor_screen_col = INPUT_PREFIX_WIDTH + cursor_wrapped_col
 	end
 
-	-- Position cursor (move up if we're not on the last line)
 	local lines_to_move_up = visible_input_lines - cursor_screen_line
 
 	if lines_to_move_up > 0 then term:MoveUp(lines_to_move_up) end
@@ -696,13 +667,11 @@ function repl.Initialize()
 
 	local stdout_handle = output.original_stdout_file or io.stdout
 	local term = terminal.WrapFile(io.stdin, stdout_handle)
-	-- Don't use alternate screen - let output flow naturally
 	term:EnableCaret(true)
 	term:EnableBracketedPaste(true)
 	repl.term = term
 
 	event.AddListener("Update", "repl", function()
-		-- Process any pending stdout data from the pipe
 		output.Flush()
 
 		if not repl.enabled then return end
@@ -721,7 +690,6 @@ function repl.Initialize()
 	event.AddListener("StdOutWrite", "repl", function(str)
 		if not repl.started or not repl.enabled then return end
 
-		-- Clear current display before output is written
 		if repl.term then
 			clear_display(repl.term)
 			repl.term:Flush()
@@ -729,27 +697,21 @@ function repl.Initialize()
 			repl.last_cursor_bottom_offset = 0
 		end
 
-		-- Style the output with "< " prefix when executing
 		if repl.is_executing and repl.term then
-			-- Process each line and add the prefix
 			local lines = {}
 
 			for line in (str .. "\n"):gmatch("(.-)\n") do
 				table.insert(lines, line)
 			end
 
-			-- Remove trailing empty line caused by the pattern when string ends with \n
 			if #lines > 0 and lines[#lines] == "" then table.remove(lines) end
 
 			for i, line in ipairs(lines) do
-				-- Output styling: dim cyan "< " prefix
-				-- Output styling: dim cyan "< " prefix
 				repl.term:PushDim()
 				repl.term:PushForegroundColor(100, 180, 180)
 				repl.term:Write("< ")
 				repl.term:PopAttribute()
 				repl.term:PopAttribute()
-				-- Write the actual output line with syntax highlighting
 				repl.ColorizeAndWrite(repl.term, line)
 				repl.term:NoAttributes()
 
@@ -758,16 +720,13 @@ function repl.Initialize()
 
 			repl.term:Flush()
 			repl.needs_redraw = true
-			return false -- We handled the output ourselves (log already written by output.lua)
+			return false
 		end
 
-		-- Allow output to proceed, prompt will redraw on next update
 		repl.needs_redraw = true
 	end)
 
 	event.AddListener("ShutDown", "repl", function()
-		-- Just move to a new line, don't clear the display
-		-- This preserves the output history in the terminal
 		if term then
 			term:NoAttributes()
 			term:Write("\n")
@@ -778,7 +737,6 @@ function repl.Initialize()
 		output.Flush()
 	end)
 
-	-- Initial draw
 	draw(term)
 end
 

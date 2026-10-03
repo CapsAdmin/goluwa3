@@ -90,7 +90,7 @@ function chatsounds.BuildFromGithub(repo, location, list_id)
 				end
 
 				local cached_path = "cache/" .. crypto.CRC32(url .. location) .. ".chatsounds_tree"
-				print("cached path: " .. cached_path) --- IGNORE ---
+				print("cached path: " .. cached_path)
 				local sounds = codec.ReadFile("msgpack", cached_path)
 
 				if not etag_updated and sounds then
@@ -110,7 +110,7 @@ function chatsounds.BuildFromGithub(repo, location, list_id)
 
 				for path in str:gmatch("\"path\":%s?\"(.-)\"[\n,}]") do
 					if path:starts_with(location) and path:ends_with(".ogg") then
-						path = path:sub(#location + 2) -- start character after location, and another /
+						path = path:sub(#location + 2)
 						local tbl = path:split("/")
 						local realm = tbl[1]
 						local trigger = tbl[2]

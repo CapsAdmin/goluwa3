@@ -73,7 +73,6 @@ T.Test("bindings.tls.tls_client returns fresh instances", function()
 	T(client_a ~= client_b)["=="](true)
 end)
 
--- Use high port numbers to avoid conflicts
 local test_port = 5400
 local test_host = "0.0.0.0"
 
@@ -95,7 +94,6 @@ T.Test("sockets HTTP server and client communication", function()
 	local done = false
 	local received_request = nil
 	local client_response = nil
-	-- Create server
 	local server = HTTPServer.New()
 	assert(server:Host(test_host, next_port()))
 
@@ -104,12 +102,10 @@ T.Test("sockets HTTP server and client communication", function()
 	end
 
 	function server:OnReceiveHeader(client, header)
-		-- Send response
 		client:Send(http.HTTPResponse(200, "OK", {}, "Hello, World!"))
 		client:Close()
 	end
 
-	-- Create client and make request
 	local client = HTTPClient.New()
 
 	function client:OnReceiveStatus(code, status)
@@ -123,12 +119,10 @@ T.Test("sockets HTTP server and client communication", function()
 
 	client:Request("GET", "http://localhost:" .. (test_port - 1) .. "/test")
 
-	-- Wait for response
 	T.WaitUntil(function()
 		return done
 	end)
 
-	-- Cleanup
 	server:Close()
 	T(received_request)["~="](nil)
 	T(received_request.method)["=="]("GET")
@@ -142,7 +136,6 @@ T.Test("sockets HTTP POST request with body", function()
 	local done = false
 	local received_body = nil
 	local client_response = nil
-	-- Create server
 	local server = HTTPServer.New()
 	local ok = server:Host(test_host, next_port())
 
@@ -158,7 +151,6 @@ T.Test("sockets HTTP POST request with body", function()
 		client:Close()
 	end
 
-	-- Create client
 	local client = HTTPClient.New()
 
 	function client:OnReceiveBody(body)
@@ -185,7 +177,6 @@ T.Test("http.Request wrapper function", function()
 	local done = false
 	local result = nil
 	local server_got_request = false
-	-- Create server
 	local server = HTTPServer.New()
 	assert(server:Host(test_host, next_port()))
 
@@ -264,7 +255,6 @@ T.Test("sockets HTTP chunked body receiving", function()
 	assert(server:Host(test_host, next_port()))
 
 	function server:OnReceiveHeader(client, header)
-		-- Send a response that will come in chunks
 		local response_body = string.rep("A", 1000)
 		client:Send(http.HTTPResponse(200, "OK", {}, response_body))
 		client:Close()

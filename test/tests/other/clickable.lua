@@ -4,19 +4,16 @@ local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 
 T.Test("clickable creates panel with correct name and initial state", function()
-	-- Ensure theme is initialized
 	if not theme.active then theme.Initialize() end
 
 	local col = Clickable{
 		Size = Vec2(200, 50),
 		OnClick = function() end,
 	}
-	-- Verify name
 	assert(
 		col.Name == "clickable",
 		"Expected name to be 'clickable', got: " .. tostring(col.Name)
 	)
-	-- Verify initial state
 	assert(col:GetState("hovered") == false, "Expected hovered to be false")
 	assert(col:GetState("pressed") == false, "Expected pressed to be false")
 	assert(col:GetState("disabled") == false, "Expected disabled to be false")
@@ -32,13 +29,10 @@ T.Test("clickable state updates via SetState", function()
 		Size = Vec2(200, 50),
 		OnClick = function() end,
 	}
-	-- Simulate hover
 	col:SetState("hovered", true)
 	assert(col:GetState("hovered") == true, "Expected hovered to be true after setting")
-	-- Simulate press
 	col:SetState("pressed", true)
 	assert(col:GetState("pressed") == true, "Expected pressed to be true after setting")
-	-- Simulate disabled
 	col:SetState("disabled", true)
 	assert(col:GetState("disabled") == true, "Expected disabled to be true after setting")
 end)

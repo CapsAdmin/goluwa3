@@ -46,17 +46,9 @@ local async_send = function(sock, loop)
 			write_io:stop(loop)
 
 			if callbacks.on_sent then
-				-- detach calling callbacks.on_sent from current
-				-- exection if thiis call context is not
-				-- the send io to let send_async(_,on_sent,_) truely
-				-- behave async.
 				if write_io:is_active() then
 					callbacks.on_sent(copy)
 				else
-					-- on_sent is only defined when responding to "on message for close op"
-					-- so this can happen only once per lifetime of a websocket instance.
-					-- callbacks.on_sent may be overwritten by a new call to send_async
-					-- (e.g. due to calling ws:close(...) or ws:send(...))
 					local on_sent = callbacks.on_sent
 
 					detach(function()
@@ -77,7 +69,6 @@ local async_send = function(sock, loop)
 	end
 	local send_async = function(data, on_sent, on_err)
 		if buffer then
-			-- a write io is still running
 			buffer = buffer .. data
 			return #buffer
 		else
@@ -109,7 +100,6 @@ local message_io = function(sock, loop, on_message, on_error)
 	assert(sock:getfd() > -1)
 	local message_io
 	local dispatch = function(loop, io)
-		-- could be stopped meanwhile by on_message function
 		while message_io:is_active() do
 			local encoded, err, part = sock:receive(100000)
 
@@ -153,7 +143,6 @@ local message_io = function(sock, loop, on_message, on_error)
 	end
 	message_io = ev.IO.new(dispatch, sock:getfd(), ev.READ)
 	message_io:start(loop)
-	-- the might be already data waiting (which will not trigger the IO)
 	dispatch(loop, message_io)
 	return message_io
 end

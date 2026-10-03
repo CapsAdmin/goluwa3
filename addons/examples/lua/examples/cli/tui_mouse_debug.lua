@@ -1,14 +1,9 @@
 HOTRELOAD = false
--- Minimal TUI mouse hit-test debug demo.
--- Run: runfile("addons/test/lua/examples/tui_mouse_debug.lua")
--- Move mouse over the terminal and watch the output.
--- Ctrl+C returns to REPL.
 local TuiPanel = import("goluwa/cli/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local event = import("goluwa/event.lua")
 local repl = import("goluwa/cli/repl.lua")
--- ── state ──────────────────────────────────────────────────────────────────
 local needs_redraw = true
 local lines = {}
 
@@ -20,7 +15,6 @@ local function log(s)
 	needs_redraw = true
 end
 
--- ── centering container ────────────────────────────────────────────────────
 local center = TuiPanel.New{
 	Parent = TuiPanel.World,
 	ComponentSet = {"transform", "layout"},
@@ -32,7 +26,6 @@ local center = TuiPanel.New{
 		AlignmentY = "center",
 	},
 }
--- ── outer box with an inner box nested inside ─────────────────────────────
 local outer = TuiPanel.New{
 	Parent = center,
 	ComponentSet = {"transform", "layout", "tui_element", "tui_mouse_input", "tui_border"},
@@ -82,7 +75,6 @@ for _, b in ipairs({box_a, box_b}) do
 	end)
 end
 
--- ── track mouse and nearest box rect ──────────────────────────────────────
 local mouse_x, mouse_y = 0, 0
 local info_a = "?"
 local info_b = "?"
@@ -110,7 +102,6 @@ event.AddListener("TerminalMouseMoved", "tui_mouse_debug", function(x, y)
 	needs_redraw = true
 end)
 
--- ── Ctrl+C to quit ─────────────────────────────────────────────────────────
 local function teardown()
 	event.RemoveListener("TerminalKeyInput", "tui_mouse_debug_key")
 	event.RemoveListener("TerminalMouseMoved", "tui_mouse_debug")
@@ -130,7 +121,6 @@ event.AddListener(
 	{priority = 100}
 )
 
--- ── draw loop ──────────────────────────────────────────────────────────────
 event.AddListener(
 	"Update",
 	"tui_mouse_debug_draw",

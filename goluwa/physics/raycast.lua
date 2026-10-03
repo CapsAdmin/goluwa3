@@ -4,7 +4,6 @@ local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local system = import("goluwa/system.lua")
 local raycast = library()
--- visual imports render3d, whose envprobe traces through physics/trace.lua back to here
 import.loaded["goluwa/physics/raycast.lua"] = raycast
 local Visual = RENDER_3D and import("goluwa/entities/components/visual.lua")
 local BVH_BUILD_TRIANGLE_THRESHOLD = 8

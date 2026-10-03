@@ -21,7 +21,6 @@ T.Test("CreateLoadCache calls every caller of a load in progress without chainin
 	loads:Finish("a", {"result"})
 	T(meshes)["=="](count)
 	T(done)["=="](count)
-	-- loaded: check declines, get returns the result
 	T(loads:Join("a", on_done, {}))["=="](nil)
 	T(loads:Get("a")[1])["=="]("result")
 end)

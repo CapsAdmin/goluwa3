@@ -47,10 +47,6 @@ function static_model_query.BuildExpandedBodyWorldContactAABB(body)
 end
 
 do
-	-- The models that are not simulated as bodies, rebuilt when the physics
-	-- step starts or the model count changes. A sweep only has to test these
-	-- against its bounds; testing every model of a busy scene against every
-	-- sweep was most of its step.
 	local static_models = {}
 	local static_bounds = {}
 	local static_model_count = 0
@@ -61,7 +57,6 @@ do
 		stale = true
 	end
 
-	-- ignore_rigid_bodies drops the models of entities that have a rigid body
 	function static_model_query.CollectWorldModelCandidates(world_aabb, out, ignore_rigid_bodies, include_unbounded)
 		out = out or {}
 

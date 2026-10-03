@@ -1304,7 +1304,8 @@ local function begin_gizmo_drag(handle)
 	local mouse_pos = window:GetMousePosition():Copy()
 
 	if handle.kind == "move" then
-		local start_screen = handle.start_screen or render3d.GetCamera():WorldPositionToScreenUnjittered(handle.center)
+		local start_screen = handle.start_screen or
+			render3d.GetCamera():WorldPositionToScreenUnjittered(handle.center)
 		local stop_screen = handle.stop_screen or
 			render3d.GetCamera():WorldPositionToScreenUnjittered(handle.center + handle.direction * handle.axis_length)
 
@@ -1354,7 +1355,8 @@ local function begin_gizmo_drag(handle)
 		}
 	end
 
-	local center_screen = handle.center_screen or render3d.GetCamera():WorldPositionToScreenUnjittered(handle.center)
+	local center_screen = handle.center_screen or
+		render3d.GetCamera():WorldPositionToScreenUnjittered(handle.center)
 
 	if not center_screen then return nil end
 

@@ -14,16 +14,8 @@ local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local ddgi = library()
--- Dynamic diffuse global illumination (Majercik et al. 2019) over hardware ray
--- tracing. A camera-centred grid of probes each trace RAYS_PER_PROBE rays per
--- frame; the hits are shaded (direct light plus last frame's probe irradiance
--- for the infinite bounce) and blended into two octahedral atlases per probe:
--- irradiance, and the mean/mean^2 hit distance used for the Chebyshev
--- visibility test that keeps light from leaking through walls.
 pvars.StartGroup("ddgi", {store = false})
 
--- With the ddgi pass off the probe passes are skipped and surfaces fall back to
--- the environment's irradiance, unoccluded. Back on, the probes start over.
 event.AddListener("Render3DPassToggled", "ddgi", function(name, value)
 	if name == "ddgi" and value then ddgi.ResetHistory() end
 end)
@@ -35,19 +27,8 @@ local probe_spacing = pvars.Setup2{
 	min = 0.1,
 	help = "meters between the finest cascade's probes",
 }
--- Nested volumes of the same P^3 probes, each twice the spacing of the one
--- inside it, so the probes reach far while the view stays on the fine ones.
--- A point is shaded by the finest cascade that holds it, fading into the next
--- over CASCADE_BLEND cells before that cascade's edge.
 ddgi.CASCADES = 4
 ddgi.CASCADE_BLEND = 2.0
--- How often each cascade traces its rays and blends them into its probes, in
--- frames: cascade i updates every UPDATE_INTERVALS[i]th frame, staggered so the
--- cascades' frames do not all coincide. The outer cascades' light changes
--- slowly, so they can update rarely and cost a fraction of the finest one. A
--- cascade updates early when its volume scrolled to a new cell or its history
--- was reset. Hysteresis is scaled by the time since the cascade's last update,
--- so light settles as fast in real time at any interval.
 local update_intervals = {}
 
 for c, frames in ipairs{1, 2, 4, 8} do
@@ -61,16 +42,6 @@ for c, frames in ipairs{1, 2, 4, 8} do
 	}
 end
 
--- The cascades are fitted to the scene's bounds. Each cascade has a budget of
--- P^3 probes at its fixed spacing; an axis the scene is short along (the
--- height of a flat level) only gets the probes that cover it plus a cell on
--- each side, and the rest of the budget spreads the cascade further along the
--- other axes. Coarse cascades are skipped while a finer one holds the whole
--- scene, and each cascade stays over the scene instead of empty space around
--- a camera that left it. The fitted region reaches at most MAX_COVERAGE
--- metres from the camera (infinite terrain, a stray far away object) and at
--- least MIN_COVERAGE metres from its centre to each side (a single small
--- model). Changing an axis' probe count throws the cascade's history away.
 local min_coverage = pvars.Setup2{
 	key = "ddgi_min_coverage",
 	default = 4,
@@ -85,46 +56,16 @@ local max_coverage = pvars.Setup2{
 }
 ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
--- The probe rays (ddgi_shade) in a half float texture instead of a full float
--- one, which halves it (142 MB to 71 MB at the defaults). A half float holds
--- at most 65504, so ray radiance is clamped to DDGI_RAY_MAX, a miss is stored
--- as 60000 m instead of 1e27, and an emitter sample's direction is packed in 6
--- bits per octahedral axis instead of 12.
 ddgi.HALF_PRECISION_RAYS = true
--- static: the probe rays and the sun's shadow ray from their hits see through
--- alpha tested materials (leaves, fences) by sampling the albedo alpha in an
--- any hit shader, instead of hitting them as solids. everything else, the
--- translucent materials included, stays solid. needs scene_bvh.SOUP_UVS and
--- ray tracing. set to false to measure what it costs
 ddgi.ALPHA_TEST = scene_bvh.SOUP_UVS
--- static: a ray hit's albedo is the albedo texture sampled at the hit's uv, at
--- the mip where the texture is about ALBEDO_UV_TEXELS wide, instead of the
--- texture's average colour. terrain keeps its own lookup. needs
--- scene_bvh.SOUP_UVS. set to false to compare with the average
 ddgi.ALBEDO_UVS = scene_bvh.SOUP_UVS
 ddgi.ALBEDO_UV_TEXELS = 8
--- Emissive surfaces light the probes only through emitter samples: per probe
--- and frame, EMITTER_SAMPLES shadow rays to points on emissive triangles. A
--- small or partly hidden emitter is rarely hit by the uniform rays, which
--- made it flicker (and the brightest ray clamp mostly dropped it). Each sample
--- draws ddgi_emitter_candidates points in proportion to their triangle's power and
--- keeps one by how much light it would bring the probe (resampled importance
--- sampling), so samples aren't spent on faces turned away or far off.
 ddgi.EMITTER_SAMPLES = 32
 local emitters_enabled = pvars.Setup2{
 	key = "ddgi_emitters",
 	default = true,
 	help = "emissive surfaces light the probes, off is for telling whether they cause noise",
 }
--- Drawing the candidates by power alone, wherever the emitters are, means that
--- with many tiny emitters spread over a map (glowing crystals) a probe seldom
--- draws the few that are near it. So the emitters are binned into a grid of
--- EMITTER_CELL_SIZE cells, and this share of the candidates is drawn from the 27
--- cells around the probe, a cell in proportion to its power over its distance
--- squared and then an emitter of it by power. The rest are still drawn by power
--- alone, which keeps the far emitters in (and the estimate unbiased: every
--- candidate is weighted by the density it was drawn with, see
--- ddgi_pick_emitter_sample). 0 is by power alone.
 local emitter_grid = pvars.Setup2{
 	key = "ddgi_emitter_grid",
 	default = 0.75,
@@ -132,10 +73,6 @@ local emitter_grid = pvars.Setup2{
 	max = 1,
 	help = "share of emitter candidates drawn from the cells around the probe, 0 is by power alone",
 }
--- Materials that are only emissive because they are additive (light shafts,
--- waterfall foam, sparkles, flames) are effects drawn over the scene, but
--- would light the probes as surfaces at full emissive luminance. A single
--- light shaft billboard was 99.9% of one map's emitter power.
 local additive_emitters = pvars.Setup2{
 	key = "ddgi_additive_emitters",
 	default = true,
@@ -147,7 +84,6 @@ local emitter_cell_size = pvars.Setup2{
 	min = 0.25,
 	help = "meters across a cell of the grid the emitter candidates are drawn from",
 }
--- At most 63: the kept one's index shares a word with the emitter's (see DDGI_EMITTER_SHIFT).
 local emitter_candidates = pvars.Setup2{
 	key = "ddgi_emitter_candidates",
 	default = 8,
@@ -156,23 +92,9 @@ local emitter_candidates = pvars.Setup2{
 	max = 63,
 	help = "emitters drawn per emitter sample, one is kept by how much light it brings the probe",
 }
--- A ray hit is lit by LIGHT_SAMPLES of the local lights in its light grid
--- cell with a shadow ray each, not all of them: each picked in proportion to
--- the light it would bring unshadowed and weighted back by that probability,
--- so the probes' blending averages out the noise. At most 4.
 ddgi.LIGHT_SAMPLES = 2
--- octahedral tile sizes including the one texel border that makes bilinear
--- sampling wrap correctly across the octahedron's edges
 ddgi.IRRADIANCE_TEXELS = 8
 ddgi.DISTANCE_TEXELS = 16
--- How much of a probe texel's history survives a frame, given for 60 fps and
--- scaled by the frame time, so light takes as long to settle at any frame
--- rate. A texel whose per frame estimates jump around (a doorway that one or
--- two rays see through) keeps HYSTERESIS, a steady one MIN_HYSTERESIS, which
--- follows gradual changes (the sun moving) sooner. NOISE_RANGE is the mean
--- relative deviation from the texel's average at which it counts as fully
--- noisy. A probe that just scrolled in averages its frames evenly until it
--- has had enough of them for the hysteresis to take over.
 local hysteresis = pvars.Setup2{
 	key = "ddgi_hysteresis",
 	default = 0.99,
@@ -193,8 +115,6 @@ local noise_range = pvars.Setup2{
 	min = 0.001,
 	help = "mean relative deviation at which a texel counts as fully noisy",
 }
--- a texel whose every frame grew or shrank by more than this factor against
--- its history, ADAPT_FRAMES frames in a row, catches up quickly
 local irradiance_threshold = pvars.Setup2{
 	key = "ddgi_irradiance_threshold",
 	default = 2.0,
@@ -208,25 +128,12 @@ local adapt_frames = pvars.Setup2{
 	min = 1,
 	help = "frames in a row a texel must differ by the threshold to adapt quickly",
 }
--- Caps every ray's radiance at this many times the probe's mean ray luminance
--- (see IRRADIANCE_INTEGRATE in passes/ddgi.lua), 0 is off. The mean leaves the
--- probe's brightest ray out, so a hot spot that one or two rays hit (a lit room
--- seen through a doorway, right next to a lamp) counts like a typical ray
--- instead of flashing the whole probe, while light that many rays see raises
--- the mean and passes through. The light above the cap is lost, so small bright
--- sources come out dimmer: the lower the factor, the calmer and the darker.
 local ray_clamp = pvars.Setup2{
 	key = "ddgi_ray_clamp",
 	default = 0,
 	min = 0,
 	help = "cap each ray's radiance at this many times the probe's mean ray luminance, 0 is off",
 }
--- Rays are steered by what the probe has seen. Each probe keeps an octahedral
--- map of the radiance its rays returned (see pass_guide in passes/ddgi.lua), and
--- this share of its rays is aimed at the cells in proportion to it, so a small
--- bright opening that one uniform ray in fifty goes through gets many. Every ray
--- carries the inverse of the density it was drawn with, so the estimate stays
--- unbiased. 0 is uniform rays only.
 local guided_ray_fraction = pvars.Setup2{
 	key = "ddgi_guided_rays",
 	default = 0.5,
@@ -239,28 +146,16 @@ function ddgi.GetUniformRays()
 	return ddgi.RAYS_PER_PROBE - math.floor(ddgi.RAYS_PER_PROBE * guided_ray_fraction:Get() + 0.5)
 end
 
--- local lights are treated as spheres of this radius (in probe spacings) when
--- lighting ray hits. A probe can't resolve a hot spot smaller than this, and a
--- ray landing right next to a lamp would otherwise outweigh all the others
--- and light up the whole probe for a frame
 local light_radius = pvars.Setup2{
 	key = "ddgi_light_radius",
 	default = 0.1,
 	min = 0,
 	help = "radius of local lights in probe spacings when lighting ray hits",
 }
--- sharpness of the cosine lobe the hit distances are averaged with
 ddgi.DISTANCE_EXPONENT = 50.0
--- surface bias along the normal and towards the viewer, in probe spacings
 ddgi.NORMAL_BIAS = 0.1
 ddgi.VIEW_BIAS = 0.3
--- probes whose rays mostly hit back faces are inside geometry and are skipped
 ddgi.BACKFACE_THRESHOLD = 0.25
--- Probes that land inside geometry move out of it (by at most
--- PROBE_MAX_OFFSET spacings), so that a probe inside a box does not get
--- disabled while the probes that take over its corner may be behind a wall.
--- Probes are not pushed off nearby surfaces: the rays are rotated every frame,
--- so that push is noisy, and visibility rays already stop the leaks it targeted.
 local relocation = pvars.Setup2{
 	key = "ddgi_relocation",
 	default = true,
@@ -274,66 +169,45 @@ ddgi.PROBE_MAX_OFFSET = 0.45
 ddgi.SKY_INTENSITY = 1.0
 ddgi.RANDOM_ROTATION = true
 ddgi.RESOLVE_SCALE = 1.0
--- The screen blends the 3x3x3 probes around a point with quadratic B-spline
--- weights instead of the 2x2x2 around it trilinearly. Trilinear is only
--- continuous, its slope jumps at every cell face, which draws the grid into
--- light that falls off steeply (lamps at night). The B-spline's slope is
--- continuous too, at the cost of a little extra blur and 27 probe lookups.
--- Probe rays always use trilinear; their light is blurred into the probes.
 local smooth_blend = pvars.Setup2{
 	key = "ddgi_smooth_blend",
 	default = true,
 	help = "blend 3x3x3 probes with quadratic B-spline weights",
 }
--- Probes a point blends are checked with a ray from the point, and dropped
--- when something is in the way (see ddgi_sample_cascade): 0 none, 1 relocated
--- probes (which can come out of a wall on its far side), 2 all of them (walls
--- thinner than the distance test can resolve). Needs ray queries.
 local visibility_rays = pvars.Setup2{
 	key = "ddgi_visibility_rays",
 	default = 2,
 	enums = {0, 1, 2},
 	help = "probes checked with a ray: 0 none, 1 relocated ones, 2 all",
 }
--- Visibility rays only hit front faces. The TLAS is rebuilt a few frames behind
--- a moving object, so a point on a face that moves away from its probes sits
--- just inside the object's stale copy and would otherwise see every probe
--- through that copy's back face (a black shadow trailing the object). The cost
--- is that fast moving objects can leak light where a back face should block.
 local visibility_front_faces_only = pvars.Setup2{
 	key = "ddgi_visibility_front_faces_only",
 	default = true,
 	help = "visibility rays only hit front faces",
 }
--- 0 off, 1 probe irradiance, 2 probe mean hit distance (see passes/ddgi.lua)
 local debug_probes = pvars.Setup2{
 	key = "ddgi_debug_probes",
 	default = 0,
 	enums = {0, 1, 2},
 	help = "0 off, 1 probe irradiance, 2 probe mean hit distance",
 }
--- 0 off, 1 albedo, 2 normals, 3 hit distance (see passes/ddgi.lua)
 local debug_scene = pvars.Setup2{
 	key = "ddgi_debug_scene",
 	default = 0,
 	enums = {0, 1, 2, 3},
 	help = "0 off, 1 albedo, 2 normals, 3 hit distance of the scene the probe rays trace",
 }
--- 1 makes the lighting pass show only the gi irradiance
 local debug_gi = pvars.Setup2{
 	key = "ddgi_debug_gi",
 	default = false,
 	help = "show only the gi irradiance",
 }
--- brightness of the debug view, which is shown in display units: 1 is about as
--- bright as the image gets before it would bloom
 local debug_scale = pvars.Setup2{
 	key = "ddgi_debug_scale",
 	default = 1.0,
 	min = 0,
 	help = "brightness of the debug markers",
 }
--- the cascade whose probes the debug view draws
 local debug_cascade = pvars.Setup2{
 	key = "ddgi_debug_cascade",
 	default = 0,
@@ -350,8 +224,6 @@ local max_ray_distance = pvars.Setup2{
 	help = "max distance a ray can travel",
 }
 pvars.EndGroup()
--- stored in a ray's distance slot when it missed everything, far past
--- MAX_RAY_DISTANCE
 ddgi.MISS_DISTANCE = ddgi.HALF_PRECISION_RAYS and 60000 or 1e27
 
 function ddgi.GetDebugProbes()
@@ -374,8 +246,6 @@ function ddgi.GetRayCount()
 	return ddgi.GetProbeCount() * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES)
 end
 
--- rgb = irradiance, a = sky visibility: the contract the lighting pass reads
--- through gi_screen_tex
 function ddgi.GetScreenTexture()
 	if not render3d.IsPassEnabled("ddgi") then return nil end
 
@@ -387,7 +257,6 @@ function ddgi.GetDebugSceneMode()
 	return debug_scene:Get()
 end
 
--- drawn over the lit image by the lighting pass; rgb = colour, a = coverage
 function ddgi.GetDebugOverlayTexture()
 	if debug_probes:Get() == 0 then return nil end
 
@@ -414,7 +283,6 @@ do
 		rt_ready = false,
 	}
 
-	-- Shoemake's uniform random rotation
 	local function random_rotation(q)
 		local u1, u2, u3 = math.random(), math.random() * 2 * math.pi, math.random() * 2 * math.pi
 		local a, b = math.sqrt(1 - u1), math.sqrt(u1)
@@ -424,7 +292,6 @@ do
 		q.w = b * math.cos(u3)
 	end
 
-	-- one axis of the region the cascades are fitted to
 	local function fit_region(axis, camera, bounds_min, bounds_max)
 		local lo, hi = camera - min_coverage:Get(), camera + min_coverage:Get()
 
@@ -432,7 +299,6 @@ do
 			lo = math.max(bounds_min[axis], camera - max_coverage:Get())
 			hi = math.min(bounds_max[axis], camera + max_coverage:Get())
 
-			-- the scene lies entirely beyond MAX_COVERAGE
 			if hi < lo then
 				lo, hi = camera - min_coverage:Get(), camera + min_coverage:Get()
 			end
@@ -446,11 +312,6 @@ do
 		return lo, hi
 	end
 
-	-- Probes a cascade needs along an axis to cover size metres at spacing:
-	-- the cells it spans (one more when it straddles cell boundaries) plus a
-	-- cell of padding on each side. The current count is kept while it is
-	-- enough and not much more, so a region that wobbles does not keep
-	-- resetting the cascade.
 	local function fit_need(size, spacing, current)
 		local need = math.ceil(size / spacing) + 4
 
@@ -461,9 +322,6 @@ do
 		return need
 	end
 
-	-- Splits the P^3 budget over the axes: the axis that needs the fewest
-	-- probes takes what it needs (or its cube root share), the next the square
-	-- root of what is left, and the last the rest.
 	local function distribute(cascade)
 		local budget = ddgi.PROBES_PER_AXIS ^ 3
 		local a, b, c = "x", "y", "z"
@@ -484,10 +342,6 @@ do
 		cascade.size[c] = math.max(math.min(need[c], budget), ddgi.MIN_PROBES_PER_AXIS)
 	end
 
-	-- The lowest probe coordinate of a cascade with count probes along one
-	-- axis: centred on the region (padded by a cell) when it can hold all of
-	-- it, otherwise centred on the camera but kept inside the padded region.
-	-- The second result is whether it holds all of it.
 	local function fit_base(camera, lo, hi, spacing, count)
 		local lo_cell, hi_cell = math.floor(lo / spacing) - 1, math.ceil(hi / spacing) + 1
 
@@ -499,11 +353,6 @@ do
 		false
 	end
 
-	-- Everything the passes of one frame must agree on: where each cascade is,
-	-- its probe counts and how many cascades are in use, how this frame's rays
-	-- are rotated, and which cascades' history is garbage (fresh atlases, a
-	-- cascade that was skipped, or one whose layout changed) and must be
-	-- overwritten instead of blended.
 	function ddgi.GetFrameState()
 		local frame = system.GetFrameNumber()
 
@@ -534,7 +383,6 @@ do
 			local need, size = cascade.need, cascade.size
 			local old_x, old_y, old_z = size.x, size.y, size.z
 
-			-- a cube until the scene is built
 			if bounds_min then
 				need.x = fit_need(region.max_x - region.min_x, spacing, need.x)
 				need.y = fit_need(region.max_y - region.min_y, spacing, need.y)
@@ -544,8 +392,6 @@ do
 				size.x, size.y, size.z = ddgi.PROBES_PER_AXIS, ddgi.PROBES_PER_AXIS, ddgi.PROBES_PER_AXIS
 			end
 
-			-- every probe of the cascade changed slot, or it comes back into use
-			-- holding whatever it had when it was dropped
 			if
 				c > state.cascade_count or
 				spacing ~= cascade.spacing or
@@ -564,8 +410,6 @@ do
 			cascade.elapsed = (cascade.elapsed or 0) + frame_time
 			local interval = update_intervals[c]:Get()
 
-			-- a probe that scrolled into a slot is not usable until its cascade
-			-- updates, so scrolling does not wait for the interval
 			if
 				(
 					frame + c - 1
@@ -581,7 +425,6 @@ do
 				cascade.elapsed = 0
 			end
 
-			-- only before the scene is built does a cube not know where it ends
 			cascade.holds = bounds_min and
 				(
 					(
@@ -602,7 +445,6 @@ do
 				0
 			state.cascades[c] = cascade
 
-			-- the first cascade that holds the whole scene is the last one needed
 			if
 				bounds_min and
 				c < count and
@@ -631,8 +473,6 @@ do
 	end
 end
 
--- The same spherical fibonacci + rotation as ddgi_fibonacci in GLSL, for the n
--- uniform rays of a probe.
 function ddgi.GetRayDirection(index, n, rotation)
 	local golden = (math.sqrt(5) - 1) / 2
 	local phi = 2 * math.pi * ((index * golden) % 1)
@@ -640,7 +480,6 @@ function ddgi.GetRayDirection(index, n, rotation)
 	local sin_theta = math.sqrt(math.max(0, 1 - cos_theta * cos_theta))
 	local x, y, z = math.cos(phi) * sin_theta, math.sin(phi) * sin_theta, cos_theta
 	local qx, qy, qz, qw = rotation.x, rotation.y, rotation.z, rotation.w
-	-- v + 2 * cross(q.xyz, cross(q.xyz, v) + q.w * v)
 	local cx = qy * z - qz * y + qw * x
 	local cy = qz * x - qx * z + qw * y
 	local cz = qx * y - qy * x + qw * z
@@ -691,7 +530,6 @@ function ddgi.GetDefinesGLSL()
 		ddgi.MISS_DISTANCE,
 		ddgi.HALF_PRECISION_RAYS and 65000 or 3e38,
 		ddgi.HALF_PRECISION_RAYS and 6 or 12,
-		-- a half float is exact from -2048 to 2048, so the 12 packed bits are centred on 0
 		ddgi.HALF_PRECISION_RAYS and 2048 or 0,
 		ddgi.LIGHT_SAMPLES,
 		ddgi.ALPHA_TEST and scene_bvh.RAY_MASK_SOLID or 0xFF
@@ -804,17 +642,9 @@ function ddgi.GetRayDirectionGLSL()
 	]]
 end
 
--- total probe weight below which a lookup is darkened rather than normalized
 local MIN_WEIGHT = "0.05"
 ddgi.MIN_WEIGHT = MIN_WEIGHT
 
--- Probe addressing. A probe is named by its cascade c and integer world
--- coordinate w (it sits at w * the cascade's spacing) and stored in slot
--- w mod the cascade's probe count on each axis, so when a cascade scrolls the
--- probes that stay keep their slot and history; only the planes that wrapped
--- around land on a slot whose stored coordinate no longer matches. A slot's
--- linear index picks its tile; each cascade has P rows of P * P tiles in the
--- atlases, finest on top, and uses as many as its probe count needs.
 function ddgi.GetEmitterDeclarationsGLSL(binding)
 	return (
 		[[
@@ -834,12 +664,6 @@ function ddgi.GetEmitterDeclarationsGLSL(binding)
 	):format(binding)
 end
 
--- Picking and placing an emitter sample, shared by the trace (which traces
--- it) and the shade pass (which lights with it); both derive the
--- same random numbers from the sample's ray index and the frame. Needs
--- ddgi_emitters and scene_bvh_triangles.
--- The material buffer written by ddgi.WriteMaterialBuffer, indexed by a soup
--- triangle's material id.
 function ddgi.GetMaterialDeclarationsGLSL(binding)
 	return [[
 		struct ddgi_material {
@@ -869,7 +693,6 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 	]]
 end
 
--- needs render3d.GetEmissiveGLSL
 function ddgi.GetMaterialGLSL()
 	return [[
 		// no uvs at a hit, so textured surfaces use the texture's average
@@ -923,8 +746,6 @@ function ddgi.GetMaterialGLSL()
 	]]
 end
 
--- The albedo at a ray hit on a soup triangle, with the uv lookup of
--- ddgi.ALBEDO_UVS when it is on (needs the uv declaration then).
 function ddgi.GetHitAlbedoGLSL()
 	if not ddgi.ALBEDO_UVS then
 		return [[
@@ -977,9 +798,6 @@ function ddgi.GetHitAlbedoGLSL()
 	]]
 end
 
--- Whether a hit on a soup triangle counts, for the alpha tested materials
--- (see ddgi.ALPHA_TEST). Needs the material and uv declarations, bvh_tri and a
--- TEXTURE macro.
 function ddgi.GetAlphaTestGLSL()
 	return [[
 		bool ddgi_alpha_passes(uint triangle, vec2 barycentrics) {
@@ -1509,21 +1327,14 @@ function ddgi.GetCommonGLSL()
 	]]
 end
 
--- The fields ddgi_sample_irradiance needs, for passes that only read the
--- probes (volumetric_fog.lua); GetBlockLayout adds what the DDGI passes need.
 function ddgi.GetProbeBlockLayout()
 	return {
-		-- xyz = volume base (the lowest probe's world coordinate), w = spacing
 		{"ddgi_cascades", "vec4", ddgi.CASCADES},
-		-- xyz = probes along each axis, w = bits of the axes (1 x, 2 y, 4 z)
-		-- along which the cascade holds the whole scene
 		{"ddgi_cascade_size", "vec4", ddgi.CASCADES},
 		{"ddgi_rotation", "vec4"},
 		{"ddgi_sun_direction", "vec4"},
 		{"ddgi_sun_radiance", "vec4"},
 		{"ddgi_max_distance", "float"},
-		-- x = hysteresis, y = minimum hysteresis, scaled by the time since the
-		-- cascade's last update
 		{"ddgi_cascade_update", "vec4", ddgi.CASCADES},
 		{"ddgi_noise_range", "float"},
 		{"ddgi_irradiance_threshold", "float"},
@@ -1547,9 +1358,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_visibility_rays", "int"},
 		{"ddgi_visibility_front_faces_only", "int"},
 		{"ddgi_cascade_count", "int"},
-		-- bit c: cascade c's history is garbage
 		{"ddgi_reset_mask", "int"},
-		-- bit c: cascade c traces and blends this frame
 		{"ddgi_update_mask", "int"},
 		{"ddgi_rt_ready", "int"},
 		{"ddgi_env_tex", "int"},
@@ -1559,11 +1368,8 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_distance_tex", "int"},
 		{"ddgi_probe_data_tex", "int"},
 		{"ddgi_emitter_count", "int"},
-		-- the summed power of all emitters
-		-- see ddgi_emitter_grid
 		{"ddgi_emitter_grid", "float"},
 		{"ddgi_frame", "int"},
-		-- the rays of a probe that are not aimed by its guide
 		{"ddgi_uniform_rays", "int"},
 		{"ddgi_emitter_candidates", "int"},
 		{"ddgi_guide_tex", "int"},
@@ -1596,9 +1402,6 @@ function ddgi.WriteProbeBlock(self, block)
 	local lights = render3d.GetLights()
 	local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 	local sun_color = directional_shadows.GetPrimarySunColor(lights)
-	-- A sun below the horizon would light the scene from underneath: the
-	-- underside of the ground, and so the probes below it, at full daylight.
-	-- Faded like the sky and fog do.
 	local sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights) * math.smoothstep(-0.08, 0.02, sun_direction.y)
 	sun_direction:CopyToFloatPointer(block.ddgi_sun_direction)
 	block.ddgi_sun_direction[3] = 0
@@ -1627,7 +1430,6 @@ function ddgi.WriteProbeBlock(self, block)
 
 	for c = 1, ddgi.CASCADES do
 		local cascade = state.cascades[c]
-		-- a hitch shouldn't throw the history away
 		local frames = math.min(cascade.update_time, 0.1 * update_intervals[c]:Get()) * 60
 		block.ddgi_cascade_update[c - 1][0] = hysteresis:Get() ^ frames
 		block.ddgi_cascade_update[c - 1][1] = min_hysteresis:Get() ^ frames
@@ -1641,7 +1443,6 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
 	block.ddgi_view_bias = ddgi.VIEW_BIAS
 	block.ddgi_backface_threshold = ddgi.BACKFACE_THRESHOLD
-	-- in spacings, like the biases and the light radius
 	block.ddgi_relocation_distance = relocation:Get() and ddgi.RELOCATION_DISTANCE or 0
 	block.ddgi_max_offset = relocation:Get() and ddgi.PROBE_MAX_OFFSET or 0
 	block.ddgi_sky_intensity = ddgi.SKY_INTENSITY
@@ -1678,8 +1479,6 @@ end
 function ddgi.WriteBlock(self, block)
 	render3d.WriteCameraBlock(self, block)
 	gbuffer_layout.WriteBlock(self, block)
-	-- every light, not just those in view: probes see what the camera doesn't,
-	-- and the shadow rays make that safe
 	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	scene_lights.WriteLightsBlock(block.lights, lights)
@@ -1689,8 +1488,6 @@ function ddgi.WriteBlock(self, block)
 	return ddgi.WriteProbeBlock(self, block)
 end
 
--- One (hit distance, primitive id) pair per ray, written by the ray
--- generation shader. A miss stores a negative distance.
 local ray_hit_buffer = nil
 
 function ddgi.GetRayHitBuffer()
@@ -1706,11 +1503,6 @@ function ddgi.GetRayHitBuffer()
 	return ray_hit_buffer
 end
 
--- Every emissive triangle of the scene soup, as the words ddgi_grid in GLSL
--- reads (see GetEmitterDeclarationsGLSL): the emitters with the running sum of
--- their power for picking one in proportion to it, and a hash grid of cells
--- holding the emitters whose centroid is in them, for picking one near a probe.
--- weight is the total power. Rebuilt whenever the soup or the cell size changes.
 do
 	local GRID_HEADER = 8
 	local CELL_WORDS = 10
@@ -1760,7 +1552,6 @@ do
 			total_count = total_count + block.emitter_count
 		end
 
-		-- at least twice as many cells as emitters, so probing ends at an empty one
 		local capacity = 64
 
 		while capacity < total_count * 2 do
@@ -1842,7 +1633,6 @@ do
 			end
 		end
 
-		-- each cell's emitters are laid out together, in the order they came
 		local cursor = 0
 
 		for h = 0, capacity - 1 do
@@ -1896,7 +1686,6 @@ do
 		return emitters
 	end
 
-	-- one host-visible copy per frame in flight
 	function ddgi.GetEmitterBuffer()
 		local emitters = ddgi.GetEmitters()
 		local frame = render.GetCurrentFrame()
@@ -1926,11 +1715,6 @@ do
 	end
 end
 
--- The per-material data read through the soup's material id, one
--- host-visible copy per pipeline (texture indices are per pipeline) and frame
--- in flight. scene_bvh.materials only grows, so an entry is only rewritten when
--- it is new, its material was stamped by InvalidateRayMaterial since, or the
--- pipeline freed a texture index that an entry may still hold.
 local MaterialEntry = ffi.typeof([[struct {
 	float albedo[3];
 	int32_t albedo_tex;
@@ -2064,8 +1848,6 @@ function ddgi.WriteMaterialBuffer(self)
 	return state.buffer
 end
 
--- Ray generation parameters, one host-visible copy per frame in flight since
--- the previous frame may still be tracing while this one is written.
 local RTParams = ffi.typeof(
 	(
 		[[struct {
@@ -2367,10 +2149,6 @@ function ddgi.GetRTPipeline()
 	return rt_pipeline
 end
 
--- What the emitters are made of, to tell a crystal that is too bright from a
--- sampler that is too noisy. An emitter's radiance at a hit is emissive
--- multiplier x albedo x EMISSIVE_REFERENCE_LUMINANCE (cd/m2), capped at
--- EMISSIVE_MAX_LUMINANCE, see ddgi_emission.
 commands.Add("ddgi_emitter_info", function()
 	local emitters = ddgi.GetEmitters()
 	logf(

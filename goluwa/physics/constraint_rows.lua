@@ -1,12 +1,5 @@
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
--- Row solvers shared by every joint. A joint loads one state per body (anchor
--- offset, frame axes and world inverse inertia), then solves rows against the
--- two states. Bodies do not move while the rows are iterated, only their
--- velocities do, so the states stay valid for the whole substep.
--- `bias` feeds position error back as velocity, `mass_scale` and
--- `impulse_scale` are the soft constraint coefficients: the biased call passes
--- the solver's joint softness, the relax calls pass 0, 1 and 0 (rigid).
 local rows = {}
 local BASIS = Vec3()
 local WORLD_VEC = Vec3()
@@ -26,7 +19,6 @@ function rows.NewState()
 		qy = 0,
 		qz = 0,
 		qw = 1,
-		-- frame axes in world space, x is the joint axis
 		xx = 1,
 		xy = 0,
 		xz = 0,
@@ -39,8 +31,6 @@ function rows.NewState()
 	}
 end
 
--- body may be nil (the world) or immovable; its anchor and frame then come
--- from its pose, or from the world_* values when there is no body at all
 function rows.Load(state, body, local_anchor, local_frame, world_anchor, world_frame)
 	local inertia = state.inertia
 
@@ -64,7 +54,6 @@ function rows.Load(state, body, local_anchor, local_frame, world_anchor, world_f
 		end
 	end
 
-	-- a static or kinematic body takes no impulse but its velocity still counts
 	state.moving_body = body
 
 	if body then
@@ -88,7 +77,6 @@ function rows.Load(state, body, local_anchor, local_frame, world_anchor, world_f
 	state.zx, state.zy, state.zz = 2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)
 end
 
--- quaternion whose x axis is `axis`, y and z any perpendicular pair
 function rows.FrameFromAxis(axis)
 	local ax, ay, az = axis.x, axis.y, axis.z
 	local length = math.sqrt(ax * ax + ay * ay + az * az)
@@ -97,7 +85,6 @@ function rows.FrameFromAxis(axis)
 
 	if ay > 0.9 or ay < -0.9 then hx, hy = 1, 0 end
 
-	-- z = x cross helper, y = z cross x
 	local zx, zy, zz = ay * hz - az * hy, az * hx - ax * hz, ax * hy - ay * hx
 	length = math.sqrt(zx * zx + zy * zy + zz * zz)
 	zx, zy, zz = zx / length, zy / length, zz / length
@@ -105,7 +92,6 @@ function rows.FrameFromAxis(axis)
 	return rows.FrameFromAxes(ax, ay, az, yx, yy, yz, zx, zy, zz)
 end
 
--- rotation matrix with the given columns to quaternion
 function rows.FrameFromAxes(xx, xy, xz, yx, yy, yz, zx, zy, zz)
 	local trace = xx + yy + zz
 	local q = Quat()
@@ -148,7 +134,6 @@ end
 
 rows.MulInertia = mul_inertia
 
--- accumulates inverse mass and [r]x I^-1 [r]x^T into the 3x3 point matrix k
 function rows.AddPointMass(k, state)
 	local im = state.inverse_mass
 
@@ -176,7 +161,6 @@ function rows.AddPointMass(k, state)
 	k[9] = k[9] + (-ry * b13 + rx * b23 + im)
 end
 
--- accumulates the world inverse inertia into the 3x3 angular matrix k
 function rows.AddAngularMass(k, state)
 	if not state.body then return end
 
@@ -188,14 +172,44 @@ function rows.AddAngularMass(k, state)
 end
 
 function rows.Solve3(k, bx, by, bz)
-	local det = k[1] * (k[5] * k[9] - k[6] * k[8]) + k[4] * (k[3] * k[8] - k[2] * k[9]) + k[7] * (k[2] * k[6] - k[3] * k[5])
+	local det = k[1] * (
+			k[5] * k[9] - k[6] * k[8]
+		) + k[4] * (
+			k[3] * k[8] - k[2] * k[9]
+		) + k[7] * (
+			k[2] * k[6] - k[3] * k[5]
+		)
 
 	if det < 1e-30 and det > -1e-30 then return 0, 0, 0 end
 
 	det = 1 / det
-	return ((k[5] * k[9] - k[6] * k[8]) * bx + (k[3] * k[8] - k[2] * k[9]) * by + (k[2] * k[6] - k[3] * k[5]) * bz) * det,
-	((k[6] * k[7] - k[4] * k[9]) * bx + (k[1] * k[9] - k[3] * k[7]) * by + (k[3] * k[4] - k[1] * k[6]) * bz) * det,
-	((k[4] * k[8] - k[5] * k[7]) * bx + (k[2] * k[7] - k[1] * k[8]) * by + (k[1] * k[5] - k[2] * k[4]) * bz) * det
+	return (
+			(
+				k[5] * k[9] - k[6] * k[8]
+			) * bx + (
+				k[3] * k[8] - k[2] * k[9]
+			) * by + (
+				k[2] * k[6] - k[3] * k[5]
+			) * bz
+		) * det,
+	(
+			(
+				k[6] * k[7] - k[4] * k[9]
+			) * bx + (
+				k[1] * k[9] - k[3] * k[7]
+			) * by + (
+				k[3] * k[4] - k[1] * k[6]
+			) * bz
+		) * det,
+	(
+			(
+				k[4] * k[8] - k[5] * k[7]
+			) * bx + (
+				k[2] * k[7] - k[1] * k[8]
+			) * by + (
+				k[1] * k[5] - k[2] * k[4]
+			) * bz
+		) * det
 end
 
 function rows.Solve2(a, b, c, d, x, y)
@@ -206,7 +220,6 @@ function rows.Solve2(a, b, c, d, x, y)
 	return (d * x - b * y) / det, (a * y - c * x) / det
 end
 
--- linear impulse l at the anchor plus angular impulse a, applied with `sign`
 function rows.Apply(state, sign, lx, ly, lz, ax, ay, az)
 	local body = state.body
 
@@ -227,7 +240,6 @@ function rows.Apply(state, sign, lx, ly, lz, ax, ay, az)
 	angular.z = angular.z + sign * (i[7] * tx + i[8] * ty + i[9] * tz)
 end
 
--- velocity of the anchor point of body 1 relative to body 0
 function rows.RelativePointVelocity(s0, s1)
 	local x, y, z = 0, 0, 0
 	local body = s1.moving_body
@@ -270,11 +282,7 @@ function rows.RelativeAngularVelocity(s0, s1)
 	return x, y, z
 end
 
--- Relative rotation of frame 1 in frame 0 split into the twist about the
--- shared x axis and the swing left over, as angles (twist, swing about y,
--- swing about z); the swing is a rotation vector, so it reads as an angle per axis.
 function rows.GetSwingTwist(s0, s1)
-	-- q = conj(q0) * q1
 	local w = s0.qw * s1.qw + s0.qx * s1.qx + s0.qy * s1.qy + s0.qz * s1.qz
 	local x = s0.qw * s1.qx - s0.qx * s1.qw - s0.qy * s1.qz + s0.qz * s1.qy
 	local y = s0.qw * s1.qy - s0.qy * s1.qw - s0.qz * s1.qx + s0.qx * s1.qz
@@ -284,7 +292,6 @@ function rows.GetSwingTwist(s0, s1)
 
 	local twist_length = math.sqrt(x * x + w * w)
 	local tx, tw = x / twist_length, w / twist_length
-	-- swing = q * conj(twist)
 	local sw = w * tw + x * tx
 	local sy = y * tw - z * tx
 	local sz = z * tw + y * tx
@@ -300,7 +307,6 @@ function rows.GetSwingTwist(s0, s1)
 	return 2 * math.atan2(tx, tw), sy * scale, sz * scale
 end
 
--- twist angle alone, in (-pi, pi]
 function rows.GetTwist(s0, s1)
 	local w = s0.qw * s1.qw + s0.qx * s1.qx + s0.qy * s1.qy + s0.qz * s1.qz
 	local x = s0.qw * s1.qx - s0.qx * s1.qw - s0.qy * s1.qz + s0.qz * s1.qy
@@ -313,11 +319,6 @@ end
 local K = {0, 0, 0, 0, 0, 0, 0, 0, 0}
 local K_ANGULAR = {0, 0, 0, 0, 0, 0, 0, 0, 0}
 
--- Every block solver below keeps the impulse it has applied this far in `acc`
--- (a table of three numbers) so the next substep can start from it, see
--- rows.WarmStart*; `impulse_scale` pulls the soft solve back by that impulse.
--- They return the impulse added by this call.
--- three rows pinning the anchors together
 function rows.SolvePoint(s0, s1, bias_rate, mass_scale, impulse_scale, acc)
 	for i = 1, 9 do
 		K[i] = 0
@@ -351,9 +352,7 @@ function rows.WarmStartAngular(s0, s1, acc)
 	rows.Apply(s0, -1, 0, 0, 0, acc[1], acc[2], acc[3])
 end
 
--- rotation vector (world space) that takes frame 0 to frame 1
 function rows.GetRotationError(s0, s1)
-	-- q = q1 * conj(q0)
 	local w = s1.qw * s0.qw + s1.qx * s0.qx + s1.qy * s0.qy + s1.qz * s0.qz
 	local x = -s1.qw * s0.qx + s1.qx * s0.qw - s1.qy * s0.qz + s1.qz * s0.qy
 	local y = -s1.qw * s0.qy + s1.qy * s0.qw - s1.qz * s0.qx + s1.qx * s0.qz
@@ -364,7 +363,6 @@ function rows.GetRotationError(s0, s1)
 	return 2 * x, 2 * y, 2 * z
 end
 
--- three rows locking the relative rotation of the frames
 function rows.SolveAngularLock(s0, s1, bias_rate, mass_scale, impulse_scale, acc)
 	for i = 1, 9 do
 		K_ANGULAR[i] = 0
@@ -391,8 +389,6 @@ end
 
 local K2 = {0, 0, 0, 0}
 
--- Two angular rows that swing axis `b` (a unit vector on body 1) onto axis `a`
--- (on body 0); the twist about the axis stays free.
 function rows.SolveAxisAlign(s0, s1, ax, ay, az, bx, by, bz, bias_rate, mass_scale, impulse_scale, acc)
 	local hx, hy, hz = 1, 0, 0
 
@@ -444,8 +440,6 @@ function rows.SolveAxisAlign(s0, s1, ax, ay, az, bx, by, bz, bias_rate, mass_sca
 	return lx, ly, lz
 end
 
--- Two linear rows along the unit directions t1 and t2 (usually the plane
--- perpendicular to a slide axis).
 function rows.SolvePointPlane(s0, s1, t1x, t1y, t1z, t2x, t2y, t2z, bias_rate, mass_scale, impulse_scale, acc)
 	for i = 1, 9 do
 		K[i] = 0
@@ -501,7 +495,6 @@ function rows.SolvePointPlane(s0, s1, t1x, t1y, t1z, t2x, t2y, t2z, bias_rate, m
 	return lx, ly, lz
 end
 
--- inverse effective mass of a unit angular row
 function rows.GetAngularRowMass(s0, s1, x, y, z)
 	local result = 0
 
@@ -518,9 +511,6 @@ function rows.GetAngularRowMass(s0, s1, x, y, z)
 	return result
 end
 
--- Scalar angular row about the unit axis: drives the relative angular speed to
--- `target` with the accumulated impulse clamped to [lo, hi]. Returns the new
--- accumulated impulse.
 function rows.AngularRow(s0, s1, x, y, z, target, bias, mass_scale, impulse_scale, accumulated, lo, hi)
 	local inverse_mass = rows.GetAngularRowMass(s0, s1, x, y, z)
 
@@ -532,16 +522,13 @@ function rows.AngularRow(s0, s1, x, y, z, target, bias, mass_scale, impulse_scal
 			speed - target + bias
 		) / inverse_mass - impulse_scale * accumulated
 	local new = accumulated + impulse
-
 	new = math.min(math.max(new, lo), hi)
-
 	impulse = new - accumulated
 	rows.Apply(s1, 1, 0, 0, 0, x * impulse, y * impulse, z * impulse)
 	rows.Apply(s0, -1, 0, 0, 0, x * impulse, y * impulse, z * impulse)
 	return new
 end
 
--- inverse effective mass of a unit linear row through both anchors
 function rows.GetLinearRowMass(s0, s1, x, y, z)
 	local result = 0
 
@@ -560,8 +547,6 @@ function rows.GetLinearRowMass(s0, s1, x, y, z)
 	return result
 end
 
--- Scalar linear row along the unit direction through both anchors, like
--- AngularRow. Returns the new accumulated impulse.
 function rows.LinearRow(s0, s1, x, y, z, target, bias, mass_scale, impulse_scale, accumulated, lo, hi)
 	local inverse_mass = rows.GetLinearRowMass(s0, s1, x, y, z)
 
@@ -573,17 +558,13 @@ function rows.LinearRow(s0, s1, x, y, z, target, bias, mass_scale, impulse_scale
 			speed - target + bias
 		) / inverse_mass - impulse_scale * accumulated
 	local new = accumulated + impulse
-
 	new = math.min(math.max(new, lo), hi)
-
 	impulse = new - accumulated
 	rows.Apply(s1, 1, x * impulse, y * impulse, z * impulse, 0, 0, 0)
 	rows.Apply(s0, -1, x * impulse, y * impulse, z * impulse, 0, 0, 0)
 	return new
 end
 
--- Soft coefficients for a spring of stiffness k and damping c acting on a row
--- of inverse effective mass `inverse_mass`, as (bias_rate, mass_scale, impulse_scale)
 function rows.GetSpringSoftness(stiffness, damping, inverse_mass, dt)
 	local omega = math.sqrt(stiffness * inverse_mass)
 	local zeta = damping * math.sqrt(inverse_mass) / (2 * math.sqrt(stiffness))
@@ -593,8 +574,6 @@ function rows.GetSpringSoftness(stiffness, damping, inverse_mass, dt)
 	return omega / a1, a2 * a3, a3
 end
 
--- speed along the unit axis of body 1 relative to body 0 at the start of the
--- substep, before this substep's solve changed any velocity
 function rows.GetPreSolveAngularSpeed(s0, s1, x, y, z)
 	local result = 0
 	local body = s1.moving_body
@@ -638,14 +617,6 @@ function rows.GetPreSolveLinearSpeed(s0, s1, x, y, z)
 	return result
 end
 
--- Speculative one sided limit. `gap` is positive while the limit holds and
--- `gap_rate` is how fast it grows with the velocities the bodies had at the
--- start of the substep. The bodies were already moved by those velocities
--- before the solve, so the biased call judges the gap they started from: a
--- body may use all of it, and lands exactly on the limit instead of being
--- pushed back out of it every substep. Once that gap is used up the soft
--- coefficients pull it back. The relax calls judge the current pose.
--- Returns bias, mass_scale, impulse_scale.
 function rows.GetLimitSoftness(gap, dt, relax, bias_rate, soft_mass_scale, soft_impulse_scale, gap_rate)
 	if relax then return math.max(gap, 0) / dt, 1, 0 end
 

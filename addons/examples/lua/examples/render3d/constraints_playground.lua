@@ -1,17 +1,3 @@
---[[
-	Every joint the physics engine has, one station each, on a shared floor.
-
-	Back row:   ragdoll, rod and rope pendulums, springs and bungee, hydraulic lift and muscle, pulleys
-	Middle row: weld, ball socket chain, hinge door and seesaw, motor, slider
-	Front row:  keep upright, no collide, breakable rods, winch, a heavy chain
-
-	Keys: R rebuild the scene, G drop heavy balls on the weld beam and the seesaw.
-	Joints are drawn over the bodies: rods grey, ropes tan, springs green to red
-	with their stretch, hydraulics and muscles cyan, hinge and slider axes yellow,
-	ball sockets and welds as dots.
-
-	Run: luajit glw --3d lua addons/examples/lua/examples/render3d/constraints_playground.lua
-]]
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -158,17 +144,14 @@ local function ground()
 	box(at(0, -0.75, 0), Vec3(500, 1.5, 500), floor_material, static_body(0.9))
 end
 
--- middle row -------------------------------------------------------------------------------
 local function build_weld()
 	local c = station("WELD", -2, 0)
 	local _, post = box(c + Vec3(-2, 2.5, 0), Vec3(0.6, 5, 0.6), steel_material, static_body())
 	local _, beam = box(c + Vec3(0.3, 3.5, 0), Vec3(4, 0.35, 0.5), wood_material, dynamic(4))
 	joint(constraints.Weld(post, beam, c + Vec3(-1.7, 3.5, 0)))
-	-- two bodies welded into one rigid L that tumbles as a whole
 	local _, bar = box(c + Vec3(1.5, 5, 2.5), Vec3(1.6, 0.4, 0.4), orange_material, dynamic(2))
 	local _, leg = box(c + Vec3(0.7, 5.6, 2.5), Vec3(0.4, 1.6, 0.4), orange_material, dynamic(2))
 	joint(constraints.Weld(bar, leg, c + Vec3(0.7, 5, 2.5)))
-	-- a welded tower that has to hold its shape when knocked
 	local previous
 	local base_y = 0.4
 
@@ -240,7 +223,6 @@ local function build_hinge()
 			{LowerAngle = -1.9, UpperAngle = 1.9, Friction = 2}
 		)
 	)
-	-- a seesaw with a weight on one end, limited to a quarter radian either way
 	local _, pivot = box(c + Vec3(0, 0.65, -2.5), Vec3(0.4, 1.3, 0.4), steel_material, static_body())
 	local _, plank = box(c + Vec3(0, 1.45, -2.5), Vec3(5, 0.2, 1.2), wood_material, dynamic(6))
 	local seesaw_joint = joint(
@@ -315,7 +297,6 @@ local function build_slider()
 	)
 end
 
--- back row -------------------------------------------------------------------------------
 local function build_ragdoll()
 	local c = station("RAGDOLL", -2, -1)
 	local origin = c + Vec3(0, 5, 0)
@@ -353,7 +334,6 @@ local function build_ragdoll()
 		local arm = limb(Vec3(sign * 0.3, 0.42, 0), Vec3(0.14, 0.4, 0.14), 2, skin_material)
 		local forearm = limb(Vec3(sign * 0.3, 0.02, 0), Vec3(0.12, 0.4, 0.12), 1.5, skin_material)
 		ragdoll_joint(torso, arm, Vec3(sign * 0.3, 0.62, 0), down, 1.0, 1.5)
-		-- elbows bend forward (+z), which is a negative rotation about x
 		joint(
 			constraints.Hinge(
 				arm,
@@ -366,7 +346,6 @@ local function build_ragdoll()
 		local thigh = limb(Vec3(sign * 0.12, -0.35, 0), Vec3(0.18, 0.45, 0.18), 5, cloth_material)
 		local shin = limb(Vec3(sign * 0.12, -0.8, 0), Vec3(0.15, 0.45, 0.15), 3, cloth_material)
 		ragdoll_joint(pelvis, thigh, Vec3(sign * 0.12, -0.125, 0), down, 0.4, 1.0)
-		-- knees bend backward
 		joint(
 			constraints.Hinge(
 				thigh,
@@ -395,7 +374,6 @@ local function build_pendulums()
 		steel_material,
 		static_body()
 	)
-	-- rod pendulum: the length never changes
 	local anchor = c + Vec3(-2.5, height - 0.15, 0)
 	local length = 4
 	local angle = math.rad(40)
@@ -406,12 +384,10 @@ local function build_pendulums()
 		dynamic(5)
 	)
 	joint(constraints.Rod(nil, bob, anchor, bob.Position, {Length = length}))
-	-- rope pendulum thrown up and out: free flight, then the rope catches it
 	anchor = c + Vec3(0, height - 0.15, 0)
 	local _, thrown = sphere(anchor + Vec3(0, -3.5, 0), 0.4, blue_material, dynamic(4))
 	joint(constraints.Rope(nil, thrown, anchor, thrown.Position, {Length = 3.5}))
 	thrown:SetVelocity(Vec3(4, 7, 0))
-	-- double pendulum on rods
 	anchor = c + Vec3(2.5, height - 0.15, 0)
 	local _, first = sphere(anchor + Vec3(1.6, 0, 0), 0.3, green_material, dynamic(3))
 	local _, second = sphere(anchor + Vec3(3.2, 0, 0), 0.3, red_material, dynamic(3))
@@ -455,7 +431,6 @@ local function build_springs()
 		)
 	end
 
-	-- a bungee: a spring that only pulls, so the jumper falls freely first
 	box(c + Vec3(3.2, 3, 3.5), Vec3(1.5, 6, 1.5), steel_material, static_body())
 	local top = c + Vec3(3.2, 6, 3.5)
 	local _, jumper = box(top + Vec3(0.7, 0.45, 0), Vec3(0.5, 0.9, 0.5), red_material, dynamic(3))
@@ -473,7 +448,6 @@ end
 
 local function build_hydraulics()
 	local c = station("HYDRAULIC AND MUSCLE", 1, -1)
-	-- a lift: a slider keeps the platform level, the hydraulic does the lifting
 	box(c + Vec3(-2.5, 0.15, 0), Vec3(3, 0.3, 3), steel_material, static_body())
 	local _, platform = box(
 		c + Vec3(-2.5, 0.8, 0),
@@ -511,7 +485,6 @@ local function build_hydraulics()
 		SCENE.lift:SetTargetLength(SCENE.lift_up and 3.3 or 0.35, 1.2)
 	end)
 
-	-- a crane arm that a muscle flexes
 	local _, post = box(c + Vec3(1, 1, 2.5), Vec3(0.4, 2, 0.4), steel_material, static_body())
 	local _, arm = box(c + Vec3(2.8, 2, 2.5), Vec3(3.6, 0.25, 0.4), wood_material, dynamic(5))
 	joint(
@@ -538,7 +511,6 @@ local function build_pulleys()
 	box(c + Vec3(0, top + 0.5, 0), Vec3(5, 0.3, 0.6), steel_material, static_body())
 	visual_sphere(c + Vec3(-1.2, top, 0), 0.35, steel_material)
 	visual_sphere(c + Vec3(1.2, top, 0), 0.35, steel_material)
-	-- a heavy crate raises a light one
 	local _, heavy = box(c + Vec3(-1.2, 3, 0), Vec3(1, 1, 1), orange_material, dynamic(6))
 	local _, light = box(c + Vec3(1.2, 3, 0), Vec3(0.8, 0.8, 0.8), blue_material, dynamic(3))
 	joint(
@@ -551,7 +523,6 @@ local function build_pulleys()
 			c + Vec3(1.2, 3.4, 0)
 		)
 	)
-	-- the second pulley winds two units of rope for every one: it trades travel for force
 	box(c + Vec3(0, top + 0.5, -4), Vec3(5, 0.3, 0.6), steel_material, static_body())
 	visual_sphere(c + Vec3(-1.2, top, -4), 0.35, steel_material)
 	visual_sphere(c + Vec3(1.2, top, -4), 0.35, steel_material)
@@ -570,7 +541,6 @@ local function build_pulleys()
 	)
 end
 
--- front row -------------------------------------------------------------------------------
 local function build_keep_upright()
 	local c = station("KEEP UPRIGHT", -2, 1)
 	local _, plain = box(
@@ -593,7 +563,6 @@ local function build_keep_upright()
 
 			balls = {}
 
-			-- stand the targets back up and shoot at them again
 			for body, home in pairs(homes) do
 				body:SetPosition(home)
 				body:SetRotation(Quat():Identity())
@@ -638,7 +607,6 @@ local function build_no_collide()
 					dynamic(2)
 				)
 
-				-- the green one rolls straight through the wall
 				if side < 0 then pass = constraints.NoCollide(wall, ball) end
 
 				ball:SetVelocity(Vec3(7, 0, 0))
@@ -648,7 +616,6 @@ local function build_no_collide()
 		1
 	)
 
-	-- two boxes that are allowed to sit inside each other next to two that are not
 	local _, a = box(
 		c + Vec3(1.5, 2, -3),
 		Vec3(0.9, 0.9, 0.9),
@@ -774,13 +741,11 @@ local function build_heavy_chain()
 		previous = link
 	end
 
-	-- thirty times the weight of a link, swinging
 	local _, weight = sphere(c + Vec3(0, top - count * 0.5 - 0.55, 0), 0.55, orange_material, dynamic(30))
 	SCENE.chain[#SCENE.chain + 1] = joint(constraints.BallSocket(previous, weight, c + Vec3(0, top - count * 0.5, 0)))
 	weight:SetVelocity(Vec3(5, 0, 0))
 end
 
--- scene control ---------------------------------------------------------------------------
 function SCENE.Build()
 	scene_time = 0
 	SCENE.lift_up = false
@@ -827,7 +792,6 @@ function SCENE.DropHeavyBalls()
 	end
 end
 
--- physics-rate behaviour: reversing sliders, cycling hydraulics, timed shots
 function SCENE.Step(dt)
 	scene_time = scene_time + dt
 	local slider = SCENE.slider

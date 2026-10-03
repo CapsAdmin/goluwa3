@@ -161,11 +161,11 @@ local function stencil_mode(stencil_test, pass_op, compare_op, color_write_mask)
 end
 
 render2d.stencil_modes = {
-	none = stencil_mode(false, "keep", "always", DEFAULT_COLOR_WRITE_MASK), -- no stencil, draw everything
-	write = stencil_mode(true, "replace", "always"), -- simply write the reference value everywhere
-	mask_write = stencil_mode(true, "increment_and_clamp", "equal"), -- increment level if it matches reference
-	mask_test = stencil_mode(true, "keep", "equal", DEFAULT_COLOR_WRITE_MASK), -- pass if it matches reference
-	mask_decrement = stencil_mode(true, "decrement_and_clamp", "equal"), -- decrement level if it matches reference
+	none = stencil_mode(false, "keep", "always", DEFAULT_COLOR_WRITE_MASK),
+	write = stencil_mode(true, "replace", "always"),
+	mask_write = stencil_mode(true, "increment_and_clamp", "equal"),
+	mask_test = stencil_mode(true, "keep", "equal", DEFAULT_COLOR_WRITE_MASK),
+	mask_decrement = stencil_mode(true, "decrement_and_clamp", "equal"),
 	test = stencil_mode(true, "keep", "equal", DEFAULT_COLOR_WRITE_MASK),
 	greater = stencil_mode(true, "keep", "greater", DEFAULT_COLOR_WRITE_MASK),
 	test_inverse = stencil_mode(true, "keep", "not_equal", DEFAULT_COLOR_WRITE_MASK),
@@ -241,8 +241,6 @@ render2d.state = {
 		},
 	},
 }
--- Pooled per-frame scratch objects for queued rect draws. Slot counters reset each
--- flush, so pools grow at most to the biggest single frame and are reused after.
 render2d.rect_batch_world_matrices = {}
 render2d.rect_batch_draw_matrices = {}
 render2d.rect_batch_entries = {}
@@ -289,8 +287,6 @@ local vec_spec_by_component_count = {
 	[4] = {type = "vec4", format = "r32g32b32a32_sfloat"},
 }
 
--- Batched draws carry per-rect state as vertex attributes instead of push
--- constants. This entry just copies a field from the captured draw state.
 local function snapshot_passthrough(name, snapshot_field, component_count, fragment_values, extra_write)
 	local spec = vec_spec_by_component_count[component_count]
 	return {
@@ -620,7 +616,6 @@ local function sync_pipeline_state(force)
 	pipeline:SetDepthCompareOp(depth_mode_to_compare_op[depth_mode_name] or "always")
 	pipeline:SetStencilTest(stencil_mode_def.stencil_test)
 
-	-- Front and back faces are always configured identically
 	do
 		pipeline:SetFrontStencilFailOp(stencil_mode_def.front.fail_op)
 		pipeline:SetFrontStencilPassOp(stencil_mode_def.front.pass_op)
@@ -629,7 +624,6 @@ local function sync_pipeline_state(force)
 		pipeline:SetFrontStencilReference(stencil_ref)
 		pipeline:SetFrontStencilCompareMask(0xFF)
 		pipeline:SetFrontStencilWriteMask(0xFF)
-		--
 		pipeline:SetBackStencilFailOp(stencil_mode_def.front.fail_op)
 		pipeline:SetBackStencilPassOp(stencil_mode_def.front.pass_op)
 		pipeline:SetBackStencilDepthFailOp(stencil_mode_def.front.depth_fail_op)
@@ -1359,8 +1353,6 @@ function render2d.Initialize()
 	}
 	render2d.pipeline = EasyPipeline.New(config)
 
-	-- The rect batch pipeline reuses the main pipeline's fragment shader and
-	-- constants, feeding per-rect state through instance attributes instead.
 	do
 		local batch_instance_attributes = {
 			{"pvw", "mat4"},
@@ -1415,7 +1407,6 @@ function render2d.Initialize()
 	end
 
 	do
-		-- Instance attribute layout of the batch pipeline, used to allocate instance buffers
 		render2d.rect_batch_instance_buffer_attributes = {}
 
 		for _, attribute in ipairs(render2d.rect_batch_pipeline.vertex_attributes) do
@@ -1562,11 +1553,9 @@ function render2d.ResetState()
 	render2d.SetClampBorderRadius(true)
 	render2d.state.render.fragment.constants.sdf_texel_range = 1
 	render2d.state.render.fragment.constants.sdf_threshold = 0.5
-	--
 	render2d.state.render.fragment.constants.sdf_bias = 0.005
 	render2d.state.render.fragment.constants.sdf_gamma = 1
 	render2d.state.render.fragment.constants.sdf_softness = 0.5
-	--
 	render2d.state.render.fragment.constants.sdf_texture_index = -1
 	render2d.state.render.fragment.constants.sdf_uv_bounds[0] = 0
 	render2d.state.render.fragment.constants.sdf_uv_bounds[1] = 0
@@ -1578,7 +1567,6 @@ function render2d.ResetState()
 	render2d.SetBlendPreset("alpha")
 	render2d.SetDepthMode(DEFAULT_DEPTH_MODE, false)
 	render2d.SetStencilMode("none")
-	--bevel
 	render2d.SetBevelWidth(0.0)
 	render2d.SetBevelHeight(0)
 	render2d.SetLightAngle(0.785)
@@ -1650,7 +1638,7 @@ do
 
 	utility.MakePushPopFunction(render2d, "Color", 4)
 
-	do -- Flag definitions: single source of truth for all flag fields
+	do
 		local flag_builder = utility.MakeFlags{
 			{
 				name = "SWIZZLE",
@@ -1684,7 +1672,6 @@ do
 					"rounded",
 					"chamfered",
 					"ellipse",
-				--"line",
 				},
 			},
 		}
@@ -1726,7 +1713,6 @@ do
 		end
 	end
 
-	-- Convenience wrappers for the flag-based properties
 	local bool_value_filter = function(value)
 		return not not value
 	end
@@ -1875,8 +1861,6 @@ do
 			render2d.SetFlagBits("LINEAR_TEXTURE", tex ~= nil and tex:IsSRGB())
 		end
 
-		-- Register texture with the pipeline BEFORE sync_pipeline_state is called.
-		-- This ensures the descriptor set includes the texture when it's bound.
 		local pipeline = render2d.GetActivePipeline()
 
 		if pipeline and tex then pipeline:GetTextureIndex(tex) end
@@ -1994,9 +1978,6 @@ do
 	function render2d.SetStencilMode(mode_name, ref)
 		if ref == nil then ref = render2d.state.render.pipeline.stencil.ref end
 
-		-- Workaround: "greater" with reference 0 doesn't work correctly on some systems.
-		-- Since ref=0 and unsigned stencil values, "greater" is equivalent to "not_equal".
-		-- Map to test_inverse for reliability.
 		if ref == 0 and mode_name == "greater" then mode_name = "test_inverse" end
 
 		local mode = render2d.stencil_modes[mode_name]
@@ -2285,7 +2266,7 @@ function render2d.UploadConstants(w, h, lw, lh)
 	if pipeline then pipeline:UploadConstants() end
 end
 
-do -- mesh
+do
 	function render2d.CreateMesh(vertices, indices)
 		return Mesh.New(render2d.pipeline:GetVertexAttributes(), vertices, indices, nil, nil, "render2d mesh")
 	end
@@ -2319,7 +2300,7 @@ do -- mesh
 	end
 end
 
-do -- uv
+do
 	function render2d.SetSDFUV(x, y, w, h)
 		x = x or 0
 		y = y or 0
@@ -2382,7 +2363,7 @@ do -- uv
 	utility.MakePushPopFunction(render2d, "ColorUV", 5)
 end
 
-do -- camera
+do
 	function render2d.SetScreenSize(w, h)
 		render2d.state.runtime.camera.viewport.w = w
 		render2d.state.runtime.camera.viewport.h = h
@@ -2568,8 +2549,6 @@ function render2d.RestoreRectDrawState(state)
 	render2d.state.render.fragment.alpha_multiplier = state.alpha_multiplier
 	render2d.state.render.textures.texture = state.texture
 	render2d.state.render.textures.sdf_texture = state.sdf_texture
-	-- Register render2d.state.render.textures with the pipeline BEFORE bind_mesh_immediate/sync_pipeline_state
-	-- is called, so the descriptor set is updated with the correct render2d.state.render.textures.
 	local pipeline = render2d.GetActivePipeline()
 
 	if pipeline then
@@ -2680,7 +2659,6 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 
 	if x and y then
 		if a then
-			-- margin is applied in local space below so it follows the rotation
 			if use_float then
 				projected:Translate(x, y, 0)
 			else
@@ -2693,7 +2671,6 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 		end
 	end
 
-	-- Fast path for text rendering: no rotation, no offset
 	if not a and not ox then
 		if w and h then
 			if use_float then
@@ -2748,7 +2725,6 @@ local function queue_rect_draw(use_float, x, y, w, h, a, ox, oy, max_m)
 	entry.draw_matrix = projected
 	entry.state = state
 
-	-- the key depends only on draw state and not on rects
 	if
 		render2d.state.runtime.batch.rect_key_version ~= render2d.state.runtime.batch.rect_state_version
 	then
@@ -2789,7 +2765,6 @@ draw_rect_immediate = function(x, y, w, h, a, ox, oy, margin, use_float)
 
 	if x and y then
 		if a then
-			-- margin is applied in local space below so it follows the rotation
 			if use_float then
 				render2d.Translatef(x, y)
 			else
@@ -2871,7 +2846,6 @@ end
 
 function render2d.BindPipeline(force)
 	sync_pipeline_state(force)
-	-- Reset mesh binding cache since command buffer state was reset
 	render2d.state.runtime.mesh.last_bound = nil
 end
 
@@ -2885,16 +2859,10 @@ render.RegisterFlushCallback("render2d", function(reason)
 		render2d.batch_counters = reset_batch_counters(render2d.batch_counters)
 	end
 
-	-- Don't flush on pop_command_buffer when there's no active command buffer.
-	-- This happens during canvas switching: the old canvas is popped before
-	-- the new canvas is pushed, so there's nothing to draw to.
 	if reason == "pop_command_buffer" and not render.GetCommandBuffer() then
 		return false
 	end
 
-	-- Don't flush when the active command buffer is not inside a render pass.
-	-- This happens when temporary command buffers are pushed (e.g. SDF glyph
-	-- loading) that record transfer/compute work outside of rendering.
 	local cmd = render.GetCommandBuffer()
 
 	if cmd and not cmd.is_rendering then return false end
@@ -2903,7 +2871,8 @@ render.RegisterFlushCallback("render2d", function(reason)
 end)
 
 event.AddListener("PostDraw", "render2d", function(dt)
-	if not render2d.pipeline then return end -- not 2d initialized
+	if not render2d.pipeline then return end
+
 	render2d.BindPipeline()
 	event.Call("PreDraw2D", dt)
 	event.Call("Draw2D", dt)

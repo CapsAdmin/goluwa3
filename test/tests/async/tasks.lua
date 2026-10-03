@@ -3,15 +3,13 @@ local tasks = import("goluwa/tasks.lua")
 local timer = import("goluwa/timer.lua")
 local system = import("goluwa/system.lua")
 
--- Helper to clean up tasks between tests
 local function cleanup_tasks()
 	do
 		return
 	end
 
 	tasks.Panic()
-	tasks.Update() -- Force update to refresh busy state
-	-- Wait until all tasks are done
+	tasks.Update()
 	local max_wait = 1.0
 	local start = system.GetElapsedTime()
 
@@ -20,7 +18,6 @@ local function cleanup_tasks()
 	end
 end
 
--- Helper functions for wrapping timer for use in tasks
 local function create_timer_lib()
 	local timer_mock = {}
 	timer_mock.Delay = function(time, callback)
@@ -52,7 +49,6 @@ T.Test("tasks.CreateTask basic execution", function()
 		true
 	)
 
-	-- Run event loop to execute and complete task
 	T.WaitUntil(function()
 		return finished
 	end)
@@ -79,7 +75,6 @@ T.Test("tasks.CreateTask with Wait", function()
 		true
 	)
 
-	-- Wait for each step to complete
 	T.WaitUntil(function()
 		return step1
 	end)
@@ -122,7 +117,6 @@ end)
 
 T.Test("tasks.WrapCallback with timer.Delay", function()
 	cleanup_tasks()
-	-- Create a wrapped timer lib for use in tasks
 	local timer_wrapped = wrap_timer()
 	local execution_order = {}
 
@@ -276,7 +270,6 @@ T.Test("task with IterationsPerTick", function()
 	)
 	task:SetIterationsPerTick(10)
 
-	-- Should process multiple iterations per tick
 	T.WaitUntil(function()
 		return iterations > 10
 	end)
@@ -284,34 +277,8 @@ T.Test("task with IterationsPerTick", function()
 	T(iterations > 10)["=="](true)
 end)
 
-T.Test("tasks.IsBusy returns correct state", function() -- Skip this test due to concurrent test execution issues
--- The global tasks.busy state is shared across all concurrent tests
--- making it impossible to reliably test in isolation
-end)
+T.Test("tasks.IsBusy returns correct state", function() end)
 
---[=[
-T.Test("tasks.IsBusy returns correct state (DISABLED)", function()
-	cleanup_tasks()
-	print("DEBUG: Initial IsBusy:", tasks.IsBusy())
-	-- IsBusy should be false or nil (not busy) after cleanup
-	T(not tasks.IsBusy())["=="](true)
-	print("DEBUG: Creating task...")
-	local task = tasks.CreateTask(function(self)
-		print("DEBUG: Task OnStart called")
-		self:Wait(0.1)
-		print("DEBUG: Task finished waiting")
-	end, nil, true)
-	print("DEBUG: After CreateTask, IsBusy:", tasks.IsBusy())
-	T.Sleep(0.05)
-	print("DEBUG: After 0.05s sleep, IsBusy:", tasks.IsBusy())
-	-- After creating a task and waiting a bit, should be busy
-	T(tasks.IsBusy())["=="](true)
-	T.Sleep(0.2)
-	print("DEBUG: After 0.2s more sleep, IsBusy:", tasks.IsBusy())
-	-- After task completes, should not be busy (false or nil)
-	T(not tasks.IsBusy())["=="](true)
-end)
---]=]
 T.Test("task with OnUpdate callback", function()
 	cleanup_tasks()
 	local update_count = 0
@@ -349,17 +316,16 @@ T.Test("task with Frequency setting", function()
 			end
 		end,
 		nil,
-		false -- Don't start immediately
+		false
 	)
-	task:SetFrequency(10) -- 10 Hz = 0.1 seconds between executions
-	task:Start() -- Start after frequency is set
+	task:SetFrequency(10)
+	task:Start()
 	T.Sleep(0.05)
 
 	T.WaitUntil(function()
 		return execution_count >= 5
 	end)
 
-	-- Check that intervals are approximately 0.1 seconds
 	for _, interval in ipairs(intervals) do
 		T(interval)["~="](0)
 	end
@@ -443,30 +409,25 @@ T.Test("task max concurrent limit", function()
 			end,
 			nil,
 			false
-		) -- don't start immediately
+		)
 	end
 
-	-- Create 5 tasks
 	for i = 1, 5 do
 		track_task()
 	end
 
-	-- Trigger update to start tasks
 	tasks.Update()
 	T.Sleep(0.05)
-	-- Should respect max limit
 	T(max_concurrent)["<="](2)
 
 	T.WaitUntil(function()
 		return running_count == 0
 	end)
 
-	-- All tasks should eventually complete
 	T(running_count)["=="](0)
 	tasks.max = original_max
 end)
 
--- Test re-entrancy protection
 T.Test("task re-entrancy protection with event.Call", function()
 	cleanup_tasks()
 	local event = import("goluwa/event.lua")
@@ -475,7 +436,6 @@ T.Test("task re-entrancy protection with event.Call", function()
 	local task = tasks.CreateTask(
 		function(self)
 			resume_attempts = resume_attempts + 1
-			-- This should not cause the task to be resumed again
 			event.Call("Update")
 			tasks.Wait(0.01)
 			event.Call("Update")
@@ -490,11 +450,9 @@ T.Test("task re-entrancy protection with event.Call", function()
 	end, 2)
 
 	T(completed)["=="](true)
-	-- Should only resume once per wait, not re-enter
 	T(resume_attempts)["=="](1)
 end)
 
--- Test OnError receives coroutine for traceback
 T.Test("task OnError receives coroutine parameter", function()
 	cleanup_tasks()
 	local error_msg = nil
@@ -522,7 +480,6 @@ T.Test("task OnError receives coroutine parameter", function()
 	T(error_co ~= nil)["=="](true)
 	T(type(error_co))["=="]("thread")
 
-	-- Verify we can get a traceback from the coroutine
 	if error_co then
 		local trace = debug.traceback(error_co)
 		T(type(trace))["=="]("string")
@@ -530,7 +487,6 @@ T.Test("task OnError receives coroutine parameter", function()
 	end
 end)
 
--- Test WaitForNestedTask functionality
 T.Test("tasks.WaitForNestedTask waits for nested task completion", function()
 	cleanup_tasks()
 	local outer_started = false
@@ -542,7 +498,6 @@ T.Test("tasks.WaitForNestedTask waits for nested task completion", function()
 		function(self)
 			outer_started = true
 			table.insert(execution_order, "outer_start")
-			-- Create a nested task
 			local inner_task = tasks.CreateTask(
 				function()
 					inner_started = true
@@ -554,7 +509,6 @@ T.Test("tasks.WaitForNestedTask waits for nested task completion", function()
 				function() end,
 				true
 			)
-			-- Wait for nested task to complete
 			local ok, err = tasks.WaitForNestedTask(inner_task)
 			T(ok)["=="](true)
 			T(inner_finished)["=="](true)
@@ -573,21 +527,18 @@ T.Test("tasks.WaitForNestedTask waits for nested task completion", function()
 	T(inner_started)["=="](true)
 	T(inner_finished)["=="](true)
 	T(outer_finished)["=="](true)
-	-- Verify execution order
 	T(execution_order[1])["=="]("outer_start")
 	T(execution_order[2])["=="]("inner_start")
 	T(execution_order[3])["=="]("inner_end")
 	T(execution_order[4])["=="]("outer_end")
 end)
 
--- Test WaitForNestedTask with failed nested task
 T.Test("tasks.WaitForNestedTask handles nested task errors", function()
 	cleanup_tasks()
 	local outer_completed = false
 	local nested_error_received = false
 	local outer_task = tasks.CreateTask(
 		function(self)
-			-- Create a nested task that will fail
 			local inner_task
 			inner_task = tasks.CreateTask(
 				function()
@@ -597,7 +548,6 @@ T.Test("tasks.WaitForNestedTask handles nested task errors", function()
 				function() end,
 				true
 			)
-			-- Wait for nested task - should return false with error
 			local ok, err = tasks.WaitForNestedTask(inner_task)
 
 			if not ok then
@@ -621,7 +571,6 @@ T.Test("tasks.WaitForNestedTask handles nested task errors", function()
 	T(nested_error_received)["=="](true)
 end)
 
--- Test OnError receives coroutine for better debugging
 T.Test("task OnError receives coroutine", function()
 	cleanup_tasks()
 	local error_received = false
@@ -647,7 +596,6 @@ T.Test("task OnError receives coroutine", function()
 	T(type(co_received))["=="]("thread")
 end)
 
--- Test WaitForNestedTask basic usage
 T.Test("tasks.WaitForNestedTask basic usage", function()
 	cleanup_tasks()
 	local inner_executed = false
@@ -680,7 +628,6 @@ T.Test("tasks.WaitForNestedTask basic usage", function()
 	T(inner_executed)["=="](true)
 end)
 
--- Test WaitForNestedTask with error propagation
 T.Test("tasks.WaitForNestedTask error propagation", function()
 	cleanup_tasks()
 	local outer_completed = false
@@ -714,7 +661,6 @@ T.Test("tasks.WaitForNestedTask error propagation", function()
 	T(error_caught)["=="](true)
 end)
 
--- Test task removed during execution (valid cleanup scenario)
 T.Test("task removed during execution is handled gracefully", function()
 	cleanup_tasks()
 	local task_started = false
@@ -724,27 +670,21 @@ T.Test("task removed during execution is handled gracefully", function()
 		function(self)
 			task_started = true
 
-			-- Use timer.Delay to trigger task removal during execution
 			timer.Delay(0, function()
 				timer_fired = true
-				-- Remove the task while it's running
 				self:Remove()
 				task_removed = true
 			end)
 
-			-- Wait to allow the removal to happen
 			tasks.Wait(0.05)
-			-- This should not execute because task was removed
 			error("Task should have been removed before reaching this point")
 		end,
 		function()
-			-- OnFinish should not be called when removed mid-execution
 			error("OnFinish should not be called for removed task")
 		end,
 		true
 	)
 
-	-- Wait for the timer to fire and task to be removed
 	T.WaitUntil(function()
 		return timer_fired and task_removed
 	end, 2)
@@ -755,10 +695,9 @@ T.Test("task removed during execution is handled gracefully", function()
 	T(not task:IsValid())["=="](true)
 end)
 
--- Test for stack overflow when recursively calling logic that yields within a single task
 T.Test("deep recursion in a single task causing stack overflow", function()
 	cleanup_tasks()
-	local max_depth = 200 -- Low enough to be fast, high enough to test recursion depth
+	local max_depth = 200
 	local current_depth = 0
 	local finished = false
 	local caught_error = false
@@ -771,8 +710,6 @@ T.Test("deep recursion in a single task causing stack overflow", function()
 			return
 		end
 
-		-- Simulate what happens in Agent:RunAsync -> ChatCompletion -> ToolCall
-		-- Each level of recursion here is a manual call on the same stack
 		tasks.Wait(0)
 		recursive_yield(depth + 1)
 	end
@@ -783,7 +720,6 @@ T.Test("deep recursion in a single task causing stack overflow", function()
 
 			if not ok then
 				caught_error = true
-				-- If we hit a stack overflow, it will be caught here
 				print("Caught expected recursion error: " .. tostring(err))
 			end
 		end,
@@ -795,13 +731,9 @@ T.Test("deep recursion in a single task causing stack overflow", function()
 		return finished or caught_error
 	end, 5)
 
-	-- If the user's issue is reproducible with simple recursion, this will show it.
-	-- However, Lua's stack limit is usually much higher (thousands), 
-	-- but nested C-calls or complex prototype __index lookups can shorten it.
 	T(finished or caught_error)["=="](true)
 end)
 
--- Test many levels of nesting using NEW tasks and WaitForNestedTask (should NOT overflow)
 T.Test("nested task awaiting prevents stack overflow", function()
 	cleanup_tasks()
 	local depth_limit = 50
@@ -813,18 +745,14 @@ T.Test("nested task awaiting prevents stack overflow", function()
 			return "done"
 		end
 
-		-- Create a NEW task handle
 		local sub_task = tasks.CreateTask(
 			function()
-				-- Simulate what Agent:RunAsync does (yield + work)
 				tasks.Wait(0)
 				return simulate_agent_task(depth + 1)
 			end,
 			nil,
 			true
 		)
-		-- Await it synchronously within our Task
-		-- This should YIELD current coroutine, NOT add to stack
 		local ok, res = tasks.WaitForNestedTask(sub_task)
 
 		if not ok then error(res) end

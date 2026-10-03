@@ -5,7 +5,6 @@ local Color = import("goluwa/structs/color.lua")
 local Texture = import("goluwa/render/texture.lua")
 
 local function name_translate()
-	-- https://github.com/Nican/swarm-sdk/blob/master/src/materialsystem/stdshaders/unlitgeneric_dx9.cpp#L85-L163
 	info.m_nBaseTexture = BASETEXTURE
 	info.m_nBaseTextureFrame = FRAME
 	info.m_nBaseTextureTransform = BASETEXTURETRANSFORM
@@ -77,7 +76,6 @@ local function name_translate()
 	info.m_nSinglePassFlashlight = SINGLEPASSFLASHLIGHT
 	info.m_nShaderSrgbRead360 = SHADERSRGBREAD360
 	info.m_nDisplacementMap = DISPLACEMENTMAP
-	-- https://github.com/Nican/swarm-sdk/blob/master/src/materialsystem/stdshaders/vertexlitgeneric_dx9.cpp#L168-L272
 	info.m_nBaseTexture = BASETEXTURE
 	info.m_nWrinkle = COMPRESS
 	info.m_nStretch = STRETCH
@@ -125,12 +123,10 @@ local function name_translate()
 	info.m_nDetailTextureBlendFactor = DETAILBLENDFACTOR
 	info.m_nDetailTextureTransform = DETAILTEXTURETRANSFORM
 	info.m_nBaseMapLuminancePhongMask = BASEMAPLUMINANCEPHONGMASK
-	-- Rim lighting parameters
 	info.m_nRimLight = RIMLIGHT
 	info.m_nRimLightPower = RIMLIGHTEXPONENT
 	info.m_nRimLightBoost = RIMLIGHTBOOST
 	info.m_nRimMask = RIMMASK
-	-- seamless
 	info.m_nSeamlessScale = SEAMLESS_SCALE
 	info.m_nSeamlessDetail = SEAMLESS_DETAIL
 	info.m_nSeamlessBase = SEAMLESS_BASE
@@ -196,7 +192,6 @@ end
 
 local function base_shader()
 	return {
-		-- https:--github.com/Nican/swarm-sdk/blob/master/src/materialsystem/shaderlib/BaseShader.cpp#L78-L93
 		{
 			"$flags",
 			"flags",
@@ -271,7 +266,6 @@ end
 
 local shaders = {
 	unlitgeneric = function()
-		-- https:--github.com/ValveSoftware/source-sdk-2013/blob/master/sp/src/materialsystem/stdshaders/unlitgeneric_dx9.cpp#L17-L79
 		SHADER_PARAM(
 			ALBEDO,
 			SHADER_PARAM_TYPE_TEXTURE,
@@ -494,7 +488,6 @@ local shaders = {
 		)
 	end,
 	vertexlitgeneric = function()
-		-- https:--github.com/ValveSoftware/source-sdk-2013/blob/master/sp/src/materialsystem/stdshaders/vertexlitgeneric_dx9.cpp#L19-L136
 		SHADER_PARAM(
 			ALBEDO,
 			SHADER_PARAM_TYPE_TEXTURE,
@@ -585,7 +578,6 @@ local shaders = {
 		)
 		SHADER_PARAM(ALPHATESTREFERENCE, SHADER_PARAM_TYPE_FLOAT, "0.0", "")
 		SHADER_PARAM(FLASHLIGHTNOLAMBERT, SHADER_PARAM_TYPE_BOOL, "0", "Flashlight pass sets N.L=1.0")
-		-- Debugging term for visualizing ambient data on its own
 		SHADER_PARAM(
 			AMBIENTONLY,
 			SHADER_PARAM_TYPE_INTEGER,
@@ -660,7 +652,6 @@ local shaders = {
 			"shadertest/BaseTexture",
 			"If we bind a texture here, it overrides base alpha (if any) for self illum"
 		)
-		-- detail (multi-) texturing
 		SHADER_PARAM(
 			DETAILBLENDMODE,
 			SHADER_PARAM_TYPE_INTEGER,
@@ -680,7 +671,6 @@ local shaders = {
 			"center .5 .5 scale 1 1 rotate 0 translate 0 0",
 			"$detail texcoord transform"
 		)
-		-- Rim lighting terms
 		SHADER_PARAM(RIMLIGHT, SHADER_PARAM_TYPE_BOOL, "0", "enables rim lighting")
 		SHADER_PARAM(RIMLIGHTEXPONENT, SHADER_PARAM_TYPE_FLOAT, "4.0", "Exponent for rim lights")
 		SHADER_PARAM(RIMLIGHTBOOST, SHADER_PARAM_TYPE_FLOAT, "1.0", "Boost for rim lights")
@@ -690,7 +680,6 @@ local shaders = {
 			"0",
 			"Indicates whether or not to use alpha channel of exponent texture to mask the rim term"
 		)
-		-- Seamless mapping scale
 		SHADER_PARAM(
 			SEAMLESS_BASE,
 			SHADER_PARAM_TYPE_BOOL,
@@ -709,7 +698,6 @@ local shaders = {
 			"1.0",
 			"the scale for the seamless mapping. # of repetions of texture per inch."
 		)
-		-- Emissive Scroll Pass
 		SHADER_PARAM(EMISSIVEBLENDENABLED, SHADER_PARAM_TYPE_BOOL, "0", "Enable emissive blend pass")
 		SHADER_PARAM(EMISSIVEBLENDBASETEXTURE, SHADER_PARAM_TYPE_TEXTURE, "", "self-illumination map")
 		SHADER_PARAM(
@@ -723,7 +711,6 @@ local shaders = {
 		SHADER_PARAM(EMISSIVEBLENDTINT, SHADER_PARAM_TYPE_COLOR, "[1 1 1]", "Self-illumination tint")
 		SHADER_PARAM(EMISSIVEBLENDFLOWTEXTURE, SHADER_PARAM_TYPE_TEXTURE, "", "flow map")
 		SHADER_PARAM(TIME, SHADER_PARAM_TYPE_FLOAT, "0.0", "Needs CurrentTime Proxy")
-		-- Cloak Pass
 		SHADER_PARAM(
 			CLOAKPASSENABLED,
 			SHADER_PARAM_TYPE_BOOL,
@@ -733,7 +720,6 @@ local shaders = {
 		SHADER_PARAM(CLOAKFACTOR, SHADER_PARAM_TYPE_FLOAT, "0.0", "")
 		SHADER_PARAM(CLOAKCOLORTINT, SHADER_PARAM_TYPE_COLOR, "[1 1 1]", "Cloak color tint")
 		SHADER_PARAM(REFRACTAMOUNT, SHADER_PARAM_TYPE_FLOAT, "2", "")
-		-- Weapon Sheen Pass
 		SHADER_PARAM(
 			SHEENPASSENABLED,
 			SHADER_PARAM_TYPE_BOOL,
@@ -785,7 +771,6 @@ local shaders = {
 			"0",
 			"Index of the Effect Type (Color Additive, Override etc...)"
 		)
-		-- Flesh Interior Pass
 		SHADER_PARAM(
 			FLESHINTERIORENABLED,
 			SHADER_PARAM_TYPE_BOOL,
@@ -879,7 +864,6 @@ local shaders = {
 		)
 	end,
 }
--- https:--github.com/ValveSoftware/source-sdk-2013/blob/master/mp/src/public/materialsystem/imaterial.h#L355-L386
 local flags = {
 	"debug",
 	"no_debug_override",
@@ -912,7 +896,6 @@ local flags = {
 	"wireframe",
 	"allowalphatocoverage",
 	"ignore_alpha_modulation",
-	-- extra
 	"nolod",
 }
 local other = {
@@ -977,7 +960,6 @@ end
 add_new_defaults(
 	"unlitgeneric",
 	{
-		-- lua_run_cl local mat = CreateMaterial("wow", "UnlitGeneric", {}) for k,v in pairs(mat:GetKeyValues()) do print(k:sub(2) .. " = \"" .. mat:GetString(k) .. "\",") end
 		glowstart = "0.000000",
 		outlinestart0 = "0.000000",
 		vertexalphatest = "0",
@@ -1042,7 +1024,6 @@ add_new_defaults(
 add_new_defaults(
 	"vertexlitgeneric",
 	{
-		-- lua_run_cl local mat = CreateMaterial("wow2", "VertexLitGeneric", {}) for k,v in pairs(mat:GetKeyValues()) do print(k:sub(2) .. " = \"" .. mat:GetString(k) .. "\",") end
 		flesheffectcenterradius1 = "[ 0.000000 0.000000 0.000000 0.000000 ]",
 		envmapsaturation = "1.000000",
 		rimlight = "0",
@@ -1145,20 +1126,12 @@ for k, v in pairs(translate) do
 	end
 end
 
-do -- vmt object
+do
 	local warned = {}
 
 	local function get_info(self, key)
 		if self.invalid_shader then return end
 
-		--[[if self.invalid_shader then
-			warned[self.shader] = warned[self.shader] or {}
-			if not warned[self.shader][key] then
-				llog("%s: tried to lookup %s in invalid shader %s", self.name, key, self.shader)
-				warned[self.shader][key] = true
-			end
-			return
-		end]]
 		local info = self.params[key]
 
 		if not info then
@@ -1398,7 +1371,6 @@ do -- vmt object
 
 			self.invalid_shader = nil
 		else
-			--llog("tried to create unknown shader %s", name)
 			self.invalid_shader = true
 		end
 	end

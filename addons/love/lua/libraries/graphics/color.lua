@@ -40,8 +40,6 @@ function love.graphics.clear(...)
 	local count = select("#", ...)
 	local depth
 	local stencil
-	-- LÖVE 11.0+ clearcolor variant: love.graphics.clear(false, clearstencil, cleardepth)
-	-- Only clears depth/stencil without clearing the color buffer.
 	local first_arg = args[1]
 
 	if count >= 2 and first_arg == false then
@@ -67,12 +65,11 @@ function love.graphics.clear(...)
 		return
 	end
 
-	-- Extract depth/stencil when present (count > 4 means r,g,b,a + optional stencil/depth)
 	if count > 4 then
 		if count == 6 then
 			depth = args[count]
 			stencil = args[count - 1]
-		else -- count == 5
+		else
 			depth = nil
 			stencil = args[count]
 		end
@@ -83,7 +80,6 @@ function love.graphics.clear(...)
 			stencil = 0
 		elseif stencil == false then
 
-		-- Keep false as-is (means "don't clear stencil")
 		elseif not tonumber(stencil) then
 			stencil = nil
 		end
@@ -110,16 +106,12 @@ function love.graphics.clear(...)
 	if canvases[1] then
 		for i, canvas in ipairs(canvases) do
 			local c = colors[i]
-			-- Canvas:clear expects 0-255 color values; convert from normalized if needed
 			local r, g, b, a
 
 			if ctx.love_uses_normalized_color_range() then
-				-- Detect if input is already byte range (0-255) or normalized (0-1)
 				if c[1] > 1 or c[2] > 1 or c[3] > 1 or c[4] > 1 then
-					-- Input is byte values, pass through directly
 					r, g, b, a = c[1], c[2], c[3], c[4]
 				else
-					-- Input is normalized, convert to byte
 					r = c[1] * 255
 					g = c[2] * 255
 					b = c[3] * 255

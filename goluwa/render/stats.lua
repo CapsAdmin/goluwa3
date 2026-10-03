@@ -117,7 +117,6 @@ local function pack_glyph(rows)
 
 		for x = 1, #row do
 			if row:sub(x, x) == "1" then
-				-- the built in masks store the bottom row first
 				local bit_index = 4 - (x - 1) + (#rows - y) * 5
 				value = bit.bor(value, bit.lshift(1, bit_index))
 			end
@@ -509,8 +508,6 @@ local function build_field_text(field, bucket)
 	return tostring(text or "")
 end
 
--- every line is its left text, plus for the fields of a group with columns
--- its value (drawn at the group's value column) and an optional swatch color
 local function rebuild_overlay_lines(bucket)
 	ensure_overlay_state()
 	local line_count = 0
@@ -941,7 +938,6 @@ function stats.DrawOverlay(cmd)
 		end
 	end
 
-	-- a column line is its label, a gap, the swatch cell, a gap and the value
 	for i = 1, line_count do
 		local column = overlay_columns[i]
 		local chars = column and column_chars[column] + 3 + #overlay_values[i] or #overlay_lines[i]

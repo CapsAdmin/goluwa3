@@ -53,7 +53,6 @@ function CONTEXT:OnParseArchive(file, archive_path)
 
 				entry.preload_data = file:ReadBytes(entry.preload_length)
 				entry.size = entry.size + entry.preload_length
-				-- remove these because we don't need them and they will take up memory and blow up the size of the cache
 				entry.preload_offset = nil
 				entry.preload_length = nil
 				entry.terminator = nil

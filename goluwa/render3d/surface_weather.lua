@@ -2,38 +2,19 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local system = import("goluwa/system.lua")
 local assets = import("goluwa/assets.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
--- What the weather does to surfaces as they are written to the gbuffer, so lighting, reflections and
--- gi all see it. render3d/weather.lua sets the state and owns the shelter map, a depth map rendered
--- along the falling precipitation that tells sheltered surfaces apart.
 local surface_weather = library()
--- 0 is dry, 1 is soaked
 surface_weather.wetness = 0
--- meters of snow on open, flat ground
 surface_weather.snow_depth = 0
--- toward where the rain and snow come from
 surface_weather.precipitation_direction = Vec3(0, 1, 0)
--- the tangent of the angle the falling rain or snow strays from precipitation_direction, so the higher
--- an occluder is the softer the edge of its shelter
 surface_weather.precipitation_spread = 0.2
--- a ShadowMap rendered along the precipitation, nil without render3d/weather.lua
 surface_weather.shelter_map = nil
--- lying snow takes its albedo, roughness and normal from this material, loaded once snow first lies.
--- its textures tile every SNOW_TEXTURE_SIZE meters, projected from above
 surface_weather.SNOW_MATERIAL = "materials/examples/snow.lua"
 surface_weather.SNOW_TEXTURE_SIZE = 2.4
--- nil until snow first lies, false when there is no such material
 surface_weather.snow_material = nil
--- the water film rain leaves on wet surfaces is this material's clearcoat, loaded once something is
--- first wet
 surface_weather.RAIN_MATERIAL = "materials/examples/rain.lua"
--- nil until something is first wet, false when there is no such material
 surface_weather.rain_material = nil
--- drops of every size that land on each m² of open ground per second, and those big enough to splash,
--- render3d/weather.lua sets them with the rain. together they stir the film on wet surfaces up into a
--- restless surface that runs down slopes, with the odd ring from a big drop on flat ground
 surface_weather.rain_impact_rate = 0
 surface_weather.splash_rate = 0
--- mm, the drops counted by each
 surface_weather.AGITATION_MIN_DIAMETER = 0.5
 surface_weather.SPLASH_MIN_DIAMETER = 3
 surface_weather.block = {
@@ -54,14 +35,11 @@ surface_weather.block = {
 	{"shelter_matrix", "mat4"},
 }
 
--- 0 for dry snow, 1 for the wet snow near and above freezing, which is darker, smoother and falls in
--- bigger, faster flakes
 function surface_weather.GetSnowWetness()
 	return math.smoothstep(-2, 0.5, atmosphere.GetTemperature())
 end
 
 function surface_weather.WriteBlock(self, block)
-	-- no weather in a void
 	block.surface_wetness = atmosphere.IsEnabled() and surface_weather.wetness or 0
 	block.surface_snow_depth = atmosphere.IsEnabled() and surface_weather.snow_depth or 0
 	block.surface_snow_wetness = surface_weather.GetSnowWetness()
@@ -113,29 +91,16 @@ function surface_weather.WriteBlock(self, block)
 end
 
 do
-	-- m across the stirred film's waves, their larger octave
 	local AGITATION_SIZE = 0.05
-	-- the waves' rms slope at 1000 drops per m² per second. the waves of many drops add up at random, so
-	-- the slope goes as the square root of how many land
 	local AGITATION_SLOPE = 0.06 * 1
-	-- noise cells per second the film churns through in place
 	local AGITATION_SPEED = 30
-	-- m/s the film runs down a wall, down a slope times the sine of its angle
 	local FLOW_SPEED = 0.5 * 10
-	-- s before the flowing noise starts over, a whole number of splash lifetimes so the time's wrap
-	-- doesn't cut it off. it moves by the direction downhill, which turns along a curved surface, so
-	-- two copies half a period apart start over in turn and the pattern never tears (the flow map
-	-- technique, Vlachos 2010)
 	local FLOW_PERIOD = 1.6
-	-- the noise is this much coarser upward, so the water running down walls draws out into streaks
 	local AGITATION_STREAK = 0.25
-	-- the big drops' rings: a grid of cells in a few offset layers, each cell a drop landing somewhere in it
-	-- once a lifetime, or not. a ring spreads to a cell so the neighbouring cells hold every ring
 	local SPLASH_CELL = 0.15
 	local SPLASH_LAYERS = 2
 	local SPLASH_LIFETIME = 0.8
 	local SPLASH_RADIUS = SPLASH_CELL
-	-- m across a ring's crests, and the steepest slope of its waves
 	local SPLASH_WIDTH = 0.03
 	local SPLASH_SLOPE = 0.3
 	surface_weather.rain_surface_block = {
@@ -146,15 +111,10 @@ do
 	}
 
 	function surface_weather.WriteRainSurfaceBlock(self, block)
-		-- a whole number of splash lifetimes, so the wrap cuts no ring off. the churning jumps once
 		block.rain_time = system.GetElapsedTime() % (SPLASH_LIFETIME * 4096)
 		block.rain_agitation = AGITATION_SLOPE * math.sqrt(surface_weather.rain_impact_rate / 1000)
-		-- the chance a cell's drop lands in a lifetime, to land the big drops on each m². heavy rain has
-		-- more than the cells hold, the rest is in the churning
 		local chance = math.min(surface_weather.splash_rate * SPLASH_LIFETIME * SPLASH_CELL * SPLASH_CELL / SPLASH_LAYERS, 1)
 		block.splash_chance = chance
-		-- far away the rings are too fine to see and only spread the film's reflection: the share of the
-		-- surface a ring's waves are passing times their slope
 		local coverage = math.min(
 			chance * SPLASH_LAYERS * math.pi * SPLASH_RADIUS * 2 * SPLASH_WIDTH / (
 					SPLASH_CELL * SPLASH_CELL
@@ -164,10 +124,6 @@ do
 		block.splash_alpha = SPLASH_SLOPE * math.sqrt(coverage)
 	end
 
-	-- apply_rain_surface(world_pos, footprint, rain, coat_N, coat_alpha) for a pass with rain_surface_block in
-	-- block_name. rain is how much of the rain lands on the coat (gbuffer_clearcoat_rain), footprint the
-	-- meters a pixel covers. it tilts the coat's normal where the waves are resolved and roughens the coat
-	-- where they aren't
 	function surface_weather.GetRainSurfaceGLSL(block_name)
 		return (
 			(
@@ -336,11 +292,6 @@ do
 	end
 end
 
--- apply_surface_weather(albedo, alpha_roughness, metallic, normal, porosity, world_pos, geometric_normal, clearcoat,
--- clearcoat_alpha, rain). rain comes out as how much of the falling rain lands on the surface, for its ripples
--- for a shader with surface_weather.block in the uniform block block_name. it returns how much snow
--- covers the surface, for what else the snow hides. get_porosity(alpha_roughness, metallic) is the usual
--- guess for materials that don't know their own
 function surface_weather.GetGLSL(block_name)
 	return [[
 		// an occluder has to be this far up the precipitation from a surface to shelter it, so a surface

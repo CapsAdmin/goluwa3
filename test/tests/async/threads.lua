@@ -111,7 +111,6 @@ T.Test("pool rejects non-string worker source", function()
 	local ok, err = pcall(function()
 		threads.new_pool(function() end, 2)
 	end)
-
 	T(ok)["=="](false)
 	T(tostring(err):find("worker source string", 1, true))["~="](nil)
 end)
@@ -123,15 +122,10 @@ T.Test("pool surfaces worker errors", function()
 	]], 2)
 	pool:submit(1, {id = 7})
 	local result, err = pool:wait(1)
-
 	T(result)["=="](nil)
 	T(err:find("boom 7", 1, true))["~="](nil)
-
-	-- pool thread survives a failed task and can take more work
 	pool:submit(1, {id = 8})
-
 	local result2, err2 = pool:wait(1)
-
 	T(result2)["=="](nil)
 	T(err2:find("boom 8", 1, true))["~="](nil)
 	pool:shutdown()

@@ -107,12 +107,10 @@ local function on_reload(path, from_terminal)
 		return nil, nil
 	end
 
-	-- Check if content is identical to avoid unnecessary reloads
 	local identical = false
 
 	if last_content[path] == code then identical = true end
 
-	-- Get file name for logging
 	local file_name = path:match("([^/]+)$") or path
 	io.write(
 		"reloading ",
@@ -121,7 +119,6 @@ local function on_reload(path, from_terminal)
 		"\n"
 	)
 
-	-- Set global variables for hotreload code to use
 	if not from_terminal then _G.HOTRELOAD = true end
 
 	_G.path = path
@@ -138,16 +135,10 @@ local function on_reload(path, from_terminal)
 		return code, identical
 	end
 
-	-- Try custom OnReload first
 	if hotreload.OnReload(path, code) ~= false then
-		-- If OnReload didn't return false, try hotreload config
-		if not run_hotreload_config(path, code) then
-			-- Otherwise do default reload
-			default_reload(path)
-		end
+		if not run_hotreload_config(path, code) then default_reload(path) end
 	end
 
-	-- Clean up globals
 	_G.HOTRELOAD = nil
 	_G.path = nil
 	_G.code = nil

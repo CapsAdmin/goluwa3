@@ -2,8 +2,6 @@ local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local module = {}
 
--- Full shader_stages config for a trivial fullscreen white pipeline.
--- Extra keys are merged on top.
 function module.CreatePipeline(extra)
 	local config = {
 		shader_stages = {
@@ -37,7 +35,6 @@ function module.CreatePipeline(extra)
 	return render.CreateGraphicsPipeline(config)
 end
 
--- EasyPipeline equivalent of CreatePipeline.
 function module.CreateEasyPipeline(extra)
 	local config = {
 		fragment = {

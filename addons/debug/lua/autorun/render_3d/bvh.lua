@@ -27,7 +27,6 @@ local function is_control_down()
 		input.IsKeyDown("control")
 end
 
--- depth 0 (root) is warm red, deep nodes fade toward cyan
 local function depth_color(depth)
 	local t = math.clamp(depth / 24.0, 0.0, 1.0)
 	local r = 1.0 - t
@@ -42,8 +41,6 @@ local function node_extent(node)
 	return math.max(ex, ey, ez)
 end
 
--- walk the tree iteratively and draw a wire box per node that passes the
--- current mode and filter. returns the set of ids drawn this frame
 local function draw_bvh_nodes()
 	local nodes = scene_bvh.debug_nodes
 	local node_count = scene_bvh.debug_node_count
@@ -100,9 +97,6 @@ local function draw_bvh_nodes()
 			end
 		end
 
-		-- count == 0 means the node has children at left_first / left_first+1.
-		-- top-tree leaves point at a real child root (with a dead sentinel
-		-- beside it), so only descend into children whose bounds are alive
 		if count == 0 and drawn_count < bvh_max_boxes then
 			local left = node.left_first
 

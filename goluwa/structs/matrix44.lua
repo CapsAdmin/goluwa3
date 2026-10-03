@@ -44,7 +44,6 @@ function META.GetInverse(m, o)
 	return o
 end
 
--- o may be a, but not b: rows of a are read before they are overwritten
 function META.GetMultiplied(a, b, o)
 	o = o or META.CType()
 	local a0, a1, a2, a3 = a.m00, a.m01, a.m02, a.m03
@@ -181,11 +180,9 @@ do
 		x = x / mag
 		y = y / mag
 		z = z / mag
-		-- Rodrigues' rotation formula, applied to self in place as R * self
 		local s = sin(a)
 		local c = cos(a)
 
-		-- rotation about z only touches the first two rows
 		if x == 0 and y == 0 then
 			s = z * s
 			local c0, c1 = self.m00, self.m10
@@ -222,7 +219,6 @@ do
 		return self
 	end
 
-	-- ORIENTATION / TRANSFORMATION: Helper rotation methods using orientation module
 	function META:RotatePitch(angle)
 		local x, y, z = orientation.RIGHT_VECTOR:Unpack()
 		return self:Rotate(angle, x, y, z)
@@ -257,15 +253,13 @@ function META:Scale(x, y, z)
 	return self
 end
 
-do -- projection
+do
 	local tan = math.tan
 
 	function META:Perspective(fov, near, far, aspect)
 		local yScale = 1.0 / tan(fov / 2)
 		local xScale = yScale / aspect
 		local nearmfar = far - near
-		-- Row-major layout (will be transposed before sending to GPU)
-		-- ORIENTATION / TRANSFORMATION: Y-flip controlled by orientation module
 		self.m00 = xScale
 		self.m01 = 0
 		self.m02 = 0
@@ -276,11 +270,11 @@ do -- projection
 		self.m13 = 0
 		self.m20 = 0
 		self.m21 = 0
-		self.m22 = -far / nearmfar -- Negative for Vulkan depth mapping
+		self.m22 = -far / nearmfar
 		self.m23 = -1
 		self.m30 = 0
 		self.m31 = 0
-		self.m32 = -(far * near) / nearmfar -- Negative for Vulkan depth mapping
+		self.m32 = -(far * near) / nearmfar
 		self.m33 = 0
 		return self
 	end
@@ -309,28 +303,14 @@ do -- projection
 		return self
 	end
 
-	-- flip_y: optional, if true applies orientation.PROJECTION_Y_FLIP (for 3D/shadows)
-	--         defaults to false for 2D compatibility
 	function META:Ortho(left, right, bottom, top, near, far, flip_y)
 		self.m00 = 2 / (right - left)
-		--self.m10 = 0
-		--self.m20 = 0
 		self.m30 = -(right + left) / (right - left)
-		--	self.m01 = 0
-		-- ORIENTATION / TRANSFORMATION: Y-flip controlled by flip_y parameter
 		local y_flip = flip_y and orientation.PROJECTION_Y_FLIP or 1
 		self.m11 = y_flip * 2 / (top - bottom)
-		--	self.m21 = 0
 		self.m31 = -(top + bottom) / (top - bottom)
-		--	self.m02 = 0
-		--	self.m12 = 0
-		-- Vulkan depth range [0,1] instead of OpenGL [-1,1]
 		self.m22 = -1 / (far - near)
 		self.m32 = -near / (far - near)
-		--	self.m03 = 0
-		--	self.m13 = 0
-		--	self.m23 = 0
-		--	self.m33 = 1
 		return self
 	end
 end
@@ -357,7 +337,6 @@ function META:GetRotation(out)
 	local trace = m00 + m11 + m22
 	local x, y, z, w
 
-	-- branch on the largest diagonal term so rotations near 180 degrees don't divide by ~0
 	if trace > 0 then
 		local s = math.sqrt(1 + trace) * 2
 		w = s / 4
@@ -394,9 +373,8 @@ function META:SetRotation(q)
 	local sqx = q.x * q.x
 	local sqy = q.y * q.y
 	local sqz = q.z * q.z
-	-- invs (inverse square length) is only required if quaternion is not already normalised
 	local invs = 1 / (sqx + sqy + sqz + sqw)
-	self.m00 = (sqx - sqy - sqz + sqw) * invs -- since sqw + sqx + sqy + sqz =1/invs*invs
+	self.m00 = (sqx - sqy - sqz + sqw) * invs
 	self.m11 = (-sqx + sqy - sqz + sqw) * invs
 	self.m22 = (-sqx - sqy + sqz + sqw) * invs
 	local tmp1, tmp2
@@ -416,7 +394,6 @@ function META:SetRotation(q)
 end
 
 function META:SetRotationFromMatrix(m)
-	-- Copy rotation part (upper-left 3x3) from another matrix
 	self.m00 = m.m00
 	self.m01 = m.m01
 	self.m02 = m.m02

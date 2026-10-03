@@ -1,8 +1,3 @@
--- copy this script to gmod
--- lua_openscript_cl build_exported.lua
--- lua_openscript build_exported.lua
--- copy data/cl_exported.lua to this script's directory
--- copy data/sv_exported.lua to this script's directory
 local exported = {}
 exported.functions = {}
 exported.globals = {}
@@ -56,7 +51,6 @@ local meta_names = {
 	"Vehicle",
 }
 
--- enums
 for key, val in pairs(_G) do
 	if isnumber(val) or isbool(val) then
 		exported.enums[key] = val
@@ -119,7 +113,6 @@ local blacklist = {
 	SpawniconGenFunctions = true,
 }
 
--- functions
 for key, val in pairs(_G) do
 	if key == "_G" then goto _continue end
 
@@ -137,7 +130,6 @@ for key, val in pairs(_G) do
 					end
 				else
 
-				--print("unexpected value in library " .. key .. ": ", func_name, func)
 				end
 			end
 		end
@@ -146,7 +138,6 @@ for key, val in pairs(_G) do
 	::_continue::
 end
 
--- meta
 for _, meta_name in ipairs(meta_names) do
 	local meta = FindMetaTable(meta_name)
 

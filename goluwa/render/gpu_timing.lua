@@ -5,27 +5,8 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local QueryPool = import("goluwa/render/vulkan/internal/query_pool.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local gpu_timing = {}
--- All render passes for a frame are recorded into a single command buffer
--- that is submitted once with no CPU/GPU sync between passes, so wall-clock
--- timing around a pass's Draw() call only measures CPU recording time. GPU
--- timestamp queries are the only way to know how long a pass actually took
--- on the GPU.
---
--- Query pools are keyed by command buffer identity rather than frame index:
--- multiple independent render targets (the swapchain target, offscreen
--- screenshot/capture targets, every shadow map) each record their own
--- command buffers, and those are long-lived and reused, so this stays a
--- small, bounded set of pools. Each pool keeps its own latest results; a
--- scope timed in several command buffers (the cascades of every point light
--- shadow map, say) is shown as their sum.
--- with GOLUWA_GPU_SERIALIZE=1 (or SetSerialized) every timed scope is walled
--- off by full barriers, also against the command buffers submitted before it,
--- so scopes cannot overlap each other. the frame is slower, but every scope
--- then measures its own work, and the scopes add up to the gpu time
 local serialized = os.getenv("GOLUWA_GPU_SERIALIZE") == "1"
 local MAX_SCOPES = 128
--- a pool result older than this is left out, so work that stopped running
--- (a shadow cascade that is not re-rendered) drops out of the totals
 local STALE_SECONDS = 1
 local RESULT_FLAGS = bit.bor(
 	vulkan.vk.VkQueryResultFlagBits.VK_QUERY_RESULT_64_BIT,
@@ -33,9 +14,6 @@ local RESULT_FLAGS = bit.bor(
 )
 local slot_by_name = {}
 local slot_order = {}
--- scope names in the order they run: the order the CPU begins them in a
--- frame. each frame's sequence re-sorts the names it contains into its own
--- order while the names it lacks keep their place
 local display_order = {}
 local display_labels = {}
 local sequence = {}
@@ -66,10 +44,6 @@ local function timestamps_are_supported()
 end
 
 render_stats.RegisterGroup{id = "gpu_timing", label = "GPU TIMINGS IN MICROSECONDS", columns = true}
-
--- the frame scope plus every shadow scope. the shadows are recorded in
--- command buffers of their own, so the frame scope does not contain them.
--- scopes that overlap are counted twice unless serialized
 local TOTAL_NAME = "gpu_total"
 local get_total_ms
 
@@ -89,7 +63,6 @@ local function get_everything_ms()
 	return total
 end
 
--- the sum of every pool's recent result for name, or nil when none is recent
 function get_total_ms(name)
 	if name == TOTAL_NAME then return get_everything_ms() end
 
@@ -107,8 +80,6 @@ function get_total_ms(name)
 	return total
 end
 
--- the smoothed totals shown this frame, and their range over everything but
--- the whole frame scope, which would otherwise always be the most expensive
 local shown_ms = {}
 local shown_frame
 local shown_min
@@ -143,8 +114,6 @@ local function update_shown()
 	end
 end
 
--- one overlay row per rank in display_order, so rows follow the run order
--- even when a scope is first seen after later ones were registered
 local function register_row(rank)
 	render_stats.RegisterField{
 		id = "gpu_timing_row_" .. rank,
@@ -158,8 +127,6 @@ local function register_row(rank)
 			local ms = shown_ms[display_order[rank]]
 			return ms and tostring(math.floor(ms * 1000 + 0.5)) or "-"
 		end,
-		-- green for the cheapest shown scope through yellow to red for the
-		-- most expensive
 		swatch_getter = function()
 			update_shown()
 			local name = display_order[rank]
@@ -195,8 +162,6 @@ local function get_slot(name)
 	return slot
 end
 
--- the slots of display_order that hold names of the finished frame's
--- sequence, handed out to those names in sequence order
 local function apply_sequence()
 	local count = 0
 
@@ -289,10 +254,6 @@ local function read_back_pool(pool)
 	end
 end
 
--- Marks the start of a new recording cycle on this command buffer: reads
--- back whatever this pool captured last time it was recorded (its GPU work
--- is guaranteed complete, since the caller only re-records a command buffer
--- after waiting on the fence from its previous submission) and resets it.
 function gpu_timing.BeginCommandBuffer(cmd)
 	if not render.available or not timestamps_are_supported() then return end
 
@@ -306,16 +267,11 @@ function gpu_timing.BeginCommandBuffer(cmd)
 	pool.gpu_timing_skipped = {}
 end
 
--- BeginCommandBuffer for a frame's main command buffer, plus the
--- "gpu_frame" scope spanning the whole recording.
 function gpu_timing.BeginFrame(cmd)
 	gpu_timing.BeginCommandBuffer(cmd)
 	gpu_timing.BeginScope(cmd, "gpu_frame")
 end
 
--- A scope name can be entered more than once per recording (a pass that
--- also runs inside a reflection probe capture, for example). Only the first
--- occurrence is timed, since each query may be written once per reset.
 function gpu_timing.BeginScope(cmd, name)
 	if not render.available or not timestamps_are_supported() then return end
 
@@ -359,7 +315,6 @@ function gpu_timing.EndScope(cmd, name)
 	end
 end
 
--- the sum of the recent results of every command buffer that timed name
 function gpu_timing.GetMilliseconds(name)
 	return get_total_ms(name) or 0
 end
@@ -368,7 +323,6 @@ function gpu_timing.GetRawMilliseconds(name)
 	return last_ms[name] or 0
 end
 
--- every scope name seen so far, for iterating GetRawMilliseconds
 function gpu_timing.GetScopeNames()
 	return slot_order
 end
@@ -381,8 +335,5 @@ function gpu_timing.IsSerialized()
 	return serialized
 end
 
--- a row for the sum of the frame and its shadows, last so it follows the
--- scopes it adds up
 get_slot(TOTAL_NAME)
-
 return gpu_timing

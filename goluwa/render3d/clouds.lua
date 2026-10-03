@@ -4,31 +4,8 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local clouds = library()
---[[
-	Volumetric clouds in layers of spherical shells around the planet (the
-	same planet atmosphere.lua uses, its center (R + eye height) below the
-	world origin). A layer is either a volume that is ray marched (cumulus,
-	stratus, cumulonimbus, altocumulus) or a thin flat sheet (cirrus).
-
-	Density is two noise volumes and a tiling weather map (see
-	passes/clouds.lua): the weather map decides where clouds gather, the base
-	volume their shape and the detail volume erodes their edges.
-
-	Light: the sun (or the moon) through the layer with a short march toward
-	it, several scattering orders after Wrenninge's approximation, the layers
-	above it and the sky's ambient from above and the ground below.
-
-	What uses them:
-	- passes/clouds.lua renders them for the main view, a sky dome that the
-	  sky, the environment probes and the fog's ambient read, and a shadow
-	  map along the primary light that every sun lookup multiplies in
-	- passes/volumetric_fog.lua composites the main view and shadows the air
-	  by the shadow map (crepuscular rays)
-]]
 clouds.MAX_LAYERS = 4
--- the textures hold radiance times this, a sunlit cloud facing away from the sun overflows a half float
 clouds.RADIANCE_SCALE = atmosphere.CLOUD_RADIANCE_SCALE
--- the shadow map follows the camera, covering this many meters across
 clouds.SHADOW_SIZE = 512
 clouds.SHADOW_EXTENT = 32000
 clouds.SKY_WIDTH = 512
@@ -36,9 +13,7 @@ clouds.SKY_HEIGHT = 256
 clouds.BASE_NOISE_SIZE = 128
 clouds.DETAIL_NOISE_SIZE = 32
 clouds.WEATHER_SIZE = 512
--- seconds between environment probe recaptures while the clouds drift
 clouds.SKY_REFRESH_INTERVAL = 2
--- and while the layers change, as while climate.lua blends between presets
 clouds.SKY_CHANGE_INTERVAL = 0.5
 clouds.enabled = true
 clouds.layers = {}
@@ -49,40 +24,23 @@ clouds.light_direction = Vec3(0, 1, 0)
 clouds.light_illuminance = Vec3(0, 0, 0)
 clouds.shadow_direction = Vec3(0, 1, 0)
 clouds.textures = clouds.textures or {}
--- defaults for a layer's fields, see clouds.SetLayers
 clouds.LAYER_DEFAULTS = {
-	-- a layer given the same name in the next SetLayers keeps drifting from where it was
 	name = false,
-	-- meters above sea level of its base, and how deep it is
 	bottom = 1500,
 	thickness = 1500,
-	-- 0 is none, 1 covers the sky without gaps
 	coverage = 0.4,
-	-- extinction in 1/m where the cloud is densest (cumulus ~0.05-0.1, stratus ~0.02-0.05). for a flat
-	-- layer, the optical depth straight through it
 	density = 0.06,
-	-- the shape by height: 0 flat stratus with a flat top, 1 cumulus heaps with rounded tops
 	type = 1,
-	-- how much the detail noise eats into the edges, wispier toward 1
 	erosion = 0.4,
-	-- 0 to 1, how much a cumulonimbus spreads out under the tropopause
 	anvil = 0,
-	-- a thin sheet (cirrus) instead of a volume
 	flat = false,
-	-- how far apart in meters: the weather map's pattern, the base shape noise and the detail noise tile
 	weather_scale = 40000,
 	shape_scale = 5000,
 	detail_scale = 300,
-	-- how much the weather map varies the coverage from place to place
 	variation = 0.5,
-	-- meters the base rises and sinks from place to place, so not every cloud sits on the same floor
 	base_variation = 0,
-	-- 0 to 1, how much the clouds are stretched and curled into swirls, as by wind shear and eddies.
-	-- far away they always are a little, which hides the noise's tiling
 	swirl = 0,
-	-- the layer drifts with the surface wind times this, wind is stronger aloft
 	wind_scale = 2.5,
-	-- m/s the noise rises through the layer, the clouds churn even in still air
 	evolution = 0.6,
 }
 
@@ -97,7 +55,6 @@ local function create_layer(params)
 		layer[k] = v
 	end
 
-	-- noise offsets in meters, wrapped by the tile sizes
 	layer.weather_offset = Vec2(0, 0)
 	layer.shape_offset = Vec3(0, 0, 0)
 	layer.detail_offset = Vec3(0, 0, 0)
@@ -108,7 +65,6 @@ local function sort_layers(a, b)
 	return a.bottom < b.bottom
 end
 
--- a list of layers, each a table of the fields in clouds.LAYER_DEFAULTS, lowest first
 function clouds.SetLayers(list)
 	if #list > clouds.MAX_LAYERS then
 		error("at most " .. clouds.MAX_LAYERS .. " cloud layers", 2)
@@ -132,7 +88,6 @@ function clouds.SetLayers(list)
 			layer.detail_offset = old.detail_offset
 			previous[layer.name] = nil
 		else
-			-- the same pattern shouldn't repeat in every layer
 			layer.weather_offset = Vec2(i * 7919, i * 3571)
 			layer.shape_offset = Vec3(i * 4271, i * 1523, i * 2963)
 			layer.detail_offset = Vec3(i * 613, i * 331, i * 877)
@@ -151,12 +106,10 @@ function clouds.GetLayers()
 	return clouds.layers
 end
 
--- the fraction of the sky the clouds hide
 function clouds.GetCover()
 	return clouds.cover
 end
 
--- how dense a layer is on average where it is cloudy, relative to its density
 local MEAN_SHAPE_DENSITY = 0.35
 
 local function get_optical_depth(layer)
@@ -175,7 +128,6 @@ function clouds.EstimateCover()
 	return 1 - clear
 end
 
--- the share of the direct light from dir that reaches the ground, on average over the sky
 function clouds.GetMeanTransmittance(dir)
 	local mu = math.max(dir.y, 0.05)
 	local t = 1
@@ -187,7 +139,6 @@ function clouds.GetMeanTransmittance(dir)
 	return t
 end
 
--- the most direct light from dir that reaches the ground anywhere, 1 when there are gaps
 function clouds.GetMaxTransmittance(dir)
 	local mu = math.max(dir.y, 0.05)
 	local t = 1
@@ -201,8 +152,6 @@ function clouds.GetMaxTransmittance(dir)
 	return t
 end
 
--- 0 to 1, how much thin cloud over the sun spreads it from a disc into a glow. thick clouds block
--- the sun rather than spread it, in the gaps between them its shadows stay sharp
 function clouds.GetSunDiffusion()
 	local clear = 1
 
@@ -230,19 +179,15 @@ function clouds.IsActive()
 	return clouds.enabled and atmosphere.IsEnabled() and #clouds.layers > 0
 end
 
--- the light the clouds are lit by: direction toward it and its illuminance (per channel) above the
--- atmosphere. separate from the shadow's, after sunset the sun still lights the clouds
 function clouds.SetLight(direction, illuminance)
 	clouds.light_direction = direction
 	clouds.light_illuminance = illuminance
 end
 
--- the direction toward the light the ground is lit by, the shadow map looks along it
 function clouds.SetShadowDirection(direction)
 	clouds.shadow_direction = direction
 end
 
--- changes when the sky dome changed enough to capture the environment again
 function clouds.GetSkyVersion()
 	return clouds.sky_version
 end
@@ -263,13 +208,11 @@ do
 		sky_time = sky_time + dt
 
 		for _, layer in ipairs(clouds.layers) do
-			-- the pattern moves with the wind, so it is sampled against it
 			local vx = -wind.x * layer.wind_scale * dt
 			local vz = -wind.z * layer.wind_scale * dt
 			local rise = -layer.evolution * dt
 			layer.weather_offset.x = wrap(layer.weather_offset.x + vx, layer.weather_scale)
 			layer.weather_offset.y = wrap(layer.weather_offset.y + vz, layer.weather_scale)
-			-- the shape drifts a little slower than the pattern, so clouds form and dissolve as they go
 			layer.shape_offset.x = wrap(layer.shape_offset.x + vx * 0.9, layer.shape_scale)
 			layer.shape_offset.y = wrap(layer.shape_offset.y + rise, layer.shape_scale)
 			layer.shape_offset.z = wrap(layer.shape_offset.z + vz * 0.9, layer.shape_scale)
@@ -294,8 +237,6 @@ do
 	end
 end
 
--- mipmapped, far clouds sample coarser noise than their steps would alias. the bake writes the
--- first level through storage, which takes a view of just that level
 local function create_volume(size, name)
 	local tex = Texture.New{
 		width = size,
@@ -353,7 +294,6 @@ local function create_target(width, height, format, name, wrap_s, wrap_t)
 	return tex
 end
 
--- the noise, the weather map, the shadow map and the sky dome, which don't depend on the screen
 function clouds.EnsureResources()
 	local t = clouds.textures
 
@@ -385,7 +325,6 @@ function clouds.EnsureResources()
 	return t
 end
 
--- after the bake, recorded into cmd before the first pass that samples the noise
 function clouds.GenerateNoiseMips(cmd)
 	local t = clouds.textures
 
@@ -402,8 +341,6 @@ function clouds.GenerateNoiseMips(cmd)
 	t.noise_mipped = true
 end
 
--- the main view's targets: this frame's traced quarter of the pixels, and the half resolution
--- reconstruction it is blended into, twice to ping pong
 function clouds.EnsureViewResources(size)
 	local t = clouds.textures
 	local width = math.ceil(size.x / 2)
@@ -434,7 +371,6 @@ function clouds.EnsureViewResources(size)
 	return t
 end
 
--- the reconstructed main view, nil until it has been rendered
 function clouds.GetViewTextures()
 	local t = clouds.textures
 
@@ -459,8 +395,6 @@ function clouds.GetSkyTexture()
 	return t.sky
 end
 
--- the shadow map's frame: a plane facing the light far above the camera, snapped to its texels so the
--- shadows don't crawl as the camera moves
 do
 	local shadow_frame = {
 		right = Vec3(1, 0, 0),
@@ -489,7 +423,6 @@ do
 		shadow_frame.up = up
 		shadow_frame.dir = dir
 		shadow_frame.center = right * x + up * y + dir * z
-		-- from the plane down to the camera, far enough to be above every layer
 		shadow_frame.distance = (top + 500 - math.min(camera_position.y, 0)) / math.max(dir.y, 0.03)
 		return shadow_frame
 	end
@@ -501,10 +434,8 @@ end
 
 function clouds.GetShadowBlockLayout()
 	return {
-		-- world to (u, v, depth in km below the plane) rows
 		{"cloud_shadow_axes", "vec4", 3},
 		{"cloud_shadow_tex", "int"},
-		-- used past the map's edges
 		{"cloud_shadow_fallback", "float"},
 	}
 end
@@ -531,7 +462,6 @@ function clouds.WriteShadowBlock(self, block)
 	axes[1][1] = up.y
 	axes[1][2] = up.z
 	axes[1][3] = 0.5 - frame.center:GetDot(up)
-	-- depth (km) = (distance - dot(p - center, dir)) / 1000
 	axes[2][0] = -frame.dir.x * 0.001
 	axes[2][1] = -frame.dir.y * 0.001
 	axes[2][2] = -frame.dir.z * 0.001
@@ -540,8 +470,6 @@ function clouds.WriteShadowBlock(self, block)
 	block.cloud_shadow_fallback = clouds.GetMeanTransmittance(frame.dir)
 end
 
--- get_cloud_shadow(world_pos): the share of the primary light the clouds let through to world_pos.
--- prefix is where the fields of GetShadowBlockLayout are, like "lighting_data.shadows"
 function clouds.GetShadowGLSL(prefix)
 	return [[
 		#ifndef CLOUD_SHADOW_GLSL
@@ -572,17 +500,11 @@ function clouds.GetBlockLayout()
 		{"cloud_weather_tex", "int"},
 		{"cloud_frame", "int"},
 		{"cloud_mean_transmittance", "float"},
-		-- bottom, thickness, coverage, density
 		{"cloud_layer_shape", "vec4", clouds.MAX_LAYERS},
-		-- type, erosion, anvil, flat
 		{"cloud_layer_style", "vec4", clouds.MAX_LAYERS},
-		-- weather, shape and detail scale, variation
 		{"cloud_layer_scale", "vec4", clouds.MAX_LAYERS},
-		-- weather offset xz, shape offset xz
 		{"cloud_layer_offset", "vec4", clouds.MAX_LAYERS},
-		-- shape offset y, detail offset xyz
 		{"cloud_layer_offset2", "vec4", clouds.MAX_LAYERS},
-		-- swirl, base variation
 		{"cloud_layer_vary", "vec4", clouds.MAX_LAYERS},
 		{"cloud_light_direction", "vec4"},
 		{"cloud_light_illuminance", "vec4"},
@@ -640,7 +562,6 @@ function clouds.WriteBlock(self, block)
 	block.cloud_light_illuminance[3] = 0
 end
 
--- periodic noise, shared by the passes that bake the noise volumes and the weather map
 clouds.NOISE_GLSL = [[
 	uvec3 cloud_pcg3d(uvec3 v) {
 		v = v * 1664525u + 1013904223u;
@@ -734,8 +655,6 @@ clouds.NOISE_GLSL = [[
 	}
 ]]
 
--- cloud_march and what it needs. block holds GetBlockLayout and atmosphere's block, the atmosphere
--- defines and code come before it, and the sampler3Ds cloud_base_noise and cloud_detail_noise
 function clouds.GetGLSL(block)
 	return [[
 		#define CLOUD_BLOCK ]] .. block .. [[

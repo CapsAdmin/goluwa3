@@ -77,7 +77,6 @@ function TrailRenderer:Draw()
 	local poly = self:EnsureCapacity()
 	local denom = num_segments > 1 and (num_segments - 1) or 1
 	local uv_denom = self.UVStretch * math.max(num_segments, 1)
-	-- Precompute perpendiculars at each point using centered differences
 	local normals = self.normals
 
 	for j = 1, #self.points do
@@ -85,19 +84,16 @@ function TrailRenderer:Draw()
 		local px, py
 
 		if j == 1 then
-			-- First point: use direction to next
 			local dx = self.points[2].x - self.points[1].x
 			local dy = self.points[2].y - self.points[1].y
 			px = -dy
 			py = dx
 		elseif j == #self.points then
-			-- Last point: use direction from previous
 			local dx = self.points[j].x - self.points[j - 1].x
 			local dy = self.points[j].y - self.points[j - 1].y
 			px = -dy
 			py = dx
 		else
-			-- Centered: average of incoming and outgoing direction
 			local dx_in = self.points[j].x - self.points[j - 1].x
 			local dy_in = self.points[j].y - self.points[j - 1].y
 			local dx_out = self.points[j + 1].x - self.points[j].x
@@ -137,17 +133,11 @@ function TrailRenderer:Draw()
 		local ca1 = math.lerp(1 - t_next, self.StartColor.a, self.EndColor.a)
 		local uv = i / uv_denom
 		local uv1 = (i + 1) / uv_denom
-		-- v0: top at p0
 		poly:SetVertex(base + 0, p0.x + n0[1] * size0, p0.y + n0[2] * size0, uv, 0, cr, cg, cb, ca)
-		-- v1: bottom at p0
 		poly:SetVertex(base + 1, p0.x - n0[1] * size0, p0.y - n0[2] * size0, uv, 1, cr, cg, cb, ca)
-		-- v2: top at p1
 		poly:SetVertex(base + 2, p1.x + n1[1] * size1, p1.y + n1[2] * size1, uv1, 0, cr1, cg1, cb1, ca1)
-		-- v3: bottom at p1
 		poly:SetVertex(base + 3, p1.x - n1[1] * size1, p1.y - n1[2] * size1, uv1, 1, cr1, cg1, cb1, ca1)
-		-- v4: duplicate of v2
 		poly:SetVertex(base + 4, p1.x + n1[1] * size1, p1.y + n1[2] * size1, uv1, 0, cr1, cg1, cb1, ca1)
-		-- v5: duplicate of v1
 		poly:SetVertex(base + 5, p0.x - n0[1] * size0, p0.y - n0[2] * size0, uv, 1, cr, cg, cb, ca)
 	end
 

@@ -10,7 +10,6 @@ local vfs = import("goluwa/vfs.lua")
 local render = import("goluwa/render/render.lua")
 local ffi = require("ffi")
 
--- two bones, the second one a child 1 unit up, and a clip that swings it around z by up to 90 degrees
 local function create_skeleton()
 	local bind_local = ffi.new("float[14]", {0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1})
 	local inverse_bind = ffi.new(
@@ -80,7 +79,6 @@ T.Test3D("animator skins a primitive on the gpu without touching the shared mesh
 	draw()
 	render.GetDevice():WaitIdle()
 	local skinned = ffi.cast("float*", primitive:GetPolygon3D().mesh.vertex_buffer:GetBuffer():Map())
-	-- 45 degrees around z about the point (0, 1, 0)
 	local angle = math.pi / 4
 	local dx, dy = x, y - 1
 	local expected_x = dx * math.cos(angle) - dy * math.sin(angle)
@@ -135,6 +133,7 @@ T.Test3D("source engine player model animations", function()
 	T.WaitUntil(function()
 		return skeleton ~= nil
 	end, 30)
+
 	T(skeleton ~= nil)["=="](true)
 	T(skeleton.BoneCount)[">"](1)
 	local walk = skeleton.ClipsByName["walk_all"]
@@ -189,7 +188,6 @@ T.Test3D("animator skins once more after the pose stops changing, then goes quie
 	animator:Animate(0)
 	local version = animator.skin_version
 	T(animator.settle)["=="](1)
-	-- the second pass has the same pose, which takes the motion since the previous update to zero. the bvh has nothing new
 	animator:Settle()
 	T(animator.settle)["=="](0)
 	animator:Settle()

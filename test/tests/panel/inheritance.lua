@@ -1,7 +1,6 @@
 local T = import("test/environment.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
--- Create a parent widget type with components defined via CMP
 local ParentWidget = Panel:CreateTemplate("test_parent_widget")
 ParentWidget.Base = Panel
 ParentWidget.CMP.transform = {}
@@ -19,7 +18,6 @@ function ParentWidget:OnCreate(props)
 end
 
 ParentWidget:Register()
--- Create a child widget type that inherits from ParentWidget
 local ChildWidget = Panel:CreateTemplate("test_child_widget")
 ChildWidget.Base = ParentWidget
 
@@ -32,7 +30,6 @@ ChildWidget:Register()
 T.Test("inheritance - derived panel has parent components", function()
 	local child = ChildWidget.New{}
 	T(child:IsValid())["=="](true)
-	-- Components defined in ParentWidget should be available on ChildWidget instances
 	T(child.transform)["~="](nil, "transform component should be inherited")
 	T(child.layout)["~="](nil, "layout component should be inherited")
 	T(child.animation)["~="](nil, "animation component should be inherited")
@@ -42,12 +39,10 @@ T.Test("inheritance - derived panel has parent components", function()
 end)
 
 T.Test("inheritance - derived panel ComponentSet includes parent components", function()
-	-- The prepared metatable should have a ComponentSet that includes all parent components
 	local objects = import("goluwa/objects/objects.lua")
 	local child_meta = objects.GetRegistered("panel_test_child_widget")
 	T(child_meta)["~="](nil)
 	T(child_meta.ComponentSet)["~="](nil, "ComponentSet should exist")
-	-- Check that parent's components are in the ComponentSet
 	local has_transform = false
 	local has_layout = false
 	local has_animation = false
@@ -71,13 +66,10 @@ T.Test("inheritance - BaseClass points to direct parent", function()
 	local parent_meta = objects.GetRegistered("panel_test_parent_widget")
 	T(child_meta.BaseClass)["~="](nil, "BaseClass should be set")
 	T(child_meta.BaseClass.Type)["=="]("panel_test_parent_widget", "BaseClass should point to direct parent")
-	-- Parent's BaseClass should point to Panel
 	T(parent_meta.BaseClass)["~="](nil, "Parent's BaseClass should be set")
 end)
 
 T.Test("inheritance - derived panel OnCreate chain works", function()
-	-- If we get here without errors, the OnCreate chain works.
-	-- The key test is that the instance has all components from the inheritance chain.
 	local child = ChildWidget.New{}
 	T(child:IsValid())["=="](true, "instance should be valid after OnCreate chain")
 	T(child.transform)["~="](nil, "transform from parent should exist")
@@ -86,7 +78,6 @@ T.Test("inheritance - derived panel OnCreate chain works", function()
 end)
 
 T.Test2D("inheritance - tree widget with items produces rows", function()
-	-- Reproduce the gallery tree demo scenario: create a derived tree with items and callbacks
 	local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 	local DerivedTree = Panel:CreateTemplate("test_derived_tree2")
 	DerivedTree.Base = Tree
@@ -122,14 +113,11 @@ T.Test2D("inheritance - tree widget with items produces rows", function()
 	T(#tree_view._row_order)[">"](#items, "should have rows for root + children")
 	T(#tree_view:GetChildren())[">"](#items, "should have child panels for rows")
 
-	-- row contents are materialized on update once the tree has a size
 	T.WaitUntil(function()
 		return on_get_text_called
 	end)
 
-	-- Verify the callback was used (proves inheritance of callback mechanism works)
 	T(on_get_text_called)["=="](true, "OnGetText callback should have been called during row creation")
-	-- Verify row info is populated
 	local root_info = tree_view._row_infos["root"]
 	T(root_info)["~="](nil, "row info for root should exist")
 	T(root_info.node.Key)["=="]("root")

@@ -95,8 +95,6 @@ local swept_aabb_scratch = AABB(0, 0, 0, 0, 0, 0)
 local model_candidates_scratch = {}
 local body_candidates_scratch = {}
 
--- allocation-free swept aabb for the sweep hot path: reuses the scratch box
--- and avoids building an end-position Vec3
 local function fill_swept_aabb(origin, movement, radius)
 	local aabb = swept_aabb_scratch
 	local end_x = origin.x + movement.x
@@ -111,8 +109,6 @@ local function fill_swept_aabb(origin, movement, radius)
 	return aabb
 end
 
--- alternating result scratch so one level of nested sweep calls does not
--- clobber the in-use swept aabb
 local SWEEP_AABB_START = AABB(0, 0, 0, 0, 0, 0)
 local SWEEP_AABB_END = AABB(0, 0, 0, 0, 0, 0)
 local SWEEP_AABB_RESULT_A = AABB(0, 0, 0, 0, 0, 0)

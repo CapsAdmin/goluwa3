@@ -88,7 +88,6 @@ function TCPClient:Close(reason)
 	self:Remove()
 end
 
--- in case /etc/service don't exist
 local services = {
 	https = "443",
 	http = "80",
@@ -165,8 +164,6 @@ end
 
 function TCPClient:HandleConnectReady()
 	if self.connecting then
-		-- For TLS sockets, try_connect handles the handshake
-		-- For regular sockets, just check if connected
 		if self.socket.on_connect then
 			local ok, err = self.socket:try_connect()
 
@@ -176,7 +173,6 @@ function TCPClient:HandleConnectReady()
 				self.connecting = false
 			elseif err == "connecting" or err == "tryagain" then
 
-			-- still connecting
 			else
 				self:Error(err or "failed to connect (tls)")
 			end
@@ -185,7 +181,6 @@ function TCPClient:HandleConnectReady()
 			self.connected = true
 			self.connecting = false
 		else
-			-- For non-TLS sockets, check for connection errors during asynchronous connect
 			local ok, err = self.socket:get_option("error")
 
 			if
@@ -195,7 +190,6 @@ function TCPClient:HandleConnectReady()
 				ok == ljsocket.errno.EWOULDBLOCK
 			then
 
-			-- Keep waiting until getpeername/getsockname reports a real connected socket.
 			elseif ok and ok ~= 0 then
 				self:Error(ljsocket.socket.lasterror(ok))
 			end

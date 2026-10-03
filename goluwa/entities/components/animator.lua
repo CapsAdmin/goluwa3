@@ -6,17 +6,12 @@ local skinning = import("goluwa/render3d/skinning.lua")
 local Rig = import("goluwa/render3d/rig.lua")
 local Animator = objects.CreateTemplate("animator")
 Animator.Is3D = true
--- how far past the bind pose bounds an animated mesh may reach before it is frustum culled, as a fraction of its size
 local BOUNDS_MARGIN = 0.5
--- animators update every frame within LOD_NEAR meters of the camera and less often the farther they are, down to
--- LOD_MIN_RATE updates per second at LOD_FAR and beyond
 Animator.LOD_NEAR = 15
 Animator.LOD_FAR = 80
 Animator.LOD_MIN_RATE = 5
--- gaps between updates longer than this get a pass that zeroes the motion vectors of the pose
 Animator.LOD_SETTLE_INTERVAL = 0.04
 
--- seconds between updates at a distance, 0 meaning every frame
 function Animator.GetUpdateInterval(distance)
 	local t = math.clamp((distance - Animator.LOD_NEAR) / (Animator.LOD_FAR - Animator.LOD_NEAR), 0, 1)
 	return t / Animator.LOD_MIN_RATE
@@ -36,7 +31,6 @@ Animator:GetSet("Playing", true)
 Animator:GetSet("Speed", 1)
 Animator:GetSet("Loop", true)
 Animator:GetSet("BlendTime", 0.2)
--- the pose parameter the next property edits, sequences blend between their animations by these (move_x, aim_yaw, ...)
 Animator:GetSet(
 	"PoseParameter",
 	"",
@@ -79,7 +73,6 @@ function Animator:SetPlaying(playing)
 	self.dirty = true
 end
 
--- restarts the sequence from its first frame, SetSequence keeps the time when the sequence stays the same
 function Animator:Restart()
 	self.time = 0
 	self.dirty = true
@@ -136,7 +129,6 @@ function Animator:GetClip()
 	return self.clip
 end
 
--- the rig that skins the model, for what moves bones and faces on top of the animation
 function Animator:GetRig()
 	return self.rig
 end
@@ -168,7 +160,6 @@ function Animator:Bind(skeleton)
 	self.clip_pose = skeleton:NewPose()
 	self.fade_pose = skeleton:NewPose()
 	local parts = {}
-	-- the primitives of a model share one skin and one vertex array, so they share the buffer that is skinned too
 	local by_skin = {}
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
@@ -220,7 +211,6 @@ function Animator:ResolveClip()
 	local clip = skeleton.ClipsByName[self.Sequence]
 
 	if self.Sequence == "" and not clip then
-		-- nothing picked yet, start on an idle so adding the component shows something
 		for _, candidate in ipairs(skeleton.Clips) do
 			if candidate.Name:lower():find("idle", 1, true) then
 				clip = candidate
@@ -248,8 +238,6 @@ function Animator:ResolveClip()
 	self.clip = clip
 end
 
--- skinning once more with the same pose, so the motion since the previous update drops to zero. the bvh has
--- nothing to follow, the pose is the same
 function Animator:Settle()
 	if (self.settle or 0) == 0 then return end
 
@@ -308,7 +296,6 @@ function Animator:Animate(dt)
 		end
 	end
 
-	-- bones and flexes set on the rig also need the vertices skinned again
 	if not (pose_changed or rig.dirty or rig.needs_skin) then
 		return self:Settle()
 	end
@@ -338,9 +325,6 @@ function Animator:OnFirstCreated()
 					local m = animator.Owner.transform:GetWorldMatrix()
 					local dx, dy, dz = m.m30 - camera.x, m.m31 - camera.y, m.m32 - camera.z
 					local interval = Animator.GetUpdateInterval(math.sqrt(dx * dx + dy * dy + dz * dz))
-					-- an animator updates whenever the bucket of the time it is in changes, buckets being as long as its
-					-- interval and offset by a phase of its own. a crowd is spread over the interval, and spreads out again
-					-- after a hitch (everything finishing loading in one frame, say) with nothing to keep track of
 					local bucket = interval > 0 and math.floor(now / interval + animator.phase) or nil
 
 					if bucket == nil or bucket ~= animator.update_bucket then
@@ -349,8 +333,6 @@ function Animator:OnFirstCreated()
 						animator.last_update = now
 						animator:Animate(elapsed)
 					elseif interval > Animator.LOD_SETTLE_INTERVAL then
-						-- between updates a few frames apart the motion of the last one is close enough to the truth,
-						-- over longer gaps it would smear the model across the screen
 						animator:Settle()
 					end
 				end

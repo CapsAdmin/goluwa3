@@ -337,7 +337,6 @@ do
 						math.abs(py - cy) > 1e-12
 					)
 				then
-					-- point_in_triangle check inlined
 					local cp1 = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
 					local cp2 = (cx - bx) * (py - by) - (cy - by) * (px - bx)
 					local cp3 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx)
@@ -561,8 +560,6 @@ function math2d.RoundedRectangleToCoordinates(x, y, w, h, radius_x, radius_y, re
 		phi = phi + angle_shift
 	end
 
-	--coords[#coords - 1] = coords[3]
-	--coords[#coords - 0] = coords[4]
 	return coords
 end
 
@@ -611,11 +608,9 @@ do
 
 		points = math.ceil(points)
 
-		if points <= 0 or angle1 == angle2 then --return
-		end
+		if points <= 0 or angle1 == angle2 then  end
 
-		if math.abs(angle1 - angle2) >= 2 * math.pi then return -- draw circle
-		end
+		if math.abs(angle1 - angle2) >= 2 * math.pi then return end
 
 		local angle_shift = (angle2 - angle1) / points
 
@@ -633,7 +628,7 @@ do
 			coords[#coords - 0] = y
 		elseif arc_mode == "open" then
 			create_points(coords, points + 1, x, y, radius, phi, angle_shift, 0)
-		else -- if arc_mode == "closed" then
+		else
 			create_points(coords, points + 2, x, y, radius, phi, angle_shift, 0)
 			coords[#coords - 1] = coords[1]
 			coords[#coords - 0] = coords[2]
@@ -671,7 +666,6 @@ do
 			else
 				local lambda = (nt - ns):GetCrossed(t) / det
 				local d = ns + s * lambda
-				--logf("normal = %i\nlambda = %f\nnt= Vec2(%f, %f)\nns= Vec2(%f, %f)\nt = Vec2(%f, %f)\ndet = %f\ns = Vec2(%f, %f)\n", #normals, lambda, nt.x,nt.y, ns.x,ns.y, t.x,t.y, det, s.x, s.y);
 				list.insert(normals, d)
 				list.insert(normals, -d)
 			end
@@ -698,7 +692,8 @@ do
 			local nt = t:GetNormal(half_width / len_t)
 			local lambda = (nt - ns):GetCrossed(t) / det
 
-			if not math.isvalid(lambda) then lambda = 0 end -- not really sure why this is needed
+			if not math.isvalid(lambda) then lambda = 0 end
+
 			local d = ns + s * lambda
 			list.insert(anchors, q)
 			list.insert(anchors, q)
@@ -786,7 +781,6 @@ do
 		local extra_vertices = 0
 
 		if draw_overdraw then
-			--calc_overdraw_vertex_count(is_looping)
 			if mode == "none" then
 				overdraw_vertex_count = 4 * vertex_count - 2
 			else
@@ -803,7 +797,7 @@ do
 		end
 
 		if draw_overdraw then
-			local overdraw = vertices --- + vertex_count + extra_vertices
+			local overdraw = vertices
 			overdraw_vertex_start = vertex_count + extra_vertices
 
 			if mode == "none" then

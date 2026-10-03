@@ -71,7 +71,6 @@ function HTTPClient:Request(method, url, header, body)
 	self:Send(http.HTTPRequest(method, uri, header, body))
 	self:InitializeHTTPParser()
 	self.LocationHistory = self.LocationHistory or {url}
-	-- this is for redirect
 	self.CurrentRequest = {
 		url = url,
 		uri = uri,

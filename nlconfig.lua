@@ -1,5 +1,15 @@
 local args = ...
 local config = {commands = {}}
+config.ignorefiles = {
+	"^%./addons/love/games/",
+	"^%./tmp/",
+	"^%./addons/gmod/src/",
+	"^%./goluwa/nattlua/",
+	"^%./local_stuff/",
+}
+config.emitter = {
+	strip_comments = {"TODO", "hack", "HOTRELOAD"},
+}
 config.commands["build"] = {
 	cb = function()
 		local nl = require("nattlua")
@@ -18,7 +28,6 @@ config.commands["build"] = {
 		)
 		assert(builder:Lex())
 		assert(builder:Parse())
-		--assert(builder:Analyze())
 		local code, err = builder:Emit{
 			pretty_print = true,
 			no_newlines = false,
@@ -37,12 +46,12 @@ config.commands["get-compiler-config"] = {
 	cb = function()
 		do
 			return
-		end -- disable for now
+		end
+
 		return {
 			lsp = {
 				entry_point = "glw",
-				analyze = false, -- disables Analyze()
-			-- parse_only = true, -- alias, same effect
+				analyze = false,
 			},
 			parser = {
 				working_directory = "./",

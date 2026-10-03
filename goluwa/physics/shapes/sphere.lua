@@ -176,8 +176,6 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	local rolling_angular = body.GroundNormal:GetCross(tangent_velocity) / radius
 	local normal_angular = body.GroundNormal * body.AngularVelocity:Dot(body.GroundNormal)
 
-	-- a point contact has no torsional friction of its own, so spin about the
-	-- ground normal would otherwise last forever
 	if dt and dt > 0 then
 		normal_angular = normal_angular * math.exp(-TWIST_FRICTION_RATE * math.max(body:GetFriction() or 0, 0) * dt)
 	end

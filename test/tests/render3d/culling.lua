@@ -252,11 +252,9 @@ T.Test3D("Graphics render3d gpu culling shadow culling re-entry keeps shadow ite
 	Visual.Library.InvalidateSceneAcceleration()
 	Visual.Library.GetVisibleVisuals()
 	T(count_shadow_items())["=="](0)
-	-- entering shadow culling with an unchanged static aabb must register the item
 	visual:SetCastShadows(true)
 	Visual.Library.GetVisibleVisuals()
 	T(count_shadow_items())["=="](1)
-	-- leaving and re-entering shadow culling reuses the stale back reference
 	visual:SetCastShadows(false)
 	Visual.Library.GetVisibleVisuals()
 	T(count_shadow_items())["=="](0)
@@ -505,8 +503,6 @@ T.Test3D("Graphics render3d gpu culling allocates per-frame buffers from dataset
 	T(dataset ~= nil)["=="](true)
 	T(frame_buffers ~= nil)["=="](true)
 	T(#frame_buffers >= 1)["=="](true)
-	-- buffers are sized from a grow-only capacity, so they may be larger
-	-- than the current dataset requires
 	T(frame_buffers[1].visible_entry_capacity >= dataset.main.entry_count)["=="](true)
 	T(frame_buffers[1].visible_index_buffer.size >= ffi.sizeof("uint32_t"))["=="](true)
 	T(frame_buffers[1].indirect_command_buffer.size >= ffi.sizeof(vk.VkDrawIndexedIndirectCommand))["=="](true)
@@ -627,9 +623,6 @@ T.Test3D("Graphics render3d gpu culling rejects cull results from a stale datase
 	T(result ~= nil)["=="](true)
 	T(result.dataset_generation)["=="](dataset.generation)
 	T(gpu_culling.IsCullResultCurrent(result))["=="](true)
-	-- a scene change after the cull (a terrain tile build does exactly this)
-	-- republishes the dataset, so the result's entry/batch indices no longer
-	-- line up with the live lists
 	local second = Entity.New({Name = "gpu_culling_stale_second"})
 	second:AddComponent("transform")
 	second.transform:SetPosition(Vec3(2, 0, -6))
@@ -638,9 +631,6 @@ T.Test3D("Graphics render3d gpu culling rejects cull results from a stale datase
 	Visual.Library.GetVisibleVisuals()
 	local new_dataset = gpu_culling.GetSceneDataset()
 	T(new_dataset.generation > dataset.generation)["=="](true)
-	-- cull results are reused per-slot objects, so re-stamp the result with
-	-- the pre-change generation to simulate a cached result that was
-	-- computed against the old dataset and never re-culled since
 	result.dataset_generation = dataset.generation
 	T(gpu_culling.IsCullResultCurrent(result))["=="](false)
 	local draw_result = gbuffer_instancing.DrawGPUCulled(result)
@@ -696,12 +686,8 @@ T.Test3D("Graphics render3d a deduped mesh stays valid across polygon release an
 	attach_visual(owner, polygon_a, material)
 	local mesh0 = polygon_a.mesh
 	T(mesh0 ~= nil and mesh0.Type == "render_mesh")["=="](true)
-	-- a second polygon with identical content shares the same mesh instance
 	local polygon_b = build_terrain_polygon()
 	T(polygon_b.mesh == mesh0)["=="](true)
-	-- retire polygon_a (as when a terrain tile is replaced). the shared mesh is
-	-- still held strongly by polygon_b, so it must survive the collector rather
-	-- than being reclaimed while a live polygon still uses it
 	polygon_a:UnreferenceVertices()
 	collectgarbage("collect")
 	collectgarbage("collect")
@@ -1064,22 +1050,23 @@ T.Test3D("culling and occlusion", function(draw)
 	cam:SetNearZ(0.1)
 	cam:SetFarZ(100)
 	cam:SetPosition(Vec3(0, 0, 0))
-	cam:SetRotation(Quat(0, 0, 0, 1)) -- Looking at -Z
+	cam:SetRotation(Quat(0, 0, 0, 1))
+
 	T.Test3D("frustum culling front/back", function(draw)
-		local ent, mdl = spawn_sphere(Vec3(0, 0, -10)) -- In front
+		local ent, mdl = spawn_sphere(Vec3(0, 0, -10))
 		draw()
 		T(mdl:IsCulled())["=="](false)
-		ent.transform:SetPosition(Vec3(0, 0, 10)) -- Behind
+		ent.transform:SetPosition(Vec3(0, 0, 10))
 		draw()
 		T(mdl:IsCulled())["=="](true)
 		ent:Remove()
 	end)
 
 	T.Test3D("frustum culling sides", function(draw)
-		local ent, mdl = spawn_sphere(Vec3(20, 0, -10)) -- Far right
+		local ent, mdl = spawn_sphere(Vec3(20, 0, -10))
 		draw()
 		T(mdl:IsCulled())["=="](true)
-		ent.transform:SetPosition(Vec3(0, 0, -10)) -- Center
+		ent.transform:SetPosition(Vec3(0, 0, -10))
 		draw()
 		T(mdl:IsCulled())["=="](false)
 		ent:Remove()
@@ -1087,21 +1074,13 @@ T.Test3D("culling and occlusion", function(draw)
 
 	T.Test3D("occlusion culling", function(draw)
 		import("goluwa/entities/components/visual.lua").Library.SetOcclusionCulling(true)
-		-- Spawn a large occluder in front
 		local occluder_ent, occluder_mdl = spawn_sphere(Vec3(0, 0, -5))
 		occluder_ent.transform:SetScale(Vec3(5, 5, 1))
-		-- Spawn a small sphere behind it
 		local occludee_ent, occludee_mdl = spawn_sphere(Vec3(0, 0, -10), true)
-		-- First frame: queries are executed
 		draw()
-		-- results are from previous frame (initially visible)
 		T(occludee_mdl.using_conditional_rendering)["=="](true)
-		-- Second frame: should use results from first frame
 		draw()
 		local stats = import("goluwa/entities/components/visual.lua").Library.GetOcclusionStats()
-		--print("Occlusion stats:", stats.total, stats.with_occlusion, stats.submitted_with_conditional)
-		-- We can't easily check if the GPU actually culled it, 
-		-- but we can check if it was submitted with conditional rendering.
 		T(occludee_mdl.using_conditional_rendering)["=="](true)
 		occluder_ent:Remove()
 		occludee_ent:Remove()

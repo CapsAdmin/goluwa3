@@ -214,7 +214,6 @@ local function find_file(path, ...)
 	local ok, err
 	local attempts = {}
 
-	-- try exact path first
 	for _, ext in ipairs(extensions) do
 		table.insert(attempts, path .. ext)
 		ok, err = vfs.Open(path .. ext)
@@ -222,7 +221,6 @@ local function find_file(path, ...)
 		if ok then return ok end
 	end
 
-	-- try vfs mixed case search
 	for _, ext in ipairs(extensions) do
 		local found = vfs.FindMixedCasePath(path .. ext)
 
@@ -233,7 +231,6 @@ local function find_file(path, ...)
 		end
 	end
 
-	-- fallback: use fs module for case-insensitive directory listing
 	local dir = path:match("(.+/)")
 	local base_name = path:match(".+/(.+)$")
 
@@ -276,7 +273,6 @@ local function half_to_float(h)
 	return sign * (1 + mantissa / 1024) * 2 ^ (exponent - 15)
 end
 
--- mstudiovertanim_t, the wrinkle variant has one more short
 local VertAnim = ffi.typeof(
 	"const struct { uint16_t index; uint8_t speed; uint8_t side; uint16_t delta[3]; uint16_t normal_delta[3]; } *"
 )
@@ -292,9 +288,6 @@ local function remap_clamped(value, from_min, from_max, to_min, to_max)
 		) * math.clamp((value - from_min) / (from_max - from_min), 0, 1)
 end
 
--- the flex rules of a model turn the values of its flex controllers (src, 0 based) into the weights of its flex
--- descriptors (dest, 0 based), a port of CStudioHdr::RunFlexRules. every rule is a small stack program, ops being
--- the studio.h STUDIO_* codes
 local function run_flex_rules(flex, src, dest)
 	local min, max = flex.ControllerMin, flex.ControllerMax
 
@@ -346,7 +339,6 @@ local function run_flex_rules(flex, src, dest)
 				k = k + 1
 				stack[k] = remap_clamped(src[arg], 0, 1, 0, 1)
 			elseif op == 17 then
-				-- the top of the stack is the controller that picks the ramp, under it are the four points of the ramp
 				local value = src[stack[k]]
 				local a, b, c, d = stack[k - 4], stack[k - 3], stack[k - 2], stack[k - 1]
 
@@ -381,7 +373,6 @@ local function run_flex_rules(flex, src, dest)
 				stack[first - 1] = stack[first - 1] * (1 - dominance)
 				k = k - arg
 			elseif op == 20 or op == 21 then
-				-- eyelids: the top is the close lid controller, under it the lid and the eye up down controller
 				local close_v = remap_clamped(src[arg], min[arg + 1], max[arg + 1], 0, 1)
 				local close_lid_controller = stack[k]
 				local close = remap_clamped(
@@ -448,8 +439,6 @@ local function load_mdl(path)
 			buffer:PopPosition()
 		end
 
-		--header[name .. "_count"] = nil
-		--header[name .. "_offset"] = nil
 		header[name] = out
 	end
 
@@ -504,154 +493,6 @@ local function load_mdl(path)
 		end)
 	end
 
-	--[[
-
-	local bone_names
-	local render2d_prop_names
-
-	parse("bone", function(data, i)
-		do -- bone name
-			local offset = buffer:ReadI32()
-			if not bone_names then
-				bone_names = {}
-				buffer:PushPosition(header.bone_offset + offset)
-					for i = 1, header.bone_count do
-						bone_names[i] = buffer:ReadString()
-					end
-				buffer:PopPosition()
-			end
-			data.name = bone_names[i]
-		end
-
-		data.parent_bone_index = buffer:ReadI32()
-
-		do
-			data.controller_index = {}
-
-			for i = 1, 6 do
-				data.controller_index[i] = buffer:ReadI32()
-			end
-		end
-
-		data.position = buffer:ReadVec3()
-
-		data.quat = buffer:ReadQuat()
-
-		data.rotation = buffer:ReadVec3()
-		data.position_scale = buffer:ReadVec3()
-		data.rotation_scale = buffer:ReadVec3()
-
-		local matrix = Matrix44()
-		for i = 1, 12 do
-			local val = buffer:ReadFloat()
-			--matrix[-i-12] = val
-		end
-
-		data.pose_to_bone = matrix
-
-		data.quat_alignment = buffer:ReadQuat()
-
-		data.flags = buffer:ReadI32()
-		data.procedural_rule_type = buffer:ReadI32()
-		data.procedural_rule_offset = buffer:ReadI32()
-		data.physics_bone_index = buffer:ReadI32()
-
-		do -- bone name
-			local offset = buffer:ReadI32()
-			if not render2d_prop_names then
-				render2d_prop_names = {}
-				buffer:PushPosition(header.bone_offset + offset)
-					for i = 1, header.bone_count do
-						render2d_prop_names[i] = buffer:ReadString()
-					end
-				buffer:PopPosition()
-			end
-			data.render2d_prop_name = render2d_prop_names[i]
-		end
-
-		data.contents = buffer:ReadI32()
-
-		buffer:Advance(32)
-	end)
-
-	parse("mouths", function(data, i)
-		data.bone_index = buffer:ReadI32()
-		data.forward = buffer:ReadVec3()
-		data.flex_desc_index = buffer:ReadI32()
-	end)
-
-	parse("localseq", function(data, i)
-		do return end
-		data.base_header_offset = buffer:ReadI32()
-		data.name = string_from_offset(header.localanim_offset, buffer:ReadI32())
-		data.activity_name = string_from_offset(header.localanim_offset, buffer:ReadI32())
-		data.flags = buffer:ReadI32()
-		data.activity = buffer:ReadI32()
-		data.activity_weight = buffer:ReadI32()
-		data.event_count = buffer:ReadI32()
-		data.event_offset = buffer:ReadI32()
-
-		data.bb_min = buffer:ReadVec3()
-		data.bb_max = buffer:ReadVec3()
-
-		data.blend_count = buffer:ReadI32()
-		data.anim_index_offset = buffer:ReadI32()
-
-		data.group_size = {buffer:ReadI32(), buffer:ReadI32()}
-
-		data.param_index = {buffer:ReadI32(), buffer:ReadI32()}
-		data.param_start = {buffer:ReadFloat(), buffer:ReadFloat()}
-		data.param_end = {buffer:ReadFloat(), buffer:ReadFloat()}
-		data.param_parent = buffer:ReadI32()
-
-		data.fade_in_time = buffer:ReadFloat()
-		data.fade_out_time = buffer:ReadFloat()
-
-		data.localEntryNodeIndex = buffer:ReadI32()
-		data.localExitNodeIndex = buffer:ReadI32()
-		data.nodeFlags = buffer:ReadI32()
-
-		data.entryPhase = buffer:ReadFloat()
-		data.exitPhase = buffer:ReadFloat()
-		data.lastFrame = buffer:ReadFloat()
-
-		data.nextSeq = buffer:ReadI32()
-		data.pose = buffer:ReadI32()
-
-		data.ikRuleCount = buffer:ReadI32()
-		data.autoLayerCount = buffer:ReadI32()
-		data.autoLayerOffset = buffer:ReadI32()
-		data.weightOffset = buffer:ReadI32()
-		data.poseKeyOffset = buffer:ReadI32()
-
-		data.ikLockCount = buffer:ReadI32()
-		data.ikLockOffset = buffer:ReadI32()
-		data.keyValueOffset = buffer:ReadI32()
-		data.keyValueSize = buffer:ReadI32()
-		data.cyclePoseIndex = buffer:ReadI32()
-	end)
-
-	buffer:PushPosition(header.keyvalue_offset)
-		local str = buffer:ReadString(header.keyvalue_size)
-		if str then
-			header.keyvalues = utility.VDFToTable(str)
-		end
-		header.keyvalue_offset = nil
-		header.keyvalue_count = nil
-	buffer:PopPosition()
-
-	logn("these remain to be parsed:")
-
-	for k,v in pairs(header) do
-		if k:find("_count") then
-			if header[k:gsub("_count", "_offset")] then
-				local name = k:gsub("_count", "")
-				logf("\t%s (count: %s|offset: %s)\n", name, header[name.."_count"], header[name.."_offset"])
-			end
-		end
-	end]]
-	-- where the vertices of each model and mesh start in the vvd, and which material a mesh uses. the vtx lists
-	-- bodyparts, models and meshes in this same order. sizes are mstudiobodyparts_t 16, mstudiomodel_t 148, mstudiomesh_t 116
 	header.bodypart_models = {}
 
 	for bodypart_i = 1, header.bodypart_count do
@@ -781,7 +622,6 @@ local function load_mdl(path)
 	return header
 end
 
--- version 49 models append numTopologyIndices and topologyOffset to the strip group header
 local function load_vtx(path, strip_group_size)
 	local MAX_NUM_BONES_PER_VERT = 3
 	local buffer = find_file(path, ".dx90.vtx", ".dx80.vtx", ".sw.vtx")
@@ -823,7 +663,7 @@ local function load_vtx(path, strip_group_size)
 				local lod_model = {}
 				lod_model.mesh_count = buffer:ReadI32()
 				lod_model.mesh_offset = buffer:ReadI32()
-				lod_model.switchPoint = buffer:Advance(4) --buffer:ReadFloat()
+				lod_model.switchPoint = buffer:Advance(4)
 				model.model_lods[i] = lod_model
 				buffer:PushPosition(stream_pos + lod_model.mesh_offset)
 				lod_model.meshes = {}
@@ -854,20 +694,10 @@ local function load_vtx(path, strip_group_size)
 						buffer:PushPosition(stream_pos + strip_group.vertices_offset)
 
 						for i = 1, strip_group.vertices_count do
-							local vertex = {} --{bone_weight_indices = {}, boneId = {}}
+							local vertex = {}
 							buffer:Advance(MAX_NUM_BONES_PER_VERT + 1)
-							--[[
-							for i = 1, MAX_NUM_BONES_PER_VERT do
-								vertex.bone_weight_indices[i] = buffer:ReadByte()
-							end
-							vertex.bone_count = buffer:ReadByte()
-							]]
 							vertex.mesh_vertex_index = buffer:ReadI16()
 							buffer:Advance(MAX_NUM_BONES_PER_VERT)
-							--[[
-							for i = 1, MAX_NUM_BONES_PER_VERT do
-								vertex.boneId[i] = buffer:ReadByte()
-							end]]
 							vertices[i] = vertex
 						end
 
@@ -891,22 +721,6 @@ local function load_vtx(path, strip_group_size)
 							strip.vertices_count = buffer:ReadI32()
 							strip.vertices_offset = buffer:ReadI32()
 							buffer:Advance(2 + 1 + 8)
-							--strip.bone_count = buffer:ReadI16()
-							--strip.flags = buffer:ReadByte()
-							--[[
-							strip.bone_state_change_count = buffer:ReadI32()
-							strip.bone_state_change_offset = buffer:ReadI32()
-
-							local bone_state_changes = {}
-							buffer:PushPosition(stream_pos + strip.bone_state_change_offset)
-							for i = 1, strip.bone_state_change_count do
-								bone_state_changes[i] = {}
-								bone_state_changes[i].hardware_id = buffer:ReadI32()
-								bone_state_changes[i].new_bone_id = buffer:ReadI32()
-							end
-							buffer:PopPosition()
-							strip.bone_state_changes = bone_state_changes
-]]
 							strip.indices = indices
 							strip.vertices = vertices
 							strips[i] = strip
@@ -962,17 +776,6 @@ local function load_vvd(path)
 	vvd.vertices = {}
 
 	local function read_vertex(i)
-		--[[
-		local boneWeight = {weight = {}, bone = {}}
-
-		for x = 1, MAX_NUM_BONES_PER_VERT do
-			boneWeight.weight[x] = buffer:ReadFloat()
-		end
-		for x = 1, MAX_NUM_BONES_PER_VERT do
-			boneWeight.bone[x] = buffer:ReadByte()
-		end
-		boneWeight.bone_count = buffer:ReadByte()
-		]]
 		local vertex = {}
 		local weights = {}
 		local bones = {}
@@ -989,9 +792,6 @@ local function load_vvd(path)
 		vertex.bone_ids = bones
 		vertex.bone_count = buffer:ReadByte()
 		local x, y, z = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-		-- Source: X=forward, Y=left, Z=up
-		-- Engine: X=right, Y=up, Z=forward  
-		-- Transform: our_x = -source_y, our_y = source_z, our_z = -source_x
 		vertex.pos = Vec3(-y, z, -x) * steam.source2meters
 		local nx, ny, nz = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
 		vertex.normal = Vec3(-ny, nz, -nx)
@@ -1055,7 +855,6 @@ local function load_vvd(path)
 					end
 				end
 
-				-- only first lod needed
 				break
 			end
 		end
@@ -1064,7 +863,6 @@ local function load_vvd(path)
 	return vvd
 end
 
--- phy points are ivp meters, 1 ivp meter = 39.37 source units, and ivp y/z are swapped relative to source
 local PHY_TO_METERS = steam.source2meters / 0.0254
 
 local function load_phy(path)
@@ -1078,7 +876,6 @@ local function load_phy(path)
 	for solid_i = 1, solid_count do
 		local surface_size = buffer:ReadI32()
 		local solid_start = buffer:GetPosition()
-		-- compactsurfaceheader_t is 28 bytes after the size, then the ivp compact surface
 		local surface_start = solid_start + 28
 		buffer:SetPosition(surface_start)
 		local cx, cy, cz = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
@@ -1165,7 +962,7 @@ end
 
 local load_skeleton
 
-do -- animation
+do
 	local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift
 	local U8 = ffi.typeof("const uint8_t*")
 	local I16 = ffi.typeof("const int16_t*")
@@ -1189,7 +986,6 @@ do -- animation
 	local ANIMDESC_DELTA = 0x0004
 	local ANIMDESC_ALLZEROS = 0x0020
 	local ANIMDESC_FRAMEANIM = 0x0040
-	-- source (x forward, y left, z up) to engine (x right, y up, z forward): p_e = SCALE * (-y, z, -x), a rotation times a scale
 	local R = {{0, -1, 0}, {0, 0, 1}, {-1, 0, 0}}
 
 	local function euler_to_quat(x, y, z)
@@ -1240,7 +1036,6 @@ do -- animation
 		}
 	end
 
-	-- R * m * R^t
 	local function conjugate(m)
 		local out = {{}, {}, {}}
 
@@ -1263,7 +1058,6 @@ do -- animation
 
 	local sources = {}
 
-	-- a mdl file kept in memory for sampling its animations later. shared between every model that includes it
 	local function open_source(path)
 		local key = path:lower()
 
@@ -1279,7 +1073,6 @@ do -- animation
 		local bone_count = hdr.bone_count
 		source.bone_names = {}
 		source.bone_parents = {}
-		-- per bone: position 0, euler rotation 3, position scale 6, rotation scale 9, quaternion 12
 		source.bones = ffi.new("float[?]", math.max(bone_count, 1) * 16)
 
 		for i = 0, bone_count - 1 do
@@ -1320,7 +1113,6 @@ do -- animation
 		return source
 	end
 
-	-- the data of an animation block, which lives in the model's .ani file
 	local function get_block_data(source, block)
 		local cached = source.blocks[block]
 
@@ -1341,7 +1133,6 @@ do -- animation
 		return cached
 	end
 
-	-- first value of an animated channel at a frame, a run length encoded list of shorts
 	local function extract_value(v, frame)
 		local k = frame
 		local valid, total = v[0], v[1]
@@ -1386,7 +1177,6 @@ do -- animation
 		return get_block_data(source, block) + index, frame
 	end
 
-	-- writes the local pose of every bone the animation touches at an integer frame, in engine space, into out
 	local function decode_frame(source, desc, frame, bone_map, out)
 		local chain
 		chain, frame = get_anim_chain(source, desc, frame)
@@ -1500,7 +1290,6 @@ do -- animation
 
 	local scratch_cache = setmetatable({}, {__mode = "k"})
 
-	-- animation desc sampled at a cycle 0..1 (interpolating between frames) over the poses already in out
 	local function sample_anim(clip, source, desc, bone_map, cycle, out)
 		local skeleton = clip.skeleton
 		local numframes = ffi.cast(I32, desc + 16)[0]
@@ -1529,7 +1318,6 @@ do -- animation
 
 	local blend_scratch = setmetatable({}, {__mode = "k"})
 
-	-- where a pose parameter puts a sequence along one blend axis: the lower blend and how far to the next one
 	local function axis_position(clip, axis, params)
 		local size = clip.group_size[axis]
 		local name = clip.param_names[axis]
@@ -1580,7 +1368,6 @@ do -- animation
 		end
 	end
 
-	-- skeleton and clips of a model, nil when it has nothing to animate
 	load_skeleton = function(path)
 		local main = open_source(path)
 		local hdr = main.header
@@ -1602,7 +1389,6 @@ do -- animation
 			bind_local[i * 7 + 5] = -main.bones[o + 12]
 			bind_local[i * 7 + 6] = main.bones[o + 15]
 			parents[i + 1] = main.bone_parents[i + 1]
-			-- matrix3x4 the bone's bind pose inverse, rows of [rotation | translation]
 			local m = ffi.cast(F32, main.data + hdr.bone_offset + i * BONE_SIZE + 96)
 			local rotation = conjugate{{m[0], m[1], m[2]}, {m[4], m[5], m[6]}, {m[8], m[9], m[10]}}
 			local t = {m[3], m[7], m[11]}
@@ -1745,7 +1531,6 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 		companion_path = companion_path:sub(1, -#".mdl" - 1)
 	end
 
-	--utility.PushTimeWarning()
 	local mdl = load_mdl(full_path)
 
 	if pcall(find_file, companion_path, ".phy") then
@@ -1824,8 +1609,6 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 	local vvd = load_vvd(companion_path)
 	local vtx = load_vtx(companion_path, mdl.version >= 49 and 33 or 25)
 
-	--	utility.PopTimeWarning("model read", 0)
-	--utility.PushTimeWarning()
 	if _debug then tasks.Report("generating mesh") end
 
 	for body_part_i, body_part in ipairs(vtx.body_parts) do
@@ -1876,15 +1659,11 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 
 						for _, strip_group in ipairs(mesh_data.strip_groups) do
 							for _, strip in ipairs(strip_group.strips) do
-								-- Each strip uses a portion of the shared indices array
-								-- indices_offset is 0-based, so add 1 for Lua 1-based array access
 								for i = 1, strip.indices_count do
 									local index = strip.indices[strip.indices_offset + i]
-									-- The index value directly indexes into strip_group.vertices (1-based after +1 during read)
 									local v = strip.vertices[index]
 
 									if v then
-										-- mesh_vertex_index is local to the mesh, which starts at vertex_offset
 										indices[index_i] = v.mesh_vertex_index + vertex_offset + 1
 										index_i = index_i + 1
 									end
@@ -1922,12 +1701,10 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 					end
 				end
 
-				-- Only process first LOD per body part for highest quality
 				break
 			end
 		end
 	end
 
-	--utility.PopTimeWarning("model generation", 0)
 	return models
 end)

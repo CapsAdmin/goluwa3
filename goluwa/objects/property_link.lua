@@ -23,9 +23,6 @@ function objects.AddPropertyLink(...)
 
 					if info_a and info_b then
 						if key_a and key_b then
-							-- local val = a:GeFieldA().key_a
-							-- val.key_a = b:GetFieldB().key_b
-							-- a:SetFieldA(val)
 							local val = obj_a[info_a.get_name](obj_a)
 							val[key_a] = obj_b[info_b.get_name](obj_b)[key_b]
 
@@ -34,9 +31,6 @@ function objects.AddPropertyLink(...)
 								data.store.last_val = val
 							end
 						elseif key_a and not key_b then
-							-- local val = a:GeFieldA()
-							-- val.key_a = b:GetFieldB()
-							-- a:SetFieldA(val)
 							local val = obj_a[info_a.get_name](obj_a)
 							val[key_a] = obj_b[info_b.get_name](obj_b)
 
@@ -45,8 +39,6 @@ function objects.AddPropertyLink(...)
 								data.store.last_val = val
 							end
 						elseif key_b and not key_a then
-							-- local val = b:GeFieldB().key_b
-							-- a:SetFieldA(val)
 							local val = obj_b[info_b.get_name](obj_b)[key_b]
 
 							if data.store.last_val ~= val then
@@ -54,8 +46,6 @@ function objects.AddPropertyLink(...)
 								data.store.last_val = val
 							end
 						else
-							-- local val = b:GeFieldB()
-							-- a:SetFieldA(val)
 							local val = obj_b[info_b.get_name](obj_b)
 
 							if data.store.last_val ~= val then

@@ -13,8 +13,7 @@ function table.random_pairs(tbl)
 	return function()
 		i = i + 1
 
-		if sorted[i] then return sorted[i].key, sorted[i].val --, sorted[i].rand
-		end
+		if sorted[i] then return sorted[i].key, sorted[i].val end
 	end
 end
 
@@ -147,7 +146,7 @@ function table.random(tbl)
 	end
 end
 
-do -- table copy
+do
 	local lookup_table = {}
 	local type = type
 	local pairs = pairs
@@ -160,9 +159,6 @@ do -- table copy
 			return obj
 		end
 
-		--if ((t == "table" or (t == "cdata" and structs.GetStructMeta(obj))) and obj.__copy) then
-		--	return obj:__copy()
-		--else
 		if lookup_table[obj] then
 			return lookup_table[obj]
 		elseif t == "table" then
@@ -206,7 +202,6 @@ function table.weak(mode)
 	return setmetatable({}, {__mode = mode})
 end
 
--- https://stackoverflow.com/questions/20325332/how-to-check-if-two-tablesobjects-have-the-same-value-in-lua
 function table.equal(o1, o2, ignore_mt)
 	if o1 == o2 then return true end
 
@@ -220,10 +215,7 @@ function table.equal(o1, o2, ignore_mt)
 	if not ignore_mt then
 		local mt1 = getmetatable(o1)
 
-		if mt1 and mt1.__eq then
-			--compare using built in method
-			return o1 == o2
-		end
+		if mt1 and mt1.__eq then return o1 == o2 end
 	end
 
 	local keySet = {}

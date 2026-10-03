@@ -1,8 +1,3 @@
--- Shared time-of-impact primitives: coarse sampling over a sweep interval
--- followed by bisection refinement. Evaluate functions report a hit by
--- returning a truthy result; they are called as evaluate(t) or, when an
--- evaluate_context is given, evaluate(evaluate_context, t) so callers do not
--- allocate closures in hot loops.
 local toi = {}
 
 local function call_evaluate(evaluate, evaluate_context, t)
@@ -22,8 +17,6 @@ function toi.RefineHit(evaluate, evaluate_context, low, high, refine_steps)
 	return high
 end
 
--- Coarse-samples [0, max_fraction] and bisects the first interval that hits.
--- Returns hit_t, hit, or nil.
 function toi.FindSampledHit(evaluate, evaluate_context, max_fraction, sample_steps, refine_steps)
 	refine_steps = refine_steps or 12
 	local start_hit = call_evaluate(evaluate, evaluate_context, 0)

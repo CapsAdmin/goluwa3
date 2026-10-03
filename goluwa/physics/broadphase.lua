@@ -14,13 +14,8 @@ end
 
 local entry_aabb_scratch_current = AABB(0, 0, 0, 0, 0, 0)
 local entry_aabb_scratch_previous = AABB(0, 0, 0, 0, 0, 0)
--- writes the swept broadphase bounds into out (allocating a new AABB when out
--- is nil); the per-pose shape aabbs are written into module scratch boxes
 local look_ahead_position = Vec3()
 local entry_aabb_scratch_ahead = AABB(0, 0, 0, 0, 0, 0)
--- look_ahead is the time the body keeps moving after this pose before the
--- next collide pass: the bounds also cover where its velocity carries it, so
--- pairs found now stay valid for every substep of the step
 local CANDIDATE_PAD = 0.04
 
 local function build_entry_bounds(body, out, look_ahead)
@@ -46,7 +41,6 @@ local function build_entry_bounds(body, out, look_ahead)
 		)
 	end
 
-	-- bodies a little apart are candidates too, they get speculative contacts
 	out.min_x = out.min_x - CANDIDATE_PAD
 	out.min_y = out.min_y - CANDIDATE_PAD
 	out.min_z = out.min_z - CANDIDATE_PAD
@@ -56,7 +50,6 @@ local function build_entry_bounds(body, out, look_ahead)
 	return out
 end
 
--- poses are stored by value: bodies mutate their position/rotation in place
 local function store_entry_pose(entry, body)
 	local p = body.Position
 	local r = body.Rotation
@@ -103,9 +96,6 @@ local function get_cell_range(bounds, cell_size)
 	return min_x, min_y, min_z, max_x, max_y, max_z
 end
 
--- packed integer cell keys: exact in a double (max ~5.5e11 < 2^53) for
--- indices within +/- CELL_KEY_RANGE, no string allocation. Out-of-range
--- indices fall back to string keys rather than risk a collision.
 local CELL_KEY_RANGE = 4095
 local CELL_KEY_STRIDE = 8192
 local CELL_KEY_STRIDE2 = CELL_KEY_STRIDE * CELL_KEY_STRIDE
@@ -135,8 +125,6 @@ local function get_cell_span_count(min_x, min_y, min_z, max_x, max_y, max_z)
 	return (max_x - min_x + 1) * (max_y - min_y + 1) * (max_z - min_z + 1)
 end
 
--- packed numeric pair keys: exact in a double while both ids stay under
--- 2^21 (ids are per-broadphase and small); falls back to string keys beyond
 local PAIR_KEY_ID_LIMIT = 2097152
 
 local function get_pair_key(entry_a, entry_b)
@@ -392,8 +380,6 @@ function Broadphase:ResetState()
 	return self
 end
 
--- split out of QueryAABB so the JIT can compile it (the combined loop body
--- aborts with register coalescing too complex and runs interpreted)
 local function query_cell_entries(cell, stamp, out, count)
 	for i = 1, #cell.entries do
 		local entry = cell.entries[i]
@@ -408,8 +394,6 @@ local function query_cell_entries(cell, stamp, out, count)
 	return count
 end
 
--- packed cell keys are contiguous along z: walk each (x, y) row as a single
--- key range instead of a nested z loop with per-cell key packing
 local function query_packed_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
 	local z_span = max_z - min_z
 
@@ -445,8 +429,6 @@ local function query_cell_range(cells, stamp, out, count, min_x, min_y, min_z, m
 	return count
 end
 
--- spatial query: returns entries whose cells overlap the given aabb, without
--- per-query allocations (dedup via a stamp on the entries)
 function Broadphase:QueryAABB(aabb, out)
 	out = out or {}
 	local cells = self.Cells
@@ -469,7 +451,6 @@ function Broadphase:QueryAABB(aabb, out)
 		max_z >= -CELL_KEY_RANGE and
 		max_z < CELL_KEY_RANGE
 	then
-		-- the whole range uses packed keys: rows are contiguous in key space
 		count = query_packed_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
 	else
 		count = query_cell_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
@@ -507,13 +488,10 @@ function Broadphase:TrackBodies(bodies, physics_override)
 		local entry = self.BodyEntries[body]
 
 		if is_candidate_body(physics, body) then
-			-- unchanged pose (static/sleeping bodies): keep the cached bounds
-			-- and skip the per-vertex AABB rebuild
 			if entry and is_entry_pose_current(entry, body) then
 				entry.last_seen_step = self.StepStamp
 			else
 				if entry then
-					-- mutate the entry's own AABB in place; no per-substep allocation
 					build_entry_bounds(body, entry.bounds, self.LookAhead)
 					store_entry_pose(entry, body)
 					entry.last_seen_step = self.StepStamp
@@ -547,8 +525,6 @@ function Broadphase:GetCandidatePairs(out)
 	out = out or {}
 	local count = 0
 	local overflow_entries = self.OverflowEntries
-	-- recycled lookup of packed pair keys so the per-substep call allocates
-	-- neither the lookup table nor the string keys
 	local pair_lookup = self.PairKeyLookup
 
 	if not pair_lookup then
@@ -579,8 +555,6 @@ function Broadphase:GetCandidatePairs(out)
 				local key = get_pair_key(entry, other)
 
 				if not pair_lookup[key] and entry.bounds:IsBoxIntersecting(other.bounds) then
-					-- pair objects are cached on the overflow entry so islands
-					-- keep seeing the same object step after step
 					local overflow_pairs = entry.overflow_pairs
 
 					if not overflow_pairs then

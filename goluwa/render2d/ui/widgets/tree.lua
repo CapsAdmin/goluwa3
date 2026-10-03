@@ -57,7 +57,6 @@ function META:OnCreate(props)
 	props.DragThreshold = theme.active:ResolveSize(props.DragThreshold or "XXS")
 	props.IndentSize = theme.active:ResolveSize(props.IndentSize)
 	props.GuideStep = theme.active:ResolveSize(props.GuideStep)
-	-- State (before BaseClass.OnCreate which may fire events that call back into us)
 	self._items = props.Items or {}
 	self._selected_key = props.SelectedKey
 	self._expanded_state = {}
@@ -118,9 +117,6 @@ function META.OnNodeHover() end
 
 function META.OnNodeContextMenu() end
 
--- ---------------------------------------------------------------------------
--- Public API
--- ---------------------------------------------------------------------------
 function META:BlockMutations()
 	self._mutation_blocked = self._mutation_blocked + 1
 	return self
@@ -204,7 +200,6 @@ end
 function META:Rebuild(force)
 	if not self._ready then return self end
 
-	-- Debounce if not forced
 	if not force and self._refresh_debounce > 0 then
 		self._pending_refresh = true
 		self._refresh_deadline = system.GetElapsedTime() + self._refresh_debounce
@@ -272,7 +267,6 @@ end
 function META:AddNode(node, parent_key)
 	if not node then return self, "node is nil" end
 
-	-- Find the parent row to determine insert position
 	local insert_after_index = #self._row_order
 
 	if parent_key then
@@ -280,9 +274,7 @@ function META:AddNode(node, parent_key)
 
 		if not parent_info then return self:Rebuild(), "rebuild" end
 
-		-- Update has_children flag so is_expanded doesn't bail out for newly added parents
 		parent_info.has_children = true
-		-- Find the last child of this parent in row_order
 		local found_child = false
 
 		for i = #self._row_order, 1, -1 do
@@ -296,7 +288,6 @@ function META:AddNode(node, parent_key)
 			end
 		end
 
-		-- If no children found, insert right after the parent
 		if not found_child then
 			for i = 1, #self._row_order do
 				if self._row_order[i] == parent_key then
@@ -307,7 +298,6 @@ function META:AddNode(node, parent_key)
 			end
 		end
 
-		-- Parent must be expanded for children to be visible
 		if
 			not self:is_expanded(parent_info.node, parent_info.path, parent_key, parent_info.has_children)
 		then
@@ -315,17 +305,14 @@ function META:AddNode(node, parent_key)
 		end
 	end
 
-	-- Build path for the new node
 	local parent_info = parent_key and self._row_infos[parent_key] or nil
 	local parent_path = parent_info and parent_info.path or nil
 	local child_index = parent_info and #self:get_children(parent_info.node, parent_info.path) + 1 or 1
 	local path = build_path(parent_path, child_index)
 	local key = self:get_key(node, path)
 
-	-- Check if node already exists
 	if self._row_infos[key] then return self, "no row info" end
 
-	-- Build continuations by walking up ancestor chain
 	local continuations = {}
 
 	if parent_info then
@@ -359,17 +346,12 @@ function META:AddNode(node, parent_key)
 		parent_key = parent_key,
 		continuations = continuations,
 	}
-	-- Insert the row in the UI (caller is responsible for updating the data structure)
 	self:add_node(node, meta, parent_path, insert_after_index + 1)
 	self:refresh_visibility()
 	return self
 end
 
--- ---------------------------------------------------------------------------
--- Internal helpers
--- ---------------------------------------------------------------------------
 function META:remove_node_rows(key)
-	-- Find the start index for this key
 	local start_index
 
 	for i, row_key in ipairs(self._row_order) do
@@ -382,7 +364,6 @@ function META:remove_node_rows(key)
 
 	if not start_index then return end
 
-	-- Find the end of the branch
 	local end_index = start_index
 
 	for i = start_index + 1, #self._row_order do
@@ -393,7 +374,6 @@ function META:remove_node_rows(key)
 		end_index = i
 	end
 
-	-- Remove rows backwards to avoid index shifting
 	for i = end_index, start_index, -1 do
 		local row_key = self._row_order[i]
 		local info = self._row_infos[row_key]
@@ -406,7 +386,6 @@ function META:remove_node_rows(key)
 end
 
 function META:refresh_branch_children(parent_key)
-	-- Find the parent row position
 	local parent_index
 
 	for i, row_key in ipairs(self._row_order) do
@@ -419,9 +398,7 @@ function META:refresh_branch_children(parent_key)
 
 	if not parent_index then return end
 
-	-- Remove descendant rows (not the parent itself)
 	self:remove_node_rows_children(parent_key, parent_index)
-	-- Re-add children via the recursive add_node
 	local parent_info = self._row_infos[parent_key]
 
 	if not parent_info then return end
@@ -450,7 +427,6 @@ function META:refresh_branch_children(parent_key)
 end
 
 function META:remove_node_rows_children(parent_key, parent_index)
-	-- Find the end of the branch (not including parent)
 	local end_index
 
 	for i = parent_index + 1, #self._row_order do
@@ -461,7 +437,6 @@ function META:remove_node_rows_children(parent_key, parent_index)
 		end_index = i
 	end
 
-	-- Remove descendant rows backwards to avoid index shifting
 	if end_index then
 		for i = end_index, parent_index + 1, -1 do
 			local row_key = self._row_order[i]
@@ -490,7 +465,6 @@ function META:update_layout_now(entity)
 	if root.busy ~= nil then root:UpdateLayout() end
 end
 
--- Callback accessors (callback or fallback)
 function META:get_text(node, path)
 	local val = self.OnGetText(node, path)
 
@@ -516,7 +490,6 @@ function META:has_children(node, path)
 end
 
 function META:has_unexpanded_children(node, path)
-	-- Check if there are children that would appear if expanded
 	local dynamic = self.OnGetDynamicChildren(node, path)
 
 	if dynamic ~= nil then return next(dynamic) ~= nil end
@@ -575,7 +548,6 @@ function META:refresh_row_text(info)
 	info.text.text:SetColor(self:get_text_token(info.node, info.path, info.key))
 end
 
--- Walk up parent chain to check if candidate is under source
 function META:is_key_in_branch(source_key, candidate_key)
 	local current_key = candidate_key
 
@@ -691,7 +663,6 @@ function META:find_drop_info(source_info, global_pos)
 	return nil
 end
 
--- Drag lifecycle
 function META:begin_drag(row_info)
 	if not self._drag_enabled or not row_info then return end
 
@@ -751,7 +722,6 @@ function META:finish_drag(row_info)
 	if drop_info then self.OnDrop(drop_info) end
 end
 
--- Row display (expand/collapse animation)
 function META:update_row_display(info)
 	if not self._ready then return end
 
@@ -848,7 +818,6 @@ function META:refresh_visibility()
 	self:update_layout_now(self)
 end
 
--- Fire toggle callback + set expanded state (used by set_expanded, apply_branch_state, expand_to_key)
 function META:fire_toggle(node, expanded, key, path)
 	local val = self.OnIsExpanded(node, path, key)
 
@@ -860,14 +829,11 @@ end
 function META:set_expanded(node, path, key, expanded)
 	if expanded then
 		self._pending_expand_animation_key = key
-		-- Check for dynamic children
 		local dynamic_children = self.OnGetDynamicChildren(node, path)
 
 		if dynamic_children ~= nil then
-			-- Update the node's children in the items tree
 			node.Children = dynamic_children
 			self:fire_toggle(node, expanded, key, path)
-			-- Rebuild this branch with new children
 			self:refresh_branch_children(key)
 			return
 		end
@@ -943,9 +909,6 @@ function META:expand_to_key(nodes, parent_path, target_key)
 	return false
 end
 
--- ---------------------------------------------------------------------------
--- Row / node building
--- ---------------------------------------------------------------------------
 function META:materialize_row(row_info)
 	local tree = self
 	local node = row_info.node
@@ -1219,9 +1182,6 @@ function META:add_node(node, meta, parent_path, insert_index)
 	return insert_index
 end
 
--- ---------------------------------------------------------------------------
--- Panel builders (toggle, label, placeholder)
--- ---------------------------------------------------------------------------
 do
 	function META:make_toggle(node, path, key, meta, row_info)
 		local tree = self
@@ -1363,9 +1323,6 @@ do
 	end
 end
 
--- ---------------------------------------------------------------------------
--- Shared instance marker
--- ---------------------------------------------------------------------------
 function META:get_node_panel(node, path, key, selected, has_children, expanded)
 	if node.SharedInstance and self.SharedInstanceColor then
 		local shared_instance_color = self.SharedInstanceColor

@@ -22,7 +22,6 @@ local refs = setmetatable({}, {__mode = "k"})
 
 function META.New(data, len)
 	if data == nil then
-		-- Allocate new buffer with malloc
 		local size = len or 1024
 		local buffer = memory.malloc(size)
 
@@ -38,7 +37,6 @@ function META.New(data, len)
 		refs[self] = true
 		return self
 	else
-		-- Use existing data
 		local self = META.CType()
 		self.Buffer = ffi.cast("uint8_t *", data)
 		self.ByteSize = len or #data
@@ -76,7 +74,6 @@ do
 	end
 
 	function META:GetSize()
-		--if self.Writable then return self.Position end
 		return self.ByteSize
 	end
 
@@ -88,7 +85,6 @@ do
 				local new_size = math.max(self.ByteSize * 2, pos)
 
 				if self.OwnsMemory then
-					-- Use realloc for buffers we own
 					local new_buffer = memory.realloc(self.Buffer, new_size)
 
 					if new_buffer == nil then
@@ -97,7 +93,6 @@ do
 
 					self.Buffer = ffi.cast("uint8_t*", new_buffer)
 				else
-					-- Allocate new buffer and copy data
 					local new_buffer = memory.malloc(new_size)
 
 					if new_buffer == nil then
@@ -110,7 +105,6 @@ do
 				end
 
 				self.ByteSize = new_size
-				-- Update refs to prevent GC
 				refs[self] = true
 			end
 		end
@@ -125,13 +119,10 @@ do
 	function META:WriteByte(b)
 		local pos = self:GetPosition()
 
-		-- Ensure buffer has space before writing
 		if self.Writable and pos >= self.ByteSize then
-			-- Expand buffer before writing
 			local new_size = math.max(self.ByteSize * 2, pos + 1)
 
 			if self.OwnsMemory then
-				-- Use realloc for buffers we own
 				local new_buffer = memory.realloc(self.Buffer, new_size)
 
 				if new_buffer == nil then
@@ -140,7 +131,6 @@ do
 
 				self.Buffer = ffi.cast("uint8_t*", new_buffer)
 			else
-				-- Allocate new buffer and copy data
 				local new_buffer = memory.malloc(new_size)
 
 				if new_buffer == nil then
@@ -153,7 +143,6 @@ do
 			end
 
 			self.ByteSize = new_size
-			-- Update refs to prevent GC
 			refs[self] = true
 		end
 

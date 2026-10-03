@@ -1,105 +1,56 @@
---[[
-	Water: the ocean's sea state and the water volumes.
-
-	The ocean is an infinite plane at render3d.GetOceanLevel(). Its waves are a
-	sum of Gerstner waves drawn from the Pierson-Moskowitz spectrum of a fully
-	developed sea for the wind speed, spread around the wind direction, plus a
-	few long swell waves. Waves too short for the wave textures are noise
-	ripples per pixel, and the slopes of the ones too short for either go
-	into the surface roughness, so the total matches the Cox-Munk slope
-	statistics of a real sea at that wind speed.
-
-	Water volumes (the water_volume component) are boxes of still or rippled
-	water whose top face is the surface: lakes, ponds, pools, rivers.
-
-	Both are shaded as a participating medium with an absorption and a
-	particle scattering coefficient per meter for red, green and blue, on top
-	of pure water's own molecular scattering. See water.presets for
-	measured-ish values.
-]]
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local water = library()
 water.GRAVITY = 9.81
 water.MAX_OCEAN_WAVES = 48
--- octaves of noise ripples per pixel, shorter than the near wave texture resolves
 water.DETAIL_OCTAVES = 4
--- the nearest this many to the camera are drawn
 water.MAX_VOLUMES = 64
--- waves shorter than this many texels of a wave texture are left out of it
 water.WAVE_TEXELS_PER_WAVELENGTH = 3
--- Pure seawater's molecular scattering per meter, red green blue: Morel
--- 1974's 0.00288 at 500 nm falling with wavelength^-4.32, taken at 620, 550
--- and 450 nm. It scatters about as much back as forward. Every water has it,
--- the presets' ParticleScattering is what's suspended in it.
 water.MOLECULAR_SCATTERING = Vec3(0.00114, 0.00191, 0.00454)
--- Particles scatter mostly forward: a Henyey-Greenstein asymmetry of 0.92
--- sends 1.8% of it back, Petzold's measured ratio for ocean water.
 water.PARTICLE_PHASE_G = 0.92
--- Absorption and ParticleScattering per meter, red green blue. Where it says
--- chlorophyll, the particles are 0.3 * chl^0.62 at 550 nm going with 1 /
--- wavelength (Gordon and Morel 1983), the absorption pure water plus
--- phytoplankton (Bricaud 1995) and dissolved organic matter.
 water.presets = {
-	-- the clearest open ocean, like the Sargasso Sea: 0.03 mg/m3 chlorophyll, violet blue
 	ocean = {
 		Absorption = Vec3(0.45, 0.065, 0.021),
 		ParticleScattering = Vec3(0.030, 0.034, 0.042),
 	},
-	-- typical open ocean, 0.3 mg/m3 chlorophyll: blue with some green in it
 	open_ocean = {
 		Absorption = Vec3(0.46, 0.072, 0.051),
 		ParticleScattering = Vec3(0.126, 0.142, 0.174),
 	},
-	-- a productive shelf sea like the North Sea, 1.5 mg/m3 chlorophyll and river
-	-- runoff: green grey
 	temperate_sea = {
 		Absorption = Vec3(0.47, 0.089, 0.137),
 		ParticleScattering = Vec3(0.342, 0.386, 0.472),
 	},
-	-- shallow tropical sea over sand, 0.1 mg/m3 chlorophyll, turquoise from the
-	-- absorption and the sand
 	tropical = {
 		Absorption = Vec3(0.42, 0.058, 0.024),
 		ParticleScattering = Vec3(0.064, 0.072, 0.088),
 	},
-	-- plankton and sediment: greener and more turbid
 	coastal = {
 		Absorption = Vec3(0.5, 0.1, 0.13),
 		ParticleScattering = Vec3(0.09, 0.13, 0.11),
 	},
-	-- a clear mountain lake, slightly green from dissolved organic matter
 	lake = {
 		Absorption = Vec3(0.5, 0.11, 0.19),
 		ParticleScattering = Vec3(0.025, 0.035, 0.03),
 	},
-	-- algae and silt, you can see a meter or two into it
 	pond = {
 		Absorption = Vec3(0.95, 0.42, 0.85),
 		ParticleScattering = Vec3(0.3, 0.42, 0.24),
 	},
-	-- tannins make bog water tea coloured
 	swamp = {
 		Absorption = Vec3(0.9, 1.4, 2.6),
 		ParticleScattering = Vec3(0.32, 0.22, 0.08),
 	},
-	-- rock flour from a glacier scatters and makes it milky turquoise
 	glacial = {
 		Absorption = Vec3(0.48, 0.075, 0.07),
 		ParticleScattering = Vec3(0.55, 0.7, 0.78),
 	},
-	-- filtered and chlorinated, hardly any particles, the tiles do the rest
 	pool = {
 		Absorption = Vec3(0.34, 0.052, 0.016),
 		ParticleScattering = Vec3(0.003, 0.003, 0.003),
 	},
 }
 
--- The medium of a game's water fog. Games fog water towards a colour with a
--- density, which is roughly the extinction per meter. Channels that are dark in
--- the fog colour are absorbed faster, which tints what's seen through the water,
--- and the colour times albedo_scale is the particles' scattering albedo. color
--- is linear.
 function water.MediumFromFog(color, extinction, albedo_scale)
 	local brightest = math.max(color.x, color.y, color.z, 1e-4)
 	local absorption = Vec3()
@@ -115,22 +66,12 @@ function water.MediumFromFog(color, extinction, albedo_scale)
 end
 
 water.ocean = {
-	-- m/s at 10 m above the sea, sets the wave heights and lengths
 	WindSpeed = 7,
-	-- degrees, the direction the wind blows towards, 0 is +x, 90 is +z
 	WindDirection = 30,
-	-- how far the Gerstner waves pull towards their crests, 0 gives sine waves
 	Choppiness = 1.1,
-	-- how much of the slope of the waves too short for the wave textures is drawn as moving
-	-- ripples, 0 to 1. the rest is the surface's roughness, the sea is as rough either way
 	RippleStrength = 0.5,
-	-- stretches those ripples, as steep, so taller too. 1 starts them at the shortest wave the
-	-- textures hold
 	RippleScale = 10,
-	-- how many of its periods a ripple lives before it fades out and comes back going somewhere
-	-- else. fewer is more random, more slides along further
 	RippleLifetime = 5,
-	-- how much of the wind waves are grown yet, 1 is a fully developed sea
 	Development = 1,
 	SwellHeight = 0.35,
 	SwellWavelength = 140,
@@ -191,8 +132,6 @@ do
 		return math.sqrt(-2 * math.log(u)) * math.cos(2 * math.pi * next_random(state))
 	end
 
-	-- Pierson-Moskowitz, the spectrum of a sea the wind has blown over long
-	-- enough to be in equilibrium. peak_omega is where most energy is.
 	local function pierson_moskowitz(omega, peak_omega)
 		return 0.0081 * water.GRAVITY ^ 2 * omega ^ -5 * math.exp(-1.25 * (peak_omega / omega) ^ 4)
 	end
@@ -225,7 +164,6 @@ do
 						omega_high - omega_low
 					)
 			)
-			-- the waves at the peak follow the wind, shorter ones spread wider
 			local spread = math.rad(math.clamp(20 + 45 * math.log(omega / peak_omega) / math.log(4), 20, 75))
 			add_wave(
 				out,
@@ -237,16 +175,10 @@ do
 		end
 	end
 
-	-- longest first, so the far wave texture sums a prefix
 	local function by_wavelength(a, b)
 		return a.wavelength > b.wavelength
 	end
 
-	-- wave texture texel size in meters of the near wave texture; the main
-	-- waves go down to where that stops resolving them and the per pixel
-	-- ripples take over
-	-- m/s: below this wind no waves grow and the sea is glassy but for the swell, above this one
-	-- the wind sea is all there (Kahma and Donelan 1988, ripples start at 1 to 3 m/s)
 	water.WIND_SEA_ONSET = 1
 	water.WIND_SEA_GROWN = 3
 
@@ -254,11 +186,9 @@ do
 		local params = water.ocean
 		local state = {params.Seed * 7919 + 17}
 		local wind_sea = math.smoothstep(water.WIND_SEA_ONSET, water.WIND_SEA_GROWN, params.WindSpeed)
-		-- Pierson-Moskowitz's shape doesn't hold for lighter winds, it is faded in there instead
 		local wind = math.max(params.WindSpeed, water.WIND_SEA_GROWN)
 		local wind_angle = math.rad(params.WindDirection)
 		local development = math.clamp(params.Development, 0.05, 1)
-		-- a younger sea peaks at shorter waves and holds less energy
 		local peak_omega = 0.855 * water.GRAVITY / wind / math.sqrt(development)
 		local split_wavelength = near_texel_size * water.WAVE_TEXELS_PER_WAVELENGTH
 		local omega_from = peak_omega * 0.6
@@ -267,8 +197,6 @@ do
 		local swell_count = params.SwellHeight > 0 and 3 or 0
 		local main = {}
 
-		-- the wave textures hold what they can resolve, down to split_wavelength. a sea whose
-		-- waves are all shorter than that is all ripples
 		if wind_sea > 0 and omega_from < omega_split then
 			spectrum_band(
 				main,
@@ -283,7 +211,6 @@ do
 		end
 
 		if swell_count > 0 then
-			-- significant height is 4 standard deviations, a sine's is amplitude / sqrt(2)
 			local amplitude = params.SwellHeight / 4 * math.sqrt(2) / math.sqrt(swell_count)
 			local swell_angle = math.rad(params.SwellDirection)
 
@@ -299,8 +226,6 @@ do
 		end
 
 		table.sort(main, by_wavelength)
-		-- only the slopes of the waves shorter than that matter, the per
-		-- pixel ripples are drawn with the same slope variance
 		local detail = {}
 
 		if wind_sea > 0 then
@@ -324,7 +249,6 @@ do
 			steepness = steepness + wave.k * wave.amplitude
 		end
 
-		-- Cox and Munk's slope variance of the sea surface for a wind speed
 		local total_slope_variance = 0.003 + 0.00512 * params.WindSpeed * development
 		local main_slope_variance = 0
 		local detail_slope_variance = 0
@@ -337,8 +261,6 @@ do
 			detail_slope_variance = detail_slope_variance + (wave.k * wave.amplitude) ^ 2 / 2
 		end
 
-		-- the Gerstner displacement makes the choppiest steep waves fold over,
-		-- keep the sum of steepnesses from folding everything
 		water.ocean_waves = {
 			main = main,
 			wind_angle = wind_angle,
@@ -364,7 +286,6 @@ function water.GetOceanWaves(near_texel_size)
 	return waves
 end
 
--- how many of the longest waves a wave texture with this texel size holds
 function water.GetResolvedWaveCount(waves, texel_size)
 	local min_wavelength = texel_size * water.WAVE_TEXELS_PER_WAVELENGTH
 
@@ -375,7 +296,6 @@ function water.GetResolvedWaveCount(waves, texel_size)
 	return #waves.main
 end
 
--- the slope variance of the waves a wave texture with this texel size holds
 function water.GetResolvedSlopeVariance(waves, texel_size)
 	local variance = 0
 
@@ -415,8 +335,6 @@ function water.WriteWaveBlock(block, waves, count)
 	block.wave_choppiness = waves.choppiness
 end
 
--- GLSL: one Gerstner wave sum at a displaced point. waves are vec4(kx, kz,
--- amplitude, phase), deep water dispersion gives each its speed.
 water.GERSTNER_GLSL = [[
 	const float WATER_GRAVITY = ]] .. water.GRAVITY .. [[;
 

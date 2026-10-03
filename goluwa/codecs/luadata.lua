@@ -1,27 +1,3 @@
---[[
-	luadata by CapsAdmin (fuck copyright, do what you want with this)
-
-	-- encodes table to string
-		string 	luadata.Encode(tbl)
-
-	-- decodes string to table
-	-- it will throw an error if there's a syntax error in the table
-		table 	luadata.Decode(str)
-
-	-- writes the table to file ( it's just "file.Write(path, luadata.Encode(str))" )
-		nil 	luadata.WriteFile(path, tbl)
-		table 	luadata.ReadFile(path)
-
-	-- returns a string of how the variable is typically initialized
-		string  luadata.ToString(var)
-
-	-- will let you add your own tostring function for a custom type
-	-- if you have made a custom data object, you can do this "mymatrix.LuaDataType = "Matrix33""
-	-- and it will make luadata.Type return that instead
-		nil		luadata.SetModifier(type, callback)
-
-]]
---- luajit bytecode firewall --
 local opcode_checker
 
 do
@@ -30,7 +6,6 @@ do
 	local band = bit.band
 	local opcodes = {}
 
-	--extract opcode names
 	for str in bcnames:gmatch("......") do
 		str = str:gsub("%s", "")
 		table.insert(opcodes, str)
@@ -89,7 +64,6 @@ do
 				if not ret then return true end
 
 				if not iswhitelisted(ret) then
-					--error("non-whitelisted: " .. )
 					return false, "non-whitelisted: " .. opcodes[ret]
 				end
 			end
@@ -122,7 +96,6 @@ GGET
 CALL
 RET1]]
 local is_func_ok = opcode_checker(whitelist)
--------------------------------
 local luadata = library()
 luadata.file_extensions = {"luadata"}
 local s = luadata
@@ -216,17 +189,13 @@ local env = {
 	Vector = Vector,
 	Angle = Angle,
 	Color = Color,
---Entity=Entity,
 }
 
 -- TODO: Bytecode analysis for bad loop and string functions?
 function luadata.Decode(str, nojail)
 	local func, err = loadstring(string.format("return { %s }", str), "luadata_decode")
 
-	if not func then
-		--ErrorNoHalt("Luadata decode syntax: "..tostring(func):gsub("^luadata_decode","")..'\n')
-		return nil, func
-	end
+	if not func then return nil, func end
 
 	if not nojail then
 		setfenv(func, env)
@@ -240,16 +209,12 @@ function luadata.Decode(str, nojail)
 
 	if not ok or err then
 		err = err or "invalid opcodes detected"
-		--ErrorNoHalt("Luadata opcode: "..tostring(err):gsub("^luadata_decode","")..'\n')
 		return nil, err
 	end
 
 	local ok, err = xpcall(func, debug.traceback)
 
-	if not ok then
-		--ErrorNoHalt("Luadata decode: "..tostring(err):gsub("^luadata_decode","")..'\n')
-		return nil, err
-	end
+	if not ok then return nil, err end
 
 	if type(nojail) == "function" then nojail(func, err) end
 

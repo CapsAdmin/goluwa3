@@ -3,19 +3,9 @@ local islands = import("goluwa/physics/islands.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local objects = import("goluwa/objects/objects.lua")
--- Base of every joint: the registry the solver iterates, the anchor frames on
--- both bodies, the sleep rules and breaking. A joint is a pair of frames, one
--- fixed in each body (or in the world when a body is nil). Subclasses solve
--- their rows in :Solve and report the impulses they applied through
--- :AddLinearImpulse and :AddAngularImpulse, which breaking and the reaction
--- readouts are built on. The impulses a joint has accumulated are applied
--- again at the start of the next substep in :WarmStart, so a steady load is
--- carried by the joint from the first iteration instead of being rebuilt.
 local META = objects.CreateTemplate("physics_constraint")
 local CONJUGATE = Quat()
 local tracked = {}
--- The loaded frames only depend on where the bodies are, which changes when
--- the substep integrates them, so every joint loads once per pose.
 local pose_stamp = 0
 local broken = {}
 META.CollideConnected = false
@@ -48,9 +38,6 @@ function META.RemoveAllConstraints()
 	end
 end
 
--- Fixes the frames. world_frame is the joint orientation (its x axis is the
--- joint axis), nil for joints without one. Joints that attach to a different
--- point on each body pass world_anchor_1 as well.
 function META:SetupFrames(body_0, body_1, world_anchor_0, world_frame, world_anchor_1)
 	world_frame = world_frame or Quat():Identity()
 	world_anchor_1 = world_anchor_1 or world_anchor_0
@@ -100,7 +87,6 @@ function META:SetBreakTorque(torque)
 	return self
 end
 
--- the reaction the joint applied over the last substep, in N and N*m
 function META:GetReactionForce()
 	return self.Force
 end
@@ -109,8 +95,6 @@ function META:GetReactionTorque()
 	return self.Torque
 end
 
--- A joint that breaks mid step is only disabled: the islands and the solver
--- still hold it until the step is over, when RemoveBroken takes it out.
 function META:Break()
 	self.Enabled = false
 	broken[#broken + 1] = self
@@ -165,7 +149,6 @@ end
 
 function META:WarmStart() end
 
--- false when every body the joint holds is asleep, otherwise wakes them all
 function META:Prepare()
 	local body_0 = self.Body0
 	local body_1 = self.Body1
@@ -204,8 +187,6 @@ function META:Prepare()
 	return true
 end
 
--- the anchor and frame state of both bodies at their current pose, for
--- readouts outside the solve
 function META:LoadStates()
 	rows.Load(
 		self.State0,

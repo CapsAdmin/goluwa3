@@ -10,22 +10,11 @@ local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 local capsule = {}
 local EPSILON = physics_constants.EPSILON
--- positive-separation (speculative) contacts are allowed up to this distance so
--- resting pairs keep a two-point manifold; the solver only holds them while the
--- pair is still closing
 local CAPSULE_POLYHEDRON_SPECULATIVE = physics_constants.DEFAULT_COLLISION_MARGIN
--- the GJK normal must be nearly parallel to the reference face normal before
--- clipping produces a two-point manifold (box3d b3CollideHullAndCapsule kTolerance)
 local CAPSULE_SHALLOW_FACE_ALIGNMENT = 0.998
--- below this alignment the EPA normal points at an edge; fall back to the
--- witness-point contact instead of clipping
 local CAPSULE_DEEP_FACE_ALIGNMENT = 0.5
--- |axisA x axisB| below this means the capsule axes are nearly parallel
 local CAPSULE_PARALLEL_CROSS = 0.05
 local CAPSULE_MIN_SEGMENT_LENGTH = 0.01
--- feature keys identify which polyhedron face and capsule segment endpoint a
--- contact came from, so the manifold can warm-start impulses by feature pair
--- instead of proximity (box3d b3FeaturePair)
 local CAPSULE_FEATURE_WITNESS = 0
 local CAPSULE_FEATURE_PARALLEL_BASE = 100
 local CAPSULE_SWEEP_POINT_SCRATCH = {
@@ -49,7 +38,6 @@ local CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT = {
 	segment_a = nil,
 	segment_b = nil,
 }
--- per pair scratch: GJK simplex + capsule segment proxy + clip buffers
 local CAPSULE_POLYHEDRON_PAIR_SCRATCH = table.weak("k")
 
 local function get_capsule_polyhedron_scratch(capsule_body, polyhedron_body)
@@ -494,10 +482,6 @@ local function solve_capsule_sphere_collision(capsule_body, sphere_body, dt)
 	)
 end
 
--- Clips the capsule segment against the reference face of the polyhedron and
--- emits one contact per surviving vertex (up to two). The segment is the
--- incident polygon, so the clipped result is at most the two segment
--- endpoints, possibly with interpolated points on the face boundary.
 local function build_capsule_face_contacts(polyhedron_body, polyhedron, face_index, face_normal, radius, scratch)
 	local face = polyhedron_cache.GetPolyhedronWorldFace(polyhedron_body, polyhedron, face_index)
 
@@ -512,8 +496,6 @@ local function build_capsule_face_contacts(polyhedron_body, polyhedron, face_ind
 	local count = 0
 
 	for _, local_point in ipairs(clipped or {}) do
-		-- the clipped point sits on the capsule segment; the surface point that
-		-- touches the face is a full radius below it (box3d: distance - radius)
 		local separation = local_point.z - radius
 		count = count + 1
 		local contact = contacts[count] or {}
@@ -568,10 +550,6 @@ local function build_single_contact(scratch, point_a, point_b, separation, featu
 	return list.clear_from_index(contacts, 2)
 end
 
--- The depth along each face plane is exact for a capsule (segment plus
--- radius), so the shallowest face is a cheap upper bound on the minimum
--- translation. EPA can return a longer way out for a capsule that is partly
--- sunk into a slab (the bottom face of a thin box), which pushes it through.
 local FACE_AXIS_OVERRIDE_MARGIN = 0.05
 
 local function find_minimum_face_axis(polyhedron_body, polyhedron, segment_a, segment_b, radius)
@@ -595,7 +573,6 @@ local function find_minimum_face_axis(polyhedron_body, polyhedron, segment_a, se
 		)
 		local depth = plane + radius - lowest
 
-		-- outside any one face means no penetration to resolve here
 		if depth <= 0 then return nil end
 
 		if depth < best_depth then
@@ -608,9 +585,6 @@ local function find_minimum_face_axis(polyhedron_body, polyhedron, segment_a, se
 	return best_index, best_normal, best_depth
 end
 
--- The capsule is treated as an analytic segment with a radius, the same way
--- box3d collides hull-and-capsule: GJK/EPA on the two segment endpoints plus
--- reference-face clipping. No point sampling of the capsule surface.
 local function solve_capsule_polyhedron_core(capsule_body, polyhedron_body, polyhedron, dt)
 	local scratch = get_capsule_polyhedron_scratch(capsule_body, polyhedron_body)
 	local vertices = polyhedron_cache.GetPolyhedronWorldVertices(polyhedron_body, polyhedron)
@@ -639,7 +613,6 @@ local function solve_capsule_polyhedron_core(capsule_body, polyhedron_body, poly
 	local rotation = polyhedron_body:GetRotation()
 
 	if not distance.intersect and (distance.distance or 0) > EPSILON * 100 then
-		-- Shallow penetration: the GJK witness points are exact
 		normal = distance.normal
 		overlap = radius - distance.distance
 
@@ -666,7 +639,6 @@ local function solve_capsule_polyhedron_core(capsule_body, polyhedron_body, poly
 			contacts = build_single_contact(scratch, distance.point_a, distance.point_b - normal * radius, -overlap)
 		end
 	else
-		-- Deep penetration: EPA gives the minimum translation axis
 		local penetration = gjk_epa.Penetration(vertices, proxy, initial_direction, scratch.simplex)
 		scratch.simplex = penetration and penetration.gjk and penetration.gjk.simplex or scratch.simplex
 
@@ -731,10 +703,6 @@ local function solve_capsule_polyhedron_core(capsule_body, polyhedron_body, poly
 		end
 	end
 
-	-- the penetration axis is the shortest way out, so a capsule that went deep
-	-- in a single step gets pushed out the far side. A real contact never
-	-- pushes the capsule along the way it just travelled; recover from the
-	-- previous pose instead
 	local position = capsule_body.Position
 	local previous_position = capsule_body.PreviousPosition
 	local travel_along_normal = (
@@ -851,9 +819,6 @@ local function solve_capsule_polyhedron_collision(capsule_body, polyhedron_body,
 	return solve_capsule_polyhedron_core(capsule_body, polyhedron_body, polyhedron, dt)
 end
 
--- Nearly parallel capsules: clip segment B against the side planes of
--- segment A so the manifold gets two stable contact points instead of one
--- that flips side to side (box3d b3CollideCapsules parallel branch)
 local function build_capsule_capsule_parallel_contacts(a0, a1, b0, b1, radius_a, radius_b)
 	local axis_a = a1 - a0
 	local length_a = axis_a:GetLength()

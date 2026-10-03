@@ -1,4 +1,3 @@
--- MSDF vs SDF comparison test
 local render2d = import("goluwa/render2d/render2d.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -16,7 +15,6 @@ for _, sz in ipairs(font_sizes) do
 	fonts_msdf[sz] = fonts.New{Path = font_path, Size = sz, Mode = "msdf"}
 end
 
--- Star SVG path
 local star_svg = [[
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
   <path d="M 50 5 L 61 35 L 95 35 L 68 57 L 79 90 L 50 70 L 21 90 L 32 57 L 5 35 L 39 35 Z" fill="black"/>
@@ -25,7 +23,6 @@ local star_svg = [[
 local svg_sdf = SVG.New(star_svg, {Mode = "sdf", TextureSize = 64})
 local svg_msdf = SVG.New(star_svg, {Mode = "msdf", TextureSize = 64})
 local svg_poly = SVG.New(star_svg, {Mode = "poly"})
--- Create a color texture to modulate with
 local gradient_tex = Texture.New{
 	width = 64,
 	height = 64,
@@ -39,7 +36,6 @@ local gradient_tex = Texture.New{
 	},
 }
 gradient_tex:Shade([[ return vec4(uv.x, uv.y, 0.5, 1.0); ]])
--- MSDF texture for a circle
 local msdf_tex = Texture.New{
 	width = 64,
 	height = 64,
@@ -67,7 +63,6 @@ msdf_tex:Shade([[
 	msdf = clamp(msdf, 0.0, 1.0);
 	return vec4(msdf, 1.0);
 ]])
--- Regular single-channel SDF texture for comparison
 local sdf_tex = Texture.New{
 	width = 64,
 	height = 64,
@@ -131,13 +126,11 @@ event.AddListener("Draw2D", "msdf_test", function()
 	local col_msdf = col_sdf + 70 + 20
 	local y = 30
 
-	-- Row 1: circle basic fill
 	draw_row(y, "circle fill", function(ry)
 		draw_circle(col_sdf, ry, size, size, sdf_tex, false)
 		draw_circle(col_msdf, ry, size, size, msdf_tex, true)
 	end)
 
-	-- Row 3: circle with outline
 	y = y + size + 30
 
 	draw_row(y, "circle outline outset", function(ry)
@@ -152,7 +145,6 @@ event.AddListener("Draw2D", "msdf_test", function()
 		draw_circle(col_msdf, ry, size, size, msdf_tex, true, -5)
 	end)
 
-	-- Row 4: circle with softness
 	y = y + size + 30
 
 	draw_row(y, "circle softness", function(ry)
@@ -160,7 +152,6 @@ event.AddListener("Draw2D", "msdf_test", function()
 		draw_circle(col_msdf, ry, size, size, msdf_tex, true, nil, 4)
 	end)
 
-	-- Row 5: SVG star basic
 	y = y + size + 40
 
 	draw_row(y, "svg star", function(ry)
@@ -175,7 +166,6 @@ event.AddListener("Draw2D", "msdf_test", function()
 		render2d.PopMatrix()
 	end)
 
-	-- Font comparison rows (SDF on top, MSDF below)
 	y = y + 80
 	local text = "The quick brown fox jumps over the lazy dog"
 
@@ -187,7 +177,6 @@ event.AddListener("Draw2D", "msdf_test", function()
 		y = y + sz + 20
 	end
 
-	-- Labels
 	label_font:DrawText("SDF", col_sdf + 20, H - 10)
 	label_font:DrawText("MSDF", col_msdf + 10, H - 10)
 end)

@@ -108,7 +108,6 @@ function buffer_template.AddBitFunctions(META)
 		self.buf_byte = 0
 		self.buf_nbit = 0
 
-		-- Reset to the position where bit reading started
 		if self.buf_start_pos > 0 or self.Position > 0 then
 			self:SetPosition(self.buf_start_pos)
 		end
@@ -229,24 +228,20 @@ function buffer_template.AddBasicDataTypes(META)
 	META.ReadI8 = META.ReadByte
 	META.WriteI8 = META.WriteByte
 
-	-- Add explicit endianness variants for multi-byte types
-	-- Note: We provide both LE and BE methods regardless of native endianness
 	for name, type in pairs(type_info) do
 		type = ffi.typeof(type)
 		local size = ffi.sizeof(type)
 
-		if size > 1 then -- Only for multi-byte types
+		if size > 1 then
 			local ctype_read = ffi.typeof("$*", type)
 			local ctype_write = ffi.typeof("$[1]", type)
 
-			-- Little-endian: bytes in LSB-first order
 			do
 				local temp = ffi.new(ctype_write, 0)
 				META["Write" .. name .. "LE"] = function(self, num)
 					temp[0] = num
 					local bytes = ffi_string(temp, size)
 
-					-- Write bytes in little-endian order (LSB first)
 					for i = 1, size do
 						self:WriteByte(bytes:byte(i))
 					end
@@ -264,14 +259,12 @@ function buffer_template.AddBasicDataTypes(META)
 				end
 			end
 
-			-- Big-endian: bytes in MSB-first order
 			do
 				local temp = ffi.new(ctype_write, 0)
 				META["Write" .. name .. "BE"] = function(self, num)
 					temp[0] = num
 					local bytes = ffi_string(temp, size)
 
-					-- Write bytes in big-endian order (MSB first)
 					for i = size, 1, -1 do
 						self:WriteByte(bytes:byte(i))
 					end
@@ -291,7 +284,7 @@ function buffer_template.AddBasicDataTypes(META)
 		end
 	end
 
-	do -- Luajit uses NAN tagging, make sure we have the canonical NAN
+	do
 		local bit_band = bit.band
 		local bit_bor = bit.bor
 		local split_int32_p = ffi.typeof("struct { int32_t " .. (ffi.abi("le") and "lo, hi" or "hi, lo") .. "; } *")
@@ -332,8 +325,6 @@ function buffer_template.AddBasicDataTypes(META)
 				return ffi_cast(float_ctype, src)[0]
 			end
 
-			-- Add LE/BE variants for Float with NaN handling
-			-- Little-endian Float
 			do
 				local temp = ffi.new("float[1]", 0)
 
@@ -363,7 +354,6 @@ function buffer_template.AddBasicDataTypes(META)
 				end
 			end
 
-			-- Big-endian Float
 			do
 				local temp = ffi.new("float[1]", 0)
 
@@ -394,11 +384,9 @@ function buffer_template.AddBasicDataTypes(META)
 			end
 		end
 
-		-- Add LE/BE variants for Double with NaN handling
 		do
 			local double_ctype = ffi.typeof("double *")
 
-			-- Little-endian Double
 			do
 				local temp = ffi.new("double[1]", 0)
 
@@ -434,7 +422,6 @@ function buffer_template.AddBasicDataTypes(META)
 				end
 			end
 
-			-- Big-endian Double
 			do
 				local temp = ffi.new("double[1]", 0)
 
@@ -472,7 +459,7 @@ function buffer_template.AddBasicDataTypes(META)
 		end
 	end
 
-	do -- taken from lua sources https://github.com/lua/lua/blob/master/lstrlib.c
+	do
 		local NB = 8
 		local MC = bit.lshift(1, NB) - 1
 		local SZINT = ffi.sizeof("uint64_t")
@@ -499,7 +486,6 @@ function buffer_template.AddBasicDataTypes(META)
 			end
 
 			if signed and size < SZINT then
-				-- sign extend: if MSB of the highest byte is set, fill upper bits with 1s
 				local msb = bit.lshift(1, (size - 1) * NB + NB - 1)
 
 				if bit.band(res, msb) ~= 0 then
@@ -565,12 +551,7 @@ function buffer_template.AddBasicDataTypes(META)
 		return ret
 	end
 
-	-- half precision (2 bytes)
 	function META:WriteHalf(value)
-		-- ieee 754 binary16
-		-- 111111
-		-- 54321098 76543210
-		-- seeeeemm mmmmmmmm
 		if value == 0.0 then
 			self:WriteByte(0)
 			self:WriteByte(0)
@@ -580,7 +561,7 @@ function buffer_template.AddBasicDataTypes(META)
 		local signBit = 0
 
 		if value < 0 then
-			signBit = 128 -- shifted left to appropriate position
+			signBit = 128
 			value = -value
 		end
 
@@ -589,9 +570,7 @@ function buffer_template.AddBasicDataTypes(META)
 		e = e - 1 + 15
 		e = math.min(math.max(0, e), 31)
 		m = m * 4
-		-- sign, 5 bits of exponent, 2 bits of mantissa
 		self:WriteByte(bit.bor(signBit, bit.band(e, 31) * 4, bit.band(m, 3)))
-		-- get rid of written bits and shift for next 8
 		m = (m - math.floor(m)) * 256
 		self:WriteByte(bit.band(m, 255))
 		return self
@@ -669,7 +648,6 @@ function buffer_template.AddBasicDataTypes(META)
 		return result
 	end
 
-	-- boolean
 	function META:WriteBoolean(b)
 		self:WriteByte(b and 1 or 0)
 		return self
@@ -679,7 +657,6 @@ function buffer_template.AddBasicDataTypes(META)
 		return self:ReadByte() >= 1
 	end
 
-	-- char
 	function META:WriteChar(b)
 		self:WriteByte(b:byte())
 		return self
@@ -733,7 +710,6 @@ function buffer_template.AddStringFunctions(META)
 		return true
 	end
 
-	-- null terminated string
 	function META:WriteString(str)
 		self:WriteBytes(str)
 		self:WriteByte(0)
@@ -871,7 +847,6 @@ function buffer_template.AddStructFunctions(META)
 		return nil
 	end
 
-	-- nil
 	function META:WriteNil()
 		self:WriteByte(0)
 		return self
@@ -882,7 +857,6 @@ function buffer_template.AddStructFunctions(META)
 		return nil
 	end
 
-	-- matrix44
 	function META:WriteMatrix44(matrix)
 		for i = 1, 16 do
 			self:WriteFloat(matrix[i - 1])
@@ -901,7 +875,6 @@ function buffer_template.AddStructFunctions(META)
 		return out
 	end
 
-	-- matrix33
 	function META:WriteMatrix33(matrix)
 		for i = 1, 8 do
 			self:WriteFloat(matrix[i - 1])
@@ -920,7 +893,6 @@ function buffer_template.AddStructFunctions(META)
 		return out
 	end
 
-	-- vec3
 	function META:WriteVec3(v)
 		self:WriteFloat(v.x)
 		self:WriteFloat(v.y)
@@ -932,7 +904,6 @@ function buffer_template.AddStructFunctions(META)
 		return Vec3(self:ReadFloat(), self:ReadFloat(), self:ReadFloat())
 	end
 
-	-- vec2
 	function META:WriteVec2(v)
 		self:WriteFloat(v.x)
 		self:WriteFloat(v.y)
@@ -943,7 +914,6 @@ function buffer_template.AddStructFunctions(META)
 		return Vec2(self:ReadFloat(), self:ReadFloat())
 	end
 
-	-- vec2
 	function META:WriteVec2Short(v)
 		self:WriteI16(v.x)
 		self:WriteI16(v.y)
@@ -954,7 +924,6 @@ function buffer_template.AddStructFunctions(META)
 		return Vec2(self:ReadShort(), self:ReadShort())
 	end
 
-	-- ang3
 	function META:WriteAng3(v)
 		self:WriteFloat(v.x)
 		self:WriteFloat(v.y)
@@ -966,7 +935,6 @@ function buffer_template.AddStructFunctions(META)
 		return Ang3(self:ReadFloat(), self:ReadFloat(), self:ReadFloat())
 	end
 
-	-- quat
 	function META:WriteQuat(quat)
 		self:WriteFloat(quat.x)
 		self:WriteFloat(quat.y)
@@ -979,7 +947,6 @@ function buffer_template.AddStructFunctions(META)
 		return Quat(self:ReadFloat(), self:ReadFloat(), self:ReadFloat(), self:ReadFloat())
 	end
 
-	-- color
 	function META:WriteColor(color)
 		self:WriteFloat(color.r)
 		self:WriteFloat(color.g)
@@ -1078,7 +1045,6 @@ function buffer_template.AddStructFunctions(META)
 	end
 
 	do
-		-- Table terminator (255 is not a valid type ID since type_ids starts at 1)
 		local TABLE_TERMINATOR = 255
 
 		function META:WriteTable(tbl, type_func)
@@ -1087,7 +1053,6 @@ function buffer_template.AddStructFunctions(META)
 			for k, v in pairs(tbl) do
 				local t = type_func(k)
 
-				-- Map Lua "number" to a default numeric type for table keys
 				if t == "number" then t = "double" end
 
 				local id = self:GetTypeID(t)
@@ -1098,7 +1063,6 @@ function buffer_template.AddStructFunctions(META)
 				self:WriteType(k, t, type_func)
 				t = type_func(v)
 
-				-- Map Lua "number" to a default numeric type for values
 				if t == "number" then t = "double" end
 
 				id = self:GetTypeID(t)
@@ -1109,7 +1073,6 @@ function buffer_template.AddStructFunctions(META)
 				self:WriteType(v, t, type_func)
 			end
 
-			-- Write terminator to mark end of table
 			self:WriteByte(TABLE_TERMINATOR)
 		end
 
@@ -1119,7 +1082,6 @@ function buffer_template.AddStructFunctions(META)
 			while true do
 				local b = self:ReadByte()
 
-				-- Check for terminator
 				if b == TABLE_TERMINATOR then return tbl end
 
 				local t = self:GetTypeFromID(b)
@@ -1129,7 +1091,6 @@ function buffer_template.AddStructFunctions(META)
 				local k = self:ReadType(t)
 				b = self:ReadByte()
 
-				-- Check for terminator after key
 				if b == TABLE_TERMINATOR then return tbl end
 
 				t = self:GetTypeFromID(b)
@@ -1160,9 +1121,10 @@ end
 function buffer_template.AddStructureFunctions(META)
 	local function header_to_table(str)
 		local out = {}
-		str = str:gsub("//.-\n", "") -- remove line comments
-		str = str:gsub("/%*.-%s*/", "") -- remove multiline comments
-		str = str:gsub("%s+", " ") -- remove excessive whitespace
+		str = str:gsub("//.-\n", "")
+		str = str:gsub("/%*.-%s*/", "")
+		str = str:gsub("%s+", " ")
+
 		for field in str:gmatch("(.-);") do
 			local type, key
 			local assert
@@ -1262,7 +1224,6 @@ function buffer_template.AddStructureFunctions(META)
 		end
 
 		if type(structure) == "string" then
-			-- if the string is something like "vec3" just call ReadType
 			if map[structure] then
 				structure = map[structure]
 
@@ -1337,7 +1298,7 @@ function buffer_template.AddStructureFunctions(META)
 						local size = 16
 
 						if read_type:find("32", nil, true) or read_type:find("long", nil, true) then
-							size = 32 -- asdasdasd
+							size = 32
 						end
 
 						val = swap_endian(val, size)

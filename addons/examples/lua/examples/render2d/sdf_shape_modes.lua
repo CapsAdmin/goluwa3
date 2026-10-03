@@ -1,8 +1,6 @@
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Color = import("goluwa/structs/color.lua")
--- Showcase for the procedural SDF shape paths (circle / rounded / chamfered)
--- alongside the original sd_rect path, via DrawShape's shape field.
 local modes = {
 	{name = "rect", color = Color(1, 1, 1, 1)},
 	{name = "circle", color = Color(1, 0.72, 0.18, 1)},

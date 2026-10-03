@@ -98,11 +98,8 @@ local function build_node_chunk_body(name, object_id, parent_id, material_id, po
 		write_f32(node_body, (i == 1 or i == 6 or i == 11) and 1 or 0)
 	end
 
-	-- tm translation is stored in centimeters
 	write_vec3(node_body, position[1] * 100, position[2] * 100, position[3] * 100)
-	-- files store the unused 4th column as zeros
 	write_f32(node_body, 0)
-	-- the obsolete pos field, which the loader ignores
 	write_vec3(node_body, 12345, 12345, 12345)
 	write_f32(node_body, 0)
 	write_f32(node_body, 0)
@@ -474,10 +471,8 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	T(material:GetTransmissionTexture() ~= nil)["=="](true)
 	T(material:GetRoughnessTexture())["=="](nil)
 	T(math.abs(material:GetRoughnessMultiplier() - (2 / 32) ^ 0.25))["<"](0.0001)
-	-- specular 0.5 with shininess 30 is a phong lobe of F0 = 2 * 0.5 / 32, against the 0.04 of a dielectric
 	T(math.abs(material:GetSpecularMultiplier() - 0.5 * (2 / 32) / 0.04))["<"](0.0001)
 	T(material:GetMetallicMultiplier())["=="](0)
-	-- BackDiffuse 0.2,0.4,0.6 times 1.5: back light 0.3,0.6,0.9 against front light 1
 	local ratio = 0.3 * 0.2126 + 0.6 * 0.7152 + 0.9 * 0.0722
 	T(math.abs(material:GetDiffuseTransmission() - ratio / (1 + ratio)))["<"](0.0001)
 	T(math.abs(material:GetTransmissionColor().r - 0.3))["<"](0.0001)

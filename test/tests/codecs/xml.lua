@@ -1,5 +1,4 @@
 local T = import("test/environment.lua")
--- Tests for the XML parser
 local xml = import("goluwa/codecs/xml.lua")
 
 T.Test("parse simple element", function()

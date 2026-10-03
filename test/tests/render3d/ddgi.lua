@@ -9,7 +9,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 
--- mean of each channel of the screen gi, sampled on a coarse grid
 local function gi_mean()
 	local downloaded = ddgi.GetScreenTexture():Download()
 	local sum = {0, 0, 0, 0}
@@ -76,7 +75,6 @@ T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
 		T(render3d.pipelines.ddgi_resolve ~= nil)["=="](true)
 		draw()
 		T(ddgi.GetScreenTexture() ~= nil)["=="](true)
-		-- a single box under open sky: most of what the probes see is sky
 		local _, _, _, sky_visibility = gi_mean()
 		T(sky_visibility > 0)["=="](true)
 	end)
@@ -106,7 +104,6 @@ do
 		}
 	end
 
-	-- a slab from the unit cube (which spans -1..1) covering min..max
 	local function add_slab(polygon3d, created, min, max)
 		local ent = Entity.New{Name = "ddgi_slab"}
 		created[#created + 1] = ent
@@ -135,18 +132,14 @@ do
 			draw()
 			local state = ddgi.GetFrameState()
 			local hits = ffi.cast("float*", ddgi.GetRayHitBuffer():Map(0, ddgi.GetRayHitBuffer():GetSize()))
-			-- the probe at world coordinate (0, 2, 0) sits this high above the
-			-- floor; the probe counts per axis are fitted to the scene
 			local cascade = state.cascades[1]
 			local height = 2 * cascade.spacing
 			local probe = 0 + cascade.size.x * (2 + cascade.size.y * 0)
 
-			-- the uniform rays; the guided ones follow the light
 			for ray = 0, ddgi.GetUniformRays() - 1 do
 				local _, dy = ddgi.GetRayDirection(ray, ddgi.GetUniformRays(), state.rotation)
 				local hit_t = hits[(probe * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) + ray) * 2]
 
-				-- rays shallow enough to run off the 100 m floor's edge are skipped
 				if dy < -0.1 then
 					T(hit_t)["~"](height / -dy, 0.01 * height / -dy)
 				elseif dy > 1e-3 then
@@ -165,8 +158,6 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	-- Light must not reach the inside of a closed box through its walls, while
-	-- the same box with its roof removed is lit by the sky.
 	T.Test3D("Graphics render3d ddgi does not leak into a sealed box", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
@@ -214,10 +205,6 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	-- A point light outside the room. The inside of the far wall faces it
-	-- through the near wall, so lighting that hit without a shadow test lights
-	-- the room. The light is bright enough that the bit of sky the sealed room
-	-- still picks up is noise next to a leak.
 	T.Test3D("Graphics render3d ddgi point light outside a sealed room does not light it", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
@@ -228,8 +215,6 @@ do
 		use_ddgi()
 		render3d.camera:SetPosition(Vec3(0, 3, 2))
 		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
-		-- walls thicker than a probe cell, so no probe outside is close enough
-		-- to leak into the room's lookups
 		add_slab(polygon3d, created, Vec3(-6, -3, -6), Vec3(6, 0, 6))
 		add_slab(polygon3d, created, Vec3(-6, 0, -6), Vec3(-3, 6, 6))
 		add_slab(polygon3d, created, Vec3(3, 0, -6), Vec3(6, 6, 6))
@@ -272,9 +257,6 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	-- A small emitter is rarely hit by the probes' uniform rays, and the
-	-- brightest ray clamp used to drop the few hits it got; the emitter
-	-- samples have to find it for it to light the room.
 	T.Test3D("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
@@ -291,7 +273,6 @@ do
 		add_slab(polygon3d, created, Vec3(-3, 0, -6), Vec3(3, 6, -3))
 		add_slab(polygon3d, created, Vec3(-3, 0, 3), Vec3(3, 6, 6))
 		add_slab(polygon3d, created, Vec3(-6, 6, -6), Vec3(6, 9, 6))
-		-- a 10 cm cube
 		local emitter = Entity.New{Name = "ddgi_test_emitter"}
 		created[#created + 1] = emitter
 		emitter:AddComponent("transform")
@@ -329,7 +310,6 @@ do
 			local before = gi_average(outside, 3)
 			local lit = gi_average(Vec3(0, 1.5, 2.3), 3)
 			local emitters = ddgi.GetEmitters()
-			-- the cube's 12 triangles, 6 faces of 0.1 x 0.1 m at luminance 30
 			T(emitters.count)["=="](12)
 			T(emitters.weight)["~"](6 * 0.01 * 30, 1e-3)
 			local after = gi_average(outside, 3)
@@ -347,9 +327,6 @@ do
 	end)
 end
 
--- A material without an albedo texture has to say so (-1). The buffer starts
--- zeroed and 0 is a valid texture index, so leaving it unwritten tinted every
--- traced hit on it (reflections, probe rays) with whatever texture came first.
 T.Test3D("Graphics render3d ddgi material buffer marks materials without an albedo texture", function(draw)
 	local ffi = require("ffi")
 	local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -382,7 +359,6 @@ T.Test3D("Graphics render3d ddgi material buffer marks materials without an albe
 		local entry = ffi.cast(ffi.typeof("$ *", ddgi.MaterialEntry), buffer:Map(0, buffer:GetSize())) + id
 		T(entry.albedo[2])["=="](0.75)
 		T(entry.albedo_tex)["=="](-1)
-		-- only stamped materials are rewritten
 		entry.double_sided = 99
 		T(ddgi.WriteMaterialBuffer(pipeline) == buffer)["=="](true)
 		T(entry.double_sided)["=="](99)
@@ -390,7 +366,6 @@ T.Test3D("Graphics render3d ddgi material buffer marks materials without an albe
 		ddgi.WriteMaterialBuffer(pipeline)
 		T(entry.albedo[2])["=="](0.125)
 		T(entry.double_sided)["=="](0)
-		-- a freed texture index may be reused, so every entry is rewritten
 		entry.double_sided = 99
 		releases = releases + 1
 		ddgi.WriteMaterialBuffer(pipeline)

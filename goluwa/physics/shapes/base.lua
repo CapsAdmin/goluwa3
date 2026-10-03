@@ -165,8 +165,6 @@ end
 
 function META:OnGroundedVelocityUpdate() end
 
--- whether the way a grounded body touches the ground is a place it can stay at
--- rest; a body that is slowly toppling over an edge is not
 function META:CanRestOnSupport()
 	return true
 end

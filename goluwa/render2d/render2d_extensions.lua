@@ -22,9 +22,6 @@ function render2d.CreateGradient(config)
 		width = width,
 		height = height,
 		name = string.format("render2d %s gradient %dx%d", mode, width, height),
-		-- Stops are authored display values; the render2d pipeline linearizes
-		-- the color*texture product and the sRGB framebuffer re-encodes it,
-		-- so stored values round-trip to the screen exactly.
 		srgb = config.srgb,
 		mip_map_levels = config.mip_map_levels or 1,
 		sampler = {
@@ -37,7 +34,7 @@ function render2d.CreateGradient(config)
 	local glsl
 
 	if mode == "linear" then
-		local angle = config.angle or 0 -- degrees
+		local angle = config.angle or 0
 		local rad = math.rad(angle)
 		local s, c = math.sin(rad), math.cos(rad)
 		glsl = [[
@@ -52,8 +49,6 @@ function render2d.CreateGradient(config)
 			]]
 	end
 
-	-- Build the color ramp from stops
-	-- stops = { {pos=0, color=Color(1,0,0,1)}, {pos=1, color=Color(0,0,1,1)} }
 	table.sort(stops, function(a, b)
 		return a.pos < b.pos
 	end)
@@ -84,10 +79,6 @@ function render2d.CreateGradient(config)
 		end
 	end
 
-	-- Only ramping gradients need dithering: the framebuffer is 8-bit, so a
-	-- display range spanning fewer than 256 levels bands at hard edges. Baking
-	-- per-texel noise (in stored sRGB space, which is the output space) turns
-	-- band edges into invisible fine noise. Flat gradients stay exact.
 	local flat = true
 
 	if #stops > 1 then
@@ -256,8 +247,6 @@ local text = library()
 local font_cache = {}
 local default_foreground_color = Color(1, 1, 1, 1)
 local default_background_color = Color(0, 0, 0, 1)
--- Mirrors the engine default in render2d.lua; DrawShape never inherits the
--- ambient softness, so this is the fallback when a pass omits sdf_softness
 local default_sdf_softness = 0.5
 local hsv_cache = {}
 
@@ -342,9 +331,6 @@ local function draw_shape_pass(geo, p)
 		render2d.PushBorderRadius(radius)
 	end
 
-	-- A layer's outline_width turns the layer itself into a ring pass. The
-	-- base table's outline_width is only the fill + ring shorthand, applied
-	-- by DrawShape after the main pass.
 	local outline_width = p ~= geo and p.outline_width or nil
 
 	if outline_width and outline_width ~= 0 then
@@ -420,9 +406,6 @@ function render2d.DrawShape(tbl)
 
 	local shape = tbl.shape or "none"
 	render2d.PushShapeMode(shape)
-	-- The full uv is the base for every pass of this call; a pass opts out
-	-- with its own color_uv. This keeps a leaked ambient color uv from
-	-- affecting any pass, including the shadow and outline passes.
 	render2d.PushColorUV()
 
 	if tbl.shadow or tbl.shadow_x or tbl.shadow_y then

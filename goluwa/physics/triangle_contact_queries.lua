@@ -177,10 +177,7 @@ function triangle_contact_queries.BuildCapsuleTrianglePair(start_point, end_poin
 end
 
 local PARALLEL_CONTACT_TOLERANCE = 0.001
--- Same result as BuildCapsuleTrianglePair, computed on numbers and only
--- turned into vectors for triangles within max_distance of the capsule
--- segment; farther triangles return nil. This is the per-triangle hot path of
--- walking on a mesh.
+
 function triangle_contact_queries.BuildCapsuleTrianglePairWithin(
 	start_point,
 	end_point,
@@ -227,9 +224,6 @@ function triangle_contact_queries.BuildCapsuleTrianglePairWithin(
 
 	if distance > max_distance then return nil end
 
-	-- a capsule running parallel to a surface touches it along a whole
-	-- interval and the closest pair lands on an arbitrary end; a contact there
-	-- gets a lever arm that spins the body, so use the segment midpoint
 	if distance > epsilon then
 		local mx = (start_point.x + end_point.x) * 0.5
 		local my = (start_point.y + end_point.y) * 0.5

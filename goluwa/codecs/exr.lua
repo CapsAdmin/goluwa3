@@ -67,7 +67,6 @@ function exr.DecodeBuffer(inputBuffer)
 	local version_field = inputBuffer:ReadU32LE()
 	local version = bit.band(version_field, 0xFF)
 
-	-- local flags = bit.rshift(version_field, 8)
 	if version ~= 2 then error("Unsupported EXR version: " .. version) end
 
 	local header = {}
@@ -101,7 +100,7 @@ function exr.DecodeBuffer(inputBuffer)
 					value,
 					{
 						name = ch_name,
-						pixel_type = inputBuffer:ReadI32LE(), -- 0=UINT, 1=HALF, 2=FLOAT
+						pixel_type = inputBuffer:ReadI32LE(),
 						pLinear = inputBuffer:ReadByte(),
 						reserved = inputBuffer:ReadBytes(3),
 						xSampling = inputBuffer:ReadI32LE(),
@@ -121,7 +120,6 @@ function exr.DecodeBuffer(inputBuffer)
 			value = inputBuffer:ReadI32LE()
 		else
 
-		-- Skip unknown attribute
 		end
 
 		header[name] = value
@@ -134,13 +132,13 @@ function exr.DecodeBuffer(inputBuffer)
 	local compression = header.compression or 0
 	local linesPerBlock = 1
 
-	if compression == 3 then -- ZIP
+	if compression == 3 then
 		linesPerBlock = 16
-	elseif compression == 2 then -- ZIPS
+	elseif compression == 2 then
 		linesPerBlock = 1
-	elseif compression == 4 or compression == 5 then -- PIZ, PXR24
+	elseif compression == 4 or compression == 5 then
 		linesPerBlock = 32
-	elseif compression == 6 or compression == 7 then -- B44, B44A
+	elseif compression == 6 or compression == 7 then
 		linesPerBlock = 32
 	end
 
@@ -151,16 +149,13 @@ function exr.DecodeBuffer(inputBuffer)
 		offsets[i] = inputBuffer:ReadU64LE()
 	end
 
-	-- Prepare output buffer (RGBA float32)
 	local outputSize = width * height * 4 * 4
 	local outputData = ffi.new("float[?]", width * height * 4)
 
-	-- Initialize Alpha to 1.0
 	for i = 0, width * height - 1 do
 		outputData[i * 4 + 3] = 1.0
 	end
 
-	-- EXR channels are stored alphabetically in the file
 	table.sort(header.channels, function(a, b)
 		return a.name < b.name
 	end)
@@ -191,9 +186,9 @@ function exr.DecodeBuffer(inputBuffer)
 		local numLinesInThisBlock = math.min(linesPerBlock, height - (block_y - dataWindow.yMin))
 		local block_buffer
 
-		if compression == 0 then -- NONE
+		if compression == 0 then
 			block_buffer = inputBuffer
-		elseif compression == 2 or compression == 3 then -- ZIPS or ZIP
+		elseif compression == 2 or compression == 3 then
 			local compressed_data = inputBuffer:ReadBytes(data_size)
 			local expected_size = 0
 
@@ -231,19 +226,19 @@ function exr.DecodeBuffer(inputBuffer)
 						local out_ptr = outputData + out_row_offset + target_ch_idx
 						local src_ptr = block_buffer:GetBuffer() + block_buffer:GetPosition()
 
-						if pixel_type == 1 then -- HALF
+						if pixel_type == 1 then
 							local src = ffi.cast("uint16_t*", src_ptr)
 
 							for x = 0, width - 1 do
 								out_ptr[x * 4] = half_to_float_table[src[x]]
 							end
-						elseif pixel_type == 2 then -- FLOAT
+						elseif pixel_type == 2 then
 							local src = ffi.cast("float*", src_ptr)
 
 							for x = 0, width - 1 do
 								out_ptr[x * 4] = src[x]
 							end
-						elseif pixel_type == 0 then -- UINT
+						elseif pixel_type == 0 then
 							local src = ffi.cast("uint32_t*", src_ptr)
 
 							for x = 0, width - 1 do
@@ -257,7 +252,6 @@ function exr.DecodeBuffer(inputBuffer)
 			end
 		end
 
-		-- Force GC to free decompressed buffers
 		if i % 10 == 0 then collectgarbage("step") end
 	end
 

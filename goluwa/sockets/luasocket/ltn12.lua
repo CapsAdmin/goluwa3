@@ -1,11 +1,3 @@
------------------------------------------------------------------------------
--- LTN12 - Filters, sources, sinks and pumps.
--- LuaSocket toolkit.
--- Author: Diego Nehab
------------------------------------------------------------------------------
------------------------------------------------------------------------------
--- Declare module
------------------------------------------------------------------------------
 local string = require("string")
 local table = require("table")
 local unpack = unpack or table.unpack
@@ -13,23 +5,16 @@ local base = _G
 local select = select
 local _M = {}
 
-if module then -- heuristic for exporting a global package table
-	ltn12 = _M -- luacheck: ignore
-end
+if module then ltn12 = _M end
 
 local filter, source, sink, pump = {}, {}, {}, {}
 _M.filter = filter
 _M.source = source
 _M.sink = sink
 _M.pump = pump
--- 2048 seems to be better in windows...
 _M.BLOCKSIZE = 2048
 _M._VERSION = "LTN12 1.0.3"
 
------------------------------------------------------------------------------
--- Filter stuff
------------------------------------------------------------------------------
--- returns a high level filter that cycles a low-level filter
 function filter.cycle(low, ctx, extra)
 	base.assert(low)
 	return function(chunk)
@@ -39,8 +24,6 @@ function filter.cycle(low, ctx, extra)
 	end
 end
 
--- chains a bunch of filters together
--- (thanks to Wim Couwenberg)
 function filter.chain(...)
 	local arg = {...}
 	local n = select("#", ...)
@@ -77,10 +60,6 @@ function filter.chain(...)
 	end
 end
 
------------------------------------------------------------------------------
--- Source stuff
------------------------------------------------------------------------------
--- create an empty source
 local function empty()
 	return nil
 end
@@ -89,14 +68,12 @@ function source.empty()
 	return empty
 end
 
--- returns a source that just outputs an error
 function source.error(err)
 	return function()
 		return nil, err
 	end
 end
 
--- creates a file source
 function source.file(handle, io_err)
 	if handle then
 		return function()
@@ -111,7 +88,6 @@ function source.file(handle, io_err)
 	end
 end
 
--- turns a fancy source into a simple source
 function source.simplify(src)
 	base.assert(src)
 	return function()
@@ -122,7 +98,6 @@ function source.simplify(src)
 	end
 end
 
--- creates string source
 function source.string(s)
 	if s then
 		local i = 1
@@ -137,7 +112,6 @@ function source.string(s)
 	end
 end
 
--- creates table source
 function source.table(t)
 	base.assert("table" == type(t))
 	local i = 0
@@ -147,7 +121,6 @@ function source.table(t)
 	end
 end
 
--- creates rewindable source
 function source.rewind(src)
 	base.assert(src)
 	local t = {}
@@ -162,7 +135,6 @@ function source.rewind(src)
 	end
 end
 
--- chains a source with one or several filter(s)
 function source.chain(src, f, ...)
 	if ... then f = filter.chain(f, ...) end
 
@@ -217,9 +189,6 @@ function source.chain(src, f, ...)
 	end
 end
 
--- creates a source that produces contents of several sources, one after the
--- other, as if they were concatenated
--- (thanks to Wim Couwenberg)
 function source.cat(...)
 	local arg = {...}
 	local src = table.remove(arg, 1)
@@ -236,10 +205,6 @@ function source.cat(...)
 	end
 end
 
------------------------------------------------------------------------------
--- Sink stuff
------------------------------------------------------------------------------
--- creates a sink that stores into a table
 function sink.table(t)
 	t = t or {}
 	local f = function(chunk, err)
@@ -250,7 +215,6 @@ function sink.table(t)
 	return f, t
 end
 
--- turns a fancy sink into a simple sink
 function sink.simplify(snk)
 	base.assert(snk)
 	return function(chunk, err)
@@ -263,7 +227,6 @@ function sink.simplify(snk)
 	end
 end
 
--- creates a file sink
 function sink.file(handle, io_err)
 	if handle then
 		return function(chunk, err)
@@ -279,7 +242,6 @@ function sink.file(handle, io_err)
 	end
 end
 
--- creates a sink that discards data
 local function null()
 	return 1
 end
@@ -288,14 +250,12 @@ function sink.null()
 	return null
 end
 
--- creates a sink that just returns an error
 function sink.error(err)
 	return function()
 		return nil, err
 	end
 end
 
--- chains a sink with one or several filter(s)
 function sink.chain(f, snk, ...)
 	if ... then
 		local args = {f, snk, ...}
@@ -324,10 +284,6 @@ function sink.chain(f, snk, ...)
 	end
 end
 
------------------------------------------------------------------------------
--- Pump stuff
------------------------------------------------------------------------------
--- pumps one chunk from the source to the sink
 function pump.step(src, snk)
 	local chunk, src_err = src()
 	local ret, snk_err = snk(chunk, src_err)
@@ -335,7 +291,6 @@ function pump.step(src, snk)
 	if chunk and ret then return 1 else return nil, src_err or snk_err end
 end
 
--- pumps all data from a source to a sink, using a step function
 function pump.all(src, snk, step)
 	base.assert(src and snk)
 	step = step or pump.step

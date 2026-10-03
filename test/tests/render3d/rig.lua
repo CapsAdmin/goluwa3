@@ -11,7 +11,6 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local render = import("goluwa/render/render.lua")
 local ffi = require("ffi")
 
--- two bones, the second one a child 1 unit up
 local function create_skeleton()
 	return Skeleton.New{
 		BoneNames = {"root", "arm"},
@@ -24,7 +23,6 @@ local function create_skeleton()
 	}
 end
 
--- a cube that follows the second bone
 local function create_part()
 	local poly = Polygon3D.New()
 	shapes.BuildCube(poly, 0.5, 1.0)
@@ -58,7 +56,6 @@ T.Test3D("rig moves bones with matrices in local and model space", function(draw
 	local bind = ffi.cast("float*", poly.mesh.vertex_buffer.data)
 	rig:SetPose(skeleton:NewPose())
 	T(select(2, rig:GetBone("arm"):GetTranslation()))["=="](1)
-	-- local: on top of the pose in the space of the bone
 	rig:SetBone("arm", Matrix44():SetTranslation(0, 0.5, 0), "local")
 	rig:Update()
 	draw()
@@ -66,13 +63,11 @@ T.Test3D("rig moves bones with matrices in local and model space", function(draw
 	local skinned = ffi.cast("float*", clone.mesh.vertex_buffer:GetBuffer():Map())
 	T(math.abs(skinned[1] - (bind[1] + 0.5)))["<"](1e-4)
 	T(math.abs(select(2, rig:GetBone("arm"):GetTranslation()) - 1.5))["<"](1e-5)
-	-- model: replaces the matrix of the bone
 	rig:ClearBone("arm")
 	rig:SetBone("arm", Matrix44():SetTranslation(2, 0, 0), "model")
 	local x, y = rig:GetBone("arm"):GetTranslation()
 	T(x)["=="](2)
 	T(y)["=="](0)
-	-- children follow the bones they hang on
 	rig:ClearBones()
 	rig:SetBone("root", Matrix44():SetTranslation(1, 0, 0), "model")
 	x, y = rig:GetBone("arm"):GetTranslation()
@@ -113,13 +108,11 @@ T.Test3D("bone_pose moves the bones of an animated entity by name", function()
 	animator:Bind(skeleton)
 	bone_pose:Update()
 	local properties = bone_pose:GetDynamicProperties()
-	-- a position and angles for both bones
 	T(#properties)["=="](4)
 	T(properties[1].var_name)["=="]("bone root position")
 	properties[3].set(bone_pose, Vec3(0, 0.25, 0))
 	T(properties[3].get(bone_pose).y)["=="](0.25)
 	T(math.abs(select(2, animator:GetRig():GetBone("arm"):GetTranslation()) - 1.25))["<"](1e-5)
-	-- a new rig gets the bones again
 	animator:Bind(skeleton)
 	bone_pose:Update()
 	T(math.abs(select(2, animator:GetRig():GetBone("arm"):GetTranslation()) - 1.25))["<"](1e-5)

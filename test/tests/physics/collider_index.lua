@@ -25,7 +25,16 @@ local function spawn_pillars(name, world_geometry)
 
 	local ent = Entity.New({Name = name})
 	ent:AddComponent("transform")
-	local body = ent:AddComponent("rigid_body", {Shape = CompoundShape.New(children), MotionType = "static", Friction = 0.5, Restitution = 0, WorldGeometry = world_geometry})
+	local body = ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CompoundShape.New(children),
+			MotionType = "static",
+			Friction = 0.5,
+			Restitution = 0,
+			WorldGeometry = world_geometry,
+		}
+	)
 	return ent, body
 end
 
@@ -96,7 +105,6 @@ T.TestPhysics("Dynamic bodies rest on indexed colliders and fall between them", 
 	T(in_gap.y)["<"](-5)
 end)
 
--- one brush-model mesh collider per pillar, like a map's displacements
 local function spawn_brush_pillars(name)
 	local ent = Entity.New({Name = name})
 	ent:AddComponent("transform")
@@ -128,13 +136,23 @@ local function spawn_brush_pillars(name)
 		}
 	end
 
-	local body = ent:AddComponent("rigid_body", {Shapes = shapes, MotionType = "static", GravityScale = 0, WorldGeometry = true})
+	local body = ent:AddComponent(
+		"rigid_body",
+		{Shapes = shapes, MotionType = "static", GravityScale = 0, WorldGeometry = true}
+	)
 	return ent, body
 end
 
 T.TestPhysics("Sweeps find indexed colliders", function()
 	local ground_ent, ground = spawn_brush_pillars("collider_index_sweep")
-	local hit = physics.Sweep(Vec3(PILLAR_SPACING * 30, 4, 0), Vec3(0, -8, 0), 0.2, nil, nil, {UseRenderMeshes = false})
+	local hit = physics.Sweep(
+		Vec3(PILLAR_SPACING * 30, 4, 0),
+		Vec3(0, -8, 0),
+		0.2,
+		nil,
+		nil,
+		{UseRenderMeshes = false}
+	)
 	local miss = physics.Sweep(
 		Vec3(PILLAR_SPACING * 30 + PILLAR_SPACING * 0.5, 4, 0),
 		Vec3(0, -8, 0),

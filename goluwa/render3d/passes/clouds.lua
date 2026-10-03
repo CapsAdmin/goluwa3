@@ -5,31 +5,13 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
---[[
-	clouds_noise: bakes the base and detail noise volumes and the weather map
-	once.
-
-	clouds_shadow: the clouds' optical depth along the primary light over
-	clouds.SHADOW_EXTENT around the camera, as a beer shadow map (the depth
-	where the clouds start, their mean extinction and their optical depth).
-
-	clouds_sky: the clouds with the air in front of them all around the
-	camera at a low resolution, for the sky the environment probes capture and
-	the fog's ambient.
-
-	clouds_trace and clouds_reconstruct: the main view at half resolution.
-	Each frame traces one pixel of every 2x2 block, the rest are reprojected
-	from the last frame by the depth of the clouds they saw.
-]]
 local BINDING_OUT = 0
 local BINDING_OUT2 = 1
 local BINDING_OUT3 = 2
 local BINDING_DATA = 3
 local BINDING_BASE_NOISE = 4
 local BINDING_DETAIL_NOISE = 5
--- how far the clouds are followed along the view
 local VIEW_DISTANCE = 300000
--- the share of a traced pixel that goes into its history, the rest averages the step jitter away
 local TRACE_BLEND = 0.5
 
 local function dummy_color_format()
@@ -84,7 +66,6 @@ local function write_cloud_block(self, block)
 		render3d.GetCamera():GetPosition(),
 		directional_shadows.GetPrimarySunDirection(render3d.GetLights())
 	)
-	-- the dome is written by one of these passes, and they light the clouds with the clear sky
 	block.atmosphere_cloud_sky_texture_index = -1
 	clouds.WriteBlock(self, block)
 end
@@ -391,7 +372,6 @@ local trace_pass = {
 				local t = clouds.textures
 				block.view_size[0] = t.view_width
 				block.view_size[1] = t.view_height
-				-- which pixel of each 2x2 block this frame traces
 				local k = (clouds.frame or 0) % 4
 				block.trace_offset[0] = (k == 1 or k == 2) and 1 or 0
 				block.trace_offset[1] = (k == 1 or k == 3) and 1 or 0

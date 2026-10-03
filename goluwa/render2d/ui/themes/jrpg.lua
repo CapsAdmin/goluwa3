@@ -250,9 +250,6 @@ function JRPGTheme:DrawDiamond2(x, y, size)
 	}
 end
 
--- Decorative emphasis levels: 0 none, 1 subtle (inline fields), 2 standard
--- (frames, tooltips), 3 prominent (windows). `off` pushes the corner gem and
--- its offset outline outside the frame corner.
 local FRAME_LEVELS = {
 	[0] = {glow = 0, corner = false},
 	[1] = {glow = 0.15, corner = false},
@@ -264,8 +261,6 @@ local function frame_level(emphasis)
 	return FRAME_LEVELS[emphasis] or FRAME_LEVELS[0]
 end
 
--- 1px border line layers. `gap` leaves the corners open where the offset
--- corner outline and gem take over.
 local function border_layers(size, color, gap, top, bottom, left, right)
 	local layers = {}
 
@@ -290,8 +285,6 @@ local function border_layers(size, color, gap, top, bottom, left, right)
 	return layers
 end
 
--- Corner gem offset outside the frame corner, with a glowing outline offset
--- outside the frame that runs from the gem along each edge, cut at the gem.
 function JRPGTheme:DrawFrameCorner(cx, cy, dx, dy, emphasis)
 	local lv = FRAME_LEVELS[emphasis]
 
@@ -542,8 +535,6 @@ function JRPGTheme:DrawFramePost(size, emphasis)
 	end
 end
 
--- Window content shares one visual frame with its header: the header draws
--- the top edge and top corners, so the content only draws the rest.
 function JRPGTheme:DrawWindowContentPost(size, emphasis)
 	local lv = frame_level(emphasis)
 	local border = self:GetColor("border")
@@ -573,7 +564,6 @@ function JRPGTheme:DrawWindowContentPost(size, emphasis)
 			texture = self.Textures.GlowLinear,
 			int = true,
 		}
-		-- The original int-path DrawRect ceils the rotated local y (-9.5 -> -9).
 		render2d.PushMatrix()
 		render2d.Translatef(1, size.y / 2)
 		render2d.Rotate(math.rad(90))
@@ -783,8 +773,6 @@ function JRPGTheme:DrawButton(size, state)
 	local radius = math.max(2, math.floor(size.y / 5))
 	local alpha_scale = state.disabled and 0.4 or 1
 
-	-- Text buttons are bare text; they only gain a solid accent fill on
-	-- hover/press/active.
 	if state.mode == "text" then
 		if not state.disabled and (state.hovered or state.pressed or state.active) then
 			local fill_alpha = (state.pressed or state.active) and 0.95 or 0.8

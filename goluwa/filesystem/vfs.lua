@@ -4,7 +4,7 @@ local vfs = {}
 vfs.use_appdata = false
 vfs.mounted_paths = vfs.mounted_paths or {}
 
-do -- mounting/links
+do
 	function vfs.Mount(where, to, userdata)
 		to = to or ""
 
@@ -31,7 +31,6 @@ do -- mounting/links
 			error("a filesystem has to be provided when mounting /to/ somewhere")
 		end
 
-		--llog("mounting ", path_info_where.full_path, " -> ", path_info_to.full_path)
 		list.insert(
 			vfs.mounted_paths,
 			{
@@ -134,7 +133,7 @@ do -- mounting/links
 	end
 end
 
-do -- env vars/path preprocessing
+do
 	vfs.env_override = vfs.env_override or {}
 
 	function vfs.GetEnv(key)
@@ -151,11 +150,9 @@ do -- env vars/path preprocessing
 
 	function vfs.PreprocessPath(path)
 		if path:find("%", nil, true) or path:find("$", nil, true) then
-			-- windows
 			path = path:gsub("%%(.-)%%", vfs.GetEnv)
 			path = path:gsub("%%", "")
 			path = path:gsub("%$%((.-)%)", vfs.GetEnv)
-			-- linux
 			path = path:gsub("%$%((.-)%)", "%1")
 		end
 
@@ -163,7 +160,7 @@ do -- env vars/path preprocessing
 	end
 end
 
-do -- file systems
+do
 	vfs.filesystems = vfs.filesystems or {}
 	vfs.filesystems2 = vfs.filesystems2 or {}
 
@@ -199,7 +196,7 @@ do -- file systems
 	end
 end
 
-do -- translate path to useful data
+do
 	function vfs.DescribePath(path, is_folder)
 		local path_info = vfs.GetPathInfo(path, is_folder)
 		local out = {}
@@ -230,15 +227,13 @@ do -- translate path to useful data
 				list.insert(folders, 1, folder)
 			end
 
-			--list.remove(folders) -- remove the filename
 			return folders
 		else
 			local folders = self.full_path:split("/")
 
-			-- if the folder is something like "/foo/bar/" remove the first /
 			if self.full_path:sub(1, 1) == "/" then list.remove(folders, 1) end
 
-			list.remove(folders) -- remove the filename
+			list.remove(folders)
 			return folders
 		end
 	end

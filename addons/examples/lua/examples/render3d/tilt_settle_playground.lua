@@ -1,7 +1,3 @@
--- Illustrates the lifted-corner tilt freeze fix: a box dropped with a large
--- tilted rotation used to lock into its pose (phantom manifold points held the
--- lifted corners in place). Now the lift is released once the pair is at rest
--- and the box settles flat onto the ground.
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -69,7 +65,6 @@ end
 
 local function spawn_all()
 	clear_spawned()
-	-- The original repro case: 60/30/20 used to freeze at ~6 degrees tilt.
 	spawn_tilted_box{
 		name = "tilt_settle_main_60_30_20",
 		position = ORIGIN + Vec3(-3, 3, 0),
@@ -79,7 +74,6 @@ local function spawn_all()
 		roll = 20,
 		material = payload_material,
 	}
-	-- A couple of other aggressive tilts for comparison.
 	spawn_tilted_box{
 		name = "tilt_settle_steel_55_0_40",
 		position = ORIGIN + Vec3(0, 3, 0),
@@ -100,7 +94,6 @@ local function spawn_all()
 		material = wood_material,
 		mass = 1.1,
 	}
-	-- A small tilt that already worked before the fix, as a control.
 	spawn_tilted_box{
 		name = "tilt_settle_control_5_8_3",
 		position = ORIGIN + Vec3(6, 3, 0),

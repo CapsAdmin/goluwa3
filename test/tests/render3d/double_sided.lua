@@ -12,7 +12,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 
--- the -z side of a cube, which a camera on +z only sees the back of
 local function create_back_facing_quad()
 	local cube = Polygon3D.New()
 	shapes.BuildCube(cube, 0.5, 1.0)
@@ -45,13 +44,10 @@ local function spawn(polygon3d, material)
 	visual_primitive:SetPolygon3D(polygon3d)
 	visual_primitive:SetMaterial(material)
 	entity.visual:BuildAABB()
-	-- conditional rendering draws directly instead of queueing
 	entity.visual:SetUseOcclusionCulling(false)
 	return entity
 end
 
--- the red of the gbuffer albedo in the middle of the screen, after drawing
--- count copies of the quad with a material of that sidedness
 local function draw_center_red(draw, double_sided, count, use_gpu_culling)
 	local camera = render3d.GetCamera()
 	camera:SetFOV(math.rad(90))
@@ -72,7 +68,6 @@ local function draw_center_red(draw, double_sided, count, use_gpu_culling)
 
 	local was_enabled = gpu_culling.IsEnabled()
 	gpu_culling.SetEnabled(use_gpu_culling)
-	-- gpu culls publish a few frames late
 	local ok, err = pcall(function()
 		for _ = 1, use_gpu_culling and 4 or 1 do
 			draw()

@@ -98,7 +98,8 @@ function META:Start(now, ...)
 	local start = function()
 		if self.debug then print("[task debug] start() called") end
 
-		if not self:IsValid() then return false end -- removed
+		if not self:IsValid() then return false end
+
 		local time = system.GetElapsedTime()
 
 		if self.debug then
@@ -128,7 +129,6 @@ function META:Start(now, ...)
 		end
 
 		if time > self.wait then
-			-- Check for test timeout if this is a test task
 			if self.test_timeout_time and system.GetTime() > self.test_timeout_time then
 				self.failed = true
 				self.error = string.format("Test timeout: exceeded hard limit")
@@ -141,12 +141,10 @@ function META:Start(now, ...)
 				return true
 			end
 
-			-- Check if coroutine is already dead or currently running
 			local status = coroutine.status(co)
 
 			if status == "dead" then return true end
 
-			-- Don't resume if already running (handles re-entrancy)
 			if status == "running" or tasks.running_tasks[co] then return false end
 
 			local old_wait = self.wait
@@ -154,11 +152,8 @@ function META:Start(now, ...)
 			local ok, res = coroutine.resume(co, self)
 			tasks.running_tasks[co] = nil
 
-			-- Task was removed during coroutine resume (e.g., by test cleanup or explicit removal)
-			-- This is valid - treat as completed
 			if not self:IsValid() then return true end
 
-			-- Handle errors
 			if not ok then
 				self.failed = true
 				self.error = res
@@ -178,7 +173,6 @@ function META:Start(now, ...)
 				return true
 			end
 
-			-- Handle completion
 			if coroutine.status(co) == "dead" then
 				self.Running = false
 				tasks.created[self] = nil
@@ -321,12 +315,10 @@ function tasks.WaitForNestedTask(nested_task)
 
 	if not current then return end
 
-	-- Wait until the nested task completes
 	while nested_task:IsValid() and (nested_task.Running or nested_task.run_me) do
 		current:Wait(0.001)
 	end
 
-	-- Return error status if nested task failed
 	if nested_task.failed then return false, nested_task.error end
 
 	return true
@@ -428,17 +420,13 @@ do
 			if tasks.GetActiveTask() then
 				local data
 				local err
-				-- Lazy load callback to avoid circular dependency
 				local callback = import("goluwa/callback.lua")
-				-- Create a callback object for async resolution
 				local cb = callback.Create()
 
-				-- Call the original function with time and the callback
 				old(time, function(...)
 					cb:Resolve(...)
 				end, ...)
 
-				-- Wait for resolution
 				cb:Then(function(...)
 					data = {...}
 				end):Catch(function(val)

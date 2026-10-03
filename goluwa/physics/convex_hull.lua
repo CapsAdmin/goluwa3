@@ -16,8 +16,6 @@ local function vec3_key(vec, epsilon)
 	return quantize(vec.x, epsilon) .. ":" .. quantize(vec.y, epsilon) .. ":" .. quantize(vec.z, epsilon)
 end
 
--- vertices reach here through Polygon3D:AddVertex, which is only ever called
--- with either a {pos = Vec3, ...} vertex record or a bare Vec3
 local function get_vertex_position(vertex)
 	if vertex.pos then vertex = vertex.pos end
 
@@ -346,7 +344,6 @@ local function build_triangle_components(triangles, epsilon)
 	return components
 end
 
--- plane_groups are {normal = outward normal, distance = distance, vertices = {[point index] = true}}
 local function build_faces(points, plane_groups, plane_epsilon, epsilon)
 	local faces = {}
 	local indices = {}
@@ -494,8 +491,6 @@ function convex_hull.Normalize(hull, epsilon)
 	return build_convex_hull(hull.vertices or hull, epsilon)
 end
 
--- the hull of points known to lie on or inside planes, like a brush's corners. each plane with
--- three or more points on it is a face, which skips searching every triple of points for them
 function convex_hull.BuildFromPlanes(points, planes, epsilon)
 	epsilon = epsilon or 0.0001
 	points = dedupe_points(points, epsilon)

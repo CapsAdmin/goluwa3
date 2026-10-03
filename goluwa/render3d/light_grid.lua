@@ -2,12 +2,6 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = library()
--- Which lights reach which part of the world, so a shader only loops over the
--- lights that can light its point instead of all of them. Nested grids of
--- DIM^3 cells around the camera, each twice the cell size of the one inside
--- it, hold a bit per light (in render3d.GetLights order, the order every
--- light block is written in) for the lights whose range touches the cell.
--- Rebuilt on the GPU every frame. A point outside every grid gets all lights.
 light_grid.LEVELS = 4
 light_grid.DIM = 32
 light_grid.CELL_SIZE = 2
@@ -15,8 +9,6 @@ light_grid.WORDS = scene_lights.MAX_LIGHTS / 32
 local HEADER_BYTES = 16 * light_grid.LEVELS + 16
 local BINDING_UNIFORM = 0
 local BINDING_GRID = 1
--- the ddgi ray generation shader and the translucent pass's fragment shader
--- read it too; set with the buffer
 local rt_stage = nil
 local buffer = nil
 
@@ -29,7 +21,6 @@ function light_grid.GetBuffer(cmd)
 			memory_property = {"device_local"},
 			label = "light_grid",
 		}
-		-- no levels until the first build, so every point gets all lights
 		cmd:FillBuffer(buffer, 0, buffer:GetSize(), 0)
 		cmd:PipelineBarrier{
 			srcStage = "transfer",
@@ -74,16 +65,6 @@ local function declarations(binding, access)
 	)
 end
 
--- Loop over the lights at P with:
---   int cell = light_grid_cell(P);
---   for (int w = 0; w < light_grid_words(light_count); w++) {
---       uint bits = light_grid_word(cell, w, light_count);
---       while (bits != 0u) {
---           int i = w * 32 + findLSB(bits);
---           bits &= bits - 1u;
---           ...
---       }
---   }
 function light_grid.GetGLSL(binding)
 	return declarations(binding, "readonly") .. [[
 		int light_grid_cell(vec3 P) {
@@ -154,7 +135,6 @@ light_grid.pass = {
 	end,
 	on_draw = function(self, cmd, fb, frame, desc)
 		local grid = light_grid.GetBuffer(cmd)
-		-- last frame's readers are done before it's overwritten
 		cmd:PipelineBarrier{
 			srcStage = {"compute", "fragment", rt_stage},
 			dstStage = "compute",

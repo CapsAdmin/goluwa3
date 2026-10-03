@@ -169,7 +169,6 @@ T.TestPhysics("Capsule driven into a static mesh wall stays in front of it", fun
 	capsule_ent:Remove()
 	world_ent:Remove()
 	T(max_x)["<"](3 - 0.3 + 0.05)
-	-- the wall and the floor are held together, not one at a time
 	T(grounded_flips)["<"](10)
 end)
 
@@ -216,7 +215,6 @@ T.TestPhysics("Boxes dropped onto world geometry land without stalling above it 
 		}
 	end
 
-	-- a box hanging in the air above the ground must keep falling at full speed
 	for _ = 1, 40 do
 		test_helpers.Simulate(1, 1 / 60)
 

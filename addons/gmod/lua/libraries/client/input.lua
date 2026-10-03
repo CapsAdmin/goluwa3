@@ -46,11 +46,9 @@ do
 	function gine.GetKeyCode(key, rev)
 		if rev then
 			if translate_key_rev[key] then
-				--if gine.print_keys then llog("key reverse: ", key, " >> ", translate_key_rev[key]) end
 				return translate_key_rev[key]
 			else
-				--logf("key %q could not be translated!\n", key)
-				return translate_key_rev.KEY_P -- dunno
+				return translate_key_rev.KEY_P
 			end
 		else
 			if translate_key[key] then
@@ -58,8 +56,7 @@ do
 
 				return translate_key[key]
 			else
-				--logf("key %q could not be translated!\n", key)
-				return translate_key.p -- dunno
+				return translate_key.p
 			end
 		end
 	end
@@ -87,14 +84,12 @@ do
 			if translate_mouse_rev[button] then
 				return translate_mouse_rev[button]
 			else
-				--llog("mouse button %q could not be translated!\n", button)
 				return translate_mouse.MOUSE_5
 			end
 		else
 			if translate_mouse[button] then
 				return translate_mouse[button]
 			else
-				--llog("mouse button %q could not be translated!\n", button)
 				return translate_mouse.button_5
 			end
 		end
@@ -311,8 +306,7 @@ function input.LookupKeyBinding(code)
 	return get_runtime_binding_for_code(code) or gine.default_bindings[code]
 end
 
-function input.SetCursorPos(x, y) --get_window():SetMousePosition(Vec2(x, y))
-end
+function input.SetCursorPos(x, y) end
 
 function input.GetCursorPos()
 	return get_window():GetMousePosition():Unpack()

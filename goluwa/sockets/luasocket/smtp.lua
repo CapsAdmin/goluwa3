@@ -1,11 +1,3 @@
------------------------------------------------------------------------------
--- SMTP client support for the Lua language.
--- LuaSocket toolkit.
--- Author: Diego Nehab
------------------------------------------------------------------------------
------------------------------------------------------------------------------
--- Declare module and import dependencies
------------------------------------------------------------------------------
 local base = _G
 local coroutine = require("coroutine")
 local string = require("string")
@@ -18,23 +10,11 @@ local headers = require("socket.headers")
 local mime = require("mime")
 socket.smtp = {}
 local _M = socket.smtp
------------------------------------------------------------------------------
--- Program constants
------------------------------------------------------------------------------
--- timeout for connection
 _M.TIMEOUT = 60
--- default server used to send e-mails
 _M.SERVER = "localhost"
--- default port
 _M.PORT = 25
--- domain used in HELO command and default sendmail
--- If we are under a CGI, try to get from environment
 _M.DOMAIN = os.getenv("SERVER_NAME") or "localhost"
--- default time zone (means we don't know)
 _M.ZONE = "-0000"
----------------------------------------------------------------------------
--- Low level SMTP API
------------------------------------------------------------------------------
 local metat = {__index = {}}
 
 function metat.__index:greet(domain)
@@ -97,7 +77,6 @@ function metat.__index:auth(user, password, ext)
 	end
 end
 
--- send message or throw an exception
 function metat.__index:send(mailt)
 	self:mail(mailt.from)
 
@@ -115,14 +94,12 @@ end
 function _M.open(server, port, create)
 	local tp = socket.try(tp.connect(server or _M.SERVER, port or _M.PORT, _M.TIMEOUT, create))
 	local s = base.setmetatable({tp = tp}, metat)
-	-- make sure tp is closed if we get an exception
 	s.try = socket.newtry(function()
 		s:close()
 	end)
 	return s
 end
 
--- convert headers to lowercase
 local function lower_headers(headers)
 	local lower = {}
 
@@ -133,10 +110,6 @@ local function lower_headers(headers)
 	return lower
 end
 
----------------------------------------------------------------------------
--- Multipart message source
------------------------------------------------------------------------------
--- returns a hopefully unique mime boundary
 local seqno = 0
 
 local function newboundary()
@@ -144,10 +117,8 @@ local function newboundary()
 	return string.format("%s%05d==%05u", os.date("%d%m%Y%H%M%S"), math.random(0, 99999), seqno)
 end
 
--- send_message forward declaration
 local send_message
 
--- yield the headers all at once, it's faster
 local function send_headers(tosend)
 	local canonic = headers.canonic
 	local h = "\r\n"
@@ -159,45 +130,36 @@ local function send_headers(tosend)
 	coroutine.yield(h)
 end
 
--- yield multipart message body from a multipart message table
 local function send_multipart(mesgt)
-	-- make sure we have our boundary and send headers
 	local bd = newboundary()
 	local headers = lower_headers(mesgt.headers or {})
 	headers["content-type"] = headers["content-type"] or "multipart/mixed"
 	headers["content-type"] = headers["content-type"] .. "; boundary=\"" .. bd .. "\""
 	send_headers(headers)
 
-	-- send preamble
 	if mesgt.body.preamble then
 		coroutine.yield(mesgt.body.preamble)
 		coroutine.yield("\r\n")
 	end
 
-	-- send each part separated by a boundary
 	for i, m in base.ipairs(mesgt.body) do
 		coroutine.yield("\r\n--" .. bd .. "\r\n")
 		send_message(m)
 	end
 
-	-- send last boundary
 	coroutine.yield("\r\n--" .. bd .. "--\r\n\r\n")
 
-	-- send epilogue
 	if mesgt.body.epilogue then
 		coroutine.yield(mesgt.body.epilogue)
 		coroutine.yield("\r\n")
 	end
 end
 
--- yield message body from a source
 local function send_source(mesgt)
-	-- make sure we have a content-type
 	local headers = lower_headers(mesgt.headers or {})
 	headers["content-type"] = headers["content-type"] or "text/plain; charset=\"iso-8859-1\""
 	send_headers(headers)
 
-	-- send body from source
 	while true do
 		local chunk, err = mesgt.body()
 
@@ -211,17 +173,13 @@ local function send_source(mesgt)
 	end
 end
 
--- yield message body from a string
 local function send_string(mesgt)
-	-- make sure we have a content-type
 	local headers = lower_headers(mesgt.headers or {})
 	headers["content-type"] = headers["content-type"] or "text/plain; charset=\"iso-8859-1\""
 	send_headers(headers)
-	-- send body from string
 	coroutine.yield(mesgt.body)
 end
 
--- message source
 function send_message(mesgt)
 	if base.type(mesgt.body) == "table" then
 		send_multipart(mesgt)
@@ -232,7 +190,6 @@ function send_message(mesgt)
 	end
 end
 
--- set defaul headers
 local function adjust_headers(mesgt)
 	local lower = lower_headers(mesgt.headers)
 	lower["date"] = lower["date"] or
@@ -241,14 +198,12 @@ local function adjust_headers(mesgt)
 			_M.ZONE
 		)
 	lower["x-mailer"] = lower["x-mailer"] or socket._VERSION
-	-- this can't be overridden
 	lower["mime-version"] = "1.0"
 	return lower
 end
 
 function _M.message(mesgt)
 	mesgt.headers = adjust_headers(mesgt)
-	-- create and return message source
 	local co = coroutine.create(function()
 		send_message(mesgt)
 	end)
@@ -259,9 +214,6 @@ function _M.message(mesgt)
 	end
 end
 
----------------------------------------------------------------------------
--- High level SMTP API
------------------------------------------------------------------------------
 _M.send = socket.protect(function(mailt)
 	local s = _M.open(mailt.server, mailt.port, mailt.create)
 	local ext = s:greet(mailt.domain)

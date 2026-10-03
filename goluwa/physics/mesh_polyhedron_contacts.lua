@@ -9,10 +9,6 @@ local mesh_polyhedron_contacts = {}
 local EPSILON = physics_constants.EPSILON
 local MAX_MESH_POLYHEDRON_CONTACTS = 4
 local CONTACT_MERGE_DISTANCE = 0.08
--- Contacts are built for geometry this far outside the collision margin too.
--- They are speculative: the solver only lets the bodies close what is left of
--- the gap. A body resting at the margin would otherwise sit exactly at the
--- distance contacts stop existing, and chatter in and out of contact.
 local SPECULATIVE_DISTANCE = 0.03
 local SOLVE_MESH_POLYHEDRON_CONTEXT = {
 	mesh_body = nil,
@@ -117,7 +113,6 @@ end
 local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	if not (state.best_normal and state.best_overlap > EPSILON) then return false end
 
-	-- the overlap was measured against the margin plus the speculative reach
 	state.best_overlap = state.best_overlap - SPECULATIVE_DISTANCE
 
 	if state.contacts[1] then

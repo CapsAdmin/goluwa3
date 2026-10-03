@@ -76,7 +76,6 @@ local function parse_vec3(str, default_x, default_y, default_z)
 	return Vec3(x or default_x or 0, y or default_y or 0, z or default_z or 0)
 end
 
--- CryEngine serializes quaternions as "w,x,y,z"
 local function parse_quat(str)
 	local w, x, y, z = unpack_csv_numbers(str)
 	local rotation = Quat(x or 0, y or 0, z or 0, w or 1)
@@ -90,8 +89,6 @@ local function parse_bool_flag(value)
 	return tostring(value or "0") == "1"
 end
 
--- cover.ctc holds the terrain texture the game renders, the editor's terraintexture.pak is only one input to it.
--- it is a quadtree of equally sized sectors, each node stores one sector per layer, the first layer is the diffuse
 function crylevel.ParseCoverData(data)
 	if #data < 18 or data:sub(1, 3) ~= "CRY" then
 		return nil, "cover.ctc has invalid magic"
@@ -104,7 +101,6 @@ function crylevel.ParseCoverData(data)
 		return nil, "cover.ctc has an invalid layer count"
 	end
 
-	-- each layer header: sector size in pixels (u16), reserved (u16), texture format (u32), sector size in bytes (u32)
 	local sector_size = read_u16_le(data, 17)
 	local sector_bytes = read_u32_le(data, 25)
 
@@ -125,7 +121,6 @@ function crylevel.ParseCoverData(data)
 	local nodes = {}
 	local max_level = 0
 
-	-- the index lists node ids depth first, each node is followed by its 4 child slots and 0xffff marks an empty slot
 	local function read_node(level, x, y)
 		if cursor >= index_end then error("cover.ctc node index is truncated") end
 
@@ -218,7 +213,6 @@ function crylevel.ConvertCryWorldMatrixToEngineTransform(world_matrix)
 	local scale_y = cry_y:GetLength()
 	local scale_z = cry_z:GetLength()
 
-	-- a mirrored basis cannot be expressed as a rotation, so move the mirror into the x scale
 	if cry_x:GetCross(cry_y):GetDot(cry_z) < 0 then scale_x = -scale_x end
 
 	local right = math.abs(scale_x) > 0.000001 and
@@ -252,12 +246,9 @@ function crylevel.ConvertCryWorldMatrixToEngineTransform(world_matrix)
 end
 
 function crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
-	-- yaw is a rotation around cry +z, which maps to engine +y with the same handedness
 	local rotation = Quat(0, 0, 0, 1):Rotate(entry.yaw or 0, 0, 1, 0)
 	local position = crylevel.CryVec3ToEngine(entry.position)
 
-	-- cry's fit to terrain moves each vertex up by a fit of the terrain height around the instance and keeps it
-	-- upright, the linear part of that is a shear of the world matrix
 	if entry.fit_to_terrain and entry.terrain_normal then
 		local up = entry.terrain_normal
 		local slope_x = -up.x / up.y
@@ -324,9 +315,6 @@ function crylevel.IsObjectHidden(attrs)
 	return attrs.Hidden == "1" or attrs.HiddenInGame == "1"
 end
 
--- WaterVolume is a closed polygon whose points lie on the water surface,
--- River a spline of Bezier segments (each point's Back and Forw handles) Width
--- wide. both reach VolumeDepth below their surface
 local function extract_water_object(node, world_matrix)
 	local attrs = node.attrs
 	local points = {}
@@ -410,8 +398,6 @@ function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, librarie
 	return out
 end
 
--- top level objects can be attached to another object with Parent="{guid}", possibly in another layer.
--- returns the models and the water objects
 function crylevel.ExtractVisualObjects(nodes, libraries)
 	local by_id = {}
 	local world_matrices = {}
@@ -441,7 +427,6 @@ function crylevel.ExtractVisualObjects(nodes, libraries)
 	return out, water_out
 end
 
--- prefab and entity archetype libraries are shared by all levels
 function crylevel.LoadLibraries()
 	local libraries = {prefabs = {}, archetypes = {}}
 
@@ -611,7 +596,6 @@ function crylevel.ParseEditorLevelDocument(document)
 
 	if not attrs then return nil, "missing Level root" end
 
-	-- the terrain layer id bitmap stores editor layer ids, several layers can share a surface type
 	local layer_surface_types = {}
 
 	for layer in iter_children_by_tag(find_child_by_tag(root, "Layers"), "Layer") do
@@ -636,7 +620,6 @@ function crylevel.ParseEditorLevelDocument(document)
 			if ocean_node then
 				local animation_attrs = animation and animation.attrs or {}
 				ocean = {
-					-- bytes, unlike the float colours of water volumes
 					fog_color = parse_vec3(ocean_node.attrs.FogColor, 51, 127, 178) / 255,
 					fog_color_multiplier = tonumber(ocean_node.attrs.FogColorMultiplier) or 0.2,
 					fog_density = tonumber(ocean_node.attrs.FogDensity) or 0.1,
@@ -656,7 +639,6 @@ function crylevel.ParseEditorLevelDocument(document)
 			end
 
 			if time_of_day and lighting then
-				-- CTimeOfDay: (0, 1, 0) * RotZ(time) * RotX(longitude) * RotY(-latitude), then y and z swapped
 				local time = ((tonumber(time_of_day.attrs.Time) + 12) / 24) * math.pi * 2
 				local longitude = 0.5 * math.pi - math.rad(tonumber(lighting.attrs.Longitude))
 				local latitude = -math.rad(tonumber(lighting.attrs.SunRotation))
@@ -664,7 +646,6 @@ function crylevel.ParseEditorLevelDocument(document)
 				y, z = y * math.cos(longitude), -y * math.sin(longitude)
 				x, z = x * math.cos(latitude) - z * math.sin(latitude),
 				x * math.sin(latitude) + z * math.cos(latitude)
-				-- toward the sun
 				sun_direction = crylevel.CryVec3ToEngine(Vec3(x, -z, y))
 			end
 		end
@@ -723,7 +704,6 @@ function crylevel.ParseVegetationMapDocument(document)
 				align_to_terrain = parse_bool_flag(attrs.AlignToTerrain),
 				random_rotation = parse_bool_flag(attrs.RandomRotation),
 				use_terrain_color = parse_bool_flag(attrs.UseTerrainColor),
-				-- how much the wind bends the whole object, 0 keeps it rigid
 				bending = tonumber(attrs.Bending) or 0,
 				size = tonumber(attrs.Size) or 1,
 				size_var = tonumber(attrs.SizeVar) or 0,
@@ -750,7 +730,6 @@ function crylevel.IsVegetationPrototypeSupportedFirstPass(objects, terrain)
 	return objects and (not objects.align_to_terrain or terrain ~= nil)
 end
 
--- fit to terrain is a flag of the vegetation shader, so it comes from the override material or the model's own
 function crylevel.IsVegetationFitToTerrain(material_paths)
 	local Material = import("goluwa/render3d/material.lua")
 
@@ -794,8 +773,6 @@ end
 function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 	if type(data) ~= "string" or data == "" then return {} end
 
-	-- packed records of what the sandbox vegetation brush painted:
-	-- f32 x, f32 y, f32 z, f32 scale, u8 prototype id, u8 brightness, u8 angle (0-255 around cry +z)
 	local entries = {}
 	local stride = 19
 
@@ -1085,7 +1062,6 @@ function crylevel.LoadTerrainData(steam, level_dir)
 		end
 	end
 
-	-- surface type index (1 based, 0 = none) per heightmap cell, the low bit of the raw layer id is a flag
 	if terrain.surface_slot_samples and terrain.editor_level then
 		local surface_index_by_name = {}
 
@@ -1296,7 +1272,6 @@ do
 		wrap_t = "clamp_to_edge",
 	}
 
-	-- every cover node is drawn into its square of the atlas, coarse levels first so finer ones replace them
 	function get_or_create_cry_albedo_texture(terrain)
 		if terrain.albedo_texture and terrain.albedo_texture:IsValid() then
 			return terrain.albedo_texture
@@ -1321,7 +1296,6 @@ do
 				decoded = {
 					width = sector_size,
 					height = sector_size,
-					-- the channels are an encoding, not colors, see ATLAS_NODE_GLSL
 					vulkan_format = "bc3_unorm_block",
 					is_compressed = true,
 					mip_count = 1,
@@ -1385,7 +1359,6 @@ local function get_or_create_cry_surface_index_texture(terrain)
 	return terrain.surface_index_texture
 end
 
--- the detail material of each surface type as a terrain layer, indexed like terrain.surface_types
 local function get_or_create_cry_terrain_layers(terrain)
 	if terrain.detail_layers then return terrain.detail_layers end
 
@@ -1396,7 +1369,6 @@ local function get_or_create_cry_terrain_layers(terrain)
 		if surface_type.detail_material_path then
 			local material = Material.FromCryMTL(surface_type.detail_material_path)
 
-			-- some layers have a sub material per projection axis instead, all of ours project along z
 			if not (material.cry_texture_maps and material.cry_texture_maps.Diffuse) then
 				material = Material.FromCryMTL(surface_type.detail_material_path, "z")
 			end
@@ -1404,23 +1376,17 @@ local function get_or_create_cry_terrain_layers(terrain)
 			local diffuse = material.cry_texture_maps and material.cry_texture_maps.Diffuse
 
 			if diffuse then
-				-- cry tiles the detail texture every 1 / (surface detail scale * material tiling) meters
 				layers[i] = {
-					-- cry's Terrain.Layer adds (detail - 0.5) * DetailTextureStrength to the terrain color, with the raw
-					-- texel values, and multiplies the sum by the material's diffuse color
 					albedo = diffuse.resolved and
 						Texture.New{path = diffuse.resolved, srgb = false} or
 						material:GetAlbedoTexture(),
 					normal = material:GetNormalTexture(),
-					-- Terrain.Layer's parallax occlusion or offset bump mapping, see Material.FromCryMTL
 					height = material:HasHeightMap() and material:GetHeightTexture() or nil,
 					height_scale = material:GetHeightScale(),
 					scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
 					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
-					-- F0 / 0.04 from cry's specular color and shininess like for models, most layers have none
 					specular = material:GetSpecularMultiplier(),
-					-- no procedural grass, grass in crysis is painted vegetation
 					grass = 0,
 					roughness = 1,
 					ao = 1,
@@ -1537,8 +1503,6 @@ local function build_cry_terrain_source(terrain)
 			world_size,
 			terrain.heightmap_max_height
 		),
-		-- bilinear weights of the 4 surrounding surface cells, cells whose surface type is not
-		-- one of this chunk's layers fall back to the first (most common) layer
 		SplatGLSL = has_layers and
 			[[
 			vec4 terrain_splat(vec2 world, float h, vec3 n) {
@@ -1575,7 +1539,6 @@ local function build_cry_terrain_source(terrain)
 			}
 		]],
 		ColorFormat = "r8g8b8a8_srgb",
-		-- the 4 most common surface types of the chunk, sampled from at most 64x64 cells
 		SelectChunkLayers = has_layers and
 			function(request)
 				local first_row = math.clamp(math.floor(request.min_x * cells_per_meter_y), 0, index_height - 1)
@@ -1742,7 +1705,6 @@ function crylevel.ResolveModelPath(steam, level_dir, model_path)
 	return result
 end
 
--- level objects name their material override like "Objects/Natural/Rocks/foo", relative to the game root
 function crylevel.ResolveMaterialPath(steam, level_dir, material_path)
 	return crylevel.ResolveModelPath(
 		steam,
@@ -1782,11 +1744,7 @@ function crylevel.EnsureLevelMounts(steam, level_dir)
 	return steam.cry_level_mounts
 end
 
--- CryEngine's water fogs towards FogColor * FogColorMultiplier with FogDensity
--- per meter, lit by the sun in its shader. The colour is an editor colour, so
--- gamma encoded, and this brings the multiplied colour to a scattering albedo.
 local WATER_ALBEDO_SCALE = 4
--- a river is cut into straight boxes this long at most
 local RIVER_PIECE_LENGTH = 16
 
 local function get_water_medium(water, fog_color, fog_color_multiplier, fog_density)
@@ -1802,13 +1760,10 @@ local function get_water_medium(water, fog_color, fog_color_multiplier, fog_dens
 	)
 end
 
--- engine rotation around y that turns +x towards the xz direction dir
 local function yaw_towards(dir)
 	return QuatDeg3(0, math.deg(math.atan2(-dir.z, dir.x)), 0)
 end
 
--- the smallest rectangle around the xz of points, as center, axis and extents.
--- one of its sides lies along an edge of their convex hull
 local function fit_rectangle(points)
 	local hull = {}
 
@@ -1885,7 +1840,6 @@ local function bezier(a, b, c, d, t)
 	return a * (s * s * s) + b * (3 * s * s * t) + c * (3 * s * t * t) + d * (t * t * t)
 end
 
--- water_volume configs for a WaterVolume or River in cry coordinates
 function crylevel.BuildWaterVolumes(object, water)
 	local absorption, scattering = get_water_medium(water, object.fog_color, object.fog_color_multiplier, object.fog_density)
 	local out = {}
@@ -1931,8 +1885,6 @@ function crylevel.BuildWaterVolumes(object, water)
 		return out
 	end
 
-	-- a river: straight pieces along its segments, overlapping a little so the
-	-- outside of a bend has no gap
 	for i = 1, #object.points - 1 do
 		local p0, p1 = object.points[i], object.points[i + 1]
 		local a = crylevel.CryVec3ToEngine(p0.pos)
@@ -2004,7 +1956,6 @@ function crylevel.Apply(steam)
 			end
 		end
 
-		-- objects in external layers live in the .lyr files, everything else is in the editor xml
 		local level_name = level_dir:match("/([^/]+)/$") or ""
 		local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"
 		local editor_level_data, editor_level_err = vfs.Read(editor_level_path)
@@ -2050,7 +2001,6 @@ function crylevel.Apply(steam)
 			local vegetation_instances_data, vegetation_instances_err = vfs.Read(level_dir .. level_name .. ".cry/vegetationinstancesarray.editor_data")
 
 			if prototypes and vegetation_instances_data then
-				-- only with their model and material paths resolved
 				vegetation_prototypes = prototypes
 
 				for _, prototype in ipairs(prototypes.list) do
@@ -2066,7 +2016,6 @@ function crylevel.Apply(steam)
 					prototype.material_paths = material_paths
 					prototype.fit_to_terrain = crylevel.IsVegetationFitToTerrain(material_paths)
 
-					-- the terrain color is set on the materials of the override, so the model's own becomes one
 					if
 						prototype.use_terrain_color and
 						not prototype.material_path and
@@ -2103,8 +2052,6 @@ function crylevel.Apply(steam)
 		return steam.loaded_cry_levels[level_dir]
 	end
 
-	-- like CryEngine, an override with sub materials replaces the model's materials per subset,
-	-- and one without replaces all of them
 	local function apply_material_override(visual, material_path, cache)
 		local override = cache[material_path]
 
@@ -2140,24 +2087,18 @@ function crylevel.Apply(steam)
 		end
 
 		steam.active_cry_terrain_renderer = crylevel.SpawnTerrain(data, parent)
-		-- terrain heights start at 0, so an ocean at 0 is always below it and the level has none
 		local water_level = data.terrain and data.terrain.water_level or 0
-		-- imported here: steam loads crylevel, and render3d -> material -> steam
 		local render3d = import("goluwa/render3d/render3d.lua")
 		local water = import("goluwa/render3d/water.lua")
 		local editor_level = data.terrain and data.terrain.editor_level
 		local weather = import("goluwa/render3d/weather.lua")
 		render3d.SetOceanEnabled(water_level > 0)
-		-- WaterLevel is cry's mean sea level, like the engine's ocean level
 		render3d.SetOceanLevel(water_level)
 
 		if editor_level and editor_level.ocean then
 			local ocean = editor_level.ocean
 			local absorption, scattering = get_water_medium(water, ocean.fog_color, ocean.fog_color_multiplier, ocean.fog_density)
 			local wind = crylevel.CryVec3ToEngine(Vec3(math.cos(ocean.wind_direction), math.sin(ocean.wind_direction), 0))
-			-- WavesSize is the height of cry's ocean waves above the mean. a fully
-			-- developed sea's significant wave height, about twice that, is
-			-- 0.21 * wind speed^2 / g
 			local wind_speed = math.sqrt(2 * ocean.waves_size * water.GRAVITY / 0.21)
 			water.SetOcean{
 				WindSpeed = wind_speed,
@@ -2182,7 +2123,6 @@ function crylevel.Apply(steam)
 		end
 
 		if editor_level and editor_level.fog_density then
-			-- cry's renderer scales the editor density by 0.01 into extinction per meter
 			weather.SetVisibility(-math.log(0.02) / (editor_level.fog_density * 0.0025))
 		end
 
@@ -2208,12 +2148,10 @@ function crylevel.Apply(steam)
 				entity.spawned_from_cry_level = true
 			end
 
-			-- like cry's blend with terrain color, grass with UseTerrainColor takes on the terrain's color below it
 			if data.terrain and data.terrain.cover and data.vegetation_prototypes then
 				local Material = import("goluwa/render3d/material.lua")
 				local texture = get_or_create_cry_albedo_texture(data.terrain)
 				local size = data.terrain.world_size
-				-- the same mapping as cry_terrain_uv, u runs along engine -z and v along engine +x
 				local uv = Color(0, -1 / size, 1 / size, 0)
 
 				for _, prototype in ipairs(data.vegetation_prototypes.list) do
@@ -2274,8 +2212,6 @@ function crylevel.Apply(steam)
 		local level_name = level_dir:match("/([^/]+)/$") or level_dir
 		steam.cry_level_world:SetName(level_name)
 		steam.cry_level_world:RemoveChildren()
-		-- visuals that finish loading while the rest is still spawning would
-		-- otherwise let the scene look loaded in between
 		scene_loading.Begin()
 		local ok, result = pcall(steam.SpawnCryLevel, level_dir, steam.cry_level_world)
 		scene_loading.End()

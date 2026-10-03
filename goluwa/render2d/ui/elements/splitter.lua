@@ -141,7 +141,6 @@ return function(props)
 				end
 
 				if actual_children_count == 0 then
-					-- First child is the left/top panel
 					if child.layout then
 						if is_vertical then
 							child.layout:SetMinSize(Vec2(0, initial_size))
@@ -158,7 +157,6 @@ return function(props)
 						end
 					end
 				elseif actual_children_count == 1 then
-					-- Second child is the right/bottom panel
 					if child.layout then
 						child.layout:SetGrowWidth(1)
 						child.layout:SetGrowHeight(1)

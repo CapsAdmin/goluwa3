@@ -44,25 +44,21 @@ function fs.get_parent_directory(path)
 end
 
 function fs.create_directory_recursive(path)
-	-- Handle empty or root path
 	if path == "" or path == "/" then return true end
 
 	path = file_path.FixPathSlashes(path)
 	path = file_path.TrimTrailingPathSeparator(path)
 
-	-- Check if directory already exists
 	if fs.exists(path) then
 		if fs.is_directory(path) then
-			return true -- Already exists as directory
+			return true
 		else
-			return nil, "Path exists but is not a directory" -- Path exists as a file
+			return nil, "Path exists but is not a directory"
 		end
 	end
 
-	-- Get parent directory
 	local parent = path:match("(.+)/[^/]+$") or ""
 
-	-- If parent directory doesn't exist, create it first
 	if parent ~= "" and not fs.exists(parent) then
 		local ok, err = fs.create_directory_recursive(parent)
 
@@ -71,7 +67,6 @@ function fs.create_directory_recursive(path)
 		end
 	end
 
-	-- Create the directory
 	return fs.create_directory(path)
 end
 
@@ -142,7 +137,6 @@ function fs.glob(pattern)
 		end
 
 		if current_part == "**" then
-			-- Match current directory and recurse
 			scan(current_path, part_index + 1)
 			local files = fs.get_files(get_search_path())
 
@@ -165,7 +159,6 @@ function fs.glob(pattern)
 
 			if files then
 				for _, name in ipairs(files) do
-					-- Remove leading/trailing whitespace from name if any, but readdir usually doesn't have it
 					local trimmed_name = name:match("^%s*(.-)%s*$")
 
 					if trimmed_name:match(part_pattern) then
@@ -216,8 +209,6 @@ function fs.glob(pattern)
 	return results
 end
 
--- Plain-text grep: globs files, reads each one, and uses string.find with plain=true.
--- Returns results (list of {file, line, text, is_match, separator}) and total match-line count.
 function fs.grep(pattern, path, opts)
 	opts = opts or {}
 	local glob_filter = opts.glob_filter
@@ -249,8 +240,6 @@ function fs.grep(pattern, path, opts)
 
 		if content and content ~= "" then
 			local len = #content
-			-- Build newline index: nls[0]=0 (sentinel), nls[k] = byte position of k-th '\n'
-			-- Line k occupies bytes [nls[k-1]+1 .. nls[k]-1] (or len for the last line)
 			local nls = {[0] = 0}
 			local nls_n = 0
 
@@ -269,8 +258,6 @@ function fs.grep(pattern, path, opts)
 			end
 
 			local total_lines = (nls_n > 0 and nls[nls_n] == len) and nls_n or nls_n + 1
-			-- Phase 1: collect all line numbers that contain the pattern
-			-- binary search inline: which line does byte position ms fall on?
 			local match_lines = {}
 			local seen = {}
 			local p = 1
@@ -299,8 +286,6 @@ function fs.grep(pattern, path, opts)
 				p = (nls[lnum] or len) + 1
 			end
 
-			-- Phase 2: expand context and emit results
-			-- get_line(k) inlined as: content:sub(nls[k-1]+1, (nls[k] or len+1)-1)
 			if context_lines == 0 then
 				for _, lnum in ipairs(match_lines) do
 					if #results < max_results then

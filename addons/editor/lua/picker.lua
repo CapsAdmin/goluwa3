@@ -168,7 +168,7 @@ end
 local debug_draw = import("goluwa/debug_draw.lua")
 
 function picker.Update(dt)
-	do -- draw non-visual entity indicators
+	do
 		local NONVISUAL_HINT_TIME = 1.0
 
 		for _, entity in ipairs(Entity.World:GetChildrenList()) do

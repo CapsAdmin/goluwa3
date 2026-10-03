@@ -113,9 +113,6 @@ function META.BuildLocalAABBFromWorldAABBInternal(world_aabb, world_to_local, ar
 	local transform_point = LOCAL_AABB_TRANSFORM_POINT
 
 	for i = 1, 8 do
-		-- position/rotation/out pass through to the transform function: matrices
-		-- ignore them, collider WorldToLocal uses them instead of re-fetching the
-		-- body transform and allocating a Vec3 per corner
 		local point = world_to_local(arg, corners[i], position, rotation, transform_point)
 		local x = point.x
 		local y = point.y
@@ -201,7 +198,6 @@ function META.FromSegment(start_pos, end_pos, radius)
 	)
 end
 
--- Sets out to the union of a and b (overwrites out, unlike Expand)
 function META.Union(out, a, b)
 	out.min_x = math.min(a.min_x, b.min_x)
 	out.min_y = math.min(a.min_y, b.min_y)

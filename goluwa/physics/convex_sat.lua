@@ -38,9 +38,7 @@ function convex_sat.GetProjectedOverlap(vertices_a, vertices_b, axis)
 end
 
 function convex_sat.SetOrientedNormal(out, axis, distance)
-	if not out then
-		out = Vec3()
-	end
+	if not out then out = Vec3() end
 
 	out:CopyFrom(axis)
 
@@ -83,8 +81,6 @@ function convex_sat.TryUpdateAxis(
 	return true
 end
 
--- Trackers store candidate values (not references) so callers can pass
--- reusable scratch candidate tables without aliasing the recorded best axis.
 local function copy_candidate(target, source)
 	target.overlap = source.overlap
 

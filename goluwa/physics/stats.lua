@@ -1,8 +1,3 @@
--- Toggleable statistics for the rigid body pipeline. Off by default; enable
--- with stats:Enable() and read the accumulated overview with stats:Summary().
--- Sections are measured with a PushTime/PopTime stack, counters accumulate
--- across steps (reported as totals with per-step averages) and gauges keep
--- the most recent value of a metric like the live body count.
 local system = import("goluwa/system.lua")
 local stats = {}
 local STEP_SECTION = "step"
@@ -21,8 +16,6 @@ local section_names = {
 	"restitution",
 	"finalize",
 }
--- nested sections measured inside a top-level section; printed indented and
--- excluded from the accounted-for sum
 local subsection_names = {
 	"kinematic",
 	"mesh_contacts",
@@ -39,9 +32,6 @@ local subsection_names = {
 	"face_rank",
 	"face_select",
 }
--- query entry points the game calls from anywhere (inside the step, between
--- steps, from a controller); they overlap the sections above or run outside
--- the step entirely, so they are reported on their own
 local query_names = {"sweep", "sweep_candidates", "sweep_bodies", "sweep_models", "trace"}
 local BUCKET_EDGES_MS = {1, 4, 8, 16, 32}
 local BUCKET_LABELS = {"<1ms", "1-4ms", "4-8ms", "8-16ms", "16-32ms", ">32ms"}
@@ -77,9 +67,6 @@ function stats:Enable()
 	end
 end
 
--- Returns what was measured since the last snapshot (or Enable/Reset) and
--- starts a new window: {steps, total_time, max_step_time, sections, counts,
--- gauges}. Section times are seconds, counts are window totals.
 function stats:TakeSnapshot()
 	if not state then return nil end
 
@@ -93,7 +80,6 @@ function stats:TakeSnapshot()
 	}
 	local gauges = state.gauges
 	self:Reset()
-	-- gauges are last-value metrics, they stay valid across windows
 	state.gauges = gauges
 	return snapshot
 end
@@ -118,7 +104,6 @@ function stats:Reset()
 	state.min_step_time = math.huge
 	state.max_step_time = 0
 	state.stack_depth = 0
-	-- fresh tables: a snapshot taken earlier keeps its own
 	state.sections = {}
 
 	for i = 1, #all_section_names do
@@ -130,8 +115,6 @@ function stats:Reset()
 	state.buckets = {}
 end
 
--- push a section onto the stack; the start time is captured last so the cost
--- of pushing itself is not counted in the measured section
 function stats:PushTime(name)
 	if not state then return end
 
@@ -149,8 +132,6 @@ function stats:PushTime(name)
 	entry.t0 = system.GetTime()
 end
 
--- pop the section pushed last and accumulate its elapsed time into its
--- bucket; the end time is captured first for the same reason
 function stats:PopTime()
 	if not state then return end
 
@@ -185,14 +166,12 @@ function stats:PopTime()
 	state.sections[entry.name] = (state.sections[entry.name] or 0) + elapsed
 end
 
--- accumulate a delta into a counter
 function stats:Count(name, amount)
 	if not state then return end
 
 	state.counts[name] = (state.counts[name] or 0) + (amount or 1)
 end
 
--- store the current value of a metric (last write wins)
 function stats:Gauge(name, value)
 	if not state then return end
 

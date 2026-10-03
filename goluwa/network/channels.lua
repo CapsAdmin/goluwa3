@@ -1,19 +1,12 @@
--- Channels — Per-channel sequencing, ACK, and reliability policy
--- Part of Step 5: reliable UDP transport layer
-
 local bit = require("bit")
 local sequence = import("goluwa/network/sequence.lua")
 local reliable_send = import("goluwa/network/reliable_send.lua")
 local channels = {}
-
--- Default channel configuration
 channels.DEFAULT_CONFIG = {
-	reliability = reliable_send.RELIABILITY.RELIABLE, -- Default to reliable
-	window_size = sequence.WINDOW_SIZE,                -- 64 packets
-	max_packet_size = 1400,                            -- MTU-like limit
+	reliability = reliable_send.RELIABILITY.RELIABLE,
+	window_size = sequence.WINDOW_SIZE,
+	max_packet_size = 1400,
 }
-
--- Channel state — independent sequence/ACK per channel
 local ChannelState = {}
 ChannelState.__index = ChannelState
 
@@ -27,15 +20,11 @@ function ChannelState.New(config)
 	return self
 end
 
--- Send a packet on this channel
 function ChannelState:Send(payload, reliability)
 	reliability = reliability or self.config.reliability
-
-	-- Allocate sequence number
 	local seq = self.sender:AllocateSequence()
 	self.sequence_number = seq
 
-	-- Track for retransmission if reliable
 	if reliability == reliable_send.RELIABILITY.RELIABLE then
 		self.retransmission:TrackPacket(seq, payload, reliability)
 	end
@@ -48,19 +37,12 @@ function ChannelState:Send(payload, reliability)
 	}
 end
 
--- Receive a packet on this channel
 function ChannelState:Receive(sequence_number, payload)
-	-- Mark as received and check for duplicates
 	local accepted = self.receiver:Receive(sequence_number)
 
-	if not accepted then
-		return nil -- Duplicate or out-of-window
-	end
+	if not accepted then return nil end
 
-	-- Acknowledge the packet
-	if self.receiver.received_count > 0 then
-		self:SendAck()
-	end
+	if self.receiver.received_count > 0 then self:SendAck() end
 
 	return {
 		sequence_number = sequence_number,
@@ -69,31 +51,25 @@ function ChannelState:Receive(sequence_number, payload)
 	}
 end
 
--- Process incoming ACK
 function ChannelState:ProcessAck(ack_header)
 	if ack_header and ack_header.base_sequence then
 		self.retransmission:AckPacket(ack_header.base_sequence)
 	end
 end
 
--- Get retransmission queue for this channel
 function ChannelState:GetRetransmitQueue(current_time)
 	return self.retransmission:GetRetransmitQueue(current_time)
 end
 
--- Process retransmission timeouts
 function ChannelState:OnTimeout(current_time)
 	return self.retransmission:OnTimeout(current_time)
 end
 
--- Send ACK for received packets
 function ChannelState:SendAck()
-	-- Create ACK header from receiver state
 	local ack_header = require("goluwa/network/ack").CreateAckHeader(self.receiver, self.receiver.window_start)
 	return ack_header
 end
 
--- Get channel statistics
 function ChannelState:GetStats()
 	return {
 		retransmission = self.retransmission:GetStats(),
@@ -102,18 +78,16 @@ function ChannelState:GetStats()
 	}
 end
 
--- Peer state — manages multiple channels
 local PeerChannelState = {}
 PeerChannelState.__index = PeerChannelState
 
 function PeerChannelState.New(max_channels)
 	local self = setmetatable({}, PeerChannelState)
 	self.max_channels = max_channels or 256
-	self.channels = {} -- channel_id -> ChannelState
+	self.channels = {}
 	return self
 end
 
--- Get or create a channel
 function PeerChannelState:GetChannel(channel_id, config)
 	if not self.channels[channel_id] then
 		if #self.channels >= self.max_channels then
@@ -127,12 +101,10 @@ function PeerChannelState:GetChannel(channel_id, config)
 	return self.channels[channel_id]
 end
 
--- Remove a channel
 function PeerChannelState:RemoveChannel(channel_id)
 	self.channels[channel_id] = nil
 end
 
--- Get all channels
 function PeerChannelState:GetChannels()
 	local result = {}
 
@@ -143,7 +115,6 @@ function PeerChannelState:GetChannels()
 	return result
 end
 
--- Process retransmission for all channels
 function PeerChannelState:OnTimeout(current_time)
 	local retransmit = {}
 
@@ -161,7 +132,6 @@ function PeerChannelState:OnTimeout(current_time)
 	return retransmit
 end
 
--- Get statistics for all channels
 function PeerChannelState:GetStats()
 	local stats = {
 		channel_count = #self.channels,
@@ -175,9 +145,9 @@ function PeerChannelState:GetStats()
 	return stats
 end
 
--- Export classes
 channels.ChannelState = ChannelState
 channels.PeerChannelState = PeerChannelState
-channels.CreatePeerChannels = function(max_channels) return PeerChannelState.New(max_channels) end
-
+channels.CreatePeerChannels = function(max_channels)
+	return PeerChannelState.New(max_channels)
+end
 return channels

@@ -9,21 +9,13 @@ local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local frame_benchmark = library()
--- the scene counts as settled after this many seconds without a change to the
--- bvh and without a frame longer than SETTLE_MAX_FRAME
 local SETTLE_QUIET = 3
 local SETTLE_MAX_FRAME = 0.2
 local LOAD_TIMEOUT = 600
--- meters a moving phase goes out before it turns around
 frame_benchmark.TRAVEL = 30
 local percentile_names = {50, 95, 99}
--- draw calls per frame may vary this much between seconds of a still phase before the
--- run is called unstable
 local DRAWS_STABLE_SPREAD = 0.25
 local WORST_FRAMES = 3
--- the same code in two processes differs by this much (measured: a gpu pass moved
--- 20% between identical runs), so a difference smaller than these shares of a
--- number is not reported. the seconds inside one run vary far less than this
 local RUN_TO_RUN_NOISE = {frame = 0.04, tail = 0.08, gpu = 0.05, scope = 0.12}
 local stats_current = render_stats.Get().current
 
@@ -82,20 +74,6 @@ local function summarize(frame_times)
 	return summary
 end
 
--- config:
---   name       label for the report
---   load       function that starts loading the scene, e.g. runs a map command
---   view       function returning position (vec3), pitch and yaw in degrees, called once the scene settled
---   fov        vertical field of view in degrees, the current camera's by default
---   phases     list of {name, yaw_speed = deg/s, speed = m/s, travel = m out and back, enter, ready}, defaults to frame_benchmark.default_phases
---              enter(phase) runs when the phase starts, ready() is polled until it returns true before the lead in starts
---   settle_quiet seconds the scene bvh must stay unchanged before the benchmark starts (3)
---   warmup     seconds to run the first phase before measuring (10)
---   lead_in    seconds each phase runs before it is measured (3)
---   measure    seconds each phase is measured for (20)
---   done       function(results) called when every phase was measured, the engine shuts down after
--- one process measures all phases, each one starting from the same view. frame
--- times come from system.GetTime, gpu scopes from gpu_timing
 function frame_benchmark.Run(config)
 	local phases = config.phases or frame_benchmark.default_phases
 	local warmup = config.warmup or 10
@@ -103,19 +81,19 @@ function frame_benchmark.Run(config)
 	local measure = config.measure or 20
 
 	if os.getenv("GOLUWA_VALIDATE") == "1" then
-		print_result("WARNING: --validate enables the Vulkan validation layers, cpu times are about 3x too high")
+		print_result(
+			"WARNING: --validate enables the Vulkan validation layers, cpu times are about 3x too high"
+		)
 	end
 
 	if HOT_RELOAD then
 		print_result("WARNING: --hot-reload is on, editing a goluwa file during the run can crash it")
 	end
 
-	-- the draw call counters only run with render.stats, the overlay itself is not wanted
 	render.stats = true
 	render.stats_overlay = false
 	local results = {name = config.name, phases = {}}
 	local saved = benchmark_results.New(config.name)
-	-- one second of frames at a time, the spread between those seconds is the noise of a phase
 	local chunk_time, chunk_frames, chunk_draws = 0, 0, 0
 	local chunk_ms, chunk_draw_averages = {}, {}
 	local worst = {}
@@ -142,7 +120,9 @@ function frame_benchmark.Run(config)
 		if entered_index ~= phase_index then
 			entered_index = phase_index
 
-			if phases[phase_index].enter then phases[phase_index].enter(phases[phase_index]) end
+			if phases[phase_index].enter then
+				phases[phase_index].enter(phases[phase_index])
+			end
 		end
 	end
 
@@ -210,7 +190,11 @@ function frame_benchmark.Run(config)
 			)
 		end
 
-		print_result("  draw calls per frame %.0f, frame time varies %.2f ms between seconds", summary.draws_per_frame, summary.noise_ms)
+		print_result(
+			"  draw calls per frame %.0f, frame time varies %.2f ms between seconds",
+			summary.draws_per_frame,
+			summary.noise_ms
+		)
 
 		if summary.max_ms > 2 * summary.p50_ms and summary.max_ms > 20 then
 			local parts = {}
@@ -233,7 +217,6 @@ function frame_benchmark.Run(config)
 			highest = math.max(highest, draws)
 		end
 
-		-- turning or moving changes what is in view, only a still camera should draw the same all the time
 		local still = not phase.yaw_speed and not phase.speed
 
 		if still and highest > 0 and (highest - lowest) / highest > DRAWS_STABLE_SPREAD then
@@ -244,14 +227,34 @@ function frame_benchmark.Run(config)
 			)
 		end
 
-		saved:Add(phase.name .. "/avg_ms", summary.average_ms, math.max(summary.noise_ms, RUN_TO_RUN_NOISE.frame * summary.average_ms), "ms")
-		saved:Add(phase.name .. "/p95_ms", summary.p95_ms, math.max(2 * summary.noise_ms, RUN_TO_RUN_NOISE.tail * summary.p95_ms), "ms")
-		saved:Add(phase.name .. "/gpu_total_ms", summary.gpu_total_ms, RUN_TO_RUN_NOISE.gpu * summary.gpu_total_ms, "ms")
+		saved:Add(
+			phase.name .. "/avg_ms",
+			summary.average_ms,
+			math.max(summary.noise_ms, RUN_TO_RUN_NOISE.frame * summary.average_ms),
+			"ms"
+		)
+		saved:Add(
+			phase.name .. "/p95_ms",
+			summary.p95_ms,
+			math.max(2 * summary.noise_ms, RUN_TO_RUN_NOISE.tail * summary.p95_ms),
+			"ms"
+		)
+		saved:Add(
+			phase.name .. "/gpu_total_ms",
+			summary.gpu_total_ms,
+			RUN_TO_RUN_NOISE.gpu * summary.gpu_total_ms,
+			"ms"
+		)
 		saved:AddFingerprint(phase.name .. "/draws_per_frame", summary.draws_per_frame)
 
 		for _, gpu in ipairs(sorted) do
 			if gpu[2].ms_per_frame >= 0.2 then
-				saved:Add(phase.name .. "/gpu/" .. gpu[1], gpu[2].ms_per_frame, RUN_TO_RUN_NOISE.scope * gpu[2].ms_per_frame, "ms")
+				saved:Add(
+					phase.name .. "/gpu/" .. gpu[1],
+					gpu[2].ms_per_frame,
+					RUN_TO_RUN_NOISE.scope * gpu[2].ms_per_frame,
+					"ms"
+				)
 			end
 		end
 
@@ -289,7 +292,14 @@ function frame_benchmark.Run(config)
 				version_since = now
 			end
 
-			if now - version_since >= (config.settle_quiet or SETTLE_QUIET) and dt < SETTLE_MAX_FRAME then
+			if
+				now - version_since >= (
+					config.settle_quiet or
+					SETTLE_QUIET
+				)
+				and
+				dt < SETTLE_MAX_FRAME
+			then
 				start_position, start_pitch, start_yaw = config.view()
 				view = View.New{
 					Priority = 100,
@@ -318,7 +328,6 @@ function frame_benchmark.Run(config)
 		local yaw = start_yaw + (phase.yaw_speed or 0) * phase_time
 		local distance = (phase.speed or 0) * phase_time
 		local travel = phase.travel or frame_benchmark.TRAVEL
-		-- there and back again, so a long run stays in the same part of the scene
 		distance = distance % (2 * travel)
 
 		if distance > travel then distance = 2 * travel - distance end
@@ -327,15 +336,12 @@ function frame_benchmark.Run(config)
 		view:SetRotation(QuatDeg3(start_pitch, yaw, 0))
 
 		if mode == "warmup" then
-			if now - mode_start >= warmup then
-				begin_phase(now, "lead_in")
-			end
+			if now - mode_start >= warmup then begin_phase(now, "lead_in") end
 
 			return
 		end
 
 		if mode == "lead_in" then
-			-- the lead in starts counting once the phase says it is ready
 			if phase.ready and not phase.ready() then
 				mode_start = now
 				return
@@ -358,11 +364,9 @@ function frame_benchmark.Run(config)
 		end
 
 		frame_times[#frame_times + 1] = dt
-		-- the heap only grows by allocating, a drop is the collector running
 		local heap_kb = collectgarbage("count")
 		allocated_kb = allocated_kb + math.max(heap_kb - last_heap_kb, 0)
 		last_heap_kb = heap_kb
-		-- the counter restarts every second, a smaller value is that restart
 		local draw_calls = stats_current.draw_calls or 0
 		local draws = draw_calls >= last_draw_calls and draw_calls - last_draw_calls or draw_calls
 		last_draw_calls = draw_calls
@@ -380,14 +384,13 @@ function frame_benchmark.Run(config)
 		if dt * 1000 > 20 then
 			worst[#worst + 1] = {ms = dt * 1000, at = now - mode_start}
 		end
+
 		local names = gpu_timing.GetScopeNames()
 
 		for i = 1, #names do
 			local name = names[i]
 			local ms = gpu_timing.GetRawMilliseconds(name)
 
-			-- a scope only has a new reading when its value changed, scopes such
-			-- as shadow cascades are not re-recorded every frame
 			if gpu_previous[name] ~= ms then
 				gpu_previous[name] = ms
 				gpu_updates[name] = (gpu_updates[name] or 0) + 1

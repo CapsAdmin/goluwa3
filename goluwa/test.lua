@@ -21,21 +21,18 @@ local tasks = import("goluwa/tasks.lua")
 local test = {}
 local total_test_count = 0
 local coroutine = _G.coroutine
-local TEST_TIMEOUT = 20 -- Per-file inactivity timeout, reset when each test starts
--- Variables for tracking test execution timing
+local TEST_TIMEOUT = 20
 local current_test_name = ""
 local current_running_test_name = ""
 local current_file_timeout_deadline = nil
 local tests_by_file = {}
 local current_test_start_time = nil
 local current_test_start_gc = nil
--- Callback for when a test file completes (set by logging system)
 local on_test_file_complete = nil
--- Logging state (set by BeginTests)
 local LOGGING = false
 local VERBOSE = false
 local NESTING = false
-local IS_TERMINAL = true -- or system.IsTTY()
+local IS_TERMINAL = true
 local NO_SUMMARY = false
 local NAME_PATTERN = nil
 local FAILURES_ONLY = false
@@ -71,7 +68,6 @@ local function traceback(msg, co_lines)
 		end
 	end
 
-	-- Find the last instance of atttest.lua
 	local last_env_index = nil
 
 	for i = 1, #lines do
@@ -87,10 +83,7 @@ local function traceback(msg, co_lines)
 	for i = #lines, 1, -1 do
 		local line = lines[i]
 
-		if not line:find(".lua", 1, true) then
-			-- remove non actionable lines
-			table.remove(lines, i)
-		end
+		if not line:find(".lua", 1, true) then table.remove(lines, i) end
 	end
 
 	if not lines[1] then return msg end
@@ -168,8 +161,6 @@ function test.GetCurrentFileTimeoutDeadline()
 	return current_file_timeout_deadline
 end
 
--- Mark the currently running file as skipped. Call this before returning
--- from the test file so the skip (and its reason) shows up in the summary.
 function test.SkipFile(reason)
 	skipped_files[current_test_name] = reason or "skipped"
 end
@@ -185,7 +176,6 @@ end
 
 local tasks = import("goluwa/tasks.lua")
 local active_test_tasks = {}
--- Create a marker object for unavailable tests
 local unavailable_marker = {}
 
 local function matches_name_pattern(name)
@@ -216,11 +206,9 @@ end
 function test.Test(name, cb, start, stop)
 	if not matches_name_pattern(name) then return nil end
 
-	-- Check if we're inside another test task (nested test)
 	local current_task = tasks.GetActiveTask()
 
 	if current_task and active_test_tasks[current_task] then
-		-- We're nested - create inner task directly without recursion
 		local inner_task = test._CreateTestTask(name, cb, start, stop)
 		local ok, err = tasks.WaitForNestedTask(inner_task)
 
@@ -244,19 +232,15 @@ function test._CreateTestTask(name, cb, start, stop, options)
 	local test_file_name = current_test_name
 	local test_file_start_time = current_test_start_time
 	total_test_count = total_test_count + 1
-	-- Track that this test belongs to the current file
 	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
 
-	-- Start timing for this file if this is the first test
 	if tests_by_file[current_test_name] == 1 then
 		current_test_start_time = system.GetTime()
 		current_test_start_gc = collectgarbage("count")
 	end
 
-	-- Capture start time when test is added to queue
 	local test_start_time = system.GetTime()
 	local test_start_gc = collectgarbage("count")
-	-- Need to capture task info before closure
 	local task_failed = false
 	local task_error = nil
 	local task = tasks.CreateTask(
@@ -265,7 +249,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 			current_running_test_name = name
 			task_self.test_timeout_time = test.ResetCurrentFileTimeout()
 
-			-- Check for timeout at start
 			if task_self.test_timeout_time and system.GetTime() > task_self.test_timeout_time then
 				error(string.format("Test timeout: exceeded %d second limit", TEST_TIMEOUT), 0)
 			end
@@ -280,7 +263,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 				result = cb()
 			end
 
-			-- Check if test returned an unavailable marker
 			if
 				type(result) == "table" and
 				getmetatable(result) and
@@ -293,7 +275,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 			unref()
 		end,
 		function(self, res)
-			-- OnFinish
 			local test_time = system.GetTime() - test_start_time
 			local test_gc = collectgarbage("count") - test_start_gc
 			local file = test_file_name
@@ -301,7 +282,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 			if file and tests_by_file[file] then
 				tests_by_file[file] = tests_by_file[file] - 1
 
-				-- Record individual test result
 				if on_test_file_complete then
 					on_test_file_complete(
 						file,
@@ -318,16 +298,13 @@ function test._CreateTestTask(name, cb, start, stop, options)
 				end
 			end
 
-			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
 			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
 				if VERBOSE then
-					-- Show full test name in verbose mode
 					io_write(string.format("[%d/%d] %s\n", completed_test_count, total_test_count, name))
 					io.flush()
 				else
-					-- Show appropriate marker
 					if self.unavailable then
 						io_write(colors.dim("-"))
 					else
@@ -336,7 +313,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 
 					io.flush()
 
-					-- Line break every 50 tests, or show progress counter
 					if completed_test_count % 50 == 0 then
 						io_write(string.format(" %d/%d\n", completed_test_count, total_test_count))
 						io.flush()
@@ -348,14 +324,12 @@ function test._CreateTestTask(name, cb, start, stop, options)
 
 			if self.next_test_task then self.next_test_task:ReleaseStart() end
 
-			-- Check if all tests are done
 			if not tasks.IsBusy() then
 				system.ShutDown(has_failed_tests and 1 or 0)
 			end
 		end,
 		true,
 		function(self, err, co)
-			-- OnError
 			has_failed_tests = true
 			self.failed = true
 			local tb = debug.traceback(co)
@@ -374,7 +348,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 				logn(colors.red("Test '" .. name .. "' failed:\n" .. self.error))
 			end
 
-			-- Record test completion even on failure
 			local test_time = system.GetTime() - test_start_time
 			local test_gc = collectgarbage("count") - test_start_gc
 			local file = test_file_name
@@ -382,7 +355,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 			if file and tests_by_file[file] then
 				tests_by_file[file] = tests_by_file[file] - 1
 
-				-- Record individual test result
 				if on_test_file_complete then
 					on_test_file_complete(
 						file,
@@ -391,7 +363,7 @@ function test._CreateTestTask(name, cb, start, stop, options)
 						test_gc,
 						tests_by_file[file] == 0,
 						test_file_start_time,
-						false, -- success = false
+						false,
 						self.error,
 						false,
 						nil
@@ -399,15 +371,12 @@ function test._CreateTestTask(name, cb, start, stop, options)
 				end
 			end
 
-			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
 			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
-				-- Show progress dot
 				if not NESTING then
 					io_write(colors.red("✗"))
 
-					-- Line break every 50 tests, or show progress counter
 					if completed_test_count % 50 == 0 then
 						io_write(string.format(" %d/%d\n", completed_test_count, total_test_count))
 						io.flush()
@@ -419,7 +388,6 @@ function test._CreateTestTask(name, cb, start, stop, options)
 
 			if self.next_test_task then self.next_test_task:ReleaseStart() end
 
-			-- Check if all tests are done
 			if not tasks.IsBusy() then
 				system.ShutDown(has_failed_tests and 1 or 0)
 			end
@@ -428,7 +396,7 @@ function test._CreateTestTask(name, cb, start, stop, options)
 	)
 	task:SetName(name)
 	task:SetIterationsPerTick(10)
-	task.is_test_task = true -- Mark as test task to prevent auto-waiting in callbacks
+	task.is_test_task = true
 	task.test_timeout_duration = TEST_TIMEOUT
 	active_test_tasks[task] = true
 
@@ -444,10 +412,8 @@ function test._CreatePendingTask(name, options)
 	local test_file_name = current_test_name
 	local test_file_start_time = current_test_start_time
 	total_test_count = total_test_count + 1
-	-- Track that this test belongs to the current file
 	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
 
-	-- Start timing for this file if this is the first test
 	if tests_by_file[current_test_name] == 1 then
 		current_test_start_time = system.GetTime()
 		current_test_start_gc = collectgarbage("count")
@@ -526,14 +492,10 @@ function test.Unavailable(reason)
 end
 
 do
-	-- Yield control from a test coroutine
 	function test.Yield()
-		-- Sleep for a small amount to avoid tight spinning
-		-- This ensures the main loop actually advances time
 		tasks.Wait(0.001)
 	end
 
-	-- Sleep for a duration (in seconds) without blocking main thread
 	function test.Sleep(duration)
 		local start_time = system.GetElapsedTime()
 		local end_time = start_time + duration
@@ -548,14 +510,13 @@ do
 		end
 
 		while system.GetElapsedTime() < end_time do
-			local dt = 0.016 -- ~60fps simulation
+			local dt = 0.016
 			system.SetElapsedTime(system.GetElapsedTime() + dt)
 			event.Call("Update", dt)
-			system.Sleep(0.001) -- Sleep CPU, not coroutine
+			system.Sleep(0.001)
 		end
 	end
 
-	-- Wait until a condition is true, checking every interval, with optional timeout
 	function test.WaitUntil(condition, timeout)
 		timeout = timeout or 10
 		local start_time = system.GetElapsedTime()
@@ -571,7 +532,6 @@ do
 	end
 
 	function test.UpdateTestCoroutines()
-		-- Manually update tasks system for faster test execution
 		if tasks and tasks.IsEnabled() then tasks.Update() end
 	end
 end
@@ -671,12 +631,10 @@ do
 
 		if not IS_TERMINAL then return end
 
-		-- Advance spinner and update line
 		spinner_index = (spinner_index % #spinner_chars) + 1
 		update_test_line("RUNNING")
 	end
 
-	-- Call this before running tests to calculate max width
 	function test.SetTestPaths(tests)
 		max_path_width = 0
 
@@ -684,14 +642,14 @@ do
 			max_path_width = math.max(max_path_width, #test_item.name)
 		end
 
-		-- Add some padding for clean alignment
 		max_path_width = max_path_width + 2
 	end
 
 	local total_gc = 0
 	local test_file_count = 0
-	local test_results = {} -- Store results for each test file
-	local test_order = {} -- Track the order tests were loaded
+	local test_results = {}
+	local test_order = {}
+
 	function test.BeginTests(
 		logging,
 		profiling,
@@ -724,7 +682,6 @@ do
 
 		if PROFILING then profiler.Start(profiling_mode) end
 
-		-- Set up the callback for test completion
 		on_test_file_complete = function(
 			test_file_name,
 			test_name,
@@ -737,7 +694,6 @@ do
 			pending,
 			unavailable_reason
 		)
-			-- Initialize file results if needed
 			if not test_results[test_file_name] then
 				test_results[test_file_name] = {
 					tests = {},
@@ -748,7 +704,6 @@ do
 			end
 
 			local file_result = test_results[test_file_name]
-			-- Store individual test result
 			table.insert(
 				file_result.tests,
 				{
@@ -761,11 +716,9 @@ do
 					unavailable_reason = unavailable_reason,
 				}
 			)
-			-- Update GC total
 			file_result.total_gc = file_result.total_gc + gc
 			total_gc = total_gc + gc
 
-			-- If this is the last test, calculate actual elapsed time for the file
 			if is_last and file_result.file_start_time then
 				file_result.total_time = system.GetTime() - file_result.file_start_time
 			end
@@ -788,8 +741,6 @@ do
 		test.ResetCurrentFileTimeout()
 		local file_test_count_before = tests_by_file[current_test_name] or 0
 
-		-- You'll need to pass the expected test count somehow, or estimate it
-		-- For now, setting to 0 means no progress counter shown
 		if LOGGING and not NO_SUMMARY and not FAILURES_ONLY then
 			update_test_line("RUNNING")
 		end
@@ -835,7 +786,6 @@ do
 
 		if registered_test_count <= 0 then return false end
 
-		-- Track the order for display later only for files that actually registered tests.
 		table.insert(test_order, test_item.name)
 		test_file_count = test_file_count + 1
 		return true
@@ -855,9 +805,7 @@ do
 		end
 
 		if test_file_count > 0 then
-			-- Display results for each test file that has completed, in order
 			if LOGGING then
-				-- Add newline after progress dots if needed
 				if IS_TERMINAL and completed_test_count > 0 and not FAILURES_ONLY then
 					io_write("\n")
 				end
@@ -872,17 +820,14 @@ do
 					if result then
 						local printed_file_header = false
 
-						-- Print individual tests
 						for _, test in ipairs(result.tests) do
 							local time_str = ""
 							local gc_str = ""
 
-							-- Only show time if >= 100ms
 							if test.time >= 0.1 then
 								time_str = " " .. format_time(test.time)
 							end
 
-							-- Only show GC if >= 1MB
 							local gc_mb = math.floor(test.gc / 1024)
 
 							if math.abs(gc_mb) >= 1 then gc_str = "  " .. format_gc(test.gc) end
@@ -952,7 +897,6 @@ do
 
 			local times = profiler.GetSimpleSections()
 
-			-- base environment time is included in startup time, so remove it
 			if times["startup"] then
 				times["startup"].total = times["startup"].total - times["base environment"].total
 			end
@@ -994,7 +938,6 @@ do
 	end
 end
 
--- Run the event loop for a specific duration
 function test.RunFor(duration)
 	local start_time = system.GetElapsedTime()
 	local end_time = start_time + duration
@@ -1010,15 +953,12 @@ function test.RunFor(duration)
 
 	while system.GetElapsedTime() < end_time do
 		local current_time = system.GetTime()
-		local dt = 0.016 -- ~60fps simulation
-		-- Advance elapsed time
+		local dt = 0.016
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
-		-- Call update event which triggers timers, sockets, etc.
 		event.Call("Update", dt)
 	end
 end
 
--- Run event loop until condition is met or timeout
 function test.RunUntil(condition, timeout)
 	timeout = timeout or 5.0
 	local start_time = system.GetElapsedTime()
@@ -1038,16 +978,15 @@ function test.RunUntil(condition, timeout)
 	while system.GetElapsedTime() < end_time do
 		if condition() then return true end
 
-		local dt = 0.016 -- ~60fps simulation
+		local dt = 0.016
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
 		event.Call("Update", dt)
 		system.Sleep(0.001)
 	end
 
-	return false -- timeout
+	return false
 end
 
--- Run event loop until condition is met or timeout
 function test.RunUntil2(condition, timeout)
 	timeout = timeout or 5.0
 	local start_time = system.GetTime()
@@ -1059,7 +998,7 @@ function test.RunUntil2(condition, timeout)
 		system.Sleep(0.001)
 	end
 
-	return false -- timeout
+	return false
 end
 
 function test.Screenshot(path)
@@ -1080,19 +1019,16 @@ local function get_albedo_texture()
 	return import("goluwa/render3d/gbuffer_layout.lua").GetTexture("albedo")
 end
 
--- Read a normalized screen pixel
 function test.GetScreenPixel(x, y)
 	local r, g, b, a = get_screen_texture():GetPixel(x, y)
 	return r / 255, g / 255, b / 255, a / 255
 end
 
--- Read a normalized gbuffer albedo pixel
 function test.GetAlbedoPixel(x, y)
 	local r, g, b, a = get_albedo_texture():GetPixel(x, y)
 	return r / 255, g / 255, b / 255, a / 255
 end
 
--- color is either {r, g, b, a} or a predicate function(r, g, b, a) -> bool
 local function check_pixel(color, x, y, r, g, b, a, tolerance, msg)
 	tolerance = tolerance or 0.01
 	local got = string.format("(%.3f,%.3f,%.3f,%.3f)", r, g, b, a)
@@ -1130,7 +1066,6 @@ local function check_pixel(color, x, y, r, g, b, a, tolerance, msg)
 	end
 end
 
--- r is either {r, g, b, a} or a predicate function(r, g, b, a) -> bool
 function test.TexturePixel(tex, x, y, r, g, b, a, tolerance, msg)
 	if type(r) == "number" then r = {r, g, b, a} end
 
@@ -1138,8 +1073,6 @@ function test.TexturePixel(tex, x, y, r, g, b, a, tolerance, msg)
 	check_pixel(r, x, y, r_ / 255, g_ / 255, b_ / 255, a_ / 255, tolerance, msg)
 end
 
--- Allow predicates to be passed as either a plain function or wrapped in a
--- single entry table (the old {fn} convention)
 local function normalize_color(color)
 	if type(color) == "table" and type(color[1]) == "function" then
 		return color[1]
@@ -1148,7 +1081,6 @@ local function normalize_color(color)
 	return color
 end
 
--- {pos = {x, y}, color = {r, g, b, a} | function, tolerance = n, msg = "string"}
 function test.AssertScreenPixel(tbl)
 	test.TexturePixel(
 		get_screen_texture(),
@@ -1195,10 +1127,6 @@ function test.ScreenAlbedoPixel(x, y, r, g, b, a, tolerance, msg)
 	test.TexturePixel(get_albedo_texture(), x, y, r, g, b, a, tolerance, msg)
 end
 
--- Scan a rectangular region of a texture.
--- {tex = texture, rect = {min_x, min_y, max_x, max_y}, mode = "any" | "all",
---  color = function(r, g, b, a) -> bool, msg = "string"}
--- "any" passes if at least one pixel satisfies the predicate, "all" if every pixel does.
 function test.AssertTextureRegion(tbl)
 	local tex = tbl.tex
 	local mode = tbl.mode or "any"
@@ -1323,7 +1251,6 @@ commands.Add({
 	local summary = flags["no-summary"] ~= true
 	local failures_only = flags["failures-only"] == true
 	local name_pattern = flags["name-pattern"]
-	-- tests run with the Vulkan validation layers, workers inherit this
 	process.setenv("GOLUWA_VALIDATE", "1")
 
 	if name_pattern == "" or name_pattern == "all" then name_pattern = nil end
@@ -1347,10 +1274,6 @@ commands.Add({
 			)
 		end
 
-		-- Thread worker passed as source string to avoid upvalue-serialization bugs.
-		-- If a function were used, any modules required in the outer scope
-		-- (e.g. `local io = require("io")`) would be nil in the new Lua state
-		-- because string.dump does not preserve upvalue values.
 		local thread_worker = [[
 			local crash_trace = import("goluwa/bindings/crash_trace.lua")
 			local input = ...
@@ -1468,7 +1391,6 @@ commands.Add({
 		local failed_file_names = {}
 		local running = {}
 		local pending = {}
-		-- local max_running = parallel and math.min(threads.get_thread_count(), 4) or 1
 		local max_running = parallel and
 			math.min(flags.jobs or MAX_PARALLEL_FILES, threads.get_thread_count()) or
 			1
@@ -1480,25 +1402,23 @@ commands.Add({
 			durations = json.decode(durations_content)
 		end
 
-		-- Pre-load Vulkan library in the main thread before spawning workers.
-		-- Multiple threads calling dlopen("libvulkan.so") simultaneously triggers
-		-- LLVM static initializers in OpenCL backends, causing "Option registered
-		-- more than once" crashes. Loading once upfront serializes this safely.
 		pcall(function()
 			local vk = import("goluwa/bindings/vk.lua")
 			vk.find_library()
 		end)
 
-		-- the loader unloads the driver when the last instance is destroyed, which
-		-- races with a worker that is creating its instance at that moment
 		local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 		local keepalive_instance = require("ffi").typeof("$[1]", vulkan.vk.VkInstance)()
 		vulkan.assert(
-			vulkan.lib.vkCreateInstance(vulkan.vk.s.InstanceCreateInfo{
-				flags = 0,
-				enabledLayerCount = 0,
-				enabledExtensionCount = 0,
-			}, nil, keepalive_instance),
+			vulkan.lib.vkCreateInstance(
+				vulkan.vk.s.InstanceCreateInfo{
+					flags = 0,
+					enabledLayerCount = 0,
+					enabledExtensionCount = 0,
+				},
+				nil,
+				keepalive_instance
+			),
 			"failed to create keepalive instance"
 		)
 
@@ -1506,11 +1426,12 @@ commands.Add({
 			pending[i] = test_item
 		end
 
-		-- longest files first so they don't become the tail of the run
 		table.sort(pending, function(a, b)
 			local da = durations[a.name] or UNKNOWN_FILE_DURATION
 			local db = durations[b.name] or UNKNOWN_FILE_DURATION
+
 			if da ~= db then return da > db end
+
 			return a.name < b.name
 		end)
 
@@ -1553,7 +1474,6 @@ commands.Add({
 			for i = #running, 1, -1 do
 				local t = running[i]
 
-				-- Warn if this thread has been running too long
 				if t.next_warn_time and system.GetTime() >= t.next_warn_time then
 					local elapsed = math.floor(system.GetTime() - t.start_time)
 					io.write(

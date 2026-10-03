@@ -4,7 +4,6 @@ local Texture = import("goluwa/render/texture.lua")
 
 T.Test3D("Graphics render multiple outputs", function()
 	local width, height = 512, 512
-	-- Create 3 textures for outputs
 	local tex1 = Texture.New{
 		width = width,
 		height = height,
@@ -23,7 +22,6 @@ T.Test3D("Graphics render multiple outputs", function()
 		format = "r8g8b8a8_unorm",
 		image = {usage = {"color_attachment", "sampled", "transfer_src"}},
 	}
-	-- Create pipeline with 3 outputs
 	local pipeline = render.CreateGraphicsPipeline{
 		ColorFormat = {"r8g8b8a8_unorm", "r8g8b8a8_unorm", "r8g8b8a8_unorm"},
 		shader_stages = {
@@ -66,7 +64,6 @@ T.Test3D("Graphics render multiple outputs", function()
 	render.BeginFrame()
 	local cmd = render.GetCommandBuffer()
 	cmd:EndRendering()
-	-- Transition textures to color_attachment_optimal
 	cmd:PipelineBarrier{
 		srcStage = "top_of_pipe",
 		dstStage = "color_attachment_output",
@@ -90,7 +87,6 @@ T.Test3D("Graphics render multiple outputs", function()
 	pipeline:Bind(cmd, render.GetCurrentFrame())
 	cmd:Draw(3, 1, 0, 0)
 	cmd:EndRendering()
-	-- Transition to transfer_src_optimal for downloading
 	cmd:PipelineBarrier{
 		srcStage = "color_attachment_output",
 		dstStage = "transfer",
@@ -119,7 +115,6 @@ T.Test3D("Graphics render multiple outputs", function()
 		},
 	}
 	render.EndFrame()
-	-- Verify colors
 	T.AssertTexturePixel{tex = tex1, pos = {width / 2, height / 2}, color = {1, 0, 0, 1}}
 	T.AssertTexturePixel{tex = tex2, pos = {width / 2, height / 2}, color = {0, 1, 0, 1}}
 	T.AssertTexturePixel{tex = tex3, pos = {width / 2, height / 2}, color = {0, 0, 1, 1}}

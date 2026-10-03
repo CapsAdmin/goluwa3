@@ -75,7 +75,6 @@ return function(props)
 		return 1
 	end
 
-	-- Build right elements (stepper buttons)
 	local right_elements = {}
 
 	if show_stepper then
@@ -114,7 +113,6 @@ return function(props)
 		}
 	end
 
-	-- Build slider background drawer
 	local draw_background = nil
 
 	if show_slider then

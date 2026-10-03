@@ -35,7 +35,6 @@ function Swapchain.New(config)
 				presentMode = config.present_mode or "fifo_khr",
 				clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1,
 				oldSwapchain = config.old_swapchain and config.old_swapchain.ptr[0],
-				--
 				flags = 0,
 				queueFamilyIndexCount = 0,
 			},
@@ -50,7 +49,6 @@ function Swapchain.New(config)
 		format = config.surface_format.format,
 		width = config.surface_capabilities.currentExtent.width,
 		height = config.surface_capabilities.currentExtent.height,
-		-- pointer references to prevent GC
 		old_swapchain = config.old_swapchain,
 		surface = config.surface,
 	}
@@ -59,10 +57,6 @@ end
 do
 	local HdrMetadata = ffi.typeof("$[1]", vulkan.vk.VkHdrMetadataEXT)
 
-	-- Describes the content to the compositor or display (VK_EXT_hdr_metadata)
-	-- so it can fit it to what the display can show. primaries are CIE xy
-	-- pairs {red, green, blue, white}, luminances in nits. Returns false when
-	-- the extension isn't enabled.
 	function Swapchain:SetHdrMetadata(t)
 		local set = self.device:TryGetExtension("vkSetHdrMetadataEXT")
 

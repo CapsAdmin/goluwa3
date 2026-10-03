@@ -1,4 +1,3 @@
--- render3d first, material.lua can only load from inside it (material -> steam -> crylevel -> render3d -> material)
 local render3d = import("goluwa/render3d/render3d.lua")
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -19,36 +18,22 @@ local EARTH_RADIUS_KM = 6371
 local MOON_RADIUS_KM = 1737.4
 local MOON_MEAN_DISTANCE_KM = 384400
 local SUN_TINT = Vec3(1.0, 0.98, 0.95)
--- moonlight is sunlight off a slightly red rock
 local MOON_TINT = SUN_TINT * Vec3(1.0, 0.94, 0.86)
--- a 2 mm raindrop's terminal velocity (Gunn and Kinzer 1949), the wind slants the rain by it
 local RAIN_FALL_SPEED = 6.5
--- a dry snowflake's (Locatelli and Hobbs 1974), wet ones fall about twice as fast
 local SNOW_FALL_SPEED = 1
--- how far rain and snow stray from their mean direction in still air, as the tangent of the angle:
--- flakes flutter and tumble, drops fall nearly straight
 local RAIN_SPREAD = 0.05
 local SNOW_SPREAD = 0.3
--- the wind's gusts near the ground, its turbulence intensity, stray them further
 local WIND_TURBULENCE = 0.25
--- the shelter's edges are softened by meters, finer texels would be wasted
 local SHELTER_SIZE = 1024
--- half the width of the ground the shelter map covers around the camera, in meters
 local SHELTER_HALF_SIZE = 96
 local SHELTER_DEPTH = 600
--- the map follows the camera in steps of this many texels and only renders again when it moves
 local SHELTER_SNAP_TEXELS = 64
--- the clouds are lit by whichever of the sun and the moon is brighter up here, the sun still lights
--- them for a while after it set on the ground
 local CLOUD_LIGHT_ALTITUDE = Vec3(0, 2000, 0)
 weather.latitude = 21.176852
 weather.longitude = 106.068101
--- 2026-06-21 10:00 local time at the default location
 weather.time = 1782010800
 weather.time_scale = 0
--- the drawn moon's size relative to the real 0.52 degrees, the eye sees it bigger than a camera does
 weather.moon_scale = 1
--- off: no sun, moon, sky, air, fog, rain or snow, a black void
 pvars.StartGroup("weather", {store = false})
 local enabled = pvars.Setup2{
 	key = "weather_enabled",
@@ -90,14 +75,10 @@ local function ecliptic_to_equatorial(longitude, latitude, obliquity)
 	)
 end
 
--- the angle the earth has turned at this longitude, from facing the vernal equinox
 local function get_sidereal(unix_time, longitude)
 	return math.rad((18.697374558 + 24.06570982441908 * days_since_j2000(unix_time)) * 15 + longitude)
 end
 
--- the rows turn a world direction into an equatorial one (x toward the vernal equinox, z the celestial
--- north pole), the sky turns around the pole once a sidereal day
--- world directions: east is +x, up is +y, north is -z
 function weather.GetCelestialRotationAt(unix_time, latitude, longitude)
 	local sidereal = get_sidereal(unix_time, longitude)
 	local lat = math.rad(latitude)
@@ -115,7 +96,6 @@ local function equatorial_to_world(e, x, y, z)
 	)
 end
 
--- low precision solar position from the astronomical almanac, good to about 0.01 degrees
 local function get_sun_equatorial(unix_time)
 	local n = days_since_j2000(unix_time)
 	local mean_longitude = math.rad(280.460 + 0.9856474 * n)
@@ -124,8 +104,6 @@ local function get_sun_equatorial(unix_time)
 	return ecliptic_to_equatorial(ecliptic_longitude, 0, math.rad(23.439 - 0.0000004 * n))
 end
 
--- low precision lunar position from the astronomical almanac, good to a few tenths of a degree
--- returns the geocentric equatorial direction and the distance in km
 local function get_moon_equatorial(unix_time)
 	local n = days_since_j2000(unix_time)
 	local mean_longitude = math.rad(218.316 + 13.176396 * n)
@@ -145,16 +123,12 @@ function weather.GetSunDirectionAt(unix_time, latitude, longitude)
 	)
 end
 
--- the moon's direction from the observer (so shifted by up to a degree from the earth's center),
--- its distance in km and its top of atmosphere illuminance in lux
 function weather.GetMoonAt(unix_time, latitude, longitude)
 	local equatorial, distance = get_moon_equatorial(unix_time)
 	local geocentric = equatorial_to_world(equatorial, weather.GetCelestialRotationAt(unix_time, latitude, longitude))
 	local topocentric = geocentric * distance - Vec3(0, EARTH_RADIUS_KM, 0)
 	distance = topocentric:GetLength()
-	-- phase angle, sun to moon to observer, the sun being far enough to use its direction from here
 	local phase_angle = math.deg(math.acos(math.clamp(-get_sun_equatorial(unix_time):GetDot(equatorial), -1, 1)))
-	-- allen's lunar magnitude by phase, with magnitude 0 at 2.08e-6 lux
 	local magnitude = -12.73 + 0.026 * phase_angle + 4e-9 * phase_angle ^ 4
 	local illuminance = 10 ^ (-0.4 * (magnitude + 14.18)) * (MOON_MEAN_DISTANCE_KM / distance) ^ 2
 	return topocentric / distance, distance, illuminance
@@ -190,13 +164,9 @@ end
 do
 	local SIDEREAL_RADIANS_PER_SECOND = math.rad(24.06570982441908 * 15) / 86400
 	local MAX_LATITUDE = math.rad(89)
-	-- just under the obliquity so the date search always finds a day that reaches it
 	local MAX_SIN_DECLINATION = math.sin(math.rad(23.43))
 	local LATITUDE_STEP = math.rad(0.1)
-	-- how many degrees of latitude moving the date by one degree of declination is worth
 	local DECLINATION_COST = 2
-	-- and how much each degree past the polar circles costs on top, so the sun doesn't end up
-	-- somewhere nobody lives
 	local POLAR_LATITUDE = math.rad(66.5)
 	local POLAR_COST = 4
 
@@ -204,11 +174,6 @@ do
 		return (a + math.pi) % (2 * math.pi) - math.pi
 	end
 
-	-- moves the latitude, the date and the time of day to where and when the sun stands in dir, the
-	-- longitude stays. the celestial pole (0, sin(lat), -cos(lat)) has to be 90 degrees minus the sun's
-	-- declination away from dir, so each latitude asks for a declination and so a date. the latitude
-	-- that needs the least change of both is kept. then the time of day turns the sky around the pole
-	-- until the sun is in dir, the nearest such time to the current one is kept
 	function weather.SetSunDirection(dir)
 		local time = weather.time
 		local latitude = math.rad(weather.latitude)
@@ -219,7 +184,6 @@ do
 		do
 			local best, best_declination, best_cost = latitude, declination, math.huge
 			local roots = math.asin(math.clamp(math.sin(declination) / r, -1, 1))
-			-- the exact latitudes for today's declination first, then the others on a grid
 			local lat = wrap_angle(roots - theta)
 			local i = -2
 
@@ -250,7 +214,6 @@ do
 
 			latitude = best
 
-			-- the nearest day, before or after, that the declination passes the one needed
 			if math.abs(best_declination - declination) > 1e-6 then
 				local before, after = declination, declination
 
@@ -276,8 +239,6 @@ do
 			end
 		end
 
-		-- the declination drifts a little with the date and time found, so settle the exact latitude
-		-- nearest the chosen one and the time of day together
 		for _ = 1, 4 do
 			local sun = get_sun_equatorial(time)
 			local roots = math.asin(math.clamp(sun.z / r, -1, 1))
@@ -295,12 +256,10 @@ do
 	end
 end
 
--- the sun light points along its rotation's backward vector, (0, 0, 1) unrotated
 function weather.SetSunRotation(rotation)
 	weather.SetSunDirection(rotation:GetBackward())
 end
 
--- yaw around up, then pitch around the horizontal right axis, no roll
 function weather.GetSunRotation()
 	local dir = weather.GetSunDirection()
 	return QuatFromAxis(math.atan2(dir.x, dir.z), Vec3(0, 1, 0)) * QuatFromAxis(-math.asin(dir.y), Vec3(1, 0, 0))
@@ -310,7 +269,6 @@ function weather.GetSunDirection()
 	return weather.GetSunDirectionAt(weather.time, weather.latitude, weather.longitude)
 end
 
--- meteorological visibility at sea level in meters
 function weather.SetVisibility(meters)
 	atmosphere.SetVisibility(meters)
 end
@@ -319,7 +277,6 @@ function weather.GetVisibility()
 	return atmosphere.GetVisibility()
 end
 
--- velocity in m/s, only x and z bend vegetation
 function weather.SetWind(velocity)
 	atmosphere.SetWind(velocity)
 end
@@ -328,8 +285,6 @@ function weather.GetWind()
 	return atmosphere.GetWind()
 end
 
--- air temperature near the ground in degrees celsius. snow near and above freezing is wet: it falls in
--- bigger, faster flakes and lies darker and smoother
 function weather.SetTemperature(celsius)
 	atmosphere.SetTemperature(celsius)
 	atmosphere.SetPrecipitationExtinction(precipitation.GetExtinction())
@@ -339,8 +294,6 @@ function weather.GetTemperature()
 	return atmosphere.GetTemperature()
 end
 
--- the falling rain in mm/h: 1 is light rain, 5 moderate, 25 heavy, 100 a cloudburst. it only falls, what
--- it leaves on surfaces is SetWetness
 function weather.SetRain(mm_per_hour)
 	precipitation.SetRain(mm_per_hour)
 	surface_weather.rain_impact_rate = precipitation.GetRainImpactRate(surface_weather.AGITATION_MIN_DIAMETER)
@@ -352,8 +305,6 @@ function weather.GetRain()
 	return precipitation.GetRain()
 end
 
--- the falling snow in mm/h of melted water: 0.5 is light snow, 1 moderate, 3 heavy. it only falls, what
--- lies on the ground is SetSnowDepth
 function weather.SetSnow(mm_per_hour)
 	precipitation.SetSnow(mm_per_hour)
 	atmosphere.SetPrecipitationExtinction(precipitation.GetExtinction())
@@ -363,7 +314,6 @@ function weather.GetSnow()
 	return precipitation.GetSnow()
 end
 
--- 0 is dry, 1 is soaked. sheltered and downward facing surfaces stay dry
 function weather.SetWetness(wetness)
 	surface_weather.wetness = wetness
 end
@@ -372,8 +322,6 @@ function weather.GetWetness()
 	return surface_weather.wetness
 end
 
--- meters of snow on open, flat ground: 0.01 is a dusting that lies in patches, 0.05 and more hides the
--- ground. it slides off steep slopes and sheltered and downward facing surfaces stay bare
 function weather.SetSnowDepth(meters)
 	surface_weather.snow_depth = meters
 end
@@ -382,7 +330,6 @@ function weather.GetSnowDepth()
 	return surface_weather.snow_depth
 end
 
--- a list of layers, see clouds.LAYER_DEFAULTS for their fields. render3d/climate.lua has presets
 function weather.SetCloudLayers(layers)
 	clouds.SetLayers(layers)
 	weather.UpdateSky()
@@ -392,7 +339,6 @@ function weather.GetCloudLayers()
 	return clouds.GetLayers()
 end
 
--- the fraction of the sky the clouds hide
 function weather.GetCloudCover()
 	return clouds.GetCover()
 end
@@ -406,7 +352,6 @@ function weather.GetMoonScale()
 	return weather.moon_scale
 end
 
--- the directional light, aimed at whichever of the sun and the moon lights the ground more
 function weather.IsEnabled()
 	return enabled:Get()
 end
@@ -451,7 +396,6 @@ function weather.UpdateSky()
 	local moon_transmittance = atmosphere.GetTransmittance(moon_dir)
 	local dir, color, illuminance
 
-	-- they cross over while both are close to nothing, so the switch is continuous
 	if
 		moon_illuminance * luminance(moon_transmittance) > SUN_TOA_ILLUMINANCE * luminance(sun_transmittance)
 	then
@@ -462,10 +406,8 @@ function weather.UpdateSky()
 
 	weather.light.transform:SetRotation(Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize())
 	weather.light.light_sun:SetColor(Color(color.x, color.y, color.z, 1))
-	-- the clouds' shadow map takes the direct light where they are, see render3d/clouds.lua
 	clouds.SetShadowDirection(dir)
 	weather.light.light_sun:SetLux(enabled:Get() and illuminance or 0)
-	-- no shadow maps under an overcast without gaps
 	local transmittance = enabled:Get() and
 		math.max(color.x, color.y, color.z) * clouds.GetMaxTransmittance(dir)
 		or
@@ -555,8 +497,6 @@ function weather.Initialize()
 	surface_weather.shelter_map = weather.shelter_map
 	weather.UpdateSky()
 
-	-- the shelter map follows the camera, looking along the falling rain or snow, whichever is heavier.
-	-- what lies on surfaces is sheltered along the same direction
 	event.AddListener("Update", "weather_shelter", function(dt)
 		weather.shelter_map:SetEnabled(
 			precipitation.IsActive() or
@@ -570,7 +510,6 @@ function weather.Initialize()
 		if not weather.shelter_map.enabled then return end
 
 		local wind = atmosphere.GetWind()
-		-- the snow lying on the ground fell as snow
 		local snowing = precipitation.GetSnow() > precipitation.GetRain() or
 			precipitation.GetRain() == 0 and
 			surface_weather.snow_depth > 0

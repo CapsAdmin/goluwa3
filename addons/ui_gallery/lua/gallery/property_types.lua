@@ -12,7 +12,6 @@ local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
--- create a demo object type with all property kinds
 local DemoObject = objects.CreateTemplate("demo_object")
 DemoObject:StartStorable()
 DemoObject:GetSet("ABoolean", true)

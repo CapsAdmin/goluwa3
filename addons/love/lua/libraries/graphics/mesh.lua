@@ -209,13 +209,11 @@ end
 function Mesh:setVertex(index, vertex, ...)
 	if type(vertex) == "number" then vertex = {vertex, ...} end
 
-	-- For default love format, convert to render2d format (pos:3, uv:2, sample_uv:2, color:4)
 	if self._is_default_vertex_format and vertex then
 		local x = vertex[1] or 0
 		local y = vertex[2] or 0
 		local u = vertex[3] or 0
 		local v = vertex[4] or 0
-		-- Use existing color conversion for proper normalized/byte handling
 		local r, g, b, a
 
 		if #vertex >= 8 then

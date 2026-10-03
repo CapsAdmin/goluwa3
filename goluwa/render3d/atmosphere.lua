@@ -14,7 +14,7 @@ local ATMOSPHERE_RADIUS = 6471.0
 local CAMERA_METERS_TO_KM = 0.001
 local SEA_LEVEL_EYE_HEIGHT = 1.75 * CAMERA_METERS_TO_KM
 local DEFAULT_OCEAN_LEVEL = 0
-local CAMERA_TEST_MULTIPLIER = 1 --000.0
+local CAMERA_TEST_MULTIPLIER = 1
 local SKY_VIEW_LUT_WIDTH = 1024
 local SKY_VIEW_LUT_HEIGHT = 512
 local SKY_VIEW_STEPS = 32
@@ -32,9 +32,7 @@ local MIE_BETA = 0.021
 local MIE_BETA_EXT = 0.021 * 1.1
 local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
 local DEFAULT_SUN_ILLUMINANCE = 126000
--- the sun's disc seen from the earth, 0.533 degrees across
 atmosphere.SUN_ANGULAR_RADIUS = 0.00465
--- the cloud textures hold radiance times this, see render3d/clouds.lua
 atmosphere.CLOUD_RADIANCE_SCALE = 1 / 16
 local DEBUG_DISABLE_SCENERY_FOG = false
 local SCENERY_FOG_SCALE_HEIGHT = 0.28
@@ -48,18 +46,12 @@ local fog_density = pvars.Setup2{
 	help = "density of the low altitude fog at the ground, weather sets it from the visibility",
 }
 pvars.EndGroup()
--- the falling rain and snow's density in the same units, even up to where the fog ends
 atmosphere.precipitation_fog_density = 0
 atmosphere.wind = Vec3(0, 0, 0)
--- air temperature near the ground in degrees celsius
 atmosphere.temperature = 15
--- the clouds seen from the camera (see render3d/clouds.lua), and the share of the direct light
--- they let through on average
 atmosphere.cloud_sky_texture = nil
 atmosphere.cloud_transmittance = 1
--- the sun, moon and star sphere, set by render3d/weather.lua. without it the sky is lit by the primary light
 atmosphere.sky = nil
--- off: no sky, air or fog, a black void (see the weather_enabled pvar)
 atmosphere.enabled = true
 
 local function normalize_components(x, y, z)
@@ -130,24 +122,6 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 	)
 end
 
---[[
-	All GLSL below reads its inputs through macros so that the same code works
-	inside LUT bakes (constant indices) and inside render passes (uniform block
-	fields). Passes get them from atmosphere.GetGLSLDefines(uniform_name, ...).
-
-	ATMOSPHERE_SUN_ILLUMINANCE               sun illuminance at the top of the atmosphere, in lux
-	ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX   2d LUT, u = cos(sun zenith), v = altitude
-	ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX   2d LUT, same parametrization, multiple scattering (Hillaire 2020)
-	ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX        2d LUT of the sky around the camera, rgb = in-scatter, a = transmittance
-	ATMOSPHERE_STARS_TEXTURE_INDEX           optional equirect map replacing the stars, milky way and night glow
-	ATMOSPHERE_SKY_SUN_DIRECTION             the real sun, the primary light is the moon at night
-	ATMOSPHERE_MOON_*                        the moon, its sky view LUT is scaled from the sun's by ATMOSPHERE_MOON_SKY_SCALE
-	ATMOSPHERE_CELESTIAL_X/Y/Z               rows turning a world direction into an equatorial one
-
-	Distances are kilometers. Radiance is luminance in nits (cd/m2): a white
-	Lambertian surface lit head on by the sun without atmosphere reflects
-	ATMOSPHERE_SUN_ILLUMINANCE / PI.
-]]
 local atmosphere_shared_glsl = [[
 	const float PI = 3.14159265359;
 	const float PLANET_RADIUS = 6371.0;
@@ -454,15 +428,6 @@ local transmittance_glsl = build_atmosphere_shader_prelude([[
 		return vec4(exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od)), 1.0);
 	}
 ]])
---[[
-	Multiple scattering LUT after Hillaire 2020 "A Scalable and Production
-	Ready Sky and Atmosphere Rendering Technique". For every (sun zenith,
-	altitude) pair it integrates single scattering with an isotropic phase over
-	the sphere of directions (second order luminance L2) together with the
-	fraction of light that scatters again (f_ms). The infinite series of
-	further bounces is approximated as L2 / (1 - f_ms). Baked with unit sun
-	intensity and scaled at use.
-]]
 local multi_scatter_glsl = build_atmosphere_shader_prelude(
 	[[
 	const int MULTI_SCATTER_SQRT_DIRECTIONS = 8;
@@ -522,7 +487,6 @@ local multi_scatter_glsl = build_atmosphere_shader_prelude(
 ]],
 	"#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n"
 )
--- the camera and sun are push constants rather than baked in, so every sky view texture shares one pipeline
 local SkyViewConstants = ffi.typeof([[struct {
 	float camera_position[3];
 	float sun_illuminance;
@@ -1032,11 +996,9 @@ local function destroy_all_sky_view_textures()
 end
 
 do
-	-- koschmieder: the distance where contrast drops to 2%
 	local CONTRAST_THRESHOLD = -math.log(0.02)
 	local SEA_LEVEL_EXTINCTION_PER_METER = SCENERY_FOG_EXTINCTION * math.exp(-SEA_LEVEL_EYE_HEIGHT / SCENERY_FOG_SCALE_HEIGHT) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
 
-	-- visibility at sea level in meters from the low altitude fog alone
 	function atmosphere.SetVisibility(meters)
 		fog_density:Set(CONTRAST_THRESHOLD / meters / SEA_LEVEL_EXTINCTION_PER_METER)
 	end
@@ -1045,17 +1007,14 @@ do
 		return CONTRAST_THRESHOLD / (fog_density:Get() * SEA_LEVEL_EXTINCTION_PER_METER)
 	end
 
-	-- the falling rain and snow's extinction, see render3d/precipitation.lua
 	function atmosphere.SetPrecipitationExtinction(extinction_per_km)
 		atmosphere.precipitation_fog_density = extinction_per_km / SCENERY_FOG_EXTINCTION
 	end
 end
 
 do
-	-- the wind speed in m/s that wind animation amplitudes are tuned for, a gentle breeze
 	local REFERENCE_WIND_SPEED = 4
 
-	-- velocity in m/s
 	function atmosphere.SetWind(velocity)
 		atmosphere.wind = velocity
 	end
@@ -1072,24 +1031,19 @@ do
 		return atmosphere.temperature
 	end
 
-	-- how much stronger than the reference breeze the wind is, scales wind animation
 	function atmosphere.GetWindStrength()
 		return atmosphere.wind:GetLength() / REFERENCE_WIND_SPEED
 	end
 end
 
 do
-	-- share of the clear day's light a full overcast lets through, thick stratus is ~0.2-0.4
 	local OVERCAST_TRANSMITTANCE = 0.3
-	-- the clear sky adds roughly this much to the direct sun on a horizontal surface
 	local CLEAR_SKY_IRRADIANCE_RATIO = 1.15
 
 	local function luminance(v)
 		return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
 	end
 
-	-- zenith luminance of the cie overcast sky: it spreads what the clouds let through of a clear
-	-- day's (or night's) horizontal illuminance, and a cie overcast sky gives 7 pi / 9 times its zenith luminance
 	function atmosphere.GetOvercastLuminance(sun_dir, moon_dir, moon_illuminance)
 		local clear_illuminance = atmosphere.GetSunIlluminance() * luminance(atmosphere.GetTransmittance(sun_dir)) * math.max(sun_dir.y, 0)
 
@@ -1103,8 +1057,6 @@ do
 	end
 end
 
--- sky.sun_direction, sky.moon_direction, sky.moon_illuminance (top of the atmosphere, lux),
--- sky.moon_angular_radius (radians) and sky.celestial_x/y/z, the rows turning world directions equatorial
 function atmosphere.SetSky(sky)
 	atmosphere.sky = sky
 end
@@ -1113,7 +1065,6 @@ function atmosphere.GetSky()
 	return atmosphere.sky
 end
 
--- set by render3d/clouds.lua
 function atmosphere.SetCloudSky(texture, mean_transmittance)
 	atmosphere.cloud_sky_texture = texture
 	atmosphere.cloud_transmittance = mean_transmittance
@@ -1239,7 +1190,6 @@ do
 		field[2] = v.z
 	end
 
-	-- sun_dir is the primary light's, the sky only uses it without atmosphere.sky
 	function atmosphere.WriteBlock(pipeline, block, cam_pos, sun_dir)
 		local sky = atmosphere.sky
 		local sky_sun_dir = sky and sky.sun_direction or sun_dir
@@ -1259,7 +1209,6 @@ do
 
 		if sky then
 			write_vec3(block.atmosphere_moon_direction, sky.moon_direction)
-			-- the sky view lut is baked for the sun's illuminance, the moonlit sky is the same air lit less
 			block.atmosphere_moon_sky_scale = sky.moon_illuminance / atmosphere.GetSunIlluminance()
 			block.atmosphere_moon_sky_view_texture_index = pipeline:GetTextureIndex(atmosphere.GetSkyViewTexture(cam_pos, sky.moon_direction))
 			block.atmosphere_moon_angular_radius = sky.moon_angular_radius
@@ -1290,11 +1239,6 @@ function atmosphere.GetAerialPerspectiveGLSLCode()
 	return atmosphere_glsl
 end
 
--- Writes the sky radiance seen along dir_var into a vec3 named
--- sky_color_output that must already be declared. options.include_sun_disc
--- defaults to true; environment probes leave it out since the sun is lit
--- analytically. options.clouds is a GLSL condition for putting the cloud sky
--- dome in front, "true" by default; the main view draws its own clouds.
 function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 	options = options or {}
 	local disc_code = ""
@@ -1341,7 +1285,6 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 	]]
 end
 
--- the atmosphere's transmittance toward dir, what reaches the ground of light from there
 function atmosphere.GetTransmittance(sunDir, camPos)
 	camPos = camPos or Vec3(0, 0, 0)
 	local rayOrigin = Vec3(

@@ -283,7 +283,6 @@ function META:GetAtlasFormat()
 end
 
 local function build_glyph_metrics(self, g, code)
-	-- bitmap glyphs are already rasterized, do not scale metrics
 	local scale = g.texture and 1 or self.Size
 	return {
 		x_advance = g.x_advance * scale,
@@ -399,7 +398,6 @@ end
 function META:ReleaseTempResources()
 	for i, v in ipairs(self.temp_textures) do
 
-	--tex_pool.release(v)
 	end
 
 	for i, v in ipairs(self.temp_framebuffers) do
@@ -502,7 +500,6 @@ function META:LoadGlyph(code)
 		return
 	end
 
-	-- bitmap glyphs are already rasterized, do not scale metrics
 	local glyph = build_glyph_metrics(self, g, code)
 	self.chars[code] = glyph
 	local batched = self:IsCollectingTempResources()

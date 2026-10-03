@@ -56,7 +56,6 @@ local function get_is_set(is, meta, name, default, cvar)
 		end
 	end
 
-	-- this is important because it sets up property info for this object for editors and such to use
 	return is and
 		objects.IsSet(meta, name, default) or
 		objects.GetSet(meta, name, default)

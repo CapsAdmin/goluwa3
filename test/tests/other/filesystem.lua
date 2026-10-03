@@ -4,10 +4,8 @@ local system = import("goluwa/system.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local test_dir = "storage/userdata/test_filesystem_temp/"
 
--- Helper to ensure test directory is clean
 local function cleanup()
 	if fs.exists(test_dir) then
-		-- Recursive removal helper for tests
 		local function remove_recursive(path)
 			if fs.is_directory(path) then
 				local files = fs.get_files(path)
@@ -33,17 +31,13 @@ T.Test("filesystem basic file operations", function()
 	fs.create_directory_recursive(test_dir)
 	local file_path = test_dir .. "test.txt"
 	local content = "hello world"
-	-- Write
 	local ok, err = fs.write_file(file_path, content)
 	T(ok)["=="](true, err)
-	-- Exists
 	T(fs.exists(file_path))["=="](true)
 	T(fs.is_file(file_path))["=="](true)
 	T(fs.is_directory(file_path))["=="](false)
-	-- Read
 	local read_content = fs.read_file(file_path)
 	T(read_content)["=="](content)
-	-- Remove
 	local ok, err = fs.remove_file(file_path)
 	T(ok)["=="](true, err)
 	T(fs.exists(file_path))["=="](false)
@@ -56,10 +50,8 @@ T.Test("filesystem directory operations", function()
 	local ok, err = fs.create_directory_recursive(deep_dir)
 	T(ok)["=="](true, err)
 	T(fs.is_directory(deep_dir))["=="](true)
-	-- Check parent directories
 	T(fs.is_directory(test_dir .. "a/"))["=="](true)
 	T(fs.is_directory(test_dir .. "a/b/"))["=="](true)
-	-- get_files
 	fs.write_file(deep_dir .. "file1.txt", "1")
 	fs.write_file(deep_dir .. "file2.txt", "2")
 	local files = fs.get_files(deep_dir)
@@ -74,7 +66,6 @@ T.Test("filesystem directory operations", function()
 
 	T(found1)["=="](true)
 	T(found2)["=="](true)
-	-- iterate
 	local iterated = {}
 
 	for path in fs.iterate(deep_dir, "%.txt$") do
@@ -82,11 +73,7 @@ T.Test("filesystem directory operations", function()
 	end
 
 	T(#iterated)["=="](2)
-	-- get_files_recursive
 	local all_files = fs.get_files_recursive(test_dir)
-	-- Should have test_dir/a, test_dir/a/b, test_dir/a/b/c, and the two files
-	-- Actually get_files_recursive implementation in fs.lua uses walk with files_only=true
-	-- Let's check the count.
 	T(#all_files)["=="](2)
 	cleanup()
 end)
@@ -110,21 +97,16 @@ T.Test("filesystem working directory", function()
 	local old_wd = fs.get_current_directory()
 	cleanup()
 	fs.create_directory_recursive(test_dir)
-	-- Test set/get
 	local abs_test_dir = fs.get_current_directory() .. "/" .. test_dir
-	-- Normalize abs_test_dir (remove double slashes)
 	abs_test_dir = abs_test_dir:gsub("//+", "/")
 
 	if abs_test_dir:sub(-1) == "/" then abs_test_dir = abs_test_dir:sub(1, -2) end
 
 	fs.set_current_directory(test_dir)
 	local new_wd = fs.get_current_directory()
-	-- Depending on OS/path normalization, they might differ slightly in slashes
-	-- but they should point to the same place.
 	T(new_wd:lower():gsub("\\", "/"):ends_with(test_dir:lower():gsub("/$", "")))["=="](true)
 	fs.set_current_directory(old_wd)
 	T(fs.get_current_directory())["=="](old_wd)
-	-- Test Push/Pop
 	fs.PushWorkingDirectory(test_dir)
 	T(
 		fs.get_current_directory():lower():gsub("\\", "/"):ends_with(test_dir:lower():gsub("/$", ""))
@@ -148,7 +130,6 @@ T.Test("filesystem file objects (high-level)", function()
 	T(f2:read(5))["=="]("hello")
 	T(f2:tell())["=="](5)
 	T(f2:read(6))["=="](" world")
-	-- Trigger EOF by trying to read past the end
 	f2:read(1)
 	T(f2:eof())["=="](true)
 	f2:seek(0)
@@ -159,16 +140,11 @@ T.Test("filesystem file objects (high-level)", function()
 end)
 
 T.Test("filesystem fd objects (low-level)", function()
-	if jit.os == "Windows" then
-
-	-- Windows low level fd test might be tricky with pipes as implemented
-	-- but let's try basic file fd
-	end
+	if jit.os == "Windows" then  end
 
 	cleanup()
 	fs.create_directory_recursive(test_dir)
 	local file_path = test_dir .. "fd_test.bin"
-	-- Test fd_open_object
 	local flags = bit.bor(fs.O_CREAT, fs.O_RDWR)
 	local f, err = fs.fd_open_object(file_path, flags)
 
@@ -179,13 +155,11 @@ T.Test("filesystem fd objects (low-level)", function()
 	f:seek(0)
 	T(f:read(8))["=="]("fd hello")
 	f:close()
-	-- Test pipes (if supported)
 	local r, w = fs.get_read_write_fd_pipes()
 
 	if r then
 		w:write("pipe data")
 		local data, len = r:read(20)
-		-- On some systems, read might be non-blocking or partial
 		T(data)["=="]("pipe data")
 		r:close()
 		w:close()
@@ -204,27 +178,17 @@ T.Test("filesystem glob", function()
 	fs.write_file(base .. "a/b/c/file3.txt", "3")
 	fs.write_file(base .. "x/y/file4.lua", "4")
 	fs.write_file(base .. "root.lua", "5")
-	-- Simple glob
 	local res = fs.glob(base .. "*.lua")
 	T(#res)["=="](1)
 	T(res[1])["=="](base .. "root.lua")
-	-- Recursive glob **
 	res = fs.glob(base .. "**/*.lua")
-	-- Should find:
-	-- base/a/b/file2.lua
-	-- base/a/file1.lua
-	-- base/root.lua
-	-- base/x/y/file4.lua
 	T(#res)["=="](4)
-	-- Recursive glob with specific extension
 	res = fs.glob(base .. "**/f*.txt")
 	T(#res)["=="](1)
 	T(res[1])["=="](base .. "a/b/c/file3.txt")
-	-- Glob in middle
 	res = fs.glob(base .. "x/*/file4.lua")
 	T(#res)["=="](1)
 	T(res[1])["=="](base .. "x/y/file4.lua")
-	-- No match
 	res = fs.glob(base .. "**/*.js")
 	T(#res)["=="](0)
 	cleanup()

@@ -71,13 +71,6 @@ function screen_reconstruct.GetViewRayFromUVGLSL(block_name, options)
 	):format(function_name, uv_name, uv_name, uv_name, block_name, block_name, block_name)
 end
 
--- the surface's own normal (ignoring normal maps), from the positions of the
--- neighbouring depth pixels. Depth is linear in screen space across a plane, so
--- per axis the side whose two pixels extrapolate best to this one's depth is on
--- this surface, and a silhouette doesn't mix in the surface behind it. When
--- neither side does, like the ground in a one pixel gap between grass blades,
--- there is nothing to take a normal from and the fallback is used.
--- needs a world pos from (uv, depth) function, see GetWorldPosFromUVGLSL
 function screen_reconstruct.GetGeometricNormalGLSL(block_name, options)
 	options = options or {}
 	local function_name = options.function_name or "get_geometric_normal"

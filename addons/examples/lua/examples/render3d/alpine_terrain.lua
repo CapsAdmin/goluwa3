@@ -1,7 +1,3 @@
---[[
-	Alpine terrain: the look of this landscape lives here. The engine only
-	provides the streaming, LOD, physics and the GLSL bake helpers.
-]]
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local noise = import("goluwa/terrain/noise.lua")
@@ -31,7 +27,6 @@ float terrain_height(vec2 world) {
 	return h;
 }
 ]=]
--- layer weights: x = grass, y = dirt, z = rock, w = snow
 local SPLAT_GLSL = [=[
 vec4 terrain_splat(vec2 world, float h, vec3 n) {
 	vec2 p = world + SEED_OFFSET;
@@ -54,9 +49,6 @@ vec4 terrain_splat(vec2 world, float h, vec3 n) {
 	return w / max(dot(w, vec4(1.0)), 0.0001);
 }
 ]=]
--- low frequency tint multiplied over the layers so the tiling textures do not read as a grid.
--- keep it smooth: the colour texture is 1 m per texel near the camera and 32 m far away,
--- anything finer aliases into a dot pattern on distant slopes
 local COLOR_GLSL = [=[
 vec3 terrain_color(vec2 world, float h, vec3 n) {
 	vec2 p = world + SEED_OFFSET;

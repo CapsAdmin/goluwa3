@@ -57,9 +57,6 @@ local function get_separation_tolerance(solver)
 	return math.max(solver.PENETRATION_SLOP or 0, 0.005) * 4
 end
 
--- Separated (lifted) manifold points can only keep holding persistent impulse while the
--- pair is still moving fast. Once the pair slows down the lift is released, otherwise a
--- body locks into its tilted pose instead of settling flat onto the reference face.
 local function pair_breaks_lifted_support(solver, body_a, body_b)
 	local velocity_a = body_a.Velocity
 	local velocity_b = body_b.Velocity
@@ -121,9 +118,6 @@ end
 
 local CLAIMED = {}
 
--- contacts are rebuilt into the spare list from the previous substep and the
--- two lists swap, so matched contacts carry their impulses over without any
--- per-rebuild allocation
 function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 	local previous_contacts = manifold_data.contacts or EMPTY_CONTACTS
 	local previous_count = #previous_contacts
@@ -152,8 +146,6 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 		local local_point_a = body_a:WorldToLocal(contact.point_a, nil, nil, rebuilt_contact.local_point_a)
 		local local_point_b = body_b:WorldToLocal(contact.point_b, nil, nil, rebuilt_contact.local_point_b)
 		local matched_index
-		-- contacts carrying a feature key match by exact feature pair first
-		-- (box3d b3MakeFeatureId); proximity is only the fallback
 		local feature_key = contact.feature_key
 
 		if feature_key then
@@ -262,8 +254,6 @@ function manifold.CaptureRestitutionBias(body_a, body_b, normal, manifold_data, 
 		local point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, BIAS_POINT_B)
 		contact.v_pre = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b):Dot(normal)
 
-		-- restitution bounces off the speed the contact first arrived with in
-		-- this step, before any of its substeps solved it
 		if contact.rest_stamp ~= stamp then
 			contact.rest_stamp = stamp
 			contact.rest_speed = contact.v_pre
@@ -276,8 +266,6 @@ end
 function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
 
-	-- a sleeping body never integrated gravity this step, so the impulse that
-	-- used to balance it would only kick it awake
 	if body_a.Awake == false then state_a.immovable = true end
 
 	if body_b.Awake == false then state_b.immovable = true end
@@ -306,8 +294,6 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 			did_apply = true
 		end
 
-		-- the solver accumulates impulses and clamps them against the contact's
-		-- friction cone, so what it holds must be exactly what was applied here
 		local applied_tangent_1 = 0
 		local applied_tangent_2 = 0
 
@@ -348,10 +334,6 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	if did_apply then impulse_motion.CommitPairMotion(state_a, state_b, dt) end
 end
 
--- Everything the normal row needs that only depends on the poses is computed
--- once per substep (contacts are rebuilt or the substep changes): bodies do not
--- move while velocity impulses are solved, so the lever arms, the angular
--- response per unit impulse and the effective mass stay valid for every pass.
 local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 	local nx, ny, nz = normal.x, normal.y, normal.z
 	local position_a = body_a:GetBody().Position
@@ -374,14 +356,9 @@ local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 				point_a.z - point_b.z
 			) * nz
 
-		-- the anchors are fixed to the bodies and the normal to the rebuild
-		-- pose, so the gap follows from how far the anchors moved along the
-		-- normal since the narrowphase measured it
 		if contact.base_depth then
 			contact.separation = contact.base_separation - (depth - contact.base_depth)
 		else
-			-- narrowphases that clip against a reference face report a signed
-			-- gap, the others only the manifold overlap
 			contact.separation = contact.separation or -(depth + (manifold_data.depth_offset or 0))
 			contact.base_separation = contact.separation
 			contact.base_depth = depth
@@ -417,8 +394,6 @@ local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 		contact.normal_inverse_mass = inverse_mass
 	end
 
-	-- twist friction resists spin about the normal; contacts further from
-	-- the manifold centre give it more leverage, a lone contact gives none
 	local count = #contacts
 	local centre_x, centre_y, centre_z = 0, 0, 0
 
@@ -453,7 +428,6 @@ local function prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
 	manifold_data.prepared_mass_b = mass_b
 end
 
--- world-space inverse inertia applied to a world vector: R * I^-1 * R^T * v
 local function inverse_inertia_apply(body, vx, vy, vz)
 	body = body:GetBody()
 	local tx = 2 * (-body.Rotation.y * vz + body.Rotation.z * vy)
@@ -473,7 +447,6 @@ local function inverse_inertia_apply(body, vx, vy, vz)
 	iz + body.Rotation.w * tz + (body.Rotation.x * ty - body.Rotation.y * tx)
 end
 
--- v . (R * I^-1 * R^T * v), without rotating the result back
 local function inverse_inertia_dot(body, vx, vy, vz)
 	body = body:GetBody()
 	local tx = 2 * (-body.Rotation.y * vz + body.Rotation.z * vy)
@@ -482,7 +455,13 @@ local function inverse_inertia_dot(body, vx, vy, vz)
 	local lx = vx + body.Rotation.w * tx + (-body.Rotation.y * tz + body.Rotation.z * ty)
 	local ly = vy + body.Rotation.w * ty + (-body.Rotation.z * tx + body.Rotation.x * tz)
 	local lz = vz + body.Rotation.w * tz + (-body.Rotation.x * ty + body.Rotation.y * tx)
-	return lx * (body.InverseInertiaTensor.m00 * lx + body.InverseInertiaTensor.m01 * ly + body.InverseInertiaTensor.m02 * lz) + ly * (body.InverseInertiaTensor.m10 * lx + body.InverseInertiaTensor.m11 * ly + body.InverseInertiaTensor.m12 * lz) + lz * (body.InverseInertiaTensor.m20 * lx + body.InverseInertiaTensor.m21 * ly + body.InverseInertiaTensor.m22 * lz)
+	return lx * (
+			body.InverseInertiaTensor.m00 * lx + body.InverseInertiaTensor.m01 * ly + body.InverseInertiaTensor.m02 * lz
+		) + ly * (
+			body.InverseInertiaTensor.m10 * lx + body.InverseInertiaTensor.m11 * ly + body.InverseInertiaTensor.m12 * lz
+		) + lz * (
+			body.InverseInertiaTensor.m20 * lx + body.InverseInertiaTensor.m21 * ly + body.InverseInertiaTensor.m22 * lz
+		)
 end
 
 manifold.PrepareContacts = prepare_contacts
@@ -508,16 +487,11 @@ function manifold.SolveImpulses(
 	local bounces = restitution > 0
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local passes = physics.solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
-	-- soft contact: a spring-damper per contact (Box2D soft step), static
-	-- pairs twice as stiff. The relax pass solves rigidly with no bias
-	-- (rate 0, full mass scale, no impulse scale) and no speculative gap.
 	local bias_rate = 0
 	local soft_mass_scale = 1
 	local soft_impulse_scale = 0
 	local speculative = false
 
-	-- a sleeping body skipped gravity this substep, so the soft solve would
-	-- relax the support impulse it still carries and kick it awake
 	if
 		not relax and
 		not (
@@ -564,18 +538,11 @@ function manifold.SolveImpulses(
 						body_b.Velocity.z - body_a.Velocity.z
 					) * normal.z + body_b.AngularVelocity.x * contact.cb_x + body_b.AngularVelocity.y * contact.cb_y + body_b.AngularVelocity.z * contact.cb_z - body_a.AngularVelocity.x * contact.ca_x - body_a.AngularVelocity.y * contact.ca_y - body_a.AngularVelocity.z * contact.ca_z
 				local effective_speed = normal_speed
-				-- the gap before this substep's motion; bodies already moved by v_pre * dt.
-				-- A closed gap solves softly with a push-out bias, an open gap is
-				-- speculative: it may still approach by gap / dt.
 				local gap = contact.separation - (contact.v_pre or 0) * dt
 				local open_gap = 0
 
 				if speculative then open_gap = math.min(1, math.max(0, gap * 1e30)) end
 
-				-- the relax pass solves a contact as touching so a resting body keeps
-				-- its support, but one that is clearly open stays open: solved as
-				-- touching it would prop up the side of a tilted box that should
-				-- be falling flat
 				if relax and gap > physics.solver.RELAX_OPEN_GAP then open_gap = 1 end
 
 				local bias = open_gap * gap / dt + (
@@ -676,8 +643,6 @@ function manifold.SolveImpulses(
 				)
 
 				if tangent_speed > EPSILON then
-					-- tangent direction: the cached one while it is still usable,
-					-- otherwise the sliding direction
 					local px, py, pz = rel_x - normal.x * normal_dot,
 					rel_y - normal.y * normal_dot,
 					rel_z - normal.z * normal_dot
@@ -695,7 +660,6 @@ function manifold.SolveImpulses(
 						end
 					end
 
-					-- bitangent = t x n, then re-orthogonalise t = n x b
 					local bx, by, bz = (py * normal.z - pz * normal.y) * inv,
 					(pz * normal.x - px * normal.z) * inv,
 					(px * normal.y - py * normal.x) * inv
@@ -798,7 +762,6 @@ function manifold.SolveImpulses(
 							contact.tangent = tangent_store
 						end
 
-						-- r x (d1 t + d2 b) is linear, so one inverse inertia call covers both rows
 						local wx, wy, wz = delta_1 * tx + delta_2 * bx,
 						delta_1 * ty + delta_2 * by,
 						delta_1 * tz + delta_2 * bz
@@ -874,7 +837,6 @@ function manifold.SolveImpulses(
 	body_a.PositionCorrection = math.max(body_a.PositionCorrection, position_correction)
 	body_b.PositionCorrection = math.max(body_b.PositionCorrection, position_correction)
 
-	-- a sleeping body only wakes once the impulses push it past its thresholds
 	if body_a.Awake == false then
 		motion.SetBodyMotionFromCurrentState(body_a, body_a.Velocity, body_a.AngularVelocity, dt)
 	end
@@ -884,9 +846,6 @@ function manifold.SolveImpulses(
 	end
 end
 
--- Bounce after the substeps: contacts that took compression impulse and
--- arrived faster than the threshold get the velocity that makes them leave
--- at restitution times their arrival speed. Runs on velocities only.
 function manifold.ApplyRestitution(body_a, body_b, normal, manifold_data, dt)
 	local physics = body_a:GetPhysics()
 	local solver = physics.solver

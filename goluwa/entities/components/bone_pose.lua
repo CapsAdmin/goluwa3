@@ -3,9 +3,6 @@ local event = import("goluwa/event.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
--- moves the bones of an animated model by hand, a position and rotation per bone in the space of the bone, on top of
--- what the animation does (children follow). bones are model specific so the editor gets them as dynamic properties.
--- for any matrix in either space use the rig of the animator (animator:GetRig():SetBone)
 local BonePose = objects.CreateTemplate("bone_pose")
 BonePose.Is3D = true
 
@@ -132,7 +129,6 @@ function BonePose:OnDeserialize(data)
 	end
 end
 
--- the animator makes a new rig every time it binds a model
 function BonePose:Update()
 	local animator = self.Owner.animator
 	local rig = animator and animator.rig

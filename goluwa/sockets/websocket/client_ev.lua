@@ -132,7 +132,6 @@ local ev = function(ws)
 		sock = socket.tcp()
 		fd = sock:getfd()
 		assert(fd > -1)
-		-- set non blocking
 		sock:settimeout(0)
 		sock:setoption("tcp-nodelay", true)
 		async_send, send_io_stop = import("goluwa/websocket/ev_common.lua").async_send(sock, loop)
@@ -155,7 +154,6 @@ local ev = function(ws)
 						local resp = {}
 						local response = ""
 						local read_upgrade = function(loop, read_io)
-							-- this seems to be possible, i don't understand why though :(
 							if not sock then
 								read_io:stop(loop)
 								handshake_io = nil
@@ -193,7 +191,7 @@ local ev = function(ws)
 							on_open(self, headers)
 						end
 						handshake_io = ev.IO.new(read_upgrade, fd, ev.READ)
-						handshake_io:start(loop) -- handshake
+						handshake_io:start(loop)
 					end,
 					handle_socket_err
 				)
@@ -206,7 +204,7 @@ local ev = function(ws)
 		if connected then
 			handshake_io:callback()(loop, handshake_io)
 		elseif err == "timeout" or err == "Operation already in progress" then
-			handshake_io:start(loop) -- connect
+			handshake_io:start(loop)
 		else
 			self.state = "CLOSED"
 			on_error(err)
@@ -239,8 +237,6 @@ local ev = function(ws)
 			timeout = timeout or 3
 			local encoded = frame.encode_close(code or 1000, reason)
 			encoded = frame.encode(encoded, frame.CLOSE, true)
-			-- this should let the other peer confirm the CLOSE message
-			-- by 'echoing' the message.
 			async_send(encoded)
 			close_timer = ev.Timer.new(
 				function()

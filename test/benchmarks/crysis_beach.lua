@@ -1,12 +1,9 @@
--- glw: --3d
--- Crysis PS/Beach: 120k blocks and 54M triangles, from 150 m above the center of the scene
 local commands = import("goluwa/cli/commands.lua")
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 frame_benchmark.Run{
 	name = "Crysis PS/Beach",
-	-- vegetation and terrain keep spawning for a while after the first build
 	settle_quiet = 20,
 	warmup = 12,
 	load = function()
@@ -14,7 +11,9 @@ frame_benchmark.Run{
 	end,
 	view = function()
 		local min, max = scene_bvh.GetBounds()
-		return Vec3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2 + 150, (min[2] + max[2]) / 2), -10, 0
+		return Vec3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2 + 150, (min[2] + max[2]) / 2),
+		-10,
+		0
 	end,
 	phases = {
 		{name = "static"},

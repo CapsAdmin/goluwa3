@@ -3,8 +3,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local brush_hull = {}
 local BRUSH_HULL_EPSILON = 0.0001
 
--- the corners are where three planes meet inside all the others. plain numbers rather than
--- Vec3 keep the intersection in double precision
 function brush_hull.BuildHullFromPlanes(planes, epsilon)
 	if not (planes and planes[1] and planes[4]) then return nil end
 
@@ -23,7 +21,6 @@ function brush_hull.BuildHullFromPlanes(planes, epsilon)
 			for k = j + 1, count do
 				local n3 = planes[k].normal
 				local x3, y3, z3, d3 = n3.x, n3.y, n3.z, planes[k].dist
-				-- n2 x n3, n3 x n1 and n1 x n2
 				local ax, ay, az = y2 * z3 - z2 * y3, z2 * x3 - x2 * z3, x2 * y3 - y2 * x3
 				local bx, by, bz = y3 * z1 - z3 * y1, z3 * x1 - x3 * z1, x3 * y1 - y3 * x1
 				local cx, cy, cz = y1 * z2 - z1 * y2, z1 * x2 - x1 * z2, x1 * y2 - y1 * x2

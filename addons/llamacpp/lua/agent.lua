@@ -183,8 +183,6 @@ function Agent:OnChoice(choice)
 			local slot = self.slots[idx]
 
 			if tc.id then
-				-- If a slot already existed, it was for the same index but without an ID (hallucinated delta?)
-				-- or it's a completely new index with an ID.
 				slot = {
 					id = tc.id,
 					name = tc["function"].name,
@@ -198,7 +196,6 @@ function Agent:OnChoice(choice)
 					args = tc["function"].arguments or "",
 				}
 			elseif tc["function"] then
-				-- If we don't have a slot for this index yet, create a skeleton
 				if not slot then
 					slot = {
 						id = "unknown",
@@ -221,7 +218,6 @@ function Agent:OnChoice(choice)
 
 	if choice.finish_reason == "tool_calls" then
 		self:OnLogEvent({type = "tool_waiting"})
-		-- Convert slots map to a flat list for execution
 		local active_tools = {}
 
 		for _, slot in pairs(self.slots) do
@@ -285,7 +281,6 @@ function Agent:OnChoice(choice)
 			self:OnLogEvent({type = "finished"})
 		end
 	elseif choice.finish_reason == "length" then
-		-- fix: handle max_tokens truncation gracefully
 		self:OnLogEvent({type = "truncated"})
 		table.clear(self.active_tools)
 
@@ -328,7 +323,6 @@ function Agent:RunAsync()
 			top_p = 0.95,
 			top_k = 20,
 			min_p = 0.0,
-			--
 			messages = self:GetMessages(),
 			tools = self:GetToolDescriptions(),
 			on_data = function(data)

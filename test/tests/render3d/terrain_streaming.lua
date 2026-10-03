@@ -32,7 +32,6 @@ local function fake_entity()
 	}
 end
 
--- headless terrain: no render, tiles are plain tables with a fake entity
 local function create_terrain()
 	local terrain = Terrain.New{
 		Name = "terrain_streaming_test",
@@ -102,15 +101,11 @@ T.Test("Terrain keeps stale tiles until their replacements are built", function(
 	local ready, retiring = count_tiles(terrain)
 	T(ready)["=="](28)
 	T(retiring)["=="](0)
-	-- move one level 0 snap step, so the inner ring shifts and level 1 re-tiles
 	terrain:UpdateTiles(Vec3(40, 0, 0))
 	ready, retiring = count_tiles(terrain)
 	T(retiring > 0)["=="](true)
 	T(ready > 0)["=="](true)
-	-- tiles outside the new coverage go away at once, but the area both
-	-- layouts cover (x 0..64) must stay covered while the new tiles build
 	local steps = 0
-
 	local saw_hidden = false
 
 	while #terrain.BuildQueue > 0 do
@@ -120,7 +115,6 @@ T.Test("Terrain keeps stale tiles until their replacements are built", function(
 		steps = steps + 1
 		T(steps < 100)["=="](true)
 
-		-- a visible new tile must never overlap a visible old one
 		for _, tile in pairs(terrain.Tiles) do
 			if tile.hidden then saw_hidden = true end
 
@@ -129,10 +123,18 @@ T.Test("Terrain keeps stale tiles until their replacements are built", function(
 					if other.retiring and other.entity then
 						local size = terrain:GetLevelChunkSize(tile.level)
 						local other_size = terrain:GetLevelChunkSize(other.level)
-						local overlap = tile.chunk_x * size < (other.chunk_x + 1) * other_size and
-							other.chunk_x * other_size < (tile.chunk_x + 1) * size and
-							tile.chunk_z * size < (other.chunk_z + 1) * other_size and
-							other.chunk_z * other_size < (tile.chunk_z + 1) * size
+						local overlap = tile.chunk_x * size < (
+								other.chunk_x + 1
+							) * other_size and
+							other.chunk_x * other_size < (
+								tile.chunk_x + 1
+							) * size and
+							tile.chunk_z * size < (
+								other.chunk_z + 1
+							) * other_size and
+							other.chunk_z * other_size < (
+								tile.chunk_z + 1
+							) * size
 						T(overlap)["=="](false)
 					end
 				end
@@ -141,7 +143,6 @@ T.Test("Terrain keeps stale tiles until their replacements are built", function(
 	end
 
 	T(saw_hidden)["=="](true)
-
 	terrain:RetireTiles()
 	ready, retiring = count_tiles(terrain)
 	T(ready)["=="](28)

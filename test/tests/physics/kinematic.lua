@@ -13,7 +13,6 @@ local sphere_shape = SphereShape.New
 local capsule_shape = CapsuleShape.New
 local box_shape = BoxShape.New
 
-
 local function create_flat_ground(name, extent)
 	extent = extent or 8
 	local ground = Entity.New({Name = name})
@@ -43,7 +42,8 @@ end
 
 do
 	return
-end -- kinematic is broken, skip for now
+end
+
 T.TestPhysics("Kinematic controller implies kinematic motion type", function()
 	local ent = Entity.New({Name = "kinematic_motion_type"})
 	ent:AddComponent("transform")

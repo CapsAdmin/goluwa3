@@ -98,7 +98,7 @@ function BaseTheme:CreatePalette()
 	local semantic_palette = ColorPalette.New()
 	semantic_palette:SetShades{
 		surface_alt,
-		Color.FromHex("#272729"), -- near-black tile
+		Color.FromHex("#272729"),
 		text,
 	}
 	semantic_palette:SetColors{
@@ -111,7 +111,6 @@ function BaseTheme:CreatePalette()
 	}
 	local base_map = semantic_palette:GetBaseMap()
 	semantic_palette:SetMap{
-		-- Accent / interactive
 		primary = primary,
 		primary_focus = Color.FromHex("#1d4ed8"),
 		button_color = primary,
@@ -119,25 +118,20 @@ function BaseTheme:CreatePalette()
 		clickable_disabled = Color.FromHex("#d2d2d7"),
 		property_selection = Color.FromHex("#dbeafe"),
 		text_selection = Color.FromHex("#93c5fd"):SetAlpha(0.5),
-		-- Semantic
 		positive = base_map.green,
 		neutral = base_map.yellow,
 		negative = base_map.red,
-		-- Text
 		text = text,
 		text_on_accent = Color.FromHex("#ffffff"),
 		text_on_dark = Color.FromHex("#ffffff"),
 		text_disabled = Color.FromHex("#a0a0a5"),
-		-- Surfaces
 		surface = surface,
 		surface_alt = surface_alt,
 		surface_tile_1 = Color.FromHex("#272729"),
 		actual_black = Color(0, 0, 0, 1),
 		track = Color.FromHex("#e8e8ed"),
-		-- Scrollbars
 		scrollbar_track = Color(0, 0, 0, 0.08),
 		scrollbar = Color(0.165, 0.165, 0.165, 0.35),
-		-- Borders
 		border = Color.FromHex("#dcdce1"),
 		border_strong = Color.FromHex("#b8b8bf"),
 		invisible = Color(0, 0, 0, 0),
@@ -310,8 +304,6 @@ function BaseTheme:GetFont(name, size_name)
 	return font_cache[cache_key], size_val
 end
 
--- All theme drawing goes through render2d.DrawShape: one self-contained
--- table per shape, with state pushed and popped internally.
 function BaseTheme:DrawRoundRect(x, y, w, h, radius, color, alpha_multiplier)
 	render2d.DrawShape{
 		x = x,
@@ -343,8 +335,6 @@ function BaseTheme:DrawRoundOutline(x, y, w, h, radius, color, alpha_multiplier,
 	}
 end
 
--- Rounded box with an optional fill and outline ring, drawn as a single
--- DrawShape call (fill + ring shorthand when both are present).
 function BaseTheme:DrawBoxShape(x, y, w, h, opts)
 	opts = opts or {}
 	local fill = opts.fill
@@ -486,7 +476,7 @@ function BaseTheme:GetHoverTint(color, alpha)
 	return self:ResolveColor(color, "primary"):Copy():SetAlpha(alpha or 0.08)
 end
 
-do -- icons
+do
 	function BaseTheme:DrawIcon(name, size, opts)
 		if name == "disclosure" then
 			return self:DrawDisclosureIcon(size, opts)
@@ -524,7 +514,6 @@ do -- icons
 		return math.max(1, math.min(base, available))
 	end
 
-	-- origin_x / origin_y align the icon inside `size` (0..1, default top-left)
 	function BaseTheme:DrawSVGIcon(name, size, opts)
 		opts = opts or {}
 		local svg = get_cached_icon_svg(name)
@@ -750,9 +739,6 @@ do
 	end
 
 	do
-		-- Resolves the colors for a clickable's current state. Fill colors are
-		-- full-alpha; the *_alpha fields carry the translucency so callers can
-		-- animate it with the hover glow.
 		function BaseTheme:ResolveButtonStyleContext(state)
 			local accent = self:GetColor(state.button_color or "primary")
 			local background_token
@@ -1311,8 +1297,6 @@ function BaseTheme:DrawSlider(size, state)
 	}
 end
 
--- Shared checkable control drawing: outer shape + border + inner mark when
--- checked. inner_draw: function(theme, draw_x, draw_y, draw_size, draw_radius, alpha)
 function BaseTheme:DrawCheckable(size, state, opts)
 	local anim = state.anim or
 		{
@@ -1461,7 +1445,6 @@ function BaseTheme:DrawMenuContainer(size)
 	)
 end
 
--- Draw a 1px line: color token, alpha, size, orientation ("auto", "horizontal", "vertical")
 function BaseTheme:DrawLine(color_token, alpha, size, orientation)
 	if color_token == nil or color_token == 0 then color_token = "border" end
 
@@ -1624,8 +1607,6 @@ function BaseTheme:DrawPost(pnl)
 	end
 end
 
--- Decorative emphasis levels, assigned by role. Frame manages its own
--- "emphasis" state (defaults to 0, set via the Emphasis prop).
 local ROLE_EMPHASIS = {
 	WindowHeader = 3,
 	WindowContent = 3,

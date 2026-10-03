@@ -7,7 +7,6 @@ T.Test("Buffer ReadBytesUntil finds delimiter", function()
 	local buffer = Buffer.New(buf, 20)
 	local str = buffer:ReadBytesUntil(", ")
 	T(str)["=="]("hello")
-	-- Should have consumed the delimiter too
 	T(buffer:GetPosition())["=="](7)
 end)
 
@@ -45,9 +44,11 @@ T.Test("Buffer IterateStrings iterates null-terminated strings", function()
 	local buf = ffi.new("uint8_t[20]", "hello\0world\0test\0")
 	local buffer = Buffer.New(buf, 20)
 	local results = {}
+
 	for str in buffer:IterateStrings() do
 		table.insert(results, str)
 	end
+
 	T(#results)["=="](3)
 	T(results[1])["=="]("hello")
 	T(results[2])["=="]("world")

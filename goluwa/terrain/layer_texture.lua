@@ -1,19 +1,3 @@
---[=[
-	Bakes tileable terrain layer textures from GLSL.
-
-	config = {
-		Size = 512,
-		Header = "",         -- extra GLSL shared by all functions
-		Height = [[float layer_height(vec2 uv) { ... }]], -- 0..1 relief used for normals and AO
-		Albedo = [[ ... return vec4(color, roughness); ]], -- body, uv is 0..1
-		Depth = 0.05,        -- relief amplitude relative to the tile size, controls normal strength
-		AmbientOcclusion = [[ ... return float; ]], -- optional body, defaults to cavity + height
-	}
-
-	BakeAlbedo returns an rgba8 texture with roughness in alpha.
-	BakeNormal returns an rgba8 tangent space normal (z up) with ambient occlusion in alpha.
-	Both tile, so they can be sampled in world space by the terrain shader.
-]=]
 local Texture = import("goluwa/render/texture.lua")
 local noise = import("goluwa/terrain/noise.lua")
 local layer_texture = {}
@@ -51,7 +35,10 @@ local function make_texture(size)
 end
 
 local function build_header(config, size)
-	return string.format("const float texel = %f;\n", 1 / size) .. noise.TILE .. (config.Header or "") .. "\n" .. config.Height
+	return string.format("const float texel = %f;\n", 1 / size) .. noise.TILE .. (
+			config.Header or
+			""
+		) .. "\n" .. config.Height
 end
 
 function layer_texture.BakeAlbedo(config)
@@ -65,7 +52,7 @@ function layer_texture.BakeNormal(config)
 	local size = config.Size or 512
 	local depth = config.Depth or 0.05
 	local header = build_header(config, size) .. string.format(
-		[=[
+			[=[
 float layer_ambient_occlusion(vec2 uv) {
 %s
 }
@@ -79,9 +66,9 @@ vec3 layer_normal(vec2 uv) {
 	return normalize(vec3((hl - hr) * depth, (hd - hu) * depth, texel * 2.0));
 }
 ]=],
-		config.AmbientOcclusion or DEFAULT_AO_GLSL,
-		depth
-	)
+			config.AmbientOcclusion or DEFAULT_AO_GLSL,
+			depth
+		)
 	local texture = make_texture(size)
 	texture:Shade(
 		[=[

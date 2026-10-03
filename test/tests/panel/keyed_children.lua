@@ -32,9 +32,7 @@ T.Test("panel keyed children cleanup", function()
 	}
 	T(parent:GetKeyed("MyKey"))["=="](child)
 	child:Remove()
-	-- After removal, it should be nil because GetKeyed checks for IsValid
 	T(parent:GetKeyed("MyKey"))["=="](nil)
-	-- And it should also be nil in the raw table if OnChildRemove worked
 	T(parent.keyed_children["MyKey"])["=="](nil)
 end)
 
@@ -46,7 +44,6 @@ T.Test("panel removal unparents", function()
 	}
 	T(#parent:GetChildren())["=="](original_count + 1)
 	child:Remove()
-	-- It should be removed from the children list immediately or very soon
 	T(#parent:GetChildren())["=="](original_count)
 end)
 
@@ -61,7 +58,7 @@ T.Test("panel Ensure reuse", function()
 	T(parent:GetKeyed("MyKey"))["=="](child1)
 	local child2 = parent:Ensure{
 		Key = "MyKey",
-		Name = "Child 2", -- This should be ignored because child1 is reused
+		Name = "Child 2",
 	}
 	T(parent:GetKeyed("MyKey"))["=="](child1)
 	T(child2)["=="](child1)
@@ -93,7 +90,6 @@ T.Test("panel Ensure already created", function()
 		Name = "Child 1",
 	}
 	local child2 = Panel.New{
-		-- No parent, so it defaults to Panel.World and doesn't kill child1
 		Key = "MyKey",
 		Name = "Child 2",
 	}

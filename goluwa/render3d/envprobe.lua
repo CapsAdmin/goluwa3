@@ -36,21 +36,21 @@ local function get_primary_sun_direction()
 	return sun_dir
 end
 
-envprobe.TYPE_ENVIRONMENT = "environment" -- Sky only, re-rendered when the sun moves
-envprobe.TYPE_REFLECTION = "reflection" -- Renders geometry
-envprobe.UPDATE_DYNAMIC = "dynamic" -- Re-captured continuously
-envprobe.UPDATE_STATIC = "static" -- Captured once, and again when the sun moves
-envprobe.UPDATE_MANUAL = "manual" -- Captured only when marked dirty
+envprobe.TYPE_ENVIRONMENT = "environment"
+envprobe.TYPE_REFLECTION = "reflection"
+envprobe.UPDATE_DYNAMIC = "dynamic"
+envprobe.UPDATE_STATIC = "static"
+envprobe.UPDATE_MANUAL = "manual"
 envprobe.ENVIRONMENT_SIZE = 512
 envprobe.REFLECTION_SIZE = 128
-envprobe.IRRADIANCE_SIZE = 32 -- Sky irradiance cubemap face size
-envprobe.IRRADIANCE_SOURCE_SIZE = 16 -- Source mip face size the irradiance convolution integrates over
+envprobe.IRRADIANCE_SIZE = 32
+envprobe.IRRADIANCE_SOURCE_SIZE = 16
 envprobe.REFLECTION_RADIUS = envprobe.REFLECTION_RADIUS or 24
 envprobe.REFLECTION_MIN_SPACING = envprobe.REFLECTION_MIN_SPACING or 4
-envprobe.FACES_PER_FRAME = 1 -- anything higher causes invalid captures
-envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25 -- seconds between captures of a dynamic probe
+envprobe.FACES_PER_FRAME = 1
+envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25
 envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
-envprobe.MAX_UPLOADED_PROBES = 64 -- shader array size in ssr.lua
+envprobe.MAX_UPLOADED_PROBES = 64
 envprobe.enabled = true
 pvars.StartGroup("envprobe", {store = false})
 envprobe.reflection_probes_enabled = pvars.Setup2{
@@ -88,24 +88,23 @@ envprobe.capture_pipeline_flags = envprobe.capture_pipeline_flags or {
 envprobe.AUTO_PLACEMENT_SPACING = 24
 envprobe.AUTO_PLACEMENT_RADIUS_CELLS = 4
 envprobe.AUTO_PLACEMENT_MIN_RADIUS = 24
-envprobe.AUTO_PLACEMENT_TRACE_UP = 200 -- how far above camera height the ground trace starts
-envprobe.AUTO_PLACEMENT_TRACE_DOWN = 400 -- max distance the ground trace searches downward
-envprobe.AUTO_PLACEMENT_GROUND_CLEARANCE = 2 -- height above found ground to place the probe
+envprobe.AUTO_PLACEMENT_TRACE_UP = 200
+envprobe.AUTO_PLACEMENT_TRACE_DOWN = 400
+envprobe.AUTO_PLACEMENT_GROUND_CLEARANCE = 2
 envprobe.AUTO_PLACEMENT_INTERVAL = 1
 envprobe.probes = envprobe.probes or {}
-envprobe.auto_grid = envprobe.auto_grid or {} -- grid key -> auto-placed probe
+envprobe.auto_grid = envprobe.auto_grid or {}
 envprobe.auto_last_update = envprobe.auto_last_update or 0
-envprobe.current_probe = envprobe.current_probe or nil -- reflection probe currently being captured
+envprobe.current_probe = envprobe.current_probe or nil
 envprobe.current_face = envprobe.current_face or 0
 envprobe.inv_projection_view = envprobe.inv_projection_view or Matrix44()
--- Face rotation angles for cubemap rendering
 local face_angles = {
-	Deg3(0, -90 + 180, 0), -- +X
-	Deg3(0, 90 + 180, 0), -- -X
-	Deg3(90, 0 + 180, 0), -- +Y
-	Deg3(-90, 0 + 180, 0), -- -Y
-	Deg3(0, 0 + 180, 0), -- +Z
-	Deg3(0, 180 + 180, 0), -- -Z
+	Deg3(0, -90 + 180, 0),
+	Deg3(0, 90 + 180, 0),
+	Deg3(90, 0 + 180, 0),
+	Deg3(-90, 0 + 180, 0),
+	Deg3(0, 0 + 180, 0),
+	Deg3(0, 180 + 180, 0),
 }
 
 local function write_sky_vertex_constants(self, block)
@@ -113,9 +112,6 @@ local function write_sky_vertex_constants(self, block)
 	return block
 end
 
--- Converts an equirectangular fullscreen UV (0..1) into a world/probe-space
--- direction. Exact inverse of dir_to_equirect_uv in ibl.lua so a direction
--- written here reads back identically there.
 local equirect_direction_glsl = [[
 	vec3 equirect_uv_to_dir(vec2 uv) {
 		float phi = (uv.x - 0.5) * 6.28318530718;
@@ -303,9 +299,6 @@ local function CreateProbeTextures(size, with_irradiance)
 	probe.depth_cubemap = create_cubemap(size, "r32_sfloat", 1, DEPTH_SAMPLER)
 	probe.source_face_views = create_face_views(probe.source_cubemap)
 	probe.depth_face_views = create_face_views(probe.depth_cubemap)
-	-- Texture.New recomputes any mip_map_levels > 1 from the texture's own
-	-- width/height (see texture.lua), ignoring whatever count is requested,
-	-- so build the mip views off the count it actually settled on.
 	local color_w, color_h = equirect_dims(size)
 	probe.color_equirect = create_equirect(color_w, color_h, "b10g11r11_ufloat_pack32", "auto")
 	probe.color_equirect_mip_views = create_mip_views_2d(probe.color_equirect, probe.color_equirect.mip_map_levels)
@@ -1116,8 +1109,6 @@ local function get_probe_capture_depth_texture(bundle)
 	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
--- the sky the probes captured is stale once the sun or the moon moved, the clouds changed or drifted
--- or the atmosphere was switched on or off
 function envprobe.HasSkyChanged()
 	local sun = get_primary_sun(render3d.GetLights())
 

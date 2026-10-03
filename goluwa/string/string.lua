@@ -47,7 +47,6 @@ function string.strip_common_prefix_suffix(strings--[[#: List<|string|>]])
 
 	if #strings == 1 then return 0, 0 end
 
-	-- Find minimum length
 	local min_len = math.huge
 
 	for _, str in ipairs(strings) do
@@ -56,7 +55,6 @@ function string.strip_common_prefix_suffix(strings--[[#: List<|string|>]])
 
 	if min_len == 0 then return 0, 0 end
 
-	-- Find common prefix length (in bytes)
 	local prefix_len = 0
 
 	for i = 1, min_len do
@@ -74,7 +72,6 @@ function string.strip_common_prefix_suffix(strings--[[#: List<|string|>]])
 		if all_match then prefix_len = i else break end
 	end
 
-	-- Find common suffix length (in bytes)
 	local suffix_len = 0
 
 	for i = 1, min_len - prefix_len do

@@ -8,7 +8,6 @@ import.loaded["lua/chatsounds.lua"] = chatsounds
 import("lua/list_parsing.lua")
 import("lua/repositories.lua")
 chatsounds.max_iterations = 1000
--- utilities
 local choose_realm
 
 local function dump_script(out)
@@ -37,7 +36,6 @@ local function dump_script(out)
 	end
 end
 
--- modifiiers
 chatsounds.Modifiers = {
 	echo = {
 		args = {
@@ -118,7 +116,6 @@ chatsounds.Modifiers = {
 			if self.startpos then self._started = true end
 		end,
 		think = function(self)
-			-- SetSamplePosition must be called right after Play()
 			if self._started then
 				self._started = false
 				self.snd.obj:SetSamplePosition(self.snd.obj:GetSampleCount() * self.startpos)
@@ -137,8 +134,6 @@ chatsounds.Modifiers = {
 	},
 	duration = {
 		init = function(self, time, um)
-			-- legacy modifier workaround..
-			-- =0.125
 			if um then time = tonumber(time .. "." .. um) end
 
 			self.duration = time or self.duration
@@ -146,8 +141,6 @@ chatsounds.Modifiers = {
 	},
 	legacyduration = {
 		init = function(self, time, um)
-			-- legacy modifier workaround..
-			-- =0.125
 			if um then time = tonumber(time .. "." .. um) end
 
 			self.duration = time or self.duration
@@ -240,8 +233,6 @@ end)
 
 do
 	local function preprocess(str)
-		-- old style pitch to new
-		-- hello%50 > hello:pitch(50)
 		if chatsounds.debug then logn(">>> ", str) end
 
 		for _, val in ipairs(modifiers) do
@@ -283,7 +274,6 @@ do
 			local type = string.get_char_type(char)
 
 			if type ~= "space" then
-				-- 0.1234
 				if
 					(
 						last == "digit" and
@@ -475,7 +465,6 @@ do
 				if found then
 					local SOUND_DATA = found.node.SOUND_DATA
 
-					-- virtual tree
 					if getmetatable(SOUND_DATA) then
 						local temp = {}
 
@@ -739,7 +728,6 @@ function chatsounds.PlayScript(script)
 									end
 								end
 
-								-- needs to be sorted in some way so it will be equal for all clients
 								list.sort(temp, function(a, b)
 									return a.sound.path > b.sound.path
 								end)
@@ -765,7 +753,6 @@ function chatsounds.PlayScript(script)
 						end
 					end
 
-					-- needs to be sorted in some way so it will be equal for all clients
 					list.sort(temp, function(a, b)
 						return a.sound.path > b.sound.path
 					end)
@@ -786,7 +773,6 @@ function chatsounds.PlayScript(script)
 					sound.duration = chunk.val.duration
 					sound.trigger = chunk.val.trigger
 					sound.modifiers = chunk.modifiers
-					--print("DURATION", path, sound.duration)
 					sound.call = function(self, func_name)
 						if not self.modifiers then return end
 
@@ -821,11 +807,7 @@ function chatsounds.PlayScript(script)
 
 					list.insert(sounds, sound)
 					chatsounds.last_trigger = chunk.val.trigger
-				-- else
-				-- 	print("huh")
 				end
-			-- else
-			-- 	print(data, chunk.trigger, chunk.realm)
 			end
 		end
 	end
@@ -863,9 +845,7 @@ function chatsounds.PlayScript(script)
 
 		for _, sound in ipairs(sounds) do
 			sound.duration = sound.duration or sound.snd:GetDuration()
-			-- init modifiers
 			sound:call("init")
-			-- this is when the sound starts
 			sound.start_time = time + duration
 			duration = duration + sound.duration
 			sound.stop_time = time + duration

@@ -3,7 +3,7 @@ return function(META)
 	META:GetSet("Children", {})
 	META:GetSet("ChildrenMap", {})
 
-	do -- child order
+	do
 		META:GetSet("ChildOrder", 0)
 
 		local function child_order_sort(a, b)
@@ -81,7 +81,7 @@ return function(META)
 		end
 	end
 
-	do -- children
+	do
 		local function clear_children_traversal_cache(obj)
 			obj.children_list = nil
 			obj.children_traversal_cache = nil
@@ -144,7 +144,7 @@ return function(META)
 		end
 	end
 
-	do -- parent
+	do
 		function META:SetParent(obj)
 			if obj and not obj.IsValid then
 				table.print(obj)
@@ -242,8 +242,6 @@ return function(META)
 
 		if self:HasParent() then self:GetParent():SortChildren() end
 
-		-- why would we need to sort obj's children
-		-- if it is completely unmodified?
 		obj:SortChildren()
 		self:SortChildren()
 		obj:InvalidateParentListPartial(self:GetParentList(), self)
@@ -262,9 +260,7 @@ return function(META)
 			return order_a < order_b
 		end
 
-		function META:SortChildren() -- todo
-		-- Preserve insertion order by default; explicit SetChildOrder already sorts when needed.
-		end
+		function META:SortChildren() end
 	end
 
 	function META:HasParent()

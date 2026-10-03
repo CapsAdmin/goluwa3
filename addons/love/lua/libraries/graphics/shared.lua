@@ -74,7 +74,6 @@ local function create(love)
 
 		if ctx.love_uses_normalized_color_range() then return value end
 
-		-- Love < 0.11: input is 0-255, normalize to 0-1
 		return math.min(value / 255, 1)
 	end
 
@@ -115,7 +114,10 @@ local function create(love)
 			ENV.graphics_clear_color_a or 1
 		end
 
-		return math.srgb_to_linear(r), math.srgb_to_linear(g), math.srgb_to_linear(b), a or 1
+		return math.srgb_to_linear(r),
+		math.srgb_to_linear(g),
+		math.srgb_to_linear(b),
+		a or 1
 	end
 
 	function ctx.translate_wrap_mode(mode)

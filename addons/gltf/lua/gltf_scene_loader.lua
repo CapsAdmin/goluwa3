@@ -13,8 +13,6 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local gltf_scene_loader = {}
 
--- Decompose a general affine matrix (glTF node.matrix, may carry non-uniform scale and mirroring)
--- into position/rotation/scale, using the same row-as-local-axis convention as Matrix44:GetRotation/SetRotation
 local function decompose_node_matrix(m)
 	local sx = math.sqrt(m.m00 * m.m00 + m.m01 * m.m01 + m.m02 * m.m02)
 	local sy = math.sqrt(m.m10 * m.m10 + m.m11 * m.m11 + m.m12 * m.m12)
@@ -83,8 +81,6 @@ local function set_node_transform(transform, node)
 	end
 end
 
--- Interleave a primitive's raw glTF accessor data into the engine's mesh vertex layout
--- (position3 + normal3 + uv2 + tangent4 + texture_blend1 + vertex_color4), and its AABB
 local function build_vertex_data(primitive)
 	local position = primitive.attributes.POSITION
 	local normal = primitive.attributes.NORMAL
@@ -112,9 +108,6 @@ local function build_vertex_data(primitive)
 		end
 
 		if texcoord then
-			-- glTF UV origin is top-left (V=0 at top); this engine's image decoders
-			-- (png.lua/jpg.lua) flip pixel rows on load so V=0 is at the bottom for Vulkan,
-			-- so glTF-authored V coordinates have to be flipped to land on the right texel
 			vertex.uv[0], vertex.uv[1] = texcoord.data[i * 2 + 0], 1 - texcoord.data[i * 2 + 1]
 		end
 
@@ -134,12 +127,6 @@ local function build_vertex_data(primitive)
 	return vertices, vertex_count, AABB(min_x, min_y, min_z, max_x, max_y, max_z)
 end
 
--- These textures are UV-atlas bakes (one custom unwrap per mesh, packing unrelated parts of the
--- model close together in texture space, e.g. the zeppelin's tail fins sit right next to its
--- balloon body) rather than simple tileable materials. Mip generation is a naive box filter with
--- no padding between UV islands, so deep mips blend those unrelated regions into each other and
--- look like the texture is smeared/wrongly oriented once a coarse mip gets picked. Capping how far
--- the sampler is allowed to go avoids the worst of that bleeding.
 local MAX_SAMPLED_MIP_LOD = 4
 
 local function translate_gltf_sampler(sampler_info)
@@ -149,7 +136,6 @@ local function translate_gltf_sampler(sampler_info)
 	local wrap_t = "repeat"
 
 	if sampler_info then
-		-- 9728 = NEAREST, 9984/9986 = *_MIPMAP_NEAREST
 		if
 			sampler_info.minFilter == 9728 or
 			sampler_info.minFilter == 9984 or
@@ -160,7 +146,6 @@ local function translate_gltf_sampler(sampler_info)
 
 		if sampler_info.magFilter == 9728 then mag_filter = "nearest" end
 
-		-- 33071 = CLAMP_TO_EDGE, 33648 = MIRRORED_REPEAT
 		if sampler_info.wrapS == 33071 then
 			wrap_s = "clamp_to_edge"
 		elseif sampler_info.wrapS == 33648 then
@@ -212,17 +197,12 @@ local function load_texture(gltf_data, texture_ref, srgb)
 		mip_map_levels = "auto",
 		sampler = translate_gltf_sampler(sampler_info),
 	}
-	-- Decoding/uploading a texture is expensive (synchronous PNG decode); yield so frames
-	-- keep presenting between textures instead of stalling the renderer for the whole scene load
 	tasks.Wait()
 	return texture
 end
 
 local spec_gloss_push_constant_t = ffi.typeof("int[1]")
 
--- KHR_materials_pbrSpecularGlossiness packs specular color in RGB and glossiness in A, a
--- completely different layout than a metallic-roughness texture (roughness in G, metallic in B),
--- so it has to be converted per-pixel on the GPU rather than reused as-is
 local function shade_spec_gloss_to_metallic_roughness(metallic_roughness_texture, spec_gloss_texture)
 	metallic_roughness_texture:Shade(
 		[[
@@ -290,16 +270,10 @@ local function build_material(gltf_data, material_index)
 		end
 
 		if config.MetallicRoughnessTexture then
-			-- The texture already carries the converted per-pixel roughness/metallic; the
-			-- multipliers below are applied on top of it by the shader, so keep them neutral
 			config.RoughnessMultiplier = 1
 			config.MetallicMultiplier = 1
 		else
 			config.RoughnessMultiplier = 1 - (spec_gloss.glossiness_factor or 1)
-			-- Specular-glossiness has no metalness factor of its own: a grey/white specular
-			-- color (any brightness) is a dielectric (e.g. wet ground), only a *tinted*
-			-- specular color indicates metal, so metallic is derived from how far the
-			-- specular color is from grey
 			local specular = spec_gloss.specular_factor or {0, 0, 0}
 			local max_c = math.max(specular[1], specular[2], specular[3])
 			local min_c = math.min(specular[1], specular[2], specular[3])
@@ -339,15 +313,12 @@ local function build_material(gltf_data, material_index)
 	if info.transmission_factor and info.transmission_factor > 0 then
 		config.Refraction = info.transmission_factor
 		config.IndexOfRefraction = info.ior or 1.5
-		-- without the volume extension a transmissive surface is thin walled.
-		-- the factor is in the mesh's own units; left to the object's extent
 		config.RefractionThickness = (info.thickness_factor or 0) > 0 and -1 or 0
 	end
 
 	return Material.New(config)
 end
 
--- Build (and cache) the GPU primitives for one glTF mesh: {polygon3d, material} per primitive
 local function build_mesh_primitives(gltf_data, mesh, materials)
 	local primitives = {}
 
@@ -403,10 +374,6 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 	return primitives
 end
 
--- Spawn one child entity per instance of an EXT_mesh_gpu_instancing node, each with its own
--- transform but sharing the same (cached) polygon3d/material objects as every other instance -
--- render3d's automatic instanced-draw batching (keyed on mesh GPU buffer + material) then merges
--- them back into a single draw call, the same way repeated bsp/mdl prop placements do
 local function spawn_gpu_instanced_primitives(node_entity, node, primitives, mesh_name)
 	local instancing = node.gpu_instancing
 	local count = (
@@ -455,13 +422,10 @@ local function spawn_gpu_instanced_primitives(node_entity, node, primitives, mes
 			)
 		end
 
-		-- Scatter/foliage instancing can run into the thousands; yield periodically so this
-		-- doesn't stall frame presentation for the whole node
 		if i % 256 == 255 then tasks.Wait() end
 	end
 end
 
--- Create one entity per glTF node (with its local transform) and wire up parenting
 local function create_node_entities(gltf_data)
 	local node_to_entity = {}
 
@@ -484,7 +448,6 @@ local function create_node_entities(gltf_data)
 	return node_to_entity
 end
 
--- Collect the given node indices (0-based) plus everything reachable through node.children
 local function collect_reachable_nodes(gltf_data, root_node_indices)
 	local reachable = {}
 
@@ -508,24 +471,8 @@ local function collect_reachable_nodes(gltf_data, root_node_indices)
 	return reachable
 end
 
--- Decoded glTF data plus built GPU primitives, cached per path (like model_loader.model_cache)
--- so placing the same file at many transforms - the gltf equivalent of a bsp map spawning the
--- same .mdl prop many times - only decodes/builds meshes, materials and textures once. Every
--- Load() call still gets its own fresh entity hierarchy; only the expensive GPU-facing objects
--- (polygon3d, material) are shared. mesh_primitives itself only catches nodes that reference the
--- same glTF mesh index; content that's merely byte-identical across different mesh indices (e.g.
--- trees.gltf: 2712 mesh entries, 8 unique shapes) is instead deduplicated by render3d.CreateMesh's
--- own content-addressed Mesh cache (see render3d.CreateMesh(..., true) below) - deliberately not
--- duplicated here too, so there is one mesh-dedup mechanism in the engine, not two.
 gltf_scene_loader.build_cache = gltf_scene_loader.build_cache or {}
 
--- Load a glTF file and translate it into an engine entity hierarchy under a new root entity.
--- options.only_node_name restricts mesh/material building to the subtree of the (first) node
--- with that name - the full node hierarchy above it (with its transforms, e.g. any axis-
--- conversion baked into the scene root) is still created and parented normally, only the
--- expensive part (building GPU meshes and loading textures) is skipped outside that subtree.
--- Useful for testing a single mesh without paying for the whole scene's texture load.
--- Returns root_entity, gltf_data (the raw decoded glTF, useful for stats/debugging)
 function gltf_scene_loader.Load(path, options)
 	options = options or {}
 	local cached = gltf_scene_loader.build_cache[path]

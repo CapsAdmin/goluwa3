@@ -19,16 +19,7 @@ local function find_library_linux(name)
 
 	if lib then return lib end
 
-	-- On NixOS, libasound's internal dlopen of the PipeWire plugin needs
-	-- libpipewire-0.3.so.0 to already be in the global symbol table.
-	-- Strategy:
-	--   1. Parse /etc/alsa/conf.d to find the native PipeWire plugin path.
-	--   2. Use ldd to find libpipewire and the exact libasound it was built against.
-	--   3. Preload libpipewire with RTLD_GLOBAL so ALSA can dlopen the plugin.
-	--   4. Load the matching libasound.
 	if name == "libasound" then
-		-- On NixOS, /etc/alsa/conf.d/ files are symlinks; grep -r won't traverse them,
-		-- so use cat with glob expansion via shell.
 		local conf_handle = io.popen("cat /etc/alsa/conf.d/*.conf 2>/dev/null")
 		local plugin_path
 
@@ -47,7 +38,6 @@ local function find_library_linux(name)
 		end
 
 		if plugin_path then
-			-- find libpipewire and libasound paths from the plugin's ldd output
 			local ldd_handle = io.popen("ldd " .. plugin_path .. " 2>/dev/null")
 			local pipewire_path, asound_path
 
@@ -65,8 +55,6 @@ local function find_library_linux(name)
 				ldd_handle:close()
 			end
 
-			-- preload libpipewire with RTLD_GLOBAL so that when libasound
-			-- internally dlopens the PipeWire plugin, it can find libpipewire-0.3.so.0
 			if pipewire_path then
 				local ok_xffi, xffi = pcall(require, "nattlua.other.xffi")
 
@@ -81,7 +69,6 @@ local function find_library_linux(name)
 		end
 	end
 
-	-- generic /nix/store fallback
 	local handle = io.popen("find /nix/store -maxdepth 4 -name '" .. name .. ".so*' 2>/dev/null | head -1")
 
 	if handle then
@@ -146,7 +133,7 @@ if jit.os == "OSX" then
 		config.sample_rate = config.sample_rate or 44100
 		config.buffer_size = config.buffer_size or 512
 		config.channels = config.channels or 2
-		local BPF = 4 * config.channels -- 32-bit float * channels
+		local BPF = 4 * config.channels
 		local format = ffi.new(
 			"AudioStreamBasicDescription",
 			{
@@ -309,7 +296,6 @@ elseif ffi.os == "Windows" then
 				cbSize = 0,
 			}
 		)
-		-- Auto-reset event: signaled whenever a buffer completes
 		local hEvent = ffi.C.CreateEventA(nil, 0, 0, nil)
 		audio._hEvent = hEvent
 		local hwo = ffi.new("HWAVEOUT[1]")
@@ -319,7 +305,6 @@ elseif ffi.os == "Windows" then
 
 		audio._hwo = hwo[0]
 		audio._config = config
-		-- Two ping-pong buffers to keep the device fed while we fill the other
 		local buf_bytes = config.buffer_size * bytes_per_frame
 		audio._bufs = {}
 		audio._hdrs = {}
@@ -331,7 +316,6 @@ elseif ffi.os == "Windows" then
 			audio._hdrs[i] = hdr
 		end
 
-		-- Pre-fill and enqueue both buffers to prime the device
 		local nsamples = config.buffer_size * config.channels
 
 		for i = 1, 2 do
@@ -344,14 +328,12 @@ elseif ffi.os == "Windows" then
 		return config
 	end
 
-	-- Waits for the next buffer to be consumed, then fills and re-submits it.
 	function audio.update()
 		local config = audio._config
 		local nsamples = config.buffer_size * config.channels
 		local i = audio._next
 		local hdr = audio._hdrs[i]
 
-		-- spin-wait until this buffer is marked done by the driver
 		while bit.band(hdr.dwFlags, WHDR_DONE) == 0 do
 			ffi.C.WaitForSingleObject(audio._hEvent, INFINITE)
 		end
@@ -395,8 +377,7 @@ elseif ffi.os == "Linux" then
 	]]
 	local SND_PCM_STREAM_PLAYBACK = 0
 	local SND_PCM_ACCESS_RW_INTERLEAVED = 3
-	local SND_PCM_FORMAT_FLOAT_LE = 14 -- 32-bit IEEE float, little-endian
-	-- ensure XDG_RUNTIME_DIR is set so PipeWire ALSA plugin can find its socket
+	local SND_PCM_FORMAT_FLOAT_LE = 14
 	pcall(ffi.cdef, [[int setenv(const char *name, const char *value, int overwrite);]])
 
 	if not os.getenv("XDG_RUNTIME_DIR") then
@@ -421,8 +402,8 @@ elseif ffi.os == "Linux" then
 			SND_PCM_ACCESS_RW_INTERLEAVED,
 			config.channels,
 			config.sample_rate,
-			1, -- soft resample
-			50000 -- 50ms latency
+			1,
+			50000
 		)
 
 		if err < 0 then
@@ -436,9 +417,6 @@ elseif ffi.os == "Linux" then
 		return config
 	end
 
-	-- Fill and write one buffer. Blocks until the hardware accepts it (~buffer_size/sample_rate seconds).
-	-- Call this in a loop to drive audio from the main thread, or run the loop
-	-- inside a thread via import("goluwa/bindings/threads.lua").run_thread / threads.new.
 	function audio.update()
 		local config = audio._config
 		local nsamples = config.buffer_size * config.channels

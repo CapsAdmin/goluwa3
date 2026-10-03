@@ -117,7 +117,7 @@ function META:OnFirstCreated()
 
 			if any then event.Call("TuiAnimating") end
 		end,
-		{priority = 102} -- same as 2D animation, runs early in the frame
+		{priority = 102}
 	)
 end
 

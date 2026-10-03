@@ -6,10 +6,6 @@ local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local stats = import("goluwa/physics/stats.lua")
--- Physics timing HUD. K toggles it (or the physics_stats command). Numbers are
--- averaged over WINDOW seconds: section times are per physics step, query and
--- scan numbers per drawn frame, counters per step unless the label says
--- otherwise.
 local WINDOW = 0.5
 local LINE_HEIGHT = 15
 local PANEL_WIDTH = 470
@@ -156,15 +152,45 @@ local function draw_snapshot(x, y)
 	count_row("sweeps (all)", counts.sweeps or 0, frame_count, "/frame")
 	count_row("  from ccd", counts.sweeps_ccd or 0, frame_count, "/frame")
 	count_row("  from support (body)", counts.sweeps_support_body or 0, frame_count, "/frame")
-	count_row("  from support (points)", counts.sweeps_support_points or 0, frame_count, "/frame")
-	count_row("  from support (sphere)", counts.sweeps_support_sphere or 0, frame_count, "/frame")
+	count_row(
+		"  from support (points)",
+		counts.sweeps_support_points or 0,
+		frame_count,
+		"/frame"
+	)
+	count_row(
+		"  from support (sphere)",
+		counts.sweeps_support_sphere or 0,
+		frame_count,
+		"/frame"
+	)
 	count_row("ray casts", counts.traces or 0, frame_count, "/frame")
 	count_row("collider index queries", counts.collider_index_queries or 0, steps, "/step")
-	count_row("  colliders returned", counts.collider_index_returned or 0, math.max(counts.collider_index_queries or 0, 1), "/query")
-	count_row("  of colliders total", counts.collider_index_total or 0, math.max(counts.collider_index_queries or 0, 1), "/query")
+	count_row(
+		"  colliders returned",
+		counts.collider_index_returned or 0,
+		math.max(counts.collider_index_queries or 0, 1),
+		"/query"
+	)
+	count_row(
+		"  of colliders total",
+		counts.collider_index_total or 0,
+		math.max(counts.collider_index_queries or 0, 1),
+		"/query"
+	)
 	count_row("world model scans", counts.world_model_scans or 0, frame_count, "/frame")
-	count_row("visuals per scan", counts.world_models_scanned or 0, math.max(counts.world_model_scans or 0, 1), "")
-	count_row("model candidates per scan", counts.world_model_candidates or 0, math.max(counts.world_model_scans or 0, 1), "")
+	count_row(
+		"visuals per scan",
+		counts.world_models_scanned or 0,
+		math.max(counts.world_model_scans or 0, 1),
+		""
+	)
+	count_row(
+		"model candidates per scan",
+		counts.world_model_candidates or 0,
+		math.max(counts.world_model_scans or 0, 1),
+		""
+	)
 	count_row("woken bodies", counts.woken_bodies or 0, steps, "/step")
 	count_row("slept bodies", counts.slept_bodies or 0, steps, "/step")
 	panel_height = row_y - y + 10

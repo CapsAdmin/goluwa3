@@ -23,7 +23,6 @@ do
 
 	function NULL:__index2(key)
 		if type(key) == "string" and key:sub(0, 2) == "Is" then return FALSE end
-	--error(("tried to index %q on a NULL value"):format(key), 2)
 	end
 
 	objects.Register(NULL)

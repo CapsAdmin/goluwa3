@@ -3,12 +3,8 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local Hash = import("goluwa/hash.lua")
--- texture.lua imports this module, so it is resolved on first use
 local Texture
 local pipeline_common = {}
--- ============================================================
--- SECTION 1: Sampler Config Utilities
--- ============================================================
 local sampler_config_keys = {
 	"min_filter",
 	"mag_filter",
@@ -113,9 +109,6 @@ function pipeline_common.normalize_pipeline_sampler_config(config)
 	return pipeline_common.copy_sampler_config(config)
 end
 
--- ============================================================
--- SECTION 2: Sampler Binding Cache
--- ============================================================
 local function get_sampler_binding_cache_key(config)
 	if config == nil then return NIL_SAMPLER_CONFIG_CACHE_KEY end
 
@@ -181,9 +174,6 @@ function pipeline_common.resolve_sampler_binding(self, tex)
 	return effective_config, hash, sampler
 end
 
--- ============================================================
--- SECTION 3: Fallback Helpers
--- ============================================================
 function pipeline_common.get_fallback_view(self)
 	Texture = Texture or import("goluwa/render/texture.lua")
 	local fallback = Texture.GetFallback()
@@ -210,9 +200,6 @@ function pipeline_common.get_fallback_sampler(self)
 	return resolve_sampler_config(pipeline_common.get_fallback_sampler_config(self))
 end
 
--- ============================================================
--- SECTION 4: Bindless Binding Capacity
--- ============================================================
 function pipeline_common.get_bindless_texture_set_index(self)
 	return #self.descriptor_set_layouts > 1 and 1 or 0
 end
@@ -226,9 +213,6 @@ function pipeline_common.get_bindless_binding_capacity(self, binding_index)
 	return pipeline_common.get_descriptor_binding_count(self, pipeline_common.get_bindless_texture_set_index(self), binding_index)
 end
 
--- ============================================================
--- SECTION 5: Texture Registry (Factory)
--- ============================================================
 local function build_texture_descriptor_entry(self, tex)
 	local view
 
@@ -350,9 +334,6 @@ local function get_cubemap_texture_index(self, tex, set_index)
 	return acquire_texture_index(self, self.cubemap_slot, tex)
 end
 
--- ============================================================
--- SECTION 5b: Decoupled View Registry (view-only bindless array, no sampler)
--- ============================================================
 local function build_view_descriptor_entry(self, tex)
 	local view
 
@@ -429,9 +410,6 @@ local function get_view_index(self, tex)
 	return acquire_view_index(self, tex)
 end
 
--- descriptor entries hold the view a texture had when it was registered, so a
--- texture that swaps its view (an async load replacing the fallback) is
--- refreshed here instead of relying on callers to ask for its index again
 local function refresh_texture_view(self, tex)
 	if self.texture_slot.registry[tex] then
 		acquire_texture_index(self, self.texture_slot, tex)
@@ -448,9 +426,6 @@ local function get_texture_index_releases(self)
 	return self.texture_index_releases
 end
 
--- ============================================================
--- SECTION 5c: Decoupled Sampler Registry (sampler-only bindless array)
--- ============================================================
 local function get_sampler_slot_cache_key(config)
 	local hash = pipeline_common.get_sampler_config_hash(config)
 
@@ -493,8 +468,6 @@ function pipeline_common.bind_texture_registry(META)
 		self.texture_array = {}
 		self.next_texture_index = 0
 		self.texture_free_list = {}
-		-- bumped whenever an index is freed for reuse, which invalidates any
-		-- index a caller stored
 		self.texture_index_releases = 0
 		self.cubemap_registry = setmetatable({}, {__mode = "k"})
 		self.cubemap_array = {}
@@ -546,9 +519,6 @@ function pipeline_common.bind_texture_registry(META)
 	META.GetSamplerIndex = get_sampler_index
 end
 
--- ============================================================
--- SECTION 7: Descriptor Set Methods
--- ============================================================
 function pipeline_common.update_descriptor_set(self, descriptor_type, index, binding_index, set_index, ...)
 	if _G.type(set_index) ~= "number" then
 		return self:update_descriptor_set(descriptor_type, index, binding_index, 0, set_index, ...)
@@ -557,7 +527,6 @@ function pipeline_common.update_descriptor_set(self, descriptor_type, index, bin
 	local count = select("#", ...)
 	local args = {...}
 
-	-- a uniform ring that grows replaces its buffer and rewrites every descriptor pointing at it
 	if descriptor_type == "uniform_buffer_dynamic" then
 		local buffer = args[1]
 		buffer.descriptor_users = buffer.descriptor_users or setmetatable({}, {__mode = "k"})
@@ -603,8 +572,6 @@ function pipeline_common.update_descriptor_set(self, descriptor_type, index, bin
 		end
 	end
 
-	-- after the count, not table.insert: a trailing nil (no resource yet)
-	-- must stay in its slot
 	args[count + 1] = self:GetFallbackView()
 	args[count + 2] = self:GetFallbackSampler()
 
@@ -764,9 +731,6 @@ function pipeline_common.bind_descriptor_set_methods(META)
 	end
 end
 
--- ============================================================
--- SECTION 8: Push Constants
--- ============================================================
 local shader_stage_bits_u32_cache = {}
 
 local function get_shader_stage_bits_u32(stage)

@@ -1,59 +1,3 @@
---[[
-	Global illumination and reflection probe test scene.
-
-	Front row (z 0), rooms 40 m apart along x:
-	  * Cornell room (x -40): red/green walls, white floor and ceiling with a
-	    gap, white box and sphere inside. Look for red/green bounce on the
-	    white surfaces and a lit interior under the roof.
-	  * Emissive tunnel (x 0): a closed tunnel the sun never enters, lit only
-	    by an orange emissive bar through gi.
-	  * Reflection stage (x 40): metal spheres sweeping roughness on a polished
-	    floor between coloured walls, covered by the auto-placed reflection
-	    probe grid (see envprobe_auto_placement). The chrome sphere at the far
-	    end mostly reflects things off screen, so it shows the probe rather
-	    than ssr.
-	  * Multi-bounce bleed box (x 80): magenta/orange/cyan walls in a tight
-	    room lit only through a roof gap, so the interior sphere and floor
-	    should pick up several bounces of mixed colour rather than one tint.
-	  * Thin-wall partition (x 120): a lit chamber and a fully sealed dark
-	    chamber share a 0.15 m wall, with an emissive strip right against the
-	    lit side. The dark chamber should stay essentially black; any glow
-	    there is GI leaking through thin geometry.
-	  * Pillar hall (x 160): an emissive back wall, alternating pillars, and a
-	    22 m enclosed hall to a doorway at the front. Exercises the occlusion
-	    march (light should dim as it has to bend around pillars) and probe
-	    cascade transitions along the length.
-	  * Two-storey shaft (x 200): a sealed ground floor lit only by whatever
-	    bounces down a stairwell hole from an upper floor with a narrow roof
-	    light well. Tests probe cascades stacked in y.
-
-	Back row (z -60), lit by shadowed point and spot lights instead of emissive
-	surfaces. Every local light has a cube shadow map and its light occlusion
-	map turned off, so the shadow map alone keeps light from leaking:
-	  * Lamp room (x -40): a ceiling point light over furniture that casts
-	    shadows; the plain indoor case.
-	  * Spot room (x 0): a spot on a red rug and a spot washing the back wall,
-	    so the bounce comes from small, very bright patches.
-	  * Neighbours (x 40): a lamp 0.3 m from a thin wall shared with a sealed
-	    dark room. Any light in the dark room leaked through the wall.
-	  * Corridor (x 80): six ceiling lamps along a 32 m corridor, more
-	    shadowed lights than get a shadow slot at once.
-	  * Desk lamps (x 125): lamps close to surfaces (a desk spot, a floor lamp
-	    in a corner, a wall washer) that make tight, intense hot spots.
-	  * Lamp posts (z -30): point lights on poles between the rows, outdoors.
-
-	Spiky caves (z 100, x -40 / 0 / 40): closed double sided noisy shells full of
-	stalactites, floating so only the sun reaches their outside. Fly into
-	them; any sunlight inside leaked through the shell. Unlit, a centre point
-	light with its occlusion map, and a centre point light with a cube shadow
-	map.
-
-	Useful console commands: ddgi_debug_gi (show gi irradiance only),
-	ddgi_debug_probes (probe overlay), ddgi_visibility_rays,
-	envprobe_reflection_probes, envprobe_dump, ddgi_reset.
-
-	Run: USE_MOLTENVK=1 luajit glw --3d lua addons/examples/lua/examples/render3d/gi_reflections.lua
-]]
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -114,7 +58,6 @@ box(
 	mat(Color(0.9, 0.9, 0.9, 1), 1, 1)
 )
 
--- cornell room, open towards +z, roof with a gap so the sun gets in
 do
 	local cx, w, h, d, t = -40, 12, 8, 12, 0.5
 	box("cornell_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
@@ -127,7 +70,6 @@ do
 	sphere("cornell_sphere", Vec3(cx + 2.5, 1.5, 1.5), 1.5, white)
 end
 
--- emissive tunnel, closed at both ends except a doorway on +z
 do
 	local cx, w, h, d, t = 0, 6, 4, 14, 0.5
 	box("tunnel_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
@@ -135,7 +77,6 @@ do
 	box("tunnel_left", Vec3(cx - w / 2, h / 2, 0), Vec3(t, h, d), white)
 	box("tunnel_right", Vec3(cx + w / 2, h / 2, 0), Vec3(t, h, d), white)
 	box("tunnel_back", Vec3(cx, h / 2, -d / 2), Vec3(w, h, t), white)
-	-- front wall with a low doorway
 	box("tunnel_front_top", Vec3(cx, h - 0.75, d / 2), Vec3(w, 1.5, t), white)
 	box("tunnel_front_left", Vec3(cx - 2.25, 1.25, d / 2), Vec3(1.5, 2.5, t), white)
 	box("tunnel_front_right", Vec3(cx + 2.25, 1.25, d / 2), Vec3(1.5, 2.5, t), white)
@@ -149,7 +90,6 @@ do
 	box("tunnel_pillar", Vec3(cx + 1.5, 1.25, -1), Vec3(1, 2.5, 1), blue)
 end
 
--- reflection stage: polished floor, coloured walls, metal spheres
 do
 	local cx, w, d = 40, 14, 12
 	box(
@@ -175,9 +115,6 @@ do
 	sphere("stage_dielectric", Vec3(cx - 5, 1, 3), 1, mat(Color(0.9, 0.9, 0.9, 1), 0.15, 0))
 end
 
--- multi-bounce colour bleed box: three saturated walls in a tight room, open
--- at the front and lit only through a roof gap, so the interior sphere and
--- floor should show several bounces of mixed colour rather than one tint
 do
 	local cx, w, h, d, t = 80, 8, 6, 8, 0.5
 	box("bleed_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
@@ -189,10 +126,6 @@ do
 	sphere("bleed_sphere", Vec3(cx, 1.5, 0), 1.5, white)
 end
 
--- thin partition: a lit chamber shares a 0.15 m wall with a fully sealed dark
--- chamber, with an emissive strip right against the partition on the lit
--- side. The dark chamber has no light source of its own, so any glow in it
--- is GI leaking through the thin wall rather than around it.
 do
 	local cx, w, h, d, t, pt = 120, 10, 5, 8, 0.5, 0.15
 	local half = (w - pt) / 2
@@ -227,10 +160,6 @@ do
 	box("partition_dark_roof", Vec3(dark_cx, h, 0), Vec3(half, t, d), grey)
 end
 
--- pillar hall: an emissive panel at one end, alternating pillars along a long
--- enclosed hall, and a doorway at the far end. Light has to bend around the
--- pillars to reach the doorway, exercising the occlusion march, and the 22 m
--- length crosses several probe cascades.
 do
 	local cx, w, h, d, t = 160, 8, 5, 22, 0.5
 	box("hall_floor", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), white)
@@ -243,7 +172,6 @@ do
 		Vec3(w, h, t),
 		emissive_mat(Color(1, 0.35, 0.15, 1), 10)
 	)
-	-- low doorway in the front wall
 	box("hall_front_top", Vec3(cx, h - 0.75, d / 2), Vec3(w, 1.5, t), white)
 	box("hall_front_left", Vec3(cx - 3, 1.25, d / 2), Vec3(2, 2.5, t), white)
 	box("hall_front_right", Vec3(cx + 3, 1.25, d / 2), Vec3(2, 2.5, t), white)
@@ -258,9 +186,6 @@ do
 	end
 end
 
--- two-storey shaft: a sealed ground floor lit only by whatever bounces down
--- a stairwell hole from an upper floor with a narrow roof light well. Tests
--- probe cascades stacked in y and bounce travelling down a shaft.
 do
 	local cx, w, d, t, hole, well = 200, 8, 8, 0.5, 2.5, 1.5
 	local floor1_h, floor2_h = 4, 4
@@ -275,8 +200,6 @@ do
 		Vec3(t, floor1_h, d),
 		grey
 	)
-	-- mid slab, doubling as floor1's roof and floor2's floor, with a square
-	-- stairwell hole built from a frame of four boxes
 	local seg = (d - hole) / 2
 	local off = d / 2 - seg / 2
 	box("tower_slab_back", Vec3(cx, floor1_h, -off), Vec3(w, t, seg), grey)
@@ -307,7 +230,6 @@ do
 		Vec3(t, floor2_h, d),
 		grey
 	)
-	-- roof, same frame technique but with a narrower light well
 	local seg2 = (d - well) / 2
 	local off2 = d / 2 - seg2 / 2
 	box("tower_roof_back", Vec3(cx, h2, -off2), Vec3(w, t, seg2), grey)
@@ -318,8 +240,6 @@ do
 	sphere("tower_sphere2", Vec3(cx, floor1_h + 1.2, 0), 1, white)
 end
 
--- local lights with cube shadow maps. The light occlusion map is a coarse leak
--- guard that would hide leaks the shadow maps should be preventing, so it's off.
 local function shadowed_light(kind, name, position, rotation, color, lumen, range)
 	local ent = Entity.New{Name = name}
 	ent:AddComponent("transform")
@@ -346,7 +266,6 @@ local function point_light(name, position, color, lumen, range)
 	return shadowed_light("light_point", name, position, nil, color, lumen, range)
 end
 
--- pitch -90 points straight down, yaw 0 faces -z
 local function spot_light(name, position, pitch, yaw, color, lumen, range, inner, outer)
 	local light = shadowed_light("light_spot", name, position, QuatDeg3(pitch, yaw, 0), color, lumen, range)
 	light:SetInnerCone(inner)
@@ -354,7 +273,6 @@ local function spot_light(name, position, pitch, yaw, color, lumen, range, inner
 	return light
 end
 
--- closed room with a doorway in the +z wall
 local function room(name, cx, cz, w, h, d, material)
 	local t, door_w, door_h = 0.4, 1.6, 2.4
 	local side = (w - door_w) / 2
@@ -387,7 +305,6 @@ local warm = Color(1, 0.85, 0.65, 1)
 local neutral = Color(1, 0.95, 0.9, 1)
 local cool = Color(0.75, 0.85, 1, 1)
 
--- lamp room: one ceiling light over furniture
 do
 	local cx, cz, w, h, d = -40, -60, 10, 4, 10
 	room("lamp_room", cx, cz, w, h, d, white)
@@ -398,7 +315,6 @@ do
 	point_light("lamp_room_light", Vec3(cx, h - 0.5, cz), warm, 1600, 14)
 end
 
--- spot room: a spot on a red rug, another washing the back wall
 do
 	local cx, cz, w, h, d = 0, -60, 12, 5, 10
 	room("spot_room", cx, cz, w, h, d, grey)
@@ -409,7 +325,6 @@ do
 	spot_light("spot_room_wash", Vec3(cx + 3, h - 0.5, cz + 2), -35, 0, cool, 3000, 14, 20, 35)
 end
 
--- neighbours: a lamp right against a thin wall shared with a sealed dark room
 do
 	local cx, cz, w, h, d, t, pt = 40, -60, 12, 4, 8, 0.4, 0.2
 	local half = (w - pt) / 2
@@ -421,7 +336,6 @@ do
 	box("neighbours_wall", Vec3(cx, h / 2, cz), Vec3(pt, h, d), white)
 	box("neighbours_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), white)
 	box("neighbours_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
-	-- the lit side has a doorway, the dark side is sealed
 	local side = (half - 1.6) / 2
 	box(
 		"neighbours_lit_front_left",
@@ -451,7 +365,6 @@ do
 	point_light("neighbours_lamp", Vec3(cx - pt / 2 - 0.3, 2, cz - 1), warm, 1500, 12)
 end
 
--- corridor: six ceiling lamps along 32 m
 do
 	local cx, cz, len, w, h, t = 80, -60, 32, 3, 3, 0.4
 	box("corridor_floor", Vec3(cx, 0.05, cz), Vec3(len, 0.1, w), white)
@@ -462,12 +375,10 @@ do
 	for i = 0, 5 do
 		local x = cx - 12.5 + i * 5
 		point_light("corridor_lamp_" .. i, Vec3(x, h - 0.4, cz), neutral, 800, 8)
-		-- a box between each pair of lamps so each one lights its own bay
 		box("corridor_crate_" .. i, Vec3(x + 2.5, 0.5, cz - 0.7), Vec3(0.8, 1, 0.8), grey)
 	end
 end
 
--- desk lamps: lights a few tens of cm from surfaces
 do
 	local cx, cz, w, h, d = 125, -60, 10, 4, 8
 	room("desk_room", cx, cz, w, h, d, white)
@@ -484,18 +395,11 @@ do
 	box("desk_room_pillar", Vec3(cx + 1, 1.5, cz), Vec3(0.6, 3, 0.6), magenta)
 end
 
--- lamp posts outdoors between the rows
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
 end
 
--- spiky caves (z 100): closed double sided noisy shells with stalactites and
--- stalagmites, floating high enough that only the sun reaches
--- their outside. Fly into them. The sun has no business inside, so any sun
--- light on the spikes is leaking through the shell. Left is unlit, the middle
--- has a point light at the centre with its occlusion map, the right one a
--- point light with a cube shadow map instead.
 do
 	local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 	local RADIUS, RINGS, SEGMENTS, SPIKES = 14, 64, 128, 70
@@ -506,8 +410,6 @@ do
 			)
 	end
 
-	-- spikes hang from the upper half and grow from the lower half, each a
-	-- narrow cone pulling the shell toward the centre
 	local spikes = {}
 	local seed = 1
 
@@ -559,7 +461,6 @@ do
 			for seg = 0, SEGMENTS - 1 do
 				local a = ring * stride + seg + 1
 				local b = a + stride
-				-- wound so the inside is the front face
 				indices[#indices + 1] = a
 				indices[#indices + 1] = a + 1
 				indices[#indices + 1] = b
@@ -569,8 +470,6 @@ do
 			end
 		end
 
-		-- smooth normals: area weighted face normals summed per vertex. The
-		-- visible side winds clockwise, so cross(e1, e2) points away from it
 		local normals = {}
 
 		for i = 1, #positions do
@@ -587,7 +486,6 @@ do
 		end
 
 		for i = 1, #positions do
-			-- the poles get zero from their degenerate triangles
 			local n = normals[i]
 			normals[i] = n:GetLength() > 0 and n:GetNormalized() or -positions[i]:GetNormalized()
 		end
@@ -633,7 +531,6 @@ do
 	end
 end
 
--- start in front of the scene looking at all three areas
 do
 	local cam = render3d.GetCamera()
 	cam:SetPosition(Vec3(0, 5, 30))

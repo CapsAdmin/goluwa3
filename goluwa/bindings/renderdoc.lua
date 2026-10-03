@@ -142,7 +142,6 @@ local function find_renderdoc_get_api()
 	return ffi.cast(GetAPIType, symbol)
 end
 
--- Initialize RenderDoc
 local api_ptr = nil
 local API_1_6_0 = ffi.typeof("$*", RENDERDOC_API_1_6_0)
 
@@ -270,7 +269,6 @@ function renderdoc.GetCaptures()
 	for i = 0, num_captures - 1 do
 		local pathlength = ffi.new("uint32_t[1]", 0)
 		local timestamp = ffi.new("uint64_t[1]", 0)
-		-- Get capture path length
 		api.GetCapture(i, nil, pathlength, timestamp)
 
 		if pathlength[0] > 0 then

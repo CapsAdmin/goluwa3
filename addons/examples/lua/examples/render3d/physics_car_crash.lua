@@ -1,5 +1,3 @@
--- A car with four hinged wheels rolls down a tilted ramp and crashes into a
--- stack of boxes. Key R respawns the scene.
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")

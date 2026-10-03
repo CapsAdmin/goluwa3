@@ -29,4 +29,3 @@ end
 for _, entry in ipairs(example_materials) do
 	sphere(assets.Load(entry.path))
 end
-

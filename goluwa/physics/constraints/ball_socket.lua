@@ -1,11 +1,9 @@
 local Constraint = import("goluwa/physics/constraint.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
 local objects = import("goluwa/objects/objects.lua")
--- Pins one point of each body together; the bodies rotate freely about it.
 local META = objects.CreateTemplate("physics_ball_socket_constraint")
 META.Base = Constraint
 
--- config: CollideConnected (default false), BreakForce
 function META.New(body_0, body_1, world_anchor, config)
 	config = config or {}
 	local self = META:CreateObject{

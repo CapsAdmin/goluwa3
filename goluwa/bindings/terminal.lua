@@ -1,6 +1,5 @@
 local setmetatable = import("goluwa/table/setmetatable_gc.lua")
 local ffi = require("ffi")
--- FILE operations
 ffi.cdef[[
 	typedef struct FILE FILE;
 	int fflush(FILE* stream);
@@ -18,22 +17,22 @@ local LF = 10
 local BACKSPACE = 8
 local DEL = 127
 local SPACE = 32
-local TILDE = 0x7E -- "~", also the last printable ASCII byte
+local TILDE = 0x7E
 local SEMICOLON = 0x3B
 local LBRACKET = 0x5B
 local LESS_THAN = 0x3C
-local UPPER_O = 0x4F -- SS3 introducer ("\27O")
-local UPPER_M = 0x4D -- SGR mouse press
-local LOWER_M = 0x6D -- SGR mouse release
-local UPPER_R = 0x52 -- cursor position report terminator
+local UPPER_O = 0x4F
+local UPPER_M = 0x4D
+local LOWER_M = 0x6D
+local UPPER_R = 0x52
 local DIGIT_ONE = 0x31
 
 local function is_digit(b)
-	return b ~= nil and b >= 48 and b <= 57 -- "0"-"9"
+	return b ~= nil and b >= 48 and b <= 57
 end
 
 local function is_upper(b)
-	return b ~= nil and b >= 65 and b <= 90 -- "A"-"Z"
+	return b ~= nil and b >= 65 and b <= 90
 end
 
 local function has_prefix(s, ...)
@@ -187,14 +186,11 @@ end
 
 function meta:PopAttribute()
 	if #self.attribute_stack == 0 then
-		-- Stack is empty, reset all attributes
 		self:NoAttributes()
 		return
 	end
 
-	-- Remove the top attribute
 	table.remove(self.attribute_stack)
-	-- Reset everything and reapply all remaining attributes
 	self:NoAttributes()
 
 	for _, attr in ipairs(self.attribute_stack) do
@@ -349,13 +345,13 @@ end
 
 function meta:UseAlternateScreen(enable)
 	if enable then
-		self:Write("\27[?1049h") -- Switch to alternate screen
-		self:Write("\27[?7l") -- Disable line wrap so viewport clipping works correctly
+		self:Write("\27[?1049h")
+		self:Write("\27[?7l")
 		self.in_alternate_screen = true
 		self._prev_buf = nil
 	elseif self.in_alternate_screen then
-		self:Write("\27[?7h") -- Re-enable line wrap
-		self:Write("\27[?1049l") -- Switch back to main screen
+		self:Write("\27[?7h")
+		self:Write("\27[?1049l")
 		self.in_alternate_screen = false
 	end
 end
@@ -405,7 +401,7 @@ function meta:EndFrame()
 	local h = self._buf_h
 	local new = self._new_buf
 	local prev = self._prev_buf or {}
-	local out = {SYNC_BEGIN, "\27[?25l"} -- sync + hide cursor during paint
+	local out = {SYNC_BEGIN, "\27[?25l"}
 	local lfr, lfg, lfb = false, false, false
 	local lbr, lbg, lbb = false, false, false
 	local lbold, litalic, ldim, lul = false, false, false, false
@@ -592,23 +588,14 @@ function meta:WriteText(str)
 end
 
 function meta:EnableCaret(b)
-	if b then
-		self:Write("\27[?25h") -- Show cursor
-	else
-		self:Write("\27[?25l") -- Hide cursor
-	end
+	if b then self:Write("\27[?25h") else self:Write("\27[?25l") end
 end
 
 function meta:EnableMouse(b)
 	if b then
-		-- Enable mouse tracking with SGR (1006) mode for better coordinate support
-		-- ?1000h: basic mouse tracking (press/release)
-		-- ?1003h: all mouse tracking (including movement)
-		-- ?1006h: SGR extended mode
-		self:Write("\27[?1000h\27[?1003h\27[?1006h") -- Enable mouse reporting + movement + SGR mode
+		self:Write("\27[?1000h\27[?1003h\27[?1006h")
 	else
-		-- Disable mouse tracking
-		self:Write("\27[?1006l\27[?1003l\27[?1000l") -- Disable SGR mode + movement + mouse reporting
+		self:Write("\27[?1006l\27[?1003l\27[?1000l")
 	end
 
 	self.mouse_enabled = b
@@ -627,13 +614,16 @@ end
 
 do
 	local function parse_cursor_report(str)
-		if not has_prefix(str, ESC, LBRACKET) then return nil end -- "\27["
+		if not has_prefix(str, ESC, LBRACKET) then return nil end
+
 		local a, i = scan_digits(str, 3)
 
-		if not a or str:byte(i) ~= SEMICOLON then return nil end -- ";"
+		if not a or str:byte(i) ~= SEMICOLON then return nil end
+
 		local b, j = scan_digits(str, i + 1)
 
-		if not b or j ~= #str or str:byte(j) ~= UPPER_R then return nil end -- "R"
+		if not b or j ~= #str or str:byte(j) ~= UPPER_R then return nil end
+
 		return a, b
 	end
 
@@ -833,7 +823,6 @@ if jit.os == "Windows" then
 		ENABLE_LVB_GRID_WORLDWIDE = 0x0010,
 	}
 
-	-- Helper to get the correct handle (saved console handle if available, otherwise standard handle)
 	local function get_console_handle(handle_type)
 		local output_module = import.loaded["goluwa/stdout/lua"]
 
@@ -855,7 +844,6 @@ if jit.os == "Windows" then
 	local stdin = get_console_handle(STD_INPUT_HANDLE)
 	local stdout = get_console_handle(STD_OUTPUT_HANDLE)
 
-	-- Convert table of flag names to combined flag value
 	local function table_to_flags(tbl, flags_map, combiner)
 		local result = 0
 
@@ -888,12 +876,10 @@ if jit.os == "Windows" then
 	end
 
 	function terminal.WrapFile(input, output)
-		-- Handle wrapped file objects from fs module
 		if type(input) == "table" and input.file then input = input.file end
 
 		if type(output) == "table" and output.file then output = output.file end
 
-		-- Only call setvbuf on Lua file objects (userdata), not raw FILE* pointers (cdata)
 		if type(input) == "userdata" then
 			pcall(function()
 				input:setvbuf("no")
@@ -906,7 +892,6 @@ if jit.os == "Windows" then
 			end)
 		end
 
-		-- Set console to UTF-8 (code page 65001)
 		ffi.C.SetConsoleOutputCP(65001)
 		ffi.C.SetConsoleCP(65001)
 		local old_flags_input = add_flags(STD_INPUT_HANDLE, {
@@ -954,13 +939,12 @@ if jit.os == "Windows" then
 	function meta:Close()
 		if self.closed then return end
 
-		-- Restore terminal state before closing
-		self:NoAttributes() -- Reset text attributes
-		self:EnableMouse(false) -- Disable mouse tracking
-		self:EnableBracketedPaste(false) -- Disable bracketed paste mode
-		self:UseAlternateScreen(false) -- Return to main screen
-		self:EnableCaret(true) -- Show cursor
-		self:Flush() -- Flush all output before restoring
+		self:NoAttributes()
+		self:EnableMouse(false)
+		self:EnableBracketedPaste(false)
+		self:UseAlternateScreen(false)
+		self:EnableCaret(true)
+		self:Flush()
 		revert_flags(STD_INPUT_HANDLE, self.old_flags_input)
 		revert_flags(STD_OUTPUT_HANDLE, self.old_flags_output)
 		self.closed = true
@@ -1162,7 +1146,6 @@ if jit.os == "Windows" then
 		end
 	end
 
-	-- Convert Unicode code point to UTF-8 string
 	local function utf8_from_uint32(code)
 		if code == 0 then return "" end
 
@@ -1188,7 +1171,6 @@ if jit.os == "Windows" then
 		return ""
 	end
 
-	-- Convert flag value to table of flag names
 	local function flags_to_table(value, flags_map)
 		local result = {}
 
@@ -1199,7 +1181,6 @@ if jit.os == "Windows" then
 		return result
 	end
 
-	-- Mouse button state flags
 	local mouse_buttons = {
 		FROM_LEFT_1ST_BUTTON_PRESSED = 0x0001,
 		RIGHTMOST_BUTTON_PRESSED = 0x0002,
@@ -1215,7 +1196,6 @@ if jit.os == "Windows" then
 	}
 
 	function meta:ReadEvent()
-		-- Fill the event queue if it's empty
 		if #self.event_queue == 0 then
 			local events, count = self:Read()
 
@@ -1223,7 +1203,7 @@ if jit.os == "Windows" then
 				for i = 1, count do
 					local evt = events[i - 1]
 
-					if evt.EventType == 1 then -- KEY_EVENT
+					if evt.EventType == 1 then
 						if evt.Event.KeyEvent.bKeyDown == 1 then
 							local unicode_char = evt.Event.KeyEvent.uChar.UnicodeChar
 							local str = utf8_from_uint32(unicode_char)
@@ -1233,7 +1213,6 @@ if jit.os == "Windows" then
 							local shift = mod.SHIFT_PRESSED
 							local alt = mod.LEFT_ALT_PRESSED or mod.RIGHT_ALT_PRESSED
 
-							-- Special case for Shift+Alt+D (becomes Ctrl+Delete)
 							if shift and alt and evt.Event.KeyEvent.uChar.UnicodeChar == 68 then
 								ctrl = true
 								shift = false
@@ -1250,7 +1229,6 @@ if jit.os == "Windows" then
 								},
 							}
 
-							-- Determine the key name
 							if key_code == keys.VK_RETURN then
 								event.key = "enter"
 							elseif key_code == keys.VK_DELETE then
@@ -1282,17 +1260,14 @@ if jit.os == "Windows" then
 							elseif key_code >= keys.VK_F1 and key_code <= keys.VK_F12 then
 								event.key = "f" .. (key_code - keys.VK_F1 + 1)
 							elseif evt.Event.KeyEvent.uChar.UnicodeChar > 31 then
-								-- Printable character
 								event.key = str
 							elseif
 								ctrl and
 								evt.Event.KeyEvent.uChar.UnicodeChar >= 1 and
 								evt.Event.KeyEvent.uChar.UnicodeChar <= 26
 							then
-								-- Ctrl+letter combinations
 								event.key = string.char(evt.Event.KeyEvent.uChar.UnicodeChar + 96)
 							else
-								-- Skip unknown keys
 								event = nil
 							end
 
@@ -1300,27 +1275,23 @@ if jit.os == "Windows" then
 								table.insert(self.event_queue, event)
 							end
 						end
-					elseif evt.EventType == 2 and self.mouse_enabled then -- MOUSE_EVENT
+					elseif evt.EventType == 2 and self.mouse_enabled then
 						local mouse_evt = evt.Event.MouseEvent
-						local x = mouse_evt.dwMousePosition.X + 1 -- Convert to 1-based
+						local x = mouse_evt.dwMousePosition.X + 1
 						local y = mouse_evt.dwMousePosition.Y + 1
 						local button_state = mouse_evt.dwButtonState
 						local event_flags = mouse_evt.dwEventFlags
 						local control_state = mouse_evt.dwControlKeyState
-						-- Parse modifiers
 						local mod = flags_to_table(control_state, modifiers)
 						local ctrl = mod.LEFT_CTRL_PRESSED or mod.RIGHT_CTRL_PRESSED
 						local shift = mod.SHIFT_PRESSED
 						local alt = mod.LEFT_ALT_PRESSED or mod.RIGHT_ALT_PRESSED
 
-						-- Track previous button state for press/release detection
 						if not self.last_button_state then self.last_button_state = 0 end
 
 						local event = nil
 
-						-- Check for wheel events
 						if bit.band(event_flags, mouse_event_flags.MOUSE_WHEELED) ~= 0 then
-							-- High word of button_state contains wheel delta (signed)
 							local delta = bit.arshift(button_state, 16)
 							event = {
 								mouse = true,
@@ -1330,7 +1301,6 @@ if jit.os == "Windows" then
 								action = "pressed",
 								modifiers = {ctrl = ctrl, shift = shift, alt = alt},
 							}
-						-- Check for movement
 						elseif bit.band(event_flags, mouse_event_flags.MOUSE_MOVED) ~= 0 then
 							event = {
 								mouse = true,
@@ -1340,16 +1310,13 @@ if jit.os == "Windows" then
 								action = "moved",
 								modifiers = {ctrl = ctrl, shift = shift, alt = alt},
 							}
-						-- Check for button events
 						else
-							-- Detect button changes
 							local changed = bit.bxor(button_state, self.last_button_state)
 
 							if changed ~= 0 then
 								local button_name = nil
 								local action = nil
 
-								-- Check which button changed
 								if bit.band(changed, mouse_buttons.FROM_LEFT_1ST_BUTTON_PRESSED) ~= 0 then
 									button_name = "left"
 									action = bit.band(button_state, mouse_buttons.FROM_LEFT_1ST_BUTTON_PRESSED) ~= 0 and
@@ -1388,7 +1355,6 @@ if jit.os == "Windows" then
 			end
 		end
 
-		-- Return the first event from the queue
 		if #self.event_queue > 0 then return table.remove(self.event_queue, 1) end
 
 		return nil
@@ -1457,7 +1423,6 @@ else
 
 	if jit.os ~= "OSX" then
 		flags = {
-			-- c_lflag (local flags)
 			ECHOCTL = 512,
 			EXTPROC = 65536,
 			ECHOK = 32,
@@ -1474,16 +1439,14 @@ else
 			ECHOPRT = 1024,
 			TOSTOP = 256,
 			ISIG = 1,
-			-- c_iflag (input flags)
-			IXON = 0x00000400, -- Enable XON/XOFF flow control on output
-			IXOFF = 0x00001000, -- Enable XON/XOFF flow control on input
-			IXANY = 0x00000800, -- Allow any char to restart output
+			IXON = 0x00000400,
+			IXOFF = 0x00001000,
+			IXANY = 0x00000800,
 		}
 	else
 		VMIN = 16
 		VTIME = 17
 		flags = {
-			-- c_lflag (local flags)
 			ECHOKE = 0x00000001,
 			ECHOE = 0x00000002,
 			ECHOK = 0x00000004,
@@ -1501,32 +1464,26 @@ else
 			NOKERNINFO = 0x02000000,
 			PENDIN = 0x20000000,
 			NOFLSH = 0x80000000,
-			-- c_iflag (input flags)
-			IXON = 0x00000200, -- Enable XON/XOFF flow control on output
-			IXOFF = 0x00000400, -- Enable XON/XOFF flow control on input
-			IXANY = 0x00000800, -- Allow any char to restart output
+			IXON = 0x00000200,
+			IXOFF = 0x00000400,
+			IXANY = 0x00000800,
 		}
 	end
 
 	local termios_boxed = ffi.typeof("$[1]", termios)
 
 	function terminal.WrapFile(input, output)
-		-- Handle wrapped file objects from fs module
 		if type(input) == "table" and input.file then input = input.file end
 
 		if type(output) == "table" and output.file then output = output.file end
 
 		local fd_no = ffi.C.fileno(input)
-		-- Note: setvbuf not available on raw FILE* pointers
-		-- input:setvbuf("no")
-		-- output:setvbuf("no")
 		local old_attributes = termios_boxed()
 		ffi.C.tcgetattr(fd_no, old_attributes)
 		local attr = termios_boxed()
 
 		if ffi.C.tcgetattr(fd_no, attr) ~= 0 then error(lasterror(), 2) end
 
-		-- Disable canonical mode, echo, and other local flags
 		attr[0].c_lflag = bit.band(
 			tonumber(attr[0].c_lflag),
 			bit.bnot(
@@ -1541,16 +1498,9 @@ else
 				)
 			)
 		)
-		-- Disable XON/XOFF flow control (allows Ctrl+S and Ctrl+Q to work)
 		attr[0].c_iflag = bit.band(
 			tonumber(attr[0].c_iflag),
-			bit.bnot(
-				bit.bor(
-					flags.IXON, -- Disable output flow control
-					flags.IXOFF, -- Disable input flow control
-					flags.IXANY -- Disable restart on any char
-				)
-			)
+			bit.bnot(bit.bor(flags.IXON, flags.IXOFF, flags.IXANY))
 		)
 		attr[0].c_cc[VMIN] = 0
 		attr[0].c_cc[VTIME] = 0
@@ -1626,13 +1576,12 @@ else
 	function meta:Close()
 		if self.closed then return end
 
-		-- Restore terminal state before closing
-		self:NoAttributes() -- Reset text attributes
-		self:EnableMouse(false) -- Disable mouse tracking
-		self:EnableBracketedPaste(false) -- Disable bracketed paste mode
-		self:UseAlternateScreen(false) -- Return to main screen
-		self:EnableCaret(true) -- Show cursor
-		self:Flush() -- Flush all output before restoring
+		self:NoAttributes()
+		self:EnableMouse(false)
+		self:EnableBracketedPaste(false)
+		self:UseAlternateScreen(false)
+		self:EnableCaret(true)
+		self:Flush()
 		local fd_no = ffi.C.fileno(self.output)
 		local num = ffi.C.tcsetattr(fd_no, TCSANOW, self.old_attributes)
 
@@ -1647,9 +1596,7 @@ else
 		self:Close()
 	end
 
-	-- Mouse tracking state for Unix
 	local last_mouse_buttons = {}
-	-- Escape sequence parser for macOS
 	local escape_buffer = ""
 	local escape_sequences = {
 		["\27[A"] = "up",
@@ -1674,10 +1621,8 @@ else
 		["\27[21~"] = "f10",
 		["\27[23~"] = "f11",
 		["\27[24~"] = "f12",
-		["\27[Z"] = "tab", -- Shift+Tab
+		["\27[Z"] = "tab",
 	}
-	-- CSI sequences with modifiers: \x1b[1;MODIFIERkey
-	-- Modifier codes: 2=Shift, 3=Alt, 4=Shift+Alt, 5=Ctrl, 6=Ctrl+Shift, 7=Ctrl+Alt, 8=Ctrl+Shift+Alt
 	local csi_keys = {
 		A = "up",
 		B = "down",
@@ -1713,7 +1658,6 @@ else
 		return modifiers
 	end
 
-	-- Get byte length of UTF-8 character from its first byte
 	local function utf8_byte_length(c)
 		local byte = c:byte()
 
@@ -1730,15 +1674,17 @@ else
 		end
 	end
 
-	-- Parse SGR (1006) mouse format: \x1b[<button;x;y[Mm]
 	local function parse_sgr_mouse(seq)
-		if not has_prefix(seq, ESC, LBRACKET, LESS_THAN) then return nil end -- "\27[<"
+		if not has_prefix(seq, ESC, LBRACKET, LESS_THAN) then return nil end
+
 		local button_code, i = scan_digits(seq, 4)
 
-		if not button_code or seq:byte(i) ~= SEMICOLON then return nil end -- ";"
+		if not button_code or seq:byte(i) ~= SEMICOLON then return nil end
+
 		local x, j = scan_digits(seq, i + 1)
 
-		if not x or seq:byte(j) ~= SEMICOLON then return nil end -- ";"
+		if not x or seq:byte(j) ~= SEMICOLON then return nil end
+
 		local y, k = scan_digits(seq, j + 1)
 
 		if not y or k ~= #seq then return nil end
@@ -1753,14 +1699,11 @@ else
 			return nil
 		end
 
-		-- Check for motion bit (0x20 = 32)
 		local has_motion = bit.band(button_code, 0x20) ~= 0
-		-- Parse button
 		local button_base = bit.band(button_code, 0x03)
 		local button_name
 
 		if bit.band(button_code, 0x40) ~= 0 then
-			-- Wheel event
 			button_name = (button_base == 0) and "wheel_up" or "wheel_down"
 		elseif button_base == 0 then
 			button_name = "left"
@@ -1772,18 +1715,14 @@ else
 			button_name = "none"
 		end
 
-		-- Parse modifiers
 		local shift = bit.band(button_code, 0x04) ~= 0
 		local alt = bit.band(button_code, 0x08) ~= 0
 		local ctrl = bit.band(button_code, 0x10) ~= 0
-		-- Parse action
 		local action
 
 		if has_motion then
-			-- Motion bit is set - this is a drag/move event
 			action = "moved"
 		elseif action_char == "M" then
-			-- 'M' without motion bit = pressed
 			action = (
 					button_name == "wheel_up" or
 					button_name == "wheel_down"
@@ -1792,7 +1731,6 @@ else
 				"pressed" or
 				"pressed"
 		else
-			-- 'm' = released
 			action = "released"
 		end
 
@@ -1806,15 +1744,17 @@ else
 		}
 	end
 
-	-- sequence terminated by M/m": \x1b[<[digits;]+[Mm]
 	local function is_sgr_mouse_terminator(s)
-		if not has_prefix(s, ESC, LBRACKET, LESS_THAN) then return false end -- "\27[<"
+		if not has_prefix(s, ESC, LBRACKET, LESS_THAN) then return false end
+
 		local len = #s
 
-		if len < 5 then return false end -- need at least one digit/";" plus M/m
+		if len < 5 then return false end
+
 		local last = s:byte(len)
 
-		if last ~= UPPER_M and last ~= LOWER_M then return false end -- "M"/"m"
+		if last ~= UPPER_M and last ~= LOWER_M then return false end
+
 		for i = 4, len - 1 do
 			local b = s:byte(i)
 
@@ -1824,12 +1764,13 @@ else
 		return true
 	end
 
-	-- \x1b[1;MODkey or \x1b[MODkey
 	local function parse_csi_modifier_key(s)
-		if not has_prefix(s, ESC, LBRACKET) then return nil end -- "\27["
+		if not has_prefix(s, ESC, LBRACKET) then return nil end
+
 		local i = 3
 
-		if s:byte(3) == DIGIT_ONE and s:byte(4) == SEMICOLON then i = 5 end -- skip literal "1;"
+		if s:byte(3) == DIGIT_ONE and s:byte(4) == SEMICOLON then i = 5 end
+
 		local mod_code, j = scan_digits(s, i)
 
 		if not mod_code or j ~= #s then return nil end
@@ -1841,15 +1782,17 @@ else
 		return mod_code, s:sub(j, j)
 	end
 
-	-- \x1b[KEY;MOD~
 	local function parse_csi_tilde_modifier(s)
-		if not has_prefix(s, ESC, LBRACKET) then return nil end -- "\27["
+		if not has_prefix(s, ESC, LBRACKET) then return nil end
+
 		local key_code, i = scan_digits(s, 3)
 
-		if not key_code or s:byte(i) ~= SEMICOLON then return nil end -- ";"
+		if not key_code or s:byte(i) ~= SEMICOLON then return nil end
+
 		local mod_code, j = scan_digits(s, i + 1)
 
-		if not mod_code or j ~= #s or s:byte(j) ~= TILDE then return nil end -- "~"
+		if not mod_code or j ~= #s or s:byte(j) ~= TILDE then return nil end
+
 		return key_code, mod_code
 	end
 
@@ -1927,8 +1870,8 @@ else
 
 		if not char then return nil end
 
-		local raw_input = char -- Store raw input for debugging
-		-- Handle escape sequences
+		local raw_input = char
+
 		if char == "\27" then
 			escape_buffer = "\27"
 
@@ -1938,7 +1881,8 @@ else
 				if not next_char then break end
 
 				escape_buffer = escape_buffer .. next_char
-				raw_input = escape_buffer -- Update raw input
+				raw_input = escape_buffer
+
 				if escape_buffer == "\27[200~" and self.bracketed_paste_enabled then
 					self.bracketed_paste_active = true
 					self.bracketed_paste_buffer = ""
@@ -1946,7 +1890,6 @@ else
 					return self:ReadEvent()
 				end
 
-				-- Check for SGR mouse sequence: \x1b[<...M or \x1b[<...m
 				if is_sgr_mouse_terminator(escape_buffer) then
 					if self.mouse_enabled then
 						local mouse_event = parse_sgr_mouse(escape_buffer)
@@ -1957,7 +1900,6 @@ else
 					break
 				end
 
-				-- Check for CSI sequence with modifiers: \x1b[1;MODkey or \x1b[MODkey
 				local mod_code, key_char = parse_csi_modifier_key(escape_buffer)
 
 				if mod_code and key_char and csi_keys[key_char] then
@@ -1969,7 +1911,6 @@ else
 					}
 				end
 
-				-- Check for tilde-terminated sequence with modifiers: \x1b[KEY;MOD~
 				local key_code, mod_code_tilde = parse_csi_tilde_modifier(escape_buffer)
 
 				if key_code and mod_code_tilde then
@@ -1991,9 +1932,7 @@ else
 					end
 				end
 
-				-- Check for complete escape sequence
 				if escape_sequences[escape_buffer] then
-					-- Shift+Tab (\27[Z) should have shift=true
 					local is_shift_tab = (escape_buffer == "\27[Z")
 					return {
 						key = escape_sequences[escape_buffer],
@@ -2002,10 +1941,9 @@ else
 					}
 				end
 
-				-- Check for SS3 sequences (ESC O X)
 				if
 					#escape_buffer == 3 and
-					has_prefix(escape_buffer, ESC, UPPER_O) and -- "\27O"
+					has_prefix(escape_buffer, ESC, UPPER_O) and
 					is_upper(escape_buffer:byte(3))
 				then
 					local char = escape_buffer:sub(3, 3)
@@ -2014,11 +1952,10 @@ else
 						B = "down",
 						C = "right",
 						D = "left",
-						M = "enter", -- Shift+Enter in many terminals
+						M = "enter",
 					}
 
 					if ss3_keys[char] then
-						-- SS3 M is typically Shift+Enter
 						local is_shift_enter = (char == "M")
 						return {
 							key = ss3_keys[char],
@@ -2034,15 +1971,14 @@ else
 					break
 				end
 
-				-- Check if it's a tilde-terminated sequence
-				if escape_buffer:byte(-1) == TILDE then break end -- "~"
-				-- Check if it's a letter-terminated CSI sequence
+				if escape_buffer:byte(-1) == TILDE then break end
+
 				do
 					local len = #escape_buffer
 
 					if
 						len >= 3 and
-						has_prefix(escape_buffer, ESC, LBRACKET) and -- "\27["
+						has_prefix(escape_buffer, ESC, LBRACKET) and
 						is_upper(escape_buffer:byte(len))
 					then
 						local body_ok = true
@@ -2062,7 +1998,6 @@ else
 				end
 			end
 
-			-- Alt + key combinations (ESC followed by regular character)
 			if
 				#escape_buffer == 2 and
 				(
@@ -2080,7 +2015,6 @@ else
 				local key_byte = escape_buffer:byte(2)
 				local key = escape_buffer:sub(2, 2)
 
-				-- Special case: Alt+Enter (\e\n or \e\r)
 				if key_byte == LF or key_byte == CR then
 					return {
 						key = "enter",
@@ -2089,7 +2023,6 @@ else
 					}
 				end
 
-				-- Special case: Alt+d is often sent by Ctrl+Delete
 				if key == "d" then
 					return {
 						key = "delete",
@@ -2098,7 +2031,6 @@ else
 					}
 				end
 
-				-- Special case: Alt+Backspace/Alt+DEL
 				if key:byte() == DEL or key:byte() == BACKSPACE then
 					return {
 						key = "backspace",
@@ -2114,7 +2046,6 @@ else
 				}
 			end
 
-			-- Unknown or incomplete escape sequence
 			escape_buffer = ""
 			return {
 				key = "escape",
@@ -2123,10 +2054,8 @@ else
 			}
 		end
 
-		-- Handle control characters (Ctrl+A through Ctrl+Z)
 		local byte = char:byte()
 
-		-- Special characters
 		if byte == DEL or byte == BACKSPACE then
 			return {
 				key = "backspace",
@@ -2147,7 +2076,6 @@ else
 			}
 		end
 
-		-- Regular printable characters
 		if byte >= SPACE and byte <= TILDE then
 			return {
 				key = char,
@@ -2157,8 +2085,8 @@ else
 		end
 
 		if byte >= 1 and byte <= 26 then
-			local key = string.char(byte + 96) -- Convert to lowercase letter
-			-- Special case: Ctrl+w is often sent by Ctrl+Backspace
+			local key = string.char(byte + 96)
+
 			if key == "w" then
 				return {
 					key = "backspace",
@@ -2174,7 +2102,6 @@ else
 			}
 		end
 
-		-- UTF-8 multi-byte character
 		local len = utf8_byte_length(char)
 
 		if len and len > 1 then
@@ -2231,22 +2158,18 @@ else
 	end
 end
 
--- Detect terminal type
 function meta:GetTerminalType()
 	if jit.os == "Windows" then
-		-- Windows terminal detection
 		if os.getenv("WT_SESSION") then
 			return "windows-terminal"
 		elseif os.getenv("ConEmuPID") then
 			return "conemu"
 		elseif os.getenv("TERM") == "xterm" then
-			-- Likely Mintty (Git Bash, MSYS2, Cygwin)
 			return "mintty"
 		else
 			return os.getenv("TERM") or "unknown"
 		end
 	else
-		-- Unix-like systems (macOS, Linux, BSD, etc.)
 		local term_program = os.getenv("TERM_PROGRAM")
 		local term = os.getenv("TERM")
 
@@ -2270,7 +2193,6 @@ function meta:GetTerminalType()
 	end
 end
 
--- Base64 encoding helper
 local function base64_encode(data)
 	local b = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 	return (
@@ -2300,13 +2222,11 @@ local function base64_encode(data)
 		)
 end
 
--- Write image to terminal
 function meta:WriteImage(image_data, options)
 	options = options or {}
 	local terminal_type = self:GetTerminalType()
 
 	if terminal_type == "iterm2" or terminal_type == "wezterm" then
-		-- iTerm2 inline images protocol
 		local b64 = base64_encode(image_data)
 		local opts = "inline=1"
 
@@ -2324,20 +2244,17 @@ function meta:WriteImage(image_data, options)
 
 		self:Write(string.format("\27]1337;File=%s:%s\7", opts, b64))
 	elseif terminal_type == "kitty" or terminal_type == "konsole" then
-		-- Kitty graphics protocol
 		local b64 = base64_encode(image_data)
-		local cmd = "a=T,f=100" -- action=transmit, format=png
+		local cmd = "a=T,f=100"
+
 		if options.width then cmd = cmd .. ",c=" .. tostring(options.width) end
 
 		if options.height then cmd = cmd .. ",r=" .. tostring(options.height) end
 
-		-- For large images, we should chunk, but for now keep it simple
 		self:Write(string.format("\27_G%s;%s\27\\", cmd, b64))
 	elseif terminal_type == "windows-terminal" or terminal_type == "mintty" then
-		-- Sixel graphics (not implemented yet)
 		error("Sixel graphics not yet implemented for " .. terminal_type)
 	elseif terminal_type == "conemu" then
-		-- ConEmu inline images
 		local b64 = base64_encode(image_data)
 		self:Write(string.format("\27]9;4;st=0;sz=%d;%s\27\\", #image_data, b64))
 	else

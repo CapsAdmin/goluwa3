@@ -1,24 +1,3 @@
---[[
-	Water showcase: the ocean and water volumes of different kinds on a
-	stretch of coast.
-
-	The ocean lies towards -z, past a sandy beach. Inland, in basins carved
-	into the terrain, each a water_volume with a different medium:
-
-	  * lake (x -70, z 60): deep and clear, slightly green, gentle wind ripples
-	  * pond (x -15, z 38): murky green with algae and silt, still
-	  * swamp (x 32, z 72): shallow tea coloured bog water with fallen logs
-	  * river (z 115): milky glacial meltwater flowing towards +x
-	  * pool (x 60, z 20): chlorinated and mirror still over tiles, caustics
-	  * aquarium (x 88, z 20): a tank of tropical water seen through its sides
-
-	The water surface of a volume is its entity's position, its box reaches
-	Size.y below that. A volume's water only shows where the terrain is below
-	its surface, so a box can cover a whole basin of any shape.
-
-	Run: luajit glw --3d lua addons/examples/lua/examples/render3d/water_showcase.lua
-	Views: the water_view command jumps between the places above, water_view 0 lists them.
-]]
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local noise = import("goluwa/terrain/noise.lua")
@@ -118,7 +97,6 @@ float terrain_height(vec2 p) {
 	return h;
 }
 ]=]
--- x = sand, y = grass, z = dirt, w = rock
 local SPLAT_GLSL = [=[
 vec4 terrain_splat(vec2 p, float h, vec3 n) {
 	float slope = 1.0 - n.y;
@@ -256,7 +234,6 @@ local function preset(name, config)
 	return out
 end
 
--- square tiles tile_size apart over a face of this many meters, with grout between
 local function tile_material(width, height, tile_size, color, grout)
 	return shapes.Material{
 		Albedo = string.format(
@@ -282,7 +259,7 @@ local function tile_material(width, height, tile_size, color, grout)
 	}
 end
 
-do -- ocean and sky
+do
 	weather.SetTimeScale(0)
 	weather.SetSunDirection(Vec3(0.35, 0.42, -0.84):GetNormalized())
 	render3d.SetOceanEnabled(true)
@@ -296,7 +273,7 @@ do -- ocean and sky
 	}
 end
 
-do -- rocks along the shore and in the shallows
+do
 	local rock = mat(Color(0.33, 0.31, 0.29, 1), 0.85)
 	local positions = {
 		{-40, -0.5, -22, 2.2},
@@ -327,7 +304,7 @@ volume(
 	)
 )
 
-do -- a jetty out into the lake
+do
 	local wood = mat(Color(0.34, 0.24, 0.16, 1), 0.8)
 	box(
 		"jetty",
@@ -366,7 +343,7 @@ volume(
 	)
 )
 
-do -- lily pads on the pond
+do
 	local leaf = mat(Color(0.12, 0.3, 0.07, 1), 0.5)
 
 	for i = 1, 14 do
@@ -397,7 +374,7 @@ volume(
 	)
 )
 
-do -- fallen logs and dead stumps
+do
 	local bark = mat(Color(0.2, 0.15, 0.1, 1), 0.9)
 	local logs = {
 		{SWAMP.x - 6, SWAMP.z + 2, 0.4, 25},
@@ -442,7 +419,7 @@ volume(
 	)
 )
 
-do -- stepping stones across the river
+do
 	local stone = mat(Color(0.45, 0.43, 0.4, 1), 0.6)
 
 	for i = 0, 5 do
@@ -456,7 +433,7 @@ do -- stepping stones across the river
 	end
 end
 
-do -- swimming pool dug into a concrete deck
+do
 	local w, l, depth = POOL.width, POOL.length, POOL.depth
 	local rim = LAND_HEIGHT
 	local floor_y = rim - depth - 0.2
@@ -493,7 +470,6 @@ do -- swimming pool dug into a concrete deck
 		Vec3(0.5, depth + 0.4, l),
 		tile_material(l, depth + 0.4, 0.5, tiles, grout)
 	)
-	-- lane lines on the floor
 	local lane = mat(Color(0.05, 0.12, 0.3, 1), 0.3)
 
 	for i = -1, 1 do
@@ -505,7 +481,6 @@ do -- swimming pool dug into a concrete deck
 		)
 	end
 
-	-- the deck, with a hole for the pool
 	box(
 		"deck_n",
 		Vec3(POOL.x, rim - 0.1, POOL.z + l / 2 + 4.5),
@@ -530,7 +505,6 @@ do -- swimming pool dug into a concrete deck
 		Vec3(8, 0.4, l + 1),
 		concrete
 	)
-	-- a ladder and a diving board
 	local steel = mat(Color(0.85, 0.85, 0.85, 1), 0.2, 1)
 
 	for side = -1, 1, 2 do
@@ -563,7 +537,6 @@ do -- swimming pool dug into a concrete deck
 		Vec3(0.6, 0.6, 0.8),
 		concrete
 	)
-	-- something in the water
 	sphere(
 		"beach_ball",
 		Vec3(POOL.x - 3, rim - 0.25, POOL.z - 2),
@@ -587,7 +560,7 @@ do -- swimming pool dug into a concrete deck
 	)
 end
 
-do -- an aquarium on the deck, seen through its sides
+do
 	local x, z = POOL.x + 28, POOL.z
 	local base_y = LAND_HEIGHT + 0.9
 	local size = Vec3(6, 2.6, 2.4)
@@ -665,21 +638,69 @@ do -- an aquarium on the deck, seen through its sides
 	)
 end
 
-do -- lights in and over the water. the lake's lantern hangs over the jetty, whose deck shades the
-	-- water under it, the pond's lamp has a canopy over it, the pool has lights in its walls and
-	-- the swamp a will-o-wisp between the logs
+do
 	local iron = mat(Color(0.08, 0.08, 0.09, 1), 0.5, 1)
 	local lantern_pos = Vec3(LAKE.x + 18, LAKE.surface + 3.2, LAKE.z - 2)
-	box("lantern_post", Vec3(LAKE.x + 19.6, LAKE.surface + 1.8, LAKE.z - 2), Vec3(0.12, 3.6, 0.12), iron)
-	box("lantern_arm", Vec3(LAKE.x + 18.8, LAKE.surface + 3.6, LAKE.z - 2), Vec3(1.8, 0.08, 0.08), iron)
+	box(
+		"lantern_post",
+		Vec3(LAKE.x + 19.6, LAKE.surface + 1.8, LAKE.z - 2),
+		Vec3(0.12, 3.6, 0.12),
+		iron
+	)
+	box(
+		"lantern_arm",
+		Vec3(LAKE.x + 18.8, LAKE.surface + 3.6, LAKE.z - 2),
+		Vec3(1.8, 0.08, 0.08),
+		iron
+	)
 	lamp("lake_lantern", lantern_pos, Color(1, 0.72, 0.4, 1), 12000, 40)
-	lamp("lake_underwater", Vec3(LAKE.x - 6, LAKE.surface - 4.5, LAKE.z - 2), Color(0.3, 0.8, 1, 1), 15000, 30)
-	box("pond_post", Vec3(POND.x - 4, POND.surface + 1.5, POND.z), Vec3(0.12, 3, 0.12), iron)
-	box("pond_canopy", Vec3(POND.x - 1.5, POND.surface + 2.6, POND.z), Vec3(4.5, 0.12, 4.5), iron)
-	lamp("pond_lamp", Vec3(POND.x - 1.5, POND.surface + 2.3, POND.z), Color(1, 0.85, 0.55, 1), 6000, 30)
-	lamp("pool_light_1", Vec3(POOL.x - 9.6, LAND_HEIGHT - 1.4, POOL.z - 2.5), Color(0.6, 0.9, 1, 1), 6000, 25)
-	lamp("pool_light_2", Vec3(POOL.x + 9.6, LAND_HEIGHT - 1.4, POOL.z + 2.5), Color(1, 0.5, 0.9, 1), 6000, 25)
-	lamp("swamp_wisp", Vec3(SWAMP.x, SWAMP.surface + 0.6, SWAMP.z + 2), Color(0.5, 1, 0.4, 1), 3000, 20)
+	lamp(
+		"lake_underwater",
+		Vec3(LAKE.x - 6, LAKE.surface - 4.5, LAKE.z - 2),
+		Color(0.3, 0.8, 1, 1),
+		15000,
+		30
+	)
+	box(
+		"pond_post",
+		Vec3(POND.x - 4, POND.surface + 1.5, POND.z),
+		Vec3(0.12, 3, 0.12),
+		iron
+	)
+	box(
+		"pond_canopy",
+		Vec3(POND.x - 1.5, POND.surface + 2.6, POND.z),
+		Vec3(4.5, 0.12, 4.5),
+		iron
+	)
+	lamp(
+		"pond_lamp",
+		Vec3(POND.x - 1.5, POND.surface + 2.3, POND.z),
+		Color(1, 0.85, 0.55, 1),
+		6000,
+		30
+	)
+	lamp(
+		"pool_light_1",
+		Vec3(POOL.x - 9.6, LAND_HEIGHT - 1.4, POOL.z - 2.5),
+		Color(0.6, 0.9, 1, 1),
+		6000,
+		25
+	)
+	lamp(
+		"pool_light_2",
+		Vec3(POOL.x + 9.6, LAND_HEIGHT - 1.4, POOL.z + 2.5),
+		Color(1, 0.5, 0.9, 1),
+		6000,
+		25
+	)
+	lamp(
+		"swamp_wisp",
+		Vec3(SWAMP.x, SWAMP.surface + 0.6, SWAMP.z + 2),
+		Color(0.5, 1, 0.4, 1),
+		3000,
+		20
+	)
 end
 
 showcase.views = {
@@ -743,7 +764,6 @@ function showcase.GetView(index)
 	}
 end
 
--- the sun below the horizon, what the lights in and over the water have to light it by
 commands.Add("water_night", function()
 	weather.SetSunDirection(Vec3(0.35, -0.6, -0.84):GetNormalized())
 end)

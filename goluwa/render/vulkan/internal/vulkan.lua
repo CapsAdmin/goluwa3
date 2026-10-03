@@ -68,7 +68,6 @@ function vulkan.ApplyObjectTags(obj, tags)
 end
 
 function vulkan.GetAvailableLayers()
-	-- First, enumerate available layers
 	local layerCount = ffi.new("uint32_t[1]", 0)
 	vulkan.lib.vkEnumerateInstanceLayerProperties(layerCount, nil)
 	local out = {}
@@ -88,7 +87,6 @@ function vulkan.GetAvailableLayers()
 end
 
 function vulkan.GetAvailableExtensions()
-	-- First, enumerate available extensions
 	local extensionCount = ffi.new("uint32_t[1]", 0)
 	vulkan.lib.vkEnumerateInstanceExtensionProperties(nil, extensionCount, nil)
 	local out = {}
@@ -155,7 +153,4 @@ function vulkan.normalize_color_write_mask(mask)
 	return vulkan.COLOR_WRITE_MASK_BITS[mask] or 0
 end
 
---dprint("Vulkan bindings loaded. Vulkan version: " .. vulkan.GetVersion())
---dprint("Available Instance Layers: " .. table.concat(vulkan.GetAvailableLayers(), ", "))
---dprint("Available Instance Extensions: " .. table.concat(vulkan.GetAvailableExtensions(), ", "))
 return vulkan

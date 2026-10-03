@@ -173,9 +173,7 @@ function Solver.New(config)
 	self.CONTACT_DAMPING_RATIO = config.CONTACT_DAMPING_RATIO or self.CONTACT_DAMPING_RATIO or 10
 	self.JOINT_HERTZ = config.JOINT_HERTZ or self.JOINT_HERTZ or 60
 	self.JOINT_DAMPING_RATIO = config.JOINT_DAMPING_RATIO or self.JOINT_DAMPING_RATIO or 2
-	-- joints are cheap next to contacts and chains need the sweeps to carry a load
 	self.JOINT_ITERATIONS = config.JOINT_ITERATIONS or self.JOINT_ITERATIONS or 2
-	-- a contact this far apart is not held by the relax pass
 	self.RELAX_OPEN_GAP = config.RELAX_OPEN_GAP or self.RELAX_OPEN_GAP or 0.02
 	self.CONTACT_PUSH_SPEED = config.CONTACT_PUSH_SPEED or self.CONTACT_PUSH_SPEED or 3
 	self.REBUILD_POSE_THRESHOLD = config.REBUILD_POSE_THRESHOLD or self.REBUILD_POSE_THRESHOLD or 0.01
@@ -323,14 +321,11 @@ function Solver:BeginStep(collide, dt)
 	)
 	local constraints = physics:GetConstraints()
 
-	-- a joint that breaks removes itself from the list
 	for i = #constraints, 1, -1 do
 		constraints[i]:BeginStep(dt)
 	end
 end
 
--- manifold pairs solved this substep, in the order the velocity phase first
--- touched them; cleared every substep so no body is kept alive from here
 function Solver:QueuePositionPair(body_a, body_b, manifold)
 	local count = self.PositionPairCount + 1
 	self.PositionPairCount = count
@@ -400,9 +395,6 @@ function Solver:WarmStartConstraints(dt, constraints)
 	end
 end
 
--- Joints are soft constraints solved at velocity level next to the contacts:
--- the biased call (relax false) pulls the error in with the joint softness,
--- the relax calls solve rigidly with no bias.
 function Solver:SolveConstraints(dt, constraints_override, relax)
 	local physics = self:GetPhysics()
 	local constraints = constraints_override or physics:GetConstraints()
@@ -430,8 +422,6 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 	local pairs = bodies_or_pairs
 
 	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
-		-- empty list has nothing to solve; rebuilding the broadphase with an
-		-- empty body list would also wipe its tracked entries
 		if not (pairs and pairs[1]) then return end
 
 		local physics = self:GetPhysics()
@@ -456,8 +446,6 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 		local handled = false
 
 		if relax then
-			-- the relax pass only re-solves manifolds the substep already
-			-- touched, it never runs the narrowphase
 			local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
 
 			if manifold and manifold.last_warm_step == self.StepStamp then
@@ -470,16 +458,12 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 			then
 				pair_solver_helpers.DispatchColliderPairs(self, pair, dt, "relax")
 			end
-		-- pairs that found no contact in the first iteration of this substep stay
-		-- skipped, bodies only move by small corrections between iterations
 		elseif cached_iteration and pair.idle_stamp == self.StepStamp then
 			stats:Count("solver_pairs_idle")
 		elseif body_a:ShouldCollide(body_b) then
 			if reuse_manifolds then
 				local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
 
-				-- a manifold from an earlier step is recycled while both bodies
-				-- stay inside a tighter pose tolerance than within a step
 				if manifold and manifold.last_rebuild_step >= 0 then
 					manifold.last_seen_step = self.StepStamp
 					local recycled = manifold.last_rebuild_step < self.CollideStamp
@@ -497,8 +481,6 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 						)
 
 					if geometry_stale then
-						-- force the full dispatch to rebuild the manifold from the
-						-- current pose
 						manifold.last_rebuild_step = -1
 					else
 						stats:Count(recycled and "solver_pairs_recycled" or "solver_pairs_cached")
@@ -532,7 +514,6 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 	end
 end
 
--- bounces every pair the step solved; pairs is the same list the substeps used
 function Solver:ApplyRestitution(pairs, dt)
 	for i = 1, #pairs do
 		local body_a = pairs[i].entry_a.body
@@ -551,8 +532,6 @@ function Solver:IslandPairFilter(pair)
 
 	if body_a:GetAwake() or body_b:GetAwake() then return true end
 
-	-- compound bodies key their manifolds by collider, so a body-level
-	-- lookup cannot prove the pair is untouched; keep those links
 	if #body_a:GetColliders() > 1 or #body_b:GetColliders() > 1 then
 		return true
 	end

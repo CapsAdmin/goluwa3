@@ -1,9 +1,6 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
--- one unit sphere per tessellation, sized by the primitive's scale. building
--- and uploading a fresh one per sphere is most of the time a scene of many
--- small spheres takes to load
 local meshes = {}
 return {
 	name = "sphere",

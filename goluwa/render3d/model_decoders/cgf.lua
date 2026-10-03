@@ -288,8 +288,6 @@ function cgf.ReadNodeChunk(file, chunk)
 		is_group_member = file:ReadByte() ~= 0,
 	}
 	file:Advance(2)
-	-- like CryEngine, use tm as a 3x4 and ignore the pos/rot/scale fields after it
-	-- the unused 4th column is stored as zeros and the translation is in centimeters
 	local tm = {}
 
 	for i = 1, 16 do
@@ -363,7 +361,6 @@ function cgf.ExtractStaticMeshData(parsed)
 			if mesh_chunk and mesh_chunk.type == cgf.CHUNK_MESH then
 				local world_transform = cgf.GetNodeWorldTransform(nodes_by_id, node.id, world_transforms)
 
-				-- 0x744 meshes are the uncompiled format with an unrelated layout
 				if mesh_chunk.version ~= cgf.VERSION_MESH_COMPILED then
 					error(
 						string.format(
@@ -429,7 +426,6 @@ function cgf.ExtractStaticMeshData(parsed)
 					for _, subset in ipairs(subsets.subsets) do
 						if subset.num_indices <= 0 then goto continue_subset end
 
-						-- each subset gets only the vertices it uses
 						local subset_indices = {}
 						local subset_vertices = {}
 						local remap = {}
@@ -443,7 +439,6 @@ function cgf.ExtractStaticMeshData(parsed)
 								new_index = #subset_vertices + 1
 								remap[vertex_index] = new_index
 
-								-- meshes write normals and tangents into their vertices, so no two may share one
 								if claimed[vertex_index] then
 									vertex = {
 										pos = vertex.pos,
@@ -505,7 +500,6 @@ function cgf.ExtractStaticMeshData(parsed)
 	return entries
 end
 
--- like CryEngine, a material name with a path is relative to the game root, ie the folder holding Objects/
 function cgf.ResolveMaterialPath(model_path, material_name)
 	local material_root = file_path.GetFolderFromPath(model_path)
 	local name = file_path.FixPathSlashes(material_name):gsub("%.[mM][tT][lL]$", "")
@@ -524,7 +518,6 @@ function cgf.GetMaterialPaths(path)
 	local out = {}
 	local seen = {}
 
-	-- only the materials nodes use, the other name chunks are their sub materials
 	for _, chunk in ipairs(parsed.chunks) do
 		local material_chunk = chunk.type == cgf.CHUNK_NODE and
 			parsed.chunks_by_id[cgf.ReadNodeChunk(parsed.file, chunk).material_chunk_id]
@@ -559,7 +552,6 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 	local resolved_material_paths = {}
 	local ok, result = xpcall(function()
 		local entries = cgf.ExtractStaticMeshData(parsed)
-		-- cryengine bends the whole object by its height, every part must agree or they tear apart
 		local bend_height = 0
 
 		for _, entry in ipairs(entries) do
@@ -594,7 +586,6 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 			end
 
 			local vertices = entry.vertices
-			-- the diffuse map's TexMod tiling and offset, baked into the uvs for every map
 			local diffuse = material and material.cry_texture_maps and material.cry_texture_maps.Diffuse
 
 			if

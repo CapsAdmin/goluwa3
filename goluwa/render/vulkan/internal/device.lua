@@ -50,10 +50,8 @@ local VkDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkDevice)
 
 function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local available_extensions = physical_device:GetAvailableDeviceExtensions()
-	-- Add portability subset and its dependency if supported
 	local finalExtensions = {}
 
-	-- Only add requested extensions if they're actually available
 	for _, ext in ipairs(extensions) do
 		if table.has_value(available_extensions, ext) then
 			table.insert(finalExtensions, ext)
@@ -61,13 +59,9 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	if table.has_value(available_extensions, "VK_KHR_portability_subset") then
-		-- VK_KHR_portability_subset requires VK_KHR_get_physical_device_properties2
-		-- but this extension is promoted to core in Vulkan 1.1, so it's likely already available
 		table.insert(finalExtensions, "VK_KHR_portability_subset")
 
-		-- Only add the dependency if not already present
 		if not table.has_value(finalExtensions, "VK_KHR_get_physical_device_properties2") then
-			-- Check if this extension is available
 			if table.has_value(available_extensions, "VK_KHR_get_physical_device_properties2") then
 				table.insert(finalExtensions, "VK_KHR_get_physical_device_properties2")
 			end
@@ -98,9 +92,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.insert(finalExtensions, "VK_EXT_conditional_rendering")
 	end
 
-	-- Query available features if extension is present
 	local pNextChain = nil
-	-- Maintenance4 features
 	local maintenance4Features = VkPhysicalDeviceMaintenance4FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceMaintenance4Features{
 			sType = "physical_device_maintenance_4_features",
@@ -109,7 +101,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		}
 	)
 	pNextChain = maintenance4Features
-	-- Synchronization2 features (core since Vulkan 1.3, required for vkCmdPipelineBarrier2)
 	local synchronization2Features = VkPhysicalDeviceSynchronization2FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceSynchronization2Features{
 			sType = "physical_device_synchronization_2_features",
@@ -118,13 +109,11 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		}
 	)
 	pNextChain = synchronization2Features
-	-- Query available Vulkan 1.1 features
 	local availableVulkan11Features = physical_device:GetVulkan11Features()
 	local vulkan11Features = VkPhysicalDeviceVulkan11FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceVulkan11Features{
 			sType = "physical_device_vulkan_1_1_features",
 			pNext = pNextChain,
-			-- Only enable 16-bit features if they're actually supported
 			storageBuffer16BitAccess = availableVulkan11Features.storageBuffer16BitAccess,
 			uniformAndStorageBuffer16BitAccess = availableVulkan11Features.uniformAndStorageBuffer16BitAccess,
 			storagePushConstant16 = 0,
@@ -140,7 +129,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		}
 	)
 	pNextChain = vulkan11Features
-	-- Shader demote features
 	local demoteFeatures = VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceShaderDemoteToHelperInvocationFeatures{
 			sType = "physical_device_shader_demote_to_helper_invocation_features",
@@ -150,7 +138,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	)
 	pNextChain = demoteFeatures
 	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
-	-- Extended dynamic state features
 	local dynamicStateFeatures = physical_device:GetExtendedDynamicStateFeatures()
 	local has_extended_dynamic_state = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state") and
 		dynamicStateFeatures.extendedDynamicState
@@ -159,7 +146,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local has_extended_dynamic_state3 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3")
 	local has_mesh_shader = table.has_value(available_extensions, "VK_EXT_mesh_shader")
 	local has_polygon_mode_dynamic_state = has_extended_dynamic_state3 and
-		dynamicStateFeatures.extendedDynamicState3PolygonMode -- Set to true to enable wireframe support (requires VK_EXT_extended_dynamic_state3)
+		dynamicStateFeatures.extendedDynamicState3PolygonMode
 	local has_depth_clamp_dynamic_state = has_extended_dynamic_state3 and
 		dynamicStateFeatures.extendedDynamicState3DepthClampEnable
 	local has_logic_op_dynamic_state = has_extended_dynamic_state2 and
@@ -324,15 +311,12 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		enabled_features[0].independentBlend = 1
 	end
 
-	-- Enable scalar block layout feature for push constants
-	-- and descriptor indexing features for bindless textures
 	local availableVulkan12Features = physical_device:GetVulkan12Features()
 	local vulkan12Features = VkPhysicalDeviceVulkan12FeaturesBox(
 		vulkan.vk.s.PhysicalDeviceVulkan12Features{
 			sType = "physical_device_vulkan_1_2_features",
 			pNext = pNextChain,
 			scalarBlockLayout = 1,
-			-- Descriptor indexing features for bindless rendering
 			descriptorIndexing = 1,
 			shaderSampledImageArrayNonUniformIndexing = 1,
 			descriptorBindingPartiallyBound = 1,
@@ -352,7 +336,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			shaderUniformTexelBufferArrayDynamicIndexing = 0,
 			shaderStorageTexelBufferArrayDynamicIndexing = 0,
 			shaderUniformBufferArrayNonUniformIndexing = 0,
-			-- chunked storage buffer arrays (the scene bvh soup)
 			shaderStorageBufferArrayNonUniformIndexing = availableVulkan12Features.shaderStorageBufferArrayNonUniformIndexing,
 			shaderStorageImageArrayNonUniformIndexing = 0,
 			shaderInputAttachmentArrayNonUniformIndexing = 0,
@@ -428,8 +411,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		pNextChain = demoteFeatures
 	end
 
-	-- GOLUWA_NO_RAY_TRACING=1 runs as if the gpu had no ray tracing, to test
-	-- the fallbacks
 	local has_ray_tracing = os.getenv("GOLUWA_NO_RAY_TRACING") ~= "1" and
 		table.has_value(available_extensions, "VK_KHR_ray_tracing_pipeline")
 	local ray_tracing_supported = false
@@ -560,7 +541,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		end
 	end
 
-	-- Load extension functions if dynamic blend features are supported
 	if has_extended_dynamic_state3 then
 		if has_color_blend_enable_dynamic_state then
 			vulkan.ext.vkCmdSetColorBlendEnableEXT = device:TryGetExtension("vkCmdSetColorBlendEnableEXT")
@@ -587,7 +567,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		end
 	end
 
-	-- Load conditional rendering extension functions only if requested
 	if table.has_value(finalExtensions, "VK_EXT_conditional_rendering") then
 		vulkan.ext.vkCmdBeginConditionalRenderingEXT = device:TryGetExtension("vkCmdBeginConditionalRenderingEXT")
 		vulkan.ext.vkCmdEndConditionalRenderingEXT = device:TryGetExtension("vkCmdEndConditionalRenderingEXT")
@@ -791,7 +770,6 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 			logn("DEBUG: BUFFER UPDATE WITH NIL RANGE for " .. tostring(buffer))
 		end
 
-		-- Note: vulkan.vk.s.DescriptorBufferInfo is missing, use raw constructor via T.Array to get a pointer
 		local info = VkDescriptorBufferInfoArray(1)
 		info[0].buffer = buffer.ptr[0]
 		info[0].offset = 0
@@ -822,7 +800,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 			info[0].sampler = nil
 			info[0].imageView = view_handle
 			info[0].imageLayout = vulkan.vk.e.VkImageLayout(image_layout or "shader_read_only_optimal")
-		else -- combined_image_sampler
+		else
 			local imageView, sampler, fallback_view, fallback_sampler, image_layout = ...
 			local view_handle = (imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
 			local sampler_handle = (sampler:IsValid() and sampler.ptr) and sampler.ptr[0] or nil
@@ -906,9 +884,6 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
 end
 
--- buffer_infos is an array of {buffer, offset, range}; written as one
--- descriptor array (dstArrayElement 0 .. count-1) so a single binding can
--- cover a storage buffer larger than maxStorageBufferRange
 function Device:UpdateDescriptorSetBufferArray(descriptorSet, binding_index, buffer_infos, count)
 	local infoArray = VkDescriptorBufferInfoArray(count)
 
@@ -940,13 +915,10 @@ function Device:UpdateDescriptorSetArray(
 	fallback_sampler,
 	override_count
 )
-	-- texture_array is an array of {view, sampler} tables
 	local count = override_count or #texture_array
 
 	if count == 0 then return end
 
-	-- Create array of VkDescriptorImageInfo
-	-- Note: Luajit VLAs (via ffi.new("Type[?]", count)) are NOT zero-initialized
 	local imageInfoArray = VkDescriptorImageInfoArray(count)
 	local fallback_view_handle = fallback_view and fallback_view.ptr and fallback_view.ptr[0]
 	local fallback_sampler_handle = fallback_sampler and fallback_sampler.ptr and fallback_sampler.ptr[0]
@@ -957,7 +929,6 @@ function Device:UpdateDescriptorSetArray(
 		local sampler_handle = nil
 
 		if type(tex) == "table" and tex.view and type(tex.view.ptr) == "cdata" then
-			-- Ensure we are not using a view or sampler that has been destroyed in Vulkan
 			if tex.view:IsValid() and tex.view.ptr[0] ~= nil then
 				local view_ptr = tex.view.ptr
 				local sampler_ptr = tex.sampler and tex.sampler.ptr
@@ -996,12 +967,10 @@ function Device:UpdateDescriptorSetArray(
 end
 
 function Device:UpdateSampledImageDescriptorSetArray(descriptorSet, binding_index, view_array, fallback_view, override_count)
-	-- view_array is an array of {view} tables (view-only, sampled_image)
 	local count = override_count or #view_array
 
 	if count == 0 then return end
 
-	-- Note: Luajit VLAs (via ffi.new("Type[?]", count)) are NOT zero-initialized
 	local imageInfoArray = VkDescriptorImageInfoArray(count)
 	local fallback_view_handle = fallback_view and fallback_view.ptr and fallback_view.ptr[0]
 
@@ -1010,7 +979,6 @@ function Device:UpdateSampledImageDescriptorSetArray(descriptorSet, binding_inde
 		local view_handle = nil
 
 		if type(entry) == "table" and entry.view and type(entry.view.ptr) == "cdata" then
-			-- Ensure we are not using a view that has been destroyed in Vulkan
 			if entry.view:IsValid() and entry.view.ptr[0] ~= nil then
 				local view_ptr = entry.view.ptr
 
@@ -1041,12 +1009,10 @@ function Device:UpdateSampledImageDescriptorSetArray(descriptorSet, binding_inde
 end
 
 function Device:UpdateSamplerDescriptorSetArray(descriptorSet, binding_index, sampler_array, fallback_sampler, override_count)
-	-- sampler_array is an array of {sampler} tables (sampler-only)
 	local count = override_count or #sampler_array
 
 	if count == 0 then return end
 
-	-- Note: Luajit VLAs (via ffi.new("Type[?]", count)) are NOT zero-initialized
 	local imageInfoArray = VkDescriptorImageInfoArray(count)
 	local fallback_sampler_handle = fallback_sampler and fallback_sampler.ptr and fallback_sampler.ptr[0]
 

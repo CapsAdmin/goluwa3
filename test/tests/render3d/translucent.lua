@@ -9,7 +9,6 @@ local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 
--- a box from the unit cube (which spans -1..1)
 local function add_box(polygon3d, created, position, scale, material)
 	local ent = Entity.New{Name = "translucent_test_box"}
 	created[#created + 1] = ent
@@ -29,8 +28,6 @@ end
 local function same_pixel(a, b, x, y)
 	local ar, ag, ab = a:GetPixelFloat(x, y)
 	local br, bg, bb = b:GetPixelFloat(x, y)
-	-- the scene is pre exposed, so what its values add up to depends on the
-	-- exposure. a pixel is the same when it moved by less than a hundredth of itself
 	return math.abs(ar - br) + math.abs(ag - bg) + math.abs(ab - bb) < 0.01 * (ar + ag + ab)
 end
 
@@ -40,7 +37,6 @@ T.Test3D("Graphics render3d translucent materials draw forward over the lit scen
 			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
-			-- the translucent pass composites over its output
 			import("goluwa/render3d/passes/volumetric_fog.lua"),
 			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
@@ -68,9 +64,7 @@ T.Test3D("Graphics render3d translucent materials draw forward over the lit scen
 			Translucent = true,
 		}
 		add_box(polygon3d, created, Vec3(0, 0, -10), Vec3(6, 6, 0.1), wall)
-		-- in front of the wall, covering the center of the screen
 		add_box(polygon3d, created, Vec3(0, 0, -5), Vec3(0.5, 0.5, 0.05), pane)
-		-- behind the wall, where only the depth test keeps it out of view
 		add_box(polygon3d, created, Vec3(-3, 0, -14), Vec3(0.5, 0.5, 0.05), pane)
 		add_box(polygon3d, created, Vec3(3, 0, -14), Vec3(0.5, 0.5, 0.05), pane)
 		draw()
@@ -79,18 +73,14 @@ T.Test3D("Graphics render3d translucent materials draw forward over the lit scen
 		local opaque = post_source.GetOpaqueSceneTexture():Download()
 		local final = post_source.GetRawSceneSourceTexture():Download()
 		local center = math.floor(opaque.width / 2)
-		-- the gbuffer holds the wall behind the pane, not a dithered pane
 		local r, g = albedo:GetPixel(center, center)
 		T(r > g)["=="](true)
 		r, g = albedo:GetPixel(center + 4, center + 1)
 		T(r > g)["=="](true)
-		-- the pane is blended over the wall
 		T(same_pixel(opaque, final, center, center))["=="](false)
 		local _, opaque_g = opaque:GetPixelFloat(center, center)
 		local _, final_g = final:GetPixelFloat(center, center)
 		T(final_g > opaque_g)["=="](true)
-		-- and nothing else is touched: not the wall beside it, nor where the
-		-- panes behind the wall would be, nor the sky, which the fog scatters into
 		T(same_pixel(opaque, final, center - 55, center))["=="](true)
 		T(same_pixel(opaque, final, center + 55, center))["=="](true)
 		T(same_pixel(opaque, final, center - 120, center + 60))["=="](true)
@@ -117,7 +107,6 @@ T.Test3D("Graphics render3d refractive materials transmit and blur what is behin
 			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
-			-- the translucent pass composites over its output
 			import("goluwa/render3d/passes/volumetric_fog.lua"),
 			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
@@ -155,11 +144,8 @@ T.Test3D("Graphics render3d refractive materials transmit and blur what is behin
 			Refraction = 1,
 			RefractionThickness = 0,
 		}
-		-- a wall, red on the left and green on the right
 		add_box(polygon3d, created, Vec3(-3, 0, -10), Vec3(3, 6, 0.1), red)
 		add_box(polygon3d, created, Vec3(3, 0, -10), Vec3(3, 6, 0.1), green)
-		-- a clear pane over the top half of the red side, a frosted one over
-		-- the bottom half of the seam
 		add_box(polygon3d, created, Vec3(-2, 1.5, -5), Vec3(1, 1, 0.02), clear)
 		add_box(polygon3d, created, Vec3(0, -1.5, -5), Vec3(1.5, 1, 0.02), frosted)
 		draw()
@@ -169,17 +155,13 @@ T.Test3D("Graphics render3d refractive materials transmit and blur what is behin
 		local final = post_source.GetRawSceneSourceTexture():Download()
 		local center = math.floor(opaque.width / 2)
 		local quarter = math.floor(opaque.width / 4)
-		-- refracting surfaces stay out of the gbuffer
 		local r, g = albedo:GetPixel(center - 5, center + quarter)
 		T(r > g)["=="](true)
-		-- the clear pane shows the red wall through it, a little dimmer for what
-		-- it reflects away, and not the environment
 		local opaque_r, opaque_g = opaque:GetPixelFloat(center - quarter / 2, center - quarter / 2)
 		local final_r, final_g = final:GetPixelFloat(center - quarter / 2, center - quarter / 2)
 		T(same_pixel(opaque, final, center - quarter / 2, center - quarter / 2))["=="](false)
 		T(final_r > opaque_r * 0.7)["=="](true)
 		T(final_g < final_r * 0.5)["=="](true)
-		-- just left of the seam the frosted pane blurs green in
 		opaque_r, opaque_g = opaque:GetPixelFloat(center - 4, center + quarter / 2)
 		final_r, final_g = final:GetPixelFloat(center - 4, center + quarter / 2)
 		T(final_g > opaque_g * 2)["=="](true)
@@ -206,7 +188,6 @@ T.Test3D("Graphics render3d translucent surfaces blend in depth order, whatever 
 			import("goluwa/render3d/light_grid.lua").pass,
 			import("goluwa/render3d/passes/gbuffer.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
-			-- the translucent pass composites over its output
 			import("goluwa/render3d/passes/volumetric_fog.lua"),
 			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
@@ -240,8 +221,6 @@ T.Test3D("Graphics render3d translucent surfaces blend in depth order, whatever 
 			Translucent = true,
 		}
 		add_box(polygon3d, created, Vec3(0, 0, -10), Vec3(20, 20, 0.1), wall)
-		-- the red pane is in front of the blue one at the center of the screen,
-		-- but reaches so far to the side that its center is the farther one
 		add_box(polygon3d, created, Vec3(14, 0, -6), Vec3(16, 0.3, 0.02), red)
 		add_box(polygon3d, created, Vec3(0, 0, -8), Vec3(1, 1, 0.02), blue)
 		draw()
@@ -250,7 +229,6 @@ T.Test3D("Graphics render3d translucent surfaces blend in depth order, whatever 
 		local center = math.floor(final.width / 2)
 		local r, _, b = final:GetPixelFloat(center + 4, center)
 		T(r > b * 1.5)["=="](true)
-		-- where only the blue pane is, blue shows
 		r, _, b = final:GetPixelFloat(center - 4, center + math.floor(final.width / 24))
 		T(b > r * 1.5)["=="](true)
 	end)

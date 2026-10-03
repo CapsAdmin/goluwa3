@@ -2,11 +2,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local BINDING_CAMERA = 3
--- The glass drawn from the sun, see glass_tint.lua, into a map for all of it
--- and one for each shadow cascade and the inset. One target holds what the
--- light is left with, the other how far from the sun the glass is. Every face is
--- drawn, so a pane that only has the face away from the sun still counts, and
--- the face nearest the sun wins, so a pane made of two faces is counted once.
 local camera_block = {
 	name = "glass_tint_camera",
 	binding_index = BINDING_CAMERA,
@@ -54,7 +49,6 @@ for slot = 0, 5 do
 				draw.entry.polygon3d:Draw()
 			end
 		end,
-		-- never drawn, the pass only begins and clears the targets the glass draws into
 		fragment = {shader = "void main() { set_tint(vec4(1.0)); set_glass_depth(1.0); }"},
 		CullMode = "none",
 		DepthTest = false,
@@ -104,7 +98,6 @@ passes[#passes + 1] = {
 		]],
 	},
 	CullMode = "none",
-	-- glass nearer the sun than a cascade's near plane is drawn at its depth 0
 	DepthClamp = true,
 	DepthTest = true,
 	DepthWrite = true,

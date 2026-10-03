@@ -17,33 +17,25 @@ local render = import("goluwa/render/render.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local ImageRenderTarget = objects.CreateTemplate("render_image_rendertarget")
 local default_config = {
-	-- Mode selection
-	offscreen = false, -- Set to true for offscreen rendering
-	enable_hdr = false, -- HDR output requires an explicit opt-in and proper display calibration
-	-- Swapchain settings (windowed mode only)
-	present_mode = "fifo_khr", -- FIFO (vsync), IMMEDIATE (no vsync), MAILBOX (triple buffer)
-	image_count = nil, -- nil = minImageCount + 1 (usually triple buffer)
-	-- surface_format_index: nil = auto-select (HDR if available), or specify index manually
-	composite_alpha = "opaque_khr", -- OPAQUE, PRE_MULTIPLIED, POST_MULTIPLIED, INHERIT
-	clipped = true, -- Clip pixels obscured by other windows
-	image_usage = nil, -- nil = COLOR_ATTACHMENT | TRANSFER_DST, or provide custom flags
-	-- Image acquisition
-	acquire_timeout = ffi.cast("uint64_t", -1), -- Infinite timeout by default
-	-- Presentation
-	pre_transform = nil, -- nil = use currentTransform
-	-- Dimensions
+	offscreen = false,
+	enable_hdr = false,
+	present_mode = "fifo_khr",
+	image_count = nil,
+	composite_alpha = "opaque_khr",
+	clipped = true,
+	image_usage = nil,
+	acquire_timeout = ffi.cast("uint64_t", -1),
+	pre_transform = nil,
 	width = 512,
 	height = 512,
-	-- Offscreen mode settings
-	format = nil, -- Format for offscreen rendering (defaults to chosen surface format or "r8g8b8a8_unorm")
-	usage = nil, -- Usage flags for offscreen image (defaults to {"color_attachment", "sampled"})
-	samples = nil, -- Sample count (defaults to "1" for offscreen, "4" for windowed)
-	final_layout = "color_attachment_optimal", -- Final layout for offscreen image
+	format = nil,
+	usage = nil,
+	samples = nil,
+	final_layout = "color_attachment_optimal",
 }
 
 local function choose_format(self)
 	if self.config.offscreen then
-		-- Offscreen mode: use provided format or default
 		self.color_format = self.config.format or "r8g8b8a8_unorm"
 		self.samples = self.config.samples or "1"
 
@@ -53,16 +45,13 @@ local function choose_format(self)
 
 		self.depth_format = "d32_sfloat_s8_uint"
 		self.final_layout = self.config.final_layout or "color_attachment_optimal"
-		-- Set extent directly from config
 		self.extent = {width = self.config.width, height = self.config.height}
 		return
 	end
 
-	-- Windowed mode: query surface capabilities and formats
 	self.surface_capabilities = self.vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
 	self.surface_formats = self.vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
 
-	-- Handle undefined surface size (Wayland)
 	if self.surface_capabilities.currentExtent.width == 0xFFFFFFFF then
 		if self.config.width and self.config.height then
 			self.surface_capabilities.currentExtent.width = self.config.width
@@ -72,7 +61,6 @@ local function choose_format(self)
 		end
 	end
 
-	-- Validate format index
 	if #self.surface_formats == 0 then
 		error("No surface formats available! Surface may not be properly initialized.")
 	end
@@ -81,13 +69,6 @@ local function choose_format(self)
 
 	if not chosen_format_index then
 		if self.config.enable_hdr then
-			-- scRGB first: linear BT.709 where 1.0 is 80 nits and brighter goes
-			-- above 1, so everything that writes linear light to the swapchain
-			-- (render2d included) stays correct without knowing about HDR.
-			-- HDR10 (PQ encoded BT.2020) needs every writer to encode for it,
-			-- which only the 3D blit does. Some Linux compositors advertise
-			-- scRGB while the desktop is SDR and tonemap it down, which looks
-			-- washed out; that is why HDR is opt in.
 			local preferred = {
 				{"r16g16b16a16_sfloat", "extended_srgb_linear_ext"},
 				{"a2b10g10r10_unorm_pack32", "hdr10_st2084_ext"},
@@ -115,7 +96,6 @@ local function choose_format(self)
 		end
 
 		if not chosen_format_index then
-			-- Prefer SRGB formats for automatic gamma correction
 			local preferred_formats = {
 				"b8g8r8a8_srgb",
 				"r8g8b8a8_srgb",
@@ -167,13 +147,12 @@ end
 
 local function create_swapchain(self)
 	if self.config.offscreen then
-		-- Offscreen mode: create a single color attachment image
 		local usage = self.config.usage or {"color_attachment", "sampled"}
 		local texture = Texture.New{
 			width = self.extent.width,
 			height = self.extent.height,
 			format = self.color_format,
-			buffer = false, -- Don't upload any data, and skip automatic layout transition
+			buffer = false,
 			image = {
 				width = self.extent.width,
 				height = self.extent.height,
@@ -234,7 +213,6 @@ local function create_swapchain(self)
 
 	if old_swapchain then old_swapchain:Remove() end
 
-	-- metadata belongs to the swapchain, so a new one needs it again
 	if self.hdr_metadata and self:IsHDR() then
 		self.swapchain:SetHdrMetadata(self.hdr_metadata)
 	end
@@ -279,7 +257,6 @@ end
 local function create_msaa_buffer(self)
 	local extent = self.config.offscreen and self.extent or self.surface_capabilities.currentExtent
 
-	-- Recreate MSAA color buffer if using MSAA
 	if self.samples ~= "1" then
 		local format = self.config.offscreen and self.color_format or self.surface_format.format
 		self.msaa_image = Texture.New{
@@ -303,7 +280,6 @@ end
 
 local function create_per_frame_resources(self)
 	if self.config.offscreen then
-		-- Offscreen mode: only need one command buffer
 		if self.command_buffers and #self.command_buffers == 1 then return end
 
 		self.command_buffers = {}
@@ -311,7 +287,6 @@ local function create_per_frame_resources(self)
 		return
 	end
 
-	-- Windowed mode: need resources per swapchain image
 	if self.command_buffers and #self.command_buffers == #self.textures then
 		return
 	end
@@ -370,7 +345,6 @@ function ImageRenderTarget.New(vulkan_instance, config)
 	create_msaa_buffer(self)
 	create_per_frame_resources(self)
 
-	-- For backward compatibility with offscreen mode, expose image field
 	if config.offscreen then self.image = self:GetImage() end
 
 	return self
@@ -411,7 +385,6 @@ function ImageRenderTarget:RequiresManualGamma()
 	return true
 end
 
--- bits per colour channel, e.g. 8 for b8g8r8a8_srgb and 16 for r16g16b16a16_sfloat
 function ImageRenderTarget:GetColorBits()
 	return tonumber(self.color_format:match("r(%d+)"))
 end
@@ -420,14 +393,11 @@ function ImageRenderTarget:GetColorSpace()
 	return self.surface_format and self.surface_format.color_space or "srgb_nonlinear_khr"
 end
 
--- the two HDR outputs choose_format picks; see there
 function ImageRenderTarget:IsHDR()
 	local cs = self:GetColorSpace()
 	return cs == "extended_srgb_linear_ext" or cs == "hdr10_st2084_ext"
 end
 
--- see Swapchain:SetHdrMetadata; kept and reapplied when the swapchain is
--- recreated. Returns whether the compositor or driver was told.
 function ImageRenderTarget:SetHDRMetadata(t)
 	self.hdr_metadata = t
 
@@ -449,9 +419,6 @@ function ImageRenderTarget:GetDepthImageView()
 end
 
 function ImageRenderTarget:WaitForPreviousFrame()
-	-- Wait for the next frame's fence (which is the one we'll use next)
-	-- This ensures previous frame work is complete before we start new work
-	-- Don't reset the fence - BeginFrame will do that
 	local next_frame = (self.current_frame % #self.textures) + 1
 
 	if self.in_flight_fences and self.in_flight_fences[next_frame] then
@@ -575,7 +542,6 @@ function ImageRenderTarget:BeginFrame()
 	event.Call("PreRenderPass")
 	render.PopCommandBuffer()
 	cmd:BeginRendering(build_render_config(self))
-	-- Set viewport and scissor
 	cmd:SetViewport(0, 0, extent.width, extent.height, 0, 1)
 	cmd:SetScissor(0, 0, extent.width, extent.height)
 	return cmd
@@ -583,11 +549,8 @@ end
 
 function ImageRenderTarget:EndFrame()
 	local command_buffer = self.command_buffers[self.current_frame]
-	-- End rendering pass
 	command_buffer:EndRendering()
-	-- Copy query results after render pass ends (windowed mode only)
 	event.Call("PostRenderPass", command_buffer)
-	-- Transition image to final layout
 	local final_layout = self.config.offscreen and self.final_layout or "present_src_khr"
 	local dst_stage = self.config.offscreen and "transfer" or "color_attachment_output"
 	local dst_access = self.config.offscreen and "transfer_read" or "none"
@@ -607,9 +570,7 @@ function ImageRenderTarget:EndFrame()
 
 	if RENDER_NOOP and not self.config.offscreen then return end
 
-	-- Submit command buffer
 	if self.config.offscreen then
-		-- Offscreen: simple submit and wait
 		local fence = Fence.New(self.vulkan_instance.device)
 		local queue = self.vulkan_instance.queue
 
@@ -631,7 +592,6 @@ function ImageRenderTarget:EndFrame()
 			self.in_flight_fences[self.current_frame]
 		)
 
-		-- Present and recreate swapchain if needed
 		if
 			not self.swapchain:Present(
 				self.render_finished_semaphores[self.texture_index],
@@ -720,10 +680,7 @@ function ImageRenderTarget:Capture()
 end
 
 function ImageRenderTarget:RebuildFramebuffers()
-	if self.config.offscreen then
-		-- Offscreen mode doesn't need rebuilding
-		return
-	end
+	if self.config.offscreen then return end
 
 	local device = self.vulkan_instance.device
 	device:WaitIdle()
@@ -782,11 +739,8 @@ function ImageRenderTarget:Clear(r, g, b, a, depth, stencil)
 	}
 end
 
--- Additional methods for offscreen mode compatibility
 function ImageRenderTarget:WriteMode(cmd)
-	if not self.config.offscreen then
-		return -- Only applicable in offscreen mode
-	end
+	if not self.config.offscreen then return end
 
 	render.TransitionResourceFrom(
 		self:GetImage(),
@@ -802,9 +756,7 @@ function ImageRenderTarget:WriteMode(cmd)
 end
 
 function ImageRenderTarget:ReadMode(cmd)
-	if not self.config.offscreen then
-		return -- Only applicable in offscreen mode
-	end
+	if not self.config.offscreen then return end
 
 	render.TransitionResourceTo(
 		self:GetImage(),

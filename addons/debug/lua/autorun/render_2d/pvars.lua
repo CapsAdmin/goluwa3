@@ -169,8 +169,6 @@ event.AddListener("KeyInput", "pvars_window", function(key, press)
 	end
 end)
 
--- a value being edited keeps the window open after the key is released, so
--- the key can be typed into it
 event.AddListener("Update", "pvars_window", function()
 	if held or not window or not window:IsValid() then return end
 

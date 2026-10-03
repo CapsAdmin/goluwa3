@@ -42,7 +42,6 @@ return {
 		end
 
 		return canvas{
-			-- 2D Color Picker Demo
 			Text{
 				Text = "2D Color Picker Demo",
 				FontName = "heading",
@@ -95,7 +94,6 @@ return {
 					preview_box,
 				},
 			},
-			-- Mixing various orientations
 			Text{
 				Text = "Orientation Layouts",
 				FontName = "heading",

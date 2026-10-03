@@ -51,7 +51,6 @@ if CLIENT then
 		network.socket = peer
 		network.just_disconnected = nil
 		event.Call("NetworkStarted")
-		-- Send initial connection message to the server
 		message.Send("connect", ip, port)
 		return peer
 	end
@@ -191,8 +190,6 @@ do
 		message.AddListener("connect", function(client, ip, port)
 			if network.debug then llog("client %s:%s connected", ip, port) end
 
-			-- The peer should already be created by OnReceiveChunk
-			-- Send confirmation back to the client
 			message.Send("connected", client)
 		end)
 
@@ -208,7 +205,7 @@ do
 
 		event.AddListener("PeerConnect", "network", function(peer)
 			local uid = ipport_to_uid(peer)
-			local client = clients.Create(uid, false, false) -- create the client serverside for now
+			local client = clients.Create(uid, false, false)
 			client.socket = peer
 			llog(
 				"[debug] PeerConnect: uid=%s, client.socket=%s",
@@ -226,14 +223,11 @@ do
 
 					for _, other in ipairs(clients.GetAll()) do
 						if other ~= client then
-							-- tell this client about all the clients on the server
 							clients.Create(other:GetUniqueID(), other:IsBot(), true, client, false, true)
-							-- tell all the other clients that this client entered
 							clients.Create(client:GetUniqueID(), client:IsBot(), true, other, false, false)
 						end
 					end
 
-					-- tell this client that we entered
 					clients.Create(client:GetUniqueID(), client:IsBot(), true, client, true, false)
 					event.Call("ClientEntered", client)
 				end)
@@ -241,7 +235,7 @@ do
 		end)
 	end
 
-	do -- string table
+	do
 		if SERVER then
 			local i = 0
 
@@ -254,9 +248,6 @@ do
 					return 0
 				end
 
-				-- this is mainly used by the messsage which uses the packet library internally
-				-- which in turn needs network.AddString
-				-- -1 is reserved for the message library
 				if type(str) == "number" then return str end
 
 				local id = nvars.Get(str, nil, "string_table1")

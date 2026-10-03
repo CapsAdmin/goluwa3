@@ -1,12 +1,5 @@
--- allocation-free scalar triangle distance kernels for sweep predicates.
--- these operate on plain numbers and never construct Vec3s, take square
--- roots, or normalize: callers compare squared distances and only pay for
--- a real normal when a contact is actually built.
 local triangle_scalar = {}
 
--- signed-area test of the three directed edges (a->b, b->c, c->a): the
--- point (assumed on the plane) is inside when all cross products face the
--- normal
 local function point_in_triangle_fast_path(x, y, z, ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz, epsilon)
 	local pax = x - ax
 	local pay = y - ay
@@ -45,9 +38,6 @@ local function point_in_triangle_fast_path(x, y, z, ax, ay, az, bx, by, bz, cx, 
 		)
 end
 
--- unnormalized face normal (v1-v0) x (v2-v0) and its squared length; the
--- squared length is the degeneracy measure and keeps sign tests free of a
--- sqrt
 function triangle_scalar.TriangleNormalRaw(v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2y, v2z)
 	local abx = v1x - v0x
 	local aby = v1y - v0y
@@ -61,8 +51,6 @@ function triangle_scalar.TriangleNormalRaw(v0x, v0y, v0z, v1x, v1y, v1z, v2x, v2
 	return nx, ny, nz, nx * nx + ny * ny + nz * nz
 end
 
--- closest squared distance from point p to segment ab; returns the closest
--- point on the segment
 function triangle_scalar.PointToSegmentSq(x, y, z, ax, ay, az, bx, by, bz)
 	local dx = bx - ax
 	local dy = by - ay
@@ -85,8 +73,6 @@ function triangle_scalar.PointToSegmentSq(x, y, z, ax, ay, az, bx, by, bz)
 	return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
 end
 
--- closest squared distance between segment ab and segment cd. returns the
--- squared distance and the closest point on each segment.
 function triangle_scalar.SegmentSegmentSq(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz)
 	local ux = bx - ax
 	local uy = by - ay
@@ -114,8 +100,6 @@ function triangle_scalar.SegmentSegmentSq(ax, ay, az, bx, by, bz, cx, cy, cz, dx
 	end
 
 	if acoef * ecoef <= dcoef * dcoef then
-		-- parallel: the minimum lies on one of the two boundary slices, both
-		-- covered by projecting one segment's start point onto the other
 		local sq1, qx1, qy1, qz1 = triangle_scalar.PointToSegmentSq(ax, ay, az, cx, cy, cz, dx, dy, dz)
 		local sq2, qx2, qy2, qz2 = triangle_scalar.PointToSegmentSq(cx, cy, cz, ax, ay, az, bx, by, bz)
 
@@ -124,7 +108,6 @@ function triangle_scalar.SegmentSegmentSq(ax, ay, az, bx, by, bz, cx, cy, cz, dx
 		return sq2, qx2, qy2, qz2, cx, cy, cz
 	end
 
-	-- interior solution of a*s - d*t = b, -d*s + e*t = -f
 	local det = acoef * ecoef - dcoef * dcoef
 	local s = (bcoef * ecoef - dcoef * fcoef) / det
 	local t = (bcoef * dcoef - acoef * fcoef) / det
@@ -172,7 +155,6 @@ function triangle_scalar.PointToTriangleSq(x, y, z, ax, ay, az, bx, by, bz, cx, 
 	local d1 = abx * apx + aby * apy + abz * apz
 	local d2 = acx * apx + acy * apy + acz * apz
 
-	-- vertex a region
 	if d1 <= 0 and d2 <= 0 then
 		local ddx = x - ax
 		local ddy = y - ay
@@ -180,7 +162,6 @@ function triangle_scalar.PointToTriangleSq(x, y, z, ax, ay, az, bx, by, bz, cx, 
 		return ddx * ddx + ddy * ddy + ddz * ddz, ax, ay, az
 	end
 
-	-- vertex b region
 	local bpx = x - bx
 	local bpy = y - by
 	local bpz = z - bz
@@ -196,7 +177,6 @@ function triangle_scalar.PointToTriangleSq(x, y, z, ax, ay, az, bx, by, bz, cx, 
 
 	local vc = d1 * d4 - d3 * d2
 
-	-- edge ab region
 	if vc <= 0 and d1 >= 0 and d3 <= 0 then
 		local v = d1 / (d1 - d3)
 		local qx = ax + abx * v
@@ -208,7 +188,6 @@ function triangle_scalar.PointToTriangleSq(x, y, z, ax, ay, az, bx, by, bz, cx, 
 		return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
 	end
 
-	-- vertex c region
 	local cpx = x - cx
 	local cpy = y - cy
 	local cpz = z - cz
@@ -224,7 +203,6 @@ function triangle_scalar.PointToTriangleSq(x, y, z, ax, ay, az, bx, by, bz, cx, 
 
 	local vb = d5 * d2 - d1 * d6
 
-	-- edge ac region
 	if vb <= 0 and d2 >= 0 and d6 <= 0 then
 		local w = d2 / (d2 - d6)
 		local qx = ax + acx * w
@@ -238,7 +216,6 @@ function triangle_scalar.PointToTriangleSq(x, y, z, ax, ay, az, bx, by, bz, cx, 
 
 	local va = d3 * d6 - d5 * d4
 
-	-- edge bc region
 	if va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0 then
 		local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
 		local qx = bx + (cx - bx) * w
@@ -250,8 +227,6 @@ function triangle_scalar.PointToTriangleSq(x, y, z, ax, ay, az, bx, by, bz, cx, 
 		return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
 	end
 
-	-- interior: closest point on the infinite plane projected onto the
-	-- triangle, which lies inside, so no barycentric solve is needed
 	local va2 = d3 * d6 - d5 * d4
 	local vb2 = d5 * d2 - d1 * d6
 	local vc2 = d1 * d4 - d3 * d2
@@ -265,12 +240,6 @@ function triangle_scalar.PointToTriangleSq(x, y, z, ax, ay, az, bx, by, bz, cx, 
 	return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
 end
 
--- segment to triangle squared distance. returns distance_sq, the closest
--- point on the segment, the closest point on the triangle and a feature
--- discriminator ("face", "vertex" or "edge") so callers can rebuild an
--- exact contact (position + normal) through matching higher-level queries.
--- a nil face_normal skips the plane fast paths and degenerates to the
--- vertex/edge minimum, matching the vector-based pipeline.
 function triangle_scalar.SegmentToTriangleSq(
 	ax,
 	ay,

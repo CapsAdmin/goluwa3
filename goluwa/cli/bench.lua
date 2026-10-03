@@ -4,7 +4,6 @@ local process = import("goluwa/bindings/process.lua")
 local system = import("goluwa/system.lua")
 local DIRECTORY = "test/benchmarks/"
 
--- a benchmark says how to run it in a first line comment, "-- glw: --3d"
 local function find_benchmarks()
 	local benchmarks = {}
 	local names = fs.get_files(fs.get_current_directory() .. "/" .. DIRECTORY) or {}
@@ -69,12 +68,11 @@ commands.Add({
 	if not selected[1] then error("no benchmark matches '" .. pattern .. "'", 0) end
 
 	local failed = 0
-	-- the benchmark processes inherit these, see benchmark_results
+
 	if flags.baseline then process.setenv("GOLUWA_BENCH_BASELINE", "1") end
 
 	if flags["no-compare"] then process.setenv("GOLUWA_BENCH_COMPARE", "0") end
 
-	-- one process each: the flags differ, and a run should not inherit what another left behind
 	for _, benchmark in ipairs(selected) do
 		local args = {"glw"}
 
@@ -96,7 +94,14 @@ commands.Add({
 	logn("\nbenchmarks:")
 
 	for _, benchmark in ipairs(selected) do
-		logf("  %-32s %s in %.0f s\n", benchmark.name, benchmark.code == 0 and "ok" or "FAILED (exit " .. tostring(benchmark.code) .. ")", benchmark.seconds)
+		logf(
+			"  %-32s %s in %.0f s\n",
+			benchmark.name,
+			benchmark.code == 0 and
+				"ok" or
+				"FAILED (exit " .. tostring(benchmark.code) .. ")",
+			benchmark.seconds
+		)
 	end
 
 	system.ShutDown(failed == 0 and 0 or 1)

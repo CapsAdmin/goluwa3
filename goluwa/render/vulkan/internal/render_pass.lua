@@ -8,7 +8,6 @@ local VkRenderPassBox = ffi.typeof("$[1]", vulkan.vk.VkRenderPass)
 function RenderPass.New(device, config)
 	config.samples = config.samples or "1"
 	config.final_layout = config.final_layout or "present_src_khr"
-	-- Normalize format: handle both string and object with .format field
 	local format_string = type(config.format) == "string" and config.format or config.format.format
 	local attachments
 	local attachment_count
@@ -17,8 +16,9 @@ function RenderPass.New(device, config)
 	if config.samples == "1" then
 		if has_depth then
 			attachment_count = 2
-			attachments = VkAttachmentDescriptionArray(2, {
-				-- Attachment 0: Color
+			attachments = VkAttachmentDescriptionArray(
+				2,
+				{
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
@@ -30,7 +30,6 @@ function RenderPass.New(device, config)
 						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
 						finalLayout = vulkan.vk.e.VkImageLayout(config.final_layout),
 					},
-					-- Attachment 1: Depth
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(config.depth_format),
@@ -61,32 +60,31 @@ function RenderPass.New(device, config)
 	else
 		if has_depth then
 			attachment_count = 3
-			attachments = VkAttachmentDescriptionArray(3, {
-				-- Attachment 0: MSAA color attachment
+			attachments = VkAttachmentDescriptionArray(
+				3,
+				{
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits["VK_SAMPLE_COUNT_" .. config.samples .. "_BIT"],
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
-						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE, -- Don't need to store MSAA
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
 						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
 						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
 						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					},
-					-- Attachment 1: Resolve target (swapchain)
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
-						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE, -- Don't care about initial contents
-						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE, -- Store resolved result
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE,
 						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
 						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
 						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 					},
-					-- Attachment 2: MSAA depth attachment
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(config.depth_format),
@@ -102,26 +100,26 @@ function RenderPass.New(device, config)
 			)
 		else
 			attachment_count = 2
-			attachments = VkAttachmentDescriptionArray(2, {
-				-- Attachment 0: MSAA color attachment
+			attachments = VkAttachmentDescriptionArray(
+				2,
+				{
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits["VK_SAMPLE_COUNT_" .. config.samples .. "_BIT"],
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
-						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE, -- Don't need to store MSAA
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
 						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
 						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
 						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					},
-					-- Attachment 1: Resolve target (swapchain)
 					{
 						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
-						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE, -- Don't care about initial contents
-						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE, -- Store resolved result
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE,
 						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
 						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
@@ -201,7 +199,6 @@ function RenderPass.New(device, config)
 		device = device,
 		samples = config.samples,
 		has_depth = has_depth,
-		-- Anchor all temporary FFI structures to prevent premature GC
 		_attachments = attachments,
 		_colorAttachmentRef = colorAttachmentRef,
 		_depthAttachmentRef = depthAttachmentRef,

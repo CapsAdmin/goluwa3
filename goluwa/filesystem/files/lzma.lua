@@ -28,13 +28,11 @@ function CONTEXT:OnParseArchive(file, archive_path)
 	end
 
 	print("lzma: decompressed size", decompressed:GetSize())
-	-- Cache the decompressed data to disk so generic_archive can open it
 	local cache_key = archive_path .. (vfs.GetLastModified(archive_path) or "")
 	local cache_path = "os:cache/lzma/" .. crypto.CRC32(cache_key) .. ".dat"
 
 	if not vfs.IsFile(cache_path) then vfs.Write(cache_path, decompressed) end
 
-	-- Stacking: try other archive handlers
 	local found_handler = false
 
 	for _, fs in ipairs(vfs.GetFileSystems()) do
@@ -44,7 +42,6 @@ function CONTEXT:OnParseArchive(file, archive_path)
 			if fs.Extension then fake_path = "fake." .. fs.Extension end
 
 			decompressed:SetPosition(0)
-			-- Override AddEntry to use the cached decompressed file
 			local old_AddEntry = self.AddEntry
 			self.AddEntry = function(self, entry)
 				entry.archive_path = cache_path
@@ -66,7 +63,6 @@ function CONTEXT:OnParseArchive(file, archive_path)
 	end
 
 	if not found_handler then
-		-- If no other handler matched, expose the decompressed file
 		local name = archive_path:match("([^/]+)$") or "decompressed"
 
 		if name:ends_with(".bin") then name = name:sub(1, -5) end

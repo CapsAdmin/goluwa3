@@ -6,8 +6,8 @@ T.Test("hash intern returns monotonically increasing IDs", function()
 	local id1 = interner:intern({"a", 1})
 	local id2 = interner:intern({"a", 1})
 	local id3 = interner:intern({"a", 2})
-	T(id1)["=="](id2) -- same args = same ID
-	T(id3)["=="](id1 + 1) -- different args = next ID
+	T(id1)["=="](id2)
+	T(id3)["=="](id1 + 1)
 end)
 
 T.Test("hash intern is stable for nil values", function()
@@ -48,7 +48,7 @@ end)
 T.Test("hash intern handles empty tables with nil sentinel", function()
 	local interner = Hash.New()
 	T(interner:intern({{}}))["=="](interner:intern({{}}))
-	T(interner:intern({{}}))["=="](interner:intern({nil}, 1)) -- empty table = nil
+	T(interner:intern({{}}))["=="](interner:intern({nil}, 1))
 end)
 
 T.Test("hash intern_with_keys extracts values by keys", function()

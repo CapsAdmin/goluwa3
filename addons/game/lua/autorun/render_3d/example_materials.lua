@@ -3,7 +3,6 @@ local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
 local DEFAULT_TEXTURE_WIDTH = 256
 local DEFAULT_TEXTURE_HEIGHT = 128
--- the texture channels a showcase material can have, and whether they hold colors
 local CHANNELS = {
 	{key = "Albedo", srgb = true},
 	{key = "Metallic", srgb = false},
@@ -34,7 +33,6 @@ local function build_texture_paths(material_path)
 	return paths
 end
 
--- the material and its textures are only built once something loads them
 local function register_material(entry)
 	local config = entry.config
 	local paths = build_texture_paths(entry.path)
@@ -43,7 +41,6 @@ local function register_material(entry)
 		local shader = config[channel.key]
 
 		if shader then
-			-- the entry's texture options, what the caller asked for on top
 			local defaults = entry.textures and entry.textures[channel.key] or {}
 
 			assets.RegisterVirtualTexture(paths[channel.key], function(_, options)
@@ -80,7 +77,6 @@ local function register_material(entry)
 			kind = "lua",
 			load = function()
 				if not material then
-					-- the channels hold GLSL here, the textures are made above on request
 					local material_config = {}
 
 					for key, value in pairs(config) do
@@ -188,8 +184,6 @@ local shared = [[
 		#define p (get_equirect_dir(uv) * 3.0)
 		#define n get_equirect_dir(uv)
 ]]
--- sand and snow tile over 1024 texels, each texel a grain or a facet. noise is periodic in uv so the
--- textures wrap, and the normal is the height's gradient
 local grain_shared = [[
 	#define TEXELS 1024.0
 
@@ -266,9 +260,6 @@ local grain_shared = [[
 		return fbm(uv, 4.0, 6);
 	}
 ]]
--- a grain or a facet per texel, sampled nearest and without mips: filtering would average the facets'
--- normals away and their glints with them. far away the texels alias and TAA averages them over
--- frames, as the eye does grains smaller than it can resolve, leaving the brightest glints
 local GRAIN_TEXTURE = {
 	width = 1024,
 	height = 1024,
@@ -290,8 +281,6 @@ local DETAIL_TEXTURE = {
 		wrap_t = "repeat",
 	},
 }
--- how deep the snow's drifts are in texture units, 2.4 cm on the 2.4 m tile. its normal map shades
--- them with the same depth
 local SNOW_HEIGHT_SCALE = 0.01
 local showcase_materials = {
 	{
@@ -725,8 +714,6 @@ local showcase_materials = {
 		},
 	},
 	{
-		-- dry sand: grains of quartz, feldspar and a few dark ones, a smooth quartz or mica facet among
-		-- them here and there
 		path = "materials/examples/sand.lua",
 		name = "Sand",
 		textures = {
@@ -757,8 +744,6 @@ local showcase_materials = {
 		},
 	},
 	{
-		-- snow: ice grains, bright and mostly rough, with the odd crystal face catching the sun. ice's F0
-		-- is 0.018
 		path = "materials/examples/snow.lua",
 		name = "Snow",
 		textures = {
@@ -773,11 +758,9 @@ local showcase_materials = {
 			Metallic = "return vec4(0.0);",
 			Roughness = "return vec4(is_facet(uv, 0.08) ? 0.1 : mix(0.6, 0.8, hash12(floor(uv * TEXELS))));",
 			SpecularMultiplier = 0.45,
-			-- the drifts the normal map shades, parallax mapped around the surface
 			Height = "return vec4(snow_height(uv));",
 			HeightScale = SNOW_HEIGHT_SCALE,
 			HeightMidlevel = 0.5,
-			-- the drifts' slope is the height's per texel times the texels in one texture unit times the depth
 			Normal = [[
 				vec2 e = vec2(1.0 / TEXELS, 0.0);
 				float h = snow_height(uv);
@@ -806,8 +789,6 @@ local showcase_materials = {
 		},
 	},
 	{
-		-- the water film rain leaves, render3d/surface_weather.lua lays its clearcoat over whatever gets
-		-- wet. shown here on asphalt, darkened as its pores soak it up
 		path = "materials/examples/rain.lua",
 		name = "Rain",
 		config = {
@@ -823,7 +804,6 @@ local showcase_materials = {
 					return vec4(0.7 + 0.15 * f);
 				]],
 			Normal = "return vec4(getDetailNormal(p, n, 0.5) * 0.5 + 0.5, 1.0);",
-			-- a film broken up by the drops landing in it
 			Clearcoat = 1,
 			ClearcoatRoughness = 0.08,
 		},

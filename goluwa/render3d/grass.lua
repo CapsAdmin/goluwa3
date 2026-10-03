@@ -12,38 +12,16 @@ local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local grass = library()
--- Procedural grass blades on every surface whose material has the Grass flag.
--- Everything after picking the surfaces is on the GPU:
---
---   scatter_tiles: a thread per triangle cuts the triangle's footprint near
---   the camera into square tiles and appends the visible ones as jobs
---   scatter_blades: a workgroup per job places the blades inside the triangle
---   and appends them to the blade buffer and its indirect draw counts
---   draw: one indirect draw each for near and far blades, built from
---   gl_VertexIndex, written straight into the gbuffer
---
--- Blades sit on a world anchored grid of cells, cell size 1/sqrt(density),
--- one blade per cell jittered inside it. A cell's level is how many times its
--- index is divisible by two (up to MAX_LEVEL); a level m cell's blade jitters
--- over the 2^m cells it anchors and gets a priority in [4^-(m+1), 4^-m), so
--- the cells of level >= k alone form a jittered grid 2^k cells apart. Thinning
--- with distance keeps the blades whose priority is below the keep fraction,
--- which lets far tiles skip the low levels outright, and a blade fades by
--- shrinking as the keep fraction approaches its priority instead of popping.
 grass.MAX_SURFACES = 512
 grass.SURFACE_RING = 4
--- small triangles, like a terrain's, each take a job per tile they touch
 grass.MAX_JOBS = 2 ^ 20
--- jobs are dispatched as rows of this many workgroups, under the 65535 limit per dimension
 grass.JOB_ROW = 2 ^ 15
 grass.MAX_BLADES = 2 ^ 19
 grass.TILE_CELLS = 32
 grass.MAX_LEVEL = 4
 grass.NEAR_SEGMENTS = 7
 grass.FAR_SEGMENTS = 3
--- blades are full density up to here, then thin with the square of distance
 grass.full_density_distance = 8
--- near blades get NEAR_SEGMENTS, the rest FAR_SEGMENTS
 grass.near_distance = 15
 grass.max_distance = 150
 pvars.StartGroup("feature", {store = false})
@@ -74,7 +52,6 @@ local GrassSurface = ffi.typeof([[struct {
 local uint64_ptr = ffi.typeof("uint64_t *")
 local int32_ptr = ffi.typeof("int32_t *")
 assert(ffi.sizeof(GrassSurface) == SURFACE_FLOATS * 4)
--- dispatch x y z, job counter, near draw, far draw, near counter, far counter
 local ARGS_RESET = ffi.new(
 	"uint32_t[16]",
 	{
@@ -423,7 +400,6 @@ local compute_block = {
 	{"near_distance", "float"},
 	{"surface_index", "int"},
 	{"triangle_count", "int"},
-	-- the surface's layer mask in the tiles pass, whose texture indices differ from the blades pass
 	{"mask_texture", "int"},
 }
 
@@ -757,8 +733,6 @@ local function get_compute_passes()
 	return compute_passes
 end
 
--- which surfaces grow grass is only looked for again when the scene or a
--- material's flags change
 local surfaces = {}
 local surfaces_key = nil
 local surface_count = 0
@@ -828,7 +802,6 @@ local function write_surface(out, surface, pipeline)
 	local wind_strength = atmosphere.GetWindStrength()
 	out.wind[0] = wind.x / length
 	out.wind[1] = wind.z / length
-	-- lean and speed of the gust waves
 	out.wind[2] = 0.35 * wind_strength
 	out.wind[3] = 1.3 * wind_strength
 	local layers = material:GetTerrainLayerGrass()
@@ -875,7 +848,6 @@ local function barrier(cmd, buffer, src_stage, dst_stage, src_access, dst_access
 	}
 end
 
--- runs before the gbuffer begins rendering
 function grass.Scatter(cmd)
 	surface_count = 0
 
@@ -887,7 +859,6 @@ function grass.Scatter(cmd)
 
 	local b = get_buffers()
 	local passes = get_compute_passes()
-	-- last frame's draws are done with the blades and their counts
 	barrier(
 		cmd,
 		b.args,
@@ -915,7 +886,6 @@ function grass.Scatter(cmd)
 
 		local mesh = surface.entry.polygon3d:GetMesh()
 
-		-- terrain keeps a new level of detail hidden until the one it replaces is gone
 		if mesh:IsValid() and surface.component:GetVisible() then
 			local aabb = surface.component:GetWorldAABB()
 
@@ -975,7 +945,6 @@ function grass.Scatter(cmd)
 	barrier(cmd, b.blades, "compute", "vertex", "shader_write", "shader_read")
 end
 
--- inside the gbuffer's rendering, after the scene's geometry
 function grass.Draw(pipeline, cmd)
 	if not enabled:Get() or surface_count == 0 then return end
 
@@ -986,7 +955,6 @@ function grass.Draw(pipeline, cmd)
 	cmd:DrawIndirect(b.args, ARGS_DRAW_FAR_OFFSET, 1)
 end
 
--- the gbuffer's color and depth formats come from its base pass
 function grass.BuildDrawPass(gbuffer_pass)
 	local grass_block = {
 		name = "grass_data",
@@ -1029,7 +997,6 @@ function grass.BuildDrawPass(gbuffer_pass)
 				{"normal", "vec3"},
 				{"ground_normal", "vec3"},
 				{"color", "vec3"},
-				-- height along the blade, across it (-1 to 1)
 				{"blade", "vec2"},
 			},
 			uniform_buffers = {grass_block},

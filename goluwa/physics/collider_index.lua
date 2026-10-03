@@ -1,10 +1,6 @@
 local BVH = import("goluwa/physics/bvh.lua")
 local stats = import("goluwa/physics/stats.lua")
 local AABB = import("goluwa/structs/aabb.lua")
--- Spatial index over the colliders of a big static body (a map is one body
--- with a collider per brush group and displacement). Queries return only the
--- colliders whose bounds overlap an AABB; bodies that are small or can move
--- just hand back their collider list.
 local collider_index = {}
 local MIN_INDEXED_COLLIDERS = 16
 local LEAF_ITEM_COUNT = 4
@@ -99,9 +95,6 @@ local function build_index(body, colliders)
 	return index
 end
 
--- Returns list, count. The list is body:GetColliders() itself or `out`, so
--- callers must not modify it and must read it before the next query that
--- uses the same `out`.
 function collider_index.Query(body, aabb, out)
 	local colliders = body:GetColliders()
 	local total = #colliders

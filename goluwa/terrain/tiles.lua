@@ -139,12 +139,6 @@ local function resolve_layer_texture(value)
 	return value
 end
 
---[[
-	layers = {
-		{albedo = texture or asset path, normal = texture or asset path, height = texture or asset path, height_scale = parallax depth in texture units, scale = meters per tile, roughness = 1, ao = 1, detail = 0, additive_detail = 0, specular = 1, grass = 0},
-		... up to 4
-	}
-]]
 function tiles.CreateMaterial(chunk, layers)
 	local material = Material.New()
 	material:SetNormalTexture(chunk.normal_texture)

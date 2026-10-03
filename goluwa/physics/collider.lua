@@ -212,8 +212,6 @@ function META:__newindex(key, value)
 		return
 	end
 
-	-- the solver hands colliders to code written for bodies, whose per-body
-	-- state has to land on the body the collider stands in for
 	if key == "PositionCorrection" or key:sub(1, 6) == "Ground" then
 		self.Body[key] = value
 	else

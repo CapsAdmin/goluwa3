@@ -14,7 +14,6 @@ function CONTEXT:AddEntry(entry)
 	local directory = entry.full_path:match("(.+)/") or "./"
 	entry.file_name = entry.full_path:match(".+/(.+)") or entry.full_path
 	entry.size = tonumber(entry.size) or 0
-	--entry.crc = entry.crc or 0
 	entry.offset = tonumber(entry.offset) or 0
 	entry.is_file = true
 	local full_path = entry.full_path
@@ -47,7 +46,6 @@ function CONTEXT:AddEntry(entry)
 	end
 end
 
---self:ParseArchive(vfs.Open("os:G:/SteamLibrary/SteamApps/common/Skyrim/Data/Skyrim - Sounds.gma"), "os:G:/SteamLibrary/SteamApps/common/Skyrim/Data/Skyrim - Sounds.gma")
 local cache = {}
 local last_used = {}
 
@@ -82,7 +80,8 @@ local function save_vpk_disk_cache(cache_path, tree)
 end
 
 local never
-local modified_cache = {} -- just numbers
+local modified_cache = {}
+
 function CONTEXT:GetFileTree(path_info)
 	if never then return false, "recursive call to GetFileTree" end
 
@@ -195,9 +194,7 @@ function CONTEXT:GetFiles(path_info)
 	local out = {}
 
 	for _, v in pairs(children) do
-		if type(v) == "table" and v.v then -- fix me!!
-			list.insert(out, v.v.file_name)
-		end
+		if type(v) == "table" and v.v then list.insert(out, v.v.file_name) end
 	end
 
 	return out
@@ -300,8 +297,7 @@ function CONTEXT:GetPosition()
 end
 
 function CONTEXT:OnRemove()
-	if self.file and self.file:IsValid() then self.file = nil -- just unref
-	end
+	if self.file and self.file:IsValid() then self.file = nil end
 end
 
 function CONTEXT:GetSize()

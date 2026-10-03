@@ -1,5 +1,3 @@
--- Tests for connect handshake (Step 9)
-
 local T = import("test/environment.lua")
 local handshake = import("goluwa/network/handshake.lua")
 
@@ -22,7 +20,6 @@ T.Test("GenerateChallenge creates byte array", function()
 	local challenge = handshake.GenerateChallenge(16)
 	T(#challenge)["=="](16)
 
-	-- Each byte should be 0-255
 	for i = 1, #challenge do
 		T(challenge[i])["~="](nil)
 		T(challenge[i])[">="](0)
@@ -34,7 +31,6 @@ T.Test("SerializeChallenge/DeserializeChallenge round-trip", function()
 	local original = {65, 66, 67, 68, 69}
 	local str = handshake.SerializeChallenge(original)
 	local deserialized = handshake.DeserializeChallenge(str)
-
 	T(#deserialized)["=="](#original)
 
 	for i = 1, #original do
@@ -51,7 +47,6 @@ end)
 T.Test("Client: SendConnectRequest transitions to CONNECTING", function()
 	local client = handshake.CreatePeerState()
 	local request = client:SendConnectRequest({ip = "127.0.0.1", port = 9000}, 12345)
-
 	T(request)["~="](nil)
 	T(request.type)["=="](handshake.PACKET_TYPE.CONNECT_REQUEST)
 	T(request.client_id)["=="](12345)
@@ -62,7 +57,6 @@ end)
 T.Test("Client: Cannot send connect request from CONNECTING state", function()
 	local client = handshake.CreatePeerState()
 	client:SetState(handshake.STATE.CONNECTING)
-
 	local request, error = client:SendConnectRequest({ip = "127.0.0.1", port = 9000}, 12345)
 	T(request)["=="](nil)
 	T(error)["~="](nil)
@@ -71,12 +65,10 @@ end)
 T.Test("Server: HandleConnectRequest accepts valid request", function()
 	local server = handshake.CreatePeerState()
 	server.peer_id = 99999
-
 	local client_request = {
 		client_id = 12345,
 		challenge = {1, 2, 3, 4},
 	}
-
 	local response = server:HandleConnectRequest({ip = "127.0.0.1", port = 9000}, client_request)
 	T(response)["~="](nil)
 	T(response.type)["=="](handshake.PACKET_TYPE.CONNECT_ACCEPT)
@@ -101,12 +93,10 @@ end)
 T.Test("Client: HandleConnectAccept transitions to CONNECTED", function()
 	local client = handshake.CreatePeerState()
 	client:SetState(handshake.STATE.CONNECTING)
-
-	local response = client:HandleConnectAccept({
+	local response = client:HandleConnectAccept{
 		server_id = 99999,
 		challenge_response = {1, 2, 3, 4},
-	})
-
+	}
 	T(response)["~="](nil)
 	T(client.state)["=="](handshake.STATE.CONNECTED)
 	T(client.peer_id)["=="](99999)
@@ -115,7 +105,6 @@ end)
 T.Test("Client: HandleConnectReject transitions to DISCONNECTED", function()
 	local client = handshake.CreatePeerState()
 	client:SetState(handshake.STATE.CONNECTING)
-
 	local result = client:HandleConnectReject({error = "Bad password"})
 	T(result)["~="](nil)
 	T(result.error)["=="]("Bad password")
@@ -125,8 +114,7 @@ end)
 T.Test("Client: HandleConnectTimeout retries if under limit", function()
 	local client = handshake.CreatePeerState()
 	client:SetState(handshake.STATE.CONNECTING)
-	client.connect_attempts = 1 -- Already tried once
-
+	client.connect_attempts = 1
 	local result = client:HandleConnectTimeout()
 	T(result)["~="](nil)
 	T(result.type)["=="](handshake.PACKET_TYPE.CONNECT_REQUEST)
@@ -138,7 +126,6 @@ T.Test("Client: HandleConnectTimeout gives up after max retries", function()
 	local client = handshake.CreatePeerState()
 	client:SetState(handshake.STATE.CONNECTING)
 	client.connect_attempts = handshake.DEFAULT_CONFIG.max_retries
-
 	local result = client:HandleConnectTimeout()
 	T(result)["~="](nil)
 	T(result.error)["~="](nil)
@@ -155,7 +142,6 @@ end)
 T.Test("Both: SendDisconnect transitions to DISCONNECTING", function()
 	local peer = handshake.CreatePeerState()
 	peer:SetState(handshake.STATE.CONNECTED)
-
 	local packet = peer:SendDisconnect("leaving")
 	T(packet)["~="](nil)
 	T(packet.type)["=="](handshake.PACKET_TYPE.DISCONNECT)
@@ -166,7 +152,6 @@ end)
 T.Test("Both: HandleDisconnect from CONNECTED goes to DISCONNECTED", function()
 	local peer = handshake.CreatePeerState()
 	peer:SetState(handshake.STATE.CONNECTED)
-
 	local result = peer:HandleDisconnect({reason = "peer_request"})
 	T(result)["~="](nil)
 	T(result.reason)["=="]("peer_request")
@@ -176,7 +161,6 @@ end)
 T.Test("Both: HandleDisconnect from DISCONNECTING completes", function()
 	local peer = handshake.CreatePeerState()
 	peer:SetState(handshake.STATE.DISCONNECTING)
-
 	local result = peer:HandleDisconnect({})
 	T(result)["~="](nil)
 	T(result.completed)["=="](true)
@@ -184,37 +168,22 @@ T.Test("Both: HandleDisconnect from DISCONNECTING completes", function()
 end)
 
 T.Test("Full handshake: Client → Server → Client → Disconnect", function()
-	-- Client starts
 	local client = handshake.CreatePeerState()
 	T(client.state)["=="](handshake.STATE.DISCONNECTED)
-
-	-- Client sends connect request
 	local client_request = client:SendConnectRequest({ip = "127.0.0.1", port = 9000}, 111)
 	T(client.state)["=="](handshake.STATE.CONNECTING)
-
-	-- Server receives and accepts
 	local server = handshake.CreatePeerState()
 	server.peer_id = 222
 	local server_response = server:HandleConnectRequest({ip = "127.0.0.1", port = 9000}, client_request)
 	T(server.state)["=="](handshake.STATE.CONNECTED)
-
-	-- Client receives accept
 	local confirm = client:HandleConnectAccept(server_response)
 	T(client.state)["=="](handshake.STATE.CONNECTED)
-
-	-- Both are now connected
 	T(client.state)["=="](handshake.STATE.CONNECTED)
 	T(server.state)["=="](handshake.STATE.CONNECTED)
-
-	-- Client disconnects
 	local disconnect_packet = client:SendDisconnect("done")
 	T(client.state)["=="](handshake.STATE.DISCONNECTING)
-
-	-- Server receives disconnect
 	local result = server:HandleDisconnect(disconnect_packet)
 	T(server.state)["=="](handshake.STATE.DISCONNECTED)
-
-	-- Client receives disconnect confirmation
 	local client_result = client:HandleDisconnect(disconnect_packet)
 	T(client.state)["=="](handshake.STATE.DISCONNECTED)
 end)

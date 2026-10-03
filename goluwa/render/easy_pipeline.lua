@@ -1,7 +1,6 @@
 local base = import("goluwa/render/easy_pipeline_base.lua")
 local EasyPipelineGraphics = import("goluwa/render/easy_pipeline_graphics.lua")
 local EasyPipelineCompute = import("goluwa/render/easy_pipeline_compute.lua")
-
 local EasyPipeline = base.EasyPipeline
 
 function EasyPipeline.New(config)

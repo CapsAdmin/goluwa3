@@ -8,7 +8,6 @@ local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 
-
 T.TestPhysics("Rigid body collision response supports friction and restitution", function()
 	local platform_ent = Entity.New({Name = "rigid_material_platform"})
 	platform_ent:AddComponent("transform")

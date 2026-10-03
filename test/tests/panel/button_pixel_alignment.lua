@@ -6,7 +6,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local function create_world()
 	local old_world = Panel.World
 	local world = Panel.New{
-		ComponentSet = { "transform", "visual" },
+		ComponentSet = {"transform", "visual"},
 	}
 	world:SetName("TestWorld")
 	world.transform:SetSize(Vec2(512, 512))
@@ -26,7 +26,6 @@ T.Test2D("clipped button rect is pixel aligned from fractional size/position", f
 		transform = true,
 		visual = true,
 	}
-	-- fractional requests that the transform must snap to whole pixels
 	btn.transform:SetPosition(Vec2(100.3, 50.7))
 	btn.transform:SetSize(Vec2(100.4, 80.6))
 	btn.visual:SetClipping(true)
@@ -45,7 +44,6 @@ T.Test2D("clipped button rect is pixel aligned from fractional size/position", f
 	render2d.SetColor(0, 0, 1, 1)
 	render2d.DrawRect(0, 0, width, height)
 	world.visual:DrawRecursive()
-
 	return function()
 		local ok, err = xpcall(
 			function()
@@ -58,12 +56,17 @@ T.Test2D("clipped button rect is pixel aligned from fractional size/position", f
 
 				local function peak(vx, vy, vert)
 					local mx = 0
+
 					for i = -1, 1 do
 						local x, y = vx, vy
+
 						if vert then y = vy + i else x = vx + i end
+
 						local c = green_cov(x, y)
+
 						if c > mx then mx = c end
 					end
+
 					return math.round(mx * 100)
 				end
 
@@ -72,16 +75,21 @@ T.Test2D("clipped button rect is pixel aligned from fractional size/position", f
 				local r = peak(px + sx - 1, cy, true)
 				local t = peak(cx, py, false)
 				local b = peak(cx, py + sy - 1, false)
-				print(string.format("button edges L=%d R=%d T=%d B=%d (rect %d,%d %dx%d)", l, r, t, b, px, py, sx, sy))
+				print(
+					string.format("button edges L=%d R=%d T=%d B=%d (rect %d,%d %dx%d)", l, r, t, b, px, py, sx, sy)
+				)
 				T(math.abs(l - r))["<="](5)
 				T(math.abs(l - t))["<="](5)
 				T(math.abs(l - b))["<="](5)
-				T(l) [">="](95)
+				T(l)[">="](95)
 			end,
 			debug.traceback
 		)
+
 		if world and world.IsValid and world:IsValid() then world:Remove() end
+
 		Panel.World = old_world
+
 		if not ok then error(err, 0) end
 	end
 end)

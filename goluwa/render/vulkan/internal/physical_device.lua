@@ -29,7 +29,6 @@ function PhysicalDevice.New(ptr)
 end
 
 function PhysicalDevice:SupportsSurface(surface)
-	-- Check if any queue family supports presentation to this surface
 	local queue_families = self:GetQueueFamilyProperties()
 
 	for i, queueFamily in ipairs(queue_families) do
@@ -59,12 +58,6 @@ function PhysicalDevice:FindMemoryType(typeFilter, properties)
 	error("failed to find suitable memory type!")
 end
 
--- The memory type for host visible buffers the gpu reads or writes a lot. The
--- first host visible type is usually system memory, which the gpu reaches over
--- pcie, several times slower than its own memory. With resizable BAR the gpu's
--- memory is host visible too, as a device local type. A BAR that only spans a
--- small window of it is not worth filling, so a heap under min_heap_size is
--- skipped. Returns nil when there is none.
 function PhysicalDevice:FindFastHostMemoryType(typeFilter, min_heap_size)
 	local memProperties = vulkan.vk.VkPhysicalDeviceMemoryProperties()
 	vulkan.lib.vkGetPhysicalDeviceMemoryProperties(self.ptr[0], memProperties)
@@ -182,7 +175,6 @@ function PhysicalDevice:GetPresentModes(surface)
 	local count = presentModeCount[0]
 	local presentModes = ffi.new("int[?]", count)
 	vulkan.lib.vkGetPhysicalDeviceSurfacePresentModesKHR(self.ptr[0], surface.ptr[0], presentModeCount, presentModes)
-	-- Convert to Lua table
 	local result = {}
 
 	for i = 0, count - 1 do
@@ -392,7 +384,6 @@ function PhysicalDevice:GetAccelerationStructureProperties()
 			minAccelerationStructureScratchOffsetAlignment = 0,
 		}
 	)
-	-- raw struct: the table constructor rejects the zeroed limits enums
 	local query = ffi.new(vulkan.vk.VkPhysicalDeviceProperties2)
 	query.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2
 	query.pNext = properties
@@ -444,7 +435,6 @@ function PhysicalDevice:GetRobustness2Features()
 end
 
 function PhysicalDevice:GetExtendedDynamicStateFeatures()
-	-- Chain v1, v2, and v3 feature queries together
 	local queryFeaturesV3 = VkPhysicalDeviceExtendedDynamicState3FeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceExtendedDynamicState3FeaturesEXT{
 			sType = "physical_device_extended_dynamic_state_3_features_ext",
@@ -503,7 +493,6 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 		pNext = queryFeaturesV1,
 		features = vulkan.vk.VkPhysicalDeviceFeatures(),
 	}
-	-- Query all features at once
 	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], queryDeviceFeatures)
 	return {
 		extendedDynamicState = queryFeaturesV1[0].extendedDynamicState == 1,

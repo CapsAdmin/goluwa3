@@ -9,7 +9,6 @@ scene_lights.MAX_LIGHTS = 256
 scene_lights.MAX_CASCADES = directional_shadows.MAX_CASCADES
 scene_lights.MAX_POINT_SHADOWS = 32
 
--- lights whose range reaches the camera first, then by how far their range is
 local function sort_lights(a, b)
 	if a.distance_score ~= b.distance_score then
 		return a.distance_score < b.distance_score
@@ -144,7 +143,6 @@ function scene_lights.GetLightGLSLCode()
 		]=]
 end
 
--- every pass writes the same lights each frame, so the first write is kept and copied into the rest
 local cached_bytes
 local cached_size = 0
 local cached_frame = -1

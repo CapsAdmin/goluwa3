@@ -55,7 +55,6 @@ function structs.Register(META)
 	return assert(ffi.metatype(META.CType, META))
 end
 
--- helpers
 function structs.AddGetFunc(META, name, name2)
 	META["Get" .. (name2 or name)] = function(self, ...)
 		return self[name](self:Copy(), ...)
@@ -71,7 +70,6 @@ structs.OperatorTranslate = {
 	["%"] = "__mod",
 }
 
--- env for field expansion: {{KEY}} repeats its line per field, {{ARG}} joins field names
 local function fields_env(META, sep, protect)
 	local list = {}
 
@@ -763,7 +761,6 @@ function structs.AddAllOperators(META)
 	structs.AddOperator(META, "math", "clamp", "Clamp", "Clamped", true)
 end
 
-function structs.Swizzle(META, arg_count, ctor) -- todo
-end
+function structs.Swizzle(META, arg_count, ctor) end
 
 return structs

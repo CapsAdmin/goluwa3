@@ -22,12 +22,11 @@ local function assertf(cond, fmt, ...)
 	error(string.format(fmt, ...), 2)
 end
 
--- Vorbis uses a custom float encoding, NOT IEEE 754
--- See Vorbis I spec section 9.2.1
 local function float32_unpack(val)
-	local mant = bit.band(val, 0x1fffff) -- 21-bit mantissa
-	local sign = bit.band(val, 0x80000000) -- sign bit
-	local exp = bit.rshift(bit.band(val, 0x7fe00000), 21) -- 10-bit exponent
+	local mant = bit.band(val, 0x1fffff)
+	local sign = bit.band(val, 0x80000000)
+	local exp = bit.rshift(bit.band(val, 0x7fe00000), 21)
+
 	if sign ~= 0 then mant = -mant end
 
 	return mant * (2 ^ (exp - 788))
@@ -236,10 +235,6 @@ function vorbis.DecodeCodebookVector(book, reader)
 			if book.sequence_p then last = val end
 		end
 	else
-		-- No VQ lookup table (lookup_type 0)
-		-- This codebook has no vector quantization - it's a scalar codebook
-		-- used only for Huffman classification. Should not be called for VQ decode.
-		-- Return zeros to avoid corrupting spectral data.
 		for j = 1, dim do
 			res[j] = 0
 		end
@@ -248,13 +243,12 @@ function vorbis.DecodeCodebookVector(book, reader)
 	return res
 end
 
--- 1. IDENTIFICATION HEADER (Already partially handled in ogg_new.lua, but let's centralize)
 function vorbis.DecodeIdentification(packet)
 	local reader = type(packet) == "string" and
 		Buffer.New(packet, #packet) or
 		Buffer.New(packet:GetBuffer(), packet.ByteSize or packet:GetSize())
 	reader:RestartReadBits()
-	local type = reader:Read(8) -- Should be 1
+	local type = reader:Read(8)
 	local magic = ""
 
 	for i = 1, 6 do
@@ -273,24 +267,23 @@ function vorbis.DecodeIdentification(packet)
 	local block_sizes = reader:Read(8)
 	info.blocksize_0 = 2 ^ bit.band(block_sizes, 0x0F)
 	info.blocksize_1 = 2 ^ bit.rshift(bit.band(block_sizes, 0xF0), 4)
-	-- Store for later use in packet decoding
 	info.exponent_0 = bit.band(block_sizes, 0x0F)
 	info.exponent_1 = bit.rshift(bit.band(block_sizes, 0xF0), 4)
 	info.framing_flag = reader:Read(1)
 	return info
 end
 
--- 2. COMMENT HEADER (Packet type 3)
 function vorbis.DecodeComment(packet)
 	local reader = type(packet) == "string" and
 		Buffer.New(packet, #packet) or
 		Buffer.New(packet:GetBuffer(), packet.ByteSize or packet:GetSize())
 	reader:RestartReadBits()
-	reader:Read(8) -- Type 3
-	reader:Read(48) -- "vorbis"
+	reader:Read(8)
+	reader:Read(48)
 	local comments = {}
 	local vendor_len = reader:Read(32)
-	local vendor = "" -- actually vendor_len bytes
+	local vendor = ""
+
 	for i = 1, vendor_len do
 		vendor = vendor .. string.char(reader:Read(8))
 	end
@@ -312,14 +305,13 @@ function vorbis.DecodeComment(packet)
 	return comments
 end
 
--- 3. SETUP HEADER (Packet type 5) - Complex
--- This includes Codebooks, Time-domain transforms, Floors, Residues, Mappings, and Modes.
 function vorbis.DecodeSetup(packet, info)
 	local reader = type(packet) == "string" and
 		Buffer.New(packet, #packet) or
 		Buffer.New(packet:GetBuffer(), packet.ByteSize or packet:GetSize())
 	reader:RestartReadBits()
-	local type_ = reader:Read(8) -- Type 5
+	local type_ = reader:Read(8)
+
 	if type_ ~= 5 then return nil, "Invalid setup packet" end
 
 	local magic = ""
@@ -331,7 +323,6 @@ function vorbis.DecodeSetup(packet, info)
 	if magic ~= "vorbis" then return nil, "Invalid magic" end
 
 	local setup = {}
-	-- 1. Codebooks
 	local codebook_count = reader:Read(8) + 1
 	setup.codebooks = {}
 
@@ -345,7 +336,6 @@ function vorbis.DecodeSetup(packet, info)
 		cb.entries = reader:Read(24)
 		assertf(cb.dimensions >= 1, "Invalid codebook dimensions: %d", cb.dimensions)
 		assertf(cb.entries >= 1, "Invalid codebook entries: %d", cb.entries)
-		-- Codebook length list
 		local ordered = reader:Read(1) == 1
 		cb.lengths = {}
 
@@ -357,7 +347,7 @@ function vorbis.DecodeSetup(packet, info)
 					if reader:Read(1) == 1 then
 						cb.lengths[j] = reader:Read(5) + 1
 					else
-						cb.lengths[j] = false -- changed from 0 to false for clarity
+						cb.lengths[j] = false
 					end
 				else
 					cb.lengths[j] = reader:Read(5) + 1
@@ -392,7 +382,6 @@ function vorbis.DecodeSetup(packet, info)
 			end
 		end
 
-		-- Value lookup table
 		local lookup_type = reader:Read(4)
 		cb.lookup_type = lookup_type
 		assertf(lookup_type >= 0 and lookup_type <= 2, "Unsupported lookup type: %d", lookup_type)
@@ -566,13 +555,12 @@ function vorbis.DecodeSetup(packet, info)
 		setup.codebooks[i + 1] = cb
 	end
 
-	-- 2. Time-domain transforms (placeholder/zeros)
 	local time_count = reader:Read(6) + 1
 
 	for i = 1, time_count do
 		reader:Read(16)
-	end -- always zeros in Vorbis I
-	-- 3. Floors
+	end
+
 	local floor_count = reader:Read(6) + 1
 	setup.floors = {}
 
@@ -595,7 +583,6 @@ function vorbis.DecodeSetup(packet, info)
 
 			setup.floors[i] = floor0
 		elseif floor_type == 1 then
-			-- Floor type 1 logic (most common)
 			local floor = {type = 1}
 			local partitions = reader:Read(5)
 			floor.partition_class = {}
@@ -644,7 +631,6 @@ function vorbis.DecodeSetup(packet, info)
 				end
 			end
 
-			-- Sort x_list but keep track of indices for neighbor logic
 			table.sort(sort_list, function(a, b)
 				return a.x < b.x
 			end)
@@ -655,7 +641,6 @@ function vorbis.DecodeSetup(packet, info)
 				floor.sorted_indices[idx] = item.original_index or idx
 			end
 
-			-- Precompute neighbors for lookup
 			floor.neighbors = {}
 
 			for j = 1, #floor.x_list do
@@ -682,7 +667,6 @@ function vorbis.DecodeSetup(packet, info)
 		end
 	end
 
-	-- 4. Residues
 	local residue_count = reader:Read(6) + 1
 	setup.residues = {}
 
@@ -719,7 +703,6 @@ function vorbis.DecodeSetup(packet, info)
 		setup.residues[i] = res
 	end
 
-	-- 5. Mappings
 	local mapping_count = reader:Read(6) + 1
 	setup.mappings = {}
 
@@ -768,7 +751,7 @@ function vorbis.DecodeSetup(packet, info)
 			map.submap_residue = {}
 
 			for j = 1, submaps do
-				reader:Read(8) -- unused
+				reader:Read(8)
 				map.submap_floor[j] = reader:Read(8)
 				map.submap_residue[j] = reader:Read(8)
 				assertf(
@@ -803,7 +786,6 @@ function vorbis.DecodeSetup(packet, info)
 		end
 	end
 
-	-- 6. Modes
 	local mode_count = reader:Read(6) + 1
 	setup.modes = {}
 
@@ -821,11 +803,10 @@ function vorbis.DecodeSetup(packet, info)
 	return setup
 end
 
--- Vorbis Window functions
 function vorbis.GetWindow(n, type)
 	local window = ffi.new("float[?]", n)
 
-	if type == 0 then -- Vorbis window
+	if type == 0 then
 		for i = 0, n - 1 do
 			local s = math.sin((math.pi / n) * (i + 0.5))
 			window[i] = math.sin(0.5 * math.pi * s * s)
@@ -835,7 +816,6 @@ function vorbis.GetWindow(n, type)
 	return window
 end
 
--- Vorbis I spec section 7.2.1: range depends on multiplier, NOT rangebits
 local floor1_range_list = {256, 128, 86, 64}
 local floor1_inverse_db_table = ffi.new(
 	"float[256]",
@@ -1132,7 +1112,6 @@ function vorbis.DecodeFloorType1(reader, setup, floor, n)
 		end
 	end
 
-	-- Floor 1 synthesis: compute final_Y values with step2_flag (Vorbis I spec section 7.2.2)
 	local n2 = n / 2
 	local res = ffi.new("float[?]", n2)
 	local final_posts = {}
@@ -1175,9 +1154,9 @@ function vorbis.DecodeFloorType1(reader, setup, floor, n)
 					final_posts[i] = predicted - val + highroom - 1
 				end
 			else
-				if bit.band(val, 1) == 1 then -- odd
+				if bit.band(val, 1) == 1 then
 					final_posts[i] = predicted - math.floor((val + 1) / 2)
-				else -- even
+				else
 					final_posts[i] = predicted + math.floor(val / 2)
 				end
 			end
@@ -1187,11 +1166,9 @@ function vorbis.DecodeFloorType1(reader, setup, floor, n)
 		end
 	end
 
-	-- Floor curve synthesis with step2_flag (Vorbis I spec section 7.2.3)
-	-- Iterate through sorted posts, drawing lines only between active (step2_flag) posts
 	local sorted_indices = floor.sorted_indices
 	local lx = 0
-	local ly = final_posts[1] * floor.multiplier -- post 0 is always at X=0, always active
+	local ly = final_posts[1] * floor.multiplier
 	ly = math.max(0, math.min(ly, 255))
 	local segments_rendered = 0
 
@@ -1213,7 +1190,6 @@ function vorbis.DecodeFloorType1(reader, setup, floor, n)
 		end
 	end
 
-	-- Fill remaining range with last active Y value
 	if lx < n2 then
 		local db_val = floor1_inverse_db_table[math.min(ly, 255)] or 0
 
@@ -1270,9 +1246,6 @@ function vorbis.RenderLine(n, x0, x1, y0, y1, out, lookup)
 	end
 end
 
--- Decode residue types 0, 1, and 2
--- Type 2 interleaves all channels into one vector, decodes as one, then deinterleaves
--- Returns a table of per-channel FFI float arrays (1-indexed by channel)
 local function get_scratch_float(state, id, size)
 	state.scratch_floats = state.scratch_floats or {}
 	state.scratch_floats[id] = state.scratch_floats[id] or {}
@@ -1288,7 +1261,6 @@ end
 
 function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue, state)
 	local actual_size = n / 2
-	-- For type 2, check if ALL channels have no_residue (skip entirely)
 	local all_no_residue = true
 
 	for i = 1, ch_count do
@@ -1309,7 +1281,6 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue, state
 		return result
 	end
 
-	-- For type 2, decode into one interleaved vector
 	local decode_n
 	local decode_ch
 
@@ -1349,25 +1320,22 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue, state
 	end
 
 	local classwords = classbook.dimensions
-	-- Allocate decode vectors
 	local vectors = {}
 
 	for i = 1, decode_ch do
 		vectors[i] = get_scratch_float(state, "res_dec_" .. i, decode_n)
 	end
 
-	-- do_not_decode per decode-channel
 	local do_not_decode = {}
 
 	if res.type == 2 then
-		do_not_decode[1] = false -- type 2 always decodes the single interleaved channel
+		do_not_decode[1] = false
 	else
 		for i = 1, ch_count do
 			do_not_decode[i] = no_residue[i]
 		end
 	end
 
-	-- Classification storage per decode-channel
 	local class_table = {}
 
 	for i = 1, decode_ch do
@@ -1400,7 +1368,6 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue, state
 				for j = 1, decode_ch do
 					if not do_not_decode[j] then
 						local vq_class = class_table[j][partition_count] or 0
-						-- res.books is keyed by (1-based classification) * 8 + pass
 						local vq_book_idx = res.books[(vq_class + 1) * 8 + pass]
 
 						if vq_book_idx then
@@ -1414,7 +1381,6 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue, state
 								local target = vectors[j]
 
 								if res.type == 0 then
-									-- Format 0: de-interleaved VQ
 									local step = math.floor(res.partition_size / vq_book.dimensions)
 
 									for s = 0, step - 1 do
@@ -1442,7 +1408,6 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue, state
 										end
 									end
 								else
-									-- Format 1 (type 1 and 2): sequential VQ
 									local k = 0
 
 									while offset + k < partition_end do
@@ -1484,8 +1449,6 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue, state
 		end
 	end
 
-	-- De
-	-- For type 2, deinterleave the single vector back to per-channel
 	if res.type == 2 then
 		local result = {}
 
@@ -1529,7 +1492,6 @@ local function get_imdct_plan(state, n)
 	if not plan then
 		local n2 = n / 2
 		local n4 = n / 4
-		-- Pre-twiddle factors: angle = pi*(4r+1)/(2N)
 		local pre_cos = ffi.new("float[?]", n4)
 		local pre_sin = ffi.new("float[?]", n4)
 
@@ -1539,7 +1501,6 @@ local function get_imdct_plan(state, n)
 			pre_sin[r] = math_sin(angle)
 		end
 
-		-- Post-twiddle factors: angle = pi*k/(2*H) where H=N/4
 		local post_cos = ffi.new("float[?]", n4)
 		local post_sin = ffi.new("float[?]", n4)
 
@@ -1549,7 +1510,6 @@ local function get_imdct_plan(state, n)
 			post_sin[k] = math_sin(angle)
 		end
 
-		-- FFT twiddle factors for N/4-size FFT
 		local twiddle_cos = ffi.new("float[?]", n4 / 2)
 		local twiddle_sin = ffi.new("float[?]", n4 / 2)
 
@@ -1559,7 +1519,6 @@ local function get_imdct_plan(state, n)
 			twiddle_sin[i] = -math_sin(angle)
 		end
 
-		-- Bit-reversal table for N/4-size FFT
 		local log2n4 = ilog(n4 - 1)
 		local bitrev = ffi.new("uint32_t[?]", n4)
 
@@ -1646,9 +1605,6 @@ local function run_fft(fft_size, real, imag, bitrev, twiddle_cos, twiddle_sin)
 	end
 end
 
--- IMDCT via N/4 complex FFT
--- Folds N/2 spectral coefficients into N/4 complex numbers via pre-twiddle,
--- runs N/4-size FFT, then post-twiddles and reorders to produce the N-point output.
 local function run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
 	local n4 = imdct_plan.n4
 	local real = imdct_plan.real_buffer
@@ -1658,9 +1614,6 @@ local function run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
 	local post_cos = imdct_plan.post_cos
 	local post_sin = imdct_plan.post_sin
 
-	-- Pre-twiddle: fold N/2 spectrum into N/4 complex values
-	-- w_re = spectrum[N/2-1-2r], w_im = spectrum[2r]
-	-- v = (w_re*cos - w_im*sin) + j*(w_re*sin + w_im*cos)
 	for r = 0, n4 - 1 do
 		local wr = spectrum[n2 - 1 - 2 * r]
 		local wi = spectrum[2 * r]
@@ -1670,11 +1623,8 @@ local function run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
 		imag[r] = wr * ps + wi * pc
 	end
 
-	-- N/4-size FFT
 	run_fft(n4, real, imag, imdct_plan.bitrev, imdct_plan.twiddle_cos, imdct_plan.twiddle_sin)
 
-	-- Post-twiddle: multiply by exp(-j * pi*k/(2*H))
-	-- zt_re = Zr*cos + Zi*sin, zt_im = -Zr*sin + Zi*cos
 	for k = 0, n4 - 1 do
 		local re = real[k]
 		local im = imag[k]
@@ -1684,11 +1634,9 @@ local function run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
 		imag[k] = -re * ps + im * pc
 	end
 
-	-- Output mapping: fill Q2 and Q3 directly, then derive Q1 and Q4 by symmetry
-	local Q = n4 -- N/4
+	local Q = n4
 	local H = n4
 	local H2 = H / 2
-	-- Q2: imdct_out[Q .. 2Q-1]
 	imdct_out[Q] = real[0]
 
 	for m = 1, Q - 1 do
@@ -1699,7 +1647,6 @@ local function run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
 		end
 	end
 
-	-- Q3: imdct_out[2Q .. 3Q-1]
 	imdct_out[2 * Q] = -imag[H2]
 
 	for m = 1, Q - 2 do
@@ -1712,12 +1659,10 @@ local function run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
 
 	imdct_out[3 * Q - 1] = -imag[0]
 
-	-- Q1: antisymmetric from Q2: out[Q-1-j] = -out[Q+j]
 	for j = 0, Q - 1 do
 		imdct_out[Q - 1 - j] = -imdct_out[Q + j]
 	end
 
-	-- Q4: symmetric from Q3: out[3Q+j] = out[3Q-1-j]
 	for j = 0, Q - 1 do
 		imdct_out[3 * Q + j] = imdct_out[3 * Q - 1 - j]
 	end
@@ -1834,7 +1779,6 @@ function vorbis.DecodePacket(packet, info, setup, state)
 	local n2 = n / 2
 	local prev_window_flag, next_window_flag
 
-	-- Vorbis I spec section 4.3.1: long blocks have window shape flags
 	if mode.blockflag then
 		prev_window_flag = reader:Read(1)
 		next_window_flag = reader:Read(1)
@@ -1880,7 +1824,6 @@ function vorbis.DecodePacket(packet, info, setup, state)
 		end
 	end
 
-	-- Reuse per-packet scratch tables from state
 	state.residue_results = state.residue_results or {}
 	local residue_results = state.residue_results
 

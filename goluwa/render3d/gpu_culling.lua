@@ -14,8 +14,6 @@ local render3d = nil
 local gpu_culling = library()
 gpu_culling.generation = gpu_culling.generation or 0
 gpu_culling.enabled = true
--- one descriptor set per shadow view: each face of a point shadow map and
--- each sun cascade
 gpu_culling.MAX_SHADOW_QUERY_OUTPUTS = 512
 gpu_culling.async_main_view_enabled = true
 gpu_culling.async_frustum_scale = gpu_culling.async_frustum_scale or 0.96
@@ -89,12 +87,8 @@ local GPUCullInstancedBatchRecord = ffi.typeof([[struct {
 }]])
 local BATCH_FLAG_DOUBLE_SIDED = 1
 local BATCH_FLAG_HEIGHT_MAP = 2
--- the main batch commands have one quarter per combination of the flags above
 gpu_culling.BATCH_COMMAND_GROUP_COUNT = 4
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
--- Async culling needs more slots than the swapchain has frames: at any moment one slot
--- is being culled into, one is published (its indirect commands are being drawn from),
--- and the frames that drew from earlier slots may still be in flight.
 local ASYNC_SLOT_HEADROOM = 3
 
 local function get_cull_slot_count()
@@ -106,7 +100,7 @@ function gpu_culling.Initialize()
 	render3d = import("goluwa/render3d/render3d.lua")
 	local hiz_descriptor_set_count = (math.max(render.GetSwapchainImageCount() or 1, 1) + 1) * 16
 
-	do -- main view hiz build pass
+	do
 		gpu_culling.main_view_hiz_build_pass = EasyPipeline.Compute{
 			DescriptorSetCount = hiz_descriptor_set_count,
 			name = "gpu_culling_main_view_hiz_copy",
@@ -143,7 +137,7 @@ function gpu_culling.Initialize()
 		}
 	end
 
-	do -- main view hiz reduce pass
+	do
 		gpu_culling.main_view_hiz_reduce_pass = EasyPipeline.Compute{
 			DescriptorSetCount = hiz_descriptor_set_count,
 			name = "gpu_culling_main_view_hiz_reduce",
@@ -189,7 +183,7 @@ function gpu_culling.Initialize()
 		}
 	end
 
-	do -- view cull pass
+	do
 		local sync_slot_count, async_slot_count = get_cull_slot_count()
 		gpu_culling.main_view_cull_pass = EasyPipeline.Compute{
 			DescriptorSetCount = sync_slot_count + async_slot_count,
@@ -642,7 +636,7 @@ function gpu_culling.Initialize()
 		gpu_culling.main_view_cull_frustum_planes = ffi.new("float[24]")
 	end
 
-	do -- view aabb cull pass
+	do
 		gpu_culling.shadow_view_aabb_cull_pass = EasyPipeline.Compute{
 			DescriptorSetCount = gpu_culling.MAX_SHADOW_QUERY_OUTPUTS,
 			name = "gpu_culling_shadow_view_aabb",
@@ -1180,8 +1174,6 @@ local function ensure_main_view_hiz_state(width, height)
 		width = width,
 		height = height,
 		buffers = {},
-		-- the async cull samples the pyramid built during the previous frame, so the
-		-- frame that rebuilds it must not write the one an in-flight cull is reading
 		write_index = 1,
 		latest = nil,
 	}
@@ -1200,20 +1192,14 @@ local function get_main_view_hiz_state()
 	depth_texture
 end
 
--- Records a rebuild of the hi-z pyramid from the gbuffer depth into cmd. render3d calls
--- this once per frame, right after the gbuffer pass, so the depth is complete. The
--- pyramid it produces is what the *next* frame's culling samples.
 function gpu_culling.PrepareMainViewHiZ(cmd)
 	if gpu_culling.GetOcclusionMode() ~= "hiz" then return end
 
 	local state, depth_texture = get_main_view_hiz_state()
 	local buffer = state.buffers[state.write_index]
-	-- an async cull submitted a frame ago may still be sampling this pyramid, and it
-	-- was submitted separately from cmd, so nothing but the fence orders them
 	gpu_culling.WaitForCullsSamplingHiZ(buffer)
 	local descriptor_base = math.max(render.GetCurrentFrame() or 1, 1) * 16
 	local copy_pass = gpu_culling.main_view_hiz_build_pass
-	-- the texture rather than its view and sampler, so the descriptor names its sampled layout
 	copy_pass:UpdateDescriptorSet("combined_image_sampler", descriptor_base, 0, 0, depth_texture)
 	copy_pass:UpdateDescriptorSet("storage_image", descriptor_base, 1, 0, buffer.single_mip_views[1])
 	copy_pass:DispatchForSize(cmd, state.width, state.height, 1, descriptor_base)
@@ -1312,7 +1298,6 @@ local function serialize_aabb(aabb)
 end
 
 local function get_gbuffer_batch_mesh_keys(mesh)
-	-- a mesh not uploaded yet (NULL) gets its own bucket
 	if not mesh:IsValid() then return mesh, NO_INDEX_BUFFER_KEY end
 
 	return mesh.vertex_buffer:GetBuffer(),
@@ -1372,7 +1357,6 @@ local function serialize_render_entry(component, entry, entry_index, dynamic)
 		ignore_z = material:GetIgnoreZ(),
 		transparent = material:IsTransparent(),
 		has_height_displacement = has_height_displacement,
-		-- ignore z and translucent materials are drawn by the forward passes
 		gbuffer_instancing_eligible = not material:GetIgnoreZ() and not material:IsTransparent(),
 		shadow_instancing_eligible = not has_height_displacement,
 		batch_mesh = mesh,
@@ -1465,9 +1449,6 @@ local function get_entry_flags(entry)
 	return flags
 end
 
--- side_scale below 1 shrinks the projection's lateral rows, which is exactly a wider
--- field of view. Async culling runs a frame ahead of the draws that use it, so the
--- frustum is widened slightly to keep objects rotating into view from popping in late.
 local function extract_frustum_planes(proj_view_matrix, out_planes, side_scale)
 	local m = proj_view_matrix
 	local x0, x1, x2, x3 = m.m00 * side_scale, m.m10 * side_scale, m.m20 * side_scale, m.m30 * side_scale
@@ -1520,10 +1501,6 @@ local function grow_capacity(required, previous)
 	return grown > required and grown or required
 end
 
--- A slot's buffers are read by the gpu long after its cull finished: the draws that
--- consume them are recorded into the frame command buffer and submitted at end of
--- frame. Destroying or rewriting one while that is outstanding is what produced the
--- flickering, so every teardown drains first.
 local function wait_for_pending_culls()
 	local queue = render.GetQueue()
 
@@ -1574,8 +1551,6 @@ local function create_buffer(label, byte_size, usage, data)
 	}
 end
 
--- for what the cpu reads every frame. memory the gpu also uses well is
--- uncached for the cpu, which makes every read cross the bus
 local function create_readback_buffer(label, byte_size, usage)
 	return render.CreateBuffer{
 		byte_size = byte_size,
@@ -1897,8 +1872,6 @@ local function build_frame_buffers(dataset, capacity)
 			cull_pending_serial = nil,
 			cull_completed_serial = nil,
 			cull_result = nil,
-			-- the submission serial that must complete before the slot may be rewritten,
-			-- captured from the frame that last drew using this slot's buffers
 			release_serial = 0,
 			published_frame = nil,
 			sampled_hiz_buffer = nil,
@@ -1947,9 +1920,6 @@ local function update_async_slot_completion(output, queue)
 	output.cull_pending_serial = nil
 end
 
--- Waiting must still land the cull's result. Dropping it let the slot be dispatched
--- into again, and when the gpu ran a frame behind every cull was dropped this way,
--- so the published result stayed stale for seconds.
 function gpu_culling.WaitForCullsSamplingHiZ(hiz_buffer)
 	local queue = render.GetQueue()
 
@@ -1961,8 +1931,6 @@ function gpu_culling.WaitForCullsSamplingHiZ(hiz_buffer)
 	end
 end
 
--- The freshest slot whose cull has landed. Publishing pins it: nothing may dispatch into
--- it again until the frames that drew from it have retired.
 local function publish_latest_async_result(frame_buffers)
 	local queue = render.GetQueue()
 	local latest = gpu_culling.published_async_slot
@@ -1990,9 +1958,6 @@ local function publish_latest_async_result(frame_buffers)
 	return latest.cull_result
 end
 
--- A slot is reusable once its own cull has landed and every frame that drew from it has
--- completed on the gpu. The release serial is stamped a frame after publishing, by which
--- point the frame that consumed the slot has been submitted and has a serial to wait on.
 local function acquire_async_slot(frame_buffers)
 	local device = render.GetDevice()
 	local completed_serial = device:GetCompletedSubmissionSerial()
@@ -2013,9 +1978,6 @@ local function acquire_async_slot(frame_buffers)
 	return nil
 end
 
--- Called once per frame before dispatching. The slot published last frame was drawn from
--- by that frame's command buffer, which has been submitted by now, so its serial bounds
--- when the slot becomes writable again.
 local function stamp_published_slot_release(frame_buffers)
 	local published = gpu_culling.published_async_slot
 
@@ -2040,21 +2002,6 @@ local function should_use_async_main_view_culling()
 	return true
 end
 
---[[
-	The scene dataset persists across scene changes. Every visual, render entry,
-	instance matrix and instanced batch owns a stable slot, so adding, removing
-	or moving one visual patches its own records and uploads only those, instead
-	of re-serializing the whole scene.
-
-	Because slots are stable, a cull result stays usable after a patch: its
-	indices still name the same records, or a DEAD_ENTRY once a visual is gone.
-	Only a rebuild (the first build, compaction, a full invalidation) or a
-	reallocation of the per-frame buffers starts a new generation.
-
-	Batches own a region of the per-frame instance output. A batch that outgrows
-	its region moves to a bigger one at the end, and the space it leaves is
-	reclaimed by the next compaction.
-]]
 local DEAD_ENTRY = {}
 gpu_culling.DEAD_ENTRY = DEAD_ENTRY
 local VISUAL_RECORD_SIZE = ffi.sizeof(GPUCullVisualRecord)
@@ -2065,8 +2012,6 @@ local VisualRecordArray = ffi.typeof("$[?]", GPUCullVisualRecord)
 local EntryRecordArray = ffi.typeof("$[?]", GPUCullEntryRecord)
 local BatchRecordArray = ffi.typeof("$[?]", GPUCullInstancedBatchRecord)
 local FloatArray = ffi.typeof("float[?]")
--- a cull result a few frames old may still name a freed batch, so its index is
--- only handed to a different mesh and material once those results are gone
 local BATCH_RECYCLE_DELAY = 8
 
 local function registry_insert(registry, index_field, value)
@@ -2144,8 +2089,6 @@ local function ensure_matrix_capacity(view, count)
 	view.matrix_capacity = capacity
 end
 
--- unique across views, so a table keyed on a view's serial notices a new
--- dataset's view as well
 local last_batch_serial = 0
 
 local function next_batch_serial()
@@ -2168,7 +2111,6 @@ local function create_view(is_main)
 		matrix_free = {},
 		matrix_count = 0,
 		batches = {},
-		-- changes whenever a batch gets a mesh or material
 		batch_serial = next_batch_serial(),
 		batch_lookup = {},
 		batch_free = {},
@@ -2185,13 +2127,9 @@ local function create_view(is_main)
 		dirty_visuals = {},
 		dirty_entries = {},
 		dirty_batches = {},
-		-- matrix indices written since world_log_base; outputs replay the log to
-		-- catch up, or copy every matrix when they fell behind a truncation
 		world_log = {},
 		world_log_base = 0,
 		dynamic = {},
-		-- during a rebuild batches only count their instances, and their output
-		-- regions are laid out once every visual is in
 		deferred_layout = true,
 	}
 	ensure_visual_capacity(view, 1)
@@ -2266,7 +2204,6 @@ local function write_batch_record(view, batch)
 	record.max_count = batch.capacity or 0
 	record.index_count = index_buffer and index_buffer:GetIndexCount() or 0
 	record.first_index = batch.material and index_buffer and index_pool.GetFirstIndex(index_buffer) or 0
-	-- a freed batch has no material and draws nothing
 	record.flags = batch.material and
 		(
 			(
@@ -2304,7 +2241,6 @@ local function pop_recyclable_batch(view)
 
 		if not record then return nil end
 
-		-- a batch that was revived, or freed again later, left a stale record
 		if record.batch.freed_frame ~= record.frame then
 			free[view.batch_free_head] = nil
 			view.batch_free_head = view.batch_free_head + 1
@@ -2375,8 +2311,6 @@ local function release_batch(view, batch)
 	local frame = system.GetFrameNumber()
 	batch.freed_frame = frame
 	view.dead_batch_count = view.dead_batch_count + 1
-	-- the mesh and material may be removed along with their last visual, and
-	-- the draws skip a batch whose mesh is not valid
 	batch.mesh = NULL
 	batch.material = nil
 	batch.first_polygon3d = nil
@@ -2510,9 +2444,6 @@ local function add_visual(dataset, view, component, kind)
 			entry.static_matrix_index = alloc_matrix(view)
 			write_entry_world(view, entry)
 		elseif not view.is_main then
-			-- the shadow draw culls and draws entries it cannot instance on the
-			-- cpu. non-aabb visuals are height displaced past their bounds, so
-			-- they skip the bounds test
 			entry.skip_shadow_aabb_cull = kind == "non_aabb"
 			registry_insert(dataset.shadow_fallback_entries, "shadow_fallback_index", entry)
 		end
@@ -2569,7 +2500,6 @@ local function remove_visual(dataset, view, serialized)
 	end
 end
 
--- bounds, flags and matrices change in place, the slots stay
 local function refresh_visual(view, serialized)
 	local component = serialized.component
 	local world_aabb = serialize_aabb(component:GetWorldAABB())
@@ -2590,7 +2520,6 @@ end
 local function update_view_visual(dataset, view, component, field, kind, structure_changed)
 	local serialized = component[field]
 
-	-- left over from a dataset that was rebuilt since
 	if serialized and serialized.view ~= view then serialized = nil end
 
 	if serialized and kind == serialized.kind and not structure_changed then
@@ -2687,9 +2616,6 @@ local function get_instance_capacity(view)
 	return math.max(view.matrix_capacity, view.output_capacity)
 end
 
--- Brings an output's copy of the view's instance matrices up to date: it
--- replays the matrices written since its last sync, or copies all of them
--- when it is new, belongs to an older view or fell behind a log truncation.
 local function sync_output_worlds(view, output, buffer)
 	local log = view.world_log
 	local base = view.world_log_base
@@ -2758,7 +2684,6 @@ local function ensure_frame_buffers(dataset)
 	clear_frame_buffers()
 	gpu_culling.frame_buffers = build_frame_buffers(dataset, capacity)
 	gpu_culling.frame_buffers_capacity = gpu_culling.frame_buffers and capacity or nil
-	-- cull results name the slots they were culled into, which are gone now
 	gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_generation + 1
 	dataset.generation = gpu_culling.scene_acceleration_generation
 	return gpu_culling.frame_buffers
@@ -2775,8 +2700,6 @@ local function flush_scene_dataset()
 	prepare_view(main)
 	prepare_view(shadow)
 
-	-- a material that turned double sided or gained a height map moves its
-	-- batches to another quarter of the main batch commands
 	if main.material_flags_generation ~= Material.flags_generation then
 		main.material_flags_generation = Material.flags_generation
 
@@ -2804,8 +2727,6 @@ local function flush_scene_dataset()
 	gpu_culling.dataset_buffers_generation = dataset.generation
 end
 
--- Starts an empty dataset. Visuals are added with UpdateSceneVisual and the
--- next PublishSceneAcceleration lays out the batches and uploads everything.
 function gpu_culling.ResetSceneDataset()
 	gpu_culling.scene_acceleration_generation = gpu_culling.scene_acceleration_generation + 1
 	local main = create_view(true)
@@ -2822,9 +2743,6 @@ function gpu_culling.ResetSceneDataset()
 	}
 end
 
--- main_kind is false, "static" or "dynamic", shadow_kind is false, "static",
--- "dynamic" or "non_aabb". structure_changed means the render entries changed,
--- which re-serializes the visual instead of refreshing it in place.
 function gpu_culling.UpdateSceneVisual(component, main_kind, shadow_kind, structure_changed)
 	local dataset = gpu_culling.scene_dataset
 	local main = update_view_visual(dataset, dataset.main, component, "gpu_main_visual", main_kind, structure_changed)
@@ -2842,8 +2760,6 @@ function gpu_culling.UpdateSceneVisual(component, main_kind, shadow_kind, struct
 	component.shadow_gpu_entry_count = shadow and shadow.render_entry_count or nil
 end
 
--- dynamic visuals can move every frame without being invalidated (interpolated
--- physics), so their bounds and matrices are refreshed once per frame
 function gpu_culling.RefreshDynamicSceneVisuals()
 	local dataset = gpu_culling.scene_dataset
 
@@ -2865,8 +2781,6 @@ function gpu_culling.RefreshDynamicSceneVisuals()
 	flush_scene_dataset()
 end
 
--- patches leave freed entry spans, output regions and batches behind; once
--- they make up a large part of the dataset it is cheaper to rebuild it
 do
 	local function is_view_fragmented(view)
 		return view.entry_waste > 4096 and
@@ -2900,10 +2814,6 @@ function gpu_culling.GetSceneDataset()
 	return gpu_culling.scene_dataset
 end
 
--- a cull result's visible indices point into the dataset that was current when
--- the cull was dispatched. if the scene changed since (terrain streaming does
--- this constantly), the indices no longer line up with the live dataset's
--- entry/batch lists and must not be consumed
 function gpu_culling.IsCullResultCurrent(cull_result)
 	local dataset = gpu_culling.scene_dataset
 
@@ -3093,8 +3003,6 @@ local function record_cull_dispatch(
 	local cmd = output.cull_cmd
 	cmd:Reset()
 	cmd:Begin()
-	-- zero the accumulators on the gpu rather than through a host write, so the clear is
-	-- ordered against this slot's previous dispatch instead of racing it
 	cmd:FillBuffer(output.indirect_count_buffer, 0, output.indirect_count_buffer.size, 0)
 	cmd:FillBuffer(output.fallback_visible_count_buffer, 0, output.fallback_visible_count_buffer.size, 0)
 	cmd:FillBuffer(output.active_batch_count_buffer, 0, output.active_batch_count_buffer.size, 0)
@@ -3311,7 +3219,6 @@ function gpu_culling.RunMainViewFrustumCulling(
 	return publish_latest_async_result(frame_buffers)
 end
 
--- options: {light_view = Matrix44, min_caster_extent = number} for min-caster-texel culling
 local SHADOW_CULL_BINDINGS = {
 	{"dataset", "shadow_visual_buffer"},
 	{"output", "shadow_visible_index_buffer"},
@@ -3335,10 +3242,6 @@ local SHADOW_CULL_RESET_BUFFERS = {
 	"shadow_visible_batch_indirect_command_buffer",
 }
 
--- Records the shadow view cull into cmd, outside of any rendering. Every buffer it
--- writes belongs to shadow_output, so the caller must know the gpu is done with
--- shadow_output's previous cull before calling this.
--- Returns false when there is nothing to cull.
 local function record_shadow_view_cull(cmd, query_aabb, shadow_output, options)
 	local dataset = gpu_culling.scene_dataset
 	local dataset_buffers = gpu_culling.dataset_buffers
@@ -3420,9 +3323,6 @@ local function can_cull_shadow_view()
 		gpu_culling.frame_buffers
 end
 
--- Culls synchronously and reads the visible entries back. This stalls until the
--- gpu has drained everything queued before it, so it is for queries and tests;
--- shadow rendering uses RecordShadowViewAABBCulling.
 function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_index, include_visible_entry_indices, options)
 	if not (query_aabb and shadow_output and can_cull_shadow_view()) then
 		return nil
@@ -3498,10 +3398,6 @@ function gpu_culling.RunShadowViewAABBCulling(query_aabb, shadow_output, frame_i
 	return result
 end
 
--- Records the shadow view cull into cmd, followed by a barrier that makes its
--- indirect commands and instance matrices readable by draws later in cmd. Nothing
--- is read back: the draws consume shadow_output's buffers on the gpu.
--- Returns nil when there is nothing to draw.
 function gpu_culling.RecordShadowViewAABBCulling(cmd, query_aabb, shadow_output, options)
 	if not can_cull_shadow_view() then return nil end
 
@@ -3569,9 +3465,6 @@ function gpu_culling.GetShadowActiveBatchSpan(cull_result)
 	return active_batch_indices, tonumber(active_batch_count_ptr[0] or 0)
 end
 
--- The shader appends visible entries with an atomic counter, so the visible list is in
--- arbitrary order and cannot be searched. The per-entry visibility buffer is indexed
--- directly instead, which is both exact and cheaper.
 function gpu_culling.IsAnyVisibleEntryInRange(cull_result, first_entry_index, entry_count)
 	if not cull_result then return nil end
 

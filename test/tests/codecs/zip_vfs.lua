@@ -21,7 +21,6 @@ T.Test("ZIP VFS registration", function()
 end)
 
 T.Test("ZIP VFS file reading", function()
-	-- Find a file to open
 	local files = vfs.Find(ZIP_PATH() .. "/codecs/", nil, nil, nil, nil, true)
 	T(#files)["=="](8)
 	local test_file_path = files[1].full_path

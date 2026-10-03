@@ -42,8 +42,6 @@ local BODY_RIGHT = Vec3()
 local BODY_UP = Vec3()
 local BODY_BACK = Vec3()
 
--- axes are only ever used through absolute dot products, so the back axis
--- stands in for forward
 local function fill_body_axes(body)
 	local rotation = body.Rotation
 	Quat.SetRightAxis(BODY_RIGHT, rotation)
@@ -138,9 +136,6 @@ function META:GetHalfExtents()
 	return self:GetExtents()
 end
 
--- the world AABB of a box is exactly the AABB of its 8 corners, which has a
--- closed form in the rotation: the extent along a world axis is the sum of
--- the absolute rotation-column components times the half extents
 function META:GetBroadphaseAABB(body, position, rotation, out)
 	position = position or body:GetPosition()
 	rotation = rotation or body:GetRotation()
@@ -204,7 +199,6 @@ function META:BuildSupportLocalPoints()
 end
 
 do
-	-- shared by every caller in this file, which only read it right away
 	local metrics = {min_coverage = 0, area_coverage = 0, support_width_coverage = 0, stable = false}
 
 	function META:GetSupportFootprintMetrics(body, ground_normal)
@@ -218,8 +212,12 @@ do
 
 		local extents = self:GetExtents()
 		fill_body_axes(body)
-		local span_u = 2 * (extents.x * math.abs(tangent:Dot(BODY_RIGHT)) + extents.y * math.abs(tangent:Dot(BODY_UP)) + extents.z * math.abs(tangent:Dot(BODY_BACK)))
-		local span_v = 2 * (extents.x * math.abs(bitangent:Dot(BODY_RIGHT)) + extents.y * math.abs(bitangent:Dot(BODY_UP)) + extents.z * math.abs(bitangent:Dot(BODY_BACK)))
+		local span_u = 2 * (
+				extents.x * math.abs(tangent:Dot(BODY_RIGHT)) + extents.y * math.abs(tangent:Dot(BODY_UP)) + extents.z * math.abs(tangent:Dot(BODY_BACK))
+			)
+		local span_v = 2 * (
+				extents.x * math.abs(bitangent:Dot(BODY_RIGHT)) + extents.y * math.abs(bitangent:Dot(BODY_UP)) + extents.z * math.abs(bitangent:Dot(BODY_BACK))
+			)
 		local support_span_u = support.span_u or 0
 		local support_span_v = support.span_v or 0
 		local coverage_u = span_u > 0.0001 and math.min(1, support_span_u / span_u) or 0
@@ -317,8 +315,6 @@ function META:GetPolyhedron()
 	return self.Polyhedron
 end
 
--- a box touching along one edge or a corner is balanced, not resting: it only
--- looks still for the moment it takes to start falling over
 function META:CanRestOnSupport(body)
 	return self:GetSupportFootprintMetrics(body).min_coverage >= MIN_RESTING_COVERAGE
 end
@@ -332,6 +328,7 @@ function META:ShouldForceGroundedSleep(body)
 		math.abs(ground_normal:Dot(BODY_UP)),
 		math.abs(ground_normal:Dot(BODY_BACK))
 	)
+
 	if not metrics.stable then return false end
 
 	if face_alignment >= 0.983 then

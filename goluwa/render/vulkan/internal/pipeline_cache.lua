@@ -7,7 +7,6 @@ local SizeBox = ffi.typeof("size_t[1]")
 local ByteArray = ffi.typeof("uint8_t[?]")
 local HeaderPtr = ffi.typeof("const $*", vulkan.vk.VkPipelineCacheHeaderVersionOne)
 
--- drivers are supposed to ignore data from another device or driver version, but not all of them do
 local function is_compatible(device, data)
 	if #data < ffi.sizeof(vulkan.vk.VkPipelineCacheHeaderVersionOne) then
 		return false
@@ -44,7 +43,6 @@ function PipelineCache.New(device, initial_data)
 		device = device,
 		ptr = ptr,
 		initial_data = initial_data,
-		-- bumped by every pipeline created through the cache, so callers know when to save it
 		generation = 0,
 	}
 end

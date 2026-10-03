@@ -111,8 +111,6 @@ function ShaderModule.New(device, glsl, type)
 	return ShaderModule:CreateObject{ptr = record.ptr, device = device, cache_record = record}
 end
 
--- creates a shader module directly from precompiled SPIR-V bytes (used for the
--- ray tracing stages, which the system shaderc cannot compile)
 function ShaderModule.FromSPIRV(device, spirv_data, spirv_size)
 	local ptr = VkShaderModuleBox()
 	vulkan.assert(

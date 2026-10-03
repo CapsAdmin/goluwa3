@@ -19,8 +19,6 @@ audio.DISTANCE_MODE_IDS = {
 	exponent = 5,
 	exponent_clamped = 6,
 }
--- position/velocity/direction are embedded Vec3 cdata (via $ substitution) rather than
--- flat x/y/z floats, so mix.lua can read/pass them without allocating a new Vec3 per callback.
 local sound_state_t = ffi.typeof(
 	[[
 	struct {

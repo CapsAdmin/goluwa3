@@ -11,7 +11,6 @@ end
 local imgTitle = love.graphics.newImage("addons/love/games/sienna/art/titlescreen.png")
 local imgObjects = love.graphics.newImage("addons/love/games/sienna/art/player2.png")
 imgTitle:setFilter("nearest", "nearest")
---imgTitle:setWrap("repeat", "repeat")
 imgTitle:getGoluwaTexture():Download():Save()
 love.window.setMode(W, H)
 

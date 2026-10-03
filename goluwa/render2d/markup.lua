@@ -206,7 +206,6 @@ function Markup:CallTagFunction(chunk, name, ...)
 					if ok then val = v else wlog(v) end
 				end
 
-				-- type isn't right? revert to default!
 				if type(val) ~= t then
 					val = chunk.val.tag.arguments[i]
 
@@ -256,7 +255,6 @@ function Markup:GetNextCharacterClassPosition(delta, next_space)
 
 		return self.chars[pos - 1].x, self.chars[pos - 1].y
 	else
-		-- this isn't really scintilla behaviour but I think it makes sense
 		if next_space then
 			while
 				pos > 1 and
@@ -355,7 +353,7 @@ function Markup:GetSubPosFromPosition(x, y)
 	return 0
 end
 
-do -- tags
+do
 	local function set_font(self, font)
 		if self.FixedSize == 0 then fonts.SetFont(font) end
 	end
@@ -467,8 +465,7 @@ do -- tags
 			render2d.DrawRect(x, y, w, h)
 			render2d.PopColor()
 		end,
-		post_draw = function() -- if we don't have this we don't get tag_center_x and stuff due to performance reasons
-		end,
+		post_draw = function() end,
 	}
 	Markup.tags.mark = {
 		arguments = {},
@@ -562,10 +559,8 @@ do -- tags
 					local phys = v.phys
 					phys.vel.x = phys.vel.x + ((self.x - phys.pos.x) * 0.01 * force)
 					phys.vel.y = phys.vel.y + ((self.y - phys.pos.y) * 0.01 * force)
-					-- velocity
 					phys.pos.x = phys.pos.x + (phys.vel.x * delta)
 					phys.pos.y = phys.pos.y + (phys.vel.y * delta)
-					-- friction
 					phys.vel.x = phys.vel.x * 0.97
 					phys.vel.y = phys.vel.y * 0.97
 					v.x = phys.pos.x
@@ -593,21 +588,13 @@ do -- tags
 			local W, H = markup.width, markup.height
 			W = W - self.x
 			H = H - self.y + part.siz.y
-			--local xvel = (self.last_world_x or markup.current_x) - markup.current_x
-			--local yvel = (self.last_world_y or markup.current_y) - markup.current_y
-			--self.last_world_x = markup.current_x or 0
-			--self.last_world_y = markup.current_y or 0
-			-- random velocity for some variation
-			part.vel.y = part.vel.y + gravity_y + (math.randomf(-1, 1) * rand_mult) --+ yvel
-			part.vel.x = part.vel.x + gravity_x + (math.randomf(-1, 1) * rand_mult) --+ xvel
-			-- velocity
+			part.vel.y = part.vel.y + gravity_y + (math.randomf(-1, 1) * rand_mult)
+			part.vel.x = part.vel.x + gravity_x + (math.randomf(-1, 1) * rand_mult)
 			part.pos.x = part.pos.x + (part.vel.x * delta)
 			part.pos.y = part.pos.y + (part.vel.y * delta)
-			-- friction
 			part.vel.x = part.vel.x * part.drag
 			part.vel.y = part.vel.y * part.drag
 
-			-- collision
 			if part.pos.x + part.siz.x < 0 then
 				part.pos.x = -part.siz.x
 				part.vel.x = part.vel.x * -part.drag
@@ -714,9 +701,8 @@ do -- tags
 	}
 end
 
-do -- tags matrix
-	local function set_cull_clockwise() -- ???
-	end
+do
+	local function set_cull_clockwise() end
 
 	local function detM2x2(m11, m12, m21, m22)
 		return m11 * m22 - m12 * m21
@@ -736,7 +722,6 @@ do -- tags matrix
 	end
 
 	local function eigenvector2(l, a, d)
-		-- (a - ?) u1 + d u2 = 0
 		if a - l == 0 then return 1, 0 end
 
 		if d == 0 then return 0, 1 end
@@ -850,45 +835,20 @@ do -- tags matrix
 	Markup.tags.matrix = {
 		arguments = {1, 0, 0, 1, 0, 0},
 		pre_draw = function(markup, self, x, y, a11, a12, a21, a22, dx, dy)
-			-- Ph'nglui mglw'nafh Cthulhu R'lyeh wgah'nagl fhtagn
-			-- A = Q1 ? Q2
-			-- B = transpose (A) * A
 			local b11 = a11 * a11 + a21 * a21
 			local b12 = a11 * a12 + a21 * a22
 			local b21 = a12 * a11 + a22 * a21
 			local b22 = a12 * a12 + a22 * a22
 			local trB = b11 + b22
 			local detB = detM2x2(b11, b12, b21, b22)
-			-- Finding eigenvalues of B...
-			-- det (B - ?I) = 0
-			-- | a - ?        b | = 0
-			-- |     c    d - ? |
-			--
-			-- (a - ?) (d - ?) - bc = 0
-			-- ?² + (-a - d) ? + ad - bc = 0
-			--
-			--     a + d ± sqrt ((a + d)² - 4 (ad - bc))
-			-- ? = -------------------------------------
-			--                      2
-			-- This is never negative
 			local sqrtInside = trB * trB - 4 * detB
 			local eigenvalue1 = 0.5 * (trB + math.sqrt(sqrtInside))
 			local eigenvalue2 = 0.5 * (trB - math.sqrt(sqrtInside))
-			-- (B - ?I) u = 0
-			--
-			-- [ a - ?        b ] [ u1 ] = [ 0 ]
-			-- [     c    d - ? ] [ u2 ]   [ 0 ]
-			--
-			-- (a - ?) u1 +      b  u2 = 0
 			local q211, q221 = eigenvector2(eigenvalue1, b11, b12)
 			local q212, q222 = eigenvector2(eigenvalue2, b11, b12)
 
-			if eigenvalue1 == eigenvalue2 then
-				-- Make up an eigenvector
-				q212, q222 = q221, -q211
-			end
+			if eigenvalue1 == eigenvalue2 then q212, q222 = q221, -q211 end
 
-			-- Those will never be negative as well #yolo
 			local scaleX = math.sqrt(eigenvalue1)
 			local scaleY = math.sqrt(eigenvalue2)
 			local q111, q121 = mulM2x2V2(a11, a12, a21, a22, q211, q221)
@@ -898,13 +858,10 @@ do -- tags matrix
 			if scaleY == 0 then
 				q112, q122 = q121, -q111
 			else
-				-- DOES THIS WORK LOL
 				q112, q122 = scaleV2(q112, q122, (scaleY ~= 0) and (1 / scaleY) or 0)
 			end
 
-			-- transpose Q2
 			q212, q221 = q221, q212
-			-- End of Cthulhu summoning
 			self.matrixDeterminant = detM2x2(a11, a12, a21, a22)
 			render2d.PushMatrix()
 			render2d.Translate(x, y)
@@ -923,7 +880,7 @@ do -- tags matrix
 	}
 end
 
-do -- parse tags
+do
 	local function parse_tag_arguments(self, arg_line)
 		local out = {}
 		local str = {}
@@ -932,7 +889,7 @@ do -- parse tags
 		for _, char in ipairs(utf8.to_list(arg_line)) do
 			if char == "[" then
 				in_lua = true
-			elseif in_lua and char == "]" then -- todo: longest match
+			elseif in_lua and char == "]" then
 				in_lua = false
 				local exp = list.concat(str, "")
 				local ok, func = expression.Compile(exp)
@@ -1031,16 +988,13 @@ do -- parse tags
 
 		for _, char in ipairs(utf8.to_list(str)) do
 			if char == "<" then
-				-- if we've been parsing a string add it
 				if current_string then
 					list.insert(chunks, {type = "string", val = list.concat(current_string, "")})
 				end
 
-				-- stat a new tag
 				current_tag = {}
 				in_tag = true
 			elseif char == ">" and in_tag then
-				-- maybe the string was "sdasd :> sdsadasd <color123>..."
 				if current_tag then
 					local tag_str = list.concat(current_tag, "") .. ">"
 					tag_str = tag_str:gsub("/>", ">")
@@ -1125,7 +1079,6 @@ do -- parse tags
 
 						found = true
 
-						-- if this is a string tag just put color and font as if they were var args for better performance
 						if not is_expression and tag == "font" then
 							if stop_tag then
 								if last_font then
@@ -1174,9 +1127,6 @@ do -- parse tags
 			chunks = {{type = "string", val = str}}
 		end
 
-		-- text modifiers
-		-- this wont work if you do markup:AddTable({"<strmod>sada  sad ad wad d asdasd", Color(1,1,1,1), "</strmod>"})
-		-- since it can only be applied to one markup.AddString(str, true) call
 		for i, chunk in ipairs(chunks) do
 			if chunk.type == "custom" and self.tags[chunk.val.type].modify_text then
 				local start_chunk = chunk
@@ -1207,7 +1157,7 @@ do -- parse tags
 	end
 end
 
-do -- invalidate
+do
 	function string.luaescape(str)
 		str = str:gsub("\n", "\\n")
 		str = str:gsub("\r", "\\r")
@@ -1280,7 +1230,6 @@ do -- invalidate
 			chunk.pre_called = false
 		end
 
-		-- for consistency everything should have x y w h
 		chunk.x = chunk.x or 0
 		chunk.y = chunk.y or 0
 		chunk.w = chunk.w or 0
@@ -1294,18 +1243,12 @@ do -- invalidate
 	end
 
 	local function prepare_chunks(self, input_chunks)
-		-- this is needed when invalidating the chunks table again
-		-- anything that need to add more chunks need to store the
-		-- old chunk as old_chunk key
 		local out = {}
 		local found = {}
 		local last_type
 
 		for _, chunk in ipairs(input_chunks) do
-			if chunk.type == "font" then
-				-- set the font so GetTextSize will be correct
-				set_font(self, chunk.val)
-			end
+			if chunk.type == "font" then set_font(self, chunk.val) end
 
 			if not chunk.internal and (chunk.type ~= "string" or chunk.val ~= "") then
 				if (last_type ~= chunk.type or (last_type ~= "font" or last_type ~= "color")) then
@@ -1477,24 +1420,6 @@ do -- invalidate
 						y = y + chunk_height + self.HeightSpacing
 						x = 0
 						chunk_height = 0
-					--[[
-						-- go backwards and stretch all the words so
-						-- it fits the line using the leftover space
-						local x = 0
-						local space_size = get_text_size(self, " ")
-						local space = left_over_space/(prev_line_i-i)
-
-						local div = (1/(i-prev_line_i))^0.25
-
-						for i2 = prev_line_i, i do
-							local chunk = chunks[i2]
-							local space = math.min(space, space_size*div)
-							chunk.x = math.max(x - space*2, 0)
-							x = x + chunk.w + space
-						end
-
-						prev_line_i = i
-						]]
 					end
 				end
 			end
@@ -1599,14 +1524,11 @@ do -- invalidate
 				last_y = chunk.y
 
 				for _, chunk in ipairs(chunk_line) do
-					--if type(chunk.val) == "string" and chunk.val:find("bigtable") then print("\n\n",chunk,"\n\n")  end
-					--		log(chunk.type == "string" and chunk.val or ( "<"..  chunk.type .. ">"))
 					chunk.line_height = prev_line_height
 					chunk.line_width = line_width
 				end
 
 				table.clear(chunk_line)
-				--		log(chunk.y - chunks[i+1].y, "\n")
 				line_height = chunk.h
 				line_width = chunk.w
 			end
@@ -1615,8 +1537,7 @@ do -- invalidate
 			chunk.markup = self
 			chunk.build_chars = build_chars
 			chunk.i = i
-			chunk.real_i = chunk.real_i or i -- expressions need this
-			-- this is for expressions to be use d like line.i+time()
+			chunk.real_i = chunk.real_i or i
 			chunk.exp_env = {
 				i = chunk.real_i,
 				w = chunk.w,
@@ -1627,7 +1548,6 @@ do -- invalidate
 			}
 
 			if chunk.type == "custom" and not chunk.val.stop_tag then
-				-- only bother with this if theres post_draw or post_draw_chunks for performance
 				if
 					self.tags[chunk.val.type].post_draw or
 					self.tags[chunk.val.type].post_draw_chunks or
@@ -1706,7 +1626,6 @@ do -- invalidate
 						chunk.chunks_inbetween = line
 
 						for _, chunk in ipairs(line) do
-							--print(chunk.type, chunk.val)
 							chunk.tag_center_x = center_x
 							chunk.tag_center_y = center_y
 							chunk.tag_height = height
@@ -1802,13 +1721,11 @@ do -- invalidate
 		end
 
 		for _, chunk in ipairs(chunk_line) do
-			--		log(chunk.type == "string" and chunk.val or ( "<"..  chunk.type .. ">"))
 			chunk.line_height = line_height
 			chunk.line_width = line_width
 		end
 
 		for _, chunk in ipairs(chunks) do
-			-- mouse testing
 			chunk.y = chunk.y + chunk.line_height - chunk.h
 
 			if chunk.chars then
@@ -1822,7 +1739,6 @@ do -- invalidate
 			chunk.top = chunk.y + chunk.h
 		end
 
-		-- add the last line since there's probably not a newline at the very end
 		list.insert(self.lines, list.concat(char_line_str, ""))
 		self.text = list.concat(self.lines, "\n")
 		self.line_count = line
@@ -1847,10 +1763,8 @@ do -- invalidate
 		local chunks = prepare_chunks(self, self.editor.Buffer.chunks)
 		solve_max_width(self, chunks)
 		store_tag_info(self, chunks)
-		--P"align y axis"
 		self.prepared_chunks = chunks
 
-		-- preserve caret positions
 		if self.editor.Cursor then
 			self.caret_pos = self:CaretFromSubPos(self.editor.Cursor)
 		end
@@ -1917,7 +1831,7 @@ do -- invalidate
 	end
 end
 
-do -- shortcuts
+do
 	function Markup:Backspace()
 		self.editor:Backspace()
 	end
@@ -1935,7 +1849,7 @@ do -- shortcuts
 	end
 end
 
-do -- caret
+do
 	function Markup:ResetCaretBlink()
 		self.blink_offset = system.GetElapsedTime() - 0.251
 	end
@@ -2042,7 +1956,6 @@ do -- caret
 			end
 		end
 
-		-- if nothing was found we need to check things differently
 		if not CHAR then
 			local line = {}
 			local best_line_dist = math.huge
@@ -2186,14 +2099,12 @@ do -- caret
 					)
 					y = pcaret.y
 					x = pcaret.x
-				--self.real_x = self:CaretFromPosition(x, y).char.data.x
 				end
 			end
 		elseif X ~= math.huge and X ~= -math.huge then
 			x = x + X
 			self.real_x = self:CaretFromPosition(x, y).char.data.x
 
-			-- move to next or previous line
 			if X > 0 and x > utf8.length(line) and y < #self.lines and #self.lines > 1 then
 				x = 0
 				y = y + 1
@@ -2226,7 +2137,7 @@ do -- caret
 	end
 end
 
-do -- selection
+do
 	function Markup:SelectStart(x, y)
 		local caret = self:CaretFromPixels(x, y)
 
@@ -2297,7 +2208,7 @@ do -- selection
 	function Markup:SetText(str, tags)
 		self:Clear()
 		self:AddString(str, tags)
-		self:Invalidate() -- do it right now
+		self:Invalidate()
 	end
 
 	function Markup:GetSelection(tags, start, stop)
@@ -2330,7 +2241,7 @@ do -- selection
 	end
 end
 
-do -- clipboard
+do
 	function Markup:Copy(tags)
 		return self:GetSelection(tags)
 	end
@@ -2346,7 +2257,7 @@ do -- clipboard
 	end
 end
 
-do -- input
+do
 	function Markup:OnCharInput(char)
 		if not self.Editable then return end
 
@@ -2446,7 +2357,7 @@ do -- input
 	end
 end
 
-do -- drawing
+do
 	local function set_font(self, font)
 		if self.FixedSize == 0 then fonts.SetFont(font) end
 	end
@@ -2526,14 +2437,14 @@ do -- drawing
 
 		if not self.prepared_chunks[1] then return end
 
-		-- reset font and color for every line
 		set_font(self, fonts.GetDefaultFont())
 		render2d.SetColor(1, 1, 1, 1)
 		started_tags = false
 
 		for i, chunk in ipairs(self.prepared_chunks) do
 			if not chunk.internal then
-				if not chunk.x then return end -- UMM
+				if not chunk.x then return end
+
 				if
 					(
 						chunk.x + chunk.w >= self.cull_x and
@@ -2542,7 +2453,6 @@ do -- drawing
 						chunk.y - self.cull_y <= self.cull_h
 					)
 					or
-					-- these are important since they will remove anything in between
 					(
 						chunk.type == "start_fade" or
 						chunk.type == "end_fade"
@@ -2566,57 +2476,44 @@ do -- drawing
 
 						if c then render2d.PushColor(c.r, c.g, c.b, c.a) end
 
-						--print(fonts.GetFont(), c, chunk.val, chunk.x, chunk.y, max_w)
 						fonts.GetFont():DrawText(chunk.val, chunk.x, chunk.y, max_w)
 
 						if c then render2d.PopColor() end
 					elseif chunk.type == "custom" then
-						-- init
 						if not chunk.draw_init_called and not chunk.val.stop_tag then
 							self:CallTagFunction(chunk, "draw_init")
 							chunk.draw_init_called = true
 						end
 
-						-- we need to make sure post_draw is called on tags to prevent
-						-- engine matrix stack inbalance with the matrix tags
 						self.started_tags[chunk.val.type] = self.started_tags[chunk.val.type] or {}
 						started_tags = true
 
-						-- draw_under
 						if chunk.tag_start_draw then
 							if self:CallTagFunction(chunk, "pre_draw", chunk.x, chunk.y) then
-								--print("pre_draw", chunk.val.type, chunk.i)
-								-- only if there's a post_draw
 								if self.tags[chunk.val.type].post_draw then
 									list.insert(self.started_tags[chunk.val.type], chunk)
 								end
 							end
 
 							if chunk.chunks_inbetween then
-								--print("pre_draw_chunks", chunk.val.type, chunk.i, #chunk.chunks_inbetween)
 								for _, other_chunk in ipairs(chunk.chunks_inbetween) do
 									self:CallTagFunction(chunk, "pre_draw_chunks", other_chunk)
 								end
 							end
 						end
 
-						-- draw_over
 						if chunk.tag_stop_draw then
 							if list.remove(self.started_tags[chunk.val.type]) then
-								--print("post_draw", chunk.val.type, chunk.i)
 								self:CallTagFunction(chunk.start_chunk, "post_draw", chunk.start_chunk.x, chunk.start_chunk.y)
 							end
 						end
 					end
 
-					-- this is not only for tags. a tag might've been started without being ended
 					if chunk.tag_stop_draw then
-						--print("post_draw_chunks", chunk.type, chunk.i, chunk.chunks_inbetween, chunk.start_chunk.val.type)
 						if
 							self.started_tags[chunk.start_chunk.val.type] and
 							list.remove(self.started_tags[chunk.start_chunk.val.type])
 						then
-							--print("post_draw", chunk.start_chunk.val.type, chunk.i)
 							self:CallTagFunction(chunk.start_chunk, "post_draw", chunk.start_chunk.x, chunk.start_chunk.y)
 						end
 
@@ -2650,7 +2547,6 @@ do -- drawing
 		if started_tags then
 			for _, chunks in pairs(self.started_tags) do
 				for _, chunk in ipairs(chunks) do
-					--print("force stop", chunk.val.type, chunk.i)
 					self:CallTagFunction(chunk, "post_draw", chunk.x, chunk.y)
 				end
 			end

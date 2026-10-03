@@ -10,16 +10,6 @@ local debug_draw = import("goluwa/debug_draw.lua")
 local Visual = import("goluwa/entities/components/visual.lua").Library
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
---[[
-	Sun shadow debug view, toggled with "j" (or _G.SHADOW_DEBUG_VIEW = true).
-
-	Per cascade: a contrast stretched depth preview (the raw maps are nearly
-	flat because a whole slice sits in a narrow depth band), the split range,
-	resolution and texel size, how many frames ago it was rendered, how many
-	shadow batches survived culling, and for the farthest cascade how close
-	the camera is to forcing a refit. Each cascade's projection box is drawn in
-	the world in its color so a stale or badly fitted cascade is obvious.
-]]
 local show_shadow_map = false
 local PREVIEW_SIZE = 256
 local PREVIEW_REFRESH_FRAMES = 30

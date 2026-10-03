@@ -24,7 +24,6 @@ T.Test("MarkupBuffer chunks", function()
 	buffer:AddString("red")
 	buffer:AddTagStopper()
 	T(buffer:GetText())["=="]("hello red")
-	-- GetFullText should show tags if possible
 	local full_text = buffer:GetFullText()
 	T(full_text:find("<color=1,0,0,1>"))["~="](nil)
 	T(full_text:find("red"))["~="](nil)
@@ -36,10 +35,8 @@ T.Test("MarkupBuffer Insert and RemoveRange with chunks", function()
 	buffer:AddColor(Color(1, 0, 0, 1))
 	buffer:AddString("world")
 	T(buffer:GetText())["=="]("hello world")
-	-- Insert inside "hello "
 	buffer:Insert(6, "!")
 	T(buffer:GetText())["=="]("hello! world")
-	-- Remove "world"
 	buffer:RemoveRange(8, 13)
 	T(buffer:GetText())["=="]("hello! ")
 end)
@@ -94,8 +91,7 @@ T.Test2D("Markup basic usage", function()
 	T(m:GetText())["=="]("test")
 	m:SetText("<color=1,0,0,1>red</color> blue", true)
 	T(m:GetText())["=="]("red blue")
-	-- Test backspace
-	m:SetCaretSubPosition(3) -- after 're'
+	m:SetCaretSubPosition(3)
 	m:Backspace()
 	T(m:GetText())["=="]("rd blue")
 end)
@@ -103,7 +99,6 @@ end)
 T.Test2D("Markup tags", function()
 	local m = Markup.New()
 	m:SetText("normal <font=default>custom font</font>", true)
-	-- We can't easily verify the font was applied without layout, but we can verify it doesn't crash
 	m:Invalidate()
 	local text = m:GetText()
 	T(text)["=="]("normal custom font")
@@ -111,13 +106,13 @@ end)
 
 T.Test2D("Markup editor actions", function()
 	local m = Markup.New("hello world")
-	m:SetCaretSubPosition(6) -- at the space
+	m:SetCaretSubPosition(6)
 	m:Enter()
 	T(m:GetText())["=="]("hello\n world")
-	m:Backspace() -- removes the newline
+	m:Backspace()
 	T(m:GetText())["=="]("hello world")
 	m:SetCaretSubPosition(6)
-	m:Delete() -- removes the space
+	m:Delete()
 	T(m:GetText())["=="]("helloworld")
 	m:Paste(" test")
 	T(m:GetText())["=="]("hello testworld")
@@ -126,7 +121,7 @@ end)
 T.Test2D("Markup selection and deletion", function()
 	local m = Markup.New("hello world")
 	m.editor.SelectionStart = 1
-	m.editor.Cursor = 6 -- after 'hello'
+	m.editor.Cursor = 6
 	T(m:GetSelection())["=="]("hello")
 	m:DeleteSelection()
 	T(m:GetText())["=="](" world")
@@ -138,13 +133,9 @@ T.Test2D("Markup caret and movement", function()
 	local m = Markup.New("hello world")
 	m:SetCaretSubPosition(1)
 	T(m:GetCaretSubPosition())["=="](1)
-	m:SetCaretSubPosition(6) -- at space
+	m:SetCaretSubPosition(6)
 	T(m:GetCaretSubPosition())["=="](6)
-	-- Test character class position (used for Ctrl+Arrows)
 	m:Invalidate()
-	-- m:GetNextCharacterClassPosition(1) should return the next word break
-	-- However, it depends on self.chars which is built during Invalidate
-	-- We can just check if it runs without error for now
 	local x, y = m:GetNextCharacterClassPosition(1)
 	T(type(x))["=="]("number")
 end)
@@ -223,12 +214,8 @@ T.Test2D("Markup visual down movement follows wrapped layout", function()
 end)
 
 T.Test2D("Markup line height does not bleed from tall line to subsequent lines", function()
-	-- This test reproduces a bug where if a line has a very tall element,
-	-- subsequent lines incorrectly inherit the same line_height value.
-	-- Create markup with text that will have different line heights
 	local m = Markup.New(nil, true)
 	m:AddFont(RasterFont.New("bitmap"))
-	-- Add text with newlines to create multiple lines
 	m:AddString("A\n")
 	m:AddString("B\n")
 	m:AddString("C\n")
@@ -238,7 +225,6 @@ T.Test2D("Markup line height does not bleed from tall line to subsequent lines",
 	m:AddString("F\n")
 	m:SetMaxWidth(200)
 	m:Invalidate()
-	-- Check that all lines have consistent line_height values
 	local line_heights = {}
 
 	for _, chunk in ipairs(m.prepared_chunks) do
@@ -249,7 +235,6 @@ T.Test2D("Markup line height does not bleed from tall line to subsequent lines",
 		end
 	end
 
-	-- All lines should have the same line_height (since they use the same font)
 	local first_line_height = line_heights[1]
 	T(first_line_height)["~="](nil, "line 1 should have a line_height")
 

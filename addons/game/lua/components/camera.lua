@@ -7,7 +7,6 @@ META:GetSet("Active", false)
 META:GetSet("Priority", 0)
 META:GetSet("ViewOffset", Vec3(0, 0, 0))
 
--- properties are applied before Initialize creates the view
 function META:SetActive(active)
 	self.Active = not not active
 
@@ -30,8 +29,6 @@ function META:GetView()
 	return self.view
 end
 
--- whether this camera is the one being rendered, as opposed to active but
--- overridden by a view with a higher priority
 function META:IsRendered()
 	return self.view:IsRendered()
 end

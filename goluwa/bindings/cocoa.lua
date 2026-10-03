@@ -1,7 +1,6 @@
 local ffi = require("ffi")
 local objc = import("goluwa/bindings/objc.lua")
 local cocoa = {}
--- Load required frameworks
 objc.loadFramework("Cocoa")
 objc.loadFramework("QuartzCore")
 local cocoa_objc = objc.bind{
@@ -195,10 +194,9 @@ local NSView = cocoa_objc.methods.NSView
 local NSWindow = cocoa_objc.methods.NSWindow
 local CAMetalLayer = cocoa_objc.methods.CAMetalLayer
 local nil_id = objc["nil"]
--- Create a custom window delegate class to handle close events
 local WindowDelegate = nil
 local DropView = nil
-local close_flags = {} -- Store close state per window
+local close_flags = {}
 local drop_queues = {}
 local retained_callbacks = {}
 
@@ -270,9 +268,7 @@ end
 local function setup_window_delegate()
 	if WindowDelegate then return WindowDelegate end
 
-	-- Create delegate class
 	WindowDelegate = objc.newClass("LuaWindowDelegate", "NSObject")
-	-- Add windowShouldClose: method
 	table.insert(
 		retained_callbacks,
 		objc.addMethod(
@@ -280,10 +276,9 @@ local function setup_window_delegate()
 			"windowShouldClose:",
 			"c@:@",
 			function(self, sel, sender)
-				-- Mark this window as should close
 				local window_ptr = pointer_key(sender)
 				close_flags[window_ptr] = true
-				return 1 -- YES, allow close
+				return 1
 			end
 		)
 	)
@@ -366,10 +361,8 @@ local function flip_window_y(window, y)
 	return bounds.size.height - y
 end
 
--- Titled | Closable | Miniaturizable | Resizable
 local WINDOW_STYLE_MASK = bit.bor(1, 2, 4, 8)
 
--- Initialize Cocoa application and create window
 local function init_cocoa(width, height)
 	local pool = NSObject.init(NSObject.alloc(classes.NSAutoreleasePool))
 	local app = NSApplication.sharedApplication()
@@ -398,7 +391,6 @@ local function init_cocoa(width, height)
 	return window, metal_layer, contentView
 end
 
--- NSEvent type constants
 local NSEventType = {
 	LeftMouseDown = 1,
 	LeftMouseUp = 2,
@@ -424,7 +416,6 @@ local NSEventType = {
 	OtherMouseUp = 26,
 	OtherMouseDragged = 27,
 }
--- NSAppKitDefined subtypes
 local NSEventSubtype = {
 	WindowExposed = 0,
 	ApplicationActivated = 1,
@@ -432,16 +423,13 @@ local NSEventSubtype = {
 	WindowMoved = 4,
 	ScreenChanged = 8,
 }
--- NSEvent modifier flags
 local NSEventModifierFlags = {
 	Shift = 0x20000,
 	Control = 0x40000,
 	Option = 0x80000,
 	Command = 0x100000,
-	-- Device-specific modifier flags (for determining left vs right)
 	DeviceIndependentFlagsMask = 0xFFFF0000,
 }
--- Device-specific modifier key codes (lower bits that distinguish left/right)
 local NSEventModifierDeviceFlags = {
 	LeftShift = 0x0002,
 	RightShift = 0x0004,
@@ -452,7 +440,6 @@ local NSEventModifierDeviceFlags = {
 	LeftCommand = 0x0008,
 	RightCommand = 0x0010,
 }
--- Key code mapping (US keyboard layout)
 local keycodes = {
 	[0x00] = "a",
 	[0x01] = "s",
@@ -525,7 +512,6 @@ local keycodes = {
 	[0x77] = "end",
 	[0x79] = "pagedown",
 	[0x47] = "clear",
-	-- Function keys
 	[0x7A] = "f1",
 	[0x78] = "f2",
 	[0x63] = "f3",
@@ -539,7 +525,6 @@ local keycodes = {
 	[0x67] = "f11",
 	[0x6F] = "f12",
 }
--- Track previous modifier state for FlagsChanged events
 local last_modifier_flags = 0
 
 local function location_in_content_area(window, nsevent)
@@ -551,13 +536,11 @@ local function location_in_content_area(window, nsevent)
 	return location.x, y
 end
 
--- Helper to convert NSEvent to our event structure
 local function convert_nsevent(nsevent, window)
 	if nsevent == nil or nsevent == objc.ptr(nil) then return nil end
 
 	local event_type = tonumber(NSEvent.type(nsevent))
 	local modifier_flags = tonumber(NSEvent.modifierFlags(nsevent))
-	-- Extract modifiers
 	local modifiers = {
 		shift = bit.band(modifier_flags, NSEventModifierFlags.Shift) ~= 0,
 		control = bit.band(modifier_flags, NSEventModifierFlags.Control) ~= 0,
@@ -565,7 +548,6 @@ local function convert_nsevent(nsevent, window)
 		command = bit.band(modifier_flags, NSEventModifierFlags.Command) ~= 0,
 	}
 
-	-- Keyboard events
 	if event_type == NSEventType.KeyDown then
 		local keycode = tonumber(NSEvent.keyCode(nsevent))
 		local key = keycodes[keycode] or "unknown"
@@ -594,12 +576,9 @@ local function convert_nsevent(nsevent, window)
 			key = key,
 			modifiers = modifiers,
 		}
-	-- FlagsChanged events (modifier keys)
 	elseif event_type == NSEventType.FlagsChanged then
-		-- Determine which modifier key changed by comparing with previous state
 		local changed = bit.bxor(modifier_flags, last_modifier_flags)
 		local pressed = bit.band(modifier_flags, changed) ~= 0
-		-- Check each modifier key
 		local key = nil
 
 		if bit.band(changed, NSEventModifierDeviceFlags.LeftShift) ~= 0 then
@@ -631,7 +610,6 @@ local function convert_nsevent(nsevent, window)
 		end
 
 		return nil
-	-- Mouse button events
 	elseif
 		event_type == NSEventType.LeftMouseDown or
 		event_type == NSEventType.RightMouseDown or
@@ -683,7 +661,6 @@ local function convert_nsevent(nsevent, window)
 			delta_y = -NSEvent.deltaY(nsevent),
 			modifiers = modifiers,
 		}
-	-- Scroll wheel
 	elseif event_type == NSEventType.ScrollWheel then
 		local x, y = location_in_content_area(window, nsevent)
 		return {
@@ -702,7 +679,6 @@ end
 local NSEventMaskAny = 0xFFFFFFFFFFFFFFFFULL
 local dequeue = true
 
--- Event loop helpers
 local function poll_events(app, window, event_list)
 	local distantPast = NSDate.distantPast()
 	local mode = NSString.stringWithUTF8String("kCFRunLoopDefaultMode")
@@ -729,12 +705,10 @@ local function poll_events(app, window, event_list)
 	return false
 end
 
--- Helper to get the NSApplication singleton
 local function get_app()
 	return NSApplication.sharedApplication()
 end
 
--- CGDisplayHideCursor / CGDisplayShowCursor
 ffi.cdef[[
 	int CGDisplayHideCursor(uint32_t display);
 	int CGDisplayShowCursor(uint32_t display);
@@ -744,17 +718,17 @@ ffi.cdef[[
 ]]
 local CG = ffi.load("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
 local cursor_selector_map = {
-	arrow = "arrowCursor", -- },
-	hand = "pointingHandCursor", -- , "openHandCursor"},
-	text_input = "IBeamCursor", -- },
-	crosshair = "crosshairCursor", -- },
-	vertical_resize = "resizeUpDownCursor", -- },
-	horizontal_resize = "resizeLeftRightCursor", -- },
-	all_resize = "openHandCursor", -- , "closedHandCursor", "arrowCursor"},
-	top_right_resize = "resizeLeftRightCursor", -- , "resizeUpDownCursor", "arrowCursor"},
-	bottom_left_resize = "resizeLeftRightCursor", -- , "resizeUpDownCursor", "arrowCursor"},
-	top_left_resize = "resizeLeftRightCursor", -- , "resizeUpDownCursor", "arrowCursor"},
-	bottom_right_resize = "resizeLeftRightCursor", -- , "resizeUpDownCursor", "arrowCursor"},
+	arrow = "arrowCursor",
+	hand = "pointingHandCursor",
+	text_input = "IBeamCursor",
+	crosshair = "crosshairCursor",
+	vertical_resize = "resizeUpDownCursor",
+	horizontal_resize = "resizeLeftRightCursor",
+	all_resize = "openHandCursor",
+	top_right_resize = "resizeLeftRightCursor",
+	bottom_left_resize = "resizeLeftRightCursor",
+	top_left_resize = "resizeLeftRightCursor",
+	bottom_right_resize = "resizeLeftRightCursor",
 }
 local cursor_cache = {}
 
@@ -939,18 +913,14 @@ function meta:ReadEvents()
 
 	end
 
-	-- Check if window close was requested (via close button or delegate)
 	if close_flags[self.window_ptr] then
 		table.insert(events, {
 			type = "window_close",
 		})
-	-- Don't reset the flag - close should be persistent
 	end
 
-	-- Poll for window size changes
 	local current_width, current_height = self:GetSize()
 
-	-- Initialize on first call
 	if self.last_width == nil then
 		self.last_width = current_width
 		self.last_height = current_height

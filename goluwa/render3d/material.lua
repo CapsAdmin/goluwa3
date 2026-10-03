@@ -9,7 +9,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Material = objects.CreateTemplate("render3d_material")
--- textures
 Material:StartStorable()
 Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "InvalidateAlbedo"})
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
@@ -62,117 +61,76 @@ Material:GetSet("TerrainLayer1NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer2NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer3NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer4NormalTexture", nil, {type = "render_texture"})
--- a layer's height, parallax mapped by TerrainLayerHeightScales in texture units
 Material:GetSet("TerrainLayer1HeightTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer2HeightTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer3HeightTexture", nil, {type = "render_texture"})
 Material:GetSet("TerrainLayer4HeightTexture", nil, {type = "render_texture"})
 Material:GetSet("MetallicTexture", nil, {type = "render_texture"})
 Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
--- the luminance scales SpecularMultiplier
 Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
--- the luminance scales DiffuseTransmission
 Material:GetSet("TransmissionTexture", nil, {type = "render_texture"})
--- multipliers
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0), {callback = "InvalidateColor"})
 Material:GetSet(
 	"EmissiveMultiplier",
 	Color(1.0, 1.0, 1.0, 1.0),
 	{callback = "InvalidateEmission"}
 )
--- terrain layers: world space texture scale in meters, roughness and ambient occlusion multipliers per layer
 Material:GetSet("TerrainLayerScales", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerHeightScales", Color(0.0, 0.0, 0.0, 0.0))
--- the layer heights fade out towards this distance from the camera
 Material:GetSet("TerrainLayerHeightDistance", 128)
 Material:GetSet("TerrainLayerRoughness", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("TerrainLayerAmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
--- 0 uses a layer's albedo as is with alpha as roughness, above 0 the layer only adds its color variation
--- around its average color to the albedo texture, with that strength, and its alpha is ignored
 Material:GetSet(
 	"TerrainLayerDetailStrength",
 	Color(0.0, 0.0, 0.0, 0.0),
 	{callback = "InvalidateRayMaterial"}
 )
--- above 0 a detail layer is added to the gamma encoded albedo texture around 0.5 with its strength, like cry
--- terrain layers, and the sum is multiplied by this
 Material:GetSet(
 	"TerrainLayerAdditiveDetail",
 	Color(0.0, 0.0, 0.0, 0.0),
 	{callback = "InvalidateRayMaterial"}
 )
--- SpecularMultiplier per layer
 Material:GetSet("TerrainLayerSpecular", Color(1.0, 1.0, 1.0, 1.0))
--- min x, min z and size of the world square TerrainMaterialTexture covers, for lookups without uvs (ray hits)
 Material:GetSet("TerrainBounds", Vec3(0, 0, 0), {callback = "InvalidateRayMaterial"})
--- with Grass, how much grass grows where each layer is, 0 to 1. grass thins and shortens across layer transitions
 Material:GetSet("TerrainLayerGrass", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)
 Material:GetSet("RoughnessMultiplier", 1.0)
--- scales the dielectric reflectance (F0 0.04), 0 to 2
 Material:GetSet("SpecularMultiplier", 1.0)
--- 0 to 1, a clear smooth layer over the surface, as a water film. it reflects like water, F0 0.02,
--- and what it reflects doesn't reach the surface under it
 Material:GetSet("Clearcoat", 0.0)
--- the layer's perceptual roughness
 Material:GetSet("ClearcoatRoughness", 0.05)
 Material:GetSet("NormalMapMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
--- parallax occlusion mapping. HeightTexture's red channel is the height, 0 lowest and 1 highest.
--- HeightScale is how deep 0 is below 1 in texture units, as in crysis and unreal: on a texture that
--- covers 2 m, 0.01 is 2 cm
 Material:GetSet("HeightScale", 0.0, {callback = "InvalidateHeightMap"})
--- the height that lies on the polygon, as blender's midlevel. 1 carves everything into the surface,
--- 0.5 raises the highs above it as much as it sinks the lows
 Material:GetSet("HeightMidlevel", 1.0)
 Material:GetSet("HeightLayers", 24)
--- crysis style detail map: rg offsets the normal, alpha multiplies albedo
 Material:GetSet("DetailTiling", Vec2(1.0, 1.0))
 Material:GetSet("DetailBumpScale", 1.0)
 Material:GetSet("DetailBlendAmount", 0.0)
--- blends the albedo towards a world space ground color texture, ie vegetation picking up the terrain's color
 Material:GetSet("GroundColorTexture", nil, {type = "render_texture"})
 Material:GetSet("GroundColorBlend", 0.0)
--- the texture's uv is (dot(world.xz, rg), dot(world.xz, ba))
 Material:GetSet("GroundColorUV", Color(1.0, 0.0, 0.0, 1.0))
--- how much of the diffuse light goes through a thin surface, like a leaf, and out its other side
 Material:GetSet("DiffuseTransmission", 0.0, {callback = "InvalidateFlags"})
--- tints the light going through, on top of the albedo. only its hue is used
 Material:GetSet("TransmissionColor", Color(1.0, 1.0, 1.0, 1.0))
--- 0 spreads the light going through evenly, 1 concentrates it around a light behind the surface
 Material:GetSet("TransmissionScattering", 0.5)
--- cryengine 2 vegetation bending, see model_pipeline.BuildVertexAnimationGlsl
--- how much the wind bends the whole object around its origin, 0 is rigid
 Material:GetSet("Bending", 0.0)
--- "none", "leaves" or "grass", leaf and branch flutter driven by the vertex colors
 Material:GetSet("DetailBending", "none")
 Material:GetSet("BendDetailFrequency", 5.0)
 Material:GetSet("BendDetailLeafAmplitude", 0.08)
 Material:GetSet("BendDetailBranchAmplitude", 0.2)
 Material:GetSet("BendDetailPhase", 100.0)
--- grass
 Material:GetSet("GrassDensity", 700.0)
 Material:GetSet("GrassHeight", 0.28)
 Material:GetSet("GrassHeightVariance", 0)
 Material:GetSet("GrassWidth", 0.02)
--- other
--- how much light passes through the surface, bent by IndexOfRefraction (0..1,
--- gltf's transmission). the transmitted light is tinted by the albedo
 Material:GetSet("Refraction", 0.0, {callback = "InvalidateTransparency"})
 Material:GetSet("IndexOfRefraction", 1.5)
--- how far light travels inside, in world units. 0 is a thin wall (a window,
--- a bubble) and below 0 takes the object's thinnest extent
 Material:GetSet("RefractionThickness", -1.0)
 Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateColor"})
 Material:GetSet("IgnoreZ", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
--- the primitives drawing with it are left out, ie collision proxies
 Material:GetSet("NoDraw", false, {callback = "InvalidateSceneKey"})
--- flags
 Material:GetSet("Flags", 0)
 Material:GetSet("NormalTextureAlphaIsRoughness", false, {callback = "InvalidateFlags"})
--- the normal textures are source's self shadowed bump maps, the light each of
--- the three radiosity basis directions receives instead of a normal
 Material:GetSet("NormalTextureIsSSBump", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoTextureAlphaIsRoughness", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoLuminanceIsRoughness", false, {callback = "InvalidateFlags"})
@@ -180,13 +138,10 @@ Material:GetSet("BlendTintByBaseAlpha", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicTextureAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoAlphaIsSpecular", false, {callback = "InvalidateFlags"})
--- the gloss map also scales the phong power RoughnessMultiplier was derived from
 Material:GetSet("GlossIsShininess", false, {callback = "InvalidateFlags"})
--- a SpecularMultiplier above 1 is solved into metallic with the albedo as the diffuse
 Material:GetSet("SpecularSolvesMetallic", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
--- source's $additive: the albedo is emitted whole, and how much of the surface covers what is behind follows its brightness. always Translucent
 Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
@@ -214,8 +169,6 @@ do
 		alpha_blend_op = "add",
 	}
 
-	-- for forward drawn surfaces, which blend over what is behind them when
-	-- translucent
 	function Material:GetBlendEquation()
 		return self.Translucent and translucent or opaque
 	end
@@ -232,8 +185,6 @@ local function is_color(value)
 end
 
 do
-	-- a solid color or value is the same 4x4 texture wherever it's used, and
-	-- each one costs a submit and a gpu wait to make
 	local constant_textures = {}
 
 	local function constant_texture(glsl)
@@ -259,9 +210,6 @@ do
 		return tex
 	end
 
-	-- a texture from whatever describes it: a color or a number is a solid
-	-- texture, a string is the body of a GLSL function returning a vec4 (shared
-	-- is declared before it), anything else, a texture, is used as it is
 	function Material.ResolveTexture(source, shared)
 		if not RENDER_3D then return end
 
@@ -305,12 +253,6 @@ do
 	end
 end
 
--- config sets properties by name: SetX(value), or for a texture property X a
--- value that stands in for the texture. a color or number is the multiplier of
--- the property with no texture at all (Albedo = Color(1, 0, 0, 1) is
--- ColorMultiplier, Roughness = 0.5 is RoughnessMultiplier), a string is the body of a
--- GLSL function returning a vec4 (Shared is declared before it), and a texture
--- is used as it is. Color is the same as Albedo. an unknown key is an error
 function Material.New(config)
 	local self = Material:CreateObject()
 
@@ -379,9 +321,6 @@ function Material:HasExplicitRoughnessTexture()
 	return false
 end
 
--- drawn forward, over the lit opaque scene, instead of into the gbuffer
--- a height mapped surface writes its own depth, which costs it early depth
--- testing, so it draws with its own gbuffer pipelines
 function Material:HasHeightMap()
 	return self.HeightTexture ~= nil and self.HeightScale > 0
 end
@@ -394,18 +333,14 @@ function Material:IsTransparent()
 	return self.Translucent or self.Refraction > 0
 end
 
--- a surface that transmits what is behind it. the sun's light through it is the
--- business of render3d/glass_tint.lua
 function Material:IsGlass()
 	return self.Refraction > 0 and not self.Additive
 end
 
--- whether glass dithers the shadow maps. glass_tint takes over while its maps are on
 Material.GlassCastsShadow = function()
 	return true
 end
 
--- just a shortcut for gltf
 function Material:SetAlphaMode(mode)
 	if mode == "MASK" then
 		self:SetAlphaTest(true)
@@ -449,26 +384,19 @@ for i, flag_name in ipairs(FLAGS) do
 	end
 end
 
--- bumped whenever any material's flags or HasHeightMap change
 Material.flags_generation = 0
--- materials whose transparency, depth test or displacement changed, which
--- moves the visuals drawing with them between passes
 Material.scene_dirty_materials = Material.scene_dirty_materials or {}
 
 function Material:InvalidateSceneKey()
 	Material.scene_dirty_materials[self] = true
 end
 
--- materials whose emission changed, which the ray tracing soup bakes per
--- triangle
 Material.emission_dirty_materials = Material.emission_dirty_materials or {}
 
 function Material:InvalidateEmission()
 	Material.emission_dirty_materials[self] = true
 end
 
--- bumped whenever a property changes that ray hits read from ddgi's material
--- buffer, and stamped on the material so only its entry is rewritten
 Material.ray_material_generation = 0
 Material.ray_material_stamp = 0
 
@@ -487,12 +415,7 @@ function Material:InvalidateColor()
 	self:InvalidateShadow()
 end
 
--- bumped when any material's albedo texture changes, which the soup's shadow
--- samples by bindless index
 Material.albedo_generation = 0
--- stamped on a material whenever what its soup shadow needs of it changed, so
--- a table of those can rewrite just the entries of the materials stamped
--- since it last looked
 Material.shadow_stamp = 0
 
 function Material:StampShadow()
@@ -531,9 +454,6 @@ end
 
 Material:GetSet("Name", "")
 
--- source materials say nothing about grass, so for now any vmt or base texture
--- with grass in its file name grows it. only the file name, since map folders
--- like gm_flatgrass would match every material in the map
 function Material.IsGrassTexture(texture)
 	return texture.config.path and
 		file_path.GetFileNameFromPath(texture.config.path):lower():find("grass", 1, true) ~= nil
@@ -558,11 +478,8 @@ function Material:GetFillFlags()
 	return self.Flags
 end
 
--- a shadow map sees light pass through a refracting or additive surface as
--- through a translucent one, dithered by GetShadowOpacity
 do
 	local TRANSLUCENT_FLAG = 2
-	-- what the two faces of a refracting surface do not reflect
 	local REFRACTION_TRANSMITTANCE = 0.9
 
 	function Material:GetShadowFlags()
@@ -573,16 +490,11 @@ do
 		return self.Flags
 	end
 
-	-- the share of the sun's light the surface stops, 0 to 1. the shadow maps
-	-- only hold depth, so a tinted surface casts a grey shadow, as dark as its
-	-- luminance says
 	function Material:GetShadowOpacity()
 		local color = self.ColorMultiplier
 
-		-- an additive surface only adds light
 		if self.Additive then return 0 end
 
-		-- and glass lets the light through in the glass tint maps instead
 		if self.Refraction > 0 and not Material.GlassCastsShadow() then return 0 end
 
 		if self.Refraction == 0 then return color.a end
@@ -600,8 +512,6 @@ do
 			)
 	end
 
-	-- the same from what the triangle soup knows of a surface, which has no
-	-- uvs, so the alpha of a texture is out of reach
 	function Material:GetSoupShadowOpacity()
 		if self.Additive then return 0 end
 
@@ -617,8 +527,6 @@ do
 	end
 end
 
--- whether the alpha of the albedo texture shapes the shadow, which the soup
--- only draws when it has uvs
 function Material:HasShadowTexture()
 	return self.AlbedoTexture ~= nil and
 		not self.AlbedoTextureAlphaIsRoughness and
@@ -632,10 +540,7 @@ function Material:HasShadowTexture()
 		)
 end
 
--- bumped when what the soup shadow of any material changes, so the shadow
--- maps expand the soup again
 Material.shadow_generation = 0
--- bumped when the soup shadow of every material may have changed
 Material.shadow_full_generation = 0
 
 function Material:InvalidateShadow()
@@ -826,7 +731,6 @@ do
 		local normalized_lower = normalized:lower()
 
 		do
-			-- some materials were saved with the artist's checkout path, ie j:/game02/game/objects/...
 			local game_start = normalized_lower:find("%f[%w]game/objects/") or
 				normalized_lower:find("%f[%w]game/textures/")
 
@@ -880,7 +784,6 @@ do
 			add(game_root .. "Objects.pak/" .. relative_base .. ".dds")
 			add(game_root .. "Textures.pak/" .. relative_path)
 			add(game_root .. "Textures.pak/" .. relative_base .. ".dds")
-			-- like CryEngine's language pak, mounted at the game root for Languages/...
 			add(game_root .. "Localized/english.pak/" .. relative_path)
 			add(game_root .. "Localized/english.pak/" .. relative_base .. ".dds")
 		end
@@ -892,7 +795,6 @@ do
 			local folder = file_path.GetFolderFromPath(material_path)
 
 			if is_game_relative then
-				-- a material loaded through a mounted game root, ie Objects/..., resolves its textures through the same mounts
 				if not game_root then
 					add(normalized)
 					add(base .. ".dds")
@@ -937,7 +839,6 @@ do
 		return Texture.GetFallback()
 	end
 
-	-- GenMask bits from Shaders/<shader>.ext, the mask is stored as a decimal number
 	local GEN_MASKS = {
 		Illum = {
 			DETAIL_BUMP_MAPPING = 0x4000,
@@ -953,17 +854,12 @@ do
 			DETAIL_BUMP_MAPPING = 0x20000,
 			LEAVES = 0x100,
 			GRASS = 0x2000,
-			-- "fit to terrain", the vertex shader bends the model's height to the terrain's around the instance
 			TERRAINHEIGHTADAPTION = 0x4000,
 			DETAIL_BENDING = 0x10000,
 		},
 	}
-	-- MtlFlags
 	local MTL_FLAG_2SIDED = 0x2
 	local MTL_FLAG_NODRAW = 0x400
-	-- the height offset bump and parallax occlusion mapping read is the alpha
-	-- attached to the normal map's dds. only a few dozen materials use it, so it's
-	-- decoded here rather than through the texture loader
 	local cry_height_texture_cache = {}
 
 	local function get_cry_height_texture(normal_map_path)
@@ -1008,7 +904,6 @@ do
 			self.cry_specular_color = Color(r or 0, g or 0, b or 0, 1)
 		end
 
-		-- collision proxies and other helpers that CryEngine never draws
 		if shader:lower() == "nodraw" or bit.band(mtl_flags, MTL_FLAG_NODRAW) ~= 0 then
 			self:SetNoDraw(true)
 			return self
@@ -1016,11 +911,6 @@ do
 
 		self:SetMetallicMultiplier(0)
 
-		-- phong: specular = light * cos^n * gloss map * Specular color S, n being the Shininess, next to a diffuse
-		-- of light * albedo. under the same light, pi of ours, that lobe is the normalized (n + 2) / 2pi phong lobe
-		-- of F0 = 2 S / (n + 2), and (2 / (n + 2))^0.25 is the equivalent perceptual roughness. above the 0.04 of
-		-- a dielectric the gbuffer pass solves the F0 and albedo into metallic, but only for what crysis says is
-		-- metal. glossy leaves, glass, plastic and concrete stay dielectric
 		do
 			local specular = self.cry_specular_color
 			local roughness = 2 / ((tonumber(attrs.Shininess) or 0) + 2)
@@ -1036,7 +926,6 @@ do
 
 		do
 			local r, g, b = unpack_csv_numbers(attrs.Diffuse)
-			-- alpha testing ignores the opacity
 			self:SetColorMultiplier(Color(r or 1, g or 1, b or 1, alpha_test > 0 and 1 or opacity))
 		end
 
@@ -1051,10 +940,8 @@ do
 		self:SetDoubleSided(leaves or bit.band(mtl_flags, MTL_FLAG_2SIDED) ~= 0)
 
 		if shader == "Vegetation" then
-			-- the level's vegetation objects have their own Bending, this is for models placed on their own
 			self:SetBending(1)
 
-			-- Vegetation.cfx only detail bends leaves and grass
 			if has_gen("DETAIL_BENDING") then
 				if has_gen("GRASS") then
 					self:SetDetailBending("grass")
@@ -1069,10 +956,6 @@ do
 			self:SetBendDetailPhase(tonumber(params.bendDetailPhase) or 100)
 		end
 
-		-- leaves and grass light their back face through the opacity map, which is never alpha
-		-- crysis adds BackDiffuse * BackDiffuseMultiplier * albedo of back light next to the albedo of front light,
-		-- so its brightness is the ratio of light going through to light reflected, and its color the tint
-		-- with the vegetation's UseTerrainColor, grass is lerped towards the terrain color by this much
 		if has_gen("GRASS") then
 			self:SetGroundColorBlend(tonumber(params.blendWithTerrainAmount) or 0.5)
 		end
@@ -1088,11 +971,9 @@ do
 				self:SetTransmissionColor(Color(r, g, b, 1))
 			end
 
-			-- crysis weighs its view dependent term with BackViewDep, unset is -1
 			self:SetTransmissionScattering(math.clamp(tonumber(params.BackViewDep) or 0.5, 0, 1))
 		end
 
-		-- without the detail bump bit, crysis only uses the detail map in a legacy color modulate pass
 		local detail_bump_mapping = has_gen("DETAIL_BUMP_MAPPING")
 
 		if detail_bump_mapping then
@@ -1106,11 +987,6 @@ do
 			self:SetDetailBlendAmount(tonumber(params.DetailBlendAmount) or 0)
 		end
 
-		-- both offset the uv by height * displacement in texture space. POM marches
-		-- down from 1 to 0 like ours, so its displacement is our scale. offset bump
-		-- shifts by (2 * height - 1) * displacement, twice that over the same range.
-		-- illum's offset bump reads ObmDisplacement, older materials still carry a
-		-- Displacement it ignores
 		local height_scale = 0
 
 		if has_gen("PARALLAX_OCCLUSION_MAPPING") then
@@ -1155,7 +1031,6 @@ do
 						LinearTexture(resolved) or
 						get_missing_cry_texture(material_path, texture_attrs, candidates)
 				)
-				-- without an attached alpha crysis reads the flat 1 of the normal map, which displaces nothing
 				local height_texture = height_scale > 0 and resolved and get_cry_height_texture(resolved)
 
 				if height_texture then
@@ -1163,7 +1038,6 @@ do
 					self:SetHeightScale(height_scale)
 				end
 			elseif map_name == "Specular" then
-				-- the gloss map, sampled as srgb
 				self:SetSpecularTexture(
 					resolved and
 						SRGBTexture(resolved) or
@@ -1184,7 +1058,6 @@ do
 			end
 		end
 
-		-- the glow pass adds diffuse * diffuse alpha * GlowAmount, alpha glow adds the same scaled by AmbientMultiplier
 		do
 			local glow = tonumber(attrs.GlowAmount) or 0
 
@@ -1195,7 +1068,6 @@ do
 			if glow > 0 then
 				self:SetEmissiveMultiplier(Color(1, 1, 1, glow))
 
-				-- alpha testing needs the diffuse alpha, so the glow is masked by the diffuse red channel instead
 				if self.AlphaTest then
 					self:SetEmissiveTexture(self.AlbedoTexture)
 				else
@@ -1208,10 +1080,10 @@ do
 	end
 
 	local function on_load_vmt(self, vmt)
-		self.vmt = vmt -- store for debugging
+		self.vmt = vmt
 		self:SetMetallicMultiplier(0)
 
-		do -- main diffuse texture
+		do
 			if vmt.basetexture then
 				self:SetAlbedoTexture(SRGBTexture(vmt.basetexture))
 			end
@@ -1221,7 +1093,7 @@ do
 			end
 		end
 
-		do -- just a regular normal map
+		do
 			if vmt.bumpmap then self:SetNormalTexture(LinearTexture(vmt.bumpmap)) end
 
 			if vmt.bumpmap2 then self:SetNormal2Texture(LinearTexture(vmt.bumpmap2)) end
@@ -1233,16 +1105,11 @@ do
 			self:SetBlendTexture(LinearTexture(vmt.blendmodulatetexture))
 		end
 
-		if vmt.blendtintbybasealpha == 1 then
-			-- the base alpha masks where the color multiplier tints the albedo
-			self:SetBlendTintByBaseAlpha(true)
-		end
+		if vmt.blendtintbybasealpha == 1 then self:SetBlendTintByBaseAlpha(true) end
 
 		if vmt.texture2 then self:SetAlbedo2Texture(SRGBTexture(vmt.texture2)) end
 
-		-- the envmap masks are reflectivity. source reads the normal map alpha and envmapmask as is, but the
-		-- base alpha inverted, so only the envmapmask texture needs inverting to be roughness
-		if vmt.envmap then -- envmap
+		if vmt.envmap then
 			if vmt.envmapmask then
 				self:SetRoughnessTexture(LinearTexture(vmt.envmapmask))
 				self:SetInvertRoughnessTexture(true)
@@ -1257,7 +1124,6 @@ do
 			end
 
 			if false and vmt.envmaptint then
-				-- maybe also set color tint?
 				local val = vmt.envmaptint
 
 				if type(val) == "string" then
@@ -1287,22 +1153,17 @@ do
 				self:SetAlbedoLuminanceIsRoughness(true)
 			end
 
-			-- if halflambert the model is generally brighter and more reflective?
 			local halflambert = vmt.halflambert == 1
 			local exponent = vmt.phongexponent or 5
 			local boost = vmt.phongboost or 1
 			local fresnelranges = vmt.phongfresnelranges or Vec3(0, 0.5, 1)
-			-- Beckmann roughness approximation from Blinn-Phong exponent
-			-- roughness ≈ sqrt(2 / (exponent + 2))
 			local roughness = math.sqrt(2 / (exponent + 2))
 
-			-- Boost affects intensity, slightly reduces apparent roughness
 			if boost > 1 then roughness = roughness / math.sqrt(boost) end
 
 			self:SetRoughnessMultiplier(math.max(0.04, math.min(1.0, roughness)))
 		end
 
-		-- source only reflects light off materials that ask for an envmap or phong
 		if not vmt.envmap and vmt.phong ~= 1 then self:SetSpecularMultiplier(0) end
 
 		if vmt.selfillum == 1 then
@@ -1335,11 +1196,8 @@ do
 			self:SetTranslucent(true)
 		end
 
-		-- the refract shader distorts what is behind it by its normal map
 		if vmt.shader:lower() == "refract" then
 			self:SetRefraction(1)
-			-- source offsets the screen by $refractamount times the normal, the
-			-- closest thing to a bend it has
 			self:SetIndexOfRefraction(1 + (vmt.refractamount or 0.5))
 			self:SetRefractionThickness(0)
 			self:SetSpecularMultiplier(1)
@@ -1350,7 +1208,6 @@ do
 				self:SetAlbedoTexture(SRGBTexture(vmt.refracttinttexture))
 			end
 
-			-- "[r g b]" parses to a vec3, "{r g b}" stays a 0..255 string
 			local tint = vmt.refracttint
 
 			if typex(tint) == "vec3" then
@@ -1372,10 +1229,8 @@ do
 
 		if vmt.nocull then self:SetDoubleSided(true) end
 
-		-- Surface property based PBR estimation
 		if vmt.surfaceprop then
 			local function get_prop(prop, key)
-				-- Recursively search prop and base tables for a value
 				if type(prop) ~= "table" then return nil end
 
 				if prop[key] ~= nil then return prop[key] end
@@ -1392,9 +1247,7 @@ do
 			if not name then name = get_prop(vmt.surfaceprop, "gamematerial") end
 
 			self.vmt_surfaceprop = name
-			-- Format: { roughness, metallic }
 			local surfaceprop_pbr = {
-				-- Metals
 				metal = {0.35, 1.0},
 				metal_box = {0.4, 1.0},
 				metal_barrel = {0.45, 1.0},
@@ -1420,10 +1273,8 @@ do
 				jalopy = {0.4, 0.9},
 				roller = {0.3, 1.0},
 				popcan = {0.25, 1.0},
-				-- Rusty/worn metals
 				metal_sand = {0.7, 0.6},
 				rustybarrel = {0.7, 0.5},
-				-- Stone/masonry
 				concrete = {0.9, 0.0},
 				concrete_block = {0.85, 0.0},
 				rock = {0.85, 0.0},
@@ -1435,7 +1286,6 @@ do
 				asphalt = {0.9, 0.0},
 				plaster = {0.85, 0.0},
 				stucco = {0.9, 0.0},
-				-- Natural/organic
 				dirt = {0.95, 0.0},
 				grass = {0.95, 0.0},
 				mud = {0.85, 0.0},
@@ -1444,7 +1294,6 @@ do
 				slime = {0.4, 0.0},
 				antlionsand = {0.9, 0.0},
 				slipperyslime = {0.3, 0.0},
-				-- Wood
 				wood = {0.7, 0.0},
 				wood_lowdensity = {0.75, 0.0},
 				wood_box = {0.7, 0.0},
@@ -1454,12 +1303,10 @@ do
 				wood_solid = {0.65, 0.0},
 				wood_panel = {0.55, 0.0},
 				wood_ladder = {0.7, 0.0},
-				-- Glass/transparent
 				glass = {0.05, 0.0},
 				glassbottle = {0.05, 0.0},
 				glass_breakable = {0.05, 0.0},
 				canister = {0.15, 0.0},
-				-- Fabric/soft
 				cloth = {0.9, 0.0},
 				carpet = {0.95, 0.0},
 				paper = {0.9, 0.0},
@@ -1467,7 +1314,6 @@ do
 				cardboard = {0.9, 0.0},
 				upholstery = {0.9, 0.0},
 				mattress = {0.95, 0.0},
-				-- Rubber/plastic
 				rubber = {0.8, 0.0},
 				rubbertire = {0.85, 0.0},
 				plastic = {0.5, 0.0},
@@ -1476,7 +1322,6 @@ do
 				plastic_box = {0.5, 0.0},
 				jeeptire = {0.8, 0.0},
 				brakingrubbertire = {0.75, 0.0},
-				-- Organic/body
 				flesh = {0.7, 0.0},
 				bloodyflesh = {0.6, 0.0},
 				armorflesh = {0.55, 0.15},
@@ -1486,17 +1331,13 @@ do
 				player = {0.6, 0.0},
 				player_control_clip = {0.6, 0.0},
 				item = {0.5, 0.0},
-				-- Foliage
 				foliage = {0.95, 0.0},
 				tree = {0.8, 0.0},
-				-- Water/liquid
 				water = {0.05, 0.0},
 				wade = {0.1, 0.0},
 				slosh = {0.15, 0.0},
-				-- Snow/ice
 				ice = {0.15, 0.0},
 				snow = {0.95, 0.0},
-				-- Special surfaces
 				default = {0.7, 0.0},
 				default_silent = {0.7, 0.0},
 				floating_metal_barrel = {0.45, 1.0},
@@ -1506,48 +1347,43 @@ do
 				turret = {0.2, 1.0},
 				playerclip = {0.7, 0.0},
 				npcclip = {0.7, 0.0},
-				-- HL2/EP specific
 				metaldoor = {0.3, 1.0},
 				wood_door = {0.6, 0.0},
 				metal_duct = {0.35, 1.0},
 				computer = {0.3, 0.4},
 				pottery = {0.6, 0.0},
-				-- Paintable surfaces (Portal 2)
 				asphalt_portal = {0.9, 0.0},
 				concrete_portal = {0.85, 0.0},
 				metal_portal = {0.3, 1.0},
-				-- GMOD specific
 				gmod_bouncy = {0.5, 0.0},
 				gmod_ice = {0.1, 0.0},
 				gmod_silent = {0.7, 0.0},
-				-- gamematerial
-				C = {0.9, 0.0}, -- Concrete
-				D = {0.95, 0.0}, -- Dirt
-				G = {0.05, 0.0}, -- Glass (should use transmission)
-				I = {0.5, 0.0}, -- Plastic/rubber (I = "Item")
-				M = {0.35, 1.0}, -- Metal
-				O = {0.7, 0.0}, -- Organic/flesh
-				P = {0.6, 0.0}, -- Plaster
-				S = {0.95, 0.0}, -- Sand
-				T = {0.4, 0.0}, -- Tile
-				V = {0.85, 0.0}, -- Vent (metallic but often painted)
-				W = {0.7, 0.0}, -- Wood
-				X = {0.5, 0.0}, -- Glass (breakable)
-				Y = {0.05, 0.0}, -- Glass
-				Z = {0.5, 0.0}, -- Flesh
-				N = {0.95, 0.0}, -- Snow
-				U = {0.95, 0.0}, -- Grass (U = "Underbrush")
-				L = {0.85, 0.0}, -- Gravel
-				A = {0.65, 0.0}, -- Antlion
-				F = {0.95, 0.0}, -- Foliage
-				E = {0.1, 0.0}, -- Slime/alien
-				H = {0.9, 0.0}, -- Cloth
-				K = {0.9, 0.0}, -- Cardboard
-				R = {0.5, 0.0}, -- Computer/electronic
+				C = {0.9, 0.0},
+				D = {0.95, 0.0},
+				G = {0.05, 0.0},
+				I = {0.5, 0.0},
+				M = {0.35, 1.0},
+				O = {0.7, 0.0},
+				P = {0.6, 0.0},
+				S = {0.95, 0.0},
+				T = {0.4, 0.0},
+				V = {0.85, 0.0},
+				W = {0.7, 0.0},
+				X = {0.5, 0.0},
+				Y = {0.05, 0.0},
+				Z = {0.5, 0.0},
+				N = {0.95, 0.0},
+				U = {0.95, 0.0},
+				L = {0.85, 0.0},
+				A = {0.65, 0.0},
+				F = {0.95, 0.0},
+				E = {0.1, 0.0},
+				H = {0.9, 0.0},
+				K = {0.9, 0.0},
+				R = {0.5, 0.0},
 			}
 			local pbr = surfaceprop_pbr[name]
 
-			-- Fallback: use physical properties to estimate PBR values
 			if not pbr then
 				local density = get_prop(vmt.surfaceprop, "density") or 1000
 				local elasticity = get_prop(vmt.surfaceprop, "elasticity") or 0.25
@@ -1560,7 +1396,6 @@ do
 					audioreflectivity = audioreflectivity,
 					friction = friction,
 				}
-				-- High density + high audio reflectivity = likely metal
 				local metallic = 0.0
 
 				if density > 6000 and audioreflectivity > 0.8 then
@@ -1569,8 +1404,6 @@ do
 					metallic = 0.7
 				end
 
-				-- High friction + low audio reflectivity = rough surface
-				-- Low friction + high elasticity = smooth surface
 				local roughness = 0.5
 				roughness = roughness + (friction - 0.5) * 0.4
 				roughness = roughness - (audioreflectivity - 0.5) * 0.3
@@ -1585,12 +1418,7 @@ do
 			if refl then
 				local avg = (refl[1] + refl[2] + refl[3]) / 3
 
-				-- Use reflectivity to estimate base roughness
-				-- Very dark surfaces (avg < 0.05) are either black or very rough
-				-- Bright surfaces (avg > 0.3) that bounce lots of light are likely smoother
 				if avg > 0.05 then
-					-- Map reflectivity to roughness: higher reflectivity = lower roughness
-					-- sqrt gives a more perceptually linear mapping
 					local est = 1.0 - math.sqrt(avg)
 					est = math.max(0.2, math.min(0.95, est))
 					roughness = roughness * 0.6 + est * 0.4
@@ -1617,11 +1445,6 @@ do
 			self:SetGrass(true)
 		end
 
-		-- source glass is often $additive or a bare $translucent with no
-		-- envmap, which lights up or vanishes. glass transmits what is behind it and reflects by its index
-		-- of refraction, it has no diffuse of its own, so it becomes a thin
-		-- refractive dielectric that keeps its own textures. its alpha stays
-		-- the coverage of the tint
 		if
 			self.Translucent and
 			(
@@ -1632,13 +1455,10 @@ do
 				)
 			)
 		then
-			-- glass doesn't emit, even when its vmt is $additive
 			self:SetAdditive(false)
 			self:SetRefraction(1)
 			self:SetRefractionThickness(0)
 			self:SetAlbedoAlphaIsEmissive(false)
-			-- an envmapmask is how much it reflects, as a roughness texture it
-			-- would frost what is seen through the glass
 			self:SetRoughnessTexture(nil)
 			self:SetInvertRoughnessTexture(false)
 			self:SetMetallicMultiplier(0)
@@ -1649,7 +1469,7 @@ do
 
 	local special_textures = {
 		_rt_fullframefb = "error",
-		[1] = "error", -- huh
+		[1] = "error",
 	}
 
 	function Material:SetError(err)
@@ -1772,7 +1592,6 @@ do
 		local sub_materials = find_child_by_tag(root, "SubMaterials")
 		local material_node = root
 
-		-- like CryEngine, a material without sub materials is used for every subset
 		if sub_material ~= nil and sub_materials then
 			material_node = nil
 			local index = 0
@@ -1812,8 +1631,6 @@ do
 		return self
 	end
 
-	-- the sub materials of a cry mtl by 0 based slot, or nil when it has none and applies as a whole
-	-- like CryEngine, a slot the mtl doesn't have resolves to an error material
 	function Material.FromCryMTLSlots(path)
 		local document, err = load_cry_mtl_document(path)
 
@@ -1836,7 +1653,6 @@ do
 		)
 	end
 
-	-- the materials a cry mtl override applies, one per sub material or the mtl as a whole
 	function Material.FromCryMTLList(path)
 		local document = load_cry_mtl_document(path)
 		local sub_materials = document and find_child_by_tag(document.children[1], "SubMaterials")
@@ -1852,7 +1668,6 @@ do
 		return out
 	end
 
-	-- whether the material or any of its sub materials sets a GenMask flag from GEN_MASKS
 	function Material.CryMTLHasGenFlag(path, name)
 		local document = load_cry_mtl_document(path)
 
@@ -1888,7 +1703,7 @@ do
 
 		local self = Material.New()
 		self:SetName(path)
-		self.vmt_path = cache_key -- Store path for debugging
+		self.vmt_path = cache_key
 		self.upload_cache_key = cache_key
 		vmt_material_cache[cache_key] = self
 		local cb = steam.LoadVMT(cache_key, function(vmt)

@@ -71,7 +71,6 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 	local children = {}
 	local has_children = false
 
-	-- Entity children
 	if expanded then
 		for _, child in ipairs(entity:GetChildren()) do
 			if filter_callback and filter_callback(child) then goto continue end
@@ -87,7 +86,6 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 		end
 	end
 
-	-- Check for unexpanded children
 	if not expanded then
 		for _, child in ipairs(entity:GetChildren()) do
 			if filter_callback and filter_callback(child) then goto continue end
@@ -100,7 +98,6 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 		end
 	end
 
-	-- Virtual children (shared object references)
 	if show_virtual then
 		local virtual_children = build_virtual_children(entity, guid)
 
@@ -163,9 +160,6 @@ local function find_item_in_tree(items, key)
 	return nil
 end
 
--- ---------------------------------------------------------------------------
--- Panel definition
--- ---------------------------------------------------------------------------
 META:GetSet("RootEntities", nil)
 META:GetSet("RootLabels", nil)
 META:GetSet("FilterCallback", nil)
@@ -184,15 +178,12 @@ function META:OnCreate(props)
 	self._on_expanded = props.OnExpanded
 	self._hierarchy_dirty = false
 
-	-- Default roots if none provided
 	if #self._root_entities == 0 then
 		self._root_entities = {Panel.World}
-		-- Add 3D world if available
 		local entity_world = import("goluwa/entities/entity.lua").World
 		table.insert(self._root_entities, entity_world)
 	end
 
-	-- Default labels
 	if not self._root_labels[Panel.World] then
 		self._root_labels[Panel.World] = "2D World"
 	end
@@ -203,14 +194,12 @@ function META:OnCreate(props)
 		end
 	end
 
-	-- Expand roots on init
 	if self.ExpandRootsOnInit then
 		for _, entity in ipairs(self._root_entities) do
 			self._expanded_keys[entity:GetGUID()] = true
 		end
 	end
 
-	-- Build initial items
 	local items = build_tree_items(
 		self._root_entities,
 		self._root_labels,
@@ -220,7 +209,6 @@ function META:OnCreate(props)
 	)
 	props.Items = items
 	META.BaseClass.OnCreate(self, props)
-	-- Listen for hierarchy changes on each root entity's world
 	self._hierarchy_listeners = {}
 	self._hierarchy_queue = {}
 
@@ -241,7 +229,6 @@ function META:OnCreate(props)
 		add_hierarchy_listener(entity:GetRoot())
 	end
 
-	-- Process queued hierarchy changes at frame end
 	local function process_hierarchy_queue()
 		local tree = self
 		local queue = tree._hierarchy_queue
@@ -265,10 +252,8 @@ function META:OnCreate(props)
 
 			if entry.action == "parented" then
 				local ok, reason = tree:try_incremental_insert(entity, parent)
-			--if not ok then tree:FullRefresh(reason) end
 			elseif entry.action == "unparented" then
 				local ok, reason = tree:try_incremental_remove(entity)
-			--if not ok then tree:FullRefresh(reason) end
 			else
 				print("unknown action: " .. entry.action)
 			end
@@ -283,7 +268,6 @@ function META:OnCreate(props)
 		event.AddListener("FrameEnd", self, process_hierarchy_queue)
 	)
 
-	-- Clean up listeners on removal
 	self:CallOnRemove(
 		function()
 			for _, remove in ipairs(self._hierarchy_listeners) do
@@ -320,13 +304,11 @@ function META:set_expanded(node, path, key, expanded)
 			end
 		end
 
-		-- Update the items tree
 		local tree_items = self:GetItems()
 		local parent_item = find_item_in_tree(tree_items, key)
 
 		if parent_item then parent_item.Children = children end
 
-		-- Use base tree's refresh_branch_children
 		self._pending_expand_animation_key = key
 		self:refresh_branch_children(key)
 
@@ -340,7 +322,6 @@ function META:set_expanded(node, path, key, expanded)
 	if self._on_expanded then self._on_expanded(key, expanded) end
 end
 
--- Tree callbacks
 function META.OnGetText(node, path)
 	return node.Text or "item"
 end
@@ -413,9 +394,6 @@ function META.OnDrop(drop_info)
 	return true
 end
 
--- ---------------------------------------------------------------------------
--- Public API
--- ---------------------------------------------------------------------------
 function META:SetRootEntities(entities)
 	self._root_entities = entities or {}
 	self:Refresh()
@@ -490,7 +468,6 @@ function META:ExpandToEntity(entity)
 
 	local guid = entity:GetGUID()
 
-	-- Check if already visible
 	if self._row_infos[guid] then
 		self:SetSelectedKey(guid)
 		self:EnsureVisible(guid)
@@ -587,7 +564,6 @@ function META:FullRefresh(reason)
 end
 
 function META:try_incremental_insert(entity, parent)
-	-- Skip filtered entities
 	if self._filter_callback and self._filter_callback(entity) then
 		return true
 	end
@@ -604,7 +580,6 @@ function META:try_incremental_insert(entity, parent)
 			return false, "parent_not_expanded"
 		end
 	else
-		-- Entity reparented to world root - find the matching root
 		for _, root in ipairs(self._root_entities) do
 			if entity:GetRoot() == root then
 				parent_key = root:GetGUID()
@@ -636,7 +611,6 @@ function META:try_incremental_remove(entity)
 
 	if not item then return false, "item_not_found_in_tree" end
 
-	-- Remove from items tree
 	local function remove_from(items, key)
 		for i, v in ipairs(items) do
 			if v.Key == key then
@@ -651,7 +625,6 @@ function META:try_incremental_remove(entity)
 	end
 
 	remove_from(self:GetItems(), guid)
-	-- Remove row and children rows using base tree helper
 	self:remove_node_rows(guid)
 	self:refresh_visibility()
 	return true

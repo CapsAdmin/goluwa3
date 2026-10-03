@@ -35,7 +35,6 @@ T.Test3D("Terrain shader source reads back heights matching its GLSL", function(
 		chunk = result
 	end)
 
-	-- the bake is recorded, not submitted, so nothing is answered yet
 	T(chunk == nil)["=="](true)
 	source:Finish()
 	T(chunk ~= nil)["=="](true)
@@ -59,7 +58,6 @@ T.Test3D("Terrain shader source reads back heights matching its GLSL", function(
 	T(math.abs(polygon.AABB.max_z - 32))["<"](0.001)
 	T(math.abs(polygon.AABB.max_y - chunk.max_height))["<"](0.001)
 	T(math.abs(polygon.AABB.min_y - (chunk.min_height - 3)))["<"](0.001)
-	-- the plane's normal is (-0.5, 1, -0.25) normalized, stored as x, z, y
 	local r, g, b = chunk.normal_texture:Download():GetPixel(8, 8)
 	T(math.abs(r - 72))["<="](2)
 	T(math.abs(g - 100))["<="](2)

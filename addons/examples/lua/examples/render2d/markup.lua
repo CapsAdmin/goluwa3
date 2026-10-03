@@ -9,7 +9,6 @@ local system = import("goluwa/system.lua")
 local m
 local markup = Markup.New()
 markup:SetEditable(true)
---markup:SetLineWrap(true)
 markup:AddFont(fonts.New{Size = 14, ReadSpeed = 100})
 markup:AddString(
 	"Hello markup test!\n有一些中國\nそして、いくつかの日本の\nكيف حول بعض عربية"
@@ -85,8 +84,6 @@ markup:AddColor(Color.FromBytes(255, 0, 255, 255))
 markup:AddString("This one is slightly smaller bug with a different font\n")
 markup:AddColor(Color.FromBytes(255, 255, 255, 255))
 markup:AddFont(fonts.GetDefaultFont())
---self:AddString("rotated grin<rotate=90>:D</rotate> \n", true)
---self:AddString("that's <wrong>WRONG</wrong>\n", true)
 markup:AddString("Hey look it's gordon freeman!\n")
 markup:AddString("<click>http://www.google.com</click>\n", true)
 markup:AddString("did you forget your <mark>eggs</mark>?\n", true)
@@ -107,7 +104,7 @@ markup:AddString("<rotate=90>:(</rotate>", true)
 markup:AddString("<rotate=90>:P</rotate>", true)
 markup:AddString("<rotate=90>:O</rotate>", true)
 markup:AddString("<rotate=90>:]</rotate>", true)
-markup:AddString("<rotate=90></rotate>", true) -- FIX ME
+markup:AddString("<rotate=90></rotate>", true)
 markup:AddString("\n")
 markup:AddString("maybe..\n")
 markup:AddFont(

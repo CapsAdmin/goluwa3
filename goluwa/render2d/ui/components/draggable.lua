@@ -110,7 +110,7 @@ function META:OnGlobalMouseInput(button, press, pos)
 
 	if button == "button_1" and press then
 		if mouse and mouse:IsHoveredExclusively(pos) then
-			do -- Only start dragging if not already resizing
+			do
 				local target = self:GetTarget()
 				local resizable = target.resizable
 

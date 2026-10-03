@@ -24,7 +24,7 @@ if jit.os ~= "Windows" then
 		fs.IN_CREATE = 0x00000100
 		fs.IN_DELETE = 0x00000200
 		fs.IN_MODIFY = 0x00000002
-		fs.IN_MOVE = 0x000000C0 -- IN_MOVED_FROM | IN_MOVED_TO
+		fs.IN_MOVE = 0x000000C0
 		fs.IN_MOVED_FROM = 0x00000040
 		fs.IN_ISDIR = 0x40000000
 	end
@@ -35,7 +35,7 @@ if jit.os ~= "Windows" then
 		return err == "" and tostring(num) or err
 	end
 
-	do -- attributes
+	do
 		local stat_struct
 
 		if jit.os == "OSX" then
@@ -157,7 +157,7 @@ if jit.os ~= "Windows" then
 		end
 	end
 
-	do -- find files
+	do
 		local dot = string.byte(".")
 
 		local function is_dots(ptr)
@@ -170,7 +170,6 @@ if jit.os ~= "Windows" then
 			return false
 		end
 
-		-- NOTE: 64bit version
 		local dirent_struct
 
 		if jit.os == "OSX" then
@@ -454,7 +453,7 @@ else
 				creation_time = POSIX_TIME(info[0].ftCreationTime),
 				last_accessed = POSIX_TIME(info[0].ftLastAccessTime),
 				last_modified = POSIX_TIME(info[0].ftLastWriteTime),
-				last_changed = -1, -- last permission changes
+				last_changed = -1,
 				size = info[0].nFileSizeLow,
 				type = bit.band(info[0].dwFileAttributes, DIRECTORY) == DIRECTORY and
 					"directory" or
@@ -639,9 +638,7 @@ else
 	end
 end
 
--- File I/O operations (cross-platform)
 do
-	-- FILE* operations (high-level, buffered I/O)
 	if jit.os == "Windows" then
 		ffi.cdef[[
 			typedef struct FILE FILE;
@@ -711,15 +708,12 @@ do
 		]]
 	end
 
-	-- Seek constants
 	fs.SEEK_SET = 0
 	fs.SEEK_CUR = 1
 	fs.SEEK_END = 2
-	-- Buffering modes
-	fs.IOFBF = 0 -- full buffering
-	fs.IOLBF = 1 -- line buffering
-	fs.IONBF = 2 -- no buffering
-	-- File mode helpers
+	fs.IOFBF = 0
+	fs.IOLBF = 1
+	fs.IONBF = 2
 	fs.FILE_MODES = {
 		read = "r",
 		write = "w",
@@ -881,7 +875,6 @@ do
 	end
 end
 
--- Low-level file descriptor operations
 do
 	if jit.os ~= "Windows" then
 		ffi.cdef[[
@@ -904,7 +897,6 @@ do
 			// Pipe operations
 			int pipe(int pipefd[2]);
 		]]
-		-- Open flags
 		fs.O_RDONLY = 0x0000
 		fs.O_WRONLY = 0x0001
 		fs.O_RDWR = 0x0002
@@ -915,7 +907,6 @@ do
 		fs.O_NONBLOCK = jit.os == "OSX" and 0x0004 or 0x0800
 		fs.O_SYNC = jit.os == "OSX" and 0x0080 or 0x1000
 		fs.O_CLOEXEC = jit.os == "OSX" and 0x1000000 or 0x80000
-		-- File control commands
 		fs.F_DUPFD = 0
 		fs.F_GETFD = 1
 		fs.F_SETFD = 2
@@ -924,15 +915,13 @@ do
 		fs.F_GETLK = jit.os == "OSX" and 7 or 5
 		fs.F_SETLK = jit.os == "OSX" and 8 or 6
 		fs.F_SETLKW = jit.os == "OSX" and 9 or 7
-		-- File descriptor flags
 		fs.FD_CLOEXEC = 1
-		-- Standard file descriptors
 		fs.STDIN_FILENO = 0
 		fs.STDOUT_FILENO = 1
 		fs.STDERR_FILENO = 2
 
 		function fs.fd_open(path, flags, mode)
-			mode = mode or 0x1B6 -- 0666 octal
+			mode = mode or 0x1B6
 			local fd = ffi.C.open(path, flags, ffi.cast("int", mode))
 
 			if fd == -1 then return nil, last_error() end
@@ -1026,7 +1015,6 @@ do
 			return pos
 		end
 	else
-		-- Windows file descriptor operations
 		ffi.cdef[[
 			int _open(const char* path, int flags, ...);
 			int _read(int fd, void* buf, unsigned int count);
@@ -1050,7 +1038,6 @@ do
 				uint32_t* lpBytesLeftThisMessage
 			);
 		]]
-		-- Open flags (Windows)
 		fs.O_RDONLY = 0x0000
 		fs.O_WRONLY = 0x0001
 		fs.O_RDWR = 0x0002
@@ -1061,14 +1048,12 @@ do
 		fs.O_TEXT = 0x4000
 		fs.O_BINARY = 0x8000
 		fs.O_NOINHERIT = 0x0080
-		-- File modes
 		fs.O_IREAD = 0x0100
 		fs.O_IWRITE = 0x0080
 		fs.FILE_TYPE_UNKNOWN = 0x0000
 		fs.FILE_TYPE_DISK = 0x0001
 		fs.FILE_TYPE_CHAR = 0x0002
 		fs.FILE_TYPE_PIPE = 0x0003
-		-- Standard file descriptors
 		fs.STDIN_FILENO = 0
 		fs.STDOUT_FILENO = 1
 		fs.STDERR_FILENO = 2
@@ -1197,7 +1182,6 @@ do
 
 		function meta:dup(target)
 			if target then
-				-- dup2 behavior: duplicate self into target
 				local new = type(target) == "table" and target.fd or target
 				local fd, err = fs.fd_dup2(self.fd, new)
 
@@ -1205,7 +1189,6 @@ do
 
 				return fd
 			else
-				-- dup behavior: create new duplicate
 				local fd, err = fs.fd_dup(self.fd)
 
 				if not fd then return nil, err end
@@ -1215,11 +1198,7 @@ do
 		end
 
 		function meta:set_nonblocking(nonblock)
-			if jit.os == "Windows" then
-				-- On Windows pipes are always blocking, but we can work around this
-				-- by checking data availability before reading
-				return true
-			end
+			if jit.os == "Windows" then return true end
 
 			return fs.fd_set_nonblocking(self.fd, nonblock)
 		end
@@ -1229,11 +1208,7 @@ do
 				return fs.fd_setmode(self.fd, mode)
 			end
 
-			-- Check if data is available to read without blocking
 			function meta:has_data()
-				-- Try to read 0 bytes to test availability
-				-- On Windows, we'll just return true and handle EAGAIN-like behavior
-				-- by returning empty string on no data
 				return true
 			end
 		end
@@ -1249,7 +1224,7 @@ do
 		local fd_open_raw = fs.fd_open
 
 		function fs.fd_open_object(path, flags, mode)
-			mode = mode or 0x1B6 -- 0666 octal
+			mode = mode or 0x1B6
 			local fd, err = fd_open_raw(path, flags, mode)
 
 			if not fd then return nil, err end
@@ -1257,14 +1232,12 @@ do
 			return setmetatable({fd = fd}, meta)
 		end
 
-		-- High-level dup2 that accepts fd objects
 		function fs.dup2(oldfd_obj, newfd_obj)
 			local old = type(oldfd_obj) == "table" and oldfd_obj.fd or oldfd_obj
 			local new = type(newfd_obj) == "table" and newfd_obj.fd or newfd_obj
 			return fs.fd_dup2(old, new)
 		end
 
-		-- Standard file descriptor objects
 		fs.fd = {
 			stdin = setmetatable({fd = fs.STDIN_FILENO}, meta),
 			stdout = setmetatable({fd = fs.STDOUT_FILENO}, meta),
@@ -1658,23 +1631,16 @@ do
 		fs.kFSEventStreamEventIdSinceNow = 0xFFFFFFFFFFFFFFFFULL
 		local ok, lib = pcall(ffi.load, "/System/Library/Frameworks/CoreServices.framework/CoreServices")
 
-		if ok then
-			fs.CoreServices = lib
-		else
-			-- Fallback to default if load fails, though CF functions might be missing
-			fs.CoreServices = ffi.C
-		end
+		if ok then fs.CoreServices = lib else fs.CoreServices = ffi.C end
 
 		local function setup_macos_watch_timer(lib)
 			if _G.MACOS_WATCH_TIMER_SETUP then return end
 
 			_G.MACOS_WATCH_TIMER_SETUP = true
 
-			local function timer_callback(timer, info) -- Just a dummy callback to keep the run loop alive and returning
-			end
+			local function timer_callback(timer, info) end
 
 			local c_timer_callback = ffi.cast("CFRunLoopTimerCallBack", timer_callback)
-			-- Anchor the callback
 			active_watches[c_timer_callback] = {timer_callback, c_timer_callback}
 			local rl = lib.CFRunLoopGetCurrent()
 			local timer = lib.CFRunLoopTimerCreate(nil, 0, 0.1, 0, 0, c_timer_callback, nil)

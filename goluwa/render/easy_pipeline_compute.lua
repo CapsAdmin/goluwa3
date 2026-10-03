@@ -88,7 +88,6 @@ do
 			self:on_draw(cmd)
 		else
 			self:UploadConstants()
-			-- Use auto-tracked descriptor slot if no explicit frame_index
 			local descriptor_slot = frame_index or self._descriptor_slot
 			self.pipeline:DispatchForSize(
 				cmd,
@@ -174,7 +173,6 @@ do
 		return slot
 	end
 
-	-- Compute constructor
 	function EasyPipelineCompute.Compute(config)
 		local write = config.write
 		local source = config.source
@@ -191,14 +189,12 @@ do
 		local uniform_buffers = {}
 		local uniform_buffer_types = {}
 		local uniform_buffer_order = {}
-		-- Process push constant block using shared builder
 		local push_constant_size = 0
 
 		if #block > 0 then
 			block.name = "_u_compute"
 			block._is_unnamed = true
 
-			-- Transfer write/source from config level to block level
 			if block.write == nil and write then block.write = write end
 
 			if block.source == nil and source then block.source = source end
@@ -227,7 +223,6 @@ do
 		self.uniform_buffers = uniform_buffers
 		self.push_constant_cache_by_cmd = setmetatable({}, {__mode = "k"})
 		self._push_constant_stages = {"compute"}
-		-- Collect binding indices from declarative resource specs
 		local storage_bindings = {}
 		local sampled_bindings = {}
 		local buffer_bindings = {}
@@ -272,7 +267,6 @@ do
 			bindless_sampler_capacity
 		)
 
-		-- Auto-generate descriptor sets from declarative resource specs
 		for _, info in ipairs(config.storage_images or {}) do
 			descriptor_sets[#descriptor_sets + 1] = {
 				type = "storage_image",
@@ -301,7 +295,6 @@ do
 			}
 		end
 
-		-- Legacy: also accept raw descriptor_sets
 		for _, ds in ipairs(config.descriptor_sets or {}) do
 			descriptor_sets[#descriptor_sets + 1] = ds
 		end
@@ -438,7 +431,6 @@ do
 		return self
 	end
 
-	-- Build descriptor sets for ComputePass from storage/sampled image bindings
 	local function build_compute_pass_descriptor_sets(config)
 		local descriptor_sets = {}
 
@@ -473,7 +465,6 @@ do
 		return descriptor_sets
 	end
 
-	-- ComputePass: special compute pipeline with framebuffer + image transition handling
 	function EasyPipelineCompute.ComputePass(config)
 		local compute_config = table.copy(config)
 		local storage_images = {}

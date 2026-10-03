@@ -22,16 +22,13 @@ local function prepend_header(id, buffer)
 
 	if not id then return end
 
-	-- Create a new buffer with the header prepended
 	local header_buf = packet.CreateBuffer():WriteI16(id)
 	local result = packet.CreateBuffer()
 
-	-- Write header bytes first
 	for _, byte in ipairs(header_buf.buffer) do
 		result:WriteByte(byte)
 	end
 
-	-- Write original buffer bytes
 	if buffer.buffer then
 		for _, byte in ipairs(buffer.buffer) do
 			result:WriteByte(byte)
@@ -114,10 +111,9 @@ if SERVER then
 	)
 end
 
-do -- buffer object
+do
 	local META = objects.CreateTemplate("packet_buffer")
 
-	-- byte
 	function META:WriteByte(byte)
 		list.insert(self.buffer, byte)
 		return self
@@ -129,14 +125,13 @@ do -- buffer object
 		return val
 	end
 
-	-- this adds ReadI32, WriteI16, WriteFloat, WriteStructure, etc
 	local buffer_template = import("goluwa/buffer_template.lua")
 	buffer_template.AddBasicFunctions(META)
 	buffer_template.AddBasicDataTypes(META)
 	buffer_template.AddStringFunctions(META)
 	buffer_template.AddStructFunctions(META)
 
-	do -- generic
+	do
 		function META:GetBuffer()
 			return self.buffer
 		end
@@ -189,7 +184,7 @@ do -- buffer object
 			return self.position
 		end
 
-		do -- push pop position
+		do
 			function META:PushPosition(pos)
 				self.stack = self.stack or {}
 				list.insert(self.stack, self:GetPosition())
@@ -245,7 +240,6 @@ do -- buffer object
 		return self
 	end
 
-	-- this must be done shared or else you'll mess up Write/ReadType on the other side
 	function packet.ExtendBuffer(name, write_callback, read_callback)
 		META["Read" .. name] = read_callback
 		META["Write" .. name] = write_callback

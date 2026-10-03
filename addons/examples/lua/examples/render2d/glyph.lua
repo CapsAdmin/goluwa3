@@ -36,7 +36,6 @@ event.AddListener("Draw2D", "fonts_metrics_diagram", function()
 	if not data then return end
 
 	local ascent = font:GetAscent()
-	-- Standard metrics
 	local xMin, xMax = data.x_min, data.x_max
 	local yMin, yMax = data.y_min, data.y_max
 	local advance = data.x_advance
@@ -44,52 +43,37 @@ event.AddListener("Draw2D", "fonts_metrics_diagram", function()
 	local bearingY = data.bearing_y
 	local width = xMax - xMin
 	local height = yMax - yMin
-	-- 1. Draw Axes
 	render2d.SetColor(0.3, 0.3, 0.3, 1)
-	render2d.DrawLine(ox - 100, oy, ox + advance + 100, oy, 2) -- Baseline
-	render2d.DrawLine(ox, oy - 150, ox, oy + ascent + 50, 2) -- Vertical axis
-	-- 2. Draw Origin
+	render2d.DrawLine(ox - 100, oy, ox + advance + 100, oy, 2)
+	render2d.DrawLine(ox, oy - 150, ox, oy + ascent + 50, 2)
 	render2d.SetColor(0, 0, 0, 1)
 	render2d.DrawFilledCircle(ox, oy, 5)
 	labelFont:DrawText("(0,0)", ox - 45, oy - 25)
-	-- 3. Draw Character
 	render2d.SetColor(0, 0, 0, 1)
-	-- Using the new "baseline" alignment support!
 	font:DrawText(char, ox, oy, 0, 0, "baseline")
-	-- 4. Bounding Box
-	-- In TTF, Y increases UPWARDS. In our renderer, Y increases DOWNWARDS.
-	-- So a point at yMin (e.g. -50) is visually oy - (-50) = oy + 50.
-	-- A point at yMax (e.g. 150) is visually oy - (150) = oy - 150.
 	render2d.SetColor(0.8, 0.2, 0.2, 0.4)
 	local vyMin, vyMax = oy - yMin, oy - yMax
 	render2d.DrawLine(ox + xMin, vyMin, ox + xMax, vyMin, 1)
 	render2d.DrawLine(ox + xMin, vyMax, ox + xMax, vyMax, 1)
 	render2d.DrawLine(ox + xMin, vyMin, ox + xMin, vyMax, 1)
 	render2d.DrawLine(ox + xMax, vyMin, ox + xMax, vyMax, 1)
-	-- 5. Metrics Labels and Arrows
-	-- width
 	render2d.SetColor(0.2, 0.6, 0.2, 1)
 	drawDoubleArrow(ox + xMin, vyMax - 20, ox + xMax, vyMax - 20)
 	labelFont:DrawText("width", ox + (xMin + xMax) / 2 - 20, vyMax - 25)
-	-- height
 	render2d.SetColor(0.2, 0.2, 0.7, 1)
 	drawDoubleArrow(ox + xMax + 20, vyMin, ox + xMax + 20, vyMax)
 	labelFont:DrawText("height", ox + xMax + 25, (vyMin + vyMax) / 2 - 5)
-	-- bearingX
 	render2d.SetColor(0.7, 0.4, 0, 1)
 	drawArrow(ox, (vyMin + vyMax) / 2, ox + xMin, (vyMin + vyMax) / 2)
 	labelFont:DrawText("bearingX", ox + xMin / 2 - 30, (vyMin + vyMax) / 2 + 10)
-	-- bearingY
 	render2d.SetColor(0.5, 0, 0.5, 1)
 	drawArrow(ox + (xMin + xMax) / 2, oy, ox + (xMin + xMax) / 2, vyMax)
 	labelFont:DrawText("bearingY", ox + (xMin + xMax) / 2 + 5, (oy + vyMax) / 2)
-	-- advance
 	render2d.SetColor(0, 0.5, 0.5, 1)
 	drawArrow(ox, oy - 120, ox + advance, oy - 120)
 	labelFont:DrawText("advance", ox + advance / 2 - 20, oy - 145)
 	render2d.DrawLine(ox + advance, oy - 10, ox + advance, oy + 10, 2)
 	render2d.DrawFilledCircle(ox + advance, oy, 4)
-	-- xMin, xMax, yMin, yMax (markers)
 	render2d.SetColor(0.4, 0.4, 0.4, 1)
 	render2d.DrawLine(ox + xMin, vyMax, ox + xMin, vyMax - 60, 1)
 	labelFont:DrawText("xMin", ox + xMin - 15, vyMax - 65)

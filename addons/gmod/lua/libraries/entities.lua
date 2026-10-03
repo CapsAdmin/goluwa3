@@ -45,7 +45,6 @@ gine.env.create_entity = create_entity
 
 function gine.LoadEntities(base_folder, global, register, create_table)
 	for file_name in vfs.Iterate(base_folder .. "/") do
-		--logn("gine: registering ",base_folder," ", file_name)
 		if file_name:ends_with(".lua") then
 			local tbl = create_table()
 			tbl.Folder = base_folder:sub(0, -5)
@@ -58,7 +57,7 @@ function gine.LoadEntities(base_folder, global, register, create_table)
 					local tbl = create_table()
 					tbl.Folder = base_folder .. "/" .. file_name:sub(0, -5)
 					gine.env[global] = tbl
-					gine.env[global].Folder = base_folder:sub(5) .. "/" .. file_name -- weapons/gmod_tool/stools/
+					gine.env[global].Folder = base_folder:sub(5) .. "/" .. file_name
 					vfs.RunFile(base_folder .. "/" .. file_name .. "/init.lua")
 					register(gine.env[global], file_name)
 				end
@@ -145,7 +144,6 @@ do
 	end
 
 	function gine.env.ents.CreateClientProp(mdl)
-		--llog("ents.CreateClientProp: %s", mdl)
 		local ent = create_entity("class C_PhysPropClientside")
 
 		if mdl then ent:SetModel(mdl) end
@@ -425,7 +423,6 @@ do
 	end
 
 	function gine.env.ClientsideModel(path)
-		--llog("ClientsideModel: %s", path)
 		local ent = create_entity("prop_physics")
 		ent:SetModel(path)
 		return ent

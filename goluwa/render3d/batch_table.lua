@@ -4,20 +4,8 @@ local render = import("goluwa/render/render.lua")
 local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local BatchTable = objects.CreateTemplate("render3d_batch_table")
 local UInt64Ptr = ffi.typeof("uint64_t *")
--- records rewritten per update when nothing structural changed, which catches
--- material edits and texture indices changing as textures load within a few
--- updates
 local REFRESH_WINDOW = 256
 
--- The records a multi-draw pipeline indexes with gl_DrawID, one per batch in a
--- gpu_culling dataset. Texture indices are per pipeline, so each pipeline needs
--- its own table. The record type starts with the mesh's buffer addresses
--- and index type, write_record(context, pipeline, record, batch) fills the rest.
---
--- A cpu copy is rewritten and copied whole to a gpu buffer. per_frame keeps a
--- buffer per frame in flight for pipelines drawn in the main frame. Without it
--- the caller must know the gpu is done with the buffer before the next update,
--- like shadow maps that wait on their own fence.
 function BatchTable.New(config)
 	return BatchTable:CreateObject{
 		label = config.label,
@@ -42,9 +30,6 @@ function BatchTable:OnRemove()
 	self:RemoveBuffers()
 end
 
--- Rewrites every record when the dataset's batches changed (batch_serial) or
--- when a buffer whose address a record may hold went away. Updating again with
--- the same submission returns the same buffer's address.
 function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local slot = self.per_frame and render.GetCurrentFrame() or 1
 	local full = self.batch_serial ~= batch_serial or
@@ -90,7 +75,6 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 			record.index_is_32 = mesh.index_buffer and mesh.index_buffer:GetIndexType() == "uint32" and 1 or 0
 			write_record(context, pipeline, record, batch)
 		else
-			-- the shader skips batches without a vertex buffer
 			addresses[0] = 0
 			addresses[1] = 0
 		end
@@ -111,7 +95,6 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	buffer:CopyData(self.records, count * self.record_size)
 	self.submission = submission
 	self.batch_serial = batch_serial
-	-- read after the old buffers above were removed
 	self.address_release_serial = Buffer.address_release_serial
 	return buffer:GetDeviceAddress()
 end

@@ -31,7 +31,6 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		}
 	end
 
-	-- Vertex input state
 	local vertexInputInfo = nil
 	local inputAssembly = nil
 	local tessellationState = nil
@@ -126,7 +125,6 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		cullMode = config.rasterizer.cull_mode or "back",
 		frontFace = config.rasterizer.front_face or "clockwise",
 		depthBiasEnable = (config.rasterizer.depth_bias and config.rasterizer.depth_bias ~= 0) and 1 or 0,
-		-- 
 		flags = 0,
 		depthBiasConstantFactor = config.rasterizer.depth_bias_constant_factor or 0,
 		depthBiasClamp = config.rasterizer.depth_bias_clamp or 0,
@@ -136,7 +134,6 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local multisampling = vulkan.vk.s.PipelineMultisampleStateCreateInfo{
 		sampleShadingEnable = config.multisampling.sample_shading or 0,
 		rasterizationSamples = config.multisampling.rasterization_samples or "1",
-		--
 		flags = 0,
 		minSampleShading = config.multisampling.min_sample_shading or 0,
 		pSampleMask = nil,
@@ -180,7 +177,6 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 
 	local colorBlendAttachment = VkPipelineColorBlendAttachmentStateArray(#colorBlendAttachments)
 
-	-- Copy attachments to array
 	for i = 1, #colorBlendAttachments do
 		colorBlendAttachment[i - 1] = colorBlendAttachments[i]
 	end
@@ -222,7 +218,6 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		minDepthBounds = 0,
 		maxDepthBounds = 0,
 	}
-	-- Dynamic state configuration
 	local dynamicStateInfo = nil
 
 	if config.dynamic_states then
@@ -245,7 +240,6 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		error("multiple render passes not supported yet")
 	end
 
-	-- Handle depth-only pipelines (no color attachment)
 	local colorAttachmentCount = 0
 	local pColorAttachmentFormats = nil
 

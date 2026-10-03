@@ -1,9 +1,6 @@
 local T = import("test/environment.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 
--- ============================================================================
--- math2d.GetPolygonArea Tests
--- ============================================================================
 T.Test("math2d.GetPolygonArea square", function()
 	local square = {0, 0, 10, 0, 10, 10, 0, 10}
 	local area = math2d.GetPolygonArea(square)
@@ -30,15 +27,10 @@ T.Test("math2d.GetPolygonArea empty/small", function()
 	T(math2d.GetPolygonArea{0, 0, 10, 10})["=="](0)
 end)
 
--- ============================================================================
--- math2d.TriangulateCoordinates Tests
--- ============================================================================
 T.Test("math2d.TriangulateCoordinates square", function()
 	local square = {0, 0, 10, 0, 10, 10, 0, 10}
 	local tris = math2d.TriangulateCoordinates(square)
-	-- Square should yield 2 triangles = 12 coordinates
 	T(#tris)["=="](12)
-	-- Verify total area of triangles matches polygon area
 	local total_area = 0
 
 	for i = 1, #tris, 6 do
@@ -50,15 +42,9 @@ T.Test("math2d.TriangulateCoordinates square", function()
 end)
 
 T.Test("math2d.TriangulateCoordinates concave (L-shape)", function()
-	-- L-shape polygon
-	-- (0,10)---(10,10)
-	--   |         |
-	-- (0,0)---(5,0)---(5,5)---(10,5) -- wait that's not right
 	local l_shape = {0, 0, 10, 0, 10, 5, 5, 5, 5, 10, 0, 10}
-	-- Area should be (10*5) + (5*5) = 75
 	T(math.abs(math2d.GetPolygonArea(l_shape)))["=="](75)
 	local tris = math2d.TriangulateCoordinates(l_shape)
-	-- 6 vertices -> 4 triangles -> 24 coordinates
 	T(#tris)["=="](24)
 	local total_area = 0
 
@@ -71,10 +57,8 @@ T.Test("math2d.TriangulateCoordinates concave (L-shape)", function()
 end)
 
 T.Test("math2d.TriangulateCoordinates self-closing / redundant points", function()
-	-- Points with a redundant last point (same as first) and a duplicate middle point
 	local points = {0, 0, 10, 0, 10, 0, 10, 10, 0, 10, 0, 0}
 	local tris = math2d.TriangulateCoordinates(points)
-	-- Should still yield 2 triangles for the square
 	T(#tris)["=="](12)
 end)
 

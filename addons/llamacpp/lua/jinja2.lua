@@ -12,7 +12,6 @@ function jinja2.tokenize(str)
 	local len = #str
 
 	while pos <= len do
-		-- find earliest opening delimiter
 		local best_pos, best_info
 
 		for _, info in ipairs(openers) do
@@ -30,44 +29,36 @@ function jinja2.tokenize(str)
 			break
 		end
 
-		-- text before delimiter
 		if best_pos > pos then
 			tokens[#tokens + 1] = {type = "text", value = str:sub(pos, best_pos - 1)}
 		end
 
-		-- check for trim marker after opening delimiter (e.g. {%- or {{-)
 		local trim_left = str:sub(best_pos + 2, best_pos + 2) == "-"
 		local content_start = best_pos + 2 + (trim_left and 1 or 0)
-		-- find closing delimiter
 		local close_pos = str:find(best_info.close, content_start, true)
 
 		if not close_pos then
-			-- unclosed delimiter, treat rest as text
 			tokens[#tokens + 1] = {type = "text", value = str:sub(best_pos)}
 
 			break
 		end
 
-		-- check for trim marker before closing delimiter (e.g. -%} or -}})
 		local trim_right = str:sub(close_pos - 1, close_pos - 1) == "-"
 		local content_end = close_pos - 1 - (trim_right and 1 or 0)
 		local content = str:sub(content_start, content_end)
 
-		-- trim_left: strip trailing whitespace from previous text token
 		if trim_left and #tokens > 0 and tokens[#tokens].type == "text" then
 			tokens[#tokens].value = tokens[#tokens].value:gsub("%s+$", "")
 
 			if tokens[#tokens].value == "" then table.remove(tokens) end
 		end
 
-		-- add token (skip comments)
 		if best_info.type ~= "comment" then
 			tokens[#tokens + 1] = {type = best_info.type, value = content}
 		end
 
 		pos = close_pos + #best_info.close
 
-		-- trim_right: skip leading whitespace after closing delimiter
 		if trim_right then
 			local _, ws_end = str:find("^%s+", pos)
 
@@ -78,9 +69,6 @@ function jinja2.tokenize(str)
 	return tokens
 end
 
-----------------------------------------------------------------
--- Expression lexer
-----------------------------------------------------------------
 local KEYWORDS = {
 	["and"] = true,
 	["or"] = true,
@@ -103,7 +91,6 @@ local function lex_expression(str)
 	local len = #str
 
 	while pos <= len do
-		-- skip whitespace
 		local _, ws_end = str:find("^%s+", pos)
 
 		if ws_end then
@@ -114,7 +101,6 @@ local function lex_expression(str)
 
 		local c = str:sub(pos, pos)
 
-		-- string literal
 		if c == "'" or c == "\"" then
 			local quote = c
 			local start = pos
@@ -156,12 +142,10 @@ local function lex_expression(str)
 
 			tokens[#tokens + 1] = {type = "string", value = table.concat(parts)}
 		elseif c:match("[%d]") then
-			-- number
 			local s, e = str:find("^[%d%.]+", pos)
 			tokens[#tokens + 1] = {type = "number", value = str:sub(s, e)}
 			pos = e + 1
 		elseif c:match("[%a_]") then
-			-- identifier or keyword
 			local s, e = str:find("^[%a_][%w_]*", pos)
 			local word = str:sub(s, e)
 
@@ -179,7 +163,6 @@ local function lex_expression(str)
 			tokens[#tokens + 1] = {type = "rparen"}
 			pos = pos + 1
 		elseif c == "[" then
-			-- check for [::-1]
 			if str:sub(pos, pos + 3) == "[::-" then
 				local e2 = str:find("]", pos + 4, true)
 
@@ -258,10 +241,6 @@ end
 
 jinja2.lex_expression = lex_expression
 
-----------------------------------------------------------------
--- Expression transpiler (token stream -> Lua source)
-----------------------------------------------------------------
--- Escape a string for embedding in Lua source as a double-quoted literal
 local function lua_quote(s)
 	s = s:gsub("\\", "\\\\")
 	s = s:gsub("\"", "\\\"")
@@ -291,32 +270,24 @@ local function transpile_expression(expr_str)
 		out[#out + 1] = s
 	end
 
-	-- forward declarations
 	local parse_expr, parse_ternary, parse_or, parse_and, parse_not, parse_comparison, parse_addition, parse_concat, parse_unary, parse_postfix, parse_primary
 
-	-- expr = ternary
 	function parse_expr()
 		return parse_ternary()
 	end
 
-	-- ternary: or_expr [ 'if' or_expr 'else' or_expr ]
-	-- This is parsed specially: A if COND else B
-	-- But we parse left-to-right: first parse A (which is or_expr),
-	-- then if we see 'if' keyword, parse condition and else branch
 	function parse_ternary()
 		local start = #out + 1
 		parse_or()
 
 		if peek() and peek().type == "keyword" and peek().value == "if" then
-			advance() -- consume 'if'
+			advance()
 			local value_part = table.concat(out, "", start)
 
-			-- remove the value part from output
 			for i = #out, start, -1 do
 				out[i] = nil
 			end
 
-			-- parse condition
 			local cond_start = #out + 1
 			parse_or()
 			local cond_part = table.concat(out, "", cond_start)
@@ -325,11 +296,10 @@ local function transpile_expression(expr_str)
 				out[i] = nil
 			end
 
-			-- expect 'else'
 			if peek() and peek().type == "keyword" and peek().value == "else" then
 				advance()
 				local else_start = #out + 1
-				parse_ternary() -- recursive for chaining
+				parse_ternary()
 				local else_part = table.concat(out, "", else_start)
 
 				for i = #out, else_start, -1 do
@@ -338,7 +308,6 @@ local function transpile_expression(expr_str)
 
 				emit("__ternary(" .. cond_part .. ", " .. value_part .. ", " .. else_part .. ")")
 			else
-				-- no else branch, use nil
 				emit("__ternary(" .. cond_part .. ", " .. value_part .. ", nil)")
 			end
 		end
@@ -368,7 +337,6 @@ local function transpile_expression(expr_str)
 		if peek() and peek().type == "keyword" and peek().value == "not" then
 			advance()
 
-			-- check for not(...)
 			if peek() and peek().type == "lparen" then
 				emit("not ")
 				parse_not()
@@ -381,7 +349,6 @@ local function transpile_expression(expr_str)
 		end
 	end
 
-	-- is-test names to Lua runtime calls
 	local is_tests = {
 		string = "(__type(%s) == 'string')",
 		iterable = "(__is_iterable(%s))",
@@ -424,7 +391,6 @@ local function transpile_expression(expr_str)
 				end
 
 				parse_addition()
-				-- after a binary comparison, consolidate everything as new left operand
 				local consolidated = table.concat(out, "", start)
 
 				for i = #out, start, -1 do
@@ -434,7 +400,6 @@ local function transpile_expression(expr_str)
 				emit(consolidated)
 			elseif t.type == "keyword" and t.value == "is" then
 				advance()
-				-- check for 'is not'
 				local negated = false
 
 				if peek() and peek().type == "keyword" and peek().value == "not" then
@@ -442,7 +407,6 @@ local function transpile_expression(expr_str)
 					negated = true
 				end
 
-				-- get the test name
 				local test_tok = advance()
 				local test_name
 
@@ -452,7 +416,6 @@ local function transpile_expression(expr_str)
 					error("jinja2: expected test name after 'is', got " .. test_tok.type)
 				end
 
-				-- extract the full subject from output
 				local subject = table.concat(out, "", start)
 
 				for i = #out, start, -1 do
@@ -472,7 +435,6 @@ local function transpile_expression(expr_str)
 				end
 			elseif t.type == "keyword" and t.value == "in" then
 				advance()
-				-- 'x in y' -> __contains(y, x)
 				local subject = table.concat(out, "", start)
 
 				for i = #out, start, -1 do
@@ -489,10 +451,9 @@ local function transpile_expression(expr_str)
 
 				emit("__contains(" .. container .. ", " .. subject .. ")")
 			elseif t.type == "keyword" and t.value == "not" then
-				-- 'not in' check
 				if toks[pos + 1] and toks[pos + 1].type == "keyword" and toks[pos + 1].value == "in" then
-					advance() -- not
-					advance() -- in
+					advance()
+					advance()
 					local subject = table.concat(out, "", start)
 
 					for i = #out, start, -1 do
@@ -515,7 +476,6 @@ local function transpile_expression(expr_str)
 				break
 			end
 
-			-- update start for chaining
 			start = #out
 		end
 	end
@@ -589,7 +549,6 @@ local function transpile_expression(expr_str)
 
 			if not t then break end
 
-			-- Consolidate all fragments since start into one entry
 			if #out > start then
 				local consolidated = table.concat(out, "", start)
 
@@ -606,15 +565,12 @@ local function transpile_expression(expr_str)
 
 				if not name then error("jinja2: expected identifier after '.'") end
 
-				-- check if it's a method call: .name(args)
 				if peek() and peek().type == "lparen" then
-					-- method call - parse args inline using recursive parser
 					local method_name = name.value
-					advance() -- consume '('
+					advance()
 					local arg_strs = {}
 
 					if peek() and peek().type ~= "rparen" then
-						-- parse first arg
 						local arg_start = #out + 1
 						parse_expr()
 						arg_strs[#arg_strs + 1] = table.concat(out, "", arg_start)
@@ -624,7 +580,7 @@ local function transpile_expression(expr_str)
 						end
 
 						while peek() and peek().type == "comma" do
-							advance() -- consume ','
+							advance()
 							arg_start = #out + 1
 							parse_expr()
 							arg_strs[#arg_strs + 1] = table.concat(out, "", arg_start)
@@ -637,11 +593,9 @@ local function transpile_expression(expr_str)
 
 					if peek() and peek().type == "rparen" then advance() end
 
-					-- Get the object we're calling method on - it's the last emitted thing
 					local obj = table.remove(out)
 					local lua_args = table.concat(arg_strs, ", ")
 
-					-- Map jinja2 methods to runtime helpers
 					if method_name == "startswith" then
 						emit("__startswith(" .. obj .. ", " .. lua_args .. ")")
 					elseif method_name == "endswith" then
@@ -671,12 +625,9 @@ local function transpile_expression(expr_str)
 					elseif method_name == "append" then
 						emit("__append(" .. obj .. ", " .. lua_args .. ")")
 					else
-						-- generic method call - assume it's a function in context or a table method
 						emit(obj .. "." .. method_name .. "(" .. lua_args .. ")")
 					end
 				else
-					-- field access
-					-- Use bracket syntax for reserved words in Lua
 					if
 						name.value == "function" or
 						name.value == "end" or
@@ -694,9 +645,7 @@ local function transpile_expression(expr_str)
 				end
 			elseif t.type == "lbracket" then
 				advance()
-				-- parse index expression
 				local idx_start = #out + 1
-				-- Check for negative number
 				local negate = false
 
 				if peek() and peek().type == "op" and peek().value == "-" then
@@ -705,7 +654,6 @@ local function transpile_expression(expr_str)
 				end
 
 				parse_expr()
-				-- Check: if the index is a plain number literal, adjust 0-based to 1-based
 				local idx_str = table.concat(out, "", idx_start)
 
 				for i = #out, idx_start, -1 do
@@ -713,11 +661,9 @@ local function transpile_expression(expr_str)
 				end
 
 				if negate then
-					-- negative index like [-1]
 					local num = tonumber(idx_str)
 
 					if num then
-						-- python [-1] = last element. Use __neg_index
 						local obj = table.remove(out)
 						emit("__neg_index(" .. obj .. ", " .. tostring(num) .. ")")
 					else
@@ -727,33 +673,28 @@ local function transpile_expression(expr_str)
 					local num = tonumber(idx_str)
 
 					if num and num == math.floor(num) then
-						-- 0-based integer index -> 1-based
 						emit("[" .. tostring(num + 1) .. "]")
 					else
 						emit("[" .. idx_str .. "]")
 					end
 				end
 
-				-- consume ']'
 				if peek() and peek().type == "rbracket" then advance() end
 			elseif t.type == "slice" then
 				advance()
-				-- [::-1] -> reverse
 				local obj = table.remove(out)
 				emit("__reversed(" .. obj .. ")")
 			elseif t.type == "pipe" then
 				advance()
-				-- filter: expr | filtername or expr | filtername(args)
 				local filter_tok = advance()
 
 				if not filter_tok then error("jinja2: expected filter name after '|'") end
 
 				local filter_name = filter_tok.value
-				-- check for filter args
 				local filter_args = ""
 
 				if peek() and peek().type == "lparen" then
-					advance() -- consume '('
+					advance()
 					local fa_start = #out + 1
 					local depth = 1
 
@@ -770,7 +711,6 @@ local function transpile_expression(expr_str)
 							end
 						end
 
-						-- parse the arg expressions
 						local a = advance()
 
 						if a.type == "string" then
@@ -800,7 +740,7 @@ local function transpile_expression(expr_str)
 				elseif filter_name == "tojson" then
 					emit("__tojson(" .. obj .. ")")
 				elseif filter_name == "safe" then
-					emit(obj) -- no-op
+					emit(obj)
 				elseif filter_name == "string" then
 					emit("__tostring(" .. obj .. ")")
 				elseif filter_name == "length" then
@@ -846,7 +786,6 @@ local function transpile_expression(expr_str)
 				elseif filter_name == "items" then
 					emit("__items(" .. obj .. ")")
 				else
-					-- unknown filter - call as function
 					if filter_args ~= "" then
 						emit(filter_name .. "(" .. obj .. ", " .. filter_args .. ")")
 					else
@@ -858,7 +797,6 @@ local function transpile_expression(expr_str)
 			end
 		end
 
-		-- Final consolidation
 		if #out > start then
 			local consolidated = table.concat(out, "", start)
 
@@ -895,9 +833,8 @@ local function transpile_expression(expr_str)
 			local name = t.value
 
 			if name == "namespace" then
-				-- namespace(k=v) -> plain table
 				if peek() and peek().type == "lparen" then
-					advance() -- consume '('
+					advance()
 					local fields = {}
 					local depth = 1
 
@@ -918,8 +855,7 @@ local function transpile_expression(expr_str)
 							local field_name = advance().value
 
 							if peek() and peek().type == "assign" then
-								advance() -- consume '='
-								-- parse value expression
+								advance()
 								local val_start = #out + 1
 								parse_expr()
 								local val_str = table.concat(out, "", val_start)
@@ -937,7 +873,6 @@ local function transpile_expression(expr_str)
 						elseif depth == 1 and peek().type == "comma" then
 							advance()
 						else
-							-- expression argument
 							local val_start = #out + 1
 							parse_expr()
 							local val_str = table.concat(out, "", val_start)
@@ -978,7 +913,6 @@ local function transpile_expression(expr_str)
 							end
 						end
 
-						-- parse as sub-expression
 						parse_expr()
 
 						if peek() and peek().type == "comma" and depth == 1 then
@@ -1018,7 +952,6 @@ local function transpile_expression(expr_str)
 					end
 				end
 			else
-				-- regular identifier - could be function call
 				emit(name)
 
 				if peek() and peek().type == "lparen" then
@@ -1057,7 +990,6 @@ local function transpile_expression(expr_str)
 
 			if peek() and peek().type == "rparen" then advance() end
 		else
-			-- unexpected token, just emit it
 			advance()
 
 			if t.value then emit(t.value) end
@@ -1066,7 +998,6 @@ local function transpile_expression(expr_str)
 
 	parse_expr()
 
-	-- consume any remaining tokens (shouldn't normally happen)
 	while pos <= #toks do
 		local t = advance()
 
@@ -1082,18 +1013,13 @@ end
 
 jinja2.transpile_expression = transpile_expression
 
-----------------------------------------------------------------
--- Statement transpiler
-----------------------------------------------------------------
 local function parse_set_statement(content)
-	-- "set x = expr" or "set x.y = expr"
 	local var_part, expr_part = content:match("^set%s+(.-)%s*=%s*(.+)$")
 
 	if not var_part then return nil end
 
 	local lua_expr = transpile_expression(expr_part)
 
-	-- check if it's a dotted assignment (e.g., ns.field = ...)
 	if var_part:find("%.") then
 		return var_part .. " = " .. lua_expr
 	else
@@ -1102,14 +1028,11 @@ local function parse_set_statement(content)
 end
 
 local function parse_for_statement(content)
-	-- "for x in expr" or "for k, v in expr"
-	-- Also handle "for x in expr|filter"
 	local vars, expr = content:match("^for%s+(.-)%s+in%s+(.+)$")
 
 	if not vars then return nil end
 
 	local lua_expr = transpile_expression(expr)
-	-- Check if multiple vars (e.g., "k, v")
 	local var_list = {}
 
 	for v in vars:gmatch("[%w_]+") do
@@ -1124,7 +1047,6 @@ local function parse_for_statement(content)
 end
 
 local function parse_macro_statement(content)
-	-- "macro name(arg1, arg2, arg3=default)"
 	local name, args_str = content:match("^macro%s+([%w_]+)%s*%((.*)%)$")
 
 	if not name then
@@ -1137,9 +1059,8 @@ local function parse_macro_statement(content)
 
 	local args = {}
 
-	-- Parse args, handling defaults
 	for arg in args_str:gmatch("[^,]+") do
-		arg = arg:match("^%s*(.-)%s*$") -- trim
+		arg = arg:match("^%s*(.-)%s*$")
 		local arg_name, default = arg:match("^([%w_]+)%s*=%s*(.+)$")
 
 		if arg_name then
@@ -1153,8 +1074,8 @@ local function parse_macro_statement(content)
 end
 
 local function transpile_statement(content, lines)
-	content = content:match("^%s*(.-)%s*$") -- trim
-	-- set statement
+	content = content:match("^%s*(.-)%s*$")
+
 	if content:match("^set%s+") then
 		local lua = parse_set_statement(content)
 
@@ -1164,38 +1085,32 @@ local function transpile_statement(content, lines)
 		end
 	end
 
-	-- if
 	if content:match("^if%s+") then
 		local cond = content:match("^if%s+(.+)$")
 		lines[#lines + 1] = "if " .. transpile_expression(cond) .. " then"
 		return
 	end
 
-	-- elif
 	if content:match("^elif%s+") then
 		local cond = content:match("^elif%s+(.+)$")
 		lines[#lines + 1] = "elseif " .. transpile_expression(cond) .. " then"
 		return
 	end
 
-	-- else
 	if content == "else" then
 		lines[#lines + 1] = "else"
 		return
 	end
 
-	-- endif
 	if content == "endif" then
 		lines[#lines + 1] = "end"
 		return
 	end
 
-	-- for
 	if content:match("^for%s+") then
 		local vars, lua_expr = parse_for_statement(content)
 
 		if vars then
-			-- Use a unique list var
 			local list_var = "__list_" .. #lines
 			lines[#lines + 1] = "do local " .. list_var .. " = __iter_list(" .. lua_expr .. ")"
 			lines[#lines + 1] = "for __i, " .. vars .. " in __ipairs(" .. list_var .. ") do"
@@ -1204,13 +1119,11 @@ local function transpile_statement(content, lines)
 		end
 	end
 
-	-- endfor
 	if content == "endfor" then
-		lines[#lines + 1] = "end end" -- close for + do
+		lines[#lines + 1] = "end end"
 		return
 	end
 
-	-- macro
 	if content:match("^macro%s+") then
 		local name, args = parse_macro_statement(content)
 
@@ -1223,14 +1136,12 @@ local function transpile_statement(content, lines)
 
 			lines[#lines + 1] = "local function " .. name .. "(" .. table.concat(arg_names, ", ") .. ")"
 
-			-- Apply defaults
 			for _, a in ipairs(args) do
 				if a.default then
 					lines[#lines + 1] = "if " .. a.name .. " == nil then " .. a.name .. " = " .. a.default .. " end"
 				end
 			end
 
-			-- Macro output buffer
 			lines[#lines + 1] = "local __macro_out = {}"
 			lines[#lines + 1] = "local __parent_emit = __emit"
 			lines[#lines + 1] = "__emit = function(s) __macro_out[#__macro_out + 1] = __tostring(s) end"
@@ -1238,7 +1149,6 @@ local function transpile_statement(content, lines)
 		end
 	end
 
-	-- endmacro
 	if content == "endmacro" then
 		lines[#lines + 1] = "__emit = __parent_emit"
 		lines[#lines + 1] = "return __table_concat(__macro_out)"
@@ -1246,25 +1156,16 @@ local function transpile_statement(content, lines)
 		return
 	end
 
-	-- raw / endraw
-	if content == "raw" then
-		-- raw blocks handled at template level, not here
-		return
-	end
+	if content == "raw" then return end
 
 	if content == "endraw" then return end
 
-	-- fallback: try to execute as expression
 	lines[#lines + 1] = "-- UNKNOWN STATEMENT: " .. content
 end
 
-----------------------------------------------------------------
--- Compiler: tokens -> Lua source
-----------------------------------------------------------------
 function jinja2.compile(template_str)
 	local tokens = jinja2.tokenize(template_str)
 	local lines = {}
-	-- preamble
 	lines[#lines + 1] = "local __out = {}"
 	lines[#lines + 1] = "local function __emit(s) if s ~= nil then __out[#__out + 1] = __tostring(s) end end"
 
@@ -1285,9 +1186,6 @@ function jinja2.compile(template_str)
 	return table.concat(lines, "\n")
 end
 
-----------------------------------------------------------------
--- Runtime helpers
-----------------------------------------------------------------
 local runtime = {}
 
 function runtime.__tostring(v)
@@ -1309,8 +1207,6 @@ end
 function runtime.__is_mapping(v)
 	if type(v) ~= "table" then return false end
 
-	-- A mapping has non-consecutive-integer keys
-	-- Check: if it has a key that's not in 1..#v, it's a mapping
 	local n = #v
 
 	for k in pairs(v) do
@@ -1319,7 +1215,6 @@ function runtime.__is_mapping(v)
 		end
 	end
 
-	-- empty table: treat as mapping if metatable marks it, otherwise false
 	if n == 0 and next(v) == nil then return false end
 
 	return false
@@ -1335,10 +1230,8 @@ function runtime.__contains(container, item)
 	if type(container) == "string" then
 		return container:find(item, 1, true) ~= nil
 	elseif type(container) == "table" then
-		-- check as key first
 		if container[item] ~= nil then return true end
 
-		-- check as value in array
 		for _, v in ipairs(container) do
 			if v == item then return true end
 		end
@@ -1380,7 +1273,6 @@ function runtime.__reversed(list)
 end
 
 function runtime.__neg_index(list, idx)
-	-- python-style: list[-1] = last element
 	return list[#list - idx + 1]
 end
 
@@ -1533,7 +1425,6 @@ function runtime.__ternary(cond, val_true, val_false)
 	if cond then return val_true else return val_false end
 end
 
--- __add: + operator that works as concat for strings, addition for numbers
 function runtime.__add(a, b)
 	if type(a) == "string" or type(b) == "string" then
 		return tostring(a) .. tostring(b)
@@ -1542,7 +1433,6 @@ function runtime.__add(a, b)
 	return (tonumber(a) or 0) + (tonumber(b) or 0)
 end
 
--- __concat: ~ operator - always string concat with tostring
 function runtime.__concat(a, b)
 	return runtime.__tostring(a) .. runtime.__tostring(b)
 end
@@ -1550,10 +1440,8 @@ end
 function runtime.__iter_list(t)
 	if type(t) ~= "table" then return {} end
 
-	-- Check if it's array-like
 	if #t > 0 or next(t) == nil then return t end
 
-	-- Mapping: return keys as array
 	local keys = {}
 
 	for k in pairs(t) do
@@ -1567,25 +1455,18 @@ runtime.__ipairs = ipairs
 runtime.__table_concat = table.concat
 jinja2.runtime = runtime
 
-----------------------------------------------------------------
--- Render: compile + execute
-----------------------------------------------------------------
 function jinja2.render(template_str, context)
 	local lua_source = jinja2.compile(template_str)
-	-- Build execution environment
 	local env = {}
 
-	-- Copy runtime helpers
 	for k, v in pairs(runtime) do
 		env[k] = v
 	end
 
-	-- Copy context variables
 	if context then for k, v in pairs(context) do
 		env[k] = v
 	end end
 
-	-- Provide standard Lua functions
 	env.tostring = tostring
 	env.tonumber = tonumber
 	env.type = type

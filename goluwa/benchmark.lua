@@ -2,10 +2,7 @@ local system = import("goluwa/system.lua")
 local benchmark_results = import("goluwa/benchmark_results.lua")
 local get_time = system.GetTime
 local benchmark = {}
--- {key, value, noise, unit} of everything measured so far, saved by Finish
 benchmark.recorded = {}
--- timing a single call would mostly time the clock, so calls are timed in
--- batches that take at least this long
 local BATCH_SECONDS = 0.002
 local MAX_BATCH = 2 ^ 26
 local MIN_SAMPLES = 20
@@ -21,8 +18,6 @@ local function time_batch(func, count)
 	return get_time() - start
 end
 
--- how many calls make a batch of BATCH_SECONDS. the doubling doubles as warm up
--- for the jit
 local function calibrate(func, warmup)
 	local count = 1
 
@@ -94,8 +89,6 @@ local function print_stats(name, stats, batch)
 	)
 end
 
--- options: time (seconds of sampling, 1), warmup (seconds, 0.2), max_time (give up
--- sampling after this, 10). returns seconds per call: min, median, p95, mean, stddev
 function benchmark.Run(name, func, options)
 	options = options or {}
 	local time = options.time or 1
@@ -122,9 +115,6 @@ function benchmark.Run(name, func, options)
 	return stats
 end
 
--- variants is a list of {name, func}. they take turns in one process, one batch
--- each per round, so whatever else the machine does hits all of them the same.
--- the rounds are paired, which gives how much slower each is than the first
 function benchmark.Compare(name, variants, options)
 	options = options or {}
 	local time = options.time or 1
@@ -145,7 +135,9 @@ function benchmark.Compare(name, variants, options)
 	while rounds < MAX_SAMPLES do
 		local elapsed = get_time() - start
 
-		if elapsed >= max_time or (rounds >= MIN_SAMPLES and elapsed >= time) then break end
+		if elapsed >= max_time or (rounds >= MIN_SAMPLES and elapsed >= time) then
+			break
+		end
 
 		rounds = rounds + 1
 
@@ -160,7 +152,12 @@ function benchmark.Compare(name, variants, options)
 	for i, variant in ipairs(variants) do
 		results[i] = summarize(samples[i])
 		print_stats("  " .. variant.name, results[i], batches[i])
-		record(name .. "/" .. variant.name .. "/median", results[i].median * 1e9, results[i].stddev * 1e9, "ns")
+		record(
+			name .. "/" .. variant.name .. "/median",
+			results[i].median * 1e9,
+			results[i].stddev * 1e9,
+			"ns"
+		)
 	end
 
 	for i = 2, #variants do
@@ -197,8 +194,6 @@ function benchmark.Compare(name, variants, options)
 	return results
 end
 
--- compares everything measured with the saved baseline and saves it, see
--- benchmark_results, then ends the process
 function benchmark.Finish(name)
 	local results = benchmark_results.New(name)
 

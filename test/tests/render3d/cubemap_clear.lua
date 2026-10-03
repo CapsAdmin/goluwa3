@@ -23,7 +23,6 @@ T.Test3D("cubemap clear and validate", function()
 	}
 	local device = render.GetDevice()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
-	-- Transition to transfer_dst_optimal
 	cmd:Begin()
 	cmd:PipelineBarrier{
 		srcStage = "top_of_pipe",
@@ -40,12 +39,12 @@ T.Test3D("cubemap clear and validate", function()
 		},
 	}
 	local face_colors = {
-		Color(1, 0, 0), -- +X: Red
-		Color(0, 1, 0), -- -X: Green
-		Color(0, 0, 1), -- +Y: Blue
-		Color(1, 1, 0), -- -Y: Yellow
-		Color(1, 0, 1), -- +Z: Magenta
-		Color(0, 1, 1), -- -Z: Cyan
+		Color(1, 0, 0),
+		Color(0, 1, 0),
+		Color(0, 0, 1),
+		Color(1, 1, 0),
+		Color(1, 0, 1),
+		Color(0, 1, 1),
 	}
 
 	for i, color in ipairs(face_colors) do
@@ -57,7 +56,6 @@ T.Test3D("cubemap clear and validate", function()
 		}
 	end
 
-	-- Transition to transfer_src_optimal for downloading
 	cmd:PipelineBarrier{
 		srcStage = "transfer",
 		dstStage = "transfer",
@@ -75,7 +73,6 @@ T.Test3D("cubemap clear and validate", function()
 	cmd:End()
 	render.SubmitAndWait(cmd)
 
-	-- Validate each face
 	for i, color in ipairs(face_colors) do
 		local staging_buffer = Buffer.New{
 			device = device,

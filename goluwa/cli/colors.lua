@@ -16,7 +16,6 @@ local colors = {
 	underline = "4",
 	blink = "5",
 	reverse = "7",
-	-- Foreground colors
 	black = "30",
 	red = "31",
 	green = "32",
@@ -25,7 +24,6 @@ local colors = {
 	magenta = "35",
 	cyan = "36",
 	white = "37",
-	-- Background colors
 	bg_black = "40",
 	bg_red = "41",
 	bg_green = "42",

@@ -20,17 +20,14 @@ do
 			counter = counter + 1
 			fake[str] = counter
 			return counter
-		--return network.AddString(str)
 		end
 	end
 
 	function gine.env.util.NetworkStringToID(str)
-		--return network.StringToID(str)
 		return fake[str] or tonumber(crypto.CRC32(str))
 	end
 
 	function gine.env.util.NetworkIDToString(id)
-		--return network.IDToString(id) or ""
 		for k, v in pairs(fake) do
 			if v == id then return k end
 		end
@@ -59,20 +56,6 @@ do
 	end
 
 	if packet then
-		----------------------------------------------------------
-		--[[
-	function gine.env.util.AddNetworkString(str)
-		return network.AddString(str)
-	end
-
-	function gine.env.util.NetworkStringToID(str)
-		return network.StringToID(str)
-	end
-
-	function gine.env.util.NetworkIDToString(id)
-		return network.IDToString(id) or ""
-	end
-]]
 		local BUFFER
 
 		if SERVER then
@@ -90,7 +73,7 @@ do
 		end
 
 		function gine.env.net.Start(name, unreliable)
-			local id = gine.env.util.NetworkStringToID(name) --network.StringToID(name)
+			local id = gine.env.util.NetworkStringToID(name)
 			BUFFER = packet.CreateBuffer()
 
 			if id then
@@ -263,7 +246,6 @@ do
 			Entity = {"Entity", NULL},
 		}
 
-		-- Set/GetNW/NW2/NetworkedVar*
 		for name, info in pairs(types) do
 			META["SetNW" .. name] = function(self, key, val)
 				self.__vars.nwvars = self.__vars.nwvars or {}
@@ -308,7 +290,6 @@ do
 			META["SetNetworked" .. name] = META["SetNW" .. name]
 		end
 
-		-- Set/Get/DT*
 		for name, info in pairs(types) do
 			META["SetDT" .. name] = function(self, i, val)
 				self.__vars.dtvars = self.__vars.dtvars or {}
@@ -351,7 +332,6 @@ do
 	end
 end
 
--- setupdt
 function gine.env.GetHostName()
 	return get_hostname()
 end

@@ -54,7 +54,6 @@ function clients.Create(uniqueid, is_bot, clientside, filter, local_client, exis
 	self:SetUniqueID(uniqueid)
 	clients.active_clients_uid[self.UniqueID] = self
 	list.insert(clients.active_clients, self)
-	-- add a networked table to the client
 	self.nv = nvars.CreateObject(uniqueid)
 
 	if is_bot then self:SetBot(is_bot) end
@@ -116,7 +115,7 @@ if CLIENT then
 	end)
 end
 
-do -- filter
+do
 	local META = objects.CreateTemplate("client_filter")
 
 	function META:AddAll()

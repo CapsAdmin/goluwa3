@@ -62,7 +62,6 @@ T.Test("setmetatable_gc does not trigger for live objects", function()
 	end
 
 	T(not gc_called)["=="](true)
-	-- Now let it go
 	t = nil
 
 	while not gc_called do
@@ -128,9 +127,7 @@ T.Test("setmetatable_gc error", function()
 	_G.print = old
 	T(str)["contains"]("Intentional GC error")
 
-	if _G.DEBUG then
-		T(str)["contains"]("create_object") -- creation traceback is only printed in debug mode
-	end
+	if _G.DEBUG then T(str)["contains"]("create_object") end
 
 	T(called)["=="](true)
 	T(never_reached)["=="](false)

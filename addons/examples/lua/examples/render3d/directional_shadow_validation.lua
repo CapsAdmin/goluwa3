@@ -131,8 +131,6 @@ local function spawn_point_light(parent, name, position, color, intensity, range
 	component:SetColor(color)
 	component:SetLumen(intensity)
 	component:SetRange(range)
-	-- keep the low-res light occlusion mask out of this validation so the
-	-- shadow map path can be tested in isolation
 	component.OcclusionMap = false
 	ShadowMap.New{
 		mode = "point",
@@ -229,7 +227,6 @@ if VALIDATION_MODE == "point" then
 	spawn_box(root, "point_wall_left", Vec3(-34, 6, 8), Vec3(2, 14, 70), wall_material)
 	frame_camera(Vec3(30, 22, 52), Vec3(0, 0, 16), 55)
 else
-	-- Directional light (flashlight) shining down at ~20 deg tilt toward -z
 	local light_position = Vec3(0, 22, 30)
 	local light_pitch = -70
 	local light_yaw = 0
@@ -249,9 +246,6 @@ else
 	end
 
 	spawn_directional_light(root, "directional_light", light_position, light_pitch, light_yaw, shadow_config)
-	-- occluders standing on the floor. They are placed at very different
-	-- distances from the light (the row is ~26 units away, the near pair is
-	-- ~11) so bias scaling with distance is visible in perspective mode
 	local row_z = 20
 	local row_x = {-15, -9, -3, 3, 9, 15}
 	local row_sizes = {1.6, 2.2, 2.8, 3.4, 4.0, 4.6}

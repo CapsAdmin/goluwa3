@@ -1,18 +1,3 @@
---[[
-	Water: the ocean and the water volumes (see goluwa/render3d/water.lua).
-
-	ocean_waves_*: the ocean's Gerstner waves baked around the camera into
-	three cascades of height, slope and fold, each holding the waves long
-	enough for its texel size.
-
-	ocean: per pixel, finds the nearest water surface along the view ray (the
-	ocean's height field or a volume's box) and shades it as a dielectric
-	interface over an absorbing, scattering medium, drawn over the lit opaque
-	scene.
-
-	ocean_resolve: temporal accumulation of the water, reprojected by the
-	distance to its surface.
-]]
 local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -29,7 +14,6 @@ local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local RAY_QUERY = scene_reflection.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9}
 local WAVE_TEX_SIZE = 512
--- world half size of each wave cascade, nearest first
 local WAVE_CASCADES = {
 	{name = "ocean_waves_near", world_half = 64},
 	{name = "ocean_waves_mid", world_half = 256},
@@ -41,7 +25,6 @@ local function get_cascade_texel_size(cascade)
 	return cascade.world_half * 2 / WAVE_TEX_SIZE
 end
 
--- snapped to whole texels so the waves don't swim as the camera moves
 local function write_cascade_origin(ptr, cascade)
 	local snap = get_cascade_texel_size(cascade)
 	local cam = render3d.GetCamera():GetPosition()
@@ -106,7 +89,6 @@ end
 local write_volumes
 
 do
-	-- past the limit, the volumes nearest the camera are drawn
 	local nearest = {}
 	local distances = setmetatable({}, {__mode = "k"})
 
@@ -125,7 +107,6 @@ do
 		for i, volume in ipairs(volumes) do
 			local pos = volume.Owner.transform:GetWorldPosition()
 			local size = volume:GetSize()
-			-- to the box's bounding circle, so a big lake counts from its shore
 			distances[volume] = math.max(
 				math.sqrt((pos.x - cam.x) ^ 2 + (pos.y - cam.y) ^ 2 + (pos.z - cam.z) ^ 2) - math.sqrt(size.x * size.x + size.z * size.z) / 2,
 				0
@@ -190,7 +171,6 @@ local function write_ocean(self, block)
 	block.ocean_scattering[1] = params.ParticleScattering.y
 	block.ocean_scattering[2] = params.ParticleScattering.z
 	block.ocean_scattering[3] = params.Foam
-	-- about the highest crest of the sea state, 3.5 standard deviations of height
 	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05
 	block.ocean_wave_info[1] = params.Caustics
 	block.ocean_wave_info[2] = waves.total_slope_variance
@@ -222,13 +202,10 @@ list.insert(
 		name = "ocean",
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			-- r: how far the water or what is seen through it is, for reprojection. g: where the air
-			-- the fog fills ends, 0 with the camera in the water, -1 where there is no water
 			{"r32g32_sfloat", {"ocean_distance", "rg"}},
 		},
 		framebuffer_count = 2,
 		dont_create_framebuffers = true,
-		-- the traced reflections' bindings change every frame, so each frame in flight has its own set
 		DescriptorSetCount = RAY_QUERY and render.GetSwapchainImageCount() or nil,
 		on_pre_draw = RAY_QUERY and
 			function(self, cmd)
@@ -262,22 +239,14 @@ list.insert(
 						{"ocean_scattering", "vec4"},
 						{"ocean_wave_info", "vec4"},
 						{"wave_tex", "int", #WAVE_CASCADES},
-						-- xy origin, z world half size, w slope variance it holds
 						{"wave_origin", "vec4", #WAVE_CASCADES},
-						-- wind direction, longest ripple, slope variance per octave
 						{"detail_info", "vec4"},
-						-- RippleStrength, RippleScale, RippleLifetime
 						{"ripple_info", "vec4"},
 						{"volume_to_local", "mat4", water.MAX_VOLUMES},
-						-- half width, depth, half length, surface height
 						{"volume_shape", "vec4", water.MAX_VOLUMES},
-						-- rgb, ior
 						{"volume_absorption", "vec4", water.MAX_VOLUMES},
-						-- rgb, roughness
 						{"volume_scattering", "vec4", water.MAX_VOLUMES},
-						-- wave height, wave length, wind angle, foam
 						{"volume_waves", "vec4", water.MAX_VOLUMES},
-						-- flow xz, caustics
 						{"volume_flow", "vec4", water.MAX_VOLUMES},
 						{"volume_count", "int"},
 						{"shadows", directional_shadows.BuildFogShadowBlockLayout()},

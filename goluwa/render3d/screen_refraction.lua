@@ -1,10 +1,5 @@
 local screen_refraction = library()
 
--- Where on screen the scene behind a refracting surface is seen. The ray that
--- leaves the surface is followed until it passes behind the opaque scene; the
--- scene color there is what the surface transmits. Anything in front of the
--- surface is not behind it, so the ray passes those by.
--- block_name holds render3d.camera_block and depth_tex, the opaque depth.
 function screen_refraction.GetGLSL(block_name)
 	return [[
 		// xy = uv, z = clip depth. uv is negative behind the camera

@@ -1,6 +1,3 @@
--- Physics engine feature showcase: a walled arena, one labeled zone per
--- feature. Keys: R kick pendulums, B kick bounce ball, K wake sleeper,
--- S re-fire CCD bullets, C topple capsule.
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -181,7 +178,6 @@ local glass_material = shapes.Material{Color = Color(0.7, 0.82, 0.88, 1), Roughn
 local gem_material = shapes.Material{Color = Color(0.65, 0.45, 0.95, 1), Roughness = 0.15, Metallic = 0.4}
 local phase_material = shapes.Material{Color = Color(0.9, 0.4, 0.85, 1), Roughness = 0.3, Metallic = 0}
 local wood_material = example_material("wood_oak")
--- Enclosed arena: floor, four walls and a ceiling so nothing leaves the world
 spawn_static_box(ORIGIN + Vec3(0, -0.75, 0), Vec3(48, 1.5, 32), floor_material)
 spawn_static_box(ORIGIN + Vec3(-22, 5.75, 0), Vec3(2, 13, 28), wall_material)
 spawn_static_box(ORIGIN + Vec3(22, 5.75, 0), Vec3(2, 13, 28), wall_material)
@@ -192,7 +188,7 @@ local bounce_body
 local bounce_collision_count = 0
 local bounce_last_kick = 0
 
-do -- restitution + OnCollisionEnter re-kick
+do
 	local bounce_ent, body = spawn_dynamic_sphere(
 		GROUND + Vec3(-15, 7.5, -7),
 		0.6,
@@ -227,7 +223,7 @@ local ice_body
 local rubber_spawn_pos = GROUND + Vec3(-15.45, 3.1, 4.5)
 local ice_spawn_pos = GROUND + Vec3(-14.5, 3.1, 4.5)
 
-do -- friction: same ramp, rubber friction 1.2 crawls down, ice friction 0.03 races off
+do
 	spawn_static_box(
 		GROUND + Vec3(-15, 1.9, 7.5),
 		Vec3(3, 0.3, 8),
@@ -266,7 +262,7 @@ local spring_constraint
 local rope_ball
 local spring_ball
 
-do -- distance constraints: unilateral rope vs compliant spring
+do
 	local rope_anchor = GROUND + Vec3(-10, 11.2, -7)
 	local spring_anchor = GROUND + Vec3(-6, 11.2, -7)
 	spawn_anchor(rope_anchor, 0.22, steel_material)
@@ -312,7 +308,7 @@ local sleep_body_a
 local sleep_body_b
 local sleep_body_c
 
-do -- sleep: bodies freeze when at rest; CanSleep=false keeps one alive
+do
 	_, sleep_body_a = spawn_dynamic_box(
 		GROUND + Vec3(-1.5, 2.6, -7),
 		Vec3(0.9, 0.9, 0.9),
@@ -357,7 +353,7 @@ end
 
 local pusher
 
-do -- kinematic body: scripted motion that shoves dynamic bodies
+do
 	pusher = spawn_static_box(
 		GROUND + Vec3(3, 1.0, 0),
 		Vec3(2, 2, 2),
@@ -410,7 +406,7 @@ local function add_facet(poly, a, b, c)
 	return poly
 end
 
-do -- static mesh: triangle BVH contacts
+do
 	local wedge_pos = GROUND + Vec3(15, 1.1, -7)
 	shapes.Polygon{
 		Name = "physics_playground_wedge",
@@ -466,7 +462,7 @@ local gem_faces = {
 	{1, 4, 6},
 }
 
-do -- convex hull: GJK/EPA solver on a custom hull
+do
 	local gem_pos = GROUND + Vec3(15, 4.5, 7)
 	local _, gem_body = shapes.Polygon{
 		Name = "physics_playground_gem",
@@ -498,7 +494,7 @@ local rocket
 local rocket_body
 local spinner_body
 
-do -- per-frame forces: ApplyForce hover + ApplyTorque spin
+do
 	rocket, rocket_body = spawn_dynamic_box(
 		GROUND + Vec3(0, 3.5, 6),
 		Vec3(1.1, 1.1, 1.1),
@@ -540,7 +536,7 @@ local bullet_b_body
 local bullet_a_spawn = GROUND + Vec3(12, 4.75, 1.2)
 local bullet_b_spawn = GROUND + Vec3(12, 2.45, -1.2)
 
-do -- CCD: explicit CCD stops at the thin plate, auto CCD off tunnels through
+do
 	spawn_static_box(GROUND + Vec3(17.5, 4.75, 0), Vec3(0.25, 8, 8), wall_material)
 	_, bullet_a_body = spawn_dynamic_sphere(
 		bullet_a_spawn,
@@ -581,7 +577,7 @@ end
 local phase_body
 local phase_spawn = GROUND + Vec3(-3, 5, 10)
 
-do -- collision groups and masks: the ball ignores group 2, falls through the row
+do
 	for i = 1, 3 do
 		spawn_dynamic_box(
 			GROUND + Vec3(-4 + (i - 1), 0.35, 10),
@@ -621,7 +617,7 @@ local capsule_stand_spawn = GROUND + Vec3(6, 1.2, 9.2)
 local capsule_log_spawn = GROUND + Vec3(3.4, 2.75, 7.3)
 local capsule_drop_spawn = GROUND + Vec3(8.5, 4.5, 9.2)
 
-do -- capsules: a standing one topples (C), a log rolls down a ramp, a stubby one bounces
+do
 	spawn_static_box(
 		GROUND + Vec3(3.4, 1.5, 9.4),
 		Vec3(2.2, 0.3, 6.5),
@@ -676,7 +672,7 @@ end
 
 local hover_body
 
-do -- gravity scale: zero gravity + damping drifts inside a cage
+do
 	local cage_c = GROUND + Vec3(-2, 0, -2)
 	local cage_wall = Vec3(0.15, 4, 4.3)
 	spawn_static_box(cage_c + Vec3(-2, 2, 0), cage_wall, glass_material)
@@ -702,7 +698,7 @@ do -- gravity scale: zero gravity + damping drifts inside a cage
 	hover_body:SetVelocity(Vec3(2.2, 1.1, -2.4))
 end
 
-do -- friction x restitution chart: cols = friction 0..1, rows = restitution 0..1
+do
 	local ice = Color(0.72, 0.9, 0.96, 1)
 	local rubber = Color(0.36, 0.16, 0.55, 1)
 	local bouncy = Color(0.78, 0.93, 0.12, 1)
@@ -766,10 +762,8 @@ event.AddListener("Update", "physics_playground_update", function(dt)
 		bullet_b_body:SetVelocity(Vec3(55, 0, 0))
 	end
 
-	-- kinematic pusher shuttles back and forth, shoving the box row
 	local pusher_x = 7 + math.sin(t * 1.6) * 4.5
 	pusher.transform:SetPosition(GROUND + Vec3(pusher_x, 1.0, 0))
-	-- rocket hovers on applied force with a centering pull, spinner spins on applied torque
 	local rocket_pos = rocket_body:GetPosition()
 	rocket_body:ApplyForce(
 		Vec3(
@@ -785,7 +779,6 @@ event.AddListener("Update", "physics_playground_update", function(dt)
 		bounce_body:ApplyImpulse(Vec3(0, 1.5 * 11, 0))
 	end
 
-	-- respawn timers keep one-shot demos cycling
 	if t - ramp_last_spawn > 7 then
 		ramp_last_spawn = t
 		rubber_body:SetPosition(rubber_spawn_pos)
@@ -819,7 +812,6 @@ event.AddListener("Update", "physics_playground_update", function(dt)
 		capsule_drop:SetVelocity(Vec3(0, 0, 0))
 	end
 
-	-- sweeping raycast probe: closest hit below a circling point
 	local scan_angle = t * 0.7
 	local scan_origin = GROUND + Vec3(math.cos(scan_angle) * 8, 11, math.sin(scan_angle) * 8)
 	local scan_hit = physics.RayCast(scan_origin, Vec3(0, -1, 0), 12, nil, nil, {

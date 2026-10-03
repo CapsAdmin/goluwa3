@@ -90,7 +90,7 @@ function META:Rotate(ang)
 end
 
 function META:GetScale()
-	return gine.env.Vector(self.ptr.m00, self.ptr.m11, self.ptr.m22) -- / self.ptr.m33
+	return gine.env.Vector(self.ptr.m00, self.ptr.m11, self.ptr.m22)
 end
 
 function META:Translate(v)
@@ -102,7 +102,7 @@ function META:SetTranslation(v)
 end
 
 function META:GetTranslation()
-	return gine.env.Vector(self.ptr.m03, self.ptr.m13, self.ptr.m23) -- / self.ptr.m33
+	return gine.env.Vector(self.ptr.m03, self.ptr.m13, self.ptr.m23)
 end
 
 function META:ScaleTranslation(scale)

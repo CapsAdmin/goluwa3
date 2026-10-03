@@ -26,11 +26,9 @@ function vfs.AbsoluteToRelativePath(root, abs)
 end
 
 function vfs.ParsePathVariables(path)
-	-- windows
 	path = path:gsub("%%(.-)%%", vfs.GetEnv)
 	path = path:gsub("%%", "")
 	path = path:gsub("%$%((.-)%)", vfs.GetEnv)
-	-- linux
 	path = path:gsub("%$%((.-)%)", "%1")
 	return path
 end

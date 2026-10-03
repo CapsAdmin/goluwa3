@@ -2,7 +2,6 @@ local ffi = require("ffi")
 local setmetatable = import("goluwa/table/setmetatable_gc.lua")
 local process = {}
 
--- Platform-specific error handling
 local function lasterror(num)
 	if ffi.os == "Windows" then
 		ffi.cdef[[
@@ -36,7 +35,6 @@ local function lasterror(num)
 	end
 end
 
--- Process metatable
 local meta = {}
 meta.__index = meta
 
@@ -45,7 +43,6 @@ function meta:get_id()
 end
 
 if ffi.os == "Windows" then
-	-- Windows implementation
 	ffi.cdef[[
 		typedef void* HANDLE;
 		typedef uint32_t DWORD;
@@ -186,12 +183,10 @@ if ffi.os == "Windows" then
 
 		if not command then return nil, "command is required" end
 
-		-- Build command line
 		local cmdline = command
 
 		if opts.args then
 			for _, arg in ipairs(opts.args) do
-				-- Simple quoting - in production you'd want proper Windows quoting
 				if arg:match("%s") then
 					cmdline = cmdline .. " \"" .. arg .. "\""
 				else
@@ -200,7 +195,6 @@ if ffi.os == "Windows" then
 			end
 		end
 
-		-- Create pipes if needed
 		local stdin_read, stdin_write
 		local stdout_read, stdout_write
 		local stderr_read, stderr_write
@@ -217,7 +211,6 @@ if ffi.os == "Windows" then
 
 			stdin_read = hr[0]
 			stdin_write = hw[0]
-			-- Make write handle non-inheritable
 			ffi.C.SetHandleInformation(stdin_write, HANDLE_FLAG_INHERIT, 0)
 		end
 
@@ -229,7 +222,6 @@ if ffi.os == "Windows" then
 
 			stdout_read = hr[0]
 			stdout_write = hw[0]
-			-- Make read handle non-inheritable
 			ffi.C.SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0)
 		end
 
@@ -241,41 +233,24 @@ if ffi.os == "Windows" then
 
 			stderr_read = hr[0]
 			stderr_write = hw[0]
-			-- Make read handle non-inheritable
 			ffi.C.SetHandleInformation(stderr_read, HANDLE_FLAG_INHERIT, 0)
 		end
 
-		-- Setup startup info
 		local si = ffi.new("STARTUPINFOA")
 		si.cb = ffi.sizeof("STARTUPINFOA")
 		si.dwFlags = STARTF_USESTDHANDLES
 		si.hStdInput = stdin_read
 		si.hStdOutput = stdout_write
 		si.hStdError = stderr_write
-		-- Process information
 		local pi = ffi.new("PROCESS_INFORMATION")
-		-- Get current directory if specified
 		local cwd = opts.cwd
 
 		if cwd then cwd = ffi.cast("const char*", cwd) end
 
-		-- Create process
 		local cmdline_buf = ffi.new("char[?]", #cmdline + 1)
 		ffi.copy(cmdline_buf, cmdline)
-		local ret = ffi.C.CreateProcessA(
-			nil,
-			cmdline_buf,
-			nil,
-			nil,
-			1, -- inherit handles
-			0, -- creation flags
-			nil, -- environment
-			cwd,
-			si,
-			pi
-		)
+		local ret = ffi.C.CreateProcessA(nil, cmdline_buf, nil, nil, 1, 0, nil, cwd, si, pi)
 
-		-- Close child process's pipe ends
 		if stdin_read then ffi.C.CloseHandle(stdin_read) end
 
 		if stdout_write then ffi.C.CloseHandle(stdout_write) end
@@ -284,7 +259,6 @@ if ffi.os == "Windows" then
 
 		if ret == 0 then return nil, lasterror() end
 
-		-- Close thread handle, we don't need it
 		ffi.C.CloseHandle(pi.hThread)
 		local self = setmetatable(
 			{
@@ -293,7 +267,7 @@ if ffi.os == "Windows" then
 				stdin = stdin_write,
 				stdout = stdout_read,
 				stderr = stderr_read,
-				exit_code = nil, -- Cached exit code after wait
+				exit_code = nil,
 			},
 			meta
 		)
@@ -301,7 +275,6 @@ if ffi.os == "Windows" then
 	end
 
 	function meta:wait()
-		-- Return cached exit code if already waited
 		if self.exit_code then return self.exit_code end
 
 		local result = ffi.C.WaitForSingleObject(self.handle, INFINITE)
@@ -319,7 +292,6 @@ if ffi.os == "Windows" then
 	end
 
 	function meta:try_wait()
-		-- Return cached exit code if already waited
 		if self.exit_code then return true, self.exit_code end
 
 		local result = ffi.C.WaitForSingleObject(self.handle, 0)
@@ -370,7 +342,6 @@ if ffi.os == "Windows" then
 		if ffi.C.ReadFile(self.stdout, buffer, size, read, nil) == 0 then
 			local err, code = lasterror()
 
-			-- ERROR_BROKEN_PIPE means the process closed the pipe
 			if code == 109 then return "" end
 
 			return nil, err
@@ -425,7 +396,6 @@ if ffi.os == "Windows" then
 		end
 	end
 else
-	-- Unix implementation (macOS, Linux, BSD)
 	ffi.cdef[[
 		typedef int pid_t;
 		typedef long ssize_t;
@@ -455,17 +425,15 @@ else
 		int getpagesize(void);
 	]]
 	local WNOHANG = 1
-	local O_NONBLOCK = 0x0004 -- macOS
+	local O_NONBLOCK = 0x0004
 	local F_GETFL = 3
 	local F_SETFL = 4
 
-	if ffi.os ~= "OSX" then O_NONBLOCK = 0x0800 -- Linux
-	end
+	if ffi.os ~= "OSX" then O_NONBLOCK = 0x0800 end
 
 	local SIGTERM = 15
 	local SIGKILL = 9
 
-	-- Helper to make fd non-blocking
 	local function set_nonblocking(fd)
 		local flags = ffi.C.fcntl(fd, F_GETFL, 0)
 
@@ -478,7 +446,6 @@ else
 		return true
 	end
 
-	-- Helper to build argv array
 	local function build_argv(command, args)
 		local count = 1 + (args and #args or 0)
 		local argv = ffi.new("char*[?]", count + 1)
@@ -494,7 +461,6 @@ else
 		return argv
 	end
 
-	-- Helper to build envp array
 	local function build_envp(env)
 		if not env then return ffi.C.environ end
 
@@ -559,7 +525,6 @@ else
 
 		if not command then return nil, "command is required" end
 
-		-- Create pipes if needed
 		local stdin_pipe = opts.stdin == "pipe" and ffi.new("int[2]") or nil
 		local stdout_pipe = opts.stdout == "pipe" and ffi.new("int[2]") or nil
 		local stderr_pipe = opts.stderr == "pipe" and ffi.new("int[2]") or nil
@@ -576,7 +541,6 @@ else
 			return nil, lasterror()
 		end
 
-		-- Make parent-side fds non-blocking
 		if stdin_pipe then
 			local ok, err = set_nonblocking(stdin_pipe[1])
 
@@ -600,48 +564,37 @@ else
 		if pid < 0 then
 			return nil, lasterror()
 		elseif pid == 0 then
-			-- Child process
-			-- Setup stdin
 			if stdin_pipe then
 				ffi.C.dup2(stdin_pipe[0], 0)
 				ffi.C.close(stdin_pipe[0])
 				ffi.C.close(stdin_pipe[1])
 			end
 
-			-- Setup stdout
 			if stdout_pipe then
 				ffi.C.dup2(stdout_pipe[1], 1)
 				ffi.C.close(stdout_pipe[0])
 				ffi.C.close(stdout_pipe[1])
 			end
 
-			-- Setup stderr
 			if stderr_pipe then
 				ffi.C.dup2(stderr_pipe[1], 2)
 				ffi.C.close(stderr_pipe[0])
 				ffi.C.close(stderr_pipe[1])
 			end
 
-			-- Change directory if specified
 			if opts.cwd then ffi.C.chdir(opts.cwd) end
 
-			-- Build argv and envp
 			local argv = build_argv(command, opts.args)
 
-			-- Execute
 			if opts.env then
 				local envp = build_envp(opts.env)
 				ffi.C.execve(command, argv, envp)
 			else
-				-- Use execvp when no custom environment - it searches PATH
 				ffi.C.execvp(command, argv)
 			end
 
-			-- If we get here, exec failed
 			ffi.C._exit(127)
 		else
-			-- Parent process
-			-- Close child ends of pipes
 			if stdin_pipe then ffi.C.close(stdin_pipe[0]) end
 
 			if stdout_pipe then ffi.C.close(stdout_pipe[1]) end
@@ -654,7 +607,7 @@ else
 					stdin = stdin_pipe and stdin_pipe[1] or nil,
 					stdout = stdout_pipe and stdout_pipe[0] or nil,
 					stderr = stderr_pipe and stderr_pipe[0] or nil,
-					exit_code = nil, -- Cached exit code after wait
+					exit_code = nil,
 				},
 				meta
 			)
@@ -672,7 +625,6 @@ else
 		end
 
 		function meta:wait()
-			-- Return cached exit code if already waited
 			if self.exit_code then return self.exit_code end
 
 			local status = ffi.new("int[1]")
@@ -686,7 +638,6 @@ else
 		end
 
 		function meta:try_wait()
-			-- Return cached exit code if already waited
 			if self.exit_code then return true, self.exit_code end
 
 			local status = ffi.new("int[1]")
@@ -717,7 +668,6 @@ else
 			unsigned int mach_task_self();
 			int task_info(unsigned int target_task, int flavor, void* task_info_out, unsigned int* task_info_outCnt);
 		]]
-		-- macOS task basic info struct type (pre-defined for performance)
 		local task_basic_info_t = ffi.typeof([[ struct {
 			uint64_t virtual_size;
 			uint64_t resident_size;
@@ -729,7 +679,6 @@ else
 		} ]])
 
 		function meta:get_residential_memory_kb()
-			-- macOS: only support current process due to task_for_pid restrictions
 			if self.pid ~= ffi.C.getpid() then
 				return nil, "cannot get memory info for other processes on macOS"
 			end
@@ -747,7 +696,8 @@ else
 	else
 		function meta:get_residential_memory_kb()
 			local path = "/proc/" .. self.pid .. "/statm"
-			local fd = ffi.C.open(path, 0) -- O_RDONLY
+			local fd = ffi.C.open(path, 0)
+
 			if fd == -1 then return nil, "failed to open " .. path end
 
 			local buffer = ffi.new("char[256]")
@@ -775,7 +725,6 @@ else
 		if ret < 0 then
 			local err, code = lasterror()
 
-			-- EAGAIN/EWOULDBLOCK means non-blocking write would block
 			if code == 11 or code == 35 then return 0 end
 
 			return nil, err
@@ -794,7 +743,6 @@ else
 		if ret < 0 then
 			local err, code = lasterror()
 
-			-- EAGAIN/EWOULDBLOCK means no data available
 			if code == 11 or code == 35 then return "" end
 
 			return nil, err
@@ -848,7 +796,6 @@ else
 		self:close()
 	end
 
-	-- Export signal constants for Unix
 	process.SIGTERM = SIGTERM
 	process.SIGKILL = SIGKILL
 	process.SIGINT = 2

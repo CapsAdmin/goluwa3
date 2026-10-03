@@ -19,10 +19,8 @@ if jit.os == "OSX" then
 	process.setenv("VK_LAYER_PATH", VULKAN_SDK .. "/macOS/share/vulkan/explicit_layer.d")
 end
 
--- On Linux, VK_LAYER_PATH should be set by the environment (e.g., nix develop)
 local VulkanInstance = objects.CreateTemplate("render_vulkan_instance")
 
--- pipeline_cache_data is what an earlier run got from GetPipelineCacheData, or nil
 function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 	if jit.os == "OSX" and os.getenv("USE_MOLTENVK") then
 		local icd_path = "/Users/caps/VulkanSDK/1.4.328.1/macOS/share/vulkan/icd.d/MoltenVK_icd.json"
@@ -32,13 +30,11 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 
 	local self = VulkanInstance:CreateObject({})
 	local is_headless = not surface_handle and not display_handle
-	-- Setup extensions based on headless or windowed mode
 	local extensions = {}
 	local required_extensions = {}
 	local surface_ext
 
 	if not is_headless then
-		-- Platform-specific surface extension
 		surface_ext = jit.os == "OSX" and
 			"VK_EXT_metal_surface" or
 			jit.os == "Windows" and
@@ -94,14 +90,12 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 
 	self.instance = Instance.New(extensions, validation_layers)
 
-	-- Create surface only if not headless
 	if not is_headless then
 		self.surface = Surface.New(self.instance, surface_handle, display_handle)
 	else
 		self.surface = nil
 	end
 
-	-- Find the best physical device
 	local physical_devices = self.instance:GetPhysicalDevices()
 	self.physical_device = nil
 	local best_score = -1
@@ -109,16 +103,13 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 	for i, device in ipairs(physical_devices) do
 		local props = device:GetProperties()
 		local device_name = ffi.string(props.deviceName)
-		-- Check surface support only if not headless
 		local supports_requirements = is_headless or device:SupportsSurface(self.surface)
 
 		if supports_requirements then
 			local score = 0
 
-			-- VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2
 			if props.deviceType == 2 then
 				score = 1000
-			-- VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1
 			elseif props.deviceType == 1 then
 				score = 100
 			else
@@ -157,8 +148,7 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 
 	if not is_headless then
 		table.insert(requested_device_extensions, "VK_KHR_swapchain")
-		-- Requires VK_KHR_swapchain and VK_KHR_get_surface_capabilities2
-		table.insert(requested_device_extensions, "VK_KHR_shared_presentable_image") -- swapchain screenshots
+		table.insert(requested_device_extensions, "VK_KHR_shared_presentable_image")
 		table.insert(requested_device_extensions, "VK_EXT_hdr_metadata")
 	end
 

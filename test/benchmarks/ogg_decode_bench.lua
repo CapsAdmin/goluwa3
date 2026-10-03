@@ -80,7 +80,6 @@ local function parse_cli_args()
 			basename(arg) == "ogg_decode_bench.lua"
 		then
 
-		-- bootstrap args
 		elseif arg == "--profile" then
 			enable_profile = true
 		elseif arg == "--no-profile" then

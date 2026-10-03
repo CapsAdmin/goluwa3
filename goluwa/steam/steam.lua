@@ -94,23 +94,6 @@ end
 
 tasks.WrapCallback(steam, "DownloadWorkshopCollection")
 
---[[
-if steamfriends then
-	for k,v in pairs(steamfriends) do
-		if k ~= "Update" and k ~= "OnChatMessage" then
-			steam[k] = v
-		end
-	end
-
-	timer.Repeat("steam_friends", 0, 0.2, function()
-		steamfriends.Update()
-	end)
-
-	function steamfriends.OnChatMessage(sender_steam_id, text, receiver_steam_id)
-		event.Call("SteamFriendsMessage", sender_steam_id, text, receiver_steam_id)
-	end
-end
-]]
 function steam.IsSteamClientAvailible()
 	return steamfriends
 end

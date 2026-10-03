@@ -3,14 +3,10 @@ local bit = require("bit")
 local math = require("math")
 local msgpack = library()
 local memory = import("goluwa/bindings/memory.lua")
--- cache bitops
 local bor, band, rshift = bit.bor, bit.band, bit.rshift
--- shared ffi data
 local t_buf = ffi.new("unsigned char[8]")
 local t_buf2 = ffi.new("unsigned char[8]")
--- VLA ctype constructor
 local uchar_vla = ffi.typeof("unsigned char[?]")
--- endianness
 local LITTLE_ENDIAN = ffi.abi("le")
 local rcopy = function(dst, src, len)
 	local n = len - 1
@@ -19,7 +15,6 @@ local rcopy = function(dst, src, len)
 		dst[i] = src[n - i]
 	end
 end
--- buffer
 local MSGPACK_SBUFFER_INIT_SIZE = 8192
 local buffer = {}
 local sbuffer_init = function(self)
@@ -127,7 +122,6 @@ else
 	end
 end
 
---- packers
 local packers = {}
 packers.dynamic = function(data)
 	return packers[type(data)](data)
@@ -136,9 +130,9 @@ packers["nil"] = function(data)
 	sbuffer_append_byte(buffer, 0xc0)
 end
 packers.boolean = function(data)
-	if data then -- pack true
+	if data then
 		sbuffer_append_byte(buffer, 0xc3)
-	else -- pack false
+	else
 		sbuffer_append_byte(buffer, 0xc2)
 	end
 end
@@ -187,41 +181,41 @@ local set_fp_type = function(t)
 	end
 	return true
 end
-set_fp_type("double") -- default
+set_fp_type("double")
 packers.number = function(n)
-	if math.floor(n) == n then -- integer
-		if n >= 0 then -- positive integer
-			if n < 128 then -- positive fixnum
+	if math.floor(n) == n then
+		if n >= 0 then
+			if n < 128 then
 				sbuffer_append_byte(buffer, n)
-			elseif n < 256 then -- uint8
+			elseif n < 256 then
 				sbuffer_append_tbl(buffer, {0xcc, n})
-			elseif n < 2 ^ 16 then -- uint16
+			elseif n < 2 ^ 16 then
 				sbuffer_append_intx(buffer, n, 16, 0xcd)
-			elseif n < 2 ^ 32 then -- uint32
+			elseif n < 2 ^ 32 then
 				sbuffer_append_intx(buffer, n, 32, 0xce)
-			elseif n == math.huge then -- +inf
+			elseif n == math.huge then
 				packers.posinf()
-			else -- uint64
+			else
 				sbuffer_append_int64(buffer, n, 0xcf)
 			end
-		else -- negative integer
-			if n >= -32 then -- negative fixnum
+		else
+			if n >= -32 then
 				sbuffer_append_byte(buffer, bor(0xe0, n))
-			elseif n >= -128 then -- int8
+			elseif n >= -128 then
 				sbuffer_append_tbl(buffer, {0xd0, n})
-			elseif n >= -2 ^ 15 then -- int16
+			elseif n >= -2 ^ 15 then
 				sbuffer_append_intx(buffer, n, 16, 0xd1)
-			elseif n >= -2 ^ 31 then -- int32
+			elseif n >= -2 ^ 31 then
 				sbuffer_append_intx(buffer, n, 32, 0xd2)
-			elseif n == -math.huge then -- -inf
+			elseif n == -math.huge then
 				packers.neginf()
-			else -- int64
+			else
 				sbuffer_append_int64(buffer, n, 0xd3)
 			end
 		end
-	elseif n ~= n then -- nan
+	elseif n ~= n then
 		packers.nan()
-	else -- floating point
+	else
 		packers.fpnum(n)
 	end
 end
@@ -297,7 +291,6 @@ local set_table_classifier = function(f)
 	end
 end
 local table_classifier_keys = function(data)
-	-- slightly slower, does not access values at all
 	local is_map, ndata, nmax = false, 0, 0
 
 	for k, _ in pairs(data) do
@@ -310,12 +303,11 @@ local table_classifier_keys = function(data)
 		ndata = ndata + 1
 	end
 
-	if (nmax ~= ndata) then -- there are holes
-	is_map = true end -- else nmax == ndata == #data
+	if (nmax ~= ndata) then is_map = true end
+
 	return (is_map and "map" or "array"), ndata
 end
 local table_classifier_values = function(data)
-	-- slightly faster, accesses values
 	local is_map, ndata = false, 0
 
 	for _ in pairs(data) do
@@ -327,7 +319,7 @@ local table_classifier_values = function(data)
 	return (is_map and "map" or "array"), ndata
 end
 set_table_classifier(table_classifier_keys)
-packers.cdata = function(data) -- msgpack-js
+packers.cdata = function(data)
 	local n = ffi.sizeof(data)
 
 	if not n then
@@ -342,12 +334,11 @@ packers.cdata = function(data) -- msgpack-js
 
 	sbuffer_append_str(buffer, data, n)
 end
--- types decoding
 local types_map = {
 	[0xc0] = "nil",
 	[0xc2] = "false",
 	[0xc3] = "true",
-	[0xc4] = "nil", -- msgpack-js
+	[0xc4] = "nil",
 	[0xca] = "float",
 	[0xcb] = "double",
 	[0xcc] = "uint8",
@@ -358,8 +349,8 @@ local types_map = {
 	[0xd1] = "int16",
 	[0xd2] = "int32",
 	[0xd3] = "int64",
-	[0xd8] = "buf16", -- msgpack-js
-	[0xd9] = "buf32", -- msgpack-js
+	[0xd8] = "buf16",
+	[0xd9] = "buf32",
 	[0xda] = "raw16",
 	[0xdb] = "raw32",
 	[0xdc] = "array16",
@@ -396,7 +387,6 @@ local types_len_map = {
 	float = 4,
 	double = 8,
 }
---- unpackers
 local unpackers = {}
 local unpack_number
 
@@ -433,17 +423,11 @@ local unpack_map = function(buf, offset, n)
 	for _ = 1, n do
 		offset, k = unpackers.dynamic(buf, offset)
 
-		if not offset then
-			-- Whole map is not available in the buffer
-			return nil, r
-		end
+		if not offset then return nil, r end
 
 		offset, v = unpackers.dynamic(buf, offset)
 
-		if not offset then
-			-- Whole map is not available in the buffer
-			return nil, r
-		end
+		if not offset then return nil, r end
 
 		r[k] = v
 	end
@@ -456,10 +440,7 @@ local unpack_array = function(buf, offset, n)
 	for i = 1, n do
 		offset, r[i] = unpackers.dynamic(buf, offset)
 
-		if not offset then
-			-- Whole array is not available in the buffer
-			return nil, r
-		end
+		if not offset then return nil, r end
 	end
 
 	return offset, r
@@ -496,8 +477,6 @@ unpackers.uint16 = unpacker_number
 unpackers.uint32 = unpacker_number
 unpackers.uint64 = unpacker_number
 unpackers.fixnum_neg = function(buf, offset)
-	-- alternative to cast below:
-	-- return offset+1,-band(bxor(buf.data[offset],0x1f),0x1f)-1
 	return offset + 1, ffi.cast("int8_t *", buf.data)[offset]
 end
 unpackers.int8 = function(buf, offset)
@@ -589,7 +568,6 @@ unpackers.map32 = function(buf, offset)
 	local n = unpack_number(buf, offset, "uint32_t *", 4)
 	return unpack_map(buf, offset + 5, n)
 end
--- Main functions
 local ljp_pack = function(data)
 	sbuffer_init(buffer)
 	packers.dynamic(data)

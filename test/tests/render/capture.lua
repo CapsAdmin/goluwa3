@@ -6,8 +6,6 @@ local event = import("goluwa/event.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
--- Mid-frame capture: draw red (left), capture, draw blue (right). A correct mid-frame
--- capture shows red-left + clear-right (the blue rect is drawn after the capture).
 T.Test2D("render.Capture reads framebuffer mid-frame", function(w, h)
 	render2d.SetColor(1, 0, 0, 1)
 	render2d.DrawRect(0, 0, w / 2, h)
@@ -17,7 +15,6 @@ T.Test2D("render.Capture reads framebuffer mid-frame", function(w, h)
 	render2d.SetColor(0, 0, 1, 1)
 	render2d.DrawRect(w / 2, 0, w / 2, h)
 	local mid_y = math.floor(h / 2)
-	-- Left half was drawn red before the capture
 	T.AssertTexturePixel{
 		tex = cap,
 		pos = {math.floor(w / 4), mid_y},
@@ -26,7 +23,6 @@ T.Test2D("render.Capture reads framebuffer mid-frame", function(w, h)
 		end,
 		msg = "mid-left should be red",
 	}
-	-- Right half was still the clear color at capture time (blue is drawn after)
 	T.AssertTexturePixel{
 		tex = cap,
 		pos = {math.floor(w * 3 / 4), mid_y},
@@ -123,10 +119,8 @@ T.Test("Screenshot update_events lets UI layout resolve before capture", functio
 		{update_events = 3}
 	)
 
-	-- layout must have converged before the capture frame
 	assert(child.transform:GetSize().x == 40, "child layout should have resolved")
 	assert(child.transform:GetSize().y == 100, "child should be stretched to container height")
-	-- the capture is scheduled for the next frame
 	event.Call("Update", 1 / 60)
 	event.Call("FrameEnd")
 	assert(results.called, "Screenshot callback was not called")

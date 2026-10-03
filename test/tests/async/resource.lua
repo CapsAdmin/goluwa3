@@ -84,9 +84,7 @@ local function with_virtual_resource(path, handler, callback)
 end
 
 T.Test("resource.Download from providers works", function()
-	-- Clear providers for a clean test
 	resource.providers = {}
-	-- We use raw.githubusercontent.com to avoid redirect issues in the current socket implementation
 	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/extras/", true)
 	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/base/", true)
 	vfs.MountAddons("os:downloads/")

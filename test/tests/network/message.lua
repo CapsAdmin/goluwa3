@@ -60,7 +60,6 @@ T.Test("Message listener replaced on re-add", function()
 		message.listeners["replace_test"]()
 	end
 
-	-- Second listener should have replaced the first
 	T(count)["=="](10)
 	message.RemoveListener("replace_test")
 end)
@@ -81,7 +80,6 @@ T.Test("Message server command registration", function()
 
 	T(message.server_commands["test_cmd"])["~="](nil)
 
-	-- Simulate receiving a server command via the "scmd" listener
 	if message.listeners["scmd"] then
 		message.listeners["scmd"]("mock_client", "test_cmd", "arg1", 42)
 	end
@@ -98,8 +96,7 @@ T.Test("Message command client/server separation", function()
 
 	local commands = import("goluwa/cli/commands.lua")
 
-	commands.AddServerCommand("sep_test", function(client, ...) -- Server command handler
-	end)
+	commands.AddServerCommand("sep_test", function(client, ...) end)
 
 	T(message.server_commands["sep_test"])["~="](nil)
 	commands.RemoveServerCommand("sep_test")
@@ -112,10 +109,7 @@ T.Test("Message broadcast function exists", function()
 end)
 
 T.Test("Message event call functions exist", function()
-	if CLIENT then
-		-- Client-side message functions
-		T(message.Send)["~="](nil)
-	end
+	if CLIENT then T(message.Send)["~="](nil) end
 
 	if SERVER then
 		T(message.Send)["~="](nil)

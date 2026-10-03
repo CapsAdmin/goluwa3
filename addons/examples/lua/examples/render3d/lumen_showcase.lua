@@ -2,13 +2,10 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
-
 local root = Entity.New{Name = "lumen_showcase"}
-
 local floor_mat = shapes.Material{Color = Color(0.35, 0.33, 0.30, 1), Roughness = 0.9}
 local dark_mat = shapes.Material{Color = Color(0.12, 0.12, 0.12, 1), Roughness = 0.95}
 local white_mat = shapes.Material{Color = Color(0.85, 0.85, 0.85, 1), Roughness = 0.8}
-
 shapes.Box{
 	Name = "floor",
 	Parent = root,
@@ -17,7 +14,6 @@ shapes.Box{
 	Material = floor_mat,
 	RigidBody = false,
 }
-
 local LIGHT_HEIGHT_ABOVE_PEDESTAL = 0.8
 local PANEL_HEIGHT_ABOVE_LIGHT = 1.2
 

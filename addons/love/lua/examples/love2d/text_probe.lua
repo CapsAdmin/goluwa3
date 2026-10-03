@@ -53,7 +53,6 @@ function love.draw()
 	love.graphics.setColor(255, 255, 255, 255)
 	love.graphics.print("spin", phase, -20)
 	love.graphics.pop()
-	-- Draw a textured panel first, then text, to catch stale texture/UV state.
 	love.graphics.setColor(60, 160, 255, 255)
 	love.graphics.rectangle("fill", 28, 262, 732, 90)
 	love.graphics.setColor(255, 255, 255, 255)

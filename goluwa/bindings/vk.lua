@@ -57,21 +57,17 @@ function mod.find_library()
 		local home = os.getenv("HOME")
 		local vulkan_sdk = os.getenv("VULKAN_SDK")
 		local paths = {}
-		-- Load the Vulkan LOADER (not the ICD directly)
-		-- The loader will automatically find kosmickrisp via the ICD system
 		table.insert(paths, "/opt/homebrew/lib/libvulkan.dylib")
 		table.insert(paths, "/opt/homebrew/lib/libvulkan.1.dylib")
 		table.insert(paths, "/usr/local/lib/libvulkan.dylib")
 		table.insert(paths, "libvulkan.dylib")
 		table.insert(paths, "libvulkan.1.dylib")
 
-		-- Try VULKAN_SDK paths
 		if vulkan_sdk then
 			table.insert(paths, vulkan_sdk .. "/lib/libvulkan.dylib")
 			table.insert(paths, vulkan_sdk .. "/lib/libvulkan.1.dylib")
 		end
 
-		-- Try VulkanSDK in home directory
 		if home and vulkan_sdk then
 			table.insert(paths, home .. "/VulkanSDK/1.4.328.1/macOS/lib/libvulkan.1.dylib")
 		end
@@ -82,7 +78,7 @@ function mod.find_library()
 	return assert(try_load({"libvulkan.so", "libvulkan.so.1"}))
 end
 
-do -- Preprocessor Definitions
+do
 	mod.STD_VIDEO_AV1_GLOBAL_MOTION_PARAMS = 6
 	mod.STD_VIDEO_AV1_LOOP_FILTER_ADJUSTMENTS = 2
 	mod.STD_VIDEO_AV1_MAX_CDEF_FILTER_STRENGTHS = 8
@@ -1177,7 +1173,7 @@ do -- Preprocessor Definitions
 	mod.VK_NN_VI_SURFACE_EXTENSION_NAME = "VK_NN_vi_surface"
 	mod.VK_NN_VI_SURFACE_SPEC_VERSION = 1
 	mod.VK_NN_vi_surface = 1
-	mod.VK_NULL_HANDLE = nil -- ((void*)0) -- Failed to parse: [string "local ffi = require('ffi') local x =  ( void ..."]:1: unexpected symbol near ')'
+	mod.VK_NULL_HANDLE = nil
 	mod.VK_NVX_BINARY_IMPORT_EXTENSION_NAME = "VK_NVX_binary_import"
 	mod.VK_NVX_BINARY_IMPORT_SPEC_VERSION = 2
 	mod.VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME = "VK_NVX_image_view_handle"
@@ -55295,7 +55291,6 @@ ffi.cdef(
 	mod.VkDevice,
 	mod.VkScreenBufferPropertiesQNX
 )
--- Enum lookup tables for string -> value translation
 mod.e = {}
 mod.str = {}
 local type = _G.type
@@ -68507,7 +68502,6 @@ do
 	end
 end
 
--- Helper to fill struct fields with enum translation
 local function fill_struct(ctype, field_info, t)
 	if t == nil then return nil end
 
@@ -68532,7 +68526,6 @@ local function fill_struct(ctype, field_info, t)
 	return obj
 end
 
--- Struct builders with enum translation (for nested structs)
 mod.s = {}
 mod.s.StdVideoAV1ColorConfig = function(t)
 	return mod.StdVideoAV1ColorConfig(

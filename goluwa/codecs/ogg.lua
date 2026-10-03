@@ -8,21 +8,6 @@ local float_size = ffi.sizeof("float")
 ogg.file_extensions = {"ogg"}
 ogg.magic_headers = {"OggS"}
 
---[[
-	Ogg Page Header:
-	0-3: "OggS"
-	4: Version (0)
-	5: Header Type (bitmask)
-		0x01: Continued packet
-		0x02: First page (BOS)
-		0x04: Last page (EOS)
-	6-13: Granule position (int64)
-	14-17: Bitstream serial number (int32)
-	18-21: Page sequence number (int32)
-	22-25: Checksum (int32)
-	26: Number of segments (uint8)
-	27-n: Segment table (uint8[number of segments])
-]]
 function ogg.Decode(data)
 	local buffer
 
@@ -41,14 +26,11 @@ function ogg.Decode(data)
 		local magic = buffer:ReadBytes(4)
 
 		if magic ~= "OggS" then
-			-- If we are not at the start and find something else, maybe we should search for OggS?
-			-- For now, assume it's valid Ogg.
 			if #pages == 0 then
 				error(
 					"Not an Ogg file (magic 'OggS' not found at pos " .. buffer:GetPosition() - 4 .. ")"
 				)
 			else
-				-- Maybe handle trailing junk?
 				break
 			end
 		end
@@ -76,12 +58,9 @@ function ogg.Decode(data)
 		table.insert(pages, page)
 	end
 
-	-- Assemble packets from pages
 	local packets = {}
 	local current_packet = {}
 
-	-- We need to group by serial number if multiple streams exist (rare in simple ogg)
-	-- For simplicity, let's assume one stream for now, or just process them as they come.
 	for _, page in ipairs(pages) do
 		local segments = page.segment_table
 		local offset = 1
@@ -93,13 +72,10 @@ function ogg.Decode(data)
 			table.insert(current_packet, segment_data)
 
 			if segment_len < 255 then
-				-- Packet completed
 				table.insert(packets, table.concat(current_packet))
 				current_packet = {}
 			end
 		end
-	-- If segment_len == 255 for the last segment, it continues in the NEXT page.
-	-- The current_packet stays alive.
 	end
 
 	local result = {
@@ -107,7 +83,6 @@ function ogg.Decode(data)
 		packets = packets,
 	}
 
-	-- Vorbis Header Processing
 	if #packets < 3 then
 		return nil,
 		"Not enough packets for Vorbis stream (expected at least 3 headers, got " .. #packets .. ")"
@@ -145,16 +120,12 @@ function ogg.Decode(data)
 	end
 
 	result.setup = setup
-	-- Decode audio packets
 	local channels = result.channels or 2
 	local sample_rate = result.sample_rate or 44100
 	local total_samples = pages[#pages].granule_position
 	total_samples = tonumber(total_samples) or 0
 
-	if total_samples <= 0 then
-		-- Fallback to an estimated size based on packet count
-		total_samples = (#packets - 3) * 1024
-	end
+	if total_samples <= 0 then total_samples = (#packets - 3) * 1024 end
 
 	local buffer_size = total_samples * channels
 	local pcm = ffi.new("float[?]", buffer_size)
@@ -166,15 +137,11 @@ function ogg.Decode(data)
 	local pcm_offset = 0
 	local packets_decoded = 0
 
-	-- Process starting from packet 4 (the first audio packet)
 	for i = 4, #packets do
 		local packet = packets[i]
 		local decoded_pcm, n = vorbis_codec.DecodePacket(packet, result, setup, state)
 
 		if decoded_pcm and n then
-			-- Map decoded PCM to the output buffer
-			-- Vorbis overlap-add would go here
-			-- For now, we copy the decoded segment directly (placeholders in DecodePacket are zeroed)
 			local copy_count = n * channels
 
 			if pcm_offset + copy_count > buffer_size then

@@ -4,12 +4,9 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local DEGREES_PER_SECOND = 30
 local UP = Vec3(0, 1, 0)
--- the solved sun lands within a fraction of a degree of where it was put, further means the time
--- or place changed it since
 local RESYNC_DOT = math.cos(math.rad(1))
 local rotation
 
--- k and l raise and lower the sun, comma and period turn it, the latitude and time follow
 event.AddListener("Update", "debug_sun", function(dt)
 	local pitch = (input.IsKeyDown("k") and 1 or 0) - (input.IsKeyDown("l") and 1 or 0)
 	local yaw = (input.IsKeyDown("period") and 1 or 0) - (input.IsKeyDown("comma") and 1 or 0)

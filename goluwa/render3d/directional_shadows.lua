@@ -39,13 +39,10 @@ function directional_shadows.GetPrimarySunColor(lights)
 end
 
 do
-	-- the sun disc's angular radius, and how wide thin clouds spread it into a glow
 	local CLEAR_SUN_RADIUS_TAN = math.tan(atmosphere.SUN_ANGULAR_RADIUS)
 	local OVERCAST_SUN_RADIUS_TAN = math.tan(math.rad(6))
-	-- the glow is at its widest once thin cloud diffuses this much of the sun
 	local FULL_SPREAD_DIFFUSION = 0.6
 
-	-- shadow penumbras are the blocker distance times this
 	function directional_shadows.GetSunAngularRadiusTan()
 		local t = math.clamp(clouds.GetSunDiffusion() / FULL_SPREAD_DIFFUSION, 0, 1)
 		return math.lerp(t * t * (3 - 2 * t), CLEAR_SUN_RADIUS_TAN, OVERCAST_SUN_RADIUS_TAN)
@@ -119,8 +116,6 @@ function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
 	shadow_block.cascade_count = cascade_slot - 1
 end
 
--- GLSL fragment builders shared by GetMediumDirectionalShadowGLSL and
--- GetSurfaceDirectionalShadowGLSL. These run at shader-compile time, not per frame.
 local POISSON_DISK_VALUES = [==[
 				vec2(-0.326, -0.406),
 				vec2(-0.840, -0.074),
@@ -153,10 +148,6 @@ local function getCascadeIndexGLSL(block_macro)
 	return (src:gsub("@@BLOCK@@", block_macro))
 end
 
--- The cascade search loop, cascade blend band, and inset blend that both the
--- medium and surface shadow entry points share. `cascade_call` and `inset_call`
--- are GLSL call templates where "%s" is substituted with the cascade index
--- expression (for `inset_call`, "%s" is the out shadow variable).
 local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 	local src = [==[
 			int cascade_count = @@BLOCK@@.shadows.cascade_count;
@@ -320,12 +311,6 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 		]]
 end
 
--- The receiver is moved off its surface before it is projected: along its
--- geometric normal by more the more the surface slopes away from the light,
--- since a sloped surface spans more depth per shadow texel, and toward the
--- light by a texel or two depth steps, whichever is larger. normal must be
--- the geometric normal, a normal mapped or smoothed one lets surfaces that
--- face away from the light offset into the light and leak.
 local SHADOW_PROJECTION_GLSL = [[
 			float get_shadow_facing(vec3 normal, vec3 light_dir) {
 				return smoothstep(0.0, 0.1, dot(normal, light_dir));

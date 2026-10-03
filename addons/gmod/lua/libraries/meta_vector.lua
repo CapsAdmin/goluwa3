@@ -162,7 +162,6 @@ function META:Angle()
 end
 
 function META:AngleEx()
-	-- todo
 	return gine.env.Angle(self.ptr:GetAngles())
 end
 

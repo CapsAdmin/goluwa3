@@ -39,11 +39,6 @@ local function runtime_error(s, level)
 	error(s, level + 1)
 end
 
--- The output buffer only ever grows and preserves its prior contents on
--- realloc (Buffer:SetPosition/WriteByte both memcpy old data into any new
--- allocation), so it doubles as its own up-to-32768-byte sliding window -
--- LZ77 back-references can read straight out of it instead of maintaining
--- a separate window copy of every byte written.
 local function make_outstate(outbuf)
 	local outstate = {}
 	outstate.outbuf = outbuf
@@ -84,27 +79,6 @@ local function hasbit(bits, bit)
 	return bits % (bit + bit) >= bit
 end
 
--- DEBUG
--- prints LSB first
---[[
-local function bits_tostring(bits, nbits)
-local s = ''
-local tmp = bits
-local function f()
-local b = tmp % 2 == 1 and 1 or 0
-s = s .. b
-tmp = (tmp - b) / 2
-end
-if nbits then
-for i=1,nbits do f() end
-else
-while tmp ~= 0 do f() end
-end
-
-return s
-end
---]]
--- Convert input to Buffer if needed
 local function get_input_buffer(input)
 	local input_type = type(input)
 
@@ -116,34 +90,24 @@ local function get_input_buffer(input)
 		buf:RestartReadBits()
 		return buf
 	elseif input_type == "table" and input.ReadBits then
-		-- Already a Buffer - don't restart bits, it may be partially read
 		return input
 	elseif input_type == "cdata" then
-		-- Might be a Buffer ctype, check if it has ReadBits
-		if input.ReadBits then
-			-- Already a Buffer - don't restart bits, it may be partially read
-			return input
-		end
+		if input.ReadBits then return input end
 	end
 
 	runtime_error("input must be string or Buffer, got: " .. tostring(input_type))
 end
 
--- Create or get output Buffer
 local function get_output_buffer(output, initial_size)
-	-- PNG files can be large, start with a bigger buffer
-	initial_size = initial_size or 262144 -- 256KB instead of 32KB
+	initial_size = initial_size or 262144
 	local output_type = type(output)
 
 	if output == nil then
-		-- Create new writable buffer
 		local data = ffi.new("uint8_t[?]", initial_size)
 		return Buffer.New(data, initial_size):MakeWritable()
 	elseif output_type == "table" and output.WriteByte then
-		-- Already a Buffer (table)
 		return output
 	elseif output_type == "cdata" then
-		-- Might be a Buffer ctype, check if it has WriteByte
 		if output.WriteByte then return output end
 	end
 
@@ -177,7 +141,6 @@ local function get_input_state(input)
 	return state
 end
 
--- bitbuf holds up to 32 bits as an int32 bit pattern, LSB first; only bit ops touch it
 local function fill_bits(state, nbits)
 	local bitbuf = state.bitbuf
 	local bitcount = state.bitcount
@@ -234,15 +197,12 @@ local function input_the_end(state)
 	return state.pos >= state.size and state.bitcount == 0
 end
 
--- codes up to FASTBITS long decode with one lookup of the next FASTBITS bits,
--- the entry packs the symbol and its length as symbol * 32 + length (0 = longer code)
 local FASTBITS = 10
 local FAST_SIZE = 1024
 local FAST_MASK = FAST_SIZE - 1
 local uint16_array = ffi.typeof("uint16_t[?]")
 local int32_array = ffi.typeof("int32_t[?]")
 
--- canonical huffman table from the code length of each symbol, lengths is 0 indexed
 local function HuffmanTable(lengths, ncodes)
 	local counts = int32_array(16)
 
@@ -275,7 +235,6 @@ local function HuffmanTable(lengths, ncodes)
 
 	for len = 1, FASTBITS do
 		for i = 0, counts[len] - 1 do
-			-- codes are stored MSB first, the bit buffer is LSB first
 			local reversed = 0
 			local c = code
 
@@ -300,7 +259,6 @@ local function HuffmanTable(lengths, ncodes)
 	return {fast = fast, counts = counts, symbols = symbols}
 end
 
--- one bit at a time through the code length counts, for codes longer than FASTBITS
 local function decode_slow(state, t)
 	local counts = t.counts
 	local code = 0
@@ -344,7 +302,6 @@ local function parse_zstring(buf)
 end
 
 local function parse_gzip_header(buf)
-	-- local FLG_FTEXT = 2^0
 	local FLG_FHCRC = 2 ^ 1
 	local FLG_FEXTRA = 2 ^ 2
 	local FLG_FNAME = 2 ^ 3
@@ -354,16 +311,16 @@ local function parse_gzip_header(buf)
 
 	if id1 ~= 31 or id2 ~= 139 then runtime_error("not in gzip format") end
 
-	local cm = read_bits(buf, 8) -- compression method
-	local flg = read_bits(buf, 8) -- FLaGs
-	local mtime = read_bits(buf, 32) -- Modification TIME
-	local xfl = read_bits(buf, 8) -- eXtra FLags
-	local os = read_bits(buf, 8) -- Operating System
+	local cm = read_bits(buf, 8)
+	local flg = read_bits(buf, 8)
+	local mtime = read_bits(buf, 32)
+	local xfl = read_bits(buf, 8)
+	local os = read_bits(buf, 8)
+
 	if DEBUG then
 		debug("CM=", cm)
 		debug("FLG=", flg)
 		debug("MTIME=", mtime)
-		-- debug("MTIME_str=",os.date("%Y-%m-%d %H:%M:%S",mtime)) -- non-portable
 		debug("XFL=", xfl)
 		debug("OS=", os)
 	end
@@ -390,21 +347,20 @@ local function parse_gzip_header(buf)
 
 		if not crc16 then runtime_error("invalid header") end
 
-		-- IMPROVE: check CRC. where is an example .gz file that
-		-- has this set?
 		if DEBUG then debug("CRC16=", crc16) end
 	end
 end
 
 local function parse_zlib_header(buf)
-	local cm = read_bits(buf, 4) -- Compression Method
-	local cinfo = read_bits(buf, 4) -- Compression info
-	local fcheck = read_bits(buf, 5) -- FLaGs: FCHECK (check bits for CMF and FLG)
-	local fdict = read_bits(buf, 1) -- FLaGs: FDICT (present dictionary)
-	local flevel = read_bits(buf, 2) -- FLaGs: FLEVEL (compression level)
-	local cmf = cinfo * 16 + cm -- CMF (Compresion Method and flags)
-	local flg = fcheck + fdict * 32 + flevel * 64 -- FLaGs
-	if cm ~= 8 then -- not "deflate"
+	local cm = read_bits(buf, 4)
+	local cinfo = read_bits(buf, 4)
+	local fcheck = read_bits(buf, 5)
+	local fdict = read_bits(buf, 1)
+	local flevel = read_bits(buf, 2)
+	local cmf = cinfo * 16 + cm
+	local flg = fcheck + fdict * 32 + flevel * 64
+
+	if cm ~= 8 then
 		runtime_error("unrecognized zlib compression method: " .. cm)
 	end
 
@@ -426,8 +382,6 @@ local function parse_zlib_header(buf)
 	return window_size
 end
 
--- literal/length and distance code lengths form one sequence, and a repeat
--- code may run across the boundary between them (RFC 1951 3.2.7)
 local function decode_huffman_codes(buf, codelentable, nlit_codes, ndist_codes)
 	local init = {}
 	local nbits
@@ -467,9 +421,9 @@ local function decode_huffman_codes(buf, codelentable, nlit_codes, ndist_codes)
 end
 
 local function parse_huffmantables(buf)
-	local hlit = noeof(read_bits(buf, 5)) -- # of literal/length codes - 257
-	local hdist = noeof(read_bits(buf, 5)) -- # of distance codes - 1
-	local hclen = noeof(read_bits(buf, 4)) -- # of code length codes - 4
+	local hlit = noeof(read_bits(buf, 5))
+	local hdist = noeof(read_bits(buf, 5))
+	local hclen = noeof(read_bits(buf, 4))
 	local codelen_init = {}
 	local codelen_vals = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15}
 
@@ -618,10 +572,8 @@ local DIST_EXTRA = ffi.new(
 		13,
 	}
 )
--- Below this length, ffi.copy's call overhead outweighs what it saves over a plain loop
 local COPY_FFI_THRESHOLD = 32
 
--- the whole block runs on locals, the state tables are only synced around the rare slow paths
 local function inflate_huffman_block(state, outstate, lit, dist)
 	local ptr = state.ptr
 	local size = state.size
@@ -742,7 +694,6 @@ local function inflate_huffman_block(state, outstate, lit, dist)
 			if distance >= len and len >= COPY_FFI_THRESHOLD then
 				ffi.copy(outptr + outpos, outptr + src, len)
 			else
-				-- overlapping copies repeat bytes written earlier in this same copy
 				for i = 0, len - 1 do
 					outptr[outpos + i] = outptr[src + i]
 				end
@@ -785,7 +736,8 @@ local function parse_block(buf, outstate)
 	if btype == 0 then
 		align_to_byte(buf)
 		local len = noeof(read_bits(buf, 16))
-		noeof(read_bits(buf, 16)) -- one's complement of len
+		noeof(read_bits(buf, 16))
+
 		for i = 1, len do
 			output(outstate, noeof(read_bits(buf, 8)))
 		end
@@ -840,10 +792,8 @@ function deflate.gunzip(t)
 	if disable_crc then
 		inflate{input = inbuf, output = outbuf}
 	else
-		-- For CRC calculation, we need to intercept bytes
 		local crc_outbuf = get_output_buffer(nil)
 		inflate{input = inbuf, output = crc_outbuf}
-		-- Calculate CRC and copy to output
 		crc_outbuf:SetPosition(0)
 
 		while not crc_outbuf:TheEnd() do
@@ -855,7 +805,8 @@ function deflate.gunzip(t)
 
 	align_to_byte(inbuf)
 	local expected_crc32 = read_bits(inbuf, 32)
-	local isize = read_bits(inbuf, 32) -- ignored
+	local isize = read_bits(inbuf, 32)
+
 	if DEBUG then
 		debug("crc32=", expected_crc32)
 		debug("isize=", isize)
@@ -878,7 +829,6 @@ function deflate.adler32(byte, crc)
 	local s2 = (crc - s1) / 65536
 	s1 = (s1 + byte) % 65521
 	s2 = (s2 + s1) % 65521
-	-- 65521 is the largest prime smaller than 2^16
 	return s2 * 65536 + s1
 end
 
@@ -895,10 +845,8 @@ function deflate.inflate_zlib(t)
 	if disable_crc then
 		inflate{input = inbuf, output = outbuf}
 	else
-		-- For adler32 calculation, we need to intercept bytes
 		local crc_outbuf = get_output_buffer(nil)
 		inflate{input = inbuf, output = crc_outbuf}
-		-- Calculate adler32 and copy to output
 		crc_outbuf:SetPosition(0)
 
 		while not crc_outbuf:TheEnd() do

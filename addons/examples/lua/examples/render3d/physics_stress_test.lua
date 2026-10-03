@@ -1,7 +1,3 @@
--- Illustrates the lifted-corner tilt freeze fix: a box dropped with a large
--- tilted rotation used to lock into its pose (phantom manifold points held the
--- lifted corners in place). Now the lift is released once the pair is at rest
--- and the box settles flat onto the ground.
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")

@@ -6,7 +6,6 @@ render.flush_callbacks = render.flush_callbacks or {}
 render.flush_callback_order = render.flush_callback_order or {}
 render.is_flushing_callbacks = false
 render.stats = false
--- with render.stats on, whether the overlay is drawn or the counters only run
 render.stats_overlay = true
 local render_stats = import("goluwa/render/stats.lua")
 
@@ -60,8 +59,6 @@ end
 render.default_bindless_descriptor_capacities = {
 	textures = 4096,
 	cubemaps = 256,
-	-- Separate view-only texture array + sampler array, decoupled from the
-	-- combined `textures`/`cubemaps` arrays above (see TEXTURE_S / GetViewIndex / GetSamplerIndex).
 	views = 256,
 	samplers = 32,
 }
@@ -81,9 +78,6 @@ function render.GetBindlessDescriptorCapacities()
 	}
 end
 
---local renderdoc = import("goluwa/bindings/renderdoc.lua")
---if pcall(renderdoc.init) then render.renderdoc = renderdoc end
--- Check if shaderc is available before loading Vulkan
 local shaderc = import("goluwa/bindings/shaderc.lua")
 
 if not shaderc.available then
@@ -246,8 +240,7 @@ function render.Shutdown()
 
 		if
 			type_name:find("^vulkan_", 1) and
-			not instance_owned_types[type_name]
-			and
+			not instance_owned_types[type_name] and
 			not obj.__removed
 		then
 			leftover[#leftover + 1] = obj
@@ -275,7 +268,6 @@ function render.Shutdown()
 	render.shutting_down = false
 end
 
--- the pipeline cache is saved while running rather than on shutdown, so it survives a crash
 local function start_saving_pipeline_cache(path)
 	local saved_generation = vulkan_instance:GetPipelineCacheGeneration()
 	local seen_generation = saved_generation
@@ -288,7 +280,6 @@ local function start_saving_pipeline_cache(path)
 
 		local time = system.GetTime()
 
-		-- pipelines are usually created in bursts, wait for one to end
 		if generation ~= seen_generation then
 			seen_generation = generation
 			changed_at = time
@@ -298,7 +289,6 @@ local function start_saving_pipeline_cache(path)
 		if time - changed_at < 2 then return end
 
 		saved_generation = generation
-		-- write and rename so another instance or a crash never leaves a partial file behind
 		local temp_path = path .. "." .. tostring(system.GetTimeNS()):strip_suffix("ULL") .. ".tmp"
 		assert(fs.write_file(temp_path, vulkan_instance:GetPipelineCacheData()))
 		assert(os.rename(temp_path, path))
@@ -313,7 +303,6 @@ function render.Initialize(config)
 	local pipeline_cache_data = fs.read_file(pipeline_cache_path)
 
 	if not is_headless then
-		-- Windowed mode: create window and surface
 		local wnd = assert(
 			system.GetWindow(),
 			"render.Initialize() requires a window; call system.OpenWindow() first"
@@ -322,10 +311,9 @@ function render.Initialize(config)
 		vulkan_instance = VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 		local size = wnd:GetSize()
 		render.target = vulkan_instance:CreateWindowRenderTarget{
-			present_mode = "immediate_khr", --"fifo_khr",
+			present_mode = "immediate_khr",
 			enable_hdr = _G.HDR,
-			image_count = nil, -- Use default (minImageCount + 1)
-			--surface_format_index = 1,
+			image_count = nil,
 			composite_alpha = "opaque_khr",
 			width = size.x,
 			height = size.y,
@@ -339,8 +327,6 @@ function render.Initialize(config)
 			offscreen = true,
 			width = width,
 			height = height,
-			-- sRGB like the windowed swapchain, so linear pipeline output is
-			-- encoded identically in both modes.
 			format = "r8g8b8a8_srgb",
 			usage = {"color_attachment", "transfer_src"},
 			samples = "1",
@@ -373,7 +359,9 @@ function render.Initialize(config)
 			event.Call("Draw", dt)
 			event.Call("PostDraw", dt)
 
-			if render.stats and render.stats_overlay then render_stats.DrawOverlay(render.GetCommandBuffer()) end
+			if render.stats and render.stats_overlay then
+				render_stats.DrawOverlay(render.GetCommandBuffer())
+			end
 
 			render.EndFrame()
 		end
@@ -662,7 +650,6 @@ do
 		["depth_stencil_read_only_optimal"] = {srcStage = "fragment", srcAccess = "shader_read"},
 		["present_src_khr"] = {srcStage = "color_attachment_output", srcAccess = "color_attachment_write"},
 	}
-	-- Destination access based on target layout
 	local layout_dst_access = {
 		["general"] = {dstStage = "compute", dstAccess = "shader_write"},
 		["shader_read_only_optimal"] = {dstStage = "fragment", dstAccess = "shader_read"},
@@ -1183,9 +1170,6 @@ end
 do
 	local cache = {}
 
-	-- bytes per texel of an uncompressed single plane format, read from its name:
-	-- packed formats say their size, the rest are the sum of their channels.
-	-- block compressed, stencil and multi plane formats have no single answer
 	function render.GetVulkanFormatSize(format)
 		local size = cache[format]
 
@@ -1246,10 +1230,10 @@ end
 
 function render.TriggerValidationError()
 	local create_info = vulkan.vk.VkBufferCreateInfo{
-		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO + 10, -- INVALID STYPE,
+		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO + 10,
 		pNext = nil,
-		flags = 1110, -- INVALID FLAGS
-		size = 0, -- INVALID SIZE
+		flags = 1110,
+		size = 0,
 		usage = vulkan.vk.VkBufferUsageFlagBits.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 		sharingMode = vulkan.vk.VkSharingMode.VK_SHARING_MODE_EXCLUSIVE,
 		queueFamilyIndexCount = 0,

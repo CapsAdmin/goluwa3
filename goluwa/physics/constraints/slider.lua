@@ -1,16 +1,10 @@
 local Constraint = import("goluwa/physics/constraint.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
 local objects = import("goluwa/objects/objects.lua")
--- Prismatic joint: the bodies slide along one axis and are locked in every
--- other direction. The travel can be limited, driven by a motor and slowed by
--- friction.
 local META = objects.CreateTemplate("physics_slider_constraint")
 META.Base = Constraint
 local INFINITY = math.huge
 
--- config: CollideConnected (default false), LowerTranslation and
--- UpperTranslation (from the pose at creation), MotorSpeed with MaxMotorForce,
--- Friction (force), BreakForce, BreakTorque
 function META.New(body_0, body_1, world_anchor, world_axis, config)
 	config = config or {}
 	local self = META:CreateObject{

@@ -37,7 +37,8 @@ end
 
 local function waveform()
 	local t = (time * 8)
-	local w = 0 --pwm(30, math.tan(t))
+	local w = 0
+
 	if t % 1 > 0.9 and t % 1 < 0.95 then w = w + (math.random() * math.sin(t)) end
 
 	if t % 8 < 0.5 then w = w + math.random() end

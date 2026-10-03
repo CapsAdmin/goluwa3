@@ -6,7 +6,7 @@ META:StartStorable()
 META:GetSet("ResizeBorder", 1)
 META:GetSet("MinimumSize", Vec2(4, 3))
 META:EndStorable()
-local active = nil -- the tui_resizable component being dragged
+local active = nil
 local drag_start_col = 0
 local drag_start_row = 0
 local drag_start_w = 0

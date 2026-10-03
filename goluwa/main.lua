@@ -1,5 +1,4 @@
 require("goluwa.global_environment")
---
 local crash_trace = import("goluwa/bindings/crash_trace.lua")
 crash_trace.Install()
 local event = import("goluwa/event.lua")
@@ -23,8 +22,8 @@ local lrun = import("goluwa/lrun.lua")
 import.loadfile = vfs.LoadFile
 vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
-import("goluwa/test.lua") -- add test command
-import("goluwa/cli/bench.lua") -- add bench command
+import("goluwa/test.lua")
+import("goluwa/cli/bench.lua")
 commands.Add{
 	command = "global_flags",
 	flags = {
@@ -60,7 +59,7 @@ commands.Add{
 		},
 	},
 	callback = function(...)
-		local flags = select(select("#", ...), ...) -- flags is always last
+		local flags = select(select("#", ...), ...)
 		_G.AUDIO = not flags["no-audio"]
 		_G.SERVER = flags.server
 		_G.CLIENT = not SERVER
@@ -150,6 +149,7 @@ end)
 local function run_game()
 	import("goluwa/cli/pvars.lua").Initialize()
 	import("goluwa/cli/repl.lua").Initialize()
+
 	if HOT_RELOAD then import("goluwa/filesystem/watcher.lua").Start() end
 
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
@@ -263,7 +263,6 @@ crash_trace.Run(function()
 		if captured_flags[1] then
 			commands.RunArguments({"global_flags", unpack(captured_flags)})
 		elseif remaining_args and remaining_args[1] == "bench" then
-			-- bench starts a process per benchmark, it needs no gpu itself
 			commands.RunArguments({"global_flags", "--cli"})
 		else
 			commands.RunArguments({"global_flags", "--3d"})

@@ -310,7 +310,6 @@ local function matrix_template(X, Y, identity)
 end
 
 local out = {matrix_template = matrix_template}
--- Matrix44 and Matrix33 is handled separately
 local variants = {
 	{2, 2},
 	{2, 3},

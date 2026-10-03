@@ -24,13 +24,10 @@ T.Test("panel ui objects in config array are added as children not flattened", f
 	local child1 = Panel.New({Name = "Child1"})
 	local grandchild1 = Panel.New({Name = "GrandChild1"})
 	child1:AddChild(grandchild1)
-
 	local child2 = Panel.New({Name = "Child2"})
 	local grandchild2 = Panel.New({Name = "GrandChild2"})
 	child2:AddChild(grandchild2)
-
 	local parent = Panel.New{Name = "Parent", Children = {child1, child2}}
-
 	T(#parent:GetChildren())["=="](2)
 	T(parent:GetChildren()[1])["=="](child1)
 	T(parent:GetChildren()[2])["=="](child2)

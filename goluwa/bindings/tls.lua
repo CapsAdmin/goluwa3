@@ -1,4 +1,3 @@
--- these have mostly all been thrown up by ai and likely need fixing
 local ffi = require("ffi")
 local ssl = {}
 local callbacks = {}

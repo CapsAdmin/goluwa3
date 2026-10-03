@@ -56,7 +56,6 @@ function gine.env.include(path)
 end
 
 function gine.env.module(name, env)
-	--logn("gine: module(",name,")")
 	local tbl = package.loaded[name] or gine.env[name] or {}
 
 	if env == package.seeall then
@@ -80,7 +79,6 @@ end
 local require = require("goluwa.require")
 
 function gine.env.require(name, ...)
-	--logn("gine: require(",name,")")
 	local func, err, path = require.load(name, gine.package_loaders)
 
 	if type(func) == "function" then

@@ -160,7 +160,7 @@ function codec.DecodeFile(path, lib)
 	return nil, last_err or ("no decoder accepted " .. tostring(path))
 end
 
-do -- vfs extension
+do
 	function codec.WriteFile(lib, path, ...)
 		return vfs.Write(path, codec.Encode(lib, ...))
 	end

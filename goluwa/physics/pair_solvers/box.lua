@@ -77,10 +77,6 @@ local function get_other_axis_indices(axis_index)
 	return 1, 2
 end
 
--- face corners reuse the same SetVecMul world transform as the old cached
--- polyhedron path (bit-identical values) but only for the four corners of the
--- requested face, into the slot's persistent points, without the 8-vertex
--- polyhedron rebuild or allocations
 local FACE_LOCAL_POINT = Vec3(0, 0, 0)
 local FACE_AXES = {Vec3(), Vec3(), Vec3()}
 local EDGE_AXES = {Vec3(), Vec3(), Vec3()}
@@ -95,8 +91,6 @@ local function fill_body_axes(axes, body)
 	return axes
 end
 
--- local corner coefficients per face, in the same per-face ordering as the
--- polyhedron's BOX_FACE_INDICES so clipping sees identical point sequences
 local FACE_CORNERS = {
 	{
 		{1, -1, -1},
@@ -253,7 +247,6 @@ local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, 
 
 	if overlap <= 0 then return false end
 
-	-- candidate doubles as the resolved result; UpdateBestAxis copies values
 	candidate.overlap = overlap
 	candidate.normal = convex_sat.SetOrientedNormal(candidate.normal, normal, distance)
 	convex_sat.UpdateBestAxis(best, candidate)
@@ -636,8 +629,6 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 		if temporal then return true end
 	end
 
-	-- a body that travelled further than its smallest half extent may have
-	-- crossed a thin static box, where the SAT would push it out the far side
 	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
 	if static_body then
