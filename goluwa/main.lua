@@ -53,6 +53,10 @@ commands.Add{
 			type = "boolean",
 			description = "Present to an HDR swapchain when the display supports one",
 		},
+		["hot-reload"] = {
+			type = "boolean",
+			description = "Reload lua files when they change on disk",
+		},
 	},
 	callback = function(...)
 		local flags = select(select("#", ...), ...) -- flags is always last
@@ -63,6 +67,7 @@ commands.Add{
 		_G.RENDER_2D = not flags.headless and not flags.cli and not flags.server
 		_G.RENDER_3D = flags["3d"]
 		_G.HDR = flags.hdr
+		_G.HOT_RELOAD = flags["hot-reload"]
 
 		if flags.debug then process.setenv("GOLUWA_DEBUG", "1") end
 
@@ -141,7 +146,8 @@ end)
 local function run_game()
 	import("goluwa/cli/pvars.lua").Initialize()
 	import("goluwa/cli/repl.lua").Initialize()
-	import("goluwa/filesystem/watcher.lua").Start()
+	if HOT_RELOAD then import("goluwa/filesystem/watcher.lua").Start() end
+
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
 
 	event.AddListener("ShutDown", function()
