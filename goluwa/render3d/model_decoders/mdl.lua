@@ -850,7 +850,7 @@ local function load_phy(path)
 		buffer:SetPosition(solid_start + surface_size)
 	end
 
-	local text = buffer:ReadString(buffer:GetSize() - buffer:GetPosition())
+	local text = buffer:ReadString(tonumber(buffer:GetSize() - buffer:GetPosition()))
 	local index = 0
 
 	for block in text:gmatch("solid%s*(%b{})") do
