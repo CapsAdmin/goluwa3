@@ -145,6 +145,11 @@ function RayTracingPipeline.New(device, config)
 		"failed to create ray tracing pipeline"
 	)
 	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
+
+	for i = 1, stage_count do
+		stage_modules[i]:Remove()
+	end
+
 	local get_handle_size = device:TryGetExtension("vkGetRayTracingShaderGroupHandleSizeKHR")
 	local handle_size = get_handle_size and get_handle_size(device.ptr[0]) or 32
 	local get_handles = device:GetExtension("vkGetRayTracingShaderGroupHandlesKHR")

@@ -250,12 +250,12 @@ function test._CreateTestTask(name, cb, start, stop, options)
 	-- Start timing for this file if this is the first test
 	if tests_by_file[current_test_name] == 1 then
 		current_test_start_time = system.GetTime()
-		current_test_start_gc = process.current:get_residential_memory_kb()
+		current_test_start_gc = collectgarbage("count")
 	end
 
 	-- Capture start time when test is added to queue
 	local test_start_time = system.GetTime()
-	local test_start_gc = process.current:get_residential_memory_kb()
+	local test_start_gc = collectgarbage("count")
 	-- Need to capture task info before closure
 	local task_failed = false
 	local task_error = nil
@@ -295,7 +295,7 @@ function test._CreateTestTask(name, cb, start, stop, options)
 		function(self, res)
 			-- OnFinish
 			local test_time = system.GetTime() - test_start_time
-			local test_gc = process.current:get_residential_memory_kb() - test_start_gc
+			local test_gc = collectgarbage("count") - test_start_gc
 			local file = test_file_name
 
 			if file and tests_by_file[file] then
@@ -376,7 +376,7 @@ function test._CreateTestTask(name, cb, start, stop, options)
 
 			-- Record test completion even on failure
 			local test_time = system.GetTime() - test_start_time
-			local test_gc = process.current:get_residential_memory_kb() - test_start_gc
+			local test_gc = collectgarbage("count") - test_start_gc
 			local file = test_file_name
 
 			if file and tests_by_file[file] then
@@ -450,7 +450,7 @@ function test._CreatePendingTask(name, options)
 	-- Start timing for this file if this is the first test
 	if tests_by_file[current_test_name] == 1 then
 		current_test_start_time = system.GetTime()
-		current_test_start_gc = process.current:get_residential_memory_kb()
+		current_test_start_gc = collectgarbage("count")
 	end
 
 	local task = tasks.CreateTask(
@@ -1271,6 +1271,10 @@ local threads = import("goluwa/bindings/threads.lua")
 local system = import("goluwa/system.lua")
 local colors = import("goluwa/cli/colors.lua")
 local commands = import("goluwa/cli/commands.lua")
+local json = import("goluwa/codecs/json.lua")
+local vfs = import("goluwa/vfs.lua")
+local MAX_PARALLEL_FILES = 8
+local UNKNOWN_FILE_DURATION = 5
 
 commands.Add({
 	aliases = "test",
@@ -1291,6 +1295,10 @@ commands.Add({
 		["no-separate"] = {
 			type = "boolean",
 			description = "Run in-process instead of spawning one process per file",
+		},
+		jobs = {
+			type = "number",
+			description = "Maximum number of test files running at once (default 8)",
 		},
 		["no-parallel"] = {
 			type = "boolean",
@@ -1461,7 +1469,16 @@ commands.Add({
 		local running = {}
 		local pending = {}
 		-- local max_running = parallel and math.min(threads.get_thread_count(), 4) or 1
-		local max_running = parallel and threads.get_thread_count() or 1
+		local max_running = parallel and
+			math.min(flags.jobs or MAX_PARALLEL_FILES, threads.get_thread_count()) or
+			1
+		local durations_path = vfs.GetStorageDirectory("storage") .. "logs/test_durations.json"
+		local durations = {}
+		local durations_content = fs.read_file(durations_path)
+
+		if durations_content and durations_content ~= "" then
+			durations = json.decode(durations_content)
+		end
 
 		-- Pre-load Vulkan library in the main thread before spawning workers.
 		-- Multiple threads calling dlopen("libvulkan.so") simultaneously triggers
@@ -1472,9 +1489,30 @@ commands.Add({
 			vk.find_library()
 		end)
 
+		-- the loader unloads the driver when the last instance is destroyed, which
+		-- races with a worker that is creating its instance at that moment
+		local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+		local keepalive_instance = require("ffi").typeof("$[1]", vulkan.vk.VkInstance)()
+		vulkan.assert(
+			vulkan.lib.vkCreateInstance(vulkan.vk.s.InstanceCreateInfo{
+				flags = 0,
+				enabledLayerCount = 0,
+				enabledExtensionCount = 0,
+			}, nil, keepalive_instance),
+			"failed to create keepalive instance"
+		)
+
 		for i, test_item in ipairs(tests) do
 			pending[i] = test_item
 		end
+
+		-- longest files first so they don't become the tail of the run
+		table.sort(pending, function(a, b)
+			local da = durations[a.name] or UNKNOWN_FILE_DURATION
+			local db = durations[b.name] or UNKNOWN_FILE_DURATION
+			if da ~= db then return da > db end
+			return a.name < b.name
+		end)
 
 		print(
 			max_running == 1 and
@@ -1559,6 +1597,7 @@ commands.Add({
 						io.flush()
 					end
 
+					durations[t.test_name] = system.GetTime() - t.start_time
 					t:close()
 					collectgarbage("collect")
 					table.remove(running, i)
@@ -1580,6 +1619,8 @@ commands.Add({
 			end
 		end
 
+		fs.create_directory_recursive(vfs.GetStorageDirectory("storage") .. "logs/")
+		fs.write_file(durations_path, json.encode(durations))
 		io.write("ran " .. total_test_count .. " tests in " .. total_test_file_count .. " files\n")
 		io.write("total time: " .. string.format("%.2f", end_time - start_time) .. "s\n")
 		io.flush()

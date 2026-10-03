@@ -101,6 +101,7 @@ render.available = true
 local VulkanInstance = import("goluwa/render/vulkan/vulkan_instance.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
+local objects = import("goluwa/objects/objects.lua")
 local vfs = import("goluwa/vfs.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
@@ -217,6 +218,16 @@ function render.CanCreateResources()
 	return render.IsInitialized() or render.initializing
 end
 
+local instance_owned_types = {
+	vulkan_instance = true,
+	vulkan_device = true,
+	vulkan_physical_device = true,
+	vulkan_surface = true,
+	vulkan_pipeline_cache = true,
+	vulkan_command_pool = true,
+	vulkan_queue = true,
+}
+
 function render.Shutdown()
 	if render.shutting_down then return end
 
@@ -226,6 +237,26 @@ function render.Shutdown()
 	event.RemoveListener("Update", "window_update")
 
 	if render.target:IsValid() then render.target:Remove() end
+
+	collectgarbage("collect")
+	local leftover = {}
+
+	for obj in pairs(objects.GetCreated()) do
+		local type_name = obj.Type
+
+		if
+			type_name:find("^vulkan_", 1) and
+			not instance_owned_types[type_name]
+			and
+			not obj.__removed
+		then
+			leftover[#leftover + 1] = obj
+		end
+	end
+
+	for i = 1, #leftover do
+		leftover[i]:Remove()
+	end
 
 	if vulkan_instance:IsValid() then vulkan_instance:Remove() end
 
@@ -330,7 +361,7 @@ function render.Initialize(config)
 		render.target:RebuildFramebuffers()
 	end)
 
-	event.AddListener("Shutdown", "render_shutdown", function()
+	event.AddListener("ShutDown", "render_shutdown", function()
 		render.Shutdown()
 	end)
 

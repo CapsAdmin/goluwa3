@@ -142,7 +142,20 @@ end
 function ShaderModule:OnRemove()
 	local record = self.cache_record
 
-	if not record then return end
+	if not record then
+		if self.device:IsValid() then
+			local device = self.device
+			local device_ptr = device.ptr[0]
+			local shader_module_ptr = self.ptr[0]
+			self.ptr[0] = nil
+
+			device:DeferRelease(function()
+				vulkan.lib.vkDestroyShaderModule(device_ptr, shader_module_ptr, nil)
+			end)
+		end
+
+		return
+	end
 
 	self.cache_record = nil
 	record.ref_count = math.max((record.ref_count or 1) - 1, 0)

@@ -79,6 +79,7 @@ do
 	function CallbackState.New()
 		local self = setmetatable({}, meta)
 		self.guest_state = LuaState.New()
+		self.host_thread = coroutine.running()
 		self.host_state = LuaState.GetMainLuaState()
 		local ptr = self.guest_state:Run(callback_source)
 		self.debug_callback_ptr = ffi.cast(vulkan.vk.PFN_vkDebugUtilsMessengerCallbackEXT, ptr)
