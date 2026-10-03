@@ -102,8 +102,8 @@ function frame_benchmark.Run(config)
 	local lead_in = config.lead_in or 3
 	local measure = config.measure or 20
 
-	if os.getenv("GOLUWA_DEBUG") == "1" then
-		print_result("WARNING: --debug enables the Vulkan validation layers, cpu times are about 3x too high")
+	if os.getenv("GOLUWA_VALIDATE") == "1" then
+		print_result("WARNING: --validate enables the Vulkan validation layers, cpu times are about 3x too high")
 	end
 
 	if HOT_RELOAD then

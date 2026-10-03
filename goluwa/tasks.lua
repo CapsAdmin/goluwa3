@@ -3,6 +3,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local objects = import("goluwa/objects/objects.lua")
 local callstack = import("goluwa/debug/callstack.lua")
+local protected_call = import("goluwa/protected_call.lua")
 local tasks = library()
 tasks.max = 128
 tasks.coroutine_lookup = tasks.coroutine_lookup or table.weak("kv")
@@ -53,6 +54,8 @@ function META:Start(now, ...)
 			else
 				logf("%s error: %s\n", self, err)
 			end
+
+			if protected_call.debug then error(err, 0) end
 		end
 
 		local ok, err = callstack.pcall(self.OnFinish, self)
@@ -63,6 +66,8 @@ function META:Start(now, ...)
 			else
 				logf("%s error: %s\n", self, err)
 			end
+
+			if protected_call.debug then error(err, 0) end
 		end
 
 		event.Call("TaskFinished", self)
@@ -167,6 +172,9 @@ function META:Start(now, ...)
 
 				self.Running = false
 				self:Remove()
+
+				if protected_call.debug then error(res, 0) end
+
 				return true
 			end
 

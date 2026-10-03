@@ -186,7 +186,6 @@ end
 
 function crash_trace.Run(func, ...)
 	local std_err = io.stderr
-	local exit = os.exit
 	crash_trace.Install()
 	local args = {...}
 	local result = {
@@ -198,7 +197,7 @@ function crash_trace.Run(func, ...)
 	if result[1] then return unpack(result, 2) end
 
 	std_err:write(result[2], "\n")
-	exit(1)
+	os.realexit(1)
 end
 
 return crash_trace
