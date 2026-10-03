@@ -32,7 +32,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local LAND_HEIGHT = 3
 local LAKE = {x = -70, z = 60, radius = 30, surface = 2.3, depth = 9}

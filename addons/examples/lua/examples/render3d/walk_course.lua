@@ -1,6 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 
 local function make_rotation(pitch, yaw, roll)
 	return Quat():SetAngles(Deg3(pitch or 0, yaw or 0, roll or 0))

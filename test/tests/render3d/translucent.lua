@@ -4,6 +4,7 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -44,7 +45,7 @@ T.Test3D("Graphics render3d translucent materials draw forward over the lit scen
 		},
 	}
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local created = {}
@@ -121,7 +122,7 @@ T.Test3D("Graphics render3d refractive materials transmit and blur what is behin
 		},
 	}
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local created = {}
@@ -210,7 +211,7 @@ T.Test3D("Graphics render3d translucent surfaces blend in depth order, whatever 
 		},
 	}
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local created = {}

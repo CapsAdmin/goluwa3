@@ -1,4 +1,5 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 -- one unit sphere per tessellation, sized by the primitive's scale. building
 -- and uploading a fresh one per sphere is most of the time a scene of many
@@ -17,7 +18,7 @@ return {
 
 		if not poly then
 			poly = Polygon3D.New()
-			poly:CreateSphere(0.5, segments, rings)
+			shapes.BuildSphere(poly, 0.5, segments, rings)
 			poly:BuildBoundingBox()
 			poly:Upload()
 			meshes[key] = poly

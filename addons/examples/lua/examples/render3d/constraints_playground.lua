@@ -20,7 +20,7 @@ local input = import("goluwa/input.lua")
 local physics = import("goluwa/physics.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local constraints = import("goluwa/physics/constraints.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local ORIGIN = Vec3(34, -1.5, -8)
 local SPACING = 14
 local SCENE = {breakables = {}}

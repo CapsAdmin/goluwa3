@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
@@ -18,7 +19,7 @@ local FloatPtr = ffi.typeof("float *")
 -- meshes
 local function create_cube(size)
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(size or 1)
+	shapes.BuildCube(polygon3d, size or 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	return polygon3d

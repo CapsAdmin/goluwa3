@@ -3,6 +3,7 @@ local ffi = require("ffi")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -27,7 +28,7 @@ end
 
 T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local created = {}
@@ -122,7 +123,7 @@ do
 
 	T.Test3D("Graphics render3d ddgi rays hit scene geometry", function(draw)
 		local polygon3d = Polygon3D.New()
-		polygon3d:CreateCube(1)
+		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
 		local created = {}
@@ -168,7 +169,7 @@ do
 	-- the same box with its roof removed is lit by the sky.
 	T.Test3D("Graphics render3d ddgi does not leak into a sealed box", function(draw)
 		local polygon3d = Polygon3D.New()
-		polygon3d:CreateCube(1)
+		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
 		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -219,7 +220,7 @@ do
 	-- still picks up is noise next to a leak.
 	T.Test3D("Graphics render3d ddgi point light outside a sealed room does not light it", function(draw)
 		local polygon3d = Polygon3D.New()
-		polygon3d:CreateCube(1)
+		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
 		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -276,7 +277,7 @@ do
 	-- samples have to find it for it to light the room.
 	T.Test3D("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
 		local polygon3d = Polygon3D.New()
-		polygon3d:CreateCube(1)
+		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
 		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -353,7 +354,7 @@ T.Test3D("Graphics render3d ddgi material buffer marks materials without an albe
 	local ffi = require("ffi")
 	local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local material = Material.New{ColorMultiplier = Color(0.25, 0.5, 0.75, 1)}

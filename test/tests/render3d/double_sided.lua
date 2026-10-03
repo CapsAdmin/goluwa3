@@ -5,6 +5,7 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -14,7 +15,7 @@ local Color = import("goluwa/structs/color.lua")
 -- the -z side of a cube, which a camera on +z only sees the back of
 local function create_back_facing_quad()
 	local cube = Polygon3D.New()
-	cube:CreateCube(0.5, 1.0)
+	shapes.BuildCube(cube, 0.5, 1.0)
 	local poly = Polygon3D.New()
 
 	for i = 1, #cube.Vertices, 3 do

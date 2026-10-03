@@ -10,6 +10,7 @@ local T = import("test/environment.lua")
 local ffi = require("ffi")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -67,7 +68,7 @@ end
 
 T.Test3D("Graphics render3d scene bvh incremental build matches full rebuild", function(draw)
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local ents = {}
@@ -151,7 +152,7 @@ end)
 -- has to come out of the bake with its own transform and material
 T.Test3D("Graphics render3d scene bvh instances share shapes but keep their transforms", function(draw)
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local plain = Material.New{Color = Color(0.8, 0.8, 0.8, 1)}
@@ -243,7 +244,7 @@ end)
 -- and had blocks moved
 T.Test3D("Graphics render3d scene bvh frustum marks match testing every block", function(draw)
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local material = Material.New{Color = Color(0.8, 0.8, 0.8, 1)}

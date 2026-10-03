@@ -2,7 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local ORIGIN = Vec3(70, 0, -8)
 
 local function make_rotation(pitch, yaw, roll)

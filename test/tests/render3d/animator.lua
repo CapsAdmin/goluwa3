@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Skeleton = import("goluwa/render3d/skeleton.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
@@ -38,7 +39,7 @@ end
 
 local function create_animated_entity(skeleton)
 	local poly = Polygon3D.New()
-	poly:CreateCube(0.5, 1.0)
+	shapes.BuildCube(poly, 0.5, 1.0)
 	poly:Upload()
 	local count = poly.mesh.vertex_buffer:GetVertexCount()
 	poly.Skin = {

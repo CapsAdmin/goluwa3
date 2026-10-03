@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
 local ModelPreview = import("goluwa/render3d/model_preview.lua")
@@ -22,7 +23,7 @@ end
 
 local function create_entity(offset)
 	local poly = Polygon3D.New()
-	poly:CreateCube(0.5, 1.0)
+	shapes.BuildCube(poly, 0.5, 1.0)
 
 	if offset then
 		for _, vertex in ipairs(poly.Vertices) do
@@ -62,7 +63,7 @@ end
 
 local function create_textured_entity()
 	local poly = Polygon3D.New()
-	poly:CreateCube(0.5, 1.0)
+	shapes.BuildCube(poly, 0.5, 1.0)
 	poly:Upload()
 	local material = Material.New{
 		AlbedoTexture = create_solid_texture(1, 0, 0, 1),
@@ -136,7 +137,7 @@ T.Test3D("Model preview draws the back faces of double sided materials", functio
 	-- show their backs
 	local function render_far_faces(double_sided)
 		local cube = Polygon3D.New()
-		cube:CreateCube(0.5, 1.0)
+		shapes.BuildCube(cube, 0.5, 1.0)
 		local poly = Polygon3D.New()
 
 		for i = 1, #cube.Vertices, 3 do

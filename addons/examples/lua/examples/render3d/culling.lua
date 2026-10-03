@@ -5,6 +5,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local system = import("goluwa/system.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 
@@ -14,7 +15,7 @@ local function spawn_sphere(pos, scale, color, use_occlusion)
 	trans:SetPosition(pos)
 	trans:SetScale(scale or Vec3(1, 1, 1))
 	local poly = Polygon3D.New()
-	poly:CreateSphere(1, 16, 16)
+	shapes.BuildSphere(poly, 1, 16, 16)
 	poly:Upload()
 	local material = Material.New{
 		ColorMultiplier = color or Color(1, 1, 1, 1),

@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local assets = import("goluwa/assets.lua")
 -- probe visibility rays leave hard dark crescents on the spheres
 import("goluwa/render3d/ddgi.lua").VISIBILITY_RAYS = 0

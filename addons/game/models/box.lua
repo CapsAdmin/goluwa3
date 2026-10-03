@@ -1,4 +1,5 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 return {
 	name = "box",
@@ -8,7 +9,7 @@ return {
 		options = options or {}
 		local size = options.size or Vec3(1, 1, 1)
 		local poly = Polygon3D.New()
-		poly:CreateCube(0.5, 1, options.subdivisions)
+		shapes.BuildCube(poly, 0.5, 1, options.subdivisions)
 		poly:BuildBoundingBox()
 		poly:Upload()
 		return {

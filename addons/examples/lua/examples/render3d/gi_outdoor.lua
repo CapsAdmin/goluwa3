@@ -50,7 +50,7 @@ local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local View = import("goluwa/render3d/view.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local root = Entity.New{Name = "gi_outdoor"}
 local night = os.getenv("GI_NIGHT") ~= nil
 

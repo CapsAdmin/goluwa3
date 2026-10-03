@@ -4,6 +4,7 @@ local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -52,14 +53,14 @@ T.Test3D("Polygon3D", function(draw)
 	-- ============================================================================
 	T.Test3D("Graphics Polygon3D CreateCube", function()
 		local poly = Polygon3D.New()
-		poly:CreateCube(1.0, 1.0)
+		shapes.BuildCube(poly, 1.0, 1.0)
 		-- Cube has 6 faces * 6 vertices (2 triangles) = 36 vertices
 		T(#poly.Vertices)["=="](36)
 	end)
 
 	T.Test3D("Graphics Polygon3D CreateCube with different size", function()
 		local poly = Polygon3D.New()
-		poly:CreateCube(2.0, 1.0)
+		shapes.BuildCube(poly, 2.0, 1.0)
 		T(#poly.Vertices)["=="](36)
 		-- Check first vertex has correct scaled position
 		T(math.abs(poly.Vertices[1].pos.x))["~"](2.0)
@@ -183,7 +184,7 @@ T.Test3D("Polygon3D", function(draw)
 		local size = Vec2(10, 10)
 		local res = Vec2(2, 2)
 		local height = 10
-		poly:LoadHeightmap(mock_tex, size, res, Vec2(1, 1), height)
+		shapes.BuildHeightmap(poly, mock_tex, size, res, Vec2(1, 1), height)
 		-- 2x2 resolution means 4 cells
 		-- Each cell has 4 triangles = 12 vertices
 		-- Total 4 * 12 = 48 vertices
@@ -214,7 +215,7 @@ T.Test3D("Polygon3D", function(draw)
 		local res = Vec2(1, 1)
 		local height = 10
 		local pow = 2
-		poly:LoadHeightmap(mock_tex, size, res, Vec2(1, 1), height, pow)
+		shapes.BuildHeightmap(poly, mock_tex, size, res, Vec2(1, 1), height, pow)
 		local found_expected_y = false
 		local expected_val = (((128 + 128 + 128 + 255) / 4) / 255) ^ pow * height - (height / 2)
 
@@ -289,7 +290,7 @@ T.Test3D("Polygon3D", function(draw)
 
 	T.Test3D("Graphics Polygon3D render cube", function(draw)
 		local poly = Polygon3D.New()
-		poly:CreateCube(0.5, 1.0)
+		shapes.BuildCube(poly, 0.5, 1.0)
 		poly:BuildNormals()
 		poly:Upload()
 		local sun = setup_view()

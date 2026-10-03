@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 
 local root = Entity.New{Name = "lumen_showcase"}
 

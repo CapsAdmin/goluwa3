@@ -3,6 +3,7 @@ local ffi = require("ffi")
 local event = import("goluwa/event.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -136,7 +137,7 @@ local function TestCamera(name, cb, opts)
 		if not opts.skip_center_cube then
 			do -- small white cube in the center
 				local poly = Polygon3D.New()
-				poly:CreateCube(0.5, 1.0)
+				shapes.BuildCube(poly, 0.5, 1.0)
 				poly:Upload()
 				local material = Material.New{
 					AlbedoTexture = white_tex,

@@ -5,6 +5,7 @@ local Color = import("goluwa/structs/color.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local ModelPreview = import("goluwa/render3d/model_preview.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
@@ -171,7 +172,7 @@ local function build_definitions()
 				return create_primitive_entity(
 					"preview_box",
 					function(poly)
-						poly:CreateCube(0.55, 1.0)
+						shapes.BuildCube(poly, 0.55, 1.0)
 					end,
 					create_material(Color(0.95, 0.42, 0.28, 1))
 				)
@@ -185,7 +186,7 @@ local function build_definitions()
 				return create_primitive_entity(
 					"preview_sphere",
 					function(poly)
-						poly:CreateSphere(0.62, 24, 16, 1.0)
+						shapes.BuildSphere(poly, 0.62, 24, 16, 1.0)
 					end,
 					create_material(Color(0.28, 0.72, 1.0, 1), Color(0.08, 0.16, 0.24, 1))
 				)
@@ -200,7 +201,7 @@ local function build_definitions()
 				return create_primitive_entity(
 					"preview_pillar",
 					function(poly)
-						poly:CreateCube(0.38, 1.0)
+						shapes.BuildCube(poly, 0.38, 1.0)
 					end,
 					create_material(Color(0.86, 0.8, 0.34, 1), Color(0.18, 0.14, 0.02, 1)),
 					{scale = Vec3(0.9, 2.2, 0.9)}
@@ -216,11 +217,10 @@ local function build_definitions()
 				return create_primitive_entity(
 					"preview_plate",
 					function(poly)
-						poly:CreatePlane(
+						shapes.BuildPlane(
+							poly,
 							Vec3(0, 0, 0),
 							Vec3(0, 0, 1),
-							Vec3(1, 0, 0),
-							Vec3(0, 1, 0),
 							0.8,
 							0.58,
 							1.0
@@ -241,7 +241,7 @@ local function build_definitions()
 				return create_primitive_entity(
 					"preview_diamond",
 					function(poly)
-						poly:CreateCube(0.46, 1.0)
+						shapes.BuildCube(poly, 0.46, 1.0)
 					end,
 					create_material(Color(0.4, 0.9, 0.78, 1), Color(0.04, 0.12, 0.1, 1)),
 					{angles = Ang3(0.7, 0.4, 0.3)}
@@ -259,7 +259,7 @@ local function build_definitions()
 				return create_primitive_entity(
 					"preview_offset_sphere",
 					function(poly)
-						poly:CreateSphere(0.48, 22, 14, 1.0)
+						shapes.BuildSphere(poly, 0.48, 22, 14, 1.0)
 
 						for _, vertex in ipairs(poly.Vertices) do
 							vertex.pos = vertex.pos + Vec3(0.38, 0.12, 0)

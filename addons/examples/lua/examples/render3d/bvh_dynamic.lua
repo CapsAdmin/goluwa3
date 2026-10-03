@@ -34,7 +34,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Event = import("goluwa/event.lua")
 local System = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 
 local function mat(color, roughness, metallic)
 	return shapes.Material{Color = color, Roughness = roughness, Metallic = metallic or 0}

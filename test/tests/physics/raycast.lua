@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -71,7 +72,7 @@ do
 		if position then ent.transform:SetPosition(position) end
 
 		local poly = Polygon3D.New()
-		poly:CreateCube(0.5, 1)
+		shapes.BuildCube(poly, 0.5, 1)
 		poly:BuildBoundingBox()
 		return ent, poly
 	end
@@ -107,7 +108,7 @@ do
 		local ent = Entity.New({Name = "test_cube"})
 		ent:AddComponent("transform")
 		local poly = Polygon3D.New()
-		poly:CreateCube(1, 1)
+		shapes.BuildCube(poly, 1, 1)
 		poly:BuildBoundingBox()
 		local source = make_source{make_model(ent, poly)}
 		-- Cast ray at center of cube from different directions
@@ -199,7 +200,7 @@ do
 		local ent = Entity.New({Name = "test_cube"})
 		ent:AddComponent("transform")
 		local poly = Polygon3D.New()
-		poly:CreateCube(1, 1)
+		shapes.BuildCube(poly, 1, 1)
 		poly:BuildBoundingBox()
 		local source = make_source{make_model(ent, poly)}
 		-- Cast and get only closest
@@ -213,7 +214,7 @@ do
 		local ent = Entity.New({Name = "test_cube"})
 		ent:AddComponent("transform")
 		local poly = Polygon3D.New()
-		poly:CreateCube(1, 1)
+		shapes.BuildCube(poly, 1, 1)
 		poly:BuildBoundingBox()
 		local source = make_source{make_model(ent, poly)}
 		-- Check if ray hits anything

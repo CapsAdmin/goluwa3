@@ -3,6 +3,7 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
 local Record = ffi.typeof([[struct {
 	uint32_t addresses[4];
@@ -29,7 +30,7 @@ end
 
 local function create_batches(count)
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:Upload()
 	local batches = {}
 
@@ -76,7 +77,7 @@ T.Test3D("Graphics render3d batch table zeroes the addresses of removed meshes",
 	local batch_table = create_table()
 	local batches = create_batches(2)
 	local removed = Polygon3D.New()
-	removed:CreateCube(5)
+	shapes.BuildCube(removed, 5)
 	removed:Upload()
 	batches[2] = {mesh = removed:GetMesh(), first_polygon3d = removed, value = 2}
 	removed:GetMesh():Remove()

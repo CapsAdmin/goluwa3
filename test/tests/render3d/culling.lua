@@ -5,6 +5,7 @@ local vk = import("goluwa/bindings/vk.lua")
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
@@ -57,7 +58,7 @@ end
 
 local function build_cube_polygon()
 	local polygon3d = Polygon3D.New()
-	polygon3d:CreateCube(1)
+	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	return polygon3d
@@ -1047,7 +1048,7 @@ local function spawn_sphere(pos, use_occlusion)
 	local trans = ent:AddComponent("transform")
 	trans:SetPosition(pos)
 	local poly = Polygon3D.New()
-	poly:CreateSphere(1, 16, 16)
+	shapes.BuildSphere(poly, 1, 16, 16)
 	poly:Upload()
 	local material = Material.New{
 		ColorMultiplier = Color(1, 1, 1, 1),

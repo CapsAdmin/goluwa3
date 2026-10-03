@@ -4,6 +4,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local render = import("goluwa/render/render.lua")
@@ -392,7 +393,7 @@ function debug_draw.GetUnitBoxPolygon()
 	if unit_box_poly then return unit_box_poly end
 
 	local poly = Polygon3D.New()
-	poly:CreateCube(0.5)
+	shapes.BuildCube(poly, 0.5)
 	poly:Upload()
 	unit_box_poly = poly
 	return unit_box_poly
@@ -402,7 +403,7 @@ function debug_draw.GetUnitSpherePolygon()
 	if unit_sphere_poly then return unit_sphere_poly end
 
 	local poly = Polygon3D.New()
-	poly:CreateSphere(1, 18, 10)
+	shapes.BuildSphere(poly, 1, 18, 10)
 	poly:Upload()
 	unit_sphere_poly = poly
 	return unit_sphere_poly

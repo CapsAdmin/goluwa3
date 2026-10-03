@@ -19,7 +19,7 @@ end
 local DistanceConstraint = import("goluwa/physics/constraints/distance.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local ORIGIN = Vec3(-34, -1.5, -8)
 local GROUND = ORIGIN
 

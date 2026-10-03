@@ -59,7 +59,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 
 local function mat(color, roughness, metallic)

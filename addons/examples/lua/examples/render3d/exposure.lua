@@ -37,7 +37,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local root = Entity.New{Name = "exposure_example"}
 
 local function box(name, position, size, material)

@@ -2,6 +2,7 @@ local steam = import("goluwa/steam/steam.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local assets = import("goluwa/assets.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local vfs = import("goluwa/vfs.lua")
@@ -24,16 +25,16 @@ local ground = Entity.New{Name = "crysis_vegetation_ground", Parent = Entity.Wor
 ground:AddComponent("transform")
 ground:AddComponent("visual")
 local ground_poly = Polygon3D.New()
-ground_poly:CreatePlane(
+shapes.BuildPlane(
+	ground_poly,
 	Vec3(0, 0, 0),
 	Vec3(0, 1, 0),
-	Vec3(1, 0, 0),
-	Vec3(0, 0, -1),
 	half_width,
 	half_depth,
 	1,
 	math.ceil(half_width / 5),
-	math.ceil(half_depth / 5)
+	math.ceil(half_depth / 5),
+	Vec3(0, 0, -1)
 )
 ground_poly:BuildBoundingBox()
 ground_poly:Upload()

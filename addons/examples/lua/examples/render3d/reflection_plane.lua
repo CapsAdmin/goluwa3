@@ -1,5 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local shapes = import("lua/shapes.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
 local reflection_mat = shapes.Material{
 	Albedo = [[
 		return vec4(0.8, 0.9, 1.0, 1.0);
