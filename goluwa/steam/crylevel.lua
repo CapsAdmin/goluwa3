@@ -8,6 +8,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
+local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local ffi = require("ffi")
 local read_u32_le, read_u16_le, read_f32_le
 local sample_terrain_height01_at_world
@@ -2273,7 +2274,15 @@ function crylevel.Apply(steam)
 		local level_name = level_dir:match("/([^/]+)/$") or level_dir
 		steam.cry_level_world:SetName(level_name)
 		steam.cry_level_world:RemoveChildren()
-		return steam.SpawnCryLevel(level_dir, steam.cry_level_world)
+		-- visuals that finish loading while the rest is still spawning would
+		-- otherwise let the scene look loaded in between
+		scene_loading.Begin()
+		local ok, result = pcall(steam.SpawnCryLevel, level_dir, steam.cry_level_world)
+		scene_loading.End()
+
+		if not ok then error(result, 0) end
+
+		return result
 	end
 end
 

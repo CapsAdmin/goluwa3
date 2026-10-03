@@ -1,4 +1,5 @@
 local event = import("goluwa/event.lua")
+local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local commands = import("goluwa/cli/commands.lua")
 local objects = import("goluwa/objects/objects.lua")
 -- Pre-register to break import cycle: visual -> render3d -> light -> visual
@@ -1083,6 +1084,18 @@ Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("MaterialSlotOverrides", nil)
 Visual:GetSet("AABB", create_empty_aabb())
 Visual:EndStorable()
+
+-- a loading visual holds the scene back from being ready, see scene_loading
+function Visual:SetLoading(loading)
+	loading = loading and true or false
+
+	if self.Loading == loading then return end
+
+	self.Loading = loading
+
+	if loading then scene_loading.Begin() else scene_loading.End() end
+end
+
 Visual:IsSet("Loading", false)
 
 function Visual:Initialize()
@@ -3264,6 +3277,7 @@ function Visual:OnAdd()
 end
 
 function Visual:OnRemove()
+	self:SetLoading(false)
 	registry_remove(visual.shadow_casters, "shadow_registry_index", self)
 	registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", self)
 	registry_remove(visual.translucent_components, "translucent_registry_index", self)

@@ -3,6 +3,7 @@ local band = require("bit").band
 local render = import("goluwa/render/render.lua")
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
+local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local system = import("goluwa/system.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
@@ -2395,6 +2396,12 @@ local function diff_lights()
 	return changed
 end
 
+-- the first build waits for everything loading (see scene_loading) and then
+-- for this long without changes, so spawns that arrive together share one build
+scene_bvh.FIRST_BUILD_QUIET_TIME = 0.25
+-- unless the scene keeps changing after loading ended
+scene_bvh.FIRST_BUILD_MAX_WAIT = 2
+
 function scene_bvh.EnsureBuilt()
 	local frame = system.GetFrameNumber()
 	local now = system.GetElapsedTime()
@@ -2465,15 +2472,17 @@ function scene_bvh.EnsureBuilt()
 	local max_wait = math.max(0.02, scene_bvh.build_time * 20)
 
 	if not scene_bvh.has_built then
+		if scene_loading.IsLoading() then
+			scene_bvh.loaded_since = nil
+			return
+		end
+
+		scene_bvh.loaded_since = scene_bvh.loaded_since or now
 		local quiet_since = scene_bvh.last_change_time or scene_bvh.dirty_since
 
 		if
-			(
-				not quiet_since or
-				now - quiet_since < 5.0
-			)
-			and
-			now - scene_bvh.dirty_since < 10.0
+			now - quiet_since < scene_bvh.FIRST_BUILD_QUIET_TIME and
+			now - scene_bvh.loaded_since < scene_bvh.FIRST_BUILD_MAX_WAIT
 		then
 			return
 		end

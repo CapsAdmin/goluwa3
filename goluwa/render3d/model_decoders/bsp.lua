@@ -3,6 +3,7 @@ local timer = import("goluwa/timer.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
+local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -814,20 +815,29 @@ function steam.SetMap(name)
 	steam.bsp_world.bsp_relative_path = path
 
 	-- the world's meshes are spawned along with the map's entities, split up by
-	-- visibility group
+	-- visibility group. the scene is loading from here until the spawn task
+	-- has taken over
+	scene_loading.Begin()
 	model_loader.LoadModel(
 		path,
 		function()
-			if not RENDER_3D then return end
+			if not RENDER_3D then
+				scene_loading.End()
+				return
+			end
 
 			timer.Delay(0, function()
 				utility.PushTimeWarning()
-				steam.SpawnMapEntities(steam.bsp_world.bsp_resolved_path, steam.bsp_world)
+				local ok, err = pcall(steam.SpawnMapEntities, steam.bsp_world.bsp_resolved_path, steam.bsp_world)
+				scene_loading.End()
 				utility.PopTimeWarning("spawning map entities")
+
+				if not ok then error(err, 0) end
 			end)
 		end,
 		nil,
 		function(err)
+			scene_loading.End()
 			wlog("failed to load map " .. path .. ": " .. err)
 		end
 	)
@@ -2494,6 +2504,7 @@ function steam.SpawnMapEntities(path, parent)
 	end
 
 	local thread = tasks.CreateTask()
+	scene_loading.HoldTask(thread)
 	logn("spawning map entities: ", path)
 
 	function thread:OnStart()

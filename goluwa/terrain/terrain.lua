@@ -2,6 +2,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local event = import("goluwa/event.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local tiles = import("goluwa/terrain/tiles.lua")
 local TerrainPhysics = import("goluwa/terrain/physics.lua")
 local Terrain = {}
@@ -387,6 +388,15 @@ function Terrain:Update(dt)
 
 	self:ProcessBuildQueue()
 	self:RetireTiles()
+
+	if self.holding_scene_load and next(self.Desired) then
+		for _, tile in pairs(self.Tiles) do
+			if not tile.entity and self.Desired[tile.key] then return end
+		end
+
+		self.holding_scene_load = false
+		scene_loading.End()
+	end
 end
 
 function Terrain:Start()
@@ -408,12 +418,20 @@ function Terrain:Start()
 	end)
 
 	self.time_until_update = 0
+	-- the scene is loading until the tiles around the camera exist
+	self.holding_scene_load = true
+	scene_loading.Begin()
 	self:Update(0)
 	return self
 end
 
 function Terrain:Stop()
 	event.RemoveListener("Update", self.UpdateId)
+
+	if self.holding_scene_load then
+		self.holding_scene_load = false
+		scene_loading.End()
+	end
 
 	if self.Physics then
 		self.Physics:Remove()
