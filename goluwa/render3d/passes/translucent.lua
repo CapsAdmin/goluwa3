@@ -157,7 +157,7 @@ table.insert(
 		},
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
-			block.fog = render3d.pipelines.volumetric_fog and 1 or 0
+			block.fog = render3d.IsPassEnabled("volumetric_fog") and 1 or 0
 			block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
 			local b0, moments = get_moments_textures()
 			block.b0_tex = self:GetTextureIndex(b0)
@@ -178,7 +178,7 @@ table.insert(
 		name = "ddgi_data",
 		block = ddgi.GetProbeBlockLayout(),
 		write = function(self, block)
-			if render3d.pipelines.ddgi_resolve then
+			if render3d.IsPassEnabled("ddgi") then
 				return ddgi.WriteProbeBlock(self, block)
 			end
 
@@ -763,13 +763,7 @@ return {
 		name = "translucent",
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		dont_create_framebuffers = true,
-		TargetFramebuffer = function()
-			local fog = assert(
-				render3d.pipelines.volumetric_fog,
-				"the translucent pass composites over volumetric_fog's output, which this bundle lacks"
-			)
-			return fog:GetFramebuffer()
-		end,
+		TargetFramebuffer = post_source.GetFoggedOpaqueSceneFramebuffer,
 		-- with nothing translucent in view the scene is already the result
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end

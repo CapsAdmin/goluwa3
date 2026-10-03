@@ -125,7 +125,7 @@ local function pass_trace()
 			)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
-			if not ddgi.IsEnabled() or not ddgi.GetFrameState().rt_ready then return end
+			if not ddgi.GetFrameState().rt_ready then return end
 
 			local hits = ddgi.GetRayHitBuffer()
 			cmd:PipelineBarrier{
@@ -1535,17 +1535,11 @@ local passes = {
 	pass_scene_debug(),
 }
 
-for _, pass in ipairs(passes) do
-	pass.is_enabled = ddgi.IsEnabled
-end
-
 if ddgi.RTSupported() then
-	-- runs while disabled too, it builds the TLAS ssr and the fog trace against
+	-- builds the TLAS ssr and the fog trace against
 	table.insert(passes, 1, pass_trace())
 else
-	local trace = pass_compute_trace()
-	trace.is_enabled = ddgi.IsEnabled
-	table.insert(passes, 1, trace)
+	table.insert(passes, 1, pass_compute_trace())
 end
 
 return passes

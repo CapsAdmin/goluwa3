@@ -20,7 +20,7 @@
 	  exposure_lamp_height <m>    the lamp's height above the floor, 9.8 by default
 	  exposure_emissive <bool>    the same lumen from a glowing sphere instead of a point light
 	  weather_enabled <bool>      the sun, sky and air
-	  ddgi_enabled <bool>         bounce light; off, only the lamp's direct light is left
+	  r_pass_ddgi <bool>          bounce light; off, only the lamp's direct light is left
 	  r_exposure_info             metered and adapted EV
 	  r_night_vision <bool>       rod vision in mode "eye"
 	  r_night_vision_threshold <cd/m2>  where half the colour is gone, 0.16 by default

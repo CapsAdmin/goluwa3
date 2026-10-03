@@ -126,7 +126,7 @@ function render3d.WriteLastFrameBlock(self, block)
 		return block
 	end
 
-	if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
+	if not render3d.IsPassEnabled("lighting") then
 		block.last_frame_tex = -1
 		return block
 	end
@@ -249,34 +249,95 @@ function render3d.WithRenderContext(context, callback)
 	return a, b, c, d
 end
 
+local default_passes = {
+	{"light_grid", "goluwa/render3d/light_grid.lua"},
+	{"gbuffer", "goluwa/render3d/passes/gbuffer.lua"},
+	{"clouds", "goluwa/render3d/passes/clouds.lua"},
+	{"ambient_occlusion", "goluwa/render3d/passes/ambient_occlusion.lua"},
+	{"glass_tint", "goluwa/render3d/passes/glass_tint.lua"},
+	{"ddgi", "goluwa/render3d/passes/ddgi.lua"},
+	{"ssr", "goluwa/render3d/passes/ssr.lua"},
+	{"lighting", "goluwa/render3d/passes/lighting.lua"},
+	{"ocean", "goluwa/render3d/passes/ocean.lua"},
+	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},
+	{"translucent", "goluwa/render3d/passes/translucent.lua"},
+	{"forward_overlay", "goluwa/render3d/passes/forward_overlay.lua"},
+	{"taa", "goluwa/render3d/passes/taa.lua"},
+	{"blit", "goluwa/render3d/passes/blit.lua"},
+}
+local pass_vars = {}
+local bundle_of_pipelines = setmetatable({}, {__mode = "k"})
+pvars.StartGroup("pass", {store = false})
+
+for _, entry in ipairs(default_passes) do
+	pass_vars[entry[1]] = pvars.Setup2{
+		key = "r_pass_" .. entry[1],
+		default = true,
+		friendly = entry[1],
+		help = "run the " .. entry[1] .. " pass, off skips every pipeline it adds",
+		callback = function(value)
+			event.Call("Render3DPassToggled", entry[1], value)
+		end,
+	}
+end
+
+pvars.EndGroup()
+
+-- whether a pass is in the bundle and switched on. the passes that read another
+-- pass's output ask this and then assume the output is there
+function render3d.IsBundlePassEnabled(bundle, name)
+	return bundle.passes[name] == true and pass_vars[name]:Get()
+end
+
+-- whether the active bundle was built with the pass, switched on or not
+function render3d.HasPass(name)
+	return bundle_of_pipelines[render3d.pipelines].passes[name] == true
+end
+
+function render3d.IsPassEnabled(name)
+	return render3d.IsBundlePassEnabled(bundle_of_pipelines[render3d.pipelines], name) and
+		render3d.IsPipelineEnabled(name)
+end
+
 function render3d.CreatePipelineBundle(options)
 	options = options or {}
 	local bundle = {
 		pipelines = {},
 		pipelines_i = {},
+		passes = {},
 		options = options,
 	}
+	bundle_of_pipelines[bundle.pipelines] = bundle
 	local framebuffer_size = options.framebuffer_size
 	local filter = options.filter
 	local include_names = options.include_names
 	local exclude_names = options.exclude_names or {}
-	local passes = options.passes or
-		{
-			import("goluwa/render3d/light_grid.lua").pass,
-			import("goluwa/render3d/passes/gbuffer.lua"),
-			import("goluwa/render3d/passes/clouds.lua"),
-			import("goluwa/render3d/passes/ambient_occlusion.lua"),
-			import("goluwa/render3d/passes/glass_tint.lua"),
-			import("goluwa/render3d/passes/ddgi.lua"),
-			import("goluwa/render3d/passes/ssr.lua"),
-			import("goluwa/render3d/passes/lighting.lua"),
-			import("goluwa/render3d/passes/ocean.lua"),
-			import("goluwa/render3d/passes/volumetric_fog.lua"),
-			import("goluwa/render3d/passes/translucent.lua"),
-			import("goluwa/render3d/passes/forward_overlay.lua"),
-			import("goluwa/render3d/passes/taa.lua"),
-			import("goluwa/render3d/passes/blit.lua"),
-		}
+	local pass_name_of_module = {}
+
+	for _, entry in ipairs(default_passes) do
+		local module = import(entry[2])
+		pass_name_of_module[entry[1] == "light_grid" and module.pass or module] = entry[1]
+	end
+
+	local pass_of_config = {}
+	local passes = options.passes
+
+	if not passes then
+		passes = {}
+
+		for _, entry in ipairs(default_passes) do
+			local module = import(entry[2])
+			passes[#passes + 1] = entry[1] == "light_grid" and module.pass or module
+		end
+	end
+
+	for _, module in ipairs(passes) do
+		local pass_name = assert(pass_name_of_module[module], "pass is not one of the default passes")
+
+		for _, config in ipairs(list.flatten({module})) do
+			pass_of_config[config] = pass_name
+		end
+	end
 
 	for _, source_config in ipairs(list.flatten(passes)) do
 		local name = source_config.name
@@ -294,6 +355,14 @@ function render3d.CreatePipelineBundle(options)
 			)
 		then
 			local config = table.copy(source_config)
+			local pass_name = pass_of_config[source_config]
+			local enabled_var = pass_vars[pass_name]
+			local is_enabled = config.is_enabled
+			bundle.passes[pass_name] = true
+			local is_fallback = config.fallback == true
+			config.is_enabled = function()
+				return enabled_var:Get() ~= is_fallback and (not is_enabled or is_enabled())
+			end
 
 			if framebuffer_size and not config.FramebufferSize then
 				config.FramebufferSize = {
@@ -459,7 +528,7 @@ function render3d.Draw(dt)
 
 	local cmd = render.GetCommandBuffer()
 	-- render to the screen
-	render3d.pipelines.blit:Draw(cmd)
+	render3d.pipelines[render3d.IsPassEnabled("blit") and "blit" or "blit_scene"]:Draw(cmd)
 
 	for _, pipeline in ipairs(render3d.pipelines_i) do
 		if pipeline.post_draw then pipeline:post_draw(cmd, dt) end

@@ -87,7 +87,7 @@ function glass_tint.IsEnabled()
 			through:Get()
 		) and
 		render3d.pipelines ~= nil and
-		render3d.pipelines.glass_tint ~= nil
+		render3d.IsPassEnabled("glass_tint")
 end
 
 function glass_tint.IsTinted()
@@ -336,15 +336,13 @@ end
 
 -- the map of all the glass, for the probes
 function glass_tint.WriteBlock(self, block)
-	local pipeline = render3d.pipelines.glass_tint
-
-	if not state.active or not pipeline then
+	if not state.active or not render3d.IsPassEnabled("glass_tint") then
 		block.glass_tint_tex = -1
 		block.glass_tint_depth_tex = -1
 		return block
 	end
 
-	local framebuffer = pipeline:GetFramebuffer()
+	local framebuffer = render3d.pipelines.glass_tint:GetFramebuffer()
 	block.glass_tint_tex = self:GetTextureIndex(framebuffer:GetAttachment(1))
 	block.glass_tint_depth_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
 	state.light_space:CopyToFloatPointer(block.glass_tint_matrix)

@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -20,20 +21,13 @@ local ddgi = library()
 -- irradiance, and the mean/mean^2 hit distance used for the Chebyshev
 -- visibility test that keeps light from leaking through walls.
 pvars.StartGroup("ddgi", {store = false})
--- Off, the probe passes are skipped (the trace pass still builds the TLAS
--- ssr and the fog trace against) and surfaces fall back to the environment's
--- irradiance, unoccluded. Back on, the probes start over.
-local was_enabled = true
-local enabled = pvars.Setup2{
-	key = "ddgi_enabled",
-	default = true,
-	help = "off, the probe passes are skipped and surfaces fall back to the environment's irradiance",
-	callback = function(value)
-		if value and not was_enabled then ddgi.ResetHistory() end
 
-		was_enabled = value
-	end,
-}
+-- With the ddgi pass off the probe passes are skipped and surfaces fall back to
+-- the environment's irradiance, unoccluded. Back on, the probes start over.
+event.AddListener("Render3DPassToggled", "ddgi", function(name, value)
+	if name == "ddgi" and value then ddgi.ResetHistory() end
+end)
+
 ddgi.PROBES_PER_AXIS = 24
 local probe_spacing = pvars.Setup2{
 	key = "ddgi_probe_spacing",
@@ -380,14 +374,10 @@ function ddgi.GetRayCount()
 	return ddgi.GetProbeCount() * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES)
 end
 
-function ddgi.IsEnabled()
-	return enabled:Get()
-end
-
 -- rgb = irradiance, a = sky visibility: the contract the lighting pass reads
 -- through gi_screen_tex
 function ddgi.GetScreenTexture()
-	if not enabled:Get() then return nil end
+	if not render3d.IsPassEnabled("ddgi") then return nil end
 
 	local resolve = render3d.pipelines.ddgi_resolve
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(1) or nil
@@ -1665,7 +1655,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_smooth_blend = smooth_blend:Get() and 1 or 0
 	block.ddgi_visibility_rays = visibility_rays:Get()
 	block.ddgi_visibility_front_faces_only = visibility_front_faces_only:Get() and 1 or 0
-	block.ddgi_cascade_count = enabled:Get() and state.cascade_count or 0
+	block.ddgi_cascade_count = state.cascade_count
 	block.ddgi_reset_mask = state.reset_mask
 	block.ddgi_update_mask = state.update_mask
 	block.ddgi_rt_ready = state.rt_ready and 1 or 0

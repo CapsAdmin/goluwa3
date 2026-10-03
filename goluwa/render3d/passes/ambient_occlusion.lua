@@ -278,16 +278,7 @@ return {
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					gbuffer_layout.WriteBlock(self, block)
-
-					if
-						not render3d.pipelines.ambient_occlusion or
-						not render3d.pipelines.ambient_occlusion.framebuffers
-					then
-						block.ao_tex = -1
-					else
-						block.ao_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion:GetFramebuffer(1):GetAttachment(1))
-					end
-
+					block.ao_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion:GetFramebuffer(1):GetAttachment(1))
 					return block
 				end,
 			},

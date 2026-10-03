@@ -1096,13 +1096,13 @@ local function get_probe_capture_source_texture(bundle)
 
 	if
 		envprobe.capture_pipeline_flags.ocean ~= false and
-		bundle.pipelines.ocean and
+		render3d.IsBundlePassEnabled(bundle, "ocean") and
 		bundle.pipelines.ocean.framebuffers
 	then
 		return bundle.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1)
 	end
 
-	if bundle.pipelines.lighting and bundle.pipelines.lighting.framebuffers then
+	if render3d.IsBundlePassEnabled(bundle, "lighting") then
 		return bundle.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1)
 	end
 
@@ -1110,7 +1110,7 @@ local function get_probe_capture_source_texture(bundle)
 end
 
 local function get_probe_capture_depth_texture(bundle)
-	if not bundle.pipelines.gbuffer then return nil end
+	if not render3d.IsBundlePassEnabled(bundle, "gbuffer") then return nil end
 
 	local framebuffer = bundle.pipelines.gbuffer:GetFramebuffer()
 	return framebuffer and framebuffer:GetDepthTexture() or nil

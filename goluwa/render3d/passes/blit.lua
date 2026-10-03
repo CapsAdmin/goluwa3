@@ -1117,6 +1117,45 @@ for _, pass in ipairs{
 		DepthTest = false,
 		DepthWrite = false,
 	},
+	{
+		name = "blit_scene",
+		-- presents the scene as the passes before left it while the blit pass is off: no exposure,
+		-- bloom or tonemapping
+		fallback = true,
+		draw_in_prerender = false,
+		RasterizationSamples = function()
+			return render.target.samples
+		end,
+		on_pre_draw = function(self)
+			self._scene_tex = self:GetTextureIndex(post_source.GetSceneSourceTexture({name = "blit_scene"}))
+		end,
+		fragment = {
+			push_constants = {
+				{
+					name = "blit_present",
+					block = {
+						{"source_tex", "int"},
+						{"scale", "float"},
+					},
+					write = function(self, block)
+						block.source_tex = self._scene_tex
+						block.scale = render.target:IsHDR() and 1 or 1 / post_source.UNEXPOSED_SDR_WHITE
+						return block
+					end,
+				},
+			},
+			shader = [[
+				layout(location = 0) out vec4 frag_color;
+
+				void main() {
+					frag_color = vec4(texture(TEXTURE(blit_present.source_tex), in_uv).rgb * blit_present.scale, 1.0);
+				}
+			]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+	},
 } do
 	r[#r + 1] = pass
 end

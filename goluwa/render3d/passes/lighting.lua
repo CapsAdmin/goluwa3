@@ -1,3 +1,4 @@
+local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
@@ -10,6 +11,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
@@ -85,7 +87,7 @@ return {
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
 
-					if render3d.pipelines.ambient_occlusion_blur then
+					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
 					else
 						block.ambient_occlusion_tex = -1
@@ -94,7 +96,7 @@ return {
 					local overlay = ddgi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
 
-					if render3d.pipelines.ssr then
+					if render3d.IsPassEnabled("ssr") then
 						local current_idx = system.GetFrameNumber() % 2 + 1
 						local current_ssr_fb = render3d.pipelines.ssr:GetFramebuffer(current_idx)
 						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
@@ -371,6 +373,67 @@ return {
 				}
 
 				set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha));
+			}
+		]],
+	},
+	{
+		name = "lighting_albedo",
+		-- stands in for lighting while its pass is off, the surfaces as bare as the gbuffer holds them
+		fallback = true,
+		ComputePass = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+		},
+		framebuffer_count = 1,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				attachment = 1,
+				dst_stage = "fragment",
+			},
+		},
+		uniform_buffers = {
+			{
+				name = "fallback_data",
+				binding_index = BINDING_UNIFORM,
+				block = {
+					gbuffer_layout.block,
+					post_source.pre_exposure_block,
+					{"unexposed_scale", "float"},
+				},
+				write = function(self, block)
+					block.unexposed_scale = render.target:IsHDR() and 1 or post_source.UNEXPOSED_SDR_WHITE
+					gbuffer_layout.WriteBlock(self, block)
+					post_source.WritePreExposureBlock(self, block)
+					return block
+				end,
+			},
+		},
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+		]],
+		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("fallback_data") .. post_source.GetPreExposureGLSL("fallback_data") .. [[
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_color);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				vec2 uv = get_screen_uv(pos, size);
+
+				// the background as bright as a mid grey surface, so the exposure doesn't chase a black frame
+				// without the exposure pass (which is the blit pass) nothing scales the scene down
+				float scale = fallback_data.pre_exposure_tex == -1 ? fallback_data.unexposed_scale : ]] .. string.format("%.1f", render3d.EMISSIVE_REFERENCE_LUMINANCE) .. [[ * get_pre_exposure();
+
+				if (gbuffer_depth(uv) == 1.0) {
+					imageStore(out_color, pos, vec4(vec3(0.5 * scale), 1.0));
+					return;
+				}
+
+				float alpha = gbuffer_alpha(uv);
+				vec3 color = (gbuffer_albedo(uv) + gbuffer_emissive(uv)) * scale;
+				imageStore(out_color, pos, vec4(min(color, vec3(65504.0)), alpha));
 			}
 		]],
 	},

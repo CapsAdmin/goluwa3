@@ -60,7 +60,7 @@ function scene_reflection.Bind(self, cmd, desc, bindings)
 		desc,
 		bindings.scene,
 		0,
-		render3d.pipelines.ddgi_trace and
+		render3d.IsPassEnabled("ddgi") and
 			ddgi.GetFrameState().tlas or
 			scene_bvh.GetPlaceholderTLAS(cmd)
 	)
@@ -96,7 +96,7 @@ function scene_reflection.GetDDGIUniformBuffer(binding)
 		binding_index = binding,
 		block = ddgi.GetProbeBlockLayout(),
 		write = function(self, block)
-			if render3d.pipelines.ddgi_trace then
+			if render3d.IsPassEnabled("ddgi") then
 				ddgi.WriteProbeBlock(self, block)
 			else
 				block.ddgi_cascade_count = 0

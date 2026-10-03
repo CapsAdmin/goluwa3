@@ -291,7 +291,7 @@ list.insert(
 						post_source.WritePreExposureBlock(self, block)
 						local current_idx = system.GetFrameNumber() % 2 + 1
 
-						if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
+						if not render3d.IsPassEnabled("lighting") then
 							block.scene_tex = -1
 						else
 							block.scene_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
@@ -1516,7 +1516,7 @@ list.insert(
 						render3d.WriteCameraBlock(self, block)
 						post_source.WritePreExposureBlock(self, block)
 
-						if not render3d.pipelines.ocean or not render3d.pipelines.ocean.framebuffers then
+						if not render3d.pipelines.ocean.framebuffers then
 							block.current_ocean_tex = -1
 							block.current_ocean_distance_tex = -1
 						else
@@ -1526,10 +1526,7 @@ list.insert(
 							block.current_ocean_distance_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
 						end
 
-						if
-							not render3d.pipelines.ocean_resolve or
-							not render3d.pipelines.ocean_resolve.framebuffers
-						then
+						if not render3d.pipelines.ocean_resolve.framebuffers then
 							block.history_ocean_tex = -1
 						else
 							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1

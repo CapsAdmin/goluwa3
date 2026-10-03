@@ -3,35 +3,47 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = {}
 
 -- the lit opaque scene, before anything translucent is drawn over it
-function post_source.GetOpaqueSceneTexture()
+function post_source.GetOpaqueSceneFramebuffer()
 	if render3d.IsWaterEnabled() then
-		if
-			render3d.pipelines.ocean_resolve and
-			render3d.pipelines.ocean_resolve.framebuffers
-		then
+		if render3d.IsPassEnabled("ocean") then
 			local current_idx = system.GetFrameNumber() % 2 + 1
-			return render3d.pipelines.ocean_resolve:GetFramebuffer(current_idx):GetAttachment(1)
-		end
 
-		if render3d.pipelines.ocean and render3d.pipelines.ocean.framebuffers then
-			local current_idx = system.GetFrameNumber() % 2 + 1
-			return render3d.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1)
+			if render3d.pipelines.ocean_resolve.framebuffers then
+				return render3d.pipelines.ocean_resolve:GetFramebuffer(current_idx)
+			end
+
+			if render3d.pipelines.ocean.framebuffers then
+				return render3d.pipelines.ocean:GetFramebuffer(current_idx)
+			end
 		end
 	end
 
-	if not render3d.pipelines.lighting then return nil end
+	if not render3d.HasPass("lighting") then return nil end
 
-	return render3d.pipelines.lighting:GetFramebuffer(1):GetAttachment(1)
+	if not render3d.IsPassEnabled("lighting") then
+		return render3d.pipelines.lighting_albedo:GetFramebuffer(1)
+	end
+
+	return render3d.pipelines.lighting:GetFramebuffer(1)
+end
+
+function post_source.GetOpaqueSceneTexture()
+	local framebuffer = post_source.GetOpaqueSceneFramebuffer()
+	return framebuffer and framebuffer:GetAttachment(1) or nil
 end
 
 -- the opaque scene with the fog in front of it, which the translucent
--- surfaces are laid over
-function post_source.GetFoggedOpaqueSceneTexture()
-	if render3d.pipelines.volumetric_fog then
-		return render3d.pipelines.volumetric_fog:GetFramebuffer():GetAttachment(1)
+-- surfaces are laid over. without the fog pass it is the opaque scene itself
+function post_source.GetFoggedOpaqueSceneFramebuffer()
+	if render3d.IsPassEnabled("volumetric_fog") then
+		return render3d.pipelines.volumetric_fog:GetFramebuffer()
 	end
 
-	return post_source.GetOpaqueSceneTexture()
+	return post_source.GetOpaqueSceneFramebuffer()
+end
+
+function post_source.GetFoggedOpaqueSceneTexture()
+	return post_source.GetFoggedOpaqueSceneFramebuffer():GetAttachment(1)
 end
 
 -- the whole scene, before taa. the translucent pass composites over the
@@ -43,7 +55,7 @@ end
 -- the scene as the passes after self see it: taa resolves the raw scene,
 -- and everything after taa reads its output
 function post_source.GetSceneSourceTexture(self)
-	if self.name ~= "taa" and render3d.pipelines.taa then
+	if self.name ~= "taa" and render3d.IsPassEnabled("taa") then
 		return render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
 	end
 
@@ -54,9 +66,11 @@ end
 -- between two attachments each frame; before it has run this frame, previous
 -- gives last frame's.
 function post_source.GetExposureTexture(previous)
+	if not render3d.IsPassEnabled("blit") then return nil end
+
 	local pipeline = render3d.pipelines.exposure_feedback
 
-	if not pipeline or not pipeline.framebuffers then return nil end
+	if not pipeline.framebuffers then return nil end
 
 	local current = system.GetFrameNumber() % 2 == 0 and 1 or 2
 	return pipeline:GetFramebuffer():GetAttachment(previous and 3 - current or current)
@@ -70,6 +84,9 @@ end
 -- the scene and divide by it when they read it back for anything physical.
 -- Passes without the exposure pipeline (probe captures) use 1, staying absolute.
 post_source.PRE_EXPOSURE_HEADROOM = 32
+-- Without the exposure pass nothing scales the scene to the display. An HDR
+-- target shows it as it is, an SDR one is given this luminance as its white
+post_source.UNEXPOSED_SDR_WHITE = 10000
 post_source.pre_exposure_block = {
 	{"pre_exposure_tex", "int"},
 	{"prev_pre_exposure_tex", "int"},

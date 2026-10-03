@@ -100,7 +100,7 @@ end
 local function write_ocean_distance_texture(self, block, key)
 	if
 		render3d.IsWaterEnabled() and
-		render3d.pipelines.ocean and
+		render3d.IsPassEnabled("ocean") and
 		render3d.pipelines.ocean.framebuffers
 	then
 		block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2))
@@ -137,7 +137,7 @@ local scatter_pass = {
 			binding_index = BINDING_DDGI,
 			block = ddgi.GetProbeBlockLayout(),
 			write = function(self, block)
-				if render3d.pipelines.ddgi_resolve then
+				if render3d.IsPassEnabled("ddgi") then
 					return ddgi.WriteProbeBlock(self, block)
 				end
 
@@ -194,7 +194,7 @@ local scatter_pass = {
 				desc,
 				BINDING_SCENE,
 				0,
-				render3d.pipelines.ddgi_trace and
+				render3d.IsPassEnabled("ddgi") and
 					ddgi.GetFrameState().tlas or
 					scene_bvh.GetPlaceholderTLAS(cmd)
 			)

@@ -1,6 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
-local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
@@ -20,14 +19,6 @@ local post_source = import("goluwa/render3d/post_source.lua")
 --
 -- Translucent surfaces aren't in the gbuffer; the translucent pass sums how
 -- they move, weighted by how much of each pixel they make up.
-pvars.StartGroup("taa", {store = false})
-render3d.taa_enabled = pvars.Setup2{
-	key = "r_taa",
-	default = true,
-	friendly = "enabled",
-	help = "temporal anti aliasing",
-}
-pvars.EndGroup()
 local SAMPLES = {}
 
 do
@@ -57,9 +48,11 @@ return {
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 2,
 		pre_render = function()
-			render3d.GetMainCamera():SetJitter(render3d.taa_enabled:Get() and
-				SAMPLES[system.GetFrameNumber() % #SAMPLES + 1] or
-				ZERO)
+			render3d.GetMainCamera():SetJitter(
+				render3d.IsPassEnabled("taa") and
+					SAMPLES[system.GetFrameNumber() % #SAMPLES + 1] or
+					ZERO
+			)
 		end,
 		fragment = {
 			uniform_buffers = {
@@ -91,7 +84,7 @@ return {
 						block.velocity_tex = render3d.velocity_enabled:Get() and
 							self:GetTextureIndex(gbuffer_layout.GetTexture("velocity")) or
 							-1
-						block.translucent_motion_tex = render3d.pipelines.translucent_accumulate and
+						block.translucent_motion_tex = render3d.IsPassEnabled("translucent") and
 							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(2)) or
 							-1
 						post_source.WritePreExposureBlock(self, block)
@@ -99,7 +92,6 @@ return {
 						-- this size
 						local size = render.GetRenderImageSize()
 						block.history_valid = (
-								render3d.taa_enabled:Get() and
 								last_frame == frame - 1 and
 								last_width == size.x and
 								last_height == size.y
