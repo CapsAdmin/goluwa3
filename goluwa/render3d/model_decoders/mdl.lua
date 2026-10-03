@@ -15,6 +15,7 @@ local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local bit = require("bit")
 local fs = import("goluwa/filesystem/fs.lua")
+local Skeleton = import("goluwa/render3d/skeleton.lua")
 local _debug = false
 local header = [[
 	string id[4]; // Model format ID, such as "IDST" (0x49 0x44 0x53 0x54)
@@ -688,8 +689,21 @@ local function load_vvd(path)
 		end
 		boneWeight.bone_count = buffer:ReadByte()
 		]]
-		buffer:Advance((4 * MAX_NUM_BONES_PER_VERT) + MAX_NUM_BONES_PER_VERT + 1)
 		local vertex = {}
+		local weights = {}
+		local bones = {}
+
+		for x = 1, MAX_NUM_BONES_PER_VERT do
+			weights[x] = buffer:ReadFloat()
+		end
+
+		for x = 1, MAX_NUM_BONES_PER_VERT do
+			bones[x] = buffer:ReadByte()
+		end
+
+		vertex.bone_weights = weights
+		vertex.bone_ids = bones
+		vertex.bone_count = buffer:ReadByte()
 		local x, y, z = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
 		-- Source: X=forward, Y=left, Z=up
 		-- Engine: X=right, Y=up, Z=forward  
@@ -865,7 +879,557 @@ local function load_phy(path)
 	return solids
 end
 
-model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, physics_callback)
+local load_skeleton
+
+do -- animation
+	local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift
+	local U8 = ffi.typeof("const uint8_t*")
+	local I16 = ffi.typeof("const int16_t*")
+	local U16 = ffi.typeof("const uint16_t*")
+	local I32 = ffi.typeof("const int32_t*")
+	local U32 = ffi.typeof("const uint32_t*")
+	local F32 = ffi.typeof("const float*")
+	local SCALE = steam.source2meters
+	local BONE_SIZE = 216
+	local ANIMDESC_SIZE = 100
+	local SEQDESC_SIZE = 212
+	local POSEPARAM_SIZE = 20
+	local ANIM_RAWPOS = 0x01
+	local ANIM_RAWROT = 0x02
+	local ANIM_ANIMPOS = 0x04
+	local ANIM_ANIMROT = 0x08
+	local ANIM_DELTA = 0x10
+	local ANIM_RAWROT2 = 0x20
+	local SEQ_LOOPING = 0x0001
+	local SEQ_DELTA = 0x0004
+	local ANIMDESC_DELTA = 0x0004
+	local ANIMDESC_ALLZEROS = 0x0020
+	local ANIMDESC_FRAMEANIM = 0x0040
+	-- source (x forward, y left, z up) to engine (x right, y up, z forward): p_e = SCALE * (-y, z, -x), a rotation times a scale
+	local R = {{0, -1, 0}, {0, 0, 1}, {-1, 0, 0}}
+
+	local function half_to_float(h)
+		local sign = h >= 0x8000 and -1 or 1
+		local exponent = band(rshift(h, 10), 0x1f)
+		local mantissa = band(h, 0x3ff)
+
+		if exponent == 0 then return sign * mantissa * 2 ^ -24 end
+
+		if exponent == 31 then return sign * math.huge end
+
+		return sign * (1 + mantissa / 1024) * 2 ^ (exponent - 15)
+	end
+
+	local function euler_to_quat(x, y, z)
+		local sr, cr = math.sin(x * 0.5), math.cos(x * 0.5)
+		local sp, cp = math.sin(y * 0.5), math.cos(y * 0.5)
+		local sy, cy = math.sin(z * 0.5), math.cos(z * 0.5)
+		return sr * cp * cy - cr * sp * sy,
+		cr * sp * cy + sr * cp * sy,
+		cr * cp * sy - sr * sp * cy,
+		cr * cp * cy + sr * sp * sy
+	end
+
+	local function quat_to_matrix(x, y, z, w)
+		return {
+			{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)},
+			{2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)},
+			{2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)},
+		}
+	end
+
+	-- R * m * R^t
+	local function conjugate(m)
+		local out = {{}, {}, {}}
+
+		for i = 1, 3 do
+			for j = 1, 3 do
+				local sum = 0
+
+				for k = 1, 3 do
+					for l = 1, 3 do
+						sum = sum + R[i][k] * m[k][l] * R[j][l]
+					end
+				end
+
+				out[i][j] = sum
+			end
+		end
+
+		return out
+	end
+
+	local sources = {}
+
+	-- a mdl file kept in memory for sampling its animations later. shared between every model that includes it
+	local function open_source(path)
+		local key = path:lower()
+
+		if sources[key] then return sources[key] end
+
+		local buffer = find_file(path, ".mdl")
+		local hdr = buffer:ReadStructure(header)
+		buffer:SetPosition(0)
+		local bytes = buffer:ReadBytes(buffer:GetSize())
+		local data = ffi.new("uint8_t[?]", #bytes)
+		ffi.copy(data, bytes, #bytes)
+		local source = {path = path, header = hdr, data = data, blocks = {}}
+		local bone_count = hdr.bone_count
+		source.bone_names = {}
+		source.bone_parents = {}
+		-- per bone: position 0, euler rotation 3, position scale 6, rotation scale 9, quaternion 12
+		source.bones = ffi.new("float[?]", math.max(bone_count, 1) * 16)
+
+		for i = 0, bone_count - 1 do
+			local bone = data + hdr.bone_offset + i * BONE_SIZE
+			source.bone_names[i + 1] = ffi.string(bone + ffi.cast(I32, bone)[0])
+			source.bone_parents[i + 1] = ffi.cast(I32, bone + 4)[0]
+			local f = ffi.cast(F32, bone)
+			local o = i * 16
+
+			for k = 0, 2 do
+				source.bones[o + k] = f[8 + k]
+				source.bones[o + 3 + k] = f[15 + k]
+				source.bones[o + 6 + k] = f[18 + k]
+				source.bones[o + 9 + k] = f[21 + k]
+			end
+
+			for k = 0, 3 do
+				source.bones[o + 12 + k] = f[11 + k]
+			end
+		end
+
+		source.pose_parameter_names = {}
+
+		for i = 0, hdr.localposeparam_count - 1 do
+			local desc = data + hdr.localposeparam_offset + i * POSEPARAM_SIZE
+			source.pose_parameter_names[i] = ffi.string(desc + ffi.cast(I32, desc)[0])
+		end
+
+		source.includes = {}
+
+		for i = 0, hdr.includemodel_count - 1 do
+			local group = data + hdr.includemodel_offset + i * 8
+			local name = ffi.string(group + ffi.cast(I32, group + 4)[0])
+			source.includes[#source.includes + 1] = (name:gsub("\\", "/"):gsub("%.mdl$", ""))
+		end
+
+		sources[key] = source
+		return source
+	end
+
+	-- the data of an animation block, which lives in the model's .ani file
+	local function get_block_data(source, block)
+		local cached = source.blocks[block]
+
+		if cached then return cached end
+
+		if not source.ani then
+			local name = ffi.string(source.data + source.header.animblocks_name_offset):gsub("\\", "/"):gsub("%.ani$", "")
+			local buffer = find_file(name, ".ani")
+			buffer:SetPosition(0)
+			local bytes = buffer:ReadBytes(buffer:GetSize())
+			source.ani = ffi.new("uint8_t[?]", #bytes)
+			ffi.copy(source.ani, bytes, #bytes)
+		end
+
+		local datastart = ffi.cast(I32, source.data + source.header.animblocks_offset + block * 8)[0]
+		cached = source.ani + datastart
+		source.blocks[block] = cached
+		return cached
+	end
+
+	-- first value of an animated channel at a frame, a run length encoded list of shorts
+	local function extract_value(v, frame)
+		local k = frame
+		local valid, total = v[0], v[1]
+
+		while total <= k do
+			k = k - total
+			v = v + (valid + 1) * 2
+			valid, total = v[0], v[1]
+
+			if total == 0 then return 0 end
+		end
+
+		if valid > k then return ffi.cast(I16, v + (k + 1) * 2)[0] end
+
+		return ffi.cast(I16, v + valid * 2)[0]
+	end
+
+	local function get_anim_chain(source, desc, frame)
+		local numframes = ffi.cast(I32, desc + 16)[0]
+		local block = ffi.cast(I32, desc + 52)[0]
+		local index = ffi.cast(I32, desc + 56)[0]
+		local section_frames = ffi.cast(I32, desc + 84)[0]
+
+		if section_frames ~= 0 then
+			local section
+
+			if numframes > section_frames and frame == numframes - 1 then
+				frame = 0
+				section = math.floor(numframes / section_frames) + 1
+			else
+				section = math.floor(frame / section_frames)
+				frame = frame - section * section_frames
+			end
+
+			local record = desc + ffi.cast(I32, desc + 80)[0] + section * 8
+			block = ffi.cast(I32, record)[0]
+			index = ffi.cast(I32, record + 4)[0]
+		end
+
+		if block == 0 then return desc + index, frame end
+
+		return get_block_data(source, block) + index, frame
+	end
+
+	-- writes the local pose of every bone the animation touches at an integer frame, in engine space, into out
+	local function decode_frame(source, desc, frame, bone_map, out)
+		local chain
+		chain, frame = get_anim_chain(source, desc, frame)
+		local bones = source.bones
+		local p = chain
+
+		while true do
+			local bone = p[0]
+			local flags = p[1]
+			local target = bone_map[bone]
+
+			if target >= 0 then
+				local b = bone * 16
+				local qx, qy, qz, qw
+
+				if band(flags, ANIM_RAWROT) ~= 0 then
+					local q = ffi.cast(U16, p + 4)
+					qx = (q[0] - 32768) / 32768
+					qy = (q[1] - 32768) / 32768
+					qz = (band(q[2], 0x7fff) - 16384) / 16384
+					qw = math.sqrt(math.max(0, 1 - qx * qx - qy * qy - qz * qz))
+
+					if q[2] >= 0x8000 then qw = -qw end
+				elseif band(flags, ANIM_RAWROT2) ~= 0 then
+					local q = ffi.cast(U32, p + 4)
+					local lo, hi = q[0], q[1]
+					qx = (band(lo, 0x1fffff) - 1048576) / 1048576.5
+					qy = (band(bor(rshift(lo, 21), lshift(band(hi, 0x3ff), 11)), 0x1fffff) - 1048576) / 1048576.5
+					qz = (band(rshift(hi, 10), 0x1fffff) - 1048576) / 1048576.5
+					qw = math.sqrt(math.max(0, 1 - qx * qx - qy * qy - qz * qz))
+
+					if rshift(hi, 31) ~= 0 then qw = -qw end
+				elseif band(flags, ANIM_ANIMROT) ~= 0 then
+					local offsets = ffi.cast(I16, p + 4)
+					local o0, o1, o2 = offsets[0], offsets[1], offsets[2]
+					local a0, a1, a2 = bones[b + 3], bones[b + 4], bones[b + 5]
+
+					if o0 ~= 0 then
+						a0 = a0 + extract_value(p + 4 + o0, frame) * bones[b + 9]
+					end
+
+					if o1 ~= 0 then
+						a1 = a1 + extract_value(p + 4 + o1, frame) * bones[b + 10]
+					end
+
+					if o2 ~= 0 then
+						a2 = a2 + extract_value(p + 4 + o2, frame) * bones[b + 11]
+					end
+
+					qx, qy, qz, qw = euler_to_quat(a0, a1, a2)
+				else
+					qx, qy, qz, qw = bones[b + 12], bones[b + 13], bones[b + 14], bones[b + 15]
+				end
+
+				local px, py, pz
+
+				if band(flags, ANIM_RAWPOS) ~= 0 then
+					local offset = 4
+
+					if band(flags, ANIM_RAWROT) ~= 0 then
+						offset = offset + 6
+					elseif band(flags, ANIM_RAWROT2) ~= 0 then
+						offset = offset + 8
+					end
+
+					local v = ffi.cast(U16, p + offset)
+					px, py, pz = half_to_float(v[0]), half_to_float(v[1]), half_to_float(v[2])
+				elseif band(flags, ANIM_ANIMPOS) ~= 0 then
+					local offset = 4
+
+					if band(flags, ANIM_ANIMROT) ~= 0 then offset = offset + 6 end
+
+					local offsets = ffi.cast(I16, p + offset)
+					local o0, o1, o2 = offsets[0], offsets[1], offsets[2]
+					px, py, pz = bones[b], bones[b + 1], bones[b + 2]
+
+					if o0 ~= 0 then
+						px = px + extract_value(p + offset + o0, frame) * bones[b + 6]
+					end
+
+					if o1 ~= 0 then
+						py = py + extract_value(p + offset + o1, frame) * bones[b + 7]
+					end
+
+					if o2 ~= 0 then
+						pz = pz + extract_value(p + offset + o2, frame) * bones[b + 8]
+					end
+				else
+					px, py, pz = bones[b], bones[b + 1], bones[b + 2]
+				end
+
+				local o = target * 7
+				out[o] = -py * SCALE
+				out[o + 1] = pz * SCALE
+				out[o + 2] = -px * SCALE
+				out[o + 3] = -qy
+				out[o + 4] = qz
+				out[o + 5] = -qx
+				out[o + 6] = qw
+			end
+
+			local next_offset = ffi.cast(I16, p + 2)[0]
+
+			if next_offset == 0 then break end
+
+			p = p + next_offset
+		end
+	end
+
+	local scratch_cache = setmetatable({}, {__mode = "k"})
+
+	-- animation desc sampled at a cycle 0..1 (interpolating between frames) over the poses already in out
+	local function sample_anim(clip, source, desc, bone_map, cycle, out)
+		local skeleton = clip.skeleton
+		local numframes = ffi.cast(I32, desc + 16)[0]
+		local flags = ffi.cast(I32, desc + 12)[0]
+
+		if band(flags, ANIMDESC_ALLZEROS) ~= 0 then return end
+
+		local frame = numframes > 1 and cycle * (numframes - 1) or 0
+		local f0 = math.floor(frame)
+		local t = frame - f0
+		decode_frame(source, desc, f0, bone_map, out)
+
+		if t > 0.001 and f0 + 1 < numframes then
+			local scratch = scratch_cache[skeleton]
+
+			if not scratch then
+				scratch = skeleton:CreatePose()
+				scratch_cache[skeleton] = scratch
+			end
+
+			ffi.copy(scratch, out, skeleton.BoneCount * 28)
+			decode_frame(source, desc, f0 + 1, bone_map, scratch)
+			skeleton:BlendPoses(out, scratch, t, out)
+		end
+	end
+
+	local blend_scratch = setmetatable({}, {__mode = "k"})
+
+	-- where a pose parameter puts a sequence along one blend axis: the lower blend and how far to the next one
+	local function axis_position(clip, axis, params)
+		local size = clip.group_size[axis]
+		local name = clip.param_names[axis]
+
+		if size < 2 or not name then return 0, 0 end
+
+		local first, last = clip.param_start[axis], clip.param_end[axis]
+		local s = last ~= first and ((params[name] or 0) - first) / (last - first) or 0
+		local x = math.clamp(s, 0, 1) * (size - 1)
+		local i = math.min(math.floor(x), size - 2)
+		return i, x - i
+	end
+
+	local function sample_sequence(clip, cycle, params, out)
+		local skeleton = clip.skeleton
+		local bind = skeleton.BindLocal
+		ffi.copy(out, bind, skeleton.BoneCount * 28)
+		local source = clip.source
+		local ix, fx = axis_position(clip, 1, params)
+		local iy, fy = axis_position(clip, 2, params)
+		local gx = clip.group_size[1]
+		local accumulated = 0
+		local scratch = blend_scratch[skeleton]
+
+		if not scratch then
+			scratch = skeleton:CreatePose()
+			blend_scratch[skeleton] = scratch
+		end
+
+		for dy = 0, fy > 0 and 1 or 0 do
+			for dx = 0, fx > 0 and 1 or 0 do
+				local weight = (dx == 1 and fx or 1 - fx) * (dy == 1 and fy or 1 - fy)
+
+				if weight > 0 then
+					local desc = clip.anims[(ix + dx) + (iy + dy) * gx + 1]
+
+					if accumulated == 0 then
+						sample_anim(clip, source, desc, clip.bone_map, cycle, out)
+					else
+						ffi.copy(scratch, bind, skeleton.BoneCount * 28)
+						sample_anim(clip, source, desc, clip.bone_map, cycle, scratch)
+						skeleton:BlendPoses(out, scratch, weight / (accumulated + weight), out)
+					end
+
+					accumulated = accumulated + weight
+				end
+			end
+		end
+	end
+
+	-- skeleton and clips of a model, nil when it has nothing to animate
+	load_skeleton = function(path)
+		local main = open_source(path)
+		local hdr = main.header
+
+		if hdr.bone_count < 2 then return end
+
+		local count = hdr.bone_count
+		local bind_local = ffi.new("float[?]", count * 7)
+		local inverse_bind = ffi.new("float[?]", count * 12)
+		local parents = {}
+
+		for i = 0, count - 1 do
+			local o = i * 16
+			bind_local[i * 7] = -main.bones[o + 1] * SCALE
+			bind_local[i * 7 + 1] = main.bones[o + 2] * SCALE
+			bind_local[i * 7 + 2] = -main.bones[o] * SCALE
+			bind_local[i * 7 + 3] = -main.bones[o + 13]
+			bind_local[i * 7 + 4] = main.bones[o + 14]
+			bind_local[i * 7 + 5] = -main.bones[o + 12]
+			bind_local[i * 7 + 6] = main.bones[o + 15]
+			parents[i + 1] = main.bone_parents[i + 1]
+			-- matrix3x4 the bone's bind pose inverse, rows of [rotation | translation]
+			local m = ffi.cast(F32, main.data + hdr.bone_offset + i * BONE_SIZE + 96)
+			local rotation = conjugate({{m[0], m[1], m[2]}, {m[4], m[5], m[6]}, {m[8], m[9], m[10]}})
+			local t = {m[3], m[7], m[11]}
+
+			for row = 1, 3 do
+				for column = 1, 3 do
+					inverse_bind[i * 12 + (row - 1) * 4 + column - 1] = rotation[row][column]
+				end
+
+				inverse_bind[i * 12 + (row - 1) * 4 + 3] = SCALE * (R[row][1] * t[1] + R[row][2] * t[2] + R[row][3] * t[3])
+			end
+		end
+
+		local skeleton = Skeleton.New{
+			BoneNames = main.bone_names,
+			Parents = parents,
+			BindLocal = bind_local,
+			InverseBind = inverse_bind,
+		}
+		local bone_index_by_name = {}
+
+		for i, name in ipairs(main.bone_names) do
+			bone_index_by_name[name:lower()] = i - 1
+		end
+
+		local visited = {}
+
+		local function add_clips(source)
+			if visited[source] then return end
+
+			visited[source] = true
+			local shdr = source.header
+			local bone_map = ffi.new("int32_t[?]", math.max(shdr.bone_count, 1))
+
+			for i = 0, shdr.bone_count - 1 do
+				bone_map[i] = bone_index_by_name[source.bone_names[i + 1]:lower()] or -1
+			end
+
+			for i = 0, shdr.localseq_count - 1 do
+				local seq = source.data + shdr.localseq_offset + i * SEQDESC_SIZE
+				local seq_i32 = ffi.cast(I32, seq)
+				local name = ffi.string(seq + seq_i32[1])
+				local flags = seq_i32[3]
+				local blend_count = seq_i32[14]
+
+				if
+					band(flags, SEQ_DELTA) == 0 and
+					blend_count > 0 and
+					not skeleton.ClipsByName[name]
+				then
+					local anims = {}
+					local usable = true
+					local indices = ffi.cast(I16, seq + seq_i32[15])
+
+					for b = 0, blend_count - 1 do
+						local index = indices[b]
+						local desc = source.data + shdr.localanim_offset + index * ANIMDESC_SIZE
+						local desc_flags = ffi.cast(I32, desc + 12)[0]
+
+						if
+							band(desc_flags, ANIMDESC_DELTA) ~= 0 or
+							band(desc_flags, ANIMDESC_FRAMEANIM) ~= 0 or
+							(
+								ffi.cast(I32, desc + 52)[0] ~= 0 and
+								shdr.animblocks_count == 0
+							)
+						then
+							usable = false
+
+							break
+						end
+
+						anims[b + 1] = desc
+					end
+
+					if usable then
+						local first = anims[1]
+						local frames = ffi.cast(I32, first + 16)[0]
+						local fps = ffi.cast(F32, first + 8)[0]
+						local group_size = {math.max(seq_i32[17], 1), math.max(seq_i32[18], 1)}
+						local param_names = {}
+						local param_start = {}
+						local param_end = {}
+
+						for axis = 1, 2 do
+							local param = seq_i32[18 + axis]
+							param_names[axis] = param >= 0 and source.pose_parameter_names[param] or nil
+							param_start[axis] = ffi.cast(F32, seq + 84)[axis - 1]
+							param_end[axis] = ffi.cast(F32, seq + 92)[axis - 1]
+
+							if param_names[axis] and not skeleton.PoseParameterRanges[param_names[axis]] then
+								skeleton.PoseParameterNames[#skeleton.PoseParameterNames + 1] = param_names[axis]
+								skeleton.PoseParameterRanges[param_names[axis]] = {param_start[axis], param_end[axis]}
+							end
+						end
+
+						skeleton:AddClip{
+							Name = name,
+							Duration = frames > 1 and fps > 0 and (frames - 1) / fps or 0,
+							Loop = band(flags, SEQ_LOOPING) ~= 0,
+							Sample = sample_sequence,
+							skeleton = skeleton,
+							source = source,
+							bone_map = bone_map,
+							anims = anims,
+							group_size = group_size,
+							param_names = param_names,
+							param_start = param_start,
+							param_end = param_end,
+						}
+					end
+				end
+			end
+
+			for _, include in ipairs(source.includes) do
+				local ok, included = pcall(open_source, include)
+
+				if ok then
+					add_clips(included)
+				else
+					llog("%s includes %s, its animations are skipped: %s", source.path, include, included)
+				end
+			end
+		end
+
+		add_clips(main)
+		return skeleton
+	end
+end
+
+model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, physics_callback, skeleton_callback)
 	local models = {}
 	local companion_path = path
 
@@ -944,6 +1508,10 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 		end
 	end
 
+	local skeleton = load_skeleton(full_path)
+
+	if skeleton then skeleton_callback(skeleton) end
+
 	if mdl.bodypart_count == 0 or not render.IsInitialized() then return models end
 
 	local vvd = load_vvd(companion_path)
@@ -962,6 +1530,24 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 
 					for i, v in ipairs(vertices) do
 						copy[i] = {pos = v.pos:Copy(), normal = v.normal:Copy(), uv = v.uv:Copy()}
+					end
+
+					local skin
+
+					if skeleton then
+						skin = {
+							BoneIndices = ffi.new("uint8_t[?]", #vertices * 4),
+							BoneWeights = ffi.new("float[?]", #vertices * 4),
+						}
+
+						for i, v in ipairs(vertices) do
+							if v.bone_count == 0 then skin.BoneWeights[(i - 1) * 4] = 1 end
+
+							for k = 1, v.bone_count do
+								skin.BoneIndices[(i - 1) * 4 + k - 1] = v.bone_ids[k]
+								skin.BoneWeights[(i - 1) * 4 + k - 1] = v.bone_weights[k]
+							end
+						end
 					end
 
 					local vertex_offset = 0
@@ -1023,6 +1609,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 
 						mesh:BuildBoundingBox()
 						mesh:Upload(indices)
+						mesh.Skin = skin
 						mesh_callback(mesh, material)
 						list.insert(models, mesh)
 					end

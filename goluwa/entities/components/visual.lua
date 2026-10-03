@@ -1161,6 +1161,11 @@ function Visual:InvalidateRenderEntries()
 	scene_bvh.Invalidate(self)
 end
 
+-- vertex data of a primitive was rewritten in place (skinning), which cached shadows only notice through the change version
+function Visual:NotifyGeometryChanged()
+	mark_shadow_change(self)
+end
+
 function Visual:InvalidateHierarchyState()
 	self:InvalidateRenderEntries()
 	self:SetAABB(create_empty_aabb())
@@ -1218,6 +1223,7 @@ function Visual:SetModelPath(path)
 	self.LoadGeneration = (self.LoadGeneration or 0) + 1
 	local load_generation = self.LoadGeneration
 	self:RemovePrimitives()
+	self.Skeleton = nil
 	objects.CommitProperty(self, "ModelPath", path)
 	self:SetLoading(true)
 
@@ -1230,12 +1236,13 @@ function Visual:SetModelPath(path)
 
 	model_loader.LoadModel(
 		path,
-		function()
+		function(data)
 			if not self:IsValid() or self.LoadGeneration ~= load_generation then
 				print("visual became invalid while loading")
 				return
 			end
 
+			self.Skeleton = data.skeleton
 			self:SetLoading(false)
 			self:BuildAABB()
 		end,

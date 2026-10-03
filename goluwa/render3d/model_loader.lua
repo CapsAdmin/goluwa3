@@ -90,6 +90,10 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 			out.physics = physics
 		end
 
+		local function skeleton_callback(skeleton)
+			out.skeleton = skeleton
+		end
+
 		local decode_callback = model_loader.FindModelDecoder(path)
 
 		if decode_callback then
@@ -101,7 +105,7 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 			thread:SetName(path)
 
 			function thread:OnStart()
-				decode_callback(path, full_path, mesh_callback, physics_callback)
+				decode_callback(path, full_path, mesh_callback, physics_callback, skeleton_callback)
 				loads:Finish(path, out)
 			end
 

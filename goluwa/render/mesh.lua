@@ -178,6 +178,21 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 	return self
 end
 
+-- shared index buffer and a vertex buffer of its own, a copy of this one's contents unless one is given. for geometry that is rewritten every frame
+function Mesh:CloneDynamic(vertex_buffer)
+	local clone = Mesh:CreateObject()
+	clone.debug_name = self.debug_name
+	clone.mode = self.mode
+	clone.index_buffer = self.index_buffer
+	clone.vertex_buffer = vertex_buffer or
+		VertexBuffer.New(
+			self.vertex_buffer.data,
+			self.vertex_buffer.vertex_attributes,
+			build_mesh_buffer_name(self.debug_name, "dynamic vertices")
+		)
+	return clone
+end
+
 function Mesh:OnRemove()
 	local content_key = self.content_key
 

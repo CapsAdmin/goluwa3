@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local render3d = import("goluwa/render3d/render3d.lua")
+local skinning = import("goluwa/render3d/skinning.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local Material = import("goluwa/render3d/material.lua")
 local system = import("goluwa/system.lua")
@@ -364,6 +365,9 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	if main_prologue then lines[#lines + 1] = main_prologue end
 
 	lines[#lines + 1] = "\tmat4 world = " .. world_expr .. ";"
+	lines[#lines + 1] = "\tbool skinned = in_vertex_color.a < " .. skinning.MOTION_THRESHOLD .. ";"
+	lines[#lines + 1] = "\tvec3 skin_motion = skinned ? in_vertex_color.rgb : vec3(0.0);"
+	lines[#lines + 1] = "\tvec4 vertex_color = skinned ? vec4(0.0) : in_vertex_color;"
 	lines[#lines + 1] = [[
 	vec3 local_position = in_position;
 	vec3 world_position = (world * vec4(local_position, 1.0)).xyz;
@@ -374,15 +378,16 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 
 	if options.velocity then
 		-- gpu culled static batches bind one buffer to both instance bindings, so
-		-- this is literally the same matrix and the subtraction cancels
-		lines[#lines + 1] = "\tvec3 prev_world_position = (" .. prev_world_expr .. " * vec4(in_position, 1.0)).xyz;"
+		-- this is literally the same matrix and the subtraction cancels.
+		-- skinned vertices carry how far skinning moved them since the last frame
+		lines[#lines + 1] = "\tvec3 prev_world_position = (" .. prev_world_expr .. " * vec4(in_position - skin_motion, 1.0)).xyz;"
 	end
 
 	if options.enable_vertex_animation ~= false then
-		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, in_vertex_color);"
+		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, vertex_color);"
 
 		if options.velocity then
-			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, in_vertex_color);"
+			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, vertex_color);"
 		end
 
 		lines[#lines + 1] = [[
@@ -419,7 +424,7 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	end
 
 	if options.vertex_color then
-		lines[#lines + 1] = "\tout_vertex_color = in_vertex_color;"
+		lines[#lines + 1] = "\tout_vertex_color = vertex_color;"
 	end
 
 	lines[#lines + 1] = "}"

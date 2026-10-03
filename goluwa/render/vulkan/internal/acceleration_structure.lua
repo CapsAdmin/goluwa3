@@ -41,7 +41,8 @@ function AccelerationStructure.QueryBuildSize(device, build_info)
 	local max_prims = ffi.new("uint32_t[1]", build_info.maxPrimitiveCount or 1)
 	build_sizes(device.ptr[0], 1, info, max_prims, sizes)
 	return tonumber(sizes.accelerationStructureSize),
-	tonumber(sizes.buildScratchSize)
+	tonumber(sizes.buildScratchSize),
+	tonumber(sizes.updateScratchSize)
 end
 
 -- offset and size place it inside a larger buffer, so many small structures

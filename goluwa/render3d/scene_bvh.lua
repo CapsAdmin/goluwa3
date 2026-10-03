@@ -47,6 +47,7 @@ local EmitterArray = ffi.typeof("$[?]", Emitter)
 scene_bvh.EmitterArray = EmitterArray
 local TrianglePtr = ffi.typeof("$*", Triangle)
 local FloatArray = ffi.typeof("float[?]")
+local DoubleArray = ffi.typeof("double[?]")
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local Int32Array = ffi.typeof("int32_t[?]")
 local UInt8Array = ffi.typeof("uint8_t[?]")
@@ -108,6 +109,8 @@ scene_bvh.dirty_components = {}
 -- per-visual local soup (mesh x entry-local matrix) and local child tree,
 -- cached across builds so a moved visual only re-transforms its own block
 scene_bvh.visual_cache = {}
+-- blocks of visuals with a skeleton, rewritten by the gpu every frame
+scene_bvh.animated_blocks = {}
 -- top tree layout from the last full sah (block_base per visual in block
 -- order). while the layout is unchanged and few aabbs moved, a build can
 -- keep the split structure and only re-derive node bounds bottom-up, which
@@ -625,6 +628,17 @@ do
 
 			collect_ranges()
 			local region_count = #ranges / 2
+
+			-- the copy brings the cpu bake of a range, which an animated block has to be rewritten over
+			for vc in pairs(scene_bvh.animated_blocks) do
+				for i = 1, #ranges, 2 do
+					if vc.tri_base < ranges[i] + ranges[i + 1] and ranges[i] < vc.tri_base + vc.tri_cap then
+						vc.animate_dirty = true
+
+						break
+					end
+				end
+			end
 
 			if copy_capacity < region_count then
 				copy_capacity = math.max(region_count, copy_capacity * 2, 64)
@@ -1403,6 +1417,7 @@ do
 		local stride = slot.vertex_buffer.stride / 4
 		local written = 0
 		local local_uvs = piece.local_uvs
+		local local_source = piece.local_source
 
 		for triangle = 0, count - 1 do
 			local a = indices[triangle * 3 + 0] * stride
@@ -1444,6 +1459,13 @@ do
 				record.emissive[0] = 0
 				record.emissive[1] = 0
 				record.emissive[2] = 0
+
+				if local_source then
+					local source = written * 3
+					local_source[source] = indices[triangle * 3]
+					local_source[source + 1] = indices[triangle * 3 + 1]
+					local_source[source + 2] = indices[triangle * 3 + 2]
+				end
 
 				if local_uvs then
 					local uv = written * UV_FLOATS
@@ -1505,6 +1527,8 @@ do
 			raw_count = slot.count,
 			local_tris = TriangleArray(slot.count),
 			local_uvs = SOUP_UVS and FloatArray(slot.count * UV_FLOATS) or nil,
+			-- the three vertex indices of each kept triangle, for blocks the gpu rewrites every frame
+			local_source = slot.animated and UInt32Array(slot.count * 3) or nil,
 			matrix = {
 				m00 = l.m00,
 				m01 = l.m01,
@@ -1651,6 +1675,31 @@ do
 		shape.node_count = child_build.cursor[1]
 		shape.nodes = NodeArray(shape.node_count)
 		ffi.copy(shape.nodes, scratch.child_nodes, shape.node_count * NODE_BYTE_SIZE)
+
+		if shape.pieces[1].local_source then
+			-- per soup triangle, in soup order: the three vertex indices and the slot they index into
+			local source = UInt32Array(total * 4)
+
+			for i = 0, total - 1 do
+				local l = shape.order[i]
+				local s = shape.slot_of[l]
+				local from = (l - shape.starts[s + 1]) * 3
+				local local_source = shape.pieces[s + 1].local_source
+				source[i * 4] = local_source[from]
+				source[i * 4 + 1] = local_source[from + 1]
+				source[i * 4 + 2] = local_source[from + 2]
+				source[i * 4 + 3] = s
+			end
+
+			shape.animated_source = render.CreateBuffer{
+				byte_size = total * 16,
+				buffer_usage = {"storage_buffer", "shader_device_address"},
+				memory_property = {"host_visible", "host_coherent"},
+				data = source,
+				label = "scene_bvh_animated_source",
+			}
+		end
+
 		shapes[key] = shape
 		return shape
 	end
@@ -1658,6 +1707,7 @@ do
 	-- writes a block's shape into its soup range in SAH order, transformed by
 	-- its world matrix and with its slots' materials
 	function bake_triangles(vc)
+		vc.animate_dirty = true
 		local shape = vc.shape
 		local total = shape.total
 		local order = shape.order
@@ -1784,7 +1834,29 @@ do
 		local block_base = vc.block_base
 		local tri_base = vc.tri_base
 		vc.baked_matrix = v
-		bake_triangles(vc)
+
+		-- the gpu rewrites the triangle positions of an animated block every
+		-- frame, so a move only needs the bake that gave its range the
+		-- materials, uvs and emissive values
+		local signature = shape.total
+
+		for i = 1, vc.slot_count do
+			local slot = vc.slots[i]
+			signature = signature * 131 + slot.material_id + slot.emissive_r * 7 + slot.emissive_g * 11 + slot.emissive_b * 13
+		end
+
+		if
+			not vc.animated or
+			vc.baked_shape ~= shape or
+			vc.baked_signature ~= signature or
+			vc.baked_base ~= tri_base
+		then
+			bake_triangles(vc)
+			vc.baked_shape = shape
+			vc.baked_signature = signature
+			vc.baked_base = tri_base
+		end
+
 		local local_nodes = shape.nodes
 		local world_nodes = scene_bvh.nodes + block_base
 
@@ -1826,6 +1898,7 @@ do
 	-- frees a visual's ranges and takes it out of the tree
 	local function release_block(visual, vc, rebuilding_top)
 		scene_bvh.visual_cache[visual] = nil
+		scene_bvh.animated_blocks[vc] = nil
 
 		if not vc.block_index then return end
 
@@ -1881,12 +1954,17 @@ do
 		local v = visual.Owner.transform:GetWorldMatrix()
 		local slot_count = 0
 		local slots = {}
+		local animated = false
 		local fast = vc ~= nil and vc.matrix == v
 
 		for _, entry in ipairs(visual:GetRenderEntries()) do
 			local mesh = entry.polygon3d.mesh
 
+			-- skinned meshes change every frame, the soup would keep their bind pose
 			if mesh and mesh.Type ~= "null" then
+				-- only with a vertex array of its own: skinned meshes that are not bound to an animator are
+				-- shared between all instances of the model, and so are their shape and blas
+				animated = animated or entry.polygon3d.Dynamic == true
 				local index_buffer = mesh.index_buffer
 				local count = index_buffer and
 					math.floor(index_buffer:GetIndexCount() / 3) or
@@ -1947,6 +2025,10 @@ do
 
 		if vc and slot_count ~= vc.slot_count then fast = false end
 
+		for i = 1, slot_count do
+			slots[i].animated = animated
+		end
+
 		if slot_count == 0 then
 			if vc then release_block(visual, vc, inserts.rebuild) end
 
@@ -1956,6 +2038,9 @@ do
 		vc = vc or {}
 		cache[visual] = vc
 		vc.stamp = stamp
+		-- only where ray tracing is, which is what the gpu rewrite and the blas update serve
+		vc.animated = animated and render.GetDevice().ray_tracing_supported
+		scene_bvh.animated_blocks[vc] = vc.animated or nil
 		local hidden = not visual.Visible
 
 		-- a hidden visual keeps its ranges and blas, it only leaves the top
@@ -2894,6 +2979,9 @@ do
 	local VK_GEOMETRY_TYPE_INSTANCES = 2
 	local VK_INDEX_TYPE_NONE = 1000165000
 	local BUILD_PREFER_FAST_TRACE = 4
+	-- the blas of an animated visual is updated in place every frame
+	local BUILD_ALLOW_UPDATE = 1
+	local BUILD_MODE_UPDATE = 1
 	local INSTANCE_FACING_CULL_DISABLE = 0x01000000
 	-- the soup has no uvs to alpha test a hit with, and no way to blend, so
 	-- alpha tested and see through visuals are non-opaque and rays that can do
@@ -3081,8 +3169,9 @@ do
 	end
 
 	local instance_matrix = Matrix44()
+	local identity_matrix = Matrix44()
 
-	local function write_instance(vc)
+	local function get_instance(vc)
 		local index = vc.block_index - 1
 
 		if index >= rt_state.instance_capacity then
@@ -3093,9 +3182,14 @@ do
 			rt_state.instance_capacity = capacity
 		end
 
-		local instance = rt_state.instances[index]
+		return rt_state.instances[index]
+	end
+
+	local function write_instance(vc)
+		local instance = get_instance(vc)
 		local group = vc.rt_group
-		local m = group.inverse:GetMultiplied(vc.baked_matrix, instance_matrix)
+		-- the blas of an animated visual is rewritten in world space every frame
+		local m = vc.animated and identity_matrix or group.inverse:GetMultiplied(vc.baked_matrix, instance_matrix)
 		local t = instance.transform.matrix
 		t[0][0], t[0][1], t[0][2], t[0][3] = m.m00, m.m10, m.m20, m.m30
 		t[1][0], t[1][1], t[1][2], t[1][3] = m.m01, m.m11, m.m21, m.m31
@@ -3131,6 +3225,277 @@ do
 		end
 	end
 
+	-- Animated blocks: the soup range of a visual with a skeleton is rewritten
+	-- by the gpu every frame, from the skinned vertex arrays, in world space.
+	-- the range keeps the materials, uvs and emissive values of its cpu bake.
+	-- a job is a block: its range, the per soup triangle source table (three
+	-- vertex indices and a slot) and its slots (the vertex array and the world
+	-- matrix of each entry)
+	local ANIMATE_LOCAL_SIZE = 64
+	local ANIMATE_ROW = 65535
+	local ANIMATE_MAX_JOBS = 2048
+	local ANIMATE_MAX_SLOTS = 32768
+	local ANIMATE_RING = 4
+	local AnimateJob = ffi.typeof([[struct {
+		uint32_t source[2];
+		uint32_t slots[2];
+		uint32_t first;
+		uint32_t count;
+		uint32_t group_start;
+		uint32_t padding;
+	}]])
+	local AnimateSlot = ffi.typeof([[struct {
+		uint32_t vertices[2];
+		uint32_t padding[2];
+		float matrix[12];
+	}]])
+	local AnimateJobPtr = ffi.typeof("$ *", AnimateJob)
+	local AnimateSlotPtr = ffi.typeof("$ *", AnimateSlot)
+	local animate_uint64_ptr = ffi.typeof("uint64_t *")
+	local animate = {job_base = 0, job_count = 0, group_count = 0}
+	-- animated blocks farther than this from the camera keep the pose they had, in meters
+	scene_bvh.ANIMATION_DISTANCE = 150
+	-- the first blas builds of animated visuals allowed per frame, in triangles. every animated visual has a blas of
+	-- its own, so a crowd appearing at once is hundreds of builds, which the gpu can't be pre-empted in for long enough
+	-- to lose the device. the rest wait for the frames after
+	scene_bvh.ANIMATED_BLAS_BUILD_TRIANGLES = 500000
+
+	local function get_animate_pipeline()
+		if animate.pipeline then return animate.pipeline end
+
+		animate.jobs = render.CreateBuffer{
+			byte_size = ffi.sizeof(AnimateJob) * ANIMATE_MAX_JOBS * ANIMATE_RING,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scene_bvh_animate_jobs",
+		}
+		animate.job_data = ffi.cast(AnimateJobPtr, animate.jobs:Map())
+		animate.slots = render.CreateBuffer{
+			byte_size = ffi.sizeof(AnimateSlot) * ANIMATE_MAX_SLOTS * ANIMATE_RING,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scene_bvh_animate_slots",
+		}
+		animate.slot_data = ffi.cast(AnimateSlotPtr, animate.slots:Map())
+		animate.slot_address = animate.slots:GetDeviceAddress()
+		animate.pipeline = EasyPipeline.Compute{
+			name = "scene_bvh_animate",
+			dont_create_framebuffers = true,
+			DescriptorSetCount = render.GetSwapchainImageCount(),
+			LocalSize = {ANIMATE_LOCAL_SIZE, 1, 1},
+			storage_buffers = {{binding_index = 0}, {binding_index = 1, count = SOUP_CHUNKS}},
+			block = {
+				{"job_base", "int"},
+				{"job_count", "int"},
+				{"group_count", "int"},
+				write = function(self, block)
+					block.job_base = animate.job_base
+					block.job_count = animate.job_count
+					block.group_count = animate.group_count
+					return block
+				end,
+			},
+			custom_declarations = ([=[
+					layout(scalar, set = 0, binding = 1) buffer SceneBvhAnimateSoup {
+						float f[];
+					} soup[%d];
+					struct AnimateJob {
+						uvec2 source;
+						uvec2 slots;
+						uint first;
+						uint count;
+						uint group_start;
+						uint padding;
+					};
+					layout(scalar, set = 0, binding = 0) readonly buffer SceneBvhAnimateJobs {
+						AnimateJob jobs[];
+					};
+					struct AnimateSlot {
+						uvec2 vertices;
+						uvec2 padding;
+						float m[12];
+					};
+					layout(buffer_reference, scalar) readonly buffer AnimateSource { uvec4 s[]; };
+					layout(buffer_reference, scalar) readonly buffer AnimateSlots { AnimateSlot s[]; };
+					layout(buffer_reference, scalar) readonly buffer AnimateVertices { float v[]; };
+					]=]):format(SOUP_CHUNKS),
+			shader = [[
+				#define SOUP_CHUNK ]] .. SOUP_CHUNK_TRIS .. [[u
+				// polygon_3d's vertex has 17 floats, the position first
+				vec3 animate_position(AnimateVertices vertices, AnimateSlot slot, uint index) {
+					uint o = index * 17u;
+					vec3 p = vec3(vertices.v[o], vertices.v[o + 1u], vertices.v[o + 2u]);
+					return p.x * vec3(slot.m[0], slot.m[1], slot.m[2]) +
+						p.y * vec3(slot.m[3], slot.m[4], slot.m[5]) +
+						p.z * vec3(slot.m[6], slot.m[7], slot.m[8]) +
+						vec3(slot.m[9], slot.m[10], slot.m[11]);
+				}
+
+				void main() {
+					uint flat_group = gl_WorkGroupID.y * ]] .. ANIMATE_ROW .. [[u + gl_WorkGroupID.x;
+
+					if (flat_group >= uint(compute.group_count)) return;
+
+					// the last job that starts at or before this workgroup
+					uint low = 0u;
+					uint high = uint(compute.job_count);
+
+					while (high - low > 1u) {
+						uint middle = (low + high) / 2u;
+
+						if (jobs[uint(compute.job_base) + middle].group_start <= flat_group) low = middle; else high = middle;
+					}
+
+					AnimateJob job = jobs[uint(compute.job_base) + low];
+					uint i = (flat_group - job.group_start) * ]] .. ANIMATE_LOCAL_SIZE .. [[u + gl_LocalInvocationID.x;
+
+					if (i >= job.count) return;
+
+					uvec4 source = AnimateSource(packUint2x32(job.source)).s[i];
+					AnimateSlot slot = AnimateSlots(packUint2x32(job.slots)).s[source.w];
+					AnimateVertices vertices = AnimateVertices(packUint2x32(slot.vertices));
+					vec3 p0 = animate_position(vertices, slot, source.x);
+					vec3 p1 = animate_position(vertices, slot, source.y);
+					vec3 p2 = animate_position(vertices, slot, source.z);
+					vec3 e1 = p1 - p0;
+					vec3 e2 = p2 - p0;
+					vec3 n = cross(e1, e2);
+					float length_n = length(n);
+					n = length_n > 1e-12 ? n / length_n : vec3(0.0, 1.0, 0.0);
+					uint tri = job.first + i;
+					uint chunk = tri / SOUP_CHUNK;
+					uint o = (tri - chunk * SOUP_CHUNK) * 16u;
+					soup[nonuniformEXT(chunk)].f[o] = p0.x;
+					soup[nonuniformEXT(chunk)].f[o + 1u] = p0.y;
+					soup[nonuniformEXT(chunk)].f[o + 2u] = p0.z;
+					soup[nonuniformEXT(chunk)].f[o + 3u] = e1.x;
+					soup[nonuniformEXT(chunk)].f[o + 4u] = e1.y;
+					soup[nonuniformEXT(chunk)].f[o + 5u] = e1.z;
+					soup[nonuniformEXT(chunk)].f[o + 6u] = e2.x;
+					soup[nonuniformEXT(chunk)].f[o + 7u] = e2.y;
+					soup[nonuniformEXT(chunk)].f[o + 8u] = e2.z;
+					soup[nonuniformEXT(chunk)].f[o + 9u] = n.x;
+					soup[nonuniformEXT(chunk)].f[o + 10u] = n.y;
+					soup[nonuniformEXT(chunk)].f[o + 11u] = n.z;
+				}
+			]],
+		}
+		return animate.pipeline
+	end
+
+	-- rewrites the soup ranges of the animated blocks that are shown. returns
+	-- whether any were, in which case their blas needs to follow
+	function scene_bvh.RewriteAnimatedBlocks(cmd)
+		if not next(scene_bvh.animated_blocks) then return false end
+
+		local pipeline = get_animate_pipeline()
+		local ring = system.GetFrameNumber() % ANIMATE_RING
+		animate.job_base = ring * ANIMATE_MAX_JOBS
+		local slot_base = ring * ANIMATE_MAX_SLOTS
+		local camera = import("goluwa/render3d/render3d.lua").GetCamera():GetPosition()
+		local reach = scene_bvh.ANIMATION_DISTANCE
+		local jobs = 0
+		local slots_used = 0
+		local groups = 0
+
+		for vc in pairs(scene_bvh.animated_blocks) do
+			local shape = vc.shape
+
+			if
+				vc.block_index and
+				vc.baked_matrix and
+				not vc.hidden and
+				shape.animated_source and
+				jobs < ANIMATE_MAX_JOBS and
+				slots_used + vc.slot_count <= ANIMATE_MAX_SLOTS and
+				math.abs((vc.world_aabb[0] + vc.world_aabb[3]) / 2 - camera.x) < reach and
+				math.abs((vc.world_aabb[1] + vc.world_aabb[4]) / 2 - camera.y) < reach and
+				math.abs((vc.world_aabb[2] + vc.world_aabb[5]) / 2 - camera.z) < reach
+			then
+				-- a block is rewritten when its skinned vertices or an entry's world matrix changed, or its
+				-- range was written by the cpu since
+				local animator = vc.slots[1].entry.entity.VisualOwner.Owner.animator
+				local version = animator and animator.skin_version or 0
+				local needs = vc.animate_dirty ~= false or vc.animate_version ~= version
+				local cached = vc.animate_matrices
+
+				if not cached or vc.animate_matrix_slots ~= vc.slot_count then
+					cached = DoubleArray(vc.slot_count * 12)
+					vc.animate_matrices = cached
+					vc.animate_matrix_slots = vc.slot_count
+					needs = true
+				end
+
+				for i = 1, vc.slot_count do
+					local m = vc.slots[i].entry.transform:GetWorldMatrix()
+					local o = (i - 1) * 12
+					local x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11 = m.m00, m.m01, m.m02, m.m10, m.m11, m.m12, m.m20, m.m21, m.m22, m.m30, m.m31, m.m32
+
+					if
+						cached[o] ~= x0 or
+						cached[o + 1] ~= x1 or
+						cached[o + 2] ~= x2 or
+						cached[o + 3] ~= x3 or
+						cached[o + 4] ~= x4 or
+						cached[o + 5] ~= x5 or
+						cached[o + 6] ~= x6 or
+						cached[o + 7] ~= x7 or
+						cached[o + 8] ~= x8 or
+						cached[o + 9] ~= x9 or
+						cached[o + 10] ~= x10 or
+						cached[o + 11] ~= x11
+					then
+						needs = true
+						cached[o], cached[o + 1], cached[o + 2], cached[o + 3] = x0, x1, x2, x3
+						cached[o + 4], cached[o + 5], cached[o + 6], cached[o + 7] = x4, x5, x6, x7
+						cached[o + 8], cached[o + 9], cached[o + 10], cached[o + 11] = x8, x9, x10, x11
+					end
+				end
+
+				if needs then
+					for i = 1, vc.slot_count do
+						local entry_slot = animate.slot_data[slot_base + slots_used + i - 1]
+						ffi.cast(animate_uint64_ptr, entry_slot.vertices)[0] = vc.slots[i].vertex_buffer:GetBuffer():GetDeviceAddress()
+
+						for k = 0, 11 do
+							entry_slot.matrix[k] = cached[(i - 1) * 12 + k]
+						end
+					end
+
+					local job = animate.job_data[animate.job_base + jobs]
+					ffi.cast(animate_uint64_ptr, job.source)[0] = shape.animated_source:GetDeviceAddress()
+					ffi.cast(animate_uint64_ptr, job.slots)[0] = animate.slot_address + (slot_base + slots_used) * ffi.sizeof(AnimateSlot)
+					job.first = vc.tri_base
+					job.count = shape.total
+					job.group_start = groups
+					groups = groups + math.ceil(shape.total / ANIMATE_LOCAL_SIZE)
+					slots_used = slots_used + vc.slot_count
+					jobs = jobs + 1
+					vc.animate_frame = system.GetFrameNumber()
+					vc.animate_dirty = false
+					vc.animate_version = version
+				end
+			end
+		end
+
+		scene_bvh.animated_job_count = jobs
+
+		if jobs == 0 then return false end
+
+		local slot = math.max(render.GetCurrentFrame(), 1)
+		scene_bvh.BindTriangleBuffer(pipeline, slot, 1, scene_bvh.triangle_buffer)
+		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, animate.jobs, animate.jobs:GetSize())
+		-- the skinned vertex arrays were written earlier in this command buffer, and earlier frames may still read the soup
+		cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
+		animate.job_count = jobs
+		animate.group_count = groups
+		gpu_timing.BeginScope(cmd, "animate_soup")
+		pipeline:Dispatch(cmd, math.min(groups, ANIMATE_ROW), math.ceil(groups / ANIMATE_ROW), 1, slot)
+		gpu_timing.EndScope(cmd, "animate_soup")
+		cmd:PipelineBarrier{srcStage = "compute", dstStage = "all_commands", memoryBarrier = true}
+		return true
+	end
+
 	-- builds the blas of every visual whose soup range was rewritten since its
 	-- blas was built, in batches that fit the scratch budget, and keeps the
 	-- instance list (one per block, in block order) in step
@@ -3138,6 +3503,7 @@ do
 		local device = render.GetDevice()
 		local changed = scene_bvh.changed_blocks
 		scene_bvh.changed_blocks = {}
+		rt_state.blas_backlog = false
 
 		-- the first look covers every block
 		if not changed then
@@ -3170,7 +3536,7 @@ do
 					group = shape.rt_group
 
 					if not group then
-						group = {shape = shape, count = 0}
+						group = {shape = shape, count = 0, allow_update = vc.animated}
 						shape.rt_group = group
 					end
 
@@ -3195,6 +3561,74 @@ do
 			end
 		end
 
+		-- the blas of an animated visual is updated in place from its rewritten soup range
+		local has_update = false
+
+		if scene_bvh.animated_frame == frame then
+			for vc in pairs(scene_bvh.animated_blocks) do
+				local group = vc.rt_group
+
+				if group and group.rt_blas and group.allow_update and vc.animate_frame == frame and not group.update then
+					group.update = true
+					group.first_vertex = vc.first_vertex
+					group.vertex_count = vc.vertex_count
+					group.total = vc.total
+					dirty[#dirty + 1] = group
+					has_update = true
+				end
+			end
+		end
+
+		local built_triangles = 0
+		local postponed
+
+		for i = 1, #dirty do
+			local group = dirty[i]
+
+			if group.rt_blas or not group.allow_update then goto keep end
+
+			if built_triangles > 0 and built_triangles + group.total > scene_bvh.ANIMATED_BLAS_BUILD_TRIANGLES then
+				group.builder = nil
+				postponed = postponed or {}
+				postponed[group] = true
+				dirty[i] = false
+
+				goto next_group
+			end
+
+			built_triangles = built_triangles + group.total
+
+			::keep::
+
+			::next_group::
+		end
+
+		if postponed then
+			local kept = {}
+
+			for i = 1, #dirty do
+				if dirty[i] then kept[#kept + 1] = dirty[i] end
+			end
+
+			dirty = kept
+			local still_waiting = {}
+
+			for _, vc in ipairs(waiting) do
+				if postponed[vc.rt_group] then
+					scene_bvh.changed_blocks[vc] = true
+					-- the slot may still hold a released block's blas, which nothing may trace until its own is built
+					local instance = get_instance(vc)
+					instance.accelerationStructureReference = 0
+					instance.customAndMask = 0
+				else
+					still_waiting[#still_waiting + 1] = vc
+				end
+			end
+
+			waiting = still_waiting
+			rt_state.blas_backlog = true
+		end
+
 		if not dirty[1] then return false end
 
 		local n = #dirty
@@ -3216,32 +3650,47 @@ do
 
 		for i = 1, n do
 			local vc = dirty[i]
+			local update = vc.update
+			vc.update = nil
+			local flags = vc.allow_update and
+				BUILD_PREFER_FAST_TRACE + BUILD_ALLOW_UPDATE or
+				BUILD_PREFER_FAST_TRACE
 			local geometry = geometries[i - 1]
 			fill_triangle_geometry(geometry, 0, vc.vertex_count)
-			local storage_size, scratch_size = AccelerationStructure.QueryBuildSize(
-				device,
-				{
-					type = "bottom_level_khr",
-					flags = BUILD_PREFER_FAST_TRACE,
-					geometryCount = 1,
-					pGeometries = geometry,
-					maxPrimitiveCount = vc.total,
-				}
-			)
+			local scratch_size
 
-			local pool, offset, units = pool_alloc(storage_size)
-			vc.rt_pool = pool
-			vc.rt_offset = offset
-			vc.rt_units = units
-			vc.rt_blas = AccelerationStructure.New(
-				device,
-				"bottom_level_khr",
-				pool.buffer,
-				offset * BLAS_ALIGN,
-				units * BLAS_ALIGN
-			)
-			vc.rt_address = vc.rt_blas:Data()
-			vc.builder = nil
+			if update then
+				scratch_size = vc.rt_scratch_size
+			else
+				local storage_size, update_scratch_size
+				storage_size, scratch_size, update_scratch_size = AccelerationStructure.QueryBuildSize(
+					device,
+					{
+						type = "bottom_level_khr",
+						flags = flags,
+						geometryCount = 1,
+						pGeometries = geometry,
+						maxPrimitiveCount = vc.total,
+					}
+				)
+				-- an update needs its own scratch size, which is not the build's
+				vc.rt_scratch_size = vc.allow_update and math.max(scratch_size, update_scratch_size) or scratch_size
+				scratch_size = vc.rt_scratch_size
+				local pool, offset, units = pool_alloc(storage_size)
+				vc.rt_pool = pool
+				vc.rt_offset = offset
+				vc.rt_units = units
+				vc.rt_blas = AccelerationStructure.New(
+					device,
+					"bottom_level_khr",
+					pool.buffer,
+					offset * BLAS_ALIGN,
+					units * BLAS_ALIGN
+				)
+				vc.rt_address = vc.rt_blas:Data()
+				vc.builder = nil
+			end
+
 			scratch_size = math.ceil(scratch_size / scratch_alignment) * scratch_alignment
 			scratch_offsets[i] = scratch_size
 			scratch_total = scratch_total + scratch_size
@@ -3250,8 +3699,11 @@ do
 			local info = infos[i - 1]
 			info.sType = 1000150000
 			info.type = 1
-			info.flags = BUILD_PREFER_FAST_TRACE
-			info.mode = 0
+			info.flags = flags
+			info.mode = update and BUILD_MODE_UPDATE or 0
+
+			if update then info.srcAccelerationStructure = vc.rt_blas.ptr[0] end
+
 			info.dstAccelerationStructure = vc.rt_blas.ptr[0]
 			info.geometryCount = 1
 			info.pGeometries = geometry
@@ -3264,6 +3716,15 @@ do
 		local cmd_build = device:GetExtension("vkCmdBuildAccelerationStructuresKHR")
 		-- scratch may still be in use by builds of an earlier frame
 		scratch_barrier(cmd)
+
+		-- and so may the blas that is about to be updated by rays of an earlier frame
+		if has_update then
+			cmd:PipelineBarrier{
+				srcStage = "all_commands",
+				dstStage = "acceleration_structure_build_khr",
+				memoryBarrier = true,
+			}
+		end
 
 		for i = 1, #waiting do
 			write_instance(waiting[i])
@@ -3452,8 +3913,20 @@ do
 		end
 
 		local frame = system.GetFrameNumber()
+		local animated = false
+
+		-- once per frame: the soup ranges of animated blocks are rewritten and their blas updated, which the tlas has to follow
+		if scene_bvh.animated_frame ~= frame then
+			animated = scene_bvh.RewriteAnimatedBlocks(cmd)
+			scene_bvh.animated_frame = frame
+		end
+
+		-- a backlog of blas builds is another reason to build, but not twice in a frame: the tlas slots are
+		-- handed out by frame
+		if rt_state.blas_backlog and rt_state.built_frame ~= frame then animated = true end
 
 		if
+			not animated and
 			rt_state.built_version == scene_bvh.soup_version and
 			rt_state.built_top_version == scene_bvh.top_version and
 			rt_state.current_slot
@@ -3462,6 +3935,7 @@ do
 			return rt_state.current_slot.tlas
 		end
 
+		rt_state.built_frame = frame
 		process_pending_free(frame)
 		gpu_timing.BeginScope(cmd, "rt_build")
 

@@ -952,7 +952,8 @@ return function(props)
 
 	local function build_property_node(target, category_key, category_name, info, hooks)
 		local resolved_type = property_type_aliases[info.type] or info.type
-		local node_type = info.enums and "enum" or resolved_type
+		local enums = info.enums or info.get_enums and info.get_enums(target)
+		local node_type = enums and "enum" or resolved_type
 		local value = objects.GetProperty(target, info.var_name)
 		local node = {
 			Type = node_type,
@@ -998,10 +999,10 @@ return function(props)
 			end
 		end
 
-		if node_type == "enum" and info.enums then
+		if node_type == "enum" and enums then
 			node.Options = {}
 
-			for _, option in ipairs(info.enums) do
+			for _, option in ipairs(enums) do
 				node.Options[#node.Options + 1] = {
 					Text = tostring(option),
 					Value = option,

@@ -14,6 +14,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local skinning = import("goluwa/render3d/skinning.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local water = import("goluwa/render3d/water.lua")
 local light_components = import("goluwa/entities/components/light.lua")
@@ -434,6 +435,7 @@ function render3d.Initialize(config)
 			if pipeline.pre_render then pipeline:pre_render() end
 		end
 
+		skinning.Dispatch(render.GetCommandBuffer())
 		scene_bvh.EnsureBuilt()
 		local ocean_enabled = render3d.IsOceanEnabled()
 		local water_needed = render3d.IsWaterEnabled()

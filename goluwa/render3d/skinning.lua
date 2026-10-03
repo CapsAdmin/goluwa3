@@ -1,0 +1,301 @@
+local ffi = require("ffi")
+local render = import("goluwa/render/render.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local system = import("goluwa/system.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local skinning = library()
+-- Skeletal animation on the gpu. An animator computes its bone matrices on the
+-- cpu each frame and queues itself; Dispatch, before the passes of the frame,
+-- skins every queued vertex array in one dispatch: a workgroup row per job, a
+-- job being a bind pose vertex array, the vertex array it writes, the bone
+-- weights of its vertices and the bone matrices to use. Buffers are addressed
+-- by device address, so a job can point at any mesh.
+skinning.MAX_JOBS = 4096
+skinning.MAX_MATRIX_FLOATS = 12 * 65536
+skinning.RING = 4
+-- the skinning pass leaves how far it moved a vertex since the previous frame in the vertex color of the vertex
+-- arrays it writes, rgb being the object space offset, with a marking the vertex as skinned. the vertex stages
+-- read it back for motion vectors and then treat the vertex color as black
+skinning.MOTION_MARK = -1000000
+skinning.MOTION_THRESHOLD = -500000
+local LOCAL_SIZE = 64
+-- the workgroups of all jobs are laid out one after another over rows of this many, the guaranteed limit of one dimension.
+-- a 2D dispatch of 32768 x 2 workgroups lost the device on the gm_construct stress test, so rows stay a last resort
+local ROW = 65535
+-- group_start is the first workgroup of the flat dispatch that works on a job
+local Job = ffi.typeof([[struct {
+	uint32_t bind[2];
+	uint32_t destination[2];
+	uint32_t bones[2];
+	uint32_t matrices[2];
+	uint32_t count;
+	uint32_t group_start;
+	uint32_t padding[2];
+}]])
+local JobPtr = ffi.typeof("$ *", Job)
+local uint64_ptr = ffi.typeof("uint64_t *")
+local FloatPtr = ffi.typeof("float *")
+local queue = {}
+local queued_count = 0
+local buffers = nil
+local pipeline = nil
+local job_base = 0
+local job_count = 0
+local group_count = 0
+
+local function get_buffers()
+	if buffers then return buffers end
+
+	buffers = {
+		jobs = render.CreateBuffer{
+			byte_size = ffi.sizeof(Job) * skinning.MAX_JOBS * skinning.RING,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "skinning jobs",
+		},
+		matrices = render.CreateBuffer{
+			byte_size = skinning.MAX_MATRIX_FLOATS * 4 * skinning.RING,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "skinning matrices",
+		},
+	}
+	buffers.job_data = ffi.cast(JobPtr, buffers.jobs:Map())
+	buffers.matrix_data = ffi.cast(FloatPtr, buffers.matrices:Map())
+	buffers.matrix_address = buffers.matrices:GetDeviceAddress()
+	return buffers
+end
+
+local function get_pipeline()
+	if pipeline then return pipeline end
+
+	pipeline = EasyPipeline.Compute{
+		name = "skinning",
+		DescriptorSetCount = 1,
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		descriptor_sets = {
+			{
+				type = "storage_buffer",
+				binding_index = 0,
+				stageFlags = "compute",
+				set_index = 0,
+				args = function()
+					local jobs = get_buffers().jobs
+					return {jobs, jobs.size}
+				end,
+			},
+		},
+		block = {{"job_base", "int"}, {"job_count", "int"}, {"group_count", "int"}},
+		write = function(self, block)
+			block.job_base = job_base
+			block.job_count = job_count
+			block.group_count = group_count
+			return block
+		end,
+		shader = [[
+			layout(buffer_reference, scalar) readonly buffer SkinBind { float v[]; };
+			layout(buffer_reference, scalar) buffer SkinDestination { float v[]; };
+			struct SkinBone {
+				uint indices;
+				float w0;
+				float w1;
+				float w2;
+			};
+			layout(buffer_reference, scalar) readonly buffer SkinBones { SkinBone b[]; };
+			layout(buffer_reference, scalar) readonly buffer SkinMatrices { float m[]; };
+			struct SkinJob {
+				uvec2 bind;
+				uvec2 destination;
+				uvec2 bones;
+				uvec2 matrices;
+				uint count;
+				uint group_start;
+				uint padding0;
+				uint padding1;
+			};
+			layout(scalar, set = 0, binding = 0) readonly buffer SkinJobs {
+				SkinJob jobs[];
+			};
+
+			// polygon_3d's vertex: position 0, normal 3, uv 6, tangent 8, blend 12, color 13
+			#define SKIN_VERTEX_FLOATS 17u
+
+			mat4x3 skin_matrix(SkinMatrices matrices, uint bone) {
+				uint o = bone * 12u;
+				return transpose(mat3x4(
+					matrices.m[o], matrices.m[o + 1u], matrices.m[o + 2u], matrices.m[o + 3u],
+					matrices.m[o + 4u], matrices.m[o + 5u], matrices.m[o + 6u], matrices.m[o + 7u],
+					matrices.m[o + 8u], matrices.m[o + 9u], matrices.m[o + 10u], matrices.m[o + 11u]
+				));
+			}
+
+			void main() {
+				uint flat_group = gl_WorkGroupID.y * ]] .. ROW .. [[u + gl_WorkGroupID.x;
+
+				if (flat_group >= uint(compute.group_count)) return;
+
+				// the last job that starts at or before this workgroup
+				uint low = 0u;
+				uint high = uint(compute.job_count);
+
+				while (high - low > 1u) {
+					uint middle = (low + high) / 2u;
+
+					if (jobs[uint(compute.job_base) + middle].group_start <= flat_group) low = middle; else high = middle;
+				}
+
+				SkinJob job = jobs[uint(compute.job_base) + low];
+				uint i = (flat_group - job.group_start) * ]] .. LOCAL_SIZE .. [[u + gl_LocalInvocationID.x;
+
+				if (i >= job.count) return;
+
+				SkinBind bind = SkinBind(packUint2x32(job.bind));
+				SkinDestination destination = SkinDestination(packUint2x32(job.destination));
+				SkinBone bone = SkinBones(packUint2x32(job.bones)).b[i];
+				SkinMatrices matrices = SkinMatrices(packUint2x32(job.matrices));
+				mat4x3 m = skin_matrix(matrices, bone.indices & 0xFFu) * bone.w0;
+
+				if (bone.w0 < 0.9999) {
+					if (bone.w1 > 0.0) m += skin_matrix(matrices, (bone.indices >> 8u) & 0xFFu) * bone.w1;
+					if (bone.w2 > 0.0) m += skin_matrix(matrices, (bone.indices >> 16u) & 0xFFu) * bone.w2;
+				}
+
+				uint o = i * SKIN_VERTEX_FLOATS;
+				vec3 position = vec3(bind.v[o], bind.v[o + 1u], bind.v[o + 2u]);
+				vec3 normal = vec3(bind.v[o + 3u], bind.v[o + 4u], bind.v[o + 5u]);
+				vec3 tangent = vec3(bind.v[o + 8u], bind.v[o + 9u], bind.v[o + 10u]);
+				// the position this vertex had when the pass last ran, if it ran on it before
+				vec3 previous = position;
+				bool had_previous = destination.v[o + 16u] < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
+				position = m * vec4(position, 1.0);
+
+				if (had_previous) {
+					previous = vec3(destination.v[o], destination.v[o + 1u], destination.v[o + 2u]);
+				} else {
+					previous = position;
+				}
+
+				normal = normalize(mat3(m) * normal + 1e-20);
+				tangent = normalize(mat3(m) * tangent + 1e-20);
+				destination.v[o] = position.x;
+				destination.v[o + 1u] = position.y;
+				destination.v[o + 2u] = position.z;
+				destination.v[o + 3u] = normal.x;
+				destination.v[o + 4u] = normal.y;
+				destination.v[o + 5u] = normal.z;
+				destination.v[o + 8u] = tangent.x;
+				destination.v[o + 9u] = tangent.y;
+				destination.v[o + 10u] = tangent.z;
+				vec3 motion = position - previous;
+				destination.v[o + 13u] = motion.x;
+				destination.v[o + 14u] = motion.y;
+				destination.v[o + 15u] = motion.z;
+				destination.v[o + 16u] = ]] .. skinning.MOTION_MARK .. [[.0;
+			}
+		]],
+	}
+	return pipeline
+end
+
+-- gpu copy of a skin's bone indices and weights, one 16 byte record per vertex. kept on the skin
+function skinning.GetBoneBuffer(skin, vertex_count)
+	if skin.GpuBuffer then return skin.GpuBuffer end
+
+	local data = ffi.new("uint32_t[?]", vertex_count * 4)
+	local floats = ffi.cast(FloatPtr, data)
+	local indices, weights = skin.BoneIndices, skin.BoneWeights
+
+	for i = 0, vertex_count - 1 do
+		local s = i * 4
+		data[s] = bit.bor(
+			indices[s],
+			bit.lshift(indices[s + 1], 8),
+			bit.lshift(indices[s + 2], 16),
+			bit.lshift(indices[s + 3], 24)
+		)
+		floats[s + 1] = weights[s]
+		floats[s + 2] = weights[s + 1]
+		floats[s + 3] = weights[s + 2]
+	end
+
+	skin.GpuBuffer = render.CreateBuffer{
+		byte_size = vertex_count * 16,
+		buffer_usage = {"storage_buffer", "shader_device_address"},
+		memory_property = {"host_visible", "host_coherent"},
+		data = data,
+		label = "skin bones",
+	}
+	return skin.GpuBuffer
+end
+
+-- animator.matrices are skinned into animator.skinned[].vertex_buffer at the next Dispatch
+function skinning.Queue(animator)
+	queued_count = queued_count + 1
+	queue[queued_count] = animator
+end
+
+function skinning.Dispatch(cmd)
+	if queued_count == 0 then return end
+
+	local b = get_buffers()
+	local ring = system.GetFrameNumber() % skinning.RING
+	job_base = ring * skinning.MAX_JOBS
+	local matrix_offset = ring * skinning.MAX_MATRIX_FLOATS
+	local jobs = 0
+	local floats = 0
+	local groups = 0
+
+	for i = 1, queued_count do
+		local animator = queue[i]
+		queue[i] = nil
+
+		-- removed since it queued
+		if not animator:IsValid() or not animator.skeleton then goto continue end
+
+		local matrix_count = animator.skeleton.BoneCount * 12
+
+		if
+			floats + matrix_count > skinning.MAX_MATRIX_FLOATS or
+			jobs + #animator.skinned > skinning.MAX_JOBS
+		then
+			if not skinning.warned then
+				skinning.warned = true
+				llog("skinning is full (%d jobs, %d bone matrices), the rest of the animated models are not skinned", jobs, floats / 12)
+			end
+		else
+			ffi.copy(b.matrix_data + matrix_offset + floats, animator.matrices, matrix_count * 4)
+			local matrix_address = b.matrix_address + (matrix_offset + floats) * 4
+
+			for _, skinned in ipairs(animator.skinned) do
+				local job = b.job_data[job_base + jobs]
+				ffi.cast(uint64_ptr, job.bind)[0] = skinned.bind_address
+				ffi.cast(uint64_ptr, job.destination)[0] = skinned.destination_address
+				ffi.cast(uint64_ptr, job.bones)[0] = skinned.bones_address
+				ffi.cast(uint64_ptr, job.matrices)[0] = matrix_address
+				job.count = skinned.count
+				job.group_start = groups
+				groups = groups + math.ceil(skinned.count / LOCAL_SIZE)
+				jobs = jobs + 1
+			end
+
+			floats = floats + matrix_count
+		end
+
+		::continue::
+	end
+
+	queued_count = 0
+
+	if jobs == 0 then return end
+
+	-- earlier frames may still be reading the vertex arrays that are about to be rewritten
+	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
+	job_count = jobs
+	group_count = groups
+	gpu_timing.BeginScope(cmd, "skinning")
+	get_pipeline():Dispatch(cmd, math.min(groups, ROW), math.ceil(groups / ROW), 1, 1)
+	gpu_timing.EndScope(cmd, "skinning")
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "all_commands", memoryBarrier = true}
+end
+
+return skinning

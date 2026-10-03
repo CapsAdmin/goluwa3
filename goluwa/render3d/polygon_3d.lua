@@ -249,6 +249,19 @@ function Polygon3D:Upload(indices)
 	end
 end
 
+function Polygon3D:CloneDynamic(vertex_buffer)
+	local clone = Polygon3D.New()
+	clone:SetAABB(self.AABB)
+	clone:SetBendHeight(self.BendHeight)
+	clone:SetMaterialSlot(self.MaterialSlot)
+	clone.indices = self.indices
+	clone.Skin = self.Skin
+	-- its vertices are rewritten every frame, unlike the shared mesh it came from
+	clone.Dynamic = true
+	clone.mesh = self.mesh:CloneDynamic(vertex_buffer)
+	return clone
+end
+
 function Polygon3D:Draw()
 	local mesh = self.mesh
 
