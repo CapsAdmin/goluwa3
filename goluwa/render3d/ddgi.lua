@@ -1947,6 +1947,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t albedo2_tex;
 	int32_t blend_tex;
 }]])
+ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
 local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)

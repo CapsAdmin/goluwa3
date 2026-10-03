@@ -29,7 +29,9 @@ end
 local function same_pixel(a, b, x, y)
 	local ar, ag, ab = a:GetPixelFloat(x, y)
 	local br, bg, bb = b:GetPixelFloat(x, y)
-	return math.abs(ar - br) + math.abs(ag - bg) + math.abs(ab - bb) < 1e-3
+	-- the scene is pre exposed, so what its values add up to depends on the
+	-- exposure. a pixel is the same when it moved by less than a hundredth of itself
+	return math.abs(ar - br) + math.abs(ag - bg) + math.abs(ab - bb) < 0.01 * (ar + ag + ab)
 end
 
 T.Test3D("Graphics render3d translucent materials draw forward over the lit scene", function(draw)
@@ -88,10 +90,10 @@ T.Test3D("Graphics render3d translucent materials draw forward over the lit scen
 		local _, final_g = final:GetPixelFloat(center, center)
 		T(final_g > opaque_g)["=="](true)
 		-- and nothing else is touched: not the wall beside it, nor where the
-		-- panes behind the wall would be
+		-- panes behind the wall would be, nor the sky, which the fog scatters into
 		T(same_pixel(opaque, final, center - 55, center))["=="](true)
 		T(same_pixel(opaque, final, center + 55, center))["=="](true)
-		T(same_pixel(opaque, final, 8, 8))["=="](true)
+		T(same_pixel(opaque, final, center - 120, center + 60))["=="](true)
 	end)
 
 	for _, ent in ipairs(created) do

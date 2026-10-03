@@ -1,4 +1,6 @@
 local T = import("test/environment.lua")
+-- the render3d modules import each other in a loop that only loads from render3d
+import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local Color = import("goluwa/structs/color.lua")
 

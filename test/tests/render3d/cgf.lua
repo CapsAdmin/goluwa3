@@ -474,7 +474,8 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	T(material:GetTransmissionTexture() ~= nil)["=="](true)
 	T(material:GetRoughnessTexture())["=="](nil)
 	T(math.abs(material:GetRoughnessMultiplier() - (2 / 32) ^ 0.25))["<"](0.0001)
-	T(math.abs(material:GetSpecularMultiplier() - 1))["<"](0.0001)
+	-- specular 0.5 with shininess 30 is a phong lobe of F0 = 2 * 0.5 / 32, against the 0.04 of a dielectric
+	T(math.abs(material:GetSpecularMultiplier() - 0.5 * (2 / 32) / 0.04))["<"](0.0001)
 	T(material:GetMetallicMultiplier())["=="](0)
 	-- BackDiffuse 0.2,0.4,0.6 times 1.5: back light 0.3,0.6,0.9 against front light 1
 	local ratio = 0.3 * 0.2126 + 0.6 * 0.7152 + 0.9 * 0.0722

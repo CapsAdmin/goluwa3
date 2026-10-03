@@ -43,7 +43,8 @@ function post_source.GetFoggedOpaqueSceneFramebuffer()
 end
 
 function post_source.GetFoggedOpaqueSceneTexture()
-	return post_source.GetFoggedOpaqueSceneFramebuffer():GetAttachment(1)
+	local framebuffer = post_source.GetFoggedOpaqueSceneFramebuffer()
+	return framebuffer and framebuffer:GetAttachment(1) or nil
 end
 
 -- the whole scene, before taa. the translucent pass composites over the
