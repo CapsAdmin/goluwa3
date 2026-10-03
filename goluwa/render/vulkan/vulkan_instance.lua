@@ -78,7 +78,7 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 
 	local validation_layers = nil
 
-	if os.getenv("GOLUWA_DEBUG") == "1" then
+	if os.getenv("GOLUWA_VALIDATE") == "1" then
 		if os.getenv("VK_INSTANCE_LAYERS") then
 			logn("Using VK_INSTANCE_LAYERS from environment: " .. os.getenv("VK_INSTANCE_LAYERS"))
 		else

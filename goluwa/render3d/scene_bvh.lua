@@ -435,6 +435,8 @@ do
 	local soup_upload_all = false
 
 	local function mark_soup_dirty(first, count)
+		if count == 0 then return end
+
 		local n = #soup_dirty
 
 		if n > 0 and soup_dirty[n - 1] + soup_dirty[n] == first then
@@ -583,8 +585,11 @@ do
 			table.clear(ranges)
 
 			if soup_upload_all then
-				ranges[1] = 0
-				ranges[2] = scene_bvh.triangle_allocator.top
+				if scene_bvh.triangle_allocator.top > 0 then
+					ranges[1] = 0
+					ranges[2] = scene_bvh.triangle_allocator.top
+				end
+
 				return
 			end
 
@@ -629,6 +634,11 @@ do
 
 			collect_ranges()
 			local region_count = #ranges / 2
+
+			if region_count == 0 then
+				soup_upload_all = false
+				return
+			end
 
 			-- the copy brings the cpu bake of a range, which an animated block has to be rewritten over
 			for vc in pairs(scene_bvh.animated_blocks) do

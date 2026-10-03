@@ -37,11 +37,13 @@ do
 		local table_concat = table.concat
 		local ipairs = ipairs
 		local ffi_new = ffi.new
+		local exit_on_error = os.getenv("GOLUWA_VALIDATE_EXIT") == "1"
 
 		local suppressed_warnings = {
 			"vk_loader_settings.json",
 			"Path to given binary",
 			"terminator_CreateInstance",
+			"because it is a duplicate of",
 		}
 
 		local function debug_callback(messageSeverity, messageType, pCallbackData, pUserData)
@@ -68,6 +70,9 @@ do
 
 			io_write("\n")
 			io_flush()
+
+			if exit_on_error and messageSeverity >= 0x100 then os.realexit(1) end
+
 			return VK_FALSE
 		end
 
