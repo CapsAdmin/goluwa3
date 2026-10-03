@@ -30,6 +30,13 @@ function META:GetGUID()
 	return self.GUID
 end
 
+-- properties that only exist for some instances, like the flexes of a model. a list of property infos like
+-- objects.GetStorableVariables, with get(object) and set(object, value) in place of the accessor names. fire a property
+-- change for "DynamicProperties" when the list changes
+function META:GetDynamicProperties()
+	return {}
+end
+
 function META:GetEditorName()
 	if self.Name == "" then return self.EditorName or "" end
 

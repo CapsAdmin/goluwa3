@@ -264,6 +264,160 @@ local function find_file(path, ...)
 	error("cannot find mixed case file, attempted: " .. table.concat(attempts, "\n"))
 end
 
+local function half_to_float(h)
+	local sign = h >= 0x8000 and -1 or 1
+	local exponent = bit.band(bit.rshift(h, 10), 0x1f)
+	local mantissa = bit.band(h, 0x3ff)
+
+	if exponent == 0 then return sign * mantissa * 2 ^ -24 end
+
+	if exponent == 31 then return sign * math.huge end
+
+	return sign * (1 + mantissa / 1024) * 2 ^ (exponent - 15)
+end
+
+-- mstudiovertanim_t, the wrinkle variant has one more short
+local VertAnim = ffi.typeof(
+	"const struct { uint16_t index; uint8_t speed; uint8_t side; uint16_t delta[3]; uint16_t normal_delta[3]; } *"
+)
+local VertAnimWrinkle = ffi.typeof(
+	"const struct { uint16_t index; uint8_t speed; uint8_t side; uint16_t delta[3]; uint16_t normal_delta[3]; int16_t wrinkle; } *"
+)
+
+local function remap_clamped(value, from_min, from_max, to_min, to_max)
+	if from_min == from_max then return value >= from_max and to_max or to_min end
+
+	return to_min + (
+			to_max - to_min
+		) * math.clamp((value - from_min) / (from_max - from_min), 0, 1)
+end
+
+-- the flex rules of a model turn the values of its flex controllers (src, 0 based) into the weights of its flex
+-- descriptors (dest, 0 based), a port of CStudioHdr::RunFlexRules. every rule is a small stack program, ops being
+-- the studio.h STUDIO_* codes
+local function run_flex_rules(flex, src, dest)
+	local min, max = flex.ControllerMin, flex.ControllerMax
+
+	for i = 0, flex.DescCount - 1 do
+		dest[i] = 0
+	end
+
+	for _, rule in ipairs(flex.rules) do
+		local stack = {}
+		local k = 0
+		local ops = rule.ops
+
+		for j = 1, #ops, 2 do
+			local op, arg = ops[j], ops[j + 1]
+
+			if op == 1 then
+				k = k + 1
+				stack[k] = arg
+			elseif op == 2 then
+				k = k + 1
+				stack[k] = src[arg]
+			elseif op == 3 then
+				k = k + 1
+				stack[k] = dest[arg]
+			elseif op == 4 then
+				stack[k - 1] = stack[k - 1] + stack[k]
+				k = k - 1
+			elseif op == 5 then
+				stack[k - 1] = stack[k - 1] - stack[k]
+				k = k - 1
+			elseif op == 6 then
+				stack[k - 1] = stack[k - 1] * stack[k]
+				k = k - 1
+			elseif op == 7 then
+				stack[k - 1] = stack[k] > 0.0001 and stack[k - 1] / stack[k] or 0
+				k = k - 1
+			elseif op == 8 then
+				stack[k] = -stack[k]
+			elseif op == 13 then
+				stack[k - 1] = math.max(stack[k - 1], stack[k])
+				k = k - 1
+			elseif op == 14 then
+				stack[k - 1] = math.min(stack[k - 1], stack[k])
+				k = k - 1
+			elseif op == 15 then
+				k = k + 1
+				stack[k] = remap_clamped(src[arg], -1, 0, 1, 0)
+			elseif op == 16 then
+				k = k + 1
+				stack[k] = remap_clamped(src[arg], 0, 1, 0, 1)
+			elseif op == 17 then
+				-- the top of the stack is the controller that picks the ramp, under it are the four points of the ramp
+				local value = src[stack[k]]
+				local a, b, c, d = stack[k - 4], stack[k - 3], stack[k - 2], stack[k - 1]
+
+				if value <= a or value >= d then
+					value = 0
+				elseif value < b then
+					value = remap_clamped(value, a, b, 0, 1)
+				elseif value > c then
+					value = remap_clamped(value, c, d, 1, 0)
+				else
+					value = 1
+				end
+
+				stack[k - 4] = value * src[arg]
+				k = k - 4
+			elseif op == 18 then
+				local first = k - arg + 1
+
+				for i = first + 1, k do
+					stack[first] = stack[first] * stack[i]
+				end
+
+				k = first
+			elseif op == 19 then
+				local first = k - arg + 1
+				local dominance = stack[first]
+
+				for i = first + 1, k do
+					dominance = dominance * stack[i]
+				end
+
+				stack[first - 1] = stack[first - 1] * (1 - dominance)
+				k = k - arg
+			elseif op == 20 or op == 21 then
+				-- eyelids: the top is the close lid controller, under it the lid and the eye up down controller
+				local close_v = remap_clamped(src[arg], min[arg + 1], max[arg + 1], 0, 1)
+				local close_lid_controller = stack[k]
+				local close = remap_clamped(
+					src[close_lid_controller],
+					min[close_lid_controller + 1],
+					max[close_lid_controller + 1],
+					0,
+					1
+				)
+				local up_down_controller = stack[k - 2]
+				local up_down = 0
+
+				if up_down_controller >= 0 then
+					up_down = remap_clamped(
+						src[up_down_controller],
+						min[up_down_controller + 1],
+						max[up_down_controller + 1],
+						-1,
+						1
+					)
+				end
+
+				if op == 20 then
+					stack[k - 2] = up_down > 0 and (1 - up_down) * (1 - close_v) * close or (1 - close_v) * close
+				else
+					stack[k - 2] = up_down < 0 and (1 + up_down) * close_v * close or close_v * close
+				end
+
+				k = k - 2
+			end
+		end
+
+		dest[rule.flex] = stack[1]
+	end
+end
+
 local function load_mdl(path)
 	local buffer = find_file(path, ".mdl")
 	local header = buffer:ReadStructure(header)
@@ -514,19 +668,114 @@ local function load_mdl(path)
 			local mesh_count = buffer:ReadI32()
 			local meshes_pos = model_pos + buffer:ReadI32()
 			buffer:Advance(4)
-			local model = {vertex_start = buffer:ReadI32() / 48, meshes = {}}
+			local model = {vertex_start = buffer:ReadI32() / 48, meshes = {}, flexes = {}}
 
 			for mesh_i = 1, mesh_count do
-				buffer:SetPosition(meshes_pos + (mesh_i - 1) * 116)
+				local mesh_pos = meshes_pos + (mesh_i - 1) * 116
+				buffer:SetPosition(mesh_pos)
 				local material = buffer:ReadI32()
 				buffer:Advance(8)
-				model.meshes[mesh_i] = {material = material, vertex_offset = buffer:ReadI32()}
+				local vertex_offset = buffer:ReadI32()
+				local flex_count = buffer:ReadI32()
+				local flexes_pos = mesh_pos + buffer:ReadI32()
+				model.meshes[mesh_i] = {material = material, vertex_offset = vertex_offset}
+
+				for flex_i = 1, flex_count do
+					local flex_pos = flexes_pos + (flex_i - 1) * 60
+					buffer:SetPosition(flex_pos)
+					local desc = buffer:ReadI32()
+					local t0, t1, t2, t3 = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
+					local count = buffer:ReadI32()
+					local data_pos = flex_pos + buffer:ReadI32()
+					local pair = buffer:ReadI32()
+					local wrinkle = buffer:ReadByte() == 1
+					buffer:SetPosition(data_pos)
+					local anims = ffi.cast(
+						wrinkle and VertAnimWrinkle or VertAnim,
+						buffer:ReadBytes(count * (wrinkle and 18 or 16))
+					)
+					local indices = ffi.new("uint32_t[?]", count)
+					local deltas = ffi.new("float[?]", count * 6)
+					local sides = ffi.new("uint8_t[?]", count)
+					local first = model.vertex_start + vertex_offset
+
+					for i = 0, count - 1 do
+						local anim = anims[i]
+						local o = i * 6
+						local dx, dy, dz = half_to_float(anim.delta[0]),
+						half_to_float(anim.delta[1]),
+						half_to_float(anim.delta[2])
+						local nx, ny, nz = half_to_float(anim.normal_delta[0]),
+						half_to_float(anim.normal_delta[1]),
+						half_to_float(anim.normal_delta[2])
+						indices[i] = first + anim.index
+						sides[i] = anim.side
+						deltas[o], deltas[o + 1], deltas[o + 2] = -dy * steam.source2meters, dz * steam.source2meters, -dx * steam.source2meters
+						deltas[o + 3], deltas[o + 4], deltas[o + 5] = -ny, nz, -nx
+					end
+
+					model.flexes[#model.flexes + 1] = {
+						Desc = desc,
+						Pair = pair,
+						Targets = {t0, t1, t2, t3},
+						Count = count,
+						Indices = indices,
+						Deltas = deltas,
+						Sides = sides,
+					}
+				end
 			end
 
 			models[model_i] = model
 		end
 
 		header.bodypart_models[bodypart_i] = models
+	end
+
+	if header.flexcontroller_count > 0 then
+		local flex = {
+			ControllerNames = {},
+			ControllerMin = {},
+			ControllerMax = {},
+			DescNames = {},
+			DescCount = header.flexdesc_count,
+			rules = {},
+			Compute = run_flex_rules,
+		}
+
+		for i = 1, header.flexcontroller_count do
+			local pos = header.flexcontroller_offset + (i - 1) * 20
+			buffer:SetPosition(pos + 4)
+			flex.ControllerNames[i] = string_from_offset(pos, buffer:ReadI32())
+			buffer:Advance(4)
+			flex.ControllerMin[i] = buffer:ReadFloat()
+			flex.ControllerMax[i] = buffer:ReadFloat()
+		end
+
+		for i = 1, header.flexdesc_count do
+			local pos = header.flexdesc_offset + (i - 1) * 4
+			buffer:SetPosition(pos)
+			flex.DescNames[i] = string_from_offset(pos, buffer:ReadI32())
+		end
+
+		for i = 1, header.flexrules_count do
+			local pos = header.flexrules_offset + (i - 1) * 12
+			buffer:SetPosition(pos)
+			local rule = {flex = buffer:ReadI32(), ops = {}}
+			local op_count = buffer:ReadI32()
+			local ops_pos = pos + buffer:ReadI32()
+
+			for j = 0, op_count - 1 do
+				buffer:SetPosition(ops_pos + j * 8)
+				local op = buffer:ReadI32()
+				rule.ops[#rule.ops + 1] = op
+				rule.ops[#rule.ops + 1] = op == 1 and buffer:ReadFloat() or buffer:ReadI32()
+			end
+
+			flex.rules[i] = rule
+		end
+
+		header.flex = flex
 	end
 
 	return header
@@ -942,18 +1191,6 @@ do -- animation
 	local ANIMDESC_FRAMEANIM = 0x0040
 	-- source (x forward, y left, z up) to engine (x right, y up, z forward): p_e = SCALE * (-y, z, -x), a rotation times a scale
 	local R = {{0, -1, 0}, {0, 0, 1}, {-1, 0, 0}}
-
-	local function half_to_float(h)
-		local sign = h >= 0x8000 and -1 or 1
-		local exponent = band(rshift(h, 10), 0x1f)
-		local mantissa = band(h, 0x3ff)
-
-		if exponent == 0 then return sign * mantissa * 2 ^ -24 end
-
-		if exponent == 31 then return sign * math.huge end
-
-		return sign * (1 + mantissa / 1024) * 2 ^ (exponent - 15)
-	end
 
 	local function euler_to_quat(x, y, z)
 		local sr, cr = math.sin(x * 0.5), math.cos(x * 0.5)
@@ -1577,7 +1814,10 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 
 	local skeleton = load_skeleton(full_path)
 
-	if skeleton then skeleton_callback(skeleton) end
+	if skeleton then
+		skeleton.Flex = mdl.flex
+		skeleton_callback(skeleton)
+	end
 
 	if mdl.bodypart_count == 0 or not render.IsInitialized() then return models end
 
@@ -1605,6 +1845,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 						skin = {
 							BoneIndices = ffi.new("uint8_t[?]", #vertices * 4),
 							BoneWeights = ffi.new("float[?]", #vertices * 4),
+							Flexes = mdl.bodypart_models[body_part_i][model_index].flexes,
 						}
 
 						for i, v in ipairs(vertices) do

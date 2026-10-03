@@ -765,6 +765,8 @@ do -- get is set
 		end
 	end
 
+	objects.NotifyPropertyListeners = notify_property_listeners
+
 	function objects.SetupProperty(info)
 		local meta = info.meta or __meta
 

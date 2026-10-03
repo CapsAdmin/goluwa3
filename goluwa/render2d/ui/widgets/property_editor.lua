@@ -21,6 +21,7 @@ local PropertyString = import("goluwa/render2d/ui/widgets/properties/string.lua"
 local PropertyVector = import("goluwa/render2d/ui/widgets/properties/vector.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local objects = import("goluwa/objects/objects.lua")
+local timer = import("goluwa/timer.lua")
 
 local function has_entries(list)
 	return list and next(list) ~= nil
@@ -954,16 +955,31 @@ return function(props)
 		local resolved_type = property_type_aliases[info.type] or info.type
 		local enums = info.enums or info.get_enums and info.get_enums(target)
 		local node_type = enums and "enum" or resolved_type
-		local value = objects.GetProperty(target, info.var_name)
+		local value
+		local get_value
+
+		if info.get then
+			value = info.get(target)
+			get_value = function()
+				return info.get(target)
+			end
+		else
+			value = objects.GetProperty(target, info.var_name)
+			get_value = function()
+				return objects.GetProperty(target, info.var_name)
+			end
+		end
+
 		local node = {
 			Type = node_type,
 			Key = category_key .. "/" .. info.var_name,
 			Text = info.var_name,
 			Value = value,
 			Default = info.copy and info.copy() or info.default,
-			GetValue = function()
-				return objects.GetProperty(target, info.var_name)
-			end,
+			GetValue = get_value,
+			Min = info.min,
+			Max = info.max,
+			ShowSlider = info.slider,
 		}
 		local display_type = node_type
 
@@ -1020,7 +1036,11 @@ return function(props)
 			end
 
 			local ok, err = pcall(function()
-				objects.SetProperty(target, info.var_name, next_value)
+				if info.set then
+					info.set(target, next_value)
+				else
+					objects.SetProperty(target, info.var_name, next_value)
+				end
 			end)
 
 			if hooks and hooks.OnPropertyChangeEnd then
@@ -1097,6 +1117,10 @@ return function(props)
 					children[#children + 1] = build_property_node(category.object, category.key, category.name, info, property_node_hooks)
 				end
 
+				for _, info in ipairs(category.object:GetDynamicProperties()) do
+					children[#children + 1] = build_property_node(category.object, category.key, category.name, info, property_node_hooks)
+				end
+
 				items[#items + 1] = {
 					Key = category.key,
 					Text = category.name,
@@ -1105,6 +1129,15 @@ return function(props)
 				}
 				listeners[#listeners + 1] = category.object:AddPropertyListener(function(_, key)
 					if not self:IsValid() then return end
+
+					if key == "DynamicProperties" then
+						-- the listeners are being walked right now, rebuilding adds new ones
+						timer.Delay(0, function()
+							if self:IsValid() then self:SetObject(obj) end
+						end)
+
+						return
+					end
 
 					if property_change_sync_blocked > 0 then return end
 

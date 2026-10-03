@@ -22,18 +22,31 @@ function Animator.GetUpdateInterval(distance)
 	local t = math.clamp((distance - Animator.LOD_NEAR) / (Animator.LOD_FAR - Animator.LOD_NEAR), 0, 1)
 	return t / Animator.LOD_MIN_RATE
 end
+
 Animator:StartStorable()
-Animator:GetSet("Sequence", "", {get_enums = function(self)
-	return self:GetSequenceNames()
-end})
+Animator:GetSet(
+	"Sequence",
+	"",
+	{
+		get_enums = function(self)
+			return self:GetSequenceNames()
+		end,
+	}
+)
 Animator:GetSet("Playing", true)
 Animator:GetSet("Speed", 1)
 Animator:GetSet("Loop", true)
 Animator:GetSet("BlendTime", 0.2)
 -- the pose parameter the next property edits, sequences blend between their animations by these (move_x, aim_yaw, ...)
-Animator:GetSet("PoseParameter", "", {get_enums = function(self)
-	return self:GetPoseParameterNames()
-end})
+Animator:GetSet(
+	"PoseParameter",
+	"",
+	{
+		get_enums = function(self)
+			return self:GetPoseParameterNames()
+		end,
+	}
+)
 Animator:GetSet("PoseParameterValue", 0)
 Animator:EndStorable()
 
@@ -151,7 +164,6 @@ function Animator:Bind(skeleton)
 	self.fade_pose = skeleton:CreatePose()
 	self.matrices = skeleton:CreateMatrices()
 	ffi.copy(self.pose, skeleton.BindLocal, skeleton.BoneCount * Skeleton.PoseSize * 4)
-
 	-- the primitives of a model share one skin and one vertex array, so they share the buffer that is skinned too
 	local by_skin = {}
 
@@ -190,6 +202,7 @@ function Animator:Bind(skeleton)
 					bind_address = polygon.mesh.vertex_buffer:GetBuffer():GetDeviceAddress(),
 					destination_address = vertex_buffer:GetBuffer():GetDeviceAddress(),
 					bones_address = skinning.GetBoneBuffer(polygon.Skin, count):GetDeviceAddress(),
+					skin = polygon.Skin,
 				}
 			end
 		end
@@ -283,7 +296,12 @@ function Animator:Animate(dt)
 			if self.fade >= 1 then
 				self.fade = nil
 			else
-				skeleton:BlendPoses(self.fade_pose, self.clip_pose, self.fade * self.fade * (3 - 2 * self.fade), self.pose)
+				skeleton:BlendPoses(
+					self.fade_pose,
+					self.clip_pose,
+					self.fade * self.fade * (3 - 2 * self.fade),
+					self.pose
+				)
 			end
 		end
 
@@ -294,7 +312,6 @@ function Animator:Animate(dt)
 
 	self.dirty = false
 	skeleton:ComputeSkinMatrices(self.pose, self.matrices)
-
 	self.settle = 1
 	self.skin_version = (self.skin_version or 0) + 1
 	skinning.Queue(self)
