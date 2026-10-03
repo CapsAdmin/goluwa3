@@ -10,6 +10,8 @@ local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local stats = import("goluwa/physics/stats.lua")
 local world_step = {}
 local NEWLY_AWOKEN_BODIES = {}
+local MOVING_BODIES = {}
+local STATIC_BODIES = {}
 local MIN_REMAINDER_STEP = 1e-6
 local RESTITUTION_ITERATIONS = 2
 
@@ -148,11 +150,32 @@ function world_step.UpdateRigidBodies(physics, dt)
 	stats:Gauge("substeps", substeps)
 	stats:PushTime("step")
 	stats:PushTime("synchronize")
+	local moving_bodies = MOVING_BODIES
+	local moving_count = 0
+	local static_bodies = STATIC_BODIES
+	local static_count = 0
 
-	for _, body in ipairs(bodies) do
+	for i = 1, #bodies do
+		local body = bodies[i]
 		body:SynchronizeFromTransform()
 		body.StepStartPosition:CopyFrom(body.Position)
 		body.StepStartRotation:CopyFrom(body.Rotation)
+
+		if body:IsStatic() then
+			static_count = static_count + 1
+			static_bodies[static_count] = body
+		else
+			moving_count = moving_count + 1
+			moving_bodies[moving_count] = body
+		end
+	end
+
+	for i = #moving_bodies, moving_count + 1, -1 do
+		moving_bodies[i] = nil
+	end
+
+	for i = #static_bodies, static_count + 1, -1 do
+		static_bodies[i] = nil
 	end
 
 	stats:PopTime()
@@ -167,7 +190,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PushTime("integrate")
 		local awake_count = 0
 
-		for _, body in ipairs(bodies) do
+		for _, body in ipairs(moving_bodies) do
 			if body:IsKinematic() or body:HasKinematicController() then
 				stats:PushTime("kinematic")
 				kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
@@ -234,14 +257,14 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:Gauge("islands", simulation_islands and #simulation_islands or 0)
 		stats:PushTime("ccd")
 
-		for _, body in ipairs(bodies) do
+		for _, body in ipairs(moving_bodies) do
 			if body:IsDynamic() and body:GetAwake() then
 				solver:SolveBodyContacts(body, sub_dt)
 			end
 		end
 
 		stats:PopTime()
-		refresh_support_entries(bodies)
+		refresh_support_entries(moving_bodies)
 		local substep_id = solver.StepStamp or 0
 		stats:PushTime("constraints")
 
@@ -287,7 +310,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 				stats:PopTime()
 				stats:PushTime("support")
 
-				for _, body in ipairs(bodies) do
+				for _, body in ipairs(moving_bodies) do
 					if body:IsDynamic() and body:GetAwake() then
 						solve_body_support_contacts(body, sub_dt, substep_id)
 					end
@@ -302,7 +325,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 		stats:PushTime("positions")
 
-		for _, body in ipairs(bodies) do
+		for _, body in ipairs(moving_bodies) do
 			body:ApplySolverVelocityDelta(sub_dt)
 		end
 
@@ -331,9 +354,26 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PushTime("velocities_sleep")
 		RigidBody.BeginSleepPass()
 
-		for _, body in ipairs(bodies) do
+		for _, body in ipairs(moving_bodies) do
 			body:UpdateVelocities(sub_dt)
 			body:UpdateSleepState(sub_dt, islands.IsConstrainedBody(body))
+		end
+
+		for i = 1, static_count do
+			local body = static_bodies[i]
+			local velocity, angular_velocity = body.Velocity, body.AngularVelocity
+
+			if
+				velocity.x ~= 0 or
+				velocity.y ~= 0 or
+				velocity.z ~= 0 or
+				angular_velocity.x ~= 0 or
+				angular_velocity.y ~= 0 or
+				angular_velocity.z ~= 0
+			then
+				velocity:Set(0, 0, 0)
+				angular_velocity:Set(0, 0, 0)
+			end
 		end
 
 		if simulation_islands and simulation_islands[1] then
@@ -363,11 +403,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 	stats:PopTime()
 	stats:PushTime("finalize")
 
-	for _, body in ipairs(bodies) do
+	for _, body in ipairs(moving_bodies) do
 		body:ClearAccumulators()
-	end
-
-	for _, body in ipairs(bodies) do
 		body:WriteToTransform()
 	end
 

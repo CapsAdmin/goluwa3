@@ -133,43 +133,64 @@ function META:BuildCollisionLocalPoints(body)
 	return BaseShape.BuildCollisionLocalPoints(self, body)
 end
 
-function META:BuildSupportLocalPoints(body)
-	local hull = self:GetResolvedHull(body)
+do
+	local DIRECTION_COUNT = 8
+	local directions_x, directions_z = {}, {}
 
-	if hull and hull.vertices and hull.vertices[1] then
-		local min_y = math.huge
-		local support = {}
-		local tolerance = 0.08
-
-		for _, point in ipairs(hull.vertices) do
-			min_y = math.min(min_y, point.y)
-		end
-
-		for _, point in ipairs(hull.vertices) do
-			if math.abs(point.y - min_y) <= tolerance then support[#support + 1] = point end
-		end
-
-		if support[1] then
-			local center = Vec3(0, 0, 0)
-			local points = {}
-
-			for _, point in ipairs(support) do
-				center = center + point
-				points[#points + 1] = point
-			end
-
-			center = center / #support
-
-			for _, point in ipairs(support) do
-				points[#points + 1] = (point + center) * 0.5
-			end
-
-			points[#points + 1] = center
-			return points
-		end
+	for i = 0, DIRECTION_COUNT - 1 do
+		local angle = i / DIRECTION_COUNT * math.pi * 2
+		directions_x[i + 1] = math.cos(angle)
+		directions_z[i + 1] = math.sin(angle)
 	end
 
-	return BaseShape.BuildSupportLocalPoints(self, body)
+	function META:BuildSupportLocalPoints(body)
+		local hull = self:GetResolvedHull(body)
+
+		if hull and hull.vertices and hull.vertices[1] then
+			local min_y = math.huge
+			local tolerance = 0.08
+			local vertices = hull.vertices
+
+			for i = 1, #vertices do
+				min_y = math.min(min_y, vertices[i].y)
+			end
+
+			local best, best_dot, chosen, points = {}, {}, {}, {}
+			local center = Vec3(0, 0, 0)
+			local count = 0
+
+			for i = 1, #vertices do
+				local point = vertices[i]
+
+				if point.y - min_y <= tolerance then
+					count = count + 1
+					center = center + point
+
+					for d = 1, DIRECTION_COUNT do
+						local dot = point.x * directions_x[d] + point.z * directions_z[d]
+
+						if not best_dot[d] or dot > best_dot[d] then
+							best[d], best_dot[d] = point, dot
+						end
+					end
+				end
+			end
+
+			if count > 0 then
+				for d = 1, DIRECTION_COUNT do
+					if not chosen[best[d]] then
+						chosen[best[d]] = true
+						points[#points + 1] = best[d]
+					end
+				end
+
+				points[#points + 1] = center / count
+				return points
+			end
+		end
+
+		return BaseShape.BuildSupportLocalPoints(self, body)
+	end
 end
 
 function META:SolveSupportContacts(body, dt, support_contacts, substep_id)
