@@ -78,16 +78,16 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 
 	local validation_layers = nil
 
-	if os.getenv("VK_INSTANCE_LAYERS") then
-		logn("Using VK_INSTANCE_LAYERS from environment: " .. os.getenv("VK_INSTANCE_LAYERS"))
-	else
-		local available_layers = vulkan.GetAvailableLayers()
+	if os.getenv("GOLUWA_DEBUG") == "1" then
+		if os.getenv("VK_INSTANCE_LAYERS") then
+			logn("Using VK_INSTANCE_LAYERS from environment: " .. os.getenv("VK_INSTANCE_LAYERS"))
+		else
+			for _, layer in ipairs(vulkan.GetAvailableLayers()) do
+				if layer == "VK_LAYER_KHRONOS_validation" then
+					validation_layers = {"VK_LAYER_KHRONOS_validation"}
 
-		for _, layer in ipairs(available_layers) do
-			if layer == "VK_LAYER_KHRONOS_validation" then
-				validation_layers = {"VK_LAYER_KHRONOS_validation"}
-
-				break
+					break
+				end
 			end
 		end
 	end

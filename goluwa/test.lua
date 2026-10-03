@@ -1315,6 +1315,8 @@ commands.Add({
 	local summary = flags["no-summary"] ~= true
 	local failures_only = flags["failures-only"] == true
 	local name_pattern = flags["name-pattern"]
+	-- tests run with the Vulkan validation layers, workers inherit this
+	process.setenv("GOLUWA_DEBUG", "1")
 
 	if name_pattern == "" or name_pattern == "all" then name_pattern = nil end
 

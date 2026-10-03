@@ -45,7 +45,10 @@ commands.Add{
 		renderdoc = {type = "boolean", description = "Attach RenderDoc for debugging"},
 		["no-audio"] = {type = "boolean", description = "Disable audio"},
 		["no-physics"] = {type = "boolean", description = "Disable physics"},
-		["strict"] = {type = "boolean", description = "Exit on any error"},
+		debug = {
+			type = "boolean",
+			description = "Exit on any error and enable the Vulkan validation layers",
+		},
 		hdr = {
 			type = "boolean",
 			description = "Present to an HDR swapchain when the display supports one",
@@ -60,6 +63,8 @@ commands.Add{
 		_G.RENDER_2D = not flags.headless and not flags.cli and not flags.server
 		_G.RENDER_3D = flags["3d"]
 		_G.HDR = flags.hdr
+
+		if flags.debug then process.setenv("GOLUWA_DEBUG", "1") end
 
 		if not flags["no-physics"] then
 			_G.PHYSICS = RENDER_3D or flags["physics"]
@@ -122,9 +127,9 @@ commands.Add{
 			end)
 		end
 
-		if flags.strict then
+		if flags.debug then
 			local protected_call = import("goluwa/protected_call.lua")
-			protected_call.strict = true
+			protected_call.debug = true
 		end
 	end,
 }
