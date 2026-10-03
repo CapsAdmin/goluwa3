@@ -26,6 +26,7 @@ local bit = require("bit")
 local Entity = import("goluwa/entities/entity.lua")
 local VisibilityGroup = import("goluwa/entities/components/visibility_group.lua")
 local utility = import("goluwa/utility.lua")
+local surface_properties = import("goluwa/steam/surface_properties.lua")
 local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
 local SKY_CUT_MARGIN = 0.5
@@ -51,6 +52,44 @@ local function is_blacklisted(path)
 	if path == "models/lostcoast/effects/vollight_stainedglass.mdl" then
 		return true
 	end
+end
+
+local PROP_MOTION_DYNAMIC = {
+	prop_physics = true,
+	prop_physics_multiplayer = true,
+	prop_physics_override = true,
+}
+local PROP_MOTION_STATIC = {
+	prop_dynamic = true,
+	prop_dynamic_override = true,
+	prop_static = true,
+	static_entity = true,
+}
+local SOLID_VPHYSICS = 6
+local SPAWNFLAG_MOTION_DISABLED = 8
+
+local function get_prop_motion_type(info)
+	if info.model_size_mult then return nil end
+
+	if PROP_MOTION_DYNAMIC[info.classname] then
+		if bit.band(info.spawnflags or 0, SPAWNFLAG_MOTION_DISABLED) ~= 0 then
+			return "static"
+		end
+
+		return "dynamic"
+	end
+
+	if
+		PROP_MOTION_STATIC[info.classname] and
+		(
+			info.solid or
+			SOLID_VPHYSICS
+		) == SOLID_VPHYSICS
+	then
+		return "static"
+	end
+
+	return nil
 end
 
 local function build_bounds_from_vertices(vertices)
@@ -2501,35 +2540,73 @@ function steam.SpawnMapEntities(path, parent)
 
 				if model_path and not is_blacklisted(model_path) then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
-					local ent = Entity.New{
-						Name = "prop",
-						Parent = get_sub_group(get_container(info.visibility_group), info.classname),
-					}
-					local tr = ent:AddComponent("transform")
-					set_transform(tr, info)
+					local container = get_sub_group(get_container(info.visibility_group), info.classname)
+					local motion_type = get_prop_motion_type(info)
 
-					if info.model_size_mult then
-						ent.transform:SetSize(info.model_size_mult)
+					if motion_type then
+						model_loader.LoadModel(model_path, function(model)
+							if not container:IsValid() then return end
+
+							local physics = model.physics
+							local ent = Entity.New{Name = "prop", Parent = container}
+							local tr = ent:AddComponent("transform")
+							set_transform(tr, info)
+							ent.spawned_from_bsp = true
+
+							if not physics then
+								ent:AddComponent("visual")
+								ent.visual:SetModelPath(model_path)
+								return
+							end
+
+							local center_of_mass = physics.center_of_mass
+							local surface = surface_properties.Get(physics.surface_property or "default")
+							local mass = physics.mass
+
+							if motion_type == "dynamic" and (info.massscale or 0) > 0 then
+								mass = mass * info.massscale
+							end
+
+							tr:SetPosition(tr:GetPosition() + tr:GetRotation():VecMul(center_of_mass))
+							ent:AddComponent(
+								"rigid_body",
+								{
+									Shapes = physics.children,
+									MotionType = motion_type,
+									Awake = false,
+									Mass = mass,
+									Inertia = physics.inertia,
+									AutomaticMass = false,
+									Friction = surface.friction,
+									Restitution = surface.elasticity,
+									FrictionCombineMode = "multiply",
+									RestitutionCombineMode = "multiply",
+									LinearDamping = physics.damping,
+									AirLinearDamping = physics.damping,
+									AngularDamping = physics.rotation_damping,
+									AirAngularDamping = physics.rotation_damping,
+								}
+							)
+							local visual = Entity.New{Name = "prop_visual", Parent = ent}
+							visual.PhysicsNoCollision = true
+							visual:AddComponent("transform")
+							visual.transform:SetPosition(center_of_mass * -1)
+							visual:AddComponent("visual")
+							visual.visual:SetModelPath(model_path)
+						end)
+					else
+						local ent = Entity.New{Name = "prop", Parent = container}
+						local tr = ent:AddComponent("transform")
+						set_transform(tr, info)
+
+						if info.model_size_mult then
+							ent.transform:SetSize(info.model_size_mult)
+						end
+
+						ent:AddComponent("visual")
+						ent.visual:SetModelPath(model_path)
+						ent.spawned_from_bsp = true
 					end
-
-					ent:AddComponent("visual")
-					ent.visual:SetModelPath(model_path)
-
-					if false then
-						logf(
-							"Spawning prop: %s at %s / %s with model %s\n",
-							info.classname,
-							tostring(position),
-							tostring(rotation),
-							info.model
-						)
-					end
-
-					if false and info.rendercolor and not info.rendercolor:IsZero() then
-						ent:SetColor(info.rendercolor)
-					end
-
-					ent.spawned_from_bsp = true
 				else
 					wlog(
 						"cannot spawn entity of class " .. tostring(info.classname) .. " because model file " .. tostring(info.model) .. " does not exist"
