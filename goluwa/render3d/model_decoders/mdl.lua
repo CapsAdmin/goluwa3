@@ -496,10 +496,44 @@ local function load_mdl(path)
 			end
 		end
 	end]]
+	-- where the vertices of each model and mesh start in the vvd, and which material a mesh uses. the vtx lists
+	-- bodyparts, models and meshes in this same order. sizes are mstudiobodyparts_t 16, mstudiomodel_t 148, mstudiomesh_t 116
+	header.bodypart_models = {}
+
+	for bodypart_i = 1, header.bodypart_count do
+		local bodypart_pos = header.bodypart_offset + (bodypart_i - 1) * 16
+		buffer:SetPosition(bodypart_pos + 4)
+		local model_count = buffer:ReadI32()
+		buffer:Advance(4)
+		local models_pos = bodypart_pos + buffer:ReadI32()
+		local models = {}
+
+		for model_i = 1, model_count do
+			local model_pos = models_pos + (model_i - 1) * 148
+			buffer:SetPosition(model_pos + 72)
+			local mesh_count = buffer:ReadI32()
+			local meshes_pos = model_pos + buffer:ReadI32()
+			buffer:Advance(4)
+			local model = {vertex_start = buffer:ReadI32() / 48, meshes = {}}
+
+			for mesh_i = 1, mesh_count do
+				buffer:SetPosition(meshes_pos + (mesh_i - 1) * 116)
+				local material = buffer:ReadI32()
+				buffer:Advance(8)
+				model.meshes[mesh_i] = {material = material, vertex_offset = buffer:ReadI32()}
+			end
+
+			models[model_i] = model
+		end
+
+		header.bodypart_models[bodypart_i] = models
+	end
+
 	return header
 end
 
-local function load_vtx(path)
+-- version 49 models append numTopologyIndices and topologyOffset to the strip group header
+local function load_vtx(path, strip_group_size)
 	local MAX_NUM_BONES_PER_VERT = 3
 	local buffer = find_file(path, ".dx90.vtx", ".dx80.vtx", ".sw.vtx")
 	local vtx = buffer:ReadStructure([[
@@ -565,6 +599,7 @@ local function load_vtx(path)
 						strip_group.strip_count = buffer:ReadI32()
 						strip_group.strip_offset = buffer:ReadI32()
 						strip_group.flags = buffer:ReadByte()
+						buffer:Advance(strip_group_size - 25)
 						mesh.strip_groups[i] = strip_group
 						local vertices = {}
 						buffer:PushPosition(stream_pos + strip_group.vertices_offset)
@@ -932,9 +967,39 @@ do -- animation
 
 	local function quat_to_matrix(x, y, z, w)
 		return {
-			{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)},
-			{2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)},
-			{2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)},
+			{
+				1 - 2 * (
+					y * y + z * z
+				),
+				2 * (
+					x * y - w * z
+				),
+				2 * (
+					x * z + w * y
+				),
+			},
+			{
+				2 * (
+					x * y + w * z
+				),
+				1 - 2 * (
+					x * x + z * z
+				),
+				2 * (
+					y * z - w * x
+				),
+			},
+			{
+				2 * (
+					x * z - w * y
+				),
+				2 * (
+					y * z + w * x
+				),
+				1 - 2 * (
+					x * x + y * y
+				),
+			},
 		}
 	end
 
@@ -1112,7 +1177,9 @@ do -- animation
 					local q = ffi.cast(U32, p + 4)
 					local lo, hi = q[0], q[1]
 					qx = (band(lo, 0x1fffff) - 1048576) / 1048576.5
-					qy = (band(bor(rshift(lo, 21), lshift(band(hi, 0x3ff), 11)), 0x1fffff) - 1048576) / 1048576.5
+					qy = (
+							band(bor(rshift(lo, 21), lshift(band(hi, 0x3ff), 11)), 0x1fffff) - 1048576
+						) / 1048576.5
 					qz = (band(rshift(hi, 10), 0x1fffff) - 1048576) / 1048576.5
 					qw = math.sqrt(math.max(0, 1 - qx * qx - qy * qy - qz * qz))
 
@@ -1300,7 +1367,7 @@ do -- animation
 			parents[i + 1] = main.bone_parents[i + 1]
 			-- matrix3x4 the bone's bind pose inverse, rows of [rotation | translation]
 			local m = ffi.cast(F32, main.data + hdr.bone_offset + i * BONE_SIZE + 96)
-			local rotation = conjugate({{m[0], m[1], m[2]}, {m[4], m[5], m[6]}, {m[8], m[9], m[10]}})
+			local rotation = conjugate{{m[0], m[1], m[2]}, {m[4], m[5], m[6]}, {m[8], m[9], m[10]}}
 			local t = {m[3], m[7], m[11]}
 
 			for row = 1, 3 do
@@ -1515,14 +1582,14 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 	if mdl.bodypart_count == 0 or not render.IsInitialized() then return models end
 
 	local vvd = load_vvd(companion_path)
-	local vtx = load_vtx(companion_path)
+	local vtx = load_vtx(companion_path, mdl.version >= 49 and 33 or 25)
 
 	--	utility.PopTimeWarning("model read", 0)
 	--utility.PushTimeWarning()
 	if _debug then tasks.Report("generating mesh") end
 
-	for _, body_part in ipairs(vtx.body_parts) do
-		for _, model_ in ipairs(body_part.models) do
+	for body_part_i, body_part in ipairs(vtx.body_parts) do
+		for model_index, model_ in ipairs(body_part.models) do
 			for lod_index, lod_model in ipairs(model_.model_lods) do
 				if lod_model.meshes and lod_model.meshes[1] then
 					local vertices = vvd.fixed_vertices_by_lod[lod_index] or vvd.vertices
@@ -1550,9 +1617,12 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 						end
 					end
 
-					local vertex_offset = 0
+					local model_info = mdl.bodypart_models[body_part_i][model_index]
 
 					for model_i, mesh_data in ipairs(lod_model.meshes) do
+						local mesh_info = model_info.meshes[model_i]
+						local vertex_offset = model_info.vertex_start + mesh_info.vertex_offset
+
 						if _debug then
 							tasks.ReportProgress("generating mesh", #vtx.body_parts * #model_.model_lods * #lod_model.meshes)
 						end
@@ -1562,7 +1632,6 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 						mesh:SetVertices(copy)
 						local indices = {}
 						local index_i = 1
-						local max_mesh_vertex = 0
 
 						for _, strip_group in ipairs(mesh_data.strip_groups) do
 							for _, strip in ipairs(strip_group.strips) do
@@ -1574,8 +1643,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 									local v = strip.vertices[index]
 
 									if v then
-										-- mesh_vertex_index is local to this mesh, add vertex_offset for absolute position
-										max_mesh_vertex = math.max(max_mesh_vertex, v.mesh_vertex_index + 1)
+										-- mesh_vertex_index is local to the mesh, which starts at vertex_offset
 										indices[index_i] = v.mesh_vertex_index + vertex_offset + 1
 										index_i = index_i + 1
 									end
@@ -1583,11 +1651,9 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 							end
 						end
 
-						-- Accumulate offset for next mesh
-						vertex_offset = vertex_offset + max_mesh_vertex
 						mesh:SetName(full_path)
 						local material
-						local path = mdl.materials[model_i]
+						local path = mdl.materials[mesh_info.material + 1]
 
 						if path then
 							if path:find("/", nil, true) or path:find("\\", nil, true) then
