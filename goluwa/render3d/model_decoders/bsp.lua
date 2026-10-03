@@ -47,6 +47,12 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 local BRUSH_POINT_EPSILON = 0.01
 local BSP_LIGHT_INTENSITY_SCALE = 2.8
 
+local function is_blacklisted(path)
+	if path == "models/lostcoast/effects/vollight_stainedglass.mdl" then
+		return true
+	end
+end
+
 local function build_bounds_from_vertices(vertices)
 	if not (vertices and vertices[1]) then return nil end
 
@@ -2493,7 +2499,7 @@ function steam.SpawnMapEntities(path, parent)
 			then
 				local model_path = vfs.FindMixedCasePath(info.model)
 
-				if model_path then
+				if model_path and not is_blacklisted(model_path) then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 					local ent = Entity.New{
 						Name = "prop",
