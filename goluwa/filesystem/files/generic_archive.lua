@@ -265,17 +265,9 @@ function CONTEXT:ReadBytes(bytes)
 	if bytes == math.huge then bytes = self:GetSize() end
 
 	if self.file_info.preload_data then
-		local str = {}
-
-		for i = 1, bytes do
-			local byte = self:ReadByte()
-
-			if not byte then return list.concat(str, "") end
-
-			str[i] = string.char(byte)
-		end
-
-		return list.concat(str, "")
+		local str = self.data:sub(self.position + 1, self.position + bytes)
+		self.position = math.clamp(self.position + #str, 0, self.file_info.size)
+		return str
 	else
 		bytes = math.min(bytes, self.file_info.size - self.position)
 		self.file:SetPosition(self.file_info.offset + self.position)
