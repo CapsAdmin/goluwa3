@@ -200,7 +200,7 @@ T.TestPhysics("Static body moved through its transform is collided at its new po
 		Shape = sphere_shape(0.5),
 		Radius = 0.5,
 	})
-	test_helpers.cSimulate(180)
+	test_helpers.Simulate(180)
 	T(sphere_ent.transform:GetPosition().y)[">="](1.95)
 	sphere_ent:Remove()
 	box_ent:Remove()

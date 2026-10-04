@@ -170,6 +170,31 @@ local function get_or_create_cell(self, key)
 	return cell
 end
 
+local function is_pair_candidate(entry_a, entry_b)
+	return not (entry_a.static and entry_b.static) and
+		entry_a.bounds:IsBoxIntersecting(entry_b.bounds)
+end
+
+local function set_pair_active(self, pair, active)
+	local index = pair.active_index
+
+	if active == (index ~= nil) then return end
+
+	local list = self.ActivePairs
+	local count = #list
+
+	if active then
+		list[count + 1] = pair
+		pair.active_index = count + 1
+	else
+		local last = list[count]
+		list[index] = last
+		last.active_index = index
+		list[count] = nil
+		pair.active_index = nil
+	end
+end
+
 local function register_pair(self, entry_a, entry_b)
 	if entry_a == entry_b then return end
 
@@ -189,6 +214,7 @@ local function register_pair(self, entry_a, entry_b)
 		shared_cells = 1,
 	}
 	self.Pairs[key] = pair
+	set_pair_active(self, pair, is_pair_candidate(entry_a, entry_b))
 	return pair
 end
 
@@ -202,7 +228,10 @@ local function unregister_pair(self, entry_a, entry_b)
 
 	pair.shared_cells = pair.shared_cells - 1
 
-	if pair.shared_cells <= 0 then self.Pairs[key] = nil end
+	if pair.shared_cells <= 0 then
+		set_pair_active(self, pair, false)
+		self.Pairs[key] = nil
+	end
 end
 
 local function remove_entry_from_cell(self, entry, key)
@@ -320,6 +349,7 @@ local function create_entry(self, body)
 		index = #self.Entries + 1,
 		last_seen_step = self.StepStamp,
 		overflow_dirty = true,
+		static = body.MotionType == "static",
 	}
 	self.Entries[entry.index] = entry
 	self.BodyEntries[body] = entry
@@ -361,6 +391,7 @@ function broadphase.New(config)
 			BodyEntries = table.weak("k"),
 			Cells = {},
 			Pairs = {},
+			ActivePairs = {},
 			ChangedEntries = {},
 			ChangedConsumed = true,
 			StepStamp = 0,
@@ -378,10 +409,12 @@ function Broadphase:ResetState()
 	self.BodyEntries = table.weak("k")
 	self.Cells = {}
 	self.Pairs = {}
+	self.ActivePairs = {}
 	self.ChangedEntries = {}
 	self.ChangedConsumed = true
 	self.TopologyChanged = false
 	self.LastPairs = nil
+	self.TrackedEpoch = nil
 	self.StepStamp = 0
 	self.LookAhead = 0
 	self.QueryStamp = 0
@@ -472,6 +505,12 @@ function Broadphase:QueryAABB(aabb, out)
 	return out
 end
 
+function Broadphase:RemoveBody(body)
+	local entry = self.BodyEntries[body]
+
+	if entry then destroy_entry(self, entry) end
+end
+
 function Broadphase:GetEntries(out)
 	out = out or {}
 
@@ -486,7 +525,7 @@ function Broadphase:GetEntries(out)
 	return out
 end
 
-function Broadphase:TrackBodies(bodies, physics_override)
+function Broadphase:TrackBodies(bodies, physics_override, incremental)
 	local physics = physics_override or self.physics
 
 	if not physics then return self end
@@ -499,23 +538,16 @@ function Broadphase:TrackBodies(bodies, physics_override)
 		self.ChangedConsumed = false
 	end
 
-	for _, body in ipairs(bodies or {}) do
+	for i = 1, #bodies do
+		local body = bodies[i]
 		local entry = self.BodyEntries[body]
 
-		if
-			entry and
-			body.SyncSettled and
-			not body.PoseDirty and
-			(
-				body.MotionType == "static" or
-				not body.Awake
-			)
-			and
-			body.CollisionEnabled
-		then
-			entry.last_seen_step = self.StepStamp
-		elseif is_candidate_body(physics, body) then
-			body.PoseDirty = false
+		if is_candidate_body(physics, body) then
+			if entry and entry.static ~= (body.MotionType == "static") then
+				entry.static = not entry.static
+				entry.overflow_dirty = true
+				changed[#changed + 1] = entry
+			end
 
 			if entry and is_entry_pose_current(entry, body) then
 				entry.last_seen_step = self.StepStamp
@@ -544,10 +576,12 @@ function Broadphase:TrackBodies(bodies, physics_override)
 		end
 	end
 
-	for i = #self.Entries, 1, -1 do
-		local entry = self.Entries[i]
+	if not incremental then
+		for i = #self.Entries, 1, -1 do
+			local entry = self.Entries[i]
 
-		if entry.last_seen_step ~= self.StepStamp then destroy_entry(self, entry) end
+			if entry.last_seen_step ~= self.StepStamp then destroy_entry(self, entry) end
+		end
 	end
 
 	return self
@@ -563,23 +597,40 @@ function Broadphase:GetCandidatePairs(out)
 
 	self.TopologyChanged = false
 	self.LastPairs = out
-	local count = 0
 	local overflow_entries = self.OverflowEntries
-	local pair_lookup = self.PairKeyLookup
+	local cells = self.Cells
+	local pairs_by_key = self.Pairs
+	local changed = self.ChangedEntries
+	self.EvalStamp = (self.EvalStamp or 0) + 1
+	local eval_stamp = self.EvalStamp
 
-	if not pair_lookup then
-		pair_lookup = {}
-		self.PairKeyLookup = pair_lookup
-		self.PairKeyScratch = {}
+	for i = 1, #changed do
+		local entry = changed[i]
+		local cell_keys = entry.cell_keys
+
+		for k = 1, #cell_keys do
+			local cell_entries = cells[cell_keys[k]].entries
+
+			for j = 1, #cell_entries do
+				local other = cell_entries[j]
+
+				if other ~= entry then
+					local pair = pairs_by_key[get_pair_key(entry, other)]
+
+					if pair.eval_stamp ~= eval_stamp then
+						pair.eval_stamp = eval_stamp
+						set_pair_active(self, pair, is_pair_candidate(pair.entry_a, pair.entry_b))
+					end
+				end
+			end
+		end
 	end
 
-	local used_keys = self.PairKeyScratch
+	local active_pairs = self.ActivePairs
+	local count = #active_pairs
 
-	for _, pair in pairs(self.Pairs) do
-		if pair.entry_a.bounds:IsBoxIntersecting(pair.entry_b.bounds) then
-			count = count + 1
-			out[count] = pair
-		end
+	for i = 1, count do
+		out[i] = active_pairs[i]
 	end
 
 	local entries = self.Entries
@@ -595,7 +646,6 @@ function Broadphase:GetCandidatePairs(out)
 			entry.overflow_dirty = true
 		end
 
-		local bounds = entry.bounds
 
 		if entry.overflow_dirty then
 			entry.overflow_dirty = false
@@ -604,7 +654,7 @@ function Broadphase:GetCandidatePairs(out)
 			for j = 1, #entries do
 				local other = entries[j]
 
-				if other ~= entry and bounds:IsBoxIntersecting(other.bounds) then
+				if other ~= entry and is_pair_candidate(entry, other) then
 					hits[other.id] = {
 						entry_a = other.id < entry.id and other or entry,
 						entry_b = other.id < entry.id and entry or other,
@@ -616,7 +666,7 @@ function Broadphase:GetCandidatePairs(out)
 				local other = changed[j]
 
 				if other ~= entry then
-					if bounds:IsBoxIntersecting(other.bounds) then
+					if is_pair_candidate(entry, other) then
 						if not hits[other.id] then
 							hits[other.id] = {
 								entry_a = other.id < entry.id and other or entry,
@@ -630,24 +680,17 @@ function Broadphase:GetCandidatePairs(out)
 			end
 		end
 
-		for _, pair in pairs(hits) do
-			local key = get_pair_key(pair.entry_a, pair.entry_b)
+		for other_id, pair in pairs(hits) do
+			local other = pair.entry_a == entry and pair.entry_b or pair.entry_a
 
-			if not pair_lookup[key] then
+			if not other.is_overflow or entry.id < other.id then
 				count = count + 1
 				out[count] = pair
-				pair_lookup[key] = true
-				used_keys[#used_keys + 1] = key
 			end
 		end
 	end
 
 	self.ChangedConsumed = true
-
-	for i = #used_keys, 1, -1 do
-		pair_lookup[used_keys[i]] = nil
-		used_keys[i] = nil
-	end
 
 	for i = count + 1, #out do
 		out[i] = nil
@@ -656,8 +699,8 @@ function Broadphase:GetCandidatePairs(out)
 	return out
 end
 
-function Broadphase:BuildCandidatePairs(bodies, out, physics_override)
-	self:TrackBodies(bodies, physics_override)
+function Broadphase:BuildCandidatePairs(bodies, out, physics_override, incremental)
+	self:TrackBodies(bodies, physics_override, incremental)
 	stats:Gauge("broadphase_overflow", #self.OverflowEntries)
 	return self:GetCandidatePairs(out)
 end

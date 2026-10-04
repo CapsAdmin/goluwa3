@@ -449,7 +449,7 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 			local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
 
 			if manifold and manifold.last_warm_step == self.StepStamp then
-				contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, true)
+				contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, true)
 			elseif
 				not (
 					pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
@@ -484,7 +484,7 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 						manifold.last_rebuild_step = -1
 					else
 						stats:Count(recycled and "solver_pairs_recycled" or "solver_pairs_cached")
-						contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, relax)
+						contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, relax)
 						handled = true
 					end
 				end
@@ -521,7 +521,7 @@ function Solver:ApplyRestitution(pairs, dt)
 		local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
 
 		if manifold and manifold.last_warm_step >= self.CollideStamp then
-			contact_resolution.ApplyManifoldRestitution(body_a, body_b, manifold, dt)
+			contact_resolution.ApplyManifoldRestitution(manifold.solve_a, manifold.solve_b, manifold, dt)
 		end
 	end
 end

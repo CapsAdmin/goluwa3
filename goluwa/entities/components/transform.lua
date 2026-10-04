@@ -69,7 +69,10 @@ function META:SetSize(num)
 end
 
 function META:InvalidateMatrices()
-	self.PhysicsClean = nil
+	local body = self.Owner and self.Owner.rigid_body
+
+	if body then body:MarkTransformDirty() end
+
 	self.LocalMatrix = nil
 	self.WorldMatrix = nil
 	self.WorldMatrixInverse = nil

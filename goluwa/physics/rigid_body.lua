@@ -30,7 +30,7 @@ RigidBody:GetSet("LinearDamping", 0)
 RigidBody:GetSet("AngularDamping", 0)
 RigidBody:GetSet("AirLinearDamping", 0)
 RigidBody:GetSet("AirAngularDamping", 0)
-RigidBody:GetSet("CollisionEnabled", true)
+RigidBody:GetSet("CollisionEnabled", true, {callback = "OnCollisionEnabledChanged"})
 RigidBody:GetSet("WorldGeometry", false, {callback = "OnWorldGeometryChanged"})
 RigidBody:GetSet("CollisionGroup", 1, {validate = "integer"})
 RigidBody:GetSet("CollisionMask", -1, {validate = "integer"})
@@ -55,12 +55,32 @@ RigidBody:GetSet("MaxLinearSpeed", 240)
 RigidBody:GetSet("MaxAngularSpeed", 60)
 RigidBody:GetSet("MinGroundNormalY", 0.2)
 RigidBody:EndStorable()
-RigidBody:GetSet("Awake", true)
+RigidBody:GetSet("Awake", true, {callback = "OnActivityChanged"})
 RigidBody:GetSet("FilterFunction", nil)
 RigidBody:GetSet("Grounded", false)
 RigidBody:GetSet("GroundRollingFriction", 0)
 RigidBody:GetSet("GroundEntity", nil)
 RigidBody:GetSet("GroundBody", nil)
+
+RigidBody.ActivityEpoch = 0
+RigidBody.TransformDirtyBodies = {}
+RigidBody.RemovedBodies = {}
+
+function RigidBody:OnActivityChanged()
+	RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
+end
+
+function RigidBody:OnCollisionEnabledChanged()
+	self:MarkTransformDirty()
+end
+
+function RigidBody:MarkTransformDirty()
+	if self.TransformDirty then return end
+
+	self.TransformDirty = true
+	local dirty = RigidBody.TransformDirtyBodies
+	dirty[#dirty + 1] = self
+end
 
 local function new_zero_matrix()
 	return Matrix33():SetZero()
@@ -197,11 +217,15 @@ function RigidBody:Initialize()
 	if self.Owner and self.Owner.transform then
 		self:SynchronizeFromTransform()
 	end
+
+	self:MarkTransformDirty()
+	self:OnActivityChanged()
 end
 
 function RigidBody:OnMotionTypeChanged()
 	self:RefreshMassProperties()
 	islands.RemoveBody(self)
+	self:OnActivityChanged()
 end
 
 function RigidBody:GetCollisionProbeDistance()
@@ -433,6 +457,10 @@ function RigidBody:OnWorldGeometryChanged()
 end
 
 function RigidBody:OnRemove()
+	self.Removed = true
+	local removed = RigidBody.RemovedBodies
+	removed[#removed + 1] = self
+	self:OnActivityChanged()
 	islands.RemoveBody(self)
 	remove_world_geometry_body(self)
 end
@@ -470,6 +498,7 @@ end
 
 function RigidBody:RefreshMassProperties()
 	self:ComputeMassProperties()
+	self:OnActivityChanged()
 
 	if self.LockRotation then self.InverseInertiaTensor = new_zero_matrix() end
 end
@@ -736,6 +765,7 @@ function RigidBody:Wake()
 
 	if not self.Awake then
 		self.Awake = true
+		RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
 		self.SleepTimer = 0
 		self.ReadyToSleepPass = nil
 		stats:Count("woken_bodies")
@@ -745,7 +775,11 @@ end
 function RigidBody:Sleep()
 	if not self:HasSolverMass() then return end
 
-	if self.Awake then stats:Count("slept_bodies") end
+	if self.Awake then
+		stats:Count("slept_bodies")
+		RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
+		self:MarkTransformDirty()
+	end
 
 	self.Awake = false
 	self.SleepTimer = 0

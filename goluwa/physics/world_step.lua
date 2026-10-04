@@ -10,35 +10,75 @@ local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local stats = import("goluwa/physics/stats.lua")
 local world_step = {}
 local NEWLY_AWOKEN_BODIES = {}
-local MOVING_BODIES = {}
-local STATIC_BODIES = {}
 local ACTIVE_BODIES = {}
+local SYNCED_BODIES = {}
+local TOUCHED_BODIES = {}
+local listed_epoch = -1
+local sync_stamp = 0
 
-local function collect_active_bodies(moving_bodies, out)
-	local count = 0
+local function refresh_body_lists(bodies)
+	if listed_epoch == RigidBody.ActivityEpoch then return end
 
-	for i = 1, #moving_bodies do
-		local body = moving_bodies[i]
+	listed_epoch = RigidBody.ActivityEpoch
+	local active_count = 0
 
-		if
-			body.Awake or
-			body.MotionType ~= "dynamic" or
-			not (
-				body.InverseMass > 0
-			)
-			or
-			body:HasKinematicController()
-		then
-			count = count + 1
-			out[count] = body
+	for i = 1, #bodies do
+		local body = bodies[i]
+
+		if body.MotionType ~= "static" then
+			if
+				body.Awake or
+				body.MotionType ~= "dynamic" or
+				not (
+					body.InverseMass > 0
+				)
+				or
+				body:HasKinematicController()
+			then
+				active_count = active_count + 1
+				ACTIVE_BODIES[active_count] = body
+			end
 		end
 	end
 
-	for i = #out, count + 1, -1 do
-		out[i] = nil
+	for i = #ACTIVE_BODIES, active_count + 1, -1 do
+		ACTIVE_BODIES[i] = nil
+	end
+end
+
+local function sync_body_from_transform(body)
+	body:SynchronizeFromTransform()
+	body.StepStartPosition:CopyFrom(body.Position)
+	body.StepStartRotation:CopyFrom(body.Rotation)
+end
+
+local function build_candidate_pairs(physics, bodies)
+	local broadphase = physics.broadphase
+	local incremental = broadphase.TrackedEpoch == true
+	broadphase.TrackedEpoch = true
+
+	if not incremental then
+		return broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
 	end
 
-	return count
+	local touched = TOUCHED_BODIES
+	local count = 0
+
+	for i = 1, #SYNCED_BODIES do
+		count = count + 1
+		touched[count] = SYNCED_BODIES[i]
+	end
+
+	for i = 1, #ACTIVE_BODIES do
+		count = count + 1
+		touched[count] = ACTIVE_BODIES[i]
+	end
+
+	for i = #touched, count + 1, -1 do
+		touched[i] = nil
+	end
+
+	return broadphase:BuildCandidatePairs(touched, physics.candidate_pairs, nil, true)
 end
 
 local MIN_REMAINDER_STEP = 1e-6
@@ -179,43 +219,41 @@ function world_step.UpdateRigidBodies(physics, dt)
 	stats:Gauge("substeps", substeps)
 	stats:PushTime("step")
 	stats:PushTime("synchronize")
-	local moving_bodies = MOVING_BODIES
-	local moving_count = 0
-	local static_bodies = STATIC_BODIES
-	local static_count = 0
+	refresh_body_lists(bodies)
+	local removed_bodies = RigidBody.RemovedBodies
+
+	for i = 1, #removed_bodies do
+		physics.broadphase:RemoveBody(removed_bodies[i])
+		removed_bodies[i] = nil
+	end
+
 	local active_bodies = ACTIVE_BODIES
+	local synced_bodies = SYNCED_BODIES
+	local dirty_bodies = RigidBody.TransformDirtyBodies
+	local synced_count = 0
+	sync_stamp = sync_stamp + 1
 
-	for i = 1, #bodies do
-		local body = bodies[i]
-		local is_static = body.MotionType == "static"
-		local transform = body.Owner and body.Owner.transform
+	for i = 1, #dirty_bodies do
+		local body = dirty_bodies[i]
+		dirty_bodies[i] = nil
+		body.TransformDirty = false
 
-		if not (transform and body.SyncSettled and transform.PhysicsClean) then
-			body:SynchronizeFromTransform()
-			body.StepStartPosition:CopyFrom(body.Position)
-			body.StepStartRotation:CopyFrom(body.Rotation)
-			body.PoseDirty = true
-
-			if transform then transform.PhysicsClean = true end
-
-			body.SyncSettled = is_static or (body.MotionType == "dynamic" and not body.Awake)
-		end
-
-		if is_static then
-			static_count = static_count + 1
-			static_bodies[static_count] = body
-		else
-			moving_count = moving_count + 1
-			moving_bodies[moving_count] = body
+		if not body.Removed then
+			sync_body_from_transform(body)
+			body.SyncStamp = sync_stamp
+			synced_count = synced_count + 1
+			synced_bodies[synced_count] = body
 		end
 	end
 
-	for i = #moving_bodies, moving_count + 1, -1 do
-		moving_bodies[i] = nil
+	for i = #synced_bodies, synced_count + 1, -1 do
+		synced_bodies[i] = nil
 	end
 
-	for i = #static_bodies, static_count + 1, -1 do
-		static_bodies[i] = nil
+	for i = 1, #active_bodies do
+		local body = active_bodies[i]
+
+		if body.SyncStamp ~= sync_stamp then sync_body_from_transform(body) end
 	end
 
 	stats:PopTime()
@@ -229,7 +267,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		solver:BeginStep(collide, sub_dt)
 		stats:PushTime("integrate")
 		local awake_count = 0
-		collect_active_bodies(moving_bodies, active_bodies)
+		refresh_body_lists(bodies)
 
 		for _, body in ipairs(active_bodies) do
 			if body:IsKinematic() or body:HasKinematicController() then
@@ -255,7 +293,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		if collide then
 			physics.broadphase.LookAhead = dt - sub_dt
 			stats:PushTime("broadphase")
-			rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
+			rigid_body_pairs = build_candidate_pairs(physics, bodies)
 			stats:PopTime()
 			stats:PushTime("islands")
 			simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
@@ -278,8 +316,9 @@ function world_step.UpdateRigidBodies(physics, dt)
 					end
 
 					stats:PopTime()
+					refresh_body_lists(bodies)
 					stats:PushTime("broadphase")
-					rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies, physics.candidate_pairs)
+					rigid_body_pairs = build_candidate_pairs(physics, bodies)
 					stats:PopTime()
 					stats:PushTime("islands")
 					simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
@@ -292,7 +331,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 			stats:PopTime()
 			physics.broadphase.LookAhead = 0
-			collect_active_bodies(moving_bodies, active_bodies)
+			refresh_body_lists(bodies)
 		end
 
 		stats:Gauge("candidate_pairs", #rigid_body_pairs)
@@ -366,7 +405,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		end
 
 		stats:PushTime("positions")
-		collect_active_bodies(moving_bodies, active_bodies)
+		refresh_body_lists(bodies)
 
 		for _, body in ipairs(active_bodies) do
 			body:ApplySolverVelocityDelta(sub_dt)
@@ -400,23 +439,6 @@ function world_step.UpdateRigidBodies(physics, dt)
 		for _, body in ipairs(active_bodies) do
 			body:UpdateVelocities(sub_dt)
 			body:UpdateSleepState(sub_dt, islands.IsConstrainedBody(body))
-		end
-
-		for i = 1, static_count do
-			local body = static_bodies[i]
-			local velocity, angular_velocity = body.Velocity, body.AngularVelocity
-
-			if
-				velocity.x ~= 0 or
-				velocity.y ~= 0 or
-				velocity.z ~= 0 or
-				angular_velocity.x ~= 0 or
-				angular_velocity.y ~= 0 or
-				angular_velocity.z ~= 0
-			then
-				velocity:Set(0, 0, 0)
-				angular_velocity:Set(0, 0, 0)
-			end
 		end
 
 		if simulation_islands and simulation_islands[1] then
