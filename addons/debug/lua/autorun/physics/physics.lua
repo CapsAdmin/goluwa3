@@ -9,6 +9,7 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local RigidBody = import("goluwa/physics/rigid_body.lua")
 local debug_enabled = false
 local identity_rotation = Quat(0, 0, 0, 1)
 local zero_vec = Vec3(0, 0, 0)
@@ -631,9 +632,57 @@ local function draw_contact_links(body, contacts)
 	end
 end
 
+local body_summary_counts = {}
+local body_summary_lines = {}
+
+local function draw_body_summary()
+	local bodies = RigidBody.Instances
+	local counts = body_summary_counts
+	counts.dynamic_awake = 0
+	counts.dynamic_asleep = 0
+	counts.kinematic_awake = 0
+	counts.kinematic_asleep = 0
+	counts.static = 0
+
+	for i = 1, #bodies do
+		local body = bodies[i]
+		local motion_type = body.MotionType
+
+		if motion_type == "static" then
+			counts.static = counts.static + 1
+		else
+			local key = motion_type .. (body.Awake and "_awake" or "_asleep")
+			counts[key] = counts[key] + 1
+		end
+	end
+
+	local lines = body_summary_lines
+	lines[1] = "bodies " .. #bodies
+	lines[2] = string.format(
+		"dynamic %d (awake %d | asleep %d)",
+		counts.dynamic_awake + counts.dynamic_asleep,
+		counts.dynamic_awake,
+		counts.dynamic_asleep
+	)
+	lines[3] = string.format(
+		"kinematic %d (awake %d | asleep %d)",
+		counts.kinematic_awake + counts.kinematic_asleep,
+		counts.kinematic_awake,
+		counts.kinematic_asleep
+	)
+	lines[4] = "static " .. counts.static
+	lines[5] = string.format(
+		"awake %d | asleep %d",
+		counts.dynamic_awake + counts.kinematic_awake,
+		counts.dynamic_asleep + counts.kinematic_asleep
+	)
+	debug_draw.DrawTextBlock(lines, 16, 16, {padding = 8, line_gap = 3, background_alpha = 0.74})
+end
+
 local function draw_hovered_body_info()
 	if not debug_enabled then return end
 
+	draw_body_summary()
 	local body, hit = get_look_body_hit()
 
 	if locked_body then body, hit = locked_body, nil end
