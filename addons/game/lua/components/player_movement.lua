@@ -38,6 +38,7 @@ function META:Initialize()
 	assert(self.Owner.rigid_body)
 	self.crouch_alpha = self:IsCrouching() and 1 or 0
 	self.fly_speed_multiplier = 1
+	self.step_smooth = 0
 	self:AddGlobalEvent("PhysicsUpdate")
 	self:OnCameraModeChanged(self.Owner.player_input)
 end
@@ -51,7 +52,7 @@ end
 
 function META:GetEyeOffset(alpha)
 	local _, height, eye_height = self:GetDimensions(alpha)
-	return Vec3(0, eye_height - height * 0.5, 0)
+	return Vec3(0, eye_height - height * 0.5 + self.step_smooth, 0)
 end
 
 function META:InvalidateBodyGeometry()
@@ -152,9 +153,9 @@ local STEP_PROBE_LIFT = 0.04
 local STEP_REACH_MARGIN = 0.03
 local STEP_PROBE_BACKOFF = 0.05
 local STEP_MIN_GAIN = 0.005
-local SNAP_MIN_EXCESS = 0.02
 local GROUND_RAY_LIFT = 0.02
-local STEP_SNAP_HOLD_TICKS = 12
+local STEP_SMOOTH_SPEED = 8
+local STEP_SMOOTH_MIN_SPEED = 1
 local STEP_OPTIONS = {Rotation = nil}
 
 function META:MoveBodyBy(body, offset)
@@ -202,7 +203,7 @@ function META:TryStepUp(direction, distance)
 	end
 
 	self:MoveBodyBy(body, Vec3(0, lift, 0))
-	self.snap_hold = STEP_SNAP_HOLD_TICKS
+	self.step_smooth = self.step_smooth - lift
 	return true
 end
 
@@ -252,15 +253,10 @@ function META:FindGround(reach)
 		if not ray or ray.normal.y < self.MinGroundNormalY then return false end
 
 		ground_distance = ray.distance - GROUND_RAY_LIFT
+		return true, math.max(ground_distance - resting_gap, 0), ray.normal
 	end
 
-	local excess = ground_distance - resting_gap
-
-	if reach > self.GroundReach and excess > SNAP_MIN_EXCESS and not self.snap_hold then
-		return true, excess
-	end
-
-	return true, 0
+	return true, math.max(ground_distance - resting_gap, 0), hit.normal
 end
 
 function META:SetCrouch(b)
@@ -307,6 +303,7 @@ function META:OnCameraModeChanged(mode)
 	body:SetLockRotation(true)
 	body:SetFriction(0)
 	self:ResetBodyRotation()
+	self.step_smooth = 0
 
 	if mode == "walk" then
 		body:SetCollisionEnabled(true)
@@ -372,6 +369,13 @@ do
 		if state.jump_pressed then self.jump_requested = true end
 
 		if look.Mode == "walk" then
+			local smooth = self.step_smooth
+
+			if smooth ~= 0 then
+				local decay = math.max(math.abs(smooth) * STEP_SMOOTH_SPEED, STEP_SMOOTH_MIN_SPEED) * dt
+				self.step_smooth = math.abs(smooth) <= decay and 0 or smooth - math.sign(smooth) * decay
+			end
+
 			self:SetCrouch(state.crouching)
 			self:UpdateCrouchTransition(dt)
 			camera:SetViewOffset(self:GetEyeOffset())
@@ -417,27 +421,31 @@ do
 			local velocity = body:GetVelocity()
 			local x, y, z = velocity.x, velocity.y, velocity.z
 			local grounded = body:GetGrounded()
-
-			if self.snap_hold then
-				self.snap_hold = self.snap_hold > 1 and self.snap_hold - 1 or nil
-			end
-
 			local rising = y > self.LeaveGroundSpeed
-			local snap_down = 0
+			local ground_normal
 
 			if rising then
 				grounded = false
-			elseif not grounded and (y <= 0 or self.was_grounded) then
-				grounded, snap_down = self:FindGround(
-					self.was_grounded and
-						(
-							y > 0 or
-							self:IsStickToGround()
-						)
-						and
-						self.StepHeight or
-						self.GroundReach
-				)
+			elseif grounded or y <= 0 or self.was_grounded then
+				local reach = self.was_grounded and
+					(
+						y > 0 or
+						self:IsStickToGround()
+					)
+					and
+					self.StepHeight or
+					self.GroundReach
+				local found, gap, normal = self:FindGround(reach)
+				grounded = found or grounded
+
+				if found then
+					ground_normal = normal
+
+					if gap > 0 and reach > self.GroundReach then
+						self:MoveBodyBy(body, Vec3(0, -gap, 0))
+						self.step_smooth = self.step_smooth + gap
+					end
+				end
 			end
 
 			local along = x * move.x + z * move.z
@@ -450,7 +458,7 @@ do
 					end
 				end
 
-				y = -snap_down / dt
+				y = 0
 			end
 
 			local position = body:GetPosition()
@@ -495,6 +503,10 @@ do
 					x = x + move.x * gain
 					z = z + move.z * gain
 				end
+			end
+
+			if grounded and y == 0 and ground_normal then
+				y = -(x * ground_normal.x + z * ground_normal.z) / ground_normal.y
 			end
 
 			body:ApplyImpulse(Vec3(x - velocity.x, y - velocity.y, z - velocity.z) / body.InverseMass)
