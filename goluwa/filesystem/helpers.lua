@@ -2,6 +2,7 @@ local vfs = import("goluwa/filesystem/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local mixed_case_path_cache = {}
+local directory_case_cache = {}
 
 do
 	local old_clear_call_cache = vfs.ClearCallCache
@@ -9,6 +10,7 @@ do
 	function vfs.ClearCallCache()
 		old_clear_call_cache()
 		table.clear(mixed_case_path_cache)
+		table.clear(directory_case_cache)
 	end
 end
 
@@ -21,90 +23,76 @@ function vfs.CopyRecursively(from, to)
 	end)
 end
 
-function vfs.FindMixedCasePath(path)
-	if type(path) ~= "string" then return nil end
+do
+	local ttl = 2
+	local last_clear = 0
 
-	path = file_path.FixPathSlashes(path)
-	local cached = mixed_case_path_cache[path]
+	local function get_directory_names(dir)
+		local entry = directory_case_cache[dir]
 
-	if cached ~= nil then return cached ~= false and cached or nil end
+		if entry then return entry.names end
 
-	if vfs.IsFile(path) then
-		mixed_case_path_cache[path] = path
-		return path
-	end
+		local names = {}
 
-	if vfs.IsFile(path:lower()) then
-		mixed_case_path_cache[path] = path:lower()
-		return path:lower()
-	end
-
-	local root = path:match("^[^/]*:/") or path:match("^/") or ""
-	local parts = {}
-
-	for _, str in ipairs(path:sub(#root + 1):split("/")) do
-		if str ~= "" then parts[#parts + 1] = str end
-	end
-
-	local first = 1
-
-	for i = #parts - 1, 1, -1 do
-		if vfs.IsDirectory(root .. table.concat(parts, "/", 1, i)) then
-			first = i + 1
-
-			break
-		end
-	end
-
-	local dir = first > 1 and (root .. table.concat(parts, "/", 1, first - 1) .. "/") or root
-
-	for i = first, #parts do
-		local str = parts[i]:lower()
-		local found_match = false
-
-		for _, found in ipairs(vfs.Find(dir)) do
-			if found:lower() == str then
-				dir = dir .. found .. "/"
-				found_match = true
-
-				break
-			end
+		for _, name in ipairs(vfs.GetFiles{path = dir, no_sort = true}) do
+			names[name:lower()] = name
 		end
 
-		if not found_match then
-			local abs_dir = vfs.GetAbsolutePath(dir == "" and "." or dir, true)
+		directory_case_cache[dir] = {names = names}
+		return names
+	end
 
-			if abs_dir then
-				local files = fs.get_files(abs_dir)
+	function vfs.FindMixedCasePath(path)
+		if type(path) ~= "string" then return nil end
 
-				if files then
-					for _, found in ipairs(files) do
-						if found:lower() == str then
-							dir = dir .. found .. "/"
-							found_match = true
+		local now = os.time()
 
-							break
-						end
-					end
-				end
-			end
+		if now - last_clear >= ttl then
+			last_clear = now
+			table.clear(mixed_case_path_cache)
+			table.clear(directory_case_cache)
+		end
 
-			if not found_match then
+		path = file_path.FixPathSlashes(path)
+		local cached = mixed_case_path_cache[path]
+
+		if cached ~= nil then return cached ~= false and cached or nil end
+
+		if vfs.IsFile(path) then
+			mixed_case_path_cache[path] = path
+			return path
+		end
+
+		local root = path:match("^[^/]*:/") or path:match("^/") or ""
+		local dir = root
+		local rest = path:sub(#root + 1)
+		local parts = {}
+
+		for str in rest:gmatch("[^/]+") do
+			parts[#parts + 1] = str
+		end
+
+		for i = 1, #parts do
+			local found = get_directory_names(dir)[parts[i]:lower()]
+
+			if not found then
 				mixed_case_path_cache[path] = false
 				return nil
 			end
+
+			dir = dir .. found .. "/"
 		end
+
+		dir = dir:sub(1, -2)
+
+		if vfs.IsFile(dir) then
+			mixed_case_path_cache[path] = dir
+			return dir
+		end
+
+		mixed_case_path_cache[path] = false
+		return nil
 	end
-
-	dir = dir:sub(1, -2)
-
-	if vfs.IsFile(dir) then
-		mixed_case_path_cache[path] = dir
-		return dir
-	end
-
-	mixed_case_path_cache[path] = false
-	return nil
 end
 
 function vfs.Delete(path, a, b, c, d, e, f)

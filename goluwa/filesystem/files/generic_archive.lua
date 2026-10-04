@@ -105,14 +105,17 @@ function CONTEXT:GetFileTree(path_info)
 		return false, "not a valid archive path: " .. path_info.full_path
 	end
 
-	local last_modified = modified_cache[archive_path]
+	local modified = modified_cache[archive_path]
+	local now = os.time()
 
-	if not last_modified then
+	if not modified or now - modified.checked >= 2 then
 		never = true
-		last_modified = vfs.GetLastModified(archive_path) or ""
+		modified = {value = vfs.GetLastModified(archive_path) or "", checked = now}
 		never = false
+		modified_cache[archive_path] = modified
 	end
 
+	local last_modified = modified.value
 	local cache_key = archive_path .. last_modified
 
 	if get_cache(cache_key) then

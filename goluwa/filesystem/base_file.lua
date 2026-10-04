@@ -22,7 +22,7 @@ do
 			local frame_number = system.GetFrameNumber()
 
 			if frame_number ~= last_framenumber then
-				vfs.ClearCallCache()
+				table.clear(cache)
 				last_framenumber = frame_number
 			end
 		end
