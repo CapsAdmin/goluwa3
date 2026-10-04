@@ -39,8 +39,12 @@ do
 				full_where = where,
 				full_to = to,
 				userdata = userdata,
+				to_length = #path_info_to.full_path,
+				where_relative = path_info_where.full_path == "" or
+					not vfs.IsPathAbsolute(path_info_where.full_path),
 			}
 		)
+		vfs.ClearTranslateCache()
 	end
 
 	function vfs.Unmount(where, to)
@@ -50,6 +54,7 @@ do
 		for i, v in ipairs(vfs.mounted_paths) do
 			if v.full_where:lower() == where:lower() and v.full_to:lower() == to:lower() then
 				list.remove(vfs.mounted_paths, i)
+				vfs.ClearTranslateCache()
 				return true
 			end
 		end
@@ -67,38 +72,81 @@ do
 		return out
 	end
 
+	local translate_cache = {[true] = {}, [false] = {}}
+	local translate_cache_count = 0
+	local translate_cache_limit = 50000
+
+	function vfs.ClearTranslateCache()
+		table.clear(translate_cache[true])
+		table.clear(translate_cache[false])
+		translate_cache_count = 0
+	end
+
 	function vfs.TranslatePath(path, is_folder)
+		is_folder = is_folder or false
+		local cached = translate_cache[is_folder][path]
+
+		if cached then return cached end
+
 		local path_info = vfs.GetPathInfo(path, is_folder)
 		local out = {}
 		local out_i = 1
 
 		if path_info.relative then
+			local full_path = path_info.full_path
+			local filesystems2 = vfs.filesystems2
+
 			for _, mount_info in ipairs(vfs.mounted_paths) do
+				local mount_where = mount_info.where
+				local filesystem = mount_where.filesystem
 				local where
 
-				if path_info.full_path:sub(0, #mount_info.to.full_path) == mount_info.to.full_path then
-					where = vfs.GetPathInfo(
-						mount_info.where.filesystem .. ":" .. mount_info.where.full_path .. path_info.full_path:sub(#mount_info.to.full_path + 1),
-						is_folder
-					)
-				elseif path_info.full_path ~= "/" then
-					where = vfs.GetPathInfo(
-						mount_info.where.filesystem .. ":" .. mount_info.where.full_path .. path_info.full_path,
-						is_folder
-					)
+				if mount_info.where_relative or not filesystems2[filesystem] then
+					if full_path:sub(0, mount_info.to_length) == mount_info.to.full_path then
+						where = vfs.GetPathInfo(
+							filesystem .. ":" .. mount_where.full_path .. full_path:sub(mount_info.to_length + 1),
+							is_folder
+						)
+					elseif full_path ~= "/" then
+						where = vfs.GetPathInfo(filesystem .. ":" .. mount_where.full_path .. full_path, is_folder)
+					else
+						where = vfs.GetPathInfo(filesystem .. ":" .. mount_info.to.full_path, is_folder)
+					end
 				else
-					where = vfs.GetPathInfo(mount_info.where.filesystem .. ":" .. mount_info.to.full_path, is_folder)
+					local tail
+
+					if full_path:sub(0, mount_info.to_length) == mount_info.to.full_path then
+						tail = full_path:sub(mount_info.to_length + 1)
+					elseif full_path ~= "/" then
+						tail = full_path
+					end
+
+					if tail then
+						where = {
+							filesystem = filesystem,
+							full_path = mount_where.full_path .. tail,
+							relative = false,
+							GetFolders = path_info.GetFolders,
+						}
+					else
+						where = vfs.GetPathInfo(filesystem .. ":" .. mount_info.to.full_path, is_folder)
+					end
 				end
 
-				if where then
-					out[out_i] = {
-						path_info = where,
-						context = vfs.filesystems2[mount_info.where.filesystem],
-						userdata = mount_info.userdata,
-					}
-					out_i = out_i + 1
-				end
+				out[out_i] = {
+					path_info = where,
+					context = filesystems2[filesystem],
+					userdata = mount_info.userdata,
+				}
+				out_i = out_i + 1
 			end
+
+			if translate_cache_count >= translate_cache_limit then
+				vfs.ClearTranslateCache()
+			end
+
+			translate_cache[is_folder][path] = out
+			translate_cache_count = translate_cache_count + 1
 		else
 			local filesystems = vfs.GetFileSystems()
 
