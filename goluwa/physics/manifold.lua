@@ -7,7 +7,7 @@ local EPSILON = physics_constants.EPSILON
 local SOLVER_TANGENT = Vec3()
 local EMPTY_CONTACTS = {}
 local PREPARE_CROSS = Vec3()
-local FRICTION_BASIS = {tx = 0, ty = 0, tz = 0, bx = 0, by = 0, bz = 0}
+local FRICTION_BASIS = {tx = 0, ty = 0, tz = 0, bx = 0, by = 0, bz = 0, numerator_1 = 0, numerator_2 = 0, speed = 0, rx = 0, ry = 0, rz = 0}
 local SOLVER_BITANGENT = Vec3()
 
 local function project_tangent_into(out, tangent, normal)
@@ -147,45 +147,50 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 		body_b:WorldToLocal(contacts[contact_index].point_b, nil, nil, rebuilt_contact.local_point_b)
 	end
 
+	body_a = nil
+	body_b = nil
+
 	for contact_index = 1, #contacts do
-		local contact = contacts[contact_index]
 		local rebuilt_contact = rebuilt[contact_index]
-		local local_point_a = rebuilt_contact.local_point_a
-		local local_point_b = rebuilt_contact.local_point_b
 		local matched_index
-		local feature_key = contact.feature_key
 
-		if feature_key then
-			for previous_index = 1, previous_count do
-				if
-					not claimed[previous_index] and
-					previous_contacts[previous_index].feature_key == feature_key
-				then
-					matched_index = previous_index
+		do
+			local feature_key = contacts[contact_index].feature_key
 
-					break
+			if feature_key then
+				for previous_index = 1, previous_count do
+					if
+						not claimed[previous_index] and
+						previous_contacts[previous_index].feature_key == feature_key
+					then
+						matched_index = previous_index
+
+						break
+					end
 				end
 			end
-		end
 
-		if not matched_index then
-			local best_distance = 0.25
+			if not matched_index then
+				local best_distance = 0.25
+				local local_point_a = rebuilt_contact.local_point_a
+				local local_point_b = rebuilt_contact.local_point_b
 
-			for previous_index = 1, previous_count do
-				if not claimed[previous_index] then
-					local previous = previous_contacts[previous_index]
-					local dx = previous.local_point_a.x - local_point_a.x
-					local dy = previous.local_point_a.y - local_point_a.y
-					local dz = previous.local_point_a.z - local_point_a.z
-					local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-					dx = previous.local_point_b.x - local_point_b.x
-					dy = previous.local_point_b.y - local_point_b.y
-					dz = previous.local_point_b.z - local_point_b.z
-					distance = distance + math.sqrt(dx * dx + dy * dy + dz * dz)
+				for previous_index = 1, previous_count do
+					if not claimed[previous_index] then
+						local previous = previous_contacts[previous_index]
+						local dx = previous.local_point_a.x - local_point_a.x
+						local dy = previous.local_point_a.y - local_point_a.y
+						local dz = previous.local_point_a.z - local_point_a.z
+						local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+						dx = previous.local_point_b.x - local_point_b.x
+						dy = previous.local_point_b.y - local_point_b.y
+						dz = previous.local_point_b.z - local_point_b.z
+						distance = distance + math.sqrt(dx * dx + dy * dy + dz * dz)
 
-					if distance < best_distance then
-						best_distance = distance
-						matched_index = previous_index
+						if distance < best_distance then
+							best_distance = distance
+							matched_index = previous_index
+						end
 					end
 				end
 			end
@@ -228,9 +233,9 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 			rebuilt_contact.tangent = nil
 		end
 
-		rebuilt_contact.separation = contact.separation
+		rebuilt_contact.separation = contacts[contact_index].separation
 		rebuilt_contact.base_depth = nil
-		rebuilt_contact.feature_key = feature_key
+		rebuilt_contact.feature_key = contacts[contact_index].feature_key
 		rebuilt_contact.normal_impulse = rebuilt_contact.normal_impulse or 0
 		rebuilt_contact.tangent_impulse = rebuilt_contact.tangent_impulse or 0
 		rebuilt_contact.tangent_impulse_1 = rebuilt_contact.tangent_impulse_1 or 0
@@ -610,6 +615,7 @@ function manifold.SolveImpulses(
 			for contact_index = 1, #manifold_data.contacts do
 				local contact = manifold_data.contacts[contact_index]
 
+				do
 				local rel_x = body_b.Velocity.x + body_b.AngularVelocity.y * (
 						contact.rb_z
 					) - body_b.AngularVelocity.z * (
@@ -647,6 +653,9 @@ function manifold.SolveImpulses(
 							rel_z - normal.z * normal_dot
 						) ^ 2
 				)
+
+				FRICTION_BASIS.rx, FRICTION_BASIS.ry, FRICTION_BASIS.rz = rel_x, rel_y, rel_z
+				FRICTION_BASIS.speed = tangent_speed
 
 				if tangent_speed > EPSILON then
 					local px, py, pz = rel_x - normal.x * normal_dot,
@@ -694,6 +703,12 @@ function manifold.SolveImpulses(
 					tx, ty, tz = tx * inv, ty * inv, tz * inv
 					FRICTION_BASIS.tx, FRICTION_BASIS.ty, FRICTION_BASIS.tz = tx, ty, tz
 					FRICTION_BASIS.bx, FRICTION_BASIS.by, FRICTION_BASIS.bz = bx, by, bz
+					FRICTION_BASIS.numerator_1 = -(FRICTION_BASIS.rx * tx + FRICTION_BASIS.ry * ty + FRICTION_BASIS.rz * tz)
+					FRICTION_BASIS.numerator_2 = -(FRICTION_BASIS.rx * bx + FRICTION_BASIS.ry * by + FRICTION_BASIS.rz * bz)
+				end
+				end
+
+				if FRICTION_BASIS.speed > EPSILON then
 					local inverse_mass_1, inverse_mass_2 = 0, 0
 
 					if manifold_data.prepared_mass_a > 0 then
@@ -727,8 +742,11 @@ function manifold.SolveImpulses(
 					end
 
 					if inverse_mass_1 > EPSILON and inverse_mass_2 > EPSILON then
-						local impulse_1 = -(rel_x * FRICTION_BASIS.tx + rel_y * FRICTION_BASIS.ty + rel_z * FRICTION_BASIS.tz) / inverse_mass_1
-						local impulse_2 = -(rel_x * FRICTION_BASIS.bx + rel_y * FRICTION_BASIS.by + rel_z * FRICTION_BASIS.bz) / inverse_mass_2
+						local wx, wy, wz
+
+						do
+						local impulse_1 = FRICTION_BASIS.numerator_1 / inverse_mass_1
+						local impulse_2 = FRICTION_BASIS.numerator_2 / inverse_mass_2
 						local normal_impulse = contact.normal_impulse or 0
 						local static_flag = math.max(
 							math.min(1, math.max(0, (normal_impulse * static_friction) * 1e8)) * math.min(
@@ -742,10 +760,10 @@ function manifold.SolveImpulses(
 											) * 1e8 + 1
 									)
 								),
-							math.min(1, math.max(0, (physics.solver.STATIC_FRICTION_SPEED - tangent_speed) * 1e8 + 1)),
+							math.min(1, math.max(0, (physics.solver.STATIC_FRICTION_SPEED - FRICTION_BASIS.speed) * 1e8 + 1)),
 							contact.static_friction_active * math.min(
 									1,
-									math.max(0, (physics.solver.STATIC_FRICTION_EXIT_SPEED - tangent_speed) * 1e8 + 1)
+									math.max(0, (physics.solver.STATIC_FRICTION_EXIT_SPEED - FRICTION_BASIS.speed) * 1e8 + 1)
 								)
 						)
 						local max_tangent_impulse = normal_impulse * (
@@ -788,9 +806,12 @@ function manifold.SolveImpulses(
 							contact.tangent = tangent_store
 						end
 
-						local wx, wy, wz = delta_1 * FRICTION_BASIS.tx + delta_2 * FRICTION_BASIS.bx,
+						wx, wy, wz = delta_1 * FRICTION_BASIS.tx + delta_2 * FRICTION_BASIS.bx,
 						delta_1 * FRICTION_BASIS.ty + delta_2 * FRICTION_BASIS.by,
 						delta_1 * FRICTION_BASIS.tz + delta_2 * FRICTION_BASIS.bz
+						end
+
+						inverse_mass_1, inverse_mass_2 = nil, nil
 
 						if manifold_data.prepared_mass_a > 0 then
 							body_a.Velocity.x = body_a.Velocity.x - wx * manifold_data.prepared_mass_a

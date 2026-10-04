@@ -427,6 +427,9 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 		pairs = self:GetPhysics().broadphase:BuildCandidatePairs(bodies_or_pairs)
 	end
 
+	-- dead slots stay live in trace snapshots until the function returns
+	bodies_or_pairs = nil
+
 	stats:Count("solver_pairs", #pairs)
 
 	for i = 1, #pairs do

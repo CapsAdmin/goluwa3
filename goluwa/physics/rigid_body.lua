@@ -340,27 +340,25 @@ function RigidBody:GetGroundSupportProjectionMetrics()
 
 	local tangent = self.GroundSupportTangent
 	local bitangent = self.GroundSupportBitangent
-	local point = support.point
-	local position = self.Position
-	local dx = position.x - point.x
-	local dy = position.y - point.y
-	local dz = position.z - point.z
-	local projected_u = dx * tangent.x + dy * tangent.y + dz * tangent.z
-	local projected_v = dx * bitangent.x + dy * bitangent.y + dz * bitangent.z
-	local clamped_u = math.max(support.min_u, math.min(support.max_u, projected_u))
-	local clamped_v = math.max(support.min_v, math.min(support.max_v, projected_v))
-	local overhang_u = projected_u - clamped_u
-	local overhang_v = projected_v - clamped_v
 	local overhang = support.overhang
-	overhang.x = tangent.x * overhang_u + bitangent.x * overhang_v
-	overhang.y = tangent.y * overhang_u + bitangent.y * overhang_v
-	overhang.z = tangent.z * overhang_u + bitangent.z * overhang_v
-	support.projected_u = projected_u
-	support.projected_v = projected_v
-	support.clamped_u = clamped_u
-	support.clamped_v = clamped_v
-	support.overhang_u = overhang_u
-	support.overhang_v = overhang_v
+
+	do
+		local point = support.point
+		local position = self.Position
+		local dx = position.x - point.x
+		local dy = position.y - point.y
+		local dz = position.z - point.z
+		support.projected_u = dx * tangent.x + dy * tangent.y + dz * tangent.z
+		support.projected_v = dx * bitangent.x + dy * bitangent.y + dz * bitangent.z
+	end
+
+	support.clamped_u = math.max(support.min_u, math.min(support.max_u, support.projected_u))
+	support.clamped_v = math.max(support.min_v, math.min(support.max_v, support.projected_v))
+	support.overhang_u = support.projected_u - support.clamped_u
+	support.overhang_v = support.projected_v - support.clamped_v
+	overhang.x = tangent.x * support.overhang_u + bitangent.x * support.overhang_v
+	overhang.y = tangent.y * support.overhang_u + bitangent.y * support.overhang_v
+	overhang.z = tangent.z * support.overhang_u + bitangent.z * support.overhang_v
 	support.has_overhang = true
 	support.overhang_length = math.sqrt(overhang.x * overhang.x + overhang.y * overhang.y + overhang.z * overhang.z)
 	support.tangent = tangent
@@ -793,21 +791,24 @@ local UPDATE_CONJUGATE = Quat()
 local SLEEP_REFERENCE_GRAVITY = 28
 
 local function get_sleep_state_metrics(self)
-	local linear_speed = self.Velocity:GetLength()
-	local angular_speed = self.AngularVelocity:GetLength()
-	local inverse_dt = 0.5 / self.SleepDt
-	local dx = self.Position.x - self.PreviousPosition.x
-	local dy = self.Position.y - self.PreviousPosition.y
-	local dz = self.Position.z - self.PreviousPosition.z
-	linear_speed = math.max(linear_speed, math.sqrt(dx * dx + dy * dy + dz * dz) * inverse_dt)
-	Quat.SetConjugated(UPDATE_CONJUGATE, self.PreviousRotation)
-	Quat.SetMul(UPDATE_DELTA, self.Rotation, UPDATE_CONJUGATE)
-	angular_speed = math.max(
-		angular_speed,
-		2 * math.sqrt(
-				UPDATE_DELTA.x * UPDATE_DELTA.x + UPDATE_DELTA.y * UPDATE_DELTA.y + UPDATE_DELTA.z * UPDATE_DELTA.z
-			) * 2 * inverse_dt
-	)
+	local linear_speed
+	local angular_speed
+
+	do
+		local inverse_dt = 0.5 / self.SleepDt
+		local dx = self.Position.x - self.PreviousPosition.x
+		local dy = self.Position.y - self.PreviousPosition.y
+		local dz = self.Position.z - self.PreviousPosition.z
+		linear_speed = math.max(self.Velocity:GetLength(), math.sqrt(dx * dx + dy * dy + dz * dz) * inverse_dt)
+		Quat.SetConjugated(UPDATE_CONJUGATE, self.PreviousRotation)
+		Quat.SetMul(UPDATE_DELTA, self.Rotation, UPDATE_CONJUGATE)
+		angular_speed = math.max(
+			self.AngularVelocity:GetLength(),
+			2 * math.sqrt(
+					UPDATE_DELTA.x * UPDATE_DELTA.x + UPDATE_DELTA.y * UPDATE_DELTA.y + UPDATE_DELTA.z * UPDATE_DELTA.z
+				) * 2 * inverse_dt
+		)
+	end
 
 	local linear_threshold = self.SleepLinearThreshold * self.SleepSpeedScale
 	local angular_threshold = self.SleepAngularThreshold * self.SleepSpeedScale
@@ -1001,13 +1002,19 @@ function RigidBody:ShouldCollide(body)
 
 	if self.IgnoredBodies and self.IgnoredBodies[body] then return false end
 
-	local group_a = self.CollisionGroup or 1
-	local group_b = body.CollisionGroup or 1
-	local mask_a = self.CollisionMask
-	local mask_b = body.CollisionMask
-	mask_a = mask_a == nil and -1 or mask_a
-	mask_b = mask_b == nil and -1 or mask_b
-	return bit.band(mask_a, group_b) ~= 0 and bit.band(mask_b, group_a) ~= 0
+	do
+		local mask = self.CollisionMask
+
+		if mask == nil then mask = -1 end
+
+		if bit.band(mask, body.CollisionGroup or 1) == 0 then return false end
+	end
+
+	local mask = body.CollisionMask
+
+	if mask == nil then mask = -1 end
+
+	return bit.band(mask, self.CollisionGroup or 1) ~= 0
 end
 
 function RigidBody:SynchronizeFromTransform()
