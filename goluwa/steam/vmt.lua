@@ -2,7 +2,53 @@ local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local resource = import("goluwa/resource.lua")
 local callback = import("goluwa/callback.lua")
+local Color = import("goluwa/structs/color.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+
+local function convert_typed_values(tbl)
+	for key, val in pairs(tbl) do
+		if type(val) == "table" then
+			convert_typed_values(val)
+		elseif type(val) == "string" then
+			local first, last = val:sub(1, 1), val:sub(-1, -1)
+
+			if first == "{" and last == "}" then
+				local values = {}
+
+				for v in val:sub(2, -2):trim():gmatch("%S+") do
+					table.insert(values, v)
+				end
+
+				if #values == 3 or #values == 4 then
+					tbl[key] = Color.FromBytes(
+						tonumber(values[1]) or 0,
+						tonumber(values[2]) or 0,
+						tonumber(values[3]) or 0,
+						tonumber(values[4]) or 255
+					)
+				end
+			elseif first == "[" and last == "]" then
+				local values = {}
+
+				for v in val:sub(2, -2):trim():gmatch("%S+") do
+					table.insert(values, v)
+				end
+
+				if
+					#values == 3 and
+					tonumber(values[1]) and
+					tonumber(values[2]) and
+					tonumber(values[3])
+				then
+					tbl[key] = Vec3(tonumber(values[1]), tonumber(values[2]), tonumber(values[3]))
+				end
+			end
+		end
+	end
+end
+
 return function(steam)
+	steam.ConvertVMTTypedValues = convert_typed_values
 	local texture_paths = {
 		basetexture = true,
 		basetexture2 = true,
@@ -34,9 +80,7 @@ return function(steam)
 				return
 			end
 
-			local vmt, err = steam.VDFToTable(vfs.Read(resolved_path), function(key)
-				return (key:lower():gsub("%$", ""))
-			end)
+			local vmt, err = steam.VDFToTable(vfs.Read(resolved_path), "vmt")
 
 			if err then
 				on_error(path .. " steam.VDFToTable : " .. err)
@@ -66,9 +110,7 @@ return function(steam)
 					return
 				end
 
-				local vmt2, err2 = steam.VDFToTable(str, function(key)
-					return (key:lower():gsub("%$", ""))
-				end)
+				local vmt2, err2 = steam.VDFToTable(str, "vmt")
 
 				if err2 then
 					on_error(err2)
@@ -95,6 +137,7 @@ return function(steam)
 			end
 
 			vmt = v
+			convert_typed_values(vmt)
 			vmt.fullpath = path
 			vmt.shader = k
 

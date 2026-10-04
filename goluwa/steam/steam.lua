@@ -3,7 +3,7 @@ local resource = import("goluwa/resource.lua")
 local codec = import("goluwa/codec.lua")
 local http = import("goluwa/sockets/http.lua")
 local steam = library()
-steam.source2meters = 0.01905
+steam.source2meters = import("goluwa/codecs/internal/source.lua").meters
 import("goluwa/steam/mount.lua")(steam)
 import("goluwa/steam/crylevel.lua").Apply(steam)
 import("goluwa/steam/vmt.lua")(steam)

@@ -234,15 +234,13 @@ local ok, err = xpcall(
 				collectgarbage("collect")
 				local start_ns = system.GetTimeNS()
 				local decoded, decode_err = ogg.Decode(item.data)
+				local pcm = decode_err
 				local elapsed_ns = elapsed_ns_since(start_ns)
 
 				if profiler and repeat_idx == 1 then profiler:StopSection() end
 
-				assert(
-					decoded,
-					string.format("failed to decode %s: %s", item.path, tostring(decode_err))
-				)
-				assert(decoded.data ~= nil, string.format("decoded data missing for %s", item.path))
+				assert(decoded, string.format("failed to decode %s: %s", item.path, tostring(pcm)))
+				assert(pcm ~= nil, string.format("decoded data missing for %s", item.path))
 				assert(
 					(decoded.packets_decoded or 0) > 0,
 					string.format("no audio packets decoded for %s", item.path)

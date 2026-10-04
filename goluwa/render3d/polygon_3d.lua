@@ -5,6 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Mesh = RENDER_2D and import("goluwa/render/mesh.lua")
 local IndexBuffer = RENDER_2D and import("goluwa/render/index_buffer.lua")
 local ffi = require("ffi")
+local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local tasks = import("goluwa/tasks.lua")
 local Polygon3D = objects.CreateTemplate("render3d_polygon_3d")
 
@@ -53,16 +54,7 @@ function Polygon3D:GetMesh()
 	return self.mesh
 end
 
-local VertexType = ffi.typeof([[
-	struct {
-		float position[3];
-		float normal[3];
-		float uv[2];
-		float tangent[4];
-		float texture_blend;
-		float vertex_color[4];
-	}[?]
-]])
+local VertexType = vertex_math.VertexType
 Polygon3D.VertexType = VertexType
 local VERTEX_ATTRIBUTES = {
 	{
@@ -103,7 +95,7 @@ local VERTEX_ATTRIBUTES = {
 	},
 }
 
-function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count)
+function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed)
 	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
 	for i = 0, vertex_count - 1 do
@@ -126,6 +118,15 @@ function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_coun
 	self:SetAABB(aabb)
 	self.indices = nil
 
+	if keep_packed then
+		self.packed = {
+			vertices = vertices,
+			vertex_count = vertex_count,
+			indices = indices,
+			index_count = index_count,
+		}
+	end
+
 	if Mesh then
 		self.mesh = Mesh.NewDeduped(
 			VERTEX_ATTRIBUTES,
@@ -135,6 +136,42 @@ function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_coun
 			index_count
 		)
 	end
+end
+
+function Polygon3D:GetVertices()
+	local packed = self.packed
+
+	if packed then
+		self.packed = nil
+		local vertices = {}
+		local packed_vertices = packed.vertices
+
+		for i = 1, packed.vertex_count do
+			local v = packed_vertices[i - 1]
+			vertices[i] = {
+				pos = Vec3(v.position[0], v.position[1], v.position[2]),
+				normal = Vec3(v.normal[0], v.normal[1], v.normal[2]),
+				uv = Vec2(v.uv[0], v.uv[1]),
+				tangent = {x = v.tangent[0], y = v.tangent[1], z = v.tangent[2], w = v.tangent[3]},
+			}
+		end
+
+		local indices = {}
+
+		for i = 1, packed.index_count do
+			indices[i] = packed.indices[i - 1] + 1
+		end
+
+		self.Vertices = vertices
+		self.indices = indices
+	end
+
+	return self.Vertices
+end
+
+function Polygon3D:GetIndices()
+	self:GetVertices()
+	return self.indices
 end
 
 function Polygon3D:Upload(indices)

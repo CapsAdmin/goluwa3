@@ -401,6 +401,18 @@ local function determine_format(pf, dx10)
 	return "UNKNOWN"
 end
 
+dds.returns_blob = true
+dds.thread_job = [[
+	local input = ...
+	local Buffer = import("goluwa/structs/buffer.lua")
+	local dds = import("goluwa/codecs/dds.lua")
+	local meta, data = dds.DecodeBuffer(Buffer.New(input, #input))
+
+	if not meta then error(data, 0) end
+
+	return meta, data
+]]
+
 function dds.DecodeBuffer(inputBuffer, opts)
 	opts = opts or {}
 	local magic = inputBuffer:ReadU32LE()
@@ -526,7 +538,7 @@ function dds.DecodeBuffer(inputBuffer, opts)
 
 	local data_pos = inputBuffer:GetPosition()
 	local remaining = inputBuffer:GetSize() - data_pos
-	local attached_image
+	local attached_image, attached_data
 
 	if header.reserved2 == CRYTEK_MAGIC and remaining > total_size then
 		local chunks = ffi.cast("uint8_t *", inputBuffer:GetBuffer()) + data_pos + total_size
@@ -547,7 +559,7 @@ function dds.DecodeBuffer(inputBuffer, opts)
 				end
 
 				if tag == CRYTEK_ATTACHED_ALPHA then
-					attached_image = dds.DecodeBuffer(Buffer.New(chunks + offset + 8, size), opts)
+					attached_image, attached_data = dds.DecodeBuffer(Buffer.New(chunks + offset + 8, size), opts)
 				end
 
 				offset = offset + 8 + size
@@ -561,11 +573,12 @@ function dds.DecodeBuffer(inputBuffer, opts)
 	local actual_data_size = total_size
 	local bpp = get_bytes_per_pixel(format)
 	local needs_conversion_to_32bit = (bpp == 3)
+	local attached_size = attached_data and ffi.sizeof(attached_data) or 0
 
 	if needs_conversion_to_32bit then
 		local pixel_count = header.width * header.height * depth * array_size
 		local new_size = pixel_count * 4
-		data_buffer = ffi.new("uint8_t[?]", new_size)
+		data_buffer = ffi.new("uint8_t[?]", new_size + attached_size)
 		local src = inputBuffer:GetBuffer() + data_pos
 		local dst = data_buffer
 		local src_idx = 0
@@ -582,7 +595,7 @@ function dds.DecodeBuffer(inputBuffer, opts)
 
 		actual_data_size = new_size
 	else
-		data_buffer = ffi.new("uint8_t[?]", total_size)
+		data_buffer = ffi.new("uint8_t[?]", total_size + attached_size)
 		ffi.copy(data_buffer, inputBuffer:GetBuffer() + data_pos, total_size)
 
 		if not dx10 and header.pixelFormat.fourCC == FOURCC_ATI2 then
@@ -592,6 +605,11 @@ function dds.DecodeBuffer(inputBuffer, opts)
 				halves[i * 2], halves[i * 2 + 1] = halves[i * 2 + 1], halves[i * 2]
 			end
 		end
+	end
+
+	if attached_data then
+		ffi.copy(data_buffer + actual_data_size, attached_data, attached_size)
+		attached_image.data_offset = actual_data_size
 	end
 
 	return {
@@ -610,9 +628,8 @@ function dds.DecodeBuffer(inputBuffer, opts)
 		mip_info = mip_info,
 		attached_image = attached_image,
 		data_size = actual_data_size,
-		data = data_buffer,
-		buffer = Buffer.New(data_buffer, actual_data_size),
-	}
+	},
+	data_buffer
 end
 
 return dds

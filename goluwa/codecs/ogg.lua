@@ -7,6 +7,16 @@ local ffi_copy = ffi.copy
 local float_size = ffi.sizeof("float")
 ogg.file_extensions = {"ogg"}
 ogg.magic_headers = {"OggS"}
+ogg.returns_blob = true
+ogg.thread_job = [[
+	local input = ...
+	local ogg = import("goluwa/codecs/ogg.lua")
+	local meta, pcm = ogg.Decode(input)
+
+	if not meta then error(pcm, 0) end
+
+	return meta, pcm
+]]
 
 function ogg.Decode(data)
 	local buffer
@@ -157,12 +167,16 @@ function ogg.Decode(data)
 		end
 	end
 
-	result.data = pcm
+	result.page_count = #pages
+	result.packet_count = #packets
+	result.pages = nil
+	result.packets = nil
+	result.setup = nil
 	result.samples = total_samples
 	result.channels = channels
 	result.sample_rate = sample_rate
 	result.packets_decoded = packets_decoded
-	return result
+	return result, pcm
 end
 
 return ogg

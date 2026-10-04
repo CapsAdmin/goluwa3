@@ -3,6 +3,7 @@ local timer = import("goluwa/timer.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -507,9 +508,10 @@ do
 
 		if not str then return nil end
 
-		local vmt = steam.VDFToTable(str, function(key)
-			return (key:lower():gsub("%$", ""))
-		end)
+		local vmt = steam.VDFToTable(str, "vmt")
+
+		if vmt then steam.ConvertVMTTypedValues(vmt) end
+
 		local shader, params = next(vmt or {})
 
 		if type(params) ~= "table" then return nil end
@@ -860,39 +862,76 @@ do
 	end
 end
 
-local function read_lump_data(what, bsp_file, header, index, size, struct)
-	local out = {}
-	local lump = header.lumps[index]
+function steam.ConvertBSPTypes(header)
+	local function vec3(a)
+		return Vec3(a[1], a[2], a[3])
+	end
 
-	if lump.filelen == 0 then return end
-
-	local length = lump.filelen / size
-	bsp_file:SetPosition(lump.fileofs)
-
-	if type(struct) == "function" then
-		for i = 1, length do
-			out[i] = struct()
-
-			if i % 1000 == 0 then
-				tasks.ReportProgress(what, length)
-				tasks.Wait()
+	for _, ent in ipairs(header.entities) do
+		for key, value in pairs(ent) do
+			if type(value) == "table" and value.type then
+				if value.type == "ang3" then
+					ent[key] = Ang3(unpack(value))
+				elseif value.type == "color" then
+					ent[key] = Color.FromBytes(unpack(value))
+				else
+					ent[key] = Vec3(unpack(value))
+				end
 			end
 		end
-	else
-		for i = 1, length do
-			out[i] = bsp_file:ReadStructure(struct)
 
-			if i % 1000 == 0 then
-				tasks.ReportProgress(what, length)
-				tasks.Wait()
-			end
+		if ent.classname == "sky_camera" then header.sky_camera = ent end
+	end
+
+	for _, plane in ipairs(header.planes) do
+		plane.normal = vec3(plane.normal)
+	end
+
+	for i, vertex in ipairs(header.vertices) do
+		header.vertices[i] = vec3(vertex)
+	end
+
+	for _, texdata in ipairs(header.texdatas) do
+		texdata.reflectivity = vec3(texdata.reflectivity)
+	end
+
+	for _, overlay in ipairs(header.overlays or {}) do
+		overlay.origin = vec3(overlay.origin)
+		overlay.normal = vec3(overlay.normal)
+	end
+
+	for _, displacement in ipairs(header.displacements) do
+		displacement.startPosition = vec3(displacement.startPosition)
+
+		for _, point in ipairs(displacement.heightmap) do
+			point.pos = vec3(point.pos)
 		end
 	end
 
-	tasks.ReportProgress(what, length)
-	tasks.Wait()
-	return out
+	for _, model in ipairs(header.models) do
+		model.mins = vec3(model.mins)
+		model.maxs = vec3(model.maxs)
+		model.origin = vec3(model.origin)
+	end
+
+	for _, leaf in ipairs(header.leafs) do
+		leaf.mins = vec3(leaf.mins)
+		leaf.maxs = vec3(leaf.maxs)
+	end
+
+	for _, cubemap in ipairs(header.cubemaps or {}) do
+		cubemap.origin = Vec3(-cubemap.origin[2], cubemap.origin[3], -cubemap.origin[1])
+	end
+
+	return header
 end
+
+local decode_job_source = [=[
+	local input = ...
+	local bsp = import("goluwa/codecs/bsp.lua")
+	local stage = not _G.thread_pool_job and import("goluwa/tasks.lua").Wait or nil
+	return assert(bsp.Decode(input.data, {cubemaps = input.cubemaps}, stage))
+]=]
 
 function steam.LoadMap(path)
 	path = assert(R(path) or nil)
@@ -907,52 +946,16 @@ function steam.LoadMap(path)
 
 	if bsp_file:GetSize() == 0 then error("map is empty? (size is 0)") end
 
-	local header = bsp_file:ReadStructure([[
-	long ident; // BSP file identifier
-	long version; // BSP file version
-	]])
-
-	do
-		local struct = [[
-			int	fileofs;	// offset into file (bytes)
-			int	filelen;	// length of lump (bytes)
-			int	version;	// lump format version
-			char fourCC[4];	// lump ident code
-		]]
-		local struct_21 = [[
-			int	version;	// lump format version
-			int	fileofs;	// offset into file (bytes)
-			int	filelen;	// length of lump (bytes)
-			char fourCC[4];	// lump ident code
-		]]
-
-		if header.version > 21 then struct = struct_21 end
-
-		header.lumps = {}
-
-		for i = 1, 64 do
-			header.lumps[i] = bsp_file:ReadStructure(struct)
-		end
-
-		tasks.ReportProgress("reading lumps", 64)
-		tasks.Wait()
-	end
-
-	header.map_revision = bsp_file:ReadI32()
-
-	if steam.debug then
-		logn("BSP ", header.ident)
-		logn("VERSION ", header.version)
-		logn("REVISION ", header.map_revision)
-	end
+	tasks.Report("reading bsp")
+	local bsp_data = bsp_file:ReadBytes(bsp_file:GetSize())
+	bsp_file:Close()
+	local header = thread_pool.Run(decode_job_source, {data = bsp_data, cubemaps = CUBEMAPS}, #bsp_data):Await()
+	steam.ConvertBSPTypes(header)
 
 	do
 		tasks.Wait()
 		tasks.Report("mounting pak")
-		local lump = header.lumps[41]
-		local length = lump.filelen
-		bsp_file:SetPosition(lump.fileofs)
-		local pak = bsp_file:ReadBytes(length)
+		local pak = bsp_data:sub(header.pakfile_offset + 1, header.pakfile_offset + header.pakfile_length)
 		local name = "os:cache/temp_bsp.zip"
 		vfs.Write(name, pak)
 		local ok, err = vfs.Mount(R(name))
@@ -963,487 +966,21 @@ function steam.LoadMap(path)
 		end
 	end
 
-	do
-		tasks.Wait()
-
-		local function unpack_numbers(str)
-			str = str:gsub("%s+", " ")
-			local t = str:split(" ")
-
-			for k, v in ipairs(t) do
-				t[k] = tonumber(v)
-			end
-
-			return unpack(t)
-		end
-
-		local entities = {}
-		local i = 1
-		bsp_file:PushPosition(header.lumps[1].fileofs)
-
-		for vdf in bsp_file:ReadString():gmatch("{(.-)}") do
-			local ent = {}
-
-			for k, v in vdf:gmatch([["(.-)" "(.-)"]]) do
-				if k == "angles" then
-					v = Ang3(unpack_numbers(v))
-				elseif k == "_light" or k == "_lightHDR" or k == "_ambient" or k == "_ambientHDR" then
-					local r, g, b, brightness, r_hdr, g_hdr, b_hdr, brightness_hdr = unpack_numbers(v)
-
-					if brightness_hdr then
-						r, g, b, brightness = r_hdr, g_hdr, b_hdr, brightness_hdr
-					end
-
-					g = g or r
-					b = b or r
-					brightness = brightness or 255
-
-					if not r or r < 0 or g < 0 or b < 0 or brightness < 0 then
-						v = false
-					else
-						v = {
-							r = (r / 255) ^ 2.2,
-							g = (g / 255) ^ 2.2,
-							b = (b / 255) ^ 2.2,
-							brightness = brightness,
-						}
-					end
-				elseif k:find("color", nil, true) then
-					v = Color.FromBytes(unpack_numbers(v))
-				elseif
-					k == "origin" or
-					k:find("dir", nil, true) or
-					k:find("mins", nil, true) or
-					k:find("maxs", nil, true)
-				then
-					v = Vec3(unpack_numbers(v))
-				end
-
-				ent[k] = tonumber(v) or v
-			end
-
-			ent.vdf = vdf
-			ent.classname = ent.classname or "unknown"
-
-			if ent.classname == "sky_camera" then header.sky_camera = ent end
-
-			entities[i] = ent
-			i = i + 1
-
-			if i % 100 == 0 then tasks.Wait() end
-		end
-
-		bsp_file:PopPosition()
-		header.entities = entities
-	end
-
-	do
-		tasks.Wait()
-		tasks.Report("reading game lump")
-		local lump = header.lumps[36]
-		bsp_file:SetPosition(lump.fileofs)
-		local game_lumps = bsp_file:ReadI32()
-
-		for _ = 1, game_lumps do
-			local id = bsp_file:ReadBytes(4)
-			local flags = bsp_file:ReadI16()
-			local version = bsp_file:ReadI16()
-			local fileofs = bsp_file:ReadI32()
-			local filelen = bsp_file:ReadI32()
-
-			if id == "prps" then
-				bsp_file:PushPosition(fileofs)
-				local count
-				count = bsp_file:ReadI32()
-				local paths = {}
-
-				for i = 1, count do
-					local str = bsp_file:ReadString(128, true)
-
-					if str ~= "" then paths[i] = str end
-				end
-
-				count = bsp_file:ReadI32()
-				local leafs = {}
-
-				for i = 1, count do
-					leafs[i] = bsp_file:ReadU16()
-				end
-
-				header.static_prop_leafs = leafs
-				count = bsp_file:ReadI32()
-				local lump_size = ((filelen + fileofs) - bsp_file:GetPosition()) / count
-
-				for i = 1, count do
-					local pos = bsp_file:GetPosition()
-					local lump = bsp_file:ReadStructure([[
-						vec3 origin; // origin
-						ang3 angles; // orientation (pitch yaw roll)
-
-						unsigned short prop_type; // index into model name dictionary
-						unsigned short first_leaf; // index into leaf array
-						unsigned short leaf_count; // solidity type
-						byte solid;
-						byte flags; // model skin numbers
-
-						int skin;
-						float fade_min_dist;
-						float fade_max_dist;
-
-						vec3 lighting_origin; // for lighting
-					]])
-
-					if version >= 5 then lump.forced_fade_scale = bsp_file:ReadFloat() end
-
-					if version == 6 or version == 7 then
-						lump.min_dx_level = bsp_file:ReadU16()
-						lump.max_dx_level = bsp_file:ReadU16()
-					end
-
-					if version >= 8 then
-						lump.min_cpu_level = bsp_file:ReadU8()
-						lump.max_cpu_level = bsp_file:ReadU8()
-						lump.min_gpu_level = bsp_file:ReadU8()
-						lump.max_gpu_level = bsp_file:ReadU8()
-					end
-
-					if version >= 7 then lump.rendercolor = bsp_file:ReadByteColor() end
-
-					if version == 11 then
-						bsp_file:Advance(4)
-
-						if version == 9 or version == 10 then
-							lump.disable_xbox360 = bsp_file:ReadBoolean()
-						end
-
-						if version >= 10 then lump.flags_ex = bsp_file:ReadU32() end
-
-						if version >= 11 then lump.uniform_scale = bsp_file:ReadFloat() end
-					else
-						local remaining = tonumber(lump_size - (bsp_file:GetPosition() - pos))
-						bsp_file:Advance(remaining)
-					end
-
-					lump.model = paths[lump.prop_type + 1] or paths[1]
-					lump.classname = "static_entity"
-					list.insert(header.entities, lump)
-
-					if i % 100 == 0 then
-						tasks.Wait()
-						tasks.ReportProgress("reading static props", count)
-					end
-				end
-
-				bsp_file:PopPosition()
-			end
-		end
-	end
+	bsp_data = nil
 
 	if CUBEMAPS then
-		header.cubemaps = read_lump_data(
-			"reading cubemaps",
-			bsp_file,
-			header,
-			43,
-			16,
-			[[
-			int origin[3];
-			int size;
-		]]
-		)
-
 		if not header.cubemaps then
 			print("no cubemaps found in map")
 		else
 			print("found ", #header.cubemaps, " cubemaps in map")
 		end
-
-		if header.cubemaps then
-			for k, v in ipairs(header.cubemaps) do
-				v.origin = Vec3(-v.origin[2], v.origin[3], -v.origin[1])
-			end
-		end
 	end
 
-	header.brushes = read_lump_data(
-		"reading brushes",
-		bsp_file,
-		header,
-		19,
-		12,
-		[[
-		int	firstside;	// first brushside
-		int	numsides;	// number of brushsides
-		int	contents;	// contents flags
-	]]
-	)
-	header.brushsides = read_lump_data(
-		"reading brushsides",
-		bsp_file,
-		header,
-		20,
-		8,
-		[[
-		unsigned short	planenum;	// facing out of the leaf
-		short		texinfo;	// texture info
-		short		dispinfo;	// displacement info
-		short		bevel;		// is the side a bevel plane?
-	]]
-	)
-	header.planes = read_lump_data(
-		"reading planes",
-		bsp_file,
-		header,
-		BSP_LUMP_PLANES,
-		20,
-		[[
-		vec3 normal;
-		float dist;
-		int type;
-	]]
-	)
-	header.vertices = read_lump_data("reading verticies", bsp_file, header, 4, 12, "vec3")
-	header.surfedges = read_lump_data("reading surfedges", bsp_file, header, 14, 4, "long")
-	header.edges = read_lump_data(
-		"reading edges",
-		bsp_file,
-		header,
-		13,
-		4,
-		function()
-			return {bsp_file:ReadU16(), bsp_file:ReadU16()}
-		end
-	)
-	header.faces = read_lump_data(
-		"reading faces",
-		bsp_file,
-		header,
-		8,
-		56,
-		[[
-		unsigned short	planenum;		// the plane number
-		byte		side;			// header.faces opposite to the node's plane direction
-		byte		onNode;			// 1 of on node, 0 if in leaf
-		int		firstedge;		// index into header.surfedges
-		short		numedges;		// number of header.surfedges
-		short		texinfo;		// texture info
-		short		dispinfo;		// displacement info
-		short		render2dFogVolumeID;	// ?
-		byte		styles[4];		// switchable lighting info
-		int		lightofs;		// offset into lightmap lump
-		float		area;			// face area in units^2
-		int		LightmapTextureMinsInLuxels[2];	// texture lighting info
-		int		LightmapTextureSizeInLuxels[2];	// texture lighting info
-		int		origFace;		// original face this was split from
-		unsigned short	numPrims;		// primitives
-		unsigned short	firstPrimID;
-		unsigned int	smoothingGroups;	// lightmap smoothing group
-	]]
-	)
-	header.texinfos = read_lump_data(
-		"reading texinfo",
-		bsp_file,
-		header,
-		7,
-		72,
-		[[
-		float textureVecs[8];
-		float lightmapVecs[8];
-		int flags;
-		int texdata;
-	]]
-	)
-	header.texdatas = read_lump_data(
-		"reading texdata",
-		bsp_file,
-		header,
-		3,
-		32,
-		[[
-		vec3 reflectivity;
-		int nameStringTableID;
-		int width;
-		int height;
-		int view_width;
-		int view_height;
-	]]
-	)
-	local texdatastringtable = read_lump_data("reading texdatastringtable", bsp_file, header, 45, 4, "int")
-	local lump = header.lumps[44]
-	header.texdatastringdata = {}
-
-	for i = 1, #texdatastringtable do
-		bsp_file:SetPosition(lump.fileofs + texdatastringtable[i])
-		header.texdatastringdata[i] = bsp_file:ReadString()
-		tasks.Wait()
-	end
-
-	header.overlays = read_lump_data(
-		"reading overlays",
-		bsp_file,
-		header,
-		46,
-		352,
-		[[
-		int id;
-		short texinfo;
-		unsigned short face_count_and_render_order;
-		int faces[64];
-		float u_range[2];
-		float v_range[2];
-		float uv_points[12];
-		vec3 origin;
-		vec3 normal;
-	]]
-	)
-
-	do
-		local structure = [[
-			vec3 startPosition; // start position used for orientation
-			int DispVertStart; // Index into LUMP_DISP_VERTS.
-			int DispTriStart; // Index into LUMP_DISP_TRIS.
-			int power; // power - indicates size of render2d (2^power	1)
-			int minTess; // minimum tesselation allowed
-			float smoothingAngle; // lighting smoothing angle
-			int contents; // render2d contents
-			unsigned short MapFace; // Which map face this displacement comes from.
-			char asdf[2];
-			int LightmapAlphaStart;	// Index into ddisplightmapalpha.
-			int LightmapSamplePositionStart; // Index into LUMP_DISP_LIGHTMAP_SAMPLE_POSITIONS.
-
-			padding byte padding[128];
-		]]
-		local lump = header.lumps[27]
-		local length = lump.filelen / 176
-		bsp_file:SetPosition(lump.fileofs)
-		header.displacements = {}
-
-		for i = 1, length do
-			local data = bsp_file:ReadStructure(structure)
-			local lump = header.lumps[34]
-			data.heightmap = {}
-			bsp_file:PushPosition(lump.fileofs + (data.DispVertStart * 20))
-
-			for i = 1, ((2 ^ data.power) + 1) ^ 2 do
-				local pos = bsp_file:ReadVec3()
-				local dist = bsp_file:ReadFloat()
-				local alpha = bsp_file:ReadFloat()
-				data.heightmap[i] = {pos = pos, dist = dist, alpha = alpha}
-			end
-
-			bsp_file:PopPosition()
-			header.displacements[i] = data
-			tasks.ReportProgress("reading displacements", length)
-			tasks.Wait()
-		end
-	end
-
-	header.models = read_lump_data(
-		"reading models",
-		bsp_file,
-		header,
-		15,
-		48,
-		[[
-		vec3 mins;
-		vec3 maxs;
-		vec3 origin;
-		int headnode;
-		int firstface;
-		int numfaces;
-	]]
-	)
-	local sky_origin, sky_scale, sky_cut_min, sky_cut_max, point_leaf_in_sky
-	local nodes = read_lump_data(
-		"reading nodes",
-		bsp_file,
-		header,
-		6,
-		32,
-		function()
-			local node = {bsp_file:ReadI32(), bsp_file:ReadI32(), bsp_file:ReadI32()}
-			bsp_file:Advance(20)
-			return node
-		end
-	)
-	local leaf_size = header.lumps[11].version == 0 and 56 or 32
-	local leafs = read_lump_data(
-		"reading leafs",
-		bsp_file,
-		header,
-		11,
-		leaf_size,
-		function()
-			local contents = bsp_file:ReadI32()
-			bsp_file:Advance(2)
-			local area = bit.band(bsp_file:ReadU16(), 0x1FF)
-			local mins = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
-			local maxs = Vec3(bsp_file:ReadI16(), bsp_file:ReadI16(), bsp_file:ReadI16())
-			local first_leaf_face = bsp_file:ReadU16()
-			local leaf_face_count = bsp_file:ReadU16()
-			local first_leaf_brush = bsp_file:ReadU16()
-			local leaf_brush_count = bsp_file:ReadU16()
-			bsp_file:Advance(leaf_size - 28)
-			return {
-				contents = contents,
-				area = area,
-				mins = mins,
-				maxs = maxs,
-				first_leaf_face = first_leaf_face,
-				leaf_face_count = leaf_face_count,
-				first_leaf_brush = first_leaf_brush,
-				leaf_brush_count = leaf_brush_count,
-			}
-		end
-	)
-	local leaf_faces = read_lump_data(
-			"reading leaf faces",
-			bsp_file,
-			header,
-			17,
-			2,
-			function()
-				return bsp_file:ReadU16()
-			end
-		) or
-		{}
-	local leaf_brushes = read_lump_data(
-			"reading leaf brushes",
-			bsp_file,
-			header,
-			18,
-			2,
-			function()
-				return bsp_file:ReadU16()
-			end
-		) or
-		{}
-	header.nodes = nodes
-	header.leafs = leafs
-	header.leaf_brushes = leaf_brushes
-	local areas = read_lump_data(
-			"reading areas",
-			bsp_file,
-			header,
-			21,
-			8,
-			"int numareaportals; int firstareaportal;"
-		) or
-		{}
-	local areaportals = read_lump_data(
-			"reading areaportals",
-			bsp_file,
-			header,
-			22,
-			12,
-			function()
-				bsp_file:Advance(2)
-				local other_area = bsp_file:ReadU16()
-				bsp_file:Advance(8)
-				return other_area
-			end
-		) or
-		{}
+	local nodes = header.nodes
+	local leafs = header.leafs
+	local leaf_faces = header.leaf_faces
+	local areas = header.areas
+	local areaportals = header.areaportals
 	local headnode = header.models[1].headnode
 
 	local function point_leaf(pos)

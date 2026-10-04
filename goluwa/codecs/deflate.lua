@@ -774,7 +774,7 @@ function deflate.inflate(t)
 
 	outbuf.Position = outstate.outpos
 	outbuf:SetPosition(0)
-	return outbuf
+	return outbuf, outstate.outpos
 end
 
 local inflate = deflate.inflate
@@ -788,9 +788,10 @@ function deflate.gunzip(t)
 
 	parse_gzip_header(inbuf)
 	local data_crc32 = 0
+	local size
 
 	if disable_crc then
-		inflate{input = inbuf, output = outbuf}
+		_, size = inflate{input = inbuf, output = outbuf}
 	else
 		local crc_outbuf = get_output_buffer(nil)
 		inflate{input = inbuf, output = crc_outbuf}
@@ -801,6 +802,8 @@ function deflate.gunzip(t)
 			data_crc32 = crc32(byte, data_crc32)
 			outbuf:WriteByte(byte)
 		end
+
+		size = outbuf:GetPosition()
 	end
 
 	align_to_byte(inbuf)
@@ -821,7 +824,7 @@ function deflate.gunzip(t)
 	if not input_the_end(inbuf) then warn("trailing garbage ignored") end
 
 	outbuf:SetPosition(0)
-	return outbuf
+	return outbuf, size
 end
 
 function deflate.adler32(byte, crc)
@@ -841,9 +844,10 @@ function deflate.inflate_zlib(t)
 
 	local window_size_ = parse_zlib_header(inbuf)
 	local data_adler32 = 1
+	local size
 
 	if disable_crc then
-		inflate{input = inbuf, output = outbuf}
+		_, size = inflate{input = inbuf, output = outbuf}
 	else
 		local crc_outbuf = get_output_buffer(nil)
 		inflate{input = inbuf, output = crc_outbuf}
@@ -854,6 +858,8 @@ function deflate.inflate_zlib(t)
 			data_adler32 = deflate.adler32(byte, data_adler32)
 			outbuf:WriteByte(byte)
 		end
+
+		size = outbuf:GetPosition()
 	end
 
 	align_to_byte(inbuf)
@@ -874,7 +880,7 @@ function deflate.inflate_zlib(t)
 	if not input_the_end(inbuf) then warn("trailing garbage ignored") end
 
 	outbuf:SetPosition(0)
-	return outbuf
+	return outbuf, size
 end
 
 local function looks_like_gzip(input)
@@ -899,7 +905,7 @@ end
 function deflate.Decode(str, format, output)
 	local opts = {
 		input = Buffer.New(str),
-		output = output or Buffer.New(),
+		output = output,
 		disable_crc = true,
 	}
 
@@ -916,12 +922,24 @@ function deflate.Decode(str, format, output)
 	if looks_like_gzip(str) then return deflate.gunzip(opts) end
 
 	if looks_like_zlib(str) then
-		local ok, result = pcall(deflate.inflate_zlib, opts)
+		local ok, result, size = pcall(deflate.inflate_zlib, opts)
 
-		if ok then return result end
+		if ok then return result, size end
 	end
 
 	return deflate.inflate(opts)
+end
+
+deflate.thread_job = [[
+	local input = ...
+	local ffi = require("ffi")
+	local deflate = import("goluwa/codecs/deflate.lua")
+	local out, size = deflate.Decode(input.data, input.format)
+	return {size = size}, ffi.string(out.Buffer, size)
+]]
+
+function deflate.DecodeJob(str, format)
+	return import("goluwa/thread_pool.lua").Run(deflate.thread_job, {data = str, format = format}, #str)
 end
 
 return deflate

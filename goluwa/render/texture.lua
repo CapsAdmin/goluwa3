@@ -264,14 +264,6 @@ local function evict_texture_cache_entry(self)
 	end
 end
 
-local function decode_texture_file(path)
-	local decoded, err = codec.DecodeFile(path)
-
-	if decoded ~= nil then return decoded end
-
-	error(err or ("no texture decoder accepted " .. tostring(path)))
-end
-
 local function create_fallback_texture()
 	if fallback_texture:IsValid() then return fallback_texture end
 
@@ -556,20 +548,16 @@ function Texture.New(config)
 		self.view = fallback.view
 
 		resource.Download(config.path):Then(function(p)
-			local ok, img_or_err = pcall(decode_texture_file, p)
-
-			if ok and img_or_err then
-				load(img_or_err)
-				import("goluwa/event.lua").Call("TextureViewChanged", self)
-			else
-				if ok == false then
-					debug.trace()
-					print("Warning: Failed to load texture:", config.path, img_or_err)
+			codec.DecodeFileAsync(p, function(img, err)
+				if img then
+					load(img)
+					import("goluwa/event.lua").Call("TextureViewChanged", self)
+				else
+					print("Warning: Failed to load texture:", config.path, err)
+					evict_texture_cache_entry(self)
+					self:MakeReady()
 				end
-
-				evict_texture_cache_entry(self)
-				self:MakeReady()
-			end
+			end)
 		end):Catch(function(err)
 			print("Warning: Failed to download texture:", config.path, err)
 			evict_texture_cache_entry(self)

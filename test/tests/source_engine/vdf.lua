@@ -67,14 +67,30 @@ T.Test("vdf: comments", function()
 	T(out.root.key2)["=="]("value2")
 end)
 
-T.Test("vdf: types (Color and Vec3)", function()
+T.Test("vdf: color and vector values stay strings and the result is serializable", function()
 	local test = [[
 "root"
 {
     "color" "{255 128 0 255}"
     "vector" "[1.5 2.5 3.5]"
 }]]
+	local buffer = require("string.buffer")
 	local out = vdf.Decode(test)
+	T(out.root.color)["=="]("{255 128 0 255}")
+	T(out.root.vector)["=="]("[1.5 2.5 3.5]")
+	T(table.equal(buffer.decode(buffer.encode(out)), out))["=="](true)
+end)
+
+T.Test("vmt: typed values are converted to Color and Vec3", function()
+	local steam = import("goluwa/steam/steam.lua")
+	local out = vdf.Decode([[
+"root"
+{
+    "color" "{255 128 0 255}"
+    "vector" "[1.5 2.5 3.5]"
+    "sub" { "tint" "{0 0 255}" }
+}]])
+	steam.ConvertVMTTypedValues(out)
 	T(type(out.root.color))["=="]("cdata")
 	T(out.root.color.r)["=="](1)
 	T(out.root.color.g * 255)["~"](128)
@@ -84,6 +100,29 @@ T.Test("vdf: types (Color and Vec3)", function()
 	T(out.root.vector.x)["=="](1.5)
 	T(out.root.vector.y)["=="](2.5)
 	T(out.root.vector.z)["=="](3.5)
+	T(out.root.sub.tint.b)["=="](1)
+end)
+
+T.Test("vdf: vmt key mode strips dollar signs and lowercases", function()
+	local out = vdf.Decode([[
+"LightmappedGeneric"
+{
+    "$BaseTexture" "foo"
+}]], "vmt")
+	T(out.lightmappedgeneric.basetexture)["=="]("foo")
+end)
+
+T.Test("vdf: job result equals the inline result", function()
+	local thread_pool = import("goluwa/thread_pool.lua")
+	local data = [[
+"Root"
+{
+    "Key" "|MYVAR|/path"
+    "color" "{1 2 3}"
+}]]
+	local inline = vdf.Decode(data, "vmt", {MYVAR = "custom"})
+	local job = vdf.DecodeJob(data .. string.rep("\n", 40000), "vmt", {MYVAR = "custom"})
+	T(table.equal(job:Await(), inline))["=="](true)
 end)
 
 T.Test("vdf: conditionals (basic)", function()

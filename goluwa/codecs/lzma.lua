@@ -2,206 +2,197 @@ local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = import("goluwa/structs/buffer.lua")
 local lzma = library()
-local bit_band = bit.band
-local bit_bor = bit.bor
-local bit_rshift = bit.rshift
-local bit_lshift = bit.lshift
-local LZMA_PROPS_SIZE = 5
-local LZMA_MAGIC = "\xFD\x37\x7A\x58\x5A\x00"
-local LZMA_ALONE_MAGIC_SIZE = 13
-local BitReader = {}
-BitReader.__index = BitReader
+local band, rshift, lshift = bit.band, bit.rshift, bit.lshift
+local floor = math.floor
+local XZ_MAGIC = "\xFD7zXZ\0"
+local SOURCE_MAGIC = "LZMA"
+local IS_MATCH = 0
+local IS_REP = 192
+local IS_REP_G0 = 204
+local IS_REP_G1 = 216
+local IS_REP_G2 = 228
+local IS_REP0_LONG = 240
+local POS_SLOT = 432
+local POS_SPECIAL = 688
+local ALIGN = 803
+local LEN_CODER = 819
+local REP_LEN_CODER = 1333
+local LEN_CHOICE2 = 1
+local LEN_LOW = 2
+local LEN_MID = 130
+local LEN_HIGH = 258
+local LITERAL = 1847
+local prob_array_t = ffi.typeof("uint16_t[?]")
+local byte_array_t = ffi.typeof("uint8_t[?]")
+local uint8_ptr_t = ffi.typeof("const uint8_t *")
+local rc_range, rc_code, rc_src, rc_pos, rc_end, probs
 
-function BitReader.new(buffer)
-	local self = setmetatable({}, BitReader)
-	self.buffer = buffer
-	self.range = 0xFFFFFFFF
-	self.code = 0
+local function normalize()
+	if rc_range < 0x1000000 then
+		rc_range = rc_range * 256
+		rc_code = rc_code * 256
 
-	for i = 1, 5 do
-		self.code = bit_lshift(self.code, 8)
-
-		if buffer:GetPosition() < buffer:GetSize() then
-			self.code = bit_bor(self.code, buffer:ReadU8())
+		if rc_pos < rc_end then
+			rc_code = rc_code + rc_src[rc_pos]
+			rc_pos = rc_pos + 1
 		end
-	end
-
-	return self
-end
-
-function BitReader:normalize()
-	if self.range < 0x01000000 then
-		self.range = bit_lshift(self.range, 8)
-		self.code = bit_lshift(self.code, 8)
-
-		if self.buffer:GetPosition() < self.buffer:GetSize() then
-			self.code = bit_bor(self.code, self.buffer:ReadU8())
-		end
-
-		self.range = bit_band(self.range, 0xFFFFFFFF)
-		self.code = bit_band(self.code, 0xFFFFFFFF)
 	end
 end
 
-function BitReader:decodeBit(prob_index, probs)
-	self:normalize()
-	local prob = probs[prob_index] or 1024
-	local bound = bit_rshift(self.range, 11) * prob
-	bound = bit_band(bound, 0xFFFFFFFF)
-	local bit_val
+local function decode_bit(index)
+	local prob = probs[index]
+	local bound = rshift(rc_range, 11) * prob
+	local bit_value
 
-	if self.code < bound then
-		self.range = bound
-		probs[prob_index] = prob + bit_rshift(2048 - prob, 5)
-		bit_val = 0
+	if rc_code < bound then
+		rc_range = bound
+		probs[index] = prob + rshift(2048 - prob, 5)
+		bit_value = 0
 	else
-		self.range = self.range - bound
-		self.code = self.code - bound
-		probs[prob_index] = prob - bit_rshift(prob, 5)
-		bit_val = 1
+		rc_range = rc_range - bound
+		rc_code = rc_code - bound
+		probs[index] = prob - rshift(prob, 5)
+		bit_value = 1
 	end
 
-	self.range = bit_band(self.range, 0xFFFFFFFF)
-	self.code = bit_band(self.code, 0xFFFFFFFF)
-	return bit_val
+	normalize()
+	return bit_value
 end
 
-function BitReader:decodeDirectBits(count)
+local function decode_bit_tree(base, num_bits)
+	local m = 1
+
+	for _ = 1, num_bits do
+		m = m * 2 + decode_bit(base + m)
+	end
+
+	return m - lshift(1, num_bits)
+end
+
+local function decode_bit_tree_reverse(base, num_bits)
+	local m = 1
+	local symbol = 0
+
+	for i = 0, num_bits - 1 do
+		local bit_value = decode_bit(base + m)
+		m = m * 2 + bit_value
+		symbol = symbol + bit_value * lshift(1, i)
+	end
+
+	return symbol
+end
+
+local function decode_direct_bits(num_bits)
 	local result = 0
 
-	for i = 1, count do
-		self:normalize()
-		self.range = bit_rshift(self.range, 1)
-		self.code = bit_band(self.code, 0xFFFFFFFF)
-		local t = bit_rshift(self.code - self.range, 31)
-		self.code = self.code - bit_band(self.range, (t - 1))
-		result = bit_bor(bit_lshift(result, 1), (1 - t))
-		result = bit_band(result, 0xFFFFFFFF)
+	for _ = 1, num_bits do
+		rc_range = floor(rc_range / 2)
+		local code = rc_code - rc_range
+		local bit_value = 0
+
+		if code >= 0 then
+			rc_code = code
+			bit_value = 1
+		end
+
+		normalize()
+		result = result * 2 + bit_value
 	end
 
 	return result
 end
 
-local LZMADecoder = {}
-LZMADecoder.__index = LZMADecoder
-
-function LZMADecoder.new(properties)
-	local self = setmetatable({}, LZMADecoder)
-	local d = properties
-
-	if d >= 9 * 5 * 5 then error("Invalid LZMA properties") end
-
-	self.lc = d % 9
-	d = math.floor(d / 9)
-	self.pb = math.floor(d / 5)
-	self.lp = d % 5
-	self.probs = {}
-
-	for i = 0, 1983 do
-		self.probs[i] = 1024
+local function decode_length(base, pos_state)
+	if decode_bit(base) == 0 then
+		return decode_bit_tree(base + LEN_LOW + pos_state * 8, 3)
 	end
 
-	return self
+	if decode_bit(base + LEN_CHOICE2) == 0 then
+		return 8 + decode_bit_tree(base + LEN_MID + pos_state * 8, 3)
+	end
+
+	return 16 + decode_bit_tree(base + LEN_HIGH, 8)
 end
 
-function LZMADecoder:decode(bitReader, uncompressedSize)
-	local initialSize = math.max(uncompressedSize, 1024)
-	local outputBuffer = Buffer.New(nil, initialSize)
-	outputBuffer:MakeWritable()
-	outputBuffer:SetPosition(0)
+function lzma.DecodeRaw(src, src_len, props, out_size)
+	if props >= 9 * 5 * 5 then error("invalid lzma properties byte", 2) end
+
+	local lc = props % 9
+	local lp = floor(props / 9) % 5
+	local pb = floor(props / 45)
+	local lp_mask = lshift(1, lp) - 1
+	local pb_mask = lshift(1, pb) - 1
+	local literal_probs = 0x300 * lshift(1, lc + lp)
+	local prob_count = LITERAL + literal_probs
+	probs = prob_array_t(prob_count)
+
+	for i = 0, prob_count - 1 do
+		probs[i] = 1024
+	end
+
+	rc_src = ffi.cast(uint8_ptr_t, src)
+	rc_end = src_len
+
+	if src_len < 5 or rc_src[0] ~= 0 then error("invalid lzma stream start", 2) end
+
+	rc_range = 0xFFFFFFFF
+	rc_code = rc_src[1] * 16777216 + rc_src[2] * 65536 + rc_src[3] * 256 + rc_src[4]
+	rc_pos = 5
+	local out = byte_array_t(out_size)
+	local pos = 0
 	local state = 0
-	local rep0, rep1, rep2, rep3 = 1, 1, 1, 1
+	local rep0, rep1, rep2, rep3 = 0, 0, 0, 0
 
-	local function getPos()
-		return outputBuffer:GetPosition()
-	end
+	while pos < out_size do
+		local pos_state = band(pos, pb_mask)
 
-	local function getByte(distance)
-		local pos = outputBuffer:GetPosition()
-
-		if distance > pos then return 0 end
-
-		local savedPos = pos
-		outputBuffer:SetPosition(pos - distance)
-		local byte = outputBuffer:ReadByte()
-		outputBuffer:SetPosition(savedPos)
-		return byte
-	end
-
-	local function putByte(b)
-		outputBuffer:WriteByte(b)
-	end
-
-	while getPos() < uncompressedSize do
-		local posState = bit_band(getPos(), (bit_lshift(1, self.pb) - 1))
-
-		if bitReader:decodeBit(0, self.probs) == 0 then
-			local prevByte = getByte(1)
+		if decode_bit(IS_MATCH + state * 16 + pos_state) == 0 then
+			local prev_byte = pos > 0 and out[pos - 1] or 0
+			local base = LITERAL + 0x300 * (lshift(band(pos, lp_mask), lc) + rshift(prev_byte, 8 - lc))
 			local symbol = 1
 
 			if state >= 7 then
-				local matchByte = getByte(rep0)
+				local match_byte = out[pos - rep0 - 1]
 
-				while symbol < 256 do
-					local matchBit = bit_band(bit_rshift(matchByte, 7), 1)
-					matchByte = bit_lshift(matchByte, 1)
-					local bit_val = bitReader:decodeBit(symbol, self.probs)
-					symbol = bit_bor(bit_lshift(symbol, 1), bit_val)
+				while symbol < 0x100 do
+					local match_bit = band(rshift(match_byte, 7), 1)
+					match_byte = lshift(match_byte, 1)
+					local bit_value = decode_bit(base + (1 + match_bit) * 256 + symbol)
+					symbol = symbol * 2 + bit_value
 
-					if matchBit ~= bit_val then break end
+					if match_bit ~= bit_value then break end
 				end
 			end
 
-			while symbol < 256 do
-				local bit_val = bitReader:decodeBit(symbol, self.probs)
-				symbol = bit_bor(bit_lshift(symbol, 1), bit_val)
+			while symbol < 0x100 do
+				symbol = symbol * 2 + decode_bit(base + symbol)
 			end
 
-			local byte = bit_band(symbol, 0xFF)
-			putByte(byte)
-			state = state < 4 and 0 or (state < 10 and (state - 3) or (state - 6))
+			out[pos] = symbol - 0x100
+			pos = pos + 1
+			state = state < 4 and 0 or (state < 10 and state - 3 or state - 6)
 		else
 			local len
 
-			if bitReader:decodeBit(1, self.probs) == 0 then
-				rep3 = rep2
-				rep2 = rep1
-				rep1 = rep0
-				len = 2
-				state = state < 7 and 7 or 10
-				local distance = 0
-				local lenState = math.min(len - 2, 3)
-				local distSlot = 0
+			if decode_bit(IS_REP + state) == 1 then
+				if pos == 0 then error("corrupt lzma stream", 2) end
 
-				for i = 0, 5 do
-					distSlot = bit_bor(bit_lshift(distSlot, 1), bitReader:decodeBit(10 + i, self.probs))
-				end
+				local short_rep = false
 
-				if distSlot < 4 then
-					distance = distSlot
+				if decode_bit(IS_REP_G0 + state) == 0 then
+					if decode_bit(IS_REP0_LONG + state * 16 + pos_state) == 0 then
+						short_rep = true
+					end
 				else
-					local numDirectBits = bit_rshift(distSlot, 1) - 1
-					distance = bit_bor(
-						bit_lshift(2 + bit_band(distSlot, 1), numDirectBits),
-						bitReader:decodeDirectBits(numDirectBits)
-					)
-				end
+					local dist
 
-				rep0 = distance + 1
-			else
-				if bitReader:decodeBit(2, self.probs) == 0 then
-					len = 1
-					state = state < 7 and 9 or 11
-				else
-					local distance
-
-					if bitReader:decodeBit(3, self.probs) == 0 then
-						distance = rep1
+					if decode_bit(IS_REP_G1 + state) == 0 then
+						dist = rep1
 					else
-						if bitReader:decodeBit(4, self.probs) == 0 then
-							distance = rep2
+						if decode_bit(IS_REP_G2 + state) == 0 then
+							dist = rep2
 						else
-							distance = rep3
+							dist = rep3
 							rep3 = rep2
 						end
 
@@ -209,91 +200,123 @@ function LZMADecoder:decode(bitReader, uncompressedSize)
 					end
 
 					rep1 = rep0
-					rep0 = distance
-					len = 2
+					rep0 = dist
+				end
+
+				if short_rep then
+					state = state < 7 and 9 or 11
+					len = 1
+				else
+					len = decode_length(REP_LEN_CODER, pos_state) + 2
 					state = state < 7 and 8 or 11
 				end
+			else
+				rep3 = rep2
+				rep2 = rep1
+				rep1 = rep0
+				local length_symbol = decode_length(LEN_CODER, pos_state)
+				len = length_symbol + 2
+				state = state < 7 and 7 or 10
+				local len_state = length_symbol < 4 and length_symbol or 3
+				local slot = decode_bit_tree(POS_SLOT + len_state * 64, 6)
+
+				if slot < 4 then
+					rep0 = slot
+				else
+					local num_direct_bits = rshift(slot, 1) - 1
+					local dist = (2 + band(slot, 1)) * lshift(1, num_direct_bits)
+
+					if slot < 14 then
+						dist = dist + decode_bit_tree_reverse(POS_SPECIAL + dist - slot, num_direct_bits)
+					else
+						dist = dist + decode_direct_bits(num_direct_bits - 4) * 16
+						dist = dist + decode_bit_tree_reverse(ALIGN, 4)
+					end
+
+					rep0 = dist
+				end
+
+				if rep0 == 0xFFFFFFFF then break end
 			end
 
-			for i = 1, len do
-				local byte = getByte(rep0)
-				putByte(byte)
+			if rep0 >= pos then error("corrupt lzma stream (distance out of range)", 2) end
+
+			if pos + len > out_size then
+				error("corrupt lzma stream (match past the end of the output)", 2)
 			end
+
+			local from = pos - rep0 - 1
+
+			for i = 0, len - 1 do
+				out[pos + i] = out[from + i]
+			end
+
+			pos = pos + len
 		end
 	end
 
-	outputBuffer:SetPosition(0)
-	return outputBuffer
+	probs = nil
+	rc_src = nil
+	return out
 end
 
-local function parseLZMAAloneHeader(buffer)
-	local header = {}
-	header.properties = buffer:ReadU8()
-	header.dictSize = buffer:ReadU32LE()
-	local sizeLow = buffer:ReadU32LE()
-	local sizeHigh = buffer:ReadU32LE()
-
-	if sizeLow == 0xFFFFFFFF and sizeHigh == 0xFFFFFFFF then
-		header.uncompressedSize = nil
-	else
-		header.uncompressedSize = sizeLow
-	end
-
-	return header
+local function read_u32(str, offset)
+	local a, b, c, d = str:byte(offset, offset + 3)
+	return a + b * 256 + c * 65536 + d * 16777216
 end
 
-local function isXZFormat(buffer)
-	local savedPos = buffer:GetPosition()
-	buffer:SetPosition(0)
-
-	if buffer:GetSize() < 6 then
-		buffer:SetPosition(savedPos)
-		return false
+function lzma.DecodeToArray(str)
+	if str:sub(1, 6) == XZ_MAGIC then
+		error("the xz container is not supported, only lzma alone and Source lumps", 2)
 	end
 
-	local magic = buffer:ReadBytes(6)
-	buffer:SetPosition(savedPos)
-	return magic == LZMA_MAGIC
+	if str:sub(1, 4) == SOURCE_MAGIC then
+		local actual_size = read_u32(str, 5)
+		local props = str:byte(13)
+		local stream_start = 18
+		return lzma.DecodeRaw(
+			ffi.cast(uint8_ptr_t, str) + stream_start - 1,
+			#str - stream_start + 1,
+			props,
+			actual_size
+		),
+		actual_size
+	end
+
+	local props = str:byte(1)
+	local size_low = read_u32(str, 6)
+	local size_high = read_u32(str, 10)
+
+	if size_low == 0xFFFFFFFF and size_high == 0xFFFFFFFF then
+		error("lzma streams with an unknown size are not supported", 2)
+	end
+
+	if size_high ~= 0 then error("lzma stream is too large", 2) end
+
+	return lzma.DecodeRaw(ffi.cast(uint8_ptr_t, str) + 13, #str - 13, props, size_low),
+	size_low
 end
 
-local function decompressLZMA(buffer)
-	local savedPos = buffer:GetPosition()
-	buffer:SetPosition(0)
-
-	if isXZFormat(buffer) then
-		error("XZ format is not yet supported, only LZMA alone format")
-	end
-
-	local header = parseLZMAAloneHeader(buffer)
-
-	if not header.uncompressedSize then
-		error("LZMA streams with unknown size are not supported")
-	end
-
-	local decoder = LZMADecoder.new(header.properties)
-	local bitReader = BitReader.new(buffer)
-	local outputBuffer = decoder:decode(bitReader, header.uncompressedSize)
-	buffer:SetPosition(savedPos)
-	return outputBuffer
-end
-
-function lzma.DecodeBuffer(inputBuffer)
-	local savedPos = inputBuffer:GetPosition()
-	inputBuffer:SetPosition(0)
-	local props = inputBuffer:ReadU8()
-	inputBuffer:SetPosition(savedPos)
-
-	if props >= 9 * 5 * 5 then
-		error("Not a valid LZMA file (invalid properties byte)")
-	end
-
-	local outputBuffer = decompressLZMA(inputBuffer)
-	return outputBuffer
+function lzma.DecodeBuffer(input_buffer)
+	local str = input_buffer:GetString()
+	local out, size = lzma.DecodeToArray(str)
+	return Buffer.New(out, size)
 end
 
 function lzma.Decode(str)
-	local buf = Buffer.New(str, #str)
-	return lzma.DecodeBuffer(buf):GetString()
+	local out, size = lzma.DecodeToArray(str)
+	return ffi.string(out, size)
+end
+
+lzma.thread_job = [[
+	local input = ...
+	local lzma = import("goluwa/codecs/lzma.lua")
+	local out, size = lzma.DecodeToArray(input)
+	return {size = size}, out
+]]
+
+function lzma.DecodeJob(str)
+	return import("goluwa/thread_pool.lua").Run(lzma.thread_job, str)
 end
 
 return lzma

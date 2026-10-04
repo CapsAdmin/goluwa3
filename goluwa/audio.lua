@@ -1,5 +1,4 @@
 local codec = import("goluwa/codec.lua")
-local Buffer = import("goluwa/structs/buffer.lua")
 local audio = import("goluwa/audio/state.lua")
 local spatial = import("goluwa/audio/spatial.lua")
 local sound = import("goluwa/audio/sound.lua")
@@ -52,24 +51,7 @@ function audio.Decode(source, lib)
 
 	if not decoder then return nil, 0, nil, "no decoder found" end
 
-	local decode = decoder.decode_buffer or decoder.DecodeBuffer
-	local decoded, err
-
-	if decode then
-		decoded, err = decode(Buffer.New(contents, #contents))
-
-		if not decoded then return nil, 0, nil, err end
-
-		return pack_decoded_audio(decoded)
-	end
-
-	decode = decoder.decode or decoder.Decode
-
-	if not decode then
-		return nil, 0, nil, "decoder has no Decode or DecodeBuffer"
-	end
-
-	decoded, err = decode(contents)
+	local decoded, err = codec.DecodeWithModule(path, contents, decoder)
 
 	if not decoded then return nil, 0, nil, err end
 

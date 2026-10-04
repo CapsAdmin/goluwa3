@@ -251,15 +251,15 @@ function module.Attach(audio)
 		end
 
 		resource.Download(path):Then(function(full_path)
-			local decoded, err = codec.DecodeFile(full_path)
+			codec.DecodeFileAsync(full_path, function(decoded, err)
+				if not decoded then
+					print("failed to decode sound:", full_path, err)
+					self:MakeReady()
+					return
+				end
 
-			if not decoded then
-				print("failed to decode sound:", full_path, err)
-				self:MakeReady()
-				return
-			end
-
-			load(decoded)
+				load(decoded)
+			end)
 		end):Catch(function(err)
 			print("failed to download sound:", path, err)
 			self:MakeReady()

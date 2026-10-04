@@ -201,6 +201,28 @@ local function parse_header(buffer)
 	return header
 end
 
+vtf.returns_blob = true
+vtf.thread_job = [[
+	local input = ...
+	local Buffer = import("goluwa/structs/buffer.lua")
+	local vtf = import("goluwa/codecs/vtf.lua")
+	local meta, data = vtf.DecodeBuffer(Buffer.New(input, #input))
+
+	if not meta then error(data, 0) end
+
+	return meta, data
+]]
+
+function vtf.ThreadCost(str)
+	local header = parse_header(Buffer.New(str, #str))
+
+	if header and get_bytes_per_pixel(header.image_format) == 3 then
+		return #str * 4
+	end
+
+	return 0
+end
+
 function vtf.DecodeBuffer(input_buffer)
 	local header, err = parse_header(input_buffer)
 
@@ -330,10 +352,9 @@ function vtf.DecodeBuffer(input_buffer)
 		bytes_per_pixel = needs_conversion_to_32bit and 4 or get_bytes_per_pixel(format),
 		mip_info = mip_info,
 		data_size = actual_data_size,
-		data = data_buffer,
-		buffer = Buffer.New(data_buffer, actual_data_size),
 		reflectivity = header.reflectivity,
-	}
+	},
+	data_buffer
 end
 
 return vtf

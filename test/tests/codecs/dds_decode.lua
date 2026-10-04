@@ -22,16 +22,16 @@ end
 local block = "\1\1\1\1\1\1\1\1\2\2\2\2\2\2\2\2"
 
 T.Test("DDS ATI2 blocks are reordered to BC5 red then green", function()
-	local decoded = dds.DecodeBuffer(build_dds(0x32495441, block))
+	local decoded, data = dds.DecodeBuffer(build_dds(0x32495441, block))
 	T(decoded.vulkan_format)["=="]("bc5_unorm_block")
-	T(decoded.data[0])["=="](2)
-	T(decoded.data[8])["=="](1)
+	T(data[0])["=="](2)
+	T(data[8])["=="](1)
 end)
 
 T.Test("DDS BC5U blocks are left as is", function()
-	local decoded = dds.DecodeBuffer(build_dds(0x55354342, block))
-	T(decoded.data[0])["=="](1)
-	T(decoded.data[8])["=="](2)
+	local decoded, data = dds.DecodeBuffer(build_dds(0x55354342, block))
+	T(data[0])["=="](1)
+	T(data[8])["=="](2)
 end)
 
 T.Test("DDS CryEngine attached alpha decodes as a single channel image", function()
@@ -61,9 +61,10 @@ T.Test("DDS CryEngine attached alpha decodes as a single channel image", functio
 	ffi.cast("uint32_t *", chunks + 8)[0] = 128 + 16
 	ffi.copy(chunks + 12, attached, 128 + 16)
 	ffi.copy(chunks + 12 + 128 + 16, "CEnd", 4)
-	local decoded = dds.DecodeBuffer(Buffer.New(data, size))
+	local decoded, pixels = dds.DecodeBuffer(Buffer.New(data, size))
 	T(decoded.vulkan_format)["=="]("bc5_unorm_block")
 	T(decoded.attached_image.vulkan_format)["=="]("r8_unorm")
-	T(decoded.attached_image.data[1])["=="](16)
-	T(decoded.attached_image.data[15])["=="](240)
+	local attached = decoded.attached_image.data_offset
+	T(pixels[attached + 1])["=="](16)
+	T(pixels[attached + 15])["=="](240)
 end)

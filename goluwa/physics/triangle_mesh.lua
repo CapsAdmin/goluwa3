@@ -20,6 +20,8 @@ end
 local function get_polygon_vertices(poly)
 	if not (poly and poly.Vertices) then return nil, 0 end
 
+	if poly.packed then poly:GetVertices() end
+
 	local vertices = poly.Vertices
 	return vertices, #vertices
 end

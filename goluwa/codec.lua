@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local vfs = import("goluwa/vfs.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
@@ -81,18 +82,45 @@ local function collect_decoder_candidates(path, file_content)
 	return candidates
 end
 
-local function decode_with_module(path, file_content, mod)
-	local decode = mod.decode_buffer or mod.DecodeBuffer
+function codec.AttachBlob(img, blob)
+	img.blob = blob
+	img.data = blob.ptr
 
-	if decode then return decode(Buffer.New(file_content, #file_content), path) end
+	if img.data_size then img.buffer = Buffer.New(blob.ptr, img.data_size) end
 
-	decode = mod.decode or mod.Decode
+	local attached = img.attached_image
 
-	if not decode then
-		return nil, "decoder has no Decode or DecodeBuffer for " .. tostring(path)
+	if attached then
+		local ptr = blob.ptr + attached.data_offset
+		attached.blob = blob
+		attached.data = ptr
+		attached.buffer = Buffer.New(ptr, attached.data_size)
 	end
 
-	return decode(file_content, path)
+	return img
+end
+
+function codec.DecodeWithModule(path, file_content, mod)
+	local decode = mod.decode_buffer or mod.DecodeBuffer
+	local decoded, extra
+
+	if decode then
+		decoded, extra = decode(Buffer.New(file_content, #file_content), path)
+	else
+		decode = mod.decode or mod.Decode
+
+		if not decode then
+			return nil, "decoder has no Decode or DecodeBuffer for " .. tostring(path)
+		end
+
+		decoded, extra = decode(file_content, path)
+	end
+
+	if decoded and mod.returns_blob then
+		return codec.AttachBlob(decoded, {ptr = extra, len = ffi.sizeof(extra), owner = extra})
+	end
+
+	return decoded, extra
 end
 
 function codec.GetLibrary(name)
@@ -134,7 +162,7 @@ function codec.DecodeFile(path, lib)
 	file:Close()
 
 	if lib then
-		return decode_with_module(path, file_content, import("goluwa/codecs/" .. lib .. ".lua"))
+		return codec.DecodeWithModule(path, file_content, import("goluwa/codecs/" .. lib .. ".lua"))
 	end
 
 	local candidates = collect_decoder_candidates(path, file_content)
@@ -146,7 +174,7 @@ function codec.DecodeFile(path, lib)
 	local last_err
 
 	for _, candidate in ipairs(candidates) do
-		local ok, decoded, err = pcall(decode_with_module, path, file_content, candidate.mod)
+		local ok, decoded, err = pcall(codec.DecodeWithModule, path, file_content, candidate.mod)
 
 		if ok then
 			if decoded ~= nil then return decoded, err end
@@ -158,6 +186,31 @@ function codec.DecodeFile(path, lib)
 	end
 
 	return nil, last_err or ("no decoder accepted " .. tostring(path))
+end
+
+function codec.DecodeFileAsync(path, callback)
+	local file_content = vfs.Read(path)
+	local mod = file_content and codec.GuessFormat(path, file_content)
+
+	if not (mod and mod.thread_job) then
+		local ok, decoded, err = pcall(codec.DecodeFile, path)
+
+		if ok then callback(decoded, err) else callback(nil, decoded) end
+
+		return
+	end
+
+	local cost = mod.ThreadCost and mod.ThreadCost(file_content) or #file_content
+
+	import("goluwa/thread_pool.lua").Run(mod.thread_job, file_content, cost):OnDone(function(job)
+		if job.err then
+			local ok, decoded, err = pcall(codec.DecodeFile, path)
+
+			if ok then callback(decoded, err) else callback(nil, decoded) end
+		else
+			callback(codec.AttachBlob(job.meta, job.blob))
+		end
+	end)
 end
 
 do

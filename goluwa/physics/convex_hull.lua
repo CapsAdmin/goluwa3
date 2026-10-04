@@ -36,6 +36,8 @@ local function append_source_points(points, source)
 	end
 
 	if source.Vertices then
+		if source.packed then source:GetVertices() end
+
 		for _, vertex in ipairs(source.Vertices) do
 			points[#points + 1] = get_vertex_position(vertex)
 		end
@@ -252,6 +254,8 @@ local function append_source_triangles(triangles, source)
 	end
 
 	if source.Vertices then
+		if source.packed then source:GetVertices() end
+
 		local vertices = source.Vertices
 		local indices = source.indices
 
@@ -489,6 +493,55 @@ function convex_hull.Normalize(hull, epsilon)
 	end
 
 	return build_convex_hull(hull.vertices or hull, epsilon)
+end
+
+function convex_hull.ToPlain(hull)
+	local vertices = {}
+	local faces = {}
+
+	for i, vertex in ipairs(hull.vertices) do
+		vertices[i] = {vertex.x, vertex.y, vertex.z}
+	end
+
+	for i, face in ipairs(hull.faces) do
+		faces[i] = {indices = face.indices, normal = {face.normal.x, face.normal.y, face.normal.z}}
+	end
+
+	return {
+		vertices = vertices,
+		faces = faces,
+		indices = hull.indices,
+		edges = hull.edges,
+		bounds_min = {hull.bounds_min.x, hull.bounds_min.y, hull.bounds_min.z},
+		bounds_max = {hull.bounds_max.x, hull.bounds_max.y, hull.bounds_max.z},
+		epsilon = hull.epsilon,
+	}
+end
+
+function convex_hull.FromPlain(plain)
+	local vertices = {}
+	local faces = {}
+
+	for i, vertex in ipairs(plain.vertices) do
+		vertices[i] = Vec3(vertex[1], vertex[2], vertex[3])
+	end
+
+	for i, face in ipairs(plain.faces) do
+		faces[i] = {
+			indices = face.indices,
+			normal = Vec3(face.normal[1], face.normal[2], face.normal[3]),
+		}
+	end
+
+	return {
+		vertices = vertices,
+		faces = faces,
+		indices = plain.indices,
+		edges = plain.edges,
+		bounds_min = Vec3(plain.bounds_min[1], plain.bounds_min[2], plain.bounds_min[3]),
+		bounds_max = Vec3(plain.bounds_max[1], plain.bounds_max[2], plain.bounds_max[3]),
+		epsilon = plain.epsilon,
+	}
 end
 
 function convex_hull.BuildFromPlanes(points, planes, epsilon)

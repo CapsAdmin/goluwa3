@@ -372,6 +372,8 @@ end
 local function get_mesh_vertices(poly3d)
 	if not poly3d or not poly3d.Vertices then return nil end
 
+	if poly3d.packed then poly3d:GetVertices() end
+
 	return poly3d.Vertices
 end
 

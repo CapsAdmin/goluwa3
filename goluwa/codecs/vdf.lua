@@ -1,5 +1,3 @@
-local Color = import("goluwa/structs/color.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
 local vdf = library()
 
 local function check_condition(cond)
@@ -73,11 +71,17 @@ local function insert_key_value(current, key, val, lower_or_modify_keys)
 	end
 end
 
-function vdf.Decode(data, lower_or_modify_keys, preprocess)
-	if lower_or_modify_keys == true then
+local function lower_vmt_key(key)
+	return (key:lower():gsub("%$", ""))
+end
+
+function vdf.Decode(data, key_mode, preprocess)
+	local lower_or_modify_keys
+
+	if key_mode == true then
 		lower_or_modify_keys = string.lower
-	elseif type(lower_or_modify_keys) ~= "function" then
-		lower_or_modify_keys = nil
+	elseif key_mode == "vmt" then
+		lower_or_modify_keys = lower_vmt_key
 	end
 
 	local pos = 1
@@ -174,42 +178,6 @@ function vdf.Decode(data, lower_or_modify_keys, preprocess)
 			return false
 		elseif lval == "true" then
 			return true
-		end
-
-		if val:sub(1, 1) == "{" and val:sub(-1, -1) == "}" then
-			local inner = val:sub(2, -2):trim()
-			local values = {}
-
-			for v in inner:gmatch("%S+") do
-				table.insert(values, v)
-			end
-
-			if #values == 3 or #values == 4 then
-				return Color.FromBytes(
-					tonumber(values[1]) or 0,
-					tonumber(values[2]) or 0,
-					tonumber(values[3]) or 0,
-					tonumber(values[4]) or 255
-				)
-			end
-		end
-
-		if val:sub(1, 1) == "[" and val:sub(-1, -1) == "]" then
-			local inner = val:sub(2, -2):trim()
-			local values = {}
-
-			for v in inner:gmatch("%S+") do
-				table.insert(values, v)
-			end
-
-			if
-				#values == 3 and
-				tonumber(values[1]) and
-				tonumber(values[2]) and
-				tonumber(values[3])
-			then
-				return Vec3(tonumber(values[1]), tonumber(values[2]), tonumber(values[3]))
-			end
 		end
 
 		return tonumber(val) or val
@@ -325,6 +293,19 @@ function vdf.Decode(data, lower_or_modify_keys, preprocess)
 	end
 
 	return out
+end
+
+vdf.thread_job = [[
+	local input = ...
+	return import("goluwa/codecs/vdf.lua").Decode(input.data, input.key_mode, input.preprocess)
+]]
+
+function vdf.DecodeJob(data, key_mode, preprocess)
+	return import("goluwa/thread_pool.lua").Run(
+		vdf.thread_job,
+		{data = data, key_mode = key_mode, preprocess = preprocess},
+		#data
+	)
 end
 
 return vdf

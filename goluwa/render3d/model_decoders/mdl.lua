@@ -1,213 +1,22 @@
-local codec = import("goluwa/codec.lua")
-local timer = import("goluwa/timer.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
-local file_path = import("goluwa/filesystem/path.lua")
 local tasks = import("goluwa/tasks.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local render = import("goluwa/render/render.lua")
+local vertex_math = import("goluwa/render3d/vertex_math.lua")
+local mdl_codec = import("goluwa/codecs/mdl.lua")
+local blob = import("goluwa/codecs/internal/blob.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local bit = require("bit")
 local fs = import("goluwa/filesystem/fs.lua")
 local Skeleton = import("goluwa/render3d/skeleton.lua")
-local _debug = false
-local header = [[
-	string id[4]; // Model format ID, such as "IDST" (0x49 0x44 0x53 0x54)
-	int version; // Format version number, such as 48 (0x30,0x00,0x00,0x00)
-	int checksum;
-	char name[64]; 	// The internal name of the model, padding with null bytes.
-					// Typically "my_model.mdl" will have an internal name of "my_model"
-
-	int file_size; // Data size of MDL file in bytes.
-
-	// A vector is 12 bytes, three 4-byte float-values in a row.
-
-	vec3 eye_position; // Position of player viewpoint relative to model origin
-	vec3 illumination_position;	// ?? Presumably the point used for lighting when per-vertex lighting is not enabled.
-	vec3 hull_min; // Corner of model hull box with the least X/Y/Z values
-	vec3 hull_max; // Opposite corner of model hull box
-	vec3 view_bbmin;
-	vec3 view_bbmax;
-
-	int flags; 	// Binary flags in little-endian order.
-				// ex (00000001,00000000,00000000,11000000) means flags for position 0, 30, and 31 are set.
-				// Set model flags section for more information
-
-	/*
-	 * After this point, the header contains many references to offsets
-	 * within the MDL file and the number of items at those offsets.
-	 *
-	 * Offsets are from the very beginning of the file.
-	 *
-	 * Note that indexes/counts are not always paired and ordered consistently.
-	 */
-
-	 // mstudiobone_t
-	int bone_count;	// Number of data sections (of type mstudiobone_t)
-	int bone_offset; // Offset of first data section
-
-	// mstudiobonecontroller_t
-	int bonecontroller_count;
-	int bonecontroller_offset;
-
-	// mstudiohitboxset_t
-	int hitbox_count;
-	int hitbox_offset;
-
-	// mstudioanimdesc_t
-	int localanim_count;
-	int localanim_offset;
-
-	// mstudioseqdesc_t
-	int localseq_count;
-	int localseq_offset;
-
-	int activitylistversion; // initialization flag - have the sequences been indexed?
-	int eventsindexed;	// ??
-
-	// VMT material filenames
-	// mstudiotexture_t
-	int material_count;
-	int material_offset;
-
-	// This offset points to a series of ints.
-	// Each int value, in turn, is an offset relative to the start of this header/the-file,
-	// At which there is a null-terminated string.
-	int texturedir_count;
-	int texturedir_offset;
-
-	// Each skin-family assigns a texture-id to a skin location
-	int skinreference_count;
-	int skinrfamily_count;
-	int skinreference_offset;
-
-	// mstudiobodyparts_t
-	int bodypart_count;
-	int bodypart_offset;
-
-	// Local attachment points
-	// mstudioattachment_t
-	int attachment_count;
-	int attachment_offset;
-
-	// Node values appear to be single bytes, while their names are null-terminated strings.
-	int localnode_count;
-	int localnode_offset;
-	int localnode_name_offset;
-
-	// mstudioflexdesc_t
-	int flexdesc_count;
-	int flexdesc_offset;
-
-	// mstudioflexcontroller_t
-	int flexcontroller_count;
-	int flexcontroller_offset;
-
-	// mstudioflexrule_t
-	int flexrules_count;
-	int flexrules_offset;
-
-	// IK probably referse to inverse kinematics
-	// mstudioikchain_t
-	int ikchain_count;
-	int ikchain_offset;
-
-	// Information about any "mouth" on the model for speech animation
-	// More than one sounds pretty creepy.
-	// mstudiomouth_t
-	int mouths_count;
-	int mouths_offset;
-
-	// mstudioposeparamdesc_t
-	int localposeparam_count;
-	int localposeparam_offset;
-
-	/*
-	 * For anyone trying to follow along, as of this writing,
-	 * the next "render2dprop_offset" value is at position 0x0134 (308)
-	 * from the start of the file.
-	 */
-
-	// Surface property value (single null-terminated string)
-	//int render2dprop_count;
-	int render2dprop_offset;
-
-	// Unusual: In this one index comes first, then count.
-	// Key-value data is a series of strings. If you can't find
-	// what you're interested in, check the associated PHY file as well.
-	int keyvalue_offset;
-	int keyvalue_size;
-
-	// More inverse-kinematics
-	// mstudioiklock_t
-	int iklock_count;
-	int iklock_offset;
-
-
-	float mass; 		// Mass of object (4-bytes)
-	int contents;	// ??
-
-	// Other models can be referenced for re-used sequences and animations
-	// (See also: The $includemodel QC option.)
-
-	// mstudiomodelgroup_t
-	int includemodel_count;
-	int includemodel_offset;
-
-	int virtualModel;	// Placeholder for mutable-void*
-
-	// mstudioanimblock_t
-	int animblocks_name_offset;
-	int animblocks_count;
-	int animblocks_offset;
-
-	int animblockModel; // Placeholder for mutable-void*
-
-	// Points to a series of bytes?
-	int bonetablename_offset;
-
-	int vertex_base;	// Placeholder for void*
-	int offset_base;	// Placeholder for void*
-
-	// Used with $constantdirectionallight from the QC
-	// Model should have flag #13 set if enabled
-	byte directionaldotproduct;
-
-	byte rootLod;	// Preferred rather than clamped
-
-	// 0 means any allowed, N means Lod 0 -> (N-1)
-	byte numAllowedRootLods;
-
-	byte unused; // ??
-	int unused; // ??
-
-	// mstudioflexcontrollerui_t
-	int flexcontrollerui_count;
-	int flexcontrollerui_offset;
-
-	/**
-	 * Offset for additional header information.
-	 * May be zero if not present, or also 408 if it immediately
-	 * follows this studiohdr_t
-	 */
-	// studiohdr2_t
-	int studiohdr2index;
-
-	int unused; // ??
-
-	int source_bone_transform_count;
-	int source_bone_transform_offset;
-
-	int illumination_position_attachment_index;
-	int max_eye_deflection;
-	int linear_bone_offset;
-]]
+local half_to_float = mdl_codec.HalfToFloat
 
 local function find_file(path, ...)
 	local extensions = {...}
@@ -261,24 +70,12 @@ local function find_file(path, ...)
 	error("cannot find mixed case file, attempted: " .. table.concat(attempts, "\n"))
 end
 
-local function half_to_float(h)
-	local sign = h >= 0x8000 and -1 or 1
-	local exponent = bit.band(bit.rshift(h, 10), 0x1f)
-	local mantissa = bit.band(h, 0x3ff)
-
-	if exponent == 0 then return sign * mantissa * 2 ^ -24 end
-
-	if exponent == 31 then return sign * math.huge end
-
-	return sign * (1 + mantissa / 1024) * 2 ^ (exponent - 15)
+local function read_file(path, ...)
+	local file = find_file(path, ...)
+	local data = file:ReadBytes(file:GetSize())
+	file:Close()
+	return data
 end
-
-local VertAnim = ffi.typeof(
-	"const struct { uint16_t index; uint8_t speed; uint8_t side; uint16_t delta[3]; uint16_t normal_delta[3]; } *"
-)
-local VertAnimWrinkle = ffi.typeof(
-	"const struct { uint16_t index; uint8_t speed; uint8_t side; uint16_t delta[3]; uint16_t normal_delta[3]; int16_t wrinkle; } *"
-)
 
 local function remap_clamped(value, from_min, from_max, to_min, to_max)
 	if from_min == from_max then return value >= from_max and to_max or to_min end
@@ -409,557 +206,6 @@ local function run_flex_rules(flex, src, dest)
 	end
 end
 
-local function load_mdl(path)
-	local buffer = find_file(path, ".mdl")
-	local header = buffer:ReadStructure(header)
-	header.name = "models/" .. header.name:remove_padding():gsub("\\", "/")
-
-	local function parse(name, callback)
-		local out = {}
-		local count = header[name .. "_count"]
-		local offset = header[name .. "_offset"]
-
-		if _debug then llog("reading %i %ss (at %i)", count, name, offset) end
-
-		if _debug then profiler.StartTimer(name) end
-
-		if count > 0 then
-			buffer:PushPosition(offset)
-
-			for i = 1, count do
-				local data = {}
-
-				if callback(data, i) ~= false then out[i] = data end
-
-				if _debug then tasks.ReportProgress("reading " .. name, count) end
-
-				tasks.Wait()
-			end
-
-			buffer:PopPosition()
-		end
-
-		header[name] = out
-	end
-
-	local function string_from_offset(offset, offset2)
-		if offset2 == 0 then return "" end
-
-		buffer:PushPosition(offset + offset2)
-		local str = buffer:ReadString()
-		buffer:PopPosition()
-		return str
-	end
-
-	do
-		header.materials = {}
-
-		if
-			header.material_count > 0 and
-			header.material_offset > 0 and
-			header.material_offset < buffer:GetSize()
-		then
-			buffer:PushPosition(header.material_offset)
-
-			for i = 1, header.material_count do
-				local material_pos = buffer:GetPosition()
-				local offset = buffer:ReadI32()
-
-				if offset > 0 then
-					local string_pos = material_pos + offset
-
-					if string_pos < buffer:GetSize() then
-						buffer:PushPosition(string_pos)
-						local mat = file_path.FixPathSlashes(buffer:ReadString())
-						buffer:PopPosition()
-
-						if mat ~= "" and not mat:ends_with("/") then
-							header.materials[i] = mat
-						end
-					end
-				end
-
-				buffer:Advance(60)
-			end
-
-			buffer:PopPosition()
-		end
-
-		parse("texturedir", function(data, i)
-			local offset = buffer:ReadI32()
-			buffer:PushPosition(offset)
-			data.path = "materials/" .. file_path.FixPathSlashes(buffer:ReadString())
-			buffer:PopPosition()
-		end)
-	end
-
-	header.bodypart_models = {}
-
-	for bodypart_i = 1, header.bodypart_count do
-		local bodypart_pos = header.bodypart_offset + (bodypart_i - 1) * 16
-		buffer:SetPosition(bodypart_pos + 4)
-		local model_count = buffer:ReadI32()
-		buffer:Advance(4)
-		local models_pos = bodypart_pos + buffer:ReadI32()
-		local models = {}
-
-		for model_i = 1, model_count do
-			local model_pos = models_pos + (model_i - 1) * 148
-			buffer:SetPosition(model_pos + 72)
-			local mesh_count = buffer:ReadI32()
-			local meshes_pos = model_pos + buffer:ReadI32()
-			buffer:Advance(4)
-			local model = {vertex_start = buffer:ReadI32() / 48, meshes = {}, flexes = {}}
-
-			for mesh_i = 1, mesh_count do
-				local mesh_pos = meshes_pos + (mesh_i - 1) * 116
-				buffer:SetPosition(mesh_pos)
-				local material = buffer:ReadI32()
-				buffer:Advance(8)
-				local vertex_offset = buffer:ReadI32()
-				local flex_count = buffer:ReadI32()
-				local flexes_pos = mesh_pos + buffer:ReadI32()
-				model.meshes[mesh_i] = {material = material, vertex_offset = vertex_offset}
-
-				for flex_i = 1, flex_count do
-					local flex_pos = flexes_pos + (flex_i - 1) * 60
-					buffer:SetPosition(flex_pos)
-					local desc = buffer:ReadI32()
-					local t0, t1, t2, t3 = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-					local count = buffer:ReadI32()
-					local data_pos = flex_pos + buffer:ReadI32()
-					local pair = buffer:ReadI32()
-					local wrinkle = buffer:ReadByte() == 1
-					buffer:SetPosition(data_pos)
-					local anims = ffi.cast(
-						wrinkle and VertAnimWrinkle or VertAnim,
-						buffer:ReadBytes(count * (wrinkle and 18 or 16))
-					)
-					local indices = ffi.new("uint32_t[?]", count)
-					local deltas = ffi.new("float[?]", count * 6)
-					local sides = ffi.new("uint8_t[?]", count)
-					local first = model.vertex_start + vertex_offset
-
-					for i = 0, count - 1 do
-						local anim = anims[i]
-						local o = i * 6
-						local dx, dy, dz = half_to_float(anim.delta[0]),
-						half_to_float(anim.delta[1]),
-						half_to_float(anim.delta[2])
-						local nx, ny, nz = half_to_float(anim.normal_delta[0]),
-						half_to_float(anim.normal_delta[1]),
-						half_to_float(anim.normal_delta[2])
-						indices[i] = first + anim.index
-						sides[i] = anim.side
-						deltas[o], deltas[o + 1], deltas[o + 2] = -dy * steam.source2meters, dz * steam.source2meters, -dx * steam.source2meters
-						deltas[o + 3], deltas[o + 4], deltas[o + 5] = -ny, nz, -nx
-					end
-
-					model.flexes[#model.flexes + 1] = {
-						Desc = desc,
-						Pair = pair,
-						Targets = {t0, t1, t2, t3},
-						Count = count,
-						Indices = indices,
-						Deltas = deltas,
-						Sides = sides,
-					}
-				end
-			end
-
-			models[model_i] = model
-		end
-
-		header.bodypart_models[bodypart_i] = models
-	end
-
-	if header.flexcontroller_count > 0 then
-		local flex = {
-			ControllerNames = {},
-			ControllerMin = {},
-			ControllerMax = {},
-			DescNames = {},
-			DescCount = header.flexdesc_count,
-			rules = {},
-			Compute = run_flex_rules,
-		}
-
-		for i = 1, header.flexcontroller_count do
-			local pos = header.flexcontroller_offset + (i - 1) * 20
-			buffer:SetPosition(pos + 4)
-			flex.ControllerNames[i] = string_from_offset(pos, buffer:ReadI32())
-			buffer:Advance(4)
-			flex.ControllerMin[i] = buffer:ReadFloat()
-			flex.ControllerMax[i] = buffer:ReadFloat()
-		end
-
-		for i = 1, header.flexdesc_count do
-			local pos = header.flexdesc_offset + (i - 1) * 4
-			buffer:SetPosition(pos)
-			flex.DescNames[i] = string_from_offset(pos, buffer:ReadI32())
-		end
-
-		for i = 1, header.flexrules_count do
-			local pos = header.flexrules_offset + (i - 1) * 12
-			buffer:SetPosition(pos)
-			local rule = {flex = buffer:ReadI32(), ops = {}}
-			local op_count = buffer:ReadI32()
-			local ops_pos = pos + buffer:ReadI32()
-
-			for j = 0, op_count - 1 do
-				buffer:SetPosition(ops_pos + j * 8)
-				local op = buffer:ReadI32()
-				rule.ops[#rule.ops + 1] = op
-				rule.ops[#rule.ops + 1] = op == 1 and buffer:ReadFloat() or buffer:ReadI32()
-			end
-
-			flex.rules[i] = rule
-		end
-
-		header.flex = flex
-	end
-
-	return header
-end
-
-local function load_vtx(path, strip_group_size)
-	local MAX_NUM_BONES_PER_VERT = 3
-	local buffer = find_file(path, ".dx90.vtx", ".dx80.vtx", ".sw.vtx")
-	local vtx = buffer:ReadStructure([[
-		long version;
-		long vertex_cache_size;
-		short max_bones_per_strip;
-		short max_bones_per_tri;
-		long max_bones_per_vertex;
-		long checksum;
-		long lod_count;
-		long material_replacement_list_offset;
-	]])
-	vtx.body_part_count = buffer:ReadI32()
-	vtx.body_part_offset = buffer:ReadI32()
-	buffer:PushPosition(vtx.body_part_offset)
-	vtx.body_parts = {}
-
-	for i = 1, vtx.body_part_count do
-		local stream_pos = buffer:GetPosition()
-		local body_part = {}
-		body_part.model_count = buffer:ReadI32()
-		body_part.model_offset = buffer:ReadI32()
-		vtx.body_parts[i] = body_part
-		buffer:PushPosition(stream_pos + body_part.model_offset)
-		body_part.models = {}
-
-		for i = 1, body_part.model_count do
-			local stream_pos = buffer:GetPosition()
-			local model = {}
-			model.lod_count = buffer:ReadI32()
-			model.lod_offset = buffer:ReadI32()
-			body_part.models[i] = model
-			buffer:PushPosition(stream_pos + model.lod_offset)
-			model.model_lods = {}
-
-			for i = 1, model.lod_count do
-				local stream_pos = buffer:GetPosition()
-				local lod_model = {}
-				lod_model.mesh_count = buffer:ReadI32()
-				lod_model.mesh_offset = buffer:ReadI32()
-				lod_model.switchPoint = buffer:Advance(4)
-				model.model_lods[i] = lod_model
-				buffer:PushPosition(stream_pos + lod_model.mesh_offset)
-				lod_model.meshes = {}
-
-				for i = 1, lod_model.mesh_count do
-					local stream_pos = buffer:GetPosition()
-					local mesh = {}
-					mesh.strip_group_count = buffer:ReadI32()
-					mesh.strip_group_offset = buffer:ReadI32()
-					mesh.flags = buffer:ReadByte()
-					lod_model.meshes[i] = mesh
-					buffer:PushPosition(stream_pos + mesh.strip_group_offset)
-					mesh.strip_groups = {}
-
-					for i = 1, mesh.strip_group_count do
-						local stream_pos = buffer:GetPosition()
-						local strip_group = {}
-						strip_group.vertices_count = buffer:ReadI32()
-						strip_group.vertices_offset = buffer:ReadI32()
-						strip_group.indices_count = buffer:ReadI32()
-						strip_group.indices_offset = buffer:ReadI32()
-						strip_group.strip_count = buffer:ReadI32()
-						strip_group.strip_offset = buffer:ReadI32()
-						strip_group.flags = buffer:ReadByte()
-						buffer:Advance(strip_group_size - 25)
-						mesh.strip_groups[i] = strip_group
-						local vertices = {}
-						buffer:PushPosition(stream_pos + strip_group.vertices_offset)
-
-						for i = 1, strip_group.vertices_count do
-							local vertex = {}
-							buffer:Advance(MAX_NUM_BONES_PER_VERT + 1)
-							vertex.mesh_vertex_index = buffer:ReadI16()
-							buffer:Advance(MAX_NUM_BONES_PER_VERT)
-							vertices[i] = vertex
-						end
-
-						buffer:PopPosition()
-						local indices = {}
-						buffer:PushPosition(stream_pos + strip_group.indices_offset)
-
-						for i = 1, strip_group.indices_count do
-							indices[i] = buffer:ReadI16() + 1
-						end
-
-						buffer:PopPosition()
-						local strips = {}
-						buffer:PushPosition(stream_pos + strip_group.strip_offset)
-
-						for i = 1, strip_group.strip_count do
-							local stream_pos = buffer:GetPosition()
-							local strip = {}
-							strip.indices_count = buffer:ReadI32()
-							strip.indices_offset = buffer:ReadI32()
-							strip.vertices_count = buffer:ReadI32()
-							strip.vertices_offset = buffer:ReadI32()
-							buffer:Advance(2 + 1 + 8)
-							strip.indices = indices
-							strip.vertices = vertices
-							strips[i] = strip
-						end
-
-						buffer:PopPosition()
-						strip_group.strips = strips
-
-						if _debug then
-							tasks.ReportProgress(
-								"reading body parts",
-								vtx.body_part_count * body_part.model_count * model.lod_count * lod_model.mesh_count * mesh.strip_group_count
-							)
-						end
-
-						tasks.Wait()
-					end
-
-					buffer:PopPosition()
-				end
-
-				buffer:PopPosition()
-			end
-
-			buffer:PopPosition()
-		end
-
-		buffer:PopPosition()
-	end
-
-	buffer:PopPosition()
-	return vtx
-end
-
-local function load_vvd(path)
-	local MAX_NUM_LODS = 8
-	local MAX_NUM_BONES_PER_VERT = 3
-	local buffer = find_file(path, ".vvd")
-	local vvd = {lod_vertices_count = {}}
-	vvd.id = buffer:ReadBytes(4)
-	vvd.version = buffer:ReadI32()
-	vvd.checksum = buffer:ReadI32()
-	vvd.lod_count = buffer:ReadI32()
-
-	for i = 1, MAX_NUM_LODS do
-		vvd.lod_vertices_count[i] = buffer:ReadI32()
-	end
-
-	vvd.fixup_count = buffer:ReadI32()
-	vvd.fixup_offset = buffer:ReadI32()
-	vvd.vertices_offset = buffer:ReadI32()
-	vvd.tangentDataOffset = buffer:ReadI32()
-	vvd.vertices = {}
-
-	local function read_vertex(i)
-		local vertex = {}
-		local weights = {}
-		local bones = {}
-
-		for x = 1, MAX_NUM_BONES_PER_VERT do
-			weights[x] = buffer:ReadFloat()
-		end
-
-		for x = 1, MAX_NUM_BONES_PER_VERT do
-			bones[x] = buffer:ReadByte()
-		end
-
-		vertex.bone_weights = weights
-		vertex.bone_ids = bones
-		vertex.bone_count = buffer:ReadByte()
-		local x, y, z = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-		vertex.pos = Vec3(-y, z, -x) * steam.source2meters
-		local nx, ny, nz = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-		vertex.normal = Vec3(-ny, nz, -nx)
-		vertex.uv = buffer:ReadVec2()
-		vvd.vertices[i] = vertex
-
-		if _debug then tasks.ReportProgress("reading vertices", vertices_count) end
-
-		tasks.Wait()
-	end
-
-	if vvd.lod_count > 0 and vvd.fixup_count == 0 then
-		local vertices_count = vvd.lod_vertices_count[1]
-		buffer:SetPosition(vvd.vertices_offset)
-
-		for i = 1, vertices_count do
-			read_vertex(i)
-		end
-	end
-
-	vvd.fixed_vertices_by_lod = {}
-
-	if vvd.fixup_count > 0 and vvd.fixup_offset ~= 0 then
-		buffer:SetPosition(vvd.fixup_offset)
-		vvd.theFixups = {}
-
-		for i = 1, vvd.fixup_count do
-			local fixup = {}
-			fixup.lod_index = buffer:ReadI32() + 1
-			fixup.vertex_index = buffer:ReadI32() + 1
-			fixup.vertices_count = buffer:ReadI32()
-			vvd.theFixups[i] = fixup
-		end
-
-		if vvd.lod_count > 0 then
-			buffer:SetPosition(vvd.vertices_offset)
-
-			for lod_index = 1, vvd.lod_count do
-				vvd.fixed_vertices_by_lod[lod_index] = {}
-				local i2 = 1
-
-				for _, fixup in ipairs(vvd.theFixups) do
-					if fixup.lod_index >= lod_index then
-						for i = 1, fixup.vertices_count do
-							local vertex_i = fixup.vertex_index + (i - 1)
-							buffer:SetPosition(
-								vvd.vertices_offset + (
-										(
-											(
-												4 * MAX_NUM_BONES_PER_VERT
-											) + MAX_NUM_BONES_PER_VERT + 1
-										) + 12 + 12 + 8
-									) * (
-										vertex_i - 1
-									)
-							)
-							read_vertex(vertex_i)
-							vvd.fixed_vertices_by_lod[lod_index][i2] = vvd.vertices[fixup.vertex_index + (i - 1)]
-							i2 = i2 + 1
-						end
-					end
-				end
-
-				break
-			end
-		end
-	end
-
-	return vvd
-end
-
-local PHY_TO_METERS = steam.source2meters / 0.0254
-
-local function load_phy(path)
-	local buffer = find_file(path, ".phy")
-	local header_size = buffer:ReadI32()
-	buffer:Advance(4)
-	local solid_count = buffer:ReadI32()
-	buffer:SetPosition(header_size)
-	local solids = {}
-
-	for solid_i = 1, solid_count do
-		local surface_size = buffer:ReadI32()
-		local solid_start = buffer:GetPosition()
-		local surface_start = solid_start + 28
-		buffer:SetPosition(surface_start)
-		local cx, cy, cz = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-		local ix, iy, iz = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-		buffer:SetPosition(surface_start + 32)
-		local ledgetree_root = surface_start + buffer:ReadI32()
-		local ledges = {}
-		local stack = {ledgetree_root}
-
-		while stack[1] do
-			local node_pos = table.remove(stack)
-			assert(
-				node_pos >= solid_start and node_pos < solid_start + surface_size,
-				"phy ledge tree node out of range"
-			)
-			buffer:SetPosition(node_pos)
-			local right_offset = buffer:ReadI32()
-			local convex_offset = buffer:ReadI32()
-
-			if right_offset == 0 then
-				local ledge_pos = node_pos + convex_offset
-				buffer:SetPosition(ledge_pos)
-				local point_offset = buffer:ReadI32()
-				buffer:Advance(8)
-				local triangle_count = buffer:ReadI16()
-				buffer:Advance(2)
-				assert(
-					triangle_count > 0 and triangle_count < 4096,
-					"phy ledge triangle count out of range"
-				)
-				local used = {}
-				local indices = {}
-
-				for i = 1, triangle_count do
-					buffer:Advance(4)
-
-					for edge = 1, 3 do
-						local index = bit.band(buffer:ReadI32(), 0xffff)
-
-						if not used[index] then
-							used[index] = true
-							indices[#indices + 1] = index
-						end
-					end
-				end
-
-				local points = {}
-
-				for i, index in ipairs(indices) do
-					buffer:SetPosition(ledge_pos + point_offset + index * 16)
-					local x, y, z = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-					points[i] = Vec3(-z, -y, -x) * PHY_TO_METERS
-				end
-
-				ledges[#ledges + 1] = points
-			else
-				stack[#stack + 1] = node_pos + right_offset
-				stack[#stack + 1] = node_pos + 28
-			end
-		end
-
-		solids[solid_i] = {
-			ledges = ledges,
-			mass_center = Vec3(-cz, -cy, -cx) * PHY_TO_METERS,
-			rotation_inertia = Vec3(ix, iy, iz),
-		}
-		buffer:SetPosition(solid_start + surface_size)
-	end
-
-	local text = buffer:ReadString(tonumber(buffer:GetSize() - buffer:GetPosition()))
-	local index = 0
-
-	for block in text:gmatch("solid%s*(%b{})") do
-		local solid = solids[tonumber(block:match("\"index\"%s*\"([^\"]*)\"")) + 1]
-
-		if solid then
-			solid.mass = tonumber(block:match("\"mass\"%s*\"([^\"]*)\""))
-			solid.surface_property = block:match("\"surfaceprop\"%s*\"([^\"]*)\"")
-		end
-	end
-
-	return solids
-end
-
 local load_skeleton
 
 do
@@ -1064,7 +310,7 @@ do
 		if sources[key] then return sources[key] end
 
 		local buffer = find_file(path, ".mdl")
-		local hdr = buffer:ReadStructure(header)
+		local hdr = buffer:ReadStructure(mdl_codec.header_structure)
 		buffer:SetPosition(0)
 		local bytes = buffer:ReadBytes(buffer:GetSize())
 		local data = ffi.new("uint8_t[?]", #bytes)
@@ -1519,22 +765,27 @@ do
 	end
 end
 
-model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, physics_callback, skeleton_callback)
-	local models = {}
-	local companion_path = path
+local copy_array
+local job_source = [=[
+	local input = ...
+	local ffi = require("ffi")
+	local mdl = import("goluwa/codecs/mdl.lua")
+	local vvd = import("goluwa/codecs/vvd.lua")
+	local vtx = import("goluwa/codecs/vtx.lua")
+	local phy = import("goluwa/codecs/phy.lua")
+	local blob = import("goluwa/codecs/internal/blob.lua")
+	local source = import("goluwa/codecs/internal/source.lua")
+	local convex_hull = import("goluwa/physics/convex_hull.lua")
+	local vertex_math = import("goluwa/render3d/vertex_math.lua")
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local builder = blob.New()
+	local mdl_meta, mdl_blob = assert(mdl.Decode(input.mdl))
+	local result = {mdl = mdl_meta}
 
-	if full_path:ends_with(".mdl") then
-		full_path = full_path:sub(1, -#".mdl" - 1)
-	end
+	if mdl_blob then result.mdl_offset = builder:Add(mdl_blob) end
 
-	if companion_path:ends_with(".mdl") then
-		companion_path = companion_path:sub(1, -#".mdl" - 1)
-	end
-
-	local mdl = load_mdl(full_path)
-
-	if pcall(find_file, companion_path, ".phy") then
-		local solids = load_phy(companion_path)
+	if input.phy then
+		local solids = assert(phy.Decode(input.phy)).solids
 		local children = {}
 		local mass = 0
 		local surface_property
@@ -1544,7 +795,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 
 		for _, solid in ipairs(solids) do
 			local weight = solid.mass or 1
-			center_of_mass = center_of_mass + solid.mass_center * weight
+			center_of_mass = center_of_mass + Vec3(solid.mass_center[1], solid.mass_center[2], solid.mass_center[3]) * weight
 			damping = damping + (solid.damping or 0) * weight
 			rotation_damping = rotation_damping + (solid.rotation_damping or 0) * weight
 			mass = mass + weight
@@ -1556,11 +807,14 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 		rotation_damping = rotation_damping / mass
 
 		for _, solid in ipairs(solids) do
-			for _, points in ipairs(solid.ledges) do
+			for _, flat in ipairs(solid.ledges) do
+				local points = {}
 				local min = Vec3(math.huge, math.huge, math.huge)
 				local max = Vec3(-math.huge, -math.huge, -math.huge)
 
-				for _, point in ipairs(points) do
+				for i = 1, #flat, 3 do
+					local point = Vec3(flat[i], flat[i + 1], flat[i + 2])
+					points[#points + 1] = point
 					min.x, min.y, min.z = math.min(min.x, point.x), math.min(min.y, point.y), math.min(min.z, point.z)
 					max.x, max.y, max.z = math.max(max.x, point.x), math.max(max.y, point.y), math.max(max.z, point.z)
 				end
@@ -1574,136 +828,284 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 				local hull = convex_hull.Normalize(points)
 
 				if hull then
-					children[#children + 1] = {ConvexHull = hull, Position = center - center_of_mass}
+					local position = center - center_of_mass
+					children[#children + 1] = {
+						hull = convex_hull.ToPlain(hull),
+						position = {position.x, position.y, position.z},
+					}
 				end
 			end
 		end
 
 		if children[1] then
-			physics_callback{
+			local inertia
+
+			if #solids == 1 then
+				local ri = solids[1].rotation_inertia
+				local k = mass * source.phy_to_meters * source.phy_to_meters
+				inertia = {ri[3] * k, ri[2] * k, ri[1] * k}
+			end
+
+			result.physics = {
 				children = children,
-				mass = solids[1].mass and mass or mdl.mass,
+				mass = solids[1].mass and mass or mdl_meta.mass,
 				surface_property = surface_property,
-				center_of_mass = center_of_mass,
+				center_of_mass = {center_of_mass.x, center_of_mass.y, center_of_mass.z},
 				damping = damping,
 				rotation_damping = rotation_damping,
-				inertia = #solids == 1 and
-					Vec3(solids[1].rotation_inertia.z, solids[1].rotation_inertia.y, solids[1].rotation_inertia.x) * (
-						mass * PHY_TO_METERS * PHY_TO_METERS
-					)
-					or
-					nil,
+				inertia = inertia,
 			}
 		end
+	end
+
+	if input.meshes and mdl_meta.bodypart_count > 0 then
+		assert(input.vvd, input.vvd_error)
+		assert(input.vtx, input.vtx_error)
+		local vvd_meta, vertices = assert(vvd.Decode(input.vvd))
+		local vtx_meta, vtx_blob = assert(vtx.Decode(input.vtx, mdl_meta.version >= 49 and 33 or 25, 1))
+		local vertex_count = vvd_meta.count
+		local skinned = mdl_meta.bone_count >= 2
+		local index_ctype = vertex_count > 65535 and "uint32_t" or "uint16_t"
+		result.vertex_count = vertex_count
+		result.index_size = vertex_count > 65535 and 4 or 2
+		result.meshes = {}
+		result.skins = {}
+
+		for body_part_i, body_part in ipairs(vtx_meta.body_parts) do
+			for model_i, model in ipairs(body_part.models) do
+				local lod = model.lods[1]
+
+				if lod and lod.meshes[1] then
+					local model_info = mdl_meta.bodypart_models[body_part_i][model_i]
+
+					if skinned then
+						local bone_indices = ffi.new("uint8_t[?]", vertex_count * 4)
+						local bone_weights = ffi.new("float[?]", vertex_count * 4)
+
+						for i = 0, vertex_count - 1 do
+							local v = vertices[i]
+
+							if v.bone_count == 0 then bone_weights[i * 4] = 1 end
+
+							for k = 0, math.min(v.bone_count, 3) - 1 do
+								bone_indices[i * 4 + k] = v.bone_ids[k]
+								bone_weights[i * 4 + k] = v.bone_weights[k]
+							end
+						end
+
+						result.skins[body_part_i] = result.skins[body_part_i] or {}
+						result.skins[body_part_i][model_i] = {
+							bone_indices = builder:Add(bone_indices),
+							bone_weights = builder:Add(bone_weights),
+						}
+					end
+
+					for mesh_i, mesh_data in ipairs(lod.meshes) do
+						local mesh_info = model_info.meshes[mesh_i]
+						local vertex_offset = model_info.vertex_start + mesh_info.vertex_offset
+						local index_count = mesh_data.count
+						local ids = ffi.cast("const uint16_t *", vtx_blob + mesh_data.offset)
+						local indices = ffi.new(index_ctype .. "[?]", math.max(index_count, 1))
+
+						for i = 0, index_count - 1 do
+							indices[i] = ids[i] + vertex_offset
+						end
+
+						local packed = vertex_math.VertexType(vertex_count)
+
+						for i = 0, vertex_count - 1 do
+							local v, p = vertices[i], packed[i]
+
+							for k = 0, 2 do
+								p.position[k] = v.pos[k]
+								p.normal[k] = v.normal[k]
+							end
+
+							p.uv[0], p.uv[1] = v.uv[0], v.uv[1]
+						end
+
+						vertex_math.BuildTangents(packed, vertex_count, indices, index_count)
+						result.meshes[#result.meshes + 1] = {
+							body_part = body_part_i,
+							model = model_i,
+							material = mesh_info.material,
+							index_count = index_count,
+							vertex_offset = builder:Add(packed),
+							index_offset = builder:Add(indices, index_count * result.index_size),
+						}
+					end
+				end
+			end
+		end
+	end
+
+	return result, builder:Finish()
+]=]
+
+do
+	local array_types = {
+		uint8_t = ffi.typeof("uint8_t[?]"),
+		uint16_t = ffi.typeof("uint16_t[?]"),
+		uint32_t = ffi.typeof("uint32_t[?]"),
+		float = ffi.typeof("float[?]"),
+	}
+	local element_sizes = {uint8_t = 1, uint16_t = 2, uint32_t = 4, float = 4}
+
+	function copy_array(blob_table, ctype, offset, count)
+		local array = array_types[ctype](math.max(count, 1))
+
+		if count > 0 then
+			ffi.copy(array, blob_table.ptr + offset, count * element_sizes[ctype])
+		end
+
+		return array
+	end
+end
+
+model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, physics_callback, skeleton_callback)
+	local models = {}
+	local companion_path = path
+
+	if full_path:ends_with(".mdl") then
+		full_path = full_path:sub(1, -#".mdl" - 1)
+	end
+
+	if companion_path:ends_with(".mdl") then
+		companion_path = companion_path:sub(1, -#".mdl" - 1)
+	end
+
+	local input = {meshes = render.IsInitialized(), mdl = read_file(full_path, ".mdl")}
+	local size = #input.mdl
+	local ok, phy_data = pcall(read_file, companion_path, ".phy")
+
+	if ok then
+		input.phy = phy_data
+		size = size + #phy_data
+	end
+
+	if input.meshes then
+		ok, input.vvd = pcall(read_file, companion_path, ".vvd")
+
+		if ok then
+			size = size + #input.vvd
+		else
+			input.vvd, input.vvd_error = nil, input.vvd
+		end
+
+		ok, input.vtx = pcall(read_file, companion_path, ".dx90.vtx", ".dx80.vtx", ".sw.vtx")
+
+		if ok then
+			size = size + #input.vtx
+		else
+			input.vtx, input.vtx_error = nil, input.vtx
+		end
+	end
+
+	local meta, blob_table = thread_pool.Run(job_source, input, size):Await()
+	local mdl = meta.mdl
+
+	for _, model_flexes in ipairs(mdl.bodypart_models) do
+		for _, model in ipairs(model_flexes) do
+			for _, flex in ipairs(model.flexes) do
+				flex.Indices = copy_array(blob_table, "uint32_t", meta.mdl_offset + flex.indices_offset, flex.Count)
+				flex.Deltas = copy_array(blob_table, "float", meta.mdl_offset + flex.deltas_offset, flex.Count * 6)
+				flex.Sides = copy_array(blob_table, "uint8_t", meta.mdl_offset + flex.sides_offset, flex.Count)
+			end
+		end
+	end
+
+	if meta.physics then
+		local physics = meta.physics
+		local children = {}
+
+		for i, child in ipairs(physics.children) do
+			children[i] = {
+				ConvexHull = convex_hull.FromPlain(child.hull),
+				Position = Vec3(child.position[1], child.position[2], child.position[3]),
+			}
+		end
+
+		physics_callback{
+			children = children,
+			mass = physics.mass,
+			surface_property = physics.surface_property,
+			center_of_mass = Vec3(physics.center_of_mass[1], physics.center_of_mass[2], physics.center_of_mass[3]),
+			damping = physics.damping,
+			rotation_damping = physics.rotation_damping,
+			inertia = physics.inertia and
+				Vec3(physics.inertia[1], physics.inertia[2], physics.inertia[3]) or
+				nil,
+		}
 	end
 
 	local skeleton = load_skeleton(full_path)
 
 	if skeleton then
+		if mdl.flex then mdl.flex.Compute = run_flex_rules end
+
 		skeleton.Flex = mdl.flex
 		skeleton_callback(skeleton)
 	end
 
-	if mdl.bodypart_count == 0 or not render.IsInitialized() then return models end
+	if not meta.meshes then return models end
 
-	local vvd = load_vvd(companion_path)
-	local vtx = load_vtx(companion_path, mdl.version >= 49 and 33 or 25)
+	local skins = {}
+	local vertex_count = meta.vertex_count
 
-	if _debug then tasks.Report("generating mesh") end
+	for _, mesh_info in ipairs(meta.meshes) do
+		local skin
 
-	for body_part_i, body_part in ipairs(vtx.body_parts) do
-		for model_index, model_ in ipairs(body_part.models) do
-			for lod_index, lod_model in ipairs(model_.model_lods) do
-				if lod_model.meshes and lod_model.meshes[1] then
-					local vertices = vvd.fixed_vertices_by_lod[lod_index] or vvd.vertices
-					local copy = {}
+		if skeleton then
+			skins[mesh_info.body_part] = skins[mesh_info.body_part] or {}
+			skin = skins[mesh_info.body_part][mesh_info.model]
 
-					for i, v in ipairs(vertices) do
-						copy[i] = {pos = v.pos:Copy(), normal = v.normal:Copy(), uv = v.uv:Copy()}
-					end
-
-					local skin
-
-					if skeleton then
-						skin = {
-							BoneIndices = ffi.new("uint8_t[?]", #vertices * 4),
-							BoneWeights = ffi.new("float[?]", #vertices * 4),
-							Flexes = mdl.bodypart_models[body_part_i][model_index].flexes,
-						}
-
-						for i, v in ipairs(vertices) do
-							if v.bone_count == 0 then skin.BoneWeights[(i - 1) * 4] = 1 end
-
-							for k = 1, v.bone_count do
-								skin.BoneIndices[(i - 1) * 4 + k - 1] = v.bone_ids[k]
-								skin.BoneWeights[(i - 1) * 4 + k - 1] = v.bone_weights[k]
-							end
-						end
-					end
-
-					local model_info = mdl.bodypart_models[body_part_i][model_index]
-
-					for model_i, mesh_data in ipairs(lod_model.meshes) do
-						local mesh_info = model_info.meshes[model_i]
-						local vertex_offset = model_info.vertex_start + mesh_info.vertex_offset
-
-						if _debug then
-							tasks.ReportProgress("generating mesh", #vtx.body_parts * #model_.model_lods * #lod_model.meshes)
-						end
-
-						tasks.Wait()
-						local mesh = Polygon3D.New()
-						mesh:SetVertices(copy)
-						local indices = {}
-						local index_i = 1
-
-						for _, strip_group in ipairs(mesh_data.strip_groups) do
-							for _, strip in ipairs(strip_group.strips) do
-								for i = 1, strip.indices_count do
-									local index = strip.indices[strip.indices_offset + i]
-									local v = strip.vertices[index]
-
-									if v then
-										indices[index_i] = v.mesh_vertex_index + vertex_offset + 1
-										index_i = index_i + 1
-									end
-								end
-							end
-						end
-
-						mesh:SetName(full_path)
-						local material
-						local path = mdl.materials[mesh_info.material + 1]
-
-						if path then
-							if path:find("/", nil, true) or path:find("\\", nil, true) then
-								path = vfs.FindMixedCasePath("materials/" .. path .. ".vmt") or path
-							else
-								for _, dir in ipairs(mdl.texturedir) do
-									local new_path = vfs.FindMixedCasePath(dir.path .. path .. ".vmt")
-
-									if new_path then
-										path = new_path
-
-										break
-									end
-								end
-							end
-
-							material = Material.FromVMT(path)
-						end
-
-						mesh:BuildBoundingBox()
-						mesh:Upload(indices)
-						mesh.Skin = skin
-						mesh_callback(mesh, material)
-						list.insert(models, mesh)
-					end
-				end
-
-				break
+			if not skin then
+				local skin_info = meta.skins[mesh_info.body_part][mesh_info.model]
+				skin = {
+					BoneIndices = copy_array(blob_table, "uint8_t", skin_info.bone_indices, vertex_count * 4),
+					BoneWeights = copy_array(blob_table, "float", skin_info.bone_weights, vertex_count * 4),
+					Flexes = mdl.bodypart_models[mesh_info.body_part][mesh_info.model].flexes,
+				}
+				skins[mesh_info.body_part][mesh_info.model] = skin
 			end
 		end
+
+		tasks.Wait()
+		local mesh = Polygon3D.New()
+		local ctype = meta.index_size == 4 and "uint32_t" or "uint16_t"
+		local vertices = vertex_math.VertexType(vertex_count)
+		ffi.copy(
+			vertices,
+			blob_table.ptr + mesh_info.vertex_offset,
+			vertex_count * ffi.sizeof(vertices[0])
+		)
+		local indices = copy_array(blob_table, ctype, mesh_info.index_offset, mesh_info.index_count)
+		mesh:UploadVertexArray(vertices, vertex_count, indices, mesh_info.index_count, true)
+		mesh:SetName(full_path)
+		local material
+		local material_path = mdl.materials[mesh_info.material + 1]
+
+		if material_path then
+			if material_path:find("/", nil, true) or material_path:find("\\", nil, true) then
+				material_path = vfs.FindMixedCasePath("materials/" .. material_path .. ".vmt") or material_path
+			else
+				for _, dir in ipairs(mdl.texturedir) do
+					local new_path = vfs.FindMixedCasePath(dir.path .. material_path .. ".vmt")
+
+					if new_path then
+						material_path = new_path
+
+						break
+					end
+				end
+			end
+
+			material = Material.FromVMT(material_path)
+		end
+
+		mesh.Skin = skin
+		mesh_callback(mesh, material)
+		list.insert(models, mesh)
 	end
 
 	return models
