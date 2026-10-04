@@ -9,7 +9,18 @@ local int32_ptr_t = ffi.typeof("const int32_t *")
 local uint32_ptr_t = ffi.typeof("const uint32_t *")
 local int16_ptr_t = ffi.typeof("const int16_t *")
 local uint16_ptr_t = ffi.typeof("const uint16_t *")
-local float_ptr_t = ffi.typeof("const float *")
+--[[HACK: a float with the bit pattern 0xFFFFFFFF reads as nil in the interpreter, and a NaN stored in a table can later
+ read as nil too, so floats are read as integers and non-finite values become zero
+]]
+local float_bits = ffi.new("union {uint32_t u; float f;}")
+
+local function bits_to_float(u)
+	if bit.band(u, 0x7F800000) == 0x7F800000 then return 0 end
+
+	float_bits.u = u
+	return float_bits.f
+end
+
 local ffi_string = ffi.string
 local LUMP_ENTITIES = 1
 local LUMP_PAKFILE = 41
@@ -51,7 +62,19 @@ do
 
 			if type_name == "vec3" or type_name == "ang3" then length = 3 end
 
-			body[#body + 1] = ctype .. " " .. key .. (length and ("[" .. length .. "]") or "") .. ";"
+			local is_float = ctype == "float"
+			body[#body + 1] = (
+					is_float and
+					"uint32_t" or
+					ctype
+				) .. " " .. key .. (
+					length and
+					(
+						"[" .. length .. "]"
+					)
+					or
+					""
+				) .. ";"
 
 			if not padding then
 				if type_name == "char" then
@@ -60,12 +83,25 @@ do
 					local items = {}
 
 					for i = 0, length - 1 do
-						items[#items + 1] = "e." .. key .. "[" .. i .. "]"
+						local item = "e." .. key .. "[" .. i .. "]"
+
+						if is_float then item = "bits_to_float(" .. item .. ")" end
+
+						items[#items + 1] = item
 					end
 
 					lines[#lines + 1] = key .. " = {" .. table.concat(items, ", ") .. "},"
 				else
-					lines[#lines + 1] = key .. " = e." .. key .. ","
+					lines[#lines + 1] = key .. " = " .. (
+							is_float and
+							(
+								"bits_to_float(e." .. key .. "),"
+							)
+							or
+							(
+								"e." .. key .. ","
+							)
+						)
 				end
 			end
 		end
@@ -73,9 +109,9 @@ do
 		local struct_t = ffi.typeof("struct __attribute__((packed)) {" .. table.concat(body, " ") .. "}")
 		local convert = assert(
 			load(
-				"local ffi_string = ...\nreturn function(e)\nreturn {\n" .. table.concat(lines, "\n") .. "\n}\nend"
+				"local ffi_string, bits_to_float = ...\nreturn function(e)\nreturn {\n" .. table.concat(lines, "\n") .. "\n}\nend"
 			)
-		)(ffi_string)
+		)(ffi_string, bits_to_float)
 		return {
 			ptr_t = ffi.typeof("const $ *", struct_t),
 			size = ffi.sizeof(struct_t),
@@ -210,7 +246,11 @@ local function parse_entities(text, stage)
 		for k, v in block:gmatch([["(.-)" "(.-)"]]) do
 			if k == "angles" then
 				local n = parse_numbers(v)
-				v = {type = "ang3", n[1], n[2], n[3]}
+
+				if #n > 0 then
+					n.type = "ang3"
+					v = n
+				end
 			elseif k == "_light" or k == "_lightHDR" or k == "_ambient" or k == "_ambientHDR" then
 				local n = parse_numbers(v)
 				local r, g, b, brightness, r_hdr, g_hdr, b_hdr, brightness_hdr = n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8]
@@ -235,7 +275,11 @@ local function parse_entities(text, stage)
 				end
 			elseif k:find("color", nil, true) then
 				local n = parse_numbers(v)
-				v = {type = "color", n[1], n[2], n[3], n[4]}
+
+				if #n > 0 then
+					n.type = "color"
+					v = n
+				end
 			elseif
 				k == "origin" or
 				k:find("dir", nil, true) or
@@ -243,7 +287,11 @@ local function parse_entities(text, stage)
 				k:find("maxs", nil, true)
 			then
 				local n = parse_numbers(v)
-				v = {type = "vec3", n[1], n[2], n[3]}
+
+				if #n > 0 then
+					n.type = "vec3"
+					v = n
+				end
 			end
 
 			ent[k] = tonumber(v) or v
@@ -354,7 +402,11 @@ function bsp.Decode(str, options, stage)
 
 		if vector then
 			for i = 0, count - 1 do
-				out[i + 1] = {elements[i * 3], elements[i * 3 + 1], elements[i * 3 + 2]}
+				out[i + 1] = {
+					bits_to_float(elements[i * 3]),
+					bits_to_float(elements[i * 3 + 1]),
+					bits_to_float(elements[i * 3 + 2]),
+				}
 			end
 		else
 			for i = 0, count - 1 do
@@ -435,7 +487,7 @@ function bsp.Decode(str, options, stage)
 					cursor = cursor + spec.size
 
 					if version >= 5 then
-						prop.forced_fade_scale = ffi.cast(float_ptr_t, at(cursor, 4))[0]
+						prop.forced_fade_scale = bits_to_float(ffi.cast(uint32_ptr_t, at(cursor, 4))[0])
 						cursor = cursor + 4
 					end
 
@@ -461,7 +513,7 @@ function bsp.Decode(str, options, stage)
 						cursor = cursor + 4
 						prop.flags_ex = ffi.cast(uint32_ptr_t, at(cursor, 4))[0]
 						cursor = cursor + 4
-						prop.uniform_scale = ffi.cast(float_ptr_t, at(cursor, 4))[0]
+						prop.uniform_scale = bits_to_float(ffi.cast(uint32_ptr_t, at(cursor, 4))[0])
 						cursor = cursor + 4
 					else
 						cursor = cursor + (lump_size - (cursor - start))
@@ -490,7 +542,7 @@ function bsp.Decode(str, options, stage)
 	header.brushes = read_lump(19, specs.brushes)
 	header.brushsides = read_lump(20, specs.brushsides)
 	header.planes = read_lump(2, specs.planes)
-	header.vertices = read_numbers(4, float_ptr_t, 12, true)
+	header.vertices = read_numbers(4, uint32_ptr_t, 12, true)
 	header.surfedges = read_numbers(14, int32_ptr_t, 4)
 	local edges_lump = header.lumps[13]
 
@@ -535,7 +587,7 @@ function bsp.Decode(str, options, stage)
 		local spec = specs.displacements
 		local elements = ffi.cast(spec.ptr_t, data)
 		local vertices, vertices_size = lump_data(34)
-		local vertex_pointer = ffi.cast(float_ptr_t, vertices)
+		local vertex_pointer = ffi.cast(uint32_ptr_t, vertices)
 
 		for i = 0, count - 1 do
 			local displacement = spec.convert(elements[i])
@@ -550,9 +602,13 @@ function bsp.Decode(str, options, stage)
 			for k = 0, vertex_count - 1 do
 				local o = (first + k) * 5
 				heightmap[k + 1] = {
-					pos = {vertex_pointer[o], vertex_pointer[o + 1], vertex_pointer[o + 2]},
-					dist = vertex_pointer[o + 3],
-					alpha = vertex_pointer[o + 4],
+					pos = {
+						bits_to_float(vertex_pointer[o]),
+						bits_to_float(vertex_pointer[o + 1]),
+						bits_to_float(vertex_pointer[o + 2]),
+					},
+					dist = bits_to_float(vertex_pointer[o + 3]),
+					alpha = bits_to_float(vertex_pointer[o + 4]),
 				}
 			end
 

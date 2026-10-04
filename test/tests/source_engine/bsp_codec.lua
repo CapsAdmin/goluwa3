@@ -71,6 +71,41 @@ T.Test("bsp codec rejects bad input", function()
 	T(ok)["=="](false)
 end)
 
+T.Test("bsp codec replaces floats that read back as nil with zero", function()
+	local count = 3000
+	local planes = ffi.new("uint32_t[?]", count * 5)
+	local one = ffi.new("float[1]", 1)
+	local one_bits = ffi.cast("uint32_t *", one)[0]
+
+	for i = 0, count - 1 do
+		local bad = i % 3 == 0
+		planes[i * 5] = bad and 0xFFFFFFFF or one_bits
+		planes[i * 5 + 1] = one_bits
+		planes[i * 5 + 2] = bad and 0xFFFFFFFE or one_bits
+		planes[i * 5 + 3] = bad and 0xFFFFFFFF or one_bits
+		planes[i * 5 + 4] = 0
+	end
+
+	local header = assert(
+		bsp.Decode(
+			build_bsp{
+				[1] = {data = ""},
+				[2] = {data = ffi.string(planes, count * 20)},
+				[36] = {data = int32{0}},
+			}
+		)
+	)
+	T(#header.planes)["=="](count)
+
+	for i, plane in ipairs(header.planes) do
+		local bad = (i - 1) % 3 == 0
+		T(plane.normal[1])["=="](bad and 0 or 1)
+		T(plane.normal[2])["=="](1)
+		T(plane.normal[3])["=="](bad and 0 or 1)
+		T(plane.dist)["=="](bad and 0 or 1)
+	end
+end)
+
 local function read_map(path)
 	local file = vfs.Open(vfs.GetAbsolutePath(path))
 
