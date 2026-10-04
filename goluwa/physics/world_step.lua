@@ -12,6 +12,35 @@ local world_step = {}
 local NEWLY_AWOKEN_BODIES = {}
 local MOVING_BODIES = {}
 local STATIC_BODIES = {}
+local ACTIVE_BODIES = {}
+
+local function collect_active_bodies(moving_bodies, out)
+	local count = 0
+
+	for i = 1, #moving_bodies do
+		local body = moving_bodies[i]
+
+		if
+			body.Awake or
+			body.MotionType ~= "dynamic" or
+			not (
+				body.InverseMass > 0
+			)
+			or
+			body:HasKinematicController()
+		then
+			count = count + 1
+			out[count] = body
+		end
+	end
+
+	for i = #out, count + 1, -1 do
+		out[i] = nil
+	end
+
+	return count
+end
+
 local MIN_REMAINDER_STEP = 1e-6
 local RESTITUTION_ITERATIONS = 2
 
@@ -154,14 +183,25 @@ function world_step.UpdateRigidBodies(physics, dt)
 	local moving_count = 0
 	local static_bodies = STATIC_BODIES
 	local static_count = 0
+	local active_bodies = ACTIVE_BODIES
 
 	for i = 1, #bodies do
 		local body = bodies[i]
-		body:SynchronizeFromTransform()
-		body.StepStartPosition:CopyFrom(body.Position)
-		body.StepStartRotation:CopyFrom(body.Rotation)
+		local is_static = body.MotionType == "static"
+		local transform = body.Owner and body.Owner.transform
 
-		if body:IsStatic() then
+		if not (transform and body.SyncSettled and transform.PhysicsClean) then
+			body:SynchronizeFromTransform()
+			body.StepStartPosition:CopyFrom(body.Position)
+			body.StepStartRotation:CopyFrom(body.Rotation)
+			body.PoseDirty = true
+
+			if transform then transform.PhysicsClean = true end
+
+			body.SyncSettled = is_static or (body.MotionType == "dynamic" and not body.Awake)
+		end
+
+		if is_static then
 			static_count = static_count + 1
 			static_bodies[static_count] = body
 		else
@@ -189,8 +229,9 @@ function world_step.UpdateRigidBodies(physics, dt)
 		solver:BeginStep(collide, sub_dt)
 		stats:PushTime("integrate")
 		local awake_count = 0
+		collect_active_bodies(moving_bodies, active_bodies)
 
-		for _, body in ipairs(moving_bodies) do
+		for _, body in ipairs(active_bodies) do
 			if body:IsKinematic() or body:HasKinematicController() then
 				stats:PushTime("kinematic")
 				kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
@@ -251,20 +292,21 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 			stats:PopTime()
 			physics.broadphase.LookAhead = 0
+			collect_active_bodies(moving_bodies, active_bodies)
 		end
 
 		stats:Gauge("candidate_pairs", #rigid_body_pairs)
 		stats:Gauge("islands", simulation_islands and #simulation_islands or 0)
 		stats:PushTime("ccd")
 
-		for _, body in ipairs(moving_bodies) do
+		for _, body in ipairs(active_bodies) do
 			if body:IsDynamic() and body:GetAwake() then
 				solver:SolveBodyContacts(body, sub_dt)
 			end
 		end
 
 		stats:PopTime()
-		refresh_support_entries(moving_bodies)
+		refresh_support_entries(active_bodies)
 		local substep_id = solver.StepStamp or 0
 		stats:PushTime("constraints")
 
@@ -310,7 +352,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 				stats:PopTime()
 				stats:PushTime("support")
 
-				for _, body in ipairs(moving_bodies) do
+				for _, body in ipairs(active_bodies) do
 					if body:IsDynamic() and body:GetAwake() then
 						solve_body_support_contacts(body, sub_dt, substep_id)
 					end
@@ -324,8 +366,9 @@ function world_step.UpdateRigidBodies(physics, dt)
 		end
 
 		stats:PushTime("positions")
+		collect_active_bodies(moving_bodies, active_bodies)
 
-		for _, body in ipairs(moving_bodies) do
+		for _, body in ipairs(active_bodies) do
 			body:ApplySolverVelocityDelta(sub_dt)
 		end
 
@@ -354,7 +397,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PushTime("velocities_sleep")
 		RigidBody.BeginSleepPass()
 
-		for _, body in ipairs(moving_bodies) do
+		for _, body in ipairs(active_bodies) do
 			body:UpdateVelocities(sub_dt)
 			body:UpdateSleepState(sub_dt, islands.IsConstrainedBody(body))
 		end
@@ -403,7 +446,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	stats:PopTime()
 	stats:PushTime("finalize")
 
-	for _, body in ipairs(moving_bodies) do
+	for _, body in ipairs(active_bodies) do
 		body:ClearAccumulators()
 		body:WriteToTransform()
 	end

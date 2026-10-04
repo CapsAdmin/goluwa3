@@ -69,6 +69,7 @@ function META:SetSize(num)
 end
 
 function META:InvalidateMatrices()
+	self.PhysicsClean = nil
 	self.LocalMatrix = nil
 	self.WorldMatrix = nil
 	self.WorldMatrixInverse = nil

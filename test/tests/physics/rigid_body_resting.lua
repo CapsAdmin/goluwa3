@@ -176,3 +176,33 @@ T.TestPhysics("Rigid sphere rolls off rotated box instead of resting on its AABB
 	ramp_ent:Remove()
 	ground:Remove()
 end)
+
+T.TestPhysics("Static body moved through its transform is collided at its new position", function()
+	local ground = create_flat_ground("moved_static_ground")
+	local box_ent = Entity.New({Name = "moved_static_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 1, 0))
+	box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			MotionType = "static",
+		}
+	)
+	test_helpers.Simulate(60)
+	box_ent.transform:SetPosition(Vec3(10, 1, 0))
+	test_helpers.Simulate(5)
+	local sphere_ent = Entity.New({Name = "moved_static_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(10, 3, 0))
+	sphere_ent:AddComponent("rigid_body", {
+		Shape = sphere_shape(0.5),
+		Radius = 0.5,
+	})
+	test_helpers.cSimulate(180)
+	T(sphere_ent.transform:GetPosition().y)[">="](1.95)
+	sphere_ent:Remove()
+	box_ent:Remove()
+	ground:Remove()
+end)

@@ -331,6 +331,7 @@ end
 local function destroy_entry(self, entry)
 	remove_entry_from_spatial_index(self, entry)
 	entry.overflow_hits = nil
+	self.TopologyChanged = true
 
 	for i = 1, #self.OverflowEntries do
 		local hits = self.OverflowEntries[i].overflow_hits
@@ -379,6 +380,8 @@ function Broadphase:ResetState()
 	self.Pairs = {}
 	self.ChangedEntries = {}
 	self.ChangedConsumed = true
+	self.TopologyChanged = false
+	self.LastPairs = nil
 	self.StepStamp = 0
 	self.LookAhead = 0
 	self.QueryStamp = 0
@@ -499,7 +502,21 @@ function Broadphase:TrackBodies(bodies, physics_override)
 	for _, body in ipairs(bodies or {}) do
 		local entry = self.BodyEntries[body]
 
-		if is_candidate_body(physics, body) then
+		if
+			entry and
+			body.SyncSettled and
+			not body.PoseDirty and
+			(
+				body.MotionType == "static" or
+				not body.Awake
+			)
+			and
+			body.CollisionEnabled
+		then
+			entry.last_seen_step = self.StepStamp
+		elseif is_candidate_body(physics, body) then
+			body.PoseDirty = false
+
 			if entry and is_entry_pose_current(entry, body) then
 				entry.last_seen_step = self.StepStamp
 			else
@@ -538,6 +555,14 @@ end
 
 function Broadphase:GetCandidatePairs(out)
 	out = out or {}
+
+	if #self.ChangedEntries == 0 and not self.TopologyChanged and self.LastPairs == out then
+		self.ChangedConsumed = true
+		return out
+	end
+
+	self.TopologyChanged = false
+	self.LastPairs = out
 	local count = 0
 	local overflow_entries = self.OverflowEntries
 	local pair_lookup = self.PairKeyLookup
@@ -552,11 +577,8 @@ function Broadphase:GetCandidatePairs(out)
 
 	for _, pair in pairs(self.Pairs) do
 		if pair.entry_a.bounds:IsBoxIntersecting(pair.entry_b.bounds) then
-			local key = get_pair_key(pair.entry_a, pair.entry_b)
 			count = count + 1
 			out[count] = pair
-			pair_lookup[key] = true
-			used_keys[#used_keys + 1] = key
 		end
 	end
 
