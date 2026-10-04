@@ -42,6 +42,7 @@ local init_pool_signals
 local signal_pool_work
 local wait_pool_work
 local reset_pool_done
+local is_pool_done
 local signal_pool_done
 local wait_pool_done
 local close_pool_signals
@@ -208,6 +209,10 @@ if ffi.os == "Windows" then
 		local result = tonumber(kernel32.WaitForSingleObject(control.work_done_event, INFINITE))
 
 		if result ~= WAIT_OBJECT_0 then check_win_error(0) end
+	end
+
+	function is_pool_done(control)
+		return tonumber(kernel32.WaitForSingleObject(control.work_done_event, 0)) == WAIT_OBJECT_0
 	end
 
 	function close_pool_signals(control)
@@ -457,6 +462,10 @@ else
 		read_signal(control.done_read_fd)
 	end
 
+	function is_pool_done(control)
+		return poll_fd(control.done_read_fd, 0)
+	end
+
 	function close_pool_signals(control)
 		if control.work_read_fd >= 0 then
 			ffi.C.close(control.work_read_fd)
@@ -487,8 +496,17 @@ function threads.pointer_encode(obj)
 	return buf, ptr, len
 end
 
-function threads.pointer_encode_owned(obj)
-	local buf, ptr, len = threads.pointer_encode(obj)
+function threads.pointer_encode_owned(obj, blob, blob_len)
+	local buf = buffer.new()
+	buf:encode(obj)
+
+	if type(blob) == "string" then
+		buf:put(blob)
+	elseif blob then
+		buf:putcdata(blob, blob_len)
+	end
+
+	local ptr, len = buf:ref()
 	local alloc_len = tonumber(len)
 
 	if alloc_len == 0 then return nil, 0 end
@@ -853,8 +871,8 @@ do
 			size_t worker_source_len;  // Length of worker source
 			const char* work_data;  // Serialized work data
 			size_t work_data_len;  // Length of work data
-			char* result_data;  // Serialized result payload
-			size_t result_data_len;  // Length of result payload
+			char* result_data;  // Serialized result payload followed by the raw blob
+			size_t result_data_len;  // Length of result payload and blob
 			int thread_id;
 			int padding;  // Alignment
 		]] .. pool_signal_fields .. [[
@@ -864,6 +882,55 @@ do
 	threads.thread_control_t = thread_control_t
 	threads.thread_control_ptr_t = ffi.typeof("$*", thread_control_t)
 	local thread_control_array_t = ffi.typeof("$[?]", thread_control_t)
+	local uint8_ptr_t = ffi.typeof("uint8_t *")
+	local persistent_worker = [=[
+		local shared_ptr = ...
+		local ffi = require("ffi")
+		local threads = import("goluwa/bindings/threads.lua")
+		local control = ffi.cast(threads.thread_control_ptr_t, shared_ptr)
+		local thread_id = control.thread_id
+		local worker_func = assert(load(ffi.string(control.worker_source, control.worker_source_len)))
+
+		local function run_work()
+			local work = threads.pointer_decode(control.work_data, control.work_data_len)
+			return worker_func(work)
+		end
+
+		local function on_error(err)
+			return debug.traceback(tostring(err), 2)
+		end
+
+		while true do
+			threads.wait_pool_work(control)
+
+			if control.should_exit == 1 then break end
+
+			local ok, result, blob = xpcall(run_work, on_error)
+			local payload
+
+			if ok then
+				payload = {ok = true, result = result}
+			else
+				payload = {ok = false, err = result}
+				blob = nil
+			end
+
+			local blob_len
+
+			if type(blob) == "string" then
+				blob_len = #blob
+			elseif blob ~= nil then
+				blob_len = ffi.sizeof(blob)
+			end
+
+			local result_ptr, result_len = threads.pointer_encode_owned(payload, blob, blob_len)
+			control.result_data = result_ptr
+			control.result_data_len = result_len
+			threads.signal_pool_done(control)
+		end
+
+		return thread_id
+	]=]
 
 	function threads.new_pool(worker_source, num_threads)
 		local self = setmetatable({}, pool_meta)
@@ -875,9 +942,10 @@ do
 		self.worker_source = worker_source
 		self.thread_objects = {}
 		self.busy = {}
-		self.control = thread_control_array_t(num_threads)
+		self.control = thread_control_array_t(self.num_threads)
+		self.work_buffers = {}
 
-		for i = 0, num_threads - 1 do
+		for i = 0, self.num_threads - 1 do
 			local ctrl = self.control[i]
 			ctrl.should_exit = 0
 			ctrl.worker_source = worker_source
@@ -894,63 +962,38 @@ do
 				ctrl.done_read_fd = -1
 				ctrl.done_write_fd = -1
 			end
-
-			init_pool_signals(ctrl)
-		end
-
-		self.work_buffers = {}
-		self.result_buffers = {}
-		local persistent_worker = [=[
-			local shared_ptr = ...
-			local ffi = require("ffi")
-			local threads = import("goluwa/bindings/threads.lua")
-			local control = ffi.cast(threads.thread_control_ptr_t, shared_ptr)
-			local thread_id = control.thread_id
-			local worker_func = assert(load(ffi.string(control.worker_source, control.worker_source_len)))
-
-			while true do
-				threads.wait_pool_work(control)
-
-				if control.should_exit == 1 then break end
-
-				local ok, work_or_payload = pcall(function()
-					local work = threads.pointer_decode(control.work_data, control.work_data_len)
-					local result = worker_func(work)
-					return {ok = true, result = result}
-				end)
-
-				if not ok then
-					work_or_payload = {ok = false, err = work_or_payload}
-				end
-
-				local result_ptr, result_len = threads.pointer_encode_owned(work_or_payload)
-				control.result_data = result_ptr
-				control.result_data_len = result_len
-				threads.signal_pool_done(control)
-			end
-
-			return thread_id
-		]=]
-
-		for i = 1, num_threads do
-			local thread = threads.new(persistent_worker)
-			local control_ptr = self.control + (i - 1)
-			thread:run(control_ptr, true)
-			self.thread_objects[i] = thread
 		end
 
 		return self
+	end
+
+	function pool_meta:spawn(thread_id)
+		local ctrl = self.control + (thread_id - 1)
+		init_pool_signals(ctrl)
+		local thread = threads.new(persistent_worker)
+		thread:run(ctrl, true)
+		self.thread_objects[thread_id] = thread
+	end
+
+	function pool_meta:is_spawned(thread_id)
+		return self.thread_objects[thread_id] ~= nil
+	end
+
+	function pool_meta:is_busy(thread_id)
+		return self.busy[thread_id] == true
+	end
+
+	function pool_meta:is_done(thread_id)
+		if not self.busy[thread_id] then return false end
+
+		return is_pool_done(self.control[thread_id - 1])
 	end
 
 	function pool_meta:submit(thread_id, work)
 		local idx = thread_id - 1
 		assert(not self.busy[thread_id], "Thread " .. thread_id .. " is still busy")
 
-		if self.control[idx].result_data ~= nil then
-			threads.pointer_free(self.control[idx].result_data)
-			self.control[idx].result_data = nil
-			self.control[idx].result_data_len = 0
-		end
+		if not self.thread_objects[thread_id] then self:spawn(thread_id) end
 
 		local buf, work_ptr, work_len = threads.pointer_encode(work)
 		self.work_buffers[thread_id] = buf
@@ -965,12 +1008,25 @@ do
 		local idx = thread_id - 1
 		wait_pool_done(self.control[idx])
 		self.busy[thread_id] = false
-		local payload = threads.pointer_decode(self.control[idx].result_data, self.control[idx].result_data_len)
-		threads.pointer_free(self.control[idx].result_data)
-		self.control[idx].result_data = nil
-		self.control[idx].result_data_len = 0
+		self.work_buffers[thread_id] = nil
+		local ctrl = self.control[idx]
+		local owner = ffi.cast(uint8_ptr_t, ctrl.result_data)
+		local len = tonumber(ctrl.result_data_len)
+		ctrl.result_data = nil
+		ctrl.result_data_len = 0
+		local buf = buffer.new()
+		buf:set(owner, len)
+		local payload = buf:decode()
+		local blob_ptr, blob_len = buf:ref()
+		local blob
 
-		if payload.ok then return payload.result end
+		if blob_len > 0 then
+			blob = {ptr = blob_ptr, len = tonumber(blob_len), owner = ffi.gc(owner, ffi.C.free)}
+		else
+			ffi.C.free(owner)
+		end
+
+		if payload.ok then return payload.result, nil, blob end
 
 		return nil, payload.err
 	end
@@ -988,11 +1044,13 @@ do
 
 	function pool_meta:wait_all()
 		local results = {}
+		local blobs = {}
 		local errs
 
 		for i = 1, self.num_threads do
-			local result, err = self:wait(i)
+			local result, err, blob = self:wait(i)
 			results[i] = result
+			blobs[i] = blob
 
 			if err then
 				errs = errs or {}
@@ -1000,18 +1058,18 @@ do
 			end
 		end
 
-		return results, errs
+		return results, errs, blobs
 	end
 
 	function pool_meta:shutdown()
-		for i = 0, self.num_threads - 1 do
-			self.control[i].should_exit = 1
-			signal_pool_work(self.control[i])
+		for i, thread in pairs(self.thread_objects) do
+			self.control[i - 1].should_exit = 1
+			signal_pool_work(self.control[i - 1])
 		end
 
-		for i = 1, self.num_threads do
-			self.thread_objects[i]:join()
-			self.thread_objects[i]:close()
+		for i, thread in pairs(self.thread_objects) do
+			thread:join()
+			thread:close()
 		end
 
 		for i = 0, self.num_threads - 1 do
@@ -1021,14 +1079,15 @@ do
 				self.control[i].result_data_len = 0
 			end
 
-			close_pool_signals(self.control[i])
+			if self.thread_objects[i + 1] then close_pool_signals(self.control[i]) end
 		end
 
 		self.thread_objects = {}
+		self.busy = {}
 	end
 
 	function pool_meta:__gc()
-		if self.thread_objects and #self.thread_objects > 0 then self:shutdown() end
+		if self.thread_objects and next(self.thread_objects) then self:shutdown() end
 	end
 end
 
