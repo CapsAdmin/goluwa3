@@ -158,18 +158,25 @@ local function get_support_slot(simplex)
 	return make_support_slot()
 end
 
-local function get_support(vertices_a, vertices_b, direction, simplex)
+local SUPPORT_NEGATED_DIRECTION = Vec3()
+
+local function get_support(vertices_a, vertices_b, direction, simplex, out_support)
 	local point_a, index_a = get_farthest_vertex(vertices_a, direction)
-	local point_b, index_b = get_farthest_vertex(vertices_b, direction * -1)
+	SUPPORT_NEGATED_DIRECTION.x = -direction.x
+	SUPPORT_NEGATED_DIRECTION.y = -direction.y
+	SUPPORT_NEGATED_DIRECTION.z = -direction.z
+	local point_b, index_b = get_farthest_vertex(vertices_b, SUPPORT_NEGATED_DIRECTION)
 
 	if not (point_a and point_b) then return nil end
 
-	local support
+	local support = out_support
 
-	if simplex then
-		support = get_support_slot(simplex)
-	else
-		support = make_support_slot()
+	if not support then
+		if simplex then
+			support = get_support_slot(simplex)
+		else
+			support = make_support_slot()
+		end
 	end
 
 	Vec3.SetSub(support.point, point_a, point_b)
@@ -256,6 +263,17 @@ local function handle_simplex(simplex)
 	return true, simplex, nil
 end
 
+local EPA_FACE_POOL = {}
+local EPA_SUPPORT_POOL = {}
+local EPA_EDGE_POOL = {}
+local EPA_VERTICES = {}
+local EPA_FACES = {}
+local EPA_VISIBLE_FACES = {}
+local EPA_BORDER_EDGES = {}
+local EPA_BORDER_EDGE_ROWS = {}
+local epa_face_count = 0
+local epa_edge_count = 0
+
 local function build_epa_face(vertices, ia, ib, ic)
 	local a = vertices[ia]
 	local b = vertices[ib]
@@ -276,13 +294,21 @@ local function build_epa_face(vertices, ia, ib, ic)
 		ib, ic = ic, ib
 	end
 
-	return {
-		a = ia,
-		b = ib,
-		c = ic,
-		normal = normal:Copy(),
-		distance = distance,
-	}
+	local face_index = epa_face_count + 1
+	local face = EPA_FACE_POOL[face_index]
+
+	if not face then
+		face = {a = 0, b = 0, c = 0, normal = Vec3(), distance = 0}
+		EPA_FACE_POOL[face_index] = face
+	end
+
+	epa_face_count = face_index
+	face.a = ia
+	face.b = ib
+	face.c = ic
+	face.normal:CopyFrom(normal)
+	face.distance = distance
+	return face
 end
 
 local function add_edge(edges, edge_rows, a, b)
@@ -303,7 +329,17 @@ local function add_edge(edges, edge_rows, a, b)
 	end
 
 	local index = #edges + 1
-	edges[index] = {a, b}
+	epa_edge_count = epa_edge_count + 1
+	local edge = EPA_EDGE_POOL[epa_edge_count]
+
+	if not edge then
+		edge = {0, 0}
+		EPA_EDGE_POOL[epa_edge_count] = edge
+	end
+
+	edge[1] = a
+	edge[2] = b
+	edges[index] = edge
 	row[b] = index
 end
 
@@ -690,22 +726,39 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 		}
 	end
 
-	local vertices = {}
+	local vertices = EPA_VERTICES
 
 	for i = 1, 4 do
 		vertices[i] = gjk_result.simplex[i]
 	end
 
-	local faces = {
-		build_epa_face(vertices, 1, 2, 3),
-		build_epa_face(vertices, 1, 3, 4),
-		build_epa_face(vertices, 1, 4, 2),
-		build_epa_face(vertices, 2, 4, 3),
-	}
+	clear_array(vertices, 5)
+	epa_face_count = 0
+	local epa_support_count = 0
+	local faces = EPA_FACES
+	local face_count = 0
 
-	for i = #faces, 1, -1 do
-		if not faces[i] then table.remove(faces, i) end
+	for i = 1, 4 do
+		local face
+		local ia, ib, ic = 1, 2, 3
+
+		if i == 2 then
+			ia, ib, ic = 1, 3, 4
+		elseif i == 3 then
+			ia, ib, ic = 1, 4, 2
+		elseif i == 4 then
+			ia, ib, ic = 2, 4, 3
+		end
+
+		face = build_epa_face(vertices, ia, ib, ic)
+
+		if face then
+			face_count = face_count + 1
+			faces[face_count] = face
+		end
 	end
+
+	clear_array(faces, face_count + 1)
 
 	if not faces[1] then
 		return {
@@ -721,7 +774,15 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 
 		if not face then break end
 
-		local support = get_support(vertices_a, vertices_b, face.normal)
+		epa_support_count = epa_support_count + 1
+		local support_slot = EPA_SUPPORT_POOL[epa_support_count]
+
+		if not support_slot then
+			support_slot = make_support_slot()
+			EPA_SUPPORT_POOL[epa_support_count] = support_slot
+		end
+
+		local support = get_support(vertices_a, vertices_b, face.normal, nil, support_slot)
 
 		if not support then break end
 
@@ -731,7 +792,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 			local point_a, point_b = get_face_witness(vertices, face)
 			return {
 				intersect = true,
-				normal = face.normal,
+				normal = face.normal:Copy(),
 				depth = face.distance,
 				point_a = point_a,
 				point_b = point_b,
@@ -740,9 +801,16 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 			}
 		end
 
-		local visible_faces = {}
-		local border_edges = {}
-		local border_edge_rows = {}
+		local visible_faces = EPA_VISIBLE_FACES
+		local border_edges = EPA_BORDER_EDGES
+		local border_edge_rows = EPA_BORDER_EDGE_ROWS
+		table.clear(visible_faces)
+		clear_array(border_edges, 1)
+		epa_edge_count = 0
+
+		for _, row in pairs(border_edge_rows) do
+			table.clear(row)
+		end
 
 		for i = #faces, 1, -1 do
 			local candidate = faces[i]
@@ -785,7 +853,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 	local point_a, point_b = get_face_witness(vertices, fallback_face)
 	return {
 		intersect = true,
-		normal = fallback_face.normal,
+		normal = fallback_face.normal:Copy(),
 		depth = fallback_face.distance,
 		point_a = point_a,
 		point_b = point_b,

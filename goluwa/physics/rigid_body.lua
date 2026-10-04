@@ -61,7 +61,6 @@ RigidBody:GetSet("Grounded", false)
 RigidBody:GetSet("GroundRollingFriction", 0)
 RigidBody:GetSet("GroundEntity", nil)
 RigidBody:GetSet("GroundBody", nil)
-
 RigidBody.ActivityEpoch = 0
 RigidBody.TransformDirtyBodies = {}
 RigidBody.RemovedBodies = {}
@@ -1107,6 +1106,9 @@ function RigidBody:WorldToLocal(world_pos, position, rotation, out)
 end
 
 local rigid_body_aabb_position = Vec3(0, 0, 0)
+local collider_aabb_position = Vec3(0, 0, 0)
+local collider_aabb_rotation = Quat(0, 0, 0, 1)
+local collider_aabb_bounds = AABB(0, 0, 0, 0, 0, 0)
 
 function RigidBody:GetBroadphaseAABB(position, rotation, out)
 	position = position or self.Position
@@ -1137,69 +1139,59 @@ function RigidBody:GetBroadphaseAABB(position, rotation, out)
 		return collider:GetBroadphaseAABB(collider_position, collider_rotation, out)
 	end
 
-	local min_x = math.huge
-	local min_y = math.huge
-	local min_z = math.huge
-	local max_x = -math.huge
-	local max_y = -math.huge
-	local max_z = -math.huge
-	local has_bounds = false
-
-	for i = 1, #colliders do
-		local collider = colliders[i]
-		local collider_position = position + rotation:VecMul(collider:GetLocalPosition())
-		local collider_rotation = (rotation * collider:GetLocalRotation()):GetNormalized()
-		local bounds = collider:GetBroadphaseAABB(collider_position, collider_rotation)
-
-		if bounds.min_x < min_x then min_x = bounds.min_x end
-
-		if bounds.min_y < min_y then min_y = bounds.min_y end
-
-		if bounds.min_z < min_z then min_z = bounds.min_z end
-
-		if bounds.max_x > max_x then max_x = bounds.max_x end
-
-		if bounds.max_y > max_y then max_y = bounds.max_y end
-
-		if bounds.max_z > max_z then max_z = bounds.max_z end
-
-		has_bounds = true
-	end
-
-	if not has_bounds then
-		local half = Vec3(0.5, 0.5, 0.5)
-
-		if out then
-			out.min_x = position.x - half.x
-			out.min_y = position.y - half.y
-			out.min_z = position.z - half.z
-			out.max_x = position.x + half.x
-			out.max_y = position.y + half.y
-			out.max_z = position.z + half.z
-			return out
-		end
-
-		return AABB(
-			position.x - half.x,
-			position.y - half.y,
-			position.z - half.z,
-			position.x + half.x,
-			position.y + half.y,
-			position.z + half.z
-		)
-	end
-
-	if out then
-		out.min_x = min_x
-		out.min_y = min_y
-		out.min_z = min_z
-		out.max_x = max_x
-		out.max_y = max_y
-		out.max_z = max_z
+	if #colliders == 0 then
+		out = out or AABB(0, 0, 0, 0, 0, 0)
+		out.min_x = position.x - 0.5
+		out.min_y = position.y - 0.5
+		out.min_z = position.z - 0.5
+		out.max_x = position.x + 0.5
+		out.max_y = position.y + 0.5
+		out.max_z = position.z + 0.5
 		return out
 	end
 
-	return AABB(min_x, min_y, min_z, max_x, max_y, max_z)
+	out = out or AABB(0, 0, 0, 0, 0, 0)
+	out.min_x = math.huge
+	out.min_y = math.huge
+	out.min_z = math.huge
+	out.max_x = -math.huge
+	out.max_y = -math.huge
+	out.max_z = -math.huge
+
+	for i = 1, #colliders do
+		Quat.SetVecMul(collider_aabb_position, rotation, colliders[i]:GetLocalPosition())
+		collider_aabb_position.x = collider_aabb_position.x + position.x
+		collider_aabb_position.y = collider_aabb_position.y + position.y
+		collider_aabb_position.z = collider_aabb_position.z + position.z
+		Quat.SetMul(collider_aabb_rotation, rotation, colliders[i]:GetLocalRotation()):Normalize()
+		colliders[i]:GetBroadphaseAABB(collider_aabb_position, collider_aabb_rotation, collider_aabb_bounds)
+
+		if collider_aabb_bounds.min_x < out.min_x then
+			out.min_x = collider_aabb_bounds.min_x
+		end
+
+		if collider_aabb_bounds.min_y < out.min_y then
+			out.min_y = collider_aabb_bounds.min_y
+		end
+
+		if collider_aabb_bounds.min_z < out.min_z then
+			out.min_z = collider_aabb_bounds.min_z
+		end
+
+		if collider_aabb_bounds.max_x > out.max_x then
+			out.max_x = collider_aabb_bounds.max_x
+		end
+
+		if collider_aabb_bounds.max_y > out.max_y then
+			out.max_y = collider_aabb_bounds.max_y
+		end
+
+		if collider_aabb_bounds.max_z > out.max_z then
+			out.max_z = collider_aabb_bounds.max_z
+		end
+	end
+
+	return out
 end
 
 function RigidBody:Integrate(dt, gravity)

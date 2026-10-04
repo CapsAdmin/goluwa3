@@ -424,29 +424,18 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
 		if not (pairs and pairs[1]) then return end
 
-		local physics = self:GetPhysics()
-		pairs = physics.broadphase:BuildCandidatePairs(bodies_or_pairs)
+		pairs = self:GetPhysics().broadphase:BuildCandidatePairs(bodies_or_pairs)
 	end
 
 	stats:Count("solver_pairs", #pairs)
-	local cached_iteration = (pass or 1) > 1
-	local reuse_manifolds = cached_iteration or self.CollideStamp ~= self.StepStamp
-	local persistent_manifolds = self.PersistentManifolds
-	local rebuild_pose_threshold = self.REBUILD_POSE_THRESHOLD or 0.01
-	local squared_rebuild_pose_threshold = rebuild_pose_threshold * rebuild_pose_threshold
-	local squared_recycle_pose_threshold = RECYCLE_POSE_THRESHOLD * RECYCLE_POSE_THRESHOLD
 
 	for i = 1, #pairs do
 		local pair = pairs[i]
-		local entry_a = pair.entry_a
-		local entry_b = pair.entry_b
-		local body_a = entry_a.body
-		local body_b = entry_b.body
-		local physics = self:GetPhysics()
-		local handled = false
+		local body_a = pair.entry_a.body
+		local body_b = pair.entry_b.body
 
 		if relax then
-			local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
+			local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
 
 			if manifold and manifold.last_warm_step == self.StepStamp then
 				contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, true)
@@ -458,59 +447,88 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 			then
 				pair_solver_helpers.DispatchColliderPairs(self, pair, dt, "relax")
 			end
-		elseif cached_iteration and pair.idle_stamp == self.StepStamp then
+
+			goto continue_pair
+		end
+
+		if (pass or 1) > 1 and pair.idle_stamp == self.StepStamp then
 			stats:Count("solver_pairs_idle")
-		elseif body_a:ShouldCollide(body_b) then
-			if reuse_manifolds then
-				local manifold = contact_resolution.GetPairManifold(persistent_manifolds, body_a, body_b)
 
-				if manifold and manifold.last_rebuild_step >= 0 then
-					manifold.last_seen_step = self.StepStamp
-					local recycled = manifold.last_rebuild_step < self.CollideStamp
-					local geometry_stale = pair_solver_helpers.IsPoseInvalidated(
-							body_a,
-							manifold.rebuild_pose_a,
-							recycled and squared_recycle_pose_threshold or squared_rebuild_pose_threshold,
-							recycled and RECYCLE_ROTATION_DOT or REBUILD_ROTATION_DOT
-						) or
-						pair_solver_helpers.IsPoseInvalidated(
-							body_b,
-							manifold.rebuild_pose_b,
-							recycled and squared_recycle_pose_threshold or squared_rebuild_pose_threshold,
-							recycled and RECYCLE_ROTATION_DOT or REBUILD_ROTATION_DOT
-						)
+			goto continue_pair
+		end
 
-					if geometry_stale then
-						manifold.last_rebuild_step = -1
-					else
-						stats:Count(recycled and "solver_pairs_recycled" or "solver_pairs_cached")
-						contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, relax)
-						handled = true
-					end
-				end
-			end
+		if not body_a:ShouldCollide(body_b) then goto continue_pair end
 
-			if not handled then
-				local colliders_a = body_a:GetColliders()
-				local colliders_b = body_b:GetColliders()
+		if (pass or 1) > 1 or self.CollideStamp ~= self.StepStamp then
+			local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
+
+			if manifold and manifold.last_rebuild_step >= 0 then
+				manifold.last_seen_step = self.StepStamp
 
 				if
-					pair_solver_helpers.IsSimpleBody(colliders_a) and
-					pair_solver_helpers.IsSimpleBody(colliders_b)
+					pair_solver_helpers.IsPoseInvalidated(
+						body_a,
+						manifold.rebuild_pose_a,
+						(
+								manifold.last_rebuild_step < self.CollideStamp and
+								RECYCLE_POSE_THRESHOLD or
+								self.REBUILD_POSE_THRESHOLD or
+								0.01
+							) ^ 2,
+						manifold.last_rebuild_step < self.CollideStamp and
+							RECYCLE_ROTATION_DOT or
+							REBUILD_ROTATION_DOT
+					) or
+					pair_solver_helpers.IsPoseInvalidated(
+						body_b,
+						manifold.rebuild_pose_b,
+						(
+								manifold.last_rebuild_step < self.CollideStamp and
+								RECYCLE_POSE_THRESHOLD or
+								self.REBUILD_POSE_THRESHOLD or
+								0.01
+							) ^ 2,
+						manifold.last_rebuild_step < self.CollideStamp and
+							RECYCLE_ROTATION_DOT or
+							REBUILD_ROTATION_DOT
+					)
 				then
-					local result, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, entry_a, entry_b, dt)
-
-					if not found then
-						stats:Count("pairs_fallback")
-						fallback_solve_aabb_pair_collision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
-					elseif not cached_iteration and not result then
-						pair.idle_stamp = self.StepStamp
-					end
+					manifold.last_rebuild_step = -1
 				else
-					pair_solver_helpers.DispatchColliderPairs(self, pair, dt, reuse_manifolds and "reuse" or "collide")
+					stats:Count(
+						manifold.last_rebuild_step < self.CollideStamp and
+							"solver_pairs_recycled" or
+							"solver_pairs_cached"
+					)
+					contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, relax)
+
+					goto continue_pair
 				end
 			end
 		end
+
+		if
+			pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
+			pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
+		then
+			local result, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, pair.entry_a, pair.entry_b, dt)
+
+			if not found then
+				stats:Count("pairs_fallback")
+				fallback_solve_aabb_pair_collision(body_a, body_b, pair.entry_a.bounds, pair.entry_b.bounds, dt)
+			elseif (pass or 1) <= 1 and not result then
+				pair.idle_stamp = self.StepStamp
+			end
+		else
+			pair_solver_helpers.DispatchColliderPairs(
+				self,
+				pair,
+				dt,
+				((pass or 1) > 1 or self.CollideStamp ~= self.StepStamp) and "reuse" or "collide"
+			)
+		end
+
+		::continue_pair::
 	end
 end
 

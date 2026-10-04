@@ -75,7 +75,12 @@ local function get_body_ccd_motion_scales(body)
 end
 
 local function get_ccd_motion(body)
-	local linear_motion = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
+	local position = body:GetPosition()
+	local previous_position = body:GetPreviousPosition()
+	local dx = position.x - previous_position.x
+	local dy = position.y - previous_position.y
+	local dz = position.z - previous_position.z
+	local linear_motion = math.sqrt(dx * dx + dy * dy + dz * dz)
 	local min_scale, max_scale = get_body_ccd_motion_scales(body)
 	local current_rotation = body:GetRotation()
 	local previous_rotation = body:GetPreviousRotation()
@@ -698,12 +703,13 @@ do
 	function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, movement_local)
 		local local_point = box_body:WorldToLocal(point)
 		local extents = box_body:GetPhysicsShape():GetExtents()
-		local closest_local = Vec3(
-			math.clamp(local_point.x, -extents.x, extents.x),
-			math.clamp(local_point.y, -extents.y, extents.y),
-			math.clamp(local_point.z, -extents.z, extents.z)
+		local closest_world = box_body:LocalToWorld(
+			Vec3(
+				math.clamp(local_point.x, -extents.x, extents.x),
+				math.clamp(local_point.y, -extents.y, extents.y),
+				math.clamp(local_point.z, -extents.z, extents.z)
+			)
 		)
-		local closest_world = box_body:LocalToWorld(closest_local)
 		local delta = point - closest_world
 		local distance = delta:GetLength()
 

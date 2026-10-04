@@ -342,13 +342,12 @@ local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts
 		local normal_x, normal_y, normal_z = normal.x, normal.y, normal.z
 
 		for i = 1, #contacts do
-			local contact = contacts[i]
 			local depth = (
-					contact.point_a.x - contact.point_b.x
+					contacts[i].point_a.x - contacts[i].point_b.x
 				) * normal_x + (
-					contact.point_a.y - contact.point_b.y
+					contacts[i].point_a.y - contacts[i].point_b.y
 				) * normal_y + (
-					contact.point_a.z - contact.point_b.z
+					contacts[i].point_a.z - contacts[i].point_b.z
 				) * normal_z
 
 			if depth > deepest then deepest = depth end

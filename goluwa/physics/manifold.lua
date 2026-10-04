@@ -689,15 +689,33 @@ function manifold.SolveImpulses(
 					local inverse_mass_1, inverse_mass_2 = 0, 0
 
 					if manifold_data.prepared_mass_a > 0 then
-						local rax, ray, raz = contact.ra_x, contact.ra_y, contact.ra_z
-						inverse_mass_1 = manifold_data.prepared_mass_a + inverse_inertia_dot(body_a, ray * tz - raz * ty, raz * tx - rax * tz, rax * ty - ray * tx)
-						inverse_mass_2 = manifold_data.prepared_mass_a + inverse_inertia_dot(body_a, ray * bz - raz * by, raz * bx - rax * bz, rax * by - ray * bx)
+						inverse_mass_1 = manifold_data.prepared_mass_a + inverse_inertia_dot(
+								body_a,
+								contact.ra_y * tz - contact.ra_z * ty,
+								contact.ra_z * tx - contact.ra_x * tz,
+								contact.ra_x * ty - contact.ra_y * tx
+							)
+						inverse_mass_2 = manifold_data.prepared_mass_a + inverse_inertia_dot(
+								body_a,
+								contact.ra_y * bz - contact.ra_z * by,
+								contact.ra_z * bx - contact.ra_x * bz,
+								contact.ra_x * by - contact.ra_y * bx
+							)
 					end
 
 					if manifold_data.prepared_mass_b > 0 then
-						local rbx, rby, rbz = contact.rb_x, contact.rb_y, contact.rb_z
-						inverse_mass_1 = inverse_mass_1 + manifold_data.prepared_mass_b + inverse_inertia_dot(body_b, rby * tz - rbz * ty, rbz * tx - rbx * tz, rbx * ty - rby * tx)
-						inverse_mass_2 = inverse_mass_2 + manifold_data.prepared_mass_b + inverse_inertia_dot(body_b, rby * bz - rbz * by, rbz * bx - rbx * bz, rbx * by - rby * bx)
+						inverse_mass_1 = inverse_mass_1 + manifold_data.prepared_mass_b + inverse_inertia_dot(
+								body_b,
+								contact.rb_y * tz - contact.rb_z * ty,
+								contact.rb_z * tx - contact.rb_x * tz,
+								contact.rb_x * ty - contact.rb_y * tx
+							)
+						inverse_mass_2 = inverse_mass_2 + manifold_data.prepared_mass_b + inverse_inertia_dot(
+								body_b,
+								contact.rb_y * bz - contact.rb_z * by,
+								contact.rb_z * bx - contact.rb_x * bz,
+								contact.rb_x * by - contact.rb_y * bx
+							)
 					end
 
 					if inverse_mass_1 > EPSILON and inverse_mass_2 > EPSILON then
@@ -770,8 +788,12 @@ function manifold.SolveImpulses(
 							body_a.Velocity.x = body_a.Velocity.x - wx * manifold_data.prepared_mass_a
 							body_a.Velocity.y = body_a.Velocity.y - wy * manifold_data.prepared_mass_a
 							body_a.Velocity.z = body_a.Velocity.z - wz * manifold_data.prepared_mass_a
-							local rax, ray, raz = contact.ra_x, contact.ra_y, contact.ra_z
-							local dx, dy, dz = inverse_inertia_apply(body_a, ray * wz - raz * wy, raz * wx - rax * wz, rax * wy - ray * wx)
+							local dx, dy, dz = inverse_inertia_apply(
+								body_a,
+								contact.ra_y * wz - contact.ra_z * wy,
+								contact.ra_z * wx - contact.ra_x * wz,
+								contact.ra_x * wy - contact.ra_y * wx
+							)
 							body_a.AngularVelocity.x = body_a.AngularVelocity.x - dx
 							body_a.AngularVelocity.y = body_a.AngularVelocity.y - dy
 							body_a.AngularVelocity.z = body_a.AngularVelocity.z - dz
@@ -781,8 +803,12 @@ function manifold.SolveImpulses(
 							body_b.Velocity.x = body_b.Velocity.x + wx * manifold_data.prepared_mass_b
 							body_b.Velocity.y = body_b.Velocity.y + wy * manifold_data.prepared_mass_b
 							body_b.Velocity.z = body_b.Velocity.z + wz * manifold_data.prepared_mass_b
-							local rbx, rby, rbz = contact.rb_x, contact.rb_y, contact.rb_z
-							local dx, dy, dz = inverse_inertia_apply(body_b, rby * wz - rbz * wy, rbz * wx - rbx * wz, rbx * wy - rby * wx)
+							local dx, dy, dz = inverse_inertia_apply(
+								body_b,
+								contact.rb_y * wz - contact.rb_z * wy,
+								contact.rb_z * wx - contact.rb_x * wz,
+								contact.rb_x * wy - contact.rb_y * wx
+							)
 							body_b.AngularVelocity.x = body_b.AngularVelocity.x + dx
 							body_b.AngularVelocity.y = body_b.AngularVelocity.y + dy
 							body_b.AngularVelocity.z = body_b.AngularVelocity.z + dz
