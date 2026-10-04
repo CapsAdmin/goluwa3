@@ -793,11 +793,8 @@ local UPDATE_CONJUGATE = Quat()
 local SLEEP_REFERENCE_GRAVITY = 28
 
 local function get_sleep_state_metrics(self)
-	local linear_threshold = self.SleepLinearThreshold * self.SleepSpeedScale
-	local angular_threshold = self.SleepAngularThreshold * self.SleepSpeedScale
 	local linear_speed = self.Velocity:GetLength()
 	local angular_speed = self.AngularVelocity:GetLength()
-	local force_grounded_sleep = false
 	local inverse_dt = 0.5 / self.SleepDt
 	local dx = self.Position.x - self.PreviousPosition.x
 	local dy = self.Position.y - self.PreviousPosition.y
@@ -811,6 +808,10 @@ local function get_sleep_state_metrics(self)
 				UPDATE_DELTA.x * UPDATE_DELTA.x + UPDATE_DELTA.y * UPDATE_DELTA.y + UPDATE_DELTA.z * UPDATE_DELTA.z
 			) * 2 * inverse_dt
 	)
+
+	local linear_threshold = self.SleepLinearThreshold * self.SleepSpeedScale
+	local angular_threshold = self.SleepAngularThreshold * self.SleepSpeedScale
+	local force_grounded_sleep = false
 
 	if self:GetGrounded() then
 		linear_threshold = linear_threshold * 1.2

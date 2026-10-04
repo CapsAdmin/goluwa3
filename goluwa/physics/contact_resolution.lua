@@ -191,7 +191,8 @@ local function solve_single_manifold_velocity(body_a, body_b, manifold, dt, rela
 	end
 
 	refresh_pair_materials(solver, body_a, body_b, manifold)
-	manifolds.SolveImpulses(
+
+	return manifolds.SolveImpulses(
 		body_a,
 		body_b,
 		manifold.normal,
@@ -204,20 +205,32 @@ local function solve_single_manifold_velocity(body_a, body_b, manifold, dt, rela
 	)
 end
 
-function contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, relax)
+local function solve_manifold_velocity_with_extra(body_a, body_b, manifold, extra, dt, relax)
 	if manifold.idle then
 		manifold.last_warm_step = body_a:GetPhysics().solver.StepStamp
 	else
 		solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
 	end
 
+	for i = 1, #extra do
+		contact_resolution.SolveManifoldVelocity(body_a, body_b, extra[i], dt, relax)
+	end
+end
+
+function contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, relax)
 	local extra = manifold.extra
 
 	if extra then
-		for i = 1, #extra do
-			contact_resolution.SolveManifoldVelocity(body_a, body_b, extra[i], dt, relax)
-		end
+		return solve_manifold_velocity_with_extra(body_a, body_b, manifold, extra, dt, relax)
 	end
+
+	if manifold.idle then
+		manifold.last_warm_step = body_a:GetPhysics().solver.StepStamp
+
+		return
+	end
+
+	return solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
 end
 
 function contact_resolution.FinishManifold(body_a, body_b, manifold)

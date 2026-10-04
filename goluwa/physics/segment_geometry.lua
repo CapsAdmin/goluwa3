@@ -13,12 +13,9 @@ end
 
 function segment_geometry.ClosestPointsBetweenSegments(p1, q1, p2, q2, epsilon)
 	epsilon = epsilon or 0.000001
-	local d1 = q1 - p1
-	local d2 = q2 - p2
-	local r = p1 - p2
-	local a = d1:Dot(d1)
-	local e = d2:Dot(d2)
-	local f = d2:Dot(r)
+	local a = (q1.x - p1.x) * (q1.x - p1.x) + (q1.y - p1.y) * (q1.y - p1.y) + (q1.z - p1.z) * (q1.z - p1.z)
+	local e = (q2.x - p2.x) * (q2.x - p2.x) + (q2.y - p2.y) * (q2.y - p2.y) + (q2.z - p2.z) * (q2.z - p2.z)
+	local f = (q2.x - p2.x) * (p1.x - p2.x) + (q2.y - p2.y) * (p1.y - p2.y) + (q2.z - p2.z) * (p1.z - p2.z)
 	local s
 	local t
 
@@ -28,13 +25,13 @@ function segment_geometry.ClosestPointsBetweenSegments(p1, q1, p2, q2, epsilon)
 		s = 0
 		t = math.clamp(f / e, 0, 1)
 	else
-		local c = d1:Dot(r)
+		local c = (q1.x - p1.x) * (p1.x - p2.x) + (q1.y - p1.y) * (p1.y - p2.y) + (q1.z - p1.z) * (p1.z - p2.z)
 
 		if e <= epsilon then
 			t = 0
 			s = math.clamp(-c / a, 0, 1)
 		else
-			local b = d1:Dot(d2)
+			local b = (q1.x - p1.x) * (q2.x - p2.x) + (q1.y - p1.y) * (q2.y - p2.y) + (q1.z - p1.z) * (q2.z - p2.z)
 			local denom = a * e - b * b
 
 			if math.abs(denom) > epsilon then
@@ -55,7 +52,7 @@ function segment_geometry.ClosestPointsBetweenSegments(p1, q1, p2, q2, epsilon)
 		end
 	end
 
-	return p1 + d1 * s, p2 + d2 * t
+	return p1 + (q1 - p1) * s, p2 + (q2 - p2) * t
 end
 
 return segment_geometry

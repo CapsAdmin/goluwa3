@@ -50,17 +50,13 @@ function triangle_geometry.GetTriangleEdges(a, b, c, out)
 end
 
 function triangle_geometry.ClosestPointOnTriangle(point, a, b, c)
-	local ab = b - a
-	local ac = c - a
-	local ap = point - a
-	local d1 = ab:Dot(ap)
-	local d2 = ac:Dot(ap)
+	local d1 = (b.x - a.x) * (point.x - a.x) + (b.y - a.y) * (point.y - a.y) + (b.z - a.z) * (point.z - a.z)
+	local d2 = (c.x - a.x) * (point.x - a.x) + (c.y - a.y) * (point.y - a.y) + (c.z - a.z) * (point.z - a.z)
 
 	if d1 <= 0 and d2 <= 0 then return a end
 
-	local bp = point - b
-	local d3 = ab:Dot(bp)
-	local d4 = ac:Dot(bp)
+	local d3 = (b.x - a.x) * (point.x - b.x) + (b.y - a.y) * (point.y - b.y) + (b.z - a.z) * (point.z - b.z)
+	local d4 = (c.x - a.x) * (point.x - b.x) + (c.y - a.y) * (point.y - b.y) + (c.z - a.z) * (point.z - b.z)
 
 	if d3 >= 0 and d4 <= d3 then return b end
 
@@ -68,12 +64,11 @@ function triangle_geometry.ClosestPointOnTriangle(point, a, b, c)
 
 	if vc <= 0 and d1 >= 0 and d3 <= 0 then
 		local v = d1 / (d1 - d3)
-		return a + ab * v
+		return a + (b - a) * v
 	end
 
-	local cp = point - c
-	local d5 = ab:Dot(cp)
-	local d6 = ac:Dot(cp)
+	local d5 = (b.x - a.x) * (point.x - c.x) + (b.y - a.y) * (point.y - c.y) + (b.z - a.z) * (point.z - c.z)
+	local d6 = (c.x - a.x) * (point.x - c.x) + (c.y - a.y) * (point.y - c.y) + (c.z - a.z) * (point.z - c.z)
 
 	if d6 >= 0 and d5 <= d6 then return c end
 
@@ -81,7 +76,7 @@ function triangle_geometry.ClosestPointOnTriangle(point, a, b, c)
 
 	if vb <= 0 and d2 >= 0 and d6 <= 0 then
 		local w = d2 / (d2 - d6)
-		return a + ac * w
+		return a + (c - a) * w
 	end
 
 	local va = d3 * d6 - d5 * d4
@@ -91,9 +86,7 @@ function triangle_geometry.ClosestPointOnTriangle(point, a, b, c)
 	end
 
 	local denom = 1 / (va + vb + vc)
-	local v = vb * denom
-	local w = vc * denom
-	return a + ab * v + ac * w
+	return a + (b - a) * (vb * denom) + (c - a) * (vc * denom)
 end
 
 function triangle_geometry.PointInTriangle(point, a, b, c, normal, epsilon)
