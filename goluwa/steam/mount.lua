@@ -969,6 +969,7 @@ return function(steam)
 		["sp_a4_finale1"] = {"portal 2"},
 		["c3m1_plankcountry"] = {"left 4 dead 2"},
 		["achievement_apg_r11b"] = {"half-life 2", "team fortress 2"},
+		["lostcoast"] = {"gmod"},
 	}
 
 	function steam.MountGamesFromMapPath(path)
