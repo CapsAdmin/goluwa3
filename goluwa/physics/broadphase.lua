@@ -154,6 +154,7 @@ local function remove_entry_from_overflow(self, entry)
 
 	entry.is_overflow = false
 	entry.overflow_index = nil
+	entry.overflow_hits = nil
 end
 
 local function get_or_create_cell(self, key)
@@ -318,6 +319,7 @@ local function create_entry(self, body)
 		cell_keys = {},
 		index = #self.Entries + 1,
 		last_seen_step = self.StepStamp,
+		overflow_dirty = true,
 	}
 	self.Entries[entry.index] = entry
 	self.BodyEntries[body] = entry
@@ -328,12 +330,12 @@ end
 
 local function destroy_entry(self, entry)
 	remove_entry_from_spatial_index(self, entry)
-	entry.overflow_pairs = nil
+	entry.overflow_hits = nil
 
 	for i = 1, #self.OverflowEntries do
-		local overflow_pairs = self.OverflowEntries[i].overflow_pairs
+		local hits = self.OverflowEntries[i].overflow_hits
 
-		if overflow_pairs then overflow_pairs[entry.id] = nil end
+		if hits then hits[entry.id] = nil end
 	end
 
 	self.BodyEntries[entry.body] = nil
@@ -358,6 +360,8 @@ function broadphase.New(config)
 			BodyEntries = table.weak("k"),
 			Cells = {},
 			Pairs = {},
+			ChangedEntries = {},
+			ChangedConsumed = true,
 			StepStamp = 0,
 			LookAhead = 0,
 			QueryStamp = 0,
@@ -373,6 +377,8 @@ function Broadphase:ResetState()
 	self.BodyEntries = table.weak("k")
 	self.Cells = {}
 	self.Pairs = {}
+	self.ChangedEntries = {}
+	self.ChangedConsumed = true
 	self.StepStamp = 0
 	self.LookAhead = 0
 	self.QueryStamp = 0
@@ -483,6 +489,12 @@ function Broadphase:TrackBodies(bodies, physics_override)
 	if not physics then return self end
 
 	self.StepStamp = self.StepStamp + 1
+	local changed = self.ChangedEntries
+
+	if self.ChangedConsumed then
+		list.clear(changed)
+		self.ChangedConsumed = false
+	end
 
 	for _, body in ipairs(bodies or {}) do
 		local entry = self.BodyEntries[body]
@@ -495,6 +507,8 @@ function Broadphase:TrackBodies(bodies, physics_override)
 					build_entry_bounds(body, entry.bounds, self.LookAhead)
 					store_entry_pose(entry, body)
 					entry.last_seen_step = self.StepStamp
+					entry.overflow_dirty = true
+					changed[#changed + 1] = entry
 					stats:Count("broadphase_bounds_updates")
 
 					if not is_same_spatial_assignment(self, entry, entry.bounds) then
@@ -504,6 +518,7 @@ function Broadphase:TrackBodies(bodies, physics_override)
 				else
 					local new_entry = create_entry(self, body)
 					store_entry_pose(new_entry, body)
+					changed[#changed + 1] = new_entry
 					stats:Count("broadphase_entries_added")
 				end
 			end
@@ -545,41 +560,67 @@ function Broadphase:GetCandidatePairs(out)
 		end
 	end
 
+	local entries = self.Entries
+	local changed = self.ChangedEntries
+
 	for i = 1, #overflow_entries do
 		local entry = overflow_entries[i]
+		local hits = entry.overflow_hits
 
-		for j = 1, #self.Entries do
-			local other = self.Entries[j]
+		if not hits then
+			hits = {}
+			entry.overflow_hits = hits
+			entry.overflow_dirty = true
+		end
 
-			if other ~= entry then
-				local key = get_pair_key(entry, other)
+		local bounds = entry.bounds
 
-				if not pair_lookup[key] and entry.bounds:IsBoxIntersecting(other.bounds) then
-					local overflow_pairs = entry.overflow_pairs
+		if entry.overflow_dirty then
+			entry.overflow_dirty = false
+			table.clear(hits)
 
-					if not overflow_pairs then
-						overflow_pairs = {}
-						entry.overflow_pairs = overflow_pairs
+			for j = 1, #entries do
+				local other = entries[j]
+
+				if other ~= entry and bounds:IsBoxIntersecting(other.bounds) then
+					hits[other.id] = {
+						entry_a = other.id < entry.id and other or entry,
+						entry_b = other.id < entry.id and entry or other,
+					}
+				end
+			end
+		else
+			for j = 1, #changed do
+				local other = changed[j]
+
+				if other ~= entry then
+					if bounds:IsBoxIntersecting(other.bounds) then
+						if not hits[other.id] then
+							hits[other.id] = {
+								entry_a = other.id < entry.id and other or entry,
+								entry_b = other.id < entry.id and entry or other,
+							}
+						end
+					else
+						hits[other.id] = nil
 					end
-
-					local pair = overflow_pairs[other.id]
-
-					if not pair then
-						pair = {
-							entry_a = other.id < entry.id and other or entry,
-							entry_b = other.id < entry.id and entry or other,
-						}
-						overflow_pairs[other.id] = pair
-					end
-
-					count = count + 1
-					out[count] = pair
-					pair_lookup[key] = true
-					used_keys[#used_keys + 1] = key
 				end
 			end
 		end
+
+		for _, pair in pairs(hits) do
+			local key = get_pair_key(pair.entry_a, pair.entry_b)
+
+			if not pair_lookup[key] then
+				count = count + 1
+				out[count] = pair
+				pair_lookup[key] = true
+				used_keys[#used_keys + 1] = key
+			end
+		end
 	end
+
+	self.ChangedConsumed = true
 
 	for i = #used_keys, 1, -1 do
 		pair_lookup[used_keys[i]] = nil
