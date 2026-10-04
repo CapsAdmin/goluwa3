@@ -490,15 +490,19 @@ function manifold.SolveImpulses(
 	static_friction
 )
 	local physics = body_a:GetPhysics()
-	local stamp = physics.solver.StepStamp or 0
 
-	if manifold_data.prepared_step ~= stamp then
-		prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
+	do
+		local stamp = physics.solver.StepStamp or 0
+
+		if manifold_data.prepared_step ~= stamp then
+			prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
+		end
 	end
 
 	local bounces = restitution > 0
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local passes = physics.solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
+	restitution = nil
 	local bias_rate = 0
 	local soft_mass_scale = 1
 	local soft_impulse_scale = 0

@@ -212,48 +212,49 @@ function world_step.UpdateRigidBodies(physics, dt)
 	local relax_iterations = math.max(1, physics.RigidBodyRelaxIterations or 1)
 	local sub_dt = dt / substeps
 	solver.StepDt = dt
-	local collision_pairs = physics.collision_pairs
 	physics.candidate_pairs = physics.candidate_pairs or {}
-	collision_pairs:BeginCollisionFrame()
+	physics.collision_pairs:BeginCollisionFrame()
 	stats:Gauge("bodies", #bodies)
 	stats:Gauge("substeps", substeps)
 	stats:PushTime("step")
 	stats:PushTime("synchronize")
 	refresh_body_lists(bodies)
-	local removed_bodies = RigidBody.RemovedBodies
+	do
+		local removed_bodies = RigidBody.RemovedBodies
 
-	for i = 1, #removed_bodies do
-		physics.broadphase:RemoveBody(removed_bodies[i])
-		removed_bodies[i] = nil
-	end
-
-	local active_bodies = ACTIVE_BODIES
-	local synced_bodies = SYNCED_BODIES
-	local dirty_bodies = RigidBody.TransformDirtyBodies
-	local synced_count = 0
-	sync_stamp = sync_stamp + 1
-
-	for i = 1, #dirty_bodies do
-		local body = dirty_bodies[i]
-		dirty_bodies[i] = nil
-		body.TransformDirty = false
-
-		if body:IsValid() then
-			sync_body_from_transform(body)
-			body.SyncStamp = sync_stamp
-			synced_count = synced_count + 1
-			synced_bodies[synced_count] = body
+		for i = 1, #removed_bodies do
+			physics.broadphase:RemoveBody(removed_bodies[i])
+			removed_bodies[i] = nil
 		end
-	end
 
-	for i = #synced_bodies, synced_count + 1, -1 do
-		synced_bodies[i] = nil
-	end
+		local synced_bodies = SYNCED_BODIES
+		local dirty_bodies = RigidBody.TransformDirtyBodies
+		local synced_count = 0
+		sync_stamp = sync_stamp + 1
 
-	for i = 1, #active_bodies do
-		local body = active_bodies[i]
+		for i = 1, #dirty_bodies do
+			local body = dirty_bodies[i]
+			dirty_bodies[i] = nil
+			body.TransformDirty = false
 
-		if body.SyncStamp ~= sync_stamp then sync_body_from_transform(body) end
+			if body:IsValid() then
+				sync_body_from_transform(body)
+				body.SyncStamp = sync_stamp
+				synced_count = synced_count + 1
+				synced_bodies[synced_count] = body
+			end
+		end
+
+		for i = #synced_bodies, synced_count + 1, -1 do
+			synced_bodies[i] = nil
+		end
+
+		for i = 1, #ACTIVE_BODIES do
+			local body = ACTIVE_BODIES[i]
+
+			if body.SyncStamp ~= sync_stamp then sync_body_from_transform(body) end
+		end
+
 	end
 
 	stats:PopTime()
@@ -269,7 +270,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		local awake_count = 0
 		refresh_body_lists(bodies)
 
-		for _, body in ipairs(active_bodies) do
+		for _, body in ipairs(ACTIVE_BODIES) do
 			if body:IsKinematic() or body:HasKinematicController() then
 				stats:PushTime("kinematic")
 				kinematic_controller.UpdateBody(body, substep, substeps, dt)
@@ -338,14 +339,14 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:Gauge("islands", simulation_islands and #simulation_islands or 0)
 		stats:PushTime("ccd")
 
-		for _, body in ipairs(active_bodies) do
+		for _, body in ipairs(ACTIVE_BODIES) do
 			if body:IsDynamic() and body:GetAwake() then
 				solver:SolveBodyContacts(body, sub_dt)
 			end
 		end
 
 		stats:PopTime()
-		refresh_support_entries(active_bodies)
+		refresh_support_entries(ACTIVE_BODIES)
 		local substep_id = solver.StepStamp or 0
 		stats:PushTime("constraints")
 
@@ -391,7 +392,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 				stats:PopTime()
 				stats:PushTime("support")
 
-				for _, body in ipairs(active_bodies) do
+				for _, body in ipairs(ACTIVE_BODIES) do
 					if body:IsDynamic() and body:GetAwake() then
 						solve_body_support_contacts(body, sub_dt, substep_id)
 					end
@@ -407,7 +408,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PushTime("positions")
 		refresh_body_lists(bodies)
 
-		for _, body in ipairs(active_bodies) do
+		for _, body in ipairs(ACTIVE_BODIES) do
 			body:ApplySolverVelocityDelta(sub_dt)
 		end
 
@@ -436,7 +437,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PushTime("velocities_sleep")
 		RigidBody.BeginSleepPass()
 
-		for _, body in ipairs(active_bodies) do
+		for _, body in ipairs(ACTIVE_BODIES) do
 			body:UpdateVelocities(sub_dt)
 			body:UpdateSleepState(sub_dt, islands.IsConstrainedBody(body))
 		end
@@ -468,12 +469,12 @@ function world_step.UpdateRigidBodies(physics, dt)
 	stats:PopTime()
 	stats:PushTime("finalize")
 
-	for _, body in ipairs(active_bodies) do
+	for _, body in ipairs(ACTIVE_BODIES) do
 		body:ClearAccumulators()
 		body:WriteToTransform()
 	end
 
-	collision_pairs:DispatchCollisionEvents()
+	physics.collision_pairs:DispatchCollisionEvents()
 	constraint.RemoveBroken()
 	stats:PopTime()
 	stats:PopTime()

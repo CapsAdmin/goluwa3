@@ -250,15 +250,11 @@ function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, r
 
 	if resting_passes <= base_passes then return base_passes end
 
-	local contacts = manifold_data and manifold_data.contacts or nil
-
-	if #(contacts or {}) < math.max(1, self.RESTING_MANIFOLD_MIN_CONTACTS or 1) then
+	if #manifold_data.contacts < math.max(1, self.RESTING_MANIFOLD_MIN_CONTACTS or 1) then
 		return base_passes
 	end
 
-	if
-		math.abs(normal and normal.y or 0) < math.max(0, self.RESTING_MANIFOLD_MIN_NORMAL_Y or 0)
-	then
+	if math.abs(normal.y) < math.max(0, self.RESTING_MANIFOLD_MIN_NORMAL_Y or 0) then
 		return base_passes
 	end
 
@@ -266,42 +262,46 @@ function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, r
 		return base_passes
 	end
 
-	local velocity_a = body_a:GetVelocity()
-	local velocity_b = body_b:GetVelocity()
-	local dx = velocity_b.x - velocity_a.x
-	local dy = velocity_b.y - velocity_a.y
-	local dz = velocity_b.z - velocity_a.z
+	do
+		local velocity_a = body_a:GetVelocity()
+		local velocity_b = body_b:GetVelocity()
+		local dx = velocity_b.x - velocity_a.x
+		local dy = velocity_b.y - velocity_a.y
+		local dz = velocity_b.z - velocity_a.z
 
-	if
-		dx * dx + dy * dy + dz * dz > math.max(0, self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 0) ^ 2
-	then
-		return base_passes
+		if
+			dx * dx + dy * dy + dz * dz > math.max(0, self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 0) ^ 2
+		then
+			return base_passes
+		end
+
+		local normal_dot = dx * normal.x + dy * normal.y + dz * normal.z
+
+		if
+			(
+				dx - normal.x * normal_dot
+			) ^ 2 + (
+				dy - normal.y * normal_dot
+			) ^ 2 + (
+				dz - normal.z * normal_dot
+			) ^ 2 > math.max(0, self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0) ^ 2
+		then
+			return base_passes
+		end
 	end
 
-	local normal_dot = dx * normal.x + dy * normal.y + dz * normal.z
+	do
+		local angular_a = body_a:GetAngularVelocity()
+		local angular_b = body_b:GetAngularVelocity()
 
-	if
-		(
-			dx - normal.x * normal_dot
-		) ^ 2 + (
-			dy - normal.y * normal_dot
-		) ^ 2 + (
-			dz - normal.z * normal_dot
-		) ^ 2 > math.max(0, self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0) ^ 2
-	then
-		return base_passes
-	end
-
-	local angular_a = body_a:GetAngularVelocity()
-	local angular_b = body_b:GetAngularVelocity()
-
-	if
-		math.max(
-			angular_a.x * angular_a.x + angular_a.y * angular_a.y + angular_a.z * angular_a.z,
-			angular_b.x * angular_b.x + angular_b.y * angular_b.y + angular_b.z * angular_b.z
-		) > math.max(0, self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or 0) ^ 2
-	then
-		return base_passes
+		if
+			math.max(
+				angular_a.x * angular_a.x + angular_a.y * angular_a.y + angular_a.z * angular_a.z,
+				angular_b.x * angular_b.x + angular_b.y * angular_b.y + angular_b.z * angular_b.z
+			) > math.max(0, self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or 0) ^ 2
+		then
+			return base_passes
+		end
 	end
 
 	return resting_passes
@@ -418,6 +418,103 @@ local RECYCLE_POSE_THRESHOLD = 0.005
 local RECYCLE_ROTATION_DOT = 0.99995
 local REBUILD_ROTATION_DOT = 0.995
 
+local function solve_pair(self, pair, dt, pass, relax)
+	local body_a = pair.entry_a.body
+	local body_b = pair.entry_b.body
+
+	if relax then
+		local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
+
+		if manifold and manifold.last_warm_step == self.StepStamp then
+			return contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, true)
+		elseif
+			not (
+				pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
+				pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
+			)
+		then
+			pair_solver_helpers.DispatchColliderPairs(self, pair, dt, "relax")
+		end
+
+		return
+	end
+
+	if (pass or 1) > 1 and pair.idle_stamp == self.StepStamp then
+		stats:Count("solver_pairs_idle")
+
+		return
+	end
+
+	if not body_a:ShouldCollide(body_b) then return end
+
+	if (pass or 1) > 1 or self.CollideStamp ~= self.StepStamp then
+		local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
+
+		if manifold and manifold.last_rebuild_step >= 0 then
+			manifold.last_seen_step = self.StepStamp
+
+			if
+				pair_solver_helpers.IsPoseInvalidated(
+					body_a,
+					manifold.rebuild_pose_a,
+					(
+							manifold.last_rebuild_step < self.CollideStamp and
+							RECYCLE_POSE_THRESHOLD or
+							self.REBUILD_POSE_THRESHOLD or
+							0.01
+						) ^ 2,
+					manifold.last_rebuild_step < self.CollideStamp and
+						RECYCLE_ROTATION_DOT or
+						REBUILD_ROTATION_DOT
+				) or
+				pair_solver_helpers.IsPoseInvalidated(
+					body_b,
+					manifold.rebuild_pose_b,
+					(
+							manifold.last_rebuild_step < self.CollideStamp and
+							RECYCLE_POSE_THRESHOLD or
+							self.REBUILD_POSE_THRESHOLD or
+							0.01
+						) ^ 2,
+					manifold.last_rebuild_step < self.CollideStamp and
+						RECYCLE_ROTATION_DOT or
+						REBUILD_ROTATION_DOT
+				)
+			then
+				manifold.last_rebuild_step = -1
+			else
+				stats:Count(
+					manifold.last_rebuild_step < self.CollideStamp and
+						"solver_pairs_recycled" or
+						"solver_pairs_cached"
+				)
+				return contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, relax)
+			end
+		end
+	end
+
+	if
+		pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
+		pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
+	then
+		local result, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, pair.entry_a, pair.entry_b, dt)
+
+		if not found then
+			stats:Count("pairs_fallback")
+			fallback_solve_aabb_pair_collision(body_a, body_b, pair.entry_a.bounds, pair.entry_b.bounds, dt)
+		elseif (pass or 1) <= 1 and not result then
+			pair.idle_stamp = self.StepStamp
+		end
+	else
+		pair_solver_helpers.DispatchColliderPairs(
+			self,
+			pair,
+			dt,
+			((pass or 1) > 1 or self.CollideStamp ~= self.StepStamp) and "reuse" or "collide"
+		)
+	end
+end
+
 function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 	local pairs = bodies_or_pairs
 
@@ -433,105 +530,7 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 	stats:Count("solver_pairs", #pairs)
 
 	for i = 1, #pairs do
-		local pair = pairs[i]
-		local body_a = pair.entry_a.body
-		local body_b = pair.entry_b.body
-
-		if relax then
-			local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
-
-			if manifold and manifold.last_warm_step == self.StepStamp then
-				contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, true)
-			elseif
-				not (
-					pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
-					pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
-				)
-			then
-				pair_solver_helpers.DispatchColliderPairs(self, pair, dt, "relax")
-			end
-
-			goto continue_pair
-		end
-
-		if (pass or 1) > 1 and pair.idle_stamp == self.StepStamp then
-			stats:Count("solver_pairs_idle")
-
-			goto continue_pair
-		end
-
-		if not body_a:ShouldCollide(body_b) then goto continue_pair end
-
-		if (pass or 1) > 1 or self.CollideStamp ~= self.StepStamp then
-			local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
-
-			if manifold and manifold.last_rebuild_step >= 0 then
-				manifold.last_seen_step = self.StepStamp
-
-				if
-					pair_solver_helpers.IsPoseInvalidated(
-						body_a,
-						manifold.rebuild_pose_a,
-						(
-								manifold.last_rebuild_step < self.CollideStamp and
-								RECYCLE_POSE_THRESHOLD or
-								self.REBUILD_POSE_THRESHOLD or
-								0.01
-							) ^ 2,
-						manifold.last_rebuild_step < self.CollideStamp and
-							RECYCLE_ROTATION_DOT or
-							REBUILD_ROTATION_DOT
-					) or
-					pair_solver_helpers.IsPoseInvalidated(
-						body_b,
-						manifold.rebuild_pose_b,
-						(
-								manifold.last_rebuild_step < self.CollideStamp and
-								RECYCLE_POSE_THRESHOLD or
-								self.REBUILD_POSE_THRESHOLD or
-								0.01
-							) ^ 2,
-						manifold.last_rebuild_step < self.CollideStamp and
-							RECYCLE_ROTATION_DOT or
-							REBUILD_ROTATION_DOT
-					)
-				then
-					manifold.last_rebuild_step = -1
-				else
-					stats:Count(
-						manifold.last_rebuild_step < self.CollideStamp and
-							"solver_pairs_recycled" or
-							"solver_pairs_cached"
-					)
-					contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, relax)
-
-					goto continue_pair
-				end
-			end
-		end
-
-		if
-			pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
-			pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
-		then
-			local result, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, pair.entry_a, pair.entry_b, dt)
-
-			if not found then
-				stats:Count("pairs_fallback")
-				fallback_solve_aabb_pair_collision(body_a, body_b, pair.entry_a.bounds, pair.entry_b.bounds, dt)
-			elseif (pass or 1) <= 1 and not result then
-				pair.idle_stamp = self.StepStamp
-			end
-		else
-			pair_solver_helpers.DispatchColliderPairs(
-				self,
-				pair,
-				dt,
-				((pass or 1) > 1 or self.CollideStamp ~= self.StepStamp) and "reuse" or "collide"
-			)
-		end
-
-		::continue_pair::
+		solve_pair(self, pairs[i], dt, pass, relax)
 	end
 end
 
