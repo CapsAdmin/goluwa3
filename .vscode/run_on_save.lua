@@ -1,5 +1,5 @@
 do
-	return -- IMPORTANT: file watcher is enabeld
+	return -- TODO: file watcher is enabeld
 end
 
 local path = ...

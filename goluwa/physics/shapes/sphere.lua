@@ -163,7 +163,9 @@ function META:OnGroundedVelocityUpdate(body, dt)
 
 	if rolling_friction > 0 then
 		local normal_velocity = body.GroundNormal * body.Velocity:Dot(body.GroundNormal)
-		body.Velocity = normal_velocity + (body.Velocity - normal_velocity) * math.exp(-rolling_friction * dt)
+		body.Velocity = normal_velocity + (
+				body.Velocity - normal_velocity
+			) * math.exp(-rolling_friction * dt)
 	end
 
 	local normal_angular = body.GroundNormal * body.AngularVelocity:Dot(body.GroundNormal)

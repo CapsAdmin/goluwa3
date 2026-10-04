@@ -25,9 +25,7 @@ function kinematic_controller.UpdateBody(body, substep, substeps, dt)
 		body.KinematicStartRotation:CopyFrom(body.PreviousRotation)
 		body.KinematicTargetRotation:CopyFrom(rotation)
 		body.Velocity:CopyFrom(position):Sub(start_position):Scale(1 / dt)
-		body.AngularVelocity:CopyFrom(
-			motion.GetAngularVelocityFromRotationDelta(body.PreviousRotation, rotation, dt)
-		)
+		body.AngularVelocity:CopyFrom(motion.GetAngularVelocityFromRotationDelta(body.PreviousRotation, rotation, dt))
 	end
 
 	local alpha = substep / substeps

@@ -9,7 +9,7 @@ local int32_ptr_t = ffi.typeof("const int32_t *")
 local uint32_ptr_t = ffi.typeof("const uint32_t *")
 local int16_ptr_t = ffi.typeof("const int16_t *")
 local uint16_ptr_t = ffi.typeof("const uint16_t *")
---[[HACK: a float with the bit pattern 0xFFFFFFFF reads as nil in the interpreter, and a NaN stored in a table can later
+--[[hack: a float with the bit pattern 0xFFFFFFFF reads as nil in the interpreter, and a NaN stored in a table can later
  read as nil too, so floats are read as integers and non-finite values become zero
 ]]
 local float_bits = ffi.new("union {uint32_t u; float f;}")

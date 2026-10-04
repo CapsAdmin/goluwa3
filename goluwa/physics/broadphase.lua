@@ -171,7 +171,10 @@ local function get_or_create_cell(self, key)
 end
 
 local function is_pair_candidate(entry_a, entry_b)
-	return not (entry_a.static and entry_b.static) and
+	return not (
+			entry_a.static and
+			entry_b.static
+		) and
 		entry_a.bounds:IsBoxIntersecting(entry_b.bounds)
 end
 
@@ -645,7 +648,6 @@ function Broadphase:GetCandidatePairs(out)
 			entry.overflow_hits = hits
 			entry.overflow_dirty = true
 		end
-
 
 		if entry.overflow_dirty then
 			entry.overflow_dirty = false
