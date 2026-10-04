@@ -1,3 +1,7 @@
+do
+	return -- IMPORTANT: file watcher is enabeld
+end
+
 local path = ...
 require("goluwa.global_environment")
 local fs = import("goluwa/filesystem/fs.lua")
