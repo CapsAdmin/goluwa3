@@ -1928,7 +1928,9 @@ do
 			local material = scene_bvh.materials[slots[i].material_id + 1]
 			local opacity = material:GetSoupShadowOpacity()
 
-			if material:GetAlphaTest() or opacity < 1 then non_opaque = true end
+			if material:GetAlphaTest() or material:IsTransparent() or opacity < 1 then
+				non_opaque = true
+			end
 
 			total = total + slots[i].count
 

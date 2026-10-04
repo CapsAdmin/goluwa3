@@ -686,6 +686,8 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			// displacement blending: the second albedo and the blend modulate texture, -1 without
 			int albedo2_tex;
 			int blend_tex;
+			// translucent or refractive, reflections look through it
+			int transparent;
 		};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -1730,6 +1732,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t glass;
 	int32_t albedo2_tex;
 	int32_t blend_tex;
+	int32_t transparent;
 }]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
@@ -1804,6 +1807,7 @@ function ddgi.WriteMaterialBuffer(self)
 			end
 
 			entry.glass = (glass_enabled and material:IsGlass()) and 1 or 0
+			entry.transparent = material:IsTransparent() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()
 			entry.albedo2_tex = albedo2 and albedo2:IsValid() and self:GetTextureIndex(albedo2) or -1
 			local blend_texture = material:GetBlendTexture()

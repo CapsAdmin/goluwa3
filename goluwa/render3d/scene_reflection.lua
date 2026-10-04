@@ -102,11 +102,18 @@ function scene_reflection.GetGLSL(block_name)
 			return ddgi_data.ddgi_rt_ready != 0;
 		}
 
+		// confirms the first solid hit, translucent and refractive surfaces are looked through
+		#define SCENE_REFLECTION_PROCEED(query) \
+			while (rayQueryProceedEXT(query)) { \
+				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)); \
+				if (ddgi_materials[bvh_tri(candidate).material].transparent == 0) rayQueryConfirmIntersectionEXT(query); \
+			}
+
 		bool scene_reflection_visible(vec3 origin, vec3 dir, float dist) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, dir, dist);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, dir, dist);
 
-			while (rayQueryProceedEXT(query)) {}
+			SCENE_REFLECTION_PROCEED(query)
 
 			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 		}
@@ -114,9 +121,9 @@ function scene_reflection.GetGLSL(block_name)
 		// how far along dir the scene is, max_distance when nothing is that close
 		float scene_hit_distance(vec3 origin, vec3 dir, float max_distance) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, 0xFF, origin, 0.0, dir, max_distance);
 
-			while (rayQueryProceedEXT(query)) {}
+			SCENE_REFLECTION_PROCEED(query)
 
 			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return max_distance;
 
@@ -127,9 +134,9 @@ function scene_reflection.GetGLSL(block_name)
 		// the hit is, max_distance when the ray went on to the sky
 		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, 0xFF, origin, 0.0, dir, max_distance);
 
-			while (rayQueryProceedEXT(query)) {}
+			SCENE_REFLECTION_PROCEED(query)
 
 			hit_t = max_distance;
 
