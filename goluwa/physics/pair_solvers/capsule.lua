@@ -894,23 +894,34 @@ local function build_capsule_capsule_parallel_contacts(a0, a1, b0, b1, radius_a,
 end
 
 local function solve_capsule_capsule_collision(body_a, body_b, dt)
-	local a0, a1, radius_a = capsule_geometry.GetSegmentWorld(body_a)
-	local b0, b1, radius_b = capsule_geometry.GetSegmentWorld(body_b)
-	local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(a0, a1, b0, b1, EPSILON)
-	local delta = point_b - point_a
-	local previous_a0, previous_a1 = capsule_geometry.GetSegmentWorld(body_a, body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
-	local previous_b0, previous_b1 = capsule_geometry.GetSegmentWorld(body_b, body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
-	local previous_point_a, previous_point_b = segment_geometry.ClosestPointsBetweenSegments(previous_a0, previous_a1, previous_b0, previous_b1, EPSILON)
+	local point_a, point_b, radius_a, radius_b, normal, distance, previous_distance
+	local parallel_contacts, parallel_normal, parallel_overlap
+
+	do
+		local a0, a1, b0, b1
+		a0, a1, radius_a = capsule_geometry.GetSegmentWorld(body_a)
+		b0, b1, radius_b = capsule_geometry.GetSegmentWorld(body_b)
+		point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(a0, a1, b0, b1, EPSILON)
+		local previous_a0, previous_a1 = capsule_geometry.GetSegmentWorld(body_a, body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
+		local previous_b0, previous_b1 = capsule_geometry.GetSegmentWorld(body_b, body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
+		local previous_point_a, previous_point_b = segment_geometry.ClosestPointsBetweenSegments(previous_a0, previous_a1, previous_b0, previous_b1, EPSILON)
+		local previous_delta = previous_point_b - previous_point_a
+		previous_distance = previous_delta:GetLength()
+		normal, distance = pair_solver_helpers.GetSafeCollisionNormal(
+			point_b - point_a,
+			body_a:GetVelocity() - body_b:GetVelocity(),
+			previous_delta,
+			pair_solver_helpers.GetCachedPairNormal(body_a, body_b)
+		)
+
+		if not normal then return false end
+
+		if radius_a + radius_b - distance > 0 then
+			parallel_contacts, parallel_normal, parallel_overlap = build_capsule_capsule_parallel_contacts(a0, a1, b0, b1, radius_a, radius_b)
+		end
+	end
+
 	local min_distance = radius_a + radius_b
-	local normal, distance = pair_solver_helpers.GetSafeCollisionNormal(
-		delta,
-		body_a:GetVelocity() - body_b:GetVelocity(),
-		previous_point_b - previous_point_a,
-		pair_solver_helpers.GetCachedPairNormal(body_a, body_b)
-	)
-
-	if not normal then return false end
-
 	local overlap = min_distance - distance
 	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 	local movement = dynamic_body and
@@ -927,8 +938,6 @@ local function solve_capsule_capsule_collision(body_a, body_b, dt)
 
 		return false
 	end
-
-	local parallel_contacts, parallel_normal, parallel_overlap = build_capsule_capsule_parallel_contacts(a0, a1, b0, b1, radius_a, radius_b)
 
 	if parallel_contacts then
 		return contact_resolution.ResolvePairPenetration(
@@ -948,8 +957,6 @@ local function solve_capsule_capsule_collision(body_a, body_b, dt)
 		movement and
 		should_prefer_swept_recovery(movement:GetLength(), math.min(radius_a, radius_b))
 	then
-		local previous_distance = (previous_point_b - previous_point_a):GetLength()
-
 		if previous_distance > min_distance + EPSILON then
 			local swept = solve_swept_capsule_capsule_collision(dynamic_body, static_body, dt)
 
