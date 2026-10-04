@@ -457,7 +457,6 @@ function RigidBody:OnWorldGeometryChanged()
 end
 
 function RigidBody:OnRemove()
-	self.Removed = true
 	local removed = RigidBody.RemovedBodies
 	removed[#removed + 1] = self
 	self:OnActivityChanged()

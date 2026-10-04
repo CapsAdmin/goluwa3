@@ -238,7 +238,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		dirty_bodies[i] = nil
 		body.TransformDirty = false
 
-		if not body.Removed then
+		if body:IsValid() then
 			sync_body_from_transform(body)
 			body.SyncStamp = sync_stamp
 			synced_count = synced_count + 1
@@ -272,7 +272,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		for _, body in ipairs(active_bodies) do
 			if body:IsKinematic() or body:HasKinematicController() then
 				stats:PushTime("kinematic")
-				kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
+				kinematic_controller.UpdateBody(body, substep, substeps, dt)
 				stats:PopTime()
 			elseif body:GetAwake() then
 				awake_count = awake_count + 1

@@ -117,11 +117,11 @@ function pair_solver_helpers.ShouldSweepBody(body)
 end
 
 function pair_solver_helpers.ShouldUsePairCCD(body_a, body_b)
-	if not body_a:IsStatic() and pair_solver_helpers.ShouldUseCCD(body_a) then
+	if body_a:HasSolverMass() and pair_solver_helpers.ShouldUseCCD(body_a) then
 		return true
 	end
 
-	if not body_b:IsStatic() and pair_solver_helpers.ShouldUseCCD(body_b) then
+	if body_b:HasSolverMass() and pair_solver_helpers.ShouldUseCCD(body_b) then
 		return true
 	end
 

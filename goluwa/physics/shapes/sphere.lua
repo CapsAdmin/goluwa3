@@ -157,35 +157,19 @@ end
 local TWIST_FRICTION_RATE = 4
 
 function META:OnGroundedVelocityUpdate(body, dt)
-	local radius = self:GetRadius()
+	if not dt or dt <= 0 then return end
 
-	if radius <= 0 then return end
+	local rolling_friction = body:GetGroundRollingFriction() or 0
 
-	local normal_velocity = body.GroundNormal * body.Velocity:Dot(body.GroundNormal)
-	local tangent_velocity = body.Velocity - normal_velocity
-	local tangent_speed = tangent_velocity:GetLength()
-	local rolling_friction = math.max(body:GetGroundRollingFriction() or 0, 0)
-
-	if tangent_speed > 0.0001 and rolling_friction > 0 and dt and dt > 0 then
-		local damping = math.exp(-rolling_friction * dt)
-		tangent_velocity = tangent_velocity * damping
-		body.Velocity = normal_velocity + tangent_velocity
-		tangent_speed = tangent_velocity:GetLength()
+	if rolling_friction > 0 then
+		local normal_velocity = body.GroundNormal * body.Velocity:Dot(body.GroundNormal)
+		body.Velocity = normal_velocity + (body.Velocity - normal_velocity) * math.exp(-rolling_friction * dt)
 	end
 
-	local rolling_angular = body.GroundNormal:GetCross(tangent_velocity) / radius
 	local normal_angular = body.GroundNormal * body.AngularVelocity:Dot(body.GroundNormal)
-
-	if dt and dt > 0 then
-		normal_angular = normal_angular * math.exp(-TWIST_FRICTION_RATE * math.max(body:GetFriction() or 0, 0) * dt)
-	end
-
-	if tangent_speed <= 0.0001 then
-		body.AngularVelocity = normal_angular
-		return
-	end
-
-	body.AngularVelocity = rolling_angular + normal_angular
+	body.AngularVelocity = body.AngularVelocity - normal_angular * (
+			1 - math.exp(-TWIST_FRICTION_RATE * math.max(body:GetFriction() or 0, 0) * dt)
+		)
 end
 
 function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
