@@ -170,6 +170,8 @@ local RECYCLE_POSE_THRESHOLD = 0.005
 local RECYCLE_ROTATION_DOT = 0.99995
 local STEP_REUSE_POSE_THRESHOLD = 0.05
 local STEP_REUSE_ROTATION_DOT = 0.995
+local RECYCLE_SQUARED = RECYCLE_POSE_THRESHOLD * RECYCLE_POSE_THRESHOLD
+local REUSE_SQUARED = STEP_REUSE_POSE_THRESHOLD * STEP_REUSE_POSE_THRESHOLD
 
 function pair_solver_helpers.IsPoseInvalidated(body, cached_pose, squared_threshold, min_rotation_dot)
 	if not cached_pose then return false end
@@ -239,80 +241,71 @@ function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 	end
 
 	local handled = false
-	local entry_a = pair.entry_a
-	local entry_b = pair.entry_b
-	local body_a = entry_a.body
-	local body_b = entry_b.body
-	local list_a, count_a = collider_index.Query(
-		body_a,
-		build_dispatch_query_aabb(body_a, body_b, entry_b.bounds),
-		DISPATCH_COLLIDERS_A
-	)
-	local list_b, count_b = collider_index.Query(
-		body_b,
-		build_dispatch_query_aabb(body_b, body_a, entry_a.bounds),
-		DISPATCH_COLLIDERS_B
-	)
-	local persistent_manifolds = solver.PersistentManifolds
-	local collide_stamp = solver.CollideStamp
-	local recycle_squared = RECYCLE_POSE_THRESHOLD * RECYCLE_POSE_THRESHOLD
-	local reuse_squared = STEP_REUSE_POSE_THRESHOLD * STEP_REUSE_POSE_THRESHOLD
-	local active = pair.active_manifolds
+	local list_a, count_a, list_b, count_b
 
-	if not active then
-		active = {}
-		pair.active_manifolds = active
+	do
+		local entry_a = pair.entry_a
+		local entry_b = pair.entry_b
+		local body_a = entry_a.body
+		local body_b = entry_b.body
+		list_a, count_a = collider_index.Query(
+			body_a,
+			build_dispatch_query_aabb(body_a, body_b, entry_b.bounds),
+			DISPATCH_COLLIDERS_A
+		)
+		list_b, count_b = collider_index.Query(
+			body_b,
+			build_dispatch_query_aabb(body_b, body_a, entry_a.bounds),
+			DISPATCH_COLLIDERS_B
+		)
+
+		if not pair.active_manifolds then pair.active_manifolds = {} end
+
+		pair.active_count = 0
+		pair.active_stamp = step_stamp
+
+		if not body_a:ShouldCollide(body_b) then return false end
 	end
 
-	local active_count = 0
-	pair.active_stamp = step_stamp
-
 	for i = 1, count_a do
-		local collider_a = list_a[i]
-
 		for j = 1, count_b do
-			local collider_b = list_b[j]
+			local manifold = contact_resolution.GetPairManifold(solver.PersistentManifolds, list_a[i], list_b[j])
 
-			if body_a:ShouldCollide(body_b) then
-				local manifold = contact_resolution.GetPairManifold(persistent_manifolds, collider_a, collider_b)
+			if manifold and not manifold.solve_a then manifold = nil end
 
-				if manifold and not manifold.solve_a then manifold = nil end
+			local usable = false
 
-				local usable = false
+			if manifold and manifold.last_rebuild_step >= 0 then
+				local recycled = manifold.last_rebuild_step < solver.CollideStamp
+				local squared = recycled and RECYCLE_SQUARED or REUSE_SQUARED
+				local rotation_dot = recycled and RECYCLE_ROTATION_DOT or STEP_REUSE_ROTATION_DOT
+				usable = not (
+					pair_solver_helpers.IsPoseInvalidated(manifold.solve_a, manifold.rebuild_pose_a, squared, rotation_dot) or
+					pair_solver_helpers.IsPoseInvalidated(manifold.solve_b, manifold.rebuild_pose_b, squared, rotation_dot)
+				)
+			end
 
-				if manifold and manifold.last_rebuild_step >= 0 then
-					local recycled = manifold.last_rebuild_step < collide_stamp
-					local squared = recycled and recycle_squared or reuse_squared
-					local rotation_dot = recycled and RECYCLE_ROTATION_DOT or STEP_REUSE_ROTATION_DOT
-					usable = not (
-						pair_solver_helpers.IsPoseInvalidated(manifold.solve_a, manifold.rebuild_pose_a, squared, rotation_dot) or
-						pair_solver_helpers.IsPoseInvalidated(manifold.solve_b, manifold.rebuild_pose_b, squared, rotation_dot)
-					)
-				end
+			if usable then
+				manifold.last_seen_step = step_stamp
+				stats:Count("collider_pairs_reused")
+				contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, false)
+				handled = true
+			elseif mode == "collide" or manifold then
+				stats:Count("collider_pairs_rebuilt")
+				local result, found = pair_solver_helpers.TryInvokePairHandler(solver, list_a[i], list_b[j], pair.entry_a, pair.entry_b, dt)
 
-				if usable then
-					manifold.last_seen_step = step_stamp
-					stats:Count("collider_pairs_reused")
-					contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, false)
-					handled = true
-				elseif mode == "collide" or manifold then
-					stats:Count("collider_pairs_rebuilt")
-					local result, found = pair_solver_helpers.TryInvokePairHandler(solver, collider_a, collider_b, entry_a, entry_b, dt)
+				if found and result then handled = true end
 
-					if found and result then handled = true end
+				manifold = contact_resolution.GetPairManifold(solver.PersistentManifolds, list_a[i], list_b[j])
+			end
 
-					manifold = contact_resolution.GetPairManifold(persistent_manifolds, collider_a, collider_b)
-				end
-
-				if manifold and manifold.solve_a and manifold.last_warm_step == step_stamp then
-					active_count = active_count + 1
-					active[active_count] = manifold
-				end
+			if manifold and manifold.solve_a and manifold.last_warm_step == step_stamp then
+				pair.active_count = pair.active_count + 1
+				pair.active_manifolds[pair.active_count] = manifold
 			end
 		end
 	end
 
-	pair.active_count = active_count
 	return handled
 end
 

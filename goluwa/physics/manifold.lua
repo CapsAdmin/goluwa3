@@ -120,14 +120,7 @@ end
 local CLAIMED = {}
 
 function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
-	local previous_contacts = manifold_data.contacts or EMPTY_CONTACTS
-	local previous_count = #previous_contacts
 	local rebuilt = manifold_data.spare_contacts or {}
-	local claimed = CLAIMED
-
-	for i = 1, previous_count do
-		claimed[i] = false
-	end
 
 	for contact_index = 1, #contacts do
 		local rebuilt_contact = rebuilt[contact_index]
@@ -147,8 +140,14 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 		body_b:WorldToLocal(contacts[contact_index].point_b, nil, nil, rebuilt_contact.local_point_b)
 	end
 
-	body_a = nil
-	body_b = nil
+	body_a, body_b = nil, nil
+	local previous_contacts = manifold_data.contacts or EMPTY_CONTACTS
+	local previous_count = #previous_contacts
+	local claimed = CLAIMED
+
+	for i = 1, previous_count do
+		claimed[i] = false
+	end
 
 	for contact_index = 1, #contacts do
 		local rebuilt_contact = rebuilt[contact_index]
@@ -615,7 +614,11 @@ function manifold.SolveImpulses(
 
 		end
 
-		if pass == passes and (dynamic_friction > 0 or static_friction > 0) then
+	end
+
+	passes = nil
+
+		if dynamic_friction > 0 or static_friction > 0 then
 			for contact_index = 1, #manifold_data.contacts do
 				local contact = manifold_data.contacts[contact_index]
 
@@ -851,7 +854,7 @@ function manifold.SolveImpulses(
 			end
 		end
 
-		if pass == passes and manifold_data.twist_mass > 0 and dynamic_friction > 0 then
+		if manifold_data.twist_mass > 0 and dynamic_friction > 0 then
 			local twist_limit = 0
 
 			for contact_index = 1, #manifold_data.contacts do
@@ -891,7 +894,6 @@ function manifold.SolveImpulses(
 				body_b.AngularVelocity.z = body_b.AngularVelocity.z + d.z
 			end
 		end
-	end
 
 	body_a.PositionCorrection = math.max(body_a.PositionCorrection, position_correction)
 	body_b.PositionCorrection = math.max(body_b.PositionCorrection, position_correction)

@@ -350,6 +350,7 @@ local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts
 
 	if manifold.last_rebuild_step ~= solver.StepStamp then
 		manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
+		body_a, body_b, options = nil, nil, nil
 		manifold.prepared_step = nil
 		local deepest = -math.huge
 		local normal_x, normal_y, normal_z = normal.x, normal.y, normal.z
