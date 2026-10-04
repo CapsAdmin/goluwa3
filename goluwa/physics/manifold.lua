@@ -223,10 +223,10 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 			rebuilt_contact.tangent_impulse = 0
 			rebuilt_contact.tangent_impulse_1 = 0
 			rebuilt_contact.tangent_impulse_2 = 0
-			rebuilt_contact.v_pre = nil
+			rebuilt_contact.v_pre = 0
 			rebuilt_contact.rest_stamp = nil
 			rebuilt_contact.rest_speed = nil
-			rebuilt_contact.rest_total = nil
+			rebuilt_contact.rest_total = 0
 			rebuilt_contact.rest_impulse = nil
 			rebuilt_contact.static_friction_active = 0
 			rebuilt_contact.tangent = nil
@@ -553,7 +553,7 @@ function manifold.SolveImpulses(
 						body_b.Velocity.z - body_a.Velocity.z
 					) * normal.z + body_b.AngularVelocity.x * contact.cb_x + body_b.AngularVelocity.y * contact.cb_y + body_b.AngularVelocity.z * contact.cb_z - body_a.AngularVelocity.x * contact.ca_x - body_a.AngularVelocity.y * contact.ca_y - body_a.AngularVelocity.z * contact.ca_z
 				local effective_speed = normal_speed
-				local gap = contact.separation - (contact.v_pre or 0) * dt
+				local gap = contact.separation - contact.v_pre * dt
 				local open_gap = 0
 
 				if speculative then open_gap = math.min(1, math.max(0, gap * 1e30)) end
@@ -578,15 +578,14 @@ function manifold.SolveImpulses(
 					) / contact.normal_inverse_mass - (
 						1 - open_gap
 					) * soft_impulse_scale * (
-						contact.normal_impulse or
-						0
+						contact.normal_impulse
 					)
-				local new_impulse = math.max((contact.normal_impulse or 0) + normal_impulse, 0)
-				local impulse_delta = new_impulse - (contact.normal_impulse or 0)
+				local new_impulse = math.max(contact.normal_impulse + normal_impulse, 0)
+				local impulse_delta = new_impulse - contact.normal_impulse
 				contact.normal_impulse = new_impulse
 
 				if bounces then
-					contact.rest_total = (contact.rest_total or 0) + new_impulse
+					contact.rest_total = contact.rest_total + new_impulse
 				end
 
 				if math.abs(impulse_delta) > EPSILON then
@@ -754,7 +753,7 @@ function manifold.SolveImpulses(
 						do
 						local impulse_1 = FRICTION_BASIS.numerator_1 / inverse_mass_1
 						local impulse_2 = FRICTION_BASIS.numerator_2 / inverse_mass_2
-						local normal_impulse = contact.normal_impulse or 0
+						local normal_impulse = contact.normal_impulse
 						local static_flag = math.max(
 							math.min(1, math.max(0, (normal_impulse * static_friction) * 1e8)) * math.min(
 									1,
@@ -782,8 +781,8 @@ function manifold.SolveImpulses(
 						local previous_2 = 0
 
 						if allow_persistent_tangent then
-							previous_1 = contact.tangent_impulse_1 or contact.tangent_impulse or 0
-							previous_2 = contact.tangent_impulse_2 or 0
+							previous_1 = contact.tangent_impulse_1
+							previous_2 = contact.tangent_impulse_2
 						end
 
 						local new_1 = previous_1 + impulse_1
@@ -859,8 +858,7 @@ function manifold.SolveImpulses(
 
 			for contact_index = 1, #manifold_data.contacts do
 				twist_limit = twist_limit + manifold_data.contacts[contact_index].lever_arm * (
-						manifold_data.contacts[contact_index].normal_impulse or
-						0
+						manifold_data.contacts[contact_index].normal_impulse
 					)
 			end
 

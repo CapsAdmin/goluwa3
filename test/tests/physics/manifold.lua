@@ -18,6 +18,15 @@ end
 local function solve_impulses(body_a, body_b, data)
 	local solver = body_a:GetPhysics().solver
 	local friction = solver:GetPairFriction(body_a, body_b)
+
+	for _, contact in ipairs(data.contacts) do
+		contact.v_pre = contact.v_pre or 0
+		contact.rest_total = contact.rest_total or 0
+		contact.normal_impulse = contact.normal_impulse or 0
+		contact.tangent_impulse_1 = contact.tangent_impulse_1 or contact.tangent_impulse or 0
+		contact.tangent_impulse_2 = contact.tangent_impulse_2 or 0
+	end
+
 	manifold.SolveImpulses(
 		body_a,
 		body_b,
