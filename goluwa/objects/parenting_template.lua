@@ -317,11 +317,20 @@ return function(META)
 					stack[#stack] = nil
 					remove_list[#remove_list + 1] = obj
 
-					if obj.PreRemoveChildren and obj:PreRemoveChildren() == false then
-						obj.__protected_remove = true
+					if obj.PreRemoveChildren then
+						local descendants = obj:GetChildrenList()
 
-						for _, obj in ipairs(obj:GetChildrenList()) do
+						for _, child in ipairs(descendants) do
+							child.__bulk_remove_mark = nil
+							child.__skip_remove_children = nil
+						end
+
+						if obj:PreRemoveChildren() == false then
 							obj.__protected_remove = true
+
+							for _, child in ipairs(descendants) do
+								if not child.__removed then child.__protected_remove = true end
+							end
 						end
 					end
 				else
