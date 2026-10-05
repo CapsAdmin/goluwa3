@@ -174,6 +174,28 @@ function surface_lighting.GetGLSL(block_name)
 					shadow_factor = calculateShadow(world_pos, shadow_N, L) * shadow_facing;
 				}
 
+				#ifdef SHADOW_SCREEN_SPACE
+				// the shadow maps' texels are too coarse for detail like grass, and their
+				// offsets against self shadowing carry the lookup past close occluders,
+				// so what the gbuffer shows is marched on top, for every kind of light
+				if (]] .. block_name .. [[.screen_shadows != 0 && shadow_factor > 0.0 && NoL > 0.0) {
+					float reach = ]] .. block_name .. [[.screen_shadow_length;
+					bool reach_is_light = false;
+
+					if (type == 0) {
+						reach = clamp(shadow_texel_world_size * 8.0, 0.5, reach);
+					} else if (type != 2) {
+						float light_distance = length(light.position.xyz - world_pos);
+						reach_is_light = light_distance <= reach;
+						reach = min(light_distance, reach);
+					}
+
+					float screen_visibility = screen_space_shadow_visibility(world_pos, shadow_N, L, reach, reach_is_light);
+					screen_shadow_term = min(screen_shadow_term, screen_visibility);
+					shadow_factor *= screen_visibility;
+				}
+				#endif
+
 				if (type == 0) {
 					shadow_factor *= get_cloud_shadow(world_pos);
 				} else if (

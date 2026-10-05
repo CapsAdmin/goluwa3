@@ -18,16 +18,38 @@ local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
-local SCREEN_SHADOW_TEXELS = 8
-local SCREEN_SHADOW_MIN_REACH = 0.5
-local SCREEN_SHADOW_MAX_REACH = 4
-local SCREEN_SHADOW_MAX_STEPS = 24
+local SCREEN_SHADOW_MAX_STEPS = 64
 local SCREEN_SHADOW_STRIDE = 1.5
 pvars.StartGroup("lighting", {store = false})
 local debug_direct = pvars.Setup2{
 	key = "lighting_debug_direct",
 	default = false,
 	help = "show only the direct light",
+}
+local screen_shadows = pvars.Setup2{
+	key = "screen_space_shadows",
+	default = true,
+	help = "march the depth buffer towards each light for contact shadows",
+}
+local screen_shadow_length = pvars.Setup2{
+	key = "screen_space_shadow_length",
+	default = 4,
+	min = 0.1,
+	max = 50,
+	help = "farthest a screen space shadow ray reaches, in meters",
+}
+local screen_shadow_steps = pvars.Setup2{
+	key = "screen_space_shadow_steps",
+	default = 24,
+	integer = true,
+	min = 2,
+	max = SCREEN_SHADOW_MAX_STEPS,
+	help = "most depth samples a screen space shadow ray takes",
+}
+local screen_shadows_debug = pvars.Setup2{
+	key = "screen_space_shadows_debug",
+	default = false,
+	help = "show only what the screen space shadows darken, white is untouched",
 }
 pvars.EndGroup()
 return {
@@ -75,6 +97,10 @@ return {
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
 					{"noise_frame", "int"},
+					{"screen_shadows", "int"},
+					{"screen_shadows_debug", "int"},
+					{"screen_shadow_length", "float"},
+					{"screen_shadow_steps", "int"},
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
@@ -84,6 +110,10 @@ return {
 					block.gi_debug = ddgi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
+					block.screen_shadows = screen_shadows:Get() and 1 or 0
+					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
+					block.screen_shadow_length = screen_shadow_length:Get()
+					block.screen_shadow_steps = screen_shadow_steps:Get()
 					block.noise_frame = render3d.IsPassEnabled("taa") and system.GetFrameNumber() % 16 or 0
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
@@ -131,18 +161,30 @@ return {
 
 			#define SHADOW_SCREEN_SPACE
 
-			// marches the depth buffer from the surface towards the sun. what the gbuffer holds,
-			// grass and other detail the shadow maps are too coarse for included, shadows it.
-			// what is off screen doesn't
-			float screen_space_shadow_visibility(vec3 world_pos, vec3 normal, vec3 light_dir, float texel_world_size) {
-				float reach = clamp(texel_world_size * ]] .. string.format("%.1f", SCREEN_SHADOW_TEXELS) .. [[, ]] .. string.format("%.2f", SCREEN_SHADOW_MIN_REACH) .. [[, ]] .. string.format("%.2f", SCREEN_SHADOW_MAX_REACH) .. [[);
+			// the least visibility any light got from the march, for the debug view
+			float screen_shadow_term = 1.0;
+
+			// marches the depth buffer from the surface towards a light, reach meters long. what the
+			// gbuffer holds, grass and other detail the shadow maps are too coarse for included,
+			// shadows it. what is off screen doesn't. occluders cover a step partially at their
+			// edges, so shadows end soft and the jitter resolves through the taa. the ray fades out
+			// towards its end unless that is where the light is
+			float screen_space_shadow_visibility(vec3 world_pos, vec3 normal, vec3 light_dir, float reach, bool reach_is_light) {
 				vec3 start_vs = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
+				float view_fade = 1.0 - smoothstep(60.0, 120.0, -start_vs.z);
+
+				if (view_fade <= 0.0) return 1.0;
+
 				// off the surface by more than the depth reconstruction's error, which grows with distance
 				start_vs += mat3(lighting_data.view) * normal * (0.004 + 0.001 * -start_vs.z);
 				vec3 dir_vs = mat3(lighting_data.view) * light_dir;
 				float ray_len = reach;
+				float end_fade_start = reach_is_light ? 1.0 : 0.7;
 
-				if (start_vs.z + dir_vs.z * ray_len > -0.05) ray_len = (-0.05 - start_vs.z) / dir_vs.z;
+				if (start_vs.z + dir_vs.z * ray_len > -0.05) {
+					ray_len = (-0.05 - start_vs.z) / dir_vs.z;
+					end_fade_start = 1.0;
+				}
 
 				if (ray_len <= 1e-4) return 1.0;
 
@@ -157,7 +199,7 @@ return {
 				float q1 = end_vs.z * k1;
 				ivec2 depth_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
 				vec2 delta_px = (p1 - p0) * vec2(depth_size);
-				int steps = clamp(int(max(abs(delta_px.x), abs(delta_px.y)) / ]] .. string.format("%.2f", SCREEN_SHADOW_STRIDE) .. [[), 2, ]] .. SCREEN_SHADOW_MAX_STEPS .. [[);
+				int steps = clamp(int(max(abs(delta_px.x), abs(delta_px.y)) / ]] .. string.format("%.2f", SCREEN_SHADOW_STRIDE) .. [[), 2, lighting_data.screen_shadow_steps);
 				float dt = 1.0 / float(steps);
 				// interleaved gradient noise, moved on every frame while the taa is on, so it resolves the banding of the steps
 				float jitter = fract(52.9829189 * fract(dot(gl_GlobalInvocationID.xy, vec2(0.06711056, 0.00583715))) + float(lighting_data.noise_frame) * 0.618034);
@@ -166,12 +208,13 @@ return {
 				float depth_b = lighting_data.inv_projection[3][2];
 				float depth_c = lighting_data.inv_projection[2][3];
 				float depth_d = lighting_data.inv_projection[3][3];
+				float occlusion = 0.0;
 
 				for (int i = 0; i < steps; i++) {
 					float t = (float(i) + jitter) * dt;
 					vec2 uv = mix(p0, p1, t);
 
-					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 1.0;
+					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
 
 					float depth = texelFetch(TEXTURE(lighting_data.depth_tex), min(ivec2(uv * vec2(depth_size)), depth_size - 1), 0).r;
 
@@ -182,12 +225,16 @@ return {
 					float diff = z_surf - z_ray;
 					float bias = 0.005 + 0.002 * -z_surf;
 					float thickness = 0.05 + 0.005 * -z_surf + step_z;
+					float coverage = smoothstep(bias, bias * 3.0 + step_z * 0.25, diff) * (1.0 - smoothstep(thickness * 0.6, thickness, diff));
 
-					// fades out towards the end of the reach, so it doesn't end in an edge
-					if (diff > bias && diff < thickness) return smoothstep(0.7, 1.0, t);
+					if (coverage > 0.0) {
+						occlusion = max(occlusion, coverage * (1.0 - smoothstep(end_fade_start, 1.0001, t)));
+
+						if (occlusion >= 0.99) break;
+					}
 				}
 
-				return 1.0;
+				return 1.0 - occlusion * view_fade;
 			}
 
 			]] .. surface_lighting.GetGLSL("lighting_data") .. [[
@@ -355,8 +402,14 @@ return {
 				}
 
 				vec3 direct_specular;
+				screen_shadow_term = 1.0;
 				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, geometric_N, clearcoat, clearcoat_alpha, coat_N, direct_specular);
 				direct += direct_specular;
+
+				if (lighting_data.screen_shadows_debug != 0) {
+					set_color(vec4(vec3(screen_shadow_term * 0.1 * lighting_data.primary_sun_illuminance * get_pre_exposure()), 1.0));
+					return;
+				}
 
 				if (lighting_data.direct_debug != 0) {
 					set_color(vec4(min(direct * get_pre_exposure(), vec3(65504.0)), 1.0));

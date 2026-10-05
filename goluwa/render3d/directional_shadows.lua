@@ -515,14 +515,6 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 			float DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 normal, vec3 light_dir) {
 				float shadow = calculateShadowUnfaded(world_pos, normal, light_dir);
 
-				#ifdef SHADOW_SCREEN_SPACE
-				// the shadow maps' texels are too coarse for detail like grass, and their
-				// offsets against self shadowing carry the lookup past close occluders,
-				// so what the gbuffer shows is marched on top
-				if (shadow > 0.0) {
-					shadow *= screen_space_shadow_visibility(world_pos, normal, light_dir, shadow_texel_world_size);
-				}
-				#endif
 
 				return shadow;
 			}
