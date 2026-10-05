@@ -488,10 +488,8 @@ function manifold.SolveImpulses(
 	dynamic_friction,
 	static_friction
 )
-	local physics = body_a:GetPhysics()
-
 	do
-		local stamp = physics.solver.StepStamp or 0
+		local stamp = body_a:GetPhysics().solver.StepStamp or 0
 
 		if manifold_data.prepared_step ~= stamp then
 			prepare_contacts(body_a, body_b, normal, manifold_data, stamp)
@@ -500,7 +498,7 @@ function manifold.SolveImpulses(
 
 	local bounces = restitution > 0
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
-	local passes = physics.solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
+	local passes = body_a:GetPhysics().solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
 	restitution = nil
 	local bias_rate = 0
 	local soft_mass_scale = 1
@@ -521,8 +519,8 @@ function manifold.SolveImpulses(
 			)
 		)
 	then
-		local hertz = math.min(physics.solver.CONTACT_HERTZ, 0.25 / dt)
-		local damping_ratio = physics.solver.CONTACT_DAMPING_RATIO
+		local hertz = math.min(body_a:GetPhysics().solver.CONTACT_HERTZ, 0.25 / dt)
+		local damping_ratio = body_a:GetPhysics().solver.CONTACT_DAMPING_RATIO
 
 		if manifold_data.prepared_mass_a == 0 or manifold_data.prepared_mass_b == 0 then
 			hertz = hertz * 2
@@ -558,15 +556,15 @@ function manifold.SolveImpulses(
 
 				if speculative then open_gap = math.min(1, math.max(0, gap * 1e30)) end
 
-				if relax and gap > physics.solver.RELAX_OPEN_GAP then open_gap = 1 end
+				if relax and gap > body_a:GetPhysics().solver.RELAX_OPEN_GAP then open_gap = 1 end
 
 				local bias = open_gap * gap / dt + (
 						1 - open_gap
 					) * math.max(
-						bias_rate * (gap + physics.solver.PENETRATION_SLOP),
-						-physics.solver.CONTACT_PUSH_SPEED
+						bias_rate * (gap + body_a:GetPhysics().solver.PENETRATION_SLOP),
+						-body_a:GetPhysics().solver.CONTACT_PUSH_SPEED
 					)
-				position_correction = math.max(position_correction, -(gap + physics.solver.PENETRATION_SLOP) * (1 - open_gap))
+				position_correction = math.max(position_correction, -(gap + body_a:GetPhysics().solver.PENETRATION_SLOP) * (1 - open_gap))
 				local normal_impulse = -(
 						1 + (
 							1 - open_gap
@@ -766,10 +764,10 @@ function manifold.SolveImpulses(
 											) * 1e8 + 1
 									)
 								),
-							math.min(1, math.max(0, (physics.solver.STATIC_FRICTION_SPEED - FRICTION_BASIS.speed) * 1e8 + 1)),
+							math.min(1, math.max(0, (body_a:GetPhysics().solver.STATIC_FRICTION_SPEED - FRICTION_BASIS.speed) * 1e8 + 1)),
 							contact.static_friction_active * math.min(
 									1,
-									math.max(0, (physics.solver.STATIC_FRICTION_EXIT_SPEED - FRICTION_BASIS.speed) * 1e8 + 1)
+									math.max(0, (body_a:GetPhysics().solver.STATIC_FRICTION_EXIT_SPEED - FRICTION_BASIS.speed) * 1e8 + 1)
 								)
 						)
 						local max_tangent_impulse = normal_impulse * (

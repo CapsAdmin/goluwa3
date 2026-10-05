@@ -391,6 +391,15 @@ function RigidBody:RebuildColliders()
 	end
 
 	self.Colliders = colliders
+
+	if #colliders == 1 then
+		self.PhysicsShape = colliders[1]:GetPhysicsShape()
+		self.ShapeType = colliders[1]:GetShapeType()
+	else
+		self.PhysicsShape = nil
+		self.ShapeType = "compound"
+	end
+
 	self.CollisionLocalPoints = nil
 	self.SupportLocalPoints = nil
 	self.LocalBounds = nil
@@ -406,19 +415,15 @@ function RigidBody:GetColliders()
 end
 
 function RigidBody:GetPhysicsShape()
-	local colliders = self:GetColliders()
+	if not self.ShapeType then self:RebuildColliders() end
 
-	if #colliders ~= 1 then return nil end
-
-	return colliders[1]:GetPhysicsShape()
+	return self.PhysicsShape
 end
 
 function RigidBody:GetShapeType()
-	local colliders = self:GetColliders()
+	if not self.ShapeType then self:RebuildColliders() end
 
-	if #colliders ~= 1 then return "compound" end
-
-	return colliders[1]:GetShapeType()
+	return self.ShapeType
 end
 
 function RigidBody:OnAdd()
