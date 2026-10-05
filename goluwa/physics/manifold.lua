@@ -151,9 +151,10 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 
 	for contact_index = 1, #contacts do
 		local rebuilt_contact = rebuilt[contact_index]
-		local matched_index
+		local matched_contact
 
 		do
+			local matched_index
 			local feature_key = contacts[contact_index].feature_key
 
 			if feature_key then
@@ -193,11 +194,12 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 					end
 				end
 			end
+
+			if matched_index then
+				claimed[matched_index] = true
+				matched_contact = previous_contacts[matched_index]
+			end
 		end
-
-		local matched_contact = matched_index and previous_contacts[matched_index] or nil
-
-		if matched_index then claimed[matched_index] = true end
 
 		if matched_contact then
 			local tangent_impulse = matched_contact.tangent_impulse
