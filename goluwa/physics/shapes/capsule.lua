@@ -387,19 +387,23 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	local physics = body:GetPhysics()
 	local ground_body = body.GroundBody
 	local ground_shape = ground_body and ground_body:GetPhysicsShape() or nil
-	local pair_friction = 0
-	local ground_friction = ground_body and (ground_body:GetFriction() or 0) or 0
+	local friction
 
-	if ground_body and physics and physics.solver and physics.solver.GetPairFriction then
-		pair_friction = physics.solver:GetPairFriction(body, ground_body) or 0
+	do
+		local pair_friction = 0
+		local ground_friction = ground_body and (ground_body:GetFriction() or 0) or 0
+
+		if ground_body and physics and physics.solver and physics.solver.GetPairFriction then
+			pair_friction = physics.solver:GetPairFriction(body, ground_body) or 0
+		end
+
+		friction = math.max(
+			body:GetGroundRollingFriction() or 0,
+			body:GetFriction() or 0,
+			pair_friction,
+			ground_friction
+		)
 	end
-
-	local friction = math.max(
-		body:GetGroundRollingFriction() or 0,
-		body:GetFriction() or 0,
-		pair_friction,
-		ground_friction
-	)
 
 	if friction <= 0 then return end
 
@@ -416,13 +420,11 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	local flat_ground = ground_normal.y >= math.max(body:GetMinGroundNormalY() or 0, 0.75)
 
 	if not is_heightmap_ground then
-		local side_alignment = math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment))
 		local terrain_like_ground = ground_body and
 			(
 				ground_body.WorldGeometry == true or
 				ground_body:GetShapeType() == "mesh"
 			)
-		local slenderness = self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON)
 
 		if flat_ground and upright_alignment >= 0.88 and math.abs(normal_speed) <= 0.18 then
 			zero_normal_velocity = true
@@ -433,7 +435,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 			flat_ground and
 			upright_alignment > 0.45 and
 			upright_alignment < 0.995 and
-			slenderness >= 2.2 and
+			self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON) >= 2.2 and
 			tangent_speed <= 0.75
 		then
 			local topple_axis = body.AngularVelocity - axis * body.AngularVelocity:Dot(axis)
@@ -445,13 +447,13 @@ function META:OnGroundedVelocityUpdate(body, dt)
 			if topple_axis:GetLength() > EPSILON then
 				topple_axis = topple_axis:GetNormalized()
 				local instability = math.max(
-					side_alignment * math.max(upright_alignment, 0.35),
+					math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * math.max(upright_alignment, 0.35),
 					math.max(0, (upright_alignment - 0.84) / 0.15)
 				)
-				local topple_speed = friction * instability * math.max(slenderness - 1, 0) * 1.6
+				local topple_speed = friction * instability * math.max(self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON) - 1, 0) * 1.6
 				topple_speed = math.min(
 					topple_speed,
-					0.45 + side_alignment * 0.4 + (upright_alignment >= 0.9 and 0.1 or 0)
+					0.45 + math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * 0.4 + (upright_alignment >= 0.9 and 0.1 or 0)
 				)
 				local topple_component = body.AngularVelocity:Dot(topple_axis)
 
@@ -502,7 +504,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 
 			if off_axis_angular:GetLength() < 0.03 then off_axis_angular = Vec3(0, 0, 0) end
 		elseif nearly_stationary and off_axis_angular:GetLength() > 0.0001 then
-			local off_axis_damping = math.exp(-(friction * (0.7 + side_alignment * 1.8)) * dt)
+			local off_axis_damping = math.exp(-(friction * (0.7 + math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * 1.8)) * dt)
 			off_axis_angular = off_axis_angular * off_axis_damping
 
 			if off_axis_angular:GetLength() < 0.02 then off_axis_angular = Vec3(0, 0, 0) end
