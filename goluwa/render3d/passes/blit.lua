@@ -7,7 +7,6 @@ local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local assets = import("goluwa/assets.lua")
-local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local KEY = 0.28
 local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
@@ -814,14 +813,14 @@ local compute_shader = [[
 		col = mix(col, mix(vec3(1.0), ROD_TINT, compute.night_vision_tint) * dot(max(col, vec3(0.0)), ROD_RESPONSE), (1.0 - cones) * compute.night_vision);
 
 		if (compute.output_mode == 0) {
-			col = clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0);
+			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0);
 
 			// dithered in the sRGB encoding the output is quantized in
 			col = SRGBToLinear(dither(LinearToSRGB(col), blue_noise(pos), compute.dither_steps));
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
 		} else {
-			vec3 nits = tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper) * compute.hdr_paper_white;
+			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper) * compute.hdr_paper_white;
 
 			if (compute.output_mode == 1) {
 				// scRGB: linear BT.709, 1.0 = 80 nits. fp16 doesn't band, but the
@@ -929,12 +928,13 @@ for _, pass in ipairs{
 			{"night_vision", "float"},
 			{"night_vision_log10_threshold", "float"},
 			{"night_vision_tint", "float"},
+			{"debug_passthrough", "int"},
 			local_exposure_block,
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
 			block.frame = system.GetFrameNumber()
-			block.has_bloom_tex = get_bloom_texture() and ambient_occlusion.GetDebugView() == 0 and 1 or 0
+			block.has_bloom_tex = get_bloom_texture() and 1 or 0
 			block.has_exposure_tex = get_exposure_feedback_texture() and 1 or 0
 			block.requires_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
 			block.output_mode = render.target:GetColorSpace() == "extended_srgb_linear_ext" and
@@ -955,8 +955,10 @@ for _, pass in ipairs{
 			block.night_vision_log10_threshold = math.log(night_vision_threshold:Get()) / math.log(10)
 			block.night_vision_tint = night_vision_tint:Get()
 			write_local_exposure_block(block)
+			block.debug_passthrough = post_source.GetDebugTexture() and 1 or 0
 
-			if ambient_occlusion.GetDebugView() ~= 0 then
+			if block.debug_passthrough == 1 then
+				block.has_bloom_tex = 0
 				block.has_grid_tex = 0
 				block.night_vision = 0
 			end

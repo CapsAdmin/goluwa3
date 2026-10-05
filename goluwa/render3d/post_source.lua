@@ -1,6 +1,7 @@
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
+local normal_debug = import("goluwa/render3d/normal_debug.lua")
 local post_source = {}
 
 function post_source.GetOpaqueSceneFramebuffer()
@@ -49,17 +50,25 @@ function post_source.GetRawSceneSourceTexture()
 	return post_source.GetFoggedOpaqueSceneTexture()
 end
 
-function post_source.GetSceneSourceTexture(self)
+-- a debug pass's output is display referred: linear 0..1 shown as is, skipping exposure, tonemapping and bloom
+function post_source.GetDebugTexture()
+	if normal_debug.GetView() ~= 0 then
+		return render3d.pipelines.normal_debug:GetFramebuffer():GetAttachment(1)
+	end
+
 	if
-		(
-			self.name == "blit_compute" or
-			self.name == "blit_scene"
-		)
-		and
 		ambient_occlusion.GetDebugView() ~= 0 and
 		render3d.IsPassEnabled("ambient_occlusion_debug")
 	then
 		return render3d.pipelines.ambient_occlusion_debug:GetFramebuffer():GetAttachment(1)
+	end
+end
+
+function post_source.GetSceneSourceTexture(self)
+	if self.name == "blit_compute" or self.name == "blit_scene" then
+		local debug_texture = post_source.GetDebugTexture()
+
+		if debug_texture then return debug_texture end
 	end
 
 	if self.name ~= "taa" and render3d.IsPassEnabled("taa") then

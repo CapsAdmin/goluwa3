@@ -37,17 +37,18 @@ return {
 			void main() {
 				ivec2 pixel = ivec2(gl_FragCoord.xy);
 				vec4 bounce_ao = texelFetch(TEXTURE(debug_data.ao_tex), pixel, 0);
-				// a surface lit by a thirtieth of the sun's illuminance reads as a light grey
-				float white = 0.03 * debug_data.primary_sun_illuminance * get_pre_exposure();
+				// bounce light lit by a thirtieth of the sun's illuminance reads as a mid grey
+				float reference = 0.03 * debug_data.primary_sun_illuminance;
 				vec3 shown;
 
 				if (debug_data.view == ]] .. ambient_occlusion.DEBUG_AO .. [[) {
-					shown = vec3(bounce_ao.a * white);
+					shown = vec3(bounce_ao.a);
 				} else if (debug_data.view == ]] .. ambient_occlusion.DEBUG_BOUNCE .. [[) {
-					shown = bounce_ao.rgb;
+					vec3 radiance = bounce_ao.rgb / get_pre_exposure();
+					shown = radiance / (radiance + reference);
 				} else {
 					vec3 bent = texelFetch(TEXTURE(debug_data.bent_tex), pixel, 0).xyz;
-					shown = (length(bent) > 0.01 ? normalize(bent) * 0.5 + 0.5 : vec3(0.0)) * white;
+					shown = (length(bent) > 0.01 ? normalize(bent) * 0.5 + 0.5 : vec3(0.0));
 				}
 
 				set_color(vec4(shown, 1.0));

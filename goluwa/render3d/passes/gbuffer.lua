@@ -7,6 +7,7 @@ local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local grass = import("goluwa/render3d/grass.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local system = import("goluwa/system.lua")
+local normal_debug = import("goluwa/render3d/normal_debug.lua")
 local camera_block = {
 	name = "gbuffer_data",
 	binding_index = 3,
@@ -14,11 +15,13 @@ local camera_block = {
 		render3d.camera_block,
 		render3d.prev_camera_block,
 		surface_weather.block,
+		{"normal_debug", "int"},
 	},
 	write = function(self, block)
 		render3d.WriteCameraBlock(self, block)
 		render3d.WritePreviousCameraBlock(self, block)
 		surface_weather.WriteBlock(self, block)
+		block.normal_debug = normal_debug.GetView()
 		return block
 	end,
 	upload_scope = "frame",
@@ -290,6 +293,12 @@ local function build_ssdm_fragment_shader(write_depth)
 			roughness = get_antialiased_roughness(normal, roughness);
 			set_alpha(alpha);
 			set_albedo(albedo);
+			if (gbuffer_data.normal_debug == 1) {
+				normal = tbn[2];
+			} else if (gbuffer_data.normal_debug == 2) {
+				normal = get_normal_map(displacement.uv);
+			}
+
 			set_normal(gbuffer_encode_normal(normal));
 			set_transmission_scattering(get_transmission_scattering());
 			vec2 transmission_tint = gbuffer_encode_transmission_tint(get_transmission_color());

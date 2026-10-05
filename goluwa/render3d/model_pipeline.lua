@@ -1688,6 +1688,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					}
 				}
 
+				N = normalize(vec3(N.xy * ]] .. camera_block_name .. [[.normal_map_strength, N.z));
+
 				// crysis detail bump: two octaves centered on 0.5 offset the normal's slope
 				if (detail_model.DetailTexture != -1) {
 					vec2 detail_uv = uv * detail_model.DetailTiling;

@@ -46,6 +46,15 @@ function render3d.GetGPUCulling()
 	return gpu_culling
 end
 
+pvars.StartGroup("normal_map", {store = false})
+local normal_map_strength = pvars.Setup2{
+	key = "r_normal_map_strength",
+	default = 1.0,
+	min = 0,
+	max = 4,
+	help = "scales how far normal maps tilt the surface normal, 0 is the vertex normal only",
+}
+pvars.EndGroup()
 render3d.camera_block = {
 	{"inv_view", "mat4"},
 	{"inv_projection", "mat4"},
@@ -53,6 +62,7 @@ render3d.camera_block = {
 	{"projection", "mat4"},
 	{"render_size", "vec2"},
 	{"camera_position", "vec3"},
+	{"normal_map_strength", "float"},
 }
 
 function render3d.WriteCameraBlock(self, block)
@@ -67,6 +77,7 @@ function render3d.WriteCameraBlock(self, block)
 	block.render_size[0] = size and size.x or 1
 	block.render_size[1] = size and size.y or 1
 	camera:GetPosition():CopyToFloatPointer(block.camera_position)
+	block.normal_map_strength = normal_map_strength:Get()
 	return block
 end
 
@@ -255,6 +266,7 @@ local default_passes = {
 	{"forward_overlay", "goluwa/render3d/passes/forward_overlay.lua"},
 	{"taa", "goluwa/render3d/passes/taa.lua"},
 	{"ambient_occlusion_debug", "goluwa/render3d/passes/ambient_occlusion_debug.lua"},
+	{"normal_debug", "goluwa/render3d/passes/normal_debug.lua"},
 	{"blit", "goluwa/render3d/passes/blit.lua"},
 }
 local pass_vars = {}
