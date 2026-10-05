@@ -133,7 +133,7 @@ function jit_options.SetOptimized()
 			hotexit = 10,
 			tryside = 4,
 			instunroll = 4,
-			loopunroll = 15,
+			loopunroll = 40,
 			callunroll = 3,
 			recunroll = 2,
 		},
