@@ -1227,6 +1227,7 @@ function steam.LoadMap(path)
 
 	local models = {}
 	local displacement_collision_meshes = {}
+	local weld_groups = {}
 	header.lowest_point = get_model_lowest_point(header.models and header.models[1])
 	header.ocean_level = nil
 
@@ -1497,17 +1498,16 @@ function steam.LoadMap(path)
 												math.floor(pos.x * 4 + 0.5) + 65536
 											) * 131072 + math.floor(pos.y * 4 + 0.5) + 65536
 										) * 131072 + math.floor(pos.z * 4 + 0.5) + 65536
-									local normal = welded_normals[key]
+									local group = welded_normals[key]
 
-									if not normal then
-										normal = Vec3(0, 0, 0)
-										welded_normals[key] = normal
+									if not group then
+										group = {}
+										welded_normals[key] = group
 									end
 
-									normal.x = normal.x + disp_nx[i]
-									normal.y = normal.y + disp_ny[i]
-									normal.z = normal.z + disp_nz[i]
-									normals[i] = normal
+									normals[i] = Vec3(disp_nx[i], disp_ny[i], disp_nz[i])
+									weld_groups[normals[i]] = group
+									group[#group + 1] = normals[i]
 								else
 									normals[i] = Vec3(disp_nx[i], disp_ny[i], disp_nz[i])
 								end
@@ -1825,8 +1825,20 @@ function steam.LoadMap(path)
 					local disp_normal = vertex.disp_normal
 
 					if disp_normal and (disp_normal.x ~= 0 or disp_normal.y ~= 0 or disp_normal.z ~= 0) then
-						disp_normal:Normalize()
-						vertex.normal = disp_normal
+						local group = weld_groups[disp_normal]
+
+						if group then
+							local own = disp_normal:GetNormalized()
+							local sum = Vec3(0, 0, 0)
+
+							for _, other in ipairs(group) do
+								if other:GetNormalized():Dot(own) > 0.5 then sum = sum + other end
+							end
+
+							vertex.normal = sum:GetNormalized()
+						else
+							vertex.normal = disp_normal:GetNormalized()
+						end
 					end
 				end
 
