@@ -6,7 +6,7 @@ local resource = import("goluwa/resource.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local Markup = import("goluwa/render2d/markup.lua")
-local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
+local MarkupPanel = import("goluwa/render2d/ui/elements/markup_panel.lua")
 local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local input = import("goluwa/input.lua")
@@ -160,36 +160,12 @@ function chatbox.Show()
 			Title = "chat",
 			Padding = "XS",
 		}{
-			ScrollablePanel{
-				ScrollY = true,
-				ScrollBarAutoHide = true,
-				ScrollBarVisible = true,
+			MarkupPanel{
+				Markup = chatbox.markup_chatbox,
 				layout = {
 					MinSize = Vec2(0, 0),
 					MaxSize = Vec2(10000, 10000),
 					GrowHeight = 1,
-				},
-			}{
-				Panel.New{
-					Name = "markup_container",
-					transform = true,
-					layout = {
-						MinSize = Vec2(50, 50),
-					},
-					visual = true,
-					OnDraw = function(self)
-						local w = chatbox.markup_chatbox.width or 0
-						local h = chatbox.markup_chatbox.height or 0
-						local size = self:GetParent().transform:GetSize()
-						render2d.SetColor(0, 0, 0, 1)
-						render2d.DrawRect(0, 0, size.x, size.y)
-						render2d.PushMatrix(4, 4)
-						chatbox.markup_chatbox:Update()
-						chatbox.markup_chatbox:Draw()
-						chatbox.markup_chatbox:SetMaxWidth(size.w)
-						self.transform:SetSize(Vec2(w, h))
-						render2d.PopMatrix()
-					end,
 				},
 			},
 			TextEdit{
@@ -223,10 +199,8 @@ function chatbox.Show()
 						chatbox.autocomplete_results = {}
 						return true
 					elseif key == "enter" then
-						local text = chatbox.text_edit:GetText()
-
-						if text and text ~= "" and not input.IsShiftDown() then
-							event.Call("ChatBoxInput", tostring(text))
+						if not input.IsShiftDown() then
+							event.Call("ChatBoxInput", chatbox.text_edit:GetText())
 							chatbox.Hide()
 							chatbox.autocomplete_results = {}
 							return true
