@@ -74,6 +74,7 @@ return {
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
+					{"noise_frame", "int"},
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
@@ -83,6 +84,7 @@ return {
 					block.gi_debug = ddgi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
+					block.noise_frame = render3d.IsPassEnabled("taa") and system.GetFrameNumber() % 16 or 0
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -157,8 +159,8 @@ return {
 				vec2 delta_px = (p1 - p0) * vec2(depth_size);
 				int steps = clamp(int(max(abs(delta_px.x), abs(delta_px.y)) / ]] .. string.format("%.2f", SCREEN_SHADOW_STRIDE) .. [[), 2, ]] .. SCREEN_SHADOW_MAX_STEPS .. [[);
 				float dt = 1.0 / float(steps);
-				// interleaved gradient noise, moved on every frame so the taa resolves the banding of the steps
-				float jitter = fract(52.9829189 * fract(dot(gl_GlobalInvocationID.xy, vec2(0.06711056, 0.00583715))) + float(int(lighting_data.time * 60.0) % 16) * 0.618034);
+				// interleaved gradient noise, moved on every frame while the taa is on, so it resolves the banding of the steps
+				float jitter = fract(52.9829189 * fract(dot(gl_GlobalInvocationID.xy, vec2(0.06711056, 0.00583715))) + float(lighting_data.noise_frame) * 0.618034);
 				float step_z = abs(dir_vs.z) * ray_len * dt;
 				float depth_a = lighting_data.inv_projection[2][2];
 				float depth_b = lighting_data.inv_projection[3][2];

@@ -50,6 +50,10 @@ end
 
 function post_source.GetSceneSourceTexture(self)
 	if self.name ~= "taa" and render3d.IsPassEnabled("taa") then
+		if render3d.pipelines.taa_sharpen.is_enabled() then
+			return render3d.pipelines.taa_sharpen:GetFramebuffer():GetAttachment(1)
+		end
+
 		return render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
 	end
 
@@ -102,6 +106,38 @@ function post_source.GetPreExposureGLSL(block_name)
 
 		float get_previous_pre_exposure() {
 			return read_pre_exposure(]] .. block_name .. [[.prev_pre_exposure_tex);
+		}
+	]]
+end
+
+function post_source.GetCompressGLSL()
+	return [[
+		vec3 rgb_to_ycocg(vec3 c) {
+			return vec3(
+				0.25 * c.r + 0.5 * c.g + 0.25 * c.b,
+				0.5 * c.r - 0.5 * c.b,
+				-0.25 * c.r + 0.5 * c.g - 0.25 * c.b
+			);
+		}
+
+		vec3 ycocg_to_rgb(vec3 c) {
+			return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
+		}
+
+		float get_luma(vec3 c) {
+			return dot(c, vec3(0.2126, 0.7152, 0.0722));
+		}
+
+		// exposed and Reinhard compressed by luminance, so the inverse is exact. 1 - luma
+		// keeps float precision to ~1e6 exposed, the sun's disc is ~5e4 at noon
+		vec3 compress(vec3 c, float exposure) {
+			c *= exposure;
+			return rgb_to_ycocg(c / (1.0 + get_luma(c)));
+		}
+
+		vec3 decompress(vec3 c, float exposure) {
+			vec3 rgb = max(ycocg_to_rgb(c), vec3(0.0));
+			return rgb / max(1.0 - get_luma(rgb), 1e-6) / exposure;
 		}
 	]]
 end

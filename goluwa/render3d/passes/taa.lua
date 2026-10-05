@@ -4,6 +4,8 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
+local pvars = import("goluwa/cli/pvars.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local SAMPLES = {}
 
 do
@@ -19,11 +21,20 @@ do
 		return r
 	end
 
-	for i = 1, 8 do
+	for i = 1, 16 do
 		SAMPLES[i] = Vec2(halton(i, 2) - 0.5, halton(i, 3) - 0.5)
 	end
 end
 
+pvars.StartGroup("taa", {store = false})
+local strength = pvars.Setup2{
+	key = "r_taa_sharpen",
+	default = 0.5,
+	min = 0,
+	max = 2,
+	help = "how much the taa output is sharpened to win back what the history resampling blurs, 0 is off",
+}
+pvars.EndGroup()
 local ZERO = Vec2(0, 0)
 local last_frame = -1
 local last_width, last_height = 0, 0
@@ -50,6 +61,7 @@ return {
 						{"jitter", "vec2"},
 						{"source_tex", "int"},
 						{"history_tex", "int"},
+						{"ocean_distance_tex", "int"},
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
 						{"translucent_motion_tex", "int"},
@@ -65,6 +77,15 @@ return {
 						local frame = system.GetFrameNumber()
 						block.source_tex = self:GetTextureIndex(post_source.GetSceneSourceTexture({name = "taa"}))
 						block.history_tex = self:GetTextureIndex(render3d.pipelines.taa:GetFramebuffer((frame + 1) % 2 + 1):GetAttachment(1))
+						block.ocean_distance_tex = render3d.IsPassEnabled("ocean") and
+							(
+								render3d.IsOceanEnabled() or
+								render3d.IsWaterEnabled()
+							)
+							and
+							render3d.pipelines.ocean.framebuffers and
+							self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(frame % 2 + 1):GetAttachment(2)) or
+							-1
 						block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
 						block.velocity_tex = render3d.velocity_enabled:Get() and
 							self:GetTextureIndex(gbuffer_layout.GetTexture("velocity")) or
@@ -89,35 +110,9 @@ return {
 				},
 			},
 			shader = [[
-			vec3 rgb_to_ycocg(vec3 c) {
-				return vec3(
-					0.25 * c.r + 0.5 * c.g + 0.25 * c.b,
-					0.5 * c.r - 0.5 * c.b,
-					-0.25 * c.r + 0.5 * c.g - 0.25 * c.b
-				);
-			}
+]] .. post_source.GetCompressGLSL() .. post_source.GetPreExposureGLSL("taa_data") .. [[
 
-			vec3 ycocg_to_rgb(vec3 c) {
-				return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
-			}
-
-			float get_luma(vec3 c) {
-				return dot(c, vec3(0.2126, 0.7152, 0.0722));
-			}
-
-]] .. post_source.GetPreExposureGLSL("taa_data") .. [[
-
-			// exposed and Reinhard compressed by luminance, so the inverse is exact. 1 - luma
-			// keeps float precision to ~1e6 exposed, the sun's disc is ~5e4 at noon
-			vec3 compress(vec3 c, float exposure) {
-				c *= exposure;
-				return rgb_to_ycocg(c / (1.0 + get_luma(c)));
-			}
-
-			vec3 decompress(vec3 c, float exposure) {
-				vec3 rgb = max(ycocg_to_rgb(c), vec3(0.0));
-				return rgb / max(1.0 - get_luma(rgb), 1e-6) / exposure;
-			}
+]] .. screen_reconstruct.GetViewRayFromUVGLSL("taa_data") .. [[
 
 			float get_view_depth(vec2 uv, float depth) {
 				vec4 view_pos = taa_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
@@ -162,10 +157,9 @@ return {
 				ivec2 pixel = ivec2(gl_FragCoord.xy);
 				vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
 				float depth = texelFetch(TEXTURE(taa_data.depth_tex), pixel, 0).r;
-				float view_depth = get_view_depth(uv, depth);
 
 				if (taa_data.history_valid == 0) {
-					set_color(vec4(texelFetch(TEXTURE(taa_data.source_tex), pixel, 0).rgb, view_depth));
+					set_color(vec4(texelFetch(TEXTURE(taa_data.source_tex), pixel, 0).rgb, get_view_depth(uv, depth)));
 					return;
 				}
 
@@ -178,10 +172,13 @@ return {
 				// distance from this pixel's center is offset - jitter
 				vec3 m1 = vec3(0.0);
 				vec3 m2 = vec3(0.0);
+				vec3 c_min = vec3(1e9);
+				vec3 c_max = vec3(-1e9);
 				vec3 current = vec3(0.0);
 				float current_weight = 0.0;
 				float closest_depth = 1.0;
 				ivec2 closest_pixel = pixel;
+				float neighbour_motion = 0.0;
 
 				for (int y = -1; y <= 1; y++) {
 					for (int x = -1; x <= 1; x++) {
@@ -189,11 +186,17 @@ return {
 						vec3 c = compress(texelFetch(TEXTURE(taa_data.source_tex), p, 0).rgb, exposure);
 						m1 += c;
 						m2 += c * c;
+						c_min = min(c_min, c);
+						c_max = max(c_max, c);
 						vec2 d = vec2(x, y) - taa_data.jitter;
-						float w = exp(-2.29 * dot(d, d));
+						float w = exp(-3.2 * dot(d, d));
 						current += c * w;
 						current_weight += w;
 						float depth = texelFetch(TEXTURE(taa_data.depth_tex), p, 0).r;
+
+						if (taa_data.velocity_tex != -1 && depth < 1.0) {
+							neighbour_motion = max(neighbour_motion, length(texelFetch(TEXTURE(taa_data.velocity_tex), p, 0).xy * vec2(size)));
+						}
 
 						if (depth < closest_depth) {
 							closest_depth = depth;
@@ -203,6 +206,10 @@ return {
 				}
 
 				current /= current_weight;
+				// stored with the history. the closest depth of the neighbourhood, not
+				// this pixel's own: a sub-pixel detail covers the pixel's center only on
+				// some jitter phases, and its depth would alternate with the background's
+				float view_depth = get_view_depth(uv, closest_depth);
 
 				// where the surface was last frame. the sky and a disabled
 				// velocity buffer go through the cameras instead
@@ -218,6 +225,17 @@ return {
 					vec4 world_pos = taa_data.inv_view * (view_pos / view_pos.w);
 					vec4 prev_clip = taa_data.prev_projection * taa_data.prev_view * vec4(world_pos.xyz, 1.0);
 					prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
+				}
+
+				// the water is drawn by its own pass, with no velocity and no depth in the
+				// gbuffer, so it would move like whatever is behind it. it knows how far
+				// the surface is, which is enough to reproject it
+				float water_distance = taa_data.ocean_distance_tex != -1 ? texelFetch(TEXTURE(taa_data.ocean_distance_tex), pixel, 0).r : -1.0;
+
+				if (water_distance > 0.0) {
+					vec4 water_clip = taa_data.prev_projection * taa_data.prev_view * vec4(taa_data.camera_position + get_view_ray(uv) * water_distance, 1.0);
+					prev_uv = water_clip.xy / water_clip.w * 0.5 + 0.5;
+					expected_depth = -1.0;
 				}
 
 				// translucent surfaces move on their own. the history follows
@@ -248,22 +266,103 @@ return {
 
 				// a surface that was hidden last frame has a history of whatever
 				// was in front of it, which sits at a different depth
-				float history_weight = 1.0;
+				float depth_weight = 1.0;
 
 				if (expected_depth > 0.0) {
 					vec4 history_depths = textureGather(TEXTURE(taa_data.history_tex), prev_uv, 3);
 					vec4 difference = abs(history_depths - expected_depth) / expected_depth;
 					float closest = min(min(difference.x, difference.y), min(difference.z, difference.w));
-					history_weight = 1.0 - smoothstep(0.02, 0.1, closest);
+					depth_weight = 1.0 - smoothstep(0.02, 0.1, closest);
 				}
 
 				vec3 mean = m1 / 9.0;
 				vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3(0.0)));
+				// the largest motion around, not only the closest surface's: the background
+				// beside a moving thin object is still next to it
+				float motion = max(length((prev_uv - uv) * vec2(size)), neighbour_motion);
+				float history_scale = get_pre_exposure() / get_previous_pre_exposure();
 				// the history was pre-exposed for last frame
-				vec3 history = compress(sample_history(prev_uv, vec2(size)) * (get_pre_exposure() / get_previous_pre_exposure()), exposure);
-				history = clip_to_box(mean - sigma, mean + sigma, history);
-				vec3 result = mix(current, history, 0.9 * history_weight * (1.0 - reactive));
+				vec3 history = compress(sample_history(prev_uv, vec2(size)) * history_scale, exposure);
+				// a sub-pixel detail (a distant fence) covers the pixel's center on only
+				// some jitter phases, so on the others the neighbourhood and the depth
+				// both disagree with a history that is right. a wrong history, such as
+				// what a moving object left behind, is wide and matches the history two
+				// pixels away, while the detail is a line that stands out from it
+				vec2 texel = 2.0 / vec2(size);
+				vec3 ring = (
+					compress(textureLod(TEXTURE(taa_data.history_tex), prev_uv + vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_tex), prev_uv - vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_tex), prev_uv + vec2(0.0, texel.y), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_tex), prev_uv - vec2(0.0, texel.y), 0.0).rgb * history_scale, exposure)
+				) * 0.25;
+				float isolated = smoothstep(0.008, 0.035, length(history - ring));
+				float history_weight = mix(depth_weight, 1.0, isolated);
+				// a surface that hasn't moved, with a history that is right, is seeing
+				// the same thing every frame, so a jitter sample that misses a detail
+				// must not erase what the earlier samples found. the box is wide and the
+				// clip is only partly applied
+				float still = (1.0 - smoothstep(0.0, 0.75, motion)) * history_weight * (1.0 - reactive);
+				float thin = still * isolated;
+				float gamma = mix(1.5, 3.0, thin);
+				vec3 box_min = mix(max(mean - gamma * sigma, c_min), mean - gamma * sigma, thin);
+				vec3 box_max = mix(min(mean + gamma * sigma, c_max), mean + gamma * sigma, thin);
+				vec3 clipped = mix(clip_to_box(box_min, box_max, history), history, 0.6 * thin);
+				// the further the history had to move, the less it is trusted
+				float clip_amount = length(clipped - history) / (length(history - mean) + 1e-4);
+				float feedback = mix(0.85, 0.94, thin) * (1.0 - 0.5 * clip_amount);
+				vec3 result = mix(current, clipped, feedback * history_weight * (1.0 - reactive));
 				set_color(vec4(decompress(result, exposure), view_depth));
+			}
+		]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+	},
+	{
+		name = "taa_sharpen",
+		is_enabled = function()
+			return strength:Get() > 0
+		end,
+		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "sharpen_data",
+					binding_index = 2,
+					block = {
+						{"source_tex", "int"},
+						{"strength", "float"},
+						post_source.pre_exposure_block,
+					},
+					write = function(self, block)
+						block.source_tex = self:GetTextureIndex(render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
+						block.strength = strength:Get()
+						post_source.WritePreExposureBlock(self, block)
+						return block
+					end,
+				},
+			},
+			shader = [[
+]] .. post_source.GetCompressGLSL() .. post_source.GetPreExposureGLSL("sharpen_data") .. [[
+
+			void main() {
+				ivec2 size = textureSize(TEXTURE(sharpen_data.source_tex), 0);
+				ivec2 pixel = ivec2(gl_FragCoord.xy);
+				vec4 center = texelFetch(TEXTURE(sharpen_data.source_tex), pixel, 0);
+				float exposure = sharpen_data.pre_exposure_tex != -1 ? ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
+				vec3 c = compress(center.rgb, exposure);
+				vec3 n = compress(texelFetch(TEXTURE(sharpen_data.source_tex), clamp(pixel + ivec2(0, -1), ivec2(0), size - 1), 0).rgb, exposure);
+				vec3 s = compress(texelFetch(TEXTURE(sharpen_data.source_tex), clamp(pixel + ivec2(0, 1), ivec2(0), size - 1), 0).rgb, exposure);
+				vec3 w = compress(texelFetch(TEXTURE(sharpen_data.source_tex), clamp(pixel + ivec2(-1, 0), ivec2(0), size - 1), 0).rgb, exposure);
+				vec3 e = compress(texelFetch(TEXTURE(sharpen_data.source_tex), clamp(pixel + ivec2(1, 0), ivec2(0), size - 1), 0).rgb, exposure);
+				// clamped to the cross so it adds no ringing
+				vec3 sharpened = clamp(
+					c + sharpen_data.strength * (c - 0.25 * (n + s + w + e)),
+					min(c, min(min(n, s), min(w, e))),
+					max(c, max(max(n, s), max(w, e)))
+				);
+				set_color(vec4(decompress(sharpened, exposure), center.a));
 			}
 		]],
 		},

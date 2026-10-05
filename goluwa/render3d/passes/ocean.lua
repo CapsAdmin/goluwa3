@@ -1476,6 +1476,7 @@ list.insert(
 						render3d.camera_block,
 						{"current_ocean_tex", "int"},
 						{"history_ocean_tex", "int"},
+						{"history_blend", "float"},
 						{"current_ocean_distance_tex", "int"},
 						{"prev_view", "mat4"},
 						{"prev_projection", "mat4"},
@@ -1494,6 +1495,8 @@ list.insert(
 							block.current_ocean_tex = self:GetTextureIndex(framebuffer:GetAttachment(1))
 							block.current_ocean_distance_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
 						end
+
+						block.history_blend = render3d.IsPassEnabled("taa") and 0.7 or 0.9
 
 						if not render3d.pipelines.ocean_resolve.framebuffers then
 							block.history_ocean_tex = -1
@@ -1597,7 +1600,7 @@ list.insert(
 				float gamma = 1.25;
 				vec3 clamped_rgb = clamp(history.rgb, m1 - sigma * gamma, m1 + sigma * gamma);
 				float clamp_diff = length(history.rgb - clamped_rgb) / max(max(m1.r, max(m1.g, m1.b)), 1e-4);
-				float blend = 0.9 * (1.0 - clamp(clamp_diff * 2.0, 0.0, 1.0));
+				float blend = ocean_resolve_data.history_blend * (1.0 - clamp(clamp_diff * 2.0, 0.0, 1.0));
 
 				set_color(vec4(mix(current.rgb, clamped_rgb, blend), current.a));
 			}
