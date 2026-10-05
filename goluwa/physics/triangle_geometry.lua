@@ -50,13 +50,61 @@ function triangle_geometry.GetTriangleEdges(a, b, c, out)
 end
 
 function triangle_geometry.ClosestPointOnTriangle(point, a, b, c)
-	local d1 = (b.x - a.x) * (point.x - a.x) + (b.y - a.y) * (point.y - a.y) + (b.z - a.z) * (point.z - a.z)
-	local d2 = (c.x - a.x) * (point.x - a.x) + (c.y - a.y) * (point.y - a.y) + (c.z - a.z) * (point.z - a.z)
+	local d1 = (
+			b.x - a.x
+		) * (
+			point.x - a.x
+		) + (
+			b.y - a.y
+		) * (
+			point.y - a.y
+		) + (
+			b.z - a.z
+		) * (
+			point.z - a.z
+		)
+	local d2 = (
+			c.x - a.x
+		) * (
+			point.x - a.x
+		) + (
+			c.y - a.y
+		) * (
+			point.y - a.y
+		) + (
+			c.z - a.z
+		) * (
+			point.z - a.z
+		)
 
 	if d1 <= 0 and d2 <= 0 then return a end
 
-	local d3 = (b.x - a.x) * (point.x - b.x) + (b.y - a.y) * (point.y - b.y) + (b.z - a.z) * (point.z - b.z)
-	local d4 = (c.x - a.x) * (point.x - b.x) + (c.y - a.y) * (point.y - b.y) + (c.z - a.z) * (point.z - b.z)
+	local d3 = (
+			b.x - a.x
+		) * (
+			point.x - b.x
+		) + (
+			b.y - a.y
+		) * (
+			point.y - b.y
+		) + (
+			b.z - a.z
+		) * (
+			point.z - b.z
+		)
+	local d4 = (
+			c.x - a.x
+		) * (
+			point.x - b.x
+		) + (
+			c.y - a.y
+		) * (
+			point.y - b.y
+		) + (
+			c.z - a.z
+		) * (
+			point.z - b.z
+		)
 
 	if d3 >= 0 and d4 <= d3 then return b end
 
@@ -67,8 +115,32 @@ function triangle_geometry.ClosestPointOnTriangle(point, a, b, c)
 		return a + (b - a) * v
 	end
 
-	local d5 = (b.x - a.x) * (point.x - c.x) + (b.y - a.y) * (point.y - c.y) + (b.z - a.z) * (point.z - c.z)
-	local d6 = (c.x - a.x) * (point.x - c.x) + (c.y - a.y) * (point.y - c.y) + (c.z - a.z) * (point.z - c.z)
+	local d5 = (
+			b.x - a.x
+		) * (
+			point.x - c.x
+		) + (
+			b.y - a.y
+		) * (
+			point.y - c.y
+		) + (
+			b.z - a.z
+		) * (
+			point.z - c.z
+		)
+	local d6 = (
+			c.x - a.x
+		) * (
+			point.x - c.x
+		) + (
+			c.y - a.y
+		) * (
+			point.y - c.y
+		) + (
+			c.z - a.z
+		) * (
+			point.z - c.z
+		)
 
 	if d6 >= 0 and d5 <= d6 then return c end
 

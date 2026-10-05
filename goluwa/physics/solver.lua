@@ -441,7 +441,6 @@ local function solve_pair(self, pair, dt, pass, relax)
 
 	if (pass or 1) > 1 and pair.idle_stamp == self.StepStamp then
 		stats:Count("solver_pairs_idle")
-
 		return
 	end
 
@@ -524,9 +523,7 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
 		pairs = self:GetPhysics().broadphase:BuildCandidatePairs(bodies_or_pairs)
 	end
 
-	-- dead slots stay live in trace snapshots until the function returns
 	bodies_or_pairs = nil
-
 	stats:Count("solver_pairs", #pairs)
 
 	for i = 1, #pairs do

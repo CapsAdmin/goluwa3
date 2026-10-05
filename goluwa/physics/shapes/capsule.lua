@@ -453,7 +453,11 @@ function META:OnGroundedVelocityUpdate(body, dt)
 				local topple_speed = friction * instability * math.max(self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON) - 1, 0) * 1.6
 				topple_speed = math.min(
 					topple_speed,
-					0.45 + math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * 0.4 + (upright_alignment >= 0.9 and 0.1 or 0)
+					0.45 + math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * 0.4 + (
+							upright_alignment >= 0.9 and
+							0.1 or
+							0
+						)
 				)
 				local topple_component = body.AngularVelocity:Dot(topple_axis)
 
@@ -484,7 +488,9 @@ function META:OnGroundedVelocityUpdate(body, dt)
 			)
 		then
 			local normal_velocity = ground_normal * normal_speed
-			local tangent_velocity = (body.Velocity - normal_velocity) * math.exp(-(friction * (1.5 + upright_alignment * 3.5)) * dt)
+			local tangent_velocity = (
+					body.Velocity - normal_velocity
+				) * math.exp(-(friction * (1.5 + upright_alignment * 3.5)) * dt)
 
 			if tangent_velocity:GetLength() < 0.02 then tangent_velocity = Vec3(0, 0, 0) end
 
@@ -504,7 +510,13 @@ function META:OnGroundedVelocityUpdate(body, dt)
 
 			if off_axis_angular:GetLength() < 0.03 then off_axis_angular = Vec3(0, 0, 0) end
 		elseif nearly_stationary and off_axis_angular:GetLength() > 0.0001 then
-			local off_axis_damping = math.exp(-(friction * (0.7 + math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * 1.8)) * dt)
+			local off_axis_damping = math.exp(
+				-(
+						friction * (
+							0.7 + math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * 1.8
+						)
+					) * dt
+			)
 			off_axis_angular = off_axis_angular * off_axis_damping
 
 			if off_axis_angular:GetLength() < 0.02 then off_axis_angular = Vec3(0, 0, 0) end
@@ -577,7 +589,9 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		)
 	then
 		local normal_velocity = ground_normal * normal_speed
-		local tangent_velocity = (body.Velocity - normal_velocity) * math.exp(-(friction * (1.35 + support_coverage * 3.65)) * dt)
+		local tangent_velocity = (
+				body.Velocity - normal_velocity
+			) * math.exp(-(friction * (1.35 + support_coverage * 3.65)) * dt)
 
 		if tangent_velocity:GetLength() < 0.02 then tangent_velocity = Vec3(0, 0, 0) end
 

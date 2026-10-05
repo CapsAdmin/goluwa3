@@ -918,8 +918,20 @@ local function solve_capsule_capsule_collision(body_a, body_b, dt)
 		a0, a1, radius_a = capsule_geometry.GetSegmentWorld(body_a, nil, nil, CAPSULE_SEGMENT_A0, CAPSULE_SEGMENT_A1)
 		b0, b1, radius_b = capsule_geometry.GetSegmentWorld(body_b, nil, nil, CAPSULE_SEGMENT_B0, CAPSULE_SEGMENT_B1)
 		point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(a0, a1, b0, b1, EPSILON)
-		local previous_a0, previous_a1 = capsule_geometry.GetSegmentWorld(body_a, body_a:GetPreviousPosition(), body_a:GetPreviousRotation(), CAPSULE_PREVIOUS_A0, CAPSULE_PREVIOUS_A1)
-		local previous_b0, previous_b1 = capsule_geometry.GetSegmentWorld(body_b, body_b:GetPreviousPosition(), body_b:GetPreviousRotation(), CAPSULE_PREVIOUS_B0, CAPSULE_PREVIOUS_B1)
+		local previous_a0, previous_a1 = capsule_geometry.GetSegmentWorld(
+			body_a,
+			body_a:GetPreviousPosition(),
+			body_a:GetPreviousRotation(),
+			CAPSULE_PREVIOUS_A0,
+			CAPSULE_PREVIOUS_A1
+		)
+		local previous_b0, previous_b1 = capsule_geometry.GetSegmentWorld(
+			body_b,
+			body_b:GetPreviousPosition(),
+			body_b:GetPreviousRotation(),
+			CAPSULE_PREVIOUS_B0,
+			CAPSULE_PREVIOUS_B1
+		)
 		local previous_point_a, previous_point_b = segment_geometry.ClosestPointsBetweenSegments(previous_a0, previous_a1, previous_b0, previous_b1, EPSILON)
 		local previous_delta = previous_point_b - previous_point_a
 		previous_distance = previous_delta:GetLength()

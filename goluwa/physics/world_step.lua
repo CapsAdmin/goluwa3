@@ -219,6 +219,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	stats:PushTime("step")
 	stats:PushTime("synchronize")
 	refresh_body_lists(bodies)
+
 	do
 		local removed_bodies = RigidBody.RemovedBodies
 
@@ -254,7 +255,6 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 			if body.SyncStamp ~= sync_stamp then sync_body_from_transform(body) end
 		end
-
 	end
 
 	stats:PopTime()
