@@ -203,6 +203,7 @@ function chatbox.Show()
 				Wrap = true,
 				MinSize = Vec2(0, input_height),
 				AutoResize = true,
+				Padding = Rect(4, 4, 4, 4),
 				OnTextChanged = function(self, text)
 					local list_ids = {}
 

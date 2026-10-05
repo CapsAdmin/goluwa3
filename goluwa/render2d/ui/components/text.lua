@@ -258,7 +258,7 @@ local function build_wrap_layout(self, font, text, width)
 		line_height = line_height,
 		width = width,
 		measured_width = measured_width,
-		measured_height = math.max(layout.height or 0, math.max(1, #lines) * line_height),
+		measured_height = font:GetAscent() + (math.max(1, #lines) - 1) * (line_height + font:GetSpacing()),
 		font = font,
 		source_text = text,
 	}

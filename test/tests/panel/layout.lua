@@ -540,6 +540,12 @@ T.Test("layout - fit height parent defers child reflow", function()
 		MeasureText = function(self, text)
 			return self:GetTextSize(text)
 		end,
+		GetAscent = function()
+			return 20
+		end,
+		GetSpacing = function()
+			return 0
+		end,
 		GetLineHeight = function()
 			return 20
 		end,

@@ -122,18 +122,23 @@ function META:OnParentVisibilityChanged(visible)
 end
 
 function META:sync_text_changed()
-	if self.auto_scroll_to_caret then self:scroll_caret_into_view() end
-
 	if self.AutoResize then
 		local lines, _, vertical_step = self.text_panel.text:GetTextSize2()
+		local ascent = self.text_panel.text:GetFont():GetAscent()
 
 		if lines then
 			local line_count = math.clamp(#lines, 1, self.MaxLines)
 			local w = self.layout:GetMinSize().x
-			local h = (line_count + 1) * vertical_step
+			local padding = self.scroll_panel.Padding
+			local h = math.ceil(ascent + (line_count - 1) * vertical_step) + padding.y + padding.h
 			self.layout:SetMinSize(Vec2(w, h))
 			self.layout:SetMaxSize(Vec2(w, h))
 		end
+	end
+
+	if self.auto_scroll_to_caret then
+		self.scroll_panel:updateDirtyLayout(self.scroll_panel)
+		self:scroll_caret_into_view()
 	end
 
 	local next_text = self.text_panel.text:GetText()

@@ -8,7 +8,7 @@ local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local WIDTH = 420
-local window
+local panel = NULL
 local property_editor
 local node_types = {
 	boolean = "boolean",
@@ -92,12 +92,12 @@ local function reset_all()
 end
 
 local function is_editing()
-	if not window or not window:IsValid() then return false end
+	if not panel:IsValid() then return false end
 
 	local focused = objects.GetFocusedObject()
 
 	while focused and focused:IsValid() do
-		if focused == window then return true end
+		if focused == panel then return true end
 
 		focused = focused:GetParent()
 	end
@@ -108,15 +108,15 @@ end
 local function show()
 	local world = Panel.World
 
-	if not window or not window:IsValid() then
-		window = world:Ensure(
+	if not panel:IsValid() then
+		panel = world:Ensure(
 			Window{
 				Key = "PvarsWindow",
 				Title = "PVARS",
 				RequestMouse = true,
 				MinSize = Vec2(WIDTH, 200),
 				OnClose = function()
-					window.visual:SetVisible(false)
+					panel.visual:SetVisible(false)
 				end,
 			}{
 				ScrollablePanel{
@@ -149,9 +149,9 @@ local function show()
 	end
 
 	local size = world.transform:GetSize()
-	window.transform:SetSize(Vec2(WIDTH, size.y))
-	window.transform:SetPosition(Vec2(size.x - WIDTH, 0))
-	window.visual:SetVisible(true)
+	panel.transform:SetSize(Vec2(WIDTH, size.y))
+	panel.transform:SetPosition(Vec2(size.x - WIDTH, 0))
+	panel.visual:SetVisible(true)
 end
 
 input.Bind("c", "+show_pvars", function()
@@ -159,7 +159,9 @@ input.Bind("c", "+show_pvars", function()
 end)
 
 input.Bind("c", "-show_pvars", function()
+	if not panel:IsValid() then return end
+
 	if is_editing() then return end
 
-	window.visual:SetVisible(false)
+	panel.visual:SetVisible(false)
 end)

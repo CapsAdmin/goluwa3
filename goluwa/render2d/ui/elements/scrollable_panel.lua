@@ -278,7 +278,14 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 	local handle = is_y and self.HandleY or self.HandleX
 	local track = is_y and self.TrackY or self.TrackX
 	local show = is_y and state.show_y or state.show_x
-	local available = is_y and state.available_h or state.available_w
+	local available = is_y and
+		(
+			state.available_h - base_padding.y - base_padding.h
+		)
+		or
+		(
+			state.available_w - base_padding.x - base_padding.w
+		)
 	local content_dim = content_size[axis]
 	local scroll_dim = scroll[axis]
 
@@ -289,7 +296,7 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 		return
 	end
 
-	local max_scroll_view = math.max(1, available)
+	local max_scroll_view = math.max(1, is_y and state.available_h or state.available_w)
 	local max_scroll = math.max(0, content_dim - max_scroll_view)
 	local sb_width = theme.active:GetScrollbarWidth()
 	local sb_offset = sb_width + theme.active:GetScrollbarMargin()
