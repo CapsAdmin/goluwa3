@@ -629,31 +629,36 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 		if temporal then return true end
 	end
 
-	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+	do
+		local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
-	if static_body then
-		local extents = dynamic_body:GetPhysicsShape():GetExtents()
-		local min_extent = math.min(extents.x, extents.y, extents.z)
+		if static_body then
+			local extents = dynamic_body:GetPhysicsShape():GetExtents()
+			local min_extent = math.min(extents.x, extents.y, extents.z)
 
-		if
-			(
-				dynamic_body.Position.x - dynamic_body.PreviousPosition.x
-			) ^ 2 + (
-				dynamic_body.Position.y - dynamic_body.PreviousPosition.y
-			) ^ 2 + (
-				dynamic_body.Position.z - dynamic_body.PreviousPosition.z
-			) ^ 2 > min_extent * min_extent and
-			solve_swept_box_box_collision(dynamic_body, static_body, dt)
-		then
-			return true
+			if
+				(
+					dynamic_body.Position.x - dynamic_body.PreviousPosition.x
+				) ^ 2 + (
+					dynamic_body.Position.y - dynamic_body.PreviousPosition.y
+				) ^ 2 + (
+					dynamic_body.Position.z - dynamic_body.PreviousPosition.z
+				) ^ 2 > min_extent * min_extent and
+				solve_swept_box_box_collision(dynamic_body, static_body, dt)
+			then
+				return true
+			end
 		end
 	end
 
-	local center_a = body_a:GetPosition()
-	local center_b = body_b:GetPosition()
-	SAT_DELTA.x = center_b.x - center_a.x
-	SAT_DELTA.y = center_b.y - center_a.y
-	SAT_DELTA.z = center_b.z - center_a.z
+	do
+		local center_a = body_a:GetPosition()
+		local center_b = body_b:GetPosition()
+		SAT_DELTA.x = center_b.x - center_a.x
+		SAT_DELTA.y = center_b.y - center_a.y
+		SAT_DELTA.z = center_b.z - center_a.z
+	end
+
 	local delta = SAT_DELTA
 	local extents_a = body_a:GetPhysicsShape():GetExtents()
 	local extents_b = body_b:GetPhysicsShape():GetExtents()

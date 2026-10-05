@@ -435,23 +435,28 @@ local function solve_swept_capsule_capsule_collision(dynamic_body, static_body, 
 end
 
 local function solve_capsule_sphere_collision(capsule_body, sphere_body, dt)
-	local a, b, capsule_radius = capsule_geometry.GetSegmentWorld(capsule_body)
 	local sphere_center = sphere_body:GetPosition()
+	local previous_delta
+
+	do
+		local previous_sphere_center = sphere_body:GetPreviousPosition()
+		local previous_a, previous_b = capsule_geometry.GetSegmentWorld(
+			capsule_body,
+			capsule_body:GetPreviousPosition(),
+			capsule_body:GetPreviousRotation()
+		)
+		previous_delta = previous_sphere_center - segment_geometry.ClosestPointOnSegment(previous_a, previous_b, previous_sphere_center, EPSILON)
+	end
+
+	local a, b, capsule_radius = capsule_geometry.GetSegmentWorld(capsule_body)
 	local closest = segment_geometry.ClosestPointOnSegment(a, b, sphere_center, EPSILON)
-	local delta = sphere_center - closest
-	local previous_sphere_center = sphere_body:GetPreviousPosition()
-	local previous_a, previous_b = capsule_geometry.GetSegmentWorld(
-		capsule_body,
-		capsule_body:GetPreviousPosition(),
-		capsule_body:GetPreviousRotation()
-	)
-	local previous_closest = segment_geometry.ClosestPointOnSegment(previous_a, previous_b, previous_sphere_center, EPSILON)
+	a, b = nil, nil
 	local sphere_radius = sphere_body:GetPhysicsShape():GetRadius()
 	local min_distance = capsule_radius + sphere_radius
 	local normal, distance = pair_solver_helpers.GetSafeCollisionNormal(
-		delta,
+		sphere_center - closest,
 		capsule_body:GetVelocity() - sphere_body:GetVelocity(),
-		previous_sphere_center - previous_closest,
+		previous_delta,
 		pair_solver_helpers.GetCachedPairNormal(capsule_body, sphere_body)
 	)
 

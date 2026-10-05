@@ -262,11 +262,13 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 		end
 	end
 
+	local movement_local = local_center - previous_local_center
+	local_center, previous_local_center, extents = nil, nil, nil
 	local contact = pair_solver_helpers.GetBoxContactForPoint(
 		box_body,
 		sphere_body:GetPosition(),
 		sphere_body:GetSphereRadius(),
-		local_center - previous_local_center
+		movement_local
 	)
 
 	if not contact then
