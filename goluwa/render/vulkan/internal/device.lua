@@ -610,22 +610,23 @@ function Device:FlushDeferredReleases(force)
 	if not deferred or not deferred[1] then return end
 
 	local completed = force and math.huge or (self.completed_submission_serial or 0)
-	local count = #deferred
-	local write = 1
+	local pending = {}
+	local ready = {}
 
-	for read = 1, count do
-		local entry = deferred[read]
+	for i = 1, #deferred do
+		local entry = deferred[i]
 
 		if entry.serial <= completed then
-			entry.callback()
+			ready[#ready + 1] = entry
 		else
-			deferred[write] = entry
-			write = write + 1
+			pending[#pending + 1] = entry
 		end
 	end
 
-	for i = write, count do
-		deferred[i] = nil
+	self.deferred_releases = pending
+
+	for i = 1, #ready do
+		ready[i].callback()
 	end
 end
 
