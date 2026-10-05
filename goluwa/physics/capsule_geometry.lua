@@ -30,14 +30,14 @@ function capsule_geometry.GetTopSphereCenterLocal(shape)
 	return Vec3(0, capsule_geometry.GetCylinderHalfHeight(shape), 0)
 end
 
-function capsule_geometry.GetSegmentWorld(owner, position, rotation)
+function capsule_geometry.GetSegmentWorld(owner, position, rotation, out_bottom, out_top)
 	local shape = capsule_geometry.GetCapsuleShape(owner)
 	local half_height = capsule_geometry.GetCylinderHalfHeight(shape)
 	local local_points = CAPSULE_LOCAL_SEGMENT_POINTS
 	local_points.bottom.y = -half_height
 	local_points.top.y = half_height
-	return owner:LocalToWorld(local_points.bottom, position, rotation),
-	owner:LocalToWorld(local_points.top, position, rotation),
+	return owner:LocalToWorld(local_points.bottom, position, rotation, out_bottom),
+	owner:LocalToWorld(local_points.top, position, rotation, out_top),
 	shape:GetRadius()
 end
 

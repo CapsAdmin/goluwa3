@@ -824,43 +824,54 @@ local function solve_capsule_polyhedron_collision(capsule_body, polyhedron_body,
 	return solve_capsule_polyhedron_core(capsule_body, polyhedron_body, polyhedron, dt)
 end
 
+local CAPSULE_SEGMENT_A0 = Vec3()
+local CAPSULE_SEGMENT_A1 = Vec3()
+local CAPSULE_SEGMENT_B0 = Vec3()
+local CAPSULE_SEGMENT_B1 = Vec3()
+local CAPSULE_PREVIOUS_A0 = Vec3()
+local CAPSULE_PREVIOUS_A1 = Vec3()
+local CAPSULE_PREVIOUS_B0 = Vec3()
+local CAPSULE_PREVIOUS_B1 = Vec3()
+
 local function build_capsule_capsule_parallel_contacts(a0, a1, b0, b1, radius_a, radius_b)
-	local axis_a = a1 - a0
-	local length_a = axis_a:GetLength()
-	local axis_b = b1 - b0
-	local length_b = axis_b:GetLength()
-	local min_segment = CAPSULE_MIN_SEGMENT_LENGTH * CAPSULE_MIN_SEGMENT_LENGTH
-
-	if length_a * length_a <= min_segment or length_b * length_b <= min_segment then
-		return nil
-	end
-
-	local cross = axis_a:GetCross(axis_b)
-
-	if cross:Dot(cross) >= CAPSULE_PARALLEL_CROSS * CAPSULE_PARALLEL_CROSS then
-		return nil
-	end
-
-	local u = axis_a / length_a
-	local w = axis_b
-	local s0 = (b0 - a0):Dot(u)
-	local sw = w:Dot(u)
 	local t_enter = 0
 	local t_exit = 1
 
-	if sw > 0 then
-		t_enter = math.max(t_enter, (0 - s0) / sw)
-		t_exit = math.min(t_exit, (length_a - s0) / sw)
-	else
-		t_enter = math.max(t_enter, (length_a - s0) / sw)
-		t_exit = math.min(t_exit, (0 - s0) / sw)
+	do
+		local axis_a = a1 - a0
+		local length_a = axis_a:GetLength()
+		local axis_b = b1 - b0
+		local length_b = axis_b:GetLength()
+		local min_segment = CAPSULE_MIN_SEGMENT_LENGTH * CAPSULE_MIN_SEGMENT_LENGTH
+
+		if length_a * length_a <= min_segment or length_b * length_b <= min_segment then
+			return nil
+		end
+
+		local cross = axis_a:GetCross(axis_b)
+
+		if cross:Dot(cross) >= CAPSULE_PARALLEL_CROSS * CAPSULE_PARALLEL_CROSS then
+			return nil
+		end
+
+		local u = axis_a / length_a
+		local s0 = (b0 - a0):Dot(u)
+		local sw = axis_b:Dot(u)
+
+		if sw > 0 then
+			t_enter = math.max(t_enter, (0 - s0) / sw)
+			t_exit = math.min(t_exit, (length_a - s0) / sw)
+		else
+			t_enter = math.max(t_enter, (length_a - s0) / sw)
+			t_exit = math.min(t_exit, (0 - s0) / sw)
+		end
 	end
 
 	if t_enter >= t_exit then return nil end
 
 	local min_distance = radius_a + radius_b
-	local point_b_1 = b0 + w * t_enter
-	local point_b_2 = b0 + w * t_exit
+	local point_b_1 = b0 + (b1 - b0) * t_enter
+	local point_b_2 = b0 + (b1 - b0) * t_exit
 	local closest_1 = segment_geometry.ClosestPointOnSegment(a0, a1, point_b_1, EPSILON)
 	local closest_2 = segment_geometry.ClosestPointOnSegment(a0, a1, point_b_2, EPSILON)
 	local delta_1 = point_b_1 - closest_1
@@ -904,11 +915,11 @@ local function solve_capsule_capsule_collision(body_a, body_b, dt)
 
 	do
 		local a0, a1, b0, b1
-		a0, a1, radius_a = capsule_geometry.GetSegmentWorld(body_a)
-		b0, b1, radius_b = capsule_geometry.GetSegmentWorld(body_b)
+		a0, a1, radius_a = capsule_geometry.GetSegmentWorld(body_a, nil, nil, CAPSULE_SEGMENT_A0, CAPSULE_SEGMENT_A1)
+		b0, b1, radius_b = capsule_geometry.GetSegmentWorld(body_b, nil, nil, CAPSULE_SEGMENT_B0, CAPSULE_SEGMENT_B1)
 		point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(a0, a1, b0, b1, EPSILON)
-		local previous_a0, previous_a1 = capsule_geometry.GetSegmentWorld(body_a, body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
-		local previous_b0, previous_b1 = capsule_geometry.GetSegmentWorld(body_b, body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
+		local previous_a0, previous_a1 = capsule_geometry.GetSegmentWorld(body_a, body_a:GetPreviousPosition(), body_a:GetPreviousRotation(), CAPSULE_PREVIOUS_A0, CAPSULE_PREVIOUS_A1)
+		local previous_b0, previous_b1 = capsule_geometry.GetSegmentWorld(body_b, body_b:GetPreviousPosition(), body_b:GetPreviousRotation(), CAPSULE_PREVIOUS_B0, CAPSULE_PREVIOUS_B1)
 		local previous_point_a, previous_point_b = segment_geometry.ClosestPointsBetweenSegments(previous_a0, previous_a1, previous_b0, previous_b1, EPSILON)
 		local previous_delta = previous_point_b - previous_point_a
 		previous_distance = previous_delta:GetLength()

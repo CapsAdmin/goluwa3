@@ -104,11 +104,16 @@ local function evaluate_capsule_capsule_sample(context, t)
 		context = CAPSULE_CAPSULE_SWEEP_CONTEXT
 	end
 
-	local query_a = context.start_a + (context.end_a - context.start_a) * t
-	local query_b = context.start_b + (context.end_b - context.start_b) * t
 	local target_position_t, target_rotation_t = sweep_helpers.GetTargetPose(context.target_state, t, context.max_fraction)
 	local target_a, target_b = capsule_geometry.GetSegmentWorld(context.target_collider, target_position_t, target_rotation_t)
-	local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(query_a, query_b, target_a, target_b, EPSILON)
+	target_position_t, target_rotation_t = nil, nil
+	local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(
+		context.start_a + (context.end_a - context.start_a) * t,
+		context.start_b + (context.end_b - context.start_b) * t,
+		target_a,
+		target_b,
+		EPSILON
+	)
 	local delta = point_a - point_b
 	local distance = delta:GetLength()
 
