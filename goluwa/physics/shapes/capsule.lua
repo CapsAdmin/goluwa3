@@ -199,48 +199,45 @@ function META:GetSupportFootprintMetrics(body, ground_normal)
 		tangent, bitangent = build_support_plane_basis(ground_normal)
 	end
 
-	local axis = get_capsule_axis_world(body)
 	local radius = self:GetRadius()
-	local cylinder_half_height = self:GetCylinderHalfHeight()
-	local footprint_half_u = radius + cylinder_half_height * math.abs(axis:Dot(tangent))
-	local footprint_half_v = radius + cylinder_half_height * math.abs(axis:Dot(bitangent))
-	local footprint_span_u = footprint_half_u * 2
-	local footprint_span_v = footprint_half_v * 2
-	local major_footprint_span = math.max(footprint_span_u, footprint_span_v)
-	local minor_footprint_span = math.min(footprint_span_u, footprint_span_v)
-	local support_span_u = support.span_u or 0
-	local support_span_v = support.span_v or 0
-	local coverage_u = footprint_span_u > 0.0001 and
-		math.min(1, support_span_u / footprint_span_u) or
-		0
-	local coverage_v = footprint_span_v > 0.0001 and
-		math.min(1, support_span_v / footprint_span_v) or
-		0
-	local footprint_area = footprint_span_u * footprint_span_v
-	local support_area = support_span_u * support_span_v
-	local area_coverage = footprint_area > 0.0001 and math.min(1, support_area / footprint_area) or 0
-	local tolerance = get_ground_support_tolerance(body, radius)
-	return {
+	local metrics = {
 		support = support,
 		tangent = tangent,
 		bitangent = bitangent,
-		axis = axis,
-		footprint_span_u = footprint_span_u,
-		footprint_span_v = footprint_span_v,
-		major_footprint_span = major_footprint_span,
-		minor_footprint_span = minor_footprint_span,
-		support_span_u = support_span_u,
-		support_span_v = support_span_v,
-		coverage_u = coverage_u,
-		coverage_v = coverage_v,
-		min_coverage = math.min(coverage_u, coverage_v),
-		area_coverage = area_coverage,
-		support_width_coverage = minor_footprint_span > 0.0001 and
-			math.min(1, (support.max_span or 0) / minor_footprint_span) or
-			0,
-		tolerance = tolerance,
-		stable = (support.overhang_length or math.huge) <= tolerance,
+		axis = get_capsule_axis_world(body),
+		tolerance = get_ground_support_tolerance(body, radius),
 	}
+
+	do
+		local axis = metrics.axis
+		local cylinder_half_height = self:GetCylinderHalfHeight()
+		metrics.footprint_span_u = (radius + cylinder_half_height * math.abs(axis:Dot(tangent))) * 2
+		metrics.footprint_span_v = (radius + cylinder_half_height * math.abs(axis:Dot(bitangent))) * 2
+	end
+
+	metrics.major_footprint_span = math.max(metrics.footprint_span_u, metrics.footprint_span_v)
+	metrics.minor_footprint_span = math.min(metrics.footprint_span_u, metrics.footprint_span_v)
+	metrics.support_span_u = support.span_u or 0
+	metrics.support_span_v = support.span_v or 0
+	metrics.coverage_u = metrics.footprint_span_u > 0.0001 and
+		math.min(1, metrics.support_span_u / metrics.footprint_span_u) or
+		0
+	metrics.coverage_v = metrics.footprint_span_v > 0.0001 and
+		math.min(1, metrics.support_span_v / metrics.footprint_span_v) or
+		0
+	metrics.min_coverage = math.min(metrics.coverage_u, metrics.coverage_v)
+
+	do
+		local footprint_area = metrics.footprint_span_u * metrics.footprint_span_v
+		local support_area = metrics.support_span_u * metrics.support_span_v
+		metrics.area_coverage = footprint_area > 0.0001 and math.min(1, support_area / footprint_area) or 0
+	end
+
+	metrics.support_width_coverage = metrics.minor_footprint_span > 0.0001 and
+		math.min(1, (support.max_span or 0) / metrics.minor_footprint_span) or
+		0
+	metrics.stable = (support.overhang_length or math.huge) <= metrics.tolerance
+	return metrics
 end
 
 get_ground_normal = function(body)
@@ -402,15 +399,14 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	if friction <= 0 then return end
 
 	local ground_normal = get_ground_normal(body)
+	local support_metrics = self:GetSupportFootprintMetrics(body, ground_normal)
 	local is_heightmap_ground = ground_shape and ground_shape.IsHeightmap
 	local axis = get_capsule_axis_world(body)
 	local upright_alignment = math.abs(axis:Dot(ground_normal))
-	local support_metrics = self:GetSupportFootprintMetrics(body, ground_normal)
 	local support = support_metrics.support or {count = 0, overhang_length = math.huge}
 	local normal_speed = body.Velocity:Dot(ground_normal)
-	local normal_velocity = ground_normal * normal_speed
-	local tangent_velocity = body.Velocity - normal_velocity
-	local tangent_speed = tangent_velocity:GetLength()
+	local tangent_speed = (body.Velocity - ground_normal * normal_speed):GetLength()
+	local zero_normal_velocity = false
 	local angular_speed = body.AngularVelocity:GetLength()
 	local flat_ground = ground_normal.y >= math.max(body:GetMinGroundNormalY() or 0, 0.75)
 
@@ -424,7 +420,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		local slenderness = self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON)
 
 		if flat_ground and upright_alignment >= 0.88 and math.abs(normal_speed) <= 0.18 then
-			normal_velocity = Vec3(0, 0, 0)
+			zero_normal_velocity = true
 		end
 
 		if
@@ -480,10 +476,12 @@ function META:OnGroundedVelocityUpdate(body, dt)
 				tangent_speed <= 0.25
 			)
 		then
-			local tangent_damping = math.exp(-(friction * (1.5 + upright_alignment * 3.5)) * dt)
-			tangent_velocity = tangent_velocity * tangent_damping
+			local normal_velocity = ground_normal * normal_speed
+			local tangent_velocity = (body.Velocity - normal_velocity) * math.exp(-(friction * (1.5 + upright_alignment * 3.5)) * dt)
 
 			if tangent_velocity:GetLength() < 0.02 then tangent_velocity = Vec3(0, 0, 0) end
+
+			if zero_normal_velocity then normal_velocity = Vec3(0, 0, 0) end
 
 			body.Velocity = normal_velocity + tangent_velocity
 		end
@@ -530,7 +528,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	local toppling_support = (support.count or 0) > 0 and not stable_support
 
 	if stable_support and flat_ground and math.abs(normal_speed) <= 0.18 then
-		normal_velocity = Vec3(0, 0, 0)
+		zero_normal_velocity = true
 	end
 
 	if toppling_support and flat_ground and tangent_speed <= 0.9 then
@@ -571,10 +569,12 @@ function META:OnGroundedVelocityUpdate(body, dt)
 			tangent_speed <= 0.25
 		)
 	then
-		local tangent_damping = math.exp(-(friction * (1.35 + support_coverage * 3.65)) * dt)
-		tangent_velocity = tangent_velocity * tangent_damping
+		local normal_velocity = ground_normal * normal_speed
+		local tangent_velocity = (body.Velocity - normal_velocity) * math.exp(-(friction * (1.35 + support_coverage * 3.65)) * dt)
 
 		if tangent_velocity:GetLength() < 0.02 then tangent_velocity = Vec3(0, 0, 0) end
+
+		if zero_normal_velocity then normal_velocity = Vec3(0, 0, 0) end
 
 		body.Velocity = normal_velocity + tangent_velocity
 	end
