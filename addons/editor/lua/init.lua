@@ -1,4 +1,4 @@
-local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local system = import("goluwa/system.lua")
 local init = false
 local editor_window = NULL
@@ -73,12 +73,4 @@ ToggleEditor = function()
 	lazy_init()
 	toggle()
 end
-
-event.AddListener("KeyInput", "menu_toggle", function(key, press)
-	if not press then return end
-
-	if key == "escape" then
-		lazy_init()
-		return toggle()
-	end
-end)
+input.Bind("escape", "toggle_editor", ToggleEditor)

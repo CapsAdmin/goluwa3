@@ -234,9 +234,7 @@ event.AddListener("Draw2D", "bvh_debug_panel", function(cmd, dt)
 	draw_bvh_stats(10, 10)
 end)
 
-event.AddListener("KeyInput", "bvh_debug_toggle", function(key, press)
-	if not press or key ~= "f1" then return end
-
+input.Bind("f1", "bvh_debug", function()
 	if is_control_down() then
 		scene_bvh.Build()
 		print("BVH debug: forced rebuild")

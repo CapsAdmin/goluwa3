@@ -1,6 +1,7 @@
 if not RENDER_3D then return end
 
 local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local physics = import("goluwa/physics.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -912,60 +913,56 @@ local function cleanup_removed_bodies()
 	end
 end
 
-event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
-	if not press then return end
+input.Bind("n", "physics_debug", function()
+	debug_enabled = not debug_enabled
+	focused_body = nil
+	locked_body = nil
+	update_debug_visibility()
 
-	if key == "n" then
-		debug_enabled = not debug_enabled
-		focused_body = nil
-		locked_body = nil
-		update_debug_visibility()
+	if debug_enabled then
+		event.AddListener("Draw2D", "physics_debug_hover_info", draw_hovered_body_info)
 
-		if debug_enabled then
-			event.AddListener("Draw2D", "physics_debug_hover_info", draw_hovered_body_info)
+		event.AddListener("MouseInput", "physics_debug_lock", function(button, press)
+			if button ~= "button_2" or not press then return end
 
-			event.AddListener("MouseInput", "physics_debug_lock", function(button, press)
-				if button ~= "button_2" or not press then return end
+			if locked_body then
+				locked_body = nil
+			else
+				locked_body = focused_body
+			end
+		end)
+	else
+		event.RemoveListener("Draw2D", "physics_debug_hover_info")
+		event.RemoveListener("MouseInput", "physics_debug_lock")
+	end
 
-				if locked_body then
-					locked_body = nil
-				else
-					locked_body = focused_body
-				end
-			end)
-		else
-			event.RemoveListener("Draw2D", "physics_debug_hover_info")
-			event.RemoveListener("MouseInput", "physics_debug_lock")
-		end
+	print("[Physics Debug] " .. (debug_enabled and "Enabled" or "Disabled"))
 
-		print("[Physics Debug] " .. (debug_enabled and "Enabled" or "Disabled"))
+	if debug_enabled then
+		local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 
-		if debug_enabled then
-			local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
+		event.AddListener("Update", "physics_debug_sync", function()
+			cleanup_removed_bodies()
 
-			event.AddListener("Update", "physics_debug_sync", function()
-				cleanup_removed_bodies()
+			if locked_body and not (locked_body.Owner and locked_body.Owner:IsValid()) then
+				locked_body = nil
+			end
 
-				if locked_body and not (locked_body.Owner and locked_body.Owner:IsValid()) then
-					locked_body = nil
-				end
+			focused_body = locked_body or get_look_body_hit()
 
-				focused_body = locked_body or get_look_body_hit()
+			if
+				focused_body and
+				focused_body.Owner and
+				focused_body.Owner.IsValid and
+				focused_body.Owner:IsValid() and
+				focused_body.CollisionEnabled
+			then
+				ensure_debug_model(focused_body)
+			end
 
-				if
-					focused_body and
-					focused_body.Owner and
-					focused_body.Owner.IsValid and
-					focused_body.Owner:IsValid() and
-					focused_body.CollisionEnabled
-				then
-					ensure_debug_model(focused_body)
-				end
-
-				update_debug_visibility()
-			end)
-		else
-			event.RemoveListener("Update", "physics_debug_sync")
-		end
+			update_debug_visibility()
+		end)
+	else
+		event.RemoveListener("Update", "physics_debug_sync")
 	end
 end)

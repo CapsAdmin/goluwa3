@@ -3,6 +3,7 @@ if not RENDER_2D then return end
 local Color = import("goluwa/structs/color.lua")
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
@@ -193,14 +194,12 @@ event.AddListener("Draw2D", "vram_hud", function()
 	draw_snapshot(10, 10)
 end)
 
-event.AddListener("KeyInput", "vram_hud_toggle", function(key, press)
-	if press and key == "f2" then visible = not visible end
-end)
-
 commands.Add("vram", function()
 	visible = not visible
 	print("[VRAM] " .. (visible and "Enabled" or "Disabled"))
 end)
+
+input.Bind("f2", "vram")
 
 commands.Add("vram_dump=number[40]", function(limit)
 	local s = take_snapshot()

@@ -3,6 +3,7 @@ if not RENDER_2D then return end
 local Color = import("goluwa/structs/color.lua")
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local stats = import("goluwa/physics/stats.lua")
@@ -230,12 +231,8 @@ event.AddListener("Draw2D", "physics_stats_hud", function()
 	draw_snapshot(10, 10)
 end)
 
-event.AddListener("KeyInput", "physics_stats_hud_toggle", function(key, press)
-	if not press then return end
-
-	if key == "k" then set_visible(not visible) end
-end)
-
 commands.Add("physics_stats", function()
 	set_visible(not visible)
 end)
+
+input.Bind("k", "physics_stats")

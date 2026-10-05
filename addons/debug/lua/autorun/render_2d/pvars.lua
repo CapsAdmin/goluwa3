@@ -1,4 +1,4 @@
-local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -7,11 +7,9 @@ local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
-local SHOW_KEY = "c"
 local WIDTH = 420
 local window
 local property_editor
-local held = false
 local node_types = {
 	boolean = "boolean",
 	number = "number",
@@ -156,23 +154,12 @@ local function show()
 	window.visual:SetVisible(true)
 end
 
-event.AddListener("KeyInput", "pvars_window", function(key, press)
-	if key ~= SHOW_KEY then return end
-
-	if press then
-		if is_editing() then return end
-
-		held = true
-		show()
-	else
-		held = false
-	end
+input.Bind("c", "+show_pvars", function()
+	show()
 end)
 
-event.AddListener("Update", "pvars_window", function()
-	if held or not window or not window:IsValid() then return end
+input.Bind("c", "-show_pvars", function()
+	if is_editing() then return end
 
-	if window.visual:GetVisible() and not is_editing() then
-		window.visual:SetVisible(false)
-	end
+	window.visual:SetVisible(false)
 end)

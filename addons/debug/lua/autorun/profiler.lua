@@ -1,5 +1,5 @@
 local commands = import("goluwa/cli/commands.lua")
-local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local profiler = import("goluwa/profiler.lua")
 local started = false
 
@@ -19,8 +19,4 @@ commands.Add("profile", function()
 	toggle()
 end)
 
-event.AddListener("KeyInput", "profiler_toggle", function(key, press)
-	if not press then return end
-
-	if key == "p" then toggle() end
-end)
+input.Bind("p", "profile")

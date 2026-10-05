@@ -1,4 +1,5 @@
 local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -132,11 +133,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	end
 end)
 
-event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
-	if not press then return end
-
-	if key == "g" then
-		show_gbuffer = not show_gbuffer
-		print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
-	end
+input.Bind("g", "gbuffer_debug", function()
+	show_gbuffer = not show_gbuffer
+	print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
 end)

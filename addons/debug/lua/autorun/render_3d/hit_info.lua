@@ -1,5 +1,6 @@
 local raycast = import("goluwa/physics/raycast.lua")
 local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local tostring_object = import("goluwa/tostring_object.lua").tostring_object
@@ -75,18 +76,14 @@ end
 
 local enabled = false
 
-event.AddListener("KeyInput", "material_debug", function(key, press)
-	if not press then return end
+input.Bind("m", "material_debug", function()
+	enabled = not enabled
 
-	if key == "m" then
-		enabled = not enabled
-
-		if enabled then
-			event.AddListener("Draw2D", "material_debug_draw", draw)
-		else
-			event.RemoveListener("Draw2D", "material_debug_draw")
-		end
-
-		print("Material debug: " .. (enabled and "ON" or "OFF"))
+	if enabled then
+		event.AddListener("Draw2D", "material_debug_draw", draw)
+	else
+		event.RemoveListener("Draw2D", "material_debug_draw")
 	end
+
+	print("Material debug: " .. (enabled and "ON" or "OFF"))
 end)

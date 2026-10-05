@@ -1,15 +1,12 @@
 local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local aabb_enabled = false
 
-event.AddListener("KeyInput", "aabb_debug_toggle", function(key, press)
-	if not press then return end
-
-	if key == "b" then
-		aabb_enabled = not aabb_enabled
-		print("[AABB Debug] " .. (aabb_enabled and "Enabled" or "Disabled"))
-	end
+input.Bind("b", "aabb_debug", function()
+	aabb_enabled = not aabb_enabled
+	print("[AABB Debug] " .. (aabb_enabled and "Enabled" or "Disabled"))
 end)
 
 event.AddListener(

@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
 local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -310,8 +311,6 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 	end
 end)
 
-event.AddListener("KeyInput", "shadow_debug", function(key, press)
-	if not press then return end
-
-	if key == "j" then show_shadow_map = not show_shadow_map end
+input.Bind("j", "shadow_debug", function()
+	show_shadow_map = not show_shadow_map
 end)

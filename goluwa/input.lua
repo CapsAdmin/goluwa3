@@ -132,7 +132,7 @@ do
 		codec.StoreInFile("luadata", "data/input.txt", key, cmd)
 		local modifiers = key:split("+")
 		list.remove(modifiers, 1)
-		input.binds[key .. cmd] = {
+		local bind = {
 			key = key:sub(1, 1) == "+" and key:sub(2) or key,
 			trigger = key:match("^%-(.-)%+") or key:match("^(.-)%+") or key,
 			cmd = cmd,
@@ -140,6 +140,26 @@ do
 			trigger_on_release = cmd:sub(1, 1) == "-",
 			important = important,
 		}
+
+		for _, other in pairs(input.binds) do
+			if
+				other.cmd ~= cmd and
+				other.key == bind.key and
+				other.trigger_on_release == bind.trigger_on_release
+			then
+				logn(
+					"warning: key '",
+					key,
+					"' bound to '",
+					cmd,
+					"' is already bound to '",
+					other.cmd,
+					"'"
+				)
+			end
+		end
+
+		input.binds[key .. cmd] = bind
 
 		if callback then commands.Add(cmd .. "=nil", callback) end
 	end
