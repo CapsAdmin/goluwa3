@@ -1,22 +1,20 @@
-local Vec3 = import("goluwa/structs/vec3.lua")
 local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
-local render = import("goluwa/render/render.lua")
-local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
+local post_source = import("goluwa/render3d/post_source.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local SSAO_KERNEL = {}
+local BIT_COUNT = 32
+local BENT_COS_SQUARED = {}
+local BENT_COS_SIN = {}
 
-for i = 1, 64 do
-	math.randomseed(i)
-	local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
-	sample = sample * math.random()
-	local scale = (i - 1) / 64
-	scale = math.lerp(0.1, 1.0, scale * scale)
-	SSAO_KERNEL[i] = sample * scale
+for k = 0, BIT_COUNT - 1 do
+	local angle = (k + 0.5) / BIT_COUNT * math.pi - math.pi / 2
+	BENT_COS_SQUARED[k + 1] = string.format("%.7f", math.cos(angle) ^ 2)
+	BENT_COS_SIN[k + 1] = string.format("%.7f", math.cos(angle) * math.sin(angle))
 end
 
 return {
@@ -24,7 +22,8 @@ return {
 		name = "ambient_occlusion",
 		ComputePass = true,
 		ColorFormat = {
-			{"r16_sfloat", {"color", "r"}},
+			{"r16g16b16a16_sfloat", {"bounce_ao", "rgba"}},
+			{"r16g16b16a16_sfloat", {"bent_normal", "rgba"}},
 		},
 		framebuffer_count = 1,
 		scale = 0.5,
@@ -35,6 +34,11 @@ return {
 				attachment = 1,
 				dst_stage = "compute",
 			},
+			{
+				binding_index = 1,
+				attachment = 2,
+				dst_stage = "compute",
+			},
 		},
 		uniform_buffers = {
 			{
@@ -42,42 +46,51 @@ return {
 				binding_index = 3,
 				block = {
 					render3d.camera_block,
-					{"ssao_kernel", "vec3", 64},
+					render3d.last_frame_block,
+					post_source.pre_exposure_block,
 					{"blue_noise_tex", "int"},
 					{"frame", "int"},
+					{"gi_enabled", "int"},
+					{"gi_strength", "float"},
 					gbuffer_layout.block,
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
-
-					for i, sample in ipairs(SSAO_KERNEL) do
-						sample:CopyToFloatPointer(block.ssao_kernel[i - 1])
-					end
-
+					render3d.WriteLastFrameBlock(self, block)
+					post_source.WritePreExposureBlock(self, block)
 					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 					block.frame = system.GetFrameNumber() % 4096
+					block.gi_enabled = ambient_occlusion.IsGIEnabled() and block.last_frame_tex ~= -1 and 1 or 0
+					block.gi_strength = ambient_occlusion.GetGIStrength()
 					gbuffer_layout.WriteBlock(self, block)
 					return block
 				end,
 			},
 		},
 		custom_declarations = [[
-			layout(set = 0, binding = 0, r16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_bent_normal;
 			]],
 		shader = [[
-            vec2 in_uv;
+			vec2 in_uv;
 
-			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. [[
-            ]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
-            ]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_uv"}) .. [[
+			const float BENT_COS_SQUARED[32] = float[32](]] .. table.concat(BENT_COS_SQUARED, ", ") .. [[);
+			const float BENT_COS_SIN[32] = float[32](]] .. table.concat(BENT_COS_SIN, ", ") .. [[);
+			// a diffuse surface in full sun is about this bright in cd/m2. anything above is a glint, an
+			// emitter or earlier bounce piling up, and one such pixel should not become a firefly
+			const float BOUNCE_MAX_LUMINANCE = 30000.0;
+
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. post_source.GetPreExposureGLSL("lighting_data") .. [[
+			]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
+			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_uv"}) .. [[
 
 			vec2 get_compute_uv() {
 				return get_screen_uv(get_screen_pos(), imageSize(out_color));
 			}
 
-
-			void set_color(float value) {
-				imageStore(out_color, get_screen_pos(), vec4(value,0,0,1));
+			void set_color(vec3 bounce, float ao, vec3 bent, float view_depth) {
+				imageStore(out_color, get_screen_pos(), vec4(bounce, ao));
+				imageStore(out_bent_normal, get_screen_pos(), vec4(bent, view_depth));
 			}
 
 			vec3 get_geometric_normal(vec2 uv, vec3 world_pos, float depth, vec3 shading_normal) {
@@ -108,7 +121,10 @@ return {
 				return n;
 			}
 
-			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
+			// ao is the share of the hemisphere left open, bounce the light that came in through
+			// the part that was not, in the same units as the gi irradiance, and bent the
+			// cosine weighted direction of what is open
+			void get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N, out float ao, out vec3 bounce, out vec3 bent) {
 				vec3 p = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
 				vec3 V = normalize(-p);
 				vec3 view_normal = normalize(mat3(lighting_data.view) * N);
@@ -136,7 +152,13 @@ return {
 				float thickness = 0.5;
 				float thin_thickness = 0.03;
 
+				// the light of the last frame was exposed for that frame
+				float history_scale = get_pre_exposure() / get_previous_pre_exposure();
+				float bounce_max = BOUNCE_MAX_LUMINANCE * get_pre_exposure();
+				vec2 history_texel = 1.0 / vec2(screen_size);
 				float total_ao = 0.0;
+				vec3 total_bounce = vec3(0.0);
+				vec3 total_bent = vec3(0.0);
 				float total_weight = 0.0;
 
 				for (int i = 0; i < Nd; i++) {
@@ -157,6 +179,8 @@ return {
 					float theta_n = atan(dot(n_proj, T_v), dot(n_proj, V));
 
 					uint bi = 0u;
+					vec3 slice_bounce = vec3(0.0);
+
 					for (int j = 0; j < Ns; j++) {
 						float o = (float(j) + random_offset) / float(Ns);
 						float step_dist = o * o * screen_radius;
@@ -182,7 +206,8 @@ return {
 							// hair above or below. without a margin those set a bit each
 							if (dot(v_f, view_normal) < 0.1 * sqrt(dist2)) continue;
 
-							float sample_thickness = gbuffer_transmission(sample_uv) > 0.0 ? thin_thickness : thickness;
+							float sample_transmission = gbuffer_transmission(sample_uv);
+							float sample_thickness = sample_transmission > 0.0 ? thin_thickness : thickness;
 
 							// Angles from the view vector, signed by the side of
 							// the slice the sample is on (Therrien 2023). The
@@ -210,16 +235,66 @@ return {
 							if (b > a) {
 								uint count = b - a;
 								uint mask = (count >= 32u) ? 0xFFFFFFFFu : ((1u << count) - 1u) << a;
+
+								// only the part of the arc nothing nearer covered already sends light
+								uint fresh = mask & ~bi;
+
+								if (lighting_data.gi_enabled != 0 && fresh != 0u) {
+									vec2 history_uv = lighting_data.velocity_tex == -1 ? sample_uv : sample_uv - texture(TEXTURE(lighting_data.velocity_tex), sample_uv).xy;
+
+									if (history_uv.x > 0.0 && history_uv.x < 1.0 && history_uv.y > 0.0 && history_uv.y < 1.0) {
+										vec3 sample_normal = normalize(mat3(lighting_data.view) * gbuffer_normal(sample_uv));
+										float facing = sample_transmission > 0.0 ? 1.0 : clamp(dot(sample_normal, -v_f * inversesqrt(dist2)), 0.0, 1.0);
+										// the share of the cosine weighted hemisphere this arc covers
+										float cosine_share = 0.5 * (sin(theta_max) - sin(theta_min));
+										// a few taps around it, so a single bright pixel is only a part of what the sample sees
+										vec3 hit = (
+											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(-1.5, -0.5)).rgb +
+											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(0.5, -1.5)).rgb +
+											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(1.5, 0.5)).rgb +
+											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(-0.5, 1.5)).rgb
+										) * (0.25 * history_scale);
+										hit *= min(1.0, bounce_max / max(dot(hit, vec3(0.2126, 0.7152, 0.0722)), 1e-6));
+										slice_bounce += hit * (cosine_share * float(bitCount(fresh)) / float(count) * facing);
+									}
+								}
+
 								bi |= mask;
 							}
 						}
 					}
+
 					total_ao += (1.0 - float(bitCount(bi)) / float(Nb)) * weight;
+					total_bounce += slice_bounce * weight;
+
+					float open_cos_squared = 0.0;
+					float open_cos_sin = 0.0;
+
+					for (int k = 0; k < 32; k++) {
+						if (((bi >> uint(k)) & 1u) == 0u) {
+							open_cos_squared += BENT_COS_SQUARED[k];
+							open_cos_sin += BENT_COS_SIN[k];
+						}
+					}
+
+					// the open direction in the slice, measured from the projected normal, back in view space
+					float cn = cos(theta_n);
+					float sn = sin(theta_n);
+					total_bent += (V * (open_cos_squared * cn - open_cos_sin * sn) + T_v * (open_cos_squared * sn + open_cos_sin * cn)) * weight;
 					total_weight += weight;
 				}
 
-				float ao = (total_weight > 0.001) ? (total_ao / total_weight) : 1.0;
-				return pow(clamp(ao, 0.0, 1.0), 1);
+				if (total_weight <= 0.001) {
+					ao = 1.0;
+					bounce = vec3(0.0);
+					bent = N;
+					return;
+				}
+
+				ao = clamp(total_ao / total_weight, 0.0, 1.0);
+				bounce = total_bounce / total_weight * lighting_data.gi_strength;
+				float bent_length = length(total_bent);
+				bent = bent_length > 1e-4 ? normalize(mat3(lighting_data.inv_view) * (total_bent / bent_length)) : N;
 			}
 
 			void main() {
@@ -230,23 +305,155 @@ return {
 				in_uv = get_compute_uv();
 
 				float depth = gbuffer_depth(in_uv);
-
-				if (depth == 1.0) {
-					set_color(1);
-					return;
-				}
-
 				float alpha = gbuffer_alpha(in_uv);
 
-				if (alpha == 0.0) {
-					set_color(1);
+				if (depth == 1.0 || alpha == 0.0) {
+					set_color(vec3(0.0), 1.0, vec3(0.0), 0.0);
 					return;
 				}
 
 				vec3 world_pos = get_world_pos(depth);
-				vec3 N = get_geometric_normal(in_uv, world_pos, depth, gbuffer_normal(in_uv));
-                float ao = get_ambient_occlusion(in_uv, world_pos, N);
-                set_color(ao);
+				vec3 N = gbuffer_normal(in_uv);
+				bool thin = gbuffer_transmission(in_uv) > 0.0;
+
+				// on a thin card the depth derivatives belong to whatever the card and its neighbours are,
+				// and flip from pixel to pixel
+				if (!thin) N = get_geometric_normal(in_uv, world_pos, depth, N);
+
+				float ao;
+				vec3 bounce;
+				vec3 bent;
+				get_ambient_occlusion(in_uv, world_pos, N, ao, bounce, bent);
+
+				// the normals of foliage are not a surface, bending the lookup by them only adds noise
+				if (thin) bent = N;
+
+				set_color(bounce, ao, bent, -(lighting_data.view * vec4(world_pos, 1.0)).z);
+			}
+		]],
+	},
+	{
+		name = "ambient_occlusion_temporal",
+		ComputePass = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"bounce_ao", "rgba"}},
+			{"r16g16b16a16_sfloat", {"bent_normal", "rgba"}},
+		},
+		framebuffer_count = 2,
+		scale = 0.5,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = 0,
+				attachment = 1,
+				dst_stage = "compute",
+			},
+			{
+				binding_index = 1,
+				attachment = 2,
+				dst_stage = "compute",
+			},
+		},
+		uniform_buffers = {
+			{
+				name = "temporal_data",
+				binding_index = 3,
+				block = {
+					gbuffer_layout.block,
+					post_source.pre_exposure_block,
+					{"raw_ao_tex", "int"},
+					{"raw_bent_tex", "int"},
+					{"history_ao_tex", "int"},
+					{"history_bent_tex", "int"},
+				},
+				write = function(self, block)
+					gbuffer_layout.WriteBlock(self, block)
+					post_source.WritePreExposureBlock(self, block)
+					local raw = render3d.pipelines.ambient_occlusion:GetFramebuffer(1)
+					block.raw_ao_tex = self:GetTextureIndex(raw:GetAttachment(1))
+					block.raw_bent_tex = self:GetTextureIndex(raw:GetAttachment(2))
+					local frame = system.GetFrameNumber()
+
+					if self.history_framebuffers ~= self.framebuffers then
+						self.history_framebuffers = self.framebuffers
+						self.history_reset_frame = frame
+					end
+
+					if frame > self.history_reset_frame then
+						local history = self:GetFramebuffer((frame + 1) % 2 + 1)
+						block.history_ao_tex = self:GetTextureIndex(history:GetAttachment(1))
+						block.history_bent_tex = self:GetTextureIndex(history:GetAttachment(2))
+					else
+						block.history_ao_tex = -1
+						block.history_bent_tex = -1
+					end
+
+					return block
+				end,
+			},
+		},
+		custom_declarations = [[
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_bent_normal;
+			]],
+		shader = [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("temporal_data") .. post_source.GetPreExposureGLSL("temporal_data") .. [[
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_color);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				vec4 current = texelFetch(TEXTURE(temporal_data.raw_ao_tex), pos, 0);
+				vec4 current_bent = texelFetch(TEXTURE(temporal_data.raw_bent_tex), pos, 0);
+
+				if (temporal_data.history_ao_tex == -1 || temporal_data.velocity_tex == -1 || current_bent.w == 0.0) {
+					imageStore(out_color, pos, current);
+					imageStore(out_bent_normal, pos, current_bent);
+					return;
+				}
+
+				vec2 uv = get_screen_uv(pos, size);
+				vec4 motion = texture(TEXTURE(temporal_data.velocity_tex), uv);
+				vec2 history_uv = uv - motion.xy;
+
+				// what the history held where this surface was: a different depth there means something else was in view
+				float history_depth = texelFetch(TEXTURE(temporal_data.history_bent_tex), clamp(ivec2(history_uv * vec2(size)), ivec2(0), size - 1), 0).w;
+				bool valid = history_uv.x > 0.0 && history_uv.x < 1.0 && history_uv.y > 0.0 && history_uv.y < 1.0 && history_depth > 0.0;
+				// thin geometry changes what a pixel sees constantly, so how far off the history is decides how much of it is kept
+				float depth_error = abs(history_depth - motion.z) / max(motion.z, 0.1);
+				float history_weight = 0.92 * (1.0 - smoothstep(0.05, 0.3, depth_error));
+
+				if (!valid || history_weight <= 0.0) {
+					imageStore(out_color, pos, current);
+					imageStore(out_bent_normal, pos, current_bent);
+					return;
+				}
+
+				vec4 mean = vec4(0.0);
+				vec4 mean_squared = vec4(0.0);
+
+				for (int y = -1; y <= 1; y++) {
+					for (int x = -1; x <= 1; x++) {
+						vec4 neighbor = texelFetch(TEXTURE(temporal_data.raw_ao_tex), clamp(pos + ivec2(x, y), ivec2(0), size - 1), 0);
+						mean += neighbor;
+						mean_squared += neighbor * neighbor;
+					}
+				}
+
+				// a pixel far brighter than what is around it is a firefly, not the light
+				vec4 around = (mean - current) / 8.0;
+				current.rgb = min(current.rgb, around.rgb * 2.0 + vec3(50.0 * get_pre_exposure()));
+				mean /= 9.0;
+				vec4 sigma = sqrt(max(mean_squared / 9.0 - mean * mean, vec4(0.0)));
+				vec4 history = texture(TEXTURE(temporal_data.history_ao_tex), history_uv);
+				// the history was exposed for the frame before
+				history.rgb *= get_pre_exposure() / get_previous_pre_exposure();
+				history = clamp(history, mean - 2.0 * sigma, mean + 2.0 * sigma);
+				vec4 history_bent = texture(TEXTURE(temporal_data.history_bent_tex), history_uv);
+				imageStore(out_color, pos, mix(current, history, history_weight));
+				imageStore(out_bent_normal, pos, vec4(mix(current_bent.xyz, history_bent.xyz, history_weight), current_bent.w));
 			}
 		]],
 	},
@@ -254,7 +461,8 @@ return {
 		name = "ambient_occlusion_blur",
 		ComputePass = true,
 		ColorFormat = {
-			{"r16_sfloat", {"color", "r"}},
+			{"r16g16b16a16_sfloat", {"bounce_ao", "rgba"}},
+			{"r16g16b16a16_sfloat", {"bent_normal", "rgba"}},
 		},
 		framebuffer_count = 1,
 		LocalSize = COMPUTE_LOCAL_SIZE,
@@ -262,6 +470,11 @@ return {
 			{
 				binding_index = 0,
 				attachment = 1,
+				dst_stage = "compute",
+			},
+			{
+				binding_index = 1,
+				attachment = 2,
 				dst_stage = "compute",
 			},
 		},
@@ -273,17 +486,21 @@ return {
 					render3d.camera_block,
 					gbuffer_layout.block,
 					{"ao_tex", "int"},
+					{"bent_tex", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					gbuffer_layout.WriteBlock(self, block)
-					block.ao_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion:GetFramebuffer(1):GetAttachment(1))
+					local framebuffer = render3d.pipelines.ambient_occlusion_temporal:GetFramebuffer(system.GetFrameNumber() % 2 + 1)
+					block.ao_tex = self:GetTextureIndex(framebuffer:GetAttachment(1))
+					block.bent_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
 					return block
 				end,
 			},
 		},
 		custom_declarations = [[
-			layout(set = 0, binding = 0, r16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_bent_normal;
 			]],
 		shader = [[
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ao_blur_data") .. [[
@@ -293,8 +510,9 @@ return {
 				return get_screen_uv(get_screen_pos(), imageSize(out_color));
 			}
 
-			void set_color(float value) {
-				imageStore(out_color, get_screen_pos(), vec4(value, 0, 0, 1));
+			void set_color(vec4 bounce_ao, vec3 bent) {
+				imageStore(out_color, get_screen_pos(), bounce_ao);
+				imageStore(out_bent_normal, get_screen_pos(), vec4(bent, 1.0));
 			}
 
 			float get_view_depth(vec2 uv, float depth) {
@@ -311,8 +529,8 @@ return {
 				vec2 uv = get_compute_uv();
 				float center_depth = gbuffer_depth(uv);
 
-				if (center_depth == 1.0 || ao_blur_data.ao_tex == -1) {
-					set_color(1.0);
+				if (center_depth == 1.0) {
+					set_color(vec4(0.0, 0.0, 0.0, 1.0), vec3(0.0));
 					return;
 				}
 
@@ -321,9 +539,12 @@ return {
 				ivec2 ao_size = textureSize(TEXTURE(ao_blur_data.ao_tex), 0);
 				vec2 ao_texel = 1.0 / vec2(ao_size);
 
-				float total = 0.0;
+				vec4 total = vec4(0.0);
+				vec3 total_bent = vec3(0.0);
 				float weight_sum = 0.0;
 				vec3 center_normal = gbuffer_normal(uv);
+				// the normals of foliage disagree with their neighbours' however close they are
+				bool center_thin = gbuffer_transmission(uv) > 0.0;
 
 				for (int y = -2; y <= 2; y++) {
 					for (int x = -2; x <= 2; x++) {
@@ -337,15 +558,19 @@ return {
 						float depth_diff = sample_view_depth - center_view_depth;
 						float depth_weight = exp(-(depth_diff * depth_diff) / (2.0 * depth_sigma * depth_sigma));
 						float spatial_weight = exp(-dot(offset, offset) / (2.0 * 2.0 * 2.0));
-						float normal_weight = pow(max(dot(center_normal, gbuffer_normal(sample_uv)), 0.0), 8.0);
+						float normal_weight = center_thin ? 1.0 : pow(max(dot(center_normal, gbuffer_normal(sample_uv)), 0.0), 8.0);
 						float weight = depth_weight * spatial_weight * normal_weight;
-						float sample_ao = texture(TEXTURE(ao_blur_data.ao_tex), sample_uv).r;
-						total += sample_ao * weight;
+						total += texture(TEXTURE(ao_blur_data.ao_tex), sample_uv) * weight;
+						total_bent += texture(TEXTURE(ao_blur_data.bent_tex), sample_uv).xyz * weight;
 						weight_sum += weight;
 					}
 				}
 
-				set_color(weight_sum > 0.0001 ? (total / weight_sum) : 1.0);
+				if (weight_sum > 0.0001) {
+					set_color(total / weight_sum, total_bent / weight_sum);
+				} else {
+					set_color(vec4(0.0, 0.0, 0.0, 1.0), vec3(0.0));
+				}
 			}
 		]],
 	},

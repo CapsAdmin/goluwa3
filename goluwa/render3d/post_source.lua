@@ -1,5 +1,6 @@
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local post_source = {}
 
 function post_source.GetOpaqueSceneFramebuffer()
@@ -49,6 +50,18 @@ function post_source.GetRawSceneSourceTexture()
 end
 
 function post_source.GetSceneSourceTexture(self)
+	if
+		(
+			self.name == "blit_compute" or
+			self.name == "blit_scene"
+		)
+		and
+		ambient_occlusion.GetDebugView() ~= 0 and
+		render3d.IsPassEnabled("ambient_occlusion_debug")
+	then
+		return render3d.pipelines.ambient_occlusion_debug:GetFramebuffer():GetAttachment(1)
+	end
+
 	if self.name ~= "taa" and render3d.IsPassEnabled("taa") then
 		if render3d.pipelines.taa_sharpen.is_enabled() then
 			return render3d.pipelines.taa_sharpen:GetFramebuffer():GetAttachment(1)

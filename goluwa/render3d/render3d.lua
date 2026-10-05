@@ -254,6 +254,7 @@ local default_passes = {
 	{"translucent", "goluwa/render3d/passes/translucent.lua"},
 	{"forward_overlay", "goluwa/render3d/passes/forward_overlay.lua"},
 	{"taa", "goluwa/render3d/passes/taa.lua"},
+	{"ambient_occlusion_debug", "goluwa/render3d/passes/ambient_occlusion_debug.lua"},
 	{"blit", "goluwa/render3d/passes/blit.lua"},
 }
 local pass_vars = {}

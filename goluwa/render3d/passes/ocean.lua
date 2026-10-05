@@ -739,7 +739,7 @@ list.insert(
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready()) {
 					float weight;
-					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, weight);
+					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, weight);
 					// the weight only fades out near walls, the sky would leak in under a roof
 					if (weight > 0.0) return gi.rgb;
 				}

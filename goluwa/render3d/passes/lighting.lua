@@ -267,9 +267,10 @@ return {
 				return gi.rgb;
 			}
 
-			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
-				if (lighting_data.ambient_occlusion_tex < 0) return 1.0;
-				return texture(TEXTURE(lighting_data.ambient_occlusion_tex), uv).r;
+			// rgb is the bounce light that came in through what the occlusion covers, a the occlusion
+			vec4 get_ambient_occlusion(vec2 uv) {
+				if (lighting_data.ambient_occlusion_tex < 0) return vec4(0.0, 0.0, 0.0, 1.0);
+				return texture(TEXTURE(lighting_data.ambient_occlusion_tex), uv);
 			}
 
 			vec3 get_sky() {
@@ -297,11 +298,13 @@ return {
 				float sky_visibility;
 				vec3 irradiance = get_gi_irradiance(N, sky_visibility);
 				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, irradiance, in_uv);
-				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N) * gbuffer_ao(in_uv);
+				vec4 screen_gi = get_ambient_occlusion(in_uv);
+				float ambient_occlusion = screen_gi.a * gbuffer_ao(in_uv);
+				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
 				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 				vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
-				vec3 ambient_diffuse = kD_ambient * irradiance * albedo * ambient_occlusion * (1.0 - transmission);
+				vec3 ambient_diffuse = kD_ambient * (irradiance * ambient_occlusion + bounce) * albedo * (1.0 - transmission);
 
 				if (transmission > 0.0) {
 					// the gi only holds the light arriving at the front. the sky's part of it

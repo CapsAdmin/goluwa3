@@ -200,7 +200,7 @@ function scene_reflection.GetGLSL(block_name)
 			}
 
 			float weight;
-			vec4 gi = ddgi_sample_irradiance(P, hit_N, -dir, false, weight);
+			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, weight);
 
 			if (weight <= 0.0 && !ddgi_in_volume(P)) {
 				gi.rgb = sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, hit_N);

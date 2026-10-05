@@ -279,7 +279,7 @@ local scatter_pass = {
 				float phi = float(seed >> 16u) * (6.28318530718 / 65536.0);
 				vec3 N = vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z);
 				float weight;
-				vec4 gi = ddgi_sample_irradiance(P, N, vec3(0.0), false, weight);
+				vec4 gi = ddgi_sample_irradiance(P, N, N, vec3(0.0), false, weight);
 
 				if (weight > 0.0) return gi.rgb / PI;
 			}

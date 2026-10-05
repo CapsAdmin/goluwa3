@@ -12,6 +12,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
+local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local ddgi = library()
 pvars.StartGroup("ddgi", {store = false})
@@ -1172,7 +1173,7 @@ function ddgi.GetCommonGLSL()
 			return ddgi_ray_weight(d, uint(ddgi_data.ddgi_uniform_rays), tile, guided);
 		}
 
-		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 V, bool smooth_blend, out float weight) {
+		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, out float weight) {
 			weight = 0.0;
 
 			if (ddgi_cascade_reset(c)) return vec4(0.0);
@@ -1255,7 +1256,7 @@ function ddgi.GetCommonGLSL()
 				w *= kernel.x * kernel.y * kernel.z;
 				vec4 irradiance = textureLod(
 					TEXTURE(ddgi_data.ddgi_irradiance_tex),
-					ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS),
+					ddgi_atlas_uv(slot, c, L, DDGI_IRRADIANCE_TEXELS),
 					0.0
 				);
 
@@ -1298,9 +1299,10 @@ function ddgi.GetCommonGLSL()
 		}
 
 		// Irradiance at P with normal N, seen from direction V (towards the
-		// viewer). rgb = irradiance, a = sky visibility. weight is 0 when no
-		// probe could contribute.
-		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 V, bool smooth_blend, out float weight) {
+		// viewer), looked up along L, which is N unless something knows the
+		// open side to be elsewhere. rgb = irradiance, a = sky visibility.
+		// weight is 0 when no probe could contribute.
+		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, out float weight) {
 			weight = 0.0;
 
 			int count = ddgi_data.ddgi_cascade_count;
@@ -1310,12 +1312,12 @@ function ddgi.GetCommonGLSL()
 
 				if (fine <= 0.0) continue;
 
-				vec4 result = ddgi_sample_cascade(c, P, N, V, smooth_blend, weight);
+				vec4 result = ddgi_sample_cascade(c, P, N, L, V, smooth_blend, weight);
 
 				if (fine >= 1.0) return result;
 
 				float coarse_weight;
-				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, V, smooth_blend, coarse_weight);
+				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, L, V, smooth_blend, coarse_weight);
 
 				// fitted cascades are not always nested
 				if (coarse_weight <= 0.0) return result;
@@ -1375,6 +1377,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_uniform_rays", "int"},
 		{"ddgi_emitter_candidates", "int"},
 		{"ddgi_guide_tex", "int"},
+		{"ddgi_bent_normal_tex", "int"},
 	}
 end
 
@@ -1475,6 +1478,8 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_uniform_rays = ddgi.GetUniformRays()
 	block.ddgi_emitter_candidates = emitter_candidates:Get()
 	block.ddgi_guide_tex = pipeline_texture_index(self, "ddgi_guide")
+	local bent_normal = ambient_occlusion.GetBentNormalTexture()
+	block.ddgi_bent_normal_tex = bent_normal and self:GetTextureIndex(bent_normal) or -1
 	return block
 end
 

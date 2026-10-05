@@ -532,7 +532,7 @@ local function pass_shade()
 				vec3 radiance = albedo * ddgi_direct_light(surface, N, (hit.y & DDGI_SUN_VISIBLE_BIT) != 0u, light_radius, u);
 
 				float weight;
-				radiance += albedo * ddgi_sample_irradiance(P, N, -dir, false, weight).rgb;
+				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, weight).rgb;
 
 				store_ray(pos, vec4(radiance, t));
 			}
@@ -1419,7 +1419,17 @@ local function pass_resolve()
 				vec3 P = get_world_pos(uv, depth);
 				vec3 V = normalize(ddgi_data.camera_position - P);
 				float weight;
-				vec4 gi = ddgi_sample_irradiance(P, N, V, ddgi_data.ddgi_smooth_blend != 0, weight);
+				vec3 L = N;
+
+				if (ddgi_data.ddgi_bent_normal_tex >= 0) {
+					vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
+					float bent_length = length(bent);
+
+					// the sky and glass have none
+					if (bent_length > 0.1) L = bent / bent_length;
+				}
+
+				vec4 gi = ddgi_sample_irradiance(P, N, L, V, ddgi_data.ddgi_smooth_blend != 0, weight);
 
 				// outside the volume the sky is all there is to go on; inside it,
 				// no usable probe means the point is enclosed and gets nothing

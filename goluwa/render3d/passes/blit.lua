@@ -7,6 +7,7 @@ local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local assets = import("goluwa/assets.lua")
+local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local KEY = 0.28
 local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
@@ -933,7 +934,7 @@ for _, pass in ipairs{
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
 			block.frame = system.GetFrameNumber()
-			block.has_bloom_tex = get_bloom_texture() and 1 or 0
+			block.has_bloom_tex = get_bloom_texture() and ambient_occlusion.GetDebugView() == 0 and 1 or 0
 			block.has_exposure_tex = get_exposure_feedback_texture() and 1 or 0
 			block.requires_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
 			block.output_mode = render.target:GetColorSpace() == "extended_srgb_linear_ext" and
@@ -954,6 +955,12 @@ for _, pass in ipairs{
 			block.night_vision_log10_threshold = math.log(night_vision_threshold:Get()) / math.log(10)
 			block.night_vision_tint = night_vision_tint:Get()
 			write_local_exposure_block(block)
+
+			if ambient_occlusion.GetDebugView() ~= 0 then
+				block.has_grid_tex = 0
+				block.night_vision = 0
+			end
+
 			return block
 		end,
 		shader = compute_shader,
