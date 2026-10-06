@@ -29,16 +29,33 @@ event.AddListener("Draw3DForwardOverlay", "highlight", function()
 
 	if not ent:IsValid() then return end
 
-	if not ent.visual or not ent.visual.Is3D then return end
+	local primitive = ent.visual_primitive
+	local visual = ent.visual
+
+	if not (primitive or visual and visual.Is3D) then return end
 
 	local pulse = (math.sin(system.GetElapsedTime() * 6) + 1) * 0.5
 	local alpha = 0.2 + pulse * 0.35
 	local emissive = 0.12 + pulse * 0.32
-	local world_matrix = ent.transform:GetWorldMatrix()
 	material:SetColorMultiplier(Color(1, 0.35 + pulse * 0.35, 0.15, alpha))
 	material:SetEmissiveMultiplier(Color(emissive, emissive * 0.6, emissive * 0.25, 1))
+	render3d.SetMaterial(material)
 
-	for _, prim in ipairs(ent.visual:GetRenderEntries()) do
+	if primitive then
+		local polygon3d = primitive:GetPolygon3D()
+
+		if polygon3d then
+			render3d.SetWorldMatrix(ent.transform:GetWorldMatrix())
+			render3d.UploadForwardOverlayConstants()
+			polygon3d:Draw()
+		end
+
+		return
+	end
+
+	local world_matrix = ent.transform:GetWorldMatrix()
+
+	for _, prim in ipairs(visual:GetRenderEntries()) do
 		if prim.polygon3d then
 			local final_matrix = world_matrix
 
@@ -49,7 +66,6 @@ event.AddListener("Draw3DForwardOverlay", "highlight", function()
 			end
 
 			render3d.SetWorldMatrix(final_matrix)
-			render3d.SetMaterial(material)
 			render3d.UploadForwardOverlayConstants()
 			prim.polygon3d:Draw()
 		end

@@ -330,3 +330,55 @@ do
 		ent:Remove()
 	end)
 end
+
+T.Test3D("Raycast hits real visual meshes from outside but not their back faces", function()
+	local box = shapes.Box{Position = Vec3(0, 0, 0), Size = Vec3(2, 2, 2), RigidBody = false}
+	local outside = raycast.CastClosest(Vec3(0, 0, 10), Vec3(0, 0, -1), 100)
+	T(outside ~= nil)["=="](true)
+	T(outside.entity)["=="](box)
+	T(math.abs(outside.distance - 9))["<"](0.001)
+	local inside = raycast.CastClosest(Vec3(0, 0, 0), Vec3(0, 0, -1), 100)
+	T(inside)["=="](nil)
+	box:Remove()
+end)
+
+T.Test3D("Raycast reads one based polygon indices", function()
+	local poly = Polygon3D.New()
+
+	for _, x in ipairs{0, 10, 20} do
+		poly:AddVertex{pos = Vec3(x - 1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(x + 1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(x, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
+	end
+
+	poly.indices = {7, 8, 9, 1, 2, 3, 4, 5, 6}
+	poly:BuildBoundingBox()
+	local ent = Entity.New({Name = "indexed"})
+	ent:AddComponent("transform")
+	local source = raycast.CreateModelSource{
+		{
+			Owner = ent,
+			Visible = true,
+			AABB = poly.AABB,
+			GetWorldAABB = function()
+				return poly.AABB
+			end,
+			GetAABB = function()
+				return poly.AABB
+			end,
+			GetRenderEntries = function(self)
+				return self.Primitives
+			end,
+			Primitives = {{polygon3d = poly, aabb = poly.AABB}},
+		},
+	}
+
+	for _, x in ipairs{0, 10, 20} do
+		local hit = raycast.CastClosestFromSource(source, Vec3(x, 0, 5), Vec3(0, 0, -1), 20)
+		T(hit ~= nil)["=="](true)
+		T(math.abs(hit.distance - 5))["<"](0.001)
+	end
+
+	T(raycast.CastClosestFromSource(source, Vec3(5, 0, 5), Vec3(0, 0, -1), 20))["=="](nil)
+	ent:Remove()
+end)

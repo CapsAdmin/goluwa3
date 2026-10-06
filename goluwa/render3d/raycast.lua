@@ -231,7 +231,7 @@ local function get_index_buffer(poly3d, vertices, indices)
 	local sequential = {}
 
 	for i = 1, vertex_count do
-		sequential[i] = i - 1
+		sequential[i] = i
 	end
 
 	poly3d.raycast_sequential_indices = sequential
@@ -239,7 +239,18 @@ local function get_index_buffer(poly3d, vertices, indices)
 	return sequential, triangle_count
 end
 
-local function test_triangle_vertices(ray, vertices, i0, i1, i2, tri_idx, primitive_idx, entity, cached_face_normal)
+local function test_triangle_vertices(
+	ray,
+	vertices,
+	i0,
+	i1,
+	i2,
+	tri_idx,
+	primitive_idx,
+	entity,
+	cached_face_normal,
+	cull_back
+)
 	local v0_data = vertices[i0]
 	local v1_data = vertices[i1]
 	local v2_data = vertices[i2]
@@ -253,13 +264,17 @@ local function test_triangle_vertices(ray, vertices, i0, i1, i2, tri_idx, primit
 
 	if not hit then return nil end
 
+	local face_normal = cached_face_normal or (v1 - v0):Cross(v2 - v0):GetNormalized()
+
+	if cull_back and face_normal:Dot(ray.direction) <= 0 then return nil end
+
 	local result = {}
 	result.entity = entity
 	result.distance = distance or math.huge
 	result.position = ray.origin + ray.direction * distance
 	result.primitive_index = primitive_idx
 	result.triangle_index = tri_idx
-	result.face_normal = cached_face_normal or (v1 - v0):Cross(v2 - v0):GetNormalized()
+	result.face_normal = face_normal
 
 	if v0_data.normal and v1_data.normal and v2_data.normal then
 		local w = 1.0 - u - v
@@ -276,9 +291,9 @@ local function build_triangle_acceleration(vertices, indices, triangle_count)
 
 	for tri_idx = 0, triangle_count - 1 do
 		local base = tri_idx * 3
-		local i0 = indices[base + 1] + 1
-		local i1 = indices[base + 2] + 1
-		local i2 = indices[base + 3] + 1
+		local i0 = indices[base + 1]
+		local i1 = indices[base + 2]
+		local i2 = indices[base + 3]
 		local v0_data = vertices[i0]
 		local v1_data = vertices[i1]
 		local v2_data = vertices[i2]
@@ -526,11 +541,11 @@ local function test_convex_plane_primitive(ray, planes, primitive_idx, entity, m
 	}
 end
 
-local function test_triangle(ray, vertices, indices, tri_idx, primitive_idx, entity)
-	local i0 = indices[tri_idx * 3 + 1] + 1
-	local i1 = indices[tri_idx * 3 + 2] + 1
-	local i2 = indices[tri_idx * 3 + 3] + 1
-	return test_triangle_vertices(ray, vertices, i0, i1, i2, tri_idx, primitive_idx, entity)
+local function test_triangle(ray, vertices, indices, tri_idx, primitive_idx, entity, cull_back)
+	local i0 = indices[tri_idx * 3 + 1]
+	local i1 = indices[tri_idx * 3 + 2]
+	local i2 = indices[tri_idx * 3 + 3]
+	return test_triangle_vertices(ray, vertices, i0, i1, i2, tri_idx, primitive_idx, entity, nil, cull_back)
 end
 
 local function visit_triangle_bvh_leaf(node, context, best_hit, best_distance)
@@ -545,7 +560,8 @@ local function visit_triangle_bvh_leaf(node, context, best_hit, best_distance)
 			tri.tri_idx,
 			context.primitive_idx,
 			context.entity,
-			tri.face_normal
+			tri.face_normal,
+			context.cull_back
 		)
 
 		if hit and hit.distance < best_distance then
@@ -601,6 +617,8 @@ local function test_primitive_with_limit(
 	if not vertices then return nil end
 
 	local closest_hit = nil
+	local material = primitive.material
+	local cull_back = material ~= nil and not material:GetDoubleSided()
 	local indices, triangle_count = get_index_buffer(poly3d, vertices, poly3d.indices)
 	local acceleration = get_triangle_acceleration(primitive, vertices, indices, triangle_count)
 
@@ -611,6 +629,7 @@ local function test_primitive_with_limit(
 		traversal_context.vertices = vertices
 		traversal_context.primitive_idx = primitive_idx
 		traversal_context.entity = entity
+		traversal_context.cull_back = cull_back
 		closest_hit = select(
 			1,
 			BVH.TraverseRay(
@@ -624,7 +643,7 @@ local function test_primitive_with_limit(
 		)
 	else
 		for tri_idx = 0, triangle_count - 1 do
-			local hit = test_triangle(primitive_ray, vertices, indices, tri_idx, primitive_idx, entity)
+			local hit = test_triangle(primitive_ray, vertices, indices, tri_idx, primitive_idx, entity, cull_back)
 
 			if
 				hit and
