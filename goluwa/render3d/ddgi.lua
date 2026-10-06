@@ -76,7 +76,7 @@ local emitter_grid = pvars.Setup2{
 }
 local additive_emitters = pvars.Setup2{
 	key = "ddgi_additive_emitters",
-	default = true,
+	default = false,
 	help = "additive materials light the probes like emissive surfaces do",
 }
 local emitter_cell_size = pvars.Setup2{
