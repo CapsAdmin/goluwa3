@@ -233,7 +233,14 @@ local function run_game()
 	if SERVER or CLIENT then
 		import("goluwa/network/network.lua").Initialize()
 
-		if SERVER then commands.RunString("host") end
+		if SERVER then
+			local ok, err = commands.ExecuteCommandString("host")
+
+			if not ok then
+				io.stderr:write(err, "\n")
+				system.ShutDown(1)
+			end
+		end
 	end
 end
 

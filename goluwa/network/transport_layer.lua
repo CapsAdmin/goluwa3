@@ -317,7 +317,13 @@ do
 		server:Initialize()
 		server.peers = {}
 		server:SetAddress(ip, port)
-		server.socket:bind(ip, port)
+		local ok, err = server.socket:bind(ip, port)
+
+		if not ok then
+			server:Remove()
+			error(string.format("unable to host on %s:%s: %s", ip, port, tostring(err)), 0)
+		end
+
 		table.insert(transport_layer.servers, server)
 		return server
 	end
