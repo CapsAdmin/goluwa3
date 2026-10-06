@@ -42,6 +42,7 @@ Entity.New{
 	transform = {},
 	network = {},
 }
+import("test/network_e2e/signals.lua").Write("server.ready", "ready")
 local t = 0
 
 event.AddListener("Update", "e2e_server", function(dt)

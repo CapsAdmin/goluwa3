@@ -24,6 +24,7 @@ local coroutine = _G.coroutine
 local TEST_TIMEOUT = 20
 local current_test_name = ""
 local current_running_test_name = ""
+local current_wait = nil
 local current_file_timeout_deadline = nil
 local tests_by_file = {}
 local current_test_start_time = nil
@@ -175,6 +176,17 @@ function test.ResetCurrentFileTimeout()
 end
 
 local tasks = import("goluwa/tasks.lua")
+
+function test.ExtendTimeout(seconds)
+	local deadline = system.GetTime() + seconds
+	current_file_timeout_deadline = math.max(current_file_timeout_deadline or 0, deadline)
+	local task = tasks.GetActiveTask()
+
+	if task and task.test_timeout_time then
+		task.test_timeout_time = math.max(task.test_timeout_time, deadline)
+	end
+end
+
 local active_test_tasks = {}
 local unavailable_marker = {}
 
@@ -529,6 +541,44 @@ do
 		end
 
 		error("WaitUntil: condition not met within timeout of " .. timeout .. " seconds", 2)
+	end
+
+	function test.GetCurrentWaitDescription()
+		if not current_wait then return nil end
+
+		return string.format(
+			"%s (gives up in %ds)",
+			current_wait.description,
+			math.max(0, math.ceil(current_wait.end_time - system.GetTime()))
+		)
+	end
+
+	function test.WaitUntilReal(condition, timeout, description)
+		timeout = timeout or 10
+		local end_time = system.GetTime() + timeout
+		test.ExtendTimeout(timeout + TEST_TIMEOUT)
+		local previous_wait = current_wait
+		current_wait = description and {description = description, end_time = end_time} or nil
+
+		while system.GetTime() < end_time do
+			local value = condition()
+
+			if value then
+				current_wait = previous_wait
+				return value
+			end
+
+			test.Yield()
+		end
+
+		current_wait = previous_wait
+		error(
+			"WaitUntilReal: " .. (
+					description or
+					"condition"
+				) .. " not met within timeout of " .. timeout .. " seconds",
+			2
+		)
 	end
 
 	function test.UpdateTestCoroutines()
@@ -1351,10 +1401,19 @@ commands.Add({
 				end
 
 				if now >= next_warn then
-					local elapsed = math.floor(now - start_t)
-					stderr:write(string.format("[warning] test '%s' still running after %ds\n", input.name, elapsed))
+					local running_test = t.GetCurrentRunningTestName and t.GetCurrentRunningTestName() or ""
+					local waiting_for = t.GetCurrentWaitDescription and t.GetCurrentWaitDescription() or nil
+					stderr:write(
+						string.format(
+							"[warning] %s: %s has been running for %ds%s\n",
+							input.name,
+							running_test ~= "" and ("'" .. running_test .. "'") or "tests",
+							math.floor(now - start_t),
+							waiting_for and (", waiting for " .. waiting_for) or ""
+						)
+					)
 					stderr:flush()
-					next_warn = now + 10
+					next_warn = now + 5
 				end
 
 				local dt = 0.016
@@ -1459,7 +1518,7 @@ commands.Add({
 				if ok then
 					thread_or_err.test_name = test_item.name
 					thread_or_err.start_time = system.GetTime()
-					thread_or_err.next_warn_time = system.GetTime() + 5
+					thread_or_err.next_warn_time = system.GetTime() + 30
 					table.insert(running, thread_or_err)
 				else
 					io.write(
@@ -1477,10 +1536,16 @@ commands.Add({
 				if t.next_warn_time and system.GetTime() >= t.next_warn_time then
 					local elapsed = math.floor(system.GetTime() - t.start_time)
 					io.write(
-						colors.yellow(string.format("[warning] %s has been running for %ds\n", t.test_name, elapsed))
+						colors.yellow(
+							string.format(
+								"[warning] %s has been running for %ds without reporting progress\n",
+								t.test_name,
+								elapsed
+							)
+						)
 					)
 					io.flush()
-					t.next_warn_time = system.GetTime() + 5
+					t.next_warn_time = system.GetTime() + 10
 				end
 
 				local status = threads.get_status(t)

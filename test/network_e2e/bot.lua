@@ -1,11 +1,12 @@
 local network = import("goluwa/network/network.lua")
 local event = import("goluwa/event.lua")
-local timer = import("goluwa/timer.lua")
 local system = import("goluwa/system.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local signals = import("test/network_e2e/signals.lua")
 local QuatDeg3 = QuatDeg3
+local RUN_TIME = 4
 local BUTTON = usercmd.BUTTON
 local ent = Entity.New{
 	Name = "e2e_bot",
@@ -17,18 +18,22 @@ local controller = ent.player_controller
 local start_time
 
 event.AddListener("CreateMove", "e2e_bot", function(owner, cmd)
-	if owner ~= ent then return end
+	if owner ~= ent or not controller.synced then return end
 
-	start_time = start_time or system.GetTime()
+	if not start_time then
+		start_time = system.GetTime()
+		signals.Write("bot.synced")
+	end
+
 	local elapsed = system.GetTime() - start_time
 	cmd.mode = "walk"
 	cmd.buttons = BUTTON.ACTIVE
 
-	if elapsed > 0.5 then cmd.buttons = cmd.buttons + BUTTON.ATTACK1 end
+	if elapsed > 0.8 then cmd.buttons = cmd.buttons + BUTTON.ATTACK1 end
 
 	cmd.view = QuatDeg3(-15, math.floor(elapsed / 1.5) * 90, 0)
 
-	if elapsed > 2 and elapsed < 7 then
+	if elapsed > 1.2 and elapsed < 3.2 then
 		cmd.forward = 1
 		cmd.side = math.floor(elapsed) % 2 == 0 and 1 or 0
 
@@ -103,32 +108,40 @@ if os.getenv("E2E_DEBUG") then
 	end
 end
 
+local finished = false
+
 event.AddListener("Update", "e2e_bot_report", function()
 	if controller.last_correction and controller.last_correction > max_error then
 		max_error = controller.last_correction
 	end
-end)
 
-if os.getenv("E2E_DESYNC") then
-	timer.Delay(5, function()
-		ent.player_movement:MoveBodyBy(ent.rigid_body, Vec3(2, 0, 0))
-	end)
-end
+	if finished or not start_time or system.GetTime() - start_time < RUN_TIME then
+		return
+	end
 
-timer.Delay(tonumber(os.getenv("DUR")) or 9, function()
+	finished = true
 	local p = ent.transform:GetPosition()
-	print(
+	signals.Write(
+		"bot.result",
 		string.format(
-			"BOT_RESULT x=%.3f y=%.3f z=%.3f corrections=%d max_error=%.4f cmds=%d",
+			"BOT_RESULT x=%.3f y=%.3f z=%.3f corrections=%d max_error=%.4f cmds=%d\nBOT_RELAYS_RECEIVED %d\nBOT_RECONCILE_CALLS %d\n",
 			p.x,
 			p.y,
 			p.z,
 			controller.corrections,
 			max_error,
-			controller.number
+			controller.number,
+			own_relays,
+			calls
 		)
 	)
-	print("BOT_RELAYS_RECEIVED " .. own_relays)
-	print("BOT_RECONCILE_CALLS " .. calls)
-	os.exit(0)
 end)
+
+if os.getenv("E2E_DESYNC") then
+	event.AddListener("Update", "e2e_bot_desync", function()
+		if not start_time or system.GetTime() - start_time < 2.2 then return end
+
+		event.RemoveListener("Update", "e2e_bot_desync")
+		ent.player_movement:MoveBodyBy(ent.rigid_body, Vec3(2, 0, 0))
+	end)
+end

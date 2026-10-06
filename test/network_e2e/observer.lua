@@ -2,7 +2,11 @@ local network = import("goluwa/network/network.lua")
 local relayed = 0
 local relay_numbers = 0
 local event = import("goluwa/event.lua")
-local timer = import("goluwa/timer.lua")
+local system = import("goluwa/system.lua")
+local signals = import("test/network_e2e/signals.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local SETTLE_DISTANCE = 0.15
+local TIMEOUT = 40
 local NetworkComponent = import("goluwa/entities/components/network.lua")
 
 event.AddListener("RemotePlayerCommands", "e2e_observer", function(owner, commands)
@@ -86,38 +90,64 @@ event.AddListener("Update", "e2e_observer", function()
 	passed = passed or all
 end)
 
-timer.Delay(tonumber(os.getenv("DUR")) or 25, function()
-	for _, key in ipairs{"ground", "ball", "light", "prop", "child"} do
-		print("e2e observer: check", key, checks[key])
-	end
+local started = system.GetTime()
+local finished = false
 
-	local avatar
-
+local function find_avatar()
 	for _, component in pairs(NetworkComponent.GetAllNetworked()) do
-		if component.Owner.player_avatar then avatar = component.Owner end
+		if component.Owner.player_avatar then return component.Owner end
 	end
+end
+
+local function finish(timed_out)
+	finished = true
+	local lines = {}
+
+	for _, key in ipairs{"ground", "ball", "light", "prop", "child"} do
+		lines[#lines + 1] = string.format("OBSERVER_CHECK %s %s", key, tostring(checks[key]))
+	end
+
+	local avatar = find_avatar()
 
 	if avatar then
 		local p = avatar.transform:GetPosition()
-		print(string.format("OBSERVER_AVATAR x=%.3f y=%.3f z=%.3f", p.x, p.y, p.z))
-	end
+		lines[#lines + 1] = string.format("OBSERVER_AVATAR x=%.3f y=%.3f z=%.3f", p.x, p.y, p.z)
+		local crate = find("e2e_crate")
 
-	local crate = find("e2e_crate")
-
-	if crate and avatar then
-		local distance = (crate.transform:GetPosition() - avatar.transform:GetPosition()):GetLength()
-		print(
-			string.format(
+		if crate then
+			local distance = (crate.transform:GetPosition() - p):GetLength()
+			lines[#lines + 1] = string.format(
 				"OBSERVER_CRATE lifted=%s distance=%.3f max_y=%.3f holding=%s",
 				tostring(crate_lifted),
 				distance,
 				crate_max_y,
 				tostring(avatar.player_avatar:IsHolding())
 			)
-		)
+		end
 	end
 
-	print(string.format("OBSERVER_RELAY batches=%d last=%d", relayed, relay_numbers))
-	print("OBSERVER_RESULT passed=" .. tostring(passed))
-	os.exit(passed and 0 or 1)
+	lines[#lines + 1] = string.format("OBSERVER_RELAY batches=%d last=%d", relayed, relay_numbers)
+	lines[#lines + 1] = "OBSERVER_RESULT passed=" .. tostring(passed and not timed_out)
+	signals.Write("observer.result", table.concat(lines, "\n") .. "\n")
+end
+
+event.AddListener("Update", "e2e_observer_finish", function()
+	if finished then return end
+
+	if system.GetTime() - started > TIMEOUT then
+		finish(true)
+		return
+	end
+
+	local bot_result = signals.Read("bot.result")
+	local avatar = find_avatar()
+
+	if not (bot_result and avatar) then return end
+
+	local x, y, z = bot_result:match("BOT_RESULT x=([%-%d%.]+) y=([%-%d%.]+) z=([%-%d%.]+)")
+	local expected = Vec3(tonumber(x), tonumber(y), tonumber(z))
+
+	if (avatar.transform:GetPosition() - expected):GetLength() < SETTLE_DISTANCE then
+		finish(false)
+	end
 end)
