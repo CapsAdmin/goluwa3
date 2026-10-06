@@ -203,7 +203,21 @@ function scene_reflection.GetGLSL(block_name)
 			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, weight);
 
 			if (weight <= 0.0 && !ddgi_in_volume(P)) {
-				gi.rgb = sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, hit_N);
+				// outside the probes nothing knows how much sky is open, and a hit in a
+				// cave would be lit by all of it. estimate from rays around the normal
+				vec3 tangent = normalize(cross(hit_N, abs(hit_N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+				vec3 bitangent = cross(hit_N, tangent);
+				float spin = fract(sin(dot(P, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 6.28318530718;
+				float open_sky = 0.0;
+
+				for (int k = 0; k < 4; k++) {
+					float phi = spin + float(k) * 1.57079632679;
+					vec3 sky_dir = normalize(hit_N + tangent * cos(phi) + bitangent * sin(phi));
+
+					if (scene_reflection_visible(surface, sky_dir, SCENE_REFLECTION_MAX_DISTANCE)) open_sky += 0.25;
+				}
+
+				gi.rgb = sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, hit_N) * open_sky;
 			}
 
 			return radiance + albedo * gi.rgb;
