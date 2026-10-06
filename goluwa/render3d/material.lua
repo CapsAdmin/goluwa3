@@ -7,6 +7,7 @@ local objects = import("goluwa/objects/objects.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec4 = import("goluwa/structs/vec4.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Material = objects.CreateTemplate("render3d_material")
 Material:StartStorable()
@@ -143,9 +144,38 @@ Material:GetSet("SpecularSolvesMetallic", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
+Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
+Material:GetSet("MultiplyAlbedo2", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
+Material:GetSet("OriginalMaterial", "", {multiline = true})
+Material:GetSet("BaseTextureTransformU", Vec4(1, 0, 0, 0), {callback = "InvalidateRayMaterial"})
+Material:GetSet("BaseTextureTransformV", Vec4(0, 1, 0, 0), {callback = "InvalidateRayMaterial"})
+Material:GetSet("BumpTransformU", Vec4(1, 0, 0, 0), {callback = "InvalidateRayMaterial"})
+Material:GetSet("BumpTransformV", Vec4(0, 1, 0, 0), {callback = "InvalidateRayMaterial"})
+Material:GetSet("Texture2TransformU", Vec4(1, 0, 0, 0), {callback = "InvalidateRayMaterial"})
+Material:GetSet("Texture2TransformV", Vec4(0, 1, 0, 0), {callback = "InvalidateRayMaterial"})
 Material:EndStorable()
+
+do
+	local deg2rad = math.pi / 180
+
+	function Material:SetTextureTransformFromVMT(name, str)
+		local cx, cy = str:match("center%s+(%S+)%s+(%S+)")
+		local sx, sy = str:match("scale%s+(%S+)%s+(%S+)")
+		local rotate = str:match("rotate%s+(%S+)")
+		local tx, ty = str:match("translate%s+(%S+)%s+(%S+)")
+		cx, cy = tonumber(cx) or 0.5, tonumber(cy) or 0.5
+		sx, sy = tonumber(sx) or 1, tonumber(sy) or 1
+		local angle = (tonumber(rotate) or 0) * deg2rad
+		tx, ty = tonumber(tx) or 0, tonumber(ty) or 0
+		local cos, sin = math.cos(angle), math.sin(angle)
+		local a, b, c, d = cos * sx, -sin * sy, sin * sx, cos * sy
+		self["Set" .. name .. "TransformU"](self, Vec4(a, b, cx - a * cx - b * cy + tx, 0))
+		self["Set" .. name .. "TransformV"](self, Vec4(c, d, cy - c * cx - d * cy + ty, 0))
+		self.has_uv_transform = true
+	end
+end
 
 function Material:GetCullMode()
 	return self.DoubleSided and "none" or orientation.CULL_MODE
@@ -376,6 +406,8 @@ local FLAGS = {
 	"GlossIsShininess",
 	"SpecularSolvesMetallic",
 	"Additive",
+	"Modulate",
+	"MultiplyAlbedo2",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -493,7 +525,7 @@ do
 	function Material:GetShadowOpacity()
 		local color = self.ColorMultiplier
 
-		if self.Additive then return 0 end
+		if self.Additive or self.Modulate then return 0 end
 
 		if self.Refraction > 0 and not Material.GlassCastsShadow() then return 0 end
 
@@ -513,7 +545,7 @@ do
 	end
 
 	function Material:GetSoupShadowOpacity()
-		if self.Additive then return 0 end
+		if self.Additive or self.Modulate then return 0 end
 
 		if self.Refraction > 0 or self.Translucent then
 			return self:GetShadowOpacity()
@@ -533,6 +565,7 @@ function Material:HasShadowTexture()
 		not self.AlbedoAlphaIsEmissive and
 		not self.BlendTintByBaseAlpha and
 		not self.Additive and
+		not self.Modulate and
 		(
 			self.AlphaTest or
 			self.Translucent or
@@ -1124,7 +1157,25 @@ do
 
 		if vmt.blendtintbybasealpha == 1 then self:SetBlendTintByBaseAlpha(true) end
 
-		if vmt.texture2 then self:SetAlbedo2Texture(SRGBTexture(vmt.texture2)) end
+		if type(vmt.basetexturetransform) == "string" then
+			self:SetTextureTransformFromVMT("BaseTexture", vmt.basetexturetransform)
+		end
+
+		if type(vmt.bumptransform) == "string" then
+			self:SetTextureTransformFromVMT("Bump", vmt.bumptransform)
+		end
+
+		if type(vmt.texture2transform) == "string" then
+			self:SetTextureTransformFromVMT("Texture2", vmt.texture2transform)
+		end
+
+		if vmt.texture2 then
+			self:SetAlbedo2Texture(SRGBTexture(vmt.texture2))
+
+			if vmt.shader:lower() == "de_unlitthreetexture" then
+				self:SetMultiplyAlbedo2(true)
+			end
+		end
 
 		if vmt.envmap then
 			if vmt.envmapmask then
@@ -1211,6 +1262,24 @@ do
 		if vmt.additive == 1 then
 			self:SetAdditive(true)
 			self:SetTranslucent(true)
+		end
+
+		if vmt.shader:lower() == "decalmodulate" or vmt.shader:lower() == "modulate" then
+			self:SetModulate(true)
+			self:SetTranslucent(true)
+		end
+
+		if vmt.color or vmt.alpha then
+			local tint = vmt.color
+			local alpha = vmt.alpha or 1
+
+			if typex(tint) == "vec3" then
+				self:SetColorMultiplier(Color(tint.x, tint.y, tint.z, alpha))
+			elseif tint then
+				self:SetColorMultiplier(Color(tint.r, tint.g, tint.b, alpha))
+			else
+				self:SetColorMultiplier(Color(1, 1, 1, alpha))
+			end
 		end
 
 		if vmt.shader:lower() == "refract" then
@@ -1523,6 +1592,8 @@ do
 		"^detail$",
 		"transform$",
 		"^fullpath$",
+		"^resolved_path$",
+		"^source_text$",
 		"^treesway",
 		"^%%compile",
 		"^%%keywords",

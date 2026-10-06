@@ -41,6 +41,20 @@ local PBR_DETAIL_FIELDS = {
 	{type = "texture", name = "GroundColorTexture", getter = "GetGroundColorTexture"},
 	{type = "float", name = "GroundColorBlend", getter = "GetGroundColorBlend"},
 	{type = "vec4", name = "GroundColorUV", getter = "GetGroundColorUV"},
+	{
+		type = "vec4",
+		name = "BaseTextureTransformU",
+		getter = "GetBaseTextureTransformU",
+	},
+	{
+		type = "vec4",
+		name = "BaseTextureTransformV",
+		getter = "GetBaseTextureTransformV",
+	},
+	{type = "vec4", name = "BumpTransformU", getter = "GetBumpTransformU"},
+	{type = "vec4", name = "BumpTransformV", getter = "GetBumpTransformV"},
+	{type = "vec4", name = "Texture2TransformU", getter = "GetTexture2TransformU"},
+	{type = "vec4", name = "Texture2TransformV", getter = "GetTexture2TransformV"},
 }
 local PBR_AUX_FIELDS = {
 	{
@@ -903,7 +917,8 @@ function model_pipeline.GetPBRDetailUploadKey()
 		material:GetNormal2Texture() == nil and
 		material:GetBlendTexture() == nil and
 		material:GetDetailTexture() == nil and
-		material:GetGroundColorTexture() == nil
+		material:GetGroundColorTexture() == nil and
+		not material.has_uv_transform
 	then
 		return NO_PBR_DETAIL_KEY
 	end
@@ -1286,6 +1301,18 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return clamp(displacement_model.HeightLayers, 4, 64);
 			}
 
+			vec2 base_uv(vec2 uv) {
+				return vec2(dot(detail_model.BaseTextureTransformU.xy, uv) + detail_model.BaseTextureTransformU.z, dot(detail_model.BaseTextureTransformV.xy, uv) + detail_model.BaseTextureTransformV.z);
+			}
+
+			vec2 bump_uv(vec2 uv) {
+				return vec2(dot(detail_model.BumpTransformU.xy, uv) + detail_model.BumpTransformU.z, dot(detail_model.BumpTransformV.xy, uv) + detail_model.BumpTransformV.z);
+			}
+
+			vec2 texture2_uv(vec2 uv) {
+				return vec2(dot(detail_model.Texture2TransformU.xy, uv) + detail_model.Texture2TransformU.z, dot(detail_model.Texture2TransformV.xy, uv) + detail_model.Texture2TransformV.z);
+			}
+
 			float get_texture_blend_uv(vec2 uv) {
 				if (detail_model.BlendTexture == -1) {
 					return in_texture_blend;
@@ -1557,7 +1584,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return blend_ground_color(color_model.ColorMultiplier.rgb, world_pos);
 				}
 
-				vec4 albedo_texel = texture(TEXTURE(model.AlbedoTexture), uv);
+				vec4 albedo_texel = texture(TEXTURE(model.AlbedoTexture), base_uv(uv));
 				vec3 rgb1 = albedo_texel.rgb;
 				vec3 tint = color_model.ColorMultiplier.rgb;
 
@@ -1565,11 +1592,13 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					tint = mix(vec3(1.0), tint, albedo_texel.a);
 				}
 
-				if (detail_model.Albedo2Texture != -1) {
+				if (MultiplyAlbedo2 && detail_model.Albedo2Texture != -1) {
+					rgb1 *= texture(TEXTURE(detail_model.Albedo2Texture), texture2_uv(uv)).rgb;
+				} else if (detail_model.Albedo2Texture != -1) {
 					float blend = get_texture_blend_uv(uv);
 
 					if (blend != 0) {
-						vec3 rgb2 = texture(TEXTURE(detail_model.Albedo2Texture), uv).rgb;
+						vec3 rgb2 = texture(TEXTURE(detail_model.Albedo2Texture), texture2_uv(uv)).rgb;
 						rgb1 = mix(rgb1, rgb2, blend);
 					}
 				}
@@ -1606,7 +1635,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return max(albedo.r, max(albedo.g, albedo.b)) * color_model.ColorMultiplier.a;
 				}
 
-				return texture(TEXTURE(model.AlbedoTexture), uv).a * color_model.ColorMultiplier.a;
+				return texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a * color_model.ColorMultiplier.a;
 			}
 
 			float get_alpha() {
@@ -1675,7 +1704,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec3 N = vec3(0.0, 0.0, 1.0);
 
 				if (model.NormalTexture != -1) {
-					N = decode_normal_texture(texture(TEXTURE(model.NormalTexture), uv));
+					N = decode_normal_texture(texture(TEXTURE(model.NormalTexture), bump_uv(uv)));
 				} else if (has_heightmap()) {
 					N = get_height_normal_tangent(uv);
 				}
@@ -1718,7 +1747,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			// the gloss map's luminance, 1 without one
 			float get_gloss(vec2 uv) {
 				if (AlbedoAlphaIsSpecular && model.AlbedoTexture != -1) {
-					return texture(TEXTURE(model.AlbedoTexture), uv).a;
+					return texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
 				} else if (aux_model.SpecularTexture != -1) {
 					return dot(texture(TEXTURE(aux_model.SpecularTexture), uv).rgb, vec3(0.2126, 0.7152, 0.0722));
 				}
@@ -1749,9 +1778,9 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float val = 1.0;
 
 				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
-					val = texture(TEXTURE(model.AlbedoTexture), uv).a;
+					val = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
 				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
-					val = -texture(TEXTURE(model.NormalTexture), uv).a + 1.0;
+					val = -texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a + 1.0;
 				} else if (AlbedoLuminanceIsRoughness) {
 					val = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
 				} else if (aux_model.RoughnessTexture != -1) {
@@ -1832,7 +1861,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				} else if (AlbedoAlphaIsEmissive) {
 					float mask = 1.0;
 					if (model.AlbedoTexture != -1) {
-						mask = texture(TEXTURE(model.AlbedoTexture), uv).a;
+						mask = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
 					}
 					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
 				} else if (aux_model.EmissiveTexture != -1) {

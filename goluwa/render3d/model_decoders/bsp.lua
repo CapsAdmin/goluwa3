@@ -2,6 +2,7 @@ local codec = import("goluwa/codec.lua")
 local timer = import("goluwa/timer.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
+local file_path = import("goluwa/filesystem/path.lua")
 local tasks = import("goluwa/tasks.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
@@ -1372,6 +1373,7 @@ function steam.LoadMap(path)
 		end
 
 		local meshes = {}
+		local displacement_surfaces = {}
 
 		for _, model in ipairs(header.models) do
 			for i = 1, model.numfaces do
@@ -1465,6 +1467,7 @@ function steam.LoadMap(path)
 						local dims = 2 ^ info.power + 1
 						local positions, blends, flats, normals = {}, {}, {}, {}
 						local scale = steam.source2meters
+						displacement_surfaces[model.firstface + i - 1] = {positions = positions, dims = dims}
 
 						for y = 1, dims do
 							for x = 1, dims do
@@ -1573,6 +1576,7 @@ function steam.LoadMap(path)
 		end
 
 		local add_decal_fragment
+		local add_displacement_decal
 
 		do
 			local offset_from_surface = 0.3
@@ -1582,40 +1586,9 @@ function steam.LoadMap(path)
 				{"y", 1},
 				{"y", -1},
 			}
+			local emit_polygon
 
-			function add_decal_fragment(
-				face_index,
-				origin,
-				normal,
-				u_axis,
-				v_axis,
-				min_x,
-				max_x,
-				min_y,
-				max_y,
-				u_range,
-				v_range,
-				texname
-			)
-				local face = header.faces[1 + face_index]
-
-				if face.dispinfo ~= -1 then return end
-
-				local area = get_face_area(face_index + 1)
-
-				if sky_areas[area] then return end
-
-				local polygon = {}
-
-				for j = 1, face.numedges do
-					local surfedge = header.surfedges[face.firstedge + j]
-					local position = header.vertices[1 + header.edges[1 + math.abs(surfedge)][surfedge < 0 and
-					2 or
-					1]]
-					local offset = position - origin
-					polygon[j] = {x = offset:Dot(u_axis), y = offset:Dot(v_axis), pos = position}
-				end
-
+			function emit_polygon(polygon, area, min_x, max_x, min_y, max_y, u_range, v_range, texname)
 				for _, edge in ipairs(edges) do
 					local axis, sign = edge[1], edge[2]
 					local limit = axis == "x" and (sign == 1 and min_x or max_x) or (sign == 1 and min_y or max_y)
@@ -1664,7 +1637,7 @@ function steam.LoadMap(path)
 
 				for j = 2, #polygon - 1 do
 					for _, vertex in ipairs{polygon[1], polygon[j], polygon[j + 1]} do
-						local position = vertex.pos + normal * offset_from_surface
+						local position = vertex.pos
 						mesh:AddVertex{
 							pos = Vec3(-position.y, position.z, -position.x) * steam.source2meters,
 							texture_blend = 0,
@@ -1673,6 +1646,259 @@ function steam.LoadMap(path)
 								v_range[1] + (v_range[2] - v_range[1]) * (vertex.y - min_y) / (max_y - min_y)
 							),
 						}
+					end
+				end
+			end
+
+			function add_decal_fragment(
+				face_index,
+				origin,
+				normal,
+				u_axis,
+				v_axis,
+				min_x,
+				max_x,
+				min_y,
+				max_y,
+				u_range,
+				v_range,
+				texname
+			)
+				local face = header.faces[1 + face_index]
+				local area = get_face_area(face_index + 1)
+
+				if sky_areas[area] then return end
+
+				local polygon = {}
+
+				for j = 1, face.numedges do
+					local surfedge = header.surfedges[face.firstedge + j]
+					local position = header.vertices[1 + header.edges[1 + math.abs(surfedge)][surfedge < 0 and
+					2 or
+					1]]
+					local offset = position - origin
+					polygon[j] = {
+						x = offset:Dot(u_axis),
+						y = offset:Dot(v_axis),
+						pos = position + normal * offset_from_surface,
+					}
+				end
+
+				emit_polygon(polygon, area, min_x, max_x, min_y, max_y, u_range, v_range, texname)
+			end
+
+			-- unfolds the displaced surface into the decal plane by surface distance instead
+			-- of projecting along the decal normal, so steep and curved terrain does not smear the texture
+			function add_displacement_decal(
+				face_indices,
+				origin,
+				normal,
+				u_axis,
+				v_axis,
+				min_x,
+				max_x,
+				min_y,
+				max_y,
+				u_range,
+				v_range,
+				texname
+			)
+				local verts = {}
+				local vert_count = 0
+				local tris = {}
+				local edge_tris = {}
+
+				for _, face_index in ipairs(face_indices) do
+					local area = get_face_area(face_index + 1)
+
+					if not sky_areas[area] then
+						local surface = displacement_surfaces[face_index]
+						local positions, dims = surface.positions, surface.dims
+						local plane_normal = header.planes[header.faces[1 + face_index].planenum + 1].normal
+						local grid = {}
+
+						for i = 1, dims * dims do
+							local position = positions[i]
+							local key = (
+									(
+										math.floor(position.x * 4 + 0.5) + 65536
+									) * 131072 + math.floor(position.y * 4 + 0.5) + 65536
+								) * 131072 + math.floor(position.z * 4 + 0.5) + 65536
+							local vert = verts[key]
+
+							if not vert then
+								vert_count = vert_count + 1
+								local offset = position - origin
+								vert = {
+									id = vert_count,
+									pos = position,
+									x0 = offset:Dot(u_axis),
+									y0 = offset:Dot(v_axis),
+									sum = Vec3(0, 0, 0),
+								}
+								verts[key] = vert
+							end
+
+							grid[i] = vert
+						end
+
+						for x = 1, dims - 1 do
+							for y = 1, dims - 1 do
+								local a = y * dims + x
+								local b = (y - 1) * dims + x
+								local c = a + 1
+								local d = b + 1
+
+								for _, corners in ipairs{{a, c, b}, {c, d, b}} do
+									local v1, v2, v3 = grid[corners[1]], grid[corners[2]], grid[corners[3]]
+									local tri_normal = (v2.pos - v1.pos):Cross(v3.pos - v1.pos):GetNormalized()
+
+									if tri_normal:Dot(plane_normal) < 0 then tri_normal = -tri_normal end
+
+									v1.sum = v1.sum + tri_normal
+									v2.sum = v2.sum + tri_normal
+									v3.sum = v3.sum + tri_normal
+									local tri = {v1, v2, v3, normal = tri_normal, area = area}
+									list.insert(tris, tri)
+
+									for k = 1, 3 do
+										local p, q = tri[k], tri[k % 3 + 1]
+										local edge_key = math.min(p.id, q.id) * 1048576 + math.max(p.id, q.id)
+										local shared = edge_tris[edge_key]
+
+										if not shared then
+											shared = {}
+											edge_tris[edge_key] = shared
+										end
+
+										list.insert(shared, tri)
+									end
+								end
+							end
+						end
+					end
+				end
+
+				if #tris == 0 then return end
+
+				local center_x, center_y = (min_x + max_x) / 2, (min_y + max_y) / 2
+				local seeds = {}
+
+				for _, tri in ipairs(tris) do
+					if tri.normal:Dot(normal) >= 0.2 then
+						local v1, v2, v3 = tri[1], tri[2], tri[3]
+						local dx = (v1.x0 + v2.x0 + v3.x0) / 3 - center_x
+						local dy = (v1.y0 + v2.y0 + v3.y0) / 3 - center_y
+						tri.seed_distance = dx * dx + dy * dy
+						list.insert(seeds, tri)
+					end
+				end
+
+				table.sort(seeds, function(a, b)
+					return a.seed_distance < b.seed_distance
+				end)
+
+				local queue = {}
+
+				for _, seed in ipairs(seeds) do
+					if not seed.visited then
+						seed.visited = true
+
+						for k = 1, 3 do
+							local vert = seed[k]
+
+							if not vert.x then vert.x, vert.y = vert.x0, vert.y0 end
+						end
+
+						local head, tail = 1, 0
+
+						for k = 1, 3 do
+							local p, q, o = seed[k], seed[k % 3 + 1], seed[(k + 1) % 3 + 1]
+							local edge_key = math.min(p.id, q.id) * 1048576 + math.max(p.id, q.id)
+
+							for _, neighbor in ipairs(edge_tris[edge_key]) do
+								if not neighbor.visited then
+									tail = tail + 1
+									queue[tail] = {neighbor, p, q, o}
+								end
+							end
+						end
+
+						while head <= tail do
+							local entry = queue[head]
+							queue[head] = nil
+							head = head + 1
+							local tri, va, vb, vo = entry[1], entry[2], entry[3], entry[4]
+
+							if not tri.visited then
+								tri.visited = true
+
+								if tri.normal:Dot(normal) < -0.2 then
+									tri.skip = true
+								else
+									local vc
+
+									for k = 1, 3 do
+										if tri[k] ~= va and tri[k] ~= vb then vc = tri[k] end
+									end
+
+									if not vc.x then
+										local ab = (vb.pos - va.pos):GetLength()
+										local ac = (vc.pos - va.pos):GetLength()
+										local bc = (vc.pos - vb.pos):GetLength()
+										local dir_x, dir_y = vb.x - va.x, vb.y - va.y
+										local dir_length = math.sqrt(dir_x * dir_x + dir_y * dir_y)
+
+										if dir_length < 1e-6 then
+											dir_x, dir_y = 1, 0
+										else
+											dir_x, dir_y = dir_x / dir_length, dir_y / dir_length
+										end
+
+										local along = ab > 1e-6 and (ac * ac + ab * ab - bc * bc) / (2 * ab) or 0
+										local height = math.sqrt(math.max(ac * ac - along * along, 0))
+										local side = (dir_x * (vo.y - va.y) - dir_y * (vo.x - va.x)) > 0 and -1 or 1
+										vc.x = va.x + dir_x * along - dir_y * height * side
+										vc.y = va.y + dir_y * along + dir_x * height * side
+									end
+
+									for k = 1, 3 do
+										local p, q = tri[k], tri[k % 3 + 1]
+										local o = tri[(k + 1) % 3 + 1]
+										local edge_key = math.min(p.id, q.id) * 1048576 + math.max(p.id, q.id)
+
+										for _, neighbor in ipairs(edge_tris[edge_key]) do
+											if not neighbor.visited then
+												tail = tail + 1
+												queue[tail] = {neighbor, p, q, o}
+											end
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+
+				for _, tri in ipairs(tris) do
+					if tri.visited and not tri.skip then
+						local polygon = {}
+
+						for k = 1, 3 do
+							local vert = tri[k]
+
+							if not vert.out then
+								vert.out = {
+									x = vert.x,
+									y = vert.y,
+									pos = vert.pos + vert.sum:GetNormalized() * offset_from_surface,
+								}
+							end
+
+							polygon[k] = vert.out
+						end
+
+						emit_polygon(polygon, tri.area, min_x, max_x, min_y, max_y, u_range, v_range, texname)
 					end
 				end
 			end
@@ -1697,28 +1923,49 @@ function steam.LoadMap(path)
 				local v_axis = normal:GetCross(u_axis)
 				local texinfo = header.texinfos[1 + overlay.texinfo]
 				local texname = header.texdatastringdata[1 + header.texdatas[1 + texinfo.texdata].nameStringTableID]
+				local displaced = {}
 
 				for i = 1, bit.band(overlay.face_count_and_render_order, 0x3fff) do
 					local face_index = overlay.faces[i]
+					local face = header.faces[1 + face_index]
 
-					if
-						header.planes[header.faces[1 + face_index].planenum + 1].normal:Dot(normal) >= 0.5
-					then
-						add_decal_fragment(
-							face_index,
-							overlay.origin,
-							normal,
-							u_axis,
-							v_axis,
-							points[1],
-							points[7],
-							points[2],
-							points[5],
-							overlay.u_range,
-							overlay.v_range,
-							texname
-						)
+					if header.planes[face.planenum + 1].normal:Dot(normal) >= 0.5 then
+						if face.dispinfo == -1 then
+							add_decal_fragment(
+								face_index,
+								overlay.origin,
+								normal,
+								u_axis,
+								v_axis,
+								points[1],
+								points[7],
+								points[2],
+								points[5],
+								overlay.u_range,
+								overlay.v_range,
+								texname
+							)
+						else
+							list.insert(displaced, face_index)
+						end
 					end
+				end
+
+				if displaced[1] then
+					add_displacement_decal(
+						displaced,
+						overlay.origin,
+						normal,
+						u_axis,
+						v_axis,
+						points[1],
+						points[7],
+						points[2],
+						points[5],
+						overlay.u_range,
+						overlay.v_range,
+						texname
+					)
 				end
 			end
 		end
@@ -1777,9 +2024,8 @@ function steam.LoadMap(path)
 							local v_axis = Vec3(vecs[5], vecs[6], vecs[7])
 							v_axis = (
 								v_axis - u_axis * u_axis:Dot(v_axis) - normal * normal:Dot(v_axis)
-							):GetNormalized()
-							add_decal_fragment(
-								world.firstface + i - 1,
+							):GetNormalized()(face.dispinfo == -1 and add_decal_fragment or add_displacement_decal)(
+								face.dispinfo == -1 and world.firstface + i - 1 or {world.firstface + i - 1},
 								ent.origin,
 								normal,
 								u_axis,
@@ -1980,7 +2226,11 @@ function steam.SpawnMapEntities(path, parent)
 					worlds[container] = world
 				end
 
-				world.visual:CreatePrimitiveEntity(prim.mesh, prim.material, "world_primitive")
+				world.visual:CreatePrimitiveEntity(
+					prim.mesh,
+					prim.material,
+					file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(prim.material:GetName()))
+				)
 			end
 
 			for _, world in pairs(worlds) do

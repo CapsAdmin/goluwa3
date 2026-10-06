@@ -195,6 +195,15 @@ local ADDITIVE = {
 	dst_alpha_blend_factor = "one",
 	alpha_blend_op = "add",
 }
+local MULTIPLY = {
+	blend = true,
+	src_color_blend_factor = "zero",
+	dst_color_blend_factor = "src_color",
+	color_blend_op = "add",
+	src_alpha_blend_factor = "zero",
+	dst_alpha_blend_factor = "one",
+	alpha_blend_op = "add",
+}
 local precipitation_block = {
 	name = "precipitation_data",
 	binding_index = BINDING_CAMERA,
@@ -287,7 +296,7 @@ return {
 					if (AlphaTest && alpha < factor_model.AlphaCutoff) discard;
 
 					// an additive surface only adds light, the scene behind it stays
-					float absorbance = Additive ? 0.0 : -log(max(1.0 - alpha, 1e-3));
+					float absorbance = (Additive || Modulate) ? 0.0 : -log(max(1.0 - alpha, 1e-3));
 					float depth = moments_warp_depth(distance(in_position, translucent_camera.camera_position), moments_data.depth_warp);
 					float depth2 = depth * depth;
 					set_b0(absorbance);
@@ -315,10 +324,11 @@ return {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
 			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
+			{"r16g16b16a16_sfloat", {"modulate", "rgba"}},
 		},
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		ReadOnlyDepth = gbuffer_layout.GetDepthTexture,
-		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1, 1}},
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end
 
@@ -330,7 +340,7 @@ return {
 			end
 		end,
 		fragment = {
-			shader = "void main() { set_color(vec4(0.0)); set_motion(vec4(0.0)); set_additive(vec4(0.0)); }",
+			shader = "void main() { set_color(vec4(0.0)); set_motion(vec4(0.0)); set_additive(vec4(0.0)); set_modulate(vec4(1.0)); }",
 		},
 		CullMode = "none",
 		DepthTest = false,
@@ -344,6 +354,7 @@ return {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
 			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
+			{"r16g16b16a16_sfloat", {"modulate", "rgba"}},
 		},
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		vertex = model_pipeline.CreateVertexStage{
@@ -543,6 +554,20 @@ return {
 					vec3 ambient_diffuse = (1.0 - F_ambient) * (1.0 - metallic) * irradiance * diffuse_albedo * get_ao(in_uv);
 					vec3 ambient_specular = reflection * (F0 * env_brdf.x + F90(F0) * env_brdf.y) * GGXEnergyCompensation(F0, env_brdf);
 
+					set_modulate(vec4(1.0));
+
+					if (Modulate) {
+						// source's decalmodulate: the scene behind is multiplied by twice the
+						// texture, and source does that in gamma space, which in linear is
+						// a factor of 2^2.2 times the linear albedo
+						vec3 factor = 4.5948 * albedo * color_model.ColorMultiplier.rgb;
+						set_color(vec4(0.0));
+						set_motion(vec4(0.0));
+						set_additive(vec4(0.0));
+						set_modulate(vec4(mix(vec3(1.0), factor, transmittance * color_model.ColorMultiplier.a), 1.0));
+						return;
+					}
+
 					if (Additive) {
 						// source's $additive: the albedo is added to the scene, nothing
 						// of it is taken away, and it lights nothing but its reflection
@@ -634,7 +659,7 @@ return {
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, ADDITIVE, ADDITIVE}},
+		color_blend = {attachments = {{}, ADDITIVE, ADDITIVE, MULTIPLY}},
 		DepthTest = true,
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
@@ -687,6 +712,7 @@ return {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
 			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
+			{"r16g16b16a16_sfloat", {"modulate", "rgba"}},
 		},
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		Topology = "triangle_strip",
@@ -710,6 +736,7 @@ return {
 					// streaks are thin and fast, a pixel with one follows it, or taa would average it away
 					set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
 						set_additive(vec4(0.0));
+					set_modulate(vec4(1.0));
 				}
 			]],
 		},
@@ -721,10 +748,52 @@ return {
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, ADDITIVE, ADDITIVE}},
+		color_blend = {attachments = {{}, ADDITIVE, ADDITIVE, MULTIPLY}},
 		DepthTest = true,
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
+	},
+	{
+		name = "translucent_modulate",
+		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		dont_create_framebuffers = true,
+		TargetFramebuffer = post_source.GetFoggedOpaqueSceneFramebuffer,
+		on_draw = function(self, cmd)
+			if render3d.translucent_depth_far == 0 then return end
+
+			self:UploadConstants()
+			cmd:Draw(3, 1, 0, 0)
+		end,
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "modulate_composite",
+					binding_index = 3,
+					block = {
+						{"modulate_tex", "int"},
+					},
+					write = function(self, block)
+						block.modulate_tex = self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(4))
+						return block
+					end,
+				},
+			},
+			shader = [[
+				void main() {
+					set_color(vec4(texelFetch(TEXTURE(modulate_composite.modulate_tex), ivec2(gl_FragCoord.xy), 0).rgb, 1.0));
+				}
+			]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+		Blend = true,
+		SrcColorBlendFactor = "zero",
+		DstColorBlendFactor = "src_color",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "zero",
+		DstAlphaBlendFactor = "one",
+		AlphaBlendOp = "add",
 	},
 	{
 		name = "translucent",

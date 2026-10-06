@@ -1308,6 +1308,12 @@ local function resolve_color_blend_state(self, index, key)
 		if a and a[key] ~= nil then return a[key] end
 	end
 
+	if config and config.attachments then
+		local a = config.attachments[index]
+
+		if a and a[key] ~= nil then return a[key] end
+	end
+
 	if key ~= "blend" then
 		local val = get_state(self, "color_blend", key)
 
