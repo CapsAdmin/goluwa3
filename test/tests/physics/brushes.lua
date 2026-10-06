@@ -100,14 +100,7 @@ end
 T.TestPhysics("Physics sweep collider capsule hits brush room wall", function()
 	local room = create_brush_room("brush_room_sweep")
 	local ent, body = create_capsule("brush_room_sweep_capsule", Vec3(0, 1.1, 0))
-	local hit = physics.SweepCollider(
-		body,
-		Vec3(0, 1.1, 0),
-		Vec3(3.0, 0, 0),
-		ent,
-		nil,
-		{UseRenderMeshes = false}
-	)
+	local hit = physics.SweepCollider(body, Vec3(0, 1.1, 0), Vec3(3.0, 0, 0), ent, nil, {})
 	T(hit)["~="](nil)
 	T(hit.rigid_body)["=="](room.rigid_body)
 	T(hit.normal.x)["<"](-0.9)

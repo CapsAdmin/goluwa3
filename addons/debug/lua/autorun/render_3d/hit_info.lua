@@ -1,4 +1,4 @@
-local raycast = import("goluwa/physics/raycast.lua")
+local raycast = import("goluwa/render3d/raycast.lua")
 local event = import("goluwa/event.lua")
 local input = import("goluwa/input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")

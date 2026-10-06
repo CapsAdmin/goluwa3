@@ -5,7 +5,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
-local static_model_query = import("goluwa/physics/static_model_query.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
@@ -16,6 +15,29 @@ local CAPSULE_TRIANGLE_CONTACT_HANDLERS = {}
 local MAX_SPECULATIVE_DISTANCE = 0.5
 local FACE_BEHIND_DOT = 0.99
 local LOCAL_SPACE_NARROW_PHASE_ENABLED = true
+
+function mesh_contact_common.BuildExpandedWorldContactAABB(bounds, body, extra_body, extra_pad)
+	local margin = body and (body:GetCollisionMargin() or 0) or 0
+	local probe_distance = body and (body:GetCollisionProbeDistance() or 0) or 0
+	local extra_margin = extra_body and (extra_body:GetCollisionMargin() or 0) or 0
+	local extra_probe_distance = extra_body and (extra_body:GetCollisionProbeDistance() or 0) or 0
+	local pad = math.max(
+			margin + probe_distance + extra_margin + extra_probe_distance,
+			physics_constants.DEFAULT_COLLISION_MARGIN,
+			physics_constants.EPSILON
+		) + (
+			extra_pad or
+			0
+		)
+	return {
+		min_x = bounds.min_x - pad,
+		min_y = bounds.min_y - pad,
+		min_z = bounds.min_z - pad,
+		max_x = bounds.max_x + pad,
+		max_y = bounds.max_y + pad,
+		max_z = bounds.max_z + pad,
+	}
+end
 
 function mesh_contact_common.GetMeshShape(body)
 	local shape = body:GetPhysicsShape()
@@ -360,7 +382,7 @@ local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, 
 end
 
 function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback, context, extra_pad)
-	local bounds = static_model_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body, extra_pad)
+	local bounds = mesh_contact_common.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body, extra_pad)
 	local local_bounds = AABB.BuildLocalAABBFromWorldAABBInternal(
 		bounds,
 		mesh_body.WorldToLocal,

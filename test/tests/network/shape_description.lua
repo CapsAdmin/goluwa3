@@ -29,9 +29,10 @@ T.Test("shape description round trips primitive shapes", function()
 	T(round_trip(nil))["=="](nil)
 end)
 
-T.Test("shape description round trips model derived shapes", function()
-	T(round_trip(ConvexShape.New()):GetTypeName())["=="]("convex")
-	T(round_trip(MeshShape.New()):GetTypeName())["=="]("mesh")
+T.Test("shape description refuses mesh shapes", function()
+	attest.fails(function()
+		round_trip(MeshShape.New())
+	end, "cannot be replicated")
 end)
 
 T.Test("shape description refuses shapes it cannot describe", function()

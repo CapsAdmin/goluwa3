@@ -1,6 +1,6 @@
 local system = import("goluwa/system.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local raycast = import("goluwa/physics/raycast.lua")
+local raycast = import("goluwa/render3d/raycast.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local input = import("goluwa/input.lua")

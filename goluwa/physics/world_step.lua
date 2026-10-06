@@ -1,4 +1,3 @@
-local static_model_query = import("goluwa/physics/static_model_query.lua")
 local event = import("goluwa/event.lua")
 local constraint = import("goluwa/physics/constraint.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
@@ -147,7 +146,6 @@ function world_step.Step(physics, dt)
 	if not dt or dt <= 0 then return end
 
 	physics.StepIndex = (physics.StepIndex or 0) + 1
-	static_model_query.InvalidateWorldModels()
 	physics.UpdateRigidBodies(dt)
 end
 

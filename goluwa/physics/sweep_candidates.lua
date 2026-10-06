@@ -1,44 +1,6 @@
 local AABB = import("goluwa/structs/aabb.lua")
-local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local sweep_candidates = {}
-local get_model_primitives = model_transform_utils.GetModelPrimitives
-
-local function passes_entity_filter(entity, ignore_entity, filter_fn, options)
-	if not entity or entity == ignore_entity then return false end
-
-	if entity.PhysicsNoCollision or entity.NoPhysicsCollision then return false end
-
-	if (options and options.IgnoreRigidBodies ~= false) and entity.rigid_body then
-		return false
-	end
-
-	if
-		(
-			options and
-			options.IgnoreKinematicBodies ~= false
-		)
-		and
-		entity.rigid_body and
-		entity.rigid_body:IsKinematic()
-	then
-		return false
-	end
-
-	if filter_fn and not filter_fn(entity) then return false end
-
-	return true
-end
-
-local function should_skip_model(model, ignore_entity, filter_fn, options)
-	local primitives = get_model_primitives(model)
-
-	if not (model and model.Visible and primitives and primitives[1]) then
-		return true
-	end
-
-	return not passes_entity_filter(model.Owner, ignore_entity, filter_fn, options)
-end
 
 local function should_skip_rigid_body(body, ignore_entity, filter_fn, options)
 	if not body then return true end
@@ -524,7 +486,6 @@ local function collect_rigid_body_candidates(physics, world_aabb, ignore_entity,
 	return out
 end
 
-sweep_candidates.ShouldSkipModel = should_skip_model
 sweep_candidates.ShouldSkipRigidBody = should_skip_rigid_body
 sweep_candidates.ShouldQueryBodyAsWorld = should_query_body_as_world
 sweep_candidates.GetRigidBodyCandidateAABB = get_rigid_body_candidate_aabb

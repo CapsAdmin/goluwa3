@@ -1332,10 +1332,6 @@ function Visual:GetRenderEntries()
 	return self.RenderEntries
 end
 
-function Visual:GetPhysicsPrimitives()
-	return self:GetRenderEntries()
-end
-
 function Visual:BuildAABB()
 	self:GetRenderEntries()
 	return self:GetAABB()

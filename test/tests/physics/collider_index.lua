@@ -145,21 +145,14 @@ end
 
 T.TestPhysics("Sweeps find indexed colliders", function()
 	local ground_ent, ground = spawn_brush_pillars("collider_index_sweep")
-	local hit = physics.Sweep(
-		Vec3(PILLAR_SPACING * 30, 4, 0),
-		Vec3(0, -8, 0),
-		0.2,
-		nil,
-		nil,
-		{UseRenderMeshes = false}
-	)
+	local hit = physics.Sweep(Vec3(PILLAR_SPACING * 30, 4, 0), Vec3(0, -8, 0), 0.2, nil, nil, {})
 	local miss = physics.Sweep(
 		Vec3(PILLAR_SPACING * 30 + PILLAR_SPACING * 0.5, 4, 0),
 		Vec3(0, -8, 0),
 		0.2,
 		nil,
 		nil,
-		{UseRenderMeshes = false}
+		{}
 	)
 	local indexed = ground.ColliderIndex ~= nil
 	ground_ent:Remove()

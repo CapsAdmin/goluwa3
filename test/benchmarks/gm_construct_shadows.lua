@@ -1,7 +1,7 @@
 local commands = import("goluwa/cli/commands.lua")
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
-local raycast = import("goluwa/physics/raycast.lua")
+local raycast = import("goluwa/render3d/raycast.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
 local function set_shadows(enabled)

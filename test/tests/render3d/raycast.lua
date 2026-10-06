@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local raycast = import("goluwa/physics/raycast.lua")
+local raycast = import("goluwa/render3d/raycast.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -12,12 +12,18 @@ do
 		return model.AABB
 	end
 
+	local function get_render_entries(model)
+		return model.Primitives
+	end
+
 	local function make_model(ent, poly, world_offset)
 		local aabb = poly.AABB
 		local model = {
 			Owner = ent,
 			Visible = true,
 			AABB = aabb,
+			GetAABB = get_local_aabb,
+			GetRenderEntries = get_render_entries,
 			Primitives = {
 				{
 					polygon3d = poly,
@@ -70,7 +76,7 @@ do
 		return ent, poly
 	end
 
-	T.TestPhysics("Raycast basic triangle hit", function()
+	T.Test("Raycast basic triangle hit", function()
 		local ent = Entity.New({Name = "test_triangle"})
 		ent:AddComponent("transform")
 		local poly = make_triangle(Vec3(0, 0, 1))
@@ -83,7 +89,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast miss", function()
+	T.Test("Raycast miss", function()
 		local ent = Entity.New({Name = "test_triangle"})
 		ent:AddComponent("transform")
 		local poly = make_triangle(Vec3(0, 0, -1))
@@ -95,7 +101,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast cube", function()
+	T.Test("Raycast cube", function()
 		local ent = Entity.New({Name = "test_cube"})
 		ent:AddComponent("transform")
 		local poly = Polygon3D.New()
@@ -119,7 +125,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast with transform", function()
+	T.Test("Raycast with transform", function()
 		local ent = Entity.New({Name = "test_triangle"})
 		ent:AddComponent("transform")
 		local position = Vec3(5, 0, 0)
@@ -134,7 +140,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast multiple entities", function()
+	T.Test("Raycast multiple entities", function()
 		local ent1, poly1 = make_cube_entity("cube1", Vec3(0, 0, 0))
 		local ent2, poly2 = make_cube_entity("cube2", Vec3(0, 0, 3))
 		local source = make_source{
@@ -152,7 +158,7 @@ do
 		ent2:Remove()
 	end)
 
-	T.TestPhysics("Raycast with filter", function()
+	T.Test("Raycast with filter", function()
 		local ent1, poly1 = make_cube_entity("include_me", Vec3(0, 0, 0))
 		local ent2, poly2 = make_cube_entity("exclude_me", Vec3(0, 0, 3))
 		local source = make_source{
@@ -176,7 +182,7 @@ do
 		ent2:Remove()
 	end)
 
-	T.TestPhysics("Raycast CastClosest", function()
+	T.Test("Raycast CastClosest", function()
 		local ent = Entity.New({Name = "test_cube"})
 		ent:AddComponent("transform")
 		local poly = Polygon3D.New()
@@ -189,7 +195,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast CastAny", function()
+	T.Test("Raycast CastAny", function()
 		local ent = Entity.New({Name = "test_cube"})
 		ent:AddComponent("transform")
 		local poly = Polygon3D.New()
@@ -203,7 +209,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast ground normal faces ray", function()
+	T.Test("Raycast ground normal faces ray", function()
 		local ent = Entity.New({Name = "test_ground"})
 		ent:AddComponent("transform")
 		local poly = Polygon3D.New()
@@ -219,7 +225,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast custom model source", function()
+	T.Test("Raycast custom model source", function()
 		local ent = Entity.New({Name = "test_source"})
 		ent:AddComponent("transform")
 		local poly = Polygon3D.New()
@@ -233,6 +239,8 @@ do
 				Visible = true,
 				WorldSpaceVertices = true,
 				GetWorldAABB = get_local_aabb,
+				GetAABB = get_local_aabb,
+				GetRenderEntries = get_render_entries,
 				AABB = poly.AABB,
 				Primitives = {
 					{
@@ -250,7 +258,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast convex brush primitive source", function()
+	T.Test("Raycast convex brush primitive source", function()
 		local ent = Entity.New({Name = "test_brush_source"})
 		ent:AddComponent("transform")
 		local source = raycast.CreateModelSource{
@@ -259,6 +267,8 @@ do
 				Visible = true,
 				WorldSpaceVertices = true,
 				GetWorldAABB = get_local_aabb,
+				GetAABB = get_local_aabb,
+				GetRenderEntries = get_render_entries,
 				AABB = AABB(-1, -1, -1, 1, 1, 1),
 				Primitives = {
 					{
@@ -284,7 +294,7 @@ do
 		ent:Remove()
 	end)
 
-	T.TestPhysics("Raycast convex brush immediate inside hit", function()
+	T.Test("Raycast convex brush immediate inside hit", function()
 		local ent = Entity.New({Name = "test_brush_inside"})
 		ent:AddComponent("transform")
 		local source = raycast.CreateModelSource{
@@ -293,6 +303,8 @@ do
 				Visible = true,
 				WorldSpaceVertices = true,
 				GetWorldAABB = get_local_aabb,
+				GetAABB = get_local_aabb,
+				GetRenderEntries = get_render_entries,
 				AABB = AABB(-1, -1, -1, 1, 1, 1),
 				Primitives = {
 					{

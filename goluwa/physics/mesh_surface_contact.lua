@@ -2,7 +2,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local primitive_polygon_query = import("goluwa/physics/primitive_polygon_query.lua")
-local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local mesh_surface_contact = {}
 local MESH_FEATURE_EPSILON = 0.0001
 local MESH_SEAM_DISTANCE_EPSILON = 0.0001
@@ -351,7 +350,7 @@ local function get_mesh_hit_feature_contact(hit, reference_point)
 		hit.triangle_index
 	)
 
-	local primitives = model_transform_utils.GetModelPrimitives(hit.model)
+	local primitives = hit.model and hit.model.Primitives
 
 	if primitives and local_feature_positions then
 		for _, primitive in ipairs(primitives) do

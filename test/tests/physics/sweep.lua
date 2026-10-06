@@ -87,14 +87,7 @@ end
 
 T.TestPhysics("Physics sweep sphere hits brush world", function()
 	local world_ent = create_brush_box_body("sweep_world_brush", Vec3(-2, 0, -2), Vec3(2, 1, 2))
-	local hit = physics.Sweep(
-		Vec3(2.8, 0.5, 0),
-		Vec3(-1.5, 0, 0),
-		0.5,
-		nil,
-		nil,
-		{UseRenderMeshes = false}
-	)
+	local hit = physics.Sweep(Vec3(2.8, 0.5, 0), Vec3(-1.5, 0, 0), 0.5, nil, nil, {})
 	T(hit)["~="](nil)
 	T(hit.rigid_body)["=="](world_ent.rigid_body)
 	T(hit.normal.x)[">"](0.9)
@@ -105,7 +98,7 @@ end)
 
 T.TestPhysics("Physics sweep point hits triangle floor", function()
 	local ent = create_triangle_world_body("sweep_world_triangle")
-	local hit = physics.Sweep(Vec3(0, 2, 0), Vec3(0, -3, 0), 0, nil, nil, {UseRenderMeshes = false})
+	local hit = physics.Sweep(Vec3(0, 2, 0), Vec3(0, -3, 0), 0, nil, nil, {})
 	T(hit)["~="](nil)
 	T(hit.rigid_body)["=="](ent.rigid_body)
 	T(hit.normal.y)[">"](0.9)
@@ -127,7 +120,7 @@ T.TestPhysics("Physics sweep collider box hits triangle floor", function()
 			GravityScale = 0,
 		}
 	)
-	local hit = physics.SweepCollider(body, Vec3(0, 1.5, 0), Vec3(0, -2.0, 0), ent, nil, {UseRenderMeshes = false})
+	local hit = physics.SweepCollider(body, Vec3(0, 1.5, 0), Vec3(0, -2.0, 0), ent, nil, {})
 	T(hit)["~="](nil)
 	T(hit.rigid_body)["=="](world_ent.rigid_body)
 	T(hit.normal.y)[">"](0.9)
@@ -146,7 +139,7 @@ T.TestPhysics("Physics sweep collider capsule hits triangle floor", function()
 		Shape = CapsuleShape.New(0.5, 2.0),
 		GravityScale = 0,
 	})
-	local hit = physics.SweepCollider(body, Vec3(0, 2.2, 0), Vec3(0, -2.5, 0), ent, nil, {UseRenderMeshes = false})
+	local hit = physics.SweepCollider(body, Vec3(0, 2.2, 0), Vec3(0, -2.5, 0), ent, nil, {})
 	T(hit)["~="](nil)
 	T(hit.rigid_body)["=="](world_ent.rigid_body)
 	T(hit.normal.y)[">"](0.9)
@@ -176,7 +169,6 @@ T.TestPhysics("Physics sweep sphere hits rigid body box", function()
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -206,7 +198,6 @@ T.TestPhysics("Physics sweep sphere hits rigid body sphere", function()
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -237,7 +228,6 @@ T.TestPhysics("Physics sweep sphere uses moving rigid body previous pose", funct
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -276,7 +266,6 @@ T.TestPhysics("Physics sweep collider box hits rigid body box", function()
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -317,7 +306,6 @@ T.TestPhysics("Physics sweep collider capsule hits rigid body sphere", function(
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -338,7 +326,6 @@ T.TestPhysics("Physics sweep sphere hits rigid body mesh", function()
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -372,7 +359,6 @@ T.TestPhysics("Physics sweep collider box hits rigid body mesh", function()
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -387,16 +373,7 @@ end)
 T.TestPhysics("Physics sweep hits world geometry rigid body by default", function()
 	local target = create_mesh_body("sweep_target_world_mesh", Vec3(0, 0, 0))
 	target.rigid_body:SetWorldGeometry(true)
-	local hit = physics.Sweep(
-		Vec3(0, 2, 0),
-		Vec3(0, -3, 0),
-		0,
-		nil,
-		nil,
-		{
-			UseRenderMeshes = false,
-		}
-	)
+	local hit = physics.Sweep(Vec3(0, 2, 0), Vec3(0, -3, 0), 0, nil, nil, {})
 	T(hit)["~="](nil)
 	T(hit.rigid_body)["=="](target.rigid_body)
 	T(hit.primitive)["~="](nil)
@@ -436,7 +413,6 @@ T.TestPhysics("Physics sweep collider box uses moving rigid body previous pose",
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -483,7 +459,6 @@ T.TestPhysics("Physics sweep collider box handles rotating rigid body target pos
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)
@@ -519,7 +494,6 @@ T.TestPhysics("Physics sweep sphere handles rotating rigid body target pose", fu
 		{
 			IncludeRigidBodies = true,
 			IgnoreWorld = true,
-			UseRenderMeshes = false,
 		}
 	)
 	T(hit)["~="](nil)

@@ -1,6 +1,6 @@
 local commands = import("goluwa/cli/commands.lua")
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
-local raycast = import("goluwa/physics/raycast.lua")
+local raycast = import("goluwa/render3d/raycast.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 frame_benchmark.Run{
 	name = "gm_construct",

@@ -5,7 +5,6 @@ local brush_hull = import("goluwa/physics/brush_hull.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
-local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local META = objects.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
@@ -21,7 +20,6 @@ local MESH_BOUNDS_CORNERS = {
 	Vec3(),
 	Vec3(),
 }
-local get_source_primitives = model_transform_utils.GetModelPrimitives
 
 local function create_synthetic_primitive(polygon)
 	return {polygon3d = polygon}
@@ -122,7 +120,7 @@ local function collect_polygon_entries_from_source(entries, seen, source, model,
 		return
 	end
 
-	local primitives = get_source_primitives(source)
+	local primitives = source.Primitives
 
 	if primitives then
 		for index, model_primitive in ipairs(primitives) do
@@ -444,11 +442,8 @@ function META:OnBodyGeometryChanged(body)
 	self.SupportLocalPoints = nil
 end
 
-function META:GetMeshSource(body)
-	if self.Source ~= nil then return self.Source end
-
-	local owner = body and body:GetOwner() or nil
-	return owner and owner.visual or nil
+function META:GetMeshSource()
+	return self.Source
 end
 
 function META:GetMeshPolygonEntries(body)

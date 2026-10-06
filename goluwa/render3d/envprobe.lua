@@ -13,7 +13,7 @@ local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
-local trace = import("goluwa/physics/trace.lua")
+local raycast = import("goluwa/render3d/raycast.lua")
 local envprobe = library()
 
 local function get_primary_sun(lights)
@@ -429,7 +429,7 @@ local down = Vec3(0, -1, 0)
 local function find_auto_placement_height(gx, gz, camera_y, spacing)
 	local origin = Vec3(gx * spacing, camera_y + envprobe.AUTO_PLACEMENT_TRACE_UP, gz * spacing)
 	local max_distance = envprobe.AUTO_PLACEMENT_TRACE_UP + envprobe.AUTO_PLACEMENT_TRACE_DOWN
-	local hit = trace.RayCast(origin, down, max_distance)
+	local hit = raycast.CastClosest(origin, down, max_distance)
 
 	if hit then return hit.position.y + envprobe.AUTO_PLACEMENT_GROUND_CLEARANCE end
 

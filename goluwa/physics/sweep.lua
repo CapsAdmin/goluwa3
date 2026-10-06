@@ -1,5 +1,4 @@
 local physics_constants = import("goluwa/physics/constants.lua")
-local BVH = import("goluwa/physics/bvh.lua")
 local stats = import("goluwa/physics/stats.lua")
 local collider_index = import("goluwa/physics/collider_index.lua")
 local SWEEP_COLLIDER_TARGETS = {}
@@ -9,17 +8,12 @@ local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
-local raycast = import("goluwa/physics/raycast.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local sweep_candidates = import("goluwa/physics/sweep_candidates.lua")
 local sweep_mesh = import("goluwa/physics/sweep_mesh.lua")
-local static_model_query = import("goluwa/physics/static_model_query.lua")
 local primitive_polygon_query = import("goluwa/physics/primitive_polygon_query.lua")
-local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
-local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local RigidBody = import("goluwa/physics/rigid_body.lua")
 local sweep = {}
 local EPSILON = physics_constants.EPSILON
 local ensure_normal_faces_motion = sweep_helpers.EnsureNormalFacesMotion
@@ -29,19 +23,9 @@ local POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT = sweep_mesh.PointCapsuleSegmentE
 local evaluate_point_against_capsule_segment = sweep_mesh.EvaluatePointAgainstCapsuleSegment
 local collect_mesh_body_point_sweep_hit = sweep_mesh.CollectMeshBodyPointSweepHit
 local collect_mesh_body_collider_sweep_hit = sweep_mesh.CollectMeshBodyColliderSweepHit
-local for_each_overlapping_world_triangle = sweep_mesh.ForEachOverlappingWorldTriangle
-local get_primitive_query_aabb = sweep_mesh.GetPrimitiveQueryAABB
-local get_primitive_local_motion = sweep_mesh.GetPrimitiveLocalMotion
-local get_primitive_local_to_world = sweep_mesh.GetPrimitiveLocalToWorld
-local get_polyhedron_sweep_proxy = sweep_mesh.GetPolyhedronSweepProxy
-local transform_direction = sweep_mesh.TransformDirection
-local sweep_polyhedron_against_triangle = sweep_mesh.SweepPolyhedronAgainstTriangle
-local sweep_capsule_against_triangle = sweep_mesh.SweepCapsuleAgainstTriangle
 local build_capsule_sweep_invariants = sweep_mesh.BuildCapsuleSweepInvariants
-local sweep_sphere_against_triangle = sweep_mesh.SweepSphereAgainstTriangle
 local get_polyhedron_contact_for_point_at_pose
 local evaluate_polyhedron_pair_contact
-local should_skip_model = sweep_candidates.ShouldSkipModel
 local should_skip_rigid_body = sweep_candidates.ShouldSkipRigidBody
 local get_rigid_body_candidate_aabb = sweep_candidates.GetRigidBodyCandidateAABB
 local get_collider_candidate_aabb = sweep_candidates.GetColliderCandidateAABB
@@ -52,19 +36,10 @@ local function collect_rigid_body_candidates(...)
 	stats:PopTime()
 end
 
-local function has_world_geometry_bodies()
-	return RigidBodyComponent.WorldGeometryBodies[1] ~= nil
-end
-
 local empty_options = {}
-local empty_no_mesh_options = {UseRenderMeshes = false}
 
 local function normalize_query_options(options)
-	if options == nil then
-		if has_world_geometry_bodies() then return empty_no_mesh_options end
-
-		return empty_options
-	end
+	if options == nil then return empty_options end
 
 	if options.IncludeRigidBodies ~= nil and options.IgnoreRigidBodies == nil then
 		options.IgnoreRigidBodies = not options.IncludeRigidBodies
@@ -78,21 +53,12 @@ local function normalize_query_options(options)
 		options.IgnoreWorld = not options.IncludeWorld
 	end
 
-	if
-		options.UseRenderMeshes == nil and
-		options.IgnoreWorld ~= true and
-		has_world_geometry_bodies()
-	then
-		options.UseRenderMeshes = false
-	end
-
 	return options
 end
 
 local build_swept_aabb = AABB.FromSegment
 local ZERO_MOVEMENT = Vec3(0, 0, 0)
 local swept_aabb_scratch = AABB(0, 0, 0, 0, 0, 0)
-local model_candidates_scratch = {}
 local body_candidates_scratch = {}
 
 local function fill_swept_aabb(origin, movement, radius)
@@ -810,359 +776,6 @@ local function test_rigid_body_collider_sweep(...)
 	return hit
 end
 
-local function build_world_hit(
-	base_hit,
-	movement,
-	movement_length,
-	model,
-	entity,
-	primitive,
-	primitive_index,
-	triangle_index
-)
-	if not base_hit then return nil end
-
-	return {
-		entity = entity,
-		model = model,
-		primitive = primitive,
-		primitive_index = primitive_index,
-		triangle_index = triangle_index,
-		point = base_hit.point,
-		position = base_hit.position,
-		normal = ensure_normal_faces_motion(base_hit.normal, movement),
-		face_normal = ensure_normal_faces_motion(base_hit.normal, movement),
-		fraction = base_hit.t,
-		distance = movement_length * base_hit.t,
-	}
-end
-
-local function collect_polyhedron_triangle_sweep_hit(v0, v1, v2, triangle_index, context)
-	local hit = sweep_polyhedron_against_triangle(
-		context.collider,
-		context.polyhedron,
-		context.start_position,
-		context.rotation,
-		context.movement,
-		v0,
-		v1,
-		v2,
-		context.max_fraction
-	)
-
-	if not hit then return end
-
-	local world_hit = build_world_hit(
-		hit,
-		context.movement,
-		context.movement_length,
-		context.model,
-		context.entity,
-		context.primitive,
-		context.primitive_index,
-		triangle_index
-	)
-
-	if
-		world_hit and
-		(
-			not context.best_hit or
-			world_hit.fraction < context.best_hit.fraction
-		)
-	then
-		context.best_hit = world_hit
-		context.max_fraction = world_hit.fraction
-	end
-end
-
-local function test_polyhedron_primitive_sweep(
-	collider,
-	polyhedron,
-	start_position,
-	rotation,
-	movement,
-	primitive,
-	primitive_index,
-	model,
-	entity,
-	local_to_world,
-	local_aabb,
-	max_fraction
-)
-	if primitive.aabb and not BVH.AABBIntersects(local_aabb, primitive.aabb) then
-		return nil
-	end
-
-	local movement_length = movement:GetLength()
-	local poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
-	local primitive_local_aabb = get_primitive_query_aabb(primitive, local_aabb)
-	local primitive_local_to_world = get_primitive_local_to_world(primitive, local_to_world)
-
-	if not poly then return nil end
-
-	local triangle_context = primitive.polyhedron_sweep_triangle_context or {}
-	primitive.polyhedron_sweep_triangle_context = triangle_context
-	triangle_context.best_hit = nil
-	triangle_context.collider = collider
-	triangle_context.entity = entity
-	triangle_context.max_fraction = max_fraction
-	triangle_context.model = model
-	triangle_context.movement = movement
-	triangle_context.movement_length = movement_length
-	triangle_context.polyhedron = polyhedron
-	triangle_context.primitive = primitive
-	triangle_context.primitive_index = primitive_index
-	triangle_context.rotation = rotation
-	triangle_context.start_position = start_position
-	for_each_overlapping_world_triangle(
-		poly,
-		primitive_local_aabb,
-		primitive_local_to_world,
-		collect_polyhedron_triangle_sweep_hit,
-		triangle_context
-	)
-	return triangle_context.best_hit
-end
-
-local function collect_capsule_triangle_sweep_hit(v0, v1, v2, triangle_index, context)
-	local hit = sweep_capsule_against_triangle(context.capsule_invariants, v0, v1, v2, context.max_fraction)
-
-	if not hit then return end
-
-	local world_hit = build_world_hit(
-		hit,
-		context.movement,
-		context.movement_length,
-		context.model,
-		context.entity,
-		context.primitive,
-		context.primitive_index,
-		triangle_index
-	)
-
-	if
-		world_hit and
-		(
-			not context.best_hit or
-			world_hit.fraction < context.best_hit.fraction
-		)
-	then
-		context.best_hit = world_hit
-		context.max_fraction = world_hit.fraction
-	end
-end
-
-local function test_capsule_primitive_sweep(
-	collider,
-	start_position,
-	rotation,
-	movement,
-	primitive,
-	primitive_index,
-	model,
-	entity,
-	local_to_world,
-	local_aabb,
-	max_fraction
-)
-	if primitive.aabb and not BVH.AABBIntersects(local_aabb, primitive.aabb) then
-		return nil
-	end
-
-	local movement_length = movement:GetLength()
-	local poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
-	local primitive_local_aabb = get_primitive_query_aabb(primitive, local_aabb)
-	local primitive_local_to_world = get_primitive_local_to_world(primitive, local_to_world)
-
-	if not poly then return nil end
-
-	local triangle_context = primitive.capsule_sweep_triangle_context or {}
-	primitive.capsule_sweep_triangle_context = triangle_context
-	triangle_context.best_hit = nil
-	triangle_context.collider = collider
-	triangle_context.entity = entity
-	triangle_context.max_fraction = max_fraction
-	triangle_context.model = model
-	triangle_context.movement = movement
-	triangle_context.movement_length = movement_length
-	triangle_context.primitive = primitive
-	triangle_context.primitive_index = primitive_index
-	triangle_context.rotation = rotation
-	triangle_context.start_position = start_position
-	triangle_context.capsule_invariants = build_capsule_sweep_invariants(
-		collider,
-		start_position,
-		rotation,
-		movement,
-		triangle_context.capsule_invariants
-	)
-	for_each_overlapping_world_triangle(
-		poly,
-		primitive_local_aabb,
-		primitive_local_to_world,
-		collect_capsule_triangle_sweep_hit,
-		triangle_context
-	)
-	return triangle_context.best_hit
-end
-
-local function collect_triangle_sweep_hit(v0, v1, v2, triangle_index, context)
-	local local_hit = sweep_sphere_against_triangle(
-		context.start_local,
-		context.movement_local,
-		context.radius,
-		v0,
-		v1,
-		v2,
-		context.max_fraction
-	)
-
-	if not local_hit then return end
-
-	local world_position = context.local_to_world and
-		context.local_to_world:TransformVector(local_hit.position) or
-		local_hit.position
-	local world_normal = context.local_to_world and
-		transform_direction(context.local_to_world, local_hit.normal) or
-		local_hit.normal
-	local hit = build_world_hit(
-		{
-			position = world_position,
-			normal = world_normal,
-			t = local_hit.t,
-		},
-		context.world_movement,
-		context.movement_length,
-		context.model,
-		context.entity,
-		context.primitive,
-		context.primitive_index,
-		triangle_index
-	)
-
-	if hit and (not context.best_hit or hit.fraction < context.best_hit.fraction) then
-		context.best_hit = hit
-		context.max_fraction = hit.fraction
-	end
-end
-
-local function test_primitive_sweep(
-	start_local,
-	movement_local,
-	radius,
-	primitive,
-	primitive_index,
-	model,
-	entity,
-	local_to_world,
-	local_aabb,
-	max_fraction
-)
-	local best_hit
-	local primitive_start_local, primitive_movement_local = get_primitive_local_motion(primitive, start_local, movement_local)
-	local primitive_local_aabb = get_primitive_query_aabb(primitive, local_aabb)
-	local primitive_local_to_world = get_primitive_local_to_world(primitive, local_to_world)
-	local movement_length = primitive_movement_local:GetLength()
-	local world_movement = primitive_local_to_world and
-		(
-			primitive_local_to_world:TransformVector(primitive_start_local + primitive_movement_local) - primitive_local_to_world:TransformVector(primitive_start_local)
-		)
-		or
-		primitive_movement_local
-
-	if primitive.aabb and not BVH.AABBIntersects(local_aabb, primitive.aabb) then
-		return nil
-	end
-
-	local poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
-
-	if not poly then return nil end
-
-	local triangle_context = primitive.sweep_triangle_context or {}
-	primitive.sweep_triangle_context = triangle_context
-	triangle_context.best_hit = best_hit
-	triangle_context.entity = entity
-	triangle_context.local_to_world = primitive_local_to_world
-	triangle_context.max_fraction = max_fraction
-	triangle_context.model = model
-	triangle_context.movement_length = movement_length
-	triangle_context.movement_local = primitive_movement_local
-	triangle_context.primitive = primitive
-	triangle_context.primitive_index = primitive_index
-	triangle_context.radius = radius
-	triangle_context.start_local = primitive_start_local
-	triangle_context.world_movement = world_movement
-	for_each_overlapping_world_triangle(poly, primitive_local_aabb, nil, collect_triangle_sweep_hit, triangle_context)
-	return triangle_context.best_hit
-end
-
-local function test_model_sweep(
-	start_position,
-	movement,
-	radius,
-	model,
-	ignore_entity,
-	filter_fn,
-	options,
-	best_fraction
-)
-	if should_skip_model(model, ignore_entity, filter_fn, options) then
-		return nil
-	end
-
-	local model_aabb = model:GetWorldAABB()
-	local end_position = start_position + movement * best_fraction
-	local world_aabb = build_swept_aabb(start_position, end_position, radius)
-
-	if model_aabb and not AABB.IsBoxIntersecting(world_aabb, model_aabb) then
-		return nil
-	end
-
-	local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
-	local start_local = world_to_local and
-		world_to_local:TransformVector(start_position) or
-		start_position
-	local end_local = world_to_local and world_to_local:TransformVector(end_position) or end_position
-	local movement_local = end_local - start_local
-	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
-	local primitive_candidates = model.sweep_primitive_candidates or {}
-	model.sweep_primitive_candidates = primitive_candidates
-	local best_hit
-
-	for i = #primitive_candidates, 1, -1 do
-		primitive_candidates[i] = nil
-	end
-
-	raycast.CollectModelPrimitiveCandidatesByLocalAABB(model, local_aabb, primitive_candidates)
-
-	for i = 1, #primitive_candidates do
-		local candidate = primitive_candidates[i]
-		local primitive = candidate and candidate.primitive or nil
-		local primitive_index = candidate and candidate.primitive_idx or nil
-
-		if primitive and primitive_index then
-			local hit = test_primitive_sweep(
-				start_local,
-				movement_local,
-				radius,
-				primitive,
-				primitive_index,
-				model,
-				model.Owner,
-				local_to_world,
-				local_aabb,
-				best_hit and best_hit.fraction or 1
-			)
-
-			if hit and (not best_hit or hit.fraction < best_hit.fraction) then
-				best_hit = hit
-			end
-		end
-	end
-
-	return best_hit
-end
-
 local function sweep_world(physics, origin, movement, radius, ignore_entity, filter_fn, options)
 	options = normalize_query_options(options)
 	radius = math.max(radius or 0, 0)
@@ -1174,31 +787,11 @@ local function sweep_world(physics, origin, movement, radius, ignore_entity, fil
 	if movement_length <= EPSILON then return nil end
 
 	local world_aabb = fill_swept_aabb(origin, movement, radius)
-	local model_candidates = model_candidates_scratch
 	local body_candidates = body_candidates_scratch
-	table.clear(model_candidates)
 	table.clear(body_candidates)
 	local best_hit = nil
 	local best_fraction = 1
-
-	if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
-		static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates, options.IgnoreRigidBodies ~= false)
-	end
-
 	collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
-
-	for i = 1, #model_candidates do
-		local model = model_candidates[i]
-
-		if model then
-			local hit = test_model_sweep(origin, movement, radius, model, ignore_entity, filter_fn, options, best_fraction)
-
-			if hit and hit.fraction < best_fraction then
-				best_hit = hit
-				best_fraction = hit.fraction
-			end
-		end
-	end
 
 	for i = 1, #body_candidates do
 		local body = body_candidates[i]
@@ -1226,66 +819,11 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 		if movement_length <= EPSILON then return nil end
 
 		local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement)
-		local model_candidates = model_candidates_scratch
 		local body_candidates = body_candidates_scratch
-		table.clear(model_candidates)
 		table.clear(body_candidates)
 		local best_hit = nil
 		local best_fraction = 1
-
-		if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
-			static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates, options.IgnoreRigidBodies ~= false)
-		end
-
 		collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
-
-		for i = 1, #model_candidates do
-			local model = model_candidates[i]
-
-			if model and not should_skip_model(model, ignore_entity, filter_fn, options) then
-				local model_aabb = model:GetWorldAABB()
-
-				if not model_aabb or AABB.IsBoxIntersecting(world_aabb, model_aabb) then
-					local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
-					local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
-					local primitive_candidates = collider.polyhedron_sweep_primitive_candidates or {}
-					collider.polyhedron_sweep_primitive_candidates = primitive_candidates
-
-					for j = #primitive_candidates, 1, -1 do
-						primitive_candidates[j] = nil
-					end
-
-					raycast.CollectModelPrimitiveCandidatesByLocalAABB(model, local_body_aabb, primitive_candidates)
-
-					for j = 1, #primitive_candidates do
-						local candidate = primitive_candidates[j]
-						local primitive = candidate and candidate.primitive or nil
-						local primitive_index = candidate and candidate.primitive_idx or nil
-
-						if primitive and primitive_index then
-							local hit = test_capsule_primitive_sweep(
-								collider,
-								start_position,
-								rotation,
-								movement,
-								primitive,
-								primitive_index,
-								model,
-								model.Owner,
-								local_to_world,
-								local_body_aabb,
-								best_fraction
-							)
-
-							if hit and hit.fraction < best_fraction then
-								best_hit = hit
-								best_fraction = hit.fraction
-							end
-						end
-					end
-				end
-			end
-		end
 
 		for i = 1, #body_candidates do
 			local body_hit = test_rigid_body_collider_sweep(
@@ -1320,67 +858,11 @@ local function sweep_collider_world(physics, collider, start_position, movement,
 	if movement_length <= EPSILON then return nil end
 
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement)
-	local model_candidates = model_candidates_scratch
 	local body_candidates = body_candidates_scratch
-	table.clear(model_candidates)
 	table.clear(body_candidates)
 	local best_hit = nil
 	local best_fraction = 1
-
-	if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
-		static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates, options.IgnoreRigidBodies ~= false)
-	end
-
 	collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, body_candidates)
-
-	for i = 1, #model_candidates do
-		local model = model_candidates[i]
-
-		if model and not should_skip_model(model, ignore_entity, filter_fn, options) then
-			local model_aabb = model:GetWorldAABB()
-
-			if not model_aabb or AABB.IsBoxIntersecting(world_aabb, model_aabb) then
-				local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
-				local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
-				local primitive_candidates = collider.capsule_sweep_primitive_candidates or {}
-				collider.capsule_sweep_primitive_candidates = primitive_candidates
-
-				for j = #primitive_candidates, 1, -1 do
-					primitive_candidates[j] = nil
-				end
-
-				raycast.CollectModelPrimitiveCandidatesByLocalAABB(model, local_body_aabb, primitive_candidates)
-
-				for j = 1, #primitive_candidates do
-					local candidate = primitive_candidates[j]
-					local primitive = candidate and candidate.primitive or nil
-					local primitive_index = candidate and candidate.primitive_idx or nil
-
-					if primitive and primitive_index then
-						local hit = test_polyhedron_primitive_sweep(
-							collider,
-							polyhedron,
-							start_position,
-							rotation,
-							movement,
-							primitive,
-							primitive_index,
-							model,
-							model.Owner,
-							local_to_world,
-							local_body_aabb,
-							best_fraction
-						)
-
-						if hit and hit.fraction < best_fraction then
-							best_hit = hit
-							best_fraction = hit.fraction
-						end
-					end
-				end
-			end
-		end
-	end
 
 	for i = 1, #body_candidates do
 		local body_hit = test_rigid_body_collider_sweep(

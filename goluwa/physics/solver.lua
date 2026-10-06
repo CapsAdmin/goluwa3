@@ -70,7 +70,6 @@ local function get_collider_sweep_hit(dynamic_body, collider, physics)
 		dynamic_body:GetFilterFunction(),
 		{
 			Rotation = collider:GetRotation(),
-			UseRenderMeshes = false,
 		}
 	)
 

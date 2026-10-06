@@ -1,11 +1,10 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
-local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local system = import("goluwa/system.lua")
 local raycast = library()
-import.loaded["goluwa/physics/raycast.lua"] = raycast
-local Visual = RENDER_3D and import("goluwa/entities/components/visual.lua")
+import.loaded["goluwa/render3d/raycast.lua"] = raycast
+local Visual = import("goluwa/entities/components/visual.lua")
 local BVH_BUILD_TRIANGLE_THRESHOLD = 8
 local BVH_LEAF_TRIANGLE_COUNT = 8
 local MODEL_BVH_LEAF_ITEM_COUNT = 8
@@ -19,20 +18,18 @@ local model_acceleration = {
 	frame = -1,
 	model_count = 0,
 }
-local get_spatial_primitives = model_transform_utils.GetModelPrimitives
 
-local function get_spatial_local_aabb(model)
-	if not model then return nil end
-
-	if model.GetAABB then return model:GetAABB() end
-
-	return model.AABB
+local function get_spatial_primitives(model)
+	return model:GetRenderEntries()
 end
 
-local function get_spatial_component_count()
-	if not Visual or not Visual.Instances then return 0 end
+local function get_spatial_local_aabb(model)
+	return model:GetAABB()
+end
 
-	return #Visual.Instances
+local function get_model_transforms(model)
+	local transform = model.Owner.transform
+	return transform:GetWorldMatrixInverse(), transform:GetWorldMatrix()
 end
 
 local function create_ray(origin, direction, max_distance)
@@ -121,8 +118,6 @@ local function collect_spatial_model_items()
 	local items = {}
 	local dynamic_models = {}
 
-	if not Visual or not Visual.Instances then return items, dynamic_models end
-
 	for _, model in ipairs(Visual.Instances) do
 		if has_model_geometry(model) then
 			if is_dynamic_model(model) then
@@ -203,7 +198,7 @@ end
 
 local function ensure_model_acceleration()
 	local frame = system.GetFrameNumber()
-	local model_count = get_spatial_component_count()
+	local model_count = #Visual.Instances
 
 	if
 		model_acceleration.dirty or
@@ -751,71 +746,6 @@ local function visit_primitive_bvh_leaf_collect(node, context, best_hit, best_di
 	return best_hit, best_distance
 end
 
-local function visit_primitive_bvh_leaf_aabb(node, context, out)
-	for i = node.first, node.last do
-		local item = context.acceleration.primitives[i]
-		out[#out + 1] = item
-	end
-
-	return out
-end
-
-function raycast.CollectModelPrimitiveCandidatesByLocalAABB(model, local_aabb, out)
-	out = out or {}
-	local primitives = get_spatial_primitives(model)
-
-	if not (model and local_aabb and primitives and primitives[1]) then
-		return out
-	end
-
-	local primitive_acceleration = get_model_primitive_acceleration(model)
-
-	if primitive_acceleration and primitive_acceleration.tree then
-		local traversal_context = primitive_acceleration.tree.traversal_context
-		traversal_context.acceleration = primitive_acceleration.tree
-		traversal_context.node_stack = traversal_context.node_stack or {}
-		BVH.TraverseAABB(
-			local_aabb,
-			primitive_acceleration.tree.root,
-			visit_primitive_bvh_leaf_aabb,
-			traversal_context,
-			out
-		)
-
-		for _, primitive_idx in ipairs(primitive_acceleration.uncached_indices or {}) do
-			local primitive = primitives[primitive_idx]
-
-			if
-				not primitive or
-				not primitive.aabb or
-				BVH.AABBIntersects(local_aabb, primitive.aabb)
-			then
-				out[#out + 1] = {
-					primitive = primitive,
-					primitive_idx = primitive_idx,
-				}
-			end
-		end
-
-		return out
-	end
-
-	for primitive_idx, primitive in ipairs(primitives) do
-		if
-			not primitive or
-			not primitive.aabb or
-			BVH.AABBIntersects(local_aabb, primitive.aabb)
-		then
-			out[#out + 1] = {
-				primitive = primitive,
-				primitive_idx = primitive_idx,
-			}
-		end
-	end
-
-	return out
-end
-
 local function test_model_closest(
 	ray,
 	model,
@@ -835,7 +765,7 @@ local function test_model_closest(
 
 	if not model.Visible or not (primitives and primitives[1]) then return nil end
 
-	local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
+	local world_to_local, local_to_world = get_model_transforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
 	local local_aabb = get_spatial_local_aabb(model)
 
@@ -918,7 +848,7 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 
 	if not model.Visible or not (primitives and primitives[1]) then return end
 
-	local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
+	local world_to_local, local_to_world = get_model_transforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
 	local local_aabb = get_spatial_local_aabb(model)
 

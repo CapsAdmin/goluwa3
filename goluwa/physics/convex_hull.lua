@@ -1,7 +1,5 @@
-local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_hull = library()
-local get_source_primitives = model_transform_utils.GetModelPrimitives
 
 local function copy_vec3(vec)
 	return Vec3(vec.x, vec.y, vec.z)
@@ -25,7 +23,7 @@ end
 local function append_source_points(points, source)
 	if not source then return end
 
-	local primitives = get_source_primitives(source)
+	local primitives = source.Primitives
 
 	if primitives then
 		for _, primitive in ipairs(primitives) do
@@ -243,7 +241,7 @@ end
 local function append_source_triangles(triangles, source)
 	if not source then return end
 
-	local primitives = get_source_primitives(source)
+	local primitives = source.Primitives
 
 	if primitives then
 		for _, primitive in ipairs(primitives) do
@@ -575,12 +573,6 @@ end
 function convex_hull.BuildFromTriangles(source, epsilon)
 	local points = {}
 	append_source_points(points, source)
-	return build_convex_hull(points, epsilon)
-end
-
-function convex_hull.BuildHullFromModel(model, epsilon)
-	local points = {}
-	append_source_points(points, model)
 	return build_convex_hull(points, epsilon)
 end
 

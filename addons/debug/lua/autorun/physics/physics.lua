@@ -387,7 +387,6 @@ local function get_look_body_hit()
 		ignore_entity,
 		nil,
 		{
-			UseRenderMeshes = false,
 			IgnoreRigidBodies = false,
 			IgnoreKinematicBodies = false,
 		}
