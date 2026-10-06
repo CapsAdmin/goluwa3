@@ -1125,8 +1125,8 @@ do
 		return self
 	end
 
-	-- reflectance a source envmap or phong highlight gets where its mask is shiny, a dielectric is 0.04
 	local ENVMAP_F0 = 1.0
+	local ENVMAP_ROUGHNESS = 0.125
 	local PHONG_MAX_F0 = 0.5
 
 	local function on_load_vmt(self, vmt)
@@ -1200,7 +1200,7 @@ do
 			-- an envmap is a cubemap lookup of fixed sharpness, its mask only scales how much of it is added
 			if vmt.phong ~= 1 then
 				self:SetRoughnessMaskOnlyScalesSpecular(true)
-				self:SetRoughnessMultiplier(0)
+				self:SetRoughnessMultiplier(ENVMAP_ROUGHNESS)
 			end
 		end
 
