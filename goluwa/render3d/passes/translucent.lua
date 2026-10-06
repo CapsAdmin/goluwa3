@@ -571,10 +571,14 @@ return {
 					if (Additive) {
 						// source's $additive: the albedo is added to the scene, nothing
 						// of it is taken away, and it lights nothing but its reflection
-						vec3 added = get_emissive(in_uv) * color_model.ColorMultiplier.a + (direct_specular + ambient_specular) * specular_coverage;
+						// an unlit source material adds its color to the picture as it is
+						// displayed, so it follows the exposure instead of glowing at a fixed
+						// luminance. the pre exposed scene is the displayed one over the headroom
+						vec3 emission = DisplayReferred ? get_albedo_uv(in_uv) * color_model.ColorMultiplier.a / ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : get_emissive(in_uv) * color_model.ColorMultiplier.a * get_pre_exposure();
+						vec3 added = emission + (direct_specular + ambient_specular) * specular_coverage * get_pre_exposure();
 						set_color(vec4(0.0));
 						set_motion(vec4(0.0));
-						set_additive(vec4(min(added * fog.a * get_pre_exposure(), vec3(65504.0)), 0.0) * transmittance);
+						set_additive(vec4(min(added * fog.a, vec3(65504.0)), 0.0) * transmittance);
 						return;
 					}
 

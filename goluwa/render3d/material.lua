@@ -147,6 +147,8 @@ Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
 Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
 Material:GetSet("MultiplyAlbedo2", false, {callback = "InvalidateFlags"})
+Material:GetSet("DisplayReferred", false, {callback = "InvalidateFlags"})
+Material:GetSet("NormalAlphaIsCoverage", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:GetSet("OriginalMaterial", "", {multiline = true})
@@ -396,6 +398,8 @@ local FLAGS = {
 	"Additive",
 	"Modulate",
 	"MultiplyAlbedo2",
+	"DisplayReferred",
+	"NormalAlphaIsCoverage",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -1159,8 +1163,9 @@ do
 
 		if vmt.texture2 then
 			self:SetAlbedo2Texture(SRGBTexture(vmt.texture2))
+			local shader = vmt.shader:lower()
 
-			if vmt.shader:lower() == "de_unlitthreetexture" then
+			if shader == "de_unlitthreetexture" or shader == "unlittwotexture" then
 				self:SetMultiplyAlbedo2(true)
 			end
 		end
@@ -1249,6 +1254,7 @@ do
 
 		if vmt.additive == 1 then
 			self:SetAdditive(true)
+			self:SetDisplayReferred(true)
 			self:SetTranslucent(true)
 		end
 
@@ -1270,6 +1276,13 @@ do
 			end
 		end
 
+		if typex(vmt.srgbtint) == "vec3" then
+			-- source multiplies this in gamma space, which in linear is the tint to the 2.2
+			local tint, color = vmt.srgbtint, self.ColorMultiplier:Copy()
+			color.r, color.g, color.b = color.r * tint.x ^ 2.2, color.g * tint.y ^ 2.2, color.b * tint.z ^ 2.2
+			self:SetColorMultiplier(color)
+		end
+
 		if vmt.shader:lower() == "refract" then
 			self:SetRefraction(1)
 			self:SetIndexOfRefraction(1 + (vmt.refractamount or 0.5))
@@ -1277,6 +1290,10 @@ do
 			self:SetSpecularMultiplier(1)
 
 			if vmt.normalmap then self:SetNormalTexture(LinearTexture(vmt.normalmap)) end
+
+			if vmt.normalmapalphaenvmapmask == 1 then
+				self:SetNormalAlphaIsCoverage(true)
+			end
 
 			if vmt.refracttinttexture then
 				self:SetAlbedoTexture(SRGBTexture(vmt.refracttinttexture))

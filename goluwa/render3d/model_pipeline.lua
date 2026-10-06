@@ -1621,6 +1621,10 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 			float get_alpha_uv(vec2 uv) {
+				if (NormalAlphaIsCoverage && model.NormalTexture != -1) {
+					return texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a * color_model.ColorMultiplier.a;
+				}
+
 				if (
 					model.AlbedoTexture == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
