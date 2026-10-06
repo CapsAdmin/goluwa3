@@ -57,15 +57,19 @@ end
 function UDPServer:OnPollReady(events)
 	if not (events["in"] or events.err or events.hup or events.nval) then return end
 
-	local chunk, err = self.socket:receive_from()
+	for _ = 1, 256 do
+		local chunk, err = self.socket:receive_from(2048)
 
-	if chunk then
-		self:OnReceiveChunk(chunk, err)
-	else
-		if err == "closed" then
-			self:OnClose("receive")
-		elseif err ~= "timeout" and err ~= "tryagain" then
-			self:Error(err)
+		if chunk then
+			self:OnReceiveChunk(chunk, err)
+		else
+			if err == "closed" then
+				self:OnClose("receive")
+			elseif err ~= "timeout" and err ~= "tryagain" then
+				self:Error(err)
+			end
+
+			return
 		end
 	end
 end
@@ -89,6 +93,8 @@ function UDPServer:OnError(str, tr)
 	self:Remove()
 	error(str)
 end
+
+function UDPServer:OnClose(reason) end
 
 function UDPServer:OnReceiveChunk(chunk, address) end
 

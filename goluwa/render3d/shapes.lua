@@ -419,12 +419,12 @@ local function create_model_asset_primitives(model_asset, asset_options)
 	return primitives
 end
 
-local function add_model_asset(ent, path, material, asset_options)
+function shapes.BuildModelAsset(ent, path, material, asset_options)
 	local entry = assets.GetModel(path)
 	assert(entry and entry.value, ("failed to load model asset %q"):format(path))
 	local shared_material = shapes.Material(material)
-
-	if RENDER_3D then ent:AddComponent("visual") end
+	local children = {}
+	ent:AddComponent("visual")
 
 	for index, primitive in ipairs(create_model_asset_primitives(entry.value, asset_options)) do
 		local polygon = primitive.mesh or primitive.polygon3d or primitive
@@ -447,16 +447,26 @@ local function add_model_asset(ent, path, material, asset_options)
 			primitive_entity.transform:SetScale(primitive.scale)
 		end
 
-		if RENDER_3D then
-			local visual_primitive = primitive_entity:AddComponent("visual_primitive")
-			visual_primitive:SetPolygon3D(polygon)
-			visual_primitive:SetMaterial(shapes.Material(primitive_material))
-		end
+		local visual_primitive = primitive_entity:AddComponent("visual_primitive")
+		visual_primitive:SetPolygon3D(polygon)
+		visual_primitive:SetMaterial(shapes.Material(primitive_material))
+		children[index] = primitive_entity
 	end
 
-	if RENDER_3D then ent.visual:BuildAABB() end
+	ent.visual:BuildAABB()
+	return shared_material, children
+end
 
-	return shared_material
+local function add_model_asset(ent, path, material, asset_options)
+	local config = {ModelPath = path, ModelOptions = asset_options}
+
+	if is_material(material) then
+		config.Material = material
+	else
+		config.MaterialConfig = material
+	end
+
+	return ent:AddComponent("model", config).material
 end
 
 local function resolve_body_shape(config, default_shape, ...)
@@ -493,6 +503,14 @@ local function add_rigid_body(ent, config, shape)
 	return ent:AddComponent("rigid_body", rigid_body)
 end
 
+local function add_network(ent, config)
+	local network = get(config, "Network")
+
+	if network then
+		ent:AddComponent("network", type(network) == "table" and network or nil)
+	end
+end
+
 function shapes.Box(config)
 	config = config or {}
 	local size = get(config, "Size") or Vec3(1, 1, 1)
@@ -507,6 +525,7 @@ function shapes.Box(config)
 		}
 	)
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, box_shape, size))
+	add_network(ent, config)
 	return ent, body, material
 end
 
@@ -516,6 +535,7 @@ function shapes.Sphere(config)
 	local ent = create_entity(config)
 	local material = add_model_asset(ent, SPHERE_MODEL_PATH, get(config, "Material"), {radius = radius})
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, sphere_shape, radius))
+	add_network(ent, config)
 	return ent, body, material
 end
 
@@ -533,6 +553,7 @@ function shapes.Cone(config)
 			height = height,
 		}
 	)
+	add_network(ent, config)
 	return ent, nil, material
 end
 
@@ -551,6 +572,7 @@ function shapes.Capsule(config)
 		}
 	)
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, capsule_shape, radius, height))
+	add_network(ent, config)
 	return ent, body, material
 end
 

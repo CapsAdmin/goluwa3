@@ -1,5 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
-local input = import("goluwa/input.lua")
+local network = import("goluwa/network/network.lua")
+local usercmd = import("goluwa/network/usercmd.lua")
 local physics = import("goluwa/physics.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -19,18 +20,10 @@ local function clamp01(x)
 	return math.min(math.max(x or 0, 0), 1)
 end
 
-local function get_look_rotation_delta(state)
-	local mouse_delta = (state.look_delta + state.look_nudge * state.ArrowLookSpeed) * state.MouseSensitivity
-	return mouse_delta * (state.FOV / 175)
-end
+local BUTTON = usercmd.BUTTON
 
-local function get_camera_origin(owner)
-	local camera = owner and owner.camera
-
-	if camera and camera.GetViewPosition then return camera:GetViewPosition() end
-
-	local transform = owner and owner.transform
-	return transform and transform:GetPosition():Copy() or Vec3()
+local function get_origin(owner)
+	return owner.transform:GetPosition() + owner.player_movement:GetViewOffset()
 end
 
 local function sync_body_rotation_to_transform(body)
@@ -81,11 +74,18 @@ function META:Initialize()
 	self.held_distance = self.MinHoldDistance
 	self.held_rotation_offset = Quat():Identity()
 	self.block_grab_until_primary_release = false
+	self:AddGlobalEvent("PhysicsUpdate")
 end
 
 function META:Release()
-	if self:CanHoldBody(self.held_body) then
-		sync_body_rotation_to_transform(self.held_body)
+	if self.held_body then
+		if self.held_body:IsValid() then
+			self.held_body:SetCollisionGroup(self.held_original_group)
+		end
+
+		if self:CanHoldBody(self.held_body) then
+			sync_body_rotation_to_transform(self.held_body)
+		end
 	end
 
 	self.held_body = nil
@@ -139,9 +139,9 @@ function META:FreezeHeldBody()
 	self:Release()
 end
 
-function META:TryAcquireBody(look)
-	local origin = get_camera_origin(self.Owner)
-	local movement = look:GetRotation():GetForward() * self.MaxGrabDistance
+function META:TryAcquireBody(cmd)
+	local origin = get_origin(self.Owner)
+	local movement = cmd.view:GetForward() * self.MaxGrabDistance
 	local hit = physics.Sweep(
 		origin,
 		movement,
@@ -175,9 +175,11 @@ function META:TryAcquireBody(look)
 	if not self:CanGrabBody(body) or not grab_point then return false end
 
 	self.held_body = body
+	self.held_original_group = body:GetCollisionGroup()
+	body:SetCollisionGroup(usercmd.HELD_COLLISION_GROUP)
 	self.held_local_point = body:WorldToLocal(grab_point)
 	self.held_distance = math.clamp(hit.distance or self.MinHoldDistance, self.MinHoldDistance, self.MaxGrabDistance)
-	self.held_rotation_offset = (look:GetRotation():GetConjugated() * body:GetRotation()):GetNormalized()
+	self.held_rotation_offset = (cmd.view:GetConjugated() * body:GetRotation()):GetNormalized()
 
 	if body.SetGrounded then body:SetGrounded(false) end
 
@@ -186,7 +188,7 @@ function META:TryAcquireBody(look)
 	return true
 end
 
-function META:UpdateHeldBody(dt, look)
+function META:UpdateHeldBody(dt, cmd)
 	local body = self.held_body
 
 	if not self:CanHoldBody(body) then
@@ -194,8 +196,8 @@ function META:UpdateHeldBody(dt, look)
 		return
 	end
 
-	local origin = get_camera_origin(self.Owner)
-	local target_position = origin + look:GetRotation():GetForward() * self.held_distance
+	local origin = get_origin(self.Owner)
+	local target_position = origin + cmd.view:GetForward() * self.held_distance
 	local grab_position = body:LocalToWorld(self.held_local_point)
 	local offset = target_position - grab_position
 	local offset_length = offset:GetLength()
@@ -208,7 +210,7 @@ function META:UpdateHeldBody(dt, look)
 	local linear_response = clamp01(dt * self.VelocityResponse)
 	local current_velocity = body:GetVelocity():Copy()
 	body:SetVelocity(current_velocity + (target_velocity - current_velocity) * linear_response)
-	local target_rotation = (look:GetRotation() * self.held_rotation_offset):GetNormalized()
+	local target_rotation = (cmd.view * self.held_rotation_offset):GetNormalized()
 	body:SetRotation(target_rotation)
 	body.PreviousRotation = target_rotation:Copy()
 	sync_body_rotation_to_transform(body)
@@ -219,56 +221,68 @@ function META:UpdateHeldBody(dt, look)
 	if body.Wake then body:Wake() end
 end
 
-function META:OnBeforeCameraInputUpdate(dt, state)
-	if
-		not state or
-		not state.mouse_trapped or
-		not input.IsMouseDown("button_1")
-		or
-		not input.IsKeyDown("e")
-	then
-		return
-	end
-
-	local body = self.held_body
-
-	if not self:CanHoldBody(body) then return end
-
-	local mouse_delta = get_look_rotation_delta(state) * self.RotateSensitivity
-	self.held_rotation_offset = rotate_offset_relative_to_camera(self.held_rotation_offset, state:GetRotation(), mouse_delta)
-	state.look_delta = Vec2()
-	state.look_nudge = Vec2()
+function META:HasAuthority()
+	return not (CLIENT and network.IsConnected())
 end
 
-function META:OnCameraInputUpdate(dt, state)
-	if not state or not state.mouse_trapped or not input.IsMouseDown("button_1") then
-		if not input.IsMouseDown("button_1") then
+local rotate_delta = {x = 0, y = 0}
+
+function META:OnPhysicsUpdate(dt)
+	if not self:HasAuthority() then return end
+
+	local controller = self.Owner.player_controller
+	local cmd = controller.cmd
+
+	if
+		not (
+			usercmd.HasButton(cmd, BUTTON.ACTIVE) and
+			usercmd.HasButton(cmd, BUTTON.ATTACK1)
+		)
+	then
+		if not usercmd.HasButton(cmd, BUTTON.ATTACK1) then
 			self.block_grab_until_primary_release = false
 		end
 
 		self:Release()
+		controller:SetHolding(false)
 		return
 	end
 
-	if self.held_body and input.WasMousePressed and input.WasMousePressed("button_2") then
+	if
+		self.held_body and
+		(
+			cmd.rotate_x ~= 0 or
+			cmd.rotate_y ~= 0
+		)
+		and
+		self:CanHoldBody(self.held_body)
+	then
+		rotate_delta.x = cmd.rotate_x * self.RotateSensitivity
+		rotate_delta.y = cmd.rotate_y * self.RotateSensitivity
+		self.held_rotation_offset = rotate_offset_relative_to_camera(self.held_rotation_offset, cmd.view, rotate_delta)
+	end
+
+	if self.held_body and usercmd.WasPressed(cmd, BUTTON.ATTACK2) then
 		self:FreezeHeldBody()
+		controller:SetHolding(false)
 		return
 	end
 
 	if self.block_grab_until_primary_release then return end
 
-	if not self.held_body and not self:TryAcquireBody(state) then return end
+	if not self.held_body and not self:TryAcquireBody(cmd) then return end
 
-	if input.WasMousePressed and input.WasMousePressed("mwheel_down") then
-		self:AdjustHoldDistance(self.ScrollStep)
-	elseif input.WasMousePressed and input.WasMousePressed("mwheel_up") then
-		self:AdjustHoldDistance(-self.ScrollStep)
-	end
+	if cmd.scroll ~= 0 then self:AdjustHoldDistance(cmd.scroll * self.ScrollStep) end
 
-	self:UpdateHeldBody(dt, state)
+	self:UpdateHeldBody(dt, cmd)
+	controller:SetHolding(self.held_body ~= nil)
 end
 
-function META:OnCameraModeChanged()
+function META:GetHoldPoint()
+	return self.held_body:LocalToWorld(self.held_local_point)
+end
+
+function META:OnPlayerModeChanged()
 	self:Release()
 end
 

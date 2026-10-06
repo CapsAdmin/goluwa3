@@ -37,6 +37,9 @@ function META:GetViewPosition()
 	local transform = self.Owner and self.Owner.transform
 	local body = self.Owner and self.Owner.rigid_body
 	local offset = self:GetViewOffset() or Vec3()
+	local controller = self.Owner and self.Owner.player_controller
+
+	if controller then offset = offset + controller:GetCorrectionOffset() end
 
 	if not transform then return offset:Copy() end
 
@@ -59,6 +62,10 @@ end
 function META:OnUpdate()
 	local transform = self.Owner.transform
 	local view = self.view
+	local movement = self.Owner.player_movement
+
+	if movement then self:SetViewOffset(movement:GetViewOffset()) end
+
 	view:SetPosition(self:GetViewPosition())
 	local look = self.Owner.player_input
 

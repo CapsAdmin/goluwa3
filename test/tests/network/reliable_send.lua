@@ -28,21 +28,21 @@ end)
 
 T.Test("UnackedPacket:NeedsRetransmission returns false before timeout", function()
 	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-	packet.send_time = os.clock() * 1000 - 100
-	T(packet:NeedsRetransmission(os.clock() * 1000))["=="](false)
+	packet.send_time = reliable_send.Now() - 100
+	T(packet:NeedsRetransmission(reliable_send.Now()))["=="](false)
 end)
 
 T.Test("UnackedPacket:NeedsRetransmission returns true after timeout", function()
 	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-	packet.send_time = os.clock() * 1000 - 1000
-	T(packet:NeedsRetransmission(os.clock() * 1000))["=="](true)
+	packet.send_time = reliable_send.Now() - 1000
+	T(packet:NeedsRetransmission(reliable_send.Now()))["=="](true)
 end)
 
 T.Test("UnackedPacket:Ack marks packet as acknowledged", function()
 	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
 	packet:Ack()
 	T(packet.acked)["=="](true)
-	T(packet:NeedsRetransmission(os.clock() * 1000))["=="](false)
+	T(packet:NeedsRetransmission(reliable_send.Now()))["=="](false)
 end)
 
 T.Test("UnackedPacket:OnTimeout increases retry count and backoff", function()
@@ -122,13 +122,13 @@ T.Test("RetransmissionTracker:GetRetransmitQueue returns timed-out packets", fun
 
 	for _, packet in pairs(tracker.unacked) do
 		if packet.sequence_number == 100 then
-			packet.send_time = os.clock() * 1000 - 1000
+			packet.send_time = reliable_send.Now() - 1000
 		else
-			packet.send_time = os.clock() * 1000 - 10
+			packet.send_time = reliable_send.Now() - 10
 		end
 	end
 
-	local retransmit = tracker:GetRetransmitQueue(os.clock() * 1000)
+	local retransmit = tracker:GetRetransmitQueue(reliable_send.Now())
 	T(#retransmit)["=="](1)
 	T(retransmit[1].sequence_number)["=="](100)
 end)
@@ -138,10 +138,10 @@ T.Test("RetransmissionTracker:OnTimeout processes retransmissions", function()
 	tracker:TrackPacket(100, "data", 2)
 
 	for _, packet in pairs(tracker.unacked) do
-		packet.send_time = os.clock() * 1000 - 1000
+		packet.send_time = reliable_send.Now() - 1000
 	end
 
-	local retransmit, failed = tracker:OnTimeout(os.clock() * 1000)
+	local retransmit, failed = tracker:OnTimeout(reliable_send.Now())
 	T(#retransmit)["=="](1)
 	T(#failed)["=="](0)
 	T(tracker.total_retransmitted)["=="](1)
@@ -156,8 +156,8 @@ T.Test("RetransmissionTracker:OnTimeout removes failed packets", function()
 		packet:OnTimeout()
 	end
 
-	packet.send_time = os.clock() * 1000 - 31000
-	local retransmit, failed = tracker:OnTimeout(os.clock() * 1000)
+	packet.send_time = reliable_send.Now() - 31000
+	local retransmit, failed = tracker:OnTimeout(reliable_send.Now())
 	T(#failed)["=="](1)
 	T(tracker.total_failed)["=="](1)
 	T(count_hash(tracker.unacked))["=="](0)
@@ -201,10 +201,10 @@ T.Test("End-to-end: send, ack, and retransmit flow", function()
 	T(tracker.unacked[3])["~="](nil)
 
 	for _, packet in pairs(tracker.unacked) do
-		packet.send_time = os.clock() * 1000 - 1000
+		packet.send_time = reliable_send.Now() - 1000
 	end
 
-	local retransmit, _ = tracker:OnTimeout(os.clock() * 1000)
+	local retransmit, _ = tracker:OnTimeout(reliable_send.Now())
 	T(#retransmit)["=="](1)
 	T(retransmit[1].sequence_number)["=="](3)
 	T(tracker.total_retransmitted)["=="](1)

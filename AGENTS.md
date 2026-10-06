@@ -64,6 +64,15 @@ Example:
 
 To move the camera, don't write to `render3d.GetCamera()` (the player's view overwrites it every frame). Activate a view above the player (priority 0) instead: `local view = View.New{Priority = 100, Position = Vec3(0, 5, 0), Rotation = QuatDeg3(45, 0, 0), ExposureLock = 15}:Activate()` with `View = import("goluwa/render3d/view.lua")`. Unset fields are copied from the current camera, `ExposureLock` is an EV100, and the exposure fields default to the global `r_exposure_*` settings. `view:Remove()` gives control back to the player.
 
+# Networking
+
+Server authoritative, Source/GMod style. Start a server with `luajit glw --server` (physics is on, `host` runs automatically, `GOLUWA_PORT` overrides the port for `host` and `connect`), and a client with `luajit glw --3d` then `connect 127.0.0.1`, or headless with `luajit glw --cli --physics`.
+
+- Transport: `goluwa/network/connection.lua` (handshake, reliable ordered per channel, fragmentation, sequenced/unreliable, pings, timeouts) on `transport_layer.lua` (UDP). `GOLUWA_NET_LATENCY`, `GOLUWA_NET_JITTER` (ms) and `GOLUWA_NET_LOSS` (%) simulate bad connections.
+- To replicate an entity, give it the `network` component (`shapes.Box{Network = true, ...}` or `Entity.New{network = {}, ...}`). Every component declares what replicates in a `META.Network = {Key = {type, rate, flags, interp}}` table (transform, model, rigid_body, lights, ...). The spawn packet carries the component list and their values, and the client builds the entity through `Entity.New`. Models are paths the client already knows (`model` component: `ModelPath`, `ModelOptions`, `MaterialConfig`, procedural `models/*.lua` work). Rigid bodies obey transform scale. Non owned bodies are kinematic on clients.
+- Players: input is a `usercmd` (`goluwa/network/usercmd.lua`) produced once per physics tick by `player_controller` (from `player_input` locally, from the network on the server, or from a `CreateMove` hook for bots). `player_movement` only consumes the command, so the same code predicts on the client and simulates on the server. The client reconciles against `player_ack`, the server relays commands to the other players, and the physgun runs on the server from the command buttons.
+- `net_stats` toggles a network HUD. Tests: `luajit glw test network/` (includes two process e2e tests that spawn a server, a bot and an observer from `test/network_e2e/`).
+
 # Debugging
 
 When debugging and thinking about why somnething happens, feel free to do print logging and changing code around temporarily to verify.

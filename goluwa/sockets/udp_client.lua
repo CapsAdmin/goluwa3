@@ -57,15 +57,19 @@ end
 function UDPClient:OnPollReady(events)
 	if not (events["in"] or events.err or events.hup or events.nval) then return end
 
-	local chunk, err = self.socket:receive_from()
+	for _ = 1, 256 do
+		local chunk, err = self.socket:receive_from(2048)
 
-	if chunk then
-		if self.OnReceiveChunk then self:OnReceiveChunk(chunk, err) end
-	else
-		if err == "closed" then
-			self:OnClose("receive")
-		elseif err ~= "timeout" and err ~= "tryagain" then
-			self:Error(err)
+		if chunk then
+			if self.OnReceiveChunk then self:OnReceiveChunk(chunk, err) end
+		else
+			if err == "closed" then
+				self:OnClose("receive")
+			elseif err ~= "timeout" and err ~= "tryagain" then
+				self:Error(err)
+			end
+
+			return
 		end
 	end
 end
@@ -77,6 +81,12 @@ function UDPClient:Update()
 		hup = true,
 		nval = true,
 	}
+end
+
+function UDPClient:OnClose(reason) end
+
+function UDPClient:OnError(str, tr)
+	wlog("udp client error: %s", str)
 end
 
 function UDPClient:Error(message, ...)

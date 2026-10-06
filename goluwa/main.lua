@@ -75,7 +75,7 @@ commands.Add{
 		end
 
 		if not flags["no-physics"] then
-			_G.PHYSICS = RENDER_3D or flags["physics"]
+			_G.PHYSICS = RENDER_3D or flags["physics"] or SERVER
 		end
 
 		if flags.renderdoc then

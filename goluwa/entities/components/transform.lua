@@ -9,6 +9,11 @@ local system = import("goluwa/system.lua")
 local physics
 local META = objects.CreateTemplate("transform_3d")
 META.Is3D = true
+META.Network = {
+	Position = {"vec3", 1 / 20, "sequenced", true},
+	Rotation = {"quat", 1 / 20, "sequenced", true},
+	Scale = {"vec3", 1, "reliable"},
+}
 
 local function find_ancestor_visual(entity)
 	local current = entity
@@ -25,7 +30,15 @@ end
 local function update_temp_scale(self)
 	local scale = self.Scale or Vec3(1, 1, 1)
 	local size = self.Size or 1
+	local previous = self.temp_scale
 	self.temp_scale = scale * size
+
+	if previous and previous ~= self.temp_scale then
+		local body = self.Owner and self.Owner.rigid_body
+
+		if body then body:OnGeometryChanged() end
+	end
+
 	return self.temp_scale
 end
 

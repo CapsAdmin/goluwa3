@@ -1,4 +1,5 @@
 local bit = require("bit")
+local get_time = import("goluwa/bindings/time.lua")
 local handshake = {}
 handshake.PACKET_TYPE = {
 	CONNECT_REQUEST = 2,
@@ -68,7 +69,7 @@ function PeerState:SetState(new_state)
 	self.state = new_state
 
 	if new_state == handshake.STATE.CONNECTING then
-		self.connect_start_time = os.clock() * 1000
+		self.connect_start_time = get_time() * 1000
 		self.connect_attempts = 0
 	elseif new_state == handshake.STATE.DISCONNECTED then
 		self.peer_id = nil
@@ -79,7 +80,7 @@ end
 function PeerState:IsTimedOut()
 	if self.state ~= handshake.STATE.CONNECTING then return false end
 
-	local elapsed = os.clock() * 1000 - self.connect_start_time
+	local elapsed = get_time() * 1000 - self.connect_start_time
 	return elapsed > self.config.connect_timeout
 end
 
@@ -100,7 +101,7 @@ function PeerState:SendConnectRequest(server_address, client_id)
 		type = handshake.PACKET_TYPE.CONNECT_REQUEST,
 		client_id = client_id,
 		challenge = self.challenge,
-		timestamp = os.clock() * 1000,
+		timestamp = get_time() * 1000,
 	}
 end
 
@@ -118,7 +119,7 @@ function PeerState:HandleConnectRequest(client_address, request)
 		type = handshake.PACKET_TYPE.CONNECT_ACCEPT,
 		server_id = self.peer_id or 0,
 		challenge_response = request.challenge,
-		timestamp = os.clock() * 1000,
+		timestamp = get_time() * 1000,
 	}
 end
 
@@ -135,7 +136,7 @@ function PeerState:HandleConnectAccept(response)
 	self.peer_id = response.server_id
 	return {
 		type = handshake.PACKET_TYPE.CONNECT_CONFIRM,
-		timestamp = os.clock() * 1000,
+		timestamp = get_time() * 1000,
 	}
 end
 
@@ -157,13 +158,13 @@ function PeerState:HandleConnectTimeout()
 
 	if self:ShouldRetry() then
 		self.connect_attempts = self.connect_attempts + 1
-		self.connect_start_time = os.clock() * 1000
+		self.connect_start_time = get_time() * 1000
 		self.challenge = handshake.GenerateChallenge()
 		return {
 			type = handshake.PACKET_TYPE.CONNECT_REQUEST,
 			client_id = self.peer_id,
 			challenge = self.challenge,
-			timestamp = os.clock() * 1000,
+			timestamp = get_time() * 1000,
 		}
 	else
 		self:SetState(handshake.STATE.DISCONNECTED)
@@ -182,7 +183,7 @@ function PeerState:SendDisconnect(reason)
 	return {
 		type = handshake.PACKET_TYPE.DISCONNECT,
 		reason = reason or "normal",
-		timestamp = os.clock() * 1000,
+		timestamp = get_time() * 1000,
 	}
 end
 

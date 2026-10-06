@@ -2,6 +2,9 @@ local objects = import("goluwa/objects/objects.lua")
 local Light = import("goluwa/entities/components/light.lua")
 local DirectionalLight = objects.CreateTemplate("light_directional")
 DirectionalLight.Base = Light
+DirectionalLight.Network = table.merge_many(Light.Network, {
+	Range = {"number", 0.5, "reliable"},
+})
 DirectionalLight:StartStorable()
 DirectionalLight:GetSet("Range", 0, {validate = "number"})
 DirectionalLight:EndStorable()

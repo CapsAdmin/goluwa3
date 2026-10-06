@@ -5,6 +5,7 @@ local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local usercmd = import("goluwa/network/usercmd.lua")
 local META = objects.CreateTemplate("player_input")
 META:GetSet("Mode", "fly")
 META:GetSet("Rotation", Quat(0, 0, 0, 1))
@@ -17,9 +18,6 @@ META:GetSet("MaxPitch", math.pi / 2 - 0.01)
 META:GetSet("MinFOV", math.rad(0.1))
 META:GetSet("MaxFOV", math.rad(175))
 META:GetSet("MouseDivisor", 2)
-META:GetSet("SprintMultiplier", 2)
-META:GetSet("CrouchMultiplier", 1 / 3)
-META:GetSet("SuperMultiplier", 3)
 
 function META:SetRotation(rotation)
 	self.Rotation = rotation:Copy()
@@ -33,11 +31,11 @@ function META:Initialize()
 	self.mouse_trapped = false
 	self.roll_mode = false
 	self.crouching = false
-	self.speed_multiplier = 1
-	self.jump_pressed = false
 	self.jump_down = false
+	self.sprint_down = false
+	self.scroll_accum = 0
+	self.rotate_accum = Vec2()
 	self:RefreshKeys()
-	self:ApplyMode(self.Mode)
 	self:AddGlobalEvent("Update", {priority = 100})
 end
 
@@ -47,7 +45,7 @@ function META:RefreshKeys()
 	move_local.y = (input.IsKeyDown("x") and 1 or 0) - (input.IsKeyDown("z") and 1 or 0)
 	move_local.z = (input.IsKeyDown("w") and 1 or 0) - (input.IsKeyDown("s") and 1 or 0)
 	self.crouching = input.IsKeyDown("left_control") or input.IsKeyDown("right_control")
-	self.speed_multiplier = self:GetSpeedMultiplier(self.crouching)
+	self.sprint_down = input.IsKeyDown("left_shift")
 	self.jump_down = input.IsKeyDown("space")
 end
 
@@ -56,9 +54,7 @@ function META:KeyInput(key, press)
 
 	if not press or not self:IsReceivingInput() then return end
 
-	if key == "space" then
-		self.jump_pressed = true
-	elseif key == "v" then
+	if key == "v" then
 		self:OnCameraToggleMode()
 	elseif key == "r" then
 		self:Reset()
@@ -94,16 +90,6 @@ end
 
 function META:SetMode(mode)
 	self.Mode = mode
-	self:ApplyMode(mode)
-end
-
-function META:ApplyMode(mode)
-	local owner = self.Owner
-	local camera = owner.camera
-
-	if camera and mode ~= "walk" then camera:SetViewOffset(Vec3()) end
-
-	owner:CallLocalEvent("OnCameraModeChanged", mode)
 end
 
 function META:Reset()
@@ -138,16 +124,42 @@ function META:IsReceivingInput()
 	return camera ~= nil and camera:IsRendered()
 end
 
-function META:GetSpeedMultiplier(crouching)
-	if input.IsKeyDown("left_shift") and crouching then
-		return self.SuperMultiplier
-	elseif input.IsKeyDown("left_shift") then
-		return self.SprintMultiplier
-	elseif crouching then
-		return self.CrouchMultiplier
+function META:BuildCommand(cmd)
+	local active = self:IsReceivingInput() and self.mouse_trapped
+	local BUTTON = usercmd.BUTTON
+	local buttons = 0
+	cmd.view:CopyFrom(self.Rotation)
+	cmd.mode = self.Mode
+	cmd.fov = self.FOV
+
+	if self.crouching then buttons = bit.bor(buttons, BUTTON.CROUCH) end
+
+	if self.sprint_down then buttons = bit.bor(buttons, BUTTON.SPRINT) end
+
+	if active then
+		buttons = bit.bor(buttons, BUTTON.ACTIVE)
+		cmd.forward = self.move_local.z
+		cmd.side = self.move_local.x
+		cmd.up = self.move_local.y
+
+		if self.jump_down then buttons = bit.bor(buttons, BUTTON.JUMP) end
+
+		if input.IsMouseDown("button_1") then
+			buttons = bit.bor(buttons, BUTTON.ATTACK1)
+		end
+
+		if input.IsMouseDown("button_2") then
+			buttons = bit.bor(buttons, BUTTON.ATTACK2)
+		end
 	end
 
-	return 1
+	cmd.buttons = buttons
+	cmd.scroll = self.scroll_accum
+	cmd.rotate_x = self.rotate_accum.x
+	cmd.rotate_y = self.rotate_accum.y
+	self.scroll_accum = 0
+	self.rotate_accum.x = 0
+	self.rotate_accum.y = 0
 end
 
 function META:OnUpdate(dt)
@@ -171,9 +183,28 @@ function META:OnUpdate(dt)
 		self.look_nudge.y = self.look_nudge.y + dt
 	end
 
-	self.Owner:CallLocalEvent("OnBeforeCameraInputUpdate", dt, self)
-	self.Owner:CallLocalEvent("OnCameraInputUpdate", dt, self)
-	self.jump_pressed = false
+	local controller = self.Owner.player_controller
+
+	if input.WasMousePressed("mwheel_down") then
+		self.scroll_accum = self.scroll_accum + 1
+	elseif input.WasMousePressed("mwheel_up") then
+		self.scroll_accum = self.scroll_accum - 1
+	end
+
+	if
+		controller and
+		controller:IsHolding() and
+		self.mouse_trapped and
+		input.IsMouseDown("button_1") and
+		input.IsKeyDown("e")
+	then
+		local mouse_delta = (self.look_delta + self.look_nudge * self.ArrowLookSpeed) * self.MouseSensitivity
+		self.rotate_accum = self.rotate_accum + mouse_delta * (self.FOV / 175)
+		self.look_delta = Vec2()
+		self.look_nudge = Vec2()
+	end
+
+	self:OnCameraInputUpdate(dt)
 end
 
 function META:OnCameraInputUpdate(dt)

@@ -11,12 +11,25 @@ local codec = import("goluwa/codec.lua")
 local http = import("goluwa/sockets/http.lua")
 local IRCClient = import("goluwa/sockets/irc.lua")
 local nvars = import("goluwa/network/nvars.lua")
+local packet = import("goluwa/network/packet.lua")
 network.socket = network.socket or NULL
 
 function network.Initialize()
 	transport_layer.Initialize()
 	message.Initialize()
 	clients.Initialize()
+
+	packet.ExtendBuffer("Entity", function(buffer, ent)
+		import("goluwa/entities/components/network.lua").WriteEntity(buffer, ent)
+	end, function(buffer)
+		return import("goluwa/entities/components/network.lua").ReadEntity(buffer)
+	end)
+
+	packet.ExtendBuffer("Shape", function(buffer, shape)
+		import("goluwa/physics/shape_description.lua").Write(buffer, shape)
+	end, function(buffer)
+		return import("goluwa/physics/shape_description.lua").Read(buffer)
+	end)
 end
 
 function network.IsStarted()
@@ -24,28 +37,32 @@ function network.IsStarted()
 end
 
 if CLIENT then
-	function network.Connect(ip, port, retries)
-		network.Disconnect("already connected")
+	function network.Connect(ip, port)
+		network.Disconnect()
 		ip = tostring(ip)
 		port = tonumber(port)
-		retries = retries or 3
-
-		if retries > 0 then
-			timer.Delay(3, function()
-				if not network.IsConnected() then
-					if network.debug then
-						llog("retrying %s:%s (%i retries left)..", ip, port, retries)
-					end
-
-					network.Connect(ip, port, retries - 1)
-				end
-			end)
-		end
-
 		local peer = transport_layer.CreatePeer(ip, port)
 
 		function peer:OnReceive(str, type)
 			event.Call("PeerReceivePacket", str, nil, type)
+		end
+
+		function peer:OnConnect()
+			if network.debug then llog("connected to %s:%s", ip, port) end
+		end
+
+		function peer:OnDisconnect(code)
+			if network.socket ~= self then return end
+
+			if network.connection_established then
+				llog("lost connection to server (code %s)", tostring(code))
+			else
+				llog("unable to connect to %s:%s", ip, port)
+			end
+
+			network.just_disconnected = true
+			network.connection_established = false
+			event.Call("Disconnected")
 		end
 
 		network.socket = peer
@@ -56,13 +73,18 @@ if CLIENT then
 	end
 
 	function network.Disconnect()
-		if network.IsConnected() then
-			network.socket:Disconnect(1)
-			network.socket:Remove()
-			llog("disconnected from server")
-			network.just_disconnected = true
-			network.started = false
-			event.Call("Disconnected")
+		if network.socket:IsValid() then
+			local was_connected = network.IsConnected()
+			local socket = network.socket
+			network.socket = NULL
+			socket:Remove()
+			network.connection_established = false
+
+			if was_connected then
+				llog("disconnected from server")
+				network.just_disconnected = true
+				event.Call("Disconnected")
+			end
 		end
 	end
 
@@ -83,6 +105,7 @@ if CLIENT then
 	message.AddListener("connected", function()
 		if network.debug then llog("server confirmed connection") end
 
+		network.connection_established = true
 		event.Call("Connected")
 	end)
 end
@@ -193,6 +216,16 @@ do
 			message.Send("connected", client)
 		end)
 
+		timer.Repeat("network_ping", 1, function()
+			for _, client in ipairs(clients.GetAll()) do
+				if client.socket:IsValid() then
+					local ping = math.floor(client.socket:GetPing() + 0.5)
+
+					if math.abs(ping - client:GetPing()) >= 5 then client:SetPing(ping) end
+				end
+			end
+		end)
+
 		event.AddListener("PeerDisconnect", "network", function(peer, code)
 			local uid = ipport_to_uid(peer)
 			local client = clients.GetByUniqueID(uid)
@@ -207,11 +240,6 @@ do
 			local uid = ipport_to_uid(peer)
 			local client = clients.Create(uid, false, false)
 			client.socket = peer
-			llog(
-				"[debug] PeerConnect: uid=%s, client.socket=%s",
-				uid,
-				client.socket and "valid" or "NULL"
-			)
 
 			if network.debug then llog("client %s connected", client) end
 
@@ -425,7 +453,7 @@ do
 
 		commands.Add("connect=string|nil,number|nil", function(ip, port)
 			ip = ip or ip_cvar:Get()
-			port = tonumber(port) or port_cvar:Get()
+			port = tonumber(port) or tonumber(os.getenv("GOLUWA_PORT")) or port_cvar:Get()
 			logf("connecting to %s:%i\n", ip, port)
 			last_ip = ip
 			last_port = port
@@ -443,7 +471,7 @@ do
 
 		commands.Add("host=string|nil,number|nil", function(ip, port)
 			ip = ip or ip_cvar:Get()
-			port = tonumber(port) or port_cvar:Get()
+			port = tonumber(port) or tonumber(os.getenv("GOLUWA_PORT")) or port_cvar:Get()
 			logf("hosting at %s:%i\n", ip, port)
 			network.Host(ip, port)
 		end)

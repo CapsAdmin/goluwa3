@@ -8,8 +8,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 Entity.RegisterComponent("camera", import("lua/components/camera.lua"))
 Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
-Entity.RegisterComponent("player_physgun", import("lua/components/player_physgun.lua"))
-Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
 local current = Entity.World:GetKeyed("player_camera_rig")
 
 if current and current:IsValid() then current:Remove() end
@@ -22,14 +20,18 @@ local rig = Entity.New{
 		"transform",
 		"camera",
 		"player_input",
-		"player_physgun",
+		"player_controller",
 		"player_movement",
+		"player_physgun",
 	},
 	camera = {
 		Active = true,
 	},
 	player_input = {
 		Mode = "fly",
+	},
+	player_controller = {
+		Networked = true,
 	},
 }
 _G.PLAYER_RIG = rig

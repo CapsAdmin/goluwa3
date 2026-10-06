@@ -5,6 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local event = import("goluwa/event.lua")
+local usercmd = import("goluwa/network/usercmd.lua")
 local META = objects.CreateTemplate("player_movement")
 local UNIT = steam.source2meters
 META:IsSet("Crouching", false)
@@ -31,6 +32,10 @@ META:GetSet("FlySpeed", 30)
 META:GetSet("FlySpeedRamp", 0.75)
 META:GetSet("FlySpeedMaxMultiplier", 500)
 META:GetSet("WalkMaxLinearSpeed", 240)
+META:GetSet("SprintMultiplier", 2)
+META:GetSet("CrouchMultiplier", 1 / 3)
+META:GetSet("SuperMultiplier", 3)
+META:GetSet("Mode", "fly")
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
@@ -40,7 +45,31 @@ function META:Initialize()
 	self.fly_speed_multiplier = 1
 	self.step_smooth = 0
 	self:AddGlobalEvent("PhysicsUpdate")
-	self:OnCameraModeChanged(self.Owner.player_input)
+	self.mode = nil
+	self:ApplyMode(self.Mode)
+end
+
+function META:Reset(mode)
+	self.mode = nil
+	self.Crouching = false
+	self.crouch_alpha = 0
+	self.CrouchTransition = false
+	self.CrouchAnchorMode = nil
+	self.CrouchAnchorPosition = nil
+	self.was_grounded = false
+	self.ground_x = nil
+	self.ground_z = nil
+	self.jump_requested = nil
+	self.fly_speed_multiplier = 1
+	self.step_smooth = 0
+	self:InvalidateBodyGeometry()
+	self:ApplyMode(mode)
+end
+
+function META:GetViewOffset()
+	if self.mode == "walk" then return self:GetEyeOffset() end
+
+	return Vec3()
 end
 
 function META:GetDimensions(alpha)
@@ -74,7 +103,6 @@ end
 
 function META:ApplyCrouchAlpha(alpha)
 	local body = self.Owner.rigid_body
-	local camera = self.Owner.camera
 
 	if not body then return end
 
@@ -105,8 +133,6 @@ function META:ApplyCrouchAlpha(alpha)
 		body:SetVelocity(velocity)
 		body:SetAngularVelocity(angular_velocity)
 	end
-
-	if camera then camera:SetViewOffset(self:GetEyeOffset(alpha)) end
 end
 
 function META:UpdateCrouchTransition(dt)
@@ -284,14 +310,23 @@ function META:SetCrouch(b)
 	self.Crouching = b
 end
 
-function META:OnCameraModeChanged(mode)
+function META:ApplyMode(mode)
 	local body = self.Owner.rigid_body
-	local camera = self.Owner.camera
-	local input = self.Owner.player_input
+	local previous = self.mode
+	self.mode = mode
+	self.Mode = mode
 
 	if not body then return end
 
 	local radius, height = self:GetDimensions()
+	local position = self.Owner.transform:GetPosition():Copy()
+
+	if previous == "walk" and mode == "fly" then
+		position = position + self:GetEyeOffset()
+	elseif previous == "fly" and mode == "walk" then
+		position = position - self:GetEyeOffset()
+	end
+
 	body:SetMotionType("dynamic")
 	body:SetShape(CapsuleShape.New(radius, height))
 	body:SetCCD(true)
@@ -302,8 +337,12 @@ function META:OnCameraModeChanged(mode)
 	body:SetAirAngularDamping(0)
 	body:SetLockRotation(true)
 	body:SetFriction(0)
+	body:SetCollisionMask(bit.bnot(usercmd.HELD_COLLISION_GROUP))
 	self:ResetBodyRotation()
 	self.step_smooth = 0
+	self.Owner.transform:SetPosition(position)
+	body:SynchronizeFromTransform()
+	body.PreviousPosition = body.Position:Copy()
 
 	if mode == "walk" then
 		body:SetCollisionEnabled(true)
@@ -311,30 +350,16 @@ function META:OnCameraModeChanged(mode)
 		body:SetMinGroundNormalY(self.MinGroundNormalY)
 		body:SetMaxLinearSpeed(self.WalkMaxLinearSpeed)
 		self.was_grounded = false
-		self.Owner.transform:SetPosition(camera:GetView():GetPosition():Copy() - self:GetEyeOffset())
-		body:SynchronizeFromTransform()
-		body.PreviousPosition = body.Position:Copy()
-		camera:SetViewOffset(self:GetEyeOffset())
 	else
-		local max_input_multiplier = 1
-
-		if input then
-			max_input_multiplier = math.max(
-				max_input_multiplier,
-				input.SprintMultiplier or 1,
-				input.SuperMultiplier or 1
-			)
-		end
-
 		body:SetCollisionEnabled(false)
 		body:SetGravityScale(0)
-		body:SetMaxLinearSpeed(self.FlySpeed * self.FlySpeedMaxMultiplier * max_input_multiplier)
-		self.Owner.transform:SetPosition(camera:GetView():GetPosition():Copy())
-		body:SynchronizeFromTransform()
-		body.PreviousPosition = body.Position:Copy()
-		camera:SetViewOffset(Vec3())
+		body:SetMaxLinearSpeed(
+			self.FlySpeed * self.FlySpeedMaxMultiplier * math.max(1, self.SprintMultiplier, self.SuperMultiplier)
+		)
 		self.fly_speed_multiplier = 1
 	end
+
+	self.Owner:CallLocalEvent("OnPlayerModeChanged", mode)
 end
 
 do
@@ -357,18 +382,32 @@ do
 		return dir:GetNormalized()
 	end
 
-	function META:OnCameraInputUpdate(dt, state)
-		local transform = self.Owner.transform
-		local look = self.Owner.player_input
-		local camera = self.Owner.camera
+	local BUTTON = usercmd.BUTTON
 
-		if not (transform and look) then return end
+	function META:OnPhysicsUpdate(dt)
+		local body = self.Owner.rigid_body
+		local cmd = self.Owner.player_controller:NextCommand(dt)
 
-		self.input_frame = system.GetFrameNumber()
+		if cmd.mode ~= self.mode then self:ApplyMode(cmd.mode) end
 
-		if state.jump_pressed then self.jump_requested = true end
+		local view = cmd.view
+		local active = usercmd.HasButton(cmd, BUTTON.ACTIVE)
+		local crouching = usercmd.HasButton(cmd, BUTTON.CROUCH)
+		local sprinting = usercmd.HasButton(cmd, BUTTON.SPRINT)
+		local speed_multiplier = 1
 
-		if look.Mode == "walk" then
+		if sprinting and crouching then
+			speed_multiplier = self.SuperMultiplier
+		elseif sprinting then
+			speed_multiplier = self.SprintMultiplier
+		elseif crouching then
+			speed_multiplier = self.CrouchMultiplier
+		end
+
+		local jump_requested = active and usercmd.WasPressed(cmd, BUTTON.JUMP)
+		local jump_down = usercmd.HasButton(cmd, BUTTON.JUMP)
+
+		if self.mode == "walk" then
 			local smooth = self.step_smooth
 
 			if smooth ~= 0 then
@@ -376,48 +415,19 @@ do
 				self.step_smooth = math.abs(smooth) <= decay and 0 or smooth - math.sign(smooth) * decay
 			end
 
-			self:SetCrouch(state.crouching)
+			self:SetCrouch(crouching)
 			self:UpdateCrouchTransition(dt)
-			camera:SetViewOffset(self:GetEyeOffset())
-			return
-		end
-
-		camera:SetViewOffset(Vec3())
-
-		if not state.mouse_trapped then self.fly_speed_multiplier = 1 end
-	end
-
-	function META:OnPhysicsUpdate(dt)
-		local look = self.Owner.player_input
-		local body = self.Owner.rigid_body
-
-		if not (look and body) then return end
-
-		if not self.input_frame or system.GetFrameNumber() - self.input_frame > 1 then
-			return
-		end
-
-		local state = look
-		local jump_requested = self.jump_requested or state.jump_pressed
-		self.jump_requested = false
-		state.jump_pressed = false
-
-		if look.Mode == "walk" then
 			local move = Vec3()
 
-			if state.mouse_trapped then
-				local forward = flatten_direction(look:GetForward(), Vec3(0, 0, -1))
-				local right = flatten_direction(look:GetRight(), Vec3(1, 0, 0))
-				move = forward * state.move_local.z + right * state.move_local.x
+			if active then
+				local forward = flatten_direction(view:GetForward(), Vec3(0, 0, -1))
+				local right = flatten_direction(view:GetRight(), Vec3(1, 0, 0))
+				move = forward * cmd.forward + right * cmd.side
 
 				if move:GetLength() > 0.0001 then move = move:GetNormalized() end
-			else
-				jump_requested = false
 			end
 
-			local wish_speed = move:GetLength() > 0.0001 and
-				self.GroundSpeed * state.speed_multiplier or
-				0
+			local wish_speed = move:GetLength() > 0.0001 and self.GroundSpeed * speed_multiplier or 0
 			local velocity = body:GetVelocity()
 			local x, y, z = velocity.x, velocity.y, velocity.z
 			local grounded = body:GetGrounded()
@@ -466,8 +476,8 @@ do
 			MOVE.position:Set(position.x, position.y, position.z)
 			MOVE.grounded = grounded
 			MOVE.jump_pressed = jump_requested
-			MOVE.jump_down = state.jump_down
-			MOVE.pitch = math.asin(math.clamp(look:GetForward().y, -1, 1))
+			MOVE.jump_down = jump_down
+			MOVE.pitch = math.asin(math.clamp(view:GetForward().y, -1, 1))
 			MOVE.dt = dt
 			event.Call("PlayerMove", self.Owner, MOVE)
 			x, y, z = MOVE.velocity.x, MOVE.velocity.y, MOVE.velocity.z
@@ -523,17 +533,17 @@ do
 			return
 		end
 
-		if not state.mouse_trapped then
+		if not active then
+			self.fly_speed_multiplier = 1
 			body:SetVelocity(Vec3())
 			body:SetAngularVelocity(Vec3())
 			return
 		end
 
-		local rotation = look:GetRotation()
-		local forward = rotation:GetForward() * state.move_local.z
-		local right = rotation:GetRight() * state.move_local.x
-		local up = rotation:GetUp() * state.move_local.y
-		local fov = look:GetFOV()
+		local forward = view:GetForward() * cmd.forward
+		local right = view:GetRight() * cmd.side
+		local up = view:GetUp() * cmd.up
+		local fov = cmd.fov
 
 		if right:GetLength() > 0 then
 			if fov > math.rad(90) then
@@ -545,12 +555,11 @@ do
 
 		local move = forward + right + up
 		local moving = move:GetLength() > 0.0001
-		local sprinting = state.speed_multiplier > 1
 
 		if moving then
 			move = move:GetNormalized()
 
-			if sprinting then
+			if speed_multiplier > 1 then
 				self.fly_speed_multiplier = math.min(
 					self.fly_speed_multiplier * (1 + dt * self.FlySpeedRamp),
 					self.FlySpeedMaxMultiplier
@@ -565,7 +574,7 @@ do
 		body:SetVelocity(
 			approach_vec(
 				body:GetVelocity():Copy(),
-				move * state.speed_multiplier * self.FlySpeed * self.fly_speed_multiplier,
+				move * speed_multiplier * self.FlySpeed * self.fly_speed_multiplier,
 				self.Acceleration * dt * 10
 			)
 		)

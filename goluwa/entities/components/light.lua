@@ -2,6 +2,15 @@ local objects = import("goluwa/objects/objects.lua")
 local Color = import("goluwa/structs/color.lua")
 local Light = objects.CreateTemplate("light")
 Light.instances = {}
+Light.Network = {
+	Color = {"color", 0.5, "reliable"},
+	Lumen = {"number", 0.5, "reliable"},
+	SourceRadius = {"number", 0.5, "reliable"},
+	LinearFalloff = {"number", 0.5, "reliable"},
+	QuadraticFalloff = {"number", 0.5, "reliable"},
+	OcclusionMap = {"boolean", 0.5, "reliable"},
+	Visible = {"boolean", 0.5, "reliable"},
+}
 Light:StartStorable()
 Light:GetSet("Color", Color(1, 1, 1, 1))
 Light:GetSet("Lumen", 0, {validate = "number"})

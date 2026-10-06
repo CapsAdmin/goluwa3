@@ -1,0 +1,52 @@
+local T = import("test/environment.lua")
+local attest = import("goluwa/attest.lua")
+local packet = import("goluwa/network/packet.lua")
+local shape_description = import("goluwa/physics/shape_description.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
+local ConvexShape = import("goluwa/physics/shapes/convex.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
+
+local function round_trip(shape)
+	local buffer = packet.CreateBuffer()
+	shape_description.Write(buffer, shape)
+	buffer:SetPosition(1)
+	return shape_description.Read(buffer)
+end
+
+T.Test("shape description round trips primitive shapes", function()
+	local box = round_trip(BoxShape.New(Vec3(1, 2, 3)))
+	T(box:GetTypeName())["=="]("box")
+	T(box:GetSize().z)["=="](3)
+	local sphere = round_trip(SphereShape.New(2.5))
+	T(sphere:GetTypeName())["=="]("sphere")
+	T(sphere:GetRadius())["=="](2.5)
+	local capsule = round_trip(CapsuleShape.New(0.5, 3))
+	T(capsule:GetTypeName())["=="]("capsule")
+	T(capsule:GetHeight())["=="](3)
+	T(round_trip(nil))["=="](nil)
+end)
+
+T.Test("shape description round trips model derived shapes", function()
+	T(round_trip(ConvexShape.New()):GetTypeName())["=="]("convex")
+	T(round_trip(MeshShape.New()):GetTypeName())["=="]("mesh")
+end)
+
+T.Test("shape description refuses shapes it cannot describe", function()
+	attest.fails(
+		function()
+			round_trip(ConvexShape.New({vertices = {}}))
+		end,
+		"cannot be replicated"
+	)
+end)
+
+T.Test("packet buffer position can reach the end of the buffer", function()
+	local buffer = packet.CreateBuffer()
+	buffer:WriteI32(7)
+	buffer:SetPosition(1)
+	T(buffer:ReadI32())["=="](7)
+	T(buffer:TheEnd())["=="](true)
+end)

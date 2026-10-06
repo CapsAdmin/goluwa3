@@ -163,4 +163,49 @@ function packet_header.Reassemble(fragments)
 	return all_payloads
 end
 
+do
+	local string_char = string.char
+	local string_byte = string.byte
+	local string_sub = string.sub
+	local magic_hi = bit.rshift(packet_header.Magic, 8)
+	local magic_lo = bit.band(packet_header.Magic, 0xFF)
+
+	function packet_header.Encode(type_, flags, packet_id, channel, fragment_id, total_fragments, payload)
+		return string_char(
+				magic_hi,
+				magic_lo,
+				packet_header.Version,
+				type_,
+				flags,
+				packet_id % 256,
+				bit.rshift(packet_id, 8) % 256,
+				channel,
+				fragment_id % 256,
+				bit.rshift(fragment_id, 8) % 256,
+				total_fragments
+			) .. (
+				payload or
+				""
+			)
+	end
+
+	function packet_header.Decode(str)
+		if #str < packet_header.HeaderSize then return nil end
+
+		local magic_a, magic_b, version, type_, flags, id_lo, id_hi, channel, frag_lo, frag_hi, total = string_byte(str, 1, 11)
+
+		if magic_a ~= magic_hi or magic_b ~= magic_lo or version ~= packet_header.Version then
+			return nil
+		end
+
+		return type_,
+		flags,
+		id_lo + id_hi * 256,
+		channel,
+		frag_lo + frag_hi * 256,
+		total,
+		string_sub(str, packet_header.HeaderSize + 1)
+	end
+end
+
 return packet_header

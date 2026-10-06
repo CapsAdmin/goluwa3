@@ -24,7 +24,7 @@ local function setup_player(entity)
 	movement:SetStickToGround(false)
 	movement:SetWalkMaxLinearSpeed(MAX_SPEED)
 
-	if entity.player_input.Mode == "walk" then
+	if movement:GetMode() == "walk" then
 		entity.rigid_body:SetMaxLinearSpeed(MAX_SPEED)
 	end
 

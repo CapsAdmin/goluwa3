@@ -12,6 +12,27 @@ local stats = import("goluwa/physics/stats.lua")
 local motion = import("goluwa/physics/motion.lua")
 local RigidBody = objects.CreateTemplate("rigid_body")
 local COMBINE_MODES = {"average", "min", "multiply", "max"}
+
+local function client_motion_type(motion_type)
+	if motion_type == "dynamic" then return "kinematic" end
+
+	return motion_type
+end
+
+RigidBody.Network = {
+	MotionType = {"string", 0.5, "reliable", client = client_motion_type},
+	Shape = {"shape", 0.5, "reliable"},
+	Density = {"number", 0.5, "reliable"},
+	Mass = {"number", 0.5, "reliable"},
+	AutomaticMass = {"boolean", 0.5, "reliable"},
+	GravityScale = {"number", 0.5, "reliable"},
+	Friction = {"number", 0.5, "reliable"},
+	Restitution = {"number", 0.5, "reliable"},
+	LockRotation = {"boolean", 0.5, "reliable"},
+	CollisionEnabled = {"boolean", 0.5, "reliable"},
+	CollisionGroup = {"number", 0.5, "reliable"},
+	CollisionMask = {"number", 0.5, "reliable"},
+}
 RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
 RigidBody:GetSet("Shapes", nil, {callback = "OnGeometryChanged"})
 RigidBody:StartStorable()

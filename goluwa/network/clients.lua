@@ -137,7 +137,7 @@ do
 		return self
 	end
 
-	function META:Remove(client)
+	function META:RemoveClient(client)
 		self.clients[client:GetUniqueID()] = nil
 		return self
 	end

@@ -1,12 +1,18 @@
 local bit = require("bit")
+local get_time = import("goluwa/bindings/time.lua")
 local reliable_send = {}
+
+function reliable_send.Now()
+	return get_time() * 1000
+end
+
 reliable_send.RELIABILITY = {
 	UNRELIABLE = 0,
 	UNRELIABLE_SEQUENCED = 1,
 	RELIABLE = 2,
 }
-reliable_send.DEFAULT_INITIAL_TIMEOUT = 500
-reliable_send.DEFAULT_MAX_TIMEOUT = 30000
+reliable_send.DEFAULT_INITIAL_TIMEOUT = 200
+reliable_send.DEFAULT_MAX_TIMEOUT = 2000
 reliable_send.DEFAULT_MULTIPLIER = 2
 reliable_send.DEFAULT_JITTER = 0.1
 reliable_send.DEFAULT_MAX_RETRIES = 8
@@ -43,7 +49,7 @@ function UnackedPacket:OnTimeout()
 	local jitter_range = new_timeout * reliable_send.DEFAULT_JITTER
 	new_timeout = new_timeout + (math.random() * 2 * jitter_range - jitter_range)
 	self.timeout = new_timeout
-	self.send_time = os.clock() * 1000
+	self.send_time = reliable_send.Now()
 	return self.retry_count < reliable_send.DEFAULT_MAX_RETRIES
 end
 
@@ -57,6 +63,7 @@ RetransmissionTracker.__index = RetransmissionTracker
 function RetransmissionTracker.New()
 	local self = setmetatable({}, RetransmissionTracker)
 	self.unacked = {}
+	self.unacked_count = 0
 	self.total_sent = 0
 	self.total_acked = 0
 	self.total_retransmitted = 0
@@ -65,8 +72,13 @@ function RetransmissionTracker.New()
 end
 
 function RetransmissionTracker:TrackPacket(sequence_number, payload, reliability)
-	local send_time = os.clock() * 1000
+	local send_time = reliable_send.Now()
 	local packet = UnackedPacket.New(sequence_number, payload, reliability, send_time)
+
+	if not self.unacked[sequence_number] then
+		self.unacked_count = self.unacked_count + 1
+	end
+
 	self.unacked[sequence_number] = packet
 	self.total_sent = self.total_sent + 1
 	return packet
@@ -78,6 +90,7 @@ function RetransmissionTracker:AckPacket(sequence_number)
 	if packet then
 		packet:Ack()
 		self.unacked[sequence_number] = nil
+		self.unacked_count = self.unacked_count - 1
 		self.total_acked = self.total_acked + 1
 		return true
 	end
@@ -110,6 +123,7 @@ function RetransmissionTracker:OnTimeout(current_time)
 
 	for _, packet in ipairs(failed) do
 		self.unacked[packet.sequence_number] = nil
+		self.unacked_count = self.unacked_count - 1
 		self.total_failed = self.total_failed + 1
 	end
 
@@ -117,12 +131,13 @@ function RetransmissionTracker:OnTimeout(current_time)
 end
 
 function RetransmissionTracker:Cleanup(max_age_ms)
-	local current_time = os.clock() * 1000
+	local current_time = reliable_send.Now()
 	local cleaned = 0
 
 	for seq, packet in pairs(self.unacked) do
 		if packet.acked and (current_time - packet.send_time) > max_age_ms then
 			self.unacked[seq] = nil
+			self.unacked_count = self.unacked_count - 1
 			cleaned = cleaned + 1
 		end
 	end
@@ -132,7 +147,7 @@ end
 
 function RetransmissionTracker:GetStats()
 	return {
-		unacked = #self.unacked,
+		unacked = self.unacked_count,
 		total_sent = self.total_sent,
 		total_acked = self.total_acked,
 		total_retransmitted = self.total_retransmitted,

@@ -9,6 +9,8 @@ packet.listeners = packet.listeners or {}
 
 function packet.AddListener(id, callback)
 	packet.listeners[id] = callback
+
+	if SERVER then network.AddString(id) end
 end
 
 function packet.RemoveListener(id)
@@ -38,6 +40,12 @@ local function prepend_header(id, buffer)
 	return result:GetString()
 end
 
+local function call_listener(id, buffer, client)
+	local ok, err = xpcall(packet.listeners[id], debug.traceback, buffer, client)
+
+	if not ok then wlog("error in packet listener %s: %s", tostring(id), err) end
+end
+
 local function read_header(buffer)
 	local id = buffer:ReadI16()
 	id = network.IDToString(id)
@@ -59,7 +67,7 @@ if CLIENT then
 		local buffer = packet.CreateBuffer(str)
 		local id = read_header(buffer)
 
-		if packet.listeners[id] then packet.listeners[id](buffer) end
+		if packet.listeners[id] then call_listener(id, buffer) end
 	end
 
 	event.AddListener(
@@ -93,14 +101,14 @@ if SERVER then
 	end
 
 	function packet.Broadcast(id, buffer, flags, channel)
-		return packet.Send(id, buffer, flags, channel)
+		return packet.Send(id, buffer, nil, flags, channel)
 	end
 
 	function packet.OnPacketReceived(str, client)
 		local buffer = packet.CreateBuffer(str)
 		local id = read_header(buffer)
 
-		if packet.listeners[id] then packet.listeners[id](buffer, client) end
+		if packet.listeners[id] then call_listener(id, buffer, client) end
 	end
 
 	event.AddListener(
@@ -176,7 +184,7 @@ do
 		end
 
 		function META:SetPosition(pos)
-			self.position = math.clamp(pos, 1, self:GetSize())
+			self.position = math.clamp(pos, 1, self:GetSize() + 1)
 			return self:GetPosition()
 		end
 

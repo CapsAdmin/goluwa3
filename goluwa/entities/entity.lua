@@ -10,12 +10,14 @@ end
 function Entity.GetValidComponents()
 	if not valid_components.transform then
 		valid_components.transform = import("goluwa/entities/components/transform.lua")
+		valid_components.network = import("goluwa/entities/components/network.lua")
+		valid_components.model = import("goluwa/entities/components/model.lua")
+		valid_components.light_sun = import("goluwa/entities/components/light_sun.lua")
+		valid_components.light_directional = import("goluwa/entities/components/light_directional.lua")
+		valid_components.light_point = import("goluwa/entities/components/light_point.lua")
+		valid_components.light_spot = import("goluwa/entities/components/light_spot.lua")
 
 		if RENDER_3D then
-			valid_components.light_sun = import("goluwa/entities/components/light_sun.lua")
-			valid_components.light_directional = import("goluwa/entities/components/light_directional.lua")
-			valid_components.light_point = import("goluwa/entities/components/light_point.lua")
-			valid_components.light_spot = import("goluwa/entities/components/light_spot.lua")
 			valid_components.visual = import("goluwa/entities/components/visual.lua")
 			valid_components.visual_primitive = import("goluwa/entities/components/visual_primitive.lua")
 			valid_components.animator = import("goluwa/entities/components/animator.lua")
