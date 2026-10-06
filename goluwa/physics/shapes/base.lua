@@ -26,6 +26,10 @@ function META:GetTypeName()
 	return "base"
 end
 
+function META:GetScaled(scale)
+	return self
+end
+
 function META:OnBodyGeometryChanged(body)
 	self.Body = body or self.Body
 end

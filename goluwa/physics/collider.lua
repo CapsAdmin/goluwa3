@@ -73,23 +73,32 @@ local function get_shape_from_definition(data)
 	return shape
 end
 
-local function append_shape_entry(entries, entry, parent_position, parent_rotation)
+local function append_shape_entry(entries, entry, scale, parent_position, parent_rotation)
 	parent_position = parent_position or Vec3()
 	parent_rotation = parent_rotation or Quat():Identity()
 	local data = is_shape_definition(entry) and entry or {Shape = entry}
 	local shape = get_shape_from_definition(data)
 	local local_position = copy_position(data.Position or data.position)
+
+	if scale then
+		local_position.x = local_position.x * scale.x
+		local_position.y = local_position.y * scale.y
+		local_position.z = local_position.z * scale.z
+	end
+
 	local local_rotation = copy_rotation(data.Rotation or data.rotation)
 	local combined_position = parent_position + parent_rotation:VecMul(local_position)
 	local combined_rotation = (parent_rotation * local_rotation):GetNormalized()
 
 	if shape:GetTypeName() == "compound" then
 		for _, child in ipairs(shape:GetChildren()) do
-			append_shape_entry(entries, child, combined_position, combined_rotation)
+			append_shape_entry(entries, child, scale, combined_position, combined_rotation)
 		end
 
 		return
 	end
+
+	if scale then shape = shape:GetScaled(scale) end
 
 	entries[#entries + 1] = {
 		Shape = shape,
@@ -118,13 +127,17 @@ end
 function META.BuildEntries(body)
 	local entries = {}
 	local shapes = body.Shapes
+	local transform = body.Owner and body.Owner.transform
+	local scale = transform and transform.temp_scale
+
+	if scale and scale.x == 1 and scale.y == 1 and scale.z == 1 then scale = nil end
 
 	if shapes and shapes[1] then
 		for _, entry in ipairs(shapes) do
-			append_shape_entry(entries, entry)
+			append_shape_entry(entries, entry, scale)
 		end
 	elseif body.Shape then
-		append_shape_entry(entries, body.Shape)
+		append_shape_entry(entries, body.Shape, scale)
 	end
 
 	if not entries[1] then

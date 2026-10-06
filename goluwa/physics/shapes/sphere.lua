@@ -83,6 +83,10 @@ function META:GetTypeName()
 	return "sphere"
 end
 
+function META:GetScaled(scale)
+	return META.New(self:GetRadius() * math.max(math.abs(scale.x), math.abs(scale.y), math.abs(scale.z)))
+end
+
 function META:GetHalfExtents()
 	local radius = self:GetRadius()
 	return Vec3(radius, radius, radius)

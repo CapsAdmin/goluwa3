@@ -163,6 +163,13 @@ function META:GetTypeName()
 	return "capsule"
 end
 
+function META:GetScaled(scale)
+	return META.New(
+		self:GetRadius() * math.max(math.abs(scale.x), math.abs(scale.z)),
+		self:GetHeight() * math.abs(scale.y)
+	)
+end
+
 function META:OnBodyGeometryChanged(body)
 	BaseShape.OnBodyGeometryChanged(self, body)
 	self:SetHeight(clamp_height(self:GetRadius(), self:GetHeight()))
