@@ -6,6 +6,7 @@ Light.Network = {
 	Color = {"color", 0.5, "reliable"},
 	Lumen = {"number", 0.5, "reliable"},
 	SourceRadius = {"number", 0.5, "reliable"},
+	ConstantFalloff = {"number", 0.5, "reliable"},
 	LinearFalloff = {"number", 0.5, "reliable"},
 	QuadraticFalloff = {"number", 0.5, "reliable"},
 	OcclusionMap = {"boolean", 0.5, "reliable"},
@@ -15,6 +16,7 @@ Light:StartStorable()
 Light:GetSet("Color", Color(1, 1, 1, 1))
 Light:GetSet("Lumen", 0, {validate = "number"})
 Light:GetSet("SourceRadius", 0, {validate = "number"})
+Light:GetSet("ConstantFalloff", 0, {validate = "number"})
 Light:GetSet("LinearFalloff", 0, {validate = "number"})
 Light:GetSet("QuadraticFalloff", 1, {validate = "number"})
 Light:GetSet("OcclusionMap", true)
@@ -90,7 +92,7 @@ function Light:GetEffectiveRange()
 
 	if self.Lumen <= 0 then return 0 end
 
-	local r_sq = self.SourceRadius ^ 2
+	local r_sq = self.SourceRadius ^ 2 + self.ConstantFalloff
 	local l = self.LinearFalloff
 	local q = self.QuadraticFalloff
 	local c = r_sq - math.min(

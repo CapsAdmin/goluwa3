@@ -150,6 +150,7 @@ Material:GetSet("MultiplyAlbedo2", false, {callback = "InvalidateFlags"})
 Material:GetSet("DisplayReferred", false, {callback = "InvalidateFlags"})
 Material:GetSet("NormalAlphaIsCoverage", false, {callback = "InvalidateFlags"})
 Material:GetSet("SpecularFromRoughnessMask", false, {callback = "InvalidateFlags"})
+Material:GetSet("RoughnessMaskOnlyScalesSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:GetSet("OriginalMaterial", "", {multiline = true})
@@ -402,6 +403,7 @@ local FLAGS = {
 	"DisplayReferred",
 	"NormalAlphaIsCoverage",
 	"SpecularFromRoughnessMask",
+	"RoughnessMaskOnlyScalesSpecular",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -1123,7 +1125,8 @@ do
 		return self
 	end
 
-	local ENVMAP_F0 = 0.35
+	-- reflectance a source envmap or phong highlight gets where its mask is shiny, a dielectric is 0.04
+	local ENVMAP_F0 = 1.0
 	local PHONG_MAX_F0 = 0.5
 
 	local function on_load_vmt(self, vmt)
@@ -1188,25 +1191,17 @@ do
 				self:SetNormalTextureAlphaIsRoughness(true)
 				self:SetInvertRoughnessTexture(true)
 			elseif vmt.basealphaenvmapmask == 1 then
+				-- source reflects where the base alpha is low, unlike the normal map's alpha
 				self:SetAlbedoTextureAlphaIsRoughness(true)
-				self:SetInvertRoughnessTexture(true)
-			end
-
-			if false and vmt.envmaptint then
-				local val = vmt.envmaptint
-
-				if type(val) == "string" then
-					self:SetMetallicMultiplier(Vec3(unpack_numbers(val)):GetLength())
-				elseif type(val) == "number" then
-					self:SetMetallicMultiplier(val)
-				elseif typex(val) == "vec3" then
-					self:SetMetallicMultiplier(val:GetLength())
-				elseif typex(val) == "color" then
-					self:SetMetallicMultiplier(Vec3(val.r, val.g, val.b):GetLength())
-				end
 			end
 
 			if not self:HasExplicitRoughnessTexture() then self:SetRoughnessMultiplier(0) end
+
+			-- an envmap is a cubemap lookup of fixed sharpness, its mask only scales how much of it is added
+			if vmt.phong ~= 1 then
+				self:SetRoughnessMaskOnlyScalesSpecular(true)
+				self:SetRoughnessMultiplier(0)
+			end
 		end
 
 		if vmt.phong == 1 then
@@ -1243,8 +1238,16 @@ do
 
 			roughness = math.max(0.04, math.min(1.0, roughness))
 
-			-- under a mask the multiplier scales the mask before it is inverted
-			if self:HasExplicitRoughnessTexture() or self.AlbedoLuminanceIsRoughness then
+			-- a phong mask only decides how strong the highlight is, the exponent alone sets its size
+			if
+				not vmt.phongexponenttexture and
+				(
+					self:HasExplicitRoughnessTexture() or
+					self.AlbedoLuminanceIsRoughness
+				)
+			then
+				self:SetRoughnessMaskOnlyScalesSpecular(true)
+			elseif self:HasExplicitRoughnessTexture() then
 				roughness = 1 - roughness
 			end
 
@@ -1258,7 +1261,24 @@ do
 			-- dielectric's F0 of 0.04 can't hold that, a metallic that keeps both can
 			local f0 = 0.04
 
-			if vmt.envmap then f0 = math.max(f0, ENVMAP_F0) end
+			if vmt.envmap then
+				local tint = vmt.envmaptint
+				local lum = 1
+
+				if type(tint) == "string" then
+					local r, g, b = unpack_numbers(tint)
+					lum = r * 0.2126 + (g or r) * 0.7152 + (b or r) * 0.0722
+				elseif type(tint) == "number" then
+					lum = tint
+				elseif typex(tint) == "vec3" then
+					lum = tint.x * 0.2126 + tint.y * 0.7152 + tint.z * 0.0722
+				elseif typex(tint) == "color" then
+					lum = tint.r * 0.2126 + tint.g * 0.7152 + tint.b * 0.0722
+				end
+
+				-- without a phong there is no direct specular in source, so no dielectric floor
+				f0 = vmt.phong == 1 and math.max(f0, ENVMAP_F0 * lum) or ENVMAP_F0 * lum
+			end
 
 			if vmt.phong == 1 then
 				local ranges = vmt.phongfresnelranges

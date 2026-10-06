@@ -1796,6 +1796,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			float get_roughness(vec2 uv) {
 				float val = 1.0;
 
+				if (RoughnessMaskOnlyScalesSpecular) return clamp(factor_model.RoughnessMultiplier * factor_model.RoughnessMultiplier, 0.002, 1.0);
+
 				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
 					val = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
 				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {

@@ -18,6 +18,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local transform = import("goluwa/entities/components/transform.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
@@ -48,7 +49,50 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_PLAYERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
-local BSP_LIGHT_INTENSITY_SCALE = 2.8
+local apply_source_light
+local update_bsp_lights = function(_, is_init)
+	if is_init then return end
+
+	for _, light in ipairs(render3d.GetLights()) do
+		local ent = light.Owner
+
+		if ent.spawned_from_bsp then apply_source_light(light, ent.bsp_info) end
+	end
+end
+pvars.StartGroup("bsp_lights", {store = false})
+local intensity_pvar = pvars.Setup2{
+	key = "bsp_light_intensity",
+	default = 0.55,
+	min = 0,
+	help = "scales every light a bsp map spawns",
+	callback = update_bsp_lights,
+}
+local distance_pvar = pvars.Setup2{
+	key = "bsp_light_distance",
+	default = 4,
+	min = 0.05,
+	help = "scales the fifty and zero percent distances of bsp lights, their brightness near the light stays",
+	callback = update_bsp_lights,
+}
+local core_pvar = pvars.Setup2{
+	key = "bsp_light_core",
+	default = 0,
+	min = 0,
+	help = "scales the flat core of a bsp light's falloff, 0 is a point that gets very bright up close",
+	callback = update_bsp_lights,
+}
+local warm_pvar = pvars.Setup2{
+	key = "bsp_light_warm",
+	default = 1,
+	min = 0,
+	help = "scales bsp lights that are redder than they are blue, candles and fires",
+	callback = update_bsp_lights,
+}
+pvars.EndGroup()
+-- the fog is lit by the scene and tinted by the controller's colour, its brightest channel scaled to this
+-- the visibility distance is scaled because source's fog is linear and ours exponential
+local FOG_TINT_STRENGTH = 1
+local FOG_DISTANCE_SCALE = 10
 
 local function is_blacklisted(path)
 	if path == "models/lostcoast/effects/vollight_stainedglass.mdl" then
@@ -196,8 +240,15 @@ do
 		local d50 = tonumber(info._fifty_percent_distance) or 0
 		local d0 = tonumber(info._zero_percent_distance) or 0
 		local c, l, q
+		local intensity_scale = intensity_pvar:Get()
+
+		if light.r > light.b then intensity_scale = intensity_scale * warm_pvar:Get() end
 
 		if d50 > 0 then
+			local scale = distance_pvar:Get()
+			d50, d0 = d50 * scale, d0 * scale
+			intensity_scale = intensity_scale / scale ^ 2
+
 			if d0 < d50 then d0 = 2 * d50 end
 
 			c, l, q = solve_fifty_percent(d50, d0)
@@ -221,20 +272,34 @@ do
 
 		local s = steam.source2meters
 		local source_radius = math.sqrt(c) * s
+		local core = 0
 
 		if l + q > 0 then
+			-- the light's flat core is part of its falloff, but only a small part is a sphere
 			source_radius = math.min(source_radius, MAX_SOURCE_RADIUS)
+			core = math.max(c * s ^ 2 - source_radius ^ 2, 0) * core_pvar:Get()
 		end
 
 		return {
 			color = Color(light.r, light.g, light.b, 1),
-			intensity = brightness * s ^ 2 * BSP_LIGHT_INTENSITY_SCALE,
+			intensity = brightness * s ^ 2 * intensity_scale,
 			range = d50 > 0 and d0 * s or 0,
 			source_radius = source_radius,
+			constant_falloff = core,
 			linear_falloff = l * s,
 			quadratic_falloff = q,
 		}
 	end
+end
+
+function apply_source_light(light, info)
+	local params = convert_source_light_to_engine(info)
+	light:SetRange(params.range)
+	light:SetSourceRadius(params.source_radius)
+	light:SetConstantFalloff(params.constant_falloff)
+	light:SetLinearFalloff(params.linear_falloff)
+	light:SetQuadraticFalloff(params.quadratic_falloff)
+	light:SetLumen(params.intensity * params.color:GetLuminance() * light:GetEmissionSolidAngle())
 end
 
 local function get_model_lowest_point(model)
@@ -2298,8 +2363,7 @@ function steam.SpawnMapEntities(path, parent)
 					set_transform(tr, info, true)
 					local is_spot = info.classname == "light_spot"
 					local light = ent:AddComponent(is_spot and "light_spot" or "light_point")
-					local params = convert_source_light_to_engine(info)
-					light:SetColor(params.color)
+					light:SetColor(convert_source_light_to_engine(info).color)
 
 					if is_spot then
 						local inner_cone = math.clamp((tonumber(info._inner_cone) or 0) > 0 and info._inner_cone or 10, 0, 180)
@@ -2316,11 +2380,7 @@ function steam.SpawnMapEntities(path, parent)
 						light:SetOuterCone(outer_cone)
 					end
 
-					light:SetRange(params.range)
-					light:SetSourceRadius(params.source_radius)
-					light:SetLinearFalloff(params.linear_falloff)
-					light:SetQuadraticFalloff(params.quadratic_falloff)
-					light:SetLumen(params.intensity * params.color:GetLuminance() * light:GetEmissionSolidAngle())
+					apply_source_light(light, info)
 					ent.spawned_from_bsp = true
 					ent.bsp_info = info
 				elseif info.classname == "env_fog_controller" then
@@ -2331,7 +2391,9 @@ function steam.SpawnMapEntities(path, parent)
 					then
 						import("goluwa/render3d/weather.lua").SetVisibility(info.fogend * steam.source2meters * FOG_DISTANCE_SCALE)
 						local color = info.fogcolor
-						import("goluwa/render3d/atmosphere.lua").SetFogColor(Vec3(color.r ^ 2.2, color.g ^ 2.2, color.b ^ 2.2) / math.max(color.r, color.g, color.b, 1e-4) ^ 2.2 * FOG_TINT_STRENGTH)
+						import("goluwa/render3d/atmosphere.lua").SetFogColor(
+							Vec3(color.r ^ 2.2, color.g ^ 2.2, color.b ^ 2.2) / math.max(color.r, color.g, color.b, 1e-4) ^ 2.2 * FOG_TINT_STRENGTH
+						)
 					end
 				end
 			end

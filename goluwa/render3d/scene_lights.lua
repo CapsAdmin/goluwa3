@@ -171,7 +171,7 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 				rotation:GetForward()
 			light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
 			direction:CopyToFloatPointer(data.direction)
-			data.falloff[0] = light.SourceRadius ^ 2
+			data.falloff[0] = light.SourceRadius ^ 2 + light.ConstantFalloff
 			data.falloff[1] = light.LinearFalloff
 			data.falloff[2] = light.QuadraticFalloff
 
