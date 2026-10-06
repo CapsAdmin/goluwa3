@@ -1125,8 +1125,8 @@ do
 		return self
 	end
 
-	local ENVMAP_F0 = 1.0
-	local ENVMAP_ROUGHNESS = 0.125
+	local ENVMAP_F0 = 0.5
+	local ENVMAP_ROUGHNESS = 0.125 * 0
 	local PHONG_MAX_F0 = 0.5
 
 	local function on_load_vmt(self, vmt)
