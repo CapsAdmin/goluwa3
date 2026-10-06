@@ -301,6 +301,32 @@ local function create_fallback_texture()
 	return fallback_texture
 end
 
+function Texture:GetFrameCount()
+	return self.animated_image and self.animated_image.frames or 1
+end
+
+function Texture:GetFrameTexture(index)
+	if index == 0 then return self end
+
+	self.frame_textures = self.frame_textures or {}
+	local texture = self.frame_textures[index]
+
+	if not texture then
+		local img = self.animated_image
+		texture = Texture.New{
+			decoded = setmetatable(
+				{data = ffi.cast("uint8_t *", img.data) + img.frame_stride * index, source = img},
+				{__index = img}
+			),
+			srgb = self.config.srgb,
+			mip_map_levels = self.config.mip_map_levels,
+		}
+		self.frame_textures[index] = texture
+	end
+
+	return texture
+end
+
 function Texture.GetFallback()
 	return create_fallback_texture()
 end
@@ -350,6 +376,8 @@ function Texture.New(config)
 				is_compressed = img.is_compressed
 				vulkan_info = img
 				buffer_data = img.data
+
+				if img.frames and img.frames > 1 then self.animated_image = img end
 			else
 				config.format = config.format or "r8g8b8a8_unorm"
 				buffer_data = img.buffer:GetBuffer()

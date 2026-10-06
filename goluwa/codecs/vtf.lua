@@ -299,41 +299,52 @@ function vtf.DecodeBuffer(input_buffer)
 		end
 
 		local new_size = pixel_count * 4
-		data_buffer = ffi.new("uint8_t[?]", new_size)
+		data_buffer = ffi.new("uint8_t[?]", new_size * frames)
 		local dst = data_buffer
 		local dst_idx = 0
 
-		for i = 1, mip_count do
-			local mip = mip_info[i]
-			local src = input_buffer:GetBuffer() + data_pos + mip.file_offset
-			local mip_pixel_count = mip.width * mip.height * mip.depth
+		for frame = 0, frames - 1 do
+			for i = 1, mip_count do
+				local mip = mip_info[i]
+				local mip_pixel_count = mip.width * mip.height * mip.depth
+				local source_size = mip.source_size or mip.size
+				mip.source_size = source_size
+				local src = input_buffer:GetBuffer() + data_pos + mip.file_offset + frame * face_count * source_size
 
-			for j = 0, mip_pixel_count - 1 do
-				dst[dst_idx] = src[j * 3]
-				dst[dst_idx + 1] = src[j * 3 + 1]
-				dst[dst_idx + 2] = src[j * 3 + 2]
-				dst[dst_idx + 3] = 255
-				dst_idx = dst_idx + 4
+				for j = 0, mip_pixel_count - 1 do
+					dst[dst_idx] = src[j * 3]
+					dst[dst_idx + 1] = src[j * 3 + 1]
+					dst[dst_idx + 2] = src[j * 3 + 2]
+					dst[dst_idx + 3] = 255
+					dst_idx = dst_idx + 4
+				end
+
+				if frame == 0 then
+					mip.offset = dst_idx - (mip_pixel_count * 4)
+					mip.size = mip_pixel_count * 4
+				end
 			end
-
-			mip.offset = dst_idx - (mip_pixel_count * 4)
-			mip.size = mip_pixel_count * 4
 		end
 
 		actual_data_size = new_size
 	else
-		data_buffer = ffi.new("uint8_t[?]", total_size)
-		local current_offset = 0
+		data_buffer = ffi.new("uint8_t[?]", total_size * frames)
 
-		for i = 1, mip_count do
-			local mip = mip_info[i]
-			ffi.copy(
-				data_buffer + current_offset,
-				input_buffer:GetBuffer() + data_pos + mip.file_offset,
-				mip.size
-			)
-			mip.offset = current_offset
-			current_offset = current_offset + mip.size
+		for frame = 0, frames - 1 do
+			local current_offset = frame * total_size
+
+			for i = 1, mip_count do
+				local mip = mip_info[i]
+				ffi.copy(
+					data_buffer + current_offset,
+					input_buffer:GetBuffer() + data_pos + mip.file_offset + frame * face_count * mip.size,
+					mip.size
+				)
+
+				if frame == 0 then mip.offset = current_offset end
+
+				current_offset = current_offset + mip.size
+			end
 		end
 	end
 
@@ -352,6 +363,7 @@ function vtf.DecodeBuffer(input_buffer)
 		bytes_per_pixel = needs_conversion_to_32bit and 4 or get_bytes_per_pixel(format),
 		mip_info = mip_info,
 		data_size = actual_data_size,
+		frame_stride = actual_data_size,
 		reflectivity = header.reflectivity,
 	},
 	data_buffer

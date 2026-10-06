@@ -9,6 +9,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
+local material_proxies = import("goluwa/render3d/material_proxies.lua")
 local Material = objects.CreateTemplate("render3d_material")
 Material:StartStorable()
 Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "InvalidateAlbedo"})
@@ -157,24 +158,11 @@ Material:GetSet("Texture2TransformU", Vec4(1, 0, 0, 0), {callback = "InvalidateR
 Material:GetSet("Texture2TransformV", Vec4(0, 1, 0, 0), {callback = "InvalidateRayMaterial"})
 Material:EndStorable()
 
-do
-	local deg2rad = math.pi / 180
-
-	function Material:SetTextureTransformFromVMT(name, str)
-		local cx, cy = str:match("center%s+(%S+)%s+(%S+)")
-		local sx, sy = str:match("scale%s+(%S+)%s+(%S+)")
-		local rotate = str:match("rotate%s+(%S+)")
-		local tx, ty = str:match("translate%s+(%S+)%s+(%S+)")
-		cx, cy = tonumber(cx) or 0.5, tonumber(cy) or 0.5
-		sx, sy = tonumber(sx) or 1, tonumber(sy) or 1
-		local angle = (tonumber(rotate) or 0) * deg2rad
-		tx, ty = tonumber(tx) or 0, tonumber(ty) or 0
-		local cos, sin = math.cos(angle), math.sin(angle)
-		local a, b, c, d = cos * sx, -sin * sy, sin * sx, cos * sy
-		self["Set" .. name .. "TransformU"](self, Vec4(a, b, cx - a * cx - b * cy + tx, 0))
-		self["Set" .. name .. "TransformV"](self, Vec4(c, d, cy - c * cx - d * cy + ty, 0))
-		self.has_uv_transform = true
-	end
+function Material:SetTextureTransformFromVMT(name, str)
+	local m = material_proxies.ParseTransform(str)
+	self["Set" .. name .. "TransformU"](self, Vec4(m[1], m[2], m[3], 0))
+	self["Set" .. name .. "TransformV"](self, Vec4(m[4], m[5], m[6], 0))
+	self.has_uv_transform = true
 end
 
 function Material:GetCullMode()
@@ -1552,6 +1540,7 @@ do
 			self:SetSpecularMultiplier(1)
 		end
 
+		material_proxies.Attach(self, vmt.source_text)
 		local color = self.ColorMultiplier
 		local flags = {}
 
