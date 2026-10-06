@@ -836,6 +836,7 @@ function buffer_template.AddStructFunctions(META)
 	local Vec2 = import("goluwa/structs/vec2.lua")
 	local Color = import("goluwa/structs/color.lua")
 	local Ang3 = import("goluwa/structs/ang3.lua")
+	local Quat
 
 	function META:WriteNumber(n)
 		self:WriteDouble(n)
@@ -843,8 +844,7 @@ function buffer_template.AddStructFunctions(META)
 	end
 
 	function META:ReadNumber()
-		self:ReadDouble()
-		return nil
+		return self:ReadDouble()
 	end
 
 	function META:WriteNil()
@@ -944,6 +944,7 @@ function buffer_template.AddStructFunctions(META)
 	end
 
 	function META:ReadQuat()
+		Quat = Quat or import("goluwa/structs/quat.lua")
 		return Quat(self:ReadFloat(), self:ReadFloat(), self:ReadFloat(), self:ReadFloat())
 	end
 
