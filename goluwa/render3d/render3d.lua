@@ -81,6 +81,7 @@ function render3d.WriteCameraBlock(self, block)
 	return block
 end
 
+render3d.previous_jitter = Vec2(0, 0)
 render3d.prev_camera_block = {
 	{"prev_view", "mat4"},
 	{"prev_projection", "mat4"},

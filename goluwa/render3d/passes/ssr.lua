@@ -57,6 +57,7 @@ return {
 					{"history_tex", "int"},
 					{"history_depth_tex", "int"},
 					{"frame_index", "int"},
+					{"jitter_shift", "vec2"},
 					{"prev_view", "mat4"},
 					{"prev_projection", "mat4"},
 					post_source.pre_exposure_block,
@@ -74,6 +75,12 @@ return {
 					block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
 					local frame = system.GetFrameNumber()
 					block.frame_index = frame
+					-- history and last frame colour were written under last frame's jitter. the velocity
+					-- has no jitter in it, so the lookup is moved by the difference, in uv
+					local camera = render3d.GetCamera()
+					local viewport = camera:GetViewport()
+					block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w
+					block.jitter_shift[1] = (render3d.previous_jitter.y - camera:GetJitter().y) / viewport.h
 
 					if self.ssr_history_framebuffers ~= self.framebuffers then
 						self.ssr_history_framebuffers = self.framebuffers
@@ -121,7 +128,7 @@ return {
 			),
 		shader = [[
 		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ssr_data") .. surface_weather.GetRainSurfaceGLSL("ssr_data") .. [[
-		]] .. ibl.GetBRDFGLSLCode() .. [[
+		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetSSRQuadGLSL() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. (
 				RAY_QUERY and
 				scene_reflection.GetGLSL("ssr_data") or
@@ -139,6 +146,14 @@ return {
 			#define SSR_MIRROR_THRESHOLD 0.06
 			// times white on screen, under last frame's exposure
 			#define SSR_MAX_HIT_LUMINANCE 8.0
+			// taps spread over the reflection cone's footprint in the last frame
+			#define SSR_CONE_TAPS 9
+			// how much of the luminance limit a fully rough lobe keeps
+			#define SSR_ROUGH_LIMIT_SCALE 0.25
+			// glints are high variance, a tight clamp and a short history would never settle them
+			#define SSR_CLAMP_SIGMA 3.0
+			#define SSR_HIST_LO 0.9
+			#define SSR_HIST_HI 0.97
 			#define SSR_SPATIAL_NORMAL_POWER 32.0
 			#define SSR_TILE_WIDTH ]] .. tostring(COMPUTE_LOCAL_SIZE.x) .. "\n" .. [[
 			#define SSR_TILE_HEIGHT ]] .. tostring(COMPUTE_LOCAL_SIZE.y) .. [[
@@ -158,6 +173,17 @@ return {
 				return dot(color, vec3(0.2126, 0.7152, 0.0722));
 			}
 
+			// a rough lobe averages many directions, so one bright texel in it is a firefly
+			// and not light. the limit falls as the lobe widens
+			float get_hit_luminance_limit(float roughness) {
+				return max_hit_luminance * mix(1.0, SSR_ROUGH_LIMIT_SCALE, smoothstep(SSR_MIRROR_THRESHOLD, SSR_ROUGHNESS_CUTOFF, roughness));
+			}
+
+			// downweights bright samples when averaging, relative to the limit
+			float get_firefly_weight(vec3 color, float limit) {
+				return 1.0 / (1.0 + luminance(color) / max(limit * 0.1, 1e-6));
+			}
+
 			float linearize_depth(vec2 uv, float depth) {
 				vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
 				return dot(inv_projection_row_z, clip) / dot(inv_projection_row_w, clip);
@@ -175,7 +201,7 @@ return {
 			bool fetch_surface_motion(vec2 uv, out vec2 prev_uv, out float prev_depth) {
 				if (ssr_data.velocity_tex != -1) {
 					vec3 motion = texture(TEXTURE(ssr_data.velocity_tex), uv).rgb;
-					prev_uv = uv - motion.xy;
+					prev_uv = uv - motion.xy + ssr_data.jitter_shift;
 					prev_depth = motion.z;
 					return prev_depth > 1e-5;
 				}
@@ -186,7 +212,7 @@ return {
 
 				if (prev_clip.w <= 1e-5) return false;
 
-				prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
+				prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5 + ssr_data.jitter_shift;
 				prev_depth = -prev_view_pos.z;
 				return true;
 			}
@@ -206,7 +232,7 @@ return {
 
 			vec2 get_last_frame_uv(vec2 hit_uv, vec3 hit_view_pos) {
 				if (ssr_data.velocity_tex != -1) {
-					return hit_uv - texture(TEXTURE(ssr_data.velocity_tex), hit_uv).xy;
+					return hit_uv - texture(TEXTURE(ssr_data.velocity_tex), hit_uv).xy + ssr_data.jitter_shift;
 				}
 
 				vec4 world_hit = ssr_data.inv_view * vec4(hit_view_pos, 1.0);
@@ -217,7 +243,7 @@ return {
 				}
 
 				prev_clip /= prev_clip.w;
-				return prev_clip.xy * 0.5 + 0.5;
+				return prev_clip.xy * 0.5 + 0.5 + ssr_data.jitter_shift;
 			}
 
 			vec4 trace_ssr_direction(vec3 pos_vs, vec3 R_vs, float roughness, float jitter) {
@@ -304,12 +330,41 @@ return {
 								float dist_fade = 1.0 - smoothstep(SSR_MAX_DISTANCE * 0.7, SSR_MAX_DISTANCE, length(hit_vs - pos_vs));
 								float thick_conf = 1.0 - saturate(refined_diff / max(0.15, -z_surf * 0.03));
 								// last frame's scene was pre-exposed for last frame, reflections are absolute
-								vec3 hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb / get_previous_pre_exposure();
+								vec3 hit_color;
+
+								if (roughness > SSR_MIRROR_THRESHOLD) {
+									// the reflection's cone is wider than a texel: its footprint at the hit
+									float radius_uv = roughness * roughness * length(hit_vs - pos_vs) / max(-hit_vs.z, 0.1) * ssr_data.projection[1][1] * 0.5;
+									radius_uv = min(radius_uv, 0.05);
+									vec3 sum = vec3(0.0);
+									float sum_weight = 0.0;
+									float limit = get_hit_luminance_limit(roughness);
+									float spin = jitter * 6.2831853;
+
+									for (int k = 0; k < SSR_CONE_TAPS; k++) {
+										float angle = spin + float(k) * 6.2831853 / float(SSR_CONE_TAPS);
+										vec2 tap_uv = last_frame_uv + vec2(cos(angle), sin(angle)) * radius_uv * (0.35 + 0.65 * fract(jitter * 7.0 + float(k) * 0.381966));
+										vec3 tap = texture(TEXTURE(ssr_data.last_frame_tex), tap_uv).rgb / get_previous_pre_exposure();
+										float tap_luma = luminance(tap);
+
+										if (tap_luma > limit) tap *= limit / tap_luma;
+
+										float tap_weight = get_firefly_weight(tap, limit);
+										sum += tap * tap_weight;
+										sum_weight += tap_weight;
+									}
+
+									hit_color = sum / sum_weight;
+								} else {
+									hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb / get_previous_pre_exposure();
+								}
 
 								if (roughness > SSR_MIRROR_THRESHOLD) {
 									float hit_luma = luminance(hit_color);
 
-									if (hit_luma > max_hit_luminance) hit_color *= max_hit_luminance / hit_luma;
+									float hit_limit = get_hit_luminance_limit(roughness);
+
+									if (hit_luma > hit_limit) hit_color *= hit_limit / hit_luma;
 								}
 
 								return vec4(hit_color, edge_fade * dist_fade * thick_conf);
@@ -372,7 +427,9 @@ return {
 					if (roughness > SSR_MIRROR_THRESHOLD) {
 						float traced_luma = luminance(traced);
 
-						if (traced_luma > max_hit_luminance) traced *= max_hit_luminance / traced_luma;
+						float traced_limit = get_hit_luminance_limit(roughness);
+
+						if (traced_luma > traced_limit) traced *= traced_limit / traced_luma;
 					}
 
 					return vec4(mix(traced, hit.rgb, hit.a), 1.0);
@@ -394,7 +451,7 @@ return {
 				max_hit_luminance = ssr_data.exposure_tex != -1 ? SSR_MAX_HIT_LUMINANCE / max(texture(TEXTURE(ssr_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
 				ivec2 local_pos = ivec2(gl_LocalInvocationID.xy);
 				bool in_bounds = is_screen_pos_in_bounds(pos, ssr_size);
-				ivec2 gbuffer_pos = min(ivec2((vec2(pos) + 0.5) * gbuffer_ratio), gbuffer_size - 1);
+				ivec2 gbuffer_pos = min(pos * ivec2(gbuffer_ratio) + get_ssr_quad_offset(ssr_data.frame_index, gbuffer_ratio), gbuffer_size - 1);
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
 				float depth = in_bounds ? gbuffer_depth(gbuffer_pos) : 1.0;
 				vec4 current = vec4(0.0);
@@ -467,7 +524,7 @@ return {
 
 						vec4 sample_value = ssr_tile[tile_pos.y][tile_pos.x];
 						// rgb only counts as much as the sample found something
-						float sample_color_weight = weight * sample_value.a;
+						float sample_color_weight = weight * sample_value.a * get_firefly_weight(sample_value.rgb, max_hit_luminance);
 						moment1 += sample_value.rgb * sample_color_weight;
 						moment2 += sample_value.rgb * sample_value.rgb * sample_color_weight;
 						color_weight += sample_color_weight;
@@ -494,6 +551,11 @@ return {
 					bool has_motion = fetch_surface_motion(uv, prev_uv, prev_depth);
 
 					if (has_motion) {
+						// the ray was traced from a gbuffer pixel off the texel's centre, but history
+						// is stored and read at texel centres. reading it at the pixel's own position
+						// would shift the feedback by that offset every frame, smearing it one way
+						prev_uv += (vec2(pos) + 0.5) / vec2(ssr_size) - uv;
+
 						if (prev_uv.x > 0.0 && prev_uv.x < 1.0 && prev_uv.y > 0.0 && prev_uv.y < 1.0) {
 							float history_depth = texture(TEXTURE(ssr_data.history_depth_tex), prev_uv).r;
 
@@ -501,9 +563,9 @@ return {
 								vec4 history = texture(TEXTURE(ssr_data.history_tex), prev_uv);
 
 								if (!any(isnan(history))) {
-									vec3 clamp_extent = deviation * 1.5 + mean * 0.05 + 0.001;
+									vec3 clamp_extent = deviation * SSR_CLAMP_SIGMA + mean * 0.05 + 0.001;
 									history.rgb = clamp(history.rgb, mean - clamp_extent, mean + clamp_extent);
-									float history_weight = mix(0.8, 0.94, smoothstep(0.0, 0.3, roughness));
+									float history_weight = mix(SSR_HIST_LO, SSR_HIST_HI, smoothstep(0.0, 0.3, roughness));
 									result = mix(filtered, history, history_weight);
 								}
 							}

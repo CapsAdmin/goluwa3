@@ -44,6 +44,7 @@ return {
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 2,
 		pre_render = function()
+			render3d.previous_jitter = render3d.GetMainCamera():GetJitter():Copy()
 			render3d.GetMainCamera():SetJitter(
 				render3d.IsPassEnabled("taa") and
 					SAMPLES[system.GetFrameNumber() % #SAMPLES + 1] or

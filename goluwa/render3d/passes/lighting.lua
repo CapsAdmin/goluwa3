@@ -93,6 +93,7 @@ return {
 					{"gi_debug", "int"},
 					{"direct_debug", "int"},
 					{"ssr_tex", "int"},
+					{"ssr_phase", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
@@ -129,6 +130,7 @@ return {
 						local current_idx = system.GetFrameNumber() % 2 + 1
 						local current_ssr_fb = render3d.pipelines.ssr:GetFramebuffer(current_idx)
 						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
+						block.ssr_phase = system.GetFrameNumber()
 					else
 						block.ssr_tex = -1
 					end
@@ -239,7 +241,7 @@ return {
 
 			]] .. surface_lighting.GetGLSL("lighting_data") .. [[
 
-			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
+			]] .. ibl.GetSSRQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
 			// ssr_uv is where the screen space reflection is read, moved off the pixel by what the ssr can't
 			// resolve, like the rain's waves

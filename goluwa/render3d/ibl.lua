@@ -202,6 +202,15 @@ function ibl.GetEnvironmentGLSLCode()
 		]]
 end
 
+function ibl.GetSSRQuadGLSL()
+	return [[
+			ivec2 get_ssr_quad_offset(int phase, vec2 ratio) {
+				const ivec2 offsets[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
+				return min(offsets[phase & 3], ivec2(ratio) - 1);
+			}
+	]]
+end
+
 function ibl.GetReflectionGLSLCode(uniform_name)
 	uniform_name = uniform_name or "lighting_data"
 	return [[
@@ -237,6 +246,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				vec3 center_normal = gbuffer_normal(pixel);
 				float center_roughness = gbuffer_roughness(pixel);
 				vec2 ssr_coord = uv * vec2(ssr_size) - 0.5;
+				ivec2 quad_offset = get_ssr_quad_offset(]] .. uniform_name .. [[.ssr_phase, ratio);
 				ivec2 ssr_base = ivec2(floor(ssr_coord));
 				vec2 ssr_frac = ssr_coord - vec2(ssr_base);
 				vec3 color_accum = vec3(0.0);
@@ -247,7 +257,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				for (int i = 0; i < 4; i++) {
 					ivec2 offset = ivec2(i & 1, i >> 1);
 					ivec2 ssr_pos = clamp(ssr_base + offset, ivec2(0), ssr_size - 1);
-					ivec2 tap_pixel = min(ivec2((vec2(ssr_pos) + 0.5) * ratio), gbuffer_size - 1);
+					ivec2 tap_pixel = min(ssr_pos * ivec2(ratio) + quad_offset, gbuffer_size - 1);
 					float tap_depth = gbuffer_depth(tap_pixel);
 
 					if (tap_depth >= 1.0) continue;
