@@ -149,6 +149,7 @@ Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
 Material:GetSet("MultiplyAlbedo2", false, {callback = "InvalidateFlags"})
 Material:GetSet("DisplayReferred", false, {callback = "InvalidateFlags"})
 Material:GetSet("NormalAlphaIsCoverage", false, {callback = "InvalidateFlags"})
+Material:GetSet("SpecularFromRoughnessMask", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:GetSet("OriginalMaterial", "", {multiline = true})
@@ -400,6 +401,7 @@ local FLAGS = {
 	"MultiplyAlbedo2",
 	"DisplayReferred",
 	"NormalAlphaIsCoverage",
+	"SpecularFromRoughnessMask",
 }
 
 for i, flag_name in ipairs(FLAGS) do
@@ -1121,6 +1123,9 @@ do
 		return self
 	end
 
+	local ENVMAP_F0 = 0.35
+	local PHONG_MAX_F0 = 0.5
+
 	local function on_load_vmt(self, vmt)
 		self.vmt = vmt
 		self:SetMetallicMultiplier(0)
@@ -1176,12 +1181,15 @@ do
 				self:SetInvertRoughnessTexture(true)
 			end
 
-			if vmt.normalmapalphaenvmapmask == 1 then
-				self:SetNormalTextureAlphaIsRoughness(true)
-			end
+			-- the mask is the normal map's alpha when it has one, and only then the base alpha
+			local normal_mask = vmt.normalmapalphaenvmapmask == 1 and vmt.bumpmap ~= nil
 
-			if vmt.basealphaenvmapmask == 1 then
+			if normal_mask then
+				self:SetNormalTextureAlphaIsRoughness(true)
+				self:SetInvertRoughnessTexture(true)
+			elseif vmt.basealphaenvmapmask == 1 then
 				self:SetAlbedoTextureAlphaIsRoughness(true)
+				self:SetInvertRoughnessTexture(true)
 			end
 
 			if false and vmt.envmaptint then
@@ -1202,6 +1210,17 @@ do
 		end
 
 		if vmt.phong == 1 then
+			-- a bump mapped phong is masked by the normal map's alpha unless told otherwise
+			if
+				vmt.bumpmap and
+				not vmt.phongexponenttexture and
+				vmt.basemapalphaphongmask ~= 1 and
+				vmt.basemapluminancephongmask ~= 1 and
+				not self:HasExplicitRoughnessTexture()
+			then
+				self:SetNormalTextureAlphaIsRoughness(true)
+			end
+
 			self:SetInvertRoughnessTexture(vmt.invertphongmask ~= 1)
 
 			if vmt.phongexponenttexture then
@@ -1222,10 +1241,37 @@ do
 
 			if boost > 1 then roughness = roughness / math.sqrt(boost) end
 
-			self:SetRoughnessMultiplier(math.max(0.04, math.min(1.0, roughness)))
+			roughness = math.max(0.04, math.min(1.0, roughness))
+
+			-- under a mask the multiplier scales the mask before it is inverted
+			if self:HasExplicitRoughnessTexture() or self.AlbedoLuminanceIsRoughness then
+				roughness = 1 - roughness
+			end
+
+			self:SetRoughnessMultiplier(roughness)
 		end
 
-		if not vmt.envmap and vmt.phong ~= 1 then self:SetSpecularMultiplier(0) end
+		if not vmt.envmap and vmt.phong ~= 1 then
+			self:SetSpecularMultiplier(0)
+		else
+			-- source adds the envmap and the phong highlight on top of the diffuse. a
+			-- dielectric's F0 of 0.04 can't hold that, a metallic that keeps both can
+			local f0 = 0.04
+
+			if vmt.envmap then f0 = math.max(f0, ENVMAP_F0) end
+
+			if vmt.phong == 1 then
+				local ranges = vmt.phongfresnelranges
+				f0 = math.max(
+					f0,
+					math.min(0.04 * (vmt.phongboost or 1) * (ranges and ranges.x or 0), PHONG_MAX_F0)
+				)
+			end
+
+			self:SetSpecularMultiplier(f0 / 0.04)
+			self:SetSpecularSolvesMetallic(true)
+			self:SetSpecularFromRoughnessMask(self:HasExplicitRoughnessTexture())
+		end
 
 		if vmt.selfillum == 1 then
 			if vmt.selfillumtint then

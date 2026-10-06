@@ -1754,6 +1754,21 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
 				} else if (aux_model.SpecularTexture != -1) {
 					return dot(texture(TEXTURE(aux_model.SpecularTexture), uv).rgb, vec3(0.2126, 0.7152, 0.0722));
+				} else if (SpecularFromRoughnessMask) {
+					// a source envmap or phong mask, 1 is shiny unless it is inverted
+					float mask = 1.0;
+
+					if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
+						mask = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
+					} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
+						mask = texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a;
+					} else if (AlbedoLuminanceIsRoughness) {
+						mask = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
+					} else if (aux_model.RoughnessTexture != -1) {
+						mask = texture(TEXTURE(aux_model.RoughnessTexture), uv).r;
+					}
+
+					return InvertRoughnessTexture ? mask : 1.0 - mask;
 				}
 
 				return 1.0;
@@ -1784,7 +1799,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
 					val = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
 				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
-					val = -texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a + 1.0;
+					val = texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a;
 				} else if (AlbedoLuminanceIsRoughness) {
 					val = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
 				} else if (aux_model.RoughnessTexture != -1) {
