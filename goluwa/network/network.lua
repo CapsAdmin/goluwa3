@@ -18,6 +18,7 @@ function network.Initialize()
 	transport_layer.Initialize()
 	message.Initialize()
 	clients.Initialize()
+	import("goluwa/entities/components/network.lua")
 
 	packet.ExtendBuffer("Entity", function(buffer, ent)
 		import("goluwa/entities/components/network.lua").WriteEntity(buffer, ent)
