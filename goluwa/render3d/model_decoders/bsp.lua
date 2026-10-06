@@ -2322,7 +2322,15 @@ function steam.SpawnMapEntities(path, parent)
 					ent.spawned_from_bsp = true
 					ent.bsp_info = info
 				elseif info.classname == "env_fog_controller" then
-
+					-- the master controller is the one in effect when the map starts
+					if
+						bit.band(tonumber(info.spawnflags) or 0, 1) ~= 0 and
+						tonumber(info.fogenable) == 1
+					then
+						import("goluwa/render3d/weather.lua").SetVisibility(info.fogend * steam.source2meters * FOG_DISTANCE_SCALE)
+						local color = info.fogcolor
+						import("goluwa/render3d/atmosphere.lua").SetFogColor(Vec3(color.r ^ 2.2, color.g ^ 2.2, color.b ^ 2.2) / math.max(color.r, color.g, color.b, 1e-4) ^ 2.2 * FOG_TINT_STRENGTH)
+					end
 				end
 			end
 

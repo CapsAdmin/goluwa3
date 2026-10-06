@@ -325,7 +325,8 @@ local scatter_pass = {
 			float mu = dot(ray_dir, sun_dir);
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(fog_point, sun_dir) * get_fog_sun_visibility(world_pos, sun_dir);
 			vec3 ambient = get_ambient(world_pos, uv, fog_origin, froxel_hash(uvec3(seed, id.z, 7u)));
-			vec3 scattering = (ambient + sun * henyey_greenstein_phase(mu, SCENERY_FOG_MIE_G)) * fog_extinction;
+			vec3 fog_tint = ATMOSPHERE_FOG_COLOR.w > 0.5 ? ATMOSPHERE_FOG_COLOR.rgb : vec3(1.0);
+			vec3 scattering = (ambient + sun * henyey_greenstein_phase(mu, SCENERY_FOG_MIE_G)) * fog_tint * fog_extinction;
 			scattering += ambient * air_scattering + sun * (RAYLEIGH_BETA * (density_r * rayleigh_phase(mu)) + vec3(MIE_BETA * density_m * mie_phase(mu))) * per_meter;
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos) * fog_extinction;
