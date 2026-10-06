@@ -84,9 +84,7 @@ return function(props)
 			PhysicsNoCollision = true,
 			Position = spawn_world_position,
 			Material = {
-				Color = kind == "sphere" and
-					{r = 0.28, g = 0.65, b = 0.92, a = 1} or
-					{r = 0.9, g = 0.62, b = 0.24, a = 1},
+				Color = kind == "sphere" and Color(0.28, 0.65, 0.92, 1) or Color(0.9, 0.62, 0.24, 1),
 			},
 		}
 		local entity = kind == "sphere" and shapes.Sphere(config) or shapes.Box(config)
