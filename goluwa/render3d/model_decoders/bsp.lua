@@ -2024,7 +2024,9 @@ function steam.LoadMap(path)
 							local v_axis = Vec3(vecs[5], vecs[6], vecs[7])
 							v_axis = (
 								v_axis - u_axis * u_axis:Dot(v_axis) - normal * normal:Dot(v_axis)
-							):GetNormalized()(face.dispinfo == -1 and add_decal_fragment or add_displacement_decal)(
+							):GetNormalized()
+							local add_fragment = face.dispinfo == -1 and add_decal_fragment or add_displacement_decal
+							add_fragment(
 								face.dispinfo == -1 and world.firstface + i - 1 or {world.firstface + i - 1},
 								ent.origin,
 								normal,
