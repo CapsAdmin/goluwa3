@@ -170,7 +170,7 @@ return function(props)
 				Panel.World.transform:GetSize() or
 				Vec2()
 			local _, dropdown_y = dropdown.transform:GetWorldMatrix():GetTranslation()
-			local available_below = math.max(0, world_size.y - (dropdown_y + dropdown.transform:GetHeight()))
+			local available_below = math.max(dropdown_y, world_size.y - (dropdown_y + dropdown.transform:GetHeight()))
 			local effective_search_gap = use_search and search_gap or 0
 			local effective_search_input_height = use_search and search_input_height or 0
 			local body_height = use_search and search_body_height or scroll_threshold

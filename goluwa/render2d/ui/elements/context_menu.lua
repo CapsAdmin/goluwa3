@@ -47,6 +47,11 @@ function META:OnCreate(props)
 	end)
 
 	self:AddLocalListener("OnDraw", function(self)
+		local w, h = render2d.GetSize()
+		local size = self.transform:GetSize()
+
+		if size.x ~= w or size.y ~= h then self.transform:SetSize(Vec2(w, h)) end
+
 		for _, menu in ipairs(self:GetChildren()) do
 			self:updateMenuPosition(menu)
 		end
@@ -128,7 +133,9 @@ do
 				x = math.max(0, world_size.x - menu_size.x)
 			end
 
-			if y + menu_size.y > world_size.y then y = math.max(0, ay - menu_size.y) end
+			if y + menu_size.y > world_size.y and ay > world_size.y - y then
+				y = ay - menu_size.y
+			end
 		end
 
 		return Vec2(math.max(0, x), math.max(0, y))
@@ -148,7 +155,12 @@ do
 			)
 		end
 
-		menu.transform:SetPosition(position)
+		menu.transform:SetPosition(
+			Vec2(
+				math.max(0, math.min(position.x, world_size.x - menu_size.x)),
+				math.max(0, math.min(position.y, world_size.y - menu_size.y))
+			)
+		)
 	end
 end
 
