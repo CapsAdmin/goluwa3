@@ -15,6 +15,7 @@ T.Test("usercmd round trips through a packet buffer", function()
 	cmd.mode = "walk"
 	cmd.fov = 1.2
 	cmd.scroll = -3
+	cmd.select = 4
 	local buffer = packet.CreateBuffer()
 	usercmd.Write(buffer, cmd)
 	buffer:SetPosition(1)
@@ -26,6 +27,7 @@ T.Test("usercmd round trips through a packet buffer", function()
 	T(out.buttons)["=="](bit.bor(BUTTON.JUMP, BUTTON.CROUCH))
 	T(out.mode)["=="]("walk")
 	T(out.scroll)["=="](-3)
+	T(out.select)["=="](4)
 	T(math.abs(out.fov - 1.2))["<"](0.0001)
 	T(math.abs(out.view:Dot(cmd.view) - 1))["<"](0.00001)
 end)

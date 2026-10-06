@@ -28,6 +28,7 @@ function usercmd.New()
 		scroll = 0,
 		rotate_x = 0,
 		rotate_y = 0,
+		select = 0,
 	}
 end
 
@@ -45,6 +46,7 @@ function usercmd.Copy(cmd)
 	out.scroll = cmd.scroll
 	out.rotate_x = cmd.rotate_x
 	out.rotate_y = cmd.rotate_y
+	out.select = cmd.select
 	return out
 end
 
@@ -76,6 +78,7 @@ function usercmd.Write(buffer, cmd)
 	buffer:WriteByte(math.floor(math.clamp(cmd.scroll, -127, 127) + 128))
 	buffer:WriteI16(math.floor(math.clamp(cmd.rotate_x, -30, 30) * 1000 + 0.5))
 	buffer:WriteI16(math.floor(math.clamp(cmd.rotate_y, -30, 30) * 1000 + 0.5))
+	buffer:WriteByte(cmd.select)
 end
 
 function usercmd.Read(buffer, out)
@@ -91,6 +94,7 @@ function usercmd.Read(buffer, out)
 	out.scroll = buffer:ReadByte() - 128
 	out.rotate_x = buffer:ReadI16() / 1000
 	out.rotate_y = buffer:ReadI16() / 1000
+	out.select = buffer:ReadByte()
 	return out
 end
 

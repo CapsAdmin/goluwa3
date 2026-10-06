@@ -23,20 +23,37 @@ function META:SetRotation(rotation)
 	self.Rotation = rotation:Copy()
 end
 
+local SLOT_KEYS = {"1", "2", "3", "4", "5", "6", "7", "8", "9"}
+
 function META:Initialize()
 	self:SetRotation(self.Rotation or Quat():Identity())
 	self.look_delta = Vec2()
 	self.look_nudge = Vec2()
 	self.move_local = Vec3()
 	self.mouse_trapped = false
-	self.roll_mode = false
 	self.crouching = false
 	self.jump_down = false
 	self.sprint_down = false
 	self.scroll_accum = 0
 	self.rotate_accum = Vec2()
+	self.select_slot = 0
+	self.select_down = {}
+	self.wheel_accum = 0
 	self:RefreshKeys()
 	self:AddGlobalEvent("Update", {priority = 100})
+	self:AddGlobalEvent("MouseInput")
+end
+
+function META:OnMouseInput(key, press)
+	if not press or not (self:IsReceivingInput() and self.mouse_trapped) then
+		return
+	end
+
+	if key == "mwheel_down" then
+		self.wheel_accum = self.wheel_accum + 1
+	elseif key == "mwheel_up" then
+		self.wheel_accum = self.wheel_accum - 1
+	end
 end
 
 function META:RefreshKeys()
@@ -157,6 +174,8 @@ function META:BuildCommand(cmd)
 	cmd.scroll = self.scroll_accum
 	cmd.rotate_x = self.rotate_accum.x
 	cmd.rotate_y = self.rotate_accum.y
+	cmd.select = self.select_slot
+	self.select_slot = 0
 	self.scroll_accum = 0
 	self.rotate_accum.x = 0
 	self.rotate_accum.y = 0
@@ -169,7 +188,6 @@ function META:OnUpdate(dt)
 	self.look_nudge = Vec2()
 	local window = system.GetWindow()
 	self.mouse_trapped = window:GetMouseTrapped() and not window:HasMouseTrapRequests()
-	self.roll_mode = input.IsMouseDown("button_2")
 
 	if input.IsKeyDown("left") then
 		self.look_nudge.x = self.look_nudge.x - dt
@@ -185,10 +203,34 @@ function META:OnUpdate(dt)
 
 	local controller = self.Owner.player_controller
 
-	if input.WasMousePressed("mwheel_down") then
-		self.scroll_accum = self.scroll_accum + 1
-	elseif input.WasMousePressed("mwheel_up") then
-		self.scroll_accum = self.scroll_accum - 1
+	for slot = 1, 9 do
+		local down = input.IsKeyDown(SLOT_KEYS[slot])
+
+		if down and not self.select_down[slot] then self.select_slot = slot end
+
+		self.select_down[slot] = down
+	end
+
+	local wheel = self.wheel_accum
+	self.wheel_accum = 0
+
+	if wheel ~= 0 then
+		if controller and controller:IsHolding() then
+			self.scroll_accum = self.scroll_accum + wheel
+		else
+			local holder = self.Owner.weapon_holder
+			local slot = self.select_slot
+
+			if slot == 0 then slot = holder:GetActiveSlot() end
+
+			local direction = wheel > 0 and 1 or -1
+
+			for _ = 1, math.abs(wheel) do
+				slot = holder:CycleSlot(slot, direction)
+			end
+
+			self.select_slot = slot
+		end
 	end
 
 	if
@@ -213,13 +255,9 @@ function META:OnCameraInputUpdate(dt)
 	local rotation = self:GetRotation():Copy()
 	local mouse_delta = (self.look_delta + self.look_nudge * self.ArrowLookSpeed) * self.MouseSensitivity
 	mouse_delta = mouse_delta * (self.FOV / 175)
+	local weapon = self.Owner.weapon_holder:GetActiveWeapon()
 
-	if self.roll_mode then
-		rotation:RotateRoll(mouse_delta.x)
-		self:SetRotation(rotation)
-		self:SetFOV(
-			math.clamp(self.FOV + mouse_delta.y * 10 * (self.FOV / math.pi), self.MinFOV, self.MaxFOV)
-		)
+	if weapon and weapon:CallLocalEvent("WeaponMouseLook", self, mouse_delta) then
 		return
 	end
 

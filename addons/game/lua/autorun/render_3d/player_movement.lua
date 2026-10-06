@@ -22,7 +22,8 @@ local rig = Entity.New{
 		"player_input",
 		"player_controller",
 		"player_movement",
-		"player_physgun",
+		"weapon_holder",
+		"player_avatar",
 	},
 	camera = {
 		Active = true,
@@ -35,6 +36,9 @@ local rig = Entity.New{
 	},
 }
 _G.PLAYER_RIG = rig
+rig.weapon_holder:Give("weapon_camera")
+rig.weapon_holder:Give("weapon_physgun")
+rig.weapon_holder:Give("weapon_pistol")
 rig.transform:SetPosition(cam:GetPosition():Copy())
 rig.player_input:SyncFromCamera(cam)
 system.GetWindow():SetMouseTrapped(true)

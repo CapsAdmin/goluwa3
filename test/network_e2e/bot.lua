@@ -33,6 +33,10 @@ event.AddListener("CreateMove", "e2e_bot", function(owner, cmd)
 
 	cmd.view = QuatDeg3(-15, math.floor(elapsed / 1.5) * 90, 0)
 
+	if elapsed > 0.3 and elapsed < 3 then cmd.select = 1 end
+
+	if elapsed > 3 then cmd.select = 2 end
+
 	if elapsed > 1.2 and elapsed < 3.2 then
 		cmd.forward = 1
 		cmd.side = math.floor(elapsed) % 2 == 0 and 1 or 0

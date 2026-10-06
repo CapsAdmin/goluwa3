@@ -22,6 +22,11 @@ local checks = {}
 local passed = false
 local crate_lifted = false
 local crate_max_y = 0
+local held_seen = false
+local held_distance = 0
+local saw_physgun = false
+local weapon_names = {}
+local active_name = "none"
 
 local function find(name)
 	for id = 1, 16 do
@@ -30,6 +35,12 @@ local function find(name)
 		if component and component.Owner:GetName() == name then
 			return component.Owner
 		end
+	end
+end
+
+local function find_avatar()
+	for _, component in pairs(NetworkComponent.GetAllNetworked()) do
+		if component.Owner.player_avatar then return component.Owner end
 	end
 end
 
@@ -81,6 +92,31 @@ event.AddListener("Update", "e2e_observer", function()
 
 	local child = find("replicated_child")
 	checks.child = child ~= nil and child:GetParent():GetName() == "replicated_prop"
+	local avatar = find_avatar()
+
+	if avatar then
+		local active
+		weapon_names = {}
+
+		for _, child in ipairs(avatar:GetChildren()) do
+			if child.weapon then
+				weapon_names[#weapon_names + 1] = child:GetName()
+
+				if child.weapon:IsActive() then active = child end
+			end
+		end
+
+		table.sort(weapon_names)
+		active_name = active and active:GetName() or "none"
+
+		if active_name == "weapon_physgun" then saw_physgun = true end
+
+		if avatar.player_avatar:IsHolding() and crate then
+			held_seen = true
+			held_distance = (crate.transform:GetPosition() - avatar.transform:GetPosition()):GetLength()
+		end
+	end
+
 	local all = true
 
 	for _, key in ipairs{"ground", "ball", "light", "prop", "child"} do
@@ -92,12 +128,6 @@ end)
 
 local started = system.GetTime()
 local finished = false
-
-local function find_avatar()
-	for _, component in pairs(NetworkComponent.GetAllNetworked()) do
-		if component.Owner.player_avatar then return component.Owner end
-	end
-end
 
 local function finish(timed_out)
 	finished = true
@@ -112,18 +142,19 @@ local function finish(timed_out)
 	if avatar then
 		local p = avatar.transform:GetPosition()
 		lines[#lines + 1] = string.format("OBSERVER_AVATAR x=%.3f y=%.3f z=%.3f", p.x, p.y, p.z)
-		local crate = find("e2e_crate")
-
-		if crate then
-			local distance = (crate.transform:GetPosition() - p):GetLength()
-			lines[#lines + 1] = string.format(
-				"OBSERVER_CRATE lifted=%s distance=%.3f max_y=%.3f holding=%s",
-				tostring(crate_lifted),
-				distance,
-				crate_max_y,
-				tostring(avatar.player_avatar:IsHolding())
-			)
-		end
+		lines[#lines + 1] = string.format(
+			"OBSERVER_WEAPONS list=%s physgun=%s active=%s",
+			table.concat(weapon_names, ","),
+			tostring(saw_physgun),
+			active_name
+		)
+		lines[#lines + 1] = string.format(
+			"OBSERVER_CRATE lifted=%s distance=%.3f max_y=%.3f holding=%s",
+			tostring(crate_lifted),
+			held_distance,
+			crate_max_y,
+			tostring(held_seen)
+		)
 	end
 
 	lines[#lines + 1] = string.format("OBSERVER_RELAY batches=%d last=%d", relayed, relay_numbers)

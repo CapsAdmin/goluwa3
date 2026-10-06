@@ -10,12 +10,14 @@ local META = objects.CreateTemplate("player_avatar")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
 	Holding = {"boolean", 0.1, "reliable"},
-	HoldPoint = {"vec3", 1 / 20, "sequenced", true},
+	Firing = {"boolean", 0.1, "reliable"},
+	BeamPoint = {"vec3", 1 / 20, "sequenced", true},
 	ViewRotation = {"quat", 1 / 20, "sequenced", true},
 }
 META:IsSet("Crouching", false)
 META:IsSet("Holding", false)
-META:GetSet("HoldPoint", Vec3(0, 0, 0))
+META:IsSet("Firing", false)
+META:GetSet("BeamPoint", Vec3(0, 0, 0))
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
 local UNIT = steam.source2meters
 local RADIUS = 16 * UNIT
@@ -27,6 +29,9 @@ local MARKER_HEIGHT = 0.55
 local down = QuatFromAxis(math.pi, Vec3(0, 0, 1))
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local BEAM_THICKNESS = 0.03
+local BEAM_ALPHA = 0.4
+local WEAPON_RAISE = 0.12
+local WEAPON_FORWARD = 0.12
 
 local function rotation_between(from, to)
 	local axis = from:GetCross(to)
@@ -74,7 +79,10 @@ event.AddListener("RemotePlayerCommands", "player_avatar", function(owner, comma
 end)
 
 function META:OnAdd()
-	if CLIENT and RENDER_3D then self:Build(self.Owner.network:GetNetworkOwner()) end
+	if CLIENT and RENDER_3D then
+		local network = self.Owner.network
+		self:Build(network and network:GetNetworkOwner() or "local")
+	end
 end
 
 function META:Build(owner_id)
@@ -92,11 +100,18 @@ function META:Build(owner_id)
 		AlbedoAlphaIsEmissive = true,
 		EmissiveMultiplier = Color(1, 1, 1, 6),
 	}
+	local beam_material = shapes.Material{
+		Color = Color(color.r, color.g, color.b, BEAM_ALPHA),
+		Roughness = 0.4,
+		Metallic = 0,
+		Translucent = true,
+	}
 	local visor_material = shapes.Material{
 		Color = Color(0.05, 0.05, 0.06, 1),
 		Roughness = 0.1,
 		Metallic = 0.6,
 	}
+	self.first_person = false
 	self.body = shapes.Capsule{
 		Name = "player_body",
 		Radius = RADIUS,
@@ -104,6 +119,7 @@ function META:Build(owner_id)
 		Material = body_material,
 		Collision = false,
 		RigidBody = false,
+		PhysicsNoCollision = true,
 	}
 	self.visor = shapes.Box{
 		Name = "player_visor",
@@ -111,20 +127,23 @@ function META:Build(owner_id)
 		Material = visor_material,
 		Collision = false,
 		RigidBody = false,
+		PhysicsNoCollision = true,
 	}
 	self.marker = shapes.Cone{
 		Name = "player_marker",
 		Radius = 0.14,
 		Height = 0.3,
 		Material = glow_material,
+		PhysicsNoCollision = true,
 	}
 	self.marker.transform:SetRotation(down)
 	self.beam = shapes.Box{
 		Name = "player_beam",
 		Size = Vec3(BEAM_THICKNESS, BEAM_THICKNESS, 1),
-		Material = glow_material,
+		Material = beam_material,
 		Collision = false,
 		RigidBody = false,
+		PhysicsNoCollision = true,
 	}
 	self.beam.visual:SetVisible(false)
 	local light = self.marker:AddComponent("light_point")
@@ -141,33 +160,47 @@ function META:Build(owner_id)
 	end)
 end
 
+function META:SetFirstPerson(first_person)
+	if self.first_person == first_person then return end
+
+	self.first_person = first_person
+	self.body.visual:SetVisible(not first_person)
+	self.visor.visual:SetVisible(not first_person)
+	self.marker.visual:SetVisible(not first_person)
+end
+
 function META:OnUpdate(dt)
-	local controller = self.Owner.player_controller
+	local owner = self.Owner
+	local controller = owner.player_controller
 
 	if controller then
 		self:SetViewRotation(controller.cmd.view:Copy())
 		self:SetCrouching(self.Owner.player_movement:IsCrouching())
-		local physgun = self.Owner.player_physgun
-		local holding = physgun ~= nil and
-			physgun.held_body ~= nil and
-			physgun:CanHoldBody(physgun.held_body)
-		self:SetHolding(holding)
+		local beam_point = owner.weapon_holder:GetBeamPoint()
+		self:SetHolding(controller:IsHolding())
+		self:SetFiring(beam_point ~= nil)
 
-		if holding then self:SetHoldPoint(physgun:GetHoldPoint()) end
-
-		return
+		if beam_point then self:SetBeamPoint(beam_point) end
 	end
 
 	if not self.body then return end
 
-	local transform = self.Owner.transform
-	local position = transform:GetPosition()
-	local rotation = self:GetViewRotation()
-	local relay = self.relay_cmd
+	local camera = owner.camera
+	local rotation
+	local eye
 
-	if relay and system.GetTime() - self.relay_time < RELAY_FRESH then
-		rotation = relay.view
-		self:SetCrouching(usercmd.HasButton(relay, usercmd.BUTTON.CROUCH))
+	if camera then
+		rotation = owner.player_input:GetRotation()
+		eye = camera:GetViewPosition()
+		self:SetFirstPerson(not camera:IsThirdPerson())
+	else
+		rotation = self:GetViewRotation()
+		local relay = self.relay_cmd
+
+		if relay and system.GetTime() - self.relay_time < RELAY_FRESH then
+			rotation = relay.view
+			self:SetCrouching(usercmd.HasButton(relay, usercmd.BUTTON.CROUCH))
+		end
 	end
 
 	self.crouch_alpha = self.crouch_alpha + (
@@ -178,7 +211,11 @@ function META:OnUpdate(dt)
 			) - self.crouch_alpha
 		) * math.min(dt * 12, 1)
 	local height = math.lerp(self.crouch_alpha, HEIGHT, CROUCH_HEIGHT)
-	local eye = position + Vec3(0, math.lerp(self.crouch_alpha, EYE_ABOVE_CENTER, CROUCH_EYE_ABOVE_CENTER), 0)
+	local eye_above = Vec3(0, math.lerp(self.crouch_alpha, EYE_ABOVE_CENTER, CROUCH_EYE_ABOVE_CENTER), 0)
+
+	if not camera then eye = owner.transform:GetPosition() + eye_above end
+
+	local position = eye - eye_above
 	local squash = height / HEIGHT
 	self.body.transform:SetPosition(position)
 	self.body.transform:SetScale(Vec3(1, squash, 1))
@@ -186,20 +223,39 @@ function META:OnUpdate(dt)
 	self.visor.transform:SetRotation(rotation)
 	local bob = math.sin(system.GetElapsedTime() * 2.5) * 0.06
 	self.marker.transform:SetPosition(eye + Vec3(0, MARKER_HEIGHT + bob, 0))
-	local holding = self:IsHolding()
+	local muzzle
+	local weapon_position = position + Vec3(0, WEAPON_RAISE, 0) + rotation:GetForward() * WEAPON_FORWARD
 
-	if holding ~= self.beam_visible then
-		self.beam_visible = holding
-		self.beam.visual:SetVisible(holding)
+	for _, child in ipairs(owner:GetChildren()) do
+		local weapon = child.weapon
+
+		if weapon then
+			local active = weapon:IsActive()
+			weapon:UpdateModel(
+				active and not (self.first_person and weapon:IsHiddenInFirstPerson()),
+				weapon_position,
+				rotation
+			)
+
+			if active then
+				muzzle = weapon_position + rotation:GetForward() * weapon:GetMuzzleDistance()
+			end
+		end
 	end
 
-	if holding then
-		local origin = eye + rotation:GetForward() * 0.3 + rotation:GetRight() * 0.15 - rotation:GetUp() * 0.12
-		local offset = self:GetHoldPoint() - origin
+	local firing = self:IsFiring()
+
+	if firing ~= self.beam_visible then
+		self.beam_visible = firing
+		self.beam.visual:SetVisible(firing)
+	end
+
+	if firing and muzzle then
+		local offset = self:GetBeamPoint() - muzzle
 		local length = offset:GetLength()
 
 		if length > 0.01 then
-			self.beam.transform:SetPosition(origin + offset * 0.5)
+			self.beam.transform:SetPosition(muzzle + offset * 0.5)
 			self.beam.transform:SetRotation(rotation_between(FORWARD, offset / length))
 			self.beam.transform:SetScale(Vec3(1, 1, length))
 		end

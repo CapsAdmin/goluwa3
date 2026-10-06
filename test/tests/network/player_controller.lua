@@ -7,7 +7,11 @@ local physics = import("goluwa/physics.lua")
 local BUTTON = usercmd.BUTTON
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
-Entity.RegisterComponent("player_physgun", import("lua/components/player_physgun.lua"))
+Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
+Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
+Entity.RegisterComponent("weapon_physgun", import("lua/components/weapon_physgun.lua"))
+Entity.RegisterComponent("weapon_pistol", import("lua/components/weapon_pistol.lua"))
+Entity.RegisterComponent("weapon_camera", import("lua/components/weapon_camera.lua"))
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 
 local function create_ground()
@@ -281,10 +285,11 @@ end)
 T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies from commands", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "player_movement", "player_physgun"},
+		ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
+	local physgun_entity = player.weapon_holder:Give("weapon_physgun")
 	player.player_controller.buffer_target = 1
 	local crate = Entity.New{
 		transform = {Position = Vec3(0, 0.5, -4)},
@@ -296,7 +301,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 	end)
 
 	local controller = player.player_controller
-	local physgun = player.player_physgun
+	local physgun = physgun_entity.weapon_physgun
 	T(controller:IsHolding())["=="](false)
 
 	drive(player, 5, function(cmd)
@@ -350,10 +355,11 @@ end)
 T.TestPhysics("player physgun releases when the primary button is released", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "player_movement", "player_physgun"},
+		ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
+	local physgun_entity = player.weapon_holder:Give("weapon_physgun")
 	player.player_controller.buffer_target = 1
 	local ball = Entity.New{
 		transform = {Position = Vec3(0, 0.5, -4)},
@@ -369,16 +375,84 @@ T.TestPhysics("player physgun releases when the primary button is released", fun
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 	end)
 
-	T(player.player_physgun.held_body ~= nil)["=="](true)
+	T(physgun_entity.weapon_physgun.held_body ~= nil)["=="](true)
 
 	drive(player, 3, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
 	end)
 
-	T(player.player_physgun.held_body == nil)["=="](true)
+	T(physgun_entity.weapon_physgun.held_body == nil)["=="](true)
 	T(player.player_controller:IsHolding())["=="](false)
 	T(ball.rigid_body:GetCollisionGroup())["=="](1)
 	ball:Remove()
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodies", function()
+	local ground = create_ground()
+	local player = Entity.New{
+		ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
+		transform = {Position = Vec3(0, 3, 0)},
+		player_controller = {Source = "queue"},
+	}
+	player.player_controller.buffer_target = 1
+	local holder = player.weapon_holder
+	local camera = holder:Give("weapon_camera")
+	local physgun = holder:Give("weapon_physgun")
+	local pistol = holder:Give("weapon_pistol")
+	local crate = Entity.New{
+		transform = {Position = Vec3(0, 0.5, -4)},
+		rigid_body = {Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+
+	drive(player, 90, function(cmd)
+		cmd.view = QuatDeg3(-15, 0, 0)
+	end)
+
+	T(#holder:GetWeapons())["=="](3)
+	T(holder:GetActiveWeapon() == camera)["=="](true)
+
+	drive(player, 1, function(cmd)
+		cmd.select = 1
+	end)
+
+	T(holder:GetActiveWeapon() == physgun)["=="](true)
+
+	drive(player, 5, function(cmd)
+		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
+	end)
+
+	T(physgun.weapon_physgun.held_body == crate.rigid_body)["=="](true)
+
+	drive(player, 1, function(cmd)
+		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.select = 2
+	end)
+
+	T(holder:GetActiveWeapon() == pistol)["=="](true)
+	T(physgun.weapon_physgun.held_body == nil)["=="](true)
+	T(player.player_controller:IsHolding())["=="](false)
+	T(crate.rigid_body:GetCollisionGroup())["=="](1)
+	local eye = player.transform:GetPosition() + player.player_movement:GetViewOffset()
+	crate:Remove()
+	crate = Entity.New{
+		transform = {Position = Vec3(0, eye.y, -6)},
+		rigid_body = {Shape = BoxShape.New(Vec3(1, 1, 1)), GravityScale = 0},
+	}
+
+	drive(player, 2, function(cmd)
+		cmd.view = QuatDeg3(0, 0, 0)
+	end)
+
+	drive(player, 1, function(cmd)
+		cmd.view = QuatDeg3(0, 0, 0)
+		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
+	end)
+
+	T(crate.rigid_body:GetVelocity().z)["<"](-0.5)
+	crate:Remove()
 	player:Remove()
 	ground:Remove()
 end)

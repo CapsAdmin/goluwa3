@@ -2,6 +2,20 @@ local objects = import("goluwa/objects/objects.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
+local pvars = import("goluwa/cli/pvars.lua")
+local third_person = pvars.Setup("cl_thirdperson", false, nil, "over the shoulder camera, client side only")
+local THIRD_PERSON_DISTANCE = 2.4
+local THIRD_PERSON_SHOULDER = 0.55
+local THIRD_PERSON_LIFT = 0.15
+local THIRD_PERSON_RADIUS = 0.15
+local THIRD_PERSON_MARGIN = 0.1
+local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = true}
+
+local function is_static_geometry(entity)
+	local body = entity.rigid_body
+	return body ~= nil and body:IsStatic()
+end
+
 local META = objects.CreateTemplate("camera")
 META:GetSet("Active", false)
 META:GetSet("Priority", 0)
@@ -59,6 +73,10 @@ function META:Initialize()
 	self:SetActive(self.Active)
 end
 
+function META:IsThirdPerson()
+	return third_person:Get()
+end
+
 function META:OnUpdate()
 	local transform = self.Owner.transform
 	local view = self.view
@@ -66,15 +84,37 @@ function META:OnUpdate()
 
 	if movement then self:SetViewOffset(movement:GetViewOffset()) end
 
-	view:SetPosition(self:GetViewPosition())
+	local position = self:GetViewPosition()
 	local look = self.Owner.player_input
 
 	if look then
-		view:SetRotation(look:GetRotation():Copy())
+		local rotation = look:GetRotation()
+		view:SetRotation(rotation:Copy())
 		view:SetFOV(look:GetFOV())
+
+		if third_person:Get() then
+			local offset = rotation:GetForward() * -THIRD_PERSON_DISTANCE + rotation:GetRight() * THIRD_PERSON_SHOULDER + rotation:GetUp() * THIRD_PERSON_LIFT
+			local length = offset:GetLength()
+			local hit = physics.Sweep(
+				position,
+				offset,
+				THIRD_PERSON_RADIUS,
+				self.Owner,
+				is_static_geometry,
+				TRACE_OPTIONS
+			)
+
+			if hit then
+				offset = offset * (math.max(hit.distance - THIRD_PERSON_MARGIN, 0) / length)
+			end
+
+			position = position + offset
+		end
 	else
 		view:SetRotation(transform:GetRotation():Copy())
 	end
+
+	view:SetPosition(position)
 end
 
 function META:OnRemove()

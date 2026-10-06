@@ -181,6 +181,16 @@ local function verify(scenario, observer_output, bot_output)
 			tonumber(crate_distance) < 6,
 		"the held crate was " .. tostring(crate_distance) .. " m from the player"
 	)
+	local list, saw_physgun, active = observer_output:match("OBSERVER_WEAPONS list=([%w_,]+) physgun=(%a+) active=([%w_]+)")
+	check(
+		list == "weapon_camera,weapon_physgun,weapon_pistol",
+		"the weapon children were not replicated: " .. tostring(list)
+	)
+	check(saw_physgun == "true", "the physgun was never the replicated active weapon")
+	check(
+		active == "weapon_pistol",
+		"the slot switch did not replicate, active weapon: " .. tostring(active)
+	)
 	local batches, last = observer_output:match("OBSERVER_RELAY batches=(%d+) last=(%d+)")
 	check(
 		tonumber(batches) and tonumber(batches) > 30,
