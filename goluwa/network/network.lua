@@ -262,6 +262,39 @@ do
 				end)
 			end
 		end)
+
+		local function count_players(except)
+			local count = 0
+
+			for _, other in ipairs(clients.GetAll()) do
+				if not other:IsBot() and other ~= except then count = count + 1 end
+			end
+
+			return count
+		end
+
+		event.AddListener("ClientEntered", "network_announce", function(client)
+			if client:IsBot() then return end
+
+			llog(
+				"%s joined (%s), %d player(s) online",
+				client:GetNick(),
+				client:GetUniqueID(),
+				count_players()
+			)
+		end)
+
+		event.AddListener("ClientLeft", "network_announce", function(client, reason)
+			if client:IsBot() then return end
+
+			llog(
+				"%s left (%s): %s, %d player(s) online",
+				client:GetNick(),
+				client:GetUniqueID(),
+				reason,
+				count_players(client)
+			)
+		end)
 	end
 
 	do
@@ -473,8 +506,11 @@ do
 		commands.Add("host=string|nil,number|nil", function(ip, port)
 			ip = ip or ip_cvar:Get()
 			port = tonumber(port) or tonumber(os.getenv("GOLUWA_PORT")) or port_cvar:Get()
+			local ok, err = pcall(network.Host, ip, port)
+
+			if not ok then commands.RaiseUserError(err) end
+
 			logf("hosting at %s:%i\n", ip, port)
-			network.Host(ip, port)
 		end)
 	end
 

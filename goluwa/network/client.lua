@@ -87,7 +87,7 @@ end
 
 if SERVER then
 	local reasons = {
-		[0] = "timeout / unknown reason",
+		[0] = "timed out or connection lost",
 		[1] = "disconnected",
 	}
 

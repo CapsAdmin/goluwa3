@@ -55,6 +55,10 @@ function chat.Append(var, str, skip_log)
 end
 
 if CLIENT then
+	message.AddListener("chat_notice", function(str)
+		chat.Append("server", str)
+	end)
+
 	message.AddListener("say", function(client, str, seed)
 		chat.ClientSay(client, str, seed)
 	end)
@@ -96,6 +100,22 @@ if SERVER then
 		message.Broadcast("say", NULL, str)
 		chat.Append(NULL, str)
 	end
+
+	function chat.Announce(str)
+		message.Broadcast("chat_notice", str)
+	end
+
+	event.AddListener("ClientEntered", "chat_announce", function(client)
+		if client:IsBot() then return end
+
+		chat.Announce(getnick(client) .. " joined the game")
+	end)
+
+	event.AddListener("ClientLeft", "chat_announce", function(client, reason)
+		if client:IsBot() then return end
+
+		chat.Announce(getnick(client) .. " left the game (" .. tostring(reason) .. ")")
+	end)
 end
 
 if CLIENT then
