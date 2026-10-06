@@ -888,6 +888,23 @@ do
 		self.cry_public_params = {}
 
 		do
+			local lines = {"path: " .. tostring(material_path), "shader: " .. shader}
+			local keys = {}
+
+			for key in pairs(attrs) do
+				keys[#keys + 1] = key
+			end
+
+			table.sort(keys)
+
+			for _, key in ipairs(keys) do
+				lines[#lines + 1] = key .. " = " .. tostring(attrs[key])
+			end
+
+			self:SetOriginalMaterial(table.concat(lines, "\n"))
+		end
+
+		do
 			local public_params = find_child_by_tag(material_node, "PublicParams")
 
 			if public_params and public_params.attrs then
@@ -1465,6 +1482,29 @@ do
 			self:SetRoughnessMultiplier(0.04)
 			self:SetSpecularMultiplier(1)
 		end
+
+		local color = self.ColorMultiplier
+		local flags = {}
+
+		for _, name in ipairs{"Additive", "Modulate", "Translucent", "AlphaTest", "DoubleSided", "NoDraw"} do
+			if self[name] then flags[#flags + 1] = name end
+		end
+
+		self:SetOriginalMaterial(
+			string.format(
+				"path: %s\nfile: %s\nshader: %s\nbasetexture: %s\nflags: %s\ncolor multiplier: %.3f %.3f %.3f %.3f\n\n%s",
+				tostring(vmt.fullpath),
+				tostring(vmt.resolved_path),
+				tostring(vmt.shader),
+				tostring(vmt.basetexture),
+				table.concat(flags, " "),
+				color.r,
+				color.g,
+				color.b,
+				color.a,
+				tostring(vmt.source_text)
+			)
+		)
 	end
 
 	local special_textures = {

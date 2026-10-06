@@ -80,7 +80,8 @@ return function(steam)
 				return
 			end
 
-			local vmt, err = steam.VDFToTable(vfs.Read(resolved_path), "vmt")
+			local source_text = vfs.Read(resolved_path)
+			local vmt, err = steam.VDFToTable(source_text, "vmt")
 
 			if err then
 				on_error(path .. " steam.VDFToTable : " .. err)
@@ -139,6 +140,8 @@ return function(steam)
 			vmt = v
 			convert_typed_values(vmt)
 			vmt.fullpath = path
+			vmt.resolved_path = resolved_path
+			vmt.source_text = source_text
 			vmt.shader = k
 
 			for k, v in pairs(vmt) do

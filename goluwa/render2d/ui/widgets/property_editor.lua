@@ -980,6 +980,7 @@ return function(props)
 			Min = info.min,
 			Max = info.max,
 			ShowSlider = info.slider,
+			Multiline = info.multiline,
 		}
 		local display_type = node_type
 
