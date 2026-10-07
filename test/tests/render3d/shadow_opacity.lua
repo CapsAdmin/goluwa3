@@ -6,7 +6,7 @@ local Visual = import("goluwa/entities/components/visual.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local TRANSLUCENT_FLAG = 2
+local TRANSLUCENT_FLAG = Material.FlagBits.Translucent
 
 T.Test("Graphics render3d translucent materials stop the share of light their alpha covers", function()
 	local material = Material.New{Translucent = true, ColorMultiplier = Color(1, 1, 1, 0.75)}

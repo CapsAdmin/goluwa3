@@ -1368,7 +1368,7 @@ local function update_soup_material_table(pipeline, table_state)
 			entry.mode = material:GetAlphaTest() and
 				1 or
 				(
-					bit.band(material:GetShadowFlags(), 2) ~= 0 and
+					bit.band(material:GetShadowFlags(), Material.FlagBits.Translucent) ~= 0 and
 					2 or
 					0
 				)

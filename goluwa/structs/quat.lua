@@ -3,10 +3,9 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local structs = import("goluwa/structs/structs.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local META = structs.Template("Quat")
-import.loaded["goluwa/structs/quat.lua"] = META
-local Matrix44 = import("goluwa/structs/matrix44.lua")
 local ffi = require("ffi")
 local CTOR
+local Matrix44
 META.Args = {{"x", "y", "z", "w"}}
 structs.AddAllOperators(META)
 
@@ -410,4 +409,6 @@ function META:RotateRoll(angle)
 end
 
 CTOR = structs.Register(META)
+import.loaded["goluwa/structs/quat.lua"] = CTOR
+Matrix44 = import("goluwa/structs/matrix44.lua")
 return CTOR

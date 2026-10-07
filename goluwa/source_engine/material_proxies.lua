@@ -466,6 +466,10 @@ local function own_copies(material)
 	end
 end
 
+local function detach(material)
+	animated[material] = nil
+end
+
 function material_proxies.Attach(material, source_text)
 	local fn, variables, animations = material_proxies.Compile(source_text)
 
@@ -486,6 +490,7 @@ function material_proxies.Attach(material, source_text)
 	own_copies(material)
 	material.has_uv_transform = true
 	animated[material] = {fn = fn, variables = variables, animations = animations, originals = originals}
+	material:CallOnRemove(detach)
 	return true
 end
 

@@ -162,8 +162,8 @@ T.Test3D("Graphics render3d refractive materials transmit and blur what is behin
 		T(same_pixel(opaque, final, center - quarter / 2, center - quarter / 2))["=="](false)
 		T(final_r > opaque_r * 0.7)["=="](true)
 		T(final_g < final_r * 0.5)["=="](true)
-		opaque_r, opaque_g = opaque:GetPixelFloat(center - 4, center + quarter / 2)
-		final_r, final_g = final:GetPixelFloat(center - 4, center + quarter / 2)
+		opaque_r, opaque_g = opaque:GetPixelFloat(center - 2, center + quarter / 2)
+		final_r, final_g = final:GetPixelFloat(center - 2, center + quarter / 2)
 		T(final_g > opaque_g * 2)["=="](true)
 	end)
 

@@ -403,11 +403,14 @@ local FLAGS = {
 	"RoughnessMaskOnlyScalesSpecular",
 	"Billboard",
 }
+Material.FlagBits = {}
 
 for i, flag_name in ipairs(FLAGS) do
 	if not Material["Get" .. flag_name] then
 		error("Material is missing flag getter: " .. flag_name)
 	end
+
+	Material.FlagBits[flag_name] = bit.lshift(1, i - 1)
 end
 
 Material.flags_generation = 0
@@ -521,7 +524,7 @@ function Material:GetFillFlags()
 end
 
 do
-	local TRANSLUCENT_FLAG = 2
+	local TRANSLUCENT_FLAG = Material.FlagBits.Translucent
 	local REFRACTION_TRANSMITTANCE = 0.9
 
 	function Material:GetShadowFlags()

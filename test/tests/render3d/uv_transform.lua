@@ -5,6 +5,7 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
+local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -57,7 +58,11 @@ local function center_albedo(draw, translate)
 		Albedo = "return vec4(uv.x < 0.5 ? 1.0 : 0.0, uv.x < 0.5 ? 0.0 : 1.0, 0.0, 1.0);",
 		DoubleSided = true,
 	}
-	material:SetTextureTransformFromVMT("BaseTexture", "center 0 0 scale 1 1 rotate 0 translate " .. translate .. " 0")
+	vmt_material.SetTextureTransform(
+		material,
+		"BaseTexture",
+		"center 0 0 scale 1 1 rotate 0 translate " .. translate .. " 0"
+	)
 	local entity = spawn(create_back_facing_quad(), material)
 	local ok, err = pcall(draw)
 	entity:Remove()
