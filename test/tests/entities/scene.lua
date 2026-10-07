@@ -1,0 +1,118 @@
+local T = import("test/environment.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local scene = import("goluwa/entities/scene.lua")
+local luadata = import("goluwa/codecs/luadata.lua")
+local objects = import("goluwa/objects/objects.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local vfs = import("goluwa/vfs.lua")
+
+local function build()
+	local root = Entity.New{Name = "root", Parent = Entity.World}
+	root:SetTransient(false)
+	root:AddComponent("transform"):SetPosition(Vec3(1, 2, 3))
+	local child = Entity.New{Name = "child", Parent = root}
+	local child_transform = child:AddComponent("transform")
+	child_transform:SetRotation(Quat(0, 1, 0, 0))
+	child_transform:SetScale(Vec3(2, 2, 2))
+	local default_child = Entity.New{Name = "plain", Parent = root}
+	default_child:AddComponent("transform")
+	local transient = Entity.New{Name = "transient", Parent = root}
+	transient:SetTransient(true)
+	T(transient:GetTransient())["=="](true)
+	T(child:GetTransient())["=="](false)
+	return root, child, default_child
+end
+
+T.Test("Scene serialization stores only values that differ from defaults", function()
+	local root, child, default_child = build()
+	local data = scene.SerializeEntities({root})
+	T(#data.entities)["=="](3)
+	T(data.entities[1].components.transform.Position)["=="](Vec3(1, 2, 3))
+	T(data.entities[1].components.transform.Scale)["=="](nil)
+	T(data.entities[2].parent)["=="](root:GetGUID())
+	T(data.entities[2].components.transform.Scale)["=="](Vec3(2, 2, 2))
+	T(next(data.entities[3].components.transform))["=="](nil)
+	root:Remove()
+end)
+
+T.Test("Scene round trip through luadata keeps guids, hierarchy and values", function()
+	local root, child = build()
+	local root_guid, child_guid = root:GetGUID(), child:GetGUID()
+	local text = luadata.Encode(scene.SerializeEntities({root}))
+	root:Remove()
+	local holder = Entity.New{Name = "holder", Parent = Entity.World}
+	local roots = scene.Deserialize(assert(luadata.Decode(text)), holder)
+	T(#roots)["=="](1)
+	local loaded = roots[1]
+	T(loaded:GetName())["=="]("root")
+	T(loaded:GetGUID())["=="](root_guid)
+	T(loaded.transform:GetPosition())["=="](Vec3(1, 2, 3))
+	T(#loaded:GetChildren())["=="](2)
+	local loaded_child = loaded:GetChildren()[1]
+	T(loaded_child:GetGUID())["=="](child_guid)
+	T(loaded_child:GetParent())["=="](loaded)
+	T(loaded_child.transform:GetScale())["=="](Vec3(2, 2, 2))
+	T(loaded_child.transform:GetRotation())["=="](Quat(0, 1, 0, 0))
+	holder:Remove()
+end)
+
+T.Test("Scene clone gets new guids and a numbered name", function()
+	local root, child = build()
+	local clone = scene.Clone(root)
+	T(clone:GetName())["=="]("root (2)")
+	T(clone:GetGUID() ~= root:GetGUID())["=="](true)
+	T(clone:GetParent())["=="](root:GetParent())
+	T(clone.transform:GetPosition())["=="](Vec3(1, 2, 3))
+	T(#clone:GetChildren())["=="](2)
+	T(clone:GetChildren()[1]:GetGUID() ~= child:GetGUID())["=="](true)
+	local second_clone = scene.Clone(clone)
+	T(second_clone:GetName())["=="]("root (3)")
+	second_clone:Remove()
+	T(objects.GetObjectByGUID(root:GetGUID()))["=="](root)
+	root:GetParent():GetChildren()
+
+	for _, entity in ipairs{root, clone} do
+		entity:Remove()
+	end
+end)
+
+T.Test("Scene save and load replace all non-transient root entities", function()
+	local name = "test_scene_roundtrip"
+	scene.Clear()
+	local transient = Entity.New{Name = "runtime", Parent = Entity.World}
+	T(transient:GetTransient())["=="](true)
+	local root = build()
+	scene.Save(name)
+	scene.Clear()
+	T(#scene.GetRoots())["=="](0)
+	T(transient:IsValid())["=="](true)
+	scene.Load(name)
+	local roots = scene.GetRoots()
+	T(#roots)["=="](1)
+	T(roots[1]:GetName())["=="]("root")
+	T(roots[1]:GetGUID())["=="](root:GetGUID())
+	scene.Clear()
+	transient:Remove()
+	vfs.Delete(scene.GetPath(name))
+end)
+
+T.Test("Scene load updates singleton entities in place", function()
+	local name = "test_scene_singleton"
+	scene.Clear()
+	local singleton = Entity.New{Name = "singleton", Parent = Entity.World}
+	singleton:SetTransient(false)
+	singleton:SetSingleton(true)
+	singleton:SetGUID("test_singleton")
+	singleton:AddComponent("transform"):SetPosition(Vec3(5, 6, 7))
+	scene.Save(name)
+	singleton.transform:SetPosition(Vec3(0, 0, 0))
+	scene.Clear()
+	T(singleton:IsValid())["=="](true)
+	scene.Load(name)
+	T(#scene.GetRoots())["=="](1)
+	T(scene.GetRoots()[1])["=="](singleton)
+	T(singleton.transform:GetPosition())["=="](Vec3(5, 6, 7))
+	singleton:Remove()
+	vfs.Delete(scene.GetPath(name))
+end)

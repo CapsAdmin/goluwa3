@@ -826,6 +826,12 @@ function META:insert_nearby(items)
 	end
 end
 
+function META:SetNearbyRoot(root)
+	self._nearby_root = root
+	self:Refresh(true)
+	return self
+end
+
 function META:SetNearby(nearby)
 	self._nearby = nearby
 

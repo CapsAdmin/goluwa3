@@ -7,7 +7,7 @@ function nearby.Collect(position, max_count)
 	local worst = math.huge
 
 	for _, visual in ipairs(Visual.Instances) do
-		if visual.Is3D and visual.Visible then
+		if visual.Is3D and visual.Visible and not visual.Owner:GetTransient() then
 			local aabb = visual:GetWorldAABB()
 
 			if aabb and aabb.min_x <= aabb.max_x then

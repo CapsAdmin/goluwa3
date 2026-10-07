@@ -2,6 +2,19 @@ local event = import("goluwa/event.lua")
 local objects = import("goluwa/objects/objects.lua")
 local BaseEntity = objects.CreateTemplate("base_entity")
 objects.ParentingTemplate(BaseEntity)
+BaseEntity:GetSet("Transient", nil, {type = "boolean"})
+
+function BaseEntity:GetTransient()
+	if self.Transient ~= nil then return self.Transient end
+
+	local parent = self:GetParent()
+
+	if not parent:IsValid() or parent == self.World then return true end
+
+	return parent:GetTransient()
+end
+
+BaseEntity:GetSet("Singleton", false)
 local valid_components
 
 local function set_property(obj, key, val)

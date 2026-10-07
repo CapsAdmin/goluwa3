@@ -25,6 +25,9 @@ local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local nearby = import("lua/nearby.lua")
+local scene = import("goluwa/entities/scene.lua")
+local name_prompt = import("lua/name_prompt.lua")
+local vfs = import("goluwa/vfs.lua")
 local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
@@ -67,6 +70,7 @@ return function(props)
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
 	local picker_cancel_fn = nil
+	local last_scene_name
 	local pending_search
 	local search_deadline = 0
 	local SEARCH_DEBOUNCE = 0.25
@@ -75,8 +79,19 @@ return function(props)
 	local last_camera_position
 	local camera_moved_time
 	local nearby_dirty = true
+	local show_transient = false
+	local show_nearby = false
+	picker.include_transient = false
+
+	local function set_show_transient(show)
+		show_transient = show
+		picker.include_transient = show
+		tree_view:Refresh(true)
+	end
 
 	local function set_selected_target(target)
+		if not show_transient and target:GetTransient() then set_show_transient(true) end
+
 		Gizmo.EnableGizmo(target)
 		tree_view:SelectEntity(target)
 		tree_view:ExpandToEntity(target)
@@ -231,6 +246,43 @@ return function(props)
 								end,
 							},
 							MenuItem{
+								Text = "save scene",
+								OnClick = function()
+									name_prompt{
+										Title = "SAVE SCENE",
+										Text = last_scene_name or "scene",
+										OnSubmit = function(name)
+											name = name:gsub("[^%w_%-%. ]", "_")
+											last_scene_name = name
+											logn("saved ", scene.Save(name), " root entities to ", scene.GetPath(name))
+										end,
+									}
+								end,
+							},
+							MenuItem{
+								Text = "load scene",
+								Items = function()
+									local items = {}
+
+									for _, file_name in ipairs(vfs.Find(scene.GetDirectory()) or {}) do
+										local name = file_name:match("^(.+)%.luadata$")
+
+										if name then
+											items[#items + 1] = MenuItem{
+												Text = name,
+												OnClick = function()
+													last_scene_name = name
+													scene.Load(name)
+												end,
+											}
+										end
+									end
+
+									return items
+								end,
+							},
+							MenuSpacer(),
+							MenuItem{
 								Text = "exit",
 								OnClick = function()
 									system.ShutDown(0)
@@ -269,6 +321,20 @@ return function(props)
 					Items = function()
 						local viewport_label = "Scale 3D Viewport"
 						return {
+							MenuItem{
+								Text = "Show transient entities" .. (show_transient and " (on)" or " (off)"),
+								OnClick = function()
+									set_show_transient(not show_transient)
+								end,
+							},
+							MenuItem{
+								Text = "Show nearby" .. (show_nearby and " (on)" or " (off)"),
+								OnClick = function()
+									show_nearby = not show_nearby
+									nearby_dirty = true
+									tree_view:SetNearbyRoot(show_nearby and Entity.World or nil)
+								end,
+							},
 							MenuItem{
 								Text = "Theme",
 								Items = function()
@@ -360,7 +426,6 @@ return function(props)
 							tree_view = self
 						end,
 						RootEntities = {Entity.World, Panel.World},
-						NearbyRoot = Entity.World,
 						RootLabels = {
 							[Entity.World] = "3D World",
 							[Panel.World] = "2D World",
@@ -369,7 +434,13 @@ return function(props)
 						SharedInstanceColor = SHARED_INSTANCE_COLOR,
 						ShowVirtualChildren = true,
 						FilterCallback = function(entity)
-							return entity_tree_filter_callback(entity, editor_window)
+							return entity_tree_filter_callback(entity, editor_window) or
+								(
+									not show_transient and
+									entity ~= Entity.World and
+									entity ~= Panel.World and
+									entity:GetTransient()
+								)
 						end,
 						layout = {
 							GrowWidth = 1,
@@ -391,7 +462,9 @@ return function(props)
 							if not entity then return false end
 
 							local can_create_shapes = entity:GetRoot() == Entity.World
-							local can_remove = entity ~= Entity.World and entity ~= Panel.World
+							local can_remove = entity ~= Entity.World and
+								entity ~= Panel.World and
+								not entity:GetSingleton()
 
 							if not can_create_shapes and not can_remove then return false end
 
@@ -453,6 +526,15 @@ return function(props)
 										Text = "Remove Component",
 										Items = function()
 											return build_component_items(entity, remove_names, true)
+										end,
+									} or
+									nil,
+									can_create_shapes and
+									can_remove and
+									MenuItem{
+										Text = "Clone",
+										OnClick = function()
+											set_selected_target(scene.Clone(entity))
 										end,
 									} or
 									nil,
@@ -633,6 +715,7 @@ return function(props)
 				camera_moved_time = system.GetElapsedTime()
 				nearby_dirty = true
 			elseif
+				show_nearby and
 				nearby_dirty and
 				system.GetElapsedTime() - camera_moved_time >= NEARBY_SETTLE_TIME
 			then

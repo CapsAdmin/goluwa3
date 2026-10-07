@@ -42,6 +42,7 @@ function VisualPrimitive:GetLocalAABB()
 end
 
 function VisualPrimitive:OnAdd()
+	self.Owner:SetTransient(true)
 	self:InvalidateVisual()
 end
 

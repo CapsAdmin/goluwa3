@@ -17,6 +17,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
+local scene = import("goluwa/entities/scene.lua")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local fs = import("goluwa/filesystem/fs.lua")
@@ -823,15 +824,6 @@ local function build_displacement_collision_shape(positions, dims)
 end
 
 function steam.SetMap(name)
-	if
-		steam.bsp_world and
-		steam.bsp_world.IsValid and
-		steam.bsp_world:IsValid() and
-		steam.bsp_world:HasComponent("rigid_body")
-	then
-		steam.bsp_world:RemoveComponent("rigid_body")
-	end
-
 	if tonumber(name) then
 		local workshop_id = tonumber(name)
 		local info = codec.LookupInFile("luadata", "workshop_maps.cfg", workshop_id)
@@ -864,36 +856,35 @@ function steam.SetMap(name)
 	end
 
 	local path = "maps/" .. name .. ".bsp"
-	steam.bsp_world = steam.bsp_world or Entity.New({Name = "bsp_world"})
-	steam.bsp_world:SetName(name)
-	steam.bsp_world:AddComponent("transform")
-	steam.bsp_world:RemoveChildren()
-	steam.bsp_world.bsp_relative_path = path
+
+	if RENDER_3D then
+		import("goluwa/render3d/weather.lua").GetController():ResetProperties()
+	end
+
+	scene.Clear()
+	local world = Entity.New{Name = name, Parent = Entity.World}
+	world:SetTransient(false)
+	world:AddComponent("transform")
+	local component = world:AddComponent("bsp_world")
 	scene_loading.Begin()
 
-	model_loader.LoadModel(
-		path,
-		function()
-			if not RENDER_3D then
-				scene_loading.End()
-				return
-			end
-
-			timer.Delay(0, function()
-				utility.PushTimeWarning()
-				local ok, err = pcall(steam.SpawnMapEntities, steam.bsp_world.bsp_resolved_path, steam.bsp_world)
-				scene_loading.End()
-				utility.PopTimeWarning("spawning map entities")
-
-				if not ok then error(err, 0) end
-			end)
-		end,
-		nil,
-		function(err)
+	function component.OnLoaded(_, data)
+		if not data or not RENDER_3D then
 			scene_loading.End()
-			wlog("failed to load map " .. path .. ": " .. err)
+			return
 		end
-	)
+
+		timer.Delay(0, function()
+			utility.PushTimeWarning()
+			local ok, err = pcall(steam.SpawnMapEntities, world.bsp_resolved_path, world)
+			scene_loading.End()
+			utility.PopTimeWarning("spawning map entities")
+
+			if not ok then error(err, 0) end
+		end)
+	end
+
+	component:SetPath(path)
 end
 
 do
@@ -2216,7 +2207,6 @@ function steam.LoadMap(path)
 
 	if ocean_level == nil then ocean_level = header.lowest_point or 0 end
 
-	render3d.SetOceanLevel(ocean_level - 2)
 	steam.loaded_bsp[path] = {
 		render_meshes = render_meshes,
 		entities = header.entities,
@@ -2267,106 +2257,18 @@ function steam.SpawnMapEntities(path, parent)
 	logn("spawning map entities: ", path)
 
 	function thread:OnStart()
-		for _, v in ipairs(parent:GetChildrenList()) do
-			if v.spawned_from_bsp then v:Remove() end
-		end
+		local world = parent.bsp_world
 
-		VisibilityGroup.SetLocator(nil)
-		VisibilityGroup.SetActive(nil)
-		local groups = {}
+		if RENDER_3D then
+			import("goluwa/render3d/weather.lua").GetController():SetOceanLevel(data.ocean_level - 2)
+		end
 
 		local function get_container(id)
-			if not id then return parent end
-
-			if not groups[id] then
-				local group = Entity.New{Name = "visibility_group_" .. id, Parent = parent}
-				group:AddComponent("transform")
-				group:AddComponent("visibility_group")
-				group.spawned_from_bsp = true
-				groups[id] = group
-			end
-
-			return groups[id]
+			return world:GetContainer(id)
 		end
-
-		local sub_groups = {}
 
 		local function get_sub_group(container, name)
-			sub_groups[container] = sub_groups[container] or {}
-			local sub_group = sub_groups[container][name]
-
-			if not sub_group then
-				sub_group = Entity.New{Name = name, Parent = container}
-				sub_group.spawned_from_bsp = true
-				sub_groups[container][name] = sub_group
-			end
-
-			return sub_group
-		end
-
-		if RENDER_2D then
-			local worlds = {}
-
-			for _, prim in ipairs(data.render_meshes) do
-				local container = get_container(prim.visibility_group)
-				local world = worlds[container]
-
-				if not world then
-					world = Entity.New{Name = "world", Parent = container}
-					world:AddComponent("transform")
-					world:AddComponent("visual")
-					world.spawned_from_bsp = true
-					worlds[container] = world
-				end
-
-				world.visual:CreatePrimitiveEntity(
-					prim.mesh,
-					prim.material,
-					file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(prim.material:GetName()))
-				)
-			end
-
-			for _, world in pairs(worlds) do
-				world.visual:BuildAABB()
-			end
-		end
-
-		if data.visibility.group_count > 0 then
-			local point_leaf = data.visibility.point_leaf
-			local area_groups = data.visibility.area_groups
-			local group_bounds = data.visibility.group_bounds
-			local group_ids = {}
-
-			for id = 1, data.visibility.group_count do
-				group_ids[get_container(id).visibility_group] = id
-			end
-
-			VisibilityGroup.SetLocator(function(pos)
-				local source = Vec3(-pos.z, -pos.x, pos.y) / steam.source2meters
-				local area = point_leaf(source).area
-
-				if area ~= 0 then
-					local id = area_groups[area]
-					return id and groups[id].visibility_group or false
-				end
-
-				local active = VisibilityGroup.GetActive()
-				local bounds = active and group_bounds[group_ids[active]]
-
-				if
-					bounds and
-					source.x >= bounds.min.x and
-					source.y >= bounds.min.y and
-					source.z >= bounds.min.z and
-					source.x <= bounds.max.x and
-					source.y <= bounds.max.y and
-					source.z <= bounds.max.z
-				then
-					return nil
-				end
-
-				return false
-			end)
+			return world:GetSubGroup(container, name)
 		end
 
 		local count = table.count(data.entities)
@@ -2415,9 +2317,10 @@ function steam.SpawnMapEntities(path, parent)
 						bit.band(tonumber(info.spawnflags) or 0, 1) ~= 0 and
 						tonumber(info.fogenable) == 1
 					then
-						import("goluwa/render3d/weather.lua").SetVisibility(info.fogend * steam.source2meters * FOG_DISTANCE_SCALE)
+						local atmosphere = import("goluwa/render3d/weather.lua").GetController()
+						atmosphere:SetVisibility(info.fogend * steam.source2meters * FOG_DISTANCE_SCALE)
 						local color = info.fogcolor
-						import("goluwa/render3d/atmosphere.lua").SetFogColor(
+						atmosphere:SetFogColor(
 							Vec3(color.r ^ 2.2, color.g ^ 2.2, color.b ^ 2.2) / math.max(color.r, color.g, color.b, 1e-4) ^ 2.2 * FOG_TINT_STRENGTH
 						)
 					end
@@ -2468,7 +2371,7 @@ function steam.SpawnMapEntities(path, parent)
 							ent:AddComponent(
 								"rigid_body",
 								{
-									Shapes = physics.children,
+									ShapeModelPath = model_path,
 									MotionType = motion_type,
 									Awake = false,
 									Mass = mass,
@@ -2587,16 +2490,6 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 
 	if steam.bsp_world and steam.bsp_world:IsValid() then
 		steam.bsp_world.bsp_resolved_path = full_path
-	end
-
-	if steam.bsp_world and steam.bsp_world:IsValid() then
-		if steam.bsp_world:HasComponent("rigid_body") then
-			steam.bsp_world:RemoveComponent("rigid_body")
-		end
-
-		if result.physics_body then
-			steam.bsp_world:AddComponent("rigid_body", result.physics_body)
-		end
 	end
 
 	for _, prim in ipairs(result.render_meshes) do

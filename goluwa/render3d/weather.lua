@@ -360,6 +360,10 @@ function weather.GetLight()
 	return weather.light
 end
 
+function weather.GetController()
+	return weather.light.atmosphere_controller
+end
+
 function weather.GetMoonDirection()
 	return (weather.GetMoonAt(weather.time, weather.latitude, weather.longitude))
 end
@@ -422,13 +426,17 @@ function weather.Initialize()
 	if weather.light and weather.light:IsValid() then return end
 
 	weather.light = Entity.New{
-		Name = "sky_light",
+		Name = "atmosphere",
 		transform = {},
 		light_sun = {
 			Color = Color(1.0, 0.98, 1),
 			Lux = SUN_TOA_ILLUMINANCE,
 		},
+		atmosphere_controller = {},
+		Singleton = true,
+		Transient = false,
 	}
+	weather.light:SetGUID("atmosphere")
 	atmosphere.SetSunIlluminance(SUN_TOA_ILLUMINANCE)
 	weather.shadow_maps = {
 		ShadowMap.New{

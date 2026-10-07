@@ -12,6 +12,7 @@ local CameraComponent = import("lua/components/camera.lua")
 local AssetBrowser = import("lua/asset_browser.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local picker = library()
+picker.include_transient = false
 local nonvisual_candidates = {}
 local nonvisual_candidates_dirty = true
 local nonvisual_candidates_time = -math.huge
@@ -128,7 +129,17 @@ function picker.find_3d_pick_target(mouse_pos)
 
 	if fallback_hit then return fallback_hit.entity end
 
-	if visual_hit then return visual_hit.primitive.entity end
+	if visual_hit then
+		local entity = visual_hit.primitive.entity
+
+		if not picker.include_transient then
+			while entity:IsValid() and entity:GetTransient() do
+				entity = entity:GetParent()
+			end
+		end
+
+		return entity
+	end
 
 	return NULL
 end

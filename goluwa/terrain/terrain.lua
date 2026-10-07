@@ -392,6 +392,7 @@ end
 function Terrain:Start()
 	self:Stop()
 	self.Root = Entity.New{Name = self.Name}
+	self.Root:SetTransient(true)
 	self.Root:AddComponent("transform")
 
 	if self.PhysicsConfig then

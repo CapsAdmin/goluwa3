@@ -2105,10 +2105,21 @@ function crylevel.Apply(steam)
 	end
 
 	local Entity = import("goluwa/entities/entity.lua")
+	local objects = import("goluwa/objects/objects.lua")
+	local spawn_level_name
 	local spawn_root
 
 	local function new_folder(parent, name)
 		local folder = Entity.New{Name = name, Parent = parent}
+		local guid = parent:GetGUID() .. "/" .. name
+		local suffix = 1
+
+		while objects.GetObjectByGUID(guid) and objects.GetObjectByGUID(guid):IsValid() do
+			suffix = suffix + 1
+			guid = parent:GetGUID() .. "/" .. name .. "#" .. suffix
+		end
+
+		folder:SetGUID(guid)
 
 		if parent == spawn_root then folder.spawned_from_cry_level = true end
 
@@ -2118,6 +2129,7 @@ function crylevel.Apply(steam)
 	local function spawn_object(entry, parent, material_overrides)
 		local transform_data = crylevel.ConvertCryWorldMatrixToEngineTransform(entry.world_matrix)
 		local entity = Entity.New{Name = entry.name or "cry_object", Parent = parent}
+		entity:SetGUID("cry:" .. spawn_level_name .. ":obj:" .. entry.cry_index)
 		local transform = entity:AddComponent("transform")
 		entity:AddComponent("visual")
 		transform:SetPosition(transform_data.position)
@@ -2133,6 +2145,7 @@ function crylevel.Apply(steam)
 	local function spawn_vegetation(entry, parent, material_overrides)
 		local transform_data = crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
 		local entity = Entity.New{Name = entry.name or "cry_vegetation", Parent = parent}
+		entity:SetGUID("cry:" .. spawn_level_name .. ":veg:" .. entry.cry_index)
 		local transform = entity:AddComponent("transform")
 		entity:AddComponent("visual")
 
@@ -2222,6 +2235,7 @@ function crylevel.Apply(steam)
 
 	function steam.SpawnCryLevel(level, parent)
 		spawn_root = parent
+		spawn_level_name = parent:GetName()
 		local material_overrides = {}
 		local data = steam.LoadCryLevel(level)
 
@@ -2240,15 +2254,17 @@ function crylevel.Apply(steam)
 		local water = import("goluwa/render3d/water.lua")
 		local editor_level = data.terrain and data.terrain.editor_level
 		local weather = import("goluwa/render3d/weather.lua")
-		render3d.SetOceanEnabled(water_level > 0)
-		render3d.SetOceanLevel(water_level)
+		local atmosphere = weather.GetController()
+		atmosphere:ResetProperties()
+		atmosphere:SetOceanEnabled(water_level > 0)
+		atmosphere:SetOceanLevel(water_level)
 
 		if editor_level and editor_level.ocean then
 			local ocean = editor_level.ocean
 			local absorption, scattering = get_water_medium(water, ocean.fog_color, ocean.fog_color_multiplier, ocean.fog_density)
 			local wind = crylevel.CryVec3ToEngine(Vec3(math.cos(ocean.wind_direction), math.sin(ocean.wind_direction), 0))
 			local wind_speed = math.sqrt(2 * ocean.waves_size * water.GRAVITY / 0.21)
-			water.SetOcean{
+			atmosphere:SetOceanSettings{
 				WindSpeed = wind_speed,
 				WindDirection = math.deg(math.atan2(wind.z, wind.x)),
 				SwellHeight = ocean.waves_size * 0.5,
@@ -2277,11 +2293,11 @@ function crylevel.Apply(steam)
 		end
 
 		if editor_level and editor_level.fog_density then
-			weather.SetVisibility(-math.log(0.02) / (editor_level.fog_density * 0.0025))
+			atmosphere:SetVisibility(-math.log(0.02) / (editor_level.fog_density * 0.0025))
 		end
 
 		if editor_level and editor_level.sun_direction then
-			weather.SetSunDirection(editor_level.sun_direction)
+			atmosphere:SetSunDirection(editor_level.sun_direction)
 		end
 
 		if not steam.cry_skip_models then
@@ -2291,7 +2307,8 @@ function crylevel.Apply(steam)
 			local leaves = {}
 			local leaf_by_folder = {}
 
-			for _, entry in ipairs(data.entries) do
+			for index, entry in ipairs(data.entries) do
+				entry.cry_index = index
 				local folder = layer_folders[entry.layer or ""]
 
 				if not folder then
@@ -2333,7 +2350,8 @@ function crylevel.Apply(steam)
 			local category_folders = {}
 			local prototype_leaves = {}
 
-			for _, entry in ipairs(data.vegetation_entries or {}) do
+			for index, entry in ipairs(data.vegetation_entries or {}) do
+				entry.cry_index = index
 				local leaf = prototype_leaves[entry.prototype_id]
 
 				if not leaf then
@@ -2398,11 +2416,13 @@ function crylevel.Apply(steam)
 
 	function steam.SetCryLevel(level)
 		local Entity = import("goluwa/entities/entity.lua")
-		steam.cry_level_world = steam.cry_level_world or Entity.New({Name = "cry_level_world"})
+		local scene = import("goluwa/entities/scene.lua")
 		local level_dir = assert(crylevel.ResolveLevelDirectory(steam, level))
 		local level_name = level_dir:match("/([^/]+)/$") or level_dir
-		steam.cry_level_world:SetName(level_name)
-		steam.cry_level_world:RemoveChildren()
+		scene.Clear()
+		steam.cry_level_world = Entity.New{Name = level_name, Parent = Entity.World}
+		steam.cry_level_world:SetTransient(false)
+		steam.cry_level_world:SetGUID("cry:" .. level_name)
 		scene_loading.Begin()
 		local ok, result = pcall(steam.SpawnCryLevel, level_dir, steam.cry_level_world)
 		scene_loading.End()
