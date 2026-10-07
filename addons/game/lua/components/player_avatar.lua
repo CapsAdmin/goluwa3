@@ -146,11 +146,6 @@ function META:Build(owner_id)
 		PhysicsNoCollision = true,
 	}
 	self.beam.visual:SetVisible(false)
-	local light = self.marker:AddComponent("light_point")
-	light:SetColor(color)
-	light:SetLumen(150)
-	light:SetRange(6)
-	light:SetOcclusionMap(false)
 
 	self.Owner:CallOnRemove(function()
 		self.body:Remove()
