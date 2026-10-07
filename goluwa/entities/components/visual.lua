@@ -1060,6 +1060,7 @@ Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("MaterialSlotOverrides", nil)
 Visual:GetSet("AABB", create_empty_aabb())
 Visual:EndStorable()
+Visual:GetSet("ClipWorldAABB", nil)
 
 function Visual:SetLoading(loading)
 	loading = loading and true or false
@@ -1234,8 +1235,15 @@ function Visual:SetModelPath(path)
 			end
 
 			primitive_index = primitive_index + 1
+			local mesh = data.mesh
+
+			if self.ClipWorldAABB then
+				mesh = mesh:CopyOutsideWorldAABB(self.Owner.transform:GetWorldMatrix(), self.ClipWorldAABB) or
+					mesh
+			end
+
 			self:CreatePrimitiveEntity(
-				data.mesh,
+				mesh,
 				data.material,
 				((self.Owner and self.Owner.Name) or "visual") .. "_primitive_" .. primitive_index
 			)

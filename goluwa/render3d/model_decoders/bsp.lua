@@ -1195,6 +1195,8 @@ function steam.LoadMap(path)
 		return nearest_area(center)
 	end
 
+	local sky_clip_aabb
+
 	if header.sky_camera then
 		sky_origin = header.sky_camera.origin
 		sky_scale = header.sky_camera.scale
@@ -1220,6 +1222,20 @@ function steam.LoadMap(path)
 		end
 
 		local margin = SKY_CUT_MARGIN / steam.source2meters
+
+		do
+			local a = Vec3(-world_min.y, world_min.z, -world_min.x) * steam.source2meters
+			local b = Vec3(-world_max.y, world_max.z, -world_max.x) * steam.source2meters
+			sky_clip_aabb = AABB(
+				math.min(a.x, b.x),
+				math.min(a.y, b.y),
+				math.min(a.z, b.z),
+				math.max(a.x, b.x),
+				math.max(a.y, b.y),
+				math.max(a.z, b.z)
+			)
+		end
+
 		sky_cut_min = (world_min - Vec3(margin, margin, margin)) / sky_scale + sky_origin
 		sky_cut_max = (world_max + Vec3(margin, margin, margin)) / sky_scale + sky_origin
 	end
@@ -1267,6 +1283,7 @@ function steam.LoadMap(path)
 				if sky_areas[area] then
 					ent.origin = (ent.origin - sky_origin) * sky_scale
 					ent.model_size_mult = sky_scale
+					ent.sky_clip = sky_clip_aabb
 				end
 			end
 		end
@@ -2472,6 +2489,7 @@ function steam.SpawnMapEntities(path, parent)
 							visual:AddComponent("transform")
 							visual.transform:SetPosition(center_of_mass * -1)
 							visual:AddComponent("visual")
+							visual.visual:SetClipWorldAABB(info.sky_clip)
 							visual.visual:SetModelPath(model_path)
 						end)
 					else
@@ -2484,6 +2502,7 @@ function steam.SpawnMapEntities(path, parent)
 						end
 
 						ent:AddComponent("visual")
+						ent.visual:SetClipWorldAABB(info.sky_clip)
 						ent.visual:SetModelPath(model_path)
 						ent.spawned_from_bsp = true
 					end

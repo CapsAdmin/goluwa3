@@ -169,6 +169,52 @@ function Polygon3D:GetVertices()
 	return self.Vertices
 end
 
+-- a copy without the triangles that lie entirely inside a world space box, nil if none do. needs a packed polygon
+function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
+	local packed = self.packed
+	local vertices = packed.vertices
+	local indices = packed.indices
+	local inside = {}
+
+	for i = 0, packed.vertex_count - 1 do
+		local position = vertices[i].position
+		local world = world_matrix:TransformVector(Vec3(position[0], position[1], position[2]))
+		inside[i] = world.x >= aabb.min_x and
+			world.x <= aabb.max_x and
+			world.y >= aabb.min_y and
+			world.y <= aabb.max_y and
+			world.z >= aabb.min_z and
+			world.z <= aabb.max_z
+	end
+
+	local copy = Polygon3D.New()
+	local removed = 0
+
+	for i = 0, packed.index_count - 3, 3 do
+		local a, b, c = indices[i], indices[i + 1], indices[i + 2]
+
+		if inside[a] and inside[b] and inside[c] then
+			removed = removed + 1
+		else
+			for _, index in ipairs({a, b, c}) do
+				local v = vertices[index]
+				copy:AddVertex{
+					pos = Vec3(v.position[0], v.position[1], v.position[2]),
+					normal = Vec3(v.normal[0], v.normal[1], v.normal[2]),
+					uv = Vec2(v.uv[0], v.uv[1]),
+					tangent = {x = v.tangent[0], y = v.tangent[1], z = v.tangent[2], w = v.tangent[3]},
+				}
+			end
+		end
+	end
+
+	if removed == 0 then return nil end
+
+	copy:SetMaterialSlot(self.MaterialSlot)
+	copy:Upload()
+	return copy
+end
+
 function Polygon3D:GetIndices()
 	self:GetVertices()
 	return self.indices
