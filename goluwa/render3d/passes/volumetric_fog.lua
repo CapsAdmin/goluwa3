@@ -391,14 +391,19 @@ local scatter_pass = {
 			uint seed = froxel_hash(uvec3(id.xy, uint(id.z) + uint(froxel_data.frame) * 128u));
 			vec3 jitter = vec3(uvec3(seed, seed >> 10u, seed >> 20u) & 1023u) / 1023.0 - 0.5;
 			vec2 uv;
-			float depth = froxel_point(id, (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size, froxel_slice_depth(float(id.z) + 0.5 + jitter.z), uv);
+			float slice_depth = froxel_slice_depth(float(id.z) + 0.5 + jitter.z);
+			float depth = froxel_point(id, (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size, slice_depth, uv);
 			vec3 view_dir = get_view_dir(uv);
 			vec3 world_pos = (froxel_data.inv_view * vec4(view_dir * depth, 1.0)).xyz;
+			// a froxel behind a surface is lit at the surface, but its air is the air along the ray
+			// at the slice (the higher of the two), or a leaf against the sky fills the column behind it with ground level fog
+			vec3 air_pos = (froxel_data.inv_view * vec4(view_dir * slice_depth, 1.0)).xyz;
+			if (air_pos.y < world_pos.y) air_pos = world_pos;
 			// not from world_pos, which can land on the camera
 			vec3 ray_dir = normalize(mat3(froxel_data.inv_view) * view_dir);
 			vec3 sun_dir = get_current_primary_sun_direction();
 			vec3 fog_origin = get_atmosphere_camera_origin(froxel_data.camera_position.xyz);
-			vec3 fog_point = get_atmosphere_camera_origin(world_pos);
+			vec3 fog_point = get_atmosphere_camera_origin(air_pos);
 			float per_meter = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 			float fog_extinction = scenery_fog_density(fog_point) * SCENERY_FOG_EXTINCTION * per_meter;
 			// the clear air is here too, lit by the same shadowed sun and
