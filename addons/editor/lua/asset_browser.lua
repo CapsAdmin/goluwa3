@@ -147,7 +147,21 @@ local function ensure_tree_children(node)
 	end
 
 	for _, entry in ipairs(assets.EnumerateFolders(node.Category, {prefix = node.Prefix})) do
-		node.Children[#node.Children + 1] = make_folder_node(node.Category, entry.path, entry.name)
+		local path = entry.path
+		local text = entry.name
+
+		while true do
+			if #assets.Enumerate(node.Category, {prefix = path}) > 0 then break end
+
+			local folders = assets.EnumerateFolders(node.Category, {prefix = path})
+
+			if #folders ~= 1 then break end
+
+			path = folders[1].path
+			text = text .. "/" .. folders[1].name
+		end
+
+		node.Children[#node.Children + 1] = make_folder_node(node.Category, path, text)
 	end
 
 	return true
