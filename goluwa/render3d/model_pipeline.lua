@@ -1748,6 +1748,17 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return N;
 			}
 
+			// the blended bump's alpha, source masks specular with the alpha of whichever bump is showing
+			float get_normal_alpha(vec2 uv) {
+				float alpha = texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a;
+
+				if (detail_model.Normal2Texture != -1) {
+					alpha = mix(alpha, texture(TEXTURE(detail_model.Normal2Texture), uv).a, get_texture_blend_uv(uv));
+				}
+
+				return alpha;
+			}
+
 			// the gloss map's luminance, 1 without one
 			float get_gloss(vec2 uv) {
 				if (AlbedoAlphaIsSpecular && model.AlbedoTexture != -1) {
@@ -1761,7 +1772,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
 						mask = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
 					} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
-						mask = texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a;
+						mask = get_normal_alpha(uv);
 					} else if (AlbedoLuminanceIsRoughness) {
 						mask = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
 					} else if (aux_model.RoughnessTexture != -1) {
@@ -1801,7 +1812,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
 					val = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
 				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
-					val = texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a;
+					val = get_normal_alpha(uv);
 				} else if (AlbedoLuminanceIsRoughness) {
 					val = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
 				} else if (aux_model.RoughnessTexture != -1) {
