@@ -25,6 +25,7 @@ local BINDING_STATE = 9
 local BINDING_SCENE = 10
 local BINDING_LIGHT_GRID = 11
 local BINDING_UVS = 12
+local BINDING_SCREEN_GEOMETRY = 13
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local SCENE_DESCRIPTOR = {
 	{
@@ -223,6 +224,9 @@ local function pass_compute_trace()
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				ivec3 world = ddgi_world_from_slot(slot, c);
+
+				if (ddgi_probe_is_idle(slot, world, probe, c)) return;
+
 				vec3 origin = ddgi_probe_origin(slot, c, world);
 				uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
 
@@ -462,6 +466,9 @@ local function pass_shade()
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				ivec3 world = ddgi_world_from_slot(slot, c);
+
+				if (ddgi_probe_is_idle(slot, world, probe, c)) return;
+
 				vec3 origin = ddgi_probe_origin(slot, c, world);
 				uint hit_index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
 
@@ -532,7 +539,7 @@ local function pass_shade()
 				vec3 radiance = albedo * ddgi_direct_light(surface, N, (hit.y & DDGI_SUN_VISIBLE_BIT) != 0u, light_radius, u);
 
 				float weight;
-				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, weight).rgb;
+				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_NO_VISIBILITY_RAYS, weight).rgb;
 
 				store_ray(pos, vec4(radiance, t));
 			}
@@ -614,6 +621,9 @@ local function pass_update(name, texels, integrate)
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				ivec3 world = ddgi_world_from_slot(slot, c);
+
+				if (ddgi_probe_is_idle(slot, world, probe, c)) return;
+
 				float spacing = ddgi_spacing(c);
 				bool guided = ddgi_guide_valid(tile, world, c);
 
@@ -880,6 +890,9 @@ local function pass_probe_data()
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				ivec3 world = ddgi_world_from_slot(slot, c);
 				vec4 previous = imageLoad(out_data, pos);
+
+				if (ddgi_probe_idle(previous.w, !ddgi_cascade_reset(c) && ddgi_probe_is_current(previous, world), probe, c, uint(ddgi_data.ddgi_frame))) return;
+
 				float spacing = ddgi_spacing(c);
 				vec3 offset = !ddgi_cascade_reset(c) && ddgi_probe_is_current(previous, world) ? (previous.xyz - vec3(world)) * spacing : vec3(0.0);
 				float backfaces = 0.0;
@@ -1383,13 +1396,23 @@ local function pass_resolve()
 	return {
 		name = "ddgi_resolve",
 		ComputePass = true,
-		ColorFormat = {{"r16g16b16a16_sfloat", {"ddgi_screen", "rgba"}}},
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"ddgi_screen", "rgba"}},
+			{"r16g16b16a16_sfloat", {"ddgi_screen_geometry", "rgba"}},
+		},
 		framebuffer_count = 1,
 		scale = function()
 			return ddgi.RESOLVE_SCALE
 		end,
 		LocalSize = {x = 8, y = 8, z = 1},
-		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = {"compute", "fragment"}}},
+		storage_images = {
+			{binding_index = BINDING_OUTPUT, dst_stage = {"compute", "fragment"}},
+			{
+				binding_index = BINDING_SCREEN_GEOMETRY,
+				attachment = 2,
+				dst_stage = {"compute", "fragment"},
+			},
+		},
 		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
 		uniform_buffers = {data_uniform()},
 		on_pre_draw = VISIBILITY_RAYS and
@@ -1399,23 +1422,31 @@ local function pass_resolve()
 			nil,
 		custom_declarations = SCENE_GLSL .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = ]] .. BINDING_SCREEN_GEOMETRY .. [[, rgba16f) uniform writeonly image2D out_geometry;
 		]],
-		shader = common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
+		shader = common_glsl() .. ddgi.GetScreenRatioGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
+			// each texel resolves the pixel in the top left corner of the pixels it covers (see ddgi_screen_sample)
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_color);
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
-				vec2 uv = get_screen_uv(pos, size);
-				float depth = gbuffer_depth(uv);
+				ivec2 pixel = pos * DDGI_SCREEN_RATIO;
+				ivec2 depth_size = textureSize(TEXTURE(ddgi_data.depth_tex), 0);
+				vec2 uv = (vec2(pixel) + 0.5) / vec2(depth_size);
+				float depth = gbuffer_depth(pixel);
 
 				if (depth >= 1.0) {
 					imageStore(out_color, pos, vec4(0.0, 0.0, 0.0, 1.0));
+					imageStore(out_geometry, pos, vec4(0.0, 0.0, 0.0, 1e30));
 					return;
 				}
 
-				vec3 N = normalize(gbuffer_normal(uv));
+				vec3 N = normalize(gbuffer_normal(pixel));
+				mat4 inv_projection = ddgi_data.inv_projection;
+				float view_depth = -(inv_projection[2][2] * depth + inv_projection[3][2]) / (inv_projection[2][3] * depth + inv_projection[3][3]);
+				imageStore(out_geometry, pos, vec4(N, view_depth));
 				vec3 P = get_world_pos(uv, depth);
 				vec3 V = normalize(ddgi_data.camera_position - P);
 				float weight;
@@ -1429,7 +1460,7 @@ local function pass_resolve()
 					if (bent_length > 0.1) L = bent / bent_length;
 				}
 
-				vec4 gi = ddgi_sample_irradiance(P, N, L, V, ddgi_data.ddgi_smooth_blend != 0, weight);
+				vec4 gi = ddgi_sample_irradiance(P, N, L, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
 
 				// outside the volume the sky is all there is to go on; inside it,
 				// no usable probe means the point is enclosed and gets nothing

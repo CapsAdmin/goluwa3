@@ -129,7 +129,7 @@ return {
 		shader = [[
 		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ssr_data") .. surface_weather.GetRainSurfaceGLSL("ssr_data") .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetSSRQuadGLSL() .. [[
-		]] .. ibl.GetEnvironmentGLSLCode() .. (
+		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("ssr_data") .. (
 				RAY_QUERY and
 				scene_reflection.GetGLSL("ssr_data") or
 				""
@@ -137,7 +137,6 @@ return {
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ssr_data") .. [[
 		]] .. screen_reconstruct.GetGeometricNormalGLSL("ssr_data", {world_pos_function = "get_world_pos"}) .. [[
 			#define SSR_MAX_STEPS 48
-]] .. post_source.GetPreExposureGLSL("ssr_data") .. [[
 			#define SSR_BINARY_STEPS 6
 			#define SSR_STRIDE 2.0
 			#define SSR_MAX_DISTANCE 80.0

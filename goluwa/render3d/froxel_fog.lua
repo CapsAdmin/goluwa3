@@ -40,6 +40,22 @@ function froxel_fog.EnsureResources()
 		froxels[key .. "_sampler"] = render.CreateSampler(froxels[key]:GetSamplerConfig())
 	end
 
+	if froxels.depth then froxels.depth:Remove() end
+
+	froxels.depth = Texture.New{
+		width = width,
+		height = height,
+		format = "r32_sfloat",
+		image = {usage = {"storage", "sampled"}},
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
+	froxels.depth:SetDebugName("render3d froxels depth")
+	froxels.depth_sampler = render.CreateSampler(froxels.depth:GetSamplerConfig())
 	froxels.integrated = froxels.raw
 	froxels.integrated_sampler = froxels.raw_sampler
 	froxels.width = width

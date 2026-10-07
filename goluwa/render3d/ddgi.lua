@@ -169,7 +169,7 @@ ddgi.RELOCATION_DISTANCE = 0.25
 ddgi.PROBE_MAX_OFFSET = 0.45
 ddgi.SKY_INTENSITY = 1.0
 ddgi.RANDOM_ROTATION = true
-ddgi.RESOLVE_SCALE = 1.0
+ddgi.RESOLVE_SCALE = 0.5
 local smooth_blend = pvars.Setup2{
 	key = "ddgi_smooth_blend",
 	default = true,
@@ -252,6 +252,50 @@ function ddgi.GetScreenTexture()
 
 	local resolve = render3d.pipelines.ddgi_resolve
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(1) or nil
+end
+
+function ddgi.GetScreenGeometryTexture()
+	if not render3d.IsPassEnabled("ddgi") then return nil end
+
+	local resolve = render3d.pipelines.ddgi_resolve
+	return resolve and resolve:GetFramebuffer(1):GetAttachment(2) or nil
+end
+
+-- how many pixels of the screen one texel of the resolved gi covers, in each direction
+function ddgi.GetScreenRatioGLSL()
+	return "#define DDGI_SCREEN_RATIO " .. math.floor(1 / ddgi.RESOLVE_SCALE + 0.5) .. "\n"
+end
+
+-- the screen gi is resolved for every DDGI_SCREEN_RATIO pixels in each direction. what a pixel gets
+-- is the resolved texels around it, weighted by how much they sit at the same depth and face the
+-- same way, so that the light of a thin thing in front doesn't spill onto what is behind it
+function ddgi.GetScreenSampleGLSL(block_name)
+	return ddgi.GetScreenRatioGLSL() .. [[
+		vec4 ddgi_screen_sample(ivec2 pixel, vec3 N, float view_depth) {
+			ivec2 base = pixel / DDGI_SCREEN_RATIO;
+			ivec2 size = textureSize(TEXTURE(]] .. block_name .. [[.gi_screen_tex), 0);
+			vec2 fraction = vec2(pixel - base * DDGI_SCREEN_RATIO) / float(DDGI_SCREEN_RATIO);
+			vec4 sum = vec4(0.0);
+			float total = 0.0;
+
+			for (int i = 0; i < 4; i++) {
+				ivec2 corner = ivec2(i & 1, i >> 1);
+				float w = (corner.x == 1 ? fraction.x : 1.0 - fraction.x) * (corner.y == 1 ? fraction.y : 1.0 - fraction.y);
+
+				if (w <= 0.0) continue;
+
+				ivec2 texel = min(base + corner, size - 1);
+				vec4 geometry = texelFetch(TEXTURE(]] .. block_name .. [[.gi_screen_geometry_tex), texel, 0);
+				float depth_weight = exp(-abs(view_depth - geometry.w) / max(view_depth * 0.02, 0.02));
+				float normal_weight = pow(max(dot(N, geometry.xyz), 0.0), 16.0);
+				w *= depth_weight * normal_weight + 1e-4;
+				sum += texelFetch(TEXTURE(]] .. block_name .. [[.gi_screen_tex), texel, 0) * w;
+				total += w;
+			}
+
+			return sum / total;
+		}
+	]]
 end
 
 function ddgi.GetDebugSceneMode()
@@ -520,6 +564,21 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_WRAP(v, n) (((v) + (n) * 65536) %% (n))
 		// the instances a probe's visibility ray can hit, which leaves out foliage with ddgi.ALPHA_TEST
 		#define DDGI_VISIBILITY_MASK %d
+		// a settled probe inside geometry has nothing to light and is retraced about once in
+		// DDGI_DISABLED_PROBE_FRAMES frames, to notice the geometry around it changing, whatever its
+		// cascade's own update interval is. data_w is the probe data's w. neighbouring probes are
+		// retraced together, so that the warps that work on them are idle or not as a whole
+		#define DDGI_DISABLED_PROBE_FRAMES 8u
+
+		bool ddgi_probe_idle(float data_w, bool current, int probe, int c, uint frame) {
+			// disabled and not moved
+			if (!current || (int((data_w - 1.0) * 0.5) & 3) != 2) return false;
+
+			uint h = uint(probe >> 5) * 747796405u + uint(c) * 2891336453u + frame * 277803737u;
+			h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+			h = (h >> 22u) ^ h;
+			return h %% max(DDGI_DISABLED_PROBE_FRAMES >> uint(c), 1u) != 0u;
+		}
 	]]
 	):format(
 		ddgi.PROBES_PER_AXIS,
@@ -1164,6 +1223,12 @@ function ddgi.GetCommonGLSL()
 			return (ddgi_data.ddgi_reset_mask & (1 << c)) != 0;
 		}
 
+		// see ddgi_probe_idle
+		bool ddgi_probe_is_idle(ivec3 slot, ivec3 world, int probe, int c) {
+			vec4 data = ddgi_probe_data(slot, c);
+			return ddgi_probe_idle(data.w, !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world), probe, c, uint(ddgi_data.ddgi_frame));
+		}
+
 		// a probe's ray index, from its tile and whether its guide is usable
 		vec3 ddgi_ray(uint index, ivec2 tile, bool guided) {
 			return ddgi_ray_direction(index, uint(ddgi_data.ddgi_uniform_rays), ddgi_data.ddgi_rotation, tile, guided);
@@ -1173,7 +1238,12 @@ function ddgi.GetCommonGLSL()
 			return ddgi_ray_weight(d, uint(ddgi_data.ddgi_uniform_rays), tile, guided);
 		}
 
-		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, out float weight) {
+		// the least weight a probe has in a blend for its visibility to be traced, for the callers
+		// that don't pass their own: the faint ones' share is too small to show if they leak
+		#define DDGI_VISIBILITY_MIN_WEIGHT 0.02
+		#define DDGI_NO_VISIBILITY_RAYS 1e30
+
+		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
 			weight = 0.0;
 
 			if (ddgi_cascade_reset(c)) return vec4(0.0);
@@ -1206,26 +1276,6 @@ function ddgi.GetCommonGLSL()
 				if (!ddgi_probe_is_current(data, world) || ddgi_probe_disabled(data)) continue;
 
 				vec3 probe_pos = data.xyz * spacing;
-				bool hidden = false;
-
-				#ifdef DDGI_VISIBILITY_RAYS
-				if (ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
-					vec3 origin = P + N * (0.02 * spacing);
-					vec3 to_probe = probe_pos - origin;
-					float len = length(to_probe);
-
-					// a ray query with a nan or zero direction is undefined
-					if (!(len > 1e-4)) continue;
-
-					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | (ddgi_data.ddgi_visibility_front_faces_only != 0 ? gl_RayFlagsCullBackFacingTrianglesEXT : 0u), DDGI_VISIBILITY_MASK, origin, 0.0, to_probe / len, len);
-
-					while (rayQueryProceedEXT(query)) {}
-
-					hidden = rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
-				}
-				#endif
-
 				vec3 kernel = smooth_blend ? mix(mix(below, middle, equal(offset, ivec3(1))), above, equal(offset, ivec3(2))) : mix(1.0 - alpha, alpha, vec3(offset));
 				vec3 to_probe = normalize(probe_pos - P);
 				float w = (dot(to_probe, N) + 1.0) * 0.5;
@@ -1254,6 +1304,28 @@ function ddgi.GetCommonGLSL()
 				if (w < 0.2) w *= w * w / 0.04;
 
 				w *= kernel.x * kernel.y * kernel.z;
+
+				bool hidden = false;
+
+				#ifdef DDGI_VISIBILITY_RAYS
+				// a probe too faint in the blend for its visibility to show isn't traced
+				if (w >= visibility_min_weight && ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
+					vec3 origin = P + N * (0.02 * spacing);
+					vec3 to_probe_ray = probe_pos - origin;
+					float len = length(to_probe_ray);
+
+					// a ray query with a nan or zero direction is undefined
+					if (!(len > 1e-4)) continue;
+
+					rayQueryEXT query;
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | (ddgi_data.ddgi_visibility_front_faces_only != 0 ? gl_RayFlagsCullBackFacingTrianglesEXT : 0u), DDGI_VISIBILITY_MASK, origin, 0.0, to_probe_ray / len, len);
+
+					while (rayQueryProceedEXT(query)) {}
+
+					hidden = rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+				}
+				#endif
+
 				vec4 irradiance = textureLod(
 					TEXTURE(ddgi_data.ddgi_irradiance_tex),
 					ddgi_atlas_uv(slot, c, L, DDGI_IRRADIANCE_TEXELS),
@@ -1302,7 +1374,7 @@ function ddgi.GetCommonGLSL()
 		// viewer), looked up along L, which is N unless something knows the
 		// open side to be elsewhere. rgb = irradiance, a = sky visibility.
 		// weight is 0 when no probe could contribute.
-		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, out float weight) {
+		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
 			weight = 0.0;
 
 			int count = ddgi_data.ddgi_cascade_count;
@@ -1312,12 +1384,12 @@ function ddgi.GetCommonGLSL()
 
 				if (fine <= 0.0) continue;
 
-				vec4 result = ddgi_sample_cascade(c, P, N, L, V, smooth_blend, weight);
+				vec4 result = ddgi_sample_cascade(c, P, N, L, V, smooth_blend, visibility_min_weight, weight);
 
 				if (fine >= 1.0) return result;
 
 				float coarse_weight;
-				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, L, V, smooth_blend, coarse_weight);
+				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, L, V, smooth_blend, visibility_min_weight, coarse_weight);
 
 				// fitted cascades are not always nested
 				if (coarse_weight <= 0.0) return result;
@@ -1873,6 +1945,7 @@ local RTParams = ffi.typeof(
 	int32_t uniform_rays;
 	int32_t emitter_candidates;
 	float emitter_grid;
+	int32_t reset_mask;
 }]]
 	):format(ddgi.CASCADES, ddgi.CASCADES)
 )
@@ -1927,6 +2000,7 @@ function ddgi.WriteRTParams()
 	p.uniform_rays = ddgi.GetUniformRays()
 	p.emitter_candidates = emitter_candidates:Get()
 	p.emitter_grid = emitter_grid:Get()
+	p.reset_mask = state.reset_mask
 	return buffer
 end
 
@@ -1973,6 +2047,8 @@ layout(set = 0, binding = 0) uniform Params
     int emitter_candidates;
     // see ddgi_emitter_grid
     float emitter_grid;
+    // bit c: cascade c starts over
+    int reset_mask;
 } params;
 layout(set = 0, binding = 1) writeonly buffer Hits
 {
@@ -2001,6 +2077,9 @@ void main()
     ivec2 tile = ivec2(probe % (DDGI_P * DDGI_P), probe / (DDGI_P * DDGI_P) + DDGI_P * c);
     vec4 data = texelFetch(probe_data, tile, 0);
     bool current = data.w >= 1.0 && ivec3(round(data.xyz)) == world;
+
+    if (ddgi_probe_idle(data.w, current && (params.reset_mask & (1 << c)) == 0, probe, c, params.frame)) return;
+
     vec3 origin = (current ? data.xyz : vec3(world)) * params.cascades[c].w;
     uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
     const uint shadow_flags = DDGI_SCENE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;

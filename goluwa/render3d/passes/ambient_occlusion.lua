@@ -8,6 +8,15 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BIT_COUNT = 32
+-- the ao is made for every RATIO pixels in each direction, each texel standing for the pixel in the top left
+-- corner of the ones it covers. the blur pass makes it a full resolution image again
+local SCALE = 0.5
+local RATIO = math.floor(1 / SCALE + 0.5)
+-- how the blur pass weighs the texels around a pixel: how near they are in pixels, how far off the
+-- depth they stand for may be as a share of the pixel's own, and the power of how alike the normals are
+local BLUR_DISTANCE_SIGMA = 2
+local BLUR_DEPTH_SIGMA = 0.02
+local BLUR_NORMAL_POWER = 8
 local BENT_COS_SQUARED = {}
 local BENT_COS_SIN = {}
 
@@ -26,7 +35,7 @@ return {
 			{"r16g16b16a16_sfloat", {"bent_normal", "rgba"}},
 		},
 		framebuffer_count = 1,
-		scale = 0.5,
+		scale = SCALE,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{
@@ -83,10 +92,6 @@ return {
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. post_source.GetPreExposureGLSL("lighting_data") .. [[
 			]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_uv"}) .. [[
-
-			vec2 get_compute_uv() {
-				return get_screen_uv(get_screen_pos(), imageSize(out_color));
-			}
 
 			void set_color(vec3 bounce, float ao, vec3 bent, float view_depth) {
 				imageStore(out_color, get_screen_pos(), vec4(bounce, ao));
@@ -302,10 +307,11 @@ return {
 				ivec2 size = imageSize(out_color);
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
-				in_uv = get_compute_uv();
 
-				float depth = gbuffer_depth(in_uv);
-				float alpha = gbuffer_alpha(in_uv);
+				ivec2 pixel = pos * ]] .. RATIO .. [[;
+				in_uv = (vec2(pixel) + 0.5) / vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0));
+				float depth = gbuffer_depth(pixel);
+				float alpha = gbuffer_alpha(pixel);
 
 				if (depth == 1.0 || alpha == 0.0) {
 					set_color(vec3(0.0), 1.0, vec3(0.0), 0.0);
@@ -313,8 +319,8 @@ return {
 				}
 
 				vec3 world_pos = get_world_pos(depth);
-				vec3 N = gbuffer_normal(in_uv);
-				bool thin = gbuffer_transmission(in_uv) > 0.0;
+				vec3 N = gbuffer_normal(pixel);
+				bool thin = gbuffer_transmission(pixel) > 0.0;
 
 				// on a thin card the depth derivatives belong to whatever the card and its neighbours are,
 				// and flip from pixel to pixel
@@ -340,7 +346,7 @@ return {
 			{"r16g16b16a16_sfloat", {"bent_normal", "rgba"}},
 		},
 		framebuffer_count = 2,
-		scale = 0.5,
+		scale = SCALE,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{
@@ -504,64 +510,57 @@ return {
 			]],
 		shader = [[
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ao_blur_data") .. [[
-			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ao_blur_data") .. [[
-
-			vec2 get_compute_uv() {
-				return get_screen_uv(get_screen_pos(), imageSize(out_color));
-			}
 
 			void set_color(vec4 bounce_ao, vec3 bent) {
 				imageStore(out_color, get_screen_pos(), bounce_ao);
 				imageStore(out_bent_normal, get_screen_pos(), vec4(bent, 1.0));
 			}
 
-			float get_view_depth(vec2 uv, float depth) {
-				vec3 world_pos = get_world_pos(uv, depth);
-				return -(ao_blur_data.view * vec4(world_pos, 1.0)).z;
-			}
-
+			// the pixel makes up its ao from the texels around it, each weighted by how near it is, how
+			// close the depth it stands for is to the pixel's and, unless the pixel is foliage whose
+			// normals disagree with their neighbours' however close they are, which way it faces. blurring
+			// the ao across leaves at different depths would smear the shade of one over the others
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_color);
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
-				vec2 uv = get_compute_uv();
-				float center_depth = gbuffer_depth(uv);
+				float depth = gbuffer_depth(pos);
 
-				if (center_depth == 1.0) {
+				if (depth == 1.0) {
 					set_color(vec4(0.0, 0.0, 0.0, 1.0), vec3(0.0));
 					return;
 				}
 
-				float center_view_depth = get_view_depth(uv, center_depth);
-				float depth_sigma = max(0.15 * center_view_depth, 0.01);
+				mat4 inv_projection = ao_blur_data.inv_projection;
+				float view_depth = -(inv_projection[2][2] * depth + inv_projection[3][2]) / (inv_projection[2][3] * depth + inv_projection[3][3]);
+				float depth_sigma = max(]] .. BLUR_DEPTH_SIGMA .. [[ * view_depth, 0.005);
 				ivec2 ao_size = textureSize(TEXTURE(ao_blur_data.ao_tex), 0);
-				vec2 ao_texel = 1.0 / vec2(ao_size);
-
+				ivec2 base = pos / ]] .. RATIO .. [[;
+				vec3 center_normal = gbuffer_normal(pos);
+				bool center_thin = gbuffer_transmission(pos) > 0.0;
 				vec4 total = vec4(0.0);
 				vec3 total_bent = vec3(0.0);
 				float weight_sum = 0.0;
-				vec3 center_normal = gbuffer_normal(uv);
-				// the normals of foliage disagree with their neighbours' however close they are
-				bool center_thin = gbuffer_transmission(uv) > 0.0;
 
-				for (int y = -2; y <= 2; y++) {
-					for (int x = -2; x <= 2; x++) {
-						vec2 offset = vec2(x, y);
-						vec2 sample_uv = clamp(uv + offset * ao_texel, vec2(0.0), vec2(1.0));
-						float sample_depth = gbuffer_depth(sample_uv);
+				for (int y = -1; y <= 2; y++) {
+					for (int x = -1; x <= 2; x++) {
+						ivec2 texel = clamp(base + ivec2(x, y), ivec2(0), ao_size - 1);
+						vec4 bent = texelFetch(TEXTURE(ao_blur_data.bent_tex), texel, 0);
+						// the depth the texel stands for, 0 where there is none
+						float texel_depth = bent.w;
 
-						if (sample_depth == 1.0) continue;
+						if (texel_depth <= 0.0) continue;
 
-						float sample_view_depth = get_view_depth(sample_uv, sample_depth);
-						float depth_diff = sample_view_depth - center_view_depth;
+						vec2 offset = vec2(pos - texel * ]] .. RATIO .. [[);
+						float depth_diff = texel_depth - view_depth;
 						float depth_weight = exp(-(depth_diff * depth_diff) / (2.0 * depth_sigma * depth_sigma));
-						float spatial_weight = exp(-dot(offset, offset) / (2.0 * 2.0 * 2.0));
-						float normal_weight = center_thin ? 1.0 : pow(max(dot(center_normal, gbuffer_normal(sample_uv)), 0.0), 8.0);
+						float spatial_weight = exp(-dot(offset, offset) / (2.0 * ]] .. BLUR_DISTANCE_SIGMA .. [[.0 * ]] .. BLUR_DISTANCE_SIGMA .. [[.0));
+						float normal_weight = center_thin ? 1.0 : pow(max(dot(center_normal, gbuffer_normal(texel * ]] .. RATIO .. [[)), 0.0), ]] .. BLUR_NORMAL_POWER .. [[.0);
 						float weight = depth_weight * spatial_weight * normal_weight;
-						total += texture(TEXTURE(ao_blur_data.ao_tex), sample_uv) * weight;
-						total_bent += texture(TEXTURE(ao_blur_data.bent_tex), sample_uv).xyz * weight;
+						total += texelFetch(TEXTURE(ao_blur_data.ao_tex), texel, 0) * weight;
+						total_bent += bent.xyz * weight;
 						weight_sum += weight;
 					}
 				}
@@ -569,7 +568,9 @@ return {
 				if (weight_sum > 0.0001) {
 					set_color(total / weight_sum, total_bent / weight_sum);
 				} else {
-					set_color(vec4(0.0, 0.0, 0.0, 1.0), vec3(0.0));
+					// nothing that looks like this pixel is near: the closest texel's
+					ivec2 texel = clamp(base + (pos & 1), ivec2(0), ao_size - 1);
+					set_color(texelFetch(TEXTURE(ao_blur_data.ao_tex), texel, 0), texelFetch(TEXTURE(ao_blur_data.bent_tex), texel, 0).xyz);
 				}
 			}
 		]],

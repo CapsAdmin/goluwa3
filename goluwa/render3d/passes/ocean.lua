@@ -739,7 +739,7 @@ list.insert(
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready()) {
 					float weight;
-					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, weight);
+					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, DDGI_VISIBILITY_MIN_WEIGHT, weight);
 					// the weight only fades out near walls, the sky would leak in under a roof
 					if (weight > 0.0) return gi.rgb;
 				}
@@ -841,15 +841,19 @@ list.insert(
 								if (!get_light_vector_and_attenuation(light, p, L, attenuation)) continue;
 
 								float dist = dot(light.position.xyz - p, L);
+								// a light above the water reaches the point through the surface above it
+								float light_path = light.position.y > w.surface_y ? min(dist, point_depth / max(L.y, 0.1)) : dist;
+								vec3 contribution = light.color.rgb * light.color.a * attenuation * water_scatter(w, dot(dir, L)) * exp(-sigma * light_path);
+								float light_weight = scene_reflection_light_weight(contribution * exp(-sigma * t) * (light_len / float(WATER_LIGHT_SAMPLES)), p, li);
+
+								if (light_weight == 0.0) continue;
 
 								if (dist > 0.05) {
 									shaded++;
 									if (!scene_reflection_visible(p, L, dist - 0.05)) continue;
 								}
 
-								// a light above the water reaches the point through the surface above it
-								float light_path = light.position.y > w.surface_y ? min(dist, point_depth / max(L.y, 0.1)) : dist;
-								point_light += light.color.rgb * light.color.a * attenuation * water_scatter(w, dot(dir, L)) * exp(-sigma * light_path);
+								point_light += contribution * light_weight;
 							}
 						}
 

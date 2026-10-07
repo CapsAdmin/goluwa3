@@ -40,7 +40,7 @@ local screen_shadow_length = pvars.Setup2{
 }
 local screen_shadow_steps = pvars.Setup2{
 	key = "screen_space_shadow_steps",
-	default = 24,
+	default = 16,
 	integer = true,
 	min = 2,
 	max = SCREEN_SHADOW_MAX_STEPS,
@@ -149,6 +149,8 @@ return {
 			}
 
 			vec2 in_uv;
+			ivec2 in_pixel;
+			float in_view_depth;
 
 			void set_color(vec4 value) {
 				if (lighting_data.gi_overlay_tex >= 0) {
@@ -239,7 +241,7 @@ return {
 				return 1.0 - occlusion * view_fade;
 			}
 
-			]] .. surface_lighting.GetGLSL("lighting_data") .. [[
+			]] .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetScreenSampleGLSL("lighting_data") .. [[
 
 			]] .. ibl.GetSSRQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
@@ -264,7 +266,7 @@ return {
 					return sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
 				}
 
-				vec4 gi = texture(TEXTURE(lighting_data.gi_screen_tex), in_uv);
+				vec4 gi = ddgi_screen_sample(in_pixel, N, in_view_depth);
 				sky_visibility = gi.a;
 				return gi.rgb;
 			}
@@ -357,6 +359,7 @@ return {
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 				in_uv = get_compute_uv();
+				in_pixel = pos;
 
 				float depth = gbuffer_depth(in_uv);
 
@@ -372,6 +375,7 @@ return {
 					return;
 				}
 
+				in_view_depth = -(lighting_data.inv_projection[2][2] * depth + lighting_data.inv_projection[3][2]) / (lighting_data.inv_projection[2][3] * depth + lighting_data.inv_projection[3][3]);
 				vec3 world_pos = get_world_pos(depth);
 				vec3 V = get_view_normal(world_pos);
 				// a normal map can turn a pixel away from the camera; shading it

@@ -26,10 +26,16 @@ local BINDING_SCATTER = 5
 local BINDING_RAW = 6
 local BINDING_LIGHT_GRID = 7
 local BINDING_SCENE = 8
+local BINDING_TILE_DEPTH = 9
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local froxels = froxel_fog.froxels
 local FROXEL_SLICES = froxel_fog.SLICES
 local SLICE_GLSL = froxel_fog.SLICE_GLSL
+local HIDDEN_GLSL = [[
+	bool froxel_is_hidden(ivec3 id, float tile_depth_max) {
+		return froxel_slice_depth(float(id.z) - 2.0) > tile_depth_max * 1.1;
+	}
+]]
 
 local function get_sun_helpers_glsl(data_block)
 	return [[
@@ -87,6 +93,80 @@ local function write_ocean_distance_texture(self, block, key)
 	end
 end
 
+local TILE_DEPTH_MARGIN = 8
+local depth_pass = {
+	name = "volumetric_froxel_depth",
+	ComputePass = true,
+	ColorFormat = {{"r8_unorm", {"froxel_dummy", "r"}}},
+	FramebufferSize = {x = 1, y = 1},
+	framebuffer_count = 1,
+	LocalSize = {x = 8, y = 8, z = 1},
+	storage_images = {
+		{
+			binding_index = BINDING_OUTPUT,
+			dst_stage = "compute",
+			get_texture = function()
+				return froxels.depth
+			end,
+		},
+	},
+	uniform_buffers = {
+		{
+			name = "froxel_data",
+			binding_index = BINDING_FROXEL,
+			block = {
+				render3d.camera_block,
+				gbuffer_layout.block,
+				{"froxel_size", "vec2"},
+			},
+			write = function(self, block)
+				render3d.WriteCameraBlock(self, block)
+				gbuffer_layout.WriteBlock(self, block)
+				block.froxel_size[0] = froxels.width
+				block.froxel_size[1] = froxels.height
+				return block
+			end,
+		},
+	},
+	on_pre_draw = function(self)
+		froxel_fog.EnsureResources()
+	end,
+	on_draw = function(self, cmd, fb, frame, desc)
+		self:UploadConstants()
+		self.pipeline:DispatchForSize(cmd, froxels.width, froxels.height, 1, desc, self.dynamic_offsets)
+	end,
+	custom_declarations = [[
+		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, r32f) uniform writeonly image2D out_depth;
+	]],
+	shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("froxel_data") .. [[
+		// the farthest view depth over the froxel's tile and a margin around it, which the
+		// froxel's jittered samples and the filtering between froxels reach into
+		void main() {
+			ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+
+			if (any(greaterThanEqual(id, ivec2(froxel_data.froxel_size)))) return;
+
+			ivec2 size = textureSize(TEXTURE(froxel_data.depth_tex), 0);
+			ivec2 first = id * ]] .. froxel_fog.TILE .. [[ - ]] .. TILE_DEPTH_MARGIN .. [[;
+			float farthest = 0.0;
+
+			for (int y = 0; y < ]] .. froxel_fog.TILE + 2 * TILE_DEPTH_MARGIN .. [[; y++) {
+				for (int x = 0; x < ]] .. froxel_fog.TILE + 2 * TILE_DEPTH_MARGIN .. [[; x++) {
+					farthest = max(farthest, gbuffer_depth(clamp(first + ivec2(x, y), ivec2(0), size - 1)));
+				}
+			}
+
+			float view_depth = 1e30;
+
+			if (farthest < 1.0) {
+				mat4 inv_projection = froxel_data.inv_projection;
+				view_depth = -(inv_projection[2][2] * farthest + inv_projection[3][2]) / (inv_projection[2][3] * farthest + inv_projection[3][3]);
+			}
+
+			imageStore(out_depth, id, vec4(view_depth));
+		}
+	]],
+}
 local scatter_pass = {
 	name = "volumetric_froxel_scatter",
 	ComputePass = true,
@@ -107,6 +187,12 @@ local scatter_pass = {
 		{
 			binding_index = BINDING_OCCLUSION,
 			get_descriptor = light_occlusion.GetOcclusionDescriptor,
+		},
+		{
+			binding_index = BINDING_TILE_DEPTH,
+			get_descriptor = function()
+				return {froxels.depth:GetView(), froxels.depth_sampler}
+			end,
 		},
 	},
 	uniform_buffers = {
@@ -192,10 +278,11 @@ local scatter_pass = {
 			""
 		) .. [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_scatter;
+		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID),
 	shader = [[
 		#define saturate(x) clamp(x, 0.0, 1.0)
-	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
 			v = v * 1664525u + 1013904223u;
 			v.x += v.y * v.z;
@@ -279,7 +366,7 @@ local scatter_pass = {
 				float phi = float(seed >> 16u) * (6.28318530718 / 65536.0);
 				vec3 N = vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z);
 				float weight;
-				vec4 gi = ddgi_sample_irradiance(P, N, N, vec3(0.0), false, weight);
+				vec4 gi = ddgi_sample_irradiance(P, N, N, vec3(0.0), false, DDGI_VISIBILITY_MIN_WEIGHT, weight);
 
 				if (weight > 0.0) return gi.rgb / PI;
 			}
@@ -296,7 +383,7 @@ local scatter_pass = {
 
 			if (any(greaterThanEqual(id.xy, ivec2(froxel_data.froxel_size)))) return;
 
-			if (ATMOSPHERE_ENABLED == 0) {
+			if (ATMOSPHERE_ENABLED == 0 || froxel_is_hidden(id, texelFetch(tile_depth, id.xy, 0).r)) {
 				imageStore(out_scatter, id, vec4(0.0));
 				return;
 			}
@@ -366,6 +453,12 @@ local temporal_pass = {
 				return {texture:GetView(), sampler}
 			end,
 		},
+		{
+			binding_index = BINDING_TILE_DEPTH,
+			get_descriptor = function()
+				return {froxels.depth:GetView(), froxels.depth_sampler}
+			end,
+		},
 	},
 	uniform_buffers = {
 		{
@@ -408,13 +501,19 @@ local temporal_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_scatter;
 		layout(set = 0, binding = ]] .. BINDING_RAW .. [[) uniform sampler3D raw_scatter;
 		layout(set = 0, binding = ]] .. BINDING_HISTORY .. [[) uniform sampler3D history_scatter;
+		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 	]],
-	shader = SLICE_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+	shader = SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		void main() {
 			ivec3 id = ivec3(gl_GlobalInvocationID);
 			ivec3 size = ivec3(froxel_data.froxel_size, int(FROXEL_SLICES));
 
 			if (any(greaterThanEqual(id.xy, size.xy))) return;
+
+			if (froxel_is_hidden(id, texelFetch(tile_depth, id.xy, 0).r)) {
+				imageStore(out_scatter, id, vec4(0.0));
+				return;
+			}
 
 			vec4 current = texelFetch(raw_scatter, id, 0);
 
@@ -691,4 +790,4 @@ local composite_pass = {
 	DepthTest = false,
 	DepthWrite = false,
 }
-return {scatter_pass, temporal_pass, integrate_pass, composite_pass}
+return {depth_pass, scatter_pass, temporal_pass, integrate_pass, composite_pass}

@@ -16,6 +16,7 @@ grass.MAX_SURFACES = 512
 grass.SURFACE_RING = 4
 grass.MAX_JOBS = 2 ^ 20
 grass.JOB_ROW = 2 ^ 15
+grass.TILE_GROUPS_PER_ROW = 2 ^ 15
 grass.MAX_BLADES = 2 ^ 19
 grass.TILE_CELLS = 32
 grass.MAX_LEVEL = 4
@@ -136,6 +137,7 @@ local COMMON_GLSL = [[
 
 	#define GRASS_MAX_JOBS ]] .. grass.MAX_JOBS .. [[u
 	#define GRASS_JOB_ROW ]] .. grass.JOB_ROW .. [[u
+	#define GRASS_TILE_GROUPS_PER_ROW ]] .. grass.TILE_GROUPS_PER_ROW .. [[u
 	// how far a blade's tip leans out per unit up, lean is stored as a fraction of this
 	#define GRASS_MAX_LEAN 3.0
 	// blades lean away from anything within this distance along the ground
@@ -451,8 +453,10 @@ local function get_compute_passes()
 			block = compute_block,
 			write = write_compute_block,
 			shader = COMPUTE_GLSL .. [[
+				// a workgroup is a triangle, which its invocations share the tiles of. a big triangle covers
+				// thousands of tiles, which one invocation went through one after the other
 				void main() {
-					uint tri = gl_GlobalInvocationID.x;
+					uint tri = gl_WorkGroupID.y * GRASS_TILE_GROUPS_PER_ROW + gl_WorkGroupID.x;
 
 					if (tri >= uint(compute.triangle_count)) return;
 
@@ -493,27 +497,29 @@ local function get_compute_passes()
 					ivec2 t0 = ivec2(floor(lo / tile_size));
 					ivec2 t1 = ivec2(floor(hi / tile_size));
 					float top = bmax.y + grass_max_height(s);
+					int width = t1.x - t0.x + 1;
+					int count = (t1.y - t0.y + 1) * width;
 
-					for (int z = t0.y; z <= t1.y; z++) {
-						for (int x = t0.x; x <= t1.x; x++) {
-							vec2 rmin = vec2(x, z) * tile_size;
-							vec3 box_lo = vec3(max(rmin.x, bmin.x), bmin.y, max(rmin.y, bmin.z));
-							vec3 box_hi = vec3(min(rmin.x + tile_size + reach, bmax.x), top, min(rmin.y + tile_size + reach, bmax.z));
-							float keep = grass_keep(distance(clamp(cam, box_lo, box_hi), cam));
+					for (int n = int(gl_LocalInvocationID.x); n < count; n += int(gl_WorkGroupSize.x)) {
+						int x = t0.x + n % width;
+						int z = t0.y + n / width;
+						vec2 rmin = vec2(x, z) * tile_size;
+						vec3 box_lo = vec3(max(rmin.x, bmin.x), bmin.y, max(rmin.y, bmin.z));
+						vec3 box_hi = vec3(min(rmin.x + tile_size + reach, bmax.x), top, min(rmin.y + tile_size + reach, bmax.z));
+						float keep = grass_keep(distance(clamp(cam, box_lo, box_hi), cam));
 
-							if (keep <= 0.0) continue;
+						if (keep <= 0.0) continue;
 
-							if (!grass_box_visible(box_lo, box_hi)) continue;
+						if (!grass_box_visible(box_lo, box_hi)) continue;
 
-							int level = min(int(floor(0.5 * log2(1.0 / keep))), GRASS_MAX_LEVEL);
-							uint slot = atomicAdd(grass_job_counter, 1u);
+						int level = min(int(floor(0.5 * log2(1.0 / keep))), GRASS_MAX_LEVEL);
+						uint slot = atomicAdd(grass_job_counter, 1u);
 
-							if (slot >= GRASS_MAX_JOBS) return;
+						if (slot >= GRASS_MAX_JOBS) return;
 
-							grass_jobs[slot] = uvec4(surface_index | (uint(level) << 24), tri, uint(x), uint(z));
-							atomicMax(grass_dispatch[0], min(slot + 1u, GRASS_JOB_ROW));
-							atomicMax(grass_dispatch[1], slot / GRASS_JOB_ROW + 1u);
-						}
+						grass_jobs[slot] = uvec4(surface_index | (uint(level) << 24), tri, uint(x), uint(z));
+						atomicMax(grass_dispatch[0], min(slot + 1u, GRASS_JOB_ROW));
+						atomicMax(grass_dispatch[1], slot / GRASS_JOB_ROW + 1u);
 					}
 				}
 			]],
@@ -904,7 +910,13 @@ function grass.Scatter(cmd)
 				passes.tiles.triangle_count = b.surface_data[index].info[0]
 
 				if passes.tiles.triangle_count > 0 then
-					passes.tiles:Dispatch(cmd, math.ceil(passes.tiles.triangle_count / 64), 1, 1, 1)
+					passes.tiles:Dispatch(
+						cmd,
+						math.min(passes.tiles.triangle_count, grass.TILE_GROUPS_PER_ROW),
+						math.ceil(passes.tiles.triangle_count / grass.TILE_GROUPS_PER_ROW),
+						1,
+						1
+					)
 				end
 
 				surface_count = surface_count + 1

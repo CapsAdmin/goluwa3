@@ -98,6 +98,32 @@ function scene_reflection.GetGLSL(block_name)
 	return ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. ddgi.GetMaterialGLSL() .. [[
 		#define SCENE_REFLECTION_MAX_DISTANCE ]] .. string.format("%.1f", scene_reflection.MAX_DISTANCE) .. [[
 
+		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
+
+		// different for every point, light and frame, the reflections' histories average it out
+		float scene_reflection_random(vec3 p, int light) {
+			uvec3 v = uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(ddgi_data.ddgi_frame) * 40503u));
+			v = v * 1664525u + 1013904223u;
+			v.x += v.y * v.z;
+			v.y += v.z * v.x;
+			v.z += v.x * v.y;
+			v ^= v >> 16u;
+			v.x += v.y * v.z;
+			return float(v.x >> 8u) * (1.0 / 16777216.0);
+		}
+
+		// what a light that adds contribution (absolute luminance) at p counts for. a light that
+		// shows dimmer than SCENE_REFLECTION_LIGHT_FULL_RADIANCE on screen (1 is white) is only
+		// traced with a probability that falls with it, 0 when it isn't and the inverse of the
+		// probability when it is, so the light that is left out is counted for in what is not
+		float scene_reflection_light_weight(vec3 contribution, vec3 p, int light) {
+			float probability = min(max(max(contribution.r, contribution.g), contribution.b) * get_exposure() / SCENE_REFLECTION_LIGHT_FULL_RADIANCE, 1.0);
+
+			if (probability >= 1.0) return 1.0;
+
+			return scene_reflection_random(p, light) < probability ? 1.0 / probability : 0.0;
+		}
+
 		bool scene_reflection_ready() {
 			return ddgi_data.ddgi_rt_ready != 0;
 		}
@@ -190,17 +216,22 @@ function scene_reflection.GetGLSL(block_name)
 
 					if (NoL <= 0.0) continue;
 
+					vec3 contribution = albedo * light.color.rgb * light.color.a * attenuation * (NoL / 3.14159265359);
+					float light_weight = scene_reflection_light_weight(contribution, P, i);
+
+					if (light_weight == 0.0) continue;
+
 					// stops short of the light so a bulb mesh around it doesn't shadow it
 					float dist = dot(light.position.xyz - surface, L);
 
 					if (dist > 0.05 && !scene_reflection_visible(surface, L, dist - 0.05)) continue;
 
-					radiance += albedo * light.color.rgb * light.color.a * attenuation * (NoL / 3.14159265359);
+					radiance += contribution * light_weight;
 				}
 			}
 
 			float weight;
-			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, weight);
+			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, DDGI_NO_VISIBILITY_RAYS, weight);
 
 			if (weight <= 0.0 && !ddgi_in_volume(P)) {
 				// outside the probes nothing knows how much sky is open, and a hit in a

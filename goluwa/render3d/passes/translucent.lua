@@ -432,7 +432,7 @@ return {
 					if (!ddgi_in_volume(world_pos)) return irradiance;
 
 					float weight;
-					vec4 probes = ddgi_sample_irradiance(world_pos, facing_N, facing_N, V, ddgi_data.ddgi_smooth_blend != 0, weight);
+					vec4 probes = ddgi_sample_irradiance(world_pos, facing_N, facing_N, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
 					// where the probes are all but hidden the sample fades to nothing,
 					// which gives way to the fallback just as smoothly
 					float confidence = saturate(weight / ]] .. ddgi.MIN_WEIGHT .. [[);

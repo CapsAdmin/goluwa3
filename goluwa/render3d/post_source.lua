@@ -126,6 +126,11 @@ function post_source.GetPreExposureGLSL(block_name)
 			return read_pre_exposure(]] .. block_name .. [[.pre_exposure_tex);
 		}
 
+		// what an absolute luminance is multiplied by to show on screen, where 1 is white
+		float get_exposure() {
+			return get_pre_exposure() * ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[;
+		}
+
 		float get_previous_pre_exposure() {
 			return read_pre_exposure(]] .. block_name .. [[.prev_pre_exposure_tex);
 		}

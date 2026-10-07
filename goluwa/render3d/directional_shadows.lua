@@ -155,6 +155,19 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 			if (cascade_idx < 0) return 1.0;
 
 			float dist = -(@@BLOCK@@.view * vec4(world_pos, 1.0)).z;
+			float inset_distance = @@BLOCK@@.shadows.inset_shadow_distance;
+
+			// the inset takes over completely closer than its blend band, the cascades would be
+			// looked up for nothing
+			if (@@BLOCK@@.shadows.inset_shadow_map_index >= 0 && dist <= max(inset_distance - max(inset_distance * 0.25, 4.0), 0.0)) {
+				float inset_shadow = 1.0;
+
+				if (@@INSET@@) {
+					shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx];
+					return inset_shadow;
+				}
+			}
+
 			// the split picks the cascade, but a zoomed or stale cascade may not
 			// cover the point, in which case the next one is used
 			float shadow = -1.0;

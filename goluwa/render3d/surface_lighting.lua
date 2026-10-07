@@ -27,6 +27,7 @@ surface_lighting.block = {
 	{"env_irradiance_tex", "int"},
 	envprobe.GetProbeBlockLayout(),
 	{"gi_screen_tex", "int"},
+	{"gi_screen_geometry_tex", "int"},
 	glass_tint.cascade_block,
 	post_source.pre_exposure_block,
 }
@@ -54,6 +55,8 @@ function surface_lighting.WriteBlock(self, block)
 	envprobe.WriteProbeBlock(self, block)
 	local gi_texture = ddgi.GetScreenTexture()
 	block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
+	local gi_geometry_texture = ddgi.GetScreenGeometryTexture()
+	block.gi_screen_geometry_tex = gi_geometry_texture and self:GetTextureIndex(gi_geometry_texture) or -1
 	glass_tint.WriteCascadeBlock(self, block)
 	post_source.WritePreExposureBlock(self, block)
 	return block
@@ -84,6 +87,9 @@ function surface_lighting.GetGLSL(block_name)
 		]] .. directional_shadows.GetLocalDirectionalShadowGLSL(block_name) .. [[
 
 		]] .. glass_tint.GetCascadeGLSL(block_name) .. [[
+
+		// the exposed radiance (1 is white) below which a light isn't shaded at all
+		#define LIGHT_MIN_SCREEN_RADIANCE 0.0002
 
 		vec3 get_primary_sun_direction() {
 			vec3 sunDir = ]] .. block_name .. [[.primary_sun_direction.xyz;
@@ -130,6 +136,15 @@ function surface_lighting.GetGLSL(block_name)
 				if (!get_light_vector_and_attenuation(light, world_pos, L, attenuation)) {
 					continue;
 				}
+
+				vec3 unshadowed_radiance = light.color.rgb * light.color.a * attenuation;
+
+				// a light that can't show on screen isn't shaded. a smooth surface shows a light brighter
+				// than it is as a highlight, so what the lobe's peak makes of it is counted
+				float lobe_alpha_min = clearcoat > 0.0 ? min(roughness_alpha, clearcoat_alpha) : roughness_alpha;
+				float brightest = max(max(unshadowed_radiance.r, unshadowed_radiance.g), unshadowed_radiance.b) * max(1.0, 0.08 / max(lobe_alpha_min * lobe_alpha_min, 1e-4));
+
+				if (brightest * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 				// light reaches a thin translucent surface from either side, so
 				// its shadow is looked up on the side facing the light, and bent
 				// towards the light so edge on doesn't read as facing away
@@ -175,10 +190,13 @@ function surface_lighting.GetGLSL(block_name)
 				}
 
 				#ifdef SHADOW_SCREEN_SPACE
+				// the exposed radiance (1 is white) below which a light's contact shadow isn't marched
+				#define SCREEN_SHADOW_MIN_SCREEN_RADIANCE 0.002
 				// the shadow maps' texels are too coarse for detail like grass, and their
 				// offsets against self shadowing carry the lookup past close occluders,
 				// so what the gbuffer shows is marched on top, for every kind of light
-				if (]] .. block_name .. [[.screen_shadows != 0 && shadow_factor > 0.0 && NoL > 0.0) {
+				// a light too dim on screen for its contact shadow to show isn't marched
+				if (]] .. block_name .. [[.screen_shadows != 0 && shadow_factor > 0.0 && NoL > 0.0 && max(max(unshadowed_radiance.r, unshadowed_radiance.g), unshadowed_radiance.b) * NoL * get_exposure() >= SCREEN_SHADOW_MIN_SCREEN_RADIANCE) {
 					float reach = ]] .. block_name .. [[.screen_shadow_length;
 					bool reach_is_light = false;
 
@@ -213,7 +231,7 @@ function surface_lighting.GetGLSL(block_name)
 
 					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
 				}
-				vec3 radiance = light.color.rgb * light.color.a * attenuation * shadow_factor;
+				vec3 radiance = unshadowed_radiance * shadow_factor;
 
 				if (type == 0) radiance *= get_glass_tint(world_pos);
 
