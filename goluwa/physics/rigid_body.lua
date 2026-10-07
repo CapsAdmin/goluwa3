@@ -36,6 +36,7 @@ RigidBody.Network = {
 RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
 RigidBody:GetSet("Shapes", nil, {callback = "OnGeometryChanged"})
 RigidBody:StartStorable()
+RigidBody:GetSet("ShapeModelPath", "", {callback = "LoadShapeModel"})
 RigidBody:GetSet(
 	"MotionType",
 	"dynamic",
@@ -485,6 +486,49 @@ function RigidBody:OnRemove()
 	self:OnActivityChanged()
 	islands.RemoveBody(self)
 	remove_world_geometry_body(self)
+end
+
+function RigidBody:LoadShapeModel()
+	local path = self.ShapeModelPath
+
+	if path == "" then return end
+
+	self.shape_load_id = (self.shape_load_id or 0) + 1
+	local load_id = self.shape_load_id
+
+	import("goluwa/render3d/model_loader.lua").LoadModel(
+		path,
+		function(model)
+			if not self:IsValid() or self.shape_load_id ~= load_id then return end
+
+			if not model.physics then
+				wlog("rigid_body: %s has no collision data", path)
+
+				return
+			end
+
+			self:SetShapes(model.physics.children)
+
+			if self.sleep_after_shapes then
+				self.sleep_after_shapes = nil
+				self:Sleep()
+			end
+		end,
+		nil,
+		function(err)
+			wlog("rigid_body: failed to load collision model %s: %s", path, tostring(err))
+		end
+	)
+end
+
+function RigidBody:ShouldSerialize()
+	return self.ShapeModelPath ~= ""
+end
+
+function RigidBody:OnDeserialized()
+	self.sleep_after_shapes = true
+	self:SetAwake(false)
+	self:Sleep()
 end
 
 function RigidBody:OnGeometryChanged()
