@@ -231,6 +231,7 @@ return {
 			if not surface.pipeline.descriptor_sets[frame] then frame = 1 end
 
 			surface.surface_lighting_sets = surface.surface_lighting_sets or {}
+			froxel_fog.BindVolume(surface, frame)
 
 			if not surface.surface_lighting_sets[frame] then
 				surface.surface_lighting_sets[frame] = true

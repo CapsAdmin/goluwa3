@@ -794,6 +794,9 @@ local composite_pass = {
 			}
 		]],
 	},
+	on_pre_draw = function(self, cmd, frame)
+		froxel_fog.BindVolume(self, frame)
+	end,
 	CullMode = "none",
 	DepthTest = false,
 	DepthWrite = false,

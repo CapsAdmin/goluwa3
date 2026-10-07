@@ -5,7 +5,7 @@ froxel_fog.TILE = 8
 froxel_fog.SLICES = 96
 froxel_fog.FAR = 3000
 froxel_fog.DEPTH_KNEE = 2
-local froxels = {width = 0, height = 0, current = 1}
+local froxels = {width = 0, height = 0, current = 1, generation = 0}
 froxel_fog.froxels = froxels
 
 function froxel_fog.EnsureResources()
@@ -61,6 +61,7 @@ function froxel_fog.EnsureResources()
 	froxels.width = width
 	froxels.height = height
 	froxels.history_valid = false
+	froxels.generation = froxels.generation + 1
 	return froxels
 end
 
@@ -72,6 +73,19 @@ end
 function froxel_fog.GetVolumeDescriptor()
 	froxel_fog.EnsureResources()
 	return {froxels.integrated:GetView(), froxels.integrated_sampler}
+end
+
+function froxel_fog.BindVolume(pipeline, frame)
+	froxel_fog.EnsureResources()
+
+	if not pipeline.pipeline.descriptor_sets[frame] then frame = 1 end
+
+	pipeline.froxel_generations = pipeline.froxel_generations or {}
+
+	if pipeline.froxel_generations[frame] == froxels.generation then return end
+
+	pipeline.froxel_generations[frame] = froxels.generation
+	pipeline:UpdateDescriptorSet("combined_image_sampler", frame, 0, 2, froxels.integrated)
 end
 
 froxel_fog.SLICE_GLSL = (
