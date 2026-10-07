@@ -7,7 +7,7 @@ frame_benchmark.Run{
 	settle_quiet = 20,
 	warmup = 12,
 	load = function()
-		commands.RunString("crymap PS/Beach")
+		commands.RunString("map cry:PS/Beach")
 	end,
 	view = function()
 		local min, max = scene_bvh.GetBounds()

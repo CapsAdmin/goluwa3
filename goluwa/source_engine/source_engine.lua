@@ -10,6 +10,8 @@ local scene = import("goluwa/entities/scene.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local engines = import("goluwa/engines.lua")
+local game = import("goluwa/source_engine/game.lua")
 local bsp = import("goluwa/source_engine/bsp.lua")
 local map_scene = import("goluwa/source_engine/map_scene.lua")
 local lights = import("goluwa/source_engine/lights.lua")
@@ -17,6 +19,7 @@ local source_engine = {}
 
 local function wait_for_map(path)
 	local done, failed = false, false
+
 	model_loader.LoadModel(
 		path,
 		function()
@@ -66,7 +69,8 @@ function source_engine.Load(name)
 		return
 	end
 
-	local path = "maps/" .. name .. ".bsp"
+	local path = game.GetMapPath(name)
+	game.EnsureMounted(path)
 	scene.Clear()
 	local task = tasks.CreateTask()
 	scene_loading.HoldTask(task)
@@ -87,25 +91,26 @@ function source_engine.Load(name)
 	task:Start()
 end
 
-commands.Add("map=string_trim|nil", function(name)
-	if not name then
-		for _, path in ipairs(vfs.Find("maps/.-%.bsp")) do
-			print(file_path.RemoveExtensionFromPath(path))
-		end
+engines.Register(
+	"source",
+	{
+		Find = function(name)
+			if tonumber(name) then return name end
 
-		return
-	end
+			return game.FindMap(name)
+		end,
+		Load = source_engine.Load,
+		List = function()
+			local names = {}
 
-	utility.PushTimeWarning()
-	source_engine.Load(name)
-	utility.PopTimeWarning("map " .. name, nil, "cmd")
-end)
+			for _, path in ipairs(vfs.Find("maps/%.bsp$")) do
+				names[#names + 1] = path:sub(0, -5)
+			end
 
-commands.Add("list_maps", function(search)
-	for _, name in ipairs(vfs.Find("maps/%.bsp$")) do
-		if not search or name:find(search) then logn(name:sub(0, -5)) end
-	end
-end)
+			return names
+		end,
+	}
+)
 
 commands.Add("bsp_dump_lights", function()
 	local lines = {}
@@ -117,7 +122,11 @@ commands.Add("bsp_dump_lights", function()
 		local raw = {}
 
 		for key, value in pairs(component.Info) do
-			raw[#raw + 1] = key .. "=" .. tostring(type(value) == "table" and table.concat({value.r, value.g, value.b, value.brightness}, ",") or value)
+			raw[#raw + 1] = key .. "=" .. tostring(
+					type(value) == "table" and
+						table.concat({value.r, value.g, value.b, value.brightness}, ",") or
+						value
+				)
 		end
 
 		table.sort(raw)

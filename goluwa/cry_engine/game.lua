@@ -24,7 +24,6 @@ local function ensure_trailing_slash(path)
 	return path
 end
 
-
 function game.FindCryGame()
 	if cached_game then return cached_game end
 
@@ -36,6 +35,32 @@ function game.FindCryGame()
 	end
 
 	return nil, "Crysis 1 not found"
+end
+
+function game.ListLevels()
+	local cry_game = game.FindCryGame()
+	local levels = {}
+
+	if not cry_game then return levels end
+
+	local root = cry_game.game_dir .. "Game/Levels/"
+
+	local function scan(relative)
+		local entries = vfs.Find(root .. relative)
+
+		for _, entry in ipairs(entries) do
+			if entry == "level.pak" then levels[#levels + 1] = relative:sub(1, -2) end
+		end
+
+		for _, entry in ipairs(entries) do
+			if vfs.IsDirectory(root .. relative .. entry) then
+				scan(relative .. entry .. "/")
+			end
+		end
+	end
+
+	scan("")
+	return levels
 end
 
 function game.ResolveLevelDirectory(level)
@@ -129,9 +154,7 @@ function game.EnsureLevelMounts(level_dir)
 
 	if not cry_game then error(err) end
 
-	if mount_root == level_dir then
-		return
-	end
+	if mount_root == level_dir then return end
 
 	mounts = clear_mounts(mounts)
 	mount_root = level_dir
@@ -155,4 +178,3 @@ function game.EnsureLevelMounts(level_dir)
 end
 
 return game
-

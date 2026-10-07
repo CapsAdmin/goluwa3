@@ -1,4 +1,4 @@
-local commands = import("goluwa/cli/commands.lua")
+local engines = import("goluwa/engines.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local game = import("goluwa/cry_engine/game.lua")
@@ -24,8 +24,18 @@ function cry_engine.Load(name, options)
 	return data
 end
 
-commands.Add("crymap=string_trim|nil", function(name)
-	cry_engine.Load(name:find("/") and ("Multiplayer/" .. name) or name)
-end)
+engines.Register(
+	"cry",
+	{
+		Find = function(name)
+			for _, candidate in ipairs{name, "Multiplayer/" .. name} do
+				if game.ResolveLevelDirectory(candidate) then return candidate end
+			end
 
+			return nil, "could not find Crysis level " .. name
+		end,
+		Load = cry_engine.Load,
+		List = game.ListLevels,
+	}
+)
 return cry_engine

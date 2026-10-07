@@ -1,8 +1,7 @@
-local event = import("goluwa/event.lua")
-local steam = import("goluwa/steam/steam.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local bsp = import("goluwa/source_engine/bsp.lua")
 import("goluwa/source_engine/source_engine.lua")
+
 model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 	local ok, result = pcall(bsp.Load, full_path)
 
@@ -18,4 +17,3 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 		mesh_callback(prim.mesh, prim.material)
 	end
 end)
-event.AddListener("PreLoad3DModel", "bsp_mount_games", steam.MountGamesFromMapPath)

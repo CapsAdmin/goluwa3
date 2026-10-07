@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local bsp = import("goluwa/source_engine/bsp.lua")
+local game = import("goluwa/source_engine/game.lua")
 local units = import("goluwa/source_engine/units.lua")
 local scene = import("goluwa/entities/scene.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
@@ -34,6 +35,7 @@ function META:Load()
 
 	if self.Path == "" then return end
 
+	game.EnsureMounted(self.Path)
 	self.load_id = (self.load_id or 0) + 1
 	local load_id = self.load_id
 	local path = self.Path
