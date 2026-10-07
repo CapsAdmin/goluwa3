@@ -8,7 +8,7 @@ local shapes = import("goluwa/render3d/shapes.lua")
 weather.SetTimeScale(0)
 weather.SetSunDirection(Vec3(0.3, 0.6, -0.5):GetNormalized())
 render3d.SetOceanEnabled(false)
-local W, L, D = 40, 40, 12
+local W, L, D = 40, 40, tonumber(os.getenv("DEPTH") or "12")
 
 local function mat(r, g, b, rough)
 	return shapes.Material{Color = Color(r, g, b, 1), Roughness = rough or 0.8, Metallic = 0}
@@ -64,5 +64,6 @@ Entity.New{
 		ParticleScattering = water.presets.lake.ParticleScattering:Copy(),
 		WaveHeight = 0.08,
 		WaveLength = 2,
+		AbbeNumber = tonumber(os.getenv("ABBE") or "55.8"),
 	},
 }

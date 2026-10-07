@@ -313,6 +313,7 @@ local function build_material(gltf_data, material_index)
 	if info.transmission_factor and info.transmission_factor > 0 then
 		config.Refraction = info.transmission_factor
 		config.IndexOfRefraction = info.ior or 1.5
+		config.AbbeNumber = (info.dispersion or 0) > 0 and 20 / info.dispersion or 0
 		config.RefractionThickness = (info.thickness_factor or 0) > 0 and -1 or 0
 	end
 

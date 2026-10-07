@@ -140,6 +140,10 @@ local function decode_material(material_info)
 		material.ior = extensions.KHR_materials_ior.ior or 1.5
 	end
 
+	if extensions.KHR_materials_dispersion then
+		material.dispersion = extensions.KHR_materials_dispersion.dispersion or 0
+	end
+
 	if extensions.KHR_materials_volume then
 		material.thickness_factor = extensions.KHR_materials_volume.thicknessFactor or 0
 	end
@@ -177,6 +181,7 @@ function gltf.Load(path)
 		KHR_materials_pbrSpecularGlossiness = true,
 		KHR_materials_transmission = true,
 		KHR_materials_ior = true,
+		KHR_materials_dispersion = true,
 		KHR_materials_volume = true,
 		EXT_mesh_gpu_instancing = true,
 	}

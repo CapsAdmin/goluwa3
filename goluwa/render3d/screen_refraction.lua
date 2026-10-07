@@ -1,7 +1,25 @@
 local screen_refraction = library()
+-- wavelengths in micrometers: the Fraunhofer C, d and F lines that define an Abbe number,
+-- and the red, green and blue the channels stand for
+screen_refraction.WAVELENGTH_C = 0.6563
+screen_refraction.WAVELENGTH_D = 0.5876
+screen_refraction.WAVELENGTH_F = 0.4861
+screen_refraction.WAVELENGTH_RGB = {0.61, 0.55, 0.465}
 
 function screen_refraction.GetGLSL(block_name)
 	return [[
+		// the index of refraction at the red, green and blue wavelengths from the one at the
+		// d line and the Abbe number V = (n_d - 1) / (n_F - n_C), by Cauchy's n = A + B / l^2.
+		// an Abbe number of 0 is a medium without dispersion
+		vec3 screen_refraction_dispersed_ior(float ior, float abbe) {
+			if (abbe <= 0.0) return vec3(ior);
+			float b = (ior - 1.0) / abbe / (1.0 / (]] .. screen_refraction.WAVELENGTH_C .. [[ * ]] .. screen_refraction.WAVELENGTH_C .. [[) - 1.0 / (]] .. screen_refraction.WAVELENGTH_F .. [[ * ]] .. screen_refraction.WAVELENGTH_F .. [[));
+			float a = ior - b / (]] .. screen_refraction.WAVELENGTH_D .. [[ * ]] .. screen_refraction.WAVELENGTH_D .. [[);
+			const vec3 wavelengths = vec3(]] .. table.concat(screen_refraction.WAVELENGTH_RGB, ", ") .. [[);
+			return a + b / (wavelengths * wavelengths);
+		}
+
+
 		// xy = uv, z = clip depth. uv is negative behind the camera
 		vec3 screen_refraction_project(vec3 world_pos) {
 			vec4 clip = ]] .. block_name .. [[.projection * ]] .. block_name .. [[.view * vec4(world_pos, 1.0);

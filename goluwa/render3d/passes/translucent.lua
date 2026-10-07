@@ -375,12 +375,14 @@ return {
 					block = {
 						{"amount", "float"},
 						{"ior", "float"},
+						{"abbe", "float"},
 						{"thickness", "float"},
 					},
 					write = function(self, block)
 						local material = render3d.GetMaterial()
 						block.amount = material:GetRefraction()
 						block.ior = material:GetIndexOfRefraction()
+						block.abbe = material:GetAbbeNumber()
 						block.thickness = render3d.translucent_thickness
 						return block
 					end,
@@ -595,63 +597,82 @@ return {
 					}
 
 					vec3 I = -V;
-					float eta = 1.0 / refraction.ior;
-					vec3 T = refract(I, N, eta);
-					vec3 exit_pos = world_pos;
-					vec3 exit_dir;
-
 					vec3 facing_N = dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N;
+					// a dispersive medium bends each wavelength by its own index, so red, green and
+					// blue are followed separately and each takes its own channel of the background
+					vec3 channel_ior = screen_refraction_dispersed_ior(refraction.ior, refraction.abbe);
+					int channel_count = refraction.abbe > 0.0 ? 3 : 1;
+					vec3 background = vec3(0.0);
 
-					if (refraction.thickness > 0.0) {
-						// a solid. locally the surface is a sphere as curved as it is
-						// here, or a slab with a parallel far side when it is flat;
-						// the ray leaves through whichever it reaches first
-						// no rounder than a sphere as wide as the object is thin
-						float radius = max(1.0 / max(curvature, 1e-4), refraction.thickness * 0.5);
-						float cos_in = max(-dot(T, facing_N), 0.05);
-						float sphere_length = 2.0 * radius * cos_in;
-						float slab_length = refraction.thickness / cos_in;
-						exit_pos = world_pos + T * min(sphere_length, slab_length);
-						vec3 exit_N = sphere_length < slab_length ? normalize(exit_pos - (world_pos - facing_N * radius)) : -facing_N;
-						exit_dir = refract(T, -exit_N, refraction.ior);
+					for (int channel = 0; channel < channel_count; channel++) {
+						float ior = channel_ior[channel];
+						float eta = 1.0 / ior;
+						vec3 T = refract(I, N, eta);
+						vec3 exit_pos = world_pos;
+						vec3 exit_dir;
 
-						// totally reflected inside; it leaves somewhere, roughly on
-						if (dot(exit_dir, exit_dir) < 1e-6) exit_dir = T;
-					} else {
-						// a thin wall leaves the ray parallel to how it came in, so
-						// only the normal map's slopes bend it
-						exit_dir = normalize(I + T - refract(I, facing_N, eta));
-					}
+						if (refraction.thickness > 0.0) {
+							// a solid. locally the surface is a sphere as curved as it is
+							// here, or a slab with a parallel far side when it is flat;
+							// the ray leaves through whichever it reaches first
+							// no rounder than a sphere as wide as the object is thin
+							float radius = max(1.0 / max(curvature, 1e-4), refraction.thickness * 0.5);
+							float cos_in = max(-dot(T, facing_N), 0.05);
+							float sphere_length = 2.0 * radius * cos_in;
+							float slab_length = refraction.thickness / cos_in;
+							exit_pos = world_pos + T * min(sphere_length, slab_length);
+							vec3 exit_N = sphere_length < slab_length ? normalize(exit_pos - (world_pos - facing_N * radius)) : -facing_N;
+							exit_dir = refract(T, -exit_N, ior);
 
-					// how far behind the surface the opaque scene is along the view
-					// ray sets how far the refracted ray is followed. with only sky
-					// behind, as far as the surface is from the camera, again
-					float scene_depth = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r;
-					float surface_distance = distance(lighting_data.camera_position.xyz, exit_pos);
-					float reach = 2.0 * surface_distance;
+							// totally reflected inside; it leaves somewhere, roughly on
+							if (dot(exit_dir, exit_dir) < 1e-6) exit_dir = T;
+						} else {
+							// a thin wall leaves the ray parallel to how it came in, so
+							// only the normal map's slopes bend it
+							exit_dir = normalize(I + T - refract(I, facing_N, eta));
+						}
 
-					if (scene_depth < 1.0) {
-						vec3 scene_pos = get_scene_pos(screen_uv, scene_depth);
-						reach = 3.0 * max(distance(lighting_data.camera_position.xyz, scene_pos) - surface_distance, 0.0) + 0.5;
-					}
+						vec3 channel_background;
 
-					vec3 environment = blend_probe_reflections(
-						mix(irradiance, sample_environment_specular(lighting_data.env_tex, exit_dir, N, perceptual_roughness), sky_visibility),
-						exit_dir,
-						perceptual_roughness,
-						world_pos
-					);
-					vec3 background;
+						if (lighting_data.refraction_tex < 0) {
+							channel_background = blend_probe_reflections(
+								mix(irradiance, sample_environment_specular(lighting_data.env_tex, exit_dir, N, perceptual_roughness), sky_visibility),
+								exit_dir,
+								perceptual_roughness,
+								world_pos
+							);
+						} else if (refraction.thickness > 0.0) {
+							// how far behind the surface the opaque scene is along the view
+							// ray sets how far the refracted ray is followed. with only sky
+							// behind, as far as the surface is from the camera, again
+							float scene_depth = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r;
+							float surface_distance = distance(lighting_data.camera_position.xyz, exit_pos);
+							float reach = 2.0 * surface_distance;
 
-					if (lighting_data.refraction_tex < 0) {
-						background = environment;
-					} else if (refraction.thickness > 0.0) {
-						background = get_refracted_background(world_pos, exit_pos, exit_dir, reach, roughness, environment);
-					} else {
-						vec2 slope = (lighting_data.view * vec4(N - facing_N, 0.0)).xy;
-						vec2 uv = clamp(screen_uv + vec2(slope.x, -slope.y) * (refraction.ior - 1.0), vec2(0.0), vec2(1.0));
-						float blur_pixels = roughness * lighting_data.render_size.y * 0.05;
-						background = textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb / get_pre_exposure();
+							if (scene_depth < 1.0) {
+								vec3 scene_pos = get_scene_pos(screen_uv, scene_depth);
+								reach = 3.0 * max(distance(lighting_data.camera_position.xyz, scene_pos) - surface_distance, 0.0) + 0.5;
+							}
+
+							vec3 environment = blend_probe_reflections(
+								mix(irradiance, sample_environment_specular(lighting_data.env_tex, exit_dir, N, perceptual_roughness), sky_visibility),
+								exit_dir,
+								perceptual_roughness,
+								world_pos
+							);
+							channel_background = get_refracted_background(world_pos, exit_pos, exit_dir, reach, roughness, environment);
+						} else {
+							vec2 slope = (lighting_data.view * vec4(N - facing_N, 0.0)).xy;
+							vec2 uv = clamp(screen_uv + vec2(slope.x, -slope.y) * (ior - 1.0), vec2(0.0), vec2(1.0));
+							float blur_pixels = roughness * lighting_data.render_size.y * 0.05;
+							channel_background = textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb / get_pre_exposure();
+						}
+
+						if (channel_count == 1) {
+							background = channel_background;
+						} else {
+							background[channel] = channel_background[channel];
+						}
 					}
 
 					// the fraction of the background that comes through. the fogged

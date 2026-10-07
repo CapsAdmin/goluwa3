@@ -150,7 +150,7 @@ do
 			block.volume_flow[i][0] = flow.x
 			block.volume_flow[i][1] = flow.y
 			block.volume_flow[i][2] = volume:GetCaustics()
-			block.volume_flow[i][3] = 0
+			block.volume_flow[i][3] = volume:GetAbbeNumber()
 			count = count + 1
 		end
 
@@ -174,7 +174,7 @@ local function write_ocean(self, block)
 	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05
 	block.ocean_wave_info[1] = params.Caustics
 	block.ocean_wave_info[2] = waves.total_slope_variance
-	block.ocean_wave_info[3] = 0
+	block.ocean_wave_info[3] = params.AbbeNumber
 
 	for i, cascade in ipairs(WAVE_CASCADES) do
 		local pipeline = render3d.pipelines[cascade.name]
@@ -675,6 +675,8 @@ list.insert(
 				// what's suspended in it, the water's own scattering is WATER_MOLECULAR_SCATTERING
 				vec3 particles;
 				float ior;
+				// 0 for no dispersion
+				float abbe;
 				float surface_y;
 				float foam;
 				float caustics;
@@ -687,6 +689,7 @@ list.insert(
 				w.absorption = ocean_data.ocean_absorption.rgb;
 				w.particles = ocean_data.ocean_scattering.rgb;
 				w.ior = ocean_data.ocean_absorption.w;
+				w.abbe = ocean_data.ocean_wave_info.w;
 				w.surface_y = ocean_data.ocean_level;
 				w.foam = ocean_data.ocean_scattering.w;
 				w.caustics = ocean_data.ocean_wave_info.y;
@@ -700,6 +703,7 @@ list.insert(
 				w.absorption = ocean_data.volume_absorption[i].rgb;
 				w.particles = ocean_data.volume_scattering[i].rgb;
 				w.ior = ocean_data.volume_absorption[i].w;
+				w.abbe = ocean_data.volume_flow[i].w;
 				w.surface_y = ocean_data.volume_shape[i].w;
 				w.foam = ocean_data.volume_waves[i].w;
 				w.caustics = ocean_data.volume_flow[i].z;
@@ -871,7 +875,7 @@ list.insert(
 			// there. what the sun gives it is estimated from its albedo and
 			// normal, dimmed by the water above and focused into caustics, and
 			// the rest is dimmed like sky light
-			vec3 relight_submerged(Water w, vec2 uv, vec3 scene_color, vec3 world_pos, float caustic) {
+			vec3 relight_submerged(Water w, vec2 uv, vec3 scene_color, vec3 world_pos, vec3 caustic) {
 				float depth = w.surface_y - world_pos.y;
 				if (depth <= 0.0) return scene_color;
 				vec3 sigma = get_extinction(w);
@@ -889,40 +893,77 @@ list.insert(
 			}
 
 			// sunlight through a sloped surface lands offset by the slope times
-			// depth * (1 - 1 / ior). where the offsets converge the light is
-			// focused into caustics, by one over the jacobian determinant of
-			// where it lands. the pattern is smoothed a little with depth,
-			// deeper down the light arrives from a wider spread of ripples
-			float get_caustic(Water w, vec3 world_pos, float footprint) {
-				if (w.caustics <= 0.0) return 1.0;
+			// depth * (1 - 1 / ior). the light that lands at a point came through
+			// the surface point x where x + s * slope(x) is that point, found
+			// with a few newton steps from where flat water would send it. where
+			// the landing map folds over itself the light piles up into the thin
+			// bright lines of caustics, by one over the jacobian determinant there.
+			// the pattern is smoothed a little with depth, deeper down the light
+			// arrives from a wider spread of ripples
+			vec3 get_caustic(Water w, vec3 world_pos, float footprint) {
+				if (w.caustics <= 0.0) return vec3(1.0);
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				float depth = max(w.surface_y - world_pos.y, 0.0);
-				if (depth <= 0.0) return 1.0;
-				// where the light that reaches world_pos came through the surface
-				vec2 xz = world_pos.xz - sun_dir.xz * (depth / max(-sun_dir.y, 0.05));
-				float filter_size = max(footprint, depth * 0.012);
-				// the surface's curvature: the ripples' exactly, the wave textures' (slopes only) across the filter
-				vec2 grad = vec2(0.0);
-				vec3 hess = vec3(0.0);
-
-				if (w.volume >= 0) {
-					get_volume_ripples(w.volume, xz, filter_size, grad, hess);
-				} else {
-					float e = filter_size;
-					float variance;
-					vec2 gx = get_wave_data(xz + vec2(e, 0.0), filter_size, variance).gb - get_wave_data(xz - vec2(e, 0.0), filter_size, variance).gb;
-					vec2 gz = get_wave_data(xz + vec2(0.0, e), filter_size, variance).gb - get_wave_data(xz - vec2(0.0, e), filter_size, variance).gb;
-					hess = vec3(gx.x, gz.y, 0.5 * (gx.y + gz.x)) / (2.0 * e);
-					add_detail_ripples(xz, filter_size, grad, hess);
-				}
-
-				float s = depth * (1.0 - 1.0 / w.ior);
-				float jacobian = (1.0 + s * hess.x) * (1.0 + s * hess.y) - s * s * hess.z * hess.z;
-				float intensity = 1.0 / max(abs(jacobian), 0.2);
+				if (depth <= 0.0) return vec3(1.0);
 				// the sun's disc blurs them deeper down, and so does distance
 				float blur = clamp(smoothstep(4.0, 30.0, depth) + smoothstep(0.3, 2.0, footprint), 0.0, 1.0);
-				return mix(1.0, mix(intensity, 1.0, blur), clamp(w.caustics, 0.0, 1.0));
+				if (blur >= 1.0) return vec3(1.0);
+				// each wavelength lands by its own index, so the focus differs a little by colour
+				vec3 s = depth * (1.0 - 1.0 / screen_refraction_dispersed_ior(w.ior, w.abbe));
+				vec2 target = world_pos.xz - sun_dir.xz * (depth / max(-sun_dir.y, 0.05));
+				vec2 xz = target;
+				float filter_size = max(footprint, depth * 0.012);
+				// the surface's curvature: the ripples' exactly, the wave textures' (slopes only) across the filter
+				vec2 grad;
+				vec3 hess;
+				bool refiltered = false;
+
+				for (int i = 0; i < (w.volume >= 0 ? 3 : 2) + 1; i++) {
+					grad = vec2(0.0);
+					hess = vec3(0.0);
+
+					if (w.volume >= 0) {
+						get_volume_ripples(w.volume, xz, filter_size, grad, hess);
+					} else {
+						float e = filter_size;
+						float variance;
+						vec2 gx = get_wave_data(xz + vec2(e, 0.0), filter_size, variance).gb - get_wave_data(xz - vec2(e, 0.0), filter_size, variance).gb;
+						vec2 gz = get_wave_data(xz + vec2(0.0, e), filter_size, variance).gb - get_wave_data(xz - vec2(0.0, e), filter_size, variance).gb;
+						hess = vec3(gx.x, gz.y, 0.5 * (gx.y + gz.x)) / (2.0 * e);
+						add_detail_ripples(xz, filter_size, grad, hess);
+					}
+
+					// below the depth where a ripple focuses its light the pattern has folded over
+					// many times and what is left is noise, which the sun's disc averages out. the
+					// waves too short for that are filtered away, leaving the ones that still focus
+					float focus = max(abs(s.g * hess.x), abs(s.g * hess.y));
+
+					if (i == 0 && !refiltered && focus > 1.0) {
+						refiltered = true;
+						filter_size *= min(focus, 8.0);
+						i--;
+						continue;
+					}
+
+					if (i == (w.volume >= 0 ? 3 : 2)) break;
+
+					vec2 residual = xz + s.g * grad - target;
+					float a = 1.0 + s.g * hess.x;
+					float d = 1.0 + s.g * hess.y;
+					float b = s.g * hess.z;
+					float det = a * d - b * b;
+					// at a fold the step would be unbounded
+					det = abs(det) < 0.15 ? (det < 0.0 ? -0.15 : 0.15) : det;
+					vec2 step = vec2(d * residual.x - b * residual.y, a * residual.y - b * residual.x) / det;
+					float max_step = depth * 0.15 + filter_size;
+					xz -= step * min(1.0, max_step / max(length(step), 1e-5));
+				}
+
+				vec3 jacobian = (1.0 + s * hess.x) * (1.0 + s * hess.y) - s * s * hess.z * hess.z;
+				// the floor keeps the lines' peaks finite
+				vec3 intensity = 1.0 / sqrt(jacobian * jacobian + 0.0144);
+				return mix(vec3(1.0), mix(intensity, vec3(1.0), blur), clamp(w.caustics, 0.0, 1.0));
 			}
 
 			// ---------------------------------------------------------------
@@ -1047,8 +1088,11 @@ list.insert(
 				has_floor = false;
 				floor_uv = in_uv;
 				floor_pos = surface_pos;
-				vec3 flat_dir = normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / w.ior));
-				vec3 bent_dir = refract(ray_dir, normal, 1.0 / w.ior);
+				// red, green and blue bend by their own index. the green one places the floor that is
+				// lit; the others only move what is seen of the scene
+				vec3 channel_ior = screen_refraction_dispersed_ior(w.ior, w.abbe);
+				vec3 flat_dir = normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / channel_ior.g));
+				vec3 bent_dir = refract(ray_dir, normal, 1.0 / channel_ior.g);
 				if (dot(bent_dir, bent_dir) <= 0.0) bent_dir = flat_dir;
 				float volume_exit = w.volume >= 0 ? get_volume_exit(w.volume, surface_pos + flat_dir * 0.001, flat_dir) : WATER_OPEN_DEPTH;
 
@@ -1074,12 +1118,33 @@ list.insert(
 					return w.volume >= 0 ? get_scene_color(floor_uv) : vec3(0.0);
 				}
 
+				vec3 behind = get_scene_color(floor_uv);
+
+				if (w.abbe > 0.0) {
+					float surface_depth = screen_refraction_project(surface_pos).z;
+
+					for (int channel = 0; channel < 3; channel += 2) {
+						vec3 channel_flat = normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / channel_ior[channel]));
+						vec3 channel_bent = refract(ray_dir, normal, 1.0 / channel_ior[channel]);
+						if (dot(channel_bent, channel_bent) <= 0.0) channel_bent = channel_flat;
+						vec3 projected = screen_refraction_project(straight + (normalize(channel_bent) - channel_flat) * scene_distance);
+						vec2 channel_uv = floor_uv;
+
+						if (projected.z > -1.0) {
+							vec2 uv = clamp(projected.xy, vec2(0.001), vec2(0.999));
+							if (scene_depth_at(uv) >= surface_depth) channel_uv = uv;
+						}
+
+						behind[channel] = get_scene_color(channel_uv)[channel];
+					}
+				}
+
 				floor_pos = get_world_pos(floor_uv, depth);
 				// the scene straight behind may be further than where the
 				// refracted ray leaves the volume, so it's the point that counts
 				has_floor = w.volume < 0 || is_inside_volume(w.volume, floor_pos);
 				path_len = has_floor ? length(floor_pos - surface_pos) : volume_exit;
-				return get_scene_color(floor_uv);
+				return behind;
 			}
 
 			vec3 shade_surface_from_above(Water w, vec3 surface_pos, vec3 normal, float alpha, float fold, vec3 ray_dir, float t, float scene_distance, float jitter) {
@@ -1211,36 +1276,60 @@ list.insert(
 			vec3 shade_surface_from_below(Water w, vec3 surface_pos, vec3 normal_up, vec3 ray_dir, float jitter) {
 				vec3 normal = -normal_up;
 				vec3 view_dir = -ray_dir;
-				float fresnel = fresnel_dielectric(dot(normal, view_dir), w.ior);
+				float cos_i = dot(normal, view_dir);
+				// each wavelength has its own index, so the blue is totally reflected first and the
+				// edge of the window is fringed
+				vec3 channel_ior = screen_refraction_dispersed_ior(w.ior, w.abbe);
+				vec3 fresnel = vec3(
+					fresnel_dielectric(cos_i, channel_ior.r),
+					fresnel_dielectric(cos_i, channel_ior.g),
+					fresnel_dielectric(cos_i, channel_ior.b)
+				);
 				vec3 above = vec3(0.0);
 
-				if (fresnel < 1.0) {
-					vec3 refracted_dir = normalize(refract(ray_dir, normal, w.ior));
-					above = sample_environment_specular(ocean_data.env_tex, refracted_dir, normal_up, 0.05);
-					bool traced = false;
+				if (fresnel.r < 1.0) {
+					vec3 sun = normalize(ocean_data.sun_direction);
+					vec3 sun_light = get_sun_illuminance() * get_water_sun_visibility(surface_pos, sun);
+					// red is the last to be totally reflected, so it is the one that is there
+					int primary = fresnel.g < 1.0 ? 1 : 0;
+					vec3 primary_dir = normalize(refract(ray_dir, normal, channel_ior[primary]));
+					vec3 primary_above = sample_environment_specular(ocean_data.env_tex, primary_dir, normal_up, 0.05);
+					bool hit_scene = false;
 
 					// from below, what's above the water is mostly hidden on screen, behind the parts
 					// of things under it (the top of something floating), so it's traced where it can be
 					#ifdef SCENE_REFLECTION
 					if (scene_reflection_ready()) {
 						float traced_t;
-						above = trace_scene_reflection(surface_pos + normal_up * 0.02, refracted_dir, normal_up, 0.05, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
-						traced = true;
-					}
+						primary_above = trace_scene_reflection(surface_pos + normal_up * 0.02, primary_dir, normal_up, 0.05, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
+						hit_scene = traced_t < WATER_REFLECTION_TRACE_DISTANCE;
+					} else
 					#endif
+					{
+						vec2 uv;
+						float hit;
 
-					vec2 uv;
-					float hit;
-
-					// only what the ray really met: where it stopped without meeting anything the screen
-					// holds something else
-					if (!traced && screen_refraction_trace(surface_pos, surface_pos, refracted_dir, 200.0, jitter, uv, hit) && hit < 200.0) {
-						if (scene_depth_at(uv) < 1.0) above = get_scene_color(uv);
+						// only what the ray really met: where it stopped without meeting anything the screen
+						// holds something else
+						if (screen_refraction_trace(surface_pos, surface_pos, primary_dir, 200.0, jitter, uv, hit) && hit < 200.0 && scene_depth_at(uv) < 1.0) {
+							primary_above = get_scene_color(uv);
+							hit_scene = true;
+						}
 					}
 
-					vec3 sun = normalize(ocean_data.sun_direction);
-					float cos_sun = dot(refracted_dir, sun);
-					above += get_sun_illuminance() * get_water_sun_visibility(surface_pos, sun) * smoothstep(0.9995, 0.99995, cos_sun) * 2000.0;
+					if (w.abbe <= 0.0) {
+						above = primary_above + sun_light * smoothstep(0.9995, 0.99995, dot(primary_dir, sun)) * 2000.0;
+					} else {
+						// a thing above the water is seen by every wavelength through the same pixel to
+						// within a pixel or so, only the sky differs across the window
+						for (int c = 0; c < 3; c++) {
+							if (fresnel[c] >= 1.0) continue;
+
+							vec3 refracted_dir = c == primary ? primary_dir : normalize(refract(ray_dir, normal, channel_ior[c]));
+							float sky = hit_scene || c == primary ? primary_above[c] : sample_environment_specular(ocean_data.env_tex, refracted_dir, normal_up, 0.05)[c];
+							above[c] = sky + sun_light[c] * smoothstep(0.9995, 0.99995, dot(refracted_dir, sun)) * 2000.0;
+						}
+					}
 				}
 
 				vec3 depths = get_underwater_reflection(w, surface_pos, reflect(ray_dir, normal), jitter);
@@ -1261,7 +1350,7 @@ list.insert(
 				} else if (scene_t < exit_t) {
 					len = scene_t;
 					float footprint = get_pixel_footprint(scene_t, 1.0);
-					float caustic = get_caustic(w, scene_pos, footprint);
+					vec3 caustic = get_caustic(w, scene_pos, footprint);
 					behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
 					distance = scene_t;
 				} else {
@@ -1392,7 +1481,7 @@ list.insert(
 
 						if (scene_t < volume_exit) {
 							float footprint = get_pixel_footprint(scene_t, 1.0);
-							float caustic = get_caustic(w, scene_pos, footprint);
+							vec3 caustic = get_caustic(w, scene_pos, footprint);
 							behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
 						}
 

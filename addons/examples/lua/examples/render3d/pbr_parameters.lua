@@ -342,6 +342,7 @@ tile(
 		Metallic = 0,
 		Refraction = 1,
 		IndexOfRefraction = 2.42,
+		AbbeNumber = 55,
 	}
 )
 shapes.Box{
