@@ -86,6 +86,13 @@ water.ocean = {
 	Seed = 1,
 }
 water.volumes = {}
+-- a tiling normal map (xy in the red and green) whose layers replace the ripples, as in
+-- Crysis. slope_variance is the variance of its decoded red and green over the texture
+water.wave_bump = nil
+
+function water.SetWaveBump(texture, slope_variance)
+	water.wave_bump = texture and {texture = texture, slope_variance = slope_variance} or nil
+end
 
 function water.SetOcean(params)
 	for key, value in pairs(params) do

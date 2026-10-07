@@ -37,6 +37,7 @@ local function build_atmosphere_record(data)
 
 	if editor_level and editor_level.ocean then
 		local ocean = editor_level.ocean
+		cry_water.EnableCrysisWaves()
 		local absorption, scattering = cry_water.GetMedium(ocean.fog_color, ocean.fog_color_multiplier, ocean.fog_density)
 		local wind = units.ToEngine(Vec3(math.cos(ocean.wind_direction), math.sin(ocean.wind_direction), 0))
 		local wind_direction = math.deg(math.atan2(wind.z, wind.x))
@@ -226,7 +227,9 @@ function cry_scene.Translate(data, level_name, level_path, options)
 		end
 	end
 
-	if options.skip_models then return {version = scene.Version, entities = records} end
+	if options.skip_models then
+		return {version = scene.Version, entities = records}
+	end
 
 	local objects_guid = add_folder(level_guid, "Objects")
 	local layer_folders = {}

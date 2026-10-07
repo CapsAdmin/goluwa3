@@ -62,4 +62,12 @@ commands.Add("map=string_trim|nil", function(name)
 	utility.PopTimeWarning("map " .. name, nil, "cmd")
 end)
 
+commands.Add("water_crysis_waves=boolean[true]", function(on)
+	if on then
+		import("goluwa/cry_engine/water.lua").EnableCrysisWaves()
+	else
+		import("goluwa/render3d/water.lua").SetWaveBump(nil)
+	end
+end)
+
 return engines

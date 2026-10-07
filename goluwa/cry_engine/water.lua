@@ -2,7 +2,28 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local units = import("goluwa/cry_engine/units.lua")
 local water = import("goluwa/render3d/water.lua")
+local game = import("goluwa/cry_engine/game.lua")
+local Texture = import("goluwa/render/texture.lua")
 local cry_water = {}
+-- standard deviation of the decoded red and green of Defaults/oceanwaves_ddn.dds is 0.213
+local WAVE_BUMP_SLOPE_VARIANCE = 0.0455
+local wave_texture
+
+function cry_water.EnableCrysisWaves()
+	wave_texture = wave_texture or
+		Texture.New{
+			path = game.ResolveModelPath(nil, "Textures/Defaults/oceanwaves_ddn.dds"),
+			srgb = false,
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				mipmap_mode = "linear",
+				wrap_s = "repeat",
+				wrap_t = "repeat",
+			},
+		}
+	water.SetWaveBump(wave_texture, WAVE_BUMP_SLOPE_VARIANCE)
+end
 
 local WATER_ALBEDO_SCALE = 4
 local RIVER_PIECE_LENGTH = 16
@@ -179,6 +200,5 @@ function cry_water.BuildVolumes(object)
 
 	return out
 end
-
 
 return cry_water

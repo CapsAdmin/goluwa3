@@ -242,6 +242,8 @@ list.insert(
 						{"wave_origin", "vec4", #WAVE_CASCADES},
 						{"detail_info", "vec4"},
 						{"ripple_info", "vec4"},
+						{"bump_tex", "int"},
+						{"bump_info", "vec4"},
 						{"volume_to_local", "mat4", water.MAX_VOLUMES},
 						{"volume_shape", "vec4", water.MAX_VOLUMES},
 						{"volume_absorption", "vec4", water.MAX_VOLUMES},
@@ -276,6 +278,8 @@ list.insert(
 						directional_shadows.GetPrimarySunColor(lights):CopyToFloatPointer(block.primary_sun_color)
 						directional_shadows.WriteFogShadowBlock(self, block.shadows, lights)
 						write_ocean(self, block)
+						block.bump_tex = water.wave_bump and self:GetTextureIndex(water.wave_bump.texture) or -1
+						block.bump_info[0] = water.wave_bump and water.wave_bump.slope_variance or 0
 						write_volumes(block)
 
 						if RAY_QUERY then scene_reflection.WriteBlock(self, block) end
@@ -522,6 +526,44 @@ list.insert(
 				return lost_variance;
 			}
 
+			// Crysis's ocean waves: four layers of one tiling normal map, a pair at a low frequency
+			// and a pair at twice that, the second of each pair read with its axes swapped so the
+			// two cross, with the sum scaled to at most 0.15 of a slope. here each layer moves at
+			// the speed gravity gives waves as long as four of its texels. strength scales the
+			// slopes, the frequencies are per meter times scale. adds their slope and the height's
+			// second derivatives, and returns the slope variance the pixel can't resolve
+			float add_bump_waves(vec2 p, float footprint, float scale, vec2 wind, float strength, inout vec2 grad, inout vec3 hess) {
+				const vec4 FREQUENCIES = vec4(0.02, 0.01, 0.04, 0.02);
+				const vec4 WEIGHTS = vec4(2.0, 2.0, 1.0, 1.0);
+				float lost_variance = 0.0;
+
+				for (int layer = 0; layer < 4; layer++) {
+					float frequency = FREQUENCIES[layer] * scale;
+					float texel = 1.0 / (frequency * 256.0);
+					float speed = sqrt(WATER_GRAVITY * 4.0 * texel / 6.28318530718);
+					// the second layer of each pair is the first one's transpose
+					bool transposed = (layer & 1) == 1;
+					vec2 direction = transposed ? wind.yx : wind;
+					vec2 q = (transposed ? p.yx : p) - direction * (speed * ocean_data.time);
+					float lod = max(log2(footprint / texel), 0.0);
+					float step_size = max(texel * 0.5, footprint * 0.5);
+					vec2 step_uv = vec2(step_size * frequency, 0.0);
+					float weight = WEIGHTS[layer] * 0.15 * strength;
+					vec2 here = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency, lod).rg - 0.5) * weight;
+					// a step in the world along x or z is a step in u or v, the other way round when transposed
+					vec2 along_x = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency + (transposed ? step_uv.yx : step_uv), lod).rg - 0.5) * weight;
+					vec2 along_z = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency + (transposed ? step_uv : step_uv.yx), lod).rg - 0.5) * weight;
+					vec2 d_dx = (along_x - here) / step_size;
+					vec2 d_dz = (along_z - here) / step_size;
+					grad += here;
+					hess += vec3(d_dx.x, d_dz.y, 0.5 * (d_dx.y + d_dz.x));
+					float retained = 1.0 / max(footprint / texel, 1.0);
+					lost_variance += weight * weight * ocean_data.bump_info.x * (1.0 - retained * retained);
+				}
+
+				return lost_variance;
+			}
+
 			// the ocean's ripples shorter than the finest cascade, with the
 			// slope variance the spectrum has there
 			float add_detail_ripples(vec2 p, float footprint, inout vec2 grad, inout vec3 hess) {
@@ -530,6 +572,13 @@ list.insert(
 				// RippleStrength of their slope variance is drawn, the rest is left to the roughness.
 				// RippleScale stretches them, as steep, so taller too
 				float drawn = info.w * ripple.x;
+
+				if (ocean_data.bump_tex != -1) {
+					float lost = add_bump_waves(p, footprint, 1.0, info.xy, 1.0, grad, hess);
+					// the textures replace the ripples, the rest is the roughness's as before
+					return max(info.w * float(RIPPLE_OCTAVES) - ocean_data.bump_info.x * 0.0225 * 10.0 + lost, 0.0);
+				}
+
 				return add_ripples(p, footprint, info.xy, vec2(0.0), drawn, info.z * ripple.y, OCEAN_RIPPLE_UPWIND_SHARE, ripple.z, grad, hess) + (info.w - drawn) * float(RIPPLE_OCTAVES);
 			}
 
@@ -661,6 +710,11 @@ list.insert(
 				grad = vec2(0.0);
 				if (waves.x <= 0.0) return 0.0;
 				float slope = waves.x * 0.25 / waves.y;
+
+				if (ocean_data.bump_tex != -1) {
+					return add_bump_waves(world_xz, footprint, 6.0 / waves.y, vec2(cos(waves.z), sin(waves.z)) + ocean_data.volume_flow[i].xy, clamp(waves.x / waves.y * 6.0, 0.0, 1.0), grad, hess);
+				}
+
 				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), ocean_data.volume_flow[i].xy, 2.72 * slope * slope, waves.y, VOLUME_RIPPLE_UPWIND_SHARE, VOLUME_RIPPLE_LIFETIME, grad, hess);
 			}
 
@@ -775,6 +829,8 @@ list.insert(
 			const int WATER_LIGHT_SAMPLES = 4;
 			const int WATER_LIGHT_MAX_PER_SAMPLE = 6;
 
+			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade);
+
 			// what the water between origin and origin + dir * len adds by
 			// scattering sun and sky light towards the viewer, and how much of
 			// what's behind it gets through
@@ -795,15 +851,16 @@ list.insert(
 				if (dot(sun_light, sun_light) > 0.0) {
 					float shadow_len = min(len, 60.0);
 
-					for (int i = 0; i < 4; i++) {
-						float f = (float(i) + jitter) / 4.0;
+					for (int i = 0; i < 8; i++) {
+						float f = (float(i) + jitter) / 8.0;
 						vec3 p = origin + dir * (shadow_len * f * f);
 						// the light reaches p through the surface above it
 						vec3 surface = p - sun_dir * ((p.y - w.surface_y) / sun_dir.y);
-						visibility += get_water_sun_visibility(surface, ocean_data.sun_direction);
+						// the light the surface focuses into this point, which is what makes the shafts
+						visibility += get_water_sun_visibility(surface, ocean_data.sun_direction) * get_caustic(w, p, get_pixel_footprint(distance(p, ocean_data.camera_position.xyz), 1.0), 1, 3.0).g;
 					}
 
-					visibility *= 0.25;
+					visibility *= 0.125;
 				}
 
 				// the light that reaches the viewer leaves along -dir
@@ -900,14 +957,14 @@ list.insert(
 			// bright lines of caustics, by one over the jacobian determinant there.
 			// the pattern is smoothed a little with depth, deeper down the light
 			// arrives from a wider spread of ripples
-			vec3 get_caustic(Water w, vec3 world_pos, float footprint) {
+			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade) {
 				if (w.caustics <= 0.0) return vec3(1.0);
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				float depth = max(w.surface_y - world_pos.y, 0.0);
 				if (depth <= 0.0) return vec3(1.0);
 				// the sun's disc blurs them deeper down, and so does distance
-				float blur = clamp(smoothstep(4.0, 30.0, depth) + smoothstep(0.3, 2.0, footprint), 0.0, 1.0);
+				float blur = clamp(smoothstep(4.0 * fade, 30.0 * fade, depth) + smoothstep(0.3, 2.0, footprint), 0.0, 1.0);
 				if (blur >= 1.0) return vec3(1.0);
 				// each wavelength lands by its own index, so the focus differs a little by colour
 				vec3 s = depth * (1.0 - 1.0 / screen_refraction_dispersed_ior(w.ior, w.abbe));
@@ -919,7 +976,7 @@ list.insert(
 				vec3 hess;
 				bool refiltered = false;
 
-				for (int i = 0; i < (w.volume >= 0 ? 3 : 2) + 1; i++) {
+				for (int i = 0; i < newton_steps + 1; i++) {
 					grad = vec2(0.0);
 					hess = vec3(0.0);
 
@@ -946,7 +1003,7 @@ list.insert(
 						continue;
 					}
 
-					if (i == (w.volume >= 0 ? 3 : 2)) break;
+					if (i == newton_steps) break;
 
 					vec2 residual = xz + s.g * grad - target;
 					float a = 1.0 + s.g * hess.x;
@@ -1168,7 +1225,7 @@ list.insert(
 				refracted_dir = normalize(refracted_dir);
 				float footprint = get_pixel_footprint(t, ray_dir.y);
 
-				if (has_floor) behind = relight_submerged(w, floor_uv, behind, floor_pos, get_caustic(w, floor_pos, footprint));
+				if (has_floor) behind = relight_submerged(w, floor_uv, behind, floor_pos, get_caustic(w, floor_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0));
 
 				vec3 transmittance;
 				vec3 inscatter = get_water_inscatter(w, surface_pos, refracted_dir, path_len, jitter, transmittance);
@@ -1184,6 +1241,50 @@ list.insert(
 				float glint_alpha = sqrt(alpha * alpha + SUN_ANGULAR_RADIUS * SUN_ANGULAR_RADIUS);
 				float specular = D_GGXAlpha(glint_alpha, no_h) * V_SmithGGXCorrelated(glint_alpha, no_v, no_l) * fresnel_dielectric(max(dot(view_dir, half_dir), 0.0), 1.0 / w.ior);
 				vec3 color = mix(transmitted, reflection, fresnel) + sun_light * (specular * no_l);
+
+				#ifdef SCENE_REFLECTION
+				// lights above the water glint off the waves like the sun does, a point of light with
+				// only the waves' roughness spreading it
+				if (scene_reflection_ready()) {
+					int light_cell = light_grid_cell(surface_pos);
+					int light_count = ocean_data.light_count;
+					int shaded = 0;
+					float lamp_alpha = max(alpha, 0.02);
+
+					for (int word = 0; word < light_grid_words(light_count) && shaded < WATER_LIGHT_MAX_PER_SAMPLE; word++) {
+						uint light_bits = light_grid_word(light_cell, word, light_count);
+
+						while (light_bits != 0u && shaded < WATER_LIGHT_MAX_PER_SAMPLE) {
+							int li = word * 32 + findLSB(light_bits);
+							light_bits &= light_bits - 1u;
+							lights_t light = ocean_data.lights[li];
+
+							if (get_light_type(light) == 0) continue;
+
+							vec3 lamp_dir;
+							float attenuation;
+
+							if (!get_light_vector_and_attenuation(light, surface_pos, lamp_dir, attenuation)) continue;
+
+							float lamp_no_l = dot(normal, lamp_dir);
+
+							if (lamp_no_l <= 0.0) continue;
+
+							vec3 lamp_half = normalize(view_dir + lamp_dir);
+							float lamp_specular = D_GGXAlpha(lamp_alpha, max(dot(normal, lamp_half), 0.0)) * V_SmithGGXCorrelated(lamp_alpha, no_v, lamp_no_l) * fresnel_dielectric(max(dot(view_dir, lamp_half), 0.0), 1.0 / w.ior);
+							vec3 lamp_light = light.color.rgb * light.color.a * attenuation * (lamp_specular * lamp_no_l);
+							float lamp_distance = dot(light.position.xyz - surface_pos, lamp_dir);
+
+							if (lamp_distance > 0.05) {
+								shaded++;
+								if (!scene_reflection_visible(surface_pos, lamp_dir, lamp_distance - 0.05)) continue;
+							}
+
+							color += lamp_light;
+						}
+					}
+				}
+				#endif
 
 				// light through the thin tops of waves between the viewer and the sun
 				if (w.volume < 0) {
@@ -1250,7 +1351,7 @@ list.insert(
 				if (trace_water_reflection(origin, dir, jitter, hit_uv, hit_t, weight) && hit_t < len) {
 					vec3 scene_pos = get_world_pos(hit_uv, scene_depth_at(hit_uv));
 					float footprint = get_pixel_footprint(length(scene_pos - ocean_data.camera_position.xyz), 1.0);
-					behind = relight_submerged(w, hit_uv, get_scene_color(hit_uv), scene_pos, get_caustic(w, scene_pos, footprint));
+					behind = relight_submerged(w, hit_uv, get_scene_color(hit_uv), scene_pos, get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0));
 					len = hit_t;
 				} else {
 					weight = 0.0;
@@ -1350,7 +1451,7 @@ list.insert(
 				} else if (scene_t < exit_t) {
 					len = scene_t;
 					float footprint = get_pixel_footprint(scene_t, 1.0);
-					vec3 caustic = get_caustic(w, scene_pos, footprint);
+					vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0);
 					behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
 					distance = scene_t;
 				} else {
@@ -1481,7 +1582,7 @@ list.insert(
 
 						if (scene_t < volume_exit) {
 							float footprint = get_pixel_footprint(scene_t, 1.0);
-							vec3 caustic = get_caustic(w, scene_pos, footprint);
+							vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0);
 							behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
 						}
 

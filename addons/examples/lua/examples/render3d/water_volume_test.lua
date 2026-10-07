@@ -61,7 +61,7 @@ Entity.New{
 	water_volume = {
 		Size = Vec3(W, D, L),
 		Absorption = water.presets.lake.Absorption:Copy(),
-		ParticleScattering = water.presets.lake.ParticleScattering:Copy(),
+		ParticleScattering = water.presets.lake.ParticleScattering:Copy() * tonumber(os.getenv("SCAT") or "1"),
 		WaveHeight = 0.08,
 		WaveLength = 2,
 		AbbeNumber = tonumber(os.getenv("ABBE") or "55.8"),
