@@ -1400,7 +1400,6 @@ do
 	visual.aabb_signatures = nil
 	visual.aabb_scan_frame = -1
 	visual.aabb_forgotten_boxes = {}
-	visual.aabb_changes_pending = false
 	visual.aabb_scan_candidates = {}
 	visual.aabb_scan_changed = false
 	visual.AABB_CHANGED_BOXES = nil
@@ -1412,7 +1411,16 @@ do
 
 		if owner.visual then visual.aabb_scan_candidates[owner.visual] = true end
 
-		if owner:HasChildren() then visual.aabb_changes_pending = true end
+		if owner:HasChildren() then
+			local candidates = visual.aabb_scan_candidates
+			local descendants = owner:GetChildrenList()
+
+			for i = 1, #descendants do
+				local child_visual = descendants[i].visual
+
+				if child_visual then candidates[child_visual] = true end
+			end
+		end
 	end)
 
 	visual.shadow_debug_filter = nil
@@ -2053,7 +2061,6 @@ do
 
 		if
 			signatures and
-			not visual.aabb_changes_pending and
 			not next(candidates)
 			and
 			not visual.aabb_forgotten_boxes[1]
@@ -2065,8 +2072,6 @@ do
 			return false
 		end
 
-		local full = visual.aabb_changes_pending
-		visual.aabb_changes_pending = false
 		visual.aabb_scan_candidates = {}
 
 		if not signatures then
@@ -2094,15 +2099,9 @@ do
 		visual.aabb_forgotten_boxes = {}
 		local components = {}
 
-		if full then
-			for _, component in ipairs(Visual.Instances) do
+		for component in pairs(candidates) do
+			if component:IsValid() and not component.scene_removed then
 				scan_component(component, signatures, boxes, components, tolerance)
-			end
-		else
-			for component in pairs(candidates) do
-				if component:IsValid() and not component.scene_removed then
-					scan_component(component, signatures, boxes, components, tolerance)
-				end
 			end
 		end
 
