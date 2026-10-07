@@ -7,9 +7,39 @@ local debug_draw = import("goluwa/debug_draw.lua")
 local system = import("goluwa/system.lua")
 local highlight = library()
 highlight.entity = NULL
+local MAX_GROUP_TARGETS = 400
+local MAX_UPLOADS_PER_FRAME = 900
+local targets = {}
 
 function highlight.SetEntity(entity)
-	highlight.entity = entity or NULL
+	entity = entity or NULL
+
+	if highlight.entity == entity then return end
+
+	highlight.entity = entity
+	targets = {}
+
+	if not entity:IsValid() then return end
+
+	if
+		entity.visual_primitive or
+		entity.visual or
+		(
+			entity.transform and
+			entity.transform.Is2D
+		)
+	then
+		targets[1] = entity
+		return
+	end
+
+	for _, child in ipairs(entity:GetChildrenList()) do
+		if child.visual and child.visual.Is3D then
+			targets[#targets + 1] = child
+
+			if #targets >= MAX_GROUP_TARGETS then break end
+		end
+	end
 end
 
 function highlight.GetEntity()
@@ -25,14 +55,7 @@ local material = debug_draw.GetMaterial{
 }
 
 event.AddListener("Draw3DForwardOverlay", "highlight", function()
-	local ent = highlight.entity
-
-	if not ent:IsValid() then return end
-
-	local primitive = ent.visual_primitive
-	local visual = ent.visual
-
-	if not (primitive or visual and visual.Is3D) then return end
+	if not highlight.entity:IsValid() then return end
 
 	local pulse = (math.sin(system.GetElapsedTime() * 6) + 1) * 0.5
 	local alpha = 0.2 + pulse * 0.35
@@ -40,35 +63,49 @@ event.AddListener("Draw3DForwardOverlay", "highlight", function()
 	material:SetColorMultiplier(Color(1, 0.35 + pulse * 0.35, 0.15, alpha))
 	material:SetEmissiveMultiplier(Color(emissive, emissive * 0.6, emissive * 0.25, 1))
 	render3d.SetMaterial(material)
+	local uploads = 0
 
-	if primitive then
-		local polygon3d = primitive:GetPolygon3D()
+	for _, ent in ipairs(targets) do
+		if uploads >= MAX_UPLOADS_PER_FRAME then break end
 
-		if polygon3d then
-			render3d.SetWorldMatrix(ent.transform:GetWorldMatrix())
-			render3d.UploadForwardOverlayConstants()
-			polygon3d:Draw()
+		local primitive = ent.visual_primitive
+		local visual = ent.visual
+
+		if not ent:IsValid() or not (primitive or visual and visual.Is3D) then
+			goto continue
 		end
 
-		return
-	end
+		if primitive then
+			local polygon3d = primitive:GetPolygon3D()
 
-	local world_matrix = ent.transform:GetWorldMatrix()
-
-	for _, prim in ipairs(visual:GetRenderEntries()) do
-		if prim.polygon3d then
-			local final_matrix = world_matrix
-
-			if prim.transform and prim.transform.GetWorldMatrix then
-				final_matrix = prim.transform:GetWorldMatrix()
-			elseif prim.local_matrix then
-				final_matrix = prim.local_matrix:GetMultiplied(world_matrix, overlay_matrix)
+			if polygon3d then
+				render3d.SetWorldMatrix(ent.transform:GetWorldMatrix())
+				render3d.UploadForwardOverlayConstants()
+				polygon3d:Draw()
+				uploads = uploads + 1
 			end
+		else
+			local world_matrix = ent.transform:GetWorldMatrix()
 
-			render3d.SetWorldMatrix(final_matrix)
-			render3d.UploadForwardOverlayConstants()
-			prim.polygon3d:Draw()
+			for _, prim in ipairs(visual:GetRenderEntries()) do
+				if prim.polygon3d then
+					local final_matrix = world_matrix
+
+					if prim.transform and prim.transform.GetWorldMatrix then
+						final_matrix = prim.transform:GetWorldMatrix()
+					elseif prim.local_matrix then
+						final_matrix = prim.local_matrix:GetMultiplied(world_matrix, overlay_matrix)
+					end
+
+					render3d.SetWorldMatrix(final_matrix)
+					render3d.UploadForwardOverlayConstants()
+					prim.polygon3d:Draw()
+					uploads = uploads + 1
+				end
+			end
 		end
+
+		::continue::
 	end
 end)
 

@@ -224,6 +224,39 @@ T.Test("Cry prefabs, archetypes, entity models, parents and hidden groups", func
 	T((child.position - Vec3(99, 0, 0)):GetLength())["~"](0, 0.001)
 	local prefab_child = crylevel.ConvertCryWorldMatrixToEngineTransform(by_name.prefab_child.world_matrix)
 	T((prefab_child.position - Vec3(1, 50, 0)):GetLength())["~"](0, 0.001)
+	T(by_name.child.group.name)["=="]("root")
+	T(by_name.child.group.parent)["=="](nil)
+	T(by_name.prefab_child.group.name)["=="]("prefab")
+	T(by_name.root.group)["=="](nil)
+end)
+
+T.Test("Cry level entries remember their layer and group chain", function()
+	local entries = crylevel.ExtractVisualObjects(
+		assert(
+			crylevel.ParseEditorObjectsData([[
+<Level>
+	<Objects>
+		<Object Type="Group" Id="{G1}" Layer="Main" Name="outer" Pos="0,0,0">
+			<Objects>
+				<Object Type="Group" Id="{G2}" Name="inner" Pos="0,0,0">
+					<Objects>
+						<Object Type="Brush" Id="{B}" Name="leaf" Prefab="objects/leaf.cgf" />
+					</Objects>
+				</Object>
+			</Objects>
+		</Object>
+	</Objects>
+</Level>
+			]])
+		),
+		{prefabs = {}, archetypes = {}}
+	)
+	T(#entries)["=="](1)
+	T(entries[1].layer)["=="]("Main")
+	T(entries[1].group.name)["=="]("inner")
+	T(entries[1].group.parent.name)["=="]("outer")
+	T(entries[1].group.parent.parent)["=="](nil)
+	T(entries[1].group.key ~= entries[1].group.parent.key)["=="](true)
 end)
 
 T.Test("Cry level parser reads vegetation prototypes from editor xml", function()

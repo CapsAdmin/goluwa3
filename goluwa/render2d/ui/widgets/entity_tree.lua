@@ -174,7 +174,11 @@ function META:OnCreate(props)
 	self._root_entities = props.RootEntities or {}
 	self._root_labels = props.RootLabels or {}
 	self._filter_callback = props.FilterCallback
+	self._effective_filter = props.FilterCallback
 	self._show_virtual = props.ShowVirtualChildren == true
+	self._nearby = {}
+	self._nearby_root = props.NearbyRoot
+	self._expanded_keys.nearby = true
 	self._on_expanded = props.OnExpanded
 	self._hierarchy_dirty = false
 
@@ -204,9 +208,10 @@ function META:OnCreate(props)
 		self._root_entities,
 		self._root_labels,
 		self._expanded_keys,
-		self._filter_callback,
+		self._effective_filter,
 		self._show_virtual
 	)
+	self:insert_nearby(items)
 	props.Items = items
 	META.BaseClass.OnCreate(self, props)
 	self._hierarchy_listeners = {}
@@ -219,7 +224,10 @@ function META:OnCreate(props)
 
 			if tree:AreMutationsBlocked() then return end
 
-			table.insert(tree._hierarchy_queue, {entity = entity, action = action, parent = parent})
+			table.insert(
+				tree._hierarchy_queue,
+				{entity = entity, guid = entity:GetGUID(), action = action, parent = parent}
+			)
 		end)
 
 		if remove then table.insert(self._hierarchy_listeners, remove) end
@@ -240,11 +248,20 @@ function META:OnCreate(props)
 		for _, entry in ipairs(queue) do
 			local entity = entry.entity
 
+			if entry.action == "unparented" then
+				tree:try_incremental_remove(entry.guid)
+				tree:try_incremental_remove("nearby/" .. entry.guid)
+
+				goto continue
+			end
+
+			if tree._search_visible then goto continue end
+
 			if not entity:IsValid() then goto continue end
 
 			local parent = entity:GetParent()
 
-			if self._filter_callback and self._filter_callback(entity) then
+			if self._effective_filter and self._effective_filter(entity) then
 				goto continue
 			end
 
@@ -252,8 +269,6 @@ function META:OnCreate(props)
 
 			if entry.action == "parented" then
 				local ok, reason = tree:try_incremental_insert(entity, parent)
-			elseif entry.action == "unparented" then
-				local ok, reason = tree:try_incremental_remove(entity)
 			else
 				print("unknown action: " .. entry.action)
 			end
@@ -285,20 +300,29 @@ function META:set_expanded(node, path, key, expanded)
 		local entity = node.Entity
 		local visited = {}
 		local children = {}
+		local filter = self._effective_filter
 
 		for _, child in ipairs(entity:GetChildren()) do
-			if self._filter_callback and self._filter_callback(child) then
-				goto continue
-			end
+			if filter and filter(child) then goto continue end
 
-			local child_node = build_entity_node(child, self._expanded_keys, self._filter_callback, self._show_virtual, visited)
+			local child_node = build_entity_node(
+				child,
+				self._expanded_keys,
+				filter,
+				self._show_virtual and not self._search_visible,
+				visited
+			)
 
 			if child_node then children[#children + 1] = child_node end
 
 			::continue::
 		end
 
-		if self._show_virtual then
+		if entity == self._nearby_root and not self._search_visible then
+			table.insert(children, 1, self:build_nearby_node())
+		end
+
+		if self._show_virtual and not self._search_visible then
 			for _, vc in ipairs(build_virtual_children(entity, key)) do
 				children[#children + 1] = vc
 			end
@@ -416,6 +440,7 @@ end
 
 function META:SetFilterCallback(callback)
 	self._filter_callback = callback
+	self:update_effective_filter()
 	self:Refresh()
 	return self
 end
@@ -467,11 +492,26 @@ function META:ExpandToEntity(entity)
 	if not entity or not entity:IsValid() then return self end
 
 	local guid = entity:GetGUID()
+	local info = self._row_infos[guid]
 
-	if self._row_infos[guid] then
-		self:SetSelectedKey(guid)
-		self:EnsureVisible(guid)
-		return self
+	if info then
+		local fully_open = true
+
+		while info do
+			if info.open_fraction ~= 1 then
+				fully_open = false
+
+				break
+			end
+
+			info = info.parent_key and self._row_infos[info.parent_key]
+		end
+
+		if fully_open then
+			self:SetSelectedKey(guid)
+			self:EnsureVisible(guid)
+			return self
+		end
 	end
 
 	if entity.GetParent then
@@ -538,9 +578,10 @@ function META:Refresh(force)
 		self._root_entities,
 		self._root_labels,
 		self._expanded_keys,
-		self._filter_callback,
-		self._show_virtual
+		self._effective_filter,
+		self._show_virtual and not self._search_visible
 	)
+	self:insert_nearby(items)
 	self:SetItems(items)
 	self._refreshing = false
 	return self
@@ -564,7 +605,7 @@ function META:FullRefresh(reason)
 end
 
 function META:try_incremental_insert(entity, parent)
-	if self._filter_callback and self._filter_callback(entity) then
+	if self._effective_filter and self._effective_filter(entity) then
 		return true
 	end
 
@@ -596,7 +637,13 @@ function META:try_incremental_insert(entity, parent)
 		end
 	end
 
-	local new_item = build_entity_node(entity, self._expanded_keys, self._filter_callback, self._show_virtual, {})
+	local new_item = build_entity_node(
+		entity,
+		self._expanded_keys,
+		self._effective_filter,
+		self._show_virtual and not self._search_visible,
+		{}
+	)
 
 	if not new_item then return false, "build_entity_node_failed" end
 
@@ -605,8 +652,7 @@ function META:try_incremental_insert(entity, parent)
 	return true
 end
 
-function META:try_incremental_remove(entity)
-	local guid = entity:GetGUID()
+function META:try_incremental_remove(guid)
 	local item = find_item_in_tree(self:GetItems(), guid)
 
 	if not item then return false, "item_not_found_in_tree" end
@@ -628,6 +674,172 @@ function META:try_incremental_remove(entity)
 	self:remove_node_rows(guid)
 	self:refresh_visibility()
 	return true
+end
+
+function META:update_effective_filter()
+	local base = self._filter_callback
+	local visible = self._search_visible
+
+	if not visible then
+		self._effective_filter = base
+		return
+	end
+
+	self._effective_filter = function(entity)
+		return visible[entity] == nil or (base and base(entity))
+	end
+end
+
+do
+	local MAX_SEARCH_MATCHES = 400
+
+	local function entity_matches(entity, text, in_name, in_model)
+		if in_name and get_entity_label(entity):lower():find(text, 1, true) then
+			return true
+		end
+
+		if in_model then
+			local visual = entity.visual
+
+			if visual then
+				local model_path = visual:GetModelPath()
+
+				if model_path ~= "" and model_path:lower():find(text, 1, true) then
+					return true
+				end
+			end
+		end
+
+		return false
+	end
+
+	function META:SetSearch(text)
+		text = text:lower():match("^%s*(.-)%s*$")
+
+		if text == "" then
+			if not self._search_visible then return self end
+
+			self._search_visible = nil
+			self._expanded_keys = self._saved_expanded
+			self._saved_expanded = nil
+			self:update_effective_filter()
+			self:Refresh(true)
+			local selected = self:GetSelectedEntity()
+
+			if selected and selected:IsValid() then self:ExpandToEntity(selected) end
+
+			return self
+		end
+
+		local in_name, in_model = true, true
+
+		if text:starts_with("name:") then
+			text, in_model = text:sub(6), false
+		elseif text:starts_with("model:") then
+			text, in_name = text:sub(7), false
+		end
+
+		if not self._search_visible then self._saved_expanded = self._expanded_keys end
+
+		local visible = {}
+		local expanded = {nearby = false}
+		local matches = 0
+		local base = self._filter_callback
+		local stack = {}
+
+		for _, root in ipairs(self._root_entities) do
+			visible[root] = true
+			expanded[root:GetGUID()] = true
+			stack[#stack + 1] = root
+		end
+
+		while stack[1] and matches < MAX_SEARCH_MATCHES do
+			local entity = table.remove(stack)
+
+			for _, child in ipairs(entity:GetChildren()) do
+				if
+					child.visual_primitive == nil and
+					child.VisualOwner == nil and
+					not (
+						base and
+						base(child)
+					)
+				then
+					stack[#stack + 1] = child
+
+					if entity_matches(child, text, in_name, in_model) then
+						matches = matches + 1
+						visible[child] = true
+						local ancestor = child:GetParent()
+
+						while ancestor:IsValid() and not expanded[ancestor:GetGUID()] do
+							visible[ancestor] = true
+							expanded[ancestor:GetGUID()] = true
+							ancestor = ancestor:GetParent()
+						end
+					end
+				end
+			end
+		end
+
+		self._search_visible = visible
+		self._expanded_keys = expanded
+		self:update_effective_filter()
+		self:Refresh(true)
+		return self
+	end
+end
+
+function META:build_nearby_node()
+	local children = {}
+
+	for _, info in ipairs(self._nearby) do
+		local entity = info.entity
+
+		if entity:IsValid() then
+			children[#children + 1] = {
+				Entity = entity,
+				Key = "nearby/" .. entity:GetGUID(),
+				Text = string.format("%s  (%.1f m)", get_entity_label(entity), info.distance),
+				HasChildren = false,
+				Children = {},
+			}
+		end
+	end
+
+	return {
+		Key = "nearby",
+		Text = "nearby",
+		HasChildren = #children > 0,
+		Children = children,
+	}
+end
+
+function META:insert_nearby(items)
+	if self._search_visible or not self._nearby_root then return end
+
+	for _, item in ipairs(items) do
+		if item.Entity == self._nearby_root and self._expanded_keys[item.Key] then
+			table.insert(item.Children, 1, self:build_nearby_node())
+			item.HasChildren = true
+		end
+	end
+end
+
+function META:SetNearby(nearby)
+	self._nearby = nearby
+
+	if self._search_visible then return self end
+
+	local item = find_item_in_tree(self:GetItems(), "nearby")
+
+	if not item then return self end
+
+	local node = self:build_nearby_node()
+	item.Children = node.Children
+	item.HasChildren = node.HasChildren
+	self:RefreshBranchForKey("nearby")
+	return self
 end
 
 META:Register()

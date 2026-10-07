@@ -3147,6 +3147,10 @@ do
 		return out.min_x <= out.max_x and out or nil
 	end
 
+	function visual.GetSceneAcceleration()
+		return ensure_scene_acceleration()
+	end
+
 	function visual.GetSceneVersion()
 		ensure_scene_acceleration()
 		return visual.scene_version

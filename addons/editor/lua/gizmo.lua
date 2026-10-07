@@ -223,63 +223,22 @@ local function get_entity_local_aabb(entity)
 	return nil
 end
 
-local function get_entity_pivot(entity)
-	local fallback = get_entity_world_position(entity)
+local TARGET_AXIS_PIXELS = 140
+local MIN_GIZMO_DEPTH = 0.05
 
-	if not fallback then return nil, 1 end
+local function get_gizmo_scale(center)
+	local cam = render3d.GetCamera()
+	local viewport_height = cam.Viewport.h
 
-	if entity.visual and entity.visual.GetWorldAABB then
-		local aabb = entity.visual:GetWorldAABB()
-
-		if aabb and aabb.min_x <= aabb.max_x then
-			local extent_x = aabb.max_x - aabb.min_x
-			local extent_y = aabb.max_y - aabb.min_y
-			local extent_z = aabb.max_z - aabb.min_z
-			return Vec3(
-				(aabb.min_x + aabb.max_x) * 0.5,
-				(aabb.min_y + aabb.max_y) * 0.5,
-				(aabb.min_z + aabb.max_z) * 0.5
-			),
-			math.max(extent_x, extent_y, extent_z, 1)
-		end
+	if cam.OrthoMode then
+		return TARGET_AXIS_PIXELS * 2 * cam.OrthoHalfHeight / viewport_height
 	end
 
-	return fallback, 1
-end
+	local depth = (center - cam:GetPosition()):GetDot(cam:GetRotation():GetForward())
 
-local function is_entity_origin_visible(entity)
-	local origin = get_entity_world_position(entity)
+	if depth < MIN_GIZMO_DEPTH then return nil end
 
-	if not origin then return false end
-
-	local cam = render3d.GetCamera()
-
-	if not cam then return false end
-
-	return cam:WorldPositionToScreenUnjittered(origin) ~= nil
-end
-
-local function get_gizmo_scale(center, extent)
-	local cam = render3d.GetCamera()
-
-	if not cam then return math.max(extent * 0.75, 1.5) end
-
-	local center_screen = cam:WorldPositionToScreenUnjittered(center)
-
-	if not center_screen then return math.max(extent * 0.75, 1.5) end
-
-	local right = cam:GetRotation():GetRight()
-	local right_screen = cam:WorldPositionToScreenUnjittered(center + right)
-
-	if not right_screen then return math.max(extent * 0.75, 1.5) end
-
-	local pixels_per_world_unit = (right_screen - center_screen):GetLength()
-
-	if pixels_per_world_unit <= 1e-5 then return math.max(extent * 0.75, 1.5) end
-
-	local target_axis_pixels = 140
-	local scale = target_axis_pixels / pixels_per_world_unit
-	return math.max(scale, 1.5)
+	return TARGET_AXIS_PIXELS * 2 * math.tan(cam:GetFOV() / 2) * depth / viewport_height
 end
 
 local function transform_world_point(matrix, position)
@@ -1002,13 +961,14 @@ end
 local function get_gizmo_definition(entity)
 	if not is_gizmo_entity(entity) then return nil end
 
-	if not is_entity_origin_visible(entity) then return nil end
-
-	local center, extent = get_entity_pivot(entity)
+	local center = get_entity_world_position(entity)
 
 	if not center then return nil end
 
-	local scale = get_gizmo_scale(center, extent)
+	local scale = get_gizmo_scale(center)
+
+	if not scale then return nil end
+
 	local combined_mode = state.mode == "combined"
 	local handle_radius = scale * 0.12
 	local axis_length = scale
@@ -1695,14 +1655,14 @@ local function draw_gizmo()
 end
 
 local function draw_overlay()
-	if state.gizmo_entity ~= nil then draw_gizmo() end
+	if state.gizmo_entity ~= nil and not state.hidden then draw_gizmo() end
 end
 
 local function handle_gizmo_mouse_input(button, press)
 	if button ~= "button_1" then return end
 
 	if press then
-		if is_ui_hovering() then return end
+		if state.hidden or is_ui_hovering() then return end
 
 		local handle = state.hovered_handle or find_hovered_gizmo_handle(state.gizmo_entity)
 
@@ -1730,7 +1690,7 @@ local function update_hovered_handle()
 		return
 	end
 
-	if is_ui_hovering() then
+	if state.hidden or is_ui_hovering() then
 		state.hovered_handle = nil
 		return
 	end
@@ -1748,6 +1708,11 @@ function gizmo.EnableGizmo(entity)
 	state.active_drag = nil
 	notify_state_changed()
 	return next_entity
+end
+
+function gizmo.SetHidden(hidden)
+	state.hidden = hidden
+	state.hovered_handle = nil
 end
 
 function gizmo.DisableGizmo()

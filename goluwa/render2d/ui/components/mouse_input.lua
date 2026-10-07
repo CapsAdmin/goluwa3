@@ -356,7 +356,7 @@ function META:OnFirstCreated()
 			if press then
 				local hovered = get_active_hovered_entity(world, pos)
 
-				if hovered then
+				if hovered and hovered:IsValid() then
 					local mouse_comp = hovered.mouse_input
 
 					if mouse_comp then
@@ -372,6 +372,8 @@ function META:OnFirstCreated()
 							end
 
 							target:RequestFocus()
+						else
+							objects.SetFocusedObject(NULL)
 						end
 
 						local bring_to_front_target = NULL

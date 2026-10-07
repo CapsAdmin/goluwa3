@@ -17,6 +17,8 @@ camera.speed = 18
 camera.sprint_multiplier = 2.25
 camera.acceleration = 220
 camera.slow_multiplier = 0.2
+camera.gizmo_speed_per_distance = 1
+camera.min_gizmo_speed = 0.25
 camera.block_movement = false
 camera.block_dragging = false
 
@@ -90,7 +92,17 @@ function camera.Update(dt)
 
 		if input.IsShiftDown() then speed = speed * camera.sprint_multiplier end
 
-		camera.velocity = camera.velocity:Approach(move * speed, camera.acceleration * dt)
+		local acceleration = camera.acceleration
+		local gizmo_entity = Gizmo.GetStatus().gizmo_entity
+
+		if gizmo_entity then
+			local distance = (gizmo_entity.transform:GetWorldPosition() - camera.position):GetLength()
+			local scaled_speed = math.max(distance * camera.gizmo_speed_per_distance, camera.min_gizmo_speed)
+			acceleration = acceleration * math.max(scaled_speed / camera.speed, 0.05)
+			speed = scaled_speed * (speed / camera.speed)
+		end
+
+		camera.velocity = camera.velocity:Approach(move * speed, acceleration * dt)
 	else
 		camera.velocity = camera.velocity:Approach(Vec3(), camera.acceleration * dt)
 	end

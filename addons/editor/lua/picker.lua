@@ -6,53 +6,68 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local input = import("goluwa/input.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
 local highlight = import("lua/highlight.lua")
+local Gizmo = import("lua/gizmo.lua")
 local event = import("goluwa/event.lua")
 local CameraComponent = import("lua/components/camera.lua")
 local AssetBrowser = import("lua/asset_browser.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local picker = library()
+local nonvisual_candidates = {}
+local nonvisual_candidates_dirty = true
+local nonvisual_candidates_time = -math.huge
+local NONVISUAL_REBUILD_INTERVAL = 1
 
 local function is_visual_pick_helper_entity(entity)
 	return entity.visual_primitive ~= nil or entity.VisualOwner ~= nil
 end
 
-local function has_visual_pick_target(entity)
-	local entries = entity.visual:GetRenderEntries()
-	return entries and entries[1] ~= nil or false
-end
+do
+	local function collect(entity, out)
+		for _, child in ipairs(entity:GetChildren()) do
+			if not is_visual_pick_helper_entity(child) then
+				if child.transform and not child.visual then out[#out + 1] = child end
 
-local function is_nonvisual_pick_candidate(entity, editor_window, excluded_entity)
-	if
-		entity.visual and
-		has_visual_pick_target(entity) or
-		is_visual_pick_helper_entity(entity)
-	then
-		return false
+				collect(child, out)
+			end
+		end
 	end
 
-	return entity.transform ~= nil
+	function picker.GetNonvisualCandidates()
+		local now = system.GetElapsedTime()
+
+		if
+			nonvisual_candidates_dirty and
+			now - nonvisual_candidates_time >= NONVISUAL_REBUILD_INTERVAL
+		then
+			nonvisual_candidates = {}
+			collect(Entity.World, nonvisual_candidates)
+			nonvisual_candidates_dirty = false
+			nonvisual_candidates_time = now
+		end
+
+		return nonvisual_candidates
+	end
+
+	local function mark_dirty()
+		nonvisual_candidates_dirty = true
+	end
+
+	Entity.World:AddLocalListener("OnEntityHierarchyChanged", mark_dirty)
+	Entity.World:AddLocalListener("OnEntityComponentChanged", mark_dirty)
 end
 
-local function find_nonvisual_entity_hit(
-	editor_window,
-	mouse_pos,
-	ray_origin,
-	ray_direction,
-	max_distance,
-	excluded_entity
-)
+local function find_nonvisual_entity_hit(mouse_pos, ray_origin, ray_direction, max_distance)
 	local cam = render3d.GetCamera()
+	local screen_size = render2d.GetSize()
 	local best_hit = nil
 	local best_distance = max_distance or math.huge
 	local marker_radius_sq = 144
 
-	for _, entity in ipairs(Entity.World:GetChildrenList()) do
-		if not is_nonvisual_pick_candidate(entity, editor_window, excluded_entity) then
-			goto continue2
-		end
+	for _, entity in ipairs(picker.GetNonvisualCandidates()) do
+		if not entity:IsValid() then goto continue2 end
 
 		local world_pos = entity.transform:GetWorldPosition()
-		local screen_pos = cam:WorldPositionToScreen(world_pos, render2d.GetSize())
+		local screen_pos = cam:WorldPositionToScreen(world_pos, screen_size)
 
 		if not screen_pos then goto continue2 end
 
@@ -109,14 +124,7 @@ function picker.find_3d_pick_target(mouse_pos)
 
 	if not ok then error(visual_hit, 0) end
 
-	local fallback_hit = find_nonvisual_entity_hit(
-		editor_window,
-		mouse_pos,
-		ray_origin,
-		ray_direction,
-		math.huge,
-		excluded_entity
-	)
+	local fallback_hit = find_nonvisual_entity_hit(mouse_pos, ray_origin, ray_direction, math.huge)
 
 	if fallback_hit then return fallback_hit.entity end
 
@@ -130,6 +138,7 @@ local function cancel_picker()
 
 	picker.hovered_entity = NULL
 	highlight.SetEntity(nil)
+	Gizmo.SetHidden(false)
 	input.HijackKeyInput(nil)
 
 	for _, remove in ipairs(picker.remove_events) do
@@ -153,6 +162,7 @@ function picker.StartEntityPicker(opts)
 	picker.on_pick = on_pick
 	picker.on_cancel = on_cancel
 	local cancel_fn = cancel_picker
+	Gizmo.SetHidden(true)
 
 	input.HijackKeyInput(function(key)
 		if key == "escape" then
@@ -178,8 +188,8 @@ function picker.Update(dt)
 	do
 		local NONVISUAL_HINT_TIME = 1.0
 
-		for _, entity in ipairs(Entity.World:GetChildrenList()) do
-			if is_nonvisual_pick_candidate(entity) then
+		for _, entity in ipairs(picker.GetNonvisualCandidates()) do
+			if entity:IsValid() then
 				local world_pos = entity.transform:GetWorldPosition()
 
 				if render3d.GetCamera():WorldPositionToScreen(world_pos) then

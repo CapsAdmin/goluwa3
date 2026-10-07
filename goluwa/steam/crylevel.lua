@@ -344,8 +344,9 @@ local function extract_water_object(node, world_matrix)
 	}
 end
 
-function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, water_out)
+function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, water_out, group, layer)
 	local attrs = node.attrs or {}
+	layer = attrs.Layer or layer
 
 	if crylevel.IsObjectHidden(attrs) then return out end
 
@@ -376,8 +377,14 @@ function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, librarie
 	end
 
 	if children then
+		local child_group = {
+			key = (group and group.key or "") .. "/" .. (attrs.Id or attrs.Name or ""),
+			name = attrs.Name or attrs.PrefabName or object_type,
+			parent = group,
+		}
+
 		for child in iter_children_by_tag(children, "Object") do
-			crylevel.ExtractVisualObjectsFromNode(child, world_matrix, out, libraries, water_out)
+			crylevel.ExtractVisualObjectsFromNode(child, world_matrix, out, libraries, water_out, child_group, layer)
 		end
 
 		return out
@@ -392,6 +399,8 @@ function crylevel.ExtractVisualObjectsFromNode(node, parent_world, out, librarie
 			material_path = attrs.Material ~= "" and attrs.Material or nil,
 			type = object_type,
 			world_matrix = world_matrix,
+			layer = layer,
+			group = group,
 		}
 	end
 
@@ -408,6 +417,19 @@ function crylevel.ExtractVisualObjects(nodes, libraries)
 		if node.attrs.Id then by_id[node.attrs.Id] = node end
 	end
 
+	local function get_parent_group(node, depth)
+		local parent = node.attrs.Parent and by_id[node.attrs.Parent]
+
+		if not parent or depth >= 32 then return nil end
+
+		local parent_group = get_parent_group(parent, depth + 1)
+		return {
+			key = (parent_group and parent_group.key or "") .. "/" .. parent.attrs.Id,
+			name = parent.attrs.Name or parent.attrs.Type,
+			parent = parent_group,
+		}
+	end
+
 	local function get_world_matrix(node, depth)
 		local world = world_matrices[node]
 
@@ -421,7 +443,14 @@ function crylevel.ExtractVisualObjects(nodes, libraries)
 
 	for _, node in ipairs(nodes) do
 		local parent = node.attrs.Parent and by_id[node.attrs.Parent]
-		crylevel.ExtractVisualObjectsFromNode(node, parent and get_world_matrix(parent, 0) or nil, out, libraries, water_out)
+		crylevel.ExtractVisualObjectsFromNode(
+			node,
+			parent and get_world_matrix(parent, 0) or nil,
+			out,
+			libraries,
+			water_out,
+			get_parent_group(node, 0)
+		)
 	end
 
 	return out, water_out
@@ -701,6 +730,7 @@ function crylevel.ParseVegetationMapDocument(document)
 				model_path = model_path,
 				material_path = attrs.Material ~= "" and attrs.Material or nil,
 				name = attrs.Name or file_path.GetFileNameFromPath(model_path),
+				category = attrs.Category,
 				align_to_terrain = parse_bool_flag(attrs.AlignToTerrain),
 				random_rotation = parse_bool_flag(attrs.RandomRotation),
 				use_terrain_color = parse_bool_flag(attrs.UseTerrainColor),
@@ -2074,8 +2104,124 @@ function crylevel.Apply(steam)
 		end
 	end
 
+	local Entity = import("goluwa/entities/entity.lua")
+	local spawn_root
+
+	local function new_folder(parent, name)
+		local folder = Entity.New{Name = name, Parent = parent}
+
+		if parent == spawn_root then folder.spawned_from_cry_level = true end
+
+		return folder
+	end
+
+	local function spawn_object(entry, parent, material_overrides)
+		local transform_data = crylevel.ConvertCryWorldMatrixToEngineTransform(entry.world_matrix)
+		local entity = Entity.New{Name = entry.name or "cry_object", Parent = parent}
+		local transform = entity:AddComponent("transform")
+		entity:AddComponent("visual")
+		transform:SetPosition(transform_data.position)
+		transform:SetRotation(transform_data.rotation)
+		transform:SetScale(transform_data.scale)
+		entity.visual:SetModelPath(entry.model_path)
+
+		if entry.material_path then
+			apply_material_override(entity.visual, entry.material_path, material_overrides)
+		end
+	end
+
+	local function spawn_vegetation(entry, parent, material_overrides)
+		local transform_data = crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
+		local entity = Entity.New{Name = entry.name or "cry_vegetation", Parent = parent}
+		local transform = entity:AddComponent("transform")
+		entity:AddComponent("visual")
+
+		if transform_data.matrix then
+			transform:SetFromMatrix(transform_data.matrix)
+		else
+			transform:SetPosition(transform_data.position)
+			transform:SetRotation(transform_data.rotation)
+			transform:SetScale(transform_data.scale)
+		end
+
+		entity.visual:SetBillboard(entry.use_sprites == true)
+		entity.visual:SetModelPath(entry.model_path)
+
+		if entry.material_path then
+			apply_material_override(entity.visual, entry.material_path, material_overrides)
+		end
+	end
+
+	local LEAF_CELL_TARGET = 64
+	local LEAF_CHUNK_THRESHOLD = 256
+
+	local function spawn_leaf(leaf, material_overrides)
+		local folder = leaf.folder
+		local items = leaf.items
+		local count = #items
+
+		if count <= LEAF_CHUNK_THRESHOLD then
+			for _, entry in ipairs(items) do
+				leaf.spawn(entry, folder, material_overrides)
+			end
+
+			return
+		end
+
+		local min_x, min_y, max_x, max_y = math.huge, math.huge, -math.huge, -math.huge
+		local xs, ys = {}, {}
+
+		for i, entry in ipairs(items) do
+			local x, y
+
+			if entry.position then
+				x, y = entry.position.x, entry.position.y
+			else
+				x, y = entry.world_matrix:GetTranslation()
+			end
+
+			xs[i], ys[i] = x, y
+			min_x, min_y = math.min(min_x, x), math.min(min_y, y)
+			max_x, max_y = math.max(max_x, x), math.max(max_y, y)
+		end
+
+		local cell_size = math.max(math.max(max_x - min_x, max_y - min_y), 1) / math.ceil(math.sqrt(count / LEAF_CELL_TARGET))
+		local cells = {}
+		local cell_list = {}
+
+		for i, entry in ipairs(items) do
+			local cx, cy = math.floor((xs[i] - min_x) / cell_size), math.floor((ys[i] - min_y) / cell_size)
+			local key = cx * 65536 + cy
+			local cell = cells[key]
+
+			if not cell then
+				cell = {
+					name = string.format("x%d y%d", min_x + (cx + 0.5) * cell_size, min_y + (cy + 0.5) * cell_size),
+					key = key,
+					items = {},
+				}
+				cells[key] = cell
+				cell_list[#cell_list + 1] = cell
+			end
+
+			cell.items[#cell.items + 1] = entry
+		end
+
+		table.sort(cell_list, function(a, b)
+			return a.key < b.key
+		end)
+
+		for _, cell in ipairs(cell_list) do
+			local cell_folder = new_folder(folder, cell.name)
+
+			for _, entry in ipairs(cell.items) do
+				leaf.spawn(entry, cell_folder, material_overrides)
+			end
+		end
+	end
+
 	function steam.SpawnCryLevel(level, parent)
-		local Entity = import("goluwa/entities/entity.lua")
+		spawn_root = parent
 		local material_overrides = {}
 		local data = steam.LoadCryLevel(level)
 
@@ -2084,7 +2230,7 @@ function crylevel.Apply(steam)
 			steam.active_cry_terrain_renderer = nil
 		end
 
-		for _, child in ipairs(parent:GetChildrenList()) do
+		for _, child in ipairs(parent:GetChildren()) do
 			if child.spawned_from_cry_level then child:Remove() end
 		end
 
@@ -2112,15 +2258,21 @@ function crylevel.Apply(steam)
 			}
 		end
 
+		local water_folder
+
 		for _, object in ipairs(data.water_objects or {}) do
 			for _, volume in ipairs(crylevel.BuildWaterVolumes(object, water)) do
-				local entity = Entity.New{
+				if not water_folder then
+					water_folder = Entity.New{Name = "Water", Parent = parent}
+					water_folder.spawned_from_cry_level = true
+				end
+
+				Entity.New{
 					Name = object.name or object.type,
-					Parent = parent,
+					Parent = water_folder,
 					transform = {Position = volume.position, Rotation = volume.rotation},
 					water_volume = volume.config,
 				}
-				entity.spawned_from_cry_level = true
 			end
 		end
 
@@ -2133,21 +2285,81 @@ function crylevel.Apply(steam)
 		end
 
 		if not steam.cry_skip_models then
-			for _, entry in ipairs(data.entries) do
-				local transform_data = crylevel.ConvertCryWorldMatrixToEngineTransform(entry.world_matrix)
-				local entity = Entity.New{Name = entry.name or "cry_object", Parent = parent}
-				local transform = entity:AddComponent("transform")
-				entity:AddComponent("visual")
-				transform:SetPosition(transform_data.position)
-				transform:SetRotation(transform_data.rotation)
-				transform:SetScale(transform_data.scale)
-				entity.visual:SetModelPath(entry.model_path)
+			local objects_root = new_folder(parent, "Objects")
+			local layer_folders = {}
+			local group_folders = {}
+			local leaves = {}
+			local leaf_by_folder = {}
 
-				if entry.material_path then
-					apply_material_override(entity.visual, entry.material_path, material_overrides)
+			for _, entry in ipairs(data.entries) do
+				local folder = layer_folders[entry.layer or ""]
+
+				if not folder then
+					folder = new_folder(objects_root, entry.layer or "no layer")
+					layer_folders[entry.layer or ""] = folder
 				end
 
-				entity.spawned_from_cry_level = true
+				local chain = {}
+				local group = entry.group
+
+				while group do
+					table.insert(chain, 1, group)
+					group = group.parent
+				end
+
+				for _, group in ipairs(chain) do
+					local group_folder = group_folders[group.key]
+
+					if not group_folder then
+						group_folder = new_folder(folder, group.name)
+						group_folders[group.key] = group_folder
+					end
+
+					folder = group_folder
+				end
+
+				local leaf = leaf_by_folder[folder]
+
+				if not leaf then
+					leaf = {folder = folder, items = {}, spawn = spawn_object}
+					leaf_by_folder[folder] = leaf
+					leaves[#leaves + 1] = leaf
+				end
+
+				leaf.items[#leaf.items + 1] = entry
+			end
+
+			local vegetation_root = new_folder(parent, "Vegetation")
+			local category_folders = {}
+			local prototype_leaves = {}
+
+			for _, entry in ipairs(data.vegetation_entries or {}) do
+				local leaf = prototype_leaves[entry.prototype_id]
+
+				if not leaf then
+					local prototype = data.vegetation_prototypes.by_id[entry.prototype_id]
+					local category = prototype.category or "uncategorized"
+					local category_folder = category_folders[category]
+
+					if not category_folder then
+						category_folder = new_folder(vegetation_root, category)
+						category_folders[category] = category_folder
+					end
+
+					leaf = {
+						folder = new_folder(category_folder, (prototype.name:gsub("%.%w+$", ""))),
+						items = {},
+						spawn = spawn_vegetation,
+					}
+					prototype_leaves[entry.prototype_id] = leaf
+					leaves[#leaves + 1] = leaf
+				end
+
+				leaf.items[#leaf.items + 1] = entry
+			end
+
+			for _, leaf in ipairs(leaves) do
+				spawn_leaf(leaf, material_overrides)
 			end
 
 			if data.terrain and data.terrain.cover and data.vegetation_prototypes then
@@ -2178,30 +2390,6 @@ function crylevel.Apply(steam)
 						end
 					end
 				end
-			end
-
-			for _, entry in ipairs(data.vegetation_entries or {}) do
-				local transform_data = crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
-				local entity = Entity.New{Name = entry.name or "cry_vegetation", Parent = parent}
-				local transform = entity:AddComponent("transform")
-				entity:AddComponent("visual")
-
-				if transform_data.matrix then
-					transform:SetFromMatrix(transform_data.matrix)
-				else
-					transform:SetPosition(transform_data.position)
-					transform:SetRotation(transform_data.rotation)
-					transform:SetScale(transform_data.scale)
-				end
-
-				entity.visual:SetBillboard(entry.use_sprites == true)
-				entity.visual:SetModelPath(entry.model_path)
-
-				if entry.material_path then
-					apply_material_override(entity.visual, entry.material_path, material_overrides)
-				end
-
-				entity.spawned_from_cry_level = true
 			end
 		end
 

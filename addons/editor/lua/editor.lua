@@ -22,6 +22,9 @@ local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
+local nearby = import("lua/nearby.lua")
 local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
@@ -64,6 +67,14 @@ return function(props)
 	local sync_debounce_time = props.SyncDebounceTime or 0.1
 	local editor_ui_mutation_blocked = 0
 	local picker_cancel_fn = nil
+	local pending_search
+	local search_deadline = 0
+	local SEARCH_DEBOUNCE = 0.25
+	local NEARBY_COUNT = 10
+	local NEARBY_SETTLE_TIME = 0.3
+	local last_camera_position
+	local camera_moved_time
+	local nearby_dirty = true
 
 	local function set_selected_target(target)
 		Gizmo.EnableGizmo(target)
@@ -100,6 +111,44 @@ return function(props)
 		end
 
 		set_selected_target(entity)
+	end
+
+	local function get_focus_bounds(entity)
+		local min_x, min_y, min_z = math.huge, math.huge, math.huge
+		local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+		local found = false
+
+		local function add(visual)
+			local aabb = visual:GetWorldAABB()
+
+			if aabb and aabb.min_x <= aabb.max_x then
+				found = true
+				min_x, min_y, min_z = math.min(min_x, aabb.min_x), math.min(min_y, aabb.min_y), math.min(min_z, aabb.min_z)
+				max_x, max_y, max_z = math.max(max_x, aabb.max_x), math.max(max_y, aabb.max_y), math.max(max_z, aabb.max_z)
+			end
+		end
+
+		if entity.visual then add(entity.visual) end
+
+		for _, child in ipairs(entity:GetChildrenList()) do
+			if child.visual then add(child.visual) end
+		end
+
+		if found then
+			local dx, dy, dz = max_x - min_x, max_y - min_y, max_z - min_z
+			return Vec3((min_x + max_x) / 2, (min_y + max_y) / 2, (min_z + max_z) / 2),
+			math.sqrt(dx * dx + dy * dy + dz * dz) / 2
+		end
+
+		if entity.transform then return entity.transform:GetWorldPosition(), 0 end
+	end
+
+	local function go_to_entity(entity)
+		local center, radius = get_focus_bounds(entity)
+
+		if not center then return end
+
+		camera.SetPosition(center - camera.GetRotation():GetForward() * math.max(radius * 2.2, 2))
 	end
 
 	local function component_label(name)
@@ -267,125 +316,167 @@ return function(props)
 				GrowHeight = 1,
 			},
 		}{
-			ScrollablePanel{
-				Ref = function(self)
-					tree_scroll_container = self
-				end,
-				ScrollX = false,
-				ScrollY = true,
-				Padding = Rect(),
-				ScrollBarContentShiftMode = "auto_shift",
+			Column{
 				layout = {
+					Direction = "y",
 					GrowWidth = 1,
 					GrowHeight = 1,
+					FitHeight = false,
+					ChildGap = 2,
+					AlignmentX = "stretch",
 				},
 			}{
-				EntityTree{
-					Ref = function(self)
-						tree_view = self
-					end,
-					RootEntities = {Entity.World, Panel.World},
-					RootLabels = {
-						[Entity.World] = "3D World",
-						[Panel.World] = "2D World",
-					},
-					SelectedKey = initial_selected_guid,
-					SharedInstanceColor = SHARED_INSTANCE_COLOR,
-					ShowVirtualChildren = true,
-					FilterCallback = function(entity)
-						return entity_tree_filter_callback(entity, editor_window)
+				TextEdit{
+					Hint = "search: name, model:path, name:text",
+					Size = Vec2(0, 28),
+					MinSize = Vec2(100, 28),
+					MaxSize = Vec2(0, 28),
+					Wrap = false,
+					ScrollX = false,
+					ScrollY = false,
+					OnTextChanged = function(_, text)
+						pending_search = text
+						search_deadline = system.GetElapsedTime() + SEARCH_DEBOUNCE
 					end,
 					layout = {
 						GrowWidth = 1,
-						FitHeight = true,
 					},
-					OnSelect = function(node, key)
-						local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
-						Gizmo.EnableGizmo(target)
-						pending_selection_sync = true
-						_G.SELECTED_OBJECT = target
+				},
+				ScrollablePanel{
+					Ref = function(self)
+						tree_scroll_container = self
 					end,
-					OnNodeHover = function(node, key, path, row_info, hovered)
-						local entity = node and node.Entity or nil
-						highlight.SetEntity(hovered and entity or nil)
-					end,
-					OnNodeContextMenu = function(node)
-						local entity = node and node.Entity or nil
-						local can_create_shapes = entity:GetRoot() == Entity.World
-						local can_remove = entity ~= Entity.World and entity ~= Panel.World
+					ScrollX = false,
+					ScrollY = true,
+					Padding = Rect(),
+					ScrollBarContentShiftMode = "auto_shift",
+					layout = {
+						GrowWidth = 1,
+						GrowHeight = 1,
+					},
+				}{
+					EntityTree{
+						Ref = function(self)
+							tree_view = self
+						end,
+						RootEntities = {Entity.World, Panel.World},
+						NearbyRoot = Entity.World,
+						RootLabels = {
+							[Entity.World] = "3D World",
+							[Panel.World] = "2D World",
+						},
+						SelectedKey = initial_selected_guid,
+						SharedInstanceColor = SHARED_INSTANCE_COLOR,
+						ShowVirtualChildren = true,
+						FilterCallback = function(entity)
+							return entity_tree_filter_callback(entity, editor_window)
+						end,
+						layout = {
+							GrowWidth = 1,
+							FitHeight = true,
+						},
+						OnSelect = function(node, key)
+							local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
+							Gizmo.EnableGizmo(target)
+							pending_selection_sync = true
+							_G.SELECTED_OBJECT = target
+						end,
+						OnNodeHover = function(node, key, path, row_info, hovered)
+							local entity = node and node.Entity or nil
+							highlight.SetEntity(hovered and entity or nil)
+						end,
+						OnNodeContextMenu = function(node)
+							local entity = node.Entity
 
-						if not can_create_shapes and not can_remove then return false end
+							if not entity then return false end
 
-						local add_names
-						local remove_names
+							local can_create_shapes = entity:GetRoot() == Entity.World
+							local can_remove = entity ~= Entity.World and entity ~= Panel.World
 
-						if can_remove then
-							add_names = component_names(entity, false)
-							remove_names = component_names(entity, true)
-						end
+							if not can_create_shapes and not can_remove then return false end
 
-						local has_above_remove = can_create_shapes or (can_remove and (#add_names > 0 or #remove_names > 0))
-						Panel.OpenContextMenu(
-							{
-								OnClose = function(self)
-									self:Remove()
-								end,
-							},
-							{
-								can_create_shapes and
-								MenuItem{
-									Text = "Sphere",
-									OnClick = function()
-										create_child_shape(entity, "sphere")
+							local add_names
+							local remove_names
+
+							if can_remove then
+								add_names = component_names(entity, false)
+								remove_names = component_names(entity, true)
+							end
+
+							local has_above_remove = can_create_shapes or (can_remove and (#add_names > 0 or #remove_names > 0))
+							Panel.OpenContextMenu(
+								{
+									OnClose = function(self)
+										self:Remove()
 									end,
-								} or
-								nil,
-								can_create_shapes and
-								MenuItem{
-									Text = "Box",
-									OnClick = function()
-										create_child_shape(entity, "box")
-									end,
-								} or
-								nil,
-								can_remove and
-								#add_names > 0 and
-								MenuItem{
-									Text = "Add Component",
-									Items = function()
-										return build_component_items(entity, add_names, false)
-									end,
-								} or
-								nil,
-								can_remove and
-								#remove_names > 0 and
-								MenuItem{
-									Text = "Remove Component",
-									Items = function()
-										return build_component_items(entity, remove_names, true)
-									end,
-								} or
-								nil,
-								can_remove and
-								has_above_remove and
-								MenuSpacer() or
-								nil,
-								can_remove and
-								MenuItem{
-									Text = "Remove",
-									OnClick = function()
-										local parent = entity:GetParent()
+								},
+								{
+									can_create_shapes and
+									MenuItem{
+										Text = "Go to",
+										OnClick = function()
+											go_to_entity(entity)
+										end,
+									} or
+									nil,
+									can_create_shapes and
+									MenuSpacer() or
+									nil,
+									can_create_shapes and
+									MenuItem{
+										Text = "Sphere",
+										OnClick = function()
+											create_child_shape(entity, "sphere")
+										end,
+									} or
+									nil,
+									can_create_shapes and
+									MenuItem{
+										Text = "Box",
+										OnClick = function()
+											create_child_shape(entity, "box")
+										end,
+									} or
+									nil,
+									can_remove and
+									#add_names > 0 and
+									MenuItem{
+										Text = "Add Component",
+										Items = function()
+											return build_component_items(entity, add_names, false)
+										end,
+									} or
+									nil,
+									can_remove and
+									#remove_names > 0 and
+									MenuItem{
+										Text = "Remove Component",
+										Items = function()
+											return build_component_items(entity, remove_names, true)
+										end,
+									} or
+									nil,
+									can_remove and
+									has_above_remove and
+									MenuSpacer() or
+									nil,
+									can_remove and
+									MenuItem{
+										Text = "Remove",
+										OnClick = function()
+											local parent = entity:GetParent()
 
-										if parent:IsValid() then set_selected_target(parent) end
+											if parent:IsValid() then set_selected_target(parent) end
 
-										entity:Remove()
-									end,
-								} or
-								nil,
-							}
-						)
-						return true
-					end,
+											entity:Remove()
+										end,
+									} or
+									nil,
+								}
+							)
+							return true
+						end,
+					},
 				},
 			},
 			ScrollablePanel{
@@ -534,6 +625,28 @@ return function(props)
 			view:SetRotation(camera.GetRotation():Copy())
 		end
 
+		do
+			local position = camera.GetPosition()
+
+			if not last_camera_position or (position - last_camera_position):GetLength() > 0.001 then
+				last_camera_position = position:Copy()
+				camera_moved_time = system.GetElapsedTime()
+				nearby_dirty = true
+			elseif
+				nearby_dirty and
+				system.GetElapsedTime() - camera_moved_time >= NEARBY_SETTLE_TIME
+			then
+				nearby_dirty = false
+				tree_view:SetNearby(nearby.Collect(position, NEARBY_COUNT))
+			end
+
+			if pending_search and system.GetElapsedTime() >= search_deadline then
+				local text = pending_search
+				pending_search = nil
+				tree_view:SetSearch(text)
+			end
+		end
+
 		if pending_selection_sync then
 			pending_selection_sync = false
 			local selected_target = tree_view:GetSelectedEntity()
@@ -585,6 +698,12 @@ return function(props)
 		Gizmo.SetMode(props.GizmoMode or Gizmo.GetMode())
 		Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
 		pending_selection_sync = true
+
+		if not initial_selected_guid then
+			local closest = nearby.Collect(camera.GetPosition(), 1)[1]
+
+			if closest then set_selected_target(closest.entity) end
+		end
 	end
 
 	return editor_window

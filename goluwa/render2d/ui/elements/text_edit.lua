@@ -115,6 +115,13 @@ function META:OnCreate(props)
 			},
 		}
 	)
+
+	if editable then
+		for _, surface in ipairs{self, self.scroll_panel.Viewport} do
+			surface.mouse_input:SetFocusOnClick(true)
+			surface.mouse_input:SetRedirectFocus(self.text_panel)
+		end
+	end
 end
 
 function META:OnParentVisibilityChanged(visible)

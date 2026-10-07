@@ -1,7 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
-local system = import("goluwa/system.lua")
 local raycast = library()
 import.loaded["goluwa/render3d/raycast.lua"] = raycast
 local Visual = import("goluwa/entities/components/visual.lua")
@@ -10,14 +9,6 @@ local BVH_LEAF_TRIANGLE_COUNT = 8
 local MODEL_BVH_LEAF_ITEM_COUNT = 8
 local MODEL_PRIMITIVE_BVH_THRESHOLD = 16
 local MODEL_PRIMITIVE_BVH_LEAF_ITEM_COUNT = 8
-local model_acceleration = {
-	dirty = true,
-	tree = nil,
-	items = {},
-	dynamic_models = {},
-	frame = -1,
-	model_count = 0,
-}
 local lod_camera_position
 
 function raycast.SetLODCamera(position)
@@ -74,11 +65,6 @@ local function transform_ray(ray, world_to_local)
 	return tbl
 end
 
-function raycast.InvalidateModelAcceleration()
-	model_acceleration.dirty = true
-	model_acceleration.tree = nil
-end
-
 local function has_model_geometry(model)
 	local primitives = get_spatial_primitives(model)
 	return model and
@@ -87,20 +73,11 @@ local function has_model_geometry(model)
 		get_spatial_local_aabb(model) ~= nil
 end
 
-local function is_dynamic_model(model)
-	local owner = model and model.Owner
-
-	if owner and owner.rigid_body then return true end
-
-	local transform = owner and owner.transform
-	return transform and transform:IsFrameDynamic() or false
-end
-
 local function add_model_acceleration_item(items, model, bounds)
 	if not bounds then return end
 
 	items[#items + 1] = {
-		model = model,
+		component = model,
 		min_x = bounds.min_x,
 		min_y = bounds.min_y,
 		min_z = bounds.min_z,
@@ -121,49 +98,6 @@ local function get_bvh_item_centroid(item)
 	return item.centroid_x, item.centroid_y, item.centroid_z
 end
 
-local function collect_spatial_model_items()
-	local items = {}
-	local dynamic_models = {}
-
-	for _, model in ipairs(Visual.Instances) do
-		if has_model_geometry(model) then
-			if is_dynamic_model(model) then
-				dynamic_models[#dynamic_models + 1] = model
-			else
-				add_model_acceleration_item(items, model, model:GetWorldAABB())
-			end
-		end
-	end
-
-	return items, dynamic_models
-end
-
-local function rebuild_model_acceleration()
-	local items, dynamic_models = collect_spatial_model_items()
-	model_acceleration.items = items
-	model_acceleration.dynamic_models = dynamic_models
-	model_acceleration.tree = #items > 0 and
-		BVH.Build(
-			items,
-			get_bvh_item_bounds,
-			get_bvh_item_centroid,
-			MODEL_BVH_LEAF_ITEM_COUNT
-		) or
-		nil
-	model_acceleration.dirty = false
-
-	if model_acceleration.tree then
-		model_acceleration.tree.models = model_acceleration.tree.items
-		model_acceleration.tree.items = nil
-		model_acceleration.tree.traversal_context = model_acceleration.tree.traversal_context or
-			{
-				acceleration = model_acceleration.tree,
-				node_stack = {},
-				tmin_stack = {},
-			}
-	end
-end
-
 local function build_static_model_source(models)
 	local items = {}
 
@@ -174,11 +108,12 @@ local function build_static_model_source(models)
 	end
 
 	local source = {
-		models = models or {},
 		items = items,
 		dynamic_models = {},
+		pending = {},
+		traversal_context = {node_stack = {}, tmin_stack = {}},
 		tree = #items > 0 and
-			BVH.Build(
+			BVH.BuildFast(
 				items,
 				get_bvh_item_bounds,
 				get_bvh_item_centroid,
@@ -188,36 +123,23 @@ local function build_static_model_source(models)
 	}
 
 	if source.tree then
-		source.tree.models = source.tree.items
+		source.tree.components = source.tree.items
 		source.tree.items = nil
-		source.tree.traversal_context = source.tree.traversal_context or
-			{
-				acceleration = source.tree,
-				node_stack = {},
-				tmin_stack = {},
-			}
 	else
-		source.dynamic_models = source.models
+		source.dynamic_models = models or {}
 	end
 
 	return source
 end
 
-local function ensure_model_acceleration()
-	local frame = system.GetFrameNumber()
-	local model_count = #Visual.Instances
+local scene_source = {traversal_context = {node_stack = {}, tmin_stack = {}}}
 
-	if
-		model_acceleration.dirty or
-		model_acceleration.frame ~= frame or
-		model_acceleration.model_count ~= model_count
-	then
-		rebuild_model_acceleration()
-		model_acceleration.frame = frame
-		model_acceleration.model_count = model_count
-	end
-
-	return model_acceleration
+local function get_scene_source()
+	local acceleration = Visual.Library.GetSceneAcceleration()
+	scene_source.tree = acceleration.tree
+	scene_source.pending = acceleration.pending
+	scene_source.dynamic_models = acceleration.dynamic_components
+	return scene_source
 end
 
 local ray_triangle_intersection = triangle_geometry.RayIntersection
@@ -928,10 +850,13 @@ end
 
 local function visit_model_bvh_leaf_closest(node, context, best_hit, best_distance)
 	for i = node.first, node.last do
-		local item = context.acceleration.models[i]
+		local item = context.acceleration.components[i]
+
+		if item.dead then goto continue end
+
 		local hit = test_model_closest(
 			context.ray,
-			item.model,
+			item.component,
 			context.filter_fn,
 			context.a,
 			context.b,
@@ -947,6 +872,8 @@ local function visit_model_bvh_leaf_closest(node, context, best_hit, best_distan
 			best_hit = hit
 			best_distance = hit.distance
 		end
+
+		::continue::
 	end
 
 	return best_hit, best_distance
@@ -954,10 +881,13 @@ end
 
 local function visit_model_bvh_leaf_collect(node, context, best_hit, best_distance)
 	for i = node.first, node.last do
-		local item = context.acceleration.models[i]
+		local item = context.acceleration.components[i]
+
+		if item.dead then goto continue end
+
 		collect_model_hits(
 			context.ray,
-			item.model,
+			item.component,
 			context.filter_fn,
 			context.a,
 			context.b,
@@ -968,6 +898,8 @@ local function visit_model_bvh_leaf_collect(node, context, best_hit, best_distan
 			context.hits,
 			true
 		)
+
+		::continue::
 	end
 
 	return best_hit, best_distance
@@ -976,8 +908,7 @@ end
 local find_closest_hit_in_source
 
 local function find_closest_hit(ray, filter_fn, a, b, c, d, e, f)
-	local acceleration = ensure_model_acceleration()
-	return find_closest_hit_in_source(acceleration, ray, filter_fn, a, b, c, d, e, f)
+	return find_closest_hit_in_source(get_scene_source(), ray, filter_fn, a, b, c, d, e, f)
 end
 
 find_closest_hit_in_source = function(source, ray, filter_fn, a, b, c, d, e, f)
@@ -987,7 +918,7 @@ find_closest_hit_in_source = function(source, ray, filter_fn, a, b, c, d, e, f)
 	local closest_distance = ray.max_distance or math.huge
 
 	if source.tree then
-		local traversal_context = source.tree.traversal_context
+		local traversal_context = source.traversal_context
 		traversal_context.acceleration = source.tree
 		traversal_context.ray = ray
 		traversal_context.filter_fn = filter_fn
@@ -1007,7 +938,16 @@ find_closest_hit_in_source = function(source, ray, filter_fn, a, b, c, d, e, f)
 		)
 	end
 
-	for _, model in ipairs(source.dynamic_models or {}) do
+	for _, item in ipairs(source.pending) do
+		local hit = test_model_closest(ray, item.component, filter_fn, a, b, c, d, e, f, closest_distance, false)
+
+		if hit and hit.distance < closest_distance then
+			closest_hit = hit
+			closest_distance = hit.distance
+		end
+	end
+
+	for _, model in ipairs(source.dynamic_models) do
 		local hit = test_model_closest(ray, model, filter_fn, a, b, c, d, e, f, closest_distance, false)
 
 		if hit and hit.distance < closest_distance then
@@ -1029,7 +969,7 @@ local function collect_hits_in_source(source, ray, filter_fn, a, b, c, d, e, f)
 	if not source then return hits end
 
 	if source.tree then
-		local traversal_context = source.tree.traversal_context
+		local traversal_context = source.traversal_context
 		traversal_context.acceleration = source.tree
 		traversal_context.ray = ray
 		traversal_context.filter_fn = filter_fn
@@ -1050,7 +990,11 @@ local function collect_hits_in_source(source, ray, filter_fn, a, b, c, d, e, f)
 		)
 	end
 
-	for _, model in ipairs(source.dynamic_models or {}) do
+	for _, item in ipairs(source.pending) do
+		collect_model_hits(ray, item.component, filter_fn, a, b, c, d, e, f, hits, false)
+	end
+
+	for _, model in ipairs(source.dynamic_models) do
 		collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits, false)
 	end
 
@@ -1061,8 +1005,7 @@ end
 function raycast.Cast(origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
 	max_distance = max_distance or math.huge
 	local ray = create_ray(origin, direction, max_distance)
-	local acceleration = ensure_model_acceleration()
-	return collect_hits_in_source(acceleration, ray, filter_fn, a, b, c, d, e, f)
+	return collect_hits_in_source(get_scene_source(), ray, filter_fn, a, b, c, d, e, f)
 end
 
 function raycast.CastClosest(origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
