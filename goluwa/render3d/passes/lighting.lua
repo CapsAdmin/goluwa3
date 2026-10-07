@@ -97,7 +97,7 @@ return {
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
-					{"noise_frame", "int"},
+					{"noise_phase", "float"},
 					{"screen_shadows", "int"},
 					{"screen_shadows_debug", "int"},
 					{"screen_shadow_length", "float"},
@@ -115,7 +115,11 @@ return {
 					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
 					block.screen_shadow_length = screen_shadow_length:Get()
 					block.screen_shadow_steps = screen_shadow_steps:Get()
-					block.noise_frame = render3d.IsPassEnabled("taa") and system.GetFrameNumber() % 16 or 0
+					block.noise_phase = render3d.IsAntiAliasingEnabled("edge_aa_t") and
+						system.GetFrameNumber() % 2 * 0.5 or
+						render3d.IsTemporalAntiAliasingEnabled() and
+						system.GetFrameNumber() % 16 * 0.618034 or
+						0
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -205,8 +209,8 @@ return {
 				vec2 delta_px = (p1 - p0) * vec2(depth_size);
 				int steps = clamp(int(max(abs(delta_px.x), abs(delta_px.y)) / ]] .. string.format("%.2f", SCREEN_SHADOW_STRIDE) .. [[), 2, lighting_data.screen_shadow_steps);
 				float dt = 1.0 / float(steps);
-				// interleaved gradient noise, moved on every frame while the taa is on, so it resolves the banding of the steps
-				float jitter = fract(52.9829189 * fract(dot(gl_GlobalInvocationID.xy, vec2(0.06711056, 0.00583715))) + float(lighting_data.noise_frame) * 0.618034);
+				// interleaved gradient noise, moved on every frame while the aa is temporal, so it resolves the banding of the steps. the two frame mode alternates by half a step so its frames interleave
+				float jitter = fract(52.9829189 * fract(dot(gl_GlobalInvocationID.xy, vec2(0.06711056, 0.00583715))) + lighting_data.noise_phase);
 				float step_z = abs(dir_vs.z) * ray_len * dt;
 				float depth_a = lighting_data.inv_projection[2][2];
 				float depth_b = lighting_data.inv_projection[3][2];

@@ -36,18 +36,25 @@ local strength = pvars.Setup2{
 }
 pvars.EndGroup()
 local ZERO = Vec2(0, 0)
+local SAMPLES_2X = {Vec2(0.25, -0.25), Vec2(-0.25, 0.25)}
 local last_frame = -1
 local last_width, last_height = 0, 0
 return {
 	{
 		name = "taa",
+		is_enabled = function()
+			return render3d.IsAntiAliasingEnabled("taa") or
+				render3d.IsAntiAliasingEnabled("edge_aa_t")
+		end,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 2,
 		pre_render = function()
 			render3d.previous_jitter = render3d.GetMainCamera():GetJitter():Copy()
 			render3d.GetMainCamera():SetJitter(
-				render3d.IsPassEnabled("taa") and
+				render3d.IsAntiAliasingEnabled("taa") and
 					SAMPLES[system.GetFrameNumber() % #SAMPLES + 1] or
+					render3d.IsAntiAliasingEnabled("edge_aa_t") and
+					SAMPLES_2X[system.GetFrameNumber() % 2 + 1] or
 					ZERO
 			)
 		end,
@@ -62,12 +69,14 @@ return {
 						{"jitter", "vec2"},
 						{"source_tex", "int"},
 						{"history_tex", "int"},
+						{"history_color_tex", "int"},
 						{"ocean_distance_tex", "int"},
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
 						{"translucent_motion_tex", "int"},
 						post_source.pre_exposure_block,
 						{"history_valid", "int"},
+						{"max_feedback", "float"},
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
@@ -78,6 +87,9 @@ return {
 						local frame = system.GetFrameNumber()
 						block.source_tex = self:GetTextureIndex(post_source.GetSceneSourceTexture({name = "taa"}))
 						block.history_tex = self:GetTextureIndex(render3d.pipelines.taa:GetFramebuffer((frame + 1) % 2 + 1):GetAttachment(1))
+						block.history_color_tex = render3d.IsAntiAliasingEnabled("edge_aa_t") and
+							self:GetTextureIndex(render3d.pipelines.edge_aa:GetFramebuffer((frame + 1) % 2 + 1):GetAttachment(1)) or
+							block.history_tex
 						block.ocean_distance_tex = render3d.IsPassEnabled("ocean") and
 							(
 								render3d.IsOceanEnabled() or
@@ -96,6 +108,7 @@ return {
 							-1
 						post_source.WritePreExposureBlock(self, block)
 						local size = render.GetRenderImageSize()
+						block.max_feedback = render3d.IsAntiAliasingEnabled("edge_aa_t") and 0.5 or 0
 						block.history_valid = (
 								last_frame == frame - 1 and
 								last_width == size.x and
@@ -135,11 +148,11 @@ return {
 				vec2 tc3 = (center + 2.0) / size;
 				vec2 tc12 = (center + w2 / w12) / size;
 				vec4 result =
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc12.x, tc0.y), 0.0).rgb, 1.0) * (w12.x * w0.y) +
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc0.x, tc12.y), 0.0).rgb, 1.0) * (w0.x * w12.y) +
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc12.x, tc12.y), 0.0).rgb, 1.0) * (w12.x * w12.y) +
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc3.x, tc12.y), 0.0).rgb, 1.0) * (w3.x * w12.y) +
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc12.x, tc3.y), 0.0).rgb, 1.0) * (w12.x * w3.y);
+					vec4(textureLod(TEXTURE(taa_data.history_color_tex), vec2(tc12.x, tc0.y), 0.0).rgb, 1.0) * (w12.x * w0.y) +
+					vec4(textureLod(TEXTURE(taa_data.history_color_tex), vec2(tc0.x, tc12.y), 0.0).rgb, 1.0) * (w0.x * w12.y) +
+					vec4(textureLod(TEXTURE(taa_data.history_color_tex), vec2(tc12.x, tc12.y), 0.0).rgb, 1.0) * (w12.x * w12.y) +
+					vec4(textureLod(TEXTURE(taa_data.history_color_tex), vec2(tc3.x, tc12.y), 0.0).rgb, 1.0) * (w3.x * w12.y) +
+					vec4(textureLod(TEXTURE(taa_data.history_color_tex), vec2(tc12.x, tc3.y), 0.0).rgb, 1.0) * (w12.x * w3.y);
 				return max(result.rgb / result.a, vec3(0.0));
 			}
 
@@ -190,7 +203,7 @@ return {
 						c_min = min(c_min, c);
 						c_max = max(c_max, c);
 						vec2 d = vec2(x, y) - taa_data.jitter;
-						float w = exp(-3.2 * dot(d, d));
+						float w = taa_data.max_feedback > 0.0 ? float(x == 0 && y == 0) : exp(-3.2 * dot(d, d));
 						current += c * w;
 						current_weight += w;
 						float depth = texelFetch(TEXTURE(taa_data.depth_tex), p, 0).r;
@@ -291,10 +304,10 @@ return {
 				// pixels away, while the detail is a line that stands out from it
 				vec2 texel = 2.0 / vec2(size);
 				vec3 ring = (
-					compress(textureLod(TEXTURE(taa_data.history_tex), prev_uv + vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
-					compress(textureLod(TEXTURE(taa_data.history_tex), prev_uv - vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
-					compress(textureLod(TEXTURE(taa_data.history_tex), prev_uv + vec2(0.0, texel.y), 0.0).rgb * history_scale, exposure) +
-					compress(textureLod(TEXTURE(taa_data.history_tex), prev_uv - vec2(0.0, texel.y), 0.0).rgb * history_scale, exposure)
+					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv + vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv - vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv + vec2(0.0, texel.y), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv - vec2(0.0, texel.y), 0.0).rgb * history_scale, exposure)
 				) * 0.25;
 				float isolated = smoothstep(0.008, 0.035, length(history - ring));
 				float history_weight = mix(depth_weight, 1.0, isolated);
@@ -303,14 +316,15 @@ return {
 				// must not erase what the earlier samples found. the box is wide and the
 				// clip is only partly applied
 				float still = (1.0 - smoothstep(0.0, 0.75, motion)) * history_weight * (1.0 - reactive);
-				float thin = still * isolated;
-				float gamma = mix(1.5, 3.0, thin);
+				// the two frame mode averages the frame with the one before it, whose own jitter is the opposite half pixel, so it takes the pixel's own sample and clamps the history a little tighter
+				float thin = taa_data.max_feedback > 0.0 ? 0.0 : still * isolated;
+				float gamma = taa_data.max_feedback > 0.0 ? 2.0 : mix(1.5, 3.0, thin);
 				vec3 box_min = mix(max(mean - gamma * sigma, c_min), mean - gamma * sigma, thin);
 				vec3 box_max = mix(min(mean + gamma * sigma, c_max), mean + gamma * sigma, thin);
 				vec3 clipped = mix(clip_to_box(box_min, box_max, history), history, 0.6 * thin);
 				// the further the history had to move, the less it is trusted
 				float clip_amount = length(clipped - history) / (length(history - mean) + 1e-4);
-				float feedback = mix(0.85, 0.94, thin) * (1.0 - 0.5 * clip_amount);
+				float feedback = taa_data.max_feedback > 0.0 ? taa_data.max_feedback : mix(0.85, 0.94, thin) * (1.0 - 0.5 * clip_amount);
 				vec3 result = mix(current, clipped, feedback * history_weight * (1.0 - reactive));
 				set_color(vec4(decompress(result, exposure), view_depth));
 			}
@@ -323,7 +337,7 @@ return {
 	{
 		name = "taa_sharpen",
 		is_enabled = function()
-			return strength:Get() > 0
+			return strength:Get() > 0 and render3d.IsAntiAliasingEnabled("taa")
 		end,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		fragment = {

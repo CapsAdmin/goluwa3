@@ -1500,7 +1500,7 @@ list.insert(
 							block.current_ocean_distance_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
 						end
 
-						block.history_blend = render3d.IsPassEnabled("taa") and 0.7 or 0.9
+						block.history_blend = render3d.IsTemporalAntiAliasingEnabled() and 0.7 or 0.9
 
 						if not render3d.pipelines.ocean_resolve.framebuffers then
 							block.history_ocean_tex = -1

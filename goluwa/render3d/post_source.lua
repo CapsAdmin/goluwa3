@@ -71,12 +71,34 @@ function post_source.GetSceneSourceTexture(self)
 		if debug_texture then return debug_texture end
 	end
 
-	if self.name ~= "taa" and render3d.IsPassEnabled("taa") then
+	if self.name == "taa" and render3d.IsAntiAliasingEnabled("edge_aa_t") then
+		return render3d.pipelines.edge_aa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+	end
+
+	if
+		self.name ~= "taa" and
+		(
+			render3d.IsAntiAliasingEnabled("taa") or
+			render3d.IsAntiAliasingEnabled("edge_aa_t")
+		)
+	then
 		if render3d.pipelines.taa_sharpen.is_enabled() then
 			return render3d.pipelines.taa_sharpen:GetFramebuffer():GetAttachment(1)
 		end
 
 		return render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+	end
+
+	if render3d.IsAntiAliasingEnabled("edge_aa") then
+		return render3d.pipelines.edge_aa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+	end
+
+	if render3d.IsAntiAliasingEnabled("ssaa") then
+		return render3d.pipelines.ssaa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+	end
+
+	if render3d.IsAntiAliasingEnabled("fxaa") then
+		return render3d.pipelines.fxaa:GetFramebuffer():GetAttachment(1)
 	end
 
 	return post_source.GetRawSceneSourceTexture()
