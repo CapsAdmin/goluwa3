@@ -88,11 +88,11 @@ local warm_pvar = pvars.Setup2{
 	help = "scales bsp lights that are redder than they are blue, candles and fires",
 	callback = update_bsp_lights,
 }
-local fog_core_pvar = pvars.Setup2{
-	key = "bsp_light_fog_core",
-	default = 1.5,
+local glow_pvar = pvars.Setup2{
+	key = "bsp_light_glow",
+	default = 0.3,
 	min = 0,
-	help = "radius of the soft core bsp lights have in fog, as a fraction of their fifty percent distance, 0 is a hot point",
+	help = "apparent radius of bsp lights as a fraction of their fifty percent distance, it softens their glow in fog and widens their specular highlights, 0 is a hot point",
 	callback = update_bsp_lights,
 }
 pvars.EndGroup()
@@ -295,7 +295,7 @@ do
 			constant_falloff = core,
 			linear_falloff = l * s,
 			quadratic_falloff = q,
-			scatter_radius = (d50 > 0 and d50 * s or 10) * fog_core_pvar:Get(),
+			glow_radius = (d50 > 0 and d50 * s or 10) * glow_pvar:Get(),
 		}
 	end
 end
@@ -307,7 +307,7 @@ function apply_source_light(light, info)
 	light:SetConstantFalloff(params.constant_falloff)
 	light:SetLinearFalloff(params.linear_falloff)
 	light:SetQuadraticFalloff(params.quadratic_falloff)
-	light:SetScatterRadius(params.scatter_radius)
+	light:SetGlowRadius(params.glow_radius)
 	light:SetLumen(params.intensity * params.color:GetLuminance() * light:GetEmissionSolidAngle())
 end
 

@@ -334,9 +334,9 @@ local scatter_pass = {
 				if (occlusion <= 0.0) continue;
 
 				processed++;
-				// a soft core in the air for lights that aren't point-like, so they glow instead of showing a hot spot
+				// a soft core in the air for lights with a glow radius, so they glow instead of showing a hot spot
 				float core_falloff = get_light_falloff(light, length(light.position.xyz - world_pos));
-				attenuation *= core_falloff / max(core_falloff + light.falloff.w, 0.0001);
+				attenuation *= core_falloff / max(core_falloff + light.falloff.w * light.falloff.w, 0.0001);
 				float shadow = 1.0;
 
 				if (type == 1) {

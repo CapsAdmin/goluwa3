@@ -172,6 +172,16 @@ function surface_lighting.GetGLSL(block_name)
 					lobe_energy *= lobe_energy;
 				}
 
+				float glow_widening = 0.0;
+
+				if (type != 0 && light.falloff.w > 0.0) {
+					// a light with a glow radius is a sphere, its highlight is the lobe widened by the angle it covers
+					glow_widening = light.falloff.w * 0.5 / max(length(light.position.xyz - world_pos), 0.0001);
+					lobe_alpha = saturate(roughness_alpha + glow_widening);
+					lobe_energy = roughness_alpha / lobe_alpha;
+					lobe_energy *= lobe_energy;
+				}
+
 				float D = D_GGXAlpha(lobe_alpha, NoH) * lobe_energy;
 				float V_func = V_SmithGGXCorrelated(roughness_alpha, NdotV, NoL);
 				vec3 F = F_Schlick(F0, LoH);
@@ -242,6 +252,10 @@ function surface_lighting.GetGLSL(block_name)
 
 					if (type == 0) {
 						coat_alpha = saturate(clearcoat_alpha + SUN_ANGULAR_RADIUS * 0.5);
+						coat_energy = clearcoat_alpha / coat_alpha;
+						coat_energy *= coat_energy;
+					} else if (glow_widening > 0.0) {
+						coat_alpha = saturate(clearcoat_alpha + glow_widening);
 						coat_energy = clearcoat_alpha / coat_alpha;
 						coat_energy *= coat_energy;
 					}
