@@ -208,6 +208,7 @@ local function build_trace_pipeline()
 		storage_buffers = {
 			{binding_index = BINDING_BVH_NODES},
 			{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
+			{binding_index = BINDING_SEE_THROUGH},
 		},
 		uniform_buffers = {
 			{
