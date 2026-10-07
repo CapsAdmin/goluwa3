@@ -751,7 +751,8 @@ list.insert(
 			// path of length len that starts depth_start below the surface and
 			// goes down by rate per meter. mu is the cosine of the light in the
 			// water. both exponentials are at most 1, so looking up from the
-			// deep doesn't overflow. near x = 0, where the path climbs as fast as
+			// deep doesn't overflow, and x is negative when the path climbs
+			// faster than the light fades. near x = 0, where it climbs as fast as
 			// the light fades with depth, their difference cancels to noise (a
 			// ring at that elevation), so it's a series there. the depth isn't
 			// clamped at the end: under a crest the path ends above the mean level
@@ -760,7 +761,8 @@ list.insert(
 				vec3 first = exp(-sigma * (depth_start / mu));
 				vec3 last = exp(-sigma * (depth_start / mu) - x);
 				vec3 series = first * (1.0 - x * (0.5 - x / 6.0));
-				return len * mix((first - last) / max(x, vec3(1e-3)), series, lessThan(abs(x), vec3(1e-3)));
+				bvec3 near_zero = lessThan(abs(x), vec3(1e-3));
+				return len * mix((first - last) / mix(x, vec3(1.0), near_zero), series, near_zero);
 			}
 
 			// how far along a path lights scatter, at how many points, and how many of the lights in a
