@@ -53,6 +53,10 @@ commands.Add{
 			type = "boolean",
 			description = "Present to an HDR swapchain when the display supports one",
 		},
+		background = {
+			type = "boolean",
+			description = "Open the window minimized so it does not take focus",
+		},
 		["hot-reload"] = {
 			type = "boolean",
 			description = "Reload lua files when they change on disk",
@@ -68,6 +72,8 @@ commands.Add{
 		_G.RENDER_3D = flags["3d"]
 		_G.HDR = flags.hdr
 		_G.HOT_RELOAD = flags["hot-reload"]
+
+		if flags.background then process.setenv("GOLUWA_BACKGROUND", "1") end
 
 		if flags.validate then
 			process.setenv("GOLUWA_VALIDATE", "1")

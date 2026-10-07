@@ -15,6 +15,8 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 - The file watcher is off by default, pass --hot-reload to reload lua files on change while developing
 - Use the --validate flag to prevent the engine from running forever after a lua error. It also enables the Vulkan validation layers (off by default) and exits on the first validation error, which roughly triples CPU frame time, so never benchmark with it
 
+- Always pass `--background` and `--validate` when launching the engine with a window (`--2d`, `--3d`, `shot`, `test`, screenshots, ad hoc scripts). `--background` opens the window minimized so it does not steal the user's focus (Wayland), and `--validate` makes errors and validation messages exit instead of hanging. Example: `luajit glw --2d --background --validate --screenshot lua "./tmp/script.lua"`. The only exception is performance measurement, where `--validate` must be left off (it triples CPU frame time) but `--background` should still be used.
+
 - The engine in --3d mode starts in about 2 seconds, --2d is less than one second, and --cli/--headless is instant. Therefore, using `timeout` for more than 20 seconds is most likely not needed.
 
 - If you need to write a temporary script to run, write it in `./tmp/`

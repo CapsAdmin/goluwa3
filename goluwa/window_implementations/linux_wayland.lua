@@ -518,6 +518,8 @@ return function(META)
 		self.last_size = Vec2(self.width, self.height)
 		self.surface_proxy:commit()
 		wayland.wl_client.wl_display_roundtrip(self.display)
+
+		if os.getenv("GOLUWA_BACKGROUND") == "1" then self:Minimize() end
 	end
 
 	function META:setup_xdg_wm_base_listener()
