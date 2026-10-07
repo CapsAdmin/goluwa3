@@ -7,7 +7,8 @@ local mdl = import("goluwa/codecs/mdl.lua")
 local vvd = import("goluwa/codecs/vvd.lua")
 local vtx = import("goluwa/codecs/vtx.lua")
 local phy = import("goluwa/codecs/phy.lua")
-local source = import("goluwa/codecs/internal/source.lua")
+local units = import("goluwa/source_engine/units.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local tasks = import("goluwa/tasks.lua")
 local MODEL = "models/props_c17/oildrum001"
 local mounted = steam.FindSourceGame("gmod") and steam.MountSourceGame("gmod")
@@ -22,8 +23,13 @@ local function read(path)
 	return data
 end
 
-T.Test("source2meters comes from the shared constant", function()
-	T(steam.source2meters)["=="](source.meters)
+T.Test("source units convert to engine positions and back", function()
+	local source_position = Vec3(100, -200, 300)
+	local engine_position = units.PositionToEngine(source_position)
+	T(engine_position.x)["~"](200 * units.meters, 1e-6)
+	T(engine_position.y)["~"](300 * units.meters, 1e-6)
+	T(engine_position.z)["~"](-100 * units.meters, 1e-6)
+	T((units.PositionFromEngine(engine_position) - source_position):GetLength())["~"](0, 1e-3)
 end)
 
 T.Test("mdl codec reads the header, materials and bodyparts", function()

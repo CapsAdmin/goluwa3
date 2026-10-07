@@ -47,8 +47,11 @@ local function convert_typed_values(tbl)
 	end
 end
 
-return function(steam)
-	steam.ConvertVMTTypedValues = convert_typed_values
+local vdf = import("goluwa/codecs/vdf.lua")
+local surface_properties = import("goluwa/source_engine/surface_properties.lua")
+local vmt = {}
+vmt.ConvertTypedValues = convert_typed_values
+do
 	local texture_paths = {
 		basetexture = true,
 		basetexture2 = true,
@@ -68,7 +71,7 @@ return function(steam)
 		[1] = "error",
 	}
 
-	function steam.LoadVMT(path, on_load, on_error)
+	function vmt.Load(path, on_load, on_error)
 		on_error = on_error or logn
 		local main_cb = callback.Create()
 		main_cb.warn_unhandled = false
@@ -81,7 +84,7 @@ return function(steam)
 			end
 
 			local source_text = vfs.Read(resolved_path)
-			local vmt, err = steam.VDFToTable(source_text, "vmt")
+			local vmt, err = vdf.Decode(source_text, "vmt")
 
 			if err then
 				on_error(path .. " steam.VDFToTable : " .. err)
@@ -111,7 +114,7 @@ return function(steam)
 					return
 				end
 
-				local vmt2, err2 = steam.VDFToTable(str, "vmt")
+				local vmt2, err2 = vdf.Decode(str, "vmt")
 
 				if err2 then
 					on_error(err2)
@@ -203,7 +206,7 @@ return function(steam)
 						end)
 					end
 				elseif k == "surfaceprop" then
-					vmt[k] = steam.GetSurfaceProps()[v:lower()] or v
+					vmt[k] = surface_properties.GetAll()[v:lower()] or v
 				else
 					if v == "" then vmt[k] = nil end
 				end
@@ -218,3 +221,5 @@ return function(steam)
 		return main_cb
 	end
 end
+
+return vmt

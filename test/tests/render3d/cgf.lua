@@ -1,3 +1,4 @@
+local mtl_material = import("goluwa/cry_engine/mtl_material.lua")
 local T = import("test/environment.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -472,7 +473,7 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 			end,
 		}
 	end
-	local material = Material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/demo.mtl", 0)
+	local material = mtl_material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/demo.mtl", 0)
 	Texture.New = old_texture_new
 	T(material.cry_sub_material_name)["=="]("rock")
 	T(#created)["=="](4)
@@ -542,7 +543,7 @@ T.Test("CryMTL loader logs and falls back when textures are missing", function()
 	end
 	local ok, err = xpcall(
 		function()
-			local material = Material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/demo_missing.mtl", 0)
+			local material = mtl_material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/demo_missing.mtl", 0)
 			T(material:GetAlbedoTexture())["=="](fallback_texture)
 			T(material:GetNormalTexture())["=="](fallback_texture)
 			T(material:GetSpecularTexture())["=="](fallback_texture)
@@ -574,11 +575,11 @@ T.Test("CryMTL loader maps nodraw, glass, opacity, two sided and glow", function
 			[[<Material><SubMaterials><Material Name="proxy" Shader="Nodraw" /><Material Name="glass" Shader="Glass" Opacity="0.4" /><Material Name="faded" Shader="Illum" Opacity="0.5" MtlFlags="2" /><Material Name="cutout" Shader="Illum" Opacity="0.5" AlphaTest="0.3" /><Material Name="lamp" Shader="Illum" GlowAmount="0.8" /></SubMaterials></Material>]]
 		)
 	)
-	local proxy = Material.FromCryMTL(path, 0)
-	local glass = Material.FromCryMTL(path, 1)
-	local faded = Material.FromCryMTL(path, 2)
-	local cutout = Material.FromCryMTL(path, 3)
-	local lamp = Material.FromCryMTL(path, 4)
+	local proxy = mtl_material.FromCryMTL(path, 0)
+	local glass = mtl_material.FromCryMTL(path, 1)
+	local faded = mtl_material.FromCryMTL(path, 2)
+	local cutout = mtl_material.FromCryMTL(path, 3)
+	local lamp = mtl_material.FromCryMTL(path, 4)
 	T(proxy:GetNoDraw())["=="](true)
 	T(glass:GetNoDraw())["=="](false)
 	T(glass:GetTranslucent())["=="](true)
@@ -641,7 +642,7 @@ T.Test("CryMTL loader resolves demo-style objects.pak and textures.pak roots", f
 			end,
 		}
 	end
-	local material = Material.FromCryMTL(mount_root .. "/objects.pak/materials/demo_root.mtl", 0)
+	local material = mtl_material.FromCryMTL(mount_root .. "/objects.pak/materials/demo_root.mtl", 0)
 	Texture.New = old_texture_new
 	T(material.cry_sub_material_name)["=="]("rock")
 	T(created[1].path:lower())["=="]((mount_root .. "/objects.pak/objects/demo/albedo.dds"):lower())

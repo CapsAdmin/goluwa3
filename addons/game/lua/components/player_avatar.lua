@@ -19,7 +19,7 @@ META:IsSet("Holding", false)
 META:IsSet("Firing", false)
 META:GetSet("BeamPoint", Vec3(0, 0, 0))
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
-local UNIT = steam.source2meters
+local UNIT = import("goluwa/source_engine/units.lua").meters
 local RADIUS = 16 * UNIT
 local HEIGHT = 72 * UNIT
 local CROUCH_HEIGHT = 36 * UNIT

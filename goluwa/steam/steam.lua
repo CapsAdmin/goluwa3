@@ -3,10 +3,7 @@ local resource = import("goluwa/resource.lua")
 local codec = import("goluwa/codec.lua")
 local http = import("goluwa/sockets/http.lua")
 local steam = library()
-steam.source2meters = import("goluwa/codecs/internal/source.lua").meters
 import("goluwa/steam/mount.lua")(steam)
-import("goluwa/steam/crylevel.lua").Apply(steam)
-import("goluwa/steam/vmt.lua")(steam)
 steam.VDFToTable = import("goluwa/codecs/vdf.lua").Decode
 
 function steam.DownloadWorkshop(id, callback, on_error, last_modified)
@@ -578,42 +575,6 @@ function steam.GetAppIdFromName(search)
 		then
 			return data.appid, data.name
 		end
-	end
-end
-
-do
-	local vfs = import("goluwa/vfs.lua")
-	local tbl = nil
-
-	function steam.GetSurfaceProps()
-		if not tbl then
-			tbl = {}
-			local surfaceprops_manifest = steam.VDFToTable(vfs.Read("scripts/surfaceproperties_manifest.txt"))
-
-			if
-				surfaceprops_manifest.surfaceproperties_manifest and
-				surfaceprops_manifest.surfaceproperties_manifest.file and
-				type(surfaceprops_manifest.surfaceproperties_manifest.file) == "table"
-			then
-				for _, path in ipairs(surfaceprops_manifest.surfaceproperties_manifest.file) do
-					local prop_data = steam.VDFToTable(vfs.Read(path))
-
-					for k, v in pairs(prop_data) do
-						v.surfaceprop_name = k
-						tbl[k:lower()] = v
-					end
-				end
-			end
-
-			for k, v in pairs(tbl) do
-				if v.base and type(v.base) == "string" then
-					local base_ref = tbl[v.base:lower()]
-					v.base = base_ref or nil
-				end
-			end
-		end
-
-		return tbl
 	end
 end
 

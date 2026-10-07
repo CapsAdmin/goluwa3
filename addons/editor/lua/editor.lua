@@ -272,7 +272,7 @@ return function(props)
 												Text = name,
 												OnClick = function()
 													last_scene_name = name
-													scene.Load(name)
+													scene.LoadAsync(name)
 												end,
 											}
 										end

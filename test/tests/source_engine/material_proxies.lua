@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local material_proxies = import("goluwa/render3d/material_proxies.lua")
+local material_proxies = import("goluwa/source_engine/material_proxies.lua")
 local vmt = [[
 "UnlitGeneric"
 {

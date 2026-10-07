@@ -1057,9 +1057,10 @@ Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 20000)
+Visual:GetSet("Billboard", false)
+Visual:GetSet("ClipBounds", nil, {type = "table"})
 Visual:GetSet("ModelPath", "")
 Visual:GetSet("MaterialOverridePath", "", {callback = "LoadMaterialOverride"})
-Visual:GetSet("Billboard", false)
 Visual:EndStorable()
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("MaterialSlotOverrides", nil)
@@ -1093,6 +1094,22 @@ function Visual:SetUseOcclusionCulling(enabled)
 
 	self.UseOcclusionCulling = enabled
 	refresh_occlusion_registries(self)
+end
+
+function Visual:GetClipBounds()
+	local box = self.ClipWorldAABB
+
+	if not box then return nil end
+
+	return {box.min_x, box.min_y, box.min_z, box.max_x, box.max_y, box.max_z}
+end
+
+function Visual:SetClipBounds(values)
+	if values == nil then
+		self:SetClipWorldAABB(nil)
+	else
+		self:SetClipWorldAABB(AABB(values[1], values[2], values[3], values[4], values[5], values[6]))
+	end
 end
 
 function Visual:LoadMaterialOverride()

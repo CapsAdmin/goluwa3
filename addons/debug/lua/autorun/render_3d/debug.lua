@@ -13,7 +13,7 @@ local function is_valid_texture(texture)
 end
 
 local function get_active_cry_terrain_render_data()
-	local renderer = steam.active_cry_terrain_renderer
+	local renderer = import("goluwa/cry_engine/cry_engine.lua").active_terrain_renderer
 
 	if not renderer then return nil end
 

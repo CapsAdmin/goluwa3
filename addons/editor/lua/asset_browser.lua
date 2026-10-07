@@ -1,3 +1,4 @@
+local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
@@ -220,7 +221,7 @@ local function load_material_asset(path)
 	local extension = path:match("(%.[^./]+)$")
 
 	if extension and extension:lower() == ".vmt" then
-		return Material.FromVMT(path)
+		return vmt_material.FromVMT(path)
 	end
 
 	local ok, result = xpcall(function()

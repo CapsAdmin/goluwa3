@@ -7,7 +7,7 @@ local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local event = import("goluwa/event.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local META = objects.CreateTemplate("player_movement")
-local UNIT = steam.source2meters
+local UNIT = import("goluwa/source_engine/units.lua").meters
 META:IsSet("Crouching", false)
 META:GetSet("GroundSpeed", 200 * UNIT)
 META:GetSet("AirSpeed", 30 * UNIT)

@@ -43,6 +43,7 @@ local function update_temp_scale(self)
 end
 
 META:StartStorable()
+META:GetSet("Matrix", nil, {type = "table"})
 META:GetSet("Position", Vec3(0, 0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("Rotation", Quat(0, 0, 0, 1), {callback = "InvalidateMatrices"})
 META:GetSet("Scale", Vec3(1, 1, 1), {callback = "InvalidateMatrices"})
@@ -55,6 +56,44 @@ META:GetSet("AABB", AABB(-1, -1, -1, 1, 1, 1), {callback = "InvalidateMatrices"}
 
 function META:Initialize()
 	update_temp_scale(self)
+end
+
+local MATRIX_FIELDS = {}
+
+for row = 0, 3 do
+	for column = 0, 3 do
+		MATRIX_FIELDS[#MATRIX_FIELDS + 1] = "m" .. row .. column
+	end
+end
+
+function META:GetMatrix()
+	local matrix = self.FromMatrix
+
+	if not matrix then return nil end
+
+	local values = {}
+
+	for i, field in ipairs(MATRIX_FIELDS) do
+		values[i] = matrix[field]
+	end
+
+	return values
+end
+
+function META:SetMatrix(values)
+	if values == nil then
+		self.FromMatrix = nil
+	else
+		local matrix = Matrix44()
+
+		for i, field in ipairs(MATRIX_FIELDS) do
+			matrix[field] = values[i]
+		end
+
+		self.FromMatrix = matrix
+	end
+
+	self:InvalidateMatrices()
 end
 
 function META:SetFromMatrix(matrix)

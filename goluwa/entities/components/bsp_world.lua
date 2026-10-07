@@ -1,6 +1,8 @@
 local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local steam = import("goluwa/steam/steam.lua")
+local bsp = import("goluwa/source_engine/bsp.lua")
+local units = import("goluwa/source_engine/units.lua")
+local scene = import("goluwa/entities/scene.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local VisibilityGroup = import("goluwa/entities/components/visibility_group.lua")
 local file_path = import("goluwa/filesystem/path.lua")
@@ -36,20 +38,14 @@ function META:Load()
 	local load_id = self.load_id
 	local path = self.Path
 
-	timer.Delay(0, function()
-		if self:IsValid() and self.load_id == load_id then self:Start(path, load_id) end
+	scene.WhenIdle(function()
+		timer.Delay(0, function()
+			if self:IsValid() and self.load_id == load_id then self:Start(path, load_id) end
+		end)
 	end)
 end
 
 function META:Start(path, load_id)
-	steam.bsp_world = self.Owner
-
-	for loaded_path in pairs(steam.loaded_bsp) do
-		if loaded_path:ends_with(path) then steam.loaded_bsp[loaded_path] = nil end
-	end
-
-	model_loader.model_loads:Forget(path)
-
 	model_loader.LoadModel(
 		path,
 		function()
@@ -78,8 +74,6 @@ function META:Fail(path, err)
 	placeholder:SetParent(self.Owner)
 	placeholder:SetTransient(true)
 	placeholder.bsp_generated = true
-
-	if self.OnLoaded then self.OnLoaded(self, nil) end
 end
 
 function META:GetContainer(id)
@@ -137,7 +131,7 @@ end
 
 function META:Build(path)
 	local owner = self.Owner
-	local data = steam.loaded_bsp[owner.bsp_resolved_path]
+	local data = bsp.resolved[path]
 
 	if not data then
 		self:Fail(path, "map data was not produced")
@@ -173,7 +167,10 @@ function META:Build(path)
 		end
 	end
 
-	if data.physics_body then owner:AddComponent("rigid_body", data.physics_body) end
+	if data.physics_body then
+		bsp.BindOwner(data, owner)
+		owner:AddComponent("rigid_body", data.physics_body)
+	end
 
 	if data.visibility.group_count > 0 then
 		local point_leaf = data.visibility.point_leaf
@@ -188,7 +185,7 @@ function META:Build(path)
 		local groups = self.groups
 
 		VisibilityGroup.SetLocator(function(pos)
-			local source = Vec3(-pos.z, -pos.x, pos.y) / steam.source2meters
+			local source = units.PositionFromEngine(pos)
 			local area = point_leaf(source).area
 
 			if area ~= 0 then
@@ -214,8 +211,6 @@ function META:Build(path)
 			return false
 		end)
 	end
-
-	if self.OnLoaded then self.OnLoaded(self, data) end
 end
 
 function META:OnRemove()

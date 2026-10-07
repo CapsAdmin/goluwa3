@@ -4,7 +4,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local steam = import("goluwa/steam/steam.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
-local surface_properties = import("goluwa/steam/surface_properties.lua")
+local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local physics_lib = import("goluwa/physics.lua")
 steam.MountSourceGame("gmod")
 local models = {

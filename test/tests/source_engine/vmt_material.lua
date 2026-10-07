@@ -1,0 +1,17 @@
+local T = import("test/environment.lua")
+local Material = import("goluwa/render3d/material.lua")
+local vmt_material = import("goluwa/source_engine/vmt_material.lua")
+
+T.Test3D("Material texture transforms follow source's center scale rotate translate", function()
+	local material = Material.New{}
+	vmt_material.SetTextureTransform(material, "Bump", "center .5 .5 scale 10 10 rotate 0 translate 0.25 0")
+	local u, v = material:GetBumpTransformU(), material:GetBumpTransformV()
+	T(u.x * 0.5 + u.y * 0.5 + u.z)["=="](0.75)
+	T(v.x * 0.5 + v.y * 0.5 + v.z)["=="](0.5)
+	T(u.x * 0.6 + u.y * 0.5 + u.z)["=="](1.75)
+	vmt_material.SetTextureTransform(material, "BaseTexture", "center .5 .5 scale 1 1 rotate 180 translate 0 0")
+	local bu, bv = material:GetBaseTextureTransformU(), material:GetBaseTextureTransformV()
+	T(math.abs(bu.x * 0.5 + bu.y * 0.5 + bu.z - 0.5) < 1e-6)["=="](true)
+	T(math.abs(bu.x * 1 + bu.y * 0.5 + bu.z - 0) < 1e-6)["=="](true)
+	T(math.abs(bv.x * 0.5 + bv.y * 1 + bv.z - 0) < 1e-6)["=="](true)
+end)

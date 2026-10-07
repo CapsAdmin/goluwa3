@@ -82,7 +82,7 @@ T.Test("vdf: color and vector values stay strings and the result is serializable
 end)
 
 T.Test("vmt: typed values are converted to Color and Vec3", function()
-	local steam = import("goluwa/steam/steam.lua")
+	local vmt = import("goluwa/source_engine/vmt.lua")
 	local out = vdf.Decode([[
 "root"
 {
@@ -90,7 +90,7 @@ T.Test("vmt: typed values are converted to Color and Vec3", function()
     "vector" "[1.5 2.5 3.5]"
     "sub" { "tint" "{0 0 255}" }
 }]])
-	steam.ConvertVMTTypedValues(out)
+	vmt.ConvertTypedValues(out)
 	T(type(out.root.color))["=="]("cdata")
 	T(out.root.color.r)["=="](1)
 	T(out.root.color.g * 255)["~"](128)

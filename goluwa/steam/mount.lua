@@ -90,72 +90,10 @@ return function(steam)
 		end
 	end)
 
-	commands.Add("list_maps", function(search)
-		for _, name in ipairs(vfs.Find("maps/%.bsp$")) do
-			if not search or name:find(search) then logn(name:sub(0, -5)) end
-		end
-	end)
-
 	commands.Add("game_info=string", function(game)
 		local info = steam.FindSourceGame(game)
 		print(vfs.Read(info.gameinfo_path))
 		table.print(info)
-	end)
-
-	local tries = {
-		{path = "__MAPNAME__"},
-		{path = "maps/__MAPNAME__.obj"},
-		{
-			path = "__MAPNAME__/__MAPNAME__.obj",
-			callback = function(ent)
-				ent:SetSize(0.01)
-				ent:SetRotation(Quat(-1, 0, 0, 1))
-			end,
-		},
-	}
-
-	commands.Add("crymap=string_trim|nil", function(name)
-		steam.cry_skip_models = false
-
-		if not name:find("/") then
-			steam.SetCryLevel(
-				"/run/media/caps/extra/SteamLibrary/steamapps/common/Crysis/Game/Levels/" .. name .. "/"
-			)
-		else
-			steam.SetCryLevel(
-				"/run/media/caps/extra/SteamLibrary/steamapps/common/Crysis/Game/Levels/Multiplayer/" .. name .. "/"
-			)
-		end
-	end)
-
-	commands.Add("map=string_trim|nil", function(name)
-		if not name then
-			for _, path in ipairs(vfs.Find("maps/.-%.bsp")) do
-				print(file_path.RemoveExtensionFromPath(path))
-			end
-
-			return
-		end
-
-		utility.PushTimeWarning()
-
-		for _, info in pairs(tries) do
-			local path = info.path:gsub("__MAPNAME__", name)
-
-			if vfs.IsFile(path) then
-				OBJ_WORLD = OBJ_WORLD or Entity.New({Name = "visual"})
-				OBJ_WORLD:SetName(name)
-				OBJ_WORLD:SetModelPath(path)
-				OBJ_WORLD.world = OBJ_WORLD.world or Entity.New({Name = "world"})
-
-				if info.callback then info.callback(OBJ_WORLD) end
-
-				return
-			end
-		end
-
-		steam.SetMap(name)
-		utility.PopTimeWarning("map " .. name, nil, "cmd")
 	end)
 
 	function steam.GetInstallPath()

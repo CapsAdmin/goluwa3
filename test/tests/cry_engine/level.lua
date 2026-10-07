@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local crylevel = import("goluwa/steam/crylevel.lua")
+local crylevel = import("goluwa/cry_engine/level.lua")
 local xml = import("goluwa/codecs/xml.lua")
 local ffi = require("ffi")
 

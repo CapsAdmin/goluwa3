@@ -1,3 +1,5 @@
+local mtl_material = import("goluwa/cry_engine/mtl_material.lua")
+local cry_units = import("goluwa/cry_engine/units.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -45,10 +47,6 @@ end
 
 local function read_vec3(file)
 	return Vec3(file:ReadFloat(), file:ReadFloat(), file:ReadFloat())
-end
-
-local function cry_vec3_to_engine(vec)
-	return Vec3(vec.x, vec.z, -vec.y)
 end
 
 local function transform_direction(matrix, vec)
@@ -429,9 +427,9 @@ function cgf.ExtractStaticMeshData(parsed)
 				local base_vertices = {}
 
 				for index, pos in ipairs(positions) do
-					local transformed_position = cry_vec3_to_engine(world_transform:TransformVector(pos))
+					local transformed_position = cry_units.ToEngine(world_transform:TransformVector(pos))
 					local transformed_normal = normals[index] and
-						cry_vec3_to_engine(transform_direction(world_transform, normals[index])) or
+						cry_units.ToEngine(transform_direction(world_transform, normals[index])) or
 						nil
 					base_vertices[index] = {
 						pos = transformed_position,
@@ -627,7 +625,7 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 				end
 
 				if vfs.IsFile(material_path) then
-					material = Material.FromCryMTL(material_path, entry.subset_material_id)
+					material = mtl_material.FromCryMTL(material_path, entry.subset_material_id)
 				else
 					logf(
 						"crytek material not found for %q referenced by model %q\n",

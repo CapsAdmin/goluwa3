@@ -2,6 +2,8 @@ local Entity = import("goluwa/entities/entity.lua")
 local objects = import("goluwa/objects/objects.lua")
 local luadata = import("goluwa/codecs/luadata.lua")
 local vfs = import("goluwa/vfs.lua")
+local tasks = import("goluwa/tasks.lua")
+local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local scene = library()
 scene.Version = 1
 local TRANSIENT_COMPONENTS = {visual_primitive = true, network = true}
@@ -15,6 +17,7 @@ local function is_serializable(value, depth)
 	if
 		kind == "string" or
 		kind == "boolean" or
+		kind == "vec2" or
 		kind == "vec3" or
 		kind == "quat" or
 		kind == "color"
@@ -166,18 +169,19 @@ end
 local function apply_properties(object, properties, what)
 	if not properties then return end
 
-	local infos = {}
+	local infos = objects.GetStorableVariables(object)
+	local known = {}
 
-	for _, info in ipairs(objects.GetStorableVariables(object)) do
-		infos[info.var_name] = info
+	for _, info in ipairs(infos) do
+		known[info.var_name] = true
+
+		local value = properties[info.var_name]
+
+		if value ~= nil then object[info.set_name](object, value) end
 	end
 
-	for var_name, value in pairs(properties) do
-		local info = infos[var_name]
-
-		if info then
-			object[info.set_name](object, value)
-		else
+	for var_name in pairs(properties) do
+		if not known[var_name] then
 			wlog("scene: unknown property %s on %s", var_name, what)
 		end
 	end
@@ -213,8 +217,14 @@ function scene.Deserialize(data, parent, options)
 	local spawned = {}
 	local skipped = {}
 	local roots = {}
+	local yield_every = options.yield_every
 
-	for _, record in ipairs(data.entities) do
+	for index, record in ipairs(data.entities) do
+		if yield_every and index % yield_every == 0 then
+			tasks.ReportProgress("spawning entities", #data.entities)
+			tasks.Wait()
+		end
+
 		local existing = objects.GetObjectByGUID(record.guid)
 		local reuse = not options.regenerate_guids and
 			existing and
@@ -248,6 +258,9 @@ function scene.Deserialize(data, parent, options)
 
 			for _, name in ipairs(sorted_component_names(record.components)) do
 				local component = entity:HasComponent(name) and entity[name] or entity:AddComponent(name)
+
+				if reuse and component.ResetProperties then component:ResetProperties() end
+
 				apply_properties(component, record.components[name], name)
 
 				if component.OnDeserialized then component:OnDeserialized() end
@@ -284,7 +297,7 @@ function scene.Save(name)
 	return #data.entities
 end
 
-function scene.Load(name)
+local function read_scene(name)
 	local str, err = vfs.Read(scene.GetPath(name))
 
 	if not str then
@@ -297,8 +310,10 @@ function scene.Load(name)
 		error("failed to decode scene " .. name .. ": " .. tostring(decode_err), 0)
 	end
 
-	scene.Clear()
-	local _, spawned = scene.Deserialize(data, Entity.World)
+	return data
+end
+
+local function reset_unloaded_singletons(spawned)
 	local loaded = {}
 
 	for _, entity in pairs(spawned) do
@@ -312,6 +327,76 @@ function scene.Load(name)
 			end
 		end
 	end
+end
+
+function scene.Load(name)
+	local data = read_scene(name)
+	scene.Clear()
+	local _, spawned = scene.Deserialize(data, Entity.World)
+	reset_unloaded_singletons(spawned)
+end
+
+local spawning = 0
+local idle_callbacks = {}
+
+function scene.IsSpawning()
+	return spawning > 0
+end
+
+function scene.BeginSpawning()
+	spawning = spawning + 1
+end
+
+function scene.EndSpawning()
+	spawning = spawning - 1
+
+	if spawning == 0 then
+		local callbacks = idle_callbacks
+		idle_callbacks = {}
+
+		for _, callback in ipairs(callbacks) do
+			callback()
+		end
+	end
+end
+
+function scene.WhenIdle(callback)
+	if spawning == 0 then
+		callback()
+	else
+		idle_callbacks[#idle_callbacks + 1] = callback
+	end
+end
+
+function scene.SpawnAsync(data, parent, options, done)
+	options = options or {}
+	options.yield_every = options.yield_every or 256
+	local task = tasks.CreateTask()
+	scene_loading.HoldTask(task)
+	scene.BeginSpawning()
+
+	function task:OnStart()
+		local ok, roots, spawned = pcall(scene.Deserialize, data, parent, options)
+		scene.EndSpawning()
+
+		if not ok then error(roots, 0) end
+
+		if done then done(roots, spawned) end
+	end
+
+	task:Start()
+	return task
+end
+
+function scene.LoadAsync(name, done)
+	local data = read_scene(name)
+	scene.Clear()
+
+	return scene.SpawnAsync(data, Entity.World, nil, function(roots, spawned)
+		reset_unloaded_singletons(spawned)
+
+		if done then done() end
+	end)
 end
 
 function scene.GetUniqueName(parent, name)

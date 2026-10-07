@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local file_path = import("goluwa/filesystem/path.lua")
-local source = import("goluwa/codecs/internal/source.lua")
+local source = import("goluwa/source_engine/units.lua")
 local blob = import("goluwa/codecs/internal/blob.lua")
 local mdl = library()
 mdl.file_extensions = {"mdl"}

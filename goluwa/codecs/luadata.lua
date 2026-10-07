@@ -97,6 +97,7 @@ CALL
 RET1]]
 local is_func_ok = opcode_checker(whitelist)
 local ffi = require("ffi")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -145,6 +146,9 @@ luadata.Types = {
 	end,
 	["boolean"] = function(var)
 		return var and "true" or "false"
+	end,
+	["vec2"] = function(var)
+		return ("Vec2(%s, %s)"):format(format_float32(var.x), format_float32(var.y))
 	end,
 	["vec3"] = function(var)
 		return (
@@ -285,6 +289,7 @@ function luadata.Encode(tbl)
 end
 
 local env = {
+	Vec2 = Vec2,
 	Vec3 = Vec3,
 	Quat = Quat,
 	Color = Color,

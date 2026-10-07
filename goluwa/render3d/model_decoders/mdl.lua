@@ -1,3 +1,4 @@
+local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
@@ -217,7 +218,7 @@ do
 	local I32 = ffi.typeof("const int32_t*")
 	local U32 = ffi.typeof("const uint32_t*")
 	local F32 = ffi.typeof("const float*")
-	local SCALE = steam.source2meters
+	local SCALE = import("goluwa/source_engine/units.lua").meters
 	local BONE_SIZE = 216
 	local ANIMDESC_SIZE = 100
 	local SEQDESC_SIZE = 212
@@ -775,7 +776,7 @@ local job_source = [=[
 	local vtx = import("goluwa/codecs/vtx.lua")
 	local phy = import("goluwa/codecs/phy.lua")
 	local blob = import("goluwa/codecs/internal/blob.lua")
-	local source = import("goluwa/codecs/internal/source.lua")
+	local source = import("goluwa/source_engine/units.lua")
 	local convex_hull = import("goluwa/physics/convex_hull.lua")
 	local vertex_math = import("goluwa/render3d/vertex_math.lua")
 	local Vec3 = import("goluwa/structs/vec3.lua")
@@ -1155,7 +1156,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 				end
 			end
 
-			material = Material.FromVMT(material_path)
+			material = vmt_material.FromVMT(material_path)
 		end
 
 		mesh.Skin = skin
