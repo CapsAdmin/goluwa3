@@ -435,9 +435,14 @@ local function get_camera_viewport_ray_direction(cam, viewport_mouse_pos, viewpo
 	local ndc_y = (viewport_mouse_pos.y / viewport.h) * 2 - 1
 	cam:BuildViewMatrix():GetMultiplied(cam:BuildUnjitteredProjectionMatrix(), gizmo_world_to_screen_matrix)
 	gizmo_world_to_screen_matrix:GetInverse(gizmo_screen_to_world_inverse)
-	local near_pos = gizmo_screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 0, 1, gizmo_screen_to_world_near)
-	local far_pos = gizmo_screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 1, 1, gizmo_screen_to_world_far)
-	return Vec3(far_pos.m00 - near_pos.m00, far_pos.m01 - near_pos.m01, far_pos.m02 - near_pos.m02):GetNormalized()
+	local near_pos = gizmo_screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 0.25, 1, gizmo_screen_to_world_near)
+	local far_pos = gizmo_screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 0.75, 1, gizmo_screen_to_world_far)
+	local near_w, far_w = near_pos.m03, far_pos.m03
+	return Vec3(
+		far_pos.m00 / far_w - near_pos.m00 / near_w,
+		far_pos.m01 / far_w - near_pos.m01 / near_w,
+		far_pos.m02 / far_w - near_pos.m02 / near_w
+	):GetNormalized()
 end
 
 local function get_mouse_world_ray(window)
