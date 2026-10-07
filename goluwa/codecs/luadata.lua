@@ -96,6 +96,7 @@ GGET
 CALL
 RET1]]
 local is_func_ok = opcode_checker(whitelist)
+local ffi = require("ffi")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -122,6 +123,21 @@ local function format_number(var)
 	end
 end
 
+local float32 = ffi.typeof("float[1]")
+
+local function format_float32(var)
+	if var ~= var or var == math.huge or var == -math.huge then
+		return format_number(var)
+	end
+
+	for precision = 6, 9 do
+		local str = ("%." .. precision .. "g"):format(var)
+		local a, b = float32(var), float32(tonumber(str))
+
+		if a[0] == b[0] then return str end
+	end
+end
+
 luadata.Types = {
 	["number"] = format_number,
 	["string"] = function(var)
@@ -133,26 +149,26 @@ luadata.Types = {
 	["vec3"] = function(var)
 		return (
 			"Vec3(%s, %s, %s)"
-		):format(format_number(var.x), format_number(var.y), format_number(var.z))
+		):format(format_float32(var.x), format_float32(var.y), format_float32(var.z))
 	end,
 	["quat"] = function(var)
 		return (
 			"Quat(%s, %s, %s, %s)"
 		):format(
-			format_number(var.x),
-			format_number(var.y),
-			format_number(var.z),
-			format_number(var.w)
+			format_float32(var.x),
+			format_float32(var.y),
+			format_float32(var.z),
+			format_float32(var.w)
 		)
 	end,
 	["color"] = function(var)
 		return (
 			"Color(%s, %s, %s, %s)"
 		):format(
-			format_number(var.r),
-			format_number(var.g),
-			format_number(var.b),
-			format_number(var.a)
+			format_float32(var.r),
+			format_float32(var.g),
+			format_float32(var.b),
+			format_float32(var.a)
 		)
 	end,
 }
