@@ -344,14 +344,23 @@ local SHADOW_PROJECTION_GLSL = [[
 				float tan_slope,
 				vec3 world_pos,
 				float filter_radius_texels,
-				float sun_radius_tan
+				float sun_radius_tan,
+				float noise_phase
 			) {
 				float search_texels = min(sun_radius_tan * SOFT_SHADOW_MAX_BLOCKER_DISTANCE / texel_world_size, SOFT_SHADOW_MAX_TEXELS);
 
 				if (search_texels <= filter_radius_texels) return -1.0;
 
-				// a fixed per point rotation turns the banding of the few taps into grain
-				float angle = fract(52.9829189 * fract(dot(world_pos, vec3(0.06711056, 0.00583715, 0.0891234)) * 31.0)) * 6.2831853;
+				// a rotation per point turns the banding of the few taps into grain. the point's bits are hashed,
+				// a hash of a linear function of the position draws diagonal streaks. the phase turns it every
+				// frame, so a temporal antialiasing averages different taps
+				uvec3 bits = floatBitsToUint(world_pos) * 1664525u + 1013904223u;
+				bits.x += bits.y * bits.z;
+				bits.y += bits.z * bits.x;
+				bits.z += bits.x * bits.y;
+				bits ^= bits >> 16u;
+				bits.x += bits.y * bits.z;
+				float angle = (float(bits.x >> 8u) / 16777216.0 + noise_phase) * 6.2831853;
 				mat2 rotation = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
 				// how much deeper a tilted receiver is at a tap this many meters away, so it doesn't shadow itself
 				float tolerance_per_meter = tan_slope * depth_per_meter;
@@ -403,7 +412,8 @@ local SHADOW_PROJECTION_GLSL = [[
 				vec3 normal,
 				vec3 light_dir,
 				float filter_radius_texels,
-				float sun_radius_tan
+				float sun_radius_tan,
+				float noise_phase
 			) {
 				float n_dot_l = clamp(dot(normal, light_dir), 0.0, 1.0);
 				float slope = sqrt(1.0 - n_dot_l * n_dot_l);
@@ -439,7 +449,8 @@ local SHADOW_PROJECTION_GLSL = [[
 						min(slope / max(n_dot_l, 0.2), 5.0),
 						world_pos,
 						filter_radius_texels,
-						sun_radius_tan
+						sun_radius_tan,
+						noise_phase
 					);
 
 					if (soft >= 0.0) return soft;
@@ -493,7 +504,8 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					normal,
 					light_dir,
 					1.0,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan
+					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.noise_phase
 				);
 			}
 
@@ -509,7 +521,8 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					normal,
 					light_dir,
 					1.0,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan
+					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.noise_phase
 				);
 
 				if (result < 0.0) return false;
@@ -553,6 +566,7 @@ function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
 				normal,
 				light_dir,
 				2.0,
+				0.0,
 				0.0
 			);
 
