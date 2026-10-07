@@ -81,3 +81,35 @@ T.Test("PNG decode RGB image has correct alpha channel", function()
 
 	T(alpha_count)["=="](26818)
 end)
+
+T.Test("PNG encode writes the adler32 of the data when the first sum wraps to zero", function()
+	local width, height = 1000, 22
+	local size = width * height * 3
+	local pixels = ffi.new("uint8_t[?]", size)
+
+	for i = 0, 255 do
+		pixels[i] = 255
+	end
+
+	pixels[256] = 240
+	local file = png.Encode(width, height, "rgb")
+	file:write(pixels)
+	local data = file:getData()
+	local s1, s2 = 1, 0
+
+	for y = 0, height - 1 do
+		s2 = (s2 + s1) % 65521
+
+		for x = 0, width * 3 - 1 do
+			s1 = (s1 + pixels[y * width * 3 + x]) % 65521
+			s2 = (s2 + s1) % 65521
+		end
+	end
+
+	T(s1)["=="](0)
+	local idat = data:find("IDAT", 1, true)
+	local length = data:byte(idat - 4) * 16777216 + data:byte(idat - 3) * 65536 + data:byte(idat - 2) * 256 + data:byte(idat - 1)
+	local last = idat + 4 + length - 1
+	local stored = data:byte(last - 3) * 16777216 + data:byte(last - 2) * 65536 + data:byte(last - 1) * 256 + data:byte(last)
+	T(stored)["=="](s2 * 65536 + s1)
+end)

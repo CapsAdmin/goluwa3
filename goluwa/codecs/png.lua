@@ -506,7 +506,7 @@ function Png:adler32(data, index, len)
 		s2 = (s2 + s1) % 65521
 	end
 
-	self.adler = tonumber(bor(lshift(tonumber(s1 == 0 and 0 or s2), 16), tonumber(s1)))
+	self.adler = tonumber(bor(lshift(tonumber(s2), 16), tonumber(s1)))
 end
 
 function Png:write(pixels, count)
