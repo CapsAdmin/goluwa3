@@ -1861,6 +1861,26 @@ do
 		return out
 	end
 
+	do
+		local override_cache = {}
+
+		function Material.GetOverrideFromPath(path)
+			local cached = override_cache[path]
+
+			if not cached then
+				assert(path:lower():ends_with(".mtl"), "unsupported material override format: " .. path)
+				local slots = Material.FromCryMTLSlots(path)
+				cached = {
+					slots = slots,
+					material = not slots and Material.FromCryMTL(path) or nil,
+				}
+				override_cache[path] = cached
+			end
+
+			return cached.slots, cached.material
+		end
+	end
+
 	function Material.CryMTLHasGenFlag(path, name)
 		local document = load_cry_mtl_document(path)
 

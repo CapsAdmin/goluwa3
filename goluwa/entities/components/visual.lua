@@ -1058,10 +1058,11 @@ Visual:GetSet("CastShadows", true)
 Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 20000)
 Visual:GetSet("ModelPath", "")
-Visual:GetSet("MaterialOverride", nil)
-Visual:GetSet("MaterialSlotOverrides", nil)
+Visual:GetSet("MaterialOverridePath", "", {callback = "LoadMaterialOverride"})
 Visual:GetSet("Billboard", false)
 Visual:EndStorable()
+Visual:GetSet("MaterialOverride", nil)
+Visual:GetSet("MaterialSlotOverrides", nil)
 Visual:GetSet("AABB", create_empty_aabb())
 Visual:GetSet("ClipWorldAABB", nil)
 
@@ -1092,6 +1093,22 @@ function Visual:SetUseOcclusionCulling(enabled)
 
 	self.UseOcclusionCulling = enabled
 	refresh_occlusion_registries(self)
+end
+
+function Visual:LoadMaterialOverride()
+	if self.MaterialOverridePath == "" then
+		self:SetMaterialOverride(nil)
+		self:SetMaterialSlotOverrides(nil)
+		return
+	end
+
+	local slots, material = Material.GetOverrideFromPath(self.MaterialOverridePath)
+
+	if slots then
+		self:SetMaterialSlotOverrides(slots)
+	else
+		self:SetMaterialOverride(material)
+	end
 end
 
 function Visual:SetMaterialOverride(material)

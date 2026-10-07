@@ -1643,6 +1643,38 @@ function crylevel.SpawnTerrain(level_data, parent)
 	return renderer
 end
 
+function crylevel.ApplyVegetationMaterialState(level_data)
+	local Material = import("goluwa/render3d/material.lua")
+	local terrain = level_data.terrain
+	local prototypes = level_data.vegetation_prototypes
+
+	if not prototypes then return end
+
+	if terrain and terrain.cover then
+		local texture = get_or_create_cry_albedo_texture(terrain)
+		local uv = Color(0, -1 / terrain.world_size, 1 / terrain.world_size, 0)
+
+		for _, prototype in ipairs(prototypes.list) do
+			if prototype.use_terrain_color and prototype.material_path then
+				for _, material in ipairs(Material.FromCryMTLList(prototype.material_path)) do
+					if material:GetGroundColorBlend() > 0 then
+						material:SetGroundColorTexture(texture)
+						material:SetGroundColorUV(uv)
+					end
+				end
+			end
+		end
+	end
+
+	for _, prototype in ipairs(prototypes.list) do
+		for _, material_path in ipairs(prototype.material_paths) do
+			for _, material in ipairs(Material.FromCryMTLList(material_path)) do
+				material:SetBending(prototype.bending)
+			end
+		end
+	end
+end
+
 function crylevel.FindCryGame(steam)
 	if steam.cached_cry_game and steam.cached_cry_game.appid == crylevel.CRYSIS_APPID then
 		return steam.cached_cry_game
@@ -2084,26 +2116,6 @@ function crylevel.Apply(steam)
 		return steam.loaded_cry_levels[level_dir]
 	end
 
-	local function apply_material_override(visual, material_path, cache)
-		local override = cache[material_path]
-
-		if not override then
-			local Material = import("goluwa/render3d/material.lua")
-			local slots = Material.FromCryMTLSlots(material_path)
-			override = {
-				slots = slots,
-				material = not slots and Material.FromCryMTL(material_path) or nil,
-			}
-			cache[material_path] = override
-		end
-
-		if override.slots then
-			visual:SetMaterialSlotOverrides(override.slots)
-		else
-			visual:SetMaterialOverride(override.material)
-		end
-	end
-
 	local Entity = import("goluwa/entities/entity.lua")
 	local objects = import("goluwa/objects/objects.lua")
 	local spawn_level_name
@@ -2126,7 +2138,7 @@ function crylevel.Apply(steam)
 		return folder
 	end
 
-	local function spawn_object(entry, parent, material_overrides)
+	local function spawn_object(entry, parent)
 		local transform_data = crylevel.ConvertCryWorldMatrixToEngineTransform(entry.world_matrix)
 		local entity = Entity.New{Name = entry.name or "cry_object", Parent = parent}
 		entity:SetGUID("cry:" .. spawn_level_name .. ":obj:" .. entry.cry_index)
@@ -2138,11 +2150,11 @@ function crylevel.Apply(steam)
 		entity.visual:SetModelPath(entry.model_path)
 
 		if entry.material_path then
-			apply_material_override(entity.visual, entry.material_path, material_overrides)
+			entity.visual:SetMaterialOverridePath(entry.material_path)
 		end
 	end
 
-	local function spawn_vegetation(entry, parent, material_overrides)
+	local function spawn_vegetation(entry, parent)
 		local transform_data = crylevel.ConvertCryVegetationInstanceToEngineTransform(entry)
 		local entity = Entity.New{Name = entry.name or "cry_vegetation", Parent = parent}
 		entity:SetGUID("cry:" .. spawn_level_name .. ":veg:" .. entry.cry_index)
@@ -2161,21 +2173,21 @@ function crylevel.Apply(steam)
 		entity.visual:SetModelPath(entry.model_path)
 
 		if entry.material_path then
-			apply_material_override(entity.visual, entry.material_path, material_overrides)
+			entity.visual:SetMaterialOverridePath(entry.material_path)
 		end
 	end
 
 	local LEAF_CELL_TARGET = 64
 	local LEAF_CHUNK_THRESHOLD = 256
 
-	local function spawn_leaf(leaf, material_overrides)
+	local function spawn_leaf(leaf)
 		local folder = leaf.folder
 		local items = leaf.items
 		local count = #items
 
 		if count <= LEAF_CHUNK_THRESHOLD then
 			for _, entry in ipairs(items) do
-				leaf.spawn(entry, folder, material_overrides)
+				leaf.spawn(entry, folder)
 			end
 
 			return
@@ -2228,7 +2240,7 @@ function crylevel.Apply(steam)
 			local cell_folder = new_folder(folder, cell.name)
 
 			for _, entry in ipairs(cell.items) do
-				leaf.spawn(entry, cell_folder, material_overrides)
+				leaf.spawn(entry, cell_folder)
 			end
 		end
 	end
@@ -2236,19 +2248,12 @@ function crylevel.Apply(steam)
 	function steam.SpawnCryLevel(level, parent)
 		spawn_root = parent
 		spawn_level_name = parent:GetName()
-		local material_overrides = {}
 		local data = steam.LoadCryLevel(level)
-
-		if steam.active_cry_terrain_renderer then
-			steam.active_cry_terrain_renderer:Stop()
-			steam.active_cry_terrain_renderer = nil
-		end
 
 		for _, child in ipairs(parent:GetChildren()) do
 			if child.spawned_from_cry_level then child:Remove() end
 		end
 
-		steam.active_cry_terrain_renderer = crylevel.SpawnTerrain(data, parent)
 		local water_level = data.terrain and data.terrain.water_level or 0
 		local render3d = import("goluwa/render3d/render3d.lua")
 		local water = import("goluwa/render3d/water.lua")
@@ -2377,37 +2382,7 @@ function crylevel.Apply(steam)
 			end
 
 			for _, leaf in ipairs(leaves) do
-				spawn_leaf(leaf, material_overrides)
-			end
-
-			if data.terrain and data.terrain.cover and data.vegetation_prototypes then
-				local Material = import("goluwa/render3d/material.lua")
-				local texture = get_or_create_cry_albedo_texture(data.terrain)
-				local size = data.terrain.world_size
-				local uv = Color(0, -1 / size, 1 / size, 0)
-
-				for _, prototype in ipairs(data.vegetation_prototypes.list) do
-					if prototype.use_terrain_color and prototype.material_path then
-						for _, material in ipairs(Material.FromCryMTLList(prototype.material_path)) do
-							if material:GetGroundColorBlend() > 0 then
-								material:SetGroundColorTexture(texture)
-								material:SetGroundColorUV(uv)
-							end
-						end
-					end
-				end
-			end
-
-			if data.vegetation_prototypes then
-				local Material = import("goluwa/render3d/material.lua")
-
-				for _, prototype in ipairs(data.vegetation_prototypes.list) do
-					for _, material_path in ipairs(prototype.material_paths) do
-						for _, material in ipairs(Material.FromCryMTLList(material_path)) do
-							material:SetBending(prototype.bending)
-						end
-					end
-				end
+				spawn_leaf(leaf)
 			end
 		end
 
@@ -2423,6 +2398,7 @@ function crylevel.Apply(steam)
 		steam.cry_level_world = Entity.New{Name = level_name, Parent = Entity.World}
 		steam.cry_level_world:SetTransient(false)
 		steam.cry_level_world:SetGUID("cry:" .. level_name)
+		steam.cry_level_world:AddComponent("cry_level"):SetPath(level_dir:match("/Game/Levels/(.+)/$") or level_dir)
 		scene_loading.Begin()
 		local ok, result = pcall(steam.SpawnCryLevel, level_dir, steam.cry_level_world)
 		scene_loading.End()
