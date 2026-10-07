@@ -10,6 +10,7 @@ local vk = import("goluwa/bindings/vk.lua")
 local system = import("goluwa/system.lua")
 local Material = import("goluwa/render3d/material.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
+local lod = import("goluwa/render3d/lod.lua")
 local render3d = nil
 local gpu_culling = library()
 gpu_culling.generation = gpu_culling.generation or 0
@@ -44,6 +45,82 @@ local VISUAL_FLAG_SHADOW_AABB_CULLABLE = 0x10
 local VISUAL_FLAG_SHADOW_NON_AABB = 0x20
 local ENTRY_FLAG_IGNORE_Z = 0x1
 local ENTRY_FLAG_HEIGHT_DISPLACEMENT = 0x2
+local ENTRY_FLAG_LOD = 0x4
+local ENTRY_FLAG_BILLBOARD = 0x8
+local ENTRY_FLAG_BEFORE_BILLBOARD = 0x10
+local LOD_RATIO_GLSL = [[
+			const uint ENTRY_FLAG_LOD = ]] .. ENTRY_FLAG_LOD .. [[u;
+			const uint ENTRY_FLAG_BILLBOARD = ]] .. ENTRY_FLAG_BILLBOARD .. [[u;
+			const uint ENTRY_FLAG_BEFORE_BILLBOARD = ]] .. ENTRY_FLAG_BEFORE_BILLBOARD .. [[u;
+
+			// how far the camera is from the visual, in bounding radii of the visual
+			float get_lod_ratio(VisualRecord visual_record) {
+				vec3 center = vec3(
+					visual_record.min_x + visual_record.max_x,
+					visual_record.min_y + visual_record.max_y,
+					visual_record.min_z + visual_record.max_z
+				) * 0.5;
+				return distance(compute.camera_position, center) / (max(visual_record.sphere_radius, 0.001) * compute.lod_scale);
+			}
+]]
+local LOD_SELECT_GLSL = LOD_RATIO_GLSL .. [[
+			// whether the entry's level is drawn at this ratio. around the distance where one level hands
+			// over to the next both are drawn, and fade says how much of this one is dithered away: 0
+			// for none, towards 1 for a level on its way out, towards -1 for one that is just coming in
+			bool select_lod(EntryRecord entry_record, float lod_ratio, bool allow_fade, out float fade) {
+				fade = 0.0;
+
+				if (compute.lod_forced >= 0) {
+					return entry_record.lod_level == min(uint(compute.lod_forced), entry_record.lod_last);
+				}
+
+				float width = allow_fade ? compute.lod_fade_width : 0.0;
+				bool has_near = entry_record.lod_level > 0u;
+				bool has_far = entry_record.lod_level < entry_record.lod_last;
+				float near_start = entry_record.lod_near * (1.0 - width);
+
+				if (has_near && lod_ratio < near_start) return false;
+				if (has_far && lod_ratio >= entry_record.lod_far * (1.0 + width)) return false;
+
+				if (width > 0.0) {
+					if (has_near) {
+						float incoming = clamp((lod_ratio - near_start) / (entry_record.lod_near * 2.0 * width), 0.0, 1.0);
+
+						if (incoming < 1.0) {
+							fade = incoming - 1.0;
+							return incoming > 0.0;
+						}
+					}
+
+					if (has_far) {
+						float outgoing = clamp((lod_ratio - entry_record.lod_far * (1.0 - width)) / (entry_record.lod_far * 2.0 * width), 0.0, 1.0);
+						fade = outgoing;
+						return outgoing < 1.0;
+					}
+				}
+
+				return true;
+			}
+]]
+local LOD_SELECT_GLSL_SHADOW = LOD_RATIO_GLSL .. [[
+			// the shadow passes draw the level the camera is nearest to, no cross fade. the crossed quads of
+			// a billboard would shadow each other, so the mesh level before it casts in its place
+			bool select_lod(EntryRecord entry_record, float lod_ratio) {
+				if ((entry_record.flags & ENTRY_FLAG_BILLBOARD) != 0u) return false;
+
+				bool last_mesh = (entry_record.flags & ENTRY_FLAG_BEFORE_BILLBOARD) != 0u;
+
+				if (compute.lod_forced >= 0) {
+					uint target = min(uint(compute.lod_forced), entry_record.lod_last);
+					return entry_record.lod_level == target || (last_mesh && target > entry_record.lod_level);
+				}
+
+				if (entry_record.lod_level > 0u && lod_ratio < entry_record.lod_near) return false;
+				if (!last_mesh && entry_record.lod_level < entry_record.lod_last && lod_ratio >= entry_record.lod_far) return false;
+
+				return true;
+			}
+]]
 local GPUCullVisualRecord = ffi.typeof([[struct {
 	float min_x;
 	float min_y;
@@ -77,6 +154,10 @@ local GPUCullEntryRecord = ffi.typeof([[struct {
 	uint32_t flags;
 	uint32_t instanced_batch_index;
 	uint32_t static_matrix_index;
+	float lod_near;
+	float lod_far;
+	uint32_t lod_level;
+	uint32_t lod_last;
 }]])
 local GPUCullInstancedBatchRecord = ffi.typeof([[struct {
 	uint32_t output_offset;
@@ -298,9 +379,15 @@ function gpu_culling.Initialize()
 				{"has_source_depth_texture", "int"},
 				{"occlusion_max_mip", "int"},
 				{"occlusion_depth_bias", "float"},
+				{"lod_forced", "int"},
+				{"lod_scale", "float"},
+				{"lod_fade_width", "float"},
 			},
 			write = function(self, block)
 				block.visual_count = self.current_visual_count or 0
+				block.lod_forced = lod.GetForcedLevel()
+				block.lod_scale = lod.GetScale()
+				block.lod_fade_width = lod.GetFadeWidth()
 				block.camera_position[0] = self.current_camera_position and self.current_camera_position.x or 0
 				block.camera_position[1] = self.current_camera_position and self.current_camera_position.y or 0
 				block.camera_position[2] = self.current_camera_position and self.current_camera_position.z or 0
@@ -364,6 +451,10 @@ function gpu_culling.Initialize()
 				uint flags;
 				uint instanced_batch_index;
 				uint static_matrix_index;
+				float lod_near;
+				float lod_far;
+				uint lod_level;
+				uint lod_last;
 			};
 
 			struct InstancedBatchRecord {
@@ -456,6 +547,7 @@ function gpu_culling.Initialize()
 			const uint BATCH_FLAG_HEIGHT_MAP = ]] .. BATCH_FLAG_HEIGHT_MAP .. [[u;
 			const uint BATCH_COMMAND_GROUP_COUNT = ]] .. gpu_culling.BATCH_COMMAND_GROUP_COUNT .. [[u;
 
+]] .. LOD_SELECT_GLSL .. [[
 			bool is_within_cull_distance(VisualRecord visual_record) {
 				if (visual_record.cull_distance <= 0.0) return true;
 
@@ -590,10 +682,18 @@ function gpu_culling.Initialize()
 				if (!camera_inside_aabb && !is_large_enough_in_screen_space(visual_record)) return;
 				if (!camera_inside_aabb && is_occluded(visual_record)) return;
 
+				float lod_ratio = get_lod_ratio(visual_record);
+
 				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
 					EntryRecord entry_record = entries[visual_record.entry_offset + entry_offset];
 
 					if (entry_record.index_count == 0u) continue;
+
+					// only instances in a batch carry a fade, they get it through their world matrix
+					float lod_fade = 0.0;
+					bool batched = entry_record.instanced_batch_index != INVALID_INDEX && entry_record.static_matrix_index != INVALID_INDEX;
+
+					if ((entry_record.flags & ENTRY_FLAG_LOD) != 0u && !select_lod(entry_record, lod_ratio, batched, lod_fade)) continue;
 
 					uint write_index = atomicAdd(visible_count[0], 1u);
 					uint entry_index = visual_record.entry_offset + entry_offset;
@@ -623,7 +723,9 @@ function gpu_culling.Initialize()
 						atomicAdd(batch_commands[command_index].instanceCount, 1u);
 
 						if (local_index < batch_record.max_count) {
-							visible_instance_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index];
+							mat4 instance_world = static_instance_worlds[entry_record.static_matrix_index];
+							instance_world[0][3] = lod_fade;
+							visible_instance_worlds[batch_record.output_offset + local_index] = instance_world;
 						}
 					} else {
 						uint fallback_write_index = atomicAdd(fallback_visible_count[0], 1u);
@@ -745,9 +847,13 @@ function gpu_culling.Initialize()
 				{"occlusion_depth_bias", "float"},
 				{"light_view", "mat4"},
 				{"min_caster_extent", "float"},
+				{"lod_forced", "int"},
+				{"lod_scale", "float"},
 			},
 			write = function(self, block)
 				block.visual_count = self.current_visual_count or 0
+				block.lod_forced = lod.GetForcedLevel()
+				block.lod_scale = lod.GetScale()
 				block.query_min[0] = self.current_query_aabb and self.current_query_aabb.min_x or 0
 				block.query_min[1] = self.current_query_aabb and self.current_query_aabb.min_y or 0
 				block.query_min[2] = self.current_query_aabb and self.current_query_aabb.min_z or 0
@@ -814,6 +920,10 @@ function gpu_culling.Initialize()
 				uint flags;
 				uint instanced_batch_index;
 				uint static_matrix_index;
+				float lod_near;
+				float lod_far;
+				uint lod_level;
+				uint lod_last;
 			};
 
 			struct InstancedBatchRecord {
@@ -891,6 +1001,7 @@ function gpu_culling.Initialize()
 			const uint VISUAL_FLAG_USE_OCCLUSION = 4u;
 			const uint INVALID_INDEX = 0xFFFFFFFFu;
 
+]] .. LOD_SELECT_GLSL_SHADOW .. [[
 			bool overlaps_query(VisualRecord visual_record) {
 				return visual_record.max_x >= compute.query_min.x &&
 					visual_record.min_x <= compute.query_max.x &&
@@ -1004,10 +1115,13 @@ function gpu_culling.Initialize()
 
 				if (!camera_inside_aabb && is_occluded(visual_record)) return;
 
+				float lod_ratio = get_lod_ratio(visual_record);
+
 				for (uint entry_offset = 0u; entry_offset < visual_record.entry_count; ++entry_offset) {
 					EntryRecord entry_record = entries[visual_record.entry_offset + entry_offset];
 
 					if (entry_record.index_count == 0u) continue;
+					if ((entry_record.flags & ENTRY_FLAG_LOD) != 0u && !select_lod(entry_record, lod_ratio)) continue;
 
 					uint write_index = atomicAdd(visible_count[0], 1u);
 					uint entry_index = visual_record.entry_offset + entry_offset;
@@ -1368,6 +1482,12 @@ local function serialize_render_entry(component, entry, entry_index, dynamic)
 		source_aabb = serialize_aabb(entry.source_aabb),
 		local_aabb = serialize_aabb(entry.aabb),
 		index_count = index_buffer and index_buffer:GetIndexCount() or 0,
+		lod_level = entry.lod_level,
+		lod_near = entry.lod_near,
+		lod_far = entry.lod_far,
+		lod_last = entry.lod_last,
+		lod_billboard = entry.lod_billboard,
+		lod_before_billboard = entry.lod_before_billboard,
 	}
 end
 
@@ -1386,7 +1506,7 @@ local function serialize_component(component, dynamic)
 	local shadow_aabb_cullable = true
 	local world_aabb = serialize_aabb(component:GetWorldAABB())
 
-	for i, entry in ipairs(component:GetRenderEntries()) do
+	for i, entry in ipairs(component:GetLODRenderEntries()) do
 		serialized_entries[i] = serialize_render_entry(component, entry, i, dynamic)
 
 		if serialized_entries[i].has_height_displacement then
@@ -1444,6 +1564,14 @@ local function get_entry_flags(entry)
 
 	if entry.has_height_displacement then
 		flags = flags + ENTRY_FLAG_HEIGHT_DISPLACEMENT
+	end
+
+	if entry.lod_last then flags = flags + ENTRY_FLAG_LOD end
+
+	if entry.lod_billboard then flags = flags + ENTRY_FLAG_BILLBOARD end
+
+	if entry.lod_before_billboard then
+		flags = flags + ENTRY_FLAG_BEFORE_BILLBOARD
 	end
 
 	return flags
@@ -2384,6 +2512,10 @@ local function write_entry_record(view, entry, visual_slot)
 	record.flags = get_entry_flags(entry)
 	record.instanced_batch_index = entry.instanced_batch_index or INVALID_INDEX
 	record.static_matrix_index = entry.static_matrix_index or INVALID_INDEX
+	record.lod_near = entry.lod_near or 0
+	record.lod_far = entry.lod_far or 0
+	record.lod_level = entry.lod_level or 0
+	record.lod_last = entry.lod_last or 0
 	local dirty = view.dirty_entries
 	dirty[#dirty + 1] = entry.slot
 end

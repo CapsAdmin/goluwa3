@@ -374,6 +374,11 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	if main_prologue then lines[#lines + 1] = main_prologue end
 
 	lines[#lines + 1] = "\tmat4 world = " .. world_expr .. ";"
+
+	if options.lod_fade then
+		lines[#lines + 1] = "\tout_lod_fade = world[0][3];"
+	end
+
 	lines[#lines + 1] = "\tbool skinned = in_vertex_color.a < " .. skinning.MOTION_THRESHOLD .. ";"
 	lines[#lines + 1] = "\tvec3 skin_motion = skinned ? in_vertex_color.rgb : vec3(0.0);"
 	lines[#lines + 1] = "\tvec4 vertex_color = skinned ? vec4(0.0) : in_vertex_color;"
@@ -454,6 +459,8 @@ local function get_vertex_stage_outputs(options)
 
 	if options.velocity then outputs[#outputs + 1] = {"prev_position", "vec3"} end
 
+	if options.lod_fade then outputs[#outputs + 1] = {"lod_fade", "float"} end
+
 	return outputs
 end
 
@@ -516,9 +523,15 @@ function model_pipeline.CreateVertexStage(options)
 		shader = build_vertex_shader(options, "vertex.world", "vertex.prev_world"),
 	}
 
-	if options.velocity then
+	if options.velocity or options.lod_fade then
 		local outputs = model_pipeline.GetVertexAttributes()
-		outputs[#outputs + 1] = {"prev_position", "vec3"}
+
+		if options.velocity then
+			outputs[#outputs + 1] = {"prev_position", "vec3"}
+		end
+
+		if options.lod_fade then outputs[#outputs + 1] = {"lod_fade", "float"} end
+
 		stage.outputs = outputs
 	end
 

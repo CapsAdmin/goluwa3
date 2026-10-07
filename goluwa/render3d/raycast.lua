@@ -18,8 +18,15 @@ local model_acceleration = {
 	frame = -1,
 	model_count = 0,
 }
+local lod_camera_position
+
+function raycast.SetLODCamera(position)
+	lod_camera_position = position
+end
 
 local function get_spatial_primitives(model)
+	if lod_camera_position then return model:GetLODEntriesAt(lod_camera_position) end
+
 	return model:GetRenderEntries()
 end
 

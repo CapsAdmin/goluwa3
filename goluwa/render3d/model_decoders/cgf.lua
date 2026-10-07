@@ -6,6 +6,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local lod = import("goluwa/render3d/lod.lua")
 local cgf = {}
 cgf.FILE_TYPE_GEOMETRY = 0xFFFF0000
 cgf.FILE_TYPE_ANIMATION = 0xFFFF0001
@@ -20,6 +21,7 @@ cgf.CHUNK_EXPORT_FLAGS = 0xCCCC0015
 cgf.CHUNK_DATA_STREAM = 0xCCCC0016
 cgf.CHUNK_MESH_SUBSETS = 0xCCCC0017
 cgf.CHUNK_MESH_PHYSICS_DATA = 0xCCCC0018
+cgf.MAX_SIBLING_LODS = 4
 
 local function assert_old_cgf_version(version)
 	if version ~= cgf.VERSION_744 and version ~= cgf.VERSION_745 then
@@ -351,15 +353,35 @@ function cgf.ExtractStaticMeshData(parsed)
 	end
 
 	local world_transforms = {}
+	local base_nodes_by_name = {}
+	local first_base_node
 
 	for _, node_id in ipairs(node_order) do
 		local node = nodes_by_id[node_id]
 
 		if node.object_id > 0 and not node.name:starts_with("$") then
+			base_nodes_by_name[node.name] = node_id
+			first_base_node = first_base_node or node_id
+		end
+	end
+
+	for _, node_id in ipairs(node_order) do
+		local node = nodes_by_id[node_id]
+		local lod_level = tonumber(node.name:match("^%$[lL][oO][dD](%d+)_"))
+
+		if node.object_id > 0 and (lod_level or not node.name:starts_with("$")) then
 			local mesh_chunk = parsed.chunks_by_id[node.object_id]
 
 			if mesh_chunk and mesh_chunk.type == cgf.CHUNK_MESH then
-				local world_transform = cgf.GetNodeWorldTransform(nodes_by_id, node.id, world_transforms)
+				local transform_node_id = node.id
+
+				-- $LODn nodes sit beside the model in the file, the engine draws them where the base node is
+				if lod_level then
+					local base_name = node.name:gsub("^%$[lL][oO][dD]%d+_", "")
+					transform_node_id = base_nodes_by_name[base_name] or first_base_node or node.id
+				end
+
+				local world_transform = cgf.GetNodeWorldTransform(nodes_by_id, transform_node_id, world_transforms)
 
 				if mesh_chunk.version ~= cgf.VERSION_MESH_COMPILED then
 					error(
@@ -470,6 +492,7 @@ function cgf.ExtractStaticMeshData(parsed)
 							subset_material_id = subset.material_id,
 							vertices = subset_vertices,
 							indices = subset_indices,
+							lod_level = lod_level or 0,
 						}
 
 						::continue_subset::
@@ -491,6 +514,7 @@ function cgf.ExtractStaticMeshData(parsed)
 						material_name = material and material.name or nil,
 						vertices = base_vertices,
 						indices = fixed_indices,
+						lod_level = lod_level or 0,
 					}
 				end
 			end
@@ -552,11 +576,41 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 	local resolved_material_paths = {}
 	local ok, result = xpcall(function()
 		local entries = cgf.ExtractStaticMeshData(parsed)
+		local has_lod_nodes = false
+
+		for _, entry in ipairs(entries) do
+			if entry.lod_level > 0 then has_lod_nodes = true end
+		end
+
+		-- objects without $LOD nodes keep their coarser levels in files next to them, name_LOD1.cgf
+		if not has_lod_nodes then
+			local base = model_path:gsub("%.[cC][gG][fF]$", "")
+
+			for level = 1, cgf.MAX_SIBLING_LODS do
+				local lod_path = vfs.FindMixedCasePath(base .. "_lod" .. level .. ".cgf")
+
+				if not lod_path then break end
+
+				local lod_parsed = cgf.Open(lod_path)
+				local ok_lod, lod_entries = pcall(cgf.ExtractStaticMeshData, lod_parsed)
+				lod_parsed.file:Close()
+
+				if not ok_lod then error(lod_entries, 0) end
+
+				for _, entry in ipairs(lod_entries) do
+					entry.lod_level = level
+					entries[#entries + 1] = entry
+				end
+			end
+		end
+
 		local bend_height = 0
 
 		for _, entry in ipairs(entries) do
-			for _, vertex in ipairs(entry.vertices) do
-				bend_height = math.max(bend_height, vertex.pos.y)
+			if entry.lod_level == 0 then
+				for _, vertex in ipairs(entry.vertices) do
+					bend_height = math.max(bend_height, vertex.pos.y)
+				end
 			end
 		end
 
@@ -610,6 +664,8 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 			mesh:SetVertices(vertices)
 			mesh:SetBendHeight(bend_height)
 			mesh:SetMaterialSlot(entry.subset_material_id)
+			mesh:SetLODLevel(entry.lod_level)
+			mesh:SetLODDistance(entry.lod_level * lod.CRY_RADII_PER_LEVEL)
 			mesh:SetName(path)
 			mesh:BuildBoundingBox()
 			mesh:Upload(entry.indices)

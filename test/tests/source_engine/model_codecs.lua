@@ -42,7 +42,7 @@ T.Test("vvd and vtx codecs agree on the vertex count and the indices stay in ran
 	if not mounted then return end
 
 	local vvd_meta, vertices = assert(vvd.Decode(read(MODEL .. ".vvd")))
-	local vtx_meta, ids = assert(vtx.Decode(read(MODEL .. ".dx90.vtx"), 25, 1))
+	local vtx_meta, ids = assert(vtx.Decode(read(MODEL .. ".dx90.vtx"), 25))
 	T(vvd_meta.count)[">"](0)
 	T(ffi.sizeof(vertices))[">="](vvd_meta.count * vvd.VertexSize)
 	local mesh = vtx_meta.body_parts[1].models[1].lods[1].meshes[1]
@@ -55,6 +55,47 @@ T.Test("vvd and vtx codecs agree on the vertex count and the indices stay in ran
 	end
 
 	T(table.equal(buffer.decode(buffer.encode(vtx_meta)), vtx_meta))["=="](true)
+end)
+
+T.Test("vtx lods have rising switch points and their ids stay inside the vertices vvd keeps for the lod", function()
+	if not mounted then return end
+
+	for _, model in ipairs({"models/props_c17/oildrum001", "models/humans/group01/male_01"}) do
+		local mdl_meta = assert(mdl.Decode(read(model .. ".mdl")))
+		local vvd_meta = assert(vvd.Decode(read(model .. ".vvd")))
+		local vtx_meta, ids = assert(vtx.Decode(read(model .. ".dx90.vtx"), mdl_meta.version >= 49 and 33 or 25))
+		local lods = vtx_meta.body_parts[1].models[1].lods
+		T(#lods)[">"](1)
+		T(lods[1].switch_point)["=="](0)
+
+		for i = 2, #lods do
+			if lods[i].switch_point >= 0 then
+				T(lods[i].switch_point)[">"](lods[i - 1].switch_point)
+			end
+		end
+
+		local info = mdl_meta.bodypart_models[1][1]
+
+		for lod_index, lod in ipairs(lods) do
+			local kept = 0
+			local rank_before = {}
+
+			for i = 0, vvd_meta.count - 1 do
+				rank_before[i] = kept
+
+				if vvd_meta.vertex_lods[i] >= lod_index - 1 then kept = kept + 1 end
+			end
+
+			for mesh_index, mesh in ipairs(lod.meshes) do
+				local base = rank_before[info.vertex_start + info.meshes[mesh_index].vertex_offset]
+				local pointer = ffi.cast("const uint16_t *", ids + mesh.offset)
+
+				for i = 0, mesh.count - 1 do
+					T(pointer[i] + base)["<"](kept)
+				end
+			end
+		end
+	end
 end)
 
 T.Test("phy codec returns plain solids in engine space", function()
@@ -76,7 +117,7 @@ T.Test("codecs report malformed data as errors instead of crashing", function()
 		{vvd.Decode, read(MODEL .. ".vvd")},
 		{
 			function(str)
-				return vtx.Decode(str, 25, 1)
+				return vtx.Decode(str, 25)
 			end,
 			read(MODEL .. ".dx90.vtx"),
 		},

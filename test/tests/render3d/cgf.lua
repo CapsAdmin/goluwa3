@@ -275,7 +275,7 @@ local function build_static_mesh_fixture_744(options)
 		version = 0x823,
 		id = 23,
 		body = build_node_chunk_body(
-			"root",
+			options.node_name or "root",
 			22,
 			options.parent_position and 21 or -1,
 			4,
@@ -358,6 +358,27 @@ T.Test("CGF parser extracts a static triangle mesh from chunked streams", functi
 	T(entries[1].vertices[1].texture_blend)["~"](0)
 	T(entries[1].vertices[2].texture_blend)["~"](128 / 255)
 	T(entries[1].vertices[3].texture_blend)["~"](1)
+	parsed.file:Close()
+	vfs.Delete(path)
+end)
+
+T.Test("CGF extraction keeps $LODn nodes as coarser levels and skips other $ nodes", function()
+	local path = "os:" .. vfs.GetStorageDirectory("shared") .. "cgf_test_lod_node_744.cgf"
+	assert(vfs.Write(path, build_static_mesh_fixture_744{node_name = "$LOD2_root"}))
+	local parsed = cgf.Open(path)
+	local entries = cgf.ExtractStaticMeshData(parsed)
+	T(#entries)["=="](1)
+	T(entries[1].lod_level)["=="](2)
+	parsed.file:Close()
+	vfs.Delete(path)
+	assert(vfs.Write(path, build_static_mesh_fixture_744{node_name = "$collision"}))
+	parsed = cgf.Open(path)
+	T(#cgf.ExtractStaticMeshData(parsed))["=="](0)
+	parsed.file:Close()
+	vfs.Delete(path)
+	assert(vfs.Write(path, build_static_mesh_fixture_744()))
+	parsed = cgf.Open(path)
+	T(cgf.ExtractStaticMeshData(parsed)[1].lod_level)["=="](0)
 	parsed.file:Close()
 	vfs.Delete(path)
 end)

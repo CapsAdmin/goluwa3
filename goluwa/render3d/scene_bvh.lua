@@ -1818,7 +1818,7 @@ do
 		local animated = false
 		local fast = vc ~= nil and vc.matrix == v
 
-		for _, entry in ipairs(visual:GetRenderEntries()) do
+		for _, entry in ipairs(visual:GetBVHRenderEntries()) do
 			local mesh = entry.polygon3d.mesh
 
 			if mesh and mesh.Type ~= "null" then
@@ -2445,14 +2445,19 @@ function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
 end
 
 function scene_bvh.GetTraversalGLSL(see_through_binding)
-	return (see_through_binding and
-		([[
+	return (
+			see_through_binding and
+			(
+				[[
 		// 1 for materials the ray flies through, see Material:IsSeeThrough
 		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHSeeThroughBuffer {
 			uint scene_bvh_see_through[];
 		};
 		#define SCENE_BVH_SKIP_SEE_THROUGH
-	]]):format(see_through_binding) or "") .. [[
+	]]
+			):format(see_through_binding) or
+			""
+		) .. [[
 		#define SCENE_BVH_MISS 3.402823466e+38
 		#define SCENE_BVH_STACK_SIZE ]] .. scene_bvh.STACK_SIZE .. [[
 

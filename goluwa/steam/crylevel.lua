@@ -705,6 +705,7 @@ function crylevel.ParseVegetationMapDocument(document)
 				random_rotation = parse_bool_flag(attrs.RandomRotation),
 				use_terrain_color = parse_bool_flag(attrs.UseTerrainColor),
 				bending = tonumber(attrs.Bending) or 0,
+				use_sprites = parse_bool_flag(attrs.UseSprites),
 				size = tonumber(attrs.Size) or 1,
 				size_var = tonumber(attrs.SizeVar) or 0,
 			}
@@ -807,6 +808,7 @@ function crylevel.ParseVegetationInstancesData(data, prototypes, terrain)
 				scale = read_f32_le(data, offset + 12) or 1,
 				yaw = angle / 255 * math.pi * 2,
 				brightness = brightness,
+				use_sprites = prototype.use_sprites,
 				fit_to_terrain = prototype.fit_to_terrain,
 				terrain_normal = terrain_normal,
 			}
@@ -2192,6 +2194,7 @@ function crylevel.Apply(steam)
 					transform:SetScale(transform_data.scale)
 				end
 
+				entity.visual:SetBillboard(entry.use_sprites == true)
 				entity.visual:SetModelPath(entry.model_path)
 
 				if entry.material_path then

@@ -34,6 +34,8 @@ local vertex_t = ffi.typeof([[struct {
 	uint8_t bone_count;
 }]])
 local vertex_array_t = ffi.typeof("$[?]", vertex_t)
+local lod_array_t = ffi.typeof("uint8_t[?]")
+vvd.ALL_LODS = 255
 vvd.Vertex = vertex_t
 vvd.VertexArray = vertex_array_t
 vvd.VertexSize = ffi.sizeof(vertex_t)
@@ -73,7 +75,8 @@ function vvd.Decode(str)
 	end
 
 	local out = vertex_array_t(math.max(count, 1))
-	local range_starts, range_counts = {}, {}
+	local vertex_lods = lod_array_t(math.max(count, 1), vvd.ALL_LODS)
+	local range_starts, range_counts, range_lods = {}, {}, {}
 
 	if count > 0 then
 		if header.fixup_count == 0 then
@@ -94,6 +97,7 @@ function vvd.Decode(str)
 
 				range_starts[i + 1] = fixup.source_vertex
 				range_counts[i + 1] = fixup.vertex_count
+				range_lods[i + 1] = fixup.lod
 			end
 		end
 	end
@@ -104,6 +108,9 @@ function vvd.Decode(str)
 		for k = 0, range_counts[range] - 1 do
 			local file_vertex = file_vertices[range_starts[range] + k]
 			local out_vertex = out[index]
+
+			if range_lods[range] then vertex_lods[index] = range_lods[range] end
+
 			index = index + 1
 			local x, y, z = file_vertex.pos[0], file_vertex.pos[1], file_vertex.pos[2]
 			out_vertex.pos[0] = -y * scale
@@ -125,7 +132,12 @@ function vvd.Decode(str)
 		end
 	end
 
-	return {version = header.version, lod_count = header.lod_count, count = count},
+	return {
+		version = header.version,
+		lod_count = header.lod_count,
+		count = count,
+		vertex_lods = vertex_lods,
+	},
 	out
 end
 

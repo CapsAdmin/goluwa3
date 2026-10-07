@@ -16,6 +16,7 @@ local ffi = require("ffi")
 local bit = require("bit")
 local fs = import("goluwa/filesystem/fs.lua")
 local Skeleton = import("goluwa/render3d/skeleton.lua")
+local lod = import("goluwa/render3d/lod.lua")
 local half_to_float = mdl_codec.HalfToFloat
 
 local function find_file(path, ...)
@@ -862,59 +863,85 @@ local job_source = [=[
 		assert(input.vvd, input.vvd_error)
 		assert(input.vtx, input.vtx_error)
 		local vvd_meta, vertices = assert(vvd.Decode(input.vvd))
-		local vtx_meta, vtx_blob = assert(vtx.Decode(input.vtx, mdl_meta.version >= 49 and 33 or 25, 1))
+		local vtx_meta, vtx_blob = assert(vtx.Decode(input.vtx, mdl_meta.version >= 49 and 33 or 25))
 		local vertex_count = vvd_meta.count
+		local vertex_lods = vvd_meta.vertex_lods
 		local skinned = mdl_meta.bone_count >= 2
-		local index_ctype = vertex_count > 65535 and "uint32_t" or "uint16_t"
-		result.vertex_count = vertex_count
-		result.index_size = vertex_count > 65535 and 4 or 2
 		result.meshes = {}
 		result.skins = {}
+		-- the vertices of a lod are the ones the vvd fixups keep for it, in the order of the full array. the
+		-- vtx ids of its meshes count from where the mesh starts in that smaller array
+		local lod_vertex_sets = {}
+
+		local function get_vertex_set(lod_index)
+			local set = lod_vertex_sets[lod_index]
+
+			if set then return set end
+
+			local rank = ffi.new("uint32_t[?]", vertex_count + 1)
+			local source = ffi.new("uint32_t[?]", math.max(vertex_count, 1))
+			local count = 0
+
+			for i = 0, vertex_count - 1 do
+				rank[i] = count
+
+				if vertex_lods[i] >= lod_index then
+					source[count] = i
+					count = count + 1
+				end
+			end
+
+			rank[vertex_count] = count
+			set = {rank = rank, source = source, count = count, same_as_full = count == vertex_count}
+			lod_vertex_sets[lod_index] = set
+			return set
+		end
 
 		for body_part_i, body_part in ipairs(vtx_meta.body_parts) do
 			for model_i, model in ipairs(body_part.models) do
-				local lod = model.lods[1]
+				local model_info = mdl_meta.bodypart_models[body_part_i][model_i]
 
-				if lod and lod.meshes[1] then
-					local model_info = mdl_meta.bodypart_models[body_part_i][model_i]
+				for lod_i, lod in ipairs(model.lods) do
+					-- a negative switch point marks the shadow only lod at the end
+					if lod.meshes[1] and (lod_i == 1 or lod.switch_point >= 0) then
+						local lod_index = lod_i - 1
+						local set = get_vertex_set(lod_index)
+						local set_count = set.count
+						local index_size = set_count > 65535 and 4 or 2
+						local index_ctype = index_size == 4 and "uint32_t" or "uint16_t"
+						local skin_key
 
-					if skinned then
-						local bone_indices = ffi.new("uint8_t[?]", vertex_count * 4)
-						local bone_weights = ffi.new("float[?]", vertex_count * 4)
+						if skinned then
+							skin_key = body_part_i .. ":" .. model_i .. ":" .. (set.same_as_full and 0 or lod_index)
 
-						for i = 0, vertex_count - 1 do
-							local v = vertices[i]
+							if not result.skins[skin_key] then
+								local bone_indices = ffi.new("uint8_t[?]", set_count * 4)
+								local bone_weights = ffi.new("float[?]", set_count * 4)
 
-							if v.bone_count == 0 then bone_weights[i * 4] = 1 end
+								for i = 0, set_count - 1 do
+									local v = vertices[set.source[i]]
 
-							for k = 0, math.min(v.bone_count, 3) - 1 do
-								bone_indices[i * 4 + k] = v.bone_ids[k]
-								bone_weights[i * 4 + k] = v.bone_weights[k]
+									if v.bone_count == 0 then bone_weights[i * 4] = 1 end
+
+									for k = 0, math.min(v.bone_count, 3) - 1 do
+										bone_indices[i * 4 + k] = v.bone_ids[k]
+										bone_weights[i * 4 + k] = v.bone_weights[k]
+									end
+								end
+
+								result.skins[skin_key] = {
+									bone_indices = builder:Add(bone_indices),
+									bone_weights = builder:Add(bone_weights),
+									vertex_count = set_count,
+									flexes = set.same_as_full,
+								}
 							end
 						end
 
-						result.skins[body_part_i] = result.skins[body_part_i] or {}
-						result.skins[body_part_i][model_i] = {
-							bone_indices = builder:Add(bone_indices),
-							bone_weights = builder:Add(bone_weights),
-						}
-					end
+						local base_packed = vertex_math.VertexType(set_count)
 
-					for mesh_i, mesh_data in ipairs(lod.meshes) do
-						local mesh_info = model_info.meshes[mesh_i]
-						local vertex_offset = model_info.vertex_start + mesh_info.vertex_offset
-						local index_count = mesh_data.count
-						local ids = ffi.cast("const uint16_t *", vtx_blob + mesh_data.offset)
-						local indices = ffi.new(index_ctype .. "[?]", math.max(index_count, 1))
-
-						for i = 0, index_count - 1 do
-							indices[i] = ids[i] + vertex_offset
-						end
-
-						local packed = vertex_math.VertexType(vertex_count)
-
-						for i = 0, vertex_count - 1 do
-							local v, p = vertices[i], packed[i]
+						for i = 0, set_count - 1 do
+							local v, p = vertices[set.source[i]], base_packed[i]
 
 							for k = 0, 2 do
 								p.position[k] = v.pos[k]
@@ -924,15 +951,39 @@ local job_source = [=[
 							p.uv[0], p.uv[1] = v.uv[0], v.uv[1]
 						end
 
-						vertex_math.BuildTangents(packed, vertex_count, indices, index_count)
-						result.meshes[#result.meshes + 1] = {
-							body_part = body_part_i,
-							model = model_i,
-							material = mesh_info.material,
-							index_count = index_count,
-							vertex_offset = builder:Add(packed),
-							index_offset = builder:Add(indices, index_count * result.index_size),
-						}
+						local packed_size = ffi.sizeof(base_packed[0]) * set_count
+
+						for mesh_i, mesh_data in ipairs(lod.meshes) do
+							local mesh_info = model_info.meshes[mesh_i]
+							local index_count = mesh_data.count
+
+							if index_count > 0 or lod_i == 1 then
+								local vertex_offset = set.rank[model_info.vertex_start + mesh_info.vertex_offset]
+								local ids = ffi.cast("const uint16_t *", vtx_blob + mesh_data.offset)
+								local indices = ffi.new(index_ctype .. "[?]", math.max(index_count, 1))
+
+								for i = 0, index_count - 1 do
+									indices[i] = ids[i] + vertex_offset
+								end
+
+								local packed = vertex_math.VertexType(set_count)
+								ffi.copy(packed, base_packed, packed_size)
+								vertex_math.BuildTangents(packed, set_count, indices, index_count)
+								result.meshes[#result.meshes + 1] = {
+									body_part = body_part_i,
+									model = model_i,
+									lod = lod_index,
+									switch_point = lod.switch_point,
+									skin = skin_key,
+									material = mesh_info.material,
+									vertex_count = set_count,
+									index_size = index_size,
+									index_count = index_count,
+									vertex_offset = builder:Add(packed),
+									index_offset = builder:Add(indices, index_count * index_size),
+								}
+							end
+						end
 					end
 				end
 			end
@@ -1050,29 +1101,31 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 	if not meta.meshes then return models end
 
 	local skins = {}
-	local vertex_count = meta.vertex_count
 
 	for _, mesh_info in ipairs(meta.meshes) do
 		local skin
 
 		if skeleton then
-			skins[mesh_info.body_part] = skins[mesh_info.body_part] or {}
-			skin = skins[mesh_info.body_part][mesh_info.model]
+			skin = skins[mesh_info.skin]
 
 			if not skin then
-				local skin_info = meta.skins[mesh_info.body_part][mesh_info.model]
+				local skin_info = meta.skins[mesh_info.skin]
+				local count = skin_info.vertex_count
 				skin = {
-					BoneIndices = copy_array(blob_table, "uint8_t", skin_info.bone_indices, vertex_count * 4),
-					BoneWeights = copy_array(blob_table, "float", skin_info.bone_weights, vertex_count * 4),
-					Flexes = mdl.bodypart_models[mesh_info.body_part][mesh_info.model].flexes,
+					BoneIndices = copy_array(blob_table, "uint8_t", skin_info.bone_indices, count * 4),
+					BoneWeights = copy_array(blob_table, "float", skin_info.bone_weights, count * 4),
+					Flexes = skin_info.flexes and
+						mdl.bodypart_models[mesh_info.body_part][mesh_info.model].flexes or
+						{},
 				}
-				skins[mesh_info.body_part][mesh_info.model] = skin
+				skins[mesh_info.skin] = skin
 			end
 		end
 
 		tasks.Wait()
 		local mesh = Polygon3D.New()
-		local ctype = meta.index_size == 4 and "uint32_t" or "uint16_t"
+		local vertex_count = mesh_info.vertex_count
+		local ctype = mesh_info.index_size == 4 and "uint32_t" or "uint16_t"
 		local vertices = vertex_math.VertexType(vertex_count)
 		ffi.copy(
 			vertices,
@@ -1082,6 +1135,8 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 		local indices = copy_array(blob_table, ctype, mesh_info.index_offset, mesh_info.index_count)
 		mesh:UploadVertexArray(vertices, vertex_count, indices, mesh_info.index_count, true)
 		mesh:SetName(full_path)
+		mesh:SetLODLevel(mesh_info.lod)
+		mesh:SetLODDistance(mesh_info.switch_point * lod.SOURCE_SWITCH_TO_RADII)
 		local material
 		local material_path = mdl.materials[mesh_info.material + 1]
 

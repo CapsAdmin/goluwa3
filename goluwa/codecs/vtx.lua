@@ -63,7 +63,7 @@ local BODY_PART_SIZE = 8
 local MODEL_SIZE = 8
 local LOD_SIZE = 12
 
-function vtx.Decode(str, strip_group_size, max_lods)
+function vtx.Decode(str, strip_group_size)
 	if #str < ffi.sizeof(header_t) then return nil, "not a vtx file" end
 
 	local length = #str
@@ -96,8 +96,6 @@ function vtx.Decode(str, strip_group_size, max_lods)
 			local lods_offset = models_offset + m * MODEL_SIZE + model_headers[m].lod_offset
 			local lod_count = model_headers[m].lod_count
 			local lod_headers = ffi.cast(lod_ptr_t, region(lods_offset, lod_count, LOD_SIZE))
-
-			if max_lods and max_lods < lod_count then lod_count = max_lods end
 
 			for l = 0, lod_count - 1 do
 				local meshes = {}
@@ -166,7 +164,7 @@ function vtx.Decode(str, strip_group_size, max_lods)
 					}
 				end
 
-				lods[l + 1] = {meshes = meshes}
+				lods[l + 1] = {meshes = meshes, switch_point = lod_headers[l].switch_point}
 			end
 
 			models[m + 1] = {lods = lods}

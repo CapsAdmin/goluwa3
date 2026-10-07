@@ -25,6 +25,9 @@ end
 Polygon3D:GetSet("Vertices")
 Polygon3D:GetSet("BendHeight", 0)
 Polygon3D:GetSet("MaterialSlot", nil)
+Polygon3D:GetSet("LODLevel", 0)
+Polygon3D:GetSet("LODDistance", 0)
+Polygon3D:GetSet("LODBillboard", false)
 Polygon3D:GetSet(
 	"AABB",
 	AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
@@ -211,6 +214,9 @@ function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
 	if removed == 0 then return nil end
 
 	copy:SetMaterialSlot(self.MaterialSlot)
+	copy:SetLODLevel(self.LODLevel)
+	copy:SetLODDistance(self.LODDistance)
+	copy:SetLODBillboard(self.LODBillboard)
 	copy:Upload()
 	return copy
 end
@@ -322,6 +328,9 @@ function Polygon3D:CloneDynamic(vertex_buffer)
 	clone:SetAABB(self.AABB)
 	clone:SetBendHeight(self.BendHeight)
 	clone:SetMaterialSlot(self.MaterialSlot)
+	clone:SetLODLevel(self.LODLevel)
+	clone:SetLODDistance(self.LODDistance)
+	clone:SetLODBillboard(self.LODBillboard)
 	clone.indices = self.indices
 	clone.Skin = self.Skin
 	clone.Dynamic = true

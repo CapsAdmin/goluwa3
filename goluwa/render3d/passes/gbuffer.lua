@@ -69,6 +69,29 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						return vec3(uv - prev_uv, -prev_view_pos.z);
 					}
 
+					// where a level of detail hands over to the next, both draw dithered with patterns that
+					// complement each other. a positive fade is how much of the pattern is gone from an
+					// outgoing level, a negative one how much of an incoming level is not there yet
+					void discard_lod_fade() {
+						float fade = in_lod_fade;
+						float t = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+
+						// the quads of a billboard stand along three perpendicular axes, so their squared facings
+						// add up to one. a quad that is not the one facing the camera most is dithered away, with
+						// the other two as the worst case for what the best one might be
+						if (Billboard) {
+							float facing = abs(dot(normalize(in_normal), normalize(gbuffer_data.camera_position.xyz - in_position)));
+							float own = facing * facing;
+							float visible = smoothstep(0.35, 0.7, own / max(own, 0.5 * (1.0 - own)));
+
+							if (t >= visible) discard;
+						}
+
+						if (abs(fade) < 0.0001) return;
+
+						if (fade > 0.0 ? t >= 1.0 - fade : t < -fade) discard;
+					}
+
 					void write_velocity(vec3 world_pos, vec3 prev_world_pos) {
 						vec3 motion = get_screen_velocity(world_pos, prev_world_pos);
 						set_velocity(motion.xy);
@@ -101,6 +124,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			texture_blend = true,
 			vertex_color = true,
 			velocity = true,
+			lod_fade = true,
 			camera_block_name = "gbuffer_data",
 			uniform_buffers = {
 				camera_block,
@@ -123,6 +147,7 @@ local function build_instanced_pass(fragment_shader)
 		texture_blend = true,
 		vertex_color = true,
 		velocity = true,
+		lod_fade = true,
 		camera_block_name = "gbuffer_data",
 		uniform_buffers = {
 			camera_block,
@@ -164,6 +189,7 @@ local function build_multi_draw_pass(fragment_shader)
 		texture_blend = true,
 		vertex_color = true,
 		velocity = true,
+		lod_fade = true,
 		camera_block_name = "gbuffer_data",
 		uniform_buffers = {camera_block, multi_draw_block},
 		batches_expr = "gbuffer_draw.batches",
@@ -273,6 +299,7 @@ local function build_ssdm_fragment_shader(write_depth)
 		}
 
 		void main() {
+			discard_lod_fade();
 			mat3 tbn = get_tbn();
 			SSDMData displacement = get_ssdm_data(tbn);
 			float alpha = get_alpha_uv(displacement.uv);

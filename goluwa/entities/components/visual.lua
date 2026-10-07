@@ -15,6 +15,8 @@ local render_stats = import("goluwa/render/stats.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local lod = import("goluwa/render3d/lod.lua")
+local billboard = import("goluwa/render3d/billboard.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local test_helper = import("goluwa/test.lua")
@@ -1054,10 +1056,11 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("UseOcclusionCulling", true)
-Visual:GetSet("CullDistance", 2000)
+Visual:GetSet("CullDistance", 20000)
 Visual:GetSet("ModelPath", "")
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("MaterialSlotOverrides", nil)
+Visual:GetSet("Billboard", false)
 Visual:GetSet("AABB", create_empty_aabb())
 Visual:EndStorable()
 Visual:GetSet("ClipWorldAABB", nil)
@@ -1076,6 +1079,7 @@ Visual:IsSet("Loading", false)
 
 function Visual:Initialize()
 	self.RenderEntries = {}
+	self.LODRenderEntries = self.RenderEntries
 	self.RenderEntriesDirty = true
 	self.LoadGeneration = 0
 	refresh_forward_overlay_registry(self)
@@ -1170,6 +1174,8 @@ function Visual:CreatePrimitiveEntity(polygon3d, material, name, local_matrix)
 end
 
 function Visual:RemovePrimitives()
+	self.billboard_entity = nil
+	self.billboard_pending = false
 	local to_remove = {}
 
 	for _, child in ipairs(self.Owner:GetChildren()) do
@@ -1201,6 +1207,53 @@ function Visual:MakeError()
 	self:BuildAABB()
 end
 
+function Visual:WantsBillboard()
+	return not self.NoBillboard and
+		(
+			self.Billboard or
+			lod.AreBillboardsForced() and
+			not self.Skeleton
+		)
+end
+
+function Visual:AddBillboard()
+	if self.billboard_entity or self.billboard_pending or not render.IsInitialized() then
+		return
+	end
+
+	local load_generation = self.LoadGeneration
+	self.billboard_pending = true
+
+	billboard.Request(self.ModelPath, function(polygon, material)
+		if not self:IsValid() or self.LoadGeneration ~= load_generation then return end
+
+		self.billboard_pending = false
+
+		if not self:WantsBillboard() then return end
+
+		self.billboard_entity = self:CreatePrimitiveEntity(
+			polygon,
+			material,
+			((self.Owner and self.Owner.Name) or "visual") .. "_billboard"
+		)
+	end)
+end
+
+function Visual:RemoveBillboard()
+	if self.billboard_entity then
+		self.billboard_entity:Remove()
+		self.billboard_entity = nil
+	end
+end
+
+function Visual:SetBillboard(enabled)
+	objects.CommitProperty(self, "Billboard", enabled)
+
+	if enabled and self.ModelPath ~= "" and not self.Loading then
+		self:AddBillboard()
+	end
+end
+
 function Visual:SetModelPath(path)
 	self.LoadGeneration = (self.LoadGeneration or 0) + 1
 	local load_generation = self.LoadGeneration
@@ -1227,6 +1280,8 @@ function Visual:SetModelPath(path)
 			self.Skeleton = data.skeleton
 			self:SetLoading(false)
 			self:BuildAABB()
+
+			if self:WantsBillboard() then self:AddBillboard() end
 		end,
 		function(data)
 			if not self:IsValid() or self.LoadGeneration ~= load_generation then
@@ -1263,11 +1318,13 @@ end
 
 function Visual:RebuildRenderEntries()
 	local entries = {}
+	local lod_entries = {}
 	local bounds = create_empty_aabb()
 	local has_ignore_z_entries = false
 	local has_opaque_entries = false
 	local has_translucent_entries = false
 	local has_glass_entries = false
+	local base_level = math.huge
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
 		local primitive = child.visual_primitive
@@ -1280,18 +1337,14 @@ function Visual:RebuildRenderEntries()
 				local transform = child.transform
 				local material = primitive:GetMaterial()
 
-				if self.MaterialSlotOverrides then
+				if self.MaterialSlotOverrides and not polygon3d.LODBillboard then
 					material = self.MaterialSlotOverrides[polygon3d:GetMaterialSlot()] or material
 				end
-
-				local resolved_material = self.MaterialOverride or material or render3d.GetDefaultMaterial()
-
-				if resolved_material:GetNoDraw() then goto continue end
 
 				local local_matrix = transform and transform:GetLocalMatrix() or nil
 				local local_matrix_inverse = local_matrix and local_matrix:GetInverse() or nil
 				local local_aabb = build_transformed_aabb(source_aabb, local_matrix)
-				entries[#entries + 1] = {
+				local entry = {
 					entity = child,
 					primitive = primitive,
 					acceleration_owner = primitive,
@@ -1304,21 +1357,86 @@ function Visual:RebuildRenderEntries()
 					source_aabb = source_aabb,
 				}
 
-				if material_ignores_z(resolved_material) then
-					has_ignore_z_entries = true
-				elseif material_is_translucent(resolved_material) then
-					has_translucent_entries = true
+				if self:GetResolvedMaterial(entry):GetNoDraw() then goto continue end
 
-					if resolved_material:IsGlass() then has_glass_entries = true end
-				else
-					has_opaque_entries = true
-				end
+				local level = polygon3d.LODLevel
 
-				if local_aabb then bounds:Expand(local_aabb) end
+				if level < base_level then base_level = level end
+
+				lod_entries[#lod_entries + 1] = entry
 			end
 		end
 
 		::continue::
+	end
+
+	local levels = {}
+
+	for _, entry in ipairs(lod_entries) do
+		local level = entry.polygon3d.LODLevel
+		local distance = entry.polygon3d.LODDistance
+
+		if level == base_level then
+			entries[#entries + 1] = entry
+		elseif not levels[level] or distance < levels[level] then
+			levels[level] = distance
+		end
+	end
+
+	for _, entry in ipairs(entries) do
+		local resolved_material = self:GetResolvedMaterial(entry)
+
+		if material_ignores_z(resolved_material) then
+			has_ignore_z_entries = true
+		elseif material_is_translucent(resolved_material) then
+			has_translucent_entries = true
+
+			if resolved_material:IsGlass() then has_glass_entries = true end
+		else
+			has_opaque_entries = true
+		end
+
+		if entry.aabb then bounds:Expand(entry.aabb) end
+	end
+
+	if next(levels) then
+		local sorted = {base_level}
+		levels[base_level] = 0
+
+		for level in pairs(levels) do
+			if level ~= base_level then sorted[#sorted + 1] = level end
+		end
+
+		table.sort(sorted)
+		local ranks = {}
+
+		for rank, level in ipairs(sorted) do
+			local previous = levels[sorted[rank - 1]]
+			ranks[level] = rank
+
+			if previous and levels[level] < previous then levels[level] = previous end
+		end
+
+		local has_billboard = false
+
+		for _, entry in ipairs(lod_entries) do
+			if entry.polygon3d.LODBillboard then has_billboard = true end
+		end
+
+		for _, entry in ipairs(lod_entries) do
+			local rank = ranks[entry.polygon3d.LODLevel]
+			entry.lod_level = rank - 1
+			entry.lod_near = levels[sorted[rank]]
+			entry.lod_far = sorted[rank + 1] and levels[sorted[rank + 1]] or lod.NEVER
+			entry.lod_last = #sorted - 1
+			entry.lod_billboard = entry.polygon3d.LODBillboard
+			-- shadows skip the billboard, so the level before it stays for them
+			entry.lod_before_billboard = has_billboard and rank == #sorted - 1
+		end
+
+		self.LODRenderEntries = lod_entries
+	else
+		self.LODRenderEntries = entries
 	end
 
 	self.RenderEntries = entries
@@ -1396,7 +1514,123 @@ function Visual:GetWorldAABB()
 end
 
 function Visual:GetResolvedMaterial(entry)
+	if entry.polygon3d.LODBillboard then return entry.material end
+
 	return self.MaterialOverride or entry.material or render3d.GetDefaultMaterial()
+end
+
+-- the entries the scene bvh is built from: one fixed level, the most detailed unless lod_bvh_level says
+-- otherwise, and never a billboard
+function Visual:GetBVHRenderEntries()
+	local level = lod.GetBVHLevel()
+	local entries = self:GetLODRenderEntries()
+
+	if level == 0 or entries == self.RenderEntries then return self.RenderEntries end
+
+	local cache = self.bvh_entries
+
+	if cache and cache.source == entries and cache.level == level then
+		return cache.list
+	end
+
+	local last = 0
+
+	for _, entry in ipairs(entries) do
+		if not entry.lod_billboard and entry.lod_level > last then
+			last = entry.lod_level
+		end
+	end
+
+	local target = math.min(level, last)
+	local list = {}
+
+	for _, entry in ipairs(entries) do
+		if not entry.lod_billboard and entry.lod_level == target then
+			list[#list + 1] = entry
+		end
+	end
+
+	self.bvh_entries = {source = entries, level = level, list = list}
+	return list
+end
+
+-- the entries the screen shows for a camera: the level the cull passes pick at that distance, without the
+-- cross fade. a billboard stands for the last mesh level before it, as its quads say little about where the
+-- model is
+function Visual:GetLODEntriesAt(camera_position)
+	local entries = self:GetLODRenderEntries()
+
+	if entries == self.RenderEntries then return entries end
+
+	local aabb = self:GetWorldAABB()
+	local center_x, center_y, center_z = (aabb.min_x + aabb.max_x) * 0.5,
+	(aabb.min_y + aabb.max_y) * 0.5,
+	(aabb.min_z + aabb.max_z) * 0.5
+	local dx, dy, dz = camera_position.x - center_x, camera_position.y - center_y, camera_position.z - center_z
+	local extent_x, extent_y, extent_z = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z
+	local radius = math.sqrt(extent_x * extent_x + extent_y * extent_y + extent_z * extent_z) * 0.5
+	local ratio = math.sqrt(dx * dx + dy * dy + dz * dz) / (
+			math.max(radius, 0.001) * lod.GetScale()
+		)
+	local forced = lod.GetForcedLevel()
+	local first = entries[1]
+	local target = first.lod_last
+
+	if forced >= 0 then
+		target = math.min(forced, first.lod_last)
+	else
+		for _, entry in ipairs(entries) do
+			if
+				(
+					entry.lod_level == 0 or
+					ratio >= entry.lod_near
+				)
+				and
+				(
+					entry.lod_level == entry.lod_last or
+					ratio < entry.lod_far
+				)
+			then
+				target = entry.lod_level
+
+				break
+			end
+		end
+	end
+
+	local cache = self.lod_entry_lists
+
+	if not cache or cache.source ~= entries then
+		cache = {source = entries}
+		self.lod_entry_lists = cache
+	end
+
+	local list = cache[target]
+
+	if not list then
+		list = {}
+
+		for _, entry in ipairs(entries) do
+			if
+				entry.lod_level == target and
+				not entry.lod_billboard or
+				entry.lod_before_billboard and
+				target > entry.lod_level
+			then
+				list[#list + 1] = entry
+			end
+		end
+
+		cache[target] = list
+	end
+
+	return list
+end
+
+function Visual:GetLODRenderEntries()
+	if self.RenderEntriesDirty then self:RebuildRenderEntries() end
+
+	return self.LODRenderEntries
 end
 
 do
@@ -1413,6 +1647,28 @@ do
 	visual.AABB_CHANGED_BOXES = nil
 	visual.AABB_CHANGED_COMPONENTS = nil
 	visual.AABB_CHANGED_ALL = false
+
+	event.AddListener("LODSettingsChanged", "visual_lod_settings", function()
+		visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
+
+		if visual.bvh_level ~= lod.GetBVHLevel() then
+			visual.bvh_level = lod.GetBVHLevel()
+
+			for _, component in ipairs(Visual.Instances) do
+				scene_bvh.Invalidate(component)
+			end
+		end
+
+		for _, component in ipairs(Visual.Instances) do
+			if component.ModelPath ~= "" and not component.Loading then
+				if component:WantsBillboard() then
+					component:AddBillboard()
+				elseif not component.Billboard then
+					component:RemoveBillboard()
+				end
+			end
+		end
+	end)
 
 	event.AddListener("OnTransformChanged", "visual_aabb_scan", function(transform)
 		local owner = transform.Owner

@@ -153,6 +153,7 @@ Material:GetSet("SpecularFromRoughnessMask", false, {callback = "InvalidateFlags
 Material:GetSet("RoughnessMaskOnlyScalesSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
+Material:GetSet("Billboard", false, {callback = "InvalidateFlags"})
 Material:GetSet("OriginalMaterial", "", {multiline = true})
 Material:GetSet("BaseTextureTransformU", Vec4(1, 0, 0, 0), {callback = "InvalidateRayMaterial"})
 Material:GetSet("BaseTextureTransformV", Vec4(0, 1, 0, 0), {callback = "InvalidateRayMaterial"})
@@ -408,6 +409,7 @@ local FLAGS = {
 	"NormalAlphaIsCoverage",
 	"SpecularFromRoughnessMask",
 	"RoughnessMaskOnlyScalesSpecular",
+	"Billboard",
 }
 
 for i, flag_name in ipairs(FLAGS) do
