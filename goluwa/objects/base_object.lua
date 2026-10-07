@@ -14,11 +14,23 @@ objects.GetSet(META, "Name", "")
 objects.GetSet(META, "Description", "")
 objects.EndStorable()
 
+do
+	local session = (
+		"%x%x%s"
+	):format(os.time(), math.floor(os.clock() * 1000000), ("%p"):format({}):sub(3))
+	local counter = 0
+
+	function objects.GenerateGUID()
+		counter = counter + 1
+		return ("%s-%x"):format(session, counter)
+	end
+end
+
 function META:GetGUID()
 	local guid = self.GUID
 
 	if guid == nil or guid == "" then
-		guid = ("%p%p"):format(self, getmetatable(self))
+		guid = objects.GenerateGUID()
 		self:SetGUID(guid)
 		return guid
 	end

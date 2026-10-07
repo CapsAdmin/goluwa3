@@ -5,9 +5,11 @@ META.Network = {
 	ModelOptions = {"table", 0.5, "reliable"},
 	MaterialConfig = {"table", 0.5, "reliable"},
 }
+META:StartStorable()
 META:GetSet("ModelPath", "", {callback = "Rebuild"})
 META:GetSet("ModelOptions", nil, {callback = "Rebuild"})
 META:GetSet("MaterialConfig", nil, {callback = "Rebuild"})
+META:EndStorable()
 META:GetSet("Material", nil, {callback = "Rebuild"})
 
 function META:Initialize()
