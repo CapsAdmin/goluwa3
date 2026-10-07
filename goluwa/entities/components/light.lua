@@ -9,6 +9,7 @@ Light.Network = {
 	ConstantFalloff = {"number", 0.5, "reliable"},
 	LinearFalloff = {"number", 0.5, "reliable"},
 	QuadraticFalloff = {"number", 0.5, "reliable"},
+	ScatterRadius = {"number", 0.5, "reliable"},
 	OcclusionMap = {"boolean", 0.5, "reliable"},
 	Visible = {"boolean", 0.5, "reliable"},
 }
@@ -19,6 +20,7 @@ Light:GetSet("SourceRadius", 0, {validate = "number"})
 Light:GetSet("ConstantFalloff", 0, {validate = "number"})
 Light:GetSet("LinearFalloff", 0, {validate = "number"})
 Light:GetSet("QuadraticFalloff", 1, {validate = "number"})
+Light:GetSet("ScatterRadius", 0, {validate = "number"})
 Light:GetSet("OcclusionMap", true)
 Light:GetSet("Visible", true)
 Light:EndStorable()

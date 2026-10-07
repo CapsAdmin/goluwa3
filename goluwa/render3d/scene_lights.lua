@@ -174,6 +174,7 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 			data.falloff[0] = light.SourceRadius ^ 2 + light.ConstantFalloff
 			data.falloff[1] = light.LinearFalloff
 			data.falloff[2] = light.QuadraticFalloff
+			data.falloff[3] = light.ScatterRadius ^ 2
 
 			if light.Type == "light_sun" then
 				data.position[3] = 0
@@ -225,6 +226,7 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 			data.falloff[0] = 0
 			data.falloff[1] = 0
 			data.falloff[2] = 0
+			data.falloff[3] = 0
 		end
 	end
 

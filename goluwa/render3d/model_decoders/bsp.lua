@@ -88,6 +88,13 @@ local warm_pvar = pvars.Setup2{
 	help = "scales bsp lights that are redder than they are blue, candles and fires",
 	callback = update_bsp_lights,
 }
+local fog_core_pvar = pvars.Setup2{
+	key = "bsp_light_fog_core",
+	default = 1.5,
+	min = 0,
+	help = "radius of the soft core bsp lights have in fog, as a fraction of their fifty percent distance, 0 is a hot point",
+	callback = update_bsp_lights,
+}
 pvars.EndGroup()
 -- the fog is lit by the scene and tinted by the controller's colour, its brightest channel scaled to this
 -- the visibility distance is scaled because source's fog is linear and ours exponential
@@ -288,6 +295,7 @@ do
 			constant_falloff = core,
 			linear_falloff = l * s,
 			quadratic_falloff = q,
+			scatter_radius = (d50 > 0 and d50 * s or 10) * fog_core_pvar:Get(),
 		}
 	end
 end
@@ -299,6 +307,7 @@ function apply_source_light(light, info)
 	light:SetConstantFalloff(params.constant_falloff)
 	light:SetLinearFalloff(params.linear_falloff)
 	light:SetQuadraticFalloff(params.quadratic_falloff)
+	light:SetScatterRadius(params.scatter_radius)
 	light:SetLumen(params.intensity * params.color:GetLuminance() * light:GetEmissionSolidAngle())
 end
 
