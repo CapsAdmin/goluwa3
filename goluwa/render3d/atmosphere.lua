@@ -45,6 +45,12 @@ local fog_density = pvars.Setup2{
 	min = 0,
 	help = "density of the low altitude fog at the ground, weather sets it from the visibility",
 }
+local fog_ray_strength = pvars.Setup2{
+	key = "fog_ray_strength",
+	default = 1,
+	min = 0,
+	help = "scales the sunlight the fog scatters toward the viewer, so light shafts get stronger without more fog",
+}
 pvars.EndGroup()
 atmosphere.precipitation_fog_density = 0
 atmosphere.wind = Vec3(0, 0, 0)
@@ -216,6 +222,9 @@ local atmosphere_shared_glsl = [[
 	#endif
 	#ifndef ATMOSPHERE_PRECIPITATION_FOG_DENSITY
 	#define ATMOSPHERE_PRECIPITATION_FOG_DENSITY 0.0
+	#endif
+	#ifndef ATMOSPHERE_FOG_RAY_STRENGTH
+	#define ATMOSPHERE_FOG_RAY_STRENGTH ]] .. string.format("%.6f\n", fog_ray_strength:Get()) .. [[
 	#endif
 
 	vec2 ray_sphere_intersect(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
@@ -759,7 +768,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 	// Sunlight scattered toward the viewer by the fog, forward peaked.
 	vec3 get_scenery_fog_sun(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
-		return ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), SCENERY_FOG_MIE_G);
+		return ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), SCENERY_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH;
 	}
 
 	// In-scattered radiance of the low altitude fog. gi_irradiance stands in
@@ -1177,6 +1186,7 @@ function atmosphere.GetBlockLayout()
 		{"atmosphere_stars_texture_index", "int"},
 		{"atmosphere_fog_density", "float"},
 		{"atmosphere_precipitation_fog_density", "float"},
+		{"atmosphere_fog_ray_strength", "float"},
 		{"atmosphere_fog_color", "vec4"},
 		{"atmosphere_cloud_sky_texture_index", "int"},
 		{"atmosphere_cloud_transmittance", "float"},
@@ -1210,6 +1220,7 @@ do
 		block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
 		block.atmosphere_fog_density = fog_density:Get()
 		block.atmosphere_precipitation_fog_density = atmosphere.precipitation_fog_density
+		block.atmosphere_fog_ray_strength = fog_ray_strength:Get()
 		local fog_color = atmosphere.fog_color
 		block.atmosphere_fog_color[0] = fog_color and fog_color.x or 0
 		block.atmosphere_fog_color[1] = fog_color and fog_color.y or 0
@@ -1243,7 +1254,7 @@ do
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_FOG_DENSITY " .. uniform_name .. ".atmosphere_fog_density\n" .. "#define ATMOSPHERE_PRECIPITATION_FOG_DENSITY " .. uniform_name .. ".atmosphere_precipitation_fog_density\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_FOG_DENSITY " .. uniform_name .. ".atmosphere_fog_density\n" .. "#define ATMOSPHERE_PRECIPITATION_FOG_DENSITY " .. uniform_name .. ".atmosphere_precipitation_fog_density\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
 function atmosphere.GetGLSLCode()
