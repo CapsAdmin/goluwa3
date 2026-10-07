@@ -1132,18 +1132,31 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 	]]
 end
 
-function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr)
+function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, phase_expr)
+	local alpha_test = phase_expr and
+		[[
+					float coverage = clamp((alpha - %s) / max(fwidth(alpha), 0.0001) + 0.5, 0.0, 1.0);
+					float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + %s);
+					if (coverage <= noise) discard;
+		]] or
+		[[
+					if (alpha < %s) discard;
+		]]
 	return (
 		[[
 			void compute_translucency_and_discard(inout float alpha) {
 				if (AlphaTest) {
-					if (alpha < %s) discard;
+]] .. alpha_test .. [[
 				} else if (Translucent) {
 					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (%s)) discard;
 				}
 			}
 		]]
-	):format(alpha_cutoff_expr, coverage_expr or "alpha * alpha")
+	):format(
+		alpha_cutoff_expr,
+		phase_expr or coverage_expr or "alpha * alpha",
+		phase_expr and (coverage_expr or "alpha * alpha") or nil
+	)
 end
 
 function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr)
@@ -1647,7 +1660,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			float get_alpha() {
 				return get_alpha_uv(in_uv);
 			}
-	]=] .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff") .. [[
+	]=] .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff", nil, camera_block_name .. ".noise_phase") .. [[
 			vec3 get_vertex_normal() {
 				vec3 N = in_normal;
 

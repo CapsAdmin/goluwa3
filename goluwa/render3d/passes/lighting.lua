@@ -97,7 +97,6 @@ return {
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
-					{"noise_phase", "float"},
 					{"screen_shadows", "int"},
 					{"screen_shadows_debug", "int"},
 					{"screen_shadow_length", "float"},
@@ -115,11 +114,6 @@ return {
 					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
 					block.screen_shadow_length = screen_shadow_length:Get()
 					block.screen_shadow_steps = screen_shadow_steps:Get()
-					block.noise_phase = render3d.IsAntiAliasingEnabled("edge_aa_t") and
-						system.GetFrameNumber() % 2 * 0.5 or
-						render3d.IsTemporalAntiAliasingEnabled() and
-						system.GetFrameNumber() % 16 * 0.618034 or
-						0
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))

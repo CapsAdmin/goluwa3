@@ -63,6 +63,7 @@ render3d.camera_block = {
 	{"render_size", "vec2"},
 	{"camera_position", "vec3"},
 	{"normal_map_strength", "float"},
+	{"noise_phase", "float"},
 }
 
 function render3d.WriteCameraBlock(self, block)
@@ -78,6 +79,7 @@ function render3d.WriteCameraBlock(self, block)
 	block.render_size[1] = size and size.y or 1
 	camera:GetPosition():CopyToFloatPointer(block.camera_position)
 	block.normal_map_strength = normal_map_strength:Get()
+	block.noise_phase = render3d.GetNoisePhase()
 	return block
 end
 
@@ -321,6 +323,18 @@ function render3d.IsAntiAliasingEnabled(mode)
 	end
 
 	return render3d.IsPassEnabled(mode)
+end
+
+function render3d.GetNoisePhase()
+	if render3d.IsAntiAliasingEnabled("edge_aa_t") then
+		return system.GetFrameNumber() % 2 * 0.5
+	end
+
+	if render3d.IsTemporalAntiAliasingEnabled() then
+		return system.GetFrameNumber() % 16 * 0.618034
+	end
+
+	return 0
 end
 
 function render3d.IsTemporalAntiAliasingEnabled()

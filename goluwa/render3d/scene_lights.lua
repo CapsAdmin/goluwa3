@@ -48,6 +48,7 @@ function scene_lights.BuildShadowsBlockLayout()
 		{"local_directional_shadow_light_index", "int"},
 		{"cascade_count", "int"},
 		{"sun_angular_radius_tan", "float"},
+		{"noise_phase", "float"},
 		unpack(clouds.GetShadowBlockLayout()),
 	}
 end
@@ -308,6 +309,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	shadow_block.local_directional_shadow_texel_world_size = 0
 	shadow_block.cascade_count = 0
 	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
+	shadow_block.noise_phase = render3d.GetNoisePhase()
 	clouds.WriteShadowBlock(self, shadow_block)
 
 	for i = 0, 15 do
