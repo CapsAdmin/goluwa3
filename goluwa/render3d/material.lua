@@ -1591,7 +1591,11 @@ do
 				self:SetInvertRoughnessTexture(false)
 			end
 
-			if not self:HasExplicitMetallicTexture() and pbr[2] then
+			if
+				not self:HasExplicitMetallicTexture() and
+				not self.SpecularSolvesMetallic and
+				pbr[2]
+			then
 				self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
 			end
 		end

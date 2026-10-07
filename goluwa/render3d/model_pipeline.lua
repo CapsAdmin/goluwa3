@@ -1154,7 +1154,8 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 					%s == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
 					AlbedoAlphaIsEmissive ||
-					BlendTintByBaseAlpha
+					BlendTintByBaseAlpha ||
+					!(AlphaTest || Translucent || Additive)
 				) {
 					return %s;
 				}
@@ -1629,7 +1630,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					model.AlbedoTexture == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
 					AlbedoAlphaIsEmissive ||
-					BlendTintByBaseAlpha
+					BlendTintByBaseAlpha ||
+					!(AlphaTest || Translucent || Additive)
 				) {
 					return color_model.ColorMultiplier.a;
 				}
