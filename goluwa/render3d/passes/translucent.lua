@@ -640,7 +640,19 @@ return {
 						perceptual_roughness,
 						world_pos
 					);
-					vec3 background = get_refracted_background(world_pos, exit_pos, exit_dir, reach, roughness, environment);
+					vec3 background;
+
+					if (lighting_data.refraction_tex < 0) {
+						background = environment;
+					} else if (refraction.thickness > 0.0) {
+						background = get_refracted_background(world_pos, exit_pos, exit_dir, reach, roughness, environment);
+					} else {
+						vec2 slope = (lighting_data.view * vec4(N - facing_N, 0.0)).xy;
+						vec2 uv = clamp(screen_uv + vec2(slope.x, -slope.y) * (refraction.ior - 1.0), vec2(0.0), vec2(1.0));
+						float blur_pixels = roughness * lighting_data.render_size.y * 0.05;
+						background = textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb / get_pre_exposure();
+					}
+
 					// the fraction of the background that comes through. the fogged
 					// scene it is taken from already holds the fog in front of the
 					// surface, so of that fog only what covers the rest is added,
