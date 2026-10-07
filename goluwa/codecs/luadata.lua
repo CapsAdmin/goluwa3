@@ -96,61 +96,64 @@ GGET
 CALL
 RET1]]
 local is_func_ok = opcode_checker(whitelist)
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Color = import("goluwa/structs/color.lua")
 local luadata = library()
 luadata.file_extensions = {"luadata"}
 local s = luadata
 luadata.is_func_ok = is_func_ok
-luadata.EscapeSequences = {
-	[(
-		"\a"
-	):byte()] = [[\a]],
-	[(
-		"\b"
-	):byte()] = [[\b]],
-	[(
-		"\f"
-	):byte()] = [[\f]],
-	[(
-		"\t"
-	):byte()] = [[\t]],
-	[(
-		"\r"
-	):byte()] = [[\r]],
-	[(
-		"\v"
-	):byte()] = [[\v]],
-}
-local tab = 0
+
+local function format_number(var)
+	if var ~= var then error("cannot encode nan", 0) end
+
+	if var == math.huge then return "1e999" end
+
+	if var == -math.huge then return "-1e999" end
+
+	if var == math.floor(var) and math.abs(var) < 1e15 then
+		return ("%d"):format(var)
+	end
+
+	for precision = 15, 17 do
+		local str = ("%." .. precision .. "g"):format(var)
+
+		if tonumber(str) == var then return str end
+	end
+end
+
 luadata.Types = {
-	["number"] = function(var)
-		return ("%s"):format(var)
-	end,
+	["number"] = format_number,
 	["string"] = function(var)
 		return ("%q"):format(var)
 	end,
 	["boolean"] = function(var)
-		return ("%s"):format(var and "true" or "false")
+		return var and "true" or "false"
 	end,
-	["Vector"] = function(var)
-		return ("Vector(%s, %s, %s)"):format(var.x, var.y, var.z)
+	["vec3"] = function(var)
+		return (
+			"Vec3(%s, %s, %s)"
+		):format(format_number(var.x), format_number(var.y), format_number(var.z))
 	end,
-	["Angle"] = function(var)
-		return ("Angle(%s, %s, %s)"):format(var.p, var.y, var.r)
+	["quat"] = function(var)
+		return (
+			"Quat(%s, %s, %s, %s)"
+		):format(
+			format_number(var.x),
+			format_number(var.y),
+			format_number(var.z),
+			format_number(var.w)
+		)
 	end,
-	["table"] = function(var)
-		if
-			type(var.r) == "number" and
-			type(var.g) == "number" and
-			type(var.b) == "number" and
-			type(var.a) == "number"
-		then
-			return ("Color(%s, %s, %s, %s)"):format(var.r, var.g, var.b, var.a)
-		end
-
-		tab = tab + 1
-		local str = luadata.Encode(var, true)
-		tab = tab - 1
-		return str
+	["color"] = function(var)
+		return (
+			"Color(%s, %s, %s, %s)"
+		):format(
+			format_number(var.r),
+			format_number(var.g),
+			format_number(var.b),
+			format_number(var.a)
+		)
 	end,
 }
 
@@ -162,32 +165,112 @@ function luadata.Type(var)
 	return typex(var)
 end
 
+local function compare_keys(a, b)
+	local type_a, type_b = type(a), type(b)
+
+	if type_a ~= type_b then return type_a < type_b end
+
+	if type_a == "number" or type_a == "string" then return a < b end
+
+	return tostring(a) < tostring(b)
+end
+
+local function encode_key(key)
+	if type(key) == "string" and key:find("^[%a_][%w_]*$") and not luadata.Keywords[key] then
+		return key
+	end
+
+	return "[" .. luadata.ToString(key) .. "]"
+end
+
+luadata.Keywords = {}
+
+for word in (
+	"and break do else elseif end false for function goto if in local nil not or repeat return then true until while"
+):gmatch("%a+") do
+	luadata.Keywords[word] = true
+end
+
+local encode_table
+
+local function encode_value(value, depth)
+	if type(value) == "table" and not luadata.Types[typex(value)] then
+		return encode_table(value, depth)
+	end
+
+	return luadata.ToString(value)
+end
+
+encode_table = function(tbl, depth)
+	local indent = ("\t"):rep(depth + 1)
+	local lines = {}
+	local array_count = 0
+
+	for i = 1, #tbl do
+		if tbl[i] == nil then break end
+
+		array_count = i
+	end
+
+	for i = 1, array_count do
+		local value = encode_value(tbl[i], depth + 1)
+
+		if value == nil then
+			error("cannot encode value of type " .. typex(tbl[i]) .. " at index " .. i, 0)
+		end
+
+		lines[#lines + 1] = indent .. value .. ","
+	end
+
+	local keys = {}
+
+	for key in pairs(tbl) do
+		if
+			not (
+				type(key) == "number" and
+				key >= 1 and
+				key <= array_count and
+				key == math.floor(key)
+			)
+		then
+			keys[#keys + 1] = key
+		end
+	end
+
+	table.sort(keys, compare_keys)
+
+	for _, key in ipairs(keys) do
+		local value = encode_value(tbl[key], depth + 1)
+
+		if value == nil then
+			error(
+				"cannot encode value of type " .. typex(tbl[key]) .. " at key " .. tostring(key),
+				0
+			)
+		end
+
+		lines[#lines + 1] = indent .. encode_key(key) .. " = " .. value .. ","
+	end
+
+	if #lines == 0 then return "{}" end
+
+	return "{\n" .. table.concat(lines, "\n") .. "\n" .. ("\t"):rep(depth) .. "}"
+end
+
 function luadata.ToString(var)
 	local func = s.Types[s.Type(var)]
 	return func and func(var)
 end
 
-function luadata.Encode(tbl, __brackets)
+function luadata.Encode(tbl)
 	if luadata.Hushed then return end
 
-	local str = __brackets and "{\n" or ""
-
-	for key, value in pairs(tbl) do
-		value = s.ToString(value)
-		key = s.ToString(key)
-
-		if key and value and key ~= "__index" then
-			str = str .. ("\t"):rep(tab) .. ("[%s] = %s,\n"):format(key, value)
-		end
-	end
-
-	str = str .. ("\t"):rep(tab - 1) .. (__brackets and "}" or "")
-	return str
+	return (encode_table(tbl, 0):sub(4, -3):gsub("\n\t", "\n"))
 end
 
 local env = {
-	Vector = Vector,
-	Angle = Angle,
+	Vec3 = Vec3,
+	Quat = Quat,
 	Color = Color,
 }
 
