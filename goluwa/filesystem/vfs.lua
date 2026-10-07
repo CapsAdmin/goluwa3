@@ -3,6 +3,7 @@ local file_path = import("goluwa/filesystem/path.lua")
 local vfs = {}
 vfs.use_appdata = false
 vfs.mounted_paths = vfs.mounted_paths or {}
+vfs.mount_generation = vfs.mount_generation or 0
 
 do
 	function vfs.Mount(where, to, userdata)
@@ -44,6 +45,7 @@ do
 					not vfs.IsPathAbsolute(path_info_where.full_path),
 			}
 		)
+		vfs.mount_generation = vfs.mount_generation + 1
 		vfs.ClearTranslateCache()
 	end
 
@@ -54,6 +56,7 @@ do
 		for i, v in ipairs(vfs.mounted_paths) do
 			if v.full_where:lower() == where:lower() and v.full_to:lower() == to:lower() then
 				list.remove(vfs.mounted_paths, i)
+				vfs.mount_generation = vfs.mount_generation + 1
 				vfs.ClearTranslateCache()
 				return true
 			end

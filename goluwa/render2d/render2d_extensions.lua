@@ -513,6 +513,32 @@ function render2d.DrawShape(tbl)
 	if has_transform then render2d.PopTransform() end
 end
 
+function render2d.DrawBox(x, y, w, h, radius, fill, outline, outline_width)
+	render2d.PushShapeMode("none")
+	render2d.PushColorUV()
+	render2d.PushTexture(nil)
+	render2d.PushBorderRadius(radius)
+	render2d.PushSDFSoftness(default_sdf_softness)
+
+	if fill then
+		render2d.SetColor(fill.r, fill.g, fill.b, fill.a)
+		render2d.DrawRectf(x, y, w, h)
+	end
+
+	if outline then
+		render2d.PushOutlineWidth(outline_width)
+		render2d.SetColor(outline.r, outline.g, outline.b, outline.a)
+		render2d.DrawRectf(x, y, w, h)
+		render2d.PopOutlineWidth()
+	end
+
+	render2d.PopSDFSoftness()
+	render2d.PopBorderRadius()
+	render2d.PopTexture()
+	render2d.PopColorUV()
+	render2d.PopShapeMode()
+end
+
 do
 	local default_font_name = fonts.GetDefaultSystemFontPath()
 

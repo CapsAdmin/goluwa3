@@ -2,6 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
@@ -64,6 +65,7 @@ local function create_preview_pipeline()
 		RasterizationSamples = "1",
 		vertex = model_pipeline.CreateVertexStage{
 			normal = true,
+			tangent = true,
 			uv = true,
 		},
 		fragment = {
@@ -73,6 +75,7 @@ local function create_preview_pipeline()
 					block = {
 						{"LightDirectionStrength", "vec4"},
 						{"LightingParams", "vec4"},
+						{"ViewDirection", "vec4"},
 					},
 					write = function(self, block)
 						local direction = active_preview:GetLightDirection()
@@ -84,6 +87,11 @@ local function create_preview_pipeline()
 						block.LightingParams[1] = 0
 						block.LightingParams[2] = 0
 						block.LightingParams[3] = 0
+						local view = active_preview:GetViewOffset():GetNormalized()
+						block.ViewDirection[0] = view.x
+						block.ViewDirection[1] = view.y
+						block.ViewDirection[2] = view.z
+						block.ViewDirection[3] = 0
 						return block
 					end,
 				},
@@ -101,10 +109,18 @@ local function create_preview_pipeline()
 
 				discard_surface_alpha(albedo);
 
-				vec3 normal = normalize(in_normal);
+				vec3 normal = get_surface_normal(in_normal, in_tangent, in_uv);
 				vec3 light_dir = normalize(preview_data.LightDirectionStrength.xyz);
-				float diffuse = max(dot(normal, light_dir), 0.0) * preview_data.LightDirectionStrength.w;
+				vec3 view_dir = normalize(preview_data.ViewDirection.xyz);
+				float metallic = clamp(model.MetallicMultiplier, 0.0, 1.0);
+				float roughness = clamp(model.RoughnessMultiplier, 0.05, 1.0);
+				float n_dot_l = max(dot(normal, light_dir), 0.0);
+				float diffuse = n_dot_l * preview_data.LightDirectionStrength.w;
+				float shininess = mix(200.0, 6.0, roughness);
+				float highlight = pow(max(dot(normal, normalize(light_dir + view_dir)), 0.0), shininess) * n_dot_l * (1.0 - roughness * 0.75);
+				vec3 specular_color = mix(vec3(0.04), albedo.rgb, metallic);
 				vec3 lit = albedo.rgb * (preview_data.LightingParams.x + diffuse);
+				lit += specular_color * highlight * preview_data.LightDirectionStrength.w;
 				lit += get_surface_emissive(albedo.rgb);
 				set_color(vec4(lit, albedo.a));
 			}
@@ -184,6 +200,16 @@ function META:GetTexture()
 	return self:EnsureFramebuffer():GetColorTexture()
 end
 
+-- a framebuffer is sampled upside down by render2d, so this draws the upright image
+function META:Draw(x, y, w, h)
+	render2d.PushTexture(self:GetTexture())
+	render2d.PushColorUV(0, 1, 1, 0, 0)
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.DrawRect(x, y, w, h)
+	render2d.PopColorUV()
+	render2d.PopTexture()
+end
+
 function META:SetTarget(visual)
 	self.target = visual
 end
@@ -203,7 +229,13 @@ end
 function META:ConfigureCamera(visual)
 	local local_aabb = self:GetLocalAABB(visual)
 	local world_matrix = visual:GetWorldMatrix()
-	local center = world_matrix:TransformVector(Vec3(0, 0, 0))
+	local center = world_matrix:TransformVector(
+		Vec3(
+			(local_aabb.min_x + local_aabb.max_x) / 2,
+			(local_aabb.min_y + local_aabb.max_y) / 2,
+			(local_aabb.min_z + local_aabb.max_z) / 2
+		)
+	)
 	local forward = (-self:GetViewOffset()):GetNormalized()
 	local yaw = math.atan2(-forward.x, -forward.z)
 	local pitch = math.asin(math.max(-1, math.min(1, forward.y)))
@@ -228,7 +260,7 @@ function META:ConfigureCamera(visual)
 	end
 
 	local half_height = math.max(max_up, max_right / aspect)
-	half_height = math.max(half_height * self:GetPadding(), 0.1)
+	half_height = math.max(half_height * self:GetPadding(), 1e-4)
 	local distance = math.max(max_depth + half_height * 2, 1)
 	local position = center - forward * distance
 	self.camera:SetViewport(Rect(0, 0, self:GetWidth(), self:GetHeight()))

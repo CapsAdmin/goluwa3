@@ -37,6 +37,15 @@ function CONTEXT:GetFiles(path_info)
 	return files
 end
 
+function CONTEXT:GetFilesRecursive(path_info, callback, virtual_path)
+	local path = path_info.full_path
+	local files = fs.walk(path, nil, {}, nil, true)
+
+	for i = 1, files.n or 0 do
+		callback(virtual_path .. files[i]:sub(#path + 1))
+	end
+end
+
 function CONTEXT:IsFile(path_info)
 	return fs.get_type(path_info.full_path) == "file"
 end

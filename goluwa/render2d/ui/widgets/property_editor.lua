@@ -13,6 +13,7 @@ local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local ColorPicker = import("goluwa/render2d/ui/widgets/color_picker.lua")
+local PropertyAsset = import("goluwa/render2d/ui/widgets/properties/asset.lua")
 local PropertyBoolean = import("goluwa/render2d/ui/widgets/properties/boolean.lua")
 local PropertyEnum = import("goluwa/render2d/ui/widgets/properties/enum.lua")
 local PropertyNumber = import("goluwa/render2d/ui/widgets/properties/number.lua")
@@ -157,6 +158,7 @@ local property_types = {
 		end,
 	},
 	string = {widget = PropertyString},
+	asset = {widget = PropertyAsset},
 	action = {widget = "button"},
 	material = {
 		widget = PropertyObject,
@@ -954,7 +956,7 @@ return function(props)
 	local function build_property_node(target, category_key, category_name, info, hooks)
 		local resolved_type = property_type_aliases[info.type] or info.type
 		local enums = info.enums or info.get_enums and info.get_enums(target)
-		local node_type = enums and "enum" or resolved_type
+		local node_type = enums and "enum" or info.asset and "asset" or resolved_type
 		local value
 		local get_value
 
@@ -981,6 +983,7 @@ return function(props)
 			Max = info.max,
 			ShowSlider = info.slider,
 			Multiline = info.multiline,
+			AssetCategory = info.asset,
 		}
 		local display_type = node_type
 

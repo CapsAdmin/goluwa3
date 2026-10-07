@@ -140,9 +140,7 @@ local function build_tile(definition)
 					render2d.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
 
 					if preview and preview.IsValid and preview:IsValid() then
-						render2d.SetTexture(preview:GetTexture())
-						render2d.SetColor(1, 1, 1, 1)
-						render2d.DrawRect(6, 6, size.x - 12, size.y - 12)
+						preview:Draw(6, 6, size.x - 12, size.y - 12)
 					end
 				end,
 			},

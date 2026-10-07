@@ -47,6 +47,18 @@ local function unpack_numbers(str)
 end
 
 local function on_load_vmt(self, vmt)
+	local SRGBTexture, LinearTexture = SRGBTexture, LinearTexture
+	local private_prefix = self.private_prefix
+
+	if private_prefix then
+		SRGBTexture = function(path)
+			return Texture.New{path = path, srgb = true, cache_key = private_prefix .. "srgb|" .. path}
+		end
+		LinearTexture = function(path)
+			return Texture.New{path = path, srgb = false, cache_key = private_prefix .. "linear|" .. path}
+		end
+	end
+
 	self.vmt = vmt
 	self:SetMetallicMultiplier(0)
 
@@ -297,9 +309,7 @@ local function on_load_vmt(self, vmt)
 
 	if vmt.alphatest == 1 then self:SetAlphaTest(true) end
 
-	if vmt.alphatestreference then
-		self:SetAlphaCutoff(vmt.alphatestreference)
-	end
+	if vmt.alphatestreference then self:SetAlphaCutoff(vmt.alphatestreference) end
 
 	if vmt.nocull then self:SetDoubleSided(true) end
 
@@ -637,20 +647,29 @@ vmt_stats = vmt_stats or {
 	values = {},
 }
 
-function vmt_material.FromVMT(path)
+-- a private_prefix makes a material that is not shared through the cache and owns its textures, release it with vmt_material.Release
+function vmt_material.FromVMT(path, private_prefix)
 	local cache_key = get_vmt_cache_key(path)
-	local cached_material = vmt_material_cache[cache_key]
 
-	if cached_material then
-		Material.RecordCacheRequest("vmt", cache_key, cached_material)
-		return cached_material
+	if not private_prefix then
+		local cached_material = vmt_material_cache[cache_key]
+
+		if cached_material then
+			Material.RecordCacheRequest("vmt", cache_key, cached_material)
+			return cached_material
+		end
 	end
 
 	local self = Material.New()
 	self:SetName(path)
 	self.vmt_path = cache_key
-	self.upload_cache_key = cache_key
-	vmt_material_cache[cache_key] = self
+	self.private_prefix = private_prefix
+
+	if not private_prefix then
+		self.upload_cache_key = cache_key
+		vmt_material_cache[cache_key] = self
+	end
+
 	local cb = vmt_loader.Load(cache_key, function(vmt)
 		on_load_vmt(self, track_vmt(vmt))
 	end, function(err)
@@ -660,9 +679,36 @@ function vmt_material.FromVMT(path)
 
 	if tasks.GetActiveTask() then cb:TryGet() end
 
-	Material.RecordCacheRequest("vmt", cache_key, self)
+	if not private_prefix then
+		Material.RecordCacheRequest("vmt", cache_key, self)
+	end
+
 	return self
 end
+
+function vmt_material.Release(material)
+	local prefix = material.private_prefix
+	local fallback_image = Texture.GetFallback().image
+
+	for _, info in ipairs(material:GetTextures()) do
+		local texture = info.texture
+
+		if
+			texture:IsValid() and
+			texture.cache_key and
+			texture.cache_key:starts_with(prefix) and
+			texture.image ~= fallback_image
+		then
+			texture:Remove()
+		end
+	end
+
+	material:Remove()
+end
+
+Material.RegisterOverrideLoader(".vmt", function(path)
+	return nil, vmt_material.FromVMT(path)
+end)
 
 commands.Add("dump_unused_vmt_properties", function()
 	local unused = {}

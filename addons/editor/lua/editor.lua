@@ -7,6 +7,7 @@ local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local input = import("goluwa/input.lua")
+local event = import("goluwa/event.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -745,8 +746,13 @@ return function(props)
 		end
 	end
 
+	event.AddListener("EditorSelect", editor_window, function(target)
+		set_selected_target(target)
+	end)
+
 	editor_window:CallOnRemove(
 		function()
+			event.RemoveListener("EditorSelect", editor_window)
 			highlight.SetEntity()
 			Gizmo.Clear()
 			view:Remove()

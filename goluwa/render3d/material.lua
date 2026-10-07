@@ -500,6 +500,22 @@ function Material:GetDebugFlagMap()
 	return tbl
 end
 
+function Material:GetTextures()
+	local out = {}
+
+	for _, info in ipairs(objects.GetStorableVariables(self)) do
+		if info.type == "render_texture" then
+			local texture = self[info.var_name]
+
+			if texture then
+				out[#out + 1] = {name = info.var_name:gsub("Texture$", ""), texture = texture}
+			end
+		end
+	end
+
+	return out
+end
+
 function Material:GetFillFlags()
 	return self.Flags
 end

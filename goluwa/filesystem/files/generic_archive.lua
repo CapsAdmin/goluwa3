@@ -203,6 +203,64 @@ function CONTEXT:GetFiles(path_info)
 	return out
 end
 
+do
+	local function walk(node, prefix, callback)
+		for name, child in pairs(node) do
+			if name ~= "k" and name ~= "v" then
+				local entry = child.v
+
+				if entry and entry.is_file then
+					callback(prefix .. name, entry.size)
+				else
+					walk(child, prefix .. name .. "/", callback)
+				end
+			end
+		end
+	end
+
+	function CONTEXT:GetFilesRecursive(path_info, callback, virtual_path)
+		local tree, relative = self:GetFileTree(path_info)
+
+		if not tree then return end
+
+		local node = tree.tree
+		local real = {}
+
+		for key in relative:gmatch("[^/]+") do
+			local child = node[key]
+
+			if child then
+				real[#real + 1] = key
+			else
+				local lower = key:lower()
+
+				for name, other in pairs(node) do
+					if name ~= "k" and name ~= "v" and name:lower() == lower then
+						child = other
+						real[#real + 1] = name
+
+						break
+					end
+				end
+			end
+
+			if not child then return end
+
+			node = child
+		end
+
+		local prefix = virtual_path
+
+		if #real > 0 then
+			local real_path = table.concat(real, "/") .. "/"
+
+			if #real_path == #virtual_path then prefix = real_path end
+		end
+
+		walk(node, prefix, callback)
+	end
+end
+
 function CONTEXT:TranslateArchivePath(file_info)
 	return file_info.archive_path
 end

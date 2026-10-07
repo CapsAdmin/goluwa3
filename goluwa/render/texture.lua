@@ -403,9 +403,9 @@ function Texture.New(config)
 		if config.srgb and not format:ends_with("_srgb") then
 			local test = format:replace("_unorm", "_srgb")
 
-			if import("goluwa/bindings/vk.lua").e.VkFormat(test) then
+			if pcall(import("goluwa/bindings/vk.lua").e.VkFormat, test) then
 				format = test
-			else
+			elseif not format:starts_with("bc4") and not format:starts_with("bc5") then
 				print("Warning: sRGB format requested but not available for", format)
 			end
 		end
@@ -519,7 +519,6 @@ function Texture.New(config)
 		self.view = view
 		self.format = format
 		self.is_compressed = is_compressed
-		self.vulkan_info = vulkan_info
 
 		if self.debug_name then
 			self:SetDebugName(self.debug_name)
@@ -1008,7 +1007,6 @@ function Texture:OnRemove()
 
 	self.view = nil
 	self.image = nil
-	self.vulkan_info = nil
 	self.reflectivity = nil
 	self.image_data_cache = nil
 end

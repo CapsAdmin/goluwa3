@@ -4,6 +4,7 @@ local vfs = import("goluwa/vfs.lua")
 assets.categories = assets.categories or {}
 assets.cache = assets.cache or {}
 assets.virtual_assets = assets.virtual_assets or {}
+assets.indexes = assets.indexes or {}
 
 local function normalize_path(path)
 	assert(type(path) == "string", "asset path must be a string")
@@ -231,26 +232,6 @@ function assets.ResolvePath(path, category_name, all_candidates)
 	return nil, candidates
 end
 
-local function make_browser_entry(category_name, path, root, kind)
-	return {
-		path = path,
-		category = category_name,
-		root = root,
-		extension = get_extension(path),
-		kind = kind or (get_extension(path) == ".lua" and "lua" or "file"),
-		name = get_file_stem(path),
-	}
-end
-
-local function make_folder_entry(category_name, path, root)
-	return {
-		path = path,
-		category = category_name,
-		root = root,
-		name = file_path.GetFolderNameFromPath(path),
-	}
-end
-
 local function get_allowed_extensions(category)
 	if category.allowed_extensions then return category.allowed_extensions end
 
@@ -264,105 +245,282 @@ local function get_allowed_extensions(category)
 	return allowed
 end
 
-local function enumerate_browser_entries(category, root, path, recursive, out, seen)
-	local allowed_extensions = get_allowed_extensions(category)
+do
+	local function make_entry(category, path, root, kind, size, source)
+		local dir, file = path:match("^(.*/)([^/]*)$")
+		local name, ext = file:match("^(.*)(%.[^.]*)$")
 
-	for _, name in ipairs(vfs.Find(path)) do
-		local child_path = path
+		if name then ext = ext:lower() else name, ext = file, "" end
 
-		if not child_path:ends_with("/") then child_path = child_path .. "/" end
+		return {
+			path = path,
+			lower_path = path:lower(),
+			category = category.name,
+			root = root,
+			extension = ext,
+			kind = kind or (ext == ".lua" and "lua" or "file"),
+			name = name,
+			dir_path = dir,
+			size = size,
+			source = source,
+		}
+	end
 
-		child_path = normalize_path(child_path .. name)
-		local directory_path = child_path:ends_with("/") and child_path or (child_path .. "/")
+	local function get_shortest_root(category, lower_path)
+		local best
 
-		if vfs.IsDirectory(directory_path) then
-			if recursive then
-				enumerate_browser_entries(category, root, directory_path, recursive, out, seen)
+		for _, root in ipairs(category.roots) do
+			if
+				lower_path:starts_with(root:lower()) and
+				(
+					not best or
+					#root < #best
+				)
+			then
+				best = root
 			end
+		end
+
+		return best
+	end
+
+	local function new_folder(category, path, name, parent)
+		return {
+			path = path,
+			category = category.name,
+			name = name,
+			parent = parent,
+			folders = {},
+			entries = {},
+			count = 0,
+		}
+	end
+
+	local function ensure_folder(index, category, dir_path)
+		local lower = dir_path:lower()
+		local folder = index.folders[lower]
+
+		if folder then return folder end
+
+		local parent_path = dir_path:match("^(.*/)[^/]+/$")
+		local parent = parent_path and ensure_folder(index, category, parent_path) or index.root
+		folder = new_folder(category, dir_path, dir_path:match("([^/]+)/$"), parent)
+		index.folders[lower] = folder
+		list.insert(parent.folders, folder)
+		return folder
+	end
+
+	local function sort_by_lower_path(a, b)
+		return a.lower_path < b.lower_path
+	end
+
+	local function find_entry_position(entries, lower_path)
+		local low, high = 1, #entries
+
+		while low <= high do
+			local mid = math.floor((low + high) / 2)
+			local mid_path = entries[mid].lower_path
+
+			if mid_path < lower_path then
+				low = mid + 1
+			elseif mid_path > lower_path then
+				high = mid - 1
+			else
+				return mid, true
+			end
+		end
+
+		return low, false
+	end
+
+	local function add_entry(index, category, entry, sorted)
+		local root = get_shortest_root(category, entry.lower_path)
+
+		if not root then return end
+
+		entry.root = root
+		local folder = ensure_folder(index, category, entry.dir_path)
+		entry.folder = folder
+		index.by_path[entry.lower_path] = entry
+
+		if sorted then
+			list.insert(index.entries, find_entry_position(index.entries, entry.lower_path), entry)
+			list.insert(folder.entries, find_entry_position(folder.entries, entry.lower_path), entry)
 		else
-			local ext = get_extension(child_path)
-			local key = child_path:lower()
+			index.entries[#index.entries + 1] = entry
+			folder.entries[#folder.entries + 1] = entry
+		end
 
-			if ext and allowed_extensions[ext] and not seen[key] then
-				seen[key] = true
-				out[#out + 1] = make_browser_entry(category.name, child_path, root)
+		while folder do
+			folder.count = folder.count + 1
+			folder = folder.parent
+		end
+	end
+
+	local function remove_entry(index, entry)
+		index.by_path[entry.lower_path] = nil
+		local position, found = find_entry_position(index.entries, entry.lower_path)
+
+		if found then list.remove(index.entries, position) end
+
+		local folder = entry.folder
+		position, found = find_entry_position(folder.entries, entry.lower_path)
+
+		if found then list.remove(folder.entries, position) end
+
+		while folder do
+			folder.count = folder.count - 1
+
+			if folder.count == 0 and folder.parent then
+				index.folders[folder.path:lower()] = nil
+				list.remove_value(folder.parent.folders, folder)
 			end
+
+			folder = folder.parent
+		end
+	end
+
+	local function build_index(category)
+		local allowed = get_allowed_extensions(category)
+		local accepts = category.accepts
+		local index = {
+			category = category.name,
+			mount_generation = vfs.mount_generation,
+			version = 0,
+			entries = {},
+			by_path = {},
+			folders = {},
+			root = new_folder(category, "", category.name, nil),
+		}
+		local found = {}
+		local paths = {}
+
+		for _, root in ipairs(category.roots) do
+			vfs.FindRecursive(root, function(path, size, data)
+				local ext = path:match("(%.[^./]+)$")
+
+				if not ext then return end
+
+				ext = ext:lower()
+
+				if not allowed[ext] then return end
+
+				local lower = path:lower()
+
+				if found[lower] then return end
+
+				if accepts and not accepts(lower, ext) then return end
+
+				found[lower] = {path, size, data.context.Name}
+				paths[#paths + 1] = lower
+			end)
+		end
+
+		table.sort(paths)
+
+		for _, lower in ipairs(paths) do
+			local info = found[lower]
+			add_entry(index, category, make_entry(category, info[1], nil, nil, info[2], info[3]), false)
+		end
+
+		for virtual_path, virtual_asset in pairs(assets.virtual_assets) do
+			if virtual_asset.category == category.name then
+				add_entry(
+					index,
+					category,
+					make_entry(category, virtual_path, nil, virtual_asset.kind, nil, "virtual"),
+					true
+				)
+			end
+		end
+
+		table.sort(index.root.folders, function(a, b)
+			return a.path:lower() < b.path:lower()
+		end)
+
+		return index
+	end
+
+	function assets.GetIndex(category_name)
+		local category = get_category(category_name, category_name)
+		local index = assets.indexes[category_name]
+
+		if index and index.mount_generation == vfs.mount_generation then return index end
+
+		index = build_index(category)
+		assets.indexes[category_name] = index
+		return index
+	end
+
+	function assets.InvalidateIndex(category_name)
+		if category_name then
+			assets.indexes[category_name] = nil
+		else
+			assets.indexes = {}
+		end
+	end
+
+	function assets.IndexVirtualAsset(virtual_asset)
+		local index = assets.indexes[virtual_asset.category]
+
+		if not index then return end
+
+		local category = assets.categories[virtual_asset.category]
+		local entry = make_entry(category, virtual_asset.path, nil, virtual_asset.kind, nil, "virtual")
+		local existing = index.by_path[entry.lower_path]
+
+		if existing then remove_entry(index, existing) end
+
+		add_entry(index, category, entry, true)
+		index.version = index.version + 1
+	end
+
+	function assets.UnindexVirtualAsset(virtual_asset)
+		local index = assets.indexes[virtual_asset.category]
+
+		if not index then return end
+
+		local existing = index.by_path[virtual_asset.path:lower()]
+
+		if existing then
+			remove_entry(index, existing)
+			index.version = index.version + 1
 		end
 	end
 end
 
-local function build_scan_root(root, prefix)
-	if prefix and prefix ~= "" then
-		if prefix:lower():starts_with(root:lower()) then
-			root = prefix
-		else
-			root = root .. prefix
+local function find_prefix_folders(index, category, prefix)
+	local out = {}
+
+	for _, root in ipairs(category.roots) do
+		local path = root
+
+		if prefix then
+			path = prefix:lower():starts_with(root:lower()) and prefix or (root .. prefix)
 		end
+
+		if not path:ends_with("/") then path = path .. "/" end
+
+		local folder = index.folders[path:lower()]
+
+		if folder then out[#out + 1] = folder end
 	end
 
-	if not root:ends_with("/") then root = root .. "/" end
-
-	return root
-end
-
-local function is_direct_asset_child(path, scan_root_lower)
-	if not path:starts_with(scan_root_lower) then return false end
-
-	local remainder = path:sub(#scan_root_lower + 1)
-	return remainder ~= "" and not remainder:find("/", 1, true)
-end
-
-local function add_folder_entry(category, root, path, out, seen)
-	local key = path:lower()
-
-	if seen[key] then return end
-
-	seen[key] = true
-	out[#out + 1] = make_folder_entry(category.name, path, root)
+	return out
 end
 
 function assets.EnumerateFolders(category_name, options)
 	local category = get_category(category_name, category_name)
-	options = options or {}
-	local prefix = options.prefix and normalize_path(options.prefix) or nil
+	local prefix = options and options.prefix and normalize_path(options.prefix) or nil
 	local out = {}
-	local seen = {}
 
-	for _, root in ipairs(category.roots) do
-		local scan_root = build_scan_root(root, prefix)
-
-		for _, name in ipairs(vfs.Find(scan_root)) do
-			local child_path = normalize_path(scan_root .. "/" .. name)
-			local directory_path = child_path:ends_with("/") and child_path or (child_path .. "/")
-
-			if vfs.IsDirectory(directory_path) then
-				add_folder_entry(category, root, directory_path, out, seen)
-			end
-		end
-	end
-
-	for virtual_path, virtual_asset in pairs(assets.virtual_assets) do
-		if virtual_asset.category == category.name then
-			local root = starts_with_any_root(virtual_path, category.roots)
-
-			if root then
-				local scan_root = build_scan_root(root, prefix)
-
-				if virtual_path:lower():starts_with(scan_root:lower()) then
-					local remainder = virtual_path:sub(#scan_root + 1)
-					local folder_name = remainder:match("([^/]+)/")
-
-					if folder_name then
-						add_folder_entry(
-							category,
-							root,
-							normalize_path(scan_root .. "/" .. folder_name .. "/"),
-							out,
-							seen
-						)
-					end
-				end
-			end
+	for _, folder in ipairs(find_prefix_folders(assets.GetIndex(category_name), category, prefix)) do
+		for _, child in ipairs(folder.folders) do
+			out[#out + 1] = {
+				path = child.path,
+				category = category.name,
+				name = child.name,
+			}
 		end
 	end
 
@@ -376,44 +534,88 @@ end
 function assets.Enumerate(category_name, options)
 	local category = get_category(category_name, category_name)
 	options = options or {}
-	local recursive = not not options.recursive
 	local prefix = options.prefix and normalize_path(options.prefix) or nil
+	local index = assets.GetIndex(category_name)
 	local out = {}
 	local seen = {}
 
-	for _, root in ipairs(category.roots) do
-		local scan_root = build_scan_root(root, prefix)
-		enumerate_browser_entries(category, root, scan_root, recursive, out, seen)
-	end
+	for _, folder in ipairs(find_prefix_folders(index, category, prefix)) do
+		local candidates = folder.entries
 
-	for virtual_path, virtual_asset in pairs(assets.virtual_assets) do
-		if virtual_asset.category == category.name then
-			local virtual_path_lower = virtual_path:lower()
-			local root = starts_with_any_root(virtual_path, category.roots)
+		if options.recursive then
+			candidates = {}
+			local lower_prefix = folder.path:lower()
 
-			if root then
-				local scan_root_lower = build_scan_root(root, prefix):lower()
-				local matches_scope = recursive and
-					virtual_path_lower:starts_with(scan_root_lower) or
-					is_direct_asset_child(virtual_path_lower, scan_root_lower)
-
-				if matches_scope then
-					local key = virtual_path_lower
-
-					if not seen[key] then
-						seen[key] = true
-						list.insert(out, make_browser_entry(category.name, virtual_path, root, virtual_asset.kind))
-					end
+			for _, entry in ipairs(index.entries) do
+				if entry.lower_path:starts_with(lower_prefix) then
+					candidates[#candidates + 1] = entry
 				end
+			end
+		end
+
+		for _, entry in ipairs(candidates) do
+			if not seen[entry] then
+				seen[entry] = true
+				out[#out + 1] = entry
 			end
 		end
 	end
 
 	list.sort(out, function(a, b)
-		return a.path:lower() < b.path:lower()
+		return a.lower_path < b.lower_path
 	end)
 
 	return out
+end
+
+do
+	local function matches_all(lower_path, tokens)
+		for i = 1, #tokens do
+			if not lower_path:find(tokens[i], 1, true) then return false end
+		end
+
+		return true
+	end
+
+	function assets.Search(category_name, query, options)
+		local index = assets.GetIndex(category_name)
+		local entries = options and options.entries or index.entries
+		local prefix = options and options.prefix and options.prefix:lower() or nil
+		local tokens = {}
+
+		for token in query:lower():gmatch("%S+") do
+			tokens[#tokens + 1] = token
+		end
+
+		local first = tokens[1]
+		local exact, starts, contains, rest = {}, {}, {}, {}
+
+		for i = 1, #entries do
+			local entry = entries[i]
+			local lower_path = entry.lower_path
+
+			if (not prefix or lower_path:starts_with(prefix)) and matches_all(lower_path, tokens) then
+				local lower_name = entry.lower_name
+
+				if not lower_name then
+					lower_name = entry.name:lower()
+					entry.lower_name = lower_name
+				end
+
+				if lower_name == first then
+					exact[#exact + 1] = entry
+				elseif lower_name:starts_with(first) then
+					starts[#starts + 1] = entry
+				elseif lower_name:find(first, 1, true) then
+					contains[#contains + 1] = entry
+				else
+					rest[#rest + 1] = entry
+				end
+			end
+		end
+
+		return list.extend(list.extend(list.extend(exact, starts), contains), rest)
+	end
 end
 
 function assets.RegisterVirtualAsset(path, config)
@@ -429,13 +631,15 @@ function assets.RegisterVirtualAsset(path, config)
 		error(("unknown asset category for %q"):format(path), 2)
 	end
 
-	assets.virtual_assets[path] = {
+	local virtual_asset = {
 		path = path,
 		category = category_name,
 		kind = config.kind or (get_extension(path) == ".lua" and "lua" or "file"),
 		load = config.load,
 	}
-	return assets.virtual_assets[path]
+	assets.virtual_assets[path] = virtual_asset
+	assets.IndexVirtualAsset(virtual_asset)
+	return virtual_asset
 end
 
 function assets.RegisterVirtualTexture(path, load)
@@ -444,7 +648,12 @@ end
 
 function assets.UnregisterVirtualAsset(path)
 	path = normalize_path(path)
+	local virtual_asset = assets.virtual_assets[path]
+
+	if not virtual_asset then return end
+
 	assets.virtual_assets[path] = nil
+	assets.UnindexVirtualAsset(virtual_asset)
 end
 
 function assets.IsLoaded(path, options)
@@ -589,8 +798,8 @@ end
 assets.RegisterCategory(
 	"models",
 	{
-		roots = {"models/"},
-		extensions = {".lua", ".mdl", ".bsp", ".gltf", ".glb", ".obj"},
+		roots = {"models/", "objects/"},
+		extensions = {".lua", ".mdl", ".bsp", ".gltf", ".glb", ".obj", ".cgf"},
 		build_cache_key = default_cache_key,
 		load = function(path, options, entry)
 			local ext = get_extension(path)
@@ -647,9 +856,30 @@ assets.RegisterCategory(
 assets.RegisterCategory(
 	"materials",
 	{
-		roots = {"materials/"},
-		extensions = {".lua", ".vmt"},
-		load = false,
+		roots = {"materials/", "objects/"},
+		extensions = {".lua", ".vmt", ".mtl"},
+		load = function(path, options)
+			if get_extension(path) == ".lua" then
+				local material, err = load_lua_asset(path)
+
+				if not material then return nil, err end
+
+				if type(material) == "function" then
+					material = material(get_request_config(options))
+				end
+
+				if material.Type ~= "render3d_material" then
+					material = import("goluwa/render3d/material.lua").New(material)
+				end
+
+				return material
+			end
+
+			import("goluwa/source_engine/vmt_material.lua")
+			import("goluwa/cry_engine/mtl_material.lua")
+			local slots, material = import("goluwa/render3d/material.lua").GetOverrideFromPath(path)
+			return material or slots[0]
+		end,
 	}
 )
 assets.RegisterCategory(
@@ -667,28 +897,36 @@ assets.RegisterCategory("scenes", {
 })
 
 function assets.RefreshInternalTextures()
-	for virtual_path in pairs(assets.virtual_assets) do
-		if virtual_path:starts_with("textures/internals/") then
-			assets.virtual_assets[virtual_path] = nil
+	local current = {}
+
+	if RENDER_2D then
+		local Texture = import("goluwa/render/texture.lua")
+
+		for _, texture in pairs(Texture.Instances) do
+			if texture:IsValid() then
+				current["textures/internals/" .. tostring(texture):gsub("/", "|")] = texture
+			end
 		end
 	end
 
-	if not RENDER_2D then return end
+	for virtual_path in pairs(assets.virtual_assets) do
+		if virtual_path:starts_with("textures/internals/") and not current[virtual_path] then
+			assets.UnregisterVirtualAsset(virtual_path)
+		end
+	end
 
-	local Texture = import("goluwa/render/texture.lua")
-
-	for _, texture in pairs(Texture.Instances) do
-		if not texture:IsValid() then continue end
-
-		assets.RegisterVirtualAsset(
-			"textures/internals/" .. tostring(texture),
-			{
-				category = "textures",
-				load = function()
-					return texture:IsValid() and texture or nil
-				end,
-			}
-		)
+	for virtual_path, texture in pairs(current) do
+		if not assets.virtual_assets[virtual_path] then
+			assets.RegisterVirtualAsset(
+				virtual_path,
+				{
+					category = "textures",
+					load = function()
+						return texture:IsValid() and texture or nil
+					end,
+				}
+			)
+		end
 	end
 end
 
@@ -780,6 +1018,12 @@ function assets.GetTexture(path, options)
 	end
 
 	options.config = config
+	return assets.Load(path, options)
+end
+
+function assets.GetMaterial(path, options)
+	options = options or {}
+	options.category = "materials"
 	return assets.Load(path, options)
 end
 

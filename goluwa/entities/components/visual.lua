@@ -1059,8 +1059,12 @@ Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 20000)
 Visual:GetSet("Billboard", false)
 Visual:GetSet("ClipBounds", nil, {type = "table"})
-Visual:GetSet("ModelPath", "")
-Visual:GetSet("MaterialOverridePath", "", {callback = "LoadMaterialOverride"})
+Visual:GetSet("ModelPath", "", {asset = "models"})
+Visual:GetSet(
+	"MaterialOverridePath",
+	"",
+	{callback = "LoadMaterialOverride", asset = "materials"}
+)
 Visual:EndStorable()
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("MaterialSlotOverrides", nil)

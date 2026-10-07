@@ -9,10 +9,13 @@ local FLOAT_SIZE = ffi.sizeof("float")
 local SURFACE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
+	{type = "texture", name = "NormalTexture", getter = "GetNormalTexture"},
 	{type = "texture", name = "EmissiveTexture", getter = "GetEmissiveTexture"},
 	{type = "vec4", name = "ColorMultiplier", getter = "GetColorMultiplier"},
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
+	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
+	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
 }
 local PBR_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
@@ -1201,8 +1204,34 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 	)
 end
 
+function model_pipeline.BuildNormalDecodeGlsl()
+	return [[
+			vec3 decode_normal_map(vec2 xy) {
+				xy = xy * 2.0 - 1.0;
+
+				return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
+			}
+
+			// source's bump basis, the directions an ssbump texel holds the light of
+			vec3 decode_normal_texture(vec4 texel) {
+				if (!NormalTextureIsSSBump) {
+					return decode_normal_map(texel.xy);
+				}
+
+				vec3 w = sqrt(texel.rgb);
+				vec3 n = normalize(
+					w.r * vec3(0.81649661, 0.0, 0.57735026) +
+					w.g * vec3(-0.40824821, 0.70710677, 0.57735026) +
+					w.b * vec3(-0.40824821, -0.70710677, 0.57735026)
+				);
+
+				return n;
+			}
+]]
+end
+
 function model_pipeline.BuildSurfaceSamplingGlsl()
-	return Material.BuildGlslFlags("model.Flags") .. [[
+	return Material.BuildGlslFlags("model.Flags") .. model_pipeline.BuildNormalDecodeGlsl() .. [[
 
 			vec4 get_surface_color() {
 				vec4 color = model.ColorMultiplier;
@@ -1222,6 +1251,19 @@ function model_pipeline.BuildSurfaceSamplingGlsl()
 
 			void discard_surface_alpha(vec4 color) {
 				if (AlphaTest && color.a < model.AlphaCutoff) discard;
+			}
+
+			vec3 get_surface_normal(vec3 normal, vec4 tangent, vec2 uv) {
+				normal = normalize(normal);
+
+				if (model.NormalTexture == -1) {
+					return normal;
+				}
+
+				vec3 t = normalize(tangent.xyz);
+				vec3 b = cross(normal, t) * tangent.w;
+
+				return normalize(mat3(t, b, normal) * decode_normal_texture(texture(TEXTURE(model.NormalTexture), uv)));
 			}
 
 			vec3 get_surface_emissive(vec3 albedo) {
@@ -1710,28 +1752,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return normalize(vec3((left - right) / (2.0 * texel.x), (down - up) / (2.0 * texel.y), 1.0 / displacement_model.HeightScale));
 			}
 
-			vec3 decode_normal_map(vec2 xy) {
-				xy = xy * 2.0 - 1.0;
-
-				return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
-			}
-
-			// source's bump basis, the directions an ssbump texel holds the light of
-			vec3 decode_normal_texture(vec4 texel) {
-				if (!NormalTextureIsSSBump) {
-					return decode_normal_map(texel.xy);
-				}
-
-				vec3 w = sqrt(texel.rgb);
-				vec3 n = normalize(
-					w.r * vec3(0.81649661, 0.0, 0.57735026) +
-					w.g * vec3(-0.40824821, 0.70710677, 0.57735026) +
-					w.b * vec3(-0.40824821, -0.70710677, 0.57735026)
-				);
-
-				return n;
-			}
-
+			]] .. model_pipeline.BuildNormalDecodeGlsl() .. [[
 			vec3 get_normal_map(vec2 uv) {
 				vec3 N = vec3(0.0, 0.0, 1.0);
 

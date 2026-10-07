@@ -191,3 +191,67 @@ T.Test3D("Visual MakeError creates a cube with the fallback texture", function()
 	T(primitive:GetPolygon3D() ~= nil)["=="](true)
 	entity:Remove()
 end)
+
+T.Test3D("Model preview Draw flips the framebuffer vertically so the model is upright", function()
+	local render2d = import("goluwa/render2d/render2d.lua")
+	local preview = ModelPreview.New()
+	local sentinel_texture = {}
+	local calls = {}
+	local original = {}
+
+	local function record(name)
+		original[name] = render2d[name]
+		render2d[name] = function(...)
+			calls[#calls + 1] = {name, ...}
+		end
+	end
+
+	for _, name in ipairs{
+		"PushTexture",
+		"PushColorUV",
+		"SetColor",
+		"DrawRect",
+		"PopColorUV",
+		"PopTexture",
+	} do
+		record(name)
+	end
+
+	preview.GetTexture = function()
+		return sentinel_texture
+	end
+	local ok, err = pcall(preview.Draw, preview, 1, 2, 30, 40)
+
+	for name, func in pairs(original) do
+		render2d[name] = func
+	end
+
+	preview.GetTexture = nil
+	preview:Remove()
+
+	if not ok then error(err, 0) end
+
+	local color_uv
+
+	for _, call in ipairs(calls) do
+		if call[1] == "PushColorUV" then color_uv = call end
+	end
+
+	T(calls[1][1])["=="]("PushTexture")
+	T(calls[1][2] == sentinel_texture)["=="](true)
+	T(color_uv[2])["=="](0)
+	T(color_uv[3])["=="](1)
+	T(color_uv[4])["=="](1)
+	T(color_uv[5])["=="](0)
+
+	for _, call in ipairs(calls) do
+		if call[1] == "DrawRect" then
+			T(call[2])["=="](1)
+			T(call[3])["=="](2)
+			T(call[4])["=="](30)
+			T(call[5])["=="](40)
+		end
+	end
+
+	T(calls[#calls][1])["=="]("PopTexture")
+end)

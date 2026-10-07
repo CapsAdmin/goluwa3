@@ -185,3 +185,107 @@ T.Test3D("Assets load procedural model descriptors from the game addon models fo
 	vfs.Unmount("addons/game/", "")
 	assets.ClearCache()
 end)
+
+local function write_index_fixture(name)
+	local mount_root = make_mounted_asset_root(name)
+	local root = mount_root .. "/models/" .. name
+	assert(vfs.CreateDirectory(mount_root .. "/models"))
+	assert(vfs.CreateDirectory(root))
+	assert(vfs.CreateDirectory(root .. "/sub"))
+	assert(vfs.CreateDirectory(root .. "/sub/deeper"))
+	assert(vfs.CreateDirectory(root .. "/Sub2"))
+	assert(vfs.Write(root .. "/a.mdl", "x"))
+	assert(vfs.Write(root .. "/subtitle.mdl", "x"))
+	assert(vfs.Write(root .. "/notes.txt", "x"))
+	assert(vfs.Write(root .. "/sub/b.mdl", "x"))
+	assert(vfs.Write(root .. "/sub/deeper/c.lua", "return {}"))
+	assert(vfs.Write(root .. "/Sub2/D.MDL", "x"))
+	vfs.Mount(mount_root, "")
+	return mount_root
+end
+
+T.Test("Assets index builds a sorted folder tree with recursive counts", function()
+	local mount_root = write_index_fixture("index_tree")
+	local index = assets.GetIndex("models")
+	local folder = index.folders["models/index_tree/"]
+	T(folder ~= nil)["=="](true)
+	T(folder.count)["=="](5)
+	T(#folder.entries)["=="](2)
+	T(folder.entries[1].path)["=="]("models/index_tree/a.mdl")
+	T(folder.entries[2].path)["=="]("models/index_tree/subtitle.mdl")
+	T(#folder.folders)["=="](2)
+	T(folder.folders[1].name)["=="]("sub")
+	T(folder.folders[2].name)["=="]("Sub2")
+	T(index.folders["models/index_tree/sub/deeper/"].count)["=="](1)
+	T(index.folders["models/index_tree/sub/deeper/"].parent == index.folders["models/index_tree/sub/"])["=="](true)
+	T(index.by_path["models/index_tree/sub2/d.mdl"].extension)["=="](".mdl")
+	T(index.by_path["models/index_tree/notes.txt"] == nil)["=="](true)
+	local previous = ""
+
+	for _, entry in ipairs(index.entries) do
+		T(entry.lower_path >= previous)["=="](true)
+		previous = entry.lower_path
+	end
+
+	cleanup_mounted_asset_root(mount_root)
+end)
+
+T.Test("Assets search matches every word and ranks name matches first", function()
+	local mount_root = write_index_fixture("index_search")
+	local results = assets.Search("models", "sub", {prefix = "models/index_search/"})
+	T(#results)["=="](4)
+	T(results[1].path)["=="]("models/index_search/subtitle.mdl")
+	T(results[2].path)["=="]("models/index_search/sub/b.mdl")
+	results = assets.Search("models", "b.mdl", {prefix = "models/index_search/"})
+	T(#results)["=="](1)
+	results = assets.Search("models", "deeper c")
+	T(#results)["=="](1)
+	T(results[1].path)["=="]("models/index_search/sub/deeper/c.lua")
+	results = assets.Search("models", "index_search MDL")
+	T(#results)["=="](4)
+	local narrowed = assets.Search("models", "index_search sub", {entries = results})
+	T(#narrowed)["=="](3)
+	T(#assets.Search("models", "zzz_no_such_asset"))["=="](0)
+	cleanup_mounted_asset_root(mount_root)
+end)
+
+T.Test("Assets index follows mounts and virtual assets without rescanning", function()
+	local mount_root = write_index_fixture("index_follow")
+	local index = assets.GetIndex("models")
+	T(index.by_path["models/index_follow/a.mdl"] ~= nil)["=="](true)
+	T(assets.GetIndex("models") == index)["=="](true)
+	assets.RegisterVirtualAsset(
+		"models/index_follow/virtual_one.lua",
+		{
+			category = "models",
+			load = function() end,
+		}
+	)
+	T(assets.GetIndex("models") == index)["=="](true)
+	T(index.by_path["models/index_follow/virtual_one.lua"].source)["=="]("virtual")
+	T(index.folders["models/index_follow/"].count)["=="](6)
+	assets.UnregisterVirtualAsset("models/index_follow/virtual_one.lua")
+	T(index.by_path["models/index_follow/virtual_one.lua"] == nil)["=="](true)
+	T(index.folders["models/index_follow/"].count)["=="](5)
+	cleanup_mounted_asset_root(mount_root)
+	local after = assets.GetIndex("models")
+	T(after == index)["=="](false)
+	T(after.by_path["models/index_follow/a.mdl"] == nil)["=="](true)
+end)
+
+T.Test("vfs.FindRecursive lists every file below a folder across mounts", function()
+	local mount_root = write_index_fixture("find_recursive")
+	local found = {}
+	local sizes = 0
+
+	vfs.FindRecursive("models/find_recursive/", function(path, size, data)
+		found[path] = data.context.Name
+		sizes = sizes + 1
+	end)
+
+	T(sizes)["=="](6)
+	T(found["models/find_recursive/a.mdl"])["=="]("os")
+	T(found["models/find_recursive/sub/deeper/c.lua"])["=="]("os")
+	T(found["models/find_recursive/Sub2/D.MDL"])["=="]("os")
+	cleanup_mounted_asset_root(mount_root)
+end)

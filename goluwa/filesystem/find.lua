@@ -97,6 +97,20 @@ function vfs.Find(path, full_path, reverse_sort, start, plain, verbose)
 	}
 end
 
+function vfs.FindRecursive(path, callback)
+	if not path:ends_with("/") then path = path .. "/" end
+
+	for _, data in ipairs(vfs.TranslatePath(path, true)) do
+		data.context:GetFilesRecursive(
+			data.path_info,
+			function(file_path, size)
+				callback(file_path, size, data)
+			end,
+			path
+		)
+	end
+end
+
 function vfs.Iterate(path, ...)
 	local tbl = vfs.Find(path, ...)
 	local i = 1

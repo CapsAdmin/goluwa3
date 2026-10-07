@@ -10,6 +10,7 @@ local Gizmo = import("lua/gizmo.lua")
 local event = import("goluwa/event.lua")
 local CameraComponent = import("lua/components/camera.lua")
 local AssetBrowser = import("lua/asset_browser.lua")
+local assets = import("goluwa/assets.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local picker = library()
 picker.include_transient = false
@@ -241,39 +242,30 @@ function picker.MouseInput(button, press)
 	cancel_picker()
 end
 
-function picker.PickMaterial(callback)
+function picker.PickAsset(category, current_path, callback)
 	Panel.World:Ensure(
 		AssetBrowser{
-			Key = "MaterialPicker",
-			PickerCategory = "materials",
-			OnPickAsset = function(_, material, window)
-				window:Remove()
-				callback(material)
-				return true
+			Key = "AssetPicker",
+			PickerCategory = category,
+			SelectedPath = current_path,
+			OnPick = function(entry)
+				callback(entry.path)
 			end,
 		}
 	)
 end
 
-function picker.PickTexture(callback)
-	Panel.World:Ensure(
-		AssetBrowser{
-			Key = "TexturePicker",
-			PickerCategory = "textures",
-			OnPickAsset = function(_, texture, window)
-				window:Remove()
-				callback(texture)
-				return true
-			end,
-		}
-	)
-end
-
-event.AddListener("PickObject", "picker", function(what, callback)
+event.AddListener("PickObject", "picker", function(what, callback, options)
 	if what == "material" then
-		picker.PickMaterial(callback)
+		picker.PickAsset("materials", nil, function(path)
+			callback(assets.GetMaterial(path))
+		end)
 	elseif what == "texture" then
-		picker.PickTexture(callback)
+		picker.PickAsset("textures", nil, function(path)
+			callback(assets.GetTexture(path))
+		end)
+	elseif what == "asset" then
+		picker.PickAsset(options.category, options.path, callback)
 	end
 end)
 

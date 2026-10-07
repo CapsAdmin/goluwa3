@@ -36,7 +36,7 @@ RigidBody.Network = {
 RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
 RigidBody:GetSet("Shapes", nil, {callback = "OnGeometryChanged"})
 RigidBody:StartStorable()
-RigidBody:GetSet("ShapeModelPath", "", {callback = "LoadShapeModel"})
+RigidBody:GetSet("ShapeModelPath", "", {callback = "LoadShapeModel", asset = "models"})
 RigidBody:GetSet(
 	"MotionType",
 	"dynamic",
@@ -503,7 +503,6 @@ function RigidBody:LoadShapeModel()
 
 			if not model.physics then
 				wlog("rigid_body: %s has no collision data", path)
-
 				return
 			end
 

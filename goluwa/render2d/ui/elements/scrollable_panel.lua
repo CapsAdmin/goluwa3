@@ -116,6 +116,19 @@ function META:OnCreate(props)
 	self.TrackX = self:AddChild(self:createTrack("x"))
 	self.HandleY = self:AddChild(self:createHandle("y"))
 	self.HandleX = self:AddChild(self:createHandle("x"))
+	self:applyScrollConfiguration()
+end
+
+function META:applyScrollConfiguration()
+	local layout = self.Viewport.layout
+	layout:SetDirection(self.Direction)
+	layout:SetAlignmentX(self.ScrollX and "start" or "stretch")
+	layout:SetAlignmentY(self.ScrollY and "start" or "stretch")
+	layout:SetMaxSize(Vec2(self.ScrollX and 1 or 0, self.ScrollY and 1 or 0))
+	layout:SetPadding(self.Padding)
+	self.TrackY.visual:SetVisible(self.ScrollY)
+	self.TrackX.visual:SetVisible(self.ScrollX)
+	self:updateHandle()
 end
 
 function META:PreChildAdd(child)
