@@ -1030,7 +1030,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 	local size = #input.mdl
 	local ok, phy_data = pcall(read_file, companion_path, ".phy")
 
-	if ok then
+	if ok and #phy_data > 0 then
 		input.phy = phy_data
 		size = size + #phy_data
 	end
