@@ -72,6 +72,7 @@ local BINDING_UNIFORM = 0
 local BINDING_MAP = 1
 local BINDING_BVH_NODES = 2
 local BINDING_BVH_TRIANGLES = 3
+local BINDING_SEE_THROUGH = 4
 local BINDING_BLUR_SRC = 1
 local BINDING_BLUR_DST = 2
 
@@ -254,7 +255,7 @@ local function build_trace_pipeline()
 
 			]] .. octahedral_glsl() .. [[
 
-			]] .. scene_bvh.GetTraversalGLSL() .. [[
+			]] .. scene_bvh.GetTraversalGLSL(BINDING_SEE_THROUGH) .. [[
 
 			const int LIGHT_OCCL_SUBS = ]] .. subs:Get() .. [[;
 
@@ -506,6 +507,8 @@ function light_occlusion.Draw(cmd)
 	)
 	pipeline:UpdateDescriptorSet("storage_image", slot, BINDING_MAP, 0, map_texture:GetView())
 	scene_bvh.BindBuffers(pipeline, slot, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
+	local see_through = scene_bvh.UpdateSeeThroughMaterials()
+	pipeline:UpdateDescriptorSet("storage_buffer", slot, BINDING_SEE_THROUGH, 0, see_through, see_through:GetSize())
 	pipeline:UploadConstants()
 	local size = get_map_size()
 	light_occlusion.last_dispatches = dirty_count

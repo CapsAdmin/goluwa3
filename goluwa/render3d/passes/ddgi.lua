@@ -1263,7 +1263,7 @@ local function pass_scene_debug()
 				[[
 					uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
 
-					if (ddgi_alpha_passes(candidate, rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query);
+					if (ddgi_materials[bvh_tri(candidate).material].refractive == 0 && ddgi_alpha_passes(candidate, rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query);
 		]] or
 				""
 			) .. [[

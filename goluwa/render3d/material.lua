@@ -355,6 +355,10 @@ function Material:IsTransparent()
 	return self.Translucent or self.Refraction > 0
 end
 
+function Material:IsSeeThrough()
+	return self.Refraction > 0 or self.Additive or self.Modulate
+end
+
 function Material:IsGlass()
 	return self.Refraction > 0 and not self.Additive
 end

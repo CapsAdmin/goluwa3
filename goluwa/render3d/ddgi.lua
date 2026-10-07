@@ -562,7 +562,7 @@ function ddgi.GetDefinesGLSL()
 		// GLSL leaves %% undefined for negative operands (NVIDIA treats them
 		// as unsigned), so shift into the positive range before wrapping
 		#define DDGI_WRAP(v, n) (((v) + (n) * 65536) %% (n))
-		// the instances a probe's visibility ray can hit, which leaves out foliage with ddgi.ALPHA_TEST
+		// the instances a probe's visibility ray can hit, which leaves out foliage and refractive surfaces with ddgi.ALPHA_TEST
 		#define DDGI_VISIBILITY_MASK %d
 		// a settled probe inside geometry has nothing to light and is retraced about once in
 		// DDGI_DISABLED_PROBE_FRAMES frames, to notice the geometry around it changing, whatever its
@@ -748,6 +748,8 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			int blend_tex;
 			// translucent or refractive, reflections look through it
 			int transparent;
+			// refracts, adds to or modulates what is behind it, so probe rays go on through
+			int refractive;
 		};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -1810,6 +1812,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t albedo2_tex;
 	int32_t blend_tex;
 	int32_t transparent;
+	int32_t refractive;
 }]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
@@ -1885,6 +1888,7 @@ function ddgi.WriteMaterialBuffer(self)
 
 			entry.glass = (glass_enabled and material:IsGlass()) and 1 or 0
 			entry.transparent = material:IsTransparent() and 1 or 0
+			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()
 			entry.albedo2_tex = albedo2 and albedo2:IsValid() and self:GetTextureIndex(albedo2) or -1
 			local blend_texture = material:GetBlendTexture()
@@ -2166,6 +2170,9 @@ void main()
 
     // the sun's light goes on through glass, tinted by the lookup in the shade pass
     if (payload.sun != 0u && ddgi_materials[bvh_tri(triangle).material].glass != 0) ignoreIntersectionEXT;
+
+    // probe and emitter rays see what is behind refractive surfaces
+    if (payload.sun == 0u && ddgi_materials[bvh_tri(triangle).material].refractive != 0) ignoreIntersectionEXT;
 
     if (!ddgi_alpha_passes(triangle, barycentrics)) ignoreIntersectionEXT;
 }

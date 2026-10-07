@@ -1922,7 +1922,7 @@ do
 		end
 
 		local non_opaque, dithered = false, false
-		local alpha_tested, total = 0, 0
+		local alpha_tested, refractive, total = 0, 0, 0
 
 		for i = 1, slot_count do
 			local material = scene_bvh.materials[slots[i].material_id + 1]
@@ -1936,18 +1936,22 @@ do
 
 			if material:GetAlphaTest() then alpha_tested = alpha_tested + slots[i].count end
 
+			if material:IsSeeThrough() then
+				refractive = refractive + slots[i].count
+			end
+
 			if opacity > 0 and (opacity < 1 or (SOUP_UVS and material:HasShadowTexture())) then
 				dithered = true
 			end
 		end
 
-		local foliage = alpha_tested * 2 > total
+		local see_through = (alpha_tested + refractive) * 2 > total
 
 		if
 			vc.block_index and
 			(
 				vc.non_opaque ~= non_opaque or
-				vc.foliage ~= foliage or
+				vc.see_through ~= see_through or
 				vc.shadow_dithered ~= dithered
 			)
 		then
@@ -1959,7 +1963,7 @@ do
 		end
 
 		vc.non_opaque = non_opaque
-		vc.foliage = foliage
+		vc.see_through = see_through
 		vc.shadow_dithered = dithered
 
 		if fast and vc.block_index and vc.baked_matrix == v then
@@ -2440,8 +2444,15 @@ function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
 		):format(node_binding) .. scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
 end
 
-function scene_bvh.GetTraversalGLSL()
-	return [[
+function scene_bvh.GetTraversalGLSL(see_through_binding)
+	return (see_through_binding and
+		([[
+		// 1 for materials the ray flies through, see Material:IsSeeThrough
+		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHSeeThroughBuffer {
+			uint scene_bvh_see_through[];
+		};
+		#define SCENE_BVH_SKIP_SEE_THROUGH
+	]]):format(see_through_binding) or "") .. [[
 		#define SCENE_BVH_MISS 3.402823466e+38
 		#define SCENE_BVH_STACK_SIZE ]] .. scene_bvh.STACK_SIZE .. [[
 
@@ -2492,6 +2503,10 @@ function scene_bvh.GetTraversalGLSL()
 						float det = dot(tri.e1, pvec);
 
 						if (abs(det) < 1e-12) continue;
+
+						#ifdef SCENE_BVH_SKIP_SEE_THROUGH
+						if (scene_bvh_see_through[tri.material] != 0u) continue;
+						#endif
 
 						float inv_det = 1.0 / det;
 						vec3 tvec = origin - tri.v0;
@@ -2668,6 +2683,45 @@ do
 		pipeline:Dispatch(cmd, math.ceil(vertex_count / EXPAND_LOCAL_SIZE), 1, 1, slot)
 	end
 
+	local see_through = {capacity = 0, count = -1, material_generation = -1, flags_generation = -1}
+
+	function scene_bvh.UpdateSeeThroughMaterials()
+		local materials = scene_bvh.materials
+		local count = #materials
+
+		if count > see_through.capacity then
+			local capacity = math.max(count, math.ceil(see_through.capacity * 1.5), 256)
+
+			if see_through.buffer then see_through.buffer:Remove() end
+
+			see_through.buffer = render.CreateBuffer{
+				byte_size = capacity * 4,
+				buffer_usage = {"storage_buffer"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "scene_bvh_see_through_materials",
+			}
+			see_through.ptr = ffi.cast("uint32_t*", see_through.buffer:Map())
+			see_through.capacity = capacity
+			see_through.count = -1
+		end
+
+		if
+			see_through.count ~= count or
+			see_through.material_generation ~= Material.ray_material_generation or
+			see_through.flags_generation ~= Material.flags_generation
+		then
+			for i = 0, count - 1 do
+				see_through.ptr[i] = materials[i + 1]:IsSeeThrough() and 1 or 0
+			end
+
+			see_through.count = count
+			see_through.material_generation = Material.ray_material_generation
+			see_through.flags_generation = Material.flags_generation
+		end
+
+		return see_through.buffer
+	end
+
 	local shadow_materials = {capacity = 0, filled = 0, generation = -1}
 
 	function scene_bvh.UpdateShadowMaterials()
@@ -2785,7 +2839,7 @@ do
 	local INSTANCE_FORCE_OPAQUE = 0x04000000
 	local INSTANCE_FORCE_NO_OPAQUE = 0x08000000
 	local INSTANCE_MASK_SOLID = scene_bvh.RAY_MASK_SOLID * 0x1000000
-	local INSTANCE_MASK_FOLIAGE = 0x02 * 0x1000000
+	local INSTANCE_MASK_SEE_THROUGH = 0x02 * 0x1000000
 	local BLAS_ALIGN = 256
 	local BLAS_POOL_BYTES = 64 * 1024 * 1024
 	local SCRATCH_BUDGET = 128 * 1024 * 1024
@@ -2988,8 +3042,8 @@ do
 				vc.hidden and
 				0 or
 				(
-					vc.foliage and
-					INSTANCE_MASK_FOLIAGE or
+					vc.see_through and
+					INSTANCE_MASK_SEE_THROUGH or
 					INSTANCE_MASK_SOLID
 				)
 			) + vc.tri_base / SOUP_ALIGN
