@@ -271,7 +271,7 @@ function RigidBody:ResetGroundSupport()
 	self.GroundSupportMaxV = -math.huge
 end
 
-function RigidBody:AccumulateGroundSupportContact(normal, point)
+function RigidBody:AccumulateGroundSupportContact(normal, x, y, z)
 	if self.GroundSupportCount == 0 then
 		if not self.GroundSupportNormal then
 			self.GroundSupportNormal = Vec3()
@@ -287,13 +287,13 @@ function RigidBody:AccumulateGroundSupportContact(normal, point)
 		end
 
 		self.GroundSupportNormal:CopyFrom(normal)
-		self.GroundSupportPoint:CopyFrom(point)
+		self.GroundSupportPoint.x, self.GroundSupportPoint.y, self.GroundSupportPoint.z = x, y, z
 	end
 
 	local origin = self.GroundSupportPoint
-	local dx = point.x - origin.x
-	local dy = point.y - origin.y
-	local dz = point.z - origin.z
+	local dx = x - origin.x
+	local dy = y - origin.y
+	local dz = z - origin.z
 	local tangent = self.GroundSupportTangent
 	local bitangent = self.GroundSupportBitangent
 	local u = dx * tangent.x + dy * tangent.y + dz * tangent.z

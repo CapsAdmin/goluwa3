@@ -1,6 +1,8 @@
+local ffi = require("ffi")
 local physics_constants = import("goluwa/physics/constants.lua")
 local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
+local contact_solver = import("goluwa/physics/contact_solver.lua")
 local motion = import("goluwa/physics/motion.lua")
 local stats = import("goluwa/physics/stats.lua")
 local contact_resolution = {}
@@ -10,10 +12,6 @@ local TANGENT_VELOCITY = Vec3()
 local TANGENT = Vec3()
 local CORRECTION = Vec3()
 local CORRECTION_SHIFT = Vec3()
-local GROUND_OFFSET_A = Vec3()
-local GROUND_OFFSET_B = Vec3()
-local GROUND_CANDIDATE = Vec3()
-local GROUND_NORMAL_SCRATCH = Vec3()
 
 function contact_resolution.MarkPairGrounding(body_a, body_b, normal, rolling_friction)
 	if rolling_friction == nil then
@@ -21,86 +19,22 @@ function contact_resolution.MarkPairGrounding(body_a, body_b, normal, rolling_fr
 	end
 
 	if -normal.y >= body_a:GetMinGroundNormalY() then
-		body_a:SetGrounded(true)
-		body_a:SetGroundNormal(Vec3.SetScaled(GROUND_NORMAL_SCRATCH, normal, -1))
-		body_a:SetGroundRollingFriction(rolling_friction)
-		body_a:SetGroundBody(body_b)
-		body_a:SetGroundEntity(body_b:GetOwner())
+		body_a.Grounded = true
+		local ground_normal = body_a.GroundNormal
+		ground_normal.x, ground_normal.y, ground_normal.z = -normal.x, -normal.y, -normal.z
+		body_a.GroundRollingFriction = rolling_friction
+		body_a.GroundBody = body_b
+		body_a.GroundEntity = body_b:GetOwner()
 	end
 
 	if normal.y >= body_b:GetMinGroundNormalY() then
-		body_b:SetGrounded(true)
-		body_b:SetGroundNormal(normal)
-		body_b:SetGroundRollingFriction(rolling_friction)
-		body_b:SetGroundBody(body_a)
-		body_b:SetGroundEntity(body_a:GetOwner())
+		body_b.Grounded = true
+		local ground_normal = body_b.GroundNormal
+		ground_normal.x, ground_normal.y, ground_normal.z = normal.x, normal.y, normal.z
+		body_b.GroundRollingFriction = rolling_friction
+		body_b.GroundBody = body_a
+		body_b.GroundEntity = body_a:GetOwner()
 	end
-end
-
-local function accumulate_pair_ground_support(body_a, body_b, normal, point_a, point_b)
-	if body_a:GetGrounded() and -normal.y >= body_a:GetMinGroundNormalY() then
-		body_a:AccumulateGroundSupportContact(body_a.GroundNormal, point_a)
-	end
-
-	if body_b:GetGrounded() and normal.y >= body_b:GetMinGroundNormalY() then
-		body_b:AccumulateGroundSupportContact(body_b.GroundNormal, point_b)
-	end
-end
-
-local function try_mark_body_grounded_from_contacts(self_body, other_body, contacts, self_key, other_key)
-	if self_body:GetGrounded() then return end
-
-	local physics = self_body:GetPhysics()
-	local rolling_friction = physics.solver:GetPairRollingFriction(self_body, other_body)
-	local self_half = self_body:GetHalfExtents()
-	local other_half = other_body:GetHalfExtents()
-	local self_threshold = self_half.y * 0.25
-	local other_threshold = other_half.y * 0.25
-
-	for _, contact in ipairs(contacts or {}) do
-		local self_point = contact[self_key]
-		local other_point = contact[other_key]
-
-		if self_point and other_point then
-			local self_offset = Vec3.SetSub(GROUND_OFFSET_A, self_point, self_body:GetPosition())
-			local other_offset = Vec3.SetSub(GROUND_OFFSET_B, other_point, other_body:GetPosition())
-
-			if self_offset.y <= -self_threshold and other_offset.y >= other_threshold then
-				local candidate = Vec3.SetSub(GROUND_CANDIDATE, self_point, other_point)
-
-				if candidate:GetLength() <= EPSILON then
-					Vec3.SetSub(GROUND_CANDIDATE, self_body:GetPosition(), other_body:GetPosition())
-				end
-
-				if other_body:GetPosition().y <= self_body:GetPosition().y then
-					self_body:SetGrounded(true)
-					self_body:SetGroundNormal(physics_constants.UP)
-					self_body:SetGroundRollingFriction(rolling_friction)
-					self_body:SetGroundBody(other_body)
-					self_body:SetGroundEntity(other_body:GetOwner())
-					return
-				end
-
-				if candidate:GetLength() > EPSILON then
-					candidate:Normalize()
-
-					if candidate.y >= self_body:GetMinGroundNormalY() then
-						self_body:SetGrounded(true)
-						self_body:SetGroundNormal(candidate)
-						self_body:SetGroundRollingFriction(rolling_friction)
-						self_body:SetGroundBody(other_body)
-						self_body:SetGroundEntity(other_body:GetOwner())
-						return
-					end
-				end
-			end
-		end
-	end
-end
-
-local function mark_pair_grounding_from_contacts(body_a, body_b, contacts)
-	try_mark_body_grounded_from_contacts(body_a, body_b, contacts, "point_a", "point_b")
-	try_mark_body_grounded_from_contacts(body_b, body_a, contacts, "point_b", "point_a")
 end
 
 local function get_or_create_manifold_row(manifolds, body)
@@ -139,22 +73,152 @@ end
 local EMPTY_OPTIONS = {}
 local SINGLE_CONTACT = {}
 local SINGLE_CONTACTS = {SINGLE_CONTACT}
-local FINISH_WORLD_POINT_A = {
-	Vec3(),
-	Vec3(),
-	Vec3(),
-	Vec3(),
-	Vec3(),
-	Vec3(),
-}
-local FINISH_WORLD_POINT_B = {
-	Vec3(),
-	Vec3(),
-	Vec3(),
-	Vec3(),
-	Vec3(),
-	Vec3(),
-}
+local finish_points = ffi.new("double[?]", 6 * 16)
+local finish_capacity = 16
+
+local function compute_finish_points(manifold, body_a, body_b, cs, count)
+	if count > finish_capacity then
+		finish_capacity = finish_capacity * 2
+		finish_points = ffi.new("double[?]", 6 * finish_capacity)
+	end
+
+	local position, rotation
+
+	if manifold.simple_a then
+		position, rotation = body_a.Position, body_a.Rotation
+	else
+		position, rotation = body_a:GetPosition(), body_a:GetRotation()
+	end
+
+	local px, py, pz = position.x, position.y, position.z
+	local qx, qy, qz, qw = rotation.x, rotation.y, rotation.z, rotation.w
+
+	for i = 0, count - 1 do
+		local c = cs[i]
+		local lx, ly, lz = c.lax, c.lay, c.laz
+		local tx = 2 * (qy * lz - qz * ly)
+		local ty = 2 * (qz * lx - qx * lz)
+		local tz = 2 * (qx * ly - qy * lx)
+		finish_points[6 * i] = px + lx + qw * tx + (qy * tz - qz * ty)
+		finish_points[6 * i + 1] = py + ly + qw * ty + (qz * tx - qx * tz)
+		finish_points[6 * i + 2] = pz + lz + qw * tz + (qx * ty - qy * tx)
+	end
+
+	if manifold.simple_b then
+		position, rotation = body_b.Position, body_b.Rotation
+	else
+		position, rotation = body_b:GetPosition(), body_b:GetRotation()
+	end
+
+	px, py, pz = position.x, position.y, position.z
+	qx, qy, qz, qw = rotation.x, rotation.y, rotation.z, rotation.w
+
+	for i = 0, count - 1 do
+		local c = cs[i]
+		local lx, ly, lz = c.lbx, c.lby, c.lbz
+		local tx = 2 * (qy * lz - qz * ly)
+		local ty = 2 * (qz * lx - qx * lz)
+		local tz = 2 * (qx * ly - qy * lx)
+		finish_points[6 * i + 3] = px + lx + qw * tx + (qy * tz - qz * ty)
+		finish_points[6 * i + 4] = py + ly + qw * ty + (qz * tx - qx * tz)
+		finish_points[6 * i + 5] = pz + lz + qw * tz + (qx * ty - qy * tx)
+	end
+end
+
+-- A body not yet grounded by the pair normal may still stand on the other body when a contact sits
+-- low on it and high on the other one.
+local function try_mark_body_grounded_from_contacts(self_body, other_body, self_offset, other_offset, count, rolling_friction)
+	if self_body.Grounded then return end
+
+	local self_threshold = self_body:GetHalfExtents().y * 0.25
+	local other_threshold = other_body:GetHalfExtents().y * 0.25
+	local self_position = self_body:GetPosition()
+	local other_position = other_body:GetPosition()
+
+	for i = 0, count - 1 do
+		local self_x, self_y, self_z = finish_points[6 * i + self_offset],
+		finish_points[6 * i + self_offset + 1],
+		finish_points[6 * i + self_offset + 2]
+		local other_x, other_y, other_z = finish_points[6 * i + other_offset],
+		finish_points[6 * i + other_offset + 1],
+		finish_points[6 * i + other_offset + 2]
+
+		if
+			self_y - self_position.y <= -self_threshold and
+			other_y - other_position.y >= other_threshold
+		then
+			local cx, cy, cz = self_x - other_x, self_y - other_y, self_z - other_z
+			local length = math.sqrt(cx * cx + cy * cy + cz * cz)
+
+			if length <= EPSILON then
+				cx, cy, cz = self_position.x - other_position.x,
+				self_position.y - other_position.y,
+				self_position.z - other_position.z
+				length = math.sqrt(cx * cx + cy * cy + cz * cz)
+			end
+
+			local up = other_position.y <= self_position.y
+
+			if up or (length > EPSILON and cy / length >= self_body:GetMinGroundNormalY()) then
+				self_body.Grounded = true
+				local ground_normal = self_body.GroundNormal
+
+				if up then
+					ground_normal.x, ground_normal.y, ground_normal.z = 0, 1, 0
+				else
+					ground_normal.x, ground_normal.y, ground_normal.z = cx / length, cy / length, cz / length
+				end
+
+				self_body.GroundRollingFriction = rolling_friction
+				self_body.GroundBody = other_body
+				self_body.GroundEntity = other_body:GetOwner()
+				return
+			end
+		end
+	end
+end
+
+local function enqueue_single_manifold(body_a, body_b, manifold)
+	local physics = body_a:GetPhysics()
+	local solver = physics.solver
+
+	if manifold.last_warm_step == solver.StepStamp then return end
+
+	manifold.last_warm_step = solver.StepStamp
+	solver:QueuePositionPair(body_a, body_b, manifold)
+
+	if manifold.overlap > 0 then
+		physics.collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, manifold.overlap)
+	end
+
+	refresh_pair_materials(solver, body_a, body_b, manifold)
+	contact_solver.Add(
+		solver.BatchGroup,
+		manifold,
+		body_a,
+		body_b,
+		manifold.restitution,
+		manifold.friction,
+		manifold.static_friction,
+		manifolds.SupportsPersistentTangent(body_a, body_b, manifold)
+	)
+end
+
+function contact_resolution.EnqueueManifold(body_a, body_b, manifold)
+	if manifold.idle then
+		manifold.last_warm_step = body_a:GetPhysics().solver.StepStamp
+	else
+		enqueue_single_manifold(body_a, body_b, manifold)
+	end
+
+	local extra = manifold.extra
+
+	if extra then
+		for i = 1, #extra do
+			contact_resolution.EnqueueManifold(body_a, body_b, extra[i])
+		end
+	end
+end
 
 function contact_resolution.ApplyManifoldRestitution(body_a, body_b, manifold, dt)
 	if not manifold.idle then
@@ -170,110 +234,47 @@ function contact_resolution.ApplyManifoldRestitution(body_a, body_b, manifold, d
 	end
 end
 
-local function solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
-	local physics = body_a:GetPhysics()
-	local solver = physics.solver
-
-	if manifold.last_warm_step ~= solver.StepStamp then
-		manifolds.CaptureRestitutionBias(body_a, body_b, manifold.normal, manifold, solver.CollideStamp)
-
-		if manifold.prepared_step ~= solver.StepStamp then
-			manifolds.PrepareContacts(body_a, body_b, manifold.normal, manifold, solver.StepStamp)
-		end
-
-		manifolds.WarmStart(body_a, body_b, manifold.normal, manifold, dt)
-		manifold.last_warm_step = solver.StepStamp
-		solver:QueuePositionPair(body_a, body_b, manifold)
-
-		if manifold.overlap > 0 then
-			physics.collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, manifold.overlap)
-		end
-	end
-
-	refresh_pair_materials(solver, body_a, body_b, manifold)
-	return manifolds.SolveImpulses(
-		body_a,
-		body_b,
-		manifold.normal,
-		manifold,
-		dt,
-		relax,
-		manifold.restitution,
-		manifold.friction,
-		manifold.static_friction
-	)
-end
-
-local function solve_manifold_velocity_with_extra(body_a, body_b, manifold, extra, dt, relax)
-	if manifold.idle then
-		manifold.last_warm_step = body_a:GetPhysics().solver.StepStamp
-	else
-		solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
-	end
-
-	for i = 1, #extra do
-		contact_resolution.SolveManifoldVelocity(body_a, body_b, extra[i], dt, relax)
-	end
-end
-
-function contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt, relax)
-	local extra = manifold.extra
-
-	if extra then
-		return solve_manifold_velocity_with_extra(body_a, body_b, manifold, extra, dt, relax)
-	end
-
-	if manifold.idle then
-		manifold.last_warm_step = body_a:GetPhysics().solver.StepStamp
-		return
-	end
-
-	return solve_single_manifold_velocity(body_a, body_b, manifold, dt, relax)
-end
-
-function contact_resolution.FinishManifold(body_a, body_b, manifold)
-	local contacts = manifold.contacts
-
-	for i = 1, #contacts do
-		local contact = contacts[i]
-
-		if i <= 6 then
-			contact.point_a = body_a:LocalToWorld(contact.local_point_a, nil, nil, FINISH_WORLD_POINT_A[i])
-			contact.point_b = body_b:LocalToWorld(contact.local_point_b, nil, nil, FINISH_WORLD_POINT_B[i])
-		else
-			contact.point_a = body_a:LocalToWorld(contact.local_point_a)
-			contact.point_b = body_b:LocalToWorld(contact.local_point_b)
-		end
-	end
-
+function contact_resolution.FinishManifold(solver, body_a, body_b, manifold)
 	if manifold.resolve_options and manifold.resolve_options.skip_grounding then
 		return
 	end
 
-	local support_tolerance = math.max(body_a:GetPhysics().solver.PENETRATION_SLOP or 0, 0.005)
-
-	if manifold.overlap <= 0 then
-		local touching = false
-
-		for i = 1, #contacts do
-			if (contacts[i].separation or 0) <= support_tolerance then
-				touching = true
-
-				break
-			end
-		end
-
-		if not touching then return end
+	if manifold.overlap <= 0 and manifold.touched_stamp ~= solver.StepStamp then
+		return
 	end
 
-	contact_resolution.MarkPairGrounding(body_a, body_b, manifold.normal, manifold.rolling_friction)
-	mark_pair_grounding_from_contacts(body_a, body_b, contacts)
+	local cs = manifold.cs
+	local count = manifold.n
+	local normal = manifold.normal
+	compute_finish_points(manifold, body_a, body_b, cs, count)
+	contact_resolution.MarkPairGrounding(body_a, body_b, normal, manifold.rolling_friction)
+	try_mark_body_grounded_from_contacts(body_a, body_b, 0, 3, count, manifold.rolling_friction)
+	try_mark_body_grounded_from_contacts(body_b, body_a, 3, 0, count, manifold.rolling_friction)
+	local support_tolerance = math.max(solver.PENETRATION_SLOP or 0, 0.005)
+	local support_a = body_a.Grounded and -normal.y >= body_a:GetMinGroundNormalY()
+	local support_b = body_b.Grounded and normal.y >= body_b:GetMinGroundNormalY()
 
-	for i = 1, #contacts do
-		local contact = contacts[i]
+	if support_a or support_b then
+		for i = 0, count - 1 do
+			if cs[i].sep <= support_tolerance then
+				if support_a then
+					body_a:AccumulateGroundSupportContact(
+						body_a.GroundNormal,
+						finish_points[6 * i],
+						finish_points[6 * i + 1],
+						finish_points[6 * i + 2]
+					)
+				end
 
-		if (contact.separation or 0) <= support_tolerance then
-			accumulate_pair_ground_support(body_a, body_b, manifold.normal, contact.point_a, contact.point_b)
+				if support_b then
+					body_b:AccumulateGroundSupportContact(
+						body_b.GroundNormal,
+						finish_points[6 * i + 3],
+						finish_points[6 * i + 4],
+						finish_points[6 * i + 5]
+					)
+				end
+			end
 		end
 	end
 end
@@ -349,7 +350,6 @@ local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts
 	if manifold.last_rebuild_step ~= solver.StepStamp then
 		manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
 		body_a, body_b, options = nil, nil, nil
-		manifold.prepared_step = nil
 		local deepest = -math.huge
 		local normal_x, normal_y, normal_z = normal.x, normal.y, normal.z
 
@@ -484,7 +484,7 @@ function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluste
 
 		if not used[member_index] and not member.idle then
 			member.idle = true
-			member.contacts = {}
+			member.n = 0
 			member.overlap = -1
 		end
 	end
@@ -495,7 +495,7 @@ function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluste
 	head.solve_b = body_b
 	store_rebuild_pose(head, body_a, body_b)
 	set_pair_manifold(solver.PersistentManifolds, body_a, body_b, head)
-	contact_resolution.SolveManifoldVelocity(body_a, body_b, head, dt)
+	contact_resolution.EnqueueManifold(body_a, body_b, head)
 	return true
 end
 
@@ -520,7 +520,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		fill_manifold(manifold, body_a, body_b, normal, overlap, contacts, options, solver)
 		store_rebuild_pose(manifold, body_a, body_b)
 		set_pair_manifold(solver.PersistentManifolds, body_a, body_b, manifold)
-		contact_resolution.SolveManifoldVelocity(body_a, body_b, manifold, dt)
+		contact_resolution.EnqueueManifold(body_a, body_b, manifold)
 		return true
 	end
 

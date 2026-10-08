@@ -437,7 +437,14 @@ function module.CreateStubBody(data)
 				TANGENT_WARM_START_SCALE = 0.1,
 				MAX_TANGENT_WARM_SPEED = 0.25,
 				MANIFOLD_SOLVER_PASSES = 1,
-				RESTING_MANIFOLD_SOLVER_PASSES = 2,
+				RESTING_MANIFOLD_SOLVER_PASSES = 1,
+				RESTING_MANIFOLD_MIN_CONTACTS = 3,
+				RESTING_MANIFOLD_MIN_NORMAL_Y = 0.65,
+				RESTING_MANIFOLD_MAX_RELATIVE_SPEED = 1.5,
+				RESTING_MANIFOLD_MAX_TANGENT_SPEED = 0.75,
+				RESTING_MANIFOLD_MAX_ANGULAR_SPEED = 2.5,
+				RELAX_OPEN_GAP = 0.02,
+				CollideStamp = 0,
 			}
 
 			function solver:GetPairRestitution()
@@ -462,11 +469,6 @@ function module.CreateStubBody(data)
 			solver.PENETRATION_SLOP = 0.005
 			solver.STATIC_FRICTION_SPEED = 0
 			solver.STATIC_FRICTION_EXIT_SPEED = 0
-
-			function solver:GetManifoldSolverPasses()
-				return math.max(1, solver.MANIFOLD_SOLVER_PASSES or 1)
-			end
-
 			body._physics = {solver = solver}
 		end
 

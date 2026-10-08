@@ -2,6 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local contact_solver = import("goluwa/physics/contact_solver.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local islands = import("goluwa/physics/islands.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
@@ -243,69 +244,6 @@ function Solver:GetPairRollingFriction(body_a, body_b)
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
 
-function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data, restitution)
-	local base_passes = math.max(1, self.MANIFOLD_SOLVER_PASSES or 1)
-	local resting_passes = math.max(base_passes, self.RESTING_MANIFOLD_SOLVER_PASSES or base_passes)
-
-	if resting_passes <= base_passes then return base_passes end
-
-	if #manifold_data.contacts < math.max(1, self.RESTING_MANIFOLD_MIN_CONTACTS or 1) then
-		return base_passes
-	end
-
-	if math.abs(normal.y) < math.max(0, self.RESTING_MANIFOLD_MIN_NORMAL_Y or 0) then
-		return base_passes
-	end
-
-	if (restitution or self:GetPairRestitution(body_a, body_b)) > 0.05 then
-		return base_passes
-	end
-
-	do
-		local velocity_a = body_a:GetVelocity()
-		local velocity_b = body_b:GetVelocity()
-		local dx = velocity_b.x - velocity_a.x
-		local dy = velocity_b.y - velocity_a.y
-		local dz = velocity_b.z - velocity_a.z
-
-		if
-			dx * dx + dy * dy + dz * dz > math.max(0, self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 0) ^ 2
-		then
-			return base_passes
-		end
-
-		local normal_dot = dx * normal.x + dy * normal.y + dz * normal.z
-
-		if
-			(
-				dx - normal.x * normal_dot
-			) ^ 2 + (
-				dy - normal.y * normal_dot
-			) ^ 2 + (
-				dz - normal.z * normal_dot
-			) ^ 2 > math.max(0, self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0) ^ 2
-		then
-			return base_passes
-		end
-	end
-
-	do
-		local angular_a = body_a:GetAngularVelocity()
-		local angular_b = body_b:GetAngularVelocity()
-
-		if
-			math.max(
-				angular_a.x * angular_a.x + angular_a.y * angular_a.y + angular_a.z * angular_a.z,
-				angular_b.x * angular_b.x + angular_b.y * angular_b.y + angular_b.z * angular_b.z
-			) > math.max(0, self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or 0) ^ 2
-		then
-			return base_passes
-		end
-	end
-
-	return resting_passes
-end
-
 function Solver:BeginStep(collide, dt)
 	local physics = self:GetPhysics()
 	self.StepStamp = (self.StepStamp or 0) + 1
@@ -340,7 +278,7 @@ function Solver:FinishRigidBodyPairs()
 	local pair_manifolds = self.PositionPairManifolds
 
 	for i = 1, count do
-		contact_resolution.FinishManifold(bodies_a[i], bodies_b[i], pair_manifolds[i])
+		contact_resolution.FinishManifold(self, bodies_a[i], bodies_b[i], pair_manifolds[i])
 		bodies_a[i] = nil
 		bodies_b[i] = nil
 		pair_manifolds[i] = nil
@@ -417,35 +355,15 @@ local RECYCLE_POSE_THRESHOLD = 0.005
 local RECYCLE_ROTATION_DOT = 0.99995
 local REBUILD_ROTATION_DOT = 0.995
 
-local function solve_pair(self, pair, dt, pass, relax)
+local function solve_pair(self, pair, dt)
 	local body_a = pair.entry_a.body
 	local body_b = pair.entry_b.body
 
-	if relax then
-		local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
-
-		if manifold and manifold.last_warm_step == self.StepStamp then
-			return contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, true)
-		elseif
-			not (
-				pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
-				pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
-			)
-		then
-			pair_solver_helpers.DispatchColliderPairs(self, pair, dt, "relax")
-		end
-
-		return
-	end
-
-	if (pass or 1) > 1 and pair.idle_stamp == self.StepStamp then
-		stats:Count("solver_pairs_idle")
-		return
-	end
-
 	if not body_a:ShouldCollide(body_b) then return end
 
-	if (pass or 1) > 1 or self.CollideStamp ~= self.StepStamp then
+	local reuse = self.CollideStamp ~= self.StepStamp
+
+	if reuse then
 		local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
 
 		if manifold and manifold.last_rebuild_step >= 0 then
@@ -486,7 +404,7 @@ local function solve_pair(self, pair, dt, pass, relax)
 						"solver_pairs_recycled" or
 						"solver_pairs_cached"
 				)
-				return contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, relax)
+				return contact_resolution.EnqueueManifold(manifold.solve_a, manifold.solve_b, manifold)
 			end
 		end
 	end
@@ -495,39 +413,46 @@ local function solve_pair(self, pair, dt, pass, relax)
 		pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
 		pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
 	then
-		local result, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, pair.entry_a, pair.entry_b, dt)
+		local _, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, pair.entry_a, pair.entry_b, dt)
 
 		if not found then
 			stats:Count("pairs_fallback")
 			fallback_solve_aabb_pair_collision(body_a, body_b, pair.entry_a.bounds, pair.entry_b.bounds, dt)
-		elseif (pass or 1) <= 1 and not result then
-			pair.idle_stamp = self.StepStamp
 		end
 	else
-		pair_solver_helpers.DispatchColliderPairs(
-			self,
-			pair,
-			dt,
-			((pass or 1) > 1 or self.CollideStamp ~= self.StepStamp) and "reuse" or "collide"
-		)
+		pair_solver_helpers.DispatchColliderPairs(self, pair, dt, reuse and "reuse" or "collide")
 	end
 end
 
-function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt, pass, relax)
-	local pairs = bodies_or_pairs
+-- The first pass collects the manifolds of an island (rebuilding contacts where needed), prepares
+-- and warm starts them as one batch; later passes and the relax sweeps re-solve that batch.
+function Solver:SolveRigidBodyPairs(island, dt, pass)
+	if pass == 1 then
+		contact_solver.BeginGroup(island)
+		self.BatchGroup = island
+		local pairs = island.solve_pairs
+		stats:Count("solver_pairs", #pairs)
 
-	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
-		if not (pairs and pairs[1]) then return end
+		for i = 1, #pairs do
+			solve_pair(self, pairs[i], dt)
+		end
 
-		pairs = self:GetPhysics().broadphase:BuildCandidatePairs(bodies_or_pairs)
+		self.BatchGroup = nil
+		contact_solver.Prepare(self, island, dt)
+	else
+		contact_solver.Reload(island, false)
 	end
 
-	bodies_or_pairs = nil
-	stats:Count("solver_pairs", #pairs)
+	contact_solver.Solve(island, false)
+	contact_solver.Store(island, dt)
+end
 
-	for i = 1, #pairs do
-		solve_pair(self, pairs[i], dt, pass, relax)
-	end
+function Solver:RelaxRigidBodyPairs(island, dt, reload, store)
+	if reload then contact_solver.Reload(island, false) end
+
+	contact_solver.Solve(island, true)
+
+	if store then contact_solver.Store(island, dt) end
 end
 
 function Solver:ApplyRestitution(pairs, dt)

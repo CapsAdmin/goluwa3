@@ -177,13 +177,14 @@ end
 local function build_pair_contact_markers(body_a, body_b, manifold_data, normal)
 	local markers = {}
 
-	for _, contact in ipairs(manifold_data and manifold_data.contacts or {}) do
-		local point_a = body_a:LocalToWorld(contact.local_point_a)
-		local point_b = body_b:LocalToWorld(contact.local_point_b)
+	for i = 0, (manifold_data and manifold_data.n or 0) - 1 do
+		local contact = manifold_data.cs[i]
+		local point_a = body_a:LocalToWorld(Vec3(contact.lax, contact.lay, contact.laz))
+		local point_b = body_b:LocalToWorld(Vec3(contact.lbx, contact.lby, contact.lbz))
 		markers[#markers + 1] = {
 			position = (point_a + point_b) * 0.5,
 			normal = normal,
-			normal_impulse = contact.normal_impulse or 0,
+			normal_impulse = contact.jn,
 		}
 	end
 
@@ -216,7 +217,7 @@ local function collect_body_contacts(body)
 					other_name = other_body and other_body.Owner and other_body.Owner.Name or "body",
 					normal = normal,
 					overlap = pair.overlap or 0,
-					contact_count = #(manifold_data and manifold_data.contacts or {}),
+					contact_count = manifold_data and manifold_data.n or 0,
 					markers = markers,
 				}
 			end

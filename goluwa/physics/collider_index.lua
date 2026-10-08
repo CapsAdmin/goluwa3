@@ -95,6 +95,10 @@ local function build_index(body, colliders)
 	return index
 end
 
+function collider_index.IsIndexed(body)
+	return #body:GetColliders() >= MIN_INDEXED_COLLIDERS and body:IsStatic()
+end
+
 function collider_index.Query(body, aabb, out)
 	local colliders = body:GetColliders()
 	local total = #colliders

@@ -226,20 +226,6 @@ end
 
 function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 	local step_stamp = solver.StepStamp
-
-	if mode == "relax" then
-		if pair.active_stamp ~= step_stamp then return false end
-
-		local active = pair.active_manifolds
-
-		for i = 1, pair.active_count do
-			local manifold = active[i]
-			contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, true)
-		end
-
-		return true
-	end
-
 	local handled = false
 	local list_a, count_a, list_b, count_b
 
@@ -248,21 +234,28 @@ function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 		local entry_b = pair.entry_b
 		local body_a = entry_a.body
 		local body_b = entry_b.body
-		list_a, count_a = collider_index.Query(
-			body_a,
-			build_dispatch_query_aabb(body_a, body_b, entry_b.bounds),
-			DISPATCH_COLLIDERS_A
-		)
-		list_b, count_b = collider_index.Query(
-			body_b,
-			build_dispatch_query_aabb(body_b, body_a, entry_a.bounds),
-			DISPATCH_COLLIDERS_B
-		)
 
-		if not pair.active_manifolds then pair.active_manifolds = {} end
+		if collider_index.IsIndexed(body_a) then
+			list_a, count_a = collider_index.Query(
+				body_a,
+				build_dispatch_query_aabb(body_a, body_b, entry_b.bounds),
+				DISPATCH_COLLIDERS_A
+			)
+		else
+			list_a = body_a:GetColliders()
+			count_a = #list_a
+		end
 
-		pair.active_count = 0
-		pair.active_stamp = step_stamp
+		if collider_index.IsIndexed(body_b) then
+			list_b, count_b = collider_index.Query(
+				body_b,
+				build_dispatch_query_aabb(body_b, body_a, entry_a.bounds),
+				DISPATCH_COLLIDERS_B
+			)
+		else
+			list_b = body_b:GetColliders()
+			count_b = #list_b
+		end
 
 		if not body_a:ShouldCollide(body_b) then return false end
 	end
@@ -288,20 +281,13 @@ function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 			if usable then
 				manifold.last_seen_step = step_stamp
 				stats:Count("collider_pairs_reused")
-				contact_resolution.SolveManifoldVelocity(manifold.solve_a, manifold.solve_b, manifold, dt, false)
+				contact_resolution.EnqueueManifold(manifold.solve_a, manifold.solve_b, manifold)
 				handled = true
 			elseif mode == "collide" or manifold then
 				stats:Count("collider_pairs_rebuilt")
 				local result, found = pair_solver_helpers.TryInvokePairHandler(solver, list_a[i], list_b[j], pair.entry_a, pair.entry_b, dt)
 
 				if found and result then handled = true end
-
-				manifold = contact_resolution.GetPairManifold(solver.PersistentManifolds, list_a[i], list_b[j])
-			end
-
-			if manifold and manifold.solve_a and manifold.last_warm_step == step_stamp then
-				pair.active_count = pair.active_count + 1
-				pair.active_manifolds[pair.active_count] = manifold
 			end
 		end
 	end

@@ -345,32 +345,35 @@ local function get_cached_world_transform(collider)
 	local body_rotation = body.Rotation
 	local cache = collider.TransformCache
 
-	if
-		cache and
-		cache.BodyX == body_position.x and
-		cache.BodyY == body_position.y and
-		cache.BodyZ == body_position.z and
-		cache.BodyRX == body_rotation.x and
-		cache.BodyRY == body_rotation.y and
-		cache.BodyRZ == body_rotation.z and
-		cache.BodyRW == body_rotation.w
-	then
-		return cache.Position, cache.Rotation
+	if cache then
+		if
+			cache.BodyX == body_position.x and
+			cache.BodyY == body_position.y and
+			cache.BodyZ == body_position.z and
+			cache.BodyRX == body_rotation.x and
+			cache.BodyRY == body_rotation.y and
+			cache.BodyRZ == body_rotation.z and
+			cache.BodyRW == body_rotation.w
+		then
+			return cache.Position, cache.Rotation
+		end
+	else
+		cache = {Position = Vec3(), Rotation = Quat()}
+		collider.TransformCache = cache
 	end
 
-	local position = body_position + body_rotation:VecMul(collider.LocalPosition)
-	local rotation = (body_rotation * collider.LocalRotation):GetNormalized()
-	collider.TransformCache = {
-		BodyX = body_position.x,
-		BodyY = body_position.y,
-		BodyZ = body_position.z,
-		BodyRX = body_rotation.x,
-		BodyRY = body_rotation.y,
-		BodyRZ = body_rotation.z,
-		BodyRW = body_rotation.w,
-		Position = position,
-		Rotation = rotation,
-	}
+	local position = Quat.SetVecMul(cache.Position, body_rotation, collider.LocalPosition)
+	position.x = position.x + body_position.x
+	position.y = position.y + body_position.y
+	position.z = position.z + body_position.z
+	local rotation = Quat.SetMul(cache.Rotation, body_rotation, collider.LocalRotation):Normalize()
+	cache.BodyX = body_position.x
+	cache.BodyY = body_position.y
+	cache.BodyZ = body_position.z
+	cache.BodyRX = body_rotation.x
+	cache.BodyRY = body_rotation.y
+	cache.BodyRZ = body_rotation.z
+	cache.BodyRW = body_rotation.w
 	return position, rotation
 end
 

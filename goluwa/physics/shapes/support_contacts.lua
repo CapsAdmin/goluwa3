@@ -77,7 +77,7 @@ function support_contacts.AccumulatePointSweepSupport(body, point, hit)
 	if depth < -support_tolerance then return false end
 
 	if hit.normal.y >= body:GetMinGroundNormalY() then
-		body:AccumulateGroundSupportContact(hit.normal, hit.position)
+		body:AccumulateGroundSupportContact(hit.normal, hit.position.x, hit.position.y, hit.position.z)
 		return true
 	end
 
@@ -143,7 +143,7 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 
 		if normal.y >= body:GetMinGroundNormalY() then
 			apply_support_grounding_metadata(body, hit, normal)
-			body:AccumulateGroundSupportContact(normal, contact_position)
+			body:AccumulateGroundSupportContact(normal, contact_position.x, contact_position.y, contact_position.z)
 		end
 
 		physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
@@ -188,7 +188,7 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 
 	if normal.y >= body:GetMinGroundNormalY() then
 		apply_support_grounding_metadata(body, hit, normal)
-		body:AccumulateGroundSupportContact(normal, support_point)
+		body:AccumulateGroundSupportContact(normal, support_point.x, support_point.y, support_point.z)
 	end
 
 	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)

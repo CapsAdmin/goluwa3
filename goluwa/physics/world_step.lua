@@ -3,6 +3,8 @@ local system = import("goluwa/system.lua")
 local constraint = import("goluwa/physics/constraint.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local islands = import("goluwa/physics/islands.lua")
+local solve_order = import("goluwa/physics/solve_order.lua")
+local contact_solver = import("goluwa/physics/contact_solver.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
@@ -272,6 +274,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		local collide = substep == 1
 		constraint.InvalidatePoses()
 		solver:BeginStep(collide, sub_dt)
+		contact_solver.Begin(solver, sub_dt)
 		stats:PushTime("integrate")
 		local awake_count = 0
 		refresh_body_lists(bodies)
@@ -346,6 +349,14 @@ function world_step.UpdateRigidBodies(physics, dt)
 				end
 			end
 
+			if simulation_islands and simulation_islands[1] then
+				local up = physics.Up
+
+				for island_index = 1, #simulation_islands do
+					solve_order.Build(simulation_islands[island_index], up.x, up.y, up.z)
+				end
+			end
+
 			stats:PopTime()
 			physics.broadphase.LookAhead = 0
 			refresh_body_lists(bodies)
@@ -364,6 +375,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PopTime()
 		refresh_support_entries(ACTIVE_BODIES)
 		local substep_id = solver.StepStamp or 0
+		local has_world_geometry = RigidBody.WorldGeometryBodies[1] ~= nil
 		stats:PushTime("constraints")
 
 		if simulation_islands and simulation_islands[1] then
@@ -381,43 +393,28 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PopTime()
 
 		for iter = 1, iterations do
-			if simulation_islands and simulation_islands[1] then
-				for island_index = 1, #simulation_islands do
-					local island = simulation_islands[island_index]
+			for island_index = 1, #simulation_islands do
+				local island = simulation_islands[island_index]
 
-					if not islands.IsSleepingIsland(island) then
-						stats:PushTime("solve_pairs")
-						solver:SolveRigidBodyPairs(island.pairs, sub_dt, iter)
-						stats:PopTime()
-						stats:PushTime("support")
+				if not islands.IsSleepingIsland(island) then
+					stats:PushTime("solve_pairs")
+					solver:SolveRigidBodyPairs(island, sub_dt, iter)
+					stats:PopTime()
+					stats:PushTime("support")
+
+					if has_world_geometry then
 						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
 
 						for body_index = 1, #dynamic_bodies do
 							solve_body_support_contacts(dynamic_bodies[body_index], sub_dt, substep_id)
 						end
-
-						stats:PopTime()
-						stats:PushTime("constraints")
-						solver:SolveConstraints(sub_dt, island.constraints)
-						stats:PopTime()
 					end
-				end
-			else
-				stats:PushTime("solve_pairs")
-				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt, iter)
-				stats:PopTime()
-				stats:PushTime("support")
 
-				for _, body in ipairs(ACTIVE_BODIES) do
-					if body:IsDynamic() and body:GetAwake() then
-						solve_body_support_contacts(body, sub_dt, substep_id)
-					end
+					stats:PopTime()
+					stats:PushTime("constraints")
+					solver:SolveConstraints(sub_dt, island.constraints)
+					stats:PopTime()
 				end
-
-				stats:PopTime()
-				stats:PushTime("constraints")
-				solver:SolveConstraints(sub_dt, constraints)
-				stats:PopTime()
 			end
 		end
 
@@ -432,19 +429,20 @@ function world_step.UpdateRigidBodies(physics, dt)
 		constraint.InvalidatePoses()
 		stats:PushTime("relax")
 
-		for _ = 1, relax_iterations do
-			if simulation_islands and simulation_islands[1] then
-				for island_index = 1, #simulation_islands do
-					local island = simulation_islands[island_index]
+		for relax_index = 1, relax_iterations do
+			for island_index = 1, #simulation_islands do
+				local island = simulation_islands[island_index]
 
-					if not islands.IsSleepingIsland(island) then
-						solver:SolveRigidBodyPairs(island.pairs, sub_dt, iterations + 1, true)
-						solver:SolveConstraints(sub_dt, island.constraints, true)
-					end
+				if not islands.IsSleepingIsland(island) then
+					local has_constraints = island.has_constraints
+					solver:RelaxRigidBodyPairs(
+						island,
+						sub_dt,
+						relax_index == 1 or has_constraints,
+						relax_index == relax_iterations or has_constraints
+					)
+					solver:SolveConstraints(sub_dt, island.constraints, true)
 				end
-			else
-				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt, iterations + 1, true)
-				solver:SolveConstraints(sub_dt, constraints, true)
 			end
 		end
 
