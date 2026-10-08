@@ -267,6 +267,7 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		render2d.SetSDFTexelRange(layout.entries[1].texel_range)
 	end
 
+	local subpixel = render2d.PushSubpixelText(self.MSDF)
 	render2d.PushMargin(layout.margin)
 	render2d.PushSDFUV()
 
@@ -287,6 +288,8 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 
 	render2d.PopSDFUV()
 	render2d.PopMargin()
+
+	if subpixel then render2d.PopSubpixelText() end
 
 	if self.MSDF then render2d.PopMSDF() end
 

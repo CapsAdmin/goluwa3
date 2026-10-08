@@ -275,6 +275,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		enabled_features[0].samplerAnisotropy = 1
 	end
 
+	if physical_features.dualSrcBlend == 1 then
+		enabled_features[0].dualSrcBlend = 1
+	end
+
 	if physical_features.sampleRateShading == 1 then
 		enabled_features[0].sampleRateShading = 1
 	end

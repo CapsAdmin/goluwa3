@@ -179,14 +179,18 @@ function SVG:Draw()
 		assert(self.sdf_texture)
 		render2d.PushSDFTexture(self.sdf_texture)
 		render2d.PushSDFTexelRange(self.SDFSpread * self.TextureSize / 4 * self.field_scale)
+		local msdf = self.Mode == "msdf"
 
-		if self.Mode == "msdf" then render2d.PushMSDF(true) end
+		if msdf then render2d.PushMSDF(true) end
 
+		local subpixel = render2d.PushSubpixelText(msdf)
 		render2d.PushSDFUV(0, 1, 1, 0)
 		render2d.DrawRectf(0, 0, 1, 1)
 		render2d.PopSDFUV()
 
-		if self.Mode == "msdf" then render2d.PopMSDF() end
+		if subpixel then render2d.PopSubpixelText() end
+
+		if msdf then render2d.PopMSDF() end
 
 		render2d.PopSDFTexelRange()
 		render2d.PopSDFTexture()

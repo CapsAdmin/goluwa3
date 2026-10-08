@@ -13,6 +13,7 @@ local Mesh = import("goluwa/render/mesh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local Hash = import("goluwa/hash.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local render2d = library()
 
 local function concat_constant_fields(...)
@@ -54,6 +55,7 @@ local fragment_shape_constant_fields = {
 	{"sdf_bias", "float"},
 	{"sdf_gamma", "float"},
 	{"sdf_softness", "float"},
+	{"subpixel_strength", "float"},
 	{"bevel_width", "float"},
 	{"bevel_height", "float"},
 	{"light_angle", "float"},
@@ -145,6 +147,7 @@ render2d.blend_modes = {
 	screen = blend_preset(true, "one", "one_minus_src_color", "add", "one", "one_minus_src_alpha", "add"),
 	subtract = blend_preset(true, "src_alpha", "one", "reverse_subtract", "one", "one", "reverse_subtract"),
 	none = blend_preset(false, "one", "zero", "add", "one", "zero", "add"),
+	subpixel = blend_preset(true, "src1_color", "one_minus_src1_color", "add", "one", "zero", "add"),
 }
 
 local function stencil_mode(stencil_test, pass_op, compare_op, color_write_mask)
@@ -452,17 +455,19 @@ local rect_batch_fragment_passthrough_fields = {
 	),
 	{
 		name = "batch_sdf_tuning",
-		type = "vec3",
-		format = "r32g32b32_sfloat",
+		type = "vec4",
+		format = "r32g32b32a32_sfloat",
 		write = function(vertex, entry, state, rect_state_snapshot)
 			vertex.batch_sdf_tuning[0] = rect_state_snapshot.sdf_bias
 			vertex.batch_sdf_tuning[1] = rect_state_snapshot.sdf_gamma
 			vertex.batch_sdf_tuning[2] = rect_state_snapshot.sdf_softness
+			vertex.batch_sdf_tuning[3] = rect_state_snapshot.subpixel_strength
 		end,
 		fragment_values = {
 			{"shape.sdf_bias", "batch_sdf_bias", "in_batch_sdf_tuning.x"},
 			{"shape.sdf_gamma", "batch_sdf_gamma", "in_batch_sdf_tuning.y"},
 			{"shape.sdf_softness", "batch_sdf_softness", "in_batch_sdf_tuning.z"},
+			{"shape.subpixel_strength", "batch_subpixel_strength", "in_batch_sdf_tuning.w"},
 		},
 	},
 	snapshot_passthrough(
@@ -840,9 +845,69 @@ function render2d.FlushBatches(reason)
 	return true
 end
 
+pvars.Setup2{
+	key = "r_text_subpixel_strength",
+	default = 1,
+	type = "number",
+	min = 0,
+	max = 1,
+	help = "how far subpixel text moves away from grayscale antialiasing, 0 is grayscale and 1 is the full per colour result",
+}
+pvars.Setup2{
+	key = "r_text_subpixel",
+	default = "off",
+	enums = {"off", "rgb", "bgr", "vrgb", "vbgr", "rwbg", "bwrg"},
+	help = "subpixel text layout of the display: rgb and bgr are horizontal stripes, vrgb and vbgr are the same on a display rotated to portrait, rwbg is LG WOLED TVs and monitors before 2025 (C1, C2, C3, G3), bwrg is LG WOLED from 2025 (G5)",
+}
+
+function render2d.SupportsSubpixelText()
+	return render.GetPhysicalDevice():GetFeatures().dualSrcBlend == 1
+end
+
+do
+	function render2d.PushSubpixelText(has_msdf)
+		local layout = pvars.Get("r_text_subpixel")
+
+		if
+			layout == "off" or
+			not has_msdf or
+			not render2d.pipeline_dual_source or
+			render.target.config.offscreen or
+			render2d.state.render.fragment.constants.outline_width ~= 0 or
+			render2d.state.render.fragment.constants.sdf_softness > 0.75
+		then
+			return false
+		end
+
+		local blend = render2d.state.render.pipeline.blend
+
+		if
+			blend and
+			(
+				blend.src_color_blend_factor ~= "src_alpha" or
+				blend.dst_color_blend_factor ~= "one_minus_src_alpha"
+			)
+		then
+			return false
+		end
+
+		render2d.PushBlendPreset("subpixel")
+		render2d.PushSubpixelMode(layout)
+		render2d.PushSubpixelStrength(pvars.Get("r_text_subpixel_strength"))
+		return true
+	end
+
+	function render2d.PopSubpixelText()
+		render2d.PopSubpixelStrength()
+		render2d.PopSubpixelMode()
+		render2d.PopBlendMode()
+	end
+end
+
 function render2d.Initialize()
 	if render2d.pipeline then return end
 
+	render2d.pipeline_dual_source = render2d.SupportsSubpixelText()
 	local config = {
 		name = "render2d",
 		dont_create_framebuffers = true,
@@ -852,6 +917,7 @@ function render2d.Initialize()
 		},
 		RasterizationSamples = render.target:GetSamples(),
 		ColorFormat = render.target:GetColorFormat(),
+		DualSourceBlend = render2d.SupportsSubpixelText(),
 		vertex = {
 			constants = {
 				{
@@ -934,7 +1000,11 @@ function render2d.Initialize()
 					block = fragment_patch_constant_fields,
 				},
 			},
-			shader = render2d.BuildShaderFlags("draw.flags") .. "\n#define GAMMA_BLEND " .. (
+			shader = render2d.BuildShaderFlags("draw.flags") .. "\n#define DUAL_SOURCE " .. (
+					render2d.SupportsSubpixelText() and
+					1 or
+					0
+				) .. "\n#define GAMMA_BLEND " .. (
 					render.target:RequiresManualGamma() and
 					1 or
 					0
@@ -1318,16 +1388,53 @@ function render2d.Initialize()
 					vec2 sdf_uv = get_uv_sdf(in_uv);
 					vec2 distances = get_sdf_distances(sdf_uv);
 					float d = distances.x;
-					out_color.a *= compute_sdf_alpha(d, distances.y);
+					float base_alpha = out_color.a;
+					float plain_alpha = compute_sdf_alpha(d, distances.y);
+					vec3 subpixel_alpha = vec3(0.0);
 
-					if (false) {
-						vec3 col = (d>0.0) ? vec3(0.9,0.6,0.3) : vec3(0.65,0.85,1.0);
-						col *= 1.0 - exp2(-20.0*abs(d));
-						col *= 0.8 + 0.2*cos(120.0*abs(d));
-						col = mix( col, vec3(1.0), 1.0-smoothstep(0.0,0.01,abs(d)) );
-						out_color.rgb = col;
+					if (FLAGS_SUBPIXEL != 0 && draw.sdf_texture_index != -1) {
+						// The plain coverage stays the luminance, so a strength of 0 is exactly the
+						// grayscale result. On top of it each colour gets the deviation of its own
+						// coverage, sampled where that colour's emitter sits along the screen axis of
+						// the layout and filtered over neighbouring positions (FreeType's default
+						// 1 2 3 2 1 filter). The white emitter of RGBW panels is driven by the panel
+						// itself and is not modelled.
+						vec2 axis = vec2(1.0, 0.0);
+						vec3 offsets = vec3(-1.0 / 3.0, 0.0, 1.0 / 3.0);
+						if (FLAGS_SUBPIXEL_BGR) offsets = offsets.bgr;
+						if (FLAGS_SUBPIXEL_VRGB) axis = vec2(0.0, 1.0);
+						if (FLAGS_SUBPIXEL_VBGR) { axis = vec2(0.0, 1.0); offsets = offsets.bgr; }
+						// R W B G, each emitter a quarter of the pixel wide
+						if (FLAGS_SUBPIXEL_RWBG) offsets = vec3(-0.375, 0.375, 0.125);
+						// B W R G
+						if (FLAGS_SUBPIXEL_BWRG) offsets = vec3(0.125, 0.375, -0.375);
+
+						// a tap covers a third of a pixel along the axis and a whole pixel across it,
+						// so its ramp is as wide as that footprint measured along the edge normal
+						vec2 gradient = vec2(dFdx(d), dFdy(d));
+						float gradient_length = length(gradient);
+						vec2 edge_normal = gradient_length > 1e-5 ? gradient / gradient_length : axis;
+						float along = abs(dot(edge_normal, axis));
+						float tap_width = max(shape.sdf_softness * 2.0 * (along / 3.0 + sqrt(max(1.0 - along * along, 0.0))), 1e-4);
+						vec2 uv_axis = dFdx(sdf_uv) * axis.x + dFdy(sdf_uv) * axis.y;
+
+						for (int c = 0; c < 3; c++) {
+							float sum = 0.0;
+
+							for (int k = -2; k <= 2; k++) {
+								float tap_d = get_sdf_distance(sdf_uv + uv_axis * (offsets[c] + float(k) / 3.0));
+								sum += (3.0 - abs(float(k))) * clamp(tap_d / tap_width + 0.5, 0.0, 1.0);
+							}
+
+							subpixel_alpha[c] = sum / 9.0;
+						}
+
+						subpixel_alpha -= vec3(dot(subpixel_alpha, vec3(1.0 / 3.0)));
+						subpixel_alpha = clamp(vec3(plain_alpha) + subpixel_alpha * shape.subpixel_strength, 0.0, 1.0);
 					}
-						
+
+					out_color.a *= plain_alpha;
+
 					if (FLAGS_LIGHTING != 0) {
 						if (shape.outline_width > 0)
 							d = -d;
@@ -1359,6 +1466,10 @@ function render2d.Initialize()
 
 						out_color.rgb *= lit_color;
 					}
+
+					#if DUAL_SOURCE
+					out_color_dual = FLAGS_SUBPIXEL != 0 && draw.sdf_texture_index != -1 ? vec4(subpixel_alpha * base_alpha, out_color.a) : vec4(out_color.a);
+					#endif
 
 					if (out_color.a <= 0.0) discard;
 				}
@@ -1589,6 +1700,7 @@ function render2d.ResetState()
 	render2d.state.render.fragment.constants.sdf_threshold = 0.5
 	render2d.state.render.fragment.constants.sdf_bias = 0.0025
 	render2d.state.render.fragment.constants.sdf_gamma = 1
+	render2d.state.render.fragment.constants.subpixel_strength = 1
 	render2d.state.render.fragment.constants.sdf_softness = 0.45
 	render2d.state.render.fragment.constants.sdf_texture_index = -1
 	render2d.state.render.fragment.constants.sdf_uv_bounds[0] = 0
@@ -1695,6 +1807,18 @@ do
 			{name = "CLAMP_BORDER_RADIUS"},
 			{name = "LINEAR_TEXTURE"},
 			{name = "MSDF"},
+			{
+				name = "SUBPIXEL",
+				enums = {
+					"none",
+					"rgb",
+					"bgr",
+					"vrgb",
+					"vbgr",
+					"rwbg",
+					"bwrg",
+				},
+			},
 			{name = "LIGHTING"},
 			{
 				name = "SHAPE",
@@ -1774,11 +1898,17 @@ do
 
 	define_flag_property("ClampBorderRadius", "CLAMP_BORDER_RADIUS", bool_value_filter)
 	define_flag_property("MSDF", "MSDF", bool_value_filter)
+
+	define_flag_property("SubpixelMode", "SUBPIXEL", function(value)
+		return value or "none"
+	end)
+
 	define_scalar_property("SDFSoftness", "sdf_softness", mark_margin_dirty)
 	define_scalar_property("SDFTexelRange", "sdf_texel_range")
 	define_scalar_property("SDFThreshold", "sdf_threshold")
 	define_scalar_property("SDFBias", "sdf_bias")
 	define_scalar_property("SDFGamma", "sdf_gamma")
+	define_scalar_property("SubpixelStrength", "subpixel_strength")
 	define_scalar_property("BevelWidth", "bevel_width")
 	define_scalar_property("BevelHeight", "bevel_height")
 	define_scalar_property("LightAngle", "light_angle")

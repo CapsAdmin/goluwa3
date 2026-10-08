@@ -499,6 +499,10 @@ do
 			end
 		end
 
+		if config.DualSourceBlend then
+			fragment_outputs = fragment_outputs .. "layout(location = 0, index = 1) out vec4 out_color_dual;\n"
+		end
+
 		local constant_resolution = resolve_constant_placement(config, possible_stages)
 
 		for _, stage_name in ipairs(possible_stages) do
