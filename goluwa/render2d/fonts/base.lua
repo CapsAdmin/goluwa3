@@ -306,7 +306,7 @@ local function build_glyph_metrics(self, g, code)
 end
 
 function META:GetMetricGlyph(code)
-	if self.chars[code] ~= nil then return self.chars[code] end
+	if self.chars[code] then return self.chars[code] end
 
 	if not self.FontPath then return false end
 
@@ -326,9 +326,10 @@ function META:GetTextSizeNotCached(str)
 	local i = 1
 	local len = #str
 	local monospace = self.Monospace
-	local half_size = self.Size / 2
 	local tab_mult = self.TabWidthMultiplier or 4
 	local chars = self.chars
+	local space_data = chars[32] or self:GetMetricGlyph(32)
+	local space_advance = space_data and space_data.x_advance or self.Size / 2
 
 	while i <= len do
 		local char_code = utf8.uint32(str, i)
@@ -340,15 +341,13 @@ function META:GetTextSizeNotCached(str)
 
 			X = 0
 		elseif char_code == 32 then
-			X = X + half_size
+			X = X + space_advance
 		elseif char_code == 9 then
-			local data = chars[32] or self:GetMetricGlyph(32)
-
-			if data then
+			if space_data then
 				if monospace then
 					X = X + spacing * tab_mult
 				else
-					X = X + (data.x_advance + spacing) * tab_mult
+					X = X + (space_data.x_advance + spacing) * tab_mult
 				end
 			else
 				X = X + self.Size * tab_mult
@@ -430,7 +429,8 @@ function META:BuildLayout(str, spacing, extra_space_advance, glyph_fn)
 	local line_height = self:GetLineHeight()
 	local monospace = self.Monospace
 	local tab_mult = self.TabWidthMultiplier or 4
-	local half_size = self.Size / 2
+	local space_data = self.chars[32] or self:GetMetricGlyph(32)
+	local space_advance = space_data and space_data.x_advance or self.Size / 2
 	local entries = {}
 
 	while i <= #str do
@@ -450,10 +450,8 @@ function META:BuildLayout(str, spacing, extra_space_advance, glyph_fn)
 			X = 0
 			Y = Y + line_height + spacing
 		elseif char_code == 32 then
-			X = X + half_size + extra_space_advance
+			X = X + space_advance + extra_space_advance
 		elseif char_code == 9 then
-			local space_data = self.chars[32] or self:GetMetricGlyph(32)
-
 			if monospace then
 				X = X + spacing * tab_mult
 			elseif space_data then

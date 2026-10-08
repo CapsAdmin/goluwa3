@@ -934,7 +934,11 @@ function render2d.Initialize()
 					block = fragment_patch_constant_fields,
 				},
 			},
-			shader = render2d.BuildShaderFlags("draw.flags") .. "\n" .. [[
+			shader = render2d.BuildShaderFlags("draw.flags") .. "\n#define GAMMA_BLEND " .. (
+					render.target:RequiresManualGamma() and
+					1 or
+					0
+				) .. "\n" .. [[
 				float sd_rect(vec2 coords) {
 
 					vec2 quad_size = shape.rect_size;
@@ -1165,16 +1169,20 @@ function render2d.Initialize()
 				float edge(float x) {
 					float softness = shape.sdf_softness;
 					if (softness <= 0.0) return x >= 0.0 ? 1.0 : 0.0;
-					return smoothstep(-softness, softness, x);
+					return clamp(x / (2.0 * softness) + 0.5, 0.0, 1.0);
 				}
 					
-				float compute_sdf_alpha(float d) {
-					float alpha = edge(d);
+				// d is the sharp (median) distance, d_far the true euclidean distance.
+				// the glyph edge uses d, offsets (outlines, glows) use d_far so they
+				// stay round instead of mitring at corners
+				float compute_sdf_alpha(float d, float d_far) {
+					float glow = clamp((shape.sdf_softness - 0.75) * 2.0, 0.0, 1.0);
+					float alpha = edge(mix(d, d_far, glow));
 
 					float outline = shape.outline_width * get_sdf_screen_scale();
 
 					if (outline != 0) 
-						alpha = abs(alpha - edge(d + outline));
+						alpha = abs(alpha - edge(d_far + outline));
 
 					return pow(max(alpha, 0.0), shape.sdf_gamma);
 				}
@@ -1183,12 +1191,13 @@ function render2d.Initialize()
 					return max(min(s.r, s.g), min(max(s.r, s.g), s.b));
 				}
 
-				float read_raw_sdf(vec2 coords) {
-					float d;
+				vec2 read_raw_sdf(vec2 coords) {
+					vec2 d;
 					if (FLAGS_MSDF != 0) {
-						d = median_of_three(texture(TEXTURE(draw.sdf_texture_index), coords).rgb);
+						vec4 texel = texture(TEXTURE(draw.sdf_texture_index), coords);
+						d = vec2(median_of_three(texel.rgb), texel.a);
 					} else {
-						d = texture(TEXTURE(draw.sdf_texture_index), coords).r;
+						d = texture(TEXTURE(draw.sdf_texture_index), coords).rr;
 					}
 
 					float bounds_left = min(draw.sdf_uv_bounds.x, draw.sdf_uv_bounds.z);
@@ -1202,10 +1211,10 @@ function render2d.Initialize()
 					return d;
 				}
 					
-				float get_sdf_distance(vec2 coords) {
+				vec2 get_sdf_distances(vec2 coords) {
 					if (draw.sdf_texture_index != -1) {
 						float range = shape.sdf_texel_range;
-						float d = read_raw_sdf(coords);
+						vec2 d = read_raw_sdf(coords);
 						d *= range;
 						d -= shape.sdf_threshold * range;
 						d += shape.sdf_bias * range;
@@ -1230,12 +1239,16 @@ function render2d.Initialize()
 						//else if (FLAGS_SHAPE_LINE) {
 							//d = sd_line(p, b);
 						//}
-						return (-d) * get_sdf_screen_scale();
+						return vec2((-d) * get_sdf_screen_scale());
 					} else if (shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
 						float d = sd_rect(coords);
-						return (-d) * get_sdf_screen_scale();
+						return vec2((-d) * get_sdf_screen_scale());
 					}
-					return 1.0;
+					return vec2(1.0);
+				}
+
+				float get_sdf_distance(vec2 coords) {
+					return get_sdf_distances(coords).x;
 				}
 
 				vec4 apply_swizzle(vec4 tex) {
@@ -1253,12 +1266,28 @@ function render2d.Initialize()
 					return mix(low, high, step(vec3(0.0031308), c));
 				}
 
+				vec3 linear_to_srgb(vec3 c) {
+					vec3 low = c * 12.92;
+					vec3 high = 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
+					return mix(low, high, step(vec3(0.0031308), c));
+				}
+
+				// the working space of the target: colors stay sRGB encoded when the
+				// target is blended in gamma space, otherwise they are linear
+				vec3 srgb_to_working(vec3 c) {
+					#if GAMMA_BLEND
+					return c;
+					#else
+					return srgb_to_linear(c);
+					#endif
+				}
+
 				vec4 sample_fragment_color(vec2 uv) {
 					// Vertex/global colors and texture values are both authored in
-					// sRGB display space. Linearizing the final product (and letting
-					// the sRGB framebuffer re-encode at write time) keeps the final
-					// image equal to the plain authored product while blending
-					// against the framebuffer still happens in linear space.
+					// sRGB display space. On an sRGB target the final product is
+					// linearized and the hardware re-encodes at write time, so blending
+					// happens in linear space. On a unorm target (GAMMA_BLEND) the
+					// encoded values are written and blended as is, like a browser would.
 					vec4 color = in_color * draw.global_color;
 
 					if (draw.texture_index >= 0) {
@@ -1266,13 +1295,17 @@ function render2d.Initialize()
 
 						// an srgb format texture is already linear once sampled
 						if (FLAGS_LINEAR_TEXTURE != 0) {
+							#if GAMMA_BLEND
+							tex.rgb = linear_to_srgb(tex.rgb);
+							#else
 							return vec4(srgb_to_linear(color.rgb) * tex.rgb, color.a * tex.a);
+							#endif
 						}
 
 						color *= tex;
 					}
 
-					color.rgb = srgb_to_linear(color.rgb);
+					color.rgb = srgb_to_working(color.rgb);
 
 					return color;
 				}
@@ -1283,8 +1316,9 @@ function render2d.Initialize()
 					out_color = sample_fragment_color(color_uv);
 					
 					vec2 sdf_uv = get_uv_sdf(in_uv);
-					float d = get_sdf_distance(sdf_uv);
-					out_color.a *= compute_sdf_alpha(d);
+					vec2 distances = get_sdf_distances(sdf_uv);
+					float d = distances.x;
+					out_color.a *= compute_sdf_alpha(d, distances.y);
 
 					if (false) {
 						vec3 col = (d>0.0) ? vec3(0.9,0.6,0.3) : vec3(0.65,0.85,1.0);
@@ -1306,8 +1340,8 @@ function render2d.Initialize()
 						float dy = get_sdf_distance(sdf_uv + vec2(0.0, eps)) - get_sdf_distance(sdf_uv - vec2(0.0, eps));
 						vec3 normal = normalize(vec3(normalize(vec2(dx, dy)) * tilt_t, 1.0));
 
-						vec3 light_color = srgb_to_linear(draw.light_color);
-						vec3 lit_color = srgb_to_linear(draw.ambient_color);
+						vec3 light_color = srgb_to_working(draw.light_color);
+						vec3 lit_color = srgb_to_working(draw.ambient_color);
 
 						vec3 light_dir = normalize(vec3(
 							-cos(shape.light_angle),
@@ -1553,9 +1587,9 @@ function render2d.ResetState()
 	render2d.SetClampBorderRadius(true)
 	render2d.state.render.fragment.constants.sdf_texel_range = 1
 	render2d.state.render.fragment.constants.sdf_threshold = 0.5
-	render2d.state.render.fragment.constants.sdf_bias = 0.005
+	render2d.state.render.fragment.constants.sdf_bias = 0.0025
 	render2d.state.render.fragment.constants.sdf_gamma = 1
-	render2d.state.render.fragment.constants.sdf_softness = 0.5
+	render2d.state.render.fragment.constants.sdf_softness = 0.45
 	render2d.state.render.fragment.constants.sdf_texture_index = -1
 	render2d.state.render.fragment.constants.sdf_uv_bounds[0] = 0
 	render2d.state.render.fragment.constants.sdf_uv_bounds[1] = 0

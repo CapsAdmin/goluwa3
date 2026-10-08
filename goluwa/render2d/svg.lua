@@ -26,7 +26,7 @@ local function extract_svg_edges(contours, view_box, width, height)
 	local offset_y = -view_box.y * scale_y
 	local all_edges = {}
 
-	for _, contour in ipairs(contours) do
+	for contour_id, contour in ipairs(contours) do
 		local poly = contour_to_polyline(contour)
 
 		for _, pt in ipairs(poly) do
@@ -34,7 +34,7 @@ local function extract_svg_edges(contours, view_box, width, height)
 			pt.y = pt.y * scale_y + offset_y
 		end
 
-		local edges = msdf.ColorPolyline(poly)
+		local edges = msdf.ColorPolyline(poly, contour_id)
 
 		for _, e in ipairs(edges) do
 			all_edges[#all_edges + 1] = e
@@ -42,6 +42,14 @@ local function extract_svg_edges(contours, view_box, width, height)
 	end
 
 	return all_edges
+end
+
+local function get_field_scale(texture_size)
+	if texture_size <= 32 then return 4 end
+
+	if texture_size <= 64 then return 2 end
+
+	return 1
 end
 
 local function CreateSDFTexture(decoded, mode, texture_size, spread)
@@ -60,6 +68,7 @@ local function CreateSDFTexture(decoded, mode, texture_size, spread)
 		format = "r8g8b8a8_unorm",
 		filter = "linear",
 		mode = mode,
+		fill_rule = "evenodd",
 		edges = edges,
 	}
 end
@@ -142,11 +151,12 @@ function SVG:ApplyData(data)
 	self.poly = Polygon2D.FromTriangleCoordinates(math2d.TriangulateContoursEvenOdd(decoded.contours))
 
 	if self.Mode ~= "poly" then
+		self.field_scale = get_field_scale(self.TextureSize)
 		self.sdf_texture = CreateSDFTexture(
 			decoded,
 			self.Mode,
-			self.TextureSize,
-			self.SDFSpread * self.TextureSize / 4
+			self.TextureSize * self.field_scale,
+			self.SDFSpread * self.TextureSize / 4 * self.field_scale
 		)
 	end
 
@@ -168,7 +178,7 @@ function SVG:Draw()
 	if self.Mode == "msdf" or self.Mode == "sdf" then
 		assert(self.sdf_texture)
 		render2d.PushSDFTexture(self.sdf_texture)
-		render2d.PushSDFTexelRange(self.SDFSpread * self.TextureSize / 4)
+		render2d.PushSDFTexelRange(self.SDFSpread * self.TextureSize / 4 * self.field_scale)
 
 		if self.Mode == "msdf" then render2d.PushMSDF(true) end
 

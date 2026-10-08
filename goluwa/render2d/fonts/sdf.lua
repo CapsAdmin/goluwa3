@@ -1,13 +1,19 @@
 local render2d = import("goluwa/render2d/render2d.lua")
 local msdf = import("goluwa/render2d/msdf.lua")
-local Texture = import("goluwa/render/texture.lua")
 local render = import("goluwa/render/render.lua")
 local objects = import("goluwa/objects/objects.lua")
 local META = objects.CreateTemplate("sdf_font")
 META.Base = import("goluwa/render2d/fonts/base.lua")
 META:GetSet("TabWidthMultiplier", 4)
 META:IsSet("MSDF", true)
-local SUPER_SCALE = 4
+
+function META:GetFieldScale()
+	if self.Size <= 24 then return 4 end
+
+	if self.Size <= 48 then return 2 end
+
+	return 1
+end
 
 function META.New(font_path, msdf_flag)
 	local self = META:CreateObject()
@@ -106,7 +112,7 @@ local function extract_glyph_edges(self, glyph, curve_steps, scale)
 	local spread = self:GetEffectiveSpread()
 	local scale2 = spread * scale / 2
 
-	for _, end_idx_0 in ipairs(glyph.glyph_data.glyph_data.end_pts_of_contours) do
+	for contour_id, end_idx_0 in ipairs(glyph.glyph_data.glyph_data.end_pts_of_contours) do
 		local end_idx = end_idx_0 + 1
 		local contour = {}
 
@@ -116,7 +122,7 @@ local function extract_glyph_edges(self, glyph, curve_steps, scale)
 		end
 
 		local poly = flatten_contour(contour, curve_steps or 8)
-		local colored = msdf.ColorPolyline(poly)
+		local colored = msdf.ColorPolyline(poly, contour_id)
 
 		for _, e in ipairs(colored) do
 			out[#out + 1] = {
@@ -129,6 +135,7 @@ local function extract_glyph_edges(self, glyph, curve_steps, scale)
 					y = -((e.p1.y * scale1) - glyph.bearing_y) * scale + scale2,
 				},
 				channel = e.channel,
+				contour = e.contour,
 			}
 		end
 
@@ -138,93 +145,35 @@ local function extract_glyph_edges(self, glyph, curve_steps, scale)
 	return out
 end
 
-local function downscale(src, w, h)
-	if downscale == 1 then return src end
-
-	local dst = Texture.New{
-		width = w,
-		height = h,
-		format = src.format,
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "clamp_to_border",
-			wrap_t = "clamp_to_border",
-		},
-		image = {usage = {"transfer_dst", "transfer_src", "sampled"}},
-	}
-	return render.ExecuteCommand(function(cmd)
-		render.TransitionResourceTo(
-			src,
-			"transfer_src_optimal",
-			{
-				cmd = cmd,
-				srcStage = "all_commands",
-				dstStage = "transfer",
-			}
-		)
-		render.TransitionResourceTo(
-			dst,
-			"transfer_dst_optimal",
-			{
-				cmd = cmd,
-				srcStage = "all_commands",
-				dstStage = "transfer",
-			}
-		)
-		cmd:BlitImage{
-			src_image = src:GetImage(),
-			dst_image = dst:GetImage(),
-			src_width = src:GetSize().x,
-			src_height = src:GetSize().y,
-			dst_width = w,
-			dst_height = h,
-			filter = "linear",
-		}
-		render.TransitionResourceFrom(
-			dst,
-			"shader_read_only_optimal",
-			{
-				cmd = cmd,
-				srcStage = "transfer",
-				dstStage = "all_commands",
-			}
-		)
-		return dst
-	end)
-end
-
 do
 	function META:RenderGlyph(glyph)
 		local debug_collect = {}
 		local spread = self:GetEffectiveSpread()
+		local field_scale = self:GetFieldScale()
 		local output_w = math.ceil(glyph.w + spread)
 		local output_h = math.ceil(glyph.h + spread)
 
 		render.ExecuteCommand(function(cmd)
-			local edges = extract_glyph_edges(self, glyph, 8, SUPER_SCALE)
-			local tex_super = msdf.Build{
-				width = output_w * SUPER_SCALE,
-				height = output_h * SUPER_SCALE,
-				spread = spread * SUPER_SCALE,
+			local edges = extract_glyph_edges(self, glyph, 8, field_scale)
+			local tex_final = msdf.Build{
+				width = output_w * field_scale,
+				height = output_h * field_scale,
+				spread = spread * field_scale,
 				format = self:GetAtlasFormat(),
 				filter = "linear",
 				mode = self.MSDF and "msdf" or nil,
 				edges = edges,
 			}
-			local tex_final = downscale(tex_super, output_w, output_h)
-
-			if debug_collect then
-				debug_collect.final = tex_final
-				self:OnTextureGenerated(glyph, debug_collect)
-			end
-
+			debug_collect.final = tex_final
+			self:OnTextureGenerated(glyph, debug_collect)
 			glyph.texture = tex_final
 			glyph.atlas_data = {
 				w = tex_final:GetSize().x,
 				h = tex_final:GetSize().y,
+				draw_w = output_w,
+				draw_h = output_h,
 				texture = tex_final,
-				texel_range = spread,
+				texel_range = spread * field_scale,
 			}
 		end)
 	end
@@ -252,8 +201,8 @@ local function glyph_fn(self, data, X, Y, entries)
 			uv = atlas_data.page_uv,
 			x = (X + data.bitmap_left - spread / 2) * self.Scale.x,
 			y = (Y + data.bitmap_top - spread / 2) * self.Scale.y,
-			w = atlas_data.w * self.Scale.x,
-			h = atlas_data.h * self.Scale.y,
+			w = atlas_data.draw_w * self.Scale.x,
+			h = atlas_data.draw_h * self.Scale.y,
 			texel_range = atlas_data.texel_range,
 		}
 	end

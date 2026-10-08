@@ -97,12 +97,12 @@ local function choose_format(self)
 
 		if not chosen_format_index then
 			local preferred_formats = {
+				"b8g8r8a8_unorm",
+				"r8g8b8a8_unorm",
 				"b8g8r8a8_srgb",
 				"r8g8b8a8_srgb",
 				"a2b10g10r10_unorm_pack32",
 				"a2r10g10b10_unorm_pack32",
-				"b8g8r8a8_unorm",
-				"r8g8b8a8_unorm",
 				"r16g16b16a16_sfloat",
 			}
 
