@@ -4,10 +4,10 @@ local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local shapes = import("goluwa/render3d/shapes.lua")
-local Material = import("goluwa/render3d/material.lua")
-local ModelPreview = import("goluwa/render3d/model_preview.lua")
+local Polygon3D
+local shapes
+local Material
+local ModelPreview
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Frame = import("goluwa/render2d/ui/elements/frame.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
@@ -15,6 +15,7 @@ local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
+local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 
 local function create_material(color, emissive)
 	return Material.New{
@@ -72,7 +73,7 @@ local function build_tile(definition)
 	end
 
 	return Frame{
-		Padding = Rect() + 12,
+		Padding = "M",
 		layout = {
 			FitWidth = true,
 			FitHeight = true,
@@ -276,11 +277,18 @@ local function build_definitions()
 end
 
 return {
-	Name = "3d model preview",
+	Name = "model preview",
+	Section = "Graphics",
+	Order = 3,
 	Create = function()
 		local rows = {}
 
 		if RENDER_3D then
+			import("goluwa/render3d/render3d.lua")
+			Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+			shapes = import("goluwa/render3d/shapes.lua")
+			Material = import("goluwa/render3d/material.lua")
+			ModelPreview = import("goluwa/render3d/model_preview.lua")
 			local definitions = build_definitions()
 
 			for i = 1, #definitions, 3 do
@@ -290,53 +298,23 @@ return {
 					children[#children + 1] = build_tile(definitions[j])
 				end
 
-				rows[#rows + 1] = Row{
-					layout = {
-						GrowWidth = 1,
-						FitHeight = true,
-						AlignmentX = "stretch",
-						AlignmentY = "start",
-						ChildGap = 12,
-					},
-				}(children)
+				rows[#rows + 1] = kit.Group(children, {AlignmentY = "start", ChildGap = "M"})
 			end
 		else
 			rows[1] = Text{
-				Text = "RENDER_3D = false",
+				Text = "Model previews render entities through the 3D renderer. Start the engine with --3d to see them.",
 				Wrap = true,
+				Color = "text_disabled",
 				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
-				},
+				layout = {GrowWidth = 1},
 			}
 		end
 
-		return Column{
-			layout = {
-				Direction = "y",
-				FitHeight = true,
-				GrowWidth = 1,
-				ChildGap = 14,
-				Padding = Rect(20, 20, 20, 20),
-				AlignmentX = "stretch",
-			},
+		return kit.Page{
+			Title = "Model preview",
+			Description = "Entities rendered into small offscreen textures with the model preview helper. Each tile owns its own entity and preview renderer.",
 		}{
-			Text{
-				Text = "Primitive entities rendered into 256x256 offscreen textures through the new model preview helper. Each tile owns its own entity and preview renderer.",
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
-				},
-			},
-			Column{
-				layout = {
-					GrowWidth = 1,
-					FitHeight = true,
-					AlignmentX = "stretch",
-					ChildGap = 12,
-				},
-			}(rows),
+			kit.Section{Title = "Primitives", Framed = false}(rows),
 		}
 	end,
 }

@@ -5,6 +5,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local WIDTH = 420
@@ -114,6 +115,7 @@ local function show()
 				Key = "PvarsWindow",
 				Title = "PVARS",
 				RequestMouse = true,
+				Padding = "none",
 				MinSize = Vec2(WIDTH, 200),
 				OnClose = function()
 					panel.visual:SetVisible(false)
@@ -122,6 +124,7 @@ local function show()
 				ScrollablePanel{
 					ScrollX = false,
 					ScrollY = true,
+					Padding = "M",
 					layout = {
 						GrowWidth = 1,
 						GrowHeight = 1,
@@ -137,10 +140,12 @@ local function show()
 						},
 					},
 				},
-				Button{
-					Text = "Reset all",
-					Mode = "outline",
-					OnClick = reset_all,
+				Row{layout = {Padding = "M", FitHeight = true, GrowWidth = 1}}{
+					Button{
+						Text = "Reset all",
+						Mode = "outline",
+						OnClick = reset_all,
+					},
 				},
 			}
 		)

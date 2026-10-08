@@ -1,220 +1,125 @@
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-local Panel = import("goluwa/render2d/ui/panel.lua")
-local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
-local system = import("goluwa/system.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Frame = import("goluwa/render2d/ui/elements/frame.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
+local VirtualGrid = import("goluwa/render2d/ui/elements/virtual_grid.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
+
+local function jump(button)
+	button.ScrollPanel:ScrollChildIntoView(button.ScrollTarget, 8)
+end
+
+local function jump_button(text, scroll, target)
+	return Button{
+		Text = text,
+		Mode = "outline",
+		ScrollPanel = scroll,
+		ScrollTarget = target,
+		OnClick = jump,
+	}
+end
+
+local function draw_cell(item, index, x, y, width, height, selected, hovered)
+	local font = fonts.GetDefaultFont()
+	theme.active:DrawBoxShape(
+		x,
+		y,
+		width,
+		height,
+		{
+			fill = selected and "primary" or (hovered and "surface_alt" or "surface"),
+			outline = "border",
+			radius = theme.active:GetRadius("S"),
+		}
+	)
+	render2d.SetColor(theme.active:GetColor(selected and "text_on_accent" or "text"):Unpack())
+	font:DrawText(item.name, x + 8, y + height - font:GetLineHeight() - 6)
+end
+
 return {
 	Name = "scrolling",
+	Section = "Containers",
+	Order = 2,
 	Create = function()
-		local vertical_scroll
-		local horizontal_scroll
-		local vertical_items = {}
-		local horizontal_items = {}
+		local rows = {}
 
-		local function build_vertical_items()
-			local t = {
-				Button{Text = "Clickable Item", Padding = "XS"},
-				Text({Text = "Scrollable Content Demo - 100 Items Below"}),
-			}
-
-			for i = 1, 100 do
-				t[#t + 1] = Text{
-					Ref = function(self)
-						vertical_items[i] = self
-					end,
-					Text = "Scrolling Item #" .. i,
-				}
-			end
-
-			t[#t + 1] = Text{
-				Ref = function(self)
-					vertical_items[101] = self
-				end,
-				Text = "End of List",
-			}
-			return t
+		for index = 1, 100 do
+			rows[index] = Text{Text = "Row " .. index, IgnoreMouseInput = true}
 		end
 
-		local function build_horizontal_items()
-			local t = {}
-
-			for i = 1, 20 do
-				t[#t + 1] = Button{
-					Ref = function(self)
-						horizontal_items[i] = self
-					end,
-					Text = "Item " .. i,
-					Padding = "XS",
-				}
-			end
-
-			return t
-		end
-
-		return Column{
-			layout = {
-				Direction = "y",
-				ChildGap = 10,
-				AlignmentX = "start",
-				AlignmentY = "start",
-			},
+		local vertical = ScrollablePanel{
+			layout = {MinSize = Vec2(0, 160), MaxSize = Vec2(0, 160)},
 		}{
-			Text({Text = "Vertical Scroll Debug"}),
-			Column{
-				layout = {
-					Direction = "x",
-					ChildGap = 8,
-					FitWidth = true,
-				},
+			Column{layout = {ChildGap = "XXS", AlignmentX = "start", FitHeight = true}}(rows),
+		}
+		local items = {}
+		local targets = {}
+
+		for index = 1, 30 do
+			items[index] = Button{Text = "Item " .. index, Padding = "XS"}
+			targets[index] = items[index]
+		end
+
+		local horizontal = ScrollablePanel{
+			ScrollX = true,
+			ScrollY = false,
+			layout = {MinSize = Vec2(0, 56), MaxSize = Vec2(0, 56)},
+		}{
+			Row{
+				layout = {ChildGap = "XS", AlignmentY = "center", FitWidth = true, GrowWidth = 0},
+			}(items),
+		}
+		local grid_items = {}
+
+		for index = 1, 2000 do
+			grid_items[index] = {name = "Item " .. index}
+		end
+
+		local grid = VirtualGrid{
+			Items = grid_items,
+			CellWidth = 96,
+			ExtraHeight = 24,
+			Gap = 8,
+			OnDrawItem = draw_cell,
+			layout = {MinSize = Vec2(0, 260), MaxSize = Vec2(0, 260)},
+		}
+		return kit.Page{
+			Title = "Scrolling",
+			Description = "ScrollablePanel clips its children and shows scrollbars as needed. ScrollChildIntoView and ScrollRectIntoView drive it from code.",
+		}{
+			kit.Section{
+				Title = "Vertical",
+				Description = "Wheel scrolling, draggable scrollbar and programmatic jumps.",
 			}{
-				Button{
-					Text = "Top",
-					OnClick = function()
-						if vertical_scroll and vertical_scroll:IsValid() then
-							vertical_scroll:ScrollChildIntoView(vertical_items[1], 8)
-						end
-					end,
+				kit.Group{
+					jump_button("First row", vertical, rows[1]),
+					jump_button("Row 50", vertical, rows[50]),
+					jump_button("Last row", vertical, rows[100]),
 				},
-				Button{
-					Text = "Item 25",
-					Mode = "outline",
-					OnClick = function()
-						if vertical_scroll and vertical_scroll:IsValid() then
-							vertical_scroll:ScrollChildIntoView(vertical_items[25], 8)
-						end
-					end,
-				},
-				Button{
-					Text = "Item 50",
-					Mode = "outline",
-					OnClick = function()
-						if vertical_scroll and vertical_scroll:IsValid() then
-							vertical_scroll:ScrollChildIntoView(vertical_items[50], 8)
-						end
-					end,
-				},
-				Button{
-					Text = "Bottom",
-					Mode = "outline",
-					OnClick = function()
-						if vertical_scroll and vertical_scroll:IsValid() then
-							vertical_scroll:ScrollChildIntoView(vertical_items[101], 8)
-						end
-					end,
-				},
+				vertical,
 			},
-			ScrollablePanel{
-				Ref = function(self)
-					vertical_scroll = self
-				end,
-				Color = Color(0, 0, 0, 0.5),
-				layout = {
-					MinSize = Vec2(100, 100),
-					MaxSize = Vec2(0, 100),
-				},
-			}(
-				Column{
-					layout = {
-						Direction = "y",
-						ChildGap = 5,
-						AlignmentX = "start",
-						FitHeight = true,
-					},
-				}(build_vertical_items())
-			),
-			ScrollablePanel{
-				Color = Color(0, 0, 0, 0.5),
-				ScrollX = true,
-				layout = {
-					MinSize = Vec2(100, 100),
-					MaxSize = Vec2(100, 100),
-				},
-			}(
-				Panel.New{
-					Name = "AnimatedPanel",
-					transform = true,
-					layout = {
-						AlignmentX = "center",
-						AlignmentY = "center",
-					},
-					Ref = function(self)
-						self:AddGlobalEvent("Update")
-					end,
-					OnUpdate = function(self, dt)
-						local t = system.GetElapsedTime()
-						local w = 10 + (math.sin(t * 2) * 0.5 + 0.5) * 150
-						local h = 10 + (math.cos(t * 2) * 0.5 + 0.5) * 150
-						self.transform:SetSize(Vec2(w, h))
-					end,
-				}(
-					Text{
-						Text = "I am overflowable!",
-						text = {
-							AlignX = 0.5,
-							AlignY = 0.5,
-						},
-					}
-				)
-			),
-			Text({Text = "Horizontal Scrolling Demo (Shift + Scroll or Drag)"}),
-			Column{
-				layout = {
-					Direction = "x",
-					ChildGap = 8,
-					FitWidth = true,
-				},
+			kit.Section{
+				Title = "Horizontal",
+				Description = "ScrollX = true with ScrollY = false. Hold Shift while scrolling the wheel on a two axis panel.",
 			}{
-				Button{
-					Text = "Start",
-					OnClick = function()
-						if horizontal_scroll and horizontal_scroll:IsValid() then
-							horizontal_scroll:ScrollChildIntoView(horizontal_items[1], 8)
-						end
-					end,
+				kit.Group{
+					jump_button("Start", horizontal, items[1]),
+					jump_button("Item 15", horizontal, items[15]),
+					jump_button("End", horizontal, items[30]),
 				},
-				Button{
-					Text = "Item 10",
-					Mode = "outline",
-					OnClick = function()
-						if horizontal_scroll and horizontal_scroll:IsValid() then
-							horizontal_scroll:ScrollChildIntoView(horizontal_items[10], 8)
-						end
-					end,
-				},
-				Button{
-					Text = "End",
-					Mode = "outline",
-					OnClick = function()
-						if horizontal_scroll and horizontal_scroll:IsValid() then
-							horizontal_scroll:ScrollChildIntoView(horizontal_items[20], 8)
-						end
-					end,
-				},
+				horizontal,
 			},
-			ScrollablePanel{
-				Ref = function(self)
-					horizontal_scroll = self
-				end,
-				Color = Color(0, 0, 0, 0.5),
-				ScrollX = true,
-				ScrollY = false,
-				layout = {
-					MinSize = Vec2(200, 50),
-					MaxSize = Vec2(200, 50),
-				},
-			}(
-				Column{
-					layout = {
-						Direction = "x",
-						ChildGap = 10,
-						AlignmentY = "center",
-						FitWidth = true,
-					},
-				}(build_horizontal_items())
-			),
+			kit.Section{
+				Title = "Virtual grid",
+				Description = "2000 items, only the visible cells are drawn. Click to select, arrow keys to move, Enter or double click to activate.",
+			}{grid},
 		}
 	end,
 }

@@ -1,163 +1,105 @@
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-
-local function resolve_menu_items(definition)
-	local items = definition.Items or definition.Menu or definition.Submenu
-
-	if type(items) == "function" then items = items() end
-
-	return items or {}
-end
-
-local function get_passthrough_props(src)
-	local out = {}
-
-	if src.Key ~= nil then out.Key = src.Key end
-
-	if src.Parent ~= nil then out.Parent = src.Parent end
-
-	if src.Ref ~= nil then out.Ref = src.Ref end
-
-	if src.Tooltip ~= nil then out.Tooltip = src.Tooltip end
-
-	if src.TooltipOptions ~= nil then out.TooltipOptions = src.TooltipOptions end
-
-	if src.TooltipMaxWidth ~= nil then out.TooltipMaxWidth = src.TooltipMaxWidth end
-
-	if src.TooltipOffset ~= nil then out.TooltipOffset = src.TooltipOffset end
-
-	if src.ChildOrder ~= nil then out.ChildOrder = src.ChildOrder end
-
-	return out
-end
-
-local function create_menu_button(definition, on_click, on_hover)
-	local button = Clickable{
-		get_passthrough_props(definition),
-		Disabled = definition.Disabled,
-		Mode = "menu",
-		OnMouseEnter = function()
-			if definition.Disabled then return end
-
-			if on_hover then on_hover(button) end
-		end,
-		OnClick = not definition.Disabled and
-			function()
-				if on_click then return on_click(button) end
-			end or
-			nil,
-		Size = definition.Size or "M",
-		layout = {
-			FitHeight = true,
-			FitWidth = true,
-			AlignmentX = "center",
-			AlignmentY = "center",
-			Padding = definition.Padding or "M",
-		},
-	}(
-		Text{
-			Text = definition.Text,
-			IgnoreMouseInput = true,
-			InheritColor = true,
-			AlignX = 0.5,
-			AlignY = 0.5,
-		}
-	)
-
-	function button:SetMenuBarActive(active)
-		self:SetState("active", not not active)
-		return self
-	end
-
-	return button
-end
-
+local Rect = import("goluwa/structs/rect.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local META = Panel:CreateTemplate("menu_bar")
 META.CMP.transform = {}
 META.CMP.layout = {
 	Direction = "x",
 	FitHeight = true,
 	GrowWidth = 1,
+	ChildGap = "XXS",
+	AlignmentY = "center",
 }
 META.CMP.visual = {}
-META:GetSet("Items", {})
+META:StartStorable()
+META:GetSet("Items", nil)
 META:GetSet("MenuKey", "ActiveMenuBarContextMenu")
-META:GetSet("ChildGap", "XXS")
+META:EndStorable()
+
+local function on_button_click(button)
+	local menu_bar = button.MenuBar
+
+	if menu_bar._active_index == button.MenuIndex then
+		menu_bar:CloseMenu()
+	else
+		menu_bar:OpenMenu(button.MenuIndex)
+	end
+
+	return true
+end
+
+local function on_button_enter(button)
+	local menu_bar = button.MenuBar
+
+	if
+		not button.Disabled and
+		menu_bar._context_menu:IsValid() and
+		menu_bar._active_index ~= button.MenuIndex
+	then
+		menu_bar:OpenMenu(button.MenuIndex)
+	end
+end
+
+local function on_menu_close(context_menu)
+	local menu_bar = context_menu.SourceMenuBar
+	context_menu:Remove()
+
+	if not menu_bar:IsValid() then return end
+
+	menu_bar._context_menu = NULL
+	menu_bar._active_index = nil
+	menu_bar:sync_button_state()
+end
 
 function META:OnCreate(props)
-	local create_props = {}
+	props.Items = props.Items or {}
+	META.BaseClass.OnCreate(self, props)
+	self._buttons = {}
+	self._active_index = nil
+	self._context_menu = NULL
+	local horizontal = theme.active:GetPadding("M")
+	local vertical = theme.active:GetPadding("S")
+	self._button_padding = Rect(horizontal, vertical, horizontal, vertical)
 
-	for k, v in pairs(props) do
-		create_props[k] = v
+	for index, definition in ipairs(self.Items) do
+		self._buttons[index] = Button{
+			Parent = self,
+			IsInternal = true,
+			MenuBar = self,
+			MenuIndex = index,
+			Key = definition.Key,
+			Ref = definition.Ref,
+			Tooltip = definition.Tooltip,
+			TooltipOptions = definition.TooltipOptions,
+			TooltipMaxWidth = definition.TooltipMaxWidth,
+			TooltipOffset = definition.TooltipOffset,
+			ChildOrder = definition.ChildOrder,
+			Mode = "menu",
+			Text = definition.Text,
+			Disabled = definition.Disabled,
+			Size = definition.Size or "M",
+			Padding = definition.Padding or self._button_padding,
+			OnClick = on_button_click,
+			OnMouseEnter = on_button_enter,
+		}
 	end
 
-	create_props.GrowWidth = nil
-	create_props.FitWidth = nil
-	local layout_cfg = {}
-
-	for k, v in pairs(self.CMP.layout) do
-		layout_cfg[k] = v
-	end
-
-	layout_cfg.GrowWidth = props.GrowWidth ~= false and 1 or 0
-	layout_cfg.FitWidth = props.FitWidth ~= false
-	create_props.layout = layout_cfg
-	self.BaseClass.OnCreate(self, create_props)
-	self.buttons = {}
-	self.active_index = nil
-	self.context_menu = NULL
-	local items = props.Items or {}
-	self:SetItems(items)
-	local row_children = {}
-
-	for index, definition in ipairs(items) do
-		row_children[#row_children + 1] = create_menu_button(definition, function()
-			if self.active_index == index then
-				self:CloseMenu()
-				return true
-			end
-
-			self:OpenMenu(index)
-			return true
-		end, function()
-			if self.context_menu:IsValid() and self.active_index ~= index then
-				self:OpenMenu(index)
-			end
-		end)
-		self.buttons[index] = row_children[#row_children]
-	end
-
-	self.row = Row{
-		IsInternal = true,
-		Parent = self,
-		layout = {
-			GrowWidth = 1,
-			FitHeight = true,
-			ChildGap = self:GetChildGap(),
-			AlignmentY = "center",
-		},
-	}(row_children)
 	self:AddGlobalEvent("Update")
 	self:AddGlobalEvent("KeyInput", {priority = math.huge})
 end
 
 function META:OnUpdate()
-	if not self.context_menu:IsValid() then return end
+	if not self._context_menu:IsValid() then return end
 
 	local mouse_pos = system.GetWindow():GetMousePosition()
 
-	for index, button in ipairs(self.buttons) do
+	for index, button in ipairs(self._buttons) do
 		if
-			button and
-			button:IsValid() and
-			button.visual and
-			button.visual:IsHovered(mouse_pos) and
-			self.active_index ~= index and
-			not self:GetItems()[index].Disabled
+			self._active_index ~= index and
+			not button.Disabled and
+			button.visual:IsHovered(mouse_pos)
 		then
 			self:OpenMenu(index)
 
@@ -167,7 +109,7 @@ function META:OnUpdate()
 end
 
 function META:OnKeyInput(key, press)
-	if not self.context_menu:IsValid() then return end
+	if not self._context_menu:IsValid() then return end
 
 	if press and key == "escape" then
 		self:CloseMenu()
@@ -175,31 +117,31 @@ function META:OnKeyInput(key, press)
 	end
 end
 
-function META:_sync_button_state()
-	for index, button in ipairs(self.buttons) do
-		if button and button:IsValid() then
-			button:SetMenuBarActive(self.active_index == index)
-		end
+function META:sync_button_state()
+	for index, button in ipairs(self._buttons) do
+		button:SetActive(self._active_index == index)
 	end
 end
 
 function META:CloseMenu()
-	if self.context_menu:IsValid() then self.context_menu:Remove() end
+	if self._context_menu:IsValid() then self._context_menu:Remove() end
 
-	self.context_menu = NULL
-	self.active_index = nil
-	self:_sync_button_state()
+	self._context_menu = NULL
+	self._active_index = nil
+	self:sync_button_state()
 	return self
 end
 
 function META:OpenMenu(index)
-	local items = self:GetItems()
-	local definition = items[index]
+	local definition = self.Items[index]
 
 	if not definition or definition.Disabled then return end
 
-	local menu_items = resolve_menu_items(definition)
-	local button = self.buttons[index]
+	local menu_items = definition.Items or {}
+
+	if type(menu_items) == "function" then menu_items = menu_items() end
+
+	local button = self._buttons[index]
 
 	if #menu_items == 0 then
 		self:CloseMenu()
@@ -209,27 +151,19 @@ function META:OpenMenu(index)
 		return
 	end
 
-	self.active_index = index
-	self.context_menu:Remove()
-	self.context_menu = Panel.OpenContextMenu(
+	self._active_index = index
+	self._context_menu:Remove()
+	self._context_menu = Panel.OpenContextMenu(
 		{
+			Key = self.MenuKey,
 			Anchor = button,
 			AnchorPlacement = definition.AnchorPlacement or "below_left",
 			SourceMenuBar = self,
-			OnClose = function(ent)
-				ent:Remove()
-
-				if not self:IsValid() then return end
-
-				self.context_menu = NULL
-				self.active_index = nil
-				self:_sync_button_state()
-			end,
+			OnClose = on_menu_close,
 		},
 		unpack(menu_items)
 	)
-	self:_sync_button_state()
+	self:sync_button_state()
 end
 
-META:Register()
-return META.New
+return META:Register()

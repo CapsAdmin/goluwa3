@@ -195,7 +195,13 @@ function objects.RebuildMetatables(what)
 
 							if k == "CMP" then
 								for ck, cv in pairs(val) do
-									if cmp[ck] == nil then cmp[ck] = cv end
+									local merged = cmp[ck] or {}
+
+									for mk, mv in pairs(cv) do
+										merged[mk] = mv
+									end
+
+									cmp[ck] = merged
 								end
 							end
 						end
@@ -230,7 +236,13 @@ function objects.RebuildMetatables(what)
 
 				if k == "CMP" then
 					for ck, cv in pairs(v) do
-						if cmp[ck] == nil then cmp[ck] = cv end
+						local merged = cmp[ck] or {}
+
+						for mk, mv in pairs(cv) do
+							merged[mk] = mv
+						end
+
+						cmp[ck] = merged
 					end
 				end
 			end

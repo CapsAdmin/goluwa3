@@ -5,61 +5,34 @@ local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")
 local MenuContainer = import("goluwa/render2d/ui/elements/menu_container.lua")
 local META = Panel:CreateTemplate("context_menu")
-META.Name = "ContextMenu"
 META.CMP.transform = {}
-META.CMP.layout = {
-	Floating = true,
-}
-META.CMP.mouse_input = {
-	BringToFrontOnClick = true,
-	OnMouseInput = function(self, button, press)
-		if not press then return end
-
-		if button == "button_1" then return self.Owner:RequestClose() end
-
-		if button == "button_2" then return self.Owner:RequestClose(button) end
-	end,
-}
+META.CMP.layout = {Floating = true}
+META.CMP.mouse_input = {BringToFrontOnClick = true}
 META.CMP.visual = {}
 META.CMP.animation = {}
+META:StartStorable()
+META:GetSet("Anchor", nil)
+META:GetSet("AnchorPlacement", "below_left", {enums = {"below_left", "right_top"}})
+META:GetSet("SourceDropdown", nil)
+META:GetSet("SourceMenuBar", nil)
+META:EndStorable()
+
+local function consume_mouse_input()
+	return true
+end
+
+local function on_root_key_input(root, key, press)
+	if press and key == "escape" then return root:GetParent():RequestClose() end
+end
 
 function META:OnCreate(props)
-	self.BaseClass.OnCreate(self, props)
+	META.BaseClass.OnCreate(self, props)
 	self.IsContextMenuContainer = true
-	self.contextMenuRoot = nil
-	self.contextMenuIsClosing = false
-	self.contextMenuIsRelaying = false
-	self.contextMenuAnchor = props.Anchor
-	self.contextMenuAnchorPlacement = props.AnchorPlacement or "below_left"
-	self.contextMenuSize = props.Size
-	self.contextMenuOnClose = props.OnClose
-	self.contextMenuOnClosing = props.OnClosing
-	self.SourceDropdown = props.SourceDropdown
-	self.SourceMenuBar = props.SourceMenuBar
-
-	self:AddLocalListener("OnVisibilityChanged", function(self, visible)
-		self.contextMenuIsClosing = not visible
-		self:updateAnimations()
-	end)
-
-	self:AddLocalListener("OnKeyInput", function(self, key, press)
-		if press and key == "escape" then return self:RequestClose() end
-	end)
-
-	self:AddLocalListener("OnDraw", function(self)
-		local w, h = render2d.GetSize()
-		local size = self.transform:GetSize()
-
-		if size.x ~= w or size.y ~= h then self.transform:SetSize(Vec2(w, h)) end
-
-		for _, menu in ipairs(self:GetChildren()) do
-			self:updateMenuPosition(menu)
-		end
-	end)
-
+	self._closing = false
+	self._relaying = false
 	local root = MenuContainer{
 		IsInternal = true,
-		Name = "ContextMenu",
+		Name = "context_menu_root",
 		transform = {
 			Pivot = Vec2(0, 0),
 			Position = props.Position or Vec2(100, 100),
@@ -69,35 +42,68 @@ function META:OnCreate(props)
 			Floating = true,
 			FitWidth = true,
 		},
-		OnMouseInput = function()
-			return true
-		end,
+		OnMouseInput = consume_mouse_input,
+		OnKeyInput = on_root_key_input,
 	}
 	root.ContextMenuLevel = 1
-	root.ContextMenuAnchor = self.contextMenuAnchor
-	root.ContextMenuPlacement = self.contextMenuAnchorPlacement
-	self.contextMenuRoot = root
+	root.ContextMenuAnchor = self.Anchor
+	root.ContextMenuPlacement = self.AnchorPlacement
+	self._root = root
 	self.transform:SetSize(Vec2(render2d.GetSize()))
 	self.transform:SetPosition(Vec2(0, 0))
 	root:RequestFocus()
 	self:AddChild(root)
-	self:updateMenuPosition(root)
-	self:updateAnimations()
+	self:update_menu_position(root)
+	self:update_animations()
+end
+
+function META:OnClose()
+	self:Remove()
+end
+
+function META:OnClosing() end
+
+function META:OnVisibilityChanged(visible)
+	self._closing = not visible
+	self:update_animations()
+end
+
+function META:OnMouseInput(button, press)
+	if not press then return end
+
+	if button == "button_1" then return self:RequestClose() end
+
+	if button == "button_2" then return self:RequestClose(button) end
+end
+
+function META:OnDraw()
+	local w, h = render2d.GetSize()
+	local size = self.transform:GetSize()
+
+	if size.x ~= w or size.y ~= h then self.transform:SetSize(Vec2(w, h)) end
+
+	for _, menu in ipairs(self:GetChildren()) do
+		self:update_menu_position(menu)
+	end
+end
+
+function META:GetRootMenu()
+	return self._root
 end
 
 function META:PreChildAdd(child)
 	if child.IsInternal then return end
 
-	self.contextMenuRoot:AddChild(child)
+	self._root:AddChild(child)
 	return false
 end
 
 function META:PreRemoveChildren()
-	self.contextMenuRoot:RemoveChildren()
+	self._root:RemoveChildren()
 	return false
 end
 
-function META:getSubmenus()
+function META:get_submenus()
 	local submenus = {}
 
 	for _, menu in ipairs(self:GetChildren()) do
@@ -141,7 +147,7 @@ do
 		return Vec2(math.max(0, x), math.max(0, y))
 	end
 
-	function META:updateMenuPosition(menu)
+	function META:update_menu_position(menu)
 		local world_size = self.transform:GetSize()
 		local menu_size = menu.transform:GetSize()
 		local position = menu.transform:GetPosition() or Vec2(100, 100)
@@ -164,10 +170,10 @@ do
 	end
 end
 
-function META:updateAnimations()
-	local root = self.contextMenuRoot
+function META:update_animations()
+	local root = self._root
 
-	if self.contextMenuIsClosing then
+	if self._closing then
 		root.transform:SetDrawScaleOffset(Vec2(1, 1))
 	else
 		root.transform:SetDrawScaleOffset(Vec2(1, 0))
@@ -181,11 +187,11 @@ function META:updateAnimations()
 		set = function(value)
 			root.transform:SetDrawScaleOffset(Vec2(1, value.y))
 		end,
-		to = self.contextMenuIsClosing and Vec2(1, 0) or Vec2(1, 1),
+		to = self._closing and Vec2(1, 0) or Vec2(1, 1),
 		time = 0.2,
 		interpolation = "outExpo",
 		callback = function()
-			if self.contextMenuIsClosing then self:closeImmediately() end
+			if self._closing then self:close_immediately() end
 		end,
 	}
 	root.animation:Animate{
@@ -196,7 +202,7 @@ function META:updateAnimations()
 		set = function(value)
 			root.visual:SetDrawAlpha(value)
 		end,
-		to = self.contextMenuIsClosing and 0 or 1,
+		to = self._closing and 0 or 1,
 		time = 1,
 		interpolation = "outExpo",
 	}
@@ -209,16 +215,13 @@ do
 		end
 	end
 
-	function META:closeImmediately()
-		clear_pressed(self.contextMenuRoot)
-
-		if self.contextMenuOnClose then return self.contextMenuOnClose(self) end
-
-		self:Remove()
+	function META:close_immediately()
+		clear_pressed(self._root)
+		return self:OnClose()
 	end
 
 	function META:CloseFromLevel(level)
-		for _, menu in ipairs(self:getSubmenus()) do
+		for _, menu in ipairs(self:get_submenus()) do
 			if menu.ContextMenuLevel >= level then
 				menu.ContextMenuSourceItem:SetSubmenuOpen(false)
 				clear_pressed(menu)
@@ -229,21 +232,19 @@ do
 end
 
 function META:RequestClose(relay_button)
-	if self.contextMenuIsClosing then return true end
+	if self._closing then return true end
 
-	self.contextMenuIsClosing = true
+	self._closing = true
 	self:CloseFromLevel(2)
-
-	if self.contextMenuOnClosing then self.contextMenuOnClosing(self) end
-
+	self:OnClosing()
 	self.mouse_input:SetIgnoreMouseInput(true)
-	self:updateAnimations()
+	self:update_animations()
 
-	if relay_button and not self.contextMenuIsRelaying then
-		self.contextMenuIsRelaying = true
+	if relay_button and not self._relaying then
+		self._relaying = true
 
 		timer.Delay(0, function()
-			self.contextMenuIsRelaying = false
+			self._relaying = false
 			event.Call("MouseInput", relay_button, true)
 		end)
 	end
@@ -258,32 +259,30 @@ local function resolve_children(source)
 end
 
 function META:OpenSubmenu(item, submenu_props)
-	if self.contextMenuIsClosing then return end
+	if self._closing then return end
 
 	local parent_menu = item:GetParent()
 
 	if not parent_menu:IsValid() then return end
 
 	local level = (parent_menu.ContextMenuLevel or 1) + 1
-	local items = resolve_children(submenu_props.Items or submenu_props.Submenu or submenu_props.Menu)
+	local items = resolve_children(submenu_props.Items)
 	self:CloseFromLevel(level)
 
 	if #items == 0 then return end
 
 	local submenu = MenuContainer{
 		IsInternal = true,
-		Name = "ContextMenu",
+		Name = "context_menu_submenu",
 		transform = {
 			Pivot = Vec2(0, 0),
-			Position = item.transform:GetPosition() or Vec2(100, 100),
+			Position = item.transform:GetPosition(),
 		},
 		layout = {
 			Floating = true,
 			FitWidth = true,
 		},
-		OnMouseInput = function()
-			return true
-		end,
+		OnMouseInput = consume_mouse_input,
 	}
 	submenu.ContextMenuLevel = level
 	submenu.ContextMenuAnchor = item
@@ -294,11 +293,9 @@ function META:OpenSubmenu(item, submenu_props)
 		submenu:AddChild(child)
 	end
 
-	if item.SetSubmenuOpen then item:SetSubmenuOpen(true) end
-
+	item:SetSubmenuOpen(true)
 	self:AddChild(submenu)
-	self:updateMenuPosition(submenu)
+	self:update_menu_position(submenu)
 end
 
-META:Register()
-return META.New
+return META:Register()

@@ -47,10 +47,6 @@ local function build_path(parent_path, index)
 end
 
 function META:OnCreate(props)
-	if props.layout then
-		props.layout = table.merge(META.CMP.layout, props.layout)
-	end
-
 	props.ToggleSize = theme.active:ResolveSize(props.ToggleSize or "M")
 	props.BoxSize = theme.active:ResolveSize(props.BoxSize or "S")
 	props.RowGap = theme.active:ResolveSize(props.RowGap or "XXS")
@@ -76,17 +72,16 @@ function META:OnCreate(props)
 	self:Rebuild()
 	self._pending_expand_animation_key = nil
 	self._drag_enabled = true
+	self:AddGlobalEvent("Update")
+end
 
-	function self:OnUpdate()
-		if self._pending_refresh and system.GetElapsedTime() >= self._refresh_deadline then
-			self._pending_refresh = false
-			self:Rebuild(true)
-		end
-
-		self:materialize_visible_rows()
+function META:OnUpdate()
+	if self._pending_refresh and system.GetElapsedTime() >= self._refresh_deadline then
+		self._pending_refresh = false
+		self:Rebuild(true)
 	end
 
-	self:AddGlobalEvent("Update")
+	self:materialize_visible_rows()
 end
 
 function META.OnGetText() end

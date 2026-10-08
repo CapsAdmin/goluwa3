@@ -75,6 +75,19 @@ Server authoritative, Source/GMod style. Start a server with `luajit glw --serve
 - Players: input is a `usercmd` (`goluwa/network/usercmd.lua`) produced once per physics tick by `player_controller` (from `player_input` locally, from the network on the server, or from a `CreateMove` hook for bots). `player_movement` only consumes the command, so the same code predicts on the client and simulates on the server. The client reconciles against `player_ack`, the server relays commands to the other players, and the physgun runs on the server from the command buttons.
 - `net_stats` toggles a network HUD. Tests: `luajit glw test network/` (includes two process e2e tests that spawn a server, a bot and an observer from `test/network_e2e/`).
 
+# UI widgets
+
+Every widget under `goluwa/render2d/ui` (`elements/`, `widgets/`, `widgets/properties/`) is a `Panel:CreateTemplate("name")` class, see `widgets/tree.lua` and `widgets/window.lua`. Instantiate with `Widget{Prop = value}{children}`.
+
+- Component defaults go in `META.CMP.transform = {...}`, `META.CMP.layout = {...}` and so on. Props passed by the caller are merged on top, they never mutate the defaults.
+- Options are `META:GetSet` properties. Tokens (`"M"`, `"XS"`, palette names) are resolved through `theme.active`. Token or object valued options use a `nil` default because GetSet coerces string and number defaults.
+- Build internal children in `OnCreate` with `Parent = self, IsInternal = true` and keep them in private `_fields`. Forward user children with `PreChildAdd` and `PreRemoveChildren` (or `self:RemoveExternalChildren()`).
+- Callbacks are default no-ops (`function META.OnChange() end`) assigned from props and called as `self.OnChange(value, self)`. Derived templates set `META.Base = Other` and call `META.BaseClass.OnCreate`, so a base template must define `OnCreate`.
+- Custom `SetX` methods run while props are applied, before the internal children exist. Guard them.
+- `theme.active:Draw(self)` dispatches on `pnl.ThemeName or pnl.Name`. Do not name props after entity API (`State`, `Scroll`, `Size`, `Direction`) and declare `Font` and `FontSize` GetSets when forwarding text props, otherwise a `text` component is added to the panel.
+- Scroll views: the scrollbar hugs the `ScrollablePanel`'s own edge (theme sets its width and hairline margin). A window or frame that hosts a scroll view uses `Padding = "none"` and puts the padding on the scroll panel, otherwise the bar floats inward. `ScrollbarShiftMode` defaults to `auto` (reserves a gutter in big panels, floats over content in small ones); `VirtualGrid` defaults to `always_shift` so its columns do not reflow when the bar appears.
+- `addons/ui_gallery` is the showcase: `luajit glw --2d --background --validate lua "import('addons/ui_gallery/lua/gallery_browser.lua'){Key = 'GalleryWindow'}"`. Each file in `lua/gallery/` returns `{Name, Section, Order, Create}` and is built from `gallery_kit.lua` (Page, Section, Group, Labeled). Use spacing tokens only.
+
 # Debugging
 
 When debugging and thinking about why somnething happens, feel free to do print logging and changing code around temporarily to verify.

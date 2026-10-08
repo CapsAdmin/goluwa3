@@ -5,6 +5,7 @@ local shared_double_click_times = setmetatable({}, {__mode = "k"})
 META:StartStorable()
 META:GetSet("DoubleClickTime", 0.3)
 META:GetSet("DoubleClickKey", nil)
+META:GetSet("Disabled", false)
 META:EndStorable()
 
 function META:Initialize()
@@ -15,6 +16,8 @@ function META:Initialize()
 end
 
 function META:OnMouseInput(button, press, pos)
+	if self.Disabled then return end
+
 	if button == "button_1" then
 		if press then
 			self.is_pressing_left = true
@@ -49,6 +52,8 @@ function META:OnMouseInput(button, press, pos)
 end
 
 function META:OnKeyInput(key, press)
+	if self.Disabled then return end
+
 	if press and (key == "enter" or key == "numpad_enter") then
 		self.Owner:CallLocalEvent("OnClick")
 		return true

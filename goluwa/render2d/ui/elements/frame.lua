@@ -1,39 +1,33 @@
-local render2d = import("goluwa/render2d/render2d.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
-local Rect = import("goluwa/structs/rect.lua")
-local Ang3 = import("goluwa/structs/ang3.lua")
-local objects = import("goluwa/objects/objects.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	return Panel.New{
-		props,
-		{
-			Name = "frame",
-			Ref = function(pnl)
-				pnl:SetState("emphasis", props.Emphasis or 0)
-			end,
-			visual = {
-				OnDraw = function(self)
-					theme.active:Draw(self.Owner)
-				end,
-				OnPostDraw = function(self)
-					theme.active:DrawPost(self.Owner)
-				end,
-			},
-			layout = {
-				Padding = props.Padding,
-				props.layout,
-			},
-			transform = true,
-			mouse_input = {
-				Cursor = props.OnClick and "pointer" or "arrow",
-			},
-			clickable = true,
-			OnClick = props.OnClick,
-			animation = true,
-		},
-	}
+local META = Panel:CreateTemplate("frame")
+META.CMP.transform = {}
+META.CMP.layout = {}
+META.CMP.visual = {}
+META.CMP.mouse_input = {}
+META.CMP.clickable = {}
+META.CMP.animation = {}
+META:StartStorable()
+
+META:GetSet("Emphasis", 0, function(self, val)
+	self:SetState("emphasis", val)
+end)
+
+META:EndStorable()
+
+function META:OnCreate(props)
+	META.BaseClass.OnCreate(self, props)
+	self:SetState("emphasis", self.Emphasis)
+
+	if props.OnClick then self.mouse_input:SetCursor("pointer") end
 end
+
+function META:OnDraw()
+	theme.active:Draw(self)
+end
+
+function META:OnPostDraw()
+	theme.active:DrawPost(self)
+end
+
+return META:Register()

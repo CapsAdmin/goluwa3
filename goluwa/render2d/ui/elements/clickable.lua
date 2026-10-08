@@ -1,93 +1,97 @@
-local Vec2 = import("goluwa/structs/vec2.lua")
-local Rect = import("goluwa/structs/rect.lua")
-local Color = import("goluwa/structs/color.lua")
-local Ang3 = import("goluwa/structs/ang3.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Texture = import("goluwa/render/texture.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	local function update_style_context(panel)
-		local style = panel.style
+local META = Panel:CreateTemplate("clickable")
+META.ThemeName = "clickable"
+META.CMP.transform = {Perspective = 400}
+META.CMP.layout = {
+	Padding = "S",
+	AlignmentX = "center",
+	AlignmentY = "center",
+}
+META.CMP.visual = {Clipping = true}
+META.CMP.mouse_input = {Cursor = "hand"}
+META.CMP.style = {}
+META.CMP.animation = {}
+META.CMP.clickable = {}
+META:StartStorable()
+META:GetSet("Mode", "filled", {enums = {"filled", "outline", "text", "menu"}})
+META:GetSet("ButtonColor", nil)
+META:GetSet("Disabled", false)
+META:GetSet("Active", false)
+META:EndStorable()
 
-		if not style or not theme.active then return end
-
-		local context = theme.active:ResolveButtonStyleContext(panel:GetState())
-		style:SetBackgroundColor(context.background_token)
-		style:SetForegroundColor(context.foreground_token)
-	end
-
-	local function mouse_input(self, button, press, local_pos)
-		self.mouse_input:SetCursor(self:GetState("disabled") and "arrow" or "hand")
-
-		if self:GetState("disabled") then return end
-
-		if button == "button_1" then self:SetState("pressed", press) end
-	end
-
-	local panel = Panel.New{
-		props,
-		{
-			Name = props.Name or "clickable",
-			OnStateChanged = function(self)
-				update_style_context(self)
-			end,
-			style = props.style or true,
-			transform = {
-				Size = props.Size,
-				Perspective = 400,
-				DrawScaleOffset = Vec2(1, 1),
-				DrawAngleOffset = Ang3(0, 0, 0),
-			},
-			layout = {
-				Padding = props.Padding or "S",
-				AlignmentX = "center",
-				AlignmentY = "center",
-				props.layout,
-			},
-			visual = {
-				Clipping = props.Clipping ~= false,
-				OnDraw = not props.NoDraw and
-					function(self)
-						self:SetDrawAlpha(self.Owner:GetState("disabled") and 0.5 or 1)
-						theme.active:Draw(self.Owner)
-					end,
-				OnPostDraw = not props.NoDraw and
-					function(self)
-						theme.active:DrawPost(self.Owner)
-					end,
-			},
-			mouse_input = {
-				Cursor = "hand",
-				OnMouseInput = function(self, button, press, local_pos)
-					mouse_input(self.Owner, button, press, local_pos)
-				end,
-				OnHover = function(self, hovered)
-					self:SetCursor(self.Owner:GetState("disabled") and "arrow" or "hand")
-					self.Owner:SetState("hovered", hovered)
-				end,
-				OnGlobalMouseInput = function(self, button, press)
-					if not press and button == "button_1" then
-						self.Owner:SetState("pressed", false)
-					end
-				end,
-			},
-			animation = true,
-			clickable = true,
-			OnClick = not props.Disabled and props.OnClick or nil,
-			OnStartClick = not props.Disabled and
-				function(self, button, press, pos)
-					mouse_input(self, button, press, local_pos)
-					return true
-				end or
-				nil,
-		},
-	}
-	panel:SetState("hovered", false)
-	panel:SetState("pressed", false)
-	panel:SetState("disabled", not not props.Disabled)
-	panel:SetState("active", not not props.Active)
-	panel:SetState("mode", props.Mode or "filled")
-	panel:SetState("button_color", props.ButtonColor)
-	update_style_context(panel)
-	return panel
+function META:SetMode(mode)
+	self.Mode = mode
+	self:SetState("mode", mode)
+	return self
 end
+
+function META:SetButtonColor(color)
+	self.ButtonColor = color
+	self:SetState("button_color", color)
+	return self
+end
+
+function META:SetActive(active)
+	self.Active = active
+	self:SetState("active", active)
+	return self
+end
+
+function META:SetDisabled(disabled)
+	self.Disabled = disabled
+	self.clickable:SetDisabled(disabled)
+	self.visual:SetDrawAlpha(disabled and 0.5 or 1)
+	self.mouse_input:SetCursor(disabled and "arrow" or "hand")
+	self:SetState("disabled", disabled)
+	return self
+end
+
+function META:OnCreate(props)
+	META.BaseClass.OnCreate(self, props)
+	self:SetState("hovered", false)
+	self:SetState("pressed", false)
+	self:SetMode(self.Mode)
+	self:SetButtonColor(self.ButtonColor)
+	self:SetActive(self.Active)
+	self:SetDisabled(self.Disabled)
+	self:update_style()
+end
+
+function META:update_style()
+	local context = theme.active:ResolveButtonStyleContext(self:GetState())
+	self.style:SetBackgroundColor(context.background_token)
+	self.style:SetForegroundColor(context.foreground_token)
+end
+
+function META:OnStateChanged()
+	self:update_style()
+end
+
+function META:OnStartClick()
+	return true
+end
+
+function META:OnMouseInput(button, press)
+	if self.Disabled then return end
+
+	if button == "button_1" then self:SetState("pressed", press) end
+end
+
+function META:OnGlobalMouseInput(button, press)
+	if button == "button_1" and not press then self:SetState("pressed", false) end
+end
+
+function META:OnHover(hovered)
+	self:SetState("hovered", hovered)
+end
+
+function META:OnDraw()
+	theme.active:Draw(self)
+end
+
+function META:OnPostDraw()
+	theme.active:DrawPost(self)
+end
+
+return META:Register()

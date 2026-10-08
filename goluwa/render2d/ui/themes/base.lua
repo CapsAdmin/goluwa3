@@ -250,7 +250,11 @@ function BaseTheme:GetScrollbarWidth()
 end
 
 function BaseTheme:GetScrollbarMargin()
-	return self:GetSize("XXS")
+	return self:GetSize("line")
+end
+
+function BaseTheme:GetScrollbarAutoShiftSize()
+	return self:GetSize("L") * 10
 end
 
 function BaseTheme:GetRadius(name)
@@ -489,7 +493,7 @@ do
 
 	local icon_svg_cache = {}
 	local icons = {
-		chevron = [[<svg viewBox="0 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]],
+		chevron = [[<svg viewBox="1.3 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]],
 		plus = [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]],
 		minus = [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]],
 		check = [[<svg viewBox="0 0 16 16"><path d="M13.7 4.3L12.3 2.9L6.5 8.7L3.7 5.9L2.3 7.3L6.5 11.5z"/></svg>]],
@@ -637,9 +641,10 @@ function BaseTheme:UpdateSliderAnimations(pnl)
 			last_hovered = false,
 		}
 	local anim = state.anim
+	local hover_changed = state.hovered ~= anim.last_hovered
 	self:AnimateHover(pnl, anim, state, 0.15)
 
-	if state.hovered ~= anim.last_hovered then
+	if hover_changed then
 		if not pnl.animation then
 			anim.knob_scale = state.hovered and 1.2 or 1
 			return
@@ -745,9 +750,9 @@ do
 			local foreground_token
 			local fill
 			local fill_hover
-			local fill_hover_alpha
+			local fill_hover_alpha = 0
 			local fill_pressed
-			local fill_pressed_alpha
+			local fill_pressed_alpha = 0
 			local ring
 			local ring_hover
 			local ring_alpha
@@ -1208,6 +1213,48 @@ function BaseTheme:DrawTrack(x, y, w, h, fill_extent, radius, track_color, accen
 	}
 end
 
+function BaseTheme:DrawColorSurfaceFrame(size)
+	render2d.SetTexture(nil)
+	render2d.SetColor(self:GetColor("border"):Unpack())
+	render2d.DrawRect(0, 0, size.x, 1)
+	render2d.DrawRect(0, size.y - 1, size.x, 1)
+	render2d.DrawRect(0, 0, 1, size.y)
+	render2d.DrawRect(size.x - 1, 0, 1, size.y)
+end
+
+function BaseTheme:DrawColorSurfaceCursor2D(x, y, marker_color)
+	render2d.SetColor(marker_color.r, marker_color.g, marker_color.b, 1)
+	render2d.DrawRect(x - 6, y, 13, 1)
+	render2d.DrawRect(x, y - 6, 1, 13)
+	render2d.SetColor(1 - marker_color.r, 1 - marker_color.g, 1 - marker_color.b, 1)
+	render2d.DrawRect(x - 7, y - 7, 15, 1)
+	render2d.DrawRect(x - 7, y + 7, 15, 1)
+	render2d.DrawRect(x - 7, y - 7, 1, 15)
+	render2d.DrawRect(x + 7, y - 7, 1, 15)
+end
+
+function BaseTheme:DrawColorSurfaceCursorBar(width, y)
+	render2d.SetColor(self:GetColor("actual_black"):Unpack())
+	render2d.DrawRect(0, y - 1, width, 3)
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.DrawRect(1, y, width - 2, 1)
+end
+
+function BaseTheme:DrawColorSurface(size, mode, position, marker_color)
+	self:DrawColorSurfaceFrame(size)
+
+	if not position then return end
+
+	if mode == "2d" then
+		local x = math.clamp(math.floor(position.x * (size.x - 1) + 0.5), 0, math.max(size.x - 1, 0))
+		local y = math.clamp(math.floor((1 - position.y) * (size.y - 1) + 0.5), 0, math.max(size.y - 1, 0))
+		self:DrawColorSurfaceCursor2D(x, y, marker_color)
+	else
+		local y = math.clamp(math.floor((1 - position) * (size.y - 1) + 0.5), 0, math.max(size.y - 1, 0))
+		self:DrawColorSurfaceCursorBar(size.x, y)
+	end
+end
+
 function BaseTheme:DrawSlider(size, state)
 	local anim = state.anim or {
 		glow_alpha = 0,
@@ -1472,6 +1519,7 @@ end
 
 function BaseTheme:Draw(pnl)
 	local role = pnl.GetState and pnl:GetState("theme_role")
+	local name = pnl.ThemeName or pnl.Name
 
 	if role == "property_value" then
 		local state_name = pnl:GetState("editing") and
@@ -1526,32 +1574,32 @@ function BaseTheme:Draw(pnl)
 		return
 	end
 
-	if pnl.Name == "checkbox" then
+	if name == "checkbox" then
 		return self:DrawCheckbox(pnl.transform:GetSize(), pnl:GetState())
-	elseif pnl.Name == "radio_button" then
+	elseif name == "radio_button" then
 		return self:DrawButtonRadio(pnl.transform:GetSize(), pnl:GetState())
-	elseif pnl.Name == "clickable" then
+	elseif name == "clickable" then
 		return self:DrawButton(pnl.transform:GetTotalSize(), pnl:GetState())
-	elseif pnl.Name == "slider" then
+	elseif name == "slider" then
 		return self:DrawSlider(pnl.transform:GetSize(), pnl:GetState())
-	elseif pnl.Name == "progress_bar" then
+	elseif name == "progress_bar" then
 		local state = pnl:GetState()
 		return self:DrawProgressBar(pnl.transform:GetSize(), state, state.color)
-	elseif pnl.Name == "frame" then
+	elseif name == "frame" then
 		return self:DrawFrame(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
-	elseif pnl.Name == "WindowHeader" then
+	elseif name == "window_header" then
 		return self:DrawHeader(pnl.transform:GetSize(), self:GetEmphasis(pnl))
-	elseif pnl.Name == "WindowContent" or pnl.Name == "TooltipOverlay" then
+	elseif name == "window_content" or name == "tooltip_overlay" then
 		return self:DrawFrame(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
-	elseif pnl.Name == "text_edit" then
+	elseif name == "text_edit" then
 		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("panel_color"), self:GetRadius("M"))
-	elseif pnl.Name == "MenuContainer" then
+	elseif name == "menu_container" then
 		return self:DrawMenuContainer(pnl.transform:GetSize())
-	elseif pnl.Name == "MenuSpacer" then
+	elseif name == "menu_spacer" then
 		return self:DrawMenuSpacer(pnl.transform:GetSize(), pnl:GetState("vertical"))
-	elseif pnl.Name == "splitter" then
+	elseif name == "splitter_divider" then
 		return self:DrawDivider(pnl.transform:GetSize())
-	elseif pnl.Name == "PropertyLabelRow" or pnl.Name == "PropertyEditorRow" then
+	elseif name == "property_row" then
 		return self:DrawPropertyRow(
 			pnl.transform:GetSize(),
 			{
@@ -1560,11 +1608,11 @@ function BaseTheme:Draw(pnl)
 				hovered = pnl:GetState("hovered"),
 			}
 		)
-	elseif pnl.Name == "PropertyEditorDivider" then
+	elseif name == "property_divider" then
 		return self:DrawDivider(pnl.transform:GetSize())
-	elseif pnl.Name == "PropertyObjectValue" then
+	elseif name == "property_object_value" then
 		return self:DrawPropertyPreview(pnl.transform:GetSize(), {fill = "surface_alt", outline = "border"})
-	elseif pnl.Name == "PropertyObjectActionButton" then
+	elseif name == "property_object_action" then
 		return self:DrawPropertyPreview(
 			pnl.transform:GetSize(),
 			{
@@ -1572,15 +1620,13 @@ function BaseTheme:Draw(pnl)
 				outline = "border",
 			}
 		)
-	elseif pnl.Name == "svg" and pnl:GetState("background_color") ~= nil then
-		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("background_color"), 0)
-	elseif type(pnl.Name) == "string" and pnl.Name:starts_with("scrollbar_track_") then
+	elseif type(name) == "string" and name:starts_with("scrollbar_track_") then
 		return self:DrawSurface(
 			pnl.transform:GetTotalSize(),
 			pnl:GetState("color") or "scrollbar_track",
 			self:GetRadius("M")
 		)
-	elseif type(pnl.Name) == "string" and pnl.Name:starts_with("scrollbar_handle_") then
+	elseif type(name) == "string" and name:starts_with("scrollbar_handle_") then
 		return self:DrawSurface(
 			pnl.transform:GetTotalSize(),
 			pnl:GetState("color") or "scrollbar",
@@ -1591,26 +1637,23 @@ end
 
 function BaseTheme:DrawPost(pnl)
 	local role = pnl.GetState and pnl:GetState("theme_role")
+	local name = pnl.ThemeName or pnl.Name
 
 	if role == "tree_drop_indicator" then
 		return self:DrawDropIndicator(pnl.transform:GetSize(), pnl:GetState("drop_indicator_opts") or {})
 	end
 
-	if
-		pnl.Name == "frame" or
-		pnl.Name == "WindowContent" or
-		pnl.Name == "TooltipOverlay"
-	then
+	if name == "frame" or name == "window_content" or name == "tooltip_overlay" then
 		return self:DrawFramePost(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
-	elseif pnl.Name == "text_edit" and pnl:GetState("editable") then
+	elseif name == "text_edit" and pnl:GetState("editable") then
 		return self:DrawFramePost(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
 	end
 end
 
 local ROLE_EMPHASIS = {
-	WindowHeader = 3,
-	WindowContent = 3,
-	TooltipOverlay = 2,
+	window_header = 3,
+	window_content = 3,
+	tooltip_overlay = 2,
 	text_edit = 1,
 }
 
@@ -1619,7 +1662,7 @@ function BaseTheme:GetEmphasis(pnl)
 
 	if override ~= nil then return override end
 
-	return ROLE_EMPHASIS[pnl.Name] or 0
+	return ROLE_EMPHASIS[pnl.ThemeName or pnl.Name] or 0
 end
 
 function BaseTheme:OnEntityStateChanged(pnl, key, val)
@@ -1627,13 +1670,15 @@ function BaseTheme:OnEntityStateChanged(pnl, key, val)
 end
 
 function BaseTheme:UpdateAnimations(pnl)
-	if pnl.Name == "checkbox" then return self:UpdateCheckboxAnimations(pnl) end
+	local name = pnl.ThemeName or pnl.Name
 
-	if pnl.Name == "radio_button" then return self:UpdateCheckboxAnimations(pnl) end
+	if name == "checkbox" then return self:UpdateCheckboxAnimations(pnl) end
 
-	if pnl.Name == "clickable" then return self:UpdateButtonAnimations(pnl) end
+	if name == "radio_button" then return self:UpdateCheckboxAnimations(pnl) end
 
-	if pnl.Name == "slider" then return self:UpdateSliderAnimations(pnl) end
+	if name == "clickable" then return self:UpdateButtonAnimations(pnl) end
+
+	if name == "slider" then return self:UpdateSliderAnimations(pnl) end
 end
 
 function BaseTheme:OnEntitySetProperty(obj, key, val)

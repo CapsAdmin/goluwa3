@@ -72,10 +72,16 @@ function Panel:OnCreate(config)
 	self.World = Panel.World
 
 	if self.ComponentSet and self.CMP then
-		for i, name in ipairs(self.ComponentSet) do
-			if self.CMP[name] then
-				if next(self.CMP[name]) then
-					config[name] = self.CMP[name]
+		for _, name in ipairs(self.ComponentSet) do
+			local defaults = self.CMP[name]
+
+			if defaults then
+				local given = config[name]
+
+				if type(given) == "table" then
+					config[name] = {defaults, given}
+				elseif next(defaults) then
+					config[name] = defaults
 				else
 					config[name] = true
 				end
@@ -85,6 +91,14 @@ function Panel:OnCreate(config)
 
 	Panel.BaseClass.OnCreate(self, config)
 	add_tooltip_functionality(self, config)
+end
+
+function Panel:RemoveExternalChildren()
+	local children = self:GetChildren()
+
+	for i = #children, 1, -1 do
+		if not children[i].IsInternal then children[i]:Remove() end
+	end
 end
 
 Panel:Register()

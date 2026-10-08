@@ -1,18 +1,28 @@
-local Vec2 = import("goluwa/structs/vec2.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
 local Value = import("goluwa/render2d/ui/widgets/properties/value.lua")
-local input = import("goluwa/input.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local input = import("goluwa/input.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local system = import("goluwa/system.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-
-local function is_finite(value)
-	return value ~= math.huge and value ~= -math.huge
-end
-
-local function clamp_number(value, min, max)
-	return math.clamp(value, min, max)
-end
+local META = Panel:CreateTemplate("property_number")
+META.Base = Value
+META.Cursor = "vertical_resize"
+META.EditClickCount = 2
+META:StartStorable()
+META:GetSet("Min", nil)
+META:GetSet("Max", nil)
+META:GetSet("Step", nil)
+META:GetSet("Precision", 2)
+META:GetSet("Integer", false)
+META:GetSet("DragStep", nil)
+META:GetSet("DragPrecisionBoost", 2)
+META:GetSet("ShowStepper", false)
+META:GetSet("StepperVertical", false)
+META:GetSet("ShowSlider", false)
+META:EndStorable()
 
 local function format_number(value, precision)
 	local numeric = tonumber(value)
@@ -29,225 +39,211 @@ local function format_number(value, precision)
 	return formatted
 end
 
-return function(props)
-	local node = props.node
-	local min = node.Min ~= nil and node.Min or -math.huge
-	local max = node.Max ~= nil and node.Max or math.huge
-	local number_type = node.NumberType or "float"
-	local is_int = number_type == "int"
-	local show_stepper = node.ShowStepper == true
-	local show_slider = node.ShowSlider == true
-	local step = node.Step or (is_int and 1 or 0.1)
-	local precision = node.Precision
+local function draw_slider_background(field, value)
+	local slider_height = theme.active:GetSize("XXXS")
+	local total_size = field.transform:GetTotalSize()
+	local y = total_size.y - slider_height
+	local min = field:GetMin()
+	local max = field:GetMax()
+	local fraction = math.clamp((value - min) / (max - min), 0, 1)
+	theme.active:DrawRoundRect(0, y, total_size.x, slider_height, 0, theme.active:GetColor("surface_alt"), 0.3)
+	theme.active:DrawRoundRect(
+		0,
+		y,
+		fraction * total_size.x,
+		slider_height,
+		0,
+		theme.active:GetColor("primary"),
+		0.6
+	)
+end
 
-	if precision == nil then
-		if props.get_precision then
-			precision = props.get_precision(node, props.number_precision)
-		else
-			precision = props.number_precision
-		end
-	end
+local function on_step_click(button)
+	button.Field:Increment(button.StepDirection)
+	return true
+end
 
-	if precision == nil then precision = is_int and 0 or 2 end
+function META:OnCreate(props)
+	local stepper
 
-	local drag_precision_boost = node.DragPrecisionBoost or 2
-	local drag_step = node.DragStep
-	local control
-	local default_encoded
-
-	local function get_display_precision()
-		if control and control.IsDragging and control:IsDragging() then
-			if input.IsAltDown() then return precision + drag_precision_boost end
-		end
-
-		return precision
-	end
-
-	local function get_drag_step()
-		if drag_step ~= nil then return drag_step end
-
-		if is_finite(min) and is_finite(max) then
-			return math.max((max - min) / 100, precision > 0 and 10 ^ -precision or 1)
-		end
-
-		if precision > 0 then return 10 ^ -precision end
-
-		return 1
-	end
-
-	local right_elements = {}
-
-	if show_stepper then
-		right_elements[#right_elements + 1] = Row{
+	if props.ShowStepper then
+		stepper = (
+			props.StepperVertical and
+			Column or
+			Row
+		){
 			layout = {
-				ChildGap = 0,
+				ChildGap = props.StepperVertical and "XXXS" or "XXS",
 				FitWidth = true,
 				GrowWidth = 0,
 				AlignmentX = "stretch",
 			},
-		}{
-			IconButton{
-				Text = "-",
-				IconSize = "M",
-				FontSize = "M",
-				Padding = "none",
-				Mode = "outline",
-				OnClick = function()
-					local new_value = clamp_number(control:GetValue() - step, min, max)
-					control:SetValue(new_value, true)
-					return true
-				end,
-			},
-			IconButton{
-				Text = "+",
-				IconSize = "M",
-				FontSize = "M",
-				Padding = "none",
-				Mode = "outline",
-				OnClick = function()
-					local new_value = clamp_number(control:GetValue() + step, min, max)
-					control:SetValue(new_value, true)
-					return true
-				end,
-			},
 		}
+		props.RightElements = {stepper}
 	end
 
-	local draw_background = nil
+	if props.Integer then
+		props.Precision = 0
+		props.Step = props.Step or 1
+	end
 
-	if show_slider then
-		local slider_height = theme.active:GetSize("XXXS")
-		draw_background = function(panel, current_value)
-			local total_size = panel.transform:GetTotalSize()
-			local y = total_size.y - slider_height
-			local w = total_size.x
-			local t = math.clamp((current_value - min) / (max - min), 0, 1)
-			local fill_w = t * w
-			theme.active:DrawRoundRect(0, y, w, slider_height, 0, theme.active:GetColor("surface_alt"), 0.3)
-			theme.active:DrawRoundRect(0, y, fill_w, slider_height, 0, theme.active:GetColor("primary"), 0.6)
+	META.BaseClass.OnCreate(self, props)
+	self._stepper = stepper
+
+	if stepper then
+		for _, step in ipairs(self.StepperVertical and {{"+", 1}, {"-", -1}} or {{"-", -1}, {"+", 1}}) do
+			IconButton{
+				Parent = stepper,
+				Field = self,
+				StepDirection = step[2],
+				Text = step[1],
+				IconSize = "M",
+				FontSize = "XS",
+				Padding = "none",
+				Mode = "outline",
+				OnClick = on_step_click,
+			}
 		end
 	end
 
-	control = Value{
-		Name = node.Name or props.name or "property_number_value",
-		Ref = props.Ref,
-		Value = tonumber(node.Value) or 0,
-		Size = Vec2(props.value_width, props.row_height),
-		MinSize = Vec2(props.value_width, props.row_height),
-		MaxSize = Vec2(props.value_width, props.row_height),
-		Padding = props.padding,
-		FontSize = props.font_size,
-		Cursor = node.Cursor or "vertical_resize",
-		RightElements = right_elements,
-		DrawBackground = draw_background,
-		layout = props.layout or {
-			FitWidth = false,
-		},
-		EditClickCount = 2,
-		FormatValue = function(value)
-			return format_number(value, get_display_precision())
-		end,
-		FormatEditValue = function(value)
-			return format_number(value, get_display_precision())
-		end,
-		ParseValue = function(text, current_value)
-			local numeric = tonumber(text)
+	if self.ShowSlider then self.DrawBackground = draw_slider_background end
 
-			if numeric == nil then return current_value end
-
-			return clamp_number(numeric, min, max)
-		end,
-		OnDragValue = function(delta, start_value)
-			local drag_step = get_drag_step() * 10
-			local rounding_precision = precision
-
-			if input.IsAltDown() then
-				drag_step = drag_step * 0.1
-				rounding_precision = precision + drag_precision_boost
-			end
-
-			local next_value = (tonumber(start_value) or 0) - delta.y * drag_step
-
-			if input.IsControlDown() then
-				next_value = math.round(next_value)
-			elseif rounding_precision >= 0 then
-				next_value = math.round(next_value, rounding_precision)
-			end
-
-			return clamp_number(next_value, min, max)
-		end,
-		OnChange = function(value)
-			props.commit_value(node, value, props.key, props.path)
-		end,
-		ContextMenu = {
-			BeforeOpen = function()
-				if props.sync_selection then props.sync_selection(props.key) end
-			end,
-			Encode = function(panel)
-				return panel:EncodeValue()
-			end,
-			Decode = function(text, panel)
-				return panel:DecodeValue(text)
-			end,
-			GetDefaultEncoded = function()
-				return default_encoded
-			end,
-			Commit = function(decoded, panel)
-				props.commit_value(node, decoded, props.key, props.path, panel)
-			end,
-		},
-	}
-	local base_set_value = control.SetValue
-
-	function control:SetValue(value, notify)
-		local numeric = tonumber(value)
-
-		if numeric == nil then numeric = 0 end
-
-		return base_set_value(self, clamp_number(numeric, min, max), notify)
-	end
-
-	function control:GetMin()
-		return min
-	end
-
-	function control:SetMin(value)
-		min = value or -math.huge
-		self:SetValue(self:GetValue())
-		return self
-	end
-
-	function control:GetMax()
-		return max
-	end
-
-	function control:SetMax(value)
-		max = value or math.huge
-		self:SetValue(self:GetValue())
-		return self
-	end
-
-	function control:EncodeValue()
-		return format_number(self:GetValue(), precision)
-	end
-
-	function control:DecodeValue(text)
-		local numeric = tonumber(text)
-
-		if numeric == nil then return nil, false end
-
-		return clamp_number(numeric, min, max), true
-	end
-
-	control:SetValue(node.Value)
-
-	if node.DefaultEncoded ~= nil then
-		default_encoded = tostring(node.DefaultEncoded)
-	elseif node.Default ~= nil then
-		default_encoded = format_number(node.Default, precision)
-	else
-		default_encoded = control:EncodeValue()
-	end
-
-	return control, control
+	self:SetValue(self.Value)
 end
+
+function META:OnEditingChanged(editing)
+	if not self._stepper then return end
+
+	for _, button in ipairs(self._stepper:GetChildren()) do
+		button.visual:SetVisible(not editing)
+	end
+end
+
+function META:GetMin()
+	return self.Min or -math.huge
+end
+
+function META:GetMax()
+	return self.Max or math.huge
+end
+
+function META:SetMin(value)
+	self.Min = value
+	self:SetValue(self.Value)
+	return self
+end
+
+function META:SetMax(value)
+	self.Max = value
+	self:SetValue(self.Value)
+	return self
+end
+
+function META:Increment(direction)
+	return self:SetValue(self:GetValue() + direction * self:get_step(), true)
+end
+
+function META:get_step()
+	if self.Step then return self.Step end
+
+	if self.Precision > 0 then return 10 ^ -self.Precision end
+
+	return 1
+end
+
+function META:get_display_precision()
+	if self:IsDragging() and input.IsAltDown() then
+		return self.Precision + self.DragPrecisionBoost
+	end
+
+	return self.Precision
+end
+
+do
+	local PIXELS_PER_STEP = 4
+	local ACCELERATION_SPEED = 600
+	local MAX_ACCELERATION = 64
+
+	function META:get_drag_rate()
+		if self.DragStep then return self.DragStep, false end
+
+		local fixed_rate = self:get_step() / PIXELS_PER_STEP
+		local min = self:GetMin()
+		local max = self:GetMax()
+
+		if min ~= -math.huge and max ~= math.huge then
+			local screen_rate = (max - min) / select(2, render2d.GetSize())
+
+			if screen_rate <= fixed_rate then return screen_rate, false end
+		end
+
+		return fixed_rate, true
+	end
+
+	function META.OnDragValue(frame_delta, field)
+		local rate, accelerate = field:get_drag_rate()
+		local precision = field.Precision
+
+		if accelerate then
+			local speed = math.abs(frame_delta.y) / math.max(system.GetFrameTime(), 1 / 240)
+			rate = rate * math.min(1 + (speed / ACCELERATION_SPEED) ^ 2, MAX_ACCELERATION)
+		end
+
+		if input.IsAltDown() then
+			rate = rate * 0.1
+			precision = precision + field.DragPrecisionBoost
+		end
+
+		if input.IsShiftDown() then rate = rate * 10 end
+
+		local value = math.clamp(field._drag_value - frame_delta.y * rate, field:GetMin(), field:GetMax())
+		field._drag_value = value
+
+		if input.IsControlDown() then
+			value = math.round(value)
+		elseif precision >= 0 then
+			value = math.round(value, precision)
+		end
+
+		return value
+	end
+end
+
+function META.FormatValue(value, field)
+	return format_number(value, field:get_display_precision())
+end
+
+function META:SetValue(value, notify)
+	local numeric = tonumber(value) or 0
+	return META.BaseClass.SetValue(self, math.clamp(numeric, self:GetMin(), self:GetMax()), notify)
+end
+
+function META:EncodeAny(value)
+	return format_number(value, self.Precision)
+end
+
+function META:EncodeValue()
+	return format_number(self.Value, self.Precision)
+end
+
+function META:format_edit_value(value)
+	return format_number(value, self:get_display_precision())
+end
+
+function META.ParseValue(text, current_value, field)
+	local numeric = tonumber(text)
+
+	if numeric == nil then return current_value end
+
+	return math.clamp(numeric, field:GetMin(), field:GetMax())
+end
+
+function META:DecodeValue(text)
+	local numeric = tonumber(text)
+
+	if numeric == nil then return nil, false end
+
+	return math.clamp(numeric, self:GetMin(), self:GetMax()), true
+end
+
+return META:Register()

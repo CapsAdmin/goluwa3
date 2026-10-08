@@ -160,6 +160,7 @@ local function find_item_in_tree(items, key)
 	return nil
 end
 
+META:StartStorable()
 META:GetSet("RootEntities", nil)
 META:GetSet("RootLabels", nil)
 META:GetSet("FilterCallback", nil)
@@ -848,5 +849,4 @@ function META:SetNearby(nearby)
 	return self
 end
 
-META:Register()
-return META
+return META:Register()

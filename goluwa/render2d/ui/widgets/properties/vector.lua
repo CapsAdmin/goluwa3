@@ -1,10 +1,40 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
+local Control = import("goluwa/render2d/ui/widgets/properties/control.lua")
+local Number = import("goluwa/render2d/ui/widgets/properties/number.lua")
+local Swatch = import("goluwa/render2d/ui/widgets/properties/swatch.lua")
 local input = import("goluwa/input.lua")
-local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Value = import("goluwa/render2d/ui/widgets/properties/value.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local META = Panel:CreateTemplate("property_vector")
+META.Base = Control
+META.CMP.layout = {
+	Direction = "x",
+	GrowWidth = 1,
+	FitWidth = false,
+	AlignmentY = "center",
+}
+META:StartStorable()
+META:GetSet("Value", nil)
+META:GetSet("Components", nil)
+META:GetSet("Factory", nil)
+META:GetSet("Min", nil)
+META:GetSet("Max", nil)
+META:GetSet("Precision", nil)
+META:GetSet("DragStep", nil)
+META:GetSet("DragPrecisionBoost", nil)
+META:GetSet("Cursor", nil)
+META:GetSet("Swatch", false)
+META:GetSet("SwatchSize", nil)
+META:GetSet("ComponentWidth", nil)
+META:GetSet("ComponentMaxWidth", 120)
+META:GetSet("ValueWidth", 200)
+META:GetSet("RowHeight", 20)
+META:GetSet("FontSize", nil)
+META:GetSet("FieldPadding", nil)
+META:EndStorable()
+
+function META.OnSwatchClick(control) end
 
 local function get_component(source, components, index, default)
 	if source == nil then return default end
@@ -18,18 +48,6 @@ local function get_component(source, components, index, default)
 	if value == nil then return default end
 
 	return value
-end
-
-local function clamp_component(value, min, max)
-	return math.clamp(value, min, max)
-end
-
-local function values_equal(a, b, components)
-	for index, key in ipairs(components) do
-		if a[key] ~= b[key] or a[index] ~= b[index] then return false end
-	end
-
-	return true
 end
 
 local function format_number(value, precision)
@@ -47,290 +65,231 @@ local function format_number(value, precision)
 	return formatted
 end
 
-return function(props)
-	local node = props.node
-	local components = props.vector_info.components
-	local component_count = #components
-	local show_swatch = props.kind == "color"
-	local component_gap = theme.active:ResolveSize(props.gap) or theme.active:GetSize("XS")
-	local size = Vec2(props.value_width, props.row_height)
-	local field_height = props.row_height
-	local swatch_size = node.SwatchSize or field_height
-	local field_width = node.ComponentWidth or
+local function on_field_change(value, old_value, field)
+	field.Vector:on_component_change(field.ComponentIndex, value)
+end
+
+local function on_swatch_click(swatch)
+	swatch.Vector.OnSwatchClick(swatch.Vector)
+end
+
+function META:OnCreate(props)
+	props.layout = {ChildGap = "XS", props.layout}
+	META.BaseClass.OnCreate(self, props)
+	local components = self.Components
+	local gap = self.layout:GetChildGap()
+	local height = self.RowHeight
+	local swatch_size = self.SwatchSize or height
+	local width = self.ComponentWidth or
 		math.max(
 			42,
 			math.floor(
 				(
-						size.x - component_gap * math.max(component_count - 1 + (show_swatch and 1 or 0), 0) - (
-							show_swatch and
+						self.ValueWidth - gap * math.max(#components - 1 + (self.Swatch and 1 or 0), 0) - (
+							self.Swatch and
 							swatch_size or
 							0
 						)
-					) / math.max(component_count, 1)
+					) / math.max(#components, 1)
 			)
 		)
-	local control
-	local fields = {}
-	local children = {}
-	local swatch
-	local updating = false
-	local default_encoded
+	self._updating = false
+	self._fields = {}
+	self._value = self:build_value(self.Value)
 
-	local function get_min(index)
-		return tonumber(get_component(node.Min, components, index, -math.huge)) or -math.huge
+	for index, key in ipairs(components) do
+		self._fields[index] = Number{
+			Parent = self,
+			IsInternal = true,
+			Vector = self,
+			MenuControl = self,
+			ComponentIndex = index,
+			ComponentKey = key,
+			Value = get_component(self._value, components, index, 0),
+			Min = self:get_min(index),
+			Max = self:get_max(index),
+			Precision = self:get_precision(index),
+			DragStep = self:get_drag_step(index),
+			DragPrecisionBoost = self.DragPrecisionBoost,
+			Cursor = self.Cursor or "vertical_resize",
+			FontSize = self.FontSize,
+			Padding = self.FieldPadding,
+			Size = Vec2(width, height),
+			MinSize = Vec2(width, height),
+			MaxSize = Vec2(self.ComponentMaxWidth, height),
+			layout = {
+				GrowWidth = 1,
+				FitWidth = false,
+			},
+			OnChange = on_field_change,
+		}
 	end
 
-	local function get_max(index)
-		return tonumber(get_component(node.Max, components, index, math.huge)) or math.huge
-	end
-
-	local function get_precision(index)
-		local precision = get_component(node.Precision, components, index, props.number_precision)
-		return tonumber(precision) or props.number_precision
-	end
-
-	local function get_drag_step(index)
-		local step = get_component(node.DragStep, components, index, nil)
-
-		if step == nil then return nil end
-
-		return tonumber(step)
-	end
-
-	local function build_plain_value(source)
-		local values = {}
-
-		for index, key in ipairs(components) do
-			local component = clamp_component(
-				tonumber(get_component(source, components, index, 0)) or 0,
-				get_min(index),
-				get_max(index)
-			)
-			values[index] = component
-			values[key] = component
-		end
-
-		return values
-	end
-
-	local function build_value(source)
-		local values = build_plain_value(source)
-
-		if node.VectorFactory then return node.VectorFactory(values, source) end
-
-		return props.vector_info.factory(values)
-	end
-
-	local function encode_source(source)
-		local encoded = {}
-
-		for index = 1, component_count do
-			encoded[index] = format_number(get_component(source, components, index, 0), get_precision(index))
-		end
-
-		return table.concat(encoded, " ")
-	end
-
-	local value = build_value(node.Value)
-
-	local function get_swatch_color()
-		return Color(
-			tonumber(get_component(value, components, 1, 0)) or 0,
-			tonumber(get_component(value, components, 2, 0)) or 0,
-			tonumber(get_component(value, components, 3, 0)) or 0,
-			tonumber(get_component(value, components, 4, 1)) or 1
-		)
-	end
-
-	local function sync_swatch()
-		if swatch and swatch:IsValid() then
-			swatch.surface_color = get_swatch_color()
-		end
-	end
-
-	local function sync_fields()
-		updating = true
-
-		for index, field in ipairs(fields) do
-			if field and field:IsValid() then
-				field:SetValue(get_component(value, components, index, 0), false)
-			end
-		end
-
-		updating = false
-		sync_swatch()
-	end
-
-	for index, axis in ipairs(components) do
-		local field = select(
-			1,
-			props.build_number_control{
-				node = {
-					Value = get_component(value, components, index, 0),
-					Min = get_min(index),
-					Max = get_max(index),
-					Precision = get_precision(index),
-					DragStep = get_drag_step(index),
-					DragPrecisionBoost = node.DragPrecisionBoost,
-					Cursor = node.Cursor,
-				},
-				Ref = function(self)
-					fields[index] = self
-				end,
-				key = props.key,
-				path = props.path,
-				font_size = props.font_size,
-				padding = props.padding,
-				value_width = field_width,
-				row_height = field_height,
-				layout = {
-					GrowWidth = 0,
-					FitWidth = false,
-				},
-				commit_value = function(_, new_component)
-					if updating then return end
-
-					local next_value = build_plain_value(value)
-					next_value[axis] = clamp_component(tonumber(new_component) or 0, get_min(index), get_max(index))
-					next_value[index] = next_value[axis]
-
-					if input.IsKeyDown("left_shift") or input.IsKeyDown("right_shift") then
-						for other_index, other_axis in ipairs(components) do
-							if other_index ~= index then
-								next_value[other_axis] = clamp_component(next_value[axis], get_min(other_index), get_max(other_index))
-								next_value[other_index] = next_value[other_axis]
-							end
-						end
-					end
-
-					control:SetValue(next_value, true)
-				end,
-			}
-		)
-		children[#children + 1] = field
-	end
-
-	if show_swatch then
-		children[#children + 1] = Clickable{
-			Ref = function(self)
-				swatch = self
-				self.surface_color = get_swatch_color()
-				self:SetState("theme_role", "property_preview")
-
-				if self.visual then
-					self.visual.OnDraw = function(gui)
-						gui.Owner:SetState("preview_fill", self.surface_color)
-						gui.Owner:SetState("preview_radius", theme.active:GetRadius("M"))
-						theme.active:Draw(gui.Owner)
-					end
-					self.visual.OnPostDraw = function(gui) end
-				end
-			end,
+	if self.Swatch then
+		Panel.New{
+			Parent = self,
+			IsInternal = true,
+			transform = true,
+			layout = {GrowWidth = 0.001, FitWidth = false, MinSize = Vec2(0, 1)},
+		}
+		self._swatch = Swatch{
+			Parent = self,
+			IsInternal = true,
+			Vector = self,
 			Mode = "filled",
-			OnClick = function()
-				if node.OnSwatchClick then
-					node.OnSwatchClick(node, value, props.key, props.path, control)
-				elseif props.kind == "color" then
-					props.open_color_picker_window(node, value, props.key, props.path, control, props.commit_value)
-				end
-			end,
+			Color = self:get_swatch_color(),
+			OnClick = on_swatch_click,
 			layout = {
 				GrowWidth = 0,
 				FitWidth = false,
-				MinSize = Vec2(swatch_size, field_height),
-				MaxSize = Vec2(swatch_size, field_height),
+				MinSize = Vec2(swatch_size, height),
+				MaxSize = Vec2(swatch_size, height),
 			},
-		}()
+		}
+	end
+end
+
+function META:get_min(index)
+	return tonumber(get_component(self.Min, self.Components, index, -math.huge)) or
+		-math.huge
+end
+
+function META:get_max(index)
+	return tonumber(get_component(self.Max, self.Components, index, math.huge)) or math.huge
+end
+
+function META:get_precision(index)
+	return tonumber(get_component(self.Precision, self.Components, index, nil))
+end
+
+function META:get_drag_step(index)
+	return tonumber(get_component(self.DragStep, self.Components, index, nil))
+end
+
+function META:build_plain_value(source)
+	local values = {}
+
+	for index, key in ipairs(self.Components) do
+		local component = math.clamp(
+			tonumber(get_component(source, self.Components, index, 0)) or 0,
+			self:get_min(index),
+			self:get_max(index)
+		)
+		values[index] = component
+		values[key] = component
 	end
 
-	control = Row{
-		Name = node.Name or "property_vector_value",
-		transform = {
-			Size = size,
-		},
-		layout = {
-			GrowWidth = 1,
-			FitWidth = false,
-			MinSize = size,
-			MaxSize = size,
-			ChildGap = component_gap,
-			AlignmentY = "center",
-		},
-	}(children)
+	return values
+end
 
-	function control:SetValue(new_value, notify)
-		local old_value = build_value(value)
-		value = build_value(new_value)
-		sync_fields()
+function META:build_value(source)
+	return self.Factory(self:build_plain_value(source), source)
+end
 
-		if notify and not values_equal(old_value, value, components) then
-			props.commit_value(node, value, props.key, props.path)
+function META:get_swatch_color()
+	local components = self.Components
+	local value = self._value
+	return Color(
+		tonumber(get_component(value, components, 1, 0)) or 0,
+		tonumber(get_component(value, components, 2, 0)) or 0,
+		tonumber(get_component(value, components, 3, 0)) or 0,
+		tonumber(get_component(value, components, 4, 1)) or 1
+	)
+end
+
+function META:on_component_change(index, component)
+	if self._updating then return end
+
+	local components = self.Components
+	local axis = components[index]
+	local next_value = self:build_plain_value(self._value)
+	next_value[axis] = math.clamp(tonumber(component) or 0, self:get_min(index), self:get_max(index))
+	next_value[index] = next_value[axis]
+
+	if input.IsShiftDown() then
+		for other_index, other_axis in ipairs(components) do
+			if other_index ~= index then
+				next_value[other_axis] = math.clamp(next_value[axis], self:get_min(other_index), self:get_max(other_index))
+				next_value[other_index] = next_value[other_axis]
+			end
 		end
+	end
 
+	self:SetValue(next_value, true)
+end
+
+function META:SetValue(new_value, notify)
+	if not self._fields then
+		self.Value = new_value
 		return self
 	end
 
-	function control:GetValue()
-		return value
+	local old_value = self._value
+	self._value = self:build_value(new_value)
+	self.Value = self._value
+	self._updating = true
+
+	for index, field in ipairs(self._fields) do
+		field:SetValue(get_component(self._value, self.Components, index, 0), false)
 	end
 
-	function control:EncodeValue()
-		local encoded = {}
+	self._updating = false
 
-		for index, field in ipairs(fields) do
-			if field and field:IsValid() and field.EncodeValue then
-				encoded[index] = field:EncodeValue()
-			else
-				encoded[index] = tostring(get_component(value, components, index, 0))
+	if self._swatch then self._swatch:SetColor(self:get_swatch_color()) end
+
+	if notify then
+		local changed = false
+
+		for index, key in ipairs(self.Components) do
+			if old_value[key] ~= self._value[key] or old_value[index] ~= self._value[index] then
+				changed = true
+
+				break
 			end
 		end
 
-		return table.concat(encoded, " ")
+		if changed then self.OnChange(self._value, old_value, self) end
 	end
 
-	function control:DecodeValue(text)
-		local values = {}
-
-		for number in tostring(text or ""):gmatch("[%+%-]?%d+%.?%d*") do
-			values[#values + 1] = tonumber(number)
-
-			if #values >= component_count then break end
-		end
-
-		if #values ~= component_count then return nil, false end
-
-		return build_value(values), true
-	end
-
-	control:SetValue(value)
-
-	if node.DefaultEncoded ~= nil then
-		default_encoded = tostring(node.DefaultEncoded)
-	elseif node.Default ~= nil then
-		default_encoded = encode_source(node.Default)
-	else
-		default_encoded = control:EncodeValue()
-	end
-
-	Value.InstallContextMenu(
-		control,
-		{
-			BeforeOpen = function()
-				if props.sync_selection then props.sync_selection(props.key) end
-			end,
-			Encode = function(panel)
-				return panel:EncodeValue()
-			end,
-			Decode = function(text, panel)
-				return panel:DecodeValue(text)
-			end,
-			GetDefaultEncoded = function()
-				return default_encoded
-			end,
-			Commit = function(decoded, panel)
-				props.commit_value(node, decoded, props.key, props.path, panel)
-			end,
-		}
-	)
-	return control, control
+	return self
 end
+
+function META:GetValue()
+	return self._value
+end
+
+function META:EncodeAny(source)
+	local encoded = {}
+
+	for index = 1, #self.Components do
+		encoded[index] = format_number(get_component(source, self.Components, index, 0), self:get_precision(index))
+	end
+
+	return table.concat(encoded, " ")
+end
+
+function META:EncodeValue()
+	local encoded = {}
+
+	for index, field in ipairs(self._fields) do
+		encoded[index] = field:EncodeValue()
+	end
+
+	return table.concat(encoded, " ")
+end
+
+function META:DecodeValue(text)
+	local values = {}
+
+	for number in tostring(text or ""):gmatch("[%+%-]?%d+%.?%d*") do
+		values[#values + 1] = tonumber(number)
+
+		if #values >= #self.Components then break end
+	end
+
+	if #values ~= #self.Components then return nil, false end
+
+	return self:build_value(values), true
+end
+
+return META:Register()

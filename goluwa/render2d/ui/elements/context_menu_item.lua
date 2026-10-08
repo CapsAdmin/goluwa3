@@ -1,179 +1,131 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Clickable = import("./clickable.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local SVG = import("goluwa/render2d/ui/elements/svg.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
+local Icon = import("goluwa/render2d/ui/elements/icon.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local META = Panel:CreateTemplate("context_menu_item")
+META.Base = Button
+META.Mode = "menu"
+META.CMP.transform = {Size = "M"}
+META.CMP.layout = {
+	Direction = "x",
+	AlignmentY = "center",
+	ChildGap = "S",
+	FitWidth = false,
+	FitHeight = true,
+	GrowWidth = 1,
+}
+META:StartStorable()
+META:GetSet("Selected", false)
+META:GetSet("SelectedColor", nil)
+META:GetSet("IconSource", nil)
+META:GetSet("Items", nil)
+META:EndStorable()
 
-local function find_context_menu_container(item)
-	local current = item
+function META:SetSelected(selected)
+	self.Selected = selected
+	self:SetState("selected", selected)
+	return self
+end
 
-	while current and current.IsValid and current:IsValid() do
+function META:SetSelectedColor(color)
+	self.SelectedColor = color
+	self:SetState("selected_color", color)
+	return self
+end
+
+function META:SetSubmenuOpen(open)
+	self:SetActive(open)
+	return self
+end
+
+function META:OnCreate(props)
+	local horizontal = theme.active:GetPadding("M")
+	local vertical = theme.active:GetPadding("S")
+	props.Padding = props.Padding or Rect(horizontal, vertical, horizontal, vertical)
+	self._on_click = props.OnClick
+	props.OnClick = nil
+	props.AlignX = props.AlignX or 0
+	props.TextLayout = {
+		GrowWidth = 1,
+		MinSize = Vec2(10, 0),
+		FitWidth = false,
+		FitHeight = true,
+	}
+	META.BaseClass.OnCreate(self, props)
+	self:SetSelected(self.Selected)
+	self:SetSelectedColor(self.SelectedColor)
+
+	if self.IconSource then
+		local icon_size = Vec2() + theme.active:GetSize("M")
+		self:AddChild(
+			SVG{
+				IsInternal = true,
+				Source = self.IconSource,
+				Size = icon_size,
+				MinSize = icon_size,
+				MaxSize = icon_size,
+				Color = self.Disabled and "text_disabled" or "text",
+				IgnoreMouseInput = true,
+				layout = {
+					GrowWidth = 0,
+					FitWidth = false,
+				},
+			},
+			1
+		)
+	end
+
+	if self.Items then
+		self.arrow = Icon{
+			Parent = self,
+			IsInternal = true,
+			Icon = "disclosure",
+			Size = "S",
+			IconColor = self.Disabled and "text_disabled" or "text",
+			layout = {
+				GrowWidth = 0,
+				FitWidth = false,
+			},
+		}
+	end
+end
+
+function META:find_container()
+	local current = self
+
+	while current:IsValid() do
 		if current.IsContextMenuContainer then return current end
 
 		current = current:GetParent()
 	end
 end
 
-local function has_submenu(props)
-	return props.Items ~= nil or props.Submenu ~= nil or props.Menu ~= nil
+function META:OnMouseEnter()
+	local container = self:find_container()
+
+	if not container then return end
+
+	if not self.Disabled and self.Items then
+		container:OpenSubmenu(self, self)
+	else
+		container:CloseFromLevel((self:GetParent().ContextMenuLevel or 1) + 1)
+	end
 end
 
-local function get_passthrough_props(src)
-	local out = {}
+function META:OnClick()
+	if self.Items then
+		self:find_container():OpenSubmenu(self, self)
+		return true
+	end
 
-	if src.Key ~= nil then out.Key = src.Key end
+	local container = self:find_container()
 
-	if src.Parent ~= nil then out.Parent = src.Parent end
+	if container then container:RequestClose() end
 
-	if src.Ref ~= nil then out.Ref = src.Ref end
-
-	if src.Tooltip ~= nil then out.Tooltip = src.Tooltip end
-
-	if src.TooltipOptions ~= nil then out.TooltipOptions = src.TooltipOptions end
-
-	if src.TooltipMaxWidth ~= nil then out.TooltipMaxWidth = src.TooltipMaxWidth end
-
-	if src.TooltipOffset ~= nil then out.TooltipOffset = src.TooltipOffset end
-
-	if src.ChildOrder ~= nil then out.ChildOrder = src.ChildOrder end
-
-	return out
+	if self._on_click then return self._on_click(self) end
 end
 
-return function(props)
-	props = props or {}
-	local item = NULL
-	local submenu = has_submenu(props)
-	local children = {}
-
-	local function close_context_menu()
-		local container = find_context_menu_container(item)
-
-		if container and container:IsValid() then container:RequestClose() end
-	end
-
-	local function close_deeper_submenus()
-		local container = find_context_menu_container(item)
-		local parent_menu = item:GetParent()
-
-		if container and container:IsValid() and parent_menu and parent_menu:IsValid() then
-			container:CloseFromLevel((parent_menu.ContextMenuLevel or 1) + 1)
-		end
-	end
-
-	local function open_submenu()
-		local container = find_context_menu_container(item)
-
-		if not container or not container:IsValid() then return end
-
-		container:OpenSubmenu(item, props)
-	end
-
-	if props.IconSource then
-		children[#children + 1] = SVG{
-			Source = props.IconSource,
-			Size = Vec2() + theme.active:GetSize("M"),
-			MinSize = Vec2() + theme.active:GetSize("M"),
-			MaxSize = Vec2() + theme.active:GetSize("M"),
-			Color = props.Disabled and "text_disabled" or "text",
-			IgnoreMouseInput = true,
-			layout = {
-				GrowWidth = 0,
-				FitWidth = false,
-			},
-		}
-	end
-
-	children[#children + 1] = Text{
-		layout = {
-			GrowWidth = 1,
-			MinSize = Vec2(10, 0),
-			FitWidth = false,
-			FitHeight = true,
-		},
-		Text = props.Text,
-		Font = props.Font,
-		FontName = props.FontName,
-		FontSize = props.FontSize,
-		DisableViewportCulling = props.DisableTextCulling == true,
-		IgnoreMouseInput = true,
-		Color = props.Disabled and "text_disabled" or "text",
-	}
-
-	if submenu then
-		children[#children + 1] = Panel.New{
-			IsInternal = true,
-			transform = {
-				Size = Vec2() + theme.active:GetSize("M"),
-			},
-			layout = {
-				GrowWidth = 0,
-				FitWidth = false,
-			},
-			visual = {
-				OnDraw = function(self)
-					theme.active:DrawIcon(
-						"disclosure",
-						self.Owner.transform:GetSize(),
-						{
-							thickness = theme.active:GetSize("XXXS"),
-							color = theme.active:GetColor(props.Disabled and "text_disabled" or "text"),
-						}
-					)
-				end,
-			},
-			mouse_input = {
-				IgnoreMouseInput = true,
-			},
-		}
-	end
-
-	local item_props = get_passthrough_props(props)
-	item_props.Size = props.Size or "M"
-	item_props.Mode = "menu"
-	item_props.Disabled = props.Disabled
-	item_props.Active = props.Active
-	item_props.Clipping = props.Clipping
-	item_props.layout = {
-		Direction = "x",
-		AlignmentY = "center",
-		FitHeight = true,
-		GrowWidth = 1,
-		Padding = props.Padding or "M",
-		props.layout,
-	}
-	item_props.OnMouseEnter = function(self)
-		if props.Disabled then
-			close_deeper_submenus()
-			return
-		end
-
-		if submenu then open_submenu() else close_deeper_submenus() end
-	end
-	item_props.OnClick = not props.Disabled and
-		function(...)
-			if submenu then
-				open_submenu()
-				return true
-			end
-
-			close_context_menu()
-
-			if props.OnClick then return props.OnClick(...) end
-		end or
-		nil
-	item = Clickable(item_props)(children)
-	item:SetState("selected", not not props.Selected)
-
-	if props.SelectedColor ~= nil then
-		item:SetState("selected_color", props.SelectedColor)
-	end
-
-	function item:SetSubmenuOpen(active)
-		self:SetState("active", not not active)
-		return self
-	end
-
-	return item
-end
+return META:Register()

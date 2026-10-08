@@ -59,7 +59,6 @@ function event.AddListener(event_type, id, callback, config)
 		config.remove_after_one_call = true
 	end
 
-	config.print_str = tostring(config.event_type) .. "->" .. tostring(config.id)
 	event.RemoveListener(config.event_type, config.id)
 	event.active[config.event_type] = event.active[config.event_type] or {}
 	list.insert(event.active[config.event_type], config)

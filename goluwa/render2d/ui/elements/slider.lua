@@ -1,122 +1,125 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
-local Rect = import("goluwa/structs/rect.lua")
-local Ang3 = import("goluwa/structs/ang3.lua")
-local system = import("goluwa/system.lua")
-local event = import("goluwa/event.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local system = import("goluwa/system.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	local mode = props.Mode or "horizontal"
-	local panel = NULL
+local META = Panel:CreateTemplate("slider")
+META.CMP.transform = {}
+META.CMP.layout = {}
+META.CMP.visual = {}
+META.CMP.mouse_input = {Cursor = "hand"}
+META.CMP.clickable = {}
+META.CMP.animation = {}
+META:StartStorable()
+META:GetSet("Mode", "horizontal", {enums = {"horizontal", "vertical", "2d"}})
+META:GetSet("Value", nil)
+META:GetSet("Min", nil)
+META:GetSet("Max", nil)
+META:EndStorable()
 
-	local function SetValueFromPosition(ent, local_pos)
-		local state = ent:GetState()
-		local size = ent.transform:GetSize()
-		local knob_size = theme.active:GetSize("M")
+function META:SetValue(value, notify)
+	self.Value = value
+	self:SetState("value", value)
 
-		if state.mode == "2d" then
-			local usable_width = size.x - knob_size
-			local usable_height = size.y - knob_size
+	if notify then self.OnChange(value, self) end
 
-			if usable_width <= 0 or usable_height <= 0 then return end
+	return self
+end
 
-			local nx = math.max(0, math.min(1, (local_pos.x - knob_size / 2) / usable_width))
-			local ny = math.max(0, math.min(1, (local_pos.y - knob_size / 2) / usable_height))
-			state.value = Vec2(
-				state.min.x + nx * (state.max.x - state.min.x),
-				state.min.y + ny * (state.max.y - state.min.y)
-			)
-		elseif state.mode == "vertical" then
-			local usable_height = size.y - knob_size
+function META:SetMin(value)
+	self.Min = value
+	self:SetState("min", value)
+	return self
+end
 
-			if usable_height <= 0 then return end
+function META:SetMax(value)
+	self.Max = value
+	self:SetState("max", value)
+	return self
+end
 
-			local normalized = math.max(0, math.min(1, (local_pos.y - knob_size / 2) / usable_height))
-			state.value = state.min + normalized * (state.max - state.min)
-		else
-			local usable_width = size.x - knob_size
+function META:OnCreate(props)
+	local is_2d = props.Mode == "2d"
+	local thickness = theme.active:GetSize("M")
+	local size = is_2d and
+		Vec2(100, 100) or
+		(
+			props.Mode == "vertical" and
+			Vec2(thickness, 100) or
+			Vec2(100, thickness)
+		)
+	props.Size = props.Size or size
+	props.layout = {MinSize = size, props.layout}
+	props.Value = props.Value or (is_2d and Vec2(0.5, 0.5) or 0.5)
+	props.Min = props.Min or (is_2d and Vec2(0, 0) or 0)
+	props.Max = props.Max or (is_2d and Vec2(1, 1) or 1)
+	META.BaseClass.OnCreate(self, props)
+	self:SetState("mode", self.Mode)
+	self:SetState("hovered", false)
+	self:SetState("dragging", false)
+	self:SetValue(self.Value)
+	self:SetMin(self.Min)
+	self:SetMax(self.Max)
+end
 
-			if usable_width <= 0 then return end
+function META.OnChange(value, slider) end
 
-			local normalized = math.max(0, math.min(1, (local_pos.x - knob_size / 2) / usable_width))
-			state.value = state.min + normalized * (state.max - state.min)
-		end
+function META:set_value_from_position(local_pos)
+	local size = self.transform:GetSize()
+	local knob_size = theme.active:GetSize("M")
+	local min = self.Min
+	local max = self.Max
+	local value
 
-		ent:SetState("value", state.value)
+	if self.Mode == "2d" then
+		local usable_width = size.x - knob_size
+		local usable_height = size.y - knob_size
 
-		if props.OnChange then props.OnChange(state.value) end
+		if usable_width <= 0 or usable_height <= 0 then return end
+
+		local nx = math.clamp((local_pos.x - knob_size / 2) / usable_width, 0, 1)
+		local ny = math.clamp((local_pos.y - knob_size / 2) / usable_height, 0, 1)
+		value = Vec2(min.x + nx * (max.x - min.x), min.y + ny * (max.y - min.y))
+	else
+		local vertical = self.Mode == "vertical"
+		local usable = (vertical and size.y or size.x) - knob_size
+
+		if usable <= 0 then return end
+
+		local normalized = math.clamp(((vertical and local_pos.y or local_pos.x) - knob_size / 2) / usable, 0, 1)
+		value = min + normalized * (max - min)
 	end
 
-	panel = Panel.New{
-		props,
-		Name = "slider",
-		transform = {
-			Size = mode == "vertical" and
-				Vec2(theme.active:GetSize("M"), 100) or
-				(
-					mode == "2d" and
-					Vec2(100, 100) or
-					Vec2(100, theme.active:GetSize("M"))
-				),
-		},
-		layout = {
-			{
-				MinSize = mode == "vertical" and
-					Vec2(theme.active:GetSize("M"), 100) or
-					(
-						mode == "2d" and
-						Vec2(100, 100) or
-						Vec2(100, theme.active:GetSize("M"))
-					),
-			},
-			props.layout,
-		},
-		mouse_input = {
-			Cursor = "hand",
-			OnMouseInput = function(self, button, press, local_pos)
-				if button == "button_1" then
-					if press then
-						self.Owner:SetState("dragging", true)
-						SetValueFromPosition(self.Owner, local_pos)
-					end
-
-					return true
-				end
-			end,
-			OnGlobalMouseInput = function(self, button, press, mouse_pos)
-				if button == "button_1" and not press and self.Owner:GetState("dragging") then
-					self.Owner:SetState("dragging", false)
-					return true
-				end
-			end,
-			OnHover = function(self, hovered)
-				self.Owner:SetState("hovered", hovered)
-				theme.active:UpdateAnimations(self.Owner)
-			end,
-		},
-		visual = {
-			OnDraw = function(self)
-				if self.Owner:GetState("dragging") then
-					local mpos = system.GetWindow():GetMousePosition()
-					local lpos = self.Owner.transform:GlobalToLocal(mpos)
-					SetValueFromPosition(self.Owner, lpos)
-				end
-
-				theme.active:Draw(self.Owner)
-			end,
-		},
-		animation = true,
-		clickable = true,
-	}
-	panel:SetState("mode", mode)
-	panel:SetState("hovered", false)
-	panel:SetState("dragging", false)
-	panel:SetState(
-		"value",
-		mode == "2d" and (props.Value or Vec2(0.5, 0.5)) or (props.Value or 0.5)
-	)
-	panel:SetState("min", mode == "2d" and (props.Min or Vec2(0, 0)) or (props.Min or 0))
-	panel:SetState("max", mode == "2d" and (props.Max or Vec2(1, 1)) or (props.Max or 1))
-	return panel
+	self:SetValue(value, true)
 end
+
+function META:OnMouseInput(button, press, local_pos)
+	if button ~= "button_1" then return end
+
+	if press then
+		self:SetState("dragging", true)
+		self:set_value_from_position(local_pos)
+	end
+
+	return true
+end
+
+function META:OnGlobalMouseInput(button, press)
+	if button == "button_1" and not press and self:GetState("dragging") then
+		self:SetState("dragging", false)
+		return true
+	end
+end
+
+function META:OnHover(hovered)
+	self:SetState("hovered", hovered)
+end
+
+function META:OnDraw()
+	if self:GetState("dragging") then
+		self:set_value_from_position(self.transform:GlobalToLocal(system.GetWindow():GetMousePosition()))
+	end
+
+	theme.active:Draw(self)
+end
+
+return META:Register()

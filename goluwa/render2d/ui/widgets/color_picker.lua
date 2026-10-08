@@ -1,15 +1,38 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Texture = import("goluwa/render/texture.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
+local Control = import("goluwa/render2d/ui/widgets/properties/control.lua")
+local ColorSurface = import("goluwa/render2d/ui/widgets/color_surface.lua")
+local StepNumberValue = import("goluwa/render2d/ui/widgets/step_number_value.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
-local StepNumberValue = import("goluwa/render2d/ui/widgets/step_number_value.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local META = Panel:CreateTemplate("color_picker")
+META.Base = Control
+META.CMP.layout = {
+	Direction = "y",
+	GrowWidth = 1,
+	FitHeight = true,
+	AlignmentX = "stretch",
+	ChildGap = "XS",
+}
+META:StartStorable()
+META:GetSet("Value", nil)
+META:GetSet("SVSize", nil)
+META:GetSet("SliderSize", nil)
+META:GetSet("InputSize", nil)
+META:GetSet("SVTextureResolution", 128)
+META:GetSet("SliderTextureResolution", 256)
+META:EndStorable()
+local channels = {
+	{label = "R", key = "r"},
+	{label = "G", key = "g"},
+	{label = "B", key = "b"},
+	{label = "A", key = "a"},
+}
 
 local function clamp_unit(value)
 	return math.clamp(tonumber(value) or 0, 0, 1)
@@ -17,10 +40,6 @@ end
 
 local function clamp_byte(value)
 	return math.clamp(math.floor((tonumber(value) or 0) + 0.5), 0, 255)
-end
-
-local function color_equals(a, b)
-	return a.r == b.r and a.g == b.g and a.b == b.b and a.a == b.a
 end
 
 local function copy_color(color)
@@ -55,12 +74,6 @@ local function parse_hex(text)
 	if #normalized == 9 then return Color.FromHex(normalized), true end
 
 	return nil, false
-end
-
-local function set_text(panel, value)
-	if panel and panel:IsValid() and panel.text then
-		panel.text:SetText(value or "")
-	end
 end
 
 local function create_texture(width, height)
@@ -111,251 +124,127 @@ local function shade_alpha_texture(texture)
 		]])
 end
 
-local function create_picker_surface(props)
-	local state = {
-		hovered = false,
-		dragging = false,
-	}
-	local invert_y = props.InvertY ~= false
-	local set_from_local
+local function on_sv_change(normalized, surface)
+	local picker = surface.Picker
 
-	local function set_from_global(owner, global_pos)
-		set_from_local(owner, owner.transform:GlobalToLocal(global_pos))
-	end
+	if picker._suppress_updates then return end
 
-	set_from_local = function(owner, local_pos)
-		local size = owner.transform:GetSize()
-		local normalized_y = math.clamp(local_pos.y / math.max(size.y, 1), 0, 1)
+	picker:apply_hsva(picker._hue, normalized.x, normalized.y, picker._alpha, true)
+end
 
-		if invert_y then normalized_y = 1 - normalized_y end
+local function on_hue_change(normalized, surface)
+	local picker = surface.Picker
 
-		if props.Mode == "2d" then
-			local normalized = Vec2(math.clamp(local_pos.x / math.max(size.x, 1), 0, 1), normalized_y)
-			props.OnChange(normalized)
-		else
-			props.OnChange(normalized_y)
-		end
-	end
-	return Panel.New{
-		Name = props.Name,
-		transform = {
-			Size = props.Size,
-		},
+	if picker._suppress_updates then return end
+
+	picker:apply_hsva(normalized, picker._saturation, picker._value, picker._alpha, true)
+end
+
+local function on_alpha_change(normalized, surface)
+	local picker = surface.Picker
+
+	if picker._suppress_updates then return end
+
+	picker:apply_hsva(picker._hue, picker._saturation, picker._value, normalized, true)
+end
+
+local function on_channel_change(value, old_value, input)
+	local picker = input.Picker
+
+	if picker._suppress_updates then return end
+
+	local bytes = get_color_bytes(picker._color)
+	bytes[input.ChannelKey] = clamp_byte(value)
+	picker:apply_color(Color.FromBytes(bytes.r, bytes.g, bytes.b, bytes.a), true, true)
+end
+
+local function on_hex_change(text_edit, text)
+	local picker = text_edit.Picker
+
+	if picker._suppress_updates then return end
+
+	local color, ok = parse_hex(text)
+
+	if ok then picker:apply_color(color, true, true) end
+end
+
+local function labeled(label, child)
+	return Column{
 		layout = {
-			GrowWidth = 0,
-			FitWidth = false,
-			FitHeight = false,
-			MinSize = props.MinSize or props.Size,
-			MaxSize = props.MaxSize or props.Size,
-			props.layout,
+			FitHeight = true,
+			ChildGap = "XXS",
 		},
-		visual = {
-			Clipping = true,
-			OnDraw = function(self)
-				props.OnDraw(self.Owner, state)
-			end,
+	}{
+		Text{
+			Text = label,
+			FontSize = "XS",
+			Color = "text_disabled",
 		},
-		mouse_input = {
-			Cursor = "hand",
-			OnMouseInput = function(self, button, press, local_pos)
-				if button ~= "button_1" then return end
-
-				if press then
-					state.dragging = true
-					set_from_local(self.Owner, local_pos)
-				end
-
-				return true
-			end,
-			OnGlobalMouseMove = function(self, pos)
-				if not state.dragging then return end
-
-				set_from_global(self.Owner, pos)
-				return true
-			end,
-			OnGlobalMouseInput = function(self, button, press)
-				if button == "button_1" and not press and state.dragging then
-					state.dragging = false
-					return true
-				end
-			end,
-			OnHover = function(self, hovered)
-				state.hovered = hovered
-			end,
-		},
-		clickable = true,
-		animation = true,
+		child,
 	}
 end
 
-return function(props)
-	props = props or {}
-	local external_ref = props.Ref
-
-	if external_ref then
-		props = table.shallow_copy(props)
-		props.Ref = nil
-	end
-
-	local sv_size = props.SVSize or Vec2(220, 220)
-	local slider_size = props.SliderSize or Vec2(theme.active:GetSize("L"), sv_size.y)
-	local input_size = props.InputSize or Vec2(84, theme.active:GetInputHeight("M"))
+function META:OnCreate(props)
+	META.BaseClass.OnCreate(self, props)
+	local sv_size = self.SVSize or Vec2(220, 220)
+	local slider_size = self.SliderSize or Vec2(theme.active:GetSize("L"), sv_size.y)
+	local input_size = self.InputSize or Vec2(84, theme.active:GetInputHeight("M"))
 	local row_gap = theme.active:GetSize("XS")
-	local small_gap = theme.active:GetSize("XXS")
-	local current_color = copy_color(props.Value or Color(1, 0, 0, 1))
-	local hue = 0
-	local saturation = 0
-	local value = 0
-	local alpha = clamp_unit(current_color.a)
-	local suppress_updates = false
-	local last_sv_hue = false
-	local input_refs = {}
-	local hex_input
-	local sv_texture = create_texture(props.SVTextureResolution or 128, props.SVTextureResolution or 128)
-	local hue_texture = create_texture(16, props.SliderTextureResolution or 256)
-	local alpha_texture = create_texture(16, props.SliderTextureResolution or 256)
-	local apply_color
-	shade_hue_texture(hue_texture)
-	shade_alpha_texture(alpha_texture)
-
-	local function update_hex_text()
-		if hex_input and hex_input:IsValid() then
-			hex_input:SetText(format_hex(current_color))
-		end
-	end
-
-	local function apply_hex_text(text)
-		if suppress_updates then return end
-
-		local color, ok = parse_hex(text)
-
-		if ok then apply_color(color, true, true) end
-	end
-
-	local function update_input_values()
-		local bytes = get_color_bytes(current_color)
-		local ordered = {bytes.r, bytes.g, bytes.b, bytes.a}
-
-		for index, input in ipairs(input_refs) do
-			if input and input:IsValid() then input:SetValue(ordered[index], false) end
-		end
-	end
-
-	local function update_sv_texture()
-		if last_sv_hue == hue then return end
-
-		last_sv_hue = hue
-		shade_sv_texture(sv_texture, hue)
-	end
-
-	local function notify_change(old_color)
-		if props.OnChange then props.OnChange(copy_color(current_color), old_color) end
-	end
-
-	apply_color = function(next_color, notify, preserve_hue)
-		next_color = copy_color(next_color)
-		next_color.a = clamp_unit(next_color.a)
-		local old_color = copy_color(current_color)
-		current_color = next_color
-		local next_hue, next_saturation, next_value = current_color:GetHSV()
-
-		if preserve_hue and (next_saturation == 0 or next_value == 0) then
-			next_hue = hue
-		end
-
-		hue = clamp_unit(next_hue or hue)
-		saturation = clamp_unit(next_saturation)
-		value = clamp_unit(next_value)
-		alpha = clamp_unit(current_color.a)
-		suppress_updates = true
-		update_sv_texture()
-		update_input_values()
-		update_hex_text()
-		suppress_updates = false
-
-		if notify and not color_equals(old_color, current_color) then
-			notify_change(old_color)
-		end
-	end
-
-	local function apply_hsva(next_hue, next_saturation, next_value, next_alpha, notify)
-		local next_color = Color.FromHSV(clamp_unit(next_hue), clamp_unit(next_saturation), clamp_unit(next_value))
-		next_color.a = clamp_unit(next_alpha)
-		apply_color(next_color, notify, false)
-	end
-
-	local function apply_bytes(r, g, b, a, notify)
-		apply_color(
-			Color.FromBytes(clamp_byte(r), clamp_byte(g), clamp_byte(b), clamp_byte(a)),
-			notify,
-			true
-		)
-	end
-
-	local function get_marker_color()
-		local brightness = current_color.r * 0.299 + current_color.g * 0.587 + current_color.b * 0.114
-
-		if brightness > 0.55 then return Color(0, 0, 0, 1) end
-
-		return Color(1, 1, 1, 1)
-	end
-
-	local function draw_frame(size)
-		render2d.SetTexture(nil)
-		render2d.SetColor(theme.active:GetColor("border"):Unpack())
-		render2d.DrawRect(0, 0, size.x, 1)
-		render2d.DrawRect(0, size.y - 1, size.x, 1)
-		render2d.DrawRect(0, 0, 1, size.y)
-		render2d.DrawRect(size.x - 1, 0, 1, size.y)
-	end
-
-	local function draw_sv_picker(owner)
-		local size = owner.transform:GetSize()
-		render2d.SetColor(1, 1, 1, 1)
-		render2d.SetTexture(sv_texture)
-		render2d.DrawRect(0, 0, size.x, size.y)
-		draw_frame(size)
-		local marker_x = math.clamp(math.floor(saturation * (size.x - 1) + 0.5), 0, math.max(size.x - 1, 0))
-		local marker_y = math.clamp(math.floor((1 - value) * (size.y - 1) + 0.5), 0, math.max(size.y - 1, 0))
-		local marker_color = get_marker_color()
-		render2d.SetTexture(nil)
-		render2d.SetColor(marker_color:Unpack())
-		render2d.DrawRect(marker_x - 6, marker_y, 13, 1)
-		render2d.DrawRect(marker_x, marker_y - 6, 1, 13)
-		render2d.SetColor(1 - marker_color.r, 1 - marker_color.g, 1 - marker_color.b, 1)
-		render2d.DrawRect(marker_x - 7, marker_y - 7, 15, 1)
-		render2d.DrawRect(marker_x - 7, marker_y + 7, 15, 1)
-		render2d.DrawRect(marker_x - 7, marker_y - 7, 1, 15)
-		render2d.DrawRect(marker_x + 7, marker_y - 7, 1, 15)
-	end
-
-	local function draw_vertical_picker(owner, texture, normalized)
-		local size = owner.transform:GetSize()
-		render2d.SetColor(1, 1, 1, 1)
-		render2d.SetTexture(texture)
-		render2d.DrawRect(0, 0, size.x, size.y)
-		draw_frame(size)
-		local y = math.clamp(math.floor((1 - normalized) * (size.y - 1) + 0.5), 0, math.max(size.y - 1, 0))
-		render2d.SetTexture(nil)
-		render2d.SetColor(theme.active:GetColor("actual_black"):Unpack())
-		render2d.DrawRect(0, y - 1, size.x, 3)
-		render2d.SetColor(1, 1, 1, 1)
-		render2d.DrawRect(1, y, size.x - 2, 1)
-	end
-
-	local channel_children = {}
-	local channels = {
-		{label = "R", key = "r"},
-		{label = "G", key = "g"},
-		{label = "B", key = "b"},
-		{label = "A", key = "a"},
+	self._color = copy_color(self.Value or Color(1, 0, 0, 1))
+	self._hue = 0
+	self._saturation = 0
+	self._value = 0
+	self._alpha = clamp_unit(self._color.a)
+	self._suppress_updates = false
+	self._last_sv_hue = false
+	self._inputs = {}
+	self._sv_texture = create_texture(self.SVTextureResolution, self.SVTextureResolution)
+	self._hue_texture = create_texture(16, self.SliderTextureResolution)
+	self._alpha_texture = create_texture(16, self.SliderTextureResolution)
+	shade_hue_texture(self._hue_texture)
+	shade_alpha_texture(self._alpha_texture)
+	self._sv_surface = ColorSurface{
+		Name = "color_picker_sv",
+		Picker = self,
+		Mode = "2d",
+		Texture = self._sv_texture,
+		Size = sv_size,
+		OnChange = on_sv_change,
 	}
+	self._hue_surface = ColorSurface{
+		Name = "color_picker_hue",
+		Picker = self,
+		Texture = self._hue_texture,
+		Size = slider_size,
+		OnChange = on_hue_change,
+	}
+	self._alpha_surface = ColorSurface{
+		Name = "color_picker_alpha",
+		Picker = self,
+		Texture = self._alpha_texture,
+		Size = slider_size,
+		OnChange = on_alpha_change,
+	}
+	local channel_columns = {}
 
 	for index, info in ipairs(channels) do
-		channel_children[#channel_children + 1] = Column{
+		self._inputs[index] = StepNumberValue{
+			Picker = self,
+			ChannelKey = info.key,
+			Value = get_color_bytes(self._color)[info.key],
+			Min = 0,
+			Max = 255,
+			Step = 1,
+			Precision = 0,
+			Size = input_size,
+			MinSize = input_size,
+			MaxSize = input_size,
+			OnChange = on_channel_change,
+		}
+		channel_columns[index] = Column{
 			layout = {
 				FitHeight = true,
-				ChildGap = small_gap,
+				ChildGap = "XXS",
 			},
 		}{
 			Text{
@@ -364,183 +253,137 @@ return function(props)
 				Color = "text_disabled",
 				AlignX = 0.5,
 			},
-			StepNumberValue{
-				Ref = function(self)
-					input_refs[index] = self
-				end,
-				Value = get_color_bytes(current_color)[info.key],
-				Min = 0,
-				Max = 255,
-				Step = 1,
-				Precision = 0,
-				Size = input_size,
-				MinSize = input_size,
-				MaxSize = input_size,
-				OnChange = function(channel_value)
-					if suppress_updates then return end
-
-					local bytes = get_color_bytes(current_color)
-					bytes[info.key] = clamp_byte(channel_value)
-					apply_bytes(bytes.r, bytes.g, bytes.b, bytes.a, true)
-				end,
-			},
+			self._inputs[index],
 		}
 	end
 
-	local control = Column{
-		Name = props.Name or "color_picker",
-		Padding = Rect(),
-		layout = {
-			Direction = "y",
-			GrowWidth = 1,
-			FitHeight = true,
-			ChildGap = row_gap,
-			AlignmentX = "stretch",
-			props.layout,
-		},
-	}{
-		Row{
-			layout = {
-				ChildGap = row_gap,
-				FitHeight = true,
-				AlignmentY = "start",
-			},
-		}{
-			Column{
-				layout = {
-					FitHeight = true,
-					ChildGap = small_gap,
-				},
-			}{
-				Text{
-					Text = "SATURATION / VALUE",
-					FontSize = "XS",
-					Color = "text_disabled",
-				},
-				create_picker_surface{
-					Name = "color_picker_sv",
-					Mode = "2d",
-					InvertY = true,
-					Size = sv_size,
-					OnChange = function(next_value)
-						if suppress_updates then return end
-
-						apply_hsva(hue, next_value.x, next_value.y, alpha, true)
-					end,
-					OnDraw = function(owner)
-						draw_sv_picker(owner)
-					end,
-				},
-			},
-			Column{
-				layout = {
-					FitHeight = true,
-					ChildGap = small_gap,
-				},
-			}{
-				Text{
-					Text = "HUE",
-					FontSize = "XS",
-					Color = "text_disabled",
-				},
-				create_picker_surface{
-					Name = "color_picker_hue",
-					Mode = "vertical",
-					Size = slider_size,
-					OnChange = function(next_hue)
-						if suppress_updates then return end
-
-						apply_hsva(next_hue, saturation, value, alpha, true)
-					end,
-					OnDraw = function(owner)
-						draw_vertical_picker(owner, hue_texture, hue)
-					end,
-				},
-			},
-			Column{
-				layout = {
-					FitHeight = true,
-					ChildGap = small_gap,
-				},
-			}{
-				Text{
-					Text = "ALPHA",
-					FontSize = "XS",
-					Color = "text_disabled",
-				},
-				create_picker_surface{
-					Name = "color_picker_alpha",
-					Mode = "vertical",
-					Size = slider_size,
-					OnChange = function(next_alpha)
-						if suppress_updates then return end
-
-						apply_hsva(hue, saturation, value, next_alpha, true)
-					end,
-					OnDraw = function(owner)
-						draw_vertical_picker(owner, alpha_texture, alpha)
-					end,
-				},
-			},
-		},
-		Row{
-			layout = {
-				ChildGap = row_gap,
-				FitHeight = true,
-				AlignmentY = "start",
-			},
-		}(channel_children),
-		Column{
-			layout = {
-				FitHeight = true,
-				ChildGap = small_gap,
-			},
-		}{
-			Text{
-				Text = "HEX",
-				FontSize = "XS",
-				Color = "text_disabled",
-			},
-			TextEdit{
-				Ref = function(self)
-					hex_input = self
-					update_hex_text()
-				end,
-				Text = format_hex(current_color),
-				OnTextChanged = function(self, text)
-					apply_hex_text(text)
-				end,
-				FontName = "body_strong",
-				FontSize = "S",
-				Size = Vec2(sv_size.x + slider_size.x * 2 + row_gap * 2, theme.active:GetInputHeight("S")),
-				MinSize = Vec2(sv_size.x + slider_size.x * 2 + row_gap * 2, theme.active:GetInputHeight("S")),
-				MaxSize = Vec2(sv_size.x + slider_size.x * 2 + row_gap * 2, theme.active:GetInputHeight("S")),
-				layout = {
-					FitWidth = false,
-				},
-			},
-		},
+	local hex_size = Vec2(sv_size.x + slider_size.x * 2 + row_gap * 2, theme.active:GetInputHeight("S"))
+	self._hex_input = TextEdit{
+		Picker = self,
+		Text = format_hex(self._color),
+		Font = "body_strong",
+		FontSize = "S",
+		Size = hex_size,
+		MinSize = hex_size,
+		MaxSize = hex_size,
+		layout = {FitWidth = false},
+		OnTextChanged = on_hex_change,
 	}
+	self:AddChild(
+		Row{
+			layout = {
+				ChildGap = row_gap,
+				FitHeight = true,
+				AlignmentY = "start",
+			},
+		}{
+			labeled("SATURATION / VALUE", self._sv_surface),
+			labeled("HUE", self._hue_surface),
+			labeled("ALPHA", self._alpha_surface),
+		}
+	)
+	self:AddChild(
+		Row{
+			layout = {
+				ChildGap = row_gap,
+				FitHeight = true,
+				AlignmentY = "start",
+			},
+		}(channel_columns)
+	)
+	self:AddChild(labeled("HEX", self._hex_input))
+	local hue, saturation, value = self._color:GetHSV()
+	self._hue = clamp_unit(hue)
+	self._saturation = clamp_unit(saturation)
+	self._value = clamp_unit(value)
+	self:sync_widgets()
+end
 
-	function control:SetValue(next_color, notify)
-		apply_color(next_color or current_color, notify == true, true)
+function META:SetValue(color, notify)
+	if not self._color then
+		self.Value = color
 		return self
 	end
 
-	function control:GetValue()
-		return copy_color(current_color)
+	self:apply_color(color or self._color, notify == true, true)
+	return self
+end
+
+function META:GetValue()
+	return copy_color(self._color)
+end
+
+function META:EncodeValue()
+	return format_hex(self._color)
+end
+
+function META:EncodeAny(color)
+	return format_hex(color)
+end
+
+function META:DecodeValue(text)
+	return parse_hex(text)
+end
+
+function META:sync_widgets()
+	self._suppress_updates = true
+
+	if self._last_sv_hue ~= self._hue then
+		self._last_sv_hue = self._hue
+		shade_sv_texture(self._sv_texture, self._hue)
 	end
 
-	local initial_hue, initial_saturation, initial_value = current_color:GetHSV()
-	hue = clamp_unit(initial_hue)
-	saturation = clamp_unit(initial_saturation)
-	value = clamp_unit(initial_value)
-	alpha = clamp_unit(current_color.a)
-	update_sv_texture()
-	update_input_values()
-	update_hex_text()
+	local bytes = get_color_bytes(self._color)
+	local ordered = {bytes.r, bytes.g, bytes.b, bytes.a}
 
-	if external_ref then external_ref(control) end
+	for index, input in ipairs(self._inputs) do
+		input:SetValue(ordered[index], false)
+	end
 
-	return control
+	self._hex_input:SetText(format_hex(self._color))
+	local color = self._color
+	local brightness = color.r * 0.299 + color.g * 0.587 + color.b * 0.114
+	self._sv_surface:SetMarkerColor(brightness > 0.55 and Color(0, 0, 0, 1) or Color(1, 1, 1, 1))
+	self._sv_surface:SetPosition(Vec2(self._saturation, self._value))
+	self._hue_surface:SetPosition(self._hue)
+	self._alpha_surface:SetPosition(self._alpha)
+	self._suppress_updates = false
 end
+
+function META:apply_color(next_color, notify, preserve_hue)
+	next_color = copy_color(next_color)
+	next_color.a = clamp_unit(next_color.a)
+	local old_color = copy_color(self._color)
+	self._color = next_color
+	local next_hue, next_saturation, next_value = next_color:GetHSV()
+
+	if preserve_hue and (next_saturation == 0 or next_value == 0) then
+		next_hue = self._hue
+	end
+
+	self._hue = clamp_unit(next_hue or self._hue)
+	self._saturation = clamp_unit(next_saturation)
+	self._value = clamp_unit(next_value)
+	self._alpha = clamp_unit(next_color.a)
+	self:sync_widgets()
+
+	if
+		notify and
+		not (
+			old_color.r == next_color.r and
+			old_color.g == next_color.g and
+			old_color.b == next_color.b and
+			old_color.a == next_color.a
+		)
+	then
+		self.OnChange(copy_color(next_color), old_color, self)
+	end
+end
+
+function META:apply_hsva(hue, saturation, value, alpha, notify)
+	local color = Color.FromHSV(clamp_unit(hue), clamp_unit(saturation), clamp_unit(value))
+	color.a = clamp_unit(alpha)
+	self:apply_color(color, notify, false)
+end
+
+return META:Register()

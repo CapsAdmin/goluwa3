@@ -667,9 +667,9 @@ do
 		local foreground_token
 		local fill
 		local fill_hover
-		local fill_hover_alpha
+		local fill_hover_alpha = 0
 		local fill_pressed
-		local fill_pressed_alpha
+		local fill_pressed_alpha = 0
 		local ring
 		local ring_hover
 		local ring_alpha
@@ -850,6 +850,41 @@ do
 			}
 		end
 	end
+end
+
+function PlayfulTheme:DrawColorSurfaceFrame(size)
+	render2d.SetTexture(nil)
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		color = ink,
+		texture = false,
+		layers = {
+			{outline_width = -2},
+		},
+	}
+end
+
+function PlayfulTheme:DrawColorSurfaceCursor2D(x, y, marker_color)
+	render2d.SetTexture(nil)
+	render2d.DrawShape{
+		x = x - 8,
+		y = y - 8,
+		w = 16,
+		h = 16,
+		color = paper,
+		texture = false,
+		layers = {
+			{outline_width = -2, color = ink},
+			{outline_width = -4, color = paper},
+		},
+	}
+end
+
+function PlayfulTheme:DrawColorSurfaceCursorBar(width, y)
+	self:DrawHardBox(-1, y - 4, width + 2, 9, {raised = true, fill = paper, thickness = 2})
 end
 
 function PlayfulTheme:DrawSlider(size, state)
@@ -1293,7 +1328,7 @@ do
 					false
 				)
 			)
-		local is_tilting = is_active
+		local is_tilting = is_active and state.hovered and state.pressed or false
 
 		if is_active ~= anim.last_active then
 			if not pnl.animation then

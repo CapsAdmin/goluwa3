@@ -19,22 +19,22 @@ META:GetSet("ScrollY", true, function(self, val)
 	self.Viewport.layout:SetAlignmentY(val and "start" or "stretch")
 	self.Viewport.layout:SetMaxSize(Vec2(self.ScrollX and 1 or 0, val and 1 or 0))
 	self.TrackY.visual:SetVisible(val)
-	self:updateHandle()
+	self:update_handle()
 end)
 
 META:GetSet("ScrollX", false, function(self, val)
 	self.Viewport.layout:SetAlignmentX(val and "start" or "stretch")
 	self.Viewport.layout:SetMaxSize(Vec2(val and 1 or 0, self.ScrollY and 1 or 0))
 	self.TrackX.visual:SetVisible(val)
-	self:updateHandle()
+	self:update_handle()
 end)
 
 META:GetSet("ScrollbarVisible", true, function(self, val)
-	self:updateHandle()
+	self:update_handle()
 end)
 
 META:GetSet("ScrollbarAutoHide", true, function(self, val)
-	self:updateHandle()
+	self:update_handle()
 end)
 
 META:GetSet(
@@ -48,9 +48,9 @@ META:GetSet(
 
 META:GetSet(
 	"ScrollbarShiftMode",
-	"always_shift",
+	"auto",
 	{
-		enums = {"always_shift", "auto_shift", "no_shift"},
+		enums = {"auto", "always_shift", "auto_shift", "no_shift"},
 	}
 )
 META:GetSet("ScrollbarReserve", nil)
@@ -66,60 +66,97 @@ end)
 
 META:EndStorable()
 
-function META:OnCreate(props)
-	if props.layout then
-		props.layout = table.merge(META.CMP.layout, props.layout)
-	end
+local function on_viewport_changed(viewport)
+	viewport.Scrollable:update_handle()
+end
 
-	self.BaseClass.OnCreate(self, props)
+local function on_viewport_mouse_input(viewport, button, press)
+	if not press then return end
+
+	if button == "mwheel_up" or button == "mwheel_down" then
+		return viewport.Scrollable:handle_wheel_scroll(viewport, button)
+	end
+end
+
+local function on_track_draw(track)
+	theme.active:Draw(track)
+end
+
+local function on_handle_changed(handle)
+	handle.Scrollable:update_handle()
+end
+
+local function on_handle_drag_started(handle)
+	handle._scroll_start = handle.Scrollable.Viewport.transform:GetScroll()[handle.Axis]
+end
+
+local function on_handle_drag(handle, delta)
+	local scrollable = handle.Scrollable
+	local axis = handle.Axis
+	local viewport = scrollable.Viewport
+	local content_size = viewport.layout.content_size
+	local view_size = viewport.transform.Size
+
+	if not content_size or not view_size then return end
+
+	local state = scrollable:compute_scrollbar_state(content_size, view_size)
+	local effective_view_size = Vec2(state.available_w, state.available_h)
+	local max_scroll = content_size[axis] - effective_view_size[axis]
+
+	if max_scroll <= 0 then return end
+
+	local is_y = axis == "y"
+	local handle_len = is_y and handle.transform:GetHeight() or handle.transform:GetWidth()
+	local track_len = math.max(0, effective_view_size[axis] - theme.active:GetScrollbarMargin() * 2)
+	local scroll_track_range = track_len - handle_len
+
+	if scroll_track_range <= 0 then return end
+
+	local scroll = viewport.transform:GetScroll():Copy()
+	scroll[axis] = math.clamp(
+		(handle._scroll_start or 0) + (delta[axis] / scroll_track_range) * max_scroll,
+		0,
+		max_scroll
+	)
+	viewport.transform:SetScroll(scroll)
+	return true
+end
+
+function META:OnCreate(props)
+	META.BaseClass.OnCreate(self, props)
 	self.ScrollbarReserve = theme.active:ResolveSize(
 		props.ScrollbarReserve or
 			(
 				theme.active:GetScrollbarWidth() + theme.active:GetScrollbarMargin()
 			)
 	)
-	local scrollable_panel = self
 	self.Viewport = Panel.New{
+		Parent = self,
 		IsInternal = true,
 		Name = "viewport",
-		OnTransformChanged = function()
-			self:updateHandle()
-		end,
-		OnLayoutUpdated = function()
-			self:updateHandle()
-		end,
-		visual = {
-			Clipping = true,
-		},
-		mouse_input = true,
-		transform = {
-			ScrollEnabled = true,
-		},
+		Scrollable = self,
+		visual = {Clipping = true},
+		transform = {ScrollEnabled = true},
 		layout = {
 			GrowWidth = 1,
 			GrowHeight = 1,
 			MinSize = Vec2(1, 1),
 		},
-		mouse_input = true,
+		mouse_input = {Cursor = self.Cursor},
 		clickable = true,
 		animation = true,
-		OnMouseInput = function(self, button, press, local_pos)
-			if not press then return end
-
-			if button == "mwheel_up" or button == "mwheel_down" then
-				return scrollable_panel:handleWheelScroll(self, button)
-			end
-		end,
+		OnTransformChanged = on_viewport_changed,
+		OnLayoutUpdated = on_viewport_changed,
+		OnMouseInput = on_viewport_mouse_input,
 	}
-	self:AddChild(self.Viewport)
-	self.TrackY = self:AddChild(self:createTrack("y"))
-	self.TrackX = self:AddChild(self:createTrack("x"))
-	self.HandleY = self:AddChild(self:createHandle("y"))
-	self.HandleX = self:AddChild(self:createHandle("x"))
-	self:applyScrollConfiguration()
+	self.TrackY = self:create_track("y")
+	self.TrackX = self:create_track("x")
+	self.HandleY = self:create_handle("y")
+	self.HandleX = self:create_handle("x")
+	self:apply_scroll_configuration()
 end
 
-function META:applyScrollConfiguration()
+function META:apply_scroll_configuration()
 	local layout = self.Viewport.layout
 	layout:SetDirection(self.Direction)
 	layout:SetAlignmentX(self.ScrollX and "start" or "stretch")
@@ -128,7 +165,7 @@ function META:applyScrollConfiguration()
 	layout:SetPadding(self.Padding)
 	self.TrackY.visual:SetVisible(self.ScrollY)
 	self.TrackX.visual:SetVisible(self.ScrollX)
-	self:updateHandle()
+	self:update_handle()
 end
 
 function META:PreChildAdd(child)
@@ -149,8 +186,8 @@ end
 
 function META:ScrollChildIntoView(child, padding)
 	assert(child.transform)
-	self:updateDirtyLayout(child)
-	self:updateDirtyLayout(self)
+	self:update_dirty_layout(child)
+	self:update_dirty_layout(self)
 	local current = child
 	local x = 0
 	local y = 0
@@ -170,59 +207,38 @@ function META:ScrollChildIntoView(child, padding)
 	return self:ScrollRectIntoView(x, y, x + size.x, y + size.y, padding)
 end
 
-function META:computeScrollbarState(content_size, view_size)
+function META:compute_scrollbar_state(content_size, view_size)
 	content_size = content_size or Vec2(0, 0)
 	view_size = view_size or Vec2(0, 0)
-	local always_shift_v = self.ScrollbarShiftMode == "always_shift" and
-		self.ScrollY and
-		self.ScrollbarVisible
-	local always_shift_h = self.ScrollbarShiftMode == "always_shift" and
-		self.ScrollX and
-		self.ScrollbarVisible
-	local auto_shift = self.ScrollbarShiftMode == "auto_shift"
+	local mode_y = self.ScrollbarShiftMode
+	local mode_x = mode_y
+
+	if mode_y == "auto" then
+		local panel_size = self.transform.Size
+		local threshold = theme.active:GetScrollbarAutoShiftSize()
+		mode_y = panel_size.x >= threshold and "auto_shift" or "no_shift"
+		mode_x = panel_size.y >= threshold and "auto_shift" or "no_shift"
+	end
+
+	local enabled_y = self.ScrollY and self.ScrollbarVisible
+	local enabled_x = self.ScrollX and self.ScrollbarVisible
+	local shift_y = mode_y == "auto_shift"
+	local shift_x = mode_x == "auto_shift"
 	local show_y = false
 	local show_x = false
-	local reserve_y = always_shift_v
-	local reserve_x = always_shift_h
+	local reserve_y = mode_y == "always_shift" and enabled_y
+	local reserve_x = mode_x == "always_shift" and enabled_x
 
-	if auto_shift then
-		for _ = 1, 2 do
-			local available_w = math.max(0, view_size.x - (show_y and self.ScrollbarReserve or 0))
-			local available_h = math.max(0, view_size.y - (show_x and self.ScrollbarReserve or 0))
-			local can_scroll_v = content_size.y > available_h
-			local can_scroll_h = content_size.x > available_w
-			show_y = self.ScrollY and
-				self.ScrollbarVisible and
-				(
-					not self.ScrollbarAutoHide or
-					can_scroll_v
-				)
-			show_x = self.ScrollX and
-				self.ScrollbarVisible and
-				(
-					not self.ScrollbarAutoHide or
-					can_scroll_h
-				)
-		end
-
-		reserve_y = show_y
-		reserve_x = show_x
-	else
-		local can_scroll_v = content_size.y > view_size.y
-		local can_scroll_h = content_size.x > view_size.x
-		show_y = self.ScrollY and
-			self.ScrollbarVisible and
-			(
-				not self.ScrollbarAutoHide or
-				can_scroll_v
-			)
-		show_x = self.ScrollX and
-			self.ScrollbarVisible and
-			(
-				not self.ScrollbarAutoHide or
-				can_scroll_h
-			)
+	for _ = 1, 2 do
+		local available_w = math.max(0, view_size.x - (show_y and shift_y and self.ScrollbarReserve or 0))
+		local available_h = math.max(0, view_size.y - (show_x and shift_x and self.ScrollbarReserve or 0))
+		show_y = enabled_y and (not self.ScrollbarAutoHide or content_size.y > available_h)
+		show_x = enabled_x and (not self.ScrollbarAutoHide or content_size.x > available_w)
 	end
+
+	if shift_y then reserve_y = show_y end
+
+	if shift_x then reserve_x = show_x end
 
 	return {
 		content_size = content_size,
@@ -236,12 +252,12 @@ function META:computeScrollbarState(content_size, view_size)
 	}
 end
 
-function META:updateHandle()
+function META:update_handle()
 	if not self.HandleY or not self.HandleX then return end
 
 	local content_size = self.Viewport.layout.content_size
 	local view_size = self.Viewport.transform.Size:Copy()
-	local state = self:computeScrollbarState(content_size, view_size)
+	local state = self:compute_scrollbar_state(content_size, view_size)
 	local new_padding = Rect(
 		self.Padding.x,
 		self.Padding.y,
@@ -268,11 +284,11 @@ function META:updateHandle()
 		self.Viewport.layout:SetPadding(new_padding)
 		view_size = self.Viewport.transform.Size:Copy()
 		content_size = self.Viewport.layout.content_size
-		state = self:computeScrollbarState(content_size, view_size)
+		state = self:compute_scrollbar_state(content_size, view_size)
 	end
 
 	if not content_size or not view_size then
-		self:clampScrollToBounds(Vec2(0, 0), Vec2(0, 0))
+		self:clamp_scroll_to_bounds(Vec2(0, 0), Vec2(0, 0))
 		self.TrackY.visual:SetVisible(false)
 		self.TrackX.visual:SetVisible(false)
 		self.HandleY.visual:SetVisible(false)
@@ -280,25 +296,22 @@ function META:updateHandle()
 		return
 	end
 
-	local scroll = self:clampScrollToBounds(content_size, view_size) or
+	local scroll = self:clamp_scroll_to_bounds(content_size, view_size) or
 		self.Viewport.transform:GetScroll()
-	self:updateScrollbarAxis("y", state, scroll, content_size, view_size, self.Padding)
-	self:updateScrollbarAxis("x", state, scroll, content_size, view_size, self.Padding)
+	self:update_scrollbar_axis("y", state, scroll, content_size, view_size)
+	self:update_scrollbar_axis("x", state, scroll, content_size, view_size)
 end
 
-function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, base_padding)
+function META:update_scrollbar_axis(axis, state, scroll, content_size, view_size)
 	local is_y = axis == "y"
 	local handle = is_y and self.HandleY or self.HandleX
 	local track = is_y and self.TrackY or self.TrackX
-	local show = is_y and state.show_y or state.show_x
-	local available = is_y and
-		(
-			state.available_h - base_padding.y - base_padding.h
-		)
-		or
-		(
-			state.available_w - base_padding.x - base_padding.w
-		)
+	local show = state.show_x
+
+	if is_y then show = state.show_y end
+
+	local margin = theme.active:GetScrollbarMargin()
+	local available = math.max(0, (is_y and state.available_h or state.available_w) - margin * 2)
 	local content_dim = content_size[axis]
 	local scroll_dim = scroll[axis]
 
@@ -312,17 +325,17 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 	local max_scroll_view = math.max(1, is_y and state.available_h or state.available_w)
 	local max_scroll = math.max(0, content_dim - max_scroll_view)
 	local sb_width = theme.active:GetScrollbarWidth()
-	local sb_offset = sb_width + theme.active:GetScrollbarMargin()
+	local sb_offset = sb_width + margin
 
 	if track then
 		track.visual:SetVisible(true)
 
 		if is_y then
 			track.transform:SetSize(Vec2(sb_width, available))
-			track.transform:SetPosition(Vec2(self.transform:GetSize().x - sb_offset, base_padding.y))
+			track.transform:SetPosition(Vec2(self.transform:GetSize().x - sb_offset, margin))
 		else
 			track.transform:SetSize(Vec2(available, sb_width))
-			track.transform:SetPosition(Vec2(base_padding.x, self.transform:GetSize().y - sb_offset))
+			track.transform:SetPosition(Vec2(margin, self.transform:GetSize().y - sb_offset))
 		end
 	end
 
@@ -339,15 +352,15 @@ function META:updateScrollbarAxis(axis, state, scroll, content_size, view_size, 
 
 	if is_y then
 		handle.transform:SetSize(Vec2(sb_width, handle_len))
-		handle.transform:SetPosition(Vec2(self.transform:GetSize().x - sb_offset, handle_pos + base_padding.y))
+		handle.transform:SetPosition(Vec2(self.transform:GetSize().x - sb_offset, handle_pos + margin))
 	else
 		handle.transform:SetSize(Vec2(handle_len, sb_width))
-		handle.transform:SetPosition(Vec2(handle_pos + base_padding.x, self.transform:GetSize().y - sb_offset))
+		handle.transform:SetPosition(Vec2(handle_pos + margin, self.transform:GetSize().y - sb_offset))
 	end
 end
 
-function META:clampScrollToBounds(content_size, view_size)
-	local state = self:computeScrollbarState(content_size, view_size)
+function META:clamp_scroll_to_bounds(content_size, view_size)
+	local state = self:compute_scrollbar_state(content_size, view_size)
 	local effective_view_size = Vec2(state.available_w, state.available_h)
 	local scroll = self.Viewport.transform:GetScroll():Copy()
 	local next_scroll = scroll:Copy()
@@ -373,13 +386,13 @@ function META:clampScrollToBounds(content_size, view_size)
 	return next_scroll, changed
 end
 
-function META:handleWheelScroll(target, button)
+function META:handle_wheel_scroll(target, button)
 	local content_size = target.layout and target.layout.content_size
 	local view_size = target.transform and target.transform.Size
 
 	if not content_size or not view_size then return end
 
-	local state = self:computeScrollbarState(content_size, view_size)
+	local state = self:compute_scrollbar_state(content_size, view_size)
 	local effective_view_size = Vec2(state.available_w, state.available_h)
 	local scroll = target.transform:GetScroll():Copy()
 	local next_scroll = scroll:Copy()
@@ -415,7 +428,7 @@ function META:ScrollRectIntoView(x1, y1, x2, y2, padding)
 
 	if not content_size or not view_size then return false end
 
-	local state = self:computeScrollbarState(content_size, view_size)
+	local state = self:compute_scrollbar_state(content_size, view_size)
 	local effective_view_size = Vec2(state.available_w, state.available_h)
 	local scroll = self.Viewport.transform:GetScroll():Copy()
 	local next_scroll = scroll:Copy()
@@ -461,7 +474,7 @@ function META:ScrollRectIntoView(x1, y1, x2, y2, padding)
 	return true
 end
 
-function META:updateDirtyLayout(entity)
+function META:update_dirty_layout(entity)
 	local current = entity
 	local root_layout = nil
 
@@ -476,99 +489,44 @@ function META:updateDirtyLayout(entity)
 	if root_layout then root_layout:UpdateLayout() end
 end
 
-do
-	function META:createTrack(axis)
-		return Panel.New{
-			IsInternal = true,
-			Name = "scrollbar_track_" .. axis,
-			Ref = function(s)
-				s:SetState("color", self.TrackColor or "scrollbar_track")
-			end,
-			transform = {
-				Size = axis == "y" and
-					Vec2(theme.active:GetScrollbarWidth(), 40) or
-					Vec2(40, theme.active:GetScrollbarWidth()),
-			},
-			visual = {
-				Visible = false,
-				OnDraw = function(self)
-					theme.active:Draw(self.Owner)
-				end,
-			},
-			layout = {
-				Floating = true,
-			},
-		}
-	end
-
-	function META:createHandle(axis)
-		local is_y = axis == "y"
-		local scrollable_panel = self
-		return Panel.New{
-			IsInternal = true,
-			Name = "scrollbar_handle_" .. axis,
-			OnTransformChanged = function()
-				self:updateHandle()
-			end,
-			Ref = function(s)
-				s:SetState("color", scrollable_panel.HandleColor or "scrollbar")
-			end,
-			transform = {
-				Size = is_y and
-					Vec2(theme.active:GetScrollbarWidth(), 40) or
-					Vec2(40, theme.active:GetScrollbarWidth()),
-			},
-			visual = {
-				Visible = false,
-				OnDraw = function(self)
-					theme.active:Draw(self.Owner)
-				end,
-			},
-			layout = {
-				Floating = true,
-			},
-			draggable = true,
-			mouse_input = true,
-			clickable = true,
-			animation = true,
-			OnDrag = function(self, delta)
-				local content_size = scrollable_panel.Viewport.layout.content_size
-				local view_size = scrollable_panel.Viewport.transform.Size
-
-				if not content_size or not view_size then return end
-
-				local state = scrollable_panel:computeScrollbarState(content_size, view_size)
-				local effective_view_size = Vec2(state.available_w, state.available_h)
-				local max_scroll = content_size[axis] - effective_view_size[axis]
-
-				if max_scroll <= 0 then return end
-
-				local handle_len = is_y and self.transform:GetHeight() or self.transform:GetWidth()
-				local base_padding = scrollable_panel.Padding
-				local track_len = is_y and
-					(
-						effective_view_size.y - base_padding.y - base_padding.h
-					)
-					or
-					(
-						effective_view_size.x - base_padding.x - base_padding.w
-					)
-				local scroll_track_range = track_len - handle_len
-
-				if scroll_track_range <= 0 then return end
-
-				local scroll = scrollable_panel.Viewport.transform:GetScroll():Copy()
-				scroll[axis] = (self.scroll_start or 0) + (delta[axis] / scroll_track_range) * max_scroll
-				scroll[axis] = math.clamp(scroll[axis], 0, max_scroll)
-				scrollable_panel.Viewport.transform:SetScroll(scroll)
-				return true
-			end,
-			OnDragStarted = function(self)
-				self.scroll_start = scrollable_panel.Viewport.transform:GetScroll()[axis]
-			end,
-		}
-	end
+function META:create_track(axis)
+	local width = theme.active:GetScrollbarWidth()
+	return Panel.New{
+		Parent = self,
+		IsInternal = true,
+		Name = "scrollbar_track_" .. axis,
+		transform = {
+			Size = axis == "y" and Vec2(width, 40) or Vec2(40, width),
+		},
+		visual = {Visible = false},
+		layout = {Floating = true},
+		OnDraw = on_track_draw,
+	}
 end
 
-META:Register()
-return META.New
+function META:create_handle(axis)
+	local width = theme.active:GetScrollbarWidth()
+	local handle = Panel.New{
+		Parent = self,
+		IsInternal = true,
+		Name = "scrollbar_handle_" .. axis,
+		Scrollable = self,
+		Axis = axis,
+		transform = {
+			Size = axis == "y" and Vec2(width, 40) or Vec2(40, width),
+		},
+		visual = {Visible = false},
+		layout = {Floating = true},
+		draggable = true,
+		mouse_input = true,
+		clickable = true,
+		animation = true,
+		OnDraw = on_track_draw,
+		OnTransformChanged = on_handle_changed,
+		OnDrag = on_handle_drag,
+		OnDragStarted = on_handle_drag_started,
+	}
+	return handle
+end
+
+return META:Register()

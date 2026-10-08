@@ -1,44 +1,26 @@
-local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
-local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	local panel = Panel.New{
-		{
-			Name = "radio_button",
-			transform = {
-				Size = props.Size or "M",
-			},
-			layout = {
-				props.layout,
-			},
-			OnClick = function(self)
-				local selected = props.IsSelected and props.IsSelected() or self:GetState("value")
+local Checkable = import("goluwa/render2d/ui/elements/checkable.lua")
+local META = Panel:CreateTemplate("radio_button")
+META.Base = Checkable
+META.BoxName = "radio_button"
 
-				if not selected then
-					if props.OnSelect then props.OnSelect() end
+function META.IsSelected(radio) end
 
-					self:SetState("value", true)
-				end
-			end,
-			mouse_input = {
-				Cursor = "hand",
-				OnHover = function(cmp, hovered)
-					cmp.Owner:SetState("hovered", hovered)
-				end,
-			},
-			visual = {
-				OnDraw = function(cmp)
-					if not props.IsSelected() then cmp.Owner:SetState("value", false) end
+function META.OnSelect(radio) end
 
-					theme.active:Draw(cmp.Owner)
-				end,
-			},
-			clickable = true,
-		},
-	}
-	panel:SetState("value", false)
-	panel:SetState("hovered", false)
-	return panel
+function META:IsChecked()
+	local selected = self.IsSelected(self)
+
+	if selected ~= nil then return selected end
+
+	return self.Value
 end
+
+function META:OnClick()
+	if self:IsChecked() then return end
+
+	self.OnSelect(self)
+	self:SetValue(true)
+end
+
+return META:Register()

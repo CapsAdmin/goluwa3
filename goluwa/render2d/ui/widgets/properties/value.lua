@@ -1,519 +1,351 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local clipboard = import("goluwa/bindings/clipboard.lua")
-local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
+local Control = import("goluwa/render2d/ui/widgets/properties/control.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-local Value = {}
-local icon_sources = {
-	copy = "https://api.iconify.design/material-symbols-light/content-copy.svg",
-	paste = "https://api.iconify.design/material-symbols-light/content-paste-rounded.svg",
-	reset = "https://api.iconify.design/material-symbols-light/reset-iso-rounded.svg",
+local META = Panel:CreateTemplate("property_value")
+META.Base = Control
+META.CMP.layout = {
+	Direction = "x",
+	AlignmentY = "center",
+	GrowWidth = 1,
+	Padding = "XS",
 }
+META.CMP.visual = {Clipping = true}
+META.CMP.mouse_input = {Cursor = "hand"}
+META:StartStorable()
+META:GetSet("Value", nil)
+META:GetSet("Font", nil)
+META:GetSet("FontSize", nil)
+META:GetSet("TextColor", nil)
+META:GetSet("Cursor", "hand")
+META:GetSet("EditClickCount", 1)
+META:GetSet("DragThreshold", nil)
+META:GetSet("HoverPanelColor", nil)
+META:GetSet("EditPanelColor", nil)
+META:GetSet("RightElements", nil)
+META:GetSet("BottomElements", nil)
+META:EndStorable()
 
-local function set_text(panel, value)
-	if panel and panel:IsValid() and panel.text then
-		panel.text:SetText(value or "")
-	end
-end
-
-local function default_format_value(value)
+function META.FormatValue(value, field)
 	if value == nil then return "" end
 
 	return tostring(value)
 end
 
-function Value.InstallContextMenu(panel, props)
-	if not (panel and props) then return panel end
-
-	function panel:OpenContextMenu()
-		if props.BeforeOpen then props.BeforeOpen(self) end
-
-		local current_encoded = props.Encode and props.Encode(self) or nil
-		local default_encoded = props.GetDefaultEncoded and props.GetDefaultEncoded(self, current_encoded) or nil
-		local clipboard_text = clipboard.Get() or ""
-		local can_paste = false
-
-		if props.Decode then
-			local _, ok = props.Decode(clipboard_text, self)
-			can_paste = ok == true
-		end
-
-		local can_reset = default_encoded ~= nil and default_encoded ~= current_encoded
-
-		local function apply_encoded_value(encoded)
-			if not (props.Decode and props.Commit) then return end
-
-			local decoded, ok = props.Decode(encoded, self)
-
-			if not ok then return end
-
-			props.Commit(decoded, self)
-		end
-
-		Panel.OpenContextMenu(
-			{
-				OnClose = function(ent)
-					ent:Remove()
-				end,
-			},
-			{
-				MenuItem{
-					Text = "Copy",
-					IconSource = icon_sources.copy,
-					Disabled = current_encoded == nil,
-					OnClick = function()
-						if current_encoded ~= nil then clipboard.Set(current_encoded) end
-					end,
-				},
-				MenuItem{
-					Text = "Paste",
-					IconSource = icon_sources.paste,
-					Disabled = not can_paste,
-					OnClick = function()
-						apply_encoded_value(clipboard_text)
-					end,
-				},
-				MenuItem{
-					Text = "Reset",
-					IconSource = icon_sources.reset,
-					Disabled = not can_reset,
-					OnClick = function()
-						if default_encoded ~= nil then apply_encoded_value(default_encoded) end
-					end,
-				},
-			}
-		)
-		return true
-	end
-
-	if panel.mouse_input and panel.mouse_input.OnMouseInput then
-		local on_mouse_input = panel.mouse_input.OnMouseInput
-		panel.mouse_input.OnMouseInput = function(self, button, press, ...)
-			if button == "button_2" and press then return panel:OpenContextMenu() end
-
-			return on_mouse_input(self, button, press, ...)
-		end
-	end
-
-	return panel
+function META.ParseValue(text, current_value, field)
+	return text
 end
 
-local function create_value(props)
-	props = props or {}
-	local external_ref = props.Ref
+local function on_text_key_input(text, key, press)
+	local field = text.Field
 
-	if external_ref then
-		props = table.shallow_copy(props)
-		props.Ref = nil
-	end
+	if not field._editing or not press then return end
 
-	local value = props.Value
+	if key == "enter" then return field:end_editing(true) end
 
-	if value == nil then value = "" end
+	if key == "escape" then return field:end_editing(false) end
+end
 
-	local format_value = props.FormatValue or default_format_value
-	local format_edit_value = props.FormatEditValue or format_value
-	local parse_value = props.ParseValue or function(text)
-		return text
-	end
-	local edit_click_count = props.EditClickCount or 1
-	local drag_threshold = theme.active:ResolveSize(props.DragThreshold or "XXS")
-	local size = props.Size or Vec2(220, theme.active:GetInputHeight("M"))
-	local min_size = props.MinSize or Vec2(80, size.y)
-	local max_size = props.MaxSize or Vec2(0, size.y)
+function META:OnCreate(props)
+	props.Size = props.Size or Vec2(220, theme.active:GetInputHeight(props.FontSize or "M"))
+	props.MinSize = props.MinSize or Vec2(80, props.Size.y)
+	props.MaxSize = props.MaxSize or Vec2(0, props.Size.y)
 	local right_elements = props.RightElements or {}
 	local bottom_elements = props.BottomElements or {}
-	local has_right = #right_elements > 0
 	local has_bottom = #bottom_elements > 0
-	local text_panel
-	local panel
-	local state = {
-		hovered = false,
-		editing = false,
-		click_count = 0,
-		last_click_time = 0,
-		pending_drag = false,
-		dragging = false,
-		drag_start_pos = Vec2(),
-		drag_start_value = value,
-		drag_accumulated_delta = Vec2(),
-		last_drag_pos = Vec2(),
-		mouse_trapped = false,
+	props.layout = {
+		Direction = has_bottom and "y" or "x",
+		ChildGap = has_bottom and "XXS" or 0,
+		props.layout,
 	}
+	META.BaseClass.OnCreate(self, props)
+	self._drag_threshold = theme.active:ResolveSize(self.DragThreshold or "XXS")
+	self._editing = false
+	self._hovered = false
+	self._click_count = 0
+	self._last_click_time = 0
+	self._pending_drag = false
+	self._dragging = false
+	self._mouse_trapped = false
+	self._drag_start_pos = Vec2()
+	self._drag_value = self.Value
+	self._last_drag_pos = Vec2()
+	self:SetState("theme_role", "property_value")
+	self.mouse_input:SetCursor(self.Cursor)
+	local row = self
 
-	local function set_drag_mouse_trapped(trapped)
-		if state.mouse_trapped == trapped then return end
-
-		local window = system.GetWindow()
-
-		if not (window and window.PushMouseTrapRequest and window.PopMouseTrapRequest) then
-			if not (window and window.SetMouseTrapped) then return end
-
-			window:SetMouseTrapped(trapped)
-			state.mouse_trapped = trapped
-			return
-		end
-
-		if trapped then
-			window:PushMouseTrapRequest(panel, true)
-		else
-			window:PopMouseTrapRequest(panel)
-		end
-
-		state.mouse_trapped = trapped
-	end
-
-	local function update_display_text()
-		if state.editing then return end
-
-		set_text(text_panel, format_value(value))
-	end
-
-	local function update_visual_state()
-		if not panel or not panel:IsValid() or not text_panel or not text_panel:IsValid() then
-			return
-		end
-
-		if panel.mouse_input then
-			panel.mouse_input:SetCursor(state.editing and "text_input" or (props.Cursor or "hand"))
-		end
-
-		if text_panel.mouse_input then
-			text_panel.mouse_input:SetIgnoreMouseInput(not state.editing)
-			text_panel.mouse_input:SetCursor(state.editing and "text_input" or nil)
-		end
-	end
-
-	local function set_editor_defaults()
-		if
-			not text_panel or
-			not text_panel:IsValid()
-			or
-			not text_panel.text or
-			not text_panel.text.editor
-		then
-			return
-		end
-
-		text_panel.text.editor:SetMultiline(false)
-		text_panel.text.editor:SetPreserveTabsOnEnter(false)
-	end
-
-	local function stop_editing(commit)
-		if not state.editing then return false end
-
-		state.editing = false
-		local next_value = value
-
-		if commit and text_panel and text_panel:IsValid() and text_panel.text then
-			local parsed = parse_value(text_panel.text:GetText(), value)
-
-			if parsed ~= nil then next_value = parsed end
-		end
-
-		if text_panel and text_panel:IsValid() and text_panel.text then
-			text_panel.text:SetEditable(false)
-		end
-
-		panel:SetValue(next_value, commit == true)
-		objects.SetFocusedObject(NULL)
-		update_visual_state()
-		return true
-	end
-
-	local function begin_editing()
-		if
-			state.editing or
-			not text_panel or
-			not text_panel:IsValid()
-			or
-			not text_panel.text
-		then
-			return false
-		end
-
-		state.editing = true
-		set_text(text_panel, format_edit_value(value))
-		text_panel.text:SetEditable(true)
-		set_editor_defaults()
-		text_panel:RequestFocus()
-		set_editor_defaults()
-
-		if text_panel.text.editor then text_panel.text.editor:SelectAll() end
-
-		update_visual_state()
-		return true
-	end
-
-	local main_direction = has_bottom and "y" or "x"
-	local main_children = {}
-	local input_row_children = {
-		Text{
-			Ref = function(self)
-				text_panel = self
-
-				if self.mouse_input then self.mouse_input:SetIgnoreMouseInput(true) end
-
-				update_display_text()
-				update_visual_state()
-			end,
-			Text = format_value(value),
-			Font = props.Font,
-			FontName = props.FontName,
-			FontSize = props.FontSize,
-			Editable = false,
-			Wrap = false,
-			Cursor = nil,
-			Color = props.TextColor or "text",
-			AlignY = 0.5,
-			layout = {
-				GrowWidth = 1,
-				FitWidth = false,
-			},
-			OnKeyInput = function(self, key, press)
-				if not state.editing or not press then return end
-
-				if key == "enter" then return stop_editing(true) end
-
-				if key == "escape" then return stop_editing(false) end
-			end,
-		},
-	}
-
-	for _, element in ipairs(right_elements) do
-		input_row_children[#input_row_children + 1] = element
-	end
-
-	if has_right then
-		main_children[#main_children + 1] = Panel.New{
-			Name = "ValueInputRow",
+	if #right_elements > 0 then
+		row = Panel.New{
+			Parent = self,
+			IsInternal = true,
+			Name = "property_value_row",
+			transform = true,
 			layout = {
 				Direction = "x",
 				GrowWidth = 1,
 				ChildGap = 0,
 				AlignmentY = "center",
 			},
-		}(input_row_children)
-	else
-		main_children[#main_children + 1] = input_row_children[1]
+		}
+	end
+
+	self._text = Text{
+		Parent = row,
+		IsInternal = true,
+		Field = self,
+		Text = self.FormatValue(self.Value, self),
+		Font = self.Font,
+		Color = self.TextColor or "text",
+		Editable = false,
+		Wrap = false,
+		AlignY = 0.5,
+		IgnoreMouseInput = true,
+		layout = {
+			GrowWidth = 1,
+			FitWidth = false,
+		},
+		OnKeyInput = on_text_key_input,
+	}
+
+	for _, element in ipairs(right_elements) do
+		row:AddChild(element)
 	end
 
 	for _, element in ipairs(bottom_elements) do
-		main_children[#main_children + 1] = element
+		self:AddChild(element)
 	end
-
-	panel = Panel.New{
-		Name = props.Name or "value",
-		Tooltip = props.Tooltip,
-		TooltipOptions = props.TooltipOptions,
-		transform = {
-			Size = size,
-		},
-		layout = {
-			Direction = main_direction,
-			AlignmentY = "center",
-			GrowWidth = 1,
-			MinSize = min_size,
-			MaxSize = max_size,
-			Padding = props.Padding or "XS",
-			ChildGap = has_bottom and theme.active:GetSize("XXS") or 0,
-			props.layout,
-		},
-		visual = {
-			Clipping = true,
-			OnDraw = function(self)
-				self.Owner:SetState("editing", state.editing)
-				self.Owner:SetState("hovered", state.hovered)
-				self.Owner:SetState("edit_fill", props.EditPanelColor)
-				self.Owner:SetState("hover_fill", props.HoverPanelColor)
-				theme.active:Draw(self.Owner)
-			end,
-			OnPostDraw = function(self)
-				if state.editing then return end
-
-				if props.DrawBackground then props.DrawBackground(self.Owner, value) end
-			end,
-		},
-		mouse_input = {
-			Cursor = props.Cursor or "hand",
-			OnHover = function(self, hovered)
-				state.hovered = hovered
-				update_visual_state()
-			end,
-			OnMouseInput = function(self, button, press, local_pos)
-				if button ~= "button_1" or not press then return end
-
-				if state.editing then return true end
-
-				local now = system.GetElapsedTime()
-
-				if now - state.last_click_time < 0.35 then
-					state.click_count = state.click_count + 1
-				else
-					state.click_count = 1
-				end
-
-				state.last_click_time = now
-				state.pending_drag = props.OnDragValue ~= nil
-				state.dragging = false
-				state.drag_start_pos = system.GetWindow():GetMousePosition():Copy()
-				state.drag_start_value = value
-				state.drag_accumulated_delta = Vec2()
-				state.last_drag_pos = state.drag_start_pos:Copy()
-
-				if state.click_count >= edit_click_count then
-					state.pending_drag = false
-					state.click_count = 0
-					return begin_editing()
-				end
-
-				if state.pending_drag then
-					local next_value = props.OnDragValue(state.drag_accumulated_delta, state.drag_start_value, panel)
-
-					if next_value ~= nil then panel:SetValue(next_value, true) end
-				end
-
-				return true
-			end,
-			OnGlobalMouseMove = function(self, pos)
-				if not state.pending_drag or state.editing or not props.OnDragValue then
-					return
-				end
-
-				local delta = pos - state.drag_start_pos
-				local started_drag = false
-
-				if not state.dragging then
-					if math.abs(delta.x) < drag_threshold and math.abs(delta.y) < drag_threshold then
-						return
-					end
-
-					state.dragging = true
-					started_drag = true
-					state.drag_accumulated_delta = Vec2()
-					set_drag_mouse_trapped(true)
-				end
-
-				local window = system.GetWindow()
-				local frame_delta = started_drag and
-					(
-						pos - state.last_drag_pos
-					)
-					or
-					(
-						window and
-						window.GetMouseDelta and
-						window:GetMouseDelta() or
-						(
-							pos - state.last_drag_pos
-						)
-					)
-				state.last_drag_pos = pos:Copy()
-				state.drag_accumulated_delta = state.drag_accumulated_delta + frame_delta
-				local next_value = props.OnDragValue(state.drag_accumulated_delta, state.drag_start_value, panel)
-
-				if next_value ~= nil then panel:SetValue(next_value, true) end
-
-				if
-					state.mouse_trapped and
-					window and
-					window.SetMousePosition and
-					(
-						not window.ShouldWarpMouseWhenCaptured or
-						window:ShouldWarpMouseWhenCaptured()
-					)
-				then
-					pcall(window.SetMousePosition, window, state.drag_start_pos)
-					state.last_drag_pos = state.drag_start_pos:Copy()
-				end
-
-				return true
-			end,
-			OnGlobalMouseInput = function(self, button, press, pos)
-				if button == "button_1" and not press then
-					if state.dragging then
-						state.dragging = false
-						state.pending_drag = false
-						state.click_count = 0
-						set_drag_mouse_trapped(false)
-						return true
-					end
-
-					state.pending_drag = false
-					set_drag_mouse_trapped(false)
-					return
-				end
-
-				if button == "button_1" and press and state.editing then
-					if not self.Owner.visual or not self.Owner.visual:IsHovered(pos) then
-						return stop_editing(true)
-					end
-				end
-			end,
-		},
-		clickable = true,
-		animation = true,
-	}(table.unpack(main_children))
-	panel:SetState("theme_role", "property_value")
-
-	function panel:SetValue(new_value, notify)
-		local old_value = value
-		value = new_value
-		update_display_text()
-
-		if notify and old_value ~= value and props.OnChange then
-			props.OnChange(value, old_value)
-		end
-
-		return self
-	end
-
-	function panel:GetValue()
-		return value
-	end
-
-	function panel:EncodeValue()
-		return format_edit_value(value)
-	end
-
-	function panel:DecodeValue(text)
-		local parsed = parse_value(text, value)
-
-		if parsed == nil then return nil, false end
-
-		return parsed, true
-	end
-
-	function panel:BeginEdit()
-		begin_editing()
-		return self
-	end
-
-	function panel:EndEdit(commit)
-		stop_editing(commit ~= false)
-		return self
-	end
-
-	function panel:IsEditing()
-		return state.editing
-	end
-
-	function panel:IsDragging()
-		return state.dragging
-	end
-
-	if props.ContextMenu then Value.InstallContextMenu(panel, props.ContextMenu) end
-
-	if external_ref then external_ref(panel) end
-
-	return panel
 end
 
-return setmetatable(Value, {
-	__call = function(_, props)
-		return create_value(props)
-	end,
-})
+function META:SetValue(new_value, notify)
+	local old_value = self.Value
+	self.Value = new_value
+	self:update_display_text()
+
+	if notify and old_value ~= new_value then
+		self.OnChange(new_value, old_value, self)
+	end
+
+	return self
+end
+
+function META:GetValue()
+	return self.Value
+end
+
+function META:EncodeValue()
+	return self:format_edit_value(self.Value)
+end
+
+function META:DecodeValue(text)
+	local parsed = self.ParseValue(text, self.Value, self)
+
+	if parsed == nil then return nil, false end
+
+	return parsed, true
+end
+
+function META:IsEditing()
+	return self._editing
+end
+
+function META:IsDragging()
+	return self._dragging
+end
+
+function META:BeginEdit()
+	if self._editing then return self end
+
+	self._editing = true
+	self._text.text:SetText(self:format_edit_value(self.Value))
+	self._text.text:SetEditable(true)
+	self:apply_editor_defaults()
+	self._text:RequestFocus()
+	self:apply_editor_defaults()
+
+	if self._text.text.editor then self._text.text.editor:SelectAll() end
+
+	self:update_cursor()
+	self:OnEditingChanged(true)
+	return self
+end
+
+function META:OnEditingChanged(editing) end
+
+function META:EndEdit(commit)
+	self:end_editing(commit ~= false)
+	return self
+end
+
+function META:format_edit_value(value)
+	return (self.FormatEditValue or self.FormatValue)(value, self)
+end
+
+function META:update_display_text()
+	if self._editing or not self._text then return end
+
+	self._text.text:SetText(self.FormatValue(self.Value, self))
+end
+
+function META:update_cursor()
+	self.mouse_input:SetCursor(self._editing and "text_input" or self.Cursor)
+	self._text.mouse_input:SetIgnoreMouseInput(not self._editing)
+	self._text.mouse_input:SetCursor(self._editing and "text_input" or nil)
+end
+
+function META:apply_editor_defaults()
+	local editor = self._text.text.editor
+
+	if not editor then return end
+
+	editor:SetMultiline(false)
+	editor:SetPreserveTabsOnEnter(false)
+end
+
+function META:end_editing(commit)
+	if not self._editing then return false end
+
+	self._editing = false
+	local next_value = self.Value
+
+	if commit then
+		local parsed = self.ParseValue(self._text.text:GetText(), self.Value, self)
+
+		if parsed ~= nil then next_value = parsed end
+	end
+
+	self._text.text:SetEditable(false)
+	self:SetValue(next_value, commit == true)
+	objects.SetFocusedObject(NULL)
+	self:update_cursor()
+	self:OnEditingChanged(false)
+	return true
+end
+
+function META:set_mouse_trapped(trapped)
+	if self._mouse_trapped == trapped then return end
+
+	local window = system.GetWindow()
+
+	if trapped then
+		window:PushMouseTrapRequest(self, true)
+	else
+		window:PopMouseTrapRequest(self)
+	end
+
+	self._mouse_trapped = trapped
+end
+
+function META:OnHover(hovered)
+	self._hovered = hovered
+	self:update_cursor()
+end
+
+function META:OnMouseInput(button, press, local_pos)
+	if button == "button_2" and press then return self:OpenContextMenu() end
+
+	if button ~= "button_1" or not press then return end
+
+	if self._editing then return true end
+
+	local now = system.GetElapsedTime()
+
+	if now - self._last_click_time < 0.35 then
+		self._click_count = self._click_count + 1
+	else
+		self._click_count = 1
+	end
+
+	self._last_click_time = now
+	self._pending_drag = self.OnDragValue ~= nil
+	self._dragging = false
+	self._drag_start_pos = system.GetWindow():GetMousePosition():Copy()
+	self._last_drag_pos = self._drag_start_pos:Copy()
+
+	if self._click_count >= self.EditClickCount then
+		self._pending_drag = false
+		self._click_count = 0
+		self:BeginEdit()
+		return true
+	end
+
+	return true
+end
+
+function META:OnGlobalMouseMove(pos)
+	if not self._pending_drag or self._editing then return end
+
+	local delta = pos - self._drag_start_pos
+	local started_drag = false
+
+	if not self._dragging then
+		if
+			math.abs(delta.x) < self._drag_threshold and
+			math.abs(delta.y) < self._drag_threshold
+		then
+			return
+		end
+
+		self._dragging = true
+		started_drag = true
+		self._drag_value = self.Value
+		self:set_mouse_trapped(true)
+	end
+
+	local window = system.GetWindow()
+	local frame_delta = started_drag and
+		(
+			pos - self._last_drag_pos
+		)
+		or
+		window:GetMouseDelta()
+	self._last_drag_pos = pos:Copy()
+	local next_value = self.OnDragValue(frame_delta, self)
+
+	if next_value ~= nil then self:SetValue(next_value, true) end
+
+	if self._mouse_trapped and window:ShouldWarpMouseWhenCaptured() then
+		window:SetMousePosition(self._drag_start_pos)
+		self._last_drag_pos = self._drag_start_pos:Copy()
+	end
+
+	return true
+end
+
+function META:OnGlobalMouseInput(button, press, pos)
+	if button == "button_1" and not press then
+		if self._dragging then
+			self._dragging = false
+			self._pending_drag = false
+			self._click_count = 0
+			self:set_mouse_trapped(false)
+			return true
+		end
+
+		self._pending_drag = false
+		self:set_mouse_trapped(false)
+		return
+	end
+
+	if button == "button_1" and press and self._editing then
+		if not self.visual:IsHovered(pos) then return self:end_editing(true) end
+	end
+end
+
+function META:OnDraw()
+	self:SetState("editing", self._editing)
+	self:SetState("hovered", self._hovered)
+	self:SetState("edit_fill", self.EditPanelColor)
+	self:SetState("hover_fill", self.HoverPanelColor)
+	theme.active:Draw(self)
+end
+
+function META:OnPostDraw()
+	if self._editing or not self.DrawBackground then return end
+
+	self.DrawBackground(self, self.Value)
+end
+
+return META:Register()

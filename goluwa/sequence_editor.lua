@@ -8,6 +8,7 @@ SequenceEditor:GetSet("SelectionStart", nil)
 SequenceEditor:GetSet("ShiftDown", false)
 SequenceEditor:GetSet("ControlDown", false)
 SequenceEditor:GetSet("Multiline", true)
+SequenceEditor:GetSet("ReadOnly", false)
 SequenceEditor:GetSet("PreserveTabsOnEnter", true)
 SequenceEditor:GetSet("WrapWidth", nil)
 SequenceEditor:GetSet("PreferredVCol", nil)
@@ -149,6 +150,8 @@ function SequenceEditor:MoveWord(pos, dir)
 end
 
 function SequenceEditor:OnCharInput(char)
+	if self.ReadOnly then return end
+
 	self:Insert(char)
 end
 
@@ -214,31 +217,33 @@ function SequenceEditor:OnKeyInput(key)
 			local line_count = self:GetVisualLineCount()
 			self:SetVisualLineCol(math.min(line_count, line + 10), self.PreferredVCol)
 		end
-	elseif key == "backspace" then
+	elseif key == "backspace" and not self.ReadOnly then
 		self:Backspace()
-	elseif key == "delete" then
+	elseif key == "delete" and not self.ReadOnly then
 		self:Delete()
-	elseif key == "enter" and self.Multiline then
+	elseif key == "enter" and self.Multiline and not self.ReadOnly then
 		self:Enter()
-	elseif key == "tab" then
+	elseif key == "tab" and not self.ReadOnly then
 		self:Indent(self.ShiftDown)
 	elseif self.ControlDown then
 		if key == "a" then
 			self:SelectAll()
 		elseif key == "c" then
 			self:Copy()
-		elseif key == "x" then
-			self:Cut()
-		elseif key == "v" then
-			local str = self:GetClipboard()
+		elseif not self.ReadOnly then
+			if key == "x" then
+				self:Cut()
+			elseif key == "v" then
+				local str = self:GetClipboard()
 
-			if str then self:Paste(str) end
-		elseif key == "z" then
-			if self.ShiftDown then self:Redo() else self:Undo() end
-		elseif key == "y" then
-			self:Redo()
-		elseif key == "d" then
-			self:DuplicateLine()
+				if str then self:Paste(str) end
+			elseif key == "z" then
+				if self.ShiftDown then self:Redo() else self:Undo() end
+			elseif key == "y" then
+				self:Redo()
+			elseif key == "d" then
+				self:DuplicateLine()
+			end
 		end
 	end
 

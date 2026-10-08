@@ -1,21 +1,11 @@
-local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	return Panel.New{
-		props,
-		{
-			Name = "Column",
-			layout = {
-				Direction = "y",
-				GrowWidth = 1,
-				FitHeight = true,
-				AlignmentX = "center",
-				ChildGap = "M",
-				props.layout,
-			},
-			transform = true,
-		},
-	}
-end
+local META = Panel:CreateTemplate("column")
+META.CMP.transform = {}
+META.CMP.layout = {
+	Direction = "y",
+	GrowWidth = 1,
+	FitHeight = true,
+	AlignmentX = "center",
+	ChildGap = "M",
+}
+return META:Register()

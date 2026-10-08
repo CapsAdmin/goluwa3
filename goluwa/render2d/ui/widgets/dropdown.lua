@@ -1,467 +1,339 @@
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Icon = import("goluwa/render2d/ui/elements/icon.lua")
 local MenuContainer = import("goluwa/render2d/ui/elements/menu_container.lua")
+local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
+local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
-local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
-local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")
-local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	local options = props.Options or {}
-	local on_select = props.OnSelect
-	local label_ent
-	local dropdown
-	local suppress_next_open = false
-	local menu_open_fraction = 0
-	local selected_text = props.Text or "Select..."
-	local search_enabled = props.Searchable == true or props.EnableSearch == true
-	local search_threshold = props.SearchThreshold or 300
-	local search_input_height = props.SearchInputHeight or theme.active:GetInputHeight(props.FontSize or "M")
-	local search_gap = props.SearchGap or theme.active:GetPadding("M")
-	local scroll_threshold = props.ScrollThreshold or search_threshold
-	local search_body_height = math.max(80, search_threshold - search_input_height - search_gap)
-	local estimated_item_height = theme.active:ResolveFontSize(props.FontSize) + theme.active:GetPadding("M") * 2
+local META = Panel:CreateTemplate("dropdown")
+META.Base = Button
+META.Mode = "outline"
+META.Text = "Select..."
+META.CMP.layout = {
+	Direction = "x",
+	FitWidth = false,
+	FitHeight = true,
+	AlignmentY = "center",
+	GrowWidth = 1,
+}
+META:StartStorable()
+META:GetSet("Options", nil)
+META:GetSet("Value", nil)
+META:GetSet("Searchable", false)
+META:GetSet("SearchThreshold", 300)
+META:GetSet("ScrollThreshold", nil)
+META:GetSet("SearchHint", "Search")
+META:GetSet("EmptySearchText", "No matches")
+META:GetSet("ItemPadding", nil)
+META:EndStorable()
 
-	local function get_current_value()
-		if props.GetValue then return props.GetValue() end
+function META.OnSelect(value, text, index, dropdown) end
 
-		return props.Value
+local function get_option_text(option)
+	if type(option) == "table" then
+		return tostring(option.Text or option.Label or option.Value)
 	end
 
-	for _, opt in ipairs(options) do
-		local text = type(opt) == "table" and opt.Text or tostring(opt)
-		local val = type(opt) == "table" and opt.Value or opt
+	return tostring(option)
+end
 
-		if get_current_value() ~= nil and val == get_current_value() then
-			selected_text = text
+local function get_option_value(option)
+	if type(option) == "table" then return option.Value end
 
-			break
+	return option
+end
+
+local function find_option_text(options, value)
+	if value == nil then return nil end
+
+	for _, option in ipairs(options) do
+		if get_option_value(option) == value then return get_option_text(option) end
+	end
+end
+
+local function on_option_click(item)
+	item.Dropdown:select_option(item.OptionIndex)
+end
+
+local function on_search_changed(text_edit, text)
+	text_edit.Dropdown:rebuild_results(text:lower())
+end
+
+local function get_indicator_fraction(dropdown)
+	return dropdown._indicator_fraction
+end
+
+local function set_indicator_fraction(fraction, dropdown)
+	dropdown:set_indicator(fraction)
+end
+
+local function on_menu_closing(context_menu)
+	local dropdown = context_menu.SourceDropdown
+
+	if dropdown:IsValid() then dropdown:animate_indicator(0) end
+end
+
+local function on_menu_close(context_menu)
+	local dropdown = context_menu.SourceDropdown
+
+	if dropdown:IsValid() then dropdown:set_indicator(0) end
+
+	context_menu:Remove()
+end
+
+function META:OnCreate(props)
+	props.Options = props.Options or {}
+	props.AlignX = 0
+	props.TextLayout = {GrowWidth = 1, FitHeight = true}
+	props.Text = find_option_text(props.Options, props.Value) or props.Text
+	META.BaseClass.OnCreate(self, props)
+	self._indicator_fraction = 0
+	self._suppress_next_open = false
+	self._indicator = Icon{
+		Parent = self,
+		IsInternal = true,
+		Name = "dropdown_indicator",
+		Icon = "disclosure",
+		Size = Vec2() + theme.active:ResolveFontSize(self.FontSize),
+	}
+end
+
+function META:SetValue(value)
+	self.Value = value
+
+	if not self.label then return self end
+
+	local text = find_option_text(self.Options, value)
+
+	if text then self:SetText(text) end
+
+	return self
+end
+
+function META:SetOptions(options)
+	self.Options = options
+	self:SetValue(self.Value)
+	return self
+end
+
+function META:set_indicator(fraction)
+	self._indicator_fraction = fraction
+	self._indicator:SetOpenFraction(fraction)
+end
+
+function META:animate_indicator(fraction)
+	self.animation:Animate{
+		id = "dropdown_indicator_open",
+		get = get_indicator_fraction,
+		set = set_indicator_fraction,
+		to = fraction,
+		time = 0.2,
+		interpolation = "outExpo",
+	}
+end
+
+function META:select_option(index)
+	local option = self.Options[index]
+	local text = get_option_text(option)
+	local value = get_option_value(option)
+	self._suppress_next_open = true
+
+	timer.Delay(0, function()
+		self._suppress_next_open = false
+	end)
+
+	Panel.CloseContextMenu()
+	self:SetValue(value)
+	self.OnSelect(value, text, index, self)
+end
+
+function META:create_option_item(index)
+	local option = self.Options[index]
+	return MenuItem{
+		Dropdown = self,
+		OptionIndex = index,
+		Text = get_option_text(option),
+		Padding = self.ItemPadding,
+		Selected = self.Value == get_option_value(option),
+		Font = self.Font,
+		OnClick = on_option_click,
+	}
+end
+
+function META:rebuild_results(query)
+	local column = self._results_column
+	column:RemoveChildren()
+	local has_matches = false
+
+	for index, option in ipairs(self.Options) do
+		if query == "" or get_option_text(option):lower():find(query, 1, true) then
+			column:AddChild(self:create_option_item(index))
+			has_matches = true
 		end
 	end
 
-	local function select_option(text, val, index)
-		suppress_next_open = true
-
-		timer.Delay(0, function()
-			suppress_next_open = false
-		end)
-
-		Panel.CloseContextMenu()
-		props.Value = val
-		selected_text = text
-
-		if label_ent and label_ent:IsValid() and not props.GetText then
-			label_ent.text:SetText(selected_text)
-		end
-
-		if on_select then on_select(val, text, index) end
-	end
-
-	local function create_option_item(text, val, index)
-		menu_props = menu_props or {}
-		return MenuItem{
-			Text = text,
-			Padding = props.ItemPadding,
-			Selected = get_current_value() == val,
-			Font = props.Font,
-			FontName = props.FontName,
-			FontSize = props.FontSize,
-			OnClick = function()
-				select_option(text, val, index)
-			end,
-		}
-	end
-
-	local function create_empty_results_item()
-		return Panel.New{
-			transform = true,
+	if self._search_edit and not has_matches then
+		Text{
+			Parent = column,
+			Text = self.EmptySearchText,
+			Color = "text_disabled",
+			IgnoreMouseInput = true,
 			layout = {
-				Direction = "x",
 				GrowWidth = 1,
 				FitHeight = true,
-			},
-			mouse_input = {
-				IgnoreMouseInput = true,
-			},
-			visual = true,
-		}{
-			Text{
-				Text = props.EmptySearchText or "No matches",
-				IgnoreMouseInput = true,
-				Color = "text_disabled",
-				layout = {
-					GrowWidth = 1,
-					FitHeight = true,
-				},
+				Padding = Rect(
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("S"),
+					theme.active:GetPadding("M"),
+					theme.active:GetPadding("S")
+				),
 			},
 		}
 	end
 
-	local function matches_search(text, query)
-		if query == "" then return true end
+	self._results_panel:GetViewport().layout:UpdateLayout()
+end
 
-		return tostring(text or ""):lower():find(query, 1, true) ~= nil
+function META:build_scroll_menu(use_search, scroll_threshold)
+	local search_height = theme.active:GetInputHeight(self.FontSize)
+	local search_gap = theme.active:GetPadding("M")
+	local _, dropdown_y = self.transform:GetWorldMatrix():GetTranslation()
+	local world_height = Panel.World.transform:GetHeight()
+	local available_below = math.max(dropdown_y, world_height - (dropdown_y + self.transform:GetHeight()))
+	local body_height = scroll_threshold
+
+	if use_search then
+		search_height = math.min(search_height, math.max(0, available_below - 1))
+		search_gap = math.min(search_gap, math.max(0, available_below - search_height - 1))
+		body_height = math.max(80, self.SearchThreshold - search_height - search_gap)
+	else
+		search_height = 0
+		search_gap = 0
 	end
 
-	local function set_menu_open_fraction(value, instant)
-		if not dropdown or not dropdown:IsValid() then
-			menu_open_fraction = value
-			return
-		end
+	body_height = math.max(
+		1,
+		math.min(body_height, math.max(1, available_below - search_height - search_gap))
+	)
+	local children = {}
 
-		if instant or not dropdown.animation then
-			menu_open_fraction = value
-			return
-		end
-
-		dropdown.animation:Animate{
-			id = "dropdown_indicator_open",
-			get = function()
-				return menu_open_fraction
-			end,
-			set = function(v)
-				menu_open_fraction = v
-			end,
-			to = value,
-			time = 0.2,
-			interpolation = "outExpo",
+	if use_search then
+		self._search_edit = TextEdit{
+			Dropdown = self,
+			Tooltip = self.SearchHint,
+			Text = "",
+			Wrap = false,
+			ScrollX = false,
+			ScrollY = false,
+			ScrollbarVisible = false,
+			Font = self.Font,
+			Size = Vec2(0, search_height),
+			MinSize = Vec2(0, search_height),
+			MaxSize = Vec2(0, search_height),
+			OnTextChanged = on_search_changed,
 		}
+		children[#children + 1] = self._search_edit
+	else
+		self._search_edit = nil
 	end
 
-	local function open_menu(self)
-		if suppress_next_open then
-			suppress_next_open = false
-			return
-		end
-
-		local menu_items = {}
-		local custom_children = {}
-		local search_edit
-
-		for _, child in ipairs(self:GetChildren()) do
-			if not child.IsInternal then table.insert(custom_children, child) end
-		end
-
-		local estimated_content_height = (#options + #custom_children) * estimated_item_height
-		local use_scroll = estimated_content_height > scroll_threshold
-		local use_search = use_scroll and search_enabled
-
-		for i, opt in ipairs(options) do
-			local text = type(opt) == "table" and opt.Text or tostring(opt)
-			local val = type(opt) == "table" and opt.Value or opt
-
-			if not use_scroll then
-				table.insert(menu_items, create_option_item(text, val, i))
-			end
-		end
-
-		if use_scroll then
-			local search_query = ""
-			local results_panel
-			local results_column
-			local world_size = Panel.World and
-				Panel.World.transform and
-				Panel.World.transform:GetSize() or
-				Vec2()
-			local _, dropdown_y = dropdown.transform:GetWorldMatrix():GetTranslation()
-			local available_below = math.max(dropdown_y, world_size.y - (dropdown_y + dropdown.transform:GetHeight()))
-			local effective_search_gap = use_search and search_gap or 0
-			local effective_search_input_height = use_search and search_input_height or 0
-			local body_height = use_search and search_body_height or scroll_threshold
-			local composite_children = {}
-			local dropdown_width = dropdown and dropdown.transform and dropdown.transform:GetSize().x or 0
-
-			if use_search then
-				local minimum_body_height = 1
-				local max_input_height = math.max(0, available_below - minimum_body_height)
-				effective_search_input_height = math.min(effective_search_input_height, max_input_height)
-				effective_search_gap = math.min(
-					effective_search_gap,
-					math.max(0, available_below - effective_search_input_height - minimum_body_height)
-				)
-			end
-
-			body_height = math.max(
-				1,
-				math.min(
-					body_height,
-					math.max(1, available_below - effective_search_input_height - effective_search_gap)
-				)
-			)
-
-			if dropdown_width <= 0 then dropdown_width = 220 end
-
-			local function rebuild_results()
-				if not results_column or not results_column:IsValid() then return end
-
-				results_column:RemoveChildren()
-				local has_matches = false
-
-				for i, opt in ipairs(options) do
-					local text = type(opt) == "table" and opt.Text or tostring(opt)
-					local val = type(opt) == "table" and opt.Value or opt
-
-					if not use_search or matches_search(text, search_query) then
-						results_column:AddChild(create_option_item(text, val, i))
-						has_matches = true
-					end
-				end
-
-				for _, child in ipairs(custom_children) do
-					results_column:AddChild(child)
-				end
-
-				if use_search and not has_matches then
-					results_column:AddChild(create_empty_results_item())
-				end
-
-				if results_panel and results_panel:IsValid() then
-					local viewport = results_panel:GetViewport()
-
-					if viewport and viewport:IsValid() and viewport.layout then
-						viewport.layout:UpdateLayout()
-					end
-				end
-			end
-
-			if use_search then
-				composite_children[#composite_children + 1] = TextEdit{
-					Ref = function(ent)
-						search_edit = ent
-					end,
-					Tooltip = props.SearchTooltip or "Search",
-					Text = "",
-					Editable = true,
-					Wrap = false,
-					ScrollX = false,
-					ScrollY = false,
-					ScrollBarVisible = false,
-					PanelColor = props.SearchPanelColor or "surface_alt",
-					BackgroundColor = props.SearchBackgroundColor or "surface",
-					TextColor = props.TextColor or "text",
-					SelectionColor = props.SelectionColor or theme.active:GetColor("text_selection"),
-					Font = props.Font,
-					FontName = props.FontName,
-					FontSize = props.FontSize,
-					Size = Vec2(0, effective_search_input_height),
-					MinSize = Vec2(0, effective_search_input_height),
-					MaxSize = Vec2(0, effective_search_input_height),
-					OnTextChanged = function(self, text)
-						search_query = tostring(text or ""):lower()
-						rebuild_results()
-					end,
-					layout = {
-						GrowWidth = 1,
-					},
-				}
-			end
-
-			composite_children[#composite_children + 1] = ScrollablePanel{
-				Ref = function(ent)
-					results_panel = ent
-				end,
-				Color = "invisible",
-				CaptureWheelAtExtents = true,
-				ScrollX = false,
-				ScrollY = true,
-				ScrollBarVisible = true,
-				ScrollBarAutoHide = true,
-				ScrollBarContentShiftMode = "auto_shift",
-				ScrollBarColor = props.ScrollBarColor or "scrollbar",
-				ScrollBarTrackColor = props.ScrollBarTrackColor or "scrollbar_track",
-				layout = {
-					GrowWidth = 1,
-					MinSize = Vec2(0, body_height),
-					MaxSize = Vec2(0, body_height),
-				},
-			}{
-				Column{
-					Ref = function(ent)
-						results_column = ent
-					end,
-					layout = {
-						Direction = "y",
-						GrowWidth = 1,
-						FitHeight = true,
-						AlignmentX = "stretch",
-						ChildGap = "none",
-					},
-				},
-			}
-			menu_items[1] = MenuContainer{
-				Name = use_search and "DropdownSearchMenu" or "DropdownScrollMenu",
-				layout = {
-					ChildGap = effective_search_gap,
-				},
-			}(unpack(composite_children))
-			rebuild_results()
-		else
-			for _, child in ipairs(custom_children) do
-				table.insert(menu_items, child)
-			end
-		end
-
-		local context_menu = Panel.OpenContextMenu(
-			{
-				Anchor = dropdown,
-				AnchorPlacement = "below_left",
-				SourceDropdown = dropdown,
-				OnClosing = function()
-					set_menu_open_fraction(0)
-				end,
-				OnClose = function(ent)
-					set_menu_open_fraction(0, true)
-					ent:Remove()
-				end,
-			},
-			unpack(menu_items)
-		)
-		local real_ctx = context_menu:GetChildren()[1]
-
-		event.AddListener("Update", dropdown, function()
-			if not dropdown:IsValid() or not real_ctx:IsValid() then
-				return event.destroy_tag
-			end
-
-			local w = dropdown.transform:GetSize().x
-			real_ctx.layout:SetMinSize(Vec2(w, 0))
-			real_ctx.layout:SetMaxSize(Vec2(w, 0))
-
-			if use_scroll and results_panel and results_panel:IsValid() then
-				local viewport = results_panel:GetViewport()
-
-				if viewport and viewport:IsValid() and viewport.layout then
-					viewport.layout:UpdateLayout()
-				end
-			end
-		end)
-
-		set_menu_open_fraction(1)
-
-		if use_search then
-			timer.Delay(0, function()
-				if results_panel and results_panel:IsValid() then rebuild_results() end
-
-				if search_edit and search_edit:IsValid() then search_edit:RequestTextFocus() end
-			end)
-		end
-	end
-
-	dropdown = Clickable{
-		Disabled = props.Disabled,
-		Mode = props.Mode or "outline",
-		animation = true,
+	self._results_panel = ScrollablePanel{
+		ScrollX = false,
+		ScrollY = true,
+		ScrollbarShiftMode = "auto_shift",
 		layout = {
-			Direction = "x",
-			FitHeight = true,
-			AlignmentY = "center",
 			GrowWidth = 1,
-		},
-		OnClick = open_menu,
-	}{
-		Text{
-			IsInternal = true,
-			Text = selected_text,
-			Font = props.Font,
-			FontName = props.FontName,
-			FontSize = props.FontSize,
-			Ref = function(self)
-				label_ent = self
-			end,
-			IgnoreMouseInput = true,
-			layout = {GrowWidth = 1, FitHeight = true},
-			Color = props.Disabled and "text_disabled" or "text",
-		},
-		Panel.New{
-			IsInternal = true,
-			Name = "DropdownIndicator",
-			style = true,
-			transform = {
-				Size = Vec2() + theme.active:ResolveFontSize(props.FontSize),
-			},
-			visual = {
-				OnDraw = function(self)
-					local background = self.Owner.style and self.Owner.style:GetResolvedBackgroundColor()
-					theme.active:DrawIcon(
-						"disclosure",
-						self.Owner.transform:GetSize(),
-						{
-							thickness = 2,
-							open_fraction = menu_open_fraction,
-							color = theme.active:ResolveColor(props.Disabled and "text_disabled" or "text", background),
-						}
-					)
-				end,
-			},
-			mouse_input = {
-				IgnoreMouseInput = true,
-			},
+			MinSize = Vec2(0, body_height),
+			MaxSize = Vec2(0, body_height),
 		},
 	}
+	self._results_column = Column{
+		layout = {
+			Direction = "y",
+			GrowWidth = 1,
+			FitHeight = true,
+			AlignmentX = "stretch",
+			ChildGap = "none",
+		},
+	}
+	self._results_panel:AddChild(self._results_column)
+	children[#children + 1] = self._results_panel
+	local menu = MenuContainer{
+		Name = use_search and "dropdown_search_menu" or "dropdown_scroll_menu",
+		layout = {ChildGap = search_gap},
+	}(children)
+	self:rebuild_results("")
+	return menu
+end
 
-	function dropdown:PreChildAdd(child)
-		if child.IsInternal then return true end
-
-		child.Visible = false
-		child.ignore_layout = true
-		return true
+function META:open_menu()
+	if self._suppress_next_open then
+		self._suppress_next_open = false
+		return
 	end
 
-	function dropdown:PreRemoveChildren()
-		local children = self:GetChildren()
+	local options = self.Options
+	local item_height = theme.active:ResolveFontSize(self.FontSize) + theme.active:GetPadding("M") * 2
+	local scroll_threshold = self.ScrollThreshold or self.SearchThreshold
+	local use_scroll = #options * item_height > scroll_threshold
+	local use_search = use_scroll and self.Searchable
+	local menu_items = {}
 
-		for i = #children, 1, -1 do
-			local child = children[i]
-
-			if not child.IsInternal then
-				child:UnParent()
-				child:Remove()
-			end
+	if use_scroll then
+		menu_items[1] = self:build_scroll_menu(use_search, scroll_threshold)
+	else
+		for index = 1, #options do
+			menu_items[index] = self:create_option_item(index)
 		end
-
-		return false
 	end
 
-	if props.GetText then
-		dropdown:AddLocalListener("OnDraw", function()
-			if label_ent and label_ent:IsValid() then
-				local txt = props.GetText()
+	self._menu = Panel.OpenContextMenu(
+		{
+			Anchor = self,
+			AnchorPlacement = "below_left",
+			SourceDropdown = self,
+			OnClosing = on_menu_closing,
+			OnClose = on_menu_close,
+		},
+		unpack(menu_items)
+	)
+	self:AddGlobalEvent("Update")
+	self:animate_indicator(1)
 
-				if label_ent.text:GetText() ~= txt then label_ent.text:SetText(txt) end
+	if use_search then
+		timer.Delay(0, function()
+			if self._search_edit and self._search_edit:IsValid() then
+				self._search_edit:RequestTextFocus()
 			end
 		end)
 	end
-
-	function dropdown:SetValue(value)
-		props.Value = value
-
-		for _, opt in ipairs(options) do
-			local text = type(opt) == "table" and opt.Text or tostring(opt)
-			local val = type(opt) == "table" and opt.Value or opt
-
-			if val == value then
-				selected_text = text
-
-				break
-			end
-		end
-
-		if label_ent and label_ent:IsValid() and not props.GetText then
-			label_ent.text:SetText(selected_text)
-		end
-
-		return self
-	end
-
-	function dropdown:GetValue()
-		return props.Value
-	end
-
-	return dropdown
 end
+
+function META:OnUpdate()
+	if not self._menu or not self._menu:IsValid() then
+		self._menu = nil
+		self:RemoveEvent("Update")
+		return
+	end
+
+	local width = self.transform:GetWidth()
+	local root = self._menu:GetRootMenu()
+	root.layout:SetMinSize(Vec2(width, 0))
+	root.layout:SetMaxSize(Vec2(width, 0))
+
+	if self._results_panel and self._results_panel:IsValid() then
+		self._results_panel:GetViewport().layout:UpdateLayout()
+	end
+end
+
+function META:OnClick()
+	self:open_menu()
+end
+
+return META:Register()

@@ -6,7 +6,7 @@ local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
-local TextButton = import("goluwa/render2d/ui/elements/text_button.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local Checkbox = import("goluwa/render2d/ui/elements/checkbox.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
@@ -60,17 +60,13 @@ return function(texture, texture_path)
 
 		for _, ch_name in ipairs{"R", "G", "B", "A"} do
 			children[#children + 1] = Checkbox{
+				Text = ch_name,
+				Font = "body XS",
 				Value = channel_visible[ch_name],
 				OnChange = function(val)
 					channel_visible[ch_name] = val
 					update_swizzle()
 				end,
-			}
-			children[#children + 1] = Text{
-				Text = ch_name,
-				Font = "body XS",
-				IgnoreMouseInput = true,
-				layout = {FitWidth = true},
 			}
 		end
 
@@ -430,18 +426,15 @@ return function(texture, texture_path)
 						},
 					}{
 						Checkbox{
+							Text = "Show Grid",
+							Font = "body XS",
 							Value = show_grid,
 							OnChange = function(val)
 								show_grid = val
 							end,
 						},
-						Text{
-							Text = "Show Grid",
-							Font = "body XS",
-							IgnoreMouseInput = true,
-						},
 					},
-					TextButton{
+					Button{
 						Text = "Reset View",
 						Mode = "outline",
 						OnClick = function()

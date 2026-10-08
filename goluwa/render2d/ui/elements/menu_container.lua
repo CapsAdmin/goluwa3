@@ -1,29 +1,23 @@
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-return function(props)
-	props = props or {}
-	return Panel.New{
-		props,
-		{
-			Name = "MenuContainer",
-			transform = true,
-			layout = {
-				Direction = "y",
-				GrowWidth = 1,
-				FitHeight = true,
-				AlignmentX = "stretch",
-				ChildGap = "none",
-				Padding = "none",
-				props.layout,
-			},
-			visual = {
-				OnDraw = function(self)
-					theme.active:Draw(self.Owner)
-				end,
-			},
-			mouse_input = true,
-			clickable = true,
-			animation = true,
-		},
-	}
+local META = Panel:CreateTemplate("menu_container")
+META.ThemeName = "menu_container"
+META.CMP.transform = {}
+META.CMP.layout = {
+	Direction = "y",
+	GrowWidth = 1,
+	FitHeight = true,
+	AlignmentX = "stretch",
+	ChildGap = "none",
+	Padding = "none",
+}
+META.CMP.visual = {}
+META.CMP.mouse_input = {}
+META.CMP.clickable = {}
+META.CMP.animation = {}
+
+function META:OnDraw()
+	theme.active:Draw(self)
 end
+
+return META:Register()

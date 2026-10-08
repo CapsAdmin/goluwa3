@@ -1,308 +1,112 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Value = import("goluwa/render2d/ui/widgets/properties/value.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
+local Control = import("goluwa/render2d/ui/widgets/properties/control.lua")
+local Number = import("goluwa/render2d/ui/widgets/properties/number.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-local input = import("goluwa/input.lua")
-local input_lib = input
+local META = Panel:CreateTemplate("step_number_value")
+META.Base = Control
+META.CMP.layout = {
+	Direction = "x",
+	GrowWidth = 1,
+	FitWidth = false,
+	ChildGap = "XXS",
+	AlignmentY = "center",
+}
+META:StartStorable()
+META:GetSet("Value", 0)
+META:GetSet("Min", nil)
+META:GetSet("Max", nil)
+META:GetSet("Step", nil)
+META:GetSet("Precision", 2)
+META:GetSet("DragStep", nil)
+META:GetSet("DragPrecisionBoost", 2)
+META:GetSet("Font", nil)
+META:GetSet("FontSize", nil)
+META:GetSet("FieldPadding", nil)
+META:EndStorable()
 
-local function is_finite(value)
-	return value ~= math.huge and value ~= -math.huge
+local function on_field_change(value, old_value, field)
+	field.StepControl.OnChange(value, old_value, field.StepControl)
 end
 
-local function clamp_number(value, min, max)
-	return math.clamp(value, min, max)
-end
-
-local function format_number(value, precision)
-	local numeric = tonumber(value)
-
-	if numeric == nil then return "" end
-
-	if precision == nil then return tostring(numeric) end
-
-	if precision <= 0 then return tostring(math.round(numeric)) end
-
-	local formatted = string.format("%." .. precision .. "f", numeric)
-	formatted = formatted:gsub("(%..-)0+$", "%1")
-	formatted = formatted:gsub("%.$", "")
-	return formatted
-end
-
-local function get_default_step(props)
-	if props.Step ~= nil then return props.Step end
-
-	local precision = tonumber(props.Precision) or 0
-
-	if precision > 0 then return 10 ^ -precision end
-
-	return 1
-end
-
-return function(props)
-	props = props or {}
-	local external_ref = props.Ref
-
-	if external_ref then
-		props = table.shallow_copy(props)
-		props.Ref = nil
-	end
-
-	local size = props.Size or Vec2(92, theme.active:GetInputHeight("M"))
-	local min_size = props.MinSize or Vec2(92, size.y)
-	local max_size = props.MaxSize or Vec2(0, size.y)
-	local button_gap = props.ButtonGap or theme.active:GetSize("line")
-	local button_width = props.ButtonWidth or
-		math.max(theme.active:GetSize("M"), math.floor(size.y * 0.42))
-	local button_height = math.max(theme.active:GetSize("XS"), math.floor((size.y - button_gap) / 2))
-	local field_width = math.max(theme.active:GetSize("L"), size.x - button_width - theme.active:GetSize("XXS"))
-	local min = props.Min ~= nil and props.Min or -math.huge
-	local max = props.Max ~= nil and props.Max or math.huge
-	local precision = props.Precision
-	local drag_precision_boost = props.DragPrecisionBoost or 2
-	local input
-	local control
-
-	if precision == nil then precision = 2 end
-
-	local function get_display_precision()
-		if input and input.IsDragging and input:IsDragging() then
-			if input_lib.IsKeyDown("left_alt") or input_lib.IsKeyDown("right_alt") then
-				return precision + drag_precision_boost
-			end
-		end
-
-		return precision
-	end
-
-	local function get_drag_step()
-		if props.DragStep ~= nil then return props.DragStep end
-
-		if is_finite(min) and is_finite(max) then
-			return math.max((max - min) / 100, precision > 0 and 10 ^ -precision or 1)
-		end
-
-		if precision > 0 then return 10 ^ -precision end
-
-		return 1
-	end
-
-	local function adjust_value(direction)
-		if not input or not input:IsValid() then return end
-
-		local next_value = (tonumber(input:GetValue()) or 0) + direction * get_default_step(props)
-		input:SetValue(next_value, true)
-	end
-
-	control = Row{
-		Name = props.Name or "step_number_value",
-		transform = {
-			Size = size,
-		},
+function META:OnCreate(props)
+	local size = props.Size or Vec2(92, theme.active:GetInputHeight(props.FontSize or "M"))
+	props.Size = size
+	props.MinSize = props.MinSize or Vec2(92, size.y)
+	props.MaxSize = props.MaxSize or Vec2(0, size.y)
+	META.BaseClass.OnCreate(self, props)
+	self._field = Number{
+		Parent = self,
+		IsInternal = true,
+		StepControl = self,
+		ShowStepper = true,
+		StepperVertical = true,
+		Value = self.Value,
+		Min = self.Min,
+		Max = self.Max,
+		Step = self.Step,
+		Precision = self.Precision,
+		DragStep = self.DragStep,
+		DragPrecisionBoost = self.DragPrecisionBoost,
+		Font = self.Font,
+		Padding = self.FieldPadding,
+		Size = size,
+		MinSize = Vec2(0, size.y),
+		MaxSize = Vec2(0, size.y),
 		layout = {
 			GrowWidth = 1,
 			FitWidth = false,
-			MinSize = min_size,
-			MaxSize = max_size,
-			ChildGap = theme.active:GetSize("XXS"),
-			AlignmentY = "center",
-			props.layout,
 		},
-	}{
-		Value{
-			Ref = function(self)
-				input = self
-			end,
-			Value = props.Value,
-			Padding = props.Padding,
-			HoverPanelColor = props.HoverPanelColor,
-			EditPanelColor = props.EditPanelColor,
-			TextColor = props.TextColor,
-			Font = props.Font,
-			FontName = props.FontName,
-			FontSize = props.FontSize,
-			Cursor = props.Cursor or "vertical_resize",
-			Size = Vec2(field_width, size.y),
-			MinSize = Vec2(field_width, size.y),
-			MaxSize = Vec2(field_width, size.y),
-			EditClickCount = 2,
-			FormatValue = function(value)
-				return format_number(value, get_display_precision())
-			end,
-			FormatEditValue = function(value)
-				return format_number(value, get_display_precision())
-			end,
-			ParseValue = function(text, current_value)
-				local numeric = tonumber(text)
-
-				if numeric == nil then return current_value end
-
-				return clamp_number(numeric, min, max)
-			end,
-			OnDragValue = function(delta, start_value)
-				local step = get_drag_step()
-				local rounding_precision = precision
-
-				if input_lib.IsKeyDown("left_alt") or input_lib.IsKeyDown("right_alt") then
-					step = step * 0.1
-					rounding_precision = precision + drag_precision_boost
-				end
-
-				local next_value = (tonumber(start_value) or 0) - delta.y * step
-
-				if input_lib.IsKeyDown("left_control") or input_lib.IsKeyDown("right_control") then
-					next_value = math.round(next_value)
-				elseif rounding_precision >= 0 then
-					next_value = math.round(next_value, rounding_precision)
-				end
-
-				return clamp_number(next_value, min, max)
-			end,
-			OnChange = function(value, old_value)
-				if props.OnChange then props.OnChange(value, old_value) end
-			end,
-			layout = {
-				GrowWidth = 1,
-				FitWidth = false,
-			},
-		},
-		Column{
-			layout = {
-				GrowWidth = 0,
-				FitWidth = false,
-				ChildGap = button_gap,
-				MinSize = Vec2(button_width, size.y),
-				MaxSize = Vec2(button_width, size.y),
-			},
-		}{
-			Button{
-				Text = "^",
-				FontSize = props.ButtonFontSize or "XXS",
-				Padding = "none",
-				OnClick = function()
-					adjust_value(1)
-				end,
-				layout = {
-					GrowWidth = 0,
-					FitWidth = false,
-					MinSize = Vec2(button_width, button_height),
-					MaxSize = Vec2(button_width, button_height),
-				},
-			},
-			Button{
-				Text = "v",
-				FontSize = props.ButtonFontSize or "XXS",
-				Padding = "none",
-				OnClick = function()
-					adjust_value(-1)
-				end,
-				layout = {
-					GrowWidth = 0,
-					FitWidth = false,
-					MinSize = Vec2(button_width, button_height),
-					MaxSize = Vec2(button_width, button_height),
-				},
-			},
-		},
+		OnChange = on_field_change,
 	}
-	local base_set_value = input.SetValue
-
-	function input:SetValue(value, notify)
-		local numeric = tonumber(value)
-
-		if numeric == nil then numeric = 0 end
-
-		return base_set_value(self, clamp_number(numeric, min, max), notify)
-	end
-
-	function input:GetMin()
-		return min
-	end
-
-	function input:SetMin(value)
-		min = value or -math.huge
-		self:SetValue(self:GetValue())
-		return self
-	end
-
-	function input:GetMax()
-		return max
-	end
-
-	function input:SetMax(value)
-		max = value or math.huge
-		self:SetValue(self:GetValue())
-		return self
-	end
-
-	function input:EncodeValue()
-		return format_number(self:GetValue(), precision)
-	end
-
-	function input:DecodeValue(text)
-		local numeric = tonumber(text)
-
-		if numeric == nil then return nil, false end
-
-		return clamp_number(numeric, min, max), true
-	end
-
-	input:SetValue(props.Value)
-
-	function control:SetValue(value, notify)
-		if input and input:IsValid() then input:SetValue(value, notify) end
-
-		return self
-	end
-
-	function control:GetValue()
-		if input and input:IsValid() then return input:GetValue() end
-
-		return tonumber(props.Value) or 0
-	end
-
-	function control:GetMin()
-		if input and input:IsValid() and input.GetMin then return input:GetMin() end
-	end
-
-	function control:SetMin(value)
-		if input and input:IsValid() and input.SetMin then input:SetMin(value) end
-
-		return self
-	end
-
-	function control:GetMax()
-		if input and input:IsValid() and input.GetMax then return input:GetMax() end
-	end
-
-	function control:SetMax(value)
-		if input and input:IsValid() and input.SetMax then input:SetMax(value) end
-
-		return self
-	end
-
-	function control:EncodeValue()
-		if input and input:IsValid() and input.EncodeValue then
-			return input:EncodeValue()
-		end
-
-		return tostring(self:GetValue())
-	end
-
-	function control:DecodeValue(text)
-		if input and input:IsValid() and input.DecodeValue then
-			return input:DecodeValue(text)
-		end
-
-		local numeric = tonumber(text)
-
-		if numeric == nil then return nil, false end
-
-		return numeric, true
-	end
-
-	if external_ref then external_ref(control) end
-
-	return control
 end
+
+function META:SetValue(value, notify)
+	self.Value = value
+
+	if self._field then self._field:SetValue(value, notify) end
+
+	return self
+end
+
+function META:GetValue()
+	return self._field:GetValue()
+end
+
+function META:GetMin()
+	return self._field:GetMin()
+end
+
+function META:SetMin(value)
+	self.Min = value
+
+	if self._field then self._field:SetMin(value) end
+
+	return self
+end
+
+function META:GetMax()
+	return self._field:GetMax()
+end
+
+function META:SetMax(value)
+	self.Max = value
+
+	if self._field then self._field:SetMax(value) end
+
+	return self
+end
+
+function META:EncodeValue()
+	return self._field:EncodeValue()
+end
+
+function META:EncodeAny(value)
+	return self._field:EncodeAny(value)
+end
+
+function META:DecodeValue(text)
+	return self._field:DecodeValue(text)
+end
+
+return META:Register()

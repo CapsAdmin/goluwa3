@@ -282,7 +282,7 @@ return function(props)
 									return items
 								end,
 							},
-							MenuSpacer(),
+							MenuSpacer{},
 							MenuItem{
 								Text = "exit",
 								OnClick = function()
@@ -311,7 +311,7 @@ return function(props)
 							add_gizmo_menu_item("Rotate", Gizmo.SetMode, "rotate", Gizmo.GetMode()),
 							add_gizmo_menu_item("Scale", Gizmo.SetMode, "scale", Gizmo.GetMode()),
 							add_gizmo_menu_item("Combined", Gizmo.SetMode, "combined", Gizmo.GetMode()),
-							MenuSpacer(),
+							MenuSpacer{},
 							add_gizmo_menu_item("Local Space", Gizmo.SetSpace, "local", Gizmo.GetSpace()),
 							add_gizmo_menu_item("World Space", Gizmo.SetSpace, "world", Gizmo.GetSpace()),
 						}
@@ -416,7 +416,6 @@ return function(props)
 					ScrollX = false,
 					ScrollY = true,
 					Padding = Rect(),
-					ScrollBarContentShiftMode = "auto_shift",
 					layout = {
 						GrowWidth = 1,
 						GrowHeight = 1,
@@ -494,7 +493,7 @@ return function(props)
 									} or
 									nil,
 									can_create_shapes and
-									MenuSpacer() or
+									MenuSpacer{} or
 									nil,
 									can_create_shapes and
 									MenuItem{
@@ -541,7 +540,7 @@ return function(props)
 									nil,
 									can_remove and
 									has_above_remove and
-									MenuSpacer() or
+									MenuSpacer{} or
 									nil,
 									can_remove and
 									MenuItem{
@@ -566,7 +565,6 @@ return function(props)
 				ScrollX = false,
 				ScrollY = true,
 				Padding = "none",
-				ScrollBarContentShiftMode = "auto_shift",
 				layout = {
 					GrowWidth = 1,
 					GrowHeight = 1,
@@ -604,7 +602,6 @@ return function(props)
 						Ref = function(self)
 							property_editor = self
 						end,
-						Entity = tree_view:GetSelectedEntity(),
 						layout = {
 							GrowWidth = 1,
 							GrowHeight = 1,

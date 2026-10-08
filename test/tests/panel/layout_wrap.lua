@@ -416,3 +416,30 @@ T.Test("layout wrap - non-wrap path space_evenly symmetric", function()
 	T(math.abs(left_pad - right_pad))["<="](1)
 	parent:Remove()
 end)
+
+T.Test("layout wrap - fit height contains every line at any width", function()
+	for width = 150, 600, 11 do
+		local parent = NewBox("Parent", Vec2(width, 10))
+		parent:AddComponent("layout")
+		parent.layout:SetDirection("x")
+		parent.layout:SetWrapChildren(true)
+		parent.layout:SetFitHeight(true)
+		parent.layout:SetPadding(Rect(16, 16, 16, 16))
+		parent.layout:SetChildGap(16)
+
+		for i = 1, 11 do
+			NewBox("Child" .. i, Vec2(72, 40)):SetParent(parent)
+		end
+
+		for _ = 1, 3 do
+			parent.layout:SetDirty(true)
+			parent.layout:UpdateLayout()
+		end
+
+		for _, child in ipairs(parent:GetChildren()) do
+			T(child.transform:GetY() + child.transform:GetHeight() + 16)["<="](parent.transform:GetHeight())
+		end
+
+		parent:Remove()
+	end
+end)

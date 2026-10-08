@@ -358,7 +358,6 @@ return function(props)
 						Text = crumb == state.root and state.category or crumb.name,
 						Font = i == #chain and "body_strong S" or "body S",
 						IgnoreMouseInput = true,
-						InheritColor = true,
 					},
 				}
 			)
@@ -633,7 +632,7 @@ return function(props)
 					end,
 				} or
 				nil,
-				MenuSpacer(),
+				MenuSpacer{},
 				MenuItem{
 					Text = "Debug info",
 					Items = function()
@@ -1129,9 +1128,9 @@ return function(props)
 		end,
 		Text = state.query,
 		Hint = "search names and paths in the selected folder",
-		Size = Vec2(0, 34),
-		MinSize = Vec2(160, 34),
-		MaxSize = Vec2(0, 34),
+		Size = Vec2(0, theme.active:GetInputHeight("M")),
+		MinSize = Vec2(160, theme.active:GetInputHeight("M")),
+		MaxSize = Vec2(0, theme.active:GetInputHeight("M")),
 		Wrap = false,
 		ScrollX = false,
 		ScrollY = false,
@@ -1172,7 +1171,7 @@ return function(props)
 		end,
 		OnClick = function()
 			state.recursive = not state.recursive
-			recursive_button:SetState("active", state.recursive)
+			recursive_button:SetActive(state.recursive)
 			refresh_items()
 		end,
 	}
@@ -1512,7 +1511,7 @@ return function(props)
 
 	set_category(state.category)
 	rebuild_details()
-	filter_edit.text_panel:RequestFocus()
+	filter_edit:GetTextPanel():RequestFocus()
 
 	if props.SelectedPath and props.SelectedPath ~= "" then
 		local index = get_index()

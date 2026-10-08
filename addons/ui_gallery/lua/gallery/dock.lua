@@ -1,158 +1,97 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Color = import("goluwa/structs/color.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
+local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 
-local function draw_background(self)
-	local transform = self.transform
-	local size = transform.Size + transform.DrawSizeOffset
-	local radius = self.surface_radius or 0
-	render2d.SetTexture()
-	render2d.SetColor(self.surface_color:Unpack())
-
-	if radius > 0 then
-		render2d.DrawRoundedRect(0, 0, size.x, size.y, radius)
-	else
-		render2d.DrawRect(0, 0, size.x, size.y)
-	end
+local function draw_dock_piece(piece)
+	theme.active:DrawBox(piece.transform:GetSize(), {fill = piece.Token, radius = theme.active:GetRadius("S")})
 end
 
-local function dock_label(text, color)
-	return Text{
-		Text = text,
-		Color = color or Color(1, 1, 1, 1),
-		IgnoreMouseInput = true,
-		layout = {
-			GrowWidth = 1,
-		},
-	}
-end
-
-local function dock_piece(label, dock, size, color, children)
+local function dock_piece(label, dock, size, token, children)
 	return Panel.New{
-		transform = {
-			Size = size,
-		},
+		Token = token,
+		transform = {Size = size},
 		layout = {
 			Dock = dock,
 			Direction = "y",
-			Padding = Rect(10, 8, 10, 8),
+			Padding = "S",
 			AlignmentX = "center",
 			AlignmentY = "center",
 		},
 		visual = true,
-		surface_radius = 6,
-		surface_color = color,
-		OnDraw = draw_background,
-	}(children or {
-		dock_label(label),
-	})
+		OnDraw = draw_dock_piece,
+	}(
+		children or
+			{
+				Text{Text = label, Color = "text_on_accent", IgnoreMouseInput = true},
+			}
+	)
 end
 
 local function dock_surface(size, children)
 	return Panel.New{
-		transform = {
-			Size = size,
-		},
+		Token = "surface_alt",
+		transform = {Size = size},
 		layout = {
 			Direction = "y",
-			Padding = Rect(12, 12, 12, 12),
+			Padding = "S",
 			MinSize = size,
 			MaxSize = size,
 		},
 		visual = true,
-		surface_radius = 8,
-		surface_color = Color(0.08, 0.09, 0.12, 1),
-		OnDraw = draw_background,
+		OnDraw = draw_dock_piece,
 	}(children)
-end
-
-local function basic_dock_demo()
-	return dock_surface(
-		Vec2(520, 280),
-		{
-			dock_piece("top", "top", Vec2(120, 40), Color(0.82, 0.33, 0.29, 1)),
-			dock_piece("bottom", "bottom", Vec2(120, 34), Color(0.72, 0.29, 0.26, 1)),
-			dock_piece("left", "left", Vec2(90, 60), Color(0.19, 0.55, 0.84, 1)),
-			dock_piece("right", "right", Vec2(84, 60), Color(0.27, 0.47, 0.82, 1)),
-			dock_piece(
-				"fill",
-				"fill",
-				Vec2(180, 120),
-				Color(0.15, 0.65, 0.48, 1),
-				{
-					dock_label("fill"),
-					dock_label("remaining rect", Color(0.85, 0.95, 0.9, 1)),
-				}
-			),
-		}
-	)
-end
-
-local function nested_dock_demo()
-	return dock_surface(
-		Vec2(520, 300),
-		{
-			dock_piece("top", "top", Vec2(120, 36), Color(0.71, 0.33, 0.27, 1)),
-			dock_piece(
-				"workspace",
-				"fill",
-				Vec2(220, 150),
-				Color(0.14, 0.16, 0.2, 1),
-				{
-					dock_piece("inspector", "right", Vec2(100, 60), Color(0.47, 0.36, 0.79, 1)),
-					dock_piece("toolbar", "top", Vec2(120, 34), Color(0.8, 0.57, 0.18, 1)),
-					dock_piece(
-						"canvas",
-						"fill",
-						Vec2(120, 80),
-						Color(0.16, 0.64, 0.58, 1),
-						{
-							dock_label("nested fill"),
-							dock_label("top + right consumed first", Color(0.86, 0.95, 0.92, 1)),
-						}
-					),
-				}
-			),
-		}
-	)
 end
 
 return {
 	Name = "dock",
+	Section = "Layout",
+	Order = 2,
 	Create = function()
-		return Column{
-			layout = {
-				Direction = "y",
-				FitHeight = true,
-				GrowWidth = 1,
-				ChildGap = 14,
-				AlignmentX = "stretch",
-			},
+		return kit.Page{
+			Title = "Dock",
+			Description = "Children opt in with layout.Dock = top | bottom | left | right | fill. Each one consumes an edge of the remaining rectangle, in child order.",
 		}{
-			Text{
-				Text = "String dock enums now live on child layouts: top, bottom, left, right, fill. The parent layout switches to remaining-rect docking automatically when any child opts in.",
-				Wrap = true,
-				WrapToParent = true,
-				layout = {
-					GrowWidth = 1,
+			kit.Section{
+				Title = "Basic dock",
+				Description = "Top and bottom are placed first, then left and right, and fill takes what is left.",
+			}{
+				kit.Group{
+					dock_surface(
+						Vec2(520, 260),
+						{
+							dock_piece("top", "top", Vec2(120, 40), "primary"),
+							dock_piece("bottom", "bottom", Vec2(120, 36), "negative"),
+							dock_piece("left", "left", Vec2(90, 60), "positive"),
+							dock_piece("right", "right", Vec2(84, 60), "neutral"),
+							dock_piece("fill", "fill", Vec2(180, 120), "border_strong"),
+						}
+					),
 				},
 			},
-			Text{
-				Text = "Basic dock",
-				Font = "body_strong S",
-				IgnoreMouseInput = true,
+			kit.Section{Title = "Nested", Description = "A docked child can dock its own children."}{
+				kit.Group{
+					dock_surface(
+						Vec2(520, 280),
+						{
+							dock_piece("top", "top", Vec2(120, 36), "primary"),
+							dock_piece(
+								"workspace",
+								"fill",
+								Vec2(220, 150),
+								"surface",
+								{
+									dock_piece("inspector", "right", Vec2(100, 60), "neutral"),
+									dock_piece("toolbar", "top", Vec2(120, 34), "positive"),
+									dock_piece("canvas", "fill", Vec2(120, 80), "border_strong"),
+								}
+							),
+						}
+					),
+				},
 			},
-			basic_dock_demo(),
-			Text{
-				Text = "Nested dock inside fill",
-				Font = "body_strong S",
-				IgnoreMouseInput = true,
-			},
-			nested_dock_demo(),
 		}
 	end,
 }

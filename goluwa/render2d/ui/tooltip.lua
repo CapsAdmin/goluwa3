@@ -3,6 +3,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
+local TooltipOverlay = import("goluwa/render2d/ui/elements/tooltip_overlay.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local tooltip = library()
 local state = {
@@ -131,34 +132,10 @@ end
 function ensure_panel()
 	if state.panel:IsValid() then return state.panel end
 
-	state.panel = Panel.New{
+	state.panel = TooltipOverlay{
 		Key = "UITooltipOverlay",
 		Parent = Panel.World,
-		Name = "TooltipOverlay",
-		transform = {
-			Position = Vec2(0, 0),
-			Size = Vec2(0, 0),
-		},
-		layout = {
-			Floating = true,
-			Direction = "y",
-			FitWidth = true,
-			FitHeight = true,
-			Padding = "XS",
-		},
-		visual = {
-			Visible = false,
-			OnDraw = function(self)
-				theme.active:Draw(self.Owner)
-			end,
-			OnPostDraw = function(self)
-				theme.active:DrawPost(self.Owner)
-			end,
-		},
-		mouse_input = {
-			IgnoreMouseInput = true,
-		},
-		animation = true,
+		Size = Vec2(0, 0),
 	}{
 		Text{
 			Ref = function(self)

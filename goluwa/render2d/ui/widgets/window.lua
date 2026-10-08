@@ -1,170 +1,139 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
+local Icon = import("goluwa/render2d/ui/elements/icon.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local META = Panel:CreateTemplate("window")
+META.CMP.transform = {}
+META.CMP.layout = {
+	Direction = "y",
+	AlignmentX = "stretch",
+	Floating = true,
+}
+META.CMP.resizable = {BringToFrontOnResize = true}
+META.CMP.visual = {}
+META.CMP.mouse_input = {BringToFrontOnClick = true}
+META.CMP.clickable = {}
+META.CMP.animation = {}
+META:StartStorable()
+META:GetSet("Title", "Window")
+META:GetSet("MinSize", nil)
+META:GetSet("Padding", nil)
+META:EndStorable()
 
-local function get_passthrough_props(src)
-	local out = {}
-
-	if src.Key ~= nil then out.Key = src.Key end
-
-	if src.Parent ~= nil then out.Parent = src.Parent end
-
-	if src.Ref ~= nil then out.Ref = src.Ref end
-
-	if src.ChildOrder ~= nil then out.ChildOrder = src.ChildOrder end
-
-	return out
+function META:OnClose()
+	self:Remove()
 end
 
-return function(props)
-	local content
-	return Panel.New{
-		get_passthrough_props(props),
-		Name = props.Name or "Window",
-		transform = {
-			Size = props.Size or Vec2(400, 300),
-			Position = props.Position or Vec2(100, 100),
-		},
+local function on_header_draw(header)
+	theme.active:Draw(header)
+end
+
+local function on_content_draw(content)
+	theme.active:Draw(content)
+end
+
+local function on_content_post_draw(content)
+	theme.active:DrawPost(content)
+end
+
+local function on_close_click(button)
+	button.Window:OnClose()
+end
+
+function META:OnCreate(props)
+	props.Size = props.Size or Vec2(400, 300)
+	props.Position = props.Position or Vec2(100, 100)
+	META.BaseClass.OnCreate(self, props)
+	self.resizable:SetMinimumSize(self.MinSize or Vec2(100, 100))
+	self._header = Panel.New{
+		Parent = self,
+		IsInternal = true,
+		Name = "window_header",
+		transform = true,
 		layout = {
-			Direction = "y",
-			AlignmentX = "stretch",
-			Floating = true,
+			Direction = "x",
+			AlignmentY = "center",
+			FitHeight = true,
+			Padding = "XS",
 		},
-		resizable = {
-			MinimumSize = props.MinSize or Vec2(100, 100),
-			BringToFrontOnResize = true,
-		},
-		PreChildAdd = function(self, child)
-			if child.IsInternal then return end
-
-			if not content then return end
-
-			content:AddChild(child)
-			return false
-		end,
-		PreRemoveChildren = function(self)
-			if not content then return false end
-
-			content:RemoveChildren()
-			return false
-		end,
 		visual = true,
-		mouse_input = {
-			RequestMouse = props.RequestMouse,
-			BringToFrontOnClick = true,
-		},
+		draggable = true,
+		mouse_input = {Cursor = "sizeall"},
 		clickable = true,
 		animation = true,
-	}{
-		Panel.New{
-			IsInternal = true,
-			Name = "WindowHeader",
-			layout = {
-				Direction = "x",
-				AlignmentY = "center",
-				FitHeight = true,
-				Padding = "XS",
-			},
-			visual = {
-				OnDraw = function(self)
-					theme.active:Draw(self.Owner)
-				end,
-			},
-			draggable = true,
-			mouse_input = {
-				Cursor = "sizeall",
-			},
-			transform = true,
-			clickable = true,
-			animation = true,
-			Events = {
-				OnParent = function(self, parent)
-					self.draggable:SetTarget(parent)
-				end,
-			},
-		}{
-			Text{
-				Name = "Title",
-				Text = props.Title or "Window",
-				FontName = "heading",
-				mouse_input = {
-					IgnoreMouseInput = true,
-				},
-				layout = {
-					GrowWidth = 1,
-					FitHeight = true,
-				},
-			},
-			Clickable{
-				Name = "CloseButton",
-				Mode = "text",
-				Size = Vec2() + theme.active:GetSize("M"),
-				Padding = "XXXS",
-				OnClick = function(self)
-					print("Close button clicked", props.OnClose, "?")
-
-					if props.OnClose then
-						props.OnClose(self:GetParent():GetParent())
-					else
-						self:GetParent():GetParent():Remove()
-					end
-				end,
-				layout = {
-					FitWidth = false,
-					FitHeight = false,
-				},
-			}{
-				Panel.New{
-					IsInternal = true,
-					Name = "CloseIcon",
-					transform = {
-						Size = Vec2() + theme.active:GetSize("S"),
-					},
-					visual = {
-						OnDraw = function(self)
-							theme.active:DrawIcon(
-								"close",
-								self.Owner.transform:GetSize(),
-								{
-									color = theme.active:GetColor("text"),
-								}
-							)
-						end,
-					},
-					mouse_input = {
-						IgnoreMouseInput = true,
-					},
-				},
-			},
-		},
-		Panel.New{
-			Ref = function(self)
-				content = self
-			end,
-			IsInternal = true,
-			Name = "WindowContent",
-			Padding = props.Padding,
-			layout = {
-				Direction = "y",
-				GrowWidth = 1,
-				GrowHeight = 1,
-				Padding = Rect() + theme.active:GetPadding("M"),
-			},
-			visual = {
-				OnDraw = function(self)
-					theme.active:Draw(self.Owner)
-				end,
-				OnPostDraw = function(self)
-					theme.active:DrawPost(self.Owner)
-				end,
-			},
-			transform = true,
-			mouse_input = true,
-			clickable = true,
-			animation = true,
+		OnDraw = on_header_draw,
+	}
+	self._header.draggable:SetTarget(self)
+	self._title = Text{
+		Parent = self._header,
+		IsInternal = true,
+		Text = self.Title,
+		Font = "heading",
+		IgnoreMouseInput = true,
+		layout = {
+			GrowWidth = 1,
+			FitHeight = true,
 		},
 	}
+	self._close_button = Clickable{
+		Parent = self._header,
+		IsInternal = true,
+		Window = self,
+		Mode = "text",
+		Size = "M",
+		layout = {
+			Padding = "XXXS",
+			FitWidth = false,
+			FitHeight = false,
+		},
+		OnClick = on_close_click,
+	}
+	Icon{
+		Parent = self._close_button,
+		IsInternal = true,
+		Icon = "close",
+		Size = "S",
+	}
+	self._content = Panel.New{
+		Parent = self,
+		IsInternal = true,
+		Name = "window_content",
+		transform = true,
+		layout = {
+			Direction = "y",
+			GrowWidth = 1,
+			GrowHeight = 1,
+			Padding = self.Padding or "M",
+		},
+		visual = true,
+		mouse_input = true,
+		clickable = true,
+		animation = true,
+		OnDraw = on_content_draw,
+		OnPostDraw = on_content_post_draw,
+	}
 end
+
+function META:SetTitle(title)
+	self.Title = title
+
+	if self._title then self._title.text:SetText(title) end
+
+	return self
+end
+
+function META:PreChildAdd(child)
+	if child.IsInternal then return end
+
+	self._content:AddChild(child)
+	return false
+end
+
+function META:PreRemoveChildren()
+	self._content:RemoveChildren()
+	return false
+end
+
+return META:Register()

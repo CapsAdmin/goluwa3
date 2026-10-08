@@ -146,7 +146,7 @@ function chatbox.Show()
 			if result then
 				local str = tostring(result.val)
 				chatbox.text_edit:SetText(str)
-				chatbox.text_edit.text_panel.text.editor:SetCursor(#str + 1)
+				chatbox.text_edit:GetTextPanel().text.editor:SetCursor(#str + 1)
 				return true
 			end
 		end

@@ -1,14 +1,13 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Rect = import("goluwa/structs/rect.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Frame = import("goluwa/render2d/ui/elements/frame.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Slider = import("goluwa/render2d/ui/elements/slider.lua")
 local SVG = import("goluwa/render2d/ui/elements/svg.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
-local icon_sources = {
+local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
+local sources = {
 	{"Home", "https://api.iconify.design/mdi-light/home.svg"},
 	{"Heart", "https://api.iconify.design/mdi-light/heart.svg"},
 	{"Account", "https://api.iconify.design/mdi-light/account.svg"},
@@ -17,282 +16,116 @@ local icon_sources = {
 	{"Camera", "https://api.iconify.design/mdi-light/camera.svg"},
 	{"Folder", "https://api.iconify.design/mdi-light/folder.svg"},
 	{"Cloud", "https://api.iconify.design/mdi-light/cloud.svg"},
-	{"Play", "https://api.iconify.design/mdi-light/play.svg"},
-	{"Star", "https://api.iconify.design/mdi-light/star.svg"},
-	{"Email", "https://api.iconify.design/mdi-light/email.svg"},
-	{"Check", "https://api.iconify.design/mdi-light/check.svg"},
 }
-local default_custom_source = "https://api.iconify.design/mdi-light/star.svg"
+local inline_source = [[<svg viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4.5L18.5 21 12 16.8 5.5 21l2-7.5L2 9h7z"/></svg>]]
+local default_custom = "https://api.iconify.design/mdi-light/star.svg"
+
+local function on_size_change(value, slider)
+	local page = slider.Page
+	local size = math.floor(value + 0.5)
+	page.label.text:SetText("Icon size: " .. size)
+
+	for _, icon in ipairs(page.icons) do
+		icon.transform:SetSize(Vec2(size, size))
+	end
+end
+
+local function load_custom(button)
+	local page = button.Page
+	page.preview:SetSource(page.input:GetText())
+end
+
+local function on_load(svg)
+	svg.Page.status.text:SetText("Loaded " .. tostring(svg.Source))
+end
+
+local function on_error(svg, reason)
+	svg.Page.status.text:SetText("Failed to load: " .. tostring(reason))
+end
+
 return {
 	Name = "svg",
+	Section = "Graphics",
+	Order = 1,
 	Create = function()
-		local state = {
-			icon_size = 72,
-			custom_source = default_custom_source,
+		local page = {icons = {}}
+		page.label = Text{Text = "Icon size: 64", IgnoreMouseInput = true}
+		page.status = Text{
+			Text = "",
+			Color = "text_disabled",
+			Wrap = true,
+			IgnoreMouseInput = true,
+			layout = {GrowWidth = 1},
 		}
-		local icon_panels = {}
-		local custom_preview
-		local custom_input
-		local size_label
-		local status_label
+		local tiles = {}
 
-		local function set_status(value)
-			if status_label and status_label:IsValid() then
-				status_label.text:SetText(value or "")
-			end
-		end
-
-		local function update_size_label()
-			if size_label and size_label:IsValid() then
-				size_label.text:SetText(string.format("Icon Size: %d", math.floor(state.icon_size + 0.5)))
-			end
-		end
-
-		local function apply_icon_sizes()
-			for _, panel in ipairs(icon_panels) do
-				if panel and panel:IsValid() then
-					panel.transform:SetSize(Vec2(state.icon_size, state.icon_size))
-				end
-			end
-
-			if custom_preview and custom_preview:IsValid() then
-				custom_preview.transform:SetSize(Vec2(state.icon_size * 2, state.icon_size * 2))
-			end
-
-			update_size_label()
-		end
-
-		local function load_custom_source()
-			if
-				not custom_preview or
-				not custom_preview:IsValid()
-				or
-				not custom_input or
-				not custom_input:IsValid()
-			then
-				return
-			end
-
-			state.custom_source = custom_input:GetText()
-			set_status("Loading custom SVG...")
-			custom_preview:SetSource(state.custom_source)
-		end
-
-		local function build_icon_tile(label, source)
-			local tile_svg
-			local frame = Frame{
-				Padding = Rect() + 12,
-				layout = {
-					FitWidth = true,
-					FitHeight = true,
-					MinSize = Vec2(132, 148),
-				},
-			}{
+		for index, entry in ipairs(sources) do
+			local icon = SVG{Source = entry[2], Color = "text", Size = Vec2(64, 64), Padding = "XS"}
+			page.icons[index] = icon
+			tiles[index] = Frame{Padding = "S", layout = {FitWidth = true, FitHeight = true, GrowWidth = 0}}{
 				Column{
-					layout = {
-						GrowWidth = 1,
-						GrowHeight = 1,
-						AlignmentX = "center",
-						AlignmentY = "center",
-						ChildGap = 8,
-					},
+					layout = {ChildGap = "XS", AlignmentX = "center", GrowWidth = 0, FitWidth = true},
 				}{
-					SVG{
-						Ref = function(self)
-							tile_svg = self
-							icon_panels[#icon_panels + 1] = self
-							self.transform:SetSize(Vec2(state.icon_size, state.icon_size))
-						end,
-						Source = source,
-						Color = "text",
-						Padding = Rect() + 6,
-					},
-					Text{
-						Text = label,
-						IgnoreMouseInput = true,
-						AlignX = 0.5,
-					},
+					icon,
+					Text{Text = entry[1], Font = "body S", IgnoreMouseInput = true},
 				},
 			}
-			return frame
 		end
 
-		local icon_tiles = {}
-
-		for _, source in ipairs(icon_sources) do
-			icon_tiles[#icon_tiles + 1] = build_icon_tile(source[1], source[2])
-		end
-
-		local page = Column{
-			layout = {
-				Direction = "y",
-				FitHeight = true,
-				GrowWidth = 1,
-				ChildGap = 14,
-				AlignmentX = "stretch",
-			},
+		page.preview = SVG{
+			Page = page,
+			Source = default_custom,
+			Color = "primary",
+			Size = Vec2(96, 96),
+			OnLoad = on_load,
+			OnError = on_error,
+		}
+		page.input = TextEdit{Text = default_custom}
+		return kit.Page{
+			Title = "SVG",
+			Description = "Vector icons loaded from a path, a URL or an inline string. They are tinted with Color and scale to fit the panel minus its padding.",
 		}{
-			Text{
-				Text = "SVG Panel",
-				Font = "body_strong S",
-				IgnoreMouseInput = true,
-			},
-			Text{
-				Text = "These icons are loaded through the resource system. URLs are fetched and cached, local paths are read directly when available, and raw SVG content is accepted for the custom preview below.",
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
-				},
-			},
-			Row{
-				layout = {
-					GrowWidth = 1,
-					ChildGap = 12,
-					AlignmentY = "center",
-				},
+			kit.Section{
+				Title = "Icon set",
+				Description = "Source accepts a URL, a file path or inline SVG markup.",
 			}{
-				Text{
-					Ref = function(self)
-						size_label = self
-						update_size_label()
-					end,
-					Text = "Icon Size: 72",
-					IgnoreMouseInput = true,
-				},
-				Slider{
-					Value = state.icon_size,
-					Min = 24,
-					Max = 160,
-					OnChange = function(value)
-						state.icon_size = value
-						apply_icon_sizes()
-					end,
-					layout = {
-						GrowWidth = 1,
+				kit.Group{
+					page.label,
+					Slider{
+						Page = page,
+						Min = 24,
+						Max = 128,
+						Value = 64,
+						OnChange = on_size_change,
+						layout = {GrowWidth = 1},
 					},
 				},
+				kit.Wrap(tiles, {AlignmentY = "start"}),
 			},
-			Row{
-				layout = {
-					GrowWidth = 1,
-					FitHeight = true,
-					WrapChildren = true,
-					AlignmentX = "space_between",
-					AlignmentY = "start",
-					ChildGap = 12,
-				},
-			}(icon_tiles),
-			Text{
-				Text = "Custom Source",
-				Font = "body_strong S",
-				IgnoreMouseInput = true,
-			},
-			Text{
-				Text = "Paste an Iconify URL, a local path, or raw SVG markup. If the input contains '<svg' it is treated as inline SVG content; otherwise it is treated as a path or URL.",
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
+			kit.Section{Title = "Inline markup"}{
+				kit.Group{
+					SVG{Source = inline_source, Color = "neutral", Size = Vec2(64, 64)},
+					SVG{Source = inline_source, Color = "negative", Size = Vec2(48, 48)},
+					SVG{Source = inline_source, Color = "positive", Size = Vec2(32, 32)},
+					SVG{Source = inline_source, Color = "text_disabled", Size = Vec2(24, 24)},
 				},
 			},
-			Row{
-				layout = {
-					GrowWidth = 1,
-					AlignmentY = "start",
-					ChildGap = 16,
-				},
+			kit.Section{
+				Title = "Custom source",
+				Description = "OnLoad(svg, decoded) and OnError(svg, reason) report loading results.",
 			}{
-				Frame{
-					Padding = Rect() + 16,
-					layout = {
-						FitWidth = true,
-						FitHeight = true,
-						MinSize = Vec2(state.icon_size * 2 + 32, state.icon_size * 2 + 32),
-					},
-				}{
-					SVG{
-						Ref = function(self)
-							custom_preview = self
-							self.transform:SetSize(Vec2(state.icon_size * 2, state.icon_size * 2))
-						end,
-						Source = state.custom_source,
-						Color = "text",
-						Padding = Rect() + 8,
-						OnLoad = function()
-							set_status("Loaded custom SVG")
-						end,
-						OnError = function(_, reason)
-							set_status("Failed to load SVG: " .. tostring(reason))
-						end,
-					},
-				},
-				Column{
-					layout = {
-						GrowWidth = 1,
-						FitHeight = true,
-						AlignmentX = "stretch",
-						ChildGap = 10,
-					},
-				}{
-					TextEdit{
-						Ref = function(self)
-							custom_input = self
-							self:SetText(state.custom_source)
-						end,
-						Text = state.custom_source,
-						Size = Vec2(0, 120),
-						MinSize = Vec2(280, 120),
-						MaxSize = Vec2(0, 120),
-						Wrap = true,
-						layout = {
-							GrowWidth = 1,
+				kit.Group(
+					{
+						page.preview,
+						Column{layout = {ChildGap = "XS", GrowWidth = 1, AlignmentX = "stretch"}}{
+							page.input,
+							kit.Group{Button{Page = page, Text = "Load", Mode = "outline", OnClick = load_custom}},
 						},
 					},
-					Row{
-						layout = {
-							GrowWidth = 1,
-							ChildGap = 10,
-							AlignmentY = "center",
-						},
-					}{
-						Button{
-							Text = "Load",
-							OnClick = load_custom_source,
-						},
-						Button{
-							Text = "Use Inline Sample",
-							Mode = "outline",
-							OnClick = function()
-								local sample = [[<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2L3 7v10l9 5l9-5V7zm0 2.3L18.8 8L12 11.7L5.2 8zM5 9.7l6 3.3v6.4l-6-3.3zm14 0v6.4l-6 3.3V13z"/></svg>]]
-								state.custom_source = sample
-
-								if custom_input and custom_input:IsValid() then custom_input:SetText(sample) end
-
-								set_status("Loading custom SVG...")
-
-								if custom_preview and custom_preview:IsValid() then
-									custom_preview:SetSource(sample)
-								end
-							end,
-						},
-					},
-					Text{
-						Ref = function(self)
-							status_label = self
-							set_status("Loaded custom SVG")
-						end,
-						Text = "",
-						Wrap = true,
-						IgnoreMouseInput = true,
-						layout = {
-							GrowWidth = 1,
-						},
-					},
-				},
+					{AlignmentY = "start"}
+				),
+				page.status,
 			},
 		}
-		apply_icon_sizes()
-		return page
 	end,
 }

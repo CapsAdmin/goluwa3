@@ -1,4 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
+local system = import("goluwa/system.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
@@ -6,122 +7,130 @@ local utf8 = import("goluwa/string/utf8.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local META = Panel:CreateTemplate("text_edit")
-META.Name = "text_edit"
-META.CMP.transform = {
-	Size = Vec2(400, 34),
-}
+META.CMP.transform = {}
 META.CMP.layout = {
 	Direction = "y",
 	GrowWidth = 1,
 }
-META.CMP.visual = {
-	OnDraw = function(self)
-		theme.active:Draw(self.Owner)
-	end,
-	OnPostDraw = function(self)
-		theme.active:DrawPost(self.Owner)
-	end,
-}
+META.CMP.visual = {}
 META.CMP.mouse_input = {}
+META:StartStorable()
+META:GetSet("Text", "")
+META:GetSet("Hint", "")
+META:GetSet("Editable", true)
+META:GetSet("Wrap", false)
+META:GetSet("ScrollX", nil)
+META:GetSet("ScrollY", false)
+META:GetSet("ScrollbarVisible", true)
+META:GetSet("ScrollbarAutoHide", true)
+META:GetSet("Font", nil)
+META:GetSet("FontSize", nil)
+META:GetSet("TextColor", nil)
+META:GetSet("SelectionColor", nil)
+META:GetSet("PanelColor", "surface_alt")
+META:GetSet("Padding", nil)
 META:GetSet("AutoResize", false)
+META:GetSet("AutoScrollToCaret", true)
 META:GetSet("MaxLines", 4)
+META:EndStorable()
+
+function META.OnTextChanged(text_edit, text, old_text) end
+
+function META.OnKeyInput(text_edit, key, press) end
+
+function META.OnKeyInputRepeat(text_edit, key) end
+
+local function on_text_focus(text)
+	text.mouse_input:SetRequestMouse(true)
+end
+
+local function on_text_unfocus(text)
+	text.mouse_input:SetRequestMouse(false)
+end
+
+local function on_text_cursor_moved(text)
+	text.TextEdit:sync_text_changed()
+end
+
+local function on_text_key_input(text, key, press)
+	return text.TextEdit.OnKeyInput(text.TextEdit, key, press)
+end
+
+local function on_text_key_input_repeat(text, key)
+	return text.TextEdit.OnKeyInputRepeat(text.TextEdit, key)
+end
+
+local function forward_mouse_input(surface, button, press)
+	local text_panel = surface.TextEdit._text_panel
+	local mouse_pos = system.GetWindow():GetMousePosition()
+	return text_panel.text:OnMouseInput(button, press, text_panel.transform:GlobalToLocal(mouse_pos))
+end
 
 function META:OnCreate(props)
-	props = props or {}
-	local wrap = props.Wrap == true
-	local editable = props.Editable ~= false
-	local scroll_x = props.ScrollX ~= nil and props.ScrollX or not wrap
-	local scroll_y = props.ScrollY == true
-	local size = props.Size or Vec2(400, theme.active:GetInputHeight("M"))
-	local min_size = props.MinSize or Vec2(100, size.y)
-	local max_size = props.MaxSize or Vec2(0, size.y)
-	self.auto_scroll_to_caret = nil_fallback(props.AutoScrollToCaret, true)
-	self.AutoResize = props.AutoResize == true
-	self.MaxLines = props.MaxLines or 4
-	self.last_text = props.Text or ""
-	self.on_text_changed = props.OnTextChanged
-	self.BaseClass.OnCreate(self, {Ref = props.Ref})
-	self.layout:SetMinSize(min_size)
-	self.layout:SetMaxSize(max_size)
-	self.transform:SetSize(size)
-	self:SetState("panel_color", props.PanelColor or "surface_alt")
+	local size = props.Size or Vec2(400, theme.active:GetInputHeight(props.FontSize or "M"))
+	props.Size = size
+	props.MinSize = props.MinSize or Vec2(100, size.y)
+	props.MaxSize = props.MaxSize or Vec2(0, size.y)
+	META.BaseClass.OnCreate(self, props)
+	self._single_line_height = props.MinSize.y
+	local editable = self.Editable
+	local wrap = self.Wrap
+	self._last_text = self.Text
+	self:SetState("panel_color", self.PanelColor)
 	self:SetState("editable", editable)
-	self:AddChild(
-		Panel.New{
-			IsInternal = true,
-			Name = "scroll_panel",
-			transform = {
-				Size = self.transform:GetSize():Copy(),
-			},
-			layout = {
-				MinSize = self.layout:GetMinSize():Copy(),
-				MaxSize = self.layout:GetMaxSize():Copy(),
-				GrowHeight = 1,
-			},
-		}{
-			ScrollablePanel{
-				Ref = function(s)
-					self.scroll_panel = s
-				end,
-				Color = props.BackgroundColor or "surface",
-				Cursor = editable and "text_input" or nil,
-				ScrollX = scroll_x,
-				ScrollY = scroll_y,
-				ScrollBarVisible = props.ScrollBarVisible,
-				ScrollBarAutoHide = props.ScrollBarAutoHide,
-				ScrollBarColor = props.ScrollBarColor or "scrollbar",
-				ScrollBarTrackColor = props.ScrollBarTrackColor or "scrollbar_track",
-				Padding = props.Padding or Rect() + theme.active:GetPadding("S"),
-				layout = {
-					GrowWidth = 1,
-					GrowHeight = 1,
-				},
-			}{
-				Text{
-					Ref = function(s)
-						self.text_panel = s
-					end,
-					Text = props.Text or "",
-					Hint = props.Hint or "",
-					Cursor = editable and "text_input" or nil,
-					Editable = editable,
-					Wrap = wrap,
-					Color = props.TextColor or "text",
-					SelectionColor = props.SelectionColor or theme.active:GetColor("text_selection"),
-					FontName = props.FontName,
-					FontSize = props.FontSize,
-					text = props.text,
-					OnKeyInput = function(s, key, press)
-						if props.OnKeyInput then return props.OnKeyInput(s, key, press) end
-					end,
-					OnKeyInputRepeat = function(s, key)
-						if props.OnKeyInputRepeat then return props.OnKeyInputRepeat(s, key) end
-					end,
-					OnCursorMoved = function()
-						self:sync_text_changed()
-					end,
-					OnFocus = function(s, ...)
-						s.mouse_input:SetRequestMouse(true)
-					end,
-					OnUnfocus = function(s, ...)
-						s.mouse_input:SetRequestMouse(false)
-					end,
-					layout = {
-						GrowWidth = 1,
-						FitWidth = false,
-						MinSize = Vec2(1, 0),
-					},
-				},
-			},
-		}
-	)
+	self._scroll_panel = ScrollablePanel{
+		Parent = self,
+		IsInternal = true,
+		Name = "scroll_panel",
+		Cursor = "text_input",
+		ScrollX = self.ScrollX == nil and not wrap or self.ScrollX,
+		ScrollY = self.ScrollY,
+		ScrollbarVisible = self.ScrollbarVisible,
+		ScrollbarAutoHide = self.ScrollbarAutoHide,
+		Padding = self.Padding or Rect() + theme.active:GetPadding("S"),
+		layout = {
+			GrowWidth = 1,
+			GrowHeight = 1,
+		},
+	}
+	self._text_panel = Text{
+		Parent = self._scroll_panel,
+		TextEdit = self,
+		Text = self.Text,
+		Hint = self.Hint,
+		Cursor = "text_input",
+		Editable = editable,
+		Selectable = true,
+		Wrap = wrap,
+		Color = self.TextColor or "text",
+		SelectionColor = self.SelectionColor,
+		Font = self.Font,
+		OnKeyInput = on_text_key_input,
+		OnKeyInputRepeat = on_text_key_input_repeat,
+		OnCursorMoved = on_text_cursor_moved,
+		OnFocus = on_text_focus,
+		OnUnfocus = on_text_unfocus,
+		layout = {
+			GrowWidth = 1,
+			FitWidth = false,
+			MinSize = Vec2(1, 0),
+		},
+	}
 
-	if editable then
-		for _, surface in ipairs{self, self.scroll_panel.Viewport} do
-			surface.mouse_input:SetFocusOnClick(true)
-			surface.mouse_input:SetRedirectFocus(self.text_panel)
-		end
+	for _, surface in ipairs{self, self._scroll_panel.Viewport} do
+		surface.TextEdit = self
+		surface:AddLocalListener("OnMouseInput", forward_mouse_input, "text_edit_forward")
+		surface.mouse_input:SetFocusOnClick(true)
+		surface.mouse_input:SetRedirectFocus(self._text_panel)
 	end
+end
+
+function META:OnDraw()
+	theme.active:Draw(self)
+end
+
+function META:OnPostDraw()
+	theme.active:DrawPost(self)
 end
 
 function META:OnParentVisibilityChanged(visible)
@@ -130,62 +139,61 @@ end
 
 function META:sync_text_changed()
 	if self.AutoResize then
-		local lines, _, vertical_step = self.text_panel.text:GetTextSize2()
-		local ascent = self.text_panel.text:GetFont():GetAscent()
+		local lines, _, vertical_step = self._text_panel.text:GetTextSize2()
 
 		if lines then
 			local line_count = math.clamp(#lines, 1, self.MaxLines)
 			local w = self.layout:GetMinSize().x
-			local padding = self.scroll_panel.Padding
-			local h = math.ceil(ascent + (line_count - 1) * vertical_step) + padding.y + padding.h
+			local h = math.ceil(self._single_line_height + (line_count - 1) * vertical_step)
 			self.layout:SetMinSize(Vec2(w, h))
 			self.layout:SetMaxSize(Vec2(w, h))
 		end
 	end
 
-	if self.auto_scroll_to_caret then
-		self.scroll_panel:updateDirtyLayout(self.scroll_panel)
+	if self.AutoScrollToCaret then
+		self._scroll_panel:update_dirty_layout(self._scroll_panel)
 		self:scroll_caret_into_view()
 	end
 
-	local next_text = self.text_panel.text:GetText()
+	local next_text = self._text_panel.text:GetText()
 
-	if next_text == self.last_text then return end
+	if next_text == self._last_text then return end
 
-	local old_text = self.last_text
-	self.last_text = next_text
-
-	if self.on_text_changed then
-		self.on_text_changed(self, next_text, old_text, self)
-	end
+	local old_text = self._last_text
+	self._last_text = next_text
+	self.OnTextChanged(self, next_text, old_text)
 end
 
 function META:GetText()
-	return self.text_panel.text:GetText()
+	return self._text_panel.text:GetText()
 end
 
 function META:GetTextPanel()
-	return self.text_panel
+	return self._text_panel
 end
 
 function META:SetText(value)
 	value = value or ""
-	self.text_panel.text:SetText(value)
-	self.last_text = value
+	self.Text = value
+
+	if not self._text_panel then return self end
+
+	self._text_panel.text:SetText(value)
+	self._last_text = value
 	self:sync_text_changed()
 	return self
 end
 
-function META:scroll_to_bottom()
-	self.scroll_panel:ScrollRectIntoView(0, 1e6, 0, 1e6)
+function META:ScrollToBottom()
+	self._scroll_panel:ScrollRectIntoView(0, 1e6, 0, 1e6)
 end
 
 function META:scroll_caret_into_view()
-	local editor = self.text_panel.text.editor
+	local editor = self._text_panel.text.editor
 
 	if not editor then return end
 
-	local text = self.text_panel.text
+	local text = self._text_panel.text
 	local cursor = editor.Cursor
 	local line, col = text:GetLineColFromIndex(cursor)
 	local font = text:GetFont()
@@ -208,18 +216,17 @@ function META:scroll_caret_into_view()
 	local caret_x = lx + cw
 	local caret_y_top = ly + (line - 1) * vertical_step
 	local caret_y_bottom = (ly + (line + 1) * vertical_step)
-	self.scroll_panel:ScrollRectIntoView(caret_x, caret_y_top, caret_x, caret_y_bottom, theme.active:GetSize("XXS"))
+	self._scroll_panel:ScrollRectIntoView(caret_x, caret_y_top, caret_x, caret_y_bottom, theme.active:GetSize("XXS"))
 end
 
 function META:RequestTextFocus()
-	self.text_panel:RequestFocus()
+	self._text_panel:RequestFocus()
 	return true
 end
 
 function META:RequestTextUnFocus()
-	self.text_panel:RequestUnFocus()
+	self._text_panel:RequestUnFocus()
 	return true
 end
 
-META:Register()
-return META.New
+return META:Register()

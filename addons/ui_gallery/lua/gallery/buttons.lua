@@ -1,318 +1,198 @@
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
+local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
 local Checkbox = import("goluwa/render2d/ui/elements/checkbox.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
-return {
-	Name = "buttons",
-	Create = function()
-		local state = {
-			align_x = 0,
-			fit_to_text = false,
-			fill_width = true,
-			mode = "filled",
-		}
-		local preview_host
-		local color_variants = {
-			{label = "Primary Action", color = nil},
-			{label = "Positive Action", color = "positive"},
-			{label = "Caution Action", color = "neutral"},
-			{label = "Destructive Action", color = "negative"},
-			{
-				label = "Inverted Surface",
-				color = "surface_tile_1",
-				text_color = "text_on_dark",
-			},
-		}
+local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
+local modes = {"filled", "outline", "text", "menu"}
+local colors = {
+	{label = "primary", token = nil},
+	{label = "positive", token = "positive"},
+	{label = "neutral", token = "neutral"},
+	{label = "negative", token = "negative"},
+}
+local icons = {
+	add = "https://api.iconify.design/material-symbols-light/add-rounded.svg",
+	delete = "https://api.iconify.design/material-symbols-light/delete-rounded.svg",
+	edit = "https://api.iconify.design/material-symbols-light/edit-rounded.svg",
+	settings = "https://api.iconify.design/material-symbols-light/settings-rounded.svg",
+	favorite = "https://api.iconify.design/material-symbols-light/favorite-rounded.svg",
+	arrow = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
+}
 
-		local function build_preview_button(label, button_color, text_color)
-			local fit_to_text = state.fit_to_text
-			local fill_width = state.fill_width and not fit_to_text
-			return Button{
-				Text = label,
-				ButtonColor = button_color,
+local function update_counter(button)
+	button.Presses = button.Presses + 1
+	button:SetText("Pressed " .. button.Presses .. " times")
+end
+
+local function rebuild_preview(preview)
+	local state = preview.PreviewState
+	preview:RemoveChildren()
+
+	for _, color in ipairs(colors) do
+		local fill = state.fill
+		preview:AddChild(
+			Button{
+				Text = color.label .. " action",
 				Mode = state.mode,
-				TextColor = text_color,
+				ButtonColor = color.token,
+				AlignX = state.align_x,
 				layout = {
-					GrowWidth = fill_width and 1 or 0,
-					FitWidth = fit_to_text,
+					GrowWidth = fill and 1 or 0,
+					FitWidth = not fill,
 				},
 				TextLayout = {
-					GrowWidth = fill_width and 1 or 0,
-					FitWidth = fit_to_text,
+					GrowWidth = fill and 1 or 0,
+					FitWidth = not fill,
 				},
-				AlignX = state.align_x,
+			}
+		)
+	end
+end
+
+local function on_align_select(value, text, index, dropdown)
+	dropdown.Preview.PreviewState.align_x = value
+	rebuild_preview(dropdown.Preview)
+end
+
+local function on_mode_select(value, text, index, dropdown)
+	dropdown.Preview.PreviewState.mode = value
+	rebuild_preview(dropdown.Preview)
+end
+
+local function on_fill_change(value, checkbox)
+	checkbox.Preview.PreviewState.fill = value
+	rebuild_preview(checkbox.Preview)
+end
+
+return {
+	Name = "buttons",
+	Section = "Controls",
+	Order = 1,
+	Create = function()
+		local mode_rows = {}
+
+		for _, mode in ipairs(modes) do
+			local row = {}
+
+			for _, color in ipairs(colors) do
+				row[#row + 1] = Button{Text = color.label, Mode = mode, ButtonColor = color.token}
+			end
+
+			mode_rows[#mode_rows + 1] = kit.Labeled(mode, kit.Group(row))
+		end
+
+		local preview = Column{
+			PreviewState = {mode = "filled", align_x = 0.5, fill = true},
+			layout = {
+				ChildGap = "XS",
+				AlignmentX = "stretch",
+			},
+		}
+		local controls = kit.Group(
+			{
+				kit.Labeled(
+					"Mode",
+					Dropdown{
+						Preview = preview,
+						Options = {
+							{Text = "Filled", Value = "filled"},
+							{Text = "Outline", Value = "outline"},
+							{Text = "Text", Value = "text"},
+							{Text = "Menu", Value = "menu"},
+						},
+						Value = "filled",
+						Padding = "XS",
+						OnSelect = on_mode_select,
+						layout = {MinSize = Vec2(140, 0), MaxSize = Vec2(140, 0), GrowWidth = 0},
+					}
+				),
+				kit.Labeled(
+					"Text alignment",
+					Dropdown{
+						Preview = preview,
+						Options = {
+							{Text = "Left", Value = 0},
+							{Text = "Center", Value = 0.5},
+							{Text = "Right", Value = 1},
+						},
+						Value = 0.5,
+						Padding = "XS",
+						OnSelect = on_align_select,
+						layout = {MinSize = Vec2(140, 0), MaxSize = Vec2(140, 0), GrowWidth = 0},
+					}
+				),
+				kit.Labeled(
+					"Fill width",
+					Checkbox{Preview = preview, Value = true, OnChange = on_fill_change}
+				),
+			},
+			{AlignmentY = "end"}
+		)
+		rebuild_preview(preview)
+		local counter = Button{Text = "Pressed 0 times", Presses = 0, OnClick = update_counter}
+		local glyphs = {}
+
+		for index, glyph in ipairs{"+", "×", "↗", "…", "Aa"} do
+			glyphs[index] = IconButton{
+				Text = glyph,
+				FontSize = "L",
+				Mode = index % 2 == 0 and "outline" or "filled",
+				ButtonColor = index == 2 and "negative" or nil,
 			}
 		end
 
-		local function rebuild_preview()
-			if not preview_host or not preview_host:IsValid() then return end
+		local svgs = {}
 
-			preview_host:RemoveChildren()
-
-			for _, variant in ipairs(color_variants) do
-				preview_host:AddChild(build_preview_button(variant.label, variant.color, variant.text_color))
-			end
-
-			preview_host:AddChild(build_preview_button("A much longer button label", "primary"))
-
-			if preview_host.layout then preview_host.layout:InvalidateLayout(true) end
+		for _, name in ipairs{"add", "delete", "edit", "settings", "favorite"} do
+			svgs[#svgs + 1] = IconButton{
+				SVG = icons[name],
+				Mode = name == "edit" and "outline" or "filled",
+				ButtonColor = (name == "delete" and "negative") or (name == "favorite" and "positive") or nil,
+			}
 		end
 
-		local pnl = Column{
-			layout = {
-				Direction = "y",
-				FitHeight = true,
-				GrowWidth = 1,
-				ChildGap = 10,
-				AlignmentX = "stretch",
-			},
+		local sized = {}
+
+		for _, size in ipairs{"S", "M", "L", "XL", "XXL"} do
+			sized[#sized + 1] = IconButton{SVG = icons.arrow, IconSize = size}
+		end
+
+		return kit.Page{
+			Title = "Buttons",
+			Description = "Button, IconButton and the Clickable base they share. Modes, theme colors, states and sizing.",
 		}{
-			Text{
-				Text = "Button Editor",
-				Font = "body_strong S",
-				IgnoreMouseInput = true,
-			},
-			Text{
-				Text = "Use these controls to preview button sizing and label alignment.",
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
+			kit.Section{
+				Title = "Modes and colors",
+				Description = "Mode = filled | outline | text | menu, ButtonColor = palette token.",
+			}(mode_rows),
+			kit.Section{Title = "States"}{
+				kit.Group{
+					Button{Text = "Default"},
+					Button{Text = "Active", Active = true},
+					Button{Text = "Disabled", Disabled = true},
+					Button{Text = "Active outline", Active = true, Mode = "outline"},
+					Button{Text = "Disabled outline", Disabled = true, Mode = "outline"},
 				},
 			},
-			Text{
-				Text = "Text X Alignment",
-				IgnoreMouseInput = true,
-			},
-			Dropdown{
-				Text = "Left",
-				Value = state.align_x,
-				Options = {
-					{Text = "0", Value = 0},
-					{Text = "0.5", Value = 0.5},
-					{Text = "1", Value = 1},
-				},
-				GetValue = function()
-					return state.align_x
-				end,
-				GetText = function()
-					return tostring(state.align_x)
-				end,
-				OnSelect = function(value)
-					state.align_x = value
-					rebuild_preview()
-				end,
-				layout = {
-					GrowWidth = 1,
-				},
-				Padding = "XS",
-			},
-			Row{
-				layout = {
-					GrowWidth = 1,
-					ChildGap = 8,
-				},
+			kit.Section{
+				Title = "Callbacks",
+				Description = "OnClick runs on release over the button. SetText updates the label.",
+			}{counter},
+			kit.Section{
+				Title = "Layout playground",
+				Description = "Fill width stretches both the button and its label so alignment has room to act.",
 			}{
-				Checkbox{
-					Value = state.fill_width,
-					OnChange = function(value)
-						state.fill_width = value
-						rebuild_preview()
-					end,
-				},
-				Text{
-					Text = "Fill Width",
-					IgnoreMouseInput = true,
-				},
+				controls,
+				preview,
 			},
-			Row{
-				layout = {
-					GrowWidth = 1,
-					ChildGap = 8,
-				},
-			}{
-				Checkbox{
-					Value = state.fit_to_text,
-					OnChange = function(value)
-						state.fit_to_text = value
-						rebuild_preview()
-					end,
-				},
-				Text{
-					Text = "Fit To Text",
-					IgnoreMouseInput = true,
-				},
-			},
-			Text{
-				Text = "Mode",
-				IgnoreMouseInput = true,
-			},
-			Dropdown{
-				Text = "Filled",
-				Value = state.mode,
-				Options = {
-					{Text = "Filled", Value = "filled"},
-					{Text = "Outline", Value = "outline"},
-					{Text = "Text", Value = "text"},
-					{Text = "Menu", Value = "menu"},
-				},
-				GetValue = function()
-					return state.mode
-				end,
-				GetText = function()
-					return state.mode == "outline" and "Outline" or "Filled"
-				end,
-				OnSelect = function(value)
-					state.mode = value
-					rebuild_preview()
-				end,
-				layout = {
-					GrowWidth = 1,
-				},
-				Padding = "XS",
-			},
-			Text{
-				Text = "Preview",
-				Font = "body_strong S",
-				IgnoreMouseInput = true,
-			},
-			Column{
-				Ref = function(self)
-					preview_host = self
-					rebuild_preview()
-				end,
-				layout = {
-					GrowWidth = 1,
-					FitHeight = true,
-					AlignmentX = "stretch",
-					ChildGap = 10,
-				},
-			}{},
-			Text{
-				Text = "Icon Buttons",
-				Font = "body_strong S",
-				IgnoreMouseInput = true,
-			},
-			Text{
-				Text = "Compact buttons that display text or SVG icons. Supports all button modes and colors.",
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
-				},
-			},
-			Text{
-				Text = "Text Icon Buttons",
-				IgnoreMouseInput = true,
-			},
-			Row{
-				layout = {
-					GrowWidth = 1,
-					ChildGap = 8,
-					AlignmentY = "center",
-				},
-			}{
-				IconButton{
-					Text = "+",
-					FontSize = "L",
-					Mode = "filled",
-				},
-				IconButton{
-					Text = "×",
-					FontSize = "L",
-					Mode = "filled",
-					ButtonColor = "negative",
-				},
-				IconButton{
-					Text = "↗",
-					FontSize = "XL",
-					Mode = "outline",
-				},
-				IconButton{
-					Text = "…",
-					FontSize = "L",
-					Mode = "text",
-				},
-				IconButton{
-					Text = "Aa",
-					FontSize = "M",
-					Mode = "filled",
-					ButtonColor = "positive",
-				},
-			},
-			Text{
-				Text = "SVG Icon Buttons",
-				IgnoreMouseInput = true,
-			},
-			Row{
-				layout = {
-					GrowWidth = 1,
-					ChildGap = 8,
-					AlignmentY = "center",
-				},
-			}{
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/add-rounded.svg",
-					Mode = "filled",
-				},
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/delete-rounded.svg",
-					Mode = "filled",
-					ButtonColor = "negative",
-				},
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/edit-rounded.svg",
-					Mode = "outline",
-				},
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/settings-rounded.svg",
-					Mode = "filled",
-					ButtonColor = "neutral",
-				},
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/favorite-rounded.svg",
-					Mode = "text",
-					ButtonColor = "positive",
-					TextColor = "positive",
-				},
-			},
-			Text{
-				Text = "Sizes",
-				IgnoreMouseInput = true,
-			},
-			Row{
-				layout = {
-					GrowWidth = 1,
-					ChildGap = 8,
-					AlignmentY = "center",
-				},
-			}{
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
-					IconSize = "S",
-				},
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
-					IconSize = "M",
-				},
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
-					IconSize = "L",
-				},
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
-					IconSize = "XL",
-				},
-				IconButton{
-					SVG = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
-					IconSize = "XXL",
-				},
+			kit.Section{Title = "Icon buttons"}{
+				kit.Labeled("Glyphs", kit.Group(glyphs)),
+				kit.Labeled("SVG icons", kit.Group(svgs)),
+				kit.Labeled("IconSize = S, M, L, XL, XXL", kit.Group(sized)),
 			},
 		}
-		rebuild_preview()
-		return pnl
 	end,
 }

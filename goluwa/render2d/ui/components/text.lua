@@ -26,8 +26,9 @@ META:EndOptions()
 META:GetSet("Hint", "")
 META:GetSet("DisableViewportCulling", false)
 META:GetSet("Color", nil)
-META:GetSet("SelectionColor", Color(1, 1, 1, 0.3))
+META:GetSet("SelectionColor", nil)
 META:GetSet("Editable", false, {callback = "OnEditableChanged"})
+META:GetSet("Selectable", false, {callback = "OnEditableChanged"})
 META:EndStorable()
 
 local function count_expandable_spaces(text)
@@ -285,7 +286,7 @@ local function get_cached_wrap_layout(self, width)
 end
 
 function META:OnEditableChanged()
-	if self:GetEditable() then
+	if self:GetEditable() or self:GetSelectable() then
 		if not self.Owner:HasComponent("key_input") then
 			self.Owner:AddComponent("key_input")
 		end
@@ -334,6 +335,8 @@ function META:OnEditableChanged()
 				end
 			end
 		end
+
+		self.editor:SetReadOnly(not self:GetEditable())
 	end
 end
 
@@ -345,12 +348,15 @@ function META:Initialize()
 	self:OnEditableChanged()
 	self:OnTextChanged()
 
-	event.AddListener("OnFontsChanged", self, function(font)
-		if font == self:GetFont() or true then self:OnTextChanged() end
-	end)
-
 	local function key_input(pnl, key, press)
-		if self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner then
+		if
+			(
+				self:GetEditable() or
+				self:GetSelectable()
+			) and
+			self.editor and
+			objects.GetFocusedObject() == self.Owner
+		then
 			if key == "left_shift" or key == "right_shift" then
 				self.editor:SetShiftDown(press)
 			elseif key == "left_control" or key == "right_control" then
@@ -449,10 +455,6 @@ function META:Initialize()
 			end
 		end
 	end)
-end
-
-function META:OnRemove()
-	event.RemoveListener("OnFontsChanged", self)
 end
 
 function META:GetTextSize2()
@@ -646,11 +648,17 @@ end
 function META:OnDraw()
 	local transform = self.Owner.transform
 	local font = self:GetFont() or fonts.GetDefaultFont()
-	local text = self.wrapped_text or self:GetText()
+	local text = self.draw_text or self:GetText()
 	local lx, ly = self:GetTextOffset()
 	local tw, th = self:GetTextSize()
 	local descent = font:GetDescent()
 	local is_focused_editable = self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner
+	local is_focused_selectable = (
+			self:GetEditable() or
+			self:GetSelectable()
+		) and
+		self.editor and
+		objects.GetFocusedObject() == self.Owner
 	local line_height = font:GetLineHeight()
 	local foreground = self:GetColor()
 	local background
@@ -669,6 +677,7 @@ function META:OnDraw()
 		foreground = theme.active:ResolveColor(foreground, background)
 	end
 
+	local caret_color = foreground
 	local use_hint = text == "" and self:GetHint() ~= ""
 
 	if use_hint then
@@ -707,13 +716,13 @@ function META:OnDraw()
 	local source_lines = self.wrap_layout_info and self.wrap_layout_info.lines or text
 	local lines, line_height, vertical_step, visible_start, visible_stop = self:GetVisibleTextLines(source_lines, font, lx, ly, clip_y1, clip_y2)
 
-	if is_focused_editable then
+	if is_focused_selectable then
 		local start, stop = self.editor:GetSelection()
 
 		if start and start ~= stop then
 			local line_start, col_start = self:GetLineColFromIndex(start)
 			local line_stop, col_stop = self:GetLineColFromIndex(stop)
-			local r, g, b, a = self:GetSelectionColor():Unpack()
+			local r, g, b, a = (self:GetSelectionColor() or theme.active:GetColor("text_selection")):Unpack()
 			render2d.SetColor(r, g, b)
 			render2d.SetAlphaMultiplier(a)
 			render2d.SetTexture(nil)
@@ -766,9 +775,13 @@ function META:OnDraw()
 				self.wrap_layout_info.display_lines and
 				self.wrap_layout_info.display_lines[found_line]
 			local cw = get_line_column_offset(font, line_text, found_col, display_line)
+			render2d.PushColor(caret_color.r, caret_color.g, caret_color.b)
+			render2d.PushAlphaMultiplier(caret_color.a)
 			render2d.PushBorderRadius(2)
 			render2d.DrawRect(lx + cw, ly - descent / 2 + (found_line - 1) * vertical_step, 2, line_height)
 			render2d.PopBorderRadius()
+			render2d.PopAlphaMultiplier()
+			render2d.PopColor()
 		end
 	end
 
@@ -1030,7 +1043,7 @@ function META:GetLineColFromIndex(cursor)
 end
 
 function META:OnMouseInput(button, press, local_pos)
-	if self:GetEditable() and button == "button_1" then
+	if (self:GetEditable() or self:GetSelectable()) and button == "button_1" then
 		if press then
 			if self.editor then
 				self.preferred_caret_x = nil
@@ -1117,6 +1130,40 @@ function META:OnMouseInput(button, press, local_pos)
 				return true
 			end
 		end
+	end
+end
+
+do
+	local refreshing = false
+	local pending = false
+
+	local function refresh_all()
+		if refreshing then
+			pending = true
+			return
+		end
+
+		refreshing = true
+
+		for _ = 1, 3 do
+			pending = false
+
+			for _, text in ipairs(META.Instances) do
+				text:OnTextChanged()
+			end
+
+			if not pending then break end
+		end
+
+		refreshing = false
+	end
+
+	function META:OnFirstCreated()
+		event.AddListener("OnFontsChanged", "ui_text_component", refresh_all)
+	end
+
+	function META:OnLastRemoved()
+		event.RemoveListener("OnFontsChanged", "ui_text_component")
 	end
 end
 

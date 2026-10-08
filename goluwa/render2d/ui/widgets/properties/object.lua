@@ -1,153 +1,139 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Control = import("goluwa/render2d/ui/widgets/properties/control.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local META = Panel:CreateTemplate("property_object")
+META.Base = Control
+META.CMP.layout = {
+	Direction = "x",
+	FitWidth = false,
+	FitHeight = true,
+	AlignmentY = "center",
+}
+META:StartStorable()
+META:GetSet("Value", nil)
+META:GetSet("FontSize", nil)
+META:GetSet("FieldPadding", nil)
+META:GetSet("ValueWidth", 200)
+META:GetSet("RowHeight", 20)
+META:GetSet("ActionButtonSize", nil)
+META:GetSet("ActionPreviewPadding", nil)
+META:EndStorable()
 
-local function set_text(panel, value)
-	if panel and panel:IsValid() and panel.text then
-		panel.text:SetText(value or "")
+function META.GetDisplayText(value, control)
+	return value == nil and "None" or tostring(value)
+end
+
+function META.GetActionTexture(value, control)
+	return value
+end
+
+function META.OnActionButton(control) end
+
+local function on_value_draw(panel)
+	theme.active:Draw(panel)
+end
+
+local function on_action_draw(button)
+	local control = button.Control
+	local size = button.transform:GetSize()
+	theme.active:Draw(button)
+
+	if control.OnDrawActionButton then
+		control.OnDrawActionButton(control, button, size)
+		return
+	end
+
+	local texture = control.GetActionTexture(control.Value, control)
+
+	if texture then
+		local padding = theme.active:ResolveSize(control.ActionPreviewPadding or "XXS")
+		render2d.SetTexture(texture)
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.DrawRect(padding, padding, size.x - padding * 2, size.y - padding * 2)
 	end
 end
 
-return function(props)
-	local node = props.node
-	local label
-	local control
-	local action_button_size = node.ActionButtonSize or props.row_height
-	local action_padding = node.ActionPreviewPadding or theme.active:GetSize("XXS")
-	local gap = theme.active:ResolveSize(props.gap) or 0
+local function on_action_click(button)
+	button.Control.OnActionButton(button.Control)
+	return true
+end
 
-	local function get_display_text(value)
-		if node.GetDisplayText then return node.GetDisplayText(value) end
-
-		return value == nil and "None" or tostring(value)
-	end
-
-	local function get_action_texture(value)
-		if node.GetActionTexture then return node.GetActionTexture(value) end
-
-		if node.GetPreviewTexture then return node.GetPreviewTexture(value) end
-
-		return value
-	end
-
-	local function refresh_display(value)
-		set_text(label, get_display_text(value))
-	end
-
-	local function draw_action_button(self)
-		local size = self.Owner.transform:GetSize()
-		local texture = get_action_texture(node.Value)
-		theme.active:Draw(self.Owner)
-
-		if node.OnDrawActionButton then
-			node.OnDrawActionButton(node, self.Owner, size, node.Value, props.key, props.path)
-			return
-		end
-
-		if texture then
-			render2d.SetTexture(texture)
-			render2d.SetColor(1, 1, 1, 1)
-			render2d.DrawRect(
-				action_padding,
-				action_padding,
-				size.x - action_padding * 2,
-				size.y - action_padding * 2
-			)
-		end
-	end
-
-	control = Row{
+function META:OnCreate(props)
+	META.BaseClass.OnCreate(self, props)
+	local gap = self.layout:GetChildGap()
+	local height = self.RowHeight
+	local button_size = self.ActionButtonSize or height
+	local width = self.ValueWidth - button_size - gap
+	self._label = Text{
+		Text = self.GetDisplayText(self.Value, self),
+		FontSize = self.FontSize,
+		Elide = true,
+		ElideString = "...",
+		IgnoreMouseInput = true,
 		layout = {
+			GrowWidth = 1,
 			FitWidth = false,
-			MinSize = Vec2(props.value_width, props.row_height),
-			MaxSize = Vec2(props.value_width, props.row_height),
-			AlignmentY = "center",
-			ChildGap = props.gap,
-		},
-	}{
-		Panel.New{
-			Name = "PropertyObjectValue",
-			transform = {
-				Size = Vec2(props.value_width - action_button_size - gap, props.row_height),
-			},
-			layout = {
-				FitWidth = false,
-				GrowWidth = 1,
-				MinSize = Vec2(props.value_width - action_button_size - gap, props.row_height),
-				MaxSize = Vec2(props.value_width - action_button_size - gap, props.row_height),
-				Padding = props.padding,
-				AlignmentY = "center",
-			},
-			visual = {
-				OnDraw = function(self)
-					theme.active:Draw(self.Owner)
-				end,
-			},
-			mouse_input = {
-				IgnoreMouseInput = true,
-			},
-		}{
-			Text{
-				Ref = function(self)
-					label = self
-					refresh_display(node.Value)
-				end,
-				Text = get_display_text(node.Value),
-				FontSize = props.font_size,
-				Elide = true,
-				ElideString = "...",
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
-					FitWidth = false,
-					FitHeight = true,
-				},
-			},
-		},
-		Panel.New{
-			Name = "PropertyObjectActionButton",
-			transform = {
-				Size = Vec2(action_button_size, action_button_size),
-			},
-			layout = {
-				FitWidth = false,
-				MinSize = Vec2(action_button_size, action_button_size),
-				MaxSize = Vec2(action_button_size, action_button_size),
-			},
-			visual = {
-				OnDraw = draw_action_button,
-			},
-			mouse_input = {
-				Cursor = "pointer",
-			},
-			clickable = true,
-			OnClick = function()
-				if node.OnActionButton then
-					node.OnActionButton(node, props.key, props.path, control, props.commit_value)
-				end
-
-				return true
-			end,
+			FitHeight = true,
 		},
 	}
-
-	function control:SetValue(value)
-		node.Value = value
-		refresh_display(value)
-		return self
-	end
-
-	function control:EncodeValue()
-		return nil
-	end
-
-	function control:DecodeValue()
-		return nil, false
-	end
-
-	control:SetValue(node.Value)
-	return control, control
+	Panel.New{
+		Parent = self,
+		IsInternal = true,
+		Name = "property_object_value",
+		transform = {Size = Vec2(width, height)},
+		layout = {
+			FitWidth = false,
+			GrowWidth = 1,
+			MinSize = Vec2(width, height),
+			MaxSize = Vec2(0, height),
+			Padding = self.FieldPadding,
+			AlignmentY = "center",
+		},
+		visual = true,
+		mouse_input = {IgnoreMouseInput = true},
+		OnDraw = on_value_draw,
+	}(self._label)
+	Panel.New{
+		Parent = self,
+		IsInternal = true,
+		Name = "property_object_action",
+		Control = self,
+		transform = {Size = Vec2(button_size, button_size)},
+		layout = {
+			FitWidth = false,
+			MinSize = Vec2(button_size, button_size),
+			MaxSize = Vec2(button_size, button_size),
+		},
+		visual = true,
+		mouse_input = {Cursor = "pointer"},
+		clickable = true,
+		OnDraw = on_action_draw,
+		OnClick = on_action_click,
+	}
 end
+
+function META:SetValue(value, notify)
+	local old_value = self.Value
+	self.Value = value
+
+	if self._label then
+		self._label.text:SetText(self.GetDisplayText(value, self))
+	end
+
+	if notify and old_value ~= value then self.OnChange(value, old_value, self) end
+
+	return self
+end
+
+function META:GetValue()
+	return self.Value
+end
+
+function META:EncodeValue()
+	return nil
+end
+
+return META:Register()

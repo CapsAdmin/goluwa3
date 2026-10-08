@@ -87,7 +87,7 @@ function META:Initialize()
 
 		local tr = self.Owner.transform
 		local new_size = tr:GetSize()
-		local old_size = self:GetLastSize()
+		local old_size = self.LastSize
 
 		if
 			math.floor(old_size.x) ~= math.floor(new_size.x) or
@@ -105,7 +105,7 @@ end
 function META:InvalidateLayout()
 	local parent = self.Owner:GetParent()
 
-	if self:GetDirty() then
+	if self.Dirty then
 		if parent and parent:IsValid() and parent.layout and parent.layout.busy > 0 then
 			parent.layout.pending_child_reflow = true
 		end
@@ -166,14 +166,14 @@ local function should_layout_child(child)
 		and
 		not (
 			child.layout and
-			child.layout:GetFloating()
+			child.layout.Floating
 		)
 end
 
 local function get_child_dock(child_layout)
 	if not child_layout then return "none" end
 
-	local dock = child_layout:GetDock()
+	local dock = child_layout.Dock
 
 	if dock_values[dock] then return dock end
 
@@ -194,19 +194,21 @@ local function layout_uses_dock(children)
 	return false
 end
 
+local zero_margin = Rect(0, 0, 0, 0)
+
 local function measure_child_layout(child)
 	if child.layout then
 		local child_layout = child.layout
 		local child_size = child_layout.intrinsic_size
 
-		if child_layout:GetDirty() or not child_size then
+		if child_layout.Dirty or not child_size then
 			child_size = child_layout:Measure()
 		end
 
-		return child_size, child_layout:GetMargin(), child_layout
+		return child_size, child_layout.Margin, child_layout
 	end
 
-	return child.transform:GetSize(), Rect(0, 0, 0, 0), nil
+	return child.transform:GetSize(), zero_margin, nil
 end
 
 local function get_effective_dock(child_layout)
@@ -273,27 +275,27 @@ local function measure_docked_children(children, padding)
 end
 
 local function get_child_cross_alignment(parent_layout, child_layout)
-	local parent_dir = parent_layout:GetDirection()
+	local parent_dir = parent_layout.Direction
 	local self_alignment
 
 	if parent_dir == "x" then
-		self_alignment = child_layout:GetSelfAlignmentY()
+		self_alignment = child_layout.SelfAlignmentY
 	else
-		self_alignment = child_layout:GetSelfAlignmentX()
+		self_alignment = child_layout.SelfAlignmentX
 	end
 
 	if self_alignment ~= "auto" then return self_alignment end
 
-	if parent_dir == "x" then return parent_layout:GetAlignmentY() end
+	if parent_dir == "x" then return parent_layout.AlignmentY end
 
-	return parent_layout:GetAlignmentX()
+	return parent_layout.AlignmentX
 end
 
 function META:Measure()
-	local dir = self:GetDirection()
+	local dir = self.Direction
 	local axis = axis_map[dir]
-	local padding = self:GetPadding()
-	local child_gap = self:GetChildGap()
+	local padding = self.Padding
+	local child_gap = self.ChildGap
 	local main_total = 0
 	local cross_max = 0
 	local children = self.Owner:GetChildren()
@@ -305,7 +307,7 @@ function META:Measure()
 
 	if uses_dock_layout then
 		intrinsic, count = measure_docked_children(children, padding)
-	elseif self:GetWrapChildren() then
+	elseif self.WrapChildren then
 		local lines = {}
 		local current_line = {}
 		local current_line_main = 0
@@ -351,7 +353,7 @@ function META:Measure()
 					end
 
 					current_line[#current_line + 1] = child
-					current_line_main = current_line_main + child_main
+					current_line_main = current_line_main + (needs_gap or 0) + child_main
 					current_line_cross_max = math.max(current_line_cross_max, child_cross)
 					count = count + 1
 				end
@@ -419,7 +421,14 @@ function META:Measure()
 						current_inner_width = parent.transform:GetSize().x
 
 						if parent.layout then
-							local parent_padding = parent.layout:GetPadding()
+							local parent_layout = parent.layout
+							local parent_padding = parent_layout.Padding
+
+							if parent_layout.MaxSize.x > 0 then
+								current_inner_width = math.min(current_inner_width, parent_layout.MaxSize.x)
+							end
+
+							current_inner_width = math.max(current_inner_width, parent_layout.MinSize.x)
 							current_inner_width = current_inner_width - parent_padding.x - parent_padding.w
 						end
 
@@ -451,8 +460,8 @@ function META:Measure()
 
 	self.content_size = intrinsic:Copy()
 	local parent = self.Owner:GetParent()
-	local is_being_managed_x = self:GetFitWidth() or self:GetGrowWidth() > 0
-	local is_being_managed_y = self:GetFitHeight() or self:GetGrowHeight() > 0
+	local is_being_managed_x = self.FitWidth or self.GrowWidth > 0
+	local is_being_managed_y = self.FitHeight or self.GrowHeight > 0
 
 	if
 		self.Owner.text and
@@ -477,11 +486,11 @@ function META:Measure()
 				is_being_managed_y = true
 			end
 		else
-			local pdir = pl:GetDirection()
-			local self_alignment_x = self:GetSelfAlignmentX()
-			local self_alignment_y = self:GetSelfAlignmentY()
-			local effective_alignment_x = self_alignment_x ~= "auto" and self_alignment_x or pl:GetAlignmentX()
-			local effective_alignment_y = self_alignment_y ~= "auto" and self_alignment_y or pl:GetAlignmentY()
+			local pdir = pl.Direction
+			local self_alignment_x = self.SelfAlignmentX
+			local self_alignment_y = self.SelfAlignmentY
+			local effective_alignment_x = self_alignment_x ~= "auto" and self_alignment_x or pl.AlignmentX
+			local effective_alignment_y = self_alignment_y ~= "auto" and self_alignment_y or pl.AlignmentY
 
 			if pdir == "x" then
 				if effective_alignment_y == "stretch" then is_being_managed_y = true end
@@ -495,8 +504,8 @@ function META:Measure()
 
 	if not is_being_managed_y then intrinsic.y = tr_size.y end
 
-	local min = self:GetMinSize()
-	local max = self:GetMaxSize()
+	local min = self.MinSize
+	local max = self.MaxSize
 
 	if min.x > 0 then intrinsic.x = math.max(intrinsic.x, min.x) end
 
@@ -516,10 +525,10 @@ function META:Arrange()
 	self.busy = self.busy + 1
 	local tr = self.Owner.transform
 	local actual_size = tr:GetSize()
-	local dir = self:GetDirection()
+	local dir = self.Direction
 	local axis = axis_map[dir]
-	local padding = self:GetPadding()
-	local child_gap = self:GetChildGap()
+	local padding = self.Padding
+	local child_gap = self.ChildGap
 	local children = self.Owner:GetChildren()
 	local uses_dock_layout = layout_uses_dock(children)
 	local layout_children = {}
@@ -603,7 +612,7 @@ function META:Arrange()
 		return
 	end
 
-	if self:GetWrapChildren() then
+	if self.WrapChildren then
 		local lines = {}
 		local current_line = {}
 		local current_line_main = 0
@@ -612,7 +621,7 @@ function META:Arrange()
 		for _, child in ipairs(children) do
 			if should_layout_child(child) then
 				local l = child.layout
-				local margin = l and l:GetMargin() or Rect(0, 0, 0, 0)
+				local margin = l and l.Margin or zero_margin
 				local base_size = 0
 
 				if l then
@@ -636,10 +645,10 @@ function META:Arrange()
 					entity = child,
 					margin = margin,
 					base_size = base_size,
-					min_main = l and l:GetMinSize()[axis.main] or 0,
+					min_main = l and l.MinSize[axis.main] or 0,
 					cross_size = (l and l.intrinsic_size or child.transform:GetSize())[axis.cross],
 				}
-				current_line_main = current_line_main + child_main + child_gap
+				current_line_main = current_line_main + (needs_gap or 0) + child_main
 			end
 		end
 
@@ -668,7 +677,7 @@ function META:Arrange()
 			local line_extra = math.max(0, available_main - line_main_total)
 			local line_shrink = math.max(0, line_main_total - available_main)
 			local child_main_pos = padding[axis.main_margin_start]
-			local alignment = (dir == "x") and self:GetAlignmentX() or self:GetAlignmentY()
+			local alignment = (dir == "x") and self.AlignmentX or self.AlignmentY
 			local line_gap = child_gap
 
 			if line_extra > 0 then
@@ -709,8 +718,8 @@ function META:Arrange()
 							dir == "x"
 						)
 						and
-						self:GetAlignmentY() or
-						self:GetAlignmentX()
+						self.AlignmentY or
+						self.AlignmentX
 					)
 				local child_total_cross = c.cross_size + c.margin[axis.cross_margin_start] + c.margin[axis.cross_margin_end]
 				local cross_pos = line_cross_pos + c.margin[axis.cross_margin_start]
@@ -725,6 +734,16 @@ function META:Arrange()
 						0,
 						line_cross_max - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
 					)
+
+					if c.entity.layout then
+						local child_layout = c.entity.layout
+						local child_max = child_layout.MaxSize[axis.cross]
+						local child_grow = axis.cross == "x" and child_layout.GrowWidth or child_layout.GrowHeight
+
+						if child_max > 0 and child_grow == 0 then
+							final_cross = math.min(final_cross, child_max)
+						end
+					end
 				end
 
 				if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.cross) then
@@ -743,18 +762,20 @@ function META:Arrange()
 		for _, child in ipairs(children) do
 			if should_layout_child(child) then
 				local l = child.layout
-				local margin = l and l:GetMargin() or Rect(0, 0, 0, 0)
+				local margin = l and l.Margin or zero_margin
 				local grow = 0
 				local shrink = 0
 				local base_size = 0
 				local min_main = 0
+				local max_main = 0
 
 				if l then
-					grow = (dir == "x") and l:GetGrowWidth() or l:GetGrowHeight()
-					shrink = (dir == "x") and l:GetShrinkWidth() or l:GetShrinkHeight()
+					grow = (dir == "x") and l.GrowWidth or l.GrowHeight
+					shrink = (dir == "x") and l.ShrinkWidth or l.ShrinkHeight
 					local sz = l.intrinsic_size or l:Measure()
 					base_size = sz[axis.main]
-					min_main = l:GetMinSize()[axis.main] or 0
+					min_main = l.MinSize[axis.main] or 0
+					max_main = l.MaxSize[axis.main]
 				else
 					base_size = child.transform:GetSize()[axis.main]
 				end
@@ -770,6 +791,8 @@ function META:Arrange()
 						margin = margin,
 						base_size = base_size,
 						min_main = min_main,
+						max_main = max_main,
+						grow_size = 0,
 						cross_size = (l and l.intrinsic_size or child.transform:GetSize())[axis.cross],
 					}
 				)
@@ -791,7 +814,7 @@ function META:Arrange()
 		local effective_gap = child_gap
 
 		if total_grow == 0 then
-			local alignment = (dir == "x") and self:GetAlignmentX() or self:GetAlignmentY()
+			local alignment = (dir == "x") and self.AlignmentX or self.AlignmentY
 
 			if alignment == "center" then
 				current_main = current_main + extra_space / 2
@@ -816,13 +839,40 @@ function META:Arrange()
 			end
 		end
 
-		for i, c in ipairs(layout_children) do
-			local grow_size = 0
-			local shrink_size = 0
+		if extra_space > 0 and total_grow > 0 then
+			local remaining = extra_space
+			local active_grow = total_grow
+			local resolving = true
 
-			if extra_space > 0 and total_grow > 0 and c.grow > 0 then
-				grow_size = extra_space * (c.grow / total_grow)
+			while resolving and active_grow > 0 do
+				resolving = false
+
+				for _, c in ipairs(layout_children) do
+					-- MaxSize <= 1 is the scroll viewport's overflow flag, not a size cap
+					if c.grow > 0 and c.max_main > 1 and not c.capped then
+						local cap = math.max(0, c.max_main - c.base_size)
+
+						if remaining * (c.grow / active_grow) >= cap then
+							c.capped = true
+							c.grow_size = cap
+							remaining = remaining - cap
+							active_grow = active_grow - c.grow
+							resolving = true
+						end
+					end
+				end
 			end
+
+			for _, c in ipairs(layout_children) do
+				if c.grow > 0 and not c.capped then
+					c.grow_size = remaining * (c.grow / active_grow)
+				end
+			end
+		end
+
+		for i, c in ipairs(layout_children) do
+			local grow_size = c.grow_size
+			local shrink_size = 0
 
 			if shrink_space > 0 and total_shrink > 0 and c.shrink > 0 then
 				local requested = shrink_space * (c.shrink / total_shrink)
@@ -846,8 +896,8 @@ function META:Arrange()
 						dir == "x"
 					)
 					and
-					self:GetAlignmentY() or
-					self:GetAlignmentX()
+					self.AlignmentY or
+					self.AlignmentX
 				)
 			local available_cross = actual_size[axis.cross] - padding[axis.cross_margin_start] - padding[axis.cross_margin_end]
 			local child_total_cross = c.cross_size + c.margin[axis.cross_margin_start] + c.margin[axis.cross_margin_end]
@@ -863,6 +913,16 @@ function META:Arrange()
 					0,
 					available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
 				)
+
+				if c.entity.layout then
+					local child_layout = c.entity.layout
+					local child_max = child_layout.MaxSize[axis.cross]
+					local child_grow = axis.cross == "x" and child_layout.GrowWidth or child_layout.GrowHeight
+
+					if child_max > 0 and child_grow == 0 then
+						final_cross = math.min(final_cross, child_max)
+					end
+				end
 			end
 
 			if not c.entity.layout or not c.entity.layout:GetFitAxis(axis.cross) then
@@ -886,24 +946,24 @@ function META:Arrange()
 end
 
 function META:GetFitAxis(axis)
-	if axis == "x" then return self:GetFitWidth() else return self:GetFitHeight() end
+	if axis == "x" then return self.FitWidth else return self.FitHeight end
 end
 
 function META:UpdateLayout()
-	if not self:GetDirty() then return end
+	if not self.Dirty then return end
 
 	self:SetDirty(false)
 	local intrinsic_size = self:Measure()
 	self.busy = self.busy + 1
 	local tr = self.Owner.transform
 
-	if self:GetFitWidth() then
+	if self.FitWidth then
 		tr:SetWidth(intrinsic_size.x)
-	elseif self:GetGrowWidth() > 0 and tr:GetSize().x <= 1 then
+	elseif self.GrowWidth > 0 and tr:GetSize().x <= 1 then
 		tr:SetWidth(intrinsic_size.x)
 	end
 
-	if self:GetFitHeight() then tr:SetHeight(intrinsic_size.y) end
+	if self.FitHeight then tr:SetHeight(intrinsic_size.y) end
 
 	self:SetLastSize(tr:GetSize():Copy())
 	self.busy = self.busy - 1
@@ -920,11 +980,11 @@ function META:OnFirstCreated()
 		signature,
 		function()
 			for _, layout in ipairs(META.Instances) do
-				if layout:GetDirty() then
+				if layout.Dirty then
 					local root = layout
 					local parent = layout.Owner:GetParent()
 
-					while parent and parent:IsValid() and parent.layout and parent.layout:GetDirty() do
+					while parent and parent:IsValid() and parent.layout and parent.layout.Dirty do
 						root = parent.layout
 						parent = parent:GetParent()
 					end

@@ -94,6 +94,10 @@ do
 			self.mouse_delta = delta
 		end
 
+		function window:ShouldWarpMouseWhenCaptured()
+			return true
+		end
+
 		function window:GetCursor()
 			return self.cursor
 		end

@@ -595,9 +595,11 @@ function JRPGTheme:DrawWindowContentPost(size, emphasis)
 end
 
 function JRPGTheme:DrawPost(pnl)
-	if pnl.Name == "WindowContent" then
+	local name = pnl.ThemeName or pnl.Name
+
+	if name == "window_content" then
 		return self:DrawWindowContentPost(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
-	elseif pnl.Name == "clickable" then
+	elseif name == "clickable" then
 		return self:DrawButtonPost(pnl.transform:GetTotalSize(), pnl:GetState())
 	end
 
@@ -864,6 +866,60 @@ function JRPGTheme:DrawButtonPost(size, state)
 	self:DrawGlow(3, size.y - 3, 12 * anim.glow_alpha)
 	self:DrawGlow(size.x - 3, size.y - 3, 12 * anim.glow_alpha)
 	render2d.PopBlendMode()
+end
+
+function JRPGTheme:DrawColorSurfaceFrame(size)
+	render2d.SetTexture(nil)
+	render2d.DrawShape{
+		x = 0,
+		y = 0,
+		w = size.x,
+		h = size.y,
+		color = self:GetColor("border"),
+		texture = false,
+		layers = {
+			{outline_width = -1},
+		},
+	}
+	render2d.PushBlendPreset("additive")
+	render2d.DrawShape{
+		x = 1,
+		y = 1,
+		w = size.x - 2,
+		h = size.y - 2,
+		color = self:GetColor("primary"),
+		alpha = 0.25,
+		texture = false,
+		layers = {
+			{outline_width = -1},
+		},
+	}
+	render2d.PopBlendMode()
+end
+
+function JRPGTheme:DrawColorSurfaceCursor2D(x, y, marker_color)
+	render2d.SetTexture(nil)
+	render2d.PushBlendPreset("additive")
+	set_color(self:GetColor("primary"), 0.5)
+	self:DrawDiamond(x, y, 22)
+	render2d.PopBlendMode()
+	set_color(self:GetColor("gold"), 1)
+	self:DrawDiamond2(x, y, 16)
+	render2d.SetColor(1, 1, 1, 1)
+	self:DrawDiamond(x, y, 4)
+end
+
+function JRPGTheme:DrawColorSurfaceCursorBar(width, y)
+	render2d.SetTexture(nil)
+	render2d.PushBlendPreset("additive")
+	set_color(self:GetColor("primary"), 0.6)
+	render2d.DrawRect(0, y - 1, width, 3)
+	render2d.PopBlendMode()
+	set_color(self:GetColor("gold"), 1)
+	self:DrawDiamond(2, y, 8)
+	self:DrawDiamond(width - 2, y, 8)
+	render2d.SetColor(1, 1, 1, 0.9)
+	render2d.DrawRect(3, y, width - 6, 1)
 end
 
 function JRPGTheme:DrawSlider(size, state)

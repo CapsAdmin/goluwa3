@@ -1,214 +1,182 @@
-local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local vfs = import("goluwa/vfs.lua")
-local theme = import("goluwa/render2d/ui/theme.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
+local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
-local MenuContainer = import("goluwa/render2d/ui/elements/menu_container.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
+local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
-local Window = import("goluwa/render2d/ui/widgets/window.lua")
-local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
-local Panel = import("goluwa/render2d/ui/panel.lua")
-local timer = import("goluwa/timer.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
+local vfs = import("goluwa/vfs.lua")
+local META = Panel:CreateTemplate("ui_gallery")
+META.Base = Window
+META.Title = "UI GALLERY"
+META:StartStorable()
+META:GetSet("SelectedPage", nil)
+META:EndStorable()
+local section_order = {
+	"Foundations",
+	"Controls",
+	"Containers",
+	"Layout",
+	"Data",
+	"Overlays",
+	"Graphics",
+}
 
-local function update_layout_now(entity)
-	if not entity or not entity:IsValid() or not entity.layout then return end
-
-	entity.layout:InvalidateLayout()
-	local root = entity.layout
-	local parent = entity:GetParent()
-
-	while parent and parent:IsValid() and parent.layout do
-		root = parent.layout
-		parent = parent:GetParent()
-	end
-
-	root:UpdateLayout()
-end
-
-local function build_gallery(props)
+local function load_pages()
 	local pages = {}
-	local gallery_files = vfs.Find("lua/gallery/%.lua$")
 
-	for _, file in ipairs(gallery_files) do
+	for _, file in ipairs(vfs.Find("lua/gallery/%.lua$")) do
 		local ok, page = pcall(import, "lua/gallery/" .. file)
 
 		if ok then
-			table.insert(pages, page)
+			pages[#pages + 1] = page
 		else
-			print("Failed to load page: " .. file .. " - " .. tostring(page))
+			print("failed to load gallery page " .. file .. ": " .. tostring(page))
 		end
 	end
 
-	local function find_page_by_name(name)
-		if not name then return nil end
+	local rank = {}
 
-		for _, page in ipairs(pages) do
-			if page.Name == name then return page end
-		end
-
-		return nil
+	for index, name in ipairs(section_order) do
+		rank[name] = index
 	end
 
-	local content_panel = ScrollablePanel{
+	table.sort(pages, function(a, b)
+		if a.Section ~= b.Section then return rank[a.Section] < rank[b.Section] end
+
+		return (a.Order or 100) < (b.Order or 100)
+	end)
+
+	return pages
+end
+
+local function on_page_click(item)
+	item.Gallery:SelectPage(item.Page)
+end
+
+local function on_theme_select(name, text, index, dropdown)
+	theme.LoadTheme(name)
+	dropdown.Gallery:Rebuild()
+end
+
+function META:OnCreate(props)
+	props.Padding = props.Padding or "none"
+	props.Size = props.Size or Vec2(1280, 760)
+	props.Position = props.Position or (Panel.World.transform:GetSize() - props.Size) / 2
+	META.BaseClass.OnCreate(self, props)
+	self._pages = load_pages()
+	local sidebar = Column{
 		layout = {
+			ChildGap = "XXS",
 			GrowWidth = 1,
-			GrowHeight = 1,
+			AlignmentX = "stretch",
 		},
-		Padding = Rect() + theme.active:GetPadding("S"),
 	}
-	local selected_page = find_page_by_name(props.SelectedPage)
-	local window
+	local options = {}
 
-	local function select_page(page)
-		if not page then return end
-
-		selected_page = page
-		local viewport
-
-		for _, child in ipairs(content_panel:GetChildren()) do
-			if child:GetName() == "viewport" then
-				viewport = child
-
-				break
-			end
-		end
-
-		if viewport then
-			viewport:RemoveChildren()
-
-			if page and page.Create then
-				local content = page.Create()
-				viewport:AddChild(content)
-				update_layout_now(viewport)
-			end
-		else
-			print("Could not find viewport in content_panel")
-		end
+	for index, name in ipairs(theme.GetAvailable()) do
+		options[index] = name
 	end
 
-	local function rebuild_gallery()
-		if not window or not window:IsValid() then return end
-
-		local position = window.transform:GetPosition()
-		local size = window.transform:GetSize()
-
-		if position.Copy then position = position:Copy() end
-
-		if size.Copy then size = size:Copy() end
-
-		local replacement = build_gallery{
-			Key = props.Key,
-			Position = position,
-			Size = size,
-			SelectedPage = selected_page and selected_page.Name or nil,
+	sidebar:AddChild(
+		Text{
+			Text = "THEME",
+			Font = "body_strong XS",
+			Color = "text_disabled",
+			IgnoreMouseInput = true,
+			layout = {Padding = "XS"},
 		}
-		window:Remove()
-		Panel.World:Ensure(replacement)
-	end
+	)
+	sidebar:AddChild(
+		Dropdown{
+			Gallery = self,
+			Options = options,
+			Value = theme.active:GetName(),
+			Padding = "XS",
+			OnSelect = on_theme_select,
+		}
+	)
+	self._page_items = {}
+	local current_section
 
-	local page_buttons = {}
+	for _, page in ipairs(self._pages) do
+		if page.Section ~= current_section then
+			current_section = page.Section
+			sidebar:AddChild(
+				Text{
+					Text = current_section:upper(),
+					Font = "body_strong XS",
+					Color = "text_disabled",
+					IgnoreMouseInput = true,
+					layout = {Padding = Rect(8, 16, 8, 4)},
+				}
+			)
+		end
 
-	for _, page in ipairs(pages) do
-		table.insert(
-			page_buttons,
+		self._page_items[page] = sidebar:AddChild(
 			MenuItem{
-				Text = page.Name or "Unnamed Page",
-				OnClick = function()
-					select_page(page)
-				end,
+				Gallery = self,
+				Page = page,
+				Text = page.Name,
+				Padding = "S",
+				OnClick = on_page_click,
 			}
 		)
 	end
 
-	local sidebar_children = {
-		Text{
-			Text = "Theme",
-			Font = "body_strong S",
-			Color = "text",
-			IgnoreMouseInput = true,
-		},
-		Dropdown{
-			Text = theme.active:GetName(),
-			Value = theme.active:GetName(),
-			Options = (function()
-				local options = {}
-
-				for _, name in ipairs(theme.GetAvailable()) do
-					table.insert(options, {
-						Text = name,
-						Value = name,
-					})
-				end
-
-				return options
-			end)(),
-			GetValue = function()
-				return theme.active:GetName()
-			end,
-			GetText = function()
-				return theme.active:GetName()
-			end,
-			OnSelect = function(name)
-				theme.LoadTheme(name)
-				rebuild_gallery()
-			end,
-			layout = {
-				GrowWidth = 1,
-			},
-			Padding = "XS",
-		},
-		MenuContainer{
-			layout = {
-				GrowWidth = 1,
-			},
-		}(unpack(page_buttons)),
-	}
-	local world_panel = Panel.World
-	window = Window{
-		Key = props.Key or "GalleryWindow",
-		Title = "UI GALLERY",
-		Name = "UI GALLERY",
-		Size = props.Size or Vec2(800, 600),
-		Padding = "none",
-		Position = props.Position or (world_panel.transform:GetSize() - Vec2(800, 600)) / 2,
+	self._page_scroll = ScrollablePanel{
+		Padding = "M",
 		layout = {
-			FitHeight = false,
-			FitWidth = false,
+			GrowWidth = 1,
+			GrowHeight = 1,
 		},
-	}{
+	}
+	self:AddChild(
 		Splitter{
 			InitialSize = 220,
 		}{
 			ScrollablePanel{
-				layout = {
-					GrowHeight = 1,
-				},
-				Padding = Rect() + theme.active:GetPadding("XXS"),
-			}{
-				Column{
-					layout = {
-						ChildGap = 4,
-						GrowWidth = 1,
-						AlignmentX = "stretch",
-					},
-				}(sidebar_children),
-			},
-			content_panel,
-		},
+				layout = {GrowHeight = 1},
+				Padding = "XS",
+			}{sidebar},
+			self._page_scroll,
+		}
+	)
+	self:SelectPage(self:find_page(self.SelectedPage) or self._pages[1])
+end
+
+function META:find_page(name)
+	for _, page in ipairs(self._pages) do
+		if page.Name == name then return page end
+	end
+end
+
+function META:SelectPage(page)
+	for other, item in pairs(self._page_items) do
+		item:SetSelected(other == page)
+	end
+
+	self.SelectedPage = page.Name
+	self._page_scroll:RemoveChildren()
+	self._page_scroll:AddChild(page.Create())
+	self._page_scroll:GetViewport().transform:SetScroll(Vec2(0, 0))
+end
+
+function META:Rebuild()
+	local gallery = META.New{
+		Key = self:GetKey(),
+		Position = self.transform:GetPosition():Copy(),
+		Size = self.transform:GetSize():Copy(),
+		SelectedPage = self.SelectedPage,
 	}
 
-	timer.Delay(0, function()
-		if not window:IsValid() then return end
+	if self:IsValid() then self:Remove() end
 
-		select_page(selected_page or pages[1])
-	end)
-
-	return window
+	return gallery
 end
 
-return function(props)
-	return build_gallery(props or {})
-end
+return META:Register()
