@@ -44,6 +44,7 @@ local fragment_draw_constant_fields = {
 	{"color_uv_rotation", "float"},
 	{"light_color", "vec3"},
 	{"ambient_color", "vec3"},
+	{"ui_scale", "float"},
 }
 local fragment_shape_constant_fields = {
 	{"border_radius", "vec4"},
@@ -471,6 +472,12 @@ local rect_batch_fragment_passthrough_fields = {
 		},
 	},
 	snapshot_passthrough(
+		"batch_ui_scale",
+		"ui_scale",
+		1,
+		{{"draw.ui_scale", "batch_ui_scale", "in_batch_ui_scale"}}
+	),
+	snapshot_passthrough(
 		"batch_sdf_uv_bounds",
 		"sdf_uv_bounds",
 		4,
@@ -859,6 +866,27 @@ pvars.Setup2{
 	enums = {"off", "rgb", "bgr", "vrgb", "vbgr", "rwbg", "bwrg"},
 	help = "subpixel text layout of the display: rgb and bgr are horizontal stripes, vrgb and vbgr are the same on a display rotated to portrait, rwbg is LG WOLED TVs and monitors before 2025 (C1, C2, C3, G3), bwrg is LG WOLED from 2025 (G5)",
 }
+local hdr_ui_white = pvars.Setup2{
+	key = "r_hdr_ui_white",
+	default = 200,
+	min = 0,
+	help = "nits the UI is shown at in HDR output, 0 is the brightest the display can show (r_hdr_peak)",
+	callback = function()
+		if render2d.pipeline then
+			render2d.state.render.fragment.constants.ui_scale = render2d.GetUIScale()
+		end
+	end,
+}
+
+function render2d.GetUIScale()
+	if render.target:GetColorSpace() ~= "extended_srgb_linear_ext" then return 1 end
+
+	local nits = hdr_ui_white:Get()
+
+	if nits == 0 then nits = pvars.Get("r_hdr_peak") or 1000 end
+
+	return nits / 80
+end
 
 function render2d.SupportsSubpixelText()
 	return render.GetPhysicalDevice():GetFeatures().dualSrcBlend == 1
@@ -1471,6 +1499,8 @@ function render2d.Initialize()
 					out_color_dual = FLAGS_SUBPIXEL != 0 && draw.sdf_texture_index != -1 ? vec4(subpixel_alpha * base_alpha, out_color.a) : vec4(out_color.a);
 					#endif
 
+					out_color.rgb *= draw.ui_scale;
+
 					if (out_color.a <= 0.0) discard;
 				}
 			]],
@@ -1700,6 +1730,7 @@ function render2d.ResetState()
 	render2d.state.render.fragment.constants.sdf_threshold = 0.5
 	render2d.state.render.fragment.constants.sdf_bias = 0.0025
 	render2d.state.render.fragment.constants.sdf_gamma = 1
+	render2d.state.render.fragment.constants.ui_scale = render2d.GetUIScale()
 	render2d.state.render.fragment.constants.subpixel_strength = 1
 	render2d.state.render.fragment.constants.sdf_softness = 0.45
 	render2d.state.render.fragment.constants.sdf_texture_index = -1
