@@ -9,7 +9,6 @@ local Color = import("goluwa/structs/color.lua")
 local brush_hull = import("goluwa/physics/brush_hull.lua")
 local bit = require("bit")
 local units = import("goluwa/source_engine/units.lua")
-
 local collision = {}
 local BSP_LUMP_PLANES = 2
 local BSP_CONTENTS_SOLID = 0x1
@@ -26,6 +25,7 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_PLAYERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
+
 local function build_bounds_from_vertices(vertices)
 	if not (vertices and vertices[1]) then return nil end
 
@@ -559,7 +559,6 @@ local function build_displacement_collision_shape(positions, dims)
 	return {Polygon3D = poly}
 end
 
-
 collision.BSP_CONTENTS_SOLID = BSP_CONTENTS_SOLID
 collision.build_bsp_physics_body = build_bsp_physics_body
 collision.build_displacement_collision_shape = build_displacement_collision_shape
@@ -569,5 +568,4 @@ collision.get_model_lowest_point = get_model_lowest_point
 collision.get_face_first_source_height = get_face_first_source_height
 collision.source_pos_to_engine = source_pos_to_engine
 collision.source_height_to_engine_y = source_height_to_engine_y
-
 return collision

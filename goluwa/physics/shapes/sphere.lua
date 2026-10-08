@@ -84,7 +84,9 @@ function META:GetTypeName()
 end
 
 function META:GetScaled(scale)
-	return META.New(self:GetRadius() * math.max(math.abs(scale.x), math.abs(scale.y), math.abs(scale.z)))
+	return META.New(
+		self:GetRadius() * math.max(math.abs(scale.x), math.abs(scale.y), math.abs(scale.z))
+	)
 end
 
 function META:GetHalfExtents()

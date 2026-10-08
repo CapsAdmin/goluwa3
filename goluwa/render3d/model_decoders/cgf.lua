@@ -373,7 +373,6 @@ function cgf.ExtractStaticMeshData(parsed)
 			if mesh_chunk and mesh_chunk.type == cgf.CHUNK_MESH then
 				local transform_node_id = node.id
 
-				-- $LODn nodes sit beside the model in the file, the engine draws them where the base node is
 				if lod_level then
 					local base_name = node.name:gsub("^%$[lL][oO][dD]%d+_", "")
 					transform_node_id = base_nodes_by_name[base_name] or first_base_node or node.id
@@ -580,7 +579,6 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 			if entry.lod_level > 0 then has_lod_nodes = true end
 		end
 
-		-- objects without $LOD nodes keep their coarser levels in files next to them, name_LOD1.cgf
 		if not has_lod_nodes then
 			local base = model_path:gsub("%.[cC][gG][fF]$", "")
 

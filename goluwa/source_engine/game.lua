@@ -27,7 +27,6 @@ function game.GetMapPath(name)
 	return "maps/" .. name .. ".bsp"
 end
 
--- mounts the games a map is known to need, a no-op for maps not in the table
 function game.EnsureMounted(path)
 	local name = path:match("maps/(.+)%.bsp")
 

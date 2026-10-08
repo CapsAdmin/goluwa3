@@ -40,7 +40,9 @@ function ambient_occlusion.GetDebugView()
 end
 
 function ambient_occlusion.GetBentNormalTexture()
-	if not gi:Get() or not render3d.IsPassEnabled("ambient_occlusion") then return nil end
+	if not gi:Get() or not render3d.IsPassEnabled("ambient_occlusion") then
+		return nil
+	end
 
 	return render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(2)
 end

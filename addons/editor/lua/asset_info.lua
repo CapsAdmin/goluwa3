@@ -66,7 +66,6 @@ function asset_info.GetVMTSummary(source)
 	return summary
 end
 
--- returns {title = ..., rows = {{label, value}...}} sections, the same data feeds the details panel and the context menu
 function asset_info.Get(entry)
 	local sections = {}
 	local general = {title = "asset", rows = {}}

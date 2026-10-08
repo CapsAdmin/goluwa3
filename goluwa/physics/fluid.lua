@@ -38,8 +38,6 @@ function fluid.HasRegions()
 	return fluid.regions[1] ~= nil
 end
 
--- once per physics step: snapshots the volume transforms and the ocean level into plain numbers.
--- time is the game time at the end of the step, which the ocean waves are sampled at
 function fluid.Refresh(time)
 	fluid.time = time
 	local regions = fluid.regions
@@ -77,7 +75,6 @@ function fluid.Refresh(time)
 	end
 end
 
--- whether a sphere at x, y, z could touch the region
 function fluid.Overlaps(region, x, y, z, radius)
 	if region.ocean then return y - radius < region.level + region.max_height end
 

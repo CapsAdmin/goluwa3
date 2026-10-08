@@ -1468,7 +1468,6 @@ function Visual:RebuildRenderEntries()
 			entry.lod_far = sorted[rank + 1] and levels[sorted[rank + 1]] or lod.NEVER
 			entry.lod_last = #sorted - 1
 			entry.lod_billboard = entry.polygon3d.LODBillboard
-			-- shadows skip the billboard, so the level before it stays for them
 			entry.lod_before_billboard = has_billboard and rank == #sorted - 1
 		end
 
@@ -1557,8 +1556,6 @@ function Visual:GetResolvedMaterial(entry)
 	return self.MaterialOverride or entry.material or render3d.GetDefaultMaterial()
 end
 
--- the entries the scene bvh is built from: one fixed level, the most detailed unless lod_bvh_level says
--- otherwise, and never a billboard
 function Visual:GetBVHRenderEntries()
 	local level = lod.GetBVHLevel()
 	local entries = self:GetLODRenderEntries()
@@ -1592,9 +1589,6 @@ function Visual:GetBVHRenderEntries()
 	return list
 end
 
--- the entries the screen shows for a camera: the level the cull passes pick at that distance, without the
--- cross fade. a billboard stands for the last mesh level before it, as its quads say little about where the
--- model is
 function Visual:GetLODEntriesAt(camera_position)
 	local entries = self:GetLODRenderEntries()
 

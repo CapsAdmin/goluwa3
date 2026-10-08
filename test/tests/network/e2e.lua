@@ -50,7 +50,6 @@ local function create_scenario(name, conditions, port_offset)
 	return scenario
 end
 
--- environment is set per process so scenarios can run at the same time
 local function spawn(scenario, name, args)
 	local log = scenario.directory .. name .. ".log"
 	local command = string.format(
@@ -97,7 +96,6 @@ local function describe_all(scenario)
 	return table.concat(out, "\n")
 end
 
--- waits for a file written by one of the processes, failing early with logs if a watched process dies
 local function wait_for_file(scenario, file, timeout, watched)
 	local path = scenario.directory .. file
 	local description = string.format("%s: %s", scenario.name, file)
@@ -226,7 +224,6 @@ T.Test("network e2e: replication, prediction, reconciliation and relay under goo
 				create_scenario("lossy", {latency = 60, jitter = 25, loss = 3, tolerance = 0.4}, 2),
 			}
 
-			-- every stage starts all scenarios before waiting on any, so they overlap
 			for _, scenario in ipairs(active) do
 				spawn(
 					scenario,

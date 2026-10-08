@@ -13,7 +13,6 @@ local function f32(n)
 	return ffi.string(f, 4)
 end
 
--- a 4x4 dxt1 vtf with one solid block per frame
 return function(colors)
 	local header = "VTF\0" .. u32(7) .. u32(2) .. u32(80) .. u16(4) .. u16(4) .. u32(0) .. u16(#colors) .. u16(0) .. "\0\0\0\0" .. f32(1) .. f32(1) .. f32(1) .. "\0\0\0\0" .. f32(1) .. u32(13) .. "\1" .. u32(0xFFFFFFFF) .. "\0\0" .. u16(1)
 	header = header .. string.rep("\0", 80 - #header)

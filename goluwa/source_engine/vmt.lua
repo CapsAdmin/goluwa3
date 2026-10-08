@@ -51,6 +51,7 @@ local vdf = import("goluwa/codecs/vdf.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local vmt = {}
 vmt.ConvertTypedValues = convert_typed_values
+
 do
 	local texture_paths = {
 		basetexture = true,

@@ -38,7 +38,6 @@ T.Test3D("Billboard bake makes crossed quads and a flat one textured with the mo
 	local entity = create_red_box(Vec3(1, 2, 0.5))
 	local polygon, material = billboard.Bake(entity.visual)
 	T(#polygon.Vertices)["=="](12)
-	-- the normal is the one the double sided flip leaves pointing into the view, mostly along the view's forward
 	local forwards = {Vec3(0, 0, -1), Vec3(-1, 0, 0), Vec3(0, -1, 0)}
 
 	for i, vertex in ipairs(polygon.Vertices) do

@@ -261,14 +261,10 @@ function ddgi.GetScreenGeometryTexture()
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(2) or nil
 end
 
--- how many pixels of the screen one texel of the resolved gi covers, in each direction
 function ddgi.GetScreenRatioGLSL()
 	return "#define DDGI_SCREEN_RATIO " .. math.floor(1 / ddgi.RESOLVE_SCALE + 0.5) .. "\n"
 end
 
--- the screen gi is resolved for every DDGI_SCREEN_RATIO pixels in each direction. what a pixel gets
--- is the resolved texels around it, weighted by how much they sit at the same depth and face the
--- same way, so that the light of a thin thing in front doesn't spill onto what is behind it
 function ddgi.GetScreenSampleGLSL(block_name)
 	return ddgi.GetScreenRatioGLSL() .. [[
 		vec4 ddgi_screen_sample(ivec2 pixel, vec3 N, float view_depth) {

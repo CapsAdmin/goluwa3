@@ -174,7 +174,6 @@ local function apply_properties(object, properties, what)
 
 	for _, info in ipairs(infos) do
 		known[info.var_name] = true
-
 		local value = properties[info.var_name]
 
 		if value ~= nil then object[info.set_name](object, value) end
@@ -391,12 +390,16 @@ end
 function scene.LoadAsync(name, done)
 	local data = read_scene(name)
 	scene.Clear()
+	return scene.SpawnAsync(
+		data,
+		Entity.World,
+		nil,
+		function(roots, spawned)
+			reset_unloaded_singletons(spawned)
 
-	return scene.SpawnAsync(data, Entity.World, nil, function(roots, spawned)
-		reset_unloaded_singletons(spawned)
-
-		if done then done() end
-	end)
+			if done then done() end
+		end
+	)
 end
 
 function scene.GetUniqueName(parent, name)

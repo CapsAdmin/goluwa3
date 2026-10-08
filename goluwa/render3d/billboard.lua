@@ -212,7 +212,6 @@ function billboard.Bake(visual)
 		math.max(math.floor(height * half_width / half_height + 0.5), 16),
 		billboard.MAX_WIDTH
 	)
-	-- seen from above the tile has to hold the whole footprint, whatever the proportions of the model
 	local top_scale = math.max(1, half_depth / half_height)
 	local views = {}
 	local atlas_width = width * billboard.TILE_COUNT
@@ -257,7 +256,6 @@ function billboard.Bake(visual)
 		RoughnessMultiplier = 0.9,
 	}
 
-	-- the foliage is lit through, so the quads take what the first alpha tested material of the model has
 	for _, entry in ipairs(visual:GetRenderEntries()) do
 		local source = visual:GetResolvedMaterial(entry)
 
@@ -312,9 +310,6 @@ function billboard.Bake(visual)
 				) + view.up * (
 					corner[2] * view.half_height
 				)
-			-- double sided surfaces flip the normal on the side the winding calls the front, which is
-			-- the side the view saw, so the normal given is the one pointing into the view. tilted
-			-- outward from the middle of the model so the flat card is lit like the mass it stands for
 			local normal = view.forward + offset:GetNormalized() * billboard.NORMAL_TILT
 			polygon:AddVertex{
 				pos = center + offset,
@@ -382,7 +377,6 @@ local function update()
 	if not next(pending) then event.RemoveListener("Update", "billboard_bake") end
 end
 
--- calls back with the polygon and material, right away when the model was baked before
 function billboard.Request(model_path, callback)
 	local request = cache[model_path]
 

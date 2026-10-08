@@ -1,6 +1,4 @@
 local screen_refraction = library()
--- wavelengths in micrometers: the Fraunhofer C, d and F lines that define an Abbe number,
--- and the red, green and blue the channels stand for
 screen_refraction.WAVELENGTH_C = 0.6563
 screen_refraction.WAVELENGTH_D = 0.5876
 screen_refraction.WAVELENGTH_F = 0.4861

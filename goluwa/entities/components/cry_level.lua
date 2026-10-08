@@ -32,7 +32,6 @@ function META:Load()
 
 	if not level_dir then
 		wlog("cry_level: %s", tostring(err))
-
 		return
 	end
 

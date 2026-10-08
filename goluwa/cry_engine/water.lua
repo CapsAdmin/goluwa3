@@ -5,7 +5,6 @@ local water = import("goluwa/render3d/water.lua")
 local game = import("goluwa/cry_engine/game.lua")
 local Texture = import("goluwa/render/texture.lua")
 local cry_water = {}
--- standard deviation of the decoded red and green of Defaults/oceanwaves_ddn.dds is 0.213
 local WAVE_BUMP_SLOPE_VARIANCE = 0.0455
 local wave_texture
 

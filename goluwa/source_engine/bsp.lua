@@ -14,14 +14,12 @@ local R = vfs.GetAbsolutePath
 local bit = require("bit")
 local units = import("goluwa/source_engine/units.lua")
 local collision = import("goluwa/source_engine/bsp_collision.lua")
-
 local bsp = {}
 local loaded = {}
 bsp.resolved = {}
 local CUBEMAPS = true
 local SKY_CUT_MARGIN = 0.5
 local GROUP_WALL_MARGIN = 256
-
 local BSP_CONTENTS_SOLID = collision.BSP_CONTENTS_SOLID
 local build_bsp_physics_body = collision.build_bsp_physics_body
 local build_displacement_collision_shape = collision.build_displacement_collision_shape
@@ -31,6 +29,7 @@ local get_model_lowest_point = collision.get_model_lowest_point
 local get_face_first_source_height = collision.get_face_first_source_height
 local source_pos_to_engine = collision.source_pos_to_engine
 local source_height_to_engine_y = collision.source_height_to_engine_y
+
 local function convert_bsp_types(header)
 	local function vec3(a)
 		return Vec3(a[1], a[2], a[3])
@@ -872,8 +871,6 @@ function bsp.Load(path)
 				emit_polygon(polygon, area, min_x, max_x, min_y, max_y, u_range, v_range, texname)
 			end
 
-			-- unfolds the displaced surface into the decal plane by surface distance instead
-			-- of projecting along the decal normal, so steep and curved terrain does not smear the texture
 			function add_displacement_decal(
 				face_indices,
 				origin,
@@ -1340,7 +1337,6 @@ function bsp.Load(path)
 	tasks.ReportProgress("finished reading " .. path)
 	return loaded[path]
 end
-
 
 function bsp.BindOwner(data, owner)
 	for _, shape in ipairs(data.physics_body.Shapes) do

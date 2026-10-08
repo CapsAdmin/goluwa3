@@ -848,7 +848,6 @@ function META:Arrange()
 				resolving = false
 
 				for _, c in ipairs(layout_children) do
-					-- MaxSize <= 1 is the scroll viewport's overflow flag, not a size cap
 					if c.grow > 0 and c.max_main > 1 and not c.capped then
 						local cap = math.max(0, c.max_main - c.base_size)
 

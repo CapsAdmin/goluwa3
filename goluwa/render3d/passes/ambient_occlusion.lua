@@ -8,12 +8,8 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BIT_COUNT = 32
--- the ao is made for every RATIO pixels in each direction, each texel standing for the pixel in the top left
--- corner of the ones it covers. the blur pass makes it a full resolution image again
 local SCALE = 0.5
 local RATIO = math.floor(1 / SCALE + 0.5)
--- how the blur pass weighs the texels around a pixel: how near they are in pixels, how far off the
--- depth they stand for may be as a share of the pixel's own, and the power of how alike the normals are
 local BLUR_DISTANCE_SIGMA = 2
 local BLUR_DEPTH_SIGMA = 0.02
 local BLUR_NORMAL_POWER = 8

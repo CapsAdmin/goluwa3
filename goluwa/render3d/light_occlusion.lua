@@ -509,7 +509,14 @@ function light_occlusion.Draw(cmd)
 	pipeline:UpdateDescriptorSet("storage_image", slot, BINDING_MAP, 0, map_texture:GetView())
 	scene_bvh.BindBuffers(pipeline, slot, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
 	local see_through = scene_bvh.UpdateSeeThroughMaterials()
-	pipeline:UpdateDescriptorSet("storage_buffer", slot, BINDING_SEE_THROUGH, 0, see_through, see_through:GetSize())
+	pipeline:UpdateDescriptorSet(
+		"storage_buffer",
+		slot,
+		BINDING_SEE_THROUGH,
+		0,
+		see_through,
+		see_through:GetSize()
+	)
 	pipeline:UploadConstants()
 	local size = get_map_size()
 	light_occlusion.last_dispatches = dirty_count

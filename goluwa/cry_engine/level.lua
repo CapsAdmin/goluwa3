@@ -195,10 +195,7 @@ function level.ConvertCryWorldMatrixToEngineTransform(world_matrix)
 		units.ToEngine(cry_x / scale_x) or
 		Vec3(1, 0, 0)
 	local up = scale_z > 0.000001 and units.ToEngine(cry_z / scale_z) or Vec3(0, 1, 0)
-	local back = scale_y > 0.000001 and
-		-units.ToEngine(cry_y / scale_y)
-		or
-		Vec3(0, 0, 1)
+	local back = scale_y > 0.000001 and -units.ToEngine(cry_y / scale_y) or Vec3(0, 0, 1)
 	local rotation_matrix = Matrix44()
 	rotation_matrix:Identity()
 	rotation_matrix.m00 = right.x
@@ -1177,17 +1174,13 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 	local raw = sample_terrain_height_raw(terrain, sample_x, sample_y)
 	return raw / 65535
 end
-
-
 local loaded_levels = {}
 local libraries
 
 function level.Load(level_dir)
 	game.EnsureLevelMounts(level_dir)
 
-	if loaded_levels[level_dir] then
-		return loaded_levels[level_dir]
-	end
+	if loaded_levels[level_dir] then return loaded_levels[level_dir] end
 
 	local nodes = {}
 	local layers_dir = level_dir .. "Layers/"

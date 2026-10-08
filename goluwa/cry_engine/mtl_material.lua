@@ -13,6 +13,7 @@ local cry_mtl_document_cache = {}
 local cry_mtl_material_cache = {}
 local cry_texture_path_cache = {}
 local SRGBTexture, LinearTexture = Material.SRGBTexture, Material.LinearTexture
+
 local function color_is_default(color)
 	return color and color.r == 1 and color.g == 1 and color.b == 1 and color.a == 1
 end
@@ -450,7 +451,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 	return self
 end
 
-
 local function load_cry_mtl_document(path)
 	local document = cry_mtl_document_cache[path]
 
@@ -577,7 +577,6 @@ end
 
 Material.RegisterOverrideLoader(".mtl", function(path)
 	local slots = mtl_material.FromCryMTLSlots(path)
-
 	return slots, not slots and mtl_material.FromCryMTL(path) or nil
 end)
 
@@ -604,6 +603,5 @@ function mtl_material.CryMTLHasGenFlag(path, name)
 
 	return false
 end
-
 
 return mtl_material

@@ -106,9 +106,6 @@ do
 	local offset = 0
 	local synced = false
 
-	-- the game clock is the elapsed time on the server and the elapsed time shifted by the offset
-	-- to the server's on clients. a packet is late by its latency, so the largest offset seen is
-	-- the best estimate and the offset only drifts down slowly towards later samples
 	function system.SetServerTime(time)
 		local sample = time - system.GetElapsedTime()
 

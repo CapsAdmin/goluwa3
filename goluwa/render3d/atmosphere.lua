@@ -1012,7 +1012,6 @@ do
 	local CONTRAST_THRESHOLD = -math.log(0.02)
 	local SEA_LEVEL_EXTINCTION_PER_METER = SCENERY_FOG_EXTINCTION * math.exp(-SEA_LEVEL_EYE_HEIGHT / SCENERY_FOG_SCALE_HEIGHT) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
 
-	-- tints the light the low altitude fog scatters, nil for the untinted one
 	function atmosphere.SetFogColor(radiance)
 		atmosphere.fog_color = radiance
 	end

@@ -40,8 +40,6 @@ end
 
 material_proxies.ParseTransform = parse_transform
 
--- the vmt parser groups blocks by name, but proxies read and write the same variables
--- in order, so they are read again here in file order
 local function parse_blocks(text)
 	local pos, len = 1, #text
 
@@ -148,7 +146,6 @@ local function parse_variable(name, value)
 	return tonumber(value) or value
 end
 
--- parameters are either a number or the name of a material variable, optionally indexed
 local function reference(str)
 	local name, index = str:match("^%$([%w_]+)%[(%d+)%]$")
 

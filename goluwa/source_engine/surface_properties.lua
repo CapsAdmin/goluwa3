@@ -77,7 +77,9 @@ do
 			end
 
 			for _, v in pairs(all) do
-				if v.base and type(v.base) == "string" then v.base = all[v.base:lower()] or nil end
+				if v.base and type(v.base) == "string" then
+					v.base = all[v.base:lower()] or nil
+				end
 			end
 		end
 

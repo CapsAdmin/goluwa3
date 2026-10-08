@@ -9,8 +9,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local units = import("goluwa/source_engine/units.lua")
 local bit = require("bit")
 local map_scene = {}
--- the fog is lit by the scene and tinted by the controller's colour, its brightest channel scaled to this
--- the visibility distance is scaled because source's fog is linear and ours exponential
 local FOG_TINT_STRENGTH = 1
 local FOG_DISTANCE_SCALE = 10
 local LIGHT_INFO_KEYS = {
@@ -94,6 +92,7 @@ local function load_models(paths)
 
 	for path in pairs(paths) do
 		pending = pending + 1
+
 		model_loader.LoadModel(
 			path,
 			function(model)
@@ -123,7 +122,6 @@ local function clip_bounds(info)
 	return {box.min_x, box.min_y, box.min_z, box.max_x, box.max_y, box.max_z}
 end
 
--- must run inside a task, it waits for the physics data of prop models to decode
 function map_scene.Translate(data, map_name, map_path)
 	assert(tasks.GetActiveTask(), "map_scene.Translate must run inside a task")
 	local records = {}
@@ -171,7 +169,12 @@ function map_scene.Translate(data, map_name, map_path)
 
 		if not sub_groups[guid] then
 			sub_groups[guid] = true
-			add{guid = guid, parent = container_guid, properties = {Name = name}, components = {}}
+			add{
+				guid = guid,
+				parent = container_guid,
+				properties = {Name = name},
+				components = {},
+			}
 		end
 
 		return guid
@@ -190,7 +193,6 @@ function map_scene.Translate(data, map_name, map_path)
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 			entries[#entries + 1] = {kind = "light", info = info, index = index}
 		elseif info.classname == "env_fog_controller" then
-			-- the master controller is the one in effect when the map starts
 			if
 				bit.band(tonumber(info.spawnflags) or 0, 1) ~= 0 and
 				tonumber(info.fogenable) == 1

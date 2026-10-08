@@ -8,8 +8,6 @@ local TORQUE_IMPULSE = Vec3()
 local COLLIDER_OFFSET = Vec3()
 local OCEAN_SAMPLE = {}
 
--- fills each collider with cubic-ish cells that stand in for its volume. the cell volumes are
--- normalized so they sum to the shape's volume however coarse the grid is
 function buoyancy.BuildCells(body)
 	local cx, cy, cz, cv = {}, {}, {}, {}
 	local count = 0
@@ -107,11 +105,6 @@ function buoyancy.BuildCells(body)
 	}
 end
 
--- Archimedes: every cell below a surface pushes up with the weight of the fluid it displaces,
--- applied at the cell so a body that is only partly under rights itself. a cell crosses the surface
--- over one cell spacing, which keeps the force continuous. drag is applied implicitly.
--- gravity is scaled by the body's GravityScale, and BuoyancyDensity makes the body float as if its
--- material had that density whatever its simulated mass is, which drag follows too
 function buoyancy.Apply(body, dt, gravity)
 	local cells = body.BuoyancyCells
 

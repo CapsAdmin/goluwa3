@@ -57,9 +57,6 @@ local glow_pvar = pvars.Setup2{
 	callback = update_lights,
 }
 pvars.EndGroup()
--- the fog is lit by the scene and tinted by the controller's colour, its brightest channel scaled to this
--- the visibility distance is scaled because source's fog is linear and ours exponential
-
 local convert_source_light_to_engine
 
 do
@@ -136,7 +133,6 @@ do
 		local core = 0
 
 		if l + q > 0 then
-			-- the light's flat core is part of its falloff, but only a small part is a sphere
 			source_radius = math.min(source_radius, MAX_SOURCE_RADIUS)
 			core = math.max(c * s ^ 2 - source_radius ^ 2, 0) * core_pvar:Get()
 		end
@@ -154,7 +150,6 @@ do
 	end
 end
 
-
 lights.Convert = convert_source_light_to_engine
 
 function lights.Apply(light, info)
@@ -167,6 +162,5 @@ function lights.Apply(light, info)
 	light:SetGlowRadius(params.glow_radius)
 	light:SetLumen(params.intensity * params.color:GetLuminance() * light:GetEmissionSolidAngle())
 end
-
 
 return lights

@@ -42,7 +42,6 @@ META:GetSet("SwimAcceleration", 30)
 META:GetSet("SwimEnterFraction", 0.75)
 META:GetSet("SwimExitFraction", 0.5)
 META:IsSet("Swimming", false)
--- a lean adult with the lungs mostly emptied, a little denser than water so they sink slowly
 META:GetSet("BodyDensity", 1060)
 
 function META:Initialize()

@@ -200,7 +200,6 @@ function META:GetTexture()
 	return self:EnsureFramebuffer():GetColorTexture()
 end
 
--- a framebuffer is sampled upside down by render2d, so this draws the upright image
 function META:Draw(x, y, w, h)
 	render2d.PushTexture(self:GetTexture())
 	render2d.PushColorUV(0, 1, 1, 0, 0)

@@ -3,7 +3,6 @@ local utility = import("goluwa/utility.lua")
 local engines = {}
 local registered = {}
 
--- engine = {Find(name) -> id | nil, err; Load(id); List() -> names (optional)}
 function engines.Register(name, engine)
 	registered[name] = engine
 end

@@ -50,7 +50,6 @@ function post_source.GetRawSceneSourceTexture()
 	return post_source.GetFoggedOpaqueSceneTexture()
 end
 
--- a debug pass's output is display referred: linear 0..1 shown as is, skipping exposure, tonemapping and bloom
 function post_source.GetDebugTexture()
 	if normal_debug.GetView() ~= 0 then
 		return render3d.pipelines.normal_debug:GetFramebuffer():GetAttachment(1)

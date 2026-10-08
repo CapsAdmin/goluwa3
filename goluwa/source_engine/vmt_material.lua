@@ -113,20 +113,17 @@ local function on_load_vmt(self, vmt)
 			self:SetInvertRoughnessTexture(true)
 		end
 
-		-- the mask is the normal map's alpha when it has one, and only then the base alpha
 		local normal_mask = vmt.normalmapalphaenvmapmask == 1 and vmt.bumpmap ~= nil
 
 		if normal_mask then
 			self:SetNormalTextureAlphaIsRoughness(true)
 			self:SetInvertRoughnessTexture(true)
 		elseif vmt.basealphaenvmapmask == 1 then
-			-- source reflects where the base alpha is low, unlike the normal map's alpha
 			self:SetAlbedoTextureAlphaIsRoughness(true)
 		end
 
 		if not self:HasExplicitRoughnessTexture() then self:SetRoughnessMultiplier(0) end
 
-		-- an envmap is a cubemap lookup of fixed sharpness, its mask only scales how much of it is added
 		if vmt.phong ~= 1 then
 			self:SetRoughnessMaskOnlyScalesSpecular(true)
 			self:SetRoughnessMultiplier(ENVMAP_ROUGHNESS)
@@ -134,7 +131,6 @@ local function on_load_vmt(self, vmt)
 	end
 
 	if vmt.phong == 1 then
-		-- a bump mapped phong is masked by the normal map's alpha unless told otherwise
 		if
 			vmt.bumpmap and
 			not vmt.phongexponenttexture and
@@ -167,7 +163,6 @@ local function on_load_vmt(self, vmt)
 
 		roughness = math.max(0.04, math.min(1.0, roughness))
 
-		-- a phong mask only decides how strong the highlight is, the exponent alone sets its size
 		if
 			not vmt.phongexponenttexture and
 			(
@@ -186,8 +181,6 @@ local function on_load_vmt(self, vmt)
 	if not vmt.envmap and vmt.phong ~= 1 then
 		self:SetSpecularMultiplier(0)
 	else
-		-- source adds the envmap and the phong highlight on top of the diffuse. a
-		-- dielectric's F0 of 0.04 can't hold that, a metallic that keeps both can
 		local f0 = 0.04
 
 		if vmt.envmap then
@@ -205,7 +198,6 @@ local function on_load_vmt(self, vmt)
 				lum = tint.r * 0.2126 + tint.g * 0.7152 + tint.b * 0.0722
 			end
 
-			-- without a phong there is no direct specular in source, so no dielectric floor
 			f0 = vmt.phong == 1 and math.max(f0, ENVMAP_F0 * lum) or ENVMAP_F0 * lum
 		end
 
@@ -272,7 +264,6 @@ local function on_load_vmt(self, vmt)
 	end
 
 	if typex(vmt.srgbtint) == "vec3" then
-		-- source multiplies this in gamma space, which in linear is the tint to the 2.2
 		local tint, color = vmt.srgbtint, self.ColorMultiplier:Copy()
 		color.r, color.g, color.b = color.r * tint.x ^ 2.2, color.g * tint.y ^ 2.2, color.b * tint.z ^ 2.2
 		self:SetColorMultiplier(color)
@@ -647,7 +638,6 @@ vmt_stats = vmt_stats or {
 	values = {},
 }
 
--- a private_prefix makes a material that is not shared through the cache and owns its textures, release it with vmt_material.Release
 function vmt_material.FromVMT(path, private_prefix)
 	local cache_key = get_vmt_cache_key(path)
 

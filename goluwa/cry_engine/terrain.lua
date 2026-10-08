@@ -429,5 +429,4 @@ function terrain.ApplyVegetationMaterialState(level_data)
 	end
 end
 
-
 return terrain

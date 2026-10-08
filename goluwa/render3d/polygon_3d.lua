@@ -172,7 +172,6 @@ function Polygon3D:GetVertices()
 	return self.Vertices
 end
 
--- a copy without the triangles that lie entirely inside a world space box, nil if none do. needs a packed polygon
 function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
 	local packed = self.packed
 	local vertices = packed.vertices

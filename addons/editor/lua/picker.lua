@@ -111,7 +111,6 @@ function picker.find_3d_pick_target(mouse_pos)
 	local screen_width, screen_height = render2d.GetSize()
 	local ray_origin = cam:GetPosition()
 	local ray_direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
-	-- the ray hits what the screen shows, the level of detail picked for the camera
 	raycast.SetLODCamera(ray_origin)
 	local ok, visual_hit = pcall(
 		raycast.CastClosest,

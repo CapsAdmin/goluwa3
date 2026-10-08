@@ -513,7 +513,6 @@ end
 function previews.Draw(state, x, y, w, h)
 	if state.render then
 		state.render.preview:Draw(x, y, w, h)
-
 		return
 	end
 
