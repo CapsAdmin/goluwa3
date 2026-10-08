@@ -16,6 +16,7 @@ local SURFACE_MATERIAL_FIELDS = {
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
+	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
 }
 local PBR_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
@@ -30,6 +31,7 @@ local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
 	{type = "float", name = "SpecularMultiplier", getter = "GetSpecularMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
+	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
 	{type = "float", name = "Clearcoat", getter = "GetClearcoat"},
 	{type = "float", name = "ClearcoatRoughness", getter = "GetClearcoatRoughness"},
 }
@@ -1263,10 +1265,16 @@ function model_pipeline.BuildSurfaceSamplingGlsl()
 				vec3 t = normalize(tangent.xyz);
 				vec3 b = cross(normal, t) * tangent.w;
 
-				return normalize(mat3(t, b, normal) * decode_normal_texture(texture(TEXTURE(model.NormalTexture), uv)));
+				vec3 n = decode_normal_texture(texture(TEXTURE(model.NormalTexture), uv));
+
+				return normalize(mat3(t, b, normal) * vec3(n.xy * model.NormalMapMultiplier, n.z));
 			}
 
 			vec3 get_surface_emissive(vec3 albedo) {
+				if (Additive) {
+					return albedo * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
+				}
+
 				if (AlbedoAlphaIsEmissive) {
 					float mask = 1.0;
 
@@ -1278,7 +1286,8 @@ function model_pipeline.BuildSurfaceSamplingGlsl()
 				}
 
 				if (model.EmissiveTexture != -1) {
-					vec3 emissive = texture(TEXTURE(model.EmissiveTexture), in_uv).rgb;
+					vec3 texel = texture(TEXTURE(model.EmissiveTexture), in_uv).rgb;
+					vec3 emissive = EmissiveTextureIsColor ? texel : albedo * texel.r;
 					return emissive * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
 				}
 
@@ -1758,6 +1767,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				if (model.NormalTexture != -1) {
 					N = decode_normal_texture(texture(TEXTURE(model.NormalTexture), bump_uv(uv)));
+					N = normalize(vec3(N.xy * factor_model.NormalMapMultiplier, N.z));
 				} else if (has_heightmap()) {
 					N = get_height_normal_tangent(uv);
 				}
@@ -1949,8 +1959,9 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					}
 					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
 				} else if (aux_model.EmissiveTexture != -1) {
-					float mask = texture(TEXTURE(aux_model.EmissiveTexture), uv).r;
-					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
+					vec3 texel = texture(TEXTURE(aux_model.EmissiveTexture), uv).rgb;
+					vec3 source = EmissiveTextureIsColor ? texel : get_albedo_uv(uv) * texel.r;
+					emissive = source * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
 				} else if (aux_model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
 					float mask = texture(TEXTURE(aux_model.MetallicTexture), uv).a;
 					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;

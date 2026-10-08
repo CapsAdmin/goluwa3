@@ -802,7 +802,13 @@ return function(steam)
 						vfs.Find(lib_folder .. "workshop/content/" .. game_info.filesystem.steamappid .. "/", true)
 					) do
 						for _, file_name in ipairs(vfs.Find(path .. "/")) do
-							vfs.Mount(path .. "/" .. file_name, nil, game_info)
+							if file_name:ends_with("_legacy.bin") then
+								local extracted = lib_folder .. "common/GarrysMod/garrysmod/cache/workshop/" .. path:match("([^/]+)/?$") .. ".gma"
+
+								if vfs.IsFile(extracted) then vfs.Mount(extracted, nil, game_info) end
+							elseif not file_name:ends_with(".dupe") then
+								vfs.Mount(path .. "/" .. file_name, nil, game_info)
+							end
 						end
 					end
 				end

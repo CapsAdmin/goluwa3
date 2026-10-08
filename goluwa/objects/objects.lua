@@ -17,6 +17,8 @@ local template_functions = {
 	"EndStorable",
 	"StartOptions",
 	"EndOptions",
+	"StartCategory",
+	"EndCategory",
 	"Register",
 	"RegisterComponent",
 	"CreateObject",
@@ -461,6 +463,7 @@ do
 	local __store = false
 	local __meta
 	local __options
+	local __category
 
 	function objects.StartStorable(meta, options)
 		__store = true
@@ -480,6 +483,14 @@ do
 
 	function objects.EndOptions()
 		__options = nil
+	end
+
+	function objects.StartCategory(meta, name)
+		__category = name
+	end
+
+	function objects.EndCategory()
+		__category = nil
 	end
 
 	function objects.GetStorableVariables(meta)
@@ -778,6 +789,8 @@ do
 		local meta = info.meta or __meta
 
 		if __options then table.merge(info, __options) end
+
+		if __category then info.category = __category end
 
 		local function commit(self, var)
 			if var == nil then

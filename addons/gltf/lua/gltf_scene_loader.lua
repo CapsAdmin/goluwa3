@@ -305,6 +305,7 @@ local function build_material(gltf_data, material_index)
 
 	if info.emissive_texture then
 		config.EmissiveTexture = load_texture(gltf_data, info.emissive_texture, true)
+		config.EmissiveTextureIsColor = true
 	end
 
 	local emissive = info.emissive_factor or {0, 0, 0}

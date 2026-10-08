@@ -379,6 +379,16 @@ function META:ExpandToKey(key)
 		local category = self._category_refs[category_key]
 
 		if category then category:SetCollapsed(false) end
+
+		for _, item in ipairs(self._items) do
+			if get_node_key(item) == category_key then
+				for _, child in ipairs(get_node_children(item)) do
+					if child.IsGroup and find_node_by_key(child.Children, key) then
+						self._category_refs[child.Key]:SetCollapsed(false)
+					end
+				end
+			end
+		end
 	end
 
 	return self
@@ -411,8 +421,20 @@ function META:refresh_row_text(info)
 	info.text.text:SetColor(
 		self._selected_key == info.key and
 			theme.active:ResolveColor("text", "property_selection") or
-			theme.active:GetColor("text")
+			(
+				info.node.IsEnabled and
+				not info.node.IsEnabled()
+				and
+				theme.active:GetColor("text_disabled") or
+				theme.active:GetColor("text")
+			)
 	)
+end
+
+function META:refresh_all_row_text()
+	for _, info in pairs(self._row_infos) do
+		self:refresh_row_text(info)
+	end
 end
 
 function META:sync_selection(key)
@@ -686,8 +708,9 @@ function META:create_control(node, path, key)
 	return control
 end
 
-function META:collect_rows(nodes, parent_path, label_prefix, out)
-	for index, node in ipairs(nodes or {}) do
+function META:collect_rows(nodes, parent_path, label_prefix, out, first, last)
+	for index = first or 1, last or #nodes do
+		local node = nodes[index]
 		local path = build_path(parent_path, index)
 		local label = label_prefix and
 			(
@@ -709,12 +732,9 @@ function META:collect_rows(nodes, parent_path, label_prefix, out)
 	end
 end
 
-function META:build_category_panel(node, path, key)
-	local entries = {}
-	self:collect_rows(get_node_children(node), path, nil, entries)
+function META:build_rows_panel(entries)
 	local left_children = {}
 	local right_children = {}
-	local labels_height
 
 	for i, entry in ipairs(entries) do
 		local alternate = i % 2 == 0
@@ -774,6 +794,81 @@ function META:build_category_panel(node, path, key)
 		right_children[i] = editor_row
 	end
 
+	local split_row = Panel.New{
+		Name = "property_split_row",
+		transform = true,
+		layout = {
+			Direction = "x",
+			GrowWidth = 1,
+			FitHeight = true,
+			AlignmentY = "stretch",
+			ChildGap = 0,
+		},
+		visual = true,
+	}
+	local key_column = Column{
+		layout = {
+			GrowWidth = 0,
+			FitHeight = true,
+			FitWidth = false,
+			AlignmentX = "stretch",
+			ChildGap = 0,
+			MinSize = Vec2(self._key_width, 0),
+			MaxSize = Vec2(self._key_width, 0),
+		},
+		visual = {Clipping = true},
+	}(left_children)
+	self._category_key_columns[#self._category_key_columns + 1] = key_column
+	split_row{
+		key_column,
+		Column{
+			layout = {
+				GrowWidth = 1,
+				FitHeight = true,
+				FitWidth = false,
+				AlignmentX = "stretch",
+				ChildGap = 0,
+			},
+		}(right_children),
+	}
+	self._category_dividers[#self._category_dividers + 1] = PropertyDivider{
+		Parent = split_row,
+		Editor = self,
+		Container = split_row,
+		Thickness = self._divider_width,
+		RestAlpha = self.DividerDrawAlpha,
+	}
+	return split_row
+end
+
+function META:build_group_panel(node, path)
+	local key = get_node_key(node, path)
+	local entries = {}
+	self:collect_rows(get_node_children(node), path, nil, entries)
+	local collapsed = self._collapsed_state[key]
+
+	if collapsed == nil then collapsed = node.Collapsed == true end
+
+	local group = Collapsible{
+		Editor = self,
+		CategoryKey = key,
+		Title = get_node_text(node, path),
+		HeaderButtonColor = "purple",
+		HeaderMode = "filled",
+		HeaderHeight = self:get_row_height(node),
+		HeaderPadding = node.HeaderPadding or self._padding,
+		HeaderGap = self.HeaderGap or "XXS",
+		HeaderFontSize = self._font_size,
+		HeaderTextColor = "text_on_accent",
+		Padding = "none",
+		Collapsed = collapsed,
+		OnToggle = on_category_toggle,
+	}{self:build_rows_panel(entries)}
+	self._category_refs[key] = group
+	return group
+end
+
+function META:build_category_panel(node, path, key)
 	local collapsed = self._collapsed_state[key]
 	local children = {}
 
@@ -781,53 +876,28 @@ function META:build_category_panel(node, path, key)
 		collapsed = node.Collapsed == true or node.Expanded == false
 	end
 
-	if #entries > 0 then
-		local split_row = Panel.New{
-			Name = "property_split_row",
-			transform = true,
-			layout = {
-				Direction = "x",
-				GrowWidth = 1,
-				FitHeight = true,
-				AlignmentY = "stretch",
-				ChildGap = 0,
-			},
-			visual = true,
-		}
-		local key_column = Column{
-			layout = {
-				GrowWidth = 0,
-				FitHeight = true,
-				FitWidth = false,
-				AlignmentX = "stretch",
-				ChildGap = 0,
-				MinSize = Vec2(self._key_width, 0),
-				MaxSize = Vec2(self._key_width, 0),
-			},
-			visual = {Clipping = true},
-		}(left_children)
-		self._category_key_columns[#self._category_key_columns + 1] = key_column
-		split_row{
-			key_column,
-			Column{
-				layout = {
-					GrowWidth = 1,
-					FitHeight = true,
-					FitWidth = false,
-					AlignmentX = "stretch",
-					ChildGap = 0,
-				},
-			}(right_children),
-		}
-		self._category_dividers[#self._category_dividers + 1] = PropertyDivider{
-			Parent = split_row,
-			Editor = self,
-			Container = split_row,
-			Thickness = self._divider_width,
-			RestAlpha = self.DividerDrawAlpha,
-		}
-		children[1] = split_row
-	else
+	local nodes = get_node_children(node)
+	local run_start = 1
+
+	for index = 1, #nodes + 1 do
+		local group = nodes[index]
+
+		if index == #nodes + 1 or group.IsGroup then
+			if index > run_start then
+				local entries = {}
+				self:collect_rows(nodes, path, nil, entries, run_start, index - 1)
+				children[#children + 1] = self:build_rows_panel(entries)
+			end
+
+			run_start = index + 1
+
+			if group then
+				children[#children + 1] = self:build_group_panel(group, build_path(path, index))
+			end
+		end
+	end
+
+	if #children == 0 then
 		children[1] = Text{
 			Text = "No editable properties.",
 			FontSize = self._font_size,
@@ -904,6 +974,14 @@ do
 		end
 	end
 
+	local function is_property_active(value)
+		return value ~= nil and
+			value ~= false and
+			value ~= 0 and
+			value ~= "none" and
+			value ~= ""
+	end
+
 	local function build_property_node(editor, target, category_key, category_name, info)
 		local resolved_type = property_type_aliases[info.type] or info.type
 		local enums = info.enums or info.get_enums and info.get_enums(target)
@@ -920,8 +998,21 @@ do
 			end
 		end
 
+		local requires = info.requires
 		local node = {
 			Type = node_type,
+			IsEnabled = requires and
+				function()
+					if type(requires) == "string" then
+						return is_property_active(target[requires])
+					end
+
+					for i = 1, #requires do
+						if not is_property_active(target[requires[i]]) then return false end
+					end
+
+					return true
+				end,
 			Key = category_key .. "/" .. info.var_name,
 			Text = info.var_name,
 			Value = get_value(),
@@ -1026,9 +1117,29 @@ do
 
 			for _, category in ipairs(categories) do
 				local children = {}
+				local groups = {}
 
 				for _, info in ipairs(objects.GetStorableVariables(category.object)) do
-					children[#children + 1] = build_property_node(self, category.object, category.key, category.name, info)
+					local node = build_property_node(self, category.object, category.key, category.name, info)
+
+					if info.category then
+						local group = groups[info.category]
+
+						if not group then
+							group = {
+								Key = category.key .. "/#" .. info.category,
+								Text = info.category,
+								IsGroup = true,
+								Children = {},
+							}
+							groups[info.category] = group
+							children[#children + 1] = group
+						end
+
+						group.Children[#group.Children + 1] = node
+					else
+						children[#children + 1] = node
+					end
 				end
 
 				for _, info in ipairs(category.object:GetDynamicProperties()) do
@@ -1051,6 +1162,8 @@ do
 
 						return
 					end
+
+					self:refresh_all_row_text()
 
 					if self._property_change_sync_blocked > 0 then return end
 
