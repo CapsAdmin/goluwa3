@@ -1,10 +1,12 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local fluid = import("goluwa/physics/fluid.lua")
+local water = import("goluwa/render3d/water.lua")
 local buoyancy = {}
 local CELLS_PER_AXIS = 5
 local ACTIVE_REGIONS = {}
 local TORQUE_IMPULSE = Vec3()
 local COLLIDER_OFFSET = Vec3()
+local OCEAN_SAMPLE = {}
 
 -- fills each collider with cubic-ish cells that stand in for its volume. the cell volumes are
 -- normalized so they sum to the shape's volume however coarse the grid is
@@ -123,17 +125,33 @@ function buoyancy.Apply(body, dt, gravity)
 	local regions = fluid.regions
 	local active = ACTIVE_REGIONS
 	local active_count = 0
+	local ocean_active = false
 
 	for i = 1, #regions do
-		if fluid.Overlaps(regions[i], px, py, pz, cells.radius) then
+		local region = regions[i]
+
+		if fluid.Overlaps(region, px, py, pz, cells.radius) then
 			active_count = active_count + 1
-			active[active_count] = regions[i]
+			active[active_count] = region
+			ocean_active = ocean_active or region.ocean
 		end
 	end
 
 	if active_count == 0 then
 		body.SubmergedFraction = 0
 		return
+	end
+
+	local wave_height, wave_slope_x, wave_slope_z = 0, 0, 0
+	local water_velocity_x, water_velocity_y, water_velocity_z = 0, 0, 0
+
+	if ocean_active then
+		local sample = water.SampleOcean(px, pz, fluid.time, cells.radius * 3, OCEAN_SAMPLE)
+		wave_height, wave_slope_x, wave_slope_z = sample.height, sample.slope_x, sample.slope_z
+
+		if active_count == 1 then
+			water_velocity_x, water_velocity_y, water_velocity_z = sample.velocity_x, sample.velocity_y, sample.velocity_z
+		end
 	end
 
 	local rotation = body.Rotation
@@ -179,7 +197,13 @@ function buoyancy.Apply(body, dt, gravity)
 			local fraction
 
 			if region.ocean then
-				fraction = (region.level - y) * inverse_spacing + 0.5
+				fraction = (
+						region.level + wave_height + wave_slope_x * (
+							x - px
+						) + wave_slope_z * (
+							z - pz
+						) - y
+					) * inverse_spacing + 0.5
 			else
 				local lx = x * region.m00 + y * region.m10 + z * region.m20 + region.m30
 				local ly = x * region.m01 + y * region.m11 + z * region.m21 + region.m31
@@ -222,6 +246,8 @@ function buoyancy.Apply(body, dt, gravity)
 
 	if submerged == 0 then return end
 
+	if ocean_active then body.SleepTimer = 0 end
+
 	local inverse_mass = body.InverseMass
 	local acceleration = math.sqrt(force_x * force_x + force_y * force_y + force_z * force_z) * inverse_mass
 	local limit = fluid.MAX_ACCELERATION * gravity:GetLength() * gravity_scale
@@ -239,15 +265,19 @@ function buoyancy.Apply(body, dt, gravity)
 	local drag = 0.5 * fluid_density * fluid.DRAG_COEFFICIENT * submerged ^ (
 			2 / 3
 		) * inverse_mass * displaced_scale / gravity_scale
-	local linear_rate = fluid.LINEAR_VISCOSITY * fraction + drag * velocity:GetLength()
+	local relative_x = velocity.x - water_velocity_x
+	local relative_y = velocity.y - water_velocity_y
+	local relative_z = velocity.z - water_velocity_z
+	local relative_speed = math.sqrt(relative_x * relative_x + relative_y * relative_y + relative_z * relative_z)
+	local linear_rate = fluid.LINEAR_VISCOSITY * fraction + drag * relative_speed
 	local angular_rate = fluid.ANGULAR_VISCOSITY * fraction + drag * submerged ^ (
 			1 / 3
 		) * angular_velocity:GetLength()
 	local linear_scale = 1 / (1 + linear_rate * dt)
 	local angular_scale = 1 / (1 + angular_rate * dt)
-	velocity.x = velocity.x * linear_scale
-	velocity.y = velocity.y * linear_scale
-	velocity.z = velocity.z * linear_scale
+	velocity.x = water_velocity_x + relative_x * linear_scale
+	velocity.y = water_velocity_y + relative_y * linear_scale
+	velocity.z = water_velocity_z + relative_z * linear_scale
 	angular_velocity.x = angular_velocity.x * angular_scale
 	angular_velocity.y = angular_velocity.y * angular_scale
 	angular_velocity.z = angular_velocity.z * angular_scale

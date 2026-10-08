@@ -1,11 +1,17 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 local water = library()
 water.GRAVITY = 9.81
 water.MAX_OCEAN_WAVES = 48
 water.DETAIL_OCTAVES = 4
 water.MAX_VOLUMES = 64
 water.WAVE_TEXELS_PER_WAVELENGTH = 3
+water.NEAR_TEXEL_SIZE = 64 * 2 / 512
+-- every wave frequency is a multiple of 2pi / WAVE_PERIOD, so the waves repeat exactly after
+-- WAVE_PERIOD seconds and the time the shaders see can be wrapped without losing float precision
+water.WAVE_PERIOD = 1024
 water.MOLECULAR_SCATTERING = Vec3(0.00114, 0.00191, 0.00454)
 water.PARTICLE_PHASE_G = 0.92
 water.ABBE_NUMBER = 55.8
@@ -102,6 +108,7 @@ function water.SetOcean(params)
 	end
 
 	water.ocean_waves = nil
+	event.Call("OceanChanged")
 end
 
 function water.GetOcean()
@@ -145,15 +152,21 @@ do
 		return 0.0081 * water.GRAVITY ^ 2 * omega ^ -5 * math.exp(-1.25 * (peak_omega / omega) ^ 4)
 	end
 
+	local base_omega = 2 * math.pi / water.WAVE_PERIOD
+
 	local function add_wave(out, state, lambda, amplitude, angle)
-		local k = 2 * math.pi / lambda
+		local omega = math.max(math.round(math.sqrt(water.GRAVITY * 2 * math.pi / lambda) / base_omega), 1) * base_omega
+		local k = omega * omega / water.GRAVITY
 		list.insert(
 			out,
 			{
 				kx = math.cos(angle) * k,
 				kz = math.sin(angle) * k,
+				dir_x = math.cos(angle),
+				dir_z = math.sin(angle),
 				k = k,
-				wavelength = lambda,
+				omega = omega,
+				wavelength = 2 * math.pi / k,
 				amplitude = amplitude,
 				phase = next_random(state) * 2 * math.pi,
 			}
@@ -252,10 +265,12 @@ do
 
 		local height_variance = 0
 		local steepness = 0
+		local max_height = 0
 
 		for _, wave in ipairs(main) do
 			height_variance = height_variance + wave.amplitude ^ 2 / 2
 			steepness = steepness + wave.k * wave.amplitude
+			max_height = max_height + wave.amplitude
 		end
 
 		local total_slope_variance = 0.003 + 0.00512 * params.WindSpeed * development
@@ -275,6 +290,7 @@ do
 			wind_angle = wind_angle,
 			detail_wavelength = split_wavelength,
 			height_std = math.sqrt(height_variance),
+			max_height = max_height,
 			choppiness = params.Choppiness * math.min(1, 1.6 / math.max(steepness, 1e-4)),
 			total_slope_variance = total_slope_variance,
 			main_slope_variance = main_slope_variance,
@@ -293,6 +309,73 @@ function water.GetOceanWaves(near_texel_size)
 	end
 
 	return waves
+end
+
+function water.GetWaveTime()
+	return system.GetGameTime() % water.WAVE_PERIOD
+end
+
+do
+	local UNDISPLACE_ITERATIONS = 4
+
+	-- the large waves at x, z at the given game time, following gerstner_displacement and
+	-- gerstner_surface in the cascade shader but skipping every wave shorter than min_wavelength,
+	-- which a body that size does not follow. the slope is taken at the undisplaced point and
+	-- ignores the stretching of the horizontal displacement, so it is an approximation
+	-- out receives height (above the mean), slope_x, slope_z and the water velocity
+	function water.SampleOcean(x, z, time, min_wavelength, out)
+		local waves = water.GetOceanWaves(water.NEAR_TEXEL_SIZE)
+		local main = waves.main
+		local count = #main
+		local choppiness = waves.choppiness
+		time = time % water.WAVE_PERIOD
+		local px, pz = x, z
+
+		for _ = 1, UNDISPLACE_ITERATIONS do
+			local dx, dz = 0, 0
+
+			for i = 1, count do
+				local wave = main[i]
+
+				if wave.wavelength < min_wavelength then break end
+
+				local shift = wave.amplitude * choppiness * math.sin(wave.kx * px + wave.kz * pz - wave.omega * time + wave.phase)
+				dx = dx + wave.dir_x * shift
+				dz = dz + wave.dir_z * shift
+			end
+
+			px, pz = x + dx, z + dz
+		end
+
+		local height, slope_x, slope_z = 0, 0, 0
+		local velocity_x, velocity_y, velocity_z = 0, 0, 0
+
+		for i = 1, count do
+			local wave = main[i]
+
+			if wave.wavelength < min_wavelength then break end
+
+			local theta = wave.kx * px + wave.kz * pz - wave.omega * time + wave.phase
+			local sin, cos = math.sin(theta), math.cos(theta)
+			local amplitude = wave.amplitude
+			local steepness = amplitude * wave.k * sin
+			local orbit = amplitude * choppiness * wave.omega * cos
+			height = height + amplitude * cos
+			slope_x = slope_x - steepness * wave.dir_x
+			slope_z = slope_z - steepness * wave.dir_z
+			velocity_x = velocity_x + wave.dir_x * orbit
+			velocity_z = velocity_z + wave.dir_z * orbit
+			velocity_y = velocity_y + amplitude * wave.omega * sin
+		end
+
+		out.height = height
+		out.slope_x = slope_x
+		out.slope_z = slope_z
+		out.velocity_x = velocity_x
+		out.velocity_y = velocity_y
+		out.velocity_z = velocity_z
+		return out
+	end
 end
 
 function water.GetResolvedWaveCount(waves, texel_size)

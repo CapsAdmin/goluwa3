@@ -1,3 +1,4 @@
+local water = import("goluwa/render3d/water.lua")
 local fluid = library()
 fluid.OCEAN_DENSITY = 1025
 fluid.DRAG_COEFFICIENT = 1
@@ -6,9 +7,18 @@ fluid.ANGULAR_VISCOSITY = 5
 fluid.MAX_ACCELERATION = 6
 fluid.volumes = {}
 fluid.regions = {}
-local ocean_region = {ocean = true, density = fluid.OCEAN_DENSITY, level = 0}
+fluid.time = 0
+fluid.ocean_level = nil
+fluid.ocean_provider = nil
+local ocean_region = {ocean = true, density = fluid.OCEAN_DENSITY, level = 0, max_height = 0}
 
-function fluid.GetOceanLevel() end
+function fluid.SetOceanLevel(level)
+	fluid.ocean_level = level
+end
+
+function fluid.GetOceanLevel()
+	return fluid.ocean_provider and fluid.ocean_provider() or fluid.ocean_level
+end
 
 function fluid.AddVolume(volume)
 	volume.FluidRegion = {ocean = false, density = 0}
@@ -28,8 +38,10 @@ function fluid.HasRegions()
 	return fluid.regions[1] ~= nil
 end
 
--- once per physics step: snapshots the volume transforms and the ocean level into plain numbers
-function fluid.Refresh()
+-- once per physics step: snapshots the volume transforms and the ocean level into plain numbers.
+-- time is the game time at the end of the step, which the ocean waves are sampled at
+function fluid.Refresh(time)
+	fluid.time = time
 	local regions = fluid.regions
 	local count = 0
 	local volumes = fluid.volumes
@@ -55,6 +67,7 @@ function fluid.Refresh()
 
 	if level then
 		ocean_region.level = level
+		ocean_region.max_height = water.GetOceanWaves(water.NEAR_TEXEL_SIZE).max_height
 		count = count + 1
 		regions[count] = ocean_region
 	end
@@ -66,7 +79,7 @@ end
 
 -- whether a sphere at x, y, z could touch the region
 function fluid.Overlaps(region, x, y, z, radius)
-	if region.ocean then return y - radius < region.level end
+	if region.ocean then return y - radius < region.level + region.max_height end
 
 	local lx = x * region.m00 + y * region.m10 + z * region.m20 + region.m30
 	local ly = x * region.m01 + y * region.m11 + z * region.m21 + region.m31

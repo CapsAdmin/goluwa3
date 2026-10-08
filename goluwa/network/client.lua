@@ -113,6 +113,9 @@ do
 
 	event.AddListener("NetworkStarted", function()
 		if CLIENT then
+			system.ResetGameTime()
+			event.AddListener("Disconnected", "game_time", system.ResetGameTime)
+
 			packet.AddListener("server_command", function(buffer)
 				system.SetServerTime(buffer:ReadDouble())
 			end)
@@ -121,7 +124,7 @@ do
 		if SERVER then
 			timer.Repeat("server_command_tick", SERVER_TIME_INTERVAL, function()
 				local buffer = packet.CreateBuffer()
-				buffer:WriteDouble(system.GetTime())
+				buffer:WriteDouble(system.GetElapsedTime())
 				packet.Broadcast("server_command", buffer, "sequenced")
 			end)
 		end

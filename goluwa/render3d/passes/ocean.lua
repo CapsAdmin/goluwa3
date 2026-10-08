@@ -19,7 +19,8 @@ local WAVE_CASCADES = {
 	{name = "ocean_waves_mid", world_half = 256},
 	{name = "ocean_waves", world_half = 1024},
 }
-local NEAR_TEXEL_SIZE = WAVE_CASCADES[1].world_half * 2 / WAVE_TEX_SIZE
+local NEAR_TEXEL_SIZE = water.NEAR_TEXEL_SIZE
+assert(NEAR_TEXEL_SIZE == WAVE_CASCADES[1].world_half * 2 / WAVE_TEX_SIZE)
 
 local function get_cascade_texel_size(cascade)
 	return cascade.world_half * 2 / WAVE_TEX_SIZE
@@ -55,6 +56,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 						},
 						write = function(self, block)
 							render3d.WriteCommonBlock(self, block)
+							block.time = water.GetWaveTime()
 							local waves = water.GetOceanWaves(NEAR_TEXEL_SIZE)
 							water.WriteWaveBlock(block, waves, water.GetResolvedWaveCount(waves, get_cascade_texel_size(cascade)))
 							write_cascade_origin(block.wave_origin, cascade)

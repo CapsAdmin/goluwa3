@@ -12,6 +12,7 @@ local http = import("goluwa/sockets/http.lua")
 local IRCClient = import("goluwa/sockets/irc.lua")
 local nvars = import("goluwa/network/nvars.lua")
 local packet = import("goluwa/network/packet.lua")
+import("goluwa/network/water_sync.lua")
 network.socket = network.socket or NULL
 
 function network.Initialize()

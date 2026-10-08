@@ -854,7 +854,7 @@ function render3d.IsOceanEnabled()
 	return context_bool("ocean_enabled", render3d.ocean_enabled == true)
 end
 
-function fluid.GetOceanLevel()
+function fluid.ocean_provider()
 	if render3d.IsOceanEnabled() then return render3d.GetOceanLevel() end
 end
 

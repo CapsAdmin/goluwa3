@@ -35,6 +35,7 @@ function Physics.New(config)
 	self.MaxStepsPerFrame = config.MaxStepsPerFrame or 8
 	self.FrameAccumulator = config.FrameAccumulator or 0
 	self.InterpolationAlpha = config.InterpolationAlpha or 0
+	self.Time = config.Time or 0
 	RigidBody.Physics = self
 
 	do

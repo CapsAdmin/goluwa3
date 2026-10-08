@@ -1,4 +1,5 @@
 local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
 local constraint = import("goluwa/physics/constraint.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local islands = import("goluwa/physics/islands.lua")
@@ -148,6 +149,7 @@ function world_step.Step(physics, dt)
 	if not dt or dt <= 0 then return end
 
 	physics.StepIndex = (physics.StepIndex or 0) + 1
+	physics.Time = physics.Time + dt
 	physics.UpdateRigidBodies(dt)
 end
 
@@ -184,8 +186,10 @@ function world_step.UpdateFixed(physics, dt)
 	local max_steps = math.max(1, physics.MaxStepsPerFrame or 8)
 	local accumulator = (physics.FrameAccumulator or 0) + dt
 	local steps = 0
+	local game_time = system.GetGameTime()
 
 	while steps < max_steps and accumulator >= fixed_dt do
+		physics.Time = game_time - accumulator
 		event.Call("PhysicsUpdate", fixed_dt)
 		physics.Step(fixed_dt)
 		accumulator = accumulator - fixed_dt
@@ -219,7 +223,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	stats:PushTime("step")
 	stats:PushTime("synchronize")
 	refresh_body_lists(bodies)
-	fluid.Refresh()
+	fluid.Refresh(physics.Time)
 
 	do
 		local removed_bodies = RigidBody.RemovedBodies
