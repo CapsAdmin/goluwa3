@@ -1110,6 +1110,13 @@ local function get_probe_capture_depth_texture(bundle)
 end
 
 function envprobe.HasSkyChanged()
+	local environment_map_version = atmosphere.GetEnvironmentMapVersion()
+
+	if environment_map_version ~= envprobe.last_environment_map_version then
+		envprobe.last_environment_map_version = environment_map_version
+		return true
+	end
+
 	local sun = get_primary_sun(render3d.GetLights())
 
 	if not sun then return false end

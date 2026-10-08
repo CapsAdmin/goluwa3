@@ -26,6 +26,7 @@ end
 local default_visibility = atmosphere.GetVisibility()
 local default_ocean_enabled = render3d.IsOceanEnabled()
 local default_ocean_settings = copy_ocean_settings()
+local default_environment_map_intensity = atmosphere.GetEnvironmentMapIntensity()
 META:StartStorable()
 META:GetSet("SunRotation", nil, {type = "quat"})
 META:GetSet("Visibility", default_visibility)
@@ -33,6 +34,8 @@ META:GetSet("FogColor", nil, {type = "vec3"})
 META:GetSet("OceanEnabled", default_ocean_enabled)
 META:GetSet("OceanLevel", nil, {type = "number"})
 META:GetSet("OceanSettings", default_ocean_settings)
+META:GetSet("EnvironmentMap", nil, {type = "string"})
+META:GetSet("EnvironmentMapIntensity", default_environment_map_intensity)
 META:EndStorable()
 
 function META:Initialize()
@@ -103,6 +106,22 @@ function META:SetOceanSettings(settings)
 	water.SetOcean(settings)
 end
 
+function META:GetEnvironmentMap()
+	return weather.GetEnvironmentMap()
+end
+
+function META:SetEnvironmentMap(path)
+	weather.SetEnvironmentMap(path)
+end
+
+function META:GetEnvironmentMapIntensity()
+	return weather.GetEnvironmentMapIntensity()
+end
+
+function META:SetEnvironmentMapIntensity(intensity)
+	weather.SetEnvironmentMapIntensity(intensity)
+end
+
 function META:OnDeserialized()
 	weather.UpdateSky()
 end
@@ -113,6 +132,8 @@ function META:ResetProperties()
 	self:SetOceanEnabled(default_ocean_enabled)
 	self:SetOceanLevel(nil)
 	self:SetOceanSettings(default_ocean_settings)
+	self:SetEnvironmentMap(nil)
+	self:SetEnvironmentMapIntensity(default_environment_map_intensity)
 end
 
 return META:Register()

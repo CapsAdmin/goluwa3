@@ -1,6 +1,7 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local commands = import("goluwa/cli/commands.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -372,6 +373,23 @@ local function luminance(v)
 	return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
 end
 
+function weather.SetEnvironmentMap(path)
+	atmosphere.SetEnvironmentMap(path)
+	weather.UpdateSky()
+end
+
+function weather.GetEnvironmentMap()
+	return atmosphere.GetEnvironmentMap()
+end
+
+function weather.SetEnvironmentMapIntensity(intensity)
+	atmosphere.SetEnvironmentMapIntensity(intensity)
+end
+
+function weather.GetEnvironmentMapIntensity()
+	return atmosphere.GetEnvironmentMapIntensity()
+end
+
 function weather.UpdateSky()
 	local sun_dir = weather.GetSunDirection()
 	local moon_dir, moon_distance, moon_illuminance = weather.GetMoonAt(weather.time, weather.latitude, weather.longitude)
@@ -411,8 +429,9 @@ function weather.UpdateSky()
 	weather.light.transform:SetRotation(Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize())
 	weather.light.light_sun:SetColor(Color(color.x, color.y, color.z, 1))
 	clouds.SetShadowDirection(dir)
-	weather.light.light_sun:SetLux(enabled:Get() and illuminance or 0)
-	local transmittance = enabled:Get() and
+	local active = atmosphere.IsEnabled()
+	weather.light.light_sun:SetLux(active and illuminance or 0)
+	local transmittance = active and
 		math.max(color.x, color.y, color.z) * clouds.GetMaxTransmittance(dir)
 		or
 		0
@@ -421,6 +440,12 @@ function weather.UpdateSky()
 		shadow_map:SetEnabled(transmittance > SHADOW_CUTOFF_TRANSMITTANCE)
 	end
 end
+
+commands.Add("envmap=string|nil,number|nil", function(path, intensity)
+	if intensity then weather.SetEnvironmentMapIntensity(intensity) end
+
+	weather.SetEnvironmentMap(path)
+end)
 
 function weather.Initialize()
 	if weather.light and weather.light:IsValid() then return end
