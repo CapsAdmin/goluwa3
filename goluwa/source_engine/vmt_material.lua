@@ -12,9 +12,6 @@ local vmt_material = {}
 local vmt_material_cache = {}
 local SRGBTexture, LinearTexture = Material.SRGBTexture, Material.LinearTexture
 local vmt_stats
-local ENVMAP_F0 = 0.5
-local ENVMAP_ROUGHNESS = 0.125 * 0
-local PHONG_MAX_F0 = 0.5
 
 function vmt_material.SetTextureTransform(material, name, str)
 	local m = material_proxies.ParseTransform(str)
@@ -46,420 +43,400 @@ local function unpack_numbers(str)
 	return unpack(t)
 end
 
-local function on_load_vmt(self, vmt)
-	local SRGBTexture, LinearTexture = SRGBTexture, LinearTexture
-	local private_prefix = self.private_prefix
+local surfaceprop_pbr = {
+	metal = {0.35, 1.0},
+	metal_box = {0.4, 1.0},
+	metal_barrel = {0.45, 1.0},
+	metalpanel = {0.3, 1.0},
+	metalvent = {0.4, 1.0},
+	metalgrate = {0.5, 1.0},
+	metalvehicle = {0.25, 1.0},
+	metal_bouncy = {0.3, 1.0},
+	solidmetal = {0.2, 1.0},
+	metal_seafloorcar = {0.6, 0.8},
+	chainlink = {0.5, 1.0},
+	chain = {0.45, 1.0},
+	weapon = {0.25, 1.0},
+	grenade = {0.3, 1.0},
+	crowbar = {0.3, 1.0},
+	metalladder = {0.5, 1.0},
+	combine_metal = {0.2, 1.0},
+	combine_glass = {0.05, 0.0},
+	gunship = {0.25, 1.0},
+	strider = {0.3, 1.0},
+	helicopter = {0.25, 1.0},
+	apc_tire = {0.7, 0.0},
+	jalopy = {0.4, 0.9},
+	roller = {0.3, 1.0},
+	popcan = {0.25, 1.0},
+	metal_sand = {0.7, 0.6},
+	rustybarrel = {0.7, 0.5},
+	concrete = {0.9, 0.0},
+	concrete_block = {0.85, 0.0},
+	rock = {0.85, 0.0},
+	boulder = {0.85, 0.0},
+	gravel = {0.95, 0.0},
+	brick = {0.8, 0.0},
+	tile = {0.4, 0.0},
+	ceiling_tile = {0.7, 0.0},
+	asphalt = {0.9, 0.0},
+	plaster = {0.85, 0.0},
+	stucco = {0.9, 0.0},
+	dirt = {0.95, 0.0},
+	grass = {0.95, 0.0},
+	mud = {0.85, 0.0},
+	sand = {0.95, 0.0},
+	quicksand = {0.8, 0.0},
+	slime = {0.4, 0.0},
+	antlionsand = {0.9, 0.0},
+	slipperyslime = {0.3, 0.0},
+	wood = {0.7, 0.0},
+	wood_lowdensity = {0.75, 0.0},
+	wood_box = {0.7, 0.0},
+	wood_crate = {0.7, 0.0},
+	wood_plank = {0.7, 0.0},
+	wood_furniture = {0.5, 0.0},
+	wood_solid = {0.65, 0.0},
+	wood_panel = {0.55, 0.0},
+	wood_ladder = {0.7, 0.0},
+	glass = {0.05, 0.0},
+	glassbottle = {0.05, 0.0},
+	glass_breakable = {0.05, 0.0},
+	canister = {0.15, 0.0},
+	cloth = {0.9, 0.0},
+	carpet = {0.95, 0.0},
+	paper = {0.9, 0.0},
+	papercup = {0.85, 0.0},
+	cardboard = {0.9, 0.0},
+	upholstery = {0.9, 0.0},
+	mattress = {0.95, 0.0},
+	rubber = {0.8, 0.0},
+	rubbertire = {0.85, 0.0},
+	plastic = {0.5, 0.0},
+	plastic_barrel = {0.5, 0.0},
+	plastic_barrel_buoyant = {0.5, 0.0},
+	plastic_box = {0.5, 0.0},
+	jeeptire = {0.8, 0.0},
+	brakingrubbertire = {0.75, 0.0},
+	flesh = {0.7, 0.0},
+	bloodyflesh = {0.6, 0.0},
+	armorflesh = {0.55, 0.15},
+	alienflesh = {0.5, 0.0},
+	antlion = {0.6, 0.0},
+	zombieflesh = {0.65, 0.0},
+	player = {0.6, 0.0},
+	player_control_clip = {0.6, 0.0},
+	item = {0.5, 0.0},
+	foliage = {0.95, 0.0},
+	tree = {0.8, 0.0},
+	water = {0.05, 0.0},
+	wade = {0.1, 0.0},
+	slosh = {0.15, 0.0},
+	ice = {0.15, 0.0},
+	snow = {0.95, 0.0},
+	default = {0.7, 0.0},
+	default_silent = {0.7, 0.0},
+	floating_metal_barrel = {0.45, 1.0},
+	no_decal = {0.7, 0.0},
+	player_gamemovement = {0.6, 0.0},
+	portalgun = {0.15, 1.0},
+	turret = {0.2, 1.0},
+	playerclip = {0.7, 0.0},
+	npcclip = {0.7, 0.0},
+	metaldoor = {0.3, 1.0},
+	wood_door = {0.6, 0.0},
+	metal_duct = {0.35, 1.0},
+	computer = {0.3, 0.4},
+	pottery = {0.6, 0.0},
+	asphalt_portal = {0.9, 0.0},
+	concrete_portal = {0.85, 0.0},
+	metal_portal = {0.3, 1.0},
+	gmod_bouncy = {0.5, 0.0},
+	gmod_ice = {0.1, 0.0},
+	gmod_silent = {0.7, 0.0},
+	C = {0.9, 0.0},
+	D = {0.95, 0.0},
+	G = {0.05, 0.0},
+	I = {0.5, 0.0},
+	M = {0.35, 1.0},
+	O = {0.7, 0.0},
+	P = {0.6, 0.0},
+	S = {0.95, 0.0},
+	T = {0.4, 0.0},
+	V = {0.85, 0.0},
+	W = {0.7, 0.0},
+	X = {0.5, 0.0},
+	Y = {0.05, 0.0},
+	Z = {0.5, 0.0},
+	N = {0.95, 0.0},
+	U = {0.95, 0.0},
+	L = {0.85, 0.0},
+	A = {0.65, 0.0},
+	F = {0.95, 0.0},
+	E = {0.1, 0.0},
+	H = {0.9, 0.0},
+	K = {0.9, 0.0},
+	R = {0.5, 0.0},
+}
+-- static switches. a feature that is off leaves its part of the material at the Material defaults
+local FEATURES = {
+	-- envmap and phong become a roughness lerp (the mask) plus a metallic estimate
+	reflection = true,
+	-- $fresnelreflection is a dielectric signature, it lowers the envmap metal estimate
+	fresnel_damping = true,
+	-- source has no specular without an envmap or phong
+	no_reflection_matte = true,
+	-- no reflection info: roughness and metallic from $surfaceprop
+	surfaceprop_fallback = true,
+	-- no $surfaceprop: guess the material family from the vmt path
+	path_keywords = true,
+	-- lightmapped surfaces were authored dark for source's 2x overbright
+	albedo_gain = true,
+	refract = true,
+	glass_override = true,
+	grass_detection = true,
+}
+local FAMILIES = {
+	"concrete",
+	"brick",
+	"plaster",
+	"tile",
+	"wood",
+	"dirt",
+	"grass",
+	"sand",
+	"snow",
+	"rock",
+	"stone",
+	"asphalt",
+	"carpet",
+	"gravel",
+	"paper",
+	"cardboard",
+	"plastic",
+	"rubber",
+	"metal",
+	"glass",
+	"water",
+}
+-- physical albedo of a family, the median of the world textures of that family is about half of it
+local ALBEDO_TARGETS = {
+	concrete = 0.4,
+	brick = 0.3,
+	plaster = 0.6,
+	tile = 0.5,
+	wood = 0.25,
+	dirt = 0.15,
+	grass = 0.15,
+	sand = 0.4,
+	snow = 0.85,
+	rock = 0.25,
+	stone = 0.3,
+	asphalt = 0.08,
+	carpet = 0.15,
+	gravel = 0.25,
+	paper = 0.6,
+	cardboard = 0.4,
+	plastic = 0.4,
+	rubber = 0.1,
+}
+-- the shaders whose lighting is multiplied by source's 2x overbright
+local OVERBRIGHT_SHADERS = {lightmappedgeneric = true, worldvertextransition = true}
+local MAX_ALBEDO = 0.9
+local on_load_vmt
 
-	if private_prefix then
-		SRGBTexture = function(path)
-			return Texture.New{path = path, srgb = true, cache_key = private_prefix .. "srgb|" .. path}
+do
+	local function get_prop(prop, key)
+		if type(prop) ~= "table" then return nil end
+
+		if prop[key] ~= nil then return prop[key] end
+
+		if prop.base then return get_prop(prop.base, key) end
+
+		return nil
+	end
+
+	local function get_rgb(value)
+		local t = typex(value)
+
+		if t == "vec3" then return value.x, value.y, value.z end
+
+		if t == "color" then return value.r, value.g, value.b end
+
+		if type(value) == "number" then return value, value, value end
+
+		if type(value) == "string" then
+			local r, g, b = unpack_numbers(value:gsub("[%[%]{}]", ""))
+			return r, g or r, b or r
 		end
-		LinearTexture = function(path)
-			return Texture.New{path = path, srgb = false, cache_key = private_prefix .. "linear|" .. path}
+
+		return 1, 1, 1
+	end
+
+	local function find_family(name)
+		for _, family in ipairs(FAMILIES) do
+			if name:find(family, 1, true) then return family end
 		end
 	end
 
-	self.vmt = vmt
-	self:SetMetallicMultiplier(0)
-
-	do
-		if vmt.basetexture then
-			self:SetAlbedoTexture(SRGBTexture(vmt.basetexture))
-		end
-
-		if vmt.basetexture2 then
-			self:SetAlbedo2Texture(SRGBTexture(vmt.basetexture2))
-		end
+	-- perceptual roughness of a blinn-phong lobe: ggx alpha is sqrt(2 / (n + 2)),
+	-- roughness is its square root. boost narrows the lobe so that its peak matches
+	-- the brighter highlight, since the dielectric reflectance is fixed
+	local function lobe_roughness(exponent, boost)
+		local alpha = math.sqrt(2 / (exponent + 2)) / math.sqrt(math.max(boost, 1))
+		return math.max(0.12, math.sqrt(alpha))
 	end
 
-	do
-		if vmt.bumpmap then self:SetNormalTexture(LinearTexture(vmt.bumpmap)) end
+	local function load_textures(self, vmt, ctx)
+		local srgb, linear = ctx.srgb, ctx.linear
 
-		if vmt.bumpmap2 then self:SetNormal2Texture(LinearTexture(vmt.bumpmap2)) end
+		if vmt.basetexture then self:SetAlbedoTexture(srgb(vmt.basetexture)) end
+
+		if vmt.basetexture2 then self:SetAlbedo2Texture(srgb(vmt.basetexture2)) end
+
+		if vmt.bumpmap then self:SetNormalTexture(linear(vmt.bumpmap)) end
+
+		if vmt.bumpmap2 then self:SetNormal2Texture(linear(vmt.bumpmap2)) end
 
 		if vmt.ssbump == 1 then self:SetNormalTextureIsSSBump(true) end
-	end
 
-	if vmt.blendmodulatetexture then
-		self:SetBlendTexture(LinearTexture(vmt.blendmodulatetexture))
-	end
+		if vmt.blendmodulatetexture then
+			self:SetBlendTexture(linear(vmt.blendmodulatetexture))
+		end
 
-	if vmt.blendtintbybasealpha == 1 then self:SetBlendTintByBaseAlpha(true) end
+		if vmt.blendtintbybasealpha == 1 then self:SetBlendTintByBaseAlpha(true) end
 
-	if type(vmt.basetexturetransform) == "string" then
-		vmt_material.SetTextureTransform(self, "BaseTexture", vmt.basetexturetransform)
-	end
+		if type(vmt.basetexturetransform) == "string" then
+			vmt_material.SetTextureTransform(self, "BaseTexture", vmt.basetexturetransform)
+		end
 
-	if type(vmt.bumptransform) == "string" then
-		vmt_material.SetTextureTransform(self, "Bump", vmt.bumptransform)
-	end
+		if type(vmt.bumptransform) == "string" then
+			vmt_material.SetTextureTransform(self, "Bump", vmt.bumptransform)
+		end
 
-	if type(vmt.texture2transform) == "string" then
-		vmt_material.SetTextureTransform(self, "Texture2", vmt.texture2transform)
-	end
+		if type(vmt.texture2transform) == "string" then
+			vmt_material.SetTextureTransform(self, "Texture2", vmt.texture2transform)
+		end
 
-	if vmt.texture2 then
-		self:SetAlbedo2Texture(SRGBTexture(vmt.texture2))
-		local shader = vmt.shader:lower()
+		if vmt.texture2 then
+			self:SetAlbedo2Texture(srgb(vmt.texture2))
 
-		if shader == "de_unlitthreetexture" or shader == "unlittwotexture" then
-			self:SetMultiplyAlbedo2(true)
+			if ctx.shader == "de_unlitthreetexture" or ctx.shader == "unlittwotexture" then
+				self:SetMultiplyAlbedo2(true)
+			end
 		end
 	end
 
-	if vmt.envmap then
-		if vmt.envmapmask then
-			self:SetRoughnessTexture(LinearTexture(vmt.envmapmask))
-			self:SetInvertRoughnessTexture(true)
+	-- source has no roughness. an envmap or phong is a reflection that a mask
+	-- scales, so the mask becomes a roughness lerp from fully rough (no mask)
+	-- to the lobe's roughness (full mask), and metallic follows the same mask.
+	-- a dielectric never reflects more than ~0.1 head on, so a strong envmap
+	-- tint, a colored highlight or a flat, strong fresnel is a metal
+	local function apply_reflection(self, vmt, ctx)
+		local envmap, phong = ctx.envmap, ctx.phong
+		local lobe = 0.1
+		local metallic = 0
+		local mask_texture = nil
+		local mask_in_albedo, mask_in_normal, mask_in_luminance = false, false, false
+		local invert_mask = false
+
+		if envmap then
+			local r, g, b = get_rgb(vmt.envmaptint)
+			metallic = math.smoothstep(0.15, 0.4, r * 0.2126 + g * 0.7152 + b * 0.0722)
+
+			if FEATURES.fresnel_damping and vmt.fresnelreflection then
+				metallic = metallic * (1 - math.clamp(vmt.fresnelreflection, 0, 1))
+			end
+
+			if vmt.envmapmask then
+				mask_texture = vmt.envmapmask
+			elseif vmt.normalmapalphaenvmapmask == 1 and vmt.bumpmap then
+				mask_in_normal = true
+			elseif vmt.basealphaenvmapmask == 1 then
+				-- unlike the other masks, source uses the inverse of the base alpha
+				mask_in_albedo = true
+				invert_mask = true
+			end
 		end
 
-		local normal_mask = vmt.normalmapalphaenvmapmask == 1 and vmt.bumpmap ~= nil
+		local exponent_texture = nil
 
-		if normal_mask then
-			self:SetNormalTextureAlphaIsRoughness(true)
-			self:SetInvertRoughnessTexture(true)
-		elseif vmt.basealphaenvmapmask == 1 then
+		if phong then
+			local boost = vmt.phongboost or 1
+			lobe = lobe_roughness(vmt.phongexponent or 5, boost)
+			mask_texture = nil
+			mask_in_albedo, mask_in_normal, mask_in_luminance = false, false, false
+			invert_mask = vmt.invertphongmask == 1
+
+			if vmt.phongexponenttexture then
+				exponent_texture = vmt.phongexponenttexture
+			elseif vmt.basemapalphaphongmask == 1 then
+				mask_in_albedo = true
+			elseif vmt.basemapluminancephongmask == 1 then
+				mask_in_luminance = true
+			elseif vmt.bumpmap then
+				mask_in_normal = true
+			end
+
+			local ranges = vmt.phongfresnelranges or Vec3(0, 0.5, 1)
+			metallic = math.max(
+				metallic,
+				math.smoothstep(0.25, 0.5, ranges.x * boost) * math.smoothstep(0.3, 0.8, ranges.x / math.max(ranges.z, 0.001))
+			)
+
+			if vmt.phongtint then
+				local r, g, b = get_rgb(vmt.phongtint)
+				local high = math.max(r, g, b)
+
+				if high > 0 and (high - math.min(r, g, b)) / high > 0.25 then
+					metallic = 1
+				end
+			end
+		end
+
+		if exponent_texture then
+			-- the red channel is the exponent, 1 to 150
+			local boost = vmt.phongboost or 1
+			self:SetRoughnessTexture(ctx.linear(exponent_texture))
+			self:SetRoughnessMin(lobe_roughness(1, boost))
+			self:SetRoughnessMax(lobe_roughness(150, boost))
+			self:SetMetallicMultiplier(metallic)
+			return
+		end
+
+		if mask_texture then
+			self:SetRoughnessTexture(ctx.linear(mask_texture))
+		elseif mask_in_albedo then
 			self:SetAlbedoTextureAlphaIsRoughness(true)
-		end
-
-		if not self:HasExplicitRoughnessTexture() then self:SetRoughnessMultiplier(0) end
-
-		if vmt.phong ~= 1 then
-			self:SetRoughnessMaskOnlyScalesSpecular(true)
-			self:SetRoughnessMultiplier(ENVMAP_ROUGHNESS)
-		end
-	end
-
-	if vmt.phong == 1 then
-		if
-			vmt.bumpmap and
-			not vmt.phongexponenttexture and
-			vmt.basemapalphaphongmask ~= 1 and
-			vmt.basemapluminancephongmask ~= 1 and
-			not self:HasExplicitRoughnessTexture()
-		then
+		elseif mask_in_normal then
 			self:SetNormalTextureAlphaIsRoughness(true)
-		end
-
-		self:SetInvertRoughnessTexture(vmt.invertphongmask ~= 1)
-
-		if vmt.phongexponenttexture then
-			self:SetRoughnessTexture(LinearTexture(vmt.phongexponenttexture))
-		end
-
-		if vmt.basemapalphaphongmask == 1 then
-			self:SetAlbedoTextureAlphaIsRoughness(true)
-		elseif vmt.basemapluminancephongmask == 1 then
+		elseif mask_in_luminance then
 			self:SetAlbedoLuminanceIsRoughness(true)
 		end
 
-		local halflambert = vmt.halflambert == 1
-		local exponent = vmt.phongexponent or 5
-		local boost = vmt.phongboost or 1
-		local fresnelranges = vmt.phongfresnelranges or Vec3(0, 0.5, 1)
-		local roughness = math.sqrt(2 / (exponent + 2))
-
-		if boost > 1 then roughness = roughness / math.sqrt(boost) end
-
-		roughness = math.max(0.04, math.min(1.0, roughness))
-
-		if
-			not vmt.phongexponenttexture and
-			(
-				self:HasExplicitRoughnessTexture() or
-				self.AlbedoLuminanceIsRoughness
-			)
-		then
-			self:SetRoughnessMaskOnlyScalesSpecular(true)
-		elseif self:HasExplicitRoughnessTexture() then
-			roughness = 1 - roughness
-		end
-
-		self:SetRoughnessMultiplier(roughness)
-	end
-
-	if not vmt.envmap and vmt.phong ~= 1 then
-		self:SetSpecularMultiplier(0)
-	else
-		local f0 = 0.04
-
-		if vmt.envmap then
-			local tint = vmt.envmaptint
-			local lum = 1
-
-			if type(tint) == "string" then
-				local r, g, b = unpack_numbers(tint)
-				lum = r * 0.2126 + (g or r) * 0.7152 + (b or r) * 0.0722
-			elseif type(tint) == "number" then
-				lum = tint
-			elseif typex(tint) == "vec3" then
-				lum = tint.x * 0.2126 + tint.y * 0.7152 + tint.z * 0.0722
-			elseif typex(tint) == "color" then
-				lum = tint.r * 0.2126 + tint.g * 0.7152 + tint.b * 0.0722
-			end
-
-			f0 = vmt.phong == 1 and math.max(f0, ENVMAP_F0 * lum) or ENVMAP_F0 * lum
-		end
-
-		if vmt.phong == 1 then
-			local ranges = vmt.phongfresnelranges
-			f0 = math.max(
-				f0,
-				math.min(0.04 * (vmt.phongboost or 1) * (ranges and ranges.x or 0), PHONG_MAX_F0)
-			)
-		end
-
-		self:SetSpecularMultiplier(f0 / 0.04)
-		self:SetSpecularSolvesMetallic(true)
-		self:SetSpecularFromRoughnessMask(self:HasExplicitRoughnessTexture())
-	end
-
-	if vmt.selfillum == 1 then
-		if vmt.selfillumtint then
-			if typex(vmt.selfillumtint) == "vec3" then
-				self:SetEmissiveMultiplier(Color(vmt.selfillumtint.x, vmt.selfillumtint.y, vmt.selfillumtint.z, 1))
-			elseif typex(vmt.selfillumtint) == "color" then
-				self:SetEmissiveMultiplier(Color(vmt.selfillumtint.r, vmt.selfillumtint.g, vmt.selfillumtint.b, 1))
+		if self:HasExplicitRoughnessTexture() then
+			if invert_mask then
+				self:SetRoughnessMin(lobe)
+				self:SetRoughnessMax(1)
 			else
-				print("wtf ", vmt.selfillumtint)
+				self:SetRoughnessMin(1)
+				self:SetRoughnessMax(lobe)
 			end
-		end
 
-		if vmt.selfillummask then
-			self:SetEmissiveTexture(LinearTexture(vmt.selfillummask))
-			self:SetAlbedoAlphaIsEmissive(false)
+			self:SetMetallicFromRoughnessMask(metallic > 0)
 		else
-			self:SetAlbedoAlphaIsEmissive(true)
-		end
-	end
-
-	if vmt.selfillum_envmapmask_alpha == 1 then
-		self:SetMetallicTextureAlphaIsEmissive(true)
-	end
-
-	if vmt.translucent == 1 then self:SetTranslucent(true) end
-
-	if vmt.additive == 1 then
-		self:SetAdditive(true)
-		self:SetDisplayReferred(true)
-		self:SetTranslucent(true)
-	end
-
-	if vmt.shader:lower() == "decalmodulate" or vmt.shader:lower() == "modulate" then
-		self:SetModulate(true)
-		self:SetTranslucent(true)
-	end
-
-	if vmt.color or vmt.alpha then
-		local tint = vmt.color
-		local alpha = vmt.alpha or 1
-
-		if typex(tint) == "vec3" then
-			self:SetColorMultiplier(Color(tint.x, tint.y, tint.z, alpha))
-		elseif tint then
-			self:SetColorMultiplier(Color(tint.r, tint.g, tint.b, alpha))
-		else
-			self:SetColorMultiplier(Color(1, 1, 1, alpha))
-		end
-	end
-
-	if typex(vmt.srgbtint) == "vec3" then
-		local tint, color = vmt.srgbtint, self.ColorMultiplier:Copy()
-		color.r, color.g, color.b = color.r * tint.x ^ 2.2, color.g * tint.y ^ 2.2, color.b * tint.z ^ 2.2
-		self:SetColorMultiplier(color)
-	end
-
-	if vmt.shader:lower() == "refract" then
-		self:SetRefraction(1)
-		self:SetIndexOfRefraction(1 + (vmt.refractamount or 0.5))
-		self:SetRefractionThickness(0)
-		self:SetSpecularMultiplier(1)
-
-		if vmt.normalmap then self:SetNormalTexture(LinearTexture(vmt.normalmap)) end
-
-		if vmt.normalmapalphaenvmapmask == 1 then
-			self:SetNormalAlphaIsCoverage(true)
+			self:SetRoughnessMultiplier(lobe)
 		end
 
-		if vmt.refracttinttexture then
-			self:SetAlbedoTexture(SRGBTexture(vmt.refracttinttexture))
-		end
-
-		local tint = vmt.refracttint
-
-		if typex(tint) == "vec3" then
-			self:SetColorMultiplier(Color(tint.x, tint.y, tint.z, 1))
-		elseif type(tint) == "string" then
-			local r, g, b = tint:match("{%s*(%S+)%s+(%S+)%s+(%S+)%s*}")
-
-			if r then
-				self:SetColorMultiplier(Color(tonumber(r) / 255, tonumber(g) / 255, tonumber(b) / 255, 1))
-			end
-		end
+		self:SetMetallicMultiplier(metallic)
 	end
 
-	if vmt.alphatest == 1 then self:SetAlphaTest(true) end
+	-- only a prior: an explicit envmap or phong already decided the surface
+	local function apply_surfaceprop_fallback(self, vmt, ctx)
+		local name = ctx.class
+		local pbr = surfaceprop_pbr[name] or (ctx.family and surfaceprop_pbr[ctx.family])
 
-	if vmt.alphatestreference then self:SetAlphaCutoff(vmt.alphatestreference) end
-
-	if vmt.nocull then self:SetDoubleSided(true) end
-
-	if vmt.surfaceprop then
-		local function get_prop(prop, key)
-			if type(prop) ~= "table" then return nil end
-
-			if prop[key] ~= nil then return prop[key] end
-
-			if prop.base then return get_prop(prop.base, key) end
-
-			return nil
-		end
-
-		local name = get_prop(vmt.surfaceprop, "surfaceprop_name")
-
-		if name then name = name:lower() end
-
-		if not name then name = get_prop(vmt.surfaceprop, "gamematerial") end
-
-		self.vmt_surfaceprop = name
-		local surfaceprop_pbr = {
-			metal = {0.35, 1.0},
-			metal_box = {0.4, 1.0},
-			metal_barrel = {0.45, 1.0},
-			metalpanel = {0.3, 1.0},
-			metalvent = {0.4, 1.0},
-			metalgrate = {0.5, 1.0},
-			metalvehicle = {0.25, 1.0},
-			metal_bouncy = {0.3, 1.0},
-			solidmetal = {0.2, 1.0},
-			metal_seafloorcar = {0.6, 0.8},
-			chainlink = {0.5, 1.0},
-			chain = {0.45, 1.0},
-			weapon = {0.25, 1.0},
-			grenade = {0.3, 1.0},
-			crowbar = {0.3, 1.0},
-			metalladder = {0.5, 1.0},
-			combine_metal = {0.2, 1.0},
-			combine_glass = {0.05, 0.0},
-			gunship = {0.25, 1.0},
-			strider = {0.3, 1.0},
-			helicopter = {0.25, 1.0},
-			apc_tire = {0.7, 0.0},
-			jalopy = {0.4, 0.9},
-			roller = {0.3, 1.0},
-			popcan = {0.25, 1.0},
-			metal_sand = {0.7, 0.6},
-			rustybarrel = {0.7, 0.5},
-			concrete = {0.9, 0.0},
-			concrete_block = {0.85, 0.0},
-			rock = {0.85, 0.0},
-			boulder = {0.85, 0.0},
-			gravel = {0.95, 0.0},
-			brick = {0.8, 0.0},
-			tile = {0.4, 0.0},
-			ceiling_tile = {0.7, 0.0},
-			asphalt = {0.9, 0.0},
-			plaster = {0.85, 0.0},
-			stucco = {0.9, 0.0},
-			dirt = {0.95, 0.0},
-			grass = {0.95, 0.0},
-			mud = {0.85, 0.0},
-			sand = {0.95, 0.0},
-			quicksand = {0.8, 0.0},
-			slime = {0.4, 0.0},
-			antlionsand = {0.9, 0.0},
-			slipperyslime = {0.3, 0.0},
-			wood = {0.7, 0.0},
-			wood_lowdensity = {0.75, 0.0},
-			wood_box = {0.7, 0.0},
-			wood_crate = {0.7, 0.0},
-			wood_plank = {0.7, 0.0},
-			wood_furniture = {0.5, 0.0},
-			wood_solid = {0.65, 0.0},
-			wood_panel = {0.55, 0.0},
-			wood_ladder = {0.7, 0.0},
-			glass = {0.05, 0.0},
-			glassbottle = {0.05, 0.0},
-			glass_breakable = {0.05, 0.0},
-			canister = {0.15, 0.0},
-			cloth = {0.9, 0.0},
-			carpet = {0.95, 0.0},
-			paper = {0.9, 0.0},
-			papercup = {0.85, 0.0},
-			cardboard = {0.9, 0.0},
-			upholstery = {0.9, 0.0},
-			mattress = {0.95, 0.0},
-			rubber = {0.8, 0.0},
-			rubbertire = {0.85, 0.0},
-			plastic = {0.5, 0.0},
-			plastic_barrel = {0.5, 0.0},
-			plastic_barrel_buoyant = {0.5, 0.0},
-			plastic_box = {0.5, 0.0},
-			jeeptire = {0.8, 0.0},
-			brakingrubbertire = {0.75, 0.0},
-			flesh = {0.7, 0.0},
-			bloodyflesh = {0.6, 0.0},
-			armorflesh = {0.55, 0.15},
-			alienflesh = {0.5, 0.0},
-			antlion = {0.6, 0.0},
-			zombieflesh = {0.65, 0.0},
-			player = {0.6, 0.0},
-			player_control_clip = {0.6, 0.0},
-			item = {0.5, 0.0},
-			foliage = {0.95, 0.0},
-			tree = {0.8, 0.0},
-			water = {0.05, 0.0},
-			wade = {0.1, 0.0},
-			slosh = {0.15, 0.0},
-			ice = {0.15, 0.0},
-			snow = {0.95, 0.0},
-			default = {0.7, 0.0},
-			default_silent = {0.7, 0.0},
-			floating_metal_barrel = {0.45, 1.0},
-			no_decal = {0.7, 0.0},
-			player_gamemovement = {0.6, 0.0},
-			portalgun = {0.15, 1.0},
-			turret = {0.2, 1.0},
-			playerclip = {0.7, 0.0},
-			npcclip = {0.7, 0.0},
-			metaldoor = {0.3, 1.0},
-			wood_door = {0.6, 0.0},
-			metal_duct = {0.35, 1.0},
-			computer = {0.3, 0.4},
-			pottery = {0.6, 0.0},
-			asphalt_portal = {0.9, 0.0},
-			concrete_portal = {0.85, 0.0},
-			metal_portal = {0.3, 1.0},
-			gmod_bouncy = {0.5, 0.0},
-			gmod_ice = {0.1, 0.0},
-			gmod_silent = {0.7, 0.0},
-			C = {0.9, 0.0},
-			D = {0.95, 0.0},
-			G = {0.05, 0.0},
-			I = {0.5, 0.0},
-			M = {0.35, 1.0},
-			O = {0.7, 0.0},
-			P = {0.6, 0.0},
-			S = {0.95, 0.0},
-			T = {0.4, 0.0},
-			V = {0.85, 0.0},
-			W = {0.7, 0.0},
-			X = {0.5, 0.0},
-			Y = {0.05, 0.0},
-			Z = {0.5, 0.0},
-			N = {0.95, 0.0},
-			U = {0.95, 0.0},
-			L = {0.85, 0.0},
-			A = {0.65, 0.0},
-			F = {0.95, 0.0},
-			E = {0.1, 0.0},
-			H = {0.9, 0.0},
-			K = {0.9, 0.0},
-			R = {0.5, 0.0},
-		}
-		local pbr = surfaceprop_pbr[name]
-
-		if not pbr then
+		if not pbr and vmt.surfaceprop then
 			local density = get_prop(vmt.surfaceprop, "density") or 1000
 			local elasticity = get_prop(vmt.surfaceprop, "elasticity") or 0.25
 			local audioreflectivity = get_prop(vmt.surfaceprop, "audioreflectivity") or 0.5
@@ -483,91 +460,266 @@ local function on_load_vmt(self, vmt)
 			roughness = roughness + (friction - 0.5) * 0.4
 			roughness = roughness - (audioreflectivity - 0.5) * 0.3
 			roughness = roughness - elasticity * 0.2
-			roughness = math.max(0.04, math.min(1.0, roughness))
-			pbr = {roughness, metallic}
+			pbr = {math.clamp(roughness, 0.04, 1.0), metallic}
 		end
 
-		local roughness = pbr and pbr[1] or 1
-		local refl = self:GetAlbedoTexture() and self:GetAlbedoTexture().reflectivity
+		if not pbr then return end
+
+		local roughness = pbr[1]
+		local albedo = self:GetAlbedoTexture()
+		local refl = albedo and albedo.reflectivity
 
 		if refl then
 			local avg = (refl[1] + refl[2] + refl[3]) / 3
 
 			if avg > 0.05 then
-				local est = 1.0 - math.sqrt(avg)
-				est = math.max(0.2, math.min(0.95, est))
-				roughness = roughness * 0.6 + est * 0.4
+				roughness = roughness * 0.6 + math.clamp(1.0 - math.sqrt(avg), 0.2, 0.95) * 0.4
 			end
 		end
 
-		if not self:HasExplicitRoughnessTexture() then
-			self:SetRoughnessMultiplier(roughness)
-			self:SetInvertRoughnessTexture(false)
+		self:SetRoughnessMultiplier(roughness)
+		self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
+	end
+
+	-- the texture's average (the vtf reflectivity) is only known once it is loaded
+	local function apply_albedo_gain(self, ctx)
+		local albedo = self:GetAlbedoTexture()
+
+		if not albedo then return end
+
+		local family = ctx.family
+
+		if family == "metal" or family == "glass" or family == "water" then return end
+
+		local target = family and ALBEDO_TARGETS[family]
+
+		albedo:AddOnReady(function(texture)
+			local refl = texture.reflectivity
+
+			if not refl or not self:IsValid() then return end
+
+			local lum = refl[1] * 0.2126 + refl[2] * 0.7152 + refl[3] * 0.0722
+			local high = math.max(refl[1], refl[2], refl[3])
+
+			if lum < 0.001 then return end
+
+			local gain = math.clamp(target and target / lum or 2, 1, 2)
+			gain = math.min(gain, math.max(1, MAX_ALBEDO / high))
+			local color = self.ColorMultiplier:Copy()
+			color.r, color.g, color.b = color.r * gain, color.g * gain, color.b * gain
+			self:SetColorMultiplier(color)
+		end)
+	end
+
+	function on_load_vmt(self, vmt)
+		local private_prefix = self.private_prefix
+		local srgb, linear = SRGBTexture, LinearTexture
+
+		if private_prefix then
+			srgb = function(path)
+				return Texture.New{path = path, srgb = true, cache_key = private_prefix .. "srgb|" .. path}
+			end
+			linear = function(path)
+				return Texture.New{path = path, srgb = false, cache_key = private_prefix .. "linear|" .. path}
+			end
 		end
+
+		local class = nil
+
+		if vmt.surfaceprop then
+			class = get_prop(vmt.surfaceprop, "surfaceprop_name")
+
+			if class then class = class:lower() end
+
+			class = class or get_prop(vmt.surfaceprop, "gamematerial")
+			self.vmt_surfaceprop = class
+		end
+
+		if not class and FEATURES.path_keywords then
+			class = find_family(self.vmt_path or "")
+		end
+
+		local ctx = {
+			shader = vmt.shader:lower(),
+			srgb = srgb,
+			linear = linear,
+			envmap = vmt.envmap ~= nil,
+			phong = vmt.phong == 1,
+			class = class,
+			family = class and find_family(class),
+		}
+		local shader = ctx.shader
+		self.vmt = vmt
+		self:SetMetallicMultiplier(0)
+		load_textures(self, vmt, ctx)
+
+		if ctx.envmap or ctx.phong then
+			if FEATURES.reflection then apply_reflection(self, vmt, ctx) end
+		else
+			if FEATURES.no_reflection_matte then self:SetSpecularMultiplier(0) end
+
+			if FEATURES.surfaceprop_fallback then
+				apply_surfaceprop_fallback(self, vmt, ctx)
+			end
+		end
+
+		if vmt.selfillum == 1 then
+			if vmt.selfillumtint then
+				if typex(vmt.selfillumtint) == "vec3" then
+					self:SetEmissiveMultiplier(Color(vmt.selfillumtint.x, vmt.selfillumtint.y, vmt.selfillumtint.z, 1))
+				elseif typex(vmt.selfillumtint) == "color" then
+					self:SetEmissiveMultiplier(Color(vmt.selfillumtint.r, vmt.selfillumtint.g, vmt.selfillumtint.b, 1))
+				end
+			end
+
+			if vmt.selfillummask then
+				self:SetEmissiveTexture(linear(vmt.selfillummask))
+				self:SetAlbedoAlphaIsEmissive(false)
+			else
+				self:SetAlbedoAlphaIsEmissive(true)
+			end
+		end
+
+		if vmt.selfillum_envmapmask_alpha == 1 then
+			self:SetMetallicTextureAlphaIsEmissive(true)
+		end
+
+		if vmt.translucent == 1 then self:SetTranslucent(true) end
+
+		if vmt.additive == 1 then
+			self:SetAdditive(true)
+			self:SetDisplayReferred(true)
+			self:SetTranslucent(true)
+		end
+
+		if shader == "decalmodulate" or shader == "modulate" then
+			self:SetModulate(true)
+			self:SetTranslucent(true)
+		end
+
+		if vmt.color or vmt.alpha then
+			local tint = vmt.color
+			local alpha = vmt.alpha or 1
+
+			if typex(tint) == "vec3" then
+				self:SetColorMultiplier(Color(tint.x, tint.y, tint.z, alpha))
+			elseif tint then
+				self:SetColorMultiplier(Color(tint.r, tint.g, tint.b, alpha))
+			else
+				self:SetColorMultiplier(Color(1, 1, 1, alpha))
+			end
+		end
+
+		if typex(vmt.srgbtint) == "vec3" then
+			local tint, color = vmt.srgbtint, self.ColorMultiplier:Copy()
+			color.r, color.g, color.b = color.r * tint.x ^ 2.2, color.g * tint.y ^ 2.2, color.b * tint.z ^ 2.2
+			self:SetColorMultiplier(color)
+		end
+
+		if FEATURES.refract and shader == "refract" then
+			self:SetRefraction(1)
+			self:SetIndexOfRefraction(1 + (vmt.refractamount or 0.5))
+			self:SetRefractionThickness(0)
+			self:SetSpecularMultiplier(1)
+
+			if vmt.normalmap then self:SetNormalTexture(linear(vmt.normalmap)) end
+
+			if vmt.normalmapalphaenvmapmask == 1 then
+				self:SetNormalAlphaIsCoverage(true)
+			end
+
+			if vmt.refracttinttexture then
+				self:SetAlbedoTexture(srgb(vmt.refracttinttexture))
+			end
+
+			local tint = vmt.refracttint
+
+			if typex(tint) == "vec3" then
+				self:SetColorMultiplier(Color(tint.x, tint.y, tint.z, 1))
+			elseif type(tint) == "string" then
+				local r, g, b = tint:match("{%s*(%S+)%s+(%S+)%s+(%S+)%s*}")
+
+				if r then
+					self:SetColorMultiplier(Color(tonumber(r) / 255, tonumber(g) / 255, tonumber(b) / 255, 1))
+				end
+			end
+		end
+
+		if vmt.alphatest == 1 then self:SetAlphaTest(true) end
+
+		if vmt.alphatestreference then self:SetAlphaCutoff(vmt.alphatestreference) end
+
+		if vmt.nocull then self:SetDoubleSided(true) end
+
+		local file_name = file_path.GetFileNameFromPath(self.Name):lower()
 
 		if
-			not self:HasExplicitMetallicTexture() and
-			not self.SpecularSolvesMetallic and
-			pbr[2]
-		then
-			self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
-		end
-	end
-
-	if
-		file_path.GetFileNameFromPath(self.Name):lower():find("grass", 1, true) or
-		(
-			self.AlbedoTexture and
-			Material.IsGrassTexture(self.AlbedoTexture)
-		)
-	then
-		self:SetGrass(true)
-	end
-
-	if
-		self.Translucent and
-		(
-			file_path.GetFileNameFromPath(self.Name):lower():find("glass", 1, true) or
+			FEATURES.grass_detection and
 			(
-				self.AlbedoTexture and
-				Material.IsGlassTexture(self.AlbedoTexture)
+				file_name:find("grass", 1, true) or
+				(
+					self.AlbedoTexture and
+					Material.IsGrassTexture(self.AlbedoTexture)
+				)
+			)
+		then
+			self:SetGrass(true)
+		end
+
+		local is_glass = FEATURES.glass_override and
+			self.Translucent and
+			(
+				file_name:find("glass", 1, true) or
+				(
+					self.AlbedoTexture and
+					Material.IsGlassTexture(self.AlbedoTexture)
+				)
+			)
+
+		if is_glass then
+			self:SetAdditive(false)
+			self:SetRefraction(1)
+			self:SetRefractionThickness(0)
+			self:SetAlbedoAlphaIsEmissive(false)
+			self:SetRoughnessTexture(nil)
+			self:SetAlbedoTextureAlphaIsRoughness(false)
+			self:SetNormalTextureAlphaIsRoughness(false)
+			self:SetAlbedoLuminanceIsRoughness(false)
+			self:SetMetallicFromRoughnessMask(false)
+			self:SetRoughnessMin(0)
+			self:SetRoughnessMax(1)
+			self:SetMetallicMultiplier(0)
+			self:SetRoughnessMultiplier(0.04)
+			self:SetSpecularMultiplier(1)
+		elseif FEATURES.albedo_gain and OVERBRIGHT_SHADERS[shader] then
+			apply_albedo_gain(self, ctx)
+		end
+
+		material_proxies.Attach(self, vmt.source_text)
+		local color = self.ColorMultiplier
+		local flags = {}
+
+		for _, name in ipairs{"Additive", "Modulate", "Translucent", "AlphaTest", "DoubleSided", "NoDraw"} do
+			if self[name] then flags[#flags + 1] = name end
+		end
+
+		self:SetOriginalMaterial(
+			string.format(
+				"path: %s\nfile: %s\nshader: %s\nbasetexture: %s\nflags: %s\ncolor multiplier: %.3f %.3f %.3f %.3f\nfamily: %s\n\n%s",
+				tostring(vmt.fullpath),
+				tostring(vmt.resolved_path),
+				tostring(vmt.shader),
+				tostring(vmt.basetexture),
+				table.concat(flags, " "),
+				color.r,
+				color.g,
+				color.b,
+				color.a,
+				tostring(class),
+				tostring(vmt.source_text)
 			)
 		)
-	then
-		self:SetAdditive(false)
-		self:SetRefraction(1)
-		self:SetRefractionThickness(0)
-		self:SetAlbedoAlphaIsEmissive(false)
-		self:SetRoughnessTexture(nil)
-		self:SetInvertRoughnessTexture(false)
-		self:SetMetallicMultiplier(0)
-		self:SetRoughnessMultiplier(0.04)
-		self:SetSpecularMultiplier(1)
 	end
-
-	material_proxies.Attach(self, vmt.source_text)
-	local color = self.ColorMultiplier
-	local flags = {}
-
-	for _, name in ipairs{"Additive", "Modulate", "Translucent", "AlphaTest", "DoubleSided", "NoDraw"} do
-		if self[name] then flags[#flags + 1] = name end
-	end
-
-	self:SetOriginalMaterial(
-		string.format(
-			"path: %s\nfile: %s\nshader: %s\nbasetexture: %s\nflags: %s\ncolor multiplier: %.3f %.3f %.3f %.3f\n\n%s",
-			tostring(vmt.fullpath),
-			tostring(vmt.resolved_path),
-			tostring(vmt.shader),
-			tostring(vmt.basetexture),
-			table.concat(flags, " "),
-			color.r,
-			color.g,
-			color.b,
-			color.a,
-			tostring(vmt.source_text)
-		)
-	)
 end
 
 local blacklist = {

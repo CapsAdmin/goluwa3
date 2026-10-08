@@ -115,6 +115,7 @@ do
 					return
 				end
 
+				source_text = source_text .. "\n\n" .. str
 				local vmt2, err2 = vdf.Decode(str, "vmt")
 
 				if err2 then

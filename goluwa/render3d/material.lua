@@ -25,6 +25,8 @@ Material:GetSet("MetallicTexture", nil, {type = "render_texture"})
 Material:GetSet("MetallicMultiplier", 1.0)
 Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
 Material:GetSet("RoughnessMultiplier", 1.0)
+Material:GetSet("RoughnessMin", 0.0)
+Material:GetSet("RoughnessMax", 1.0)
 Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
 Material:GetSet("SpecularMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionTexture", nil, {type = "render_texture"})
@@ -300,6 +302,7 @@ Material:GetSet("SpecularSolvesMetallic", false, {callback = "InvalidateFlags"})
 Material:GetSet("SpecularFromRoughnessMask", false, {callback = "InvalidateFlags"})
 Material:GetSet("RoughnessMaskOnlyScalesSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
+Material:GetSet("MetallicFromRoughnessMask", false, {callback = "InvalidateFlags"})
 Material:StartCategory("Texture Transforms")
 Material:GetSet("BaseTextureTransformU", Vec4(1, 0, 0, 0), {callback = "InvalidateRayMaterial"})
 Material:GetSet("BaseTextureTransformV", Vec4(0, 1, 0, 0), {callback = "InvalidateRayMaterial"})
@@ -562,6 +565,7 @@ local FLAGS = {
 	"RoughnessMaskOnlyScalesSpecular",
 	"Billboard",
 	"EmissiveTextureIsColor",
+	"MetallicFromRoughnessMask",
 }
 Material.FlagBits = {}
 
@@ -976,6 +980,8 @@ do
 			if
 				material:GetMetallicMultiplier() ~= 1.0 or
 				material:GetRoughnessMultiplier() ~= 1.0 or
+				material:GetRoughnessMin() ~= 0.0 or
+				material:GetRoughnessMax() ~= 1.0 or
 				material:GetAlphaCutoff() ~= 0.5
 			then
 				counts.nondefault_factor = counts.nondefault_factor + 1

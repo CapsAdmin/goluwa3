@@ -976,6 +976,10 @@ function Texture:IsSRGB()
 	return self.format ~= nil and self.format:ends_with("_srgb")
 end
 
+function Texture:AddOnReady(callback)
+	enqueue_on_ready(self, callback)
+end
+
 function Texture:MakeReady()
 	self.is_ready = true
 

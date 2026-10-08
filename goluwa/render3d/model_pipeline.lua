@@ -29,6 +29,8 @@ local PBR_COLOR_FIELDS = {
 local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
+	{type = "float", name = "RoughnessMin", getter = "GetRoughnessMin"},
+	{type = "float", name = "RoughnessMax", getter = "GetRoughnessMax"},
 	{type = "float", name = "SpecularMultiplier", getter = "GetSpecularMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
@@ -892,6 +894,8 @@ function model_pipeline.GetPBRFactorUploadKey()
 
 	local has_default_scalars = material:GetMetallicMultiplier() == 1.0 and
 		material:GetRoughnessMultiplier() == 1.0 and
+		material:GetRoughnessMin() == 0.0 and
+		material:GetRoughnessMax() == 1.0 and
 		material:GetSpecularMultiplier() == 1.0 and
 		material:GetAlphaCutoff() == 0.5 and
 		material:GetClearcoat() == 0.0
@@ -1844,8 +1848,35 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return 1.0;
 			}
 
+			// the raw roughness source texel, negative when the material has none
+			float get_roughness_texel(vec2 uv) {
+				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
+					return texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
+				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
+					return get_normal_alpha(uv);
+				} else if (AlbedoLuminanceIsRoughness) {
+					return dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
+				} else if (aux_model.RoughnessTexture != -1) {
+					return texture(TEXTURE(aux_model.RoughnessTexture), uv).r;
+				} else if (aux_model.MetallicRoughnessTexture != -1) {
+					return texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).g;
+				}
+
+				return -1.0;
+			}
+
 			float get_metallic(vec2 uv) {
 				float val = 1.0;
+
+				if (MetallicFromRoughnessMask) {
+					// the roughness texel is a mask, and the roughness range says which end is shiny
+					float texel = get_roughness_texel(uv);
+
+					if (texel >= 0.0) {
+						val = factor_model.RoughnessMax < factor_model.RoughnessMin ? texel : 1.0 - texel;
+						return clamp(val * factor_model.MetallicMultiplier, 0, 1);
+					}
+				}
 
 				if (aux_model.MetallicTexture != -1) {
 					val = texture(TEXTURE(aux_model.MetallicTexture), uv).r;
@@ -1864,32 +1895,26 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 			float get_roughness(vec2 uv) {
-				float val = 1.0;
-
 				if (RoughnessMaskOnlyScalesSpecular) return clamp(factor_model.RoughnessMultiplier * factor_model.RoughnessMultiplier, 0.002, 1.0);
 
-				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
-					val = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
-				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
-					val = get_normal_alpha(uv);
-				} else if (AlbedoLuminanceIsRoughness) {
-					val = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
-				} else if (aux_model.RoughnessTexture != -1) {
-					val = texture(TEXTURE(aux_model.RoughnessTexture), uv).r;
-				} else if (aux_model.MetallicRoughnessTexture != -1) {
-					val = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).g;
-				} else if (terrain_model.TerrainMaterialTexture != -1) {
-					val = dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerRoughness) * get_terrain_layer_sample(uv, in_position).roughness;
-				} else {
-					val = factor_model.RoughnessMultiplier;
+				float val = get_roughness_texel(uv);
 
-					// the gloss map scales a phong power n whose roughness is (2 / (n + 2))^0.25
-					if (GlossIsShininess) {
-						float r4 = val * val * val * val;
-						val = sqrt(sqrt(r4 / max(get_gloss(uv) * (1.0 - r4) + r4, 0.000001)));
+				if (val < 0.0) {
+					if (terrain_model.TerrainMaterialTexture != -1) {
+						val = dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerRoughness) * get_terrain_layer_sample(uv, in_position).roughness;
+					} else {
+						val = factor_model.RoughnessMultiplier;
+
+						// the gloss map scales a phong power n whose roughness is (2 / (n + 2))^0.25
+						if (GlossIsShininess) {
+							float r4 = val * val * val * val;
+							val = sqrt(sqrt(r4 / max(get_gloss(uv) * (1.0 - r4) + r4, 0.000001)));
+						}
+
+						return clamp(val * val, 0.002, 1.0);
 					}
-
-					return clamp(val * val, 0.002, 1.0);
+				} else {
+					val = mix(factor_model.RoughnessMin, factor_model.RoughnessMax, val);
 				}
 
 				val *= factor_model.RoughnessMultiplier;
