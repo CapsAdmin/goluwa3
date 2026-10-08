@@ -762,6 +762,102 @@ local function point_sweep_is_intersecting(scratch, t)
 	return nil
 end
 
+local POINT_SWEEP_EXACT_RADIUS = 0.0005
+
+-- Clips the segment start + movement * t (t in 0..max_t) against the face planes of a convex
+-- polyhedron inflated by `inflate`. Returns the first t inside it and the face entered (the
+-- closest face when the segment starts inside), or nil.
+function pair_solver_helpers.ClipSegmentAgainstPolyhedron(polyhedron, start_world, movement_world, position, rotation, inflate, max_t)
+	local qx, qy, qz, qw = -rotation.x, -rotation.y, -rotation.z, rotation.w
+	local px, py, pz = start_world.x - position.x, start_world.y - position.y, start_world.z - position.z
+	local tx = 2 * (qy * pz - qz * py)
+	local ty = 2 * (qz * px - qx * pz)
+	local tz = 2 * (qx * py - qy * px)
+	local sx, sy, sz = px + qw * tx + (qy * tz - qz * ty),
+	py + qw * ty + (qz * tx - qx * tz),
+	pz + qw * tz + (qx * ty - qy * tx)
+	px, py, pz = movement_world.x, movement_world.y, movement_world.z
+	tx = 2 * (qy * pz - qz * py)
+	ty = 2 * (qz * px - qx * pz)
+	tz = 2 * (qx * py - qy * px)
+	local dx, dy, dz = px + qw * tx + (qy * tz - qz * ty),
+	py + qw * ty + (qz * tx - qx * tz),
+	pz + qw * tz + (qx * ty - qy * tx)
+	local vertices = polyhedron.vertices
+	local faces = polyhedron.faces
+	local t_enter, t_exit = -math.huge, math.huge
+	local enter_face
+	local deepest_face, deepest_distance = nil, -math.huge
+
+	for i = 1, #faces do
+		local face = faces[i]
+		local normal = face.normal
+		local offset = face.plane_offset
+
+		if not offset then
+			local origin = vertices[face.indices[1]]
+			offset = normal.x * origin.x + normal.y * origin.y + normal.z * origin.z
+			face.plane_offset = offset
+		end
+
+		local distance = normal.x * sx + normal.y * sy + normal.z * sz - offset - inflate
+		local speed = normal.x * dx + normal.y * dy + normal.z * dz
+
+		if distance > deepest_distance then
+			deepest_distance = distance
+			deepest_face = face
+		end
+
+		if speed > -1e-12 and speed < 1e-12 then
+			if distance > 0 then return nil end
+		else
+			local t = -distance / speed
+
+			if speed < 0 then
+				if t > t_enter then
+					t_enter = t
+					enter_face = face
+				end
+			elseif t < t_exit then
+				t_exit = t
+			end
+
+			if t_enter > t_exit or t_enter > max_t or t_exit < 0 then return nil end
+		end
+	end
+
+	if t_enter < 0 then
+		if deepest_distance > 0 then return nil end
+
+		return 0, deepest_face
+	end
+
+	return t_enter, enter_face
+end
+
+local function sweep_point_against_polyhedron_exact(polyhedron, start_world, movement_world, position, rotation)
+	local hit_t, hit_face = pair_solver_helpers.ClipSegmentAgainstPolyhedron(
+		polyhedron,
+		start_world,
+		movement_world,
+		position,
+		rotation,
+		POINT_SWEEP_EXACT_RADIUS,
+		1
+	)
+
+	if not hit_face then return nil end
+
+	local normal = rotation:VecMul(hit_face.normal):GetNormalized()
+	local point = start_world + movement_world * hit_t
+	return {
+		t = hit_t,
+		normal = normal,
+		point = point,
+		position = point - normal * POINT_SWEEP_EXACT_RADIUS,
+	}
+end
+
 function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron, start_world, end_world, extra_radius, position, rotation)
 	local movement_world = end_world - start_world
 
@@ -769,6 +865,11 @@ function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron
 
 	position = position or static_body:GetPosition()
 	rotation = rotation or static_body:GetRotation()
+
+	if not extra_radius or extra_radius <= 0 then
+		return sweep_point_against_polyhedron_exact(polyhedron, start_world, movement_world, position, rotation)
+	end
+
 	extra_radius = math.max(extra_radius or 0, 0)
 	local scratch = static_body._PhysicsPointSweepGJK or {
 		point_vertices = {},

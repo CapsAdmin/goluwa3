@@ -171,11 +171,31 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 	local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
 	local triangle_center_world = use_local_space and mesh_body:LocalToWorld(triangle_center) or triangle_center
 	local found_contact = false
+	-- Samples at least combined_margin above the triangle's plane cannot touch it, which is almost
+	-- every sample of a prop standing on the floor, so they are skipped before the full query.
+	local e1x, e1y, e1z = v1.x - v0.x, v1.y - v0.y, v1.z - v0.z
+	local e2x, e2y, e2z = v2.x - v0.x, v2.y - v0.y, v2.z - v0.z
+	local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x
+	local normal_length = math.sqrt(nx * nx + ny * ny + nz * nz)
+	local plane_cutoff = normal_length > EPSILON and combined_margin * normal_length or math.huge
 
 	for _, sample in ipairs(samples) do
 		if support_only and not sample.is_support then goto continue end
 
 		local query_point = use_local_space and sample.mesh_point or sample.point
+
+		if
+			(
+				query_point.x - v0.x
+			) * nx + (
+				query_point.y - v0.y
+			) * ny + (
+				query_point.z - v0.z
+			) * nz >= plane_cutoff
+		then
+			goto continue
+		end
+
 		local result = triangle_contact_queries.QueryPointSample(poly_body, query_point, v0, v1, v2, {
 			epsilon = EPSILON,
 		})
