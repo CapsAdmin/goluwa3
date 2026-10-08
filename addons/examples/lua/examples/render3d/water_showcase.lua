@@ -13,11 +13,12 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
-local LAND_HEIGHT = 3
-local LAKE = {x = -70, z = 60, radius = 30, surface = 2.3, depth = 9}
-local POND = {x = -15, z = 38, radius = 12, surface = 2.55, depth = 1.8}
-local SWAMP = {x = 32, z = 72, radius = 24, surface = 2.4, depth = 1.1}
-local RIVER = {z = 115, width = 9, surface = 2.1, depth = 1.6}
+local LIFT = 8
+local LAND_HEIGHT = 3 + LIFT
+local LAKE = {x = -70, z = 60, radius = 30, surface = 2.3 + LIFT, depth = 7.5}
+local POND = {x = -15, z = 38, radius = 12, surface = 2.55 + LIFT, depth = 1.8}
+local SWAMP = {x = 32, z = 72, radius = 24, surface = 2.4 + LIFT, depth = 1.1}
+local RIVER = {z = 115, width = 9, surface = 2.1 + LIFT, depth = 1.6}
 local POOL = {x = 60, z = 20, width = 20, length = 12, depth = 2.2}
 local HEADER = noise.WORLD .. string.format(
 		[=[
@@ -76,7 +77,7 @@ float terrain_height(vec2 p) {
 	// sandbars and ripples on the sea floor
 	h += pn_fbm_lod(p * 0.05, 3, 20.0, step) * (d < 0.0 ? 0.6 : 0.25);
 
-	h = smin(h, basin(p, LAKE, 9.0 + pn_noise(p * 0.05) * 2.0), 3.0);
+	h = smin(h, basin(p, LAKE, 7.0 + pn_noise(p * 0.05) * 1.5), 3.0);
 	h = smin(h, basin(p, POND, 1.8), 1.5);
 	// the swamp is shallow and lumpy, with islands of mud and reeds
 	float swamp = basin(p, vec4(SWAMP.xy, SWAMP.z * (0.85 + 0.25 * pn_noise(p * 0.04)), SWAMP.w), 1.1);
@@ -104,7 +105,7 @@ vec4 terrain_splat(vec2 p, float h, vec3 n) {
 	float coast = -18.0 + pn_noise(vec2(p.x * 0.006, 1.3)) * 14.0;
 	float sand = 1.0 - smoothstep(4.0, 16.0, p.y - coast + breakup * 6.0);
 	// banks that are under water or wet are mud
-	float wet = 1.0 - smoothstep(2.3, 3.1, h + breakup * 0.4);
+	float wet = 1.0 - smoothstep(LAND_HEIGHT - 0.7, LAND_HEIGHT + 0.1, h + breakup * 0.4);
 	float rock = smoothstep(0.25, 0.45, slope + breakup * 0.1);
 	vec4 w;
 	w.x = sand;
@@ -160,6 +161,7 @@ showcase.terrain = Terrain.New{
 	ColorSize = 64,
 	ShadowLevels = 5,
 	BuildsPerUpdate = 4,
+	Physics = {chunk_size = 32, samples = 33, radius = 2},
 }:Start()
 
 local function track(ent)
@@ -171,7 +173,7 @@ local function mat(color, roughness, metallic)
 	return shapes.Material{Color = color, Roughness = roughness, Metallic = metallic or 0}
 end
 
-local function box(name, position, size, material, rotation)
+local function box(name, position, size, material, rotation, decoration)
 	return track(
 		shapes.Box{
 			Name = name,
@@ -179,8 +181,8 @@ local function box(name, position, size, material, rotation)
 			Rotation = rotation,
 			Size = size,
 			Material = material,
-			Collision = false,
-			RigidBody = false,
+			Collision = not decoration,
+			RigidBody = {MotionType = "static", Friction = 0.8},
 		}
 	)
 end
@@ -193,10 +195,19 @@ local function sphere(name, position, radius, material, scale)
 			Radius = radius,
 			Scale = scale,
 			Material = material,
-			Collision = false,
-			RigidBody = false,
+			Collision = scale == nil,
+			RigidBody = {MotionType = "static", Friction = 0.8},
 		}
 	)
+end
+
+local function floater(kind, name, position, density, config, material, rotation)
+	config.Name = name
+	config.Position = position
+	config.Rotation = rotation
+	config.Material = material
+	config.RigidBody = {Density = density, AngularDamping = 0}
+	return track(shapes[kind](config))
 end
 
 local function lamp(name, position, color, lumen, range)
@@ -423,12 +434,12 @@ do
 	local stone = mat(Color(0.45, 0.43, 0.4, 1), 0.6)
 
 	for i = 0, 5 do
-		sphere(
+		box(
 			"stepping_stone" .. i,
-			Vec3(-2 + (i % 2) * 0.8, RIVER.surface - 0.2, RIVER.z - 8 + i * 3.2),
-			0.7,
+			Vec3(-2 + (i % 2) * 0.8, RIVER.surface - 0.1, RIVER.z - 8 + i * 3.2),
+			Vec3(1.5, 0.6, 1.3),
 			stone,
-			Vec3(1, 0.6, 1)
+			QuatDeg3(0, i * 37, 0)
 		)
 	end
 end
@@ -477,7 +488,9 @@ do
 			"pool_lane" .. i,
 			Vec3(POOL.x, floor_y + 0.005, POOL.z + i * 3.5),
 			Vec3(w - 3, 0.02, 0.3),
-			lane
+			lane,
+			nil,
+			true
 		)
 	end
 
@@ -537,12 +550,19 @@ do
 		Vec3(0.6, 0.6, 0.8),
 		concrete
 	)
-	sphere(
-		"beach_ball",
-		Vec3(POOL.x - 3, rim - 0.25, POOL.z - 2),
-		0.35,
-		mat(Color(0.9, 0.2, 0.1, 1), 0.35)
-	)
+	local ball_colors = {Color(0.9, 0.2, 0.1, 1), Color(0.95, 0.8, 0.15, 1), Color(0.2, 0.5, 0.9, 1)}
+
+	for i = 1, 3 do
+		floater(
+			"Sphere",
+			"beach_ball" .. i,
+			Vec3(POOL.x - 6 + i * 3, rim + 0.5 + i * 0.6, POOL.z - 2 + i),
+			90,
+			{Radius = 0.35},
+			mat(ball_colors[i], 0.35)
+		)
+	end
+
 	volume(
 		"pool",
 		Vec3(POOL.x, rim - 0.2, POOL.z),
@@ -703,34 +723,107 @@ do
 	)
 end
 
+do
+	local wood = mat(Color(0.42, 0.29, 0.17, 1), 0.8)
+	local crate = mat(Color(0.5, 0.36, 0.2, 1), 0.85)
+	local barrel = mat(Color(0.55, 0.12, 0.1, 1), 0.5)
+	local buoy = mat(Color(0.95, 0.35, 0.1, 1), 0.4)
+	local lx, lz, ls = LAKE.x, LAKE.z, LAKE.surface
+	floater(
+		"Box",
+		"raft",
+		Vec3(lx + 2, ls + 1, lz - 12),
+		350,
+		{Size = Vec3(4, 0.25, 3)},
+		wood,
+		QuatDeg3(0, 25, 0)
+	)
+
+	for i = 1, 4 do
+		floater(
+			"Box",
+			"lake_crate" .. i,
+			Vec3(lx + 10 + i * 1.5, ls + 2 + i * 1.2, lz - 3 + i * 2),
+			450,
+			{Size = Vec3(1, 1, 1)},
+			crate,
+			QuatDeg3(i * 17, i * 40, i * 9)
+		)
+	end
+
+	for i = 1, 3 do
+		floater(
+			"Capsule",
+			"lake_log" .. i,
+			Vec3(lx - 12 + i * 4, ls + 2 + i, lz - 9 + i),
+			600,
+			{Radius = 0.3, Height = 3.5},
+			wood,
+			QuatDeg3(0, i * 50, 90)
+		)
+	end
+
+	for i = 1, 3 do
+		floater(
+			"Capsule",
+			"lake_barrel" .. i,
+			Vec3(lx - 4 + i * 2, ls + 3 + i, lz + 14 - i),
+			700,
+			{Radius = 0.45, Height = 1.3},
+			barrel,
+			QuatDeg3(i * 30, 0, i * 20)
+		)
+	end
+
+	for i = 1, 3 do
+		floater(
+			"Sphere",
+			"ocean_buoy" .. i,
+			Vec3(30 + i * 9, 3 + i, -70 - i * 6),
+			150,
+			{Radius = 0.6},
+			buoy
+		)
+		floater(
+			"Box",
+			"ocean_crate" .. i,
+			Vec3(20 + i * 7, 6 + i, -55 - i * 4),
+			400,
+			{Size = Vec3(1.2, 1.2, 1.2)},
+			crate,
+			QuatDeg3(i * 20, i * 35, 0)
+		)
+	end
+end
+
 showcase.views = {
 	{name = "beach", pos = Vec3(-45, 6, -28), target = Vec3(0, 0, -22)},
 	{name = "ocean", pos = Vec3(40, 2.5, -45), target = Vec3(80, 0, -200)},
 	{name = "underwater", pos = Vec3(10, -4, -75), target = Vec3(20, -2, -40)},
 	{
 		name = "lake",
-		pos = Vec3(LAKE.x + 34, 7, LAKE.z - 28),
+		pos = Vec3(LAKE.x + 34, 7 + LIFT, LAKE.z - 28),
 		target = Vec3(LAKE.x, LAKE.surface - 2, LAKE.z),
 	},
 	{
 		name = "pond",
-		pos = Vec3(POND.x + 14, 6, POND.z - 12),
+		pos = Vec3(POND.x + 14, 6 + LIFT, POND.z - 12),
 		target = Vec3(POND.x, POND.surface - 1, POND.z),
 	},
 	{
 		name = "swamp",
-		pos = Vec3(SWAMP.x - 22, 5.5, SWAMP.z - 22),
+		pos = Vec3(SWAMP.x - 22, 5.5 + LIFT, SWAMP.z - 22),
 		target = Vec3(SWAMP.x, SWAMP.surface, SWAMP.z),
 	},
 	{
 		name = "river",
-		pos = Vec3(-30, 6, RIVER.z - 18),
+		pos = Vec3(-30, 6 + LIFT, RIVER.z - 18),
 		target = Vec3(0, RIVER.surface, RIVER.z),
 	},
 	{
 		name = "pool",
-		pos = Vec3(POOL.x - 14, 7, POOL.z - 11),
-		target = Vec3(POOL.x, POOL.depth, POOL.z),
+		pos = Vec3(POOL.x - 14, 7 + LIFT, POOL.z - 11),
+		target = Vec3(POOL.x, LAND_HEIGHT - POOL.depth, POOL.z),
 	},
 	{
 		name = "in_lake",
@@ -749,8 +842,8 @@ showcase.views = {
 	},
 	{
 		name = "aquarium",
-		pos = Vec3(POOL.x + 28, 5.8, POOL.z - 6),
-		target = Vec3(POOL.x + 28, 5, POOL.z),
+		pos = Vec3(POOL.x + 28, 5.8 + LIFT, POOL.z - 6),
+		target = Vec3(POOL.x + 28, 5 + LIFT, POOL.z),
 	},
 }
 

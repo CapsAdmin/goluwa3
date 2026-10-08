@@ -7,6 +7,8 @@ local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local stats = import("goluwa/physics/stats.lua")
+local fluid = import("goluwa/physics/fluid.lua")
+local buoyancy = import("goluwa/physics/buoyancy.lua")
 local world_step = {}
 local NEWLY_AWOKEN_BODIES = {}
 local ACTIVE_BODIES = {}
@@ -217,6 +219,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	stats:PushTime("step")
 	stats:PushTime("synchronize")
 	refresh_body_lists(bodies)
+	fluid.Refresh()
 
 	do
 		local removed_bodies = RigidBody.RemovedBodies
@@ -256,6 +259,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	end
 
 	stats:PopTime()
+	local has_fluid = fluid.HasRegions()
 	local rigid_body_pairs
 	local simulation_islands
 	local constraints = physics.GetConstraints()
@@ -279,6 +283,16 @@ function world_step.UpdateRigidBodies(physics, dt)
 				body.PositionCorrection = 0
 				body:SetGrounded(false)
 				body:SetGroundNormal(physics_constants.UP)
+
+				if
+					has_fluid and
+					body.Buoyancy ~= 0 and
+					body.GravityScale ~= 0 and
+					body:HasSolverMass()
+				then
+					buoyancy.Apply(body, sub_dt, physics.Gravity)
+				end
+
 				body:Integrate(sub_dt, physics.Gravity)
 			else
 				body.PreviousPosition:CopyFrom(body.Position)

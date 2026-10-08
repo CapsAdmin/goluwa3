@@ -48,6 +48,8 @@ RigidBody:GetSet("AutomaticMass", true, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("Inertia", nil, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("LockRotation", false, {callback = "RefreshMassProperties"})
 RigidBody:GetSet("GravityScale", 1)
+RigidBody:GetSet("Buoyancy", 1)
+RigidBody:GetSet("BuoyancyDensity", nil, {type = "number"})
 RigidBody:GetSet("LinearDamping", 0)
 RigidBody:GetSet("AngularDamping", 0)
 RigidBody:GetSet("AirLinearDamping", 0)
@@ -425,6 +427,7 @@ function RigidBody:RebuildColliders()
 	self.CollisionLocalPoints = nil
 	self.SupportLocalPoints = nil
 	self.LocalBounds = nil
+	self.BuoyancyCells = nil
 	return colliders
 end
 

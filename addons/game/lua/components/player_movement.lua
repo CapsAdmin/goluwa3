@@ -36,6 +36,14 @@ META:GetSet("SprintMultiplier", 2)
 META:GetSet("CrouchMultiplier", 1 / 3)
 META:GetSet("SuperMultiplier", 3)
 META:GetSet("Mode", "fly")
+META:GetSet("SwimSpeed", 3)
+META:GetSet("SwimSprintMultiplier", 1.6)
+META:GetSet("SwimAcceleration", 30)
+META:GetSet("SwimEnterFraction", 0.75)
+META:GetSet("SwimExitFraction", 0.5)
+META:IsSet("Swimming", false)
+-- a lean adult with the lungs mostly emptied, a little denser than water so they sink slowly
+META:GetSet("BodyDensity", 1060)
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
@@ -57,6 +65,7 @@ function META:Reset(mode)
 	self.CrouchAnchorMode = nil
 	self.CrouchAnchorPosition = nil
 	self.was_grounded = false
+	self.Swimming = false
 	self.ground_x = nil
 	self.ground_z = nil
 	self.jump_requested = nil
@@ -96,6 +105,7 @@ function META:InvalidateBodyGeometry()
 	body.CollisionLocalPoints = nil
 	body.SupportLocalPoints = nil
 	body.LocalBounds = nil
+	body.BuoyancyCells = nil
 	body:RefreshMassProperties()
 
 	if body.SetAwake then body:SetAwake(true) end
@@ -314,6 +324,7 @@ function META:ApplyMode(mode)
 	local body = self.Owner.rigid_body
 	local previous = self.mode
 	self.mode = mode
+	self.Swimming = false
 	self.Mode = mode
 
 	if not body then return end
@@ -336,6 +347,7 @@ function META:ApplyMode(mode)
 	body:SetAngularDamping(0)
 	body:SetAirAngularDamping(0)
 	body:SetLockRotation(true)
+	body:SetBuoyancyDensity(self.BodyDensity)
 	body:SetFriction(0)
 	body:SetCollisionMask(bit.bnot(usercmd.HELD_COLLISION_GROUP))
 	self:ResetBodyRotation()
@@ -413,6 +425,46 @@ do
 			if smooth ~= 0 then
 				local decay = math.max(math.abs(smooth) * STEP_SMOOTH_SPEED, STEP_SMOOTH_MIN_SPEED) * dt
 				self.step_smooth = math.abs(smooth) <= decay and 0 or smooth - math.sign(smooth) * decay
+			end
+
+			local submerged = body.SubmergedFraction or 0
+
+			if self.Swimming then
+				if submerged < self.SwimExitFraction then self.Swimming = false end
+			elseif submerged >= self.SwimEnterFraction then
+				self.Swimming = true
+				self.was_grounded = false
+				self.ground_x = nil
+				self.ground_z = nil
+			end
+
+			if self.Swimming then
+				self:SetCrouch(false)
+				self:UpdateCrouchTransition(dt)
+				local wish = Vec3()
+
+				if active then
+					wish = view:GetForward() * cmd.forward + view:GetRight() * cmd.side
+
+					if jump_down then
+						wish.y = wish.y + 1
+					elseif crouching then
+						wish.y = wish.y - 1
+					end
+				end
+
+				if wish:GetLength() > 0.0001 then
+					local speed = self.SwimSpeed * (sprinting and self.SwimSprintMultiplier or 1)
+					local target = wish:GetNormalized() * speed
+
+					if target.y > 0 then
+						target.y = target.y * math.clamp((submerged - self.SwimExitFraction) * 4, 0, 1)
+					end
+
+					body:SetVelocity(approach_vec(body:GetVelocity():Copy(), target, self.SwimAcceleration * dt))
+				end
+
+				return
 			end
 
 			self:SetCrouch(crouching)

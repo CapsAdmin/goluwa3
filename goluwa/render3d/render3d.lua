@@ -17,6 +17,7 @@ local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local water = import("goluwa/render3d/water.lua")
+local fluid = import("goluwa/physics/fluid.lua")
 local light_components = import("goluwa/entities/components/light.lua")
 
 local function decorate_pipeline_instance(pipeline, config)
@@ -851,6 +852,10 @@ end
 
 function render3d.IsOceanEnabled()
 	return context_bool("ocean_enabled", render3d.ocean_enabled == true)
+end
+
+function fluid.GetOceanLevel()
+	if render3d.IsOceanEnabled() then return render3d.GetOceanLevel() end
 end
 
 function render3d.IsWaterEnabled()
