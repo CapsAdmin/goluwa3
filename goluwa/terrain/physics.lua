@@ -24,7 +24,8 @@ end
 function TerrainPhysics:GatherAnchors(camera_position)
 	local anchors = self.anchors
 	list.clear(anchors)
-	anchors[1] = camera_position
+
+	if camera_position then anchors[1] = camera_position end
 
 	for _, body in ipairs(RigidBody.Instances) do
 		if body:IsDynamic() and body:GetAwake() then

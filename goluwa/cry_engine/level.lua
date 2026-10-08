@@ -753,6 +753,8 @@ local function sample_terrain_height_at_world(terrain, world_x, world_z)
 		)
 end
 
+level.SampleTerrainHeight = sample_terrain_height_at_world
+
 local function sample_terrain_normal_at_world(terrain, world_x, world_z)
 	if not terrain or not terrain.height_data then return Vec3(0, 1, 0) end
 

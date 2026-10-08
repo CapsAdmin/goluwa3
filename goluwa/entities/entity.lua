@@ -28,11 +28,12 @@ function Entity.GetValidComponents()
 			valid_components.shadow_map_directional = import("goluwa/entities/components/shadow_map_directional.lua")
 			valid_components.shadow_map_point = import("goluwa/entities/components/shadow_map_point.lua")
 			valid_components.visibility_group = import("goluwa/entities/components/visibility_group.lua")
-			valid_components.bsp_world = import("goluwa/entities/components/bsp_world.lua")
-			valid_components.cry_level = import("goluwa/entities/components/cry_level.lua")
 			valid_components.source_light = import("goluwa/entities/components/source_light.lua")
 			valid_components.atmosphere_controller = import("goluwa/entities/components/atmosphere_controller.lua")
 		end
+
+		valid_components.bsp_world = import("goluwa/entities/components/bsp_world.lua")
+		valid_components.cry_level = import("goluwa/entities/components/cry_level.lua")
 	end
 
 	return valid_components

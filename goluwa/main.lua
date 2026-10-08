@@ -195,7 +195,10 @@ local function run_game()
 
 	if RENDER_3D then vfs.AutorunAddons("render_3d/") end
 
-	if PHYSICS then vfs.AutorunAddons("physics/") end
+	if PHYSICS then
+		import("goluwa/render3d/model_loader.lua")
+		vfs.AutorunAddons("physics/")
+	end
 
 	if AUDIO then vfs.AutorunAddons("audio/") end
 

@@ -138,9 +138,10 @@ function map_scene.Translate(data, map_name, map_path)
 		properties = {Name = map_name},
 		components = {transform = {}, bsp_world = {Path = map_path}},
 	}
-	add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
 
-	if not RENDER_3D then return {version = scene.Version, entities = records} end
+	if RENDER_3D then
+		add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
+	end
 
 	local containers = {}
 	local sub_groups = {}
@@ -157,7 +158,7 @@ function map_scene.Translate(data, map_name, map_path)
 				guid = guid,
 				parent = root_guid,
 				properties = {Name = "visibility_group_" .. id},
-				components = {transform = {}, visibility_group = {}},
+				components = {transform = {}, visibility_group = RENDER_3D and {} or nil},
 			}
 		end
 
@@ -190,9 +191,11 @@ function map_scene.Translate(data, map_name, map_path)
 		elseif info.classname and info.classname:find("light_environment") then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 		elseif info.classname:lower():find("light") and (info._lightHDR or info._light) then
-			handled[info.classname] = (handled[info.classname] or 0) + 1
-			entries[#entries + 1] = {kind = "light", info = info, index = index}
-		elseif info.classname == "env_fog_controller" then
+			if RENDER_3D then
+				handled[info.classname] = (handled[info.classname] or 0) + 1
+				entries[#entries + 1] = {kind = "light", info = info, index = index}
+			end
+		elseif RENDER_3D and info.classname == "env_fog_controller" then
 			if
 				bit.band(tonumber(info.spawnflags) or 0, 1) ~= 0 and
 				tonumber(info.fogenable) == 1
@@ -220,13 +223,15 @@ function map_scene.Translate(data, map_name, map_path)
 
 				if motion_type then physics_models[model_path] = true end
 
-				entries[#entries + 1] = {
-					kind = "prop",
-					info = info,
-					index = index,
-					model_path = model_path,
-					motion_type = motion_type,
-				}
+				if RENDER_3D or motion_type then
+					entries[#entries + 1] = {
+						kind = "prop",
+						info = info,
+						index = index,
+						model_path = model_path,
+						motion_type = motion_type,
+					}
+				end
 			else
 				wlog(
 					"cannot spawn entity of class " .. tostring(info.classname) .. " because model file " .. tostring(info.model) .. " does not exist"
@@ -316,16 +321,19 @@ function map_scene.Translate(data, map_name, map_path)
 						},
 					},
 				}
-				add{
-					guid = guid .. ":visual",
-					parent = guid,
-					properties = {Name = "prop_visual"},
-					components = {
-						transform = {Position = center_of_mass * -1},
-						visual = {ModelPath = entry.model_path, ClipBounds = clip_bounds(info)},
-					},
-				}
-			elseif entry.motion_type then
+
+				if RENDER_3D then
+					add{
+						guid = guid .. ":visual",
+						parent = guid,
+						properties = {Name = "prop_visual"},
+						components = {
+							transform = {Position = center_of_mass * -1},
+							visual = {ModelPath = entry.model_path, ClipBounds = clip_bounds(info)},
+						},
+					}
+				end
+			elseif RENDER_3D and entry.motion_type then
 				add{
 					guid = guid,
 					parent = container,
@@ -335,7 +343,7 @@ function map_scene.Translate(data, map_name, map_path)
 						visual = {ModelPath = entry.model_path},
 					},
 				}
-			else
+			elseif RENDER_3D then
 				add{
 					guid = guid,
 					parent = container,

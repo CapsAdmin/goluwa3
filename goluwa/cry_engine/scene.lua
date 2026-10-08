@@ -2,6 +2,7 @@ local level = import("goluwa/cry_engine/level.lua")
 local units = import("goluwa/cry_engine/units.lua")
 local cry_water = import("goluwa/cry_engine/water.lua")
 local water = import("goluwa/render3d/water.lua")
+local fluid = import("goluwa/physics/fluid.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -37,7 +38,9 @@ local function build_atmosphere_record(data)
 
 	if editor_level and editor_level.ocean then
 		local ocean = editor_level.ocean
-		cry_water.EnableCrysisWaves()
+
+		if RENDER_3D then cry_water.EnableCrysisWaves() end
+
 		local absorption, scattering = cry_water.GetMedium(ocean.fog_color, ocean.fog_color_multiplier, ocean.fog_density)
 		local wind = units.ToEngine(Vec3(math.cos(ocean.wind_direction), math.sin(ocean.wind_direction), 0))
 		local wind_direction = math.deg(math.atan2(wind.z, wind.x))
@@ -63,7 +66,8 @@ local function build_atmosphere_record(data)
 	return {
 		guid = "atmosphere",
 		components = {atmosphere_controller = properties},
-	}
+	},
+	properties
 end
 
 function cry_scene.Translate(data, level_name, level_path, options)
@@ -209,7 +213,16 @@ function cry_scene.Translate(data, level_name, level_path, options)
 		properties = {Name = level_name},
 		components = {cry_level = {Path = level_path}},
 	}
-	add(build_atmosphere_record(data))
+	local atmosphere_record, atmosphere = build_atmosphere_record(data)
+
+	if RENDER_3D then
+		add(atmosphere_record)
+	elseif atmosphere.OceanEnabled then
+		fluid.SetOceanLevel(atmosphere.OceanLevel)
+
+		if atmosphere.OceanSettings then water.SetOcean(atmosphere.OceanSettings) end
+	end
+
 	local water_guid
 
 	for _, object in ipairs(data.water_objects or {}) do
@@ -227,7 +240,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 		end
 	end
 
-	if options.skip_models then
+	if options.skip_models or not RENDER_3D then
 		return {version = scene.Version, entities = records}
 	end
 

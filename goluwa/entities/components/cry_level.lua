@@ -1,9 +1,9 @@
 local objects = import("goluwa/objects/objects.lua")
 local game = import("goluwa/cry_engine/game.lua")
 local level = import("goluwa/cry_engine/level.lua")
-local terrain = import("goluwa/cry_engine/terrain.lua")
 local cry_engine = import("goluwa/cry_engine/cry_engine.lua")
 local timer = import("goluwa/timer.lua")
+local HeightPhysics = import("goluwa/terrain/height_physics.lua")
 local META = objects.CreateTemplate("cry_level")
 META:StartStorable()
 META:GetSet("Path", "", {callback = "Load"})
@@ -44,9 +44,28 @@ end
 
 function META:Build(level_dir)
 	local data = level.Load(level_dir)
-	self.renderer = terrain.SpawnTerrain(data, self.Owner)
-	cry_engine.active_terrain_renderer = self.renderer
-	terrain.ApplyVegetationMaterialState(data)
+
+	if RENDER_3D then
+		local terrain = import("goluwa/cry_engine/terrain.lua")
+		self.renderer = terrain.SpawnTerrain(data, self.Owner)
+		cry_engine.active_terrain_renderer = self.renderer
+		terrain.ApplyVegetationMaterialState(data)
+		return
+	end
+
+	local terrain = data.terrain
+
+	if not terrain or not terrain.height_data then return end
+
+	self.renderer = HeightPhysics.New{
+		Name = "cry_terrain",
+		Height = function(x, z)
+			return level.SampleTerrainHeight(terrain, x, z)
+		end,
+		Physics = {chunk_size = 64, samples = 65, radius = 2},
+	}:Start()
+	self.renderer.Root.spawned_from_cry_level = true
+	self.Owner:AddChild(self.renderer.Root)
 end
 
 function META:OnRemove()

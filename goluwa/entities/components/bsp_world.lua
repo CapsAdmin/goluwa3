@@ -5,7 +5,7 @@ local game = import("goluwa/source_engine/game.lua")
 local units = import("goluwa/source_engine/units.lua")
 local scene = import("goluwa/entities/scene.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
-local VisibilityGroup = import("goluwa/entities/components/visibility_group.lua")
+local VisibilityGroup = RENDER_3D and import("goluwa/entities/components/visibility_group.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local timer = import("goluwa/timer.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -24,8 +24,11 @@ function META:Clear()
 
 	if owner:HasComponent("rigid_body") then owner:RemoveComponent("rigid_body") end
 
-	VisibilityGroup.SetLocator(nil)
-	VisibilityGroup.SetActive(nil)
+	if RENDER_3D then
+		VisibilityGroup.SetLocator(nil)
+		VisibilityGroup.SetActive(nil)
+	end
+
 	self.groups = {}
 	self.sub_groups = {}
 end
@@ -66,6 +69,9 @@ end
 
 function META:Fail(path, err)
 	wlog("bsp_world: failed to load %s: %s", path, tostring(err))
+
+	if not RENDER_3D then return end
+
 	local shapes = import("goluwa/render3d/shapes.lua")
 	local placeholder = shapes.Box{
 		Name = "missing " .. path,
@@ -174,7 +180,7 @@ function META:Build(path)
 		owner:AddComponent("rigid_body", data.physics_body)
 	end
 
-	if data.visibility.group_count > 0 then
+	if RENDER_3D and data.visibility.group_count > 0 then
 		local point_leaf = data.visibility.point_leaf
 		local area_groups = data.visibility.area_groups
 		local group_bounds = data.visibility.group_bounds
@@ -216,8 +222,10 @@ function META:Build(path)
 end
 
 function META:OnRemove()
-	VisibilityGroup.SetLocator(nil)
-	VisibilityGroup.SetActive(nil)
+	if RENDER_3D then
+		VisibilityGroup.SetLocator(nil)
+		VisibilityGroup.SetActive(nil)
+	end
 end
 
 return META:Register()
