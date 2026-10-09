@@ -481,6 +481,18 @@ function BaseTheme:GetHoverTint(color, alpha)
 end
 
 do
+	local icon_svg_cache = {}
+	local icons = {
+		chevron = [[<svg viewBox="1.3 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]],
+		plus = [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]],
+		minus = [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]],
+		check = [[<svg viewBox="0 0 16 16"><path d="M13.7 4.3L12.3 2.9L6.5 8.7L3.7 5.9L2.3 7.3L6.5 11.5z"/></svg>]],
+		close = [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]],
+		minimize = [[<svg viewBox="0 0 16 16"><path d="M2 11h12v2H2z"/></svg>]],
+		maximize = [[<svg viewBox="0 0 16 16"><path d="M2 2h12v12H2zM4 4v8h8V4z"/></svg>]],
+		restore = [[<svg viewBox="0 0 16 16"><path d="M5 2h9v9h-2V4H5zM2 5h9v9H2zM4 7v5h5V7z"/></svg>]],
+	}
+
 	function BaseTheme:DrawIcon(name, size, opts)
 		if name == "disclosure" then
 			return self:DrawDisclosureIcon(size, opts)
@@ -489,16 +501,17 @@ do
 		elseif name == "close" then
 			return self:DrawCloseIcon(size, opts)
 		end
-	end
 
-	local icon_svg_cache = {}
-	local icons = {
-		chevron = [[<svg viewBox="1.3 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]],
-		plus = [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]],
-		minus = [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]],
-		check = [[<svg viewBox="0 0 16 16"><path d="M13.7 4.3L12.3 2.9L6.5 8.7L3.7 5.9L2.3 7.3L6.5 11.5z"/></svg>]],
-		close = [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]],
-	}
+		return self:DrawSVGIcon(
+			name,
+			size,
+			{
+				size = opts.size or self:GetSize("M"),
+				inset = opts.inset or self:GetSize("line"),
+				color = opts.color,
+			}
+		)
+	end
 
 	local function get_cached_icon_svg(name)
 		local cached = icon_svg_cache[name]
@@ -1591,6 +1604,20 @@ function BaseTheme:Draw(pnl)
 		return self:DrawHeader(pnl.transform:GetSize(), self:GetEmphasis(pnl))
 	elseif name == "window_content" or name == "tooltip_overlay" then
 		return self:DrawFrame(pnl.transform:GetTotalSize(), self:GetEmphasis(pnl))
+	elseif name == "snap_preview" then
+		return self:DrawBox(
+			pnl.transform:GetSize(),
+			{
+				fill = "primary",
+				fill_alpha = 0.18,
+				radius = self:GetRadius("M"),
+				outline = "primary",
+				outline_alpha = 0.7,
+				thickness = self:GetSize("XXXS"),
+			}
+		)
+	elseif name == "dock" then
+		return self:DrawMenuContainer(pnl.transform:GetSize())
 	elseif name == "text_edit" then
 		return self:DrawSurface(pnl.transform:GetTotalSize(), pnl:GetState("panel_color"), self:GetRadius("M"))
 	elseif name == "menu_container" then

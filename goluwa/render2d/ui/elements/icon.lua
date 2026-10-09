@@ -6,7 +6,13 @@ META.CMP.visual = {}
 META.CMP.style = {}
 META.CMP.mouse_input = {IgnoreMouseInput = true}
 META:StartStorable()
-META:GetSet("Icon", "disclosure", {enums = {"disclosure", "dropdown_indicator", "close"}})
+META:GetSet(
+	"Icon",
+	"disclosure",
+	{
+		enums = {"disclosure", "dropdown_indicator", "close", "minimize", "maximize", "restore"},
+	}
+)
 META:GetSet("IconColor", nil)
 META:GetSet("OpenFraction", 0)
 META:EndStorable()

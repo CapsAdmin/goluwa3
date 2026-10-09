@@ -73,6 +73,11 @@ function META:StopDragging()
 	self:RemoveEvent("Update")
 end
 
+function META:Rebase()
+	self.drag_mouse_start = self.Owner.mouse_input:GetGlobalMousePosition():Copy()
+	self.drag_object_start = self:GetTarget().transform:GetPosition():Copy()
+end
+
 function META:IsDragging()
 	return self.drag_mouse_start ~= nil
 end

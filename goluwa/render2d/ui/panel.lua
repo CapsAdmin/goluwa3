@@ -24,6 +24,7 @@ function Panel.GetValidComponents()
 		valid_components.text = import("goluwa/render2d/ui/components/text.lua")
 		valid_components.transform = import("goluwa/render2d/ui/components/transform.lua")
 		valid_components.draggable = import("goluwa/render2d/ui/components/draggable.lua")
+		valid_components.snappable = import("goluwa/render2d/ui/components/snappable.lua")
 	end
 
 	return valid_components
