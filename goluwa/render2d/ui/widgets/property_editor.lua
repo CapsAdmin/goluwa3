@@ -41,6 +41,7 @@ META.CMP.clickable = {}
 META.CMP.animation = {}
 META:StartStorable()
 META:GetSet("Items", nil)
+META:GetSet("CategoryOrder", nil)
 META:GetSet("SelectedKey", nil)
 META:GetSet("NumberPrecision", 2)
 META:GetSet("ValueWidth", 10)
@@ -1166,7 +1167,17 @@ do
 				}
 			end
 
+			local order = {}
+
+			for index, name in ipairs(self.CategoryOrder or {}) do
+				order[name] = index
+			end
+
 			table.sort(categories, function(a, b)
+				local rank_a, rank_b = order[a.name] or math.huge, order[b.name] or math.huge
+
+				if rank_a ~= rank_b then return rank_a < rank_b end
+
 				return a.name < b.name
 			end)
 
