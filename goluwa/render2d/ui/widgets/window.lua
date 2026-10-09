@@ -74,10 +74,12 @@ local header_buttons = {
 	{Prop = "Closable", Icon = "close", Action = "OnClose"},
 }
 
-function META:OnCreate(props)
-	props.Size = props.Size or Vec2(400, 300)
-	props.Position = props.Position or Vec2(100, 100)
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults()
+	return {Size = Vec2(400, 300), Position = Vec2(100, 100)}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self.resizable:SetMinimumSize(self.MinSize or Vec2(100, 100))
 	self._minimized = false
 	self:CallOnRemove(remove_from_dock, "window_dock")

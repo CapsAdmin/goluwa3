@@ -36,8 +36,8 @@ local function on_item_click(button)
 	button.Tray:ActivateItem(button.DockItem)
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self._items = {}
 	self._callbacks = {}
 	self._count = 0

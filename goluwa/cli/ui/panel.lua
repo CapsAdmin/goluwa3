@@ -30,9 +30,9 @@ function TuiPanel.GetValidComponents()
 	return valid_components
 end
 
-function TuiPanel:OnCreate(config)
+function TuiPanel:OnConstruct(config)
 	self.World = TuiPanel.World
-	TuiPanel.BaseClass.OnCreate(self, config)
+	TuiPanel.BaseClass.OnConstruct(self, config)
 end
 
 TuiPanel:Register()

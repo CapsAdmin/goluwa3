@@ -73,9 +73,12 @@ local function on_swatch_click(swatch)
 	swatch.Vector.OnSwatchClick(swatch.Vector)
 end
 
-function META:OnCreate(props)
-	props.layout = {ChildGap = "XS", props.layout}
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults()
+	return {layout = {ChildGap = "XS"}}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	local components = self.Components
 	local gap = self.layout:GetChildGap()
 	local height = self.RowHeight

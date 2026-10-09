@@ -20,10 +20,13 @@ local function on_container_draw(container)
 	container.MarkupPanel:draw_content(container)
 end
 
-function META:OnCreate(props)
-	props.Size = props.Size or Vec2(400, 200)
-	props.Markup = props.Markup or Markup.New()
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults()
+	return {Size = Vec2(400, 200)}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
+	self.Markup = self.Markup or Markup.New()
 	self._content_height = 0
 	self._scroll_panel = ScrollablePanel{
 		Parent = self,

@@ -15,11 +15,11 @@ end)
 
 META:EndStorable()
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self:SetState("emphasis", self.Emphasis)
 
-	if props.OnClick then self.mouse_input:SetCursor("pointer") end
+	if self.OnClick then self.mouse_input:SetCursor("pointer") end
 end
 
 function META:OnDraw()

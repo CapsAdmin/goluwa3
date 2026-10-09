@@ -49,20 +49,33 @@ local function on_text_key_input(text, key, press)
 	if key == "escape" then return field:end_editing(false) end
 end
 
-function META:OnCreate(props)
-	props.Size = props.Size or Vec2(220, theme.active:GetInputHeight(props.FontSize or "M"))
-	props.MinSize = props.MinSize or Vec2(80, props.Size.y)
-	props.MaxSize = props.MaxSize or Vec2(0, props.Size.y)
-	local right_elements = props.RightElements or {}
-	local bottom_elements = props.BottomElements or {}
-	local has_bottom = #bottom_elements > 0
-	props.layout = {
+function META.PropDefaults(_, props)
+	local has_bottom = props.BottomElements and #props.BottomElements > 0
+	local layout = {
 		Direction = has_bottom and "y" or "x",
 		ChildGap = has_bottom and "XXS" or 0,
-		props.layout,
 	}
-	META.BaseClass.OnCreate(self, props)
-	self._drag_threshold = theme.active:ResolveSize(self.DragThreshold or "XXS")
+
+	if props.Size then
+		return {
+			MinSize = Vec2(80, props.Size.y),
+			MaxSize = Vec2(0, props.Size.y),
+			layout = layout,
+		}
+	end
+
+	return {
+		Size = theme.Dynamic(theme.InputSize, 220, props.FontSize),
+		MinSize = theme.Dynamic(theme.InputSize, 80, props.FontSize),
+		MaxSize = theme.Dynamic(theme.InputSize, 0, props.FontSize),
+		layout = layout,
+	}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
+	local right_elements = self.RightElements or {}
+	local bottom_elements = self.BottomElements or {}
 	self._editing = false
 	self._hovered = false
 	self._click_count = 0
@@ -281,10 +294,9 @@ function META:OnGlobalMouseMove(pos)
 	local started_drag = false
 
 	if not self._dragging then
-		if
-			math.abs(delta.x) < self._drag_threshold and
-			math.abs(delta.y) < self._drag_threshold
-		then
+		local threshold = theme.active:ResolveSize(self.DragThreshold or "XXS")
+
+		if math.abs(delta.x) < threshold and math.abs(delta.y) < threshold then
 			return
 		end
 

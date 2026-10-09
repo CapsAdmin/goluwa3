@@ -14,10 +14,9 @@ META:GetSet("Token", "primary")
 META:GetSet("Radius", nil)
 META:EndStorable()
 
-function META:OnCreate(props)
-	props.Size = props.Size or Vec2(72, 40)
-	props.layout = {MinSize = props.Size, MaxSize = props.Size, props.layout}
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults(_, props)
+	local size = props.Size or Vec2(72, 40)
+	return {Size = size, layout = {MinSize = size, MaxSize = size}}
 end
 
 function META:OnDraw()

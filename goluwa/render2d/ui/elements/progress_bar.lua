@@ -15,11 +15,19 @@ function META:SetValue(val)
 	self:SetState("value", self.Value)
 end
 
-function META:OnCreate(props)
-	local height = theme.active:GetSize("M")
-	props.Size = props.Size or Vec2(200, height)
-	props.layout = {MinSize = Vec2(100, height), props.layout}
-	META.BaseClass.OnCreate(self, props)
+local function get_bar_size(active, width)
+	return Vec2(width, active:GetSize("M"))
+end
+
+function META.PropDefaults()
+	return {
+		Size = theme.Dynamic(get_bar_size, 200),
+		layout = {MinSize = theme.Dynamic(get_bar_size, 100)},
+	}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self:SetValue(self.Value)
 	self:SetState("color", self.Color)
 end

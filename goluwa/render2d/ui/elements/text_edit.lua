@@ -66,13 +66,20 @@ local function forward_mouse_input(surface, button, press)
 	return text_panel.text:OnMouseInput(button, press, text_panel.transform:GlobalToLocal(mouse_pos))
 end
 
-function META:OnCreate(props)
-	local size = props.Size or Vec2(400, theme.active:GetInputHeight(props.FontSize or "M"))
-	props.Size = size
-	props.MinSize = props.MinSize or Vec2(100, size.y)
-	props.MaxSize = props.MaxSize or Vec2(0, size.y)
-	META.BaseClass.OnCreate(self, props)
-	self._single_line_height = props.MinSize.y
+function META.PropDefaults(_, props)
+	if props.Size then
+		return {MinSize = Vec2(100, props.Size.y), MaxSize = Vec2(0, props.Size.y)}
+	end
+
+	return {
+		Size = theme.Dynamic(theme.InputSize, 400, props.FontSize),
+		MinSize = theme.Dynamic(theme.InputSize, 100, props.FontSize),
+		MaxSize = theme.Dynamic(theme.InputSize, 0, props.FontSize),
+	}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	local editable = self.Editable
 	local wrap = self.Wrap
 	self._last_text = self.Text
@@ -87,7 +94,7 @@ function META:OnCreate(props)
 		ScrollY = self.ScrollY,
 		ScrollbarVisible = self.ScrollbarVisible,
 		ScrollbarAutoHide = self.ScrollbarAutoHide,
-		Padding = self.Padding or Rect() + theme.active:GetPadding("S"),
+		Padding = self:GetPropertyToken("Padding") or "S",
 		layout = {
 			GrowWidth = 1,
 			GrowHeight = 1,
@@ -144,7 +151,7 @@ function META:sync_text_changed()
 		if lines then
 			local line_count = math.clamp(#lines, 1, self.MaxLines)
 			local w = self.layout:GetMinSize().x
-			local h = math.ceil(self._single_line_height + (line_count - 1) * vertical_step)
+			local h = math.ceil(self.layout:GetMinSize().y + (line_count - 1) * vertical_step)
 			self.layout:SetMinSize(Vec2(w, h))
 			self.layout:SetMaxSize(Vec2(w, h))
 		end

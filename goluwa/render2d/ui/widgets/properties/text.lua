@@ -27,8 +27,8 @@ local function on_apply_click(button)
 	control:SetValue(control._edit:GetText(), true)
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	local size = Vec2(self.ValueWidth, self.RowHeight)
 	self._edit = TextEdit{
 		Parent = self,

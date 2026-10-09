@@ -23,8 +23,8 @@ local function on_container_changed(container)
 	container.PropertyDivider:update_position()
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self._dragging = false
 	self._hovered = false
 	self.transform:SetSize(Vec2(self.Thickness, 0))

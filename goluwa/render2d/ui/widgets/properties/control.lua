@@ -31,8 +31,8 @@ function META:GetDefaultEncoded()
 	if self.Default ~= nil then return self:EncodeAny(self.Default) end
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 end
 
 function META:OnMouseInput(button, press)

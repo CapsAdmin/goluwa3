@@ -47,8 +47,8 @@ function META:SetDisabled(disabled)
 	return self
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self:SetState("hovered", false)
 	self:SetState("pressed", false)
 	self:SetMode(self.Mode)

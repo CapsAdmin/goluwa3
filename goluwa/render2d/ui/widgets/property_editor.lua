@@ -268,9 +268,11 @@ local property_type_aliases = {
 	render_texture = "texture",
 }
 
-function META:OnCreate(props)
-	props.Items = props.Items or {}
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults()
+	return {Items = {}}
+end
+
+function META:update_metrics()
 	local font_size = self.FontSize or "S"
 	local padding = self.RowPadding or "XS"
 	self._font_size = font_size
@@ -290,6 +292,16 @@ function META:OnCreate(props)
 	self._label_inset = self.LabelInset or self._padding_rect.x
 	self._key_width = self.KeyWidth
 	self._divider_width = theme.active:ResolveSize(self.DividerWidth or "XS")
+end
+
+function META:OnThemeChanged()
+	self:update_metrics()
+	self:rebuild_categories()
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
+	self:update_metrics()
 	self._collapsed_state = {}
 	self._category_refs = {}
 	self._category_key_columns = {}
@@ -298,7 +310,6 @@ function META:OnCreate(props)
 	self._listeners = {}
 	self._property_change_sync_blocked = 0
 	self._selected_key = self.SelectedKey
-	self._items = props.Items
 	self._content = Column{
 		Parent = self,
 		IsInternal = true,

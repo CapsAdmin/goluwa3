@@ -7,12 +7,11 @@ META.CMP.style = {}
 META.CMP.mouse_input = {}
 META.CMP.animation = {}
 
-function META:OnCreate(props)
-	props.layout = {FitWidth = not (props.Wrap or props.Elide), props.layout}
-
-	if props.Wrap and props.WrapToParent == nil then props.WrapToParent = true end
-
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults(_, props)
+	return {
+		layout = {FitWidth = not (props.Wrap or props.Elide)},
+		WrapToParent = props.Wrap and true or nil,
+	}
 end
 
 return META:Register()

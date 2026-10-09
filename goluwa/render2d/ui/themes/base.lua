@@ -286,7 +286,8 @@ function BaseTheme:GetFont(name, size_name)
 		name = "body"
 	end
 
-	local style = font_styles[name or "body"] or font_styles.body
+	local style_name = name or "body"
+	local style = font_styles[style_name] or font_styles.body
 	local size_val = self:ResolveFontSize(size_name)
 	local font_props = {Size = size_val}
 	local cache_key
@@ -294,15 +295,21 @@ function BaseTheme:GetFont(name, size_name)
 
 	if style.Path then
 		font_props.Path = style.Path
-		cache_key = "path_" .. style.Path .. "_" .. size_val
+		cache_key = style_name .. "_path_" .. style.Path .. "_" .. size_val
 	else
 		font_props.Name = style.Name or style[1]
 		font_props.Weight = style.Weight or style[2]
-		cache_key = font_props.Name .. "_" .. (font_props.Weight or "Regular") .. "_" .. size_val
+		cache_key = style_name .. "_" .. font_props.Name .. "_" .. (
+				font_props.Weight or
+				"Regular"
+			) .. "_" .. size_val
 	end
 
 	if not font_cache[cache_key] then
-		font_cache[cache_key] = fonts.New(font_props)
+		local font = fonts.New(font_props)
+		font.theme_style = style_name
+		font.theme_size = size_name
+		font_cache[cache_key] = font
 	end
 
 	return font_cache[cache_key], size_val
@@ -1708,7 +1715,14 @@ function BaseTheme:UpdateAnimations(pnl)
 	if name == "slider" then return self:UpdateSliderAnimations(pnl) end
 end
 
+local dynamic_meta = {}
+BaseTheme.DynamicMeta = dynamic_meta
+
 function BaseTheme:OnEntitySetProperty(obj, key, val)
+	if getmetatable(val) == dynamic_meta then
+		return val[1](self, val[2], val[3], val[4]), val
+	end
+
 	if key == "Padding" then
 		if type(val) == "string" then return Rect() + self:GetPadding(val) end
 	elseif key == "Color" then
@@ -1744,6 +1758,16 @@ function BaseTheme:OnEntitySetProperty(obj, key, val)
 
 			return font
 		elseif type(val) == "table" and val.IsFont then
+			if val.theme_style then
+				obj.theme_font_style = val.theme_style
+				obj.theme_font_size = val.theme_size
+				local font, size_val = self:GetFont(val.theme_style, val.theme_size)
+
+				if obj.SetFontSize then obj:SetFontSize(size_val) end
+
+				return font, val
+			end
+
 			obj.theme_font_style = nil
 
 			if obj.SetFontSize then obj:SetFontSize(val:GetSize()) end

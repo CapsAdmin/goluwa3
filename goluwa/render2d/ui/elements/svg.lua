@@ -36,8 +36,8 @@ function META:GetStatus()
 	return self._svg:GetStatus(), self._svg:GetError()
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self._ready = true
 
 	if self.Source then self:SetSource(self.Source) end

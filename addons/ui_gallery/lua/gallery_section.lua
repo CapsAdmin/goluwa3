@@ -15,8 +15,8 @@ META:GetSet("Title", "")
 META:GetSet("Framed", true)
 META:EndStorable()
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	Text{
 		Parent = self,
 		IsInternal = true,

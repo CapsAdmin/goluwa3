@@ -24,8 +24,8 @@ local function on_checkbox_change(value, checkbox)
 	checkbox.Control:SetValue(value, true)
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self._checkbox = Checkbox{
 		Parent = self,
 		IsInternal = true,

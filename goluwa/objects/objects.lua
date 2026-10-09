@@ -362,11 +362,12 @@ do
 
 		self:SetSuppressEvents(true)
 
+		if self.OnConstruct then self:OnConstruct(a, b, c, d, e) end
+
 		if self.OnCreate then self:OnCreate(a, b, c, d, e) end
 
 		if self.OnPostCreate then self:OnPostCreate(a, b, c, d, e) end
 
-		self:FlushDeferredCallbacks()
 		self:SetSuppressEvents(false)
 
 		if self.OnFirstCreated and not meta.Instances[1] then
@@ -810,18 +811,14 @@ do
 				if self.SuppressEvents then return end
 
 				if not objects.IsPropertyValueEqual(info, old_value, var) then
-					if info.defer_property_events then
-						self.deferred_callbacks = self.deferred_callbacks or {}
-						list.insert(self.deferred_callbacks, {notify_property_listeners, self, info, old_value, var})
-						info.defer_property_events = false
-					else
-						notify_property_listeners(self, info, old_value, var)
-					end
+					notify_property_listeners(self, info, old_value, var)
 				end
 			end
 		end
 
 		info.commit = commit
+		objects.property_counter = (objects.property_counter or 0) + 1
+		info.order = objects.property_counter
 		local set_name = info.set_name
 		local get_name = info.get_name
 		meta[set_name] = meta[set_name] or commit

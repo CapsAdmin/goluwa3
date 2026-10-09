@@ -23,9 +23,12 @@ META:EndStorable()
 
 function META.OnChange(normalized, surface) end
 
-function META:OnCreate(props)
-	props.layout = {MinSize = props.Size, MaxSize = props.Size, props.layout}
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults(_, props)
+	return {layout = {MinSize = props.Size, MaxSize = props.Size}}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self._dragging = false
 end
 

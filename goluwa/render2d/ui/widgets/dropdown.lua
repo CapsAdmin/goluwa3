@@ -87,12 +87,17 @@ local function on_menu_close(context_menu)
 	context_menu:Remove()
 end
 
-function META:OnCreate(props)
-	props.Options = props.Options or {}
-	props.AlignX = 0
-	props.TextLayout = {GrowWidth = 1, FitHeight = true}
-	props.Text = find_option_text(props.Options, props.Value) or props.Text
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults(_, props)
+	return {
+		Options = {},
+		AlignX = 0,
+		TextLayout = {GrowWidth = 1, FitHeight = true},
+	}
+end
+
+function META:OnCreate()
+	self.Text = find_option_text(self.Options, self.Value) or self.Text
+	META.BaseClass.OnCreate(self)
 	self._indicator_fraction = 0
 	self._suppress_next_open = false
 	self._indicator = Icon{
@@ -102,6 +107,10 @@ function META:OnCreate(props)
 		Icon = "disclosure",
 		Size = Vec2() + theme.active:ResolveFontSize(self.FontSize),
 	}
+end
+
+function META:OnThemeChanged()
+	self._indicator.transform:SetSize(Vec2() + theme.active:ResolveFontSize(self.FontSize))
 end
 
 function META:SetValue(value)

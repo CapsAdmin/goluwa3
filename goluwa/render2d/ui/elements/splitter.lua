@@ -68,17 +68,21 @@ local function on_divider_global_mouse_move(divider, pos)
 	end
 end
 
-function META:OnCreate(props)
+function META.PropDefaults(_, props)
 	local vertical = props.Vertical or false
-	props.layout = {
-		Direction = vertical and "y" or "x",
-		AlignmentX = vertical and "stretch" or nil,
-		AlignmentY = vertical and nil or "stretch",
-		props.layout,
+	return {
+		layout = {
+			Direction = vertical and "y" or "x",
+			AlignmentX = vertical and "stretch" or nil,
+			AlignmentY = vertical and nil or "stretch",
+		},
 	}
-	META.BaseClass.OnCreate(self, props)
+end
+
+function META:OnCreate()
+	local vertical = self.Vertical
+	META.BaseClass.OnCreate(self)
 	local divider_width = theme.active:ResolveSize(self.DividerWidth or "XS")
-	self._min_split_size = theme.active:ResolveSize(self.MinSplitSize or "XXL")
 	self._size = self.InitialSize
 	self._dragging = false
 	self._hovered = false
@@ -128,11 +132,16 @@ function META:get_external_children()
 	return first, second
 end
 
+function META:OnThemeChanged()
+	local divider_width = theme.active:ResolveSize(self.DividerWidth or "XS")
+	self._divider.transform:SetSize(self.Vertical and Vec2(0, divider_width) or Vec2(divider_width, 0))
+end
+
 function META:get_split_limits(first, second)
 	local vertical = self.Vertical
 	local divider_size = self._divider.transform:GetSize()
 	divider_size = vertical and divider_size.y or divider_size.x
-	local min_size = self._min_split_size
+	local min_size = theme.active:ResolveSize(self.MinSplitSize or "XXL")
 	local max_size = math.huge
 	local current_total
 

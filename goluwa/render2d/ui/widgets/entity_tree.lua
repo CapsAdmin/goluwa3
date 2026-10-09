@@ -169,18 +169,17 @@ META:GetSet("ExpandRootsOnInit", true)
 META:GetSet("OnExpanded", nil)
 META:EndStorable()
 
-function META:OnCreate(props)
-	self._expanded_keys = props.ExpandedKeys or props._expanded_keys or {}
+function META:OnCreate()
+	self._expanded_keys = self.ExpandedKeys or self._expanded_keys or {}
 	self._selected_entity_guid = nil
-	self._root_entities = props.RootEntities or {}
-	self._root_labels = props.RootLabels or {}
-	self._filter_callback = props.FilterCallback
-	self._effective_filter = props.FilterCallback
-	self._show_virtual = props.ShowVirtualChildren == true
+	self._root_entities = self._root_entities or {}
+	self._root_labels = self._root_labels or {}
+	self._effective_filter = self._filter_callback
+	self._show_virtual = self._show_virtual == true
 	self._nearby = {}
-	self._nearby_root = props.NearbyRoot
+	self._nearby_root = self.NearbyRoot
 	self._expanded_keys.nearby = true
-	self._on_expanded = props.OnExpanded
+	self._on_expanded = self.OnExpanded
 	self._hierarchy_dirty = false
 
 	if #self._root_entities == 0 then
@@ -213,8 +212,8 @@ function META:OnCreate(props)
 		self._show_virtual
 	)
 	self:insert_nearby(items)
-	props.Items = items
-	META.BaseClass.OnCreate(self, props)
+	self._items = items
+	META.BaseClass.OnCreate(self)
 	self._hierarchy_listeners = {}
 	self._hierarchy_queue = {}
 
@@ -564,7 +563,7 @@ function META:CollapseRoots()
 end
 
 function META:Refresh(force)
-	if self._refreshing then return self end
+	if self._refreshing or not self._ready then return self end
 
 	if not force then
 		log_refresh("Refresh_debounced")

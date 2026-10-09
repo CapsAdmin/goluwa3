@@ -13,16 +13,16 @@ ParentWidget.CMP.animation = {}
 ParentWidget.CMP.visual = {}
 ParentWidget.CMP.mouse_input = {}
 
-function ParentWidget:OnCreate(props)
-	ParentWidget.BaseClass.OnCreate(self, props)
+function ParentWidget:OnCreate()
+	ParentWidget.BaseClass.OnCreate(self)
 end
 
 ParentWidget:Register()
 local ChildWidget = Panel:CreateTemplate("test_child_widget")
 ChildWidget.Base = ParentWidget
 
-function ChildWidget:OnCreate(props)
-	ChildWidget.BaseClass.OnCreate(self, props)
+function ChildWidget:OnCreate()
+	ChildWidget.BaseClass.OnCreate(self)
 end
 
 ChildWidget:Register()
@@ -82,8 +82,8 @@ T.Test2D("inheritance - tree widget with items produces rows", function()
 	local DerivedTree = Panel:CreateTemplate("test_derived_tree2")
 	DerivedTree.Base = Tree
 
-	function DerivedTree:OnCreate(props)
-		DerivedTree.BaseClass.OnCreate(self, props)
+	function DerivedTree:OnCreate()
+		DerivedTree.BaseClass.OnCreate(self)
 	end
 
 	DerivedTree:Register()

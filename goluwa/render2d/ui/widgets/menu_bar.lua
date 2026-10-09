@@ -53,15 +53,16 @@ local function on_menu_close(context_menu)
 	menu_bar:sync_button_state()
 end
 
-function META:OnCreate(props)
-	props.Items = props.Items or {}
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults()
+	return {Items = {}}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self._buttons = {}
 	self._active_index = nil
 	self._context_menu = NULL
-	local horizontal = theme.active:GetPadding("M")
-	local vertical = theme.active:GetPadding("S")
-	self._button_padding = Rect(horizontal, vertical, horizontal, vertical)
+	self._button_padding = theme.Dynamic(theme.ItemPadding)
 
 	for index, definition in ipairs(self.Items) do
 		self._buttons[index] = Button{

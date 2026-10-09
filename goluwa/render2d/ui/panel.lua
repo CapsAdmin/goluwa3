@@ -1,4 +1,5 @@
 local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Panel = objects.CreateTemplate("panel")
@@ -30,68 +31,38 @@ function Panel.GetValidComponents()
 	return valid_components
 end
 
-local function find_tooltip_props(config, state)
-	if type(config) ~= "table" then return end
+Panel:GetSet("Tooltip", nil)
+Panel:GetSet("TooltipOptions", nil)
+Panel:GetSet("TooltipMaxWidth", nil)
+Panel:GetSet("TooltipOffset", nil)
 
-	if config.Tooltip ~= nil then
-		state.source = config.Tooltip
-		config.Tooltip = nil
-	end
-
-	if config.TooltipOptions ~= nil then
-		state.options = table.shallow_copy(config.TooltipOptions)
-		config.TooltipOptions = nil
-	end
-
-	if config.TooltipMaxWidth ~= nil then
-		state.options = state.options or {}
-		state.options.MaxWidth = config.TooltipMaxWidth
-		config.TooltipMaxWidth = nil
-	end
-
-	if config.TooltipOffset ~= nil then
-		state.options = state.options or {}
-		state.options.Offset = config.TooltipOffset
-		config.TooltipOffset = nil
-	end
-
-	for i = 1, #config do
-		find_tooltip_props(config[i], state)
-	end
-end
-
-local function add_tooltip_functionality(ent, config)
-	local tooltip_state = {}
-	find_tooltip_props(config, tooltip_state)
-
-	if tooltip_state.source ~= nil then
-		import("goluwa/render2d/ui/tooltip.lua").Attach(ent, tooltip_state.source, tooltip_state.options)
-	end
-end
-
-function Panel:OnCreate(config)
+function Panel:OnConstruct(config)
 	self.World = Panel.World
+	Panel.BaseClass.OnConstruct(self, config)
+end
 
-	if self.ComponentSet and self.CMP then
-		for _, name in ipairs(self.ComponentSet) do
-			local defaults = self.CMP[name]
+function Panel:OnCreate()
+	Panel.BaseClass.OnCreate(self)
+end
 
-			if defaults then
-				local given = config[name]
+function Panel:OnPostCreate()
+	Panel.BaseClass.OnPostCreate(self)
 
-				if type(given) == "table" then
-					config[name] = {defaults, given}
-				elseif next(defaults) then
-					config[name] = defaults
-				else
-					config[name] = true
-				end
-			end
+	if self.Tooltip ~= nil then
+		local options = self.TooltipOptions and table.shallow_copy(self.TooltipOptions)
+
+		if self.TooltipMaxWidth ~= nil then
+			options = options or {}
+			options.MaxWidth = self.TooltipMaxWidth
 		end
-	end
 
-	Panel.BaseClass.OnCreate(self, config)
-	add_tooltip_functionality(self, config)
+		if self.TooltipOffset ~= nil then
+			options = options or {}
+			options.Offset = self.TooltipOffset
+		end
+
+		import("goluwa/render2d/ui/tooltip.lua").Attach(self, self.Tooltip, options)
+	end
 end
 
 function Panel:RemoveExternalChildren()
@@ -121,6 +92,31 @@ do
 	function Panel.World:OnWindowFramebufferResized(window, size)
 		self.transform:SetSize(size)
 	end
+end
+
+do
+	local panels = {}
+
+	function Panel.RefreshTheme()
+		table.clear(panels)
+		panels[1] = Panel.World
+
+		for i, child in ipairs(Panel.World:GetChildrenList()) do
+			panels[i + 1] = child
+		end
+
+		for i = 1, #panels do
+			panels[i]:ReresolveProperties()
+		end
+
+		for i = 1, #panels do
+			if panels[i].OnThemeChanged then panels[i]:OnThemeChanged() end
+		end
+
+		table.clear(panels)
+	end
+
+	event.AddListener("ThemeChanged", "ui_panel_refresh", Panel.RefreshTheme)
 end
 
 do
@@ -186,18 +182,7 @@ function Panel:CreateTemplate(name)
 	)
 	local GetSet = META.GetSet
 	META.GetSet = function(s, k, d, c, ...)
-		if type(c) == "function" then
-			return GetSet(
-				s,
-				k,
-				d,
-				{
-					defer_property_events = true,
-					callback = c,
-				},
-				...
-			)
-		end
+		if type(c) == "function" then return GetSet(s, k, d, {callback = c}, ...) end
 
 		return GetSet(s, k, d, c, ...)
 	end

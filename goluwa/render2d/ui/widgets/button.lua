@@ -23,15 +23,16 @@ function META:SetText(text)
 	return self
 end
 
-function META:OnCreate(props)
+function META:PropDefaults(props)
 	if props.Padding == nil and (props.Mode or self.Mode) ~= "menu" then
-		props.layout = {
-			MinSize = Vec2(0, theme.active:GetInputHeight(props.FontSize or "M")),
-			props.layout,
-		}
+		return {layout = {MinSize = theme.Dynamic(theme.InputSize, 0, props.FontSize)}}
 	end
 
-	META.BaseClass.OnCreate(self, props)
+	return {}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self.label = Text{
 		Parent = self,
 		IsInternal = true,
@@ -41,7 +42,7 @@ function META:OnCreate(props)
 		AlignX = self.AlignX,
 		AlignY = self.AlignY,
 		IgnoreMouseInput = true,
-		layout = props.TextLayout,
+		layout = self.TextLayout,
 	}
 end
 

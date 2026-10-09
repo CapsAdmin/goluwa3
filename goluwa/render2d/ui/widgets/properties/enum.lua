@@ -13,9 +13,8 @@ function META.OnChange(value, old_value, control) end
 
 function META.OnBeforeContextMenu(control) end
 
-function META:OnCreate(props)
-	props.ItemPadding = props.ItemPadding or "S"
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults()
+	return {ItemPadding = "S"}
 end
 
 function META:select_option(index)

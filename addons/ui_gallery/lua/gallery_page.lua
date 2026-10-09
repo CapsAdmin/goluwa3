@@ -14,8 +14,8 @@ META:StartStorable()
 META:GetSet("Title", "")
 META:EndStorable()
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	local header = Panel.New{
 		Parent = self,
 		IsInternal = true,

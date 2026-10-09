@@ -17,8 +17,8 @@ META:GetSet("Alternate", false)
 META:GetSet("Selectable", false)
 META:EndStorable()
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 
 	if self.Selectable then
 		self.visual:SetClipping(true)

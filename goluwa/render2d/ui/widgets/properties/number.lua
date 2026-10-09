@@ -63,31 +63,32 @@ local function on_step_click(button)
 	return true
 end
 
-function META:OnCreate(props)
+function META.PropDefaults(_, props)
+	return {Step = props.Integer and 1 or nil}
+end
+
+function META:OnCreate()
 	local stepper
 
-	if props.ShowStepper then
+	if self.ShowStepper then
 		stepper = (
-			props.StepperVertical and
+			self.StepperVertical and
 			Column or
 			Row
 		){
 			layout = {
-				ChildGap = props.StepperVertical and "XXXS" or "XXS",
+				ChildGap = self.StepperVertical and "XXXS" or "XXS",
 				FitWidth = true,
 				GrowWidth = 0,
 				AlignmentX = "stretch",
 			},
 		}
-		props.RightElements = {stepper}
+		self.RightElements = {stepper}
 	end
 
-	if props.Integer then
-		props.Precision = 0
-		props.Step = props.Step or 1
-	end
+	if self.Integer then self:SetPrecision(0) end
 
-	META.BaseClass.OnCreate(self, props)
+	META.BaseClass.OnCreate(self)
 	self._stepper = stepper
 
 	if stepper then

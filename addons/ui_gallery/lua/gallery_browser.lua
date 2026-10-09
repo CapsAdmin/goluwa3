@@ -63,11 +63,17 @@ local function on_theme_select(name, text, index, dropdown)
 	dropdown.Gallery:Rebuild()
 end
 
-function META:OnCreate(props)
-	props.Padding = props.Padding or "none"
-	props.Size = props.Size or Vec2(1280, 760)
-	props.Position = props.Position or (Panel.World.transform:GetSize() - props.Size) / 2
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults(_, props)
+	local size = props.Size or Vec2(1280, 760)
+	return {
+		Padding = "none",
+		Size = size,
+		Position = (Panel.World.transform:GetSize() - size) / 2,
+	}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self._pages = load_pages()
 	local sidebar = Column{
 		layout = {

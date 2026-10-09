@@ -37,22 +37,30 @@ function META:SetMax(value)
 	return self
 end
 
-function META:OnCreate(props)
+local function get_slider_size(active, mode)
+	local thickness = active:GetSize("M")
+
+	if mode == "2d" then return Vec2(100, 100) end
+
+	if mode == "vertical" then return Vec2(thickness, 100) end
+
+	return Vec2(100, thickness)
+end
+
+function META.PropDefaults(_, props)
 	local is_2d = props.Mode == "2d"
-	local thickness = theme.active:GetSize("M")
-	local size = is_2d and
-		Vec2(100, 100) or
-		(
-			props.Mode == "vertical" and
-			Vec2(thickness, 100) or
-			Vec2(100, thickness)
-		)
-	props.Size = props.Size or size
-	props.layout = {MinSize = size, props.layout}
-	props.Value = props.Value or (is_2d and Vec2(0.5, 0.5) or 0.5)
-	props.Min = props.Min or (is_2d and Vec2(0, 0) or 0)
-	props.Max = props.Max or (is_2d and Vec2(1, 1) or 1)
-	META.BaseClass.OnCreate(self, props)
+	local size = theme.Dynamic(get_slider_size, props.Mode)
+	return {
+		Size = size,
+		layout = {MinSize = size},
+		Value = is_2d and Vec2(0.5, 0.5) or 0.5,
+		Min = is_2d and Vec2(0, 0) or 0,
+		Max = is_2d and Vec2(1, 1) or 1,
+	}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self:SetState("mode", self.Mode)
 	self:SetState("hovered", false)
 	self:SetState("dragging", false)

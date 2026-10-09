@@ -61,8 +61,8 @@ local function on_action_click(button)
 	return true
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	local gap = self.layout:GetChildGap()
 	local height = self.RowHeight
 	local button_size = self.ActionButtonSize or height

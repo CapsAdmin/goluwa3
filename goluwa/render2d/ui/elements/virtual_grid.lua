@@ -116,11 +116,13 @@ local function on_content_key_input(content, key, press)
 	return true
 end
 
-function META:OnCreate(props)
-	self._items = props.Items or {}
-	props.Items = nil
-	props.ScrollbarShiftMode = props.ScrollbarShiftMode or "always_shift"
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults()
+	return {ScrollbarShiftMode = "always_shift"}
+end
+
+function META:OnCreate()
+	self._items = self._items or {}
+	META.BaseClass.OnCreate(self)
 	self._columns = 1
 	self._pitch_x = self.CellWidth + self.Gap
 	self._cell_height = self.CellWidth + self.ExtraHeight
@@ -191,6 +193,8 @@ function META:SetItems(items, keep_scroll)
 	self._hovered_index = nil
 	self._last_click_index = nil
 	self._laid_out_count = -1
+
+	if not self.Viewport then return self end
 
 	if not keep_scroll then self.Viewport.transform:SetScroll(Vec2(0, 0)) end
 

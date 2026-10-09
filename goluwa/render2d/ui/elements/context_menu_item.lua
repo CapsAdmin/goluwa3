@@ -41,32 +41,34 @@ function META:SetSubmenuOpen(open)
 	return self
 end
 
-function META:OnCreate(props)
-	local horizontal = theme.active:GetPadding("M")
-	local vertical = theme.active:GetPadding("S")
-	props.Padding = props.Padding or Rect(horizontal, vertical, horizontal, vertical)
-	self._on_click = props.OnClick
-	props.OnClick = nil
-	props.AlignX = props.AlignX or 0
-	props.TextLayout = {
-		GrowWidth = 1,
-		MinSize = Vec2(10, 0),
-		FitWidth = false,
-		FitHeight = true,
+function META.PropDefaults()
+	return {
+		Padding = theme.Dynamic(theme.ItemPadding),
+		AlignX = 0,
+		TextLayout = {
+			GrowWidth = 1,
+			MinSize = Vec2(10, 0),
+			FitWidth = false,
+			FitHeight = true,
+		},
 	}
-	META.BaseClass.OnCreate(self, props)
+end
+
+function META:OnCreate()
+	self._on_click = rawget(self, "OnClick")
+	self.OnClick = nil
+	META.BaseClass.OnCreate(self)
 	self:SetSelected(self.Selected)
 	self:SetSelectedColor(self.SelectedColor)
 
 	if self.IconSource then
-		local icon_size = Vec2() + theme.active:GetSize("M")
 		self:AddChild(
 			SVG{
 				IsInternal = true,
 				Source = self.IconSource,
-				Size = icon_size,
-				MinSize = icon_size,
-				MaxSize = icon_size,
+				Size = "M",
+				MinSize = "M",
+				MaxSize = "M",
 				Color = self.Disabled and "text_disabled" or "text",
 				IgnoreMouseInput = true,
 				layout = {

@@ -76,8 +76,8 @@ function META:create_label()
 	self._label.visual:SetDrawAlpha(self.Disabled and 0.5 or 1)
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self._box = Panel.New{
 		Parent = self,
 		IsInternal = true,

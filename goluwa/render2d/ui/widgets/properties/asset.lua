@@ -23,8 +23,8 @@ local function on_browse_click(button)
 	return true
 end
 
-function META:OnCreate(props)
-	props.RightElements = {
+function META:OnCreate()
+	self.RightElements = {
 		IconButton{
 			Field = self,
 			Text = "...",
@@ -35,7 +35,7 @@ function META:OnCreate(props)
 			OnClick = on_browse_click,
 		},
 	}
-	META.BaseClass.OnCreate(self, props)
+	META.BaseClass.OnCreate(self)
 end
 
 return META:Register()

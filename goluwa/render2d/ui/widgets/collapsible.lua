@@ -52,12 +52,12 @@ local function set_open_fraction(value, collapsible)
 	collapsible:SetOpenFraction(value)
 end
 
-function META:OnCreate(props)
-	local tooltip = props.Tooltip
-	local tooltip_max_width = props.TooltipMaxWidth
-	props.Tooltip = nil
-	props.TooltipMaxWidth = nil
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	local tooltip = self.Tooltip
+	local tooltip_max_width = self.TooltipMaxWidth
+	self.Tooltip = nil
+	self.TooltipMaxWidth = nil
+	META.BaseClass.OnCreate(self)
 	self.OpenFraction = self.Collapsed and 0 or 1
 	local font_size = self.HeaderFontSize or "M"
 	local header_height = self.HeaderHeight
@@ -133,6 +133,10 @@ function META:OnCreate(props)
 		OnLayoutUpdated = on_container_changed,
 	}
 	self:update_height()
+end
+
+function META:OnThemeChanged()
+	self._arrow.transform:SetSize(Vec2() + theme.active:ResolveFontSize(self.HeaderFontSize or "M"))
 end
 
 function META:PreChildAdd(child)

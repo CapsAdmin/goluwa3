@@ -17,15 +17,15 @@ META.CMP.clickable = {}
 META.CMP.animation = {}
 META:StartStorable()
 META:GetSet("IndentSize", nil)
-META:GetSet("ToggleSize", 16)
+META:GetSet("ToggleSize", nil)
 META:GetSet("GuideStep", nil)
-META:GetSet("BoxSize", 12)
+META:GetSet("BoxSize", nil)
 META:GetSet("CustomPanelPosition", "before_label")
 META:GetSet("LabelGrow", nil)
 META:GetSet("ToggleOnRowClick", false)
 META:GetSet("DoubleClickTime", 0.3)
 META:GetSet("AnimationTime", 0.18)
-META:GetSet("DragThreshold", 4)
+META:GetSet("DragThreshold", nil)
 META:GetSet("SharedInstanceColor", nil)
 META:GetSet("LineColor", "border")
 META:GetSet("BoxFillColor", "surface")
@@ -35,7 +35,7 @@ META:GetSet("SelectedColor", "primary")
 META:GetSet("HoverColor", "primary")
 META:GetSet("RowFont", "body")
 META:GetSet("LabelPadding", "XS")
-META:GetSet("RowGap", 4)
+META:GetSet("RowGap", nil)
 META:GetSet("DropIndicatorColor", "primary")
 META:GetSet("RefreshDebounce", 0)
 META:EndStorable()
@@ -46,15 +46,26 @@ local function build_path(parent_path, index)
 	return tostring(index)
 end
 
-function META:OnCreate(props)
-	props.ToggleSize = theme.active:ResolveSize(props.ToggleSize or "M")
-	props.BoxSize = theme.active:ResolveSize(props.BoxSize or "S")
-	props.RowGap = theme.active:ResolveSize(props.RowGap or "XXS")
-	props.DragThreshold = theme.active:ResolveSize(props.DragThreshold or "XXS")
-	props.IndentSize = theme.active:ResolveSize(props.IndentSize)
-	props.GuideStep = theme.active:ResolveSize(props.GuideStep)
-	self._items = props.Items or {}
-	self._selected_key = props.SelectedKey
+function META:GetToggleSize()
+	return theme.active:ResolveSize(self.ToggleSize or "M")
+end
+
+function META:GetBoxSize()
+	return theme.active:ResolveSize(self.BoxSize or "S")
+end
+
+function META:GetDragThreshold()
+	return theme.active:ResolveSize(self.DragThreshold or "XXS")
+end
+
+function META:GetGuideStep()
+	return self.GuideStep and
+		theme.active:ResolveSize(self.GuideStep) or
+		math.max(theme.active:ResolveSize(self.IndentSize or "M"), self:GetToggleSize())
+end
+
+function META:OnCreate()
+	self._items = self._items or {}
 	self._expanded_state = {}
 	self._row_infos = {}
 	self._row_order = {}
@@ -64,10 +75,10 @@ function META:OnCreate(props)
 	self._mutation_blocked = 0
 	self._pending_refresh = false
 	self._refresh_deadline = 0
-	self._refresh_debounce = props.RefreshDebounce or 0
+	self._refresh_debounce = self.RefreshDebounce
 	self._refreshing = false
 	self._ready = false
-	META.BaseClass.OnCreate(self, props)
+	META.BaseClass.OnCreate(self)
 	self._ready = true
 	self:Rebuild()
 	self._pending_expand_animation_key = nil
@@ -132,7 +143,9 @@ end
 
 function META:SetItems(new_items)
 	self._items = new_items or {}
-	self:Rebuild()
+
+	if self._ready then self:Rebuild() end
+
 	return self
 end
 
@@ -143,6 +156,9 @@ end
 function META:SetSelectedKey(key)
 	local previous_key = self._selected_key
 	self._selected_key = key
+
+	if not self._ready then return self end
+
 	self:refresh_row_text(self._row_infos[previous_key])
 	self:refresh_row_text(self._row_infos[key])
 	return self
@@ -190,6 +206,10 @@ function META:EnsureVisible(key, padding)
 	end
 
 	return self
+end
+
+function META:OnThemeChanged()
+	self:Rebuild(true)
 end
 
 function META:Rebuild(force)
@@ -693,7 +713,7 @@ function META:update_drag(row_info, delta, global_pos)
 	end
 
 	if not self._drag_state.active then
-		if delta:GetLength() < self.DragThreshold then return true end
+		if delta:GetLength() < self:GetDragThreshold() then return true end
 
 		self._drag_state.active = true
 	end
@@ -946,7 +966,7 @@ function META:materialize_row(row_info)
 			FitHeight = true,
 			GrowWidth = 1,
 			FitWidth = false,
-			ChildGap = self.RowGap,
+			ChildGap = self.RowGap or "XXS",
 			Floating = true,
 		},
 		visual = true,
@@ -1180,10 +1200,9 @@ end
 do
 	function META:make_toggle(node, path, key, meta, row_info)
 		local tree = self
-		local toggle_size = self.ToggleSize
-		local guide_step = self.GuideStep or
-			math.max(self.IndentSize or theme.active:GetSize("M"), toggle_size)
-		local box_size = self.BoxSize
+		local toggle_size = self:GetToggleSize()
+		local guide_step = self:GetGuideStep()
+		local box_size = self:GetBoxSize()
 		local center_x = meta.level * guide_step + math.floor(toggle_size / 2)
 		local half_box = math.floor(box_size / 2)
 		return Panel.New{
@@ -1284,9 +1303,8 @@ do
 	end
 
 	function META:make_toggle_placeholder(meta)
-		local toggle_size = self.ToggleSize
-		local guide_step = self.GuideStep or
-			math.max(self.IndentSize or theme.active:GetSize("M"), toggle_size)
+		local toggle_size = self:GetToggleSize()
+		local guide_step = self:GetGuideStep()
 		return Panel.New{
 			IsInternal = true,
 			Name = "TreeTogglePlaceholder",

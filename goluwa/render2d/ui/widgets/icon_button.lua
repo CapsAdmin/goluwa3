@@ -20,10 +20,14 @@ META:GetSet("TextColor", nil)
 META:GetSet("SVG", nil)
 META:EndStorable()
 
-function META:OnCreate(props)
-	local icon_size = Vec2() + theme.active:ResolveSize(props.IconSize or "M")
-	props.layout = {MinSize = icon_size, MaxSize = icon_size, props.layout}
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults(_, props)
+	local icon_size = props.IconSize or "M"
+	return {layout = {MinSize = icon_size, MaxSize = icon_size}}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
+	local icon_size = self.IconSize or "M"
 
 	if self.SVG then
 		SVG{

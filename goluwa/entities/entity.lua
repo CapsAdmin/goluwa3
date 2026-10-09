@@ -39,9 +39,9 @@ function Entity.GetValidComponents()
 	return valid_components
 end
 
-function Entity:OnCreate(config)
+function Entity:OnConstruct(config)
 	self.World = Entity.World
-	Entity.BaseClass.OnCreate(self, config)
+	Entity.BaseClass.OnConstruct(self, config)
 end
 
 Entity:Register()

@@ -29,12 +29,21 @@ local function on_field_change(value, old_value, field)
 	field.StepControl.OnChange(value, old_value, field.StepControl)
 end
 
-function META:OnCreate(props)
-	local size = props.Size or Vec2(92, theme.active:GetInputHeight(props.FontSize or "M"))
-	props.Size = size
-	props.MinSize = props.MinSize or Vec2(92, size.y)
-	props.MaxSize = props.MaxSize or Vec2(0, size.y)
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults(_, props)
+	if props.Size then
+		return {MinSize = Vec2(92, props.Size.y), MaxSize = Vec2(0, props.Size.y)}
+	end
+
+	return {
+		Size = theme.Dynamic(theme.InputSize, 92, props.FontSize),
+		MinSize = theme.Dynamic(theme.InputSize, 92, props.FontSize),
+		MaxSize = theme.Dynamic(theme.InputSize, 0, props.FontSize),
+	}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
+	local size = self.transform:GetSize()
 	self._field = Number{
 		Parent = self,
 		IsInternal = true,
@@ -59,6 +68,13 @@ function META:OnCreate(props)
 		},
 		OnChange = on_field_change,
 	}
+end
+
+function META:OnThemeChanged()
+	local size = self.transform:GetSize()
+	self._field.transform:SetSize(size)
+	self._field.layout:SetMinSize(Vec2(0, size.y))
+	self._field.layout:SetMaxSize(Vec2(0, size.y))
 end
 
 function META:SetValue(value, notify)

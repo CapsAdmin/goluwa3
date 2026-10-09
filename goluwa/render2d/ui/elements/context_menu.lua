@@ -25,18 +25,24 @@ local function on_root_key_input(root, key, press)
 	if press and key == "escape" then return root:GetParent():RequestClose() end
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META.PropDefaults()
+	return {Position = Vec2(100, 100), Size = "M"}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self.IsContextMenuContainer = true
 	self._closing = false
 	self._relaying = false
+	local position = self.transform:GetPosition():Copy()
+	local size = self.transform:GetSize():Copy()
 	local root = MenuContainer{
 		IsInternal = true,
 		Name = "context_menu_root",
 		transform = {
 			Pivot = Vec2(0, 0),
-			Position = props.Position or Vec2(100, 100),
-			Size = props.Size or "M",
+			Position = position,
+			Size = size,
 		},
 		layout = {
 			Floating = true,

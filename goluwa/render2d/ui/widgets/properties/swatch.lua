@@ -7,8 +7,8 @@ META:StartStorable()
 META:GetSet("Color", nil)
 META:EndStorable()
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self:SetState("theme_role", "property_preview")
 end
 

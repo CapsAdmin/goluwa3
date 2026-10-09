@@ -350,14 +350,6 @@ return function(props)
 												if label == theme.active:GetName() then return end
 
 												theme.LoadTheme(label)
-
-												if props.OnThemeChange then
-													props.OnThemeChange(
-														tree_view:GetSelectedEntityGUID(),
-														editor_window.transform:GetPosition():Copy(),
-														editor_window.transform:GetSize():Copy()
-													)
-												end
 											end,
 										}
 									end

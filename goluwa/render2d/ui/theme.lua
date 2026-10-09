@@ -1,3 +1,6 @@
+local event = import("goluwa/event.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
 local base = import("goluwa/render2d/ui/themes/base.lua")
 local jrpg = import("goluwa/render2d/ui/themes/jrpg.lua")
 local playful = import("goluwa/render2d/ui/themes/playful.lua")
@@ -23,7 +26,22 @@ function theme.LoadTheme(name)
 	local object = theme_class:CreateObject()
 	object:Initialize()
 	theme.active = object
+	event.Call("ThemeChanged")
 	return object
+end
+
+function theme.Dynamic(fn, a, b, c)
+	return setmetatable({fn, a, b, c}, base.DynamicMeta)
+end
+
+function theme.InputSize(active, width, font_size)
+	return Vec2(width, active:GetInputHeight(font_size or "M"))
+end
+
+function theme.ItemPadding(active)
+	local horizontal = active:GetPadding("M")
+	local vertical = active:GetPadding("S")
+	return Rect(horizontal, vertical, horizontal, vertical)
 end
 
 function theme.GetAvailable()

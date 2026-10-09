@@ -14,20 +14,27 @@ META:GetSet("Vertical", false)
 META:GetSet("Thickness", nil)
 META:EndStorable()
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
-	local thickness = theme.active:ResolveSize(self.Thickness or "XS")
+local function get_spacer_size(active, thickness, vertical)
+	thickness = active:ResolveSize(thickness or "XS")
 
-	if self.Vertical then
-		self.transform:SetSize(Vec2(thickness, 0))
-		self.layout:SetGrowWidth(0)
-		self.layout:SetGrowHeight(1)
-	else
-		self.transform:SetSize(Vec2(0, thickness))
-		self.layout:SetGrowWidth(1)
-		self.layout:SetGrowHeight(0)
-	end
+	if vertical then return Vec2(thickness, 0) end
 
+	return Vec2(0, thickness)
+end
+
+function META.PropDefaults(_, props)
+	local vertical = props.Vertical
+	return {
+		Size = theme.Dynamic(get_spacer_size, props.Thickness, vertical),
+		layout = {
+			GrowWidth = vertical and 0 or 1,
+			GrowHeight = vertical and 1 or 0,
+		},
+	}
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self:SetState("vertical", self.Vertical)
 end
 

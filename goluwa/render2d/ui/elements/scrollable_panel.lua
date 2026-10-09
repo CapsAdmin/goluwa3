@@ -122,14 +122,17 @@ local function on_handle_drag(handle, delta)
 	return true
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
-	self.ScrollbarReserve = theme.active:ResolveSize(
-		props.ScrollbarReserve or
+function META:get_scrollbar_reserve()
+	return theme.active:ResolveSize(
+		self.ScrollbarReserve or
 			(
 				theme.active:GetScrollbarWidth() + theme.active:GetScrollbarMargin()
 			)
 	)
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
 	self.Viewport = Panel.New{
 		Parent = self,
 		IsInternal = true,
@@ -208,6 +211,7 @@ function META:ScrollChildIntoView(child, padding)
 end
 
 function META:compute_scrollbar_state(content_size, view_size)
+	local reserve = self:get_scrollbar_reserve()
 	content_size = content_size or Vec2(0, 0)
 	view_size = view_size or Vec2(0, 0)
 	local mode_y = self.ScrollbarShiftMode
@@ -230,8 +234,8 @@ function META:compute_scrollbar_state(content_size, view_size)
 	local reserve_x = mode_x == "always_shift" and enabled_x
 
 	for _ = 1, 2 do
-		local available_w = math.max(0, view_size.x - (show_y and shift_y and self.ScrollbarReserve or 0))
-		local available_h = math.max(0, view_size.y - (show_x and shift_x and self.ScrollbarReserve or 0))
+		local available_w = math.max(0, view_size.x - (show_y and shift_y and reserve or 0))
+		local available_h = math.max(0, view_size.y - (show_x and shift_x and reserve or 0))
 		show_y = enabled_y and (not self.ScrollbarAutoHide or content_size.y > available_h)
 		show_x = enabled_x and (not self.ScrollbarAutoHide or content_size.x > available_w)
 	end
@@ -247,8 +251,8 @@ function META:compute_scrollbar_state(content_size, view_size)
 		show_x = show_x,
 		reserve_y = reserve_y,
 		reserve_x = reserve_x,
-		available_w = math.max(0, view_size.x - (reserve_y and self.ScrollbarReserve or 0)),
-		available_h = math.max(0, view_size.y - (reserve_x and self.ScrollbarReserve or 0)),
+		available_w = math.max(0, view_size.x - (reserve_y and reserve or 0)),
+		available_h = math.max(0, view_size.y - (reserve_x and reserve or 0)),
 	}
 end
 
@@ -257,20 +261,13 @@ function META:update_handle()
 
 	local content_size = self.Viewport.layout.content_size
 	local view_size = self.Viewport.transform.Size:Copy()
+	local reserve = self:get_scrollbar_reserve()
 	local state = self:compute_scrollbar_state(content_size, view_size)
 	local new_padding = Rect(
 		self.Padding.x,
 		self.Padding.y,
-		self.Padding.w + (
-				state.reserve_y and
-				self.ScrollbarReserve or
-				0
-			),
-		self.Padding.h + (
-				state.reserve_x and
-				self.ScrollbarReserve or
-				0
-			)
+		self.Padding.w + (state.reserve_y and reserve or 0),
+		self.Padding.h + (state.reserve_x and reserve or 0)
 	)
 	local current_padding = self.Viewport.layout:GetPadding()
 

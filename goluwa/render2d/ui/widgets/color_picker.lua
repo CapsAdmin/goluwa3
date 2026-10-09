@@ -184,12 +184,38 @@ local function labeled(label, child)
 	}
 end
 
-function META:OnCreate(props)
-	META.BaseClass.OnCreate(self, props)
-	local sv_size = self.SVSize or Vec2(220, 220)
-	local slider_size = self.SliderSize or Vec2(theme.active:GetSize("L"), sv_size.y)
-	local input_size = self.InputSize or Vec2(84, theme.active:GetInputHeight("M"))
-	local row_gap = theme.active:GetSize("XS")
+local function get_sizes(picker)
+	local sv_size = picker.SVSize or Vec2(220, 220)
+	local slider_size = picker.SliderSize or Vec2(theme.active:GetSize("L"), sv_size.y)
+	local input_size = picker.InputSize or Vec2(84, theme.active:GetInputHeight("M"))
+	local hex_size = Vec2(
+		sv_size.x + slider_size.x * 2 + theme.active:GetSize("XS") * 2,
+		theme.active:GetInputHeight("S")
+	)
+	return sv_size, slider_size, input_size, hex_size
+end
+
+local function fix_size(panel, size)
+	panel.transform:SetSize(size)
+	panel.layout:SetMinSize(size)
+	panel.layout:SetMaxSize(size)
+end
+
+function META:OnThemeChanged()
+	local _, slider_size, input_size, hex_size = get_sizes(self)
+	fix_size(self._hue_surface, slider_size)
+	fix_size(self._alpha_surface, slider_size)
+
+	for _, input in ipairs(self._inputs) do
+		fix_size(input, input_size)
+	end
+
+	fix_size(self._hex_input, hex_size)
+end
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
+	local sv_size, slider_size, input_size, hex_size = get_sizes(self)
 	self._color = copy_color(self.Value or Color(1, 0, 0, 1))
 	self._hue = 0
 	self._saturation = 0
@@ -257,7 +283,6 @@ function META:OnCreate(props)
 		}
 	end
 
-	local hex_size = Vec2(sv_size.x + slider_size.x * 2 + row_gap * 2, theme.active:GetInputHeight("S"))
 	self._hex_input = TextEdit{
 		Picker = self,
 		Text = format_hex(self._color),
@@ -272,7 +297,7 @@ function META:OnCreate(props)
 	self:AddChild(
 		Row{
 			layout = {
-				ChildGap = row_gap,
+				ChildGap = "XS",
 				FitHeight = true,
 				AlignmentY = "start",
 			},
@@ -285,7 +310,7 @@ function META:OnCreate(props)
 	self:AddChild(
 		Row{
 			layout = {
-				ChildGap = row_gap,
+				ChildGap = "XS",
 				FitHeight = true,
 				AlignmentY = "start",
 			},
