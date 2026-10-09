@@ -189,6 +189,8 @@ local STEP_PROBE_LIFT = 0.04
 local STEP_REACH_MARGIN = 0.03
 local STEP_PROBE_BACKOFF = 0.05
 local STEP_MIN_GAIN = 0.005
+local STEP_MIN_RISE = 0.002
+local STEP_LOW_PROBE_EXTRA = 0.15
 local GROUND_RAY_LIFT = 0.02
 local STEP_SMOOTH_SPEED = 8
 local STEP_SMOOTH_MIN_SPEED = 1
@@ -210,15 +212,32 @@ function META:TryStepUp(direction, distance)
 	local filter = body:GetFilterFunction()
 	local position = body:GetPosition()
 	STEP_OPTIONS.Rotation = body:GetRotation()
+	local gap = body:GetCollisionMargin() * 2
 	local start = position + Vec3(0, STEP_PROBE_LIFT, 0) - direction * STEP_PROBE_BACKOFF
 	local reach_length = STEP_PROBE_BACKOFF + math.max(distance + STEP_REACH_MARGIN, self.Radius * 0.5)
 	local reach = direction * reach_length
 	local flat = physics.SweepCollider(collider, start, reach, owner, filter, STEP_OPTIONS)
+	local flat_distance
 
-	if not flat or flat.normal.y >= self.MinGroundNormalY then return false end
+	if flat then
+		flat_distance = reach_length * flat.fraction
+	else
+		local low_start = position - direction * STEP_PROBE_BACKOFF
+		local low = physics.SweepCollider(
+			collider,
+			low_start,
+			direction * (reach_length + STEP_LOW_PROBE_EXTRA),
+			owner,
+			filter,
+			STEP_OPTIONS
+		)
 
-	local flat_distance = reach_length * flat.fraction
-	local up = Vec3(0, self.StepHeight - STEP_PROBE_LIFT, 0)
+		if not low then return false end
+
+		flat_distance = 0
+	end
+
+	local up = Vec3(0, self.StepHeight + gap - STEP_PROBE_LIFT, 0)
 	local up_hit = physics.SweepCollider(collider, start, up, owner, filter, STEP_OPTIONS)
 	local raised = start + up * (up_hit and up_hit.fraction or 1)
 	local across = physics.SweepCollider(collider, raised, reach, owner, filter, STEP_OPTIONS)
@@ -227,14 +246,14 @@ function META:TryStepUp(direction, distance)
 	if across_distance <= flat_distance + STEP_MIN_GAIN then return false end
 
 	local landing = raised + reach * (across and across.fraction or 1)
-	local drop = Vec3(0, -(self.StepHeight + STEP_PROBE_LIFT), 0)
+	local drop = Vec3(0, -(self.StepHeight + gap + STEP_PROBE_LIFT), 0)
 	local down = physics.SweepCollider(collider, landing, drop, owner, filter, STEP_OPTIONS)
 
 	if not down or down.normal.y < self.MinGroundNormalY then return false end
 
-	local lift = landing.y + drop.y * down.fraction + body:GetCollisionMargin() * 2 - position.y
+	local lift = landing.y + drop.y * down.fraction + gap - position.y
 
-	if lift <= STEP_MIN_GAIN or lift > self.StepHeight + STEP_MIN_GAIN then
+	if lift - gap <= STEP_MIN_RISE or lift > self.StepHeight + gap + STEP_MIN_GAIN then
 		return false
 	end
 
@@ -581,7 +600,7 @@ do
 			self.ground_z = grounded and z or nil
 
 			if grounded and wish_speed > 0 then
-				if along < wish_speed * 0.5 then
+				if along < wish_speed * 0.85 then
 					self:TryStepUp(move, math.sqrt(x * x + z * z) * dt)
 				end
 			end
