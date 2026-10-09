@@ -339,6 +339,10 @@ function ComputePipeline:DispatchForSize(cmd, width, height, depth, frame_index,
 end
 
 function ComputePipeline:OnRemove()
+	local event = import("goluwa/event.lua")
+	event.RemoveListener("TextureRemoved", self)
+	event.RemoveListener("TextureViewChanged", self)
+
 	if self.pipeline then self.pipeline:Remove() end
 
 	if self.shader then self.shader:Remove() end

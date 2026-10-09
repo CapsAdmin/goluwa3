@@ -156,6 +156,9 @@ function RayTracingPipeline:DispatchRays(cmd, width, height, depth, frame_index)
 end
 
 function RayTracingPipeline:OnRemove()
+	local event = import("goluwa/event.lua")
+	event.RemoveListener("TextureRemoved", self)
+	event.RemoveListener("TextureViewChanged", self)
 	self.internal:OnRemove()
 
 	for _, pool in ipairs(self.descriptor_pools) do
