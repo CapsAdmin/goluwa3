@@ -66,6 +66,12 @@ function META.OnAction(node, key, path) end
 -- extra right click items for a property of an object, a list of {Text, OnClick} or nothing
 function META.OnContextActions(object, info) end
 
+-- a small label for the header of a component, {Text, Color, HeaderColor, Tooltip} or nothing
+function META.OnGetCategoryBadge(object, name) end
+
+-- a small label and a label color for a property of an object, {Text, Color, Tooltip} or nothing
+function META.OnGetPropertyBadge(object, info) end
+
 function META.OnPropertyChangeStart() end
 
 function META.OnPropertyChangeEnd() end
@@ -440,17 +446,18 @@ end
 function META:refresh_row_text(info)
 	if not info or not info.text then return end
 
-	info.text.text:SetColor(
-		self._selected_key == info.key and
-			theme.active:ResolveColor("text", "property_selection") or
-			(
-				info.node.IsEnabled and
-				not info.node.IsEnabled()
-				and
-				theme.active:GetColor("text_disabled") or
-				theme.active:GetColor("text")
-			)
-	)
+	local node = info.node
+	local color
+
+	if self._selected_key == info.key then
+		color = theme.active:ResolveColor("text", "property_selection")
+	elseif node.IsEnabled and not node.IsEnabled() then
+		color = theme.active:GetColor("text_disabled")
+	else
+		color = theme.active:GetColor(node.LabelColor or "text")
+	end
+
+	info.text.text:SetColor(color)
 end
 
 function META:refresh_all_row_text()
@@ -795,6 +802,19 @@ function META:build_rows_panel(entries)
 				FitHeight = true,
 			},
 		}
+		local badge = entry.node.Badge
+
+		if badge then
+			Text{
+				Parent = info.panel,
+				Text = badge.Text,
+				FontSize = self._font_size,
+				Color = badge.Color,
+				IgnoreMouseInput = true,
+				layout = {FitWidth = true, FitHeight = true},
+			}
+		end
+
 		self:refresh_row_text(info)
 		left_children[i] = info.panel
 		info.editor_panel = self:create_control(entry.node, entry.path, entry.key)
@@ -933,7 +953,9 @@ function META:build_category_panel(node, path, key)
 		Title = get_node_text(node, path),
 		Tooltip = node.Description,
 		TooltipMaxWidth = 420,
-		HeaderButtonColor = "primary",
+		Badge = node.Badge and node.Badge.Text,
+		BadgeColor = node.Badge and node.Badge.Color,
+		HeaderButtonColor = node.Badge and node.Badge.HeaderColor or "primary",
 		HeaderMode = "filled",
 		HeaderHeight = self:get_row_height(node),
 		HeaderPadding = node.HeaderPadding or self._padding,
@@ -1084,6 +1106,7 @@ do
 		end
 
 		local requires = info.requires
+		local badge = editor.OnGetPropertyBadge(target, info)
 		local node = {
 			Type = node_type,
 			IsEnabled = info.ReadOnly and
@@ -1113,6 +1136,9 @@ do
 			Multiline = info.multiline,
 			AssetCategory = info.asset,
 			ContextActions = build_context_actions(editor, info, target),
+			Badge = badge,
+			LabelColor = badge and badge.Color,
+			Description = badge and badge.Tooltip,
 		}
 		local display_type = node_type
 
@@ -1238,11 +1264,14 @@ do
 					)
 				end
 
+				local badge = self.OnGetCategoryBadge(category.object, category.name)
 				items[#items + 1] = {
 					Key = category.key,
 					Text = category.name,
 					Expanded = true,
 					Children = children,
+					Badge = badge,
+					Description = badge and badge.Tooltip,
 				}
 				self._listeners[#self._listeners + 1] = category.object:AddPropertyListener(function(_, key)
 					if not self:IsValid() then return end
