@@ -1,4 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -32,16 +34,30 @@ local presets = {
 		},
 	},
 }
+local BUNDLE_IDLE_SECONDS = 5
+local release_bundle
 local bundles = {}
+local invalidated = {}
 META:GetSet("Width", 256, {callback = "InvalidateFramebuffer"})
 META:GetSet("Height", 256, {callback = "InvalidateFramebuffer"})
-META:GetSet("Supersample", 2)
-META:GetSet("Preset", "model_preview")
-META:GetSet("Environment", nil)
-META:GetSet("ExposureCompensation", 0)
-META:GetSet("TransparentSky", true)
+META:GetSet("Supersample", 2, {callback = "Invalidate"})
+META:GetSet("Preset", "model_preview", {callback = "Invalidate"})
+META:GetSet("Environment", nil, {callback = "Invalidate"})
+META:GetSet("ExposureCompensation", 0, {callback = "Invalidate"})
+META:GetSet("TransparentSky", true, {callback = "Invalidate"})
+META:GetSet("AutoRender", false, {callback = "Invalidate"})
 
 function META.OnDrawGeometry(cmd, self) end
+
+-- draws what a visual has for the gbuffer, whether it is visible in the world or not
+function META.DrawVisual(visual)
+	local previous_world = render3d.GetWorldMatrix()
+	local previous_material = render3d.GetMaterial()
+	visual:DrawEntriesForPass(false, render3d.UploadGBufferConstants)
+	render3d.SetWorldMatrix(previous_world)
+	render3d.SetCurrentPolygon3D(nil)
+	render3d.SetMaterial(previous_material)
+end
 
 function META.New(config)
 	local self = META:CreateObject()
@@ -68,15 +84,43 @@ function META:GetCamera()
 	return self.camera
 end
 
+-- with AutoRender the view is drawn in the next frame, by the frame's own command buffer, so what
+-- changed it doesn't have to wait for the gpu
+function META:Invalidate()
+	if self.AutoRender then invalidated[self] = true end
+end
+
 function META:InvalidateFramebuffer()
 	if self.framebuffer then
 		self.framebuffer:Remove()
 		self.framebuffer = nil
 	end
+
+	self.rendered = false
+	self:Invalidate()
+end
+
+function META.GetBundleCount()
+	local count = 0
+
+	for _ in pairs(bundles) do
+		count = count + 1
+	end
+
+	return count
+end
+
+-- false until the first render, before that the texture holds nothing to show
+function META:HasRendered()
+	return self.rendered
 end
 
 function META:OnRemove()
 	self:InvalidateFramebuffer()
+	invalidated[self] = nil
+
+	if self.bundle then release_bundle(self.bundle) end
+
 	self.camera = nil
 	self.context = nil
 end
@@ -98,18 +142,27 @@ function META:GetTexture()
 	return self:EnsureFramebuffer():GetColorTexture()
 end
 
-local function get_bundle(preset_name, width, height)
-	local key = preset_name .. ":" .. width .. "x" .. height
+local function acquire_bundle(key, preset_name, width, height)
 	local bundle = bundles[key]
 
-	if bundle then return bundle end
+	if not bundle then
+		bundle = render3d.CreatePipelineBundle{
+			framebuffer_size = {x = width, y = height},
+			include_names = presets[preset_name].include_names,
+		}
+		bundle.users = 0
+		bundles[key] = bundle
+	end
 
-	bundle = render3d.CreatePipelineBundle{
-		framebuffer_size = {x = width, y = height},
-		include_names = presets[preset_name].include_names,
-	}
-	bundles[key] = bundle
+	bundle.users = bundle.users + 1
+	bundle.idle_since = nil
 	return bundle
+end
+
+function release_bundle(bundle)
+	bundle.users = bundle.users - 1
+
+	if bundle.users == 0 then bundle.idle_since = system.GetElapsedTime() end
 end
 
 -- records the view into cmd. false when it can't be drawn yet, because the environment is still
@@ -117,13 +170,25 @@ end
 function META:Render(cmd)
 	local environment = self.Environment or Environment.GetShared()
 
-	if not environment:Bake(cmd) then return false end
+	if not environment:Bake(cmd) then
+		self:Invalidate()
+		return false
+	end
 
 	local preset = presets[self.Preset]
 	local ratio = self.Supersample
 	local width = self.Width * ratio
 	local height = self.Height * ratio
-	local bundle = get_bundle(self.Preset, width, height)
+	local key = self.Preset .. ":" .. width .. "x" .. height
+
+	if self.bundle_key ~= key then
+		if self.bundle then release_bundle(self.bundle) end
+
+		self.bundle = acquire_bundle(key, self.Preset, width, height)
+		self.bundle_key = key
+	end
+
+	local bundle = self.bundle
 	local camera = self.camera
 	local context = self.context
 	camera:SetViewport(Rect(0, 0, width, height))
@@ -143,6 +208,7 @@ function META:Render(cmd)
 		ratio,
 		environment:GetExposure() * 2 ^ self.ExposureCompensation
 	)
+	self.rendered = true
 	return true
 end
 
@@ -160,6 +226,37 @@ function META:RenderNow()
 	if not ok then error(rendered, 0) end
 
 	return rendered
+end
+
+do
+	local pending = {}
+
+	event.AddListener("PreRenderPass", "render3d_scene_views", function()
+		local now = system.GetElapsedTime()
+
+		for key, bundle in pairs(bundles) do
+			if bundle.idle_since and now - bundle.idle_since > BUNDLE_IDLE_SECONDS then
+				bundles[key] = nil
+				render3d.RemovePipelineBundle(bundle)
+			end
+		end
+
+		local cmd = render.GetCommandBuffer()
+		local count = 0
+
+		for view in pairs(invalidated) do
+			count = count + 1
+			pending[count] = view
+			invalidated[view] = nil
+		end
+
+		for i = 1, count do
+			local view = pending[i]
+			pending[i] = nil
+
+			if cmd then view:Render(cmd) end
+		end
+	end)
 end
 
 META:Register()

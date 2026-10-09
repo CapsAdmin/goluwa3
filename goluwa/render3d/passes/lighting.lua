@@ -114,7 +114,7 @@ return {
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
 					block.sky_alpha = render3d.IsSkyTransparent() and 0 or 1
-					block.sky_from_environment = render3d.GetEnvironment() and 1 or 0
+					block.sky_from_environment = render3d.IsSkyFromProbe() and 1 or 0
 					block.screen_shadows = screen_shadows:Get() and 1 or 0
 					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
 					block.screen_shadow_length = screen_shadow_length:Get()

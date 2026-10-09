@@ -1,6 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local render3d = import("goluwa/render3d/render3d.lua")
 local SceneView = import("goluwa/render3d/scene_view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -152,12 +151,7 @@ function META:ConfigureCamera(visual)
 end
 
 function META:DrawTarget()
-	local previous_world = render3d.GetWorldMatrix()
-	local previous_material = render3d.GetMaterial()
-	self.target:DrawEntriesForPass(false, render3d.UploadGBufferConstants)
-	render3d.SetWorldMatrix(previous_world)
-	render3d.SetCurrentPolygon3D(nil)
-	render3d.SetMaterial(previous_material)
+	SceneView.DrawVisual(self.target)
 end
 
 function META:RenderTarget(visual)

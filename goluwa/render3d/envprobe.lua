@@ -1350,7 +1350,11 @@ function envprobe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				w = SIZE,
 				h = SIZE,
 			}
-			draw_fullscreen(cmd, probe.environment and envprobe.environment_sky_pipeline or envprobe.sky_pipeline, SIZE)
+			draw_fullscreen(
+				cmd,
+				probe.environment and envprobe.environment_sky_pipeline or envprobe.sky_pipeline,
+				SIZE
+			)
 			cmd:EndRendering()
 		end
 
@@ -1404,6 +1408,38 @@ local function render_equirect(cmd, pipeline, texture, view, w, h, mip_level)
 	)
 end
 
+local release_texture_index_later
+
+do
+	local pending = {}
+	local pending_count = 0
+
+	-- a slot released while the frame is still being recorded would be handed to the next probe baked in
+	-- it, and the draws already recorded for this one would sample that probe's cubemap instead
+	function release_texture_index_later(pipeline, texture)
+		pending[pending_count + 1] = pipeline
+		pending[pending_count + 2] = texture
+		pending_count = pending_count + 2
+	end
+
+	event.AddListener(
+		"PreRenderPass",
+		"envprobe_release_texture_indices",
+		function()
+			for i = 1, pending_count, 2 do
+				-- the pipelines are made again when the renderer is initialized
+				if pending[i]:IsValid() then pending[i]:ReleaseTextureIndex(pending[i + 1]) end
+
+				pending[i] = nil
+				pending[i + 1] = nil
+			end
+
+			pending_count = 0
+		end,
+		{priority = 1000}
+	)
+end
+
 function envprobe.PrefilterProbe(cmd, probe)
 	if not envprobe.prefilter_pipeline then return end
 
@@ -1453,14 +1489,14 @@ function envprobe.PrefilterProbe(cmd, probe)
 		)
 	end
 
-	envprobe.prefilter_pipeline:ReleaseTextureIndex(probe.source_cubemap)
+	release_texture_index_later(envprobe.prefilter_pipeline, probe.source_cubemap)
 
 	if probe.irradiance_equirect then
-		envprobe.irradiance_pipeline:ReleaseTextureIndex(probe.source_cubemap)
+		release_texture_index_later(envprobe.irradiance_pipeline, probe.source_cubemap)
 	end
 
 	if probe.depth_equirect then
-		envprobe.equirect_depth_pipeline:ReleaseTextureIndex(probe.depth_cubemap)
+		release_texture_index_later(envprobe.equirect_depth_pipeline, probe.depth_cubemap)
 	end
 
 	render.PopCommandBuffer()

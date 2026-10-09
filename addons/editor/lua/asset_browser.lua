@@ -26,8 +26,8 @@ local TextureViewer = import("lua/texture_viewer.lua")
 local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local Ang3 = import("goluwa/structs/ang3.lua")
 local ModelPreview = import("goluwa/render3d/model_preview.lua")
+local OrbitCamera = import("goluwa/render3d/orbit_camera.lua")
 local previews = import("lua/asset_preview.lua")
 local asset_info = import("lua/asset_info.lua")
 local DEFAULT_CATEGORIES = {"models", "textures", "materials"}
@@ -200,7 +200,10 @@ return function(props)
 	local breadcrumb
 	local details_column
 	local details_scroll
-	local detail = {yaw = 0.7, pitch = 0.25, auto_rotate = true}
+	-- the view the thumbnails are drawn from, until it is dragged
+	local detail = {orbit = OrbitCamera.New(), auto_rotate = true}
+	detail.orbit:SetYaw(math.pi / 4)
+	detail.orbit:SetPitch(-math.asin(1 / math.sqrt(3)))
 	local tab_buttons = {}
 	local details_entry
 	local details_status
@@ -505,6 +508,14 @@ return function(props)
 		)
 	end
 
+	local function is_viewable_model(entry)
+		return entry.category == "models" and RENDER_3D and entry.extension ~= ".bsp"
+	end
+
+	local function open_model_viewer(entry)
+		import("lua/model_viewer.lua")(entry)
+	end
+
 	local function activate_item(item)
 		if item.is_folder then
 			window_navigate(item.folder, true)
@@ -512,6 +523,8 @@ return function(props)
 		end
 
 		if picking then return pick(item) end
+
+		if is_viewable_model(item) then return open_model_viewer(item) end
 
 		if item.category == "textures" then
 			local texture = assets.GetTexture(item.path)
@@ -595,9 +608,15 @@ return function(props)
 					end,
 				} or
 				nil,
-				entry.category == "models" and
-				RENDER_3D and
-				entry.extension ~= ".bsp" and
+				is_viewable_model(entry) and
+				MenuItem{
+					Text = "Open in model viewer",
+					OnClick = function()
+						open_model_viewer(entry)
+					end,
+				} or
+				nil,
+				is_viewable_model(entry) and
 				MenuItem{
 					Text = "Spawn in front of camera",
 					OnClick = function()
@@ -786,9 +805,9 @@ return function(props)
 			if not detail.ready then return end
 		end
 
-		if detail.auto_rotate then detail.yaw = detail.yaw + dt * 0.6 end
+		if detail.auto_rotate then detail.orbit:Rotate(-dt * 60, 0) end
 
-		entity.transform:SetAngles(Ang3(detail.pitch, detail.yaw, 0.06))
+		detail.preview:SetViewOffset(detail.orbit:GetViewOffset())
 
 		if detail.material then visual:SetMaterialOverride(detail.material) end
 
@@ -1042,7 +1061,14 @@ return function(props)
 
 		local target = get_selected_entity()
 
-		if entry.category == "models" and RENDER_3D and entry.extension ~= ".bsp" then
+		if is_viewable_model(entry) then
+			actions[#actions + 1] = Button{
+				Text = "View",
+				Mode = "outline",
+				OnClick = function()
+					open_model_viewer(entry)
+				end,
+			}
 			actions[#actions + 1] = Button{
 				Text = "Spawn",
 				Mode = "outline",
@@ -1480,8 +1506,7 @@ return function(props)
 
 		if detail.dragging then
 			local x, y = system.GetWindow():GetMousePosition():Unpack()
-			detail.yaw = detail.yaw + (x - detail_drag_x) * 0.012
-			detail.pitch = math.clamp(detail.pitch + (y - detail_drag_y) * 0.012, -1.4, 1.4)
+			detail.orbit:Rotate(x - detail_drag_x, y - detail_drag_y)
 			detail_drag_x, detail_drag_y = x, y
 
 			if math.abs(x - detail.press_x) + math.abs(y - detail.press_y) >= 3 then

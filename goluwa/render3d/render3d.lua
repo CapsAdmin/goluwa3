@@ -189,6 +189,12 @@ function render3d.GetEnvironment()
 	return context_value("environment", nil)
 end
 
+-- an environment with a map shows it as the sky, one without, the studio, only has its probe
+function render3d.IsSkyFromProbe()
+	local environment = render3d.GetEnvironment()
+	return environment ~= nil and environment:GetSourceTexture() == nil
+end
+
 function render3d.ShouldUseLastFrameHistory()
 	return context_bool("allow_last_frame_history", true)
 end
