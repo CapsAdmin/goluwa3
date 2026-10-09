@@ -62,6 +62,7 @@ function META:OnRemove()
 	self.view:Remove()
 	self.view = nil
 	self.target = nil
+	self.targets = nil
 end
 
 function META:GetView()
@@ -91,6 +92,13 @@ end
 
 function META:SetTarget(visual)
 	self.target = visual
+	self.targets = nil
+end
+
+-- something made of several visuals, a prefab has one on every node that shows something
+function META:SetTargets(visuals)
+	self.targets = visuals
+	self.target = nil
 end
 
 function META:GetTarget()
@@ -105,16 +113,29 @@ function META:GetLocalAABB(visual)
 	return aabb
 end
 
+local single = {}
+
 function META:ConfigureCamera(visual)
-	local local_aabb = self:GetLocalAABB(visual)
-	local world_matrix = visual:GetWorldMatrix()
-	local center = world_matrix:TransformVector(
-		Vec3(
-			(local_aabb.min_x + local_aabb.max_x) / 2,
-			(local_aabb.min_y + local_aabb.max_y) / 2,
-			(local_aabb.min_z + local_aabb.max_z) / 2
-		)
-	)
+	single[1] = visual
+	self:ConfigureCameraForAll(single)
+	single[1] = nil
+end
+
+function META:ConfigureCameraForAll(visuals)
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+	for _, visual in ipairs(visuals) do
+		local world_matrix = visual:GetWorldMatrix()
+
+		for _, corner in ipairs(populate_aabb_corners(self:GetLocalAABB(visual))) do
+			local world_pos = world_matrix:TransformVector(corner)
+			min_x, min_y, min_z = math.min(min_x, world_pos.x), math.min(min_y, world_pos.y), math.min(min_z, world_pos.z)
+			max_x, max_y, max_z = math.max(max_x, world_pos.x), math.max(max_y, world_pos.y), math.max(max_z, world_pos.z)
+		end
+	end
+
+	local center = Vec3((min_x + max_x) / 2, (min_y + max_y) / 2, (min_z + max_z) / 2)
 	local forward = (-self:GetViewOffset()):GetNormalized()
 	local yaw = math.atan2(-forward.x, -forward.z)
 	local pitch = math.asin(math.max(-1, math.min(1, forward.y)))
@@ -130,12 +151,16 @@ function META:ConfigureCamera(visual)
 	local max_depth = 0
 	local aspect = self:GetWidth() / self:GetHeight()
 
-	for _, corner in ipairs(populate_aabb_corners(local_aabb)) do
-		local world_pos = world_matrix:TransformVector(corner)
-		local offset = world_pos - center
-		max_right = math.max(max_right, math.abs(offset:GetDot(right)))
-		max_up = math.max(max_up, math.abs(offset:GetDot(up)))
-		max_depth = math.max(max_depth, math.abs(offset:GetDot(forward)))
+	for _, visual in ipairs(visuals) do
+		local world_matrix = visual:GetWorldMatrix()
+
+		for _, corner in ipairs(populate_aabb_corners(self:GetLocalAABB(visual))) do
+			local world_pos = world_matrix:TransformVector(corner)
+			local offset = world_pos - center
+			max_right = math.max(max_right, math.abs(offset:GetDot(right)))
+			max_up = math.max(max_up, math.abs(offset:GetDot(up)))
+			max_depth = math.max(max_depth, math.abs(offset:GetDot(forward)))
+		end
 	end
 
 	local half_height = math.max(max_up, max_right / aspect)
@@ -151,7 +176,13 @@ function META:ConfigureCamera(visual)
 end
 
 function META:DrawTarget()
-	SceneView.DrawVisual(self.target)
+	if self.targets then
+		for _, visual in ipairs(self.targets) do
+			SceneView.DrawVisual(visual)
+		end
+	else
+		SceneView.DrawVisual(self.target)
+	end
 end
 
 function META:RenderTarget(visual)
@@ -166,7 +197,16 @@ function META:RenderTarget(visual)
 	return self:GetTexture()
 end
 
+function META:RenderTargets(visuals)
+	self:SetTargets(visuals)
+	self:ConfigureCameraForAll(visuals)
+	self.view:RenderNow()
+	return self:GetTexture()
+end
+
 function META:Refresh()
+	if self.targets then return self:RenderTargets(self.targets) end
+
 	if not self.target then return self:GetTexture() end
 
 	return self:RenderTarget(self.target)
