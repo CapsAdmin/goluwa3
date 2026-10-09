@@ -9,6 +9,10 @@ local Texture = import("goluwa/render/texture.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local lod = import("goluwa/render3d/lod.lua")
+local render = import("goluwa/render/render.lua")
+local convex_hull = import("goluwa/physics/convex_hull.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local cry_physics = import("goluwa/codecs/cry_physics.lua")
 local cgf = {}
 cgf.FILE_TYPE_GEOMETRY = 0xFFFF0000
 cgf.FILE_TYPE_ANIMATION = 0xFFFF0001
@@ -262,6 +266,15 @@ function cgf.ReadDataStreamChunk(file, chunk)
 	return stream
 end
 
+function cgf.ReadPhysicsDataChunk(file, chunk)
+	file:PushPosition(chunk_body_offset(chunk))
+	local size = file:ReadI32()
+	file:Advance(20)
+	local data = file:ReadBytes(size)
+	file:PopPosition()
+	return data
+end
+
 function cgf.ReadMaterialNameChunk(file, chunk)
 	file:PushPosition(chunk_body_offset(chunk))
 	local material = {
@@ -333,8 +346,165 @@ function cgf.GetNodeWorldTransform(nodes_by_id, node_id, cache, visiting)
 	return cache[node_id]
 end
 
+local function is_physics_proxy(name)
+	name = name:lower()
+	return name:find("physicsproxy", 1, true) or
+		name:find("$collision", 1, true) or
+		name:find("$physics_proxy", 1, true)
+end
+
+do
+	local CAP_LATITUDES = {math.rad(30), math.rad(60)}
+	local RING_SEGMENTS = 16
+	local SIGNS = {-1, 1}
+
+	local function to_engine(world_transform, x, y, z)
+		return cry_units.ToEngine(Vec3(world_transform:TransformVectorUnpacked(x, y, z)))
+	end
+
+	local function add_hull(out, points)
+		local min = Vec3(math.huge, math.huge, math.huge)
+		local max = Vec3(-math.huge, -math.huge, -math.huge)
+
+		for _, point in ipairs(points) do
+			min.x, min.y, min.z = math.min(min.x, point.x), math.min(min.y, point.y), math.min(min.z, point.z)
+			max.x, max.y, max.z = math.max(max.x, point.x), math.max(max.y, point.y), math.max(max.z, point.z)
+		end
+
+		local center = (min + max) * 0.5
+
+		for i, point in ipairs(points) do
+			points[i] = point - center
+		end
+
+		local hull = convex_hull.Normalize(points)
+
+		if hull then out[#out + 1] = {ConvexHull = hull, Position = center} end
+	end
+
+	local function add_ring(points, world_transform, center, axis, u, v, offset, radius)
+		for i = 0, RING_SEGMENTS - 1 do
+			local angle = i / RING_SEGMENTS * math.pi * 2
+			local c, s = math.cos(angle) * radius, math.sin(angle) * radius
+			points[#points + 1] = to_engine(
+				world_transform,
+				center.x + axis.x * offset + u.x * c + v.x * s,
+				center.y + axis.y * offset + u.y * c + v.y * s,
+				center.z + axis.z * offset + u.z * c + v.z * s
+			)
+		end
+	end
+
+	function cgf.AddPhysicsGeometry(file, chunk, positions, indices, world_transform, out)
+		local geometry = cry_physics.Decode(cgf.ReadPhysicsDataChunk(file, chunk), positions, indices)
+		local kind = geometry.type
+		local points = {}
+
+		if kind == "box" then
+			local b, size, center = geometry.basis, geometry.size, geometry.center
+
+			for _, sx in ipairs(SIGNS) do
+				for _, sy in ipairs(SIGNS) do
+					for _, sz in ipairs(SIGNS) do
+						local lx, ly, lz = sx * size.x, sy * size.y, sz * size.z
+						local x, y, z = center.x + lx, center.y + ly, center.z + lz
+
+						if geometry.oriented then
+							x = center.x + b[1] * lx + b[4] * ly + b[7] * lz
+							y = center.y + b[2] * lx + b[5] * ly + b[8] * lz
+							z = center.z + b[3] * lx + b[6] * ly + b[9] * lz
+						end
+
+						points[#points + 1] = to_engine(world_transform, x, y, z)
+					end
+				end
+			end
+
+			add_hull(out, points)
+		elseif kind == "sphere" then
+			local center = geometry.center
+			local position = to_engine(world_transform, center.x, center.y, center.z)
+			local edge = to_engine(world_transform, center.x + geometry.radius, center.y, center.z)
+			out[#out + 1] = {Shape = SphereShape.New(position:Distance(edge)), Position = position}
+		elseif kind == "cylinder" or kind == "capsule" then
+			local center, axis, radius = geometry.center, geometry.axis, geometry.radius
+			local length = math.sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z)
+			axis = {x = axis.x / length, y = axis.y / length, z = axis.z / length}
+			local helper = math.abs(axis.x) < 0.9 and Vec3(1, 0, 0) or Vec3(0, 1, 0)
+			local u = Vec3(axis.x, axis.y, axis.z):GetCross(helper):GetNormalized()
+			local v = Vec3(axis.x, axis.y, axis.z):GetCross(u)
+
+			for _, sign in ipairs(SIGNS) do
+				local offset = geometry.half_height * sign
+				add_ring(points, world_transform, center, axis, u, v, offset, radius)
+
+				if kind == "capsule" then
+					for _, latitude in ipairs(CAP_LATITUDES) do
+						add_ring(
+							points,
+							world_transform,
+							center,
+							axis,
+							u,
+							v,
+							offset + sign * radius * math.sin(latitude),
+							radius * math.cos(latitude)
+						)
+					end
+
+					points[#points + 1] = to_engine(
+						world_transform,
+						center.x + axis.x * (offset + sign * radius),
+						center.y + axis.y * (offset + sign * radius),
+						center.z + axis.z * (offset + sign * radius)
+					)
+				end
+			end
+
+			add_hull(out, points)
+		else
+			local vertices, source_indices = geometry.vertices, geometry.indices
+			local remap = {}
+			local polygon = not geometry.convex and Polygon3D.New() or nil
+			local polygon_indices = {}
+
+			for i = 1, #source_indices do
+				local index = source_indices[i]
+				local new_index = remap[index]
+
+				if not new_index then
+					local vertex = vertices[index]
+					local point = to_engine(world_transform, vertex.x, vertex.y, vertex.z)
+					points[#points + 1] = point
+					new_index = #points
+					remap[index] = new_index
+
+					if polygon then polygon.Vertices[new_index] = {pos = point} end
+				end
+
+				polygon_indices[i] = new_index - 1
+			end
+
+			if not points[1] then return end
+
+			if polygon then
+				for i = 1, #polygon_indices - 2, 3 do
+					polygon_indices[i + 1], polygon_indices[i + 2] = polygon_indices[i + 2], polygon_indices[i + 1]
+				end
+
+				polygon.indices = polygon_indices
+				polygon:BuildBoundingBox()
+				out[#out + 1] = {Polygon3D = polygon}
+			else
+				add_hull(out, points)
+			end
+		end
+	end
+end
+
 function cgf.ExtractStaticMeshData(parsed)
 	local entries = {}
+	local physics = {}
 	local file = parsed.file
 	local nodes_by_id = {}
 	local materials_by_id = {}
@@ -366,8 +536,9 @@ function cgf.ExtractStaticMeshData(parsed)
 	for _, node_id in ipairs(node_order) do
 		local node = nodes_by_id[node_id]
 		local lod_level = tonumber(node.name:match("^%$[lL][oO][dD](%d+)_"))
+		local is_proxy = is_physics_proxy(node.name)
 
-		if node.object_id > 0 and (lod_level or not node.name:starts_with("$")) then
+		if node.object_id > 0 and (lod_level or is_proxy or not node.name:starts_with("$")) then
 			local mesh_chunk = parsed.chunks_by_id[node.object_id]
 
 			if mesh_chunk and mesh_chunk.type == cgf.CHUNK_MESH then
@@ -424,6 +595,36 @@ function cgf.ExtractStaticMeshData(parsed)
 				local colors = streams_by_type[3] and streams_by_type[3].values or {}
 				local indices = streams_by_type[5] and streams_by_type[5].values or {}
 				local base_vertices = {}
+				local physics_chunk_id = mesh.physics_data_chunk_ids[1]
+				local physics_chunk = physics_chunk_id > 0 and parsed.chunks_by_id[physics_chunk_id]
+
+				if physics_chunk and not lod_level then
+					if physics_chunk.type ~= cgf.CHUNK_MESH_PHYSICS_DATA then
+						error(
+							string.format(
+								"cgf mesh physics chunk %d has type 0x%X",
+								physics_chunk.id,
+								physics_chunk.type
+							)
+						)
+					end
+
+					local ok, err = pcall(
+						cgf.AddPhysicsGeometry,
+						file,
+						physics_chunk,
+						positions,
+						indices,
+						world_transform,
+						physics
+					)
+
+					if not ok then
+						wlog("failed to read cgf physics of node %q: %s", node.name, tostring(err))
+					end
+				end
+
+				if is_proxy then positions, indices, subsets = {}, {}, {subsets = {}} end
 
 				for index, pos in ipairs(positions) do
 					local transformed_position = cry_units.ToEngine(world_transform:TransformVector(pos))
@@ -518,7 +719,7 @@ function cgf.ExtractStaticMeshData(parsed)
 		end
 	end
 
-	return entries
+	return entries, physics
 end
 
 function cgf.ResolveMaterialPath(model_path, material_name)
@@ -561,7 +762,7 @@ function cgf.GetMaterialPaths(path)
 	return out
 end
 
-function cgf.DecodeModel(path, full_path, mesh_callback)
+function cgf.DecodeModel(path, full_path, mesh_callback, physics_callback)
 	local ok_open, parsed_or_err = pcall(cgf.Open, full_path)
 
 	if not ok_open then
@@ -572,7 +773,12 @@ function cgf.DecodeModel(path, full_path, mesh_callback)
 	local model_path = parsed.file.path_used or full_path
 	local resolved_material_paths = {}
 	local ok, result = xpcall(function()
-		local entries = cgf.ExtractStaticMeshData(parsed)
+		local entries, physics = cgf.ExtractStaticMeshData(parsed)
+
+		if physics[1] then physics_callback{children = physics} end
+
+		if not render.IsInitialized() then return true end
+
 		local has_lod_nodes = false
 
 		for _, entry in ipairs(entries) do

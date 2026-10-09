@@ -9,6 +9,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local cry_scene = {}
 local LEAF_CELL_TARGET = 64
 local LEAF_CHUNK_THRESHOLD = 256
+local DEFAULT_DENSITY = 1000
 local MATRIX_FIELDS = {}
 
 for row = 0, 3 do
@@ -25,6 +26,19 @@ local function matrix_values(matrix)
 	end
 
 	return values
+end
+
+local function build_rigid_body(entry)
+	local physics = entry.physics
+	local body = {ShapeModelPath = entry.model_path, MotionType = physics.motion}
+
+	if physics.motion == "dynamic" then
+		body.AutomaticMass = physics.mass == nil
+		body.Mass = physics.mass
+		body.Density = physics.density or DEFAULT_DENSITY
+	end
+
+	return body
 end
 
 local function build_atmosphere_record(data)
@@ -107,10 +121,13 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					Rotation = transform_data.rotation,
 					Scale = transform_data.scale,
 				},
-				visual = {
-					ModelPath = entry.model_path,
-					MaterialOverridePath = entry.material_path,
-				},
+				visual = RENDER_3D and
+					{
+						ModelPath = entry.model_path,
+						MaterialOverridePath = entry.material_path,
+					} or
+					nil,
+				rigid_body = entry.physics and build_rigid_body(entry) or nil,
 			},
 		}
 	end
@@ -240,7 +257,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 		end
 	end
 
-	if options.skip_models or not RENDER_3D then
+	if options.skip_models then
 		return {version = scene.Version, entities = records}
 	end
 
@@ -252,48 +269,51 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 	for index, entry in ipairs(data.entries) do
 		entry.cry_index = index
-		local folder = layer_folders[entry.layer or ""]
 
-		if not folder then
-			folder = add_folder(objects_guid, entry.layer or "no layer")
-			layer_folders[entry.layer or ""] = folder
-		end
+		if RENDER_3D or entry.physics then
+			local folder = layer_folders[entry.layer or ""]
 
-		local chain = {}
-		local group = entry.group
-
-		while group do
-			table.insert(chain, 1, group)
-			group = group.parent
-		end
-
-		for _, group in ipairs(chain) do
-			local group_folder = group_folders[group.key]
-
-			if not group_folder then
-				group_folder = add_folder(folder, group.name)
-				group_folders[group.key] = group_folder
+			if not folder then
+				folder = add_folder(objects_guid, entry.layer or "no layer")
+				layer_folders[entry.layer or ""] = folder
 			end
 
-			folder = group_folder
+			local chain = {}
+			local group = entry.group
+
+			while group do
+				table.insert(chain, 1, group)
+				group = group.parent
+			end
+
+			for _, group in ipairs(chain) do
+				local group_folder = group_folders[group.key]
+
+				if not group_folder then
+					group_folder = add_folder(folder, group.name)
+					group_folders[group.key] = group_folder
+				end
+
+				folder = group_folder
+			end
+
+			local leaf = leaf_by_folder[folder]
+
+			if not leaf then
+				leaf = {folder = folder, items = {}, add = add_object}
+				leaf_by_folder[folder] = leaf
+				leaves[#leaves + 1] = leaf
+			end
+
+			leaf.items[#leaf.items + 1] = entry
 		end
-
-		local leaf = leaf_by_folder[folder]
-
-		if not leaf then
-			leaf = {folder = folder, items = {}, add = add_object}
-			leaf_by_folder[folder] = leaf
-			leaves[#leaves + 1] = leaf
-		end
-
-		leaf.items[#leaf.items + 1] = entry
 	end
 
-	local vegetation_guid = add_folder(level_guid, "Vegetation")
+	local vegetation_guid = RENDER_3D and add_folder(level_guid, "Vegetation") or nil
 	local category_folders = {}
 	local prototype_leaves = {}
 
-	for index, entry in ipairs(data.vegetation_entries or {}) do
+	for index, entry in ipairs(RENDER_3D and data.vegetation_entries or {}) do
 		entry.cry_index = index
 		local leaf = prototype_leaves[entry.prototype_id]
 

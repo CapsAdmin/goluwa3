@@ -284,6 +284,32 @@ do
 	end
 end
 
+function level.GetPhysicsProperties(node)
+	local attrs = node.attrs
+	local object_type = attrs.Type
+
+	if object_type == "Brush" or object_type == "GeomEntity" then
+		return {motion = "static"}
+	end
+
+	if attrs.EntityClass ~= "BasicEntity" and attrs.EntityClass ~= "RigidBodyEx" then
+		return nil
+	end
+
+	local properties = find_child_by_tag(node, "Properties")
+	local physics = properties and find_child_by_tag(properties, "Physics")
+
+	if not physics or physics.attrs.bPhysicalize ~= "1" then return nil end
+
+	local mass = tonumber(physics.attrs.Mass)
+	local density = tonumber(physics.attrs.Density)
+	return {
+		motion = physics.attrs.bRigidBody == "1" and "dynamic" or "static",
+		mass = mass and mass > 0 and mass or nil,
+		density = density and density > 0 and density or nil,
+	}
+end
+
 function level.IsObjectHidden(attrs)
 	return attrs.Hidden == "1" or attrs.HiddenInGame == "1"
 end
@@ -371,6 +397,7 @@ function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, 
 			model_path = model_path,
 			material_path = attrs.Material ~= "" and attrs.Material or nil,
 			type = object_type,
+			physics = level.GetPhysicsProperties(node),
 			world_matrix = world_matrix,
 			layer = layer,
 			group = group,
