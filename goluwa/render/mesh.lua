@@ -191,6 +191,14 @@ function Mesh:CloneDynamic(vertex_buffer)
 	return clone
 end
 
+-- call after changing the vertex data in place, the mesh no longer matches the content it was cached under
+function Mesh:ForgetContent()
+	if self.content_key then
+		mesh_content_cache[self.content_key] = nil
+		self.content_key = nil
+	end
+end
+
 function Mesh:OnRemove()
 	local content_key = self.content_key
 

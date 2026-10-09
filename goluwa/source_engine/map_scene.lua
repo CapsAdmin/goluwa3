@@ -9,6 +9,8 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local units = import("goluwa/source_engine/units.lua")
+local static_geometry = import("goluwa/source_engine/static_geometry.lua")
+local world_pack = import("goluwa/source_engine/world_pack.lua")
 local decal_geometry = import("goluwa/source_engine/decal_geometry.lua")
 local bit = require("bit")
 local map_scene = {}
@@ -141,12 +143,7 @@ function map_scene.Translate(data, map_name, map_path)
 		properties = {Name = map_name},
 		components = {
 			transform = {},
-			static_world = {
-				Pak = map_path,
-				Texinfos = data.world.Texinfos,
-				Brushes = data.world.Brushes,
-				Displacements = data.world.Displacements,
-			},
+			static_world = {Pak = map_path},
 		},
 	}
 
@@ -197,6 +194,56 @@ function map_scene.Translate(data, map_name, map_path)
 
 	for id = 1, data.visibility.group_count do
 		get_container(id)
+	end
+
+	do
+		local brushes, displacements = static_geometry.ExpandWorld(data.world)
+
+		for index, record in ipairs(brushes) do
+			static_geometry.UpdateBrushBounds(record)
+			add{
+				guid = root_guid .. ":brush:" .. index,
+				parent = get_sub_group(get_container(record.group), "brushes"),
+				properties = {Name = "brush " .. index},
+				components = {
+					transform = {Position = units.PositionToEngine((record.mins + record.maxs) / 2)},
+					brush = {
+						Sides = world_pack.PackSides(record.sides),
+						Collide = record.collide or false,
+						ClipBounds = record.clip,
+					},
+				},
+			}
+
+			if index % 200 == 0 then tasks.Wait() end
+		end
+
+		for index, record in ipairs(displacements) do
+			local corners = {}
+
+			for i, corner in ipairs(record.corners) do
+				corners[i * 3 - 2], corners[i * 3 - 1], corners[i * 3] = corner.x, corner.y, corner.z
+			end
+
+			add{
+				guid = root_guid .. ":displacement:" .. index,
+				parent = get_sub_group(get_container(record.group), "displacements"),
+				properties = {Name = "displacement " .. index},
+				components = {
+					transform = {Position = units.PositionToEngine((record.mins + record.maxs) / 2)},
+					displacement = {
+						Corners = world_pack.PackFloats(corners),
+						Positions = world_pack.PackFloats(data.world.Displacements[index].Positions),
+						Alphas = world_pack.PackFloats(record.alphas),
+						Material = "materials/" .. record.texname .. ".vmt",
+						Vecs = record.vecs,
+						ClipBounds = record.clip,
+					},
+				},
+			}
+
+			if index % 50 == 0 then tasks.Wait() end
+		end
 	end
 
 	local entries = {}

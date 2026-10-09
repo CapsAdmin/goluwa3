@@ -3,85 +3,84 @@ local Entity = import("goluwa/entities/entity.lua")
 local scene = import("goluwa/entities/scene.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local game = import("goluwa/source_engine/game.lua")
-local world_pack = import("goluwa/source_engine/world_pack.lua")
 local static_geometry = import("goluwa/source_engine/static_geometry.lua")
 local collision = import("goluwa/source_engine/bsp_collision.lua")
 local units = import("goluwa/source_engine/units.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local file_path = import("goluwa/filesystem/path.lua")
+local system = import("goluwa/system.lua")
 local tasks = import("goluwa/tasks.lua")
 local timer = import("goluwa/timer.lua")
 local VisibilityGroup = RENDER_3D and import("goluwa/entities/components/visibility_group.lua")
 local META = objects.CreateTemplate("static_world")
 META:StartStorable()
 META:GetSet("Pak", "", {ReadOnly = true})
-META:GetSet("Texinfos", nil, {Hidden = true})
-META:GetSet("Brushes", nil, {Hidden = true})
-META:GetSet("Displacements", nil, {Hidden = true})
+META:GetSet("Colliders", true, {callback = "RefreshColliders"})
 META:EndStorable()
-
--- the big numeric tables are stored as packed float strings, plain nested tables would exceed what a chunk can hold
-function META:GetBrushes()
-	return self.Brushes and world_pack.PackBrushes(self.Brushes)
-end
-
-function META:SetBrushes(value)
-	self.Brushes = value and (value.sides and world_pack.UnpackBrushes(value) or value)
-end
-
-function META:GetDisplacements()
-	return self.Displacements and world_pack.PackDisplacements(self.Displacements)
-end
-
-function META:SetDisplacements(value)
-	self.Displacements = value and (value.data and world_pack.UnpackDisplacements(value) or value)
-end
-
-META.waiting = {}
-META.waiting_decals = {}
+-- A static world gathers the brush and displacement components below it, batches their triangles per material and
+-- visibility group and, with Colliders on, builds one static rigid body from them. Sources register themselves
+-- and tell the world when they changed, the world applies changes at most every FLUSH_INTERVAL seconds.
+local FLUSH_INTERVAL = 0.1
+local COLLISION_SETTLE_TIME = 0.3
+local EDIT_SETTLE_TIME = 0.5
+local EDIT_BOUNDS_PADDING = 2
 
 function META.GetActive()
 	return META.active
 end
 
-function META.WaitForBuild(component)
-	list.insert(META.waiting, component)
+-- the nearest static world above an entity
+function META.Find(entity)
+	local parent = entity:GetParent()
+
+	while parent and parent:IsValid() do
+		local world = parent.static_world
+
+		if world then return world end
+
+		parent = parent:GetParent()
+	end
 end
 
-function META.WaitForDecals(component)
-	list.insert(META.waiting_decals, component)
+function META:Initialize()
+	self.sources = {}
+	self.source_list = {}
+	self.waiting_decals = {}
+	self:ResetRuntime()
 end
 
-function META:Clear()
-	local owner = self.Owner
-
-	for _, child in ipairs(owner:GetChildren()) do
-		if child.static_generated then child:Remove() end
-	end
-
-	for _, entity in pairs(self.brush_entities or {}) do
-		if entity:IsValid() and not entity.brush.editing then entity:Remove() end
-	end
-
-	for _, entity in pairs(self.displacement_entities or {}) do
-		if entity:IsValid() and not entity.displacement.editing then entity:Remove() end
-	end
-
-	if owner:HasComponent("rigid_body") then owner:RemoveComponent("rigid_body") end
-
-	if RENDER_3D then VisibilityGroup.SetActive(nil) end
-
-	self.groups = {}
-	self.brush_entities = {}
-	self.displacement_entities = {}
-	self.brush_records = {}
-	self.displacement_records = {}
+-- everything that is rebuilt by Build, the registered sources stay
+function META:ResetRuntime()
+	self.dirty = {}
+	self.removed = {}
+	self.collision_dirty = {}
+	self.edits = {}
+	self.edit_dirty = {}
+	self.brush_list = {}
+	self.displacement_list = {}
+	self.records = {}
 	self.batch_primitives = {}
 	self.collision_primitives = {}
 	self.collision_model = nil
 	self.decal_spans = {}
 	self.visual_entities = {}
-	self.sky_visual_entities = {}
+	self.visual_list = {}
+	self.last_flush = 0
 	self.built = false
+end
+
+function META:Clear()
+	for _, child in ipairs(self.Owner:GetChildrenList()) do
+		if child:IsValid() and child.static_generated then child:Remove() end
+	end
+
+	if self.Owner:HasComponent("rigid_body") then
+		self.Owner:RemoveComponent("rigid_body")
+	end
+
+	if RENDER_3D then VisibilityGroup.SetActive(nil) end
+
+	self:ResetRuntime()
 
 	if META.active == self then META.active = nil end
 end
@@ -114,53 +113,238 @@ function META:Reload()
 	end)
 end
 
-function META:GetContainer(id)
-	if not id then return self.Owner end
+-- the visibility group entity a source belongs to, nil when it is not inside of one
+function META:GetGroup(entity)
+	local parent = entity:GetParent()
 
-	local group = self.groups[id]
+	while parent and parent:IsValid() and parent ~= self.Owner do
+		if parent.visibility_group then return parent end
 
-	if group then return group end
+		parent = parent:GetParent()
+	end
+end
 
-	local name = "visibility_group_" .. id
+function META:CreateRecord(component)
+	local record = component:CreateRecord()
+	record.component = component
+	record.group = self:GetGroup(component.Owner)
+	component:UpdateRecord(record)
+	self.records[component] = record
+	list.insert(record.kind == "brush" and self.brush_list or self.displacement_list, record)
+	return record
+end
 
-	for _, child in ipairs(self.Owner:GetChildren()) do
-		if child:GetName() == name then
-			group = child
+function META:AddSource(component)
+	if self.sources[component] then return end
 
-			break
+	self.sources[component] = true
+	list.insert(self.source_list, component)
+
+	if self.built then self.dirty[component] = true end
+end
+
+function META:RemoveSource(component)
+	if not self.sources[component] then return end
+
+	self.sources[component] = nil
+	self.dirty[component] = nil
+	self.collision_dirty[component] = nil
+	local record = self.records[component]
+
+	if record then
+		self:CancelEdit(component, record)
+		self.records[component] = nil
+		list.insert(self.removed, record)
+	end
+end
+
+-- Appends the triangles of a record to the batches of state.
+function META:EmitRecord(state, record)
+	if record.kind == "brush" then
+		static_geometry.EmitBrush(state, record)
+	else
+		static_geometry.EmitDisplacement(state, record, static_geometry.ComputeDisplacementNormals(record))
+	end
+end
+
+-- A source changed. Sources that are already in the batches are edited: their triangles leave the shared batches
+-- and are drawn from a small mesh of their own that is rebuilt every frame, once nothing changed for a while
+-- they go back into the shared batches. Sources without a record yet are emitted on the next flush.
+function META:MarkDirty(component)
+	if not self.built then return end
+
+	local record = self.records[component]
+
+	if not record then
+		self.dirty[component] = true
+		return
+	end
+
+	self.collision_dirty[component] = system.GetElapsedTime()
+
+	if not RENDER_2D then
+		component:UpdateRecord(record)
+		self:EmitRecord(self.batch_state, record)
+		return
+	end
+
+	if not self.edits[component] then self:BeginEdit(component, record) end
+
+	self.edit_dirty[component] = true
+end
+
+function META:BeginEdit(component, record)
+	local touched = {}
+	self:ReleaseSpans(record.spans, touched)
+	record.spans = {}
+	self:RefreshBatches(touched)
+	local entity = Entity.New{Name = "edit", Parent = record.group or self.Owner}
+	entity:SetTransient(true)
+	entity:AddComponent("transform")
+	entity:AddComponent("visual")
+	entity.static_generated = true
+
+	if record.clip then entity.visual:SetClipBounds(record.clip) end
+
+	self.edits[component] = {
+		state = static_geometry.NewState("edit"),
+		primitives = {},
+		bounds = {},
+		entity = entity,
+		time = system.GetElapsedTime(),
+	}
+end
+
+function META:CancelEdit(component, record)
+	local edit = self.edits[component]
+
+	if not edit then return end
+
+	if edit.entity:IsValid() then edit.entity:Remove() end
+
+	self.edits[component] = nil
+	self.edit_dirty[component] = nil
+	record.spans = {}
+end
+
+function META:UpdateEdit(component, edit)
+	local record = self.records[component]
+	component:UpdateRecord(record)
+
+	for _, batch in ipairs(edit.state.batches) do
+		batch.mesh:Clear()
+	end
+
+	self:EmitRecord(edit.state, record)
+	local visual = edit.entity.visual
+
+	for _, batch in ipairs(edit.state.batches) do
+		local primitive = edit.primitives[batch]
+		local mesh = batch.mesh
+
+		if #mesh.Vertices > 0 then
+			mesh:BuildTangents()
+
+			if primitive and mesh:UpdateVertices() then
+				local aabb, bounds = mesh.AABB, edit.bounds[batch]
+
+				if
+					aabb.min_x < bounds.min_x or
+					aabb.min_y < bounds.min_y or
+					aabb.min_z < bounds.min_z or
+					aabb.max_x > bounds.max_x or
+					aabb.max_y > bounds.max_y or
+					aabb.max_z > bounds.max_z
+				then
+					edit.bounds[batch] = self:PadEditBounds(primitive, aabb)
+					visual:BuildAABB()
+				end
+			else
+				mesh:BuildBoundingBox()
+				mesh:Upload(nil)
+
+				if primitive then
+					primitive.visual_primitive:SetPolygon3D(mesh)
+				else
+					primitive = visual:CreatePrimitiveEntity(
+						mesh,
+						batch.material,
+						file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(batch.material:GetName()))
+					)
+					edit.primitives[batch] = primitive
+				end
+
+				edit.bounds[batch] = self:PadEditBounds(primitive, mesh.AABB)
+				visual:BuildAABB()
+			end
+		elseif primitive then
+			primitive:Remove()
+			edit.primitives[batch] = nil
+			edit.bounds[batch] = nil
 		end
 	end
+end
 
-	group = group or Entity.New{Name = name, Parent = self.Owner}
+-- The culling bounds of an edit mesh are padded so moving it does not change them every frame.
+function META:PadEditBounds(primitive, aabb)
+	local bounds = AABB(
+		aabb.min_x - EDIT_BOUNDS_PADDING,
+		aabb.min_y - EDIT_BOUNDS_PADDING,
+		aabb.min_z - EDIT_BOUNDS_PADDING,
+		aabb.max_x + EDIT_BOUNDS_PADDING,
+		aabb.max_y + EDIT_BOUNDS_PADDING,
+		aabb.max_z + EDIT_BOUNDS_PADDING
+	)
+	primitive.visual_primitive:SetLocalAABB(bounds)
+	return bounds
+end
 
-	if not group:HasComponent("transform") then group:AddComponent("transform") end
+function META:EndEdit(component, edit)
+	edit.entity:Remove()
+	self.edits[component] = nil
+	local record = self.records[component]
+	component:UpdateRecord(record)
+	self:EmitRecord(self.batch_state, record)
+	local touched = {}
 
-	if RENDER_3D and not group:HasComponent("visibility_group") then
-		group:AddComponent("visibility_group")
+	for _, span in ipairs(record.spans) do
+		span.entry.mesh:BuildTangents(span.first, span.first + span.count - 1)
+		touched[span.entry] = true
 	end
 
-	self.groups[id] = group
-	return group
+	self:RefreshBatches(touched)
+end
+
+function META:AddDecal(decal)
+	if self.built then
+		decal:Attach(self)
+	else
+		list.insert(self.waiting_decals, decal)
+	end
 end
 
 function META:Build()
 	local owner = self.Owner
-	local world = {
-		Texinfos = self.Texinfos or {},
-		Brushes = self.Brushes or {},
-		Displacements = self.Displacements or {},
-	}
-	local result = static_geometry.Build(world, owner:GetName())
-	self.sky_clip = static_geometry.GetSkyClip(result)
-	self.brush_records = result.brushes
-	self.displacement_records = result.displacements
-	self.batch_state = result.state
+	self:ResetRuntime()
+	local source_list, seen = {}, {}
 
-	for _, component in ipairs(META.waiting_decals) do
-		if component.Owner:IsValid() then component:Attach(self) end
+	for _, component in ipairs(self.source_list) do
+		if self.sources[component] and not seen[component] then
+			seen[component] = true
+			list.insert(source_list, component)
+			self:CreateRecord(component)
+		end
 	end
 
-	META.waiting_decals = {}
+	self.source_list = source_list
+	local result = static_geometry.Build(self.brush_list, self.displacement_list, owner:GetName())
+	self.batch_state = result.state
+
+	for _, decal in ipairs(self.waiting_decals) do
+		if decal.Owner:IsValid() then decal:Attach(self) end
+	end
+
+	self.waiting_decals = {}
 	static_geometry.Finalize(result)
 
 	if RENDER_2D then
@@ -168,38 +352,21 @@ function META:Build()
 			self:AttachBatch(batch)
 		end
 
-		for _, visual_entity in pairs(self.visual_entities) do
-			visual_entity.visual:BuildAABB()
-		end
-
-		for _, visual_entity in pairs(self.sky_visual_entities) do
+		for _, visual_entity in ipairs(self.visual_list) do
 			visual_entity.visual:BuildAABB()
 		end
 	end
 
-	local body, model, brush_primitives = static_geometry.BuildPhysics(result)
-
-	if body then
-		model.Owner = owner
-		self.collision_model = model
-		self.collision_primitives = brush_primitives
-		owner:AddComponent("rigid_body", body)
-	end
+	if self.Colliders then self:BuildColliders() end
 
 	self.built = true
 	META.active = self
-	local waiting = META.waiting
-	META.waiting = {}
-
-	for _, component in ipairs(waiting) do
-		if component.Owner:IsValid() then component:Attach(self) end
-	end
-
+	self:AddGlobalEvent("Update")
 	logn(
 		"static world built: ",
-		#self.brush_records,
+		#self.brush_list,
 		" brushes, ",
-		#self.displacement_records,
+		#self.displacement_list,
 		" displacements, ",
 		#result.batches,
 		" batches"
@@ -214,39 +381,65 @@ function META:OnRemove()
 	if RENDER_3D then VisibilityGroup.SetActive(nil) end
 end
 
-function META:AttachBatch(batch)
-	local container = self:GetContainer(batch.visibility_group)
-	local visual_entities = batch.sky and self.sky_visual_entities or self.visual_entities
-	local visual_entity = visual_entities[container]
+-- the entity drawing the batches of a visibility group, batches with a clip box share one entity per box
+function META:GetBatchVisual(batch)
+	local container = batch.visibility_group or self.Owner
+	local by_clip = self.visual_entities[container]
+
+	if not by_clip then
+		by_clip = {}
+		self.visual_entities[container] = by_clip
+	end
+
+	local visual_entity = by_clip[batch.clip_key]
 
 	if not visual_entity then
-		visual_entity = Entity.New{Name = batch.sky and "sky" or "world", Parent = container}
+		visual_entity = Entity.New{Name = "world", Parent = container}
 		visual_entity:SetTransient(true)
 		visual_entity:AddComponent("transform")
 		visual_entity:AddComponent("visual")
 		visual_entity.static_generated = true
-		visual_entities[container] = visual_entity
 
-		if batch.sky then visual_entity.visual:SetClipBounds(self.sky_clip) end
+		if batch.clip then visual_entity.visual:SetClipBounds(batch.clip) end
+
+		by_clip[batch.clip_key] = visual_entity
+		list.insert(self.visual_list, visual_entity)
 	end
 
-	self.batch_primitives[batch] = visual_entity.visual:CreatePrimitiveEntity(
+	return visual_entity
+end
+
+function META:AttachBatch(batch)
+	self.batch_primitives[batch] = self:GetBatchVisual(batch).visual:CreatePrimitiveEntity(
 		batch.mesh,
 		batch.material,
 		file_path.RemoveExtensionFromPath(file_path.GetFileNameFromPath(batch.material:GetName()))
 	)
 end
 
-function META:HideSpans(spans, dirty)
-	for _, span in ipairs(spans) do
-		local vertices = span.entry.mesh.Vertices
-		local anchor = vertices[span.first].pos
+-- Frees the vertices of spans. Spans at the end of their batch are cut off, others are collapsed to a point.
+function META:ReleaseSpans(spans, touched)
+	for i = #spans, 1, -1 do
+		local span = spans[i]
+		local mesh = span.entry.mesh
+		local vertices = mesh.Vertices
+		local last = span.first + span.count - 1
 
-		for i = span.first, span.first + span.count - 1 do
-			vertices[i].pos = anchor
+		if last + 1 == mesh.i and span.first > 1 then
+			for k = last, span.first, -1 do
+				vertices[k] = nil
+			end
+
+			mesh.i = span.first
+		else
+			local anchor = vertices[span.first].pos
+
+			for k = span.first, last do
+				vertices[k].pos = anchor
+			end
 		end
 
-		dirty[span.entry] = true
+		touched[span.entry] = true
 	end
 end
 
@@ -254,20 +447,25 @@ function META:RefreshBatch(batch)
 	if batch.is_new then
 		static_geometry.UploadBatch(batch)
 		self:AttachBatch(batch)
-		local visual_entities = batch.sky and self.sky_visual_entities or self.visual_entities
-		visual_entities[self:GetContainer(batch.visibility_group)].visual:BuildAABB()
+		self:GetBatchVisual(batch).visual:BuildAABB()
 	else
 		batch.mesh:Upload(nil)
 		self.batch_primitives[batch].visual_primitive:SetPolygon3D(batch.mesh)
 	end
 end
 
+function META:RefreshBatches(touched)
+	for batch in pairs(touched) do
+		if #batch.mesh.Vertices > 0 or not batch.is_new then self:RefreshBatch(batch) end
+	end
+end
+
 -- Replaces the triangles of a decal. fragments is a list of {group, polygon of {pos, u, v}}.
 function META:SetDecalFragments(owner, fragments)
-	local dirty = {}
+	local touched = {}
 	local old_spans = self.decal_spans[owner]
 
-	if old_spans then self:HideSpans(old_spans, dirty) end
+	if old_spans then self:ReleaseSpans(old_spans, touched) end
 
 	local spans = {}
 
@@ -279,79 +477,208 @@ function META:SetDecalFragments(owner, fragments)
 			"overlay"
 		)
 		local first, count = static_geometry.AddPolygon(batch.mesh, fragment.polygon)
+		batch.mesh:BuildTangents(first, first + count - 1)
 		list.insert(spans, {entry = batch, first = first, count = count})
-		dirty[batch] = true
+		touched[batch] = true
 	end
 
 	self.decal_spans[owner] = spans
 
-	if self.built then
-		for batch in pairs(dirty) do
-			self:RefreshBatch(batch)
+	if self.built then self:RefreshBatches(touched) end
+end
+
+function META:RemoveDecal(owner)
+	local spans = self.decal_spans[owner]
+
+	if not spans then return end
+
+	local touched = {}
+	self:ReleaseSpans(spans, touched)
+	self.decal_spans[owner] = nil
+	self:RefreshBatches(touched)
+end
+
+function META:BuildColliders()
+	local shapes, model, primitives = static_geometry.BuildColliders(self.brush_list, self.displacement_list)
+	model.Owner = self.Owner
+	self.collision_model = model
+	self.collision_primitives = primitives
+	self.model_shape = shapes[1] and shapes[1].Model == model and shapes[1] or {Model = model}
+	self.collision_shapes = shapes
+
+	if shapes[1] then self:AddRigidBody() end
+end
+
+function META:AddRigidBody()
+	self.Owner:AddComponent(
+		"rigid_body",
+		{
+			Shapes = self.collision_shapes,
+			MotionType = "static",
+			Friction = 0.85,
+			Restitution = 0,
+			WorldGeometry = true,
+		}
+	)
+end
+
+function META:RefreshColliders()
+	if not self.built then return end
+
+	if self.Owner:HasComponent("rigid_body") then
+		self.Owner:RemoveComponent("rigid_body")
+	end
+
+	self.collision_primitives = {}
+	self.collision_model = nil
+	self.collision_shapes = nil
+
+	if self.Colliders then self:BuildColliders() end
+end
+
+-- brings the collision of one record in line with its current shape
+function META:UpdateCollider(record)
+	local model = self.collision_model
+
+	if not model then return end
+
+	if record.kind == "brush" then
+		local primitive = self.collision_primitives[record]
+
+		if not record.collide then
+			if primitive then self:RemoveCollider(record) end
+
+			return
+		end
+
+		local planes = {}
+
+		for i, side in ipairs(record.sides) do
+			planes[i] = units.PlaneToEngine(side)
+		end
+
+		if primitive then
+			if not collision.update_brush_primitive(primitive, planes) then return end
+		else
+			primitive = collision.build_brush_primitive(planes)
+
+			if not primitive or not primitive.aabb then return end
+
+			self.collision_primitives[record] = primitive
+			list.insert(model.Primitives, primitive)
+		end
+
+		model.AABB:Expand(primitive.aabb)
+		model.raycast_primitive_acceleration = nil
+
+		if not list.has_value(self.collision_shapes, self.model_shape) then
+			list.insert(self.collision_shapes, 1, self.model_shape)
+		end
+	else
+		local shape = record.collision_shape
+		local fresh = collision.build_displacement_collision_shape(record.positions, record.dims)
+
+		if shape then
+			shape.Polygon3D = fresh.Polygon3D
+		else
+			record.collision_shape = fresh
+			list.insert(self.collision_shapes, fresh)
+		end
+	end
+
+	if self.Owner.rigid_body then
+		self.Owner.rigid_body:OnGeometryChanged()
+	else
+		self:AddRigidBody()
+	end
+end
+
+function META:RemoveCollider(record)
+	if not self.collision_model then return end
+
+	if record.kind == "brush" then
+		local primitive = self.collision_primitives[record]
+
+		if not primitive then return end
+
+		self.collision_primitives[record] = nil
+		list.remove_value(self.collision_model.Primitives, primitive)
+		self.collision_model.raycast_primitive_acceleration = nil
+	else
+		if not record.collision_shape then return end
+
+		list.remove_value(self.collision_shapes, record.collision_shape)
+		record.collision_shape = nil
+	end
+
+	if self.Owner.rigid_body then self.Owner.rigid_body:OnGeometryChanged() end
+end
+
+function META:OnUpdate()
+	local now = system.GetElapsedTime()
+
+	if (self.removed[1] or next(self.dirty)) and now - self.last_flush >= FLUSH_INTERVAL then
+		self.last_flush = now
+		self:Flush(now)
+	end
+
+	for component, edit in pairs(self.edits) do
+		if self.edit_dirty[component] then
+			self.edit_dirty[component] = nil
+			edit.time = now
+			self:UpdateEdit(component, edit)
+		elseif now - edit.time > EDIT_SETTLE_TIME then
+			self:EndEdit(component, edit)
+		end
+	end
+
+	if next(self.collision_dirty) then
+		for component, time in pairs(self.collision_dirty) do
+			if now - time > COLLISION_SETTLE_TIME then
+				self.collision_dirty[component] = nil
+				local record = self.records[component]
+
+				if record then self:UpdateCollider(record) end
+			end
 		end
 	end
 end
 
-function META:HideRecord(record)
-	if record.hidden then return end
+function META:Flush(now)
+	local touched = {}
+	local removed = self.removed
+	self.removed = {}
 
-	record.hidden = true
-	local dirty = {}
-	self:HideSpans(record.spans, dirty)
-
-	for entry in pairs(dirty) do
-		self:RefreshBatch(entry)
-	end
-end
-
-function META:UpdateBrushCollision(index, planes)
-	local primitive = self.collision_primitives[index]
-
-	if not primitive or not collision.update_brush_primitive(primitive, planes) then
-		return
+	for _, record in ipairs(removed) do
+		self:ReleaseSpans(record.spans, touched)
+		self:RemoveCollider(record)
+		list.remove_value(record.kind == "brush" and self.brush_list or self.displacement_list, record)
 	end
 
-	self.collision_model.AABB:Expand(primitive.aabb)
-	self.collision_model.raycast_primitive_acceleration = nil
-	self.Owner.rigid_body:OnGeometryChanged()
-end
+	local dirty = self.dirty
+	self.dirty = {}
 
-function META:UpdateDisplacementCollision(index, points)
-	local record = self.displacement_records[index]
-	local shape = record.collision_shape
+	for component in pairs(dirty) do
+		local record = self.records[component]
 
-	if not shape then return end
+		if record then
+			self:ReleaseSpans(record.spans, touched)
+			component:UpdateRecord(record)
+		else
+			record = self:CreateRecord(component)
+		end
 
-	shape.Polygon3D = collision.build_displacement_polygon(points, record.dims).Polygon3D
-	self.Owner.rigid_body:OnGeometryChanged()
-end
+		self:EmitRecord(self.batch_state, record)
 
-function META:GetBrushEntity(index)
-	local entity = self.brush_entities[index]
+		for _, span in ipairs(record.spans) do
+			span.entry.mesh:BuildTangents(span.first, span.first + span.count - 1)
+			touched[span.entry] = true
+		end
 
-	if entity then return entity end
+		self.collision_dirty[component] = now
+	end
 
-	local record = self.brush_records[index]
-	entity = Entity.New{Name = "brush " .. index, Parent = self:GetContainer(record.group)}
-	entity:AddComponent("transform")
-	entity:SetTransient(false)
-	entity:AddComponent("brush")
-	entity.brush:Setup(self, record)
-	return entity
-end
-
-function META:GetDisplacementEntity(index)
-	local entity = self.displacement_entities[index]
-
-	if entity then return entity end
-
-	local record = self.displacement_records[index]
-	entity = Entity.New{Name = "displacement " .. index, Parent = self:GetContainer(record.group)}
-	entity:AddComponent("transform")
-	entity:SetTransient(false)
-	entity:AddComponent("displacement")
-	entity.displacement:Setup(self, record)
-	return entity
+	if RENDER_2D then self:RefreshBatches(touched) end
 end
 
 do
@@ -415,9 +742,9 @@ do
 		local o = units.PositionFromEngine(origin)
 		local ox, oy, oz = o.x, o.y, o.z
 		local dx, dy, dz = -direction.z, -direction.x, direction.y
-		local best_index, best_t = nil, (max_distance or math.huge) / units.meters
+		local best_record, best_t = nil, (max_distance or math.huge) / units.meters
 
-		for index, record in ipairs(self.brush_records) do
+		for _, record in ipairs(self.brush_list) do
 			local hit, t_enter = ray_box(ox, oy, oz, dx, dy, dz, record.mins, record.maxs, best_t)
 
 			if record.visible and hit then
@@ -448,23 +775,23 @@ do
 				end
 
 				if t_enter <= t_exit and t_enter < best_t then
-					best_index, best_t = index, t_enter
+					best_record, best_t = record, t_enter
 				end
 			end
 		end
 
-		if best_index then return best_index, best_t * units.meters end
+		if best_record then return best_record, best_t * units.meters end
 	end
 
 	function META:PickDisplacement(origin, direction, max_distance)
 		local o = units.PositionFromEngine(origin)
 		local ox, oy, oz = o.x, o.y, o.z
 		local dx, dy, dz = -direction.z, -direction.x, direction.y
-		local best_index, best_t = nil, (max_distance or math.huge) / units.meters
+		local best_record, best_t = nil, (max_distance or math.huge) / units.meters
 
-		for index, record in ipairs(self.displacement_records) do
+		for _, record in ipairs(self.displacement_list) do
 			if
-				not record.sky and
+				not record.clip and
 				ray_box(ox, oy, oz, dx, dy, dz, record.mins, record.maxs, best_t)
 			then
 				local positions, dims = record.positions, record.dims
@@ -478,33 +805,27 @@ do
 						local t1 = ray_triangle(ox, oy, oz, dx, dy, dz, positions[a], positions[c], positions[b])
 						local t2 = ray_triangle(ox, oy, oz, dx, dy, dz, positions[c], positions[d], positions[b])
 
-						if t1 and t1 < best_t then best_index, best_t = index, t1 end
+						if t1 and t1 < best_t then best_record, best_t = record, t1 end
 
-						if t2 and t2 < best_t then best_index, best_t = index, t2 end
+						if t2 and t2 < best_t then best_record, best_t = record, t2 end
 					end
 				end
 			end
 		end
 
-		if best_index then return best_index, best_t * units.meters end
+		if best_record then return best_record, best_t * units.meters end
 	end
 end
 
 function META:PickGeometry(origin, direction)
-	local brush_index, brush_distance = self:PickBrush(origin, direction)
-	local displacement_index, displacement_distance = self:PickDisplacement(origin, direction)
+	local brush, brush_distance = self:PickBrush(origin, direction)
+	local displacement, displacement_distance = self:PickDisplacement(origin, direction)
 
-	if
-		displacement_index and
-		(
-			not brush_index or
-			displacement_distance <= brush_distance + 0.05
-		)
-	then
-		return self:GetDisplacementEntity(displacement_index), displacement_distance
+	if displacement and (not brush or displacement_distance <= brush_distance + 0.05) then
+		return displacement.component.Owner, displacement_distance
 	end
 
-	if brush_index then return self:GetBrushEntity(brush_index), brush_distance end
+	if brush then return brush.component.Owner, brush_distance end
 end
 
 return META:Register()

@@ -33,8 +33,38 @@ function static_geometry.AddVertex(mesh, texinfo, position, blend, uv_position, 
 	}
 end
 
-function static_geometry.GetBatch(state, texname, group, kind)
-	local key = (group or 0) .. " " .. (kind and (kind .. " ") or "") .. texname
+-- A record is the runtime form of one static source:
+-- brush: {sides = {{normal, dist, texname, vecs, visible}}, group, clip, collide}
+-- displacement: {dims, positions (source space Vec3), alphas, corners, texname, vecs, normal, group, clip}
+-- clip is an optional world space box {min x, min y, min z, max x, max y, max z}, the triangles of the record inside of it are not drawn.
+-- group is whatever identifies the visibility group of the source, it only has to be usable as a table key.
+-- mins, maxs and spans are filled in by the Emit functions.
+function static_geometry.NewState(name)
+	return {
+		batches = {},
+		by_key = {},
+		group_ids = {},
+		group_count = 0,
+		name = name or "static world",
+		render = RENDER_2D,
+	}
+end
+
+function static_geometry.GetBatch(state, texname, group, kind, clip)
+	local group_id = 0
+
+	if group then
+		group_id = state.group_ids[group]
+
+		if not group_id then
+			state.group_count = state.group_count + 1
+			group_id = state.group_count
+			state.group_ids[group] = group_id
+		end
+	end
+
+	local clip_key = clip and table.concat(clip, ",") or ""
+	local key = group_id .. " " .. (kind or "") .. " " .. clip_key .. " " .. texname
 	local batch = state.by_key[key]
 
 	if not batch then
@@ -42,7 +72,13 @@ function static_geometry.GetBatch(state, texname, group, kind)
 		local material = vmt_material.FromVMT("materials/" .. texname .. ".vmt")
 		mesh:SetName(state.name .. ": " .. texname)
 		mesh.material = material
-		batch = {mesh = mesh, material = material, visibility_group = group, sky = kind == "sky"}
+		batch = {
+			mesh = mesh,
+			material = material,
+			visibility_group = group,
+			clip = clip,
+			clip_key = clip_key,
+		}
 		state.by_key[key] = batch
 		list.insert(state.batches, batch)
 		batch.is_new = true
@@ -56,6 +92,7 @@ function static_geometry.ExpandBrush(world, index)
 	local flat = brush.Sides
 	local stride = static_geometry.SIDE_STRIDE
 	local sides = {}
+	local group
 
 	for side_index = 1, #flat / stride do
 		local o = (side_index - 1) * stride
@@ -66,19 +103,36 @@ function static_geometry.ExpandBrush(world, index)
 			texname = texinfo and texinfo.texname,
 			vecs = texinfo and texinfo.vecs,
 			visible = flat[o + 7] == 1,
-			group = flat[o + 6] > 0 and flat[o + 6] or nil,
 		}
+
+		if flat[o + 7] == 1 and flat[o + 6] > 0 then group = group or flat[o + 6] end
 	end
 
 	return {
+		kind = "brush",
 		index = index,
 		sides = sides,
+		group = group,
 		spans = {},
 		collide = brush.Collide,
-		sky = brush.Sky,
+		clip = brush.Sky and world.SkyClip or nil,
 		mins = Vec3(math.huge, math.huge, math.huge),
 		maxs = Vec3(-math.huge, -math.huge, -math.huge),
 	}
+end
+
+function static_geometry.UpdateDisplacementBounds(record)
+	local mins = Vec3(math.huge, math.huge, math.huge)
+	local maxs = Vec3(-math.huge, -math.huge, -math.huge)
+
+	for _, position in ipairs(record.positions) do
+		for _, axis in ipairs({"x", "y", "z"}) do
+			mins[axis] = math.min(mins[axis], position[axis])
+			maxs[axis] = math.max(maxs[axis], position[axis])
+		end
+	end
+
+	record.mins, record.maxs = mins, maxs
 end
 
 function static_geometry.ExpandDisplacement(world, index)
@@ -87,22 +141,14 @@ function static_geometry.ExpandDisplacement(world, index)
 	local dims = 2 ^ displacement.Power + 1
 	local flat = displacement.Positions
 	local positions = {}
-	local mins = Vec3(math.huge, math.huge, math.huge)
-	local maxs = Vec3(-math.huge, -math.huge, -math.huge)
 
 	for i = 1, dims * dims do
-		local position = Vec3(flat[i * 3 - 2], flat[i * 3 - 1], flat[i * 3])
-		positions[i] = position
-
-		for _, axis in ipairs({"x", "y", "z"}) do
-			mins[axis] = math.min(mins[axis], position[axis])
-			maxs[axis] = math.max(maxs[axis], position[axis])
-		end
+		positions[i] = Vec3(flat[i * 3 - 2], flat[i * 3 - 1], flat[i * 3])
 	end
 
-	return {
+	local record = {
+		kind = "displacement",
 		index = index,
-		power = displacement.Power,
 		dims = dims,
 		positions = positions,
 		alphas = displacement.Alphas,
@@ -111,60 +157,201 @@ function static_geometry.ExpandDisplacement(world, index)
 		vecs = texinfo.vecs,
 		normal = displacement.Normal,
 		group = displacement.Group > 0 and displacement.Group or nil,
-		sky = displacement.Sky,
-		mins = mins,
-		maxs = maxs,
+		clip = displacement.Sky and world.SkyClip or nil,
 		spans = {},
 	}
+	static_geometry.UpdateDisplacementBounds(record)
+	return record
 end
 
--- Builds render batches and per record runtime tables from the stored world data.
--- Returns {batches, brushes, displacements}; batches are {mesh, material, visibility_group}.
-function static_geometry.Build(world, name)
-	local render = RENDER_2D
-	local state = {batches = {}, by_key = {}, name = name or "static world"}
-	local result = {batches = state.batches, brushes = {}, displacements = {}}
+-- the records of the importer's world data
+function static_geometry.ExpandWorld(world)
+	local brushes, displacements = {}, {}
 
 	for index = 1, #world.Brushes do
-		local record = static_geometry.ExpandBrush(world, index)
-		result.brushes[index] = record
+		brushes[index] = static_geometry.ExpandBrush(world, index)
+	end
 
-		for side_index, side in ipairs(record.sides) do
-			local polygon = brush_geometry.ClipSide(record.sides, side_index)
+	for index = 1, #world.Displacements do
+		displacements[index] = static_geometry.ExpandDisplacement(world, index)
+	end
 
-			if polygon then
-				for _, point in ipairs(polygon) do
-					for _, axis in ipairs({"x", "y", "z"}) do
-						record.mins[axis] = math.min(record.mins[axis], point[axis])
-						record.maxs[axis] = math.max(record.maxs[axis], point[axis])
-					end
-				end
+	return brushes, displacements
+end
 
-				if render and side.visible then
-					local batch = static_geometry.GetBatch(state, side.texname, side.group, record.sky and "sky" or nil)
-					local mesh = batch.mesh
-					local first = mesh.i
+function static_geometry.UpdateBrushBounds(record)
+	record.mins = Vec3(math.huge, math.huge, math.huge)
+	record.maxs = Vec3(-math.huge, -math.huge, -math.huge)
 
-					for j = 2, #polygon - 1 do
-						local first_index = mesh.i
-						static_geometry.AddVertex(mesh, side, polygon[1], 0)
-						static_geometry.AddVertex(mesh, side, polygon[j], 0)
-						static_geometry.AddVertex(mesh, side, polygon[j + 1], 0)
-						local vertices = mesh.Vertices
-						local a, b, c = vertices[first_index], vertices[first_index + 1], vertices[first_index + 2]
-						local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
-						a.normal, b.normal, c.normal = normal, normal, normal
-					end
+	for side_index in ipairs(record.sides) do
+		local polygon = brush_geometry.ClipSide(record.sides, side_index)
 
-					record.visible = true
-					record.group = record.group or side.group
-					list.insert(record.spans, {entry = batch, first = first, count = mesh.i - first})
+		if polygon then
+			for _, point in ipairs(polygon) do
+				for _, axis in ipairs({"x", "y", "z"}) do
+					record.mins[axis] = math.min(record.mins[axis], point[axis])
+					record.maxs[axis] = math.max(record.maxs[axis], point[axis])
 				end
 			end
 		end
+	end
+end
+
+-- updates the bounds and, when rendering, appends the triangles of a brush to the batches
+function static_geometry.EmitBrush(state, record)
+	record.spans = {}
+	record.visible = nil
+	record.mins = Vec3(math.huge, math.huge, math.huge)
+	record.maxs = Vec3(-math.huge, -math.huge, -math.huge)
+
+	for side_index, side in ipairs(record.sides) do
+		local polygon = brush_geometry.ClipSide(record.sides, side_index)
+
+		if polygon then
+			for _, point in ipairs(polygon) do
+				for _, axis in ipairs({"x", "y", "z"}) do
+					record.mins[axis] = math.min(record.mins[axis], point[axis])
+					record.maxs[axis] = math.max(record.maxs[axis], point[axis])
+				end
+			end
+
+			if state.render and side.visible then
+				local batch = static_geometry.GetBatch(state, side.texname, record.group, nil, record.clip)
+				local mesh = batch.mesh
+				local first = mesh.i
+
+				for j = 2, #polygon - 1 do
+					local first_index = mesh.i
+					static_geometry.AddVertex(mesh, side, polygon[1], 0)
+					static_geometry.AddVertex(mesh, side, polygon[j], 0)
+					static_geometry.AddVertex(mesh, side, polygon[j + 1], 0)
+					local vertices = mesh.Vertices
+					local a, b, c = vertices[first_index], vertices[first_index + 1], vertices[first_index + 2]
+					local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
+					a.normal, b.normal, c.normal = normal, normal, normal
+				end
+
+				record.visible = true
+				list.insert(record.spans, {entry = batch, first = first, count = mesh.i - first})
+			end
+		end
+	end
+end
+
+-- the summed, unnormalized vertex normals of one displacement, indexed like record.positions
+function static_geometry.ComputeDisplacementNormals(record)
+	local dims, positions = record.dims, record.positions
+	local points, nx, ny, nz = {}, {}, {}, {}
+
+	for i = 1, dims * dims do
+		points[i] = units.PositionToEngine(positions[i])
+		nx[i], ny[i], nz[i] = 0, 0, 0
+	end
+
+	for x = 1, dims - 1 do
+		for y = 1, dims - 1 do
+			local a = y * dims + x
+			local b = (y - 1) * dims + x
+			local c = a + 1
+			local d = b + 1
+
+			for _, triangle in ipairs{{a, c, b}, {c, d, b}} do
+				local i, j, k = triangle[1], triangle[2], triangle[3]
+				local normal = (points[k] - points[i]):Cross(points[j] - points[i])
+
+				for _, vertex in ipairs(triangle) do
+					nx[vertex], ny[vertex], nz[vertex] = nx[vertex] + normal.x, ny[vertex] + normal.y, nz[vertex] + normal.z
+				end
+			end
+		end
+	end
+
+	local normals = {}
+
+	for i = 1, dims * dims do
+		normals[i] = Vec3(nx[i], ny[i], nz[i])
+	end
+
+	return normals
+end
+
+-- appends the triangles of a displacement to the batches. weld_groups maps the normals of tile edge vertices
+-- to every normal sharing that position so the shading is smooth across tiles, it may be nil.
+function static_geometry.EmitDisplacement(state, record, normals, weld_groups)
+	record.spans = {}
+	record.visible = nil
+
+	if not state.render then return end
+
+	local dims, positions = record.dims, record.positions
+	local corners = record.corners
+	local batch = static_geometry.GetBatch(state, record.texname, record.group, nil, record.clip)
+	local mesh = batch.mesh
+	local first = mesh.i
+	local flats, smooth = {}, {}
+
+	for y = 1, dims do
+		for x = 1, dims do
+			local i = (y - 1) * dims + x
+			flats[i] = math3d.BilerpVec3(
+				corners[1],
+				corners[2],
+				corners[3],
+				corners[4],
+				(y - 1) / (dims - 1),
+				(x - 1) / (dims - 1)
+			)
+			local own = normals[i]
+			local group = weld_groups and weld_groups[own]
+			local own_normalized = own:GetNormalized()
+
+			if group then
+				local sum = Vec3(0, 0, 0)
+
+				for _, other in ipairs(group) do
+					if other:GetNormalized():Dot(own_normalized) > 0.5 then sum = sum + other end
+				end
+
+				smooth[i] = sum:GetNormalized()
+			else
+				smooth[i] = own_normalized
+			end
+		end
+	end
+
+	for x = 1, dims - 1 do
+		for y = 1, dims - 1 do
+			local a = y * dims + x
+			local b = (y - 1) * dims + x
+			local c = a + 1
+			local d = b + 1
+
+			for _, vertex in ipairs{a, c, b, c, d, b} do
+				static_geometry.AddVertex(
+					mesh,
+					record,
+					positions[vertex],
+					record.alphas[vertex] / 255,
+					flats[vertex],
+					smooth[vertex]
+				)
+			end
+		end
+	end
+
+	record.visible = true
+	list.insert(record.spans, {entry = batch, first = first, count = mesh.i - first})
+end
+
+-- Builds the render batches of every record. Returns {state, batches, brushes, displacements}.
+function static_geometry.Build(brushes, displacements, name)
+	local state = static_geometry.NewState(name)
+
+	for index, record in ipairs(brushes) do
+		static_geometry.EmitBrush(state, record)
 
 		if index % 200 == 0 then
-			tasks.ReportProgress("building brushes", #world.Brushes)
+			tasks.ReportProgress("building brushes", #brushes)
 			tasks.Wait()
 		end
 	end
@@ -173,43 +360,14 @@ function static_geometry.Build(world, name)
 	local welded = {}
 	local tiles = {}
 
-	for index = 1, #world.Displacements do
-		local record = static_geometry.ExpandDisplacement(world, index)
-		result.displacements[index] = record
+	for index, record in ipairs(displacements) do
 		local dims, positions = record.dims, record.positions
-		local points, nx, ny, nz = {}, {}, {}, {}
-
-		for i = 1, dims * dims do
-			points[i] = units.PositionToEngine(positions[i])
-			nx[i], ny[i], nz[i] = 0, 0, 0
-		end
-
-		for x = 1, dims - 1 do
-			for y = 1, dims - 1 do
-				local a = y * dims + x
-				local b = (y - 1) * dims + x
-				local c = a + 1
-				local d = b + 1
-
-				for _, triangle in ipairs{{a, c, b}, {c, d, b}} do
-					local i, j, k = triangle[1], triangle[2], triangle[3]
-					local normal = (points[k] - points[i]):Cross(points[j] - points[i])
-
-					for _, vertex in ipairs(triangle) do
-						nx[vertex], ny[vertex], nz[vertex] = nx[vertex] + normal.x, ny[vertex] + normal.y, nz[vertex] + normal.z
-					end
-				end
-			end
-		end
-
-		local normals = {}
+		local normals = static_geometry.ComputeDisplacementNormals(record)
 
 		for y = 1, dims do
 			for x = 1, dims do
-				local i = (y - 1) * dims + x
-				normals[i] = Vec3(nx[i], ny[i], nz[i])
-
 				if x == 1 or y == 1 or x == dims or y == dims then
+					local i = (y - 1) * dims + x
 					local key = weld_key(positions[i])
 					local group = welded[key]
 
@@ -229,112 +387,16 @@ function static_geometry.Build(world, name)
 		if index % 50 == 0 then tasks.Wait() end
 	end
 
-	for index = 1, #world.Displacements do
-		local record = result.displacements[index]
-		local normals = tiles[index]
-
-		if render then
-			local dims, positions = record.dims, record.positions
-			local corners = record.corners
-			local batch = static_geometry.GetBatch(state, record.texname, record.group, record.sky and "sky" or nil)
-			local mesh = batch.mesh
-			local first = mesh.i
-			local flats, smooth = {}, {}
-
-			for y = 1, dims do
-				for x = 1, dims do
-					local i = (y - 1) * dims + x
-					flats[i] = math3d.BilerpVec3(
-						corners[1],
-						corners[2],
-						corners[3],
-						corners[4],
-						(y - 1) / (dims - 1),
-						(x - 1) / (dims - 1)
-					)
-					local own = normals[i]
-					local group = weld_groups[own]
-					local own_normalized = own:GetNormalized()
-
-					if group then
-						local sum = Vec3(0, 0, 0)
-
-						for _, other in ipairs(group) do
-							if other:GetNormalized():Dot(own_normalized) > 0.5 then sum = sum + other end
-						end
-
-						smooth[i] = sum:GetNormalized()
-					else
-						smooth[i] = own_normalized
-					end
-				end
-			end
-
-			for x = 1, dims - 1 do
-				for y = 1, dims - 1 do
-					local a = y * dims + x
-					local b = (y - 1) * dims + x
-					local c = a + 1
-					local d = b + 1
-
-					for _, vertex in ipairs{a, c, b, c, d, b} do
-						static_geometry.AddVertex(
-							mesh,
-							record,
-							positions[vertex],
-							record.alphas[vertex] / 255,
-							flats[vertex],
-							smooth[vertex]
-						)
-					end
-				end
-			end
-
-			record.visible = true
-			list.insert(record.spans, {entry = batch, first = first, count = mesh.i - first})
-		end
+	for index, record in ipairs(displacements) do
+		static_geometry.EmitDisplacement(state, record, tiles[index], weld_groups)
 	end
 
-	result.state = state
-	return result
-end
-
-do
-	local MARGIN = 0.5 / units.meters
-
-	-- the bounds of everything that is not sky, in engine space as {min xyz, max xyz}, sky geometry is clipped away inside of it
-	function static_geometry.GetSkyClip(result)
-		local mins = Vec3(math.huge, math.huge, math.huge)
-		local maxs = Vec3(-math.huge, -math.huge, -math.huge)
-		local has_sky = false
-
-		for _, records in ipairs{result.brushes, result.displacements} do
-			for _, record in ipairs(records) do
-				if record.sky then
-					has_sky = true
-				elseif record.mins.x <= record.maxs.x then
-					for _, axis in ipairs({"x", "y", "z"}) do
-						mins[axis] = math.min(mins[axis], record.mins[axis])
-						maxs[axis] = math.max(maxs[axis], record.maxs[axis])
-					end
-				end
-			end
-		end
-
-		if not has_sky or mins.x > maxs.x then return nil end
-
-		local margin = Vec3(MARGIN, MARGIN, MARGIN)
-		local a = units.PositionToEngine(mins - margin)
-		local b = units.PositionToEngine(maxs + margin)
-		return {
-			math.min(a.x, b.x),
-			math.min(a.y, b.y),
-			math.min(a.z, b.z),
-			math.max(a.x, b.x),
-			math.max(a.y, b.y),
-			math.max(a.z, b.z),
-		}
-	end
+	return {
+		state = state,
+		batches = state.batches,
+		brushes = brushes,
+		displacements = displacements,
+	}
 end
 
 function static_geometry.UploadBatch(batch)
@@ -386,8 +448,9 @@ function static_geometry.AddPolygon(mesh, polygon)
 	return first, mesh.i - first
 end
 
--- Builds the static physics body config from the runtime records, plus a brush index to primitive map.
-function static_geometry.BuildPhysics(result)
+-- Builds the collision shapes of the records: the brush model with one primitive per collidable brush, plus a shape per
+-- displacement. Returns shapes, model, a record to brush primitive map; displacement records get a collision_shape.
+function static_geometry.BuildColliders(brushes, displacements)
 	local model = {
 		Visible = true,
 		WorldSpaceVertices = true,
@@ -397,7 +460,7 @@ function static_geometry.BuildPhysics(result)
 	local brush_primitives = {}
 	local shapes = {}
 
-	for index, record in ipairs(result.brushes) do
+	for _, record in ipairs(brushes) do
 		if record.collide then
 			local planes = {}
 
@@ -408,8 +471,7 @@ function static_geometry.BuildPhysics(result)
 			local primitive = collision.build_brush_primitive(planes)
 
 			if primitive and primitive.aabb then
-				primitive.brush_index = index
-				brush_primitives[index] = primitive
+				brush_primitives[record] = primitive
 				list.insert(model.Primitives, primitive)
 				model.AABB:Expand(primitive.aabb)
 			end
@@ -418,22 +480,12 @@ function static_geometry.BuildPhysics(result)
 
 	if model.Primitives[1] then list.insert(shapes, {Model = model}) end
 
-	for _, record in ipairs(result.displacements) do
+	for _, record in ipairs(displacements) do
 		record.collision_shape = collision.build_displacement_collision_shape(record.positions, record.dims)
 		list.insert(shapes, record.collision_shape)
 	end
 
-	if not shapes[1] then return nil end
-
-	return {
-		Shapes = shapes,
-		MotionType = "static",
-		Friction = 0.85,
-		Restitution = 0,
-		WorldGeometry = true,
-	},
-	model,
-	brush_primitives
+	return shapes, model, brush_primitives
 end
 
 return static_geometry

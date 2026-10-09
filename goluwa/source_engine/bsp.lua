@@ -1017,6 +1017,15 @@ function bsp.Load(path)
 			Texinfos = texinfos,
 			Brushes = brush_list,
 			Displacements = displacements,
+			SkyClip = sky_clip_aabb and
+				{
+					sky_clip_aabb.min_x,
+					sky_clip_aabb.min_y,
+					sky_clip_aabb.min_z,
+					sky_clip_aabb.max_x,
+					sky_clip_aabb.max_y,
+					sky_clip_aabb.max_z,
+				},
 		},
 		decals = decals,
 		entities = header.entities,

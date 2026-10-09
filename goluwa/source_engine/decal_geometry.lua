@@ -86,7 +86,6 @@ local function add_fragment(fragments, polygon, group, frame)
 end
 
 local function project_brush_side(fragments, record, side_index, origin, normal, u_axis, v_axis, frame)
-	local side = record.sides[side_index]
 	local points = brush_geometry.ClipSide(record.sides, side_index)
 
 	if not points then return end
@@ -102,7 +101,7 @@ local function project_brush_side(fragments, record, side_index, origin, normal,
 		}
 	end
 
-	add_fragment(fragments, polygon, side.group, frame)
+	add_fragment(fragments, polygon, record.group, frame)
 end
 
 local function project_displacements(fragments, records, origin, normal, u_axis, v_axis, frame)
@@ -382,7 +381,7 @@ local function get_frame(decal)
 end
 
 -- decal fields: Frame (min x, min y, max x, max y), URange, VRange, and the derived Origin, Normal, UAxis, Targets. Returns a list of {group, polygon}.
-function decal_geometry.Project(decal, brush_records, displacement_records)
+function decal_geometry.Project(decal)
 	local fragments = {}
 	local origin, normal = decal.Origin, decal.Normal
 	local u_axis = decal.UAxis
@@ -394,7 +393,7 @@ function decal_geometry.Project(decal, brush_records, displacement_records)
 		if target.Brush then
 			project_brush_side(
 				fragments,
-				brush_records[target.Brush],
+				target.Brush,
 				target.Side,
 				origin,
 				normal,
@@ -403,8 +402,8 @@ function decal_geometry.Project(decal, brush_records, displacement_records)
 				frame
 			)
 		else
-			for _, index in ipairs(target.Displacements) do
-				list.insert(displaced, displacement_records[index])
+			for _, record in ipairs(target.Displacements) do
+				list.insert(displaced, record)
 			end
 		end
 	end
@@ -439,15 +438,15 @@ do
 			return dx * dx + dy * dy + dz * dz <= radius * radius
 		end
 
-		for brush_index, record in ipairs(brush_records) do
-			if record.visible and not record.hidden and near(record) then
+		for _, record in ipairs(brush_records) do
+			if record.visible and near(record) then
 				for side_index, side in ipairs(record.sides) do
 					if
 						side.visible and
 						side.normal:Dot(normal) > 0.5 and
 						math.abs(side.normal:Dot(center) - side.dist) <= SURFACE_DEPTH
 					then
-						list.insert(targets, {Brush = brush_index, Side = side_index})
+						list.insert(targets, {Brush = record, Side = side_index})
 					end
 				end
 			end
@@ -455,8 +454,8 @@ do
 
 		local displacements = {}
 
-		for index, record in ipairs(displacement_records) do
-			if record.visible and near(record) then list.insert(displacements, index) end
+		for _, record in ipairs(displacement_records) do
+			if record.visible and near(record) then list.insert(displacements, record) end
 		end
 
 		if displacements[1] then

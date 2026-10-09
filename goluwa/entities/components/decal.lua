@@ -21,9 +21,9 @@ function META:ReadTransform()
 end
 
 function META:OnDeserialized()
-	local world = static_world.GetActive()
+	local world = static_world.Find(self.Owner)
 
-	if world then self:Attach(world) else static_world.WaitForDecals(self) end
+	if world then world:AddDecal(self) end
 end
 
 function META:Attach(world)
@@ -34,10 +34,7 @@ function META:Attach(world)
 end
 
 function META:Rebuild()
-	self.world:SetDecalFragments(
-		self,
-		decal_geometry.Project(self, self.world.brush_records, self.world.displacement_records)
-	)
+	self.world:SetDecalFragments(self, decal_geometry.Project(self))
 end
 
 function META:OnMaterialChanged()
@@ -45,7 +42,7 @@ function META:OnMaterialChanged()
 end
 
 function META:FindTargets()
-	self.Targets = decal_geometry.FindTargets(self, self.world.brush_records, self.world.displacement_records)
+	self.Targets = decal_geometry.FindTargets(self, self.world.brush_list, self.world.displacement_list)
 end
 
 function META:OnFrameChanged()
@@ -84,9 +81,7 @@ function META:OnUpdate()
 end
 
 function META:OnRemove()
-	if self.world and self.world:IsValid() then
-		self.world:SetDecalFragments(self, {})
-	end
+	if self.world and self.world:IsValid() then self.world:RemoveDecal(self) end
 end
 
 return META:Register()

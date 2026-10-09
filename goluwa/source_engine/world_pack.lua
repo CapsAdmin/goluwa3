@@ -4,6 +4,7 @@ local world_pack = {}
 local float_array_t = ffi.typeof("float[?]")
 local float_ptr_t = ffi.typeof("const float *")
 
+-- big numeric tables are stored as float32 strings, plain nested tables would exceed what a luadata chunk can hold
 function world_pack.PackFloats(values)
 	local count = #values
 	local array = float_array_t(count)
@@ -27,125 +28,54 @@ function world_pack.UnpackFloats(data)
 	return values
 end
 
-function world_pack.PackBrushes(brushes)
-	local counts, flags, sides = {}, {}, {}
+local SIDE_FLOATS = 13
 
-	for i, brush in ipairs(brushes) do
-		counts[i] = #brush.Sides
-		flags[i] = (brush.Collide and 1 or 0) + (brush.Sky and 2 or 0)
+-- the sides of a brush as {data = packed floats, textures = a texture name per side}
+function world_pack.PackSides(sides)
+	local flat, textures = {}, {}
 
-		for _, value in ipairs(brush.Sides) do
-			sides[#sides + 1] = value
+	for i, side in ipairs(sides) do
+		local o = (i - 1) * SIDE_FLOATS
+		flat[o + 1], flat[o + 2], flat[o + 3] = side.normal.x, side.normal.y, side.normal.z
+		flat[o + 4] = side.dist
+
+		for k = 1, 8 do
+			flat[o + 4 + k] = side.vecs and side.vecs[k] or 0
 		end
+
+		flat[o + 13] = side.visible and 1 or 0
+		textures[i] = side.texname or ""
 	end
 
-	return {
-		counts = world_pack.PackFloats(counts),
-		flags = world_pack.PackFloats(flags),
-		sides = world_pack.PackFloats(sides),
-	}
+	return {data = world_pack.PackFloats(flat), textures = textures}
 end
 
-function world_pack.UnpackBrushes(packed)
-	local counts = world_pack.UnpackFloats(packed.counts)
-	local flags = world_pack.UnpackFloats(packed.flags)
-	local sides = world_pack.UnpackFloats(packed.sides)
-	local brushes = {}
-	local position = 1
+function world_pack.UnpackSides(value)
+	local flat = world_pack.UnpackFloats(value.data)
+	local sides = {}
 
-	for i, count in ipairs(counts) do
-		local brush_sides = {}
+	for i, texname in ipairs(value.textures) do
+		local o = (i - 1) * SIDE_FLOATS
+		local vecs
 
-		for k = 1, count do
-			brush_sides[k] = sides[position + k - 1]
+		if texname ~= "" then
+			vecs = {}
+
+			for k = 1, 8 do
+				vecs[k] = flat[o + 4 + k]
+			end
 		end
 
-		position = position + count
-		brushes[i] = {
-			Sides = brush_sides,
-			Collide = flags[i] % 2 == 1 or nil,
-			Sky = flags[i] >= 2 or nil,
+		sides[i] = {
+			normal = Vec3(flat[o + 1], flat[o + 2], flat[o + 3]),
+			dist = flat[o + 4],
+			texname = texname ~= "" and texname or nil,
+			vecs = vecs,
+			visible = flat[o + 13] == 1,
 		}
 	end
 
-	return brushes
-end
-
-local DISPLACEMENT_HEADER = 19
-
-function world_pack.PackDisplacements(displacements)
-	local values = {}
-
-	for _, displacement in ipairs(displacements) do
-		local normal = displacement.Normal
-		values[#values + 1] = displacement.Power
-		values[#values + 1] = displacement.Texinfo
-		values[#values + 1] = displacement.Group
-		values[#values + 1] = displacement.Sky and 1 or 0
-		values[#values + 1] = normal.x
-		values[#values + 1] = normal.y
-		values[#values + 1] = normal.z
-
-		for _, corner in ipairs(displacement.Corners) do
-			values[#values + 1] = corner.x
-			values[#values + 1] = corner.y
-			values[#values + 1] = corner.z
-		end
-
-		for _, value in ipairs(displacement.Positions) do
-			values[#values + 1] = value
-		end
-
-		for _, value in ipairs(displacement.Alphas) do
-			values[#values + 1] = value
-		end
-	end
-
-	return {count = #displacements, data = world_pack.PackFloats(values)}
-end
-
-function world_pack.UnpackDisplacements(packed)
-	local values = world_pack.UnpackFloats(packed.data)
-	local displacements = {}
-	local position = 1
-
-	for i = 1, packed.count do
-		local power = values[position]
-		local vertex_count = (2 ^ power + 1) ^ 2
-		local corners = {}
-
-		for k = 1, 4 do
-			local o = position + 7 + (k - 1) * 3
-			corners[k] = Vec3(values[o], values[o + 1], values[o + 2])
-		end
-
-		local positions, alphas = {}, {}
-		local positions_start = position + DISPLACEMENT_HEADER - 1
-
-		for k = 1, vertex_count * 3 do
-			positions[k] = values[positions_start + k]
-		end
-
-		local alphas_start = positions_start + vertex_count * 3
-
-		for k = 1, vertex_count do
-			alphas[k] = values[alphas_start + k]
-		end
-
-		displacements[i] = {
-			Power = power,
-			Texinfo = values[position + 1],
-			Group = values[position + 2],
-			Sky = values[position + 3] == 1 or nil,
-			Normal = Vec3(values[position + 4], values[position + 5], values[position + 6]),
-			Corners = corners,
-			Positions = positions,
-			Alphas = alphas,
-		}
-		position = alphas_start + vertex_count + 1
-	end
-
-	return displacements
+	return sides
 end
 
 return world_pack

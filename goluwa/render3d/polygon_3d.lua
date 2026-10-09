@@ -225,35 +225,11 @@ function Polygon3D:GetIndices()
 	return self.indices
 end
 
-function Polygon3D:Upload(indices)
-	self.indices = indices
-
-	if indices and type(indices) == "table" then
-		local gpu_indices = {}
-
-		for i = 1, #indices do
-			gpu_indices[i] = indices[i] - 1
-		end
-
-		indices = gpu_indices
-	end
-
-	local vertex_count = #self.Vertices
-
-	if vertex_count == 0 then return end
-
-	self:BuildBoundingBox()
-
-	if not self.Vertices[1].uv then self:BuildUVsPlanar() end
-
-	if not self.Vertices[1].normal then self:BuildNormals() end
-
-	if not self.Vertices[1].tangent then self:BuildTangents() end
-
+local function pack_vertices(polygon, vertex_count)
 	local vertices = VertexType(vertex_count)
 
 	for i = 1, vertex_count do
-		local v = self.Vertices[i]
+		local v = polygon.Vertices[i]
 		local idx = i - 1
 
 		if v.pos then
@@ -305,6 +281,35 @@ function Polygon3D:Upload(indices)
 		end
 	end
 
+	return vertices
+end
+
+function Polygon3D:Upload(indices)
+	self.indices = indices
+
+	if indices and type(indices) == "table" then
+		local gpu_indices = {}
+
+		for i = 1, #indices do
+			gpu_indices[i] = indices[i] - 1
+		end
+
+		indices = gpu_indices
+	end
+
+	local vertex_count = #self.Vertices
+
+	if vertex_count == 0 then return end
+
+	self:BuildBoundingBox()
+
+	if not self.Vertices[1].uv then self:BuildUVsPlanar() end
+
+	if not self.Vertices[1].normal then self:BuildNormals() end
+
+	if not self.Vertices[1].tangent then self:BuildTangents() end
+
+	local vertices = pack_vertices(self, vertex_count)
 	local vertex_attributes = VERTEX_ATTRIBUTES
 	local index_type = "uint16_t"
 
@@ -320,6 +325,25 @@ function Polygon3D:Upload(indices)
 	if Mesh then
 		self.mesh = Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index_count)
 	end
+end
+
+-- Rewrites the vertices of the uploaded mesh in place when the vertex count did not change, returns false when it did
+-- and Upload has to be used. The mesh keeps its buffers, so nothing that references it has to be updated.
+function Polygon3D:UpdateVertices()
+	local mesh = self.mesh
+	local vertex_count = #self.Vertices
+
+	if not mesh or mesh.vertex_buffer:GetVertexCount() ~= vertex_count then
+		return false
+	end
+
+	self:BuildBoundingBox()
+	local vertices = pack_vertices(self, vertex_count)
+	local vertex_buffer = mesh.vertex_buffer
+	ffi.copy(vertex_buffer.data, vertices, vertex_buffer.byte_size)
+	vertex_buffer:Upload()
+	mesh:ForgetContent()
+	return true
 end
 
 function Polygon3D:CloneDynamic(vertex_buffer)
@@ -458,19 +482,26 @@ do
 		end
 	end
 
-	function Polygon3D:BuildTangents()
+	-- first and last limit it to a range of vertices (whole triangles of an unindexed polygon), by default every vertex
+	function Polygon3D:BuildTangents(first, last)
 		local tan1 = {}
 		local tan2 = {}
-		local indices = self.indices or {}
 		local tangent_epsilon = 1e-9
+		first = first or 1
+		last = last or #self.Vertices
+		local indices = self.indices
+		local from, to = 1, indices and #indices or 0
 
-		if not self.indices then
-			for i = 1, #self.Vertices do
+		if not indices then
+			indices = {}
+			from, to = first, last
+
+			for i = first, last do
 				indices[i] = i
 			end
 		end
 
-		for i = 1, #indices - 2, 3 do
+		for i = from, to - 2, 3 do
 			local ai = indices[i + 0]
 			local bi = indices[i + 1]
 			local ci = indices[i + 2]
@@ -513,7 +544,7 @@ do
 			end
 		end
 
-		for i = 1, #self.Vertices do
+		for i = first, last do
 			local vertex = self.Vertices[i]
 
 			if not vertex.tangent and vertex.normal then

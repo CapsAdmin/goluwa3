@@ -1,10 +1,9 @@
 local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 local brush_geometry = import("goluwa/source_engine/brush_geometry.lua")
+local world_pack = import("goluwa/source_engine/world_pack.lua")
 local units = import("goluwa/source_engine/units.lua")
-local system = import("goluwa/system.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -13,12 +12,13 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local static_world = import("goluwa/entities/components/static_world.lua")
 local META = objects.CreateTemplate("brush")
 META:StartStorable()
-META:GetSet("Index", 0, {ReadOnly = true})
 META:GetSet("Sides", nil, {Hidden = true})
+META:GetSet("Collide", true, {callback = "OnShapeChanged"})
+META:GetSet("ClipBounds", nil, {type = "table", Hidden = true, callback = "OnShapeChanged"})
 META:EndStorable()
+-- sides are planes in source space, a static world below the brush batches and collides it
 local NORMAL_EPSILON = 0.0001
 local DIST_EPSILON = 0.05
-local COLLISION_SETTLE_TIME = 0.3
 
 local function direction_to_rotation(direction)
 	local forward = direction:GetNormalized()
@@ -36,111 +36,101 @@ local function direction_to_rotation(direction)
 end
 
 function META:GetSides()
-	local out = {}
+	return self.sides and world_pack.PackSides(self.sides)
+end
 
-	for i, side in ipairs(self.sides) do
-		local vecs
+function META:SetSides(value)
+	self.sides = world_pack.UnpackSides(value)
+	self:OnShapeChanged()
+end
 
-		if side.vecs then
-			vecs = {}
+function META:OnShapeChanged()
+	self.polygons = nil
 
-			for k = 1, 8 do
-				vecs[k] = side.vecs[k]
-			end
-		end
+	if self.world then self.world:MarkDirty(self) end
+end
 
-		out[i] = {
-			normal = side.normal:Copy(),
-			dist = side.dist,
-			texname = side.texname,
-			vecs = vecs,
-			visible = side.visible,
-		}
+function META:CreateRecord()
+	return {
+		kind = "brush",
+		spans = {},
+		mins = Vec3(math.huge, math.huge, math.huge),
+		maxs = Vec3(-math.huge, -math.huge, -math.huge),
+	}
+end
+
+function META:UpdateRecord(record)
+	record.sides = self.sides
+	record.collide = self.Collide
+	record.clip = self.ClipBounds
+end
+
+function META:Attach()
+	local world = static_world.Find(self.Owner)
+
+	if world then
+		self.world = world
+		world:AddSource(self)
 	end
-
-	return out
-end
-
-function META:SetSides(sides)
-	self.sides = {}
-
-	for i, saved in ipairs(sides) do
-		self.sides[i] = {
-			normal = saved.normal:Copy(),
-			dist = saved.dist,
-			texname = saved.texname,
-			vecs = saved.vecs,
-			visible = saved.visible,
-		}
-	end
-end
-
-function META:ShouldSerializeEntity()
-	return self.editing
-end
-
-function META:Setup(world, record)
-	self.record = record
-	self.editing = false
-	self.Index = record.index
-	self:SetSides(record.sides)
-	self.Owner.transform:SetPosition(units.PositionToEngine((record.mins + record.maxs) / 2))
-	self:Attach(world)
-	self:Rebuild()
-end
-
-function META:Attach(world)
-	self.world = world
-	world.brush_entities[self.Index] = self.Owner
-
-	if self.editing then
-		self.record = world.brush_records[self.Index]
-
-		if self.record then
-			world:HideRecord(self.record)
-			self:UpdateCollision()
-		end
-	end
-end
-
-function META:UpdateCollision()
-	local planes = {}
-
-	for i, side in ipairs(self.sides) do
-		planes[i] = units.PlaneToEngine(side)
-	end
-
-	self.world:UpdateBrushCollision(self.Index, planes)
 end
 
 function META:OnDeserialized()
-	self.editing = true
 	self.Owner:SetTransient(false)
-
-	if not self.Owner:HasComponent("visual") then
-		self.Owner:AddComponent("visual")
-	end
-
-	self:Rebuild()
-	local world = static_world.GetActive()
-
-	if world then self:Attach(world) else static_world.WaitForBuild(self) end
+	self:Attach()
 end
 
-function META:GetRecord()
-	return self.record
+function META:OnRemove()
+	if self.world and self.world:IsValid() then self.world:RemoveSource(self) end
 end
 
+-- the world space polygons of the visible sides in the entity's local space, for highlighting
 function META:GetPolygons()
-	local polygons = {}
+	if self.polygons then return self.polygons end
 
-	for _, side in ipairs(self.sides) do
-		if side.polygon then list.insert(polygons, side.polygon) end
+	local polygons = {}
+	local inverse = self.Owner.transform:GetWorldMatrixInverse()
+
+	for i, side in ipairs(self.sides) do
+		local points = side.visible and brush_geometry.ClipSide(self.sides, i)
+
+		if points then
+			local vecs = side.vecs
+			local polygon = Polygon3D.New()
+
+			for j = 2, #points - 1 do
+				for _, index in ipairs{1, j, j + 1} do
+					local point = points[index]
+					polygon:AddVertex{
+						pos = inverse:TransformVector(units.PositionToEngine(point)),
+						uv = Vec2(
+							vecs[1] * point.x + vecs[2] * point.y + vecs[3] * point.z + vecs[4],
+							vecs[5] * point.x + vecs[6] * point.y + vecs[7] * point.z + vecs[8]
+						),
+						texture_blend = 0,
+					}
+				end
+			end
+
+			local vertices = polygon:GetVertices()
+
+			for k = 1, #vertices, 3 do
+				local a, b, c = vertices[k], vertices[k + 1], vertices[k + 2]
+				local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
+				a.normal, b.normal, c.normal = normal, normal, normal
+			end
+
+			polygon:BuildBoundingBox()
+			polygon:BuildTangents()
+			polygon:Upload(nil)
+			list.insert(polygons, polygon)
+		end
 	end
 
+	self.polygons = polygons
 	return polygons
 end
 
+-- gives every side an entity with a transform so the gizmo can move the planes
 function META:CreateSides()
 	if self.sides_created then return end
 
@@ -150,7 +140,7 @@ function META:CreateSides()
 
 	for i, side in ipairs(self.sides) do
 		local center = Vec3(0, 0, 0)
-		local polygon = side.source_polygon
+		local polygon = brush_geometry.ClipSide(self.sides, i)
 
 		if polygon then
 			for _, point in ipairs(polygon) do
@@ -205,90 +195,54 @@ function META:OnUpdate()
 		end
 	end
 
-	if changed then
-		if not self.editing then self:BeginEdit() end
-
-		self:Rebuild()
-		self.collision_time = system.GetElapsedTime()
-	elseif
-		self.collision_time and
-		system.GetElapsedTime() - self.collision_time > COLLISION_SETTLE_TIME
-	then
-		self.collision_time = nil
-		self:UpdateCollision()
-	end
+	if changed then self:OnShapeChanged() end
 end
 
-function META:BeginEdit()
-	self.editing = true
-	self.world:HideRecord(self.record)
+do
+	-- the six planes of an axis aligned box with the texture tiling every 256 units
+	local FACES = {
+		{Vec3(1, 0, 0), "x", 1, {0, 1, 0}, {0, 0, -1}},
+		{Vec3(-1, 0, 0), "x", -1, {0, 1, 0}, {0, 0, -1}},
+		{Vec3(0, 1, 0), "y", 1, {1, 0, 0}, {0, 0, -1}},
+		{Vec3(0, -1, 0), "y", -1, {1, 0, 0}, {0, 0, -1}},
+		{Vec3(0, 0, 1), "z", 1, {1, 0, 0}, {0, -1, 0}},
+		{Vec3(0, 0, -1), "z", -1, {1, 0, 0}, {0, -1, 0}},
+	}
 
-	if not self.Owner:HasComponent("visual") then
-		self.Owner:AddComponent("visual")
-	end
-end
+	-- creates a new box brush below parent, min and max are in source space and texname is a material name like "dev/dev_measuregeneric01"
+	function META.CreateBox(parent, min, max, texname)
+		local sides = {}
 
-function META:Rebuild()
-	local inverse = self.Owner.transform:GetWorldMatrixInverse()
-
-	for i, side in ipairs(self.sides) do
-		side.source_polygon = brush_geometry.ClipSide(self.sides, i)
-		side.polygon = nil
-
-		if side.visible and side.source_polygon then
-			local vecs = side.vecs
-			local points = side.source_polygon
-			local polygon = Polygon3D.New()
-			local count = #points
-
-			for j = 2, count - 1 do
-				for _, index in ipairs{1, j, j + 1} do
-					local point = points[index]
-					polygon:AddVertex{
-						pos = inverse:TransformVector(units.PositionToEngine(point)),
-						uv = Vec2(
-							vecs[1] * point.x + vecs[2] * point.y + vecs[3] * point.z + vecs[4],
-							vecs[5] * point.x + vecs[6] * point.y + vecs[7] * point.z + vecs[8]
-						),
-						texture_blend = 0,
-					}
-				end
-			end
-
-			local vertices = polygon:GetVertices()
-
-			for k = 1, #vertices, 3 do
-				local a, b, c = vertices[k], vertices[k + 1], vertices[k + 2]
-				local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
-				a.normal, b.normal, c.normal = normal, normal, normal
-			end
-
-			polygon:BuildBoundingBox()
-			polygon:BuildTangents()
-			polygon:Upload(nil)
-			side.polygon = polygon
+		for i, face in ipairs(FACES) do
+			local axis, sign = face[2], face[3]
+			local u, v = face[4], face[5]
+			sides[i] = {
+				normal = face[1]:Copy(),
+				dist = sign == 1 and max[axis] or -min[axis],
+				texname = texname,
+				vecs = {
+					u[1] / 256,
+					u[2] / 256,
+					u[3] / 256,
+					0,
+					v[1] / 256,
+					v[2] / 256,
+					v[3] / 256,
+					0,
+				},
+				visible = true,
+			}
 		end
+
+		local entity = Entity.New{Name = "brush", Parent = parent}
+		entity:AddComponent("transform")
+		entity:SetTransient(false)
+		entity.transform:SetPosition(units.PositionToEngine((min + max) / 2))
+		local brush = entity:AddComponent("brush")
+		brush.sides = sides
+		brush:Attach()
+		return entity
 	end
-
-	if not self.editing then return end
-
-	local visual = self.Owner.visual
-
-	for _, side in ipairs(self.sides) do
-		if side.polygon then
-			if side.primitive then
-				side.primitive.visual_primitive:SetPolygon3D(side.polygon)
-			else
-				side.material = side.material or vmt_material.FromVMT("materials/" .. side.texname .. ".vmt")
-				side.primitive = visual:CreatePrimitiveEntity(side.polygon, side.material, side.texname)
-			end
-		elseif side.primitive then
-			side.primitive:Remove()
-			side.primitive = nil
-		end
-	end
-
-	visual:BuildAABB()
 end
 
 return META:Register()

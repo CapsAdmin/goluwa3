@@ -8,7 +8,9 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 
 	if not ok then error("Failed to load BSP map: " .. tostring(result)) end
 
-	for _, batch in ipairs(static_geometry.Finalize(static_geometry.Build(result.world, path)).batches) do
+	local brushes, displacements = static_geometry.ExpandWorld(result.world)
+
+	for _, batch in ipairs(static_geometry.Finalize(static_geometry.Build(brushes, displacements, path)).batches) do
 		mesh_callback(batch.mesh, batch.material)
 	end
 end)

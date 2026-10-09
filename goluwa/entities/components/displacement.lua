@@ -1,22 +1,24 @@
 local objects = import("goluwa/objects/objects.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
-local vmt_material = import("goluwa/source_engine/vmt_material.lua")
+local static_geometry = import("goluwa/source_engine/static_geometry.lua")
+local world_pack = import("goluwa/source_engine/world_pack.lua")
 local units = import("goluwa/source_engine/units.lua")
-local system = import("goluwa/system.lua")
 local static_world = import("goluwa/entities/components/static_world.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local META = objects.CreateTemplate("displacement")
 META:StartStorable()
-META:GetSet("Index", 0, {ReadOnly = true})
 META:GetSet("Corners", nil, {Hidden = true})
 META:GetSet("Positions", nil, {Hidden = true})
 META:GetSet("Alphas", nil, {Hidden = true})
-META:GetSet("Material", "", {asset = "materials", callback = "OnMaterialChanged"})
+META:GetSet("Material", "", {asset = "materials", callback = "OnShapeChanged"})
 META:GetSet("Vecs", nil, {Hidden = true})
+META:GetSet("ClipBounds", nil, {type = "table", Hidden = true, callback = "OnShapeChanged"})
 META:EndStorable()
-local COLLISION_SETTLE_TIME = 0.3
+-- Positions are the points of the (2^power + 1) squared grid in source space as they were when the entity was
+-- created, the entity's transform moves them from there. A static world below the displacement batches and collides it.
+local REST_EPSILON = 1e-5
 local MATRIX_FIELDS = {
 	"m00",
 	"m01",
@@ -36,44 +38,54 @@ local MATRIX_FIELDS = {
 	"m33",
 }
 
-function META:ShouldSerializeEntity()
-	return self.editing
+-- the big tables are stored as packed float strings
+function META:GetCorners()
+	if not self.Corners then return nil end
+
+	local flat = {}
+
+	for i, corner in ipairs(self.Corners) do
+		flat[i * 3 - 2], flat[i * 3 - 1], flat[i * 3] = corner.x, corner.y, corner.z
+	end
+
+	return world_pack.PackFloats(flat)
 end
 
-function META:Setup(world, record)
-	self.record = record
-	self.editing = false
-	self.Index = record.index
-	self.Material = "materials/" .. record.texname .. ".vmt"
+function META:SetCorners(value)
+	local flat = world_pack.UnpackFloats(value)
 	self.Corners = {}
 
-	for i, corner in ipairs(record.corners) do
-		self.Corners[i] = corner:Copy()
+	for i = 1, #flat / 3 do
+		self.Corners[i] = Vec3(flat[i * 3 - 2], flat[i * 3 - 1], flat[i * 3])
 	end
-
-	self.Positions = {}
-	self.Alphas = {}
-
-	for i, position in ipairs(record.positions) do
-		self.Positions[i * 3 - 2], self.Positions[i * 3 - 1], self.Positions[i * 3] = position.x, position.y, position.z
-		self.Alphas[i] = record.alphas[i]
-	end
-
-	self.Vecs = {}
-
-	for k = 1, 8 do
-		self.Vecs[k] = record.vecs[k]
-	end
-
-	self:BuildGeometry()
-	self.Owner.transform:SetPosition(self.center)
-	self:Attach(world)
 end
 
-function META:BuildGeometry()
-	local dims = math.floor(math.sqrt(#self.Positions / 3) + 0.5)
-	self.Power = math.floor(math.log(dims - 1, 2) + 0.5)
+function META:GetPositions()
+	return self.Positions and world_pack.PackFloats(self.Positions)
+end
+
+function META:SetPositions(value)
+	self.Positions = world_pack.UnpackFloats(value)
+	self.dims = nil
+	self.polygons = nil
+	self:OnShapeChanged()
+end
+
+function META:GetAlphas()
+	return self.Alphas and world_pack.PackFloats(self.Alphas)
+end
+
+function META:SetAlphas(value)
+	self.Alphas = world_pack.UnpackFloats(value)
+	self.polygons = nil
+end
+
+-- the grid in engine space relative to its center, computed on first use
+function META:EnsureGrid()
+	if self.dims then return end
+
 	local positions = self.Positions
+	local dims = math.floor(math.sqrt(#positions / 3) + 0.5)
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
 	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
 
@@ -84,22 +96,104 @@ function META:BuildGeometry()
 	end
 
 	self.center = units.PositionToEngine(Vec3((min_x + max_x) / 2, (min_y + max_y) / 2, (min_z + max_z) / 2))
-	self.dims = dims
 	local local_points = {}
-	local nx, ny, nz = {}, {}, {}
 
 	for i = 1, dims * dims do
 		local_points[i] = units.PositionToEngine(Vec3(positions[i * 3 - 2], positions[i * 3 - 1], positions[i * 3])) - self.center
-		nx[i], ny[i], nz[i] = 0, 0, 0
 	end
 
 	self.local_points = local_points
-	local corners = self.Corners
-	local vecs = self.Vecs
-	local uvs = {}
+	self.dims = dims
+end
+
+function META:GetCenter()
+	self:EnsureGrid()
+	return self.center
+end
+
+function META:OnShapeChanged()
+	self.polygons = nil
+
+	if self.world then self.world:MarkDirty(self) end
+end
+
+function META:CreateRecord()
+	return {kind = "displacement", spans = {}}
+end
+
+function META:UpdateRecord(record)
+	self:EnsureGrid()
+	local dims, positions = self.dims, {}
+	local transform = self.Owner.transform
+	local flat = self.Positions
+	local rotation = transform:GetRotation()
+	local at_rest = (
+			transform:GetPosition() - self.center
+		):GetLength() < REST_EPSILON and
+		math.abs(rotation.x) + math.abs(rotation.y) + math.abs(rotation.z) < REST_EPSILON and
+		transform:GetScale() == Vec3(1, 1, 1)
+		and
+		transform:GetSize() == 1
+
+	if at_rest then
+		for i = 1, dims * dims do
+			positions[i] = Vec3(flat[i * 3 - 2], flat[i * 3 - 1], flat[i * 3])
+		end
+	else
+		local matrix = transform:GetWorldMatrix()
+
+		for i = 1, dims * dims do
+			positions[i] = units.PositionFromEngine(matrix:TransformVector(self.local_points[i]))
+		end
+	end
+
+	record.dims = dims
+	record.positions = positions
+	record.alphas = self.Alphas
+	record.corners = self.Corners
+	record.texname = self.Material:match("^materials/(.*)%.vmt$")
+	record.vecs = self.Vecs
+	record.clip = self.ClipBounds
+	static_geometry.UpdateDisplacementBounds(record)
+	local sum = Vec3(0, 0, 0)
+
+	for _, normal in ipairs(static_geometry.ComputeDisplacementNormals(record)) do
+		sum = sum + normal
+	end
+
+	record.normal = units.PositionFromEngine(sum):GetNormalized()
+end
+
+function META:Attach()
+	local world = static_world.Find(self.Owner)
+
+	if world then
+		self.world = world
+		world:AddSource(self)
+	end
+end
+
+function META:OnDeserialized()
+	self.Owner:SetTransient(false)
+	self:Attach()
+end
+
+function META:OnRemove()
+	if self.world and self.world:IsValid() then self.world:RemoveSource(self) end
+end
+
+-- the grid as a polygon in the entity's local space, for highlighting
+function META:GetPolygons()
+	if self.polygons then return self.polygons end
+
+	self:EnsureGrid()
+	local dims, local_points = self.dims, self.local_points
+	local corners, vecs = self.Corners, self.Vecs
+	local uvs, nx, ny, nz = {}, {}, {}, {}
 
 	for y = 1, dims do
 		for x = 1, dims do
+			local i = (y - 1) * dims + x
 			local flat = math3d.BilerpVec3(
 				corners[1],
 				corners[2],
@@ -108,10 +202,11 @@ function META:BuildGeometry()
 				(y - 1) / (dims - 1),
 				(x - 1) / (dims - 1)
 			)
-			uvs[(y - 1) * dims + x] = Vec2(
+			uvs[i] = Vec2(
 				vecs[1] * flat.x + vecs[2] * flat.y + vecs[3] * flat.z + vecs[4],
 				vecs[5] * flat.x + vecs[6] * flat.y + vecs[7] * flat.z + vecs[8]
 			)
+			nx[i], ny[i], nz[i] = 0, 0, 0
 		end
 	end
 
@@ -153,64 +248,11 @@ function META:BuildGeometry()
 	polygon:BuildBoundingBox()
 	polygon:BuildTangents()
 	polygon:Upload(nil)
-	self.polygon = polygon
-	self.material = vmt_material.FromVMT(self.Material)
+	self.polygons = {polygon}
+	return self.polygons
 end
 
-function META:GetPolygons()
-	return {self.polygon}
-end
-
-function META:Attach(world)
-	self.world = world
-	world.displacement_entities[self.Index] = self.Owner
-
-	if self.editing then
-		self.record = world.displacement_records[self.Index]
-
-		if self.record then
-			world:HideRecord(self.record)
-			self:UpdateCollision()
-		end
-	end
-end
-
-function META:UpdateCollision()
-	local matrix = self.Owner.transform:GetWorldMatrix()
-	local points = {}
-
-	for i, point in ipairs(self.local_points) do
-		points[i] = matrix:TransformVector(point)
-	end
-
-	self.world:UpdateDisplacementCollision(self.Index, points)
-end
-
-function META:OnMaterialChanged()
-	if not self.polygon then return end
-
-	if not self.editing then self:BeginEdit() end
-
-	self.material = vmt_material.FromVMT(self.Material)
-	self.primitive.visual_primitive:SetMaterial(self.material)
-end
-
-function META:BeginEdit()
-	self.editing = true
-	self.world:HideRecord(self.record)
-	self:CreatePrimitive()
-end
-
-function META:CreatePrimitive()
-	if not self.Owner:HasComponent("visual") then
-		self.Owner:AddComponent("visual")
-	end
-
-	local visual = self.Owner.visual
-	self.primitive = visual:CreatePrimitiveEntity(self.polygon, self.material, self.Material)
-	visual:BuildAABB()
-end
-
+-- watches the transform so moving the entity moves the displacement
 function META:Activate()
 	if self.active then return end
 
@@ -222,39 +264,15 @@ end
 function META:OnUpdate()
 	local matrix = self.Owner.transform:GetWorldMatrix()
 	local last = self.last_matrix
-	local changed = false
 
 	for _, field in ipairs(MATRIX_FIELDS) do
 		if matrix[field] ~= last[field] then
-			changed = true
+			self.last_matrix = matrix:Copy()
+			self:OnShapeChanged()
 
 			break
 		end
 	end
-
-	if changed then
-		self.last_matrix = matrix:Copy()
-
-		if not self.editing then self:BeginEdit() end
-
-		self.collision_time = system.GetElapsedTime()
-	elseif
-		self.collision_time and
-		system.GetElapsedTime() - self.collision_time > COLLISION_SETTLE_TIME
-	then
-		self.collision_time = nil
-		self:UpdateCollision()
-	end
-end
-
-function META:OnDeserialized()
-	self.editing = true
-	self.Owner:SetTransient(false)
-	self:BuildGeometry()
-	self:CreatePrimitive()
-	local world = static_world.GetActive()
-
-	if world then self:Attach(world) else static_world.WaitForBuild(self) end
 end
 
 return META:Register()
