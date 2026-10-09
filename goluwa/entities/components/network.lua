@@ -154,6 +154,10 @@ if SERVER then
 	local pending_spawns = {}
 	local awaiting_world = {}
 
+	local function needs_scene(client)
+		return not client.scene_ready and not client:IsBot()
+	end
+
 	event.AddListener("ClientEntered", "network_component_entered", function(client)
 		client.network_entered = true
 		client_version = client_version + 1
@@ -170,6 +174,8 @@ if SERVER then
 				if
 					client.network_entered and
 					not client:IsBot()
+					and
+					not needs_scene(client)
 					and
 					client:GetUniqueID() ~= self.NetworkOwner and
 					not self.pending_clients[client]
@@ -224,6 +230,7 @@ if SERVER then
 		buffer:WriteNetString(SPAWN)
 		buffer:WriteI32(self.NetworkId)
 		buffer:WriteString(self.NetworkOwner)
+		buffer:WriteString(self.Owner:GetGUID())
 		local names = {}
 
 		for name in pairs(self.known_components) do
@@ -333,6 +340,7 @@ if SERVER then
 		spawned[self.NetworkId] = self
 		self:AddGlobalEvent("Update")
 		self:AddGlobalEvent("ClientEntered")
+		self:AddGlobalEvent("ClientSceneReady")
 		self:AddGlobalEvent("ClientLeft")
 		self:RefreshVars()
 		self:SendSpawn()
@@ -344,12 +352,22 @@ if SERVER then
 		self:UpdateVars()
 	end
 
-	function META:OnClientEntered(client)
+	function META:QueueSpawn(client)
 		if client:IsBot() or self:IsOwnedBy(client) then return end
 
 		self.pending_clients[client] = true
 		client_version = client_version + 1
 		pending_spawns[#pending_spawns + 1] = {self, client}
+	end
+
+	function META:OnClientEntered(client)
+		if needs_scene(client) then return end
+
+		self:QueueSpawn(client)
+	end
+
+	function META:OnClientSceneReady(client)
+		self:QueueSpawn(client)
 	end
 
 	function META:OnClientLeft()
@@ -390,7 +408,7 @@ if SERVER then
 		end
 
 		for client in pairs(awaiting_world) do
-			if not pending[client] then
+			if not pending[client] and not needs_scene(client) then
 				awaiting_world[client] = nil
 
 				if client:IsValid() then event.Call("ClientWorldReady", client) end
@@ -566,7 +584,9 @@ if CLIENT then
 		local self = spawned[id]
 
 		if what == SPAWN then
-			local config = {network = {NetworkId = id, NetworkOwner = buffer:ReadString()}}
+			local owner = buffer:ReadString()
+			local guid = buffer:ReadString()
+			local config = {network = {NetworkId = id, NetworkOwner = owner}}
 
 			for _ = 1, buffer:ReadByte() do
 				local name, values = read_component(buffer)
@@ -584,6 +604,40 @@ if CLIENT then
 						config[name] = values
 					end
 				end
+			end
+
+			local existing = objects.GetObjectByGUID(guid)
+
+			if
+				existing and
+				existing:IsValid() and
+				(
+					not existing.network or
+					existing.network.adopted
+				)
+			then
+				local valid_components = Entity.GetValidComponents()
+
+				for key, value in pairs(config) do
+					if key ~= "network" and key ~= "Parent" then
+						if valid_components[key] then
+							local component = existing:HasComponent(key) and existing[key] or existing:AddComponent(key)
+
+							for var_name, var_value in pairs(value) do
+								component["Set" .. var_name](component, var_value)
+							end
+						else
+							existing["Set" .. key](existing, value)
+						end
+					end
+				end
+
+				if not existing.network then
+					existing:AddComponent("network", config.network)
+					existing.network.adopted = true
+				end
+
+				return true
 			end
 
 			if self then self.Owner:Remove() end

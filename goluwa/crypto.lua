@@ -288,6 +288,16 @@ do
 		cache[val] = tostring(crc)
 		return cache[val]
 	end
+
+	function crypto.CRC32Bytes(ptr, len)
+		local crc = 0xFFFFFFFF
+
+		for i = 0, len - 1 do
+			crc = xor(rshift(crc, 8), CRC32[xor(band(crc, 0xFF), ptr[i]) + 1])
+		end
+
+		return xor(crc, 0xFFFFFFFF) % 4294967296
+	end
 end
 
 do

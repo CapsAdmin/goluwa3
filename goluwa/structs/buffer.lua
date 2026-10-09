@@ -173,5 +173,42 @@ buffer_template.AddStringFunctions(META)
 buffer_template.AddPushPopFunctions(META)
 buffer_template.AddBitFunctions(META)
 buffer_template.AddStructFunctions(META)
+
+function META:WriteBytes(str, len)
+	len = len or #str
+	local pos = self.Position
+
+	if self.Writable and pos + len > self.ByteSize then
+		local new_size = math.max(self.ByteSize * 2, pos + len)
+
+		if self.OwnsMemory then
+			local new_buffer = memory.realloc(self.Buffer, new_size)
+
+			if new_buffer == nil then
+				error("Failed to reallocate buffer to size " .. new_size)
+			end
+
+			self.Buffer = ffi.cast("uint8_t*", new_buffer)
+		else
+			local new_buffer = memory.malloc(new_size)
+
+			if new_buffer == nil then
+				error("Failed to allocate buffer of size " .. new_size)
+			end
+
+			memory.memcpy(new_buffer, self.Buffer, self.ByteSize)
+			self.Buffer = ffi.cast("uint8_t*", new_buffer)
+			self.OwnsMemory = true
+		end
+
+		self.ByteSize = new_size
+		refs[self] = true
+	end
+
+	ffi.copy(self.Buffer + pos, str, len)
+	self.Position = pos + len
+	return self
+end
+
 ffi.metatype(META.CType, META)
 return META

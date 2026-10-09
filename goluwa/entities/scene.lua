@@ -1,6 +1,12 @@
 local Entity = import("goluwa/entities/entity.lua")
 local objects = import("goluwa/objects/objects.lua")
-local luadata = import("goluwa/codecs/luadata.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
+local crypto = import("goluwa/crypto.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Color = import("goluwa/structs/color.lua")
+local ffi = require("ffi")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
@@ -208,10 +214,10 @@ local function sorted_component_names(components)
 	return names
 end
 
-local function has_singleton_component(record)
+local function has_singleton_component(components)
 	local valid_components = Entity.GetValidComponents()
 
-	for name in pairs(record.components) do
+	for name in pairs(components) do
 		if valid_components[name].Singleton then return true end
 	end
 
@@ -225,11 +231,22 @@ function scene.Deserialize(data, parent, options)
 	local skipped = {}
 	local roots = {}
 	local yield_every = options.yield_every
+	local valid_components = Entity.GetValidComponents()
 
 	for index, record in ipairs(data.entities) do
 		if yield_every and index % yield_every == 0 then
 			tasks.ReportProgress("spawning entities", #data.entities)
 			tasks.Wait()
+		end
+
+		local components = record.components
+
+		if options.skip_unavailable then
+			components = {}
+
+			for name, properties in pairs(record.components) do
+				if valid_components[name] then components[name] = properties end
+			end
 		end
 
 		local existing = objects.GetObjectByGUID(record.guid)
@@ -240,7 +257,7 @@ function scene.Deserialize(data, parent, options)
 
 		if skipped[record.parent] then
 			skipped[record.guid] = true
-		elseif not reuse and has_singleton_component(record) then
+		elseif not reuse and has_singleton_component(components) then
 			wlog(
 				"scene: skipping %s (%s), only the existing singleton may hold its components",
 				tostring(record.guid),
@@ -263,12 +280,12 @@ function scene.Deserialize(data, parent, options)
 
 			apply_properties(entity, record.properties, "entity")
 
-			for _, name in ipairs(sorted_component_names(record.components)) do
+			for _, name in ipairs(sorted_component_names(components)) do
 				local component = entity:HasComponent(name) and entity[name] or entity:AddComponent(name)
 
 				if reuse and component.ResetProperties then component:ResetProperties() end
 
-				apply_properties(component, record.components[name], name)
+				apply_properties(component, components[name], name)
 
 				if component.OnDeserialized then component:OnDeserialized() end
 			end
@@ -288,54 +305,239 @@ end
 
 function scene.GetPath(name)
 	assert(name:find("^[%w_%-%. ]+$"), "invalid scene name: " .. name)
-	return scene.GetDirectory() .. name .. ".luadata"
+	return scene.GetDirectory() .. name .. ".scene"
 end
 
 do
-	local CHUNK_SIZE = 500
-	local SEPARATOR = "\0"
+	local MAGIC = "GLWS"
+	local FORMAT_VERSION = 1
+	local HEADER_SIZE = 13
+	local MAX_INTERNED_LENGTH = 64
+	local TAG_NIL = 0
+	local TAG_FALSE = 1
+	local TAG_TRUE = 2
+	local TAG_NUMBER = 3
+	local TAG_STRING = 4
+	local TAG_RAW_STRING = 5
+	local TAG_VEC2 = 6
+	local TAG_VEC3 = 7
+	local TAG_QUAT = 8
+	local TAG_COLOR = 9
+	local TAG_TABLE = 10
 
-	-- a luadata chunk is compiled as one lua function, which can only hold so many constants,
-	-- so the records are written as separate chunks
-	function scene.EncodeData(data)
-		local parts = {luadata.Encode({version = data.version})}
-		local records = data.entities
+	local function compare_keys(a, b)
+		local a_number = type(a) == "number"
 
-		for first = 1, #records, CHUNK_SIZE do
-			local chunk = {}
+		if a_number ~= (type(b) == "number") then return a_number end
 
-			for i = first, math.min(first + CHUNK_SIZE - 1, #records) do
-				chunk[#chunk + 1] = records[i]
-			end
-
-			parts[#parts + 1] = luadata.Encode({entities = chunk})
-		end
-
-		return table.concat(parts, SEPARATOR)
+		return a < b
 	end
 
-	function scene.DecodeData(str)
-		local data
-		local position = 1
+	local function intern(strings, str)
+		local index = strings.index[str]
 
-		while position <= #str + 1 do
-			local stop = str:find(SEPARATOR, position, true) or #str + 1
-			local part, err = luadata.Decode(str:sub(position, stop - 1))
-
-			if not part then return nil, err end
-
-			if not data then
-				data = {version = part.version, entities = {}}
-			else
-				for _, record in ipairs(part.entities) do
-					data.entities[#data.entities + 1] = record
-				end
-			end
-
-			position = stop + 1
+		if not index then
+			index = #strings.list
+			strings.list[index + 1] = str
+			strings.index[str] = index
 		end
 
-		return data
+		return index
+	end
+
+	local function write_value(buffer, strings, value)
+		local kind = typex(value)
+
+		if kind == "nil" then
+			buffer:WriteByte(TAG_NIL)
+		elseif kind == "boolean" then
+			buffer:WriteByte(value and TAG_TRUE or TAG_FALSE)
+		elseif kind == "number" then
+			buffer:WriteByte(TAG_NUMBER)
+			buffer:WriteDouble(value)
+		elseif kind == "string" then
+			if #value <= MAX_INTERNED_LENGTH then
+				buffer:WriteByte(TAG_STRING)
+				buffer:WriteVariableSizedInteger(intern(strings, value))
+			else
+				buffer:WriteByte(TAG_RAW_STRING)
+				buffer:WriteVariableSizedInteger(#value)
+				buffer:WriteBytes(value)
+			end
+		elseif kind == "vec2" then
+			buffer:WriteByte(TAG_VEC2)
+			buffer:WriteDouble(value.x)
+			buffer:WriteDouble(value.y)
+		elseif kind == "vec3" then
+			buffer:WriteByte(TAG_VEC3)
+			buffer:WriteDouble(value.x)
+			buffer:WriteDouble(value.y)
+			buffer:WriteDouble(value.z)
+		elseif kind == "quat" then
+			buffer:WriteByte(TAG_QUAT)
+			buffer:WriteDouble(value.x)
+			buffer:WriteDouble(value.y)
+			buffer:WriteDouble(value.z)
+			buffer:WriteDouble(value.w)
+		elseif kind == "color" then
+			buffer:WriteByte(TAG_COLOR)
+			buffer:WriteDouble(value.r)
+			buffer:WriteDouble(value.g)
+			buffer:WriteDouble(value.b)
+			buffer:WriteDouble(value.a)
+		else
+			local keys = {}
+
+			for key in pairs(value) do
+				keys[#keys + 1] = key
+			end
+
+			table.sort(keys, compare_keys)
+			buffer:WriteByte(TAG_TABLE)
+			buffer:WriteVariableSizedInteger(#keys)
+
+			for _, key in ipairs(keys) do
+				write_value(buffer, strings, key)
+				write_value(buffer, strings, value[key])
+			end
+		end
+	end
+
+	local function read_value(buffer, strings)
+		local tag = buffer:ReadByte()
+
+		if tag == TAG_NIL then return nil end
+
+		if tag == TAG_FALSE then return false end
+
+		if tag == TAG_TRUE then return true end
+
+		if tag == TAG_NUMBER then return buffer:ReadDouble() end
+
+		if tag == TAG_STRING then return strings[buffer:ReadULEB128() + 1] end
+
+		if tag == TAG_RAW_STRING then return buffer:ReadBytes(buffer:ReadULEB128()) end
+
+		if tag == TAG_VEC2 then return Vec2(buffer:ReadDouble(), buffer:ReadDouble()) end
+
+		if tag == TAG_VEC3 then
+			return Vec3(buffer:ReadDouble(), buffer:ReadDouble(), buffer:ReadDouble())
+		end
+
+		if tag == TAG_QUAT then
+			return Quat(
+				buffer:ReadDouble(),
+				buffer:ReadDouble(),
+				buffer:ReadDouble(),
+				buffer:ReadDouble()
+			)
+		end
+
+		if tag == TAG_COLOR then
+			return Color(
+				buffer:ReadDouble(),
+				buffer:ReadDouble(),
+				buffer:ReadDouble(),
+				buffer:ReadDouble()
+			)
+		end
+
+		assert(tag == TAG_TABLE, "corrupt scene: unknown value tag " .. tostring(tag))
+		local out = {}
+
+		for _ = 1, buffer:ReadULEB128() do
+			local key = read_value(buffer, strings)
+			out[key] = read_value(buffer, strings)
+		end
+
+		return out
+	end
+
+	function scene.Encode(data)
+		local strings = {index = {}, list = {}}
+		local records = Buffer.New(nil, 65536):MakeWritable()
+		records:WriteVariableSizedInteger(#data.entities)
+
+		for _, record in ipairs(data.entities) do
+			records:WriteVariableSizedInteger(intern(strings, record.guid))
+			records:WriteVariableSizedInteger(record.parent and intern(strings, record.parent) + 1 or 0)
+			write_value(records, strings, record.properties)
+			local names = {}
+
+			for name in pairs(record.components) do
+				names[#names + 1] = name
+			end
+
+			table.sort(names)
+			records:WriteVariableSizedInteger(#names)
+
+			for _, name in ipairs(names) do
+				records:WriteVariableSizedInteger(intern(strings, name))
+				write_value(records, strings, record.components[name])
+			end
+		end
+
+		local payload = Buffer.New(nil, 65536):MakeWritable()
+		payload:WriteVariableSizedInteger(#strings.list)
+
+		for _, str in ipairs(strings.list) do
+			payload:WriteVariableSizedInteger(#str)
+			payload:WriteBytes(str)
+		end
+
+		payload:WriteBytes(records:GetStringSlice(0, records:GetPosition() - 1))
+		local payload_string = payload:GetStringSlice(0, payload:GetPosition() - 1)
+		local header = Buffer.New(nil, HEADER_SIZE):MakeWritable()
+		header:WriteBytes(MAGIC)
+		header:WriteByte(FORMAT_VERSION)
+		header:WriteU32(crypto.CRC32Bytes(ffi.cast("const uint8_t *", payload_string), #payload_string))
+		header:WriteU32(#payload_string)
+		return header:GetString() .. payload_string
+	end
+
+	function scene.GetChecksum(str)
+		assert(str:sub(1, #MAGIC) == MAGIC, "not a scene")
+		local buffer = Buffer.New(str)
+		buffer:SetPosition(#MAGIC + 1)
+		return buffer:ReadU32()
+	end
+
+	function scene.Decode(str)
+		local buffer = Buffer.New(str)
+		assert(buffer:ReadBytes(#MAGIC) == MAGIC, "not a scene")
+		local version = buffer:ReadByte()
+		assert(version == FORMAT_VERSION, "unsupported scene format version " .. version)
+		local checksum = buffer:ReadU32()
+		local size = buffer:ReadU32()
+		assert(#str == HEADER_SIZE + size, "truncated scene")
+		assert(
+			crypto.CRC32Bytes(buffer:GetBuffer() + HEADER_SIZE, size) == checksum,
+			"scene checksum mismatch"
+		)
+		local strings = {}
+
+		for i = 1, buffer:ReadULEB128() do
+			strings[i] = buffer:ReadBytes(buffer:ReadULEB128())
+		end
+
+		local records = {}
+
+		for i = 1, buffer:ReadULEB128() do
+			local record = {guid = strings[buffer:ReadULEB128() + 1]}
+			local parent = buffer:ReadULEB128()
+			record.parent = parent > 0 and strings[parent] or nil
+			record.properties = read_value(buffer, strings)
+			record.components = {}
+
+			for _ = 1, buffer:ReadULEB128() do
+				local name = strings[buffer:ReadULEB128() + 1]
+				record.components[name] = read_value(buffer, strings)
+			end
+
+			records[i] = record
+		end
+
+		return {version = scene.Version, entities = records}, checksum
 	end
 end
 
@@ -343,7 +545,7 @@ function scene.Save(name)
 	local data = scene.Serialize()
 	local path = scene.GetPath(name)
 	vfs.CreateDirectoriesFromPath(path, true)
-	local ok, err = vfs.Write(path, scene.EncodeData(data))
+	local ok, err = vfs.Write(path, scene.Encode(data))
 
 	if not ok then
 		error("failed to save scene " .. name .. ": " .. tostring(err), 0)
@@ -359,7 +561,7 @@ local function read_scene(name)
 		error("failed to read scene " .. name .. ": " .. tostring(err), 0)
 	end
 
-	local data, decode_err = scene.DecodeData(str)
+	local data, decode_err = scene.Decode(str)
 
 	if not data then
 		error("failed to decode scene " .. name .. ": " .. tostring(decode_err), 0)

@@ -1,7 +1,6 @@
 local T = import("test/environment.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local scene = import("goluwa/entities/scene.lua")
-local luadata = import("goluwa/codecs/luadata.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -36,13 +35,13 @@ T.Test("Scene serialization stores only values that differ from defaults", funct
 	root:Remove()
 end)
 
-T.Test("Scene round trip through luadata keeps guids, hierarchy and values", function()
+T.Test("Scene round trip through the binary format keeps guids, hierarchy and values", function()
 	local root, child = build()
 	local root_guid, child_guid = root:GetGUID(), child:GetGUID()
-	local text = luadata.Encode(scene.SerializeEntities({root}))
+	local text = scene.Encode(scene.SerializeEntities({root}))
 	root:Remove()
 	local holder = Entity.New{Name = "holder", Parent = Entity.World}
-	local roots = scene.Deserialize(assert(luadata.Decode(text)), holder)
+	local roots = scene.Deserialize(scene.Decode(text), holder)
 	T(#roots)["=="](1)
 	local loaded = roots[1]
 	T(loaded:GetName())["=="]("root")

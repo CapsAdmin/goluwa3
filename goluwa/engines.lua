@@ -1,5 +1,6 @@
 local commands = import("goluwa/cli/commands.lua")
 local utility = import("goluwa/utility.lua")
+local event = import("goluwa/event.lua")
 local engines = {}
 local registered = {}
 
@@ -42,6 +43,7 @@ end
 
 function engines.Load(name)
 	local engine, id = engines.Find(name)
+	event.Call("SceneLoad", name)
 	return engine.Load(id)
 end
 

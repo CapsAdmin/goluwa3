@@ -69,7 +69,12 @@ function source_engine.Load(name)
 
 		local scene_data = map_scene.Translate(data, name, path)
 		scene.BeginSpawning()
-		local ok, err = pcall(scene.Deserialize, scene_data, Entity.World, {yield_every = 128})
+		local ok, err = pcall(
+			scene.Deserialize,
+			scene_data,
+			Entity.World,
+			{yield_every = 128, skip_unavailable = not RENDER_3D}
+		)
 		scene.EndSpawning()
 
 		if not ok then error(err, 0) end

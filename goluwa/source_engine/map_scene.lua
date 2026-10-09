@@ -146,11 +146,7 @@ function map_scene.Translate(data, map_name, map_path)
 			static_world = {Pak = map_path},
 		},
 	}
-
-	if RENDER_3D then
-		add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
-	end
-
+	add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
 	local containers = {}
 	local sub_groups = {}
 
@@ -168,7 +164,7 @@ function map_scene.Translate(data, map_name, map_path)
 				properties = {Name = "visibility_group_" .. id},
 				components = {
 					transform = {},
-					visibility_group = RENDER_3D and {Boxes = data.visibility.group_boxes[id]} or nil,
+					visibility_group = {Boxes = data.visibility.group_boxes[id]},
 				},
 			}
 		end
@@ -272,11 +268,9 @@ function map_scene.Translate(data, map_name, map_path)
 		elseif info.classname and info.classname:find("light_environment") then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 		elseif info.classname:lower():find("light") and (info._lightHDR or info._light) then
-			if RENDER_3D then
-				handled[info.classname] = (handled[info.classname] or 0) + 1
-				entries[#entries + 1] = {kind = "light", info = info, index = index}
-			end
-		elseif RENDER_3D and info.classname == "env_fog_controller" then
+			handled[info.classname] = (handled[info.classname] or 0) + 1
+			entries[#entries + 1] = {kind = "light", info = info, index = index}
+		elseif info.classname == "env_fog_controller" then
 			if
 				bit.band(tonumber(info.spawnflags) or 0, 1) ~= 0 and
 				tonumber(info.fogenable) == 1
@@ -305,15 +299,13 @@ function map_scene.Translate(data, map_name, map_path)
 
 				if motion_type then physics_models[model_path] = true end
 
-				if RENDER_3D or motion_type then
-					entries[#entries + 1] = {
-						kind = "prop",
-						info = info,
-						index = index,
-						model_path = model_path,
-						motion_type = motion_type,
-					}
-				end
+				entries[#entries + 1] = {
+					kind = "prop",
+					info = info,
+					index = index,
+					model_path = model_path,
+					motion_type = motion_type,
+				}
 			else
 				wlog(
 					"cannot spawn entity of class " .. tostring(info.classname) .. " because model file " .. tostring(info.model) .. " does not exist"
@@ -386,6 +378,7 @@ function map_scene.Translate(data, map_name, map_path)
 					properties = {Name = "prop"},
 					components = {
 						transform = {Position = position + rotation:VecMul(center_of_mass), Rotation = rotation},
+						network = SERVER and {} or nil,
 						rigid_body = {
 							ShapeModelPath = entry.model_path,
 							MotionType = entry.motion_type,
@@ -403,29 +396,27 @@ function map_scene.Translate(data, map_name, map_path)
 						},
 					},
 				}
-
-				if RENDER_3D then
-					add{
-						guid = guid .. ":visual",
-						parent = guid,
-						properties = {Name = "prop_visual"},
-						components = {
-							transform = {Position = center_of_mass * -1},
-							visual = {ModelPath = entry.model_path, ClipBounds = clip_bounds(info)},
-						},
-					}
-				end
-			elseif RENDER_3D and entry.motion_type then
+				add{
+					guid = guid .. ":visual",
+					parent = guid,
+					properties = {Name = "prop_visual"},
+					components = {
+						transform = {Position = center_of_mass * -1},
+						visual = {ModelPath = entry.model_path, ClipBounds = clip_bounds(info)},
+					},
+				}
+			elseif entry.motion_type then
 				add{
 					guid = guid,
 					parent = container,
 					properties = {Name = "prop"},
 					components = {
 						transform = {Position = position, Rotation = rotation},
+						network = SERVER and {} or nil,
 						visual = {ModelPath = entry.model_path},
 					},
 				}
-			elseif RENDER_3D then
+			else
 				add{
 					guid = guid,
 					parent = container,
@@ -445,34 +436,32 @@ function map_scene.Translate(data, map_name, map_path)
 		if entry_index % 50 == 0 then tasks.Wait() end
 	end
 
-	if RENDER_3D then
-		for index, decal in ipairs(data.decals) do
-			local frame
+	for index, decal in ipairs(data.decals) do
+		local frame
 
-			if decal.Mode == "overlay" then
-				frame = Vec4(decal.UVPoints[1], decal.UVPoints[2], decal.UVPoints[7], decal.UVPoints[5])
-			else
-				frame = Vec4(-decal.Size[1] / 2, -decal.Size[2] / 2, decal.Size[1] / 2, decal.Size[2] / 2)
-			end
-
-			add{
-				guid = root_guid .. ":decal:" .. index,
-				parent = get_sub_group(get_container(decal.Group > 0 and decal.Group or nil), "decals"),
-				properties = {Name = decal.Texname},
-				components = {
-					transform = {
-						Position = units.PositionToEngine(decal.Origin),
-						Rotation = decal_geometry.AxesToRotation(decal_geometry.GetInitialAxes(decal, data.world)),
-					},
-					decal = {
-						Material = "materials/" .. decal.Texname .. ".vmt",
-						Frame = frame,
-						URange = decal.URange and Vec2(decal.URange[1], decal.URange[2]) or Vec2(0, 1),
-						VRange = decal.VRange and Vec2(decal.VRange[1], decal.VRange[2]) or Vec2(0, 1),
-					},
-				},
-			}
+		if decal.Mode == "overlay" then
+			frame = Vec4(decal.UVPoints[1], decal.UVPoints[2], decal.UVPoints[7], decal.UVPoints[5])
+		else
+			frame = Vec4(-decal.Size[1] / 2, -decal.Size[2] / 2, decal.Size[1] / 2, decal.Size[2] / 2)
 		end
+
+		add{
+			guid = root_guid .. ":decal:" .. index,
+			parent = get_sub_group(get_container(decal.Group > 0 and decal.Group or nil), "decals"),
+			properties = {Name = decal.Texname},
+			components = {
+				transform = {
+					Position = units.PositionToEngine(decal.Origin),
+					Rotation = decal_geometry.AxesToRotation(decal_geometry.GetInitialAxes(decal, data.world)),
+				},
+				decal = {
+					Material = "materials/" .. decal.Texname .. ".vmt",
+					Frame = frame,
+					URange = decal.URange and Vec2(decal.URange[1], decal.URange[2]) or Vec2(0, 1),
+					VRange = decal.VRange and Vec2(decal.VRange[1], decal.VRange[2]) or Vec2(0, 1),
+				},
+			},
+		}
 	end
 
 	for index, info in ipairs(data.water_volumes or {}) do

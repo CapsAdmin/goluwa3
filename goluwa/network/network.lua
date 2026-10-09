@@ -20,6 +20,7 @@ function network.Initialize()
 	message.Initialize()
 	clients.Initialize()
 	import("goluwa/entities/components/network.lua")
+	import("goluwa/network/scene_sync.lua")
 
 	packet.ExtendBuffer("Entity", function(buffer, ent)
 		import("goluwa/entities/components/network.lua").WriteEntity(buffer, ent)
