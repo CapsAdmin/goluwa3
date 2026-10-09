@@ -18,6 +18,7 @@ local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local PropertyAsset = import("goluwa/render2d/ui/widgets/properties/asset.lua")
 local PropertyBoolean = import("goluwa/render2d/ui/widgets/properties/boolean.lua")
+local PropertyCode = import("goluwa/render2d/ui/widgets/properties/code.lua")
 local PropertyDivider = import("goluwa/render2d/ui/widgets/properties/divider.lua")
 local PropertyEnum = import("goluwa/render2d/ui/widgets/properties/enum.lua")
 local PropertyNumber = import("goluwa/render2d/ui/widgets/properties/number.lua")
@@ -705,6 +706,18 @@ function META:create_control(node, path, key)
 		shared.MinSize = size
 		shared.MaxSize = Vec2(0, size.y)
 		control = PropertyAsset(shared)
+	elseif kind == "code" then
+		shared.Value = node.Value == nil and "" or tostring(node.Value)
+		shared.Language = node.CodeLanguage
+		shared.OnGetStatus = node.GetStatus
+		shared.FontSize = self._font_size
+		shared.FieldPadding = padding
+		shared.RowHeight = row_height
+		shared.layout = {
+			MinSize = size,
+			MaxSize = Vec2(0, size.y),
+		}
+		control = PropertyCode(shared)
 	elseif node.Multiline then
 		shared.Value = node.Value == nil and "" or tostring(node.Value)
 		shared.ApplyText = node.ApplyText
@@ -1092,7 +1105,7 @@ do
 
 		local resolved_type = property_type_aliases[info.type] or info.type
 		local enums = info.enums or info.get_enums and info.get_enums(target)
-		local node_type = enums and "enum" or info.asset and "asset" or resolved_type
+		local node_type = enums and "enum" or info.asset and "asset" or info.code and "code" or resolved_type
 		local get_value
 
 		if info.get then
@@ -1135,10 +1148,15 @@ do
 			ShowSlider = info.slider,
 			Multiline = info.multiline,
 			AssetCategory = info.asset,
+			CodeLanguage = info.code,
 			ContextActions = build_context_actions(editor, info, target),
 			Badge = badge,
 			LabelColor = badge and badge.Color,
 			Description = badge and badge.Tooltip,
+			GetStatus = info.status and
+				function()
+					return info.status(target)
+				end,
 		}
 		local display_type = node_type
 
