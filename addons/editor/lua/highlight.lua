@@ -22,6 +22,8 @@ function highlight.SetEntity(entity)
 	if not entity:IsValid() then return end
 
 	if
+		entity.brush or
+		entity.displacement or
 		entity.visual_primitive or
 		entity.visual or
 		(
@@ -71,11 +73,28 @@ event.AddListener("Draw3DForwardOverlay", "highlight", function()
 		local primitive = ent.visual_primitive
 		local visual = ent.visual
 
-		if not ent:IsValid() or not (primitive or visual and visual.Is3D) then
+		if
+			not ent:IsValid() or
+			not (
+				primitive or
+				ent.brush or
+				ent.displacement or
+				visual and
+				visual.Is3D
+			)
+		then
 			goto continue
 		end
 
-		if primitive then
+		if ent.brush or ent.displacement then
+			render3d.SetWorldMatrix(ent.transform:GetWorldMatrix())
+
+			for _, polygon3d in ipairs((ent.brush or ent.displacement):GetPolygons()) do
+				render3d.UploadForwardOverlayConstants()
+				polygon3d:Draw()
+				uploads = uploads + 1
+			end
+		elseif primitive then
 			local polygon3d = primitive:GetPolygon3D()
 
 			if polygon3d then
@@ -88,6 +107,8 @@ event.AddListener("Draw3DForwardOverlay", "highlight", function()
 			local world_matrix = ent.transform:GetWorldMatrix()
 
 			for _, prim in ipairs(visual:GetRenderEntries()) do
+				if uploads >= MAX_UPLOADS_PER_FRAME then break end
+
 				if prim.polygon3d then
 					local final_matrix = world_matrix
 

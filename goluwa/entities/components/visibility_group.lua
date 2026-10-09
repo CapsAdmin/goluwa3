@@ -4,8 +4,12 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local VisibilityGroup = objects.CreateTemplate("visibility_group")
-VisibilityGroup.locator = nil
 VisibilityGroup.active = nil
+VisibilityGroup.has_boxes = false
+VisibilityGroup:StartStorable()
+VisibilityGroup:GetSet("Boxes", nil)
+VisibilityGroup:EndStorable()
+local KEEP_MARGIN = 0.15
 
 local function apply(self, shown)
 	self.shown = shown
@@ -26,8 +30,93 @@ local function apply(self, shown)
 	end
 end
 
-function VisibilityGroup.SetLocator(locator)
-	VisibilityGroup.locator = locator
+function VisibilityGroup:SetBoxes(boxes)
+	self.Boxes = boxes
+	self.bounds = nil
+
+	if not boxes or not boxes[1] then return end
+
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+	for i = 1, #boxes, 6 do
+		min_x, min_y, min_z = math.min(min_x, boxes[i]),
+		math.min(min_y, boxes[i + 1]),
+		math.min(min_z, boxes[i + 2])
+		max_x, max_y, max_z = math.max(max_x, boxes[i + 3]),
+		math.max(max_y, boxes[i + 4]),
+		math.max(max_z, boxes[i + 5])
+	end
+
+	self.bounds = {min_x, min_y, min_z, max_x, max_y, max_z}
+	VisibilityGroup.has_boxes = true
+end
+
+function VisibilityGroup.Locate(position)
+	local x, y, z = position.x, position.y, position.z
+	local best, best_volume
+
+	for _, group in ipairs(VisibilityGroup.Instances) do
+		local bounds = group.bounds
+
+		if
+			bounds and
+			x >= bounds[1] and
+			y >= bounds[2] and
+			z >= bounds[3] and
+			x <= bounds[4] and
+			y <= bounds[5] and
+			z <= bounds[6]
+		then
+			local boxes = group.Boxes
+
+			for i = 1, #boxes, 6 do
+				if
+					x >= boxes[i] and
+					y >= boxes[i + 1] and
+					z >= boxes[i + 2] and
+					x <= boxes[i + 3] and
+					y <= boxes[i + 4] and
+					z <= boxes[i + 5]
+				then
+					local volume = (
+							boxes[i + 3] - boxes[i]
+						) * (
+							boxes[i + 4] - boxes[i + 1]
+						) * (
+							boxes[i + 5] - boxes[i + 2]
+						)
+
+					if not best_volume or volume < best_volume then
+						best, best_volume = group, volume
+					end
+				end
+			end
+		end
+	end
+
+	if best then return best end
+
+	local active = VisibilityGroup.active
+
+	if active and active.bounds then
+		local boxes = active.Boxes
+
+		for i = 1, #boxes, 6 do
+			if
+				x >= boxes[i] - KEEP_MARGIN and
+				y >= boxes[i + 1] - KEEP_MARGIN and
+				z >= boxes[i + 2] - KEEP_MARGIN and
+				x <= boxes[i + 3] + KEEP_MARGIN and
+				y <= boxes[i + 4] + KEEP_MARGIN and
+				z <= boxes[i + 5] + KEEP_MARGIN
+			then
+				return nil
+			end
+		end
+	end
+
+	return false
 end
 
 function VisibilityGroup.GetActive()
@@ -62,10 +151,8 @@ end
 
 function VisibilityGroup:OnFirstCreated()
 	event.AddListener("Update", "visibility_groups", function()
-		local locator = VisibilityGroup.locator
-
-		if locator then
-			local group = locator(render3d.GetCamera():GetPosition())
+		if VisibilityGroup.has_boxes then
+			local group = VisibilityGroup.Locate(render3d.GetCamera():GetPosition())
 
 			if group ~= nil then VisibilityGroup.SetActive(group or nil) end
 		end

@@ -136,7 +136,16 @@ function map_scene.Translate(data, map_name, map_path)
 	add{
 		guid = root_guid,
 		properties = {Name = map_name},
-		components = {transform = {}, bsp_world = {Path = map_path}},
+		components = {
+			transform = {},
+			static_world = {
+				Pak = map_path,
+				Texinfos = data.world.Texinfos,
+				Brushes = data.world.Brushes,
+				Displacements = data.world.Displacements,
+				Baked = data.world.Baked,
+			},
+		},
 	}
 
 	if RENDER_3D then
@@ -158,7 +167,10 @@ function map_scene.Translate(data, map_name, map_path)
 				guid = guid,
 				parent = root_guid,
 				properties = {Name = "visibility_group_" .. id},
-				components = {transform = {}, visibility_group = RENDER_3D and {} or nil},
+				components = {
+					transform = {},
+					visibility_group = RENDER_3D and {Boxes = data.visibility.group_boxes[id]} or nil,
+				},
 			}
 		end
 
@@ -179,6 +191,10 @@ function map_scene.Translate(data, map_name, map_path)
 		end
 
 		return guid
+	end
+
+	for id = 1, data.visibility.group_count do
+		get_container(id)
 	end
 
 	local entries = {}
@@ -361,6 +377,30 @@ function map_scene.Translate(data, map_name, map_path)
 		end
 
 		if entry_index % 50 == 0 then tasks.Wait() end
+	end
+
+	if RENDER_3D then
+		for index, decal in ipairs(data.decals) do
+			add{
+				guid = root_guid .. ":decal:" .. index,
+				parent = get_sub_group(get_container(decal.Group > 0 and decal.Group or nil), "decals"),
+				properties = {Name = decal.Texname},
+				components = {
+					transform = {Position = units.PositionToEngine(decal.Origin)},
+					decal = {
+						Mode = decal.Mode,
+						Texname = decal.Texname,
+						Origin = decal.Origin,
+						Normal = decal.Normal,
+						UVPoints = decal.UVPoints,
+						URange = decal.URange,
+						VRange = decal.VRange,
+						Size = decal.Size,
+						Targets = decal.Targets,
+					},
+				},
+			}
+		end
 	end
 
 	for index, info in ipairs(data.water_volumes or {}) do

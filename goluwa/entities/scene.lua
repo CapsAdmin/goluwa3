@@ -86,7 +86,15 @@ local function serialize_properties(object)
 end
 
 local function is_transient_entity(entity)
-	return entity:GetTransient()
+	if entity:GetTransient() then return true end
+
+	for _, component in pairs(entity.component_map) do
+		if component.ShouldSerializeEntity and not component:ShouldSerializeEntity() then
+			return true
+		end
+	end
+
+	return false
 end
 
 local function serialize_entity(entity, parent_guid, out)
@@ -283,11 +291,59 @@ function scene.GetPath(name)
 	return scene.GetDirectory() .. name .. ".luadata"
 end
 
+do
+	local CHUNK_SIZE = 500
+	local SEPARATOR = "\0"
+
+	-- a luadata chunk is compiled as one lua function, which can only hold so many constants,
+	-- so the records are written as separate chunks
+	function scene.EncodeData(data)
+		local parts = {luadata.Encode({version = data.version})}
+		local records = data.entities
+
+		for first = 1, #records, CHUNK_SIZE do
+			local chunk = {}
+
+			for i = first, math.min(first + CHUNK_SIZE - 1, #records) do
+				chunk[#chunk + 1] = records[i]
+			end
+
+			parts[#parts + 1] = luadata.Encode({entities = chunk})
+		end
+
+		return table.concat(parts, SEPARATOR)
+	end
+
+	function scene.DecodeData(str)
+		local data
+		local position = 1
+
+		while position <= #str + 1 do
+			local stop = str:find(SEPARATOR, position, true) or #str + 1
+			local part, err = luadata.Decode(str:sub(position, stop - 1))
+
+			if not part then return nil, err end
+
+			if not data then
+				data = {version = part.version, entities = {}}
+			else
+				for _, record in ipairs(part.entities) do
+					data.entities[#data.entities + 1] = record
+				end
+			end
+
+			position = stop + 1
+		end
+
+		return data
+	end
+end
+
 function scene.Save(name)
 	local data = scene.Serialize()
 	local path = scene.GetPath(name)
 	vfs.CreateDirectoriesFromPath(path, true)
-	local ok, err = vfs.Write(path, luadata.Encode(data))
+	local ok, err = vfs.Write(path, scene.EncodeData(data))
 
 	if not ok then
 		error("failed to save scene " .. name .. ": " .. tostring(err), 0)
@@ -303,7 +359,7 @@ local function read_scene(name)
 		error("failed to read scene " .. name .. ": " .. tostring(err), 0)
 	end
 
-	local data, decode_err = luadata.Decode(str)
+	local data, decode_err = scene.DecodeData(str)
 
 	if not data then
 		error("failed to decode scene " .. name .. ": " .. tostring(decode_err), 0)

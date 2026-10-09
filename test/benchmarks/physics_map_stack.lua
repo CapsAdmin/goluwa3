@@ -189,7 +189,7 @@ end
 -- the map's collision body is built after the scene reports idle, so wait for it explicitly
 local function has_world_body()
 	for _, body in ipairs(RigidBody.Instances) do
-		if body.Owner and body.Owner:HasComponent("bsp_world") then return true end
+		if body.Owner and body.Owner:HasComponent("static_world") then return true end
 	end
 
 	return false

@@ -25,25 +25,6 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_PLAYERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
-
-local function build_bounds_from_vertices(vertices)
-	if not (vertices and vertices[1]) then return nil end
-
-	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-
-	for _, vertex in ipairs(vertices) do
-		local pos = vertex.pos
-
-		if type(pos) == "cdata" then
-			bounds:ExpandVec3(pos)
-		else
-			bounds:ExpandVec3(Vec3(pos[1], pos[2], pos[3]))
-		end
-	end
-
-	return bounds
-end
-
 local source_pos_to_engine = units.PositionToEngine
 local source_plane_to_engine = units.PlaneToEngine
 local source_height_to_engine_y = units.LengthToEngine
@@ -139,44 +120,6 @@ local function build_primitive_from_hull(hull, brush_planes)
 	}
 end
 
-local function build_source_model_from_meshes(meshes, owner)
-	local source_model = {
-		Owner = owner,
-		Visible = true,
-		WorldSpaceVertices = true,
-		Primitives = {},
-		AABB = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge),
-	}
-
-	for _, data in ipairs(meshes or {}) do
-		local mesh = data.mesh
-		local vertices = mesh and
-			mesh.Vertices or
-			mesh and
-			mesh.GetVertices and
-			mesh:GetVertices()
-			or
-			mesh
-
-		if vertices and vertices[1] then
-			local polygon = mesh and mesh.Vertices and mesh or {Vertices = vertices}
-			local primitive_bounds = mesh and mesh.AABB or build_bounds_from_vertices(vertices)
-
-			if primitive_bounds then
-				source_model.Primitives[#source_model.Primitives + 1] = {
-					polygon3d = polygon,
-					aabb = primitive_bounds,
-				}
-				source_model.AABB:Expand(primitive_bounds)
-			end
-		end
-	end
-
-	if not source_model.Primitives[1] then return nil end
-
-	return source_model
-end
-
 local function get_model_brush_set(header, model_index)
 	local set = {}
 	local stack = {header.models[model_index + 1].headnode}
@@ -204,109 +147,6 @@ local function get_model_brush_set(header, model_index)
 	end
 
 	return set
-end
-
-local function get_world_collision_brushes(header)
-	local indices = {}
-
-	for index in pairs(get_model_brush_set(header, 0)) do
-		indices[#indices + 1] = index
-	end
-
-	table.sort(indices)
-	local brushes = {}
-
-	for _, index in ipairs(indices) do
-		local brush = header.brushes[index + 1]
-
-		if is_collidable_brush(brush) then brushes[#brushes + 1] = brush end
-	end
-
-	return brushes
-end
-
-local function build_bsp_brush_model(header, owner)
-	local model = {
-		Owner = owner,
-		Visible = true,
-		WorldSpaceVertices = true,
-		Primitives = {},
-		AABB = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge),
-	}
-
-	for _, brush in ipairs(get_world_collision_brushes(header)) do
-		local brush_planes = {}
-
-		for i, plane in ipairs(get_brush_planes(header, brush)) do
-			brush_planes[i] = source_plane_to_engine(plane)
-		end
-
-		local primitive = build_primitive_from_hull(build_brush_hull(brush_planes), brush_planes)
-
-		if primitive and primitive.aabb then
-			model.Primitives[#model.Primitives + 1] = primitive
-			model.AABB:Expand(primitive.aabb)
-		end
-	end
-
-	if not model.Primitives[1] then return nil end
-
-	return model
-end
-
-local function build_bsp_physics_body(header, render_meshes, displacement_meshes, owner)
-	local collidable_brushes = #get_world_collision_brushes(header)
-	local brush_model = build_bsp_brush_model(header, owner)
-	local render_model = build_source_model_from_meshes(render_meshes, owner)
-	local shapes = {}
-	local mode = "empty"
-	local primitive_count = 0
-	local displacement_primitives = displacement_meshes and #displacement_meshes or 0
-
-	if brush_model then
-		shapes[#shapes + 1] = {Model = brush_model}
-		primitive_count = primitive_count + #brush_model.Primitives
-		mode = "brushes"
-	end
-
-	if displacement_meshes and displacement_meshes[1] then
-		for _, shape in ipairs(displacement_meshes) do
-			shapes[#shapes + 1] = shape
-		end
-
-		primitive_count = primitive_count + displacement_primitives
-		mode = mode == "brushes" and "brushes+displacements" or "displacements"
-	end
-
-	if not shapes[1] and render_model then
-		shapes[#shapes + 1] = {Model = render_model}
-		primitive_count = #render_model.Primitives
-		mode = "render_fallback"
-	end
-
-	if not shapes[1] then
-		return nil,
-		{
-			mode = mode,
-			collidable_brushes = collidable_brushes,
-			displacement_primitives = displacement_primitives,
-			primitives = primitive_count,
-		}
-	end
-
-	return {
-		Shapes = shapes,
-		MotionType = "static",
-		Friction = 0.85,
-		Restitution = 0,
-		WorldGeometry = true,
-	},
-	{
-		mode = mode,
-		collidable_brushes = collidable_brushes,
-		displacement_primitives = displacement_primitives,
-		primitives = primitive_count,
-	}
 end
 
 local collect_water_volumes
@@ -529,14 +369,12 @@ local function get_displacement_corners(header, info)
 	return corners, start_corner
 end
 
-local function build_displacement_collision_shape(positions, dims)
-	local scale = units.meters
+local function build_displacement_polygon(points, dims)
 	local poly = Polygon3D.New()
 	local vertices = poly.Vertices
 
 	for i = 1, dims * dims do
-		local pos = positions[i]
-		vertices[i] = {pos = Vec3(-pos.y * scale, pos.z * scale, -pos.x * scale)}
+		vertices[i] = {pos = points[i]}
 	end
 
 	local indices = {}
@@ -559,12 +397,41 @@ local function build_displacement_collision_shape(positions, dims)
 	return {Polygon3D = poly}
 end
 
+local function build_displacement_collision_shape(positions, dims)
+	local points = {}
+
+	for i = 1, dims * dims do
+		points[i] = source_pos_to_engine(positions[i])
+	end
+
+	return build_displacement_polygon(points, dims)
+end
+
 collision.BSP_CONTENTS_SOLID = BSP_CONTENTS_SOLID
-collision.build_bsp_physics_body = build_bsp_physics_body
 collision.build_displacement_collision_shape = build_displacement_collision_shape
+collision.build_displacement_polygon = build_displacement_polygon
 collision.get_displacement_corners = get_displacement_corners
 collision.collect_water_volumes = collect_water_volumes
 collision.get_model_lowest_point = get_model_lowest_point
+collision.get_model_brush_set = get_model_brush_set
+collision.is_collidable_brush = is_collidable_brush
+
+function collision.build_brush_primitive(brush_planes)
+	return build_primitive_from_hull(build_brush_hull(brush_planes), brush_planes)
+end
+
+function collision.update_brush_primitive(primitive, brush_planes)
+	local updated = build_primitive_from_hull(build_brush_hull(brush_planes), brush_planes)
+
+	if not updated then return false end
+
+	primitive.brush_planes = updated.brush_planes
+	primitive.brush_hull = updated.brush_hull
+	primitive.mesh_shape_brush_polygon = nil
+	primitive.aabb = updated.aabb
+	return true
+end
+
 collision.get_face_first_source_height = get_face_first_source_height
 collision.source_pos_to_engine = source_pos_to_engine
 collision.source_height_to_engine_y = source_height_to_engine_y

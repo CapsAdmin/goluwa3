@@ -32,7 +32,11 @@ function Entity.GetValidComponents()
 			valid_components.atmosphere_controller = import("goluwa/entities/components/atmosphere_controller.lua")
 		end
 
-		valid_components.bsp_world = import("goluwa/entities/components/bsp_world.lua")
+		valid_components.static_world = import("goluwa/entities/components/static_world.lua")
+		valid_components.brush = import("goluwa/entities/components/brush.lua")
+		valid_components.brush_side = import("goluwa/entities/components/brush_side.lua")
+		valid_components.displacement = import("goluwa/entities/components/displacement.lua")
+		valid_components.decal = import("goluwa/entities/components/decal.lua")
 		valid_components.cry_level = import("goluwa/entities/components/cry_level.lua")
 	end
 

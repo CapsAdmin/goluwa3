@@ -5,6 +5,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local input = import("goluwa/input.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
+local static_world = import("goluwa/entities/components/static_world.lua")
 local highlight = import("lua/highlight.lua")
 local Gizmo = import("lua/gizmo.lua")
 local event = import("goluwa/event.lua")
@@ -128,6 +129,22 @@ function picker.find_3d_pick_target(mouse_pos)
 	local fallback_hit = find_nonvisual_entity_hit(mouse_pos, ray_origin, ray_direction, math.huge)
 
 	if fallback_hit then return fallback_hit.entity end
+
+	local world = static_world.GetActive()
+
+	if world then
+		local geometry_entity, geometry_distance = world:PickGeometry(ray_origin, ray_direction)
+
+		if
+			geometry_entity and
+			(
+				not visual_hit or
+				geometry_distance <= visual_hit.distance + 0.01
+			)
+		then
+			return geometry_entity
+		end
+	end
 
 	if visual_hit then
 		local entity = visual_hit.primitive.entity

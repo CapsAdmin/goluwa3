@@ -18,27 +18,14 @@ local lights = import("goluwa/source_engine/lights.lua")
 local source_engine = {}
 
 local function wait_for_map(path)
-	local done, failed = false, false
+	local ok, result = pcall(bsp.Load, path)
 
-	model_loader.LoadModel(
-		path,
-		function()
-			done = true
-		end,
-		nil,
-		function(err)
-			wlog("failed to load map " .. path .. ": " .. err)
-			done, failed = true, true
-		end
-	)
-
-	while not done do
-		tasks.Wait()
+	if not ok then
+		wlog("failed to load map " .. path .. ": " .. tostring(result))
+		return nil
 	end
 
-	if failed then return nil end
-
-	return bsp.resolved[path]
+	return result
 end
 
 function source_engine.Load(name)

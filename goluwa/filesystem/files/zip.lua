@@ -9,15 +9,20 @@ local CONTEXT = objects.CreateTemplate("file_system_zip")
 CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
 CONTEXT.Name = "zip archive"
 CONTEXT.Extension = {"zip", "love", "cry"}
+CONTEXT.ArchiveReadPrefix = "os:"
 
 function CONTEXT:OnParseArchive(file, archive_path)
 	if VERBOSE then print("ZIP: Parsing archive:", archive_path) end
 
+	file:SetPosition(0)
+	return self:ParseZipData(file:ReadBytes(file:GetSize()), archive_path, 0)
+end
+
+-- file_data is the zip, base_offset is where it starts inside the archive file (non zero when the zip is embedded)
+function CONTEXT:ParseZipData(file_data, archive_path, base_offset)
 	local LOCAL_FILE_HEADER_SIG = 0x04034b50
 	local CENTRAL_DIR_HEADER_SIG = 0x02014b50
 	local END_CENTRAL_DIR_SIG = 0x06054b50
-	file:SetPosition(0)
-	local file_data = file:ReadBytes(file:GetSize())
 	local buffer = Buffer.New(file_data, #file_data)
 	local size = buffer:GetSize()
 	local searchStart = math.max(0, size - 65557)
@@ -115,7 +120,8 @@ function CONTEXT:OnParseArchive(file, archive_path)
 			buffer:SetPosition(savedPos)
 			entry.full_path = entry.fileName
 			entry.size = entry.compressionMethod == 0 and entry.compressedSize or entry.uncompressedSize
-			entry.archive_path = "os:" .. archive_path
+			entry.offset = entry.offset + base_offset
+			entry.archive_path = self.ArchiveReadPrefix .. archive_path
 
 			if VERBOSE and i <= 3 then
 				print("ZIP: Adding entry:", entry.full_path, "size:", entry.size)
@@ -131,7 +137,7 @@ function CONTEXT:OnParseArchive(file, archive_path)
 end
 
 function CONTEXT:TranslateArchivePath(file_info, archive_path)
-	return file_info.archive_path or ("os:" .. archive_path)
+	return file_info.archive_path or (self.ArchiveReadPrefix .. archive_path)
 end
 
 function CONTEXT:Open(path_info, mode, ...)

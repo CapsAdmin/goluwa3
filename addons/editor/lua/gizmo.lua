@@ -1708,6 +1708,14 @@ function gizmo.EnableGizmo(entity)
 
 	if state.gizmo_entity == next_entity then return next_entity end
 
+	if next_entity and next_entity.brush then
+		next_entity.brush:CreateSides()
+	elseif next_entity and next_entity.displacement then
+		next_entity.displacement:Activate()
+	elseif next_entity and next_entity.decal then
+		next_entity.decal:Activate()
+	end
+
 	state.gizmo_entity = next_entity
 	state.hovered_handle = nil
 	state.active_drag = nil

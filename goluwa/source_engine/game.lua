@@ -49,6 +49,35 @@ function game.EnsureMounted(path)
 	end
 end
 
+do
+	local mounted = {}
+
+	-- mounts the pakfile embedded in a bsp so the materials, textures and models it ships with can be found
+	function game.MountMapPak(path)
+		game.EnsureMounted(path)
+		local full = vfs.GetAbsolutePath(path)
+
+		if not full then return false end
+
+		if mounted[full] then return true end
+
+		if not vfs.IsDirectory(full) then return false end
+
+		vfs.Mount(full)
+		mounted[full] = true
+		return true
+	end
+
+	function game.UnmountMapPak(path)
+		local full = vfs.GetAbsolutePath(path)
+
+		if not full or not mounted[full] then return end
+
+		mounted[full] = nil
+		vfs.Unmount("bsp pakfile:" .. full)
+	end
+end
+
 function game.FindMap(name)
 	local path = game.GetMapPath(name)
 	game.EnsureMounted(path)

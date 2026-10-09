@@ -82,6 +82,14 @@ end
 local never
 local modified_cache = {}
 
+function CONTEXT:OpenArchive(archive_path)
+	return vfs.Open("os:" .. archive_path)
+end
+
+function CONTEXT:GetArchiveVersion(archive_path)
+	return vfs.GetLastModified(archive_path) or ""
+end
+
 function CONTEXT:GetFileTree(path_info)
 	if never then return false, "recursive call to GetFileTree" end
 
@@ -109,8 +117,8 @@ function CONTEXT:GetFileTree(path_info)
 	local now = os.time()
 
 	if not modified or now - modified.checked >= 2 then
-		never = true
-		modified = {value = vfs.GetLastModified(archive_path) or "", checked = now}
+		never = not self.NestedArchives
+		modified = {value = self:GetArchiveVersion(archive_path), checked = now}
 		never = false
 		modified_cache[archive_path] = modified
 	end
@@ -141,8 +149,8 @@ function CONTEXT:GetFileTree(path_info)
 		end
 	end
 
-	never = true
-	local file, err = vfs.Open("os:" .. archive_path)
+	never = not self.NestedArchives
+	local file, err = self:OpenArchive(archive_path)
 	never = false
 
 	if not file then return false, err end

@@ -299,7 +299,7 @@ local env = {
 function luadata.Decode(str, nojail)
 	local func, err = loadstring(string.format("return { %s }", str), "luadata_decode")
 
-	if not func then return nil, func end
+	if not func then return nil, err end
 
 	if not nojail then
 		setfenv(func, env)
