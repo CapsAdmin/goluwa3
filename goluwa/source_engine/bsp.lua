@@ -1,4 +1,4 @@
-local vmt_material = import("goluwa/source_engine/vmt_material.lua")
+local vmt_loader = import("goluwa/source_engine/vmt.lua")
 local vfs = import("goluwa/vfs.lua")
 local game = import("goluwa/source_engine/game.lua")
 local tasks = import("goluwa/tasks.lua")
@@ -1164,75 +1164,75 @@ function bsp.Load(path)
 			end
 		end
 
-		if RENDER_2D then
-			local sizes = {}
-			local world_model = header.models[1]
+		local sizes = {}
+		local world_model = header.models[1]
 
-			for _, ent in ipairs(header.entities) do
-				if ent.classname == "infodecal" and ent.texture and not ent.model_size_mult then
-					local size = sizes[ent.texture]
+		for _, ent in ipairs(header.entities) do
+			if ent.classname == "infodecal" and ent.texture and not ent.model_size_mult then
+				local size = sizes[ent.texture]
 
-					if size == nil then
-						size = false
-						local material = vmt_material.FromVMT("materials/" .. ent.texture .. ".vmt")
-						local vmt = material.vmt
-						local data = vmt and vmt.basetexture and vfs.Read(vmt.basetexture)
+				if size == nil then
+					size = false
+					local vmt
+					vmt_loader.Load("materials/" .. ent.texture .. ".vmt", function(loaded)
+						vmt = loaded
+					end):TryGet()
+					local data = vmt and vmt.basetexture and vfs.Read(vmt.basetexture)
 
-						if data then
-							local scale = tonumber(vmt.decalscale) or 1
-							size = {
-								(
-									data:byte(17) + data:byte(18) * 256
-								) * scale,
-								(
-									data:byte(19) + data:byte(20) * 256
-								) * scale,
-							}
-						end
-
-						sizes[ent.texture] = size
+					if data then
+						local scale = tonumber(vmt.decalscale) or 1
+						size = {
+							(
+								data:byte(17) + data:byte(18) * 256
+							) * scale,
+							(
+								data:byte(19) + data:byte(20) * 256
+							) * scale,
+						}
 					end
 
-					if size then
-						local targets = {}
-						local group
+					sizes[ent.texture] = size
+				end
 
-						for i = 1, world_model.numfaces do
-							local face = header.faces[world_model.firstface + i]
-							local plane = header.planes[face.planenum + 1]
+				if size then
+					local targets = {}
+					local group
 
-							if math.abs(plane.normal:Dot(ent.origin) - plane.dist) < 1.5 then
-								local resolved = resolve_face(world_model.firstface + i - 1)
+					for i = 1, world_model.numfaces do
+						local face = header.faces[world_model.firstface + i]
+						local plane = header.planes[face.planenum + 1]
 
-								if resolved then
-									if resolved.Displacement then
-										list.insert(targets, {Displacements = {resolved.Displacement}})
-									else
-										list.insert(targets, {Brush = resolved.Brush, Side = resolved.Side})
-									end
+						if math.abs(plane.normal:Dot(ent.origin) - plane.dist) < 1.5 then
+							local resolved = resolve_face(world_model.firstface + i - 1)
 
-									group = group or resolved.Group
+							if resolved then
+								if resolved.Displacement then
+									list.insert(targets, {Displacements = {resolved.Displacement}})
+								else
+									list.insert(targets, {Brush = resolved.Brush, Side = resolved.Side})
 								end
+
+								group = group or resolved.Group
 							end
 						end
-
-						if targets[1] then
-							list.insert(
-								decals,
-								{
-									Mode = "infodecal",
-									Texname = ent.texture,
-									Origin = ent.origin,
-									Size = size,
-									Targets = targets,
-									Group = group or 0,
-								}
-							)
-						end
 					end
 
-					tasks.Wait()
+					if targets[1] then
+						list.insert(
+							decals,
+							{
+								Mode = "infodecal",
+								Texname = ent.texture,
+								Origin = ent.origin,
+								Size = size,
+								Targets = targets,
+								Group = group or 0,
+							}
+						)
+					end
 				end
+
+				tasks.Wait()
 			end
 		end
 	end

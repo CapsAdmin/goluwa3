@@ -28,6 +28,8 @@ local Column = import("goluwa/render2d/ui/elements/column.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local nearby = import("lua/nearby.lua")
 local scene = import("goluwa/entities/scene.lua")
+local network = import("goluwa/network/network.lua")
+local scene_sync = import("goluwa/network/scene_sync.lua")
 local name_prompt = import("lua/name_prompt.lua")
 local vfs = import("goluwa/vfs.lua")
 local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
@@ -528,6 +530,26 @@ return function(props)
 										Text = "Clone",
 										OnClick = function()
 											set_selected_target(scene.Clone(entity))
+										end,
+									} or
+									nil,
+									can_create_shapes and
+									can_remove and
+									network.IsConnected() and
+									MenuItem{
+										Text = "Send to server",
+										OnClick = function()
+											scene_sync.Push(entity)
+										end,
+									} or
+									nil,
+									can_create_shapes and
+									can_remove and
+									network.IsConnected() and
+									MenuItem{
+										Text = "Remove on server",
+										OnClick = function()
+											scene_sync.RemoveOnServer(entity)
 										end,
 									} or
 									nil,

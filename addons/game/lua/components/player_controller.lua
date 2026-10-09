@@ -176,6 +176,16 @@ function META:Start(position)
 	self.synced = true
 end
 
+function META:Spawn(position, rotation)
+	self:Start(position)
+	local player_input = self.Owner.player_input
+
+	if player_input then
+		player_input:SetRotation(rotation)
+		player_input.Pitch = 0
+	end
+end
+
 function META:IsWaitingForServer()
 	return self.Networked and CLIENT and network.IsConnected() and not self.synced
 end

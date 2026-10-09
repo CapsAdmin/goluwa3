@@ -129,6 +129,12 @@ local function serialize_entity(entity, parent_guid, out)
 		end
 	end
 
+	if entity.unavailable_components then
+		for name, properties in pairs(entity.unavailable_components) do
+			components[name] = properties
+		end
+	end
+
 	record.components = components
 	out[#out + 1] = record
 	local model_children
@@ -214,6 +220,23 @@ local function sorted_component_names(components)
 	return names
 end
 
+-- components this process cannot create, a headless server has no render components, are kept as plain data so the scene stays whole
+local function split_available(components, valid_components)
+	local available = {}
+	local unavailable
+
+	for name, properties in pairs(components) do
+		if valid_components[name] then
+			available[name] = properties
+		else
+			unavailable = unavailable or {}
+			unavailable[name] = properties
+		end
+	end
+
+	return available, unavailable
+end
+
 local function has_singleton_component(components)
 	local valid_components = Entity.GetValidComponents()
 
@@ -239,14 +262,10 @@ function scene.Deserialize(data, parent, options)
 			tasks.Wait()
 		end
 
-		local components = record.components
+		local components, unavailable = record.components, nil
 
 		if options.skip_unavailable then
-			components = {}
-
-			for name, properties in pairs(record.components) do
-				if valid_components[name] then components[name] = properties end
-			end
+			components, unavailable = split_available(record.components, valid_components)
 		end
 
 		local existing = objects.GetObjectByGUID(record.guid)
@@ -279,6 +298,7 @@ function scene.Deserialize(data, parent, options)
 			end
 
 			apply_properties(entity, record.properties, "entity")
+			entity.unavailable_components = unavailable
 
 			for _, name in ipairs(sorted_component_names(components)) do
 				local component = entity:HasComponent(name) and entity[name] or entity:AddComponent(name)
@@ -297,6 +317,108 @@ function scene.Deserialize(data, parent, options)
 	end
 
 	return roots, spawned
+end
+
+do
+	local function sync_state(object, properties, what)
+		for _, info in ipairs(objects.GetStorableVariables(object)) do
+			if
+				info.default ~= nil and
+				(
+					not properties or
+					properties[info.var_name] == nil
+				)
+				and
+				not values_equal(object[info.get_name](object), info.default)
+			then
+				object[info.set_name](object, info.copy and info.copy() or info.default)
+			end
+		end
+
+		apply_properties(object, properties, what)
+	end
+
+	function scene.Apply(data, parent, options)
+		options = options or {}
+		local valid_components = Entity.GetValidComponents()
+		local spawned = {}
+		local present = {}
+		local roots = {}
+
+		for _, record in ipairs(data.entities) do
+			local components, unavailable = record.components, nil
+
+			if options.skip_unavailable then
+				components, unavailable = split_available(record.components, valid_components)
+			end
+
+			local entity = objects.GetObjectByGUID(record.guid)
+			local wanted_parent = record.parent and spawned[record.parent] or parent
+
+			if not (entity and entity:IsValid()) then
+				entity = Entity.New{Parent = wanted_parent}
+				entity:SetTransient(false)
+				entity:SetGUID(record.guid)
+			elseif not record.parent and entity:GetParent() ~= wanted_parent then
+				entity:SetParent(wanted_parent)
+			end
+
+			sync_state(entity, record.properties, "entity")
+			entity.unavailable_components = unavailable
+
+			for _, name in ipairs(sorted_component_names(components)) do
+				local component = entity:HasComponent(name) and entity[name] or entity:AddComponent(name)
+				sync_state(component, components[name], name)
+
+				if component.OnDeserialized then component:OnDeserialized() end
+			end
+
+			local stale = {}
+
+			for name, component in pairs(entity.component_map) do
+				if
+					not record.components[name] and
+					not TRANSIENT_COMPONENTS[name] and
+					not (
+						entity.model and
+						name == "visual"
+					)
+					and
+					(
+						not component.ShouldSerialize or
+						component:ShouldSerialize()
+					)
+				then
+					stale[#stale + 1] = name
+				end
+			end
+
+			for _, name in ipairs(stale) do
+				entity:RemoveComponent(name)
+			end
+
+			present[record.guid] = true
+			spawned[record.guid] = entity
+
+			if not record.parent then roots[#roots + 1] = entity end
+		end
+
+		for _, entity in pairs(spawned) do
+			local stale = {}
+
+			for _, child in ipairs(entity:GetChildren()) do
+				if not present[child:GetGUID()] and not child:GetTransient() and not child.network then
+					stale[#stale + 1] = child
+				end
+			end
+
+			for _, child in ipairs(stale) do
+				child:Remove()
+			end
+		end
+
+		return roots, spawned
+	end
 end
 
 function scene.GetDirectory()
@@ -453,6 +575,44 @@ do
 		return out
 	end
 
+	local function write_strings(buffer, list)
+		buffer:WriteVariableSizedInteger(#list)
+
+		for _, str in ipairs(list) do
+			buffer:WriteVariableSizedInteger(#str)
+			buffer:WriteBytes(str)
+		end
+	end
+
+	local function read_strings(buffer)
+		local strings = {}
+
+		for i = 1, buffer:ReadULEB128() do
+			strings[i] = buffer:ReadBytes(buffer:ReadULEB128())
+		end
+
+		return strings
+	end
+
+	function scene.IsSerializable(value)
+		return is_serializable(value, 0)
+	end
+
+	function scene.EncodeValue(value)
+		local strings = {index = {}, list = {}}
+		local body = Buffer.New(nil, 256):MakeWritable()
+		write_value(body, strings, value)
+		local out = Buffer.New(nil, 256):MakeWritable()
+		write_strings(out, strings.list)
+		out:WriteBytes(body:GetStringSlice(0, body:GetPosition() - 1))
+		return out:GetStringSlice(0, out:GetPosition() - 1)
+	end
+
+	function scene.DecodeValue(str)
+		local buffer = Buffer.New(str)
+		return read_value(buffer, read_strings(buffer))
+	end
+
 	function scene.Encode(data)
 		local strings = {index = {}, list = {}}
 		local records = Buffer.New(nil, 65536):MakeWritable()
@@ -478,13 +638,7 @@ do
 		end
 
 		local payload = Buffer.New(nil, 65536):MakeWritable()
-		payload:WriteVariableSizedInteger(#strings.list)
-
-		for _, str in ipairs(strings.list) do
-			payload:WriteVariableSizedInteger(#str)
-			payload:WriteBytes(str)
-		end
-
+		write_strings(payload, strings.list)
 		payload:WriteBytes(records:GetStringSlice(0, records:GetPosition() - 1))
 		local payload_string = payload:GetStringSlice(0, payload:GetPosition() - 1)
 		local header = Buffer.New(nil, HEADER_SIZE):MakeWritable()
@@ -514,12 +668,7 @@ do
 			crypto.CRC32Bytes(buffer:GetBuffer() + HEADER_SIZE, size) == checksum,
 			"scene checksum mismatch"
 		)
-		local strings = {}
-
-		for i = 1, buffer:ReadULEB128() do
-			strings[i] = buffer:ReadBytes(buffer:ReadULEB128())
-		end
-
+		local strings = read_strings(buffer)
 		local records = {}
 
 		for i = 1, buffer:ReadULEB128() do

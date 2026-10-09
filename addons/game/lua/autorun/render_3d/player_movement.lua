@@ -6,6 +6,8 @@ local input = import("goluwa/input.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
+local network = import("goluwa/network/network.lua")
+local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
 Entity.RegisterComponent("camera", import("lua/components/camera.lua"))
 Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
 local current = Entity.World:GetKeyed("player_camera_rig")
@@ -77,4 +79,18 @@ event.AddListener("Update", "flashlight", function()
 	end
 
 	f_was_down = f_down
+end)
+
+-- the player exists before the map does, so it is placed once on the first spawn point that shows up, unless a server decides that
+-- it starts in fly mode, where the transform is the eye
+event.AddListener("Update", "player_spawn_point", function()
+	local spawn = SpawnPoint.Pick("deathmatch", "start") or SpawnPoint.Pick()
+
+	if not spawn then return end
+
+	event.RemoveListener("Update", "player_spawn_point")
+
+	if network.IsConnected() then return end
+
+	rig.player_controller:Spawn(spawn:GetPlacement(rig.player_movement.EyeHeight))
 end)

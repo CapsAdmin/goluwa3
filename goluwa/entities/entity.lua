@@ -17,6 +17,8 @@ function Entity.GetValidComponents()
 		valid_components.light_point = import("goluwa/entities/components/light_point.lua")
 		valid_components.light_spot = import("goluwa/entities/components/light_spot.lua")
 		valid_components.water_volume = import("goluwa/entities/components/water_volume.lua")
+		valid_components.spawn_point = import("goluwa/entities/components/spawn_point.lua")
+		valid_components.source_light = import("goluwa/entities/components/source_light.lua")
 
 		if RENDER_3D then
 			valid_components.visual = import("goluwa/entities/components/visual.lua")
@@ -28,7 +30,6 @@ function Entity.GetValidComponents()
 			valid_components.shadow_map_directional = import("goluwa/entities/components/shadow_map_directional.lua")
 			valid_components.shadow_map_point = import("goluwa/entities/components/shadow_map_point.lua")
 			valid_components.visibility_group = import("goluwa/entities/components/visibility_group.lua")
-			valid_components.source_light = import("goluwa/entities/components/source_light.lua")
 			valid_components.atmosphere_controller = import("goluwa/entities/components/atmosphere_controller.lua")
 		end
 

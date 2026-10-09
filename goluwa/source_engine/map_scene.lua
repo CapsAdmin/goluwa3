@@ -265,6 +265,15 @@ function map_scene.Translate(data, map_name, map_path)
 	for index, info in pairs(data.entities) do
 		if info.skyname then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
+		elseif
+			info.origin and
+			(
+				info.classname:find("^info_player_") or
+				info.classname == "gmod_player_start"
+			)
+		then
+			handled[info.classname] = (handled[info.classname] or 0) + 1
+			entries[#entries + 1] = {kind = "spawn", info = info, index = index}
 		elseif info.classname and info.classname:find("light_environment") then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 		elseif info.classname:lower():find("light") and (info._lightHDR or info._light) then
@@ -355,6 +364,23 @@ function map_scene.Translate(data, map_name, map_path)
 					transform = {Position = position, Rotation = rotation},
 					[is_spot and "light_spot" or "light_point"] = light,
 					source_light = {Info = light_info},
+				},
+			}
+		elseif entry.kind == "spawn" then
+			local group = info.classname:gsub("^info_player_", ""):gsub("^gmod_player_", "")
+
+			if info.teamnum then group = group .. "_" .. info.teamnum end
+
+			add{
+				guid = guid,
+				parent = get_sub_group(get_container(info.visibility_group), "spawns"),
+				properties = {Name = info.classname},
+				components = {
+					transform = {
+						Position = units.PositionToEngine(info.origin),
+						Rotation = QuatFromAxis(math.rad(info.angles and info.angles.y or 0), axis_y),
+					},
+					spawn_point = {Group = group},
 				},
 			}
 		else

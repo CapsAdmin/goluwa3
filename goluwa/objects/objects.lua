@@ -834,6 +834,7 @@ do
 		if info.list_enums then info.list_enum_lookup = build_lookup(info.list_enums) end
 
 		if __store then
+			info.storable = true
 			meta.storable_variables = meta.storable_variables or {}
 			list.insert(meta.storable_variables, info)
 		end

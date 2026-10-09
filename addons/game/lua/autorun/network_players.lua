@@ -6,6 +6,9 @@ local timer = import("goluwa/timer.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
+local PlayerMovement = import("lua/components/player_movement.lua")
 Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
@@ -32,10 +35,19 @@ if SERVER then
 
 		if players[uid] and players[uid]:IsValid() then return end
 
+		local position = SPAWN_POSITION:Copy()
+		local rotation = Quat():Identity()
+		local spawn = SpawnPoint.Pick("deathmatch", "start") or SpawnPoint.Pick()
+
+		-- players start in fly mode, where the transform is the eye
+		if spawn then
+			position, rotation = spawn:GetPlacement(PlayerMovement.EyeHeight)
+		end
+
 		players[uid] = Entity.New{
 			Name = client:GetNick(),
 			ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
-			transform = {Position = SPAWN_POSITION:Copy()},
+			transform = {Position = position:Copy(), Rotation = rotation:Copy()},
 			player_controller = {Source = "queue"},
 			player_avatar = {},
 			network = {NetworkOwner = uid},
@@ -44,7 +56,8 @@ if SERVER then
 		players[uid].weapon_holder:Give("weapon_physgun")
 		players[uid].weapon_holder:Give("weapon_pistol")
 		local start = packet.CreateBuffer()
-		start:WriteVec3(SPAWN_POSITION)
+		start:WriteVec3(position)
+		start:WriteQuat(rotation)
 		packet.Send("player_start", start, client, "reliable")
 	end)
 
@@ -109,9 +122,10 @@ if CLIENT then
 
 	packet.AddListener("player_start", function(buffer)
 		local position = buffer:ReadVec3()
+		local rotation = buffer:ReadQuat()
 
 		for _, controller in ipairs(import("lua/components/player_controller.lua").Instances or {}) do
-			if controller:GetNetworked() then controller:Start(position) end
+			if controller:GetNetworked() then controller:Spawn(position, rotation) end
 		end
 	end)
 
