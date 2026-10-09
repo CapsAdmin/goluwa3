@@ -63,6 +63,9 @@ function META.OnSelect(node, key, path) end
 
 function META.OnAction(node, key, path) end
 
+-- extra right click items for a property of an object, a list of {Text, OnClick} or nothing
+function META.OnContextActions(object, info) end
+
 function META.OnPropertyChangeStart() end
 
 function META.OnPropertyChangeEnd() end
@@ -1022,6 +1025,36 @@ do
 		group.Children[#group.Children + 1] = node
 	end
 
+	-- an info can list extra right click items as {Text, action = function(target)}, the editor can add more
+	local function build_context_actions(editor, info, target)
+		local out
+
+		if info.context_actions then
+			out = {}
+
+			for _, action in ipairs(info.context_actions) do
+				out[#out + 1] = {
+					Text = action.Text,
+					OnClick = function()
+						action.action(target)
+					end,
+				}
+			end
+		end
+
+		local extra = editor.OnContextActions(target, info)
+
+		if extra then
+			out = out or {}
+
+			for _, action in ipairs(extra) do
+				out[#out + 1] = action
+			end
+		end
+
+		return out
+	end
+
 	local function build_property_node(editor, target, category_key, category_name, info)
 		if info.type == "action" then
 			return {
@@ -1079,6 +1112,7 @@ do
 			ShowSlider = info.slider,
 			Multiline = info.multiline,
 			AssetCategory = info.asset,
+			ContextActions = build_context_actions(editor, info, target),
 		}
 		local display_type = node_type
 
