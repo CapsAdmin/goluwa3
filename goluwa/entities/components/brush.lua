@@ -14,7 +14,6 @@ local META = objects.CreateTemplate("brush")
 META:StartStorable()
 META:GetSet("Sides", nil, {Hidden = true})
 META:GetSet("Collide", true, {callback = "OnShapeChanged"})
-META:GetSet("ClipBounds", nil, {type = "table", Hidden = true, callback = "OnShapeChanged"})
 META:EndStorable()
 -- sides are planes in source space, a static world below the brush batches and collides it
 local NORMAL_EPSILON = 0.0001
@@ -62,7 +61,6 @@ end
 function META:UpdateRecord(record)
 	record.sides = self.sides
 	record.collide = self.Collide
-	record.clip = self.ClipBounds
 end
 
 function META:Attach()

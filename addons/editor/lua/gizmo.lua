@@ -1712,6 +1712,8 @@ function gizmo.EnableGizmo(entity)
 		next_entity.brush:CreateSides()
 	elseif next_entity and next_entity.displacement then
 		next_entity.displacement:Activate()
+	elseif next_entity and next_entity.static_mesh then
+		next_entity.static_mesh:Activate()
 	elseif next_entity and next_entity.decal then
 		next_entity.decal:Activate()
 	end

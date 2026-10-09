@@ -14,7 +14,6 @@ META:GetSet("Positions", nil, {Hidden = true})
 META:GetSet("Alphas", nil, {Hidden = true})
 META:GetSet("Material", "", {asset = "materials", callback = "OnShapeChanged"})
 META:GetSet("Vecs", nil, {Hidden = true})
-META:GetSet("ClipBounds", nil, {type = "table", Hidden = true, callback = "OnShapeChanged"})
 META:EndStorable()
 -- Positions are the points of the (2^power + 1) squared grid in source space as they were when the entity was
 -- created, the entity's transform moves them from there. A static world below the displacement batches and collides it.
@@ -153,7 +152,6 @@ function META:UpdateRecord(record)
 	record.corners = self.Corners
 	record.texname = self.Material:match("^materials/(.*)%.vmt$")
 	record.vecs = self.Vecs
-	record.clip = self.ClipBounds
 	static_geometry.UpdateDisplacementBounds(record)
 	local sum = Vec3(0, 0, 0)
 

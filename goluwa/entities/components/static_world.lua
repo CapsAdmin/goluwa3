@@ -58,6 +58,7 @@ function META:ResetRuntime()
 	self.edit_dirty = {}
 	self.brush_list = {}
 	self.displacement_list = {}
+	self.mesh_list = {}
 	self.records = {}
 	self.batch_primitives = {}
 	self.collision_primitives = {}
@@ -130,8 +131,16 @@ function META:CreateRecord(component)
 	record.group = self:GetGroup(component.Owner)
 	component:UpdateRecord(record)
 	self.records[component] = record
-	list.insert(record.kind == "brush" and self.brush_list or self.displacement_list, record)
+	list.insert(self:GetList(record.kind), record)
 	return record
+end
+
+function META:GetList(kind)
+	if kind == "brush" then return self.brush_list end
+
+	if kind == "displacement" then return self.displacement_list end
+
+	return self.mesh_list
 end
 
 function META:AddSource(component)
@@ -162,8 +171,10 @@ end
 function META:EmitRecord(state, record)
 	if record.kind == "brush" then
 		static_geometry.EmitBrush(state, record)
-	else
+	elseif record.kind == "displacement" then
 		static_geometry.EmitDisplacement(state, record, static_geometry.ComputeDisplacementNormals(record))
+	else
+		static_geometry.EmitMesh(state, record)
 	end
 end
 
@@ -203,9 +214,6 @@ function META:BeginEdit(component, record)
 	entity:AddComponent("transform")
 	entity:AddComponent("visual")
 	entity.static_generated = true
-
-	if record.clip then entity.visual:SetClipBounds(record.clip) end
-
 	self.edits[component] = {
 		state = static_geometry.NewState("edit"),
 		primitives = {},
@@ -337,7 +345,7 @@ function META:Build()
 	end
 
 	self.source_list = source_list
-	local result = static_geometry.Build(self.brush_list, self.displacement_list, owner:GetName())
+	local result = static_geometry.Build(self.brush_list, self.displacement_list, self.mesh_list, owner:GetName())
 	self.batch_state = result.state
 
 	for _, decal in ipairs(self.waiting_decals) do
@@ -368,6 +376,8 @@ function META:Build()
 		" brushes, ",
 		#self.displacement_list,
 		" displacements, ",
+		#self.mesh_list,
+		" meshes, ",
 		#result.batches,
 		" batches"
 	)
@@ -381,17 +391,10 @@ function META:OnRemove()
 	if RENDER_3D then VisibilityGroup.SetActive(nil) end
 end
 
--- the entity drawing the batches of a visibility group, batches with a clip box share one entity per box
+-- the entity drawing the batches of a visibility group
 function META:GetBatchVisual(batch)
 	local container = batch.visibility_group or self.Owner
-	local by_clip = self.visual_entities[container]
-
-	if not by_clip then
-		by_clip = {}
-		self.visual_entities[container] = by_clip
-	end
-
-	local visual_entity = by_clip[batch.clip_key]
+	local visual_entity = self.visual_entities[container]
 
 	if not visual_entity then
 		visual_entity = Entity.New{Name = "world", Parent = container}
@@ -399,10 +402,7 @@ function META:GetBatchVisual(batch)
 		visual_entity:AddComponent("transform")
 		visual_entity:AddComponent("visual")
 		visual_entity.static_generated = true
-
-		if batch.clip then visual_entity.visual:SetClipBounds(batch.clip) end
-
-		by_clip[batch.clip_key] = visual_entity
+		self.visual_entities[container] = visual_entity
 		list.insert(self.visual_list, visual_entity)
 	end
 
@@ -499,7 +499,7 @@ function META:RemoveDecal(owner)
 end
 
 function META:BuildColliders()
-	local shapes, model, primitives = static_geometry.BuildColliders(self.brush_list, self.displacement_list)
+	local shapes, model, primitives = static_geometry.BuildColliders(self.brush_list, self.displacement_list, self.mesh_list)
 	model.Owner = self.Owner
 	self.collision_model = model
 	self.collision_primitives = primitives
@@ -576,7 +576,16 @@ function META:UpdateCollider(record)
 		end
 	else
 		local shape = record.collision_shape
-		local fresh = collision.build_displacement_collision_shape(record.positions, record.dims)
+
+		if record.kind == "mesh" and not record.collide then
+			if shape then self:RemoveCollider(record) end
+
+			return
+		end
+
+		local fresh = record.kind == "mesh" and
+			collision.build_triangle_soup_shape(record.positions) or
+			collision.build_displacement_collision_shape(record.positions, record.dims)
 
 		if shape then
 			shape.Polygon3D = fresh.Polygon3D
@@ -652,7 +661,7 @@ function META:Flush(now)
 	for _, record in ipairs(removed) do
 		self:ReleaseSpans(record.spans, touched)
 		self:RemoveCollider(record)
-		list.remove_value(record.kind == "brush" and self.brush_list or self.displacement_list, record)
+		list.remove_value(self:GetList(record.kind), record)
 	end
 
 	local dirty = self.dirty
@@ -790,10 +799,7 @@ do
 		local best_record, best_t = nil, (max_distance or math.huge) / units.meters
 
 		for _, record in ipairs(self.displacement_list) do
-			if
-				not record.clip and
-				ray_box(ox, oy, oz, dx, dy, dz, record.mins, record.maxs, best_t)
-			then
+			if ray_box(ox, oy, oz, dx, dy, dz, record.mins, record.maxs, best_t) then
 				local positions, dims = record.positions, record.dims
 
 				for x = 1, dims - 1 do
@@ -815,17 +821,41 @@ do
 
 		if best_record then return best_record, best_t * units.meters end
 	end
+
+	function META:PickMesh(origin, direction, max_distance)
+		local o = units.PositionFromEngine(origin)
+		local ox, oy, oz = o.x, o.y, o.z
+		local dx, dy, dz = -direction.z, -direction.x, direction.y
+		local best_record, best_t = nil, (max_distance or math.huge) / units.meters
+
+		for _, record in ipairs(self.mesh_list) do
+			if ray_box(ox, oy, oz, dx, dy, dz, record.mins, record.maxs, best_t) then
+				local positions = record.positions
+
+				for i = 1, #positions, 3 do
+					local t = ray_triangle(ox, oy, oz, dx, dy, dz, positions[i], positions[i + 1], positions[i + 2])
+
+					if t and t < best_t then best_record, best_t = record, t end
+				end
+			end
+		end
+
+		if best_record then return best_record, best_t * units.meters end
+	end
 end
 
 function META:PickGeometry(origin, direction)
-	local brush, brush_distance = self:PickBrush(origin, direction)
-	local displacement, displacement_distance = self:PickDisplacement(origin, direction)
+	local best, best_distance
 
-	if displacement and (not brush or displacement_distance <= brush_distance + 0.05) then
-		return displacement.component.Owner, displacement_distance
+	for _, pick in ipairs{self.PickBrush, self.PickDisplacement, self.PickMesh} do
+		local record, distance = pick(self, origin, direction)
+
+		if record and (not best or distance <= best_distance + 0.05) then
+			best, best_distance = record, distance
+		end
 	end
 
-	if brush then return brush.component.Owner, brush_distance end
+	if best then return best.component.Owner, best_distance end
 end
 
 return META:Register()

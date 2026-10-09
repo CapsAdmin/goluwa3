@@ -197,7 +197,7 @@ function map_scene.Translate(data, map_name, map_path)
 	end
 
 	do
-		local brushes, displacements = static_geometry.ExpandWorld(data.world)
+		local brushes, displacements, meshes = static_geometry.ExpandWorld(data.world)
 
 		for index, record in ipairs(brushes) do
 			static_geometry.UpdateBrushBounds(record)
@@ -210,12 +210,29 @@ function map_scene.Translate(data, map_name, map_path)
 					brush = {
 						Sides = world_pack.PackSides(record.sides),
 						Collide = record.collide or false,
-						ClipBounds = record.clip,
 					},
 				},
 			}
 
 			if index % 200 == 0 then tasks.Wait() end
+		end
+
+		for index, record in ipairs(meshes) do
+			add{
+				guid = root_guid .. ":mesh:" .. index,
+				parent = get_sub_group(get_container(record.group), "meshes"),
+				properties = {Name = "mesh " .. index},
+				components = {
+					transform = {Position = units.PositionToEngine((record.mins + record.maxs) / 2)},
+					static_mesh = {
+						Vertices = world_pack.PackFloats(data.world.Meshes[index].Vertices),
+						Material = "materials/" .. record.texname .. ".vmt",
+						Collide = record.collide,
+					},
+				},
+			}
+
+			if index % 20 == 0 then tasks.Wait() end
 		end
 
 		for index, record in ipairs(displacements) do
@@ -237,7 +254,6 @@ function map_scene.Translate(data, map_name, map_path)
 						Alphas = world_pack.PackFloats(record.alphas),
 						Material = "materials/" .. record.texname .. ".vmt",
 						Vecs = record.vecs,
-						ClipBounds = record.clip,
 					},
 				},
 			}
@@ -276,6 +292,7 @@ function map_scene.Translate(data, map_name, map_path)
 			info.angles and
 			info.model and
 			info.model:sub(1, 1) ~= "*" and
+			not info.dropped and
 			not info.classname:lower():find("npc")
 			and
 			info.classname ~= "env_sprite"

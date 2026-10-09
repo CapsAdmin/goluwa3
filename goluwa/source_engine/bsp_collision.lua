@@ -407,6 +407,23 @@ local function build_displacement_collision_shape(positions, dims)
 	return build_displacement_polygon(points, dims)
 end
 
+-- positions is a list of source space points, three of them make a triangle
+local function build_triangle_soup_shape(positions)
+	local poly = Polygon3D.New()
+	local vertices = poly.Vertices
+	local indices = {}
+
+	for i, position in ipairs(positions) do
+		vertices[i] = {pos = source_pos_to_engine(position)}
+		indices[i] = i - 1
+	end
+
+	poly.indices = indices
+	poly:BuildBoundingBox()
+	return {Polygon3D = poly}
+end
+
+collision.build_triangle_soup_shape = build_triangle_soup_shape
 collision.BSP_CONTENTS_SOLID = BSP_CONTENTS_SOLID
 collision.build_displacement_collision_shape = build_displacement_collision_shape
 collision.build_displacement_polygon = build_displacement_polygon

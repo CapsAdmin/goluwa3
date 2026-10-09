@@ -16,10 +16,13 @@ local bit = require("bit")
 local units = import("goluwa/source_engine/units.lua")
 local collision = import("goluwa/source_engine/bsp_collision.lua")
 local brush_geometry = import("goluwa/source_engine/brush_geometry.lua")
+local bsp_clip = import("goluwa/source_engine/bsp_clip.lua")
+local static_geometry = import("goluwa/source_engine/static_geometry.lua")
 local bsp = {}
+bsp.ReplaceNodraw = true
 local loaded = {}
 local CUBEMAPS = true
-local SKY_CUT_MARGIN = 0.5
+local AIR_EPSILON = 2
 local BSP_CONTENTS_SOLID = collision.BSP_CONTENTS_SOLID
 local get_displacement_corners = collision.get_displacement_corners
 local collect_water_volumes = collision.collect_water_volumes
@@ -329,7 +332,7 @@ function bsp.Load(path)
 	end
 
 	local sky_clip_aabb
-	local sky_origin, sky_scale, sky_world_min, sky_world_max
+	local sky_origin, sky_scale
 
 	if header.sky_camera then
 		sky_origin = header.sky_camera.origin
@@ -355,8 +358,6 @@ function bsp.Load(path)
 			end
 		end
 
-		local margin = SKY_CUT_MARGIN / units.meters
-
 		do
 			local a = units.PositionToEngine(world_min)
 			local b = units.PositionToEngine(world_max)
@@ -369,10 +370,52 @@ function bsp.Load(path)
 				math.max(a.z, b.z)
 			)
 		end
-
-		sky_world_min = world_min - Vec3(margin, margin, margin)
-		sky_world_max = world_max + Vec3(margin, margin, margin)
 	end
+
+	-- the playable air of the map: leaves that are not solid and not part of the 3D skybox. Geometry of the 3D skybox is
+	-- placed over the map, what lies in or touches this air has to go, otherwise it z fights with the map or floats in rooms
+	local near_map_air, is_map_air
+
+	do
+		local air_probes = {
+			Vec3(0, 0, 0),
+			Vec3(AIR_EPSILON, 0, 0),
+			Vec3(-AIR_EPSILON, 0, 0),
+			Vec3(0, AIR_EPSILON, 0),
+			Vec3(0, -AIR_EPSILON, 0),
+			Vec3(0, 0, AIR_EPSILON),
+			Vec3(0, 0, -AIR_EPSILON),
+		}
+
+		function is_map_air(position)
+			local leaf = point_leaf(position)
+			return bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 and
+				leaf.area ~= 0 and
+				not sky_areas[leaf.area]
+		end
+
+		function near_map_air(position)
+			for _, offset in ipairs(air_probes) do
+				if is_map_air(position + offset) then return true end
+			end
+
+			return false
+		end
+	end
+
+	-- cuts the 3D skybox geometry away where it is inside of the map's air
+	local sky_clipper = sky_origin and
+		bsp_clip.New(
+			nodes,
+			header.planes,
+			leafs,
+			headnode,
+			function(leaf)
+				return bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 and
+					leaf.area ~= 0 and
+					not sky_areas[leaf.area]
+			end
+		)
 
 	do
 		local probe_offsets = {
@@ -418,6 +461,7 @@ function bsp.Load(path)
 					ent.origin = (ent.origin - sky_origin) * sky_scale
 					ent.model_size_mult = sky_scale
 					ent.sky_clip = sky_clip_aabb
+					ent.dropped = near_map_air(ent.origin)
 				end
 			end
 		end
@@ -507,13 +551,74 @@ function bsp.Load(path)
 		return compact
 	end
 
-	local function inside_sky_cut(point)
-		return point.x > sky_world_min.x and
-			point.x < sky_world_max.x and
-			point.y > sky_world_min.y and
-			point.y < sky_world_max.y and
-			point.z > sky_world_min.z and
-			point.z < sky_world_max.z
+	local meshes = {}
+	local face_meshes = {}
+
+	-- Cuts a displacement of the 3D skybox against the map's air. Returns nil when nothing had to be cut, otherwise the
+	-- remaining triangles as a mesh {Texinfo, Vertices} with 9 floats per vertex: position, uv, blend and normal
+	local function clip_sky_displacement(dims, scaled, scaled_flats, alphas, texinfo_index)
+		local vecs = texinfos[texinfo_index].vecs
+		local normals = static_geometry.ComputeDisplacementNormals{dims = dims, positions = scaled}
+		local vertices = {}
+
+		for i = 1, dims * dims do
+			local flat, normal = scaled_flats[i], normals[i]:GetNormalized()
+			vertices[i] = {
+				pos = scaled[i],
+				attributes = {
+					vecs[1] * flat.x + vecs[2] * flat.y + vecs[3] * flat.z + vecs[4],
+					vecs[5] * flat.x + vecs[6] * flat.y + vecs[7] * flat.z + vecs[8],
+					math.clamp(alphas[i] / 255, 0, 1),
+					normal.x,
+					normal.y,
+					normal.z,
+				},
+			}
+		end
+
+		local clipped = {}
+		local affected = false
+
+		for x = 1, dims - 1 do
+			for y = 1, dims - 1 do
+				local a = y * dims + x
+				local b = (y - 1) * dims + x
+				local c = a + 1
+				local d = b + 1
+
+				for _, triangle in ipairs{{a, c, b}, {c, d, b}} do
+					local polygon = {vertices[triangle[1]], vertices[triangle[2]], vertices[triangle[3]]}
+					local fragments = sky_clipper:ClipPolygon(polygon)
+
+					if #fragments ~= 1 or fragments[1] ~= polygon then affected = true end
+
+					for _, fragment in ipairs(fragments) do
+						list.insert(clipped, fragment)
+					end
+				end
+			end
+		end
+
+		if not affected then return nil end
+
+		local floats = {}
+
+		for _, fragment in ipairs(clipped) do
+			for j = 2, #fragment - 1 do
+				for _, vertex in ipairs{fragment[1], fragment[j], fragment[j + 1]} do
+					local attributes = vertex.attributes
+					list.insert(floats, vertex.pos.x)
+					list.insert(floats, vertex.pos.y)
+					list.insert(floats, vertex.pos.z)
+
+					for k = 1, 6 do
+						list.insert(floats, attributes[k])
+					end
+				end
+			end
+		end
+
+		return {Texinfo = texinfo_index, Vertices = floats}
 	end
 
 	local displacements = {}
@@ -589,15 +694,15 @@ function bsp.Load(path)
 					) % 4],
 				}
 				local texinfo_index = get_texinfo(face.texinfo)
-				local keep = true
+				local mesh
 
 				if in_sky then
-					keep = false
+					local scaled, scaled_flats = {}, {}
 
 					for index = 1, dims * dims do
-						local scaled = (positions[index] - sky_origin) * sky_scale
-						flat_positions[index * 3 - 2], flat_positions[index * 3 - 1], flat_positions[index * 3] = scaled.x, scaled.y, scaled.z
-						keep = keep or not inside_sky_cut(scaled)
+						scaled[index] = (positions[index] - sky_origin) * sky_scale
+						scaled_flats[index] = (flats[index] - sky_origin) * sky_scale
+						flat_positions[index * 3 - 2], flat_positions[index * 3 - 1], flat_positions[index * 3] = scaled[index].x, scaled[index].y, scaled[index].z
 					end
 
 					for k, corner in ipairs(record_corners) do
@@ -605,9 +710,14 @@ function bsp.Load(path)
 					end
 
 					texinfo_index = get_sky_texinfo(face.texinfo)
+					mesh = clip_sky_displacement(dims, scaled, scaled_flats, alphas, texinfo_index)
 				end
 
-				if keep then
+				if mesh then
+					mesh.Group = 0
+
+					if mesh.Vertices[1] then list.insert(meshes, mesh) end
+				else
 					list.insert(
 						displacements,
 						{
@@ -684,7 +794,8 @@ function bsp.Load(path)
 				local flat = {}
 				local has_geometry = false
 				local sky = false
-				local sky_outside = false
+				local side_texinfo = {}
+				local hull = false
 
 				for side_index, side in ipairs(sides) do
 					local plane = planes[side_index]
@@ -693,15 +804,83 @@ function bsp.Load(path)
 					local texdata = texinfo and header.texdatas[1 + texinfo.texdata]
 					local texname = texdata and header.texdatastringdata[1 + texdata.nameStringTableID]
 					local visible, group = false, 0
+					local center_point, side_area
 
-					if polygon and sky_origin then
+					if polygon then
+						center_point = Vec3(0, 0, 0)
+
 						for _, point in ipairs(polygon) do
-							sky_outside = sky_outside or not inside_sky_cut((point - sky_origin) * sky_scale)
+							center_point = center_point + point
+						end
+
+						center_point = center_point / #polygon
+						side_area = 0
+
+						for _, distance in ipairs(probe_distances) do
+							local leaf = point_leaf(center_point + plane.normal * distance)
+
+							if bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 and leaf.area ~= 0 then
+								side_area = leaf.area
+
+								break
+							end
+						end
+
+						if side_area == 0 then side_area = nearest_area(center_point) end
+
+						if sky_areas[side_area] then sky = true end
+					end
+
+					local texinfo_index = side.texinfo
+
+					-- a nodraw face takes the texture of the face opposite of it, or of the most opposed face that is drawn when the
+					-- opposite one is nodraw too. There is nothing to look at otherwise now that the whole map can be seen from the outside
+					if
+						bsp.ReplaceNodraw and
+						polygon and
+						texdata and
+						(
+							bit.band(texinfo.flags, 0x80) ~= 0 or
+							texname:lower():find("nodraw", nil, true)
+						)
+					then
+						local best, best_dot = nil, math.huge
+
+						for other_index, other in ipairs(sides) do
+							if other_index ~= side_index and other.texinfo >= 0 then
+								local other_texinfo = header.texinfos[1 + other.texinfo]
+								local other_texdata = header.texdatas[1 + other_texinfo.texdata]
+								local other_name = header.texdatastringdata[1 + other_texdata.nameStringTableID]:lower()
+
+								if
+									bit.band(other_texinfo.flags, SURF_SKIP_DRAW) == 0 and
+									not other_name:find("skyb", nil, true)
+									and
+									not other_name:find("water", nil, true)
+									and
+									not other_name:find("nodraw", nil, true)
+								then
+									local dot = plane.normal:Dot(planes[other_index].normal)
+
+									if dot < best_dot then best, best_dot = other_index, dot end
+								end
+							end
+						end
+
+						if best then
+							texinfo_index = sides[best].texinfo
+							texinfo = header.texinfos[1 + texinfo_index]
+							texdata = header.texdatas[1 + texinfo.texdata]
+							texname = header.texdatastringdata[1 + texdata.nameStringTableID]
 						end
 					end
 
+					side_texinfo[side_index] = texinfo_index
+
 					if polygon and texdata then
 						local texname_lower = texname:lower()
+
+						if texname_lower:find("skyb", nil, true) then hull = true end
 
 						if
 							bit.band(texinfo.flags, SURF_SKIP_DRAW) == 0 and
@@ -737,38 +916,9 @@ function bsp.Load(path)
 							end
 
 							if not is_displacement then
-								local center_point = Vec3(0, 0, 0)
-
-								for _, point in ipairs(polygon) do
-									center_point = center_point + point
-								end
-
-								center_point = center_point / #polygon
-								local area = 0
-
-								for _, distance in ipairs(probe_distances) do
-									local leaf = point_leaf(center_point + plane.normal * distance)
-
-									if bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 and leaf.area ~= 0 then
-										area = leaf.area
-
-										break
-									end
-								end
-
-								if area == 0 then area = nearest_area(center_point) end
-
-								group = area_groups[area] or 0
-
-								if sky_areas[area] then
-									sky = true
-									has_geometry = true
-									visible = true
-									group = 0
-								else
-									visible = true
-									has_geometry = true
-								end
+								group = sky_areas[side_area] and 0 or area_groups[side_area] or 0
+								visible = true
+								has_geometry = true
 							end
 						end
 					end
@@ -777,26 +927,107 @@ function bsp.Load(path)
 					list.insert(flat, plane.normal.y)
 					list.insert(flat, plane.normal.z)
 					list.insert(flat, plane.dist)
-					list.insert(flat, texdata and get_texinfo(side.texinfo) or 0)
+					list.insert(flat, texdata and get_texinfo(texinfo_index) or 0)
 					list.insert(flat, group)
 					list.insert(flat, visible and 1 or 0)
 				end
 
 				local collide = is_collidable_brush(brush)
 
-				if sky then
+				if hull then
+
+				-- a brush with a skybox face closes off the map or the 3D skybox, it is invisible and would only be a wall
+				elseif sky and not has_geometry then
+
+				-- nothing of it is drawn, such a brush only bounds the 3D skybox and has no use as collision
+				elseif sky then
+					local brush_sides = {}
+
 					for side_index, plane in ipairs(planes) do
 						local o = (side_index - 1) * 7
-						flat[o + 4] = (plane.dist - plane.normal:Dot(sky_origin)) * sky_scale
-						flat[o + 5] = flat[o + 5] > 0 and get_sky_texinfo(sides[side_index].texinfo) or 0
-						flat[o + 6] = 0
+						brush_sides[side_index] = {
+							normal = plane.normal,
+							dist = (plane.dist - plane.normal:Dot(sky_origin)) * sky_scale,
+							texinfo = flat[o + 5] > 0 and get_sky_texinfo(side_texinfo[side_index]) or 0,
+							visible = flat[o + 7],
+						}
 					end
-				end
 
-				if sky and not sky_outside then collide, has_geometry = false, false end
+					for _, piece in ipairs(sky_clipper:ClipBrush(brush_sides)) do
+						local piece_flat = {}
+						local visible = false
 
-				if collide or has_geometry then
-					list.insert(brush_list, {Sides = flat, Collide = collide or nil, Sky = sky or nil})
+						-- The faces are cut against the map like everything else. A face that is partly cut, for instance one
+						-- that lies on a wall of the map, is drawn by a mesh of what is left of it instead of by the brush.
+						for side_index, side in ipairs(piece) do
+							local polygon = side.visible == 1 and brush_geometry.ClipSide(piece, side_index)
+
+							if polygon then
+								local vecs = texinfos[side.texinfo].vecs
+								local vertices = {}
+
+								for i, point in ipairs(polygon) do
+									vertices[i] = {
+										pos = point,
+										attributes = {
+											vecs[1] * point.x + vecs[2] * point.y + vecs[3] * point.z + vecs[4],
+											vecs[5] * point.x + vecs[6] * point.y + vecs[7] * point.z + vecs[8],
+										},
+									}
+								end
+
+								local fragments = sky_clipper:ClipPolygon(vertices)
+
+								if #fragments ~= 1 or fragments[1] ~= vertices then
+									local face_mesh = face_meshes[side.texinfo]
+
+									if not face_mesh then
+										face_mesh = {Texinfo = side.texinfo, Vertices = {}, Group = 0, Collide = false}
+										face_meshes[side.texinfo] = face_mesh
+										list.insert(meshes, face_mesh)
+									end
+
+									local normal = units.PositionToEngine(side.normal):GetNormalized()
+
+									for _, fragment in ipairs(fragments) do
+										for j = 2, #fragment - 1 do
+											for _, vertex in ipairs{fragment[1], fragment[j], fragment[j + 1]} do
+												local floats = face_mesh.Vertices
+												list.insert(floats, vertex.pos.x)
+												list.insert(floats, vertex.pos.y)
+												list.insert(floats, vertex.pos.z)
+												list.insert(floats, vertex.attributes[1])
+												list.insert(floats, vertex.attributes[2])
+												list.insert(floats, 0)
+												list.insert(floats, normal.x)
+												list.insert(floats, normal.y)
+												list.insert(floats, normal.z)
+											end
+										end
+									end
+
+									piece[side_index] = {normal = side.normal, dist = side.dist, texinfo = side.texinfo}
+								end
+							end
+						end
+
+						for _, side in ipairs(piece) do
+							list.insert(piece_flat, side.normal.x)
+							list.insert(piece_flat, side.normal.y)
+							list.insert(piece_flat, side.normal.z)
+							list.insert(piece_flat, side.dist)
+							list.insert(piece_flat, side.texinfo or 0)
+							list.insert(piece_flat, 0)
+							list.insert(piece_flat, side.visible or 0)
+							visible = visible or side.visible == 1
+						end
+
+						if collide or visible then
+							list.insert(brush_list, {Sides = piece_flat, Collide = collide or nil, Sky = true})
+						end
+					end
+				elseif collide or has_geometry then
+					list.insert(brush_list, {Sides = flat, Collide = collide or nil})
 					brush_planes[#brush_list] = planes
 
 					for side_index, side in ipairs(sides) do
@@ -1017,15 +1248,7 @@ function bsp.Load(path)
 			Texinfos = texinfos,
 			Brushes = brush_list,
 			Displacements = displacements,
-			SkyClip = sky_clip_aabb and
-				{
-					sky_clip_aabb.min_x,
-					sky_clip_aabb.min_y,
-					sky_clip_aabb.min_z,
-					sky_clip_aabb.max_x,
-					sky_clip_aabb.max_y,
-					sky_clip_aabb.max_z,
-				},
+			Meshes = meshes,
 		},
 		decals = decals,
 		entities = header.entities,

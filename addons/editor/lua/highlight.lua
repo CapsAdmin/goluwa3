@@ -24,6 +24,7 @@ function highlight.SetEntity(entity)
 	if
 		entity.brush or
 		entity.displacement or
+		entity.static_mesh or
 		entity.visual_primitive or
 		entity.visual or
 		(
@@ -79,6 +80,7 @@ event.AddListener("Draw3DForwardOverlay", "highlight", function()
 				primitive or
 				ent.brush or
 				ent.displacement or
+				ent.static_mesh or
 				visual and
 				visual.Is3D
 			)
@@ -86,10 +88,10 @@ event.AddListener("Draw3DForwardOverlay", "highlight", function()
 			goto continue
 		end
 
-		if ent.brush or ent.displacement then
+		if ent.brush or ent.displacement or ent.static_mesh then
 			render3d.SetWorldMatrix(ent.transform:GetWorldMatrix())
 
-			for _, polygon3d in ipairs((ent.brush or ent.displacement):GetPolygons()) do
+			for _, polygon3d in ipairs((ent.brush or ent.displacement or ent.static_mesh):GetPolygons()) do
 				render3d.UploadForwardOverlayConstants()
 				polygon3d:Draw()
 				uploads = uploads + 1
