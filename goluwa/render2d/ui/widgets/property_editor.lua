@@ -661,7 +661,6 @@ function META:create_control(node, path, key)
 		control = PropertyVector(shared)
 	elseif type_info and type_info.object then
 		shared.Value = node.Value
-		shared.ValueWidth = self.ValueWidth
 		shared.RowHeight = row_height
 		shared.FontSize = self._font_size
 		shared.FieldPadding = padding

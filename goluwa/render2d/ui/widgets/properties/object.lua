@@ -8,6 +8,7 @@ local META = Panel:CreateTemplate("property_object")
 META.Base = Control
 META.CMP.layout = {
 	Direction = "x",
+	GrowWidth = 1,
 	FitWidth = false,
 	FitHeight = true,
 	AlignmentY = "center",
@@ -16,7 +17,6 @@ META:StartStorable()
 META:GetSet("Value", nil)
 META:GetSet("FontSize", nil)
 META:GetSet("FieldPadding", nil)
-META:GetSet("ValueWidth", 200)
 META:GetSet("RowHeight", 20)
 META:GetSet("ActionButtonSize", nil)
 META:GetSet("ActionPreviewPadding", nil)
@@ -66,7 +66,6 @@ function META:OnCreate()
 	local gap = self.layout:GetChildGap()
 	local height = self.RowHeight
 	local button_size = self.ActionButtonSize or height
-	local width = self.ValueWidth - button_size - gap
 	self._label = Text{
 		Text = self.GetDisplayText(self.Value, self),
 		FontSize = self.FontSize,
@@ -83,11 +82,11 @@ function META:OnCreate()
 		Parent = self,
 		IsInternal = true,
 		Name = "property_object_value",
-		transform = {Size = Vec2(width, height)},
+		transform = {Size = Vec2(0, height)},
 		layout = {
 			FitWidth = false,
 			GrowWidth = 1,
-			MinSize = Vec2(width, height),
+			MinSize = Vec2(0, height),
 			MaxSize = Vec2(0, height),
 			Padding = self.FieldPadding,
 			AlignmentY = "center",
@@ -108,7 +107,7 @@ function META:OnCreate()
 			MaxSize = Vec2(button_size, button_size),
 		},
 		visual = true,
-		mouse_input = {Cursor = "pointer"},
+		mouse_input = {Cursor = "hand"},
 		clickable = true,
 		OnDraw = on_action_draw,
 		OnClick = on_action_click,
