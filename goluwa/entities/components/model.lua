@@ -8,9 +8,9 @@ META.Network = {
 META:StartStorable()
 META:GetSet("ModelPath", "", {callback = "Rebuild", asset = "models"})
 META:GetSet("ModelOptions", nil, {callback = "Rebuild"})
-META:GetSet("MaterialConfig", nil, {callback = "Rebuild"})
+META:GetSet("MaterialConfig", nil, {callback = "OnMaterialChanged"})
 META:EndStorable()
-META:GetSet("Material", nil, {callback = "Rebuild"})
+META:GetSet("Material", nil, {callback = "OnMaterialChanged"})
 
 function META:Initialize()
 	self.initialized = true
@@ -51,6 +51,19 @@ function META:Rebuild()
 		)
 	else
 		owner:AddComponent("visual"):SetModelPath(self.ModelPath)
+	end
+end
+
+-- the meshes do not depend on the material, so the primitives that use the model's material just get the new one
+function META:OnMaterialChanged()
+	if not (self.initialized and self.children) then return end
+
+	self.material = import("goluwa/render3d/shapes.lua").Material(self.Material or self.MaterialConfig)
+
+	for _, child in ipairs(self.children) do
+		if child.uses_model_material then
+			child.visual_primitive:SetMaterial(self.material)
+		end
 	end
 end
 

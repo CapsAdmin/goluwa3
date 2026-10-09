@@ -434,6 +434,7 @@ function shapes.BuildModelAsset(ent, path, material, asset_options)
 			Parent = ent,
 		}
 		primitive_entity:AddComponent("transform")
+		primitive_entity.uses_model_material = primitive.material == nil
 
 		if primitive.position then
 			primitive_entity.transform:SetPosition(primitive.position)
