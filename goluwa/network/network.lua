@@ -39,6 +39,11 @@ function network.IsStarted()
 	return network.socket:IsValid()
 end
 
+-- true everywhere but on a client that is connected to a server, a standalone game decides for itself
+function network.HasAuthority()
+	return not (CLIENT and network.IsConnected())
+end
+
 if CLIENT then
 	function network.Connect(ip, port)
 		network.Disconnect()

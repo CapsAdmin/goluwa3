@@ -101,7 +101,7 @@ function META:GetBeamPoint()
 end
 
 function META:HasAuthority()
-	return not (CLIENT and network.IsConnected())
+	return network.HasAuthority()
 end
 
 function META:OnPhysicsUpdate(dt)
