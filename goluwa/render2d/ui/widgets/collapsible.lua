@@ -23,6 +23,8 @@ META:GetSet("HeaderButtonColor", nil)
 META:GetSet("HeaderTextColor", "text")
 META:GetSet("HeaderFont", "body")
 META:GetSet("HeaderFontSize", nil)
+META:GetSet("Badge", nil)
+META:GetSet("BadgeColor", nil)
 META:GetSet("HeaderHeight", nil)
 META:GetSet("HeaderPadding", nil)
 META:GetSet("HeaderGap", nil)
@@ -101,6 +103,20 @@ function META:OnCreate()
 			FitHeight = true,
 		},
 	}
+
+	if self.Badge then
+		Text{
+			Parent = self._header,
+			IsInternal = true,
+			Text = self.Badge,
+			Color = self.BadgeColor or self.HeaderTextColor,
+			Font = self.HeaderFont,
+			FontSize = font_size,
+			IgnoreMouseInput = true,
+			layout = {FitWidth = true, FitHeight = true},
+		}
+	end
+
 	self._clip = Panel.New{
 		Parent = self,
 		IsInternal = true,
