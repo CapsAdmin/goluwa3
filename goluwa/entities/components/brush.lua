@@ -13,8 +13,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local static_world = import("goluwa/entities/components/static_world.lua")
 local META = objects.CreateTemplate("brush")
 META:StartStorable()
-META:GetSet("Index", 0)
-META:GetSet("Sides", nil)
+META:GetSet("Index", 0, {ReadOnly = true})
+META:GetSet("Sides", nil, {Hidden = true})
 META:EndStorable()
 local NORMAL_EPSILON = 0.0001
 local DIST_EPSILON = 0.05
@@ -54,8 +54,6 @@ function META:GetSides()
 			dist = side.dist,
 			texname = side.texname,
 			vecs = vecs,
-			width = side.width,
-			height = side.height,
 			visible = side.visible,
 		}
 	end
@@ -72,8 +70,6 @@ function META:SetSides(sides)
 			dist = saved.dist,
 			texname = saved.texname,
 			vecs = saved.vecs,
-			width = saved.width,
-			height = saved.height,
 			visible = saved.visible,
 		}
 	end
@@ -251,12 +247,8 @@ function META:Rebuild()
 					polygon:AddVertex{
 						pos = inverse:TransformVector(units.PositionToEngine(point)),
 						uv = Vec2(
-							(
-									vecs[1] * point.x + vecs[2] * point.y + vecs[3] * point.z + vecs[4]
-								) / side.width,
-							(
-									vecs[5] * point.x + vecs[6] * point.y + vecs[7] * point.z + vecs[8]
-								) / side.height
+							vecs[1] * point.x + vecs[2] * point.y + vecs[3] * point.z + vecs[4],
+							vecs[5] * point.x + vecs[6] * point.y + vecs[7] * point.z + vecs[8]
 						),
 						texture_blend = 0,
 					}

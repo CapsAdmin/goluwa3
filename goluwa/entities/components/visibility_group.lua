@@ -7,7 +7,7 @@ local VisibilityGroup = objects.CreateTemplate("visibility_group")
 VisibilityGroup.active = nil
 VisibilityGroup.has_boxes = false
 VisibilityGroup:StartStorable()
-VisibilityGroup:GetSet("Boxes", nil)
+VisibilityGroup:GetSet("Boxes", nil, {Hidden = true})
 VisibilityGroup:EndStorable()
 local KEEP_MARGIN = 0.15
 

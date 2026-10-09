@@ -9,15 +9,12 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local META = objects.CreateTemplate("displacement")
 META:StartStorable()
-META:GetSet("Index", 0)
-META:GetSet("Power", 0)
-META:GetSet("Corners", nil)
-META:GetSet("Positions", nil)
-META:GetSet("Alphas", nil)
-META:GetSet("Texname", "")
-META:GetSet("Vecs", nil)
-META:GetSet("Width", 0)
-META:GetSet("Height", 0)
+META:GetSet("Index", 0, {ReadOnly = true})
+META:GetSet("Corners", nil, {Hidden = true})
+META:GetSet("Positions", nil, {Hidden = true})
+META:GetSet("Alphas", nil, {Hidden = true})
+META:GetSet("Material", "", {asset = "materials", callback = "OnMaterialChanged"})
+META:GetSet("Vecs", nil, {Hidden = true})
 META:EndStorable()
 local COLLISION_SETTLE_TIME = 0.3
 local MATRIX_FIELDS = {
@@ -47,10 +44,7 @@ function META:Setup(world, record)
 	self.record = record
 	self.editing = false
 	self.Index = record.index
-	self.Power = record.power
-	self.Texname = record.texname
-	self.Width = record.width
-	self.Height = record.height
+	self.Material = "materials/" .. record.texname .. ".vmt"
 	self.Corners = {}
 
 	for i, corner in ipairs(record.corners) do
@@ -77,7 +71,8 @@ function META:Setup(world, record)
 end
 
 function META:BuildGeometry()
-	local dims = 2 ^ self.Power + 1
+	local dims = math.floor(math.sqrt(#self.Positions / 3) + 0.5)
+	self.Power = math.floor(math.log(dims - 1, 2) + 0.5)
 	local positions = self.Positions
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
 	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
@@ -114,8 +109,8 @@ function META:BuildGeometry()
 				(x - 1) / (dims - 1)
 			)
 			uvs[(y - 1) * dims + x] = Vec2(
-				(vecs[1] * flat.x + vecs[2] * flat.y + vecs[3] * flat.z + vecs[4]) / self.Width,
-				(vecs[5] * flat.x + vecs[6] * flat.y + vecs[7] * flat.z + vecs[8]) / self.Height
+				vecs[1] * flat.x + vecs[2] * flat.y + vecs[3] * flat.z + vecs[4],
+				vecs[5] * flat.x + vecs[6] * flat.y + vecs[7] * flat.z + vecs[8]
 			)
 		end
 	end
@@ -159,7 +154,7 @@ function META:BuildGeometry()
 	polygon:BuildTangents()
 	polygon:Upload(nil)
 	self.polygon = polygon
-	self.material = vmt_material.FromVMT("materials/" .. self.Texname .. ".vmt")
+	self.material = vmt_material.FromVMT(self.Material)
 end
 
 function META:GetPolygons()
@@ -191,6 +186,15 @@ function META:UpdateCollision()
 	self.world:UpdateDisplacementCollision(self.Index, points)
 end
 
+function META:OnMaterialChanged()
+	if not self.polygon then return end
+
+	if not self.editing then self:BeginEdit() end
+
+	self.material = vmt_material.FromVMT(self.Material)
+	self.primitive.visual_primitive:SetMaterial(self.material)
+end
+
 function META:BeginEdit()
 	self.editing = true
 	self.world:HideRecord(self.record)
@@ -203,7 +207,7 @@ function META:CreatePrimitive()
 	end
 
 	local visual = self.Owner.visual
-	self.primitive = visual:CreatePrimitiveEntity(self.polygon, self.material, self.Texname)
+	self.primitive = visual:CreatePrimitiveEntity(self.polygon, self.material, self.Material)
 	visual:BuildAABB()
 end
 

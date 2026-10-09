@@ -26,12 +26,8 @@ function static_geometry.AddVertex(mesh, texinfo, position, blend, uv_position, 
 		pos = units.PositionToEngine(position),
 		texture_blend = math.clamp(blend, 0, 1),
 		uv = Vec2(
-			(
-					vecs[1] * uv_source.x + vecs[2] * uv_source.y + vecs[3] * uv_source.z + vecs[4]
-				) / texinfo.width,
-			(
-					vecs[5] * uv_source.x + vecs[6] * uv_source.y + vecs[7] * uv_source.z + vecs[8]
-				) / texinfo.height
+			vecs[1] * uv_source.x + vecs[2] * uv_source.y + vecs[3] * uv_source.z + vecs[4],
+			vecs[5] * uv_source.x + vecs[6] * uv_source.y + vecs[7] * uv_source.z + vecs[8]
 		),
 		normal = normal,
 	}
@@ -69,8 +65,6 @@ function static_geometry.ExpandBrush(world, index)
 			dist = flat[o + 4],
 			texname = texinfo and texinfo.texname,
 			vecs = texinfo and texinfo.vecs,
-			width = texinfo and texinfo.width,
-			height = texinfo and texinfo.height,
 			visible = flat[o + 7] == 1,
 			group = flat[o + 6] > 0 and flat[o + 6] or nil,
 		}
@@ -115,8 +109,6 @@ function static_geometry.ExpandDisplacement(world, index)
 		corners = displacement.Corners,
 		texname = texinfo.texname,
 		vecs = texinfo.vecs,
-		width = texinfo.width,
-		height = texinfo.height,
 		normal = displacement.Normal,
 		group = displacement.Group > 0 and displacement.Group or nil,
 		sky = displacement.Sky,
@@ -305,6 +297,44 @@ function static_geometry.Build(world, name)
 
 	result.state = state
 	return result
+end
+
+do
+	local MARGIN = 0.5 / units.meters
+
+	-- the bounds of everything that is not sky, in engine space as {min xyz, max xyz}, sky geometry is clipped away inside of it
+	function static_geometry.GetSkyClip(result)
+		local mins = Vec3(math.huge, math.huge, math.huge)
+		local maxs = Vec3(-math.huge, -math.huge, -math.huge)
+		local has_sky = false
+
+		for _, records in ipairs{result.brushes, result.displacements} do
+			for _, record in ipairs(records) do
+				if record.sky then
+					has_sky = true
+				elseif record.mins.x <= record.maxs.x then
+					for _, axis in ipairs({"x", "y", "z"}) do
+						mins[axis] = math.min(mins[axis], record.mins[axis])
+						maxs[axis] = math.max(maxs[axis], record.maxs[axis])
+					end
+				end
+			end
+		end
+
+		if not has_sky or mins.x > maxs.x then return nil end
+
+		local margin = Vec3(MARGIN, MARGIN, MARGIN)
+		local a = units.PositionToEngine(mins - margin)
+		local b = units.PositionToEngine(maxs + margin)
+		return {
+			math.min(a.x, b.x),
+			math.min(a.y, b.y),
+			math.min(a.z, b.z),
+			math.max(a.x, b.x),
+			math.max(a.y, b.y),
+			math.max(a.z, b.z),
+		}
+	end
 end
 
 function static_geometry.UploadBatch(batch)

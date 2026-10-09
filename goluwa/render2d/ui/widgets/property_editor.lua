@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec4 = import("goluwa/structs/vec4.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -227,6 +228,12 @@ local property_types = {
 		components = {"x", "y", "z"},
 		factory = function(v)
 			return Vec3(v[1], v[2], v[3])
+		end,
+	},
+	vec4 = {
+		components = {"x", "y", "z", "w"},
+		factory = function(v)
+			return Vec4(v[1], v[2], v[3], v[4])
 		end,
 	},
 	ang3 = {
@@ -1011,7 +1018,11 @@ do
 		local requires = info.requires
 		local node = {
 			Type = node_type,
-			IsEnabled = requires and
+			IsEnabled = info.ReadOnly and
+				function()
+					return false
+				end or
+				requires and
 				function()
 					if type(requires) == "string" then
 						return is_property_active(target[requires])
@@ -1130,6 +1141,8 @@ do
 				local groups = {}
 
 				for _, info in ipairs(objects.GetStorableVariables(category.object)) do
+					if info.Hidden then goto continue end
+
 					local node = build_property_node(self, category.object, category.key, category.name, info)
 
 					if info.category then
@@ -1150,6 +1163,8 @@ do
 					else
 						children[#children + 1] = node
 					end
+
+					::continue::
 				end
 
 				for _, info in ipairs(category.object:GetDynamicProperties()) do

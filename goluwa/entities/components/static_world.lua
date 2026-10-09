@@ -13,11 +13,10 @@ local timer = import("goluwa/timer.lua")
 local VisibilityGroup = RENDER_3D and import("goluwa/entities/components/visibility_group.lua")
 local META = objects.CreateTemplate("static_world")
 META:StartStorable()
-META:GetSet("Pak", "")
-META:GetSet("Texinfos", nil)
-META:GetSet("Brushes", nil)
-META:GetSet("Displacements", nil)
-META:GetSet("SkyClip", nil)
+META:GetSet("Pak", "", {ReadOnly = true})
+META:GetSet("Texinfos", nil, {Hidden = true})
+META:GetSet("Brushes", nil, {Hidden = true})
+META:GetSet("Displacements", nil, {Hidden = true})
 META:EndStorable()
 
 -- the big numeric tables are stored as packed float strings, plain nested tables would exceed what a chunk can hold
@@ -152,6 +151,7 @@ function META:Build()
 		Displacements = self.Displacements or {},
 	}
 	local result = static_geometry.Build(world, owner:GetName())
+	self.sky_clip = static_geometry.GetSkyClip(result)
 	self.brush_records = result.brushes
 	self.displacement_records = result.displacements
 	self.batch_state = result.state
@@ -227,7 +227,7 @@ function META:AttachBatch(batch)
 		visual_entity.static_generated = true
 		visual_entities[container] = visual_entity
 
-		if batch.sky then visual_entity.visual:SetClipBounds(self.SkyClip) end
+		if batch.sky then visual_entity.visual:SetClipBounds(self.sky_clip) end
 	end
 
 	self.batch_primitives[batch] = visual_entity.visual:CreatePrimitiveEntity(
@@ -253,7 +253,9 @@ end
 function META:RefreshBatch(batch)
 	if batch.is_new then
 		static_geometry.UploadBatch(batch)
-		self:AttachBatch(batch)(batch.sky and self.sky_visual_entities or self.visual_entities)[self:GetContainer(batch.visibility_group)].visual:BuildAABB()
+		self:AttachBatch(batch)
+		local visual_entities = batch.sky and self.sky_visual_entities or self.visual_entities
+		visual_entities[self:GetContainer(batch.visibility_group)].visual:BuildAABB()
 	else
 		batch.mesh:Upload(nil)
 		self.batch_primitives[batch].visual_primitive:SetPolygon3D(batch.mesh)
@@ -270,7 +272,12 @@ function META:SetDecalFragments(owner, fragments)
 	local spans = {}
 
 	for _, fragment in ipairs(fragments) do
-		local batch = static_geometry.GetBatch(self.batch_state, owner.Texname, fragment.group, "overlay")
+		local batch = static_geometry.GetBatch(
+			self.batch_state,
+			owner.Material:match("^materials/(.*)%.vmt$"),
+			fragment.group,
+			"overlay"
+		)
 		local first, count = static_geometry.AddPolygon(batch.mesh, fragment.polygon)
 		list.insert(spans, {entry = batch, first = first, count = count})
 		dirty[batch] = true

@@ -5,8 +5,11 @@ local scene = import("goluwa/entities/scene.lua")
 local lights = import("goluwa/source_engine/lights.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec4 = import("goluwa/structs/vec4.lua")
 local units = import("goluwa/source_engine/units.lua")
+local decal_geometry = import("goluwa/source_engine/decal_geometry.lua")
 local bit = require("bit")
 local map_scene = {}
 local FOG_TINT_STRENGTH = 1
@@ -143,7 +146,6 @@ function map_scene.Translate(data, map_name, map_path)
 				Texinfos = data.world.Texinfos,
 				Brushes = data.world.Brushes,
 				Displacements = data.world.Displacements,
-				SkyClip = data.world.SkyClip,
 			},
 		},
 	}
@@ -381,22 +383,28 @@ function map_scene.Translate(data, map_name, map_path)
 
 	if RENDER_3D then
 		for index, decal in ipairs(data.decals) do
+			local frame
+
+			if decal.Mode == "overlay" then
+				frame = Vec4(decal.UVPoints[1], decal.UVPoints[2], decal.UVPoints[7], decal.UVPoints[5])
+			else
+				frame = Vec4(-decal.Size[1] / 2, -decal.Size[2] / 2, decal.Size[1] / 2, decal.Size[2] / 2)
+			end
+
 			add{
 				guid = root_guid .. ":decal:" .. index,
 				parent = get_sub_group(get_container(decal.Group > 0 and decal.Group or nil), "decals"),
 				properties = {Name = decal.Texname},
 				components = {
-					transform = {Position = units.PositionToEngine(decal.Origin)},
+					transform = {
+						Position = units.PositionToEngine(decal.Origin),
+						Rotation = decal_geometry.AxesToRotation(decal_geometry.GetInitialAxes(decal, data.world)),
+					},
 					decal = {
-						Mode = decal.Mode,
-						Texname = decal.Texname,
-						Origin = decal.Origin,
-						Normal = decal.Normal,
-						UVPoints = decal.UVPoints,
-						URange = decal.URange,
-						VRange = decal.VRange,
-						Size = decal.Size,
-						Targets = decal.Targets,
+						Material = "materials/" .. decal.Texname .. ".vmt",
+						Frame = frame,
+						URange = decal.URange and Vec2(decal.URange[1], decal.URange[2]) or Vec2(0, 1),
+						VRange = decal.VRange and Vec2(decal.VRange[1], decal.VRange[2]) or Vec2(0, 1),
 					},
 				},
 			}

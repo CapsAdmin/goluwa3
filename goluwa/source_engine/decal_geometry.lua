@@ -1,9 +1,12 @@
 local brush_geometry = import("goluwa/source_engine/brush_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local units = import("goluwa/source_engine/units.lua")
+local static_geometry = import("goluwa/source_engine/static_geometry.lua")
 local decal_geometry = {}
 local OFFSET_FROM_SURFACE = 0.3
 local EDGES = {{"x", 1}, {"x", -1}, {"y", 1}, {"y", -1}}
-local UNIT_RANGE = {0, 1}
 
 local function weld_key(position)
 	return (
@@ -60,20 +63,18 @@ local function add_fragment(fragments, polygon, group, frame)
 
 	local out = {}
 	local u_range, v_range = frame.u_range, frame.v_range
+	local u_min, u_size = u_range.x, u_range.y - u_range.x
+	local v_min, v_size = v_range.x, v_range.y - v_range.x
 
 	for i, vertex in ipairs(polygon) do
 		out[i] = {
 			pos = vertex.pos,
-			u = u_range[1] + (
-					u_range[2] - u_range[1]
-				) * (
+			u = u_min + u_size * (
 					vertex.x - frame.min_x
 				) / (
 					frame.max_x - frame.min_x
 				),
-			v = v_range[1] + (
-					v_range[2] - v_range[1]
-				) * (
+			v = v_min + v_size * (
 					vertex.y - frame.min_y
 				) / (
 					frame.max_y - frame.min_y
@@ -308,87 +309,162 @@ local function get_infodecal_axes(normal, vecs)
 	return u_axis, v_axis
 end
 
--- decal fields: Mode, Origin, Normal, UVPoints, URange, VRange, Size, Targets. Returns a list of {group, polygon}.
+local function get_overlay_axes(normal, points)
+	local dominant_x, dominant_y = math.abs(normal.x), math.abs(normal.y)
+	local axis_a, axis_b
+
+	if dominant_x > dominant_y and dominant_x >= math.abs(normal.z) then
+		axis_b = (Vec3(0, 1, 0) - normal * normal.y):GetNormalized()
+		axis_a = axis_b:GetCross(normal)
+	else
+		axis_a = (Vec3(1, 0, 0) - normal * normal.x):GetNormalized()
+		axis_b = normal:GetCross(axis_a)
+	end
+
+	return (axis_a * points[3] + axis_b * points[6]):GetNormalized()
+end
+
+-- the orientation of an imported decal from the stored world data, returns normal, u_axis in source space
+function decal_geometry.GetInitialAxes(decal, world)
+	if decal.Mode == "overlay" then
+		return decal.Normal, get_overlay_axes(decal.Normal, decal.UVPoints)
+	end
+
+	local target = decal.Targets[1]
+	local normal, texinfo
+
+	if target.Brush then
+		local o = (target.Side - 1) * static_geometry.SIDE_STRIDE
+		local sides = world.Brushes[target.Brush].Sides
+		normal = Vec3(sides[o + 1], sides[o + 2], sides[o + 3])
+		texinfo = world.Texinfos[sides[o + 5]]
+	else
+		local displacement = world.Displacements[target.Displacements[1]]
+		normal = displacement.Normal
+		texinfo = world.Texinfos[displacement.Texinfo]
+	end
+
+	return normal, (get_infodecal_axes(normal, texinfo.vecs))
+end
+
+do
+	local matrix = Matrix44()
+
+	-- the decal frame is u, v = normal x u, normal as the transform's right, up, backward axes
+	function decal_geometry.AxesToRotation(normal, u_axis)
+		local right = units.PositionToEngine(u_axis):GetNormalized()
+		local backward = units.PositionToEngine(normal):GetNormalized()
+		local up = backward:GetCross(right)
+		matrix:Identity()
+		matrix.m00, matrix.m01, matrix.m02 = right.x, right.y, right.z
+		matrix.m10, matrix.m11, matrix.m12 = up.x, up.y, up.z
+		matrix.m20, matrix.m21, matrix.m22 = backward.x, backward.y, backward.z
+		return matrix:GetRotation(Quat()):GetNormalized()
+	end
+end
+
+function decal_geometry.RotationToAxes(rotation)
+	local right = rotation:VecMul(Vec3(1, 0, 0))
+	local backward = rotation:VecMul(Vec3(0, 0, 1))
+	return units.PositionFromEngine(backward):GetNormalized(),
+	units.PositionFromEngine(right):GetNormalized()
+end
+
+local function get_frame(decal)
+	return {
+		min_x = decal.Frame.x,
+		min_y = decal.Frame.y,
+		max_x = decal.Frame.z,
+		max_y = decal.Frame.w,
+		u_range = decal.URange,
+		v_range = decal.VRange,
+	}
+end
+
+-- decal fields: Frame (min x, min y, max x, max y), URange, VRange, and the derived Origin, Normal, UAxis, Targets. Returns a list of {group, polygon}.
 function decal_geometry.Project(decal, brush_records, displacement_records)
 	local fragments = {}
-	local origin = decal.Origin
+	local origin, normal = decal.Origin, decal.Normal
+	local u_axis = decal.UAxis
+	local v_axis = normal:GetCross(u_axis)
+	local frame = get_frame(decal)
+	local displaced = {}
 
-	if decal.Mode == "overlay" then
-		local normal = decal.Normal
-		local points = decal.UVPoints
-		local dominant_x, dominant_y = math.abs(normal.x), math.abs(normal.y)
-		local axis_a, axis_b
-
-		if dominant_x > dominant_y and dominant_x >= math.abs(normal.z) then
-			axis_b = (Vec3(0, 1, 0) - normal * normal.y):GetNormalized()
-			axis_a = axis_b:GetCross(normal)
+	for _, target in ipairs(decal.Targets) do
+		if target.Brush then
+			project_brush_side(
+				fragments,
+				brush_records[target.Brush],
+				target.Side,
+				origin,
+				normal,
+				u_axis,
+				v_axis,
+				frame
+			)
 		else
-			axis_a = (Vec3(1, 0, 0) - normal * normal.x):GetNormalized()
-			axis_b = normal:GetCross(axis_a)
-		end
-
-		local u_axis = (axis_a * points[3] + axis_b * points[6]):GetNormalized()
-		local v_axis = normal:GetCross(u_axis)
-		local frame = {
-			min_x = points[1],
-			max_x = points[7],
-			min_y = points[2],
-			max_y = points[5],
-			u_range = decal.URange,
-			v_range = decal.VRange,
-		}
-		local displaced = {}
-
-		for _, target in ipairs(decal.Targets) do
-			if target.Brush then
-				project_brush_side(
-					fragments,
-					brush_records[target.Brush],
-					target.Side,
-					origin,
-					normal,
-					u_axis,
-					v_axis,
-					frame
-				)
-			else
-				for _, index in ipairs(target.Displacements) do
-					list.insert(displaced, displacement_records[index])
-				end
-			end
-		end
-
-		if displaced[1] then
-			project_displacements(fragments, displaced, origin, normal, u_axis, v_axis, frame)
-		end
-	else
-		local half_width, half_height = decal.Size[1] / 2, decal.Size[2] / 2
-		local frame = {
-			min_x = -half_width,
-			max_x = half_width,
-			min_y = -half_height,
-			max_y = half_height,
-			u_range = UNIT_RANGE,
-			v_range = UNIT_RANGE,
-		}
-
-		for _, target in ipairs(decal.Targets) do
-			if target.Brush then
-				local record = brush_records[target.Brush]
-				local side = record.sides[target.Side]
-				local u_axis, v_axis = get_infodecal_axes(side.normal, side.vecs)
-				project_brush_side(fragments, record, target.Side, origin, side.normal, u_axis, v_axis, frame)
-			else
-				for _, index in ipairs(target.Displacements) do
-					local record = displacement_records[index]
-					local u_axis, v_axis = get_infodecal_axes(record.normal, record.vecs)
-					project_displacements(fragments, {record}, origin, record.normal, u_axis, v_axis, frame)
-				end
+			for _, index in ipairs(target.Displacements) do
+				list.insert(displaced, displacement_records[index])
 			end
 		end
 	end
 
+	if displaced[1] then
+		project_displacements(fragments, displaced, origin, normal, u_axis, v_axis, frame)
+	end
+
 	return fragments
+end
+
+do
+	local SURFACE_DEPTH = 8
+
+	-- finds the surfaces the decal rectangle lies on, returns a target list like the importer produces
+	function decal_geometry.FindTargets(decal, brush_records, displacement_records)
+		local frame = get_frame(decal)
+		local origin, normal = decal.Origin, decal.Normal
+		local u_axis = decal.UAxis
+		local v_axis = normal:GetCross(u_axis)
+		local center_x, center_y = (frame.min_x + frame.max_x) / 2, (frame.min_y + frame.max_y) / 2
+		local half_x, half_y = (frame.max_x - frame.min_x) / 2, (frame.max_y - frame.min_y) / 2
+		local center = origin + u_axis * center_x + v_axis * center_y
+		local radius = math.sqrt(half_x * half_x + half_y * half_y) + SURFACE_DEPTH
+		local targets = {}
+
+		local function near(record)
+			local mins, maxs = record.mins, record.maxs
+			local dx = math.max(mins.x - center.x, 0, center.x - maxs.x)
+			local dy = math.max(mins.y - center.y, 0, center.y - maxs.y)
+			local dz = math.max(mins.z - center.z, 0, center.z - maxs.z)
+			return dx * dx + dy * dy + dz * dz <= radius * radius
+		end
+
+		for brush_index, record in ipairs(brush_records) do
+			if record.visible and not record.hidden and near(record) then
+				for side_index, side in ipairs(record.sides) do
+					if
+						side.visible and
+						side.normal:Dot(normal) > 0.5 and
+						math.abs(side.normal:Dot(center) - side.dist) <= SURFACE_DEPTH
+					then
+						list.insert(targets, {Brush = brush_index, Side = side_index})
+					end
+				end
+			end
+		end
+
+		local displacements = {}
+
+		for index, record in ipairs(displacement_records) do
+			if record.visible and near(record) then list.insert(displacements, index) end
+		end
+
+		if displacements[1] then
+			list.insert(targets, {Displacements = displacements})
+		end
+
+		return targets
+	end
 end
 
 return decal_geometry

@@ -465,14 +465,12 @@ function bsp.Load(path)
 			local vecs = {}
 
 			for k = 1, 8 do
-				vecs[k] = texinfo.textureVecs[k]
+				vecs[k] = texinfo.textureVecs[k] / (k <= 4 and texdata.width or texdata.height)
 			end
 
 			texinfos[#texinfos + 1] = {
 				texname = header.texdatastringdata[1 + texdata.nameStringTableID],
 				vecs = vecs,
-				width = texdata.width,
-				height = texdata.height,
 			}
 			compact = #texinfos
 			texinfo_lookup[index] = compact
@@ -501,8 +499,6 @@ function bsp.Load(path)
 			texinfos[#texinfos + 1] = {
 				texname = base.texname,
 				vecs = vecs,
-				width = base.width,
-				height = base.height,
 			}
 			compact = #texinfos
 			sky_texinfo_lookup[index] = compact
@@ -1021,15 +1017,6 @@ function bsp.Load(path)
 			Texinfos = texinfos,
 			Brushes = brush_list,
 			Displacements = displacements,
-			SkyClip = sky_clip_aabb and
-				{
-					sky_clip_aabb.min_x,
-					sky_clip_aabb.min_y,
-					sky_clip_aabb.min_z,
-					sky_clip_aabb.max_x,
-					sky_clip_aabb.max_y,
-					sky_clip_aabb.max_z,
-				},
 		},
 		decals = decals,
 		entities = header.entities,
