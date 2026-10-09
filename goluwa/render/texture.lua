@@ -1801,6 +1801,10 @@ do
 	TextureDownloaded:Register()
 	Texture.TextureDownloaded = TextureDownloaded
 
+	function Texture:CanDownload()
+		return render.HasVulkanFormatSize(self.format)
+	end
+
 	function Texture:Download(config)
 		config = config or {}
 		local image = assert(self:GetImage(), "Cannot download: texture has no image")

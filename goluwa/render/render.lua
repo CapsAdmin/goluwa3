@@ -1170,7 +1170,7 @@ end
 do
 	local cache = {}
 
-	function render.GetVulkanFormatSize(format)
+	local function find_size(format)
 		local size = cache[format]
 
 		if size then return size end
@@ -1197,10 +1197,16 @@ do
 			if bits > 0 and bits % 8 == 0 then size = bits / 8 end
 		end
 
-		if not size then error("no texel size for format: " .. tostring(format), 2) end
-
 		cache[format] = size
 		return size
+	end
+
+	function render.HasVulkanFormatSize(format)
+		return find_size(format) ~= nil
+	end
+
+	function render.GetVulkanFormatSize(format)
+		return find_size(format) or error("no texel size for format: " .. tostring(format), 2)
 	end
 end
 

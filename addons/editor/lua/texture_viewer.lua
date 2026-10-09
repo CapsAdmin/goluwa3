@@ -23,11 +23,14 @@ return function(texture, texture_path)
 	local canvas_panel
 	local tex_w = texture:GetWidth()
 	local tex_h = texture:GetHeight()
-	local channel_stats = texture:GetChannelStatistics()
+	local can_read_pixels = texture:CanDownload()
+	local channel_stats = can_read_pixels and texture:GetChannelStatistics() or {}
 	local hover_pixel = nil
 	local hover_pixel_text
 	local channel_visible = {R = true, G = true, B = true, A = true}
 	local active_swizzle = "none"
+	local pixel_unavailable_text = "unavailable for " .. texture.format
+	local idle_pixel_text = can_read_pixels and "-" or pixel_unavailable_text
 
 	local function update_swizzle()
 		local count = 0
@@ -75,6 +78,16 @@ return function(texture, texture_path)
 
 	local function build_channel_rows(stats)
 		local rows = {}
+
+		if not can_read_pixels then
+			rows[1] = Text{
+				Text = pixel_unavailable_text,
+				Font = "body XS",
+				Color = "text_disabled",
+				IgnoreMouseInput = true,
+				layout = {GrowWidth = 1},
+			}
+		end
 
 		for _, ch in ipairs(stats or {}) do
 			rows[#rows + 1] = Row{
@@ -151,7 +164,7 @@ return function(texture, texture_path)
 		return draw_x, draw_y, draw_w, draw_h
 	end
 
-	return Window{
+	local window = Window{
 		Title = texture_path or "Texture Viewer",
 		Size = Vec2(800, 600),
 		Padding = "none",
@@ -250,7 +263,7 @@ return function(texture, texture_path)
 						hover_pixel = nil
 
 						if hover_pixel_text and hover_pixel_text:IsValid() then
-							hover_pixel_text.text:SetText("-")
+							hover_pixel_text.text:SetText(idle_pixel_text)
 						end
 
 						return true
@@ -260,6 +273,7 @@ return function(texture, texture_path)
 					local draw_x, draw_y, draw_w, draw_h = compute_draw_rect(w, h)
 
 					if
+						can_read_pixels and
 						local_pos.x >= draw_x and
 						local_pos.x < draw_x + draw_w and
 						local_pos.y >= draw_y and
@@ -281,7 +295,7 @@ return function(texture, texture_path)
 						hover_pixel = nil
 
 						if hover_pixel_text and hover_pixel_text:IsValid() then
-							hover_pixel_text.text:SetText("-")
+							hover_pixel_text.text:SetText(idle_pixel_text)
 						end
 					end
 				end,
@@ -374,7 +388,7 @@ return function(texture, texture_path)
 							Ref = function(self)
 								hover_pixel_text = self
 							end,
-							Text = "-",
+							Text = idle_pixel_text,
 							Font = "body XS",
 							IgnoreMouseInput = true,
 							layout = {GrowWidth = 1},
@@ -470,4 +484,6 @@ return function(texture, texture_path)
 			},
 		},
 	}
+	texture:CallOnRemove(window)
+	return window
 end
