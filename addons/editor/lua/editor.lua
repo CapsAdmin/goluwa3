@@ -269,7 +269,7 @@ return function(props)
 									local items = {}
 
 									for _, file_name in ipairs(vfs.Find(scene.GetDirectory()) or {}) do
-										local name = file_name:match("^(.+)%.luadata$")
+										local name = file_name:match("^(.+)%.scene$")
 
 										if name then
 											items[#items + 1] = MenuItem{
