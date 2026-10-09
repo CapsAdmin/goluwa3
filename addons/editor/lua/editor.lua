@@ -15,6 +15,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Gizmo = import("lua/gizmo.lua")
 local highlight = import("lua/highlight.lua")
+local brush_editor = import("lua/brush_editor.lua")
 local shapes = RENDER_3D and import("goluwa/render3d/shapes.lua") or {}
 local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
@@ -691,7 +692,12 @@ return function(props)
 		do
 			camera.SetBlockMovement(has_text_focus())
 			local gizmo_status = Gizmo.GetStatus()
-			camera.SetBlockDragging(is_ui_hovering() or gizmo_status.active_drag or gizmo_status.hovered_handle)
+			camera.SetBlockDragging(
+				is_ui_hovering() or
+					gizmo_status.active_drag or
+					gizmo_status.hovered_handle or
+					brush_editor.IsBusy()
+			)
 			camera.Update(dt)
 			view:SetPosition(camera.GetPosition():Copy())
 			view:SetRotation(camera.GetRotation():Copy())

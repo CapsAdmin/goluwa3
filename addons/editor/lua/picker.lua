@@ -238,7 +238,7 @@ function picker.Update(dt)
 	local hovered = MouseInput.GetHoveredObject() or NULL
 
 	if not hovered:IsValid() then
-		picker.hovered_entity = picker.find_3d_pick_target(system.GetWindow():GetMousePosition())
+		picker.hovered_entity = picker.find_3d_pick_target(system.GetWindow():GetMousePosition()) or NULL
 	else
 		picker.hovered_entity = hovered
 	end

@@ -34,7 +34,6 @@ function Entity.GetValidComponents()
 
 		valid_components.static_world = import("goluwa/entities/components/static_world.lua")
 		valid_components.brush = import("goluwa/entities/components/brush.lua")
-		valid_components.brush_side = import("goluwa/entities/components/brush_side.lua")
 		valid_components.displacement = import("goluwa/entities/components/displacement.lua")
 		valid_components.static_mesh = import("goluwa/entities/components/static_mesh.lua")
 		valid_components.decal = import("goluwa/entities/components/decal.lua")

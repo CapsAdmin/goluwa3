@@ -13,6 +13,7 @@ local debug_draw = import("goluwa/debug_draw.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local system = import("goluwa/system.lua")
+local brush_editor = import("lua/brush_editor.lua")
 local gizmo = library()
 local listener_key = "gui_gizmo_service"
 local CONE_SEGMENTS = 20
@@ -1708,9 +1709,9 @@ function gizmo.EnableGizmo(entity)
 
 	if state.gizmo_entity == next_entity then return next_entity end
 
-	if next_entity and next_entity.brush then
-		next_entity.brush:CreateSides()
-	elseif next_entity and next_entity.displacement then
+	brush_editor.SetEntity(next_entity)
+
+	if next_entity and next_entity.displacement then
 		next_entity.displacement:Activate()
 	elseif next_entity and next_entity.static_mesh then
 		next_entity.static_mesh:Activate()
@@ -1789,6 +1790,7 @@ function gizmo.Clear(owner)
 	state.gizmo_entity = nil
 	state.hovered_handle = nil
 	state.active_drag = nil
+	brush_editor.SetEntity(nil)
 
 	if not owner or state.callback_owner == owner then
 		state.callback_owner = nil
