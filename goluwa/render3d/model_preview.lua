@@ -1,22 +1,11 @@
 local objects = import("goluwa/objects/objects.lua")
-local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
-local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local Material = import("goluwa/render3d/material.lua")
-local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
-local Camera3D = import("goluwa/render3d/camera3d.lua")
-local orientation = import("goluwa/render3d/orientation.lua")
+local SceneView = import("goluwa/render3d/scene_view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local Rect = import("goluwa/structs/rect.lua")
 local META = objects.CreateTemplate("render3d_model_preview")
 local DEFAULT_VIEW_OFFSET = Vec3(1, 1, 1):GetNormalized()
-local DEFAULT_LIGHT_DIRECTION = Vec3(1, 1, 1):GetNormalized()
-local DEFAULT_CLEAR_COLOR = {0, 0, 0, 0}
-local active_preview = nil
-local preview_pipeline = nil
 local aabb_corners = {
 	Vec3(),
 	Vec3(),
@@ -27,13 +16,10 @@ local aabb_corners = {
 	Vec3(),
 	Vec3(),
 }
-META:GetSet("Width", 256, {callback = "InvalidateFramebuffer"})
-META:GetSet("Height", 256, {callback = "InvalidateFramebuffer"})
+META:GetSet("Width", 256, {callback = "OnSizeChanged"})
+META:GetSet("Height", 256, {callback = "OnSizeChanged"})
 META:GetSet("Padding", 1.1)
-META:GetSet("AmbientStrength", 0.3)
-META:GetSet("LightStrength", 0.9)
 META:GetSet("ViewOffset", DEFAULT_VIEW_OFFSET)
-META:GetSet("LightDirection", DEFAULT_LIGHT_DIRECTION)
 
 local function populate_aabb_corners(aabb)
 	aabb_corners[1].x, aabb_corners[1].y, aabb_corners[1].z = aabb.min_x, aabb.min_y, aabb.min_z
@@ -47,113 +33,13 @@ local function populate_aabb_corners(aabb)
 	return aabb_corners
 end
 
-local function upload_preview_constants(pipeline)
-	local cmd = render.GetCommandBuffer()
-	local material = render3d.GetMaterial()
-	pipeline:UploadConstants()
-	cmd:SetCullMode(material:GetCullMode())
-	cmd:SetColorBlendEnable(0, material:GetTranslucent())
-	cmd:SetColorBlendEquation(0, material:GetBlendEquation())
-end
-
-local function create_preview_pipeline()
-	return EasyPipeline.New{
-		name = "model_preview",
-		dont_create_framebuffers = true,
-		ColorFormat = {{"r8g8b8a8_srgb", {"color", "rgba"}}},
-		DepthFormat = "d32_sfloat",
-		RasterizationSamples = "1",
-		vertex = model_pipeline.CreateVertexStage{
-			normal = true,
-			tangent = true,
-			uv = true,
-		},
-		fragment = {
-			uniform_buffers = {
-				{
-					name = "preview_data",
-					block = {
-						{"LightDirectionStrength", "vec4"},
-						{"LightingParams", "vec4"},
-						{"ViewDirection", "vec4"},
-					},
-					write = function(self, block)
-						local direction = active_preview:GetLightDirection()
-						block.LightDirectionStrength[0] = direction.x
-						block.LightDirectionStrength[1] = direction.y
-						block.LightDirectionStrength[2] = direction.z
-						block.LightDirectionStrength[3] = active_preview:GetLightStrength()
-						block.LightingParams[0] = active_preview:GetAmbientStrength()
-						block.LightingParams[1] = 0
-						block.LightingParams[2] = 0
-						block.LightingParams[3] = 0
-						local view = active_preview:GetViewOffset():GetNormalized()
-						block.ViewDirection[0] = view.x
-						block.ViewDirection[1] = view.y
-						block.ViewDirection[2] = view.z
-						block.ViewDirection[3] = 0
-						return block
-					end,
-				},
-				{
-					name = "model",
-					block = model_pipeline.GetSurfaceMaterialBlock(),
-					write = model_pipeline.WriteSurfaceMaterialBlock,
-				},
-			},
-			shader = [[
-			]] .. model_pipeline.BuildSurfaceSamplingGlsl() .. [[
-
-			void main() {
-				vec4 albedo = get_surface_color();
-
-				discard_surface_alpha(albedo);
-
-				vec3 normal = get_surface_normal(in_normal, in_tangent, in_uv);
-				vec3 light_dir = normalize(preview_data.LightDirectionStrength.xyz);
-				vec3 view_dir = normalize(preview_data.ViewDirection.xyz);
-				float metallic = clamp(model.MetallicMultiplier, 0.0, 1.0);
-				float roughness = clamp(model.RoughnessMultiplier, 0.05, 1.0);
-				float n_dot_l = max(dot(normal, light_dir), 0.0);
-				float diffuse = n_dot_l * preview_data.LightDirectionStrength.w;
-				float shininess = mix(200.0, 6.0, roughness);
-				float highlight = pow(max(dot(normal, normalize(light_dir + view_dir)), 0.0), shininess) * n_dot_l * (1.0 - roughness * 0.75);
-				vec3 specular_color = mix(vec3(0.04), albedo.rgb, metallic);
-				vec3 lit = albedo.rgb * (preview_data.LightingParams.x + diffuse);
-				lit += specular_color * highlight * preview_data.LightDirectionStrength.w;
-				lit += get_surface_emissive(albedo.rgb);
-				set_color(vec4(lit, albedo.a));
-			}
-		]],
-		},
-		CullMode = orientation.CULL_MODE,
-		FrontFace = orientation.FRONT_FACE,
-		DepthTest = true,
-		DepthWrite = true,
-		DepthCompareOp = "less_or_equal",
-		Blend = true,
-		SrcColorBlendFactor = "src_alpha",
-		DstColorBlendFactor = "one_minus_src_alpha",
-		ColorBlendOp = "add",
-		SrcAlphaBlendFactor = "one",
-		DstAlphaBlendFactor = "zero",
-		AlphaBlendOp = "add",
-		ColorWriteMask = "rgba",
-		on_draw = function(self)
-			active_preview:DrawTarget(self)
-		end,
-	}
-end
-
-local function get_preview_pipeline()
-	if not preview_pipeline then preview_pipeline = create_preview_pipeline() end
-
-	return preview_pipeline
-end
-
 function META.New(config)
 	local self = META:CreateObject()
-	self.camera = Camera3D.New()
+	self.view = SceneView.New{
+		OnDrawGeometry = function(cmd)
+			self:DrawTarget()
+		end,
+	}
 
 	if config then
 		for k, v in pairs(config) do
@@ -166,38 +52,33 @@ function META.New(config)
 	return self
 end
 
-function META:InvalidateFramebuffer()
-	if self.framebuffer then
-		self.framebuffer:Remove()
-		self.framebuffer = nil
-	end
+function META:OnSizeChanged()
+	if not self.view then return end
+
+	self.view:SetWidth(self.Width)
+	self.view:SetHeight(self.Height)
 end
 
 function META:OnRemove()
-	self:InvalidateFramebuffer()
-	self.camera = nil
+	self.view:Remove()
+	self.view = nil
 	self.target = nil
 end
 
-function META:EnsureFramebuffer()
-	if self.framebuffer then return self.framebuffer end
-
-	self.framebuffer = Framebuffer.New{
-		width = self:GetWidth(),
-		height = self:GetHeight(),
-		format = "r8g8b8a8_srgb",
-		depth = true,
-		clear_color = DEFAULT_CLEAR_COLOR,
-	}
-	return self.framebuffer
+function META:GetView()
+	return self.view
 end
 
-function META:GetFramebuffer()
-	return self:EnsureFramebuffer()
+function META:SetEnvironment(environment)
+	self.view:SetEnvironment(environment)
+end
+
+function META:SetExposureCompensation(stops)
+	self.view:SetExposureCompensation(stops)
 end
 
 function META:GetTexture()
-	return self:EnsureFramebuffer():GetColorTexture()
+	return self.view:GetTexture()
 end
 
 function META:Draw(x, y, w, h)
@@ -261,28 +142,22 @@ function META:ConfigureCamera(visual)
 	local half_height = math.max(max_up, max_right / aspect)
 	half_height = math.max(half_height * self:GetPadding(), 1e-4)
 	local distance = math.max(max_depth + half_height * 2, 1)
-	local position = center - forward * distance
-	self.camera:SetViewport(Rect(0, 0, self:GetWidth(), self:GetHeight()))
-	self.camera:SetOrthoMode(true)
-	self.camera:SetOrthoHalfHeight(half_height)
-	self.camera:SetNearZ(0.01)
-	self.camera:SetFarZ(distance + max_depth + half_height * 4)
-	self.camera:SetPosition(position)
-	self.camera:SetRotation(rotation)
-	return self.camera
+	local camera = self.view:GetCamera()
+	camera:SetOrthoMode(true)
+	camera:SetOrthoHalfHeight(half_height)
+	camera:SetNearZ(0.01)
+	camera:SetFarZ(distance + max_depth + half_height * 4)
+	camera:SetPosition(center - forward * distance)
+	camera:SetRotation(rotation)
 end
 
-function META:DrawTarget(pipeline)
-	local visual = self.target
-	local world_matrix = visual:GetWorldMatrix()
-
-	for _, entry in ipairs(visual:GetRenderEntries()) do
-		render3d.SetWorldMatrix(entry.transform and entry.transform:GetWorldMatrix() or world_matrix)
-		render3d.SetCurrentPolygon3D(entry.polygon3d)
-		render3d.SetMaterial(visual:GetResolvedMaterial(entry))
-		upload_preview_constants(pipeline)
-		entry.polygon3d:Draw()
-	end
+function META:DrawTarget()
+	local previous_world = render3d.GetWorldMatrix()
+	local previous_material = render3d.GetMaterial()
+	self.target:DrawEntriesForPass(false, render3d.UploadGBufferConstants)
+	render3d.SetWorldMatrix(previous_world)
+	render3d.SetCurrentPolygon3D(nil)
+	render3d.SetMaterial(previous_material)
 end
 
 function META:RenderTarget(visual)
@@ -292,32 +167,8 @@ function META:RenderTarget(visual)
 		error("model preview requires a visual with something to draw", 2)
 	end
 
-	self:EnsureFramebuffer()
 	self:ConfigureCamera(visual)
-	local pipeline = get_preview_pipeline()
-	local cmd = self.framebuffer:GetCommandBuffer()
-	local previous_world = render3d.GetWorldMatrix()
-	local previous_material = render3d.GetMaterial()
-	local pushed_camera = false
-	active_preview = self
-	local ok, err = xpcall(
-		function()
-			render3d.PushCamera(self.camera)
-			pushed_camera = true
-			pipeline:Draw(cmd, self.framebuffer)
-		end,
-		debug.traceback
-	)
-
-	if pushed_camera then render3d.PopCamera() end
-
-	render3d.SetWorldMatrix(previous_world)
-	render3d.SetCurrentPolygon3D(nil)
-	render3d.SetMaterial(previous_material)
-	active_preview = nil
-
-	if not ok then error(err, 0) end
-
+	self.view:RenderNow()
 	return self:GetTexture()
 end
 

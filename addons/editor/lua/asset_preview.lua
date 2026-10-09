@@ -130,8 +130,6 @@ local function acquire_render(state)
 				Width = previews.RENDER_SIZE,
 				Height = previews.RENDER_SIZE,
 				Padding = 1.12,
-				AmbientStrength = 0.34,
-				LightStrength = 0.95,
 			},
 			state = state,
 		}

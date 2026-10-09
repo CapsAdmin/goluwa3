@@ -328,7 +328,7 @@ function glass_tint.WriteCascadeBlock(self, block)
 		block.glass_tint_cascade_depth_tex[slot - 1] = -1
 	end
 
-	if state.active then
+	if state.active and render3d.IsPassEnabled("glass_tint") then
 		for slot = 1, INSET_SLOT do
 			local draws = slot_draws[slot]
 

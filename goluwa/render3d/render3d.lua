@@ -75,9 +75,9 @@ function render3d.WriteCameraBlock(self, block)
 	projection:GetInverse():CopyToFloatPointer(block.inv_projection)
 	view:CopyToFloatPointer(block.view)
 	projection:CopyToFloatPointer(block.projection)
-	local size = render.GetRenderImageSize()
-	block.render_size[0] = size and size.x or 1
-	block.render_size[1] = size and size.y or 1
+	local size = render3d.GetRenderSize()
+	block.render_size[0] = size.x
+	block.render_size[1] = size.y
 	camera:GetPosition():CopyToFloatPointer(block.camera_position)
 	block.normal_map_strength = normal_map_strength:Get()
 	block.noise_phase = render3d.GetNoisePhase()
@@ -165,6 +165,30 @@ local function context_bool(field, fallback)
 	return fallback
 end
 
+function render3d.GetRenderSize()
+	local context = render3d.GetActiveRenderContext()
+
+	if context and context.render_size then return context.render_size end
+
+	return render.GetRenderImageSize()
+end
+
+function render3d.GetDrawGeometry()
+	return context_value("draw_geometry", nil)
+end
+
+function render3d.IsSkyTransparent()
+	return context_bool("transparent_sky", false)
+end
+
+function render3d.AreLightsOverridden()
+	return context_value("lights", nil) ~= nil
+end
+
+function render3d.GetEnvironment()
+	return context_value("environment", nil)
+end
+
 function render3d.ShouldUseLastFrameHistory()
 	return context_bool("allow_last_frame_history", true)
 end
@@ -228,6 +252,8 @@ function render3d.PushRenderContext(context)
 		if context.pipelines then render3d.pipelines = context.pipelines end
 
 		if context.pipelines_i then render3d.pipelines_i = context.pipelines_i end
+
+		if context.camera then render3d.PushCamera(context.camera) end
 	end
 
 	return context
@@ -238,6 +264,10 @@ function render3d.PopRenderContext()
 	local state = table.remove(render3d.render_context_stack)
 
 	if not state then return nil end
+
+	local popped = render3d.active_render_context
+
+	if popped and popped.camera then render3d.PopCamera() end
 
 	render3d.pipelines = state.pipelines
 	render3d.pipelines_i = state.pipelines_i
@@ -443,6 +473,8 @@ function render3d.RunPipelineBundle(bundle, cmd, context)
 
 	render3d.WithRenderContext(active_context, function()
 		for _, pipeline in ipairs(bundle.pipelines_i) do
+			pipeline:ResetFrameUploads()
+
 			if
 				pipeline.draw_in_prerender and
 				render3d.IsPipelineEnabled(pipeline.name) and
@@ -771,7 +803,7 @@ do
 end
 
 function render3d.GetLights()
-	return light_components.GetInstances()
+	return context_value("lights", nil) or light_components.GetInstances()
 end
 
 function render3d.SetMaterial(mat)
@@ -839,11 +871,19 @@ function render3d.SetEnvironmentTexture(texture, irradiance_texture)
 end
 
 function render3d.GetEnvironmentTexture()
-	return context_value("environment_texture", render3d.environment_texture)
+	local environment = render3d.GetEnvironment()
+
+	if environment then return environment:GetSpecularTexture() end
+
+	return render3d.environment_texture
 end
 
 function render3d.GetEnvironmentIrradianceTexture()
-	return context_value("environment_irradiance_texture", render3d.environment_irradiance_texture)
+	local environment = render3d.GetEnvironment()
+
+	if environment then return environment:GetIrradianceTexture() end
+
+	return render3d.environment_irradiance_texture
 end
 
 function render3d.SetOceanEnabled(enabled)

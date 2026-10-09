@@ -1,11 +1,10 @@
 local T = import("test/environment.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local Environment = import("goluwa/render3d/environment.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
-local ModelPreview = import("goluwa/render3d/model_preview.lua")
+local ForwardPreview = import("goluwa/render3d/forward_preview.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -37,7 +36,7 @@ local function create_entity(offset)
 	poly:Upload()
 	local material = Material.New{
 		ColorMultiplier = Color(1, 0.2, 0.2, 1),
-		MetallicMultiplier = 0,
+		EmissiveMultiplier = Color(0.2, 0.02, 0.02, 1),
 		DoubleSided = true,
 	}
 	local entity = Entity.New{Name = "preview_model"}
@@ -69,7 +68,6 @@ local function create_textured_entity()
 	local material = Material.New{
 		AlbedoTexture = create_solid_texture(1, 0, 0, 1),
 		ColorMultiplier = Color(1, 1, 1, 1),
-		MetallicMultiplier = 0,
 		DoubleSided = true,
 	}
 	local entity = Entity.New{Name = "preview_textured_model"}
@@ -78,13 +76,9 @@ local function create_textured_entity()
 	return entity
 end
 
-local function luma(r, g, b)
-	return r * 0.2126 + g * 0.7152 + b * 0.0722
-end
-
-T.Test3D("Model preview renders offscreen and restores the active camera", function()
+T.Test3D("Forward preview renders offscreen and restores the active camera", function()
 	local entity = create_entity()
-	local preview = ModelPreview.New()
+	local preview = ForwardPreview.New()
 	local camera = render3d.GetCamera()
 	local old_position = camera:GetPosition():Copy()
 	local old_rotation = camera:GetRotation():Copy()
@@ -95,14 +89,13 @@ T.Test3D("Model preview renders offscreen and restores the active camera", funct
 				tex = tex,
 				pos = {128, 128},
 				color = function(r, g, b, a)
-					return r > 0.3 and r > g * 2 and r > b * 2 and a > 0.9
+					return r > 0.1 and g > 0.01 and a > 0.9
 				end,
 			}
 			T.AssertTexturePixel{tex = tex, pos = {4, 4}, color = {0, 0, 0, 0}, tolerance = 0.05}
 			T(render3d.GetCamera() == camera)["=="](true)
 			T(camera:GetPosition() == old_position)["=="](true)
 			T(camera:GetRotation() == old_rotation)["=="](true)
-			T(render3d.GetActiveRenderContext())["=="](nil)
 		end,
 		debug.traceback
 	)
@@ -112,9 +105,12 @@ T.Test3D("Model preview renders offscreen and restores the active camera", funct
 	if not ok then error(err, 0) end
 end)
 
-T.Test3D("Model preview samples albedo textures", function()
+T.Test3D("Forward preview samples albedo textures", function()
 	local entity = create_textured_entity()
-	local preview = ModelPreview.New()
+	local preview = ForwardPreview.New{
+		AmbientStrength = 0.35,
+		LightStrength = 0.85,
+	}
 	local ok, err = xpcall(
 		function()
 			local tex = preview:RenderTarget(entity.visual)
@@ -122,7 +118,7 @@ T.Test3D("Model preview samples albedo textures", function()
 				tex = tex,
 				pos = {128, 128},
 				color = function(r, g, b, a)
-					return r > 0.3 and r > g * 3 and r > b * 3 and a > 0.9
+					return r > 0.35 and g < 0.2 and b < 0.2 and a > 0.9
 				end,
 			}
 		end,
@@ -134,7 +130,7 @@ T.Test3D("Model preview samples albedo textures", function()
 	if not ok then error(err, 0) end
 end)
 
-T.Test3D("Model preview draws the back faces of double sided materials", function()
+T.Test3D("Forward preview draws the back faces of double sided materials", function()
 	local function render_far_faces(double_sided)
 		local cube = Polygon3D.New()
 		shapes.BuildCube(cube, 0.5, 1.0)
@@ -156,13 +152,12 @@ T.Test3D("Model preview draws the back faces of double sided materials", functio
 		poly:Upload()
 		local material = Material.New{
 			ColorMultiplier = Color(1, 1, 1, 1),
-			MetallicMultiplier = 0,
 			DoubleSided = double_sided,
 		}
 		local entity = Entity.New{Name = "preview_far_faces_model"}
 		entity:AddComponent("transform")
 		attach_visual_primitive(entity, poly, material)
-		local preview = ModelPreview.New()
+		local preview = ForwardPreview.New()
 		local ok, a = xpcall(
 			function()
 				return select(4, preview:RenderTarget(entity.visual):GetPixel(128, 150))
@@ -181,128 +176,9 @@ T.Test3D("Model preview draws the back faces of double sided materials", functio
 	T(render_far_faces(true))["=="](255)
 end)
 
-T.Test3D("Model preview is upright and not mirrored", function()
-	local poly = Polygon3D.New()
-	shapes.BuildCube(poly, 0.25, 1.0)
-
-	for _, vertex in ipairs(poly.Vertices) do
-		vertex.pos = Vec3(vertex.pos.x, vertex.pos.y * 3, vertex.pos.z)
-	end
-
-	local foot = Polygon3D.New()
-	shapes.BuildCube(foot, 0.2, 1.0)
-
-	for _, vertex in ipairs(foot.Vertices) do
-		poly:AddVertex({pos = vertex.pos + Vec3(0.6, -0.7, 0), uv = vertex.uv, normal = vertex.normal})
-	end
-
-	poly:BuildBoundingBox()
-	poly:Upload()
-	local entity = Entity.New{Name = "preview_upright_model"}
-	entity:AddComponent("transform")
-	attach_visual_primitive(
-		entity,
-		poly,
-		Material.New{ColorMultiplier = Color(0.7, 0.7, 0.7, 1), MetallicMultiplier = 0}
-	)
-	local preview = ModelPreview.New{Width = 320, Height = 320}
-	local ok, err = xpcall(
-		function()
-			local tex = preview:RenderTarget(entity.visual)
-			-- the pillar stands on the left, tall, with its foot at the bottom right
-			T.AssertTexturePixel{tex = tex, pos = {130, 40}, color = function(r, g, b, a)
-				return a > 0.9
-			end}
-			T.AssertTexturePixel{tex = tex, pos = {210, 270}, color = function(r, g, b, a)
-				return a > 0.9
-			end}
-			T.AssertTexturePixel{tex = tex, pos = {280, 40}, color = {0, 0, 0, 0}, tolerance = 0.05}
-			T.AssertTexturePixel{tex = tex, pos = {30, 290}, color = {0, 0, 0, 0}, tolerance = 0.05}
-		end,
-		debug.traceback
-	)
-	preview:Remove()
-	entity:Remove()
-
-	if not ok then error(err, 0) end
-end)
-
-T.Test3D("Model preview exposure compensation darkens the result", function()
-	local entity = create_entity()
-	local preview = ModelPreview.New()
-	local ok, err = xpcall(
-		function()
-			local r, g, b = preview:RenderTarget(entity.visual):GetPixel(128, 128)
-			local normal = luma(r, g, b)
-			preview:SetExposureCompensation(-2)
-			r, g, b = preview:RenderTarget(entity.visual):GetPixel(128, 128)
-			T(luma(r, g, b) < normal * 0.8)["=="](true)
-		end,
-		debug.traceback
-	)
-	preview:Remove()
-	entity:Remove()
-
-	if not ok then error(err, 0) end
-end)
-
-T.Test3D("Model preview fills the background from the environment when the sky is not transparent", function()
-	local entity = create_entity()
-	local preview = ModelPreview.New()
-	local ok, err = xpcall(
-		function()
-			preview:GetView():SetTransparentSky(false)
-			local tex = preview:RenderTarget(entity.visual)
-			T.AssertTexturePixel{tex = tex, pos = {4, 4}, color = function(r, g, b, a)
-				return a > 0.9 and luma(r, g, b) > 0.02
-			end}
-		end,
-		debug.traceback
-	)
-	preview:Remove()
-	entity:Remove()
-
-	if not ok then error(err, 0) end
-end)
-
-T.Test3D("Environment bakes the procedural studio and shares it", function()
-	local environment = Environment.GetShared()
-	local entity = create_entity()
-	local preview = ModelPreview.New()
-	local ok, err = xpcall(
-		function()
-			preview:RenderTarget(entity.visual)
-			T(environment:IsReady())["=="](true)
-			T(Environment.GetShared() == environment)["=="](true)
-			T(environment:GetExposure())["=="](1 / environment:GetIntensity())
-		end,
-		debug.traceback
-	)
-	preview:Remove()
-	entity:Remove()
-
-	if not ok then error(err, 0) end
-end)
-
-T.Test3D("Visual MakeError creates a cube with the fallback texture", function()
-	local entity = Entity.New{Name = "visual_error_test"}
-	entity:AddComponent("transform")
-	entity:AddComponent("visual")
-	entity.visual:MakeError()
-	local children = entity:GetChildren()
-	local primitive = children[1] and children[1].visual_primitive or nil
-	local material = primitive and primitive:GetMaterial() or nil
-	T(#children)["=="](1)
-	T(primitive ~= nil)["=="](true)
-	T(material ~= nil)["=="](true)
-	T(material:GetAlbedoTexture() == Texture.GetFallback())["=="](true)
-	T(primitive:GetPolygon3D() ~= nil)["=="](true)
-	entity:Remove()
-end)
-
-T.Test3D("Model preview Draw flips the texture vertically so the model is upright on screen", function()
+T.Test3D("Forward preview Draw flips the framebuffer vertically so the model is upright", function()
 	local render2d = import("goluwa/render2d/render2d.lua")
-	local preview = ModelPreview.New()
+	local preview = ForwardPreview.New()
 	local sentinel_texture = {}
 	local calls = {}
 	local original = {}

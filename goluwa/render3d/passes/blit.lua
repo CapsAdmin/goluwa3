@@ -82,6 +82,11 @@ local tonemapper = pvars.Setup2{
 	enums = {"agx", "agx_punchy", "aces", "gt7"},
 	help = "the curve that maps the exposed scene to the display",
 }
+
+function render3d.GetTonemapperIndex()
+	return tonemappers[tonemapper:Get()]
+end
+
 local update_hdr_metadata
 local hdr_paper_white = pvars.Setup2{
 	key = "r_hdr_paper_white",
@@ -949,7 +954,7 @@ for _, pass in ipairs{
 			if bits >= 16 then bits = render.target:IsHDR() and 10 or 8 end
 
 			block.dither_steps = dither:Get() and 2 ^ bits - 1 or 0
-			block.tonemapper = tonemappers[tonemapper:Get()]
+			block.tonemapper = render3d.GetTonemapperIndex()
 			block.bloom_strength = get_bloom_strength()
 			block.night_vision = exposure_mode:Get() == "eye" and night_vision_enabled:Get() and 1 or 0
 			block.night_vision_log10_threshold = math.log(night_vision_threshold:Get()) / math.log(10)

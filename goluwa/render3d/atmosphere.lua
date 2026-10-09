@@ -1312,6 +1312,42 @@ do
 			write_vec3(block.atmosphere_celestial_z, Vec3(0, 0, 1))
 		end
 	end
+
+	local sun_down = Vec3(0, -1, 0)
+	local axis_x = Vec3(1, 0, 0)
+	local axis_y = Vec3(0, 1, 0)
+	local axis_z = Vec3(0, 0, 1)
+
+	function atmosphere.WriteDisabledBlock(pipeline, block, environment_map, intensity)
+		block.atmosphere_enabled = 0
+		block.atmosphere_environment_texture_index = environment_map and
+			environment_map:IsReady() and
+			pipeline:GetTextureIndex(environment_map) or
+			-1
+		block.atmosphere_environment_intensity = intensity
+		block.atmosphere_transmittance_texture_index = -1
+		block.atmosphere_multi_scatter_texture_index = -1
+		block.atmosphere_sky_view_texture_index = -1
+		block.atmosphere_stars_texture_index = -1
+		block.atmosphere_fog_density = 0
+		block.atmosphere_precipitation_fog_density = 0
+		block.atmosphere_fog_ray_strength = 0
+		block.atmosphere_fog_color[0] = 0
+		block.atmosphere_fog_color[1] = 0
+		block.atmosphere_fog_color[2] = 0
+		block.atmosphere_fog_color[3] = 0
+		block.atmosphere_cloud_sky_texture_index = -1
+		block.atmosphere_cloud_transmittance = 1
+		write_vec3(block.atmosphere_sun_direction, sun_down)
+		block.atmosphere_sun_disc_illuminance = 0
+		write_vec3(block.atmosphere_moon_direction, sun_down)
+		block.atmosphere_moon_sky_scale = 0
+		block.atmosphere_moon_sky_view_texture_index = -1
+		block.atmosphere_moon_angular_radius = 0
+		write_vec3(block.atmosphere_celestial_x, axis_x)
+		write_vec3(block.atmosphere_celestial_y, axis_y)
+		write_vec3(block.atmosphere_celestial_z, axis_z)
+	end
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
@@ -1339,7 +1375,6 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 			vec3 atmos_dir = normalize(]] .. dir_var .. [[);
 			vec3 atmos_sun_dir = normalize(]] .. sun_dir_var .. [[);
 			vec3 atmos_cam_pos = ]] .. cam_pos_var .. [[;
-			vec4 atmosphere_sample = sample_sky_view_lut(atmos_dir, atmos_cam_pos);
 
 			if (ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX != -1) {
 				// equirect, the top row is up, same layout as the stars texture
@@ -1348,8 +1383,10 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 			} else if (ATMOSPHERE_ENABLED == 0) {
 				sky_color_output = vec3(0.0);
 			} else if (ray_hits_planet(atmos_dir, atmos_cam_pos)) {
+				vec4 atmosphere_sample = sample_sky_view_lut(atmos_dir, atmos_cam_pos);
 				sky_color_output = get_ground_radiance(atmos_dir, atmos_sun_dir, atmos_cam_pos) * atmosphere_sample.a + atmosphere_sample.rgb;
 			} else {
+				vec4 atmosphere_sample = sample_sky_view_lut(atmos_dir, atmos_cam_pos);
 				vec3 atmosphere_color = atmosphere_sample.rgb;
 				]] .. disc_code .. [[
 				vec3 space_color;

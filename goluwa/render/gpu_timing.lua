@@ -273,6 +273,8 @@ function gpu_timing.BeginFrame(cmd)
 end
 
 function gpu_timing.BeginScope(cmd, name)
+	if cmd.gpu_timing_disabled then return end
+
 	if not render.available or not timestamps_are_supported() then return end
 
 	local slot = get_slot(name)
@@ -294,6 +296,8 @@ function gpu_timing.BeginScope(cmd, name)
 end
 
 function gpu_timing.EndScope(cmd, name)
+	if cmd.gpu_timing_disabled then return end
+
 	if not render.available or not timestamps_are_supported() then return end
 
 	local slot = slot_by_name[name]

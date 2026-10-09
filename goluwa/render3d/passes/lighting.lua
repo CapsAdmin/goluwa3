@@ -70,7 +70,8 @@ return {
 		},
 		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
 		on_pre_draw = function(self, cmd, frame, desc)
-			light_occlusion.Draw(cmd)
+			if not render3d.AreLightsOverridden() then light_occlusion.Draw(cmd) end
+
 			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 		end,
 		sampled_images = {
@@ -97,6 +98,8 @@ return {
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
+					{"sky_alpha", "float"},
+					{"sky_from_environment", "int"},
 					{"screen_shadows", "int"},
 					{"screen_shadows_debug", "int"},
 					{"screen_shadow_length", "float"},
@@ -110,6 +113,8 @@ return {
 					block.gi_debug = ddgi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
+					block.sky_alpha = render3d.IsSkyTransparent() and 0 or 1
+					block.sky_from_environment = render3d.GetEnvironment() and 1 or 0
 					block.screen_shadows = screen_shadows:Get() and 1 or 0
 					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
 					block.screen_shadow_length = screen_shadow_length:Get()
@@ -284,6 +289,10 @@ return {
 				vec3 sun_dir = get_primary_sun_direction();
 				vec3 sky_color_output = vec3(0.0);
 
+				if (lighting_data.sky_from_environment != 0) {
+					return sample_environment_specular(lighting_data.env_tex, sky_dir, sky_dir, 0.0);
+				}
+
 				]] .. atmosphere.GetGLSLMainCode(
 				"sky_dir",
 				"sun_dir",
@@ -362,7 +371,7 @@ return {
 				float depth = gbuffer_depth(in_uv);
 
 				if (depth == 1.0) {
-					set_color(vec4(min(get_sky() * get_pre_exposure(), vec3(65504.0)), 1.0));
+					set_color(vec4(min(get_sky() * get_pre_exposure(), vec3(65504.0)), lighting_data.sky_alpha));
 					return;
 				}
 

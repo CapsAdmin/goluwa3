@@ -750,8 +750,6 @@ return function(props)
 				Width = DETAIL_PREVIEW_SIZE,
 				Height = DETAIL_PREVIEW_SIZE,
 				Padding = 1.1,
-				AmbientStrength = 0.34,
-				LightStrength = 0.95,
 			}
 		elseif entry.category == "materials" then
 			local ok, material = xpcall(previews.LoadMaterial, debug.traceback, entry)
@@ -763,8 +761,6 @@ return function(props)
 					Width = DETAIL_PREVIEW_SIZE,
 					Height = DETAIL_PREVIEW_SIZE,
 					Padding = 1.1,
-					AmbientStrength = 0.34,
-					LightStrength = 0.95,
 				}
 			end
 		end

@@ -39,6 +39,7 @@ local function create_primitive_entity(name, build_polygon, material, transform_
 	visual_primitive:SetMaterial(material)
 	entity.visual:BuildAABB()
 	entity.visual:SetUseOcclusionCulling(false)
+	entity.visual:SetVisible(false)
 
 	if transform_props then
 		if transform_props.position then
@@ -102,8 +103,6 @@ local function build_tile(definition)
 					entity = definition.build_entity()
 					preview = ModelPreview.New{
 						Padding = definition.padding or 1.12,
-						AmbientStrength = definition.ambient or 0.34,
-						LightStrength = definition.light or 0.95,
 					}
 					preview:SetTarget(entity.visual)
 					preview:Refresh()

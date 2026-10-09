@@ -381,7 +381,7 @@ return {
 						self.history_reset_frame = frame
 					end
 
-					if frame > self.history_reset_frame then
+					if frame > self.history_reset_frame and render3d.ShouldUseLastFrameHistory() then
 						local history = self:GetFramebuffer((frame + 1) % 2 + 1)
 						block.history_ao_tex = self:GetTextureIndex(history:GetAttachment(1))
 						block.history_bent_tex = self:GetTextureIndex(history:GetAttachment(2))

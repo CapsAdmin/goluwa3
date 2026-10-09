@@ -573,6 +573,14 @@ do
 		end
 	end
 
+	function EasyPipeline:ResetFrameUploads()
+		for _, info in pairs(self.uniform_buffer_types) do
+			local scope = info.block.upload_scope
+
+			if scope == "frame" or scope == "frame_keyed" then table.clear(info.offsets) end
+		end
+	end
+
 	function EasyPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		cmd = cmd or render.GetCommandBuffer()
 		frame_index = frame_index or render.GetCurrentFrame()

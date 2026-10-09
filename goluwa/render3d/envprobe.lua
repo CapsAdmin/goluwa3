@@ -328,6 +328,18 @@ function envprobe.CreateEnvironmentProbe(position)
 	return probe
 end
 
+function envprobe.CreateProbe(size)
+	local probe = CreateProbeTextures(size, true)
+	probe.type = envprobe.TYPE_ENVIRONMENT
+	probe.position = Vec3(0, 0, 0)
+	probe.size = size
+	return probe
+end
+
+function envprobe.RemoveProbe(probe)
+	remove_probe_resources(probe)
+end
+
 function envprobe.CreateReflectionProbe(position, radius, update_mode)
 	local probe = CreateProbeTextures(envprobe.REFLECTION_SIZE, false)
 	probe.type = envprobe.TYPE_REFLECTION
@@ -674,6 +686,7 @@ function envprobe.CreatePipelines()
 
 	for _, key in ipairs{
 		"sky_pipeline",
+		"environment_sky_pipeline",
 		"prefilter_pipeline",
 		"irradiance_pipeline",
 		"capture_copy_pipeline",
@@ -756,6 +769,75 @@ function envprobe.CreatePipelines()
 					);
 					sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
 					set_color(vec4(sky_color_output, 1.0));
+					set_linear_depth(1000.0);
+				}
+			]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+	}
+	envprobe.environment_sky_pipeline = EasyPipeline.New{
+		name = "envprobe_environment_sky",
+		ColorFormat = {
+			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
+			{"r32_sfloat", {"linear_depth", "r"}},
+		},
+		RasterizationSamples = "1",
+		Blend = false,
+		ColorWriteMask = "rgba",
+		vertex = fullscreen_direction_vertex,
+		fragment = {
+			push_constants = {
+				{
+					name = "fragment",
+					block = {
+						{"source_tex", "int"},
+						{"intensity", "float"},
+					},
+					write = function(self, block)
+						local environment = envprobe.current_sky_probe.environment
+						local source = environment:GetSourceTexture()
+						block.source_tex = source and source:IsReady() and self:GetTextureIndex(source) or -1
+						block.intensity = environment:GetIntensity()
+						return block
+					end,
+				},
+			},
+			custom_declarations = [[
+				layout(location = 0) in vec3 in_direction;
+			]],
+			shader = [[
+				// a gradient with a bright soft box overhead and to the side, a dimmer one opposite and
+				// a strip behind, in map units like an hdr file would hold
+				float studio_box(vec3 dir, vec3 center, float inner, float outer) {
+					return smoothstep(cos(outer), cos(inner), dot(dir, normalize(center)));
+				}
+
+				vec3 studio_radiance(vec3 dir) {
+					float h = dir.y;
+					vec3 color = h >= 0.0
+						? mix(vec3(0.2, 0.21, 0.23), vec3(0.42, 0.44, 0.48), smoothstep(0.0, 1.0, h))
+						: mix(vec3(0.16, 0.15, 0.14), vec3(0.05, 0.05, 0.055), smoothstep(0.0, 0.8, -h));
+					color += vec3(11.0, 10.6, 10.0) * studio_box(dir, vec3(-0.35, 0.95, 0.75), 0.22, 0.45);
+					color += vec3(1.6, 1.8, 2.2) * studio_box(dir, vec3(0.95, 0.25, -0.35), 0.35, 0.7);
+					color += vec3(5.0, 5.0, 5.4) * studio_box(dir, vec3(-0.2, 0.55, -1.0), 0.16, 0.38);
+					return color;
+				}
+
+				void main() {
+					vec3 dir = normalize(in_direction);
+					vec3 color;
+
+					if (fragment.source_tex != -1) {
+						// equirect, the top row is up, same layout as atmosphere.environment_map_path
+						vec2 uv = vec2(atan(dir.z, dir.x) / 6.28318530718 + 0.5, 0.5 - asin(clamp(dir.y, -1.0, 1.0)) / 3.14159265359);
+						color = textureLod(TEXTURE(fragment.source_tex), uv, 0.0).rgb;
+					} else {
+						color = studio_radiance(dir);
+					}
+
+					set_color(vec4(clamp(color * fragment.intensity, vec3(0.0), vec3(65504.0)), 1.0));
 					set_linear_depth(1000.0);
 				}
 			]],
@@ -1191,11 +1273,10 @@ local function draw_fullscreen(cmd, pipeline, w, h)
 end
 
 function envprobe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
-	if not envprobe.enabled then return end
-
 	if not envprobe.sky_pipeline then return end
 
 	num_faces = num_faces or 1
+	envprobe.current_sky_probe = probe
 	render.PushCommandBuffer(cmd)
 	local SIZE = probe.size
 	envprobe.camera:SetPosition(probe.position)
@@ -1269,7 +1350,7 @@ function envprobe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 				w = SIZE,
 				h = SIZE,
 			}
-			draw_fullscreen(cmd, envprobe.sky_pipeline, SIZE)
+			draw_fullscreen(cmd, probe.environment and envprobe.environment_sky_pipeline or envprobe.sky_pipeline, SIZE)
 			cmd:EndRendering()
 		end
 
@@ -1385,6 +1466,19 @@ function envprobe.PrefilterProbe(cmd, probe)
 	render.PopCommandBuffer()
 end
 
+function envprobe.BakeProbe(cmd, probe)
+	if not probe.layouts_initialized then
+		initialize_probe_layouts(cmd, probe)
+		probe.layouts_initialized = true
+	end
+
+	local saved_face = envprobe.current_face
+	envprobe.current_face = 0
+	envprobe.RenderProbeFaces(cmd, probe, 6, false)
+	envprobe.PrefilterProbe(cmd, probe)
+	envprobe.current_face = saved_face
+end
+
 function envprobe.UpdateEnvironmentProbe(cmd, sun_changed)
 	if not envprobe.environment_probe then return end
 
@@ -1395,11 +1489,7 @@ function envprobe.UpdateEnvironmentProbe(cmd, sun_changed)
 
 	local own_cmd
 	cmd, own_cmd = acquire_probe_command_buffer(cmd)
-	local saved_face = envprobe.current_face
-	envprobe.current_face = 0
-	envprobe.RenderProbeFaces(cmd, env_probe, 6, false)
-	envprobe.PrefilterProbe(cmd, env_probe)
-	envprobe.current_face = saved_face
+	envprobe.BakeProbe(cmd, env_probe)
 	env_probe.needs_update = false
 	env_probe.last_rendered = system.GetTime()
 	submit_probe_command_buffer(cmd, own_cmd)

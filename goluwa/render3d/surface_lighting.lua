@@ -50,7 +50,13 @@ function surface_lighting.WriteBlock(self, block)
 	block.primary_sun_color[1] = primary_sun and primary_sun.Color.y or 1
 	block.primary_sun_color[2] = primary_sun and primary_sun.Color.z or 1
 	block.primary_sun_color[3] = 0
-	atmosphere.WriteBlock(self, block, render3d.GetCamera():GetPosition(), sun_direction)
+
+	if render3d.GetEnvironment() then
+		atmosphere.WriteDisabledBlock(self, block, nil, 0)
+	else
+		atmosphere.WriteBlock(self, block, render3d.GetCamera():GetPosition(), sun_direction)
+	end
+
 	block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 	envprobe.WriteProbeBlock(self, block)
 	local gi_texture = ddgi.GetScreenTexture()

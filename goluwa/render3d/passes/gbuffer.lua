@@ -36,6 +36,14 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			if render3d.pipelines.grass then grass.Scatter(cmd) end
 		end,
 		on_draw = function(self, cmd)
+			local draw_geometry = render3d.GetDrawGeometry()
+
+			if draw_geometry then
+				draw_geometry(cmd)
+
+				return
+			end
+
 			gbuffer_instancing.Reset()
 			event.Call("PreDraw3D", dt)
 			event.Call("Draw3DGeometry", dt)

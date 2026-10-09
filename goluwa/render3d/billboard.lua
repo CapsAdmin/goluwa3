@@ -4,7 +4,7 @@ local event = import("goluwa/event.lua")
 local ffi = require("ffi")
 local Entity = import("goluwa/entities/entity.lua")
 local Material = import("goluwa/render3d/material.lua")
-local ModelPreview = import("goluwa/render3d/model_preview.lua")
+local ForwardPreview = import("goluwa/render3d/forward_preview.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local lod = import("goluwa/render3d/lod.lua")
@@ -216,7 +216,7 @@ function billboard.Bake(visual)
 	local views = {}
 	local atlas_width = width * billboard.TILE_COUNT
 	local atlas = ffi.new("uint8_t[?]", atlas_width * height * 4)
-	local preview = ModelPreview.New{
+	local preview = ForwardPreview.New{
 		Width = width,
 		Height = height,
 		AmbientStrength = 1,
