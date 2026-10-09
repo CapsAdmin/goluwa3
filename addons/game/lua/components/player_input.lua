@@ -168,6 +168,11 @@ function META:BuildCommand(cmd)
 		if input.IsMouseDown("button_2") then
 			buttons = bit.bor(buttons, BUTTON.ATTACK2)
 		end
+
+		-- e is also what rotates a body held with the physgun
+		if input.IsKeyDown("e") and not self.Owner.player_controller:IsHolding() then
+			buttons = bit.bor(buttons, BUTTON.USE)
+		end
 	end
 
 	cmd.buttons = buttons

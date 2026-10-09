@@ -1,6 +1,8 @@
 local objects = import("goluwa/objects/objects.lua")
 local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local use = import("goluwa/entities/use.lua")
+local usercmd = import("goluwa/network/usercmd.lua")
 local META = objects.CreateTemplate("weapon_holder")
 
 function META:Initialize()
@@ -110,6 +112,18 @@ function META:OnPhysicsUpdate(dt)
 	if cmd.select ~= 0 then self:SelectSlot(cmd.select) end
 
 	if not self:HasAuthority() then return end
+
+	if
+		usercmd.WasPressed(cmd, usercmd.BUTTON.USE) and
+		usercmd.HasButton(cmd, usercmd.BUTTON.ACTIVE)
+	then
+		local owner = self.Owner
+		use.Press(
+			owner,
+			owner.transform:GetPosition() + owner.player_movement:GetViewOffset(),
+			cmd.view:GetForward()
+		)
+	end
 
 	local weapon = self:GetActiveWeapon()
 
