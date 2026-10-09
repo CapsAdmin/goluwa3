@@ -1337,9 +1337,11 @@ do
 end
 
 function META:get_node_panel(node, path, key, selected, has_children, expanded)
+	local panels = {}
+
 	if node.SharedInstance and self.SharedInstanceColor then
 		local shared_instance_color = self.SharedInstanceColor
-		return Panel.New{
+		panels[#panels + 1] = Panel.New{
 			IsInternal = true,
 			Name = "TreeSharedInstanceMarker",
 			transform = {
@@ -1362,7 +1364,44 @@ function META:get_node_panel(node, path, key, selected, has_children, expanded)
 		}
 	end
 
-	return self.OnGetNodePanel(node, path, key, selected, has_children, expanded)
+	-- small labels after the text, a node lists them as {Text, Color}
+	for _, badge in ipairs(node.Badges or {}) do
+		panels[#panels + 1] = Text{
+			IsInternal = true,
+			Text = badge.Text,
+			Font = "body S",
+			Color = badge.Color,
+			IgnoreMouseInput = true,
+			layout = {SelfAlignmentY = "center", GrowWidth = 0, FitWidth = true},
+		}
+	end
+
+	if #panels == 0 then
+		return self.OnGetNodePanel(node, path, key, selected, has_children, expanded)
+	end
+
+	if #panels == 1 then return panels[1] end
+
+	local row = Panel.New{
+		IsInternal = true,
+		Name = "TreeNodeBadges",
+		transform = true,
+		layout = {
+			Direction = "x",
+			ChildGap = "XXS",
+			SelfAlignmentY = "center",
+			GrowWidth = 0,
+			FitWidth = true,
+			FitHeight = true,
+		},
+		mouse_input = {IgnoreMouseInput = true},
+	}
+
+	for _, panel in ipairs(panels) do
+		row:AddChild(panel)
+	end
+
+	return row
 end
 
 return META:Register()
