@@ -214,7 +214,7 @@ local function step_texture(state, now)
 			state.texture = Texture.New{
 				path = entry.path,
 				srgb = true,
-				cache_key = "asset_preview|" .. entry.lower_path,
+				cache_key = "asset_preview|" .. entry.lower_path .. "|" .. state.id,
 			}
 			state.owned = true
 		end
@@ -483,11 +483,15 @@ local function step_material(state, now, budget)
 	return true
 end
 
+local state_count = 0
+
 function previews.Request(entry)
 	local state = entry.preview
 
 	if not state then
+		state_count = state_count + 1
 		state = {
+			id = state_count,
 			entry = entry,
 			kind = get_kind(entry),
 			status = "queued",
