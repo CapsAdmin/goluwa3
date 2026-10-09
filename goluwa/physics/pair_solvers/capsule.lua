@@ -791,7 +791,7 @@ solve_swept_capsule_polyhedron_collision = function(dynamic_body, static_body, s
 		dynamic_sweep.movement,
 		hit,
 		dt,
-		false,
+		true,
 		hit.position,
 		hit.point
 	)

@@ -388,8 +388,8 @@ function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
 				local p10 = points[z * samples_x + x + 2]
 				local p01 = points[(z + 1) * samples_x + x + 1]
 				local p11 = points[(z + 1) * samples_x + x + 2]
-				callback(p00, p11, p01, cell_index * 2 + 1, context)
-				callback(p00, p10, p11, cell_index * 2 + 2, context)
+				callback(p00, p01, p11, cell_index * 2 + 1, context)
+				callback(p00, p11, p10, cell_index * 2 + 2, context)
 			end
 		end
 	end

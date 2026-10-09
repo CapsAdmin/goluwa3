@@ -64,6 +64,7 @@ function META:Reset(mode)
 	self.CrouchAnchorMode = nil
 	self.CrouchAnchorPosition = nil
 	self.was_grounded = false
+	self.jumping = false
 	self.Swimming = false
 	self.ground_x = nil
 	self.ground_z = nil
@@ -191,7 +192,7 @@ local STEP_MIN_GAIN = 0.005
 local GROUND_RAY_LIFT = 0.02
 local STEP_SMOOTH_SPEED = 8
 local STEP_SMOOTH_MIN_SPEED = 1
-local STEP_OPTIONS = {Rotation = nil}
+local STEP_OPTIONS = {Rotation = nil, IgnoreRigidBodies = false}
 
 function META:MoveBodyBy(body, offset)
 	local velocity = body:GetVelocity():Copy()
@@ -231,7 +232,7 @@ function META:TryStepUp(direction, distance)
 
 	if not down or down.normal.y < self.MinGroundNormalY then return false end
 
-	local lift = landing.y + drop.y * down.fraction - position.y
+	local lift = landing.y + drop.y * down.fraction + body:GetCollisionMargin() * 2 - position.y
 
 	if lift <= STEP_MIN_GAIN or lift > self.StepHeight + STEP_MIN_GAIN then
 		return false
@@ -482,10 +483,13 @@ do
 			local velocity = body:GetVelocity()
 			local x, y, z = velocity.x, velocity.y, velocity.z
 			local grounded = body:GetGrounded()
+
+			if y <= 0 then self.jumping = false end
+
 			local rising = y > self.LeaveGroundSpeed
 			local ground_normal
 
-			if rising then
+			if rising or self.jumping then
 				grounded = false
 			elseif grounded or y <= 0 or self.was_grounded then
 				local reach = self.was_grounded and
@@ -539,6 +543,7 @@ do
 
 			if grounded and jump_requested then
 				y = self.JumpSpeed
+				self.jumping = true
 				grounded = false
 				body:SetGrounded(false)
 			end
