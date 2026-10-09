@@ -329,7 +329,7 @@ function bsp.Load(path)
 	end
 
 	local sky_clip_aabb
-	local sky_origin, sky_scale, sky_cut_min, sky_cut_max
+	local sky_origin, sky_scale, sky_world_min, sky_world_max
 
 	if header.sky_camera then
 		sky_origin = header.sky_camera.origin
@@ -370,8 +370,8 @@ function bsp.Load(path)
 			)
 		end
 
-		sky_cut_min = (world_min - Vec3(margin, margin, margin)) / sky_scale + sky_origin
-		sky_cut_max = (world_max + Vec3(margin, margin, margin)) / sky_scale + sky_origin
+		sky_world_min = world_min - Vec3(margin, margin, margin)
+		sky_world_max = world_max + Vec3(margin, margin, margin)
 	end
 
 	do
@@ -481,111 +481,43 @@ function bsp.Load(path)
 		return compact
 	end
 
-	local baked = {}
-	local bake_sky_polygon
+	local sky_texinfo_lookup = {}
 
-	do
-		local baked_lookup = {}
+	local function get_sky_texinfo(index)
+		local compact = sky_texinfo_lookup[index]
 
-		local function split_polygon(polygon, axis, value)
-			local below, above = {}, {}
-			local prev = polygon[#polygon]
-			local prev_d = prev.pos[axis] - value
+		if not compact then
+			local base = texinfos[get_texinfo(index)]
+			local vecs = {}
 
-			for _, vertex in ipairs(polygon) do
-				local d = vertex.pos[axis] - value
-
-				if (prev_d < 0) ~= (d < 0) then
-					local t = prev_d / (prev_d - d)
-					local mid = {
-						pos = prev.pos + (vertex.pos - prev.pos) * t,
-						blend = prev.blend + (vertex.blend - prev.blend) * t,
-						flat = prev.flat and prev.flat + (vertex.flat - prev.flat) * t,
-					}
-					list.insert(below, mid)
-					list.insert(above, mid)
-				end
-
-				list.insert(d < 0 and below or above, vertex)
-				prev, prev_d = vertex, d
+			for row = 0, 1 do
+				local o = row * 4
+				vecs[o + 1] = base.vecs[o + 1] / sky_scale
+				vecs[o + 2] = base.vecs[o + 2] / sky_scale
+				vecs[o + 3] = base.vecs[o + 3] / sky_scale
+				vecs[o + 4] = base.vecs[o + 4] + base.vecs[o + 1] * sky_origin.x + base.vecs[o + 2] * sky_origin.y + base.vecs[o + 3] * sky_origin.z
 			end
 
-			return below, above
+			texinfos[#texinfos + 1] = {
+				texname = base.texname,
+				vecs = vecs,
+				width = base.width,
+				height = base.height,
+			}
+			compact = #texinfos
+			sky_texinfo_lookup[index] = compact
 		end
 
-		local function emit(texinfo, polygon)
-			local entry = baked_lookup[texinfo.texname]
+		return compact
+	end
 
-			if not entry then
-				entry = {
-					texname = texinfo.texname,
-					group = 0,
-					positions = {},
-					uvs = {},
-					blends = {},
-					normals = {},
-				}
-				baked_lookup[texinfo.texname] = entry
-				list.insert(baked, entry)
-			end
-
-			local vecs = texinfo.vecs
-
-			for i = 2, #polygon - 1 do
-				local corners = {polygon[1], polygon[i], polygon[i + 1]}
-				local points = {}
-
-				for k, vertex in ipairs(corners) do
-					points[k] = units.PositionToEngine((vertex.pos - sky_origin) * sky_scale)
-				end
-
-				local flat_normal = (points[3] - points[1]):Cross(points[2] - points[1]):GetNormalized()
-
-				for k, vertex in ipairs(corners) do
-					local uv_source = vertex.flat or vertex.pos
-					local normal = flat_normal
-
-					if vertex.dn and (vertex.dn.x ~= 0 or vertex.dn.y ~= 0 or vertex.dn.z ~= 0) then
-						normal = vertex.dn:GetNormalized()
-					end
-
-					list.insert(entry.positions, points[k].x)
-					list.insert(entry.positions, points[k].y)
-					list.insert(entry.positions, points[k].z)
-					list.insert(
-						entry.uvs,
-						(
-								vecs[1] * uv_source.x + vecs[2] * uv_source.y + vecs[3] * uv_source.z + vecs[4]
-							) / texinfo.width
-					)
-					list.insert(
-						entry.uvs,
-						(
-								vecs[5] * uv_source.x + vecs[6] * uv_source.y + vecs[7] * uv_source.z + vecs[8]
-							) / texinfo.height
-					)
-					list.insert(entry.blends, math.clamp(vertex.blend / 255, 0, 1))
-					list.insert(entry.normals, normal.x)
-					list.insert(entry.normals, normal.y)
-					list.insert(entry.normals, normal.z)
-				end
-			end
-		end
-
-		function bake_sky_polygon(texinfo, polygon)
-			for _, axis in ipairs({"x", "y", "z"}) do
-				local outside
-				outside, polygon = split_polygon(polygon, axis, sky_cut_min[axis])
-				emit(texinfo, outside)
-
-				if not polygon[3] then return end
-
-				polygon, outside = split_polygon(polygon, axis, sky_cut_max[axis])
-				emit(texinfo, outside)
-
-				if not polygon[3] then return end
-			end
-		end
+	local function inside_sky_cut(point)
+		return point.x > sky_world_min.x and
+			point.x < sky_world_max.x and
+			point.y > sky_world_min.y and
+			point.y < sky_world_max.y and
+			point.z > sky_world_min.z and
+			point.z < sky_world_max.z
 	end
 
 	local displacements = {}
@@ -646,79 +578,54 @@ function bsp.Load(path)
 					end
 				end
 
-				list.insert(
-					displacements,
-					{
-						Power = info.power,
-						Corners = {
-							corners[1 + (start_corner + 0) % 4],
-							corners[1 + (start_corner + 1) % 4],
-							corners[1 + (start_corner + 3) % 4],
-							corners[1 + (start_corner + 2) % 4],
-						},
-						Positions = flat_positions,
-						Alphas = alphas,
-						Texinfo = get_texinfo(face.texinfo),
-						Group = area_groups[area] or 0,
-						Normal = header.planes[face.planenum + 1].normal,
-						Sky = in_sky or nil,
-					}
-				)
-				displacement_by_face[world_model.firstface + i] = #displacements
+				local record_corners = {
+					corners[1 + (
+						start_corner + 0
+					) % 4],
+					corners[1 + (
+						start_corner + 1
+					) % 4],
+					corners[1 + (
+						start_corner + 3
+					) % 4],
+					corners[1 + (
+						start_corner + 2
+					) % 4],
+				}
+				local texinfo_index = get_texinfo(face.texinfo)
+				local keep = true
 
 				if in_sky then
-					local nx, ny, nz = {}, {}, {}
-					local points = {}
+					keep = false
 
 					for index = 1, dims * dims do
-						points[index] = units.PositionToEngine(positions[index])
-						nx[index], ny[index], nz[index] = 0, 0, 0
+						local scaled = (positions[index] - sky_origin) * sky_scale
+						flat_positions[index * 3 - 2], flat_positions[index * 3 - 1], flat_positions[index * 3] = scaled.x, scaled.y, scaled.z
+						keep = keep or not inside_sky_cut(scaled)
 					end
 
-					for x = 1, dims - 1 do
-						for y = 1, dims - 1 do
-							local a = y * dims + x
-							local b = (y - 1) * dims + x
-							local c = a + 1
-							local d = b + 1
-
-							for _, triangle in ipairs{{a, c, b}, {c, d, b}} do
-								local normal = (
-									points[triangle[3]] - points[triangle[1]]
-								):Cross(points[triangle[2]] - points[triangle[1]])
-
-								for _, vertex in ipairs(triangle) do
-									nx[vertex], ny[vertex], nz[vertex] = nx[vertex] + normal.x, ny[vertex] + normal.y, nz[vertex] + normal.z
-								end
-							end
-						end
+					for k, corner in ipairs(record_corners) do
+						record_corners[k] = (corner - sky_origin) * sky_scale
 					end
 
-					local sky_texinfo = texinfos[displacements[#displacements].Texinfo]
+					texinfo_index = get_sky_texinfo(face.texinfo)
+				end
 
-					for x = 1, dims - 1 do
-						for y = 1, dims - 1 do
-							local a = y * dims + x
-							local b = (y - 1) * dims + x
-							local c = a + 1
-							local d = b + 1
-
-							for _, triangle in ipairs{{a, c, b}, {c, d, b}} do
-								local polygon = {}
-
-								for k, vertex in ipairs(triangle) do
-									polygon[k] = {
-										pos = positions[vertex],
-										blend = alphas[vertex],
-										flat = flats[vertex],
-										dn = Vec3(nx[vertex], ny[vertex], nz[vertex]),
-									}
-								end
-
-								bake_sky_polygon(sky_texinfo, polygon)
-							end
-						end
-					end
+				if keep then
+					list.insert(
+						displacements,
+						{
+							Power = info.power,
+							Corners = record_corners,
+							Positions = flat_positions,
+							Alphas = alphas,
+							Texinfo = texinfo_index,
+							Group = area_groups[area] or 0,
+							Normal = header.planes[face.planenum + 1].normal,
+							Sky = in_sky or nil,
+						}
+					)
+					displacement_by_face[world_model.firstface + i] = #displacements
 				end
 			end
 
@@ -781,6 +688,7 @@ function bsp.Load(path)
 				local flat = {}
 				local has_geometry = false
 				local sky = false
+				local sky_outside = false
 
 				for side_index, side in ipairs(sides) do
 					local plane = planes[side_index]
@@ -789,6 +697,12 @@ function bsp.Load(path)
 					local texdata = texinfo and header.texdatas[1 + texinfo.texdata]
 					local texname = texdata and header.texdatastringdata[1 + texdata.nameStringTableID]
 					local visible, group = false, 0
+
+					if polygon and sky_origin then
+						for _, point in ipairs(polygon) do
+							sky_outside = sky_outside or not inside_sky_cut((point - sky_origin) * sky_scale)
+						end
+					end
 
 					if polygon and texdata then
 						local texname_lower = texname:lower()
@@ -853,20 +767,8 @@ function bsp.Load(path)
 								if sky_areas[area] then
 									sky = true
 									has_geometry = true
-
-									for j, point in ipairs(polygon) do
-										polygon[j] = {pos = point, blend = 0}
-									end
-
-									bake_sky_polygon(
-										{
-											texname = texname,
-											vecs = texinfos[get_texinfo(side.texinfo)].vecs,
-											width = texdata.width,
-											height = texdata.height,
-										},
-										polygon
-									)
+									visible = true
+									group = 0
 								else
 									visible = true
 									has_geometry = true
@@ -885,6 +787,17 @@ function bsp.Load(path)
 				end
 
 				local collide = is_collidable_brush(brush)
+
+				if sky then
+					for side_index, plane in ipairs(planes) do
+						local o = (side_index - 1) * 7
+						flat[o + 4] = (plane.dist - plane.normal:Dot(sky_origin)) * sky_scale
+						flat[o + 5] = flat[o + 5] > 0 and get_sky_texinfo(sides[side_index].texinfo) or 0
+						flat[o + 6] = 0
+					end
+				end
+
+				if sky and not sky_outside then collide, has_geometry = false, false end
 
 				if collide or has_geometry then
 					list.insert(brush_list, {Sides = flat, Collide = collide or nil, Sky = sky or nil})
@@ -1098,15 +1011,7 @@ function bsp.Load(path)
 	end
 
 	logn("exported ", #decals, " decals")
-	logn(
-		"exported ",
-		#brush_list,
-		" brushes, ",
-		#displacements,
-		" displacements, ",
-		#baked,
-		" baked sky meshes"
-	)
+	logn("exported ", #brush_list, " brushes, ", #displacements, " displacements")
 	local ocean_level = header.ocean_level
 
 	if ocean_level == nil then ocean_level = header.lowest_point or 0 end
@@ -1116,7 +1021,15 @@ function bsp.Load(path)
 			Texinfos = texinfos,
 			Brushes = brush_list,
 			Displacements = displacements,
-			Baked = baked,
+			SkyClip = sky_clip_aabb and
+				{
+					sky_clip_aabb.min_x,
+					sky_clip_aabb.min_y,
+					sky_clip_aabb.min_z,
+					sky_clip_aabb.max_x,
+					sky_clip_aabb.max_y,
+					sky_clip_aabb.max_z,
+				},
 		},
 		decals = decals,
 		entities = header.entities,

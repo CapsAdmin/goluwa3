@@ -46,7 +46,7 @@ function static_geometry.GetBatch(state, texname, group, kind)
 		local material = vmt_material.FromVMT("materials/" .. texname .. ".vmt")
 		mesh:SetName(state.name .. ": " .. texname)
 		mesh.material = material
-		batch = {mesh = mesh, material = material, visibility_group = group}
+		batch = {mesh = mesh, material = material, visibility_group = group, sky = kind == "sky"}
 		state.by_key[key] = batch
 		list.insert(state.batches, batch)
 		batch.is_new = true
@@ -149,7 +149,7 @@ function static_geometry.Build(world, name)
 				end
 
 				if render and side.visible then
-					local batch = static_geometry.GetBatch(state, side.texname, side.group)
+					local batch = static_geometry.GetBatch(state, side.texname, side.group, record.sky and "sky" or nil)
 					local mesh = batch.mesh
 					local first = mesh.i
 
@@ -241,10 +241,10 @@ function static_geometry.Build(world, name)
 		local record = result.displacements[index]
 		local normals = tiles[index]
 
-		if render and not record.sky then
+		if render then
 			local dims, positions = record.dims, record.positions
 			local corners = record.corners
-			local batch = static_geometry.GetBatch(state, record.texname, record.group)
+			local batch = static_geometry.GetBatch(state, record.texname, record.group, record.sky and "sky" or nil)
 			local mesh = batch.mesh
 			local first = mesh.i
 			local flats, smooth = {}, {}
@@ -300,23 +300,6 @@ function static_geometry.Build(world, name)
 
 			record.visible = true
 			list.insert(record.spans, {entry = batch, first = first, count = mesh.i - first})
-		end
-	end
-
-	if render then
-		for _, baked in ipairs(world.Baked) do
-			local batch = static_geometry.GetBatch(state, baked.texname, baked.group > 0 and baked.group or nil)
-			local mesh = batch.mesh
-			local positions, uvs, blends, normals = baked.positions, baked.uvs, baked.blends, baked.normals
-
-			for i = 1, #blends do
-				mesh:AddVertex{
-					pos = Vec3(positions[i * 3 - 2], positions[i * 3 - 1], positions[i * 3]),
-					uv = Vec2(uvs[i * 2 - 1], uvs[i * 2]),
-					texture_blend = blends[i],
-					normal = Vec3(normals[i * 3 - 2], normals[i * 3 - 1], normals[i * 3]),
-				}
-			end
 		end
 	end
 

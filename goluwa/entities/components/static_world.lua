@@ -17,7 +17,7 @@ META:GetSet("Pak", "")
 META:GetSet("Texinfos", nil)
 META:GetSet("Brushes", nil)
 META:GetSet("Displacements", nil)
-META:GetSet("Baked", nil)
+META:GetSet("SkyClip", nil)
 META:EndStorable()
 
 -- the big numeric tables are stored as packed float strings, plain nested tables would exceed what a chunk can hold
@@ -35,20 +35,6 @@ end
 
 function META:SetDisplacements(value)
 	self.Displacements = value and (value.data and world_pack.UnpackDisplacements(value) or value)
-end
-
-function META:GetBaked()
-	return self.Baked and world_pack.PackBaked(self.Baked)
-end
-
-function META:SetBaked(value)
-	self.Baked = value and
-		(
-			value[1] and
-			type(value[1].positions) == "string" and
-			world_pack.UnpackBaked(value) or
-			value
-		)
 end
 
 META.waiting = {}
@@ -95,6 +81,7 @@ function META:Clear()
 	self.collision_model = nil
 	self.decal_spans = {}
 	self.visual_entities = {}
+	self.sky_visual_entities = {}
 	self.built = false
 
 	if META.active == self then META.active = nil end
@@ -163,7 +150,6 @@ function META:Build()
 		Texinfos = self.Texinfos or {},
 		Brushes = self.Brushes or {},
 		Displacements = self.Displacements or {},
-		Baked = self.Baked or {},
 	}
 	local result = static_geometry.Build(world, owner:GetName())
 	self.brush_records = result.brushes
@@ -183,6 +169,10 @@ function META:Build()
 		end
 
 		for _, visual_entity in pairs(self.visual_entities) do
+			visual_entity.visual:BuildAABB()
+		end
+
+		for _, visual_entity in pairs(self.sky_visual_entities) do
 			visual_entity.visual:BuildAABB()
 		end
 	end
@@ -226,15 +216,18 @@ end
 
 function META:AttachBatch(batch)
 	local container = self:GetContainer(batch.visibility_group)
-	local visual_entity = self.visual_entities[container]
+	local visual_entities = batch.sky and self.sky_visual_entities or self.visual_entities
+	local visual_entity = visual_entities[container]
 
 	if not visual_entity then
-		visual_entity = Entity.New{Name = "world", Parent = container}
+		visual_entity = Entity.New{Name = batch.sky and "sky" or "world", Parent = container}
 		visual_entity:SetTransient(true)
 		visual_entity:AddComponent("transform")
 		visual_entity:AddComponent("visual")
 		visual_entity.static_generated = true
-		self.visual_entities[container] = visual_entity
+		visual_entities[container] = visual_entity
+
+		if batch.sky then visual_entity.visual:SetClipBounds(self.SkyClip) end
 	end
 
 	self.batch_primitives[batch] = visual_entity.visual:CreatePrimitiveEntity(
@@ -260,8 +253,7 @@ end
 function META:RefreshBatch(batch)
 	if batch.is_new then
 		static_geometry.UploadBatch(batch)
-		self:AttachBatch(batch)
-		self.visual_entities[self:GetContainer(batch.visibility_group)].visual:BuildAABB()
+		self:AttachBatch(batch)(batch.sky and self.sky_visual_entities or self.visual_entities)[self:GetContainer(batch.visibility_group)].visual:BuildAABB()
 	else
 		batch.mesh:Upload(nil)
 		self.batch_primitives[batch].visual_primitive:SetPolygon3D(batch.mesh)

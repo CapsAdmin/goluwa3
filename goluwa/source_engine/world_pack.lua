@@ -148,38 +148,4 @@ function world_pack.UnpackDisplacements(packed)
 	return displacements
 end
 
-function world_pack.PackBaked(baked)
-	local out = {}
-
-	for i, entry in ipairs(baked) do
-		out[i] = {
-			texname = entry.texname,
-			group = entry.group,
-			positions = world_pack.PackFloats(entry.positions),
-			uvs = world_pack.PackFloats(entry.uvs),
-			blends = world_pack.PackFloats(entry.blends),
-			normals = world_pack.PackFloats(entry.normals),
-		}
-	end
-
-	return out
-end
-
-function world_pack.UnpackBaked(packed)
-	local out = {}
-
-	for i, entry in ipairs(packed) do
-		out[i] = {
-			texname = entry.texname,
-			group = entry.group,
-			positions = world_pack.UnpackFloats(entry.positions),
-			uvs = world_pack.UnpackFloats(entry.uvs),
-			blends = world_pack.UnpackFloats(entry.blends),
-			normals = world_pack.UnpackFloats(entry.normals),
-		}
-	end
-
-	return out
-end
-
 return world_pack

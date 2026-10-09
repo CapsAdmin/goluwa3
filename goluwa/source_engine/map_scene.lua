@@ -143,7 +143,7 @@ function map_scene.Translate(data, map_name, map_path)
 				Texinfos = data.world.Texinfos,
 				Brushes = data.world.Brushes,
 				Displacements = data.world.Displacements,
-				Baked = data.world.Baked,
+				SkyClip = data.world.SkyClip,
 			},
 		},
 	}
