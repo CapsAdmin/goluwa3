@@ -999,7 +999,41 @@ do
 			value ~= ""
 	end
 
+	local function add_to_category(children, groups, category_key, info, node)
+		if not info.category then
+			children[#children + 1] = node
+			return
+		end
+
+		local group = groups[info.category]
+
+		if not group then
+			group = {
+				Key = category_key .. "/#" .. info.category,
+				Text = info.category,
+				IsGroup = true,
+				Children = {},
+			}
+			groups[info.category] = group
+			children[#children + 1] = group
+		end
+
+		group.Children[#group.Children + 1] = node
+	end
+
 	local function build_property_node(editor, target, category_key, category_name, info)
+		if info.type == "action" then
+			return {
+				Type = "action",
+				Key = category_key .. "/" .. info.var_name,
+				Text = info.var_name,
+				ButtonText = info.button_text,
+				OnAction = function()
+					info.action(target)
+				end,
+			}
+		end
+
 		local resolved_type = property_type_aliases[info.type] or info.type
 		local enums = info.enums or info.get_enums and info.get_enums(target)
 		local node_type = enums and "enum" or info.asset and "asset" or resolved_type
@@ -1144,31 +1178,19 @@ do
 					if info.Hidden then goto continue end
 
 					local node = build_property_node(self, category.object, category.key, category.name, info)
-
-					if info.category then
-						local group = groups[info.category]
-
-						if not group then
-							group = {
-								Key = category.key .. "/#" .. info.category,
-								Text = info.category,
-								IsGroup = true,
-								Children = {},
-							}
-							groups[info.category] = group
-							children[#children + 1] = group
-						end
-
-						group.Children[#group.Children + 1] = node
-					else
-						children[#children + 1] = node
-					end
+					add_to_category(children, groups, category.key, info, node)
 
 					::continue::
 				end
 
 				for _, info in ipairs(category.object:GetDynamicProperties()) do
-					children[#children + 1] = build_property_node(self, category.object, category.key, category.name, info)
+					add_to_category(
+						children,
+						groups,
+						category.key,
+						info,
+						build_property_node(self, category.object, category.key, category.name, info)
+					)
 				end
 
 				items[#items + 1] = {

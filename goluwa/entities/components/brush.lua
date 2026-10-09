@@ -1,4 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local brush_geometry = import("goluwa/source_engine/brush_geometry.lua")
@@ -33,6 +34,11 @@ end
 function META:OnShapeChanged()
 	self.polygons = nil
 	self.side_polygons = nil
+
+	if self.sides and self.property_side_count ~= #self.sides then
+		self.property_side_count = #self.sides
+		objects.NotifyPropertyListeners(self, {var_name = "DynamicProperties"})
+	end
 
 	if self.world then self.world:MarkDirty(self) end
 end
@@ -353,6 +359,79 @@ do
 		end
 
 		return true
+	end
+end
+
+do
+	-- texture axes for a side that has no mapping yet, tiling every 256 units along the dominant axis of its normal
+	local DEFAULT_VECS = {
+		x = {0, 1 / 256, 0, 0, 0, 0, -1 / 256, 0},
+		y = {1 / 256, 0, 0, 0, 0, 0, -1 / 256, 0},
+		z = {1 / 256, 0, 0, 0, 0, -1 / 256, 0, 0},
+	}
+
+	-- texname is a material name like "dev/dev_measuregeneric01"
+	function META:SetSideMaterial(index, texname)
+		local side = self.sides[index]
+		local old = side.texname
+		side.texname = texname
+
+		if not side.vecs then
+			local normal = side.normal
+			local ax, ay, az = math.abs(normal.x), math.abs(normal.y), math.abs(normal.z)
+			side.vecs = table.copy(DEFAULT_VECS[ax >= ay and ax >= az and "x" or ay >= az and "y" or "z"])
+		end
+
+		self:OnShapeChanged()
+		objects.NotifyPropertyListeners(self, {var_name = "Material " .. index}, old, texname)
+	end
+
+	local function side_property(index)
+		return {
+			var_name = "Material " .. index,
+			type = "string",
+			asset = "materials",
+			category = "Materials",
+			default = "",
+			get = function(brush)
+				local texname = brush.sides[index].texname
+				return texname and "materials/" .. texname .. ".vmt" or ""
+			end,
+			set = function(brush, path)
+				brush:SetSideMaterial(index, path:match("^materials/(.*)%.vmt$") or path)
+			end,
+		}
+	end
+
+	function META:GetDynamicProperties()
+		local properties = {
+			{
+				var_name = "Set all",
+				type = "action",
+				button_text = "Pick material",
+				category = "Materials",
+				action = function(brush)
+					event.Call(
+						"PickObject",
+						"asset",
+						function(path)
+							local texname = path:match("^materials/(.*)%.vmt$")
+
+							for i = 1, #brush.sides do
+								brush:SetSideMaterial(i, texname)
+							end
+						end,
+						{category = "materials"}
+					)
+				end,
+			},
+		}
+
+		for i = 1, #self.sides do
+			properties[#properties + 1] = side_property(i)
+		end
+
+		return properties
 	end
 end
 
