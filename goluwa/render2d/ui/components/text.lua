@@ -27,6 +27,7 @@ META:GetSet("Hint", "")
 META:GetSet("DisableViewportCulling", false)
 META:GetSet("Color", nil)
 META:GetSet("SelectionColor", nil)
+META:GetSet("GhostText", "")
 META:GetSet("Editable", false, {callback = "OnEditableChanged"})
 META:GetSet("Selectable", false, {callback = "OnEditableChanged"})
 META:EndStorable()
@@ -653,12 +654,7 @@ function META:OnDraw()
 	local tw, th = self:GetTextSize()
 	local descent = font:GetDescent()
 	local is_focused_editable = self:GetEditable() and self.editor and objects.GetFocusedObject() == self.Owner
-	local is_focused_selectable = (
-			self:GetEditable() or
-			self:GetSelectable()
-		) and
-		self.editor and
-		objects.GetFocusedObject() == self.Owner
+	local is_selectable = (self:GetEditable() or self:GetSelectable()) and self.editor
 	local line_height = font:GetLineHeight()
 	local foreground = self:GetColor()
 	local background
@@ -716,7 +712,7 @@ function META:OnDraw()
 	local source_lines = self.wrap_layout_info and self.wrap_layout_info.lines or text
 	local lines, line_height, vertical_step, visible_start, visible_stop = self:GetVisibleTextLines(source_lines, font, lx, ly, clip_y1, clip_y2)
 
-	if is_focused_selectable then
+	if is_selectable then
 		local start, stop = self.editor:GetSelection()
 
 		if start and start ~= stop then
@@ -762,6 +758,23 @@ function META:OnDraw()
 			font:DrawText(lines[i] or "", lx, y, 0, nil, nil, display_line.extra_per_space)
 		else
 			font:DrawText(lines[i] or "", lx, y, 0)
+		end
+	end
+
+	if is_focused_editable and self.GhostText ~= "" then
+		local last_line, last_col = self:GetLineColFromIndex(self.editor.Buffer:GetLength() + 1)
+
+		if last_line >= visible_start and last_line <= visible_stop then
+			local display_line = self.wrap_layout_info and
+				self.wrap_layout_info.display_lines and
+				self.wrap_layout_info.display_lines[last_line]
+			local ghost_x = get_line_column_offset(font, lines[last_line] or "", last_col, display_line)
+			local ghost = theme.active:GetColor("text_disabled")
+			render2d.PushColor(ghost.r, ghost.g, ghost.b)
+			render2d.PushAlphaMultiplier(ghost.a)
+			font:DrawText(self.GhostText, lx + ghost_x, ly + (last_line - 1) * vertical_step, 0)
+			render2d.PopAlphaMultiplier()
+			render2d.PopColor()
 		end
 	end
 
@@ -815,6 +828,18 @@ function META:GetTextOffset()
 	lx = x - tw * ax
 	ly = y - th * ay
 	return lx, ly
+end
+
+function META:GetCaretVisualLine()
+	local editor = self.editor
+
+	if self:GetWrap() and self.wrap_layout_info then
+		local line = self:GetLineColFromIndex(editor.Cursor)
+		return line, #self.wrap_layout_info.lines
+	end
+
+	local line = editor:GetVisualLineCol()
+	return line, editor:GetVisualLineCount()
 end
 
 function META:MoveCaretVertical(delta)

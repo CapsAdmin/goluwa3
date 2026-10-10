@@ -12,16 +12,22 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local input = import("goluwa/input.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local MarkupTagPicker = import("goluwa/render2d/ui/widgets/markup_tag_picker.lua")
 local autocomplete = import("goluwa/autocomplete.lua")
+local command_input = import("goluwa/cli/command_input.lua")
+local AutocompleteList = import("goluwa/render2d/ui/widgets/autocomplete_list.lua")
 local chat = import("addons/chat/lua/autorun/chat.lua")
+local InputHistory = import("goluwa/input_history.lua")
 local chatbox = {}
+chatbox.history = InputHistory.New{Name = "chat"}
+chatbox.autocomplete = autocomplete.NewSession{RandomCount = 100, GetQuery = command_input.GetQuery}
+chatbox.autocomplete_list = NULL
 chatbox.window = NULL
 chatbox.text_edit = NULL
 chatbox.markup_chatbox = NULL
 chatbox.markup_hud = NULL
 chatbox.life_time = 30
-chatbox.autocomplete_results = {}
-chatbox.autocomplete_scroll = 0
 local panel_width = 400
 local input_height = 50
 
@@ -117,6 +123,8 @@ end
 function chatbox.Show()
 	if event.Call("ChatOpen") == false then return end
 
+	chatbox.autocomplete:Reseed()
+
 	if not chatbox.window:IsValid() then
 		if false then
 			resource.Download("data/steam_emotes.json"):Then(function(path)
@@ -128,25 +136,6 @@ function chatbox.Show()
 					i = i + 1
 				end
 			end)
-		end
-
-		local function autocomplete_query()
-			local list_ids = {}
-
-			for _, v in ipairs(autocomplete.GetLists()) do
-				list.insert(list_ids, v.id)
-			end
-
-			local text = chatbox.text_edit:GetText()
-			chatbox.autocomplete_results = autocomplete.Query("chatbox", text, input.IsShiftDown() and -1 or 1, list_ids)
-			local result = chatbox.autocomplete_results[1]
-
-			if result then
-				local str = tostring(result.val)
-				chatbox.text_edit:SetText(str)
-				chatbox.text_edit:GetTextPanel().text.editor:SetCursor(#str + 1)
-				return true
-			end
 		end
 
 		local window_size = system.GetWindow():GetSize()
@@ -167,26 +156,23 @@ function chatbox.Show()
 					GrowHeight = 1,
 				},
 			},
+			Row{layout = {AlignmentY = "start", ChildGap = "XS"}}{
 			TextEdit{
 				Ref = function(self)
 					chatbox.text_edit = self
 				end,
 				Text = "",
 				Editable = true,
+				History = chatbox.history,
+				Autocomplete = chatbox.autocomplete,
+				AutocompleteGhost = false,
 				ScrollY = true,
 				FontSize = "M",
 				Wrap = true,
 				AutoResize = true,
+				layout = {GrowWidth = 1},
 				Padding = Rect(4, 4, 4, 4),
 				OnTextChanged = function(self, text)
-					local list_ids = {}
-
-					for _, v in ipairs(autocomplete.GetLists()) do
-						list.insert(list_ids, v.id)
-					end
-
-					chatbox.autocomplete_scroll = 0
-					chatbox.autocomplete_results = autocomplete.Query("chatbox", text, 0, list_ids)
 					event.Call("ChatTextChanged", text)
 				end,
 				OnKeyInput = function(self, key, press)
@@ -194,22 +180,22 @@ function chatbox.Show()
 
 					if key == "escape" then
 						chatbox.Hide()
-						chatbox.autocomplete_results = {}
 						return true
 					elseif key == "enter" then
 						if not input.IsShiftDown() then
+							chatbox.text_edit:CommitHistory()
 							event.Call("ChatBoxInput", chatbox.text_edit:GetText())
 							chatbox.Hide()
-							chatbox.autocomplete_results = {}
 							return true
 						end
-					elseif key == "tab" then
-						return autocomplete_query()
 					end
 				end,
-				OnKeyInputRepeat = function(self, key)
-					if key == "tab" then return autocomplete_query() end
+			},
+			MarkupTagPicker{
+				Ref = function(self)
+					self.Target = chatbox.text_edit
 				end,
+			},
 			},
 		}
 
@@ -224,14 +210,11 @@ function chatbox.Show()
 			render2d.PopMatrix()
 		end)
 
-		event.AddListener("PreDraw2D", "chatbox_autocomplete", function()
-			if #chatbox.autocomplete_results == 0 then return end
-
-			local mat = chatbox.window.transform:GetWorldMatrix()
-			local x, y = mat:GetTranslation()
-			local height = chatbox.window.transform:GetSize().y
-			autocomplete.DrawFound("chatbox", x, y + height + 5, chatbox.autocomplete_results)
-		end)
+		chatbox.autocomplete_list = AutocompleteList{
+			Key = "ChatAutocomplete",
+			Target = chatbox.text_edit,
+			Transparent = true,
+		}
 	end
 
 	chatbox.window.visual:SetVisible(true)
@@ -239,6 +222,8 @@ function chatbox.Show()
 end
 
 function chatbox.Hide()
+	chatbox.history:Reset()
+	chatbox.autocomplete:Clear()
 	chatbox.window.visual:SetVisible(false)
 	chatbox.text_edit:SetText("")
 	chatbox.text_edit:RequestTextUnFocus()
@@ -263,6 +248,7 @@ end)
 if RELOAD then
 	if chatbox.window and chatbox.window:IsValid() then
 		chatbox.window:Remove()
+		chatbox.autocomplete_list:Remove()
 		chatbox.window = nil
 	end
 

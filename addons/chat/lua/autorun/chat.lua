@@ -6,6 +6,7 @@ local Color = import("goluwa/structs/color.lua")
 local Markup = import("goluwa/render2d/markup.lua")
 local message = import("goluwa/network/message.lua")
 local network = import("goluwa/network/network.lua")
+local command_input = import("goluwa/cli/command_input.lua")
 local chat = library()
 
 local function getnick(client)
@@ -119,9 +120,24 @@ if SERVER then
 	end)
 end
 
+function chat.RunCommand(str)
+	event.Call("Chat", "command", str, NULL)
+	local output, ok, message = command_input.Run(str)
+
+	for line in output:gmatch("[^\n]+") do
+		event.Call("Chat", "console", (line:gsub("\t", "    ")), NULL)
+	end
+
+	if not ok then event.Call("Chat", "error", message, NULL) end
+end
+
 if CLIENT then
 	event.AddListener("ChatBoxInput", "chat", function(str)
-		chat.Say(str)
+		if command_input.IsCommand(str) then
+			chat.RunCommand(str)
+		else
+			chat.Say(str)
+		end
 	end)
 end
 

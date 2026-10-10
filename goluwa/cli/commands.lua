@@ -522,6 +522,59 @@ do
 		return nil, msg
 	end
 
+	function commands.GetUsage(command)
+		local parts = {command.aliases[1]}
+
+		for i = 1, math.huge do
+			local name = debug.getlocal(command.callback, i)
+
+			if not name then break end
+
+			if name ~= "_" and not (name == "flags" and command.flags) then
+				local types = command.argtypes and command.argtypes[i]
+				local type_names = {}
+				local optional = false
+
+				if types then
+					for _, type_name in ipairs(types) do
+						if type_name == "nil" then
+							optional = true
+						else
+							list.insert(type_names, type_name)
+						end
+					end
+				end
+
+				local text = name
+
+				if #type_names > 0 then text = text .. ": " .. list.concat(type_names, " or ") end
+
+				local default = command.defaults and command.defaults[i]
+
+				if default ~= nil then
+					text = text .. " = " .. tostring(default)
+					optional = true
+				end
+
+				list.insert(parts, optional and "[" .. text .. "]" or "<" .. text .. ">")
+			end
+		end
+
+		if command.flags then
+			for _, info in ipairs(command.flags.ordered or {}) do
+				local text = "--" .. info.name
+
+				if info.type ~= "boolean" or info.has_value then
+					text = text .. " <" .. info.type .. ">"
+				end
+
+				list.insert(parts, "[" .. text .. "]")
+			end
+		end
+
+		return list.concat(parts, " ")
+	end
+
 	function commands.GetHelpText(alias)
 		local command, msg = commands.FindCommand(alias)
 
@@ -531,43 +584,7 @@ do
 
 		if str then return str end
 
-		local params = {}
-
-		for i = 1, math.huge do
-			local key = debug.getlocal(command.callback, i)
-
-			if key then list.insert(params, key) else break end
-		end
-
-		str = alias .. " "
-
-		for i = 1, #params do
-			local arg_name = params[i]
-
-			if arg_name ~= "_" then
-				local types = command.argtypes and command.argtypes[i]
-				local default = command.defaults and command.defaults[i]
-
-				if types then
-					str = str .. arg_name .. ""
-					str = str .. "<"
-
-					for _, type in pairs(types) do
-						str = str .. type
-
-						if _ ~= #types then str = str .. " or " end
-					end
-
-					str = str .. ">"
-				else
-					str = str .. "*" .. arg_name .. "*"
-				end
-
-				if default then str = str .. " = " .. tostring(default) end
-
-				if i ~= #params then str = str .. ", " end
-			end
-		end
+		str = commands.GetUsage(command)
 
 		local help = alias .. ":\n"
 		help = help .. "\tusage example:\n\t\t" .. str .. "\n"
@@ -899,40 +916,54 @@ do
 			return
 		end
 
-		local pvars = import("goluwa/cli/pvars.lua")
-
-		if pvars then
-			local key, val = line:match("^([%w_]+)%s+(.+)")
-
-			if key and val and pvars.IsSetup(key) then
-				local ok, err = pcall(pvars.SetString, key, val)
-
-				if ok then
-					logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
-				else
-					io.stderr:write(err, "\n")
-					io.stderr:flush()
-				end
-
-				return
-			end
-
-			local key = line:match("^([%w_]+)$")
-
-			if key and pvars.IsSetup(key) then
-				logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
-				logn(pvars.GetObject(key):GetHelp())
-				return
-			end
-		end
-
-		local ok, msg = commands.ExecuteCommandString(line)
+		local ok, msg = commands.RunLine(line)
 
 		if not ok then
-			msg = msg:match("^.-:%d+:%s+(.+)") or msg
 			io.stderr:write(msg, "\n")
 			io.stderr:flush()
 		end
+	end
+
+	-- returns true, or false and the message to print, and a short one line version of it
+	function commands.RunLine(line)
+		local ok, msg = commands.run_line(line)
+
+		if ok then return true end
+
+		local short = (msg:match(".*\n\n(.+)$") or msg):match("^.-:%d+:%s+([^\n]+)") or msg:match("^[^\n]+")
+		return false, msg:match("^.-:%d+:%s+(.+)") or msg, short
+	end
+
+	function commands.run_line(line)
+		local pvars = import("goluwa/cli/pvars.lua")
+		local key, val = line:match("^([%w_]+)%s+(.+)")
+
+		if key and val and pvars.IsSetup(key) then
+			local ok, err = pcall(pvars.SetString, key, val)
+
+			if not ok then return false, err end
+
+			logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
+			return true
+		end
+
+		local key = line:match("^([%w_]+)$")
+
+		if key and pvars.IsSetup(key) then
+			logn(key, " (", pvars.GetObject(key):GetType(), ") = ", pvars.GetString(key))
+			logn(pvars.GetObject(key):GetHelp())
+			return true
+		end
+
+		local _, name = commands.IsCommandStringValid(line)
+
+		if not name then return false, "empty command" end
+
+		local command, find_error = commands.FindCommand(name)
+
+		if not command then return false, find_error end
+
+		return commands.ExecuteCommandString(line)
 	end
 
 	function commands.RunArguments(args)

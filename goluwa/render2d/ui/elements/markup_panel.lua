@@ -3,7 +3,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Markup = import("goluwa/render2d/markup.lua")
-local theme = import("goluwa/render2d/ui/theme.lua")
+local MarkupLabel = import("goluwa/render2d/ui/elements/markup_label.lua")
 local META = Panel:CreateTemplate("markup_panel")
 META.CMP.transform = {}
 META.CMP.layout = {
@@ -78,23 +78,7 @@ function META:draw_content(container)
 	local background
 
 	if self.Themed then
-		local active = theme.active
-		background = active:GetColor("surface")
-		markup:SetBackground(background)
-		markup:SetAdaptColors(self.AdaptColors)
-		local selection_color = active:GetColor("text_selection")
-
-		if markup.SelectionColor ~= selection_color then
-			markup:SetSelectionColor(selection_color)
-		end
-
-		local text_color = active:GetColor("text", {surface = "surface"})
-
-		if markup.DefaultColor ~= text_color then markup:SetDefaultColor(text_color) end
-
-		local font = active:GetFont("body", self.FontSize)
-
-		if markup.DefaultFont ~= font then markup:SetDefaultFont(font) end
+		background = MarkupLabel.SyncTheme(markup, self.FontSize, self.AdaptColors)
 	end
 
 	local viewport = container:GetParent().transform

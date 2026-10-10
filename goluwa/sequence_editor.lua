@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local SequenceBuffer = import("goluwa/sequence_buffer.lua")
+local TextUndo = import("goluwa/text_undo.lua")
 local SequenceEditor = objects.CreateTemplate("sequence_editor")
 SequenceEditor:GetSet("Buffer", nil)
 SequenceEditor:GetSet("Cursor", 1)
@@ -22,10 +23,10 @@ function SequenceEditor.New(buffer)
 	local self = SequenceEditor:CreateObject{
 		Buffer = buffer or SequenceBuffer.New(""),
 		Cursor = 1,
-		undo_stack = {},
-		redo_stack = {},
+		undo = TextUndo.New(),
 		ClipboardState = nil,
 	}
+	self.undo:Reset(self.Buffer:GetText(), self.Cursor)
 	return self
 end
 
@@ -41,6 +42,8 @@ end
 function SequenceEditor:SetData(data)
 	self.Buffer:SetText(data)
 	self.Cursor = math.min(self.Cursor, self.Buffer:GetLength() + 1)
+
+	if not self.applying_undo then self.undo:Push(data, self.Cursor) end
 
 	if self.OnChanged then
 		self:OnChanged(data)
@@ -70,6 +73,10 @@ function SequenceEditor:GetSelection()
 end
 
 function SequenceEditor:NotifyChanged()
+	if not self.applying_undo then
+		self.undo:Push(self.Buffer:GetText(), self.Cursor)
+	end
+
 	if self.OnChanged then
 		self:OnChanged(self.Buffer:GetText())
 	elseif self.OnTextChanged then
@@ -81,7 +88,6 @@ function SequenceEditor:DeleteSelection()
 	local start, stop = self:GetSelection()
 
 	if start then
-		self:SaveUndoState()
 		self.Buffer:RemoveRange(start, stop)
 		self.Cursor = start
 		self.SelectionStart = nil
@@ -406,38 +412,37 @@ function SequenceEditor:Paste(str)
 	self:Insert(str)
 end
 
-function SequenceEditor:SaveUndoState()
-	table.insert(self.undo_stack, {text = self.Buffer:GetText(), cursor = self.Cursor})
+function SequenceEditor:CanUndo()
+	return self.undo:CanUndo()
+end
 
-	if #self.undo_stack > 100 then table.remove(self.undo_stack, 1) end
+function SequenceEditor:CanRedo()
+	return self.undo:CanRedo()
+end
 
-	self.redo_stack = {}
+function SequenceEditor:apply_undo_state(state)
+	self.applying_undo = true
+	self.Buffer:SetText(state.text)
+	self.Cursor = state.cursor
+	self.SelectionStart = nil
+	self.PreferredVCol = nil
+	self:NotifyChanged()
+	self.applying_undo = false
 end
 
 function SequenceEditor:Undo()
-	local state = table.remove(self.undo_stack)
+	local state = self.undo:Undo()
 
-	if state then
-		table.insert(self.redo_stack, {text = self.Buffer:GetText(), cursor = self.Cursor})
-		self.Buffer:SetText(state.text)
-		self.Cursor = state.cursor
-		self:NotifyChanged()
-	end
+	if state then self:apply_undo_state(state) end
 end
 
 function SequenceEditor:Redo()
-	local state = table.remove(self.redo_stack)
+	local state = self.undo:Redo()
 
-	if state then
-		table.insert(self.undo_stack, {text = self.Buffer:GetText(), cursor = self.Cursor})
-		self.Buffer:SetText(state.text)
-		self.Cursor = state.cursor
-		self:NotifyChanged()
-	end
+	if state then self:apply_undo_state(state) end
 end
 
 function SequenceEditor:Enter()
-	self:SaveUndoState()
 	self:DeleteSelection()
 	local newline = self.Buffer:GetNewline()
 
@@ -470,7 +475,6 @@ function SequenceEditor:DuplicateLine()
 	local line_start = self.Buffer:GetLineStart(self.Cursor)
 	local line_end = self.Buffer:GetLineEnd(self.Cursor)
 	local line_content = self.Buffer:Sub(line_start, line_end - 1)
-	self:SaveUndoState()
 	self.Buffer:Insert(line_end, self.Buffer:GetNewline())
 	self.Buffer:Insert(line_end + 1, line_content)
 	self.Cursor = line_end + 1
@@ -490,8 +494,7 @@ function SequenceEditor:Indent(back)
 			local tab = self.Buffer:GetTab()
 
 			if col > 1 and self.Buffer:Sub(pos - 1, pos - 1) == tab then
-				self:SaveUndoState()
-				self.Buffer:RemoveRange(pos - 1, pos)
+						self.Buffer:RemoveRange(pos - 1, pos)
 				self.Cursor = pos - 1
 				self:NotifyChanged()
 			end
@@ -502,7 +505,6 @@ function SequenceEditor:Indent(back)
 		return
 	end
 
-	self:SaveUndoState()
 
 	for i = start_line, stop_line do
 		self.Buffer:IndentLine(i, back)

@@ -13,6 +13,28 @@ function logging.RawLog(str)
 	io.write(str)
 end
 
+do
+	local function finish(original, lines, ok, ...)
+		logging.RawLog = original
+
+		if not ok then error((...), 0) end
+
+		return list_concat(lines), ...
+	end
+
+	-- runs callback with everything it logs collected, returns the log text and then what callback returned
+	function logging.Capture(callback, ...)
+		local lines = {}
+		local original = logging.RawLog
+
+		logging.RawLog = function(str)
+			lines[#lines + 1] = str
+		end
+
+		return finish(original, lines, pcall(callback, ...))
+	end
+end
+
 function logging.Log(...)
 	logging.RawLog(list_concat(tostring_args(...)))
 	return ...

@@ -105,7 +105,6 @@ end)
 T.Test("sequence_editor undo", function()
 	local editor = sequence_editor.New("hello")
 	editor.Cursor = 6
-	editor:SaveUndoState()
 	editor:InsertString(" world")
 	T(editor:GetBuffer():GetText())["=="]("hello world")
 	editor:SetControlDown(true)

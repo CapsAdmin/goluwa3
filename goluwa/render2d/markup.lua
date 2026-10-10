@@ -447,7 +447,7 @@ do
 			end
 		end,
 		post_draw_chunks = function(markup, self, chunk)
-			local y_offset = markup.HeightSpacing + 1
+			local y_offset = markup.HeightSpacing - 5
 			render2d.DrawLine(chunk.x - 2, chunk.top - y_offset, chunk.right + 2, chunk.top - y_offset)
 		end,
 	}
@@ -611,116 +611,69 @@ do
 		end,
 	}
 	Markup.tags.physics = {
-		arguments = {1, 0, 0, 0, 0.997, 0.1},
-		draw_init = function(markup, self, gx, gy, vx, vy, drag, rand_mult)
-			local part = {}
-			part = {
+		arguments = {1, 0, 0, 0, 1, 0},
+		draw_init = function(markup, self, gravity_y, gravity_x, vx, vy)
+			self.part = {
 				pos = {x = 0, y = 0},
 				vel = {x = vx, y = vy},
 				siz = {x = self.tag_width, y = self.tag_height},
-				rand_mult = rand_mult,
-				drag = drag,
 			}
-			self.part = part
 		end,
 		pre_draw = function(markup, self, x, y, gravity_y, gravity_x, vx, vy, drag, rand_mult)
-			local delta = system.GetFrameTime() * 2
+			local dt = math.min(system.GetFrameTime(), 0.05)
 			local part = self.part
-			local W, H = markup.width, markup.height
-			W = W - self.x
-			H = H - self.y + part.siz.y
-			part.vel.y = part.vel.y + gravity_y + (math.randomf(-1, 1) * rand_mult)
-			part.vel.x = part.vel.x + gravity_x + (math.randomf(-1, 1) * rand_mult)
-			part.pos.x = part.pos.x + (part.vel.x * delta)
-			part.pos.y = part.pos.y + (part.vel.y * delta)
-			part.vel.x = part.vel.x * part.drag
-			part.vel.y = part.vel.y * part.drag
+			local bounds_width = markup.MaxWidth
 
-			if part.pos.x + part.siz.x < 0 then
-				part.pos.x = -part.siz.x
-				part.vel.x = part.vel.x * -part.drag
+			if bounds_width == math.huge then bounds_width = markup.width end
+
+			local min_x = -self.x
+			local min_y = -self.y
+			local max_x = math.max(min_x, bounds_width - self.x - part.siz.x)
+			local max_y = math.max(min_y, markup.height - self.y - part.siz.y)
+			local keep = drag ^ (dt * 60)
+			part.vel.x = (part.vel.x + gravity_x * 800 * dt + math.randomf(-1, 1) * rand_mult * 200 * dt) * keep
+			part.vel.y = (part.vel.y + gravity_y * 800 * dt + math.randomf(-1, 1) * rand_mult * 200 * dt) * keep
+			part.pos.x = part.pos.x + part.vel.x * dt
+			part.pos.y = part.pos.y + part.vel.y * dt
+
+			if part.pos.x < min_x then
+				part.pos.x = min_x
+				part.vel.x = math.abs(part.vel.x)
+			elseif part.pos.x > max_x then
+				part.pos.x = max_x
+				part.vel.x = -math.abs(part.vel.x)
 			end
 
-			if part.pos.x + part.siz.x > W then
-				part.pos.x = W - part.siz.x
-				part.vel.x = part.vel.x * -part.drag
-			end
-
-			if part.pos.y + part.siz.y < 0 then
-				part.pos.y = -part.siz.y
-				part.vel.y = part.vel.y * -part.drag
-			end
-
-			if part.pos.y + part.siz.y > H then
-				part.pos.y = H - part.siz.y
-				part.vel.y = part.vel.y * -part.drag
+			if part.pos.y < min_y then
+				part.pos.y = min_y
+				part.vel.y = math.abs(part.vel.y)
+			elseif part.pos.y > max_y then
+				part.pos.y = max_y
+				part.vel.y = -math.abs(part.vel.y)
 			end
 
 			render2d.PushMatrix()
-			local center_x = self.tag_center_x
-			local center_y = self.tag_center_y
 			render2d.Translate(part.pos.x, part.pos.y)
-			render2d.Translate(center_x, center_y)
-			render2d.Rotate(math.atan2(part.vel.y, part.vel.x))
-			render2d.Translate(-center_x, -center_y)
 		end,
 		post_draw = function()
 			render2d.PopMatrix()
 		end,
 	}
 	Markup.tags.font = {
-		arguments = {},
-		pre_draw = function(markup, self, x, y, font)
-			if not self.font then return end
-
-			for i = self.i + 1, math.huge do
-				local chunk = markup.prepared_chunks[i]
-
-				if not chunk or chunk.type == "tag_stopper" then break end
-
-				if chunk.font then chunk.font = self.font end
-			end
-		end,
-		init = function(markup, self, font)
-			self.font = fonts.New({Path = font})
-		end,
-	}
-	Markup.tags.createfont = {
-		arguments = {"roboto black", 18, 0, 0, 0, 0, 1, 0},
-		pre_draw = function(markup, self, x, y, font)
-			for i = self.i + 1, math.huge do
-				local chunk = markup.prepared_chunks[i]
-
-				if not chunk or chunk.type == "tag_stopper" then break end
-
-				if chunk.font then chunk.font = self.font end
-			end
-		end,
-		init = function(markup, self, font, size, blur_size, bgr, bgg, bgb, bga, blur_overdraw)
-			self.font = fonts.New{
-				Path = font,
-				Size = size,
-				Shadow = bldur_size > 0 and
-					{
-						BlurRadius = blur_size,
-						Color = Color(bgr, bgg, bgb, bga),
-					} or
-					nil,
-			}
-		end,
+		arguments = {"", 14},
 	}
 	Markup.tags.circle = {
-		arguments = {32, {min = 4, max = 128}},
+		arguments = {{default = 16, min = 4, max = 128}},
 		get_size = function(markup, self, size)
-			return tonumber(size), tonumber(size)
+			return size, size
 		end,
 		pre_draw = function(markup, self, x, y, size)
 			render2d.SetTexture(nil)
-			render2d.DrawFilledCircle(x, y, tonumber(size))
+			render2d.DrawFilledCircle(x + size / 2, y + size / 2, size / 2)
 		end,
 	}
 	Markup.tags.texture = {
-		arguments = {"error", {min = 4, max = 128}, {min = 4, max = 128}},
+		arguments = {"error", {default = 32, min = 4, max = 128}, {min = 4, max = 128}},
 		init = function(markup, self, path)
 			self.mat = Texture.New({path = path})
 		end,
@@ -737,7 +690,10 @@ do
 			size_x = size_x or self.mat:GetSize().x
 			size_y = size_y or self.mat:GetSize().y
 			render2d.SetTexture(self.mat)
+			render2d.PushColor(1, 1, 1, 1)
 			render2d.DrawRect(x, y, size_x, size_y)
+			render2d.PopColor()
+			render2d.SetTexture(nil)
 		end,
 	}
 end
@@ -922,6 +878,80 @@ do
 end
 
 do
+	local tag_help = {
+		click = {description = "Opens the wrapped text as a url when clicked", sample = "link"},
+		console = {description = "Runs the wrapped text as a console command when clicked", sample = "command"},
+		nolinebreak = {description = "Keeps the wrapped words together on one line", sample = "together"},
+		wrong = {description = "Squiggly red underline", sample = "typo"},
+		background = {description = "Color behind the text (r,g,b,a)", args = "1,0.9,0.4,1", sample = "highlight"},
+		mark = {description = "Yellow highlighter", sample = "marked"},
+		hsv = {description = "Text color from hue, saturation, value", args = "0.6,1,1", sample = "hue"},
+		color = {description = "Text color (r,g,b,a)", args = "1,0.4,0.4,1", sample = "colored"},
+		alpha = {description = "Text opacity", args = "0.5", sample = "faded"},
+		blackhole = {description = "Pulls everything towards the tag", args = "1", sample = "a black hole"},
+		physics = {description = "Bouncing text inside the message (gravity y, gravity x, vel x, vel y, drag, random)", args = "1,0,120,0,1,0", sample = "bounce", height = 48},
+		font = {description = "System font name and size", args = "dejavu,20", sample = "font"},
+		circle = {description = "Filled circle, size in pixels", args = "16", void = true},
+		texture = {description = "Inline texture (path, width, height)", args = "error,32", void = true},
+		translate = {description = "Moves the text (x,y)", args = "0,-4", sample = "raised"},
+		scale = {description = "Scales the text (x,y)", args = "2,1", sample = "wide"},
+		size = {description = "Scales the text uniformly", args = "1.5", sample = "big"},
+		rotate = {description = "Rotates the text in degrees", args = "15", sample = "tilted"},
+		matrixez = {description = "Offset, scale and rotation (x,y,scale x,scale y,degrees)", args = "0,0,1,1,15", sample = "twisted"},
+		matrix = {description = "Arbitrary 2x2 matrix and offset (a11,a12,a21,a22,dx,dy)", args = "1,0.3,0,1,0,0", sample = "sheared"},
+		anime = {description = "Anime-fies the wrapped text", sample = "anime"},
+	}
+	local tag_list
+
+	function Markup.GetTagList()
+		if tag_list then return tag_list end
+
+		tag_list = {}
+
+		for name, help in pairs(tag_help) do
+			if Markup.tags[name] then
+				local open = "<" .. name .. (help.args and ("=" .. help.args) or "") .. ">"
+				local entry = {
+					name = name,
+					description = help.description,
+					args = help.args,
+					void = help.void or false,
+					height = help.height,
+					open = open,
+					close = help.void and "" or ("</" .. name .. ">"),
+				}
+
+				if help.void then
+					entry.example = "a " .. open .. " b"
+				else
+					entry.example = open .. help.sample .. entry.close
+				end
+
+				list.insert(tag_list, entry)
+			end
+		end
+
+		table.sort(tag_list, function(a, b)
+			return a.name < b.name
+		end)
+
+		return tag_list
+	end
+
+	local font_cache = {}
+
+	local function get_tag_font(name, size)
+		local key = name .. "@" .. size
+		local font = font_cache[key]
+
+		if not font then
+			font = fonts.New{Path = name ~= "" and fonts.FindFontPath(name) or nil, Size = size}
+			font_cache[key] = font
+		end
+
+		return font
+	end
+
 	local function parse_tag_arguments(self, arg_line)
 		local out = {}
 		local str = {}
@@ -1024,8 +1054,6 @@ do
 		local in_tag = false
 		local current_string = {}
 		local current_tag = {}
-		local last_font
-		local last_color
 
 		for _, char in ipairs(utf8.to_list(str)) do
 			if char == "<" then
@@ -1122,22 +1150,15 @@ do
 
 						if not is_expression and tag == "font" then
 							if stop_tag then
-								if last_font then
-									list.insert(chunks, {type = "font", val = last_font})
-								end
+								list.insert(chunks, {type = "font", val = self.DefaultFont or fonts.GetDefaultFont()})
 							else
-								local font = fonts.New{Path = (args[1])}
-								list.insert(chunks, {type = "font", val = font})
-								last_font = font
+								list.insert(chunks, {type = "font", val = get_tag_font(args[1], args[2])})
 							end
 						elseif not is_expression and tag == "color" then
 							if stop_tag then
-								if last_color then
-									list.insert(chunks, {type = "color", val = Color(unpack(last_color))})
-								end
+								list.insert(chunks, {type = "color", reset = true})
 							else
 								list.insert(chunks, {type = "color", val = Color(unpack(args))})
-								last_color = args
 							end
 						else
 							list.insert(
@@ -2283,10 +2304,6 @@ do
 		self:Invalidate()
 	end
 
-	function Markup:SaveUndoState()
-		self.editor:SaveUndoState()
-	end
-
 	function Markup:DeleteSelection(skip_move)
 		local res = self.editor:DeleteSelection()
 
@@ -2518,7 +2535,8 @@ do
 		if not self.prepared_chunks[1] then return end
 
 		set_font(self, self.DefaultFont or fonts.GetDefaultFont())
-		render2d.SetColor(1, 1, 1, 1)
+		local default_color = self.DefaultColor
+		render2d.SetColor(default_color.r, default_color.g, default_color.b, default_color.a)
 		started_tags = false
 
 		for i, chunk in ipairs(self.prepared_chunks) do

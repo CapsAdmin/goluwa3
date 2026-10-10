@@ -171,7 +171,7 @@ function chatsounds.LoadRepositories()
 
 		if location then
 			local friendly = location .. "/" .. directory
-			autocomplete.translate_list_id["chatsounds_custom_" .. sub] = friendly
+			autocomplete.SetListName("chatsounds_custom_" .. sub, friendly)
 
 			if directory == "" then directory = nil end
 

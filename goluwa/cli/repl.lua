@@ -69,7 +69,6 @@ function repl.CutText()
 		local str = repl.CopyText()
 
 		if str then
-			repl.editor:SaveUndoState()
 			local start = repl.editor:GetCursor()
 			local stop = start + repl.editor:GetBuffer():GetLength(str)
 			repl.editor:GetBuffer():RemoveRange(start, stop)
