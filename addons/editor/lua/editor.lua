@@ -16,6 +16,7 @@ local system = import("goluwa/system.lua")
 local Gizmo = import("lua/gizmo.lua")
 local highlight = import("lua/highlight.lua")
 local brush_editor = import("lua/brush_editor.lua")
+local Breadcrumb = import("goluwa/render2d/ui/widgets/breadcrumb.lua")
 local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
 local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
@@ -25,8 +26,6 @@ local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local nearby = import("lua/nearby.lua")
 local scene = import("goluwa/entities/scene.lua")
@@ -292,36 +291,20 @@ return function(props)
 	local function apply_prefab_mode()
 		local editing = edit_stack[#edit_stack]
 		prefab.SetEditing(editing and editing.prefab or nil)
-		prefab_bar:RemoveChildren()
 
 		if editing then
-			local names = {}
+			local names = {"scene"}
 
 			for i, entity in ipairs(edit_stack) do
-				names[i] = entity.prefab.Path
+				names[i + 1] = entity.prefab.Path
 			end
 
-			prefab_bar:AddChild(
-				Text{
-					Text = "PREFAB  " .. table.concat(names, "  >  "),
-					Font = "body_strong S",
-					layout = {GrowWidth = 1, FitHeight = true},
-				}
-			)
-			prefab_bar:AddChild(
-				Button{
-					Text = "Exit",
-					Icon = "arrow_left",
-					Mode = "outline",
-					OnClick = function()
-						exit_prefab_edit()
-					end,
-				}
-			)
+			prefab_bar:SetItems(names)
 			tree_view:SetGroupByOwner(false)
 			tree_view:SetRootLabels({[editing] = editing:GetName()})
 			tree_view:SetRootEntities({editing})
 		else
+			prefab_bar:SetItems({})
 			tree_view:SetGroupByOwner(true)
 			tree_view:SetRootLabels({[Entity.World] = "3D World", [Panel.World] = "2D World"})
 			tree_view:SetRootEntities({Entity.World, Panel.World})
@@ -598,12 +581,17 @@ return function(props)
 						GrowWidth = 1,
 					},
 				},
-				Row{
+				Breadcrumb{
 					Ref = function(self)
 						prefab_bar = self
 					end,
-					layout = {GrowWidth = 1, ChildGap = 4, AlignmentY = "center"},
-				}{},
+					Icons = {scene = "world"},
+					OnSelect = function(index)
+						while #edit_stack >= index do
+							exit_prefab_edit()
+						end
+					end,
+				},
 				ScrollablePanel{
 					Ref = function(self)
 						tree_scroll_container = self
