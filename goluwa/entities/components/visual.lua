@@ -1356,8 +1356,11 @@ function Visual:SetModelPath(path)
 				return
 			end
 
-			primitive_index = primitive_index + 1
 			local mesh = data.mesh
+
+			if not mesh.mesh then return end
+
+			primitive_index = primitive_index + 1
 
 			if self.ClipWorldAABB then
 				mesh = mesh:CopyOutsideWorldAABB(self.Owner.transform:GetWorldMatrix(), self.ClipWorldAABB) or
