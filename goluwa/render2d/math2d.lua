@@ -1139,4 +1139,198 @@ do
 	META:Register()
 end
 
+do
+	local ARC_STEP = math.pi / 12
+	local EPSILON = 1e-6
+	local angles
+
+	local function sort_by_angle(a, b)
+		return angles[a] < angles[b]
+	end
+
+	local function push(out, x, y)
+		local count = #out
+		out[count + 1] = x
+		out[count + 2] = y
+	end
+
+	local function append_arc(out, cx, cy, radius, angle, sweep)
+		local steps = math.ceil(math.abs(sweep) / ARC_STEP)
+
+		for i = 1, steps - 1 do
+			local a = angle + sweep * i / steps
+			push(out, cx + math.cos(a) * radius, cy + math.sin(a) * radius)
+		end
+	end
+
+	local function append_cap(out, x, y, dx, dy, half, cap)
+		if cap == "round" then
+			append_arc(out, x, y, half, math.atan2(dx, -dy), -math.pi)
+		elseif cap == "square" then
+			push(out, x - dy * half + dx * half, y + dx * half + dy * half)
+			push(out, x + dy * half + dx * half, y - dx * half + dy * half)
+		end
+	end
+
+	-- walks a closed loop of vertices with the stroke on its left and returns the outline that
+	-- runs half a width to the left of it, uturn[i] marks a vertex where the loop turns back on itself
+	local function offset_cycle(xs, ys, uturn, n, half, cap, join, miter_limit)
+		local out = {}
+		local dx, dy, length = {}, {}, {}
+
+		for i = 1, n do
+			local j = i % n + 1
+			local ex, ey = xs[j] - xs[i], ys[j] - ys[i]
+			local len = math.sqrt(ex * ex + ey * ey)
+			dx[i] = ex / len
+			dy[i] = ey / len
+			length[i] = len
+		end
+
+		for i = 1, n do
+			local a = (i - 2) % n + 1
+			local ax, ay, bx, by = dx[a], dy[a], dx[i], dy[i]
+			local x, y = xs[i], ys[i]
+			local oax, oay, obx, oby = -ay * half, ax * half, -by * half, bx * half
+
+			if uturn[i] then
+				push(out, x + oax, y + oay)
+				append_cap(out, x, y, ax, ay, half, cap)
+				push(out, x + obx, y + oby)
+			else
+				local cross = ax * by - ay * bx
+				local dot = ax * bx + ay * by
+
+				if math.abs(cross) < EPSILON and dot > 0 then
+					push(out, x + oax, y + oay)
+				elseif cross > 0 then
+					if half * cross / (1 + dot) <= 3 * math.min(length[a], length[i]) then
+						local k = 1 / (1 + dot)
+						push(out, x + (oax + obx) * k, y + (oay + oby) * k)
+					else
+						push(out, x + oax, y + oay)
+						push(out, x, y)
+						push(out, x + obx, y + oby)
+					end
+				elseif join == "round" then
+					push(out, x + oax, y + oay)
+					append_arc(out, x, y, half, math.atan2(oay, oax), -math.abs(math.atan2(cross, dot)))
+					push(out, x + obx, y + oby)
+				elseif join == "miter" and (1 + dot) * miter_limit * miter_limit >= 2 then
+					local k = 1 / (1 + dot)
+					push(out, x + (oax + obx) * k, y + (oay + oby) * k)
+				else
+					push(out, x + oax, y + oay)
+					push(out, x + obx, y + oby)
+				end
+			end
+		end
+
+		return out
+	end
+
+	-- polylines is a list of flat {x1, y1, x2, y2, ...}, a polyline that ends where it started is closed.
+	-- Polylines that share a point are one stroke, a junction is a shared point and strokes must not
+	-- cross anywhere else. Returns non overlapping outline contours: the faces of the line graph are
+	-- walked and each is offset into itself, so crossings, T junctions and rings come out as one
+	-- outline per boundary instead of overlapping pieces. cap is butt | round | square, join is
+	-- miter | round | bevel
+	function math2d.StrokePolylines(polylines, width, cap, join, miter_limit)
+		local half = width / 2
+		local vertex_ids, vx, vy, vertex_count = {}, {}, {}, 0
+		local seen_edges = {}
+		local from, to, half_edge_count = {}, {}, 0
+
+		for _, points in ipairs(polylines) do
+			local previous
+
+			for i = 1, #points, 2 do
+				local x, y = points[i], points[i + 1]
+				local key = math.floor(x * 1000 + 0.5) .. "," .. math.floor(y * 1000 + 0.5)
+				local id = vertex_ids[key]
+
+				if not id then
+					vertex_count = vertex_count + 1
+					id = vertex_count
+					vertex_ids[key] = id
+					vx[id] = x
+					vy[id] = y
+				end
+
+				if previous and previous ~= id then
+					local edge_key = math.min(previous, id) * 65536 + math.max(previous, id)
+
+					if not seen_edges[edge_key] then
+						seen_edges[edge_key] = true
+						from[half_edge_count + 1] = previous
+						to[half_edge_count + 1] = id
+						from[half_edge_count + 2] = id
+						to[half_edge_count + 2] = previous
+						half_edge_count = half_edge_count + 2
+					end
+				end
+
+				previous = id
+			end
+		end
+
+		local outgoing, slot = {}, {}
+		angles = {}
+
+		for h = 1, half_edge_count do
+			local a, b = from[h], to[h]
+			angles[h] = math.atan2(vy[b] - vy[a], vx[b] - vx[a])
+			local list = outgoing[a]
+
+			if not list then
+				list = {}
+				outgoing[a] = list
+			end
+
+			list[#list + 1] = h
+		end
+
+		for _, list in pairs(outgoing) do
+			table.sort(list, sort_by_angle)
+
+			for index, h in ipairs(list) do
+				slot[h] = index
+			end
+		end
+
+		angles = nil
+		local contours = {}
+		local visited = {}
+
+		for start = 1, half_edge_count do
+			if not visited[start] then
+				local walk, count = {}, 0
+				local h = start
+
+				repeat
+					visited[h] = true
+					count = count + 1
+					walk[count] = h
+					local list = outgoing[to[h]]
+					h = list[slot[h % 2 == 1 and h + 1 or h - 1] - 1] or list[#list]
+				until h == start
+
+				local xs, ys, uturn = {}, {}, {}
+
+				for i = 1, count do
+					local current = walk[i]
+					local previous = walk[(i - 2) % count + 1]
+					xs[i] = vx[from[current]]
+					ys[i] = vy[from[current]]
+					uturn[i] = current == (previous % 2 == 1 and previous + 1 or previous - 1)
+				end
+
+				contours[#contours + 1] = offset_cycle(xs, ys, uturn, count, half, cap, join, miter_limit)
+			end
+		end
+
+		return contours
+	end
+end
+
 return math2d

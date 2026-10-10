@@ -1,18 +1,12 @@
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local META = Panel:CreateTemplate("icon")
-META.CMP.transform = {Size = "M"}
+META.CMP.transform = {Size = "icon"}
 META.CMP.visual = {}
 META.CMP.style = {}
 META.CMP.mouse_input = {IgnoreMouseInput = true}
 META:StartStorable()
-META:GetSet(
-	"Icon",
-	"disclosure",
-	{
-		enums = {"disclosure", "dropdown_indicator", "close", "minimize", "maximize", "restore"},
-	}
-)
+META:GetSet("Icon", "disclosure")
 META:GetSet("IconColor", nil)
 META:GetSet("OpenFraction", 0)
 META:EndStorable()

@@ -6,6 +6,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local objects = import("goluwa/objects/objects.lua")
 local SVG = import("goluwa/render2d/svg.lua")
+local icon_set = import("goluwa/render2d/ui/themes/icons.lua")
 local BaseTheme = objects.CreateTemplate("ui_theme_base")
 BaseTheme.Name = "base"
 BaseTheme:GetSet("Palette", nil)
@@ -22,6 +23,7 @@ BaseTheme:GetSet(
 		L = 24,
 		XL = 32,
 		XXL = 48,
+		icon = 16,
 		default = 12,
 	}
 )
@@ -44,6 +46,11 @@ BaseTheme:GetSet(
 		XXL = 30,
 		XXXL = 38,
 	}
+)
+BaseTheme:GetSet("Icons", icon_set.Icons)
+BaseTheme:GetSet(
+	"IconStyle",
+	{StrokeWidth = 1.75, LineCap = "round", LineJoin = "round", MiterLimit = 4}
 )
 BaseTheme:GetSet("FontStyles", {})
 BaseTheme:GetSet("FontCache", {})
@@ -488,47 +495,84 @@ function BaseTheme:GetHoverTint(color, alpha)
 end
 
 do
-	local icon_svg_cache = {}
-	local icons = {
-		chevron = [[<svg viewBox="1.3 0 16 16"><path d="M5.2 2.2L10.8 8l-5.6 5.8l1.4 1.3L13.4 8L6.6.9z"/></svg>]],
-		plus = [[<svg viewBox="0 0 16 16"><path d="M7 3h2v4h4v2H9v4H7V9H3V7h4z"/></svg>]],
-		minus = [[<svg viewBox="0 0 16 16"><path d="M3 7h10v2H3z"/></svg>]],
-		check = [[<svg viewBox="0 0 16 16"><path d="M13.7 4.3L12.3 2.9L6.5 8.7L3.7 5.9L2.3 7.3L6.5 11.5z"/></svg>]],
-		close = [[<svg viewBox="0 0 16 16"><path d="M3.3 1.9L8 6.6l4.7-4.7l1.4 1.4L9.4 8l4.7 4.7l-1.4 1.4L8 9.4l-4.7 4.7l-1.4-1.4L6.6 8L1.9 3.3z"/></svg>]],
-		minimize = [[<svg viewBox="0 0 16 16"><path d="M2 11h12v2H2z"/></svg>]],
-		maximize = [[<svg viewBox="0 0 16 16"><path d="M2 2h12v12H2zM4 4v8h8V4z"/></svg>]],
-		restore = [[<svg viewBox="0 0 16 16"><path d="M5 2h9v9h-2V4H5zM2 5h9v9H2zM4 7v5h5V7z"/></svg>]],
-	}
+	local SVG_OPEN = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\">"
+
+	function BaseTheme:SetIcons(icons)
+		self.Icons = icons
+		self.IconCache = nil
+		return self
+	end
+
+	function BaseTheme:SetIconStyle(style)
+		self.IconStyle = style
+		self.IconCache = nil
+		return self
+	end
+
+	function BaseTheme:GetIconNames()
+		local names = {}
+
+		for name in pairs(self:GetIcons()) do
+			names[#names + 1] = name
+		end
+
+		table.sort(names)
+		return names
+	end
+
+	function BaseTheme:GetIconSource(name)
+		return SVG_OPEN .. assert(self:GetIcons()[name], "unknown icon " .. tostring(name)) .. "</svg>"
+	end
+
+	function BaseTheme:GetIcon(name)
+		local cache = self.IconCache
+
+		if not cache then
+			cache = {}
+			self.IconCache = cache
+		end
+
+		local svg = cache[name]
+
+		if svg then return svg end
+
+		local style = self:GetIconStyle()
+		svg = SVG.New(
+			self:GetIconSource(name),
+			{
+				Mode = "msdf",
+				TextureSize = 32,
+				StrokeWidth = style.StrokeWidth,
+				LineCap = style.LineCap,
+				LineJoin = style.LineJoin,
+				MiterLimit = style.MiterLimit,
+			}
+		)
+		cache[name] = svg
+		return svg
+	end
 
 	function BaseTheme:DrawIcon(name, size, opts)
+		local rotation_degrees
+
 		if name == "disclosure" then
-			return self:DrawDisclosureIcon(size, opts)
+			name = "chevron_right"
+			rotation_degrees = (opts.open_fraction or 0) * 90
 		elseif name == "dropdown_indicator" then
-			return self:DrawDropdownIndicatorIcon(size, opts)
-		elseif name == "close" then
-			return self:DrawCloseIcon(size, opts)
+			name = "chevron_right"
+			rotation_degrees = 90
 		end
 
 		return self:DrawSVGIcon(
 			name,
 			size,
 			{
-				size = opts.size or self:GetSize("M"),
+				size = opts.size or math.min(size.x, size.y),
 				inset = opts.inset or self:GetSize("line"),
 				color = opts.color,
+				rotation_degrees = rotation_degrees,
 			}
 		)
-	end
-
-	local function get_cached_icon_svg(name)
-		local cached = icon_svg_cache[name]
-
-		if cached then return cached end
-
-		if not icons[name] then return nil end
-
-		icon_svg_cache[name] = SVG.New(icons[name], {TextureSize = 16, Mode = "msdf"})
-		return icon_svg_cache[name]
 	end
 
 	function BaseTheme:ResolveIconDrawSize(size, requested_size, inset)
@@ -540,9 +584,9 @@ do
 
 	function BaseTheme:DrawSVGIcon(name, size, opts)
 		opts = opts or {}
-		local svg = get_cached_icon_svg(name)
+		local svg = self:GetIcon(name)
 
-		if not svg or svg:GetStatus() ~= "loaded" then return end
+		if svg:GetStatus() ~= "loaded" then return end
 
 		local target_size = self:ResolveIconDrawSize(size, opts.size, opts.inset)
 		local color = opts.color or self:GetColor("text")
@@ -559,60 +603,6 @@ do
 		svg:Draw()
 		render2d.PopColor()
 		render2d.PopMatrix()
-	end
-
-	function BaseTheme:DrawChevronIcon(size, opts)
-		opts = opts or {}
-		return self:DrawSVGIcon(
-			"chevron",
-			size,
-			{
-				size = opts.size or self:GetSize("M"),
-				inset = opts.inset or self:GetSize("line"),
-				color = opts.color,
-				rotation_degrees = opts.rotation_degrees,
-			}
-		)
-	end
-
-	function BaseTheme:DrawDisclosureIcon(size, opts)
-		opts = opts or {}
-		return self:DrawChevronIcon(
-			size,
-			{
-				size = opts.size,
-				thickness = opts.thickness,
-				color = opts.color,
-				rotation_degrees = (opts.open_fraction or 0) * 90,
-			}
-		)
-	end
-
-	function BaseTheme:DrawDropdownIndicatorIcon(size, opts)
-		opts = opts or {}
-		return self:DrawChevronIcon(
-			size,
-			{
-				size = opts.size or self:GetSize("M"),
-				inset = opts.inset or self:GetSize("line"),
-				thickness = opts.thickness,
-				color = opts.color,
-				rotation_degrees = 90,
-			}
-		)
-	end
-
-	function BaseTheme:DrawCloseIcon(size, opts)
-		opts = opts or {}
-		return self:DrawSVGIcon(
-			"close",
-			size,
-			{
-				size = opts.size or self:GetSize("M"),
-				inset = opts.inset or self:GetSize("line"),
-				color = opts.color,
-			}
-		)
 	end
 end
 

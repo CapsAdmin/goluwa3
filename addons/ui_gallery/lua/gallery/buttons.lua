@@ -14,12 +14,12 @@ local colors = {
 	{label = "negative", token = "negative"},
 }
 local icons = {
-	add = "https://api.iconify.design/material-symbols-light/add-rounded.svg",
-	delete = "https://api.iconify.design/material-symbols-light/delete-rounded.svg",
-	edit = "https://api.iconify.design/material-symbols-light/edit-rounded.svg",
-	settings = "https://api.iconify.design/material-symbols-light/settings-rounded.svg",
-	favorite = "https://api.iconify.design/material-symbols-light/favorite-rounded.svg",
-	arrow = "https://api.iconify.design/material-symbols-light/arrow-forward-rounded.svg",
+	add = "plus",
+	delete = "trash",
+	edit = "edit",
+	settings = "settings",
+	favorite = "star",
+	arrow = "arrow_right",
 }
 
 local function update_counter(button)
@@ -148,7 +148,7 @@ return {
 
 		for _, name in ipairs{"add", "delete", "edit", "settings", "favorite"} do
 			svgs[#svgs + 1] = IconButton{
-				SVG = icons[name],
+				Icon = icons[name],
 				Mode = name == "edit" and "outline" or "filled",
 				ButtonColor = (name == "delete" and "negative") or (name == "favorite" and "positive") or nil,
 			}
@@ -157,7 +157,7 @@ return {
 		local sized = {}
 
 		for _, size in ipairs{"S", "M", "L", "XL", "XXL"} do
-			sized[#sized + 1] = IconButton{SVG = icons.arrow, IconSize = size}
+			sized[#sized + 1] = IconButton{Icon = icons.arrow, IconSize = size}
 		end
 
 		return kit.Page{
@@ -190,7 +190,7 @@ return {
 			},
 			kit.Section{Title = "Icon buttons"}{
 				kit.Labeled("Glyphs", kit.Group(glyphs)),
-				kit.Labeled("SVG icons", kit.Group(svgs)),
+				kit.Labeled("Icons", kit.Group(svgs)),
 				kit.Labeled("IconSize = S, M, L, XL, XXL", kit.Group(sized)),
 			},
 		}

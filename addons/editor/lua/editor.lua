@@ -206,6 +206,7 @@ return function(props)
 		for _, name in ipairs(names) do
 			items[#items + 1] = MenuItem{
 				Text = component_label(name),
+				Icon = EntityTree.GetComponentIcon(name) or "component",
 				OnClick = function()
 					if present then
 						entity:RemoveComponent(name)
@@ -253,6 +254,7 @@ return function(props)
 						return {
 							MenuItem{
 								Text = "ui gallery",
+								Icon = "grid",
 								OnClick = function()
 									local Gallery = import("addons/ui_gallery/lua/gallery_browser.lua")
 									Panel.World:Ensure(Gallery({Key = "GalleryWindow"}))
@@ -260,6 +262,7 @@ return function(props)
 							},
 							MenuItem{
 								Text = "asset browser",
+								Icon = "folder",
 								OnClick = function()
 									local AssetBrowser = import("lua/asset_browser.lua")
 									Panel.World:Ensure(AssetBrowser({Key = "AssetBrowserWindow"}))
@@ -267,6 +270,7 @@ return function(props)
 							},
 							MenuItem{
 								Text = "save scene",
+								Icon = "save",
 								OnClick = function()
 									name_prompt{
 										Title = "SAVE SCENE",
@@ -281,6 +285,7 @@ return function(props)
 							},
 							MenuItem{
 								Text = "load scene",
+								Icon = "folder_open",
 								Items = function()
 									local items = {}
 
@@ -290,6 +295,7 @@ return function(props)
 										if name then
 											items[#items + 1] = MenuItem{
 												Text = name,
+												Icon = "file",
 												OnClick = function()
 													last_scene_name = name
 													scene.LoadAsync(name)
@@ -304,6 +310,7 @@ return function(props)
 							MenuSpacer{},
 							MenuItem{
 								Text = "exit",
+								Icon = "power",
 								OnClick = function()
 									system.ShutDown(0)
 								end,
@@ -314,11 +321,12 @@ return function(props)
 				{
 					Text = "GIZMO",
 					Items = function()
-						local function add_gizmo_menu_item(label, setter, value, current)
+						local function add_gizmo_menu_item(icon, label, setter, value, current)
 							if value == current then label = label .. " (active)" end
 
 							return MenuItem{
 								Text = label,
+								Icon = icon,
 								OnClick = function()
 									setter(value)
 								end,
@@ -326,13 +334,13 @@ return function(props)
 						end
 
 						return {
-							add_gizmo_menu_item("Move", Gizmo.SetMode, "move", Gizmo.GetMode()),
-							add_gizmo_menu_item("Rotate", Gizmo.SetMode, "rotate", Gizmo.GetMode()),
-							add_gizmo_menu_item("Scale", Gizmo.SetMode, "scale", Gizmo.GetMode()),
-							add_gizmo_menu_item("Combined", Gizmo.SetMode, "combined", Gizmo.GetMode()),
+							add_gizmo_menu_item("move", "Move", Gizmo.SetMode, "move", Gizmo.GetMode()),
+							add_gizmo_menu_item("rotate", "Rotate", Gizmo.SetMode, "rotate", Gizmo.GetMode()),
+							add_gizmo_menu_item("scale", "Scale", Gizmo.SetMode, "scale", Gizmo.GetMode()),
+							add_gizmo_menu_item("transform", "Combined", Gizmo.SetMode, "combined", Gizmo.GetMode()),
 							MenuSpacer{},
-							add_gizmo_menu_item("Local Space", Gizmo.SetSpace, "local", Gizmo.GetSpace()),
-							add_gizmo_menu_item("World Space", Gizmo.SetSpace, "world", Gizmo.GetSpace()),
+							add_gizmo_menu_item("cube", "Local Space", Gizmo.SetSpace, "local", Gizmo.GetSpace()),
+							add_gizmo_menu_item("world", "World Space", Gizmo.SetSpace, "world", Gizmo.GetSpace()),
 						}
 					end,
 				},
@@ -343,12 +351,14 @@ return function(props)
 						return {
 							MenuItem{
 								Text = "Show transient entities" .. (show_transient and " (on)" or " (off)"),
+								Icon = "eye",
 								OnClick = function()
 									set_show_transient(not show_transient)
 								end,
 							},
 							MenuItem{
 								Text = "Show nearby" .. (show_nearby and " (on)" or " (off)"),
+								Icon = "target",
 								OnClick = function()
 									show_nearby = not show_nearby
 									nearby_dirty = true
@@ -357,6 +367,7 @@ return function(props)
 							},
 							MenuItem{
 								Text = "Theme",
+								Icon = "palette",
 								Items = function()
 									local items = {}
 
@@ -499,6 +510,7 @@ return function(props)
 									can_create_shapes and
 									MenuItem{
 										Text = "Go to",
+										Icon = "target",
 										OnClick = function()
 											go_to_entity(entity)
 										end,
@@ -510,6 +522,7 @@ return function(props)
 									can_create_shapes and
 									MenuItem{
 										Text = "Sphere",
+										Icon = "sphere",
 										OnClick = function()
 											create_child_shape(entity, "sphere")
 										end,
@@ -518,6 +531,7 @@ return function(props)
 									can_create_shapes and
 									MenuItem{
 										Text = "Box",
+										Icon = "cube",
 										OnClick = function()
 											create_child_shape(entity, "box")
 										end,
@@ -527,6 +541,7 @@ return function(props)
 									#add_names > 0 and
 									MenuItem{
 										Text = "Add Component",
+										Icon = "plus",
 										Items = function()
 											return build_component_items(entity, add_names, false)
 										end,
@@ -536,6 +551,7 @@ return function(props)
 									#remove_names > 0 and
 									MenuItem{
 										Text = "Remove Component",
+										Icon = "minus",
 										Items = function()
 											return build_component_items(entity, remove_names, true)
 										end,
@@ -545,6 +561,7 @@ return function(props)
 									can_remove and
 									MenuItem{
 										Text = "Clone",
+										Icon = "copy",
 										OnClick = function()
 											set_selected_target(scene.Clone(entity))
 											prefab.MarkStructureDirty(entity:GetParent())
@@ -556,6 +573,7 @@ return function(props)
 									network.IsConnected() and
 									MenuItem{
 										Text = "Send to server",
+										Icon = "upload",
 										OnClick = function()
 											scene_sync.Push(entity)
 										end,
@@ -566,6 +584,7 @@ return function(props)
 									network.IsConnected() and
 									MenuItem{
 										Text = "Remove on server",
+										Icon = "trash",
 										OnClick = function()
 											scene_sync.RemoveOnServer(entity)
 										end,
@@ -575,6 +594,7 @@ return function(props)
 									can_remove and
 									MenuItem{
 										Text = "Prefab",
+										Icon = "layers",
 										Items = function()
 											return prefab_tools.GetMenuItems(entity, set_selected_target)
 										end,
@@ -587,6 +607,7 @@ return function(props)
 									can_remove and
 									MenuItem{
 										Text = "Remove",
+										Icon = "trash",
 										OnClick = function()
 											local parent = entity:GetParent()
 

@@ -13,6 +13,7 @@ META.CMP.layout = {
 META.CMP.visual = {}
 META:StartStorable()
 META:GetSet("Tabs", nil)
+META:GetSet("Icons", nil)
 META:GetSet("Value", nil)
 META:GetSet("Font", nil)
 META:GetSet("FontSize", nil)
@@ -60,6 +61,7 @@ function META:rebuild_tabs()
 			TabBar = self,
 			TabName = name,
 			Text = name,
+			Icon = self.Icons and self.Icons[name],
 			Mode = "tab",
 			Font = self:GetPropertyToken("Font"),
 			FontSize = self:GetPropertyToken("FontSize"),

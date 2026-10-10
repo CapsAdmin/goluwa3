@@ -3,11 +3,13 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
+local Icon = import("goluwa/render2d/ui/elements/icon.lua")
 local META = Panel:CreateTemplate("button")
 META.Base = Clickable
 META.CMP.layout = {FitWidth = true, FitHeight = true}
 META:StartStorable()
 META:GetSet("Text", "")
+META:GetSet("Icon", nil)
 META:GetSet("Font", nil)
 META:GetSet("FontSize", nil)
 META:GetSet("TextColor", nil)
@@ -24,15 +26,33 @@ function META:SetText(text)
 end
 
 function META:PropDefaults(props)
+	local layout = {}
+
 	if props.Padding == nil and (props.Mode or self.Mode) ~= "menu" then
-		return {layout = {MinSize = theme.Dynamic(theme.InputSize, 0, props.FontSize)}}
+		layout.MinSize = theme.Dynamic(theme.InputSize, 0, props.FontSize)
 	end
 
-	return {}
+	if props.Icon then layout.ChildGap = "XS" end
+
+	return {layout = layout}
 end
 
 function META:OnCreate()
 	META.BaseClass.OnCreate(self)
+
+	if self.Icon then
+		Icon{
+			Parent = self,
+			IsInternal = true,
+			Icon = self.Icon,
+			Size = "icon",
+			MinSize = "icon",
+			MaxSize = "icon",
+			IconColor = self.TextColor,
+			layout = {GrowWidth = 0, FitWidth = false},
+		}
+	end
+
 	self.label = Text{
 		Parent = self,
 		IsInternal = true,

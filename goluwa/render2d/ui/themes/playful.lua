@@ -151,6 +151,7 @@ function PlayfulTheme:Initialize()
 			}
 		)
 	)
+	self:SetIconStyle(self:MergeTables(self:GetIconStyle(), {StrokeWidth = 2.75}))
 	self:SetRadii(
 		self:MergeTables(
 			self:GetRadii(),

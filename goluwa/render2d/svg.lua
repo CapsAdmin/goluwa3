@@ -93,7 +93,12 @@ SVG:StartStorable()
 SVG:GetSet("Mode", "msdf")
 SVG:GetSet("TextureSize", 256)
 SVG:GetSet("SDFSpread", 0.9)
+SVG:GetSet("StrokeWidth", nil)
+SVG:GetSet("LineCap", nil)
+SVG:GetSet("LineJoin", nil)
+SVG:GetSet("MiterLimit", nil)
 SVG:EndStorable()
+local STROKE_OPTIONS = {"StrokeWidth", "LineCap", "LineJoin", "MiterLimit"}
 
 function SVG.New(source, options)
 	local self = SVG:CreateObject()
@@ -104,6 +109,10 @@ function SVG.New(source, options)
 		if options.TextureSize then self:SetTextureSize(options.TextureSize) end
 
 		if options.SDFSpread then self:SetSDFSpread(options.SDFSpread) end
+
+		for _, key in ipairs(STROKE_OPTIONS) do
+			if options[key] ~= nil then self["Set" .. key](self, options[key]) end
+		end
 	end
 
 	if source then self:Load(source) end
@@ -139,7 +148,7 @@ function SVG:ApplyData(data)
 	if type(data) == "table" then
 		ok, decoded = true, data
 	else
-		ok, decoded = pcall(svg_codec.Decode, data)
+		ok, decoded = pcall(svg_codec.Decode, data, nil, self)
 	end
 
 	if not ok then
@@ -148,9 +157,10 @@ function SVG:ApplyData(data)
 	end
 
 	self.decoded = decoded
-	self.poly = Polygon2D.FromTriangleCoordinates(math2d.TriangulateContoursEvenOdd(decoded.contours))
 
-	if self.Mode ~= "poly" then
+	if self.Mode == "poly" then
+		self.poly = Polygon2D.FromTriangleCoordinates(math2d.TriangulateContoursEvenOdd(decoded.contours))
+	else
 		self.field_scale = get_field_scale(self.TextureSize)
 		self.sdf_texture = CreateSDFTexture(
 			decoded,

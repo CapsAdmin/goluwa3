@@ -946,6 +946,10 @@ function META:materialize_row(row_info)
 		self:make_toggle_placeholder(meta),
 	}
 
+	if node.Icon then
+		row_children[#row_children + 1] = self:make_icon(node, path, key)
+	end
+
 	if self.CustomPanelPosition == "before_label" then
 		if custom_panel then row_children[#row_children + 1] = custom_panel end
 
@@ -1298,6 +1302,38 @@ do
 					FitWidth = true,
 					FitHeight = true,
 				},
+			},
+		}
+	end
+
+	-- node.Icon is an icon name or a function(node, expanded) that returns one, node.IconColor a color token
+	function META:make_icon(node, path, key)
+		local tree = self
+		local size = theme.active:GetSize("icon")
+		return Panel.New{
+			IsInternal = true,
+			Name = "TreeIcon",
+			transform = {Size = Vec2(size, size)},
+			layout = {
+				SelfAlignmentY = "center",
+				GrowWidth = 0,
+				FitWidth = false,
+			},
+			mouse_input = {IgnoreMouseInput = true},
+			visual = {
+				OnDraw = function(self)
+					local name = node.Icon
+
+					if type(name) == "function" then
+						name = name(node, tree:is_expanded(node, path, key, tree:has_children(node, path)))
+					end
+
+					theme.active:DrawIcon(
+						name,
+						self.Owner.transform:GetSize(),
+						{color = theme.active:ResolveColor(node.IconColor, "text")}
+					)
+				end,
 			},
 		}
 	end

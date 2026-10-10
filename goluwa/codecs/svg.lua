@@ -159,7 +159,13 @@ local function flatten_cubic(contour, x0, y0, cx1, cy1, cx2, cy2, x1, y1, steps)
 	end
 end
 
-local function finalize_contour(contours, contour)
+local function finalize_contour(contours, contour, raw)
+	if raw then
+		if contour and #contour >= 4 then contours[#contours + 1] = contour end
+
+		return
+	end
+
 	if not contour or #contour < 6 then return end
 
 	local split = math2d.SplitSelfIntersectingContour(contour)
@@ -169,7 +175,7 @@ local function finalize_contour(contours, contour)
 	end
 end
 
-local function parse_path_contours(data, curve_steps)
+local function parse_path_contours(data, curve_steps, raw)
 	local tokens = tokenize_path(data)
 	local contours = {}
 	local current_cmd
@@ -221,7 +227,7 @@ local function parse_path_contours(data, curve_steps)
 				y = ny
 			end
 
-			finalize_contour(contours, contour)
+			finalize_contour(contours, contour, raw)
 			contour = {x, y}
 			start_x = x
 			start_y = y
@@ -241,7 +247,7 @@ local function parse_path_contours(data, curve_steps)
 				contour[#contour + 1] = start_y
 			end
 
-			finalize_contour(contours, contour)
+			finalize_contour(contours, contour, raw)
 			contour = nil
 			x = start_x
 			y = start_y
@@ -398,7 +404,7 @@ local function parse_path_contours(data, curve_steps)
 		end
 	end
 
-	finalize_contour(contours, contour)
+	finalize_contour(contours, contour, raw)
 	return contours
 end
 
@@ -412,34 +418,192 @@ local function find_root(children)
 	return nil
 end
 
-local function collect_paths(node, out)
-	if node.tag == "path" then out[#out + 1] = node end
+local function number_attr(attrs, name)
+	return tonumber(attrs[name]) or 0
+end
+
+local function shape_to_path(node)
+	local attrs = node.attrs
+	local tag = node.tag
+
+	if tag == "path" then return attrs.d end
+
+	if tag == "line" then
+		return string.format(
+			"M%f %fL%f %f",
+			number_attr(attrs, "x1"),
+			number_attr(attrs, "y1"),
+			number_attr(attrs, "x2"),
+			number_attr(attrs, "y2")
+		)
+	end
+
+	if tag == "polyline" or tag == "polygon" then
+		local numbers = {}
+
+		for number in (attrs.points or ""):gmatch("[%+%-]?[%d%.]+") do
+			numbers[#numbers + 1] = tonumber(number)
+		end
+
+		if #numbers < 4 then return nil end
+
+		local parts = {string.format("M%f %f", numbers[1], numbers[2])}
+
+		for i = 3, #numbers - 1, 2 do
+			parts[#parts + 1] = string.format("L%f %f", numbers[i], numbers[i + 1])
+		end
+
+		if tag == "polygon" then parts[#parts + 1] = "Z" end
+
+		return table.concat(parts)
+	end
+
+	if tag == "circle" or tag == "ellipse" then
+		local cx, cy = number_attr(attrs, "cx"), number_attr(attrs, "cy")
+		local rx = number_attr(attrs, tag == "circle" and "r" or "rx")
+		local ry = tag == "circle" and rx or number_attr(attrs, "ry")
+
+		if rx <= 0 or ry <= 0 then return nil end
+
+		return string.format(
+			"M%f %fA%f %f 0 1 0 %f %fA%f %f 0 1 0 %f %fZ",
+			cx - rx,
+			cy,
+			rx,
+			ry,
+			cx + rx,
+			cy,
+			rx,
+			ry,
+			cx - rx,
+			cy
+		)
+	end
+
+	if tag == "rect" then
+		local x, y = number_attr(attrs, "x"), number_attr(attrs, "y")
+		local w, h = number_attr(attrs, "width"), number_attr(attrs, "height")
+		local rx, ry = number_attr(attrs, "rx"), number_attr(attrs, "ry")
+
+		if w <= 0 or h <= 0 then return nil end
+
+		if attrs.rx and not attrs.ry then ry = rx elseif attrs.ry and not attrs.rx then rx = ry end
+
+		rx = math.min(rx, w / 2)
+		ry = math.min(ry, h / 2)
+
+		if rx > 0 and ry > 0 then
+			return string.format(
+				"M%f %fH%fA%f %f 0 0 1 %f %fV%fA%f %f 0 0 1 %f %fH%fA%f %f 0 0 1 %f %fV%fA%f %f 0 0 1 %f %fZ",
+				x + rx,
+				y,
+				x + w - rx,
+				rx,
+				ry,
+				x + w,
+				y + ry,
+				y + h - ry,
+				rx,
+				ry,
+				x + w - rx,
+				y + h,
+				x + rx,
+				rx,
+				ry,
+				x,
+				y + h - ry,
+				y + ry,
+				rx,
+				ry,
+				x + rx,
+				y
+			)
+		end
+
+		return string.format("M%f %fH%fV%fH%fZ", x, y, x + w, y + h, x)
+	end
+
+	return nil
+end
+
+local function collect_shapes(node, parent_paint, out)
+	local attrs = node.attrs
+	local paint = {
+		fill = attrs.fill or parent_paint.fill,
+		stroke = attrs.stroke or parent_paint.stroke,
+		stroke_width = tonumber(attrs["stroke-width"]) or parent_paint.stroke_width,
+		line_cap = attrs["stroke-linecap"] or parent_paint.line_cap,
+		line_join = attrs["stroke-linejoin"] or parent_paint.line_join,
+		miter_limit = tonumber(attrs["stroke-miterlimit"]) or parent_paint.miter_limit,
+	}
+	local d = shape_to_path(node)
+
+	if d then out[#out + 1] = {d = d, paint = paint} end
 
 	for i = 1, node.children.n do
-		collect_paths(node.children[i], out)
+		collect_shapes(node.children[i], paint, out)
 	end
 end
 
-function svg.Decode(data, curve_steps)
+-- style = {StrokeWidth, LineCap, LineJoin, MiterLimit} replaces what the document says about strokes.
+-- A shape is filled or stroked, a stroked shape only gets a fill if it asks for one and that fill
+-- must not overlap its stroke, the distance field is built from non overlapping contours.
+-- Strokes of all shapes that share their stroke settings are one line graph, see math2d.StrokePolylines
+function svg.Decode(data, curve_steps, style)
 	curve_steps = curve_steps or 12
+	style = style or {}
 	local document = xml.Decode(data)
 	local root = assert(find_root(document.children), "SVG root node not found")
 	local view_box = parse_view_box(root.attrs.viewBox)
 	local width = parse_length(root.attrs.width, view_box and view_box.w or 0)
 	local height = parse_length(root.attrs.height, view_box and view_box.h or 0)
-	local path_nodes = {}
-	collect_paths(root, path_nodes)
+	local shapes = {}
+	collect_shapes(root, {}, shapes)
 	local contours = {}
+	local stroke_groups = {}
+	local stroke_group_list = {}
 
-	for _, node in ipairs(path_nodes) do
-		local fill = node.attrs.fill
+	for _, shape in ipairs(shapes) do
+		local paint = shape.paint
+		local stroked = paint.stroke ~= nil and paint.stroke ~= "none"
 
-		if fill ~= "none" and node.attrs.d then
-			local path_contours = parse_path_contours(node.attrs.d, curve_steps)
-
-			for _, contour in ipairs(path_contours) do
+		if paint.fill ~= "none" and (paint.fill ~= nil or not stroked) then
+			for _, contour in ipairs(parse_path_contours(shape.d, curve_steps)) do
 				contours[#contours + 1] = contour
 			end
+		end
+
+		if stroked then
+			local stroke_width = style.StrokeWidth or paint.stroke_width or 1
+			local line_cap = style.LineCap or paint.line_cap or "butt"
+			local line_join = style.LineJoin or paint.line_join or "miter"
+			local miter_limit = style.MiterLimit or paint.miter_limit or 4
+			local key = stroke_width .. "/" .. line_cap .. "/" .. line_join .. "/" .. miter_limit
+			local group = stroke_groups[key]
+
+			if not group then
+				group = {
+					width = stroke_width,
+					cap = line_cap,
+					join = line_join,
+					miter_limit = miter_limit,
+					polylines = {},
+				}
+				stroke_groups[key] = group
+				stroke_group_list[#stroke_group_list + 1] = group
+			end
+
+			for _, polyline in ipairs(parse_path_contours(shape.d, curve_steps, true)) do
+				group.polylines[#group.polylines + 1] = polyline
+			end
+		end
+	end
+
+	for _, group in ipairs(stroke_group_list) do
+		local outlines = math2d.StrokePolylines(group.polylines, group.width, group.cap, group.join, group.miter_limit)
+
+		for _, outline in ipairs(outlines) do
+			contours[#contours + 1] = outline
 		end
 	end
 

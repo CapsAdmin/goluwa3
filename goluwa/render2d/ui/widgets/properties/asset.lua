@@ -27,9 +27,8 @@ function META:OnCreate()
 	self.RightElements = {
 		IconButton{
 			Field = self,
-			Text = "...",
+			Icon = "folder_open",
 			IconSize = "M",
-			FontSize = "M",
 			Padding = "none",
 			Mode = "outline",
 			OnClick = on_browse_click,

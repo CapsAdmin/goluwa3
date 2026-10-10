@@ -91,3 +91,81 @@ T.Test("svg decode flattens arc commands", function()
 	T(#triangles)[">"](0)
 	T(triangle_area_sum(triangles))[">"](0)
 end)
+
+local function contour_area(contour)
+	return math.abs(math2d.GetPolygonArea(contour))
+end
+
+local function stroked(attributes, body)
+	return (
+		[[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" %s>%s</svg>]]
+	):format(attributes, body)
+end
+
+T.Test("svg decode strokes a line into one outline", function()
+	local decoded = svg.Decode(stroked("stroke-width=\"2\"", "<path d=\"M4 12H20\"/>"))
+	T(#decoded.contours)["=="](1)
+	T(contour_area(decoded.contours[1]))["~"](32, 0.001)
+end)
+
+T.Test("svg decode style replaces the stroke settings of the document", function()
+	local decoded = svg.Decode(
+		stroked("stroke-width=\"2\"", "<path d=\"M4 12H20\"/>"),
+		nil,
+		{StrokeWidth = 4, LineCap = "square"}
+	)
+	T(#decoded.contours)["=="](1)
+	T(contour_area(decoded.contours[1]))["~"](80, 0.001)
+end)
+
+T.Test("svg decode joins strokes that share a point", function()
+	local decoded = svg.Decode(stroked("stroke-width=\"2\"", "<path d=\"M12 5V12 19M5 12H12 19\"/>"))
+	T(#decoded.contours)["=="](1)
+	T(contour_area(decoded.contours[1]))["~"](52, 0.001)
+end)
+
+T.Test("svg decode stroke joins", function()
+	local source = stroked("stroke-width=\"2\"", "<path d=\"M2 2H12V12\"/>")
+	T(contour_area(svg.Decode(source).contours[1]))["~"](40, 0.001)
+	T(contour_area(svg.Decode(source, nil, {LineJoin = "bevel"}).contours[1]))["~"](39.5, 0.001)
+	local round = contour_area(svg.Decode(source, nil, {LineJoin = "round"}).contours[1])
+	T(round)[">"](39.5)
+	T(round)["<"](40)
+end)
+
+T.Test("svg decode strokes a closed shape into an outer and an inner outline", function()
+	local decoded = svg.Decode(
+		stroked("stroke-width=\"2\" stroke-linejoin=\"round\"", "<circle cx=\"12\" cy=\"12\" r=\"6\"/>")
+	)
+	T(#decoded.contours)["=="](2)
+	local outer = contour_area(decoded.contours[1])
+	local inner = contour_area(decoded.contours[2])
+
+	if inner > outer then outer, inner = inner, outer end
+
+	T(outer)[">"](145)
+	T(outer)["<"](154.5)
+	T(inner)[">"](75)
+	T(inner)["<"](79.5)
+end)
+
+T.Test("svg decode fills basic shapes", function()
+	local rect = svg.Decode(
+		[[<svg viewBox="0 0 24 24"><rect x="2" y="3" width="10" height="6" fill="currentColor"/></svg>]]
+	)
+	T(#rect.contours)["=="](1)
+	T(contour_area(rect.contours[1]))["~"](60, 0.001)
+	local circle = svg.Decode(
+		[[<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/></svg>]]
+	)
+	T(#circle.contours)["=="](1)
+	T(contour_area(circle.contours[1]))[">"](75)
+	T(contour_area(circle.contours[1]))["<"](78.6)
+end)
+
+T.Test("svg decode draws nothing for fill none without a stroke", function()
+	local decoded = svg.Decode(
+		[[<svg viewBox="0 0 24 24"><path fill="none" d="M0 0H10V10Z"/></svg>]]
+	)
+	T(#decoded.contours)["=="](0)
+end)

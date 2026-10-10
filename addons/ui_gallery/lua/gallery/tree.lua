@@ -7,13 +7,11 @@ local Frame = import("goluwa/render2d/ui/elements/frame.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
-local SVG = import("goluwa/render2d/ui/elements/svg.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
-local icons = {
-	folder = "https://api.iconify.design/ic/baseline-folder.svg",
-	file = "https://api.iconify.design/ic/round-insert-drive-file.svg",
-}
+local function folder_icon(node, expanded)
+	return expanded and "folder_open" or "folder"
+end
 
 local function files(prefix, name, extension, count, description)
 	local out = {}
@@ -22,6 +20,7 @@ local function files(prefix, name, extension, count, description)
 		out[index] = {
 			Key = prefix .. "/" .. name .. index .. extension,
 			Text = name .. index .. extension,
+			Icon = "file",
 			Kind = "file",
 			Description = description .. " #" .. index,
 		}
@@ -34,6 +33,7 @@ local function folder(key, text, description, children, expanded)
 	return {
 		Key = key,
 		Text = text,
+		Icon = folder_icon,
 		Kind = "folder",
 		Expanded = expanded,
 		Description = description,
@@ -46,6 +46,7 @@ local function build_items(show_hidden)
 	elements[#elements + 1] = {
 		Key = "project/ui/elements/tree.lua",
 		Text = "tree.lua",
+		Icon = "file",
 		Kind = "file",
 		Description = "The data driven tree widget with keyed expansion, selection, drag and drop and virtualized rows.",
 	}
@@ -84,12 +85,14 @@ local function build_items(show_hidden)
 		project[#project + 1] = {
 			Key = "project/.gitignore",
 			Text = ".gitignore",
+			Icon = "file",
 			Kind = "file",
 			Description = "Ignored paths.",
 		}
 		project[#project + 1] = {
 			Key = "project/.editorconfig",
 			Text = ".editorconfig",
+			Icon = "file",
 			Kind = "file",
 			Description = "Editor settings.",
 		}
@@ -153,18 +156,6 @@ local function show_node(page, node)
 	page.body.text:SetText(node.Description)
 end
 
-local function node_icon(node, path, key, selected, has_children)
-	return SVG{
-		Source = has_children and icons.folder or icons.file,
-		Color = selected and "text_on_accent" or "text",
-		Size = Vec2(16, 16),
-		MinSize = Vec2(16, 16),
-		MaxSize = Vec2(16, 16),
-		IgnoreMouseInput = true,
-		layout = {SelfAlignmentY = "center"},
-	}
-end
-
 return {
 	Name = "tree",
 	Section = "Data",
@@ -190,7 +181,6 @@ return {
 		page.tree = Tree{
 			Items = page.items,
 			SelectedKey = page.selected,
-			OnGetNodePanel = node_icon,
 			OnSelect = function(node, key)
 				page.selected = key
 				show_node(page, node)

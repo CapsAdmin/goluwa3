@@ -2,9 +2,6 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local MenuSpacer = import("goluwa/render2d/ui/elements/menu_spacer.lua")
-local copy_icon = "https://api.iconify.design/material-symbols-light/content-copy.svg"
-local paste_icon = "https://api.iconify.design/material-symbols-light/content-paste-rounded.svg"
-local reset_icon = "https://api.iconify.design/material-symbols-light/reset-iso-rounded.svg"
 
 local function on_copy(item)
 	clipboard.Set(item.Encoded)
@@ -18,11 +15,12 @@ local function on_context_action(item)
 	item.Action.OnClick(item.Control)
 end
 
--- an action is {Text, OnClick} or {Text, Items = {actions}} for a submenu
+-- an action is {Text, Icon, OnClick} or {Text, Icon, Items = {actions}} for a submenu
 local function build_action_item(control, action)
 	if action.Items then
 		return MenuItem{
 			Text = action.Text,
+			Icon = action.Icon,
 			Items = function()
 				local out = {}
 
@@ -39,6 +37,7 @@ local function build_action_item(control, action)
 		Control = control,
 		Action = action,
 		Text = action.Text,
+		Icon = action.Icon,
 		OnClick = on_context_action,
 	}
 end
@@ -54,7 +53,7 @@ return function(control)
 			Control = control,
 			Encoded = current,
 			Text = "Copy",
-			IconSource = copy_icon,
+			Icon = "copy",
 			Disabled = current == nil,
 			OnClick = on_copy,
 		},
@@ -62,7 +61,7 @@ return function(control)
 			Control = control,
 			Encoded = clipboard_text,
 			Text = "Paste",
-			IconSource = paste_icon,
+			Icon = "paste",
 			Disabled = not can_paste,
 			OnClick = on_paste,
 		},
@@ -70,7 +69,7 @@ return function(control)
 			Control = control,
 			Encoded = default,
 			Text = "Reset",
-			IconSource = reset_icon,
+			Icon = "reset",
 			Disabled = default == nil or default == current,
 			OnClick = on_paste,
 		},

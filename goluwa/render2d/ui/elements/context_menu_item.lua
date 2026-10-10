@@ -2,7 +2,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local SVG = import("goluwa/render2d/ui/elements/svg.lua")
 local Icon = import("goluwa/render2d/ui/elements/icon.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local META = Panel:CreateTemplate("context_menu_item")
@@ -20,7 +19,6 @@ META.CMP.layout = {
 META:StartStorable()
 META:GetSet("Selected", false)
 META:GetSet("SelectedColor", nil)
-META:GetSet("IconSource", nil)
 META:GetSet("Items", nil)
 META:EndStorable()
 
@@ -60,25 +58,6 @@ function META:OnCreate()
 	META.BaseClass.OnCreate(self)
 	self:SetSelected(self.Selected)
 	self:SetSelectedColor(self.SelectedColor)
-
-	if self.IconSource then
-		self:AddChild(
-			SVG{
-				IsInternal = true,
-				Source = self.IconSource,
-				Size = "M",
-				MinSize = "M",
-				MaxSize = "M",
-				Color = self.Disabled and "text_disabled" or "text",
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 0,
-					FitWidth = false,
-				},
-			},
-			1
-		)
-	end
 
 	if self.Items then
 		self.arrow = Icon{

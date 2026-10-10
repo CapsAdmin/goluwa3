@@ -126,10 +126,12 @@ function JRPGTheme:Initialize()
 				L = 15,
 				XL = 20,
 				XXL = 25,
+				icon = 14,
 				default = 10,
 			}
 		)
 	)
+	self:SetIconStyle(self:MergeTables(self:GetIconStyle(), {StrokeWidth = 1.25}))
 	self:SetFontSizes(
 		self:MergeTables(
 			self:GetFontSizes(),

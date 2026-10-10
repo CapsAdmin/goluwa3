@@ -92,14 +92,13 @@ function META:OnCreate()
 	self._stepper = stepper
 
 	if stepper then
-		for _, step in ipairs(self.StepperVertical and {{"+", 1}, {"-", -1}} or {{"-", -1}, {"+", 1}}) do
+		for _, step in ipairs(self.StepperVertical and {{"plus", 1}, {"minus", -1}} or {{"minus", -1}, {"plus", 1}}) do
 			IconButton{
 				Parent = stepper,
 				Field = self,
 				StepDirection = step[2],
-				Text = step[1],
+				Icon = step[1],
 				IconSize = "M",
-				FontSize = "XS",
 				Padding = "none",
 				Mode = "outline",
 				OnClick = on_step_click,

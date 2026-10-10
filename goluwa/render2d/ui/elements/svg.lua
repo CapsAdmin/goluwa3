@@ -12,6 +12,9 @@ META.CMP.mouse_input = {}
 META:StartStorable()
 META:GetSet("Source", nil)
 META:GetSet("Color", nil)
+META:GetSet("StrokeWidth", nil)
+META:GetSet("LineCap", nil)
+META:GetSet("LineJoin", nil)
 META:EndStorable()
 
 function META:SetSource(source)
@@ -19,7 +22,15 @@ function META:SetSource(source)
 
 	if not self._ready then return self end
 
-	self._svg = SVG.New(source, {TextureSize = 64})
+	self._svg = SVG.New(
+		source,
+		{
+			TextureSize = 64,
+			StrokeWidth = self.StrokeWidth,
+			LineCap = self.LineCap,
+			LineJoin = self.LineJoin,
+		}
+	)
 
 	if self._svg:GetStatus() == "loaded" then
 		self.OnLoad(self, self._svg.decoded)

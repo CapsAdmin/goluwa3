@@ -11,6 +11,7 @@ local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local TabBar = import("goluwa/render2d/ui/widgets/tab_bar.lua")
+local Icon = import("goluwa/render2d/ui/elements/icon.lua")
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local VirtualGrid = import("goluwa/render2d/ui/elements/virtual_grid.lua")
@@ -33,6 +34,13 @@ local previews = import("lua/asset_preview.lua")
 local asset_info = import("lua/asset_info.lua")
 local prefab_tools = import("lua/prefab_tools.lua")
 local DEFAULT_CATEGORIES = {"models", "textures", "materials", "prefabs"}
+local CATEGORY_ICONS = {
+	models = "cube",
+	textures = "image",
+	materials = "material",
+	prefabs = "layers",
+}
+local folder_icon_box = Vec2()
 local LABEL_HEIGHT = 36
 local DETAIL_PREVIEW_SIZE = 320
 local CHANNEL_SIZE = 64
@@ -113,13 +121,8 @@ local function draw_centered_text(font, text, x, y, w, h, color)
 	draw_text(font, text, x + (w - tw) / 2, y + (h - th) / 2, color)
 end
 
-local function draw_folder_icon(x, y, w, h, color)
-	local iw = w * 0.62
-	local ih = iw * 0.76
-	local ix = x + (w - iw) / 2
-	local iy = y + (h - ih) / 2
-	render2d.DrawBox(ix, iy - ih * 0.12, iw * 0.42, ih * 0.3, 3, color)
-	render2d.DrawBox(ix, iy, iw, ih, 4, color)
+local function get_folder_icon(node, expanded)
+	return expanded and "folder_open" or "folder"
 end
 
 local function get_selected_entity()
@@ -242,6 +245,7 @@ return function(props)
 		local node = {
 			Key = tail.path,
 			Text = ("%s  (%d)"):format(text, tail.count),
+			Icon = get_folder_icon,
 			Folder = tail,
 			Chain = lookup,
 			Children = {__lazy = true},
@@ -280,6 +284,7 @@ return function(props)
 		local root = {
 			Key = state.category,
 			Text = ("%s  (%d)"):format(state.category, state.root.count),
+			Icon = CATEGORY_ICONS[state.category] or "folder",
 			Folder = state.root,
 			Chain = {[state.root] = true},
 			Children = {__lazy = true},
@@ -358,7 +363,7 @@ return function(props)
 
 		for i, crumb in ipairs(chain) do
 			if i > 1 then
-				breadcrumb:AddChild(Text{Text = "/", Color = "text_disabled", layout = {FitWidth = true}})
+				breadcrumb:AddChild(Icon{Icon = "chevron_right", Size = "S", IconColor = "text_disabled"})
 			end
 
 			local target = crumb
@@ -556,12 +561,14 @@ return function(props)
 				{
 					MenuItem{
 						Text = "Open",
+						Icon = "folder_open",
 						OnClick = function()
 							window_navigate(item.folder, true)
 						end,
 					},
 					MenuItem{
 						Text = "Copy path",
+						Icon = "copy",
 						OnClick = function()
 							clipboard.Set(item.folder.path)
 						end,
@@ -582,6 +589,7 @@ return function(props)
 				picking and
 				MenuItem{
 					Text = "Select",
+					Icon = "check",
 					OnClick = function()
 						pick(entry)
 					end,
@@ -589,12 +597,14 @@ return function(props)
 				nil,
 				MenuItem{
 					Text = "Copy path",
+					Icon = "copy",
 					OnClick = function()
 						clipboard.Set(entry.path)
 					end,
 				},
 				MenuItem{
 					Text = "Copy name",
+					Icon = "copy",
 					OnClick = function()
 						clipboard.Set(entry.name)
 					end,
@@ -607,6 +617,7 @@ return function(props)
 				and
 				MenuItem{
 					Text = "View source",
+					Icon = "code",
 					OnClick = function()
 						open_source_viewer(entry)
 					end,
@@ -615,6 +626,7 @@ return function(props)
 				entry.category == "textures" and
 				MenuItem{
 					Text = "Open in texture viewer",
+					Icon = "image",
 					OnClick = function()
 						activate_item(entry)
 					end,
@@ -623,6 +635,7 @@ return function(props)
 				is_viewable_model(entry) and
 				MenuItem{
 					Text = "Open in model viewer",
+					Icon = "cube",
 					OnClick = function()
 						open_model_viewer(entry)
 					end,
@@ -631,6 +644,7 @@ return function(props)
 				is_viewable_model(entry) and
 				MenuItem{
 					Text = "Spawn in front of camera",
+					Icon = "place",
 					OnClick = function()
 						spawn_model(entry)
 					end,
@@ -640,6 +654,7 @@ return function(props)
 				get_selected_entity() and
 				MenuItem{
 					Text = "Use as model of selected entity",
+					Icon = "arrow_right",
 					OnClick = function()
 						apply_model(get_selected_entity(), entry)
 					end,
@@ -649,6 +664,7 @@ return function(props)
 				get_selected_entity() and
 				MenuItem{
 					Text = "Apply to selected entity",
+					Icon = "arrow_right",
 					OnClick = function()
 						apply_material(get_selected_entity(), entry)
 					end,
@@ -657,6 +673,7 @@ return function(props)
 				entry.category == "prefabs" and
 				MenuItem{
 					Text = "Place in front of camera",
+					Icon = "place",
 					OnClick = function()
 						place_prefab(entry)
 					end,
@@ -666,6 +683,7 @@ return function(props)
 				get_selected_instance() and
 				MenuItem{
 					Text = "Use as prefab of selected instance",
+					Icon = "arrow_right",
 					OnClick = function()
 						get_selected_instance().prefab:SetPath(entry.name)
 					end,
@@ -675,6 +693,7 @@ return function(props)
 				entry.preview.status == "failed" and
 				MenuItem{
 					Text = "Retry preview",
+					Icon = "refresh",
 					OnClick = function()
 						previews.Release(entry)
 					end,
@@ -683,6 +702,7 @@ return function(props)
 				MenuSpacer{},
 				MenuItem{
 					Text = "Debug info",
+					Icon = "info",
 					Items = function()
 						local debug_items = {}
 
@@ -735,7 +755,13 @@ return function(props)
 		end
 
 		if item.is_folder then
-			draw_folder_icon(px, py, pw, pw, colors.folder)
+			local icon_size = pw * 0.62
+			folder_icon_box.x = icon_size
+			folder_icon_box.y = icon_size
+			render2d.PushMatrix()
+			render2d.Translatef(px + (pw - icon_size) / 2, py + (pw - icon_size) / 2)
+			theme.active:DrawIcon("folder", folder_icon_box, {color = colors.folder, inset = 0})
+			render2d.PopMatrix()
 		else
 			local preview = previews.Request(item)
 			render2d.DrawBox(px, py, pw, pw, 4, colors.preview_background)
@@ -1088,6 +1114,7 @@ return function(props)
 		if picking then
 			actions[#actions + 1] = Button{
 				Text = "Select",
+				Icon = "check",
 				OnClick = function()
 					pick(entry)
 				end,
@@ -1096,6 +1123,7 @@ return function(props)
 
 		actions[#actions + 1] = Button{
 			Text = "Copy path",
+			Icon = "copy",
 			Mode = "outline",
 			OnClick = function()
 				clipboard.Set(entry.path)
@@ -1105,6 +1133,7 @@ return function(props)
 		if entry.category == "textures" then
 			actions[#actions + 1] = Button{
 				Text = "Open",
+				Icon = "image",
 				Mode = "outline",
 				OnClick = function()
 					activate_item(entry)
@@ -1117,6 +1146,7 @@ return function(props)
 		if is_viewable_model(entry) then
 			actions[#actions + 1] = Button{
 				Text = "View",
+				Icon = "cube",
 				Mode = "outline",
 				OnClick = function()
 					open_model_viewer(entry)
@@ -1124,6 +1154,7 @@ return function(props)
 			}
 			actions[#actions + 1] = Button{
 				Text = "Spawn",
+				Icon = "place",
 				Mode = "outline",
 				OnClick = function()
 					spawn_model(entry)
@@ -1133,6 +1164,7 @@ return function(props)
 			if target then
 				actions[#actions + 1] = Button{
 					Text = "Use on selected",
+					Icon = "arrow_right",
 					Mode = "outline",
 					OnClick = function()
 						apply_model(target, entry)
@@ -1142,6 +1174,7 @@ return function(props)
 		elseif entry.category == "materials" and target then
 			actions[#actions + 1] = Button{
 				Text = "Apply to selected",
+				Icon = "arrow_right",
 				Mode = "outline",
 				OnClick = function()
 					apply_material(target, entry)
@@ -1150,6 +1183,7 @@ return function(props)
 		elseif entry.category == "prefabs" then
 			actions[#actions + 1] = Button{
 				Text = "Place",
+				Icon = "place",
 				Mode = "outline",
 				OnClick = function()
 					place_prefab(entry)
@@ -1159,6 +1193,7 @@ return function(props)
 			if get_selected_instance() then
 				actions[#actions + 1] = Button{
 					Text = "Use on selected",
+					Icon = "arrow_right",
 					Mode = "outline",
 					OnClick = function()
 						get_selected_instance().prefab:SetPath(entry.name)
@@ -1202,6 +1237,7 @@ return function(props)
 	if #categories > 1 then
 		tab_bar = TabBar{
 			Tabs = categories,
+			Icons = CATEGORY_ICONS,
 			Value = state.category,
 			OnChange = set_category,
 		}
@@ -1249,6 +1285,7 @@ return function(props)
 	}
 	toolbar_widgets[#toolbar_widgets + 1] = Button{
 		Text = "Subfolders",
+		Icon = "tree",
 		Mode = "outline",
 		Tooltip = "list every asset below the selected folder",
 		Ref = function(self)
@@ -1262,6 +1299,7 @@ return function(props)
 	}
 	toolbar_widgets[#toolbar_widgets + 1] = Button{
 		Text = "Refresh",
+		Icon = "refresh",
 		Mode = "outline",
 		OnClick = function()
 			assets.InvalidateIndex(state.category)
@@ -1474,6 +1512,7 @@ return function(props)
 				picking and
 				Button{
 					Text = "Select",
+					Icon = "check",
 					OnClick = function()
 						if state.selected then pick(state.selected) end
 					end,
@@ -1482,6 +1521,7 @@ return function(props)
 				picking and
 				Button{
 					Text = "Cancel",
+					Icon = "close",
 					Mode = "outline",
 					OnClick = function()
 						window:Remove()

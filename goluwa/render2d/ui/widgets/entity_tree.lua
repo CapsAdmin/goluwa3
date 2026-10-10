@@ -5,6 +5,71 @@ local META = Panel:CreateTemplate("entity_tree")
 local Entity = import("goluwa/entities/entity.lua")
 META.Base = import("goluwa/render2d/ui/widgets/tree.lua")
 META.debug = false
+local component_icons = {
+	transform = "move",
+	network = "world",
+	model = "cube",
+	visual = "cube",
+	visual_primitive = "cube",
+	static_mesh = "cube",
+	static_world = "cube",
+	brush = "cube",
+	displacement = "cube",
+	decal = "image",
+	prefab = "layers",
+	script = "code",
+	light = "light",
+	light_point = "light",
+	light_spot = "light",
+	source_light = "light",
+	light_sun = "sun",
+	light_directional = "sun",
+	atmosphere_controller = "sun",
+	water_volume = "water",
+	spawn_point = "spawn",
+	rigid_body = "physics",
+	animator = "play",
+	visibility_group = "eye",
+}
+local ENTITY_ICON_ORDER = {
+	"prefab",
+	"light_sun",
+	"light_directional",
+	"light_point",
+	"light_spot",
+	"source_light",
+	"light",
+	"spawn_point",
+	"water_volume",
+	"model",
+	"visual",
+	"visual_primitive",
+	"static_mesh",
+	"brush",
+	"displacement",
+	"decal",
+	"animator",
+	"rigid_body",
+	"script",
+}
+
+function META.GetComponentIcon(name)
+	return component_icons[name]
+end
+
+local function get_entity_icon(entity)
+	if entity == Entity.World then return "world" end
+
+	if entity == Panel.World then return "layout" end
+
+	for _, name in ipairs(ENTITY_ICON_ORDER) do
+		if entity:HasComponent(name) then return component_icons[name] end
+	end
+
+	if entity.transform and entity.transform.Is2D then return "layout" end
+
+	return "entity"
+end
 
 local function get_entity_label(entity)
 	local name = entity:GetName()
@@ -52,6 +117,7 @@ local function build_virtual_children(entity, guid)
 					Object = value,
 					Key = guid .. "/virtual/" .. component.Type .. "/" .. info.var_name,
 					Text = info.var_name,
+					Icon = "material",
 					HasChildren = false,
 					Children = {},
 					SharedInstance = true,
@@ -113,6 +179,7 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 		Entity = entity,
 		Key = guid,
 		Text = get_entity_label(entity),
+		Icon = get_entity_icon(entity),
 		HasChildren = has_children,
 		Children = children,
 		SharedInstance = entity.prefab_owner ~= nil,
@@ -822,6 +889,7 @@ function META:build_nearby_node()
 				Entity = entity,
 				Key = "nearby/" .. entity:GetGUID(),
 				Text = string.format("%s  (%.1f m)", get_entity_label(entity), info.distance),
+				Icon = get_entity_icon(entity),
 				HasChildren = false,
 				Children = {},
 			}
@@ -831,6 +899,7 @@ function META:build_nearby_node()
 	return {
 		Key = "nearby",
 		Text = "nearby",
+		Icon = "target",
 		HasChildren = #children > 0,
 		Children = children,
 	}

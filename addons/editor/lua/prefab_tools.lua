@@ -134,7 +134,7 @@ function tools.GetPropertyActions(object, info)
 			}
 		end
 
-		return {{Text = "Add input", Items = type_actions}}
+		return {{Text = "Add input", Icon = "plus", Items = type_actions}}
 	end
 
 	if
@@ -162,6 +162,7 @@ function tools.GetPropertyActions(object, info)
 		return {
 			{
 				Text = "Hide from prefab",
+				Icon = "close",
 				OnClick = function()
 					unexpose(instance, node, component_name, info)
 				end,
@@ -172,6 +173,7 @@ function tools.GetPropertyActions(object, info)
 	local link_actions = {
 		{
 			Text = "New input",
+			Icon = "plus",
 			OnClick = function()
 				expose(instance, entity, node, component_name, object, info)
 			end,
@@ -182,6 +184,7 @@ function tools.GetPropertyActions(object, info)
 		if input.Type == info.type and not input.Hidden then
 			link_actions[#link_actions + 1] = {
 				Text = "Link to " .. input.Name,
+				Icon = "arrow_right",
 				OnClick = function()
 					prefab.AddTarget(
 						instance.Path,
@@ -194,10 +197,10 @@ function tools.GetPropertyActions(object, info)
 	end
 
 	if #link_actions == 1 then
-		return {{Text = "Show in prefab", OnClick = link_actions[1].OnClick}}
+		return {{Text = "Show in prefab", Icon = "layers", OnClick = link_actions[1].OnClick}}
 	end
 
-	return {{Text = "Show in prefab", Items = link_actions}}
+	return {{Text = "Show in prefab", Icon = "layers", Items = link_actions}}
 end
 
 -- the Tab puts what only this instance has, and the prefab it is an instance of, apart from what is shared with every instance
@@ -273,6 +276,7 @@ function tools.GetMenuItems(entity, select)
 	if entity.prefab and entity.prefab.definition then
 		items[#items + 1] = MenuItem{
 			Text = "Unpack",
+			Icon = "expand",
 			OnClick = function()
 				prefab.Unpack(entity)
 			end,
@@ -280,6 +284,7 @@ function tools.GetMenuItems(entity, select)
 	elseif not entity.prefab_owner then
 		items[#items + 1] = MenuItem{
 			Text = "Make prefab",
+			Icon = "layers",
 			OnClick = function()
 				name_prompt{
 					Title = "MAKE PREFAB",
@@ -298,6 +303,7 @@ function tools.GetMenuItems(entity, select)
 	if place_items[1] then
 		items[#items + 1] = MenuItem{
 			Text = "Place",
+			Icon = "place",
 			Items = function()
 				return place_items
 			end,
@@ -313,6 +319,7 @@ function tools.GetPlaceItems(select)
 	for _, name in ipairs(prefab.GetNames()) do
 		items[#items + 1] = MenuItem{
 			Text = name,
+			Icon = "layers",
 			OnClick = function()
 				select(tools.Place(name))
 			end,
