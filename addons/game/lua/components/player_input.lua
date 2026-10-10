@@ -42,6 +42,12 @@ function META:Initialize()
 	self:RefreshKeys()
 	self:AddGlobalEvent("Update", {priority = 100})
 	self:AddGlobalEvent("MouseInput")
+	self:AddGlobalEvent("EditorControlsChanged")
+end
+
+-- the editor hides and leaves the controls to the player while its camera keeps rendering
+function META:OnEditorControlsChanged(playing)
+	self.controls_override = playing
 end
 
 function META:OnMouseInput(key, press)
@@ -138,7 +144,7 @@ end
 
 function META:IsReceivingInput()
 	local camera = self.Owner.camera
-	return camera ~= nil and camera:IsRendered()
+	return camera ~= nil and (camera:IsRendered() or self.controls_override == true)
 end
 
 function META:BuildCommand(cmd)

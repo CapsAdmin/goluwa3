@@ -476,6 +476,31 @@ end
 
 if CLIENT and not SERVER then
 	local pending_owners = {}
+	local waiting = {}
+
+	-- the client that owns an entity can be created after the entity
+	local function set_owner(entity, uid)
+		local owner = clients.GetByUniqueID(uid)
+
+		if owner:IsValid() then
+			entity:SetOwnedBy(owner)
+		else
+			waiting[uid] = waiting[uid] or {}
+			table.insert(waiting[uid], entity)
+		end
+	end
+
+	event.AddListener("ClientCreated", "scene_sync_owners", function(client)
+		local entities = waiting[client:GetUniqueID()]
+
+		if not entities then return end
+
+		waiting[client:GetUniqueID()] = nil
+
+		for _, entity in ipairs(entities) do
+			if entity:IsValid() then entity:SetOwnedBy(client) end
+		end
+	end)
 
 	handlers.owners = function(_, payload)
 		pending_owners = scene.DecodeValue(payload)
@@ -495,11 +520,8 @@ if CLIENT and not SERVER then
 			function()
 				for guid, uid in pairs(pending_owners) do
 					local entity = objects.GetObjectByGUID(guid)
-					local owner = clients.GetByUniqueID(uid)
 
-					if entity and entity:IsValid() and owner:IsValid() then
-						entity:SetOwnedBy(owner)
-					end
+					if entity and entity:IsValid() then set_owner(entity, uid) end
 				end
 
 				pending_owners = {}
@@ -518,11 +540,9 @@ if CLIENT and not SERVER then
 	handlers.apply = function(_, payload, blob)
 		local data = scene.Decode(payload)
 		local roots = scene.Apply(data, resolve_parent(blob.parent), {skip_unavailable = not RENDER_3D})
-		local owner = clients.GetByUniqueID(blob.owner)
-
-		if owner:IsValid() then
+		if blob.owner ~= "" then
 			for _, root in ipairs(roots) do
-				root:SetOwnedBy(owner)
+				set_owner(root, blob.owner)
 			end
 		end
 

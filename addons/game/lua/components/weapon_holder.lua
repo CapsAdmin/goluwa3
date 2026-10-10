@@ -96,12 +96,6 @@ function META:SelectSlot(slot)
 	end
 end
 
-function META:GetBeamPoint()
-	local weapon = self:GetActiveWeapon()
-
-	if weapon then return weapon:CallLocalEvent("WeaponGetBeamPoint") end
-end
-
 function META:HasAuthority()
 	return network.HasAuthority()
 end

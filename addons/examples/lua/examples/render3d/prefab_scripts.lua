@@ -274,5 +274,5 @@ end
 local camera = render3d.GetCamera()
 camera:SetPosition(Vec3(0.5, 1.7, 5))
 camera:SetAngles(Deg3(-5, 180, 0))
-PLAYER_RIG.transform:SetPosition(camera:GetPosition():Copy())
+PLAYER_RIG.player_movement:SetEyePosition(camera:GetPosition())
 PLAYER_RIG.player_input:SyncFromCamera(camera)

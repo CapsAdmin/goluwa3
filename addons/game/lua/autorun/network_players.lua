@@ -11,6 +11,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
 local PlayerMovement = import("lua/components/player_movement.lua")
 local outfit = import("lua/outfit.lua")
+import("lua/weapon_models.lua")
 Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
@@ -19,6 +20,21 @@ Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.l
 Entity.RegisterComponent("weapon_physgun", import("lua/components/weapon_physgun.lua"))
 Entity.RegisterComponent("weapon_pistol", import("lua/components/weapon_pistol.lua"))
 Entity.RegisterComponent("weapon_camera", import("lua/components/weapon_camera.lua"))
+
+if RENDER_3D then
+	-- the points of a player that things attach to, player_avatar moves them
+	import("goluwa/entities/components/armature.lua").RegisterSkeleton(
+		"player",
+		{
+			{"root"},
+			{"body", "root"},
+			{"head", "root"},
+			{"hand_r", "root"},
+			{"hand_l", "root"},
+		}
+	)
+end
+
 local ACK_INTERVAL = 1 / 20
 local SPAWN_POSITION = Vec3(0, 3, 0)
 local RELAY_BATCH = 4
@@ -42,9 +58,8 @@ if SERVER then
 		local rotation = Quat():Identity()
 		local spawn = SpawnPoint.Pick("deathmatch", "start") or SpawnPoint.Pick()
 
-		-- players start in fly mode, where the transform is the eye
 		if spawn then
-			position, rotation = spawn:GetPlacement(PlayerMovement.EyeHeight)
+			position, rotation = spawn:GetPlacement(0)
 		end
 
 		players[uid] = Entity.New{

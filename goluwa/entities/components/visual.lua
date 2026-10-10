@@ -564,11 +564,24 @@ local function mark_shadow_change(component)
 	component.shadow_change_version = next_shadow_change_version()
 end
 
+-- what hangs under a moving body moves with it, whether or not the body has been stepped yet
 local function is_visual_dynamic(component)
 	local owner = component and component.Owner
 	local body = owner and owner.rigid_body
 
 	if body then return body:IsKinematic() or body:IsDynamic() end
+
+	local parent = owner and owner:GetParent()
+
+	while parent and parent:IsValid() do
+		body = parent.rigid_body
+
+		if parent.armature or (body and (body:IsKinematic() or body:IsDynamic())) then
+			return true
+		end
+
+		parent = parent:GetParent()
+	end
 
 	local transform = owner and owner.transform
 	return transform and transform.IsFrameDynamic and transform:IsFrameDynamic() or false

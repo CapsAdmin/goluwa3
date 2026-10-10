@@ -6,6 +6,8 @@ local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local outfit = library()
 outfit.VisorDistance = 16 * UNIT * 0.9
+outfit.BodyRadius = 16 * UNIT
+outfit.BodyHeight = 72 * UNIT
 
 outfit.LocalName = "player_outfit"
 
@@ -23,11 +25,28 @@ function outfit.GetDefault()
 		entities = {
 			{guid = "root", components = {}},
 			{
+				guid = "body",
+				parent = "root",
+				properties = {Name = "body"},
+				components = {
+					transform = {Attachment = "body"},
+					model = {
+						ModelPath = "models/capsule.lua",
+						ModelOptions = {radius = outfit.BodyRadius, height = outfit.BodyHeight},
+						MaterialConfig = {
+							Color = Color.FromHSV(math.random(), 0.75, 1),
+							Roughness = 0.45,
+							Metallic = 0,
+						},
+					},
+				},
+			},
+			{
 				guid = "visor",
 				parent = "root",
 				properties = {Name = "visor"},
 				components = {
-					transform = {Position = FORWARD * outfit.VisorDistance},
+					transform = {Attachment = "head", Position = FORWARD * outfit.VisorDistance},
 					model = {
 						ModelPath = "models/box.lua",
 						ModelOptions = {size = Vec3(0.34, 0.1, 0.12)},
@@ -53,14 +72,6 @@ function outfit.LoadLocal()
 
 	prefab.Get(name).local_only = true
 	return name
-end
-
-function outfit.SetVisible(entity, visible)
-	if entity.visual then entity.visual:SetVisible(visible) end
-
-	for _, child in ipairs(entity:GetChildren()) do
-		outfit.SetVisible(child, visible)
-	end
 end
 
 return outfit

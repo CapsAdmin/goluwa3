@@ -689,8 +689,27 @@ function get_transform_world_rotation(transform)
 	local parent = owner and owner:GetParent()
 
 	if parent and parent.IsValid and parent:IsValid() and parent.transform then
-		return (get_transform_world_rotation(parent.transform) * rotation):GetNormalized()
+		local parent_rotation = get_transform_world_rotation(parent.transform)
+		local bone_rotation = transform:GetAttachedBoneRotation()
+
+		if bone_rotation then parent_rotation = parent_rotation * bone_rotation end
+
+		return (parent_rotation * rotation):GetNormalized()
 	end
+
+	return rotation
+end
+
+-- the world rotation local rotations of this entity are relative to, with the bone of its attachment in between
+local function get_parent_space_rotation(entity)
+	local parent = entity:GetParent()
+
+	if not (parent and parent:IsValid() and parent.transform) then return nil end
+
+	local rotation = get_transform_world_rotation(parent.transform)
+	local bone_rotation = entity.transform:GetAttachedBoneRotation()
+
+	if bone_rotation then return rotation * bone_rotation end
 
 	return rotation
 end
@@ -932,21 +951,14 @@ local function get_mouse_rotation_ring_vector(center, axis_direction, radius, mo
 end
 
 local function set_entity_world_position(entity, world_position)
-	local parent = entity and entity:GetParent()
-
-	if parent and parent:IsValid() and parent.transform then
-		entity.transform:SetPosition(parent.transform:GetWorldMatrixInverse():TransformVector(world_position))
-		return
-	end
-
-	entity.transform:SetPosition(world_position)
+	entity.transform:SetPosition(entity.transform:WorldToLocalPosition(world_position))
 end
 
 local function set_entity_world_rotation(entity, world_rotation)
-	local parent = entity and entity:GetParent()
+	local parent_rotation = get_parent_space_rotation(entity)
 
-	if parent and parent:IsValid() and parent.transform then
-		entity.transform:SetRotation(get_transform_world_rotation(parent.transform):GetConjugated() * world_rotation)
+	if parent_rotation then
+		entity.transform:SetRotation(parent_rotation:GetConjugated() * world_rotation)
 		return
 	end
 
@@ -954,12 +966,10 @@ local function set_entity_world_rotation(entity, world_rotation)
 end
 
 local function get_entity_local_rotation_from_world_rotation(entity, world_rotation)
-	local parent = entity and entity:GetParent()
+	local parent_rotation = get_parent_space_rotation(entity)
 
-	if parent and parent:IsValid() and parent.transform then
-		return (
-			get_transform_world_rotation(parent.transform):GetConjugated() * world_rotation
-		):GetNormalized()
+	if parent_rotation then
+		return (parent_rotation:GetConjugated() * world_rotation):GetNormalized()
 	end
 
 	return world_rotation:GetNormalized()

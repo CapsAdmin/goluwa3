@@ -75,10 +75,14 @@ function META:Reset(mode)
 	self:ApplyMode(mode)
 end
 
+-- the origin of a player is where it stands, the eye is above it in both modes
 function META:GetViewOffset()
-	if self.mode == "walk" then return self:GetEyeOffset() end
+	local _, _, eye_height = self:GetDimensions()
+	return Vec3(0, eye_height + self.step_smooth, 0)
+end
 
-	return Vec3()
+function META:SetEyePosition(position)
+	self.Owner.transform:SetPosition(position - self:GetViewOffset())
 end
 
 function META:GetDimensions(alpha)
@@ -86,11 +90,6 @@ function META:GetDimensions(alpha)
 	return self.Radius,
 	math.lerp(alpha, self.Height, self.CrouchHeight),
 	math.lerp(alpha, self.EyeHeight, self.CrouchEyeHeight)
-end
-
-function META:GetEyeOffset(alpha)
-	local _, height, eye_height = self:GetDimensions(alpha)
-	return Vec3(0, eye_height - height * 0.5 + self.step_smooth, 0)
 end
 
 function META:InvalidateBodyGeometry()
@@ -119,6 +118,7 @@ function META:ApplyCrouchAlpha(alpha)
 	self.crouch_alpha = alpha
 	local radius, height = self:GetDimensions(alpha)
 	local shape = body:GetPhysicsShape()
+	local feet = body:GetOriginPosition():Copy()
 
 	if shape and shape.GetTypeName and shape:GetTypeName() == "capsule" then
 		shape:SetRadius(radius)
@@ -127,22 +127,21 @@ function META:ApplyCrouchAlpha(alpha)
 	end
 
 	if self.CrouchAnchorMode and self.CrouchAnchorPosition then
-		local new_position
-
 		if self.CrouchAnchorMode == "feet" then
-			new_position = self.CrouchAnchorPosition + Vec3(0, height * 0.5, 0)
+			feet = self.CrouchAnchorPosition:Copy()
 		else
-			new_position = self.CrouchAnchorPosition - Vec3(0, height * 0.5, 0)
+			feet = self.CrouchAnchorPosition - Vec3(0, height, 0)
 		end
-
-		local velocity = body:GetVelocity():Copy()
-		local angular_velocity = body:GetAngularVelocity():Copy()
-		self.Owner.transform:SetPosition(new_position)
-		body:SynchronizeFromTransform()
-		body.PreviousPosition = body.Position:Copy()
-		body:SetVelocity(velocity)
-		body:SetAngularVelocity(angular_velocity)
 	end
+
+	local velocity = body:GetVelocity():Copy()
+	local angular_velocity = body:GetAngularVelocity():Copy()
+	body:SetCenterOffset(Vec3(0, height * 0.5, 0))
+	self.Owner.transform:SetPosition(feet)
+	body:SynchronizeFromTransform()
+	body.PreviousPosition = body.Position:Copy()
+	body:SetVelocity(velocity)
+	body:SetAngularVelocity(angular_velocity)
 end
 
 function META:UpdateCrouchTransition(dt)
@@ -176,6 +175,27 @@ function META:ResetBodyRotation()
 	body:SetAngularVelocity(Vec3())
 end
 
+local UP = Vec3(0, 1, 0)
+
+-- the body turns with the view in yaw only, the capsule stays upright and its pose comes from the command on both sides
+function META:SetBodyYaw(view)
+	local body = self.Owner.rigid_body
+	local forward = view:GetForward()
+	local yaw = QuatFromAxis(math.atan2(-forward.x, -forward.z), UP)
+	local current = body:GetRotation()
+
+	if
+		math.abs(current.x - yaw.x) + math.abs(current.y - yaw.y) + math.abs(current.z - yaw.z) + math.abs(current.w - yaw.w) < 1e-7
+	then
+		return
+	end
+
+	self.Owner.transform:SetRotation(yaw:Copy())
+	body:SetRotation(yaw)
+	body.PreviousRotation = yaw:Copy()
+	body:SetAngularVelocity(Vec3())
+end
+
 local MOVE = {
 	velocity = Vec3(),
 	position = Vec3(),
@@ -198,7 +218,7 @@ local STEP_OPTIONS = {Rotation = nil, IgnoreRigidBodies = false}
 
 function META:MoveBodyBy(body, offset)
 	local velocity = body:GetVelocity():Copy()
-	self.Owner.transform:SetPosition(body:GetPosition() + offset)
+	self.Owner.transform:SetPosition(body:GetOriginPosition() + offset)
 	body:SynchronizeFromTransform()
 	body.PreviousPosition = body.Position:Copy()
 	body:SetVelocity(velocity)
@@ -322,7 +342,7 @@ function META:SetCrouch(b)
 	if self:IsCrouching() == b then return end
 
 	local _, current_height = self:GetDimensions()
-	local position = body:GetPosition():Copy()
+	local feet = body:GetOriginPosition():Copy()
 	self.CrouchTransition = true
 	self.CrouchTransitionElapsed = 0
 	self.CrouchTransitionStartAlpha = self.crouch_alpha or (self:IsCrouching() and 1 or 0)
@@ -330,10 +350,10 @@ function META:SetCrouch(b)
 
 	if body:GetGrounded() then
 		self.CrouchAnchorMode = "feet"
-		self.CrouchAnchorPosition = position - Vec3(0, current_height * 0.5, 0)
+		self.CrouchAnchorPosition = feet
 	else
 		self.CrouchAnchorMode = "head"
-		self.CrouchAnchorPosition = position + Vec3(0, current_height * 0.5, 0)
+		self.CrouchAnchorPosition = feet + Vec3(0, current_height, 0)
 	end
 
 	self.Crouching = b
@@ -341,7 +361,6 @@ end
 
 function META:ApplyMode(mode)
 	local body = self.Owner.rigid_body
-	local previous = self.mode
 	self.mode = mode
 	self.Swimming = false
 	self.Mode = mode
@@ -350,15 +369,9 @@ function META:ApplyMode(mode)
 
 	local radius, height = self:GetDimensions()
 	local position = self.Owner.transform:GetPosition():Copy()
-
-	if previous == "walk" and mode == "fly" then
-		position = position + self:GetEyeOffset()
-	elseif previous == "fly" and mode == "walk" then
-		position = position - self:GetEyeOffset()
-	end
-
 	body:SetMotionType("dynamic")
 	body:SetShape(CapsuleShape.New(radius, height))
+	body:SetCenterOffset(Vec3(0, height * 0.5, 0))
 	body:SetCCD(true)
 	body:SetCanSleep(false)
 	body:SetLinearDamping(0)
@@ -421,6 +434,7 @@ do
 
 		if cmd.mode ~= self.mode then self:ApplyMode(cmd.mode) end
 
+		self:SetBodyYaw(cmd.view)
 		local view = cmd.view
 		local active = usercmd.HasButton(cmd, BUTTON.ACTIVE)
 		local crouching = usercmd.HasButton(cmd, BUTTON.CROUCH)

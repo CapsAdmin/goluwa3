@@ -1,58 +1,33 @@
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
-local steam = import("goluwa/steam/steam.lua")
 local event = import("goluwa/event.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
-local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local outfit = import("lua/outfit.lua")
+local visibility = import("lua/visibility.lua")
 local clients = import("goluwa/network/clients.lua")
 local META = objects.CreateTemplate("player_avatar")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
 	Holding = {"boolean", 0.1, "reliable"},
-	Firing = {"boolean", 0.1, "reliable"},
-	BeamPoint = {"vec3", 1 / 20, "sequenced", true},
 	ViewRotation = {"quat", 1 / 20, "sequenced", true},
 }
 META:IsSet("Crouching", false)
 META:IsSet("Holding", false)
-META:IsSet("Firing", false)
-META:GetSet("BeamPoint", Vec3(0, 0, 0))
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
 local UNIT = import("goluwa/source_engine/units.lua").meters
-local RADIUS = 16 * UNIT
 local HEIGHT = 72 * UNIT
 local CROUCH_HEIGHT = 36 * UNIT
-local EYE_ABOVE_CENTER = 28 * UNIT
-local CROUCH_EYE_ABOVE_CENTER = 10 * UNIT
-local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
-local BEAM_THICKNESS = 0.03
-local BEAM_ALPHA = 0.4
+local EYE_HEIGHT = 64 * UNIT
+local CROUCH_EYE_HEIGHT = 28 * UNIT
 local WEAPON_RAISE = 0.12
 local WEAPON_FORWARD = 0.12
-
-local function rotation_between(from, to)
-	local axis = from:GetCross(to)
-	local w = 1 + from:GetDot(to)
-
-	if w < 0.0001 then return QuatFromAxis(math.pi, Vec3(0, 1, 0)) end
-
-	return Quat(axis.x, axis.y, axis.z, w):Normalize()
-end
-
-local function hash_color(str)
-	local hash = 5381
-
-	for i = 1, #str do
-		hash = (hash * 33 + str:byte(i)) % 16777216
-	end
-
-	return Color.FromHSV((hash % 360) / 360, 0.75, 1)
-end
+local HAND_SPACING = 0.22
+local bone_matrix = Matrix44()
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
@@ -84,71 +59,22 @@ function META:OnAdd()
 	local network = self.Owner.network
 	local client = network and clients.GetByUniqueID(network:GetNetworkOwner()) or clients.GetLocalClient()
 
-	if client:IsValid() then
-		self.client = client
-		self.Owner:SetOwnedBy(client)
-	end
-
-	if CLIENT and RENDER_3D then
-		self:Build(network and network:GetNetworkOwner() or "local")
-	end
+	if client:IsValid() then self.Owner:SetOwnedBy(client) end
 end
 
-function META:Build(owner_id)
-	local shapes = import("goluwa/render3d/shapes.lua")
-	local color = hash_color(owner_id)
-	local body_material = shapes.Material{
-		Color = color,
-		Roughness = 0.45,
-		Metallic = 0,
-	}
-	local beam_material = shapes.Material{
-		Color = Color(color.r, color.g, color.b, BEAM_ALPHA),
-		Roughness = 0.4,
-		Metallic = 0,
-		Translucent = true,
-	}
+-- the player entity stands on its origin and has an armature with the points things attach to, the look is the outfit
+function META:Build()
 	self.first_person = false
-	self.body = shapes.Capsule{
-		Name = "player_body",
-		Radius = RADIUS,
-		Height = HEIGHT,
-		Material = body_material,
-		Collision = false,
-		RigidBody = false,
-		PhysicsNoCollision = true,
-	}
-	self.head = Entity.New{Name = "player_head", Transient = true, transform = {}}
-	self.beam = shapes.Box{
-		Name = "player_beam",
-		Size = Vec3(BEAM_THICKNESS, BEAM_THICKNESS, 1),
-		Material = beam_material,
-		Collision = false,
-		RigidBody = false,
-		PhysicsNoCollision = true,
-	}
-	self.beam.visual:SetVisible(false)
-
-	if self.client then
-		self.body:SetOwnedBy(self.client)
-		self.beam:SetOwnedBy(self.client)
-		self.head:SetOwnedBy(self.client)
-	end
-
-	self.Owner:CallOnRemove(function()
-		self.body:Remove()
-		self.head:Remove()
-		self.beam:Remove()
-	end)
+	self.armature = self.Owner:AddComponent("armature")
+	self.armature:SetSkeleton("player")
 end
 
 function META:SetFirstPerson(first_person)
 	if self.first_person == first_person then return end
 
 	self.first_person = first_person
-	self.body.visual:SetVisible(not first_person)
 
-	if self.outfit then outfit.SetVisible(self.outfit, not first_person) end
+	if self.outfit then visibility.SetTreeVisible(self.outfit, not first_person) end
 end
 
 function META:UpdateOutfit()
@@ -164,9 +90,8 @@ function META:UpdateOutfit()
 
 	if not self.outfit then
 		self.outfit = Entity.New{
-			Name = "player_outfit",
-			Transient = true,
-			Parent = self.head,
+			Name = "outfit",
+			Parent = self.Owner,
 			prefab = {Path = self.outfit_name},
 		}
 	elseif self.outfit_revision == definition.revision then
@@ -174,7 +99,7 @@ function META:UpdateOutfit()
 	end
 
 	self.outfit_revision = definition.revision
-	outfit.SetVisible(self.outfit, not self.first_person)
+	visibility.SetTreeVisible(self.outfit, not self.first_person)
 end
 
 function META:OnUpdate(dt)
@@ -183,24 +108,22 @@ function META:OnUpdate(dt)
 
 	if controller then
 		self:SetViewRotation(controller.cmd.view:Copy())
-		self:SetCrouching(self.Owner.player_movement:IsCrouching())
-		local beam_point = owner.weapon_holder:GetBeamPoint()
+		self:SetCrouching(owner.player_movement:IsCrouching())
 		self:SetHolding(controller:IsHolding())
-		self:SetFiring(beam_point ~= nil)
-
-		if beam_point then self:SetBeamPoint(beam_point) end
 	end
 
-	if not self.body then return end
+	if not self.armature then
+		if not (CLIENT and RENDER_3D) then return end
+
+		self:Build()
+	end
 
 	local camera = owner.camera
 	local rotation
-	local eye
 
 	if camera then
 		rotation = owner.player_input:GetRotation()
-		eye = camera:GetViewPosition()
-		self:SetFirstPerson(not camera:IsThirdPerson())
+		self:SetFirstPerson(not camera:IsThirdPerson() and camera:IsRendered())
 	else
 		rotation = self:GetViewRotation()
 		local relay = self.relay_cmd
@@ -219,52 +142,32 @@ function META:OnUpdate(dt)
 			) - self.crouch_alpha
 		) * math.min(dt * 12, 1)
 	local height = math.lerp(self.crouch_alpha, HEIGHT, CROUCH_HEIGHT)
-	local eye_above = Vec3(0, math.lerp(self.crouch_alpha, EYE_ABOVE_CENTER, CROUCH_EYE_ABOVE_CENTER), 0)
-
-	if not camera then eye = owner.transform:GetPosition() + eye_above end
-
-	local position = eye - eye_above
-	local squash = height / HEIGHT
-	self.body.transform:SetPosition(position)
-	self.body.transform:SetScale(Vec3(1, squash, 1))
-	self.head.transform:SetPosition(eye)
-	self.head.transform:SetRotation(rotation)
+	local armature = self.armature
+	-- the player entity turns with the view in yaw, so the head and hands are the view relative to it, which is the pitch
+	local transform = owner.transform
+	local _, entity_rotation = transform:GetRenderPositionRotation()
+	local pitch = (entity_rotation or transform:GetRotation()):GetConjugated() * rotation
+	bone_matrix:Identity()
+	bone_matrix:Scale(1, height / HEIGHT, 1)
+	bone_matrix:SetTranslation(0, height * 0.5, 0)
+	armature:SetBone("body", bone_matrix, "local")
+	bone_matrix:Identity()
+	bone_matrix:SetRotation(pitch)
+	bone_matrix:SetTranslation(0, math.lerp(self.crouch_alpha, EYE_HEIGHT, CROUCH_EYE_HEIGHT), 0)
+	armature:SetBone("head", bone_matrix, "local")
+	local hand = Vec3(0, height * 0.5 + WEAPON_RAISE, 0) + pitch:GetForward() * WEAPON_FORWARD
+	bone_matrix:SetTranslation(hand.x, hand.y, hand.z)
+	armature:SetBone("hand_r", bone_matrix, "local")
+	hand = hand - pitch:GetRight() * HAND_SPACING
+	bone_matrix:SetTranslation(hand.x, hand.y, hand.z)
+	armature:SetBone("hand_l", bone_matrix, "local")
 	self:UpdateOutfit()
-	local muzzle
-	local weapon_position = position + Vec3(0, WEAPON_RAISE, 0) + rotation:GetForward() * WEAPON_FORWARD
 
 	for _, child in ipairs(owner:GetChildren()) do
 		local weapon = child.weapon
 
 		if weapon then
-			local active = weapon:IsActive()
-			weapon:UpdateModel(
-				active and not (self.first_person and weapon:IsHiddenInFirstPerson()),
-				weapon_position,
-				rotation
-			)
-
-			if active then
-				muzzle = weapon_position + rotation:GetForward() * weapon:GetMuzzleDistance()
-			end
-		end
-	end
-
-	local firing = self:IsFiring()
-
-	if firing ~= self.beam_visible then
-		self.beam_visible = firing
-		self.beam.visual:SetVisible(firing)
-	end
-
-	if firing and muzzle then
-		local offset = self:GetBeamPoint() - muzzle
-		local length = offset:GetLength()
-
-		if length > 0.01 then
-			self.beam.transform:SetPosition(muzzle + offset * 0.5)
-			self.beam.transform:SetRotation(rotation_between(FORWARD, offset / length))
-			self.beam.transform:SetScale(Vec3(1, 1, length))
+			weapon:UpdateModel(weapon:IsActive() and not (self.first_person and weapon:IsHiddenInFirstPerson()))
 		end
 	end
 end

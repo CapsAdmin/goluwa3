@@ -4,7 +4,7 @@ local prefab = import("goluwa/entities/prefab.lua")
 local vfs = import("goluwa/vfs.lua")
 local outfit = import("lua/outfit.lua")
 
-T.Test("The local outfit is saved with the default visor, stays local and keeps edits", function()
+T.Test("The local outfit is saved with the default body and visor, stays local and keeps edits", function()
 	local name = outfit.LocalName
 	local path = prefab.GetPath(name)
 	local backup = vfs.Read(path)
@@ -17,9 +17,14 @@ T.Test("The local outfit is saved with the default visor, stays local and keeps 
 	prefab.definitions[name] = nil
 	local instance = Entity.New{prefab = {Path = outfit.LoadLocal()}}
 	local visor = instance.prefab:GetNode("visor")
+	local body = instance.prefab:GetNode("body")
 	T(visor ~= nil)["=="](true)
 	T(visor:GetParent())["=="](instance)
+	T(visor.transform:GetAttachment())["=="]("head")
 	T(visor.transform:GetPosition():GetLength())["~"](outfit.VisorDistance)
+	T(body:GetParent())["=="](instance)
+	T(body.transform:GetAttachment())["=="]("body")
+	T(instance.transform:GetAttachment())["=="]("root")
 	instance:Remove()
 	prefab.Get(name).entities[2].properties.Name = "edited"
 	outfit.LoadLocal()

@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local visibility = import("lua/visibility.lua")
 local META = objects.CreateTemplate("weapon")
 local BUTTON = usercmd.BUTTON
 META.Network = {
@@ -9,7 +10,7 @@ META.Network = {
 }
 META:GetSet("Slot", 1)
 META:GetSet("DisplayName", "")
-META:GetSet("MuzzleDistance", 0.5)
+META:GetSet("ModelPrefab", "")
 META:IsSet("HiddenInFirstPerson", false)
 META:GetSet("FireRate", 0.1)
 META:GetSet("Automatic", false)
@@ -21,31 +22,25 @@ function META:Initialize()
 	self.next_secondary = 0
 end
 
-function META:AddModelBox(size, position, material)
-	local shapes = import("goluwa/render3d/shapes.lua")
-	local box = shapes.Box{
-		Name = "weapon_part",
-		Size = size,
-		Position = position,
-		Material = material,
-		Collision = false,
-		RigidBody = false,
-		PhysicsNoCollision = true,
-	}
-	box:SetParent(self.model)
-	return box
+-- the node of the model prefab that is named muzzle, nil while there is no model
+function META:GetMuzzle()
+	return self.model and self.model.prefab:GetNode("muzzle")
 end
 
-function META:UpdateModel(visible, position, rotation)
+function META:UpdateModel(visible)
 	local model = self.model
 
 	if not model then
-		if not visible then return end
+		if not visible or self.ModelPrefab == "" then return end
 
-		model = Entity.New{Name = self.Owner:GetName() .. "_model", transform = {}}
+		model = Entity.New{
+			Name = self.Owner:GetName() .. "_model",
+			Parent = self.Owner:GetParent(),
+			transform = {Attachment = "hand_r"},
+			prefab = {Path = self.ModelPrefab},
+		}
 		self.model = model
 		self.model_visible = true
-		self.Owner:CallLocalEvent("WeaponCreateModel")
 
 		self.Owner:CallOnRemove(function()
 			model:Remove()
@@ -54,15 +49,7 @@ function META:UpdateModel(visible, position, rotation)
 
 	if visible ~= self.model_visible then
 		self.model_visible = visible
-
-		for _, part in ipairs(model:GetChildren()) do
-			part.visual:SetVisible(visible)
-		end
-	end
-
-	if visible then
-		model.transform:SetPosition(position)
-		model.transform:SetRotation(rotation)
+		visibility.SetTreeVisible(model, visible)
 	end
 end
 

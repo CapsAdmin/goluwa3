@@ -57,6 +57,8 @@ RigidBody:GetSet("AirAngularDamping", 0)
 RigidBody:GetSet("CollisionEnabled", true, {callback = "OnCollisionEnabledChanged"})
 RigidBody:GetSet("WorldGeometry", false, {callback = "OnWorldGeometryChanged"})
 RigidBody:GetSet("CollisionGroup", 1, {validate = "integer"})
+-- where the center of the body is relative to the origin of its entity, a player stands on its origin
+RigidBody:GetSet("CenterOffset", nil)
 RigidBody:GetSet("CollisionMask", -1, {validate = "integer"})
 RigidBody:GetSet("CCD", false)
 RigidBody:GetSet("AutoCCD", true)
@@ -1089,22 +1091,49 @@ function RigidBody:ShouldCollide(body)
 	return bit.band(mask, self.CollisionGroup or 1) ~= 0
 end
 
-function RigidBody:SynchronizeFromTransform()
-	local transform = self.Owner and self.Owner.transform
+do
+	local center = Vec3()
 
-	if not transform then return end
+	-- the fields are written one by one, a copy into Position followed by reads of it was miscompiled by LuaJIT
+	function RigidBody:SynchronizeFromTransform()
+		local transform = self.Owner and self.Owner.transform
 
-	if self:IsKinematic() then
-		self.PreviousPosition:CopyFrom(self.Position)
-		self.PreviousRotation:CopyFrom(self.Rotation)
-		self.Position:CopyFrom(transform:GetPosition())
-		self.Rotation:CopyFrom(transform:GetRotation())
-	else
-		self.Position:CopyFrom(transform:GetPosition())
-		self.Rotation:CopyFrom(transform:GetRotation())
-		self.PreviousPosition:CopyFrom(self.Position)
-		self.PreviousRotation:CopyFrom(self.Rotation)
+		if not transform then return end
+
+		local kinematic = self:IsKinematic()
+		local position = transform:GetPosition()
+		local rotation = transform:GetRotation()
+		local offset = self.CenterOffset
+		local x, y, z = position.x, position.y, position.z
+
+		if kinematic then
+			self.PreviousPosition:CopyFrom(self.Position)
+			self.PreviousRotation:CopyFrom(self.Rotation)
+		end
+
+		if offset then
+			Quat.SetVecMul(center, rotation, offset)
+			x, y, z = x + center.x, y + center.y, z + center.z
+		end
+
+		local body_position = self.Position
+		body_position.x, body_position.y, body_position.z = x, y, z
+		local body_rotation = self.Rotation
+		body_rotation.x, body_rotation.y, body_rotation.z, body_rotation.w = rotation.x, rotation.y, rotation.z, rotation.w
+
+		if not kinematic then
+			self.PreviousPosition:CopyFrom(body_position)
+			self.PreviousRotation:CopyFrom(body_rotation)
+		end
 	end
+end
+
+function RigidBody:GetOriginPosition()
+	local offset = self.CenterOffset
+
+	if not offset then return self.Position end
+
+	return self.Position - self.Rotation:VecMul(offset)
 end
 
 function RigidBody:WriteToTransform()
@@ -1112,7 +1141,7 @@ function RigidBody:WriteToTransform()
 
 	if not transform then return end
 
-	local position = self.Position
+	local position = self:GetOriginPosition()
 	local rotation = self.Rotation
 	local transform_position = transform:GetPosition()
 	local transform_rotation = transform:GetRotation()
@@ -1147,6 +1176,15 @@ function RigidBody:GetInterpolatedPosition(alpha)
 	if not self:ShouldInterpolateTransform() then return self.Position end
 
 	return self.StepStartPosition:GetLerped(math.clamp(alpha or 0, 0, 1), self.Position)
+end
+
+function RigidBody:GetInterpolatedOrigin(alpha)
+	local position = self:GetInterpolatedPosition(alpha)
+	local offset = self.CenterOffset
+
+	if not offset then return position end
+
+	return position - self:GetInterpolatedRotation(alpha):VecMul(offset)
 end
 
 function RigidBody:GetInterpolatedRotation(alpha)

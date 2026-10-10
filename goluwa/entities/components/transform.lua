@@ -7,6 +7,19 @@ local Quat = import("goluwa/structs/quat.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local system = import("goluwa/system.lua")
 local physics
+local attachment_matrix = Matrix44()
+local rotation_matrix = Matrix44()
+
+-- the armature of the nearest ancestor that has one, an attachment goes through containers
+local function find_armature(entity)
+	local parent = entity:GetParent()
+
+	while parent:IsValid() do
+		if parent.armature then return parent.armature end
+
+		parent = parent:GetParent()
+	end
+end
 local META = objects.CreateTemplate("transform_3d")
 META.Is3D = true
 META.Network = {
@@ -49,6 +62,25 @@ META:GetSet("Rotation", Quat(0, 0, 0, 1), {callback = "InvalidateMatrices"})
 META:GetSet("Scale", Vec3(1, 1, 1), {callback = "InvalidateMatrices"})
 META:GetSet("Size", 1, {callback = "InvalidateMatrices"})
 META:GetSet("SkipRebuild", false)
+META:GetSet(
+	"Attachment",
+	"root",
+	{
+		callback = "InvalidateMatrices",
+		get_enums = function(self)
+			local armature = find_armature(self.Owner)
+			local names = {"root"}
+
+			if armature then
+				for _, name in ipairs(armature:GetBoneNames()) do
+					if name ~= "root" then names[#names + 1] = name end
+				end
+			end
+
+			return names
+		end,
+	}
+)
 META:EndStorable()
 META:GetSet("OverridePosition", nil, {callback = "InvalidateMatrices"})
 META:GetSet("OverrideRotation", nil, {callback = "InvalidateMatrices"})
@@ -209,7 +241,7 @@ function META:IsFrameDynamic()
 
 	if self.IsFrameDynamicFrame == frame then return self.IsFrameDynamicCached end
 
-	local dynamic = self:ShouldUseInterpolatedPhysicsTransform()
+	local dynamic = self.Attachment ~= "root" or self:ShouldUseInterpolatedPhysicsTransform()
 
 	if not dynamic then
 		local parent = self.Owner and self.Owner:GetParent()
@@ -230,7 +262,7 @@ function META:GetRenderPositionRotation()
 		local body = self.Owner.rigid_body
 		physics = physics or import("goluwa/physics.lua")
 		local alpha = physics.GetInterpolationAlpha()
-		self.InterpolatedPosition = body:GetInterpolatedPosition(alpha)
+		self.InterpolatedPosition = body:GetInterpolatedOrigin(alpha)
 		self.InterpolatedRotation = body:GetInterpolatedRotation(alpha)
 		self.InterpolatedFrame = frame
 	end
@@ -269,15 +301,74 @@ function META:GetLocalMatrix()
 	return self.LocalMatrix
 end
 
+-- the matrix of the bone this transform is attached to, nil for root or when no ancestor has such a bone
+function META:GetAttachedBone()
+	if self.Attachment == "root" then return nil end
+
+	local armature = find_armature(self.Owner)
+	return armature and armature:GetBoneMatrix(self.Attachment) or nil
+end
+
+-- the rotation of the bone this transform is attached to without its scale, nil for root
+function META:GetAttachedBoneRotation()
+	local bone = self:GetAttachedBone()
+
+	if not bone then return nil end
+
+	local m = rotation_matrix
+	local l0 = math.sqrt(bone.m00 * bone.m00 + bone.m01 * bone.m01 + bone.m02 * bone.m02)
+	local l1 = math.sqrt(bone.m10 * bone.m10 + bone.m11 * bone.m11 + bone.m12 * bone.m12)
+	local l2 = math.sqrt(bone.m20 * bone.m20 + bone.m21 * bone.m21 + bone.m22 * bone.m22)
+	m:Identity()
+	m.m00, m.m01, m.m02 = bone.m00 / l0, bone.m01 / l0, bone.m02 / l0
+	m.m10, m.m11, m.m12 = bone.m10 / l1, bone.m11 / l1, bone.m12 / l1
+	m.m20, m.m21, m.m22 = bone.m20 / l2, bone.m21 / l2, bone.m22 / l2
+	return m:GetRotation()
+end
+
+-- the matrix the local transform is relative to, the world matrix of the parent with the bone of the attachment in between
+function META:GetParentWorldMatrix()
+	local parent = self.Owner:GetParent()
+
+	if not (parent:IsValid() and parent.transform) then return nil end
+
+	local parent_world = parent.transform:GetWorldMatrix()
+	local bone = self:GetAttachedBone()
+
+	if not bone then return parent_world end
+
+	return bone:GetMultiplied(parent_world, Matrix44())
+end
+
+-- a position in the world as a local position of this transform
+function META:WorldToLocalPosition(world_position)
+	local parent = self.Owner:GetParent()
+
+	if not (parent:IsValid() and parent.transform) then return world_position:Copy() end
+
+	if self.Attachment == "root" then
+		return parent.transform:GetWorldMatrixInverse():TransformVector(world_position)
+	end
+
+	return self:GetParentWorldMatrix():GetInverse():TransformVector(world_position)
+end
+
 function META:GetWorldMatrix()
 	local frame = system.GetFrameNumber()
 	local dynamic = self:IsFrameDynamic()
+	local bone = self:GetAttachedBone()
 
-	if dynamic and self.WorldMatrixFrame == frame and self.WorldMatrix then
+	if
+		dynamic and
+		self.WorldMatrixFrame == frame and
+		self.WorldMatrix and
+		self.WorldMatrixBone == bone
+	then
 		return self.WorldMatrix
 	end
 
 	if not self.WorldMatrix or dynamic then
+		self.WorldMatrixBone = bone
 		local local_matrix = self:GetLocalMatrix()
 		self.WorldMatrixFrame = dynamic and frame or nil
 
@@ -287,7 +378,13 @@ function META:GetWorldMatrix()
 			if parent.transform then
 				local parent_world = parent.transform:GetWorldMatrix()
 				self.WorldMatrix = Matrix44()
-				local_matrix:GetMultiplied(parent_world, self.WorldMatrix)
+
+				if bone then
+					local_matrix:GetMultiplied(bone, attachment_matrix)
+					attachment_matrix:GetMultiplied(parent_world, self.WorldMatrix)
+				else
+					local_matrix:GetMultiplied(parent_world, self.WorldMatrix)
+				end
 			else
 				self.WorldMatrix = local_matrix
 			end

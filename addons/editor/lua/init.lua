@@ -38,6 +38,11 @@ local function lazy_init()
 	end
 
 	function toggle()
+		if editor_window:IsValid() and editor_window:IsPlaying() then
+			editor_window:SetPlaying(false)
+			return false
+		end
+
 		if editor_window:IsValid() then
 			world_panel:RemoveKeyed("EditorMenuBarContextMenu")
 			editor_window:Remove()

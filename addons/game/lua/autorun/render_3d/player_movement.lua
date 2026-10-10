@@ -17,7 +17,7 @@ if current and current:IsValid() then current:Remove() end
 local cam = render3d.GetCamera()
 local rig = Entity.New{
 	Key = "player_camera_rig",
-	Name = "player_camera_rig",
+	Name = import("goluwa/network/clients.lua").GetLocalClient():GetNick(),
 	ComponentSet = {
 		"transform",
 		"camera",
@@ -41,7 +41,7 @@ _G.PLAYER_RIG = rig
 rig.weapon_holder:Give("weapon_camera")
 rig.weapon_holder:Give("weapon_physgun")
 rig.weapon_holder:Give("weapon_pistol")
-rig.transform:SetPosition(cam:GetPosition():Copy())
+rig.player_movement:SetEyePosition(cam:GetPosition())
 rig.player_input:SyncFromCamera(cam)
 system.GetWindow():SetMouseTrapped(true)
 local FLASHLIGHT_LUMEN = 3
@@ -82,7 +82,6 @@ event.AddListener("Update", "flashlight", function()
 end)
 
 -- the player exists before the map does, so it is placed once on the first spawn point that shows up, unless a server decides that
--- it starts in fly mode, where the transform is the eye
 event.AddListener("Update", "player_spawn_point", function()
 	local spawn = SpawnPoint.Pick("deathmatch", "start") or SpawnPoint.Pick()
 
@@ -92,5 +91,5 @@ event.AddListener("Update", "player_spawn_point", function()
 
 	if network.IsConnected() then return end
 
-	rig.player_controller:Spawn(spawn:GetPlacement(rig.player_movement.EyeHeight))
+	rig.player_controller:Spawn(spawn:GetPlacement(0))
 end)

@@ -41,11 +41,32 @@ function META.GetAllNetworked()
 	return spawned
 end
 
--- an entity a client owns on the network belongs to that client, as long as the client is known here
-function META:OnNetworkOwnerChanged()
-	local client = clients.GetByUniqueID(self.NetworkOwner)
+do
+	local waiting = {}
 
-	if client:IsValid() then self.Owner:SetOwnedBy(client) end
+	-- an entity a client owns on the network belongs to that client, which can be created after the entity
+	function META:OnNetworkOwnerChanged()
+		local client = clients.GetByUniqueID(self.NetworkOwner)
+
+		if client:IsValid() then
+			self.Owner:SetOwnedBy(client)
+		elseif self.NetworkOwner ~= "" then
+			waiting[self.NetworkOwner] = waiting[self.NetworkOwner] or {}
+			table.insert(waiting[self.NetworkOwner], self)
+		end
+	end
+
+	event.AddListener("ClientCreated", "network_component_owners", function(client)
+		local components = waiting[client:GetUniqueID()]
+
+		if not components then return end
+
+		waiting[client:GetUniqueID()] = nil
+
+		for _, component in ipairs(components) do
+			if component:IsValid() then component.Owner:SetOwnedBy(client) end
+		end
+	end)
 end
 
 function META:GetTarget(component_name)

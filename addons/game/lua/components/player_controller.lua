@@ -166,7 +166,7 @@ function META:Start(position)
 	local body = self.Owner.rigid_body
 	local movement = self.Owner.player_movement
 	movement:Reset("fly")
-	movement:MoveBodyBy(body, position - body:GetPosition())
+	movement:MoveBodyBy(body, position - body:GetOriginPosition())
 	body:SetVelocity(Vec3())
 	self.history = {}
 	self.number = 0

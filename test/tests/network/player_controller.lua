@@ -178,6 +178,49 @@ T.TestPhysics("player movement lands on the ground, walks and jumps", function()
 	ground:Remove()
 end)
 
+T.TestPhysics("player origin is at the feet and the eye is above it", function()
+	local ground = create_ground()
+	local player = create_player()
+	drive(player, 120)
+	local body = player.rigid_body
+	local movement = player.player_movement
+	T(body:GetGrounded())["=="](true)
+	T(math.abs(player.transform:GetPosition().y))["<"](0.01)
+	T(math.abs(body:GetPosition().y - player.transform:GetPosition().y - 0.6858))["<"](0.001)
+	T(math.abs(movement:GetViewOffset().y - 1.2192))["<"](0.001)
+
+	drive(player, 40, function(cmd)
+		cmd.buttons = bit.bor(cmd.buttons, BUTTON.CROUCH)
+	end)
+
+	T(math.abs(player.transform:GetPosition().y))["<"](0.01)
+	T(math.abs(movement:GetViewOffset().y - 0.5334))["<"](0.001)
+	T(math.abs(body:GetPosition().y - player.transform:GetPosition().y - 0.3429))["<"](0.001)
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("a body with a center offset keeps its entity origin and stays stable", function()
+	local entity = Entity.New{
+		transform = {Position = Vec3(1, 2, 3)},
+		rigid_body = {Shape = BoxShape.New(Vec3(1, 1, 1)), GravityScale = 0},
+	}
+	local body = entity.rigid_body
+	body:SetCenterOffset(Vec3(0, 0.5, 0))
+	body:SynchronizeFromTransform()
+	T((body:GetPosition() - Vec3(1, 2.5, 3)):GetLength())["<"](0.00001)
+	T((body:GetOriginPosition() - Vec3(1, 2, 3)):GetLength())["<"](0.00001)
+
+	for _ = 1, 30 do
+		body:SynchronizeFromTransform()
+		physics.UpdateFixed(1 / 60)
+	end
+
+	T((entity.transform:GetPosition() - Vec3(1, 2, 3)):GetLength())["<"](0.00001)
+	T((body:GetPosition() - Vec3(1, 2.5, 3)):GetLength())["<"](0.00001)
+	entity:Remove()
+end)
+
 local function run_scenario()
 	local ground = create_ground()
 	local player = create_player()
@@ -220,20 +263,20 @@ T.TestPhysics("player movement mode switching keeps the eye position", function(
 		cmd.mode = "fly"
 	end)
 
-	local eye = body:GetPosition():Copy()
+	local movement = player.player_movement
+	local eye = player.transform:GetPosition() + movement:GetViewOffset()
 
 	drive(player, 1, function(cmd)
 		cmd.mode = "walk"
 	end)
 
-	local movement = player.player_movement
-	T(math.abs(body:GetPosition().y + movement:GetEyeOffset().y - eye.y))["<"](0.1)
+	T(math.abs(player.transform:GetPosition().y + movement:GetViewOffset().y - eye.y))["<"](0.1)
 
 	drive(player, 1, function(cmd)
 		cmd.mode = "fly"
 	end)
 
-	T(math.abs(body:GetPosition().y - eye.y))["<"](0.2)
+	T(math.abs(player.transform:GetPosition().y + movement:GetViewOffset().y - eye.y))["<"](0.2)
 end)
 
 T.TestPhysics("player controller reconciliation corrects mispredictions and shifts history", function()
@@ -261,7 +304,7 @@ T.TestPhysics("player controller ignores acknowledgements it has no history for"
 	local player = create_player()
 	local controller = player.player_controller
 	T(controller:Reconcile(999, Vec3(100, 100, 100), Vec3()))["=="](0)
-	T((player.rigid_body:GetPosition() - Vec3(0, 3, 0)):GetLength())["<"](0.001)
+	T((player.transform:GetPosition() - Vec3(0, 3, 0)):GetLength())["<"](0.001)
 end)
 
 T.TestPhysics("player controller start resets the simulation state", function()
@@ -276,7 +319,7 @@ T.TestPhysics("player controller start resets the simulation state", function()
 	controller:Start(Vec3(10, 3, 10))
 	T(controller.number)["=="](0)
 	T(player.player_movement:GetMode())["=="]("fly")
-	T((player.rigid_body:GetPosition() - Vec3(10, 3, 10)):GetLength())["<"](0.001)
+	T((player.transform:GetPosition() - Vec3(10, 3, 10)):GetLength())["<"](0.001)
 	T(controller.synced)["=="](true)
 	player:Remove()
 	ground:Remove()
@@ -453,6 +496,30 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 
 	T(crate.rigid_body:GetVelocity().z)["<"](-0.5)
 	crate:Remove()
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("player body turns with the view in yaw only and stays upright", function()
+	local ground = create_ground()
+	local player = create_player()
+	drive(player, 120)
+	local feet = player.transform:GetPosition():Copy()
+
+	drive(player, 10, function(cmd)
+		cmd.view = QuatDeg3(-30, 90, 0)
+	end)
+
+	local body = player.rigid_body
+	local forward = player.transform:GetRotation():GetForward()
+	local up = player.transform:GetRotation():GetUp()
+	T(math.abs(forward.x + 1))["<"](0.001)
+	T(math.abs(forward.y))["<"](0.001)
+	T(math.abs(up.y - 1))["<"](0.001)
+	T((player.transform:GetPosition() - feet):GetLength())["<"](0.01)
+	T((body:GetOriginPosition() - player.transform:GetPosition()):GetLength())["<"](0.0001)
+	T(math.abs(body:GetPosition().y - player.transform:GetPosition().y - 0.6858))["<"](0.001)
+	T(body:GetGrounded())["=="](true)
 	player:Remove()
 	ground:Remove()
 end)

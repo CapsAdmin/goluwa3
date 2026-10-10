@@ -1,12 +1,9 @@
 local objects = import("goluwa/objects/objects.lua")
-local Color = import("goluwa/structs/color.lua")
-local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local usercmd = import("goluwa/network/usercmd.lua")
 local physics = import("goluwa/physics.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local physics_beam_options = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 local META = objects.CreateTemplate("weapon_physgun")
 META:GetSet("MinHoldDistance", 1)
 META:GetSet("MaxGrabDistance", 12)
@@ -72,7 +69,7 @@ end
 
 function META:Initialize()
 	self.Owner.weapon:SetDisplayName("Physgun")
-	self.Owner.weapon:SetMuzzleDistance(0.64)
+	self.Owner.weapon:SetModelPrefab("weapon_physgun_model")
 	self.held_body = nil
 	self.held_local_point = Vec3()
 	self.held_distance = self.MinHoldDistance
@@ -273,46 +270,6 @@ function META:WeaponThink(dt, cmd)
 
 	self:UpdateHeldBody(dt, cmd)
 	controller:SetHolding(self.held_body ~= nil)
-end
-
-function META:WeaponGetBeamPoint()
-	if self:CanHoldBody(self.held_body) then
-		return self.held_body:LocalToWorld(self.held_local_point)
-	end
-
-	local player = self.Owner:GetParent()
-	local cmd = player.player_controller.cmd
-
-	if
-		not (
-			usercmd.HasButton(cmd, BUTTON.ACTIVE) and
-			usercmd.HasButton(cmd, BUTTON.ATTACK1)
-		)
-	then
-		return
-	end
-
-	local origin = get_origin(player)
-	local movement = cmd.view:GetForward() * self.MaxGrabDistance
-	local hit = physics.Sweep(origin, movement, 0, player, nil, physics_beam_options)
-	return hit and (hit.point or hit.position) or origin + movement
-end
-
-function META:WeaponCreateModel()
-	local shapes = import("goluwa/render3d/shapes.lua")
-	local weapon = self.Owner.weapon
-	local metal = shapes.Material{Color = Color(0.25, 0.27, 0.3, 1), Roughness = 0.35, Metallic = 0.8}
-	local glow = shapes.Material{
-		Color = Color(1, 0.55, 0.15, 1),
-		Roughness = 0.6,
-		Metallic = 0,
-		AlbedoAlphaIsEmissive = true,
-		EmissiveMultiplier = Color(1, 1, 1, 4),
-	}
-	weapon:AddModelBox(Vec3(0.1, 0.1, 0.36), FORWARD * 0.32, metal)
-	weapon:AddModelBox(Vec3(0.12, 0.05, 0.2), FORWARD * 0.28 + Vec3(0, 0.07, 0), glow)
-	weapon:AddModelBox(Vec3(0.06, 0.06, 0.1), FORWARD * 0.59, glow)
-	weapon:AddModelBox(Vec3(0.06, 0.13, 0.08), FORWARD * 0.16 - Vec3(0, 0.09, 0), metal)
 end
 
 function META:WeaponHolster()

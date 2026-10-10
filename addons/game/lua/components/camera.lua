@@ -59,7 +59,7 @@ function META:GetViewPosition()
 
 	if body and body.ShouldInterpolateTransform and body:ShouldInterpolateTransform() then
 		local alpha = physics.GetInterpolationAlpha()
-		return body:GetInterpolatedPosition(alpha) + offset
+		return body:GetInterpolatedOrigin(alpha) + offset
 	end
 
 	return transform:GetPosition():Copy() + offset

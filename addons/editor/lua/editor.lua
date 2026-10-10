@@ -64,6 +64,8 @@ local function is_hidden(entity, editor_window)
 
 	if entity:GetName() == "TooltipOverlay" then return true end
 
+	if entity.visual_primitive then return true end
+
 	return false
 end
 
@@ -795,13 +797,53 @@ return function(props)
 	end
 
 	local view = View.New{Priority = 10}:Activate()
+	local playing_selection
+
+	-- the editor hides and the player gets the controls back, the camera stays the editor camera
+	function editor_window:SetPlaying(playing)
+		if self.playing == playing then return end
+
+		self.playing = playing
+
+		if playing then
+			if picker_cancel_fn then
+				picker_cancel_fn()
+				picker_cancel_fn = nil
+			end
+
+			playing_selection = tree_view:GetSelectedEntity()
+			Gizmo.EnableGizmo(nil)
+		elseif playing_selection and playing_selection:IsValid() then
+			Gizmo.EnableGizmo(playing_selection)
+		end
+
+		self.visual:SetVisible(not playing)
+		event.Call("EditorControlsChanged", playing)
+	end
+
+	function editor_window:IsPlaying()
+		return self.playing == true
+	end
+
+	event.AddListener("KeyInput", editor_window, function(key, press)
+		if press and key == "e" and input.IsControlDown() then
+			editor_window:SetPlaying(not editor_window.playing)
+			return true
+		end
+	end)
+
+	editor_window:CallOnRemove(function()
+		event.RemoveListener("KeyInput", editor_window)
+		event.Call("EditorControlsChanged", false)
+	end)
 
 	function editor_window:OnUpdate(dt)
 		do
-			camera.SetBlockMovement(has_text_focus())
+			camera.SetBlockMovement(has_text_focus() or self.playing)
 			local gizmo_status = Gizmo.GetStatus()
 			camera.SetBlockDragging(
-				is_ui_hovering() or
+				self.playing or
+					is_ui_hovering() or
 					gizmo_status.active_drag or
 					gizmo_status.hovered_handle or
 					brush_editor.IsBusy()
