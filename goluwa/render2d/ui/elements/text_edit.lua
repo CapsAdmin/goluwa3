@@ -100,6 +100,11 @@ function META:OnCreate()
 			GrowHeight = 1,
 		},
 	}
+
+	if not wrap and not self.ScrollY then
+		self._scroll_panel.Viewport.layout:SetAlignmentY("center")
+	end
+
 	self._text_panel = Text{
 		Parent = self._scroll_panel,
 		TextEdit = self,
@@ -147,14 +152,18 @@ end
 function META:sync_text_changed()
 	if self.AutoResize then
 		local lines, _, vertical_step = self._text_panel.text:GetTextSize2()
-
-		if lines then
-			local line_count = math.clamp(#lines, 1, self.MaxLines)
-			local w = self.layout:GetMinSize().x
-			local h = math.ceil(self.layout:GetMinSize().y + (line_count - 1) * vertical_step)
-			self.layout:SetMinSize(Vec2(w, h))
-			self.layout:SetMaxSize(Vec2(w, h))
-		end
+		local line_count = math.clamp(lines and #lines or 1, 1, self.MaxLines)
+		local padding = self._scroll_panel.Padding
+		local w = self.layout:GetMinSize().x
+		local h = math.ceil(
+			line_count * (
+					vertical_step or
+					self._text_panel.text:GetFont():GetLineHeight()
+				) + padding.y + padding.h
+		)
+		self.layout:SetMinSize(Vec2(w, h))
+		self.layout:SetMaxSize(Vec2(w, h))
+		self._scroll_panel.Viewport.layout:SetAlignmentY(lines and #lines > self.MaxLines and "start" or "center")
 	end
 
 	if self.AutoScrollToCaret then

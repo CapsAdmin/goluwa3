@@ -41,7 +41,7 @@ do
 end
 
 function chatbox.IsVisible()
-	return chatbox.window.visual:IsVisible()
+	return chatbox.window.visual:GetVisible()
 end
 
 function chatbox.SetInputText(str)
@@ -177,7 +177,6 @@ function chatbox.Show()
 				ScrollY = true,
 				FontSize = "M",
 				Wrap = true,
-				MinSize = Vec2(0, input_height),
 				AutoResize = true,
 				Padding = Rect(4, 4, 4, 4),
 				OnTextChanged = function(self, text)

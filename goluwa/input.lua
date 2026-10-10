@@ -2,6 +2,7 @@ local system = import("goluwa/system.lua")
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local codec = import("goluwa/codec.lua")
+local objects = import("goluwa/objects/objects.lua")
 local input = library()
 input.PressedThreshold = 0.2
 
@@ -213,8 +214,11 @@ do
 			end
 		end
 
+		local focused = objects.GetFocusedObject()
+		local typing = focused and focused:IsValid() and focused.text and focused.text:GetEditable()
+
 		for _, data in pairs(input.binds) do
-			if data.important or input.disable_focus == 0 then
+			if data.important or (input.disable_focus == 0 and not typing) then
 				if data.trigger == key then
 					if (press and not data.trigger_on_release) or (not press and data.trigger_on_release) then
 						local ok = true
