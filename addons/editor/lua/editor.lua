@@ -40,6 +40,9 @@ local theme = import("goluwa/render2d/ui/theme.lua")
 local View = import("goluwa/render3d/view.lua")
 local camera = import("lua/camera.lua")
 local picker = import("lua/picker.lua")
+local editor_history = import("lua/editor_history.lua")
+local HistoryPanel = import("lua/history_panel.lua")
+local history = editor_history.history
 local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
 -- the order the components of an entity are listed in the property editor, the rest follows alphabetically
 local COMPONENT_ORDER = {
@@ -135,11 +138,12 @@ return function(props)
 		end
 
 		entity:SetParent(parent_entity)
-		prefab.MarkStructureDirty(parent_entity)
 
 		if parent_entity.transform then
 			entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
 		end
+
+		editor_history.RecordCreate("create " .. config.Name, entity)
 
 		set_selected_target(entity)
 	end
@@ -207,12 +211,10 @@ return function(props)
 				Icon = EntityTree.GetComponentIcon(name) or "component",
 				OnClick = function()
 					if present then
-						entity:RemoveComponent(name)
+						editor_history.RemoveComponent(entity, name)
 					else
-						entity:AddComponent(name)
+						editor_history.AddComponent(entity, name)
 					end
-
-					prefab.MarkStructureDirty(entity)
 				end,
 			}
 		end
@@ -296,6 +298,7 @@ return function(props)
 												Icon = "file",
 												OnClick = function()
 													last_scene_name = name
+													editor_history.Barrier("a scene was loaded")
 													scene.LoadAsync(name)
 												end,
 											}
@@ -311,6 +314,48 @@ return function(props)
 								Icon = "power",
 								OnClick = function()
 									system.ShutDown(0)
+								end,
+							},
+						}
+					end,
+				},
+				{
+					Text = "EDIT",
+					Items = function()
+						local entries = history:GetEntries()
+						local undo_entry = entries[history:GetIndex()]
+						local redo_entry = entries[history:GetIndex() + 1]
+						return {
+							MenuItem{
+								Text = undo_entry and ("Undo " .. undo_entry.Name) or "Undo",
+								Icon = "undo",
+								Disabled = not undo_entry,
+								OnClick = function()
+									history:Undo()
+								end,
+							},
+							MenuItem{
+								Text = redo_entry and ("Redo " .. redo_entry.Name) or "Redo",
+								Icon = "redo",
+								Disabled = not redo_entry,
+								OnClick = function()
+									history:Redo()
+								end,
+							},
+							MenuSpacer{},
+							MenuItem{
+								Text = "History",
+								Icon = "menu",
+								OnClick = function()
+									Panel.World:Ensure(HistoryPanel{Key = "EditorHistoryWindow"})
+								end,
+							},
+							MenuItem{
+								Text = "Clear history",
+								Icon = "trash",
+								Disabled = #entries == 0,
+								OnClick = function()
+									history:Clear()
 								end,
 							},
 						}
@@ -560,8 +605,9 @@ return function(props)
 										Text = "Clone",
 										Icon = "copy",
 										OnClick = function()
-											set_selected_target(scene.Clone(entity))
-											prefab.MarkStructureDirty(entity:GetParent())
+											local clone = scene.Clone(entity)
+											editor_history.RecordCreate("clone " .. entity:GetName(), clone)
+											set_selected_target(clone)
 										end,
 									} or
 									nil,
@@ -610,8 +656,13 @@ return function(props)
 
 											if parent:IsValid() then set_selected_target(parent) end
 
-											entity:Remove()
-											prefab.MarkStructureDirty(parent)
+											if entity:GetRoot() == Entity.World then
+												editor_history.RemoveEntity(entity)
+											else
+												entity:Remove()
+												prefab.MarkStructureDirty(parent)
+												editor_history.Barrier("a 2D panel was removed")
+											end
 										end,
 									} or
 									nil,
@@ -663,6 +714,7 @@ return function(props)
 						Ref = function(self)
 							property_editor = self
 						end,
+						OnPropertyEdited = editor_history.RecordProperty,
 						CategoryOrder = COMPONENT_ORDER,
 						OnContextActions = prefab_tools.GetPropertyActions,
 						OnGetCategoryBadge = prefab_tools.GetCategoryBadge,
@@ -822,15 +874,31 @@ return function(props)
 		pending_selection_sync = true
 	end)
 
-	event.AddListener("EntityTreeReparent", editor_window, function(_, old_parent, new_parent)
-		prefab.MarkStructureDirty(old_parent)
-		prefab.MarkStructureDirty(new_parent)
+	event.AddListener("EntityTreeReparent", editor_window, function(entity, old_parent, new_parent)
+		editor_history.RecordReparent(entity, old_parent, new_parent)
+	end)
+
+	event.AddListener("WindowKeyInput", editor_window, function(_, key, press)
+		if not press or not input.IsControlDown() or has_text_focus() then return end
+
+		if Gizmo.GetStatus().active_drag then return end
+
+		if key == "z" and not input.IsShiftDown() then
+			history:Undo()
+			return true
+		end
+
+		if key == "y" or key == "z" and input.IsShiftDown() then
+			history:Redo()
+			return true
+		end
 	end)
 
 	editor_window:CallOnRemove(
 		function()
 			event.RemoveListener("EditorSelect", editor_window)
 			event.RemoveListener("EntityTreeReparent", editor_window)
+			event.RemoveListener("WindowKeyInput", editor_window)
 			event.RemoveListener("PrefabInputsChanged", editor_window)
 			highlight.SetEntity()
 			prefab_tools.Watch(nil)

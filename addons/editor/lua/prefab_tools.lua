@@ -4,6 +4,7 @@ local prefab = import("goluwa/entities/prefab.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local name_prompt = import("lua/name_prompt.lua")
 local camera = import("lua/camera.lua")
+local editor_history = import("lua/editor_history.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local tools = library()
@@ -53,6 +54,7 @@ function tools.Place(name)
 	local entity = Entity.New{Name = name, prefab = {Path = name}}
 	entity:SetTransient(false)
 	entity.transform:SetPosition(camera.GetPosition() + camera.GetRotation():GetForward() * PLACE_DISTANCE)
+	editor_history.RecordCreate("place " .. name, entity)
 	return entity
 end
 
@@ -87,19 +89,31 @@ local function expose(instance, entity, node, component_name, object, info)
 	end
 
 	local value = objects.GetProperty(object, info.var_name)
-	prefab.AddInput(
+	editor_history.EditPrefab(
+		"expose " .. info.var_name .. " of " .. instance.Path,
 		instance.Path,
-		{
-			Name = get_unique_input_name(instance.definition, name),
-			Type = info.type,
-			Default = type(value) == "cdata" and value:Copy() or value,
-			Targets = {{Node = node, Component = component_name, Property = info.var_name}},
-		}
+		function()
+			prefab.AddInput(
+				instance.Path,
+				{
+					Name = get_unique_input_name(instance.definition, name),
+					Type = info.type,
+					Default = type(value) == "cdata" and value:Copy() or value,
+					Targets = {{Node = node, Component = component_name, Property = info.var_name}},
+				}
+			)
+		end
 	)
 end
 
 local function unexpose(instance, node, component_name, info)
-	prefab.Unlink(instance.Path, node, component_name, info.var_name)
+	editor_history.EditPrefab(
+		"hide " .. info.var_name .. " from " .. instance.Path,
+		instance.Path,
+		function()
+			prefab.Unlink(instance.Path, node, component_name, info.var_name)
+		end
+	)
 end
 
 local function add_input(instance, input_type)
@@ -107,14 +121,20 @@ local function add_input(instance, input_type)
 		Title = "ADD " .. input_type.Text:upper() .. " INPUT",
 		Hint = "input name",
 		OnSubmit = function(name)
-			prefab.AddInput(
+			editor_history.EditPrefab(
+				"add input " .. name .. " to " .. instance.Path,
 				instance.Path,
-				{
-					Name = get_unique_input_name(instance.definition, name),
-					Type = input_type.Type,
-					Default = input_type.Default(),
-					Targets = {},
-				}
+				function()
+					prefab.AddInput(
+						instance.Path,
+						{
+							Name = get_unique_input_name(instance.definition, name),
+							Type = input_type.Type,
+							Default = input_type.Default(),
+							Targets = {},
+						}
+					)
+				end
 			)
 		end,
 	}
@@ -186,10 +206,16 @@ function tools.GetPropertyActions(object, info)
 				Text = "Link to " .. input.Name,
 				Icon = "arrow_right",
 				OnClick = function()
-					prefab.AddTarget(
+					editor_history.EditPrefab(
+						"link " .. info.var_name .. " to " .. input.Name,
 						instance.Path,
-						input.Name,
-						{Node = node, Component = component_name, Property = info.var_name}
+						function()
+							prefab.AddTarget(
+								instance.Path,
+								input.Name,
+								{Node = node, Component = component_name, Property = info.var_name}
+							)
+						end
 					)
 				end,
 			}
@@ -278,7 +304,9 @@ function tools.GetMenuItems(entity, select)
 			Text = "Unpack",
 			Icon = "expand",
 			OnClick = function()
-				prefab.Unpack(entity)
+				editor_history.ReplaceEntity("unpack " .. entity:GetName(), entity, function()
+					prefab.Unpack(entity)
+				end)
 			end,
 		}
 	elseif not entity.prefab_owner then
@@ -290,7 +318,9 @@ function tools.GetMenuItems(entity, select)
 					Title = "MAKE PREFAB",
 					Text = entity:GetName(),
 					OnSubmit = function(name)
-						prefab.CreateFromEntity(entity, (name:gsub("[^%w_%-%. ]", "_")))
+						editor_history.ReplaceEntity("make prefab " .. name, entity, function()
+							prefab.CreateFromEntity(entity, (name:gsub("[^%w_%-%. ]", "_")))
+						end)
 						select(entity)
 					end,
 				}

@@ -14,6 +14,7 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local system = import("goluwa/system.lua")
 local brush_editor = import("lua/brush_editor.lua")
+local editor_history = import("lua/editor_history.lua")
 local gizmo = library()
 local listener_key = "gui_gizmo_service"
 local CONE_SEGMENTS = 20
@@ -1349,10 +1350,19 @@ local function begin_gizmo_drag(handle)
 	}
 end
 
+local function end_drag()
+	local drag = state.active_drag
+	state.active_drag = nil
+
+	if drag and is_valid_entity(drag.entity) then
+		editor_history.RecordTransform(drag.kind, drag.entity, drag.history_before)
+	end
+end
+
 local function finish_gizmo_drag()
 	if not state.active_drag then return end
 
-	state.active_drag = nil
+	end_drag()
 	notify_state_changed()
 end
 
@@ -1624,7 +1634,7 @@ local function draw_gizmo()
 	if not is_gizmo_entity(entity) then
 		state.gizmo_entity = nil
 		state.hovered_handle = nil
-		state.active_drag = nil
+		end_drag()
 		notify_state_changed()
 		return
 	end
@@ -1678,6 +1688,7 @@ local function handle_gizmo_mouse_input(button, press)
 
 		if not drag then return end
 
+		drag.history_before = editor_history.CaptureTransform(drag.entity)
 		state.active_drag = drag
 		state.hovered_handle = nil
 		notify_state_changed()
@@ -1721,7 +1732,7 @@ function gizmo.EnableGizmo(entity)
 
 	state.gizmo_entity = next_entity
 	state.hovered_handle = nil
-	state.active_drag = nil
+	end_drag()
 	notify_state_changed()
 	return next_entity
 end
@@ -1744,7 +1755,7 @@ function gizmo.SetMode(mode)
 
 	state.mode = mode
 	state.hovered_handle = nil
-	state.active_drag = nil
+	end_drag()
 	notify_state_changed()
 	return state.mode
 end
@@ -1760,7 +1771,7 @@ function gizmo.SetSpace(space)
 
 	state.space = space
 	state.hovered_handle = nil
-	state.active_drag = nil
+	end_drag()
 	notify_state_changed()
 	return state.space
 end
@@ -1789,7 +1800,7 @@ function gizmo.Clear(owner)
 
 	state.gizmo_entity = nil
 	state.hovered_handle = nil
-	state.active_drag = nil
+	end_drag()
 	brush_editor.SetEntity(nil)
 
 	if not owner or state.callback_owner == owner then

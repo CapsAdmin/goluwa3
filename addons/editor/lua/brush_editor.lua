@@ -8,6 +8,7 @@ local debug_draw = import("goluwa/debug_draw.lua")
 local units = import("goluwa/source_engine/units.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
+local editor_history = import("lua/editor_history.lua")
 local brush_editor = library()
 -- Click selects a face, an edge or a vertex. Dragging the arrow of a selected face pushes or pulls it, dragging a
 -- vertex or an edge moves it and holding R while starting the drag rotates it instead. Rotating a selected face works
@@ -572,6 +573,19 @@ local function draw_fills()
 	end
 end
 
+local function end_drag()
+	local drag = state.drag
+	state.drag = nil
+
+	if drag and state.brush.Owner:IsValid() then
+		editor_history.RecordBrush(
+			drag.kind == "push_pull" and "push or pull face of" or drag.kind .. " brush points of",
+			state.brush,
+			drag.history_before
+		)
+	end
+end
+
 -- points are the source space corners to move or rotate
 local function begin_edit_drag(window, points, select_face)
 	local mouse_position = window:GetMousePosition():Copy()
@@ -585,6 +599,7 @@ local function begin_edit_drag(window, points, select_face)
 	end
 
 	local drag = {
+		history_before = editor_history.CaptureBrush(state.brush),
 		kind = input.IsKeyDown("r") and "rotate" or "move",
 		start_points = start_points,
 		start_sides = state.brush.sides,
@@ -639,8 +654,8 @@ local function mouse_input(window, button, press)
 	if not press then
 		if not state.drag then return end
 
-		state.drag = nil
 		state.brush:Recenter()
+		end_drag()
 		return true
 	end
 
@@ -654,6 +669,7 @@ local function mouse_input(window, button, press)
 		if length < 1e-5 then return end
 
 		state.drag = {
+			history_before = editor_history.CaptureBrush(state.brush),
 			kind = "push_pull",
 			side = state.selected,
 			start_dist = state.brush.sides[state.selected].dist,
@@ -695,7 +711,8 @@ local function mouse_input(window, button, press)
 end
 
 function brush_editor.SetEntity(entity)
-	state.drag = nil
+	if state.drag then end_drag() end
+
 	state.selected = nil
 	state.selected_points = nil
 	state.hovered = nil

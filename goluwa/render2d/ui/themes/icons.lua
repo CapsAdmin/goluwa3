@@ -65,7 +65,12 @@ local function gear(cx, cy, r_out, r_in, teeth)
 	for i = 0, teeth - 1 do
 		local a = i * pitch
 
-		for _, point in ipairs{{a - pitch * 0.23, r_in}, {a - pitch * 0.15, r_out}, {a + pitch * 0.15, r_out}, {a + pitch * 0.23, r_in}} do
+		for _, point in ipairs{
+			{a - pitch * 0.23, r_in},
+			{a - pitch * 0.15, r_out},
+			{a + pitch * 0.15, r_out},
+			{a + pitch * 0.23, r_in},
+		} do
 			local x, y = polar(cx, cy, point[2], point[2], point[1])
 			out[#out + 1] = (#out == 0 and "M" or "L") .. f(x) .. " " .. f(y)
 		end
@@ -128,44 +133,106 @@ add("Basic", "plus", path("M12 5V12 19M5 12H12 19"))
 add("Basic", "minus", path("M5 12H19"))
 add("Basic", "check", path("M5 12.5L10 17.5L19 7"))
 add("Basic", "close", path("M6 6L12 12L18 18M18 6L12 12L6 18"))
-add("Basic", "more_horizontal", dot(6, 12, 1.8) .. dot(12, 12, 1.8) .. dot(18, 12, 1.8))
+add(
+	"Basic",
+	"more_horizontal",
+	dot(6, 12, 1.8) .. dot(12, 12, 1.8) .. dot(18, 12, 1.8)
+)
 add("Basic", "more_vertical", dot(12, 6, 1.8) .. dot(12, 12, 1.8) .. dot(12, 18, 1.8))
 
 do
 	local x, y = polar(10.5, 10.5, 6.5, 6.5, 45)
-	add("Basic", "search", path(ring(10.5, 10.5, 6.5, 45), "M" .. f(x) .. " " .. f(y) .. "L20.5 20.5"))
+	add(
+		"Basic",
+		"search",
+		path(ring(10.5, 10.5, 6.5, 45), "M" .. f(x) .. " " .. f(y) .. "L20.5 20.5")
+	)
 end
 
 add("Basic", "menu", path("M4 7H20M4 12H20M4 17H20"))
 add("Basic", "filter", path("M4 5H20L14 12.5V19L10 17V12.5Z"))
 add("Window", "minimize", path("M6 18H18"))
 add("Window", "maximize", "<rect x=\"5\" y=\"5\" width=\"14\" height=\"14\"/>")
-add("Window", "restore", "<rect x=\"4\" y=\"9\" width=\"11\" height=\"11\"/>" .. path("M9 5H20V16"))
-add("Actions", "copy", "<rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/>" .. path("M5 14V5H14"))
+add(
+	"Window",
+	"restore",
+	"<rect x=\"4\" y=\"9\" width=\"11\" height=\"11\"/>" .. path("M9 5H20V16")
+)
+add(
+	"Actions",
+	"copy",
+	"<rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/>" .. path("M5 14V5H14")
+)
 add("Actions", "paste", path("M9 3H15V5H18V21H6V5H9Z"))
 
 do
 	local x, y = polar(12, 13, 7.5, 7.5, -75)
-	add("Actions", "reset", path(arc(12, 13, 7.5, 7.5, 225, -75, true), head(x, y, -165, 5.5)))
+	add(
+		"Actions",
+		"reset",
+		path(arc(12, 13, 7.5, 7.5, 225, -75, true), head(x, y, -165, 5.5))
+	)
 	x, y = polar(12, 13, 7.5, 7.5, 255)
-	add("Actions", "refresh", path(arc(12, 13, 7.5, 7.5, -45, 255, true), head(x, y, 345, 5.5)))
+	add(
+		"Actions",
+		"refresh",
+		path(arc(12, 13, 7.5, 7.5, -45, 255, true), head(x, y, 345, 5.5))
+	)
 end
 
-add("Actions", "trash", path("M5 7H7 9.5 14.5 17 19", "M9.5 7V3.5H14.5V7", "M7 7V18.5L8.5 20.5H15.5L17 18.5V7"))
+add(
+	"Actions",
+	"undo",
+	path("M9 6L4 11L9 16", "M4 11H14" .. arc(14, 15.5, 4.5, 4.5, -90, 90) .. "H8")
+)
+add(
+	"Actions",
+	"redo",
+	path("M15 6L20 11L15 16", "M20 11H10" .. arc(10, 15.5, 4.5, 4.5, -90, -270) .. "H16")
+)
+add(
+	"Actions",
+	"trash",
+	path("M5 7H7 9.5 14.5 17 19", "M9.5 7V3.5H14.5V7", "M7 7V18.5L8.5 20.5H15.5L17 18.5V7")
+)
 add("Actions", "edit", path("M4 20L5 15L13 7L16 4L20 8L17 11L9 19Z", "M13 7L17 11"))
-add("Actions", "save", path("M4 4H8 15 16.5L20.5 8V20H17 8 4Z", "M8 4V9H15V4", "M8 20V14H17V20"))
+add(
+	"Actions",
+	"save",
+	path("M4 4H8 15 16.5L20.5 8V20H17 8 4Z", "M8 4V9H15V4", "M8 20V14H17V20")
+)
 add("Actions", "upload", path("M12 15V4M7 9L12 4L17 9M4 15V20H20V15"))
 add("Actions", "download", path("M12 4V15M7 10L12 15L17 10M4 15V20H20V15"))
 add("Actions", "expand", path("M4 9V4H9M20 9V4H15M4 15V20H9M20 15V20H15"))
 add("Files", "folder", path("M3.5 5.5H9L11 8H20.5V19H3.5Z"))
-add("Files", "folder_open", path("M3.5 16V5.5H9L11 8H18.5", "M6.5 19.5L8.5 12.5H21.5L19.5 19.5Z"))
+add(
+	"Files",
+	"folder_open",
+	path("M3.5 16V5.5H9L11 8H18.5", "M6.5 19.5L8.5 12.5H21.5L19.5 19.5Z")
+)
 add("Files", "file", path("M4.5 2.5H13.5L19.5 8.5V21.5H4.5Z", "M13.5 2.5V8.5H19.5"))
-add("Files", "image", "<rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"2\"/>" .. path("M7 16.5L11 11.5L15 16.5") .. dot(16.5, 8.5, 1.6))
+add(
+	"Files",
+	"image",
+	"<rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"2\"/>" .. path("M7 16.5L11 11.5L15 16.5") .. dot(16.5, 8.5, 1.6)
+)
 add("Files", "code", path("M9 7L4 12L9 17M15 7L20 12L15 17"))
-add("Objects", "cube", path("M12 3L20.5 7.5V16.5L12 21L3.5 16.5V7.5Z", "M3.5 7.5L12 12L20.5 7.5M12 12V21"))
+add(
+	"Objects",
+	"cube",
+	path("M12 3L20.5 7.5V16.5L12 21L3.5 16.5V7.5Z", "M3.5 7.5L12 12L20.5 7.5M12 12V21")
+)
 add("Objects", "sphere", path(ring(12, 12, 9), arc(12, 12, 5, 5, 200, 260, true)))
 add("Objects", "material", icons.sphere)
-add("Objects", "layers", path("M12 3.5L20.5 8L12 12.5L3.5 8Z", "M3.5 12.5L12 17L20.5 12.5", "M3.5 16.5L12 21L20.5 16.5"))
+add(
+	"Objects",
+	"layers",
+	path(
+		"M12 3.5L20.5 8L12 12.5L3.5 8Z",
+		"M3.5 12.5L12 17L20.5 12.5",
+		"M3.5 16.5L12 21L20.5 16.5"
+	)
+)
 add("Objects", "layout", path("M3.5 4.5H20.5V9.5 19.5H3.5V9.5Z", "M3.5 9.5H20.5"))
 add("Objects", "component", path(polygon(12, 12, 9, 6, -90)))
 add("Objects", "entity", path(ring(12, 12, 8)) .. dot(12, 12, 2.2))
@@ -179,7 +246,11 @@ do
 		ticks[#ticks + 1] = "M" .. f(x1) .. " " .. f(y1) .. "L" .. f(x2) .. " " .. f(y2)
 	end
 
-	add("Objects", "target", path(ring(12, 12, 6.5), table.concat(ticks)) .. dot(12, 12, 1.6))
+	add(
+		"Objects",
+		"target",
+		path(ring(12, 12, 6.5), table.concat(ticks)) .. dot(12, 12, 1.6)
+	)
 end
 
 add("Objects", "physics", path(ring(10, 9.5, 4.5), "M4 20.5L20.5 15"))
@@ -201,11 +272,19 @@ do
 	add("Scene", "sun", path(ring(12, 12, 4), table.concat(rays)))
 end
 
-add("Scene", "camera", path("M3.5 7H8L9.5 4.5H14.5L16 7H20.5V20.5H3.5Z", ring(12, 13.5, 3)))
+add(
+	"Scene",
+	"camera",
+	path("M3.5 7H8L9.5 4.5H14.5L16 7H20.5V20.5H3.5Z", ring(12, 13.5, 3))
+)
 add("Scene", "water", path(teardrop(12, 14.5, 6.5, 12, 3.5)))
 add("Scene", "spawn", path("M6 4H18L15 8.5L18 13H6Z", "M6 13V21"))
 add("Scene", "place", path(teardrop(12, 9.5, 6.5, 12, 21)) .. dot(12, 9.5, 2.2))
-add("Scene", "world", path(ring(12, 12, 9, 180), "M3 12H8 16 21", arc(12, 12, 4, 5.5, 270, 630, true) .. "Z"))
+add(
+	"Scene",
+	"world",
+	path(ring(12, 12, 9, 180), "M3 12H8 16 21", arc(12, 12, 4, 5.5, 270, 630, true) .. "Z")
+)
 add(
 	"Scene",
 	"move",
@@ -223,10 +302,18 @@ add(
 	"eye",
 	path("M3 12C6 3.3 18 3.3 21 12C18 20.7 6 20.7 3 12Z", ring(12, 12, 2.6))
 )
-add("Interface", "lock", path("M5 11H8 16 19V21H5Z", "M8 11V8" .. arc(12, 8, 4, 4, 180, 360) .. "L16 11"))
+add(
+	"Interface",
+	"lock",
+	path("M5 11H8 16 19V21H5Z", "M8 11V8" .. arc(12, 8, 4, 4, 180, 360) .. "L16 11")
+)
 add("Interface", "settings", path(gear(12, 12, 10, 7.5, 6), ring(12, 12, 3.2)))
 add("Interface", "info", path(ring(12, 12, 9), "M12 11V17") .. dot(12, 7.5, 1.4))
-add("Interface", "warning", path("M12 3.5L21.5 20.5H2.5Z", "M12 9.5V14") .. dot(12, 17, 1.2))
+add(
+	"Interface",
+	"warning",
+	path("M12 3.5L21.5 20.5H2.5Z", "M12 9.5V14") .. dot(12, 17, 1.2)
+)
 add("Interface", "error", path(ring(12, 12, 9), "M12 7V13") .. dot(12, 16.3, 1.3))
 add("Interface", "star", path(star(12, 12.5, 9.5, 4.3, 5)))
 add("Interface", "power", path(arc(12, 13.5, 7.5, 7.5, 300, 600, true), "M12 3.5V12"))
@@ -252,5 +339,16 @@ add(
 		"M14 14H20.5V20.5H14Z"
 	)
 )
-add("Interface", "tree", path("M3.5 5.5H6 20.5", "M6 5.5V12 18.5", "M6 12H9", "M6 18.5H9", "M12.5 12H20.5", "M12.5 18.5H20.5"))
+add(
+	"Interface",
+	"tree",
+	path(
+		"M3.5 5.5H6 20.5",
+		"M6 5.5V12 18.5",
+		"M6 12H9",
+		"M6 18.5H9",
+		"M12.5 12H20.5",
+		"M12.5 18.5H20.5"
+	)
+)
 return {Icons = icons, Categories = categories}

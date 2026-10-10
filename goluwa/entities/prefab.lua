@@ -225,6 +225,21 @@ function prefab.Save(name)
 	return path
 end
 
+-- a copy of what the definition holds, Restore puts it back and brings every instance along
+function prefab.Snapshot(name)
+	local definition = prefab.Get(name)
+	return {inputs = copy_value(definition.inputs), entities = copy_value(definition.entities)}
+end
+
+function prefab.Restore(name, snapshot)
+	local definition = prefab.Register(name, copy_value(snapshot))
+
+	if definition.saved then prefab.Save(name) end
+
+	event.Call("PrefabChanged", definition)
+	event.Call("PrefabInputsChanged", definition)
+end
+
 function prefab.GetNames()
 	local names = {}
 

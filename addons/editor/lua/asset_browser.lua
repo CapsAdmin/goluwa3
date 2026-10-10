@@ -33,6 +33,7 @@ local OrbitCamera = import("goluwa/render3d/orbit_camera.lua")
 local previews = import("lua/asset_preview.lua")
 local asset_info = import("lua/asset_info.lua")
 local prefab_tools = import("lua/prefab_tools.lua")
+local editor_history = import("lua/editor_history.lua")
 local DEFAULT_CATEGORIES = {"models", "textures", "materials", "prefabs"}
 local CATEGORY_ICONS = {
 	models = "cube",
@@ -144,20 +145,27 @@ local function spawn_model(entry)
 	local entity = Entity.New{Name = entry.name}
 	entity:AddComponent("transform"):SetPosition(camera:GetPosition() + camera:GetRotation():GetForward() * 3)
 	entity:AddComponent("model", {ModelPath = entry.path})
+	editor_history.RecordCreate("spawn " .. entry.name, entity)
 	event.Call("EditorSelect", entity)
 	return entity
 end
 
 local function apply_model(target, entry)
+	editor_history.Begin("use " .. entry.name .. " as model of " .. target:GetName())
+
 	if target:HasComponent("model") then
-		target.model:SetModelPath(entry.path)
+		editor_history.SetProperty(target.model, "ModelPath", entry.path)
 	else
-		target:EnsureComponent("visual"):SetModelPath(entry.path)
+		editor_history.SetProperty(editor_history.EnsureComponent(target, "visual"), "ModelPath", entry.path)
 	end
+
+	editor_history.End()
 end
 
 local function apply_material(target, entry)
-	target:EnsureComponent("visual"):SetMaterialOverridePath(entry.path)
+	editor_history.Begin("apply " .. entry.name .. " to " .. target:GetName())
+	editor_history.SetProperty(editor_history.EnsureComponent(target, "visual"), "MaterialOverridePath", entry.path)
+	editor_history.End()
 end
 
 local function place_prefab(entry)
@@ -685,7 +693,7 @@ return function(props)
 					Text = "Use as prefab of selected instance",
 					Icon = "arrow_right",
 					OnClick = function()
-						get_selected_instance().prefab:SetPath(entry.name)
+						editor_history.SetProperty(get_selected_instance().prefab, "Path", entry.name)
 					end,
 				} or
 				nil,
@@ -1196,7 +1204,7 @@ return function(props)
 					Icon = "arrow_right",
 					Mode = "outline",
 					OnClick = function()
-						get_selected_instance().prefab:SetPath(entry.name)
+						editor_history.SetProperty(get_selected_instance().prefab, "Path", entry.name)
 					end,
 				}
 			end

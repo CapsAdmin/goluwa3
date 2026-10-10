@@ -74,6 +74,9 @@ function META.OnGetCategoryBadge(object, name) end
 -- a small label and a label color for a property of an object, {Text, Color, Tooltip} or nothing
 function META.OnGetPropertyBadge(object, info) end
 
+-- after a value was written to the object, set(target, info, value) is what wrote it
+function META.OnPropertyEdited(target, info, old_value, new_value, set) end
+
 function META.OnPropertyChangeStart() end
 
 function META.OnPropertyChangeEnd() end
@@ -1162,7 +1165,13 @@ do
 
 		local resolved_type = property_type_aliases[info.type] or info.type
 		local enums = info.enums or info.get_enums and info.get_enums(target)
-		local node_type = enums and "enum" or info.asset and "asset" or info.code and "code" or resolved_type
+		local node_type = enums and
+			"enum" or
+			info.asset and
+			"asset" or
+			info.code and
+			"code" or
+			resolved_type
 		local get_value
 
 		if info.get then
@@ -1210,10 +1219,9 @@ do
 			Badge = badge,
 			LabelColor = badge and badge.Color,
 			Description = badge and badge.Tooltip,
-			GetStatus = info.status and
-				function()
-					return info.status(target)
-				end,
+			GetStatus = info.status and function()
+				return info.status(target)
+			end,
 		}
 		local display_type = node_type
 
@@ -1259,12 +1267,22 @@ do
 				next_value = math.floor((tonumber(next_value) or 0) + 0.5)
 			end
 
+			local old_value = get_value()
+
+			if type(old_value) == "cdata" then
+				old_value = old_value:Copy()
+			elseif type(old_value) == "table" and not getmetatable(old_value) then
+				old_value = table.copy(old_value)
+			end
+
 			editor._property_change_sync_blocked = editor._property_change_sync_blocked + 1
 			local ok, err = pcall(set_target_property, target, info, next_value)
 			editor._property_change_sync_blocked = math.max(0, editor._property_change_sync_blocked - 1)
 
 			if not ok then
 				print("editor failed to set property", target, category_name, info.var_name, err)
+			else
+				editor.OnPropertyEdited(target, info, old_value, get_value(), set_target_property)
 			end
 
 			return ok

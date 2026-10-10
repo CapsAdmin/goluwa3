@@ -214,7 +214,11 @@ do
 				remove_from_instances(obj)
 				objects.created_objects[obj] = nil
 
-				if objects.created_objects_guid and obj.GUID ~= "" then
+				if
+					objects.created_objects_guid and
+					obj.GUID ~= "" and
+					objects.created_objects_guid[obj.GUID] == obj
+				then
 					objects.created_objects_guid[obj.GUID] = nil
 				end
 
@@ -326,7 +330,12 @@ function META:AddLocalListener(what, callback, id, config)
 		end
 	end
 
-	local remover = event.AddListener(self.local_events[what], id or callback, callback, table.merge({self_arg = self}, config or {}))
+	local remover = event.AddListener(
+		self.local_events[what],
+		id or callback,
+		callback,
+		table.merge({self_arg = self}, config or {})
+	)
 	self.local_event_removers = self.local_event_removers or {}
 	self.local_event_removers[remover] = true
 	return function(...)
