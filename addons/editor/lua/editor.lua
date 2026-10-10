@@ -181,6 +181,18 @@ return function(props)
 		if entity.transform then return entity.transform:GetWorldPosition(), 0 end
 	end
 
+	local function view_from_front(entity)
+		local center, radius = get_focus_bounds(entity)
+
+		if not center then return end
+
+		camera.ViewFromFront(
+			center,
+			math.max(radius * 2.2, 2),
+			entity.transform:GetWorldMatrix():GetRotation()
+		)
+	end
+
 	local function go_to_entity(entity)
 		local center, radius = get_focus_bounds(entity)
 
@@ -965,11 +977,23 @@ return function(props)
 		Gizmo.SetSpace(props.GizmoSpace or Gizmo.GetSpace())
 		pending_selection_sync = true
 
-		if not initial_selected_guid then
-			local closest = nearby.Collect(camera.GetPosition(), 1)[1]
+		tree_view:CollapseOwnerGroup(Entity.World, Entity.World)
+		local player = _G.PLAYER_RIG
+		local outfit = player and player:IsValid() and player.player_avatar.outfit
 
-			if closest then set_selected_target(closest.entity) end
+		if not initial_selected_guid then
+			if outfit and outfit:IsValid() then
+				set_selected_target(outfit)
+			else
+				local closest = nearby.Collect(camera.GetPosition(), 1)[1]
+
+				if closest then set_selected_target(closest.entity) end
+			end
 		end
+
+		local selected = tree_view:GetSelectedEntity()
+
+		if selected and selected:IsValid() and selected.transform then view_from_front(selected) end
 	end
 
 	return editor_window

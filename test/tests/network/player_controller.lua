@@ -12,6 +12,8 @@ Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.l
 Entity.RegisterComponent("weapon_physgun", import("lua/components/weapon_physgun.lua"))
 Entity.RegisterComponent("weapon_pistol", import("lua/components/weapon_pistol.lua"))
 Entity.RegisterComponent("weapon_camera", import("lua/components/weapon_camera.lua"))
+import("lua/weapon_models.lua")
+import("lua/weapons.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 
 local function create_ground()

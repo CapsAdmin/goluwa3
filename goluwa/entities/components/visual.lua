@@ -1104,6 +1104,8 @@ function Visual:Initialize()
 	refresh_forward_overlay_registry(self)
 	refresh_translucent_registry(self)
 	refresh_glass_registry(self)
+
+	if self.Owner.visibility_hidden then self:RefreshVisible() end
 end
 
 function Visual:SetUseOcclusionCulling(enabled)
@@ -1163,7 +1165,8 @@ function Visual:SetCastShadows(enabled)
 	mark_scene_component_dirty(self)
 end
 
-function Visual:SetVisible(visible)
+-- Visible is what is drawn: the own flag (SetVisible, stored) unless the visibility of the entity hides it (OnHide/OnShow)
+function Visual:ApplyVisible(visible)
 	if self.Visible == visible then return end
 
 	objects.CommitProperty(self, "Visible", visible)
@@ -1171,6 +1174,19 @@ function Visual:SetVisible(visible)
 	mark_scene_component_dirty(self)
 	scene_bvh.Invalidate(self)
 end
+
+function Visual:SetVisible(visible)
+	self.OwnVisible = visible
+	self:ApplyVisible(visible and not self.Owner.visibility_hidden)
+end
+
+function Visual:RefreshVisible()
+	self:ApplyVisible(self.OwnVisible ~= false and not self.Owner.visibility_hidden)
+end
+
+Visual.OnHide = Visual.RefreshVisible
+Visual.OnShow = Visual.RefreshVisible
+Visual.OnEntityConstructed = Visual.RefreshVisible
 
 function Visual:SetCullDistance(distance)
 	if self.CullDistance == distance then return end

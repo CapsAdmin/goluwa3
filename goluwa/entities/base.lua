@@ -1,5 +1,6 @@
 local event = import("goluwa/event.lua")
 local objects = import("goluwa/objects/objects.lua")
+local Visibility = import("goluwa/entities/components/visibility.lua")
 local BaseEntity = objects.CreateTemplate("base_entity")
 objects.ParentingTemplate(BaseEntity)
 BaseEntity:GetSet("Transient", nil, {type = "boolean"})
@@ -248,10 +249,12 @@ function BaseEntity:NotifyWorldEvent(event_name, a, b, c, d, e, f, g)
 end
 
 local function notify_parented(self, parent)
+	Visibility.Refresh(self)
 	self:NotifyWorldEvent("OnEntityHierarchyChanged", "parented", parent)
 end
 
 local function notify_unparented(self, old_parent)
+	Visibility.Refresh(self)
 	self:NotifyWorldEvent("OnEntityHierarchyChanged", "unparented", old_parent)
 end
 
@@ -501,6 +504,12 @@ function BaseEntity:OnPostCreate()
 	self:SetParent(parent)
 
 	if parent and parent:IsValid() and self:GetKey() ~= "" then set_keyed(self) end
+
+	Visibility.Refresh(self)
+
+	for _, component in ipairs(self.component_list) do
+		if component.OnEntityConstructed then component:OnEntityConstructed() end
+	end
 end
 
 -- the nearest entity at or above this one that is a prefab instance

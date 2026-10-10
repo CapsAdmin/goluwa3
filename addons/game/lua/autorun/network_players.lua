@@ -12,6 +12,8 @@ local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
 local PlayerMovement = import("lua/components/player_movement.lua")
 local outfit = import("lua/outfit.lua")
 import("lua/weapon_models.lua")
+import("lua/weapons.lua")
+import("lua/outfit_source.lua")
 Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
@@ -28,9 +30,24 @@ if RENDER_3D then
 		{
 			{"root"},
 			{"body", "root"},
-			{"head", "root"},
-			{"hand_r", "root"},
-			{"hand_l", "root"},
+			{"spine", "body"},
+			{"chest", "spine"},
+			{"neck", "chest"},
+			{"head", "neck"},
+			{"clavicle_r", "chest"},
+			{"upperarm_r", "clavicle_r"},
+			{"forearm_r", "upperarm_r"},
+			{"hand_r", "forearm_r"},
+			{"clavicle_l", "chest"},
+			{"upperarm_l", "clavicle_l"},
+			{"forearm_l", "upperarm_l"},
+			{"hand_l", "forearm_l"},
+			{"thigh_r", "body"},
+			{"calf_r", "thigh_r"},
+			{"foot_r", "calf_r"},
+			{"thigh_l", "body"},
+			{"calf_l", "thigh_l"},
+			{"foot_l", "calf_l"},
 		}
 	)
 end
@@ -70,9 +87,7 @@ if SERVER then
 			player_avatar = {},
 			network = {NetworkOwner = uid},
 		}
-		players[uid].weapon_holder:Give("weapon_camera")
-		players[uid].weapon_holder:Give("weapon_physgun")
-		players[uid].weapon_holder:Give("weapon_pistol")
+		players[uid].weapon_holder:GiveLoadout()
 		local start = packet.CreateBuffer()
 		start:WriteVec3(position)
 		start:WriteQuat(rotation)
@@ -131,7 +146,7 @@ if CLIENT and not SERVER then
 	end)
 
 	event.AddListener("PrefabChanged", "network_players_outfit", function(definition)
-		if network.IsConnected() and definition.name == outfit.LocalName then
+		if network.IsConnected() and definition.name == outfit.GetLocalName() then
 			outfit_due = system.GetElapsedTime() + OUTFIT_PUSH_DELAY
 		end
 	end)

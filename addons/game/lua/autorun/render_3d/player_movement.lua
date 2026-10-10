@@ -8,6 +8,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local network = import("goluwa/network/network.lua")
 local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
+import("lua/weapons.lua")
 Entity.RegisterComponent("camera", import("lua/components/camera.lua"))
 Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
 local current = Entity.World:GetKeyed("player_camera_rig")
@@ -38,9 +39,7 @@ local rig = Entity.New{
 	},
 }
 _G.PLAYER_RIG = rig
-rig.weapon_holder:Give("weapon_camera")
-rig.weapon_holder:Give("weapon_physgun")
-rig.weapon_holder:Give("weapon_pistol")
+rig.weapon_holder:GiveLoadout()
 rig.player_movement:SetEyePosition(cam:GetPosition())
 rig.player_input:SyncFromCamera(cam)
 system.GetWindow():SetMouseTrapped(true)

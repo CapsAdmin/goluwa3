@@ -5,14 +5,6 @@ META:GetSet("Range", 50)
 META:GetSet("Impulse", 6)
 local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
-function META:Initialize()
-	local weapon = self.Owner.weapon
-	weapon:SetSlot(2)
-	weapon:SetDisplayName("Pistol")
-	weapon:SetModelPrefab("weapon_pistol_model")
-	weapon:SetFireRate(0.25)
-end
-
 function META:WeaponPrimary(cmd)
 	local player = self.Owner:GetParent()
 	local origin = player.transform:GetPosition() + player.player_movement:GetViewOffset()

@@ -1,19 +1,20 @@
 local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local visibility = import("lua/visibility.lua")
 local META = objects.CreateTemplate("weapon")
 local BUTTON = usercmd.BUTTON
 META.Network = {
 	Slot = {"number", 0.5, "reliable"},
 	Active = {"boolean", 0.5, "reliable"},
 }
+META:StartStorable()
 META:GetSet("Slot", 1)
 META:GetSet("DisplayName", "")
 META:GetSet("ModelPrefab", "")
 META:IsSet("HiddenInFirstPerson", false)
 META:GetSet("FireRate", 0.1)
 META:GetSet("Automatic", false)
+META:EndStorable()
 META:IsSet("Active", false)
 
 function META:Initialize()
@@ -38,6 +39,7 @@ function META:UpdateModel(visible)
 			Parent = self.Owner:GetParent(),
 			transform = {Attachment = "hand_r"},
 			prefab = {Path = self.ModelPrefab},
+			visibility = {},
 		}
 		self.model = model
 		self.model_visible = true
@@ -49,7 +51,7 @@ function META:UpdateModel(visible)
 
 	if visible ~= self.model_visible then
 		self.model_visible = visible
-		visibility.SetTreeVisible(model, visible)
+		model.visibility:SetVisible(visible)
 	end
 end
 

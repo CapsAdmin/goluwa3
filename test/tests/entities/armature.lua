@@ -105,3 +105,32 @@ T.Test("Parent rotation times bone rotation times local rotation is the world ro
 	T((expected - actual):GetLength())["<"](0.0001)
 	owner:Remove()
 end)
+
+T.Test("A transform measures its render velocity from its world position, smoothed and once per frame", function()
+	local system = import("goluwa/system.lua")
+	local frame_number, elapsed = system.GetFrameNumber, system.GetElapsedTime
+	local frame, now = 1, 0
+	system.GetFrameNumber = function() return frame end
+	system.GetElapsedTime = function() return now end
+	local parent = Entity.New{transform = {Position = Vec3(0, 0, 0)}}
+	local child = Entity.New{Parent = parent, transform = {Position = Vec3(1, 0, 0)}}
+	local transform = child.transform
+	T(transform:GetRenderVelocity():GetLength())["=="](0)
+
+	for _ = 1, 60 do
+		frame, now = frame + 1, now + 1 / 60
+		parent.transform:SetPosition(Vec3(0, 0, -2 * now))
+		transform:GetRenderVelocity()
+	end
+
+	T(transform:GetRenderVelocity().z)["~"](-2, 0.05)
+	T(transform:GetRenderVelocity().x)["~"](0, 1e-6)
+	local cached = transform:GetRenderVelocity().z
+	parent.transform:SetPosition(Vec3(0, 0, -100))
+	T(transform:GetRenderVelocity().z)["=="](cached)
+	frame, now = frame + 1, now + 1
+	T(transform:GetRenderVelocity():GetLength())["=="](0)
+	child:Remove()
+	parent:Remove()
+	system.GetFrameNumber, system.GetElapsedTime = frame_number, elapsed
+end)

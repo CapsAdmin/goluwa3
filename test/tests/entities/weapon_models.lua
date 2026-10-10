@@ -23,3 +23,17 @@ T.Test("A weapon model needs only its nodes registered", function()
 	instance:Remove()
 	prefab.definitions.test_weapon_model = nil
 end)
+
+T.Test("A weapon is a built in prefab holding its values and its weapon component", function()
+	import("lua/weapons.lua")
+	Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
+	Entity.RegisterComponent("weapon_pistol", import("lua/components/weapon_pistol.lua"))
+	local instance = Entity.New{prefab = {Path = "weapon_pistol"}}
+	T(prefab.Get("weapon_pistol").builtin)["=="](true)
+	T(instance.weapon:GetDisplayName())["=="]("Pistol")
+	T(instance.weapon:GetSlot())["=="](2)
+	T(instance.weapon:GetFireRate())["=="](0.25)
+	T(instance.weapon:GetModelPrefab())["=="]("weapon_pistol_model")
+	T(instance.weapon_pistol ~= nil)["=="](true)
+	instance:Remove()
+end)

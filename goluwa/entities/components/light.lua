@@ -25,10 +25,6 @@ Light:GetSet("OcclusionMap", true)
 Light:GetSet("Visible", true)
 Light:EndStorable()
 
-function Light:OnCreate()
-	if self.Visible then list.insert(Light.instances, self) end
-end
-
 local function remove_instance(self)
 	local instances = Light.instances
 
@@ -41,7 +37,26 @@ local function remove_instance(self)
 	end
 end
 
+-- a light is in the scene while it is Visible and its entity is not hidden (visibility component)
+function Light:RefreshRegistration()
+	local active = self.Visible and not self.Owner.visibility_hidden or false
+
+	if active == (self.registered or false) then return end
+
+	self.registered = active
+
+	if active then list.insert(Light.instances, self) else remove_instance(self) end
+end
+
+function Light:OnCreate()
+	if self.Visible then
+		self.registered = true
+		list.insert(Light.instances, self)
+	end
+end
+
 function Light:OnRemove()
+	self.registered = false
 	remove_instance(self)
 end
 
@@ -49,13 +64,12 @@ function Light:SetVisible(visible)
 	if self.Visible == visible then return end
 
 	objects.CommitProperty(self, "Visible", visible)
-
-	if visible then
-		list.insert(Light.instances, self)
-	else
-		remove_instance(self)
-	end
+	self:RefreshRegistration()
 end
+
+Light.OnHide = Light.RefreshRegistration
+Light.OnShow = Light.RefreshRegistration
+Light.OnEntityConstructed = Light.RefreshRegistration
 
 function Light.GetInstances()
 	return Light.instances

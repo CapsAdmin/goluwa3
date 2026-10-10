@@ -68,8 +68,6 @@ local function get_angular_target(current, target, strength)
 end
 
 function META:Initialize()
-	self.Owner.weapon:SetDisplayName("Physgun")
-	self.Owner.weapon:SetModelPrefab("weapon_physgun_model")
 	self.held_body = nil
 	self.held_local_point = Vec3()
 	self.held_distance = self.MinHoldDistance

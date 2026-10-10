@@ -434,4 +434,45 @@ function META:GetWorldPosition()
 	return Vec3(self:GetWorldMatrix():GetTranslation())
 end
 
+do
+	local FOLLOW_RATE = 12
+	local MAX_GAP = 0.25
+
+	-- measured from the world position of the last frames, so it is the same for bodies the client simulates and for
+	-- replicated ones (rigid_body does not replicate velocity), smoothed, shared by every caller of the frame
+	-- and zero when nobody asked for a while. Do not modify the returned vector.
+	function META:GetRenderVelocity()
+		local frame = system.GetFrameNumber()
+		local velocity = self.RenderVelocity
+
+		if self.RenderVelocityFrame == frame then return velocity end
+
+		local m = self:GetWorldMatrix()
+		local now = system.GetElapsedTime()
+		self.RenderVelocityFrame = frame
+
+		if not velocity then
+			velocity = Vec3(0, 0, 0)
+			self.RenderVelocity = velocity
+		end
+
+		local dt = now - (self.RenderVelocityTime or -math.huge)
+
+		if dt > MAX_GAP then
+			velocity:Set(0, 0, 0)
+		elseif dt > 0 then
+			local follow = math.min(dt * FOLLOW_RATE, 1)
+			velocity:Set(
+				velocity.x + ((m.m30 - self.RenderVelocityX) / dt - velocity.x) * follow,
+				velocity.y + ((m.m31 - self.RenderVelocityY) / dt - velocity.y) * follow,
+				velocity.z + ((m.m32 - self.RenderVelocityZ) / dt - velocity.z) * follow
+			)
+		end
+
+		self.RenderVelocityTime = now
+		self.RenderVelocityX, self.RenderVelocityY, self.RenderVelocityZ = m.m30, m.m31, m.m32
+		return velocity
+	end
+end
+
 return META:Register()

@@ -8,7 +8,6 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local outfit = import("lua/outfit.lua")
-local visibility = import("lua/visibility.lua")
 local clients = import("goluwa/network/clients.lua")
 local META = objects.CreateTemplate("player_avatar")
 META.Network = {
@@ -69,12 +68,25 @@ function META:Build()
 	self.armature:SetSkeleton("player")
 end
 
+-- an outfit that animates its own model (a script) sets the bones of the armature itself
+function META:SetBonesDriven(driven)
+	self.bones_driven = driven
+end
+
 function META:SetFirstPerson(first_person)
 	if self.first_person == first_person then return end
 
 	self.first_person = first_person
 
-	if self.outfit then visibility.SetTreeVisible(self.outfit, not first_person) end
+	if self.outfit then self:ApplyFirstPerson() end
+end
+
+function META:ApplyFirstPerson()
+	if self.first_person then
+		self.outfit.visibility:AddHider("first_person")
+	else
+		self.outfit.visibility:RemoveHider("first_person")
+	end
 end
 
 function META:UpdateOutfit()
@@ -93,13 +105,14 @@ function META:UpdateOutfit()
 			Name = "outfit",
 			Parent = self.Owner,
 			prefab = {Path = self.outfit_name},
+			visibility = {},
 		}
 	elseif self.outfit_revision == definition.revision then
 		return
 	end
 
 	self.outfit_revision = definition.revision
-	visibility.SetTreeVisible(self.outfit, not self.first_person)
+	self:ApplyFirstPerson()
 end
 
 function META:OnUpdate(dt)
@@ -142,25 +155,26 @@ function META:OnUpdate(dt)
 			) - self.crouch_alpha
 		) * math.min(dt * 12, 1)
 	local height = math.lerp(self.crouch_alpha, HEIGHT, CROUCH_HEIGHT)
-	local armature = self.armature
 	-- the player entity turns with the view in yaw, so the head and hands are the view relative to it, which is the pitch
 	local transform = owner.transform
 	local _, entity_rotation = transform:GetRenderPositionRotation()
 	local pitch = (entity_rotation or transform:GetRotation()):GetConjugated() * rotation
-	bone_matrix:Identity()
-	bone_matrix:Scale(1, height / HEIGHT, 1)
-	bone_matrix:SetTranslation(0, height * 0.5, 0)
-	armature:SetBone("body", bone_matrix, "local")
-	bone_matrix:Identity()
-	bone_matrix:SetRotation(pitch)
-	bone_matrix:SetTranslation(0, math.lerp(self.crouch_alpha, EYE_HEIGHT, CROUCH_EYE_HEIGHT), 0)
-	armature:SetBone("head", bone_matrix, "local")
-	local hand = Vec3(0, height * 0.5 + WEAPON_RAISE, 0) + pitch:GetForward() * WEAPON_FORWARD
-	bone_matrix:SetTranslation(hand.x, hand.y, hand.z)
-	armature:SetBone("hand_r", bone_matrix, "local")
-	hand = hand - pitch:GetRight() * HAND_SPACING
-	bone_matrix:SetTranslation(hand.x, hand.y, hand.z)
-	armature:SetBone("hand_l", bone_matrix, "local")
+	self.pitch = pitch
+
+	if not self.bones_driven then
+		local armature = self.armature
+		bone_matrix:Identity()
+		bone_matrix:SetRotation(pitch)
+		bone_matrix:SetTranslation(0, math.lerp(self.crouch_alpha, EYE_HEIGHT, CROUCH_EYE_HEIGHT), 0)
+		armature:SetBone("head", bone_matrix, "local")
+		local hand = Vec3(0, height * 0.5 + WEAPON_RAISE, 0) + pitch:GetForward() * WEAPON_FORWARD
+		bone_matrix:SetTranslation(hand.x, hand.y, hand.z)
+		armature:SetBone("hand_r", bone_matrix, "local")
+		hand = hand - pitch:GetRight() * HAND_SPACING
+		bone_matrix:SetTranslation(hand.x, hand.y, hand.z)
+		armature:SetBone("hand_l", bone_matrix, "local")
+	end
+
 	self:UpdateOutfit()
 
 	for _, child in ipairs(owner:GetChildren()) do

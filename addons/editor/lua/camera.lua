@@ -46,6 +46,16 @@ function camera.GetRotation()
 	return camera.rotation
 end
 
+-- looks at a point from the front of an entity (its forward vector points at the camera), upright
+function camera.ViewFromFront(center, distance, entity_rotation)
+	local turn = Quat():Identity()
+	turn:RotateYaw(math.pi)
+	camera.rotation = (entity_rotation * turn):GetNormalized()
+	camera.pitch = 0
+	camera.position = center + entity_rotation:GetForward() * distance
+	camera.velocity = Vec3()
+end
+
 function camera.Update(dt)
 	if not camera.block_dragging and input.IsMouseDown("button_1") then
 		local mouse_delta = system.GetWindow():GetMouseDelta() / 2

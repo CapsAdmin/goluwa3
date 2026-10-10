@@ -30,22 +30,40 @@ function WaterVolume:SetPreset(name)
 	self:SetParticleScattering(preset.ParticleScattering:Copy())
 end
 
+-- a volume is in the water simulation while it is Visible and its entity is not hidden (visibility component)
+function WaterVolume:RefreshRegistration()
+	local active = self.Visible and not self.Owner.visibility_hidden or false
+
+	if active == (self.registered or false) then return end
+
+	self.registered = active
+
+	if active then water.AddVolume(self) else water.RemoveVolume(self) end
+end
+
 function WaterVolume:OnCreate()
 	fluid.AddVolume(self)
 
-	if self.Visible then water.AddVolume(self) end
+	if self.Visible then
+		self.registered = true
+		water.AddVolume(self)
+	end
 end
 
 function WaterVolume:SetVisible(visible)
 	if self.Visible == visible then return end
 
 	objects.CommitProperty(self, "Visible", visible)
-
-	if visible then water.AddVolume(self) else water.RemoveVolume(self) end
+	self:RefreshRegistration()
 end
+
+WaterVolume.OnHide = WaterVolume.RefreshRegistration
+WaterVolume.OnShow = WaterVolume.RefreshRegistration
+WaterVolume.OnEntityConstructed = WaterVolume.RefreshRegistration
 
 function WaterVolume:OnRemove()
 	fluid.RemoveVolume(self)
+	self.registered = false
 	water.RemoveVolume(self)
 end
 

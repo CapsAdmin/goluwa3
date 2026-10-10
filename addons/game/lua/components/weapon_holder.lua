@@ -59,18 +59,25 @@ function META:CycleSlot(slot, direction)
 	return weapons[(index - 1 + direction) % count + 1].weapon:GetSlot()
 end
 
-function META:Give(component_name)
+-- a weapon is a prefab of the same name as its component (addons/game/lua/weapons.lua)
+function META:Give(weapon_name)
 	local owner = self.Owner
 	local weapon = Entity.New{
 		Parent = owner,
-		Name = component_name,
-		ComponentSet = {"weapon", component_name},
+		Name = weapon_name,
+		prefab = {Path = weapon_name},
 		network = owner.network and {NetworkOwner = owner.network:GetNetworkOwner()} or nil,
 	}
 
 	if not self:GetActiveWeapon() then self:Select(weapon) end
 
 	return weapon
+end
+
+function META:GiveLoadout()
+	for _, name in ipairs(import("lua/weapons.lua").Loadout) do
+		self:Give(name)
+	end
 end
 
 function META:Select(weapon)

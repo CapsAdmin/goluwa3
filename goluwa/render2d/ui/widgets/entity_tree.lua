@@ -803,6 +803,12 @@ function META:ExpandRoots()
 	return self
 end
 
+function META:CollapseOwnerGroup(root, owner)
+	self._expanded_keys[root:GetGUID() .. "/owner/" .. root.GetOwnerKey(owner)] = false
+	self:Refresh()
+	return self
+end
+
 function META:CollapseRoots()
 	for _, entity in ipairs(self._root_entities) do
 		self._expanded_keys[entity:GetGUID()] = nil
