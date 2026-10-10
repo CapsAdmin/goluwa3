@@ -26,7 +26,6 @@ META:GetSet("ToggleOnRowClick", false)
 META:GetSet("DoubleClickTime", 0.3)
 META:GetSet("AnimationTime", 0.18)
 META:GetSet("DragThreshold", nil)
-META:GetSet("SharedInstanceColor", nil)
 META:GetSet("LineColor", "border")
 META:GetSet("BoxFillColor", "surface")
 META:GetSet("BoxOutlineColor", "border")
@@ -933,7 +932,7 @@ function META:materialize_row(row_info)
 	local has_children = row_info.has_children
 	local selected = self:is_selected(node, path, key)
 	local expanded = self:is_expanded(node, path, key, has_children)
-	local custom_panel = self:get_node_panel(node, path, key, selected, has_children, expanded)
+	local custom_panel = self.OnGetNodePanel(node, path, key, selected, has_children, expanded)
 
 	local function on_row_layout_changed()
 		tree:update_row_display(row_info)
@@ -1370,74 +1369,6 @@ do
 			},
 		}
 	end
-end
-
-function META:get_node_panel(node, path, key, selected, has_children, expanded)
-	local panels = {}
-
-	if node.SharedInstance and self.SharedInstanceColor then
-		local shared_instance_color = self.SharedInstanceColor
-		panels[#panels + 1] = Panel.New{
-			IsInternal = true,
-			Name = "TreeSharedInstanceMarker",
-			transform = {
-				Size = Vec2() + theme.active:GetSize("S"),
-			},
-			layout = {
-				SelfAlignmentY = "center",
-				GrowWidth = 0,
-				FitWidth = false,
-			},
-			mouse_input = {
-				IgnoreMouseInput = true,
-			},
-			visual = {
-				OnDraw = function(self)
-					local size = self.Owner.transform:GetSize()
-					theme.active:DrawSharedInstanceMarker(size, shared_instance_color)
-				end,
-			},
-		}
-	end
-
-	-- small labels after the text, a node lists them as {Text, Color}
-	for _, badge in ipairs(node.Badges or {}) do
-		panels[#panels + 1] = Text{
-			IsInternal = true,
-			Text = badge.Text,
-			Font = "body S",
-			Color = badge.Color,
-			IgnoreMouseInput = true,
-			layout = {SelfAlignmentY = "center", GrowWidth = 0, FitWidth = true},
-		}
-	end
-
-	if #panels == 0 then
-		return self.OnGetNodePanel(node, path, key, selected, has_children, expanded)
-	end
-
-	if #panels == 1 then return panels[1] end
-
-	local row = Panel.New{
-		IsInternal = true,
-		Name = "TreeNodeBadges",
-		transform = true,
-		layout = {
-			Direction = "x",
-			ChildGap = "XXS",
-			SelfAlignmentY = "center",
-			GrowWidth = 0,
-			FitWidth = true,
-			FitHeight = true,
-		},
-		mouse_input = {IgnoreMouseInput = true},
-	}
-
-	for _, panel in ipairs(panels) do
-		row:AddChild(panel)
-	end
-
-	return row
 end
 
 return META:Register()

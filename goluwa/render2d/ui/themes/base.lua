@@ -128,6 +128,7 @@ function BaseTheme:CreatePalette()
 		positive = base_map.green,
 		neutral = base_map.yellow,
 		negative = base_map.red,
+		prefab = base_map.purple,
 		text = text,
 		text_on_accent = Color.FromHex("#ffffff"),
 		text_on_dark = Color.FromHex("#ffffff"),
@@ -1131,34 +1132,6 @@ function BaseTheme:DrawTreeToggle(size, meta, opts)
 	)
 	render2d.PopMatrix()
 	return center_x, center_y
-end
-
-function BaseTheme:DrawSharedInstanceMarker(size, color)
-	local line = self:GetSize("line")
-	local inset = self:GetSize("XXXS")
-	render2d.DrawShape{
-		x = 0,
-		y = 0,
-		w = size.x,
-		h = size.y,
-		color = self:ResolveColor(color, "primary"),
-		texture = false,
-		int = true,
-		layers = {
-			{
-				x = inset,
-				y = math.floor(size.y * 0.5) - line,
-				w = math.max(1, size.x - inset * 2),
-				h = line * 2,
-			},
-			{
-				x = math.floor(size.x * 0.5) - line,
-				y = inset,
-				w = line * 2,
-				h = math.max(1, size.y - inset * 2),
-			},
-		},
-	}
 end
 
 function BaseTheme:DrawDropIndicator(size, opts)

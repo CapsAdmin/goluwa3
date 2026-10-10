@@ -51,8 +51,6 @@ local COMPONENT_ORDER = {
 	"rigid_body",
 	"network",
 }
-local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
-local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
 
 local function is_hidden(entity, editor_window)
@@ -453,7 +451,6 @@ return function(props)
 							[Panel.World] = "2D World",
 						},
 						SelectedKey = initial_selected_guid,
-						SharedInstanceColor = SHARED_INSTANCE_COLOR,
 						ShowVirtualChildren = true,
 						FilterCallback = function(entity)
 							return entity_tree_filter_callback(entity, editor_window) or
@@ -654,7 +651,7 @@ return function(props)
 
 							local panel_size = self.Owner.transform:GetSize()
 							render2d.SetTexture(nil)
-							render2d.SetColor(SHARED_INSTANCE_OUTLINE:Unpack())
+							render2d.SetColor(theme.active:GetColor("prefab"):Unpack())
 							render2d.DrawRect(0, 0, math.max(1, panel_size.x), 2)
 							render2d.DrawRect(0, math.max(0, panel_size.y - 2), math.max(1, panel_size.x), 2)
 							render2d.DrawRect(0, 0, 2, math.max(1, panel_size.y))

@@ -83,6 +83,7 @@ function PlayfulTheme:ConfigurePalette(palette)
 		positive = hot_lime,
 		neutral = gold,
 		negative = hot_red,
+		prefab = "purple",
 		ink = ink,
 		paper = paper,
 		dosblue = dosblue,

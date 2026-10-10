@@ -184,20 +184,9 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 		Children = children,
 		SharedInstance = entity.prefab_owner ~= nil,
 	}
-	local instance = entity.prefab
-	local script = entity.script
 
-	if instance and instance.definition then
-		node.TextColor = "positive"
-		node.Badges = {{Text = instance.Path, Color = "positive"}}
-	end
-
-	if script then
-		node.Badges = node.Badges or {}
-		node.Badges[#node.Badges + 1] = {
-			Text = script.Error and "script error" or "script",
-			Color = script.Error and "negative" or "text_disabled",
-		}
+	if entity.prefab_owner or (entity.prefab and entity.prefab.definition) then
+		node.IconColor = "prefab"
 	end
 
 	return node

@@ -74,6 +74,7 @@ function JRPGTheme:ConfigurePalette(palette)
 		positive = jade,
 		neutral = amber,
 		negative = vermillion,
+		prefab = "purple",
 		ink = ink,
 		heading = warm_white,
 		default = warm_white,
