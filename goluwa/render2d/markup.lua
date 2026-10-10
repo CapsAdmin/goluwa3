@@ -35,6 +35,37 @@ Markup:GetSet("SuperLightMode", false)
 Markup:GetSet("CopyTags", true)
 Markup:GetSet("PreserveTabsOnEnter", true)
 Markup:GetSet("FixedSize", 0)
+Markup:GetSet("DefaultColor", Color(1, 1, 1, 1))
+Markup:GetSet("DefaultFont", nil)
+Markup:GetSet("Background", nil)
+Markup:GetSet("AdaptColors", false)
+Markup:GetSet("AdaptContrast", 4.5)
+Markup.ResetColor = {}
+
+function Markup:SetDefaultColor(color)
+	self.DefaultColor = color
+	self.need_layout = true
+end
+
+function Markup:SetDefaultFont(font)
+	self.DefaultFont = font
+	self.need_layout = true
+end
+
+function Markup:SetBackground(color)
+	self.Background = color
+	self.adapt_cache = nil
+end
+
+function Markup:SetAdaptColors(b)
+	self.AdaptColors = b
+	self.adapt_cache = nil
+end
+
+function Markup:SetAdaptContrast(ratio)
+	self.AdaptContrast = ratio
+	self.adapt_cache = nil
+end
 
 local function move_editor_vertically(markup, delta)
 	local caret = markup.caret_pos or markup:CaretFromSubPos(markup.editor.Cursor)
@@ -156,6 +187,11 @@ function Markup:AddColor(color)
 	self.need_layout = true
 end
 
+function Markup:AddResetColor()
+	self.editor.Buffer:AddResetColor()
+	self.need_layout = true
+end
+
 function Markup:AddString(str, tags)
 	self.editor.Buffer:AddString(str, tags)
 	self.need_layout = true
@@ -167,6 +203,11 @@ function Markup:AddFont(font)
 end
 
 function Markup:Add(var, tags)
+	if var == Markup.ResetColor then
+		self:AddResetColor()
+		return
+	end
+
 	local t = typex(var)
 
 	if t == "color" then
@@ -1314,8 +1355,22 @@ do
 			end
 		end
 
-		add_chunk(self, out, {type = "font", val = fonts.GetDefaultFont(), internal = true}, 1)
-		add_chunk(self, out, {type = "color", val = Color(1, 1, 1, 1), internal = true}, 1)
+		add_chunk(
+			self,
+			out,
+			{
+				type = "font",
+				val = self.DefaultFont or fonts.GetDefaultFont(),
+				internal = true,
+			},
+			1
+		)
+		add_chunk(
+			self,
+			out,
+			{type = "color", val = self.DefaultColor, reset = true, internal = true},
+			1
+		)
 		add_chunk(self, out, {type = "string", val = "", internal = true})
 
 		for _, chunk in ipairs(input_chunks) do
@@ -1484,8 +1539,8 @@ do
 		local width = 0
 		local height = 0
 		local last_y
-		local font = fonts.GetDefaultFont()
-		local color = Color(1, 1, 1, 1)
+		local font = self.DefaultFont or fonts.GetDefaultFont()
+		local color = self.DefaultColor
 		local chunk_line = {}
 		local line_height = 0
 		local line_width = 0
@@ -1499,7 +1554,7 @@ do
 			if chunk.type == "font" then
 				font = chunk.val
 			elseif chunk.type == "color" then
-				color = chunk.val
+				color = chunk.reset and self.DefaultColor or chunk.val
 			elseif chunk.type == "string" then
 				chunk.font = font
 				chunk.color = color
@@ -2425,6 +2480,31 @@ do
 
 	local started_tags = false
 
+	function Markup:GetAdaptedColor(color)
+		local cache = self.adapt_cache
+
+		if not cache then
+			cache = {count = 0}
+			self.adapt_cache = cache
+		end
+
+		local key = math.floor(color.r * 255 + 0.5) * 16777216 + math.floor(color.g * 255 + 0.5) * 65536 + math.floor(color.b * 255 + 0.5) * 256 + math.floor(color.a * 255 + 0.5)
+		local adapted = cache[key]
+
+		if not adapted then
+			if cache.count > 256 then
+				table.clear(cache)
+				cache.count = 0
+			end
+
+			adapted = color:GetAdjustedForBackground(self.Background, {target_contrast = self.AdaptContrast})
+			cache[key] = adapted
+			cache.count = cache.count + 1
+		end
+
+		return adapted
+	end
+
 	function Markup:Draw(max_w)
 		if (self.LightMode or self.SuperLightMode) and self.light_mode_obj then
 			render2d.SetColor(1, 1, 1, 1)
@@ -2437,7 +2517,7 @@ do
 
 		if not self.prepared_chunks[1] then return end
 
-		set_font(self, fonts.GetDefaultFont())
+		set_font(self, self.DefaultFont or fonts.GetDefaultFont())
 		render2d.SetColor(1, 1, 1, 1)
 		started_tags = false
 
@@ -2473,6 +2553,10 @@ do
 					if chunk.type == "string" and not self.LightMode then
 						set_font(self, chunk.font)
 						local c = chunk.color
+
+						if c and self.AdaptColors and self.Background then
+							c = self:GetAdaptedColor(c)
+						end
 
 						if c then render2d.PushColor(c.r, c.g, c.b, c.a) end
 
@@ -2557,22 +2641,79 @@ do
 		if self.Selectable then self:DrawSelection() end
 	end
 
+	local bands = {}
+
 	function Markup:DrawSelection()
 		local START = self:GetSelectStart()
 		local END = self:GetSelectStop()
 
 		if START and END then
+			local color = self.SelectionColor
 			render2d.SetTexture()
-			render2d.SetColor(self.SelectionColor:Unpack())
+			render2d.SetColor(color.r, color.g, color.b)
+			render2d.SetAlphaMultiplier(color.a)
+			render2d.PushBorderRadius(2)
+			local line, left, right, top, bottom
+			local band_count = 0
 
-			for i = START.i, END.i - 1 do
-				local char = self.chars[i]
+			for i = START.i, END.i do
+				local char = i < END.i and self.chars[i]
+				local data = char and char.data
+				local char_line = char and char.y
 
-				if char then
-					local data = char.data
-					render2d.DrawRect(data.x, data.y, data.w, data.h)
+				if line and (not data or char_line ~= line) then
+					local width = right - left
+
+					if i < END.i then width = math.max(width, 5) end
+
+					local index = band_count * 4
+					bands[index + 1] = left
+					bands[index + 2] = top
+					bands[index + 3] = width
+					bands[index + 4] = bottom
+					band_count = band_count + 1
+					line = nil
+				end
+
+				if data then
+					if not line then
+						line = char_line
+						left = data.x
+						right = data.x + data.w
+						top = math.huge
+						bottom = -math.huge
+					else
+						if data.x < left then left = data.x end
+
+						if data.x + data.w > right then right = data.x + data.w end
+					end
+
+					local font = char.chunk.font
+
+					if font then
+						local glyph_top = data.y - font:GetDescent() / 2
+
+						if glyph_top < top then top = glyph_top end
+
+						if glyph_top + font:GetLineHeight() > bottom then
+							bottom = glyph_top + font:GetLineHeight()
+						end
+					end
 				end
 			end
+
+			for band = 0, band_count - 1 do
+				local index = band * 4
+				local y = bands[index + 2]
+				local y2 = bands[index + 4]
+
+				if band < band_count - 1 and bands[index + 6] < y2 then y2 = bands[index + 6] end
+
+				render2d.DrawRect(bands[index + 1], y, bands[index + 3], y2 - y)
+			end
+
+			render2d.PopBorderRadius()
+			render2d.SetAlphaMultiplier(1)
 
 			if self.Editable and self.select_stop then
 				self:DrawLineHighlight(self.select_stop.y)

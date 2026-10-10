@@ -205,6 +205,10 @@ function MarkupBuffer:AddColor(color)
 	table.insert(self.chunks, {type = "color", val = color})
 end
 
+function MarkupBuffer:AddResetColor()
+	table.insert(self.chunks, {type = "color", reset = true})
+end
+
 function MarkupBuffer:AddFont(font)
 	table.insert(self.chunks, {type = "font", val = font})
 end
@@ -250,7 +254,7 @@ function MarkupBuffer:GetFullTextSub(start, stop)
 				table.insert(out, utf8.sub(chunk.val, rel_start, rel_stop))
 			elseif chunk.type == "newline" then
 				table.insert(out, "\n")
-			elseif chunk.type == "color" then
+			elseif chunk.type == "color" and not chunk.reset then
 				local c = chunk.val
 				table.insert(out, ("<color=%s,%s,%s,%s>"):format(c.r, c.g, c.b, c.a))
 			elseif chunk.type == "font" then

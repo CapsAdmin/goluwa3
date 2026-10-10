@@ -61,7 +61,7 @@ function chatbox.AddText(...)
 		if t == "client" then
 			list.insert(args, v:GetUniqueColor())
 			list.insert(args, v:GetNick())
-			list.insert(args, Color(1, 1, 1, 1))
+			list.insert(args, Markup.ResetColor)
 		elseif t == "string" then
 			if v == ": sh" or v == "sh" or v:find("%ssh%s") then
 				chatbox.markup_hud:TagPanic()
@@ -95,14 +95,12 @@ function chatbox.AddText(...)
 	chatbox.markup_hud:BeginLifeTime(chatbox.life_time)
 
 	do
-		chatbox.markup_hud:AddFont(chatbox.font)
 		chatbox.markup_hud:AddTable(args, true)
 		chatbox.markup_hud:AddTagStopper()
 		chatbox.markup_hud:AddString("\n")
 	end
 
 	do
-		chatbox.markup_chatbox:AddFont(chatbox.font)
 		chatbox.markup_chatbox:AddTable(args, true)
 		chatbox.markup_chatbox:AddTagStopper()
 		chatbox.markup_chatbox:AddString("\n")
@@ -162,6 +160,7 @@ function chatbox.Show()
 		}{
 			MarkupPanel{
 				Markup = chatbox.markup_chatbox,
+				AdaptColors = true,
 				layout = {
 					MinSize = Vec2(0, 0),
 					MaxSize = Vec2(10000, 10000),
@@ -255,7 +254,7 @@ event.AddListener("Chat", "chatbox", function(name, str, client)
 	if client:IsValid() then list.insert(tbl, client:GetUniqueColor()) end
 
 	list.insert(tbl, name)
-	list.insert(tbl, Color(1, 1, 1, 1))
+	list.insert(tbl, Markup.ResetColor)
 	list.insert(tbl, ": ")
 	list.insert(tbl, str)
 	chatbox.AddText(unpack(tbl))

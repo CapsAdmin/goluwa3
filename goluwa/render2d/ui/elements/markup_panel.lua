@@ -3,6 +3,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Markup = import("goluwa/render2d/markup.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 local META = Panel:CreateTemplate("markup_panel")
 META.CMP.transform = {}
 META.CMP.layout = {
@@ -14,10 +15,18 @@ META:StartStorable()
 META:GetSet("Markup", nil)
 META:GetSet("ContentPadding", 4)
 META:GetSet("StickToBottom", true)
+META:GetSet("Selectable", true)
+META:GetSet("Themed", true)
+META:GetSet("AdaptColors", false)
+META:GetSet("FontSize", "M")
 META:EndStorable()
 
 local function on_container_draw(container)
 	container.MarkupPanel:draw_content(container)
+end
+
+local function forward_mouse_input(container, button, press)
+	return container.MarkupPanel.Markup:OnMouseInput(button, press)
 end
 
 function META.PropDefaults()
@@ -48,8 +57,11 @@ function META:OnCreate()
 			FitHeight = true,
 		},
 		visual = true,
+		mouse_input = {Cursor = "text_input"},
 		OnDraw = on_container_draw,
 	}
+	self._container:AddLocalListener("OnMouseInput", forward_mouse_input, "markup_panel_selection")
+	self.Markup:SetSelectable(self.Selectable)
 end
 
 function META:ScrollToBottom()
@@ -63,9 +75,32 @@ end
 function META:draw_content(container)
 	local markup = self.Markup
 	local padding = self.ContentPadding
+	local background
+
+	if self.Themed then
+		local active = theme.active
+		background = active:GetColor("surface")
+		markup:SetBackground(background)
+		markup:SetAdaptColors(self.AdaptColors)
+		local selection_color = active:GetColor("text_selection")
+
+		if markup.SelectionColor ~= selection_color then
+			markup:SetSelectionColor(selection_color)
+		end
+
+		local text_color = active:GetColor("text", {surface = "surface"})
+
+		if markup.DefaultColor ~= text_color then markup:SetDefaultColor(text_color) end
+
+		local font = active:GetFont("body", self.FontSize)
+
+		if markup.DefaultFont ~= font then markup:SetDefaultFont(font) end
+	end
+
 	local viewport = container:GetParent().transform
 	local view = viewport:GetSize()
 	local width = container.transform:GetWidth()
+	markup:SetMousePosition(container.mouse_input:GetMousePosition() - Vec2(padding, padding))
 	markup:SetMaxWidth(width - padding * 2)
 	markup:Update()
 	local height = math.max((markup.height or 0) + padding * 2, view.y)
@@ -86,7 +121,12 @@ function META:draw_content(container)
 		self._pending_bottom = content_height + 1 < height
 	end
 
-	render2d.SetColor(0, 0, 0, 1)
+	if background then
+		render2d.SetColor(background.r, background.g, background.b, background.a)
+	else
+		render2d.SetColor(0, 0, 0, 1)
+	end
+
 	render2d.DrawRect(0, 0, width, height)
 	render2d.PushMatrix(padding, padding)
 	markup:Draw()
