@@ -711,6 +711,9 @@ do
 			fill_pressed_alpha = 1
 			ring = w95_dark
 			ring_alpha = 1
+		elseif state.mode == "tab" then
+			background_token = "button_color"
+			foreground_token = "ink"
 		elseif state.mode == "menu" then
 			foreground_token = state.selected and "ink" or "text"
 
@@ -762,6 +765,8 @@ do
 
 		if state.mode == "menu" then
 			return self:DrawMenuButton(size, state)
+		elseif state.mode == "tab" then
+			return self:DrawTabButton(size, state)
 		elseif state.mode == "text" then
 			if hovered or pressed or state.active then
 				render2d.DrawShape{
@@ -824,6 +829,29 @@ do
 				}
 			)
 		end
+	end
+
+	function PlayfulTheme:DrawTabButton(size, state)
+		local tex = self:GetTextures()
+
+		if state.active then
+			self:DrawSilverButton(0, 0, size.x, size.y + 4, {texture = tex.pinstripe})
+			return
+		end
+
+		local top = 3
+		self:DrawSilverButton(
+			0,
+			top,
+			size.x,
+			size.y - top,
+			{
+				texture = tex.pinstripe,
+				pressed = state.pressed and not state.disabled,
+				hovered = state.hovered and not state.disabled,
+				disabled = state.disabled,
+			}
+		)
 	end
 
 	function PlayfulTheme:DrawMenuButton(size, state, opts)
@@ -1185,6 +1213,18 @@ function PlayfulTheme:DrawDivider(size)
 				{x = math.floor(size.x / 2), y = 0, w = 1, h = size.y, color = dark},
 				{x = math.floor(size.x / 2) + 1, y = 0, w = 1, h = size.y, color = light},
 			},
+	}
+end
+
+function PlayfulTheme:DrawTabBar(size)
+	render2d.DrawShape{
+		x = 0,
+		y = size.y - 2,
+		w = size.x,
+		h = 2,
+		color = w95_light,
+		texture = false,
+		int = true,
 	}
 end
 

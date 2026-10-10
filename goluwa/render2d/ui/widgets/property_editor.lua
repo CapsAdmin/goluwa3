@@ -15,8 +15,8 @@ local Collapsible = import("goluwa/render2d/ui/widgets/collapsible.lua")
 local ColorPicker = import("goluwa/render2d/ui/widgets/color_picker.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
+local TabBar = import("goluwa/render2d/ui/widgets/tab_bar.lua")
 local PropertyAsset = import("goluwa/render2d/ui/widgets/properties/asset.lua")
 local PropertyBoolean = import("goluwa/render2d/ui/widgets/properties/boolean.lua")
 local PropertyCode = import("goluwa/render2d/ui/widgets/properties/code.lua")
@@ -318,6 +318,10 @@ function META:OnThemeChanged()
 	self:rebuild_categories()
 end
 
+local function on_tab_change(name, tab_bar)
+	tab_bar.Editor:SetActiveTab(name)
+end
+
 function META:OnCreate()
 	META.BaseClass.OnCreate(self)
 	self:update_metrics()
@@ -329,16 +333,12 @@ function META:OnCreate()
 	self._listeners = {}
 	self._property_change_sync_blocked = 0
 	self._selected_key = self.SelectedKey
-	self._tab_buttons = {}
-	self._tab_bar = Row{
+	self._tab_bar = TabBar{
 		Parent = self,
 		IsInternal = true,
-		layout = {
-			GrowWidth = 1,
-			FitHeight = true,
-			ChildGap = "XXS",
-			Padding = "XXS",
-		},
+		Editor = self,
+		FontSize = self._font_size,
+		OnChange = on_tab_change,
 	}
 	self._content = Column{
 		Parent = self,
@@ -999,11 +999,6 @@ function META:build_category_panel(node, path, key)
 	return category
 end
 
-local function on_tab_click(button)
-	button.Editor:SetActiveTab(button.Tab)
-	return true
-end
-
 function META:SetActiveTab(name)
 	self._active_tab = name
 	self:rebuild_categories()
@@ -1029,39 +1024,14 @@ function META:update_tabs()
 	self._tabs_visible = #tabs >= 2
 
 	if #tabs < 2 then
-		self._tab_bar:RemoveChildren()
-		self._tab_buttons = {}
-		self._tab_key = nil
+		self._tab_bar:SetTabs({})
 		return nil
 	end
 
 	-- the tab that was chosen last is kept for the next object that has it, until then the first one is shown
 	local active = seen[self._active_tab] and self._active_tab or tabs[1]
-	local key = table.concat(tabs, "\0")
-
-	-- the buttons are kept while the tabs stay the same, a click must not remove the button it came from
-	if key ~= self._tab_key then
-		self._tab_key = key
-		self._tab_bar:RemoveChildren()
-		self._tab_buttons = {}
-
-		for _, name in ipairs(tabs) do
-			self._tab_buttons[name] = Button{
-				Editor = self,
-				Tab = name,
-				Text = name,
-				Mode = "outline",
-				FontSize = self._font_size,
-				OnClick = on_tab_click,
-			}
-			self._tab_bar:AddChild(self._tab_buttons[name])
-		end
-	end
-
-	for name, button in pairs(self._tab_buttons) do
-		button:SetActive(name == active)
-	end
-
+	self._tab_bar:SetTabs(tabs)
+	self._tab_bar:SetValue(active)
 	return active
 end
 

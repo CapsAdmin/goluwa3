@@ -824,6 +824,15 @@ do
 				ring = self:GetColor("border_strong")
 				ring_hover = accent
 				ring_alpha = 1
+			elseif state.mode == "tab" then
+				background_token = "surface"
+				foreground_token = (state.hovered or state.pressed or state.active) and
+					(
+						state.button_color or
+						"primary"
+					)
+					or
+					"text"
 			elseif state.mode == "menu" then
 				foreground_token = "text"
 
@@ -949,9 +958,35 @@ do
 			)
 		end
 
+		function BaseTheme:DrawTabButton(size, state)
+			local anim = state.anim or {glow_alpha = 0}
+			local accent = self:GetColor(state.button_color or "primary")
+			local radius = self:GetRadius("S")
+			local fill_alpha = 0
+
+			if state.pressed and not state.disabled then
+				fill_alpha = 0.14
+			elseif state.active then
+				fill_alpha = 0.08
+			elseif state.hovered and not state.disabled then
+				fill_alpha = 0.06 * anim.glow_alpha
+			end
+
+			if fill_alpha > 0 then
+				self:DrawBox(size, {fill = accent, fill_alpha = fill_alpha, radius = {radius, radius, 0, 0}})
+			end
+
+			if state.active then
+				local thickness = self:GetSize("XXXS")
+				self:DrawRoundRect(0, size.y - thickness, size.x, thickness, 0, accent)
+			end
+		end
+
 		function BaseTheme:DrawButton(size, state)
 			if state.mode == "menu" then
 				return self:DrawMenuButton(size, state)
+			elseif state.mode == "tab" then
+				return self:DrawTabButton(size, state)
 			elseif state.mode == "outline" then
 				return self:DrawOutlineButton(size, state)
 			elseif state.mode == "text" then
@@ -1494,6 +1529,11 @@ function BaseTheme:DrawDivider(size)
 	self:DrawLine(0, 1, size, "auto")
 end
 
+function BaseTheme:DrawTabBar(size)
+	local line = self:GetSize("line")
+	self:DrawRoundRect(0, size.y - line, size.x, line, 0, self:GetColor("border"))
+end
+
 function BaseTheme:DrawMenuSpacer(size, vertical)
 	self:DrawLine(0, 1, size, vertical and "vertical" or "horizontal")
 end
@@ -1602,6 +1642,8 @@ function BaseTheme:Draw(pnl)
 		return self:DrawButton(pnl.transform:GetTotalSize(), pnl:GetState())
 	elseif name == "slider" then
 		return self:DrawSlider(pnl.transform:GetSize(), pnl:GetState())
+	elseif name == "tab_bar" then
+		return self:DrawTabBar(pnl.transform:GetSize())
 	elseif name == "progress_bar" then
 		local state = pnl:GetState()
 		return self:DrawProgressBar(pnl.transform:GetSize(), state, state.color)

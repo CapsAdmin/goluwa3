@@ -768,6 +768,8 @@ end
 function JRPGTheme:DrawButton(size, state)
 	if state.mode == "menu" then
 		return self.BaseClass.DrawButton(self, size, state)
+	elseif state.mode == "tab" then
+		return self:DrawTabButton(size, state)
 	end
 
 	local anim = state.anim or {glow_alpha = 0, press_scale = 0}
@@ -849,7 +851,7 @@ function JRPGTheme:DrawButton(size, state)
 end
 
 function JRPGTheme:DrawButtonPost(size, state)
-	if state.mode == "menu" then return end
+	if state.mode == "menu" or state.mode == "tab" then return end
 
 	local anim = state.anim or {glow_alpha = 0}
 
@@ -866,6 +868,72 @@ function JRPGTheme:DrawButtonPost(size, state)
 	self:DrawGlow(3, size.y - 3, 12 * anim.glow_alpha)
 	self:DrawGlow(size.x - 3, size.y - 3, 12 * anim.glow_alpha)
 	render2d.PopBlendMode()
+end
+
+function JRPGTheme:DrawTabButton(size, state)
+	local anim = state.anim or {glow_alpha = 0}
+	local accent = self:GetColor(state.button_color or "primary")
+	local alpha_scale = state.disabled and 0.4 or 1
+	local glow = state.hovered and not state.disabled and anim.glow_alpha or 0
+
+	if state.active then
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = size.x,
+			h = size.y,
+			color = WHITE,
+			alpha = alpha_scale,
+			texture = self.ModernFrameGradient,
+			int = true,
+		}
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = size.x,
+			h = size.y,
+			texture = false,
+			int = true,
+			layers = border_layers(size, accent, 0, true, false, true, true),
+		}
+		render2d.PushBlendPreset("additive")
+		set_color(accent, 0.8 * alpha_scale)
+		self:DrawGlowLine(0, size.y - 1, size.x, size.y - 1, 1)
+		render2d.PopBlendMode()
+		render2d.SetTexture(nil)
+		set_color(self:GetColor("gold"), alpha_scale)
+		self:DrawDiamond(size.x / 2, size.y - 1, 5)
+		render2d.SetColor(1, 1, 1, 0.9 * alpha_scale)
+		self:DrawDiamond(size.x / 2, size.y - 1, 2)
+	elseif glow > 0.01 then
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = size.x,
+			h = size.y,
+			color = accent,
+			alpha = 0.14 * glow,
+			texture = false,
+			int = true,
+		}
+		render2d.PushBlendPreset("additive")
+		set_color(accent, 0.6 * glow)
+		self:DrawGlowLine(0, size.y - 1, size.x, size.y - 1, 1)
+		render2d.PopBlendMode()
+	end
+end
+
+function JRPGTheme:DrawTabBar(size)
+	render2d.DrawShape{
+		x = 0,
+		y = size.y - 1,
+		w = size.x,
+		h = 1,
+		color = self:GetColor("border"),
+		alpha = 0.9,
+		texture = false,
+		int = true,
+	}
 end
 
 function JRPGTheme:DrawColorSurfaceFrame(size)

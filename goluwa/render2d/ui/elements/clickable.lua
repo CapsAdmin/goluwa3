@@ -14,7 +14,7 @@ META.CMP.style = {}
 META.CMP.animation = {}
 META.CMP.clickable = {}
 META:StartStorable()
-META:GetSet("Mode", "filled", {enums = {"filled", "outline", "text", "menu"}})
+META:GetSet("Mode", "filled", {enums = {"filled", "outline", "text", "menu", "tab"}})
 META:GetSet("ButtonColor", nil)
 META:GetSet("Disabled", false)
 META:GetSet("Active", false)

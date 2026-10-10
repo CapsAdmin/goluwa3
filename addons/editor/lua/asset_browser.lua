@@ -10,6 +10,7 @@ local utf8 = import("goluwa/string/utf8.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local TabBar = import("goluwa/render2d/ui/widgets/tab_bar.lua")
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local VirtualGrid = import("goluwa/render2d/ui/elements/virtual_grid.lua")
@@ -217,7 +218,7 @@ return function(props)
 	local detail = {orbit = OrbitCamera.New(), auto_rotate = true}
 	detail.orbit:SetYaw(math.pi / 4)
 	detail.orbit:SetPitch(-math.asin(1 / math.sqrt(3)))
-	local tab_buttons = {}
+	local tab_bar
 	local details_entry
 	local details_status
 	local last_search_query = ""
@@ -481,9 +482,7 @@ return function(props)
 		state.selected = nil
 		last_search_results = nil
 
-		for category_name, button in pairs(tab_buttons) do
-			button:SetState("active", category_name == name)
-		end
+		if tab_bar then tab_bar:SetValue(name) end
 
 		tree_view:SetItems(build_tree_items())
 		tree_view:SetSelectedKey(name)
@@ -1201,19 +1200,11 @@ return function(props)
 	local toolbar_widgets = {}
 
 	if #categories > 1 then
-		for _, name in ipairs(categories) do
-			toolbar_widgets[#toolbar_widgets + 1] = Button{
-				Text = name,
-				Mode = "outline",
-				Active = name == state.category,
-				Ref = function(self)
-					tab_buttons[name] = self
-				end,
-				OnClick = function()
-					set_category(name)
-				end,
-			}
-		end
+		tab_bar = TabBar{
+			Tabs = categories,
+			Value = state.category,
+			OnChange = set_category,
+		}
 	end
 
 	toolbar_widgets[#toolbar_widgets + 1] = TextEdit{
@@ -1309,6 +1300,7 @@ return function(props)
 				Padding = Rect() + 8,
 			},
 		}{
+			tab_bar,
 			Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center"}}(toolbar_widgets),
 			Splitter{
 				InitialSize = 260,
