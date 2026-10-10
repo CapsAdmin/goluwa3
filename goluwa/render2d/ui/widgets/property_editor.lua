@@ -15,6 +15,7 @@ local Collapsible = import("goluwa/render2d/ui/widgets/collapsible.lua")
 local ColorPicker = import("goluwa/render2d/ui/widgets/color_picker.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local PropertyAsset = import("goluwa/render2d/ui/widgets/properties/asset.lua")
 local PropertyBoolean = import("goluwa/render2d/ui/widgets/properties/boolean.lua")
@@ -328,6 +329,17 @@ function META:OnCreate()
 	self._listeners = {}
 	self._property_change_sync_blocked = 0
 	self._selected_key = self.SelectedKey
+	self._tab_buttons = {}
+	self._tab_bar = Row{
+		Parent = self,
+		IsInternal = true,
+		layout = {
+			GrowWidth = 1,
+			FitHeight = true,
+			ChildGap = "XXS",
+			Padding = "XXS",
+		},
+	}
 	self._content = Column{
 		Parent = self,
 		IsInternal = true,
@@ -960,14 +972,19 @@ function META:build_category_panel(node, path, key)
 		}
 	end
 
+	-- a badge that only says which tab the category is on has nothing to add once the tabs are shown
+	local badge = node.Badge
+
+	if badge and badge.HideWithTabs and self._tabs_visible then badge = nil end
+
 	local category = Collapsible{
 		Editor = self,
 		CategoryKey = key,
 		Title = get_node_text(node, path),
 		Tooltip = node.Description,
 		TooltipMaxWidth = 420,
-		Badge = node.Badge and node.Badge.Text,
-		BadgeColor = node.Badge and node.Badge.Color,
+		Badge = badge and badge.Text,
+		BadgeColor = badge and badge.Color,
 		HeaderButtonColor = node.Badge and node.Badge.HeaderColor or "primary",
 		HeaderMode = "filled",
 		HeaderHeight = self:get_row_height(node),
@@ -983,24 +1000,95 @@ function META:build_category_panel(node, path, key)
 	return category
 end
 
+local function on_tab_click(button)
+	button.Editor:SetActiveTab(button.Tab)
+	return true
+end
+
+function META:SetActiveTab(name)
+	self._active_tab = name
+	self:rebuild_categories()
+	return self
+end
+
+function META:GetActiveTab()
+	return self._active_tab
+end
+
+-- categories can name a Tab, with more than one name the tabs are shown above and only the categories of the active one are listed
+function META:update_tabs()
+	local tabs = {}
+	local seen = {}
+
+	for _, node in ipairs(self._items) do
+		if node.Tab and not seen[node.Tab] then
+			seen[node.Tab] = true
+			tabs[#tabs + 1] = node.Tab
+		end
+	end
+
+	self._tabs_visible = #tabs >= 2
+
+	if #tabs < 2 then
+		self._tab_bar:RemoveChildren()
+		self._tab_buttons = {}
+		self._tab_key = nil
+		return nil
+	end
+
+	-- the tab that was chosen last is kept for the next object that has it, until then the first one is shown
+	local active = seen[self._active_tab] and self._active_tab or tabs[1]
+	local key = table.concat(tabs, "\0")
+
+	-- the buttons are kept while the tabs stay the same, a click must not remove the button it came from
+	if key ~= self._tab_key then
+		self._tab_key = key
+		self._tab_bar:RemoveChildren()
+		self._tab_buttons = {}
+
+		for _, name in ipairs(tabs) do
+			self._tab_buttons[name] = Button{
+				Editor = self,
+				Tab = name,
+				Text = name,
+				Mode = "outline",
+				FontSize = self._font_size,
+				OnClick = on_tab_click,
+			}
+			self._tab_bar:AddChild(self._tab_buttons[name])
+		end
+	end
+
+	for name, button in pairs(self._tab_buttons) do
+		button:SetActive(name == active)
+	end
+
+	return active
+end
+
 function META:rebuild_categories()
 	self._row_infos = {}
 	self._category_refs = {}
 	self._category_key_columns = {}
 	self._category_dividers = {}
 	self._content:RemoveChildren()
+	local active_tab = self:update_tabs()
+	local visible = {}
 
 	for index, node in ipairs(self._items) do
-		local path = build_path(nil, index)
-		self._content:AddChild(self:build_category_panel(node, path, get_node_key(node, path)))
+		if not active_tab or node.Tab == active_tab then
+			local path = build_path(nil, index)
+			visible[#visible + 1] = node
+			self._content:AddChild(self:build_category_panel(node, path, get_node_key(node, path)))
+		end
 	end
 
-	if self._selected_key and not find_node_by_key(self._items, self._selected_key) then
+	if self._selected_key and not find_node_by_key(visible, self._selected_key) then
 		self._selected_key = nil
 	end
 
 	if not self._selected_key then
-		local first_node, first_path = find_first_leaf(self._items)
+		local first_node, first_path = find_first_leaf(visible)
 		self._selected_key = first_node and get_node_key(first_node, first_path) or nil
 	end
 
@@ -1289,6 +1377,7 @@ do
 					Expanded = true,
 					Children = children,
 					Badge = badge,
+					Tab = badge and badge.Tab,
 					Description = badge and badge.Tooltip,
 				}
 				self._listeners[#self._listeners + 1] = category.object:AddPropertyListener(function(_, key)
