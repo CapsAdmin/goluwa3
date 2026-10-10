@@ -71,6 +71,9 @@ function META.OnContextActions(object, info) end
 -- a small label for the header of a component, {Text, Color, HeaderColor, Tooltip} or nothing
 function META.OnGetCategoryBadge(object, name) end
 
+-- right click on the header of a component, a list of menu items or nothing
+function META.OnCategoryContextMenu(object, name, owner) end
+
 -- a small label and a label color for a property of an object, {Text, Color, Tooltip} or nothing
 function META.OnGetPropertyBadge(object, info) end
 
@@ -936,6 +939,23 @@ function META:build_group_panel(node, path)
 	return group
 end
 
+local function on_category_header_context_menu(category)
+	local node = category.CategoryNode
+	local items = category.Editor.OnCategoryContextMenu(node.Object, node.Text, node.Owner)
+
+	if not items or #items == 0 then return end
+
+	Panel.OpenContextMenu(
+		{
+			OnClose = function(self)
+				self:Remove()
+			end,
+		},
+		items
+	)
+	return true
+end
+
 function META:build_category_panel(node, path, key)
 	local collapsed = self._collapsed_state[key]
 	local children = {}
@@ -982,6 +1002,8 @@ function META:build_category_panel(node, path, key)
 	local category = Collapsible{
 		Editor = self,
 		CategoryKey = key,
+		CategoryNode = node,
+		OnHeaderContextMenu = on_category_header_context_menu,
 		Title = get_node_text(node, path),
 		Tooltip = node.Description,
 		TooltipMaxWidth = 420,
@@ -1361,6 +1383,8 @@ do
 				items[#items + 1] = {
 					Key = category.key,
 					Text = category.name,
+					Object = category.object,
+					Owner = obj,
 					Expanded = true,
 					Children = children,
 					Badge = badge,

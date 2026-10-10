@@ -914,6 +914,22 @@ assets.RegisterCategory(
 	}
 )
 
+-- a component is identified by its name, the entries are virtual and registered for the object that is being edited
+assets.RegisterCategory(
+	"components",
+	{
+		roots = {"components/"},
+		extensions = {".component"},
+		load = false,
+		get_value = function(entry)
+			return entry.name
+		end,
+		get_path = function(value)
+			return "components/" .. value .. ".component"
+		end,
+	}
+)
+
 function assets.RefreshInternalTextures()
 	local current = {}
 

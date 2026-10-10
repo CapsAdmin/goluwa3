@@ -743,9 +743,17 @@ do
 
 		for _, child in ipairs(entity:GetChildren()) do
 			local foreign = child.prefab_owner and child.prefab_owner ~= component
+			-- a child that is not a node yet is a patch of the scene unless this instance is the one being edited
+			local unknown_patch = not child.prefab_node and
+				component and
+				(
+					prefab.editing ~= component or
+					child.prefab_patch
+				)
 
 			if
 				not foreign and
+				not unknown_patch and
 				not (
 					generated and
 					generated[child]
@@ -821,9 +829,26 @@ function prefab.MarkDirty(object, var_name)
 	names[var_name] = true
 end
 
--- for entities that gained or lost components or children, the instance they belong to or are the root of is captured again
+-- the instance whose definition the editor is editing (prefab mode), or nil when the scene is edited
+-- children added to an instance in the scene are patches and never written to a definition, children added while the instance is edited become nodes
+prefab.editing = nil
+
+function prefab.SetEditing(component)
+	prefab.editing = component
+
+	if not component then return end
+
+	for _, node in pairs(component.nodes) do
+		for _, child in ipairs(node:GetChildren()) do
+			if not child.prefab_node and not child.prefab_owner then child.prefab_patch = true end
+		end
+	end
+end
+
+-- for entities that gained or lost components or children, the instance they belong to, or are the root of, is captured again
 function prefab.MarkStructureDirty(entity)
-	local component = entity.prefab_owner or entity.prefab
+	local editing = prefab.editing
+	local component = editing and entity == editing.Owner and editing or entity.prefab_owner or entity.prefab
 
 	if component and component.definition then dirty[component] = true end
 end

@@ -1734,7 +1734,7 @@ function BaseTheme:OnEntitySetProperty(obj, key, val)
 		if type(val) == "string" then return self:GetColor(val) end
 	elseif key == "ChildGap" then
 		if type(val) == "string" then return self:GetSize(val) end
-	elseif key == "Size" or key == "IconSize" or key == "MinSize" or key == "MaxSize" then
+	elseif (key == "Size" and obj.Is2D ~= false) or key == "IconSize" or key == "MinSize" or key == "MaxSize" then
 		if type(val) == "string" then
 			return Vec2() + self:GetSize(val)
 		elseif type(val) == "number" then

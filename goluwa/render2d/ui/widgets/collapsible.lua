@@ -37,6 +37,12 @@ META:EndStorable()
 
 function META.OnToggle(collapsed, collapsible) end
 
+function META.OnHeaderContextMenu(collapsible) end
+
+local function on_header_right_click(header)
+	return header.Collapsible.OnHeaderContextMenu(header.Collapsible)
+end
+
 local function on_header_click(header)
 	header.Collapsible:SetCollapsed(not header.Collapsible.Collapsed)
 	return true
@@ -81,6 +87,7 @@ function META:OnCreate()
 			ChildGap = self.HeaderGap or "M",
 		},
 		OnClick = on_header_click,
+		OnRightClick = on_header_right_click,
 	}
 	self._arrow = Icon{
 		Parent = self._header,

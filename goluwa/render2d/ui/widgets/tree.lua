@@ -131,6 +131,9 @@ function META.OnDrop() end
 
 function META.OnNodeHover() end
 
+-- return true when the double click was handled, the row then does not expand or collapse
+function META.OnNodeDoubleClick(node, key, path) end
+
 function META.OnNodeContextMenu() end
 
 function META:BlockMutations()
@@ -1021,6 +1024,8 @@ function META:materialize_row(row_info)
 			end
 
 			tree:set_selected(node, path, key)
+
+			if is_double_click and tree.OnNodeDoubleClick(node, key, path) then return true end
 
 			if has_children then
 				if tree.ToggleOnRowClick or is_double_click then

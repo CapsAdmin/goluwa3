@@ -16,7 +16,6 @@ local system = import("goluwa/system.lua")
 local Gizmo = import("lua/gizmo.lua")
 local highlight = import("lua/highlight.lua")
 local brush_editor = import("lua/brush_editor.lua")
-local shapes = RENDER_3D and import("goluwa/render3d/shapes.lua") or {}
 local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
 local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
@@ -26,6 +25,8 @@ local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua
 local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local nearby = import("lua/nearby.lua")
 local scene = import("goluwa/entities/scene.lua")
@@ -34,6 +35,7 @@ local prefab_tools = import("lua/prefab_tools.lua")
 local network = import("goluwa/network/network.lua")
 local scene_sync = import("goluwa/network/scene_sync.lua")
 local name_prompt = import("lua/name_prompt.lua")
+local AssetBrowser = import("lua/asset_browser.lua")
 local vfs = import("goluwa/vfs.lua")
 local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
@@ -84,6 +86,7 @@ return function(props)
 	local initial_selected_guid = props.SelectedEntityGUID
 	local tree_view = NULL
 	local tree_scroll_container = NULL
+	local property_scroll_container = NULL
 	local property_editor = NULL
 	local editor_window = NULL
 	local pending_selection_sync = false
@@ -109,7 +112,26 @@ return function(props)
 		tree_view:Refresh(true)
 	end
 
+	-- prefab mode: the instances whose definition is edited, the last one is the one the tree is rooted on
+	local edit_stack = {}
+	local enter_prefab_edit
+	local exit_prefab_edit
+
+	-- what is inside an instance is only visible while that instance is edited, anything else selects the instance
+	local function resolve_target(target)
+		local editing = edit_stack[#edit_stack]
+		local stop = editing and editing.prefab or nil
+
+		while target.prefab_owner and target.prefab_owner ~= stop do
+			target = target.prefab_owner.Owner
+		end
+
+		return target
+	end
+
 	local function set_selected_target(target)
+		target = resolve_target(target)
+
 		if not show_transient and target:IsRuntime() then set_show_transient(true) end
 
 		Gizmo.EnableGizmo(target)
@@ -122,35 +144,40 @@ return function(props)
 
 	local function flush_pending_editor_sync(force) end
 
-	local function create_child_shape(parent_entity, kind, owner)
-		local spawn_world_position = camera.GetPosition() + camera.GetRotation():GetForward() * 2
-		local config = {
-			Name = kind == "sphere" and "sphere" or "box",
-			Collision = false,
-			RigidBody = false,
-			PhysicsNoCollision = true,
-			Position = spawn_world_position,
-			Material = {
-				Color = kind == "sphere" and Color(0.28, 0.65, 0.92, 1) or Color(0.9, 0.62, 0.24, 1),
-			},
-		}
-		local entity = kind == "sphere" and shapes.Sphere(config) or shapes.Box(config)
-
-		if entity:HasComponent("rigid_body") then
-			entity:RemoveComponent("rigid_body")
-		end
-
+	local function add_child_entity(entity, parent_entity, owner, name)
+		local world_position = camera.GetPosition() + camera.GetRotation():GetForward() * 2
 		entity:SetParent(parent_entity)
 
 		if owner then entity:SetOwnedBy(owner) end
 
 		if parent_entity.transform then
-			entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
+			entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(world_position))
+		else
+			entity.transform:SetPosition(world_position)
 		end
 
-		editor_history.RecordCreate("create " .. config.Name, entity)
-
+		editor_history.RecordCreate("create " .. name, entity)
 		set_selected_target(entity)
+	end
+
+	local function create_child_entity(parent_entity, owner)
+		local entity = Entity.New{Name = "entity", Transient = false}
+		entity:AddComponent("transform")
+		add_child_entity(entity, parent_entity, owner, "entity")
+	end
+
+	local function pick_child_prefab(parent_entity, owner)
+		Panel.World:Ensure(
+			AssetBrowser{
+				Key = "AssetPicker",
+				PickerCategory = "prefabs",
+				OnPick = function(asset)
+					local entity = Entity.New{Name = asset.name, prefab = {Path = asset.name}}
+					entity:SetTransient(false)
+					add_child_entity(entity, parent_entity, owner, asset.name)
+				end,
+			}
+		)
 	end
 
 	local function get_focus_bounds(entity)
@@ -203,40 +230,67 @@ return function(props)
 		camera.SetPosition(center - camera.GetRotation():GetForward() * math.max(radius * 2.2, 2))
 	end
 
-	local function component_label(name)
-		local s = name:gsub("_", " ")
-		return s:sub(1, 1):upper() .. s:sub(2)
+	local function can_edit_components(entity)
+		return entity ~= Entity.World and entity ~= Panel.World and not entity:GetSingleton()
 	end
 
-	local function component_names(entity, present)
-		local names = {}
+	local prefab_bar = NULL
 
-		for name in pairs(entity:GetValidComponents()) do
-			if entity:HasComponent(name) == present then names[#names + 1] = name end
+	local function apply_prefab_mode()
+		local editing = edit_stack[#edit_stack]
+		prefab.SetEditing(editing and editing.prefab or nil)
+		prefab_bar:RemoveChildren()
+
+		if editing then
+			local names = {}
+
+			for i, entity in ipairs(edit_stack) do
+				names[i] = entity.prefab.Path
+			end
+
+			prefab_bar:AddChild(
+				Text{
+					Text = "PREFAB  " .. table.concat(names, "  >  "),
+					Font = "body_strong S",
+					layout = {GrowWidth = 1, FitHeight = true},
+				}
+			)
+			prefab_bar:AddChild(
+				Button{
+					Text = "Exit",
+					Icon = "arrow_left",
+					Mode = "outline",
+					OnClick = function()
+						exit_prefab_edit()
+					end,
+				}
+			)
+			tree_view:SetGroupByOwner(false)
+			tree_view:SetRootLabels({[editing] = editing:GetName()})
+			tree_view:SetRootEntities({editing})
+		else
+			tree_view:SetGroupByOwner(true)
+			tree_view:SetRootLabels({[Entity.World] = "3D World", [Panel.World] = "2D World"})
+			tree_view:SetRootEntities({Entity.World, Panel.World})
 		end
 
-		table.sort(names)
-		return names
+		tree_view:ExpandRoots()
 	end
 
-	local function build_component_items(entity, names, present)
-		local items = {}
+	function enter_prefab_edit(entity)
+		edit_stack[#edit_stack + 1] = entity
+		apply_prefab_mode()
+		set_selected_target(entity)
+	end
 
-		for _, name in ipairs(names) do
-			items[#items + 1] = MenuItem{
-				Text = component_label(name),
-				Icon = EntityTree.GetComponentIcon(name) or "component",
-				OnClick = function()
-					if present then
-						editor_history.RemoveComponent(entity, name)
-					else
-						editor_history.AddComponent(entity, name)
-					end
-				end,
-			}
-		end
+	function exit_prefab_edit()
+		local left = table.remove(edit_stack)
 
-		return items
+		if not left then return end
+
+		apply_prefab_mode()
+
+		if left:IsValid() then set_selected_target(left) end
 	end
 
 	local size = props.Size or Vec2(400, 540)
@@ -491,6 +545,12 @@ return function(props)
 						GrowWidth = 1,
 					},
 				},
+				Row{
+					Ref = function(self)
+						prefab_bar = self
+					end,
+					layout = {GrowWidth = 1, ChildGap = 4, AlignmentY = "center"},
+				}{},
 				ScrollablePanel{
 					Ref = function(self)
 						tree_scroll_container = self
@@ -516,7 +576,15 @@ return function(props)
 						ShowVirtualChildren = true,
 						GroupByOwner = true,
 						FilterCallback = function(entity)
-							return entity_tree_filter_callback(entity, editor_window) or
+							if entity_tree_filter_callback(entity, editor_window) then return true end
+
+							local editing = edit_stack[#edit_stack]
+
+							if editing then
+								return entity ~= editing and entity.prefab_owner ~= editing.prefab
+							end
+
+							return entity.prefab_owner ~= nil or
 								(
 									not show_transient and
 									entity ~= Entity.World and
@@ -539,6 +607,14 @@ return function(props)
 							local entity = node and node.Entity or nil
 							highlight.SetEntity(hovered and entity or nil)
 						end,
+						OnNodeDoubleClick = function(node)
+							local entity = node.Entity
+
+							if entity and entity.prefab and entity.prefab.definition and entity ~= edit_stack[#edit_stack] then
+								enter_prefab_edit(entity)
+								return true
+							end
+						end,
 						OnNodeContextMenu = function(node)
 							if node.OwnerGroup then
 								if node.Root ~= Entity.World then return false end
@@ -551,17 +627,17 @@ return function(props)
 									},
 									{
 										MenuItem{
-											Text = "Sphere",
-											Icon = "sphere",
+											Text = "Entity",
+											Icon = "cube",
 											OnClick = function()
-												create_child_shape(node.Root, "sphere", node.Owner)
+												create_child_entity(node.Root, node.Owner)
 											end,
 										},
 										MenuItem{
-											Text = "Box",
-											Icon = "cube",
+											Text = "Prefab",
+											Icon = "layers",
 											OnClick = function()
-												create_child_shape(node.Root, "box", node.Owner)
+												pick_child_prefab(node.Root, node.Owner)
 											end,
 										},
 									}
@@ -574,21 +650,12 @@ return function(props)
 							if not entity then return false end
 
 							local can_create_shapes = entity:GetRoot() == Entity.World
-							local can_remove = entity ~= Entity.World and
-								entity ~= Panel.World and
-								not entity:GetSingleton()
+							local is_edit_root = entity == edit_stack[#edit_stack]
+							local can_remove = can_edit_components(entity) and not is_edit_root
 
 							if not can_create_shapes and not can_remove then return false end
 
-							local add_names
-							local remove_names
-
-							if can_remove then
-								add_names = component_names(entity, false)
-								remove_names = component_names(entity, true)
-							end
-
-							local has_above_remove = can_create_shapes or (can_remove and (#add_names > 0 or #remove_names > 0))
+							local has_above_remove = can_create_shapes
 							Panel.OpenContextMenu(
 								{
 									OnClose = function(self)
@@ -608,46 +675,47 @@ return function(props)
 									can_create_shapes and
 									MenuSpacer{} or
 									nil,
-									can_create_shapes and
+									is_edit_root and
 									MenuItem{
-										Text = "Sphere",
-										Icon = "sphere",
+										Text = "Exit prefab",
+										Icon = "arrow_left",
 										OnClick = function()
-											create_child_shape(entity, "sphere")
+											exit_prefab_edit()
+										end,
+									} or
+									nil,
+									not is_edit_root and
+									entity.prefab and
+									entity.prefab.definition and
+									MenuItem{
+										Text = "Edit prefab",
+										Icon = "layers",
+										OnClick = function()
+											enter_prefab_edit(entity)
 										end,
 									} or
 									nil,
 									can_create_shapes and
 									MenuItem{
-										Text = "Box",
+										Text = "Entity",
 										Icon = "cube",
 										OnClick = function()
-											create_child_shape(entity, "box")
+											create_child_entity(entity)
 										end,
 									} or
 									nil,
-									can_remove and
-									#add_names > 0 and
+									can_create_shapes and
 									MenuItem{
-										Text = "Add Component",
-										Icon = "plus",
-										Items = function()
-											return build_component_items(entity, add_names, false)
-										end,
-									} or
-									nil,
-									can_remove and
-									#remove_names > 0 and
-									MenuItem{
-										Text = "Remove Component",
-										Icon = "minus",
-										Items = function()
-											return build_component_items(entity, remove_names, true)
+										Text = "Prefab",
+										Icon = "layers",
+										OnClick = function()
+											pick_child_prefab(entity)
 										end,
 									} or
 									nil,
 									can_create_shapes and
 									can_remove and
+									not scene.IsTransientEntity(entity) and
 									MenuItem{
 										Text = "Clone",
 										Icon = "copy",
@@ -682,13 +750,7 @@ return function(props)
 									nil,
 									can_create_shapes and
 									can_remove and
-									MenuItem{
-										Text = "Prefab",
-										Icon = "layers",
-										Items = function()
-											return prefab_tools.GetMenuItems(entity, set_selected_target)
-										end,
-									} or
+									prefab_tools.GetMenuItem(entity, set_selected_target) or
 									nil,
 									can_remove and
 									has_above_remove and
@@ -721,6 +783,9 @@ return function(props)
 				},
 			},
 			ScrollablePanel{
+				Ref = function(self)
+					property_scroll_container = self
+				end,
 				ScrollX = false,
 				ScrollY = true,
 				Padding = "none",
@@ -739,23 +804,6 @@ return function(props)
 						MinSize = Vec2(size.x - 24, 0),
 						Padding = Rect(2, 2, 2, 2),
 					},
-					visual = {
-						OnDraw = function(self)
-							if tree_view:IsValid() then
-								local selected_node = tree_view:GetSelectedNode()
-
-								if selected_node and not selected_node.SharedInstance then return end
-							end
-
-							local panel_size = self.Owner.transform:GetSize()
-							render2d.SetTexture(nil)
-							render2d.SetColor(theme.active:GetColor("prefab"):Unpack())
-							render2d.DrawRect(0, 0, math.max(1, panel_size.x), 2)
-							render2d.DrawRect(0, math.max(0, panel_size.y - 2), math.max(1, panel_size.x), 2)
-							render2d.DrawRect(0, 0, 2, math.max(1, panel_size.y))
-							render2d.DrawRect(math.max(0, panel_size.x - 2), 0, 2, math.max(1, panel_size.y))
-						end,
-					},
 				}{
 					PropertyEditor{
 						Ref = function(self)
@@ -764,6 +812,19 @@ return function(props)
 						OnPropertyEdited = editor_history.RecordProperty,
 						CategoryOrder = COMPONENT_ORDER,
 						OnContextActions = prefab_tools.GetPropertyActions,
+						OnCategoryContextMenu = function(_, name, entity)
+							if not entity.component_list or not can_edit_components(entity) then return end
+
+							return {
+								MenuItem{
+									Text = "Remove",
+									Icon = "trash",
+									OnClick = function()
+										editor_history.RemoveComponent(entity, name)
+									end,
+								},
+							}
+						end,
 						OnGetCategoryBadge = prefab_tools.GetCategoryBadge,
 						OnGetPropertyBadge = prefab_tools.GetPropertyBadge,
 						layout = {
@@ -822,6 +883,45 @@ return function(props)
 	}
 	picker_button:AddGlobalEvent("Update")
 	editor_window:AddChild(picker_button)
+	local add_component_button = IconButton{
+		Name = "AddComponentButton",
+		Icon = "plus",
+		Size = Vec2(28, 28),
+		Padding = "XXS",
+		Mode = "outline",
+		Tooltip = "add a component to the selected entity",
+		layout = {
+			Floating = true,
+		},
+		OnClick = function()
+			local entity = tree_view:GetSelectedEntity()
+
+			if not entity or not can_edit_components(entity) then return true end
+
+			Panel.World:Ensure(
+				AssetBrowser{
+					Key = "AssetPicker",
+					PickerCategory = "components",
+					ComponentTarget = entity,
+					OnPick = function(asset)
+						editor_history.AddComponent(entity, asset.name)
+					end,
+				}
+			)
+			return true
+		end,
+		OnUpdate = function(self)
+			if property_scroll_container:IsValid() then
+				local _, _, x2, y2 = property_scroll_container.transform:GetWorldRectFast()
+				local btn_size = self.transform:GetSize()
+				self.transform:SetPosition(
+					self:GetParent().transform:GlobalToLocal(Vec2(x2 - btn_size.x - 16, y2 - btn_size.y - 8))
+				)
+			end
+		end,
+	}
+	add_component_button:AddGlobalEvent("Update")
+	editor_window:AddChild(add_component_button)
 	editor_window:AddGlobalEvent("Update")
 
 	local function is_ui_hovering()
@@ -881,6 +981,16 @@ return function(props)
 	end)
 
 	function editor_window:OnUpdate(dt)
+		if edit_stack[1] then
+			local count = #edit_stack
+
+			while edit_stack[1] and not edit_stack[#edit_stack]:IsValid() do
+				edit_stack[#edit_stack] = nil
+			end
+
+			if #edit_stack ~= count then apply_prefab_mode() end
+		end
+
 		do
 			camera.SetBlockMovement(has_text_focus() or self.playing)
 			local gizmo_status = Gizmo.GetStatus()
@@ -971,6 +1081,7 @@ return function(props)
 			event.RemoveListener("PrefabInputsChanged", editor_window)
 			highlight.SetEntity()
 			prefab_tools.Watch(nil)
+			prefab.SetEditing(nil)
 			Gizmo.Clear()
 			view:Remove()
 			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))

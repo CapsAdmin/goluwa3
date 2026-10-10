@@ -252,21 +252,24 @@ local PREFAB_BADGE = {
 	Tooltip = "The prefab this entity is an instance of",
 }
 
--- a label for the header of a component of something that is part of a prefab: shared with the prefab, only this instance, or a script that failed
+-- a label for the header of a script that failed, and in prefab mode the tabs of a nested instance: its prefab component is
+-- this instance, the rest is shared with the prefab being edited, everything else in prefab mode and the scene has no such split
 function tools.GetCategoryBadge(object, name)
 	local entity = object.component_map and object or object.Owner
-
-	if not (entity and (entity.prefab or entity.prefab_owner)) then return end
+	local editing = prefab.editing
+	local is_nested_instance = editing and entity and entity ~= editing.Owner and entity.prefab and entity.prefab_owner
 
 	if name == "script" and object.Error then
 		return {
 			Text = "error",
 			Color = "text_on_accent",
 			HeaderColor = "negative",
-			Tab = "Shared",
+			Tab = is_nested_instance and "Shared" or nil,
 			Tooltip = object.Error:match("[^\n]*"),
 		}
 	end
+
+	if not is_nested_instance then return end
 
 	if name == "prefab" then return PREFAB_BADGE end
 
@@ -296,11 +299,9 @@ function tools.GetPropertyBadge(object, info)
 	end
 end
 
-function tools.GetMenuItems(entity, select)
-	local items = {}
-
+function tools.GetMenuItem(entity, select)
 	if entity.prefab and entity.prefab.definition then
-		items[#items + 1] = MenuItem{
+		return MenuItem{
 			Text = "Unpack",
 			Icon = "expand",
 			OnClick = function()
@@ -310,8 +311,10 @@ function tools.GetMenuItems(entity, select)
 				select(entity)
 			end,
 		}
-	elseif not entity.prefab_owner then
-		items[#items + 1] = MenuItem{
+	end
+
+	if not entity.prefab_owner then
+		return MenuItem{
 			Text = "Make prefab",
 			Icon = "layers",
 			OnClick = function()
@@ -328,34 +331,6 @@ function tools.GetMenuItems(entity, select)
 			end,
 		}
 	end
-
-	if prefab.GetNames()[1] then
-		items[#items + 1] = MenuItem{
-			Text = "Place",
-			Icon = "place",
-			Items = function()
-				return tools.GetPlaceItems(select)
-			end,
-		}
-	end
-
-	return items
-end
-
-function tools.GetPlaceItems(select)
-	local items = {}
-
-	for _, name in ipairs(prefab.GetNames()) do
-		items[#items + 1] = MenuItem{
-			Text = name,
-			Icon = "layers",
-			OnClick = function()
-				select(tools.Place(name))
-			end,
-		}
-	end
-
-	return items
 end
 
 return tools

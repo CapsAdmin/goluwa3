@@ -3,6 +3,7 @@ local fs = import("goluwa/filesystem/fs.lua")
 local assets = import("goluwa/assets.lua")
 local previews = import("lua/asset_preview.lua")
 local prefab = import("goluwa/entities/prefab.lua")
+local objects = import("goluwa/objects/objects.lua")
 local asset_info = library()
 
 function asset_info.FormatBytes(bytes)
@@ -182,6 +183,31 @@ function asset_info.Get(entry)
 		end
 
 		sections[#sections + 1] = prefab_section
+	end
+
+	if entry.category == "components" then
+		local meta = assets.virtual_assets[entry.path].load()
+		local component_section = {title = "properties", rows = {}}
+		local rows = component_section.rows
+
+		for _, info in ipairs(objects.GetStorableVariables(meta)) do
+			if not info.Hidden then
+				local default = info.default
+
+				if default == nil then default = "nil" end
+
+				local kind = info.enums and "enum" or type(info.default)
+
+				rows[#rows + 1] = {
+					info.var_name,
+					(kind == "cdata" or kind == "table") and tostring(default) or kind .. " = " .. tostring(default),
+				}
+			end
+		end
+
+		if #rows == 0 then rows[1] = {"", "no editable properties"} end
+
+		table.insert(sections, 1, component_section)
 	end
 
 	if entry.category == "materials" and entry.extension == ".vmt" then

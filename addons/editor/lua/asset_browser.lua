@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
+local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
@@ -34,12 +35,13 @@ local previews = import("lua/asset_preview.lua")
 local asset_info = import("lua/asset_info.lua")
 local prefab_tools = import("lua/prefab_tools.lua")
 local editor_history = import("lua/editor_history.lua")
-local DEFAULT_CATEGORIES = {"models", "textures", "materials", "prefabs"}
+local DEFAULT_CATEGORIES = {"models", "textures", "materials", "prefabs", "components"}
 local CATEGORY_ICONS = {
 	models = "cube",
 	textures = "image",
 	materials = "material",
 	prefabs = "layers",
+	components = "component",
 }
 local folder_icon_box = Vec2()
 local LABEL_HEIGHT = 36
@@ -66,6 +68,7 @@ local function refresh_colors()
 	colors.preview_background = {r = 0.2, g = 0.21, b = 0.24, a = 1}
 	colors.preview_text = {r = 0.78, g = 0.79, b = 0.82, a = 1}
 	colors.white = {r = 1, g = 1, b = 1, a = 1}
+	colors.icon = Color(0.78, 0.79, 0.82, 1)
 	colors.tile_fill = {
 		r = colors.surface_alt.r,
 		g = colors.surface_alt.g,
@@ -126,6 +129,12 @@ local function get_folder_icon(node, expanded)
 	return expanded and "folder_open" or "folder"
 end
 
+local function get_selected_object()
+	local target = _G.SELECTED_OBJECT
+
+	if target and target.IsValid and target:IsValid() then return target end
+end
+
 local function get_selected_entity()
 	local target = _G.SELECTED_OBJECT
 
@@ -138,6 +147,30 @@ local function get_selected_entity()
 	then
 		return target
 	end
+end
+
+-- the components an object can have are virtual assets, the registry depends on what is edited (3D entity or 2D panel)
+local function sync_component_assets(target, hide_present)
+	for path in pairs(assets.virtual_assets) do
+		if path:starts_with("components/") then assets.UnregisterVirtualAsset(path) end
+	end
+
+	for name, meta in pairs(target and target:GetValidComponents() or Entity.GetValidComponents()) do
+		if not (hide_present and target:HasComponent(name)) then
+			assets.RegisterVirtualAsset(
+				assets.categories.components.get_path(name),
+				{
+					category = "components",
+					kind = "component",
+					load = function()
+						return meta
+					end,
+				}
+			)
+		end
+	end
+
+	assets.InvalidateIndex("components")
 end
 
 local function spawn_model(entry)
@@ -491,6 +524,11 @@ return function(props)
 	local function set_category(name)
 		if name == "textures" then assets.RefreshInternalTextures() end
 
+		if name == "components" then
+			local target = props.ComponentTarget or get_selected_object()
+			sync_component_assets(target, props.ComponentTarget ~= nil)
+		end
+
 		state.category = name
 		state.selected = nil
 		last_search_results = nil
@@ -770,6 +808,15 @@ return function(props)
 			render2d.Translatef(px + (pw - icon_size) / 2, py + (pw - icon_size) / 2)
 			theme.active:DrawIcon("folder", folder_icon_box, {color = colors.folder, inset = 0})
 			render2d.PopMatrix()
+		elseif item.category == "components" then
+			local icon_size = pw * 0.5
+			folder_icon_box.x = icon_size
+			folder_icon_box.y = icon_size
+			render2d.DrawBox(px, py, pw, pw, 4, colors.preview_background)
+			render2d.PushMatrix()
+			render2d.Translatef(px + (pw - icon_size) / 2, py + (pw - icon_size) / 2)
+			theme.active:DrawIcon("component", folder_icon_box, {color = colors.icon, inset = 0})
+			render2d.PopMatrix()
 		else
 			local preview = previews.Request(item)
 			render2d.DrawBox(px, py, pw, pw, 4, colors.preview_background)
@@ -938,8 +985,21 @@ return function(props)
 			return
 		end
 
-		local preview = previews.Request(entry)
 		local pad = 8
+
+		if entry.category == "components" then
+			local icon_size = math.min(size.x, size.y) * 0.5
+			folder_icon_box.x = icon_size
+			folder_icon_box.y = icon_size
+			render2d.PushMatrix()
+			render2d.Translatef((size.x - icon_size) / 2, (size.y - icon_size) / 2)
+			theme.active:DrawIcon("component", folder_icon_box, {color = colors.icon, inset = 0})
+			render2d.PopMatrix()
+			draw_centered_text(colors.font_strong, entry.name, 0, size.y - 30, size.x, 24, colors.preview_text)
+			return
+		end
+
+		local preview = previews.Request(entry)
 
 		if entry.category == "textures" then
 			if preview.status == "ready" then
@@ -1149,7 +1209,7 @@ return function(props)
 			}
 		end
 
-		local target = get_selected_entity()
+		local target = entry.category == "components" and get_selected_object() or get_selected_entity()
 
 		if is_viewable_model(entry) then
 			actions[#actions + 1] = Button{
@@ -1186,6 +1246,16 @@ return function(props)
 				Mode = "outline",
 				OnClick = function()
 					apply_material(target, entry)
+				end,
+			}
+		elseif entry.category == "components" and not picking and target and not target:HasComponent(entry.name) then
+			actions[#actions + 1] = Button{
+				Text = "Add to selected",
+				Icon = "plus",
+				Mode = "outline",
+				OnClick = function()
+					editor_history.AddComponent(target, entry.name)
+					rebuild_details()
 				end,
 			}
 		elseif entry.category == "prefabs" then

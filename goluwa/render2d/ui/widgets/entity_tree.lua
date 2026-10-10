@@ -265,7 +265,7 @@ function build_entity_node(entity, expanded_keys, filter_callback, show_virtual,
 		SharedInstance = entity.prefab_owner ~= nil,
 	}
 
-	if entity.prefab_owner or (entity.prefab and entity.prefab.definition) then
+	if entity.prefab and entity.prefab.definition then
 		node.IconColor = "prefab"
 	end
 
