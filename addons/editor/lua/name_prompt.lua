@@ -4,16 +4,25 @@ local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
-local SIZE = Vec2(360, 130)
+local SIZE = Vec2(360, 160)
 return function(props)
 	local window
 	local edit
+	local error_text
 
 	local function submit()
 		local name = edit:GetText():match("^%s*(.-)%s*$")
 
 		if name == "" then return end
+
+		local err = props.Validate and props.Validate(name)
+
+		if err then
+			error_text.text:SetText(err)
+			return
+		end
 
 		window:Remove()
 		props.OnSubmit(name)
@@ -57,9 +66,21 @@ return function(props)
 							return true
 						end
 					end,
+					OnTextChanged = function()
+						error_text.text:SetText("")
+					end,
 					layout = {
 						GrowWidth = 1,
 					},
+				},
+				Text{
+					Ref = function(self)
+						error_text = self
+					end,
+					Text = "",
+					Color = "negative",
+					Wrap = true,
+					layout = {GrowWidth = 1},
 				},
 				Row{}{
 					Button{Text = "OK", OnClick = submit},

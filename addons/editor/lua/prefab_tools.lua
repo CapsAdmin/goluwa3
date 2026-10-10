@@ -321,6 +321,11 @@ function tools.GetMenuItem(entity, select)
 				name_prompt{
 					Title = "MAKE PREFAB",
 					Text = entity:GetName(),
+					Validate = function(name)
+						if list.has_value(prefab.GetNames(), (name:gsub("[^%w_%-%. ]", "_"))) then
+							return "a prefab named " .. name .. " already exists"
+						end
+					end,
 					OnSubmit = function(name)
 						editor_history.ReplaceEntity("make prefab " .. name, entity, function()
 							prefab.CreateFromEntity(entity, (name:gsub("[^%w_%-%. ]", "_")))
