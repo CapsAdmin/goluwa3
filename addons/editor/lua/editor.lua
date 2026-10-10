@@ -17,6 +17,7 @@ local Gizmo = import("lua/gizmo.lua")
 local highlight = import("lua/highlight.lua")
 local brush_editor = import("lua/brush_editor.lua")
 local shapes = RENDER_3D and import("goluwa/render3d/shapes.lua") or {}
+local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
 local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local MenuSpacer = import("goluwa/render2d/ui/elements/menu_spacer.lua")
@@ -730,64 +731,46 @@ return function(props)
 			},
 		},
 	}
-	local picker_button = Panel.New{
+	local picker_button = IconButton{
 		Name = "PickerButton",
-		transform = {
-			Size = Vec2(28, 28),
-			Position = Vec2(0, 0),
-		},
-		visual = {
-			OnDraw = function(self)
-				local btn_size = self.Owner.transform:GetSize()
-				render2d.SetTexture(nil)
-
-				if picker.IsActive() then
-					render2d.SetColor(1.0, 0.35, 0.15, 0.9)
-				else
-					render2d.SetColor(0.5, 0.5, 0.55, 0.7)
-				end
-
-				render2d.DrawRect(0, 0, btn_size.x, btn_size.y)
-				render2d.SetColor(1, 1, 1, 1)
-				local cx, cy = btn_size.x / 2, btn_size.y / 2
-				render2d.DrawRect(cx - 1, cy - 6, 2, 5)
-				render2d.DrawRect(cx - 1, cy + 1, 2, 5)
-				render2d.DrawRect(cx - 6, cy - 1, 5, 2)
-				render2d.DrawRect(cx + 1, cy - 1, 5, 2)
-			end,
-		},
-		mouse_input = {
-			Cursor = "hand",
-			OnMouseInput = function(self, button, press)
-				if button ~= "button_1" or not press then return end
-
-				if picker.IsActive() then
-					if picker_cancel_fn then
-						picker_cancel_fn()
-						picker_cancel_fn = nil
-					end
-				else
-					self:SetCursorOverride("crosshair")
-					picker_cancel_fn = picker.StartEntityPicker{
-						on_pick = function(target)
-							set_selected_target(target)
-						end,
-						on_cancel = function()
-							self:ClearCursorOverride()
-							picker_cancel_fn = nil
-						end,
-					}
-				end
-			end,
-		},
+		Icon = "target",
+		Size = Vec2(28, 28),
+		Padding = "XXS",
+		Mode = "outline",
+		Tooltip = "pick an entity in the scene",
 		layout = {
 			Floating = true,
 		},
+		OnClick = function(self)
+			if picker.IsActive() then
+				if picker_cancel_fn then
+					picker_cancel_fn()
+					picker_cancel_fn = nil
+				end
+			else
+				self.mouse_input:SetCursorOverride("crosshair")
+				picker_cancel_fn = picker.StartEntityPicker{
+					on_pick = function(target)
+						set_selected_target(target)
+					end,
+					on_cancel = function()
+						self.mouse_input:ClearCursorOverride()
+						picker_cancel_fn = nil
+					end,
+				}
+			end
+
+			return true
+		end,
 		OnUpdate = function(self)
+			self:SetActive(picker.IsActive())
+
 			if tree_scroll_container:IsValid() then
 				local _, _, x, y = tree_scroll_container.transform:GetWorldRectFast()
 				local btn_size = self.transform:GetSize()
-				self.transform:SetPosition(Vec2(x - btn_size.x - 4, y - btn_size.y * 2 - 4))
+				self.transform:SetPosition(
+					self:GetParent().transform:GlobalToLocal(Vec2(x - btn_size.x - 4, y - btn_size.y))
+				)
 			end
 		end,
 	}
