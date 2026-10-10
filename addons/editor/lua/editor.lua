@@ -122,7 +122,7 @@ return function(props)
 
 	local function flush_pending_editor_sync(force) end
 
-	local function create_child_shape(parent_entity, kind)
+	local function create_child_shape(parent_entity, kind, owner)
 		local spawn_world_position = camera.GetPosition() + camera.GetRotation():GetForward() * 2
 		local config = {
 			Name = kind == "sphere" and "sphere" or "box",
@@ -141,6 +141,8 @@ return function(props)
 		end
 
 		entity:SetParent(parent_entity)
+
+		if owner then entity:SetOwnedBy(owner) end
 
 		if parent_entity.transform then
 			entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
@@ -538,6 +540,35 @@ return function(props)
 							highlight.SetEntity(hovered and entity or nil)
 						end,
 						OnNodeContextMenu = function(node)
+							if node.OwnerGroup then
+								if node.Root ~= Entity.World then return false end
+
+								Panel.OpenContextMenu(
+									{
+										OnClose = function(self)
+											self:Remove()
+										end,
+									},
+									{
+										MenuItem{
+											Text = "Sphere",
+											Icon = "sphere",
+											OnClick = function()
+												create_child_shape(node.Root, "sphere", node.Owner)
+											end,
+										},
+										MenuItem{
+											Text = "Box",
+											Icon = "cube",
+											OnClick = function()
+												create_child_shape(node.Root, "box", node.Owner)
+											end,
+										},
+									}
+								)
+								return true
+							end
+
 							local entity = node.Entity
 
 							if not entity then return false end

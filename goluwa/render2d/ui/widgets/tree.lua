@@ -71,6 +71,8 @@ function META:OnCreate()
 	self._layout_serial = 0
 	self._drag_state = {active = false, source_key = nil, drop_info = nil}
 	self._row_click_times = {}
+	self._click_clock = 0
+	self._last_update_time = system.GetElapsedTime()
 	self._pending_expand_animation_key = nil
 	self._mutation_blocked = 0
 	self._pending_refresh = false
@@ -87,9 +89,13 @@ function META:OnCreate()
 end
 
 function META:OnUpdate()
+	local now = system.GetElapsedTime()
+	self._click_clock = self._click_clock + math.min(now - self._last_update_time, self.DoubleClickTime / 2)
+	self._last_update_time = now
+
 	if self._pending_refresh and system.GetElapsedTime() >= self._refresh_deadline then
 		self._pending_refresh = false
-		self:Rebuild(true)
+		self:Refresh(true)
 	end
 
 	self:materialize_visible_rows()
@@ -865,7 +871,9 @@ end
 function META:set_selected(node, path, key)
 	local previous_key = self._selected_key
 	self._selected_key = key
-	self.OnSelect(node, key, path)
+
+	if key ~= previous_key then self.OnSelect(node, key, path) end
+
 	self:refresh_row_text(self._row_infos[previous_key])
 	self:refresh_row_text(self._row_infos[key])
 end
@@ -1002,7 +1010,7 @@ function META:materialize_row(row_info)
 		OnClick = function(self)
 			if node.Disabled then return end
 
-			local now = system.GetElapsedTime()
+			local now = tree._click_clock
 			local last_click = tree._row_click_times[key]
 			local is_double_click = last_click and now - last_click <= tree.DoubleClickTime
 

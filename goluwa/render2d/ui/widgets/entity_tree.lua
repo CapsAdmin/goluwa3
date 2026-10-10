@@ -192,6 +192,7 @@ local function build_group_nodes(root, expanded_keys, filter_callback, show_virt
 			Children = children,
 			OwnerGroup = true,
 			Root = root,
+			Owner = group.owner,
 		}
 	end
 
@@ -429,7 +430,11 @@ function META:OnCreate()
 				tree:try_incremental_remove(entry.guid)
 				tree:try_incremental_remove("nearby/" .. entry.guid)
 
-				if tree._grouped_roots[entry.parent] then tree:prune_empty_groups() end
+				if tree._grouped_roots[entry.parent] then
+					tree:prune_empty_groups()
+				elseif entry.parent and entry.parent:IsValid() then
+					tree:sync_has_children(entry.parent)
+				end
 
 				goto continue
 			end
@@ -448,6 +453,10 @@ function META:OnCreate()
 
 			if entry.action == "parented" then
 				local ok, reason = tree:try_incremental_insert(entity, parent)
+
+				if not ok and parent:IsValid() and not tree._grouped_roots[parent] then
+					tree:sync_has_children(parent)
+				end
 			else
 				print("unknown action: " .. entry.action)
 			end
@@ -459,6 +468,13 @@ function META:OnCreate()
 	table.insert(
 		self._hierarchy_listeners,
 		event.AddListener("FrameEnd", self, process_hierarchy_queue)
+	)
+
+	table.insert(
+		self._hierarchy_listeners,
+		event.AddListener("PrefabInstanceChanged", self, function()
+			self:Refresh()
+		end)
 	)
 
 	self:CallOnRemove(
@@ -839,8 +855,10 @@ function META:Refresh(force)
 		self._grouped_roots
 	)
 	self:insert_nearby(items)
-	self:SetItems(items)
+	self._items = items
+	self._pending_refresh = false
 	self._refreshing = false
+	self:Rebuild(true)
 	return self
 end
 
@@ -918,6 +936,29 @@ function META:try_incremental_insert(entity, parent)
 	parent_item.Children[#parent_item.Children + 1] = new_item
 	self:AddNode(new_item, parent_key)
 	return true
+end
+
+function META:sync_has_children(entity)
+	local item = find_item_in_tree(self:GetItems(), entity:GetGUID())
+
+	if not item then return end
+
+	local has_children = item.Children[1] ~= nil
+
+	if not has_children then
+		for _, child in ipairs(entity:GetChildren()) do
+			if not (self._effective_filter and self._effective_filter(child)) then
+				has_children = true
+
+				break
+			end
+		end
+	end
+
+	if item.HasChildren == has_children then return end
+
+	item.HasChildren = has_children
+	self:RefreshBranchForKey(item.Key)
 end
 
 function META:try_incremental_remove(guid)

@@ -307,6 +307,7 @@ function tools.GetMenuItems(entity, select)
 				editor_history.ReplaceEntity("unpack " .. entity:GetName(), entity, function()
 					prefab.Unpack(entity)
 				end)
+				select(entity)
 			end,
 		}
 	elseif not entity.prefab_owner then

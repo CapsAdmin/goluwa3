@@ -683,6 +683,7 @@ function prefab.Unpack(entity)
 	dirty_properties[component] = nil
 	component.definition = nil
 	entity:RemoveComponent("prefab")
+	event.Call("PrefabInstanceChanged", entity)
 end
 
 -- the instance whose definition holds this entity or component, nil when it belongs to the entity itself
@@ -1148,6 +1149,7 @@ function prefab.CreateFromEntity(entity, name)
 	entity:AddComponent("prefab", {Path = name})
 	event.Call("PrefabChanged", definition)
 	event.Call("PrefabInputsChanged", definition)
+	event.Call("PrefabInstanceChanged", entity)
 
 	return definition
 end
