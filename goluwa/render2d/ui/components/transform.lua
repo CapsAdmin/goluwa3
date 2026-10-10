@@ -65,6 +65,7 @@ function META:OnUnParent()
 end
 
 function META:InvalidateWorldMatrices()
+	self:BumpMatrixVersion()
 	self.WorldMatrix = nil
 	self.WorldMatrixInverse = nil
 
@@ -154,35 +155,76 @@ function META:GetWorldBounds(x, y, w, h)
 	math.max(y1, y2, y3, y4)
 end
 
-function META:GetScrollViewportWorldBounds()
-	local viewport_x1, viewport_y1, viewport_x2, viewport_y2
-	local parent = self.Owner:GetParent()
+do
+	local matrix_version = 0
 
-	while parent and parent.IsValid and parent:IsValid() do
-		local parent_tr = parent.transform
-
-		if parent_tr and parent_tr.ScrollEnabled then
-			local x1, y1, x2, y2 = parent_tr:GetWorldBounds()
-
-			if viewport_x1 then
-				viewport_x1 = math.max(viewport_x1, x1)
-				viewport_y1 = math.max(viewport_y1, y1)
-				viewport_x2 = math.min(viewport_x2, x2)
-				viewport_y2 = math.min(viewport_y2, y2)
-
-				if viewport_x2 <= viewport_x1 or viewport_y2 <= viewport_y1 then break end
-			else
-				viewport_x1 = x1
-				viewport_y1 = y1
-				viewport_x2 = x2
-				viewport_y2 = y2
-			end
-		end
-
-		parent = parent:GetParent()
+	function META:BumpMatrixVersion()
+		matrix_version = matrix_version + 1
 	end
 
-	return viewport_x1, viewport_y1, viewport_x2, viewport_y2
+	function META:GetCachedWorldBounds()
+		if self.bounds_version ~= matrix_version then
+			self.bounds_x1, self.bounds_y1, self.bounds_x2, self.bounds_y2 = self:GetWorldBounds()
+			self.bounds_version = matrix_version
+		end
+
+		return self.bounds_x1, self.bounds_y1, self.bounds_x2, self.bounds_y2
+	end
+
+	function META:IntersectsScrollViewport()
+		if self.intersects_version ~= matrix_version then
+			local viewport_x1, viewport_y1, viewport_x2, viewport_y2 = self:GetScrollViewportWorldBounds()
+
+			if viewport_x1 then
+				local x1, y1, x2, y2 = self:GetCachedWorldBounds()
+				self.intersects = x2 > viewport_x1 and
+					x1 < viewport_x2 and
+					y2 > viewport_y1 and
+					y1 < viewport_y2
+			else
+				self.intersects = true
+			end
+
+			self.intersects_version = matrix_version
+		end
+
+		return self.intersects
+	end
+
+	function META:GetScrollViewportWorldBounds()
+		local parent = self.Owner:GetParent()
+
+		while parent and parent.IsValid and parent:IsValid() do
+			local parent_tr = parent.transform
+
+			if parent_tr and parent_tr.ScrollEnabled then
+				if parent_tr.viewport_version ~= matrix_version then
+					local x1, y1, x2, y2 = parent_tr:GetWorldBounds()
+					local ox1, oy1, ox2, oy2 = parent_tr:GetScrollViewportWorldBounds()
+
+					if ox1 then
+						x1 = math.max(x1, ox1)
+						y1 = math.max(y1, oy1)
+						x2 = math.min(x2, ox2)
+						y2 = math.min(y2, oy2)
+					end
+
+					parent_tr.viewport_x1 = x1
+					parent_tr.viewport_y1 = y1
+					parent_tr.viewport_x2 = x2
+					parent_tr.viewport_y2 = y2
+					parent_tr.viewport_version = matrix_version
+				end
+
+				return parent_tr.viewport_x1,
+				parent_tr.viewport_y1,
+				parent_tr.viewport_x2,
+				parent_tr.viewport_y2
+			end
+
+			parent = parent:GetParent()
+		end
+	end
 end
 
 function META:GetVisibleLocalRect(x, y, w, h)

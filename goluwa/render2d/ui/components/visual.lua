@@ -35,6 +35,12 @@ function META:IsHovered(mouse_pos)
 
 	if not transform then return false end
 
+	local wx1, wy1, wx2, wy2 = transform:GetCachedWorldBounds()
+
+	if mouse_pos.x < wx1 or mouse_pos.x > wx2 or mouse_pos.y < wy1 or mouse_pos.y > wy2 then
+		return false
+	end
+
 	local local_pos = transform:GlobalToLocal(mouse_pos)
 	local clip_x1, clip_y1, clip_x2, clip_y2 = transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
 
@@ -135,7 +141,7 @@ local function draw_recursive_enter(_, owner)
 				owner.text and
 				owner.text:GetDisableViewportCulling()
 			) or
-			transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y)
+			transform:IntersectsScrollViewport()
 		)
 	then
 		return WALK_SKIP_SUBTREE

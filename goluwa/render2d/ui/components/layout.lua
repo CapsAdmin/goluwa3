@@ -64,6 +64,22 @@ META:GetSet("Floating", false)
 META:GetSet("Dock", "none", {enums = {"none", "top", "bottom", "left", "right", "fill"}})
 META:EndStorable()
 META:GetSet("Dirty", false)
+
+local dirty_queue = {}
+local dirty_queue_next = {}
+
+do
+	local set_dirty = META.SetDirty
+
+	function META:SetDirty(dirty)
+		set_dirty(self, dirty)
+
+		if dirty and not self.queued then
+			self.queued = true
+			dirty_queue[#dirty_queue + 1] = self
+		end
+	end
+end
 META:GetSet("LastSize", Vec2(0, 0))
 
 function META:Initialize()
@@ -978,8 +994,16 @@ function META:OnFirstCreated()
 		"Update",
 		signature,
 		function()
-			for _, layout in ipairs(META.Instances) do
-				if layout.Dirty then
+			local queue = dirty_queue
+			dirty_queue = dirty_queue_next
+			dirty_queue_next = queue
+
+			for i = 1, #queue do
+				local layout = queue[i]
+				queue[i] = nil
+				layout.queued = false
+
+				if layout.Dirty and layout.Owner:IsValid() then
 					local root = layout
 					local parent = layout.Owner:GetParent()
 

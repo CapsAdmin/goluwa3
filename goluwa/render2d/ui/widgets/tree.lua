@@ -68,6 +68,7 @@ function META:OnCreate()
 	self._expanded_state = {}
 	self._row_infos = {}
 	self._row_order = {}
+	self._layout_serial = 0
 	self._drag_state = {active = false, source_key = nil, drop_info = nil}
 	self._row_click_times = {}
 	self._pending_expand_animation_key = nil
@@ -92,6 +93,10 @@ function META:OnUpdate()
 	end
 
 	self:materialize_visible_rows()
+end
+
+function META:OnLayoutUpdated()
+	self._layout_serial = self._layout_serial + 1
 end
 
 function META.OnGetText() end
@@ -1063,6 +1068,19 @@ do
 			return
 		end
 
+		if
+			self._materialize_serial == self._layout_serial and
+			self._materialize_y1 == y1 and
+			self._materialize_y2 == y2 and
+			self._materialize_count == #self._row_order
+		then
+			return
+		end
+
+		self._materialize_y1 = y1
+		self._materialize_y2 = y2
+		self._materialize_count = #self._row_order
+		self._materialize_serial = self._layout_serial
 		y1 = y1 - VIEW_MARGIN
 		y2 = y2 + VIEW_MARGIN
 		local pending
