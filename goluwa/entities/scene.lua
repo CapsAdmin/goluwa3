@@ -186,7 +186,8 @@ function scene.Clear()
 	end
 end
 
-local function apply_properties(object, properties, what)
+-- with skip_equal a value the object already has is not set again, a table is a new object every time so setting it would count as a change and run the callbacks of the property, a model would rebuild
+local function apply_properties(object, properties, what, skip_equal)
 	if not properties then return end
 
 	local infos = objects.GetStorableVariables(object)
@@ -196,7 +197,15 @@ local function apply_properties(object, properties, what)
 		known[info.var_name] = true
 		local value = properties[info.var_name]
 
-		if value ~= nil then object[info.set_name](object, value) end
+		if
+			value ~= nil and
+			not (
+				skip_equal and
+				values_equal(object[info.get_name](object), value)
+			)
+		then
+			object[info.set_name](object, value)
+		end
 	end
 
 	for var_name in pairs(properties) do
@@ -335,7 +344,7 @@ do
 			end
 		end
 
-		apply_properties(object, properties, what)
+		apply_properties(object, properties, what, true)
 	end
 
 	function scene.Apply(data, parent, options)
