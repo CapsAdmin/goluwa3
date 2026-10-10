@@ -328,14 +328,12 @@ function tools.GetMenuItems(entity, select)
 		}
 	end
 
-	local place_items = tools.GetPlaceItems(select)
-
-	if place_items[1] then
+	if prefab.GetNames()[1] then
 		items[#items + 1] = MenuItem{
 			Text = "Place",
 			Icon = "place",
 			Items = function()
-				return place_items
+				return tools.GetPlaceItems(select)
 			end,
 		}
 	end
