@@ -2,6 +2,7 @@ local vfs = import("goluwa/vfs.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local assets = import("goluwa/assets.lua")
 local previews = import("lua/asset_preview.lua")
+local prefab = import("goluwa/entities/prefab.lua")
 local asset_info = library()
 
 function asset_info.FormatBytes(bytes)
@@ -152,6 +153,36 @@ function asset_info.Get(entry)
 	end
 
 	sections[#sections + 1] = preview_section
+
+	if entry.category == "prefabs" then
+		local ok, info = pcall(prefab.Describe, entry.name)
+		local prefab_section = {title = "prefab", rows = {}}
+		local rows = prefab_section.rows
+
+		if ok then
+			rows[#rows + 1] = {"nodes", tostring(info.nodes)}
+			rows[#rows + 1] = {"instances", tostring(info.instances)}
+			rows[#rows + 1] = {"scripts", tostring(info.scripts)}
+			rows[#rows + 1] = {"components", table.concat(info.components, ", ")}
+
+			if info.dependencies[1] then
+				rows[#rows + 1] = {"contains", table.concat(info.dependencies, ", ")}
+			end
+
+			rows[#rows + 1] = {"saved", info.saved and "yes" or (info.builtin and "built in" or "no, only in memory")}
+
+			for i, input in ipairs(info.inputs) do
+				rows[#rows + 1] = {
+					i == 1 and "inputs" or "",
+					("%s (%s) = %s, %d targets"):format(input.Name, input.Type, tostring(input.Default), #input.Targets),
+				}
+			end
+		else
+			rows[1] = {"error", tostring(info)}
+		end
+
+		sections[#sections + 1] = prefab_section
+	end
 
 	if entry.category == "materials" and entry.extension == ".vmt" then
 		local source = asset_info.ReadSource(entry)

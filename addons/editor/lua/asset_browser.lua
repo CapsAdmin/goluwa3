@@ -30,7 +30,8 @@ local ModelPreview = import("goluwa/render3d/model_preview.lua")
 local OrbitCamera = import("goluwa/render3d/orbit_camera.lua")
 local previews = import("lua/asset_preview.lua")
 local asset_info = import("lua/asset_info.lua")
-local DEFAULT_CATEGORIES = {"models", "textures", "materials"}
+local prefab_tools = import("lua/prefab_tools.lua")
+local DEFAULT_CATEGORIES = {"models", "textures", "materials", "prefabs"}
 local LABEL_HEIGHT = 36
 local DETAIL_PREVIEW_SIZE = 320
 local CHANNEL_SIZE = 64
@@ -153,6 +154,18 @@ end
 
 local function apply_material(target, entry)
 	target:EnsureComponent("visual"):SetMaterialOverridePath(entry.path)
+end
+
+local function place_prefab(entry)
+	local entity = prefab_tools.Place(entry.name)
+	event.Call("EditorSelect", entity)
+	return entity
+end
+
+-- only an entity that already is a prefab instance can switch prefab
+local function get_selected_instance()
+	local target = get_selected_entity()
+	return target and target.prefab and target or nil
 end
 
 local function get_folder_node_chain(folder)
@@ -642,6 +655,23 @@ return function(props)
 					end,
 				} or
 				nil,
+				entry.category == "prefabs" and
+				MenuItem{
+					Text = "Place in front of camera",
+					OnClick = function()
+						place_prefab(entry)
+					end,
+				} or
+				nil,
+				entry.category == "prefabs" and
+				get_selected_instance() and
+				MenuItem{
+					Text = "Use as prefab of selected instance",
+					OnClick = function()
+						get_selected_instance().prefab:SetPath(entry.name)
+					end,
+				} or
+				nil,
 				entry.preview and
 				entry.preview.status == "failed" and
 				MenuItem{
@@ -754,6 +784,7 @@ return function(props)
 		detail.owns_entity = false
 		detail.preview = nil
 		detail.material = nil
+		detail.visuals = nil
 		detail.ready = false
 		detail.entry = nil
 	end
@@ -770,6 +801,19 @@ return function(props)
 				Height = DETAIL_PREVIEW_SIZE,
 				Padding = 1.1,
 			}
+		elseif entry.category == "prefabs" and RENDER_3D then
+			local ok, entity, visuals = pcall(previews.CreatePrefabEntity, entry.name)
+
+			if ok then
+				detail.entity = entity
+				detail.visuals = visuals
+				detail.owns_entity = true
+				detail.preview = ModelPreview.New{
+					Width = DETAIL_PREVIEW_SIZE,
+					Height = DETAIL_PREVIEW_SIZE,
+					Padding = 1.1,
+				}
+			end
 		elseif entry.category == "materials" then
 			local ok, material = xpcall(previews.LoadMaterial, debug.traceback, entry)
 
@@ -795,6 +839,9 @@ return function(props)
 		if not detail.ready then
 			if detail.material then
 				detail.ready = previews.IsMaterialReady(detail.material)
+			elseif detail.visuals then
+				local ready, drawable = previews.ArePrefabVisualsReady(detail.visuals)
+				detail.ready = ready and drawable
 			else
 				local entries = visual:GetRenderEntries()
 				detail.ready = not visual.Loading and
@@ -808,6 +855,13 @@ return function(props)
 		if detail.auto_rotate then detail.orbit:Rotate(-dt * 60, 0) end
 
 		detail.preview:SetViewOffset(detail.orbit:GetViewOffset())
+
+		if detail.visuals then
+			detail.preview:SetTargets(detail.visuals)
+			detail.preview:Refresh()
+			detail.preview:SetTarget(nil)
+			return
+		end
 
 		if detail.material then visual:SetMaterialOverride(detail.material) end
 
@@ -1094,6 +1148,24 @@ return function(props)
 					apply_material(target, entry)
 				end,
 			}
+		elseif entry.category == "prefabs" then
+			actions[#actions + 1] = Button{
+				Text = "Place",
+				Mode = "outline",
+				OnClick = function()
+					place_prefab(entry)
+				end,
+			}
+
+			if get_selected_instance() then
+				actions[#actions + 1] = Button{
+					Text = "Use on selected",
+					Mode = "outline",
+					OnClick = function()
+						get_selected_instance().prefab:SetPath(entry.name)
+					end,
+				}
+			end
 		end
 
 		details_column:AddChild(Row{layout = {GrowWidth = 1, ChildGap = 6, WrapChildren = true}}(actions))

@@ -258,14 +258,22 @@ function picker.MouseInput(button, press)
 	cancel_picker()
 end
 
-function picker.PickAsset(category, current_path, callback)
+-- most categories are identified by their path, a category can say its value is something else (a prefab is its name)
+function picker.PickAsset(category, current_value, callback)
+	local config = category and assets.categories[category] or {}
+	local selected = current_value
+
+	if config.get_path and current_value and current_value ~= "" then
+		selected = config.get_path(current_value)
+	end
+
 	Panel.World:Ensure(
 		AssetBrowser{
 			Key = "AssetPicker",
 			PickerCategory = category,
-			SelectedPath = current_path,
+			SelectedPath = selected,
 			OnPick = function(entry)
-				callback(entry.path)
+				callback(config.get_value and config.get_value(entry) or entry.path)
 			end,
 		}
 	)

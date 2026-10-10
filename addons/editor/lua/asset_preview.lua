@@ -6,6 +6,7 @@ local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
 local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 local ModelPreview = import("goluwa/render3d/model_preview.lua")
+local prefab = import("goluwa/entities/prefab.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local previews = library()
@@ -40,6 +41,8 @@ local function get_kind(entry)
 	end
 
 	if entry.category == "materials" then return "material" end
+
+	if entry.category == "prefabs" and RENDER_3D then return "prefab" end
 
 	return "none"
 end
@@ -392,6 +395,96 @@ local function step_model(state, now, budget)
 	return true
 end
 
+-- a prefab has a visual on every node that shows something
+function previews.CollectVisuals(entity, out)
+	out = out or {}
+
+	if entity.visual then out[#out + 1] = entity.visual end
+
+	for _, child in ipairs(entity:GetChildren()) do
+		previews.CollectVisuals(child, out)
+	end
+
+	return out
+end
+
+function previews.CreatePrefabEntity(name)
+	local entity = prefab.CreatePreview(name)
+	local visuals = previews.CollectVisuals(entity)
+
+	for _, visual in ipairs(visuals) do
+		visual:SetVisible(false)
+		visual:SetUseOcclusionCulling(false)
+	end
+
+	return entity, visuals
+end
+
+-- false while a visual still loads, and whether any of them has something to draw
+function previews.ArePrefabVisualsReady(visuals)
+	local ready = true
+	local drawable = false
+
+	for _, visual in ipairs(visuals) do
+		if visual.Loading or not previews.AreModelMaterialsReady(visual) then
+			ready = false
+		end
+
+		if visual:GetRenderEntries()[1] then drawable = true end
+	end
+
+	return ready, drawable
+end
+
+local function step_prefab(state, now, budget)
+	local entry = state.entry
+
+	if not state.entity then
+		if loading.model_count >= previews.MAX_LOADING then return false end
+
+		local ok, entity, visuals = pcall(previews.CreatePrefabEntity, entry.name)
+
+		if not ok then
+			fail(state, entity)
+			return false
+		end
+
+		state.entity = entity
+		state.visuals = visuals
+		state.status = "loading"
+		state.started = now
+		loading.model_count = loading.model_count + 1
+		return true
+	end
+
+	local ready, drawable = previews.ArePrefabVisualsReady(state.visuals)
+
+	if not ready and now - state.started < previews.TIMEOUT then return false end
+
+	if not drawable then
+		cleanup_model_job(state)
+		loading.model_count = loading.model_count - 1
+		state.status = "none"
+		return false
+	end
+
+	if budget.renders <= 0 then return false end
+
+	local render = acquire_render(state)
+
+	if not render then return false end
+
+	budget.renders = budget.renders - 1
+	render.preview:SetTargets(state.visuals)
+	render.preview:Refresh()
+	render.preview:SetTarget(nil)
+	state.visuals = nil
+	finish_render(state, render)
+	cleanup_model_job(state)
+	loading.model_count = loading.model_count - 1
+	return true
+end
+
 function previews.GetMaterialSphere()
 	if not material_sphere or not material_sphere:IsValid() then
 		material_sphere = create_preview_entity_from_descriptor(assets.GetModel("models/sphere.lua").value)
@@ -585,7 +678,12 @@ function previews.Clear()
 	list.clear(next_wanted)
 end
 
-local steps = {texture = step_texture, model = step_model, material = step_material}
+local steps = {
+	texture = step_texture,
+	model = step_model,
+	material = step_material,
+	prefab = step_prefab,
+}
 
 function previews.Update()
 	previews.frame = previews.frame + 1
