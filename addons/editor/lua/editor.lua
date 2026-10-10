@@ -28,6 +28,8 @@ local Column = import("goluwa/render2d/ui/elements/column.lua")
 local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local nearby = import("lua/nearby.lua")
 local scene = import("goluwa/entities/scene.lua")
+local prefab = import("goluwa/entities/prefab.lua")
+local prefab_tools = import("lua/prefab_tools.lua")
 local network = import("goluwa/network/network.lua")
 local scene_sync = import("goluwa/network/scene_sync.lua")
 local name_prompt = import("lua/name_prompt.lua")
@@ -39,6 +41,16 @@ local View = import("goluwa/render3d/view.lua")
 local camera = import("lua/camera.lua")
 local picker = import("lua/picker.lua")
 local MATERIAL_ROOT_KEY = "__editor_3d_materials__"
+-- the order the components of an entity are listed in the property editor, the rest follows alphabetically
+local COMPONENT_ORDER = {
+	"prefab",
+	"script",
+	"transform",
+	"model",
+	"visual",
+	"rigid_body",
+	"network",
+}
 local SHARED_INSTANCE_COLOR = Color(0.35, 0.62, 1.0, 1.0)
 local SHARED_INSTANCE_OUTLINE = Color(0.35, 0.62, 1.0, 0.95)
 local NONVISUAL_HINT_TIME = 0.12
@@ -97,6 +109,7 @@ return function(props)
 		if not show_transient and target:GetTransient() then set_show_transient(true) end
 
 		Gizmo.EnableGizmo(target)
+		prefab_tools.Watch(target)
 		tree_view:SelectEntity(target)
 		tree_view:ExpandToEntity(target)
 		tree_view:EnsureEntityVisible(target)
@@ -124,6 +137,7 @@ return function(props)
 		end
 
 		entity:SetParent(parent_entity)
+		prefab.MarkStructureDirty(parent_entity)
 
 		if parent_entity.transform then
 			entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(spawn_world_position))
@@ -198,6 +212,8 @@ return function(props)
 					else
 						entity:AddComponent(name)
 					end
+
+					prefab.MarkStructureDirty(entity)
 				end,
 			}
 		end
@@ -444,6 +460,7 @@ return function(props)
 						OnSelect = function(node, key)
 							local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
 							Gizmo.EnableGizmo(target)
+							prefab_tools.Watch(target)
 							pending_selection_sync = true
 							_G.SELECTED_OBJECT = target
 						end,
@@ -530,6 +547,7 @@ return function(props)
 										Text = "Clone",
 										OnClick = function()
 											set_selected_target(scene.Clone(entity))
+											prefab.MarkStructureDirty(entity:GetParent())
 										end,
 									} or
 									nil,
@@ -553,6 +571,15 @@ return function(props)
 										end,
 									} or
 									nil,
+									can_create_shapes and
+									can_remove and
+									MenuItem{
+										Text = "Prefab",
+										Items = function()
+											return prefab_tools.GetMenuItems(entity, set_selected_target)
+										end,
+									} or
+									nil,
 									can_remove and
 									has_above_remove and
 									MenuSpacer{} or
@@ -566,6 +593,7 @@ return function(props)
 											if parent:IsValid() then set_selected_target(parent) end
 
 											entity:Remove()
+											prefab.MarkStructureDirty(parent)
 										end,
 									} or
 									nil,
@@ -617,6 +645,10 @@ return function(props)
 						Ref = function(self)
 							property_editor = self
 						end,
+						CategoryOrder = COMPONENT_ORDER,
+						OnContextActions = prefab_tools.GetPropertyActions,
+						OnGetCategoryBadge = prefab_tools.GetCategoryBadge,
+						OnGetPropertyBadge = prefab_tools.GetPropertyBadge,
 						layout = {
 							GrowWidth = 1,
 							GrowHeight = 1,
@@ -767,10 +799,23 @@ return function(props)
 		set_selected_target(target)
 	end)
 
+	-- not when a value was edited, rebuilding the panel then would drop the control that is being dragged
+	event.AddListener("PrefabInputsChanged", editor_window, function()
+		pending_selection_sync = true
+	end)
+
+	event.AddListener("EntityTreeReparent", editor_window, function(_, old_parent, new_parent)
+		prefab.MarkStructureDirty(old_parent)
+		prefab.MarkStructureDirty(new_parent)
+	end)
+
 	editor_window:CallOnRemove(
 		function()
 			event.RemoveListener("EditorSelect", editor_window)
+			event.RemoveListener("EntityTreeReparent", editor_window)
+			event.RemoveListener("PrefabInputsChanged", editor_window)
 			highlight.SetEntity()
+			prefab_tools.Watch(nil)
 			Gizmo.Clear()
 			view:Remove()
 			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
@@ -780,12 +825,15 @@ return function(props)
 
 	do
 		local function add_component_listener(world)
-			local remove_listener = world:AddLocalListener("OnEntityComponentChanged", function(_, entity)
+			local remove_listener = world:AddLocalListener("OnEntityComponentChanged", function(_, entity, _, name)
 				local selected_entity = tree_view:GetSelectedEntity()
 
 				if selected_entity and entity == selected_entity then
 					pending_selection_sync = true
+					prefab_tools.Watch(selected_entity)
 				end
+
+				if name == "prefab" or name == "script" then tree_view:Refresh() end
 			end)
 			editor_window:CallOnRemove(remove_listener, remove_listener)
 		end

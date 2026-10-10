@@ -1,5 +1,6 @@
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
 local META = Panel:CreateTemplate("entity_tree")
 local Entity = import("goluwa/entities/entity.lua")
 META.Base = import("goluwa/render2d/ui/widgets/tree.lua")
@@ -108,13 +109,31 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 	end
 
 	visited[entity] = nil
-	return {
+	local node = {
 		Entity = entity,
 		Key = guid,
 		Text = get_entity_label(entity),
 		HasChildren = has_children,
 		Children = children,
+		SharedInstance = entity.prefab_owner ~= nil,
 	}
+	local instance = entity.prefab
+	local script = entity.script
+
+	if instance and instance.definition then
+		node.TextColor = "positive"
+		node.Badges = {{Text = instance.Path, Color = "positive"}}
+	end
+
+	if script then
+		node.Badges = node.Badges or {}
+		node.Badges[#node.Badges + 1] = {
+			Text = script.Error and "script error" or "script",
+			Color = script.Error and "negative" or "text_disabled",
+		}
+	end
+
+	return node
 end
 
 local function build_tree_items(root_entities, root_labels, expanded_keys, filter_callback, show_virtual)
@@ -277,7 +296,6 @@ function META:OnCreate()
 		end
 	end
 
-	local event = import("goluwa/event.lua")
 	table.insert(
 		self._hierarchy_listeners,
 		event.AddListener("FrameEnd", self, process_hierarchy_queue)
@@ -412,9 +430,12 @@ function META.OnDrop(drop_info)
 		return false
 	end
 
-	if source_entity:GetParent() == next_parent then return false end
+	local old_parent = source_entity:GetParent()
+
+	if old_parent == next_parent then return false end
 
 	source_entity:SetParent(next_parent)
+	event.Call("EntityTreeReparent", source_entity, old_parent, next_parent)
 	return true
 end
 
