@@ -3,6 +3,8 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local system = import("goluwa/system.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local DIMMED_ALPHA = 0.45
 local META = Panel:CreateTemplate("tree")
 META.CMP.transform = {}
 META.CMP.layout = {
@@ -122,6 +124,9 @@ function META.OnIsExpanded() end
 function META.OnGetDynamicChildren() end
 
 function META.OnGetTextColor() end
+
+-- true for a node that is drawn faded, like a file that was cut
+function META.OnIsNodeDimmed(node, path, key) end
 
 function META.OnSelect() end
 
@@ -1306,6 +1311,10 @@ do
 					self.Owner:SetState("hovered", row_info.hovered)
 					self.Owner:SetState("hover_color", theme.active:GetHoverTint(tree.HoverColor))
 					theme.active:Draw(self.Owner)
+
+					if row_info.text and row_info.text:IsValid() then
+						row_info.text.visual:SetDrawAlpha(tree.OnIsNodeDimmed(node, path, key) and DIMMED_ALPHA or 1)
+					end
 				end,
 			},
 			mouse_input = {
@@ -1358,11 +1367,17 @@ do
 						name = name(node, tree:is_expanded(node, path, key, tree:has_children(node, path)))
 					end
 
+					local dimmed = tree.OnIsNodeDimmed(node, path, key)
+
+					if dimmed then render2d.PushAlphaMultiplier(DIMMED_ALPHA) end
+
 					theme.active:DrawIcon(
 						name,
 						self.Owner.transform:GetSize(),
 						{color = theme.active:ResolveColor(node.IconColor, "text")}
 					)
+
+					if dimmed then render2d.PopAlphaMultiplier() end
 				end,
 			},
 		}

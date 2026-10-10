@@ -248,12 +248,15 @@ end
 function ops.RecordReparent(entity, old_parent, new_parent)
 	local guid = entity:GetGUID()
 	local old_guid, new_guid = old_parent:GetGUID(), new_parent:GetGUID()
+	-- a node that leaves its instance has to be released by the instance that owns it, the one it moves into then takes it
+	prefab.MarkStructureDirty(entity)
 	prefab.MarkStructureDirty(old_parent)
 	prefab.MarkStructureDirty(new_parent)
 
 	local function move(parent_guid, from_guid)
 		local target = resolve_entity(guid)
 		local parent = resolve_entity(parent_guid)
+		prefab.MarkStructureDirty(target)
 		target:SetParent(parent)
 		prefab.MarkStructureDirty(parent)
 		prefab.MarkStructureDirty(resolve_entity(from_guid))

@@ -64,7 +64,7 @@ end
 local function weapon_suffix(entity)
 	local holder = entity.player and entity.player.weapon_holder
 	local weapon = holder and holder:GetActiveWeapon()
-	return weapon and WEAPONS[weapon.weapon:GetModelPrefab()] or "all"
+	return weapon and WEAPONS[weapon.weapon:GetModel().prefab.Path] or "all"
 end
 
 function Entity:Update(dt)

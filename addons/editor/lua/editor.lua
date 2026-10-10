@@ -234,6 +234,59 @@ return function(props)
 		return entity ~= Entity.World and entity ~= Panel.World and not entity:GetSingleton()
 	end
 
+	-- the entity that was cut, it stays where it is until it is pasted so it can be taken across prefab mode and the scene
+	local cut_entity
+
+	local function can_cut(entity)
+		return can_edit_components(entity) and entity ~= edit_stack[#edit_stack]
+	end
+
+	local function can_paste(target)
+		if not (cut_entity and cut_entity:IsValid()) then return false end
+
+		if target == cut_entity or target:ContainsParent(cut_entity) then return false end
+
+		local root = cut_entity:GetRoot()
+
+		return target == root or target:GetRoot() == root
+	end
+
+	local function cut_to_clipboard(entity)
+		cut_entity = entity
+	end
+
+	local function paste_into(target, owner)
+		if not can_paste(target) then return end
+
+		local entity = cut_entity
+		local old_parent = entity:GetParent()
+		cut_entity = nil
+
+		if old_parent == target and not owner then return end
+
+		local transform = entity.transform
+		local keep_world = transform and not transform.Is2D and target.transform and transform.Attachment == "root"
+		local world_position, world_rotation
+
+		if keep_world then
+			world_position = transform:GetWorldPosition()
+			world_rotation = transform:GetWorldMatrix():GetRotation()
+		end
+
+		entity.prefab_patch = nil
+		entity:SetParent(target)
+
+		if owner then entity:SetOwnedBy(owner) end
+
+		if keep_world then
+			transform:SetPosition(transform:WorldToLocalPosition(world_position))
+			transform:SetRotation(target.transform:GetWorldMatrix():GetRotation():GetConjugated() * world_rotation)
+		end
+
+		editor_history.RecordReparent(entity, old_parent, target)
+		set_selected_target(entity)
+	end
+
 	local prefab_bar = NULL
 
 	local function apply_prefab_mode()
@@ -607,6 +660,9 @@ return function(props)
 							local entity = node and node.Entity or nil
 							highlight.SetEntity(hovered and entity or nil)
 						end,
+						OnIsNodeDimmed = function(node)
+							return cut_entity ~= nil and node.Entity == cut_entity
+						end,
 						OnNodeDoubleClick = function(node)
 							local entity = node.Entity
 
@@ -640,6 +696,15 @@ return function(props)
 												pick_child_prefab(node.Root, node.Owner)
 											end,
 										},
+										can_paste(node.Root) and
+										MenuItem{
+											Text = "Paste " .. cut_entity:GetName(),
+											Icon = "paste",
+											OnClick = function()
+												paste_into(node.Root, node.Owner)
+											end,
+										} or
+										nil,
 									}
 								)
 								return true
@@ -692,6 +757,26 @@ return function(props)
 										Icon = "layers",
 										OnClick = function()
 											enter_prefab_edit(entity)
+										end,
+									} or
+									nil,
+									can_create_shapes and
+									can_remove and
+									MenuItem{
+										Text = "Cut",
+										Icon = "move",
+										OnClick = function()
+											cut_to_clipboard(entity)
+										end,
+									} or
+									nil,
+									can_create_shapes and
+									can_paste(entity) and
+									MenuItem{
+										Text = "Paste " .. cut_entity:GetName(),
+										Icon = "paste",
+										OnClick = function()
+											paste_into(entity)
 										end,
 									} or
 									nil,
@@ -1061,6 +1146,24 @@ return function(props)
 		if not press or not input.IsControlDown() or has_text_focus() then return end
 
 		if Gizmo.GetStatus().active_drag then return end
+
+		if key == "x" then
+			local entity = tree_view:GetSelectedEntity()
+
+			if entity and entity:GetRoot() == Entity.World and can_cut(entity) then
+				cut_to_clipboard(entity)
+				return true
+			end
+		end
+
+		if key == "v" then
+			local entity = tree_view:GetSelectedEntity()
+
+			if entity and can_paste(entity) then
+				paste_into(entity)
+				return true
+			end
+		end
 
 		if key == "z" and not input.IsShiftDown() then
 			history:Undo()

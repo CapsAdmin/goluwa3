@@ -1,6 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
-local Entity = import("goluwa/entities/entity.lua")
 local META = objects.CreateTemplate("weapon")
 local BUTTON = usercmd.BUTTON
 META.Network = {
@@ -10,7 +9,6 @@ META.Network = {
 META:StartStorable()
 META:GetSet("Slot", 1)
 META:GetSet("DisplayName", "")
-META:GetSet("ModelPrefab", "")
 META:IsSet("HiddenInFirstPerson", false)
 META:GetSet("FireRate", 0.1)
 META:GetSet("Automatic", false)
@@ -23,36 +21,20 @@ function META:Initialize()
 	self.next_secondary = 0
 end
 
--- the node of the model prefab that is named muzzle, nil while there is no model
+-- the node of the weapon prefab that holds the model prefab
+function META:GetModel()
+	local instance = self.Owner.prefab
+
+	return instance and instance:GetNode("model")
+end
+
+-- the node of the model prefab that is named muzzle
 function META:GetMuzzle()
-	return self.model and self.model.prefab:GetNode("muzzle")
+	return self:GetModel().prefab:GetNode("muzzle")
 end
 
 function META:UpdateModel(visible)
-	local model = self.model
-
-	if not model then
-		if not visible or self.ModelPrefab == "" then return end
-
-		model = Entity.New{
-			Name = self.Owner:GetName() .. "_model",
-			Parent = self.Owner:GetParent(),
-			transform = {Attachment = "hand_r"},
-			prefab = {Path = self.ModelPrefab},
-			visibility = {},
-		}
-		self.model = model
-		self.model_visible = true
-
-		self.Owner:CallOnRemove(function()
-			model:Remove()
-		end)
-	end
-
-	if visible ~= self.model_visible then
-		self.model_visible = visible
-		model.visibility:SetVisible(visible)
-	end
+	self:GetModel().visibility:SetVisible(visible)
 end
 
 function META:Think(dt, cmd)
