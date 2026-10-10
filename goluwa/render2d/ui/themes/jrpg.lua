@@ -127,7 +127,7 @@ function JRPGTheme:Initialize()
 				L = 15,
 				XL = 20,
 				XXL = 25,
-				icon = 14,
+				icon = 16,
 				default = 10,
 			}
 		)

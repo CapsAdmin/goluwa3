@@ -23,7 +23,7 @@ BaseTheme:GetSet(
 		L = 24,
 		XL = 32,
 		XXL = 48,
-		icon = 16,
+		icon = 20,
 		default = 12,
 	}
 )

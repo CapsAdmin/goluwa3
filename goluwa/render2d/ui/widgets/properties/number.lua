@@ -98,8 +98,6 @@ function META:OnCreate()
 				Field = self,
 				StepDirection = step[2],
 				Icon = step[1],
-				IconSize = "M",
-				Padding = "none",
 				Mode = "outline",
 				OnClick = on_step_click,
 			}

@@ -145,10 +145,10 @@ add("Actions", "copy", "<rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\
 add("Actions", "paste", path("M9 3H15V5H18V21H6V5H9Z"))
 
 do
-	local x, y = polar(12, 12, 8, 8, -75)
-	add("Actions", "reset", path(arc(12, 12, 8, 8, 225, -75, true), head(x, y, -165, 4.5)))
-	x, y = polar(12, 12, 8, 8, 255)
-	add("Actions", "refresh", path(arc(12, 12, 8, 8, -45, 255, true), head(x, y, 345, 4.5)))
+	local x, y = polar(12, 13, 7.5, 7.5, -75)
+	add("Actions", "reset", path(arc(12, 13, 7.5, 7.5, 225, -75, true), head(x, y, -165, 5.5)))
+	x, y = polar(12, 13, 7.5, 7.5, 255)
+	add("Actions", "refresh", path(arc(12, 13, 7.5, 7.5, -45, 255, true), head(x, y, 345, 5.5)))
 end
 
 add("Actions", "trash", path("M5 7H7 9.5 14.5 17 19", "M9.5 7V3.5H14.5V7", "M7 7V18.5L8.5 20.5H15.5L17 18.5V7"))
@@ -163,8 +163,8 @@ add("Files", "file", path("M4.5 2.5H13.5L19.5 8.5V21.5H4.5Z", "M13.5 2.5V8.5H19.
 add("Files", "image", "<rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"2\"/>" .. path("M7 16.5L11 11.5L15 16.5") .. dot(16.5, 8.5, 1.6))
 add("Files", "code", path("M9 7L4 12L9 17M15 7L20 12L15 17"))
 add("Objects", "cube", path("M12 3L20.5 7.5V16.5L12 21L3.5 16.5V7.5Z", "M3.5 7.5L12 12L20.5 7.5M12 12V21"))
-add("Objects", "sphere", path(ring(12, 12, 9, 180), arc(12, 12, 9, 3.5, 180, 0, true)))
-add("Objects", "material", path(ring(12, 12, 9), arc(12, 12, 5, 5, 200, 260, true)))
+add("Objects", "sphere", path(ring(12, 12, 9), arc(12, 12, 5, 5, 200, 260, true)))
+add("Objects", "material", icons.sphere)
 add("Objects", "layers", path("M12 3.5L20.5 8L12 12.5L3.5 8Z", "M3.5 12.5L12 17L20.5 12.5", "M3.5 16.5L12 21L20.5 16.5"))
 add("Objects", "layout", path("M3.5 4.5H20.5V9.5 19.5H3.5V9.5Z", "M3.5 9.5H20.5"))
 add("Objects", "component", path(polygon(12, 12, 9, 6, -90)))
@@ -252,5 +252,5 @@ add(
 		"M14 14H20.5V20.5H14Z"
 	)
 )
-add("Interface", "tree", path("M3.5 5.5H6 20.5M6 5.5V12 18.5M6 12H20.5M6 18.5H20.5"))
+add("Interface", "tree", path("M3.5 5.5H6 20.5", "M6 5.5V12 18.5", "M6 12H9", "M6 18.5H9", "M12.5 12H20.5", "M12.5 18.5H20.5"))
 return {Icons = icons, Categories = categories}

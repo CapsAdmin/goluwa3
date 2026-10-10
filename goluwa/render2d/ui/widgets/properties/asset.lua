@@ -28,8 +28,6 @@ function META:OnCreate()
 		IconButton{
 			Field = self,
 			Icon = "folder_open",
-			IconSize = "M",
-			Padding = "none",
 			Mode = "outline",
 			OnClick = on_browse_click,
 		},

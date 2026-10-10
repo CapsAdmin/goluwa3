@@ -10,7 +10,6 @@ META.CMP.layout = {
 	FitWidth = false,
 	FitHeight = true,
 	Direction = "x",
-	Padding = "none",
 }
 META:StartStorable()
 META:GetSet("Text", "")
@@ -20,14 +19,18 @@ META:GetSet("TextColor", nil)
 META:GetSet("Icon", nil)
 META:EndStorable()
 
+local function get_button_size(active, icon_size, padding)
+	return Vec2() + (active:ResolveSize(icon_size) + active:ResolveSize(padding) * 2)
+end
+
 function META.PropDefaults(_, props)
-	local icon_size = props.IconSize or "M"
-	return {layout = {MinSize = icon_size, MaxSize = icon_size}}
+	local size = theme.Dynamic(get_button_size, props.IconSize or "icon", props.Padding or "XXXS")
+	return {layout = {Padding = "XXXS", MinSize = size, MaxSize = size}}
 end
 
 function META:OnCreate()
 	META.BaseClass.OnCreate(self)
-	local icon_size = self.IconSize or "M"
+	local icon_size = self.IconSize or "icon"
 
 	if self.Icon then
 		Icon{

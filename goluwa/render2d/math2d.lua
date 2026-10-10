@@ -1204,7 +1204,7 @@ do
 				if math.abs(cross) < EPSILON and dot > 0 then
 					push(out, x + oax, y + oay)
 				elseif cross > 0 then
-					if half * cross / (1 + dot) <= 3 * math.min(length[a], length[i]) then
+					if half * cross / (1 + dot) <= math.min(length[a], length[i]) then
 						local k = 1 / (1 + dot)
 						push(out, x + (oax + obx) * k, y + (oay + oby) * k)
 					else
@@ -1227,6 +1227,46 @@ do
 		end
 
 		return out
+	end
+
+	-- an inner join between short segments goes through the vertex and leaves a small loop behind,
+	-- cut the smaller side out where the outline crosses itself
+	local function remove_loop(out)
+		local m = #out / 2
+
+		for p = 0, m - 1 do
+			local q = (p + 1) % m
+			local x1, y1, x2, y2 = out[2 * p + 1], out[2 * p + 2], out[2 * q + 1], out[2 * q + 2]
+
+			for step = 2, m - 2 do
+				local r = (p + step) % m
+				local s = (r + 1) % m
+				local x3, y3, x4, y4 = out[2 * r + 1], out[2 * r + 2], out[2 * s + 1], out[2 * s + 2]
+				local d = (x2 - x1) * (y4 - y3) - (y2 - y1) * (x4 - x3)
+
+				if math.abs(d) > 1e-12 then
+					local t = ((x3 - x1) * (y4 - y3) - (y3 - y1) * (x4 - x3)) / d
+					local u = ((x3 - x1) * (y2 - y1) - (y3 - y1) * (x2 - x1)) / d
+
+					if t > 1e-6 and t < 1 - 1e-6 and u > 1e-6 and u < 1 - 1e-6 then
+						local result = {x1 + t * (x2 - x1), y1 + t * (y2 - y1)}
+						local k, last = s, p
+
+						if step > m / 2 then k, last = q, r end
+
+						while true do
+							push(result, out[2 * k + 1], out[2 * k + 2])
+
+							if k == last then break end
+
+							k = (k + 1) % m
+						end
+
+						return result
+					end
+				end
+			end
+		end
 	end
 
 	-- polylines is a list of flat {x1, y1, x2, y2, ...}, a polyline that ends where it started is closed.
@@ -1325,7 +1365,17 @@ do
 					uturn[i] = current == (previous % 2 == 1 and previous + 1 or previous - 1)
 				end
 
-				contours[#contours + 1] = offset_cycle(xs, ys, uturn, count, half, cap, join, miter_limit)
+				local outline = offset_cycle(xs, ys, uturn, count, half, cap, join, miter_limit)
+
+				while true do
+					local trimmed = remove_loop(outline)
+
+					if not trimmed then break end
+
+					outline = trimmed
+				end
+
+				contours[#contours + 1] = outline
 			end
 		end
 

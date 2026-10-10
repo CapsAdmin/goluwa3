@@ -1007,15 +1007,15 @@ function PlayfulTheme:DrawCheckbox(size, state)
 	local s = anim.check_anim or 0
 
 	if s > 0.01 then
+		local glyph = box_size * (0.9 + 0.4 * s)
 		render2d.PushMatrix()
-		render2d.Translatef(x, y)
+		render2d.Translatef(x + (box_size - glyph) / 2, y + (box_size - glyph) / 2)
 		self:DrawSVGIcon(
 			"check",
-			Vec2(box_size, box_size),
+			Vec2(glyph, glyph),
 			{
-				size = box_size * (0.55 + 0.3 * s),
-				origin_x = 0.5,
-				origin_y = 0.5,
+				size = glyph,
+				inset = 0,
 				color = ink:Copy():SetAlpha(math.min(1, s)),
 			}
 		)
@@ -1321,9 +1321,8 @@ function PlayfulTheme:DrawTreeToggle(size, meta, opts)
 		opts.expanded and "minus" or "plus",
 		Vec2(box_size, box_size),
 		{
-			size = box_size * 0.6,
-			origin_x = 0.5,
-			origin_y = 0.5,
+			size = box_size,
+			inset = 0,
 			color = ink,
 		}
 	)
