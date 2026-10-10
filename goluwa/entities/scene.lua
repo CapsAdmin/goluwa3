@@ -214,8 +214,18 @@ function scene.GetRoots()
 	return roots
 end
 
+-- what other players added to the session is not part of the scene this client saves
 function scene.Serialize()
-	return scene.SerializeEntities(scene.GetRoots())
+	local local_client = import("goluwa/network/clients.lua").GetLocalClient()
+	local roots = {}
+
+	for _, root in ipairs(scene.GetRoots()) do
+		local owner = root:GetOwnedBy()
+
+		if owner.component_map or owner == local_client then roots[#roots + 1] = root end
+	end
+
+	return scene.SerializeEntities(roots)
 end
 
 function scene.Clear()

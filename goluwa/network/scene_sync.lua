@@ -4,6 +4,8 @@ local packet = import("goluwa/network/packet.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local scene = import("goluwa/entities/scene.lua")
 local prefab = import("goluwa/entities/prefab.lua")
+local permissions = import("goluwa/entities/permissions.lua")
+local clients = import("goluwa/network/clients.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
@@ -71,7 +73,7 @@ local function send_chunk(blob)
 end
 
 -- a paced blob is streamed a few chunks per frame, otherwise it is sent at once so it stays ordered with the packets sent after it
-local function send_blob(target, kind, payload, parent_guid, paced)
+local function send_blob(target, kind, payload, parent_guid, paced, owner)
 	local blob = {target = target, id = next_id, payload = payload, offset = 1}
 	next_id = next_id + 1
 	local buffer = packet.CreateBuffer()
@@ -80,6 +82,7 @@ local function send_blob(target, kind, payload, parent_guid, paced)
 	buffer:WriteU32(#payload)
 	buffer:WriteU32(scene.GetPayloadChecksum(payload))
 	buffer:WriteString(parent_guid or "")
+	buffer:WriteString(owner or "")
 	send_packet(BLOB_BEGIN, buffer, target)
 
 	if paced then
@@ -94,7 +97,7 @@ local function send_blob(target, kind, payload, parent_guid, paced)
 end
 
 local function is_shared(definition)
-	return not definition.builtin or definition.revision > 1
+	return not definition.local_only and (not definition.builtin or definition.revision > 1)
 end
 
 event.AddListener("PrefabChanged", "scene_sync", function(definition)
@@ -135,6 +138,7 @@ packet.AddListener(BLOB_BEGIN, function(buffer, client)
 		size = buffer:ReadU32(),
 		checksum = buffer:ReadU32(),
 		parent = buffer:ReadString(),
+		owner = buffer:ReadString(),
 		chunks = {},
 		received = 0,
 		start = system.GetTime(),
@@ -192,7 +196,6 @@ event.AddListener("Update", "scene_sync_outgoing", function()
 end)
 
 if SERVER then
-	local clients = import("goluwa/network/clients.lua")
 	local pvars = import("goluwa/cli/pvars.lua")
 	local transfers = {}
 	local applying = false
@@ -234,7 +237,7 @@ if SERVER then
 			if item.buffer then
 				packet.Send(item.id, item.buffer, client, "reliable", CHANNEL)
 			else
-				send_blob(client, item.kind or "apply", item.payload, item.parent)
+				send_blob(client, item.kind or "apply", item.payload, item.parent, nil, item.owner)
 			end
 		else
 			local transfer = transfers[client]
@@ -331,6 +334,18 @@ if SERVER then
 					end
 				end
 
+				-- the snapshot carries no owners, the clients put them on once it is spawned
+				local owners = {}
+
+				for _, root in ipairs(scene.GetRoots()) do
+					local owner = root:GetOwnedBy()
+
+					if not owner.component_map then
+						owners[root:GetGUID()] = owner:GetUniqueID()
+					end
+				end
+
+				send_blob(client, "owners", scene.EncodeValue(owners), "")
 				transfer.waiting = nil
 				transfer.deltas = {}
 				transfer.id = send_blob(
@@ -368,6 +383,12 @@ if SERVER then
 		local guid = buffer:ReadString()
 		local entity = objects.GetObjectByGUID(guid)
 		assert(entity and entity:IsValid(), "scene entity " .. guid .. " does not exist")
+
+		if not permissions.Can(client, "remove", entity) then
+			wlog("%s is not allowed to remove %s", client, guid)
+			return
+		end
+
 		assert(
 			entity ~= Entity.World and
 				not entity:GetSingleton()
@@ -401,6 +422,12 @@ if SERVER then
 		end
 
 		local parent = resolve_parent(blob.parent)
+
+		if not permissions.Can(client, "create", parent) then
+			wlog("%s is not allowed to add entities to %s", client, blob.parent)
+			return
+		end
+
 		applying = true
 		local ok, roots = pcall(scene.Apply, data, parent)
 		applying = false
@@ -408,11 +435,12 @@ if SERVER then
 		if not ok then error(roots, 0) end
 
 		for _, root in ipairs(roots) do
+			root:SetOwnedBy(client)
 			attach_listeners(root)
 		end
 
 		logf("%s pushed %i scene records\n", client, #data.entities)
-		local item = {payload = payload, parent = blob.parent}
+		local item = {payload = payload, parent = blob.parent, owner = client:GetUniqueID()}
 
 		for _, other in ipairs(clients.GetAll()) do
 			if other ~= client and not other:IsBot() then queue_or_send(other, item) end
@@ -425,14 +453,18 @@ if SERVER then
 			return
 		end
 
+		if not permissions.CanPushPrefab(client, blob.parent) then
+			wlog("%s is not allowed to replace prefab %s", client, blob.parent)
+			return
+		end
+
 		local data = prefab.Decode(payload)
 
 		if strip_scripts(data.entities, tostring(client)) then
 			payload = prefab.Encode(data)
 		end
 
-		prefab.Register(blob.parent, data).saved = true
-		prefab.Save(blob.parent)
+		prefab.Register(blob.parent, data)
 		logf("%s sent prefab %s\n", client, blob.parent)
 		local item = {kind = "prefab", payload = payload, parent = blob.parent}
 
@@ -443,6 +475,12 @@ if SERVER then
 end
 
 if CLIENT and not SERVER then
+	local pending_owners = {}
+
+	handlers.owners = function(_, payload)
+		pending_owners = scene.DecodeValue(payload)
+	end
+
 	handlers.snapshot = function(_, payload, blob)
 		local stats = scene_sync.stats
 		local data = scene.Decode(payload)
@@ -455,6 +493,16 @@ if CLIENT and not SERVER then
 			Entity.World,
 			{skip_unavailable = not RENDER_3D},
 			function()
+				for guid, uid in pairs(pending_owners) do
+					local entity = objects.GetObjectByGUID(guid)
+					local owner = clients.GetByUniqueID(uid)
+
+					if entity and entity:IsValid() and owner:IsValid() then
+						entity:SetOwnedBy(owner)
+					end
+				end
+
+				pending_owners = {}
 				stats.state = "ready"
 				stats.snapshot_bytes = blob.size
 				stats.snapshot_time = system.GetTime() - blob.start
@@ -469,7 +517,15 @@ if CLIENT and not SERVER then
 	end
 	handlers.apply = function(_, payload, blob)
 		local data = scene.Decode(payload)
-		scene.Apply(data, resolve_parent(blob.parent), {skip_unavailable = not RENDER_3D})
+		local roots = scene.Apply(data, resolve_parent(blob.parent), {skip_unavailable = not RENDER_3D})
+		local owner = clients.GetByUniqueID(blob.owner)
+
+		if owner:IsValid() then
+			for _, root in ipairs(roots) do
+				root:SetOwnedBy(owner)
+			end
+		end
+
 		scene_sync.stats.applies = scene_sync.stats.applies + 1
 		note(
 			"apply %d records under %s",
@@ -518,9 +574,10 @@ if CLIENT and not SERVER then
 		note("remove request %s", entity:GetGUID())
 	end
 
-	function scene_sync.PushPrefab(name)
-		send_blob(nil, "prefab", prefab.Encode(prefab.Get(name)), name)
-		note("push prefab %s", name)
+	-- as_name sends the definition under another name, a player's own outfit is a local file that the others know by the player
+	function scene_sync.PushPrefab(name, as_name)
+		send_blob(nil, "prefab", prefab.Encode(prefab.Get(name)), as_name or name)
+		note("push prefab %s", as_name or name)
 	end
 
 	flush_prefab = function(name)

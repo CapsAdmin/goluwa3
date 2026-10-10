@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local packet = import("goluwa/network/packet.lua")
 local network = import("goluwa/network/network.lua")
+local system = import("goluwa/system.lua")
 local clients = import("goluwa/network/clients.lua")
 local timer = import("goluwa/timer.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
@@ -9,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
 local PlayerMovement = import("lua/components/player_movement.lua")
+local outfit = import("lua/outfit.lua")
 Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
@@ -20,6 +22,7 @@ Entity.RegisterComponent("weapon_camera", import("lua/components/weapon_camera.l
 local ACK_INTERVAL = 1 / 20
 local SPAWN_POSITION = Vec3(0, 3, 0)
 local RELAY_BATCH = 4
+local OUTFIT_PUSH_DELAY = 0.2
 
 if SERVER then
 	local players = {}
@@ -61,6 +64,12 @@ if SERVER then
 		packet.Send("player_start", start, client, "reliable")
 	end)
 
+	event.AddListener("EntityPermission", "network_players", function(client, action, name)
+		if action == "prefab" and name == outfit.GetName(client:GetUniqueID()) then
+			return true
+		end
+	end)
+
 	event.AddListener("ClientLeft", "network_players", function(client)
 		local uid = client:GetUniqueID()
 		local ent = players[uid]
@@ -95,6 +104,33 @@ if SERVER then
 				packet.Send("player_ack", buffer, clients.GetByUniqueID(uid), "sequenced")
 			end
 		end
+	end)
+end
+
+if CLIENT and not SERVER then
+	local scene_sync = import("goluwa/network/scene_sync.lua")
+	local outfit_due
+
+	event.AddListener("Connected", "network_players_outfit", function()
+		outfit_due = 0
+	end)
+
+	event.AddListener("PrefabChanged", "network_players_outfit", function(definition)
+		if network.IsConnected() and definition.name == outfit.LocalName then
+			outfit_due = system.GetElapsedTime() + OUTFIT_PUSH_DELAY
+		end
+	end)
+
+	-- the unique id is only known once the server has created the local client
+	event.AddListener("Update", "network_players_outfit", function()
+		if not outfit_due or system.GetElapsedTime() < outfit_due then return end
+
+		local uid = clients.GetLocalClient():GetUniqueID()
+
+		if uid == "unconnected" then return end
+
+		outfit_due = nil
+		scene_sync.PushPrefab(outfit.LoadLocal(), outfit.GetName(uid))
 	end)
 end
 

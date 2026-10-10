@@ -129,7 +129,76 @@ local function build_virtual_children(entity, guid)
 	return children
 end
 
-local function build_entity_node(entity, expanded_keys, filter_callback, show_virtual, visited)
+local build_entity_node
+
+-- the children of a root are listed under the owner they belong to, you first and the world last
+local function get_group_key(root, child)
+	return root:GetGUID() .. "/owner/" .. root.GetOwnerKey(child:GetOwnedBy())
+end
+
+local function build_group_nodes(root, expanded_keys, filter_callback, show_virtual, grouped_roots)
+	local groups = {}
+	local list = {}
+
+	for _, child in ipairs(root:GetChildren()) do
+		if not (filter_callback and filter_callback(child)) then
+			local owner = child:GetOwnedBy()
+			local key = get_group_key(root, child)
+			local group = groups[key]
+
+			if not group then
+				group = {key = key, owner = owner, label = root.GetOwnerLabel(owner), children = {}}
+
+				if owner.component_map then
+					group.rank = 3
+				elseif group.label == "you" then
+					group.rank = 1
+				else
+					group.rank = 2
+				end
+
+				groups[key] = group
+				list[#list + 1] = group
+			end
+
+			group.children[#group.children + 1] = child
+		end
+	end
+
+	table.sort(list, function(a, b)
+		if a.rank ~= b.rank then return a.rank < b.rank end
+
+		return a.label < b.label
+	end)
+
+	local nodes = {}
+
+	for _, group in ipairs(list) do
+		local children = {}
+
+		if expanded_keys[group.key] ~= false then
+			for _, child in ipairs(group.children) do
+				local child_node = build_entity_node(child, expanded_keys, filter_callback, show_virtual, {}, grouped_roots)
+
+				if child_node then children[#children + 1] = child_node end
+			end
+		end
+
+		nodes[#nodes + 1] = {
+			Key = group.key,
+			Text = group.label,
+			Icon = group.owner.component_map and "world" or "user",
+			HasChildren = true,
+			Children = children,
+			OwnerGroup = true,
+			Root = root,
+		}
+	end
+
+	return nodes
+end
+
+function build_entity_node(entity, expanded_keys, filter_callback, show_virtual, visited, grouped_roots)
 	if visited[entity] then return nil end
 
 	visited[entity] = true
@@ -138,11 +207,21 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 	local children = {}
 	local has_children = false
 
-	if expanded then
+	if expanded and grouped_roots and grouped_roots[entity] then
+		children = build_group_nodes(entity, expanded_keys, filter_callback, show_virtual, grouped_roots)
+		has_children = #children > 0
+	elseif expanded then
 		for _, child in ipairs(entity:GetChildren()) do
 			if filter_callback and filter_callback(child) then goto continue end
 
-			local child_node = build_entity_node(child, expanded_keys, filter_callback, show_virtual, visited)
+			local child_node = build_entity_node(
+				child,
+				expanded_keys,
+				filter_callback,
+				show_virtual,
+				visited,
+				grouped_roots
+			)
 
 			if child_node then
 				children[#children + 1] = child_node
@@ -192,7 +271,14 @@ local function build_entity_node(entity, expanded_keys, filter_callback, show_vi
 	return node
 end
 
-local function build_tree_items(root_entities, root_labels, expanded_keys, filter_callback, show_virtual)
+local function build_tree_items(
+	root_entities,
+	root_labels,
+	expanded_keys,
+	filter_callback,
+	show_virtual,
+	grouped_roots
+)
 	local items = {}
 
 	for i, entity in ipairs(root_entities) do
@@ -209,7 +295,14 @@ local function build_tree_items(root_entities, root_labels, expanded_keys, filte
 			}
 		else
 			local visited = {}
-			local node = build_entity_node(entity, expanded_keys, filter_callback, show_virtual, visited)
+			local node = build_entity_node(
+				entity,
+				expanded_keys,
+				filter_callback,
+				show_virtual,
+				visited,
+				grouped_roots
+			)
 
 			if node then
 				node.Text = label
@@ -240,6 +333,7 @@ META:GetSet("RootEntities", nil)
 META:GetSet("RootLabels", nil)
 META:GetSet("FilterCallback", nil)
 META:GetSet("ShowVirtualChildren", false)
+META:GetSet("GroupByOwner", false)
 META:GetSet("ExpandRootsOnInit", true)
 META:GetSet("OnExpanded", nil)
 META:EndStorable()
@@ -279,12 +373,14 @@ function META:OnCreate()
 		end
 	end
 
+	self:update_grouped_roots()
 	local items = build_tree_items(
 		self._root_entities,
 		self._root_labels,
 		self._expanded_keys,
 		self._effective_filter,
-		self._show_virtual
+		self._show_virtual,
+		self._grouped_roots
 	)
 	self:insert_nearby(items)
 	self._items = items
@@ -323,9 +419,17 @@ function META:OnCreate()
 		for _, entry in ipairs(queue) do
 			local entity = entry.entity
 
+			if entry.action == "owned" then
+				tree:Refresh()
+
+				goto continue
+			end
+
 			if entry.action == "unparented" then
 				tree:try_incremental_remove(entry.guid)
 				tree:try_incremental_remove("nearby/" .. entry.guid)
+
+				if tree._grouped_roots[entry.parent] then tree:prune_empty_groups() end
 
 				goto continue
 			end
@@ -376,20 +480,31 @@ function META:set_expanded(node, path, key, expanded)
 		local children = {}
 		local filter = self._effective_filter
 
-		for _, child in ipairs(entity:GetChildren()) do
-			if filter and filter(child) then goto continue end
-
-			local child_node = build_entity_node(
-				child,
+		if self._grouped_roots[entity] then
+			children = build_group_nodes(
+				entity,
 				self._expanded_keys,
 				filter,
 				self._show_virtual and not self._search_visible,
-				visited
+				self._grouped_roots
 			)
+		else
+			for _, child in ipairs(entity:GetChildren()) do
+				if filter and filter(child) then goto continue end
 
-			if child_node then children[#children + 1] = child_node end
+				local child_node = build_entity_node(
+					child,
+					self._expanded_keys,
+					filter,
+					self._show_virtual and not self._search_visible,
+					visited,
+					self._grouped_roots
+				)
 
-			::continue::
+				if child_node then children[#children + 1] = child_node end
+
+				::continue::
+			end
 		end
 
 		if entity == self._nearby_root and not self._search_visible then
@@ -415,6 +530,33 @@ function META:set_expanded(node, path, key, expanded)
 		return
 	end
 
+	if expanded and node and node.OwnerGroup then
+		local root = node.Root
+
+		for _, group_node in ipairs(
+			build_group_nodes(
+				root,
+				self._expanded_keys,
+				self._effective_filter,
+				self._show_virtual and not self._search_visible,
+				self._grouped_roots
+			)
+		) do
+			if group_node.Key == key then
+				local parent_item = find_item_in_tree(self:GetItems(), key)
+
+				if parent_item then parent_item.Children = group_node.Children end
+
+				break
+			end
+		end
+
+		self._pending_expand_animation_key = key
+		self:refresh_branch_children(key)
+
+		return
+	end
+
 	META.BaseClass.set_expanded(self, node, path, key, expanded)
 
 	if self._on_expanded then self._on_expanded(key, expanded) end
@@ -426,6 +568,8 @@ end
 
 function META:is_expanded(node, path, key, has_children)
 	if not has_children then return false end
+
+	if node.OwnerGroup then return self._expanded_keys[key] ~= false end
 
 	return self._expanded_keys[key] == true
 end
@@ -495,8 +639,31 @@ function META.OnDrop(drop_info)
 	return true
 end
 
+function META:update_grouped_roots()
+	self._grouped_roots = {}
+
+	if self.GroupByOwner then
+		for _, entity in ipairs(self._root_entities) do
+			if entity ~= Panel.World then self._grouped_roots[entity] = true end
+		end
+	end
+end
+
+function META:prune_empty_groups()
+	for _, root_item in ipairs(self:GetItems()) do
+		for i = #root_item.Children, 1, -1 do
+			local item = root_item.Children[i]
+
+			if item.OwnerGroup and not item.Children[1] and self._expanded_keys[item.Key] ~= false then
+				self:try_incremental_remove(item.Key)
+			end
+		end
+	end
+end
+
 function META:SetRootEntities(entities)
 	self._root_entities = entities or {}
+	self:update_grouped_roots()
 	self:Refresh()
 	return self
 end
@@ -592,11 +759,17 @@ function META:ExpandToEntity(entity)
 	end
 
 	if entity.GetParent then
+		local top = entity
 		local parent = entity:GetParent()
 
 		while parent and parent:IsValid() and parent ~= Panel.World and parent ~= Entity.World do
 			self._expanded_keys[parent:GetGUID()] = true
+			top = parent
 			parent = parent:GetParent()
+		end
+
+		if self._grouped_roots[parent] then
+			self._expanded_keys[get_group_key(parent, top)] = true
 		end
 	end
 
@@ -656,7 +829,8 @@ function META:Refresh(force)
 		self._root_labels,
 		self._expanded_keys,
 		self._effective_filter,
-		self._show_virtual and not self._search_visible
+		self._show_virtual and not self._search_visible,
+		self._grouped_roots
 	)
 	self:insert_nearby(items)
 	self:SetItems(items)
@@ -689,7 +863,17 @@ function META:try_incremental_insert(entity, parent)
 	local parent_key = parent and parent:GetGUID() or nil
 	local parent_item
 
-	if parent_key then
+	if parent and self._grouped_roots[parent] then
+		parent_key = get_group_key(parent, entity)
+		parent_item = find_item_in_tree(self:GetItems(), parent_key)
+
+		if not parent_item then
+			self:Refresh()
+			return true
+		end
+
+		if self._expanded_keys[parent_key] == false then return true end
+	elseif parent_key then
 		parent_item = find_item_in_tree(self:GetItems(), parent_key)
 
 		if not parent_item then return false, "parent_item_not_found" end
@@ -719,7 +903,8 @@ function META:try_incremental_insert(entity, parent)
 		self._expanded_keys,
 		self._effective_filter,
 		self._show_virtual and not self._search_visible,
-		{}
+		{},
+		self._grouped_roots
 	)
 
 	if not new_item then return false, "build_entity_node_failed" end

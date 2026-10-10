@@ -212,7 +212,7 @@ end
 function prefab.Save(name)
 	local definition = prefab.Get(name)
 	local path = prefab.GetPath(name)
-	vfs.CreateDirectoriesFromPath(path, true)
+	assert(vfs.CreateDirectoriesFromPath("os:" .. path))
 	local ok, err = vfs.Write(path, prefab.Encode(definition))
 
 	if not ok then

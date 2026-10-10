@@ -108,7 +108,7 @@ return function(props)
 	end
 
 	local function set_selected_target(target)
-		if not show_transient and target:GetTransient() then set_show_transient(true) end
+		if not show_transient and target:IsRuntime() then set_show_transient(true) end
 
 		Gizmo.EnableGizmo(target)
 		prefab_tools.Watch(target)
@@ -498,13 +498,14 @@ return function(props)
 						},
 						SelectedKey = initial_selected_guid,
 						ShowVirtualChildren = true,
+						GroupByOwner = true,
 						FilterCallback = function(entity)
 							return entity_tree_filter_callback(entity, editor_window) or
 								(
 									not show_transient and
 									entity ~= Entity.World and
 									entity ~= Panel.World and
-									entity:GetTransient()
+									entity:IsRuntime()
 								)
 						end,
 						layout = {

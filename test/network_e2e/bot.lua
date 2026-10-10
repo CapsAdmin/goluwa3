@@ -47,6 +47,22 @@ event.AddListener("CreateMove", "e2e_bot", function(owner, cmd)
 	end
 end)
 
+local pushed = false
+
+event.AddListener("Update", "e2e_bot_push", function()
+	if pushed or not controller.synced then return end
+
+	pushed = true
+	local scene_sync = import("goluwa/network/scene_sync.lua")
+	local entity = Entity.New{
+		Name = "bot_pushed",
+		transform = {Position = Vec3(2, 1, 2)},
+		model = {ModelPath = "models/box.lua"},
+	}
+	entity:SetTransient(false)
+	scene_sync.Push(entity)
+end)
+
 local own_relays = 0
 
 event.AddListener("RemotePlayerCommands", "e2e_bot", function()

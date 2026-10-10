@@ -13,7 +13,7 @@ META.Network = {
 }
 META:GetSet("NetworkId", -1)
 META:GetSet("NetworkChannel", 0)
-META:GetSet("NetworkOwner", "")
+META:GetSet("NetworkOwner", "", {callback = "OnNetworkOwnerChanged"})
 META:GetSet("Debug", false)
 local spawned = {}
 local queued_packets = {}
@@ -39,6 +39,13 @@ end
 
 function META.GetAllNetworked()
 	return spawned
+end
+
+-- an entity a client owns on the network belongs to that client, as long as the client is known here
+function META:OnNetworkOwnerChanged()
+	local client = clients.GetByUniqueID(self.NetworkOwner)
+
+	if client:IsValid() then self.Owner:SetOwnedBy(client) end
 end
 
 function META:GetTarget(component_name)

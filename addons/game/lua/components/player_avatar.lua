@@ -6,6 +6,10 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local prefab = import("goluwa/entities/prefab.lua")
+local outfit = import("lua/outfit.lua")
+local clients = import("goluwa/network/clients.lua")
 local META = objects.CreateTemplate("player_avatar")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
@@ -25,8 +29,6 @@ local HEIGHT = 72 * UNIT
 local CROUCH_HEIGHT = 36 * UNIT
 local EYE_ABOVE_CENTER = 28 * UNIT
 local CROUCH_EYE_ABOVE_CENTER = 10 * UNIT
-local MARKER_HEIGHT = 0.55
-local down = QuatFromAxis(math.pi, Vec3(0, 0, 1))
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local BEAM_THICKNESS = 0.03
 local BEAM_ALPHA = 0.4
@@ -79,8 +81,15 @@ event.AddListener("RemotePlayerCommands", "player_avatar", function(owner, comma
 end)
 
 function META:OnAdd()
+	local network = self.Owner.network
+	local client = network and clients.GetByUniqueID(network:GetNetworkOwner()) or clients.GetLocalClient()
+
+	if client:IsValid() then
+		self.client = client
+		self.Owner:SetOwnedBy(client)
+	end
+
 	if CLIENT and RENDER_3D then
-		local network = self.Owner.network
 		self:Build(network and network:GetNetworkOwner() or "local")
 	end
 end
@@ -93,23 +102,11 @@ function META:Build(owner_id)
 		Roughness = 0.45,
 		Metallic = 0,
 	}
-	local glow_material = shapes.Material{
-		Color = color,
-		Roughness = 0.8,
-		Metallic = 0,
-		AlbedoAlphaIsEmissive = true,
-		EmissiveMultiplier = Color(1, 1, 1, 6),
-	}
 	local beam_material = shapes.Material{
 		Color = Color(color.r, color.g, color.b, BEAM_ALPHA),
 		Roughness = 0.4,
 		Metallic = 0,
 		Translucent = true,
-	}
-	local visor_material = shapes.Material{
-		Color = Color(0.05, 0.05, 0.06, 1),
-		Roughness = 0.1,
-		Metallic = 0.6,
 	}
 	self.first_person = false
 	self.body = shapes.Capsule{
@@ -121,22 +118,7 @@ function META:Build(owner_id)
 		RigidBody = false,
 		PhysicsNoCollision = true,
 	}
-	self.visor = shapes.Box{
-		Name = "player_visor",
-		Size = Vec3(0.34, 0.1, 0.12),
-		Material = visor_material,
-		Collision = false,
-		RigidBody = false,
-		PhysicsNoCollision = true,
-	}
-	self.marker = shapes.Cone{
-		Name = "player_marker",
-		Radius = 0.14,
-		Height = 0.3,
-		Material = glow_material,
-		PhysicsNoCollision = true,
-	}
-	self.marker.transform:SetRotation(down)
+	self.head = Entity.New{Name = "player_head", Transient = true, transform = {}}
 	self.beam = shapes.Box{
 		Name = "player_beam",
 		Size = Vec3(BEAM_THICKNESS, BEAM_THICKNESS, 1),
@@ -147,10 +129,15 @@ function META:Build(owner_id)
 	}
 	self.beam.visual:SetVisible(false)
 
+	if self.client then
+		self.body:SetOwnedBy(self.client)
+		self.beam:SetOwnedBy(self.client)
+		self.head:SetOwnedBy(self.client)
+	end
+
 	self.Owner:CallOnRemove(function()
 		self.body:Remove()
-		self.visor:Remove()
-		self.marker:Remove()
+		self.head:Remove()
 		self.beam:Remove()
 	end)
 end
@@ -160,8 +147,34 @@ function META:SetFirstPerson(first_person)
 
 	self.first_person = first_person
 	self.body.visual:SetVisible(not first_person)
-	self.visor.visual:SetVisible(not first_person)
-	self.marker.visual:SetVisible(not first_person)
+
+	if self.outfit then outfit.SetVisible(self.outfit, not first_person) end
+end
+
+function META:UpdateOutfit()
+	local network = self.Owner.network
+
+	if not self.outfit_name then
+		self.outfit_name = network and outfit.GetName(network:GetNetworkOwner()) or outfit.LoadLocal()
+	end
+
+	local definition = prefab.definitions[self.outfit_name]
+
+	if not definition then return end
+
+	if not self.outfit then
+		self.outfit = Entity.New{
+			Name = "player_outfit",
+			Transient = true,
+			Parent = self.head,
+			prefab = {Path = self.outfit_name},
+		}
+	elseif self.outfit_revision == definition.revision then
+		return
+	end
+
+	self.outfit_revision = definition.revision
+	outfit.SetVisible(self.outfit, not self.first_person)
 end
 
 function META:OnUpdate(dt)
@@ -214,10 +227,9 @@ function META:OnUpdate(dt)
 	local squash = height / HEIGHT
 	self.body.transform:SetPosition(position)
 	self.body.transform:SetScale(Vec3(1, squash, 1))
-	self.visor.transform:SetPosition(eye + rotation:GetForward() * RADIUS * 0.9)
-	self.visor.transform:SetRotation(rotation)
-	local bob = math.sin(system.GetElapsedTime() * 2.5) * 0.06
-	self.marker.transform:SetPosition(eye + Vec3(0, MARKER_HEIGHT + bob, 0))
+	self.head.transform:SetPosition(eye)
+	self.head.transform:SetRotation(rotation)
+	self:UpdateOutfit()
 	local muzzle
 	local weapon_position = position + Vec3(0, WEAPON_RAISE, 0) + rotation:GetForward() * WEAPON_FORWARD
 

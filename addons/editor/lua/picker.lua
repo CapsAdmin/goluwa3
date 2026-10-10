@@ -150,7 +150,7 @@ function picker.find_3d_pick_target(mouse_pos)
 		local entity = visual_hit.primitive.entity
 
 		if not picker.include_transient then
-			while entity:IsValid() and entity:GetTransient() do
+			while entity:IsValid() and entity:IsRuntime() do
 				entity = entity:GetParent()
 			end
 		end

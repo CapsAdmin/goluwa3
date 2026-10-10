@@ -14,6 +14,46 @@ function BaseEntity:GetTransient()
 	return parent:GetTransient()
 end
 
+BaseEntity:GetSet("OwnedBy", nil, {callback = "OnOwnedByChanged"})
+
+-- the owner is a client or a world, an entity without one belongs to its parent's owner, and at the top to its world
+function BaseEntity:GetOwnedBy()
+	local owned_by = self.OwnedBy
+
+	if owned_by ~= nil then return owned_by end
+
+	local parent = self:GetParent()
+
+	if parent:IsValid() and parent ~= self.World then return parent:GetOwnedBy() end
+
+	return self.World or self
+end
+
+-- transient entities are derived or made by code, what a client owns still shows up in the editor
+function BaseEntity:IsRuntime()
+	return self:GetTransient() and self:GetOwnedBy() == self.World
+end
+
+function BaseEntity:OnOwnedByChanged()
+	self:NotifyWorldEvent("OnEntityHierarchyChanged", "owned", self:GetParent())
+end
+
+function BaseEntity.GetOwnerKey(owner)
+	if owner.component_map then return owner:GetGUID() end
+
+	return owner:GetUniqueID()
+end
+
+function BaseEntity.GetOwnerLabel(owner)
+	if owner.component_map then return "none" end
+
+	if owner == import("goluwa/network/clients.lua").GetLocalClient() then
+		return "you"
+	end
+
+	return owner:GetNick()
+end
+
 BaseEntity:GetSet("Singleton", false)
 local valid_components
 
