@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local vmt_loader = import("goluwa/source_engine/vmt.lua")
 local vfs = import("goluwa/vfs.lua")
 local game = import("goluwa/source_engine/game.lua")
@@ -18,6 +19,8 @@ local collision = import("goluwa/source_engine/bsp_collision.lua")
 local brush_geometry = import("goluwa/source_engine/brush_geometry.lua")
 local bsp_clip = import("goluwa/source_engine/bsp_clip.lua")
 local static_geometry = import("goluwa/source_engine/static_geometry.lua")
+local FloatArray = ffi.typeof("float[?]")
+local Int32Array = ffi.typeof("int32_t[?]")
 local bsp = {}
 bsp.ReplaceNodraw = true
 local loaded = {}
@@ -154,23 +157,59 @@ function bsp.Load(path)
 		return leafs[-node]
 	end
 
-	local function nearest_area(pos)
-		local best_area, best_distance = 0, math.huge
+	local nearest_area
 
-		for _, leaf in ipairs(leafs) do
-			if leaf.area ~= 0 and bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 then
-				local dx = math.max(leaf.mins.x - pos.x, 0, pos.x - leaf.maxs.x)
-				local dy = math.max(leaf.mins.y - pos.y, 0, pos.y - leaf.maxs.y)
-				local dz = math.max(leaf.mins.z - pos.z, 0, pos.z - leaf.maxs.z)
+	do
+		local candidate_bounds, candidate_areas, candidate_count
+
+		function nearest_area(pos)
+			if not candidate_bounds then
+				candidate_count = 0
+
+				for _, leaf in ipairs(leafs) do
+					if leaf.area ~= 0 and bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 then
+						candidate_count = candidate_count + 1
+					end
+				end
+
+				candidate_bounds = FloatArray(candidate_count * 6)
+				candidate_areas = Int32Array(candidate_count)
+				local index = 0
+
+				for _, leaf in ipairs(leafs) do
+					if leaf.area ~= 0 and bit.band(leaf.contents, BSP_CONTENTS_SOLID) == 0 then
+						local offset = index * 6
+						candidate_bounds[offset] = leaf.mins.x
+						candidate_bounds[offset + 1] = leaf.mins.y
+						candidate_bounds[offset + 2] = leaf.mins.z
+						candidate_bounds[offset + 3] = leaf.maxs.x
+						candidate_bounds[offset + 4] = leaf.maxs.y
+						candidate_bounds[offset + 5] = leaf.maxs.z
+						candidate_areas[index] = leaf.area
+						index = index + 1
+					end
+				end
+			end
+
+			local x, y, z = pos.x, pos.y, pos.z
+			local best_area, best_distance = 0, math.huge
+
+			for index = 0, candidate_count - 1 do
+				local offset = index * 6
+				local dx = math.max(candidate_bounds[offset] - x, 0, x - candidate_bounds[offset + 3])
+				local dy = math.max(candidate_bounds[offset + 1] - y, 0, y - candidate_bounds[offset + 4])
+				local dz = math.max(candidate_bounds[offset + 2] - z, 0, z - candidate_bounds[offset + 5])
 				local distance = dx * dx + dy * dy + dz * dz
 
 				if distance < best_distance then
-					best_area, best_distance = leaf.area, distance
+					best_area, best_distance = candidate_areas[index], distance
+
+					if distance == 0 then break end
 				end
 			end
-		end
 
-		return best_area
+			return best_area
+		end
 	end
 
 	local function get_joined_areas(area)
