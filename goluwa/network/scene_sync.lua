@@ -3,6 +3,7 @@ local message = import("goluwa/network/message.lua")
 local packet = import("goluwa/network/packet.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local scene = import("goluwa/entities/scene.lua")
+local prefab = import("goluwa/entities/prefab.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
@@ -21,6 +22,9 @@ local incoming = {}
 local handlers = {}
 local next_id = 1
 local LOG_SIZE = 8
+local PREFAB_DELAY = 0.2
+local pending_prefabs = {}
+local flush_prefab
 scene_sync.stats = {
 	state = "none",
 	kind = "",
@@ -74,7 +78,7 @@ local function send_blob(target, kind, payload, parent_guid, paced)
 	buffer:WriteString(kind)
 	buffer:WriteU32(blob.id)
 	buffer:WriteU32(#payload)
-	buffer:WriteU32(scene.GetChecksum(payload))
+	buffer:WriteU32(scene.GetPayloadChecksum(payload))
 	buffer:WriteString(parent_guid or "")
 	send_packet(BLOB_BEGIN, buffer, target)
 
@@ -88,6 +92,29 @@ local function send_blob(target, kind, payload, parent_guid, paced)
 
 	return blob.id
 end
+
+local function is_shared(definition)
+	return not definition.builtin or definition.revision > 1
+end
+
+event.AddListener("PrefabChanged", "scene_sync", function(definition)
+	if is_shared(definition) then
+		pending_prefabs[definition.name] = system.GetElapsedTime() + PREFAB_DELAY
+	end
+end)
+
+event.AddListener("Update", "scene_sync_prefabs", function()
+	if next(pending_prefabs) == nil then return end
+
+	local now = system.GetElapsedTime()
+
+	for name, due in pairs(pending_prefabs) do
+		if now >= due then
+			pending_prefabs[name] = nil
+			flush_prefab(name)
+		end
+	end
+end)
 
 local function resolve_parent(guid)
 	if guid == "" then return Entity.World end
@@ -140,7 +167,7 @@ packet.AddListener(BLOB_CHUNK, function(buffer, client)
 	incoming[sender][blob.id] = nil
 	local payload = table.concat(blob.chunks)
 	assert(
-		scene.GetChecksum(payload) == blob.checksum,
+		scene.GetPayloadChecksum(payload) == blob.checksum,
 		"scene checksum differs from the announced one"
 	)
 	handlers[blob.kind](sender, payload, blob)
@@ -178,12 +205,36 @@ if SERVER then
 
 	packet.AddListener(PROPERTY, function() end)
 
+	local client_scripts_allowed = pvars.Setup(
+		"sv_client_scripts",
+		false,
+		nil,
+		"run script components that clients send to the server, scripts have full access to the engine"
+	)
+
+	-- scripts from clients are removed unless the server allows them, everything that is forwarded must be the stripped version
+	local function strip_scripts(records, sender)
+		if client_scripts_allowed:Get() then return false end
+
+		local stripped = false
+
+		for _, record in ipairs(records) do
+			if record.components.script then
+				record.components.script = nil
+				stripped = true
+				wlog("%s sent a script component, sv_client_scripts is off so it was removed", sender)
+			end
+		end
+
+		return stripped
+	end
+
 	local function queue_or_send(client, item)
 		if client.scene_ready then
 			if item.buffer then
 				packet.Send(item.id, item.buffer, client, "reliable", CHANNEL)
 			else
-				send_blob(client, "apply", item.payload, item.parent)
+				send_blob(client, item.kind or "apply", item.payload, item.parent)
 			end
 		else
 			local transfer = transfers[client]
@@ -215,6 +266,8 @@ if SERVER then
 	end
 
 	local function attach_listeners(entity)
+		if entity.prefab_owner then return end
+
 		if not entity.network then
 			entity:AddPropertyListener(on_property_changed, "scene_sync")
 
@@ -252,6 +305,14 @@ if SERVER then
 		end
 	end)
 
+	flush_prefab = function(name)
+		local item = {kind = "prefab", payload = prefab.Encode(prefab.definitions[name]), parent = name}
+
+		for _, client in ipairs(clients.GetAll()) do
+			if not client:IsBot() then queue_or_send(client, item) end
+		end
+	end
+
 	event.AddListener("Update", "scene_sync", function()
 		if scene_loading.IsLoading() or scene.IsSpawning() then return end
 
@@ -261,6 +322,13 @@ if SERVER then
 			elseif transfer.waiting then
 				for _, root in ipairs(scene.GetRoots()) do
 					attach_listeners(root)
+				end
+
+				-- the snapshot spawns instances, their definitions have to be there first
+				for name, definition in pairs(prefab.definitions) do
+					if is_shared(definition) then
+						send_blob(client, "prefab", prefab.Encode(definition), name)
+					end
 				end
 
 				transfer.waiting = nil
@@ -327,6 +395,11 @@ if SERVER then
 		end
 
 		local data = scene.Decode(payload)
+
+		if strip_scripts(data.entities, tostring(client)) then
+			payload = scene.Encode(data)
+		end
+
 		local parent = resolve_parent(blob.parent)
 		applying = true
 		local ok, roots = pcall(scene.Apply, data, parent)
@@ -340,6 +413,28 @@ if SERVER then
 
 		logf("%s pushed %i scene records\n", client, #data.entities)
 		local item = {payload = payload, parent = blob.parent}
+
+		for _, other in ipairs(clients.GetAll()) do
+			if other ~= client and not other:IsBot() then queue_or_send(other, item) end
+		end
+	end
+
+	handlers.prefab = function(client, payload, blob)
+		if not push_allowed:Get() then
+			wlog("%s tried to send prefab %s but sv_scene_push is off", client, blob.parent)
+			return
+		end
+
+		local data = prefab.Decode(payload)
+
+		if strip_scripts(data.entities, tostring(client)) then
+			payload = prefab.Encode(data)
+		end
+
+		prefab.Register(blob.parent, data).saved = true
+		prefab.Save(blob.parent)
+		logf("%s sent prefab %s\n", client, blob.parent)
+		local item = {kind = "prefab", payload = payload, parent = blob.parent}
 
 		for _, other in ipairs(clients.GetAll()) do
 			if other ~= client and not other:IsBot() then queue_or_send(other, item) end
@@ -367,6 +462,10 @@ if CLIENT and not SERVER then
 				message.Send(READY, blob.id)
 			end
 		)
+	end
+	handlers.prefab = function(_, payload, blob)
+		prefab.Register(blob.parent, prefab.Decode(payload))
+		note("prefab %s, %d bytes", blob.parent, #payload)
 	end
 	handlers.apply = function(_, payload, blob)
 		local data = scene.Decode(payload)
@@ -419,10 +518,39 @@ if CLIENT and not SERVER then
 		note("remove request %s", entity:GetGUID())
 	end
 
+	function scene_sync.PushPrefab(name)
+		send_blob(nil, "prefab", prefab.Encode(prefab.Get(name)), name)
+		note("push prefab %s", name)
+	end
+
+	flush_prefab = function(name)
+		if import("goluwa/network/network.lua").IsConnected() then
+			scene_sync.PushPrefab(name)
+		end
+	end
+
 	-- sends the entity and everything below it once, the server applies it and passes it on to the other clients
 	function scene_sync.Push(entity)
 		local data = scene.SerializeEntities({entity})
 		assert(#data.entities > 0, "transient entities cannot be sent to the server")
+		local sent = {}
+
+		for _, record in ipairs(data.entities) do
+			local instance = record.components.prefab
+
+			if instance and instance.Path and instance.Path ~= "" then
+				local names = prefab.GetDependencies(instance.Path)
+				names[instance.Path] = true
+
+				for name in pairs(names) do
+					if not sent[name] and is_shared(prefab.Get(name)) then
+						sent[name] = true
+						scene_sync.PushPrefab(name)
+					end
+				end
+			end
+		end
+
 		local parent = entity:GetParent()
 		local payload = scene.Encode(data)
 		send_blob(nil, "push", payload, parent == Entity.World and "" or parent:GetGUID())
