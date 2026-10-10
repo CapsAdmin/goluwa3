@@ -91,8 +91,12 @@ local function serialize_properties(object)
 	return out
 end
 
-local function is_transient_entity(entity)
-	if entity:GetTransient() then return true end
+local function is_transient_entity(entity, own_flag_only)
+	if own_flag_only then
+		if entity.Transient then return true end
+	elseif entity:GetTransient() then
+		return true
+	end
 
 	for _, component in pairs(entity.component_map) do
 		if component.ShouldSerializeEntity and not component:ShouldSerializeEntity() then
@@ -103,14 +107,32 @@ local function is_transient_entity(entity)
 	return false
 end
 
-local function serialize_entity(entity, parent_guid, out)
+-- entities a component builds itself, they come back when the component rebuilds so they are never saved
+local function get_generated_children(entity)
+	local model = entity.model
+
+	if not (model and model.children) then return nil end
+
+	local generated = {}
+
+	for _, child in ipairs(model.children) do
+		generated[child] = true
+	end
+
+	return generated
+end
+
+-- components a prefab instance builds from its definition are not saved with the instance, include_owned keeps them for the prefab itself
+local function serialize_record(entity, guid, parent_guid, include_owned)
 	local record = {
-		guid = entity:GetGUID(),
+		guid = guid,
 		parent = parent_guid,
 		properties = serialize_properties(entity),
 	}
 	local components = {}
 	local has_model = entity.model ~= nil
+	local instance = entity.prefab
+	local owned = not include_owned and instance and instance.owned[entity]
 
 	for name, component in pairs(entity.component_map) do
 		if
@@ -118,6 +140,11 @@ local function serialize_entity(entity, parent_guid, out)
 			not (
 				has_model and
 				name == "visual"
+			)
+			and
+			not (
+				owned and
+				owned[name]
 			)
 			and
 			(
@@ -136,23 +163,34 @@ local function serialize_entity(entity, parent_guid, out)
 	end
 
 	record.components = components
+	return record
+end
+
+local function serialize_entity(entity, parent_guid, out)
+	local record = serialize_record(entity, entity:GetGUID(), parent_guid)
 	out[#out + 1] = record
-	local model_children
-
-	if has_model and entity.model.children then
-		model_children = {}
-
-		for _, child in ipairs(entity.model.children) do
-			model_children[child] = true
-		end
-	end
+	local generated = get_generated_children(entity)
 
 	for _, child in ipairs(entity:GetChildren()) do
-		if not is_transient_entity(child) and not (model_children and model_children[child]) then
+		if
+			not is_transient_entity(child) and
+			not (
+				generated and
+				generated[child]
+			)
+			and
+			not child.prefab_owner
+		then
 			serialize_entity(child, record.guid, out)
 		end
 	end
 end
+
+scene.IsTransientEntity = is_transient_entity
+scene.GetGeneratedChildren = get_generated_children
+scene.SerializeProperties = serialize_properties
+scene.SerializeRecord = serialize_record
+scene.ValuesEqual = values_equal
 
 function scene.SerializeEntities(entities)
 	local records = {}
@@ -329,10 +367,15 @@ function scene.Deserialize(data, parent, options)
 end
 
 do
-	local function sync_state(object, properties, what)
+	-- properties missing from the record go back to their default, with reset_unset that includes the ones whose default is nil
+	local function sync_state(object, properties, what, reset_unset)
 		for _, info in ipairs(objects.GetStorableVariables(object)) do
 			if
-				info.default ~= nil and
+				(
+					info.default ~= nil or
+					reset_unset
+				)
+				and
 				(
 					not properties or
 					properties[info.var_name] == nil
@@ -383,6 +426,8 @@ do
 			end
 
 			local stale = {}
+			local instance = entity.prefab
+			local owned = instance and instance.owned[entity]
 
 			for name, component in pairs(entity.component_map) do
 				if
@@ -391,6 +436,11 @@ do
 					not (
 						entity.model and
 						name == "visual"
+					)
+					and
+					not (
+						owned and
+						owned[name]
 					)
 					and
 					(
@@ -414,9 +464,22 @@ do
 
 		for _, entity in pairs(spawned) do
 			local stale = {}
+			local generated = get_generated_children(entity)
 
 			for _, child in ipairs(entity:GetChildren()) do
-				if not present[child:GetGUID()] and not child:GetTransient() and not child.network then
+				if
+					not present[child:GetGUID()] and
+					not child:GetTransient()
+					and
+					not child.network
+					and
+					not child.prefab_owner
+					and
+					not (
+						generated and
+						generated[child]
+					)
+				then
 					stale[#stale + 1] = child
 				end
 			end
@@ -428,7 +491,11 @@ do
 
 		return roots, spawned
 	end
+
+	scene.SyncProperties = sync_state
 end
+
+scene.SortedComponentNames = sorted_component_names
 
 function scene.GetDirectory()
 	return vfs.GetStorageDirectory("storage") .. "scenes/"
@@ -663,6 +730,13 @@ do
 		local buffer = Buffer.New(str)
 		buffer:SetPosition(#MAGIC + 1)
 		return buffer:ReadU32()
+	end
+
+	-- scene blobs carry their checksum, any other payload (a prefab) gets one computed over all of it
+	function scene.GetPayloadChecksum(str)
+		if str:sub(1, #MAGIC) == MAGIC then return scene.GetChecksum(str) end
+
+		return crypto.CRC32Bytes(ffi.cast("const uint8_t *", str), #str)
 	end
 
 	function scene.Decode(str)

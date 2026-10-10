@@ -13,6 +13,9 @@ META:EndStorable()
 META:GetSet("Material", nil, {callback = "OnMaterialChanged"})
 
 function META:Initialize()
+	-- a model added by a prefab inside OnConstruct is initialized by AddComponent and then again by the construct loop
+	if self.initialized then return end
+
 	self.initialized = true
 	self:Rebuild()
 end

@@ -463,6 +463,24 @@ function BaseEntity:OnPostCreate()
 	if parent and parent:IsValid() and self:GetKey() ~= "" then set_keyed(self) end
 end
 
+-- the nearest entity at or above this one that is a prefab instance
+function BaseEntity:GetPrefab()
+	local entity = self
+
+	while entity:IsValid() do
+		if entity.prefab then return entity end
+
+		entity = entity:GetParent()
+	end
+end
+
+-- a node of the nearest prefab by its id
+function BaseEntity:GetNode(id)
+	local root = self:GetPrefab()
+	assert(root, "entity is not part of a prefab instance")
+	return root.prefab:GetNode(id)
+end
+
 function BaseEntity:GetPropertyToken(key)
 	local records = self.property_tokens
 

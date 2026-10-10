@@ -895,6 +895,24 @@ assets.RegisterCategory("scenes", {
 	extensions = {".lua"},
 	load = false,
 })
+-- a prefab is identified by its name, the file stem, so properties and pickers hold the name and not the path
+assets.RegisterCategory(
+	"prefabs",
+	{
+		roots = {"prefabs/"},
+		extensions = {".prefab"},
+		load = false,
+		accepts = function(lower_path)
+			return not lower_path:find("/", #"prefabs/" + 1, true)
+		end,
+		get_value = function(entry)
+			return entry.name
+		end,
+		get_path = function(value)
+			return "prefabs/" .. value .. ".prefab"
+		end,
+	}
+)
 
 function assets.RefreshInternalTextures()
 	local current = {}

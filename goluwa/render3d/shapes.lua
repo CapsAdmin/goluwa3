@@ -13,10 +13,6 @@ local sphere_shape = SphereShape.New
 local capsule_shape = CapsuleShape.New
 local convex_shape = ConvexShape.New
 local shapes = {}
-local BOX_MODEL_PATH = "models/box.lua"
-local SPHERE_MODEL_PATH = "models/sphere.lua"
-local CONE_MODEL_PATH = "models/cone.lua"
-local CAPSULE_MODEL_PATH = "models/capsule.lua"
 
 local function get(config, name)
 	if not config then return nil end
@@ -458,16 +454,21 @@ function shapes.BuildModelAsset(ent, path, material, asset_options)
 	return shared_material, children
 end
 
-local function add_model_asset(ent, path, material, asset_options)
-	local config = {ModelPath = path, ModelOptions = asset_options}
+-- material configs go through the prefab inputs, a material object is not data so it is handed to the model afterwards
+local function create_shape(config, prefab_name, inputs)
+	local material = get(config, "Material")
 
-	if is_material(material) then
-		config.Material = material
-	else
-		config.MaterialConfig = material
+	if not is_material(material) then
+		inputs.Material = material
+		material = nil
 	end
 
-	return ent:AddComponent("model", config).material
+	local ent = create_entity(config)
+	ent:AddComponent("prefab", {Inputs = inputs, Path = prefab_name})
+
+	if material then ent.model:SetMaterial(material) end
+
+	return ent, ent.model.material
 end
 
 local function resolve_body_shape(config, default_shape, ...)
@@ -515,14 +516,12 @@ end
 function shapes.Box(config)
 	config = config or {}
 	local size = get(config, "Size") or Vec3(1, 1, 1)
-	local ent = create_entity(config)
-	local material = add_model_asset(
-		ent,
-		BOX_MODEL_PATH,
-		get(config, "Material"),
+	local ent, material = create_shape(
+		config,
+		"box",
 		{
-			size = size,
-			subdivisions = get(config, "Subdivisions") or get(config, "Segments"),
+			Size = size,
+			Subdivisions = get(config, "Subdivisions") or get(config, "Segments"),
 		}
 	)
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, box_shape, size))
@@ -533,8 +532,7 @@ end
 function shapes.Sphere(config)
 	config = config or {}
 	local radius = get(config, "Radius") or 0.5
-	local ent = create_entity(config)
-	local material = add_model_asset(ent, SPHERE_MODEL_PATH, get(config, "Material"), {radius = radius})
+	local ent, material = create_shape(config, "sphere", {Radius = radius})
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, sphere_shape, radius))
 	add_network(ent, config)
 	return ent, body, material
@@ -544,16 +542,7 @@ function shapes.Cone(config)
 	config = config or {}
 	local radius = get(config, "Radius") or 0.5
 	local height = get(config, "Height") or 1
-	local ent = create_entity(config)
-	local material = add_model_asset(
-		ent,
-		CONE_MODEL_PATH,
-		get(config, "Material"),
-		{
-			radius = radius,
-			height = height,
-		}
-	)
+	local ent, material = create_shape(config, "cone", {Radius = radius, Height = height})
 	add_network(ent, config)
 	return ent, nil, material
 end
@@ -562,14 +551,12 @@ function shapes.Capsule(config)
 	config = config or {}
 	local radius = get(config, "Radius") or 0.5
 	local height = get(config, "Height") or radius * 2
-	local ent = create_entity(config)
-	local material = add_model_asset(
-		ent,
-		CAPSULE_MODEL_PATH,
-		get(config, "Material"),
+	local ent, material = create_shape(
+		config,
+		"capsule",
 		{
-			radius = radius,
-			height = math.max(height, radius * 2),
+			Radius = radius,
+			Height = math.max(height, radius * 2),
 		}
 	)
 	local body = add_rigid_body(ent, config, resolve_body_shape(config, capsule_shape, radius, height))
