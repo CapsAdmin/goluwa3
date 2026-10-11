@@ -148,6 +148,7 @@ function PlayfulTheme:Initialize()
 				L = 16,
 				XL = 24,
 				XXL = 32,
+				toggle_box = 8,
 				default = 12,
 			}
 		)

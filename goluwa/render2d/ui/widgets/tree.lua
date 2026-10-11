@@ -52,7 +52,7 @@ function META:GetToggleSize()
 end
 
 function META:GetBoxSize()
-	return theme.active:ResolveSize(self.BoxSize or "S")
+	return theme.active:ResolveSize(self.BoxSize or "toggle_box")
 end
 
 function META:GetDragThreshold()
