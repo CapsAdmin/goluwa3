@@ -33,69 +33,18 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - When running the engine without the `--one-frame` or `--screenshot` flag, it will run forever. In which case you must use the timeout command or call `system.ShutDown()` manually at some point
 
-## Screenshots
+- `--cli` scripts keep the engine running after the script finishes (`--validate` only ends it on a Lua error). End scratch scripts run with `--cli` with `os.exit(0)`, or use `--one-frame` in 2d/3d mode. A hung run blocks the call until its timeout.
 
-- Take a screenshot: `luajit glw --2d --screenshot lua "./tmp/path/to/some/render/script.lua"`. this runs for one frame like `--one-frame`. If you need more advanced screenshots, use the Screenshot global.
-- The `Screenshot(cb, opt)` global captures the screen. `cb(texture)` receives a `TextureDownloaded` with ready pixels (`:SaveWithoutAlpha(path)`, `:GetPixel(x, y)`). 
-- `opt.update_events = n` runs n Update events first. Use this for UI so layout resolves before the capture. 
-- `opt.midframe = true` captures immediately mid-frame. Call it from inside a Draw/Draw2D listener, and maybe use `TextureDownloaded:Save(path)` which saves the screenshot with alpha.
+- Scratch scripts that flip a pvar must use `pvars.SetSession`; `pvars.Set` writes the user's `pvars.txt` for good.
 
-Example:
-  ```lua
-  Screenshot(function(texture)
-      print(texture:SaveWithoutAlpha()) -- auto path under storage/logs/screenshots/
-  end, {update_events = 3})
-  ```
+- Never edit files under `goluwa/` or `addons/` while a benchmark or scene run is going in the background if `--hot-reload` is on; the reload crashes the run.
 
-## 3D shots and the camera
+# Git and testing
 
-`Screenshot` captures whatever is being rendered, so use it for 2D, UI and mid-frame captures. To capture the 3D scene from a chosen position, use `Shot` (`goluwa/render3d/shot.lua`). It holds a view until GI, TAA and auto exposure have settled, then captures.
-
-- CLI: `luajit glw --3d shot tmp/out.png --setup tmp/scene.lua --pos 0,4,18 --ang -10,0,0 --fov 70 --ev 15 --settle 3 --converge 0.5`. Angles are in degrees, `--ev` locks exposure at that EV100, and `--setup` runs a Lua file first, e.g. to build a scene. Without `--ev`, auto exposure is used.
-- `Shot.Capture(view_properties, cb, opt)` calls `cb(texture, info)`. `info.seconds` and `info.frames` say how long the view was held.
-- `opt.settle` is the minimum number of seconds held (default 2). `opt.converge = n` then keeps capturing until the mean rgb difference (0-255) between captures is at most n, or `opt.max_settle` seconds (default 15) pass. `info.converged` and `info.difference` report the outcome.
-- `Shot.Sequence(list_of_view_properties, cb, opt, done)` captures several views in turn without the player's view showing in between.
-
-  ```lua
-  local Shot = import("goluwa/render3d/shot.lua")
-  Shot.Capture({Position = Vec3(0, 5, 0), Rotation = QuatDeg3(-30, 0, 0), ExposureLock = 15}, function(texture, info)
-      print(texture:SaveWithoutAlpha("tmp/shot.png"), info.seconds)
-      system.ShutDown(0)
-  end, {settle = 3, converge = 0.5})
-  ```
-
-To move the camera, don't write to `render3d.GetCamera()` (the player's view overwrites it every frame). Activate a view above the player (priority 0) instead: `local view = View.New{Priority = 100, Position = Vec3(0, 5, 0), Rotation = QuatDeg3(45, 0, 0), ExposureLock = 15}:Activate()` with `View = import("goluwa/render3d/view.lua")`. Unset fields are copied from the current camera, `ExposureLock` is an EV100, and the exposure fields default to the global `r_exposure_*` settings. `view:Remove()` gives control back to the player.
-
-# Debugging
-
-When debugging and thinking about why somnething happens, feel free to do print logging and changing code around temporarily to verify.
-
-- print a table and its contents: `table.print(tbl)`
-- print something once per session: `print_once(...)`
-- print a traceback to see where something is called from: `debug.trace()`
-- print something and force exit: `print(something) os.realexit(0)`
-
-# Profiling
-
-The profiler uses luajit's statistical profiler and jit.attach to observe trace recording.
-
-- `_G.PROF.Start("myprofilesession")` is a high level global helper that starts the JIT profiler with sane default arguments. It runs for 300 update frames, stops and prints a text summary, then calls system.ShutDown(0)
-
-- Profile the update loop for 1000 frames, then implicitly shutdown: `luajit glw --2d lua "PROF.Start('profilesession1', {frames = 1000}) import('tmp/benchmark_test.lua')"`
-
-- Profile a one-off action and shutdown manually: `luajit glw --2d lua "PROF.Start('profilesession2') something_expensive_and_blocking() PROF.Stop() system.ShutDown(0)"`
-
-- The profile capture is saved to `storage/logs/jit_profile_someid.glwp` which can be read in detail, ie `PROF.Summary("storage/logs/jit_profile_someid.glwp", {top_n = 20})`
-
-# Optimizations
-
-- Trace abort reasons like `blacklisted` are caused by other trace abort reasons, it means that it was attempted too many times
-
-- LuaJIT's trace compiler is non deterministic, sometimes you may get unlucky or lucky. Beware of this.
-
-- `error thrown or hook called during recording` may happen because of the profiler itself. jit.attach and jprofile.start. There is no debug.sethook in this engine.
-
-- Sometimes caching is prefered, but sometimes it is not. The luajit does very well with pure numeric arithmetic, so caching may sometimes interfere with that. Sometimes you may think a function needs caching, but the underlying issue might be a trace abort causing the function not to compile properly, this case might benefit from caching, but if the underlying problem was solved, the function might even be faster than the cached variant.
+- Never commit, stage, stash, reset, checkout, branch or push unless asked to for that task, and don't ask whether to. Leave changes in the working tree and list what changed. Read-only inspection (`git status`, `git diff`, `git log`) is fine. Never `git stash` for a baseline, use a copy or worktree.
+- When asked to commit: no git identity is configured, use `git -c user.name=CapsAdmin -c user.email=eliashogstvedt@gmail.com commit`. To split mixed files, stage hunks with `git diff -U0` and `git apply --cached --unidiff-zero`, and `luajit -bl` each staged file first.
+- By default, verify changes: run the relevant tests, and for visual or in-game work take a screenshot or run the real scene. Report failures with their output and say what was skipped.
+- If told not to test, that only means no harnesses, screenshots or in-game checks. Still run the relevant existing tests and make sure the changed scripts compile (`luajit -bl file.lua`).
 
 # Coding rules
 
@@ -173,4 +122,24 @@ compute(x + y)
 
 - Prefer using ffi.cdef and ffi.typeof at the module level, never adhoc inside of a hot function.
 
-- When declaring ffi types, prefer using ffi.typeof to create anonymous localized types rather than ffi.cdef, as ffi.cdef creates global type definitions. 
+- When declaring ffi types, prefer using ffi.typeof to create anonymous localized types rather than ffi.cdef, as ffi.cdef creates global type definitions.
+
+# Docs
+System specific notes live in `docs/`. Read the relevant file before working in that area.
+
+- [docs/screenshots-and-cameras.md](docs/screenshots-and-cameras.md): `Screenshot`, `Shot`, moving the camera
+- [docs/debugging-and-profiling.md](docs/debugging-and-profiling.md): print helpers, the JIT profiler, optimization notes
+- [docs/performance.md](docs/performance.md): measuring CPU/GPU time correctly, benchmarks, JIT pitfalls, baselines and past optimization passes
+- [docs/render3d-lighting.md](docs/render3d-lighting.md): DDGI/GI, fog, sky, clouds, water, shadows, exposure, material and shading pitfalls
+- [docs/render3d-pipeline.md](docs/render3d-pipeline.md): Vulkan/GLSL pitfalls, GPU culling, instancing, LOD, scene view, Test3D harness
+- [docs/crysis.md](docs/crysis.md): Crysis level loading, terrain, vegetation, water, performance
+- [docs/physics.md](docs/physics.md): solver, stress harnesses, buoyancy, Source props
+- [docs/animation-and-source.md](docs/animation-and-source.md): skeletal animation, Source content, threaded codecs
+- [docs/networking.md](docs/networking.md): server/client, replication, players, visibility, ownership and permissions
+- [docs/prefabs-and-scripts.md](docs/prefabs-and-scripts.md): prefabs, the script component, the use system
+- [docs/ui.md](docs/ui.md): render2d/ui widgets, entity construction, input history, autocomplete, undo, icons, asset browser
+- [docs/wrappers.md](docs/wrappers.md): macos notes, Love2D and Garrysmod wrappers
+- [docs/vulkan-raytrace.md](docs/vulkan-raytrace.md): hardware ray tracing facts and gotchas
+- [test/harnesses/](test/harnesses/README.md): scratch pad of measurement and repro scripts the docs refer to; anything in it may be created, edited or thrown away freely
+
+Only rules that apply to everything belong in this file. System specific lessons (what broke, why, how to measure it) go in the matching doc, not in the assistant's memory. Add new notes to the matching file in `docs/` (or a new one) and add at most a one-line entry here.

@@ -1,0 +1,61 @@
+# Performance measurement and optimization
+
+Lessons from past profiling sessions. Timings in here are rough snapshots; re-measure before relying on them. Use `luajit glw bench` (below) rather than ad hoc scripts when a benchmark exists for the scene.
+
+## Measuring correctly
+
+- Vulkan validation is only on with `--validate` (and in tests). Never benchmark with it, it roughly triples CPU frame time. Always pass `--background`.
+- The JIT profiler (`PROF`) only samples Lua CPU time. Time blocked in `vkWaitForFences` does not show up, so "slow frame but the profile looks idle" means a GPU sync. Time `render.SubmitAndWait` and swapchain acquire with `system.GetTime()`. It also pins C/FFI time on the trace's anchor line (a map-load profile blamed one line for 67% that was really 0.6 s), so confirm a hotspot with direct timing before optimizing. Never start `PROF` twice in one run. See debugging-and-profiling.md for how to start it.
+- Acquire/frame-fence wait > 0 means GPU bound. About 0 with a bimodal frame-time histogram means a mid-frame CPU-GPU drain.
+- `render.BeginFrame` is not just the fence wait: render3d records everything inside it (`target:BeginFrame` fires `PreRenderPass`). To measure the GPU wait, wrap `Wait` on `getmetatable(render.target.in_flight_fences[1]).__index` and GetNextImage/Present on the swapchain; patching the imported Fence template does nothing to live instances.
+- `goluwa/render/gpu_timing.lua` records GPU timestamps per EasyPipeline pass plus `gpu_frame`; per-frame values are in the `last_ms` upvalue of `GetRawMilliseconds` (use `debug.getupvalue`). Shadow maps record into their own command buffers and are not in these scopes. The first `render.SubmitAndWait` of a frame blocks until the GPU finishes earlier frames, so its duration is about the GPU frame time (terrain bakes "looking slow" were really this).
+- Use `system.GetTime()` for timers, never `os.clock()` (CPU time over all threads).
+- Process-to-process variance is large (the ray query passes ocean/ssr/ddgi_shade come in a fast and a slow state for identical code, 5-12 ms for ddgi_shade) and about half the runs on a big scene land in a "heavy" state (more translucent draws). Compare modes inside one process (the first mode runs slower, put a throwaway `base` first), or take medians of several processes, and check draws per frame to tell which state a run is in. Before BVHSceneReady the numbers are junk (rt_build and soup_expand are huge).
+- A stray engine run in the background doubles GPU numbers: check `pgrep -af "[l]uajit glw"` before measuring.
+- Env vars set to "" are truthy in Lua.
+
+## Benchmarks
+
+`luajit glw bench` lists `test/benchmarks/*.lua`; `luajit glw bench <name part|all>` runs the ones whose first line is `-- glw: <flags>` (e.g. `--3d`, `--cli`, `--2d --physics`), one process each, and prints a pass/fail summary. A benchmark must end the process itself (`--cli` scripts need `os.exit(0)`).
+
+- `goluwa/render3d/frame_benchmark.lua`: `frame_benchmark.Run{name, load, view, fov, phases, warmup, lead_in, measure, done}` waits for BVHSceneReady, nothing loading and 3 s of stable bvh version, then per phase (static, spin deg/s, move m/s out and back) prints avg/p50/p95/p99/max, allocation MB/s, gpu_frame, shadows and the top gpu scopes. Phases may have `enter(phase)` and `ready()`. New scene benchmarks should use it.
+- Every benchmark ends with `benchmark_results` (`goluwa/benchmark_results.lua`): numbers with a noise value go to `storage/logs/bench/<name>/latest.json`, `glw bench <name> --baseline` also saves `baseline.json`, and each run prints `[COMPARE]` lines against the baseline (else the previous run) for numbers that moved by more than twice the combined noise (min 2%). `--no-compare` skips it. The noise floors are `RUN_TO_RUN_NOISE` in frame_benchmark.lua (frame 4%, p95 8%, gpu 5%, one gpu pass 12%): identical code in two processes really differs that much.
+- State fingerprint: each phase records draw calls per frame (needs `render.stats = true`). A different draws/frame than the baseline prints "scene in a different state, timings not comparable".
+- Micro benchmarks: `benchmark.Run(name, func, {time, warmup, max_time})`, `benchmark.Compare(name, {{name, func}, ...})` (interleaved, paired ratio), `benchmark.Finish(name)`. Test: test/tests/benchmark.lua.
+- Existing: gm_construct_frames, gm_construct_shadows, gm_construct_animation, lights_stress (synthetic rooms), crysis_beach, physics_stress, physics_map_stack, physics_synthetic_map. gm_construct_frames shows a ~42 ms frame at +3.3 s in its first phase (probably the pipeline cache save, unchecked).
+
+## Screenshot A/B
+
+`test/harnesses/go/run.lua` is the protocol: time-driven things (water) must be frozen with `system.SetElapsedTime(1000 + frame/60)` from a priority-1000 Update listener, restarted per mode so screenshots line up; lock exposure with `ExposureLock` on the View (EV from `r_exposure_info`); compare with ImageMagick `compare -metric PSNR`. The noise floor is about 43 dB between identical runs in one process and 38-39 dB across processes; below ~35 dB look at an amplified diff (`magick a b -compose difference -composite -evaluate Multiply 8`).
+
+- Temporary shader experiments: add an int mode to the pass uniform block set from a global and branch on it, bisect, then remove it before finishing. Early-exit shader variants measured across separate runs were unreliable (the first run after a shader edit gave wrong numbers).
+- Do not rewrite a file with `open(p,'w').write(open(p).read())` in a python edit script, it truncates first.
+- Banding in smooth gradients (mirror reflections of sky) can be a viewer artifact: crop at full resolution (`magick in.png -crop WxH+X+Y`) before chasing it. The png encoder round-trips exactly and the blit dithers, don't re-audit them. Hard-edged geometric patterns are real.
+
+## LuaJIT
+
+- Fewer live locals, no alias locals (`local x = phys.obj`), direct field access in hot code. Judge by the abort count (`jit.attach` logger, `-jv`), not one timing: a single run can be a lucky or unlucky JIT state, run-to-run variance is +-15-20%, and you need 6+ alternating runs to see anything under 15%.
+- "NYI: register coalescing too complex" only aborts side traces. At a side exit ALL locals active in scope (params and inlined caller frames too) are snapshot values, even dead ones. Free fixes: wrap temporaries in `do ... end`, `param = nil` for dead params right after the last use, tail calls (`return f(...)`), keep long-lived scalars in a plain scratch table (not Vec3, which is float32), split one fused loop in two, hoist loop-invariant calls out of nested loops, guarantee fields are numbers so `or 0` branches go away. Hoisting scalars into locals made it worse. Cutting coalescing aborts ~96% in the physics solver did not make the step faster, so check it is the actual bottleneck first.
+- No nested row loops in hot solver code: LuaJIT unrolls short inner loops into the outer trace until "too many spill slots" and blacklists the loop (a bimodal 7 vs 67 ms step). `loopunroll=8` hid it but slowed everything else; the fix was one flat task list.
+- `loopunroll` in `goluwa/jit/options.lua` `SetOptimized` is 40 (was 15). A sweep on the centrifuge scene gave 15: 43 ms, 40: 26, 60: 29-33, 120: 27, 200: 42 (traces too big). Measure steady state only, short runs are dominated by compile time. Re-sweep if the physics code changes a lot.
+
+## Lua heap
+
+- `objects.CheckRemovedObjects` drains `objects.remove_these` on the next Update: a census in the same frame as `Remove()` shows everything removed as leaked. Wait ~10 frames and `collectgarbage` a few times. The live heap after mounting gmod is ~350 MB and the default GC pause swings it 450-1300 MB, compare after full GCs.
+- `assets.GetModel(path)` loads the model into `assets.cache` forever, only use it for procedural `.lua` models; `model_loader.model_loads:Forget(path)` drops one. `Texture.New{path = ...}` pins the decoded texture in `texture_cache` by config key: give previews a unique `cache_key` and `Remove()` them, never remove a texture whose `image` is `Texture.GetFallback().image`. `test/harnesses/ab_browser/census.lua` does a heap census by shape.
+
+## What cost what
+
+Findings from the Esther / Quarry / gm_construct / Beach optimization passes (2026-09/10).
+
+- DDGI is the GPU bottleneck on most scenes. The wins were: tracing visibility rays only for probes with blend weight >= 0.02 (plus a contribution-share rule, see render3d-lighting.md), resolving at half resolution with a depth/normal weighted upsample (`ddgi.GetScreenSampleGLSL`), retracing settled disabled probes about once in 8 frames, dispatching ddgi_shade with probes on x so a warp traces the same ray from neighbouring probes, and `Opaque|CullBackFacing` ray flags for the visibility queries. ddgi_shade cost was dominated by random L2 misses in the triangle fetch and by the 8 visibility ray queries per sample.
+- Lights: skip screen space shadows for lights under 0.002 of white, do not shade lights under 0.0002 at all, trace dim lights in reflection hit shading with a probability and weight 1/p. The world light grid (`light_grid.lua`) removed the per-light loop overhead (126 lights that reach nothing cost the same as 0 lights); DDGI samples 2 lights per hit instead of tracing all of them. BSP lights have huge ranges on purpose and are used as-is, so range culling culls nothing there; only the first 256 (`MAX_LIGHTS`) reach the shaders.
+- Froxel fog: skip froxels beyond the farthest view depth per tile (indoor scenes only). A froxel behind a surface is lit at the surface (`froxel_point` clamp) but its density and air must come from the point at the slice depth along the ray, otherwise a leaf at ground height fills the column behind it with ground fog and filtering leaks it into neighbouring sky columns. A bilateral lookup, own-texel history and clamp-validity fallbacks were all tried and unnecessary, do not rebuild them.
+- Ambient occlusion: each half-res AO texel stands for the pixel at the top left of its 2x2, keep that pixel's view depth, and blur with a depth/normal weighted 4x4 upsample (no normal weight for foliage); the old full-res 5x5 bilinear blur was both blurry and 3-4x slower.
+- Grass: one workgroup per triangle in `grass_scatter_tiles` (one invocation used to walk thousands of tiles of a big ground triangle).
+- gbuffer_multi_draw is vertex-pull bound (non-indexed, dependent index to position load, per-vertex mat4 instance load); fragment cost is small. A depth prepass does not pay (see render3d-pipeline.md).
+- Things that did not help: kernel-weight probe skipping in the resolve, cosine cut in the distance integration, a sun shadow ray skip for hits facing away, slower update of offscreen probes (broke "small emitter lights a sealed room" and lagged lights behind the camera), a shorter screen shadow reach (cost is per march), `LIGHT_SAMPLES` 1 (loop cost, not rays), `smooth_blend=false` for the ocean's ambient (changed the underwater look a lot).
+- Draw submission: bind the pipeline once and rebind only descriptors per batch; read culling/soup data from FFI arrays, not scattered Lua tables (~300 ns per access on a 13 GB heap); only rewrite the shadow batch table on a `batch_serial` change.
+- Big-scene CPU: `ddgi.GetEmitters` rebuilt 308k emitters ~11x/s while moving because it was keyed on `soup_version`; it is now keyed on `scene_bvh.emitter_version`. Map load is CPU bound in MDL decode, VMT loads and static_geometry building inside `Update->timers` tasks, with GC ~25%; frames run 0.4-1.8 s while props stream. Profile one load stage at a time.
+- Beach (54M triangles, 10.7 GiB VRAM) went from ~20 to ~12.5 ms CPU per frame and became GPU bound.
+- gm_construct_m3_401 is the heavy metastruct map (9724 BSP entities, 4020 static props, ~1850 lights); its default camera is at the origin looking at ocean, use the lobby spawn `units.PositionToEngine(Vec3(-10818,-9029.5,9448))`. Some props/materials are not installed anywhere (props_island, soldier_statue, props_swamp, Nature/grass_09, dirtground011_island, tunnel01-ssbump, Material2). `test/harnesses/gmw/` drives a scripted walk/fly over it (`walk.lua` drives the real player rig through the `CreateMove` event after `SetEyePosition`).
