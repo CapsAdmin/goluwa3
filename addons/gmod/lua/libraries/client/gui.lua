@@ -1786,14 +1786,7 @@ do
 		end
 
 		function META:MakePopup()
-			local old_raw_parent = self.__obj:GetParent()
-			local world_pos = self.__obj.transform:GetPosition():Copy()
 			refresh_gui_world_bounds()
-
-			if old_raw_parent and old_raw_parent:IsValid() and old_raw_parent.transform then
-				world_pos = old_raw_parent.transform:LocalToGlobal(world_pos)
-			end
-
 			self.__obj.popup = true
 			set_panel_clipping(self.__obj, false)
 
@@ -1801,7 +1794,6 @@ do
 				reparent_panel_silently(self.__obj, gine.gui_world)
 			end
 
-			self.__obj.transform:SetPosition(world_pos)
 			bring_gui_world_to_front()
 			promote_panel_overlay_order(self.__obj)
 			self.__obj:BringToFront()
