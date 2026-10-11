@@ -3,6 +3,11 @@ local attest = import("goluwa/attest.lua")
 local commands = import("goluwa/cli/commands.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local repl = import("goluwa/cli/repl.lua")
+local clipboard_works = clipboard.Set("glw") and clipboard.Get() == "glw"
+
+local function expect_clipboard(expected)
+	if clipboard_works then attest.equal(clipboard.Get(), expected) end
+end
 
 local function send_key(key, modifiers)
 	repl.HandleEvent{
@@ -56,15 +61,18 @@ test.Test("repl input", function()
 	attest.equal(start, 1)
 	attest.equal(stop, 3)
 	send_key("c", {ctrl = true})
-	attest.equal(clipboard.Get(), "he")
+	expect_clipboard("he")
 	send_key("x", {ctrl = true})
-	attest.equal(clipboard.Get(), "he")
+	expect_clipboard("he")
 	attest.equal(repl.input_buffer, "llo")
 	attest.equal(repl.input_cursor, 1)
 	attest.equal(repl.selection_start, nil)
-	send_key("v", {ctrl = true})
-	attest.equal(repl.input_buffer, "hello")
-	attest.equal(repl.input_cursor, 3)
+
+	if clipboard_works then
+		send_key("v", {ctrl = true})
+		attest.equal(repl.input_buffer, "hello")
+		attest.equal(repl.input_cursor, 3)
+	end
 	reset()
 	send_key("a")
 	send_key("enter", {shift = true})
@@ -275,7 +283,7 @@ test.Test("repl advanced editing", function()
 	repl.input_buffer = "line1\nline2\nline3"
 	repl.input_cursor = 9
 	send_key("x", {ctrl = true})
-	attest.equal(clipboard.Get(), "line2\n")
+	expect_clipboard("line2\n")
 	attest.equal(repl.input_buffer, "line1\nline3")
 	attest.equal(repl.input_cursor, 7)
 	reset()
@@ -290,7 +298,7 @@ test.Test("repl advanced editing", function()
 	repl.selection_start = 1
 	repl.input_cursor = 6
 	send_key("x", {ctrl = true})
-	attest.equal(clipboard.Get(), "hello")
+	expect_clipboard("hello")
 	attest.equal(repl.input_buffer, " world")
 	reset()
 	repl.HandleEvent{paste = true, text = "print(1)\nprint(2)", raw_input = ""}
