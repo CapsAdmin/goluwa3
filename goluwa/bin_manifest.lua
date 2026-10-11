@@ -29,5 +29,19 @@ return {
 			["linux-x64"] = {file = "luajit-linux-x64"},
 			["macos-arm64"] = {file = "luajit-macos-arm64"},
 		},
+	},	kosmickrisp = {
+		source = "https://gitlab.freedesktop.org/mesa/mesa",
+		ref = "mesa-26.2.4",
+		loader_source = "https://github.com/KhronosGroup/Vulkan-Loader",
+		loader_ref = "v1.4.365",
+		spirv_tools_source = "https://github.com/KhronosGroup/SPIRV-Tools",
+		spirv_tools_ref = "v2026.4",
+		release = release_url .. "kosmickrisp-mesa-26.2.4/",
+		assets = {
+			["macos-arm64"] = {
+				loader = {file = "libvulkan-macos-arm64.dylib"},
+				driver = {file = "libvulkan_kosmickrisp-macos-arm64.dylib"},
+			},
+		},
 	},
 }
