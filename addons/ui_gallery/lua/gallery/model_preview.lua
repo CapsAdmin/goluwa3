@@ -105,7 +105,6 @@ local function build_tile(definition)
 						Padding = definition.padding or 1.12,
 					}
 					preview:SetTarget(entity.visual)
-					preview:Refresh()
 				end,
 				OnRemove = function()
 					cleanup()

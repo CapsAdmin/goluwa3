@@ -370,7 +370,7 @@ T.Test("Prefabs are assets, registered ones are virtual until they are saved", f
 	T(entry.source)["=="]("virtual")
 	T(category.get_value(entry))["=="](name)
 	T(assets.GetIndex("prefabs").by_path["prefabs/box.prefab"] ~= nil)["=="](true)
-	T(list.has_value(prefab.GetNames(), name))["=="](true)
+	T(list.has_value(prefab.GetNames(), name) ~= false)["=="](true)
 	prefab.Save(name)
 	entry = assets.GetIndex("prefabs").by_path[key]
 	T(entry ~= nil)["=="](true)

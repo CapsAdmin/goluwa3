@@ -15,8 +15,14 @@ scene.Version = 1
 local TRANSIENT_COMPONENTS = {visual_primitive = true, network = true}
 local MAX_TABLE_DEPTH = 8
 
+local function value_kind(value)
+	if type(value) == "table" and not getmetatable(value) then return "table" end
+
+	return typex(value)
+end
+
 local function is_serializable(value, depth)
-	local kind = typex(value)
+	local kind = value_kind(value)
 
 	if kind == "number" then return value == value end
 
@@ -554,7 +560,7 @@ do
 	end
 
 	local function write_value(buffer, strings, value)
-		local kind = typex(value)
+		local kind = value_kind(value)
 
 		if kind == "nil" then
 			buffer:WriteByte(TAG_NIL)
