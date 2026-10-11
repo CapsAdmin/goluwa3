@@ -68,6 +68,10 @@ local function remove_from_dock(window)
 	if window._minimized then Dock.GetInstance():RemoveItem(window) end
 end
 
+local function get_header_button_size(active)
+	return Vec2() + (active:GetSize("header_icon") + active:GetSize("XXS") * 2)
+end
+
 local header_buttons = {
 	{Prop = "Minimizable", Icon = "minimize", Action = "Minimize"},
 	{Prop = "Maximizable", Icon = "maximize", Action = "ToggleMaximize"},
@@ -93,7 +97,7 @@ function META:OnCreate()
 			Direction = "x",
 			AlignmentY = "center",
 			FitHeight = true,
-			Padding = "XS",
+			Padding = "header_padding",
 		},
 		visual = true,
 		draggable = true,
@@ -127,9 +131,9 @@ function META:OnCreate()
 				Window = self,
 				Action = definition.Action,
 				Mode = "text",
-				Size = "M",
+				Size = theme.Dynamic(get_header_button_size),
 				layout = {
-					Padding = "XXXS",
+					Padding = "XXS",
 					FitWidth = false,
 					FitHeight = false,
 				},
@@ -139,7 +143,7 @@ function META:OnCreate()
 				Parent = button,
 				IsInternal = true,
 				Icon = definition.Icon,
-				Size = "S",
+				Size = "header_icon",
 			}
 		end
 	end

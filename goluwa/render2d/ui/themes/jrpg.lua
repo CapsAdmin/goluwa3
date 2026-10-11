@@ -128,6 +128,8 @@ function JRPGTheme:Initialize()
 				XL = 20,
 				XXL = 25,
 				icon = 16,
+				header_icon = 16,
+				header_padding = 8,
 				default = 10,
 			}
 		)

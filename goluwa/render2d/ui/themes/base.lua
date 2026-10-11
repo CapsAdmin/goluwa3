@@ -24,6 +24,8 @@ BaseTheme:GetSet(
 		XL = 32,
 		XXL = 48,
 		icon = 20,
+		header_icon = 16,
+		header_padding = 6,
 		default = 12,
 	}
 )
