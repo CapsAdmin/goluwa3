@@ -280,7 +280,10 @@ T.Test2D("derma theme loads its skin texture and samples its colors", function()
 	T(theme.active.SkinImage.width)["=="](512)
 	T(theme.active.SkinTexture ~= nil)["=="](true)
 	T(theme.active:GetColor("text_input").r < 0.2)["=="](true)
-	T(theme.active:ResolveButtonStyleContext({mode = "menu"}).foreground_token)["=="]("text_input")
+	T(theme.active:ResolveButtonStyleContext({mode = "menu"}).foreground_token)["=="](nil)
+	T(theme.active:ResolveButtonStyleContext({mode = "menu", button_color = "positive"}).foreground_token)["=="](nil)
+	T(theme.active:ResolveButtonStyleContext({mode = "text"}).foreground_token)["=="](nil)
+	T(theme.active:ResolveButtonStyleContext({mode = "text", disabled = true}).foreground_token)["=="]("text_disabled")
 	theme.LoadTheme(original)
 end)
 
@@ -383,5 +386,31 @@ T.Test2D("derma picks readable text colors from the luminance of the skin region
 		T((panel_luma > 0.5) == (text_luma < 0.5))["=="](true)
 	end
 
+	theme.LoadTheme(original)
+end)
+
+T.Test2D("derma gives content surfaces their readable text color", function()
+	local original = theme.active:GetName()
+	theme.LoadTheme("base")
+	local frame = Frame{}
+	local window = Window{Title = "x"}
+	local menu = MenuContainer{}
+	local bar = MenuBar{Items = {{Text = "File", Items = {}}}}
+	local collapsible = Collapsible{Title = "x"}
+	local styles = {frame.style, window._content.style, menu.style, bar.style, collapsible._body.style}
+
+	for _, name in ipairs{"derma", "derma_dark", "base"} do
+		theme.LoadTheme(name)
+
+		for i = 1, 5 do
+			T(styles[i]:GetForegroundColor())["=="](name ~= "base" and "text_content" or nil)
+		end
+	end
+
+	frame:Remove()
+	window:Remove()
+	menu:Remove()
+	bar:Remove()
+	collapsible:Remove()
 	theme.LoadTheme(original)
 end)

@@ -27,7 +27,6 @@ end
 local REGIONS = {
 	selection = border(384, 32, 31, 31, 4),
 	panel = border(256, 0, 63, 63, 16),
-	panel_dark = border(256, 64, 63, 63, 16),
 	button = border(480, 0, 31, 31, 8),
 	button_hovered = border(480, 32, 31, 31, 8),
 	button_dead = border(480, 64, 31, 31, 8),
@@ -48,6 +47,7 @@ local REGIONS = {
 	combo_box = border(384, 336, 127, 31, 8, 8, 32, 8),
 	menu = border(128, 192, 127, 63, 8),
 	menu_hover = border(128, 256, 127, 31, 8),
+	menu_strip = border(0, 128, 127, 21, 8),
 	tab_control = border(0, 256, 127, 127, 8),
 	tab_active = border(0, 384, 63, 31, 8),
 	tab_inactive = border(128, 384, 63, 31, 8),
@@ -71,6 +71,8 @@ local REGIONS = {
 	progress_back = border(384, 0, 31, 31, 8),
 	progress_front = border(416, 0, 31, 31, 8),
 	tooltip = border(384, 64, 31, 31, 8),
+	category_header = border(320, 352, 63, 31, 8),
+	category_header_open = border(320, 384, 63, 20, 8),
 	white_panel = border(256, 256, 63, 127, 8),
 }
 
@@ -274,6 +276,7 @@ function DermaTheme:Initialize()
 		)
 	)
 	self:SetFontCache({})
+	self:SetContentForeground("text_content")
 end
 
 function DermaTheme:GetScrollbarWidth()
@@ -313,12 +316,10 @@ end
 function DermaTheme:DrawFrame(size, emphasis)
 	local w, h = math.floor(size.x), math.floor(size.y)
 
-	if emphasis == 3 then
-		self:DrawRegion(REGIONS.window_content, 0, 0, w, h)
-	elseif emphasis == 2 then
+	if emphasis == 2 then
 		self:DrawRegion(REGIONS.tooltip, 0, 0, w, h, self.PanelTint)
 	else
-		self:DrawRegion(REGIONS.panel_dark, 0, 0, w, h, self.PanelTint)
+		self:DrawRegion(REGIONS.white_panel, 0, 0, w, h)
 	end
 end
 
@@ -376,8 +377,8 @@ end
 function DermaTheme:ResolveButtonStyleContext(state)
 	local context = DermaTheme.BaseClass.ResolveButtonStyleContext(self, state)
 
-	if state.mode == "menu" then
-		context.foreground_token = state.disabled and "text_disabled" or "text_input"
+	if state.mode == "menu" or (state.mode == "text" and state.button_color == nil) then
+		context.foreground_token = state.disabled and "text_disabled" or nil
 	end
 
 	return context
@@ -562,6 +563,41 @@ end
 
 function DermaTheme:Draw(pnl)
 	local name = pnl.ThemeName or pnl.Name
+
+	if name == "menu_bar" then
+		local size = pnl.transform:GetSize()
+		return self:DrawRegion(REGIONS.menu_strip, 0, 0, math.floor(size.x), math.floor(size.y))
+	end
+
+	if name == "window_content" then
+		local size = pnl.transform:GetTotalSize()
+		local w, h = math.floor(size.x), math.floor(size.y)
+		self:DrawRegion(REGIONS.window_content, 0, 0, w, h)
+		return self:DrawRegion(REGIONS.white_panel, 3, 0, w - 6, h - 3)
+	end
+
+	if name == "frame" then
+		local size = pnl.transform:GetSize()
+		return self:DrawRegion(REGIONS.white_panel, 0, 0, math.floor(size.x), math.floor(size.y))
+	end
+
+	if name == "collapsible_body" then
+		local size = pnl.transform:GetSize()
+		return self:DrawRegion(REGIONS.white_panel, 0, 0, math.floor(size.x), math.floor(size.y))
+	end
+
+	if pnl:GetState("theme_role") == "collapsible_header" then
+		local size = pnl.transform:GetSize()
+		local state = pnl:GetState()
+		local region = pnl.Collapsible.OpenFraction > 0.5 and REGIONS.category_header_open or REGIONS.category_header
+		local tint
+
+		if state.button_color ~= nil then
+			tint = self:GetColor(state.button_color):Copy():GetLerped(0.35, WHITE)
+		end
+
+		return self:DrawRegion(region, 0, 0, math.floor(size.x), math.floor(size.y), tint)
+	end
 
 	if type(name) == "string" then
 		if name:starts_with("scrollbar_track_") then
