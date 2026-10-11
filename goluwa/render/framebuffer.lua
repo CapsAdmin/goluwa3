@@ -313,6 +313,10 @@ function Framebuffer:GetExtent()
 	return {width = self.width, height = self.height}
 end
 
+function Framebuffer:HasStencil()
+	return self.depth_texture ~= nil and self.depth_texture.format:find("s8", nil, true) ~= nil
+end
+
 function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
 	local is_cmd = type(cmd) == "table" and cmd.GetImage
 
@@ -344,7 +348,7 @@ function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)
 			assert(self.depth_texture, "Framebuffer has no depth texture")
 			cmd:ClearAttachments{
 				depth = r or 1.0,
-				stencil = g or 0,
+				stencil = self:HasStencil() and (g or 0) or nil,
 				w = self.width,
 				h = self.height,
 			}
@@ -397,7 +401,7 @@ function Framebuffer:ClearAll(cmd, r, g, b, a, depth, stencil)
 	if self.depth_texture then
 		cmd:ClearAttachments{
 			depth = depth or 1.0,
-			stencil = stencil or 0,
+			stencil = self:HasStencil() and (stencil or 0) or nil,
 			w = self.width,
 			h = self.height,
 		}
