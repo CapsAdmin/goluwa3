@@ -174,10 +174,15 @@ end
 
 local test_render = import("test/test_render.lua")
 local T = import("goluwa/test.lua")
+local steam = import("goluwa/steam/steam.lua")
 local gmod_initialized_files = {}
 T.TestGmod = function(name, cb, gamemode)
 	gamemode = gamemode or "sandbox"
 	return T.Test(name, function()
+		if not steam.MountSourceGame("gmod", true) then
+			return T.Unavailable("gmod content not mounted")
+		end
+
 		local file_name = T.GetCurrentTestFileName() or "<unknown>"
 
 		if not gmod_initialized_files[file_name] then
