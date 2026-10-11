@@ -8,7 +8,7 @@ META.CMP.layout = {
 	GrowWidth = 1,
 	FitHeight = true,
 	AlignmentY = "end",
-	ChildGap = "XXS",
+	ChildGap = -1,
 }
 META.CMP.visual = {}
 META:StartStorable()

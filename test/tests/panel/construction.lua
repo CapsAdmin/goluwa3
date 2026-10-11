@@ -5,6 +5,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
+local TabBar = import("goluwa/render2d/ui/widgets/tab_bar.lua")
 local order_log
 
 local function create_ordered_template(name)
@@ -274,4 +275,22 @@ T.Test2D("dropdowns tag themselves with a theme role", function()
 	local dropdown = Dropdown{Options = {"a", "b"}, Value = "a"}
 	T(dropdown:GetState("theme_role"))["=="]("dropdown")
 	dropdown:Remove()
+end)
+
+T.Test2D("tabs overlap their neighbours by one pixel in every theme", function()
+	local original = theme.active:GetName()
+
+	for _, name in ipairs(theme.GetAvailable()) do
+		theme.LoadTheme(name)
+		local tab_bar = TabBar{Tabs = {"One", "Two", "Three"}, Value = "One"}
+		tab_bar.layout:UpdateLayout()
+		local first = tab_bar._buttons[1].transform
+		local second = tab_bar._buttons[2].transform
+		local third = tab_bar._buttons[3].transform
+		T(second:GetX())["=="](first:GetX() + first:GetWidth() - 1)
+		T(third:GetX())["=="](second:GetX() + second:GetWidth() - 1)
+		tab_bar:Remove()
+	end
+
+	theme.LoadTheme(original)
 end)
