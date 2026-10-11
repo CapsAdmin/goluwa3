@@ -9,6 +9,15 @@ RetroTheme.Name = "retro"
 local NOISE_SIZE = 64
 local TILE = 4
 local GAP = 1
+local TITLE_BANDS = {
+	{0.16, 0.08, 0.46},
+	{0.28, 0.14, 0.74},
+	{0.42, 0.28, 0.96},
+	{0.62, 0.50, 1.0},
+	{0.42, 0.28, 0.96},
+	{0.28, 0.14, 0.74},
+	{0.16, 0.08, 0.46},
+}
 local CHECK_POINTS = {{1, 4}, {2, 5}, {3, 6}, {4, 5}, {5, 4}, {6, 3}, {7, 1}}
 
 local function fill(x, y, w, h, c, k, a)
@@ -111,7 +120,7 @@ function RetroTheme:ConfigurePalette(palette)
 		bevel_dark = Color.FromHex("#0a0724"),
 		border = Color.FromHex("#0a0724"),
 		border_strong = Color.FromHex("#a8a4ff"),
-		scrollbar_track = Color.FromHex("#0f0b34"),
+		scrollbar_track = Color.FromHex("#58529e"),
 		scrollbar = Color.FromHex("#6c66d8"),
 		clickable_disabled = Color.FromHex("#4a466e"),
 		invisible = Color(0, 0, 0, 0),
@@ -126,13 +135,16 @@ function RetroTheme:Initialize()
 			self:GetSizes(),
 			{
 				XXS = 2,
-				XS = 4,
+				XS = 6,
 				S = 6,
 				M = 12,
 				L = 16,
 				XL = 24,
 				XXL = 32,
 				icon = 16,
+				header_icon = 16,
+				toggle_box = 12,
+				header_padding = 6,
 				default = 8,
 			}
 		)
@@ -143,13 +155,13 @@ function RetroTheme:Initialize()
 		self:MergeTables(
 			self:GetFontSizes(),
 			{
-				XS = 10,
-				S = 12,
-				M = 14,
-				L = 18,
-				XL = 24,
-				XXL = 32,
-				XXXL = 42,
+				XS = 11,
+				S = 11,
+				M = 11,
+				L = 22,
+				XL = 22,
+				XXL = 33,
+				XXXL = 44,
 			}
 		)
 	)
@@ -157,10 +169,10 @@ function RetroTheme:Initialize()
 		self:MergeTables(
 			self:GetFontStyles(),
 			{
-				heading = {"Russo One", "Regular"},
-				body_weak = {"Pixelify Sans", "Regular"},
-				body = {"Pixelify Sans", "Medium"},
-				body_strong = {"Pixelify Sans", "Bold"},
+				heading = {"Pixelify Sans", "Bold", Aliased = true},
+				body_weak = {"Pixelify Sans", "Regular", Aliased = true},
+				body = {"Pixelify Sans", "Regular", Aliased = true},
+				body_strong = {"Pixelify Sans", "Bold", Aliased = true},
 			}
 		)
 	)
@@ -168,22 +180,16 @@ function RetroTheme:Initialize()
 	local assets = import("goluwa/assets.lua")
 	self.Textures = {
 		Noise = assets.GetTexture("textures/render/retro_noise.lua", {config = {size = NOISE_SIZE}}),
-	}
-	self.TitleGradient = render2d.CreateGradient{
-		mode = "linear",
-		angle = 90,
-		width = 256,
-		height = 1,
-		stops = {
-			{pos = 0.0, color = Color.FromHex("#6a1fc8")},
-			{pos = 0.55, color = Color.FromHex("#2c28c8")},
-			{pos = 1.0, color = Color.FromHex("#1a6ae0")},
-		},
+		Checker = assets.GetTexture("textures/render/retro_checker.lua"),
 	}
 end
 
-function RetroTheme:GetTextShadow()
-	return 1, 1, self:GetColor("ink")
+function RetroTheme:GetTextShadow(foreground)
+	if foreground.r * 0.3 + foreground.g * 0.59 + foreground.b * 0.11 > 0.5 then
+		return 1, 1, self:GetColor("ink")
+	end
+
+	return 1, 1, self:GetColor("bevel_light"):Copy():SetAlpha(0.55)
 end
 
 function RetroTheme:ResolveButtonStyleContext(state)
@@ -214,7 +220,7 @@ function RetroTheme:UpdateCheckboxAnimations(pnl) end
 
 function RetroTheme:UpdateSliderAnimations(pnl) end
 
-function RetroTheme:DrawNoise(x, y, w, h, color, alpha)
+function RetroTheme:DrawTiled(texture, tile, x, y, w, h, color, alpha)
 	render2d.DrawShape{
 		x = x,
 		y = y,
@@ -222,14 +228,15 @@ function RetroTheme:DrawNoise(x, y, w, h, color, alpha)
 		h = h,
 		color = color,
 		alpha = alpha,
-		texture = self.Textures.Noise,
-		color_uv = {x = 0, y = 0, w = w / NOISE_SIZE, h = h / NOISE_SIZE},
+		texture = texture,
+		color_uv = {x = 0, y = 0, w = w / tile, h = h / tile},
 		int = true,
 	}
 	render2d.SetTexture(nil)
 end
 
-function RetroTheme:DrawSlab(x, y, w, h, color, pressed, hovered)
+function RetroTheme:DrawSlab(x, y, w, h, color, pressed, hovered, t)
+	t = t or 2
 	local ink = self:GetColor("ink")
 	local light = self:GetColor("bevel_light")
 	local dark = self:GetColor("bevel_dark")
@@ -238,14 +245,24 @@ function RetroTheme:DrawSlab(x, y, w, h, color, pressed, hovered)
 	fill(x + 1, y + 1, w - 2, h - 2, color, pressed and 0.8 or k)
 
 	if pressed then
-		bevel(x + 1, y + 1, w - 2, h - 2, dark, light, 2, 1, 0.7)
+		bevel(x + 1, y + 1, w - 2, h - 2, dark, light, t, 1, 0.7)
 		return
 	end
 
-	local inner_h = h - 6
-	fill(x + 3, y + 3, w - 6, math.floor(inner_h / 2), color, k * 1.22)
-	fill(x + 3, y + 3 + math.floor(inner_h / 2), w - 6, math.ceil(inner_h / 2), color, k * 0.9)
-	bevel(x + 1, y + 1, w - 2, h - 2, light, dark, 2, 0.9, 0.55)
+	local inner = t + 1
+	local iw, ih = w - inner * 2, h - inner * 2
+
+	if ih <= iw then
+		local half = math.floor(ih / 2)
+		fill(x + inner, y + inner, iw, half, color, k * 1.22)
+		fill(x + inner, y + inner + half, iw, ih - half, color, k * 0.9)
+	else
+		local half = math.floor(iw / 2)
+		fill(x + inner, y + inner, half, ih, color, k * 1.22)
+		fill(x + inner + half, y + inner, iw - half, ih, color, k * 0.9)
+	end
+
+	bevel(x + 1, y + 1, w - 2, h - 2, light, dark, t, 0.9, 0.55)
 end
 
 function RetroTheme:DrawSunken(x, y, w, h, color)
@@ -266,7 +283,7 @@ end
 
 function RetroTheme:DrawFrame(size, emphasis)
 	local surface = self:GetColor(emphasis == 2 and "surface_variant" or "surface")
-	self:DrawNoise(0, 0, size.x, size.y, surface:Copy():SetAlpha(1), 1)
+	self:DrawTiled(self.Textures.Noise, NOISE_SIZE, 0, 0, size.x, size.y, surface:Copy():SetAlpha(1), 1)
 end
 
 function RetroTheme:DrawFramePost(size, emphasis)
@@ -292,10 +309,10 @@ function RetroTheme:DrawFramePost(size, emphasis)
 	local rust = self:GetColor("rust")
 	bevel(0, 0, w, h, ink, ink, 1)
 	bevel(1, 1, w - 2, h - 2, rust, rust, 4, 1, 1)
-	self:DrawNoise(1, 1, w - 2, 4, rust, 0.9)
-	self:DrawNoise(1, h - 5, w - 2, 4, rust, 0.9)
-	self:DrawNoise(1, 5, 4, h - 10, rust, 0.9)
-	self:DrawNoise(w - 5, 5, 4, h - 10, rust, 0.9)
+	self:DrawTiled(self.Textures.Noise, NOISE_SIZE, 1, 1, w - 2, 4, rust, 0.9)
+	self:DrawTiled(self.Textures.Noise, NOISE_SIZE, 1, h - 5, w - 2, 4, rust, 0.9)
+	self:DrawTiled(self.Textures.Noise, NOISE_SIZE, 1, 5, 4, h - 10, rust, 0.9)
+	self:DrawTiled(self.Textures.Noise, NOISE_SIZE, w - 5, 5, 4, h - 10, rust, 0.9)
 	bevel(1, 1, w - 2, h - 2, rust, rust, 1, 1.6, 0.5)
 	bevel(5, 5, w - 10, h - 10, dark, rust, 1, 1, 1.5)
 	bevel(4, 4, w - 8, h - 8, ink, ink, 1)
@@ -312,13 +329,28 @@ end
 function RetroTheme:DrawHeader(size, emphasis)
 	local w, h = math.floor(size.x), math.floor(size.y)
 	local ink = self:GetColor("ink")
-	local light = self:GetColor("bevel_light")
-	render2d.SetTexture(self.TitleGradient)
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.DrawRect(0, 0, w, h)
+	local rust = self:GetColor("rust")
 	render2d.SetTexture(nil)
-	fill(0, 0, w, 1, light, 0.9)
-	fill(0, h - 2, w, 2, ink)
+	fill(0, 0, w, h, ink)
+	self:DrawTiled(self.Textures.Noise, NOISE_SIZE, 1, 1, w - 2, h - 1, rust, 1)
+	fill(1, 1, w - 2, 1, rust, 1.9)
+	fill(1, 1, 1, h - 1, rust, 1.9)
+	fill(w - 2, 2, 1, h - 2, rust, 0.55)
+	local plate_x, plate_y, plate_w, plate_h = 3, 3, w - 6, h - 4
+	fill(plate_x, plate_y, plate_w, plate_h, ink)
+	local band_h = (plate_h - 2) / #TITLE_BANDS
+
+	for i, c in ipairs(TITLE_BANDS) do
+		local y1 = plate_y + 1 + math.floor((i - 1) * band_h)
+		local y2 = plate_y + 1 + math.floor(i * band_h)
+		render2d.SetColor(c[1], c[2], c[3], 1)
+		render2d.DrawRect(plate_x + 1, y1, plate_w - 2, y2 - y1)
+	end
+
+	fill(plate_x + 1, plate_y + 1, plate_w - 2, 1, self:GetColor("bevel_dark"))
+	fill(plate_x + 1, plate_y + 1, 1, plate_h - 2, self:GetColor("bevel_dark"))
+	fill(plate_x + 1, plate_y + plate_h - 2, plate_w - 2, 1, self:GetColor("bevel_light"), 0.8)
+	fill(plate_x + plate_w - 2, plate_y + 1, 1, plate_h - 2, self:GetColor("bevel_light"), 0.8)
 end
 
 function RetroTheme:DrawButton(size, state)
@@ -456,7 +488,7 @@ function RetroTheme:DrawSlider(size, state)
 		self:DrawSunken(tx, 0, track_w, math.floor(size.y), nil)
 		local fill_h = math.floor(normalized * usable)
 
-		for y = size.y - 2 - TILE, size.y - knob / 2 - fill_h, -(TILE + GAP) do
+		for y = 2, knob / 2 + fill_h, TILE + GAP do
 			fill(tx + 2, y, track_w - 4, TILE, lime)
 		end
 
@@ -543,10 +575,10 @@ function RetroTheme:DrawTreeToggle(size, meta, opts)
 	local glyph = self:GetColor(opts.glyph_color or "text")
 	render2d.SetTexture(nil)
 	self:DrawSlab(x, y, box, box, self:GetColor("surface_alt"), false, false)
-	fill(x + 3, y + math.floor(box / 2), box - 6, 1, glyph)
+	fill(x + 3, y + math.floor(box / 2) - 1, box - 6, 2, glyph)
 
 	if not opts.expanded then
-		fill(x + math.floor(box / 2), y + 3, 1, box - 6, glyph)
+		fill(x + math.floor(box / 2) - 1, y + 3, 2, box - 6, glyph)
 	end
 
 	return center_x, center_y
@@ -555,11 +587,34 @@ end
 function RetroTheme:DrawScrollbarTrack(size)
 	local w, h = math.floor(size.x), math.floor(size.y)
 	render2d.SetTexture(nil)
-	fill(0, 0, w, h, self:GetColor("field"))
+	fill(0, 0, w, h, self:GetColor("ink"))
+	self:DrawTiled(self.Textures.Checker, 2, 1, 1, w - 2, h - 2, self:GetColor("scrollbar_track"), 1)
 end
 
-function RetroTheme:DrawScrollbarHandle(size)
-	self:DrawSlab(0, 0, math.floor(size.x), math.floor(size.y), self:GetColor("scrollbar"), false, false)
+function RetroTheme:DrawScrollbarHandle(size, pressed, hovered)
+	local w, h = math.floor(size.x), math.floor(size.y)
+	self:DrawSlab(0, 0, w, h, self:GetColor("scrollbar"), pressed, hovered, 1)
+	local ink = self:GetColor("bevel_dark")
+	local light = self:GetColor("bevel_light")
+	local long = math.max(w, h)
+
+	if long < 28 then return end
+
+	local short = math.min(w, h)
+	local length = short - 6
+	local mid_x, mid_y = math.floor(w / 2), math.floor(h / 2)
+
+	for i = -1, 1 do
+		local offset = i * 3
+
+		if h > w then
+			fill(3, mid_y + offset, length, 1, ink)
+			fill(3, mid_y + offset + 1, length, 1, light, 0.8)
+		else
+			fill(mid_x + offset, 3, 1, length, ink)
+			fill(mid_x + offset + 1, 3, 1, length, light, 0.8)
+		end
+	end
 end
 
 function RetroTheme:Draw(pnl)
@@ -569,7 +624,11 @@ function RetroTheme:Draw(pnl)
 		if name:starts_with("scrollbar_track_") then
 			return self:DrawScrollbarTrack(pnl.transform:GetTotalSize())
 		elseif name:starts_with("scrollbar_handle_") then
-			return self:DrawScrollbarHandle(pnl.transform:GetTotalSize())
+			return self:DrawScrollbarHandle(
+				pnl.transform:GetTotalSize(),
+				pnl:GetState("pressed"),
+				pnl:GetState("hovered")
+			)
 		end
 	end
 
