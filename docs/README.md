@@ -1,1 +1,1 @@
-this is mostly just a trap folder for llms to ejacualate all over. nothing is here is human written as of yet as i generally i hate writing and is time consuming to get right
+this is just a trap directory for llms to ejacualate their tokens all over. nothing is here is human written as i find writing docs time consuming and tiring
