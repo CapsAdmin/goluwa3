@@ -1,9 +1,8 @@
 local ffi = require("ffi")
 local vfs = import("goluwa/vfs.lua")
 local fs = import("goluwa/filesystem/fs.lua")
-local system = import("goluwa/system.lua")
 local shaderc = import("goluwa/bindings/shaderc.lua")
-local sleep = import("goluwa/bindings/threads.lua").sleep
+local bin_download = import("goluwa/bin_download.lua")
 local locator = {}
 local SMOKE_SOURCE = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}\n"
 local SPIRV_MAGIC = 0x07230203
@@ -13,7 +12,7 @@ local shared_library_pattern = jit.os == "Windows" and
 	jit.os == "OSX" and
 	"%.dylib$" or
 	"%.so[%.%d]*$"
-local platform = (jit.os == "Windows" and "windows" or jit.os == "OSX" and "macos" or "linux") .. "-" .. jit.arch:lower()
+local platform = bin_download.platform
 local manifest = import("goluwa/bin_manifest.lua").shaderc
 locator.asset = manifest.assets[platform]
 locator.download_url = locator.asset and
@@ -26,23 +25,6 @@ end
 
 local function is_shared_library(name)
 	return name:find(shared_library_pattern) ~= nil
-end
-
-local function get_file_name(path)
-	return path:match("([^/\\]+)$")
-end
-
-local function read_binary(path)
-	local file = assert(io.open(path, "rb"))
-	local data = file:read("*a")
-	file:close()
-	return data
-end
-
-local function write_binary(path, data)
-	local file = assert(io.open(path, "wb"))
-	file:write(data)
-	file:close()
 end
 
 local function list_directory()
@@ -170,14 +152,14 @@ local function get_candidates()
 end
 
 local function copy_into_directory(source)
-	local target = locator.GetDirectory() .. get_file_name(source)
+	local target = locator.GetDirectory() .. bin_download.GetFileName(source)
 
 	if #list_directory() > 0 then
 		logf("[shaderc] %s already contains a library, not copying %s\n", locator.GetDirectory(), source)
 		return
 	end
 
-	write_binary(target, read_binary(source))
+	bin_download.WriteBinary(target, bin_download.ReadBinary(source))
 	logf("[shaderc] found %s, copied to %s\n", source, target)
 end
 
@@ -256,45 +238,10 @@ local function copy_from_steam()
 		end
 	end
 
-	local target = locator.GetDirectory() .. get_file_name(found[1])
-	write_binary(target, read_binary(found[1]))
+	local target = locator.GetDirectory() .. bin_download.GetFileName(found[1])
+	bin_download.WriteBinary(target, bin_download.ReadBinary(found[1]))
 	logf("[shaderc] copied %s to %s\n", found[1], target)
 	return try_load(target)
-end
-
-local function fetch(url, label)
-	local http = import("goluwa/sockets/http.lua")
-	import("goluwa/sockets/http/download.lua")
-	local socket_pool = import("goluwa/sockets/socket_pool.lua")
-	local body, err
-	local next_percent = 0
-	http.DownloadSocket(
-		url,
-		function(data)
-			body = data
-		end,
-		function(reason)
-			err = reason
-		end,
-		function(chunk, written, total)
-			if total ~= math.huge and total and written * 100 / total >= next_percent then
-				logf("[shaderc] downloading %s: %d%%\n", label, next_percent)
-				next_percent = next_percent + 10
-			end
-		end
-	)
-	local start = system.GetTime()
-
-	while not body and not err do
-		socket_pool.Update()
-		sleep(5)
-
-		if system.GetTime() - start > 600 then err = "timed out" end
-	end
-
-	if err then return nil, tostring(err) end
-
-	return body
 end
 
 local function download()
@@ -302,25 +249,11 @@ local function download()
 		return nil, "no prebuilt shaderc is published for " .. platform
 	end
 
-	if not locator.asset.sha256 then
-		return nil,
-		"bin_manifest.lua has no sha256 for " .. locator.asset.file .. " yet, run the build-binaries workflow and paste its hashes"
-	end
+	local path, err = bin_download.Download(manifest.release, locator.asset, locator.GetDirectory())
 
-	local data, err = fetch(locator.download_url, locator.asset.file)
+	if not path then return nil, err end
 
-	if not data then return nil, "could not fetch " .. locator.download_url .. ": " .. err end
-
-	local hash = import("goluwa/crypto.lua").SHA256(data)
-
-	if hash ~= locator.asset.sha256 then
-		return nil, "sha256 mismatch for " .. locator.asset.file .. ": expected " .. locator.asset.sha256 .. " got " .. hash
-	end
-
-	local target = locator.GetDirectory() .. get_file_name(locator.asset.file)
-	write_binary(target, data)
-	logf("[shaderc] downloaded %s\n", target)
-	return try_load(target)
+	return try_load(path)
 end
 
 local function try_directory()
@@ -338,30 +271,8 @@ local function try_directory()
 	return try_load(locator.GetDirectory() .. files[1])
 end
 
-local function get_terminal()
-	return import("goluwa/cli/repl.lua").GetTerminal()
-end
-
-local function read_key()
-	local term = get_terminal()
-
-	while true do
-		local event = term:ReadEvent()
-
-		if event and not event.mouse and event.key then
-			if event.modifiers and event.modifiers.ctrl and event.key == "c" then
-				error("aborted while locating shaderc", 0)
-			end
-
-			return event.key
-		end
-
-		sleep(10)
-	end
-end
-
 function locator.Prompt(reason)
-	if not get_terminal() then
+	if not bin_download.GetTerminal() then
 		error(
 			string.format(
 				"shaderc was not found (%s)\n" .. "Put the shaderc shared library in %s\n" .. "or get it from %s",
@@ -383,7 +294,7 @@ function locator.Prompt(reason)
 		logn("  [3] install it manually into " .. locator.GetDirectory())
 		logn("")
 		logn("Press 1, 2 or 3 (Ctrl+C aborts)")
-		local key = read_key()
+		local key = bin_download.ReadKey()
 		local ok, err
 
 		if key == "1" then
@@ -392,7 +303,7 @@ function locator.Prompt(reason)
 			logn("This downloads a prebuilt shaderc from this repository's releases and verifies its sha256.")
 			logn("Download from " .. locator.download_url .. " ? [y/N]")
 
-			if read_key() == "y" then
+			if bin_download.ReadKey() == "y" then
 				ok, err = download()
 			else
 				err = "download declined"
@@ -404,7 +315,7 @@ function locator.Prompt(reason)
 			logn("then press Enter (b goes back)")
 
 			while true do
-				local key = read_key()
+				local key = bin_download.ReadKey()
 
 				if key == "b" then
 					err = "cancelled"
