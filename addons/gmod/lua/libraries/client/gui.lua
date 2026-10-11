@@ -416,6 +416,27 @@ local function configure_dock_host(panel)
 	panel.layout:SetAlignmentY("stretch")
 end
 
+local pending_layout_panels = {}
+local pending_layout_count = 0
+
+local function queue_wrapped_layout(wrapped)
+	if wrapped.gine_layout then return end
+
+	wrapped.gine_layout = true
+	pending_layout_count = pending_layout_count + 1
+	pending_layout_panels[pending_layout_count] = wrapped
+end
+
+local function queue_layout_subtree(panel)
+	local wrapped = rawget(panel, "gine_pnl")
+
+	if wrapped then queue_wrapped_layout(wrapped) end
+
+	for _, child in ipairs(panel:GetChildren()) do
+		queue_layout_subtree(child)
+	end
+end
+
 local function request_panel_layout(panel)
 	if not (panel and panel:IsValid()) then return end
 
@@ -423,17 +444,7 @@ local function request_panel_layout(panel)
 
 	local wrapped = rawget(panel, "gine_pnl")
 
-	if wrapped and not wrapped.in_layout then wrapped.gine_layout = true end
-end
-
-local function invalidate_panel_children_now(panel)
-	if not (panel and panel:IsValid()) then return end
-
-	for _, child in ipairs(panel:GetChildren()) do
-		local wrapped = rawget(child, "gine_pnl")
-
-		if wrapped and not wrapped.in_layout then wrapped:InvalidateLayout(true) end
-	end
+	if wrapped and not wrapped.in_layout then queue_wrapped_layout(wrapped) end
 end
 
 local function setup_panel_layout(panel, mode)
@@ -452,7 +463,7 @@ local function setup_panel_layout(panel, mode)
 		local wrapped_parent = rawget(logical_parent, "gine_pnl")
 
 		if wrapped_parent and not wrapped_parent.in_layout then
-			wrapped_parent.gine_layout = true
+			queue_wrapped_layout(wrapped_parent)
 		end
 	end
 end
@@ -858,7 +869,7 @@ do
 		if control and control.Init then control.Init(self) end
 
 		obj.gine_init_complete = true
-		self:InvalidateLayout(true)
+		queue_wrapped_layout(self)
 		obj.OnDraw = function()
 			if self.AnimationThink then self:AnimationThink() end
 
@@ -915,8 +926,19 @@ do
 			call_panel_method(self, "PaintOver", obj.transform:GetWidth(), obj.transform:GetHeight())
 
 			if self.gine_layout then
-				self:InvalidateLayout(true)
+				local root = obj
+				local node = obj:GetParent()
+
+				while node:IsValid() do
+					if node.layout and node.layout:GetDirty() then root = node end
+
+					node = node:GetParent()
+				end
+
+				if root.layout and root.layout:GetDirty() then root.layout:UpdateLayout() end
+
 				self.gine_layout = nil
+				self:InvalidateLayout(true)
 			end
 
 			gine.PopPaintPanel()
@@ -998,6 +1020,20 @@ do
 
 		hook(obj, "OnPostLayout", sync_wrapper_layout)
 
+		obj.gine_w = obj.transform:GetWidth()
+		obj.gine_h = obj.transform:GetHeight()
+
+		obj:AddLocalListener("OnTransformChanged", function()
+			local w, h = obj.transform:GetWidth(), obj.transform:GetHeight()
+
+			if w == obj.gine_w and h == obj.gine_h then return end
+
+			obj.gine_w = w
+			obj.gine_h = h
+			call_panel_method(self, "OnSizeChanged", w, h)
+			queue_wrapped_layout(self)
+		end)
+
 		obj:AddLocalListener("OnVisibilityChanged", function()
 			request_panel_and_parent_layout(obj)
 		end)
@@ -1031,6 +1067,55 @@ do
 		end)
 
 		return self
+	end
+
+	do
+		local scratch = {}
+
+		event.AddListener(
+			"Update",
+			"gine_pending_layout",
+			function()
+				for _ = 1, 32 do
+					local count = pending_layout_count
+
+					if count == 0 then return end
+
+					for i = 1, count do
+						scratch[i] = pending_layout_panels[i]
+						pending_layout_panels[i] = nil
+					end
+
+					pending_layout_count = 0
+
+					for i = 1, count do
+						local wrapped = scratch[i]
+						scratch[i] = nil
+
+						if wrapped.gine_layout and wrapped.__obj:IsValid() then
+							local node = wrapped.__obj
+							local visible = true
+
+							while node and node:IsValid() do
+								if node.visual and not node.visual:GetVisible() then
+									visible = false
+
+									break
+								end
+
+								node = node:GetParent()
+							end
+
+							if visible then
+								wrapped.gine_layout = nil
+								wrapped:InvalidateLayout(true)
+							end
+						end
+					end
+				end
+			end,
+			{priority = -150}
+		)
 	end
 
 	local META = gine.EnsureMetaTable("Panel")
@@ -1130,11 +1215,7 @@ do
 
 		local wrapped_parent = rawget(new_parent, "gine_pnl")
 
-		if same_raw_parent and wrapped_parent and not wrapped_parent.in_layout then
-			wrapped_parent:InvalidateLayout(true)
-		else
-			request_panel_layout(new_parent)
-		end
+		request_panel_layout(new_parent)
 	end
 
 	function META:SetAutoDelete(b)
@@ -1281,7 +1362,6 @@ do
 		if old_w == w and old_h == h then return end
 
 		self.__obj.transform:SetSize(Vec2(w, h))
-		call_panel_method(self, "OnSizeChanged", w, h)
 		request_panel_and_parent_layout(self.__obj)
 	end
 
@@ -1439,7 +1519,7 @@ do
 				self.__obj.gmod_parent_override:IsValid()
 			)
 		then
-			self.gine_layout = true
+			queue_wrapped_layout(self)
 			return
 		end
 
@@ -1472,10 +1552,9 @@ do
 				self.__obj.layout:UpdateLayout()
 			end
 
-			invalidate_panel_children_now(self.__obj)
 			self.in_layout = false
 		else
-			self.gine_layout = true
+			queue_wrapped_layout(self)
 		end
 	end
 
@@ -1629,11 +1708,7 @@ do
 		if b then
 			refresh_gui_world_bounds()
 			request_panel_and_parent_layout(self.__obj)
-
-			if not self.in_layout then
-				self:InvalidateLayout(true)
-				invalidate_panel_children_now(self.__obj)
-			end
+			queue_layout_subtree(self.__obj)
 		end
 	end
 
@@ -1758,10 +1833,7 @@ do
 					end
 				end
 
-				if not self.in_layout then
-					self:InvalidateLayout(true)
-					invalidate_panel_children_now(self.__obj)
-				end
+				queue_layout_subtree(self.__obj)
 			end
 		end
 	end

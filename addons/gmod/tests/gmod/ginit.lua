@@ -813,6 +813,53 @@ T.TestGmod("gmod dock layout defers fill until after right docks", function()
 	if frame.Remove then frame:Remove() end
 end)
 
+T.TestGmod("gmod performs layout on children resized by a parent dock", function()
+	local frame = gine.env.vgui.Create("DFrame")
+	local fill = gine.env.vgui.Create("DPanel", frame)
+	local layout_widths = {}
+	local size_changes = 0
+
+	function fill:PerformLayout(w, h)
+		layout_widths[#layout_widths + 1] = self:GetWide()
+	end
+
+	function fill:OnSizeChanged()
+		size_changes = size_changes + 1
+	end
+
+	fill:Dock(gine.env.FILL)
+	frame:SetSize(400, 300)
+	event.Call("Update", 0.016)
+	pump_draws(2)
+	attest.truthy(size_changes > 0)
+	attest.truthy(#layout_widths > 0)
+	attest.equal(layout_widths[#layout_widths], fill:GetWide())
+	attest.truthy(fill:GetWide() > 300)
+	frame:Remove()
+end)
+
+T.TestGmod("gmod does not lay out hidden panels at their stale size", function()
+	local parent = gine.env.vgui.Create("DPanel")
+	local child = gine.env.vgui.Create("DPanel", parent)
+	local sizes = {}
+
+	function child:PerformLayout()
+		sizes[#sizes + 1] = self:GetWide()
+	end
+
+	parent:SetVisible(false)
+	child:Dock(gine.env.FILL)
+	event.Call("Update", 0.016)
+	attest.equal(#sizes, 0)
+	parent:SetSize(500, 200)
+	parent:SetVisible(true)
+	event.Call("Update", 0.016)
+	pump_draws(1)
+	attest.truthy(#sizes > 0)
+	attest.equal(sizes[#sizes], 500)
+	parent:Remove()
+end)
+
 T.TestGmod("gmod Vector ToScreen reports coordinates and visibility", function()
 	local screen = gine.env.Vector(0, 0, 0):ToScreen()
 	attest.equal(type(screen.x), "number")
