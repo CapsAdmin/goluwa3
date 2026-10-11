@@ -102,9 +102,7 @@ return function(steam)
 		if jit.os == "Windows" then
 			path = system.GetRegistryValue("CurrentUser/Software/Valve/Steam/SteamPath") or
 				(
-					X64 and
-					"C:\\Program Files (x86)\\Steam" or
-					"C:\\Program Files\\Steam"
+					(os.getenv("ProgramFiles(x86)") or "C:\\Program Files (x86)") .. "\\Steam"
 				)
 		elseif jit.os == "OSX" then
 			path = os.getenv("HOME") .. "/Library/Application Support/Steam"

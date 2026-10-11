@@ -7,8 +7,9 @@ local Window = import("goluwa/window.lua")
 ffi.cdef([[
 	int fflush(void *stream);
 	int _exit(int status);
-	int isatty(int fd);
 ]])
+ffi.cdef(ffi.os == "Windows" and "int _isatty(int fd);" or "int isatty(int fd);")
+local isatty = ffi.os == "Windows" and ffi.C._isatty or ffi.C.isatty
 
 function system.GetTime()
 	return get_time()
@@ -163,7 +164,7 @@ function system.IsTTY()
 		return false
 	end
 
-	return ffi.C.isatty(0) == 1
+	return isatty(0) ~= 0
 end
 
 local sleep = import("goluwa/bindings/threads.lua").sleep
@@ -205,6 +206,51 @@ function system.OpenURL(url)
 		os.execute(string.format("open \"%s\"", url))
 	else
 		os.execute(string.format("xdg-open \"%s\"", url))
+	end
+end
+
+if jit.os == "Windows" then
+	ffi.cdef([[
+		long RegGetValueA(
+			intptr_t hkey,
+			const char *subkey,
+			const char *value,
+			uint32_t flags,
+			uint32_t *type,
+			void *data,
+			uint32_t *size
+		);
+	]])
+	local advapi32 = ffi.load("advapi32")
+	local RRF_RT_REG_SZ = 0x2
+	local hives = {
+		ClassesRoot = 0x80000000,
+		CurrentUser = 0x80000001,
+		LocalMachine = 0x80000002,
+		Users = 0x80000003,
+	}
+	local buffer = ffi.new("char[1024]")
+	local size = ffi.new("uint32_t[1]")
+
+	function system.GetRegistryValue(path)
+		local hive, key, name = path:match("^(%w+)/(.+)/([^/]+)$")
+		size[0] = 1024
+
+		if
+			advapi32.RegGetValueA(
+				ffi.cast("int32_t", hives[hive]),
+				key:gsub("/", "\\"),
+				name,
+				RRF_RT_REG_SZ,
+				nil,
+				buffer,
+				size
+			) ~= 0
+		then
+			return nil
+		end
+
+		return ffi.string(buffer, size[0] - 1)
 	end
 end
 

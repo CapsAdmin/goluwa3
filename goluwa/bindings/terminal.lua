@@ -763,8 +763,8 @@ if jit.os == "Windows" then
 	);
 
 
-	int SetConsoleMode(void*, uint16_t);
-	int GetConsoleMode(void*, uint16_t*);
+	int SetConsoleMode(void*, uint32_t);
+	int GetConsoleMode(void*, uint32_t*);
 	void* GetStdHandle(unsigned long nStdHandle);
 	int SetConsoleTitleA(const char*);
 	int SetConsoleOutputCP(unsigned int wCodePageID);
@@ -861,7 +861,7 @@ if jit.os == "Windows" then
 
 		if ptr == nil then error(throw_error()) end
 
-		local flags = ffi.new("uint16_t[1]")
+		local flags = ffi.new("uint32_t[1]")
 
 		if ffi.C.GetConsoleMode(ptr, flags) == 0 then error(throw_error()) end
 

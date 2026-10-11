@@ -774,20 +774,34 @@ do
 		return bytes_written
 	end
 
-	function fs.fseek(file, offset, whence)
-		whence = whence or fs.SEEK_SET
+	do
+		local fseek = ffi.C.fseek
+		local ftell = ffi.C.ftell
 
-		if ffi.C.fseek(file, offset, whence) ~= 0 then return nil, last_error() end
+		if jit.os == "Windows" then
+			ffi.cdef[[
+				int _fseeki64(FILE* stream, int64_t offset, int whence);
+				int64_t _ftelli64(FILE* stream);
+			]]
+			fseek = ffi.C._fseeki64
+			ftell = ffi.C._ftelli64
+		end
 
-		return true
-	end
+		function fs.fseek(file, offset, whence)
+			whence = whence or fs.SEEK_SET
 
-	function fs.ftell(file)
-		local pos = ffi.C.ftell(file)
+			if fseek(file, offset, whence) ~= 0 then return nil, last_error() end
 
-		if pos == -1 then return nil, last_error() end
+			return true
+		end
 
-		return pos
+		function fs.ftell(file)
+			local pos = ftell(file)
+
+			if pos == -1 then return nil, last_error() end
+
+			return tonumber(pos)
+		end
 	end
 
 	function fs.fflush(file)
