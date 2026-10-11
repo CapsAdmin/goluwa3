@@ -77,6 +77,21 @@ local function get_unique_input_name(definition, base)
 	return name
 end
 
+-- what an input targets for a property row: the property itself, or a key of the Values table of a script for the rows of its component
+local function get_target(node, component_name, info)
+	if info.link then
+		return {Node = node, Component = component_name, Property = info.link.Property, Key = info.link.Key}
+	end
+
+	return {Node = node, Component = component_name, Property = info.var_name}
+end
+
+local function get_value(object, info)
+	if info.get then return info.get(object) end
+
+	return objects.GetProperty(object, info.var_name)
+end
+
 local function expose(instance, entity, node, component_name, object, info)
 	local name = info.var_name
 
@@ -88,7 +103,7 @@ local function expose(instance, entity, node, component_name, object, info)
 		end
 	end
 
-	local value = objects.GetProperty(object, info.var_name)
+	local value = get_value(object, info)
 	editor_history.EditPrefab(
 		"expose " .. info.var_name .. " of " .. instance.Path,
 		instance.Path,
@@ -99,7 +114,7 @@ local function expose(instance, entity, node, component_name, object, info)
 					Name = get_unique_input_name(instance.definition, name),
 					Type = info.type,
 					Default = type(value) == "cdata" and value:Copy() or value,
-					Targets = {{Node = node, Component = component_name, Property = info.var_name}},
+					Targets = {get_target(node, component_name, info)},
 				}
 			)
 		end
@@ -111,7 +126,8 @@ local function unexpose(instance, node, component_name, info)
 		"hide " .. info.var_name .. " from " .. instance.Path,
 		instance.Path,
 		function()
-			prefab.Unlink(instance.Path, node, component_name, info.var_name)
+			local target = get_target(node, component_name, info)
+			prefab.Unlink(instance.Path, node, component_name, target.Property, target.Key)
 		end
 	)
 end
@@ -159,7 +175,11 @@ function tools.GetPropertyActions(object, info)
 
 	if
 		not (
-			info.storable and
+			(
+				info.storable or
+				info.link
+			)
+			and
 			EXPOSABLE_TYPES[info.type]
 		)
 		or
@@ -178,7 +198,9 @@ function tools.GetPropertyActions(object, info)
 	local component_name, entity = prefab.GetComponentName(object)
 	local node = instance == entity.prefab and "root" or entity.prefab_node
 
-	if prefab.IsExposed(instance.Path, node, component_name, info.var_name) then
+	local target = get_target(node, component_name, info)
+
+	if prefab.IsExposed(instance.Path, node, component_name, target.Property, target.Key) then
 		return {
 			{
 				Text = "Hide from prefab",
@@ -210,11 +232,7 @@ function tools.GetPropertyActions(object, info)
 						"link " .. info.var_name .. " to " .. input.Name,
 						instance.Path,
 						function()
-							prefab.AddTarget(
-								instance.Path,
-								input.Name,
-								{Node = node, Component = component_name, Property = info.var_name}
-							)
+							prefab.AddTarget(instance.Path, input.Name, target)
 						end
 					)
 				end,
@@ -280,7 +298,7 @@ end
 
 -- a property an input pushes into is marked with the input, its value here is not the one that sticks
 function tools.GetPropertyBadge(object, info)
-	if not (info.storable and (object.component_map or object.Owner)) then return end
+	if not ((info.storable or info.link) and (object.component_map or object.Owner)) then return end
 
 	local instance = prefab.GetOwner(object)
 
@@ -288,7 +306,8 @@ function tools.GetPropertyBadge(object, info)
 
 	local component_name, entity = prefab.GetComponentName(object)
 	local node = instance == entity.prefab and "root" or entity.prefab_node
-	local input = prefab.FindInput(instance.Path, node, component_name, info.var_name)
+	local target = get_target(node, component_name, info)
+	local input = prefab.FindInput(instance.Path, node, component_name, target.Property, target.Key)
 
 	if input then
 		return {

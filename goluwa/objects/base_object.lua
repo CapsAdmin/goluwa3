@@ -124,7 +124,7 @@ do
 		self:CallOnRemove(function()
 			self.sub_objects[obj] = nil
 			objects.SafeRemove(obj)
-		end)
+		end, obj)
 
 		self.sub_objects = self.sub_objects or {}
 		self.sub_objects[obj] = obj

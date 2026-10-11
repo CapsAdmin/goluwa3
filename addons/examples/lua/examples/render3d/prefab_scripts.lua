@@ -4,51 +4,57 @@ local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
--- walk up to the things and press e. a script is lua that returns the functions it wants called: OnCreate, Update(dt), OnRemove and any On* event such as OnUse.
--- self is the entity the script is on, GetPrefab() is the instance it belongs to and GetNode(id) one of its nodes.
--- state that has to be the same everywhere lives in prefab inputs, only whoever has the authority changes them (network.HasAuthority(), true in a standalone game too) and they replicate, the visuals follow them in Update.
+-- walk up to the things and press e. a script is the source of a component, like the files in lua/components: it returns the component it defines and the entity it is on is self.Owner.
+-- the component can define Initialize, OnUpdate(dt), OnRemove and any On* local event such as OnUse. self.Owner:GetPrefab() is the instance it belongs to and self.Owner:GetNode(id) one of its nodes.
+-- state that has to be the same everywhere lives in prefab inputs, only whoever has the authority changes them (network.HasAuthority(), true in a standalone game too) and they replicate, the visuals follow them in OnUpdate.
+-- scripts with the same source share one class, so per instance state lives on self.
 local LAMP_SCRIPT = [[
+local objects = import("goluwa/objects/objects.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local network = import("goluwa/network/network.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local light
-local level = 1
+local META = objects.CreateTemplate("example_lamp")
 
-function Entity:OnCreate()
-	light = self:GetNode("bulb").light_point
-	self:EnsureComponent("rigid_body", {Shape = BoxShape.New(Vec3(0.4, 0.8, 0.4)), MotionType = "static"})
+function META:Initialize()
+	self:AddGlobalEvent("Update")
+	self.light = self.Owner:GetNode("bulb").light_point
+	self.level = 1
+	self.Owner:EnsureComponent("rigid_body", {Shape = BoxShape.New(Vec3(0.4, 0.8, 0.4)), MotionType = "static"})
 end
 
-function Entity:OnUse(user)
+function META:OnUse(user)
 	if network.HasAuthority() then
-		local lamp = self:GetPrefab().prefab
+		local lamp = self.Owner:GetPrefab().prefab
 		lamp:SetInput("On", not lamp:GetInput("On"))
 	end
 
 	return true
 end
 
-function Entity:Update(dt)
-	local lamp = self:GetPrefab().prefab
-	level = level + ((lamp:GetInput("On") and 1 or 0) - level) * math.min(dt * 8, 1)
-	light:SetLumen(lamp:GetInput("Lumen") * level)
+function META:OnUpdate(dt)
+	local lamp = self.Owner:GetPrefab().prefab
+	self.level = self.level + ((lamp:GetInput("On") and 1 or 0) - self.level) * math.min(dt * 8, 1)
+	self.light:SetLumen(lamp:GetInput("Lumen") * self.level)
 end
+
+return META:Register()
 ]]
 local DOOR_SCRIPT = [[
+local objects = import("goluwa/objects/objects.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local network = import("goluwa/network/network.lua")
 local CompoundShape = import("goluwa/physics/shapes/compound.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local pivot
-local body
-local angle = 0
-local solid = true
+local META = objects.CreateTemplate("example_door")
 
-function Entity:OnCreate()
-	pivot = self:GetNode("pivot")
+function META:Initialize()
+	self:AddGlobalEvent("Update")
+	self.angle = 0
+	self.solid = true
+	self.pivot = self.Owner:GetNode("pivot")
 	-- the collider stays where the closed door is so the doorway can always be used, it only stops being solid while the door is open
-	body = self:EnsureComponent(
+	self.body = self.Owner:EnsureComponent(
 		"rigid_body",
 		{
 			Shape = CompoundShape.New({
@@ -60,47 +66,51 @@ function Entity:OnCreate()
 	)
 end
 
-function Entity:OnUse(user)
+function META:OnUse(user)
 	if network.HasAuthority() then
-		local door = self:GetPrefab().prefab
+		local door = self.Owner:GetPrefab().prefab
 		door:SetInput("Open", not door:GetInput("Open"))
 	end
 
 	return true
 end
 
-function Entity:Update(dt)
-	local door = self:GetPrefab().prefab
+function META:OnUpdate(dt)
+	local door = self.Owner:GetPrefab().prefab
 	local open = door:GetInput("Open")
 	local target = open and door:GetInput("Angle") or 0
-	angle = angle + (target - angle) * math.min(dt * 5, 1)
-	pivot.transform:SetRotation(Quat():SetAngles(Deg3(0, angle, 0)))
+	self.angle = self.angle + (target - self.angle) * math.min(dt * 5, 1)
+	self.pivot.transform:SetRotation(Quat():SetAngles(Deg3(0, self.angle, 0)))
 
-	if solid == open then
-		solid = not open
-		body:SetCollisionMask(solid and -1 or 0)
+	if self.solid == open then
+		self.solid = not open
+		self.body:SetCollisionMask(self.solid and -1 or 0)
 	end
 end
+
+return META:Register()
 ]]
 local DISPENSER_SCRIPT = [[
+local objects = import("goluwa/objects/objects.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local network = import("goluwa/network/network.lua")
 local system = import("goluwa/system.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local last_use = 0
+local META = objects.CreateTemplate("example_dispenser")
 
-function Entity:OnCreate()
-	self:EnsureComponent("rigid_body", {Shape = BoxShape.New(Vec3(0.8, 1, 0.8)), MotionType = "static"})
+function META:Initialize()
+	self.last_use = 0
+	self.Owner:EnsureComponent("rigid_body", {Shape = BoxShape.New(Vec3(0.8, 1, 0.8)), MotionType = "static"})
 end
 
-function Entity:OnUse(user)
-	if network.HasAuthority() and system.GetTime() - last_use > 0.3 then
-		last_use = system.GetTime()
+function META:OnUse(user)
+	if network.HasAuthority() and system.GetTime() - self.last_use > 0.3 then
+		self.last_use = system.GetTime()
 		shapes.Box{
 			Name = "dispensed crate",
-			Position = self.transform:GetPosition() + Vec3(0, 1.4, 0),
+			Position = self.Owner.transform:GetPosition() + Vec3(0, 1.4, 0),
 			Size = Vec3(0.35, 0.35, 0.35),
 			Material = {Color = Color(math.random(), math.random(), math.random(), 1)},
 			RigidBody = {Friction = 0.6},
@@ -110,16 +120,21 @@ function Entity:OnUse(user)
 
 	return true
 end
+
+return META:Register()
 ]]
 local BEACON_SCRIPT = [[
+local objects = import("goluwa/objects/objects.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local system = import("goluwa/system.lua")
-local speed = 1
+local META = objects.CreateTemplate("example_beacon")
 
-function Entity:OnCreate()
-	self:EnsureComponent("rigid_body", {Shape = SphereShape.New(0.25), MotionType = "static"})
+function META:Initialize()
+	self:AddGlobalEvent("Update")
+	self.speed = 1
+	self.Owner:EnsureComponent("rigid_body", {Shape = SphereShape.New(0.25), MotionType = "static"})
 end
 
 local function hue(h)
@@ -132,17 +147,20 @@ local function hue(h)
 	)
 end
 
-function Entity:OnUse(user)
-	speed = speed == 1 and 4 or 1
+function META:OnUse(user)
+	self.speed = self.speed == 1 and 4 or 1
 	return true
 end
 
-function Entity:Update(dt)
+function META:OnUpdate(dt)
+	local entity = self.Owner
 	local time = system.GetTime()
-	self.light_point:SetColor(hue(time * 0.1 * speed))
-	self.light_point:SetLumen(25000 + 15000 * math.sin(time * 5 * speed))
-	self:GetNode("ring").transform:SetRotation(Quat():SetAngles(Deg3(0, time * 90 * speed, 0)))
+	entity.light_point:SetColor(hue(time * 0.1 * self.speed))
+	entity.light_point:SetLumen(25000 + 15000 * math.sin(time * 5 * self.speed))
+	entity:GetNode("ring").transform:SetRotation(Quat():SetAngles(Deg3(0, time * 90 * self.speed, 0)))
 end
+
+return META:Register()
 ]]
 prefab.Register(
 	"example_lamp",

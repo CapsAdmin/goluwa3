@@ -19,14 +19,22 @@ T.Test3D("the source outfit animates a gmod player model from the movement of th
 	local player = Entity.New{transform = {Position = Vec3(0, 0, 0)}, player_avatar = {}}
 	local model
 
-	T.WaitUntil(function()
-		local outfit = player.player_avatar.outfit
-		model = outfit and outfit:GetChildren()[1]
-		return model and model.animator and model.animator:GetRig() and model.script and model.script.module and player.player_avatar.armature
-	end, 30)
+	T.WaitUntil(
+		function()
+			local outfit = player.player_avatar.outfit
+			model = outfit and outfit:GetChildren()[1]
+			return model and
+				model.animator and
+				model.animator:GetRig() and
+				model.outfit_source and
+				player.player_avatar.armature
+		end,
+		30
+	)
 
 	T(model ~= nil)["=="](true)
 	T(model.script.Error)["=="](nil)
+	T(model.outfit_source.added_events.Update)["=="](true)
 	local animator = model.animator
 
 	local function step(_, velocity)
@@ -34,7 +42,7 @@ T.Test3D("the source outfit animates a gmod player model from the movement of th
 		player.transform.RenderVelocityFrame = system.GetFrameNumber()
 
 		for _ = 1, 60 do
-			model.script.module.Update(model, 1 / 60)
+			model.outfit_source:OnUpdate(1 / 60)
 		end
 	end
 

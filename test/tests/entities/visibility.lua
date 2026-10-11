@@ -81,12 +81,12 @@ T.Test("A script gets OnHide and OnShow", function()
 	local entity = Entity.New{
 		transform = {},
 		visibility = {},
-		script = {Source = "function Entity:OnHide() self.seen = (self.seen or 0) + 1 end function Entity:OnShow() self.seen = (self.seen or 0) + 10 end"},
+		script = {Source = "local objects = import('goluwa/objects/objects.lua') local META = objects.CreateTemplate('test_visibility_script') function META:OnHide() self.seen = (self.seen or 0) + 1 end function META:OnShow() self.seen = (self.seen or 0) + 10 end return META:Register()"},
 	}
 	entity.visibility:SetVisible(false)
-	T(entity.seen)["=="](1)
+	T(entity.test_visibility_script.seen)["=="](1)
 	entity.visibility:SetVisible(true)
-	T(entity.seen)["=="](11)
+	T(entity.test_visibility_script.seen)["=="](11)
 	entity:Remove()
 end)
 

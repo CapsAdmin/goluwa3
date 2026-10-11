@@ -35,6 +35,12 @@ function objects.CreateTemplate(type_name)
 		return template:CreateObject(nil, ...)
 	end
 
+	local scope = objects.registry_scope
+
+	if scope and debug.getinfo(2, "S").source:starts_with("=script:") then
+		template.RegistryKey = scope .. type_name
+	end
+
 	return template
 end
 
@@ -54,7 +60,7 @@ do
 
 	function objects.Register(meta, skip_warning)
 		if not HOTRELOAD and not skip_warning then
-			if objects.registered[meta.Type] then
+			if objects.registered[meta.RegistryKey or meta.Type] then
 				wlog("objects already registered: " .. meta.Type, 2)
 			end
 		end
@@ -88,8 +94,9 @@ do
 		end
 
 		meta.Instances = meta.Instances or table.weak("kv")
-		objects.registered[meta.Type] = meta
-		objects.invalidate_meta[meta.Type] = true
+		local key = meta.RegistryKey or meta.Type
+		objects.registered[key] = meta
+		objects.invalidate_meta[key] = true
 
 		if HOTRELOAD then
 			logn("Hotreloading objects: " .. meta.Type)
@@ -130,6 +137,13 @@ do
 
 		return meta
 	end
+end
+
+function objects.Unregister(meta)
+	local key = meta.RegistryKey or meta.Type
+	objects.registered[key] = nil
+	objects.prepared_metatables[key] = nil
+	objects.invalidate_meta[key] = nil
 end
 
 function objects.RebuildMetatables(what)
@@ -346,7 +360,7 @@ do
 
 	function objects.CreateObject(meta, override, a, b, c, d, e, f)
 		assert(f == nil)
-		meta = assert(objects.GetRegistered(meta.Type))
+		meta = assert(objects.GetRegistered(meta.RegistryKey or meta.Type))
 
 		if not meta.__gc then meta.__gc = remove_callback end
 

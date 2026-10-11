@@ -19,21 +19,30 @@ end
 
 -- the player only tells how far it is crouched (player_avatar.crouch_alpha), what that does to the body is up to the outfit
 outfit.CrouchScript = [[
+local objects = import("goluwa/objects/objects.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local Vec3 = import("goluwa/structs/vec3.lua")
 local HEIGHT = 72 * UNIT
 local CROUCH_HEIGHT = 36 * UNIT
+local META = objects.CreateTemplate("outfit_crouch")
 
-function Entity:Update(dt)
-	local player = self:GetParent()
+function META:Initialize()
+	self:AddGlobalEvent("Update")
+end
+
+function META:OnUpdate(dt)
+	local entity = self.Owner
+	local player = entity:GetParent()
 	while player:IsValid() and not player.player_avatar do
 		player = player:GetParent()
 	end
 	if not player:IsValid() then return end
 	local height = math.lerp(player.player_avatar.crouch_alpha or 0, HEIGHT, CROUCH_HEIGHT)
-	self.transform:SetScale(Vec3(1, height / HEIGHT, 1))
-	self.transform:SetPosition(Vec3(0, height * 0.5, 0))
+	entity.transform:SetScale(Vec3(1, height / HEIGHT, 1))
+	entity.transform:SetPosition(Vec3(0, height * 0.5, 0))
 end
+
+return META:Register()
 ]]
 
 function outfit.GetName(owner_id)

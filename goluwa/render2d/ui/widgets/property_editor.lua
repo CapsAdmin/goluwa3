@@ -1176,7 +1176,7 @@ do
 		if info.type == "action" then
 			return {
 				Type = "action",
-				Key = category_key .. "/" .. info.var_name,
+				Key = category_key .. "/" .. (info.key or info.var_name),
 				Text = info.var_name,
 				ButtonText = info.button_text,
 				OnAction = function()
@@ -1226,7 +1226,7 @@ do
 
 					return true
 				end,
-			Key = category_key .. "/" .. info.var_name,
+			Key = category_key .. "/" .. (info.key or info.var_name),
 			Text = info.var_name,
 			Value = get_value(),
 			Default = info.copy and info.copy() or info.default,

@@ -41,6 +41,8 @@ local function copy_value(value)
 	return value
 end
 
+prefab.CopyValue = copy_value
+
 local function get_input_value(component, input)
 	local inputs = component.Inputs
 	local value = inputs and inputs[input.Name]
@@ -371,15 +373,15 @@ function prefab.AddTarget(name, input_name, target)
 	error(("prefab %s has no input %s"):format(name, tostring(input_name)), 2)
 end
 
--- the input that pushes into this property
-function prefab.FindInput(name, node, component_name, property)
+-- the input that pushes into this property, or into this key of a table valued property
+function prefab.FindInput(name, node, component_name, property, key)
 	for _, input in ipairs(prefab.Get(name).inputs) do
 		for _, target in ipairs(input.Targets) do
 			if
 				target.Node == node and
 				target.Component == component_name and
 				target.Property == property and
-				target.Key == nil
+				target.Key == key
 			then
 				return input
 			end
@@ -387,12 +389,12 @@ function prefab.FindInput(name, node, component_name, property)
 	end
 end
 
-function prefab.IsExposed(name, node, component_name, property)
-	return prefab.FindInput(name, node, component_name, property) ~= nil
+function prefab.IsExposed(name, node, component_name, property, key)
+	return prefab.FindInput(name, node, component_name, property, key) ~= nil
 end
 
 -- takes a property out of every input that pushes into it, an input that loses its last target goes with it
-function prefab.Unlink(name, node, component_name, property)
+function prefab.Unlink(name, node, component_name, property, key)
 	local definition = prefab.Get(name)
 	local emptied = {}
 	local changed = false
@@ -405,7 +407,7 @@ function prefab.Unlink(name, node, component_name, property)
 				target.Node == node and
 				target.Component == component_name and
 				target.Property == property and
-				target.Key == nil
+				target.Key == key
 			then
 				table.remove(input.Targets, i)
 				changed = true
@@ -944,7 +946,11 @@ local function copy_record(old)
 	return record
 end
 
-local function is_bound(definition, node, component_name, property)
+-- the input that pushes into the whole property, or the inputs that push into keys of it
+local function get_bindings(definition, node, component_name, property)
+	local whole
+	local keyed = {}
+
 	for _, input in ipairs(definition.inputs) do
 		for _, target in ipairs(input.Targets) do
 			if
@@ -952,12 +958,16 @@ local function is_bound(definition, node, component_name, property)
 				target.Component == component_name and
 				target.Property == property
 			then
-				return true
+				if target.Key == nil then
+					whole = true
+				else
+					keyed[#keyed + 1] = {key = target.Key, input = input}
+				end
 			end
 		end
 	end
 
-	return false
+	return whole, keyed
 end
 
 -- writes the properties that were edited into the records of their nodes and nothing else, what scripts or physics changed on the instance is not an edit
@@ -987,7 +997,30 @@ function prefab.CommitProperties(component, edited)
 						if not scene.ValuesEqual(value, get_input_value(component, input)) then
 							component:SetInput(input.Name, copy_value(value))
 						end
-					elseif by_id[node] and not is_bound(definition, node, component_name, name) then
+					elseif by_id[node] then
+						local whole, keyed = get_bindings(definition, node, component_name, name)
+
+						if keyed[1] and type(value) == "table" then
+							-- a keyed link shows its input, the keys without one are written to the definition
+							value = copy_value(value)
+
+							for _, binding in ipairs(keyed) do
+								local key_value = value[binding.key]
+
+								if
+									key_value ~= nil and
+									not scene.ValuesEqual(key_value, get_input_value(component, binding.input))
+								then
+									component:SetInput(binding.input.Name, copy_value(key_value))
+								end
+
+								value[binding.key] = nil
+							end
+
+							if next(value) == nil then value = nil end
+						end
+
+						if not whole then
 						local record = replaced[node]
 
 						if not record then
@@ -1014,6 +1047,7 @@ function prefab.CommitProperties(component, edited)
 							else
 								container[name] = copy_value(value)
 							end
+						end
 						end
 					end
 				end

@@ -3,11 +3,20 @@ local prefab = import("goluwa/entities/prefab.lua")
 local META = objects.CreateTemplate("script")
 META.Network = {
 	Source = {"string", 0.5, "reliable"},
+	Values = {"table", 0.5, "reliable"},
 }
--- the prefix stays on the first line of the source so error line numbers match what the editor shows
-local PREFIX = "local Entity = {} "
-local SUFFIX = "\nreturn Entity"
-local RESERVED = {OnCreate = true, OnRemove = true}
+-- these are called by the engine around the component itself, every other On function is a local event of the owner
+local LIFECYCLE = {
+	OnConstruct = true,
+	OnCreate = true,
+	OnPostCreate = true,
+	OnAdd = true,
+	OnRemove = true,
+	OnReload = true,
+	OnFirstCreated = true,
+	OnLastRemoved = true,
+	OnUpdate = true,
+}
 META:StartStorable()
 META:GetSet(
 	"Source",
@@ -20,27 +29,136 @@ META:GetSet(
 		end,
 	}
 )
+-- the storable properties of the component the source defines that differ from their default
+META:GetSet("Values", nil, {callback = "OnValuesChanged", Hidden = true})
 META:EndStorable()
+local classes = {}
+local scope_counter = 0
 
 -- a script that failed stays off until its source changes
 local function call(script, fn, ...)
 	if script.Error then return end
 
 	prefab.Suppress()
-	local ok, result = xpcall(fn, debug.traceback, script.Owner, ...)
+	local ok, result = xpcall(fn, debug.traceback, ...)
 	prefab.Unsuppress()
 
 	if not ok then
 		script.Error = result
 		wlog("script of %s failed: %s", script.Owner, result)
+
+		if script.instance then
+			for name in pairs(script.instance.added_events or {}) do
+				script.instance:RemoveEvent(name)
+			end
+		end
+
 		return
 	end
 
 	return result
 end
 
+-- the source defines a component class, classes are shared by every script with the same source like they are for a normal component
+local function acquire_class(source, name)
+	local class = classes[source]
+
+	if class then
+		class.count = class.count + 1
+		return class
+	end
+
+	local chunk, err = loadstring(source, "=script:" .. (name ~= "" and name or "entity"))
+
+	if not chunk then return nil, err end
+
+	scope_counter = scope_counter + 1
+	objects.registry_scope = "script" .. scope_counter .. ":"
+	local ok, meta = xpcall(chunk, debug.traceback)
+	objects.registry_scope = nil
+
+	if not ok then return nil, meta end
+
+	if type(meta) ~= "table" or not meta.RegistryKey then
+		return nil, "the script must return the component it defines (return META:Register())"
+	end
+
+	-- errors inside the hooks the engine calls turn the script off instead of breaking the frame
+	for key, fn in pairs(meta) do
+		if type(fn) == "function" and (key == "Initialize" or key:starts_with("On")) then
+			meta[key] = function(self, ...)
+				local script = self.ScriptComponent
+
+				if script.Error then return end
+
+				return call(script, fn, self, ...)
+			end
+		end
+	end
+
+	local properties = {}
+
+	for _, info in pairs(meta.objects_variables or {}) do
+		if not info.Hidden then properties[#properties + 1] = info end
+	end
+
+	table.sort(properties, function(a, b)
+		return a.order < b.order
+	end)
+
+	class = {meta = meta, source = source, count = 1, properties = properties}
+	classes[source] = class
+	return class
+end
+
+local function release_class(class)
+	class.count = class.count - 1
+
+	if class.count == 0 then
+		objects.Unregister(class.meta)
+		classes[class.source] = nil
+	end
+end
+
+local function build_instance(script, class)
+	local entity = script.Owner
+	local meta = class.meta
+	local alias = meta.Type
+
+	if entity[alias] ~= nil then
+		error("the entity already has a " .. alias .. " component", 0)
+	end
+
+	local instance = entity:CreateSubObject(meta, {ScriptComponent = script})
+	script.instance = instance
+	script.alias = alias
+	entity[alias] = instance
+
+	for key, fn in pairs(meta) do
+		if
+			type(fn) == "function" and
+			key:starts_with("On") and
+			not LIFECYCLE[key] and
+			script[key] == nil
+		then
+			script.event_names[#script.event_names + 1] = key
+			script[key] = function(_, a, b, c, d, e, f, g)
+				return instance[key](instance, a, b, c, d, e, f, g)
+			end
+		end
+	end
+
+	instance:AddPropertyListener(script.OnInstancePropertyChanged, "script")
+	script:ApplyValues()
+
+	if instance.Initialize then instance:Initialize() end
+
+	if instance.OnAdd then instance:OnAdd() end
+end
+
 function META:OnCreate()
 	self.event_names = {}
+	self.load_id = 0
 end
 
 function META:Initialize()
@@ -49,18 +167,26 @@ function META:Initialize()
 end
 
 function META:Unload()
-	local module = self.module
+	self.load_id = self.load_id + 1
+	local instance = self.instance
 
-	if module then
-		if module.OnRemove then call(self, module.OnRemove) end
-
+	if instance then
 		for _, name in ipairs(self.event_names) do
 			self[name] = nil
 		end
 
 		self.event_names = {}
-		self:RemoveEvent("Update")
-		self.module = nil
+		local entity = self.Owner
+		entity[self.alias] = nil
+		entity.sub_objects[instance] = nil
+		entity.call_on_remove[instance] = nil
+		instance:Remove()
+		self.instance = nil
+	end
+
+	if self.class then
+		release_class(self.class)
+		self.class = nil
 	end
 
 	self.Error = nil
@@ -71,58 +197,128 @@ function META:Reload()
 
 	self:Unload()
 
-	if self.Source:find("^%s*$") then return end
+	if not self.Source:find("^%s*$") then
+		local class, err = acquire_class(self.Source, self.Owner:GetName())
 
-	local name = self.Owner:GetName()
-	local chunk, err = loadstring(PREFIX .. self.Source .. SUFFIX, "=script:" .. (name ~= "" and name or "entity"))
+		if class then
+			self.class = class
+			local id = self.load_id
 
-	if not chunk then
-		self.Error = err
-		wlog("script of %s does not compile: %s", self.Owner, err)
-		return
-	end
+			prefab.WhenBuilt(function()
+				if self.load_id ~= id then return end
 
-	local ok, module = xpcall(chunk, debug.traceback)
+				call(self, build_instance, self, class)
+				objects.NotifyPropertyListeners(self, {var_name = "DynamicProperties"})
+			end)
 
-	if not ok then
-		self.Error = module
-		wlog("script of %s failed to load: %s", self.Owner, module)
-		return
-	end
-
-	if type(module) ~= "table" then
-		self.Error = "the Entity table must stay a table"
-		wlog("script of %s: %s", self.Owner, self.Error)
-		return
-	end
-
-	self.module = module
-
-	-- every On* function is a local event of the owner, CallLocalEvent finds them on the component
-	for key, fn in pairs(module) do
-		if type(fn) == "function" and key:starts_with("On") and not RESERVED[key] and self[key] == nil then
-			self.event_names[#self.event_names + 1] = key
-			self[key] = function(_, a, b, c, d, e, f, g)
-				return call(self, fn, a, b, c, d, e, f, g)
-			end
+			return
 		end
+
+		self.Error = err
+		wlog("script of %s failed to load: %s", self.Owner, err)
 	end
 
-	if module.Update then self:AddGlobalEvent("Update") end
-
-	if module.OnCreate then
-		prefab.WhenBuilt(function()
-			if self.module == module then call(self, module.OnCreate) end
-		end)
-	end
-end
-
-function META:OnUpdate(dt)
-	call(self, self.module.Update, dt)
+	objects.NotifyPropertyListeners(self, {var_name = "DynamicProperties"})
 end
 
 function META:OnRemove()
 	self:Unload()
+end
+
+function META:ApplyValues()
+	local instance = self.instance
+	local values = self.Values
+	self.syncing = true
+
+	for _, info in ipairs(self.class.properties) do
+		if info.storable then
+			local value = values and values[info.var_name]
+
+			if value == nil then value = info.copy and info.copy() or info.default end
+
+			objects.SetProperty(instance, info.var_name, prefab.CopyValue(value))
+		end
+	end
+
+	self.syncing = false
+end
+
+function META:OnValuesChanged()
+	if self.syncing or not self.instance then return end
+
+	self:ApplyValues()
+end
+
+-- a property of the component changed, what is stored with the script follows and the editor row is refreshed
+function META.OnInstancePropertyChanged(instance, var_name, new_value, old_value, info)
+	local script = instance.ScriptComponent
+
+	if info.storable and not script.syncing then
+		local values = {}
+
+		for key, value in pairs(script.Values or {}) do
+			values[key] = value
+		end
+
+		if objects.IsPropertyValueEqual(info, new_value, info.default) then
+			values[var_name] = nil
+		else
+			values[var_name] = prefab.CopyValue(new_value)
+		end
+
+		script.syncing = true
+		script:SetValues(next(values) and values or nil)
+		script.syncing = false
+	end
+
+	objects.NotifyPropertyListeners(script, {var_name = "properties/" .. var_name}, old_value, new_value)
+end
+
+do
+	local function get(script, info)
+		local instance = script.instance
+		return instance[info.get_name](instance)
+	end
+
+	local function set(script, info, value)
+		objects.SetProperty(script.instance, info.var_name, value)
+	end
+
+	function META:GetDynamicProperties()
+		local out = {}
+
+		if not self.instance then return out end
+
+		for _, info in ipairs(self.class.properties) do
+			local row = {}
+
+			for key, value in pairs(info) do
+				row[key] = value
+			end
+
+			row.key = "properties/" .. info.var_name
+			row.link = info.storable and {Property = "Values", Key = info.var_name} or nil
+			row.storable = false
+			row.callback = nil
+			row.requires = nil
+			row.get = function(script)
+				return get(script, info)
+			end
+			row.set = function(script, value)
+				set(script, info, value)
+			end
+
+			if info.get_enums then
+				row.get_enums = function(script)
+					return info.get_enums(script.instance)
+				end
+			end
+
+			out[#out + 1] = row
+		end
+
+		return out
+	end
 end
 
 return META:Register()

@@ -27,6 +27,7 @@ outfit_source.Bones = {
 -- everything the animation needs is in here: velocity from the movement of the player, the weapon from its model prefab,
 -- the sequences and pose parameters are the ones of the gmod player models
 outfit_source.Script = [[
+local objects = import("goluwa/objects/objects.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -39,14 +40,20 @@ local NECK_PITCH_SHARE = 0.4
 local WEAPONS = {weapon_camera_model = "camera", weapon_physgun_model = "physgun", weapon_pistol_model = "pistol"}
 local matrix = Matrix44()
 local pitch_matrix = Matrix44()
+local META = objects.CreateTemplate("outfit_source")
 
-function Entity:OnCreate()
+function META:Initialize()
+	local entity = self.Owner
+	assert(entity.animator, "outfit_source needs an animator on its entity")
+	assert(entity.model, "outfit_source needs a model on its entity")
+	assert(type(OUTFIT_BONES) == "table" and next(OUTFIT_BONES), "outfit_source needs OUTFIT_BONES defined before the script")
 	self.move_x = 0
 	self.move_y = 0
 	self.sequence = ""
+	self:AddGlobalEvent("Update")
 end
 
-function Entity:OnRemove()
+function META:OnRemove()
 	if self.player and self.player:IsValid() then
 		self.player.player_avatar:SetBonesDriven(false)
 	end
@@ -61,23 +68,24 @@ local function find_player(entity)
 	end
 end
 
-local function weapon_suffix(entity)
-	local holder = entity.player and entity.player.weapon_holder
+local function weapon_suffix(script)
+	local holder = script.player and script.player.weapon_holder
 	local weapon = holder and holder:GetActiveWeapon()
 	return weapon and WEAPONS[weapon.weapon:GetModel().prefab.Path] or "all"
 end
 
-function Entity:Update(dt)
-	local animator = self.animator
+function META:OnUpdate(dt)
+	local entity = self.Owner
+	local animator = entity.animator
 	local rig = animator and animator:GetRig()
 	if not rig or dt <= 0 then return end
 
 	if not self.player then
-		self.player = find_player(self)
+		self.player = find_player(entity)
 		if self.player then self.player.player_avatar:SetBonesDriven(true) end
 	end
 
-	local player = self.player or self:GetParent()
+	local player = self.player or entity:GetParent()
 	if not player:IsValid() then return end
 	local transform = player.transform
 	local _, rotation = transform:GetRenderPositionRotation()
@@ -154,6 +162,8 @@ function Entity:Update(dt)
 		armature:SetBone(name, matrix, "model")
 	end
 end
+
+return META:Register()
 ]]
 
 function outfit_source.GetDefinition()

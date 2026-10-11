@@ -46,11 +46,12 @@ T.Test("The default outfit squashes its own body when the player crouches", func
 	local instance = Entity.New{Parent = player, prefab = {Path = "test_outfit_crouch"}}
 	local body = instance.prefab:GetNode("body")
 	T(body.script.Error)["=="](nil)
-	body.script.module.Update(body, 0.016)
+	T(body.outfit_crouch.added_events.Update)["=="](true)
+	body.outfit_crouch:OnUpdate(0.016)
 	T(body.transform:GetScale().y)["~"](0.5, 1e-6)
 	T(body.transform:GetPosition().y)["~"](outfit.BodyHeight * 0.25, 1e-6)
 	player.player_avatar.crouch_alpha = 0
-	body.script.module.Update(body, 0.016)
+	body.outfit_crouch:OnUpdate(0.016)
 	T(body.transform:GetScale().y)["~"](1, 1e-6)
 	instance:Remove()
 	player:Remove()
