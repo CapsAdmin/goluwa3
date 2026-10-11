@@ -328,7 +328,7 @@ function BaseTheme:GetFont(name, size_name)
 	return font_cache[cache_key], size_val
 end
 
-function BaseTheme:GetTextShadow()
+function BaseTheme:GetTextShadow(foreground)
 	return nil
 end
 

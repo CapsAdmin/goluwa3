@@ -751,7 +751,7 @@ function META:OnDraw()
 	render2d.PushColor(foreground.r, foreground.g, foreground.b)
 	render2d.PushAlphaMultiplier(foreground.a)
 
-	local shadow_x, shadow_y, shadow = theme.active:GetTextShadow()
+	local shadow_x, shadow_y, shadow = theme.active:GetTextShadow(foreground)
 
 	for pass = shadow_x and 0 or 1, 1 do
 		local ox, oy = 0, 0
