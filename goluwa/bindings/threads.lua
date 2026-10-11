@@ -46,8 +46,6 @@ local is_pool_done
 local signal_pool_done
 local wait_pool_done
 local close_pool_signals
-local acquire_worker_mutex
-local release_worker_mutex
 
 if ffi.os == "Windows" then
 	ffi.cdef[[
@@ -102,9 +100,6 @@ if ffi.os == "Windows" then
 		void Sleep(uint32_t dwMilliseconds);
 		uint32_t timeBeginPeriod(uint32_t uPeriod);
 
-		void* CreateMutexA(void* lpMutexAttributes, int bInitialOwner, const char* lpName);
-		int ReleaseMutex(void* hMutex);
-		uint32_t GetCurrentProcessId(void);
     ]]
 	local kernel32 = ffi.load("kernel32")
 	local crt = ffi.load("ucrtbase")
@@ -129,16 +124,6 @@ if ffi.os == "Windows" then
 	local INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
 	local WAIT_FAILED = 0xFFFFFFFF
 	local THREAD_ALL_ACCESS = 0x1F03FF
-	local main_worker_mutex = kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex_" .. kernel32.GetCurrentProcessId())
-
-	function acquire_worker_mutex()
-		kernel32.WaitForSingleObject(main_worker_mutex, INFINITE)
-	end
-
-	function release_worker_mutex()
-		kernel32.ReleaseMutex(main_worker_mutex)
-	end
-
 	pool_signal_fields = [[
 			void *work_ready_event;
 			void *work_done_event;
@@ -559,46 +544,19 @@ local worker_bootstrap = [=[
     local run = assert(load(...))
 	local ffi = require("ffi")
 	local callback_result = ffi.os == "Windows" and 0 or nil
-	local _init_kernel32
-	local _INFINITE
 
 	if ffi.os == "Windows" then
 		ffi.cdef[[
 			typedef uint32_t (__stdcall *thread_callback)(void*);
-			void* CreateMutexA(void* lpMutexAttributes, int bInitialOwner, const char* lpName);
-			uint32_t WaitForSingleObject(void* hHandle, uint32_t dwMilliseconds);
-			int ReleaseMutex(void* hMutex);
-			int CloseHandle(void* hObject);
-			uint32_t GetCurrentProcessId(void);
 		]]
-		_init_kernel32 = ffi.load("kernel32")
-		_INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
 	end
 
 	local function get_threads()
 		if rawget(_G, "import") == nil or rawget(_G, "require") == nil then
-			-- On Windows, serialize Lua state initialization to avoid
-			-- concurrent FFI/JIT internal state corruption in LuaJIT.
-			if ffi.os == "Windows" then
-				local mutex = _init_kernel32.CreateMutexA(nil, 0, "goluwa_luajit_init_mutex_" .. _init_kernel32.GetCurrentProcessId())
-				_init_kernel32.WaitForSingleObject(mutex, _INFINITE)
-				require("goluwa.global_environment")
-				_init_kernel32.ReleaseMutex(mutex)
-				_init_kernel32.CloseHandle(mutex)
-			else
-				require("goluwa.global_environment")
-			end
+			require("goluwa.global_environment")
 		end
 
 		return import("goluwa/bindings/threads.lua")
-	end
-
-	-- On Windows, LuaJIT's default memory allocator is not thread-safe
-	-- across separate states on x64. Wrap all Lua-level worker execution
-	-- in a process-wide mutex to prevent concurrent allocator access.
-	local _worker_mutex
-	if ffi.os == "Windows" then
-		_worker_mutex = _init_kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex_" .. _init_kernel32.GetCurrentProcessId())
 	end
 
 	local function main(udata)
@@ -629,13 +587,6 @@ local worker_bootstrap = [=[
     end
 
 	local function main_protected(udata)
-		-- On Windows, acquire the worker mutex to serialize all Lua execution
-		-- across worker threads. LuaJIT's default allocator on x64 is not
-		-- thread-safe across separate lua_State instances.
-		if _worker_mutex then
-			_init_kernel32.WaitForSingleObject(_worker_mutex, _INFINITE)
-		end
-
 		local ok, err_or_ptr = pcall(main, udata)
 
 		if not ok then
@@ -648,16 +599,6 @@ local worker_bootstrap = [=[
 			data.output_buffer = ptr
 			data.output_buffer_len = len
 			threads.signal_thread_done(data)
-
-			if _worker_mutex then
-				_init_kernel32.ReleaseMutex(_worker_mutex)
-			end
-
-			return callback_result
-		end
-
-		if _worker_mutex then
-			_init_kernel32.ReleaseMutex(_worker_mutex)
 		end
 
 		return callback_result
@@ -695,11 +636,7 @@ do
 		end
 
 		if self.thread_state then
-			if acquire_worker_mutex then acquire_worker_mutex() end
-
 			self.thread_state:Close()
-
-			if release_worker_mutex then release_worker_mutex() end
 
 			self.thread_state = nil
 		end
@@ -710,12 +647,8 @@ do
 		assert(type(worker_source) == "string", "threads.new requires a worker source string")
 		local self = setmetatable({}, meta)
 
-		if acquire_worker_mutex then acquire_worker_mutex() end
-
 		self.thread_state = LuaState.New()
 		local ptr = self.thread_state:Run(worker_bootstrap, worker_source)
-
-		if release_worker_mutex then release_worker_mutex() end
 
 		if ffi.os == "Windows" then
 			self.func_ptr = ffi.cast("thread_callback", ptr)
@@ -851,11 +784,7 @@ do
 		release_thread(self)
 
 		if self.thread_state then
-			if acquire_worker_mutex then acquire_worker_mutex() end
-
 			self.thread_state:Close()
-
-			if release_worker_mutex then release_worker_mutex() end
 
 			self.thread_state = nil
 		end
