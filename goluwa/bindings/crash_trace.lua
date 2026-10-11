@@ -25,11 +25,8 @@ if ffi.os == "Windows" then
 			EXCEPTION_RECORD *ExceptionRecord;
 			void *ContextRecord;
 		} EXCEPTION_POINTERS;
-		typedef LONG (__stdcall *PVECTORED_EXCEPTION_HANDLER)(EXCEPTION_POINTERS *ExceptionInfo);
 		typedef LONG (__stdcall *PTOP_LEVEL_EXCEPTION_FILTER)(EXCEPTION_POINTERS *ExceptionInfo);
 		typedef void (__cdecl *sighandler_t)(int32_t);
-		PVOID AddVectoredExceptionHandler(DWORD first, PVECTORED_EXCEPTION_HANDLER handler);
-		DWORD RemoveVectoredExceptionHandler(PVOID handle);
 		PTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(PTOP_LEVEL_EXCEPTION_FILTER top_level_exception_filter);
 		sighandler_t signal(int32_t signum, sighandler_t handler);
 		BOOL SetConsoleCtrlHandler(void *handler, BOOL add);
@@ -120,9 +117,7 @@ if ffi.os == "Windows" then
 	function crash_trace.Install()
 		if installed then return end
 
-		installed_handlers.vectored_exception = ffi.cast("PVECTORED_EXCEPTION_HANDLER", handle_windows_exception)
 		installed_handlers.unhandled_exception = ffi.cast("PTOP_LEVEL_EXCEPTION_FILTER", handle_windows_exception)
-		installed_handlers.vectored_handle = kernel32.AddVectoredExceptionHandler(1, installed_handlers.vectored_exception)
 		kernel32.SetUnhandledExceptionFilter(installed_handlers.unhandled_exception)
 		installed = true
 	end
