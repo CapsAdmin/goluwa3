@@ -15,6 +15,16 @@ META.CMP.visual = {}
 META.CMP.mouse_input = {}
 META.CMP.clickable = {}
 META.CMP.animation = {}
+META.CMP.style = {}
+
+function META:OnCreate()
+	META.BaseClass.OnCreate(self)
+	self.style:SetForegroundColor(theme.active:GetContentForeground())
+end
+
+function META:OnThemeChanged()
+	self.style:SetForegroundColor(theme.active:GetContentForeground())
+end
 
 function META:OnDraw()
 	theme.active:Draw(self)

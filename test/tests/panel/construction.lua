@@ -6,6 +6,11 @@ local theme = import("goluwa/render2d/ui/theme.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
 local TabBar = import("goluwa/render2d/ui/widgets/tab_bar.lua")
+local Collapsible = import("goluwa/render2d/ui/widgets/collapsible.lua")
+local Frame = import("goluwa/render2d/ui/elements/frame.lua")
+local Window = import("goluwa/render2d/ui/widgets/window.lua")
+local MenuContainer = import("goluwa/render2d/ui/elements/menu_container.lua")
+local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local order_log
 
 local function create_ordered_template(name)
@@ -292,5 +297,43 @@ T.Test2D("tabs overlap their neighbours by one pixel in every theme", function()
 		tab_bar:Remove()
 	end
 
+	theme.LoadTheme(original)
+end)
+
+T.Test2D("content surfaces take their text color from the theme", function()
+	local original = theme.active:GetName()
+	theme.LoadTheme("base")
+	local frame = Frame{}
+	local window = Window{Title = "x"}
+	local menu = MenuContainer{}
+	local bar = MenuBar{Items = {{Text = "File", Items = {}}}}
+	local collapsible = Collapsible{Title = "x"}
+	local styles = {frame.style, window._content.style, menu.style, bar.style, collapsible._body.style}
+	T(#styles)["=="](5)
+
+	for i = 1, 5 do
+		T(styles[i]:GetForegroundColor())["=="](nil)
+	end
+
+	theme.active:SetContentForeground("heading")
+	frame:OnThemeChanged()
+	window:OnThemeChanged()
+	menu:OnThemeChanged()
+	bar:OnThemeChanged()
+	collapsible:OnThemeChanged()
+
+	for i = 1, 5 do
+		T(styles[i]:GetForegroundColor())["=="]("heading")
+	end
+
+	theme.active:SetContentForeground(nil)
+	frame:OnThemeChanged()
+	T(frame.style:GetForegroundColor())["=="](nil)
+	T(collapsible._header:GetState("theme_role"))["=="]("collapsible_header")
+	frame:Remove()
+	window:Remove()
+	menu:Remove()
+	bar:Remove()
+	collapsible:Remove()
 	theme.LoadTheme(original)
 end)

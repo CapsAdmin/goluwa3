@@ -160,12 +160,18 @@ function META:OnCreate()
 			Padding = self.Padding or "M",
 		},
 		visual = true,
+		style = true,
 		mouse_input = true,
 		clickable = true,
 		animation = true,
 		OnDraw = on_content_draw,
 		OnPostDraw = on_content_post_draw,
 	}
+	self._content.style:SetForegroundColor(theme.active:GetContentForeground())
+end
+
+function META:OnThemeChanged()
+	self._content.style:SetForegroundColor(theme.active:GetContentForeground())
 end
 
 function META:SetTitle(title)

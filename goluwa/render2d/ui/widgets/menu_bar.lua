@@ -13,6 +13,7 @@ META.CMP.layout = {
 	AlignmentY = "center",
 }
 META.CMP.visual = {}
+META.CMP.style = {}
 META:StartStorable()
 META:GetSet("Items", nil)
 META:GetSet("MenuKey", "ActiveMenuBarContextMenu")
@@ -57,8 +58,17 @@ function META.PropDefaults()
 	return {Items = {}}
 end
 
+function META:OnThemeChanged()
+	self.style:SetForegroundColor(theme.active:GetContentForeground())
+end
+
+function META:OnDraw()
+	theme.active:Draw(self)
+end
+
 function META:OnCreate()
 	META.BaseClass.OnCreate(self)
+	self.style:SetForegroundColor(theme.active:GetContentForeground())
 	self._buttons = {}
 	self._active_index = nil
 	self._context_menu = NULL

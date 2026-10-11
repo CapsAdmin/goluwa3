@@ -52,6 +52,10 @@ local function on_container_changed(container)
 	container.Collapsible:update_height()
 end
 
+local function on_body_draw(body)
+	theme.active:Draw(body)
+end
+
 local function get_open_fraction(collapsible)
 	return collapsible.OpenFraction
 end
@@ -153,12 +157,17 @@ function META:OnCreate()
 		},
 		transform = true,
 		visual = true,
+		style = true,
+		OnDraw = on_body_draw,
 		OnLayoutUpdated = on_container_changed,
 	}
+	self._body.style:SetForegroundColor(theme.active:GetContentForeground())
+	self._header:SetState("theme_role", "collapsible_header")
 	self:update_height()
 end
 
 function META:OnThemeChanged()
+	self._body.style:SetForegroundColor(theme.active:GetContentForeground())
 	self._arrow.transform:SetSize(Vec2() + theme.active:ResolveFontSize(self.HeaderFontSize or "M"))
 end
 

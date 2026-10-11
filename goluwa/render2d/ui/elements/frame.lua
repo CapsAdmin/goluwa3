@@ -7,6 +7,7 @@ META.CMP.visual = {}
 META.CMP.mouse_input = {}
 META.CMP.clickable = {}
 META.CMP.animation = {}
+META.CMP.style = {}
 META:StartStorable()
 
 META:GetSet("Emphasis", 0, function(self, val)
@@ -18,8 +19,13 @@ META:EndStorable()
 function META:OnCreate()
 	META.BaseClass.OnCreate(self)
 	self:SetState("emphasis", self.Emphasis)
+	self.style:SetForegroundColor(theme.active:GetContentForeground())
 
 	if self.OnClick then self.mouse_input:SetCursor("pointer") end
+end
+
+function META:OnThemeChanged()
+	self.style:SetForegroundColor(theme.active:GetContentForeground())
 end
 
 function META:OnDraw()

@@ -58,6 +58,7 @@ BaseTheme:GetSet(
 BaseTheme:GetSet("FontStyles", {})
 BaseTheme:GetSet("FontCache", {})
 BaseTheme:GetSet("PrimaryColor", Color.FromHex("#2563eb"))
+BaseTheme:GetSet("ContentForeground", nil)
 BaseTheme:GetSet("DefaultFontPath", "")
 
 do
