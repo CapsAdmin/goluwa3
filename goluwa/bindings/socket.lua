@@ -292,7 +292,7 @@ do
 				if not cache[num] then
 					local buffer = ffi.new("char[512]")
 					local len = FormatMessageA(flags, nil, num, 0, buffer, ffi.sizeof(buffer), nil)
-					cache[num] = ffi.string(buffer, len - 2)
+					cache[num] = len > 2 and ffi.string(buffer, len - 2) or tostring(num)
 				end
 
 				return cache[num], num
