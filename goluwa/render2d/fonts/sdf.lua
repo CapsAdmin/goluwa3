@@ -6,6 +6,7 @@ local META = objects.CreateTemplate("sdf_font")
 META.Base = import("goluwa/render2d/fonts/base.lua")
 META:GetSet("TabWidthMultiplier", 4)
 META:IsSet("MSDF", true)
+META:GetSet("Aliased", false)
 
 function META:GetFieldScale()
 	if self.Size <= 24 then return 4 end
@@ -267,7 +268,11 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		render2d.SetSDFTexelRange(layout.entries[1].texel_range)
 	end
 
-	local subpixel = render2d.PushSubpixelText(self.MSDF)
+	local aliased = self.Aliased
+
+	if aliased then render2d.PushSDFSoftness(0) end
+
+	local subpixel = render2d.PushSubpixelText(self.MSDF and not aliased)
 	render2d.PushMargin(layout.margin)
 	render2d.PushSDFUV()
 
@@ -283,13 +288,20 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 		end
 
 		render2d.SetSDFUV(entry.uv[1], entry.uv[4], entry.uv[3], entry.uv[2])
-		render2d.DrawRectf(x + entry.x, y + entry.y, entry.w, entry.h)
+
+		if aliased then
+			render2d.DrawRectf(math.floor(x + entry.x + 0.5), math.floor(y + entry.y + 0.5), entry.w, entry.h)
+		else
+			render2d.DrawRectf(x + entry.x, y + entry.y, entry.w, entry.h)
+		end
 	end
 
 	render2d.PopSDFUV()
 	render2d.PopMargin()
 
 	if subpixel then render2d.PopSubpixelText() end
+
+	if aliased then render2d.PopSDFSoftness() end
 
 	if self.MSDF then render2d.PopMSDF() end
 

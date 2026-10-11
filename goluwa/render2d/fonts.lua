@@ -24,6 +24,8 @@ function fonts.New(props)
 
 		font:SetSize(props.Size)
 
+		if props.Aliased then font:SetAliased(true) end
+
 		fonts.DownloadGoogleFont{name = props.Name, weight = props.Weight}:Then(function(path)
 			font:SetFontPath(path)
 		end):Catch(function(err)
@@ -48,6 +50,9 @@ function fonts.New(props)
 			end
 
 			font:SetSize(props.Size)
+
+			if props.Aliased then font:SetAliased(true) end
+
 			return font
 		end
 	end

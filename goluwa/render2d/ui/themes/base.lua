@@ -300,7 +300,7 @@ function BaseTheme:GetFont(name, size_name)
 	local style_name = name or "body"
 	local style = font_styles[style_name] or font_styles.body
 	local size_val = self:ResolveFontSize(size_name)
-	local font_props = {Size = size_val}
+	local font_props = {Size = size_val, Aliased = style.Aliased}
 	local cache_key
 	local font_cache = self:GetFontCache()
 
@@ -315,6 +315,8 @@ function BaseTheme:GetFont(name, size_name)
 				"Regular"
 			) .. "_" .. size_val
 	end
+
+	if style.Aliased then cache_key = cache_key .. "_aliased" end
 
 	if not font_cache[cache_key] then
 		local font = fonts.New(font_props)
