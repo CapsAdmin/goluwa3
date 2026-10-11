@@ -21,4 +21,9 @@ The Windows code path is mostly untested on real Windows; wine is the only check
 - Run it from the repo root: `WINEDEBUG=-all wine /path/to/luajit.exe glw --2d --background --validate --one-frame lua "print(1)"`.
 - No Windows `crash_trace` vectored exception handler: LuaJIT raises Lua errors as SEH exceptions (0xE24C4A02) and a vectored handler is a Lua callback into the main state, so a worker thread's error called it on the wrong thread and panicked with "bad callback". Only `SetUnhandledExceptionFilter` is used now.
 - A debug build of lua51.dll that prints in `lj_ccallback_enter` is how that was found: the state address in the message showed the callback belonged to the main state while the thread was a worker.
-- `test async/threads.lua` still hangs under wine (the parallel test runner), the engine itself starts with audio on.
+- Do not serialise worker threads with a process-wide mutex. The old Windows `worker mutex` deadlocked nested threads (the tests start threads from a worker), and blocked `threads.new` on the main thread for as long as the audio mixer thread ran. It was added against crashes that were really the vectored exception handler above, concurrent lua states are fine.
+- `process.setenv` must also call `_putenv_s`, `os.getenv` reads the CRT environment and not the Win32 one.
+- Child process command lines need MSVCRT quoting (spaces and quotes in arguments), tests that spawn children use `process.get_executable_path()` and not `luajit`/`sh`/`ls`.
+- Vulkan `VkResult` values come back unsigned from LuaJIT, run them through `bit.tobit` before comparing with the (negative) enum values.
+- `luajit.exe glw --cli --no-audio --validate test async/` and `test render2d/render2d.lua` both pass under wine.
+- Paths are ANSI (`...A` apis, `fopen`, lua's `io.open`/`loadfile`, `ffi.load`), no wide variants are used. The engine mostly uses relative paths so a non-ascii install location works when its characters fit the system code page; characters from another script do not. A wide port would have to cover `fs`/`process` and about 100 `io.open`/`loadfile`/`os.*` call sites, and `ffi.load` needs a `LoadLibraryW` workaround.
