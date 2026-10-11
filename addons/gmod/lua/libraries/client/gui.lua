@@ -2,6 +2,7 @@ local window = import("goluwa/window.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -587,38 +588,6 @@ local function create_panel(class_name, parent, name)
 	return panel
 end
 
-local function get_hovered_panel(panel, mouse_pos)
-	if not panel or not panel:IsValid() then return NULL end
-
-	if panel.visual and not panel.visual:GetVisible() then return NULL end
-
-	if
-		panel.mouse_input and
-		panel.mouse_input:GetIgnoreMouseInput() and
-		not is_internal_dock_panel(panel)
-	then
-		return NULL
-	end
-
-	local children = panel:GetChildren()
-
-	for i = #children, 1, -1 do
-		local hovered = get_hovered_panel(children[i], mouse_pos)
-
-		if hovered:IsValid() then return hovered end
-	end
-
-	if
-		not is_internal_dock_panel(panel) and
-		panel.visual and
-		panel.visual:IsHovered(mouse_pos)
-	then
-		return panel
-	end
-
-	return NULL
-end
-
 local function get_window()
 	return system.GetCurrentWindow()
 end
@@ -700,9 +669,15 @@ do
 	end
 
 	function vgui.GetHoveredPanel()
-		local pnl = get_hovered_panel(Panel.World, get_primary_window():GetMousePosition())
+		local node = MouseInput.GetHoveredObject()
 
-		if pnl:IsValid() then return gine.WrapObject(pnl, "Panel") end
+		while node:IsValid() do
+			local wrapped = rawget(node, "gine_pnl")
+
+			if wrapped then return wrapped end
+
+			node = node:GetParent()
+		end
 	end
 
 	function vgui.FocusedHasParent(parent)
