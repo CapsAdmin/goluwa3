@@ -2,6 +2,19 @@
 
 Notes collected from past sessions. Dated numbers are snapshots; re-measure before relying on them.
 
+## Running the suite on lavapipe in a cloud container
+
+*Ubuntu + Mesa 25.2.8 lavapipe; limits, memory and the ddgi crash*
+
+The cloud container has no GPU. Lavapipe reports one 15.7 GiB device-local heap that is just host RAM, and it cannot see the container's cgroup cap (13.4 GiB on a 16 GiB machine), so lavapipe memory is real process memory. Setup that worked: apt `mesa-vulkan-drivers vulkan-tools libvulkan-dev libshaderc-dev libwayland-dev libxkbcommon-dev`, LuaJIT built from the commit in `flake.nix`, libwayland 1.24 (the engine calls `wl_proxy_get_interface`), the LunarG SDK validation layers (Ubuntu's are too old for Vulkan 1.4), `libshaderc.so.1` symlinked as `libshaderc_shared.so`, and headless `weston --backend=headless` for `WAYLAND_DISPLAY`.
+
+- **Memory:** one worker costs about 70 MB idle and a `render3d` file about 1.3 GB just to initialize (8 gbuffer pipeline variants at about 83 MB each plus the compute pipelines; only 174 MB of it is device memory, the rest is lavapipe's compile memory). Validation layers add about 25%. The runner starts another file only while `system.GetMemoryInfo()` shows 4 GiB of headroom. Finished worker Lua states are closed with `lua_close` now; before that every file leaked its whole engine (22 MB CPU-only, 32 MB with a device).
+- **Limits lavapipe enforces that GPUs hide:** `maxStorageBufferRange` is 128 MiB (spec minimum). `scene_bvh` BLAS staging is capped to it.
+- **Ray tracing:** lavapipe 25.2 advertises ray tracing. `GOLUWA_NO_RAY_TRACING=1` selects the fallback paths, which is probably what CI's older Mesa takes.
+- **Open: `test/tests/render3d/ddgi.lua` "produces a screen gi texture" segfaults** in JIT-compiled shader code with or without ray tracing, even with one job. The faulting code is a waterfall loop (`tzcnt` over the active lane mask) that loads a buffer descriptor through a per-lane set pointer that is NULL, so heap corruption can then show up in unrelated tests. What is known: skipping the `ddgi_trace` or the `ddgi_shade` dispatch stops it, but each of them alone is fine; it needs real hits flowing from trace to shade. It is not the `scene_bvh_soup` descriptor array (constant-index chunk selection and `SOUP_CHUNKS = 1` both still crash), not the UV soup (`ddgi.ALBEDO_UVS = false` still crashes), and not the albedo/triangle read in `ddgi_hit_albedo` (reduced to a constant still crashes). Next steps: find which descriptor array the shade pass still indexes dynamically (`textures[nonuniformEXT]` through `ddgi_albedo`, light grid, materials), and test whether a newer Mesa fixes it.
+
+**How to apply:** when a lavapipe run dies with `bad callback` PANICs or `free(): corrupted ...`, suspect shader memory corruption, not the Lua side; bisect by skipping pipeline dispatches (`pipeline:Draw()` in the render3d PreRenderPass loop), and use `LP_NUM_THREADS=0` under gdb to get the faulting JIT address.
+
 ## GLSL negative % is unsigned on NVIDIA
 
 *wrap with a positive offset, not ((x%P)+P)%P*
