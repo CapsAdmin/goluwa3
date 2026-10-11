@@ -38,16 +38,68 @@ function surface.SetAlphaMultiplier(a)
 	render2d.SetAlphaMultiplier(a)
 end
 
-function surface.DrawTexturedRectRotated(x, y, w, h, r)
-	render2d.PushColorUV(0, 1, 1, 0)
-	render2d.DrawRectf(x, y, w, h, math.rad(r), w / 2, h / 2)
-	render2d.PopColorUV()
-end
+do
+	-- png/jpg/gif are decoded bottom row first while vtf is top row first, so only vtf and render targets need the flip
+	local upright_extensions = {".png", ".jpg", ".jpeg", ".gif"}
+	local flip_cache = setmetatable({}, {__mode = "k"})
 
-function surface.DrawTexturedRect(x, y, w, h)
-	render2d.PushColorUV(0, 1, 1, 0)
-	render2d.DrawRect(x, y, w, h)
-	render2d.PopColorUV()
+	local function needs_v_flip(texture)
+		local flip = flip_cache[texture]
+
+		if flip == nil then
+			local path = (texture.config.path or ""):lower()
+			flip = true
+
+			for _, extension in ipairs(upright_extensions) do
+				if path:ends_with(extension) then
+					flip = false
+
+					break
+				end
+			end
+
+			flip_cache[texture] = flip
+		end
+
+		return flip
+	end
+
+	function surface.DrawTexturedRectRotated(x, y, w, h, r)
+		local texture = render2d.GetTexture()
+
+		if texture and needs_v_flip(texture) then
+			render2d.PushColorUV(0, 1, 1, 0)
+			render2d.DrawRectf(x, y, w, h, math.rad(r), w / 2, h / 2)
+			render2d.PopColorUV()
+		else
+			render2d.DrawRectf(x, y, w, h, math.rad(r), w / 2, h / 2)
+		end
+	end
+
+	function surface.DrawTexturedRect(x, y, w, h)
+		local texture = render2d.GetTexture()
+
+		if texture and needs_v_flip(texture) then
+			render2d.PushColorUV(0, 1, 1, 0)
+			render2d.DrawRect(x, y, w, h)
+			render2d.PopColorUV()
+		else
+			render2d.DrawRect(x, y, w, h)
+		end
+	end
+
+	function surface.DrawTexturedRectUV(x, y, w, h, u1, v1, u2, v2)
+		local texture = render2d.GetTexture()
+
+		if texture and needs_v_flip(texture) then
+			render2d.PushColorUV(u1, v2, u2, v1)
+		else
+			render2d.PushColorUV(u1, 1 - v2, u2, 1 - v1)
+		end
+
+		render2d.DrawRect(x, y, w, h)
+		render2d.PopColorUV()
+	end
 end
 
 function surface.DrawRect(x, y, w, h)
@@ -65,12 +117,6 @@ function surface.DrawOutlinedRect(x, y, w, h)
 	render2d.DrawRect(w + x - 1, y, 1, h)
 	render2d.DrawRect(x, h + y - 1, w, 1)
 	render2d.SetTexture(old)
-end
-
-function surface.DrawTexturedRectUV(x, y, w, h, u1, v1, u2, v2)
-	render2d.PushColorUV(u1, 1 - v2, u2, 1 - v1)
-	render2d.DrawRect(x, y, w, h)
-	render2d.PopColorUV()
 end
 
 function surface.DrawLine(...)
