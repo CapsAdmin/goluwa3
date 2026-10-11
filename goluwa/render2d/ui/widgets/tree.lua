@@ -568,9 +568,7 @@ function META:get_text_token(node, path, key)
 
 	if color ~= nil then return color end
 
-	if node.TextColor ~= nil then return node.TextColor end
-
-	return "text"
+	return node.TextColor
 end
 
 function META:refresh_row_text(info)
@@ -1334,7 +1332,7 @@ do
 					(
 						selected and
 						"text_on_accent" or
-						"text"
+						nil
 					),
 				IgnoreMouseInput = true,
 				layout = {
@@ -1359,6 +1357,7 @@ do
 				FitWidth = false,
 			},
 			mouse_input = {IgnoreMouseInput = true},
+			style = true,
 			visual = {
 				OnDraw = function(self)
 					local name = node.Icon
@@ -1374,7 +1373,12 @@ do
 					theme.active:DrawIcon(
 						name,
 						self.Owner.transform:GetSize(),
-						{color = theme.active:ResolveColor(node.IconColor, "text")}
+						{
+							color = theme.active:ResolveColor(
+								node.IconColor or self.Owner.style:GetResolvedForegroundColor(),
+								"text"
+							),
+						}
 					)
 
 					if dimmed then render2d.PopAlphaMultiplier() end
