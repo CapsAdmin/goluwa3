@@ -1,0 +1,139 @@
+name: build-binaries
+on: workflow_dispatch
+
+permissions:
+  contents: write
+
+jobs:
+  ref:
+    runs-on: ubuntu-latest
+    outputs:
+      shaderc_ref: ${{ steps.ref.outputs.shaderc_ref }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ref
+        run: |
+          ref=$(sed -n '/shaderc = {/,/}/s/.*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
+          test -n "$ref"
+          echo "shaderc_ref=$ref" >> "$GITHUB_OUTPUT"
+
+  shaderc:
+    needs: ref
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            library: shaderc_shared.dll
+            extension: dll
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            library: libshaderc_shared.so
+            extension: so
+          - platform: macos-arm64
+            runner: macos-14
+            library: libshaderc_shared.dylib
+            extension: dylib
+    runs-on: ${{ matrix.runner }}
+    env:
+      SHADERC_REF: ${{ needs.ref.outputs.shaderc_ref }}
+    steps:
+      - name: fetch shaderc
+        shell: bash
+        run: |
+          git clone --depth 1 --branch "$SHADERC_REF" https://github.com/google/shaderc shaderc
+          cd shaderc
+          python3 utils/git-sync-deps
+
+      - name: install ninja
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y ninja-build
+
+      - name: set up msvc
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: build (windows, static crt)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python -m pip install ninja
+          cd shaderc
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DSHADERC_ENABLE_SHARED_CRT=OFF
+          cmake --build build --target shaderc_shared
+          cp build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+
+      - name: build (linux, static libstdc++)
+        if: runner.os == 'Linux'
+        run: |
+          cd shaderc
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+          cmake --build build --target shaderc_shared
+          cp -L build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+
+      - name: build (macos)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja
+          cd shaderc
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          cmake --build build --target shaderc_shared
+          cp -L build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+
+      - name: show dependencies
+        continue-on-error: true
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Windows) dumpbin //dependents ${{ matrix.library }} ;;
+            Linux) ldd ${{ matrix.library }} ;;
+            macOS) otool -L ${{ matrix.library }} ;;
+          esac
+
+      - name: rename for upload
+        shell: bash
+        run: |
+          mkdir out
+          cp ${{ matrix.library }} out/shaderc_shared-${{ matrix.platform }}.${{ matrix.extension }}
+          cp shaderc/LICENSE out/shaderc-LICENSE.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shaderc-${{ matrix.platform }}
+          path: out/*
+
+  release:
+    needs: [ref, shaderc]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHADERC_REF: ${{ needs.ref.outputs.shaderc_ref }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: publish release
+        run: |
+          cd artifacts
+          {
+            echo "## sha256 for goluwa/bin_manifest.lua"
+            echo '```'
+            sha256sum shaderc_shared-* | tee /dev/stderr
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh release create "shaderc-$SHADERC_REF" shaderc_shared-* shaderc-LICENSE.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "shaderc $SHADERC_REF" \
+            --notes "shaderc $SHADERC_REF built from https://github.com/google/shaderc at tag $SHADERC_REF by build-binaries.yml, unmodified. Apache-2.0, see shaderc-LICENSE.txt. Hashes are pinned in goluwa/bin_manifest.lua." \
+            --prerelease
