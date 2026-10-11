@@ -2995,9 +2995,20 @@ do
 	local function ensure_staging(vertex_count)
 		if rt_state.staging and rt_state.staging_capacity >= vertex_count then return end
 
+		local max_vertices = math.floor(
+			tonumber(render.GetPhysicalDevice():GetProperties().limits.maxStorageBufferRange) / 12
+		)
+
+		if vertex_count > max_vertices then
+			error(
+				"a mesh with " .. vertex_count .. " vertices does not fit in a storage buffer of " .. max_vertices .. " vertices",
+				2
+			)
+		end
+
 		if rt_state.staging then rt_state.staging:Remove() end
 
-		rt_state.staging_capacity = math.max(STAGING_VERTICES, vertex_count)
+		rt_state.staging_capacity = math.min(math.max(STAGING_VERTICES, vertex_count), max_vertices)
 		rt_state.staging = render.CreateBuffer{
 			byte_size = rt_state.staging_capacity * 12,
 			buffer_usage = {
