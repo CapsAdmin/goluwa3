@@ -45,6 +45,9 @@ local REGIONS = {
 	text_box_focus = border(0, 172, 127, 21, 4),
 	text_box_dead = border(0, 194, 127, 21, 4),
 	combo_box = border(384, 336, 127, 31, 8, 8, 32, 8),
+	combo_box_hovered = border(384, 368, 127, 31, 8, 8, 32, 8),
+	combo_box_down = border(384, 400, 127, 31, 8, 8, 32, 8),
+	combo_box_dead = border(384, 432, 127, 31, 8, 8, 32, 8),
 	menu = border(128, 192, 127, 63, 8),
 	menu_hover = border(128, 256, 127, 31, 8),
 	menu_strip = border(0, 128, 127, 21, 8),
@@ -344,6 +347,20 @@ function DermaTheme:DrawButton(size, state)
 	local pressed = (state.pressed or state.active) and not state.disabled
 	local hovered = state.hovered and not state.disabled
 
+	if state.theme_role == "dropdown" then
+		local region = REGIONS.combo_box
+
+		if state.disabled then
+			region = REGIONS.combo_box_dead
+		elseif pressed then
+			region = REGIONS.combo_box_down
+		elseif hovered then
+			region = REGIONS.combo_box_hovered
+		end
+
+		return self:DrawRegion(region, 0, 0, w, h)
+	end
+
 	if state.mode == "text" then
 		if pressed then
 			self:DrawRegion(REGIONS.selection, 0, 0, w, h, nil, 0.85)
@@ -377,7 +394,9 @@ end
 function DermaTheme:ResolveButtonStyleContext(state)
 	local context = DermaTheme.BaseClass.ResolveButtonStyleContext(self, state)
 
-	if state.mode == "menu" or (state.mode == "text" and state.button_color == nil) then
+	if state.theme_role == "dropdown" then
+		context.foreground_token = state.disabled and "text_disabled" or "text_combo"
+	elseif state.mode == "menu" or (state.mode == "text" and state.button_color == nil) then
 		context.foreground_token = state.disabled and "text_disabled" or nil
 	end
 

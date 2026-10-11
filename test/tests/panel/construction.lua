@@ -284,6 +284,8 @@ T.Test2D("derma theme loads its skin texture and samples its colors", function()
 	T(theme.active:ResolveButtonStyleContext({mode = "menu", button_color = "positive"}).foreground_token)["=="](nil)
 	T(theme.active:ResolveButtonStyleContext({mode = "text"}).foreground_token)["=="](nil)
 	T(theme.active:ResolveButtonStyleContext({mode = "text", disabled = true}).foreground_token)["=="]("text_disabled")
+	T(theme.active:ResolveButtonStyleContext({mode = "outline", theme_role = "dropdown"}).foreground_token)["=="]("text_combo")
+	T(theme.active:ResolveButtonStyleContext({mode = "outline"}).foreground_token ~= "text_combo")["=="](true)
 	theme.LoadTheme(original)
 end)
 
