@@ -3,12 +3,15 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local objects = import("goluwa/objects/objects.lua")
 local codec = import("goluwa/codec.lua")
+local resource = import("goluwa/resource.lua")
+local vfs = import("goluwa/vfs.lua")
+local event = import("goluwa/event.lua")
 local Texture = import("goluwa/render/texture.lua")
 local BaseTheme = import("./base.lua")
 local DermaTheme = objects.CreateTemplate("ui_theme_derma")
 DermaTheme.Base = BaseTheme
 DermaTheme.Name = "derma"
-local SKIN_PATH = "/home/caps/projects/goluwa-assets/extras/textures/gui/skins/gmod.png"
+DermaTheme.SkinPath = "textures/gui/skins/gmod.png"
 local WHITE = Color(1, 1, 1, 1)
 local BLACK = Color(0, 0, 0, 1)
 
@@ -77,18 +80,26 @@ local function sample(image, x, y)
 end
 
 function DermaTheme:CreatePalette()
-	return self:ConfigurePalette(self.BaseClass.CreatePalette(self))
+	return self:ConfigurePalette(DermaTheme.BaseClass.CreatePalette(self))
 end
 
 function DermaTheme:ConfigurePalette(palette)
 	local image = self.SkinImage
-	local body = sample(image, 64, 80)
-	local header = sample(image, 64, 12)
-	local text = sample(image, 4 + 8 * 8, 508)
-	local bright = sample(image, 4 + 8 * 9, 508)
-	local button_text = sample(image, 4 + 8 * 2, 508)
-	local title_text = sample(image, 4, 508)
-	local selection = sample(image, 399, 47)
+
+	-- until the skin image has loaded the colors come from garrysmod's default skin
+	local function pick(x, y, fallback)
+		if image then return sample(image, x, y) end
+
+		return fallback
+	end
+
+	local body = pick(64, 80, Color(0.396, 0.392, 0.412, 1))
+	local header = pick(64, 12, Color(0.28, 0.29, 0.31, 1))
+	local text = pick(4 + 8 * 8, 508, Color(0.9, 0.9, 0.9, 1))
+	local bright = pick(4 + 8 * 9, 508, WHITE)
+	local button_text = pick(4 + 8 * 2, 508, Color(0.32, 0.32, 0.32, 1))
+	local title_text = pick(4, 508, Color(1, 1, 1, 0.8))
+	local selection = pick(399, 47, Color(0.39, 0.67, 0.86, 1))
 	local ink = Color(0.12, 0.12, 0.12, 1)
 	local red = Color(0.82, 0.27, 0.27, 1)
 	local yellow = Color(0.95, 0.76, 0.25, 1)
@@ -169,18 +180,33 @@ function DermaTheme:ConfigurePalette(palette)
 	return palette
 end
 
+local SKIN_SAMPLER = {
+	min_filter = "nearest",
+	mag_filter = "nearest",
+	wrap_s = "clamp_to_edge",
+	wrap_t = "clamp_to_edge",
+}
+
+-- skin paths are relative to the downloadable assets. a skin that is already downloaded loads right away,
+-- otherwise the theme starts with a loading texture and the default colors and updates when the file arrives
 function DermaTheme:Initialize()
-	self.SkinImage = assert(codec.DecodeFile(SKIN_PATH))
-	self.SkinTexture = Texture.New{
-		decoded = self.SkinImage,
-		sampler = {
-			min_filter = "nearest",
-			mag_filter = "nearest",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		},
-	}
-	self.BaseClass.Initialize(self)
+	local local_path = vfs.GetAbsolutePath(self.SkinPath)
+
+	if local_path then
+		self.SkinImage = assert(codec.DecodeFile(local_path))
+		self.SkinTexture = Texture.New{decoded = self.SkinImage, sampler = SKIN_SAMPLER}
+	else
+		self.SkinTexture = Texture.New{path = self.SkinPath, sampler = SKIN_SAMPLER}
+		resource.Download(self.SkinPath):Then(function(downloaded_path)
+			self.SkinImage = assert(codec.DecodeFile(downloaded_path))
+			self.SkinTexture = Texture.New{decoded = self.SkinImage, sampler = SKIN_SAMPLER}
+			self:SetPalette(self:CreatePalette())
+
+			if import("goluwa/render2d/ui/theme.lua").active == self then event.Call("ThemeChanged") end
+		end)
+	end
+
+	DermaTheme.BaseClass.Initialize(self)
 	self:SetSizes(
 		self:MergeTables(
 			self:GetSizes(),
@@ -328,7 +354,7 @@ function DermaTheme:DrawButton(size, state)
 end
 
 function DermaTheme:ResolveButtonStyleContext(state)
-	local context = self.BaseClass.ResolveButtonStyleContext(self, state)
+	local context = DermaTheme.BaseClass.ResolveButtonStyleContext(self, state)
 
 	if state.mode == "menu" then
 		context.foreground_token = state.disabled and "text_disabled" or "text_input"
@@ -530,7 +556,7 @@ function DermaTheme:Draw(pnl)
 		end
 	end
 
-	return self.BaseClass.Draw(self, pnl)
+	return DermaTheme.BaseClass.Draw(self, pnl)
 end
 
 return DermaTheme:Register()

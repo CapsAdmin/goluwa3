@@ -13,6 +13,27 @@ local MenuContainer = import("goluwa/render2d/ui/elements/menu_container.lua")
 local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local order_log
 
+T.Test("derma skin images are available locally", function()
+	local resource = import("goluwa/resource.lua")
+	local vfs = import("goluwa/vfs.lua")
+	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/extras/", true)
+	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/base/", true)
+
+	for _, path in ipairs{"textures/gui/skins/gmod.png", "textures/gui/skins/dark.png"} do
+		if not vfs.GetAbsolutePath(path) then
+			local done = false
+			resource.Download(path):Then(function()
+				done = true
+			end)
+			T.WaitUntilReal(function()
+				return done
+			end, 60, "downloading " .. path)
+		end
+
+		T(vfs.GetAbsolutePath(path) ~= nil)["=="](true)
+	end
+end)
+
 local function create_ordered_template(name)
 	local META = Panel:CreateTemplate(name)
 	META.CMP.transform = {}
@@ -335,5 +356,17 @@ T.Test2D("content surfaces take their text color from the theme", function()
 	menu:Remove()
 	bar:Remove()
 	collapsible:Remove()
+	theme.LoadTheme(original)
+end)
+
+T.Test2D("derma_dark is the derma theme with another skin image", function()
+	local original = theme.active:GetName()
+	theme.LoadTheme("derma")
+	local derma_path = theme.active.SkinPath
+	T(derma_path:ends_with("gmod.png"))["=="](true)
+	theme.LoadTheme("derma_dark")
+	T(theme.active:GetName())["=="]("derma_dark")
+	T(theme.active.SkinPath ~= derma_path)["=="](true)
+	T(theme.active.SkinImage.width)["=="](512)
 	theme.LoadTheme(original)
 end)
