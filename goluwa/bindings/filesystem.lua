@@ -454,7 +454,7 @@ else
 				last_accessed = POSIX_TIME(info[0].ftLastAccessTime),
 				last_modified = POSIX_TIME(info[0].ftLastWriteTime),
 				last_changed = -1,
-				size = info[0].nFileSizeLow,
+				size = tonumber(info[0].nFileSizeHigh) * 4294967296 + info[0].nFileSizeLow,
 				type = bit.band(info[0].dwFileAttributes, DIRECTORY) == DIRECTORY and
 					"directory" or
 					"file",
@@ -508,28 +508,23 @@ else
 		local data = data_box()
 
 		function fs.get_files(dir)
-			if path == "" then path = "." end
-
 			if dir:sub(-1) ~= "/" then dir = dir .. "/" end
 
 			local handle = ffi.C.FindFirstFileA(dir .. "*", data)
 
-			if handle == nil then return nil, last_error() end
+			if handle == INVALID_FILE then return nil, last_error() end
 
 			local out = {}
+			local i = 1
 
-			if handle ~= INVALID_FILE then
-				local i = 1
+			repeat
+				if not is_dots(data[0].cFileName) then
+					out[i] = ffi_string(data[0].cFileName)
+					i = i + 1
+				end
+			until ffi.C.FindNextFileA(handle, data) == 0
 
-				repeat
-					if not is_dots(data[0].cFileName) then
-						out[i] = ffi_string(data[0].cFileName)
-						i = i + 1
-					end				
-				until ffi.C.FindNextFileA(handle, data) == 0
-
-				if ffi.C.FindClose(handle) == 0 then return nil, last_error() end
-			end
+			if ffi.C.FindClose(handle) == 0 then return nil, last_error() end
 
 			return out
 		end
@@ -545,7 +540,7 @@ else
 				stack_size = stack_size - 1
 				local handle = ffi.C.FindFirstFileA(current_path .. "*", data)
 
-				if handle == nil then
+				if handle == INVALID_FILE then
 					table.insert(errors, {path = current_path, error = last_error()})
 				else
 					if not files_only then
@@ -553,7 +548,7 @@ else
 						tbl[tbl.n] = current_path
 					end
 
-					if handle ~= INVALID_FILE then
+					do
 						local directories = {}
 						local directory_count = 0
 
@@ -593,7 +588,7 @@ else
 		function fs.get_current_directory()
 			local buffer = ffi.new("char[260]")
 			local length = ffi.C.GetCurrentDirectoryA(260, buffer)
-			return ffi.string(buffer, length):gsub("\\", "/")
+			return (ffi.string(buffer, length):gsub("\\", "/"))
 		end
 	end
 
@@ -774,20 +769,34 @@ do
 		return bytes_written
 	end
 
-	function fs.fseek(file, offset, whence)
-		whence = whence or fs.SEEK_SET
+	do
+		local fseek = ffi.C.fseek
+		local ftell = ffi.C.ftell
 
-		if ffi.C.fseek(file, offset, whence) ~= 0 then return nil, last_error() end
+		if jit.os == "Windows" then
+			ffi.cdef[[
+				int _fseeki64(FILE* stream, int64_t offset, int whence);
+				int64_t _ftelli64(FILE* stream);
+			]]
+			fseek = ffi.C._fseeki64
+			ftell = ffi.C._ftelli64
+		end
 
-		return true
-	end
+		function fs.fseek(file, offset, whence)
+			whence = whence or fs.SEEK_SET
 
-	function fs.ftell(file)
-		local pos = ffi.C.ftell(file)
+			if fseek(file, offset, whence) ~= 0 then return nil, last_error() end
 
-		if pos == -1 then return nil, last_error() end
+			return true
+		end
 
-		return pos
+		function fs.ftell(file)
+			local pos = ftell(file)
+
+			if pos == -1 then return nil, last_error() end
+
+			return tonumber(pos)
+		end
 	end
 
 	function fs.fflush(file)

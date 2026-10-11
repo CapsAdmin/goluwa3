@@ -65,17 +65,11 @@ local function get_or_create_cached_module(device, glsl, type)
 
 	if record then return record end
 
-	local spirv_data, spirv_size
+	local spirv_data, spirv_size = load_disk_cache(glsl, type)
 
-	if os.getenv("GOLUWA_SHADER_DEBUG") == "1" then
-		spirv_data, spirv_size = shaderc.compile_debug(glsl, type)
-	else
-		spirv_data, spirv_size = load_disk_cache(glsl, type)
-
-		if not spirv_data then
-			spirv_data, spirv_size = shaderc.compile(glsl, type)
-			save_disk_cache(glsl, type, spirv_data, spirv_size)
-		end
+	if not spirv_data then
+		spirv_data, spirv_size = shaderc.compile(glsl, type)
+		save_disk_cache(glsl, type, spirv_data, spirv_size)
 	end
 
 	local ptr = VkShaderModuleBox()

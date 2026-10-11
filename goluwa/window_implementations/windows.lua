@@ -36,6 +36,7 @@ ffi.cdef([[
 	int ScreenToClient(void *hwnd, void *point);
 	int ClientToScreen(void *hwnd, void *point);
 	int SetCursorPos(int x, int y);
+	int SetProcessDPIAware(void);
 	int TrackMouseEvent(void *event_track);
 	int ClipCursor(const void *rect);
 	void *GetFocus(void);
@@ -50,6 +51,7 @@ return function(META)
 	local user32 = ffi.load("user32")
 	local kernel32 = ffi.load("kernel32")
 	local shell32 = ffi.load("shell32")
+	user32.SetProcessDPIAware()
 	local base_on_remove = META.OnRemove or META.OnRemoved
 	local WNDPROC_T = ffi.typeof("intptr_t (__stdcall *)(void *, uint32_t, uintptr_t, intptr_t)")
 	local WNDCLASSEXW_T = ffi.typeof([[struct {
@@ -126,6 +128,7 @@ return function(META)
 		SIZE_MINIMIZED = 1,
 		SIZE_MAXIMIZED = 2,
 		SW_SHOW = 5,
+		SW_SHOWMINNOACTIVE = 7,
 		SW_MINIMIZE = 6,
 		SW_RESTORE = 9,
 		SW_MAXIMIZE = 3,
@@ -728,7 +731,10 @@ return function(META)
 		self:SetMouseDelta(Vec2(0, 0))
 
 		if self.pending_show then
-			user32.ShowWindow(self.hwnd, constants.SW_SHOW)
+			user32.ShowWindow(
+				self.hwnd,
+				os.getenv("GOLUWA_BACKGROUND") == "1" and constants.SW_SHOWMINNOACTIVE or constants.SW_SHOW
+			)
 			user32.UpdateWindow(self.hwnd)
 			self.pending_show = false
 			self.focused = user32.GetFocus() == self.hwnd

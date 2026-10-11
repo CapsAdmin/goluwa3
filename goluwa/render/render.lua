@@ -79,18 +79,6 @@ function render.GetBindlessDescriptorCapacities()
 end
 
 local shaderc = import("goluwa/bindings/shaderc.lua")
-
-if not shaderc.available then
-	logf("[render] WARNING: shaderc library not found - render will not be initialized\n")
-	logf("[render] %s\n", shaderc.error_message)
-	logf("[render] Running in headless mode without graphics. REPL will be available.\n")
-	logf(
-		"[render] To enable graphics, install the Vulkan SDK from: https://vulkan.lunarg.com/\n"
-	)
-	render.available = false
-	return render
-end
-
 render.available = true
 local VulkanInstance = import("goluwa/render/vulkan/vulkan_instance.lua")
 local event = import("goluwa/event.lua")
@@ -298,6 +286,11 @@ end
 function render.Initialize(config)
 	config = config or {}
 	local is_headless = config.headless
+
+	if not shaderc.initialized then
+		import("goluwa/render/shaderc_locator.lua").Locate()
+	end
+
 	render.initializing = true
 	local pipeline_cache_path = vfs.GetStorageDirectory("cache") .. "vulkan_pipeline_cache.bin"
 	local pipeline_cache_data = fs.read_file(pipeline_cache_path)

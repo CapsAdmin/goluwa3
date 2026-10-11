@@ -51,10 +51,6 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 		table.insert(extensions, "VK_KHR_portability_enumeration")
 	end
 
-	if not is_headless then
-		table.insert(extensions, "VK_KHR_get_surface_capabilities2")
-	end
-
 	do
 		local available_instance_extensions = vulkan.GetAvailableExtensions()
 		local filtered_extensions = {}
@@ -142,13 +138,11 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 		"VK_KHR_deferred_host_operations",
 		"VK_KHR_acceleration_structure",
 		"VK_KHR_ray_tracing_pipeline",
-		"VK_KHR_ray_tracing_maintenance1",
 		"VK_KHR_ray_query",
 	}
 
 	if not is_headless then
 		table.insert(requested_device_extensions, "VK_KHR_swapchain")
-		table.insert(requested_device_extensions, "VK_KHR_shared_presentable_image")
 		table.insert(requested_device_extensions, "VK_EXT_hdr_metadata")
 	end
 

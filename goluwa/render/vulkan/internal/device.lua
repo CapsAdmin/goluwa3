@@ -31,7 +31,6 @@ local VkPhysicalDeviceMaintenance4FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkP
 local VkPhysicalDeviceSynchronization2FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceSynchronization2Features)
 local VkPhysicalDeviceVulkan11FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan11Features)
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT)
-local VkPhysicalDeviceMeshShaderFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT)
 local VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT)
 local VkPhysicalDeviceExtendedDynamicState2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT)
 local VkPhysicalDeviceExtendedDynamicState3FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT)
@@ -42,7 +41,6 @@ local VkPhysicalDeviceVulkan12FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysi
 local VkPhysicalDeviceRobustness2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRobustness2FeaturesEXT)
 local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
-local VkPhysicalDeviceRayTracingMaintenance1FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR)
 local VkPhysicalDeviceRayQueryFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayQueryFeaturesKHR)
 local VkDeviceQueueCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkDeviceQueueCreateInfo)
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)
@@ -72,20 +70,12 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.insert(finalExtensions, "VK_KHR_dynamic_rendering")
 	end
 
-	if table.has_value(available_extensions, "VK_EXT_shader_64bit_indexing") then
-		table.insert(finalExtensions, "VK_EXT_shader_64bit_indexing")
-	end
-
 	if table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3") then
 		table.insert(finalExtensions, "VK_EXT_extended_dynamic_state3")
 	end
 
 	if table.has_value(available_extensions, "VK_EXT_scalar_block_layout") then
 		table.insert(finalExtensions, "VK_EXT_scalar_block_layout")
-	end
-
-	if table.has_value(available_extensions, "VK_EXT_mesh_shader") then
-		table.insert(finalExtensions, "VK_EXT_mesh_shader")
 	end
 
 	if table.has_value(available_extensions, "VK_EXT_conditional_rendering") then
@@ -144,7 +134,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local has_extended_dynamic_state2 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state2") and
 		dynamicStateFeatures.extendedDynamicState2
 	local has_extended_dynamic_state3 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3")
-	local has_mesh_shader = table.has_value(available_extensions, "VK_EXT_mesh_shader")
 	local has_polygon_mode_dynamic_state = has_extended_dynamic_state3 and
 		dynamicStateFeatures.extendedDynamicState3PolygonMode
 	local has_depth_clamp_dynamic_state = has_extended_dynamic_state3 and
@@ -163,21 +152,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	if RENDERDOC then
 		has_logic_op_dynamic_state = false
 		has_logic_op_enable_dynamic_state = false
-	end
-
-	if has_mesh_shader then
-		local meshShaderFeatures = VkPhysicalDeviceMeshShaderFeaturesEXTBox(
-			vulkan.vk.s.PhysicalDeviceMeshShaderFeaturesEXT{
-				sType = "physical_device_mesh_shader_features_ext",
-				pNext = pNextChain,
-				taskShader = 1,
-				meshShader = 1,
-				multiviewMeshShader = 0,
-				primitiveFragmentShadingRateMeshShader = 0,
-				meshShaderQueries = 0,
-			}
-		)
-		pNextChain = meshShaderFeatures
 	end
 
 	if has_extended_dynamic_state then
@@ -427,15 +401,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		if rt_features.rayTracingPipeline == 1 and as_features.accelerationStructure == 1 then
 			ray_tracing_supported = true
 			table.insert(finalExtensions, "VK_KHR_ray_tracing_pipeline")
-			local ray_tracing_maintenance1 = VkPhysicalDeviceRayTracingMaintenance1FeaturesBox(
-				vulkan.vk.s.PhysicalDeviceRayTracingMaintenance1FeaturesKHR{
-					sType = "physical_device_ray_tracing_maintenance_1_features_khr",
-					pNext = pNextChain,
-					rayTracingMaintenance1 = 0,
-					rayTracingPipelineTraceRaysIndirect2 = 0,
-				}
-			)
-			pNextChain = ray_tracing_maintenance1
 			local ray_tracing_pipeline_features = VkPhysicalDeviceRayTracingPipelineFeaturesBox(
 				vulkan.vk.s.PhysicalDeviceRayTracingPipelineFeaturesKHR{
 					sType = "physical_device_ray_tracing_pipeline_features_khr",
@@ -574,12 +539,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	if table.has_value(finalExtensions, "VK_EXT_conditional_rendering") then
 		vulkan.ext.vkCmdBeginConditionalRenderingEXT = device:TryGetExtension("vkCmdBeginConditionalRenderingEXT")
 		vulkan.ext.vkCmdEndConditionalRenderingEXT = device:TryGetExtension("vkCmdEndConditionalRenderingEXT")
-	end
-
-	if has_mesh_shader then
-		vulkan.ext.vkCmdDrawMeshTasksEXT = device:TryGetExtension("vkCmdDrawMeshTasksEXT")
-		vulkan.ext.vkCmdDrawMeshTasksIndirectEXT = device:TryGetExtension("vkCmdDrawMeshTasksIndirectEXT")
-		vulkan.ext.vkCmdDrawMeshTasksIndirectCountEXT = device:TryGetExtension("vkCmdDrawMeshTasksIndirectCountEXT")
 	end
 
 	return device

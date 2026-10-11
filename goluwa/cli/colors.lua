@@ -2,10 +2,6 @@ local use_colors = not os.getenv("NO_COLOR")
 
 if jit and jit.os == "Windows" then
 	pcall(os.execute, "")
-
-	if not os.getenv("ANSICON") and not os.getenv("ConEmuANSI") then
-		use_colors = false
-	end
 end
 
 local colors = {

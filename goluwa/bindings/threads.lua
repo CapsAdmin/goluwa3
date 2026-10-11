@@ -100,9 +100,11 @@ if ffi.os == "Windows" then
         void GetSystemInfo(SYSTEM_INFO* lpSystemInfo);
 
 		void Sleep(uint32_t dwMilliseconds);
+		uint32_t timeBeginPeriod(uint32_t uPeriod);
 
 		void* CreateMutexA(void* lpMutexAttributes, int bInitialOwner, const char* lpName);
 		int ReleaseMutex(void* hMutex);
+		uint32_t GetCurrentProcessId(void);
     ]]
 	local kernel32 = ffi.load("kernel32")
 	local crt = ffi.load("ucrtbase")
@@ -127,7 +129,7 @@ if ffi.os == "Windows" then
 	local INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
 	local WAIT_FAILED = 0xFFFFFFFF
 	local THREAD_ALL_ACCESS = 0x1F03FF
-	local main_worker_mutex = kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex")
+	local main_worker_mutex = kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex_" .. kernel32.GetCurrentProcessId())
 
 	function acquire_worker_mutex()
 		kernel32.WaitForSingleObject(main_worker_mutex, INFINITE)
@@ -266,6 +268,8 @@ if ffi.os == "Windows" then
 		kernel32.GetSystemInfo(sysinfo)
 		return tonumber(sysinfo.dwNumberOfProcessors)
 	end
+
+	ffi.load("winmm").timeBeginPeriod(1)
 
 	function threads.sleep(ms)
 		ffi.C.Sleep(ms)
@@ -565,6 +569,7 @@ local worker_bootstrap = [=[
 			uint32_t WaitForSingleObject(void* hHandle, uint32_t dwMilliseconds);
 			int ReleaseMutex(void* hMutex);
 			int CloseHandle(void* hObject);
+			uint32_t GetCurrentProcessId(void);
 		]]
 		_init_kernel32 = ffi.load("kernel32")
 		_INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
@@ -575,7 +580,7 @@ local worker_bootstrap = [=[
 			-- On Windows, serialize Lua state initialization to avoid
 			-- concurrent FFI/JIT internal state corruption in LuaJIT.
 			if ffi.os == "Windows" then
-				local mutex = _init_kernel32.CreateMutexA(nil, 0, "goluwa_luajit_init_mutex")
+				local mutex = _init_kernel32.CreateMutexA(nil, 0, "goluwa_luajit_init_mutex_" .. _init_kernel32.GetCurrentProcessId())
 				_init_kernel32.WaitForSingleObject(mutex, _INFINITE)
 				require("goluwa.global_environment")
 				_init_kernel32.ReleaseMutex(mutex)
@@ -593,7 +598,7 @@ local worker_bootstrap = [=[
 	-- in a process-wide mutex to prevent concurrent allocator access.
 	local _worker_mutex
 	if ffi.os == "Windows" then
-		_worker_mutex = _init_kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex")
+		_worker_mutex = _init_kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex_" .. _init_kernel32.GetCurrentProcessId())
 	end
 
 	local function main(udata)

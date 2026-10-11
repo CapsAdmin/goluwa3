@@ -3,7 +3,7 @@ local pool = import("goluwa/objects/pool.lua")
 local event = import("goluwa/event.lua")
 local pool = pool.New("sockets")
 
-event.AddListener("Update", "sockets", function()
+function pool.Update()
 	if pool.list[1] == nil then return end
 
 	local entries = {}
@@ -17,6 +17,8 @@ event.AddListener("Update", "sockets", function()
 
 		if obj:IsValid() then obj:OnPollReady(result.events) end
 	end
-end)
+end
+
+event.AddListener("Update", "sockets", pool.Update)
 
 return pool

@@ -238,3 +238,6 @@ Traced reflections (ssr misses -> scene_reflection ray queries on the ddgi TLAS)
 Frozen-BVH control: `scene_bvh.ANIMATION_DISTANCE = 0` leaves characters as their baked bind pose in reflections (Source bind pose is side-on). Traced hits shade from the soup material colour, so characters look grey in reflections, that is expected.
 
 Related: [Skeletal animation](animation-and-source.md#skeletal-animation)
+
+## shaderc is located by render.Initialize
+`goluwa/bindings/shaderc.lua` no longer searches for the library, `render.Initialize` calls `render/shaderc_locator.lua` which fills `storage/bin/libshaderc/` (copies from the Vulkan SDK/system, or prompts: Steam, download, manual) and hands the loaded lib to `shaderc.Initialize(lib)` after a smoke compile. Without a TTY it errors instead of prompting. The download comes from this repo's `shaderc-<ref>` release and is verified against the sha256 in `goluwa/bin_manifest.lua`; the release is built by `.github/workflows/build-binaries.yml` (manual dispatch), then paste the hashes from its job summary into the manifest. Google's own CI download links returned 404 for their artifacts on 2026-10-11, which is why we build it ourselves.

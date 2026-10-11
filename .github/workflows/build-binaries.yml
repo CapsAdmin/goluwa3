@@ -1,0 +1,260 @@
+name: build-binaries
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: which binary to build and release
+        type: choice
+        options:
+          - shaderc
+          - luajit
+          - all
+        default: all
+
+permissions:
+  contents: write
+
+jobs:
+  ref:
+    runs-on: ubuntu-latest
+    outputs:
+      shaderc_ref: ${{ steps.ref.outputs.shaderc_ref }}
+      luajit_ref: ${{ steps.ref.outputs.luajit_ref }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ref
+        run: |
+          ref=$(sed -n '/shaderc = {/,/}/s/.*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
+          test -n "$ref"
+          echo "shaderc_ref=$ref" >> "$GITHUB_OUTPUT"
+          ref=$(sed -n '/luajit = {/,/}/s/.*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
+          test -n "$ref"
+          echo "luajit_ref=$ref" >> "$GITHUB_OUTPUT"
+
+  shaderc:
+    needs: ref
+    if: inputs.component == 'shaderc' || inputs.component == 'all'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            library: shaderc_shared.dll
+            extension: dll
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            library: libshaderc_shared.so
+            extension: so
+          - platform: macos-arm64
+            runner: macos-14
+            library: libshaderc_shared.dylib
+            extension: dylib
+    runs-on: ${{ matrix.runner }}
+    env:
+      SHADERC_REF: ${{ needs.ref.outputs.shaderc_ref }}
+    steps:
+      - name: fetch shaderc
+        shell: bash
+        run: |
+          git clone --depth 1 --branch "$SHADERC_REF" https://github.com/google/shaderc shaderc
+          cd shaderc
+          python3 utils/git-sync-deps
+
+      - name: install ninja
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y ninja-build
+
+      - name: set up msvc
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: build (windows, static crt)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python -m pip install ninja
+          cd shaderc
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DSHADERC_ENABLE_SHARED_CRT=OFF
+          cmake --build build --target shaderc_shared
+          cp build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+
+      - name: build (linux, static libstdc++)
+        if: runner.os == 'Linux'
+        run: |
+          cd shaderc
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+          cmake --build build --target shaderc_shared
+          cp -L build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+
+      - name: build (macos)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja
+          cd shaderc
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          cmake --build build --target shaderc_shared
+          cp -L build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+
+      - name: show dependencies
+        continue-on-error: true
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Windows) dumpbin //dependents ${{ matrix.library }} ;;
+            Linux) ldd ${{ matrix.library }} ;;
+            macOS) otool -L ${{ matrix.library }} ;;
+          esac
+
+      - name: rename for upload
+        shell: bash
+        run: |
+          mkdir out
+          cp ${{ matrix.library }} out/shaderc_shared-${{ matrix.platform }}.${{ matrix.extension }}
+          cp shaderc/LICENSE out/shaderc-LICENSE.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shaderc-${{ matrix.platform }}
+          path: out/*
+
+  release:
+    needs: [ref, shaderc]
+    if: inputs.component == 'shaderc' || inputs.component == 'all'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHADERC_REF: ${{ needs.ref.outputs.shaderc_ref }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: publish release
+        run: |
+          cd artifacts
+          {
+            echo "## sha256 for goluwa/bin_manifest.lua"
+            echo '```'
+            sha256sum shaderc_shared-* | tee /dev/stderr
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh release create "shaderc-$SHADERC_REF" shaderc_shared-* shaderc-LICENSE.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "shaderc $SHADERC_REF" \
+            --notes "shaderc $SHADERC_REF built from https://github.com/google/shaderc at tag $SHADERC_REF by build-binaries.yml, unmodified. Apache-2.0, see shaderc-LICENSE.txt. Hashes are pinned in goluwa/bin_manifest.lua." \
+            --prerelease
+
+  luajit:
+    needs: ref
+    if: inputs.component == 'luajit' || inputs.component == 'all'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            asset: luajit-windows-x64.zip
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            asset: luajit-linux-x64
+          - platform: macos-arm64
+            runner: macos-14
+            asset: luajit-macos-arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      LUAJIT_REF: ${{ needs.ref.outputs.luajit_ref }}
+    steps:
+      - name: fetch luajit
+        shell: bash
+        run: |
+          git clone https://github.com/LuaJIT/LuaJIT luajit
+          cd luajit
+          git checkout "$LUAJIT_REF"
+
+      - name: set up msvc
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: build (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd luajit/src
+          cmd //c "msvcbuild.bat lua52compat amalg"
+          dumpbin //dependents luajit.exe lua51.dll
+          mkdir ../../out
+          cp luajit.exe lua51.dll ../../out/
+          cp "$VCToolsRedistDir"x64/Microsoft.VC*.CRT/vcruntime140*.dll ../../out/ || true
+          cd ../../out
+          7z a ${{ matrix.asset }} luajit.exe lua51.dll vcruntime140*.dll
+          rm luajit.exe lua51.dll vcruntime140*.dll
+          cp ../luajit/COPYRIGHT luajit-COPYRIGHT.txt
+
+      - name: build (linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd luajit
+          make amalg XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" BUILDMODE=static -j"$(nproc)"
+          ldd src/luajit
+          mkdir ../out
+          cp src/luajit ../out/${{ matrix.asset }}
+          cp COPYRIGHT ../out/luajit-COPYRIGHT.txt
+
+      - name: build (macos)
+        if: runner.os == 'macOS'
+        run: |
+          cd luajit
+          make amalg MACOSX_DEPLOYMENT_TARGET=11.0 XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" BUILDMODE=static -j"$(sysctl -n hw.ncpu)"
+          otool -L src/luajit
+          mkdir ../out
+          cp src/luajit ../out/${{ matrix.asset }}
+          cp COPYRIGHT ../out/luajit-COPYRIGHT.txt
+
+      - name: smoke test
+        if: runner.os != 'Windows'
+        run: |
+          out/${{ matrix.asset }} -e "print(jit.version, jit.os, jit.arch, require('ffi').C.getpid())"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luajit-${{ matrix.platform }}
+          path: out/*
+
+  luajit_release:
+    needs: [ref, luajit]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      LUAJIT_REF: ${{ needs.ref.outputs.luajit_ref }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: publish release
+        run: |
+          cd artifacts
+          {
+            echo "## sha256 for goluwa/bin_manifest.lua"
+            echo '```'
+            sha256sum luajit-windows-x64.zip luajit-linux-x64 luajit-macos-arm64 | tee /dev/stderr
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh release create "luajit-${LUAJIT_REF:0:7}" luajit-windows-x64.zip luajit-linux-x64 luajit-macos-arm64 luajit-COPYRIGHT.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "luajit ${LUAJIT_REF:0:7}" \
+            --notes "LuaJIT built from https://github.com/LuaJIT/LuaJIT at commit $LUAJIT_REF with LUAJIT_ENABLE_LUA52COMPAT, unmodified. MIT, see luajit-COPYRIGHT.txt. Hashes are pinned in goluwa/bin_manifest.lua. The windows zip is luajit.exe, lua51.dll and the app-local vcruntime140 dlls, keep them in one folder." \
+            --prerelease
