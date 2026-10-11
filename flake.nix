@@ -14,8 +14,8 @@
           name = "luajit";
           src = pkgs.fetchgit {
             url = "https://github.com/LuaJIT/LuaJIT.git";
-            rev = "1ee778a4e37122d8ca7d5733c590a47dafd6b15c";
-            sha256 = "sha256-UJurgBtfjqc5Uwff3uOF0DMRkLqzxU15yeniUe8r8/E=";
+            rev = "c6ffc141a8762b41703f9287d63d93622a13dd8f";
+            sha256 = "sha256-TdmoeU4HbdZ9N36VnEwf+E4hDaRMf8T6YGthDb55zRk=";
           };
 
           buildInputs = [pkgs.makeWrapper];
@@ -42,8 +42,8 @@
           name = "luajit-debug";
           src = pkgs.fetchgit {
             url = "https://github.com/LuaJIT/LuaJIT.git";
-            rev = "1ee778a4e37122d8ca7d5733c590a47dafd6b15c";
-            sha256 = "sha256-UJurgBtfjqc5Uwff3uOF0DMRkLqzxU15yeniUe8r8/E=";
+            rev = "c6ffc141a8762b41703f9287d63d93622a13dd8f";
+            sha256 = "sha256-TdmoeU4HbdZ9N36VnEwf+E4hDaRMf8T6YGthDb55zRk=";
           };
 
           dontStrip = true;
@@ -68,8 +68,8 @@
           name = "luajit-debug-assert";
           src = pkgs.fetchgit {
             url = "https://github.com/LuaJIT/LuaJIT.git";
-            rev = "1ee778a4e37122d8ca7d5733c590a47dafd6b15c";
-            sha256 = "sha256-UJurgBtfjqc5Uwff3uOF0DMRkLqzxU15yeniUe8r8/E=";
+            rev = "c6ffc141a8762b41703f9287d63d93622a13dd8f";
+            sha256 = "sha256-TdmoeU4HbdZ9N36VnEwf+E4hDaRMf8T6YGthDb55zRk=";
           };
 
           dontStrip = true;
