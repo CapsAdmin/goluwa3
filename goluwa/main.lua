@@ -237,6 +237,7 @@ local function run_game()
 			"goluwa/render/textures/gradient_linear.lua"
 		)
 		register_virtual_texture("textures/render/metal_frame.lua", "goluwa/render/textures/metal_frame.lua")
+		register_virtual_texture("textures/render/retro_noise.lua", "goluwa/render/textures/retro_noise.lua")
 	end
 
 	if SERVER or CLIENT then

@@ -323,6 +323,10 @@ function BaseTheme:GetFont(name, size_name)
 	return font_cache[cache_key], size_val
 end
 
+function BaseTheme:GetTextShadow()
+	return nil
+end
+
 function BaseTheme:DrawRoundRect(x, y, w, h, radius, color, alpha_multiplier)
 	render2d.DrawShape{
 		x = x,

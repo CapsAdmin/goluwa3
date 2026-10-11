@@ -751,16 +751,33 @@ function META:OnDraw()
 	render2d.PushColor(foreground.r, foreground.g, foreground.b)
 	render2d.PushAlphaMultiplier(foreground.a)
 
-	for i = visible_start, visible_stop do
-		local y = ly + (i - 1) * vertical_step
-		local display_line = self.wrap_layout_info and
-			self.wrap_layout_info.display_lines and
-			self.wrap_layout_info.display_lines[i]
+	local shadow_x, shadow_y, shadow = theme.active:GetTextShadow()
 
-		if display_line and display_line.justified then
-			font:DrawText(lines[i] or "", lx, y, 0, nil, nil, display_line.extra_per_space)
-		else
-			font:DrawText(lines[i] or "", lx, y, 0)
+	for pass = shadow_x and 0 or 1, 1 do
+		local ox, oy = 0, 0
+
+		if pass == 0 then
+			ox, oy = shadow_x, shadow_y
+			render2d.PushColor(shadow.r, shadow.g, shadow.b)
+			render2d.PushAlphaMultiplier(shadow.a)
+		end
+
+		for i = visible_start, visible_stop do
+			local y = ly + (i - 1) * vertical_step + oy
+			local display_line = self.wrap_layout_info and
+				self.wrap_layout_info.display_lines and
+				self.wrap_layout_info.display_lines[i]
+
+			if display_line and display_line.justified then
+				font:DrawText(lines[i] or "", lx + ox, y, 0, nil, nil, display_line.extra_per_space)
+			else
+				font:DrawText(lines[i] or "", lx + ox, y, 0)
+			end
+		end
+
+		if pass == 0 then
+			render2d.PopAlphaMultiplier()
+			render2d.PopColor()
 		end
 	end
 
