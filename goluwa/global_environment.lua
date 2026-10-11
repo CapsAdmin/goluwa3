@@ -42,6 +42,7 @@ do
 	end
 
 	append_package_path("bin/LuaJIT/src/?.lua")
+	append_package_path("goluwa/?.lua")
 	local process = import("goluwa/bindings/process.lua")
 	local executable_path = process.get_executable_path and process.get_executable_path() or nil
 
