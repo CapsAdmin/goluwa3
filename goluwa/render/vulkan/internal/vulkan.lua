@@ -3,7 +3,7 @@ local vk = import("goluwa/bindings/vk.lua")
 local vulkan = {}
 vulkan.ext = {}
 vulkan.vk = vk
-vulkan.lib = vulkan.vk.find_library()
+vulkan.lib = import("goluwa/render/vulkan/loader_locator.lua").Locate()
 local VkLayerPropertiesArray = ffi.typeof("$[?]", vulkan.vk.VkLayerProperties)
 local VkExtensionPropertiesArray = ffi.typeof("$[?]", vulkan.vk.VkExtensionProperties)
 

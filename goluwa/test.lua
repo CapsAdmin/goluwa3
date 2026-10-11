@@ -1462,10 +1462,7 @@ commands.Add({
 			durations = json.decode(durations_content)
 		end
 
-		pcall(function()
-			local vk = import("goluwa/bindings/vk.lua")
-			vk.find_library()
-		end)
+		pcall(import("goluwa/render/vulkan/loader_locator.lua").Locate)
 
 		local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 		local keepalive_instance = require("ffi").typeof("$[1]", vulkan.vk.VkInstance)()

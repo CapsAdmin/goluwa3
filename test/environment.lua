@@ -15,10 +15,11 @@ do
 	_G.PHYSICS = true
 end
 
-local vk = import("goluwa/bindings/vk.lua")
 local has_rendering = false
 
-if pcall(vk.find_library) then has_rendering = true end
+if pcall(import("goluwa/render/vulkan/loader_locator.lua").Locate) then
+	has_rendering = true
+end
 
 do
 	import.loaded["goluwa/bindings/clipboard.lua"] = {

@@ -1,7 +1,6 @@
 local ffi = require("ffi")
 local N = ffi.new
 local mod = {}
-local process = ffi.os == "Windows" and import("goluwa/bindings/process.lua") or nil
 ffi.cdef[=[
 		struct ANativeWindow;
 		struct AHardwareBuffer;
@@ -26,56 +25,6 @@ function mod.GetExtension(lib, instance, name)
 
 	local func = ffi.cast(mod["PFN_" .. name], ptr)
 	return func
-end
-
-function mod.find_library()
-	local function try_load(tbl)
-		local errors = {}
-
-		for _, name in ipairs(tbl) do
-			local status, lib = pcall(ffi.load, name)
-
-			if status then return lib else table.insert(errors, lib) end
-		end
-
-		return nil, table.concat(errors, "\n")
-	end
-
-	if ffi.os == "Windows" then
-		if not os.getenv("VK_ICD_FILENAMES") and not os.getenv("VK_DRIVER_FILES") then
-			local file = io.open("vk_swiftshader_icd.json", "rb")
-
-			if file then
-				file:close()
-				process.setenv("VK_ICD_FILENAMES", "vk_swiftshader_icd.json")
-				process.setenv("VK_DRIVER_FILES", "vk_swiftshader_icd.json")
-			end
-		end
-
-		return assert(try_load({"vulkan-1.dll"}))
-	elseif jit.os == "OSX" then
-		local home = os.getenv("HOME")
-		local vulkan_sdk = os.getenv("VULKAN_SDK")
-		local paths = {}
-		table.insert(paths, "/opt/homebrew/lib/libvulkan.dylib")
-		table.insert(paths, "/opt/homebrew/lib/libvulkan.1.dylib")
-		table.insert(paths, "/usr/local/lib/libvulkan.dylib")
-		table.insert(paths, "libvulkan.dylib")
-		table.insert(paths, "libvulkan.1.dylib")
-
-		if vulkan_sdk then
-			table.insert(paths, vulkan_sdk .. "/lib/libvulkan.dylib")
-			table.insert(paths, vulkan_sdk .. "/lib/libvulkan.1.dylib")
-		end
-
-		if home and vulkan_sdk then
-			table.insert(paths, home .. "/VulkanSDK/1.4.328.1/macOS/lib/libvulkan.1.dylib")
-		end
-
-		return assert(try_load(paths))
-	end
-
-	return assert(try_load({"libvulkan.so", "libvulkan.so.1"}))
 end
 
 do
