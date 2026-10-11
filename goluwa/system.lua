@@ -8,8 +8,26 @@ ffi.cdef([[
 	int fflush(void *stream);
 	int _exit(int status);
 ]])
-ffi.cdef(ffi.os == "Windows" and "int _isatty(int fd);" or "int isatty(int fd);")
-local isatty = ffi.os == "Windows" and ffi.C._isatty or ffi.C.isatty
+local is_console
+
+if ffi.os == "Windows" then
+	ffi.cdef([[
+		int GetConsoleMode(void *handle, uint32_t *mode);
+		void *GetStdHandle(unsigned long id);
+	]])
+	local mode = ffi.new("uint32_t[1]")
+
+	function is_console()
+		return ffi.C.GetConsoleMode(ffi.C.GetStdHandle(-10), mode) ~= 0 and
+			ffi.C.GetConsoleMode(ffi.C.GetStdHandle(-11), mode) ~= 0
+	end
+else
+	ffi.cdef("int isatty(int fd);")
+
+	function is_console()
+		return ffi.C.isatty(0) ~= 0
+	end
+end
 
 function system.GetTime()
 	return get_time()
@@ -164,7 +182,7 @@ function system.IsTTY()
 		return false
 	end
 
-	return isatty(0) ~= 0
+	return is_console()
 end
 
 local sleep = import("goluwa/bindings/threads.lua").sleep
