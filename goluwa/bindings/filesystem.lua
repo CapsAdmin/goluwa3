@@ -586,8 +586,9 @@ else
 		ffi.cdef[[unsigned long GetCurrentDirectoryA(unsigned long, char *);]]
 
 		function fs.get_current_directory()
-			local buffer = ffi.new("char[260]")
-			local length = ffi.C.GetCurrentDirectoryA(260, buffer)
+			local size = ffi.C.GetCurrentDirectoryA(0, nil)
+			local buffer = ffi.new("char[?]", size)
+			local length = ffi.C.GetCurrentDirectoryA(size, buffer)
 			return (ffi.string(buffer, length):gsub("\\", "/"))
 		end
 	end

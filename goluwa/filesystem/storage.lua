@@ -8,10 +8,7 @@ local function working_directory()
 	local ffi = require("ffi")
 
 	if jit.os == "Windows" then
-		ffi.cdef("unsigned long GetCurrentDirectoryA(unsigned long, char *);")
-		local buffer = ffi.new("char[260]")
-		local length = ffi.C.GetCurrentDirectoryA(260, buffer)
-		dir = ffi.string(buffer, length):gsub("\\", "/") .. "/"
+		dir = fs.get_current_directory() .. "/"
 	else
 		ffi.cdef("char *strerror(int)")
 		ffi.cdef("char *realpath(const char *, char *);")
