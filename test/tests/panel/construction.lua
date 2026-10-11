@@ -245,3 +245,12 @@ T.Test2D("every theme defines a color for text inside inputs", function()
 
 	theme.LoadTheme(original)
 end)
+
+T.Test2D("derma theme loads its skin texture and samples its colors", function()
+	local original = theme.active:GetName()
+	theme.LoadTheme("derma")
+	T(theme.active.SkinImage.width)["=="](512)
+	T(theme.active.SkinTexture ~= nil)["=="](true)
+	T(theme.active:GetColor("text_input").r < 0.2)["=="](true)
+	theme.LoadTheme(original)
+end)
