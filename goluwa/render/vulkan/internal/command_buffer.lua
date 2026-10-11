@@ -707,14 +707,6 @@ function CommandBuffer:DrawIndexedIndirect(buffer, offset, drawCount, stride)
 	)
 end
 
-function CommandBuffer:DrawMeshTasks(groupCountX, groupCountY, groupCountZ)
-	if not vulkan.ext.vkCmdDrawMeshTasksEXT then return end
-
-	if render.stats then render_stats.AddDrawCalls(1) end
-
-	vulkan.ext.vkCmdDrawMeshTasksEXT(self.ptr[0], groupCountX, groupCountY, groupCountZ)
-end
-
 function CommandBuffer:SetCullMode(cull_mode)
 	if not should_apply_dynamic_state(self, "cull_mode", cull_mode or "back") then
 		return

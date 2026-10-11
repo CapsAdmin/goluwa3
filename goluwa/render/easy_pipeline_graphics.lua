@@ -192,43 +192,6 @@ do
 		if timing_name then gpu_timing.EndScope(cmd, timing_name) end
 	end
 
-	function EasyPipelineGraphics:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
-		cmd = cmd or render.GetCommandBuffer()
-		local resolved_frame_index = resolve_draw_frame_index(self, frame_index)
-		local fb = resolve_draw_framebuffer(self, framebuffer, resolved_frame_index)
-		render.PushCommandBuffer(cmd)
-		local ok, err = xpcall(
-			function()
-				if fb then fb:Begin(cmd) end
-
-				if not fb then
-					local size = render.GetRenderImageSize()
-
-					if size and size.x > 0 and size.y > 0 then
-						cmd:SetViewport(0, 0, size.x, size.y, 0, 1)
-						cmd:SetScissor(0, 0, size.x, size.y)
-					end
-				end
-
-				self:Bind(cmd, resolved_frame_index)
-
-				if self.on_draw then
-					self:on_draw(cmd)
-				else
-					self:UploadConstants()
-					cmd:DrawMeshTasks(gx, gy, gz)
-				end
-			end,
-			debug.traceback
-		)
-
-		if fb then fb:End(cmd) end
-
-		render.PopCommandBuffer()
-
-		if not ok then error(err, 0) end
-	end
-
 	function EasyPipelineGraphics:PushConstants(...)
 		return self.pipeline:PushConstants(...)
 	end

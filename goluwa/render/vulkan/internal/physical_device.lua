@@ -17,7 +17,6 @@ local VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox = ffi.typeof("$[1]", vu
 local VkPhysicalDeviceDynamicRenderingFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures)
 local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
-local VkPhysicalDeviceRayTracingMaintenance1FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR)
 local VkPhysicalDeviceAccelerationStructurePropertiesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructurePropertiesKHR)
 local VkPhysicalDeviceRayTracingPipelinePropertiesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelinePropertiesKHR)
 
@@ -340,24 +339,6 @@ function PhysicalDevice:GetRayTracingPipelineFeatures()
 			rayTracingPipelineShaderGroupHandleCaptureReplayMixed = 0,
 			rayTracingPipelineTraceRaysIndirect = 0,
 			rayTraversalPrimitiveCulling = 0,
-		}
-	)
-	local query = vulkan.vk.s.PhysicalDeviceFeatures2{
-		sType = "physical_device_features_2",
-		pNext = features,
-		features = vulkan.vk.VkPhysicalDeviceFeatures(),
-	}
-	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], query)
-	return features[0]
-end
-
-function PhysicalDevice:GetRayTracingMaintenance1Features()
-	local features = VkPhysicalDeviceRayTracingMaintenance1FeaturesBox(
-		vulkan.vk.s.PhysicalDeviceRayTracingMaintenance1FeaturesKHR{
-			sType = "physical_device_ray_tracing_maintenance_1_features_khr",
-			pNext = nil,
-			rayTracingMaintenance1 = 0,
-			rayTracingPipelineTraceRaysIndirect2 = 0,
 		}
 	)
 	local query = vulkan.vk.s.PhysicalDeviceFeatures2{
