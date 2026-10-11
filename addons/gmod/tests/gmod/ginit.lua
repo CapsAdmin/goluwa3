@@ -843,3 +843,23 @@ T.TestGmod("gmod CompileString accepts a missing identifier", function()
 	local func = gine.env.CompileString("return 1 + 1")
 	attest.equal(func(), 2)
 end)
+
+T.TestGmod("gmod spawnlists load as one consistent hierarchy", function()
+	gine.env.spawnmenu.PopulateFromEngineTextFiles()
+	local props = gine.env.spawnmenu.GetPropTable()
+	local by_id = {}
+	local count = 0
+
+	for _, info in pairs(props) do
+		count = count + 1
+		attest.truthy(by_id[info.id] == nil)
+		by_id[info.id] = info
+	end
+
+	attest.truthy(count > 10)
+
+	for _, info in pairs(props) do
+		attest.truthy(info.parentid == 0 or by_id[info.parentid] ~= nil)
+		attest.truthy(info.name ~= "")
+	end
+end)

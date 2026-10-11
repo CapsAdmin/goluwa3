@@ -20,6 +20,48 @@ function util.KeyValuesToTable(str)
 	return val
 end
 
+do
+	local function sorted_keys(tbl)
+		local keys = {}
+
+		for key in pairs(tbl) do
+			keys[#keys + 1] = key
+		end
+
+		table.sort(keys, function(a, b)
+			local a_number = type(a) == "number"
+			local b_number = type(b) == "number"
+
+			if a_number ~= b_number then return a_number end
+
+			return a < b
+		end)
+
+		return keys
+	end
+
+	local function write_table(out, tbl, indent)
+		for _, key in ipairs(sorted_keys(tbl)) do
+			local val = tbl[key]
+
+			if type(val) == "table" then
+				out[#out + 1] = ("%s\"%s\"\n%s{\n"):format(indent, key, indent)
+				write_table(out, val, indent .. "\t")
+				out[#out + 1] = indent .. "}\n"
+			else
+				out[#out + 1] = ("%s\"%s\"\t\t\"%s\"\n"):format(indent, key, tostring(val))
+			end
+		end
+	end
+
+	function util.TableToKeyValues(tbl, is_array)
+		local out = {"\"TableToKeyValues\"\n{\n"}
+		write_table(out, tbl, "\t")
+		out[#out + 1] = "}\n"
+		return table.concat(out)
+	end
+end
+
 function util.CRC(str)
 	return crypto.CRC32(tostring(str))
 end
