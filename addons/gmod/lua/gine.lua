@@ -683,12 +683,17 @@ function gine.Initialize(gamemode, skip_addons)
 		end
 
 		if CLIENT then
+			local properties_escapes = {n = "\n", t = "\t", r = "\r"}
+			setmetatable(properties_escapes, {__index = function(_, char)
+				return char
+			end})
+
 			for path in vfs.Iterate("resource/localization/en/", true) do
 				for _, line in ipairs(vfs.Read(path):split("\n")) do
 					local key, val = line:match("(.-)=(.+)")
 
 					if key and val then
-						gine.translation[key] = val:trim()
+						gine.translation[key] = val:trim():gsub("\\(.)", properties_escapes)
 						gine.translation2["#" .. key] = gine.translation[key]
 					end
 				end

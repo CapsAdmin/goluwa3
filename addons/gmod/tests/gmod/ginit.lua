@@ -834,6 +834,11 @@ T.TestGmod("gmod ProjectedTexture keeps its state", function()
 	attest.falsy(lamp:IsValid())
 end)
 
+T.TestGmod("gmod localization unescapes properties escapes", function()
+	attest.equal(gine.translation["tool.forcelimit"], "Force Limit:")
+	attest.falsy(gine.translation["tool.forcelimit"]:find("\\", nil, true))
+end)
+
 T.TestGmod("gmod CompileString accepts a missing identifier", function()
 	local func = gine.env.CompileString("return 1 + 1")
 	attest.equal(func(), 2)
