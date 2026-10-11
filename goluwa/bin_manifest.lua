@@ -20,7 +20,8 @@ return {
 				sha256 = "0299236023c719b7ffea1d3a76a9934859f3cc3a5c8b8d725f918fad2d4ec431",
 			},
 		},
-	},	luajit = {
+	},
+	luajit = {
 		source = "https://github.com/LuaJIT/LuaJIT",
 		ref = "c6ffc141a8762b41703f9287d63d93622a13dd8f",
 		release = release_url .. "luajit-c6ffc14/",
@@ -28,6 +29,27 @@ return {
 			["windows-x64"] = {file = "luajit-windows-x64.zip"},
 			["linux-x64"] = {file = "luajit-linux-x64"},
 			["macos-arm64"] = {file = "luajit-macos-arm64"},
+		},
+	},
+	kosmickrisp = {
+		source = "https://gitlab.freedesktop.org/mesa/mesa",
+		ref = "mesa-26.2.4",
+		loader_source = "https://github.com/KhronosGroup/Vulkan-Loader",
+		loader_ref = "v1.4.365",
+		spirv_tools_source = "https://github.com/KhronosGroup/SPIRV-Tools",
+		spirv_tools_ref = "v2026.4",
+		release = release_url .. "kosmickrisp-mesa-26.2.4/",
+		assets = {
+			["macos-arm64"] = {
+				loader = {
+					file = "libvulkan-macos-arm64.dylib",
+					sha256 = "c7a16e4d1f53d46f7fcb2a7991461cd777d00e175ebd4f2f495abd4d458f5152",
+				},
+				driver = {
+					file = "libvulkan_kosmickrisp-macos-arm64.dylib",
+					sha256 = "10c5a322b952e139f98dc9bef676d0c3c7bcda7f2bc7e9ec011e87148af13583",
+				},
+			},
 		},
 	},
 }

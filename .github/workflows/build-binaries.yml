@@ -8,6 +8,7 @@ on:
         options:
           - shaderc
           - luajit
+          - kosmickrisp
           - all
         default: all
 
@@ -20,6 +21,9 @@ jobs:
     outputs:
       shaderc_ref: ${{ steps.ref.outputs.shaderc_ref }}
       luajit_ref: ${{ steps.ref.outputs.luajit_ref }}
+      mesa_ref: ${{ steps.ref.outputs.mesa_ref }}
+      loader_ref: ${{ steps.ref.outputs.loader_ref }}
+      spirv_tools_ref: ${{ steps.ref.outputs.spirv_tools_ref }}
     steps:
       - uses: actions/checkout@v4
       - id: ref
@@ -30,6 +34,15 @@ jobs:
           ref=$(sed -n '/luajit = {/,/}/s/.*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
           test -n "$ref"
           echo "luajit_ref=$ref" >> "$GITHUB_OUTPUT"
+          ref=$(sed -n '/kosmickrisp = {/,/}/s/^[[:space:]]*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
+          test -n "$ref"
+          echo "mesa_ref=$ref" >> "$GITHUB_OUTPUT"
+          ref=$(sed -n '/kosmickrisp = {/,/}/s/^[[:space:]]*loader_ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
+          test -n "$ref"
+          echo "loader_ref=$ref" >> "$GITHUB_OUTPUT"
+          ref=$(sed -n '/kosmickrisp = {/,/}/s/^[[:space:]]*spirv_tools_ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
+          test -n "$ref"
+          echo "spirv_tools_ref=$ref" >> "$GITHUB_OUTPUT"
 
   shaderc:
     needs: ref
@@ -257,4 +270,106 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "luajit ${LUAJIT_REF:0:7}" \
             --notes "LuaJIT built from https://github.com/LuaJIT/LuaJIT at commit $LUAJIT_REF with LUAJIT_ENABLE_LUA52COMPAT, unmodified. MIT, see luajit-COPYRIGHT.txt. Hashes are pinned in goluwa/bin_manifest.lua. The windows zip is luajit.exe, lua51.dll and the app-local vcruntime140 dlls, keep them in one folder." \
+            --prerelease
+
+  kosmickrisp:
+    needs: ref
+    if: inputs.component == 'kosmickrisp' || inputs.component == 'all'
+    runs-on: macos-26
+    env:
+      MESA_REF: ${{ needs.ref.outputs.mesa_ref }}
+      LOADER_REF: ${{ needs.ref.outputs.loader_ref }}
+      SPIRV_TOOLS_REF: ${{ needs.ref.outputs.spirv_tools_ref }}
+    steps:
+      - name: fetch sources
+        run: |
+          git clone --depth 1 --branch "$LOADER_REF" https://github.com/KhronosGroup/Vulkan-Loader loader
+          git clone --depth 1 --branch "$MESA_REF" https://gitlab.freedesktop.org/mesa/mesa.git mesa
+
+      - name: install dependencies
+        run: |
+          brew install meson cmake ninja pkg-config libclc llvm spirv-llvm-translator
+          python3 -m venv "$HOME/venv_mesa"
+          "$HOME/venv_mesa/bin/pip" install mako packaging pyyaml
+
+      - name: build vulkan loader
+        run: |
+          cd loader
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DUPDATE_DEPS=ON -DBUILD_TESTS=OFF
+          cmake --build build
+          mkdir -p ../out
+          cp -L build/loader/libvulkan.1.dylib ../out/libvulkan-macos-arm64.dylib
+
+      - name: build static spirv-tools
+        run: |
+          git clone --depth 1 --branch "$SPIRV_TOOLS_REF" https://github.com/KhronosGroup/SPIRV-Tools spirv-tools
+          cd spirv-tools
+          python3 utils/git-sync-deps
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DSPIRV_SKIP_TESTS=ON -DSPIRV_SKIP_EXECUTABLES=ON -DCMAKE_INSTALL_PREFIX="$HOME/spirv-static"
+          cmake --build build
+          cmake --install build
+          ls "$HOME/spirv-static/lib"
+          cat "$HOME/spirv-static/lib/pkgconfig/SPIRV-Tools.pc"
+
+      - name: build kosmickrisp
+        run: |
+          export PKG_CONFIG_PATH="$HOME/spirv-static/lib/pkgconfig:$PKG_CONFIG_PATH"
+          source "$HOME/venv_mesa/bin/activate"
+          export PATH="$(brew --prefix llvm)/bin:$PATH"
+          llvm-config --version
+          cd mesa
+          meson setup build --buildtype=release -Dplatforms=macos -Dvulkan-drivers=kosmickrisp \
+            -Dgallium-drivers= -Dopengl=false -Dzstd=disabled --prefer-static
+          ninja -C build
+          otool -L build/src/kosmickrisp/vulkan/libvulkan_kosmickrisp.dylib
+          cp -L build/src/kosmickrisp/vulkan/libvulkan_kosmickrisp.dylib ../out/libvulkan_kosmickrisp-macos-arm64.dylib
+          cp docs/license.rst ../out/mesa-LICENSE.txt
+          cp ../loader/LICENSE.txt ../out/vulkan-loader-LICENSE.txt
+
+      - name: check dependencies
+        run: |
+          for f in out/*.dylib; do
+            echo "== $f"
+            otool -L "$f"
+            if otool -L "$f" | tail -n +2 | grep -E '/opt/homebrew|/usr/local'; then
+              echo "$f links against a homebrew library"
+              exit 1
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kosmickrisp-macos-arm64
+          path: out/*
+
+  kosmickrisp_release:
+    needs: [ref, kosmickrisp]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MESA_REF: ${{ needs.ref.outputs.mesa_ref }}
+      LOADER_REF: ${{ needs.ref.outputs.loader_ref }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: publish release
+        run: |
+          cd artifacts
+          {
+            echo "## sha256 for goluwa/bin_manifest.lua"
+            echo '```'
+            sha256sum libvulkan-macos-arm64.dylib libvulkan_kosmickrisp-macos-arm64.dylib | tee /dev/stderr
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh release create "kosmickrisp-$MESA_REF" libvulkan-macos-arm64.dylib libvulkan_kosmickrisp-macos-arm64.dylib mesa-LICENSE.txt vulkan-loader-LICENSE.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "kosmickrisp $MESA_REF" \
+            --notes "KosmicKrisp from https://gitlab.freedesktop.org/mesa/mesa at $MESA_REF (MIT) and the Khronos Vulkan loader from https://github.com/KhronosGroup/Vulkan-Loader at $LOADER_REF (Apache-2.0), built unmodified for macOS arm64 (macOS 26+, Metal 4). Hashes are pinned in goluwa/bin_manifest.lua." \
             --prerelease
