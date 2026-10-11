@@ -66,7 +66,9 @@ function LuaState.New()
 	if L == nil then error("Failed to create new Lua state: Out of memory", 2) end
 
 	ffi.C.luaL_openlibs(L)
-	return LuaState.FromLuaState(L)
+	local state = LuaState.FromLuaState(L)
+	state.owned = true
+	return state
 end
 
 function LuaState.FromLuaState(L)
@@ -118,6 +120,8 @@ end
 
 function LuaState:Close()
 	if not self.lua_state then return true end
+
+	if self.owned then ffi.C.lua_close(self.lua_state) end
 
 	self.lua_state = nil
 	self.func_ptr = nil
