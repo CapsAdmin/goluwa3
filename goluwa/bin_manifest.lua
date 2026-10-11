@@ -26,9 +26,18 @@ return {
 		ref = "c6ffc141a8762b41703f9287d63d93622a13dd8f",
 		release = release_url .. "luajit-c6ffc14/",
 		assets = {
-			["windows-x64"] = {file = "luajit-windows-x64.zip"},
-			["linux-x64"] = {file = "luajit-linux-x64"},
-			["macos-arm64"] = {file = "luajit-macos-arm64"},
+			["windows-x64"] = {
+				file = "luajit-windows-x64.zip",
+				sha256 = "616a66147a56c494f7f1a7771a2e70db275daf86a6e1bb7e1e815c266e65493c",
+			},
+			["linux-x64"] = {
+				file = "luajit-linux-x64",
+				sha256 = "8b8cdb1f52bc86e1e8a4f47b8ed872104dfa81f5efe2f9ee803ae2ba29ec9801",
+			},
+			["macos-arm64"] = {
+				file = "luajit-macos-arm64",
+				sha256 = "9d00d154d0e119d74984d0bfa3d78513a3737dfc62f5488158560cece46a004c",
+			},
 		},
 	},
 	kosmickrisp = {
