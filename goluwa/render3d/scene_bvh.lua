@@ -497,6 +497,8 @@ do
 		local ranges = {}
 		local triangle_copies, uv_copies
 		local copy_capacity = 0
+		local soup_stages = {"vertex", "fragment", "compute"}
+		local soup_stages_rt = {"vertex", "fragment", "compute", "ray_tracing_shader_khr"}
 		local UPLOAD_SLOTS = 4
 		local slots = {}
 		local next_slot = 0
@@ -631,7 +633,7 @@ do
 
 			cmd:PipelineBarrier{
 				srcStage = "transfer",
-				dstStage = {"vertex", "fragment", "compute", "ray_tracing_shader_khr"},
+				dstStage = render.GetDevice().ray_tracing_supported and soup_stages_rt or soup_stages,
 				bufferBarriers = barriers,
 			}
 			cmd:End()
