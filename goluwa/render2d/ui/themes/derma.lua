@@ -398,6 +398,16 @@ function DermaTheme:ResolveButtonStyleContext(state)
 		context.foreground_token = state.disabled and "text_disabled" or "text_combo"
 	elseif state.mode == "menu" or (state.mode == "text" and state.button_color == nil) then
 		context.foreground_token = state.disabled and "text_disabled" or nil
+	elseif state.mode == "tab" then
+		if state.disabled then
+			context.foreground_token = "text_disabled"
+		elseif state.active then
+			context.foreground_token = "text_tab_active"
+		elseif state.hovered then
+			context.foreground_token = "heading"
+		else
+			context.foreground_token = "text"
+		end
 	end
 
 	return context
@@ -410,10 +420,13 @@ function DermaTheme:DrawMenuButton(size, state)
 end
 
 function DermaTheme:DrawTabButton(size, state)
-	local region = state.active and REGIONS.tab_active or REGIONS.tab_inactive
-	local tint = (not state.active and state.hovered) and WHITE or nil
-	local tab_tint = state.active and nil or self.PanelTint
-	self:DrawRegion(region, 0, 0, math.floor(size.x), math.floor(size.y), tint or tab_tint)
+	local w, h = math.floor(size.x), math.floor(size.y)
+
+	if state.active then
+		self:DrawRegion(REGIONS.tab_active, 0, 0, w, h + 3)
+	else
+		self:DrawRegion(REGIONS.tab_inactive, 0, 3, w, h - 3)
+	end
 end
 
 function DermaTheme:DrawTabBar(size)
