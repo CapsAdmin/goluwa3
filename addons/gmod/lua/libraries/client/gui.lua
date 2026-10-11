@@ -972,7 +972,20 @@ do
 		end)
 
 		hook(obj, "OnMouseMove", function(_, pos)
-			call_panel_method(self, "OnCursorMoved", x, y)
+			call_panel_method(self, "OnCursorMoved", pos.x, pos.y)
+		end)
+
+		obj:AddLocalListener("OnGlobalMouseMove", function(_, pos)
+			if obj.global_mouse_capture and not is_panel_mouse_over(obj) then
+				local local_pos = obj.transform:GlobalToLocal(pos)
+				call_panel_method(self, "OnCursorMoved", local_pos.x, local_pos.y)
+			end
+		end)
+
+		obj:AddLocalListener("OnGlobalMouseInput", function(_, button, press)
+			if obj.global_mouse_capture and not press and not is_panel_mouse_over(obj) then
+				call_panel_method(self, "OnMouseReleased", gine.GetMouseCode(button))
+			end
 		end)
 
 		hook(obj, "OnMouseEnter", function()

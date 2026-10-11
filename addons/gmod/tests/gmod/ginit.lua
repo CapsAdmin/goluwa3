@@ -927,6 +927,26 @@ T.TestGmod("gmod spawnlists load as one consistent hierarchy", function()
 	end
 end)
 
+T.TestGmod("gmod mouse capture delivers cursor movement outside the panel", function()
+	local panel = gine.env.vgui.Create("DPanel")
+	local moved_x
+	panel:SetPos(10, 10)
+	panel:SetSize(50, 50)
+
+	function panel:OnCursorMoved(x, y)
+		moved_x = x
+	end
+
+	panel:MouseCapture(true)
+	panel.__obj:CallLocalEvent("OnGlobalMouseMove", Vec2(400, 400))
+	attest.truthy(moved_x ~= nil)
+	panel:MouseCapture(false)
+	moved_x = nil
+	panel.__obj:CallLocalEvent("OnGlobalMouseMove", Vec2(400, 400))
+	attest.equal(moved_x, nil)
+	panel:Remove()
+end)
+
 T.TestGmod("gmod text entry keeps the size set by lua", function()
 	local entry = gine.env.vgui.Create("DTextEntry")
 	entry:SetWide(150)
