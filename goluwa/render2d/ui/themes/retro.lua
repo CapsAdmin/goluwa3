@@ -150,7 +150,7 @@ function RetroTheme:Initialize()
 		)
 	)
 	self:SetRadii({none = 0, XS = 0, S = 0, M = 0, L = 0, full = 0})
-	self:SetIconStyle({StrokeWidth = 2.25, LineCap = "butt", LineJoin = "miter", MiterLimit = 4})
+	self:SetIconStyle({StrokeWidth = 3, LineCap = "butt", LineJoin = "miter", MiterLimit = 4, Aliased = true})
 	self:SetFontSizes(
 		self:MergeTables(
 			self:GetFontSizes(),
