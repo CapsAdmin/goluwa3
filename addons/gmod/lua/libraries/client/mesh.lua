@@ -1,5 +1,7 @@
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+
 function gine.env.Mesh()
-	return gine.WrapObject(render2d.CreatePolygon3D(), "IMesh")
+	return gine.WrapObject(Polygon3D.New(), "IMesh")
 end
 
 local META = gine.EnsureMetaTable("IMesh")

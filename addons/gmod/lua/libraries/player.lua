@@ -1,3 +1,4 @@
+local crypto = import("goluwa/crypto.lua")
 local fallback_clients
 
 local function get_fallback_client()
