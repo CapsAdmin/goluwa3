@@ -98,6 +98,8 @@ local function set_panel_multiline(panel, b)
 	panel.multiline = not not b
 	local text = get_text_api(panel)
 
+	if text and text.SetAlignY then text:SetAlignY(panel.multiline and 0 or 0.5) end
+
 	if text then
 		if text.SetTextWrap then
 			text:SetTextWrap(panel.multiline)
@@ -510,7 +512,10 @@ local function create_panel(class_name, parent, name)
 	}
 
 	if class_name == "text_edit" or class_name == "text" then
-		panel:EnsureComponent("text")
+		local text = panel:EnsureComponent("text")
+		text:SetAutoSize(false)
+		text:SetInsetX(3)
+		text:SetAlignY(0.5)
 	end
 
 	panel.gine_enabled = panel.gine_enabled ~= false
