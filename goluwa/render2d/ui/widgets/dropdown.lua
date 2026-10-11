@@ -98,6 +98,8 @@ end
 function META:OnCreate()
 	self.Text = find_option_text(self.Options, self.Value) or self.Text
 	META.BaseClass.OnCreate(self)
+	self:SetState("theme_role", "dropdown")
+	self:update_style()
 	self._indicator_fraction = 0
 	self._suppress_next_open = false
 	self._indicator = Icon{

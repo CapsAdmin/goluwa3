@@ -4,6 +4,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
 local order_log
 
 local function create_ordered_template(name)
@@ -267,4 +268,10 @@ T.Test2D("buttons recompute their style when the theme changes", function()
 	T(button.style:GetForegroundColor())["=="]("text_on_accent")
 	button:Remove()
 	theme.LoadTheme(original)
+end)
+
+T.Test2D("dropdowns tag themselves with a theme role", function()
+	local dropdown = Dropdown{Options = {"a", "b"}, Value = "a"}
+	T(dropdown:GetState("theme_role"))["=="]("dropdown")
+	dropdown:Remove()
 end)
