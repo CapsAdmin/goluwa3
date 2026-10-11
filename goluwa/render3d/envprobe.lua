@@ -1449,11 +1449,12 @@ function envprobe.PrefilterProbe(cmd, probe)
 	envprobe.current_prefilter_probe = probe
 	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal")
 	local roughest_mip = math.max(math.min(ibl.GetPrefilterMipCount(SIZE), num_mips) - 1, 1)
+	local base_w, base_h = equirect_dims(SIZE)
 
 	for m = 0, num_mips - 1 do
 		envprobe.current_roughness = math.min(m / roughest_mip, 1)
-		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
-		local w, h = equirect_dims(mip_size)
+		local w = math.max(1, math.floor(base_w / (2 ^ m)))
+		local h = math.max(1, math.floor(base_h / (2 ^ m)))
 		render_equirect(
 			cmd,
 			envprobe.prefilter_pipeline,
