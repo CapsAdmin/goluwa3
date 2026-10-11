@@ -217,3 +217,13 @@ T.Test2D("retro theme draws text with a shadow", function()
 	T(theme.active:GetTextShadow(theme.active:GetColor("text")))["=="](nil)
 	theme.LoadTheme(original)
 end)
+
+T.Test2D("themes can draw their icons aliased", function()
+	local active = theme.active
+	local style = active:GetIconStyle()
+	T(active:GetIcon("close"):GetAliased())["=="](false)
+	active:SetIconStyle(active:MergeTables(style, {Aliased = true}))
+	T(active:GetIcon("close"):GetAliased())["=="](true)
+	active:SetIconStyle(style)
+	T(active:GetIcon("close"):GetAliased())["=="](false)
+end)

@@ -556,6 +556,7 @@ do
 				LineCap = style.LineCap,
 				LineJoin = style.LineJoin,
 				MiterLimit = style.MiterLimit,
+				Aliased = style.Aliased,
 			}
 		)
 		cache[name] = svg
@@ -602,6 +603,13 @@ do
 		local color = opts.color or self:GetColor("text")
 		local origin_x = (size.x - target_size) * (opts.origin_x or 0)
 		local origin_y = (size.y - target_size) * (opts.origin_y or 0)
+
+		if self:GetIconStyle().Aliased then
+			target_size = math.floor(target_size + 0.5)
+			origin_x = math.floor(origin_x + 0.5)
+			origin_y = math.floor(origin_y + 0.5)
+		end
+
 		render2d.PushMatrixf(
 			origin_x,
 			origin_y,

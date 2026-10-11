@@ -97,6 +97,7 @@ SVG:GetSet("StrokeWidth", nil)
 SVG:GetSet("LineCap", nil)
 SVG:GetSet("LineJoin", nil)
 SVG:GetSet("MiterLimit", nil)
+SVG:GetSet("Aliased", false)
 SVG:EndStorable()
 local STROKE_OPTIONS = {"StrokeWidth", "LineCap", "LineJoin", "MiterLimit"}
 
@@ -107,6 +108,8 @@ function SVG.New(source, options)
 		if options.Mode then self:SetMode(options.Mode) end
 
 		if options.TextureSize then self:SetTextureSize(options.TextureSize) end
+
+		if options.Aliased then self:SetAliased(true) end
 
 		if options.SDFSpread then self:SetSDFSpread(options.SDFSpread) end
 
@@ -193,12 +196,18 @@ function SVG:Draw()
 
 		if msdf then render2d.PushMSDF(true) end
 
-		local subpixel = render2d.PushSubpixelText(msdf)
+		local aliased = self.Aliased
+
+		if aliased then render2d.PushSDFSoftness(0) end
+
+		local subpixel = render2d.PushSubpixelText(msdf and not aliased)
 		render2d.PushSDFUV(0, 1, 1, 0)
 		render2d.DrawRectf(0, 0, 1, 1)
 		render2d.PopSDFUV()
 
 		if subpixel then render2d.PopSubpixelText() end
+
+		if aliased then render2d.PopSDFSoftness() end
 
 		if msdf then render2d.PopMSDF() end
 
