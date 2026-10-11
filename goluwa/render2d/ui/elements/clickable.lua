@@ -68,6 +68,10 @@ function META:OnStateChanged()
 	self:update_style()
 end
 
+function META:OnThemeChanged()
+	self:update_style()
+end
+
 function META:OnStartClick()
 	return true
 end
