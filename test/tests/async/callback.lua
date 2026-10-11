@@ -234,7 +234,7 @@ end)
 T.Test("callback.Get pumps updates in glw lua subprocess", function()
 	local proc = assert(
 		process.spawn{
-			command = "luajit",
+			command = process.get_executable_path(),
 			args = {
 				"glw",
 				"--one-frame",

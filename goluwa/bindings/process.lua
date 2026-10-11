@@ -139,6 +139,14 @@ if ffi.os == "Windows" then
 	local STARTF_USESTDHANDLES = 0x00000100
 	local HANDLE_FLAG_INHERIT = 0x00000001
 
+	local function quote_argument(arg)
+		if arg ~= "" and not arg:find("[%s\"]") then return arg end
+
+		local quoted = arg:gsub("(\\*)\"", "%1%1\\\"")
+		quoted = quoted:gsub("(\\+)$", "%1%1")
+		return "\"" .. quoted .. "\""
+	end
+
 	function process.setenv(key, val)
 		local res = ffi.C.SetEnvironmentVariableA(key, val)
 
@@ -188,15 +196,11 @@ if ffi.os == "Windows" then
 
 		if not command then return nil, "command is required" end
 
-		local cmdline = command
+		local cmdline = quote_argument(command)
 
 		if opts.args then
 			for _, arg in ipairs(opts.args) do
-				if arg:match("%s") then
-					cmdline = cmdline .. " \"" .. arg .. "\""
-				else
-					cmdline = cmdline .. " " .. arg
-				end
+				cmdline = cmdline .. " " .. quote_argument(arg)
 			end
 		end
 

@@ -1,6 +1,8 @@
 local T = import("test/environment.lua")
 local process = import("goluwa/bindings/process.lua")
 
+local luajit = process.get_executable_path()
+
 local function read_all_stdout(proc)
 	local result = ""
 
@@ -16,14 +18,27 @@ local function read_all_stdout(proc)
 end
 
 T.Test("echo command with piped output", function()
-	local proc = assert(process.spawn{command = "echo", args = {"hello", "world"}, stdout = "pipe"})
+	local proc = assert(
+		process.spawn{
+			command = luajit,
+			args = {"-e", "io.write('hello world')"},
+			stdout = "pipe",
+		}
+	)
 	T(proc.pid)["~="](nil)
 	T(read_all_stdout(proc))["contains"]("hello world")
 	T(assert(proc:wait()))["=="](0)
 end)
 
 T.Test("cat with stdin/stdout pipe", function()
-	local proc = assert(process.spawn{command = "cat", stdin = "pipe", stdout = "pipe"})
+	local proc = assert(
+		process.spawn{
+			command = luajit,
+			args = {"-e", "io.write(io.read('*l'), '\\n') io.flush()"},
+			stdin = "pipe",
+			stdout = "pipe",
+		}
+	)
 	local test_msg = "Hello from stdin!"
 	local written = proc:write(test_msg .. "\n")
 	T(written)[">"](0)
@@ -42,7 +57,7 @@ T.Test("cat with stdin/stdout pipe", function()
 end)
 
 T.Test("try_wait non-blocking check", function()
-	local proc = assert(process.spawn{command = "sh", args = {"-c", "exit 0"}})
+	local proc = assert(process.spawn{command = luajit, args = {"-e", "os.exit(0)"}})
 	local success = T.RunUntil2(function()
 		done, code = proc:try_wait()
 		return done == true
@@ -52,10 +67,10 @@ T.Test("try_wait non-blocking check", function()
 	T(code)["=="](0)
 end)
 
-T.Test("directory listing with ls", function()
+T.Test("multi line output", function()
 	local proc = assert(process.spawn{
-		command = "ls",
-		args = {"-1"},
+		command = luajit,
+		args = {"-e", "print('a') print('b')"},
 		stdout = "pipe",
 	})
 	local ls_output = read_all_stdout(proc)
@@ -69,11 +84,11 @@ T.Test("directory listing with ls", function()
 	T(assert(proc:wait()))["=="](0)
 end)
 
-T.Test("stderr capture with invalid path", function()
+T.Test("stderr capture with failing command", function()
 	local proc = assert(
 		process.spawn{
-			command = "ls",
-			args = {"/this/path/does/not/exist"},
+			command = luajit,
+			args = {"-e", "io.stderr:write('failed') os.exit(2)"},
 			stdout = "pipe",
 			stderr = "pipe",
 		}
