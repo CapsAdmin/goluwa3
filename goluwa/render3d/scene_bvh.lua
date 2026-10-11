@@ -76,6 +76,8 @@ scene_bvh.soup_version = 0
 scene_bvh.top_version = 0
 scene_bvh.dirty_boxes = {}
 scene_bvh.emissive_blocks = {}
+scene_bvh.emitter_version = 0
+scene_bvh.emissive_visible = {}
 scene_bvh.dirty_components = {}
 scene_bvh.visual_cache = {}
 scene_bvh.animated_blocks = {}
@@ -1647,6 +1649,8 @@ do
 		mark_soup_dirty(vc.tri_base, vc.tri_cap)
 
 		if not vc.emissive then
+			if vc.emitter_count ~= 0 then scene_bvh.emitter_version = scene_bvh.emitter_version + 1 end
+
 			vc.emitter_count = 0
 			return
 		end
@@ -1697,6 +1701,8 @@ do
 		end
 
 		vc.emitter_count = count
+
+		if not vc.hidden then scene_bvh.emitter_version = scene_bvh.emitter_version + 1 end
 	end
 
 	local function write_block(vc)
@@ -2154,12 +2160,24 @@ do
 
 		if scene_bvh.emissive_changed then
 			local emissive_blocks = {}
+			local emissive_visible = {}
+			local membership_changed = false
 
 			for vc in pairs(scene_bvh.emissive_set) do
-				if not vc.hidden then emissive_blocks[#emissive_blocks + 1] = vc end
+				if not vc.hidden then
+					emissive_blocks[#emissive_blocks + 1] = vc
+					emissive_visible[vc] = true
+
+					if not scene_bvh.emissive_visible[vc] then membership_changed = true end
+				end
+			end
+
+			if membership_changed or #emissive_blocks ~= #scene_bvh.emissive_blocks then
+				scene_bvh.emitter_version = scene_bvh.emitter_version + 1
 			end
 
 			scene_bvh.emissive_blocks = emissive_blocks
+			scene_bvh.emissive_visible = emissive_visible
 			scene_bvh.emissive_changed = false
 		end
 

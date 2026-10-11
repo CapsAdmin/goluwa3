@@ -1597,8 +1597,7 @@ do
 		count = 0,
 		weight = 0,
 		version = 0,
-		soup_version = -1,
-		top_version = -1,
+		emitter_version = -1,
 		cell_size = 0,
 		additive = false,
 		excluded_count = 0,
@@ -1615,8 +1614,7 @@ do
 		local additive = additive_emitters:Get()
 
 		if
-			emitters.soup_version == scene_bvh.soup_version and
-			emitters.top_version == scene_bvh.top_version and
+			emitters.emitter_version == scene_bvh.emitter_version and
 			emitters.cell_size == cell_size and
 			emitters.additive == additive
 		then
@@ -1757,8 +1755,7 @@ do
 		emitters.additive = additive
 		emitters.excluded_count = excluded_count
 		emitters.excluded_power = excluded_power
-		emitters.soup_version = scene_bvh.soup_version
-		emitters.top_version = scene_bvh.top_version
+		emitters.emitter_version = scene_bvh.emitter_version
 		emitters.version = emitters.version + 1
 		return emitters
 	end
