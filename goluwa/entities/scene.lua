@@ -792,7 +792,7 @@ end
 function scene.Save(name)
 	local data = scene.Serialize()
 	local path = scene.GetPath(name)
-	vfs.CreateDirectoriesFromPath(path, true)
+	assert(vfs.CreateDirectoriesFromPath("os:" .. path))
 	local ok, err = vfs.Write(path, scene.Encode(data))
 
 	if not ok then
