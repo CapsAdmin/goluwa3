@@ -11,6 +11,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local render = import("goluwa/render/render.lua")
 local surface = gine.env.surface
+local previews
 
 local function wrap_text(font, text, max_width)
 	if render2d.WrapString then return render2d.WrapString(text, max_width, font) end
@@ -898,6 +899,15 @@ do
 				end
 			end
 
+			if obj.gmod_preview_entry then
+				local state = previews.Request(obj.gmod_preview_entry)
+
+				if state.status == "ready" then
+					render2d.SetBlendPreset("alpha")
+					previews.Draw(state, 0, 0, w, h)
+				end
+			end
+
 			call_panel_method(self, "PaintOver", obj.transform:GetWidth(), obj.transform:GetHeight())
 
 			if self.gine_layout then
@@ -920,6 +930,8 @@ do
 		end
 
 		obj:CallOnRemove(function()
+			if obj.gmod_preview_entry then previews.Release(obj.gmod_preview_entry) end
+
 			obj.marked_for_deletion = true
 			call_panel_method(self, "OnDeletion")
 		end)
@@ -1407,6 +1419,21 @@ do
 
 		function META:SetModel(model, skin, body_groups)
 			if not is_stub_model_preview(self) then return end
+
+			if self.__obj.vgui_type == "modelimage" and self.__obj.gmod_model_name ~= model then
+				previews = previews or import("lua/asset_preview.lua")
+
+				if self.__obj.gmod_preview_entry then
+					previews.Release(self.__obj.gmod_preview_entry)
+				end
+
+				self.__obj.gmod_preview_entry = {
+					category = "models",
+					extension = ".mdl",
+					path = model,
+					lower_path = model:lower(),
+				}
+			end
 
 			self.__obj.gmod_model_name = model
 			self.__obj.gmod_model_skin = skin or 0
