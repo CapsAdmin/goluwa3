@@ -214,7 +214,7 @@ function vfs.LinkFile(from, to)
 	end
 
 	if jit.os == "Windows" then
-		os.execute("MKLINK /H '" .. to .. "' '" .. from .. "'")
+		os.execute("MKLINK /H \"" .. to:gsub("/", "\\") .. "\" \"" .. from:gsub("/", "\\") .. "\"")
 	end
 end
 

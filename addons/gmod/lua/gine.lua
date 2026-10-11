@@ -10,6 +10,7 @@ import("lua/filewatcher.lua")
 local event = import("goluwa/event.lua")
 local steam = import("goluwa/steam/steam.lua")
 local system = import("goluwa/system.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 local timer = import("goluwa/timer.lua")
 local vfs = import("goluwa/vfs.lua")
 local R = vfs.GetAbsolutePath
@@ -214,6 +215,8 @@ do
 	end
 
 	local function shell_quote(str)
+		if jit.os == "Windows" then return '"' .. str .. '"' end
+
 		return "'" .. str:gsub("'", "'\"'\"'") .. "'"
 	end
 
@@ -287,9 +290,9 @@ do
 		local src_root = checkout_root:match("(.+/)garrysmod/$")
 
 		if src_root and not vfs.IsDirectory(src_root) then
-			local ok, err = os.execute("mkdir -p " .. shell_quote(src_root))
+			local ok, err = fs.create_directory_recursive(src_root)
 
-			if ok == nil and err then return nil, err end
+			if not ok then return nil, err end
 		end
 
 		local ok, err = os.execute("git clone --depth 1 " .. glua_source_repo .. " " .. shell_quote(checkout_root))
