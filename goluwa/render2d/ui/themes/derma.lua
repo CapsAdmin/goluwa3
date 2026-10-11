@@ -327,6 +327,16 @@ function DermaTheme:DrawButton(size, state)
 	self:DrawRegion(region, 0, 0, w, h, tint)
 end
 
+function DermaTheme:ResolveButtonStyleContext(state)
+	local context = self.BaseClass.ResolveButtonStyleContext(self, state)
+
+	if state.mode == "menu" then
+		context.foreground_token = state.disabled and "text_disabled" or "text_input"
+	end
+
+	return context
+end
+
 function DermaTheme:DrawMenuButton(size, state)
 	if state.pressed or state.selected or state.active or state.hovered then
 		self:DrawRegion(REGIONS.menu_hover, 0, 0, math.floor(size.x), math.floor(size.y))
@@ -445,7 +455,7 @@ function DermaTheme:DrawMenuSpacer(size, vertical)
 end
 
 function DermaTheme:DrawMenuContainer(size)
-	self:DrawRegion(REGIONS.menu, 0, 0, math.floor(size.x), math.floor(size.y), self.PanelTint)
+	self:DrawRegion(REGIONS.menu, 0, 0, math.floor(size.x), math.floor(size.y))
 end
 
 function DermaTheme:DrawSelectionFill(size, color, alpha)
