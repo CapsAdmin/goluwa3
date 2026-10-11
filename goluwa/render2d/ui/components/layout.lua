@@ -1013,6 +1013,8 @@ function META:OnFirstCreated()
 					end
 
 					root:UpdateLayout()
+
+					if layout.Dirty then layout:UpdateLayout() end
 				end
 			end
 		end,
