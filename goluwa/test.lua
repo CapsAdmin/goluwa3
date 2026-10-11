@@ -1252,6 +1252,7 @@ local commands = import("goluwa/cli/commands.lua")
 local json = import("goluwa/codecs/json.lua")
 local vfs = import("goluwa/vfs.lua")
 local MAX_PARALLEL_FILES = 8
+local MIN_MEMORY_HEADROOM = 4 * 1024 ^ 3
 local UNKNOWN_FILE_DURATION = 5
 
 commands.Add({
@@ -1502,6 +1503,12 @@ commands.Add({
 
 		while #pending > 0 or #running > 0 do
 			while #running < max_running and #pending > 0 do
+				if #running > 0 then
+					local memory = system.GetMemoryInfo()
+
+					if memory and memory.limit - memory.used < MIN_MEMORY_HEADROOM then break end
+				end
+
 				local test_item = table.remove(pending, 1)
 				local ok, thread_or_err = pcall(function()
 					local t = threads.new(thread_worker)
