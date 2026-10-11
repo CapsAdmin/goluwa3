@@ -173,6 +173,68 @@ function system.Sleep(seconds)
 end
 
 do
+	local function read_file(path)
+		local file = io.open(path, "rb")
+
+		if not file then return nil end
+
+		local content = file:read("*a")
+		file:close()
+		return content
+	end
+
+	-- returns the bytes this process tree may still use: limit is the tightest cgroup limit above the
+	-- process (or physical memory), used is its working set without the reclaimable file cache
+	function system.GetMemoryInfo()
+		if jit.os ~= "Linux" then return nil end
+
+		local meminfo = read_file("/proc/meminfo")
+		local limit = tonumber(meminfo:match("MemTotal:%s+(%d+)")) * 1024
+		local used = limit - tonumber(meminfo:match("MemAvailable:%s+(%d+)")) * 1024
+		local cgroup = read_file("/proc/self/cgroup")
+		local v2_path = ("\n" .. cgroup):match("\n0::(/[^\n]*)")
+		local v1_path = ("\n" .. cgroup):match("\n%d+:[^\n:]*memory[^\n:]*:(/[^\n]*)")
+		local root, path, limit_file, usage_file, inactive_key
+
+		if v2_path and read_file("/sys/fs/cgroup/memory.max") then
+			root, path = "/sys/fs/cgroup", v2_path
+			limit_file, usage_file, inactive_key = "memory.max", "memory.current", "inactive_file"
+		elseif v1_path then
+			root, path = "/sys/fs/cgroup/memory", v1_path
+			limit_file, usage_file, inactive_key = "memory.limit_in_bytes", "memory.usage_in_bytes", "total_inactive_file"
+		else
+			return {limit = limit, used = used}
+		end
+
+		while true do
+			local dir = path == "/" and root or root .. path
+			local group_limit = tonumber(read_file(dir .. "/" .. limit_file))
+
+			if group_limit and group_limit < 2 ^ 60 then
+				local group_usage = tonumber(read_file(dir .. "/" .. usage_file))
+
+				if group_usage then
+					local inactive = (read_file(dir .. "/memory.stat") or ""):match("\n" .. inactive_key .. " (%d+)")
+					group_usage = group_usage - (tonumber(inactive) or 0)
+
+					if group_limit - group_usage < limit - used then
+						limit, used = group_limit, group_usage
+					end
+				end
+			end
+
+			if path == "/" then break end
+
+			path = path:match("^(.*)/[^/]*$")
+
+			if path == "" then path = "/" end
+		end
+
+		return {limit = limit, used = used}
+	end
+end
+
+do
 	local refs = {}
 	local obj_refs = setmetatable({}, {__mode = "v"})
 	local is_running = false
