@@ -812,3 +812,10 @@ T.TestGmod("gmod dock layout defers fill until after right docks", function()
 
 	if frame.Remove then frame:Remove() end
 end)
+
+T.TestGmod("gmod Vector ToScreen reports coordinates and visibility", function()
+	local screen = gine.env.Vector(0, 0, 0):ToScreen()
+	attest.equal(type(screen.x), "number")
+	attest.equal(type(screen.y), "number")
+	attest.equal(type(screen.visible), "boolean")
+end)

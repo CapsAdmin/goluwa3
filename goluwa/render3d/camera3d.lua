@@ -114,34 +114,24 @@ do
 		local clip = world_to_screen_matrix:MultiplyVector(position.x, position.y, position.z, 1, world_to_screen_clip)
 		local w = clip.m03
 
-		if not skip_bounds_check then
-			if math.abs(w) < 1e-6 then return nil end
-
-			if w < 0 then return nil end
-		end
-
 		local ndc_x = clip.m00 / w
 		local ndc_y = clip.m01 / w
 		local ndc_z = clip.m02 / w
+		local visible = w > 1e-6 and
+			ndc_x >= -1 and
+			ndc_x <= 1 and
+			ndc_y >= -1 and
+			ndc_y <= 1 and
+			ndc_z >= 0 and
+			ndc_z <= 1
 
-		if
-			not skip_bounds_check and
-			(
-				ndc_x < -1 or
-				ndc_x > 1 or
-				ndc_y < -1 or
-				ndc_y > 1 or
-				ndc_z < 0 or
-				ndc_z > 1
-			)
-		then
-			return nil
-		end
+		if not skip_bounds_check and not visible then return nil end
 
 		return Vec2(
 			viewport_x + (ndc_x * 0.5 + 0.5) * viewport_width,
 			viewport_y + (ndc_y * 0.5 + 0.5) * viewport_height
-		)
+		),
+		visible
 	end
 
 	function META:WorldPositionToScreen(position, screen_width, screen_height, skip_bounds_check)

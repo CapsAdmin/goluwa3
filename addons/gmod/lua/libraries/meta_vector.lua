@@ -1,3 +1,4 @@
+local render3d = import("goluwa/render3d/render3d.lua")
 local META = gine.EnsureMetaTable("Vector")
 
 function gine.env.Vector(x, y, z)
@@ -87,11 +88,11 @@ function META.__div(a, b)
 end
 
 function META:ToScreen()
-	local pos, vis = math3d.WorldPositionToScreen(self.ptr)
+	local pos, visible = render3d.GetCamera():WorldPositionToScreen(self.ptr, nil, nil, true)
 	return {
 		x = pos.x,
 		y = pos.y,
-		visible = vis > 0,
+		visible = visible,
 	}
 end
 
