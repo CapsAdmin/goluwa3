@@ -2128,6 +2128,7 @@ else
 		local pos = 0
 		local fake_self = setmetatable(
 			{
+				closed = true,
 				event_queue = {},
 				mouse_enabled = opts.mouse_enabled ~= false,
 				bracketed_paste_enabled = opts.bracketed_paste_enabled ~= false,
