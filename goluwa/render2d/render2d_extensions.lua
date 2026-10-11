@@ -540,6 +540,58 @@ function render2d.DrawBox(x, y, w, h, radius, fill, outline, outline_width)
 end
 
 do
+	local src_x, src_y, dst_x, dst_y = {}, {}, {}, {}
+
+	-- draws the (sx, sy, sw, sh) pixel region of an atlas texture into (x, y, w, h), keeping the left/top/right/bottom
+	-- borders unscaled and stretching the rest. region coordinates are in image space with y pointing down, textures are
+	-- stored bottom-up so v is flipped here.
+	function render2d.DrawNinePatch(texture, sx, sy, sw, sh, left, top, right, bottom, x, y, w, h)
+		local size = texture:GetSize()
+		local tw, th = size.x, size.y
+		local near_x, far_x, near_y, far_y = left, right, top, bottom
+
+		if w < left + right then
+			local k = w / (left + right)
+			near_x, far_x = left * k, right * k
+		end
+
+		if h < top + bottom then
+			local k = h / (top + bottom)
+			near_y, far_y = top * k, bottom * k
+		end
+
+		src_x[1], src_x[2], src_x[3], src_x[4] = sx, sx + left, sx + sw - right, sx + sw
+		dst_x[1], dst_x[2], dst_x[3], dst_x[4] = x, x + near_x, x + w - far_x, x + w
+		src_y[1], src_y[2], src_y[3], src_y[4] = sy, sy + top, sy + sh - bottom, sy + sh
+		dst_y[1], dst_y[2], dst_y[3], dst_y[4] = y, y + near_y, y + h - far_y, y + h
+		render2d.PushTexture(texture)
+
+		for row = 1, 3 do
+			local dy1, dy2 = dst_y[row], dst_y[row + 1]
+
+			if dy2 > dy1 then
+				for col = 1, 3 do
+					local dx1, dx2 = dst_x[col], dst_x[col + 1]
+
+					if dx2 > dx1 and src_x[col + 1] > src_x[col] and src_y[row + 1] > src_y[row] then
+						render2d.PushColorUV(
+							src_x[col] / tw,
+							1 - src_y[row + 1] / th,
+							src_x[col + 1] / tw,
+							1 - src_y[row] / th
+						)
+						render2d.DrawRectf(dx1, dy1, dx2 - dx1, dy2 - dy1)
+						render2d.PopColorUV()
+					end
+				end
+			end
+		end
+
+		render2d.PopTexture()
+	end
+end
+
+do
 	local default_font_name = fonts.GetDefaultSystemFontPath()
 
 	function render2d.GetTextSize(text, font_name, size, weight, _softness)
