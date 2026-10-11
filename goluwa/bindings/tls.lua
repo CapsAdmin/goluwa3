@@ -1265,11 +1265,13 @@ end
 
 local function get_candidate_loaders()
 	if jit.os == "Windows" then
-		return {
-			load_windows_tls,
-			load_libtls,
-			load_openssl,
-		}
+		local backend = os.getenv("GOLUWA_TLS_BACKEND")
+
+		if backend == "libtls" then return {load_libtls} end
+
+		if backend == "openssl" then return {load_openssl} end
+
+		return {load_windows_tls}
 	end
 
 	if jit.os == "OSX" then
