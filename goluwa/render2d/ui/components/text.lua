@@ -18,6 +18,8 @@ META:GetSet("Text", "")
 META:GetSet("Wrap", false)
 META:GetSet("WrapToParent", false)
 META:GetSet("Elide", false)
+META:GetSet("AutoSize", true)
+META:GetSet("InsetX", 0)
 META:GetSet("Justify", false)
 META:GetSet("ElideString", "...")
 META:GetSet("AlignX", 0)
@@ -586,7 +588,8 @@ function META:OnTextChanged()
 		w, h = font:GetTextSize(self.draw_text or text)
 	end
 
-	if not self:GetWrap() and not self:GetElide() then
+	if not self.AutoSize then
+	elseif not self:GetWrap() and not self:GetElide() then
 		self.Owner.transform:SetSize(Vec2(w, h))
 	else
 		self.Owner.transform:SetHeight(h)
@@ -814,6 +817,8 @@ function META:GetTextOffset()
 		left, top, right, bottom = p.x, p.y, p.w, p.h
 	end
 
+	left = left + self.InsetX
+	right = right + self.InsetX
 	local content_size = Vec2(size.x - left - right, size.y - top - bottom)
 	local x, y = left, top
 	x = left + content_size.x * ax
