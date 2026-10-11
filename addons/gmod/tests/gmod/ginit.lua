@@ -833,3 +833,8 @@ T.TestGmod("gmod ProjectedTexture keeps its state", function()
 	lamp:Remove()
 	attest.falsy(lamp:IsValid())
 end)
+
+T.TestGmod("gmod CompileString accepts a missing identifier", function()
+	local func = gine.env.CompileString("return 1 + 1")
+	attest.equal(func(), 2)
+end)

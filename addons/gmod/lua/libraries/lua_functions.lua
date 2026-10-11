@@ -107,7 +107,7 @@ function gine.env.CompileString(code, identifier, handle_error)
 		error(code, 2)
 	end
 
-	local func, err = loadstring(code, "@" .. identifier)
+	local func, err = loadstring(code, "@" .. (identifier or "CompileString"))
 
 	if func then
 		setfenv(func, gine.env)
@@ -130,7 +130,7 @@ function gine.env.CompileFile(name)
 		full_path = full_path:match("^.+/(lua/.+)$")
 	end
 
-	return gine.env.CompileString(vfs.Read("lua/" .. name), "@" .. full_path, false)
+	return gine.env.CompileString(vfs.Read("lua/" .. name), full_path, false)
 end
 
 function gine.env.RunString(code, chunkname, handle_error)
