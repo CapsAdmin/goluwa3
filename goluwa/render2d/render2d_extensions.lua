@@ -565,6 +565,8 @@ do
 		src_y[1], src_y[2], src_y[3], src_y[4] = sy, sy + top, sy + sh - bottom, sy + sh
 		dst_y[1], dst_y[2], dst_y[3], dst_y[4] = y, y + near_y, y + h - far_y, y + h
 		render2d.PushTexture(texture)
+		render2d.PushSDFSoftness(0)
+		render2d.PushMargin(0)
 
 		for row = 1, 3 do
 			local dy1, dy2 = dst_y[row], dst_y[row + 1]
@@ -587,6 +589,8 @@ do
 			end
 		end
 
+		render2d.PopMargin()
+		render2d.PopSDFSoftness()
 		render2d.PopTexture()
 	end
 end
