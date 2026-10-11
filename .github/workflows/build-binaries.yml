@@ -202,10 +202,18 @@ jobs:
 
       - name: build (windows)
         if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          cd luajit\src
+          call msvcbuild.bat lua52compat amalg
+          if not exist luajit.exe exit /b 1
+          if not exist lua51.dll exit /b 1
+
+      - name: package (windows)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           cd luajit/src
-          cmd //c "msvcbuild.bat lua52compat amalg"
           dumpbin //dependents luajit.exe lua51.dll
           mkdir ../../out
           cp luajit.exe lua51.dll ../../out/
@@ -238,7 +246,7 @@ jobs:
       - name: smoke test
         if: runner.os != 'Windows'
         run: |
-          out/${{ matrix.asset }} -e "print(jit.version, jit.os, jit.arch, require('ffi').C.getpid())"
+          out/${{ matrix.asset }} -e "local ffi = require('ffi') ffi.cdef('int getpid(void);') print(jit.version, jit.os, jit.arch, ffi.C.getpid())"
 
       - uses: actions/upload-artifact@v4
         with:
