@@ -1576,19 +1576,26 @@ do
 		local logical_parent = get_panel_logical_parent(panel)
 		local wrap_width = self:GetWide()
 
-		if logical_parent and logical_parent:IsValid() and logical_parent.transform then
+		if
+			wrap_width <= 1 and
+			logical_parent and
+			logical_parent:IsValid() and
+			logical_parent.transform
+		then
 			wrap_width = logical_parent.transform:GetWidth()
 		end
 
 		local font = gine.render2d_fonts[panel.font_internal:lower()]
 		local text = tostring(panel.text_internal or "")
 
-		if not self.get_content_size then
-			if panel.gmod_wrap then
-				text = wrap_text(font, text, wrap_width)
-			elseif not text:find("\n", nil, true) then
-				text = limit_text(font, text, self:GetWide())
+		if self.get_content_size then
+			if panel.gmod_wrap and self:GetWide() > 1 then
+				text = wrap_text(font, text, self:GetWide() - panel.text_inset.x)
 			end
+		elseif panel.gmod_wrap then
+			text = wrap_text(font, text, wrap_width)
+		elseif not text:find("\n", nil, true) then
+			text = limit_text(font, text, self:GetWide())
 		end
 
 		local w, h
