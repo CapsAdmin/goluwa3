@@ -125,6 +125,7 @@ if ffi.os == "Windows" then
 		DWORD GetModuleFileNameA(HANDLE hModule, char* lpFilename, DWORD nSize);
 		DWORD GetCurrentDirectoryA(DWORD nBufferLength, char* lpBuffer);
 		int SetEnvironmentVariableA(const char *key, const char *val);
+		int _putenv_s(const char *key, const char *val);
 
 		DWORD GetCurrentProcessId(void);
 		HANDLE GetCurrentProcess(void);
@@ -142,6 +143,10 @@ if ffi.os == "Windows" then
 		local res = ffi.C.SetEnvironmentVariableA(key, val)
 
 		if res == 0 then return nil, lasterror() end
+
+		if ffi.C._putenv_s(key, val) ~= 0 then
+			return nil, "could not update the crt environment"
+		end
 
 		return true
 	end
