@@ -390,7 +390,11 @@ do
 			return lo_cell - math.floor((count - 1 - (hi_cell - lo_cell)) / 2), true
 		end
 
-		return math.clamp(math.floor(camera / spacing) - math.floor(count / 2), lo_cell, hi_cell - (count - 1)),
+		return math.clamp(
+			math.floor(camera / spacing) - math.floor(count / 2),
+			lo_cell,
+			hi_cell - (count - 1)
+		),
 		false
 	end
 
@@ -1236,9 +1240,11 @@ function ddgi.GetCommonGLSL()
 			return ddgi_ray_weight(d, uint(ddgi_data.ddgi_uniform_rays), tile, guided);
 		}
 
-		// the least weight a probe has in a blend for its visibility to be traced, for the callers
-		// that don't pass their own: the faint ones' share is too small to show if they leak
+		// a probe's visibility is traced if its weight in the blend is at least visibility_min_weight,
+		// or if what it adds to the blend so far is more than DDGI_VISIBILITY_MIN_SHARE of it. A faint
+		// probe outside a wall can still be many times brighter than the dark room it leaks into
 		#define DDGI_VISIBILITY_MIN_WEIGHT 0.02
+		#define DDGI_VISIBILITY_MIN_SHARE 0.02
 		#define DDGI_NO_VISIBILITY_RAYS 1e30
 
 		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
@@ -1303,11 +1309,15 @@ function ddgi.GetCommonGLSL()
 
 				w *= kernel.x * kernel.y * kernel.z;
 
+				vec4 irradiance = textureLod(
+					TEXTURE(ddgi_data.ddgi_irradiance_tex),
+					ddgi_atlas_uv(slot, c, L, DDGI_IRRADIANCE_TEXELS),
+					0.0
+				);
 				bool hidden = false;
 
 				#ifdef DDGI_VISIBILITY_RAYS
-				// a probe too faint in the blend for its visibility to show isn't traced
-				if (w >= visibility_min_weight && ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
+				if (visibility_min_weight < DDGI_NO_VISIBILITY_RAYS && (w >= visibility_min_weight || w * dot(irradiance.rgb, vec3(0.2126, 0.7152, 0.0722)) > DDGI_VISIBILITY_MIN_SHARE * dot(sum.rgb, vec3(0.2126, 0.7152, 0.0722))) && ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
 					vec3 origin = P + N * (0.02 * spacing);
 					vec3 to_probe_ray = probe_pos - origin;
 					float len = length(to_probe_ray);
@@ -1323,12 +1333,6 @@ function ddgi.GetCommonGLSL()
 					hidden = rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
 				}
 				#endif
-
-				vec4 irradiance = textureLod(
-					TEXTURE(ddgi_data.ddgi_irradiance_tex),
-					ddgi_atlas_uv(slot, c, L, DDGI_IRRADIANCE_TEXELS),
-					0.0
-				);
 
 				if (hidden) {
 					hidden_sum += irradiance * w;
