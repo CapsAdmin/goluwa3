@@ -421,7 +421,7 @@ local SHADOW_PROJECTION_GLSL = [[
 				float depth_step_world = 2.0 / (65535.0 * max(length(depth_row), 1e-8));
 				vec3 offset_pos = world_pos +
 					normal * (texel_world_size * (0.5 + 1.5 * slope) * filter_radius_texels) +
-					light_dir * max(texel_world_size, depth_step_world);
+					light_dir * max(texel_world_size * 0.25, depth_step_world);
 				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
 				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
