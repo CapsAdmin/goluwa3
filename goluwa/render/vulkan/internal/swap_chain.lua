@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local bit = require("bit")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Swapchain = objects.CreateTemplate("vulkan_swap_chain")
@@ -121,6 +122,7 @@ function Swapchain:GetNextImage(imageAvailableSemaphore)
 		nil,
 		imageIndex
 	)
+	result = bit.tobit(result)
 
 	if result == vulkan.vk.VkResult.VK_ERROR_OUT_OF_DATE_KHR then
 		return nil, "out_of_date"
@@ -144,6 +146,7 @@ function Swapchain:Present(renderFinishedSemaphore, deviceQueue, imageIndex)
 			pImageIndices = imageIndex,
 		}
 	)
+	result = bit.tobit(result)
 
 	if result == vulkan.vk.VkResult.VK_ERROR_OUT_OF_DATE_KHR then
 		return false
