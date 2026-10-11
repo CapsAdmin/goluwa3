@@ -234,3 +234,14 @@ T.Test2D("retro theme draws its icons aliased", function()
 	T(theme.active:GetIcon("close"):GetAliased())["=="](true)
 	theme.LoadTheme(original)
 end)
+
+T.Test2D("every theme defines a color for text inside inputs", function()
+	local original = theme.active:GetName()
+
+	for _, name in ipairs(theme.GetAvailable()) do
+		theme.LoadTheme(name)
+		T(theme.active:HasPaletteToken("text_input"))["=="](true)
+	end
+
+	theme.LoadTheme(original)
+end)

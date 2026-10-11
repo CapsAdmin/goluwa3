@@ -79,6 +79,7 @@ function JRPGTheme:ConfigurePalette(palette)
 		heading = warm_white,
 		default = warm_white,
 		text = warm_white,
+		text_input = warm_white,
 		text_foreground = warm_white,
 		text_button = warm_white,
 		text_on_accent = warm_white,

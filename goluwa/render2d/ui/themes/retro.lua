@@ -90,6 +90,7 @@ function RetroTheme:ConfigurePalette(palette)
 		heading_on_header_surface = Color.FromHex("#ffffff"),
 		default = butter,
 		text = butter,
+		text_input = butter,
 		foreground = butter,
 		text_foreground = butter,
 		text_button = Color.FromHex("#fff6d0"),

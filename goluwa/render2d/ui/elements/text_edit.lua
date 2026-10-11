@@ -163,7 +163,7 @@ function META:OnCreate()
 		Editable = editable,
 		Selectable = true,
 		Wrap = wrap,
-		Color = self.TextColor or "text",
+		Color = self.TextColor or "text_input",
 		SelectionColor = self.SelectionColor,
 		Font = self.Font,
 		OnKeyInput = on_text_key_input,

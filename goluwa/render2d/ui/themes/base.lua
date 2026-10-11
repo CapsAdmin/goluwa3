@@ -133,6 +133,7 @@ function BaseTheme:CreatePalette()
 		negative = base_map.red,
 		prefab = base_map.purple,
 		text = text,
+		text_input = text,
 		text_on_accent = Color.FromHex("#ffffff"),
 		text_on_dark = Color.FromHex("#ffffff"),
 		text_disabled = Color.FromHex("#a0a0a5"),

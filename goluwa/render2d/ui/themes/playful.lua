@@ -94,6 +94,7 @@ function PlayfulTheme:ConfigurePalette(palette)
 		heading = paper,
 		default = paper,
 		text = paper,
+		text_input = paper,
 		text_foreground = paper,
 		text_button = paper,
 		text_on_accent = ink,
