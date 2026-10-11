@@ -75,6 +75,8 @@ local function load_windows_tls()
 		int recv(uintptr_t, void*, int, int);
 		int send(uintptr_t, const void*, int, int);
 		int WSAGetLastError(void);
+		void *memmove(void *, const void *, size_t);
+		void Sleep(uint32_t);
 		uint32_t AcquireCredentialsHandleA(const char*, const char*, uint32_t, void*, void*, void*, void*, void*, void*);
 		uint32_t InitializeSecurityContextA(void*, void*, const char*, uint32_t, uint32_t, uint32_t, void*, uint32_t, void*, void*, uint32_t*, void*);
 		uint32_t CompleteAuthToken(void*, void*);
@@ -190,6 +192,35 @@ local function load_windows_tls()
 			"AcquireCredentialsHandle failed: " .. get_security_error_string(status)
 		end
 
+		local needs_recv = false
+		local plain = ""
+
+		local function send_all(fd, ptr, len)
+			local bytes = ffi.cast("const uint8_t *", ptr)
+			local sent_total = 0
+			local waited = 0
+
+			while sent_total < len do
+				local sent = ws2.send(fd, bytes + sent_total, len - sent_total, 0)
+
+				if sent > 0 then
+					sent_total = sent_total + sent
+					waited = 0
+				else
+					local err = ws2.WSAGetLastError()
+
+					if (err == WSAEWOULDBLOCK or err == WSAEINPROGRESS) and waited < 10000 then
+						kernel32.Sleep(1)
+						waited = waited + 1
+					else
+						return nil, "send failed: " .. get_wsa_error_string(err)
+					end
+				end
+			end
+
+			return sent_total
+		end
+
 		local function connect(fd, host)
 			stored_fd = fd
 
@@ -205,6 +236,25 @@ local function load_windows_tls()
 			local host_cstr = host and ffi.cast("const char*", host) or nil
 
 			while true do
+				if needs_recv then
+					local bytes = ws2.recv(fd, recv_buffer + recv_len, 65536 - recv_len, 0)
+
+					if bytes > 0 then
+						recv_len = recv_len + bytes
+						needs_recv = false
+					elseif bytes == 0 then
+						return nil, "Connection closed during handshake"
+					else
+						local err = ws2.WSAGetLastError()
+
+						if err == WSAEWOULDBLOCK or err == WSAEINPROGRESS then
+							return nil, "tryagain"
+						end
+
+						return nil, "recv failed: " .. get_wsa_error_string(err)
+					end
+				end
+
 				local outBuffers = ffi.new(SecBuffer2)
 				outBuffers[0].BufferType = SECBUFFER_TOKEN
 				outBuffers[0].cbBuffer = 0
@@ -228,10 +278,9 @@ local function load_windows_tls()
 					inBufferDesc = ffi.new(SecBufferDesc, SECBUFFER_VERSION, 2, inBuffers)
 				end
 
-				local hContextPtr = context_initialized and hContext or nil
 				status = secur32.InitializeSecurityContextA(
 					hCreds,
-					hContextPtr,
+					context_initialized and hContext or nil,
 					host_cstr,
 					dwSSPIFlags,
 					0,
@@ -261,18 +310,10 @@ local function load_windows_tls()
 					status == SEC_I_COMPLETE_AND_CONTINUE
 				then
 					if outBuffers[0].cbBuffer > 0 and outBuffers[0].pvBuffer ~= nil then
-						local sent = ws2.send(fd, outBuffers[0].pvBuffer, outBuffers[0].cbBuffer, 0)
+						local sent, err = send_all(fd, outBuffers[0].pvBuffer, outBuffers[0].cbBuffer)
 						secur32.FreeContextBuffer(outBuffers[0].pvBuffer)
 
-						if sent <= 0 then
-							local err = ws2.WSAGetLastError()
-
-							if err == WSAEWOULDBLOCK or err == WSAEINPROGRESS then
-								return nil, "tryagain"
-							end
-
-							return nil, "Failed to send handshake data"
-						end
+						if not sent then return nil, "Failed to send handshake data: " .. err end
 					end
 
 					if
@@ -281,7 +322,7 @@ local function load_windows_tls()
 						inBuffers[1].cbBuffer > 0
 					then
 						local extra_offset = recv_len - inBuffers[1].cbBuffer
-						ffi.copy(recv_buffer, recv_buffer + extra_offset, inBuffers[1].cbBuffer)
+						ffi.C.memmove(recv_buffer, recv_buffer + extra_offset, inBuffers[1].cbBuffer)
 						recv_len = inBuffers[1].cbBuffer
 					else
 						recv_len = 0
@@ -300,37 +341,9 @@ local function load_windows_tls()
 						return true
 					end
 
-					local bytes = ws2.recv(fd, recv_buffer + recv_len, 65536 - recv_len, 0)
-
-					if bytes > 0 then
-						recv_len = recv_len + bytes
-					elseif bytes == 0 then
-						return nil, "Connection closed during handshake"
-					else
-						local err = ws2.WSAGetLastError()
-
-						if err == WSAEWOULDBLOCK or err == WSAEINPROGRESS then
-							return nil, "tryagain"
-						end
-
-						return nil, "recv failed: " .. get_wsa_error_string(err)
-					end
+					needs_recv = recv_len == 0
 				elseif status == SEC_E_INCOMPLETE_MESSAGE then
-					local bytes = ws2.recv(fd, recv_buffer + recv_len, 65536 - recv_len, 0)
-
-					if bytes > 0 then
-						recv_len = recv_len + bytes
-					elseif bytes == 0 then
-						return nil, "Connection closed during handshake"
-					else
-						local err = ws2.WSAGetLastError()
-
-						if err == WSAEWOULDBLOCK or err == WSAEINPROGRESS then
-							return nil, "tryagain"
-						end
-
-						return nil, "recv failed: " .. get_wsa_error_string(err)
-					end
+					needs_recv = true
 				else
 					return nil, "Handshake failed: " .. get_security_error_string(status)
 				end
@@ -342,38 +355,56 @@ local function load_windows_tls()
 
 			if not stream_sizes then return nil, "Stream sizes not initialized" end
 
-			local msg_buffer = ffi.new("uint8_t[?]", stream_sizes.cbHeader + #data + stream_sizes.cbTrailer)
-			ffi.copy(msg_buffer + stream_sizes.cbHeader, data, #data)
-			local buffers = ffi.new(SecBuffer4)
-			buffers[0].BufferType = SECBUFFER_STREAM_HEADER
-			buffers[0].cbBuffer = stream_sizes.cbHeader
-			buffers[0].pvBuffer = msg_buffer
-			buffers[1].BufferType = SECBUFFER_DATA
-			buffers[1].cbBuffer = #data
-			buffers[1].pvBuffer = msg_buffer + stream_sizes.cbHeader
-			buffers[2].BufferType = SECBUFFER_STREAM_TRAILER
-			buffers[2].cbBuffer = stream_sizes.cbTrailer
-			buffers[2].pvBuffer = msg_buffer + stream_sizes.cbHeader + #data
-			buffers[3].BufferType = SECBUFFER_EMPTY
-			buffers[3].cbBuffer = 0
-			buffers[3].pvBuffer = nil
-			local bufferDesc = ffi.new(SecBufferDesc, SECBUFFER_VERSION, 4, buffers)
-			status = secur32.EncryptMessage(hContext, 0, bufferDesc, 0)
+			local offset = 0
 
-			if status ~= SEC_E_OK then
-				return nil, "EncryptMessage failed: " .. get_security_error_string(status)
+			while offset < #data do
+				local chunk_len = math.min(#data - offset, stream_sizes.cbMaximumMessage)
+				local msg_buffer = ffi.new("uint8_t[?]", stream_sizes.cbHeader + chunk_len + stream_sizes.cbTrailer)
+				ffi.copy(msg_buffer + stream_sizes.cbHeader, ffi.cast("const uint8_t *", data) + offset, chunk_len)
+				local buffers = ffi.new(SecBuffer4)
+				buffers[0].BufferType = SECBUFFER_STREAM_HEADER
+				buffers[0].cbBuffer = stream_sizes.cbHeader
+				buffers[0].pvBuffer = msg_buffer
+				buffers[1].BufferType = SECBUFFER_DATA
+				buffers[1].cbBuffer = chunk_len
+				buffers[1].pvBuffer = msg_buffer + stream_sizes.cbHeader
+				buffers[2].BufferType = SECBUFFER_STREAM_TRAILER
+				buffers[2].cbBuffer = stream_sizes.cbTrailer
+				buffers[2].pvBuffer = msg_buffer + stream_sizes.cbHeader + chunk_len
+				buffers[3].BufferType = SECBUFFER_EMPTY
+				buffers[3].cbBuffer = 0
+				buffers[3].pvBuffer = nil
+				local bufferDesc = ffi.new(SecBufferDesc, SECBUFFER_VERSION, 4, buffers)
+				status = secur32.EncryptMessage(hContext, 0, bufferDesc, 0)
+
+				if status ~= SEC_E_OK then
+					return nil, "EncryptMessage failed: " .. get_security_error_string(status)
+				end
+
+				local sent, err = send_all(
+					stored_fd,
+					msg_buffer,
+					buffers[0].cbBuffer + buffers[1].cbBuffer + buffers[2].cbBuffer
+				)
+
+				if not sent then return nil, err end
+
+				offset = offset + chunk_len
 			end
-
-			local total_len = buffers[0].cbBuffer + buffers[1].cbBuffer + buffers[2].cbBuffer
-			local sent = ws2.send(stored_fd, msg_buffer, total_len, 0)
-
-			if sent <= 0 then return nil, "Send failed" end
 
 			return #data
 		end
 
 		local function receive(buffer, max_size)
 			if state ~= "connected" then return nil, "Not connected" end
+
+			if #plain > 0 then
+				local len = math.min(#plain, max_size)
+				ffi.copy(buffer, plain, len)
+				local out = plain:sub(1, len)
+				plain = plain:sub(len + 1)
+				return out
+			end
 
 			while true do
 				if recv_len == 0 then
@@ -416,25 +447,33 @@ local function load_windows_tls()
 						end
 					end
 
-					if data_buffer_idx >= 0 then
-						local data_len = math.min(buffers[data_buffer_idx].cbBuffer, max_size)
-						ffi.copy(buffer, buffers[data_buffer_idx].pvBuffer, data_len)
+					local decrypted
 
-						if extra_buffer_idx >= 0 and buffers[extra_buffer_idx].cbBuffer > 0 then
-							ffi.copy(
-								recv_buffer,
-								buffers[extra_buffer_idx].pvBuffer,
-								buffers[extra_buffer_idx].cbBuffer
-							)
-							recv_len = buffers[extra_buffer_idx].cbBuffer
-						else
-							recv_len = 0
-						end
-
-						return ffi.string(buffer, data_len)
+					if data_buffer_idx >= 0 and buffers[data_buffer_idx].cbBuffer > 0 then
+						decrypted = ffi.string(buffers[data_buffer_idx].pvBuffer, buffers[data_buffer_idx].cbBuffer)
 					end
 
-					return ""
+					if extra_buffer_idx >= 0 and buffers[extra_buffer_idx].cbBuffer > 0 then
+						ffi.C.memmove(
+							recv_buffer,
+							buffers[extra_buffer_idx].pvBuffer,
+							buffers[extra_buffer_idx].cbBuffer
+						)
+						recv_len = buffers[extra_buffer_idx].cbBuffer
+					else
+						recv_len = 0
+					end
+
+					if decrypted then
+						local len = math.min(#decrypted, max_size)
+						ffi.copy(buffer, decrypted, len)
+						plain = decrypted:sub(len + 1)
+						return decrypted:sub(1, len)
+					end
+
+					if status == SEC_I_CONTEXT_EXPIRED then return "" end
+
+					if recv_len == 0 then return nil, "tryagain" end
 				elseif status == SEC_E_INCOMPLETE_MESSAGE then
 					local bytes = ws2.recv(stored_fd, recv_buffer + recv_len, 65536 - recv_len, 0)
 
