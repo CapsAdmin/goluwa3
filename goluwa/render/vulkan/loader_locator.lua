@@ -78,7 +78,7 @@ local function load_bundled()
 	return lib
 end
 
-local function download_bundled()
+local function download_bundled(force)
 	if not assets then
 		error("no bundled vulkan driver is published for " .. bin_download.platform, 0)
 	end
@@ -91,7 +91,9 @@ local function download_bundled()
 		error("the bundled vulkan driver (KosmicKrisp) needs macOS 26 or later, this is " .. version, 0)
 	end
 
-	if not bin_download.GetTerminal() then
+	if force then
+		logn("[vulkan] GOLUWA_FORCE_DOWNLOAD is set, downloading the vulkan loader and driver")
+	elseif not bin_download.GetTerminal() then
 		error(
 			string.format(
 				"no vulkan loader found. Put the files from %s\n(%s and %s) in %s",
@@ -104,12 +106,14 @@ local function download_bundled()
 		)
 	end
 
-	logn("")
-	logn("[vulkan] no vulkan loader was found on this system.")
-	logn("  Download the Khronos Vulkan loader and the KosmicKrisp driver (Vulkan on Metal) from")
-	logn("  " .. manifest.release .. " ? [y/N]")
+	if not force then
+		logn("")
+		logn("[vulkan] no vulkan loader was found on this system.")
+		logn("  Download the Khronos Vulkan loader and the KosmicKrisp driver (Vulkan on Metal) from")
+		logn("  " .. manifest.release .. " ? [y/N]")
 
-	if bin_download.ReadKey() ~= "y" then error("vulkan download declined", 0) end
+		if bin_download.ReadKey() ~= "y" then error("vulkan download declined", 0) end
+	end
 
 	for _, asset in pairs({assets.loader, assets.driver}) do
 		assert(bin_download.Download(manifest.release, asset, locator.GetDirectory()))
@@ -135,6 +139,12 @@ function locator.Locate()
 	end
 
 	fs.create_directory_recursive(locator.GetDirectory())
+
+	if os.getenv("GOLUWA_FORCE_DOWNLOAD") == "1" then
+		download_bundled(true)
+
+		return assert(load_bundled())
+	end
 
 	if os.getenv("GOLUWA_VULKAN_BUNDLED") ~= "1" then
 		local lib = load_system_loader()

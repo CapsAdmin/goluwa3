@@ -340,6 +340,14 @@ end
 
 function locator.Locate()
 	fs.create_directory_recursive(locator.GetDirectory())
+
+	if os.getenv("GOLUWA_FORCE_DOWNLOAD") == "1" then
+		logn("[shaderc] GOLUWA_FORCE_DOWNLOAD is set, skipping local libraries and downloading shaderc")
+		assert(download())
+
+		return
+	end
+
 	local ok, directory_error = try_directory()
 
 	if ok then return end
