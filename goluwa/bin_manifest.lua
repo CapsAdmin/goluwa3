@@ -20,4 +20,14 @@ return {
 				sha256 = "0299236023c719b7ffea1d3a76a9934859f3cc3a5c8b8d725f918fad2d4ec431",
 			},
 		},
-	},}
+	},	luajit = {
+		source = "https://github.com/LuaJIT/LuaJIT",
+		ref = "c6ffc141a8762b41703f9287d63d93622a13dd8f",
+		release = release_url .. "luajit-c6ffc14/",
+		assets = {
+			["windows-x64"] = {file = "luajit-windows-x64.zip"},
+			["linux-x64"] = {file = "luajit-linux-x64"},
+			["macos-arm64"] = {file = "luajit-macos-arm64"},
+		},
+	},
+}
