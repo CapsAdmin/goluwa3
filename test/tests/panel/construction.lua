@@ -370,3 +370,18 @@ T.Test2D("derma_dark is the derma theme with another skin image", function()
 	T(theme.active.SkinImage.width)["=="](512)
 	theme.LoadTheme(original)
 end)
+
+T.Test2D("derma picks readable text colors from the luminance of the skin regions", function()
+	local original = theme.active:GetName()
+
+	for _, name in ipairs{"derma", "derma_dark"} do
+		theme.LoadTheme(name)
+		local panel_text = theme.active:GetColor("text_content")
+		local panel = theme.active.SkinPanelColor
+		local panel_luma = panel.r * 0.299 + panel.g * 0.587 + panel.b * 0.114
+		local text_luma = panel_text.r * 0.299 + panel_text.g * 0.587 + panel_text.b * 0.114
+		T((panel_luma > 0.5) == (text_luma < 0.5))["=="](true)
+	end
+
+	theme.LoadTheme(original)
+end)

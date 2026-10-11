@@ -45,6 +45,7 @@ local REGIONS = {
 	text_box = border(0, 150, 127, 21, 4),
 	text_box_focus = border(0, 172, 127, 21, 4),
 	text_box_dead = border(0, 194, 127, 21, 4),
+	combo_box = border(384, 336, 127, 31, 8, 8, 32, 8),
 	menu = border(128, 192, 127, 63, 8),
 	menu_hover = border(128, 256, 127, 31, 8),
 	tab_control = border(0, 256, 127, 127, 8),
@@ -70,6 +71,7 @@ local REGIONS = {
 	progress_back = border(384, 0, 31, 31, 8),
 	progress_front = border(416, 0, 31, 31, 8),
 	tooltip = border(384, 64, 31, 31, 8),
+	white_panel = border(256, 256, 63, 127, 8),
 }
 
 -- the skin image is stored bottom-up in memory, so image row y is stored at height - 1 - y
@@ -101,6 +103,21 @@ function DermaTheme:ConfigurePalette(palette)
 	local title_text = pick(4, 508, Color(1, 1, 1, 0.8))
 	local selection = pick(399, 47, Color(0.39, 0.67, 0.86, 1))
 	local ink = Color(0.12, 0.12, 0.12, 1)
+
+	local function flat_color_of(region)
+		if not image then return WHITE end
+
+		local c = sample(image, math.floor(region[1] + region[3] / 2), math.floor(region[2] + region[4] / 2))
+		return c:Copy():GetLerped(1 - c.a, body)
+	end
+
+	local function readable_on(region)
+		local flat = flat_color_of(region)
+		return flat.r * 0.299 + flat.g * 0.587 + flat.b * 0.114 > 0.5 and Color(0.08, 0.08, 0.08, 1) or text
+	end
+
+	self.SkinPanelColor = flat_color_of(REGIONS.white_panel)
+
 	local red = Color(0.82, 0.27, 0.27, 1)
 	local yellow = Color(0.95, 0.76, 0.25, 1)
 	local green = Color(0.31, 0.68, 0.31, 1)
@@ -144,7 +161,10 @@ function DermaTheme:ConfigurePalette(palette)
 		heading_on_header_surface = title_text,
 		default = text,
 		text = text,
-		text_input = Color(0.08, 0.08, 0.08, 1),
+		text_input = readable_on(REGIONS.text_box),
+		text_content = readable_on(REGIONS.white_panel),
+		text_combo = readable_on(REGIONS.combo_box),
+		text_tab_active = readable_on(REGIONS.tab_active),
 		foreground = text,
 		text_foreground = text,
 		text_button = button_text,
