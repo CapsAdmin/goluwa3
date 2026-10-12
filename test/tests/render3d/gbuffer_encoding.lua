@@ -12,7 +12,7 @@ local decode_pass = {
 	name = "gbuffer_decode_test",
 	ComputePass = true,
 	ColorFormat = {{"r32g32b32a32_sfloat", {"decoded", "rgba"}}},
-	FramebufferSize = {x = 7, y = 1},
+	FramebufferSize = {x = 9, y = 1},
 	framebuffer_count = 1,
 	LocalSize = {x = 8, y = 1, z = 1},
 	storage_images = {{binding_index = 0, dst_stage = "compute"}},
@@ -44,7 +44,10 @@ local decode_pass = {
 			if (x == 5) value = vec4(gbuffer_clearcoat(uv), gbuffer_clearcoat_roughness(uv), gbuffer_clearcoat_rain(uv), 0.0);
 			if (x == 6) value = vec4(gbuffer_clearcoat_normal(uv), 0.0);
 
-			if (x < 7) imageStore(out_decoded, ivec2(x, 0), value);
+			if (x == 7) value = vec4(gbuffer_secondary_specular(uv), gbuffer_secondary_specular_roughness(uv), gbuffer_sheen(uv), gbuffer_sheen_roughness(uv));
+			if (x == 8) value = vec4(gbuffer_specular_tint(uv), 0.0, 0.0, 0.0);
+
+			if (x < 9) imageStore(out_decoded, ivec2(x, 0), value);
 		}
 	]],
 }
@@ -93,7 +96,7 @@ local function decode(draw, material)
 
 	local texels = {}
 
-	for x = 0, 6 do
+	for x = 0, 8 do
 		texels[x] = {downloaded:GetPixelFloat(x, 0)}
 	end
 
@@ -112,6 +115,11 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 			TransmissionScattering = 0.4,
 			Clearcoat = 0.7,
 			ClearcoatRoughness = 0.3,
+			SecondarySpecular = 0.6,
+			SecondarySpecularRoughness = 0.5,
+			Sheen = 0.4,
+			SheenRoughness = 0.8,
+			SpecularTint = 0.8,
 		}
 	)
 	local albedo, normal, mra, transmission, by_pixel = texels[0], texels[1], texels[2], texels[3], texels[4]
@@ -138,6 +146,13 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 	T(coat_normal[1])["~"](0, 0.01)
 	T(coat_normal[2])["~"](0, 0.01)
 	T(coat_normal[3])["~"](1, 0.01)
+
+	local lobe, tint = texels[7], texels[8]
+	T(lobe[1])["~"](0.6, 0.01)
+	T(lobe[2])["~"](0.25, 0.005)
+	T(lobe[3])["~"](0.4, 0.01)
+	T(lobe[4])["~"](0.8, 0.01)
+	T(tint[1])["~"](0.8, 0.01)
 
 	for i = 1, 4 do
 		T(by_pixel[i])["~"](normal[i], 1e-4)
