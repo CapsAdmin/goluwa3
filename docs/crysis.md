@@ -12,6 +12,18 @@ Crysis `_ddn.dds` normal maps use FourCC `ATI2` (3Dc), which stores Y in the fir
 
 **How to apply:** if Crysis or other ATI2 normals look wrong, rerun that correlation (decode a `_ddn.dds` and correlate normal XY with the diffuse brightness gradient) before adding flips. 
 
+## Crysis materials map to roughness and metallic
+
+*Shininess is a phong lobe, Specular color x gloss mask is its strength; no spec/gloss path in the pipeline*
+
+As of 2026-10-12 `mtl_material.lua` converts Cry MTLs the way `vmt_material.lua` converts Source, at load time. The pipeline no longer has a specular texture, `GlossIsShininess` or `SpecularSolvesMetallic` (the old per-pixel spec/gloss solve looked bad and is gone).
+- **Cry shading** (Shaders.pak fragLib.cfi/Illum.cfx): `specular = lights * phong(Shininess) * glossMap.rgb * MatSpecColor`. The gloss map is the diffuse alpha (GLOSS_DIFFUSEALPHA, wins) or the `Specular` texture (GLOSS_MAP); it scales strength, not power.
+- **Roughness:** lobe = `(2/(n+2))^0.25` (min 0.12), blended toward 1 for a weak specular color (`smoothstep(0, 0.3, lum)`). A gloss mask becomes `RoughnessMin = 1`, `RoughnessMax = lobe` (diffuse alpha through `AlbedoTextureAlphaIsRoughness`, the Specular map as a linear `RoughnessTexture`). Black Specular color sets `SpecularMultiplier = 0`.
+- **Metallic:** only the Metal shader or a `metal` SurfaceType, and only where specular color x map is above ~0.4 (full at 0.7), via `MetallicFromRoughnessMask` plus `MetallicMaskMin/Max` (`0.4/lum`, `0.7/lum`; default 0..1 is the identity so Source is unaffected). Dielectric spec maps sit at 0.25-0.3 even with a Specular color of 1 (a painted locker's map is flat 0.29), so a linear mask or the color alone made painted metal look bare.
+- Not handled: SPECULARPOW_GLOSSALPHA (spec map alpha scales power, 25 materials), colored (gold, copper) specular tints, Illum/Metal environment maps.
+
+**How to apply:** `luajit glw --3d --background --validate lua test/harnesses/cry_pbr/models.lua` renders one model per run (`ONLY=n TAG=x`); `test/harnesses/cry_pbr/models.sh TAG [indices]` runs the list with `[i/N]` progress and prints each material's roughness/metallic. A worktree of HEAD gives the before image.
+
 ## Crysis fog and sun
 
 *mission TimeOfDay/Lighting, CE sun formula, fog *0.01 scale; SunVector is stale*
