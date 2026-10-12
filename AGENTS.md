@@ -137,6 +137,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/physics.md](docs/physics.md): solver, stress harnesses, buoyancy, Source props
 - [docs/animation-and-source.md](docs/animation-and-source.md): skeletal animation, Source content, threaded codecs
 - [docs/networking.md](docs/networking.md): server/client, replication, players, visibility, ownership and permissions
+- [docs/hot-reload.md](docs/hot-reload.md): how `--hot-reload` reloads modules, the import graph, state that survives, pipeline rebuilds, limits
 - [docs/prefabs-and-scripts.md](docs/prefabs-and-scripts.md): prefabs, the script component, the use system
 - [docs/ui.md](docs/ui.md): render2d/ui widgets, entity construction, input history, autocomplete, undo, icons, asset browser
 - [docs/wrappers.md](docs/wrappers.md): macos notes, Love2D and Garrysmod wrappers
