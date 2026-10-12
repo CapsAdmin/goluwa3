@@ -55,14 +55,14 @@ render3d.exposure = {
 pvars.StartGroup("exposure", {store = false})
 local local_exposure_shadows = pvars.Setup2{
 	key = "r_local_exposure_shadows",
-	default = 0.4,
+	default = 0.23,
 	min = 0,
 	max = 1,
 	help = "how much dark regions are exposed for their surroundings, 0 is off",
 }
 local local_exposure_highlights = pvars.Setup2{
 	key = "r_local_exposure_highlights",
-	default = 0.4,
+	default = 0.23,
 	min = 0,
 	max = 1,
 	help = "how much bright regions are exposed for their surroundings, 0 is off",
@@ -74,12 +74,12 @@ render3d.local_exposure = {
 	slope = 0.2,
 	ceiling = 1e5,
 }
-local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3}
+local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, crysis = 4}
 pvars.StartGroup("display", {store = false})
 local tonemapper = pvars.Setup2{
 	key = "r_tonemapper",
 	default = "agx_punchy",
-	enums = {"agx", "agx_punchy", "aces", "gt7"},
+	enums = {"agx", "agx_punchy", "aces", "gt7", "crysis"},
 	help = "the curve that maps the exposed scene to the display",
 }
 
@@ -737,6 +737,9 @@ local compute_shader = [[
 			float paper_white = compute.hdr_paper_white / 100.0;
 			return gt7(x * paper_white, peak * paper_white) / paper_white;
 		}
+
+		// the crysis curve has its own shoulder that ends at the display's peak
+		if (tonemapper == 4) return crysis(x, peak);
 
 		const float knee = 0.6;
 		float m = max(x.r, max(x.g, x.b));
