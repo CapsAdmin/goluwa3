@@ -11,7 +11,9 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local geometry_block = import("goluwa/render3d/geometry_block.lua")
 local grass = {}
+grass.name = "grass"
 grass.MAX_SURFACES = 512
 grass.SURFACE_RING = 4
 grass.MAX_JOBS = 2 ^ 20
@@ -854,7 +856,7 @@ local function barrier(cmd, buffer, src_stage, dst_stage, src_access, dst_access
 	}
 end
 
-function grass.Scatter(cmd)
+function grass.PreDraw(cmd)
 	surface_count = 0
 
 	if not enabled:Get() then return end
@@ -967,29 +969,14 @@ function grass.Draw(pipeline, cmd)
 	cmd:DrawIndirect(b.args, ARGS_DRAW_FAR_OFFSET, 1)
 end
 
-function grass.BuildDrawPass(gbuffer_pass)
-	local grass_block = {
-		name = "grass_data",
-		binding_index = 3,
-		block = {
-			render3d.camera_block,
-			render3d.prev_camera_block,
-			{
-				{"time", "float"},
-				{"prev_time", "float"},
-			},
-			surface_weather.block,
-		},
-		write = function(self, block)
-			render3d.WriteCameraBlock(self, block)
-			render3d.WritePreviousCameraBlock(self, block)
-			surface_weather.WriteBlock(self, block)
-			block.time = system.GetElapsedTime()
-			block.prev_time = render3d.GetPreviousElapsedTime()
-			return block
-		end,
-		upload_scope = "frame",
-	}
+function grass.BuildPass(gbuffer_pass)
+	local grass_block = geometry_block.New("grass_data", {
+		{"time", "float"},
+		{"prev_time", "float"},
+	}, function(self, block)
+		block.time = system.GetElapsedTime()
+		block.prev_time = render3d.GetPreviousElapsedTime()
+	end)
 	return {
 		name = "grass",
 		draw_in_prerender = false,

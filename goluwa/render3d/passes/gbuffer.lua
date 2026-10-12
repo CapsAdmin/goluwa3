@@ -4,28 +4,16 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
-local grass = import("goluwa/render3d/grass.lua")
+local gbuffer_extras = import("goluwa/render3d/gbuffer_extras.lua")
+local geometry_block = import("goluwa/render3d/geometry_block.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local system = import("goluwa/system.lua")
 local normal_debug = import("goluwa/render3d/normal_debug.lua")
-local camera_block = {
-	name = "gbuffer_data",
-	binding_index = 3,
-	block = {
-		render3d.camera_block,
-		render3d.prev_camera_block,
-		surface_weather.block,
-		{"normal_debug", "int"},
-	},
-	write = function(self, block)
-		render3d.WriteCameraBlock(self, block)
-		render3d.WritePreviousCameraBlock(self, block)
-		surface_weather.WriteBlock(self, block)
-		block.normal_debug = normal_debug.GetView()
-		return block
-	end,
-	upload_scope = "frame",
-}
+local camera_block = geometry_block.New("gbuffer_data", {
+	{"normal_debug", "int"},
+}, function(self, block)
+	block.normal_debug = normal_debug.GetView()
+end)
 
 local function build_base_pass(fragment_shader, enable_vertex_animation)
 	local uniform_buffers = model_pipeline.GetPBRUniformBuffers()
@@ -33,7 +21,10 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 	return {
 		name = "gbuffer",
 		on_pre_draw = function(self, cmd)
-			if render3d.pipelines.grass then grass.Scatter(cmd) end
+
+			for _, extra in ipairs(gbuffer_extras) do
+				if render3d.pipelines[extra.name] then extra.PreDraw(cmd) end
+			end
 		end,
 		on_draw = function(self, cmd)
 			local draw_geometry = render3d.GetDrawGeometry()
@@ -49,7 +40,12 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			event.Call("Draw3DGeometry", dt)
 			gbuffer_instancing.Flush()
 
-			if render3d.pipelines.grass then grass.Draw(render3d.pipelines.grass, cmd) end
+
+			for _, extra in ipairs(gbuffer_extras) do
+				local pipeline = render3d.pipelines[extra.name]
+
+				if pipeline then extra.Draw(pipeline, cmd) end
+			end
 		end,
 		ColorFormat = gbuffer_layout.color_format,
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
@@ -403,5 +399,8 @@ for _, write_depth in ipairs({false, true}) do
 	list.insert(passes, multi_draw)
 end
 
-list.insert(passes, grass.BuildDrawPass(passes[1]))
+for _, extra in ipairs(gbuffer_extras) do
+	list.insert(passes, extra.BuildPass(passes[1]))
+end
+
 return passes
