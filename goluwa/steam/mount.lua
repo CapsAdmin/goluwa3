@@ -609,7 +609,7 @@ return function(steam)
 						for _, path in pairs(tbl) do
 							if path:find("|", nil, true) then
 								path = path:replace("|gameinfo_path|", vdf_directory)
-								path = path:replace("|all_source_engine_paths|", dir)
+								path = path:replace("|all_source_engine_paths|", gameinfo.game_dir)
 							end
 
 							if not file_path.IsPathAbsolutePath(path) then
@@ -654,7 +654,7 @@ return function(steam)
 										end
 									end
 
-									if path:sub(1, 1) ~= "/" then
+									if not file_path.IsPathAbsolutePath(path) then
 										test = gameinfo.game_dir .. path
 
 										if not vfs.IsDirectory(path) and vfs.IsDirectory(test) then
