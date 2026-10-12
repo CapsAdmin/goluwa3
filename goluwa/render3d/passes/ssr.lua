@@ -161,7 +161,6 @@ return {
 
 			ivec2 ssr_size;
 			ivec2 gbuffer_size;
-			vec2 gbuffer_ratio;
 			vec4 inv_projection_row_z;
 			vec4 inv_projection_row_w;
 			float max_hit_luminance;
@@ -441,14 +440,13 @@ return {
 				ivec2 pos = get_screen_pos();
 				ssr_size = imageSize(out_ssr);
 				gbuffer_size = textureSize(TEXTURE(ssr_data.depth_tex), 0);
-				gbuffer_ratio = vec2(gbuffer_size) / vec2(ssr_size);
 				mat4 inv_projection = ssr_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
 				max_hit_luminance = ssr_data.exposure_tex != -1 ? SSR_MAX_HIT_LUMINANCE / max(texture(TEXTURE(ssr_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
 				ivec2 local_pos = ivec2(gl_LocalInvocationID.xy);
 				bool in_bounds = is_screen_pos_in_bounds(pos, ssr_size);
-				ivec2 gbuffer_pos = min(pos * ivec2(gbuffer_ratio) + get_ssr_quad_offset(ssr_data.frame_index, gbuffer_ratio), gbuffer_size - 1);
+				ivec2 gbuffer_pos = min(get_ssr_gbuffer_pos(pos, ssr_data.frame_index, gbuffer_size, ssr_size), gbuffer_size - 1);
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
 				float depth = in_bounds ? gbuffer_depth(gbuffer_pos) : 1.0;
 				vec4 current = vec4(0.0);
