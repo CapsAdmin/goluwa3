@@ -354,7 +354,7 @@ do
 end
 
 local function create_entity(config)
-	local ent = Entity.New{Name = get(config, "Name") or "shape"}
+	local ent = Entity.New{Name = get(config, "Name") or "shape", Parent = get(config, "Parent")}
 	local physics_no_collision = get(config, "PhysicsNoCollision")
 
 	if physics_no_collision ~= nil then
