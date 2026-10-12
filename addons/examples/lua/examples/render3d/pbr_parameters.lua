@@ -143,9 +143,14 @@ local function material(config)
 	return shapes.Material(config)
 end
 
-local function sphere(x, z, mat)
+local function group(name, parent)
+	return Entity.New{Name = name, Parent = parent or root}
+end
+
+local function sphere(parent, name, x, z, mat)
 	shapes.Sphere{
-		Parent = root,
+		Name = name,
+		Parent = parent,
 		Position = Vec3(x, RADIUS, z),
 		Radius = RADIUS,
 		Material = mat,
@@ -153,22 +158,29 @@ local function sphere(x, z, mat)
 	}
 end
 
-local function sweep(z, build)
+-- a row of spheres, build(t) makes the material for t from 0 to 1 along it
+local function sweep(parent, name, z, build)
+	local row = group(name, parent)
+
 	for i = 0, COLUMNS - 1 do
-		sphere((i - (COLUMNS - 1) / 2) * SPACING, z, build(i / (COLUMNS - 1)))
+		sphere(row, name .. "_" .. i, (i - (COLUMNS - 1) / 2) * SPACING, z, build(i / (COLUMNS - 1)))
 	end
 end
 
-local function tile(x, z, tile_mat, sphere_mat)
+-- a tile with a sphere on it, in a group of its own
+local function tile(parent, name, x, z, tile_mat, sphere_mat)
+	local entity = group(name, parent)
 	shapes.Box{
-		Parent = root,
+		Name = "tile",
+		Parent = entity,
 		Position = Vec3(x, 0.01, z),
 		Size = Vec3(2.4, 0.02, 2.4),
 		Material = tile_mat,
 		RigidBody = false,
 	}
 	shapes.Sphere{
-		Parent = root,
+		Name = "sphere",
+		Parent = entity,
 		Position = Vec3(x, 0.02 + RADIUS, z),
 		Rotation = QuatDeg3(0, 180, 0),
 		Radius = RADIUS,
@@ -177,39 +189,45 @@ local function tile(x, z, tile_mat, sphere_mat)
 	}
 end
 
-local function swatch(x, mat)
+local swatches = group("swatches")
+
+local function swatch(name, x, mat)
+	local entity = group(name, swatches)
 	shapes.Box{
-		Parent = root,
+		Name = "panel",
+		Parent = entity,
 		Position = Vec3(x, 1.2, -10.5),
 		Size = Vec3(2.4, 2.4, 0.1),
 		Material = mat,
 		RigidBody = false,
 	}
-	tile(x, -8.6, mat)
+	tile(entity, "tile_sphere", x, -8.6, mat)
 end
 
 shapes.Box{
 	Name = "floor",
 	Parent = root,
-	Position = Vec3(0, -0.5, -3),
-	Size = Vec3(30, 1, 24),
+	Position = Vec3(0, -0.5, 0),
+	Size = Vec3(30, 1, 30),
 	Material = material{Color = Color(0.5, 0.5, 0.5, 1), Roughness = 0.8, Metallic = 0},
 	RigidBody = false,
 }
 
-sweep(0, function(t)
+local sweeps = group("sweeps")
+
+sweep(sweeps, "roughness_dielectric", 0, function(t)
 	return material{Color = Color(0.6, 0.08, 0.06, 1), Roughness = t, Metallic = 0}
 end)
 
-sweep(-1.2, function(t)
+sweep(sweeps, "roughness_metal", -1.2, function(t)
 	return material{Color = Color(1, 0.78, 0.34, 1), Roughness = t, Metallic = 1}
 end)
 
-sweep(-2.4, function(t)
+sweep(sweeps, "metallic", -2.4, function(t)
 	return material{Color = Color(0.95, 0.64, 0.54, 1), Roughness = 0.25, Metallic = t}
 end)
 
-sweep(-3.6, function(t)
+sweep(sweeps, "specular_multiplier", -3.6, function(t)
 	return material{
 		Color = Color(0, 0, 0, 1),
 		Roughness = 0.15,
@@ -218,11 +236,11 @@ sweep(-3.6, function(t)
 	}
 end)
 
-sweep(-4.8, function(t)
+sweep(sweeps, "albedo", -4.8, function(t)
 	return material{Color = Color(t, t, t, 1), Roughness = 0.6, Metallic = 0}
 end)
 
-sweep(-6, function(t)
+sweep(sweeps, "refraction_roughness", -6, function(t)
 	return material{
 		Color = Color(1, 1, 1, 1),
 		Roughness = t,
@@ -232,7 +250,71 @@ sweep(-6, function(t)
 	}
 end)
 
+-- the surface features, each strength from 0 to 1 along the row
+local features = group("surface_features")
+local FEATURES_Z = 5.6
+
+sweep(features, "clearcoat", FEATURES_Z, function(t)
+	return material{
+		Color = Color(0.6, 0.08, 0.06, 1),
+		Roughness = 0.5,
+		Metallic = 0,
+		Clearcoat = t,
+		ClearcoatRoughness = 0.05,
+	}
+end)
+
+sweep(features, "clearcoat_roughness", FEATURES_Z + 1.2, function(t)
+	return material{
+		Color = Color(0.6, 0.08, 0.06, 1),
+		Roughness = 0.5,
+		Metallic = 0,
+		Clearcoat = 1,
+		ClearcoatRoughness = math.lerp(0.02, 0.6, t),
+	}
+end)
+
+sweep(features, "secondary_specular", FEATURES_Z + 2.4, function(t)
+	return material{
+		Color = Color(0.1, 0.25, 0.6, 1),
+		Roughness = 0.7,
+		Metallic = 0,
+		SecondarySpecular = t,
+		SecondarySpecularRoughness = 0.08,
+	}
+end)
+
+sweep(features, "secondary_specular_roughness", FEATURES_Z + 3.6, function(t)
+	return material{
+		Color = Color(0.1, 0.25, 0.6, 1),
+		Roughness = 0.9,
+		Metallic = 0,
+		SecondarySpecular = 1,
+		SecondarySpecularRoughness = math.lerp(0.05, 0.6, t),
+	}
+end)
+
+sweep(features, "sheen", FEATURES_Z + 4.8, function(t)
+	return material{
+		Color = Color(0.25, 0.04, 0.3, 1),
+		Roughness = 0.9,
+		Metallic = 0,
+		Sheen = t,
+		SheenRoughness = 0.4,
+	}
+end)
+
+sweep(features, "specular_tint", FEATURES_Z + 6, function(t)
+	return material{
+		Color = Color(0.7, 0.12, 0.08, 1),
+		Roughness = 0.25,
+		Metallic = 0,
+		SpecularTint = t,
+	}
+end)
+
 swatch(
+	"roughness_gradient",
 	-8.75,
 	material{
 		Color = Color(0.95, 0.95, 0.95, 1),
@@ -241,6 +323,7 @@ swatch(
 	}
 )
 swatch(
+	"metallic_gradient",
 	-6.25,
 	material{
 		Color = Color(1, 0.78, 0.34, 1),
@@ -249,6 +332,7 @@ swatch(
 	}
 )
 swatch(
+	"roughness_metallic_grid",
 	-3.75,
 	material{
 		Color = Color(0.9, 0.9, 0.9, 1),
@@ -257,6 +341,7 @@ swatch(
 	}
 )
 swatch(
+	"worn_paint",
 	-1.25,
 	material{
 		Color = [[
@@ -273,6 +358,7 @@ swatch(
 	}
 )
 swatch(
+	"hammered_metal",
 	1.25,
 	material{
 		Color = Color(0.56, 0.57, 0.58, 1),
@@ -282,6 +368,7 @@ swatch(
 	}
 )
 swatch(
+	"brushed_metal",
 	3.75,
 	material{
 		Color = Color(0.91, 0.92, 0.92, 1),
@@ -291,6 +378,7 @@ swatch(
 	}
 )
 swatch(
+	"scratched_copper",
 	6.25,
 	material{
 		Color = "return vec4(vec3(0.95, 0.64, 0.54) * mix(0.75, 1.0, fbm(uv, 6.0, 5)), 1.0);",
@@ -300,6 +388,7 @@ swatch(
 	}
 )
 swatch(
+	"specular_mask",
 	8.75,
 	material{
 		Color = Color(0.02, 0.02, 0.02, 1),
@@ -310,8 +399,9 @@ swatch(
 	}
 )
 local FRONT = 3.2
-tile(-5, FRONT, assets.Load("materials/examples/sand.lua"))
-tile(-2.5, FRONT, assets.Load("materials/examples/snow.lua"))
+local front = group("front_tiles")
+tile(front, "sand", -5, FRONT, assets.Load("materials/examples/sand.lua"))
+tile(front, "snow", -2.5, FRONT, assets.Load("materials/examples/snow.lua"))
 local grid = material{
 	Color = [[
 		vec2 line = step(0.95, fract(uv * 12.0));
@@ -321,6 +411,8 @@ local grid = material{
 	Metallic = 0,
 }
 tile(
+	front,
+	"glass",
 	0,
 	FRONT,
 	grid,
@@ -333,6 +425,8 @@ tile(
 	}
 )
 tile(
+	front,
+	"diamond",
 	2.5,
 	FRONT,
 	grid,
@@ -346,7 +440,8 @@ tile(
 	}
 )
 shapes.Box{
-	Parent = root,
+	Name = "leaf",
+	Parent = front,
 	Position = Vec3(5, 0.8, FRONT),
 	Size = Vec3(0.9, 1.5, 0.002),
 	Material = material{
@@ -364,13 +459,17 @@ shapes.Box{
 	},
 	RigidBody = false,
 }
+-- many tiny shapes, to see how thin things alias
+local aliasing = group("aliasing")
 local ALIAS_X = 9.5
+local bearings = group("bearings", aliasing)
 local bearing = material{Color = Color(0.95, 0.95, 0.95, 1), Roughness = 0.05, Metallic = 1}
 
 for x = 0, 29 do
 	for z = 0, 29 do
 		shapes.Sphere{
-			Parent = root,
+			Name = "bearing_" .. x .. "_" .. z,
+			Parent = bearings,
 			Position = Vec3(ALIAS_X - 2.2 + x * 0.04, 0.01, 2.2 - z * 0.04),
 			Radius = 0.01,
 			Material = bearing,
@@ -380,11 +479,13 @@ for x = 0, 29 do
 	end
 end
 
+local pipes = group("pipes", aliasing)
 local pipe = material{Color = Color(0.56, 0.57, 0.58, 1), Roughness = 0.1, Metallic = 1}
 
 for i = 0, 59 do
 	shapes.Capsule{
-		Parent = root,
+		Name = "pipe_" .. i,
+		Parent = pipes,
 		Position = Vec3(ALIAS_X + 1.2, 0.005, 2.2 - i * 0.02),
 		Rotation = QuatDeg3(0, 0, 90),
 		Radius = 0.005,
@@ -396,7 +497,8 @@ for i = 0, 59 do
 end
 
 shapes.Box{
-	Parent = root,
+	Name = "corrugated_sheet",
+	Parent = aliasing,
 	Position = Vec3(ALIAS_X + 1.5, 0.01, -3),
 	Size = Vec3(3.2, 0.02, 3.2),
 	Material = material{
@@ -413,10 +515,12 @@ local bumpy = material{
 	Metallic = 0,
 	Normal = normal_map("fine_bumps_height", "20.0"),
 }
+local bumpy_spheres = group("bumpy_spheres", aliasing)
 
 for i, z in ipairs{0, -6, -12} do
 	shapes.Sphere{
-		Parent = root,
+		Name = "bumpy_sphere_" .. i,
+		Parent = bumpy_spheres,
 		Position = Vec3(ALIAS_X + 4, 0.3, z),
 		Radius = 0.3,
 		Material = bumpy,
