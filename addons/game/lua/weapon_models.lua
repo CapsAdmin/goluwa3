@@ -2,7 +2,7 @@ local prefab = import("goluwa/entities/prefab.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
-local weapon_models = library()
+local weapon_models = {}
 local METAL = {Color = Color(0.25, 0.27, 0.3, 1), Roughness = 0.35, Metallic = 0.8}
 local GLOW = {
 	Color = Color(1, 0.55, 0.15, 1),

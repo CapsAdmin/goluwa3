@@ -14,7 +14,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local raycast = import("goluwa/render3d/raycast.lua")
-local envprobe = library()
+local envprobe = {}
 
 local function get_primary_sun(lights)
 	lights = lights or render3d.GetLights()

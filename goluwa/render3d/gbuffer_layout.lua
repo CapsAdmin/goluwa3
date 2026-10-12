@@ -1,5 +1,5 @@
 local render3d = import("goluwa/render3d/render3d.lua")
-local gbuffer_layout = library()
+local gbuffer_layout = {}
 gbuffer_layout.targets = {
 	{
 		texture = "albedo",

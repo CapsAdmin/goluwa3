@@ -1,6 +1,6 @@
 local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local ambient_occlusion = library()
+local ambient_occlusion = {}
 ambient_occlusion.DEBUG_AO = 1
 ambient_occlusion.DEBUG_BOUNCE = 2
 ambient_occlusion.DEBUG_BENT_NORMAL = 3

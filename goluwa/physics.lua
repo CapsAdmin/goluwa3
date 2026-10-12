@@ -1,6 +1,6 @@
 local event = import("goluwa/event.lua")
 local Physics = import("goluwa/physics/physics.lua")
-local physics = library()
+local physics = {}
 
 function physics.Initialize(config)
 	physics.instance = Physics.New(config)

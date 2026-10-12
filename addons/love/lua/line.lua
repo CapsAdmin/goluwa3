@@ -4,7 +4,7 @@ local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local R = vfs.GetAbsolutePath
-local line = library()
+local line = {}
 line.speed = 1
 line.love_envs = line.love_envs or table.weak("kv")
 pvars.Setup("line_enable_audio", true)

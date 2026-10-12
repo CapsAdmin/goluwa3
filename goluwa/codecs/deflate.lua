@@ -1,6 +1,6 @@
 local DEBUG = false
 local debug_counter = 0
-local deflate = library()
+local deflate = {}
 local Buffer = import("goluwa/structs/buffer.lua")
 local ffi = require("ffi")
 local assert = assert

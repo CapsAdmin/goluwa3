@@ -1,6 +1,6 @@
 local Buffer = import("goluwa/structs/buffer.lua")
 local ffi = require("ffi")
-local wav = library()
+local wav = {}
 local WAVE_FORMAT_PCM = 0x0001
 local WAVE_FORMAT_IEEE_FLOAT = 0x0003
 local WAVE_FORMAT_EXTENSIBLE = 0xFFFE

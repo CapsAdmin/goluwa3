@@ -3,7 +3,7 @@ local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local M = library()
+local M = {}
 local COMPUTE_DESCRIPTOR_SET_COUNT = 1024
 
 local function get_pipelines()

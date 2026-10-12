@@ -2,7 +2,7 @@ local JitProfiler = import("goluwa/jit/profiler.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
-local profiler = library()
+local profiler = {}
 local jit_profiler
 local summary_on_stop
 local frame_times

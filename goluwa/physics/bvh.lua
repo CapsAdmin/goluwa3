@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local bvh = library()
+local bvh = {}
 bvh.DefaultLeafItemCount = bvh.DefaultLeafItemCount or 8
 
 function bvh.CreateEmptyBounds()

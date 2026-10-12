@@ -2,7 +2,7 @@ local analysis = import("goluwa/pretext/analysis.lua")
 local measure = import("goluwa/pretext/measure.lua")
 local line_break = import("goluwa/pretext/line_break.lua")
 local flow = import("goluwa/pretext/flow.lua")
-local pretext = library()
+local pretext = {}
 
 function pretext.prepare(text, measurer, options)
 	local normalized = analysis.normalize_options(options)

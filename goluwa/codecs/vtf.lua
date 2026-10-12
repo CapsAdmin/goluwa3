@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = import("goluwa/structs/buffer.lua")
-local vtf = library()
+local vtf = {}
 vtf.file_extensions = {"vtf"}
 vtf.magic_headers = {"VTF\0"}
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift

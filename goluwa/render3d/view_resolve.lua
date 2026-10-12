@@ -2,7 +2,7 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 import("goluwa/render3d/passes/blit.lua")
-local view_resolve = library()
+local view_resolve = {}
 local pipeline
 local source_texture
 local source_ratio

@@ -4,7 +4,7 @@ local assets = import("goluwa/assets.lua")
 local previews = import("lua/asset_preview.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local objects = import("goluwa/objects/objects.lua")
-local asset_info = library()
+local asset_info = {}
 
 function asset_info.FormatBytes(bytes)
 	if not bytes then return "unknown" end

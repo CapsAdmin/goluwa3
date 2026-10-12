@@ -1,4 +1,4 @@
-local math3d = library()
+local math3d = {}
 
 function math3d.BilerpVec3(a, b, c, d, alpha1, alpha2)
 	return a:GetLerped(alpha1, b):Lerp(alpha2, c:GetLerped(alpha1, d))

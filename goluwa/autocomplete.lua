@@ -1,4 +1,4 @@
-local autocomplete = library()
+local autocomplete = {}
 autocomplete.lists = autocomplete.lists or {}
 autocomplete.names = autocomplete.names or {}
 local index_cache = setmetatable({}, {__mode = "k"})

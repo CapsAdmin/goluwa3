@@ -2,7 +2,7 @@ local event = import("goluwa/event.lua")
 local audio = import("goluwa/audio.lua")
 local system = import("goluwa/system.lua")
 local autocomplete = import("goluwa/autocomplete.lua")
-local chatsounds = library()
+local chatsounds = {}
 chatsounds.debug = false
 import.loaded["lua/chatsounds.lua"] = chatsounds
 import("lua/list_parsing.lua")

@@ -9,7 +9,7 @@ local units = import("goluwa/source_engine/units.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
 local editor_history = import("lua/editor_history.lua")
-local brush_editor = library()
+local brush_editor = {}
 -- Click selects a face, an edge or a vertex. Dragging the arrow of a selected face pushes or pulls it, dragging a
 -- vertex or an edge moves it and holding R while starting the drag rotates it instead. Rotating a selected face works
 -- the same, hold R and drag the face. X, Y or Z held while starting a rotation rotates around that world axis instead

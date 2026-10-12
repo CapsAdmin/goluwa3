@@ -3,7 +3,7 @@ local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local codec = import("goluwa/codec.lua")
 local objects = import("goluwa/objects/objects.lua")
-local input = library()
+local input = {}
 input.PressedThreshold = 0.2
 
 function input.SetupAccessorFunctions(tbl, name, up_id, down_id, on_self)

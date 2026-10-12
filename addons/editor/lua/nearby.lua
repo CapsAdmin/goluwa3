@@ -1,5 +1,5 @@
 local Visual = import("goluwa/entities/components/visual.lua")
-local nearby = library()
+local nearby = {}
 
 function nearby.Collect(position, max_count)
 	local px, py, pz = position.x, position.y, position.z

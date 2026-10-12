@@ -1,4 +1,4 @@
-local buffer_template = library()
+local buffer_template = {}
 
 function buffer_template.AddBasicFunctions(META)
 	function META:Advance(i)

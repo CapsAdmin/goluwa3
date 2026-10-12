@@ -1,4 +1,4 @@
-local base64 = library()
+local base64 = {}
 local b = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 function base64.Encode(data)

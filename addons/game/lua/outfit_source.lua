@@ -1,5 +1,5 @@
 local prefab = import("goluwa/entities/prefab.lua")
-local outfit_source = library()
+local outfit_source = {}
 outfit_source.Model = "models/player/kleiner.mdl"
 -- the player rig bone each Source biped bone drives, hands and head are set from the view where a weapon needs them
 outfit_source.Bones = {

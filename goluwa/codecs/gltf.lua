@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local json = import("goluwa/codecs/json.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local base64 = import("goluwa/codecs/base64.lua")
-local gltf = library()
+local gltf = {}
 local COMPONENT_TYPE = {
 	[5120] = {type = "int8_t", size = 1},
 	[5121] = {type = "uint8_t", size = 1},

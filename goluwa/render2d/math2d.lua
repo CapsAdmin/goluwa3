@@ -1,6 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local math2d = library()
+local math2d = {}
 
 function math2d.IsCoordinatesConvex(points)
 	local polygons = {}

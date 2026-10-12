@@ -1,6 +1,6 @@
 _G.CLIENT = true
 _G.SERVER = false
-local gine = library()
+local gine = {}
 gine.debug = true
 _G.gine = gine
 import.loaded["lua/gine.lua"] = gine

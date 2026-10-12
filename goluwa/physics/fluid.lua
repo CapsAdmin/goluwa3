@@ -1,5 +1,5 @@
 local water = import("goluwa/render3d/water.lua")
-local fluid = library()
+local fluid = {}
 fluid.OCEAN_DENSITY = 1025
 fluid.DRAG_COEFFICIENT = 1
 fluid.LINEAR_VISCOSITY = 5

@@ -1,6 +1,6 @@
 local event = import("goluwa/event.lua")
 local fs = import("goluwa/filesystem/fs.lua")
-local output = library()
+local output = {}
 local suppress_print = false
 local LOG_FILE = "storage/logs/log.txt"
 

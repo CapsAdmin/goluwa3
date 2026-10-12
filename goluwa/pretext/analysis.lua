@@ -1,5 +1,5 @@
 local utf8 = import("goluwa/string/utf8.lua")
-local analysis = library()
+local analysis = {}
 
 local function flush_text(segments, buffer, raw_start, raw_stop)
 	if #buffer == 0 then return end

@@ -1,5 +1,5 @@
 local utf8 = import("goluwa/string/utf8.lua")
-local line_break = library()
+local line_break = {}
 local math_huge = math.huge
 
 local function clone_cursor(cursor)

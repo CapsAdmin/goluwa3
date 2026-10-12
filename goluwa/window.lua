@@ -4,7 +4,7 @@ import.loaded["goluwa/window.lua"] = Window
 local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
-local window = library()
+local window = {}
 local input = import("goluwa/input.lua")
 local timer = import("goluwa/timer.lua")
 Window:GetSet("Title", "no title")

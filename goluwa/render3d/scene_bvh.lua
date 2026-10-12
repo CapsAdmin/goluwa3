@@ -8,7 +8,7 @@ local system = import("goluwa/system.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
-local scene_bvh = library()
+local scene_bvh = {}
 import.loaded["goluwa/render3d/scene_bvh.lua"] = scene_bvh
 local Visual
 local Material = import("goluwa/render3d/material.lua")

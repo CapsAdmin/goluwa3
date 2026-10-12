@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = import("goluwa/structs/buffer.lua")
-local dds = library()
+local dds = {}
 dds.file_extensions = {"dds"}
 dds.magic_headers = {"DDS "}
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift

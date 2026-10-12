@@ -1,4 +1,4 @@
-local file_path = library and library() or {}
+local file_path = {}
 
 function file_path.FixPathSlashes(path)
 	return (path:replace("\\", "/"):gsub("/+", "/"))

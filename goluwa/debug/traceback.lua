@@ -1,6 +1,6 @@
 local utility = import("goluwa/utility.lua")
 local tostringx = import("goluwa/tostring_object.lua").tostring_object
-local traceback = library()
+local traceback = {}
 local suppress = false
 
 function traceback.OnError(msg, ...)

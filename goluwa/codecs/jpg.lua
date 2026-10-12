@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local Buffer = import("goluwa/structs/buffer.lua")
-local jpg = library()
+local jpg = {}
 jpg.file_extensions = {"jpg", "jpeg"}
 jpg.magic_headers = {"\255\216\255"}
 local bit_band = bit.band

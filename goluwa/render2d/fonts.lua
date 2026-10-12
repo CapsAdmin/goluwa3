@@ -3,7 +3,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local SDFFont = import("goluwa/render2d/fonts/sdf.lua")
 local RasterFont = import("goluwa/render2d/fonts/raster.lua")
-local fonts = library()
+local fonts = {}
 local current_font = nil
 local default_font = nil
 

@@ -1,7 +1,7 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
-local material_proxies = library()
+local material_proxies = {}
 local animated = setmetatable({}, {__mode = "k"})
 local TEXTURE_PROPERTIES = {
 	basetexture = "AlbedoTexture",

@@ -57,39 +57,42 @@ end
 import("goluwa/jit/options.lua").SetOptimized()
 
 do
-	_G.registered_libs = _G.registered_libs or {}
-
-	function _G.library()
-		local key = debug.getinfo(2).source
-
-		if key:sub(1, 1) == "@" then
-			key = key:sub(2)
-			key = key:gsub("^%./", "")
-			key = key:gsub("//+", "/")
-		end
-
-		if not _G.registered_libs[key] then _G.registered_libs[key] = {} end
-
-		return _G.registered_libs[key]
-	end
-
 	function _G.get_libraries()
 		local out = {libs = {}, types = {}}
+		local directories = {}
 
-		for key, lib in pairs(registered_libs) do
-			local name = key:strip_prefix("goluwa/"):strip_suffix(".lua")
-			local parts = name:split("/")
-			local out = out.libs
+		for key, lib in pairs(import.loaded) do
+			if key:starts_with("goluwa/") and type(lib) == "table" and rawget(lib, "Type") == nil then
+				local parts = key:strip_prefix("goluwa/"):strip_suffix(".lua"):split("/")
+				local node = out.libs
 
-			while #parts > 1 do
-				local key = table.remove(parts, 1)
+				for i = 1, #parts - 1 do
+					local part = parts[i]
+					local child = rawget(node, part)
 
-				if not out[key] then out[key] = {} end
+					-- a file next to a folder of the same name stays reachable through the folder
+					if not directories[child] then
+						local directory = {}
+						directories[directory] = true
 
-				out = out[key]
+						if child then setmetatable(directory, {__index = child}) end
+
+						node[part] = directory
+						child = directory
+					end
+
+					node = child
+				end
+
+				local last = parts[#parts]
+				local existing = rawget(node, last)
+
+				if directories[existing] then
+					setmetatable(existing, {__index = lib})
+				else
+					node[last] = lib
+				end
 			end
-
-			out[parts[1]] = lib
 		end
 
 		local objects = import("goluwa/objects/objects.lua")

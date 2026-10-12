@@ -7,7 +7,7 @@ local math_ceil = math.ceil
 local math_floor = math.floor
 local math_abs = math.abs
 local table_concat = table.concat
-local png = library()
+local png = {}
 png.file_extensions = {"png"}
 png.magic_headers = {"\137PNG\r\n\26\n"}
 

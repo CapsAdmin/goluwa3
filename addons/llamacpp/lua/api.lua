@@ -1,5 +1,5 @@
 local http = import("goluwa/sockets/http.lua")
-local llamacpp = library()
+local llamacpp = {}
 local api = http.CreateAPI("http://127.0.0.1:8080/")
 local codec = import("goluwa/codec.lua")
 

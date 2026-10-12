@@ -11,7 +11,7 @@ local codec = import("goluwa/codec.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local sequence_editor = import("goluwa/sequence_editor.lua")
-local repl = library()
+local repl = {}
 commands.history = codec.ReadFile("luadata", "data/cmd_history.txt") or {}
 
 for _, v in ipairs(commands.history) do

@@ -1,6 +1,6 @@
 local pvars = import("goluwa/cli/pvars.lua")
 local event = import("goluwa/event.lua")
-local lod = library()
+local lod = {}
 lod.NEVER = 1e30
 lod.SOURCE_SWITCH_TO_RADII = 0.5
 lod.CRY_RADII_PER_LEVEL = 6

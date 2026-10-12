@@ -1,4 +1,4 @@
-local event = library()
+local event = {}
 local protected_call = import("goluwa/protected_call.lua")
 event.active = event.active or {}
 event.destroy_tag = event.destroy_tag or {}

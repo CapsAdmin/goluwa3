@@ -1,5 +1,5 @@
 local prefab = import("goluwa/entities/prefab.lua")
-local weapons = library()
+local weapons = {}
 
 -- the entity of a weapon is the prefab of its name, the weapon component holds what every weapon has and the weapon_* component what it does
 -- its model is an instance of a model prefab, a node of the weapon that sits on the right hand and is shown while the weapon is held

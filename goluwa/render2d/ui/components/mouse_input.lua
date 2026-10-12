@@ -75,7 +75,7 @@ function META:SetRequestMouse(b)
 	self:UpdateMouseRequest()
 end
 
-local mouse_input = library()
+local mouse_input = {}
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
 mouse_input.last_hovered = mouse_input.last_hovered or NULL
 mouse_input.active_hover_query = mouse_input.active_hover_query or nil

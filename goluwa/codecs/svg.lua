@@ -1,6 +1,6 @@
 local xml = import("goluwa/codecs/xml.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
-local svg = library()
+local svg = {}
 svg.file_extensions = {"svg"}
 
 local function parse_length(value, fallback)

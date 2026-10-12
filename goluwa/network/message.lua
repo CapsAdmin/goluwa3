@@ -1,4 +1,4 @@
-local message = library()
+local message = {}
 message.listeners = message.listeners or {}
 
 function message.AddListener(id, callback)

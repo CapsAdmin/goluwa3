@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local bit = require("bit")
-local cry_physics = library()
+local cry_physics = {}
 local int32_ptr_t = ffi.typeof("const int32_t *")
 local uint16_ptr_t = ffi.typeof("const uint16_t *")
 local float_ptr_t = ffi.typeof("const float *")

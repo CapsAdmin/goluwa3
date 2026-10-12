@@ -1,6 +1,6 @@
 local vfs = import("goluwa/vfs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
-local ttf = library()
+local ttf = {}
 ttf.file_extensions = {"ttf", "otf"}
 
 function ttf.CanDecodeData(data)

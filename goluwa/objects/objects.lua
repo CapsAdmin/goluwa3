@@ -1,7 +1,7 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local traceback = import("goluwa/debug/traceback.lua")
-local objects = library()
+local objects = {}
 import.loaded["goluwa/objects/objects.lua"] = objects
 objects.registered = objects.registered or {}
 objects.prepared_metatables = objects.prepared_metatables or {}

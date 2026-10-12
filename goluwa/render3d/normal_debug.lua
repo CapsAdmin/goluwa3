@@ -1,5 +1,5 @@
 local pvars = import("goluwa/cli/pvars.lua")
-local normal_debug = library()
+local normal_debug = {}
 normal_debug.MODES = {"off", "vertex", "map", "combined", "albedo"}
 normal_debug.VERTEX = 1
 normal_debug.MAP = 2

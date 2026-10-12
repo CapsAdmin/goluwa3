@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
-local raycast = library()
+local raycast = {}
 import.loaded["goluwa/render3d/raycast.lua"] = raycast
 local Visual = import("goluwa/entities/components/visual.lua")
 local BVH_BUILD_TRIANGLE_THRESHOLD = 8

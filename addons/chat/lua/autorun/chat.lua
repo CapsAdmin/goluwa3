@@ -7,7 +7,7 @@ local Markup = import("goluwa/render2d/markup.lua")
 local message = import("goluwa/network/message.lua")
 local network = import("goluwa/network/network.lua")
 local command_input = import("goluwa/cli/command_input.lua")
-local chat = library()
+local chat = {}
 
 local function getnick(client)
 	return client:IsValid() and client:GetNick() or "server"

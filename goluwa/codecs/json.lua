@@ -55,7 +55,7 @@ else
 	math_type = math.type
 end
 
-local json = library()
+local json = {}
 json.file_extensions = {"json", "jsonc"}
 json.supportSparseArray = true
 local objectMt = {}

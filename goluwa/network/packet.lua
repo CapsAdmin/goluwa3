@@ -1,4 +1,4 @@
-local packet = library()
+local packet = {}
 import.loaded["goluwa/network/packet.lua"] = packet
 local event = import("goluwa/event.lua")
 local network = import("goluwa/network/network.lua")

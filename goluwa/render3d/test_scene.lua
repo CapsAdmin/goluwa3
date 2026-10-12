@@ -8,7 +8,7 @@ local shapes = import("goluwa/render3d/shapes.lua")
 local Shot = import("goluwa/render3d/shot.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local test_scene = library()
+local test_scene = {}
 local root
 
 function test_scene.GetRoot()

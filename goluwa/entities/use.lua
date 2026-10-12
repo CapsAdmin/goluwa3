@@ -1,7 +1,7 @@
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
 local raycast = RENDER_3D and import("goluwa/render3d/raycast.lua")
-local use = library()
+local use = {}
 use.MaxDistance = 3
 local trace_options = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 

@@ -1,6 +1,6 @@
 local process = import("goluwa/bindings/process.lua")
 local codec = import("goluwa/codec.lua")
-local gif = library()
+local gif = {}
 gif.file_extensions = {"gif"}
 gif.magic_headers = {"GIF87a", "GIF89a"}
 

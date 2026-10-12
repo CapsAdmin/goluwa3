@@ -1,4 +1,4 @@
-local billboard = library()
+local billboard = {}
 import.loaded["goluwa/render3d/billboard.lua"] = billboard
 local event = import("goluwa/event.lua")
 local ffi = require("ffi")

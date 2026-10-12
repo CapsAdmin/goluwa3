@@ -1,4 +1,4 @@
-local screen_refraction = library()
+local screen_refraction = {}
 screen_refraction.WAVELENGTH_C = 0.6563
 screen_refraction.WAVELENGTH_D = 0.5876
 screen_refraction.WAVELENGTH_F = 0.4861

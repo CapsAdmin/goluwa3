@@ -154,7 +154,7 @@ do
 end
 
 do
-	local tui = library()
+	local tui = {}
 	local key_trigger = input.SetupInputEvent("TerminalKey")
 	local mouse_trigger = input.SetupInputEvent("TerminalMouse")
 	tui.last_w = tui.last_w or 0

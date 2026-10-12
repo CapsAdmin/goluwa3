@@ -1,5 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local orientation = library()
+local orientation = {}
 orientation.RIGHT_VECTOR = Vec3(1, 0, 0)
 orientation.UP_VECTOR = Vec3(0, 1, 0)
 orientation.FORWARD_VECTOR = Vec3(0, 0, -1)

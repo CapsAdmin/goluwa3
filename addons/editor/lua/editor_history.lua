@@ -4,7 +4,7 @@ local event = import("goluwa/event.lua")
 local History = import("goluwa/history.lua")
 local scene = import("goluwa/entities/scene.lua")
 local prefab = import("goluwa/entities/prefab.lua")
-local ops = library()
+local ops = {}
 local history = History.New()
 ops.history = history
 

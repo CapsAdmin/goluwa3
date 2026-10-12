@@ -1,4 +1,4 @@
-local render3d = library()
+local render3d = {}
 import.loaded["goluwa/render3d/render3d.lua"] = render3d
 local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")

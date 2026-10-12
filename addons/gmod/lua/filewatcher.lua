@@ -1,4 +1,4 @@
-local filewatcher = library()
+local filewatcher = {}
 local event = import("goluwa/event.lua")
 
 local function is_gmod_example_path(path)

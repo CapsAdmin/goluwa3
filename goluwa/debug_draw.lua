@@ -1,4 +1,4 @@
-local debug_draw = library()
+local debug_draw = {}
 import.loaded["goluwa/debug_draw.lua"] = debug_draw
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")

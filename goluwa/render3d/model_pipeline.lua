@@ -4,7 +4,7 @@ local skinning = import("goluwa/render3d/skinning.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local Material = import("goluwa/render3d/material.lua")
 local system = import("goluwa/system.lua")
-local model_pipeline = library()
+local model_pipeline = {}
 local FLOAT_SIZE = ffi.sizeof("float")
 local SURFACE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},

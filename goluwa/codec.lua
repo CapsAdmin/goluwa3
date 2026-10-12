@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local vfs = import("goluwa/vfs.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
-local codec = library()
+local codec = {}
 local codec_modules
 
 local function get_codec_modules()

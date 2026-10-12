@@ -2,7 +2,7 @@ local output = import("goluwa/cli/output.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local list_concat = table.concat
 local select = select
-local logging = library()
+local logging = {}
 
 function logging.ReplMode()
 	output.Initialize()

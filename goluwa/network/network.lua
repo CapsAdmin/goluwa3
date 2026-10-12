@@ -1,4 +1,4 @@
-local network = library()
+local network = {}
 import.loaded["goluwa/network/network.lua"] = network
 local transport_layer = import("goluwa/network/transport_layer.lua")
 local clients = import("goluwa/network/clients.lua")

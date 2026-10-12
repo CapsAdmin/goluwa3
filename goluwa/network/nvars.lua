@@ -1,4 +1,4 @@
-local nvars = library()
+local nvars = {}
 import.loaded["goluwa/network/nvars.lua"] = nvars
 local message = import("goluwa/network/message.lua")
 local objects = import("goluwa/objects/objects.lua")

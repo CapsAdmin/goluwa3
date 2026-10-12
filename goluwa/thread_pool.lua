@@ -3,7 +3,7 @@ local threads = import("goluwa/bindings/threads.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local thread_pool = library()
+local thread_pool = {}
 thread_pool.inline_threshold = thread_pool.inline_threshold or 16384
 local MAX_THREADS = 8
 

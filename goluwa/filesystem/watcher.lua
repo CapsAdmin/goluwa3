@@ -1,4 +1,4 @@
-local hotreload = library()
+local hotreload = {}
 local fs = import("goluwa/filesystem/fs.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")

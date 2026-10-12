@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local blob = import("goluwa/codecs/internal/blob.lua")
-local vtx = library()
+local vtx = {}
 vtx.file_extensions = {"vtx"}
 vtx.returns_blob = true
 local header_t = ffi.typeof([[struct __attribute__((packed)) {

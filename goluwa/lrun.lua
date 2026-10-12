@@ -1,6 +1,6 @@
 local fs = import("goluwa/filesystem/fs.lua")
 local protected_call = import("goluwa/protected_call.lua")
-local lrun = library()
+local lrun = {}
 lrun.environment = {}
 
 function lrun.SetEnvironmentVariable(key, var)

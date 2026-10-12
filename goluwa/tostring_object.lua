@@ -4,7 +4,7 @@
 	expand_metatables = boolean,
 	done = Map<|any, string | nil | true|>,
 }]]
-local lib = library()
+local lib = {}
 
 local function escape_string(str--[[#: string]], quote--[[#: string]])
 	local new_str = {}

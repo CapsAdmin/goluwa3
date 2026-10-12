@@ -1,4 +1,4 @@
-local utility = library()
+local utility = {}
 local bit = require("bit")
 local file_path = import("goluwa/filesystem/path.lua")
 

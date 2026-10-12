@@ -1,7 +1,7 @@
 --[[HOTRELOAD 
     run_file("test/xml.lua")
 ]]
-local xml = library()
+local xml = {}
 xml.file_extensions = {"xml"}
 local ffi = require("ffi")
 local cast = ffi.cast

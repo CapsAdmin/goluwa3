@@ -1,5 +1,5 @@
 local utf8 = import("goluwa/string/utf8.lua")
-local measure = library()
+local measure = {}
 
 local function assert_measurer(measurer)
 	if type(measurer) ~= "table" then

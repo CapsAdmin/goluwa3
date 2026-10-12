@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = import("goluwa/structs/buffer.lua")
-local lzma = library()
+local lzma = {}
 local band, rshift, lshift = bit.band, bit.rshift, bit.lshift
 local floor = math.floor
 local XZ_MAGIC = "\xFD7zXZ\0"

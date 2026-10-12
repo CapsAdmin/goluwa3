@@ -3,7 +3,7 @@ local callstack = import("goluwa/debug/callstack.lua")
 local tasks = import("goluwa/tasks.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local callback = library()
+local callback = {}
 
 local function pump_blocking_get()
 	local dt = 0.001

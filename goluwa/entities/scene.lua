@@ -10,7 +10,7 @@ local ffi = require("ffi")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
-local scene = library()
+local scene = {}
 scene.Version = 1
 local TRANSIENT_COMPONENTS = {visual_primitive = true, network = true}
 local MAX_TABLE_DEPTH = 8

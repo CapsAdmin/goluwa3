@@ -1,6 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local list_remove = list.remove
-local pool = library()
+local pool = {}
 
 function pool.New(name)
 	return {

@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local math = require("math")
-local msgpack = library()
+local msgpack = {}
 local memory = import("goluwa/bindings/memory.lua")
 local bor, band, rshift = bit.bor, bit.band, bit.rshift
 local t_buf = ffi.new("unsigned char[8]")

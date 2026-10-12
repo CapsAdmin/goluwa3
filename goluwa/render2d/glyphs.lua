@@ -5,7 +5,7 @@ local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local codec = import("goluwa/codec.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 local Texture = import("goluwa/render/texture.lua")
-local glyphs = library()
+local glyphs = {}
 glyphs.font_cache = {}
 local bitmap_font_data = {
 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},

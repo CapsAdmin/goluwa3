@@ -1,7 +1,7 @@
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
-local light_grid = library()
+local light_grid = {}
 light_grid.LEVELS = 4
 light_grid.DIM = 32
 light_grid.CELL_SIZE = 2

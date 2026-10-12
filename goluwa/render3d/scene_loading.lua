@@ -1,4 +1,4 @@
-local scene_loading = library()
+local scene_loading = {}
 scene_loading.pending = 0
 
 function scene_loading.Begin()

@@ -1,4 +1,4 @@
-local assets = library()
+local assets = {}
 local file_path = import("goluwa/filesystem/path.lua")
 local vfs = import("goluwa/vfs.lua")
 assets.categories = assets.categories or {}

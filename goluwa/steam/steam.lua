@@ -2,7 +2,7 @@ local tasks = import("goluwa/tasks.lua")
 local resource = import("goluwa/resource.lua")
 local codec = import("goluwa/codec.lua")
 local http = import("goluwa/sockets/http.lua")
-local steam = library()
+local steam = {}
 import("goluwa/steam/mount.lua")(steam)
 steam.VDFToTable = import("goluwa/codecs/vdf.lua").Decode
 

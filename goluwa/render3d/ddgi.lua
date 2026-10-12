@@ -14,7 +14,7 @@ local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local glass_tint = import("goluwa/render3d/glass_tint.lua")
-local ddgi = library()
+local ddgi = {}
 pvars.StartGroup("ddgi", {store = false})
 
 event.AddListener("Render3DPassToggled", "ddgi", function(name, value)

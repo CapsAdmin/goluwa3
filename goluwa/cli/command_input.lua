@@ -2,7 +2,7 @@ local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local logging = import("goluwa/cli/logging.lua")
 local autocomplete = import("goluwa/autocomplete.lua")
-local command_input = library()
+local command_input = {}
 command_input.Prefix = "!"
 autocomplete.SetListName("console_commands", "Commands")
 autocomplete.SetListName("console_variables", "Variables")

@@ -3,7 +3,7 @@ local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
 local objects = import("goluwa/objects/objects.lua")
 local protected_call = import("goluwa/protected_call.lua")
-local commands = library()
+local commands = {}
 
 do
 	local function vector(str, ctor)

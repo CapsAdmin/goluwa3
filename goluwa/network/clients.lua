@@ -1,4 +1,4 @@
-local clients = library()
+local clients = {}
 import.loaded["goluwa/network/clients.lua"] = clients
 local Client = import("goluwa/network/client.lua")
 local crypto = import("goluwa/crypto.lua")

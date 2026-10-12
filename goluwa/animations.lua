@@ -3,7 +3,7 @@ local easing = import("goluwa/math/easing.lua")
 local spring = import("goluwa/math/spring.lua")
 local list = import("goluwa/list.lua")
 local event = import("goluwa/event.lua")
-local animations = library()
+local animations = {}
 animations.Groups = animations.Groups or {}
 
 local function get_value(v, group)

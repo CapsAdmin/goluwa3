@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local get_time = import("goluwa/bindings/time.lua")
 local event = import("goluwa/event.lua")
-local system = library()
+local system = {}
 import.loaded["goluwa/system.lua"] = system
 local Window = import("goluwa/window.lua")
 ffi.cdef([[

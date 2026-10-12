@@ -1,5 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local convex_hull = library()
+local convex_hull = {}
 
 local function copy_vec3(vec)
 	return Vec3(vec.x, vec.y, vec.z)

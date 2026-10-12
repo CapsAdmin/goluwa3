@@ -1,4 +1,4 @@
-local crypto = library()
+local crypto = {}
 
 do
 	local CRC32 = {

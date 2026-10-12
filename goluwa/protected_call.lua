@@ -1,5 +1,5 @@
 local callstack = import("goluwa/debug/callstack.lua")
-local protected_call = library()
+local protected_call = {}
 
 function protected_call.call(cb, a_, b_, c_, d_, e_, f_)
 	assert(f_ == nil)

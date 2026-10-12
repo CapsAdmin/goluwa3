@@ -1,6 +1,6 @@
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
-local froxel_fog = library()
+local froxel_fog = {}
 froxel_fog.TILE = 8
 froxel_fog.SLICES = 96
 froxel_fog.FAR = 3000

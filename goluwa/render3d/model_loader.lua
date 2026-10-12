@@ -1,4 +1,4 @@
-local model_loader = library()
+local model_loader = {}
 import.loaded["goluwa/render3d/model_loader.lua"] = model_loader
 local callback = import("goluwa/callback.lua")
 local event = import("goluwa/event.lua")

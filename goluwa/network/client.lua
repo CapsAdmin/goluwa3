@@ -25,7 +25,7 @@ nvars.GetSet(
 	"cl_avatar_path"
 )
 nvars.GetSet(META, "Ping", -1)
-local client = library()
+local client = {}
 import.loaded["goluwa/network/client.lua"] = client
 client.META = META
 

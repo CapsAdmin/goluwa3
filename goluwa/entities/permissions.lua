@@ -1,6 +1,6 @@
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local permissions = library()
+local permissions = {}
 local policy = pvars.Setup(
 	"sv_entity_permissions",
 	"all",

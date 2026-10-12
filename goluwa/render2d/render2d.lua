@@ -14,7 +14,7 @@ local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local Hash = import("goluwa/hash.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local render2d = library()
+local render2d = {}
 
 local function concat_constant_fields(...)
 	local out = {}

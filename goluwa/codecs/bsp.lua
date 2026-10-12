@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local lzma = import("goluwa/codecs/lzma.lua")
-local bsp = library()
+local bsp = {}
 bsp.file_extensions = {"bsp"}
 bsp.magic_headers = {"VBSP"}
 local uint8_ptr_t = ffi.typeof("const uint8_t *")

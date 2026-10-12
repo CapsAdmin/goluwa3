@@ -10,7 +10,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local glass_tint = import("goluwa/render3d/glass_tint.lua")
-local surface_lighting = library()
+local surface_lighting = {}
 surface_lighting.block = {
 	render3d.camera_block,
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},

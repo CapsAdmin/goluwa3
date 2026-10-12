@@ -1,5 +1,5 @@
 local line_break = import("goluwa/pretext/line_break.lua")
-local flow = library()
+local flow = {}
 local math_abs = math.abs
 local math_ceil = math.ceil
 local math_floor = math.floor

@@ -243,7 +243,7 @@ end
 
 local fonts = import("goluwa/render2d/fonts.lua")
 local Color = import("goluwa/structs/color.lua")
-local text = library()
+local text = {}
 local font_cache = {}
 local default_foreground_color = Color(1, 1, 1, 1)
 local default_background_color = Color(0, 0, 0, 1)

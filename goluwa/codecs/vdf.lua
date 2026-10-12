@@ -1,4 +1,4 @@
-local vdf = library()
+local vdf = {}
 
 local function check_condition(cond)
 	cond = cond:trim()
