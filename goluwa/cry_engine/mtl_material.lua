@@ -9,6 +9,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local bit = require("bit")
 local Material = import("goluwa/render3d/material.lua")
 local mtl_material = {}
+-- cryengine modulates the texture by twice the diffuse color, so the 0.5 grey that most materials have leaves it as it is
+mtl_material.DIFFUSE_COLOR_SCALE = 2
 local cry_mtl_document_cache = {}
 local cry_mtl_material_cache = {}
 local cry_texture_path_cache = {}
@@ -299,6 +301,13 @@ local function apply_cry_material_node(self, material_node, material_path)
 	do
 		local r, g, b = unpack_csv_numbers(attrs.Diffuse)
 		self:SetColorMultiplier(Color(r or 1, g or 1, b or 1, alpha_test > 0 and 1 or opacity))
+
+		-- the terrain layers use their diffuse color as it is, see TerrainLayerAdditiveDetail
+		if shader ~= "Terrain.Layer" then
+			local scale = mtl_material.DIFFUSE_COLOR_SCALE
+			r, g, b = (r or 1) * scale, (g or 1) * scale, (b or 1) * scale
+		end
+
 	end
 
 	if alpha_test > 0 then
