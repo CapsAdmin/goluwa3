@@ -132,7 +132,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/debugging-and-profiling.md](docs/debugging-and-profiling.md): print helpers, the JIT profiler, optimization notes
 - [docs/performance.md](docs/performance.md): measuring CPU/GPU time correctly, benchmarks, JIT pitfalls, baselines and past optimization passes
 - [docs/render3d-lighting.md](docs/render3d-lighting.md): DDGI/GI, fog, sky, clouds, water, shadows, exposure, material and shading pitfalls
-- [docs/render3d-pipeline.md](docs/render3d-pipeline.md): Vulkan/GLSL pitfalls, GPU culling, instancing, LOD, scene view, Test3D harness
+- [docs/render3d-pipeline.md](docs/render3d-pipeline.md): surface features and the auto packed gbuffer, Vulkan/GLSL pitfalls, GPU culling, instancing, LOD, scene view, Test3D harness
 - [docs/crysis.md](docs/crysis.md): Crysis level loading, terrain, vegetation, water, performance
 - [docs/physics.md](docs/physics.md): solver, stress harnesses, buoyancy, Source props
 - [docs/animation-and-source.md](docs/animation-and-source.md): skeletal animation, Source content, threaded codecs
