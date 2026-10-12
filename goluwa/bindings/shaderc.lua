@@ -100,6 +100,9 @@ function mod.Initialize(shaderc_lib)
 	mod.initialized = true
 end
 
+-- the library that is loaded, the shader cache uses it to tell compiled shaders of one build from another
+mod.identity = ""
+
 function mod.compile(source, shader_type, entry_point)
 	assert(mod.initialized, "shaderc is not initialized")
 	local options = lib.shaderc_compile_options_initialize()

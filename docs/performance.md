@@ -59,3 +59,15 @@ Findings from the Esther / Quarry / gm_construct / Beach optimization passes (20
 - Big-scene CPU: `ddgi.GetEmitters` rebuilt 308k emitters ~11x/s while moving because it was keyed on `soup_version`; it is now keyed on `scene_bvh.emitter_version`. Map load is CPU bound in MDL decode, VMT loads and static_geometry building inside `Update->timers` tasks, with GC ~25%; frames run 0.4-1.8 s while props stream. Profile one load stage at a time.
 - Beach (54M triangles, 10.7 GiB VRAM) went from ~20 to ~12.5 ms CPU per frame and became GPU bound.
 - gm_construct_m3_401 is the heavy metastruct map (9724 BSP entities, 4020 static props, ~1850 lights); its default camera is at the origin looking at ocean, use the lobby spawn `units.PositionToEngine(Vec3(-10818,-9029.5,9448))`. Some props/materials are not installed anywhere (props_island, soldier_statue, props_swamp, Nature/grass_09, dirtground011_island, tunnel01-ssbump, Material2). `test/harnesses/gmw/` drives a scripted walk/fly over it (`walk.lua` drives the real player rig through the `CreateMove` event after `SetEyePosition`).
+
+## Shader and pipeline caches, and the slow first start
+
+*what is cached where, what the logs mean, how to start cold*
+
+Three caches sit between a shader's GLSL and a running pipeline:
+
+1. `storage/cache/shaders/<crc32>_<length>.spv`, the engine's own (`goluwa/render/vulkan/internal/shader_module.lua`). A file is a header, the SPIR-V and then the GLSL it was compiled from; a hit is used only when that GLSL equals the shader's exactly, so a crc32 collision or a stale or truncated file is detected, logged as `[shader] compiled ... because the cache is off: <reason>` and rebuilt. A plain miss logs `[shader] compiled <stage> shader ...` and a hit logs nothing. shaderc takes milliseconds per shader, so this cache is not what makes a cold start slow. The old format (a bare crc32 file name, SPIR-V only, no check) is deleted on first use.
+2. `storage/cache/vulkan_pipeline_cache.bin`, the Vulkan pipeline cache, saved a couple of seconds after the last pipeline was made (a `--one-frame` run exits before that).
+3. **The NVIDIA driver's own cache** in the home directory: `~/.cache/nvidia/GLCache` (about 1 GB here) and `~/.nv/ComputeCache`. This is what makes the first start slow: a cold start took about 117 s on this machine (about 115 shaders), a warm one 2.8 s. A shader change makes the driver recompile every pipeline that uses it, so any edit of shared GLSL (gbuffer layout, lighting, surface features) costs a slow start the first time. `[pipeline] the driver compiled a <kind> pipeline in N ms` is logged for any pipeline that took 50 ms or more to create, and nothing for the fast ones.
+
+Start cold with `rm -rf ~/.cache/nvidia/GLCache ~/.nv/ComputeCache storage/cache/shaders storage/cache/vulkan_pipeline_cache.bin`, they all regenerate. If something renders wrong only on one machine's cache state, clear the driver cache first: it is the one cache the engine can't check.

@@ -37,6 +37,9 @@ local function list_directory()
 	return found
 end
 
+-- the path of the file the loader resolved a bare library name to, set below
+local get_loaded_path
+
 -- loads the library at `path` (or by name), hands it to the binding and compiles a trivial shader
 local function try_load(path)
 	local ok, lib = pcall(ffi.load, path)
@@ -55,11 +58,13 @@ local function try_load(path)
 		return nil, "smoke test produced invalid SPIR-V"
 	end
 
+	-- what the shader cache keeps apart: the same source compiled by another build of shaderc is not the same shader.
+	-- reading a library of several megabytes to checksum it costs every start, so it is told apart by size and time
+	local resolved = path:find("/", nil, true) and path or get_loaded_path(path)
+	local stat = fs.get_attributes(resolved)
+	shaderc.identity = resolved .. ":" .. tostring(stat.size) .. ":" .. stat.last_modified
 	return true
 end
-
--- the path of the file the loader resolved a bare library name to
-local get_loaded_path
 
 if jit.os == "Windows" then
 	ffi.cdef[[

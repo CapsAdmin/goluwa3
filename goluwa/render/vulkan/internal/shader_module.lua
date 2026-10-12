@@ -21,6 +21,13 @@ end
 
 local shaders_disk_cache_dir = "./storage/cache/shaders/"
 local shaders_disk_cache_dir_ready = false
+-- a cache file is a header, the spir-v and then the glsl it was compiled from, so a hit is only
+-- used when it is for exactly this source. the filename only has to be unlikely to collide
+local CACHE_MAGIC = "GLWSPV01"
+local CACHE_HEADER = ffi.typeof("struct { char magic[8]; uint32_t spirv_size; uint32_t glsl_size; }")
+local CACHE_HEADER_PTR = ffi.typeof("const $ *", CACHE_HEADER)
+local CACHE_HEADER_SIZE = ffi.sizeof(CACHE_HEADER)
+local SPIRV_MAGIC = 0x07230203
 
 local function ensure_disk_cache_dir()
 	if shaders_disk_cache_dir_ready then return end
@@ -29,27 +36,89 @@ local function ensure_disk_cache_dir()
 	shaders_disk_cache_dir_ready = true
 end
 
-local function disk_cache_path(glsl, shader_type)
-	return shaders_disk_cache_dir .. crypto.CRC32(shader_type .. "|" .. glsl) .. ".spv"
+-- the glsl and the shaderc build it was compiled by, a file only counts when it holds this
+local function get_source_key(glsl)
+	return shaderc.identity .. "\0" .. glsl
 end
 
-local function load_disk_cache(glsl, shader_type)
-	local path = disk_cache_path(glsl, shader_type)
+local function disk_cache_path(glsl, shader_type)
+	local key = shader_type .. "|" .. get_source_key(glsl)
+	return shaders_disk_cache_dir .. crypto.CRC32(key) .. "_" .. #key .. ".spv"
+end
 
-	if not fs.is_file(path) then return nil end
+-- returns the spir-v and its size, or nil and why there is none
+local function load_disk_cache(path, glsl)
+	if not fs.is_file(path) then return nil, "not cached" end
 
 	local data = fs.read_file(path)
 
-	if not data or data == "" then return nil end
+	if not data or #data < CACHE_HEADER_SIZE then return nil, "file is truncated" end
 
-	local copy = ffi.new("uint8_t[?]", #data)
-	ffi.copy(copy, data, #data)
-	return copy, #data
+	local header = ffi.cast(CACHE_HEADER_PTR, data)
+
+	if ffi.string(header.magic, 8) ~= CACHE_MAGIC then
+		return nil, "unknown format"
+	end
+
+	local spirv_size = header.spirv_size
+	local glsl_size = header.glsl_size
+
+	if #data ~= CACHE_HEADER_SIZE + spirv_size + glsl_size then
+		return nil, "file is truncated"
+	end
+
+	if spirv_size < 20 or spirv_size % 4 ~= 0 then return nil, "invalid spir-v size" end
+
+	local source_key = get_source_key(glsl)
+
+	if glsl_size ~= #source_key or data:sub(CACHE_HEADER_SIZE + spirv_size + 1) ~= source_key then
+		return nil, "made from other glsl or by another shaderc, a hash collision or a stale file"
+	end
+
+	local copy = ffi.new("uint8_t[?]", spirv_size)
+	ffi.copy(copy, ffi.cast("const uint8_t *", data) + CACHE_HEADER_SIZE, spirv_size)
+
+	if ffi.cast("const uint32_t *", copy)[0] ~= SPIRV_MAGIC then
+		return nil, "invalid spir-v"
+	end
+
+	return copy, spirv_size
 end
 
-local function save_disk_cache(glsl, shader_type, spirv_data, spirv_size)
+-- the files of the old format, named by a crc32 alone and holding only spir-v
+local legacy_removed = false
+
+local function remove_legacy_files()
+	if legacy_removed then return end
+
+	legacy_removed = true
+	local count = 0
+
+	for _, name in ipairs(fs.get_files(shaders_disk_cache_dir) or {}) do
+		if name:find("^%d+%.spv$") and os.remove(shaders_disk_cache_dir .. name) then
+			count = count + 1
+		end
+	end
+
+	if count > 0 then logf("[shader] removed %d cached shaders of the old format\n", count) end
+end
+
+-- written to a temporary file and renamed, so a reader (another process, a test worker) never
+-- sees half a file
+local function save_disk_cache(path, glsl, spirv_data, spirv_size)
 	ensure_disk_cache_dir()
-	fs.write_file(disk_cache_path(glsl, shader_type), ffi.string(spirv_data, spirv_size))
+	remove_legacy_files()
+	local header = CACHE_HEADER()
+	ffi.copy(header.magic, CACHE_MAGIC, 8)
+	header.spirv_size = spirv_size
+	header.glsl_size = #get_source_key(glsl)
+	-- the address makes the name unique among threads, which share a process and a clock
+	local temp_path = path .. "." .. tostring(spirv_data):gsub("%W", "") .. ".tmp"
+	local ok = fs.write_file(temp_path, ffi.string(header, CACHE_HEADER_SIZE) .. ffi.string(spirv_data, spirv_size) .. get_source_key(glsl))
+
+	if ok and os.rename(temp_path, path) then return end
+
+	logf("[shader] could not write %s\n", path)
 end
 
 local function get_or_create_cached_module(device, glsl, type)
@@ -65,11 +134,24 @@ local function get_or_create_cached_module(device, glsl, type)
 
 	if record then return record end
 
-	local spirv_data, spirv_size = load_disk_cache(glsl, type)
+	local path = disk_cache_path(glsl, type)
+	local spirv_data, spirv_size = load_disk_cache(path, glsl)
 
 	if not spirv_data then
+		-- spirv_size holds the reason. not being cached is the normal first run, anything else
+		-- is a cache that can't be trusted
+		local reason = spirv_size
+		local start = os.clock()
 		spirv_data, spirv_size = shaderc.compile(glsl, type)
-		save_disk_cache(glsl, type, spirv_data, spirv_size)
+		logf(
+			"[shader] compiled %s shader %s (%d bytes of glsl) in %.0f ms%s\n",
+			type,
+			path:match("([^/]+)%.spv$"),
+			#glsl,
+			(os.clock() - start) * 1000,
+			reason == "not cached" and "" or " because the cache is off: " .. reason
+		)
+		save_disk_cache(path, glsl, spirv_data, spirv_size)
 	end
 
 	local ptr = VkShaderModuleBox()
