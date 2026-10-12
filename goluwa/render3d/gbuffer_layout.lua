@@ -1,4 +1,5 @@
 local render3d = import("goluwa/render3d/render3d.lua")
+local commands = import("goluwa/cli/commands.lua")
 local gbuffer_layout = {}
 local surface_features = import("goluwa/render3d/surface_features.lua")
 -- the guaranteed minimum of vulkan's maxColorAttachments
@@ -353,6 +354,80 @@ do
 	function gbuffer_layout.GetDecodeGLSL(block_name)
 		return (code:gsub("GBUFFER%.", block_name .. "."))
 	end
+end
+
+do
+	local FORMAT_BYTES = {
+		r8g8b8a8_srgb = 4,
+		r8g8b8a8_unorm = 4,
+		b10g11r11_ufloat_pack32 = 4,
+		r16g16_unorm = 4,
+		r16g16b16a16_unorm = 8,
+		r16g16b16a16_sfloat = 8,
+	}
+
+	-- the targets, what is stored in each channel and how much is left
+	function gbuffer_layout.Describe()
+		local lines = {}
+		local total = 0
+		local free = 0
+		local by_channel = {}
+
+		for _, field in ipairs(gbuffer_layout.fields) do
+			by_channel[field.target.texture .. "." .. field.swizzle] = by_channel[field.target.texture .. "." .. field.swizzle] or {}
+			table.insert(by_channel[field.target.texture .. "." .. field.swizzle], field)
+		end
+
+		for i, target in ipairs(gbuffer_layout.targets) do
+			local bytes = FORMAT_BYTES[target.format]
+			total = total + bytes
+			table.insert(lines, string.format("%d %s %s, %d bytes per pixel", i, target.texture, target.format, bytes))
+
+			for _, channel in ipairs(target.channels) do
+				local fields = by_channel[target.texture .. "." .. channel[2]]
+				local text
+
+				if fields then
+					local names = {}
+
+					for _, field in ipairs(fields) do
+						table.insert(
+							names,
+							string.format("%s (%s%s)", field.name, field.kind, field.readers and ", read by " .. table.concat(field.readers, " ") or "")
+						)
+					end
+
+					text = table.concat(names, " + ")
+				else
+					text = "fixed"
+				end
+
+				table.insert(lines, string.format("    %-4s %s: %s", channel[2], channel[1], text))
+			end
+
+			if target.used and target.used < 4 then
+				free = free + 4 - target.used
+				table.insert(lines, string.format("    %d of 4 channels free", 4 - target.used))
+			end
+		end
+
+		table.insert(
+			lines,
+			string.format(
+				"%d targets of %d, %d bytes per pixel plus depth %s, %d free channels in packed targets",
+				#gbuffer_layout.targets,
+				MAX_TARGETS,
+				total,
+				gbuffer_layout.DEPTH_FORMAT,
+				free
+			)
+		)
+		return table.concat(lines, "\n")
+	end
+
+	commands.Add("gbuffer_layout", function()
+		logf("%s\n", gbuffer_layout.Describe())
+	end)
 end
 
 return gbuffer_layout
