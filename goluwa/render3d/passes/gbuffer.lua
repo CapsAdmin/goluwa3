@@ -228,6 +228,11 @@ local function build_ssdm_fragment_shader(write_depth)
 			return clamp(clip_pos.z / clip_w, 0.0, 1.0);
 		}
 
+		// a decal's depth is pulled towards the camera by a bit of its distance and a bit in meters, so it
+		// wins the depth test against what it lies on at any distance, like cryengine's decal z fighting remedy
+		const float DECAL_DEPTH_BIAS_RELATIVE = 0.002;
+		const float DECAL_DEPTH_BIAS_ABSOLUTE = 0.002;
+
 		// parallax occlusion mapping (Tatarchuk 2006). the height field is a slab around the polygon, from
 		// (1 - HeightMidlevel) above it to HeightMidlevel below it, HeightScale texture units thick. the view
 		// ray is marched from where it enters the slab's top down to its bottom in layers, and the uv, height
@@ -311,6 +316,20 @@ local function build_ssdm_fragment_shader(write_depth)
 			mat3 tbn = get_tbn();
 			SSDMData displacement = get_ssdm_data(tbn);
 			float alpha = get_alpha_uv(displacement.uv);
+
+			// the texture blend of a decal made by the decal component is how much of its alpha is gone, a negative one asks for
+			// the falloff towards the edge of the decal's uv square
+			if (Decal && DecalFade) {
+				float fade = in_texture_blend;
+
+				if (fade < 0.0) {
+					vec2 centered = in_uv - 0.5;
+					fade = clamp(dot(centered, centered) * 4.0, 0.0, 1.0);
+				}
+
+				alpha *= 1.0 - fade;
+			}
+
 			compute_translucency_and_discard(alpha);
 
 			vec3 albedo = get_albedo_world(displacement.uv, displacement.world_pos);
@@ -356,7 +375,16 @@ local function build_ssdm_fragment_shader(write_depth)
 			write_velocity(in_position, in_prev_position);
 			]] .. (
 			write_depth and
-			"gl_FragDepth = get_projected_depth(displacement.world_pos);" or
+			[[
+			vec3 depth_position = displacement.world_pos;
+
+			if (Decal) {
+				vec3 to_camera = gbuffer_data.camera_position.xyz - depth_position;
+				float camera_distance = max(length(to_camera), 0.0001);
+				depth_position += to_camera / camera_distance * (camera_distance * DECAL_DEPTH_BIAS_RELATIVE + DECAL_DEPTH_BIAS_ABSOLUTE);
+			}
+
+			gl_FragDepth = get_projected_depth(depth_position);]] or
 			""
 		) .. [[
 		}

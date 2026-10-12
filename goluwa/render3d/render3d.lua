@@ -641,7 +641,7 @@ function render3d.UploadGBufferConstants()
 	local material = render3d.GetMaterial()
 	local pipelines = render3d.pipelines
 
-	if material:HasHeightMap() then
+	if material:WritesFragmentDepth() then
 		if material:HasVertexAnimation() then
 			pipelines.gbuffer_anim_height_map:UploadConstants()
 		else
@@ -672,7 +672,7 @@ function render3d.ExtendTranslucentDepthRange(near, far)
 end
 
 function render3d.UploadInstancedGBufferConstants()
-	if render3d.GetMaterial():HasHeightMap() then
+	if render3d.GetMaterial():WritesFragmentDepth() then
 		render3d.pipelines.gbuffer_instanced_height_map:UploadConstants()
 	else
 		render3d.pipelines.gbuffer_instanced:UploadConstants()

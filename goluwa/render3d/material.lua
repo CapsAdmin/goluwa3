@@ -61,6 +61,14 @@ Material:GetSet("HeightLayers", 24, {requires = {"HeightTexture", "HeightScale"}
 Material:StartCategory("Blending")
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
+-- decals are laid over other surfaces and do not cast shadows
+Material:GetSet("Decal", false, {callback = "InvalidateFlags"})
+-- a decal alpha is pushed towards fully transparent or fully opaque, which makes it more like alpha testing
+Material:GetSet("SharpAlpha", false, {callback = "InvalidateFlags"})
+-- the vertex texture blend of a decal is how much of its alpha is gone, see decal_projection
+Material:GetSet("DecalFade", false, {callback = "InvalidateFlags"})
+-- a decal that blends by dithering in the gbuffer pass instead of drawing in the translucent pass
+Material:GetSet("Dithered", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateColor", requires = "AlphaTest"})
 Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
 Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
@@ -208,14 +216,6 @@ Material:GetSet(
 	nil,
 	{type = "render_texture", requires = "TerrainMaterialTexture"}
 )
-Material:StartCategory("Terrain Shading")
-Material:GetSet(
-	"TerrainLayerScales",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayerHeightScales",
 -- layers 5 to 8 and their weights, for chunks that have more than four layers
 Material:GetSet(
 	"TerrainMaterial2Texture",
@@ -245,6 +245,14 @@ for layer = 5, 8 do
 	)
 end
 
+Material:StartCategory("Terrain Shading")
+Material:GetSet(
+	"TerrainLayerScales",
+	Color(1.0, 1.0, 1.0, 1.0),
+	{requires = "TerrainMaterialTexture"}
+)
+Material:GetSet(
+	"TerrainLayerHeightScales",
 	Color(0.0, 0.0, 0.0, 0.0),
 	{requires = "TerrainMaterialTexture"}
 )
@@ -279,14 +287,6 @@ Material:GetSet(
 	Color(1.0, 1.0, 1.0, 1.0),
 	{requires = {"Grass", "TerrainMaterialTexture"}}
 )
-Material:StartCategory("Vegetation")
-Material:GetSet("Billboard", false, {callback = "InvalidateFlags"})
-Material:GetSet("Bending", 0.0)
-Material:GetSet("DetailBending", "none", {enums = {"none", "leaves", "grass"}})
-Material:GetSet("BendDetailFrequency", 5.0, {requires = "DetailBending"})
-Material:GetSet("BendDetailLeafAmplitude", 0.08, {requires = "DetailBending"})
-Material:GetSet("BendDetailBranchAmplitude", 0.2, {requires = "DetailBending"})
-Material:GetSet("BendDetailPhase", 100.0, {requires = "DetailBending"})
 -- the same for layers 5 to 8
 Material:GetSet(
 	"TerrainLayerScales2",
@@ -323,6 +323,14 @@ Material:GetSet(
 	Color(1.0, 1.0, 1.0, 1.0),
 	{requires = "TerrainMaterial2Texture"}
 )
+Material:StartCategory("Vegetation")
+Material:GetSet("Billboard", false, {callback = "InvalidateFlags"})
+Material:GetSet("Bending", 0.0)
+Material:GetSet("DetailBending", "none", {enums = {"none", "leaves", "grass"}})
+Material:GetSet("BendDetailFrequency", 5.0, {requires = "DetailBending"})
+Material:GetSet("BendDetailLeafAmplitude", 0.08, {requires = "DetailBending"})
+Material:GetSet("BendDetailBranchAmplitude", 0.2, {requires = "DetailBending"})
+Material:GetSet("BendDetailPhase", 100.0, {requires = "DetailBending"})
 Material:StartCategory("Grass")
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:GetSet("GrassDensity", 700.0, {requires = "Grass"})
@@ -567,11 +575,18 @@ function Material:HasHeightMap()
 	return self.HeightTexture ~= nil and self.HeightScale > 0
 end
 
+-- decals draw with the pipelines that write the fragment depth, which pulls them in front of what they lie on
+function Material:WritesFragmentDepth()
+	return self:HasHeightMap() or self.Decal
+end
+
 function Material:HasVertexAnimation()
 	return self.Bending > 0 or self.DetailBending ~= "none"
 end
 
 function Material:IsTransparent()
+	if self.Dithered then return false end
+
 	return self.Translucent or self.Refraction > 0 or self.Additive or self.Modulate
 end
 
@@ -631,6 +646,9 @@ local FLAGS = {
 	"Billboard",
 	"EmissiveTextureIsColor",
 	"MetallicFromRoughnessMask",
+	"Decal",
+	"SharpAlpha",
+	"DecalFade",
 }
 Material.FlagBits = {}
 
@@ -767,7 +785,7 @@ do
 	function Material:GetShadowOpacity()
 		local color = self.ColorMultiplier
 
-		if self.Additive or self.Modulate then return 0 end
+		if self.Additive or self.Modulate or self.Decal then return 0 end
 
 		if self.Refraction > 0 and not Material.GlassCastsShadow() then return 0 end
 

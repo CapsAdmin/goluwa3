@@ -5,10 +5,12 @@ local water = import("goluwa/render3d/water.lua")
 local fluid = import("goluwa/physics/fluid.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local cry_scene = {}
 local LEAF_CELL_TARGET = 64
 local LEAF_CHUNK_THRESHOLD = 256
+local DECAL_PROJECTIONS = {[0] = "planar", "objects", "terrain", "terrain_objects"}
 local DEFAULT_DENSITY = 1000
 local MATRIX_FIELDS = {}
 
@@ -156,6 +158,31 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					ModelPath = entry.model_path,
 					MaterialOverridePath = entry.material_path,
 					Billboard = entry.use_sprites == true or nil,
+					ReceivesDecals = false,
+				},
+			},
+		}
+	end
+
+	local function add_decal(entry, parent_guid)
+		local transform_data = level.ConvertCryDecalMatrixToEngineTransform(entry.world_matrix)
+		add{
+			guid = level_guid .. ":decal:" .. entry.cry_index,
+			parent = parent_guid,
+			properties = {Name = entry.name or "cry_decal"},
+			components = {
+				transform = {
+					Position = transform_data.position,
+					Rotation = transform_data.rotation,
+					Scale = transform_data.scale,
+				},
+				decal = {
+					Material = entry.material_path,
+					Projection = DECAL_PROJECTIONS[entry.projection_type] or "planar",
+					SortPriority = entry.sort_priority,
+					VRange = Vec2(1, 0),
+					HeightMidlevel = level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE and 1 or 0.5,
+					SharpAlpha = level.DECAL_ALPHA_IS_SHARPENED,
 				},
 			},
 		}
@@ -228,7 +255,10 @@ function cry_scene.Translate(data, level_name, level_path, options)
 	add{
 		guid = level_guid,
 		properties = {Name = level_name},
-		components = {cry_level = {Path = level_path}},
+		components = {
+			cry_level = {Path = level_path},
+			static_world = RENDER_3D and {Colliders = false} or nil,
+		},
 	}
 	local atmosphere_record, atmosphere = build_atmosphere_record(data)
 
@@ -337,6 +367,72 @@ function cry_scene.Translate(data, level_name, level_path, options)
 		end
 
 		leaf.items[#leaf.items + 1] = entry
+	end
+
+	if RENDER_3D and data.decals and data.decals[1] then
+		for index, entry in ipairs(data.decals) do
+			entry.cry_index = index
+		end
+
+		list.insert(leaves, {folder = add_folder(level_guid, "Decals"), items = data.decals, add = add_decal})
+	end
+
+	if data.spawns and data.spawns[1] then
+		local spawns_guid = add_folder(level_guid, "Spawns")
+
+		for index, spawn in ipairs(data.spawns) do
+			local transform_data = level.ConvertCryWorldMatrixToEngineTransform(spawn.world_matrix)
+			add{
+				guid = level_guid .. ":spawn:" .. index,
+				parent = spawns_guid,
+				properties = {Name = spawn.name or "SpawnPoint"},
+				components = {
+					transform = {
+						Position = transform_data.position,
+						Rotation = transform_data.rotation,
+					},
+					spawn_point = {Group = "spawn"},
+				},
+			}
+		end
+	end
+
+	if RENDER_3D and data.roads and data.roads[1] then
+		local roads_guid = add_folder(level_guid, "Roads")
+
+		for index, road in ipairs(data.roads) do
+			local values = {}
+
+			for _, point in ipairs(road.points) do
+				for _, vector in ipairs{units.ToEngine(point.pos), units.ToEngine(point.back), units.ToEngine(point.forw)} do
+					list.insert(values, vector.x)
+					list.insert(values, vector.y)
+					list.insert(values, vector.z)
+				end
+
+				list.insert(values, point.width)
+			end
+
+			add{
+				guid = level_guid .. ":road:" .. index,
+				parent = roads_guid,
+				properties = {Name = road.name or "cry_road"},
+				components = {
+					transform = {},
+					decal = {
+						Material = road.material_path,
+						Projection = "road",
+						SortPriority = road.sort_priority,
+						Points = values,
+						Width = road.width,
+						TileLength = road.tile_length,
+						FadeLength = road.step_size,
+						HeightMidlevel = level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE and 1 or 0.5,
+						SharpAlpha = level.DECAL_ALPHA_IS_SHARPENED,
+					},
+				},
+			}
+		end
 	end
 
 	for _, leaf in ipairs(leaves) do

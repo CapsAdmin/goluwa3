@@ -443,48 +443,71 @@ function META:ReleaseSpans(spans, touched)
 	end
 end
 
-function META:RefreshBatch(batch)
-	if batch.is_new then
-		static_geometry.UploadBatch(batch)
-		self:AttachBatch(batch)
-		self:GetBatchVisual(batch).visual:BuildAABB()
-	else
-		batch.mesh:Upload(nil)
-		self.batch_primitives[batch].visual_primitive:SetPolygon3D(batch.mesh)
-	end
-end
-
 function META:RefreshBatches(touched)
+	local new_visuals = {}
+
 	for batch in pairs(touched) do
-		if #batch.mesh.Vertices > 0 or not batch.is_new then self:RefreshBatch(batch) end
+		if batch.is_new then
+			if #batch.mesh.Vertices > 0 then
+				static_geometry.UploadBatch(batch)
+				self:AttachBatch(batch)
+				new_visuals[self:GetBatchVisual(batch)] = true
+			end
+		else
+			batch.mesh:Upload(nil)
+			self.batch_primitives[batch].visual_primitive:SetPolygon3D(batch.mesh)
+		end
+	end
+
+	for visual_entity in pairs(new_visuals) do
+		visual_entity.visual:BuildAABB()
 	end
 end
 
--- Replaces the triangles of a decal. fragments is a list of {group, polygon of {pos, u, v}}.
-function META:SetDecalFragments(owner, fragments)
-	local touched = {}
+-- Replaces the triangles of a decal. fragments is a list of {group, cell, polygon of {pos, u, v, normal}}, group is a
+-- visibility group and cell splits the decals of one material into spatial batches. touched collects the changed
+-- batches instead of refreshing them right away, the caller then has to call RefreshBatches.
+function META:SetDecalFragments(owner, fragments, touched)
+	local refresh = not touched
+	touched = touched or {}
 	local old_spans = self.decal_spans[owner]
 
 	if old_spans then self:ReleaseSpans(old_spans, touched) end
 
 	local spans = {}
+	local span_by_batch = {}
+	local key, material = owner:GetBatchMaterial()
 
 	for _, fragment in ipairs(fragments) do
 		local batch = static_geometry.GetBatch(
 			self.batch_state,
-			owner.Material:match("^materials/(.*)%.vmt$"),
+			key,
 			fragment.group,
-			"overlay"
+			"overlay" .. (fragment.cell or ""),
+			material
 		)
+		batch.material:SetDecal(true)
 		local first, count = static_geometry.AddPolygon(batch.mesh, fragment.polygon)
-		batch.mesh:BuildTangents(first, first + count - 1)
-		list.insert(spans, {entry = batch, first = first, count = count})
+		local span = span_by_batch[batch]
+
+		if span then
+			span.count = span.count + count
+		else
+			span = {entry = batch, first = first, count = count}
+			span_by_batch[batch] = span
+			list.insert(spans, span)
+		end
+
 		touched[batch] = true
+	end
+
+	for _, span in ipairs(spans) do
+		span.entry.mesh:BuildTangents(span.first, span.first + span.count - 1)
 	end
 
 	self.decal_spans[owner] = spans
 
-	if self.built then self:RefreshBatches(touched) end
+	if refresh and self.built then self:RefreshBatches(touched) end
 end
 
 function META:RemoveDecal(owner)

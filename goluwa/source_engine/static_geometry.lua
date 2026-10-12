@@ -50,7 +50,7 @@ function static_geometry.NewState(name)
 	}
 end
 
-function static_geometry.GetBatch(state, texname, group, kind)
+function static_geometry.GetBatch(state, texname, group, kind, material)
 	local group_id = 0
 
 	if group then
@@ -68,7 +68,7 @@ function static_geometry.GetBatch(state, texname, group, kind)
 
 	if not batch then
 		local mesh = Polygon3D.New()
-		local material = vmt_material.FromVMT("materials/" .. texname .. ".vmt")
+		material = material or vmt_material.FromVMT("materials/" .. texname .. ".vmt")
 		mesh:SetName(state.name .. ": " .. texname)
 		mesh.material = material
 		batch = {mesh = mesh, material = material, visibility_group = group}
@@ -490,8 +490,8 @@ function static_geometry.Finalize(result)
 	return result
 end
 
--- Appends a convex polygon of {pos, u, v} (source space positions) to a batch mesh as a flat shaded triangle fan,
--- returns the first vertex index and the vertex count.
+-- Appends a convex polygon of {pos, u, v, normal, fade} (engine space positions, normal and fade are optional) to a batch mesh as a
+-- triangle fan that is flat shaded where the vertices have no normal, returns the first vertex index and the vertex count.
 function static_geometry.AddPolygon(mesh, polygon)
 	local first = mesh.i
 
@@ -500,16 +500,20 @@ function static_geometry.AddPolygon(mesh, polygon)
 
 		for _, vertex in ipairs{polygon[1], polygon[j], polygon[j + 1]} do
 			mesh:AddVertex{
-				pos = units.PositionToEngine(vertex.pos),
-				texture_blend = 0,
+				pos = vertex.pos,
+				texture_blend = vertex.fade or 0,
 				uv = Vec2(vertex.u, vertex.v),
+				normal = vertex.normal,
 			}
 		end
 
 		local vertices = mesh.Vertices
 		local a, b, c = vertices[first_index], vertices[first_index + 1], vertices[first_index + 2]
-		local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
-		a.normal, b.normal, c.normal = normal, normal, normal
+
+		if not a.normal then
+			local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
+			a.normal, b.normal, c.normal = normal, normal, normal
+		end
 	end
 
 	return first, mesh.i - first

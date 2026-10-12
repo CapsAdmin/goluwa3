@@ -1068,6 +1068,7 @@ end
 Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
+Visual:GetSet("ReceivesDecals", true)
 Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 20000)
 Visual:GetSet("Billboard", false)
@@ -1493,11 +1494,29 @@ function Visual:RebuildRenderEntries()
 			if entry.polygon3d.LODBillboard then has_billboard = true end
 		end
 
+		-- a decal on the most detailed level that has no counterpart on the next ones is not replaced by anything, so it
+		-- stays when the rest of the model switches to a lower level
+		local slot_has_lower_detail = {}
+
+		for _, entry in ipairs(lod_entries) do
+			if entry.polygon3d.LODLevel ~= base_level then
+				slot_has_lower_detail[entry.polygon3d:GetMaterialSlot() or -1] = true
+			end
+		end
+
 		for _, entry in ipairs(lod_entries) do
 			local rank = ranks[entry.polygon3d.LODLevel]
 			entry.lod_level = rank - 1
 			entry.lod_near = levels[sorted[rank]]
 			entry.lod_far = sorted[rank + 1] and levels[sorted[rank + 1]] or lod.NEVER
+
+			if
+				rank == 1 and
+				self:GetResolvedMaterial(entry):GetDecal() and
+				not slot_has_lower_detail[entry.polygon3d:GetMaterialSlot() or -1]
+			then
+				entry.lod_far = lod.NEVER
+			end
 			entry.lod_last = #sorted - 1
 			entry.lod_billboard = entry.polygon3d.LODBillboard
 			entry.lod_before_billboard = has_billboard and rank == #sorted - 1

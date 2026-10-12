@@ -12,6 +12,10 @@ local read_u32_le, read_u16_le, read_f32_le
 local sample_terrain_height01_at_world
 local f32_union = ffi.new("union { uint32_t u; float f; }")
 local level = {}
+-- decal heights hang below the decal polygon like they do in cryengine, off centers the heights on the polygon
+level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE = true
+-- decal alpha is pushed towards fully transparent or opaque, off blends it by the plain texture alpha like cryengine
+level.DECAL_ALPHA_IS_SHARPENED = true
 
 local function find_child_by_tag(node, tag)
 	if not (node and node.children) then return nil end
@@ -218,6 +222,29 @@ function level.ConvertCryWorldMatrixToEngineTransform(world_matrix)
 	}
 end
 
+-- Cry decals generate their texture coordinates from the matrix: u runs along -y and v along x, the normal is z. The
+-- decal frame right, up and back map to those directions.
+function level.ConvertCryDecalMatrixToEngineTransform(world_matrix)
+	local origin = world_matrix:TransformVector(Vec3(0, 0, 0))
+	local cry_x = world_matrix:TransformVector(Vec3(1, 0, 0)) - origin
+	local cry_y = world_matrix:TransformVector(Vec3(0, 1, 0)) - origin
+	local cry_z = world_matrix:TransformVector(Vec3(0, 0, 1)) - origin
+	local scale_x, scale_y, scale_z = cry_x:GetLength(), cry_y:GetLength(), cry_z:GetLength()
+	local right = units.ToEngine(-cry_y / scale_y)
+	local up = units.ToEngine(cry_x / scale_x)
+	local back = units.ToEngine(cry_z / scale_z)
+	local rotation_matrix = Matrix44()
+	rotation_matrix:Identity()
+	rotation_matrix.m00, rotation_matrix.m01, rotation_matrix.m02 = right.x, right.y, right.z
+	rotation_matrix.m10, rotation_matrix.m11, rotation_matrix.m12 = up.x, up.y, up.z
+	rotation_matrix.m20, rotation_matrix.m21, rotation_matrix.m22 = back.x, back.y, back.z
+	return {
+		position = units.ToEngine(origin),
+		rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
+		scale = Vec3(scale_y, scale_x, scale_z),
+	}
+end
+
 function level.ConvertCryVegetationInstanceToEngineTransform(entry)
 	local rotation = Quat(0, 0, 0, 1):Rotate(entry.yaw or 0, 0, 1, 0)
 	local position = units.ToEngine(entry.position)
@@ -314,8 +341,7 @@ function level.IsObjectHidden(attrs)
 	return attrs.Hidden == "1" or attrs.HiddenInGame == "1"
 end
 
-local function extract_water_object(node, world_matrix)
-	local attrs = node.attrs
+local function extract_spline_points(node, world_matrix)
 	local points = {}
 
 	for point in iter_children_by_tag(find_child_by_tag(node, "Points"), "Point") do
@@ -327,6 +353,13 @@ local function extract_water_object(node, world_matrix)
 			width = tonumber(point.attrs.Width) or 0,
 		}
 	end
+
+	return points
+end
+
+local function extract_water_object(node, world_matrix)
+	local attrs = node.attrs
+	local points = extract_spline_points(node, world_matrix)
 
 	if not points[2] then return nil end
 
@@ -343,7 +376,27 @@ local function extract_water_object(node, world_matrix)
 	}
 end
 
-function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, water_out, group, layer)
+local function extract_road_object(node, world_matrix, layer, group)
+	local attrs = node.attrs
+	local points = extract_spline_points(node, world_matrix)
+
+	if not points[2] or not attrs.Material or attrs.Material == "" then return nil end
+
+	return {
+		name = attrs.Name,
+		material_path = attrs.Material,
+		points = points,
+		width = tonumber(attrs.Width) or 0,
+		tile_length = tonumber(attrs.TileLength) or 1,
+		step_size = tonumber(attrs.StepSize) or 1,
+		sort_priority = tonumber(attrs.SortPriority) or 0,
+		ignore_terrain_holes = attrs.IgnoreTerrainHoles == "1",
+		layer = layer,
+		group = group,
+	}
+end
+
+function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, extra, group, layer)
 	local attrs = node.attrs or {}
 	layer = attrs.Layer or layer
 
@@ -354,7 +407,43 @@ function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, 
 	local children
 
 	if object_type == "WaterVolume" or object_type == "River" then
-		water_out[#water_out + 1] = extract_water_object(node, world_matrix)
+		local water = extract_water_object(node, world_matrix)
+
+		if water then list.insert(extra.water, water) end
+
+		return out
+	end
+
+	if attrs.EntityClass == "SpawnPoint" then
+		list.insert(extra.spawns, {name = attrs.Name, world_matrix = world_matrix})
+
+		return out
+	end
+
+	if object_type == "Road" then
+		local road = extract_road_object(node, world_matrix, layer, group)
+
+		if road then list.insert(extra.roads, road) end
+
+		return out
+	end
+
+	if object_type == "Decal" then
+		if attrs.Material and attrs.Material ~= "" then
+			list.insert(
+				extra.decals,
+				{
+					name = attrs.Name,
+					material_path = attrs.Material,
+					projection_type = tonumber(attrs.ProjectionType) or 0,
+					sort_priority = tonumber(attrs.SortPriority) or 0,
+					world_matrix = world_matrix,
+					layer = layer,
+					group = group,
+				}
+			)
+		end
+
 		return out
 	end
 
@@ -383,7 +472,7 @@ function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, 
 		}
 
 		for child in iter_children_by_tag(children, "Object") do
-			level.ExtractVisualObjectsFromNode(child, world_matrix, out, libraries, water_out, child_group, layer)
+			level.ExtractVisualObjectsFromNode(child, world_matrix, out, libraries, extra, child_group, layer)
 		end
 
 		return out
@@ -411,7 +500,7 @@ function level.ExtractVisualObjects(nodes, libraries)
 	local by_id = {}
 	local world_matrices = {}
 	local out = {}
-	local water_out = {}
+	local extra = {water = {}, decals = {}, roads = {}, spawns = {}}
 
 	for _, node in ipairs(nodes) do
 		if node.attrs.Id then by_id[node.attrs.Id] = node end
@@ -448,12 +537,12 @@ function level.ExtractVisualObjects(nodes, libraries)
 			parent and get_world_matrix(parent, 0) or nil,
 			out,
 			libraries,
-			water_out,
+			extra,
 			get_parent_group(node, 0)
 		)
 	end
 
-	return out, water_out
+	return out, extra
 end
 
 function level.LoadLibraries()
@@ -1203,6 +1292,19 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 	local raw = sample_terrain_height_raw(terrain, sample_x, sample_y)
 	return raw / 65535
 end
+-- The height of the rendered terrain: the gpu samples the height texture with texel centers at half texel offsets, so
+-- it lies up to half a texel away from where the heightmap data puts it.
+function level.SampleRenderedTerrainHeight(terrain, world_x, world_z)
+	local world_size = math.max(terrain.world_size or 0, 1)
+	local width = terrain.height_sample_width or terrain.height_samples_width or terrain.height_samples_per_side
+	local height = terrain.height_sample_height or terrain.height_samples_height or terrain.height_samples_per_side or width
+	return sample_terrain_height_raw(
+			terrain,
+			-world_z / world_size * width - 0.5,
+			world_x / world_size * height - 0.5
+		) / 65535 * terrain.heightmap_max_height
+end
+
 local loaded_levels = {}
 local libraries
 
@@ -1258,7 +1360,7 @@ function level.Load(level_dir)
 	end
 
 	libraries = libraries or level.LoadLibraries()
-	local entries, water_objects = level.ExtractVisualObjects(nodes, libraries)
+	local entries, extra = level.ExtractVisualObjects(nodes, libraries)
 
 	for _, entry in ipairs(entries) do
 		entry.model_path = game.ResolveModelPath(level_dir, entry.model_path)
@@ -1266,6 +1368,14 @@ function level.Load(level_dir)
 		if entry.material_path then
 			entry.material_path = game.ResolveMaterialPath(level_dir, entry.material_path)
 		end
+	end
+
+	for _, decal in ipairs(extra.decals) do
+		decal.material_path = game.ResolveMaterialPath(level_dir, decal.material_path)
+	end
+
+	for _, road in ipairs(extra.roads) do
+		road.material_path = game.ResolveMaterialPath(level_dir, road.material_path)
 	end
 
 	local terrain = select(1, level.LoadTerrainData(level_dir))
@@ -1323,7 +1433,10 @@ function level.Load(level_dir)
 		entries = entries,
 		vegetation_entries = vegetation_entries,
 		vegetation_prototypes = vegetation_prototypes,
-		water_objects = water_objects,
+		water_objects = extra.water,
+		decals = extra.decals,
+		roads = extra.roads,
+		spawns = extra.spawns,
 		terrain = terrain,
 	}
 	return loaded_levels[level_dir]

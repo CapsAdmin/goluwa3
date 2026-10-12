@@ -16,7 +16,7 @@ local function weld_key(position)
 		) * 131072 + math.floor(position.z * 4 + 0.5) + 65536
 end
 
--- polygon is a list of {x, y, pos}, clips it to the decal rectangle and appends {group, polygon of {pos, u, v}}
+-- polygon is a list of {x, y, pos}, clips it to the decal rectangle and appends {group, polygon of {pos, u, v}} with engine space positions
 local function add_fragment(fragments, polygon, group, frame)
 	for _, edge in ipairs(EDGES) do
 		local axis, sign = edge[1], edge[2]
@@ -68,7 +68,7 @@ local function add_fragment(fragments, polygon, group, frame)
 
 	for i, vertex in ipairs(polygon) do
 		out[i] = {
-			pos = vertex.pos,
+			pos = units.PositionToEngine(vertex.pos),
 			u = u_min + u_size * (
 					vertex.x - frame.min_x
 				) / (

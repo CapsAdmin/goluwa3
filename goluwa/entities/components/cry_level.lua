@@ -46,6 +46,15 @@ function META:Build(level_dir)
 	local data = level.Load(level_dir)
 
 	if RENDER_3D then
+		local terrain_data = data.terrain
+		local world = self.Owner.static_world
+
+		if world and terrain_data and terrain_data.height_data then
+			world.TerrainHeight = function(x, z)
+				return level.SampleRenderedTerrainHeight(terrain_data, x, z)
+			end
+		end
+
 		local terrain = import("goluwa/cry_engine/terrain.lua")
 		self.renderer = terrain.SpawnTerrain(data, self.Owner)
 		cry_engine.active_terrain_renderer = self.renderer

@@ -2339,7 +2339,7 @@ local function write_batch_record(view, batch)
 				BATCH_FLAG_DOUBLE_SIDED or
 				0
 			) + (
-				batch.material:HasHeightMap() and
+				batch.material:WritesFragmentDepth() and
 				BATCH_FLAG_HEIGHT_MAP or
 				0
 			)

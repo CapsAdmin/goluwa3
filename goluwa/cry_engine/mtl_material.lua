@@ -199,6 +199,7 @@ end
 local GEN_MASKS = {
 	Illum = {
 		DETAIL_BUMP_MAPPING = 0x4000,
+		DECAL = 0x2000000,
 		GLOSS_DIFFUSEALPHA = 0x20,
 		ALPHAGLOW = 0x2000,
 		OFFSETBUMPMAPPING = 0x20000,
@@ -300,7 +301,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 
 	do
 		local r, g, b = unpack_csv_numbers(attrs.Diffuse)
-		self:SetColorMultiplier(Color(r or 1, g or 1, b or 1, alpha_test > 0 and 1 or opacity))
 
 		-- the terrain layers use their diffuse color as it is, see TerrainLayerAdditiveDetail
 		if shader ~= "Terrain.Layer" then
@@ -308,6 +308,7 @@ local function apply_cry_material_node(self, material_node, material_path)
 			r, g, b = (r or 1) * scale, (g or 1) * scale, (b or 1) * scale
 		end
 
+		self:SetColorMultiplier(Color(r or 1, g or 1, b or 1, alpha_test > 0 and 1 or opacity))
 	end
 
 	if alpha_test > 0 then
@@ -315,6 +316,13 @@ local function apply_cry_material_node(self, material_node, material_path)
 		self:SetAlphaCutoff(alpha_test)
 	elseif opacity < 1 or shader == "Glass" then
 		self:SetTranslucent(true)
+	end
+
+	-- illum's decal variant blends by the diffuse alpha over what it lies on and casts no shadows
+	if has_gen("DECAL") then
+		self:SetTranslucent(true)
+		self:SetDecal(true)
+		self:SetDithered(true)
 	end
 
 	local leaves = has_gen("LEAVES") or has_gen("GRASS")

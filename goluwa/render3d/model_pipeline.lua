@@ -1198,6 +1198,16 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 end
 
 function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, phase_expr)
+	local decal = phase_expr and
+		[[
+					if (SharpAlpha) alpha = smoothstep(0.3, 0.7, alpha);
+					float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + %s);
+					if (alpha <= noise) discard;
+		]] or
+		[[
+					if (SharpAlpha) alpha = smoothstep(0.3, 0.7, alpha);
+					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > alpha) discard;
+		]]
 	local alpha_test = phase_expr and
 		[[
 					float coverage = clamp((alpha - %s) / max(fwidth(alpha), 0.0001) + 0.5, 0.0, 1.0);
@@ -1212,6 +1222,8 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, 
 			void compute_translucency_and_discard(inout float alpha) {
 				if (AlphaTest) {
 ]] .. alpha_test .. [[
+				} else if (Decal) {
+]] .. decal .. [[
 				} else if (Translucent) {
 					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (%s)) discard;
 				}
@@ -1220,6 +1232,7 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, 
 	):format(
 		alpha_cutoff_expr,
 		phase_expr or coverage_expr or "alpha * alpha",
+		phase_expr and phase_expr or nil,
 		phase_expr and (coverage_expr or "alpha * alpha") or nil
 	)
 end
@@ -1572,8 +1585,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				weights2 = vec4(0.0);
 
 				if (terrain_model.TerrainMaterialTexture == -1) {
-					weights = vec4(0.0);
-					weights2 = vec4(0.0);
 					return;
 				}
 
@@ -1586,6 +1597,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
 
 				if (weight_sum <= 0.0001) {
+					weights = vec4(0.0);
+					weights2 = vec4(0.0);
 					return;
 				}
 
@@ -1680,19 +1693,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					accumulate_terrain_layer(s, base, albedo_textures[i], normal_textures[i], height_textures[i], world_pos, blend, N, V, weights[i], scales[i], detail[i], additive_detail[i], displacement[i]);
 				}
 
-				if (s.normal_weight > 0.001) {
-					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
-					s.ao = mix(1.0, s.ao / s.normal_weight, s.normal_weight);
-				} else {
-					s.normal = N;
-					s.ao = 1.0;
-				}
-
-				terrain_layer_cache = s;
-				terrain_layer_cache_valid = true;
-				return s;
-			}
-
 				// layers 5 to 8 are only there for chunks with more than four layers
 				if (terrain_model.TerrainMaterial2Texture != -1) {
 					ivec4 albedo_textures2 = ivec4(terrain_model.TerrainLayer5Texture, terrain_model.TerrainLayer6Texture, terrain_model.TerrainLayer7Texture, terrain_model.TerrainLayer8Texture);
@@ -1708,6 +1708,26 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					}
 				}
 
+				if (s.normal_weight > 0.001) {
+					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
+					s.ao = mix(1.0, s.ao / s.normal_weight, s.normal_weight);
+				} else {
+					s.normal = N;
+					s.ao = 1.0;
+				}
+
+				terrain_layer_cache = s;
+				terrain_layer_cache_valid = true;
+				return s;
+			}
+
+			// a per layer value averaged by the layer weights
+			float get_terrain_weighted_value(vec2 uv, vec4 values, vec4 values2) {
+				vec4 weights, weights2;
+				get_terrain_material_weights_both_uv(uv, weights, weights2);
+				return dot(weights, values) + dot(weights2, values2);
+			}
+
 			vec3 get_terrain_albedo_uv(vec2 uv, vec3 world_pos) {
 				vec4 weights, weights2;
 				get_terrain_material_weights_both_uv(uv, weights, weights2);
@@ -1721,13 +1741,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			vec3 blend_ground_color(vec3 albedo, vec3 world_pos) {
 				if (detail_model.GroundColorTexture == -1) return albedo;
-
-			// a per layer value averaged by the layer weights
-			float get_terrain_weighted_value(vec2 uv, vec4 values, vec4 values2) {
-				vec4 weights, weights2;
-				get_terrain_material_weights_both_uv(uv, weights, weights2);
-				return dot(weights, values) + dot(weights2, values2);
-			}
 
 				vec4 m = detail_model.GroundColorUV;
 				vec2 ground_uv = vec2(dot(world_pos.xz, m.xy), dot(world_pos.xz, m.zw));
