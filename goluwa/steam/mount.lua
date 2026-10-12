@@ -243,33 +243,51 @@ return function(steam)
 		return true
 	end
 
+	local function get_manifest_signature(libraries)
+		local manifests = {}
+
+		for _, library in ipairs(libraries) do
+			for _, path in ipairs(vfs.Find(library .. "appmanifest_.-%.acf$")) do
+				if not file_path.IsPathAbsolutePath(path) then path = library .. path end
+
+				manifests[#manifests + 1] = path .. "\n" .. (vfs.Read(path, "r") or "")
+			end
+		end
+
+		table.sort(manifests)
+		return table.concat(manifests, "\n")
+	end
+
 	function steam.GetGames()
 		local function get_games_cache()
 			local current_libraries = steam.GetLibraryFolders()
+			local manifest_signature = get_manifest_signature(current_libraries)
 
 			if
 				steam.games_cache and
+				steam.games_cache.manifest_signature == manifest_signature and
 				are_cached_library_folders_valid(steam.games_cache.library_folders, current_libraries)
 			then
-				return steam.games_cache.games, current_libraries
+				return steam.games_cache.games, current_libraries, manifest_signature
 			end
 
 			local cached = codec.ReadFile("msgpack", "cache/steam_games")
 
-			if not cached then return nil, current_libraries end
+			if not cached then return nil, current_libraries, manifest_signature end
 
 			if
 				cached.games and
+				cached.manifest_signature == manifest_signature and
 				are_cached_library_folders_valid(cached.library_folders, current_libraries)
 			then
 				steam.games_cache = cached
-				return cached.games, current_libraries
+				return cached.games, current_libraries, manifest_signature
 			end
 
-			return nil, current_libraries
+			return nil, current_libraries, manifest_signature
 		end
 
-		local found, current_libraries = get_games_cache()
+		local found, current_libraries, manifest_signature = get_games_cache()
 
 		if found and found[1] then
 			for _, game_info in ipairs(found) do
@@ -369,11 +387,13 @@ return function(steam)
 			"cache/steam_games",
 			{
 				library_folders = current_libraries,
+				manifest_signature = manifest_signature,
 				games = found,
 			}
 		)
 		steam.games_cache = {
 			library_folders = current_libraries,
+			manifest_signature = manifest_signature,
 			games = found,
 		}
 		return found
@@ -449,30 +469,33 @@ return function(steam)
 
 		local function get_source_games_cache()
 			local current_libraries = steam.GetLibraryFolders()
+			local manifest_signature = get_manifest_signature(current_libraries)
 
 			if
 				steam.source_games_cache and
+				steam.source_games_cache.manifest_signature == manifest_signature and
 				are_cached_library_folders_valid(steam.source_games_cache.library_folders, current_libraries)
 			then
-				return steam.source_games_cache.games, current_libraries
+				return steam.source_games_cache.games, current_libraries, manifest_signature
 			end
 
 			local cached = codec.ReadFile("msgpack", "cache/source_games")
 
-			if not cached then return nil, current_libraries end
+			if not cached then return nil, current_libraries, manifest_signature end
 
 			if
 				cached.games and
+				cached.manifest_signature == manifest_signature and
 				are_cached_library_folders_valid(cached.library_folders, current_libraries)
 			then
 				steam.source_games_cache = cached
-				return cached.games, current_libraries
+				return cached.games, current_libraries, manifest_signature
 			end
 
-			return nil, current_libraries
+			return nil, current_libraries, manifest_signature
 		end
 
-		local found, current_libraries = get_source_games_cache()
+		local found, current_libraries, manifest_signature = get_source_games_cache()
 
 		if found and found[1] then
 			for i, v in ipairs(found) do
@@ -497,6 +520,7 @@ return function(steam)
 						"cache/source_games",
 						{
 							library_folders = current_libraries,
+							manifest_signature = manifest_signature,
 							games = found,
 						}
 					)
@@ -699,11 +723,13 @@ return function(steam)
 			"cache/source_games",
 			{
 				library_folders = current_libraries,
+				manifest_signature = manifest_signature,
 				games = found,
 			}
 		)
 		steam.source_games_cache = {
 			library_folders = current_libraries,
+			manifest_signature = manifest_signature,
 			games = found,
 		}
 		return found
