@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
+local glsl_meta = import("goluwa/render/glsl_metadata.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local event = import("goluwa/event.lua")
 local UniformBuffer = objects.CreateTemplate("render_uniform_buffer")
@@ -83,13 +84,13 @@ function UniformBuffer.New(decl, name, initial_slots)
 		end
 
 		for _, nested_def in ipairs(nested_struct_defs) do
-			local ctype = ffi.typeof(nested_def)
+			local ctype = glsl_meta.typeof(nested_def)
 			table.insert(nested_ctypes, ctype)
 		end
 
-		struct = ffi.typeof(main_struct, unpack(nested_ctypes))
+		struct = glsl_meta.typeof(main_struct, unpack(nested_ctypes))
 	else
-		struct = ffi.typeof(decl)
+		struct = glsl_meta.typeof(decl)
 	end
 
 	return create(struct, name, initial_slots)

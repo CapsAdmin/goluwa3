@@ -316,7 +316,7 @@ local function resolve_constant_placement(config, possible_stages)
 					seen_explicit_push_blocks[block.name] = true
 					local flat_block = glsl_meta.flatten_fields(block.block)
 					local alignment = glsl_meta.get_scalar_block_alignment(flat_block)
-					local ctype = ffi.typeof(glsl_meta.build_ffi_struct("scalar", flat_block))
+					local ctype = glsl_meta.typeof(glsl_meta.build_ffi_struct("scalar", flat_block))
 					explicit_push_span = glsl_meta.align_offset(explicit_push_span, alignment) + ffi.sizeof(ctype)
 				end
 			end
@@ -344,7 +344,7 @@ local function resolve_constant_placement(config, possible_stages)
 					resolved._preferred_storage = resolved.prefer or "push"
 					resolved._priority = tonumber(resolved.priority) or 0
 					local struct_name = resolved.name:sub(1, 1):upper() .. resolved.name:sub(2) .. "Constants"
-					local ctype = ffi.typeof(glsl_meta.build_ffi_struct("scalar", resolved.block))
+					local ctype = glsl_meta.typeof(glsl_meta.build_ffi_struct("scalar", resolved.block))
 					glsl_meta.verify_layout("scalar", struct_name, resolved.block, ctype)
 					resolved._size = ffi.sizeof(ctype)
 					resolved._alignment = glsl_meta.get_scalar_block_alignment(resolved.block)
@@ -448,7 +448,7 @@ local function build_push_constant_block(name, block)
 
 	local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
 	local ffi_code = glsl_meta.build_ffi_struct("scalar", flat_block)
-	local ctype = ffi.typeof(ffi_code)
+	local ctype = glsl_meta.typeof(ffi_code)
 	glsl_meta.verify_layout("scalar", struct_name, flat_block, ctype)
 	block.debug_name = "pipeline.pc." .. name
 	block.field_descriptors = glsl_meta.build_field_descriptors(ctype, flat_block)

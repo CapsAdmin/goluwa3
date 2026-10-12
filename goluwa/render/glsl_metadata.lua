@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local typeof
 local FIELD_TYPE_BYTE_SIZE = {
 	float = 4,
 	int = 4,
@@ -303,12 +304,35 @@ local function verify_layout(layout, struct_name, fields, ctype)
 	end
 end
 
+do
+	local cache = {}
+
+	-- luajit never frees an anonymous struct type, so building pipelines again (hot reload)
+	-- would run its type table out. the same declaration gives the same type instead
+	function typeof(decl, ...)
+		local key = decl
+
+		for i = 1, select("#", ...) do
+			key = key .. "\0" .. tostring((select(i, ...)))
+		end
+
+		local ctype = cache[key]
+
+		if not ctype then
+			ctype = ffi.typeof(decl, ...)
+			cache[key] = ctype
+		end
+
+		return ctype
+	end
+end
+
 local function build_ffi_type(layout, struct_name, fields)
 	layout = layout or "scalar"
 	struct_name = struct_name or "AnonymousLayout"
 	fields = fields or {}
 	local flat_fields = flatten_fields(fields)
-	local ctype = ffi.typeof(build_ffi_struct(layout, flat_fields))
+	local ctype = typeof(build_ffi_struct(layout, flat_fields))
 	verify_layout(layout, struct_name, flat_fields, ctype)
 	return ctype
 end
@@ -878,6 +902,7 @@ local function get_color_formats(config)
 end
 
 return {
+	typeof = typeof,
 	build_ffi_type = build_ffi_type,
 	build_glsl_fields = build_glsl_fields,
 	build_field_descriptors = build_field_descriptors,
