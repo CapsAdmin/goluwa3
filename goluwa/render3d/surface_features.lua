@@ -4,6 +4,7 @@ surface_features.default_list = {
 	import("goluwa/render3d/features/specular.lua"),
 	import("goluwa/render3d/features/transmission.lua"),
 	import("goluwa/render3d/features/clearcoat.lua"),
+	import("goluwa/render3d/features/weather_response.lua"),
 }
 
 -- the registry of a list of features, the engine uses the one for default_list. a list is a
@@ -145,6 +146,10 @@ end
 --     ambient_diffuse (inout), ambient_specular (inout)
 --   indirect_layer: the same, layered over what indirect and the base made
 --
+-- weather_input: before the weather is applied, what this surface asks of it. scope: s, w
+--   (SurfaceWeather) with porosity, wet_scale and snow_scale set, core derives the porosity from
+--   the roughness and metal
+--
 -- other passes:
 --   reflection: see GetReflectionGLSL
 --   thin: a GLSL bool expression of c, a gbuffer coordinate, true where the surface is thin
@@ -243,6 +248,11 @@ function self.GetSurfaceGLSL()
 			float film;
 			float film_alpha;
 			float rain;
+			// what the surface asks of the weather: how much water its pores soak up, and how much
+			// of the wetness and the snow it takes. prepare_surface_weather sets them
+			float porosity;
+			float wet_scale;
+			float snow_scale;
 		};
 
 		// everything the lobes shade a point with. a feature adds its members to it
@@ -269,6 +279,11 @@ end
 -- void init_surface_features(inout Surface s, vec2 uv), from the material
 function self.GetInitFunctionGLSL()
 	return "void init_surface_features(inout Surface s, vec2 uv) {\n" .. join("surface_default") .. "\n" .. join("material_init") .. "\n}\n"
+end
+
+-- void prepare_surface_weather(inout Surface s, out SurfaceWeather w)
+function self.GetPrepareWeatherFunctionGLSL()
+	return build_function("void prepare_surface_weather(in Surface s, out SurfaceWeather w)", "weather_input")
 end
 
 function self.GetWeatherFunctionGLSL()

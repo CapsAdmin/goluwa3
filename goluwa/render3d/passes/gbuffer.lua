@@ -342,8 +342,8 @@ local function build_ssdm_fragment_shader(write_depth)
 			surface.N = get_normal(displacement.uv, tbn);
 			apply_gloss_metallic(displacement.uv, surface.albedo, surface.metallic);
 			SurfaceWeather weather;
-			// thin translucent leaves are waxy rather than porous
-			apply_surface_weather(surface, get_porosity(surface.roughness_alpha, surface.metallic) * (1.0 - surface.transmission), weather);
+			prepare_surface_weather(surface, weather);
+			apply_surface_weather(surface, weather);
 			weather_surface_features(surface, weather);
 			surface.roughness_alpha = get_antialiased_roughness(surface.N, surface.roughness_alpha);
 

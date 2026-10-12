@@ -198,7 +198,7 @@ do
 	-- every pass that writes the gbuffer calls gbuffer_set_defaults first, so a field
 	-- it doesn't know about reads as its default instead of garbage
 	function gbuffer_layout.GetEncodeGLSL()
-		return table.concat(lines, "\n") .. surface_features.GetSurfaceGLSL() .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetWeatherFunctionGLSL() .. surface_features.GetWriteFunctionGLSL()
+		return table.concat(lines, "\n") .. surface_features.GetSurfaceGLSL() .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetPrepareWeatherFunctionGLSL() .. surface_features.GetWeatherFunctionGLSL() .. surface_features.GetWriteFunctionGLSL()
 	end
 end
 

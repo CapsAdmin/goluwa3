@@ -96,6 +96,10 @@ return {
 	material_init = [[
 		s.transmission_color = get_transmission_color();
 	]],
+	weather_input = [[
+		// thin translucent leaves are waxy rather than porous
+		w.porosity *= 1.0 - s.transmission;
+	]],
 	weather = [[
 		s.transmission *= 1.0 - w.snow;
 	]],

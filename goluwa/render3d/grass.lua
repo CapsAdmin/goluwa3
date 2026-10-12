@@ -1123,8 +1123,10 @@ function grass.BuildDrawPass(gbuffer_pass)
 					// F0 0.02, a bit under the 0.04 default, for the waxy blades
 					surface.specular = 0.5;
 					SurfaceWeather weather;
+					prepare_surface_weather(surface, weather);
 					// blades are waxy, water beads on them rather than soaking in
-					apply_surface_weather(surface, 0.2, weather);
+					weather.porosity = 0.2;
+					apply_surface_weather(surface, weather);
 					weather_surface_features(surface, weather);
 					write_surface_features(surface);
 

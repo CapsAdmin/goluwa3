@@ -417,14 +417,10 @@ function surface_weather.GetGLSL(block_name)
 			return clamp(n + 0.5, 0.0, 1.0);
 		}
 
-		// rough dielectrics are porous and soak water up, smooth ones and metals don't (Lagarde 2013)
-		float get_porosity(float alpha_roughness, float metallic) {
-			return clamp((sqrt(alpha_roughness) - 0.5) / 0.4, 0.0, 1.0) * (1.0 - metallic);
-		}
-
 		// rain and snow change the base color, roughness, metallic and normal of the surface, and leave what the
-		// features react to in w, see surface_features.lua. returns how much snow covers it
-		float apply_surface_weather(inout Surface s, float porosity, out SurfaceWeather w) {
+		// features react to in w, see surface_features.lua. w holds what the features asked for
+		// (prepare_surface_weather), returns how much snow covers it
+		float apply_surface_weather(inout Surface s, inout SurfaceWeather w) {
 			float wetness = ]] .. block_name .. [[.surface_wetness;
 			float snow_depth = ]] .. block_name .. [[.surface_snow_depth;
 			w.snow = 0.0;
@@ -440,8 +436,8 @@ function surface_weather.GetGLSL(block_name)
 			// "Water drop 3b - Physically based wet surfaces"), and a film of it lies on top, a smooth
 			// reflection over the rough surface under it
 			if (wetness > 0.0) {
-				float wet = wetness * exposure;
-				s.albedo *= mix(1.0, mix(1.0, 0.2, porosity), wet);
+				float wet = wetness * exposure * w.wet_scale;
+				s.albedo *= mix(1.0, mix(1.0, 0.2, w.porosity), wet);
 				// the water pools into a film on flat ground. down a slope it runs off, thinner the steeper it
 				// is, too thin to fill in the surface's roughness: a patchy, blurred sheen
 				float pooling = smoothstep(RAIN_RUNOFF_SLOPE, RAIN_POOL_SLOPE, s.geometric_N.y);
@@ -461,7 +457,7 @@ function surface_weather.GetGLSL(block_name)
 			// deep it is, with a ragged edge between
 			float hold = smoothstep(0.5, 0.87, s.geometric_N.y + (patches - 0.5) * 0.3);
 			// and it settles on the upward facing bumps of a surface first
-			float amount = snow_depth / SNOW_FULL_COVER_DEPTH * exposure - (1.0 - clamp(s.N.y, 0.0, 1.0)) * 0.3;
+			float amount = snow_depth / SNOW_FULL_COVER_DEPTH * exposure * w.snow_scale - (1.0 - clamp(s.N.y, 0.0, 1.0)) * 0.3;
 			float cover = smoothstep(patches * 0.7, patches * 0.7 + 0.3, amount) * hold;
 
 			if (cover <= 0.0) return 0.0;
