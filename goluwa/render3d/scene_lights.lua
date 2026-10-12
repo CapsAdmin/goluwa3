@@ -133,7 +133,11 @@ function scene_lights.GetLightGLSLCode()
 
 					float inner_cone = clamp(light.params.y, -1.0, 1.0);
 					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
-					float cone_attenuation = smoothstep(outer_cone, inner_cone, dot(light_dir, from_light / dist));
+					float cosine = dot(light_dir, from_light / dist);
+
+					if (cosine <= outer_cone) return false;
+
+					float cone_attenuation = smoothstep(outer_cone, inner_cone, cosine);
 					L = normalize(light.position.xyz - world_pos);
 					attenuation = cone_attenuation * get_light_distance_attenuation(light, dist, range) * light.params.w;
 					return true;
