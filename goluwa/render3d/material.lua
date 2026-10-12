@@ -25,6 +25,8 @@ Material:GetSet("RoughnessTexture", nil, {type = "render_texture"})
 Material:GetSet("RoughnessMultiplier", 1.0)
 Material:GetSet("RoughnessMin", 0.0)
 Material:GetSet("RoughnessMax", 1.0)
+Material:GetSet("MetallicMaskMin", 0.0)
+Material:GetSet("MetallicMaskMax", 1.0)
 Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
 Material:GetSet("SpecularMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionTexture", nil, {type = "render_texture"})
@@ -789,6 +791,8 @@ do
 				material:GetRoughnessMultiplier() ~= 1.0 or
 				material:GetRoughnessMin() ~= 0.0 or
 				material:GetRoughnessMax() ~= 1.0 or
+				material:GetMetallicMaskMin() ~= 0.0 or
+				material:GetMetallicMaskMax() ~= 1.0 or
 				material:GetAlphaCutoff() ~= 0.5
 			then
 				counts.nondefault_factor = counts.nondefault_factor + 1

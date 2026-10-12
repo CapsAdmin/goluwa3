@@ -32,6 +32,8 @@ local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
 	{type = "float", name = "RoughnessMin", getter = "GetRoughnessMin"},
 	{type = "float", name = "RoughnessMax", getter = "GetRoughnessMax"},
+	{type = "float", name = "MetallicMaskMin", getter = "GetMetallicMaskMin"},
+	{type = "float", name = "MetallicMaskMax", getter = "GetMetallicMaskMax"},
 	{type = "float", name = "SpecularMultiplier", getter = "GetSpecularMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
@@ -700,6 +702,8 @@ function model_pipeline.GetPBRFactorUploadKey()
 		material:GetRoughnessMultiplier() == 1.0 and
 		material:GetRoughnessMin() == 0.0 and
 		material:GetRoughnessMax() == 1.0 and
+		material:GetMetallicMaskMin() == 0.0 and
+		material:GetMetallicMaskMax() == 1.0 and
 		material:GetSpecularMultiplier() == 1.0 and
 		material:GetAlphaCutoff() == 0.5
 
@@ -1700,6 +1704,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 					if (texel >= 0.0) {
 						val = factor_model.RoughnessMax < factor_model.RoughnessMin ? texel : 1.0 - texel;
+						val = clamp((val - factor_model.MetallicMaskMin) / (factor_model.MetallicMaskMax - factor_model.MetallicMaskMin), 0.0, 1.0);
 						return clamp(val * factor_model.MetallicMultiplier, 0, 1);
 					}
 				}
