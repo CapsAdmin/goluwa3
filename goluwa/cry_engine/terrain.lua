@@ -291,7 +291,20 @@ local function build_cry_terrain_source(terrain)
 		),
 		SplatGLSL = has_layers and
 			[[
-			vec4 terrain_splat(vec2 world, float h, vec3 n) {
+			// which of the chunk's eight layers a surface id is, slot 0 also takes the ids the chunk has no room for
+			int cry_terrain_slot(int id) {
+				if (id == terrain_bake.layer1) return 1;
+				if (id == terrain_bake.layer2) return 2;
+				if (id == terrain_bake.layer3) return 3;
+				if (id == terrain_bake.layer4) return 4;
+				if (id == terrain_bake.layer5) return 5;
+				if (id == terrain_bake.layer6) return 6;
+				if (id == terrain_bake.layer7) return 7;
+				return 0;
+			}
+
+			// the weights of the four slots from first_slot on
+			vec4 cry_terrain_slot_weights(vec2 world, int first_slot) {
 				ivec2 size = textureSize(TEXTURE(terrain_bake.texture2), 0);
 				vec2 p = cry_terrain_uv(world) * vec2(size) - 0.5;
 				ivec2 base = ivec2(floor(p));
@@ -303,19 +316,23 @@ local function build_cry_terrain_source(terrain)
 					ivec2 cell = clamp(base + offset, ivec2(0), size - 1);
 					int id = int(texelFetch(TEXTURE(terrain_bake.texture2), cell, 0).r * 255.0 + 0.5);
 					float weight = (offset.x == 1 ? f.x : 1.0 - f.x) * (offset.y == 1 ? f.y : 1.0 - f.y);
+					int slot = cry_terrain_slot(id) - first_slot;
 
-					if (id == terrain_bake.layer1) {
-						weights.y += weight;
-					} else if (id == terrain_bake.layer2) {
-						weights.z += weight;
-					} else if (id == terrain_bake.layer3) {
-						weights.w += weight;
-					} else {
-						weights.x += weight;
-					}
+					if (slot >= 0 && slot < 4) weights[slot] += weight;
 				}
 
 				return weights;
+			}
+
+			vec4 terrain_splat(vec2 world, float h, vec3 n) {
+				return cry_terrain_slot_weights(world, 0);
+			}
+		]] or
+			nil,
+		Splat2GLSL = has_layers and
+			[[
+			vec4 terrain_splat2(vec2 world, float h, vec3 n) {
+				return cry_terrain_slot_weights(world, 4);
 			}
 		]] or
 			nil,
@@ -353,7 +370,7 @@ local function build_cry_terrain_source(terrain)
 
 				local layers = {}
 
-				for i = 5, #ids do
+				for i = 9, #ids do
 					ids[i] = nil
 				end
 

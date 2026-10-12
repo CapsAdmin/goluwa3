@@ -139,49 +139,60 @@ local function resolve_layer_texture(value)
 	return value
 end
 
+-- the per layer values, vec4 colors named TerrainLayer<Name> for layers 1 to 4 and TerrainLayer<Name>2 for 5 to 8. Grass
+-- only has the first set, the grass pass does not know about the other layers
+local LAYER_VALUES = {
+	{"Scales", "scale", 1},
+	{"Roughness", "roughness", 1},
+	{"AmbientOcclusion", "ao", 1},
+	{"DetailStrength", "detail", 0},
+	{"AdditiveDetail", "additive_detail", 0},
+	{"Specular", "specular", 1},
+	{"Grass", "grass", 0},
+	{"HeightScales", "height_scale", 0},
+}
+
 function tiles.CreateMaterial(chunk, layers)
 	local material = Material.New()
 	material:SetNormalTexture(chunk.normal_texture)
 	material:SetTerrainMaterialTexture(chunk.splat_texture)
+	material:SetTerrainMaterial2Texture(chunk.splat2_texture)
 	material:SetTerrainBounds(Vec3(chunk.request.min_x, chunk.request.min_z, chunk.request.size))
 	material:SetAlbedoTexture(chunk.color_texture)
 	material:SetRoughnessMultiplier(1)
 	material:SetMetallicMultiplier(0)
-	local scales = {}
-	local roughness = {}
-	local ao = {}
-	local detail = {}
-	local additive_detail = {}
-	local specular = {}
-	local grass = {}
-	local height_scales = {}
+	local layer_count = chunk.splat2_texture and 8 or 4
 
-	for i = 1, 4 do
+	for i = 1, layer_count do
 		local layer = layers[i] or {}
 		material["SetTerrainLayer" .. i .. "Texture"](material, resolve_layer_texture(layer.albedo))
 		material["SetTerrainLayer" .. i .. "NormalTexture"](material, resolve_layer_texture(layer.normal))
 		material["SetTerrainLayer" .. i .. "HeightTexture"](material, resolve_layer_texture(layer.height))
-		height_scales[i] = layer.height and layer.height_scale or 0
-		scales[i] = layer.scale or 1
-		roughness[i] = layer.roughness or 1
-		ao[i] = layer.ao or 1
-		detail[i] = layer.detail or 0
-		additive_detail[i] = layer.additive_detail or 0
-		specular[i] = layer.specular or 1
-		grass[i] = layer.grass or 0
 	end
 
-	material:SetTerrainLayerScales(Color(scales[1], scales[2], scales[3], scales[4]))
-	material:SetTerrainLayerRoughness(Color(roughness[1], roughness[2], roughness[3], roughness[4]))
-	material:SetTerrainLayerAmbientOcclusion(Color(ao[1], ao[2], ao[3], ao[4]))
-	material:SetTerrainLayerDetailStrength(Color(detail[1], detail[2], detail[3], detail[4]))
-	material:SetTerrainLayerAdditiveDetail(
-		Color(additive_detail[1], additive_detail[2], additive_detail[3], additive_detail[4])
-	)
-	material:SetTerrainLayerSpecular(Color(specular[1], specular[2], specular[3], specular[4]))
-	material:SetTerrainLayerGrass(Color(grass[1], grass[2], grass[3], grass[4]))
-	material:SetTerrainLayerHeightScales(Color(height_scales[1], height_scales[2], height_scales[3], height_scales[4]))
-	material:SetGrass(grass[1] > 0 or grass[2] > 0 or grass[3] > 0 or grass[4] > 0)
+	local any_grass = false
+
+	for _, def in ipairs(LAYER_VALUES) do
+		local name, key, default = def[1], def[2], def[3]
+		local v = {}
+
+		for i = 1, layer_count do
+			local layer = layers[i] or {}
+			v[i] = layer[key] or default
+
+			if key == "height_scale" then v[i] = layer.height and layer.height_scale or 0 end
+		end
+
+		material["SetTerrainLayer" .. name](material, Color(v[1], v[2], v[3], v[4]))
+
+		if layer_count == 8 and name ~= "Grass" then
+			material["SetTerrainLayer" .. name .. "2"](material, Color(v[5], v[6], v[7], v[8]))
+		end
+
+		if name == "Grass" then any_grass = v[1] > 0 or v[2] > 0 or v[3] > 0 or v[4] > 0 end
+	end
+
+	material:SetGrass(any_grass)
 	return material
 end
 

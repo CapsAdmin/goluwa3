@@ -216,6 +216,35 @@ Material:GetSet(
 )
 Material:GetSet(
 	"TerrainLayerHeightScales",
+-- layers 5 to 8 and their weights, for chunks that have more than four layers
+Material:GetSet(
+	"TerrainMaterial2Texture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial", requires = "TerrainMaterialTexture"}
+)
+
+for layer = 5, 8 do
+	Material:GetSet(
+		"TerrainLayer" .. layer .. "Texture",
+		nil,
+		{
+			type = "render_texture",
+			callback = "InvalidateRayMaterial",
+			requires = "TerrainMaterial2Texture",
+		}
+	)
+	Material:GetSet(
+		"TerrainLayer" .. layer .. "NormalTexture",
+		nil,
+		{type = "render_texture", requires = "TerrainMaterial2Texture"}
+	)
+	Material:GetSet(
+		"TerrainLayer" .. layer .. "HeightTexture",
+		nil,
+		{type = "render_texture", requires = "TerrainMaterial2Texture"}
+	)
+end
+
 	Color(0.0, 0.0, 0.0, 0.0),
 	{requires = "TerrainMaterialTexture"}
 )
@@ -258,6 +287,42 @@ Material:GetSet("BendDetailFrequency", 5.0, {requires = "DetailBending"})
 Material:GetSet("BendDetailLeafAmplitude", 0.08, {requires = "DetailBending"})
 Material:GetSet("BendDetailBranchAmplitude", 0.2, {requires = "DetailBending"})
 Material:GetSet("BendDetailPhase", 100.0, {requires = "DetailBending"})
+-- the same for layers 5 to 8
+Material:GetSet(
+	"TerrainLayerScales2",
+	Color(1.0, 1.0, 1.0, 1.0),
+	{requires = "TerrainMaterial2Texture"}
+)
+Material:GetSet(
+	"TerrainLayerHeightScales2",
+	Color(0.0, 0.0, 0.0, 0.0),
+	{requires = "TerrainMaterial2Texture"}
+)
+Material:GetSet(
+	"TerrainLayerRoughness2",
+	Color(1.0, 1.0, 1.0, 1.0),
+	{requires = "TerrainMaterial2Texture"}
+)
+Material:GetSet(
+	"TerrainLayerAmbientOcclusion2",
+	Color(1.0, 1.0, 1.0, 1.0),
+	{requires = "TerrainMaterial2Texture"}
+)
+Material:GetSet(
+	"TerrainLayerDetailStrength2",
+	Color(0.0, 0.0, 0.0, 0.0),
+	{callback = "InvalidateRayMaterial", requires = "TerrainMaterial2Texture"}
+)
+Material:GetSet(
+	"TerrainLayerAdditiveDetail2",
+	Color(0.0, 0.0, 0.0, 0.0),
+	{callback = "InvalidateRayMaterial", requires = "TerrainMaterial2Texture"}
+)
+Material:GetSet(
+	"TerrainLayerSpecular2",
+	Color(1.0, 1.0, 1.0, 1.0),
+	{requires = "TerrainMaterial2Texture"}
+)
 Material:StartCategory("Grass")
 Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
 Material:GetSet("GrassDensity", 700.0, {requires = "Grass"})

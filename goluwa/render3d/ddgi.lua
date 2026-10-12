@@ -737,6 +737,11 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			vec3 terrain_bounds;
 			vec4 terrain_detail;
 			vec4 terrain_additive_detail;
+			// layers 5 to 8 of a chunk that has more than four, -1 without
+			int terrain_tex2;
+			ivec4 terrain_layer_tex2;
+			vec4 terrain_detail2;
+			vec4 terrain_additive_detail2;
 			float alpha;
 			float alpha_cutoff;
 			// 0 solid, 1 alpha tested by alpha alone, 2 by the albedo texture's alpha times alpha
@@ -766,30 +771,39 @@ function ddgi.GetMaterialGLSL()
 			if (material.terrain_tex >= 0) {
 				vec2 uv = (P.xz - material.terrain_bounds.xy) * material.terrain_bounds.z;
 				vec4 weights = max(textureLod(TEXTURE(material.terrain_tex), uv, 0.0), vec4(0.0));
-				float weight_sum = dot(weights, vec4(1.0));
+				vec4 weights2 = material.terrain_tex2 >= 0 ? max(textureLod(TEXTURE(material.terrain_tex2), uv, 0.0), vec4(0.0)) : vec4(0.0);
+				float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
 
 				if (weight_sum <= 0.0001) return material.albedo;
 
 				weights /= weight_sum;
+				weights2 /= weight_sum;
 				vec3 base = material.albedo_tex >= 0 ? textureLod(TEXTURE(material.albedo_tex), uv, 0.0).rgb : vec3(1.0);
 				vec3 albedo = vec3(0.0);
 
-				for (int i = 0; i < 4; i++) {
+				for (int i = 0; i < 8; i++) {
 					vec3 layer = base;
+					bool second = i >= 4;
+					int slot = second ? i - 4 : i;
+					int layer_tex = second ? material.terrain_layer_tex2[slot] : material.terrain_layer_tex[slot];
+					float weight = second ? weights2[slot] : weights[slot];
 
-					if (material.terrain_layer_tex[i] >= 0) {
-						vec3 average = textureLod(TEXTURE(material.terrain_layer_tex[i]), vec2(0.5), 16.0).rgb;
-						float detail = material.terrain_detail[i];
+					if (weight <= 0.0) continue;
+
+					if (layer_tex >= 0) {
+						vec3 average = textureLod(TEXTURE(layer_tex), vec2(0.5), 16.0).rgb;
+						float detail = second ? material.terrain_detail2[slot] : material.terrain_detail[slot];
+						float additive = second ? material.terrain_additive_detail2[slot] : material.terrain_additive_detail[slot];
 
 						if (detail <= 0.0) {
 							layer = average * base;
-						} else if (material.terrain_additive_detail[i] > 0.0) {
-							layer = pow(max(pow(base, vec3(1.0 / 2.2)) + (average - 0.5) * detail, vec3(0.0)), vec3(2.2)) * material.terrain_additive_detail[i];
+						} else if (additive > 0.0) {
+							layer = pow(max(pow(base, vec3(1.0 / 2.2)) + (average - 0.5) * detail, vec3(0.0)), vec3(2.2)) * additive;
 						}
 						// a non additive detail layer only varies around base
 					}
 
-					albedo += layer * weights[i];
+					albedo += layer * weight;
 				}
 
 				return albedo * material.albedo;
@@ -1802,6 +1816,10 @@ local MaterialEntry = ffi.typeof([[struct {
 	float terrain_bounds[3];
 	float terrain_detail[4];
 	float terrain_additive_detail[4];
+	int32_t terrain_tex2;
+	int32_t terrain_layer_tex2[4];
+	float terrain_detail2[4];
+	float terrain_additive_detail2[4];
 	float alpha;
 	float alpha_cutoff;
 	int32_t alpha_test;
@@ -1917,8 +1935,32 @@ function ddgi.WriteMaterialBuffer(self)
 				entry.terrain_additive_detail[1] = additive.g
 				entry.terrain_additive_detail[2] = additive.b
 				entry.terrain_additive_detail[3] = additive.a
+				local terrain2 = material:GetTerrainMaterial2Texture()
+
+				if terrain2 and terrain2:IsValid() then
+					entry.terrain_tex2 = self:GetTextureIndex(terrain2)
+
+					for layer = 5, 8 do
+						local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
+						entry.terrain_layer_tex2[layer - 5] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
+					end
+
+					local detail2 = material:GetTerrainLayerDetailStrength2()
+					local additive2 = material:GetTerrainLayerAdditiveDetail2()
+					entry.terrain_detail2[0] = detail2.r
+					entry.terrain_detail2[1] = detail2.g
+					entry.terrain_detail2[2] = detail2.b
+					entry.terrain_detail2[3] = detail2.a
+					entry.terrain_additive_detail2[0] = additive2.r
+					entry.terrain_additive_detail2[1] = additive2.g
+					entry.terrain_additive_detail2[2] = additive2.b
+					entry.terrain_additive_detail2[3] = additive2.a
+				else
+					entry.terrain_tex2 = -1
+				end
 			else
 				entry.terrain_tex = -1
+				entry.terrain_tex2 = -1
 			end
 		end
 	end

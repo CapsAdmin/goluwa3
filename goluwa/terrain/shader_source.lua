@@ -22,6 +22,10 @@ local BakeConstants = ffi.typeof([[
 		int layer1;
 		int layer2;
 		int layer3;
+		int layer4;
+		int layer5;
+		int layer6;
+		int layer7;
 	}
 ]])
 local BAKE_DECLARATIONS = [[
@@ -40,6 +44,10 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 	int layer1;
 	int layer2;
 	int layer3;
+	int layer4;
+	int layer5;
+	int layer6;
+	int layer7;
 } terrain_bake;
 ]]
 local BAKE_STEP_HELPER = [[
@@ -76,6 +84,12 @@ local SPLAT_BAKE = [[
 	vec3 n = terrain_bake_normal(p);
 	return terrain_splat(p, h, n);
 ]]
+local SPLAT2_BAKE = [[
+	vec2 p = terrain_bake_world_pos();
+	float h = terrain_height(p);
+	vec3 n = terrain_bake_normal(p);
+	return terrain_splat2(p, h, n);
+]]
 local COLOR_BAKE = [[
 	vec2 p = terrain_bake_world_pos();
 	float h = terrain_height(p);
@@ -106,6 +120,7 @@ function ShaderSource.New(config)
 	local self = setmetatable(TerrainSource.New(config), ShaderSource)
 	self.Textures = config.Textures or {}
 	self.HasSplat = config.SplatGLSL ~= nil
+	self.HasSplat2 = config.Splat2GLSL ~= nil
 	self.HasColor = config.ColorGLSL ~= nil
 	self.ColorFormat = config.ColorFormat or "r8g8b8a8_unorm"
 	self.SelectChunkLayers = config.SelectChunkLayers
@@ -116,6 +131,8 @@ function ShaderSource.New(config)
 			"",
 			config.HeightGLSL,
 			config.SplatGLSL or
+			"",
+			config.Splat2GLSL or
 			"",
 			config.ColorGLSL or
 			"",
@@ -152,7 +169,11 @@ do
 			layer_ids[1] or -1,
 			layer_ids[2] or -1,
 			layer_ids[3] or -1,
-			layer_ids[4] or -1
+			layer_ids[4] or -1,
+			layer_ids[5] or -1,
+			layer_ids[6] or -1,
+			layer_ids[7] or -1,
+			layer_ids[8] or -1
 		)
 	end
 
@@ -214,6 +235,20 @@ do
 				request.splat_size,
 				"r8g8b8a8_unorm",
 				SPLAT_BAKE,
+				request,
+				true,
+				layer_ids
+			)
+		end
+
+		-- the layers after the fourth have their weights in a second texture
+		if request.splat_size and self.HasSplat2 and layer_ids and layer_ids[5] then
+			chunk.splat2_texture = record_bake(
+				self,
+				batch,
+				request.splat_size,
+				"r8g8b8a8_unorm",
+				SPLAT2_BAKE,
 				request,
 				true,
 				layer_ids

@@ -42,6 +42,11 @@ function TerrainSource:ReleaseChunk(chunk)
 		chunk.splat_texture = nil
 	end
 
+	if chunk.splat2_texture then
+		chunk.splat2_texture:Remove()
+		chunk.splat2_texture = nil
+	end
+
 	if chunk.color_texture then
 		chunk.color_texture:Remove()
 		chunk.color_texture = nil

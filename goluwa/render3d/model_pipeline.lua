@@ -203,6 +203,49 @@ local PBR_TERRAIN_FIELDS = {
 		getter = "GetTerrainLayerHeightDistance",
 	},
 }
+
+-- layers 5 to 8 and their weights
+table.insert(
+	PBR_TERRAIN_FIELDS,
+	{
+		type = "texture",
+		name = "TerrainMaterial2Texture",
+		getter = "GetTerrainMaterial2Texture",
+	}
+)
+
+for layer = 5, 8 do
+	for _, kind in ipairs{"", "Normal", "Height"} do
+		table.insert(
+			PBR_TERRAIN_FIELDS,
+			{
+				type = "texture",
+				name = "TerrainLayer" .. layer .. kind .. "Texture",
+				getter = "GetTerrainLayer" .. layer .. kind .. "Texture",
+			}
+		)
+	end
+end
+
+for _, name in ipairs{
+	"Scales",
+	"Roughness",
+	"AmbientOcclusion",
+	"DetailStrength",
+	"AdditiveDetail",
+	"Specular",
+	"HeightScales",
+} do
+	table.insert(
+		PBR_TERRAIN_FIELDS,
+		{
+			type = "vec4",
+			name = "TerrainLayer" .. name .. "2",
+			getter = "GetTerrainLayer" .. name .. "2",
+		}
+	)
+end
+
 local PBR_TRANSMISSION_FIELDS = {
 	{
 		type = "vec4",
@@ -1523,20 +1566,31 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return TerrainLayerUV(uv[0], uv[1], uv[2]);
 			}
 
-			vec4 get_terrain_material_weights_uv(vec2 uv) {
+			// the weights of layers 1 to 4 and, when the chunk has more than four layers, 5 to 8. Together they add up to one
+			void get_terrain_material_weights_both_uv(vec2 uv, out vec4 weights, out vec4 weights2) {
+				weights = vec4(0.0);
+				weights2 = vec4(0.0);
+
 				if (terrain_model.TerrainMaterialTexture == -1) {
-					return vec4(0.0);
+					weights = vec4(0.0);
+					weights2 = vec4(0.0);
+					return;
 				}
 
-				vec4 weights = texture(TEXTURE(terrain_model.TerrainMaterialTexture), uv);
-				weights = max(weights, vec4(0.0));
-				float weight_sum = dot(weights, vec4(1.0));
+				weights = max(texture(TEXTURE(terrain_model.TerrainMaterialTexture), uv), vec4(0.0));
+
+				if (terrain_model.TerrainMaterial2Texture != -1) {
+					weights2 = max(texture(TEXTURE(terrain_model.TerrainMaterial2Texture), uv), vec4(0.0));
+				}
+
+				float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
 
 				if (weight_sum <= 0.0001) {
-					return vec4(0.0);
+					return;
 				}
 
-				return weights / weight_sum;
+				weights /= weight_sum;
+				weights2 /= weight_sum;
 			}
 
 			struct TerrainLayerSample {
@@ -1604,7 +1658,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				s.normal = vec3(0.0);
 				s.ao = 0.0;
 				s.normal_weight = 0.0;
-				vec4 weights = get_terrain_material_weights_uv(uv);
+				vec4 weights, weights2;
+				get_terrain_material_weights_both_uv(uv, weights, weights2);
 				vec3 N = get_terrain_world_normal(uv);
 				vec3 blend = get_terrain_triplanar_weights(N);
 				vec4 scales = terrain_model.TerrainLayerScales;
@@ -1638,10 +1693,26 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return s;
 			}
 
-			vec3 get_terrain_albedo_uv(vec2 uv, vec3 world_pos) {
-				vec4 weights = get_terrain_material_weights_uv(uv);
+				// layers 5 to 8 are only there for chunks with more than four layers
+				if (terrain_model.TerrainMaterial2Texture != -1) {
+					ivec4 albedo_textures2 = ivec4(terrain_model.TerrainLayer5Texture, terrain_model.TerrainLayer6Texture, terrain_model.TerrainLayer7Texture, terrain_model.TerrainLayer8Texture);
+					ivec4 normal_textures2 = ivec4(terrain_model.TerrainLayer5NormalTexture, terrain_model.TerrainLayer6NormalTexture, terrain_model.TerrainLayer7NormalTexture, terrain_model.TerrainLayer8NormalTexture);
+					ivec4 height_textures2 = ivec4(terrain_model.TerrainLayer5HeightTexture, terrain_model.TerrainLayer6HeightTexture, terrain_model.TerrainLayer7HeightTexture, terrain_model.TerrainLayer8HeightTexture);
+					vec4 scales2 = terrain_model.TerrainLayerScales2;
+					vec4 detail2 = terrain_model.TerrainLayerDetailStrength2;
+					vec4 additive_detail2 = terrain_model.TerrainLayerAdditiveDetail2;
+					vec4 displacement2 = terrain_model.TerrainLayerHeightScales2 * fade;
 
-				if (dot(weights, vec4(1.0)) <= 0.0001) {
+					for (int i = 0; i < 4; i++) {
+						accumulate_terrain_layer(s, base, albedo_textures2[i], normal_textures2[i], height_textures2[i], world_pos, blend, N, V, weights2[i], scales2[i], detail2[i], additive_detail2[i], displacement2[i]);
+					}
+				}
+
+			vec3 get_terrain_albedo_uv(vec2 uv, vec3 world_pos) {
+				vec4 weights, weights2;
+				get_terrain_material_weights_both_uv(uv, weights, weights2);
+
+				if (dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0)) <= 0.0001) {
 					return color_model.ColorMultiplier.rgb;
 				}
 
@@ -1650,6 +1721,13 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			vec3 blend_ground_color(vec3 albedo, vec3 world_pos) {
 				if (detail_model.GroundColorTexture == -1) return albedo;
+
+			// a per layer value averaged by the layer weights
+			float get_terrain_weighted_value(vec2 uv, vec4 values, vec4 values2) {
+				vec4 weights, weights2;
+				get_terrain_material_weights_both_uv(uv, weights, weights2);
+				return dot(weights, values) + dot(weights2, values2);
+			}
 
 				vec4 m = detail_model.GroundColorUV;
 				vec2 ground_uv = vec2(dot(world_pos.xz, m.xy), dot(world_pos.xz, m.zw));
@@ -1901,7 +1979,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				if (val < 0.0) {
 					if (terrain_model.TerrainMaterialTexture != -1) {
-						val = dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerRoughness) * get_terrain_layer_sample(uv, in_position).roughness;
+						val = get_terrain_weighted_value(uv, terrain_model.TerrainLayerRoughness, terrain_model.TerrainLayerRoughness2) * get_terrain_layer_sample(uv, in_position).roughness;
 					} else {
 						val = factor_model.RoughnessMultiplier;
 
@@ -2014,7 +2092,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				if (SpecularSolvesMetallic) return min(val, 1.0);
 
 				if (terrain_model.TerrainMaterialTexture != -1) {
-					val *= dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerSpecular);
+					val *= get_terrain_weighted_value(uv, terrain_model.TerrainLayerSpecular, terrain_model.TerrainLayerSpecular2);
 				}
 
 				// as much as the gbuffer holds
@@ -2040,7 +2118,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			float get_ao(vec2 uv) {
 				if (aux_model.AmbientOcclusionTexture == -1) {
 					if (terrain_model.TerrainMaterialTexture != -1) {
-						return dot(get_terrain_material_weights_uv(uv), terrain_model.TerrainLayerAmbientOcclusion) * get_terrain_layer_sample(uv, in_position).ao * aux_model.AmbientOcclusionMultiplier;
+						return get_terrain_weighted_value(uv, terrain_model.TerrainLayerAmbientOcclusion, terrain_model.TerrainLayerAmbientOcclusion2) * get_terrain_layer_sample(uv, in_position).ao * aux_model.AmbientOcclusionMultiplier;
 					}
 
 					return 1.0 * aux_model.AmbientOcclusionMultiplier;
