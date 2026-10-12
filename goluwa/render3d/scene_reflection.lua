@@ -14,6 +14,11 @@ local enabled = pvars.Setup2{
 	default = true,
 	help = "trace screen space reflection misses with ray queries",
 }
+local primary = pvars.Setup2{
+	key = "reflection_ray_query_primary",
+	default = true,
+	help = "ray-traced reflections replace screen-space reflections and sample the textures of what they hit",
+}
 pvars.EndGroup()
 
 function scene_reflection.GetDescriptorSets(bindings, stage)
@@ -30,6 +35,7 @@ function scene_reflection.GetDescriptorSets(bindings, stage)
 			count = scene_bvh.SOUP_CHUNKS,
 		},
 		{type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage},
+		{type = "storage_buffer", binding_index = bindings.uvs, stageFlags = stage, count = scene_bvh.SOUP_CHUNKS},
 		{
 			type = "storage_buffer",
 			binding_index = bindings.light_grid,
@@ -52,6 +58,7 @@ function scene_reflection.Bind(self, cmd, desc, bindings)
 			scene_bvh.GetPlaceholderTLAS(cmd)
 	)
 	scene_bvh.BindTriangleBuffer(self, desc, bindings.triangles, scene_bvh.triangle_buffer or materials)
+	scene_bvh.BindTriangleBuffer(self, desc, bindings.uvs, scene_bvh.uv_buffer or materials, scene_bvh.UV_CHUNK_BYTES)
 end
 
 function scene_reflection.GetDeclarationGLSL(bindings)
@@ -60,17 +67,19 @@ function scene_reflection.GetDeclarationGLSL(bindings)
 		#define DDGI_VISIBILITY_RAYS
 		#define SCENE_REFLECTION
 		layout(set = 0, binding = ]] .. bindings.scene .. [[) uniform accelerationStructureEXT ddgi_scene;
-	]] .. scene_bvh.GetTriangleDeclarationGLSL(bindings.triangles) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. light_grid.GetGLSL(bindings.light_grid)
+	]] .. scene_bvh.GetTriangleDeclarationGLSL(bindings.triangles) .. scene_bvh.GetUvDeclarationGLSL(bindings.uvs) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. light_grid.GetGLSL(bindings.light_grid)
 end
 
 scene_reflection.block = {
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 	{"light_count", "int"},
+	{"reflection_primary", "int"},
 }
 
 function scene_reflection.WriteBlock(self, block)
 	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+	block.reflection_primary = primary:Get() and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
 
@@ -95,7 +104,7 @@ function scene_reflection.GetDDGIUniformBuffer(binding)
 end
 
 function scene_reflection.GetGLSL(block_name)
-	return ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. ddgi.GetMaterialGLSL() .. [[
+	return ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. ddgi.GetMaterialGLSL() .. ddgi.GetAlphaTestGLSL() .. [[
 		#define SCENE_REFLECTION_MAX_DISTANCE ]] .. string.format("%.1f", scene_reflection.MAX_DISTANCE) .. [[
 
 		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
@@ -128,11 +137,16 @@ function scene_reflection.GetGLSL(block_name)
 			return ddgi_data.ddgi_rt_ready != 0;
 		}
 
-		// confirms the first solid hit, translucent and refractive surfaces are looked through
+		// the scene hit owns visibility and is shaded with the hit's textures, screen space is not used
+		bool scene_reflection_primary() {
+			return ]]..block_name..[[.reflection_primary != 0;
+		}
+
+		// confirms the first solid hit, looking through glass and, when primary, respecting cutout textures
 		#define SCENE_REFLECTION_PROCEED(query) \
 			while (rayQueryProceedEXT(query)) { \
 				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)); \
-				if (ddgi_materials[bvh_tri(candidate).material].transparent == 0) rayQueryConfirmIntersectionEXT(query); \
+				if (ddgi_materials[bvh_tri(candidate).material].transparent == 0 && (!scene_reflection_primary() || ddgi_alpha_passes(candidate, rayQueryGetIntersectionBarycentricsEXT(query, false)))) rayQueryConfirmIntersectionEXT(query); \
 			}
 
 		bool scene_reflection_visible(vec3 origin, vec3 dir, float dist) {
@@ -172,7 +186,8 @@ function scene_reflection.GetGLSL(block_name)
 
 			float t = rayQueryGetIntersectionTEXT(query, true);
 			hit_t = t;
-			scene_bvh_triangle tri = bvh_tri(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true)));
+			uint triangle = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+			scene_bvh_triangle tri = bvh_tri(triangle);
 			ddgi_material material = ddgi_materials[tri.material];
 			// the visible side winds clockwise, so tri.normal points inward
 			vec3 hit_N = -tri.normal;
@@ -186,6 +201,28 @@ function scene_reflection.GetGLSL(block_name)
 			vec3 P = origin + dir * t;
 			vec3 surface = P + hit_N * 0.02;
 			vec3 albedo = ddgi_albedo(material, P);
+
+			if (scene_reflection_primary() && material.terrain_tex < 0 && material.albedo_tex >= 0) {
+				vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+				scene_bvh_uv uv = bvh_uv(triangle);
+				vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics);
+				vec2 coord = uv.uv0 * weights.x + uv.uv1 * weights.y + uv.uv2 * weights.z;
+				vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, 0.0).rgb;
+
+				if (material.albedo2_tex >= 0) {
+					float blend = dot(uv.blend, weights);
+
+					if (material.blend_tex >= 0) {
+						vec2 modulate = textureLod(TEXTURE(material.blend_tex), coord, 0.0).rg;
+						blend = smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), blend);
+					}
+
+					rgb = mix(rgb, textureLod(TEXTURE(material.albedo2_tex), coord, 0.0).rgb, blend);
+				}
+
+				albedo = material.albedo * rgb;
+			}
+
 			vec3 radiance = ddgi_emission(tri, albedo);
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);

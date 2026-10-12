@@ -10,7 +10,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_reflection.RAY_QUERY
-local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9}
+local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9, uvs = 10}
 return {
 	{
 		name = "ssr",
@@ -376,7 +376,6 @@ return {
 			}
 
 			vec4 cast_ssr_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
-				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
 				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
 
 				// a normal map can turn a pixel away from the camera, which would
@@ -409,12 +408,21 @@ return {
 
 				if (below < 0.01) R_vs = normalize(R_vs + geometric_N_vs * (0.01 - 2.0 * below));
 
-				vec4 hit = trace_ssr_direction(pos_vs, R_vs, roughness, xi.y);
 				vec3 R_world = (ssr_data.inv_view * vec4(R_vs, 0.0)).xyz;
+				bool rt_primary = false;
+
+				#ifdef SCENE_REFLECTION
+				rt_primary = scene_reflection_ready() && scene_reflection_primary();
+				#endif
+
+				if (!rt_primary && ssr_data.last_frame_tex == -1) return vec4(0.0);
+
+				vec4 hit = rt_primary ? vec4(0.0) : trace_ssr_direction(pos_vs, R_vs, roughness, xi.y);
 
 				#ifdef SCENE_REFLECTION
 				// what the screen doesn't hold (off screen, behind something or
-				// facing the camera) is traced; faded screen hits blend into it
+				// facing the camera) is traced; faded screen hits blend into it.
+				// when primary the scene hit owns visibility and screen-space hits are not used
 				if (scene_reflection_ready() && hit.a < 0.999) {
 					vec3 origin = world_pos + geometric_N * (0.02 + 0.002 * -pos_vs.z);
 					float traced_t;

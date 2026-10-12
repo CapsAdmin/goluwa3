@@ -282,3 +282,11 @@ When a physically correct model changes the established look (e.g. PCSS with the
 
 **Why:** said "much better than before, even at a clear day" on 2026-09-27 after the cloud-cover PCSS change.
 **How to apply:** don't add special cases just to preserve the old look; derive from the physics or the reference engine and mention the visible change. Related: [Crysis vegetation bending](crysis.md#crysis-vegetation-bending).
+
+## Ray-traced reflection material detail and visibility
+
+With the `reflection_ray_query_primary` pvar on (default) and ray-query hardware, opaque and water reflections use the nearest scene hit as the authority for visibility and the SSR trace is skipped. Blending an unrelated screen-space hit over a solid RT hit can show distant buildings through the reflected balcony wall. With it off, SSR hits blend into the traced misses as before.
+
+Reflection pipelines bind the soup UV buffer (`uvs = 10`) as well as triangles and materials. In primary mode hit UVs and vertex blend weights are interpolated from ray-query barycentrics, the albedo texture is sampled at the hit and the second albedo/blend-modulate textures are applied where present. DDGI's averaged albedo is fine for diffuse probe lighting but loses the texture detail reflections need. Candidate intersections also run the shared alpha-cutout test, so cutout geometry is skipped. Terrain keeps its world-space material sampling. This is single-bounce hit shading, so secondary specular reflections are not reproduced.
+
+Reflection rays run in the half-resolution SSR pass. Odd framebuffer sizes round the half size up, so the full/half ratio must not be truncated to an integer. `get_ssr_gbuffer_pos` in ibl.lua partitions the G-buffer by integer division for both ray generation and the reflection upsample (see test/tests/render3d/ssr_mapping.lua).

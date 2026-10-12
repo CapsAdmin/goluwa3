@@ -12,7 +12,7 @@ local water = import("goluwa/render3d/water.lua")
 local render = import("goluwa/render/render.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local RAY_QUERY = scene_reflection.RAY_QUERY
-local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9}
+local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9, uvs = 10}
 local WAVE_TEX_SIZE = 512
 local WAVE_CASCADES = {
 	{name = "ocean_waves_near", world_half = 64},
@@ -1092,6 +1092,11 @@ list.insert(
 			vec3 get_reflection(vec3 surface_pos, vec3 view_dir, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
 				float perceptual = sqrt(alpha);
 				vec3 reflected = sample_environment_specular(ocean_data.env_tex, reflection_dir, normal, perceptual);
+				#ifdef SCENE_REFLECTION
+				bool rt_primary = scene_reflection_ready() && scene_reflection_primary();
+				#else
+				bool rt_primary = false;
+				#endif
 				float ssr_fade = reflection_dir.y > -0.2 ? 1.0 - smoothstep(0.1, 0.35, perceptual) : 0.0;
 				vec3 origin = surface_pos + normal * 0.02;
 				vec3 ssr_color = vec3(0.0);
@@ -1099,7 +1104,7 @@ list.insert(
 				vec2 ssr_uv;
 				float ssr_t;
 
-				if (ssr_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, ssr_uv, ssr_t, ssr_weight)) {
+				if (!rt_primary && ssr_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, ssr_uv, ssr_t, ssr_weight)) {
 					ssr_color = get_scene_color(ssr_uv);
 					ssr_weight *= ssr_fade;
 				}
@@ -1123,7 +1128,7 @@ list.insert(
 
 					float traced_t;
 					vec3 traced = trace_scene_reflection(origin, dir, normal, perceptual, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
-					return mix(traced, ssr_color, ssr_weight);
+					return rt_primary ? traced : mix(traced, ssr_color, ssr_weight);
 				}
 				#endif
 
