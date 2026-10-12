@@ -1,4 +1,5 @@
 local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local tasks = import("goluwa/tasks.lua")
 local Texture = import("goluwa/render/texture.lua")
 local codec = import("goluwa/codec.lua")
@@ -481,8 +482,32 @@ function Material:GetTextures()
 	return out
 end
 
-function Material:GetFillFlags()
-	return self.Flags
+do
+	local LUMINANCE_BIT = Material.FlagBits.AlbedoLuminanceIsRoughness
+	pvars.StartGroup("material", {store = false})
+	local luminance_roughness = pvars.Setup2{
+		key = "r_albedo_luminance_roughness",
+		default = false,
+		help = "a hack: materials without a roughness texture take their roughness from the luminance of their albedo, dark is shiny. refractive materials keep theirs",
+		callback = function(value, is_init)
+			if is_init then return end
+
+			Material.flags_generation = Material.flags_generation + 1
+		end,
+	}
+	pvars.EndGroup()
+
+	function Material:GetFillFlags()
+		if
+			luminance_roughness:Get() and
+			self.Refraction == 0 and
+			not self:HasExplicitRoughnessTexture()
+		then
+			return bit.bor(self.Flags, LUMINANCE_BIT)
+		end
+
+		return self.Flags
+	end
 end
 
 do
