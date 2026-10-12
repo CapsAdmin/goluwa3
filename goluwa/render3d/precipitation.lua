@@ -7,7 +7,10 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
+local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local precipitation = {}
+precipitation.name = "precipitation"
 precipitation.rain_rate = 0
 precipitation.snow_rate = 0
 local MARSHALL_PALMER_N0 = 8000
@@ -136,14 +139,15 @@ do
 		return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
 	end
 
-	function precipitation.WriteBlock(self, block, b0_tex, moments_tex, write_depth_warp)
+	function precipitation.WriteBlock(self, block)
 		render3d.WriteCameraBlock(self, block)
 		render3d.WritePreviousCameraBlock(self, block)
 		post_source.WritePreExposureBlock(self, block)
 		surface_weather.WriteBlock(self, block)
-		block.b0_tex = self:GetTextureIndex(b0_tex)
-		block.moments_tex = self:GetTextureIndex(moments_tex)
-		write_depth_warp(block.depth_warp)
+		local b0, moments = translucent_moments.GetTextures()
+		block.b0_tex = self:GetTextureIndex(b0)
+		block.moments_tex = self:GetTextureIndex(moments)
+		translucent_moments.WriteDepthWarp(block.depth_warp)
 		block.precipitation_time = system.GetElapsedTime() % 1024
 		block.precipitation_dt = system.GetElapsedTime() - render3d.GetPreviousElapsedTime()
 		block.rain_count, block.rain_coverage_scale = precipitation.GetRainDropCount()
@@ -360,6 +364,108 @@ end
 function precipitation.Draw(pipeline, cmd)
 	pipeline:UploadConstants()
 	cmd:Draw(4, precipitation.GetRainDropCount() + precipitation.GetSnowflakeCount(), 0, 0)
+end
+
+function precipitation.BuildPasses()
+	local precipitation_block = {
+		name = "precipitation_data",
+		binding_index = 3,
+		block = precipitation.block,
+		write = precipitation.WriteBlock,
+		upload_scope = "frame",
+	}
+
+	return {
+	{
+		name = "precipitation_moments",
+		draw_in_prerender = false,
+		dont_create_framebuffers = true,
+		ColorFormat = {
+			{"r32_sfloat", {"b0", "r"}},
+			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
+		},
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
+		Topology = "triangle_strip",
+		vertex = {
+			outputs = precipitation.vertex_outputs,
+			uniform_buffers = {precipitation_block},
+			shader = precipitation.GetVertexGLSL("precipitation_data"),
+		},
+		fragment = {
+			uniform_buffers = {precipitation_block},
+			shader = translucent_moments.GLSL .. precipitation.GetCoverageGLSL() .. [[
+				void main() {
+					float absorbance = -log(max(1.0 - get_precipitation_alpha(), 1e-3));
+					float depth = moments_warp_depth(distance(in_position, precipitation_data.camera_position), precipitation_data.depth_warp);
+					float depth2 = depth * depth;
+					set_b0(absorbance);
+					set_moments(vec4(depth, depth2, depth2 * depth, depth2 * depth2) * absorbance);
+				}
+			]],
+		},
+		CullMode = "none",
+		Blend = true,
+		SrcColorBlendFactor = "one",
+		DstColorBlendFactor = "one",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "one",
+		AlphaBlendOp = "add",
+		color_blend = {attachments = {{}, translucent_moments.ADDITIVE}},
+		DepthTest = true,
+		DepthWrite = false,
+		DepthCompareOp = "less_or_equal",
+	},
+	{
+		name = "precipitation_accumulate",
+		draw_in_prerender = false,
+		dont_create_framebuffers = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
+			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
+			{"r16g16b16a16_sfloat", {"modulate", "rgba"}},
+		},
+		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
+		Topology = "triangle_strip",
+		vertex = {
+			outputs = precipitation.vertex_outputs,
+			uniform_buffers = {precipitation_block},
+			shader = precipitation.GetVertexGLSL("precipitation_data"),
+		},
+		fragment = {
+			uniform_buffers = {precipitation_block},
+			shader = post_source.GetPreExposureGLSL("precipitation_data") .. translucent_moments.GLSL .. precipitation.GetCoverageGLSL() .. [[
+				void main() {
+					ivec2 pixel = ivec2(gl_FragCoord.xy);
+					float transmittance = moments_transmittance(
+						texelFetch(TEXTURE(precipitation_data.b0_tex), pixel, 0).r,
+						texelFetch(TEXTURE(precipitation_data.moments_tex), pixel, 0),
+						moments_warp_depth(distance(in_position, precipitation_data.camera_position), precipitation_data.depth_warp)
+					);
+					float alpha = get_precipitation_alpha();
+					set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
+					// streaks are thin and fast, a pixel with one follows it, or taa would average it away
+					set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
+						set_additive(vec4(0.0));
+					set_modulate(vec4(1.0));
+				}
+			]],
+		},
+		CullMode = "none",
+		Blend = true,
+		SrcColorBlendFactor = "one",
+		DstColorBlendFactor = "one",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "one",
+		AlphaBlendOp = "add",
+		color_blend = {attachments = {{}, translucent_moments.ADDITIVE, translucent_moments.ADDITIVE, translucent_moments.MULTIPLY}},
+		DepthTest = true,
+		DepthWrite = false,
+		DepthCompareOp = "less_or_equal",
+	},
+	}
 end
 
 event.AddListener("PreDraw3DTranslucent", "precipitation", function()

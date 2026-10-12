@@ -11,66 +11,13 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
-local precipitation = import("goluwa/render3d/precipitation.lua")
+local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
+local translucent_extras = import("goluwa/render3d/translucent_extras.lua")
 local Texture = import("goluwa/render/texture.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
 local refraction_source = nil
-local MOMENTS_GLSL = [[
-	float moments_warp_depth(float distance, vec2 warp) {
-		return clamp(log(max(distance, 1e-4)) * warp.x + warp.y, -1.0, 1.0);
-	}
-
-	// the transmittance of everything in front of depth. b0 is the summed
-	// absorbance, moments its weighted depth, depth², depth³ and depth⁴. a
-	// surface counts a quarter of itself as in front of it, so the summed
-	// weights never vanish
-	float moments_transmittance(float b0, vec4 moments, float depth) {
-		if (b0 < 0.00100050033) return 1.0;
-
-		vec4 b = mix(moments / b0, vec4(0.0, 0.375, 0.0, 0.375), 5e-7);
-		float L21D11 = fma(-b.x, b.y, b.z);
-		float D11 = fma(-b.x, b.x, b.y);
-		float inv_D11 = 1.0 / D11;
-		float L21 = L21D11 * inv_D11;
-		float D22 = fma(-L21D11, L21, fma(-b.y, b.y, b.w));
-		vec3 c = vec3(1.0, depth, depth * depth);
-		c.y -= b.x;
-		c.z -= b.y + L21 * c.y;
-		c.y *= inv_D11;
-		c.z /= D22;
-		c.y -= L21 * c.z;
-		c.x -= dot(c.yz, b.xy);
-		float p = c.y / c.z;
-		float q = c.x / c.z;
-		float r = sqrt(p * p * 0.25 - q);
-		vec3 z = vec3(depth, -p * 0.5 - r, -p * 0.5 + r);
-		vec3 f = vec3(0.25, z.y < z.x ? 1.0 : 0.0, z.z < z.x ? 1.0 : 0.0);
-		float f01 = (f.y - f.x) / (z.y - z.x);
-		float f12 = (f.z - f.y) / (z.z - z.y);
-		float f012 = (f12 - f01) / (z.z - z.x);
-		float p0 = f01 - f012 * z.y;
-		float p1 = p0 - f012 * z.x;
-		p0 = f.x - p0 * z.x;
-		return clamp(exp(-b0 * (p0 + b.x * p1 + b.y * f012)), 0.0, 1.0);
-	}
-]]
-
-local function write_depth_warp(warp)
-	local camera = render3d.GetCamera()
-	local near = math.clamp(render3d.translucent_depth_near, camera:GetNearZ(), camera:GetFarZ())
-	local far = math.max(math.min(render3d.translucent_depth_far, camera:GetFarZ()), near * 1.01)
-	local scale = 2 / (math.log(far) - math.log(near))
-	warp[0] = scale
-	warp[1] = -math.log(near) * scale - 1
-end
-
-local function get_moments_textures()
-	local fb = render3d.pipelines.translucent_moments:GetFramebuffer()
-	return fb:GetAttachment(1), fb:GetAttachment(2)
-end
-
 local function update_refraction_source(cmd)
 	local scene = post_source.GetFoggedOpaqueSceneTexture()
 	local width, height = scene:GetWidth(), scene:GetHeight()
@@ -142,10 +89,10 @@ table.insert(
 			surface_lighting.WriteBlock(self, block)
 			block.fog = render3d.IsPassEnabled("volumetric_fog") and 1 or 0
 			block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
-			local b0, moments = get_moments_textures()
+			local b0, moments = translucent_moments.GetTextures()
 			block.b0_tex = self:GetTextureIndex(b0)
 			block.moments_tex = self:GetTextureIndex(moments)
-			write_depth_warp(block.depth_warp)
+			translucent_moments.WriteDepthWarp(block.depth_warp)
 			block.refraction_tex = render3d.refraction_source_requested and
 				self:GetTextureIndex(refraction_source) or
 				-1
@@ -180,41 +127,13 @@ table.insert(
 			{"depth_warp", "vec2"},
 		},
 		write = function(self, block)
-			write_depth_warp(block.depth_warp)
+			translucent_moments.WriteDepthWarp(block.depth_warp)
 			return block
 		end,
 		upload_scope = "frame",
 	}
 )
-local ADDITIVE = {
-	blend = true,
-	src_color_blend_factor = "one",
-	dst_color_blend_factor = "one",
-	color_blend_op = "add",
-	src_alpha_blend_factor = "one",
-	dst_alpha_blend_factor = "one",
-	alpha_blend_op = "add",
-}
-local MULTIPLY = {
-	blend = true,
-	src_color_blend_factor = "zero",
-	dst_color_blend_factor = "src_color",
-	color_blend_op = "add",
-	src_alpha_blend_factor = "zero",
-	dst_alpha_blend_factor = "one",
-	alpha_blend_op = "add",
-}
-local precipitation_block = {
-	name = "precipitation_data",
-	binding_index = BINDING_CAMERA,
-	block = precipitation.block,
-	write = function(self, block)
-		local b0, moments = get_moments_textures()
-		return precipitation.WriteBlock(self, block, b0, moments, write_depth_warp)
-	end,
-	upload_scope = "frame",
-}
-return {
+local passes = {
 	{
 		name = "translucent_moments",
 		ColorFormat = {
@@ -261,9 +180,7 @@ return {
 			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
 			event.Call("Draw3DTranslucent")
 
-			if precipitation.IsActive() then
-				precipitation.Draw(render3d.pipelines.precipitation_moments, cmd)
-			end
+			translucent_extras.Draw("moments", cmd)
 		end,
 		fragment = {shader = "void main() { set_b0(0.0); set_moments(vec4(0.0)); }"},
 		CullMode = "none",
@@ -290,7 +207,7 @@ return {
 		},
 		fragment = {
 			uniform_buffers = moments_uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. MOMENTS_GLSL .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. translucent_moments.GLSL .. [[
 				void main() {
 					float alpha = get_alpha();
 
@@ -314,7 +231,7 @@ return {
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, ADDITIVE}},
+		color_blend = {attachments = {{}, translucent_moments.ADDITIVE}},
 		DepthTest = true,
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
@@ -336,9 +253,7 @@ return {
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
 			event.Call("Draw3DTranslucent")
 
-			if precipitation.IsActive() then
-				precipitation.Draw(render3d.pipelines.precipitation_accumulate, cmd)
-			end
+			translucent_extras.Draw("accumulate", cmd)
 		end,
 		fragment = {
 			shader = "void main() { set_color(vec4(0.0)); set_motion(vec4(0.0)); set_additive(vec4(0.0)); set_modulate(vec4(1.0)); }",
@@ -410,7 +325,7 @@ return {
 			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. screen_refraction.GetGLSL("lighting_data") .. MOMENTS_GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. screen_refraction.GetGLSL("lighting_data") .. translucent_moments.GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
 					return calculateShadow(world_pos, sun_dir, sun_dir) * get_cloud_shadow(world_pos);
 				}
@@ -710,96 +625,7 @@ return {
 		SrcAlphaBlendFactor = "one",
 		DstAlphaBlendFactor = "one",
 		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, ADDITIVE, ADDITIVE, MULTIPLY}},
-		DepthTest = true,
-		DepthWrite = false,
-		DepthCompareOp = "less_or_equal",
-	},
-	{
-		name = "precipitation_moments",
-		draw_in_prerender = false,
-		dont_create_framebuffers = true,
-		ColorFormat = {
-			{"r32_sfloat", {"b0", "r"}},
-			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
-		},
-		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
-		Topology = "triangle_strip",
-		vertex = {
-			outputs = precipitation.vertex_outputs,
-			uniform_buffers = {precipitation_block},
-			shader = precipitation.GetVertexGLSL("precipitation_data"),
-		},
-		fragment = {
-			uniform_buffers = {precipitation_block},
-			shader = MOMENTS_GLSL .. precipitation.GetCoverageGLSL() .. [[
-				void main() {
-					float absorbance = -log(max(1.0 - get_precipitation_alpha(), 1e-3));
-					float depth = moments_warp_depth(distance(in_position, precipitation_data.camera_position), precipitation_data.depth_warp);
-					float depth2 = depth * depth;
-					set_b0(absorbance);
-					set_moments(vec4(depth, depth2, depth2 * depth, depth2 * depth2) * absorbance);
-				}
-			]],
-		},
-		CullMode = "none",
-		Blend = true,
-		SrcColorBlendFactor = "one",
-		DstColorBlendFactor = "one",
-		ColorBlendOp = "add",
-		SrcAlphaBlendFactor = "one",
-		DstAlphaBlendFactor = "one",
-		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, ADDITIVE}},
-		DepthTest = true,
-		DepthWrite = false,
-		DepthCompareOp = "less_or_equal",
-	},
-	{
-		name = "precipitation_accumulate",
-		draw_in_prerender = false,
-		dont_create_framebuffers = true,
-		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
-			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
-			{"r16g16b16a16_sfloat", {"modulate", "rgba"}},
-		},
-		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
-		Topology = "triangle_strip",
-		vertex = {
-			outputs = precipitation.vertex_outputs,
-			uniform_buffers = {precipitation_block},
-			shader = precipitation.GetVertexGLSL("precipitation_data"),
-		},
-		fragment = {
-			uniform_buffers = {precipitation_block},
-			shader = post_source.GetPreExposureGLSL("precipitation_data") .. MOMENTS_GLSL .. precipitation.GetCoverageGLSL() .. [[
-				void main() {
-					ivec2 pixel = ivec2(gl_FragCoord.xy);
-					float transmittance = moments_transmittance(
-						texelFetch(TEXTURE(precipitation_data.b0_tex), pixel, 0).r,
-						texelFetch(TEXTURE(precipitation_data.moments_tex), pixel, 0),
-						moments_warp_depth(distance(in_position, precipitation_data.camera_position), precipitation_data.depth_warp)
-					);
-					float alpha = get_precipitation_alpha();
-					set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
-					// streaks are thin and fast, a pixel with one follows it, or taa would average it away
-					set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
-						set_additive(vec4(0.0));
-					set_modulate(vec4(1.0));
-				}
-			]],
-		},
-		CullMode = "none",
-		Blend = true,
-		SrcColorBlendFactor = "one",
-		DstColorBlendFactor = "one",
-		ColorBlendOp = "add",
-		SrcAlphaBlendFactor = "one",
-		DstAlphaBlendFactor = "one",
-		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, ADDITIVE, ADDITIVE, MULTIPLY}},
+		color_blend = {attachments = {{}, translucent_moments.ADDITIVE, translucent_moments.ADDITIVE, translucent_moments.MULTIPLY}},
 		DepthTest = true,
 		DepthWrite = false,
 		DepthCompareOp = "less_or_equal",
@@ -868,7 +694,7 @@ return {
 						{"additive_tex", "int"},
 					},
 					write = function(self, block)
-						block.b0_tex = self:GetTextureIndex(get_moments_textures())
+						block.b0_tex = self:GetTextureIndex(translucent_moments.GetTextures())
 						local accumulate = render3d.pipelines.translucent_accumulate:GetFramebuffer()
 						block.accumulated_tex = self:GetTextureIndex(accumulate:GetAttachment(1))
 						block.additive_tex = self:GetTextureIndex(accumulate:GetAttachment(3))
@@ -903,3 +729,11 @@ return {
 		AlphaBlendOp = "add",
 	},
 }
+
+for _, extra in ipairs(translucent_extras.list) do
+	for _, pass in ipairs(extra.BuildPasses()) do
+		table.insert(passes, pass)
+	end
+end
+
+return passes
