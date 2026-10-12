@@ -4,7 +4,13 @@ surface_features.default_list = {
 	import("goluwa/render3d/features/specular.lua"),
 	import("goluwa/render3d/features/transmission.lua"),
 	import("goluwa/render3d/features/clearcoat.lua"),
+	import("goluwa/render3d/features/displacement.lua"),
+	import("goluwa/render3d/features/refraction.lua"),
 	import("goluwa/render3d/features/weather_response.lua"),
+	import("goluwa/render3d/features/terrain.lua"),
+	import("goluwa/render3d/features/detail.lua"),
+	import("goluwa/render3d/features/vegetation.lua"),
+	import("goluwa/render3d/features/grass.lua"),
 }
 
 -- the registry of a list of features, the engine uses the one for default_list. a list is a
@@ -116,8 +122,10 @@ end
 --   factor block, and a material with all of its floats at their default skips the upload.
 --   getter names a GLSL function that reads the param, getter_expression is what it returns of
 --   the value v. block = "own" gives the feature a uniform block of its own, <name>_model, that
---   is only uploaded for a material the function active says is using the feature
--- category: the Material category the params are listed under, the name by default
+--   is only uploaded for a material the function active says is using the feature, and
+--   block = "none" gives the params no block at all, for what Lua code reads through the material
+-- category: the Material category the params are listed under, the name by default. a param can name
+--   another one, from it on. block = false on a param keeps it out of the block, Lua reads it
 -- getters: GLSL functions reading factor_model, next to the other material getters
 -- common: GLSL helper functions the snippets use
 -- encoders, decoders: GLSL for the gbuffer's encode and decode side, decoders use COORD for the

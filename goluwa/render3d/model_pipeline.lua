@@ -44,7 +44,9 @@ for _, feature in ipairs(surface_features.list) do
 	for _, param in ipairs(feature.params or {}) do
 		local field = {type = param.kind or "float", name = param.name, getter = "Get" .. param.name}
 
-		if feature.block == "own" then
+		if feature.block == "none" or param.block == false then
+			-- read through the material
+		elseif feature.block == "own" then
 			FEATURE_BLOCK_FIELDS[feature] = FEATURE_BLOCK_FIELDS[feature] or {}
 			table.insert(FEATURE_BLOCK_FIELDS[feature], field)
 		else
@@ -54,32 +56,6 @@ for _, feature in ipairs(surface_features.list) do
 	end
 end
 
-local PBR_DETAIL_FIELDS = {
-	{type = "texture", name = "Albedo2Texture", getter = "GetAlbedo2Texture"},
-	{type = "texture", name = "Normal2Texture", getter = "GetNormal2Texture"},
-	{type = "texture", name = "BlendTexture", getter = "GetBlendTexture"},
-	{type = "texture", name = "DetailTexture", getter = "GetDetailTexture"},
-	{type = "vec2", name = "DetailTiling", getter = "GetDetailTiling"},
-	{type = "float", name = "DetailBumpScale", getter = "GetDetailBumpScale"},
-	{type = "float", name = "DetailBlendAmount", getter = "GetDetailBlendAmount"},
-	{type = "texture", name = "GroundColorTexture", getter = "GetGroundColorTexture"},
-	{type = "float", name = "GroundColorBlend", getter = "GetGroundColorBlend"},
-	{type = "vec4", name = "GroundColorUV", getter = "GetGroundColorUV"},
-	{
-		type = "vec4",
-		name = "BaseTextureTransformU",
-		getter = "GetBaseTextureTransformU",
-	},
-	{
-		type = "vec4",
-		name = "BaseTextureTransformV",
-		getter = "GetBaseTextureTransformV",
-	},
-	{type = "vec4", name = "BumpTransformU", getter = "GetBumpTransformU"},
-	{type = "vec4", name = "BumpTransformV", getter = "GetBumpTransformV"},
-	{type = "vec4", name = "Texture2TransformU", getter = "GetTexture2TransformU"},
-	{type = "vec4", name = "Texture2TransformV", getter = "GetTexture2TransformV"},
-}
 local PBR_AUX_FIELDS = {
 	{
 		type = "texture",
@@ -102,162 +78,6 @@ local PBR_AUX_FIELDS = {
 	{type = "texture", name = "RoughnessTexture", getter = "GetRoughnessTexture"},
 	{type = "texture", name = "SpecularTexture", getter = "GetSpecularTexture"},
 }
-local PBR_DISPLACEMENT_FIELDS = {
-	{type = "texture", name = "HeightTexture", getter = "GetHeightTexture"},
-	{type = "float", name = "HeightScale", getter = "GetHeightScale"},
-	{type = "float", name = "HeightMidlevel", getter = "GetHeightMidlevel"},
-	{type = "int", name = "HeightLayers", getter = "GetHeightLayers"},
-}
-local PBR_TERRAIN_FIELDS = {
-	{
-		type = "texture",
-		name = "TerrainMaterialTexture",
-		getter = "GetTerrainMaterialTexture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer1Texture",
-		getter = "GetTerrainLayer1Texture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer2Texture",
-		getter = "GetTerrainLayer2Texture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer3Texture",
-		getter = "GetTerrainLayer3Texture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer4Texture",
-		getter = "GetTerrainLayer4Texture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer1NormalTexture",
-		getter = "GetTerrainLayer1NormalTexture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer2NormalTexture",
-		getter = "GetTerrainLayer2NormalTexture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer3NormalTexture",
-		getter = "GetTerrainLayer3NormalTexture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer4NormalTexture",
-		getter = "GetTerrainLayer4NormalTexture",
-	},
-	{
-		type = "vec4",
-		name = "TerrainLayerScales",
-		getter = "GetTerrainLayerScales",
-	},
-	{
-		type = "vec4",
-		name = "TerrainLayerRoughness",
-		getter = "GetTerrainLayerRoughness",
-	},
-	{
-		type = "vec4",
-		name = "TerrainLayerAmbientOcclusion",
-		getter = "GetTerrainLayerAmbientOcclusion",
-	},
-	{
-		type = "vec4",
-		name = "TerrainLayerDetailStrength",
-		getter = "GetTerrainLayerDetailStrength",
-	},
-	{
-		type = "vec4",
-		name = "TerrainLayerAdditiveDetail",
-		getter = "GetTerrainLayerAdditiveDetail",
-	},
-	{
-		type = "vec4",
-		name = "TerrainLayerSpecular",
-		getter = "GetTerrainLayerSpecular",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer1HeightTexture",
-		getter = "GetTerrainLayer1HeightTexture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer2HeightTexture",
-		getter = "GetTerrainLayer2HeightTexture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer3HeightTexture",
-		getter = "GetTerrainLayer3HeightTexture",
-	},
-	{
-		type = "texture",
-		name = "TerrainLayer4HeightTexture",
-		getter = "GetTerrainLayer4HeightTexture",
-	},
-	{
-		type = "vec4",
-		name = "TerrainLayerHeightScales",
-		getter = "GetTerrainLayerHeightScales",
-	},
-	{
-		type = "float",
-		name = "TerrainLayerHeightDistance",
-		getter = "GetTerrainLayerHeightDistance",
-	},
-}
-
--- layers 5 to 8 and their weights
-table.insert(
-	PBR_TERRAIN_FIELDS,
-	{
-		type = "texture",
-		name = "TerrainMaterial2Texture",
-		getter = "GetTerrainMaterial2Texture",
-	}
-)
-
-for layer = 5, 8 do
-	for _, kind in ipairs{"", "Normal", "Height"} do
-		table.insert(
-			PBR_TERRAIN_FIELDS,
-			{
-				type = "texture",
-				name = "TerrainLayer" .. layer .. kind .. "Texture",
-				getter = "GetTerrainLayer" .. layer .. kind .. "Texture",
-			}
-		)
-	end
-end
-
-for _, name in ipairs{
-	"Scales",
-	"Roughness",
-	"AmbientOcclusion",
-	"DetailStrength",
-	"AdditiveDetail",
-	"Specular",
-	"HeightScales",
-} do
-	table.insert(
-		PBR_TERRAIN_FIELDS,
-		{
-			type = "vec4",
-			name = "TerrainLayer" .. name .. "2",
-			getter = "GetTerrainLayer" .. name .. "2",
-		}
-	)
-end
-
 local PROBE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
@@ -798,25 +618,16 @@ local PBR_MATERIAL_BLOCK = build_material_block(PBR_MATERIAL_FIELDS)
 local PROBE_MATERIAL_BLOCK = build_material_block(PROBE_MATERIAL_FIELDS)
 local PBR_COLOR_BLOCK = build_material_block(PBR_COLOR_FIELDS)
 local PBR_FACTOR_BLOCK = build_material_block(PBR_FACTOR_FIELDS)
-local PBR_DETAIL_BLOCK = build_material_block(PBR_DETAIL_FIELDS)
 local PBR_AUX_BLOCK = build_material_block(PBR_AUX_FIELDS)
-local PBR_DISPLACEMENT_BLOCK = build_material_block(PBR_DISPLACEMENT_FIELDS)
-local PBR_TERRAIN_BLOCK = build_material_block(PBR_TERRAIN_FIELDS)
 local WRITE_SURFACE_MATERIAL_BLOCK = build_material_block_writer("surface", SURFACE_MATERIAL_FIELDS)
 local WRITE_PBR_MATERIAL_BLOCK = build_material_block_writer("pbr", PBR_MATERIAL_FIELDS)
 local WRITE_PBR_COLOR_BLOCK = build_material_block_writer("pbr_color", PBR_COLOR_FIELDS)
 local WRITE_PBR_FACTOR_BLOCK = build_material_block_writer("pbr_factor", PBR_FACTOR_FIELDS)
-local WRITE_PBR_DETAIL_BLOCK = build_material_block_writer("pbr_detail", PBR_DETAIL_FIELDS)
 local WRITE_PBR_AUX_BLOCK = build_material_block_writer("pbr_aux", PBR_AUX_FIELDS)
-local WRITE_PBR_DISPLACEMENT_BLOCK = build_material_block_writer("pbr_displacement", PBR_DISPLACEMENT_FIELDS)
-local WRITE_PBR_TERRAIN_BLOCK = build_material_block_writer("pbr_terrain", PBR_TERRAIN_FIELDS)
 local WRITE_PROBE_MATERIAL_BLOCK = build_material_block_writer("probe", PROBE_MATERIAL_FIELDS)
 local NO_PBR_COLOR_KEY = {}
 local NO_PBR_FACTOR_KEY = {}
-local NO_PBR_DETAIL_KEY = {}
 local NO_PBR_AUX_KEY = {}
-local NO_PBR_DISPLACEMENT_KEY = {}
-local NO_PBR_TERRAIN_KEY = {}
 
 function model_pipeline.GetSurfaceMaterialBlock()
 	return SURFACE_MATERIAL_BLOCK
@@ -838,20 +649,8 @@ function model_pipeline.GetPBRFactorMaterialBlock()
 	return PBR_FACTOR_BLOCK
 end
 
-function model_pipeline.GetPBRDetailMaterialBlock()
-	return PBR_DETAIL_BLOCK
-end
-
 function model_pipeline.GetPBRAuxMaterialBlock()
 	return PBR_AUX_BLOCK
-end
-
-function model_pipeline.GetPBRDisplacementMaterialBlock()
-	return PBR_DISPLACEMENT_BLOCK
-end
-
-function model_pipeline.GetPBRTerrainMaterialBlock()
-	return PBR_TERRAIN_BLOCK
 end
 
 function model_pipeline.WriteSurfaceMaterialBlock(self, block)
@@ -870,34 +669,12 @@ function model_pipeline.WritePBRFactorMaterialBlock(self, block)
 	return WRITE_PBR_FACTOR_BLOCK(self, block)
 end
 
-function model_pipeline.WritePBRDetailMaterialBlock(self, block)
-	return WRITE_PBR_DETAIL_BLOCK(self, block)
-end
-
 function model_pipeline.WritePBRAuxMaterialBlock(self, block)
 	return WRITE_PBR_AUX_BLOCK(self, block)
 end
 
-function model_pipeline.WritePBRDisplacementMaterialBlock(self, block)
-	return WRITE_PBR_DISPLACEMENT_BLOCK(self, block)
-end
-
-function model_pipeline.WritePBRTerrainMaterialBlock(self, block)
-	return WRITE_PBR_TERRAIN_BLOCK(self, block)
-end
-
 function model_pipeline.WriteProbeMaterialBlock(self, block)
 	return WRITE_PROBE_MATERIAL_BLOCK(self, block)
-end
-
-function model_pipeline.GetPBRTerrainUploadKey()
-	local material = get_material()
-
-	if not material then return NO_PBR_TERRAIN_KEY end
-
-	if material:GetTerrainMaterialTexture() == nil then return NO_PBR_TERRAIN_KEY end
-
-	return render3d.GetMaterialUploadKey()
 end
 
 function model_pipeline.GetPBRColorUploadKey()
@@ -959,38 +736,6 @@ function model_pipeline.GetPBRAuxUploadKey()
 
 	if not (uses_metallic_detail or uses_ao or uses_emissive) then
 		return NO_PBR_AUX_KEY
-	end
-
-	return render3d.GetMaterialUploadKey()
-end
-
-
-function model_pipeline.GetPBRDetailUploadKey()
-	local material = get_material()
-
-	if not material then return NO_PBR_DETAIL_KEY end
-
-	if
-		material:GetAlbedo2Texture() == nil and
-		material:GetNormal2Texture() == nil and
-		material:GetBlendTexture() == nil and
-		material:GetDetailTexture() == nil and
-		material:GetGroundColorTexture() == nil and
-		not material.has_uv_transform
-	then
-		return NO_PBR_DETAIL_KEY
-	end
-
-	return render3d.GetMaterialUploadKey()
-end
-
-function model_pipeline.GetPBRDisplacementUploadKey()
-	local material = get_material()
-
-	if not material then return NO_PBR_DISPLACEMENT_KEY end
-
-	if not material:GetHeightTexture() or material:GetHeightScale() <= 0 then
-		return NO_PBR_DISPLACEMENT_KEY
 	end
 
 	return render3d.GetMaterialUploadKey()
@@ -1392,32 +1137,11 @@ function model_pipeline.GetPBRUniformBuffers()
 			write = model_pipeline.WritePBRFactorMaterialBlock,
 		},
 		{
-			name = "detail_model",
-			upload_scope = "persistent_keyed",
-			upload_key = model_pipeline.GetPBRDetailUploadKey,
-			block = model_pipeline.GetPBRDetailMaterialBlock(),
-			write = model_pipeline.WritePBRDetailMaterialBlock,
-		},
-		{
 			name = "aux_model",
 			upload_scope = "frame_keyed",
 			upload_key = model_pipeline.GetPBRAuxUploadKey,
 			block = model_pipeline.GetPBRAuxMaterialBlock(),
 			write = model_pipeline.WritePBRAuxMaterialBlock,
-		},
-		{
-			name = "displacement_model",
-			upload_scope = "frame_keyed",
-			upload_key = model_pipeline.GetPBRDisplacementUploadKey,
-			block = model_pipeline.GetPBRDisplacementMaterialBlock(),
-			write = model_pipeline.WritePBRDisplacementMaterialBlock,
-		},
-		{
-			name = "terrain_model",
-			upload_scope = "frame_keyed",
-			upload_key = model_pipeline.GetPBRTerrainUploadKey,
-			block = model_pipeline.GetPBRTerrainMaterialBlock(),
-			write = model_pipeline.WritePBRTerrainMaterialBlock,
 		},
 	}
 

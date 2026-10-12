@@ -15,9 +15,6 @@ Material:StartStorable()
 Material:StartCategory("Albedo")
 Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "InvalidateAlbedo"})
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0), {callback = "InvalidateColor"})
-Material:GetSet("GroundColorTexture", nil, {type = "render_texture"})
-Material:GetSet("GroundColorBlend", 0.0, {requires = "GroundColorTexture"})
-Material:GetSet("GroundColorUV", Color(1.0, 0.0, 0.0, 1.0), {requires = "GroundColorTexture"})
 Material:StartCategory("Surface")
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("NormalMapMultiplier", 1.0, {requires = "NormalTexture"})
@@ -37,7 +34,9 @@ for _, feature in ipairs(surface_features.list) do
 		Material:StartCategory(feature.category or feature.name)
 
 		for _, param in ipairs(feature.params) do
-			Material:GetSet(param.name, param.default, {requires = param.requires, callback = param.callback, type = param.type})
+			if param.category then Material:StartCategory(param.category) end
+
+			Material:GetSet(param.name, param.default, {requires = param.requires, callback = param.callback, type = param.type, enums = param.enums})
 		end
 	end
 end
@@ -58,15 +57,6 @@ Material:GetSet(
 	false,
 	{callback = "InvalidateFlags", requires = "EmissiveTexture"}
 )
-Material:StartCategory("Height")
-Material:GetSet("HeightTexture", nil, {type = "render_texture", callback = "InvalidateHeightMap"})
-Material:GetSet(
-	"HeightScale",
-	0.0,
-	{callback = "InvalidateHeightMap", requires = "HeightTexture"}
-)
-Material:GetSet("HeightMidlevel", 1.0, {requires = {"HeightTexture", "HeightScale"}})
-Material:GetSet("HeightLayers", 24, {requires = {"HeightTexture", "HeightScale"}})
 Material:StartCategory("Blending")
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
@@ -86,253 +76,6 @@ Material:StartCategory("Rendering")
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
 Material:GetSet("IgnoreZ", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("NoDraw", false, {callback = "InvalidateSceneKey"})
-Material:StartCategory("Refraction")
-Material:GetSet("Refraction", 0.0, {callback = "InvalidateTransparency"})
-Material:GetSet("IndexOfRefraction", 1.5, {requires = "Refraction"})
-Material:GetSet("AbbeNumber", 0, {requires = "Refraction"})
-Material:GetSet("RefractionThickness", -1.0, {requires = "Refraction"})
-Material:StartCategory("Detail")
-Material:GetSet(
-	"Albedo2Texture",
-	nil,
-	{
-		type = "render_texture",
-		callback = "InvalidateRayMaterial",
-		requires = "AlbedoTexture",
-	}
-)
-Material:GetSet("Normal2Texture", nil, {type = "render_texture", requires = "NormalTexture"})
-Material:GetSet(
-	"BlendTexture",
-	nil,
-	{
-		type = "render_texture",
-		callback = "InvalidateRayMaterial",
-		requires = "Albedo2Texture",
-	}
-)
-Material:GetSet("DetailTexture", nil, {type = "render_texture", requires = "AlbedoTexture"})
-Material:GetSet("DetailTiling", Vec2(1.0, 1.0), {requires = "DetailTexture"})
-Material:GetSet("DetailBumpScale", 1.0, {requires = "DetailTexture"})
-Material:GetSet("DetailBlendAmount", 0.0, {requires = "DetailTexture"})
-Material:GetSet(
-	"MultiplyAlbedo2",
-	false,
-	{callback = "InvalidateFlags", requires = "Albedo2Texture"}
-)
-Material:GetSet(
-	"BlendTintByBaseAlpha",
-	false,
-	{callback = "InvalidateFlags", requires = "AlbedoTexture"}
-)
-Material:StartCategory("Terrain Layers")
-Material:GetSet(
-	"TerrainMaterialTexture",
-	nil,
-	{type = "render_texture", callback = "InvalidateRayMaterial"}
-)
-Material:GetSet(
-	"TerrainBounds",
-	Vec3(0, 0, 0),
-	{callback = "InvalidateRayMaterial", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayer1Texture",
-	nil,
-	{
-		type = "render_texture",
-		callback = "InvalidateRayMaterial",
-		requires = "TerrainMaterialTexture",
-	}
-)
-Material:GetSet(
-	"TerrainLayer2Texture",
-	nil,
-	{
-		type = "render_texture",
-		callback = "InvalidateRayMaterial",
-		requires = "TerrainMaterialTexture",
-	}
-)
-Material:GetSet(
-	"TerrainLayer3Texture",
-	nil,
-	{
-		type = "render_texture",
-		callback = "InvalidateRayMaterial",
-		requires = "TerrainMaterialTexture",
-	}
-)
-Material:GetSet(
-	"TerrainLayer4Texture",
-	nil,
-	{
-		type = "render_texture",
-		callback = "InvalidateRayMaterial",
-		requires = "TerrainMaterialTexture",
-	}
-)
-Material:GetSet(
-	"TerrainLayer1NormalTexture",
-	nil,
-	{type = "render_texture", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayer2NormalTexture",
-	nil,
-	{type = "render_texture", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayer3NormalTexture",
-	nil,
-	{type = "render_texture", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayer4NormalTexture",
-	nil,
-	{type = "render_texture", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayer1HeightTexture",
-	nil,
-	{type = "render_texture", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayer2HeightTexture",
-	nil,
-	{type = "render_texture", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayer3HeightTexture",
-	nil,
-	{type = "render_texture", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayer4HeightTexture",
-	nil,
-	{type = "render_texture", requires = "TerrainMaterialTexture"}
-)
--- layers 5 to 8 and their weights, for chunks that have more than four layers
-Material:GetSet(
-	"TerrainMaterial2Texture",
-	nil,
-	{type = "render_texture", callback = "InvalidateRayMaterial", requires = "TerrainMaterialTexture"}
-)
-
-for layer = 5, 8 do
-	Material:GetSet(
-		"TerrainLayer" .. layer .. "Texture",
-		nil,
-		{
-			type = "render_texture",
-			callback = "InvalidateRayMaterial",
-			requires = "TerrainMaterial2Texture",
-		}
-	)
-	Material:GetSet(
-		"TerrainLayer" .. layer .. "NormalTexture",
-		nil,
-		{type = "render_texture", requires = "TerrainMaterial2Texture"}
-	)
-	Material:GetSet(
-		"TerrainLayer" .. layer .. "HeightTexture",
-		nil,
-		{type = "render_texture", requires = "TerrainMaterial2Texture"}
-	)
-end
-
-Material:StartCategory("Terrain Shading")
-Material:GetSet(
-	"TerrainLayerScales",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayerHeightScales",
-	Color(0.0, 0.0, 0.0, 0.0),
-	{requires = "TerrainMaterialTexture"}
-)
-Material:GetSet("TerrainLayerHeightDistance", 128, {requires = "TerrainMaterialTexture"})
-Material:GetSet(
-	"TerrainLayerRoughness",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayerAmbientOcclusion",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayerDetailStrength",
-	Color(0.0, 0.0, 0.0, 0.0),
-	{callback = "InvalidateRayMaterial", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayerAdditiveDetail",
-	Color(0.0, 0.0, 0.0, 0.0),
-	{callback = "InvalidateRayMaterial", requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayerSpecular",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterialTexture"}
-)
-Material:GetSet(
-	"TerrainLayerGrass",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = {"Grass", "TerrainMaterialTexture"}}
-)
--- the same for layers 5 to 8
-Material:GetSet(
-	"TerrainLayerScales2",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterial2Texture"}
-)
-Material:GetSet(
-	"TerrainLayerHeightScales2",
-	Color(0.0, 0.0, 0.0, 0.0),
-	{requires = "TerrainMaterial2Texture"}
-)
-Material:GetSet(
-	"TerrainLayerRoughness2",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterial2Texture"}
-)
-Material:GetSet(
-	"TerrainLayerAmbientOcclusion2",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterial2Texture"}
-)
-Material:GetSet(
-	"TerrainLayerDetailStrength2",
-	Color(0.0, 0.0, 0.0, 0.0),
-	{callback = "InvalidateRayMaterial", requires = "TerrainMaterial2Texture"}
-)
-Material:GetSet(
-	"TerrainLayerAdditiveDetail2",
-	Color(0.0, 0.0, 0.0, 0.0),
-	{callback = "InvalidateRayMaterial", requires = "TerrainMaterial2Texture"}
-)
-Material:GetSet(
-	"TerrainLayerSpecular2",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "TerrainMaterial2Texture"}
-)
-Material:StartCategory("Vegetation")
-Material:GetSet("Billboard", false, {callback = "InvalidateFlags"})
-Material:GetSet("Bending", 0.0)
-Material:GetSet("DetailBending", "none", {enums = {"none", "leaves", "grass"}})
-Material:GetSet("BendDetailFrequency", 5.0, {requires = "DetailBending"})
-Material:GetSet("BendDetailLeafAmplitude", 0.08, {requires = "DetailBending"})
-Material:GetSet("BendDetailBranchAmplitude", 0.2, {requires = "DetailBending"})
-Material:GetSet("BendDetailPhase", 100.0, {requires = "DetailBending"})
-Material:StartCategory("Grass")
-Material:GetSet("Grass", false, {callback = "InvalidateFlags"})
-Material:GetSet("GrassDensity", 700.0, {requires = "Grass"})
-Material:GetSet("GrassHeight", 0.28, {requires = "Grass"})
-Material:GetSet("GrassHeightVariance", 0, {requires = "Grass"})
-Material:GetSet("GrassWidth", 0.02, {requires = "Grass"})
 Material:StartCategory("Channel Packing")
 Material:GetSet(
 	"NormalTextureAlphaIsRoughness",
@@ -372,21 +115,6 @@ Material:GetSet("SpecularFromRoughnessMask", false, {callback = "InvalidateFlags
 Material:GetSet("RoughnessMaskOnlyScalesSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicFromRoughnessMask", false, {callback = "InvalidateFlags"})
-Material:StartCategory("Texture Transforms")
-Material:GetSet("BaseTextureTransformU", Vec4(1, 0, 0, 0), {callback = "InvalidateRayMaterial"})
-Material:GetSet("BaseTextureTransformV", Vec4(0, 1, 0, 0), {callback = "InvalidateRayMaterial"})
-Material:GetSet("BumpTransformU", Vec4(1, 0, 0, 0), {callback = "InvalidateRayMaterial"})
-Material:GetSet("BumpTransformV", Vec4(0, 1, 0, 0), {callback = "InvalidateRayMaterial"})
-Material:GetSet(
-	"Texture2TransformU",
-	Vec4(1, 0, 0, 0),
-	{callback = "InvalidateRayMaterial", requires = "Albedo2Texture"}
-)
-Material:GetSet(
-	"Texture2TransformV",
-	Vec4(0, 1, 0, 0),
-	{callback = "InvalidateRayMaterial", requires = "Albedo2Texture"}
-)
 Material:StartCategory("Source")
 Material:GetSet("OriginalMaterial", "", {multiline = true})
 Material:EndCategory()
