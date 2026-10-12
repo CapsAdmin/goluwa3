@@ -1088,6 +1088,7 @@ function grass.BuildDrawPass(gbuffer_pass)
 			uniform_buffers = {grass_block},
 			shader = surface_weather.GetGLSL("grass_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
 				void main() {
+					gbuffer_set_defaults();
 					float t = in_blade.x;
 					vec3 N = normalize(in_normal);
 					vec3 V = grass_data.camera_position - in_position;
@@ -1106,34 +1107,26 @@ function grass.BuildDrawPass(gbuffer_pass)
 					// darker towards the root up close. further away a root is a
 					// pixel peeking between tips and reads as a black speck
 					float far = smoothstep(4.0, 20.0, dist);
-					vec3 albedo = in_color * mix(mix(0.75, 1.1, t), 1.0, far);
+					Surface surface;
+					surface.world_pos = in_position;
+					surface.geometric_N = in_ground_normal;
+					default_surface_features(surface);
+					surface.albedo = in_color * mix(mix(0.75, 1.1, t), 1.0, far);
+					surface.N = N;
 					// ggx alpha
-					float roughness = 0.7;
-					float metallic = 0.0;
-					// blades are waxy, water beads on them rather than soaking in
-					float clearcoat = 0.0;
-					float clearcoat_roughness = 1.0;
-					float rain;
-					float snow = apply_surface_weather(albedo, roughness, metallic, N, 0.2, in_position, in_ground_normal, clearcoat, clearcoat_roughness, rain);
-					set_alpha(1.0);
-					set_albedo(albedo);
-					set_normal(gbuffer_encode_normal(N));
-					set_metallic(metallic);
-					set_roughness(gbuffer_encode_roughness(roughness));
-					set_ao(mix(mix(0.5, 1.0, smoothstep(0.0, 0.7, t)), 0.85, far));
+					surface.roughness_alpha = 0.7;
+					surface.ao = mix(mix(0.5, 1.0, smoothstep(0.0, 0.7, t)), 0.85, far);
+					// translucent, a yellow green tint with luminance 1
+					surface.transmission = 0.4;
+					surface.transmission_scattering = 0.5;
+					surface.transmission_color = vec3(0.9, 1.07, 0.6);
 					// F0 0.02, a bit under the 0.04 default, for the waxy blades
-					set_specular(gbuffer_encode_specular(0.5));
-					set_clearcoat(clearcoat);
-					set_clearcoat_roughness(gbuffer_encode_roughness(clearcoat_roughness));
-					set_clearcoat_rain(rain);
-					set_clearcoat_normal(gbuffer_encode_normal(in_ground_normal));
-					set_transmission(0.4 * (1.0 - snow));
-					set_transmission_scattering(0.5);
-					set_emissive(vec3(0.0));
-					// a yellow green transmission tint with luminance 1
-					vec2 transmission_tint = gbuffer_encode_transmission_tint(vec3(0.9, 1.07, 0.6));
-					set_transmission_tint_r(transmission_tint.x);
-					set_transmission_tint_b(transmission_tint.y);
+					surface.specular = 0.5;
+					SurfaceWeather weather;
+					// blades are waxy, water beads on them rather than soaking in
+					apply_surface_weather(surface, 0.2, weather);
+					weather_surface_features(surface, weather);
+					write_surface_features(surface);
 
 					vec4 clip = grass_data.projection * grass_data.view * vec4(in_position, 1.0);
 					vec4 prev_view_pos = grass_data.prev_view * vec4(in_prev_position, 1.0);

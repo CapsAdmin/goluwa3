@@ -12,7 +12,7 @@ local decode_pass = {
 	name = "gbuffer_decode_test",
 	ComputePass = true,
 	ColorFormat = {{"r32g32b32a32_sfloat", {"decoded", "rgba"}}},
-	FramebufferSize = {x = 5, y = 1},
+	FramebufferSize = {x = 7, y = 1},
 	framebuffer_count = 1,
 	LocalSize = {x = 8, y = 1, z = 1},
 	storage_images = {{binding_index = 0, dst_stage = "compute"}},
@@ -37,12 +37,14 @@ local decode_pass = {
 			vec4 value = vec4(0.0);
 
 			if (x == 0) value = vec4(gbuffer_albedo(uv), gbuffer_alpha(uv));
-			if (x == 1) value = vec4(gbuffer_normal(uv), gbuffer_dielectric_f0(uv));
+			if (x == 1) value = vec4(gbuffer_normal(uv), gbuffer_specular(uv) * 0.04);
 			if (x == 2) value = vec4(gbuffer_metallic(uv), gbuffer_roughness(uv), gbuffer_ao(uv), gbuffer_transmission(uv));
 			if (x == 3) value = vec4(gbuffer_transmission_color(uv), gbuffer_transmission_scattering(uv));
-			if (x == 4) value = vec4(gbuffer_normal(pixel), gbuffer_dielectric_f0(pixel));
+			if (x == 4) value = vec4(gbuffer_normal(pixel), gbuffer_specular(pixel) * 0.04);
+			if (x == 5) value = vec4(gbuffer_clearcoat(uv), gbuffer_clearcoat_roughness(uv), gbuffer_clearcoat_rain(uv), 0.0);
+			if (x == 6) value = vec4(gbuffer_clearcoat_normal(uv), 0.0);
 
-			if (x < 5) imageStore(out_decoded, ivec2(x, 0), value);
+			if (x < 7) imageStore(out_decoded, ivec2(x, 0), value);
 		}
 	]],
 }
@@ -91,7 +93,7 @@ local function decode(draw, material)
 
 	local texels = {}
 
-	for x = 0, 4 do
+	for x = 0, 6 do
 		texels[x] = {downloaded:GetPixelFloat(x, 0)}
 	end
 
@@ -108,6 +110,8 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 			DiffuseTransmission = 0.5,
 			TransmissionColor = Color(1, 0.6, 0.2, 1),
 			TransmissionScattering = 0.3,
+			Clearcoat = 0.7,
+			ClearcoatRoughness = 0.3,
 		}
 	)
 	local albedo, normal, mra, transmission, by_pixel = texels[0], texels[1], texels[2], texels[3], texels[4]
@@ -126,7 +130,30 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 	T(transmission[3])["~"](0.2 / lum, 0.02)
 	T(transmission[4])["~"](0.3, 0.01)
 
+	local coat, coat_normal = texels[5], texels[6]
+	T(coat[1])["~"](0.7, 0.01)
+	T(coat[2])["~"](0.09, 0.005)
+	T(coat[3])["~"](0, 0.01)
+	T(coat_normal[1])["~"](0, 0.01)
+	T(coat_normal[2])["~"](0, 0.01)
+	T(coat_normal[3])["~"](1, 0.01)
+
 	for i = 1, 4 do
 		T(by_pixel[i])["~"](normal[i], 1e-4)
+	end
+end)
+
+T.Test("Graphics render3d gbuffer packs every field into its own slot", function()
+	local slots = {}
+	T(#gbuffer_layout.targets)["<="](8)
+
+	for _, field in ipairs(gbuffer_layout.fields) do
+		T(field.target ~= nil)["=="](true)
+
+		for i = 1, #field.swizzle do
+			local slot = field.target.texture .. "." .. field.swizzle:sub(i, i)
+			T(slots[slot])["=="](nil)
+			slots[slot] = field.name
+		end
 	end
 end)

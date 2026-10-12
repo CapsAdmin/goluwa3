@@ -2,6 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local system = import("goluwa/system.lua")
 local assets = import("goluwa/assets.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = {}
 surface_weather.wetness = 0
 surface_weather.snow_depth = 0
@@ -293,7 +294,7 @@ do
 end
 
 function surface_weather.GetGLSL(block_name)
-	return [[
+	return surface_features.GetSurfaceGLSL() .. [[
 		// an occluder has to be this far up the precipitation from a surface to shelter it, so a surface
 		// doesn't shelter itself and pebbles don't leave dry spots
 		const float SHELTER_MIN_HEIGHT = 0.3;
@@ -421,44 +422,46 @@ function surface_weather.GetGLSL(block_name)
 			return clamp((sqrt(alpha_roughness) - 0.5) / 0.4, 0.0, 1.0) * (1.0 - metallic);
 		}
 
-		float apply_surface_weather(inout vec3 albedo, inout float alpha_roughness, inout float metallic, inout vec3 normal, float porosity, vec3 world_pos, vec3 geometric_normal, inout float clearcoat, inout float clearcoat_alpha, out float rain) {
+		// rain and snow change the base color, roughness, metallic and normal of the surface, and leave what the
+		// features react to in w, see surface_features.lua. returns how much snow covers it
+		float apply_surface_weather(inout Surface s, float porosity, out SurfaceWeather w) {
 			float wetness = ]] .. block_name .. [[.surface_wetness;
 			float snow_depth = ]] .. block_name .. [[.surface_snow_depth;
-			rain = 0.0;
+			w.snow = 0.0;
+			w.film = 0.0;
+			w.film_alpha = 1.0;
+			w.rain = 0.0;
 
 			if (wetness <= 0.0 && snow_depth <= 0.0) return 0.0;
 
-			float exposure = get_precipitation_exposure(world_pos, geometric_normal);
+			float exposure = get_precipitation_exposure(s.world_pos, s.geometric_N);
 
 			// water in the pores scatters less light back out, so a porous surface darkens (Lagarde 2013,
 			// "Water drop 3b - Physically based wet surfaces"), and a film of it lies on top, a smooth
 			// reflection over the rough surface under it
 			if (wetness > 0.0) {
 				float wet = wetness * exposure;
-				albedo *= mix(1.0, mix(1.0, 0.2, porosity), wet);
+				s.albedo *= mix(1.0, mix(1.0, 0.2, porosity), wet);
 				// the water pools into a film on flat ground. down a slope it runs off, thinner the steeper it
 				// is, too thin to fill in the surface's roughness: a patchy, blurred sheen
-				float pooling = smoothstep(RAIN_RUNOFF_SLOPE, RAIN_POOL_SLOPE, geometric_normal.y);
+				float pooling = smoothstep(RAIN_RUNOFF_SLOPE, RAIN_POOL_SLOPE, s.geometric_N.y);
 				float film = wet * ]] .. block_name .. [[.rain_clearcoat * mix(RAIN_RUNOFF_FILM, 1.0, pooling);
 
-				if (film > clearcoat) {
-					float film_roughness = mix(RAIN_RUNOFF_ROUGHNESS, ]] .. block_name .. [[.rain_clearcoat_roughness, pooling);
-					clearcoat_alpha = mix(clearcoat_alpha, film_roughness * film_roughness, (film - clearcoat) / film);
-					clearcoat = film;
-				}
-
-				rain = exposure;
+				float film_roughness = mix(RAIN_RUNOFF_ROUGHNESS, ]] .. block_name .. [[.rain_clearcoat_roughness, pooling);
+				w.film = film;
+				w.film_alpha = film_roughness * film_roughness;
+				w.rain = exposure;
 			}
 
 			if (snow_depth <= 0.0) return 0.0;
 
 			// thin snow lies in drifts and patches, the noise decides where the ground shows through first
-			float patches = snow_patches(world_pos.xz);
+			float patches = snow_patches(s.world_pos.xz);
 			// snow slides off slopes steeper than about 60 degrees and lies evenly below about 30, however
 			// deep it is, with a ragged edge between
-			float hold = smoothstep(0.5, 0.87, geometric_normal.y + (patches - 0.5) * 0.3);
+			float hold = smoothstep(0.5, 0.87, s.geometric_N.y + (patches - 0.5) * 0.3);
 			// and it settles on the upward facing bumps of a surface first
-			float amount = snow_depth / SNOW_FULL_COVER_DEPTH * exposure - (1.0 - clamp(normal.y, 0.0, 1.0)) * 0.3;
+			float amount = snow_depth / SNOW_FULL_COVER_DEPTH * exposure - (1.0 - clamp(s.N.y, 0.0, 1.0)) * 0.3;
 			float cover = smoothstep(patches * 0.7, patches * 0.7 + 0.3, amount) * hold;
 
 			if (cover <= 0.0) return 0.0;
@@ -469,27 +472,27 @@ function surface_weather.GetGLSL(block_name)
 			vec3 snow_albedo = vec3(0.9);
 			float snow_roughness = 0.75;
 			// the snow fills in the surface's detail
-			vec3 snow_normal = geometric_normal;
+			vec3 snow_normal = s.geometric_N;
 
 			if (]] .. block_name .. [[.snow_albedo_tex >= 0) {
 				// projected from above, u along +x and v along -z so the tangent frame is right handed
-				vec2 uv = vec2(world_pos.x, -world_pos.z) * ]] .. block_name .. [[.snow_texture_scale;
+				vec2 uv = vec2(s.world_pos.x, -s.world_pos.z) * ]] .. block_name .. [[.snow_texture_scale;
 				snow_albedo = texture(TEXTURE(]] .. block_name .. [[.snow_albedo_tex), uv).rgb;
 				snow_roughness = texture(TEXTURE(]] .. block_name .. [[.snow_roughness_tex), uv).r;
 				vec3 t = texture(TEXTURE(]] .. block_name .. [[.snow_normal_tex), uv).rgb * 2.0 - 1.0;
 				// the grains' normal against straight up, tilted along with the surface under the snow
-				snow_normal = normalize(vec3(t.x, t.z, -t.y) + geometric_normal - vec3(0.0, 1.0, 0.0));
+				snow_normal = normalize(vec3(t.x, t.z, -t.y) + s.geometric_N - vec3(0.0, 1.0, 0.0));
 			}
 
 			snow_albedo *= mix(1.0, 0.6 / 0.9, snow_wetness);
 			snow_roughness *= mix(1.0, 0.55 / 0.75, snow_wetness);
-			albedo = mix(albedo, snow_albedo, cover);
-			alpha_roughness = mix(alpha_roughness, snow_roughness * snow_roughness, cover);
-			metallic *= 1.0 - cover;
-			normal = normalize(mix(normal, snow_normal, cover));
+			s.albedo = mix(s.albedo, snow_albedo, cover);
+			s.roughness_alpha = mix(s.roughness_alpha, snow_roughness * snow_roughness, cover);
+			s.metallic *= 1.0 - cover;
+			s.N = normalize(mix(s.N, snow_normal, cover));
 			// the snow covers the water
-			clearcoat *= 1.0 - cover;
-			rain *= 1.0 - cover;
+			w.rain *= 1.0 - cover;
+			w.snow = cover;
 			return cover;
 		}
 	]]

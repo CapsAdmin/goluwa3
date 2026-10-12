@@ -3,6 +3,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local Material = import("goluwa/render3d/material.lua")
+local surface_features = import("goluwa/render3d/surface_features.lua")
 local system = import("goluwa/system.lua")
 local model_pipeline = {}
 local FLOAT_SIZE = ffi.sizeof("float")
@@ -34,9 +35,25 @@ local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "SpecularMultiplier", getter = "GetSpecularMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
-	{type = "float", name = "Clearcoat", getter = "GetClearcoat"},
-	{type = "float", name = "ClearcoatRoughness", getter = "GetClearcoatRoughness"},
 }
+
+-- a feature's params are in the factor block, or in a block of its own when it says so
+local FEATURE_BLOCK_FIELDS = {}
+
+for _, feature in ipairs(surface_features.list) do
+	for _, param in ipairs(feature.params or {}) do
+		local field = {type = param.kind or "float", name = param.name, getter = "Get" .. param.name}
+
+		if feature.block == "own" then
+			FEATURE_BLOCK_FIELDS[feature] = FEATURE_BLOCK_FIELDS[feature] or {}
+			table.insert(FEATURE_BLOCK_FIELDS[feature], field)
+		else
+			assert(field.type == "float", "only a feature with a block of its own can have a " .. field.type .. " param")
+			table.insert(PBR_FACTOR_FIELDS, field)
+		end
+	end
+end
+
 local PBR_DETAIL_FIELDS = {
 	{type = "texture", name = "Albedo2Texture", getter = "GetAlbedo2Texture"},
 	{type = "texture", name = "Normal2Texture", getter = "GetNormal2Texture"},
@@ -84,11 +101,6 @@ local PBR_AUX_FIELDS = {
 	{type = "texture", name = "MetallicTexture", getter = "GetMetallicTexture"},
 	{type = "texture", name = "RoughnessTexture", getter = "GetRoughnessTexture"},
 	{type = "texture", name = "SpecularTexture", getter = "GetSpecularTexture"},
-	{
-		type = "texture",
-		name = "TransmissionTexture",
-		getter = "GetTransmissionTexture",
-	},
 }
 local PBR_DISPLACEMENT_FIELDS = {
 	{type = "texture", name = "HeightTexture", getter = "GetHeightTexture"},
@@ -246,23 +258,6 @@ for _, name in ipairs{
 	)
 end
 
-local PBR_TRANSMISSION_FIELDS = {
-	{
-		type = "vec4",
-		name = "TransmissionColor",
-		getter = "GetTransmissionColor",
-	},
-	{
-		type = "float",
-		name = "DiffuseTransmission",
-		getter = "GetDiffuseTransmission",
-	},
-	{
-		type = "float",
-		name = "TransmissionScattering",
-		getter = "GetTransmissionScattering",
-	},
-}
 local PROBE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
@@ -807,7 +802,6 @@ local PBR_DETAIL_BLOCK = build_material_block(PBR_DETAIL_FIELDS)
 local PBR_AUX_BLOCK = build_material_block(PBR_AUX_FIELDS)
 local PBR_DISPLACEMENT_BLOCK = build_material_block(PBR_DISPLACEMENT_FIELDS)
 local PBR_TERRAIN_BLOCK = build_material_block(PBR_TERRAIN_FIELDS)
-local PBR_TRANSMISSION_BLOCK = build_material_block(PBR_TRANSMISSION_FIELDS)
 local WRITE_SURFACE_MATERIAL_BLOCK = build_material_block_writer("surface", SURFACE_MATERIAL_FIELDS)
 local WRITE_PBR_MATERIAL_BLOCK = build_material_block_writer("pbr", PBR_MATERIAL_FIELDS)
 local WRITE_PBR_COLOR_BLOCK = build_material_block_writer("pbr_color", PBR_COLOR_FIELDS)
@@ -816,7 +810,6 @@ local WRITE_PBR_DETAIL_BLOCK = build_material_block_writer("pbr_detail", PBR_DET
 local WRITE_PBR_AUX_BLOCK = build_material_block_writer("pbr_aux", PBR_AUX_FIELDS)
 local WRITE_PBR_DISPLACEMENT_BLOCK = build_material_block_writer("pbr_displacement", PBR_DISPLACEMENT_FIELDS)
 local WRITE_PBR_TERRAIN_BLOCK = build_material_block_writer("pbr_terrain", PBR_TERRAIN_FIELDS)
-local WRITE_PBR_TRANSMISSION_BLOCK = build_material_block_writer("pbr_transmission", PBR_TRANSMISSION_FIELDS)
 local WRITE_PROBE_MATERIAL_BLOCK = build_material_block_writer("probe", PROBE_MATERIAL_FIELDS)
 local NO_PBR_COLOR_KEY = {}
 local NO_PBR_FACTOR_KEY = {}
@@ -824,7 +817,6 @@ local NO_PBR_DETAIL_KEY = {}
 local NO_PBR_AUX_KEY = {}
 local NO_PBR_DISPLACEMENT_KEY = {}
 local NO_PBR_TERRAIN_KEY = {}
-local NO_PBR_TRANSMISSION_KEY = {}
 
 function model_pipeline.GetSurfaceMaterialBlock()
 	return SURFACE_MATERIAL_BLOCK
@@ -862,10 +854,6 @@ function model_pipeline.GetPBRTerrainMaterialBlock()
 	return PBR_TERRAIN_BLOCK
 end
 
-function model_pipeline.GetPBRTransmissionMaterialBlock()
-	return PBR_TRANSMISSION_BLOCK
-end
-
 function model_pipeline.WriteSurfaceMaterialBlock(self, block)
 	return WRITE_SURFACE_MATERIAL_BLOCK(self, block)
 end
@@ -896,10 +884,6 @@ end
 
 function model_pipeline.WritePBRTerrainMaterialBlock(self, block)
 	return WRITE_PBR_TERRAIN_BLOCK(self, block)
-end
-
-function model_pipeline.WritePBRTransmissionMaterialBlock(self, block)
-	return WRITE_PBR_TRANSMISSION_BLOCK(self, block)
 end
 
 function model_pipeline.WriteProbeMaterialBlock(self, block)
@@ -940,8 +924,17 @@ function model_pipeline.GetPBRFactorUploadKey()
 		material:GetRoughnessMin() == 0.0 and
 		material:GetRoughnessMax() == 1.0 and
 		material:GetSpecularMultiplier() == 1.0 and
-		material:GetAlphaCutoff() == 0.5 and
-		material:GetClearcoat() == 0.0
+		material:GetAlphaCutoff() == 0.5
+
+	for _, feature in ipairs(surface_features.list) do
+		if feature.block == nil then
+			for _, param in ipairs(feature.params or {}) do
+				if material["Get" .. param.name](material) ~= param.default then
+					has_default_scalars = false
+				end
+			end
+		end
+	end
 
 	if has_default_scalars then return NO_PBR_FACTOR_KEY end
 
@@ -956,8 +949,7 @@ function model_pipeline.GetPBRAuxUploadKey()
 	local uses_metallic_detail = material:GetMetallicRoughnessTexture() ~= nil or
 		material:GetMetallicTexture() ~= nil or
 		material:GetRoughnessTexture() ~= nil or
-		material:GetSpecularTexture() ~= nil or
-		material:GetTransmissionTexture() ~= nil
+		material:GetSpecularTexture() ~= nil
 	local uses_ao = material:GetAmbientOcclusionTexture() ~= nil or
 		material:GetAmbientOcclusionMultiplier() ~= 1.0
 	local uses_emissive = material:GetEmissiveTexture() ~= nil or
@@ -971,6 +963,7 @@ function model_pipeline.GetPBRAuxUploadKey()
 
 	return render3d.GetMaterialUploadKey()
 end
+
 
 function model_pipeline.GetPBRDetailUploadKey()
 	local material = get_material()
@@ -999,16 +992,6 @@ function model_pipeline.GetPBRDisplacementUploadKey()
 	if not material:GetHeightTexture() or material:GetHeightScale() <= 0 then
 		return NO_PBR_DISPLACEMENT_KEY
 	end
-
-	return render3d.GetMaterialUploadKey()
-end
-
-function model_pipeline.GetPBRTransmissionUploadKey()
-	local material = get_material()
-
-	if not material then return NO_PBR_TRANSMISSION_KEY end
-
-	if not material:GetTransmissive() then return NO_PBR_TRANSMISSION_KEY end
 
 	return render3d.GetMaterialUploadKey()
 end
@@ -1356,8 +1339,37 @@ function model_pipeline.BuildSurfaceSamplingGlsl()
 	]]
 end
 
+-- the blocks of the features that have one of their own, only uploaded for a material the feature is on
+local FEATURE_BLOCKS = {}
+
+for _, feature in ipairs(surface_features.list) do
+	if feature.block == "own" then
+		local no_key = {}
+		local write = build_material_block_writer(feature.name, FEATURE_BLOCK_FIELDS[feature])
+		table.insert(
+			FEATURE_BLOCKS,
+			{
+				name = feature.name .. "_model",
+				upload_scope = "frame_keyed",
+				upload_key = function()
+					local material = get_material()
+
+					if not material or not feature.active(material) then return no_key end
+
+					return render3d.GetMaterialUploadKey()
+				end,
+				block = build_material_block(FEATURE_BLOCK_FIELDS[feature]),
+				-- the uniform upload passes more than the block
+				write = function(self, block)
+					return write(self, block)
+				end,
+			}
+		)
+	end
+end
+
 function model_pipeline.GetPBRUniformBuffers()
-	return {
+	local buffers = {
 		{
 			name = "model",
 			upload_scope = "persistent_keyed",
@@ -1407,14 +1419,13 @@ function model_pipeline.GetPBRUniformBuffers()
 			block = model_pipeline.GetPBRTerrainMaterialBlock(),
 			write = model_pipeline.WritePBRTerrainMaterialBlock,
 		},
-		{
-			name = "transmission_model",
-			upload_scope = "frame_keyed",
-			upload_key = model_pipeline.GetPBRTransmissionUploadKey,
-			block = model_pipeline.GetPBRTransmissionMaterialBlock(),
-			write = model_pipeline.WritePBRTransmissionMaterialBlock,
-		},
 	}
+
+	for _, buffer in ipairs(FEATURE_BLOCKS) do
+		table.insert(buffers, buffer)
+	end
+
+	return buffers
 end
 
 function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
@@ -2037,30 +2048,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return sqrt(clamp(alpha * alpha + min(kernel, 0.18), 0.0, 1.0));
 			}
 
-			float get_transmission(vec2 uv) {
-				if (!Transmissive) return 0.0;
-
-				float amount = transmission_model.DiffuseTransmission;
-
-				if (aux_model.TransmissionTexture != -1) {
-					amount *= dot(texture(TEXTURE(aux_model.TransmissionTexture), uv).rgb, vec3(0.2126, 0.7152, 0.0722));
-				}
-
-				return clamp(amount, 0.0, 1.0);
-			}
-
-			float get_transmission_scattering() {
-				if (!Transmissive) return 0.0;
-				return clamp(transmission_model.TransmissionScattering, 0.0, 1.0);
-			}
-
-			// only the hue, the brightness comes from DiffuseTransmission
-			vec3 get_transmission_color() {
-				if (!Transmissive) return vec3(1.0);
-				vec3 tint = transmission_model.TransmissionColor.rgb;
-				return tint / max(dot(tint, vec3(0.2126, 0.7152, 0.0722)), 0.001);
-			}
-
 			]] .. render3d.GetEmissiveGLSL() .. [[
 
 			vec3 get_emissive(vec2 uv) {
@@ -2088,14 +2075,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return min(emissive * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
 			}
 
-			float get_clearcoat() {
-				return factor_model.Clearcoat;
-			}
-
-			// ggx alpha
-			float get_clearcoat_roughness() {
-				return factor_model.ClearcoatRoughness * factor_model.ClearcoatRoughness;
-			}
+			]] .. surface_features.GetGetterGLSL() .. [[
 
 			// the SpecularMultiplier; 1 is dielectric F0 0.04
 			float get_specular(vec2 uv) {
@@ -2139,6 +2119,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				return texture(TEXTURE(aux_model.AmbientOcclusionTexture), uv).r * aux_model.AmbientOcclusionMultiplier;
 			}
+
+			]] .. surface_features.GetSurfaceGLSL() .. surface_features.GetInitFunctionGLSL() .. [[
 	]]
 end
 

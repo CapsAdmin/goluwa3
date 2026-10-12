@@ -4,6 +4,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
+local surface_features = import("goluwa/render3d/surface_features.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -473,18 +474,8 @@ return {
 					vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
 					vec3 geometric_N = get_geometric_normal(gbuffer_pos, world_pos, depth, V, N);
 
-					// a clearcoat is smoother than the surface under it, the sharp reflection is its. traced off the
-					// flat film: the rain's waves on it are too fine and too quick for the ssr's resolution and
-					// history, the lighting pass bends what this finds by them. far away they roughen the film
-					if (gbuffer_clearcoat(gbuffer_pos) > 0.5) {
-						float coat_alpha = gbuffer_clearcoat_roughness(gbuffer_pos);
-						vec3 coat_N = gbuffer_clearcoat_normal(gbuffer_pos);
-						vec3 rain_N = coat_N;
-						float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * ssr_data.inv_projection[1][1] / float(gbuffer_size.y);
-						apply_rain_surface(world_pos, footprint, gbuffer_clearcoat_rain(gbuffer_pos), rain_N, coat_alpha);
-						N = coat_N;
-						roughness = sqrt(coat_alpha);
-					}
+					float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * ssr_data.inv_projection[1][1] / float(gbuffer_size.y);
+					]] .. surface_features.GetReflectionGLSL() .. [[
 
 					current = cast_ssr_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(pos));
 				}

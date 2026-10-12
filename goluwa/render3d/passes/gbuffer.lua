@@ -312,6 +312,7 @@ local function build_ssdm_fragment_shader(write_depth)
 		}
 
 		void main() {
+			gbuffer_set_defaults();
 			discard_lod_fade();
 			mat3 tbn = get_tbn();
 			SSDMData displacement = get_ssdm_data(tbn);
@@ -332,43 +333,27 @@ local function build_ssdm_fragment_shader(write_depth)
 
 			compute_translucency_and_discard(alpha);
 
-			vec3 albedo = get_albedo_world(displacement.uv, displacement.world_pos);
-			vec3 normal = get_normal(displacement.uv, tbn);
-			float metallic = get_metallic(displacement.uv);
-			apply_gloss_metallic(displacement.uv, albedo, metallic);
-			float roughness = get_roughness(displacement.uv);
-			float transmission = get_transmission(displacement.uv);
+			Surface surface;
+			surface.world_pos = displacement.world_pos;
+			surface.geometric_N = tbn[2];
+			init_surface_features(surface, displacement.uv);
+			surface.alpha = alpha;
+			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos);
+			surface.N = get_normal(displacement.uv, tbn);
+			apply_gloss_metallic(displacement.uv, surface.albedo, surface.metallic);
+			SurfaceWeather weather;
 			// thin translucent leaves are waxy rather than porous
-			float clearcoat = get_clearcoat();
-			float clearcoat_roughness = get_clearcoat_roughness();
-			float rain;
-			float snow = apply_surface_weather(albedo, roughness, metallic, normal, get_porosity(roughness, metallic) * (1.0 - transmission), displacement.world_pos, tbn[2], clearcoat, clearcoat_roughness, rain);
-			transmission *= 1.0 - snow;
-			roughness = get_antialiased_roughness(normal, roughness);
-			set_alpha(alpha);
-			set_albedo(albedo);
+			apply_surface_weather(surface, get_porosity(surface.roughness_alpha, surface.metallic) * (1.0 - surface.transmission), weather);
+			weather_surface_features(surface, weather);
+			surface.roughness_alpha = get_antialiased_roughness(surface.N, surface.roughness_alpha);
+
 			if (gbuffer_data.normal_debug == 1) {
-				normal = tbn[2];
+				surface.N = tbn[2];
 			} else if (gbuffer_data.normal_debug == 2) {
-				normal = get_normal_map(displacement.uv);
+				surface.N = get_normal_map(displacement.uv);
 			}
 
-			set_normal(gbuffer_encode_normal(normal));
-			set_transmission_scattering(get_transmission_scattering());
-			vec2 transmission_tint = gbuffer_encode_transmission_tint(get_transmission_color());
-			set_transmission_tint_r(transmission_tint.x);
-			set_transmission_tint_b(transmission_tint.y);
-			set_metallic(metallic);
-			set_roughness(gbuffer_encode_roughness(roughness));
-			set_ao(mix(get_ao(displacement.uv), 1.0, snow));
-			// ice has an F0 of 0.018
-			set_specular(gbuffer_encode_specular(mix(get_specular(displacement.uv), 0.45, snow)));
-			set_transmission(transmission);
-			set_clearcoat(clearcoat);
-			set_clearcoat_roughness(gbuffer_encode_roughness(clearcoat_roughness));
-			set_clearcoat_rain(rain);
-			set_clearcoat_normal(gbuffer_encode_normal(tbn[2]));
-			set_emissive(gbuffer_encode_emissive(get_emissive(displacement.uv) * (1.0 - snow)));
+			write_surface_features(surface);
 			// the undisplaced position on both sides. parallax shifts the surface
 			// by the same amount in both frames when the view barely changed, so
 			// including it would mostly add noise to the offset

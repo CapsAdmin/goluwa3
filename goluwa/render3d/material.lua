@@ -9,6 +9,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
+local surface_features = import("goluwa/render3d/surface_features.lua")
 local Material = objects.CreateTemplate("render3d_material")
 Material:StartStorable()
 Material:StartCategory("Albedo")
@@ -31,8 +32,16 @@ Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
 Material:GetSet("SpecularMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionTexture", nil, {type = "render_texture"})
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
-Material:GetSet("Clearcoat", 0.0)
-Material:GetSet("ClearcoatRoughness", 0.05, {requires = "Clearcoat"})
+for _, feature in ipairs(surface_features.list) do
+	if feature.params then
+		Material:StartCategory(feature.category or feature.name)
+
+		for _, param in ipairs(feature.params) do
+			Material:GetSet(param.name, param.default, {requires = param.requires, callback = param.callback, type = param.type})
+		end
+	end
+end
+
 Material:StartCategory("Emission")
 Material:GetSet(
 	"EmissiveTexture",
@@ -82,19 +91,6 @@ Material:GetSet("Refraction", 0.0, {callback = "InvalidateTransparency"})
 Material:GetSet("IndexOfRefraction", 1.5, {requires = "Refraction"})
 Material:GetSet("AbbeNumber", 0, {requires = "Refraction"})
 Material:GetSet("RefractionThickness", -1.0, {requires = "Refraction"})
-Material:StartCategory("Transmission")
-Material:GetSet(
-	"TransmissionTexture",
-	nil,
-	{type = "render_texture", requires = "DiffuseTransmission"}
-)
-Material:GetSet("DiffuseTransmission", 0.0, {callback = "InvalidateFlags"})
-Material:GetSet(
-	"TransmissionColor",
-	Color(1.0, 1.0, 1.0, 1.0),
-	{requires = "DiffuseTransmission"}
-)
-Material:GetSet("TransmissionScattering", 0.5, {requires = "DiffuseTransmission"})
 Material:StartCategory("Detail")
 Material:GetSet(
 	"Albedo2Texture",

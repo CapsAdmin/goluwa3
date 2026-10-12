@@ -9,6 +9,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
+local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -303,48 +304,30 @@ return {
 				return max(sky_color_output, vec3(0.0));
 			}
 
-			vec3 get_indirect_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float metallic, float transmission, vec3 transmission_color, vec3 world_pos, vec3 V, vec3 N, float clearcoat, float clearcoat_alpha, vec3 coat_smooth_N, vec3 coat_N)
+			]] .. surface_features.GetDecodeFunctionGLSL() .. [[
+
+			vec3 get_indirect_light(in Surface s)
 			{
-				float perceptual_roughness = sqrt(clamp(roughness_alpha, 0.0, 1.0));
 				float sky_visibility;
-				vec3 irradiance = get_gi_irradiance(N, sky_visibility);
-				vec3 reflection = get_reflection(N, perceptual_roughness, V, world_pos, sky_visibility, irradiance, in_uv);
+				vec3 irradiance = get_gi_irradiance(s.N, sky_visibility);
+				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, irradiance, in_uv);
 				vec4 screen_gi = get_ambient_occlusion(in_uv);
-				float ambient_occlusion = screen_gi.a * gbuffer_ao(in_uv);
+				float ambient_occlusion = screen_gi.a * s.ao;
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
-				vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
-				vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
-				vec3 ambient_diffuse = kD_ambient * (irradiance * ambient_occlusion + bounce) * albedo * (1.0 - transmission);
+				vec3 F_ambient = F_SchlickRoughness(s.F0, s.NdotV, s.perceptual_roughness);
+				vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - s.metallic);
+				vec3 ambient_diffuse = kD_ambient * (irradiance * ambient_occlusion + bounce) * s.albedo;
 
-				if (transmission > 0.0) {
-					// the gi only holds the light arriving at the front. the sky's part of it
-					// is taken again from behind, and what bounced is assumed the same on
-					// both sides
-					vec3 front_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, N) * sky_visibility;
-					vec3 back_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, -N) * sky_visibility;
-					vec3 back_irradiance = back_sky + max(irradiance - front_sky, vec3(0.0));
-					ambient_diffuse += transmission * transmission_color * albedo * (1.0 - metallic) * back_irradiance * ambient_occlusion;
-				}
+				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
 
-				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NdotV, perceptual_roughness)).rg;
+				vec3 ambient_specular = reflection * (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y);
+				ambient_specular *= GGXEnergyCompensation(s.F0, envBRDF);
+				ambient_specular *= SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness);
 
-				vec3 ambient_specular = reflection * (F0 * envBRDF.x + F90(F0) * envBRDF.y);
-				ambient_specular *= GGXEnergyCompensation(F0, envBRDF);
-				ambient_specular *= SpecularOcclusion(NdotV, ambient_occlusion, perceptual_roughness);
+				]] .. surface_features.GetIndirectGLSL() .. [[
 
-				if (clearcoat > 0.0) {
-					// the coat reflects its share, the rest goes through to the surface and back out
-					float coat_NdotV = max(dot(coat_N, V), 0.001);
-					float coat_roughness = sqrt(clamp(clearcoat_alpha, 0.0, 1.0));
-					float Fc = F_SchlickScalar(CLEARCOAT_F0, coat_NdotV) * clearcoat;
-					// the ssr traced the flat film, the rain's waves bend what it found as they would bend the ray. by
-					// their tilt on screen, less so further away where the rings are smaller
-					vec3 tilt = mat3(lighting_data.view) * (coat_N - coat_smooth_N);
-					vec2 ssr_uv = in_uv + vec2(tilt.x, -tilt.y) * (0.1 / max(length(lighting_data.camera_position.xyz - world_pos), 1.0));
-					vec3 coat_reflection = get_reflection(coat_N, coat_roughness, V, world_pos, sky_visibility, irradiance, ssr_uv);
-					return (ambient_diffuse + ambient_specular) * (1.0 - Fc) + coat_reflection * Fc * SpecularOcclusion(coat_NdotV, ambient_occlusion, coat_roughness);
-				}
+				]] .. surface_features.GetIndirectLayerGLSL() .. [[
 
 				return ambient_diffuse + ambient_specular;
 			}
@@ -391,35 +374,21 @@ return {
 				vec3 N = bend_normal_to_view(gbuffer_normal(in_uv), V);
 
 
-				vec3 albedo = gbuffer_albedo(in_uv);
-				float metallic = gbuffer_metallic(in_uv);
-				float roughness = gbuffer_roughness(in_uv);
-				float perceptual_roughness = sqrt(clamp(roughness, 0.0, 1.0));
-				float transmission = gbuffer_transmission(in_uv);
-				vec3 transmission_color = gbuffer_transmission_color(in_uv);
-				float transmission_scattering = gbuffer_transmission_scattering(in_uv);
-				vec3 emissive = gbuffer_emissive(in_uv);
-				vec3 F0 = mix(vec3(gbuffer_dielectric_f0(in_uv)), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
 				vec3 geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N);
-				float clearcoat = gbuffer_clearcoat(in_uv);
-				float clearcoat_alpha = gbuffer_clearcoat_roughness(in_uv);
-				vec3 coat_smooth_N = geometric_N;
 
-				if (clearcoat > 0.0) coat_smooth_N = gbuffer_clearcoat_normal(in_uv);
-
-				vec3 coat_N = coat_smooth_N;
-
-				if (clearcoat > 0.0) {
-					// meters a pixel covers on the surface. at a glancing angle it stretches along the view only,
-					// across it the rings stay as sharp, so the mean of both
-					float footprint = length(world_pos - lighting_data.camera_position.xyz) * 2.0 * lighting_data.inv_projection[1][1] / float(size.y) / sqrt(max(dot(geometric_N, V), 0.01));
-					apply_rain_surface(world_pos, footprint, gbuffer_clearcoat_rain(in_uv), coat_N, clearcoat_alpha);
-				}
+				Surface surface;
+				surface.NdotV = NdotV;
+				surface.world_pos = world_pos;
+				surface.V = V;
+				surface.N = N;
+				surface.geometric_N = geometric_N;
+				decode_surface_features(surface, in_uv, size);
+				finish_surface_features(surface);
 
 				vec3 direct_specular;
 				screen_shadow_term = 1.0;
-				vec3 direct = get_direct_light(F0, NdotV, albedo, roughness, perceptual_roughness, metallic, transmission, transmission_color, transmission_scattering, world_pos, V, N, geometric_N, clearcoat, clearcoat_alpha, coat_N, direct_specular);
+				vec3 direct = get_direct_light(surface, direct_specular);
 				direct += direct_specular;
 
 				if (lighting_data.screen_shadows_debug != 0) {
@@ -432,8 +401,8 @@ return {
 					return;
 				}
 
-				vec3 indirect = get_indirect_light(F0, NdotV, albedo, roughness, metallic, transmission, transmission_color, world_pos, V, N, clearcoat, clearcoat_alpha, coat_smooth_N, coat_N);
-				vec3 color = direct + indirect + emissive;
+				vec3 indirect = get_indirect_light(surface);
+				vec3 color = direct + indirect + surface.emissive;
 
 				if (lighting_data.gi_debug != 0) {
 					float debug_sky_visibility;

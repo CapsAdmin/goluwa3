@@ -10,6 +10,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local glass_tint = import("goluwa/render3d/glass_tint.lua")
+local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_lighting = {}
 surface_lighting.block = {
 	render3d.camera_block,
@@ -106,29 +107,21 @@ function surface_lighting.GetGLSL(block_name)
 			return normalize(sunDir);
 		}
 
-		// how a thin surface spreads the light going through it, over the side facing away from the
-		// light. lambert, blended by scattering towards a henyey greenstein lobe around the light's
-		// direction with the same total over that side
-		float transmission_phase(vec3 V, vec3 L, float scattering)
-		{
-			const float g = 0.6;
-			float denominator = 1.0 + g * g + 2.0 * g * dot(V, L);
-			float henyey_greenstein = (1.0 - g * g) / (4.0 * BRDF_PI * denominator * sqrt(denominator));
-			return mix(1.0 / BRDF_PI, 2.0 * henyey_greenstein, scattering);
-		}
+		]] .. surface_features.GetCommonGLSL() .. [[
 
-		// returns the diffuse part, transmission included, and the specular part in
-		// specular. a translucent surface scales them differently. transmission is
-		// the part of the diffuse light that leaves through the side facing away
-		// from the light instead of the lit one. a clearcoat lies over the surface along
-		// coat_N, a film that fills in the surface's detail, and what it reflects doesn't
-		// reach the surface
-		vec3 get_direct_light(vec3 F0, float NdotV, vec3 albedo, float roughness_alpha, float perceptual_roughness, float metallic, float transmission, vec3 transmission_color, float transmission_scattering, vec3 world_pos, vec3 V, vec3 N, vec3 geometric_N, float clearcoat, float clearcoat_alpha, vec3 coat_N, out vec3 specular)
+		]] .. surface_features.GetSurfaceGLSL() .. [[
+
+		]] .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetFinishFunctionGLSL() .. [[
+
+		// returns the diffuse part and the specular part in specular, a translucent surface
+		// scales them differently. features layer over and add to the base lobe, see
+		// surface_features.lua
+		vec3 get_direct_light(in Surface s, out vec3 specular)
 		{
 			vec3 diffuse = vec3(0.0);
 			specular = vec3(0.0);
 
-			int light_cell = light_grid_cell(world_pos);
+			int light_cell = light_grid_cell(s.world_pos);
 
 			for (int w = 0; w < light_grid_words(]] .. block_name .. [[.light_count); w++) {
 			uint light_bits = light_grid_word(light_cell, w, ]] .. block_name .. [[.light_count);
@@ -140,7 +133,7 @@ function surface_lighting.GetGLSL(block_name)
 				int type = get_light_type(light);
 				vec3 L;
 				float attenuation = 1.0;
-				if (!get_light_vector_and_attenuation(light, world_pos, L, attenuation)) {
+				if (!get_light_vector_and_attenuation(light, s.world_pos, L, attenuation)) {
 					continue;
 				}
 
@@ -148,34 +141,27 @@ function surface_lighting.GetGLSL(block_name)
 
 				// a light that can't show on screen isn't shaded. a smooth surface shows a light brighter
 				// than it is as a highlight, so what the lobe's peak makes of it is counted
-				float lobe_alpha_min = clearcoat > 0.0 ? min(roughness_alpha, clearcoat_alpha) : roughness_alpha;
+				float lobe_alpha_min = s.roughness_alpha;
+				]] .. surface_features.GetDirectPeakGLSL() .. [[
 				float brightest = max(max(unshadowed_radiance.r, unshadowed_radiance.g), unshadowed_radiance.b) * max(1.0, 0.08 / max(lobe_alpha_min * lobe_alpha_min, 1e-4));
 
 				if (brightest * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
-				// light reaches a thin translucent surface from either side, so
-				// its shadow is looked up on the side facing the light, and bent
-				// towards the light so edge on doesn't read as facing away
-				vec3 shadow_N = geometric_N;
-
 				// the shadow maps' self shadowing fades out towards the terminator, by the
 				// smooth normal since the geometric one of a tessellated surface would step
-				float shadow_facing = get_shadow_facing(N, L);
-
-				if (transmission > 0.0) {
-					shadow_N = normalize((dot(geometric_N, L) < 0.0 ? -geometric_N : geometric_N) + L);
-					shadow_facing = 1.0;
-				}
-				vec3 H = normalize(V + L);
-				float NoL = saturate(dot(N, L));
-				float NoH = saturate(dot(N, H));
+				vec3 shadow_N = s.geometric_N;
+				float shadow_facing = get_shadow_facing(s.N, L);
+				]] .. surface_features.GetDirectShadowGLSL() .. [[
+				vec3 H = normalize(s.V + L);
+				float NoL = saturate(dot(s.N, L));
+				float NoH = saturate(dot(s.N, H));
 				float LoH = saturate(dot(L, H));
 
-				float lobe_alpha = roughness_alpha;
+				float lobe_alpha = s.roughness_alpha;
 				float lobe_energy = 1.0;
 
 				if (type == 0) {
-					lobe_alpha = saturate(roughness_alpha + SUN_ANGULAR_RADIUS * 0.5);
-					lobe_energy = roughness_alpha / lobe_alpha;
+					lobe_alpha = saturate(s.roughness_alpha + SUN_ANGULAR_RADIUS * 0.5);
+					lobe_energy = s.roughness_alpha / lobe_alpha;
 					lobe_energy *= lobe_energy;
 				}
 
@@ -183,19 +169,19 @@ function surface_lighting.GetGLSL(block_name)
 
 				if (type != 0 && light.falloff.w > 0.0) {
 					// a light with a glow radius is a sphere, its highlight is the lobe widened by the angle it covers
-					glow_widening = light.falloff.w * 0.5 / max(length(light.position.xyz - world_pos), 0.0001);
-					lobe_alpha = saturate(roughness_alpha + glow_widening);
-					lobe_energy = roughness_alpha / lobe_alpha;
+					glow_widening = light.falloff.w * 0.5 / max(length(light.position.xyz - s.world_pos), 0.0001);
+					lobe_alpha = saturate(s.roughness_alpha + glow_widening);
+					lobe_energy = s.roughness_alpha / lobe_alpha;
 					lobe_energy *= lobe_energy;
 				}
 
 				float D = D_GGXAlpha(lobe_alpha, NoH) * lobe_energy;
-				float V_func = V_SmithGGXCorrelated(roughness_alpha, NdotV, NoL);
-				vec3 F = F_Schlick(F0, LoH);
+				float V_func = V_SmithGGXCorrelated(s.roughness_alpha, s.NdotV, NoL);
+				vec3 F = F_Schlick(s.F0, LoH);
 
 				vec3 Fr = (D * V_func) * F;
-				vec3 kD = (1.0 - F) * (1.0 - metallic);
-				vec3 Fd = kD * albedo * Fd_Burley(NoL, NdotV, LoH, perceptual_roughness);
+				vec3 kD = (1.0 - F) * (1.0 - s.metallic);
+				vec3 Fd = kD * s.albedo * Fd_Burley(NoL, s.NdotV, LoH, s.perceptual_roughness);
 
 				float shadow_factor = 1.0;
 				if (
@@ -203,7 +189,7 @@ function surface_lighting.GetGLSL(block_name)
 					]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0 &&
 					type == 0
 				) {
-					shadow_factor = calculateShadow(world_pos, shadow_N, L) * shadow_facing;
+					shadow_factor = calculateShadow(s.world_pos, shadow_N, L) * shadow_facing;
 				}
 
 				#ifdef SHADOW_SCREEN_SPACE
@@ -220,64 +206,44 @@ function surface_lighting.GetGLSL(block_name)
 					if (type == 0) {
 						reach = clamp(shadow_texel_world_size * 8.0, 0.5, reach);
 					} else if (type != 2) {
-						float light_distance = length(light.position.xyz - world_pos);
+						float light_distance = length(light.position.xyz - s.world_pos);
 						reach_is_light = light_distance <= reach;
 						reach = min(light_distance, reach);
 					}
 
-					float screen_visibility = screen_space_shadow_visibility(world_pos, shadow_N, L, reach, reach_is_light);
+					float screen_visibility = screen_space_shadow_visibility(s.world_pos, shadow_N, L, reach, reach_is_light);
 					screen_shadow_term = min(screen_shadow_term, screen_visibility);
 					shadow_factor *= screen_visibility;
 				}
 				#endif
 
 				if (type == 0) {
-					shadow_factor *= get_cloud_shadow(world_pos);
+					shadow_factor *= get_cloud_shadow(s.world_pos);
 				} else if (
 					i == ]] .. block_name .. [[.shadows.local_directional_shadow_light_index &&
 					]] .. block_name .. [[.shadows.local_directional_shadow_map_index >= 0 &&
 					type == 2
 				) {
-					shadow_factor = calculateLocalDirectionalShadow(world_pos, shadow_N, L) * shadow_facing;
+					shadow_factor = calculateLocalDirectionalShadow(s.world_pos, shadow_N, L) * shadow_facing;
 				} else if (type == 1 || type == 3) {
 					int point_shadow_slot = getPointShadowSlot(i);
 
 					if (point_shadow_slot >= 0) {
-						shadow_factor = calculatePointShadow(point_shadow_slot, world_pos, shadow_N, L);
+						shadow_factor = calculatePointShadow(point_shadow_slot, s.world_pos, shadow_N, L);
 					}
 
-					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
+					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos);
 				}
 				vec3 radiance = unshadowed_radiance * shadow_factor;
 
-				if (type == 0) radiance *= get_glass_tint(world_pos);
+				if (type == 0) radiance *= get_glass_tint(s.world_pos);
 
-				if (clearcoat > 0.0) {
-					float coat_NoL = saturate(dot(coat_N, L));
-					float coat_alpha = clearcoat_alpha;
-					float coat_energy = 1.0;
+				float diffuse_weight = 1.0;
+				]] .. surface_features.GetDirectLayerGLSL() .. [[
 
-					if (type == 0) {
-						coat_alpha = saturate(clearcoat_alpha + SUN_ANGULAR_RADIUS * 0.5);
-						coat_energy = clearcoat_alpha / coat_alpha;
-						coat_energy *= coat_energy;
-					} else if (glow_widening > 0.0) {
-						coat_alpha = saturate(clearcoat_alpha + glow_widening);
-						coat_energy = clearcoat_alpha / coat_alpha;
-						coat_energy *= coat_energy;
-					}
-
-					float Fc = F_SchlickScalar(CLEARCOAT_F0, LoH) * clearcoat;
-					specular += D_GGXAlpha(coat_alpha, saturate(dot(coat_N, H))) * coat_energy * V_Kelemen(LoH) * Fc * radiance * coat_NoL;
-					radiance *= 1.0 - Fc;
-				}
-
-				diffuse += Fd * radiance * NoL * (1.0 - transmission);
+				diffuse += Fd * radiance * NoL * diffuse_weight;
 				specular += Fr * radiance * NoL;
-
-				if (transmission > 0.0) {
-					diffuse += transmission * transmission_color * albedo * (1.0 - metallic) * transmission_phase(V, L, transmission_scattering) * saturate(-dot(N, L)) * radiance;
-				}
+				]] .. surface_features.GetDirectGLSL() .. [[
 			}
 			}
 

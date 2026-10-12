@@ -207,8 +207,8 @@ return {
 							// hair above or below. without a margin those set a bit each
 							if (dot(v_f, view_normal) < 0.1 * sqrt(dist2)) continue;
 
-							float sample_transmission = gbuffer_transmission(sample_uv);
-							float sample_thickness = sample_transmission > 0.0 ? thin_thickness : thickness;
+							bool sample_thin = gbuffer_is_thin(sample_uv);
+							float sample_thickness = sample_thin ? thin_thickness : thickness;
 
 							// Angles from the view vector, signed by the side of
 							// the slice the sample is on (Therrien 2023). The
@@ -245,7 +245,7 @@ return {
 
 									if (history_uv.x > 0.0 && history_uv.x < 1.0 && history_uv.y > 0.0 && history_uv.y < 1.0) {
 										vec3 sample_normal = normalize(mat3(lighting_data.view) * gbuffer_normal(sample_uv));
-										float facing = sample_transmission > 0.0 ? 1.0 : clamp(dot(sample_normal, -v_f * inversesqrt(dist2)), 0.0, 1.0);
+										float facing = sample_thin ? 1.0 : clamp(dot(sample_normal, -v_f * inversesqrt(dist2)), 0.0, 1.0);
 										// the share of the cosine weighted hemisphere this arc covers
 										float cosine_share = 0.5 * (sin(theta_max) - sin(theta_min));
 										// a few taps around it, so a single bright pixel is only a part of what the sample sees
@@ -316,7 +316,7 @@ return {
 
 				vec3 world_pos = get_world_pos(depth);
 				vec3 N = gbuffer_normal(pixel);
-				bool thin = gbuffer_transmission(pixel) > 0.0;
+				bool thin = gbuffer_is_thin(pixel);
 
 				// on a thin card the depth derivatives belong to whatever the card and its neighbours are,
 				// and flip from pixel to pixel
@@ -535,7 +535,7 @@ return {
 				ivec2 ao_size = textureSize(TEXTURE(ao_blur_data.ao_tex), 0);
 				ivec2 base = pos / ]] .. RATIO .. [[;
 				vec3 center_normal = gbuffer_normal(pos);
-				bool center_thin = gbuffer_transmission(pos) > 0.0;
+				bool center_thin = gbuffer_is_thin(pos);
 				vec4 total = vec4(0.0);
 				vec3 total_bent = vec3(0.0);
 				float weight_sum = 0.0;

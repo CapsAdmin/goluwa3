@@ -544,7 +544,20 @@ return {
 					float specular_coverage = refractive ? 1.0 : smoothstep(0.0, 0.1, alpha);
 
 					vec3 direct_specular;
-					vec3 direct_diffuse = get_direct_light(F0, NdotV, diffuse_albedo, roughness, perceptual_roughness, metallic, diffuse_transmission, get_transmission_color(), get_transmission_scattering(), world_pos, V, N, geometric_N, 0.0, 1.0, geometric_N, direct_specular);
+					Surface surface;
+					surface.geometric_N = geometric_N;
+					init_surface_features(surface, in_uv);
+					surface.F0 = F0;
+					surface.NdotV = NdotV;
+					surface.albedo = diffuse_albedo;
+					surface.roughness_alpha = roughness;
+					surface.perceptual_roughness = perceptual_roughness;
+					surface.metallic = metallic;
+					surface.world_pos = world_pos;
+					surface.V = V;
+					surface.N = N;
+					finish_surface_features(surface);
+					vec3 direct_diffuse = get_direct_light(surface, direct_specular);
 
 					float sky_visibility;
 					vec3 irradiance = get_gi_irradiance(screen_uv, world_pos, dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N, V, sky_visibility);
