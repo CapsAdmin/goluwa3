@@ -39,8 +39,8 @@ local function remove_pipeline_bundle(bundle)
 		if pipeline then pipeline:Remove() end
 	end
 
-	bundle.pipelines = {}
-	bundle.pipelines_i = {}
+	table.clear(bundle.pipelines)
+	table.clear(bundle.pipelines_i)
 end
 
 function render3d.GetGPUCulling()
@@ -313,7 +313,9 @@ local default_passes = {
 	{"blit", "goluwa/render3d/passes/blit.lua"},
 }
 local pass_vars = {}
-local bundle_of_pipelines = setmetatable({}, {__mode = "k"})
+render3d.bundles = render3d.bundles or table.weak("k")
+render3d.bundle_of_pipelines = render3d.bundle_of_pipelines or table.weak("k")
+local bundle_of_pipelines = render3d.bundle_of_pipelines
 pvars.StartGroup("pass", {store = false})
 
 for _, entry in ipairs(default_passes) do
@@ -380,15 +382,8 @@ function render3d.IsTemporalAntiAliasingEnabled()
 		render3d.IsAntiAliasingEnabled("ssaa")
 end
 
-function render3d.CreatePipelineBundle(options)
-	options = options or {}
-	local bundle = {
-		pipelines = {},
-		pipelines_i = {},
-		passes = {},
-		options = options,
-	}
-	bundle_of_pipelines[bundle.pipelines] = bundle
+local function fill_pipeline_bundle(bundle)
+	local options = bundle.options
 	local framebuffer_size = options.framebuffer_size
 	local filter = options.filter
 	local include_names = options.include_names
@@ -462,11 +457,79 @@ function render3d.CreatePipelineBundle(options)
 			bundle.pipelines[name] = pipeline
 		end
 	end
+end
 
+function render3d.CreatePipelineBundle(options)
+	local bundle = {
+		pipelines = {},
+		pipelines_i = {},
+		passes = {},
+		options = options or {},
+	}
+	bundle_of_pipelines[bundle.pipelines] = bundle
+	render3d.bundles[bundle] = true
+	fill_pipeline_bundle(bundle)
 	return bundle
 end
 
+-- rebuilds the pipelines in the same tables so contexts and callers holding them stay valid,
+-- the old ones keep running if the new ones fail to build (a shader that does not compile)
+function render3d.RebuildPipelineBundle(bundle)
+	local fresh = {
+		pipelines = {},
+		pipelines_i = {},
+		passes = {},
+		options = bundle.options,
+	}
+	local ok, err = xpcall(fill_pipeline_bundle, debug.traceback, fresh)
+
+	if not ok then
+		remove_pipeline_bundle(fresh)
+		error(err, 0)
+	end
+
+	render.GetDevice():WaitIdle()
+	remove_pipeline_bundle(bundle)
+	table.clear(bundle.passes)
+
+	for name, pass in pairs(fresh.passes) do
+		bundle.passes[name] = pass
+	end
+
+	for name, pipeline in pairs(fresh.pipelines) do
+		bundle.pipelines[name] = pipeline
+	end
+
+	for i, pipeline in ipairs(fresh.pipelines_i) do
+		bundle.pipelines_i[i] = pipeline
+	end
+
+	-- every pipeline makes anonymous ffi structs and luajit only has room for so many
+	collectgarbage()
+end
+
+event.AddListener("ModulesReloaded", "render3d_pipelines", function(paths)
+	local pass_paths = {}
+
+	for _, entry in ipairs(default_passes) do
+		pass_paths[entry[2]] = true
+	end
+
+	for _, path in ipairs(paths) do
+		if pass_paths[path] then
+			for bundle in pairs(render3d.bundles) do
+				local ok, err = pcall(render3d.RebuildPipelineBundle, bundle)
+
+				if not ok then logn("failed to rebuild pipelines: ", err) end
+			end
+
+			return
+		end
+	end
+end)
+
 function render3d.RemovePipelineBundle(bundle)
+	render3d.bundles[bundle] = nil
 	remove_pipeline_bundle(bundle)
 end
 
