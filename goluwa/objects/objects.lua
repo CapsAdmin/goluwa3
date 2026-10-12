@@ -48,6 +48,7 @@ do
 	local blacklist = {
 		objects_variables = true,
 		Events = true,
+		Instances = true,
 		Require = true,
 		Network = true,
 		write_functions = true,
