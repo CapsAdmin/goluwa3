@@ -2,6 +2,8 @@ local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local froxel_fog = {}
 froxel_fog.TILE = 8
+froxel_fog.MAX_WIDTH = 240
+froxel_fog.MAX_HEIGHT = 135
 froxel_fog.SLICES = 96
 froxel_fog.FAR = 3000
 froxel_fog.DEPTH_KNEE = 2
@@ -10,8 +12,9 @@ froxel_fog.froxels = froxels
 
 function froxel_fog.EnsureResources()
 	local size = render.GetRenderImageSize()
-	local width = math.ceil(size.x / froxel_fog.TILE)
-	local height = math.ceil(size.y / froxel_fog.TILE)
+	local tile = math.max(froxel_fog.TILE, size.x / froxel_fog.MAX_WIDTH, size.y / froxel_fog.MAX_HEIGHT)
+	local width = math.ceil(size.x / tile)
+	local height = math.ceil(size.y / tile)
 
 	if froxels.width == width and froxels.height == height then return froxels end
 

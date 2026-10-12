@@ -93,7 +93,6 @@ local function write_ocean_distance_texture(self, block, key)
 	end
 end
 
-local TILE_DEPTH_MARGIN = 8
 local depth_pass = {
 	name = "volumetric_froxel_depth",
 	ComputePass = true,
@@ -147,12 +146,15 @@ local depth_pass = {
 			if (any(greaterThanEqual(id, ivec2(froxel_data.froxel_size)))) return;
 
 			ivec2 size = textureSize(TEXTURE(froxel_data.depth_tex), 0);
-			ivec2 first = id * ]] .. froxel_fog.TILE .. [[ - ]] .. TILE_DEPTH_MARGIN .. [[;
+			vec2 tile_size = vec2(size) / froxel_data.froxel_size;
+			ivec2 margin = ivec2(ceil(tile_size));
+			ivec2 first = ivec2(floor(vec2(id) * tile_size)) - margin;
+			ivec2 last = ivec2(ceil(vec2(id + 1) * tile_size)) + margin;
 			float farthest = 0.0;
 
-			for (int y = 0; y < ]] .. froxel_fog.TILE + 2 * TILE_DEPTH_MARGIN .. [[; y++) {
-				for (int x = 0; x < ]] .. froxel_fog.TILE + 2 * TILE_DEPTH_MARGIN .. [[; x++) {
-					farthest = max(farthest, gbuffer_depth(clamp(first + ivec2(x, y), ivec2(0), size - 1)));
+			for (int y = first.y; y < last.y; y++) {
+				for (int x = first.x; x < last.x; x++) {
+					farthest = max(farthest, gbuffer_depth(clamp(ivec2(x, y), ivec2(0), size - 1)));
 				}
 			}
 
