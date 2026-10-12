@@ -973,7 +973,7 @@ function Texture:IsReady()
 end
 
 function Texture:IsSRGB()
-	return self.format ~= nil and self.format:ends_with("_srgb")
+	return self.format ~= nil and self.format:find("_srgb", 1, true) ~= nil
 end
 
 function Texture:AddOnReady(callback)
