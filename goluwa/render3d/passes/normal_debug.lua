@@ -33,7 +33,12 @@ return {
 				vec3 shown = vec3(0.0);
 
 				if (gbuffer_depth(pixel) != 1.0) {
-					shown = gbuffer_normal(pixel) * 0.5 + 0.5;
+					shown = debug_data.mode == ]] .. normal_debug.ALBEDO .. [[ ? gbuffer_albedo(pixel) : gbuffer_normal(pixel) * 0.5 + 0.5;
+				}
+
+				if (debug_data.mode == ]] .. normal_debug.ALBEDO .. [[) {
+					set_color(vec4(shown, 1.0));
+					return;
 				}
 
 				// a half sphere in the corner shaded like the surfaces, as seen from the camera: each pixel is the
