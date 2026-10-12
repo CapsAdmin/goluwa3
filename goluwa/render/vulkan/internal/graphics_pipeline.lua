@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
 local GraphicsPipeline = objects.CreateTemplate("vulkan_graphics_pipeline")
 local EnumArray = ffi.typeof("uint32_t[?]")
 local VkVertexInputBindingDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputBindingDescription)
@@ -302,10 +303,12 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		basePipelineIndex = -1,
 	}
 	local ptr = VkPipelineBox()
+	local start = PipelineCache.GetTime()
 	vulkan.assert(
 		vulkan.lib.vkCreateGraphicsPipelines(device.ptr[0], device.pipeline_cache.ptr[0], 1, pipelineInfo, nil, ptr),
 		"failed to create graphics pipeline"
 	)
+	PipelineCache.LogIfSlow("graphics", start)
 	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 	return GraphicsPipeline:CreateObject{device = device, ptr = ptr, config = config}
 end

@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
 local render = import("goluwa/render/render.lua")
 local ShaderModule = import("goluwa/render/vulkan/internal/shader_module.lua")
 local DescriptorSetLayout = import("goluwa/render/vulkan/internal/descriptor_set_layout.lua")
@@ -140,10 +141,12 @@ function RayTracingPipeline.New(device, config)
 	}
 	local create_pipelines = device:GetExtension("vkCreateRayTracingPipelinesKHR")
 	local ptr = VkPipelineBox()
+	local start = PipelineCache.GetTime()
 	vulkan.assert(
 		create_pipelines(device.ptr[0], nil, device.pipeline_cache.ptr[0], 1, create_info, nil, ptr),
 		"failed to create ray tracing pipeline"
 	)
+	PipelineCache.LogIfSlow("ray tracing", start)
 	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 
 	for i = 1, stage_count do

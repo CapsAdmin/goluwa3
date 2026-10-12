@@ -1,11 +1,28 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local system = import("goluwa/system.lua")
 local PipelineCache = objects.CreateTemplate("vulkan_pipeline_cache")
 local VkPipelineCacheBox = ffi.typeof("$[1]", vulkan.vk.VkPipelineCache)
 local SizeBox = ffi.typeof("size_t[1]")
 local ByteArray = ffi.typeof("uint8_t[?]")
 local HeaderPtr = ffi.typeof("const $*", vulkan.vk.VkPipelineCacheHeaderVersionOne)
+
+-- a pipeline the driver has seen before is made in a few milliseconds, one it has to compile
+-- takes much longer, that is the slow part of a first start
+local SLOW_PIPELINE_SECONDS = 0.05
+
+function PipelineCache.GetTime()
+	return system.GetTime()
+end
+
+function PipelineCache.LogIfSlow(kind, start)
+	local seconds = system.GetTime() - start
+
+	if seconds >= SLOW_PIPELINE_SECONDS then
+		logf("[pipeline] the driver compiled a %s pipeline in %.0f ms (not in the pipeline cache)\n", kind, seconds * 1000)
+	end
+end
 
 local function is_compatible(device, data)
 	if #data < ffi.sizeof(vulkan.vk.VkPipelineCacheHeaderVersionOne) then
