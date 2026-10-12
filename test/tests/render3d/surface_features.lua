@@ -1,5 +1,6 @@
 local T = import("test/environment.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 
 local function has(text, part)
 	return text:find(part, 1, true) ~= nil
@@ -58,6 +59,7 @@ T.Test("surface features generate what a field needs", function()
 	T(has(write, "set_gloss(s.gloss);"))["=="](true)
 	T(has(write, "set_gloss_width(gbuffer_encode_gloss_width(s.width));"))["=="](true)
 	T(position(write, "set_gloss(s.gloss);") < position(write, "MANUAL_WRITE;"))["=="](true)
+	T(position(write, "MANUAL_WRITE;") < position(write, "gbuffer_flush_packed();\n}"))["=="](true)
 	T(source.surface_members)["=="](nil)
 end)
 
@@ -87,4 +89,59 @@ end)
 T.Test("surface features join the thin expressions of the features", function()
 	T(surface_features.New{{name = "a"}}.GetThinExpressionGLSL())["=="]("false")
 	T(surface_features.New{{name = "a", thin = "x(c)"}, {name = "b"}, {name = "c", thin = "y(c)"}}.GetThinExpressionGLSL())["=="]("(x(c)) || (y(c))")
+end)
+
+T.Test("gbuffer layout packs every kind into its own slot", function()
+	local fields = {}
+
+	for i = 1, 5 do
+		fields[#fields + 1] = {name = "eight_" .. i, kind = "unorm8"}
+	end
+
+	for i = 1, 3 do
+		fields[#fields + 1] = {name = "four_" .. i, kind = "unorm4"}
+	end
+
+	for i = 1, 2 do
+		fields[#fields + 1] = {name = "sixteen_" .. i, kind = "unorm16"}
+		fields[#fields + 1] = {name = "octa_" .. i, kind = "octa"}
+	end
+
+	local targets = gbuffer_layout.Pack(fields)
+	local slots = {}
+
+	for _, field in ipairs(fields) do
+		for i = 1, #field.swizzle do
+			local slot = field.target.texture .. "." .. field.swizzle:sub(i, i) .. "." .. tostring(field.nibble or "")
+			T(slots[slot])["=="](nil)
+			slots[slot] = field.name
+		end
+	end
+
+	-- two of the three unorm4 fields share a channel
+	T(fields[6].target)["=="](fields[7].target)
+	T(fields[6].swizzle)["=="](fields[7].swizzle)
+	T(fields[6].nibble)["=="](0)
+	T(fields[7].nibble)["=="](1)
+	T(fields[8].swizzle ~= fields[6].swizzle or fields[8].target ~= fields[6].target)["=="](true)
+
+	for _, target in ipairs(targets) do
+		T(#target.channels > 0)["=="](true)
+
+		if target.class == "8" then
+			T(target.format)["=="]("r8g8b8a8_unorm")
+		else
+			T(target.format:find("r16g16", 1, true) ~= nil)["=="](true)
+		end
+	end
+
+	-- 5 unorm8 and 2 channels of unorm4 fit in 2 targets of 4 channels, 2 unorm16 and 2 octa need 6 channels
+	local count = {["8"] = 0, ["16"] = 0}
+
+	for _, target in ipairs(targets) do
+		count[target.class] = count[target.class] + 1
+	end
+
+	T(count["8"])["=="](2)
+	T(count["16"])["=="](2)
 end)

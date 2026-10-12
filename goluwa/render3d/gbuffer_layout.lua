@@ -6,7 +6,8 @@ local MAX_TARGETS = 8
 gbuffer_layout.DEPTH_FORMAT = "d32_sfloat"
 -- fields are what the gbuffer stores per pixel. features declare theirs (features/*.lua), no layout
 -- needs editing, and they are packed into as few targets as fit.
--- kind: unorm8 (one 8 bit channel) or octa (a unit vector in two 16 bit channels)
+-- kind: unorm8 (one 8 bit channel), unorm4 (half of an 8 bit channel, a value in 16 steps), unorm16
+--   (one 16 bit channel) or octa (a unit vector in two 16 bit channels)
 -- default: the value written when a pass doesn't write the field, before encode
 -- encode, decode: GLSL on v, the field's value and what is stored. encode becomes
 --   gbuffer_encode_<name>, decode is what gbuffer_<accessor> returns
@@ -30,11 +31,19 @@ local VELOCITY_TARGET = {
 	format = "r16g16b16a16_sfloat",
 	channels = {{"velocity", "rg"}, {"prev_view_depth", "b"}},
 }
-local KIND_WIDTH = {unorm8 = 1, octa = 2}
+-- the class is the kind of target the field goes in, the width is in channels
+local KINDS = {
+	unorm8 = {class = "8", width = 1},
+	unorm4 = {class = "8", width = 0.5},
+	unorm16 = {class = "16", width = 1},
+	octa = {class = "16", width = 2},
+}
 
--- a field is stored in the first free channels of its kind, in the order of its readers, so
--- the fields one pass reads end up next to each other, and share as few textures as possible
-local function pack_fields(fields)
+-- a field is stored in the first free channels of its class, in the order of its readers, so
+-- the fields one pass reads end up next to each other and share as few textures as possible.
+-- sets field.target, field.swizzle and for a unorm4 field field.nibble (0 low, 1 high), and
+-- returns the targets
+function gbuffer_layout.Pack(fields)
 	local keyed = {}
 
 	for i, field in ipairs(fields) do
@@ -55,48 +64,61 @@ local function pack_fields(fields)
 		return a.index < b.index
 	end)
 
-	local buckets = {}
-	local bucket_order = {}
+	local targets = {}
+	local state = {}
 
 	for _, entry in ipairs(keyed) do
 		local field = entry.field
-		local bucket = buckets[field.kind]
+		local kind = KINDS[field.kind]
+		assert(kind, "unknown gbuffer field kind " .. tostring(field.kind))
+		local class = state[kind.class]
 
-		if not bucket then
-			bucket = {kind = field.kind, fields = {}}
-			buckets[field.kind] = bucket
-			table.insert(bucket_order, bucket)
+		if not class then
+			class = {}
+			state[kind.class] = class
 		end
 
-		table.insert(bucket.fields, field)
-	end
-
-	local targets = {}
-
-	for _, bucket in ipairs(bucket_order) do
-		local target
-
-		for _, field in ipairs(bucket.fields) do
-			local width = KIND_WIDTH[bucket.kind]
+		if kind.width == 0.5 and class.open then
+			field.target = class.open.target
+			field.swizzle = class.open.swizzle
+			field.nibble = 1
+			class.open = nil
+		else
+			local width = math.ceil(kind.width)
+			local target = class.target
 
 			if not target or target.used + width > 4 then
-				target = {used = 0, kind = bucket.kind, channels = {}, fields = {}}
+				target = {used = 0, class = kind.class, channels = {}, fields = {}}
+				class.target = target
 				table.insert(targets, target)
 			end
 
 			local swizzle = ("rgba"):sub(target.used + 1, target.used + width)
 			target.used = target.used + width
-			table.insert(target.channels, {field.name, swizzle})
 			table.insert(target.fields, field)
-			field.swizzle = swizzle
 			field.target = target
+			field.swizzle = swizzle
+
+			if kind.width == 0.5 then
+				field.nibble = 0
+				class.open = {target = target, swizzle = swizzle}
+				-- named once the target is, see below
+				table.insert(target.channels, {false, swizzle, packed = true})
+			else
+				field.nibble = nil
+				table.insert(target.channels, {field.name, swizzle})
+			end
 		end
 	end
 
 	for i, target in ipairs(targets) do
 		target.texture = "packed" .. (i - 1)
 
-		if target.kind == "octa" then
+		for _, channel in ipairs(target.channels) do
+			if channel.packed then channel[1] = target.texture .. "_" .. channel[2] end
+		end
+
+		if target.class == "16" then
 			target.format = target.used > 2 and "r16g16b16a16_unorm" or "r16g16_unorm"
 		else
 			target.format = "r8g8b8a8_unorm"
@@ -107,7 +129,7 @@ local function pack_fields(fields)
 end
 
 do
-	local packed = pack_fields(gbuffer_layout.fields)
+	local packed = gbuffer_layout.Pack(gbuffer_layout.fields)
 
 	if #packed + 3 > MAX_TARGETS then
 		error("the gbuffer needs " .. (#packed + 3) .. " targets, the limit is " .. MAX_TARGETS, 2)
@@ -171,6 +193,10 @@ do
 		}
 ]]
 	local defaults = {"void gbuffer_set_defaults() {"}
+	-- two unorm4 fields share a channel, so they are set into variables and the channel is
+	-- written by gbuffer_flush_packed
+	local flush = {"void gbuffer_flush_packed() {"}
+
 	for _, field in ipairs(gbuffer_layout.fields) do
 		if field.encode then
 			table.insert(
@@ -179,6 +205,42 @@ do
 			)
 		end
 	end
+
+	for _, target in ipairs(gbuffer_layout.targets) do
+		for _, channel in ipairs(target.channels) do
+			if channel.packed then
+				local variable = "gbuffer_" .. channel[1]
+				table.insert(lines, string.format("float %s_low = 0.0;\nfloat %s_high = 0.0;", variable, variable))
+				table.insert(
+					flush,
+					string.format(
+						"\tset_%s((floor(clamp(%s_high, 0.0, 1.0) * 15.0 + 0.5) * 16.0 + floor(clamp(%s_low, 0.0, 1.0) * 15.0 + 0.5)) / 255.0);",
+						channel[1],
+						variable,
+						variable
+					)
+				)
+			end
+		end
+	end
+
+	for _, field in ipairs(gbuffer_layout.fields) do
+		if field.nibble then
+			table.insert(
+				lines,
+				string.format(
+					"void set_%s(float v) { gbuffer_%s_%s_%s = v; }",
+					field.name,
+					field.target.texture,
+					field.swizzle,
+					field.nibble == 1 and "high" or "low"
+				)
+			)
+		end
+	end
+
+	table.insert(flush, "}")
+	table.insert(lines, table.concat(flush, "\n"))
 
 	for _, field in ipairs(gbuffer_layout.fields) do
 		if field.kind == "octa" then
@@ -191,6 +253,7 @@ do
 		end
 	end
 
+	table.insert(defaults, "\tgbuffer_flush_packed();")
 	table.insert(defaults, "}")
 	table.insert(lines, handwritten)
 	table.insert(lines, surface_features.GetEncodersGLSL())
@@ -233,6 +296,19 @@ do
 					accessor,
 					fetch,
 					field.swizzle
+				)
+			)
+		elseif field.nibble then
+			-- never filtered, a filtered code is a blend of two others
+			table.insert(
+				decoders,
+				string.format(
+					"float %s(COORD c) { float raw = floor(gbuffer_fetch_nearest(%s, c).%s * 255.0 + 0.5); float v = (%s) / 15.0; return %s; }",
+					accessor,
+					fetch,
+					field.swizzle,
+					field.nibble == 1 and "floor(raw / 16.0)" or "mod(raw, 16.0)",
+					field.decode or "v"
 				)
 			)
 		else

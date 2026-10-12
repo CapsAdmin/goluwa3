@@ -109,7 +109,7 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 			SpecularMultiplier = 1.5,
 			DiffuseTransmission = 0.5,
 			TransmissionColor = Color(1, 0.6, 0.2, 1),
-			TransmissionScattering = 0.3,
+			TransmissionScattering = 0.4,
 			Clearcoat = 0.7,
 			ClearcoatRoughness = 0.3,
 		}
@@ -125,10 +125,11 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 	T(mra[1])["~"](0.25, 0.01)
 	T(mra[4])["~"](0.5, 0.01)
 	local lum = 0.2126 + 0.7152 * 0.6 + 0.0722 * 0.2
-	T(transmission[1])["~"](1 / lum, 0.02)
-	T(transmission[2])["~"](0.6 / lum, 0.02)
-	T(transmission[3])["~"](0.2 / lum, 0.02)
-	T(transmission[4])["~"](0.3, 0.01)
+	-- the tint is 4 bits a channel over 0 to 2, so a step is 0.13
+	T(transmission[1])["~"](1 / lum, 0.07)
+	T(transmission[2])["~"](0.6 / lum, 0.07)
+	T(transmission[3])["~"](0.2 / lum, 0.07)
+	T(transmission[4])["~"](0.4, 0.01)
 
 	local coat, coat_normal = texels[5], texels[6]
 	T(coat[1])["~"](0.7, 0.01)
@@ -151,7 +152,7 @@ T.Test("Graphics render3d gbuffer packs every field into its own slot", function
 		T(field.target ~= nil)["=="](true)
 
 		for i = 1, #field.swizzle do
-			local slot = field.target.texture .. "." .. field.swizzle:sub(i, i)
+			local slot = field.target.texture .. "." .. field.swizzle:sub(i, i) .. "." .. tostring(field.nibble or "")
 			T(slots[slot])["=="](nil)
 			slots[slot] = field.name
 		end

@@ -53,13 +53,13 @@ return {
 		{name = "transmission", kind = "unorm8", default = "0.0", material = "get_transmission(uv)"},
 		{
 			name = "transmission_scattering",
-			kind = "unorm8",
+			kind = "unorm4",
 			default = "0.0",
 			material = "get_transmission_scattering()",
 		},
 		-- red and blue of a tint, halved to fit up to 2. its luminance is 1, which gives the green back
-		{name = "transmission_tint_r", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
-		{name = "transmission_tint_b", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
+		{name = "transmission_tint_r", kind = "unorm4", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
+		{name = "transmission_tint_b", kind = "unorm4", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
 	},
 	thin = "gbuffer_transmission(c) > 0.0",
 	encoders = [[

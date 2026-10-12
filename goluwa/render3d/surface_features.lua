@@ -304,7 +304,7 @@ end
 
 -- void write_surface_features(Surface s), in the passes that write the gbuffer
 function self.GetWriteFunctionGLSL()
-	return build_function("void write_surface_features(Surface s)", "gbuffer_write")
+	return "void write_surface_features(Surface s) {\n" .. join("gbuffer_write") .. "\ngbuffer_flush_packed();\n}\n"
 end
 
 -- void decode_surface_features(inout Surface s, vec2 uv, ivec2 size), from the gbuffer
