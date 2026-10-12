@@ -1,4 +1,5 @@
 local T = import("test/environment.lua")
+local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local EntityTree = import("goluwa/render2d/ui/widgets/entity_tree.lua")
 local clients = import("goluwa/network/clients.lua")
@@ -39,6 +40,21 @@ T.Test2D("Entity tree without grouping lists children directly", function()
 	local tree = EntityTree{RootEntities = {root}}
 	tree:Refresh(true)
 	T(tree:GetItems()[1].Children[1].Entity)["=="](child)
+	tree:Remove()
+	root:Remove()
+end)
+
+T.Test3D("Entity tree lists the material of a shape under it", function()
+	local shapes = import("goluwa/render3d/shapes.lua")
+	local root = Entity.New{Name = "tree_material_root"}
+	local sphere = shapes.Sphere{Name = "ball", Parent = root, Material = {Color = Color(1, 0, 0, 1)}, RigidBody = false}
+	local tree = EntityTree{RootEntities = {root}, ShowVirtualChildren = true}
+	tree:ExpandToEntity(sphere)
+	tree:Refresh(true)
+	local node = tree:GetItems()[1].Children[1]
+	T(node.Entity)["=="](sphere)
+	T(node.Children[1].Text)["=="]("Material")
+	T(node.Children[1].Object)["=="](sphere.model.material)
 	tree:Remove()
 	root:Remove()
 end)

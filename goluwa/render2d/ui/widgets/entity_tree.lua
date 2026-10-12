@@ -126,6 +126,21 @@ local function build_virtual_children(entity, guid)
 		end
 	end
 
+	-- the model's material is made from its MaterialConfig, so no storable property holds it
+	local model = entity.model
+
+	if model and model.material then
+		children[#children + 1] = {
+			Object = model.material,
+			Key = guid .. "/virtual/model/material",
+			Text = "Material",
+			Icon = "material",
+			HasChildren = false,
+			Children = {},
+			SharedInstance = true,
+		}
+	end
+
 	return children
 end
 
