@@ -284,18 +284,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 		return self
 	end
 
-	self:SetMetallicMultiplier(0)
-
-	do
-		local specular = self.cry_specular_color
-		local roughness = 2 / ((tonumber(attrs.Shininess) or 0) + 2)
-		self:SetRoughnessMultiplier(roughness ^ 0.25)
-		self:SetSpecularMultiplier((specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722) * roughness / 0.04)
-		self:SetAlbedoAlphaIsSpecular(has_gen("GLOSS_DIFFUSEALPHA"))
-		self:SetGlossIsShininess(true)
-		self:SetSpecularSolvesMetallic(shader == "Metal" or (attrs.SurfaceType or ""):find("metal", 1, true) ~= nil)
-	end
-
 	local alpha_test = tonumber(attrs.AlphaTest) or 0
 	local opacity = tonumber(attrs.Opacity) or 1
 
@@ -389,6 +377,7 @@ local function apply_cry_material_node(self, material_node, material_path)
 	end
 
 	local textures = find_child_by_tag(material_node, "Textures")
+	local specular_texture = nil
 
 	for texture_node in iter_children_by_tag(textures, "Texture") do
 		local texture_attrs = texture_node.attrs or {}
@@ -427,11 +416,9 @@ local function apply_cry_material_node(self, material_node, material_path)
 				self:SetHeightScale(height_scale)
 			end
 		elseif map_name == "Specular" then
-			self:SetSpecularTexture(
-				resolved and
-					SRGBTexture(resolved) or
-					get_missing_cry_texture(material_path, texture_attrs, candidates)
-			)
+			specular_texture = resolved and
+				LinearTexture(resolved) or
+				get_missing_cry_texture(material_path, texture_attrs, candidates)
 		elseif map_name == "Detail" and detail_bump_mapping then
 			self:SetDetailTexture(
 				resolved and
@@ -444,6 +431,47 @@ local function apply_cry_material_node(self, material_node, material_path)
 					LinearTexture(resolved) or
 					get_missing_cry_texture(material_path, texture_attrs, candidates)
 			)
+		end
+	end
+
+	-- cryengine shades a phong lobe of power $Shininess and tints it with the
+	-- specular color times a gloss mask, the diffuse alpha or the Specular map.
+	-- the lobe becomes a roughness, the mask a roughness lerp from fully rough to
+	-- the lobe, and only metals reach a specular color that no dielectric has
+	do
+		local specular = self.cry_specular_color
+		local intensity = specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722
+		local is_metal = intensity > 0 and
+			(shader == "Metal" or (attrs.SurfaceType or ""):find("metal", 1, true) ~= nil)
+		-- a dielectric's specular map stays below ~0.3 (paint, plastic, stone), a bare metal's reaches 0.7
+		local metal_low, metal_high = 0.4, 0.7
+		local metallic = is_metal and math.smoothstep(metal_low, metal_high, intensity) or 0
+		local lobe = math.lerp(
+			math.smoothstep(0, 0.3, intensity),
+			1,
+			math.max(0.12, (2 / ((tonumber(attrs.Shininess) or 0) + 2)) ^ 0.25)
+		)
+		self:SetMetallicMultiplier(metallic)
+		self:SetSpecularMultiplier(intensity > 0 and 1 or 0)
+
+		if has_gen("GLOSS_DIFFUSEALPHA") and alpha_test == 0 and self.AlbedoTexture then
+			self:SetAlbedoTextureAlphaIsRoughness(true)
+		elseif specular_texture then
+			self:SetRoughnessTexture(specular_texture)
+		end
+
+		if self:HasExplicitRoughnessTexture() then
+			self:SetRoughnessMin(1)
+			self:SetRoughnessMax(lobe)
+			self:SetMetallicFromRoughnessMask(is_metal)
+
+			if is_metal then
+				self:SetMetallicMaskMin(metal_low / intensity)
+				self:SetMetallicMaskMax(metal_high / intensity)
+				self:SetMetallicMultiplier(1)
+			end
+		else
+			self:SetRoughnessMultiplier(lobe)
 		end
 	end
 

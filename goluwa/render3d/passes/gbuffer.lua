@@ -336,7 +336,6 @@ local function build_ssdm_fragment_shader(write_depth)
 			surface.alpha = alpha;
 			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos);
 			surface.N = get_normal(displacement.uv, tbn);
-			apply_gloss_metallic(displacement.uv, surface.albedo, surface.metallic);
 			SurfaceWeather weather;
 			prepare_surface_weather(surface, weather);
 			apply_surface_weather(surface, weather);

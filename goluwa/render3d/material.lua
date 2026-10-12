@@ -27,7 +27,6 @@ Material:GetSet("RoughnessMin", 0.0)
 Material:GetSet("RoughnessMax", 1.0)
 Material:GetSet("MetallicMaskMin", 0.0)
 Material:GetSet("MetallicMaskMax", 1.0)
-Material:GetSet("SpecularTexture", nil, {type = "render_texture"})
 Material:GetSet("SpecularMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionTexture", nil, {type = "render_texture"})
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
@@ -102,17 +101,10 @@ Material:GetSet(
 Material:GetSet("AlbedoLuminanceIsRoughness", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet(
-	"AlbedoAlphaIsSpecular",
-	false,
-	{callback = "InvalidateFlags", requires = "AlbedoTexture"}
-)
-Material:GetSet(
 	"MetallicTextureAlphaIsEmissive",
 	false,
 	{callback = "InvalidateFlags", requires = "MetallicTexture"}
 )
-Material:GetSet("GlossIsShininess", false, {callback = "InvalidateFlags"})
-Material:GetSet("SpecularSolvesMetallic", false, {callback = "InvalidateFlags"})
 Material:GetSet("SpecularFromRoughnessMask", false, {callback = "InvalidateFlags"})
 Material:GetSet("RoughnessMaskOnlyScalesSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
@@ -359,9 +351,6 @@ local FLAGS = {
 	"DoubleSided",
 	"Transmissive",
 	"Grass",
-	"AlbedoAlphaIsSpecular",
-	"GlossIsShininess",
-	"SpecularSolvesMetallic",
 	"Additive",
 	"Modulate",
 	"MultiplyAlbedo2",
