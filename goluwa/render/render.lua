@@ -277,9 +277,13 @@ local function start_saving_pipeline_cache(path)
 		if time - changed_at < 2 then return end
 
 		saved_generation = generation
-		local temp_path = path .. "." .. tostring(system.GetTimeNS()):strip_suffix("ULL") .. ".tmp"
-		assert(fs.write_file(temp_path, vulkan_instance:GetPipelineCacheData()))
-		assert(os.rename(temp_path, path))
+		if jit.os == "Windows" then
+			assert(fs.write_file(path, vulkan_instance:GetPipelineCacheData()))
+		else
+			local temp_path = path .. "." .. tostring(system.GetTimeNS()):strip_suffix("ULL") .. ".tmp"
+			assert(fs.write_file(temp_path, vulkan_instance:GetPipelineCacheData()))
+			assert(os.rename(temp_path, path))
+		end
 	end)
 end
 
