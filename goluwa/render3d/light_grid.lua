@@ -188,12 +188,31 @@ light_grid.pass = {
 
 					lights_t light = light_grid_data.lights[i];
 					int type = int(light.position.w);
-					// the sun and directional lights reach everywhere
-					bool reaches = type == 0 || type == 2;
+					// only the sun reaches everywhere; local directional lights have a range
+					bool reaches = type == 0;
 
 					if (!reaches) {
 						vec3 d = light.position.xyz - clamp(light.position.xyz, box_min, box_max);
 						reaches = dot(d, d) < light.params.x * light.params.x;
+					}
+
+					if (reaches && (type == 2 || type == 3)) {
+						vec3 from_light = (box_min + box_max) * 0.5 - light.position.xyz;
+						vec3 direction = normalize(light.direction.xyz);
+						float radius = level.w * 0.86602540378;
+						float axial = dot(from_light, direction);
+
+						if (type == 2) {
+							reaches = axial - radius <= 0.2 * (length(from_light) + radius);
+						} else {
+							float cosine = clamp(light.params.z, -1.0, 1.0);
+
+							if (cosine >= 0.0) {
+								float radial = length(from_light - direction * axial);
+								float sine = sqrt(max(1.0 - cosine * cosine, 0.0));
+								reaches = axial >= -radius && radial * cosine - axial * sine <= radius;
+							}
+						}
 					}
 
 					if (reaches) bits |= 1u << uint(b);
