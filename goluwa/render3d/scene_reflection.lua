@@ -13,12 +13,14 @@ pvars.StartGroup("reflection", {store = false})
 local enabled = pvars.Setup2{
 	key = "reflection_ray_query",
 	default = true,
-	help = "trace screen space reflection misses with ray queries",
+	help = "reflections are ray traced with ray queries, off (or without ray query hardware) only the screen space march traces them",
 }
-local primary = pvars.Setup2{
-	key = "reflection_ray_query_primary",
-	default = true,
-	help = "ray-traced reflections replace screen-space reflections and sample the textures of what they hit",
+local screenspace_roughness = pvars.Setup2{
+	key = "reflection_screenspace_roughness",
+	default = 0,
+	min = 0,
+	max = 1,
+	help = "perceptual roughness below which the screen space reflection is used first and the ray trace only fills what the screen does not hold. from there up, and everywhere at 0, the trace is the reflection and the screen is not traced",
 }
 pvars.EndGroup()
 
@@ -111,21 +113,17 @@ function scene_reflection.IsEnabled()
 	return enabled:Get()
 end
 
-function scene_reflection.IsPrimary()
-	return primary:Get()
-end
-
 scene_reflection.block = {
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 	{"light_count", "int"},
-	{"reflection_primary", "int"},
+	{"reflection_screenspace_roughness", "float"},
 	{"glass_light", "int"},
 }
 
 function scene_reflection.WriteBlock(self, block)
 	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-	block.reflection_primary = primary:Get() and 1 or 0
+	block.reflection_screenspace_roughness = screenspace_roughness:Get()
 	block.glass_light = ddgi.HasGlass() and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
@@ -194,15 +192,16 @@ function scene_reflection.GetGLSL(block_name, shared)
 		}
 
 		// the scene hit owns visibility and is shaded with the hit's textures, screen space is not used
-		bool scene_reflection_primary() {
-			return ]]..block_name..[[.reflection_primary != 0;
+		// the screen is the reflection of a surface this smooth, the trace only fills what it does not hold
+		bool scene_reflection_screen_first(float roughness) {
+			return roughness < ]]..block_name..[[.reflection_screenspace_roughness;
 		}
 
-		// confirms the first solid hit, looking through glass and, when primary, respecting cutout textures
+		// confirms the first solid hit, looking through glass and respecting cutout textures
 		#define SCENE_REFLECTION_PROCEED(query) \
 			while (rayQueryProceedEXT(query)) { \
 				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)); \
-				if (ddgi_materials[bvh_tri(candidate).material].transparent == 0 && (!scene_reflection_primary() || ddgi_alpha_passes(candidate, rayQueryGetIntersectionBarycentricsEXT(query, false)))) rayQueryConfirmIntersectionEXT(query); \
+				if (ddgi_materials[bvh_tri(candidate).material].transparent == 0 && ddgi_alpha_passes(candidate, rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
 			}
 
 		bool scene_reflection_visible(vec3 origin, vec3 dir, float dist) {
@@ -257,7 +256,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			vec3 surface = P + hit_N * 0.02;
 			vec3 albedo = ddgi_albedo(material, P);
 
-			if (scene_reflection_primary() && material.terrain_tex < 0 && material.albedo_tex >= 0) {
+			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
 				vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
 				scene_bvh_uv uv = bvh_uv(triangle);
 				vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics);

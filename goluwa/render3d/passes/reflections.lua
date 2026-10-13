@@ -477,7 +477,7 @@ return {
 				bool rt_primary = false;
 
 				#ifdef SCENE_REFLECTION
-				rt_primary = scene_reflection_ready() && scene_reflection_primary();
+				rt_primary = scene_reflection_ready() && !scene_reflection_screen_first(roughness);
 				#endif
 
 				if (!rt_primary && reflection_data.last_frame_tex == -1) return vec4(0.0);

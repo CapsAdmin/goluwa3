@@ -103,7 +103,7 @@ table.insert(
 		name = "lighting_data",
 		block = {
 			surface_lighting.block,
-			{"reflection_primary", "int"},
+			{"reflection_screenspace_roughness", "float"},
 			{"depth_tex", "int"},
 			{"refraction_tex", "int"},
 			{"b0_tex", "int"},
@@ -113,7 +113,7 @@ table.insert(
 		},
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
-			block.reflection_primary = scene_reflection.IsPrimary() and 1 or 0
+			block.reflection_screenspace_roughness = 0
 			block.fog = render3d.IsPassEnabled("volumetric_fog") and 1 or 0
 			block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
 			local b0, moments = translucent_moments.GetTextures()

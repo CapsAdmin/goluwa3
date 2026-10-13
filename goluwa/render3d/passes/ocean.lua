@@ -1093,7 +1093,7 @@ list.insert(
 				float perceptual = sqrt(alpha);
 				vec3 reflected = sample_environment_specular(ocean_data.env_tex, reflection_dir, normal, perceptual);
 				#ifdef SCENE_REFLECTION
-				bool rt_primary = scene_reflection_ready() && scene_reflection_primary();
+				bool rt_primary = scene_reflection_ready() && !scene_reflection_screen_first(perceptual);
 				#else
 				bool rt_primary = false;
 				#endif
