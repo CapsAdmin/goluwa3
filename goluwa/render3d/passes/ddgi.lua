@@ -548,7 +548,7 @@ local function pass_shade()
 				}
 
 				vec3 P = origin + dir * t;
-				vec3 albedo = ddgi_hit_albedo(material, P, hit.y & ~DDGI_SUN_VISIBLE_BIT);
+				vec3 albedo = ddgi_hit_albedo(material, P, hit.y & ~DDGI_SUN_VISIBLE_BIT) * ddgi_bounce_share(material);
 				vec3 surface = P + N * 0.02;
 				float light_radius = ddgi_data.ddgi_light_radius * ddgi_spacing(c);
 				vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), 0u);

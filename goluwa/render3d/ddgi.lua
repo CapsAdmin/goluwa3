@@ -774,7 +774,17 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 		};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
-		};
+			// metals have no diffuse: the multiplier, and the texture it scales (-1 without) with the channel to read
+			float metallic;
+			int metallic_tex;
+			int metallic_channel;
+			// perceptual roughness: the multiplier alone, or with a texture (-1 without) its channel mixed between min and max and scaled by it
+			float roughness;
+			float roughness_min;
+			float roughness_max;
+			int roughness_tex;
+			int roughness_channel;
+			};
 	]]
 end
 
@@ -834,7 +844,29 @@ function ddgi.GetMaterialGLSL()
 			return albedo;
 		}
 
-		vec3 ddgi_emission(scene_bvh_triangle tri, vec3 albedo) {
+		// the share of the albedo a hit bounces. a metal has no diffuse, but a rough one scatters its colour over
+// a lobe as wide as a diffuse surface's, a mirror one sends it one way, which a probe cannot hold
+float ddgi_bounce_share(ddgi_material material) {
+	float metallic = material.metallic;
+
+	if (material.metallic_tex >= 0) {
+		metallic *= textureLod(TEXTURE(material.metallic_tex), vec2(0.5), 16.0)[material.metallic_channel];
+	}
+
+	metallic = clamp(metallic, 0.0, 1.0);
+
+	if (metallic <= 0.0) return 1.0;
+
+	float roughness = material.roughness;
+
+	if (material.roughness_tex >= 0) {
+		roughness *= mix(material.roughness_min, material.roughness_max, textureLod(TEXTURE(material.roughness_tex), vec2(0.5), 16.0)[material.roughness_channel]);
+	}
+
+	return mix(1.0, smoothstep(0.1, 0.9, roughness), metallic);
+}
+
+vec3 ddgi_emission(scene_bvh_triangle tri, vec3 albedo) {
 			return min(tri.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
 		}
 	]]
@@ -1869,7 +1901,15 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t refractive;
 	float glass_refraction;
 	float glass_covering;
-}]])
+	float metallic;
+	int32_t metallic_tex;
+	int32_t metallic_channel;
+	float roughness;
+	float roughness_min;
+	float roughness_max;
+	int32_t roughness_tex;
+	int32_t roughness_channel;
+	}]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
@@ -1969,6 +2009,34 @@ function ddgi.WriteMaterialBuffer(self)
 
 				for layer = 1, 4 do
 					local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
+			entry.metallic = material:GetMetallicMultiplier()
+			local metallic_texture = material:GetMetallicTexture()
+			entry.metallic_channel = 0
+
+			if not metallic_texture then
+				metallic_texture = material:GetMetallicRoughnessTexture()
+				entry.metallic_channel = 2
+			end
+
+			entry.metallic_tex = metallic_texture and
+				metallic_texture:IsValid() and
+				self:GetTextureIndex(metallic_texture) or
+				-1
+			entry.roughness = material:GetRoughnessMultiplier()
+			entry.roughness_min = material:GetRoughnessMin()
+			entry.roughness_max = material:GetRoughnessMax()
+			local roughness_texture = material:GetRoughnessTexture()
+			entry.roughness_channel = 0
+
+			if not roughness_texture then
+				roughness_texture = material:GetMetallicRoughnessTexture()
+				entry.roughness_channel = 1
+			end
+
+			entry.roughness_tex = roughness_texture and
+				roughness_texture:IsValid() and
+				self:GetTextureIndex(roughness_texture) or
+				-1
 					entry.terrain_layer_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
 				end
 

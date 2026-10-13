@@ -67,7 +67,7 @@ T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
 		created[#created + 1] = p
 		p:AddComponent("transform")
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
-		p.visual_primitive:SetMaterial(Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9})
+		p.visual_primitive:SetMaterial(Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9, MetallicMultiplier = 0})
 		ent.visual:BuildAABB()
 		import("goluwa/render3d/scene_bvh.lua").Build()
 		T(render3d.IsPassEnabled("ddgi"))["=="](true)
@@ -114,7 +114,7 @@ do
 		local p = Entity.New{Name = "ddgi_slab_p", Parent = ent}
 		p:AddComponent("transform")
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
-		p.visual_primitive:SetMaterial(Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1)})
+		p.visual_primitive:SetMaterial(Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1), MetallicMultiplier = 0})
 		ent.visual:BuildAABB()
 	end
 
@@ -285,6 +285,7 @@ do
 		p.visual_primitive:SetMaterial(
 			Material.New{
 				ColorMultiplier = Color(1, 1, 1, 1),
+				MetallicMultiplier = 0,
 				AlbedoAlphaIsEmissive = true,
 				EmissiveMultiplier = Color(1, 1, 1, 30),
 			}
@@ -359,6 +360,16 @@ T.Test3D("Graphics render3d ddgi material buffer marks materials without an albe
 		local entry = ffi.cast(ffi.typeof("$ *", ddgi.MaterialEntry), buffer:Map(0, buffer:GetSize())) + id
 		T(entry.albedo[2])["=="](0.75)
 		T(entry.albedo_tex)["=="](-1)
+		T(entry.metallic)["=="](1)
+		T(entry.metallic_tex)["=="](-1)
+		material:SetMetallicMultiplier(0.5)
+		ddgi.WriteMaterialBuffer(pipeline)
+		T(entry.metallic)["=="](0.5)
+				T(entry.roughness)["=="](1)
+				T(entry.roughness_tex)["=="](-1)
+				material:SetRoughnessMultiplier(0.25)
+				ddgi.WriteMaterialBuffer(pipeline)
+				T(entry.roughness)["=="](0.25)
 		entry.double_sided = 99
 		T(ddgi.WriteMaterialBuffer(pipeline) == buffer)["=="](true)
 		T(entry.double_sided)["=="](99)
