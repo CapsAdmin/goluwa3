@@ -33,7 +33,7 @@ for slot = 0, 5 do
 
 			if not pipeline.framebuffers then pipeline:RecreateFramebuffers() end
 
-			return true
+			return not glass_tint.IsSlotCurrent(slot, pipeline.framebuffers)
 		end,
 		on_draw = function(self, cmd)
 			cmd:SetViewport(0, 0, glass_tint.SIZE, glass_tint.SIZE, 0, 1)

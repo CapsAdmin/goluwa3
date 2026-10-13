@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local pvars = import("goluwa/cli/pvars.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
@@ -8,7 +9,10 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local memcmp = import("goluwa/bindings/memory.lua").memcmp
 local glass_tint = {}
+local MATRIX_SIZE = ffi.sizeof(Matrix44)
+local UInt8Array = ffi.typeof("uint8_t[?]")
 glass_tint.SIZE = 1024
 glass_tint.SLOT_NAMES = {
 	[0] = "glass_tint",
@@ -278,6 +282,83 @@ end
 
 function glass_tint.GetSlotDraws(slot)
 	return slot_draws[slot]
+end
+
+do
+	-- what each slot's map was drawn from, so a map is only drawn again once the light space matrix, the glass
+	-- or its materials changed, or the map itself was recreated
+	local drawn = {}
+
+	function glass_tint.IsSlotCurrent(slot, framebuffers)
+		local draws = slot_draws[slot]
+		local count = #draws
+		local last = drawn[slot]
+
+		if not last then
+			last = {
+				matrix = Matrix44(),
+				matrices = UInt8Array(MATRIX_SIZE),
+				capacity = 1,
+				count = 0,
+				entries = {},
+				materials = {},
+				versions = {},
+			}
+			drawn[slot] = last
+		end
+
+		local current = last.framebuffers == framebuffers and
+			last.count == count and
+			memcmp(slot_matrices[slot], last.matrix, MATRIX_SIZE) == 0
+
+		if current then
+			local entries, materials, versions, matrices = last.entries, last.materials, last.versions, last.matrices
+
+			for i = 1, count do
+				local draw = draws[i]
+				local material = draw.material
+
+				if
+					entries[i] ~= draw.entry or
+					materials[i] ~= material or
+					versions[i] ~= material.property_version or
+					memcmp(draw.world_matrix, matrices + (i - 1) * MATRIX_SIZE, MATRIX_SIZE) ~= 0
+				then
+					current = false
+
+					break
+				end
+			end
+
+			if current then return true end
+		end
+
+		if last.capacity < count then
+			last.capacity = math.ceil(count * 1.5)
+			last.matrices = UInt8Array(last.capacity * MATRIX_SIZE)
+		end
+
+		local entries, materials, versions, matrices = last.entries, last.materials, last.versions, last.matrices
+
+		for i = 1, count do
+			local draw = draws[i]
+			entries[i] = draw.entry
+			materials[i] = draw.material
+			versions[i] = draw.material.property_version
+			ffi.copy(matrices + (i - 1) * MATRIX_SIZE, draw.world_matrix, MATRIX_SIZE)
+		end
+
+		for i = count + 1, last.count do
+			entries[i] = nil
+			materials[i] = nil
+			versions[i] = nil
+		end
+
+		ffi.copy(last.matrix, slot_matrices[slot], MATRIX_SIZE)
+		last.framebuffers = framebuffers
+		last.count = count
+		return false
+	end
 end
 
 do
