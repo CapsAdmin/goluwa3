@@ -2,12 +2,38 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
 local GraphicsPipeline = objects.CreateTemplate("vulkan_graphics_pipeline")
 local EnumArray = ffi.typeof("uint32_t[?]")
 local VkVertexInputBindingDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputBindingDescription)
 local VkVertexInputAttributeDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputAttributeDescription)
 local VkPipelineColorBlendAttachmentStateArray = ffi.typeof("$[?]", vulkan.vk.VkPipelineColorBlendAttachmentState)
+local VkGraphicsPipelineCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkGraphicsPipelineCreateInfo)
 local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
+
+-- the job source loads these back into pointers
+local function address(pointer)
+	return tostring(ffi.cast("uint64_t", ffi.cast("uintptr_t", pointer)))
+end
+
+-- vkCreateGraphicsPipelines blocks for as long as the driver compiles, which is tens of seconds for the
+-- lighting shaders on a cold start, so it runs on a worker thread and the pipeline is waited for when it is bound
+local CREATE_JOB = [[
+	local ffi = require("ffi")
+	local input = ...
+	local create = ffi.cast("int (*)(void *, void *, uint32_t, const void *, const void *, void *)", input.create)
+
+	local function handle(text)
+		return ffi.cast("void *", loadstring("return " .. text)())
+	end
+
+	local start = os.clock()
+	local result = create(handle(input.device), handle(input.cache), 1, handle(input.info), nil, handle(input.out))
+
+	if result ~= 0 then error("failed to create graphics pipeline: VkResult " .. result) end
+
+	return (os.clock() - start) * 1000
+]]
 
 function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local stageArrayType = ffi.typeof("$ [" .. #config.shaderModules .. "]", vulkan.vk.VkPipelineShaderStageCreateInfo)
@@ -33,12 +59,12 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	end
 
 	local vertexInputInfo = nil
+	local bindingArray = nil
+	local attributeArray = nil
 	local inputAssembly = nil
 	local tessellationState = nil
 
 	if not isMeshPipeline then
-		local bindingArray = nil
-		local attributeArray = nil
 		local bindingCount = 0
 		local attributeCount = 0
 
@@ -220,10 +246,11 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		maxDepthBounds = 0,
 	}
 	local dynamicStateInfo = nil
+	local dynamicStateArray = nil
 
 	if config.dynamic_states then
 		local dynamicStateCount = #config.dynamic_states
-		local dynamicStateArray = EnumArray(dynamicStateCount)
+		dynamicStateArray = EnumArray(dynamicStateCount)
 
 		for i, state in ipairs(config.dynamic_states) do
 			dynamicStateArray[i - 1] = vulkan.vk.e.VkDynamicState(state)
@@ -302,18 +329,66 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		basePipelineHandle = nil,
 		basePipelineIndex = -1,
 	}
+	local info_box = VkGraphicsPipelineCreateInfoBox()
+	info_box[0] = pipelineInfo
 	local ptr = VkPipelineBox()
-	local start = PipelineCache.GetTime()
-	vulkan.assert(
-		vulkan.lib.vkCreateGraphicsPipelines(device.ptr[0], device.pipeline_cache.ptr[0], 1, pipelineInfo, nil, ptr),
-		"failed to create graphics pipeline"
+	local job = thread_pool.Run(
+		CREATE_JOB,
+		{
+			create = tonumber(ffi.cast("uintptr_t", ffi.cast("void *", vulkan.lib.vkCreateGraphicsPipelines))),
+			device = address(device.ptr[0]),
+			cache = address(device.pipeline_cache.ptr[0]),
+			info = address(info_box),
+			out = address(ptr),
+		},
+		math.huge
 	)
-	PipelineCache.LogIfSlow("graphics", start)
-	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
-	return GraphicsPipeline:CreateObject{device = device, ptr = ptr, config = config}
+	-- the worker reads these through raw pointers
+	local keep = {
+		shaderStagesArray,
+		vertexInputInfo,
+		bindingArray,
+		attributeArray,
+		inputAssembly,
+		tessellationState,
+		viewportState,
+		viewport,
+		scissor,
+		rasterizer,
+		multisampling,
+		colorBlendAttachment,
+		blend_constants,
+		colorBlending,
+		depthStencilState,
+		dynamicStateArray,
+		dynamicStateInfo,
+		pColorAttachmentFormats,
+		pipelineRenderingCreateInfo,
+		pipelineInfo,
+		info_box,
+	}
+	return GraphicsPipeline:CreateObject{device = device, ptr = ptr, config = config, job = job, keep = keep}
+end
+
+function GraphicsPipeline:Wait()
+	local job = self.job
+
+	if job then
+		self.job = nil
+		local milliseconds = job:Block()
+		self.keep = nil
+		self.device.pipeline_cache.generation = self.device.pipeline_cache.generation + 1
+
+		if milliseconds >= 50 then
+			logf("[pipeline] the driver compiled a graphics pipeline in %.0f ms (not in the pipeline cache)\n", milliseconds)
+		end
+	end
 end
 
 function GraphicsPipeline:OnRemove()
+	-- a job that never ran leaves no pipeline to destroy
+	pcall(self.Wait, self)
+
 	if self.device:IsValid() then
 		local device = self.device
 		local device_ptr = device.ptr[0]

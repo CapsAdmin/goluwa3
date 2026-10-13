@@ -2153,6 +2153,7 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		end
 	end
 
+	self.pipeline:Wait()
 	cmd:BindPipeline(self.pipeline, "graphics")
 
 	for _, fn in ipairs(self.bind_state_funcs) do
