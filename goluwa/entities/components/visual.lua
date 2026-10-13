@@ -24,6 +24,8 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local memcmp = import("goluwa/bindings/memory.lua").memcmp
 local visual = {}
 visual.scene_dirty_components = {}
 visual.scene_version = 0
@@ -1731,12 +1733,12 @@ do
 	visual.AABB_CHANGED_COMPONENTS = nil
 	visual.AABB_CHANGED_ALL = false
 
-	event.AddListener("LODSettingsChanged", "visual_lod_settings", function()
-		visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
 	event.AddListener("CullingSettingsChanged", "visual_culling_settings", function()
 		visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
 	end)
 
+	event.AddListener("LODSettingsChanged", "visual_lod_settings", function()
+		visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
 
 		if visual.bvh_level ~= lod.GetBVHLevel() then
 			visual.bvh_level = lod.GetBVHLevel()
@@ -2149,10 +2151,10 @@ do
 	end
 
 	local function is_aabb_visible_frustum(aabb, frustum_planes)
-		for i = 0, 20, 4 do
-			local a, b, c, d = frustum_planes[i], frustum_planes[i + 1], frustum_planes[i + 2], frustum_planes[i + 3]
 		if not gpu_culling.culling_enabled then return true end
 
+		for i = 0, 20, 4 do
+			local a, b, c, d = frustum_planes[i], frustum_planes[i + 1], frustum_planes[i + 2], frustum_planes[i + 3]
 			local px = a > 0 and aabb.max_x or aabb.min_x
 			local py = b > 0 and aabb.max_y or aabb.min_y
 			local pz = c > 0 and aabb.max_z or aabb.min_z
@@ -3656,7 +3658,14 @@ function Visual:OnFirstCreated()
 	end)
 
 	do
-		local draws = {}
+		-- what the translucent passes draw this frame, in arrays that are reused from one frame to the next
+		local draw_count = 0
+		local draw_entries, draw_materials, draw_world_matrices, draw_prev_world_matrices, draw_thicknesses = {}, {}, {}, {}, {}
+		-- what is worked out of a component's entries and their materials stays true until the entries, the material
+		-- override or a material change, so it is kept per component. what depends on where the entry is stays true until
+		-- its world matrix changes, and only the distance to the camera is worked out every frame
+		local item_caches = setmetatable({}, {__mode = "k"})
+		local MATRIX_SIZE = ffi.sizeof(Matrix44)
 
 		local function get_refraction_thickness(material, entry, world_matrix)
 			local thickness = material:GetRefractionThickness()
@@ -3675,85 +3684,166 @@ function Visual:OnFirstCreated()
 			)
 		end
 
+		local function get_items(component)
+			local entries = component:GetRenderEntries()
+			local cache = item_caches[component]
+
+			if
+				cache and
+				cache.entries == entries and
+				cache.material_override == component.MaterialOverride
+			then
+				local items = cache.items
+				local valid = true
+
+				for i = 1, #items do
+					local item = items[i]
+
+					if item.material.property_version ~= item.version then
+						valid = false
+
+						break
+					end
+				end
+
+				if valid then return items end
+			end
+
+			local items = cache and cache.items or {}
+			local count = 0
+
+			for _, entry in ipairs(entries) do
+				local material = component:GetResolvedMaterial(entry)
+				count = count + 1
+				local item = items[count]
+
+				if not item then
+					item = {matrix = Matrix44()}
+					items[count] = item
+				end
+
+				local translucent = material_is_translucent(material)
+				item.entry = entry
+				item.material = material
+				item.version = material.property_version
+				item.translucent = translucent
+				item.refractive = translucent and material:GetRefraction() > 0
+				item.glass = translucent and entry.source_aabb ~= nil and material:IsGlass()
+				item.has_matrix = false
+			end
+
+			for i = count + 1, #items do
+				items[i] = nil
+			end
+
+			if not cache then
+				cache = {}
+				item_caches[component] = cache
+			end
+
+			cache.entries = entries
+			cache.material_override = component.MaterialOverride
+			cache.items = items
+			return items
+		end
+
+		-- the world matrix of an item, and what is worked out of it: the world center and radius of the entry's
+		-- bounds and the thickness of what refracts
+		local function get_item_matrix(component, item)
+			local entry = item.entry
+			local world_matrix = entry.transform and entry.transform:GetWorldMatrix() or component:GetWorldMatrix()
+
+			if not world_matrix then return nil end
+
+			if item.has_matrix and memcmp(item.matrix, world_matrix, MATRIX_SIZE) == 0 then
+				return world_matrix
+			end
+
+			ffi.copy(item.matrix, world_matrix, MATRIX_SIZE)
+			item.has_matrix = true
+			local aabb = entry.source_aabb
+			local x, y, z = 0, 0, 0
+			local radius = math.huge
+
+			if aabb then
+				x, y, z = (aabb.min_x + aabb.max_x) * 0.5, (aabb.min_y + aabb.max_y) * 0.5, (aabb.min_z + aabb.max_z) * 0.5
+				local m = world_matrix
+				local dx, dy, dz = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z
+				radius = 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz) * math.sqrt(
+						math.max(
+							m.m00 * m.m00 + m.m01 * m.m01 + m.m02 * m.m02,
+							m.m10 * m.m10 + m.m11 * m.m11 + m.m12 * m.m12,
+							m.m20 * m.m20 + m.m21 * m.m21 + m.m22 * m.m22
+						)
+					)
+			end
+
+			item.center_x, item.center_y, item.center_z = world_matrix:TransformVectorUnpacked(x, y, z)
+			item.radius = radius
+			item.thickness = item.refractive and get_refraction_thickness(item.material, entry, world_matrix) or 0
+			return world_matrix
+		end
+
 		event.AddListener("PreDraw3DTranslucent", "visual_translucent_collect", function()
 			local camera_position = render3d.GetCamera():GetPosition()
-			draws = {}
+			local camera_x, camera_y, camera_z = camera_position.x, camera_position.y, camera_position.z
+			local previous_count = draw_count
+			draw_count = 0
 
 			for _, component in ipairs(visual.translucent_components) do
 				if component.Visible and not component:IsCulled() then
-					for _, entry in ipairs(component:GetRenderEntries()) do
-						local material = component:GetResolvedMaterial(entry)
-						local world_matrix = entry.transform and
-							entry.transform:GetWorldMatrix() or
-							component:GetWorldMatrix()
+					local items = get_items(component)
 
-						if material_is_translucent(material) and world_matrix then
-							local aabb = entry.source_aabb
-							local x, y, z = 0, 0, 0
-							local radius = math.huge
+					for i = 1, #items do
+						local item = items[i]
 
-							if aabb then
-								x, y, z = (aabb.min_x + aabb.max_x) * 0.5,
-								(aabb.min_y + aabb.max_y) * 0.5,
-								(aabb.min_z + aabb.max_z) * 0.5
-								local m = world_matrix
-								local dx, dy, dz = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z
-								radius = 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz) * math.sqrt(
-										math.max(
-											m.m00 * m.m00 + m.m01 * m.m01 + m.m02 * m.m02,
-											m.m10 * m.m10 + m.m11 * m.m11 + m.m12 * m.m12,
-											m.m20 * m.m20 + m.m21 * m.m21 + m.m22 * m.m22
-										)
-									)
-							end
+						if item.translucent then
+							local world_matrix = get_item_matrix(component, item)
 
-							x, y, z = world_matrix:TransformVectorUnpacked(x, y, z)
-							x, y, z = x - camera_position.x, y - camera_position.y, z - camera_position.z
-							local distance = math.sqrt(x * x + y * y + z * z)
-							render3d.ExtendTranslucentDepthRange(distance - radius, distance + radius)
-							local thickness = 0
+							if world_matrix then
+								local x, y, z = item.center_x - camera_x, item.center_y - camera_y, item.center_z - camera_z
+								local distance = math.sqrt(x * x + y * y + z * z)
+								render3d.ExtendTranslucentDepthRange(distance - item.radius, distance + item.radius)
 
-							if material:GetRefraction() > 0 then
-								render3d.RequestRefractionSource()
-								thickness = get_refraction_thickness(material, entry, world_matrix)
-							end
+								if item.refractive then render3d.RequestRefractionSource() end
 
-							draws[#draws + 1] = {
-								entry = entry,
-								material = material,
-								world_matrix = world_matrix,
-								prev_world_matrix = entry.transform and
+								local entry = item.entry
+								draw_count = draw_count + 1
+								draw_entries[draw_count] = entry
+								draw_materials[draw_count] = item.material
+								draw_world_matrices[draw_count] = world_matrix
+								draw_prev_world_matrices[draw_count] = entry.transform and
 									entry.transform:GetPreviousWorldMatrix() or
-									component:GetPreviousWorldMatrix(),
-								thickness = thickness,
-							}
+									component:GetPreviousWorldMatrix()
+								draw_thicknesses[draw_count] = item.thickness
+							end
 						end
 					end
 				end
+			end
+
+			for i = draw_count + 1, previous_count do
+				draw_entries[i] = nil
+				draw_materials[i] = nil
+				draw_world_matrices[i] = nil
+				draw_prev_world_matrices[i] = nil
 			end
 		end)
 
 		event.AddListener("CollectGlassTint", "visual_glass_tint_collect", function(out)
 			for _, component in ipairs(visual.glass_components) do
 				if component.Visible then
-					for _, entry in ipairs(component:GetRenderEntries()) do
-						local material = component:GetResolvedMaterial(entry)
-						local world_matrix = entry.transform and
-							entry.transform:GetWorldMatrix() or
-							component:GetWorldMatrix()
+					local items = get_items(component)
 
-						if
-							entry.source_aabb and
-							world_matrix and
-							material:IsGlass() and
-							material_is_translucent(material)
-						then
-							out[#out + 1] = {
-								entry = entry,
-								material = material,
-								world_matrix = world_matrix,
-								prev_world_matrix = world_matrix,
-							}
+					for i = 1, #items do
+						local item = items[i]
+
+						if item.glass then
+							local world_matrix = get_item_matrix(component, item)
+
+							if world_matrix then
+								out:Add(item.entry, item.material, world_matrix, world_matrix)
+							end
 						end
 					end
 				end
@@ -3761,12 +3851,13 @@ function Visual:OnFirstCreated()
 		end)
 
 		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
-			for _, draw in ipairs(draws) do
-				render3d.SetWorldMatrix(draw.world_matrix, draw.prev_world_matrix)
-				render3d.SetCurrentPolygon3D(draw.entry.polygon3d)
-				render3d.SetMaterial(draw.material)
-				render3d.UploadTranslucentConstants(draw.thickness)
-				draw.entry.polygon3d:Draw()
+			for i = 1, draw_count do
+				local polygon3d = draw_entries[i].polygon3d
+				render3d.SetWorldMatrix(draw_world_matrices[i], draw_prev_world_matrices[i])
+				render3d.SetCurrentPolygon3D(polygon3d)
+				render3d.SetMaterial(draw_materials[i])
+				render3d.UploadTranslucentConstants(draw_thicknesses[i])
+				polygon3d:Draw()
 			end
 		end)
 	end

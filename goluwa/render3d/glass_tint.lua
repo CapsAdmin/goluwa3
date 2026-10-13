@@ -61,6 +61,12 @@ local state = {
 }
 local slot_draws = {}
 local slot_matrices = {}
+local slot_visible = {}
+
+for slot = 1, 5 do
+	slot_visible[slot] = {}
+end
+
 glass_tint.draws = {}
 
 function glass_tint.IsEnabled()
@@ -88,10 +94,33 @@ Material.GlassCastsShadow = function()
 	return not glass_tint.IsEnabled()
 end
 
+-- the list the glass is collected into, its draws are reused from one frame to the next and a frame only changes
+-- what they hold
+local DrawList = {}
+DrawList.__index = DrawList
+
+function DrawList:Add(entry, material, world_matrix, prev_world_matrix)
+	local index = #self + 1
+	local draw = self.pool[index]
+
+	if not draw then
+		draw = {corners = {}}
+		self.pool[index] = draw
+	end
+
+	draw.entry = entry
+	draw.material = material
+	draw.world_matrix = world_matrix
+	draw.prev_world_matrix = prev_world_matrix
+	self[index] = draw
+end
+
+local all_draws = setmetatable({pool = {}}, DrawList)
+
 local function build_corners(draws)
 	for _, draw in ipairs(draws) do
 		local aabb = draw.entry.source_aabb
-		local corners = {}
+		local corners = draw.corners
 
 		for i = 0, 7 do
 			local x, y, z = draw.world_matrix:TransformVectorUnpacked(
@@ -101,8 +130,6 @@ local function build_corners(draws)
 			)
 			corners[i * 3 + 1], corners[i * 3 + 2], corners[i * 3 + 3] = x, y, z
 		end
-
-		draw.corners = corners
 	end
 end
 
@@ -147,8 +174,8 @@ local function fit_all(draws)
 	return true
 end
 
-local function cull(matrix, draws)
-	local visible = {}
+local function cull(matrix, draws, visible)
+	local count = 0
 
 	for _, draw in ipairs(draws) do
 		local corners = draw.corners
@@ -162,8 +189,13 @@ local function cull(matrix, draws)
 		end
 
 		if not (max_x < -1 or min_x > 1 or max_y < -1 or min_y > 1) then
-			visible[#visible + 1] = draw
+			count = count + 1
+			visible[count] = draw
 		end
+	end
+
+	for i = count + 1, #visible do
+		visible[i] = nil
 	end
 
 	return visible
@@ -180,13 +212,13 @@ local function fit_cascades(draws)
 		if shadow_map:IsEnabled() and shadow_map.light == sun.Owner then
 			if shadow_map.role == "inset" then
 				slot_matrices[INSET_SLOT] = shadow_map:GetLightSpaceMatrix(1)
-				slot_draws[INSET_SLOT] = cull(slot_matrices[INSET_SLOT], draws)
+				slot_draws[INSET_SLOT] = cull(slot_matrices[INSET_SLOT], draws, slot_visible[INSET_SLOT])
 			else
 				for i = 1, shadow_map:GetCascadeCount() do
 					if slot > 4 then break end
 
 					slot_matrices[slot] = shadow_map:GetLightSpaceMatrix(i)
-					slot_draws[slot] = cull(slot_matrices[slot], draws)
+					slot_draws[slot] = cull(slot_matrices[slot], draws, slot_visible[slot])
 					slot = slot + 1
 				end
 			end
@@ -211,9 +243,14 @@ do
 				Material.shadow_full_generation = Material.shadow_full_generation + 1
 			end
 
-			local draws = {}
-			slot_draws = {}
-			slot_matrices = {}
+			local draws = all_draws
+
+			for i = #draws, 1, -1 do
+				draws[i] = nil
+			end
+
+			table.clear(slot_draws)
+			table.clear(slot_matrices)
 			state.active = false
 
 			if enabled then
