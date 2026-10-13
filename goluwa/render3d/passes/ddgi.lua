@@ -527,7 +527,8 @@ local function pass_shade()
 				if (ddgi_data.glass_light != 0) glass = get_glass_light(origin, dir, t < 0.0 ? ddgi_data.ddgi_max_distance : t, 0.0);
 
 				if (t < 0.0) {
-					store_ray(pos, vec4(ddgi_sky(dir) * glass, DDGI_MISS_DISTANCE));
+					// the miss distance carries how much of the sky the glass lets through, from half the distance (none) to all of it
+					store_ray(pos, vec4(ddgi_sky(dir) * glass, DDGI_MISS_DISTANCE * mix(0.5, 1.0, dot(glass, vec3(0.2126, 0.7152, 0.0722)))));
 					return;
 				}
 
@@ -815,7 +816,7 @@ local IRRADIANCE_INTEGRATE = {
 
 		if (radiance_luma > ray_cap) radiance *= ray_cap / radiance_luma;
 
-		sum += vec4(radiance * w, ray.a >= DDGI_MISS_DISTANCE * 0.5 ? w : 0.0);
+		sum += vec4(radiance * w, ray.a >= DDGI_MISS_DISTANCE * 0.5 ? w * (ray.a / DDGI_MISS_DISTANCE * 2.0 - 1.0) : 0.0);
 		weight_sum += w;
 	]],
 	result = [[
