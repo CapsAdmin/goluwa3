@@ -2075,7 +2075,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 end
 
 function ShadowMap:IsWorldAABBVisible(cascade_index, world_aabb)
-	if not world_aabb then return true end
+	if not world_aabb or not gpu_culling.culling_enabled then return true end
 
 	local cascade = self.cascade[cascade_index]
 
@@ -2096,7 +2096,7 @@ end
 function ShadowMap:IsWorldAABBTooSmall(cascade_index, world_aabb)
 	local min_caster_texel_size = self.min_caster_texel_size or 0
 
-	if min_caster_texel_size <= 0 then return false end
+	if min_caster_texel_size <= 0 or not gpu_culling.culling_enabled then return false end
 
 	local width_texels, height_texels = get_shadow_texel_coverage(self, cascade_index, world_aabb)
 	return width_texels < min_caster_texel_size and height_texels < min_caster_texel_size

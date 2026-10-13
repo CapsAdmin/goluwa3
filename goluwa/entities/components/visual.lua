@@ -1733,6 +1733,10 @@ do
 
 	event.AddListener("LODSettingsChanged", "visual_lod_settings", function()
 		visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
+	event.AddListener("CullingSettingsChanged", "visual_culling_settings", function()
+		visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
+	end)
+
 
 		if visual.bvh_level ~= lod.GetBVHLevel() then
 			visual.bvh_level = lod.GetBVHLevel()
@@ -2147,6 +2151,8 @@ do
 	local function is_aabb_visible_frustum(aabb, frustum_planes)
 		for i = 0, 20, 4 do
 			local a, b, c, d = frustum_planes[i], frustum_planes[i + 1], frustum_planes[i + 2], frustum_planes[i + 3]
+		if not gpu_culling.culling_enabled then return true end
+
 			local px = a > 0 and aabb.max_x or aabb.min_x
 			local py = b > 0 and aabb.max_y or aabb.min_y
 			local pz = c > 0 and aabb.max_z or aabb.min_z
@@ -2239,7 +2245,7 @@ do
 	end
 
 	local function is_aabb_visible_world(world_aabb)
-		if visual.noculling then return true end
+		if visual.noculling or not gpu_culling.culling_enabled then return true end
 
 		if not world_aabb then return true end
 
@@ -2247,7 +2253,7 @@ do
 	end
 
 	local function is_aabb_within_cull_distance(world_aabb, cull_distance, camera_position)
-		if visual.noculling then return true end
+		if visual.noculling or not gpu_culling.culling_enabled then return true end
 
 		if not world_aabb or not cull_distance or cull_distance <= 0 then return true end
 
@@ -2273,7 +2279,7 @@ do
 	end
 
 	local function is_world_aabb_visible(component, world_aabb, frustum_planes)
-		if visual.noculling then return true end
+		if visual.noculling or not gpu_culling.culling_enabled then return true end
 
 		if not world_aabb then return true end
 
@@ -2287,7 +2293,7 @@ do
 	end
 
 	local function is_static_item_visible(item, frustum_planes)
-		if visual.noculling then return true end
+		if visual.noculling or not gpu_culling.culling_enabled then return true end
 
 		local world_aabb = item.world_aabb
 
@@ -3302,7 +3308,7 @@ do
 	end
 
 	function Visual:IsAABBVisibleLocal()
-		if visual.noculling then return true end
+		if visual.noculling or not gpu_culling.culling_enabled then return true end
 
 		local local_aabb = self:GetAABB()
 
@@ -3320,7 +3326,7 @@ do
 	end
 
 	function Visual:IsWithinCullDistance()
-		if visual.noculling then return true end
+		if visual.noculling or not gpu_culling.culling_enabled then return true end
 
 		local world_aabb = self:GetWorldAABB()
 

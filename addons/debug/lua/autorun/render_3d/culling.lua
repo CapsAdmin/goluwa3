@@ -123,7 +123,7 @@ event.AddListener("Draw2D", "culling_debug_panel", function()
 	}
 	y = y + line_height
 	render2d.DrawText{
-		text = string.format("Frustum: %s", visual.noculling and "disabled" or "enabled"),
+		text = string.format("Frustum: %s", (visual.noculling or not gpu_culling.culling_enabled) and "disabled" or "enabled"),
 		x = x,
 		y = y,
 		foreground_color = colors.accent,

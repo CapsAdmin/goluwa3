@@ -11,8 +11,11 @@ local system = import("goluwa/system.lua")
 local Material = import("goluwa/render3d/material.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local lod = import("goluwa/render3d/lod.lua")
+local pvars = import("goluwa/cli/pvars.lua")
+local event = import("goluwa/event.lua")
 local render3d = nil
 local gpu_culling = {}
+gpu_culling.culling_enabled = true
 gpu_culling.generation = gpu_culling.generation or 0
 gpu_culling.enabled = true
 gpu_culling.MAX_SHADOW_QUERY_OUTPUTS = 512
@@ -171,6 +174,18 @@ local BATCH_FLAG_HEIGHT_MAP = 2
 gpu_culling.BATCH_COMMAND_GROUP_COUNT = 4
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local ASYNC_SLOT_HEADROOM = 3
+pvars.StartGroup("feature", {store = false})
+pvars.Setup2{
+	key = "r_feature_culling",
+	default = true,
+	friendly = "visibility culling",
+	help = "frustum, distance, size and occlusion culling of the main view and the shadow maps, off draws everything in the scene every frame, the worst case for benchmarking",
+	callback = function(enabled)
+		gpu_culling.culling_enabled = enabled
+		event.Call("CullingSettingsChanged")
+	end,
+}
+pvars.EndGroup()
 
 local function get_cull_slot_count()
 	local frame_count = math.max(render.GetSwapchainImageCount() or 1, 1)
@@ -382,9 +397,11 @@ function gpu_culling.Initialize()
 				{"lod_forced", "int"},
 				{"lod_scale", "float"},
 				{"lod_fade_width", "float"},
+				{"culling_enabled", "int"},
 			},
 			write = function(self, block)
 				block.visual_count = self.current_visual_count or 0
+				block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
 				block.lod_forced = lod.GetForcedLevel()
 				block.lod_scale = lod.GetScale()
 				block.lod_fade_width = lod.GetFadeWidth()
@@ -677,10 +694,12 @@ function gpu_culling.Initialize()
 				bool camera_inside_aabb = is_camera_inside_aabb(visual_record);
 
 				if ((visual_record.flags & VISUAL_FLAG_VISIBLE) == 0u) return;
-				if (!is_within_cull_distance(visual_record)) return;
-				if (!is_visible_in_frustum(visual_record)) return;
-				if (!camera_inside_aabb && !is_large_enough_in_screen_space(visual_record)) return;
-				if (!camera_inside_aabb && is_occluded(visual_record)) return;
+				if (compute.culling_enabled != 0) {
+					if (!is_within_cull_distance(visual_record)) return;
+					if (!is_visible_in_frustum(visual_record)) return;
+					if (!camera_inside_aabb && !is_large_enough_in_screen_space(visual_record)) return;
+					if (!camera_inside_aabb && is_occluded(visual_record)) return;
+				}
 
 				float lod_ratio = get_lod_ratio(visual_record);
 
@@ -849,9 +868,11 @@ function gpu_culling.Initialize()
 				{"min_caster_extent", "float"},
 				{"lod_forced", "int"},
 				{"lod_scale", "float"},
+				{"culling_enabled", "int"},
 			},
 			write = function(self, block)
 				block.visual_count = self.current_visual_count or 0
+				block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
 				block.lod_forced = lod.GetForcedLevel()
 				block.lod_scale = lod.GetScale()
 				block.query_min[0] = self.current_query_aabb and self.current_query_aabb.min_x or 0
@@ -1096,24 +1117,27 @@ function gpu_culling.Initialize()
 				bool camera_inside_aabb = is_camera_inside_aabb(visual_record);
 
 				if ((visual_record.flags & VISUAL_FLAG_CAST_SHADOWS) == 0u) return;
-				if (!overlaps_query(visual_record)) return;
 
-				// matches ShadowMap:IsWorldAABBTooSmall from the cpu fallback path:
-				// cull casters below the min texel size on both light axes
-				if (compute.min_caster_extent > 0.0) {
-					vec3 half_size = 0.5 * vec3(
-						visual_record.max_x - visual_record.min_x,
-						visual_record.max_y - visual_record.min_y,
-						visual_record.max_z - visual_record.min_z
-					);
-					mat3 light_rot = mat3(compute.light_view);
-					float extent_x = (abs(light_rot[0].x) * half_size.x + abs(light_rot[0].y) * half_size.y + abs(light_rot[0].z) * half_size.z) * 2.0;
-					float extent_y = (abs(light_rot[1].x) * half_size.x + abs(light_rot[1].y) * half_size.y + abs(light_rot[1].z) * half_size.z) * 2.0;
+				if (compute.culling_enabled != 0) {
+					if (!overlaps_query(visual_record)) return;
 
-					if (extent_x < compute.min_caster_extent && extent_y < compute.min_caster_extent) return;
+					// matches ShadowMap:IsWorldAABBTooSmall from the cpu fallback path:
+					// cull casters below the min texel size on both light axes
+					if (compute.min_caster_extent > 0.0) {
+						vec3 half_size = 0.5 * vec3(
+							visual_record.max_x - visual_record.min_x,
+							visual_record.max_y - visual_record.min_y,
+							visual_record.max_z - visual_record.min_z
+						);
+						mat3 light_rot = mat3(compute.light_view);
+						float extent_x = (abs(light_rot[0].x) * half_size.x + abs(light_rot[0].y) * half_size.y + abs(light_rot[0].z) * half_size.z) * 2.0;
+						float extent_y = (abs(light_rot[1].x) * half_size.x + abs(light_rot[1].y) * half_size.y + abs(light_rot[1].z) * half_size.z) * 2.0;
+
+						if (extent_x < compute.min_caster_extent && extent_y < compute.min_caster_extent) return;
+					}
+
+					if (!camera_inside_aabb && is_occluded(visual_record)) return;
 				}
-
-				if (!camera_inside_aabb && is_occluded(visual_record)) return;
 
 				float lod_ratio = get_lod_ratio(visual_record);
 
@@ -1307,7 +1331,7 @@ local function get_main_view_hiz_state()
 end
 
 function gpu_culling.PrepareMainViewHiZ(cmd)
-	if gpu_culling.GetOcclusionMode() ~= "hiz" then return end
+	if gpu_culling.GetOcclusionMode() ~= "hiz" or not gpu_culling.culling_enabled then return end
 
 	local state, depth_texture = get_main_view_hiz_state()
 	local buffer = state.buffers[state.write_index]

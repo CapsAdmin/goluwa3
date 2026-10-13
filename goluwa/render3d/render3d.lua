@@ -859,6 +859,8 @@ do
 	end
 
 	function render3d.SphereInFrustum(x, y, z, radius)
+		if not gpu_culling.culling_enabled then return true end
+
 		local planes = render3d.GetFrustumPlanes()
 
 		for i = 0, 20, 4 do
