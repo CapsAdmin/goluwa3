@@ -1100,19 +1100,19 @@ list.insert(
 				float screenspace_fade = reflection_dir.y > -0.2 ? 1.0 - smoothstep(0.1, 0.35, perceptual) : 0.0;
 				vec3 origin = surface_pos + normal * 0.02;
 				vec3 screenspace_color = vec3(0.0);
-				float reflection_weight = 0.0;
-				vec2 reflection_uv;
+				float screenspace_weight = 0.0;
+				vec2 screenspace_uv;
 				float screenspace_t;
 
-				if (!rt_primary && screenspace_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, reflection_uv, screenspace_t, reflection_weight)) {
-					screenspace_color = get_scene_color(reflection_uv);
-					reflection_weight *= screenspace_fade;
+				if (!rt_primary && screenspace_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, screenspace_uv, screenspace_t, screenspace_weight)) {
+					screenspace_color = get_scene_color(screenspace_uv);
+					screenspace_weight *= screenspace_fade;
 				}
 
 				#ifdef SCENE_REFLECTION
 				// what the screen doesn't hold is traced, at any roughness: a ray per pixel through the
 				// waves' unresolved slopes, which ocean_resolve averages into the blurred reflection
-				if (reflection_weight < 0.999 && scene_reflection_ready()) {
+				if (screenspace_weight < 0.999 && scene_reflection_ready()) {
 					vec3 dir = reflection_dir;
 
 					if (perceptual > 0.1) {
@@ -1128,11 +1128,11 @@ list.insert(
 
 					float traced_t;
 					vec3 traced = trace_scene_reflection(origin, dir, normal, perceptual, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
-					return rt_primary ? traced : mix(traced, screenspace_color, reflection_weight);
+					return rt_primary ? traced : mix(traced, screenspace_color, screenspace_weight);
 				}
 				#endif
 
-				return mix(reflected, screenspace_color, reflection_weight);
+				return mix(reflected, screenspace_color, screenspace_weight);
 			}
 
 			// ---------------------------------------------------------------
