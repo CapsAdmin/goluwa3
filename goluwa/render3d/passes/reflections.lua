@@ -28,6 +28,11 @@ local filter_radius = pvars.Setup2{
 	max = 16,
 	help = "radius in texels of the half resolution (a full resolution texel counts as half) the denoiser averages a fully rough reflection over, it falls to 1 as the surface gets smooth. the taps are weighted by plane distance, normal and roughness so it stays on the surface",
 }
+local hit_reprojection = pvars.Setup2{
+	key = "reflection_hit_reprojection",
+	default = true,
+	help = "the history of a reflection is read where the reflected image was last frame, found from the hit distance, and not where the surface was. off, the reflection drags along with the surface and bends when the camera moves",
+}
 local SCALES = {full = 1, half = 0.5, quarter = 0.25}
 local resolution = pvars.Setup2{
 	key = "reflection_resolution",
@@ -146,6 +151,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"raw_distance_tex", "int"},
 				{"filter_radius", "float"},
 				{"roughness_cutoff", "float"},
+				{"hit_reprojection", "int"},
 				{"jitter_shift", "vec2"},
 				{"prev_view", "mat4"},
 				{"prev_projection", "mat4"},
@@ -166,6 +172,7 @@ local function get_uniform_buffers(with_ddgi)
 				block.frame_index = render3d.GetTemporalFrame()
 				block.rough_rays = rough_rays:Get()
 				block.filter_radius = filter_radius:Get()
+				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
 				local _, gi_end = ibl.GetReflectionGIRange()
 				block.roughness_cutoff = gi_end
 				local camera = render3d.GetCamera()
@@ -642,6 +649,8 @@ return {
 				float hit_distance = texelFetch(TEXTURE(reflection_data.raw_distance_tex), pos, 0).r;
 
 				// no hit (the sky, or nothing found): as far as it goes
+				bool has_hit = hit_distance > 0.0 && current.a > 0.5;
+
 				if (hit_distance <= 0.0) hit_distance = 1000.0;
 
 				// the lobe's width at the hit, in meters, over the size of a texel on this surface: how many
@@ -724,8 +733,42 @@ return {
 						// is stored and read at texel centres. reading it at the pixel's own position
 						// would shift the feedback by that offset every frame, smearing it one way
 						prev_uv += (vec2(pos) + 0.5) / vec2(reflection_size) - uv;
-						if (prev_uv.x > 0.0 && prev_uv.x < 1.0 && prev_uv.y > 0.0 && prev_uv.y < 1.0) {
-							float history_depth = texture(TEXTURE(reflection_data.history_depth_tex), prev_uv).r;
+						// the reflection is an image behind the surface, hit_distance past it along the view ray, and it
+						// moves with the camera by another amount than the surface does. the history is read where the
+						// image was, as far as the hit distance says where that is, which it does not for a rough
+						// surface (an average of rays going everywhere). what is left of the difference is not
+						// corrected, and the history is held back by it
+						float history_weight_scale = 1.0;
+						vec2 surface_prev_uv = prev_uv;
+
+						if (reflection_data.hit_reprojection != 0 && has_hit) {
+							vec3 view_ray = normalize(center_world - reflection_data.camera_position.xyz);
+							// the image of a curved mirror is not hit_distance behind it. 1 / image = 1 / hit + 2 * curvature
+							// (a convex surface brings it closer, a concave one pushes it out and past a point there is no
+							// image behind the surface at all), the curvature is how far the normal turns over a texel
+							vec3 step_x_world = get_world_pos((vec2(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) + 0.5) / vec2(gbuffer_size), gbuffer_depth(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1))) - center_world;
+							vec3 step_y_world = get_world_pos((vec2(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1)) + 0.5) / vec2(gbuffer_size), gbuffer_depth(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1))) - center_world;
+							float curvature = 0.5 * (
+								dot(gbuffer_normal(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) - N, step_x_world) / max(dot(step_x_world, step_x_world), 1e-8) +
+								dot(gbuffer_normal(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1)) - N, step_y_world) / max(dot(step_y_world, step_y_world), 1e-8)
+							);
+							float image_scale = 1.0 + 2.0 * curvature * hit_distance;
+							float image_distance = image_scale > 0.2 ? hit_distance / image_scale : 0.0;
+							vec4 static_clip = reflection_data.prev_projection * (reflection_data.prev_view * vec4(center_world, 1.0));
+							vec4 image_clip = reflection_data.prev_projection * (reflection_data.prev_view * vec4(center_world + view_ray * image_distance, 1.0));
+
+							if (static_clip.w > 1e-5 && image_clip.w > 1e-5) {
+								vec2 image_shift = image_clip.xy / image_clip.w * 0.5 - static_clip.xy / static_clip.w * 0.5;
+								float uncorrected = smoothstep(0.1, 0.5, roughness);
+								prev_uv += image_shift * (1.0 - uncorrected);
+								history_weight_scale = 1.0 - 0.5 * smoothstep(1.0, 6.0, length(image_shift * uncorrected * vec2(reflection_size)));
+							}
+						}
+
+						if (prev_uv.x > 0.0 && prev_uv.x < 1.0 && prev_uv.y > 0.0 && prev_uv.y < 1.0 && surface_prev_uv.x > 0.0 && surface_prev_uv.x < 1.0 && surface_prev_uv.y > 0.0 && surface_prev_uv.y < 1.0) {
+							// the surface is checked where it was, the image is somewhere else on it (or on something else,
+							// the colour clamp holds that back)
+							float history_depth = texture(TEXTURE(reflection_data.history_depth_tex), surface_prev_uv).r;
 
 							if (abs(history_depth - prev_depth) < prev_depth * 0.05 + 0.02) {
 								vec4 history = texture(TEXTURE(reflection_data.history_tex), prev_uv);
@@ -739,7 +782,7 @@ return {
 									// line of the bright environment fallback along the contact
 									if (alpha_min <= alpha_max) history.a = clamp(history.a, alpha_min, alpha_max);
 									float history_weight = mix(REFLECTION_HIST_LO, REFLECTION_HIST_HI, smoothstep(0.0, 0.3, roughness));
-									result = mix(filtered, history, history_weight);
+									result = mix(filtered, history, history_weight * history_weight_scale);
 								}
 							}
 						}
