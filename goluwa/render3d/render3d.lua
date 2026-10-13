@@ -375,6 +375,14 @@ function render3d.GetNoisePhase()
 	return 0
 end
 
+-- what a pass that varies its sampling from frame to frame goes by. without a temporal anti aliasing mode
+-- nothing resolves the variation, so it shows as pixels that crawl, and the sampling is held still
+function render3d.GetTemporalFrame()
+	if render3d.IsTemporalAntiAliasingEnabled() then return system.GetFrameNumber() end
+
+	return 0
+end
+
 function render3d.IsTemporalAntiAliasingEnabled()
 	return render3d.IsAntiAliasingEnabled("taa") or
 		render3d.IsAntiAliasingEnabled("edge_aa_t") or

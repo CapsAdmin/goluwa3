@@ -75,7 +75,7 @@ return {
 					local exposure = post_source.GetExposureTexture(true)
 					block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
 					local frame = system.GetFrameNumber()
-					block.frame_index = frame
+					block.frame_index = render3d.GetTemporalFrame()
 					local camera = render3d.GetCamera()
 					local viewport = camera:GetViewport()
 					block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w

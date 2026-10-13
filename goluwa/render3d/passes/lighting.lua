@@ -139,7 +139,7 @@ return {
 						local current_idx = system.GetFrameNumber() % 2 + 1
 						local current_ssr_fb = render3d.pipelines.ssr:GetFramebuffer(current_idx)
 						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
-						block.ssr_phase = system.GetFrameNumber()
+						block.ssr_phase = render3d.GetTemporalFrame()
 					else
 						block.ssr_tex = -1
 					end
