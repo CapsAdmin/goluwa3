@@ -492,14 +492,23 @@ function material_proxies.Attach(material, source_text)
 end
 
 local function apply(material, variables)
+	local changed = false
+
 	for name, target in pairs(TRANSFORM_TARGETS) do
 		local m = variables[name]
 
 		if type(m) == "table" then
 			local u, v = material["Get" .. target .. "TransformU"](material),
 			material["Get" .. target .. "TransformV"](material)
+
+			-- the vectors are single precision, so compare what they hold before and after
+			local ux, uy, uz, vx, vy, vz = u.x, u.y, u.z, v.x, v.y, v.z
 			u.x, u.y, u.z = m[1], m[2], m[3]
 			v.x, v.y, v.z = m[4], m[5], m[6]
+
+			if ux ~= u.x or uy ~= u.y or uz ~= u.z or vx ~= v.x or vy ~= v.y or vz ~= v.z then
+				changed = true
+			end
 		end
 	end
 
@@ -507,12 +516,21 @@ local function apply(material, variables)
 	local tint = variables.color
 
 	if type(tint) == "table" then
+		local r, g, b = color.r, color.g, color.b
 		color.r, color.g, color.b = tint[1] or 1, tint[2] or tint[1] or 1, tint[3] or tint[1] or 1
+
+		if r ~= color.r or g ~= color.g or b ~= color.b then changed = true end
 	end
 
-	if type(variables.alpha) == "number" then color.a = variables.alpha end
+	if type(variables.alpha) == "number" then
+		local a = color.a
+		color.a = variables.alpha
+
+		if a ~= color.a then changed = true end
+	end
 
 	material.proxy_frame = variables.frame
+	return changed
 end
 
 function material_proxies.Update(time)
@@ -528,16 +546,24 @@ function material_proxies.Update(time)
 		end
 
 		state.fn(variables, time)
-		apply(material, variables)
+		local changed = apply(material, variables)
 
 		for _, animation in ipairs(state.animations) do
 			local texture = state.originals[animation]
 			local frame = variables[animation.frame]
 
 			if texture and type(frame) == "number" then
-				material[TEXTURE_PROPERTIES[animation.texture]] = texture:GetFrameTexture(math.floor(frame) % texture:GetFrameCount())
+				local key = TEXTURE_PROPERTIES[animation.texture]
+				local frame_texture = texture:GetFrameTexture(math.floor(frame) % texture:GetFrameCount())
+
+				if material[key] ~= frame_texture then
+					changed = true
+					material[key] = frame_texture
+				end
 			end
 		end
+
+		if changed then material:Touch() end
 	end
 end
 

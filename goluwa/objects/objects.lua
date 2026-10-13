@@ -773,6 +773,13 @@ do
 		return lookup
 	end
 
+	-- every version stamped on an object by a versioned property is a slot in a ring of the objects that were stamped, so
+	-- whatever keeps something for objects can find the ones that changed since it last looked, as long as that
+	-- was less than VERSION_LOG_SIZE stamps ago
+	objects.version_counter = objects.version_counter or 0
+	objects.VERSION_LOG_SIZE = 65536
+	objects.version_log = objects.version_log or setmetatable({}, {__mode = "v"})
+
 	local function notify_property_listeners(self, info, old_value, new_value)
 		if info.callback then
 			if type(info.callback) == "string" then
@@ -821,6 +828,13 @@ do
 
 			local old_value = self[info.var_name]
 			self[info.var_name] = var
+
+			if info.versioned and old_value ~= var then
+				local version = objects.version_counter + 1
+				objects.version_counter = version
+				self.property_version = version
+				objects.version_log[version % objects.VERSION_LOG_SIZE] = self
+			end
 
 			if info.callback or self.property_change_listeners then
 				if self.SuppressEvents then return end

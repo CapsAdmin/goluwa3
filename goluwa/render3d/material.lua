@@ -12,7 +12,8 @@ local Vec4 = import("goluwa/structs/vec4.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local Material = objects.CreateTemplate("render3d_material")
-Material:StartStorable()
+-- versioned properties stamp the material with a new property_version when they change, see Material:Touch
+Material:StartStorable({versioned = true})
 Material:StartCategory("Albedo")
 Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "InvalidateAlbedo"})
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0), {callback = "InvalidateColor"})
@@ -115,6 +116,15 @@ Material:GetSet("OriginalMaterial", "", {multiline = true})
 Material:EndCategory()
 Material:EndStorable()
 Material:GetSet("Flags", 0)
+Material.property_version = 0
+
+-- for code that changes a vector or color of the material in place, which no setter sees
+function Material:Touch()
+	local version = objects.version_counter + 1
+	objects.version_counter = version
+	self.property_version = version
+	objects.version_log[version % objects.VERSION_LOG_SIZE] = self
+end
 
 function Material:GetCullMode()
 	return self.DoubleSided and "none" or orientation.CULL_MODE
