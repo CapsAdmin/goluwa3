@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -7,6 +8,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local system = import("goluwa/system.lua")
 local physics
+local MATRIX_SIZE = ffi.sizeof(Matrix44)
 local attachment_matrix = Matrix44()
 local rotation_matrix = Matrix44()
 
@@ -397,18 +399,26 @@ function META:GetWorldMatrix()
 	return self.WorldMatrix
 end
 
+-- the world matrix of this frame is kept for the next one, in two matrices that take turns
 function META:GetPreviousWorldMatrix()
 	local world = self:GetWorldMatrix()
 	local frame = system.GetFrameNumber()
 
 	if self.RenderWorldMatrixFrame ~= frame then
+		local current = self.RenderWorldMatrix
+		local spare = self.SpareRenderWorldMatrix
+
 		if self.RenderWorldMatrixFrame == frame - 1 then
-			self.PreviousRenderWorldMatrix = self.RenderWorldMatrix
+			self.PreviousRenderWorldMatrix = current
 		else
 			self.PreviousRenderWorldMatrix = nil
 		end
 
-		self.RenderWorldMatrix = world:Copy()
+		if not spare then spare = Matrix44() end
+
+		ffi.copy(spare, world, MATRIX_SIZE)
+		self.RenderWorldMatrix = spare
+		self.SpareRenderWorldMatrix = current
 		self.RenderWorldMatrixFrame = frame
 	end
 
