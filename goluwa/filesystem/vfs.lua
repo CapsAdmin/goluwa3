@@ -77,7 +77,9 @@ do
 
 	local translate_cache = {[true] = {}, [false] = {}}
 	local translate_cache_count = 0
-	local translate_cache_limit = 50000
+	-- every cached path holds a table per mounted path, 50000 of them were 500 MB of the Lua heap of a big
+	-- map and a third of the time of a collection cycle, for a load that is not faster for it
+	local translate_cache_limit = 2000
 
 	function vfs.ClearTranslateCache()
 		table.clear(translate_cache[true])
