@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
+local memcmp = import("goluwa/bindings/memory.lua").memcmp
 local render = import("goluwa/render/render.lua")
 local upload_probe = import("goluwa/render/upload_probe.lua")
 local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
@@ -187,12 +188,10 @@ local function upload_ubo(
 
 		if info.block.write then info.block.write(self, ubo_data, info.block) end
 
-		local src = ffi.cast("uint8_t *", ubo_data)
-
 		if
 			persistent_entry and
 			persistent_entry.snapshot and
-			persistent_bytes_equal(persistent_entry.snapshot, src, info.ubo.size)
+			persistent_bytes_equal(persistent_entry.snapshot, ubo_data, info.ubo.size)
 		then
 			cache_hit = true
 			offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
@@ -212,7 +211,7 @@ local function upload_ubo(
 			end
 
 			info.ubo:UploadPersistent(persistent_entry.slot)
-			ffi.copy(persistent_entry.snapshot, src, info.ubo.size)
+			ffi.copy(persistent_entry.snapshot, ubo_data, info.ubo.size)
 			offset = info.ubo:GetOffset(frame_index, persistent_entry.slot)
 		end
 
@@ -503,26 +502,26 @@ do
 	function EasyPipeline:_BytesEqual(lhs, rhs, size)
 		if not size or size <= 0 then return false end
 
-		for i = 0, size - 1 do
-			if lhs[i] ~= rhs[i] then return false end
-		end
-
-		return true
+		return memcmp(lhs, rhs, size) == 0
 	end
 
+	-- what was pushed since the command buffer started recording is kept in entries[1..count], the entries
+	-- and their snapshots are reused from one recording to the next
 	function EasyPipeline:ShouldPushConstants(cmd, pipeline_key, stage_key, offset, data, size)
 		local cache = self.push_constant_cache_by_cmd[cmd]
 		local serial = cmd and cmd.recording_serial or 0
 
-		if not cache or cache.serial ~= serial then
-			cache = {serial = serial, entries = {}}
+		if not cache then
+			cache = {serial = serial, entries = {}, count = 0}
 			self.push_constant_cache_by_cmd[cmd] = cache
+		elseif cache.serial ~= serial then
+			cache.serial = serial
+			cache.count = 0
 		end
 
 		local entries = cache.entries
-		local src = ffi.cast("uint8_t *", data)
 
-		for i = #entries, 1, -1 do
+		for i = 1, cache.count do
 			local entry = entries[i]
 
 			if
@@ -531,20 +530,27 @@ do
 				entry.offset == offset and
 				entry.size == size
 			then
-				if self:_BytesEqual(entry.snapshot, src, size) then return false end
+				if memcmp(entry.snapshot, data, size) == 0 then return false end
 
-				table.remove(entries, i)
+				ffi.copy(entry.snapshot, data, size)
+				return true
 			end
 		end
 
-		entries[#entries + 1] = {
-			pipeline_key = pipeline_key,
-			stage_key = stage_key,
-			offset = offset,
-			size = size,
-			snapshot = ffi.new("uint8_t[?]", size),
-		}
-		ffi.copy(entries[#entries].snapshot, src, size)
+		local count = cache.count + 1
+		local entry = entries[count]
+
+		if not entry or entry.capacity < size then
+			entry = {capacity = size, snapshot = ffi.new("uint8_t[?]", size)}
+			entries[count] = entry
+		end
+
+		entry.pipeline_key = pipeline_key
+		entry.stage_key = stage_key
+		entry.offset = offset
+		entry.size = size
+		cache.count = count
+		ffi.copy(entry.snapshot, data, size)
 		return true
 	end
 

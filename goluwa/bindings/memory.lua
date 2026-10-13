@@ -5,9 +5,11 @@ ffi.cdef[[
 	void *realloc(void *ptr, size_t size);
 	void free(void *ptr);
 	void* memcpy(void* dest, const void* src, size_t n);
+	int memcmp(const void* lhs, const void* rhs, size_t n);
 ]]
 memory.free = ffi.C.free
 memory.realloc = ffi.C.realloc
 memory.malloc = ffi.C.malloc
 memory.memcpy = ffi.C.memcpy
+memory.memcmp = ffi.C.memcmp
 return memory
