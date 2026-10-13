@@ -2217,11 +2217,21 @@ void main()
     // (see ddgi_direct_light). The shadow rays skip the closest hit shader, so
     // only a miss changes the payload.
     if (hit_t >= 0.0 && params.sun_direction.w > 0.0) {
-        payload.hit_t = 1.0;
-        payload.sun = 1u;
-        traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin + dir * max(hit_t - DDGI_SHADOW_OFFSET, 0.0), 0.0, normalize(params.sun_direction.xyz), params.max_ray_distance, 0);
+        // the shade pass' normal, flipped to face the ray (a back face of a single sided material is discarded there anyway)
+        vec3 hit_normal = -bvh_tri(primitive).normal;
 
-        if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
+        if (dot(dir, hit_normal) > 0.0) hit_normal = -hit_normal;
+
+        vec3 sun_direction = normalize(params.sun_direction.xyz);
+
+        // a surface facing away from the sun gets no direct light, so no ray
+        if (dot(hit_normal, sun_direction) > 0.0) {
+            payload.hit_t = 1.0;
+            payload.sun = 1u;
+            traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin + dir * hit_t + hit_normal * DDGI_SHADOW_OFFSET, 0.0, sun_direction, params.max_ray_distance, 0);
+
+            if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
+        }
     }
 
     hits[index] = uvec2(floatBitsToUint(hit_t), primitive);
