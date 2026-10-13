@@ -115,6 +115,8 @@ return {
 					{"direct_debug", "int"},
 					{"reflection_tex", "int"},
 					{"reflection_phase", "int"},
+					{"reflection_gi_start", "float"},
+					{"reflection_gi_end", "float"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
@@ -150,6 +152,7 @@ return {
 						block.ambient_occlusion_tex = -1
 					end
 
+					block.reflection_gi_start, block.reflection_gi_end = ibl.GetReflectionGIRange()
 					local overlay = ddgi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
 

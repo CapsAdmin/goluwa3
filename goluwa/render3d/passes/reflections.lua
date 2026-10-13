@@ -7,140 +7,54 @@ local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_reflection.RAY_QUERY
-local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9, uvs = 10}
-return {
-	{
-		name = "reflections",
-		ComputePass = true,
-		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"reflections", "rgba"}},
-			{"r16_sfloat", {"reflection_depth", "r"}},
-		},
-		framebuffer_count = 2,
-		scale = 0.5,
-		LocalSize = COMPUTE_LOCAL_SIZE,
-		storage_images = {
-			{
-				binding_index = 0,
-				attachment = 1,
-				dst_stage = {"compute", "fragment"},
-			},
-			{
-				binding_index = 1,
-				attachment = 2,
-				dst_stage = {"compute", "fragment"},
-			},
-		},
-		descriptor_sets = RAY_QUERY and
-			scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
-			nil,
-		on_pre_draw = RAY_QUERY and
-			function(self, cmd, frame, desc)
-				scene_reflection.Bind(self, cmd, desc, REFLECTION_BINDINGS)
-			end or
-			nil,
-		uniform_buffers = {
-			{
-				name = "reflection_data",
-				binding_index = 3,
-				block = {
-					render3d.camera_block,
-					gbuffer_layout.block,
-					surface_weather.rain_surface_block,
-					render3d.last_frame_block,
-					{"blue_noise_tex", "int"},
-					{"exposure_tex", "int"},
-					{"env_tex", "int"},
-					{"history_tex", "int"},
-					{"history_depth_tex", "int"},
-					{"frame_index", "int"},
-					{"jitter_shift", "vec2"},
-					{"prev_view", "mat4"},
-					{"prev_projection", "mat4"},
-					post_source.pre_exposure_block,
-					RAY_QUERY and scene_reflection.block or nil,
-				},
-				write = function(self, block)
-					render3d.WriteCameraBlock(self, block)
-					gbuffer_layout.WriteBlock(self, block)
-					surface_weather.WriteRainSurfaceBlock(self, block)
-					render3d.WriteLastFrameBlock(self, block)
-					post_source.WritePreExposureBlock(self, block)
-					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-					local exposure = post_source.GetExposureTexture(true)
-					block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
-					local frame = system.GetFrameNumber()
-					block.frame_index = render3d.GetTemporalFrame()
-					local camera = render3d.GetCamera()
-					local viewport = camera:GetViewport()
-					block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w
-					block.jitter_shift[1] = (render3d.previous_jitter.y - camera:GetJitter().y) / viewport.h
+pvars.StartGroup("reflection", {store = false})
+local rough_rays = pvars.Setup2{
+	key = "reflection_rough_rays",
+	default = 4,
+	integer = true,
+	min = 1,
+	max = 16,
+	help = "rays a pixel traces once its surface is rough (the count rises from 1 between roughness 0.1 and 0.4), each in its own direction over the lobe, and their results are averaged. a single ray is one sharp point of the scene",
+}
+local filter_radius = pvars.Setup2{
+	key = "reflection_filter_radius",
+	default = 3,
+	min = 1,
+	max = 16,
+	help = "radius in texels of the half resolution (a full resolution texel counts as half) the denoiser averages a fully rough reflection over, it falls to 1 as the surface gets smooth. the taps are weighted by plane distance, normal and roughness so it stays on the surface",
+}
+local SCALES = {full = 1, half = 0.5, quarter = 0.25}
+local resolution = pvars.Setup2{
+	key = "reflection_resolution",
+	default = "half",
+	enums = {"full", "half", "quarter"},
+	help = "the resolution the reflections are traced and filtered at, relative to the screen. full traces a ray for every pixel (4 times the work of half), quarter a ray for every 4 by 4 pixels. the filter radius is the same on screen at every resolution",
+	callback = function()
+		-- the framebuffers take their size from the scale when they are made, the history starts over with them
+		if render3d.pipelines then
+			render3d.pipelines.reflections_trace:RecreateFramebuffers()
+			render3d.pipelines.reflections:RecreateFramebuffers()
+		end
+	end,
+}
 
-					if self.reflection_history_framebuffers ~= self.framebuffers then
-						self.reflection_history_framebuffers = self.framebuffers
-						self.reflection_history_reset_frame = frame
-					end
+local function get_scale()
+	return SCALES[resolution:Get()]
+end
 
-					if render3d.ShouldUseLastFrameHistory() and frame > self.reflection_history_reset_frame then
-						local history_fb = self:GetFramebuffer((frame + 1) % 2 + 1)
-						block.history_tex = self:GetTextureIndex(history_fb:GetAttachment(1))
-						block.history_depth_tex = self:GetTextureIndex(history_fb:GetAttachment(2))
-					else
-						block.history_tex = -1
-						block.history_depth_tex = -1
-					end
-
-					if RAY_QUERY then scene_reflection.WriteBlock(self, block) end
-
-					local prev_view = render3d.GetPreviousViewMatrix()
-					local prev_projection = render3d.GetPreviousProjectionMatrix()
-
-					if prev_view then
-						prev_view:CopyToFloatPointer(block.prev_view)
-					else
-						render3d.GetCamera():BuildViewMatrix():CopyToFloatPointer(block.prev_view)
-					end
-
-					if prev_projection then
-						prev_projection:CopyToFloatPointer(block.prev_projection)
-					else
-						render3d.GetCamera():BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
-					end
-
-					return block
-				end,
-			},
-			RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
-		},
-		custom_declarations = [[
-			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_reflection;
-			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_reflection_depth;
-		]] .. (
-				RAY_QUERY and
-				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or
-				""
-			),
-		shader = [[
-		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. surface_weather.GetRainSurfaceGLSL("reflection_data") .. [[
-		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. [[
-		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
-				RAY_QUERY and
-				scene_reflection.GetGLSL("reflection_data") or
-				""
-			) .. [[
-		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. [[
-		]] .. screen_reconstruct.GetGeometricNormalGLSL("reflection_data", {world_pos_function = "get_world_pos"}) .. [[
+pvars.EndGroup()
+local shared_glsl = [[
 			#define SCREENSPACE_MAX_STEPS 48
 			#define SCREENSPACE_BINARY_STEPS 6
 			#define SCREENSPACE_STRIDE 2.0
 			#define SCREENSPACE_MAX_DISTANCE 80.0
-			// where lighting stops using the reflection buffer (get_reflection_blend_weight)
-			#define REFLECTION_ROUGHNESS_CUTOFF 0.45
+			// where lighting stops using the reflection buffer (get_reflection_blend_weight), nothing above it is traced
+			#define REFLECTION_ROUGHNESS_CUTOFF (reflection_data.roughness_cutoff)
 			#define REFLECTION_MIRROR_THRESHOLD 0.06
 			// times white on screen, under last frame's exposure
 			#define REFLECTION_MAX_HIT_LUMINANCE 8.0
@@ -153,13 +67,7 @@ return {
 			#define REFLECTION_HIST_LO 0.9
 			#define REFLECTION_HIST_HI 0.97
 			#define REFLECTION_SPATIAL_NORMAL_POWER 32.0
-			#define REFLECTION_TILE_WIDTH ]] .. tostring(COMPUTE_LOCAL_SIZE.x) .. "\n" .. [[
-			#define REFLECTION_TILE_HEIGHT ]] .. tostring(COMPUTE_LOCAL_SIZE.y) .. [[
-
-			shared vec4 ssr_tile[REFLECTION_TILE_HEIGHT][REFLECTION_TILE_WIDTH];
-			shared float ssr_tile_depth[REFLECTION_TILE_HEIGHT][REFLECTION_TILE_WIDTH];
-			shared vec3 ssr_tile_normal[REFLECTION_TILE_HEIGHT][REFLECTION_TILE_WIDTH];
-
+			#define REFLECTION_FILTER_TAPS 16
 			ivec2 reflection_size;
 			ivec2 gbuffer_size;
 			vec4 inv_projection_row_z;
@@ -214,10 +122,160 @@ return {
 				return true;
 			}
 
-			vec2 blue_noise(ivec2 pixel) {
+]]
+local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9, uvs = 10}
+-- both passes read the same block, the history is the reflections pass's own
+local function get_uniform_buffers(with_ddgi)
+	return {
+		{
+			name = "reflection_data",
+			binding_index = 3,
+			block = {
+				render3d.camera_block,
+				gbuffer_layout.block,
+				surface_weather.rain_surface_block,
+				render3d.last_frame_block,
+				{"blue_noise_tex", "int"},
+				{"exposure_tex", "int"},
+				{"env_tex", "int"},
+				{"history_tex", "int"},
+				{"history_depth_tex", "int"},
+				{"frame_index", "int"},
+				{"rough_rays", "int"},
+				{"raw_tex", "int"},
+				{"raw_distance_tex", "int"},
+				{"filter_radius", "float"},
+				{"roughness_cutoff", "float"},
+				{"jitter_shift", "vec2"},
+				{"prev_view", "mat4"},
+				{"prev_projection", "mat4"},
+				post_source.pre_exposure_block,
+				RAY_QUERY and scene_reflection.block or nil,
+			},
+			write = function(self, block)
+				render3d.WriteCameraBlock(self, block)
+				gbuffer_layout.WriteBlock(self, block)
+				surface_weather.WriteRainSurfaceBlock(self, block)
+				render3d.WriteLastFrameBlock(self, block)
+				post_source.WritePreExposureBlock(self, block)
+				block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+				block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+				local exposure = post_source.GetExposureTexture(true)
+				block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
+				local frame = system.GetFrameNumber()
+				block.frame_index = render3d.GetTemporalFrame()
+				block.rough_rays = rough_rays:Get()
+				block.filter_radius = filter_radius:Get()
+				local _, gi_end = ibl.GetReflectionGIRange()
+				block.roughness_cutoff = gi_end
+				local camera = render3d.GetCamera()
+				local viewport = camera:GetViewport()
+				block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w
+				block.jitter_shift[1] = (render3d.previous_jitter.y - camera:GetJitter().y) / viewport.h
+
+				local reflections = render3d.pipelines.reflections
+
+				if reflections.reflection_history_framebuffers ~= reflections.framebuffers then
+					reflections.reflection_history_framebuffers = reflections.framebuffers
+					reflections.reflection_history_reset_frame = frame
+				end
+
+				block.raw_tex = self:GetTextureIndex(render3d.pipelines.reflections_trace:GetFramebuffer(1):GetAttachment(1))
+				block.raw_distance_tex = self:GetTextureIndex(render3d.pipelines.reflections_trace:GetFramebuffer(1):GetAttachment(2))
+
+				if render3d.ShouldUseLastFrameHistory() and frame > reflections.reflection_history_reset_frame then
+					local history_fb = reflections:GetFramebuffer((frame + 1) % 2 + 1)
+					block.history_tex = self:GetTextureIndex(history_fb:GetAttachment(1))
+					block.history_depth_tex = self:GetTextureIndex(history_fb:GetAttachment(2))
+				else
+					block.history_tex = -1
+					block.history_depth_tex = -1
+				end
+
+				if RAY_QUERY then scene_reflection.WriteBlock(self, block) end
+
+				local prev_view = render3d.GetPreviousViewMatrix()
+				local prev_projection = render3d.GetPreviousProjectionMatrix()
+
+				if prev_view then
+					prev_view:CopyToFloatPointer(block.prev_view)
+				else
+					render3d.GetCamera():BuildViewMatrix():CopyToFloatPointer(block.prev_view)
+				end
+
+				if prev_projection then
+					prev_projection:CopyToFloatPointer(block.prev_projection)
+				else
+					render3d.GetCamera():BuildProjectionMatrix():CopyToFloatPointer(block.prev_projection)
+				end
+
+				return block
+			end,
+		},
+		with_ddgi and RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
+	}
+end
+return {
+	{
+		name = "reflections_trace",
+		ComputePass = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"reflection_raw", "rgba"}},
+			{"r16_sfloat", {"reflection_raw_distance", "r"}},
+		},
+		framebuffer_count = 1,
+		scale = get_scale,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = 0,
+				attachment = 1,
+				dst_stage = {"compute", "fragment"},
+			},
+			{
+				binding_index = 1,
+				attachment = 2,
+				dst_stage = {"compute", "fragment"},
+			},
+		},
+		descriptor_sets = RAY_QUERY and
+			scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
+			nil,
+		on_pre_draw = RAY_QUERY and
+			function(self, cmd, frame, desc)
+				scene_reflection.Bind(self, cmd, desc, REFLECTION_BINDINGS)
+			end or
+			nil,
+		uniform_buffers = get_uniform_buffers(true),
+		custom_declarations = [[
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_raw;
+			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_raw_distance;
+		]] .. (
+				RAY_QUERY and
+				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or
+				""
+			),
+		shader = [[
+		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. surface_weather.GetRainSurfaceGLSL("reflection_data") .. [[
+		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. [[
+		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
+				RAY_QUERY and
+				scene_reflection.GetGLSL("reflection_data") or
+				""
+			) .. [[
+		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. [[
+		]] .. screen_reconstruct.GetGeometricNormalGLSL("reflection_data", {world_pos_function = "get_world_pos"}) .. [[
+		]] .. shared_glsl .. [[
+			// how far the ray that just found something went, in meters, set by the traces
+			float reflection_hit_distance;
+			vec2 blue_noise(ivec2 pixel, int sample_index) {
 				ivec2 noise_size = textureSize(TEXTURE(reflection_data.blue_noise_tex), 0);
+				// the pixel's blue noise texel, moved on by one step of the R2 sequence per sample. frame_index is 0 without a
+				// temporal anti aliasing mode (render3d.GetTemporalFrame), then the noise stays where it is instead of crawling,
+				// a pattern nothing resolves. sample is the frame's own ray number, rays_per_frame of them: a ray's numbers
+				// are never another frame's
 				vec2 xi = texelFetch(TEXTURE(reflection_data.blue_noise_tex), pixel % noise_size, 0).rg;
-				return fract(xi + float(reflection_data.frame_index % 64) * vec2(0.7548776662, 0.5698402910));
+				return fract(xi + float((reflection_data.frame_index % 64) * reflection_data.rough_rays + sample_index) * vec2(0.7548776662, 0.5698402910));
 			}
 
 			void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
@@ -364,6 +422,7 @@ return {
 									if (hit_luma > hit_limit) hit_color *= hit_limit / hit_luma;
 								}
 
+								reflection_hit_distance = length(hit_vs - pos_vs);
 								return vec4(hit_color, edge_fade * dist_fade * thick_conf);
 							}
 						}
@@ -398,7 +457,12 @@ return {
 					float rough_mix = smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness);
 					R_vs = normalize(mix(mirror_R_vs, reflect(-V_vs, H_vs), rough_mix));
 
-					if (dot(N_vs, R_vs) < 0.001) R_vs = mirror_R_vs;
+					// a sampled direction below the surface is reflected back above it. replacing it with the
+					// mirror ray (as it was) turned half the rays of a fully rough surface, 20% at 0.7, into the
+					// sharp mirror reflection, so the spread peaked at about 0.7 and fell again
+					float below_normal = dot(N_vs, R_vs);
+
+					if (below_normal < 0.001) R_vs = normalize(R_vs + N_vs * (0.001 - 2.0 * below_normal));
 				}
 
 				// a normal map tilted sideways can reflect below the actual surface,
@@ -428,6 +492,7 @@ return {
 					vec3 origin = world_pos + geometric_N * (0.02 + 0.002 * -pos_vs.z);
 					float traced_t;
 					vec3 traced = trace_scene_reflection(origin, R_world, N, roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+					reflection_hit_distance = traced_t;
 
 					if (roughness > REFLECTION_MIRROR_THRESHOLD) {
 						float traced_luma = luminance(traced);
@@ -447,18 +512,18 @@ return {
 
 			void main() {
 				ivec2 pos = get_screen_pos();
-				reflection_size = imageSize(out_reflection);
+				reflection_size = imageSize(out_raw);
 				gbuffer_size = textureSize(TEXTURE(reflection_data.depth_tex), 0);
 				mat4 inv_projection = reflection_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
 				max_hit_luminance = reflection_data.exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
-				ivec2 local_pos = ivec2(gl_LocalInvocationID.xy);
 				bool in_bounds = is_screen_pos_in_bounds(pos, reflection_size);
 				ivec2 gbuffer_pos = min(get_reflection_gbuffer_pos(pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
 				float depth = in_bounds ? gbuffer_depth(gbuffer_pos) : 1.0;
 				vec4 current = vec4(0.0);
+				float hit_distance = 0.0;
 				vec3 N = vec3(0.0, 1.0, 0.0);
 				vec3 world_pos = vec3(0.0);
 				float roughness = 1.0;
@@ -477,16 +542,79 @@ return {
 					float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * reflection_data.inv_projection[1][1] / float(gbuffer_size.y);
 					]] .. surface_features.GetReflectionGLSL() .. [[
 
-					current = cast_reflection_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(pos));
+					// a rough surface traces several rays, each with its own random numbers (see blue_noise)
+					// and the results are averaged weighted by what each found
+					int rays = 1 + int(float(reflection_data.rough_rays - 1) * smoothstep(0.03, 0.25, roughness) + 0.5);
+					vec4 sum = vec4(0.0);
+					float found = 0.0;
+					float distance_sum = 0.0;
+
+					for (int ray = 0; ray < rays; ray++) {
+						reflection_hit_distance = 0.0;
+						vec4 sample_hit = cast_reflection_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(pos, ray));
+						sum += vec4(sample_hit.rgb * sample_hit.a, sample_hit.a);
+						found += sample_hit.a;
+						distance_sum += reflection_hit_distance * sample_hit.a;
+					}
+
+					hit_distance = found > 0.0 ? distance_sum / found : 0.0;
+
+					current = found > 0.0 ? vec4(sum.rgb / found, found / float(rays)) : vec4(0.0);
 				}
 
-				ssr_tile[local_pos.y][local_pos.x] = current;
-				ssr_tile_depth[local_pos.y][local_pos.x] = view_depth;
-				ssr_tile_normal[local_pos.y][local_pos.x] = N;
-				memoryBarrierShared();
-				barrier();
-
 				if (!in_bounds) return;
+
+				imageStore(out_raw, pos, current);
+				imageStore(out_raw_distance, pos, vec4(hit_distance));
+			}
+		]],
+	},
+	{
+		name = "reflections",
+		ComputePass = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"reflections", "rgba"}},
+			{"r16_sfloat", {"reflection_depth", "r"}},
+		},
+		framebuffer_count = 2,
+		scale = get_scale,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = 0,
+				attachment = 1,
+				dst_stage = {"compute", "fragment"},
+			},
+			{
+				binding_index = 1,
+				attachment = 2,
+				dst_stage = {"compute", "fragment"},
+			},
+		},
+		uniform_buffers = get_uniform_buffers(false),
+		custom_declarations = [[
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_reflection;
+			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_reflection_depth;
+		]],
+		-- what the trace pass found, filtered over the surrounding texels (a pass of its own, a tile of
+		-- shared memory left a grid of noisier texels along its borders) and blended with the history
+		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. [[
+		]] .. ibl.GetReflectionQuadGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. shared_glsl .. [[
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				reflection_size = imageSize(out_reflection);
+				gbuffer_size = textureSize(TEXTURE(reflection_data.depth_tex), 0);
+				mat4 inv_projection = reflection_data.inv_projection;
+				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
+				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
+				max_hit_luminance = reflection_data.exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
+
+				if (!is_screen_pos_in_bounds(pos, reflection_size)) return;
+
+				ivec2 gbuffer_pos = min(get_reflection_gbuffer_pos(pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
+				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
+				float depth = gbuffer_depth(gbuffer_pos);
 
 				if (depth >= 1.0) {
 					imageStore(out_reflection, pos, vec4(0.0));
@@ -494,6 +622,11 @@ return {
 					return;
 				}
 
+				vec4 current = texelFetch(TEXTURE(reflection_data.raw_tex), pos, 0);
+				vec3 N = gbuffer_normal(gbuffer_pos);
+				// the gbuffer stores ggx alpha
+				float roughness = sqrt(gbuffer_roughness(gbuffer_pos));
+				float view_depth = -linearize_depth(uv, depth);
 				vec3 moment1 = vec3(0.0);
 				vec3 moment2 = vec3(0.0);
 				float alpha_accum = 0.0;
@@ -503,33 +636,70 @@ return {
 				float alpha_min = 1.0;
 				float alpha_max = 0.0;
 
-				for (int y = -1; y <= 1; y++) {
-					for (int x = -1; x <= 1; x++) {
-						ivec2 tile_pos = local_pos + ivec2(x, y);
+				// the center, then taps over a disc (a golden angle spiral turned by a per pixel angle, so the taps of
+				// neighbouring texels differ and the error is grain, not a pattern). the disc's radius is a texel
+				// for a reflection that stays sharp and grows with the lobe's width at the hit, up to filter_radius
+				float hit_distance = texelFetch(TEXTURE(reflection_data.raw_distance_tex), pos, 0).r;
 
-						if (tile_pos.x < 0 || tile_pos.y < 0 || tile_pos.x >= REFLECTION_TILE_WIDTH || tile_pos.y >= REFLECTION_TILE_HEIGHT) continue;
+				// no hit (the sky, or nothing found): as far as it goes
+				if (hit_distance <= 0.0) hit_distance = 1000.0;
 
-						float sample_depth = ssr_tile_depth[tile_pos.y][tile_pos.x];
+				// the lobe's width at the hit, in meters, over the size of a texel on this surface: how many
+				// texels reflect into the same lobe, and so how far a texel's neighbours can be averaged with it
+				float lobe_width = 2.0 * hit_distance * roughness * roughness;
+				float texel_size = view_depth * 2.0 * reflection_data.inv_projection[1][1] / float(reflection_size.y);
+				// on a curved surface the reflected rays of neighbouring texels diverge, the normal turns by dN between
+				// two and the reflection by twice that, so where they land at the hit moves by that much times the
+				// distance on top of the texel's own size. a flat surface has no dN and keeps the whole lobe
+				ivec2 texel_step = gbuffer_size / reflection_size;
+				float normal_change = max(
+					length(gbuffer_normal(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) - N),
+					length(gbuffer_normal(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1)) - N)
+				);
+				float hit_shift_per_texel = texel_size + 2.0 * hit_distance * normal_change;
+				// the radius pvar is in texels of the half resolution, a full resolution texel is half as far on screen
+				float max_radius = max(1.0, reflection_data.filter_radius * 2.0 / float(texel_step.x));
+				float disc_radius = clamp(lobe_width / max(hit_shift_per_texel, 1e-5), 1.0, max_radius);
+				float disc_turn = 6.2831853 * fract(52.9829189 * fract(dot(vec2(pos), vec2(0.06711056, 0.00583715))));
+				vec3 center_world = get_world_pos(uv, depth);
 
-						if (sample_depth <= 0.0) continue;
+				for (int tap = 0; tap <= REFLECTION_FILTER_TAPS; tap++) {
+					vec2 offset = vec2(0.0);
 
-						float depth_weight = exp(-abs(sample_depth - view_depth) / max(view_depth * 0.05, 0.05));
-						float normal_weight = pow(max(dot(N, ssr_tile_normal[tile_pos.y][tile_pos.x]), 0.0), REFLECTION_SPATIAL_NORMAL_POWER);
-						float weight = depth_weight * normal_weight;
-
-						if (weight <= 0.0001) continue;
-
-						vec4 sample_value = ssr_tile[tile_pos.y][tile_pos.x];
-						// rgb only counts as much as the sample found something
-						float sample_color_weight = weight * sample_value.a * get_firefly_weight(sample_value.rgb, max_hit_luminance);
-						moment1 += sample_value.rgb * sample_color_weight;
-						moment2 += sample_value.rgb * sample_value.rgb * sample_color_weight;
-						color_weight += sample_color_weight;
-						alpha_accum += sample_value.a * weight;
-						total_weight += weight;
-						alpha_min = min(alpha_min, sample_value.a);
-						alpha_max = max(alpha_max, sample_value.a);
+					if (tap > 0) {
+						float angle = disc_turn + float(tap) * 2.39996323;
+						offset = vec2(cos(angle), sin(angle)) * sqrt((float(tap) - 0.5) / float(REFLECTION_FILTER_TAPS)) * disc_radius;
 					}
+
+					ivec2 sample_pos = pos + ivec2(round(offset));
+
+					if (any(lessThan(sample_pos, ivec2(0))) || any(greaterThanEqual(sample_pos, reflection_size))) continue;
+
+					ivec2 sample_gbuffer_pos = min(get_reflection_gbuffer_pos(sample_pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
+					float sample_gbuffer_depth = gbuffer_depth(sample_gbuffer_pos);
+
+					if (sample_gbuffer_depth >= 1.0) continue;
+
+					// how far the tap's surface is from the center's plane, a slope has no view depth step to cut it
+					vec3 sample_world = get_world_pos((vec2(sample_gbuffer_pos) + 0.5) / vec2(gbuffer_size), sample_gbuffer_depth);
+					float plane_distance = abs(dot(N, sample_world - center_world));
+					float depth_weight = exp(-plane_distance / max(view_depth * 0.03, 0.03));
+					float normal_weight = pow(max(dot(N, gbuffer_normal(sample_gbuffer_pos)), 0.0), REFLECTION_SPATIAL_NORMAL_POWER);
+					float roughness_weight = 1.0 - clamp(abs(sqrt(gbuffer_roughness(sample_gbuffer_pos)) - roughness) * 6.0, 0.0, 1.0);
+					float weight = depth_weight * normal_weight * roughness_weight;
+
+					if (weight <= 0.0001) continue;
+
+					vec4 sample_value = texelFetch(TEXTURE(reflection_data.raw_tex), sample_pos, 0);
+					// rgb only counts as much as the sample found something
+					float sample_color_weight = weight * sample_value.a * get_firefly_weight(sample_value.rgb, max_hit_luminance);
+					moment1 += sample_value.rgb * sample_color_weight;
+					moment2 += sample_value.rgb * sample_value.rgb * sample_color_weight;
+					color_weight += sample_color_weight;
+					alpha_accum += sample_value.a * weight;
+					total_weight += weight;
+					alpha_min = min(alpha_min, sample_value.a);
+					alpha_max = max(alpha_max, sample_value.a);
 				}
 
 				vec4 filtered = current;
@@ -554,7 +724,6 @@ return {
 						// is stored and read at texel centres. reading it at the pixel's own position
 						// would shift the feedback by that offset every frame, smearing it one way
 						prev_uv += (vec2(pos) + 0.5) / vec2(reflection_size) - uv;
-
 						if (prev_uv.x > 0.0 && prev_uv.x < 1.0 && prev_uv.y > 0.0 && prev_uv.y < 1.0) {
 							float history_depth = texture(TEXTURE(reflection_data.history_depth_tex), prev_uv).r;
 

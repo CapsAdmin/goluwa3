@@ -1,4 +1,21 @@
+local pvars = import("goluwa/cli/pvars.lua")
 local ibl = {}
+pvars.StartGroup("reflection", {store = false})
+local gi_threshold = pvars.Setup2{
+	key = "reflection_gi_threshold",
+	default = 0.5,
+	min = 0,
+	max = 1,
+	help = "the perceptual roughness where a reflection starts to be the light computed from the gi (the probes and the environment) in place of what the rays traced, it is fully the gi 0.15 above. 1 is never: the rays are traced, and used, at every roughness. above the fade nothing is traced",
+}
+pvars.EndGroup()
+local GI_FADE = 0.15
+
+-- the roughness the reflections stop being traced and the roughness from which they are all the gi's
+function ibl.GetReflectionGIRange()
+	local start = gi_threshold:Get()
+	return start, start + GI_FADE
+end
 
 function ibl.GetBRDFGLSLCode()
 	return [[
@@ -220,8 +237,9 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				return mix(global_env, local_env, clamp(local_weight, 0.0, 1.0));
 			}
 
+			// how much of the reflection is what was traced, the rest is the gi's light (reflection_gi_threshold)
 			float get_reflection_blend_weight(float perceptual_roughness) {
-				return 1.0 - smoothstep(0.3, 0.45, clamp(perceptual_roughness, 0.0, 1.0));
+				return 1.0 - smoothstep(]] .. uniform_name .. [[.reflection_gi_start, ]] .. uniform_name .. [[.reflection_gi_end, clamp(perceptual_roughness, 0.0, 1.0));
 			}
 
 			float reconstruct_reflection_view_depth(vec2 uv, float depth) {
