@@ -512,10 +512,28 @@ do
 		return record_glsl .. table.concat(defines, "\n") .. "\n"
 	end
 
+	local write_record
+
+	-- one function with the field names in it, a field of a cdata read by a name that is not a constant is slow
 	function model_pipeline.WritePBRBatchRecord(pipeline, record)
-		for _, info in ipairs(get_record_blocks()) do
-			info.write(pipeline, record[info.field])
+		if not write_record then
+			local blocks = get_record_blocks()
+			local lines = {"local blocks = ...", "return function(pipeline, record)"}
+
+			for i, info in ipairs(blocks) do
+				lines[#lines + 1] = string.format("\tblocks[%d].write(pipeline, record.%s)", i, info.field)
+			end
+
+			lines[#lines + 1] = "end"
+			write_record = assert(loadstring(table.concat(lines, "\n"), "pbr_batch_record_writer"))(blocks)
 		end
+
+		return write_record(pipeline, record)
+	end
+
+	-- the part of a record that moves with the wind, for a batch whose material hasn't changed
+	function model_pipeline.WritePBRBatchAnimationRecord(pipeline, record)
+		model_pipeline.WriteVertexAnimationBlock(pipeline, record.m_vertex_animation)
 	end
 
 	function model_pipeline.CreateMultiDrawVertexStage(options)

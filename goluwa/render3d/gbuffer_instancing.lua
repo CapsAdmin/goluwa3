@@ -79,6 +79,12 @@ do
 		model_pipeline.WritePBRBatchRecord(pipeline, record)
 	end
 
+	local function write_animated(_, pipeline, record, batch)
+		render3d.SetCurrentPolygon3D(batch.first_polygon3d)
+		render3d.SetMaterial(batch.material)
+		model_pipeline.WritePBRBatchAnimationRecord(pipeline, record)
+	end
+
 	local result = {}
 	local pipelines = {}
 
@@ -117,6 +123,7 @@ do
 					label = pipeline.name .. "_batches",
 					record_type = model_pipeline.GetPBRBatchRecordType(),
 					write_record = write_record,
+					write_animated = write_animated,
 					per_frame = true,
 				}
 				batch_tables[pipeline] = batch_table

@@ -2620,6 +2620,11 @@ local function write_shadow_batch_record(self, pipeline, record, batch)
 	model_pipeline.FillVertexAnimationData(record.anim, material)
 end
 
+local function write_shadow_batch_animation(self, pipeline, record, batch)
+	render3d.SetCurrentPolygon3D(batch.first_polygon3d)
+	model_pipeline.FillVertexAnimationData(record.anim, batch.material)
+end
+
 function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_stats)
 	local submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 	local dataset = gpu_culling.GetSceneDataset()
@@ -2638,6 +2643,7 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 				label = "render3d_shadow_batches",
 				record_type = ShadowBatchRecord,
 				write_record = write_shadow_batch_record,
+				write_animated = write_shadow_batch_animation,
 			}
 			self.shadow_batch_tables[pipeline] = batch_table
 		end
