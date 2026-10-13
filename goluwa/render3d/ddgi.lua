@@ -23,13 +23,13 @@ end)
 ddgi.PROBES_PER_AXIS = 24
 local probe_spacing = pvars.Setup2{
 	key = "ddgi_probe_spacing",
-	default = 0.33,
+	default = 1,
 	min = 0.1,
 	help = "meters between the finest cascade's probes",
 }
 local cascade_ratio = pvars.Setup2{
 	key = "ddgi_cascade_ratio",
-	default = 5.01,
+	default = 2,
 	min = 1.25,
 	max = 8,
 	help = "how many times further apart the probes of each cascade are than those of the one before, the coarsest is that ratio cubed times the spacing of the finest. a lower ratio keeps probes fine for longer but the cascades together reach less far",
@@ -787,9 +787,6 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			// what a glass lets through: the share refracted through the albedo, and how much of the rest is covered
 			float glass_refraction;
 			float glass_covering;
-		};
-		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
-			ddgi_material ddgi_materials[];
 			// metals have no diffuse: the multiplier, and the texture it scales (-1 without) with the channel to read
 			float metallic;
 			int metallic_tex;
@@ -801,6 +798,9 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			int roughness_tex;
 			int roughness_channel;
 			};
+		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
+			ddgi_material ddgi_materials[];
+		};
 	]]
 end
 
@@ -2009,22 +2009,6 @@ function ddgi.WriteMaterialBuffer(self)
 			state.glass_count = (state.glass_count or 0) + entry.glass - was_glass
 			entry.glass_refraction = material:GetRefraction()
 			entry.glass_covering = material:GetTranslucent() and color.a or 1
-			entry.transparent = material:IsTransparent() and 1 or 0
-			entry.refractive = material:IsSeeThrough() and 1 or 0
-			local albedo2 = material:GetAlbedo2Texture()
-			entry.albedo2_tex = albedo2 and albedo2:IsValid() and self:GetTextureIndex(albedo2) or -1
-			local blend_texture = material:GetBlendTexture()
-			entry.blend_tex = blend_texture and
-				blend_texture:IsValid() and
-				self:GetTextureIndex(blend_texture) or
-				-1
-			local terrain = material:GetTerrainMaterialTexture()
-
-			if terrain and terrain:IsValid() then
-				entry.terrain_tex = self:GetTextureIndex(terrain)
-
-				for layer = 1, 4 do
-					local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
 			entry.metallic = material:GetMetallicMultiplier()
 			local metallic_texture = material:GetMetallicTexture()
 			entry.metallic_channel = 0
@@ -2053,6 +2037,22 @@ function ddgi.WriteMaterialBuffer(self)
 				roughness_texture:IsValid() and
 				self:GetTextureIndex(roughness_texture) or
 				-1
+			entry.transparent = material:IsTransparent() and 1 or 0
+			entry.refractive = material:IsSeeThrough() and 1 or 0
+			local albedo2 = material:GetAlbedo2Texture()
+			entry.albedo2_tex = albedo2 and albedo2:IsValid() and self:GetTextureIndex(albedo2) or -1
+			local blend_texture = material:GetBlendTexture()
+			entry.blend_tex = blend_texture and
+				blend_texture:IsValid() and
+				self:GetTextureIndex(blend_texture) or
+				-1
+			local terrain = material:GetTerrainMaterialTexture()
+
+			if terrain and terrain:IsValid() then
+				entry.terrain_tex = self:GetTextureIndex(terrain)
+
+				for layer = 1, 4 do
+					local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
 					entry.terrain_layer_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
 				end
 
