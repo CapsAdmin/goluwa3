@@ -1418,7 +1418,19 @@ function ddgi.GetCommonGLSL()
 
 				vec4 result = ddgi_sample_cascade(c, P, N, L, V, smooth_blend, visibility_min_weight, weight);
 
-				if (fine >= 1.0) return result;
+				if (c == count - 1) return result;
+
+				float keep = fine;
+
+				// A cascade whose probes barely see the point (disabled, hidden, or
+				// not yet written) hands over to the next one like its edge does.
+				// That is only safe with the visibility rays, the coarser probes
+				// are further apart and leak through thin walls without them.
+				#ifdef DDGI_VISIBILITY_RAYS
+				if (visibility_min_weight < DDGI_NO_VISIBILITY_RAYS) keep *= smoothstep(0.0, ]] .. MIN_WEIGHT .. [[, weight);
+				#endif
+
+				if (keep >= 1.0) return result;
 
 				float coarse_weight;
 				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, L, V, smooth_blend, visibility_min_weight, coarse_weight);
@@ -1426,8 +1438,8 @@ function ddgi.GetCommonGLSL()
 				// fitted cascades are not always nested
 				if (coarse_weight <= 0.0) return result;
 
-				weight = mix(coarse_weight, weight, fine);
-				return mix(coarse, result, fine);
+				weight = mix(coarse_weight, weight, keep);
+				return mix(coarse, result, keep);
 			}
 
 			return vec4(0.0);
