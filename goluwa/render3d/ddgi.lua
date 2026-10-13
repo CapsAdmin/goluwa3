@@ -23,9 +23,16 @@ end)
 ddgi.PROBES_PER_AXIS = 24
 local probe_spacing = pvars.Setup2{
 	key = "ddgi_probe_spacing",
-	default = 1.0,
+	default = 0.33,
 	min = 0.1,
 	help = "meters between the finest cascade's probes",
+}
+local cascade_ratio = pvars.Setup2{
+	key = "ddgi_cascade_ratio",
+	default = 5.01,
+	min = 1.25,
+	max = 8,
+	help = "how many times further apart the probes of each cascade are than those of the one before, the coarsest is that ratio cubed times the spacing of the finest. a lower ratio keeps probes fine for longer but the cascades together reach less far",
 }
 ddgi.CASCADES = 4
 ddgi.CASCADE_BLEND = 2.0
@@ -242,7 +249,7 @@ function ddgi.IsDebugGI()
 end
 
 function ddgi.GetCascadeSpacing(cascade)
-	return probe_spacing:Get() * 2 ^ cascade
+	return probe_spacing:Get() * cascade_ratio:Get() ^ cascade
 end
 
 function ddgi.GetProbeCount()
