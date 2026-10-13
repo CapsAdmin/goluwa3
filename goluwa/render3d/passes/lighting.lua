@@ -54,6 +54,13 @@ local screen_shadows_debug = pvars.Setup2{
 	default = false,
 	help = "show only what the screen space shadows darken, white is untouched",
 }
+local thin_specular = pvars.Setup2{
+	key = "thin_specular",
+	default = 1,
+	min = 0,
+	max = 1,
+	help = "share of the ambient reflection a pixel less than two pixels wide keeps (1 is off). such a pixel, a glossy step seen at a grazing angle for one, is a bright line that appears and vanishes with the jitter",
+}
 pvars.EndGroup()
 return {
 	{
@@ -110,6 +117,7 @@ return {
 					{"screen_shadows_debug", "int"},
 					{"screen_shadow_length", "float"},
 					{"screen_shadow_steps", "int"},
+					{"thin_specular", "float"},
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
@@ -125,6 +133,7 @@ return {
 					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
 					block.screen_shadow_length = screen_shadow_length:Get()
 					block.screen_shadow_steps = screen_shadow_steps:Get()
+					block.thin_specular = thin_specular:Get()
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -319,6 +328,30 @@ return {
 
 			]] .. surface_features.GetDecodeFunctionGLSL() .. [[
 
+			// 1 where the pixel is a surface less than two pixels wide, both neighbours along an axis are
+			// another surface. a thin glossy surface (a step's tread at a grazing angle) reflects the
+			// environment at a high fresnel into one pixel, which the jitter covers and uncovers
+			float get_thin_feature(float view_depth, vec3 N) {
+				ivec2 size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
+				float thin = 0.0;
+
+				for (int axis = 0; axis < 2; axis++) {
+					ivec2 step_pixel = axis == 0 ? ivec2(1, 0) : ivec2(0, 1);
+					bool differs[2];
+
+					for (int side = 0; side < 2; side++) {
+						ivec2 p = clamp(in_pixel + step_pixel * (side == 0 ? -1 : 1), ivec2(0), size - 1);
+						float d = gbuffer_depth(p);
+						float neighbour_depth = d >= 1.0 ? 1e6 : -(lighting_data.inv_projection[2][2] * d + lighting_data.inv_projection[3][2]) / (lighting_data.inv_projection[2][3] * d + lighting_data.inv_projection[3][3]);
+						differs[side] = abs(neighbour_depth - view_depth) > view_depth * 0.03 || dot(N, gbuffer_normal(p)) < 0.9;
+					}
+
+					if (differs[0] && differs[1]) thin = 1.0;
+				}
+
+				return thin;
+			}
+
 			vec3 get_indirect_light(in Surface s)
 			{
 				float sky_visibility;
@@ -337,6 +370,7 @@ return {
 				vec3 ambient_specular = reflection * (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y);
 				ambient_specular *= GGXEnergyCompensation(s.F0, envBRDF);
 				ambient_specular *= SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness);
+				ambient_specular *= mix(1.0, lighting_data.thin_specular, get_thin_feature(in_view_depth, s.geometric_N));
 
 				]] .. surface_features.GetIndirectGLSL() .. [[
 
