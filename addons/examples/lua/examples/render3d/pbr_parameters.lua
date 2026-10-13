@@ -163,7 +163,13 @@ local function sweep(parent, name, z, build)
 	local row = group(name, parent)
 
 	for i = 0, COLUMNS - 1 do
-		sphere(row, name .. "_" .. i, (i - (COLUMNS - 1) / 2) * SPACING, z, build(i / (COLUMNS - 1)))
+		sphere(
+			row,
+			name .. "_" .. i,
+			(i - (COLUMNS - 1) / 2) * SPACING,
+			z,
+			build(i / (COLUMNS - 1))
+		)
 	end
 end
 
@@ -212,106 +218,165 @@ shapes.Box{
 	Material = material{Color = Color(0.5, 0.5, 0.5, 1), Roughness = 0.8, Metallic = 0},
 	RigidBody = false,
 }
-
 local sweeps = group("sweeps")
 
-sweep(sweeps, "roughness_dielectric", 0, function(t)
-	return material{Color = Color(0.6, 0.08, 0.06, 1), Roughness = t, Metallic = 0}
-end)
+sweep(
+	sweeps,
+	"roughness_dielectric",
+	0,
+	function(t)
+		return material{Color = Color(0.6, 0.08, 0.06, 1), Roughness = t, Metallic = 0}
+	end
+)
 
-sweep(sweeps, "roughness_metal", -1.2, function(t)
-	return material{Color = Color(1, 0.78, 0.34, 1), Roughness = t, Metallic = 1}
-end)
+sweep(
+	sweeps,
+	"roughness_metal",
+	-1.2,
+	function(t)
+		return material{Color = Color(1, 0.78, 0.34, 1), Roughness = t, Metallic = 1}
+	end
+)
 
-sweep(sweeps, "metallic", -2.4, function(t)
-	return material{Color = Color(0.95, 0.64, 0.54, 1), Roughness = 0.25, Metallic = t}
-end)
+sweep(
+	sweeps,
+	"metallic",
+	-2.4,
+	function(t)
+		return material{Color = Color(0.95, 0.64, 0.54, 1), Roughness = 0.25, Metallic = t}
+	end
+)
 
-sweep(sweeps, "specular_multiplier", -3.6, function(t)
-	return material{
-		Color = Color(0, 0, 0, 1),
-		Roughness = 0.15,
-		Metallic = 0,
-		SpecularMultiplier = math.lerp(0.5, 2, t),
-	}
-end)
+sweep(
+	sweeps,
+	"specular_multiplier",
+	-3.6,
+	function(t)
+		return material{
+			Color = Color(0, 0, 0, 1),
+			Roughness = 0.15,
+			Metallic = 0,
+			SpecularMultiplier = math.lerp(0.5, 2, t),
+		}
+	end
+)
 
-sweep(sweeps, "albedo", -4.8, function(t)
-	return material{Color = Color(t, t, t, 1), Roughness = 0.6, Metallic = 0}
-end)
+sweep(
+	sweeps,
+	"albedo",
+	-4.8,
+	function(t)
+		return material{Color = Color(t, t, t, 1), Roughness = 0.6, Metallic = 0}
+	end
+)
 
-sweep(sweeps, "refraction_roughness", -6, function(t)
-	return material{
-		Color = Color(1, 1, 1, 1),
-		Roughness = t,
-		Metallic = 0,
-		Refraction = 1,
-		IndexOfRefraction = 1.5,
-	}
-end)
+sweep(
+	sweeps,
+	"refraction_roughness",
+	-6,
+	function(t)
+		return material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = t,
+			Metallic = 0,
+			Refraction = 1,
+			IndexOfRefraction = 1.5,
+		}
+	end
+)
 
 -- the surface features, each strength from 0 to 1 along the row
 local features = group("surface_features")
 local FEATURES_Z = 5.6
 
-sweep(features, "clearcoat", FEATURES_Z, function(t)
-	return material{
-		Color = Color(0.6, 0.08, 0.06, 1),
-		Roughness = 0.5,
-		Metallic = 0,
-		Clearcoat = t,
-		ClearcoatRoughness = 0.05,
-	}
-end)
+sweep(
+	features,
+	"clearcoat",
+	FEATURES_Z,
+	function(t)
+		return material{
+			Color = Color(0.6, 0.08, 0.06, 1),
+			Roughness = 0.5,
+			Metallic = 0,
+			Clearcoat = t,
+			ClearcoatRoughness = 0.05,
+		}
+	end
+)
 
-sweep(features, "clearcoat_roughness", FEATURES_Z + 1.2, function(t)
-	return material{
-		Color = Color(0.6, 0.08, 0.06, 1),
-		Roughness = 0.5,
-		Metallic = 0,
-		Clearcoat = 1,
-		ClearcoatRoughness = math.lerp(0.02, 0.6, t),
-	}
-end)
+sweep(
+	features,
+	"clearcoat_roughness",
+	FEATURES_Z + 1.2,
+	function(t)
+		return material{
+			Color = Color(0.6, 0.08, 0.06, 1),
+			Roughness = 0.5,
+			Metallic = 0,
+			Clearcoat = 1,
+			ClearcoatRoughness = math.lerp(0.02, 0.6, t),
+		}
+	end
+)
 
-sweep(features, "secondary_specular", FEATURES_Z + 2.4, function(t)
-	return material{
-		Color = Color(0.1, 0.25, 0.6, 1),
-		Roughness = 0.7,
-		Metallic = 0,
-		SecondarySpecular = t,
-		SecondarySpecularRoughness = 0.08,
-	}
-end)
+sweep(
+	features,
+	"secondary_specular",
+	FEATURES_Z + 2.4,
+	function(t)
+		return material{
+			Color = Color(0.1, 0.25, 0.6, 1),
+			Roughness = 0.7,
+			Metallic = 0,
+			SecondarySpecular = t,
+			SecondarySpecularRoughness = 0.08,
+		}
+	end
+)
 
-sweep(features, "secondary_specular_roughness", FEATURES_Z + 3.6, function(t)
-	return material{
-		Color = Color(0.1, 0.25, 0.6, 1),
-		Roughness = 0.9,
-		Metallic = 0,
-		SecondarySpecular = 1,
-		SecondarySpecularRoughness = math.lerp(0.05, 0.6, t),
-	}
-end)
+sweep(
+	features,
+	"secondary_specular_roughness",
+	FEATURES_Z + 3.6,
+	function(t)
+		return material{
+			Color = Color(0.1, 0.25, 0.6, 1),
+			Roughness = 0.9,
+			Metallic = 0,
+			SecondarySpecular = 1,
+			SecondarySpecularRoughness = math.lerp(0.05, 0.6, t),
+		}
+	end
+)
 
-sweep(features, "sheen", FEATURES_Z + 4.8, function(t)
-	return material{
-		Color = Color(0.25, 0.04, 0.3, 1),
-		Roughness = 0.9,
-		Metallic = 0,
-		Sheen = t,
-		SheenRoughness = 0.4,
-	}
-end)
+sweep(
+	features,
+	"sheen",
+	FEATURES_Z + 4.8,
+	function(t)
+		return material{
+			Color = Color(0.25, 0.04, 0.3, 1),
+			Roughness = 0.9,
+			Metallic = 0,
+			Sheen = t,
+			SheenRoughness = 0.4,
+		}
+	end
+)
 
-sweep(features, "specular_tint", FEATURES_Z + 6, function(t)
-	return material{
-		Color = Color(0.7, 0.12, 0.08, 1),
-		Roughness = 0.25,
-		Metallic = 0,
-		SpecularTint = t,
-	}
-end)
+sweep(
+	features,
+	"specular_tint",
+	FEATURES_Z + 6,
+	function(t)
+		return material{
+			Color = Color(0.7, 0.12, 0.08, 1),
+			Roughness = 0.25,
+			Metallic = 0,
+			SpecularTint = t,
+		}
+	end
+)
 
 swatch(
 	"roughness_gradient",
@@ -392,9 +457,12 @@ swatch(
 	8.75,
 	material{
 		Color = Color(0.02, 0.02, 0.02, 1),
-		Roughness = 0.2,
+		Roughness = "return vec4(uv.x);",
+		RoughnessMultiplier = 0.2,
 		Metallic = 0,
-		Specular = "return vec4(uv.x);",
+		SpecularFromRoughnessMask = true,
+		RoughnessMaskOnlyScalesSpecular = true,
+		InvertRoughnessTexture = true,
 		SpecularMultiplier = 2,
 	}
 )
