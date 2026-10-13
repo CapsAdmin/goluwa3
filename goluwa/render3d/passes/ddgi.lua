@@ -351,7 +351,7 @@ local function pass_shade()
 				scene_bvh.GetUvDeclarationGLSL(BINDING_UVS) or
 				""
 			) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
+		shader = "#define DDGI_UNSCALED\n" .. common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
 			// clamped to what the ray texture holds, see ddgi.HALF_PRECISION_RAYS
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
@@ -1480,7 +1480,7 @@ local function pass_resolve()
 				// outside the volume the sky is all there is to go on; inside it,
 				// no usable probe means the point is enclosed and gets nothing
 				if (weight <= 0.0 && !ddgi_in_volume(P)) {
-					gi = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N), 1.0);
+					gi = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N) * ddgi_data.ddgi_strength, 1.0);
 				}
 
 				imageStore(out_color, pos, gi);

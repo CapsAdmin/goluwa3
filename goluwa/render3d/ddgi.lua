@@ -166,6 +166,13 @@ local relocation = pvars.Setup2{
 }
 ddgi.RELOCATION_DISTANCE = 0.25
 ddgi.PROBE_MAX_OFFSET = 0.45
+local strength = pvars.Setup2{
+	key = "ddgi_strength",
+	default = 1,
+	min = 0,
+	max = 4,
+	help = "scales the light the probes give every surface (diffuse gi, the reflection fallback, translucent surfaces, traced hits, fog), the probes' own bounces are not scaled. 0 is no indirect light from them",
+}
 ddgi.SKY_INTENSITY = 1.0
 ddgi.RANDOM_ROTATION = true
 ddgi.RESOLVE_SCALE = 0.5
@@ -1392,7 +1399,7 @@ function ddgi.GetCommonGLSL()
 		// viewer), looked up along L, which is N unless something knows the
 		// open side to be elsewhere. rgb = irradiance, a = sky visibility.
 		// weight is 0 when no probe could contribute.
-		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
+		vec4 ddgi_sample_irradiance_unscaled(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
 			weight = 0.0;
 
 			int count = ddgi_data.ddgi_cascade_count;
@@ -1418,6 +1425,15 @@ function ddgi.GetCommonGLSL()
 
 			return vec4(0.0);
 		}
+
+		// the probes' own bounces (the shade pass defines DDGI_UNSCALED) are not scaled, that would compound
+		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
+			vec4 result = ddgi_sample_irradiance_unscaled(P, N, L, V, smooth_blend, visibility_min_weight, weight);
+			#ifndef DDGI_UNSCALED
+			result.rgb *= ddgi_data.ddgi_strength;
+			#endif
+			return result;
+		}
 	]]
 end
 
@@ -1441,6 +1457,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_relocation_distance", "float"},
 		{"ddgi_max_offset", "float"},
 		{"ddgi_sky_intensity", "float"},
+		{"ddgi_strength", "float"},
 		{"ddgi_light_radius", "float"},
 		{"ddgi_cascade_blend", "float"},
 		{"ddgi_debug_scale", "float"},
@@ -1541,6 +1558,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_relocation_distance = relocation:Get() and ddgi.RELOCATION_DISTANCE or 0
 	block.ddgi_max_offset = relocation:Get() and ddgi.PROBE_MAX_OFFSET or 0
 	block.ddgi_sky_intensity = ddgi.SKY_INTENSITY
+	block.ddgi_strength = strength:Get()
 	block.ddgi_light_radius = light_radius:Get()
 	block.ddgi_cascade_blend = ddgi.CASCADE_BLEND
 	block.ddgi_debug_scale = debug_scale:Get()
