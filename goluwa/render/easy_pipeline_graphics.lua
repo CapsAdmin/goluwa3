@@ -68,10 +68,36 @@ do
 	end
 
 	local function upload_uniform_offsets(self)
-		local probe_enabled = upload_probe.IsEnabled()
-		local offsets = {}
+		local memo_key_function = self.uniform_memo_key
+		local memo_key, memo_version, memo_entry
 		local frame_index = render.GetCurrentFrame()
 		local frame_number = system.GetFrameNumber and system.GetFrameNumber() or 0
+
+		if memo_key_function then
+			memo_key, memo_version = memo_key_function()
+
+			if memo_key then
+				memo_entry = self.uniform_memo[memo_key]
+
+				if
+					memo_entry and
+					memo_entry.frame_number == frame_number and
+					memo_entry.frame_index == frame_index and
+					memo_entry.version == memo_version
+				then
+					return memo_entry.offsets, frame_index
+				end
+
+				if not memo_entry then
+					memo_entry = {offsets = {}}
+					self.uniform_memo[memo_key] = memo_entry
+				end
+			end
+		end
+
+		local probe_enabled = upload_probe.IsEnabled()
+		-- the command buffer copies what it binds, so one table per pipeline (or per memo key) does
+		local offsets = memo_entry and memo_entry.offsets or self.uniform_offsets
 		local record_upload = upload_probe.RecordUpload
 		local record_cache_access = upload_probe.RecordCacheAccess
 		local bytes_equal = self._BytesEqual
@@ -90,7 +116,13 @@ do
 			)
 		end
 
-		return #offsets > 0 and offsets or nil, frame_index
+		if memo_entry then
+			memo_entry.frame_number = frame_number
+			memo_entry.frame_index = frame_index
+			memo_entry.version = memo_version
+		end
+
+		return self.uniform_buffer_count > 0 and offsets or nil, frame_index
 	end
 
 	function EasyPipelineGraphics:UploadUniformsAndBind()
@@ -647,6 +679,30 @@ do
 		self.uniform_buffers = uniform_buffers
 		self.push_constant_cache_by_cmd = setmetatable({}, {__mode = "k"})
 		self._per_stage_push_blocks = {}
+
+		do
+			-- when every uniform buffer is per frame or follows what one memo_key function names, the offsets of one
+			-- key stay the same for the rest of the frame
+			local memo_key
+			local memoizable = true
+
+			for _, name in ipairs(uniform_buffer_order) do
+				local block = uniform_buffer_types[name].block
+
+				if block.upload_scope ~= "frame" then
+					if block.memo_key and (memo_key == nil or memo_key == block.memo_key) then
+						memo_key = block.memo_key
+					else
+						memoizable = false
+					end
+				end
+			end
+
+			self.uniform_memo_key = memoizable and memo_key or nil
+			self.uniform_memo = setmetatable({}, {__mode = "k"})
+			self.uniform_offsets = {}
+			self.uniform_buffer_count = #uniform_buffer_order
+		end
 
 		for _, stage_name in ipairs(possible_stages) do
 			local stage_config = get_constant_stage_config(config, stage_name)

@@ -157,19 +157,14 @@ local function descriptor_set_binding_matches(binding, pipelineLayout, descripto
 		return false
 	end
 
-	if
-		binding.descriptor_sets_ref == descriptorSets and
-		binding.dynamic_offsets_ref == dynamicOffsets
-	then
-		return true
-	end
+	if binding.descriptor_sets_ref ~= descriptorSets then
+		local setCount = #descriptorSets
 
-	local setCount = #descriptorSets
+		if (binding.set_count or 0) ~= setCount then return false end
 
-	if (binding.set_count or 0) ~= setCount then return false end
-
-	for i = 1, setCount do
-		if binding.sets[i] ~= descriptorSets[i] then return false end
+		for i = 1, setCount do
+			if binding.sets[i] ~= descriptorSets[i] then return false end
+		end
 	end
 
 	local dynamicOffsetsType = type(dynamicOffsets)
@@ -229,7 +224,6 @@ local function capture_descriptor_set_binding(binding, pipelineLayout, descripto
 	binding.first_set = firstSet or 0
 	binding.set_count = setCount
 	binding.descriptor_sets_ref = descriptorSets
-	binding.dynamic_offsets_ref = dynamicOffsets
 
 	for i = 1, setCount do
 		sets[i] = descriptorSets[i]

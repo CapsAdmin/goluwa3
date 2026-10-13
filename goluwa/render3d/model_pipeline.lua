@@ -341,6 +341,7 @@ local function get_vertex_stage_uniform_buffers(options)
 		uniform_buffers[#uniform_buffers + 1] = {
 			name = "vertex_animation",
 			upload_scope = "frame_keyed",
+			memo_key = model_pipeline.GetMaterialMemoKey,
 			upload_key = model_pipeline.GetVertexAnimationUploadKey,
 			block = model_pipeline.GetVertexAnimationBlock(),
 			write = model_pipeline.WriteVertexAnimationBlock,
@@ -698,6 +699,16 @@ function model_pipeline.GetPBRColorUploadKey()
 	end
 
 	return render3d.GetMaterialUploadKey()
+end
+
+-- what a pipeline whose uniform buffers all follow the material can reuse the offsets of for the rest of the
+-- frame: the material and its property_version, nothing for one that animates, whose buffers are uploaded per draw
+function model_pipeline.GetMaterialMemoKey()
+	local material = get_material()
+
+	if material:HasVertexAnimation() then return nil end
+
+	return material, material.property_version
 end
 
 do
@@ -1143,6 +1154,7 @@ for _, feature in ipairs(surface_features.list) do
 			{
 				name = feature.name .. "_model",
 				upload_scope = "frame_keyed",
+				memo_key = model_pipeline.GetMaterialMemoKey,
 				upload_key = function()
 					local material = get_material()
 
@@ -1171,6 +1183,7 @@ function model_pipeline.GetPBRUniformBuffers()
 	local buffers = {
 		{
 			name = "model",
+			memo_key = model_pipeline.GetMaterialMemoKey,
 			upload_scope = "persistent_keyed",
 			upload_key = render3d.GetMaterialUploadKey,
 			block = model_pipeline.GetPBRMaterialBlock(),
@@ -1178,6 +1191,7 @@ function model_pipeline.GetPBRUniformBuffers()
 		},
 		{
 			name = "color_model",
+			memo_key = model_pipeline.GetMaterialMemoKey,
 			upload_scope = "frame_keyed",
 			upload_key = model_pipeline.GetPBRColorUploadKey,
 			block = model_pipeline.GetPBRColorMaterialBlock(),
@@ -1185,6 +1199,7 @@ function model_pipeline.GetPBRUniformBuffers()
 		},
 		{
 			name = "factor_model",
+			memo_key = model_pipeline.GetMaterialMemoKey,
 			upload_scope = "persistent_keyed",
 			upload_key = model_pipeline.GetPBRFactorUploadKey,
 			block = model_pipeline.GetPBRFactorMaterialBlock(),
@@ -1192,6 +1207,7 @@ function model_pipeline.GetPBRUniformBuffers()
 		},
 		{
 			name = "aux_model",
+			memo_key = model_pipeline.GetMaterialMemoKey,
 			upload_scope = "frame_keyed",
 			upload_key = model_pipeline.GetPBRAuxUploadKey,
 			block = model_pipeline.GetPBRAuxMaterialBlock(),
