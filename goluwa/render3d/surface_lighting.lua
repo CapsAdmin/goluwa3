@@ -156,6 +156,71 @@ function surface_lighting.GetGLSL(block_name)
 				float NoH = saturate(dot(s.N, H));
 				float LoH = saturate(dot(L, H));
 
+				float shadow_factor = 1.0;
+				if (
+					i == ]] .. block_name .. [[.shadows.directional_shadow_light_index &&
+					]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0 &&
+					type == 0
+				) {
+					shadow_factor = calculateShadow(s.world_pos, shadow_N, L) * shadow_facing;
+				}
+
+				// a shadow map that decides the light's visibility alone takes the contact shadow's place
+				bool screen_marchable = true;
+
+				if (type == 0) {
+					if (shadow_factor > 0.0) shadow_factor *= get_cloud_shadow(s.world_pos);
+				} else if (
+					i == ]] .. block_name .. [[.shadows.local_directional_shadow_light_index &&
+					]] .. block_name .. [[.shadows.local_directional_shadow_map_index >= 0 &&
+					type == 2
+				) {
+					shadow_factor = calculateLocalDirectionalShadow(s.world_pos, shadow_N, L) * shadow_facing;
+					screen_marchable = false;
+				} else if (type == 1 || type == 3) {
+					int point_shadow_slot = getPointShadowSlot(i);
+
+					if (point_shadow_slot >= 0) {
+						shadow_factor = calculatePointShadow(point_shadow_slot, s.world_pos, shadow_N, L);
+						screen_marchable = false;
+					}
+
+					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos);
+				}
+
+				#ifdef SHADOW_SCREEN_SPACE
+				// the exposed radiance (1 is white) below which a light's contact shadow isn't marched
+				#define SCREEN_SHADOW_MIN_SCREEN_RADIANCE 0.002
+				// the shadow maps' texels are too coarse for detail like grass, and their
+				// offsets against self shadowing carry the lookup past close occluders,
+				// so what the gbuffer shows is marched on top, for every kind of light.
+				// it comes last because a light the other shadows leave too dim on screen for its
+				// contact shadow to show isn't marched, and most lights reach through walls
+				if (screen_marchable && ]] .. block_name .. [[.screen_shadows != 0 && NoL > 0.0 && max(max(unshadowed_radiance.r, unshadowed_radiance.g), unshadowed_radiance.b) * shadow_factor * NoL * get_exposure() >= SCREEN_SHADOW_MIN_SCREEN_RADIANCE) {
+					float reach = ]] .. block_name .. [[.screen_shadow_length;
+					bool reach_is_light = false;
+
+					if (type == 0) {
+						reach = clamp(shadow_texel_world_size * 8.0, 0.5, reach);
+					} else if (type != 2) {
+						float light_distance = length(light.position.xyz - s.world_pos);
+						reach_is_light = light_distance <= reach;
+						reach = min(light_distance, reach);
+					}
+
+					float screen_visibility = screen_space_shadow_visibility(s.world_pos, shadow_N, L, reach, reach_is_light);
+					screen_shadow_term = min(screen_shadow_term, screen_visibility);
+					shadow_factor *= screen_visibility;
+				}
+				#endif
+
+				vec3 radiance = unshadowed_radiance * shadow_factor;
+
+				// nothing to add from a light that is shadowed away entirely, and most lights reach through walls
+				if (radiance.r + radiance.g + radiance.b <= 0.0) continue;
+
+				if (type == 0) radiance *= get_glass_tint(s.world_pos);
+
 				float lobe_alpha = s.roughness_alpha;
 				float lobe_energy = 1.0;
 
@@ -182,61 +247,6 @@ function surface_lighting.GetGLSL(block_name)
 				vec3 Fr = (D * V_func) * F;
 				vec3 kD = (1.0 - F) * (1.0 - s.metallic);
 				vec3 Fd = kD * s.albedo * Fd_Burley(NoL, s.NdotV, LoH, s.perceptual_roughness);
-
-				float shadow_factor = 1.0;
-				if (
-					i == ]] .. block_name .. [[.shadows.directional_shadow_light_index &&
-					]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0 &&
-					type == 0
-				) {
-					shadow_factor = calculateShadow(s.world_pos, shadow_N, L) * shadow_facing;
-				}
-
-				#ifdef SHADOW_SCREEN_SPACE
-				// the exposed radiance (1 is white) below which a light's contact shadow isn't marched
-				#define SCREEN_SHADOW_MIN_SCREEN_RADIANCE 0.002
-				// the shadow maps' texels are too coarse for detail like grass, and their
-				// offsets against self shadowing carry the lookup past close occluders,
-				// so what the gbuffer shows is marched on top, for every kind of light
-				// a light too dim on screen for its contact shadow to show isn't marched
-				if (]] .. block_name .. [[.screen_shadows != 0 && shadow_factor > 0.0 && NoL > 0.0 && max(max(unshadowed_radiance.r, unshadowed_radiance.g), unshadowed_radiance.b) * NoL * get_exposure() >= SCREEN_SHADOW_MIN_SCREEN_RADIANCE) {
-					float reach = ]] .. block_name .. [[.screen_shadow_length;
-					bool reach_is_light = false;
-
-					if (type == 0) {
-						reach = clamp(shadow_texel_world_size * 8.0, 0.5, reach);
-					} else if (type != 2) {
-						float light_distance = length(light.position.xyz - s.world_pos);
-						reach_is_light = light_distance <= reach;
-						reach = min(light_distance, reach);
-					}
-
-					float screen_visibility = screen_space_shadow_visibility(s.world_pos, shadow_N, L, reach, reach_is_light);
-					screen_shadow_term = min(screen_shadow_term, screen_visibility);
-					shadow_factor *= screen_visibility;
-				}
-				#endif
-
-				if (type == 0) {
-					shadow_factor *= get_cloud_shadow(s.world_pos);
-				} else if (
-					i == ]] .. block_name .. [[.shadows.local_directional_shadow_light_index &&
-					]] .. block_name .. [[.shadows.local_directional_shadow_map_index >= 0 &&
-					type == 2
-				) {
-					shadow_factor = calculateLocalDirectionalShadow(s.world_pos, shadow_N, L) * shadow_facing;
-				} else if (type == 1 || type == 3) {
-					int point_shadow_slot = getPointShadowSlot(i);
-
-					if (point_shadow_slot >= 0) {
-						shadow_factor = calculatePointShadow(point_shadow_slot, s.world_pos, shadow_N, L);
-					}
-
-					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos);
-				}
-				vec3 radiance = unshadowed_radiance * shadow_factor;
-
-				if (type == 0) radiance *= get_glass_tint(s.world_pos);
 
 				float diffuse_weight = 1.0;
 				]] .. surface_features.GetDirectLayerGLSL() .. [[
