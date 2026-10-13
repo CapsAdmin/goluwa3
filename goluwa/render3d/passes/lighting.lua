@@ -54,6 +54,13 @@ local screen_shadows_debug = pvars.Setup2{
 	default = false,
 	help = "show only what the screen space shadows darken, white is untouched",
 }
+local rough_sky = pvars.Setup2{
+	key = "reflection_rough_sky",
+	default = 0.6,
+	min = 0.3,
+	max = 1.5,
+	help = "perceptual roughness above which a surface's ambient reflection is the probes' light and no raw sky (the sky fades out from 0.25), a rough surface's reflection is a blur of the gi, which already holds the sky. raise it to push the fade out towards rough surfaces only",
+}
 local thin_specular = pvars.Setup2{
 	key = "thin_specular",
 	default = 1,
@@ -118,6 +125,7 @@ return {
 					{"screen_shadow_length", "float"},
 					{"screen_shadow_steps", "int"},
 					{"thin_specular", "float"},
+					{"rough_sky", "float"},
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
@@ -134,6 +142,7 @@ return {
 					block.screen_shadow_length = screen_shadow_length:Get()
 					block.screen_shadow_steps = screen_shadow_steps:Get()
 					block.thin_specular = thin_specular:Get()
+					block.rough_sky = rough_sky:Get()
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -277,7 +286,9 @@ return {
 				vec3 raw_R = reflect(-V, normal);
 				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
-				vec3 global_reflection = mix(gi_reflection_fallback, sky_reflection, sky_visibility);
+				// the fallback is the gi, which holds the sky already, so a rough surface (a blur of it) would count the sky twice
+				float sky_weight = sky_visibility * (1.0 - smoothstep(0.25, max(lighting_data.rough_sky, 0.26), roughness));
+				vec3 global_reflection = mix(gi_reflection_fallback, sky_reflection, sky_weight);
 				vec3 env_reflection = blend_probe_reflections(global_reflection, R, roughness, world_pos);
 
 				if (lighting_data.ssr_tex == -1) return env_reflection;
