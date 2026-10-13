@@ -6,15 +6,21 @@ local gi_threshold = pvars.Setup2{
 	default = 0.5,
 	min = 0,
 	max = 1,
-	help = "the perceptual roughness where a reflection starts to be the light computed from the gi (the probes and the environment) in place of what the rays traced, it is fully the gi 0.15 above. 1 is never: the rays are traced, and used, at every roughness. above the fade nothing is traced",
+	help = "the perceptual roughness where a reflection starts to be the light computed from the gi (the probes and the environment) in place of what the rays traced, it is fully the gi reflection_gi_fade above. 1 is never: the rays are traced, and used, at every roughness. above the fade nothing is traced",
+}
+local gi_fade = pvars.Setup2{
+	key = "reflection_gi_fade",
+	default = 0.15,
+	min = 0.01,
+	max = 1,
+	help = "how much perceptual roughness the fall from the traced reflection to the gi's light takes, starting at reflection_gi_threshold. a small value is a sharp edge on the surface where the roughness crosses it, a large one a smooth blend, and the rays are traced up to the end of it",
 }
 pvars.EndGroup()
-local GI_FADE = 0.15
 
 -- the roughness the reflections stop being traced and the roughness from which they are all the gi's
 function ibl.GetReflectionGIRange()
 	local start = gi_threshold:Get()
-	return start, start + GI_FADE
+	return start, start + gi_fade:Get()
 end
 
 function ibl.GetBRDFGLSLCode()
