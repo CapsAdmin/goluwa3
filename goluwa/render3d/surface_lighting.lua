@@ -29,6 +29,7 @@ surface_lighting.block = {
 	envprobe.GetProbeBlockLayout(),
 	{"gi_screen_tex", "int"},
 	{"gi_screen_geometry_tex", "int"},
+	{"gi_screen_specular_tex", "int"},
 	{"glass_light", "int"},
 	post_source.pre_exposure_block,
 }
@@ -65,6 +66,8 @@ function surface_lighting.WriteBlock(self, block)
 	block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
 	local gi_geometry_texture = ddgi.GetScreenGeometryTexture()
 	block.gi_screen_geometry_tex = gi_geometry_texture and self:GetTextureIndex(gi_geometry_texture) or -1
+	local gi_specular_texture = ddgi.GetScreenSpecularTexture()
+	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
 	block.glass_light = (glass_light.IsEnabled() and ddgi.HasGlass()) and 1 or 0
 	post_source.WritePreExposureBlock(self, block)
 	return block

@@ -274,15 +274,22 @@ function ddgi.GetScreenGeometryTexture()
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(2) or nil
 end
 
+function ddgi.GetScreenSpecularTexture()
+	if not render3d.IsPassEnabled("ddgi") then return nil end
+
+	local resolve = render3d.pipelines.ddgi_resolve
+	return resolve and resolve:GetFramebuffer(1):GetAttachment(3) or nil
+end
+
 function ddgi.GetScreenRatioGLSL()
 	return "#define DDGI_SCREEN_RATIO " .. math.floor(1 / ddgi.RESOLVE_SCALE + 0.5) .. "\n"
 end
 
 function ddgi.GetScreenSampleGLSL(block_name)
 	return ddgi.GetScreenRatioGLSL() .. [[
-		vec4 ddgi_screen_sample(ivec2 pixel, vec3 N, float view_depth) {
+		vec4 ddgi_screen_sample_texture(int screen_tex, ivec2 pixel, vec3 N, float view_depth) {
 			ivec2 base = pixel / DDGI_SCREEN_RATIO;
-			ivec2 size = textureSize(TEXTURE(]] .. block_name .. [[.gi_screen_tex), 0);
+			ivec2 size = textureSize(TEXTURE(screen_tex), 0);
 			vec2 fraction = vec2(pixel - base * DDGI_SCREEN_RATIO) / float(DDGI_SCREEN_RATIO);
 			vec4 sum = vec4(0.0);
 			float total = 0.0;
@@ -298,12 +305,21 @@ function ddgi.GetScreenSampleGLSL(block_name)
 				float depth_weight = exp(-abs(view_depth - geometry.w) / max(view_depth * 0.02, 0.02));
 				float normal_weight = pow(max(dot(N, geometry.xyz), 0.0), 16.0);
 				w *= depth_weight * normal_weight + 1e-4;
-				sum += texelFetch(TEXTURE(]] .. block_name .. [[.gi_screen_tex), texel, 0) * w;
+				sum += texelFetch(TEXTURE(screen_tex), texel, 0) * w;
 				total += w;
-			}
-
-			return sum / total;
-		}
+				}
+				
+				return sum / total;
+				}
+				
+				vec4 ddgi_screen_sample(ivec2 pixel, vec3 N, float view_depth) {
+				return ddgi_screen_sample_texture(]] .. block_name .. [[.gi_screen_tex, pixel, N, view_depth);
+				}
+				
+				// the gi along the reflection direction of a rough surface (see ddgi_resolve)
+				vec4 ddgi_screen_specular_sample(ivec2 pixel, vec3 N, float view_depth) {
+				return ddgi_screen_sample_texture(]] .. block_name .. [[.gi_screen_specular_tex, pixel, N, view_depth);
+				}
 	]]
 end
 

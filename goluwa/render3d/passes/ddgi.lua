@@ -26,6 +26,7 @@ local BINDING_SCENE = 10
 local BINDING_LIGHT_GRID = 11
 local BINDING_UVS = 12
 local BINDING_SCREEN_GEOMETRY = 13
+local BINDING_SCREEN_SPECULAR = 14
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local SCENE_DESCRIPTOR = {
 	{
@@ -1415,7 +1416,8 @@ local function pass_resolve()
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"ddgi_screen", "rgba"}},
 			{"r16g16b16a16_sfloat", {"ddgi_screen_geometry", "rgba"}},
-		},
+			{"r16g16b16a16_sfloat", {"ddgi_screen_specular", "rgba"}},
+			},
 		framebuffer_count = 1,
 		scale = function()
 			return ddgi.RESOLVE_SCALE
@@ -1427,11 +1429,16 @@ local function pass_resolve()
 				binding_index = BINDING_SCREEN_GEOMETRY,
 				attachment = 2,
 				dst_stage = {"compute", "fragment"},
-			},
-		},
-		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
-		uniform_buffers = {data_uniform()},
-		on_pre_draw = VISIBILITY_RAYS and
+				},
+				{
+				binding_index = BINDING_SCREEN_SPECULAR,
+				attachment = 3,
+				dst_stage = {"compute", "fragment"},
+				},
+				},
+				descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
+				uniform_buffers = {data_uniform()},
+				on_pre_draw = VISIBILITY_RAYS and
 			function(self, cmd, frame, desc)
 				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
 			end or
@@ -1439,7 +1446,8 @@ local function pass_resolve()
 		custom_declarations = SCENE_GLSL .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = ]] .. BINDING_SCREEN_GEOMETRY .. [[, rgba16f) uniform writeonly image2D out_geometry;
-		]],
+ layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;
+ ]],
 		shader = common_glsl() .. ddgi.GetScreenRatioGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
 			// each texel resolves the pixel in the top left corner of the pixels it covers (see ddgi_screen_sample)
 			void main() {
@@ -1456,6 +1464,7 @@ local function pass_resolve()
 				if (depth >= 1.0) {
 					imageStore(out_color, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					imageStore(out_geometry, pos, vec4(0.0, 0.0, 0.0, 1e30));
+					imageStore(out_specular, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					return;
 				}
 
@@ -1467,6 +1476,7 @@ local function pass_resolve()
 				vec3 V = normalize(ddgi_data.camera_position - P);
 				float weight;
 				vec3 L = N;
+				
 
 				if (ddgi_data.ddgi_bent_normal_tex >= 0) {
 					vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
@@ -1485,7 +1495,23 @@ local function pass_resolve()
 				}
 
 				imageStore(out_color, pos, gi);
-			}
+				
+				// what stands in for a rough reflection is the light around the reflection direction, not around
+				// the normal. a smooth surface traces its reflection, so it keeps the normal's
+				float roughness = sqrt(gbuffer_roughness(pixel));
+				vec4 specular = gi;
+				
+				if (roughness > 0.25) {
+					vec3 R = get_specular_dominant_direction(reflect(-V, N), N, roughness);
+					specular = ddgi_sample_irradiance(P, N, R, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
+				
+					if (weight <= 0.0 && !ddgi_in_volume(P)) {
+						specular = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, R) * ddgi_data.ddgi_strength, 1.0);
+					}
+				}
+				
+				imageStore(out_specular, pos, specular);
+				}
 		]],
 	}
 end

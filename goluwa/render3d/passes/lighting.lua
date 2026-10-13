@@ -61,6 +61,11 @@ local rough_sky = pvars.Setup2{
 	max = 1.5,
 	help = "perceptual roughness above which a surface's ambient reflection is the probes' light and no raw sky (the sky fades out from 0.25), a rough surface's reflection is a blur of the gi, which already holds the sky. raise it to push the fade out towards rough surfaces only",
 }
+local gi_reflection_direction = pvars.Setup2{
+key = "reflection_gi_direction",
+default = true,
+help = "the gi light that stands in for a rough reflection is read along the reflection direction. off, it is the light around the surface normal, the colour of the whole hemisphere and not of what the surface mirrors",
+}
 local thin_specular = pvars.Setup2{
 	key = "thin_specular",
 	default = 1,
@@ -128,7 +133,8 @@ return {
 					{"screen_shadow_steps", "int"},
 					{"thin_specular", "float"},
 					{"rough_sky", "float"},
-				},
+					{"gi_reflection_direction", "int"},
+					},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
 					gbuffer_layout.WriteBlock(self, block)
@@ -145,6 +151,7 @@ return {
 					block.screen_shadow_steps = screen_shadow_steps:Get()
 					block.thin_specular = thin_specular:Get()
 					block.rough_sky = rough_sky:Get()
+					block.gi_reflection_direction = gi_reflection_direction:Get() and 1 or 0
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -370,7 +377,13 @@ return {
 			{
 				float sky_visibility;
 				vec3 irradiance = get_gi_irradiance(s.N, sky_visibility);
-				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, irradiance, in_uv);
+				vec3 reflection_gi = irradiance;
+				
+				if (lighting_data.gi_reflection_direction != 0 && lighting_data.gi_screen_specular_tex >= 0) {
+					reflection_gi = ddgi_screen_specular_sample(in_pixel, s.N, in_view_depth).rgb;
+				}
+				
+				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, reflection_gi, in_uv);
 				vec4 screen_gi = get_ambient_occlusion(in_uv);
 				float ambient_occlusion = screen_gi.a * s.ao;
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
