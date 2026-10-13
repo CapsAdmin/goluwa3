@@ -221,6 +221,22 @@ Also, DDGI's sealed test rooms pick up a noisy sky baseline (16–35 in `gi_mean
 
 **Update 2026-10-03 (multipliers):** `Material.New` no longer makes a solid texture for a color or number. `Color`/`Albedo = Color` sets ColorMultiplier, `Emissive = Color` EmissiveMultiplier, and `Roughness = 0.5` / `Metallic = 0` / `Specular = n` set the multiplier, with no texture bound (debug_draw already ran this way). Only strings (GLSL) and textures become textures, and colors/numbers on a property without a multiplier still fall back to `Material.ResolveTexture`'s cached constant texture. `Color` together with `ColorMultiplier`, or with `Albedo`, is an error. Rendered pixels matched the texture version within GI noise (crate 133,79,91 vs 130,78,90).
 
+## Material versions and what is cached on them
+
+*`property_version`, `Material:Touch()`, upload keys, the uniform offset memo, batch records, glass tint maps*
+
+A property declared with `versioned = true` (all of Material's, `Material:StartStorable({versioned = true})`) stamps its object with a new `property_version` when it is set to a different value, and the object goes into the ring `objects.version_log` (65536 slots, `objects.version_counter` is the newest stamp, a consumer that is more than `VERSION_LOG_SIZE` stamps behind has to check everything). Changing a vector or color of a material in place, or writing a field directly, is invisible to it: call `material:Touch()` afterwards (material proxies do, and only when a proxy changed something, a `Touch` every frame rewrites that material's batch records every frame).
+
+Everything that is derived from a material follows the version instead of being worked out per draw:
+
+- `model_pipeline.GetPBRFactorUploadKey`/`GetPBRAuxUploadKey` and the feature block keys keep their answer on the material for one version.
+- Pipelines whose uniform buffers are all per frame or declare `memo_key` (`model_pipeline.GetMaterialMemoKey`: the material and its version, nothing for a material with vertex animation) keep the dynamic offsets of the last upload per key and frame (`uniform_memo` in `easy_pipeline_graphics.lua`), the same as what each block's own frame cache would return, just one lookup. A new uniform buffer on such a pipeline that depends on more than the material must not declare `memo_key`, which turns the memo off for the pipeline.
+- `BatchTable` (multi draw batch records of the gbuffer and the shadow passes) writes a record when its batch is new, when the material of the batch was stamped, for the moving part of an animated batch every update (`write_animated`), and 4 records per update as a safety net. Each frame's buffer is kept mapped and gets the records it is behind on. Tests: `test/tests/render3d/batch_table.lua`, and `test/harnesses/m3/verify_caches.lua` compares every record against a from-scratch write on the real map.
+- `Visual`'s translucent and glass collection keep per component what is true of its entries until the entries, the material override or a material version changes, and per entry what is true of its world matrix until the matrix changes (compared by content).
+- The glass tint maps are drawn again only when `glass_tint.IsSlotCurrent` says what they were drawn from changed.
+
+Per draw paths that have a bound pipeline use `pipeline:UploadConstantsBound()`, which skips `GraphicsPipeline:Bind` (every dynamic state setter) when the pipeline is already bound and only pushes constants and rebinds descriptor sets; the draw sets the dynamic state it needs itself (cull mode, blend).
+
 ## Visual CullDistance is 20 km
 
 *very far test geometry vanishes but still casts shadows*
