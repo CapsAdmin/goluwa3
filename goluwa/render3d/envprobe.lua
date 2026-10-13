@@ -82,7 +82,7 @@ envprobe.auto_placement_enabled = pvars.Setup2{
 }
 pvars.EndGroup()
 envprobe.capture_pipeline_flags = envprobe.capture_pipeline_flags or {
-	ssr = false,
+	reflections = false,
 	ocean = true,
 }
 envprobe.AUTO_PLACEMENT_SPACING = 24
@@ -1144,7 +1144,7 @@ local function get_probe_capture_bundle(size)
 		framebuffer_size = {x = size, y = size},
 		filter = function(name)
 			return name:find("^gbuffer") ~= nil or
-				name == "ssr" or
+				name == "reflections" or
 				name == "lighting" or
 				name == "ocean"
 		end,
@@ -1160,7 +1160,7 @@ local function get_probe_capture_context()
 		allow_probe_reflections = false,
 		allow_last_frame_history = false,
 		pipeline_flags = {
-			ssr = envprobe.capture_pipeline_flags.ssr == true,
+			reflections = envprobe.capture_pipeline_flags.reflections == true,
 			ocean = envprobe.capture_pipeline_flags.ocean ~= false,
 		},
 	}

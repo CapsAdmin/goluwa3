@@ -5,7 +5,7 @@ local steam = import("goluwa/steam/steam.lua")
 local Visual = import("goluwa/entities/components/visual.lua").Library
 local Color = import("goluwa/structs/color.lua")
 local renderdoc = import("goluwa/bindings/renderdoc.lua")
-local show_ssr_buffer = false
+local show_reflections_buffer = false
 local show_cry_terrain_textures = false
 
 local function is_valid_texture(texture)
@@ -187,12 +187,12 @@ event.AddListener("Draw2D", "debug_cry_terrain_textures", function(cmd, dt)
 	end
 end)
 
-event.AddListener("Draw2D", "debug_ssr_buffer", function(cmd, dt)
-	if not show_ssr_buffer then return end
+event.AddListener("Draw2D", "debug_reflections_buffer", function(cmd, dt)
+	if not show_reflections_buffer then return end
 
-	if not render3d.ssr_fb then return end
+	if not render3d.reflections_fb then return end
 
-	local tex = render3d.ssr_fb:GetAttachment(1)
+	local tex = render3d.reflections_fb:GetAttachment(1)
 
 	if not tex then return end
 
@@ -204,5 +204,5 @@ event.AddListener("Draw2D", "debug_ssr_buffer", function(cmd, dt)
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.DrawRect(x, y, size, size)
 	render2d.SetTexture(nil)
-	render2d.DrawText{text = "SSR Buffer (Half-Res)", x = x, y = y + size + 5}
+	render2d.DrawText{text = "Reflections Buffer (Half-Res)", x = x, y = y + size + 5}
 end)

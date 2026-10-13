@@ -19,7 +19,7 @@ return {
 			kind = "unorm8",
 			default = "0.0",
 			material = "get_clearcoat()",
-			readers = {"lighting", "ssr"},
+			readers = {"lighting", "reflections"},
 		},
 		{
 			name = "clearcoat_roughness",
@@ -30,10 +30,10 @@ return {
 			-- ggx alpha in, stored as the perceptual roughness
 			encode = "sqrt(v)",
 			decode = "v * v",
-			readers = {"lighting", "ssr"},
+			readers = {"lighting", "reflections"},
 		},
-		{name = "clearcoat_rain", kind = "unorm8", default = "0.0", readers = {"lighting", "ssr"}},
-		{name = "clearcoat_normal", kind = "octa", member = false, readers = {"lighting", "ssr"}},
+		{name = "clearcoat_rain", kind = "unorm8", default = "0.0", readers = {"lighting", "reflections"}},
+		{name = "clearcoat_normal", kind = "octa", member = false, readers = {"lighting", "reflections"}},
 	},
 	surface_members = [[
 		// the coat's normal without the rain's waves
@@ -77,7 +77,7 @@ return {
 	]],
 	reflection = [[
 		// a clearcoat is smoother than the surface under it, the sharp reflection is its. traced off the
-		// flat film: the rain's waves on it are too fine and too quick for the ssr's resolution and
+		// flat film: the rain's waves on it are too fine and too quick for the reflections' resolution and
 		// history, the lighting pass bends what this finds by them. far away they roughen the film
 		if (gbuffer_clearcoat(gbuffer_pos) > 0.5) {
 			float coat_alpha = gbuffer_clearcoat_roughness(gbuffer_pos);
@@ -115,11 +115,11 @@ return {
 			float coat_NdotV = max(dot(s.coat_N, s.V), 0.001);
 			float coat_roughness = sqrt(clamp(s.clearcoat_alpha, 0.0, 1.0));
 			float Fc = F_SchlickScalar(CLEARCOAT_F0, coat_NdotV) * s.clearcoat;
-			// the ssr traced the flat film, the rain's waves bend what it found as they would bend the ray. by
+			// the reflections traced the flat film, the rain's waves bend what it found as they would bend the ray. by
 			// their tilt on screen, less so further away where the rings are smaller
 			vec3 tilt = mat3(lighting_data.view) * (s.coat_N - s.coat_smooth_N);
-			vec2 ssr_uv = in_uv + vec2(tilt.x, -tilt.y) * (0.1 / max(length(lighting_data.camera_position.xyz - s.world_pos), 1.0));
-			vec3 coat_reflection = get_reflection(s.coat_N, coat_roughness, s.V, s.world_pos, sky_visibility, irradiance, ssr_uv);
+			vec2 reflection_uv = in_uv + vec2(tilt.x, -tilt.y) * (0.1 / max(length(lighting_data.camera_position.xyz - s.world_pos), 1.0));
+			vec3 coat_reflection = get_reflection(s.coat_N, coat_roughness, s.V, s.world_pos, sky_visibility, irradiance, reflection_uv);
 			ambient_diffuse *= 1.0 - Fc;
 			ambient_specular = ambient_specular * (1.0 - Fc) + coat_reflection * Fc * SpecularOcclusion(coat_NdotV, ambient_occlusion, coat_roughness);
 		}

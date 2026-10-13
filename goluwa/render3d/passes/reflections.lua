@@ -14,11 +14,11 @@ local RAY_QUERY = scene_reflection.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9, uvs = 10}
 return {
 	{
-		name = "ssr",
+		name = "reflections",
 		ComputePass = true,
 		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"ssr", "rgba"}},
-			{"r16_sfloat", {"ssr_depth", "r"}},
+			{"r16g16b16a16_sfloat", {"reflections", "rgba"}},
+			{"r16_sfloat", {"reflection_depth", "r"}},
 		},
 		framebuffer_count = 2,
 		scale = 0.5,
@@ -45,7 +45,7 @@ return {
 			nil,
 		uniform_buffers = {
 			{
-				name = "ssr_data",
+				name = "reflection_data",
 				binding_index = 3,
 				block = {
 					render3d.camera_block,
@@ -81,12 +81,12 @@ return {
 					block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w
 					block.jitter_shift[1] = (render3d.previous_jitter.y - camera:GetJitter().y) / viewport.h
 
-					if self.ssr_history_framebuffers ~= self.framebuffers then
-						self.ssr_history_framebuffers = self.framebuffers
-						self.ssr_history_reset_frame = frame
+					if self.reflection_history_framebuffers ~= self.framebuffers then
+						self.reflection_history_framebuffers = self.framebuffers
+						self.reflection_history_reset_frame = frame
 					end
 
-					if render3d.ShouldUseLastFrameHistory() and frame > self.ssr_history_reset_frame then
+					if render3d.ShouldUseLastFrameHistory() and frame > self.reflection_history_reset_frame then
 						local history_fb = self:GetFramebuffer((frame + 1) % 2 + 1)
 						block.history_tex = self:GetTextureIndex(history_fb:GetAttachment(1))
 						block.history_depth_tex = self:GetTextureIndex(history_fb:GetAttachment(2))
@@ -118,49 +118,49 @@ return {
 			RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
 		},
 		custom_declarations = [[
-			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_ssr;
-			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_ssr_depth;
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_reflection;
+			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_reflection_depth;
 		]] .. (
 				RAY_QUERY and
 				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or
 				""
 			),
 		shader = [[
-		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ssr_data") .. surface_weather.GetRainSurfaceGLSL("ssr_data") .. [[
-		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetSSRQuadGLSL() .. [[
-		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("ssr_data") .. (
+		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. surface_weather.GetRainSurfaceGLSL("reflection_data") .. [[
+		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. [[
+		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
 				RAY_QUERY and
-				scene_reflection.GetGLSL("ssr_data") or
+				scene_reflection.GetGLSL("reflection_data") or
 				""
 			) .. [[
-		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ssr_data") .. [[
-		]] .. screen_reconstruct.GetGeometricNormalGLSL("ssr_data", {world_pos_function = "get_world_pos"}) .. [[
-			#define SSR_MAX_STEPS 48
-			#define SSR_BINARY_STEPS 6
-			#define SSR_STRIDE 2.0
-			#define SSR_MAX_DISTANCE 80.0
-			// where lighting stops using ssr (get_ssr_blend_weight)
-			#define SSR_ROUGHNESS_CUTOFF 0.45
-			#define SSR_MIRROR_THRESHOLD 0.06
+		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. [[
+		]] .. screen_reconstruct.GetGeometricNormalGLSL("reflection_data", {world_pos_function = "get_world_pos"}) .. [[
+			#define SCREENSPACE_MAX_STEPS 48
+			#define SCREENSPACE_BINARY_STEPS 6
+			#define SCREENSPACE_STRIDE 2.0
+			#define SCREENSPACE_MAX_DISTANCE 80.0
+			// where lighting stops using the reflection buffer (get_reflection_blend_weight)
+			#define REFLECTION_ROUGHNESS_CUTOFF 0.45
+			#define REFLECTION_MIRROR_THRESHOLD 0.06
 			// times white on screen, under last frame's exposure
-			#define SSR_MAX_HIT_LUMINANCE 8.0
+			#define REFLECTION_MAX_HIT_LUMINANCE 8.0
 			// taps spread over the reflection cone's footprint in the last frame
-			#define SSR_CONE_TAPS 9
+			#define SCREENSPACE_CONE_TAPS 9
 			// how much of the luminance limit a fully rough lobe keeps
-			#define SSR_ROUGH_LIMIT_SCALE 0.25
+			#define REFLECTION_ROUGH_LIMIT_SCALE 0.25
 			// glints are high variance, a tight clamp and a short history would never settle them
-			#define SSR_CLAMP_SIGMA 3.0
-			#define SSR_HIST_LO 0.9
-			#define SSR_HIST_HI 0.97
-			#define SSR_SPATIAL_NORMAL_POWER 32.0
-			#define SSR_TILE_WIDTH ]] .. tostring(COMPUTE_LOCAL_SIZE.x) .. "\n" .. [[
-			#define SSR_TILE_HEIGHT ]] .. tostring(COMPUTE_LOCAL_SIZE.y) .. [[
+			#define REFLECTION_CLAMP_SIGMA 3.0
+			#define REFLECTION_HIST_LO 0.9
+			#define REFLECTION_HIST_HI 0.97
+			#define REFLECTION_SPATIAL_NORMAL_POWER 32.0
+			#define REFLECTION_TILE_WIDTH ]] .. tostring(COMPUTE_LOCAL_SIZE.x) .. "\n" .. [[
+			#define REFLECTION_TILE_HEIGHT ]] .. tostring(COMPUTE_LOCAL_SIZE.y) .. [[
 
-			shared vec4 ssr_tile[SSR_TILE_HEIGHT][SSR_TILE_WIDTH];
-			shared float ssr_tile_depth[SSR_TILE_HEIGHT][SSR_TILE_WIDTH];
-			shared vec3 ssr_tile_normal[SSR_TILE_HEIGHT][SSR_TILE_WIDTH];
+			shared vec4 ssr_tile[REFLECTION_TILE_HEIGHT][REFLECTION_TILE_WIDTH];
+			shared float ssr_tile_depth[REFLECTION_TILE_HEIGHT][REFLECTION_TILE_WIDTH];
+			shared vec3 ssr_tile_normal[REFLECTION_TILE_HEIGHT][REFLECTION_TILE_WIDTH];
 
-			ivec2 ssr_size;
+			ivec2 reflection_size;
 			ivec2 gbuffer_size;
 			vec4 inv_projection_row_z;
 			vec4 inv_projection_row_w;
@@ -173,7 +173,7 @@ return {
 			// a rough lobe averages many directions, so one bright texel in it is a firefly
 			// and not light. the limit falls as the lobe widens
 			float get_hit_luminance_limit(float roughness) {
-				return max_hit_luminance * mix(1.0, SSR_ROUGH_LIMIT_SCALE, smoothstep(SSR_MIRROR_THRESHOLD, SSR_ROUGHNESS_CUTOFF, roughness));
+				return max_hit_luminance * mix(1.0, REFLECTION_ROUGH_LIMIT_SCALE, smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_ROUGHNESS_CUTOFF, roughness));
 			}
 
 			// downweights bright samples when averaging, relative to the limit
@@ -187,7 +187,7 @@ return {
 			}
 
 			vec3 get_view_pos(vec2 uv, float depth) {
-				vec4 view_pos = ssr_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+				vec4 view_pos = reflection_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
 				return view_pos.xyz / view_pos.w;
 			}
 
@@ -196,28 +196,28 @@ return {
 			}
 
 			bool fetch_surface_motion(vec2 uv, out vec2 prev_uv, out float prev_depth) {
-				if (ssr_data.velocity_tex != -1) {
-					vec3 motion = texture(TEXTURE(ssr_data.velocity_tex), uv).rgb;
-					prev_uv = uv - motion.xy + ssr_data.jitter_shift;
+				if (reflection_data.velocity_tex != -1) {
+					vec3 motion = texture(TEXTURE(reflection_data.velocity_tex), uv).rgb;
+					prev_uv = uv - motion.xy + reflection_data.jitter_shift;
 					prev_depth = motion.z;
 					return prev_depth > 1e-5;
 				}
 
 				vec3 world_pos = get_world_pos(uv, fetch_depth(uv));
-				vec4 prev_view_pos = ssr_data.prev_view * vec4(world_pos, 1.0);
-				vec4 prev_clip = ssr_data.prev_projection * prev_view_pos;
+				vec4 prev_view_pos = reflection_data.prev_view * vec4(world_pos, 1.0);
+				vec4 prev_clip = reflection_data.prev_projection * prev_view_pos;
 
 				if (prev_clip.w <= 1e-5) return false;
 
-				prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5 + ssr_data.jitter_shift;
+				prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5 + reflection_data.jitter_shift;
 				prev_depth = -prev_view_pos.z;
 				return true;
 			}
 
 			vec2 blue_noise(ivec2 pixel) {
-				ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
-				vec2 xi = texelFetch(TEXTURE(ssr_data.blue_noise_tex), pixel % noise_size, 0).rg;
-				return fract(xi + float(ssr_data.frame_index % 64) * vec2(0.7548776662, 0.5698402910));
+				ivec2 noise_size = textureSize(TEXTURE(reflection_data.blue_noise_tex), 0);
+				vec2 xi = texelFetch(TEXTURE(reflection_data.blue_noise_tex), pixel % noise_size, 0).rg;
+				return fract(xi + float(reflection_data.frame_index % 64) * vec2(0.7548776662, 0.5698402910));
 			}
 
 			void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
@@ -228,23 +228,23 @@ return {
 			}
 
 			vec2 get_last_frame_uv(vec2 hit_uv, vec3 hit_view_pos) {
-				if (ssr_data.velocity_tex != -1) {
-					return hit_uv - texture(TEXTURE(ssr_data.velocity_tex), hit_uv).xy + ssr_data.jitter_shift;
+				if (reflection_data.velocity_tex != -1) {
+					return hit_uv - texture(TEXTURE(reflection_data.velocity_tex), hit_uv).xy + reflection_data.jitter_shift;
 				}
 
-				vec4 world_hit = ssr_data.inv_view * vec4(hit_view_pos, 1.0);
-				vec4 prev_clip = ssr_data.prev_projection * (ssr_data.prev_view * vec4(world_hit.xyz, 1.0));
+				vec4 world_hit = reflection_data.inv_view * vec4(hit_view_pos, 1.0);
+				vec4 prev_clip = reflection_data.prev_projection * (reflection_data.prev_view * vec4(world_hit.xyz, 1.0));
 
 				if (abs(prev_clip.w) <= 1e-5) {
 					return vec2(-1.0);
 				}
 
 				prev_clip /= prev_clip.w;
-				return prev_clip.xy * 0.5 + 0.5 + ssr_data.jitter_shift;
+				return prev_clip.xy * 0.5 + 0.5 + reflection_data.jitter_shift;
 			}
 
-			vec4 trace_ssr_direction(vec3 pos_vs, vec3 R_vs, float roughness, float jitter) {
-				float ray_len = SSR_MAX_DISTANCE;
+			vec4 trace_screenspace_direction(vec3 pos_vs, vec3 R_vs, float roughness, float jitter) {
+				float ray_len = SCREENSPACE_MAX_DISTANCE;
 
 				if (pos_vs.z + R_vs.z * ray_len > -0.05) {
 					ray_len = (-0.05 - pos_vs.z) / R_vs.z;
@@ -253,17 +253,17 @@ return {
 				if (ray_len <= 1e-4) return vec4(0.0);
 
 				vec3 end_vs = pos_vs + R_vs * ray_len;
-				vec4 h0 = ssr_data.projection * vec4(pos_vs, 1.0);
-				vec4 h1 = ssr_data.projection * vec4(end_vs, 1.0);
+				vec4 h0 = reflection_data.projection * vec4(pos_vs, 1.0);
+				vec4 h1 = reflection_data.projection * vec4(end_vs, 1.0);
 				float k0 = 1.0 / h0.w;
 				float k1 = 1.0 / h1.w;
 				vec2 p0 = h0.xy * k0 * 0.5 + 0.5;
 				vec2 p1 = h1.xy * k1 * 0.5 + 0.5;
 				float q0 = pos_vs.z * k0;
 				float q1 = end_vs.z * k1;
-				vec2 delta_px = (p1 - p0) * vec2(ssr_size);
+				vec2 delta_px = (p1 - p0) * vec2(reflection_size);
 				float pixel_len = max(abs(delta_px.x), abs(delta_px.y));
-				int steps = clamp(int(pixel_len / SSR_STRIDE), 1, SSR_MAX_STEPS);
+				int steps = clamp(int(pixel_len / SCREENSPACE_STRIDE), 1, SCREENSPACE_MAX_STEPS);
 				float dt = 1.0 / float(steps);
 				float t_prev = 0.0;
 				float z_prev = pos_vs.z;
@@ -290,7 +290,7 @@ return {
 								float t_hi = t;
 								float refined_diff = depth_diff;
 
-								for (int j = 0; j < SSR_BINARY_STEPS; j++) {
+								for (int j = 0; j < SCREENSPACE_BINARY_STEPS; j++) {
 									float t_mid = (t_lo + t_hi) * 0.5;
 									vec2 uv_mid = mix(p0, p1, t_mid);
 									float z_mid = mix(q0, q1, t_mid) / mix(k0, k1, t_mid);
@@ -307,7 +307,7 @@ return {
 									}
 								}
 
-								vec3 hit_normal_vs = mat3(ssr_data.view) * gbuffer_normal(uv);
+								vec3 hit_normal_vs = mat3(reflection_data.view) * gbuffer_normal(uv);
 
 								if (dot(hit_normal_vs, R_vs) > 0.0) {
 									t_prev = t;
@@ -324,24 +324,24 @@ return {
 
 								float edge_fade = 1.0 - pow(max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0, 3.0);
 								edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
-								float dist_fade = 1.0 - smoothstep(SSR_MAX_DISTANCE * 0.7, SSR_MAX_DISTANCE, length(hit_vs - pos_vs));
+								float dist_fade = 1.0 - smoothstep(SCREENSPACE_MAX_DISTANCE * 0.7, SCREENSPACE_MAX_DISTANCE, length(hit_vs - pos_vs));
 								float thick_conf = 1.0 - saturate(refined_diff / max(0.15, -z_surf * 0.03));
 								// last frame's scene was pre-exposed for last frame, reflections are absolute
 								vec3 hit_color;
 
-								if (roughness > SSR_MIRROR_THRESHOLD) {
+								if (roughness > REFLECTION_MIRROR_THRESHOLD) {
 									// the reflection's cone is wider than a texel: its footprint at the hit
-									float radius_uv = roughness * roughness * length(hit_vs - pos_vs) / max(-hit_vs.z, 0.1) * ssr_data.projection[1][1] * 0.5;
+									float radius_uv = roughness * roughness * length(hit_vs - pos_vs) / max(-hit_vs.z, 0.1) * reflection_data.projection[1][1] * 0.5;
 									radius_uv = min(radius_uv, 0.05);
 									vec3 sum = vec3(0.0);
 									float sum_weight = 0.0;
 									float limit = get_hit_luminance_limit(roughness);
 									float spin = jitter * 6.2831853;
 
-									for (int k = 0; k < SSR_CONE_TAPS; k++) {
-										float angle = spin + float(k) * 6.2831853 / float(SSR_CONE_TAPS);
+									for (int k = 0; k < SCREENSPACE_CONE_TAPS; k++) {
+										float angle = spin + float(k) * 6.2831853 / float(SCREENSPACE_CONE_TAPS);
 										vec2 tap_uv = last_frame_uv + vec2(cos(angle), sin(angle)) * radius_uv * (0.35 + 0.65 * fract(jitter * 7.0 + float(k) * 0.381966));
-										vec3 tap = texture(TEXTURE(ssr_data.last_frame_tex), tap_uv).rgb / get_previous_pre_exposure();
+										vec3 tap = texture(TEXTURE(reflection_data.last_frame_tex), tap_uv).rgb / get_previous_pre_exposure();
 										float tap_luma = luminance(tap);
 
 										if (tap_luma > limit) tap *= limit / tap_luma;
@@ -353,10 +353,10 @@ return {
 
 									hit_color = sum / sum_weight;
 								} else {
-									hit_color = texture(TEXTURE(ssr_data.last_frame_tex), last_frame_uv).rgb / get_previous_pre_exposure();
+									hit_color = texture(TEXTURE(reflection_data.last_frame_tex), last_frame_uv).rgb / get_previous_pre_exposure();
 								}
 
-								if (roughness > SSR_MIRROR_THRESHOLD) {
+								if (roughness > REFLECTION_MIRROR_THRESHOLD) {
 									float hit_luma = luminance(hit_color);
 
 									float hit_limit = get_hit_luminance_limit(roughness);
@@ -376,26 +376,26 @@ return {
 				return vec4(0.0);
 			}
 
-			vec4 cast_ssr_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
-				if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
+			vec4 cast_reflection_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
+				if (roughness > REFLECTION_ROUGHNESS_CUTOFF) return vec4(0.0);
 
 				// a normal map can turn a pixel away from the camera, which would
 				// reflect into the surface. bend it back toward the viewer
 				N = bend_normal_to_view(N, V);
-				vec3 N_vs = normalize(mat3(ssr_data.view) * N);
+				vec3 N_vs = normalize(mat3(reflection_data.view) * N);
 				vec3 V_vs = normalize(-pos_vs);
 				vec3 mirror_R_vs = reflect(-V_vs, N_vs);
 
 				vec3 R_vs = mirror_R_vs;
 
-				if (roughness > SSR_MIRROR_THRESHOLD) {
+				if (roughness > REFLECTION_MIRROR_THRESHOLD) {
 					vec3 T;
 					vec3 B;
 					buildOrthonormalBasis(N_vs, T, B);
 					vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
 					vec3 H_local = ImportanceSampleGGXVNDF(V_local, max(0.001, roughness * roughness), xi);
 					vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
-					float rough_mix = smoothstep(SSR_MIRROR_THRESHOLD, SSR_MIRROR_THRESHOLD * 3.0, roughness);
+					float rough_mix = smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness);
 					R_vs = normalize(mix(mirror_R_vs, reflect(-V_vs, H_vs), rough_mix));
 
 					if (dot(N_vs, R_vs) < 0.001) R_vs = mirror_R_vs;
@@ -404,21 +404,21 @@ return {
 				// a normal map tilted sideways can reflect below the actual surface,
 				// where the ray would leave through the floor and find the sky.
 				// mirror it back above the geometric plane instead
-				vec3 geometric_N_vs = mat3(ssr_data.view) * geometric_N;
+				vec3 geometric_N_vs = mat3(reflection_data.view) * geometric_N;
 				float below = dot(R_vs, geometric_N_vs);
 
 				if (below < 0.01) R_vs = normalize(R_vs + geometric_N_vs * (0.01 - 2.0 * below));
 
-				vec3 R_world = (ssr_data.inv_view * vec4(R_vs, 0.0)).xyz;
+				vec3 R_world = (reflection_data.inv_view * vec4(R_vs, 0.0)).xyz;
 				bool rt_primary = false;
 
 				#ifdef SCENE_REFLECTION
 				rt_primary = scene_reflection_ready() && scene_reflection_primary();
 				#endif
 
-				if (!rt_primary && ssr_data.last_frame_tex == -1) return vec4(0.0);
+				if (!rt_primary && reflection_data.last_frame_tex == -1) return vec4(0.0);
 
-				vec4 hit = rt_primary ? vec4(0.0) : trace_ssr_direction(pos_vs, R_vs, roughness, xi.y);
+				vec4 hit = rt_primary ? vec4(0.0) : trace_screenspace_direction(pos_vs, R_vs, roughness, xi.y);
 
 				#ifdef SCENE_REFLECTION
 				// what the screen doesn't hold (off screen, behind something or
@@ -429,7 +429,7 @@ return {
 					float traced_t;
 					vec3 traced = trace_scene_reflection(origin, R_world, N, roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
 
-					if (roughness > SSR_MIRROR_THRESHOLD) {
+					if (roughness > REFLECTION_MIRROR_THRESHOLD) {
 						float traced_luma = luminance(traced);
 
 						float traced_limit = get_hit_luminance_limit(roughness);
@@ -447,15 +447,15 @@ return {
 
 			void main() {
 				ivec2 pos = get_screen_pos();
-				ssr_size = imageSize(out_ssr);
-				gbuffer_size = textureSize(TEXTURE(ssr_data.depth_tex), 0);
-				mat4 inv_projection = ssr_data.inv_projection;
+				reflection_size = imageSize(out_reflection);
+				gbuffer_size = textureSize(TEXTURE(reflection_data.depth_tex), 0);
+				mat4 inv_projection = reflection_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
-				max_hit_luminance = ssr_data.exposure_tex != -1 ? SSR_MAX_HIT_LUMINANCE / max(texture(TEXTURE(ssr_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
+				max_hit_luminance = reflection_data.exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
 				ivec2 local_pos = ivec2(gl_LocalInvocationID.xy);
-				bool in_bounds = is_screen_pos_in_bounds(pos, ssr_size);
-				ivec2 gbuffer_pos = min(get_ssr_gbuffer_pos(pos, ssr_data.frame_index, gbuffer_size, ssr_size), gbuffer_size - 1);
+				bool in_bounds = is_screen_pos_in_bounds(pos, reflection_size);
+				ivec2 gbuffer_pos = min(get_reflection_gbuffer_pos(pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
 				float depth = in_bounds ? gbuffer_depth(gbuffer_pos) : 1.0;
 				vec4 current = vec4(0.0);
@@ -469,15 +469,15 @@ return {
 					// the gbuffer stores ggx alpha
 					roughness = sqrt(gbuffer_roughness(gbuffer_pos));
 					world_pos = get_world_pos(uv, depth);
-					vec3 pos_vs = (ssr_data.view * vec4(world_pos, 1.0)).xyz;
+					vec3 pos_vs = (reflection_data.view * vec4(world_pos, 1.0)).xyz;
 					view_depth = -pos_vs.z;
-					vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
+					vec3 V = normalize(reflection_data.camera_position.xyz - world_pos);
 					vec3 geometric_N = get_geometric_normal(gbuffer_pos, world_pos, depth, V, N);
 
-					float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * ssr_data.inv_projection[1][1] / float(gbuffer_size.y);
+					float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * reflection_data.inv_projection[1][1] / float(gbuffer_size.y);
 					]] .. surface_features.GetReflectionGLSL() .. [[
 
-					current = cast_ssr_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(pos));
+					current = cast_reflection_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(pos));
 				}
 
 				ssr_tile[local_pos.y][local_pos.x] = current;
@@ -489,8 +489,8 @@ return {
 				if (!in_bounds) return;
 
 				if (depth >= 1.0) {
-					imageStore(out_ssr, pos, vec4(0.0));
-					imageStore(out_ssr_depth, pos, vec4(0.0));
+					imageStore(out_reflection, pos, vec4(0.0));
+					imageStore(out_reflection_depth, pos, vec4(0.0));
 					return;
 				}
 
@@ -507,14 +507,14 @@ return {
 					for (int x = -1; x <= 1; x++) {
 						ivec2 tile_pos = local_pos + ivec2(x, y);
 
-						if (tile_pos.x < 0 || tile_pos.y < 0 || tile_pos.x >= SSR_TILE_WIDTH || tile_pos.y >= SSR_TILE_HEIGHT) continue;
+						if (tile_pos.x < 0 || tile_pos.y < 0 || tile_pos.x >= REFLECTION_TILE_WIDTH || tile_pos.y >= REFLECTION_TILE_HEIGHT) continue;
 
 						float sample_depth = ssr_tile_depth[tile_pos.y][tile_pos.x];
 
 						if (sample_depth <= 0.0) continue;
 
 						float depth_weight = exp(-abs(sample_depth - view_depth) / max(view_depth * 0.05, 0.05));
-						float normal_weight = pow(max(dot(N, ssr_tile_normal[tile_pos.y][tile_pos.x]), 0.0), SSR_SPATIAL_NORMAL_POWER);
+						float normal_weight = pow(max(dot(N, ssr_tile_normal[tile_pos.y][tile_pos.x]), 0.0), REFLECTION_SPATIAL_NORMAL_POWER);
 						float weight = depth_weight * normal_weight;
 
 						if (weight <= 0.0001) continue;
@@ -544,7 +544,7 @@ return {
 
 				vec4 result = filtered;
 
-				if (ssr_data.history_tex != -1) {
+				if (reflection_data.history_tex != -1) {
 					vec2 prev_uv;
 					float prev_depth;
 					bool has_motion = fetch_surface_motion(uv, prev_uv, prev_depth);
@@ -553,23 +553,23 @@ return {
 						// the ray was traced from a gbuffer pixel off the texel's centre, but history
 						// is stored and read at texel centres. reading it at the pixel's own position
 						// would shift the feedback by that offset every frame, smearing it one way
-						prev_uv += (vec2(pos) + 0.5) / vec2(ssr_size) - uv;
+						prev_uv += (vec2(pos) + 0.5) / vec2(reflection_size) - uv;
 
 						if (prev_uv.x > 0.0 && prev_uv.x < 1.0 && prev_uv.y > 0.0 && prev_uv.y < 1.0) {
-							float history_depth = texture(TEXTURE(ssr_data.history_depth_tex), prev_uv).r;
+							float history_depth = texture(TEXTURE(reflection_data.history_depth_tex), prev_uv).r;
 
 							if (abs(history_depth - prev_depth) < prev_depth * 0.05 + 0.02) {
-								vec4 history = texture(TEXTURE(ssr_data.history_tex), prev_uv);
+								vec4 history = texture(TEXTURE(reflection_data.history_tex), prev_uv);
 
 								if (!any(isnan(history))) {
-									vec3 clamp_extent = deviation * SSR_CLAMP_SIGMA + mean * 0.05 + 0.001;
+									vec3 clamp_extent = deviation * REFLECTION_CLAMP_SIGMA + mean * 0.05 + 0.001;
 									history.rgb = clamp(history.rgb, mean - clamp_extent, mean + clamp_extent);
 									// the colour is held to the neighbourhood, so is the alpha. history is read between
 									// texels, and at a silhouette that blends in the alpha of what is beside the
 									// surface (an object without a reflection), which feeds itself and leaves a
 									// line of the bright environment fallback along the contact
 									if (alpha_min <= alpha_max) history.a = clamp(history.a, alpha_min, alpha_max);
-									float history_weight = mix(SSR_HIST_LO, SSR_HIST_HI, smoothstep(0.0, 0.3, roughness));
+									float history_weight = mix(REFLECTION_HIST_LO, REFLECTION_HIST_HI, smoothstep(0.0, 0.3, roughness));
 									result = mix(filtered, history, history_weight);
 								}
 							}
@@ -577,8 +577,8 @@ return {
 					}
 				}
 
-				imageStore(out_ssr, pos, result);
-				imageStore(out_ssr_depth, pos, vec4(view_depth));
+				imageStore(out_reflection, pos, result);
+				imageStore(out_reflection_depth, pos, vec4(view_depth));
 			}
 		]],
 	},

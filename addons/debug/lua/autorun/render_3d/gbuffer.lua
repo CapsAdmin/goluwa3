@@ -98,7 +98,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	local views = {}
 	add_pass(views, "gbuffer")
 	add_pass(views, "ambient_occlusion")
-	add_pass(views, "ssr")
+	add_pass(views, "reflections")
 	add_pass(views, "ssgi_filter_1")
 	add_pass(views, "ssgi_filter_2")
 	add_pass(views, "ssgi")

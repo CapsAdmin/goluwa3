@@ -113,8 +113,8 @@ return {
 					render3d.last_frame_block,
 					{"gi_debug", "int"},
 					{"direct_debug", "int"},
-					{"ssr_tex", "int"},
-					{"ssr_phase", "int"},
+					{"reflection_tex", "int"},
+					{"reflection_phase", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
@@ -153,13 +153,13 @@ return {
 					local overlay = ddgi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
 
-					if render3d.IsPassEnabled("ssr") then
+					if render3d.IsPassEnabled("reflections") then
 						local current_idx = system.GetFrameNumber() % 2 + 1
-						local current_ssr_fb = render3d.pipelines.ssr:GetFramebuffer(current_idx)
-						block.ssr_tex = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
-						block.ssr_phase = render3d.GetTemporalFrame()
+						local current_reflections_fb = render3d.pipelines.reflections:GetFramebuffer(current_idx)
+						block.reflection_tex = self:GetTextureIndex(current_reflections_fb:GetAttachment(1))
+						block.reflection_phase = render3d.GetTemporalFrame()
 					else
-						block.ssr_tex = -1
+						block.reflection_tex = -1
 					end
 
 					return block
@@ -278,11 +278,11 @@ return {
 				""
 			) .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetScreenSampleGLSL("lighting_data") .. [[
 
-			]] .. ibl.GetSSRQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
+			]] .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
-			// ssr_uv is where the screen space reflection is read, moved off the pixel by what the ssr can't
+			// reflection_uv is where the screen space reflection is read, moved off the pixel by what the reflection buffer can't
 			// resolve, like the rain's waves
-			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 ssr_uv) {
+			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 reflection_uv) {
 				vec3 raw_R = reflect(-V, normal);
 				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
@@ -291,10 +291,10 @@ return {
 				vec3 global_reflection = mix(gi_reflection_fallback, sky_reflection, sky_weight);
 				vec3 env_reflection = blend_probe_reflections(global_reflection, R, roughness, world_pos);
 
-				if (lighting_data.ssr_tex == -1) return env_reflection;
+				if (lighting_data.reflection_tex == -1) return env_reflection;
 
-				vec4 ssr = get_filtered_ssr_reflection(ssr_uv);
-				return combine_reflections(env_reflection, ssr, get_ssr_blend_weight(roughness));
+				vec4 traced = get_filtered_reflection(reflection_uv);
+				return combine_reflections(env_reflection, traced, get_reflection_blend_weight(roughness));
 			}
 
 			vec3 get_gi_irradiance(vec3 N, out float sky_visibility) {

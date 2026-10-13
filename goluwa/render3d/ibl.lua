@@ -202,12 +202,12 @@ function ibl.GetEnvironmentGLSLCode()
 		]]
 end
 
-function ibl.GetSSRQuadGLSL()
+function ibl.GetReflectionQuadGLSL()
 	return [[
-			ivec2 get_ssr_gbuffer_pos(ivec2 pos, int phase, ivec2 gbuffer_size, ivec2 ssr_size) {
+			ivec2 get_reflection_gbuffer_pos(ivec2 pos, int phase, ivec2 gbuffer_size, ivec2 reflection_size) {
 				const ivec2 offsets[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
-				ivec2 first = pos * gbuffer_size / ssr_size;
-				ivec2 last = (pos + 1) * gbuffer_size / ssr_size;
+				ivec2 first = pos * gbuffer_size / reflection_size;
+				ivec2 last = (pos + 1) * gbuffer_size / reflection_size;
 				return first + min(offsets[phase & 3], last - first - 1);
 			}
 	]]
@@ -220,34 +220,34 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				return mix(global_env, local_env, clamp(local_weight, 0.0, 1.0));
 			}
 
-			float get_ssr_blend_weight(float perceptual_roughness) {
+			float get_reflection_blend_weight(float perceptual_roughness) {
 				return 1.0 - smoothstep(0.3, 0.45, clamp(perceptual_roughness, 0.0, 1.0));
 			}
 
-			float reconstruct_ssr_view_depth(vec2 uv, float depth) {
+			float reconstruct_reflection_view_depth(vec2 uv, float depth) {
 				vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
 				vec4 view_pos = ]] .. uniform_name .. [[.inv_projection * clip;
 				view_pos /= max(abs(view_pos.w), 1e-5);
 				return view_pos.z;
 			}
 
-			vec4 get_filtered_ssr_reflection(vec2 uv) {
-				if (]] .. uniform_name .. [[.ssr_tex == -1) return vec4(0.0);
+			vec4 get_filtered_reflection(vec2 uv) {
+				if (]] .. uniform_name .. [[.reflection_tex == -1) return vec4(0.0);
 				if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return vec4(0.0);
 
-				ivec2 ssr_size = textureSize(TEXTURE(]] .. uniform_name .. [[.ssr_tex), 0);
+				ivec2 reflection_size = textureSize(TEXTURE(]] .. uniform_name .. [[.reflection_tex), 0);
 				ivec2 gbuffer_size = textureSize(TEXTURE(]] .. uniform_name .. [[.depth_tex), 0);
 				ivec2 pixel = clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1);
 				float center_depth = gbuffer_depth(pixel);
 
 				if (center_depth >= 1.0) return vec4(0.0);
 
-				float center_view_depth = reconstruct_ssr_view_depth(uv, center_depth);
+				float center_view_depth = reconstruct_reflection_view_depth(uv, center_depth);
 				vec3 center_normal = gbuffer_normal(pixel);
 				float center_roughness = gbuffer_roughness(pixel);
-				vec2 ssr_coord = uv * vec2(ssr_size) - 0.5;
-				ivec2 ssr_base = ivec2(floor(ssr_coord));
-				vec2 ssr_frac = ssr_coord - vec2(ssr_base);
+				vec2 reflection_coord = uv * vec2(reflection_size) - 0.5;
+				ivec2 reflection_base = ivec2(floor(reflection_coord));
+				vec2 reflection_frac = reflection_coord - vec2(reflection_base);
 				vec3 color_accum = vec3(0.0);
 				float color_weight = 0.0;
 				float alpha_accum = 0.0;
@@ -255,22 +255,22 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 
 				for (int i = 0; i < 4; i++) {
 					ivec2 offset = ivec2(i & 1, i >> 1);
-					ivec2 ssr_pos = clamp(ssr_base + offset, ivec2(0), ssr_size - 1);
-					ivec2 tap_pixel = get_ssr_gbuffer_pos(ssr_pos, ]] .. uniform_name .. [[.ssr_phase, gbuffer_size, ssr_size);
+					ivec2 reflection_pos = clamp(reflection_base + offset, ivec2(0), reflection_size - 1);
+					ivec2 tap_pixel = get_reflection_gbuffer_pos(reflection_pos, ]] .. uniform_name .. [[.reflection_phase, gbuffer_size, reflection_size);
 					float tap_depth = gbuffer_depth(tap_pixel);
 
 					if (tap_depth >= 1.0) continue;
 
 					vec2 tap_uv = (vec2(tap_pixel) + 0.5) / vec2(gbuffer_size);
-					float tap_view_depth = reconstruct_ssr_view_depth(tap_uv, tap_depth);
+					float tap_view_depth = reconstruct_reflection_view_depth(tap_uv, tap_depth);
 					vec3 tap_normal = gbuffer_normal(tap_pixel);
 					float tap_roughness = gbuffer_roughness(tap_pixel);
-					float bilinear_weight = (offset.x == 0 ? 1.0 - ssr_frac.x : ssr_frac.x) * (offset.y == 0 ? 1.0 - ssr_frac.y : ssr_frac.y);
+					float bilinear_weight = (offset.x == 0 ? 1.0 - reflection_frac.x : reflection_frac.x) * (offset.y == 0 ? 1.0 - reflection_frac.y : reflection_frac.y);
 					float depth_weight = exp(-abs(tap_view_depth - center_view_depth) / max(abs(center_view_depth) * 0.03, 0.05));
 					float normal_weight = pow(max(dot(center_normal, tap_normal), 0.0), 16.0);
 					float roughness_weight = 1.0 - clamp(abs(tap_roughness - center_roughness) * 8.0, 0.0, 1.0);
 					float weight = bilinear_weight * (depth_weight * normal_weight * roughness_weight + 1e-4);
-					vec4 tap = texelFetch(TEXTURE(]] .. uniform_name .. [[.ssr_tex), ssr_pos, 0);
+					vec4 tap = texelFetch(TEXTURE(]] .. uniform_name .. [[.reflection_tex), reflection_pos, 0);
 					// a tap's colour only counts as much as its ray found something
 					color_accum += tap.rgb * (weight * tap.a);
 					color_weight += weight * tap.a;
@@ -283,8 +283,8 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				return vec4(color_accum / color_weight, clamp(alpha_accum / total_weight, 0.0, 1.0));
 			}
 
-			vec3 combine_reflections(vec3 env_reflection, vec4 ssr_reflection, float ssr_weight) {
-				return mix(env_reflection, ssr_reflection.rgb, clamp(ssr_reflection.a * ssr_weight, 0.0, 1.0));
+			vec3 combine_reflections(vec3 env_reflection, vec4 traced_reflection, float reflection_weight) {
+				return mix(env_reflection, traced_reflection.rgb, clamp(traced_reflection.a * reflection_weight, 0.0, 1.0));
 			}
 		]]
 end

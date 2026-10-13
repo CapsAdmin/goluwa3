@@ -327,7 +327,7 @@ list.insert(
 			const float SUN_ANGULAR_RADIUS = ]] .. atmosphere.SUN_ANGULAR_RADIUS .. [[;
 			// how far the medium is followed when nothing is behind it
 			const float WATER_OPEN_DEPTH = 2000.0;
-			const float WATER_SSR_DISTANCE = 400.0;
+			const float WATER_SCREENSPACE_DISTANCE = 400.0;
 
 			]] .. gbuffer_layout.GetDecodeGLSL("ocean_data") .. [[
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ocean_data") .. [[
@@ -1044,7 +1044,7 @@ list.insert(
 
 				for (int i = 1; i <= 24; i++) {
 					float f = (float(i) - jitter) / 24.0;
-					float t = WATER_SSR_DISTANCE * f * f;
+					float t = WATER_SCREENSPACE_DISTANCE * f * f;
 					vec3 p = screen_refraction_project(origin + dir * t);
 
 					if (!screen_refraction_on_screen(p.xy)) return false;
@@ -1097,22 +1097,22 @@ list.insert(
 				#else
 				bool rt_primary = false;
 				#endif
-				float ssr_fade = reflection_dir.y > -0.2 ? 1.0 - smoothstep(0.1, 0.35, perceptual) : 0.0;
+				float screenspace_fade = reflection_dir.y > -0.2 ? 1.0 - smoothstep(0.1, 0.35, perceptual) : 0.0;
 				vec3 origin = surface_pos + normal * 0.02;
-				vec3 ssr_color = vec3(0.0);
-				float ssr_weight = 0.0;
-				vec2 ssr_uv;
-				float ssr_t;
+				vec3 screenspace_color = vec3(0.0);
+				float reflection_weight = 0.0;
+				vec2 reflection_uv;
+				float screenspace_t;
 
-				if (!rt_primary && ssr_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, ssr_uv, ssr_t, ssr_weight)) {
-					ssr_color = get_scene_color(ssr_uv);
-					ssr_weight *= ssr_fade;
+				if (!rt_primary && screenspace_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, reflection_uv, screenspace_t, reflection_weight)) {
+					screenspace_color = get_scene_color(reflection_uv);
+					reflection_weight *= screenspace_fade;
 				}
 
 				#ifdef SCENE_REFLECTION
 				// what the screen doesn't hold is traced, at any roughness: a ray per pixel through the
 				// waves' unresolved slopes, which ocean_resolve averages into the blurred reflection
-				if (ssr_weight < 0.999 && scene_reflection_ready()) {
+				if (reflection_weight < 0.999 && scene_reflection_ready()) {
 					vec3 dir = reflection_dir;
 
 					if (perceptual > 0.1) {
@@ -1128,11 +1128,11 @@ list.insert(
 
 					float traced_t;
 					vec3 traced = trace_scene_reflection(origin, dir, normal, perceptual, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
-					return rt_primary ? traced : mix(traced, ssr_color, ssr_weight);
+					return rt_primary ? traced : mix(traced, screenspace_color, reflection_weight);
 				}
 				#endif
 
-				return mix(reflected, ssr_color, ssr_weight);
+				return mix(reflected, screenspace_color, reflection_weight);
 			}
 
 			// ---------------------------------------------------------------

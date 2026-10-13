@@ -70,8 +70,8 @@ m3.Run(function(view, now)
 		local g = function(name) return (gpu_sum[name] or 0) / n end
 		local shadows = 0
 		for k, v in pairs(gpu_sum) do if k:find("^shadow_") then shadows = shadows + v / n end end
-		print(string.format("SWEEP %-34s frame %6.2f (p95 %6.2f) | gpu %6.2f lighting %5.2f ddgi_shade %5.2f transl_acc %5.2f ssr %5.2f gbuf %5.2f shadows %5.2f | cpu %6.2f",
-			variants[idx].name, total / n * 1000, times[math.ceil(n * 0.95)] * 1000, g("gpu_frame"), g("lighting"), g("ddgi_shade"), g("translucent_accumulate"), g("ssr"), g("gbuffer"), shadows, (cpu.gpu_frame or 0) / n * 1000))
+		print(string.format("SWEEP %-34s frame %6.2f (p95 %6.2f) | gpu %6.2f lighting %5.2f ddgi_shade %5.2f transl_acc %5.2f reflections %5.2f gbuf %5.2f shadows %5.2f | cpu %6.2f",
+			variants[idx].name, total / n * 1000, times[math.ceil(n * 0.95)] * 1000, g("gpu_frame"), g("lighting"), g("ddgi_shade"), g("translucent_accumulate"), g("reflections"), g("gbuffer"), shadows, (cpu.gpu_frame or 0) / n * 1000))
 		idx = idx + 1
 		if idx > #variants then return false end
 		apply(variants[idx]) state = "warm" n = 0

@@ -297,7 +297,7 @@ local default_passes = {
 	{"clouds", "goluwa/render3d/passes/clouds.lua"},
 	{"ambient_occlusion", "goluwa/render3d/passes/ambient_occlusion.lua"},
 	{"ddgi", "goluwa/render3d/passes/ddgi.lua"},
-	{"ssr", "goluwa/render3d/passes/ssr.lua"},
+	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"ocean", "goluwa/render3d/passes/ocean.lua"},
 	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},

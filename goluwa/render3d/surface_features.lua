@@ -221,7 +221,7 @@ function self.GetIndirectGLSL()
 	return join("indirect")
 end
 
--- statements for the ssr pass, which traces one ray per pixel off the surface's reflection. scope:
+-- statements for the reflections pass, which traces one ray per pixel off the surface's reflection. scope:
 -- gbuffer_pos (ivec2), world_pos, view_depth, V, geometric_N, footprint (meters a pixel covers on
 -- the surface), N (inout, what the ray reflects off), roughness (inout, perceptual). a feature
 -- whose lobe is smoother than the surface under it traces off that

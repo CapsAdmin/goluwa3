@@ -312,7 +312,7 @@ do
 	end
 
 	scene.rooms[#scene.rooms + 1] = {
-		name = "ssr_floor",
+		name = "reflection_floor",
 		ox = ox,
 		ev = tonumber(os.getenv("FLOOR_EV")),
 		view = {Position = Vec3(ox, 1.3, -4.3), Rotation = QuatDeg3(-6, 180, 0), FOV = math.rad(90)},
