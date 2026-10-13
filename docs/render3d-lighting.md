@@ -184,6 +184,17 @@ Glass (`Material:IsGlass()`: Refraction > 0, not additive) casts no shadow of it
 - Without ray queries glass falls back to the dithered shadow (`GlassCastsShadow` true).
 - Scenes: `luajit glw --3d --background --validate lua "import('test/harnesses/glass_rooms_shot.lua')"` writes `tmp/glass_rooms_<room>.png` for three rooms (red/green/blue ceiling panes, a blue pane with a point light, a blue glass box over an opaque floor; chrome balls in the first and last show the reflections). `SUN_EV=14` locks the exposure of the sunlit rooms (auto exposure washes the glass box out), `GLASS_OFF=1` turns the effect off, `LAMP_EV`/`LAMP_LUMEN` tune the lamp room.
 
+## SSR halo around objects on glossy floors
+
+*gm_construct_m3_401 lobby, pos 169.97 179.46 204.18 ang -0.1807 -1.885 0 sun quat -0.2229 0.3602 0.0891 0.9015; also pos 184.59 187.46 206.04 ang -0.4527 -0.7677 0 sun quat -0.0115 0.9875 0.1302 0.0876*
+
+A one pixel rim (a halo after taa) along the base of steps, columns and benches on a glossy dark floor, the colour of the sky (black with the sun down), worst indoors under a bright sky. Not the traced reflection (it showed with ray queries off), not direct light (0 there), not taa (it only widens it). Found by drawing the ssr texel's alpha raw, after the lighting's upsample and the roughness through a debug return in `get_reflection`:
+
+- The ssr pass's history alpha was the cause. History is read bilinearly at the texel's own position, and at a silhouette that blends in the alpha of what is beside the surface (an object with roughness over the cutoff has alpha 0). The history feeds itself, so the floor's alpha settled at 0.4 to 0.6 while its neighbours were 0.6 (current frame raw alpha and the filtered one were both fine). Where the alpha is low `combine_reflections` mixes in `env_reflection`, which is the bright unoccluded sky indoors. Fix in `passes/ssr.lua`: the history alpha is clamped to the range of the similar texels' alphas the spatial filter just read (`alpha_min`, `alpha_max`).
+- `get_ssr_blend_weight` (ibl.lua) was `(1 - smoothstep(0.08, 0.45, r))^2`, so a floor at perceptual roughness 0.13 to 0.2 already gave a third of the reflection to the environment. It is `1 - smoothstep(0.3, 0.45, r)` now, in line with the 0.45 the ssr and traced paths stop at. This alone halved the rim and removed the glowing tile grout.
+- Tried and dropped, they changed nothing: widening the lighting's ssr upsample to 16 taps, four depth weighted history taps, a roughness weight in the ssr pass's spatial filter, capping the specular antialiasing of `get_antialiased_roughness` for glossy surfaces.
+- Test room `ssr_floor` in `test/harnesses/glass_rooms.lua` (`TILE_ROUGHNESS`, `FLOOR_LAMP`, `PVARS=key=value,..`) does not reproduce it, its rim was the traced hit at the contact line.
+
 ## Translucent shadow measurement
 
 *alpha_measure.lua recipe, soup per-vertex opacity, LocalExposure=0 pitfall*

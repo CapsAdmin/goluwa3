@@ -221,8 +221,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 			}
 
 			float get_ssr_blend_weight(float perceptual_roughness) {
-				float stable_weight = 1.0 - smoothstep(0.08, 0.45, clamp(perceptual_roughness, 0.0, 1.0));
-				return stable_weight * stable_weight;
+				return 1.0 - smoothstep(0.3, 0.45, clamp(perceptual_roughness, 0.0, 1.0));
 			}
 
 			float reconstruct_ssr_view_depth(vec2 uv, float depth) {
