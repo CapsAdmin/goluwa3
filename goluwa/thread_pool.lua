@@ -76,9 +76,21 @@ function thread_pool.GetMaxThreads()
 end
 
 function thread_pool.Shutdown()
-	if thread_pool.pool then
-		thread_pool.pool:shutdown()
+	local pool = thread_pool.pool
+
+	if pool then
+		-- a running job cannot be cancelled and may own memory the caller is about to free, let it finish
+		for thread_id, job in pairs(thread_pool.inflight) do
+			local meta, err, blob = pool:wait(thread_id)
+			finish(job, meta, err, blob)
+		end
+
+		pool:shutdown()
 		thread_pool.pool = nil
+	end
+
+	for i = thread_pool.queue_head, thread_pool.queue_tail do
+		finish(thread_pool.queue[i], nil, "thread pool was shut down", nil)
 	end
 
 	thread_pool.inflight = {}
@@ -209,6 +221,21 @@ function job_meta:Await()
 				threads.sleep(1)
 			end
 		end
+	end
+
+	if self.err then error(self.err, 0) end
+
+	return self.meta, self.blob
+end
+
+-- waits on the calling thread without yielding to the task scheduler, for callers that cannot continue
+function job_meta:Block()
+	while not self.done do
+		thread_pool.Update()
+
+		if self.done then break end
+
+		threads.sleep(1)
 	end
 
 	if self.err then error(self.err, 0) end
