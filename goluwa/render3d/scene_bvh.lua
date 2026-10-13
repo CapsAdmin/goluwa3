@@ -2209,47 +2209,6 @@ do
 	end
 end
 
-local function diff_lights()
-	local light = import.loaded["goluwa/entities/components/light.lua"]
-
-	if not light then return false end
-
-	local lights = light.GetInstances()
-	local signatures = scene_bvh.light_signatures or {}
-	local changed = false
-	local count = 0
-	local tolerance = Visual.Library.AABB_TOLERANCE
-
-	for _, light in ipairs(lights) do
-		count = count + 1
-
-		if light.Owner then
-			local pos = light.Owner.transform:GetPosition()
-			local sig = signatures[light]
-
-			if
-				not sig or
-				math.abs(pos.x - sig[1]) > tolerance or
-				math.abs(pos.y - sig[2]) > tolerance or
-				math.abs(pos.z - sig[3]) > tolerance
-			then
-				signatures[light] = {pos.x, pos.y, pos.z}
-				changed = true
-			end
-		else
-			signatures[light] = nil
-		end
-	end
-
-	if changed then
-		scene_bvh.light_version = (scene_bvh.light_version or 0) + 1
-	end
-
-	scene_bvh.light_signatures = signatures
-	scene_bvh.light_count = count
-	return changed
-end
-
 scene_bvh.FIRST_BUILD_QUIET_TIME = 0.25
 scene_bvh.FIRST_BUILD_MAX_WAIT = 2
 
@@ -2262,7 +2221,6 @@ function scene_bvh.EnsureBuilt()
 	scene_bvh.ensure_frame = frame
 	local library = Visual.Library
 	local changed = library.ScanWorldAABBs()
-	diff_lights()
 
 	if next(Material.emission_dirty_materials) then
 		local users = library.GetSceneMaterialUsers()
@@ -2626,7 +2584,7 @@ end)
 
 commands.Add("scene_bvh_info", function()
 	logf(
-		"[scene_bvh] %d triangles, %d nodes, built in %.2fs, top incremental %d, version %d, dirty %s, light_version %d\n",
+		"[scene_bvh] %d triangles, %d nodes, built in %.2fs, top incremental %d, version %d, dirty %s\n",
 		scene_bvh.triangle_count,
 		scene_bvh.node_count,
 		scene_bvh.build_time,
@@ -2636,8 +2594,7 @@ commands.Add("scene_bvh_info", function()
 			(
 				"yes (%.2fs)"
 			):format(system.GetElapsedTime() - scene_bvh.dirty_since) or
-			"no",
-		scene_bvh.light_version or 0
+			"no"
 	)
 end)
 
