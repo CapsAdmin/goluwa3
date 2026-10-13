@@ -13,7 +13,6 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
-local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local ddgi = {}
 pvars.StartGroup("ddgi", {store = false})
 
@@ -746,7 +745,7 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			float alpha_cutoff;
 			// 0 solid, 1 alpha tested by alpha alone, 2 by the albedo texture's alpha times alpha
 			int alpha_test;
-			// the sun's shadow ray passes through it, tinted (see glass_tint.lua)
+			// the sun's shadow ray passes through it and lights are tinted by it (see glass_light.lua)
 			int glass;
 			// displacement blending: the second albedo and the blend modulate texture, -1 without
 			int albedo2_tex;
@@ -755,6 +754,9 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			int transparent;
 			// refracts, adds to or modulates what is behind it, so probe rays go on through
 			int refractive;
+			// what a glass lets through: the share refracted through the albedo, and how much of the rest is covered
+			float glass_refraction;
+			float glass_covering;
 		};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -1479,7 +1481,7 @@ function ddgi.GetBlockLayout()
 	}
 	table.add(layout, ddgi.GetProbeBlockLayout())
 	table.add(layout, post_source.pre_exposure_block)
-	layout[#layout + 1] = glass_tint.block
+	layout[#layout + 1] = {"glass_light", "int"}
 	return layout
 end
 
@@ -1579,7 +1581,7 @@ function ddgi.WriteBlock(self, block)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 	clouds.WriteShadowBlock(self, block)
 	post_source.WritePreExposureBlock(self, block)
-	glass_tint.WriteBlock(self, block)
+	block.glass_light = ddgi.HasGlass() and 1 or 0
 	return ddgi.WriteProbeBlock(self, block)
 end
 
@@ -1828,12 +1830,19 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t blend_tex;
 	int32_t transparent;
 	int32_t refractive;
+	float glass_refraction;
+	float glass_covering;
 }]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
 local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)
 local material_buffers = setmetatable({}, {__mode = "k"})
+local glass_count = 0
+
+function ddgi.HasGlass()
+	return glass_count > 0
+end
 
 function ddgi.WriteMaterialBuffer(self)
 	local frame = render.GetCurrentFrame()
@@ -1864,7 +1873,7 @@ function ddgi.WriteMaterialBuffer(self)
 
 	local generation = Material.ray_material_generation
 	local releases = self:GetTextureIndexReleases()
-	local glass_enabled = glass_tint.IsSunThrough()
+	local glass_enabled = not Material.GlassCastsShadow()
 
 	if
 		state.written == count and
@@ -1872,6 +1881,7 @@ function ddgi.WriteMaterialBuffer(self)
 		state.releases == releases and
 		state.glass == glass_enabled
 	then
+		glass_count = state.glass_count or 0
 		return state.buffer
 	end
 
@@ -1901,7 +1911,11 @@ function ddgi.WriteMaterialBuffer(self)
 				entry.alpha_test = material:HasShadowTexture() and 2 or 1
 			end
 
+			local was_glass = entry.glass
 			entry.glass = (glass_enabled and material:IsGlass()) and 1 or 0
+			state.glass_count = (state.glass_count or 0) + entry.glass - was_glass
+			entry.glass_refraction = material:GetRefraction()
+			entry.glass_covering = material:GetTranslucent() and color.a or 1
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()
@@ -1969,6 +1983,7 @@ function ddgi.WriteMaterialBuffer(self)
 	state.generation = generation
 	state.releases = releases
 	state.glass = glass_enabled
+	glass_count = state.glass_count or 0
 	return state.buffer
 end
 

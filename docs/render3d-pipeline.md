@@ -176,7 +176,7 @@ Context fields a view sets: `camera` (auto Push/PopCamera), `render_size`, `ligh
 - gbuffer camera UBO has `upload_scope = "frame"`, cached by frame number: two runs of one bundle in a frame reused the first camera. `RunPipelineBundle` now calls `pipeline:ResetFrameUploads()` first.
 - Compute passes hand out descriptor sets per command buffer *object* (16 per pipeline per cmd, ring resets only when the cmd changes). `RenderNow` records into a fresh cmd each call; reusing one cmd dies after ~48 renders ("descriptor set ring exhausted"). Such cmds set `cmd.gpu_timing_disabled`, otherwise gpu_timing makes a query pool per cmd and its removal calls device WaitIdle.
 - Textures registered in a push-constant `write` come after Bind, so the first draw samples a stale descriptor (first render empty). Register in `on_pre_draw` like blit does.
-- `light_occlusion.Draw` iterates `render3d.GetLights()`: with overridden lights it wiped the world's occlusion maps, so lighting skips it when `AreLightsOverridden()`. `glass_tint.WriteCascadeBlock` indexed pipelines the bundle lacks (guarded by `IsPassEnabled`).
+- `light_occlusion.Draw` iterates `render3d.GetLights()`: with overridden lights it wiped the world's occlusion maps, so lighting skips it when `AreLightsOverridden()`.
 - Probe layout transitions must be recorded in the same cmd as the first bake. Creating a probe mid-frame put them in the frame cmd, which runs after the one-shot submit, so the probe stayed undefined.
 - Test harness (`T.Test3D`): `assets.GetTexture("textures/render/brdf_lut.lua")` is nil there and Material MetallicMultiplier defaults to 1, so a default material renders black. Use `MetallicMultiplier = 0` in preview tests.
 - Ortho camera: every pixel has the same view direction, so a visible HDRI background (`TransparentSky = false`) is one flat color. Needs a perspective option.
@@ -223,7 +223,7 @@ Also, DDGI's sealed test rooms pick up a noisy sky baseline (16–35 in `gi_mean
 
 ## Material versions and what is cached on them
 
-*`property_version`, `Material:Touch()`, upload keys, the uniform offset memo, batch records, glass tint maps*
+*`property_version`, `Material:Touch()`, upload keys, the uniform offset memo, batch records*
 
 A property declared with `versioned = true` (all of Material's, `Material:StartStorable({versioned = true})`) stamps its object with a new `property_version` when it is set to a different value, and the object goes into the ring `objects.version_log` (65536 slots, `objects.version_counter` is the newest stamp, a consumer that is more than `VERSION_LOG_SIZE` stamps behind has to check everything). Changing a vector or color of a material in place, or writing a field directly, is invisible to it: call `material:Touch()` afterwards (material proxies do, and only when a proxy changed something, a `Touch` every frame rewrites that material's batch records every frame).
 
@@ -233,7 +233,6 @@ Everything that is derived from a material follows the version instead of being 
 - Pipelines whose uniform buffers are all per frame or declare `memo_key` (`model_pipeline.GetMaterialMemoKey`: the material and its version, nothing for a material with vertex animation) keep the dynamic offsets of the last upload per key and frame (`uniform_memo` in `easy_pipeline_graphics.lua`), the same as what each block's own frame cache would return, just one lookup. A new uniform buffer on such a pipeline that depends on more than the material must not declare `memo_key`, which turns the memo off for the pipeline.
 - `BatchTable` (multi draw batch records of the gbuffer and the shadow passes) writes a record when its batch is new, when the material of the batch was stamped, for the moving part of an animated batch every update (`write_animated`), and 4 records per update as a safety net. Each frame's buffer is kept mapped and gets the records it is behind on. Tests: `test/tests/render3d/batch_table.lua`, and `test/harnesses/m3/verify_caches.lua` compares every record against a from-scratch write on the real map.
 - `Visual`'s translucent and glass collection keep per component what is true of its entries until the entries, the material override or a material version changes, and per entry what is true of its world matrix until the matrix changes (compared by content).
-- The glass tint maps are drawn again only when `glass_tint.IsSlotCurrent` says what they were drawn from changed.
 
 Per draw paths that have a bound pipeline use `pipeline:UploadConstantsBound()`, which skips `GraphicsPipeline:Bind` (every dynamic state setter) when the pipeline is already bound and only pushes constants and rebinds descriptor sets; the draw sets the dynamic state it needs itself (cull mode, blend).
 

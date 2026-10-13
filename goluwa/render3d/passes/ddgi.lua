@@ -9,7 +9,7 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
-local glass_tint = import("goluwa/render3d/glass_tint.lua")
+local glass_light = import("goluwa/render3d/glass_light.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local P = ddgi.PROBES_PER_AXIS
 local CASCADES = ddgi.CASCADES
@@ -351,7 +351,7 @@ local function pass_shade()
 				scene_bvh.GetUvDeclarationGLSL(BINDING_UVS) or
 				""
 			) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. glass_tint.GetGLSL("ddgi_data") .. [[
+		shader = common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
 			// clamped to what the ray texture holds, see ddgi.HALF_PRECISION_RAYS
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
@@ -369,7 +369,9 @@ local function pass_shade()
 				vec3 direct = vec3(0.0);
 
 				if (sun_visible) {
-					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * get_glass_transmittance(P);
+					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P);
+
+					if (ddgi_data.glass_light != 0) direct *= get_glass_light(P + N * 0.02, L, ddgi_data.ddgi_max_distance, 0.0);
 				}
 
 				float total = 0.0;
@@ -435,9 +437,12 @@ local function pass_shade()
 					float shadow_distance = max(picked_ray[k].w - DDGI_SHADOW_OFFSET, 0.0);
 					#ifdef DDGI_VISIBILITY_RAYS
 					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, P, 0.0, picked_ray[k].xyz, shadow_distance);
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, P, 0.0, picked_ray[k].xyz, shadow_distance);
 
-					while (rayQueryProceedEXT(query)) {}
+					// glass is no occluder, it tints the light below. everything else non opaque blocks
+					while (rayQueryProceedEXT(query)) {
+						if (ddgi_materials[bvh_tri(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false))).material].glass == 0) rayQueryConfirmIntersectionEXT(query);
+					}
 
 					bool visible = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 					#else
@@ -445,7 +450,11 @@ local function pass_shade()
 					#endif
 
 					if (visible) {
-						direct += picked_light[k] * (total / (picked_weight[k] * float(DDGI_LIGHT_SAMPLES)));
+						vec3 sample_light = picked_light[k];
+
+						if (ddgi_data.glass_light != 0) sample_light *= get_glass_light(P, picked_ray[k].xyz, shadow_distance, 0.0);
+
+						direct += sample_light * (total / (picked_weight[k] * float(DDGI_LIGHT_SAMPLES)));
 					}
 				}
 
@@ -493,6 +502,8 @@ local function pass_shade()
 						vec3 emission = ddgi_emission(tri, ddgi_hit_albedo(ddgi_materials[tri.material], point, emitter_triangle));
 						float luminance = dot(tri.emissive, vec3(0.2126, 0.7152, 0.0722));
 						vec3 estimate = emission / luminance * weight_sum / float(ddgi_data.ddgi_emitter_candidates);
+						if (ddgi_data.glass_light != 0) estimate *= get_glass_light(origin, dir, length(point - origin), 0.0);
+
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
 					}
 
@@ -510,9 +521,13 @@ local function pass_shade()
 
 				uvec2 hit = ddgi_hits[hit_index];
 				float t = uintBitsToFloat(hit.x);
+				// what the ray sees is filtered by the glass it passes through on its way
+				vec3 glass = vec3(1.0);
+
+				if (ddgi_data.glass_light != 0) glass = get_glass_light(origin, dir, t < 0.0 ? ddgi_data.ddgi_max_distance : t, 0.0);
 
 				if (t < 0.0) {
-					store_ray(pos, vec4(ddgi_sky(dir), DDGI_MISS_DISTANCE));
+					store_ray(pos, vec4(ddgi_sky(dir) * glass, DDGI_MISS_DISTANCE));
 					return;
 				}
 
@@ -541,7 +556,7 @@ local function pass_shade()
 				float weight;
 				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_NO_VISIBILITY_RAYS, weight).rgb;
 
-				store_ray(pos, vec4(radiance, t));
+				store_ray(pos, vec4(radiance * glass, t));
 			}
 		]],
 	}

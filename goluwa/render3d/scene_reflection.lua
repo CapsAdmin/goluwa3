@@ -5,6 +5,7 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
+local glass_light = import("goluwa/render3d/glass_light.lua")
 local scene_reflection = {}
 scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
 scene_reflection.MAX_DISTANCE = 1000
@@ -36,50 +37,96 @@ function scene_reflection.GetDescriptorSets(bindings, stage)
 		},
 		{type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage},
 		{type = "storage_buffer", binding_index = bindings.uvs, stageFlags = stage, count = scene_bvh.SOUP_CHUNKS},
+		bindings.light_grid and
 		{
 			type = "storage_buffer",
 			binding_index = bindings.light_grid,
 			stageFlags = stage,
-		},
+		} or
+		nil,
 	}
 end
 
-function scene_reflection.Bind(self, cmd, desc, bindings)
-	local materials = ddgi.WriteMaterialBuffer(self)
-	self:UpdateDescriptorSet("storage_buffer", desc, bindings.materials, 0, materials, materials:GetSize())
-	light_grid.Bind(self, cmd, desc, bindings.light_grid)
-	self:UpdateDescriptorSet(
-		"acceleration_structure_khr",
-		desc,
-		bindings.scene,
-		0,
-		render3d.IsPassEnabled("ddgi") and
+do
+	-- a set that a command buffer is still using can't be written to, so only what changed is
+	local bound = setmetatable({}, {__mode = "k"})
+
+	-- bindings.light_grid is left out by a pass that has the light grid already
+	function scene_reflection.Bind(self, cmd, desc, bindings)
+		local materials = ddgi.WriteMaterialBuffer(self)
+		local tlas = render3d.IsPassEnabled("ddgi") and
 			ddgi.GetFrameState().tlas or
 			scene_bvh.GetPlaceholderTLAS(cmd)
-	)
-	scene_bvh.BindTriangleBuffer(self, desc, bindings.triangles, scene_bvh.triangle_buffer or materials)
-	scene_bvh.BindTriangleBuffer(self, desc, bindings.uvs, scene_bvh.uv_buffer or materials, scene_bvh.UV_CHUNK_BYTES)
+		local triangles = scene_bvh.triangle_buffer or materials
+		local uvs = scene_bvh.uv_buffer or materials
+		bound[self] = bound[self] or {}
+		local last = bound[self][desc]
+
+		if not last then
+			last = {}
+			bound[self][desc] = last
+		end
+
+		if bindings.light_grid then light_grid.Bind(self, cmd, desc, bindings.light_grid) end
+
+		if last.materials ~= materials then
+			self:UpdateDescriptorSet("storage_buffer", desc, bindings.materials, 0, materials, materials:GetSize())
+			last.materials = materials
+		end
+
+		if last.tlas ~= tlas then
+			self:UpdateDescriptorSet("acceleration_structure_khr", desc, bindings.scene, 0, tlas)
+			last.tlas = tlas
+		end
+
+		if last.triangles ~= triangles then
+			scene_bvh.BindTriangleBuffer(self, desc, bindings.triangles, triangles)
+			last.triangles = triangles
+		end
+
+		if last.uvs ~= uvs then
+			scene_bvh.BindTriangleBuffer(self, desc, bindings.uvs, uvs, scene_bvh.UV_CHUNK_BYTES)
+			last.uvs = uvs
+		end
+	end
 end
 
-function scene_reflection.GetDeclarationGLSL(bindings)
+-- shared is for a pass that has the light grid and ddgi_sample_irradiance's visibility rays turned
+-- off already, it is not given the light grid and does not get the visibility rays
+function scene_reflection.GetDeclarationGLSL(bindings, shared)
 	return [[
 		#extension GL_EXT_ray_query : require
-		#define DDGI_VISIBILITY_RAYS
+		]] .. (shared and "" or "#define DDGI_VISIBILITY_RAYS") .. [[
+
 		#define SCENE_REFLECTION
 		layout(set = 0, binding = ]] .. bindings.scene .. [[) uniform accelerationStructureEXT ddgi_scene;
-	]] .. scene_bvh.GetTriangleDeclarationGLSL(bindings.triangles) .. scene_bvh.GetUvDeclarationGLSL(bindings.uvs) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. light_grid.GetGLSL(bindings.light_grid)
+	]] .. scene_bvh.GetTriangleDeclarationGLSL(bindings.triangles) .. scene_bvh.GetUvDeclarationGLSL(bindings.uvs) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. (
+			bindings.light_grid and
+			light_grid.GetGLSL(bindings.light_grid) or
+			""
+		)
+end
+
+function scene_reflection.IsEnabled()
+	return enabled:Get()
+end
+
+function scene_reflection.IsPrimary()
+	return primary:Get()
 end
 
 scene_reflection.block = {
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 	{"light_count", "int"},
 	{"reflection_primary", "int"},
+	{"glass_light", "int"},
 }
 
 function scene_reflection.WriteBlock(self, block)
 	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	block.reflection_primary = primary:Get() and 1 or 0
+	block.glass_light = ddgi.HasGlass() and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
 
@@ -103,8 +150,17 @@ function scene_reflection.GetDDGIUniformBuffer(binding)
 	}
 end
 
-function scene_reflection.GetGLSL(block_name)
-	return ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode() .. ddgi.GetMaterialGLSL() .. ddgi.GetAlphaTestGLSL() .. [[
+-- shared is for a pass that has ddgi.GetCommonGLSL, the light code and get_glass_light before this
+function scene_reflection.GetGLSL(block_name, shared)
+	return (
+			shared and
+			"" or
+			ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode()
+		) .. ddgi.GetMaterialGLSL() .. ddgi.GetAlphaTestGLSL() .. (
+			shared and
+			"" or
+			glass_light.GetGLSL("ddgi_scene")
+		) .. [[
 		#define SCENE_REFLECTION_MAX_DISTANCE ]] .. string.format("%.1f", scene_reflection.MAX_DISTANCE) .. [[
 
 		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
@@ -170,9 +226,8 @@ function scene_reflection.GetGLSL(block_name)
 			return rayQueryGetIntersectionTEXT(query, true);
 		}
 
-		// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit. hit_t is how far
-		// the hit is, max_distance when the ray went on to the sky
-		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
+		// the hit is lit by the sun and lights through the glass in front of them, see trace_scene_reflection
+		vec3 trace_scene_reflection_hit(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, 0xFF, origin, 0.0, dir, max_distance);
 
@@ -228,7 +283,11 @@ function scene_reflection.GetGLSL(block_name)
 			float sun_NoL = dot(hit_N, sun_L);
 
 			if (sun_NoL > 0.0 && scene_reflection_visible(surface, sun_L, SCENE_REFLECTION_MAX_DISTANCE)) {
-				radiance += albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
+				vec3 sun_radiance = albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
+
+				if (]]..block_name..[[.glass_light != 0) sun_radiance *= get_glass_light(surface, sun_L, GLASS_SUN_DISTANCE, 0.0);
+
+				radiance += sun_radiance;
 			}
 
 			int light_cell = light_grid_cell(surface);
@@ -263,6 +322,8 @@ function scene_reflection.GetGLSL(block_name)
 
 					if (dist > 0.05 && !scene_reflection_visible(surface, L, dist - 0.05)) continue;
 
+					if (]]..block_name..[[.glass_light != 0) contribution *= get_glass_light(surface, L, max(dist - 0.05, 0.0), 0.0);
+
 					radiance += contribution * light_weight;
 				}
 			}
@@ -289,6 +350,16 @@ function scene_reflection.GetGLSL(block_name)
 			}
 
 			return radiance + albedo * gi.rgb;
+		}
+
+		// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit, after the glass the
+		// ray passes through. hit_t is how far the hit is, max_distance when the ray went on to the sky
+		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
+			vec3 radiance = trace_scene_reflection_hit(origin, dir, N, roughness, max_distance, hit_t);
+
+			if (]]..block_name..[[.glass_light != 0) radiance *= get_glass_light(origin, dir, hit_t, 0.0);
+
+			return radiance;
 		}
 	]]
 end

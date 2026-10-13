@@ -10,6 +10,8 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local glass_light = import("goluwa/render3d/glass_light.lua")
+local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local translucent_extras = import("goluwa/render3d/translucent_extras.lua")
@@ -17,6 +19,29 @@ local Texture = import("goluwa/render/texture.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
+local SCENE_BINDINGS = {scene = 22, triangles = 23, materials = 24, uvs = 25}
+local surface_descriptor_sets = {
+	{
+		type = "storage_buffer",
+		binding_index = BINDING_LIGHT_GRID,
+		stageFlags = "fragment",
+	},
+	{
+		type = "combined_image_sampler",
+		binding_index = BINDING_OCCLUSION_MAP,
+		stageFlags = "fragment",
+	},
+	{
+		type = "combined_image_sampler",
+		binding_index = 0,
+		set_index = 2,
+		args = froxel_fog.GetVolumeDescriptor,
+	},
+}
+
+if scene_reflection.RAY_QUERY then
+	table.add(surface_descriptor_sets, scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "fragment"))
+end
 local refraction_source = nil
 local function update_refraction_source(cmd)
 	local scene = post_source.GetFoggedOpaqueSceneTexture()
@@ -78,6 +103,7 @@ table.insert(
 		name = "lighting_data",
 		block = {
 			surface_lighting.block,
+			{"reflection_primary", "int"},
 			{"depth_tex", "int"},
 			{"refraction_tex", "int"},
 			{"b0_tex", "int"},
@@ -87,6 +113,7 @@ table.insert(
 		},
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
+			block.reflection_primary = scene_reflection.IsPrimary() and 1 or 0
 			block.fog = render3d.IsPassEnabled("volumetric_fog") and 1 or 0
 			block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
 			local b0, moments = translucent_moments.GetTextures()
@@ -108,10 +135,15 @@ table.insert(
 		block = ddgi.GetProbeBlockLayout(),
 		write = function(self, block)
 			if render3d.IsPassEnabled("ddgi") then
-				return ddgi.WriteProbeBlock(self, block)
+				ddgi.WriteProbeBlock(self, block)
+
+				if not scene_reflection.IsEnabled() then block.ddgi_rt_ready = 0 end
+
+				return block
 			end
 
 			block.ddgi_cascade_count = 0
+			block.ddgi_rt_ready = 0
 			return block
 		end,
 		upload_scope = "frame",
@@ -164,6 +196,8 @@ local passes = {
 					unpack(light_occlusion.GetOcclusionDescriptor())
 				)
 			end
+
+			if scene_reflection.RAY_QUERY then scene_reflection.Bind(surface, cmd, frame, SCENE_BINDINGS) end
 
 			render3d.refraction_source_requested = false
 			render3d.translucent_depth_near = math.huge
@@ -264,6 +298,7 @@ local passes = {
 	},
 	{
 		name = "translucent_surface",
+		DescriptorSetCount = scene_reflection.RAY_QUERY and render.GetSwapchainImageCount() or nil,
 		draw_in_prerender = false,
 		dont_create_framebuffers = true,
 		ColorFormat = {
@@ -304,28 +339,23 @@ local passes = {
 				},
 			},
 			uniform_buffers = surface_uniform_buffers,
-			descriptor_sets = {
-				{
-					type = "storage_buffer",
-					binding_index = BINDING_LIGHT_GRID,
-					stageFlags = "fragment",
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = BINDING_OCCLUSION_MAP,
-					stageFlags = "fragment",
-				},
-				{
-					type = "combined_image_sampler",
-					binding_index = 0,
-					set_index = 2,
-					args = froxel_fog.GetVolumeDescriptor,
-				},
-			},
-			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. [[
+			descriptor_sets = surface_descriptor_sets,
+			custom_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. (
+				scene_reflection.RAY_QUERY and
+				scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS, true) or
+				""
+			) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. screen_refraction.GetGLSL("lighting_data") .. translucent_moments.GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. (
+				scene_reflection.RAY_QUERY and
+				glass_light.GetGLSL("ddgi_scene") or
+				""
+			) .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. (
+				scene_reflection.RAY_QUERY and
+				scene_reflection.GetGLSL("lighting_data", true) or
+				""
+			) .. screen_refraction.GetGLSL("lighting_data") .. translucent_moments.GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
 					return calculateShadow(world_pos, sun_dir, sun_dir) * get_cloud_shadow(world_pos);
 				}
@@ -480,6 +510,17 @@ local passes = {
 					vec3 R = get_specular_dominant_direction(raw_R, N, perceptual_roughness);
 					vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, N, perceptual_roughness);
 					vec3 reflection = blend_probe_reflections(mix(irradiance, sky_reflection, sky_visibility), R, perceptual_roughness, world_pos);
+					#ifdef SCENE_REFLECTION
+					// a smooth surface reflects what the scene holds, one ray along the mirror direction (there
+					// is no history to average a rough one over), fading into the probes as it roughens
+					float traced_weight = 1.0 - smoothstep(0.1, 0.35, perceptual_roughness);
+
+					if (traced_weight > 0.0 && scene_reflection_ready()) {
+						float traced_t;
+						vec3 traced = trace_scene_reflection(world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02, raw_R, N, perceptual_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+						reflection = mix(reflection, traced, traced_weight);
+					}
+					#endif
 					vec2 env_brdf = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NdotV, perceptual_roughness)).rg;
 					vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 					vec3 ambient_diffuse = (1.0 - F_ambient) * (1.0 - metallic) * irradiance * diffuse_albedo * get_ao(in_uv);

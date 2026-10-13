@@ -296,7 +296,6 @@ local default_passes = {
 	{"gbuffer", "goluwa/render3d/passes/gbuffer.lua"},
 	{"clouds", "goluwa/render3d/passes/clouds.lua"},
 	{"ambient_occlusion", "goluwa/render3d/passes/ambient_occlusion.lua"},
-	{"glass_tint", "goluwa/render3d/passes/glass_tint.lua"},
 	{"ddgi", "goluwa/render3d/passes/ddgi.lua"},
 	{"ssr", "goluwa/render3d/passes/ssr.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},

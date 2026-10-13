@@ -3,7 +3,7 @@ local m3 = import("test/harnesses/m3/harness.lua")
 local system = import("goluwa/system.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local glass_tint = import("goluwa/render3d/glass_tint.lua")
+local glass_light = import("goluwa/render3d/glass_light.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local out = os.getenv("AB_OUT")
 local hold = tonumber(os.getenv("AB_HOLD") or "200")
@@ -12,7 +12,7 @@ os.execute("mkdir -p " .. out)
 local modes = {}
 for spec in (os.getenv("AB_MODES") or ""):gmatch("[^|]+") do
 	local name, code = spec:match("^([^=]+)=(.*)$")
-	modes[#modes + 1] = {name = name, fn = assert(loadstring("local glass_tint, pvars = ... " .. code))}
+	modes[#modes + 1] = {name = name, fn = assert(loadstring("local glass_light, pvars = ... " .. code))}
 end
 local spawn = m3.spawn
 local views = {
@@ -37,7 +37,7 @@ m3.Run(function(_, now)
 	if state == "next_mode" then
 		mi = mi + 1
 		if mi > #modes then state = "next_view" return end
-		modes[mi].fn(glass_tint, pvars)
+		modes[mi].fn(glass_light, pvars)
 		frame = 0
 		state = "hold"
 		return

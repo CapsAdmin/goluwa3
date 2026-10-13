@@ -2,7 +2,6 @@
 local m3 = import("test/harnesses/m3/harness.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local system = import("goluwa/system.lua")
-local glass_tint = import("goluwa/render3d/glass_tint.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local visual = import("goluwa/entities/components/visual.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -24,7 +23,6 @@ local function wrap(tbl, name, label)
 		end)(v(...))
 	end
 end
-wrap(glass_tint, "Prepare", "glass_tint.Prepare")
 wrap(gpu_culling, "RunMainViewFrustumCulling", "gpu_culling.RunMainViewFrustumCulling")
 wrap(gpu_culling, "RunShadowViewAABBCulling", "gpu_culling.RunShadowViewAABBCulling")
 wrap(gpu_culling, "RecordShadowViewAABBCulling", "gpu_culling.RecordShadowViewAABBCulling")

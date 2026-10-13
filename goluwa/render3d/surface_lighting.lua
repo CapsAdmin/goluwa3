@@ -9,7 +9,7 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local glass_tint = import("goluwa/render3d/glass_tint.lua")
+local glass_light = import("goluwa/render3d/glass_light.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_lighting = {}
 surface_lighting.block = {
@@ -29,7 +29,7 @@ surface_lighting.block = {
 	envprobe.GetProbeBlockLayout(),
 	{"gi_screen_tex", "int"},
 	{"gi_screen_geometry_tex", "int"},
-	glass_tint.cascade_block,
+	{"glass_light", "int"},
 	post_source.pre_exposure_block,
 }
 
@@ -65,7 +65,7 @@ function surface_lighting.WriteBlock(self, block)
 	block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
 	local gi_geometry_texture = ddgi.GetScreenGeometryTexture()
 	block.gi_screen_geometry_tex = gi_geometry_texture and self:GetTextureIndex(gi_geometry_texture) or -1
-	glass_tint.WriteCascadeBlock(self, block)
+	block.glass_light = (glass_light.IsEnabled() and ddgi.HasGlass()) and 1 or 0
 	post_source.WritePreExposureBlock(self, block)
 	return block
 end
@@ -94,7 +94,11 @@ function surface_lighting.GetGLSL(block_name)
 
 		]] .. directional_shadows.GetLocalDirectionalShadowGLSL(block_name) .. [[
 
-		]] .. glass_tint.GetCascadeGLSL(block_name) .. [[
+		#ifndef GLASS_LIGHT
+		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return vec3(1.0);
+		}
+		#endif
 
 		// the exposed radiance (1 is white) below which a light isn't shaded at all
 		#define LIGHT_MIN_SCREEN_RADIANCE 0.0002
@@ -219,7 +223,14 @@ function surface_lighting.GetGLSL(block_name)
 				// nothing to add from a light that is shadowed away entirely, and most lights reach through walls
 				if (radiance.r + radiance.g + radiance.b <= 0.0) continue;
 
-				if (type == 0) radiance *= get_glass_tint(s.world_pos);
+				#ifdef GLASS_LIGHT
+				if (]] .. block_name .. [[.glass_light != 0) {
+					float glass_distance = type == 0 ? GLASS_SUN_DISTANCE : (type == 2 ? 50.0 : max(length(light.position.xyz - s.world_pos) - 0.05, 0.0));
+					// where a shadow map is only partly lit (a penumbra) glass beside the frame casting it is looked for
+					float glass_search = type == 0 && shadow_factor < 0.999 ? clamp(shadow_texel_world_size * 3.0, 0.05, 0.5) : 0.0;
+					radiance *= get_glass_light(s.world_pos + shadow_N * 0.02, L, glass_distance, glass_search);
+				}
+				#endif
 
 				float lobe_alpha = s.roughness_alpha;
 				float lobe_energy = 1.0;

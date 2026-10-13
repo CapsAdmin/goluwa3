@@ -12,6 +12,7 @@ local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local glass_light = import("goluwa/render3d/glass_light.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
@@ -19,6 +20,7 @@ local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
+local GLASS_BINDINGS = {scene = 6, triangles = 7, materials = 8}
 local SCREEN_SHADOW_MAX_STEPS = 64
 local SCREEN_SHADOW_STRIDE = 1.5
 pvars.StartGroup("lighting", {store = false})
@@ -70,10 +72,13 @@ return {
 			},
 		},
 		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
+		descriptor_sets = glass_light.RAY_QUERY and glass_light.GetDescriptorSets(GLASS_BINDINGS, "compute") or nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			if not render3d.AreLightsOverridden() then light_occlusion.Draw(cmd) end
 
 			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
+
+			if glass_light.RAY_QUERY then glass_light.Bind(self, cmd, desc, GLASS_BINDINGS) end
 		end,
 		sampled_images = {
 			{
@@ -145,7 +150,11 @@ return {
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. [[
+			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. (
+				glass_light.RAY_QUERY and
+				glass_light.GetDeclarationGLSL(GLASS_BINDINGS) or
+				""
+			) .. [[
 		]],
 		shader = compute_helpers.GetScreenHelpersGLSL() .. [[
 			vec2 get_compute_uv() {
@@ -245,7 +254,11 @@ return {
 				return 1.0 - occlusion * view_fade;
 			}
 
-			]] .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetScreenSampleGLSL("lighting_data") .. [[
+			]] .. (
+				glass_light.RAY_QUERY and
+				glass_light.GetGLSL("glass_light_scene") or
+				""
+			) .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetScreenSampleGLSL("lighting_data") .. [[
 
 			]] .. ibl.GetSSRQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
