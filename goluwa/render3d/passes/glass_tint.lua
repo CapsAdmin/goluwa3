@@ -44,7 +44,7 @@ for slot = 0, 5 do
 				render3d.SetWorldMatrix(draw.world_matrix, draw.prev_world_matrix)
 				render3d.SetCurrentPolygon3D(draw.entry.polygon3d)
 				render3d.SetMaterial(draw.material)
-				render3d.pipelines.glass_tint_surface:UploadConstants()
+				render3d.pipelines.glass_tint_surface:UploadConstantsBound()
 				cmd:SetCullMode("none")
 				draw.entry.polygon3d:Draw()
 			end

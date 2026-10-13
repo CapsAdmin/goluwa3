@@ -706,14 +706,14 @@ function render3d.UploadGBufferConstants()
 
 	if material:WritesFragmentDepth() then
 		if material:HasVertexAnimation() then
-			pipelines.gbuffer_anim_height_map:UploadConstants()
+			pipelines.gbuffer_anim_height_map:UploadConstantsBound()
 		else
-			pipelines.gbuffer_height_map:UploadConstants()
+			pipelines.gbuffer_height_map:UploadConstantsBound()
 		end
 	elseif material:HasVertexAnimation() then
-		pipelines.gbuffer_anim:UploadConstants()
+		pipelines.gbuffer_anim:UploadConstantsBound()
 	else
-		pipelines.gbuffer:UploadConstants()
+		pipelines.gbuffer:UploadConstantsBound()
 	end
 
 	render.GetCommandBuffer():SetCullMode(material:GetCullMode())
@@ -736,9 +736,9 @@ end
 
 function render3d.UploadInstancedGBufferConstants()
 	if render3d.GetMaterial():WritesFragmentDepth() then
-		render3d.pipelines.gbuffer_instanced_height_map:UploadConstants()
+		render3d.pipelines.gbuffer_instanced_height_map:UploadConstantsBound()
 	else
-		render3d.pipelines.gbuffer_instanced:UploadConstants()
+		render3d.pipelines.gbuffer_instanced:UploadConstantsBound()
 	end
 
 	render.GetCommandBuffer():SetCullMode(render3d.GetMaterial():GetCullMode())
@@ -747,7 +747,7 @@ end
 function render3d.UploadForwardOverlayConstants()
 	local cmd = render.GetCommandBuffer()
 	local material = render3d.GetMaterial()
-	render3d.pipelines.forward_overlay:UploadConstants()
+	render3d.pipelines.forward_overlay:UploadConstantsBound()
 	cmd:SetCullMode(material:GetCullMode())
 	cmd:SetColorBlendEnable(0, material:GetTranslucent())
 	cmd:SetColorBlendEquation(0, material:GetBlendEquation())
