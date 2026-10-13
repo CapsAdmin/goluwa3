@@ -852,8 +852,13 @@ do
 		local get_name = info.get_name
 		meta[set_name] = meta[set_name] or commit
 		local var_name = info.var_name
-		meta[get_name] = meta[get_name] or function(self)
-			return self[var_name]
+
+		if not meta[get_name] then
+			-- code that knows it is this one can read the field instead
+			info.default_getter = function(self)
+				return self[var_name]
+			end
+			meta[get_name] = info.default_getter
 		end
 		meta[info.var_name] = info.default
 		info.type = info.type or get_type(info.default)

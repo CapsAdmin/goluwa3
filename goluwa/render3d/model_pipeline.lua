@@ -599,12 +599,20 @@ local function build_material_block_writer(name, field_defs)
 	}
 
 	for _, def in ipairs(field_defs) do
+		-- the field of a property whose getter is the one every property gets is read directly
+		local info = Material.objects_variables[def.name]
+		local value = info and
+			def.getter == info.get_name and
+			Material[def.getter] == info.default_getter and
+			"material." .. def.name or
+			"material:" .. def.getter .. "()"
+
 		if def.type == "texture" then
-			lines[#lines + 1] = string.format("\tblock.%s = self:GetTextureIndex(material:%s())", def.name, def.getter)
+			lines[#lines + 1] = string.format("\tblock.%s = self:GetTextureIndex(%s)", def.name, value)
 		elseif def.type == "vec2" or def.type == "vec3" or def.type == "vec4" then
-			lines[#lines + 1] = string.format("\tmaterial:%s():CopyToFloatPointer(block.%s)", def.getter, def.name)
+			lines[#lines + 1] = string.format("\t%s:CopyToFloatPointer(block.%s)", value, def.name)
 		else
-			lines[#lines + 1] = string.format("\tblock.%s = material:%s()", def.name, def.getter)
+			lines[#lines + 1] = string.format("\tblock.%s = %s", def.name, value)
 		end
 	end
 
@@ -692,55 +700,90 @@ function model_pipeline.GetPBRColorUploadKey()
 	return render3d.GetMaterialUploadKey()
 end
 
-function model_pipeline.GetPBRFactorUploadKey()
-	local material = get_material()
-
-	if not material then return NO_PBR_FACTOR_KEY end
-
-	local has_default_scalars = material:GetMetallicMultiplier() == 1.0 and
-		material:GetRoughnessMultiplier() == 1.0 and
-		material:GetRoughnessMin() == 0.0 and
-		material:GetRoughnessMax() == 1.0 and
-		material:GetMetallicMaskMin() == 0.0 and
-		material:GetMetallicMaskMax() == 1.0 and
-		material:GetSpecularMultiplier() == 1.0 and
-		material:GetAlphaCutoff() == 0.5
+do
+	-- what a material's keys come to only depends on its properties, so they are worked out once per property_version
+	local SCALAR_GETTERS = {
+		"GetMetallicMultiplier",
+		"GetRoughnessMultiplier",
+		"GetRoughnessMin",
+		"GetRoughnessMax",
+		"GetMetallicMaskMin",
+		"GetMetallicMaskMax",
+		"GetSpecularMultiplier",
+		"GetAlphaCutoff",
+	}
+	local SCALAR_DEFAULTS = {1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.5}
+	local FEATURE_GETTERS = {}
+	local FEATURE_DEFAULTS = {}
 
 	for _, feature in ipairs(surface_features.list) do
 		if feature.block == nil then
 			for _, param in ipairs(feature.params or {}) do
-				if material["Get" .. param.name](material) ~= param.default then
-					has_default_scalars = false
-				end
+				FEATURE_GETTERS[#FEATURE_GETTERS + 1] = "Get" .. param.name
+				FEATURE_DEFAULTS[#FEATURE_DEFAULTS + 1] = param.default
 			end
 		end
 	end
 
-	if has_default_scalars then return NO_PBR_FACTOR_KEY end
+	function model_pipeline.GetPBRFactorUploadKey()
+		local material = get_material()
 
-	return render3d.GetMaterialUploadKey()
-end
+		if not material then return NO_PBR_FACTOR_KEY end
 
-function model_pipeline.GetPBRAuxUploadKey()
-	local material = get_material()
+		if material.factor_key_version ~= material.property_version then
+			material.factor_key_version = material.property_version
+			local is_default = true
 
-	if not material then return NO_PBR_AUX_KEY end
+			for i = 1, #SCALAR_GETTERS do
+				if material[SCALAR_GETTERS[i]](material) ~= SCALAR_DEFAULTS[i] then
+					is_default = false
 
-	local uses_metallic_detail = material:GetMetallicRoughnessTexture() ~= nil or
-		material:GetMetallicTexture() ~= nil or
-		material:GetRoughnessTexture() ~= nil
-	local uses_ao = material:GetAmbientOcclusionTexture() ~= nil or
-		material:GetAmbientOcclusionMultiplier() ~= 1.0
-	local uses_emissive = material:GetEmissiveTexture() ~= nil or
-		material:GetAlbedoAlphaIsEmissive() or
-		material:GetAdditive() or
-		material:GetMetallicTextureAlphaIsEmissive()
+					break
+				end
+			end
 
-	if not (uses_metallic_detail or uses_ao or uses_emissive) then
-		return NO_PBR_AUX_KEY
+			if is_default then
+				for i = 1, #FEATURE_GETTERS do
+					if material[FEATURE_GETTERS[i]](material) ~= FEATURE_DEFAULTS[i] then
+						is_default = false
+
+						break
+					end
+				end
+			end
+
+			material.factor_key_is_default = is_default
+		end
+
+		if material.factor_key_is_default then return NO_PBR_FACTOR_KEY end
+
+		return render3d.GetMaterialUploadKey()
 	end
 
-	return render3d.GetMaterialUploadKey()
+	function model_pipeline.GetPBRAuxUploadKey()
+		local material = get_material()
+
+		if not material then return NO_PBR_AUX_KEY end
+
+		if material.aux_key_version ~= material.property_version then
+			material.aux_key_version = material.property_version
+			material.aux_key_is_default = not (
+				material:GetMetallicRoughnessTexture() ~= nil or
+				material:GetMetallicTexture() ~= nil or
+				material:GetRoughnessTexture() ~= nil or
+				material:GetAmbientOcclusionTexture() ~= nil or
+				material:GetAmbientOcclusionMultiplier() ~= 1.0 or
+				material:GetEmissiveTexture() ~= nil or
+				material:GetAlbedoAlphaIsEmissive() or
+				material:GetAdditive() or
+				material:GetMetallicTextureAlphaIsEmissive()
+			)
+		end
+
+		if material.aux_key_is_default then return NO_PBR_AUX_KEY end
+
+		return render3d.GetMaterialUploadKey()
+	end
 end
 
 do
@@ -1092,6 +1135,8 @@ local FEATURE_BLOCKS = {}
 for _, feature in ipairs(surface_features.list) do
 	if feature.block == "own" then
 		local no_key = {}
+		local version_field = feature.name .. "_active_version"
+		local active_field = feature.name .. "_active"
 		local write = build_material_block_writer(feature.name, FEATURE_BLOCK_FIELDS[feature])
 		table.insert(
 			FEATURE_BLOCKS,
@@ -1101,7 +1146,14 @@ for _, feature in ipairs(surface_features.list) do
 				upload_key = function()
 					local material = get_material()
 
-					if not material or not feature.active(material) then return no_key end
+					if not material then return no_key end
+
+					if material[version_field] ~= material.property_version then
+						material[version_field] = material.property_version
+						material[active_field] = feature.active(material)
+					end
+
+					if not material[active_field] then return no_key end
 
 					return render3d.GetMaterialUploadKey()
 				end,
