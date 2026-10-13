@@ -499,6 +499,9 @@ return {
 				float alpha_accum = 0.0;
 				float color_weight = 0.0;
 				float total_weight = 0.0;
+				// the alphas the similar surrounding texels hold, history is held to them
+				float alpha_min = 1.0;
+				float alpha_max = 0.0;
 
 				for (int y = -1; y <= 1; y++) {
 					for (int x = -1; x <= 1; x++) {
@@ -524,6 +527,8 @@ return {
 						color_weight += sample_color_weight;
 						alpha_accum += sample_value.a * weight;
 						total_weight += weight;
+						alpha_min = min(alpha_min, sample_value.a);
+						alpha_max = max(alpha_max, sample_value.a);
 					}
 				}
 
@@ -559,6 +564,11 @@ return {
 								if (!any(isnan(history))) {
 									vec3 clamp_extent = deviation * SSR_CLAMP_SIGMA + mean * 0.05 + 0.001;
 									history.rgb = clamp(history.rgb, mean - clamp_extent, mean + clamp_extent);
+									// the colour is held to the neighbourhood, so is the alpha. history is read between
+									// texels, and at a silhouette that blends in the alpha of what is beside the
+									// surface (an object without a reflection), which feeds itself and leaves a
+									// line of the bright environment fallback along the contact
+									if (alpha_min <= alpha_max) history.a = clamp(history.a, alpha_min, alpha_max);
 									float history_weight = mix(SSR_HIST_LO, SSR_HIST_HI, smoothstep(0.0, 0.3, roughness));
 									result = mix(filtered, history, history_weight);
 								}
