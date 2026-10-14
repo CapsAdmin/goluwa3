@@ -61,6 +61,19 @@ local max_coverage = pvars.Setup2{
 	min = 0,
 	help = "most meters the fitted region reaches from the camera",
 }
+local change_threshold = pvars.Setup2{
+	key = "ddgi_change_threshold",
+	default = 0.05,
+	min = 0,
+	help = "how far the sun may move (radians, plus its relative brightness change) before a cascade updates ahead of its interval, 0 turns it off",
+}
+local change_min_interval = pvars.Setup2{
+	key = "ddgi_change_min_interval",
+	default = 2,
+	integer = true,
+	min = 1,
+	help = "least frames between two updates of a cascade that were triggered by the lighting changing",
+}
 ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
 ddgi.HALF_PRECISION_RAYS = true
@@ -450,6 +463,11 @@ do
 		end
 
 		local count = ddgi.CASCADES
+		local lights = render3d.GetLights()
+		local sun = directional_shadows.GetPrimarySunDirection(lights)
+		local sun_x, sun_y, sun_z = sun.x, sun.y, sun.z
+		local sun_luma = directional_shadows.GetPrimarySunIlluminance(lights) * math.smoothstep(-0.08, 0.02, sun_y)
+		local threshold = change_threshold:Get()
 
 		for c = 1, ddgi.CASCADES do
 			local spacing = ddgi.GetCascadeSpacing(c - 1)
@@ -483,8 +501,18 @@ do
 			cascade.z, holds_z = fit_base(position.z, region.min_z, region.max_z, spacing, size.z)
 			cascade.elapsed = (cascade.elapsed or 0) + frame_time
 			local interval = update_intervals[c]:Get()
+			cascade.frames = (cascade.frames or 0) + 1
+			local changed = false
+
+			if threshold > 0 and cascade.sun_x and cascade.frames >= change_min_interval:Get() then
+				local dx, dy, dz = sun_x - cascade.sun_x, sun_y - cascade.sun_y, sun_z - cascade.sun_z
+				local old_luma = cascade.sun_luma
+				local luma_change = math.abs(sun_luma - old_luma) / math.max(sun_luma, old_luma, 1e-3)
+				changed = math.sqrt(dx * dx + dy * dy + dz * dz) + luma_change > threshold
+			end
 
 			if
+				changed or
 				(
 					frame + c - 1
 				) % interval == 0 or
@@ -497,6 +525,8 @@ do
 				cascade.updated_x, cascade.updated_y, cascade.updated_z = cascade.x, cascade.y, cascade.z
 				cascade.update_time = cascade.elapsed
 				cascade.elapsed = 0
+				cascade.frames = 0
+				cascade.sun_x, cascade.sun_y, cascade.sun_z, cascade.sun_luma = sun_x, sun_y, sun_z, sun_luma
 			end
 
 			cascade.holds = bounds_min and
