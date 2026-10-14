@@ -282,3 +282,9 @@ Weather first asks the surface what it wants (`prepare_surface_weather`, the `we
 **Reflections:** the reflections pass launches the ray traced reflection from the same place as the screen space one, after the `reflection` snippets, so a feature's coat or smooth lobe moves both. What a reflection ray hits (and what a DDGI probe ray hits) is shaded as lambert from the BVH's material (`ddgi_material`), so no feature's lobe or transmission shows in a reflection or in GI; giving the hit a feature's params would mean putting them in that buffer.
 
 **Adding a feature:** write `features/<name>.lua`, add it to `default_list` in `surface_features.lua`. Not covered yet: the sheen and secondary lobes don't take energy from the base lobe, and nothing sets the new params from the Source or glTF importers.
+
+## Terrain tiles swap with a delay
+
+*a replaced tile stays `SwapFrames` (5) frames after its replacements are shown, `terrain_tiles` prints the state*
+
+The terrain keeps a tile until its replacements are built (`IsTileReplaced`). They used to be shown and the old tile removed in the same update, but a tile that is shown takes a frame or two to be in what the culling draws, so the chunk was missing for a moment. A tile whose replacements are all there is now `replaced_frame`d: the replacements are no longer blocked by it and are shown, it is removed `Terrain.SwapFrames` frames later (the two overlap and may z-fight for those frames). The `terrain_tiles` console command (`Terrain:GetDebugReport()`) lists the counts of tiles and the tiles that should be drawn but are hidden without a blocker, not visible, or not in the gpu dataset, which is what to run when chunks are missing. A chunk that disappears while looking around and comes back after moving was not reproduced by flying a hills terrain with fast turns for 100 s (`tmp` harness: yaw 240 deg/s, 160 m/s), so the cause is not found.

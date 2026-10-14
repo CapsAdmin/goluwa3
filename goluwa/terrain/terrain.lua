@@ -6,6 +6,7 @@ local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local tiles = import("goluwa/terrain/tiles.lua")
 local TerrainPhysics = import("goluwa/terrain/physics.lua")
 local system = import("goluwa/system.lua")
+local commands = import("goluwa/cli/commands.lua")
 local Terrain = {}
 Terrain.__index = Terrain
 
@@ -415,7 +416,79 @@ function Terrain:Update(dt)
 	end
 end
 
+local active_terrains = setmetatable({}, {__mode = "k"})
+
+-- what is up with the tiles, for when some are not there that should be: every tile that exists is listed with what
+-- keeps it from being drawn, and whether the scene has it
+function Terrain:GetDebugReport()
+	local lines = {}
+	local counts = {tiles = 0, with_entity = 0, hidden = 0, retiring = 0, swapping = 0}
+
+	for key, tile in pairs(self.Tiles) do
+		counts.tiles = counts.tiles + 1
+
+		if tile.entity and tile.entity:IsValid() then counts.with_entity = counts.with_entity + 1 end
+
+		if tile.hidden then counts.hidden = counts.hidden + 1 end
+
+		if tile.retiring then counts.retiring = counts.retiring + 1 end
+
+		if tile.replaced_frame then counts.swapping = counts.swapping + 1 end
+
+		if tile.entity and tile.entity:IsValid() and not tile.retiring then
+			local visual = tile.entity.visual
+			local problems = {}
+
+			if tile.hidden and not self:IsTileBlocked(tile) then problems[#problems + 1] = "hidden and not blocked" end
+
+			if not visual.Visible and not tile.hidden then problems[#problems + 1] = "not visible" end
+
+			if visual.Visible and not visual.main_gpu_entry_offset then problems[#problems + 1] = "not in the gpu dataset" end
+
+			if visual.scene_removed then problems[#problems + 1] = "removed from the scene" end
+
+			if problems[1] then
+				lines[#lines + 1] = string.format("  tile %s: %s", key, table.concat(problems, ", "))
+			end
+		end
+	end
+
+	for key, want in pairs(self.Desired) do
+		local tile = self.Tiles[key]
+
+		if not tile then
+			lines[#lines + 1] = "  desired tile " .. key .. " has no tile"
+		elseif not tile.entity then
+			lines[#lines + 1] = "  desired tile " .. key .. " is not built yet"
+		end
+	end
+
+	table.insert(
+		lines,
+		1,
+		string.format(
+			"%s: %d tiles, %d built, %d hidden, %d retiring, %d swapping, %d chunks, %d queued",
+			self.Name,
+			counts.tiles,
+			counts.with_entity,
+			counts.hidden,
+			counts.retiring,
+			counts.swapping,
+			table.count(self.Chunks),
+			#self.BuildQueue
+		)
+	)
+	return table.concat(lines, "\n")
+end
+
+commands.Add("terrain_tiles", function()
+	for terrain in pairs(active_terrains) do
+		print(terrain:GetDebugReport())
+	end
+end)
+
 function Terrain:Start()
+	active_terrains[self] = true
 	self:Stop()
 	self.Root = Entity.New{Name = self.Name}
 	self.Root:SetTransient(true)
@@ -442,6 +515,7 @@ function Terrain:Start()
 end
 
 function Terrain:Stop()
+	active_terrains[self] = nil
 	event.RemoveListener("Update", self.UpdateId)
 
 	if self.holding_scene_load then
