@@ -683,7 +683,9 @@ local function can_use_shadow_aabb_cull(component, render_entries)
 end
 
 local function classify_scene_component(component)
-	if component.scene_removed or not component.Visible then return false, false end
+	if component.scene_removed or not component.Visible or component.RaysOnly then
+		return false, false
+	end
 
 	local render_entries = component:GetRenderEntries()
 
@@ -1069,6 +1071,8 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("ReceivesDecals", true)
+-- in the scene bvh (shadows from the soup, gi, reflections) and nothing else: no gbuffer, shadow map or culling draws
+Visual:GetSet("RaysOnly", false)
 Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 20000)
 Visual:GetSet("Billboard", false)
@@ -1163,6 +1167,15 @@ function Visual:SetCastShadows(enabled)
 	visual.ForgetWorldAABB(self)
 	refresh_shadow_registry(self)
 	mark_scene_component_dirty(self)
+end
+
+function Visual:SetRaysOnly(enabled)
+	if self.RaysOnly == enabled then return end
+
+	objects.CommitProperty(self, "RaysOnly", enabled)
+	mark_shadow_change(self)
+	mark_scene_component_dirty(self, true)
+	scene_bvh.Invalidate(self)
 end
 
 -- Visible is what is drawn: the own flag (SetVisible, stored) unless the visibility of the entity hides it (OnHide/OnShow)
