@@ -361,7 +361,6 @@ local FLAGS = {
 	"AlbedoAlphaIsEmissive",
 	"DoubleSided",
 	"Transmissive",
-	"Grass",
 	"Additive",
 	"Modulate",
 	"MultiplyAlbedo2",

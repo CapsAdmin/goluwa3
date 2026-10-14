@@ -173,7 +173,7 @@ local function get_or_create_cry_terrain_layers(terrain)
 					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
 					specular = material:GetSpecularMultiplier(),
-					grass = 0,
+					scatter = 0,
 					roughness = 1,
 					ao = 1,
 				}

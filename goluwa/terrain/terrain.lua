@@ -35,6 +35,7 @@ function Terrain.New(config)
 	self.ColorSize = config.ColorSize
 	self.ShadowLevels = config.ShadowLevels or self.Levels
 	self.BuildsPerUpdate = config.BuildsPerUpdate or 2
+	self.ScatterSet = config.ScatterSet
 	-- the frames a tile that is replaced stays after its replacements are shown. the scene takes a few frames to have a
 	-- tile that was just shown in what is drawn (the culling is a frame or more behind), and the old tile that goes the
 	-- moment its replacement is shown leaves a hole
@@ -243,7 +244,7 @@ function Terrain:CreateTile(want, chunk)
 	local primitive = primitive_entity:AddComponent("visual_primitive")
 	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level))
 	primitive:SetPolygon3D(polygon)
-	primitive:SetMaterial(tiles.CreateMaterial(chunk, chunk.layers or self.Source:GetLayers()))
+	primitive:SetMaterial(tiles.CreateMaterial(chunk, chunk.layers or self.Source:GetLayers(), self.ScatterSet))
 	visual:BuildAABB()
 	return {
 		key = want.key,

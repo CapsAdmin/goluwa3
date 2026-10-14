@@ -285,12 +285,19 @@ local property_types = {
 		get_preview_texture = get_material_preview_texture,
 	},
 	texture = {object = true},
+	scatter_set = {
+		object = true,
+		get_display_text = function(set)
+			return set and get_object_label(set) or "None"
+		end,
+	},
 }
 property_types.number.default_precision = 3
 property_types.integer.default_precision = 0
 local property_type_aliases = {
 	render3d_material = "material",
 	render_texture = "texture",
+	render3d_scatter_set = "scatter_set",
 }
 
 function META.PropDefaults()

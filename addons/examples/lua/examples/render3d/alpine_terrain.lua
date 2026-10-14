@@ -2,6 +2,7 @@ local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local noise = import("goluwa/terrain/noise.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local SEED = 4242
 local BASE_HEIGHT = 0
@@ -76,15 +77,22 @@ const float FEATURE_SCALE = %f;
 		)
 end
 
-local function layer(name, scale)
+local function layer(name, scale, extra)
 	local textures = terrain_textures[name]
-	return {name = name, albedo = textures.albedo, normal = textures.normal, scale = scale}
+	local out = {name = name, albedo = textures.albedo, normal = textures.normal, scale = scale}
+
+	for k, v in pairs(extra or {}) do
+		out[k] = v
+	end
+
+	return out
 end
 
 if _G.alpine_terrain then _G.alpine_terrain:Stop() end
 
 _G.alpine_terrain = Terrain.New{
 	Name = "alpine_terrain",
+	ScatterSet = ScatterSet.GetGrass(),
 	Source = ShaderSource.New{
 		Header = build_header(),
 		HeightGLSL = HEIGHT_GLSL,
@@ -93,7 +101,7 @@ _G.alpine_terrain = Terrain.New{
 		MinHeight = BASE_HEIGHT - 120,
 		MaxHeight = BASE_HEIGHT + MOUNTAIN_HEIGHT + 120,
 		Layers = {
-			layer("grass", 3),
+			layer("grass", 3, {scatter = 1}),
 			layer("dirt", 3),
 			layer("rock", 11),
 			layer("snow", 7),

@@ -13,7 +13,7 @@ surface_features.default_list = {
 	import("goluwa/render3d/features/terrain.lua"),
 	import("goluwa/render3d/features/detail.lua"),
 	import("goluwa/render3d/features/vegetation.lua"),
-	import("goluwa/render3d/features/grass.lua"),
+	import("goluwa/render3d/features/scatter.lua"),
 }
 
 -- the registry of a list of features, the engine uses the one for default_list. a list is a

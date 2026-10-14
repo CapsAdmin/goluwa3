@@ -139,8 +139,8 @@ local function resolve_layer_texture(value)
 	return value
 end
 
--- the per layer values, vec4 colors named TerrainLayer<Name> for layers 1 to 4 and TerrainLayer<Name>2 for 5 to 8. Grass
--- only has the first set, the grass pass does not know about the other layers
+-- the per layer values, vec4 colors named TerrainLayer<Name> for layers 1 to 4 and TerrainLayer<Name>2 for 5 to 8. Scatter
+-- only has the first set, the scatter pass does not know about the other layers
 local LAYER_VALUES = {
 	{"Scales", "scale", 1},
 	{"Roughness", "roughness", 1},
@@ -148,11 +148,11 @@ local LAYER_VALUES = {
 	{"DetailStrength", "detail", 0},
 	{"AdditiveDetail", "additive_detail", 0},
 	{"Specular", "specular", 1},
-	{"Grass", "grass", 0},
+	{"Scatter", "scatter", 0},
 	{"HeightScales", "height_scale", 0},
 }
 
-function tiles.CreateMaterial(chunk, layers)
+function tiles.CreateMaterial(chunk, layers, scatter_set)
 	local material = Material.New()
 	material:SetNormalTexture(chunk.normal_texture)
 	material:SetTerrainMaterialTexture(chunk.splat_texture)
@@ -170,7 +170,7 @@ function tiles.CreateMaterial(chunk, layers)
 		material["SetTerrainLayer" .. i .. "HeightTexture"](material, resolve_layer_texture(layer.height))
 	end
 
-	local any_grass = false
+	local any_scatter = false
 
 	for _, def in ipairs(LAYER_VALUES) do
 		local name, key, default = def[1], def[2], def[3]
@@ -185,14 +185,14 @@ function tiles.CreateMaterial(chunk, layers)
 
 		material["SetTerrainLayer" .. name](material, Color(v[1], v[2], v[3], v[4]))
 
-		if layer_count == 8 and name ~= "Grass" then
+		if layer_count == 8 and name ~= "Scatter" then
 			material["SetTerrainLayer" .. name .. "2"](material, Color(v[5], v[6], v[7], v[8]))
 		end
 
-		if name == "Grass" then any_grass = v[1] > 0 or v[2] > 0 or v[3] > 0 or v[4] > 0 end
+		if name == "Scatter" then any_scatter = v[1] > 0 or v[2] > 0 or v[3] > 0 or v[4] > 0 end
 	end
 
-	material:SetGrass(any_grass)
+	material:SetScatterSet(any_scatter and scatter_set or nil)
 	return material
 end
 

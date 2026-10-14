@@ -87,10 +87,10 @@ end
 layer_values("", "TerrainMaterialTexture")
 
 add{
-	name = "TerrainLayerGrass",
+	name = "TerrainLayerScatter",
 	kind = "vec4",
 	default = Color(1.0, 1.0, 1.0, 1.0),
-	requires = {"Grass", "TerrainMaterialTexture"},
+	requires = {"ScatterSet", "TerrainMaterialTexture"},
 	block = false,
 }
 layer_values("2", "TerrainMaterial2Texture")

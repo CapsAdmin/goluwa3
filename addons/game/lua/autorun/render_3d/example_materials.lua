@@ -1,5 +1,6 @@
 local assets = import("goluwa/assets.lua")
 local Material = import("goluwa/render3d/material.lua")
+local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local Texture = import("goluwa/render/texture.lua")
 local DEFAULT_TEXTURE_WIDTH = 256
 local DEFAULT_TEXTURE_HEIGHT = 128
@@ -543,7 +544,7 @@ local showcase_materials = {
 		path = "materials/examples/grass.lua",
 		name = "Grass",
 		config = {
-			Grass = true,
+			ScatterSet = ScatterSet.GetGrass(),
 			Shared = shared,
 			Albedo = [[
 					float f = fbm(p * 3.0) * 0.5 + 0.5;

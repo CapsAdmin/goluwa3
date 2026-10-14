@@ -6,6 +6,7 @@ local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local Material = import("goluwa/render3d/material.lua")
+local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local material_proxies = import("goluwa/source_engine/material_proxies.lua")
 local vmt_loader = import("goluwa/source_engine/vmt.lua")
 local vmt_material = {}
@@ -663,7 +664,7 @@ do
 				)
 			)
 		then
-			self:SetGrass(true)
+			self:SetScatterSet(ScatterSet.GetGrass())
 		end
 
 		local is_glass = FEATURES.glass_override and

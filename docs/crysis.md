@@ -68,7 +68,7 @@ Vegetation vertex animation (model_pipeline.BuildVertexAnimationGlsl) is a port 
 
 *19-byte instances, fit-to-terrain shear, grass blends to terrain color*
 
-Crysis grass is painted vegetation (cgf grass patches), procedural engine grass is off on cry terrain (layers get grass = 0).
+Crysis grass is painted vegetation (cgf grass patches), scatter is off on cry terrain (layers get scatter = 0).
 
 - `vegetationinstancesarray.editor_data` is packed 19 byte records: f32 x,y,z, f32 scale, u8 prototype id, u8 brightness, u8 angle (0-255 around cry +z). An old 76 byte stride loaded 1/4 of instances with garbage yaw.
 - Grass sits on slopes through the Vegetation shader's "Fit to Terrain" GenMask 0x4000 (TERRAINHEIGHTADAPTION), not AlignToTerrain: vertices get z += quadratic fit of terrain height, blades stay upright. We apply the linear part as a shear in the instance matrix (transform:SetFromMatrix).
