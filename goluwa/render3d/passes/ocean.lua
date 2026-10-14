@@ -13,6 +13,31 @@ local render = import("goluwa/render/render.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local RAY_QUERY = scene_reflection.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9, uvs = 10}
+local pvars = import("goluwa/cli/pvars.lua")
+-- the parts of the water that can be turned off, to see what each costs. they are the bits of ocean_data.features
+local FEATURES = {}
+pvars.StartGroup("water", {store = false})
+
+for _, feature in ipairs{
+	{"caustics", "r_water_caustics", "the caustics on the floor under the water"},
+	{"shafts", "r_water_shafts", "the sun shafts, light scattered towards the viewer under the surface"},
+	{"ripples", "r_water_ripples", "the small ripples on top of the wave textures"},
+	{"lights", "r_water_lights", "point lights glinting off the water and scattering in it"},
+	{"reflection_trace", "r_water_reflection_trace", "traced and screen space reflections, off leaves the environment map"},
+	{"shore_foam", "r_water_shore_foam", "the ray that measures the depth for foam along shores and around things"},
+	{"inscatter", "r_water_inscatter", "light scattered in the water between the surface and what is under it (shafts, sky and lights)"},
+	{"refraction", "r_water_refraction", "the scene seen through the surface, the floor under the water"},
+	{"sun_shadows", "r_water_sun_shadows", "shadows of the sun on the water, the floor under it and in the shafts"},
+	{"shaft_caustics", "r_water_shaft_caustics", "the caustics in the light shafts"},
+	{"ambient_gi", "r_water_ambient_gi", "the light from above that the global illumination probes give the water, off is the sky's"},
+} do
+	FEATURES[#FEATURES + 1] = {
+		bit = 2 ^ #FEATURES,
+		pvar = pvars.Setup2{key = feature[2], default = true, friendly = "water " .. feature[1]:gsub("_", " "), help = feature[3]},
+	}
+end
+
+pvars.EndGroup()
 local WAVE_TEX_SIZE = 512
 local WAVE_CASCADES = {
 	{name = "ocean_waves_near", world_half = 64},
@@ -232,6 +257,7 @@ list.insert(
 						{"env_irradiance_tex", "int"},
 						{"blue_noise_tex", "int"},
 						{"frame", "int"},
+						{"features", "int"},
 						{"sun_direction", "vec3"},
 						{"primary_sun_illuminance", "float"},
 						{"primary_sun_color", "vec3"},
@@ -274,6 +300,13 @@ list.insert(
 						block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
 						block.frame = system.GetFrameNumber() % 4096
+						local features = 0
+
+						for _, feature in ipairs(FEATURES) do
+							if feature.pvar:Get() then features = features + feature.bit end
+						end
+
+						block.features = features
 						local lights = render3d.GetLights()
 						directional_shadows.GetPrimarySunDirection(lights):CopyToFloatPointer(block.sun_direction)
 						block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
@@ -293,6 +326,23 @@ list.insert(
 			},
 			shader = [[
 			]] .. post_source.GetPreExposureGLSL("ocean_data") .. [[
+
+			// the parts of the water the r_water_* pvars turn off
+			const int WATER_CAUSTICS = 1;
+			const int WATER_SHAFTS = 2;
+			const int WATER_RIPPLES = 4;
+			const int WATER_LIGHTS = 8;
+			const int WATER_REFLECTION_TRACE = 16;
+			const int WATER_SHORE_FOAM = 32;
+			const int WATER_INSCATTER = 64;
+			const int WATER_REFRACTION = 128;
+			const int WATER_SUN_SHADOWS = 256;
+			const int WATER_SHAFT_CAUSTICS = 512;
+			const int WATER_AMBIENT_GI = 1024;
+
+			bool water_feature(int bit) {
+				return (ocean_data.features & bit) != 0;
+			}
 
 			// the lit scene is pre-exposed, the water's shading is absolute
 			vec3 get_scene_color(vec2 uv) {
@@ -338,7 +388,11 @@ list.insert(
 				return smoothstep(-0.08, 0.02, sun_dir.y);
 			}
 
-			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("ocean_data", "get_water_sun_visibility") .. [[
+			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("ocean_data", "get_water_sun_visibility_shadowed") .. [[
+
+			float get_water_sun_visibility(vec3 p, vec3 dir) {
+				return water_feature(WATER_SUN_SHADOWS) ? get_water_sun_visibility_shadowed(p, dir) : 1.0;
+			}
 
 			]] .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
@@ -572,6 +626,8 @@ list.insert(
 			float add_detail_ripples(vec2 p, float footprint, inout vec2 grad, inout vec3 hess) {
 				vec4 info = ocean_data.detail_info;
 				vec4 ripple = ocean_data.ripple_info;
+				// the roughness takes what is not drawn
+				if (!water_feature(WATER_RIPPLES)) return info.w * float(RIPPLE_OCTAVES);
 				// RippleStrength of their slope variance is drawn, the rest is left to the roughness.
 				// RippleScale stretches them, as steep, so taller too
 				float drawn = info.w * ripple.x;
@@ -802,7 +858,7 @@ list.insert(
 			vec3 get_ambient_irradiance(vec3 P) {
 				vec3 sky = sample_environment_irradiance(ocean_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
 				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready()) {
+				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
 					float weight;
 					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, DDGI_NO_VISIBILITY_RAYS, weight);
 					// the weight only fades out near walls, the sky would leak in under a roof
@@ -855,7 +911,7 @@ list.insert(
 				// shadows over the first stretch of the path, which is where
 				// the scattered light comes from. taa smooths the steps into
 				// light shafts
-				if (dot(sun_light, sun_light) > 0.0) {
+				if (dot(sun_light, sun_light) > 0.0 && water_feature(WATER_SHAFTS)) {
 					float shadow_len = min(len, 60.0);
 
 					// the caustics in the shafts are lines thinner than a pixel from afar, which average out to no change,
@@ -896,7 +952,7 @@ list.insert(
 				#ifdef SCENE_REFLECTION
 				// lights scatter towards the viewer from a few points along the path: through the water
 				// between the light and the point, and from the point to the viewer
-				if (scene_reflection_ready()) {
+				if (scene_reflection_ready() && water_feature(WATER_LIGHTS)) {
 					float light_len = min(len, WATER_LIGHT_RANGE);
 
 					for (int i = 0; i < WATER_LIGHT_SAMPLES; i++) {
@@ -978,7 +1034,7 @@ list.insert(
 			// the pattern is smoothed a little with depth, deeper down the light
 			// arrives from a wider spread of ripples
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail) {
-				if (w.caustics <= 0.0) return vec3(1.0);
+				if (w.caustics <= 0.0 || !water_feature(detail ? WATER_CAUSTICS : WATER_SHAFT_CAUSTICS)) return vec3(1.0);
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				float depth = max(w.surface_y - world_pos.y, 0.0);
@@ -1129,6 +1185,8 @@ list.insert(
 				vec2 screenspace_uv;
 				float screenspace_t;
 
+				if (!water_feature(WATER_REFLECTION_TRACE)) return reflected;
+
 				if (!rt_primary && screenspace_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, screenspace_uv, screenspace_t, screenspace_weight)) {
 					screenspace_color = get_scene_color(screenspace_uv);
 					screenspace_weight *= screenspace_fade;
@@ -1250,7 +1308,13 @@ list.insert(
 				vec3 floor_pos;
 				vec2 floor_uv;
 				bool has_floor;
-				vec3 behind = get_refracted_scene(w, surface_pos, ray_dir, normal, scene_distance, path_len, floor_pos, floor_uv, has_floor);
+				vec3 behind = vec3(0.0);
+				path_len = WATER_OPEN_DEPTH;
+				floor_pos = surface_pos;
+				floor_uv = in_uv;
+				has_floor = false;
+
+				if (water_feature(WATER_REFRACTION)) behind = get_refracted_scene(w, surface_pos, ray_dir, normal, scene_distance, path_len, floor_pos, floor_uv, has_floor);
 				// the water between the surface and what's behind it
 				vec3 refracted_dir = has_floor && path_len > 1e-3 ? normalize(floor_pos - surface_pos) : normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / w.ior));
 				refracted_dir.y = min(refracted_dir.y, -0.02);
@@ -1260,7 +1324,10 @@ list.insert(
 				if (has_floor) behind = relight_submerged(w, floor_uv, behind, floor_pos, get_caustic(w, floor_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true));
 
 				vec3 transmittance;
-				vec3 inscatter = get_water_inscatter(w, surface_pos, refracted_dir, path_len, jitter, transmittance);
+				vec3 inscatter = vec3(0.0);
+				transmittance = vec3(1.0);
+
+				if (water_feature(WATER_INSCATTER)) inscatter = get_water_inscatter(w, surface_pos, refracted_dir, path_len, jitter, transmittance);
 				vec3 transmitted = behind * transmittance + inscatter;
 
 				// sun glint off the waves, rough with the waves too small to see
@@ -1277,7 +1344,7 @@ list.insert(
 				#ifdef SCENE_REFLECTION
 				// lights above the water glint off the waves like the sun does, a point of light with
 				// only the waves' roughness spreading it
-				if (scene_reflection_ready()) {
+				if (scene_reflection_ready() && water_feature(WATER_LIGHTS)) {
 					int light_cell = light_grid_cell(surface_pos);
 					int light_count = ocean_data.light_count;
 					int shaded = 0;
@@ -1335,7 +1402,7 @@ list.insert(
 				float shore_range = 0.25 * w.foam;
 				float shore_depth = has_floor ? max(w.surface_y - floor_pos.y, length(floor_pos.xz - surface_pos.xz) * 0.5) : 1e3;
 				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready() && shore_range > 0.0) {
+				if (scene_reflection_ready() && shore_range > 0.0 && water_feature(WATER_SHORE_FOAM)) {
 					// measured from above the crests: from the surface itself a trough beside the shore
 					// starts inside the ground, reads no water, and the foam blazes up there
 					float rise = max(ocean_data.ocean_wave_info.x, 0.05);
