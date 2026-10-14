@@ -78,7 +78,7 @@ local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, crysis = 4, neu
 pvars.StartGroup("display", {store = false})
 local tonemapper = pvars.Setup2{
 	key = "r_tonemapper",
-	default = "agx_punchy",
+	default = "gt7",
 	enums = {"agx", "agx_punchy", "aces", "gt7", "crysis", "neutral"},
 	help = "the curve that maps the exposed scene to the display",
 }
