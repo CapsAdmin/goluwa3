@@ -40,6 +40,7 @@ local function create_terrain()
 		BaseChunkSize = 16,
 		Samples = 5,
 		BuildsPerUpdate = 1,
+		SwapFrames = 0,
 	}
 	terrain.Root = fake_entity()
 	terrain.CreateTile = function(self, want, chunk)
@@ -167,4 +168,45 @@ T.Test("Terrain drops stale tiles that were never built", function()
 	ready, retiring = count_tiles(terrain)
 	T(ready)["=="](28)
 	T(retiring)["=="](0)
+end)
+
+T.Test("Terrain keeps a replaced tile for a few frames after its replacements are shown", function()
+	local terrain = create_terrain()
+	local frame = 100
+	terrain.GetFrame = function()
+		return frame
+	end
+	terrain.SwapFrames = 3
+	terrain:UpdateTiles(Vec3(0, 0, 0))
+	build_everything(terrain)
+	terrain:UpdateTiles(Vec3(40, 0, 0))
+
+	while #terrain.BuildQueue > 0 do
+		terrain:ProcessBuildQueue()
+		terrain:RetireTiles()
+	end
+
+	-- everything is built, the old tiles are still there, the new ones are shown over them
+	local ready, retiring = count_tiles(terrain)
+	T(retiring > 0)["=="](true)
+	local swapping = 0
+
+	for _, tile in pairs(terrain.Tiles) do
+		T(tile.hidden)["~="](true)
+
+		if tile.retiring and tile.replaced_frame then swapping = swapping + 1 end
+	end
+
+	T(swapping)["=="](retiring)
+	assert_area_covered(terrain, 0, -32, 64, 32)
+	frame = frame + 2
+	terrain:RetireTiles()
+	T((count_tiles(terrain)))[">"](0)
+	local _, still = count_tiles(terrain)
+	T(still)["=="](retiring)
+	frame = frame + 1
+	terrain:RetireTiles()
+	ready, retiring = count_tiles(terrain)
+	T(retiring)["=="](0)
+	assert_area_covered(terrain, 0, -32, 64, 32)
 end)

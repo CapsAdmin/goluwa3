@@ -5,6 +5,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local tiles = import("goluwa/terrain/tiles.lua")
 local TerrainPhysics = import("goluwa/terrain/physics.lua")
+local system = import("goluwa/system.lua")
 local Terrain = {}
 Terrain.__index = Terrain
 
@@ -33,6 +34,10 @@ function Terrain.New(config)
 	self.ColorSize = config.ColorSize
 	self.ShadowLevels = config.ShadowLevels or self.Levels
 	self.BuildsPerUpdate = config.BuildsPerUpdate or 2
+	-- the frames a tile that is replaced stays after its replacements are shown. the scene takes a few frames to have a
+	-- tile that was just shown in what is drawn (the culling is a frame or more behind), and the old tile that goes the
+	-- moment its replacement is shown leaves a hole
+	self.SwapFrames = config.SwapFrames or 5
 	self.UpdateInterval = config.UpdateInterval or 0.05
 	self.PhysicsConfig = config.Physics
 	self.Chunks = {}
@@ -291,11 +296,16 @@ function Terrain:IsTileReplaced(tile)
 	return true
 end
 
+function Terrain:GetFrame()
+	return system.GetFrameNumber()
+end
+
 function Terrain:IsTileBlocked(tile)
 	for _, other in pairs(self.Tiles) do
 		if
 			other.retiring and
 			other.entity and
+			not other.replaced_frame and
 			other ~= tile and
 			tiles_overlap(self, tile, other)
 		then
@@ -307,10 +317,24 @@ function Terrain:IsTileBlocked(tile)
 end
 
 function Terrain:RetireTiles()
+	local frame = self:GetFrame()
+
 	for key, tile in pairs(self.Tiles) do
-		if tile.retiring and (not tile.entity or self:IsTileReplaced(tile)) then
-			self:RemoveTile(tile)
-			self.Tiles[key] = nil
+		if tile.retiring then
+			if not tile.entity then
+				self:RemoveTile(tile)
+				self.Tiles[key] = nil
+			elseif self:IsTileReplaced(tile) then
+				-- what replaces it can be shown now (it is no longer blocked by it), it goes when they are drawn
+				tile.replaced_frame = tile.replaced_frame or frame
+
+				if frame - tile.replaced_frame >= self.SwapFrames then
+					self:RemoveTile(tile)
+					self.Tiles[key] = nil
+				end
+			else
+				tile.replaced_frame = nil
+			end
 		end
 	end
 
@@ -327,6 +351,8 @@ function Terrain:UpdateTiles(position)
 
 	for key, tile in pairs(self.Tiles) do
 		tile.retiring = not desired[key]
+
+		if not tile.retiring then tile.replaced_frame = nil end
 	end
 
 	for key, want in pairs(desired) do
