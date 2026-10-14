@@ -688,6 +688,16 @@ function clouds.GetGLSL(block)
 		// it starts this many tiles away from the camera and is in full this many tiles out
 		const float CLOUD_WARP_NEAR = 2.0;
 		const float CLOUD_WARP_FAR = 8.0;
+		// each further scattering order sees this much of the extinction, and keeps this much of the light
+		const float CLOUD_ORDER_EXTINCTION = 0.3;
+		const float CLOUD_ORDER_SCATTERING = 0.55;
+		const float CLOUD_AMBIENT_SCALE = 0.85;
+		const float CLOUD_SUN_SCALE = 2.2;
+		const float CLOUD_DIFFUSION = 0.15 / (4.0 * PI);
+		const float CLOUD_SKY_PROBE_NEAR = 125.0;
+		const float CLOUD_SKY_PROBE_FAR = 600.0;
+		// the light's optical depth is marched every this many lit samples
+		const int CLOUD_LIGHT_REUSE = 3;
 		// how coarse the shape noise is read for how tall each heap grows
 		const float CLOUD_TOP_CELL_LOD = 3.0;
 
@@ -788,7 +798,9 @@ function clouds.GetGLSL(block)
 		// the cloud's density at p (world meters, altitude alt), 0 to the layer's density. detail adds
 		// the erosion by the detail noise
 		// footprint is how many meters the sample stands for, the noise is read that coarse
-		float cloud_density(int i, vec3 p, float alt, bool detail, float footprint) {
+		// shade is the height of the sample in its cloud's column (0 at the base to 1 at the top)
+		float cloud_density_shaded(int i, vec3 p, float alt, bool detail, float footprint, out float shade) {
+			shade = 0.0;
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 			vec4 vary = CLOUD_BLOCK.cloud_layer_vary[i];
 
@@ -839,6 +851,8 @@ function clouds.GetGLSL(block)
 
 			if (h >= 1.0) return 0.0;
 
+			shade = h;
+
 			float profile = cloud_height_profile(h, style.x);
 			profile = max(profile, style.z * smoothstep(0.6, 0.8, hf) * (1.0 - smoothstep(0.92, 1.0, hf)));
 			vec4 n = textureLod(cloud_base_noise, uvw, lod);
@@ -869,6 +883,11 @@ function clouds.GetGLSL(block)
 			}
 
 			return d * shape.w;
+		}
+
+		float cloud_density(int i, vec3 p, float alt, bool detail, float footprint) {
+			float shade;
+			return cloud_density_shaded(i, p, alt, detail, footprint, shade);
 		}
 
 		// a flat layer's optical depth straight through it at p
@@ -908,8 +927,8 @@ function clouds.GetGLSL(block)
 
 			for (int o = 0; o < 5; o++) {
 				sum += b * cloud_phase(mu, c) * exp(-od * a);
-				a *= 0.45;
-				b *= 0.65;
+				a *= CLOUD_ORDER_EXTINCTION;
+				b *= CLOUD_ORDER_SCATTERING;
 				c *= 0.5;
 			}
 
@@ -917,14 +936,14 @@ function clouds.GetGLSL(block)
 		}
 
 		// the optical depth of layer i toward the light from p, marched in growing steps
-		float cloud_light_optical_depth(int i, vec3 p, float alt, vec3 L, float L_up, int steps) {
+		float cloud_light_optical_depth(int i, vec3 p, float alt, vec3 L, float L_up, int steps, float jitter) {
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 			float step_size = shape.y * 0.025;
 			float t = 0.0;
 			float od = 0.0;
 
 			for (int k = 0; k < steps; k++) {
-				float ds = step_size * (k < 2 ? 1.0 : pow(1.7, float(k - 1)));
+				float ds = step_size * (k < 2 ? 1.0 : pow(1.7, float(k - 1))) * (0.8 + 0.4 * jitter);
 				float s = t + ds * 0.5;
 				float a = alt + L_up * s;
 
@@ -1062,6 +1081,8 @@ function clouds.GetGLSL(block)
 				float t = t0 + jitter * fine_size * CLOUD_COARSE_STEPS;
 				int empty = CLOUD_EMPTY_STEPS;
 				int budget = int(256.0 * quality);
+				int light_reuse = 0;
+				float light_od = 0.0;
 
 				for (int k = 0; k < budget && t < t1; k++) {
 					float dt = max(fine_size, t * 0.002 / quality);
@@ -1077,6 +1098,7 @@ function clouds.GetGLSL(block)
 
 						// the cloud starts somewhere within this coarse step
 						empty = 0;
+						light_reuse = 0;
 						dt /= CLOUD_COARSE_STEPS;
 					}
 
@@ -1085,7 +1107,8 @@ function clouds.GetGLSL(block)
 					t += dt;
 					vec3 p = origin + dir * ts;
 					float alt = cloud_altitude(r, ts);
-					float density = cloud_density(i, p, alt, true, dt);
+					float shade;
+					float density = cloud_density_shaded(i, p, alt, true, dt, shade);
 
 					if (density <= 0.0) {
 						empty++;
@@ -1106,16 +1129,35 @@ function clouds.GetGLSL(block)
 
 					vec3 up = cloud_up(p);
 					float L_up = dot(up, L);
-					float light_od = cloud_light_optical_depth(i, p, alt, L, max(L_up, 0.02), light_steps);
+					if (light_reuse <= 0) {
+						light_od = cloud_light_optical_depth(i, p, alt, L, max(L_up, 0.02), light_steps, fract(jitter * 7.31 + 0.37));
+						light_reuse = CLOUD_LIGHT_REUSE;
+					}
+
+					light_reuse--;
 					float upper = L_up > 0.01 ? cloud_upper_transmittance(i, p, alt, L, L_up) : 1.0;
 					float hf = cloud_saturate((alt - shape.x) / shape.y);
-					// light scattered deeper in comes out more often than at the very edge of a crease
-					float powder = mix(1.0 - exp(-density * 60.0), 1.0, 0.5 + 0.5 * mu);
-					vec3 sun = light * (cloud_scattering(light_od, mu) * upper * powder * smoothstep(-0.1, 0.02, L_up));
+					// light scattered toward the viewer builds up inside the cloud, so thin edges and the
+					// underside look darker, less so toward the sun where the forward peak makes the thin
+					// edges glow
+					float depth_powder = pow(density / shape.w, mix(0.5, 1.6, shade)) * 0.95 + 0.05;
+					float height_powder = pow(smoothstep(0.02, 0.2, shade), 0.8) * 0.85 + 0.15;
+					float powder = mix(1.0, depth_powder * height_powder, cloud_saturate(mu * -0.5 + 0.6));
+					// the bases lose their direct light to the cloud above
+					float base_shadow = mix(0.55, 1.0, smoothstep(-0.1, 0.45, shade));
+					// the light diffused through the whole cloud keeps thick bodies from going black, more of it
+					// the higher up in the cloud, where multiple scattering has built up
+					float diffusion = CLOUD_DIFFUSION * exp(-light_od * 0.03) * mix(0.35, 1.0, smoothstep(0.0, 0.45, shade));
+					vec3 sun = light * CLOUD_SUN_SCALE * ((cloud_scattering(light_od, mu) + diffusion) * upper * powder * base_shadow * smoothstep(-0.1, 0.02, L_up));
 					// the ambient comes in through the top and the bottom, through the layer's column above
 					// and below, and multiple scattering carries it much further than the direct light
 					float column = shape.w * shape.y * ]] .. string.format("%.3f", MEAN_SHAPE_DENSITY * 0.05) .. [[;
-					vec3 ambient = ambient_top * exp(-column * (1.0 - hf)) + ambient_bottom * exp(-column * hf);
+					// the sky sees less of a sample with cloud above it: two broad upward probes of the density
+					float sky_od = cloud_density(i, p + up * CLOUD_SKY_PROBE_NEAR, alt + CLOUD_SKY_PROBE_NEAR, false, CLOUD_SKY_PROBE_NEAR) * (CLOUD_SKY_PROBE_NEAR * 2.0)
+						+ cloud_density(i, p + up * CLOUD_SKY_PROBE_FAR, alt + CLOUD_SKY_PROBE_FAR, false, CLOUD_SKY_PROBE_FAR) * (CLOUD_SKY_PROBE_FAR * 1.17)
+						+ density * 25.0;
+					float sky_visibility = 0.3 + 0.7 / (sky_od * 0.35 + 1.0);
+					vec3 ambient = (ambient_top * exp(-column * (1.0 - hf)) + ambient_bottom * exp(-column * hf)) * sky_visibility * CLOUD_AMBIENT_SCALE;
 					vec3 S = density * (sun + ambient);
 					float T = exp(-density * dt);
 					// the scattering within the step, attenuated on its way out (Hillaire 2015)
