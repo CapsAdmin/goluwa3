@@ -323,7 +323,25 @@ local atmosphere_shared_glsl = [[
 	}
 
 	vec3 compute_view_tau(float rayleigh_od, float mie_od, float ozone_od) {
-		return RAYLEIGH_BETA * rayleigh_od + vec3(MIE_BETA_EXT * mie_od) + OZONE_BETA_ABS * ozone_od;
+		return RAYLEIGH_BETA * rayleigh_od + MIE_BETA_EXT * mie_od + OZONE_BETA_ABS * ozone_od;
+	}
+
+	// The multiple scattering lut is isotropic and assumes a transfer function that holds for thin air: against a path
+	// traced sky it is up to 30 percent too bright overhead and 50 percent too dark at the horizon with a clear aerosol,
+	// and too bright all over as the aerosol thickens, by an amount that follows the sun's elevation. This is the ratio
+	// fitted to the path tracer (test/harnesses/sky/ms_fit.lua, 7 percent rms), u = 1 - sin(view elevation),
+	// x = sin(sun elevation), a = ln(aerosol extinction / 0.0568). It holds for a camera near the ground, sun elevations
+	// of 6-75 degrees and an aerosol visibility from 12 km up, thicker haze is clamped and too bright. Regenerate it
+	// when the aerosol, ozone or Rayleigh constants change.
+	float get_multi_scatter_gain(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
+		vec3 up = normalize(ray_origin);
+		float u = 1.0 - clamp(dot(ray_dir, up), 0.0, 1.0);
+		float x = clamp(dot(sun_dir, up), 0.1, 0.97);
+		float a = clamp(log(max(ATMOSPHERE_AEROSOL_EXTINCTION, 1e-4) / 0.0568), -1.5, 1.71);
+		float poly0 = -0.0447 + 1.0927 * u - 0.6433 * u * u - 1.0966 * x - 0.9065 * x * u + 0.9874 * x * x - 1.0016 * x * x * u + 1.8771 * u * u * x;
+		float poly1 = -0.1888 + 0.1655 * u - 0.2228 * u * u - 0.2412 * x - 0.1192 * x * u + 0.3945 * x * x - 0.5815 * x * x * u + 0.7828 * u * u * x;
+		float poly2 = -0.0520 - 0.1203 * u + 0.0682 * u * u + 0.0399 * x + 0.0530 * x * u + 0.0524 * x * x - 0.0923 * x * x * u + 0.0047 * u * u * x;
+		return exp(poly0 + poly1 * a + poly2 * a * a);
 	}
 
 	// Single scattering with the real phase functions plus the multiple
@@ -336,6 +354,7 @@ local atmosphere_shared_glsl = [[
 		float ozone_od = 0.0;
 		vec3 total = vec3(0.0);
 		float mu = dot(ray_dir, sun_dir);
+		multi_scatter_visibility *= get_multi_scatter_gain(ray_origin, ray_dir, sun_dir);
 		vec3 phase_r = RAYLEIGH_BETA * (rayleigh_phase(mu) * single_scatter_visibility.x);
 		vec3 phase_m = MIE_BETA * (mie_phase(mu) * single_scatter_visibility.y);
 
