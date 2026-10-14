@@ -43,7 +43,7 @@ local function timestamps_are_supported()
 	return timestamps_supported
 end
 
-render_stats.RegisterGroup{id = "gpu_timing", label = "GPU TIMINGS IN MICROSECONDS", columns = true}
+render_stats.RegisterGroup{id = "gpu_timing", label = "GPU TIMINGS IN MS", columns = true}
 local TOTAL_NAME = "gpu_total"
 local get_total_ms
 
@@ -118,14 +118,14 @@ local function register_row(rank)
 	render_stats.RegisterField{
 		id = "gpu_timing_row_" .. rank,
 		group = "gpu_timing",
-		glyphs = "-",
+		glyphs = "-.",
 		label_getter = function()
 			return display_labels[display_order[rank]]
 		end,
 		getter = function()
 			update_shown()
 			local ms = shown_ms[display_order[rank]]
-			return ms and tostring(math.floor(ms * 1000 + 0.5)) or "-"
+			return ms and string.format("%.3f", ms) or "-"
 		end,
 		swatch_getter = function()
 			update_shown()
