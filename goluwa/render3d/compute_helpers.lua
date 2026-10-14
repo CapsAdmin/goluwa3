@@ -192,8 +192,29 @@ function compute_helpers.GetColorHelpersGLSL()
 			return peak * (1.0 - exp(-k * x / peak));
 		}
 
+		// Khronos PBR Neutral: not filmic, it has no toe and no contrast curve. The exposed colour is
+		// left as it is (less a small offset that keeps the darkest values off zero) until the
+		// brightest channel reaches 0.76, above that it rolls off towards 1 with the hue kept, and the
+		// colours that are compressed hardest fade to white. Middle grey (0.18) lands at 0.14.
+		vec3 pbr_neutral(vec3 x) {
+			const float start_compression = 0.8 - 0.04;
+			const float desaturation = 0.15;
+			float lowest = min(x.r, min(x.g, x.b));
+			float offset = lowest < 0.08 ? lowest - 6.25 * lowest * lowest : 0.04;
+			x -= offset;
+			float peak = max(x.r, max(x.g, x.b));
+
+			if (peak < start_compression) return x;
+
+			float d = 1.0 - start_compression;
+			float new_peak = 1.0 - d * d / (peak + d - start_compression);
+			x *= new_peak / peak;
+			float g = 1.0 - 1.0 / (desaturation * (peak - new_peak) + 1.0);
+			return mix(x, vec3(new_peak), g);
+		}
+
 		// x is exposed (middle grey at 0.18); returns linear display colour.
-		// tonemapper: 0 = AgX, 1 = AgX punchy, 2 = ACES, 3 = GT7, 4 = Crysis
+		// tonemapper: 0 = AgX, 1 = AgX punchy, 2 = ACES, 3 = GT7, 4 = Crysis, 5 = Neutral
 		vec3 tonemap(vec3 x, int tonemapper) {
 			x = max(x, vec3(0.0));
 
@@ -204,6 +225,8 @@ function compute_helpers.GetColorHelpersGLSL()
 			if (tonemapper == 2) return aces_fitted(x);
 
 			if (tonemapper == 4) return crysis(x, 0.5);
+
+			if (tonemapper == 5) return pbr_neutral(x);
 
 			return agx(x, tonemapper == 1);
 		}

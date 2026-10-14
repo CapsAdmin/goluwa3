@@ -74,12 +74,12 @@ render3d.local_exposure = {
 	slope = 0.2,
 	ceiling = 1e5,
 }
-local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, crysis = 4}
+local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, crysis = 4, neutral = 5}
 pvars.StartGroup("display", {store = false})
 local tonemapper = pvars.Setup2{
 	key = "r_tonemapper",
 	default = "agx_punchy",
-	enums = {"agx", "agx_punchy", "aces", "gt7", "crysis"},
+	enums = {"agx", "agx_punchy", "aces", "gt7", "crysis", "neutral"},
 	help = "the curve that maps the exposed scene to the display",
 }
 
