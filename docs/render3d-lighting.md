@@ -2,6 +2,16 @@
 
 Notes collected from past sessions. Dated numbers are snapshots; re-measure before relying on them.
 
+## DDGI long range cascades and faceted bent normals
+
+*10 cascades from 0.5 m, sun-change triggered updates, bent normal rotated onto the smooth normal*
+
+- 2026-10-14: `ddgi.CASCADES` 10, `ddgi_probe_spacing` 0.5, ratio 2 (0.5 m to 256 m spacing, about 6 km wide), update intervals 1, 2, 4, 8, 16, 32, 64 x4, `ddgi_max_coverage` and `ddgi_max_ray_distance` 4000. Cascades are fitted to the scene bounds and the ones that already cover everything are dropped, so small maps don't pay. A pixel samples at most two cascades.
+- Slow far cascades are rescued by `ddgi_change_threshold` (0.05, sun direction in radians plus relative brightness, 0 = off) and `ddgi_change_min_interval` (2): a cascade updates early when the sun moved that much since its last update. Local lights, emissives and the sky map are not tracked, `ddgi.ResetHistory()` resets all.
+- The resolve looks up probes along the AO bent normal. The AO pass computes it against `get_geometric_normal` (depth derivatives, flat per triangle), which showed as faint vertical bands on a low poly sphere. The AO pass now rotates the bent normal from the geometric to the shading normal before writing it (`rotate_between`).
+
+**How to apply:** faint banding that follows mesh facets in GI means something in the lookup uses a depth-derived normal. Related: [DDGI software trace](#ddgi-software-trace).
+
 ## DDGI software trace
 
 *only GI left; compute scene_bvh fallback; GOLUWA_NO_RAY_TRACING=1 to test*
@@ -74,6 +84,17 @@ DDGI fireflies from small bright openings are now attacked with path guiding (20
 **Why:** hysteresis only turned the noise into slow bubbling; reducing the variance at the source was the correct fix. See [DDGI fireflies came from fast-adapt](#ddgi-fireflies-came-from-fast-adapt).
 
 **How to apply:** if the guide seems to do nothing, check that stamps match (probes scrolled in are uniform for a frame) and that the cell size (about 22 degrees) is not larger than the opening.
+
+## DDGI long range and bent normal facets
+
+*10 cascades from 0.5 m, sun-change triggered updates, bent normal rotated onto the smooth normal*
+
+Since 2026-10-14 DDGI has 10 cascades (`ddgi.CASCADES`), `ddgi_probe_spacing` 0.5 and ratio 2, so the coarsest is 256 m apart and about 6 km wide. Cascades are fit to the scene bounds and `ddgi_max_coverage` (4000), and any cascade past the one that covers everything is dropped, so small maps pay for fewer. Update intervals are 1, 2, 4, 8, 16, 32, then 64, which keeps the rays per frame close to the old 4 cascade setup. `ddgi_max_ray_distance` is 4000. A cascade also updates ahead of its interval when the sun moved or changed brightness by more than `ddgi_change_threshold` (radians plus relative luma, 0 is off) since its last update, at most every `ddgi_change_min_interval` frames. Only the sun is tracked, local lights, emitters and sky changes still wait for the interval.
+
+The AO pass computes the bent normal against a depth derived geometric normal, which is flat per triangle. DDGI looks the probes up along it, so a low poly sphere showed faint stripes per facet. The bent normal is now rotated from the geometric normal onto the smooth gbuffer normal (`rotate_between` in passes/ambient_occlusion.lua) before it is written.
+
+**Why:** the user wanted GI over large terrains with sparse far probes and unchanged near detail.
+**How to apply:** if far GI looks stale after a lighting change that is not the sun, lower the relevant `ddgi_update_interval_N`. Any new consumer of the bent normal gets the smooth-normal-relative one.
 
 ## DDGI relocation: cramped probes
 
