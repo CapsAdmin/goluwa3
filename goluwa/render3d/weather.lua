@@ -426,7 +426,9 @@ function weather.UpdateSky()
 		dir, color, illuminance = sun_dir, sun_transmittance * SUN_TINT, SUN_TOA_ILLUMINANCE
 	end
 
+	weather.syncing_light = true
 	weather.light.transform:SetRotation(Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize())
+	weather.syncing_light = false
 	weather.light.light_sun:SetColor(Color(color.x, color.y, color.z, 1))
 	clouds.SetShadowDirection(dir)
 	local active = atmosphere.IsEnabled()

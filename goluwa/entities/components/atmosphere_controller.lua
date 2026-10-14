@@ -40,7 +40,7 @@ META:EndStorable()
 
 function META:Initialize()
 	event.AddListener("OnTransformChanged", self, function(transform)
-		if transform ~= self.Owner.transform then return end
+		if transform ~= self.Owner.transform or weather.syncing_light then return end
 
 		local direction = transform:GetRotation():GetNormalized():GetBackward()
 
