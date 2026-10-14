@@ -406,10 +406,11 @@ local trace_pass = {
 			vec2 full_size = vec2(textureSize(TEXTURE(cloud_data.depth_tex), 0));
 			float depth = 0.0;
 
-			for (int i = 0; i < 4; i++) {
-				vec2 full_uv = (vec2(pixel * 2 + ivec2(i & 1, i >> 1)) + 0.5) / (cloud_data.view_size * 2.0);
+			for (int i = 0; i < ]] .. clouds.VIEW_DIVISOR * clouds.VIEW_DIVISOR .. [[; i++) {
+				vec2 full_uv = (vec2(pixel * ]] .. clouds.VIEW_DIVISOR .. [[ + ivec2(i % ]] .. clouds.VIEW_DIVISOR .. [[, i / ]] .. clouds.VIEW_DIVISOR .. [[)) + 0.5) / (cloud_data.view_size * ]] .. clouds.VIEW_DIVISOR .. [[.0);
 				depth = max(depth, textureLod(TEXTURE(cloud_data.depth_tex), min(full_uv, 1.0 - 0.5 / full_size), 0.0).r);
 			}
+
 
 			float t_max = ]] .. string.format("%.1f", VIEW_DISTANCE) .. [[;
 

@@ -11,6 +11,8 @@ clouds.SHADOW_EXTENT = 32000
 clouds.SKY_WIDTH = 512
 clouds.SKY_HEIGHT = 256
 clouds.BASE_NOISE_SIZE = 128
+-- the view the clouds are reconstructed at is the render size over this, and each frame traces a quarter of it
+clouds.VIEW_DIVISOR = 1
 clouds.DETAIL_NOISE_SIZE = 32
 clouds.WEATHER_SIZE = 512
 clouds.SKY_REFRESH_INTERVAL = 2
@@ -343,8 +345,8 @@ end
 
 function clouds.EnsureViewResources(size)
 	local t = clouds.textures
-	local width = math.ceil(size.x / 2)
-	local height = math.ceil(size.y / 2)
+	local width = math.ceil(size.x / clouds.VIEW_DIVISOR)
+	local height = math.ceil(size.y / clouds.VIEW_DIVISOR)
 
 	if t.view_width == width and t.view_height == height then return t end
 
