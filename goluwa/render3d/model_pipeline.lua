@@ -245,6 +245,10 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 		lines[#lines + 1] = "\tout_lod_fade = world[0][3];"
 	end
 
+	if options.instance_tint then
+		lines[#lines + 1] = "\tout_instance_tint = " .. (options.instance_tint_expr or "vec3(1.0)") .. ";"
+	end
+
 	lines[#lines + 1] = "\tbool skinned = in_vertex_color.a < " .. skinning.MOTION_THRESHOLD .. ";"
 	lines[#lines + 1] = "\tvec3 skin_motion = skinned ? in_vertex_color.rgb : vec3(0.0);"
 	lines[#lines + 1] = "\tvec4 vertex_color = skinned ? vec4(0.0) : in_vertex_color;"
@@ -327,6 +331,10 @@ local function get_vertex_stage_outputs(options)
 
 	if options.lod_fade then outputs[#outputs + 1] = {"lod_fade", "float"} end
 
+	if options.instance_tint then
+		outputs[#outputs + 1] = {"instance_tint", "vec3"}
+	end
+
 	return outputs
 end
 
@@ -390,7 +398,7 @@ function model_pipeline.CreateVertexStage(options)
 		shader = build_vertex_shader(options, "vertex.world", "vertex.prev_world"),
 	}
 
-	if options.velocity or options.lod_fade then
+	if options.velocity or options.lod_fade or options.instance_tint then
 		local outputs = model_pipeline.GetVertexAttributes()
 
 		if options.velocity then
@@ -398,6 +406,10 @@ function model_pipeline.CreateVertexStage(options)
 		end
 
 		if options.lod_fade then outputs[#outputs + 1] = {"lod_fade", "float"} end
+
+		if options.instance_tint then
+			outputs[#outputs + 1] = {"instance_tint", "vec3"}
+		end
 
 		stage.outputs = outputs
 	end
@@ -576,10 +588,13 @@ do
 ]] .. table.concat(fetch, "\n") .. [[
 
 	multi_draw_instance_world = PBRBatchInstanceData(]] .. options.instances_expr .. [[).worlds[gl_InstanceIndex];
+	// the bottom row's [2][3] is free in a scene instance (zero), scatter sets it for an instance that stands still
+	vertex_animation_disabled = multi_draw_instance_world[2][3] != 0.0;
 	vertex_animation = batch_data.b[batch_index].m_vertex_animation;
 	vertex_animation.Time = ]] .. options.time_expr .. [[;
 	vertex_animation.PrevTime = ]] .. options.prev_time_expr .. [[;
 ]]
+		options.instance_tint_expr = "multi_draw_instance_tint(world[1][3])"
 		return {
 			outputs = outputs,
 			batch_location = batch_location,
@@ -590,6 +605,13 @@ layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 wor
 layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
 mat4 multi_draw_instance_world;
 PBRBatch_vertex_animation vertex_animation;
+
+// scatter instances carry a color multiplier in the free bottom row of their world matrix, rgb in
+// unorm8 at half scale. a scene instance leaves it zero, which is no tint
+vec3 multi_draw_instance_tint(float packed) {
+	uint bits = floatBitsToUint(packed);
+	return bits == 0u ? vec3(1.0) : unpackUnorm4x8(bits).rgb * 2.0;
+}
 ]],
 			shader = build_vertex_shader(options, "multi_draw_instance_world", "multi_draw_instance_world", main_prologue),
 		}
@@ -916,8 +938,11 @@ end
 
 function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 	return [[
+			// an instance can ask not to be animated, scatter does it for what is far away
+			bool vertex_animation_disabled = false;
+
 			bool has_vertex_animation() {
-				return vertex_animation.MainBending > 0.0 || (vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0);
+				return !vertex_animation_disabled && (vertex_animation.MainBending > 0.0 || (vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0));
 			}
 
 			vec4 vegetation_triangle_wave(vec4 x) {
@@ -929,8 +954,30 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				return t * t * (3.0 - 2.0 * t);
 			}
 
+			// a scatter instance that conforms to the ground has the sign bit set in the corner of its matrix (a scene
+			// instance has 1.0), the radius it was measured at and the height of the ground over its base plane, along
+			// its up axis, at the four edges of its footprint (see scatter.lua). the vertices near the base move to meet
+			// it by a parabola through the edges along each axis, and the higher up the less, the tips stay free
+			vec3 get_instance_conform_offset(vec3 world_pos) {
+				mat4 world = ]] .. world_matrix_expr .. [[;
+				uint bits = floatBitsToUint(world[3][3]);
+
+				if ((bits & 0x80000000u) == 0u) return vec3(0.0);
+
+				float radius = 0.02 * pow(1.12, float((bits >> 24u) & 63u));
+				mat3 world_matrix3 = mat3(world);
+				vec3 local = inverse(world_matrix3) * (world_pos - world[3].xyz);
+				vec2 edge = clamp(local.xz / radius, -1.0, 1.0);
+				vec4 heights = vec4(float(int(bits & 31u) - 16), float(int((bits >> 5u) & 31u) - 16), float(int((bits >> 10u) & 31u) - 16), float(int((bits >> 15u) & 31u) - 16)) / 15.0;
+				float lift = (heights.x - heights.y) * 0.5 * edge.x + (heights.x + heights.y) * 0.5 * edge.x * edge.x + (heights.z - heights.w) * 0.5 * edge.y + (heights.z + heights.w) * 0.5 * edge.y * edge.y;
+				float follow = 1.0 - smoothstep(0.0, radius, max(local.y, 0.0));
+				return world_matrix3 * vec3(0.0, lift * radius * follow, 0.0);
+			}
+
 			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec3 world_normal, vec4 vertex_color, float anim_time) {
-				if (!has_vertex_animation()) return vec3(0.0);
+				vec3 conform = get_instance_conform_offset(world_pos);
+
+				if (!has_vertex_animation()) return conform;
 
 				mat4 world = ]] .. world_matrix_expr .. [[;
 				mat3 world_matrix3 = mat3(world);
@@ -986,7 +1033,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 					}
 				}
 
-				return world_matrix3 * (pos - start_pos);
+				return conform + world_matrix3 * (pos - start_pos);
 			}
 
 			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {

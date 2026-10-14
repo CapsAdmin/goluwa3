@@ -85,6 +85,18 @@ do
 		model_pipeline.WritePBRBatchAnimationRecord(pipeline, record)
 	end
 
+	-- the table of PBR records of a list of {mesh, material, first_polygon3d} batches, drawn by the multi
+	-- draw pipelines
+	function gbuffer_instancing.NewBatchTable(label)
+		return BatchTable.New{
+			label = label,
+			record_type = model_pipeline.GetPBRBatchRecordType(),
+			write_record = write_record,
+			write_animated = write_animated,
+			per_frame = true,
+		}
+	end
+
 	local result = {}
 	local pipelines = {}
 
@@ -119,13 +131,7 @@ do
 			local batch_table = batch_tables[pipeline]
 
 			if not batch_table then
-				batch_table = BatchTable.New{
-					label = pipeline.name .. "_batches",
-					record_type = model_pipeline.GetPBRBatchRecordType(),
-					write_record = write_record,
-					write_animated = write_animated,
-					per_frame = true,
-				}
+				batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_batches")
 				batch_tables[pipeline] = batch_table
 			end
 

@@ -129,6 +129,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			vertex_color = true,
 			velocity = true,
 			lod_fade = true,
+			instance_tint = true,
 			camera_block_name = "gbuffer_data",
 			uniform_buffers = {
 				camera_block,
@@ -152,6 +153,7 @@ local function build_instanced_pass(fragment_shader)
 		vertex_color = true,
 		velocity = true,
 		lod_fade = true,
+		instance_tint = true,
 		camera_block_name = "gbuffer_data",
 		uniform_buffers = {
 			camera_block,
@@ -194,6 +196,7 @@ local function build_multi_draw_pass(fragment_shader)
 		vertex_color = true,
 		velocity = true,
 		lod_fade = true,
+		instance_tint = true,
 		camera_block_name = "gbuffer_data",
 		uniform_buffers = {camera_block, multi_draw_block},
 		batches_expr = "gbuffer_draw.batches",
@@ -334,7 +337,7 @@ local function build_ssdm_fragment_shader(write_depth)
 			surface.geometric_N = tbn[2];
 			init_surface_features(surface, displacement.uv);
 			surface.alpha = alpha;
-			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos);
+			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos) * in_instance_tint;
 			surface.N = get_normal(displacement.uv, tbn);
 			SurfaceWeather weather;
 			prepare_surface_weather(surface, weather);
@@ -399,7 +402,7 @@ for _, write_depth in ipairs({false, true}) do
 end
 
 for _, extra in ipairs(gbuffer_extras) do
-	list.insert(passes, extra.BuildPass(passes[1]))
+	if extra.BuildPass then list.insert(passes, extra.BuildPass(passes[1])) end
 end
 
 return passes

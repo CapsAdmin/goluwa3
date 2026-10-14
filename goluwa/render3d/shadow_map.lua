@@ -740,6 +740,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				if (
 					pc.disable_vertex_animation == 0 &&
 					(
+						(floatBitsToUint(shadow_world[3][3]) & 0x80000000u) != 0u ||
 						SHADOW_BATCH[batch_index].anim.MainBending > 0.0 ||
 						(SHADOW_BATCH[batch_index].anim.DetailBending != 0 && SHADOW_BATCH[batch_index].anim.BendSpeed > 0.0)
 					)
@@ -2625,6 +2626,47 @@ local function write_shadow_batch_animation(self, pipeline, record, batch)
 	model_pipeline.FillVertexAnimationData(record.anim, batch.material)
 end
 
+-- draws a list of {mesh, material, first_polygon3d} batches with the multi draw pipeline, from
+-- VkDrawIndirectCommands, one for each batch. key tells the batch tables of different lists apart
+function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instances_address, commands, stride)
+	local pipeline = self.mode == "point" and
+		self.multi_draw_pipeline or
+		self.multi_draw_pipeline_variants[self.cascade[cascade_index].format]
+	local batch_table = self.shadow_batch_tables[key or pipeline]
+
+	if not batch_table then
+		batch_table = BatchTable.New{
+			label = "render3d_shadow_batches",
+			record_type = ShadowBatchRecord,
+			write_record = write_shadow_batch_record,
+			write_animated = write_shadow_batch_animation,
+		}
+		self.shadow_batch_tables[key or pipeline] = batch_table
+	end
+
+	local depth_texture = self.mode == "point" and
+		self.point_depth_buffer or
+		self.cascade[cascade_index].depth_texture
+	local push_constants = self.shadow_multi_draw_push_constants
+	self.cascade[cascade_index].light_space_matrix:CopyToFloatPointer(push_constants.light_space_matrix)
+	push_constants.light_position[0] = self.point_light_position.x
+	push_constants.light_position[1] = self.point_light_position.y
+	push_constants.light_position[2] = self.point_light_position.z
+	push_constants.light_far_plane = self.far_plane
+	push_constants.disable_vertex_animation = self:ShouldDisableVertexAnimation(cascade_index) and 1 or 0
+	push_constants.time = system.GetElapsedTime()
+	push_constants.prev_time = render3d.GetPreviousElapsedTime()
+	push_constants.batches = batch_table:Update(pipeline, batches, batch_serial, self.batch_serial, self)
+	push_constants.instances = instances_address
+	pipeline:Bind(self.cmd, render.GetCurrentFrame())
+	self.cmd:SetViewport(0.0, 0.0, depth_texture:GetWidth(), depth_texture:GetHeight(), 0.0, 1.0)
+	self.cmd:SetScissor(0, 0, depth_texture:GetWidth(), depth_texture:GetHeight())
+	self.cmd:SetFrontFace(orientation.FRONT_FACE)
+	self.cmd:SetCullMode("none")
+	pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, push_constants)
+	self.cmd:DrawIndirect(commands, 0, #batches, stride)
+end
+
 function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_stats)
 	local submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
 	local dataset = gpu_culling.GetSceneDataset()
@@ -2633,45 +2675,13 @@ function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_sta
 	local indirect_draws = 0
 
 	if batches[1] then
-		local pipeline = self.mode == "point" and
-			self.multi_draw_pipeline or
-			self.multi_draw_pipeline_variants[self.cascade[cascade_index].format]
-		local batch_table = self.shadow_batch_tables[pipeline]
-
-		if not batch_table then
-			batch_table = BatchTable.New{
-				label = "render3d_shadow_batches",
-				record_type = ShadowBatchRecord,
-				write_record = write_shadow_batch_record,
-				write_animated = write_shadow_batch_animation,
-			}
-			self.shadow_batch_tables[pipeline] = batch_table
-		end
-
-		local depth_texture = self.mode == "point" and
-			self.point_depth_buffer or
-			self.cascade[cascade_index].depth_texture
-		local push_constants = self.shadow_multi_draw_push_constants
-		self.cascade[cascade_index].light_space_matrix:CopyToFloatPointer(push_constants.light_space_matrix)
-		push_constants.light_position[0] = self.point_light_position.x
-		push_constants.light_position[1] = self.point_light_position.y
-		push_constants.light_position[2] = self.point_light_position.z
-		push_constants.light_far_plane = self.far_plane
-		push_constants.disable_vertex_animation = self:ShouldDisableVertexAnimation(cascade_index) and 1 or 0
-		push_constants.time = system.GetElapsedTime()
-		push_constants.prev_time = render3d.GetPreviousElapsedTime()
-		push_constants.batches = batch_table:Update(pipeline, batches, dataset.shadow.batch_serial, self.batch_serial, self)
-		push_constants.instances = output.shadow_visible_instance_vertex_buffer.buffer:GetDeviceAddress()
-		pipeline:Bind(self.cmd, render.GetCurrentFrame())
-		self.cmd:SetViewport(0.0, 0.0, depth_texture:GetWidth(), depth_texture:GetHeight(), 0.0, 1.0)
-		self.cmd:SetScissor(0, 0, depth_texture:GetWidth(), depth_texture:GetHeight())
-		self.cmd:SetFrontFace(orientation.FRONT_FACE)
-		self.cmd:SetCullMode("none")
-		pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, push_constants)
-		self.cmd:DrawIndirect(
+		self:DrawBatches(
+			cascade_index,
+			nil,
+			batches,
+			dataset.shadow.batch_serial,
+			output.shadow_visible_instance_vertex_buffer.buffer:GetDeviceAddress(),
 			output.shadow_visible_batch_indirect_command_buffer,
-			0,
-			#batches,
 			gpu_culling.BATCH_DRAW_COMMAND_SIZE
 		)
 		indirect_draws = 1
