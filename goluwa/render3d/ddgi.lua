@@ -23,7 +23,7 @@ end)
 ddgi.PROBES_PER_AXIS = 24
 local probe_spacing = pvars.Setup2{
 	key = "ddgi_probe_spacing",
-	default = 1,
+	default = 0.5,
 	min = 0.1,
 	help = "meters between the finest cascade's probes",
 }
@@ -34,11 +34,11 @@ local cascade_ratio = pvars.Setup2{
 	max = 8,
 	help = "how many times further apart the probes of each cascade are than those of the one before, the coarsest is that ratio cubed times the spacing of the finest. a lower ratio keeps probes fine for longer but the cascades together reach less far",
 }
-ddgi.CASCADES = 4
+ddgi.CASCADES = 10
 ddgi.CASCADE_BLEND = 2.0
 local update_intervals = {}
 
-for c, frames in ipairs{1, 2, 4, 8} do
+for c, frames in ipairs{1, 2, 4, 8, 16, 32, 64, 64, 64, 64} do
 	update_intervals[c] = pvars.Setup2{
 		key = "ddgi_update_interval_" .. c - 1,
 		default = frames,
@@ -57,7 +57,7 @@ local min_coverage = pvars.Setup2{
 }
 local max_coverage = pvars.Setup2{
 	key = "ddgi_max_coverage",
-	default = 192,
+	default = 4000,
 	min = 0,
 	help = "most meters the fitted region reaches from the camera",
 }
@@ -232,7 +232,7 @@ local debug_cascade = pvars.Setup2{
 }
 local max_ray_distance = pvars.Setup2{
 	key = "ddgi_max_ray_distance",
-	default = 1000,
+	default = 4000,
 	integer = true,
 	min = 0,
 	help = "max distance a ray can travel",
