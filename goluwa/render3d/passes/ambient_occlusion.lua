@@ -122,6 +122,13 @@ return {
 				return n;
 			}
 
+			// the rotation that takes the unit vector from to the unit vector to, applied to v. from and
+			// to are on the same side, so 1 + dot(from, to) stays away from 0
+			vec3 rotate_between(vec3 v, vec3 from, vec3 to) {
+				vec3 axis = cross(from, to);
+				return v * dot(from, to) + cross(axis, v) + axis * (dot(axis, v) / (1.0 + dot(from, to)));
+			}
+
 			// ao is the share of the hemisphere left open, bounce the light that came in through
 			// the part that was not, in the same units as the gi irradiance, and bent the
 			// cosine weighted direction of what is open
@@ -315,7 +322,8 @@ return {
 				}
 
 				vec3 world_pos = get_world_pos(depth);
-				vec3 N = gbuffer_normal(pixel);
+				vec3 shading_normal = normalize(gbuffer_normal(pixel));
+				vec3 N = shading_normal;
 				bool thin = gbuffer_is_thin(pixel);
 
 				// on a thin card the depth derivatives belong to whatever the card and its neighbours are,
@@ -329,6 +337,8 @@ return {
 
 				// the normals of foliage are not a surface, bending the lookup by them only adds noise
 				if (thin) bent = N;
+				// the geometric normal is flat per triangle, so the bent normal is handed over relative to the smooth one
+				else bent = rotate_between(bent, N, shading_normal);
 
 				set_color(bounce, ao, bent, -(lighting_data.view * vec4(world_pos, 1.0)).z);
 			}
