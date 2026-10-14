@@ -6,62 +6,43 @@ local system = import("goluwa/system.lua")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
+local exposure_model = import("goluwa/render3d/exposure.lua")
 local assets = import("goluwa/assets.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local KEY = 0.28
+-- the exposed value the metered average is shown at, 18 percent grey
+local KEY = 0.18
 local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
 pvars.StartGroup("exposure", {store = false})
-local exposure_mode = pvars.Setup2{
-	key = "r_exposure_mode",
-	default = "eye",
-	enums = {"eye", "camera"},
-	help = "eye shows what a person would see, camera shows every scene's average at the same brightness",
+local eye_enabled = pvars.Setup2{
+	key = "r_eye",
+	default = false,
+	help = "expose like an eye, which shows what a person would see (dim scenes stay dim, local adaptation, rod vision). Off exposes like a camera (r_camera_*), which shows every scene's average at the same brightness",
 }
 local exposure_rod_adaptation = pvars.Setup2{
-	key = "r_exposure_rod_adaptation",
+	key = "r_eye_rod_adaptation",
 	default = 0.5,
 	min = 0,
 	max = 1,
-	help = "how bright a night is in mode eye, from the cones alone (0) to the full rod response (1)",
+	help = "how bright a night is for the eye, from the cones alone (0) to the full rod response (1)",
 }
-local exposure_lock = pvars.Setup2{
-	key = "r_exposure_lock",
-	type = "number",
-	min = -10,
-	max = 25,
-	help = "EV100 to lock the exposure at, unset for auto exposure",
-	callback = function(ev, is_init)
-		if not is_init then
-			logf("[blit] exposure %s\n", ev and ("locked at EV " .. ev) or "auto")
-		end
-	end,
-}
-local exposure_compensation = pvars.Setup2{
-	key = "r_exposure_compensation",
+local eye_compensation = pvars.Setup2{
+	key = "r_eye_compensation",
 	default = 0,
 	min = -10,
 	max = 10,
-	help = "stops added to the exposure",
+	help = "stops added to what the eye sees, to tune how bright the eye mode is",
 }
 pvars.EndGroup()
-render3d.exposure = {
-	min_ev = -4,
-	max_ev = 18,
-	low_percent = 0.4,
-	high_percent = 0.95,
-	tau_brighten = 0.5,
-	tau_darken = 1.5,
-}
 pvars.StartGroup("exposure", {store = false})
 local local_exposure_shadows = pvars.Setup2{
-	key = "r_local_exposure_shadows",
+	key = "r_eye_local_shadows",
 	default = 0.23,
 	min = 0,
 	max = 1,
 	help = "how much dark regions are exposed for their surroundings, 0 is off",
 }
 local local_exposure_highlights = pvars.Setup2{
-	key = "r_local_exposure_highlights",
+	key = "r_eye_local_highlights",
 	default = 0.23,
 	min = 0,
 	max = 1,
@@ -112,18 +93,18 @@ local dither = pvars.Setup2{
 	help = "dither the output to hide banding",
 }
 local night_vision_enabled = pvars.Setup2{
-	key = "r_night_vision",
+	key = "r_eye_night_vision",
 	default = true,
-	help = "rod vision in dim light, in exposure mode eye",
+	help = "rod vision in dim light",
 }
 local night_vision_threshold = pvars.Setup2{
-	key = "r_night_vision_threshold",
+	key = "r_eye_night_vision_threshold",
 	default = 0.03,
 	min = 0.0001,
 	help = "luminance in cd/m2 at which half the colour is gone",
 }
 local night_vision_tint = pvars.Setup2{
-	key = "r_night_vision_tint",
+	key = "r_eye_night_vision_tint",
 	default = 0.5,
 	min = 0,
 	max = 1,
@@ -177,6 +158,7 @@ local MESOPIC_LOG10_MAX = 0.7
 local ADAPTATION_CURVE_EV_MIN = -10
 local ADAPTATION_CURVE_EV_STEP = 0.5
 local ADAPTATION_CURVE_COUNT = 65
+local ADAPTATION_CURVE_ANCHOR_EV = 15
 local ADAPTATION_CURVE_RODS_GLSL
 local ADAPTATION_CURVE_CONES_GLSL
 
@@ -234,6 +216,13 @@ do
 
 		for i = ADAPTATION_CURVE_COUNT - 1, 1, -1 do
 			curve[i] = math.min(curve[i], curve[i + 1])
+		end
+
+		-- eye and camera show a sunlit scene the same, the eye only departs from the camera in dimmer light
+		local anchor = curve[(ADAPTATION_CURVE_ANCHOR_EV - ADAPTATION_CURVE_EV_MIN) / ADAPTATION_CURVE_EV_STEP + 1]
+
+		for i = 1, ADAPTATION_CURVE_COUNT do
+			curve[i] = curve[i] - anchor
 		end
 
 		for i, stops in ipairs(curve) do
@@ -385,21 +374,33 @@ local exposure_feedback_pass = {
 		{"tau_darken", "float"},
 	},
 	write = function(self, block)
-		local e = render3d.exposure
 		local view = View.GetActive()
-		local lock = view and view.ExposureLock or exposure_lock:Get()
+		local eye = eye_enabled:Get()
+		local lock = view and view.ExposureLock
+		local min_ev, max_ev, meter
+
+		if eye then
+			meter = exposure_model.eye
+			min_ev, max_ev = meter.min_ev, meter.max_ev
+		else
+			meter = exposure_model.camera
+			min_ev, max_ev = exposure_model.GetCameraRange()
+
+			if not lock and exposure_model.GetCameraMode() == "manual" then lock = exposure_model.GetManualEV() end
+		end
+
 		block.dt = get_exposure_dt()
 		block.lock = lock and 1 or 0
 		block.lock_ev = lock or 0
-		block.compensation = view and view.ExposureCompensation or exposure_compensation:Get()
-		block.eye = exposure_mode:Get() == "eye" and 1 or 0
+		block.compensation = view and view.ExposureCompensation or (eye and eye_compensation:Get() or exposure_model.GetCameraCompensation())
+		block.eye = eye and 1 or 0
 		block.rod_adaptation = exposure_rod_adaptation:Get()
-		block.min_ev = e.min_ev
-		block.max_ev = e.max_ev
-		block.low_percent = e.low_percent
-		block.high_percent = e.high_percent
-		block.tau_brighten = e.tau_brighten
-		block.tau_darken = e.tau_darken
+		block.min_ev = min_ev
+		block.max_ev = max_ev
+		block.low_percent = meter.low_percent
+		block.high_percent = meter.high_percent
+		block.tau_brighten = meter.tau_brighten
+		block.tau_darken = meter.tau_darken
 		return block
 	end,
 	shader = exposure_feedback_shader,
@@ -408,14 +409,20 @@ local exposure_feedback_pass = {
 commands.Add("r_exposure_info", function()
 	local texture = get_exposure_feedback_texture()
 	local exposure, metered_ev, adapted_ev = texture:Download():GetPixelFloat(0, 0)
+	local ev = LOG_EXPOSURE_AT_EV0 - math.log(exposure) / math.log(2)
 	logf(
 		"[blit] %s: metered EV %.2f, adapted EV %.2f, exposure %.3g (EV %.2f)\n",
-		exposure_mode:Get(),
+		eye_enabled:Get() and "eye" or "camera",
 		metered_ev,
 		adapted_ev,
 		exposure,
-		LOG_EXPOSURE_AT_EV0 - math.log(exposure) / math.log(2)
+		ev
 	)
+
+	if not eye_enabled:Get() then
+		local iso, aperture, shutter = exposure_model.DescribeCamera(ev)
+		logf("[blit] camera %s: ISO %d, f/%.1f, 1/%d s\n", exposure_model.GetCameraMode(), iso, aperture, math.round(1 / shutter))
+	end
 end)
 
 local GRID_X, GRID_Y, GRID_Z = 64, 36, 48
@@ -457,8 +464,13 @@ local function get_bloom_strength()
 		0
 end
 
+local function is_eye_mode()
+	return eye_enabled:Get()
+end
+
 local local_exposure_grid_pass = {
 	name = "local_exposure_grid",
+	is_enabled = is_eye_mode,
 	ComputePass = true,
 	ColorFormat = {{"r32g32_sfloat", {"grid", "rg"}}},
 	FramebufferSize = {x = GRID_X * GRID_Z, y = GRID_Y},
@@ -527,6 +539,7 @@ local local_exposure_grid_pass = {
 }
 local local_exposure_blur_pass = {
 	name = "local_exposure_blur",
+	is_enabled = is_eye_mode,
 	ComputePass = true,
 	ColorFormat = {{"r32g32_sfloat", {"grid", "rg"}}},
 	FramebufferSize = {x = GRID_X * GRID_Z, y = GRID_Y},
@@ -619,7 +632,7 @@ local local_exposure_block = {
 }
 
 local function write_local_exposure_block(block)
-	block.has_grid_tex = render3d.pipelines.local_exposure_blur and 1 or 0
+	block.has_grid_tex = is_eye_mode() and render3d.pipelines.local_exposure_blur and 1 or 0
 	local view = View.GetActive()
 	local local_exposure = view and view.LocalExposure
 	block.local_shadows = local_exposure or local_exposure_shadows:Get()
@@ -958,7 +971,7 @@ for _, pass in ipairs{
 			block.dither_steps = dither:Get() and 2 ^ bits - 1 or 0
 			block.tonemapper = render3d.GetTonemapperIndex()
 			block.bloom_strength = get_bloom_strength()
-			block.night_vision = exposure_mode:Get() == "eye" and night_vision_enabled:Get() and 1 or 0
+			block.night_vision = eye_enabled:Get() and night_vision_enabled:Get() and 1 or 0
 			block.night_vision_log10_threshold = math.log(night_vision_threshold:Get()) / math.log(10)
 			block.night_vision_tint = night_vision_tint:Get()
 			write_local_exposure_block(block)

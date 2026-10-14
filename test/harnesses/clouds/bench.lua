@@ -16,8 +16,8 @@ for pair in (os.getenv("PVARS") or ""):gmatch("[^;]+") do
 	local key, value = pair:match("([^=]+)=(.*)")
 	pvars.SetSession(key, tonumber(value) or value)
 end
-pvars.SetSession("r_local_exposure_shadows", 0)
-pvars.SetSession("r_local_exposure_highlights", 0)
+pvars.SetSession("r_eye_local_shadows", 0)
+pvars.SetSession("r_eye_local_highlights", 0)
 weather.SetWind(Vec3(0, 0, 0))
 
 for _, layer in ipairs(clouds.layers) do
