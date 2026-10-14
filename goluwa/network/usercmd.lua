@@ -8,6 +8,7 @@ usercmd.BUTTON = {
 	ATTACK2 = 16,
 	USE = 32,
 	ACTIVE = 64,
+	TELEPORT = 128,
 }
 usercmd.MODE = {fly = 0, walk = 1}
 usercmd.MODE_NAME = {[0] = "fly", [1] = "walk"}

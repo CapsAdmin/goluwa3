@@ -3,6 +3,8 @@ local event = import("goluwa/event.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local network = import("goluwa/network/network.lua")
+local physics = import("goluwa/physics.lua")
+local raycast = RENDER_3D and import("goluwa/render3d/raycast.lua")
 local META = objects.CreateTemplate("player_controller")
 local HISTORY_SIZE = 256
 local MIN_BUFFER = 4
@@ -125,6 +127,35 @@ local function next_queued(self)
 end
 
 local TELEPORT_DISTANCE = 4
+local TELEPORT_MAX_DISTANCE = 2000
+local TELEPORT_TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
+
+local function is_not_owner(entity, owner)
+	return entity ~= owner and not entity:ContainsParent(owner)
+end
+
+function META:TeleportToAim(cmd)
+	local owner = self.Owner
+	local movement = owner.player_movement
+	local origin = owner.transform:GetPosition() + movement:GetViewOffset()
+	local direction = cmd.view:GetForward()
+	local hit = physics.RayCast(origin, direction, TELEPORT_MAX_DISTANCE, owner, nil, TELEPORT_TRACE_OPTIONS)
+
+	if raycast and not network.IsStarted() then
+		local visual = raycast.CastClosest(origin, direction, TELEPORT_MAX_DISTANCE, is_not_owner, owner)
+
+		if visual and (not hit or visual.distance < hit.distance) then
+			hit = visual
+		end
+	end
+
+	if not hit then return end
+
+	local body = owner.rigid_body
+	local target = hit.position + hit.normal * movement.Radius + Vec3(0, 0.05, 0)
+	movement:MoveBodyBy(body, target - body:GetOriginPosition())
+	body:SetVelocity(Vec3())
+end
 
 function META:Reconcile(number, position, velocity)
 	local body = self.Owner.rigid_body
@@ -215,6 +246,9 @@ function META:NextCommand(dt)
 		event.Call("CreateMove", self.Owner, cmd)
 		cmd.pressed = bit.band(cmd.buttons, bit.bnot(previous.buttons))
 		self.cmd = cmd
+
+		if usercmd.WasPressed(cmd, usercmd.BUTTON.TELEPORT) then self:TeleportToAim(cmd) end
+
 		local recent = self.recent
 		recent[#recent + 1] = cmd
 
@@ -231,6 +265,9 @@ function META:NextCommand(dt)
 		self.number = cmd.number
 		cmd.pressed = bit.band(cmd.buttons, bit.bnot(previous.buttons))
 		self.cmd = cmd
+
+		if usercmd.WasPressed(cmd, usercmd.BUTTON.TELEPORT) then self:TeleportToAim(cmd) end
+
 		return cmd
 	end
 
