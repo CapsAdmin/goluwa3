@@ -323,7 +323,7 @@ local atmosphere_shared_glsl = [[
 	// scattering estimate from the LUT, marched from t_near to t_far along the
 	// ray. Returns radiance and writes the view transmittance of the segment.
 	vec3 integrate_scattering(vec3 ray_origin, vec3 ray_dir, float t_near, float t_far, vec3 sun_dir, int steps, vec2 single_scatter_visibility, float multi_scatter_visibility, out vec3 view_transmittance) {
-		float step_size = (t_far - t_near) / float(steps);
+		float segment = t_far - t_near;
 		float rayleigh_od = 0.0;
 		float mie_od = 0.0;
 		float ozone_od = 0.0;
@@ -333,7 +333,11 @@ local atmosphere_shared_glsl = [[
 		float phase_m = MIE_BETA * mie_phase(mu) * single_scatter_visibility.y;
 
 		for (int i = 0; i < steps; i++) {
-			float t = t_near + (float(i) + ATMOSPHERE_SCATTER_JITTER) * step_size;
+			float s0 = float(i) / float(steps);
+			float s1 = float(i + 1) / float(steps);
+			float t0 = t_near + segment * s0 * s0;
+			float step_size = segment * (s1 * s1 - s0 * s0);
+			float t = t0 + ATMOSPHERE_SCATTER_JITTER * step_size;
 			vec3 sample_point = ray_origin + ray_dir * t;
 			float density_r = rayleigh_density(sample_point);
 			float density_m = mie_density(sample_point);
