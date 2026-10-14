@@ -7,6 +7,7 @@ local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local tiles = import("goluwa/terrain/tiles.lua")
 local TRI_BYTES = 64
 
 local function tree_valid(nodes)
@@ -320,5 +321,128 @@ T.Test3D("Graphics render3d scene bvh frustum marks match testing every block", 
 
 	for _, ent in ipairs(ents) do
 		if ent:IsValid() then ent:Remove() end
+	end
+end)
+
+T.Test3D("Graphics render3d scene bvh builds a grid polygon from its grid", function(draw)
+	local samples = 17
+	local ents = {}
+
+	local function add_tile(name, x, seed, grid)
+		local heights = ffi.new("float[?]", samples * samples)
+
+		for i = 0, samples * samples - 1 do
+			heights[i] = math.sin(i * 0.37 + seed) * 3 + math.cos(i * 0.11 * seed) * 2
+		end
+
+		local polygon3d = tiles.BuildPolygon({request = {samples = samples, size = 16}, heights = heights}, 1)
+
+		if not grid then polygon3d:SetGridCells(nil) end
+
+		local ent = Entity.New{Name = name}
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(Vec3(x, 0, 0))
+		ent:AddComponent("visual")
+		local p = Entity.New{Name = name .. "_p", Parent = ent}
+		p:AddComponent("transform")
+		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
+		p.visual_primitive:SetMaterial(Material.New{Color = Color(0.8, 0.8, 0.8, 1)})
+		ent.visual:BuildAABB()
+		ents[#ents + 1] = ent
+		return ent
+	end
+
+	local grid = add_tile("sbvh_grid_tile", 0, 1, true)
+	local sah = add_tile("sbvh_sah_tile", 100, 2, false)
+	draw()
+	scene_bvh.Build(true)
+	T(tree_valid(scene_bvh.debug_nodes))["=="](true)
+	local expected = 2 * 16 * 16 + 8 * 16
+	T(scene_bvh.triangle_count)["=="](expected * 2)
+
+	-- every triangle is in exactly one leaf of at most 8 triangles, and every node's bounds hold its triangles
+	local function check_shape(entity)
+		local shape = scene_bvh.visual_cache[entity.visual].shape
+		local nodes, order = shape.nodes, shape.order
+		local seen = {}
+		local eps = 1e-3
+		local ok = true
+
+		local function triangle_bounds(i)
+			local src = shape.pieces[1].local_tris[order[i]]
+			local min_x, min_y, min_z = math.huge, math.huge, math.huge
+			local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+			for corner = 0, 2 do
+				local x = src.v0[0] + (corner == 1 and src.e1[0] or corner == 2 and src.e2[0] or 0)
+				local y = src.v0[1] + (corner == 1 and src.e1[1] or corner == 2 and src.e2[1] or 0)
+				local z = src.v0[2] + (corner == 1 and src.e1[2] or corner == 2 and src.e2[2] or 0)
+				min_x, min_y, min_z = math.min(min_x, x), math.min(min_y, y), math.min(min_z, z)
+				max_x, max_y, max_z = math.max(max_x, x), math.max(max_y, y), math.max(max_z, z)
+			end
+
+			return min_x, min_y, min_z, max_x, max_y, max_z
+		end
+
+		local function walk(index)
+			local node = nodes[index]
+
+			if node.count > 0 then
+				if node.count > 8 then ok = false end
+
+				for i = node.left_first, node.left_first + node.count - 1 do
+					seen[i] = (seen[i] or 0) + 1
+					local a, b, c, d, e, f = triangle_bounds(i)
+
+					if
+						a < node.bounds_min[0] - eps or
+						b < node.bounds_min[1] - eps or
+						c < node.bounds_min[2] - eps or
+						d > node.bounds_max[0] + eps or
+						e > node.bounds_max[1] + eps or
+						f > node.bounds_max[2] + eps
+					then
+						ok = false
+					end
+				end
+			else
+				for child = node.left_first, node.left_first + 1 do
+					local c = nodes[child]
+
+					if
+						c.bounds_min[0] < node.bounds_min[0] - eps or
+						c.bounds_min[1] < node.bounds_min[1] - eps or
+						c.bounds_min[2] < node.bounds_min[2] - eps or
+						c.bounds_max[0] > node.bounds_max[0] + eps or
+						c.bounds_max[1] > node.bounds_max[1] + eps or
+						c.bounds_max[2] > node.bounds_max[2] + eps
+					then
+						ok = false
+					end
+
+					walk(child)
+				end
+			end
+		end
+
+		walk(0)
+
+		for i = 0, shape.total - 1 do
+			if seen[i] ~= 1 then ok = false end
+		end
+
+		return ok, shape
+	end
+
+	local grid_ok, grid_shape = check_shape(grid)
+	local sah_ok, sah_shape = check_shape(sah)
+	T(grid_ok)["=="](true)
+	T(sah_ok)["=="](true)
+	T(grid_shape.total)["=="](expected)
+	-- 8x8 blocks of 2x2 cells and their 127 nodes, the 128 skirt triangles after them are a small SAH
+	T(grid_shape.node_count ~= sah_shape.node_count)["=="](true)
+
+	for _, ent in ipairs(ents) do
+		ent:Remove()
 	end
 end)

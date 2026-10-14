@@ -1073,6 +1073,8 @@ Visual:GetSet("CastShadows", true)
 Visual:GetSet("ReceivesDecals", true)
 -- in the scene bvh (shadows from the soup, gi, reflections) and nothing else: no gbuffer, shadow map or culling draws
 Visual:GetSet("RaysOnly", false)
+-- false keeps it out of the scene bvh (no shadows from the soup, gi, reflections or traced hits), which is a cpu sah build per mesh
+Visual:GetSet("InSceneBVH", true)
 Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 20000)
 Visual:GetSet("Billboard", false)
@@ -1167,6 +1169,13 @@ function Visual:SetCastShadows(enabled)
 	visual.ForgetWorldAABB(self)
 	refresh_shadow_registry(self)
 	mark_scene_component_dirty(self)
+end
+
+function Visual:SetInSceneBVH(enabled)
+	if self.InSceneBVH == enabled then return end
+
+	objects.CommitProperty(self, "InSceneBVH", enabled)
+	scene_bvh.Invalidate(self)
 end
 
 function Visual:SetRaysOnly(enabled)

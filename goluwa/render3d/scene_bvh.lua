@@ -1490,6 +1490,106 @@ do
 		node.count = count
 	end
 
+	-- the bvh of a polygon that is a regular grid (Polygon3D.GridCells): two triangles per cell in z major order, then
+	-- whatever else (a terrain tile's skirts). the cells are split in halves down to blocks of 2x2 cells (8 triangles),
+	-- which needs no binning and no sorting, an SAH build of the same triangles costs 20 times as much
+	local build_grid
+
+	do
+		local grid_cfg, grid_cells, grid_cursor
+
+		local function union(node, a, b)
+			node.bounds_min[0] = math.min(a.bounds_min[0], b.bounds_min[0])
+			node.bounds_min[1] = math.min(a.bounds_min[1], b.bounds_min[1])
+			node.bounds_min[2] = math.min(a.bounds_min[2], b.bounds_min[2])
+			node.bounds_max[0] = math.max(a.bounds_max[0], b.bounds_max[0])
+			node.bounds_max[1] = math.max(a.bounds_max[1], b.bounds_max[1])
+			node.bounds_max[2] = math.max(a.bounds_max[2], b.bounds_max[2])
+		end
+
+		local function grid_node(node_index, x0, z0, x1, z1)
+			local nodes = grid_cfg.nodes
+			local node = nodes[node_index]
+			local width = x1 - x0
+			local height = z1 - z0
+
+			if width <= 2 and height <= 2 then
+				local order = grid_cfg.order
+				local bounds = grid_cfg.bounds
+				local first = grid_cursor
+				local min_x, min_y, min_z = math.huge, math.huge, math.huge
+				local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+				for z = z0, z1 - 1 do
+					for x = x0, x1 - 1 do
+						local triangle = (z * grid_cells + x) * 2
+
+						for t = triangle, triangle + 1 do
+							order[grid_cursor] = t
+							grid_cursor = grid_cursor + 1
+							t = t * 6
+							min_x = math.min(min_x, bounds[t])
+							min_y = math.min(min_y, bounds[t + 1])
+							min_z = math.min(min_z, bounds[t + 2])
+							max_x = math.max(max_x, bounds[t + 3])
+							max_y = math.max(max_y, bounds[t + 4])
+							max_z = math.max(max_z, bounds[t + 5])
+						end
+					end
+				end
+
+				node.bounds_min[0] = min_x
+				node.bounds_min[1] = min_y
+				node.bounds_min[2] = min_z
+				node.bounds_max[0] = max_x
+				node.bounds_max[1] = max_y
+				node.bounds_max[2] = max_z
+				node.left_first = first
+				node.count = grid_cursor - first
+				return
+			end
+
+			local left_index = grid_cfg.cursor[1]
+			grid_cfg.cursor[1] = left_index + 2
+
+			if width >= height then
+				local mid = x0 + math.max(math.floor(width / 2), 1)
+				grid_node(left_index, x0, z0, mid, z1)
+				grid_node(left_index + 1, mid, z0, x1, z1)
+			else
+				local mid = z0 + math.max(math.floor(height / 2), 1)
+				grid_node(left_index, x0, z0, x1, mid)
+				grid_node(left_index + 1, x0, mid, x1, z1)
+			end
+
+			node.left_first = left_index
+			node.count = 0
+			union(node, nodes[left_index], nodes[left_index + 1])
+		end
+
+		-- the order has to start as the identity
+		function build_grid(cfg, cells, total)
+			local grid_triangles = cells * cells * 2
+			grid_cfg = cfg
+			grid_cells = cells
+			grid_cursor = 0
+
+			if total == grid_triangles then
+				cfg.cursor[1] = 1
+				grid_node(0, 0, 0, cells, cells)
+				return
+			end
+
+			local nodes = cfg.nodes
+			cfg.cursor[1] = 3
+			grid_node(1, 0, 0, cells, cells)
+			build_sah(cfg, 2, grid_triangles, total - grid_triangles, 1)
+			nodes[0].left_first = 1
+			nodes[0].count = 0
+			union(nodes[0], nodes[1], nodes[2])
+		end
+	end
+
 	local child_build = {
 		cursor = {1},
 		leaf_size = MAX_LEAF_TRIANGLES,
@@ -1554,7 +1654,14 @@ do
 		child_build.bounds = scratch.tri_bounds
 		child_build.nodes = scratch.child_nodes
 		child_build.cursor[1] = 1
-		build_sah(child_build, 0, 0, total, 0)
+		local grid_cells = slot_count == 1 and slots[1].entry.polygon3d.GridCells
+
+		if grid_cells then
+			build_grid(child_build, grid_cells, total)
+		else
+			build_sah(child_build, 0, 0, total, 0)
+		end
+
 		shape.node_count = child_build.cursor[1]
 		shape.nodes = NodeArray(shape.node_count)
 		ffi.copy(shape.nodes, scratch.child_nodes, shape.node_count * NODE_BYTE_SIZE)
@@ -1814,7 +1921,7 @@ do
 		local cache = scene_bvh.visual_cache
 		local vc = cache[visual]
 
-		if not visual:IsValid() or visual.scene_removed then
+		if not visual:IsValid() or visual.scene_removed or not visual.InSceneBVH then
 			if vc then release_block(visual, vc, inserts.rebuild) end
 
 			return

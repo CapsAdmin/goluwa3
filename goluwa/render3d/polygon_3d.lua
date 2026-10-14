@@ -28,6 +28,9 @@ Polygon3D:GetSet("MaterialSlot", nil)
 Polygon3D:GetSet("LODLevel", 0)
 Polygon3D:GetSet("LODDistance", 0)
 Polygon3D:GetSet("LODBillboard", false)
+-- cells per side when the first cells * cells * 2 triangles of the indices are a regular grid, two per cell in z major
+-- order (x fastest): the scene bvh builds those from the grid instead of sorting them
+Polygon3D:GetSet("GridCells", nil)
 Polygon3D:GetSet(
 	"AABB",
 	AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)

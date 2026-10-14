@@ -123,6 +123,7 @@ function tiles.BuildPolygon(chunk, skirt_depth)
 	end
 
 	local polygon = Polygon3D.New()
+	polygon:SetGridCells(cells)
 	polygon:UploadVertexArray(vertices, vertex_count, indices, index_count)
 	return polygon
 end
