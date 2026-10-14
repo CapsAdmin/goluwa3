@@ -4,6 +4,9 @@ local Terrain = import("goluwa/terrain/terrain.lua")
 local TerrainSource = import("goluwa/terrain/source.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 
+local FORWARD = Vec3(0, 0, 1)
+local HALF_ANGLE = math.pi
+
 local function create_source()
 	local source = TerrainSource.New{MinHeight = 0, MaxHeight = 10}
 
@@ -37,14 +40,15 @@ local function create_terrain()
 		Name = "terrain_streaming_test",
 		Source = create_source(),
 		Levels = 2,
+		GridSize = 4,
 		BaseChunkSize = 16,
 		Samples = 5,
-		BuildsPerUpdate = 1,
+		BuildsPerFrame = 1,
 		SwapFrames = 0,
 	}
 	terrain.Root = fake_entity()
 	terrain.CreateTile = function(self, want, chunk)
-		return {entity = fake_entity()}
+		return {entity = fake_entity(), material = {GetScatterSet = function() end}}
 	end
 	return terrain
 end
@@ -97,12 +101,12 @@ end
 
 T.Test("Terrain keeps stale tiles until their replacements are built", function()
 	local terrain = create_terrain()
-	terrain:UpdateTiles(Vec3(0, 0, 0))
+	terrain:UpdateTiles(Vec3(0, 0, 0), FORWARD, HALF_ANGLE)
 	build_everything(terrain)
 	local ready, retiring = count_tiles(terrain)
 	T(ready)["=="](28)
 	T(retiring)["=="](0)
-	terrain:UpdateTiles(Vec3(40, 0, 0))
+	terrain:UpdateTiles(Vec3(40, 0, 0), FORWARD, HALF_ANGLE)
 	ready, retiring = count_tiles(terrain)
 	T(retiring > 0)["=="](true)
 	T(ready > 0)["=="](true)
@@ -159,8 +163,8 @@ end)
 
 T.Test("Terrain drops stale tiles that were never built", function()
 	local terrain = create_terrain()
-	terrain:UpdateTiles(Vec3(0, 0, 0))
-	terrain:UpdateTiles(Vec3(4000, 0, 0))
+	terrain:UpdateTiles(Vec3(0, 0, 0), FORWARD, HALF_ANGLE)
+	terrain:UpdateTiles(Vec3(4000, 0, 0), FORWARD, HALF_ANGLE)
 	local ready, retiring = count_tiles(terrain)
 	T(ready)["=="](0)
 	T(retiring)["=="](0)
@@ -177,9 +181,9 @@ T.Test("Terrain keeps a replaced tile for a few frames after its replacements ar
 		return frame
 	end
 	terrain.SwapFrames = 3
-	terrain:UpdateTiles(Vec3(0, 0, 0))
+	terrain:UpdateTiles(Vec3(0, 0, 0), FORWARD, HALF_ANGLE)
 	build_everything(terrain)
-	terrain:UpdateTiles(Vec3(40, 0, 0))
+	terrain:UpdateTiles(Vec3(40, 0, 0), FORWARD, HALF_ANGLE)
 
 	while #terrain.BuildQueue > 0 do
 		terrain:ProcessBuildQueue()

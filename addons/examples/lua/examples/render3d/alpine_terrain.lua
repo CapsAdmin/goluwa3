@@ -90,7 +90,7 @@ end
 
 if _G.alpine_terrain then _G.alpine_terrain:Stop() end
 
-_G.alpine_terrain = Terrain.New{
+_G.alpine_terrain = Terrain.New(table.merge({
 	Name = "alpine_terrain",
 	ScatterSet = ScatterSet.GetGrass(),
 	Source = ShaderSource.New{
@@ -107,19 +107,18 @@ _G.alpine_terrain = Terrain.New{
 			layer("snow", 7),
 		},
 	},
-	Levels = 8,
 	BaseChunkSize = 64,
 	Samples = 65,
 	DetailSize = 256,
 	SplatSize = 128,
 	ColorSize = 64,
 	ShadowLevels = 6,
-	BuildsPerUpdate = 3,
+	BuildsPerFrame = 2,
 	Physics = {
 		chunk_size = 64,
 		samples = 65,
 		radius = 2,
 	},
-}:Start()
+}, _G.TERRAIN_OVERRIDES or {})):Start()
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(100)

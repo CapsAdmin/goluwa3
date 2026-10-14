@@ -160,7 +160,7 @@ showcase.terrain = Terrain.New{
 	SplatSize = 128,
 	ColorSize = 64,
 	ShadowLevels = 5,
-	BuildsPerUpdate = 4,
+	BuildsPerFrame = 3,
 	Physics = {chunk_size = 32, samples = 33, radius = 2},
 }:Start()
 

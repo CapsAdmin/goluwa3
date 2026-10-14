@@ -53,7 +53,7 @@ _G.terrain_textures_preview = Terrain.New{
 	DetailSize = 256,
 	SplatSize = 128,
 	ShadowLevels = 2,
-	BuildsPerUpdate = 4,
+	BuildsPerFrame = 3,
 	Physics = {chunk_size = 16, samples = 33, radius = 2},
 }:Start()
 

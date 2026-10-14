@@ -65,7 +65,7 @@ _G.scatter_terrain = Terrain.New{
 	DetailSize = 256,
 	SplatSize = 128,
 	ColorSize = 64,
-	BuildsPerUpdate = 3,
+	BuildsPerFrame = 2,
 }:Start()
 
 function _G.scatter_height(x, z)

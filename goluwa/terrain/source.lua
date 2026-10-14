@@ -27,6 +27,11 @@ end
 
 function TerrainSource:Submit() end
 
+-- batches of chunks that are being built, and the chunks in them
+function TerrainSource:GetPendingCount()
+	return 0, 0
+end
+
 function TerrainSource:Update() end
 
 function TerrainSource:Finish() end

@@ -54,7 +54,7 @@ frame_benchmark.Run{
 			DetailSize = 256,
 			SplatSize = 128,
 			ColorSize = 64,
-			BuildsPerUpdate = 3,
+			BuildsPerFrame = 2,
 		}:Start()
 	end,
 	view = function()

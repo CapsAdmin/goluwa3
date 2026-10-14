@@ -397,11 +397,12 @@ function terrain.SpawnTerrain(level_data, parent)
 		Name = "cry_terrain",
 		Source = build_cry_terrain_source(terrain),
 		Levels = 6,
+		GridSize = 4,
 		BaseChunkSize = 64,
 		Samples = 65,
 		DetailSize = 256,
 		ColorSize = 256,
-		BuildsPerUpdate = 3,
+		BuildsPerFrame = 2,
 		Physics = {
 			chunk_size = 64,
 			samples = 65,

@@ -97,8 +97,13 @@ local COLOR_BAKE = [[
 	return vec4(terrain_color(p, h, n), 1.0);
 ]]
 
-local function make_bake_texture(size, format, cmd)
-	return Texture.New{
+local function make_bake_texture(self, size, format, cmd)
+	local key = size .. ":" .. format
+	local pooled = self.texture_pool[key]
+
+	if pooled and pooled[1] then return table.remove(pooled) end
+
+	local texture = Texture.New{
 		width = size,
 		height = size,
 		format = format,
@@ -114,6 +119,8 @@ local function make_bake_texture(size, format, cmd)
 			wrap_t = "clamp_to_edge",
 		},
 	}
+	texture.pool_key = key
+	return texture
 end
 
 function ShaderSource.New(config)
@@ -141,6 +148,7 @@ function ShaderSource.New(config)
 		"\n"
 	)
 	self.batch = nil
+	self.texture_pool = {}
 	self.in_flight = {}
 	self.free_fences = {}
 	return self
@@ -181,7 +189,7 @@ do
 	local push_constants = {size = ffi.sizeof(BakeConstants), get_data = get_bake_constants}
 
 	local function record_bake(self, batch, size, format, glsl, request, texel_centered, layer_ids)
-		local texture = make_bake_texture(size, format, batch.cmd)
+		local texture = make_bake_texture(self, size, format, batch.cmd)
 		local step = texel_centered and request.size / size or request.size / (size - 1)
 		local offset = texel_centered and step * 0.5 or 0
 		bake.textures = self.Textures
@@ -256,12 +264,64 @@ do
 		end
 
 		if request.color_size and self.HasColor then
-			chunk.color_texture = record_bake(self, batch, request.color_size, self.ColorFormat, COLOR_BAKE, request, true)
+			chunk.color_texture = record_bake(
+				self,
+				batch,
+				request.color_size,
+				self.ColorFormat,
+				COLOR_BAKE,
+				request,
+				true,
+				layer_ids
+			)
 		end
 
 		batch.chunks[#batch.chunks + 1] = chunk
 		batch.callbacks[#batch.callbacks + 1] = callback
 	end
+end
+
+-- allocating and freeing the memory of a chunk's textures costs more than baking into them, and the textures of a chunk
+-- are the same few sizes. a texture is only recycled when nothing can draw with it any more (Terrain.ReleaseFrames)
+local MAX_POOLED = 128
+local CHUNK_TEXTURES = {"normal_texture", "splat_texture", "splat2_texture", "color_texture"}
+
+function ShaderSource:RecycleTexture(texture)
+	local pooled = self.texture_pool[texture.pool_key]
+
+	if not pooled then
+		pooled = {}
+		self.texture_pool[texture.pool_key] = pooled
+	end
+
+	if #pooled >= MAX_POOLED then
+		texture:Remove()
+	else
+		pooled[#pooled + 1] = texture
+	end
+end
+
+function ShaderSource:ReleaseChunk(chunk)
+	for i = 1, #CHUNK_TEXTURES do
+		local name = CHUNK_TEXTURES[i]
+
+		if chunk[name] then
+			self:RecycleTexture(chunk[name])
+			chunk[name] = nil
+		end
+	end
+
+	chunk.heights = nil
+end
+
+function ShaderSource:GetPendingCount()
+	local chunks = self.batch and #self.batch.chunks or 0
+
+	for _, batch in ipairs(self.in_flight) do
+		chunks = chunks + #batch.chunks
+	end
+
+	return #self.in_flight, chunks
 end
 
 function ShaderSource:Submit()
@@ -330,7 +390,7 @@ function ShaderSource:CompleteBatch(batch)
 			local count = chunk.request.samples * chunk.request.samples
 			local heights = FloatArray(count)
 			ffi.copy(heights, mapped + batch.offsets[i] / 4, count * 4)
-			texture:Remove()
+			self:RecycleTexture(texture)
 			local min_height = math.huge
 			local max_height = -math.huge
 
@@ -376,6 +436,13 @@ function ShaderSource:Finish()
 		local batch = table.remove(in_flight, 1)
 		batch.fence:Wait()
 		self:CompleteBatch(batch)
+	end
+
+	for _, pooled in pairs(self.texture_pool) do
+		for i = #pooled, 1, -1 do
+			pooled[i]:Remove()
+			pooled[i] = nil
+		end
 	end
 end
 
