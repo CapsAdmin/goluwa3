@@ -3,7 +3,26 @@ local Texture = import("goluwa/render/texture.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local clouds = {}
+pvars.StartGroup("clouds", {store = false})
+local detail_min_mip = pvars.Setup2{
+	key = "cloud_detail_min_mip",
+	default = 0,
+	min = 0,
+	max = 4,
+	integer = true,
+	help = "the finest mip level the cloud detail noise is read at, 1 is half the resolution and a little faster, 2 a quarter and about 15% faster in a view of many clouds, at the cost of the fine detail of the nearest clouds",
+}
+local layer_steps = pvars.Setup2{
+	key = "cloud_layer_steps",
+	default = 100,
+	min = 20,
+	max = 400,
+	integer = true,
+	help = "the fine ray steps through a cloud layer's thickness, the step is that thickness over this many, between 8 and 30 meters. fewer is faster and loses thin wisps, 120 is the old default",
+}
+pvars.EndGroup()
 clouds.MAX_LAYERS = 4
 clouds.RADIANCE_SCALE = atmosphere.CLOUD_RADIANCE_SCALE
 clouds.SHADOW_SIZE = 512
@@ -501,6 +520,8 @@ function clouds.GetBlockLayout()
 		{"cloud_layer_count", "int"},
 		{"cloud_weather_tex", "int"},
 		{"cloud_frame", "int"},
+		{"cloud_detail_min_mip", "int"},
+		{"cloud_layer_steps", "int"},
 		{"cloud_mean_transmittance", "float"},
 		{"cloud_layer_shape", "vec4", clouds.MAX_LAYERS},
 		{"cloud_layer_style", "vec4", clouds.MAX_LAYERS},
@@ -518,6 +539,8 @@ function clouds.WriteBlock(self, block)
 	block.cloud_layer_count = #layers
 	block.cloud_weather_tex = self:GetTextureIndex(clouds.EnsureResources().weather)
 	block.cloud_frame = clouds.frame or 0
+	block.cloud_detail_min_mip = detail_min_mip:Get()
+	block.cloud_layer_steps = layer_steps:Get()
 	block.cloud_mean_transmittance = clouds.GetMeanTransmittance(clouds.light_direction)
 
 	for i, layer in ipairs(layers) do
@@ -899,7 +922,7 @@ function clouds.GetGLSL(block)
 				vec3 swirl = textureLod(cloud_base_noise, vec3(uvw.x, uvw.y * 0.5, uvw.z) * CLOUD_DETAIL_WARP_FREQUENCY + 0.31, CLOUD_DETAIL_WARP_LOD).rgb - 0.5;
 				duvw += swirl * CLOUD_DETAIL_WARP_AMOUNT;
 				float detail_lod = log2(max(footprint * ]] .. clouds.DETAIL_NOISE_SIZE .. [[.0 / scale.z, 1.0));
-				vec3 dn = textureLod(cloud_detail_noise, duvw, detail_lod).rgb;
+				vec3 dn = textureLod(cloud_detail_noise, duvw, max(detail_lod, float(CLOUD_BLOCK.cloud_detail_min_mip))).rgb;
 				float dfbm = dot(dn, vec3(0.625, 0.25, 0.125));
 				// finer fetches of the same noise at unrelated scales and turns carve puffs of several sizes. each
 				// has its own warp, and a weight that varies across the sky, so one region gets big puffs and
@@ -914,8 +937,8 @@ function clouds.GetGLSL(block)
 					vec3 fine_uvw = (turned_uvw + region * CLOUD_FINE_WARP_AMOUNT) * CLOUD_FINE_DETAIL + 0.37;
 					vec3 mid_uvw = (vec3(duvw.z * 0.8 + duvw.y * 0.6, duvw.x, duvw.y * 0.8 - duvw.z * 0.6) + region.gbr * CLOUD_FINE_WARP_AMOUNT) * CLOUD_MID_DETAIL + 0.71;
 					float mid_lod = max(detail_lod + log2(CLOUD_MID_DETAIL), 0.0);
-					float fine = dot(textureLod(cloud_detail_noise, fine_uvw, max(fine_lod, 0.0)).rgb, vec3(0.625, 0.25, 0.125));
-					float mid = dot(textureLod(cloud_detail_noise, mid_uvw, mid_lod).rgb, vec3(0.625, 0.25, 0.125));
+					float fine = dot(textureLod(cloud_detail_noise, fine_uvw, max(fine_lod, float(CLOUD_BLOCK.cloud_detail_min_mip))).rgb, vec3(0.625, 0.25, 0.125));
+					float mid = dot(textureLod(cloud_detail_noise, mid_uvw, max(mid_lod, float(CLOUD_BLOCK.cloud_detail_min_mip))).rgb, vec3(0.625, 0.25, 0.125));
 					// weights of the scales (coarse, mid, fine) from the region, each from 0.15 up, normalized
 					vec3 weights = mix(vec3(0.15), vec3(1.0), smoothstep(0.3, 0.7, vec3(region.r, region.g, region.b) + 0.5));
 					weights.x *= CLOUD_COARSE_WEIGHT;
@@ -940,7 +963,7 @@ function clouds.GetGLSL(block)
 			if (detail && body_lod < 5.0 && inside < 1.0) {
 				vec3 body_uvw = (vec3(p.x, alt, p.z) + offset2.yzw) / (scale.z * CLOUD_BODY_SCALE);
 				body_uvw = vec3(body_uvw.x * 0.8 + body_uvw.z * 0.6, body_uvw.y, body_uvw.z * 0.8 - body_uvw.x * 0.6) + 0.53;
-				float billow = dot(textureLod(cloud_detail_noise, body_uvw, body_lod).rgb, vec3(0.7, 0.3, 0.0));
+				float billow = dot(textureLod(cloud_detail_noise, body_uvw, max(body_lod, float(CLOUD_BLOCK.cloud_detail_min_mip))).rgb, vec3(0.7, 0.3, 0.0));
 				// the noise is 1 at the middle of a lump, the dents are between them
 				float dent = 1.0 - smoothstep(CLOUD_BODY_LUMP_LOW, CLOUD_BODY_LUMP_HIGH, billow);
 				d *= 1.0 - CLOUD_BODY_DEPTH * dent * (1.0 - smoothstep(CLOUD_BODY_SHELL, 1.0, inside)) * (1.0 - smoothstep(2.0, 5.0, body_lod));
@@ -1144,7 +1167,7 @@ function clouds.GetGLSL(block)
 				// ray steps back and goes on in fine steps with it, until it has been in the clear for a
 				// while. steps shrink with the layer's depth, and grow with distance where the detail is
 				// lost anyway
-				float fine_size = clamp(shape.y / 120.0, 8.0, 30.0) / quality;
+				float fine_size = clamp(shape.y / float(CLOUD_BLOCK.cloud_layer_steps), 8.0, 30.0) / quality;
 				float t = t0 + jitter * fine_size * CLOUD_COARSE_STEPS;
 				int empty = CLOUD_EMPTY_STEPS;
 				int budget = int(256.0 * quality);
