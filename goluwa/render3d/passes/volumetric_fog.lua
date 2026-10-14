@@ -754,18 +754,19 @@ local composite_pass = {
 					// in their shadows, the clouds, and the sky behind them. the sky's air is
 					// unshadowed, so the air in front of the clouds is taken out of it
 					vec3 origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
-					// from high up the sky's rays below the horizon end on the planet
-					float ground = get_planet_distance(ray_dir);
+					// the sky has no ground, rays below the horizon see the horizon's air
+					vec3 sky_dir = get_sky_lookup_dir(ray_dir, origin, sun_dir);
+					float ground = get_planet_distance(sky_dir);
 					float near = min(froxel_end, ground);
 					float far = min(clamp(cloud_depth * scale, near, ]] .. string.format("%.1f", CLOUD_SHAFT_DISTANCE) .. [[), ground);
 					fog_cloud_shadows = false;
 					vec3 near_transmittance;
-					vec3 near_air = integrate_scattering(origin, ray_dir, 0.0, near, sun_dir, 8, vec2(1.0), 1.0, near_transmittance);
+					vec3 near_air = integrate_scattering(origin, sky_dir, 0.0, near, sun_dir, 8, vec2(1.0), 1.0, near_transmittance);
 					vec3 far_transmittance;
-					vec3 far_air = integrate_scattering(origin, ray_dir, near, far, sun_dir, 12, vec2(1.0), 1.0, far_transmittance);
+					vec3 far_air = integrate_scattering(origin, sky_dir, near, far, sun_dir, 12, vec2(1.0), 1.0, far_transmittance);
 					fog_cloud_shadows = true;
 					vec3 shadowed_transmittance;
-					vec3 shadowed_air = integrate_scattering(origin, ray_dir, near, far, sun_dir, 16, vec2(1.0), 1.0, shadowed_transmittance);
+					vec3 shadowed_air = integrate_scattering(origin, sky_dir, near, far, sun_dir, 16, vec2(1.0), 1.0, shadowed_transmittance);
 					vec3 behind = max(scene.rgb - near_air - near_transmittance * far_air, vec3(0.0)) / max(near_transmittance * far_transmittance, vec3(1e-4));
 					cloud_front = shadowed_air + far_transmittance * cloud.rgb;
 					scene.rgb = far_transmittance * cloud.a * behind;

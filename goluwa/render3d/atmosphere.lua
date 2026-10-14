@@ -390,6 +390,20 @@ local atmosphere_shared_glsl = [[
 		return projected_sun;
 	}
 
+	// The sky has no ground. Whatever is below the horizon is geometry that writes depth, so
+	// empty pixels there continue the haze of the horizon, from any height, instead of showing
+	// a floor at the planet's height. Returns the direction the sky is looked up along.
+	vec3 get_sky_lookup_dir(vec3 dir, vec3 ray_origin, vec3 sun_dir) {
+		vec3 up = normalize(ray_origin);
+		float horizon_elevation = -acos(clamp(PLANET_RADIUS / length(ray_origin), 0.0, 1.0)) + 0.0005;
+
+		if (asin(clamp(dot(dir, up), -1.0, 1.0)) >= horizon_elevation) return dir;
+
+		vec3 horizontal = dir - up * dot(dir, up);
+		horizontal = length(horizontal) > 1e-4 ? normalize(horizontal) : get_sky_view_forward(up, sun_dir);
+		return normalize(horizontal * cos(horizon_elevation) + up * sin(horizon_elevation));
+	}
+
 	vec3 get_atmosphere_camera_origin(vec3 cam_pos) {
 		vec3 world_camera_offset = cam_pos * ]] .. string.format("%.17g", CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER) .. [[;
 		return vec3(
@@ -542,7 +556,7 @@ local sky_view_glsl = build_atmosphere_shader_prelude(
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
 		vec3 ray_origin = sky_view.camera_position;
 		vec3 up = normalize(ray_origin);
-		vec3 ray_dir = get_sky_view_ray_dir(uv, up);
+		vec3 ray_dir = get_sky_lookup_dir(get_sky_view_ray_dir(uv, up), ray_origin, sky_view.sun_direction);
 		float t_near;
 		float t_far;
 		bool hits_ground;
@@ -565,12 +579,6 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	const float SEA_LEVEL_EYE_HEIGHT = ]] .. SEA_LEVEL_EYE_HEIGHT .. [[;
 	const float SUN_ANGULAR_RADIUS = ]] .. atmosphere.SUN_ANGULAR_RADIUS .. [[;
 	const float CLOUD_RADIANCE_SCALE = ]] .. string.format("%.8f", atmosphere.CLOUD_RADIANCE_SCALE) .. [[;
-
-	bool ray_hits_planet(vec3 dir, vec3 cam_pos) {
-		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
-		vec2 ground_hit = ray_sphere_intersect(ray_origin, normalize(dir), PLANET_RADIUS);
-		return ground_hit.x > 0.0;
-	}
 
 	// Ray marched sky for when no sky view LUT is bound. rgb = in-scattered
 	// radiance, a = mean view transmittance up to the ground or the edge of
@@ -676,18 +684,6 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	// without the clouds, the light falling on them from above
 	vec3 get_sky_irradiance_clear(vec3 ray_origin) {
 		return get_sky_irradiance_ex(ray_origin, false);
-	}
-
-	// Radiance of the Lambertian planet surface seen along dir, before the
-	// atmosphere in front of it is applied.
-	vec3 get_ground_radiance(vec3 dir, vec3 sun_dir, vec3 cam_pos) {
-		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
-		vec2 ground_hit = ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS);
-		vec3 ground_point = ray_origin + dir * max(ground_hit.x, 0.0);
-		vec3 ground_up = normalize(ground_point);
-		vec3 direct = ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ground_point, sun_dir) * max(dot(ground_up, sun_dir), 0.0) * ATMOSPHERE_CLOUD_TRANSMITTANCE;
-		vec3 sky = get_sky_irradiance(ray_origin);
-		return GROUND_ALBEDO / PI * (direct + sky);
 	}
 
 	bool get_aerial_perspective_segment(
@@ -1386,9 +1382,6 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 				sky_color_output = textureLod(TEXTURE(ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX), environment_uv, 0.0).rgb * ATMOSPHERE_ENVIRONMENT_INTENSITY;
 			} else if (ATMOSPHERE_ENABLED == 0) {
 				sky_color_output = vec3(0.0);
-			} else if (ray_hits_planet(atmos_dir, atmos_cam_pos)) {
-				vec4 atmosphere_sample = sample_sky_view_lut(atmos_dir, atmos_cam_pos);
-				sky_color_output = get_ground_radiance(atmos_dir, atmos_sun_dir, atmos_cam_pos) * atmosphere_sample.a + atmosphere_sample.rgb;
 			} else {
 				vec4 atmosphere_sample = sample_sky_view_lut(atmos_dir, atmos_cam_pos);
 				vec3 atmosphere_color = atmosphere_sample.rgb;
