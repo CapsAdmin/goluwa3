@@ -17,6 +17,7 @@ local render3d = nil
 local gpu_culling = {}
 gpu_culling.culling_enabled = true
 gpu_culling.generation = gpu_culling.generation or 0
+gpu_culling.drawn_cull_frame = gpu_culling.drawn_cull_frame or -1
 gpu_culling.enabled = true
 gpu_culling.MAX_SHADOW_QUERY_OUTPUTS = 512
 gpu_culling.async_main_view_enabled = true
@@ -1397,6 +1398,12 @@ local function bind_main_view_hiz(pass, descriptor_slot, output, state, hiz_buff
 	output.last_hiz_pass = pass
 end
 
+-- the frame the scene was in when the main view culling that is drawn was dispatched: a visual that was added or shown
+-- in frame N is drawn once this is N or more
+function gpu_culling.GetDrawnCullFrame()
+	return gpu_culling.drawn_cull_frame
+end
+
 function gpu_culling.IsEnabled()
 	return gpu_culling.enabled
 end
@@ -2106,6 +2113,7 @@ local function publish_latest_async_result(frame_buffers)
 	if not latest then return nil end
 
 	gpu_culling.published_async_slot = latest
+	gpu_culling.drawn_cull_frame = latest.cull_frame
 	latest.published_frame = system.GetFrameNumber()
 	return latest.cull_result
 end
@@ -3349,6 +3357,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 		)
 		render.SubmitAndWait(cmd)
 		output.cull_result = collect_cull_result(output)
+		gpu_culling.drawn_cull_frame = system.GetFrameNumber()
 		return output.cull_result
 	end
 
@@ -3370,6 +3379,7 @@ function gpu_culling.RunMainViewFrustumCulling(
 		gpu_culling.main_view_submission_serial = gpu_culling.main_view_submission_serial + 1
 		render.Submit(cmd, output.cull_fence)
 		output.cull_pending_serial = gpu_culling.main_view_submission_serial
+		output.cull_frame = system.GetFrameNumber()
 	end
 
 	return publish_latest_async_result(frame_buffers)
