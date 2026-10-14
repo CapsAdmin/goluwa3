@@ -804,7 +804,7 @@ list.insert(
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready()) {
 					float weight;
-					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, DDGI_VISIBILITY_MIN_WEIGHT, weight);
+					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, DDGI_NO_VISIBILITY_RAYS, weight);
 					// the weight only fades out near walls, the sky would leak in under a roof
 					if (weight > 0.0) return gi.rgb;
 				}
@@ -836,7 +836,7 @@ list.insert(
 			const int WATER_LIGHT_SAMPLES = 4;
 			const int WATER_LIGHT_MAX_PER_SAMPLE = 6;
 
-			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade);
+			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail);
 
 			// what the water between origin and origin + dir * len adds by
 			// scattering sun and sky light towards the viewer, and how much of
@@ -858,16 +858,29 @@ list.insert(
 				if (dot(sun_light, sun_light) > 0.0) {
 					float shadow_len = min(len, 60.0);
 
-					for (int i = 0; i < 8; i++) {
-						float f = (float(i) + jitter) / 8.0;
+					// the caustics in the shafts are lines thinner than a pixel from afar, which average out to no change,
+					// and they were over half of the ocean pass: only pixels close enough to show them have them
+					float shaft_focus = 1.0 - smoothstep(25.0, 140.0, distance(origin, ocean_data.camera_position.xyz));
+
+					// a short path through the water scatters little, and the samples are smoothed over frames
+					int shaft_samples = len < 2.0 ? 2 : (len < 8.0 ? 4 : 8);
+
+					for (int i = 0; i < shaft_samples; i++) {
+						float f = (float(i) + jitter) / float(shaft_samples);
 						vec3 p = origin + dir * (shadow_len * f * f);
 						// the light reaches p through the surface above it
 						vec3 surface = p - sun_dir * ((p.y - w.surface_y) / sun_dir.y);
+						float shaft = get_water_sun_visibility(surface, ocean_data.sun_direction);
+
 						// the light the surface focuses into this point, which is what makes the shafts
-						visibility += get_water_sun_visibility(surface, ocean_data.sun_direction) * get_caustic(w, p, get_pixel_footprint(distance(p, ocean_data.camera_position.xyz), 1.0), 1, 3.0).g;
+						if (shaft_focus > 0.0 && shaft > 0.0) {
+							shaft *= mix(1.0, get_caustic(w, p, get_pixel_footprint(distance(p, ocean_data.camera_position.xyz), 1.0), 0, 3.0, false).g, shaft_focus);
+						}
+
+						visibility += shaft;
 					}
 
-					visibility *= 0.125;
+					visibility /= float(shaft_samples);
 				}
 
 				// the light that reaches the viewer leaves along -dir
@@ -964,7 +977,7 @@ list.insert(
 			// bright lines of caustics, by one over the jacobian determinant there.
 			// the pattern is smoothed a little with depth, deeper down the light
 			// arrives from a wider spread of ripples
-			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade) {
+			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail) {
 				if (w.caustics <= 0.0) return vec3(1.0);
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
@@ -973,6 +986,12 @@ list.insert(
 				// the sun's disc blurs them deeper down, and so does distance
 				float blur = clamp(smoothstep(4.0 * fade, 30.0 * fade, depth) + smoothstep(0.3, 2.0, footprint), 0.0, 1.0);
 				if (blur >= 1.0) return vec3(1.0);
+
+				// half blurred away, the lines are wide and what the newton steps and the small ripples place is lost in it
+				if (blur >= 0.5) {
+					newton_steps = 0;
+					detail = false;
+				}
 
 				// each wavelength lands by its own index, so the focus differs a little by colour
 				vec3 s = depth * (1.0 - 1.0 / screen_refraction_dispersed_ior(w.ior, w.abbe));
@@ -996,7 +1015,7 @@ list.insert(
 						vec2 gx = get_wave_data(xz + vec2(e, 0.0), filter_size, variance).gb - get_wave_data(xz - vec2(e, 0.0), filter_size, variance).gb;
 						vec2 gz = get_wave_data(xz + vec2(0.0, e), filter_size, variance).gb - get_wave_data(xz - vec2(0.0, e), filter_size, variance).gb;
 						hess = vec3(gx.x, gz.y, 0.5 * (gx.y + gz.x)) / (2.0 * e);
-						add_detail_ripples(xz, filter_size, grad, hess);
+						if (detail) add_detail_ripples(xz, filter_size, grad, hess);
 					}
 
 					// below the depth where a ripple focuses its light the pattern has folded over
@@ -1238,7 +1257,7 @@ list.insert(
 				refracted_dir = normalize(refracted_dir);
 				float footprint = get_pixel_footprint(t, ray_dir.y);
 
-				if (has_floor) behind = relight_submerged(w, floor_uv, behind, floor_pos, get_caustic(w, floor_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0));
+				if (has_floor) behind = relight_submerged(w, floor_uv, behind, floor_pos, get_caustic(w, floor_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true));
 
 				vec3 transmittance;
 				vec3 inscatter = get_water_inscatter(w, surface_pos, refracted_dir, path_len, jitter, transmittance);
@@ -1364,7 +1383,7 @@ list.insert(
 				if (trace_water_reflection(origin, dir, jitter, hit_uv, hit_t, weight) && hit_t < len) {
 					vec3 scene_pos = get_world_pos(hit_uv, scene_depth_at(hit_uv));
 					float footprint = get_pixel_footprint(length(scene_pos - ocean_data.camera_position.xyz), 1.0);
-					behind = relight_submerged(w, hit_uv, get_scene_color(hit_uv), scene_pos, get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0));
+					behind = relight_submerged(w, hit_uv, get_scene_color(hit_uv), scene_pos, get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true));
 					len = hit_t;
 				} else {
 					weight = 0.0;
@@ -1464,7 +1483,7 @@ list.insert(
 				} else if (scene_t < exit_t) {
 					len = scene_t;
 					float footprint = get_pixel_footprint(scene_t, 1.0);
-					vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0);
+					vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true);
 					behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
 					distance = scene_t;
 				} else {
@@ -1595,7 +1614,7 @@ list.insert(
 
 						if (scene_t < volume_exit) {
 							float footprint = get_pixel_footprint(scene_t, 1.0);
-							vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0);
+							vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true);
 							behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
 						}
 
