@@ -339,6 +339,7 @@ list.insert(
 			}
 
 			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("ocean_data", "get_water_sun_visibility") .. [[
+
 			]] .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 					RAY_QUERY and
@@ -584,7 +585,8 @@ list.insert(
 				return add_ripples(p, footprint, info.xy, vec2(0.0), drawn, info.z * ripple.y, OCEAN_RIPPLE_UPWIND_SHARE, ripple.z, grad, hess) + (info.w - drawn) * float(RIPPLE_OCTAVES);
 			}
 
-			float height_map_tracing(vec3 ray_dir, float plane_t, vec3 camera_origin, out vec3 hit_pos) {
+			// scene_limit is how far along the ray the surface can matter, the scene is in front of anything past it
+			float height_map_tracing(vec3 ray_dir, float plane_t, vec3 camera_origin, float scene_limit, out vec3 hit_pos) {
 				float wave_bound = ocean_data.ocean_wave_info.x;
 
 				if (ocean_data.wave_tex[0] == -1) {
@@ -601,7 +603,10 @@ list.insert(
 				}
 
 				float tm = max(plane_t - search_radius, 0.0);
-				float tx = plane_t + search_radius;
+
+				if (tm >= scene_limit) return -1.0;
+
+				float tx = min(plane_t + search_radius, scene_limit);
 				float start_t = tm;
 				float start_h = 0.0;
 
@@ -968,6 +973,7 @@ list.insert(
 				// the sun's disc blurs them deeper down, and so does distance
 				float blur = clamp(smoothstep(4.0 * fade, 30.0 * fade, depth) + smoothstep(0.3, 2.0, footprint), 0.0, 1.0);
 				if (blur >= 1.0) return vec3(1.0);
+
 				// each wavelength lands by its own index, so the focus differs a little by colour
 				vec3 s = depth * (1.0 - 1.0 / screen_refraction_dispersed_ior(w.ior, w.abbe));
 				vec2 target = world_pos.xz - sun_dir.xz * (depth / max(-sun_dir.y, 0.05));
@@ -1547,7 +1553,7 @@ list.insert(
 					if (camera_under_ocean && trace_anchor_t < 0.0) trace_anchor_t = ray_dir.y > 0.0 ? 0.0 : -1.0;
 
 					if (trace_anchor_t >= 0.0) {
-						ocean_t = height_map_tracing(ray_dir, trace_anchor_t, camera_origin, ocean_local_pos);
+						ocean_t = height_map_tracing(ray_dir, trace_anchor_t, camera_origin, camera_under_ocean ? 1e30 : scene_t, ocean_local_pos);
 					}
 				}
 
