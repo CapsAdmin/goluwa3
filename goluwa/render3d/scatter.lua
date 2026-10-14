@@ -16,6 +16,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local scatter_proxy = import("goluwa/render3d/scatter_proxy.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
+local ViewPriority = import("goluwa/render3d/view_priority.lua")
 -- models grown on surfaces, see scatter_set.lua for what a surface asks for. a compute pass finds where
 -- on the surface's triangles instances go, and writes their matrices. they are drawn by the gbuffer's
 -- multi draw pipeline, with indirect draws whose instance counts the compute passes filled in, so a
@@ -40,6 +41,8 @@ scatter.PROBE_ROOM = 1024
 scatter.BAND_FIRST = 16
 scatter.BAND_RATIO = 1.6
 scatter.BAKE_BUDGET = 8
+-- what to bake first: what the camera sees, and where it is going, before what is behind it (the terrain ranks its tiles the same way)
+scatter.view_priority = ViewPriority.New()
 scatter.MAX_UNITS = 16384
 scatter.MAX_BAKED = 2 ^ 21
 scatter.PROXY_MAX_INSTANCES = 2 ^ 16
@@ -1210,8 +1213,28 @@ local surfaces = {}
 local surfaces_key = nil
 local surface_count = 0
 
+-- a component that is not shown yet (a terrain tile that waits for the one it replaces) can have its surfaces looked at
+-- anyway: the units are baked and kept, but not drawn until the component is visible
+scatter.preloaded = setmetatable({}, {__mode = "k"})
+scatter.preload_version = 0
+-- components that are about to be replaced (a terrain tile that is retiring): what they would grow is not worth baking
+-- before what is wanted
+scatter.retiring = setmetatable({}, {__mode = "k"})
+
+function scatter.SetRetiring(component, retiring)
+	scatter.retiring[component] = retiring or nil
+end
+
+function scatter.Preload(component)
+	if scatter.preloaded[component] then return end
+
+	scatter.preloaded[component] = true
+	scatter.preload_version = scatter.preload_version + 1
+end
+
 local function collect_surfaces()
 	local out = {}
+	local have = {}
 
 	for material, components in pairs(Visual.Library.GetSceneMaterialUsers()) do
 		local set = material:GetScatterSet()
@@ -1222,8 +1245,24 @@ local function collect_surfaces()
 			for component in pairs(components) do
 				for _, entry in ipairs(component:GetRenderEntries()) do
 					if component:GetResolvedMaterial(entry) == material then
+						have[entry] = true
 						out[#out + 1] = {component = component, entry = entry, material = material, set = set}
 					end
+				end
+			end
+		end
+	end
+
+	for component in pairs(scatter.preloaded) do
+		if component:IsValid() then
+			for _, entry in ipairs(component:GetRenderEntries()) do
+				local material = component:GetResolvedMaterial(entry)
+				local set = material:GetScatterSet()
+
+				if set and not have[entry] then
+					set:Use()
+					have[entry] = true
+					out[#out + 1] = {component = component, entry = entry, material = material, set = set}
 				end
 			end
 		end
@@ -1233,7 +1272,7 @@ local function collect_surfaces()
 end
 
 local function get_surfaces()
-	local key = Visual.Library.GetSceneVersion() .. ":" .. Material.flags_generation .. ":" .. ScatterSet.version
+	local key = Visual.Library.GetSceneVersion() .. ":" .. Material.flags_generation .. ":" .. ScatterSet.version .. ":" .. scatter.preload_version
 
 	if key ~= surfaces_key then
 		surfaces = collect_surfaces()
@@ -1964,6 +2003,7 @@ local function update_proxies(cmd, b, frame, ring)
 			unit.count and
 			unit.count > 0 and
 			unit.has_bvh and
+			not unit.state.preload and
 			not unit.proxy_pending and
 			unit.proxy_frame ~= unit.bake_frame and
 			unit.dist <= range and
@@ -2036,6 +2076,7 @@ local function visit_cell(tier, cx, cz)
 
 	if not unit then
 		unit = {state = state, key = key, tier = tier, size = size, min_x = x0, min_z = z0, slot = acquire_slot()}
+		scatter.units_created = (scatter.units_created or 0) + 1
 		state.units[key] = unit
 		units[#units + 1] = unit
 		local fallbacks = {}
@@ -2064,6 +2105,9 @@ local function visit_cell(tier, cx, cz)
 
 	unit.seen = visit_frame
 	unit.dist = distance
+	state.wanted = state.wanted + 1
+
+	if unit.offset then state.baked = state.baked + 1 end
 
 	if not unit.offset then
 		for _, other in ipairs(unit.fallbacks) do
@@ -2073,13 +2117,16 @@ local function visit_cell(tier, cx, cz)
 
 	local band = band_of(distance)
 	local priority
+	-- inside a class the ranking is the view's: the nearer of where the camera is and where it will be, farther the more it is out of view
+	local rank = scatter.view_priority:Rank(x0, state.min_y, z0, x0 + size, state.max_y, z0 + size)
 
 	if not unit.offset or unit.epoch ~= bake_epoch or unit.stamp ~= state.stamp or unit.hint then
-		priority = distance
+		-- new or changed units first, what a surface that is about to go would grow after them, then a unit that is only baked for a nearer band
+		priority = state.retiring and 1e6 + rank or rank
 	elseif band < unit.baked_band then
-		priority = distance + 1000
+		priority = 2e6 + rank
 	elseif band > unit.baked_band + 1 then
-		priority = distance + 100000
+		priority = 3e6 + rank
 	end
 
 	if priority then
@@ -2089,6 +2136,27 @@ end
 
 local function by_priority(a, b)
 	return a.priority < b.priority
+end
+
+-- how many units a surface wanted this frame (or the one before) and how many of them were baked, nil when it was not looked at
+function scatter.GetSurfaceStatus(entry)
+	local state = surface_states[entry]
+
+	if not state or system.GetFrameNumber() - state.frame > 1 then return nil end
+
+	return state.wanted, state.baked
+end
+
+-- a surface is ready when scatter looked at it this frame or the one before and all the units it wants are baked, or when scatter is
+-- off. a surface that has no set is never looked at, ask only for those that have one
+function scatter.IsSurfaceReady(entry)
+	if not enabled:Get() then return true end
+
+	local state = surface_states[entry]
+
+	if not state or system.GetFrameNumber() - state.frame > 1 then return false end
+
+	return state.baked == state.wanted
 end
 
 function scatter.PreDraw(cmd)
@@ -2148,7 +2216,9 @@ function scatter.PreDraw(cmd)
 
 	pool_collect()
 	local frame = system.GetFrameNumber()
-	local camera = render3d.GetCamera():GetPosition()
+	local camera_object = render3d.GetCamera()
+	local camera = camera_object:GetPosition()
+	scatter.view_priority:Update(camera, camera_object:GetRotation():GetForward(), scatter.view_priority.GetHalfAngle(camera_object))
 	local surface_base = ring * scatter.MAX_SURFACES
 	local reach = 0
 
@@ -2162,19 +2232,25 @@ function scatter.PreDraw(cmd)
 	for _, surface in ipairs(candidates) do
 		local mesh = surface.entry.polygon3d:GetMesh()
 
-		if mesh:IsValid() and surface.component:GetVisible() then
+		local visible = surface.component:GetVisible()
+
+		if mesh:IsValid() and (visible or scatter.preloaded[surface.component]) then
 			local aabb = surface.component:GetWorldAABB()
 			local min_x, max_x = math.max(aabb.min_x, camera.x - reach), math.min(aabb.max_x, camera.x + reach)
 			local min_z, max_z = math.max(aabb.min_z, camera.z - reach), math.min(aabb.max_z, camera.z + reach)
+			local state = surface_states[surface.entry]
+
+			if not state then
+				state = {units = {}, stamp = 0}
+				surface_states[surface.entry] = state
+			end
+
+			state.wanted, state.baked, state.frame = 0, 0, frame
+			state.preload = not visible
+			state.retiring = scatter.retiring[surface.component]
+			state.min_y, state.max_y = aabb.min_y, aabb.max_y
 
 			if min_x <= max_x and min_z <= max_z and camera.y > aabb.min_y - reach and camera.y < aabb.max_y + reach then
-				local state = surface_states[surface.entry]
-
-				if not state then
-					state = {units = {}, stamp = 0}
-					surface_states[surface.entry] = state
-				end
-
 				-- what a unit is baked from, besides the set
 				local signature = aabb.min_x + aabb.max_x * 3 + aabb.min_z * 7 + aabb.max_z * 11 + aabb.min_y * 13 + aabb.max_y * 17 + surface.material:GetScatterDensity() * 19
 
@@ -2200,6 +2276,18 @@ function scatter.PreDraw(cmd)
 
 	table.sort(bake_list, by_priority)
 	-- for whoever measures: nothing is loading when this is zero
+	scatter.pending_new, scatter.pending_nearer, scatter.pending_farther = 0, 0, 0
+
+	for _, entry in ipairs(bake_list) do
+		if entry.priority >= 3e6 then
+			scatter.pending_farther = scatter.pending_farther + 1
+		elseif entry.priority >= 2e6 then
+			scatter.pending_nearer = scatter.pending_nearer + 1
+		else
+			scatter.pending_new = scatter.pending_new + 1
+		end
+	end
+
 	scatter.pending_bakes = #bake_list
 	scatter.unit_count = #units
 	scatter.pool_top = pool_top
@@ -2231,6 +2319,7 @@ function scatter.PreDraw(cmd)
 
 			if surface.index_frame == frame then
 				bake_unit(cmd, b, passes, entry.unit, surface, surface.index, entry.band)
+				scatter.bakes_done = (scatter.bakes_done or 0) + 1
 			end
 		end
 
@@ -2263,7 +2352,7 @@ function scatter.PreDraw(cmd)
 
 	for _, unit in ipairs(units) do
 		-- a unit nothing wants this frame (its surface is gone or hidden) is not drawn, it is kept a while in case it is back
-		if unit.offset and unit.seen == frame then
+		if unit.offset and unit.seen == frame and not unit.state.preload then
 			local capacity = 2 ^ unit.class
 			local blocks = math.ceil((unit.count and math.min(unit.count, capacity) or capacity) / 64)
 			local entry = (unit_base + unit_count) * 4
