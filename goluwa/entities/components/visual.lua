@@ -942,7 +942,13 @@ local function patch_scene_acceleration(acceleration)
 			local main_kind, shadow_kind, bounds = classify_scene_component(component)
 			set_component_scene_items(acceleration, component, main_kind, shadow_kind, bounds)
 
-			if structure then refresh_material_users(component, main_kind or shadow_kind) end
+			-- a component whose bounds arrive after its render entries (a streamed terrain tile) joins the scene
+			-- without a structure change, and its materials would never know about it
+			local in_scene = (main_kind or shadow_kind) and true or false
+
+			if structure or in_scene ~= (component.scene_material_users ~= nil) then
+				refresh_material_users(component, in_scene)
+			end
 
 			gpu_culling.UpdateSceneVisual(component, main_kind, shadow_kind, structure)
 		end
