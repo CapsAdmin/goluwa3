@@ -270,8 +270,20 @@ function weather.GetSunDirection()
 	return weather.GetSunDirectionAt(weather.time, weather.latitude, weather.longitude)
 end
 
-function weather.SetVisibility(meters)
-	atmosphere.SetVisibility(meters)
+function weather.SetAerosolVisibility(meters)
+	atmosphere.SetAerosolVisibility(meters)
+end
+
+function weather.GetAerosolVisibility()
+	return atmosphere.GetAerosolVisibility()
+end
+
+function weather.SetGroundFogVisibility(meters)
+	atmosphere.SetGroundFogVisibility(meters)
+end
+
+function weather.GetGroundFogVisibility()
+	return atmosphere.GetGroundFogVisibility()
 end
 
 function weather.GetVisibility()

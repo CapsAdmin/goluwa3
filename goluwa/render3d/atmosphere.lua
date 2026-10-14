@@ -32,23 +32,27 @@ local MIE_SCALE_HEIGHT = 1.2
 local OZONE_CENTER_HEIGHT = 25.0
 local OZONE_WIDTH = 15.0
 local RAYLEIGH_BETA = Vec3(0.0058, 0.0135, 0.0331)
-local MIE_BETA = 0.021
-local MIE_BETA_EXT = 0.021 * 1.1
+-- aerosol: Angstrom exponent, single scattering albedo and asymmetry of clear continental air. The extinction per
+-- channel is at the wavelengths the rgb Rayleigh and ozone constants stand for. How much of it there is comes from
+-- atmosphere.SetAerosolVisibility
+local AEROSOL_ANGSTROM = 1.3
+local AEROSOL_ALBEDO = 0.95
+local AEROSOL_G = 0.7
+local RAYLEIGH_GREEN_EXTINCTION = 0.0135
+-- Koschmieder: the distance at which contrast falls to 2 percent, times the extinction coefficient
+local VISIBILITY_OPTICAL_DEPTH = -math.log(0.02)
+local AEROSOL_SPECTRUM = Vec3((680 / 550) ^ -AEROSOL_ANGSTROM, 1, (440 / 550) ^ -AEROSOL_ANGSTROM)
+local MIE_BETA_EXT = Vec3(0, 0, 0)
+local MIE_BETA = Vec3(0, 0, 0)
+local aerosol_extinction = 0
 local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
 local DEFAULT_SUN_ILLUMINANCE = 126000
 atmosphere.SUN_ANGULAR_RADIUS = 0.00465
 atmosphere.CLOUD_RADIANCE_SCALE = 1 / 16
 local DEBUG_DISABLE_GROUND_FOG = false
 local GROUND_FOG_SCALE_HEIGHT = 0.28
-local GROUND_FOG_EXTINCTION = 0.34
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 pvars.StartGroup("atmosphere", {store = false})
-local fog_density = pvars.Setup2{
-	key = "fog_density",
-	default = 0.15,
-	min = 0,
-	help = "density of the low altitude fog at the ground, weather sets it from the visibility",
-}
 local fog_ray_strength = pvars.Setup2{
 	key = "fog_ray_strength",
 	default = 1,
@@ -56,7 +60,7 @@ local fog_ray_strength = pvars.Setup2{
 	help = "scales the sunlight the fog scatters toward the viewer, so light shafts get stronger without more fog",
 }
 pvars.EndGroup()
-atmosphere.precipitation_fog_density = 0
+atmosphere.precipitation_extinction = 0
 atmosphere.wind = Vec3(0, 0, 0)
 atmosphere.temperature = 15
 atmosphere.cloud_sky_texture = nil
@@ -146,11 +150,13 @@ local atmosphere_shared_glsl = [[
 	const float GROUND_FOG_SCALE_HEIGHT = ]] .. GROUND_FOG_SCALE_HEIGHT .. [[;
 	const float GROUND_FOG_TOP_HEIGHT = 1.1;
 	const float GROUND_FOG_TOP_SOFTNESS = 0.3;
-	const float GROUND_FOG_EXTINCTION = ]] .. GROUND_FOG_EXTINCTION .. [[;
 	const float GROUND_FOG_MIE_G = 0.6;
-	const float MIE_BETA = 0.021;
-	const float MIE_BETA_EXT = 0.0231;
-	const float MIE_G = 0.758;
+	// the aerosol's scattering and extinction per km at sea level, the pass provides the extinction at 550 nm
+	const vec3 AEROSOL_SPECTRUM = vec3(]] .. string.format("%.8f, %.8f, %.8f", AEROSOL_SPECTRUM.x, AEROSOL_SPECTRUM.y, AEROSOL_SPECTRUM.z) .. [[);
+	const float AEROSOL_ALBEDO = ]] .. AEROSOL_ALBEDO .. [[;
+	#define MIE_BETA_EXT (ATMOSPHERE_AEROSOL_EXTINCTION * AEROSOL_SPECTRUM)
+	#define MIE_BETA (MIE_BETA_EXT * AEROSOL_ALBEDO)
+	const float MIE_G = ]] .. AEROSOL_G .. [[;
 	const float OZONE_CENTER_HEIGHT = 25.0;
 	const float OZONE_WIDTH = 15.0;
 	const vec3 RAYLEIGH_BETA = vec3(0.0058, 0.0135, 0.0331);
@@ -184,7 +190,6 @@ local atmosphere_shared_glsl = [[
 	#ifndef ATMOSPHERE_ENVIRONMENT_INTENSITY
 	#define ATMOSPHERE_ENVIRONMENT_INTENSITY 1.0
 	#endif
-	// the low altitude fog's density at the ground (fog_density)
 	#ifndef ATMOSPHERE_SKY_SUN_DIRECTION
 	#define ATMOSPHERE_SKY_SUN_DIRECTION vec3(0.0, 1.0, 0.0)
 	#endif
@@ -227,11 +232,12 @@ local atmosphere_shared_glsl = [[
 	#ifndef ATMOSPHERE_SCATTER_JITTER
 	#define ATMOSPHERE_SCATTER_JITTER 0.5
 	#endif
-	#ifndef ATMOSPHERE_FOG_DENSITY
-	#define ATMOSPHERE_FOG_DENSITY ]] .. string.format("%.6f\n", fog_density:Get()) .. [[
+	// the ground fog's extinction per km at the ground, and the rain and snow's, which does not thin out with height
+	#ifndef ATMOSPHERE_GROUND_FOG_EXTINCTION
+	#define ATMOSPHERE_GROUND_FOG_EXTINCTION 0.0
 	#endif
-	#ifndef ATMOSPHERE_PRECIPITATION_FOG_DENSITY
-	#define ATMOSPHERE_PRECIPITATION_FOG_DENSITY 0.0
+	#ifndef ATMOSPHERE_PRECIPITATION_EXTINCTION
+	#define ATMOSPHERE_PRECIPITATION_EXTINCTION 0.0
 	#endif
 	#ifndef ATMOSPHERE_FOG_RAY_STRENGTH
 	#define ATMOSPHERE_FOG_RAY_STRENGTH ]] .. string.format("%.6f\n", fog_ray_strength:Get()) .. [[
@@ -267,17 +273,18 @@ local atmosphere_shared_glsl = [[
 		return max(0.0, 1.0 - abs(altitude - OZONE_CENTER_HEIGHT) / OZONE_WIDTH);
 	}
 
-	float ground_fog_density(vec3 point) {
+	// extinction per km of the ground fog and the precipitation
+	float ground_fog_extinction(vec3 point) {
 		if (GROUND_FOG_ENABLED < 0.5) return 0.0;
 
 		float altitude = max(length(point) - PLANET_RADIUS, 0.0);
-		float base_density = exp(-altitude / GROUND_FOG_SCALE_HEIGHT);
+		float height_falloff = exp(-altitude / GROUND_FOG_SCALE_HEIGHT);
 		float top_fade = 1.0 - smoothstep(
 			max(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_TOP_SOFTNESS, 0.0),
 			GROUND_FOG_TOP_HEIGHT,
 			altitude
 		);
-		return (ATMOSPHERE_FOG_DENSITY * base_density + ATMOSPHERE_PRECIPITATION_FOG_DENSITY) * top_fade;
+		return (ATMOSPHERE_GROUND_FOG_EXTINCTION * height_falloff + ATMOSPHERE_PRECIPITATION_EXTINCTION) * top_fade;
 	}
 
 	float rayleigh_phase(float mu) {
@@ -330,7 +337,7 @@ local atmosphere_shared_glsl = [[
 		vec3 total = vec3(0.0);
 		float mu = dot(ray_dir, sun_dir);
 		vec3 phase_r = RAYLEIGH_BETA * (rayleigh_phase(mu) * single_scatter_visibility.x);
-		float phase_m = MIE_BETA * mie_phase(mu) * single_scatter_visibility.y;
+		vec3 phase_m = MIE_BETA * (mie_phase(mu) * single_scatter_visibility.y);
 
 		for (int i = 0; i < steps; i++) {
 			float s0 = float(i) / float(steps);
@@ -347,8 +354,8 @@ local atmosphere_shared_glsl = [[
 			ozone_od += density_o * step_size;
 			vec3 view_t = exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od));
 			vec3 sun_t = sample_transmittance_lut(sample_point, sun_dir) * ATMOSPHERE_CLOUD_SHADOW(sample_point);
-			vec3 single = (phase_r * density_r + vec3(phase_m * density_m)) * sun_t;
-			vec3 multi = sample_multi_scatter_lut(sample_point, sun_dir) * (RAYLEIGH_BETA * density_r + vec3(MIE_BETA * density_m)) * multi_scatter_visibility;
+			vec3 single = (phase_r * density_r + phase_m * density_m) * sun_t;
+			vec3 multi = sample_multi_scatter_lut(sample_point, sun_dir) * (RAYLEIGH_BETA * density_r + MIE_BETA * density_m) * multi_scatter_visibility;
 			total += (single + multi) * view_t * step_size;
 		}
 
@@ -467,7 +474,7 @@ local transmittance_glsl = build_atmosphere_shader_prelude([[
 
 		return vec4(exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od)), 1.0);
 	}
-]])
+]], "#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n")
 local multi_scatter_glsl = build_atmosphere_shader_prelude(
 	[[
 	const int MULTI_SCATTER_SQRT_DIRECTIONS = 8;
@@ -503,7 +510,7 @@ local multi_scatter_glsl = build_atmosphere_shader_prelude(
 					float density_r = rayleigh_density(sample_point);
 					float density_m = mie_density(sample_point);
 					float density_o = ozone_density(sample_point);
-					vec3 sigma_s = RAYLEIGH_BETA * density_r + vec3(MIE_BETA * density_m);
+					vec3 sigma_s = RAYLEIGH_BETA * density_r + MIE_BETA * density_m;
 					vec3 sigma_t = compute_view_tau(density_r, density_m, density_o);
 					vec3 sun_t = sample_transmittance_lut(sample_point, sun_dir);
 					second_order += throughput * sigma_s * sun_t * uniform_phase * step_size;
@@ -525,18 +532,37 @@ local multi_scatter_glsl = build_atmosphere_shader_prelude(
 		return vec4(second_order / max(vec3(1.0) - multi_scatter_transfer, vec3(1e-4)), 1.0);
 	}
 ]],
-	"#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n"
+	"#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n"
 )
+-- what the lut shaders that have no uniform block get the aerosol from
+local AerosolConstants = ffi.typeof([[struct {
+	float extinction;
+}]])
+local AEROSOL_DECLARATIONS = [[
+	layout(push_constant) uniform AerosolConstants {
+		float extinction;
+	} aerosol;
+]]
+
+local function get_aerosol_push_constants()
+	return {
+		size = ffi.sizeof(AerosolConstants),
+		data = AerosolConstants({aerosol_extinction}),
+	}
+end
+
 local SkyViewConstants = ffi.typeof([[struct {
 	float camera_position[3];
 	float sun_illuminance;
 	float sun_direction[3];
+	float aerosol_extinction;
 }]])
 local SKY_VIEW_DECLARATIONS = [[
 	layout(push_constant) uniform SkyViewConstants {
 		vec3 camera_position;
 		float sun_illuminance;
 		vec3 sun_direction;
+		float aerosol_extinction;
 	} sky_view;
 ]]
 local sky_view_glsl = build_atmosphere_shader_prelude(
@@ -568,7 +594,7 @@ local sky_view_glsl = build_atmosphere_shader_prelude(
 		return vec4(scattered_light, dot(view_transmittance, vec3(1.0 / 3.0)));
 	}
 ]],
-	"#define ATMOSPHERE_SUN_ILLUMINANCE sky_view.sun_illuminance\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX 1\n"
+	"#define ATMOSPHERE_SUN_ILLUMINANCE sky_view.sun_illuminance\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX 1\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION sky_view.aerosol_extinction\n"
 )
 local atmosphere_glsl = build_atmosphere_shader_prelude(
 	[[
@@ -808,10 +834,10 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
 			float t = fog_near + (float(i) + 0.5) * step_size;
 			vec3 sample_point = ray_origin + ray_dir * t;
-			ground_fog_od += ground_fog_density(sample_point) * step_size;
+			ground_fog_od += ground_fog_extinction(sample_point) * step_size;
 		}
 
-		float fog_transmittance = exp(-ground_fog_od * GROUND_FOG_EXTINCTION);
+		float fog_transmittance = exp(-ground_fog_od);
 		vec3 ground_fog = get_ground_fog_color(ray_origin, ray_dir, sun_dir, sun_visibility, gi_irradiance, sky_visibility) * (1.0 - fog_transmittance);
 		return vec4(ground_fog, fog_transmittance);
 	}
@@ -980,13 +1006,20 @@ end
 
 local function create_transmittance_texture()
 	local tex = create_lut_texture(256, 64)
-	tex:Shade(transmittance_glsl)
+	tex:Shade(transmittance_glsl, {custom_declarations = AEROSOL_DECLARATIONS, fragment_push_constants = get_aerosol_push_constants()})
 	return tex
 end
 
 local function create_multi_scatter_texture()
 	local tex = create_lut_texture(MULTI_SCATTER_LUT_SIZE, MULTI_SCATTER_LUT_SIZE)
-	tex:Shade(multi_scatter_glsl, {textures = {atmosphere.GetTransmittanceTexture()}})
+	tex:Shade(
+		multi_scatter_glsl,
+		{
+			textures = {atmosphere.GetTransmittanceTexture()},
+			custom_declarations = AEROSOL_DECLARATIONS,
+			fragment_push_constants = get_aerosol_push_constants(),
+		}
+	)
 	return tex
 end
 
@@ -1019,24 +1052,70 @@ local function destroy_all_sky_view_textures()
 end
 
 do
-	local CONTRAST_THRESHOLD = -math.log(0.02)
-	local SEA_LEVEL_EXTINCTION_PER_METER = GROUND_FOG_EXTINCTION * math.exp(-SEA_LEVEL_EYE_HEIGHT / GROUND_FOG_SCALE_HEIGHT) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
+	local EYE_FALLOFF = math.exp(-SEA_LEVEL_EYE_HEIGHT / GROUND_FOG_SCALE_HEIGHT)
+	atmosphere.DEFAULT_AEROSOL_VISIBILITY = 55000
+	atmosphere.DEFAULT_GROUND_FOG_VISIBILITY = 140000
+	atmosphere.aerosol_visibility = atmosphere.aerosol_visibility or atmosphere.DEFAULT_AEROSOL_VISIBILITY
+	atmosphere.ground_fog_visibility = atmosphere.ground_fog_visibility or atmosphere.DEFAULT_GROUND_FOG_VISIBILITY
+	atmosphere.precipitation_extinction = atmosphere.precipitation_extinction or 0
 
 	function atmosphere.SetFogColor(radiance)
 		atmosphere.fog_color = radiance
 	end
 
-	function atmosphere.SetVisibility(meters)
-		fog_density:Set(CONTRAST_THRESHOLD / meters / SEA_LEVEL_EXTINCTION_PER_METER)
+	local function get_aerosol_extinction_550()
+		return math.max(VISIBILITY_OPTICAL_DEPTH / (atmosphere.aerosol_visibility / 1000) - RAYLEIGH_GREEN_EXTINCTION, 0)
 	end
 
-	function atmosphere.GetVisibility()
-		return CONTRAST_THRESHOLD / (fog_density:Get() * SEA_LEVEL_EXTINCTION_PER_METER)
+	-- extinction per km of the ground fog where the fog is thickest, at the ground
+	local function get_ground_fog_extinction()
+		if atmosphere.ground_fog_visibility == math.huge then return 0 end
+
+		return VISIBILITY_OPTICAL_DEPTH / (atmosphere.ground_fog_visibility / 1000) / EYE_FALLOFF
 	end
 
+	-- the clear air, Rayleigh scattering and the aerosol: how far a viewer at the ground sees through it, in meters
+	-- (the distance where contrast falls to 2 percent). A new value rebakes the lookup tables
+	function atmosphere.SetAerosolVisibility(meters)
+		atmosphere.aerosol_visibility = meters
+		local ext = get_aerosol_extinction_550()
+
+		if ext == aerosol_extinction then return end
+
+		aerosol_extinction = ext
+		MIE_BETA_EXT = AEROSOL_SPECTRUM * ext
+		MIE_BETA = MIE_BETA_EXT * AEROSOL_ALBEDO
+		destroy_transmittance_texture()
+		destroy_multi_scatter_texture()
+		destroy_all_sky_view_textures()
+	end
+
+	function atmosphere.GetAerosolVisibility()
+		return atmosphere.aerosol_visibility
+	end
+
+	-- the ground hugging fog on its own, math.huge for none
+	function atmosphere.SetGroundFogVisibility(meters)
+		atmosphere.ground_fog_visibility = meters
+	end
+
+	function atmosphere.GetGroundFogVisibility()
+		return atmosphere.ground_fog_visibility
+	end
+
+	-- extinction per km of the rain and snow, they do not thin out with height
 	function atmosphere.SetPrecipitationExtinction(extinction_per_km)
-		atmosphere.precipitation_fog_density = extinction_per_km / GROUND_FOG_EXTINCTION
+		atmosphere.precipitation_extinction = extinction_per_km
 	end
+
+	-- everything together, the distance a viewer at the ground sees through the air, the fog and the precipitation
+	function atmosphere.GetVisibility()
+		local ground_fog = get_ground_fog_extinction() * EYE_FALLOFF
+		return VISIBILITY_OPTICAL_DEPTH / (RAYLEIGH_GREEN_EXTINCTION + get_aerosol_extinction_550() + ground_fog + atmosphere.precipitation_extinction) * 1000
+	end
+
+	atmosphere.GetGroundFogExtinction = get_ground_fog_extinction
+	atmosphere.SetAerosolVisibility(atmosphere.aerosol_visibility)
 end
 
 do
@@ -1176,7 +1255,8 @@ local function create_sky_view_texture(cam_pos, sun_dir)
 				data = SkyViewConstants(
 					{camera.x, camera.y, camera.z},
 					atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE,
-					{sun.x, sun.y, sun.z}
+					{sun.x, sun.y, sun.z},
+					aerosol_extinction
 				),
 			},
 		}
@@ -1239,8 +1319,9 @@ function atmosphere.GetBlockLayout()
 		{"atmosphere_stars_texture_index", "int"},
 		{"atmosphere_environment_texture_index", "int"},
 		{"atmosphere_environment_intensity", "float"},
-		{"atmosphere_fog_density", "float"},
-		{"atmosphere_precipitation_fog_density", "float"},
+		{"atmosphere_ground_fog_extinction", "float"},
+		{"atmosphere_precipitation_extinction", "float"},
+		{"atmosphere_aerosol_extinction", "float"},
 		{"atmosphere_fog_ray_strength", "float"},
 		{"atmosphere_fog_color", "vec4"},
 		{"atmosphere_cloud_sky_texture_index", "int"},
@@ -1279,8 +1360,9 @@ do
 		block.atmosphere_multi_scatter_texture_index = pipeline:GetTextureIndex(atmosphere.GetMultiScatterTexture())
 		block.atmosphere_sky_view_texture_index = pipeline:GetTextureIndex(atmosphere.GetSkyViewTexture(cam_pos, sky_sun_dir))
 		block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
-		block.atmosphere_fog_density = environment_map and 0 or fog_density:Get()
-		block.atmosphere_precipitation_fog_density = environment_map and 0 or atmosphere.precipitation_fog_density
+		block.atmosphere_ground_fog_extinction = environment_map and 0 or atmosphere.GetGroundFogExtinction()
+		block.atmosphere_precipitation_extinction = environment_map and 0 or atmosphere.precipitation_extinction
+		block.atmosphere_aerosol_extinction = aerosol_extinction
 		block.atmosphere_fog_ray_strength = fog_ray_strength:Get()
 		local fog_color = atmosphere.fog_color
 		block.atmosphere_fog_color[0] = fog_color and fog_color.x or 0
@@ -1329,8 +1411,9 @@ do
 		block.atmosphere_multi_scatter_texture_index = -1
 		block.atmosphere_sky_view_texture_index = -1
 		block.atmosphere_stars_texture_index = -1
-		block.atmosphere_fog_density = 0
-		block.atmosphere_precipitation_fog_density = 0
+		block.atmosphere_ground_fog_extinction = 0
+		block.atmosphere_precipitation_extinction = 0
+		block.atmosphere_aerosol_extinction = 0
 		block.atmosphere_fog_ray_strength = 0
 		block.atmosphere_fog_color[0] = 0
 		block.atmosphere_fog_color[1] = 0
@@ -1351,7 +1434,7 @@ do
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_FOG_DENSITY " .. uniform_name .. ".atmosphere_fog_density\n" .. "#define ATMOSPHERE_PRECIPITATION_FOG_DENSITY " .. uniform_name .. ".atmosphere_precipitation_fog_density\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
 function atmosphere.GetGLSLCode()
@@ -1440,7 +1523,7 @@ function atmosphere.GetTransmittance(sunDir, camPos)
 		opticalDepthO = opticalDepthO + ozoneDensity(height) * segmentLength
 	end
 
-	local tau = RAYLEIGH_BETA * opticalDepthR + Vec3(MIE_BETA_EXT, MIE_BETA_EXT, MIE_BETA_EXT) * opticalDepthM + OZONE_BETA_ABS * opticalDepthO
+	local tau = RAYLEIGH_BETA * opticalDepthR + MIE_BETA_EXT * opticalDepthM + OZONE_BETA_ABS * opticalDepthO
 	return Vec3(math.exp(-tau.x), math.exp(-tau.y), math.exp(-tau.z))
 end
 

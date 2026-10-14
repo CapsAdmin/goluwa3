@@ -410,21 +410,21 @@ local scatter_pass = {
 			vec3 fog_origin = get_atmosphere_camera_origin(froxel_data.camera_position.xyz);
 			vec3 fog_point = get_atmosphere_camera_origin(air_pos);
 			float per_meter = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
-			float fog_extinction = ground_fog_density(fog_point) * GROUND_FOG_EXTINCTION * per_meter;
+			float fog_extinction = ground_fog_extinction(fog_point) * per_meter;
 			// the clear air is here too, lit by the same shadowed sun and
 			// ambient, so a room or a shadow doesn't glow with sky blue
 			float density_r = rayleigh_density(fog_point);
 			float density_m = mie_density(fog_point);
-			vec3 air_scattering = (RAYLEIGH_BETA * density_r + vec3(MIE_BETA * density_m)) * per_meter;
+			vec3 air_scattering = (RAYLEIGH_BETA * density_r + MIE_BETA * density_m) * per_meter;
 			// its extinction is blue, but the volume holds one channel and
 			// the difference is a fraction of a percent within FROXEL_FAR
-			float air_extinction = dot(RAYLEIGH_BETA * density_r + vec3(MIE_BETA_EXT * density_m), vec3(0.2126, 0.7152, 0.0722)) * per_meter;
+			float air_extinction = dot(RAYLEIGH_BETA * density_r + MIE_BETA_EXT * density_m, vec3(0.2126, 0.7152, 0.0722)) * per_meter;
 			float mu = dot(ray_dir, sun_dir);
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(fog_point, sun_dir) * get_fog_sun_visibility(world_pos, sun_dir);
 			vec3 ambient = get_ambient(world_pos, uv, fog_origin, froxel_hash(uvec3(seed, id.z, 7u)));
 			vec3 fog_tint = ATMOSPHERE_FOG_COLOR.w > 0.5 ? ATMOSPHERE_FOG_COLOR.rgb : vec3(1.0);
 			vec3 scattering = (ambient + sun * henyey_greenstein_phase(mu, GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH) * fog_tint * fog_extinction;
-			scattering += ambient * air_scattering + sun * (RAYLEIGH_BETA * (density_r * rayleigh_phase(mu)) + vec3(MIE_BETA * density_m * mie_phase(mu))) * per_meter;
+			scattering += ambient * air_scattering + sun * (RAYLEIGH_BETA * (density_r * rayleigh_phase(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos) * fog_extinction;
 

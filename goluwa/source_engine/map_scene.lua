@@ -285,7 +285,7 @@ function map_scene.Translate(data, map_name, map_path)
 				tonumber(info.fogenable) == 1
 			then
 				local color = info.fogcolor
-				atmosphere.Visibility = info.fogend * units.meters * FOG_DISTANCE_SCALE
+				atmosphere.GroundFogVisibility = info.fogend * units.meters * FOG_DISTANCE_SCALE
 				atmosphere.FogColor = Vec3(color.r ^ 2.2, color.g ^ 2.2, color.b ^ 2.2) / math.max(color.r, color.g, color.b, 1e-4) ^ 2.2 * FOG_TINT_STRENGTH
 			end
 		end

@@ -2,6 +2,7 @@ local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local climate = {}
 climate.BLEND_TIME = 2
 climate.DEFAULTS = {
@@ -12,7 +13,18 @@ climate.DEFAULTS = {
 	snow_depth = 0,
 }
 climate.presets = {
-	clear = {},
+	clear = {
+		aerosol_visibility = atmosphere.DEFAULT_AEROSOL_VISIBILITY,
+		ground_fog_visibility = atmosphere.DEFAULT_GROUND_FOG_VISIBILITY,
+	},
+	haze = {
+		aerosol_visibility = 12000,
+		ground_fog_visibility = 60000,
+	},
+	fog = {
+		aerosol_visibility = atmosphere.DEFAULT_AEROSOL_VISIBILITY,
+		ground_fog_visibility = 300,
+	},
 	fair = {
 		clouds = {
 			{
@@ -373,7 +385,8 @@ local function get_state()
 		wetness = weather.GetWetness(),
 		snow_depth = weather.GetSnowDepth(),
 		temperature = weather.GetTemperature(),
-		visibility = weather.GetVisibility(),
+		aerosol_visibility = weather.GetAerosolVisibility(),
+		ground_fog_visibility = weather.GetGroundFogVisibility(),
 		wind = weather.GetWind():Copy(),
 	}
 end
@@ -450,7 +463,8 @@ local function apply(a, b, t)
 	weather.SetWetness(math.lerp(t, a.wetness, b.wetness))
 	weather.SetSnowDepth(math.lerp(t, a.snow_depth, b.snow_depth))
 	weather.SetTemperature(math.lerp(t, a.temperature, b.temperature))
-	weather.SetVisibility(1 / math.lerp(t, 1 / a.visibility, 1 / b.visibility))
+	weather.SetAerosolVisibility(1 / math.lerp(t, 1 / a.aerosol_visibility, 1 / b.aerosol_visibility))
+	weather.SetGroundFogVisibility(1 / math.lerp(t, 1 / a.ground_fog_visibility, 1 / b.ground_fog_visibility))
 	weather.SetWind(a.wind:GetLerped(t, b.wind))
 	weather.SetCloudLayers(blend_layers(a.clouds, b.clouds, t))
 end
