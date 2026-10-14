@@ -757,7 +757,7 @@ function envprobe.CreatePipelines()
 					vec3 probe_sun_dir = length(fragment.sun_direction.xyz) > 0.0001
 						? normalize(fragment.sun_direction.xyz)
 						: vec3(0.0, 1.0, 0.0);
-					sky_color_output = apply_scenery_fog_ray(
+					sky_color_output = apply_ground_fog_ray(
 						sky_color_output,
 						probe_ray_dir,
 						probe_sun_dir,

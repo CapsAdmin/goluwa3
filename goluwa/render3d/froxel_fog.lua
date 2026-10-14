@@ -187,7 +187,7 @@ function froxel_fog.GetGLSL(block, sun_dir_expr)
 
 			if (
 				(is_sky || hit_distance * scale > froxel_end) &&
-				get_scenery_fog_segment_with_ground_clip(fog_origin, ray_dir, is_sky ? -1.0 : hit_distance * scale, is_sky, fog_near, fog_length) &&
+				get_ground_fog_segment_with_ground_clip(fog_origin, ray_dir, is_sky ? -1.0 : hit_distance * scale, is_sky, fog_near, fog_length) &&
 				fog_near + fog_length > froxel_end
 			) {
 				fog_length += fog_near - max(fog_near, froxel_end);
@@ -196,7 +196,7 @@ function froxel_fog.GetGLSL(block, sun_dir_expr)
 				vec4 gi = is_sky || ]] .. block .. [[.gi_screen_tex < 0 ? vec4(0.0, 0.0, 0.0, 1.0) : texture(TEXTURE(]] .. block .. [[.gi_screen_tex), uv);
 				// past the sun's shadow map
 				float sun_visibility = get_fog_sun_horizon_visibility(sun_dir) <= 0.0001 ? 0.0 : 1.0;
-				vec4 far_fog = integrate_scenery_fog_segment(fog_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi.rgb, clamp(gi.a, 0.0, 1.0));
+				vec4 far_fog = integrate_ground_fog_segment(fog_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi.rgb, clamp(gi.a, 0.0, 1.0));
 				return vec4(far_fog.rgb * near_fog.a + near_fog.rgb, far_fog.a * near_fog.a);
 			}
 

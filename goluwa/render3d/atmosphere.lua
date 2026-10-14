@@ -38,9 +38,9 @@ local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
 local DEFAULT_SUN_ILLUMINANCE = 126000
 atmosphere.SUN_ANGULAR_RADIUS = 0.00465
 atmosphere.CLOUD_RADIANCE_SCALE = 1 / 16
-local DEBUG_DISABLE_SCENERY_FOG = false
-local SCENERY_FOG_SCALE_HEIGHT = 0.28
-local SCENERY_FOG_EXTINCTION = 0.34
+local DEBUG_DISABLE_GROUND_FOG = false
+local GROUND_FOG_SCALE_HEIGHT = 0.28
+local GROUND_FOG_EXTINCTION = 0.34
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 pvars.StartGroup("atmosphere", {store = false})
 local fog_density = pvars.Setup2{
@@ -138,16 +138,16 @@ local atmosphere_shared_glsl = [[
 	const float ATMOSPHERE_RADIUS = 6471.0;
 	const float RAYLEIGH_SCALE_HEIGHT = 8.0;
 	const float MIE_SCALE_HEIGHT = 1.2;
-	const float SCENERY_FOG_ENABLED = ]] .. (
-		DEBUG_DISABLE_SCENERY_FOG and
+	const float GROUND_FOG_ENABLED = ]] .. (
+		DEBUG_DISABLE_GROUND_FOG and
 		"0.0" or
 		"1.0"
 	) .. [[;
-	const float SCENERY_FOG_SCALE_HEIGHT = ]] .. SCENERY_FOG_SCALE_HEIGHT .. [[;
-	const float SCENERY_FOG_TOP_HEIGHT = 1.1;
-	const float SCENERY_FOG_TOP_SOFTNESS = 0.3;
-	const float SCENERY_FOG_EXTINCTION = ]] .. SCENERY_FOG_EXTINCTION .. [[;
-	const float SCENERY_FOG_MIE_G = 0.6;
+	const float GROUND_FOG_SCALE_HEIGHT = ]] .. GROUND_FOG_SCALE_HEIGHT .. [[;
+	const float GROUND_FOG_TOP_HEIGHT = 1.1;
+	const float GROUND_FOG_TOP_SOFTNESS = 0.3;
+	const float GROUND_FOG_EXTINCTION = ]] .. GROUND_FOG_EXTINCTION .. [[;
+	const float GROUND_FOG_MIE_G = 0.6;
 	const float MIE_BETA = 0.021;
 	const float MIE_BETA_EXT = 0.0231;
 	const float MIE_G = 0.758;
@@ -267,14 +267,14 @@ local atmosphere_shared_glsl = [[
 		return max(0.0, 1.0 - abs(altitude - OZONE_CENTER_HEIGHT) / OZONE_WIDTH);
 	}
 
-	float scenery_fog_density(vec3 point) {
-		if (SCENERY_FOG_ENABLED < 0.5) return 0.0;
+	float ground_fog_density(vec3 point) {
+		if (GROUND_FOG_ENABLED < 0.5) return 0.0;
 
 		float altitude = max(length(point) - PLANET_RADIUS, 0.0);
-		float base_density = exp(-altitude / SCENERY_FOG_SCALE_HEIGHT);
+		float base_density = exp(-altitude / GROUND_FOG_SCALE_HEIGHT);
 		float top_fade = 1.0 - smoothstep(
-			max(SCENERY_FOG_TOP_HEIGHT - SCENERY_FOG_TOP_SOFTNESS, 0.0),
-			SCENERY_FOG_TOP_HEIGHT,
+			max(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_TOP_SOFTNESS, 0.0),
+			GROUND_FOG_TOP_HEIGHT,
 			altitude
 		);
 		return (ATMOSPHERE_FOG_DENSITY * base_density + ATMOSPHERE_PRECIPITATION_FOG_DENSITY) * top_fade;
@@ -717,7 +717,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return segment_length > 1e-5;
 	}
 
-	bool get_scenery_fog_segment_with_ground_clip(
+	bool get_ground_fog_segment_with_ground_clip(
 		vec3 ray_origin,
 		vec3 ray_dir,
 		float max_distance,
@@ -725,9 +725,9 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		out float fog_near,
 		out float fog_length
 	) {
-		if (SCENERY_FOG_ENABLED < 0.5) return false;
+		if (GROUND_FOG_ENABLED < 0.5) return false;
 
-		float fog_outer_radius = PLANET_RADIUS + SCENERY_FOG_TOP_HEIGHT;
+		float fog_outer_radius = PLANET_RADIUS + GROUND_FOG_TOP_HEIGHT;
 		vec2 fog_hit = ray_sphere_intersect(ray_origin, ray_dir, fog_outer_radius);
 
 		if (fog_hit.y <= 0.0) return false;
@@ -750,14 +750,14 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return fog_length > 1e-5;
 	}
 
-	bool get_scenery_fog_segment(
+	bool get_ground_fog_segment(
 		vec3 ray_origin,
 		vec3 ray_dir,
 		float max_distance,
 		out float fog_near,
 		out float fog_length
 	) {
-		return get_scenery_fog_segment_with_ground_clip(
+		return get_ground_fog_segment_with_ground_clip(
 			ray_origin,
 			ray_dir,
 			max_distance,
@@ -771,26 +771,26 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	// direction: the sky above and the sky lit ground below, what DDGI's probes
 	// give where there are probes. It doesn't depend on the view, the glow
 	// around the sun is the sun's own scattering, which is shadowed.
-	vec3 get_scenery_fog_sky_ambient(vec3 ray_origin) {
+	vec3 get_ground_fog_sky_ambient(vec3 ray_origin) {
 		vec3 sky_irradiance = get_sky_irradiance(ray_origin);
 		return 0.5 * (vec3(1.0) + GROUND_ALBEDO) * sky_irradiance / PI;
 	}
 
 	// Sunlight scattered toward the viewer by the fog, forward peaked.
-	vec3 get_scenery_fog_sun(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
-		return ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), SCENERY_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH;
+	vec3 get_ground_fog_sun(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
+		return ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH;
 	}
 
 	// In-scattered radiance of the low altitude fog. gi_irradiance stands in
 	// for the sky where the sky is hidden (sky_visibility).
-	vec3 get_scenery_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
-		vec3 ambient = mix(gi_irradiance / PI, get_scenery_fog_sky_ambient(ray_origin), clamp(sky_visibility, 0.0, 1.0));
-		vec3 lit = ambient + get_scenery_fog_sun(ray_origin, ray_dir, sun_dir) * clamp(sun_visibility, 0.0, 1.0);
+	vec3 get_ground_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
+		vec3 ambient = mix(gi_irradiance / PI, get_ground_fog_sky_ambient(ray_origin), clamp(sky_visibility, 0.0, 1.0));
+		vec3 lit = ambient + get_ground_fog_sun(ray_origin, ray_dir, sun_dir) * clamp(sun_visibility, 0.0, 1.0);
 		return ATMOSPHERE_FOG_COLOR.w > 0.5 ? lit * ATMOSPHERE_FOG_COLOR.rgb : lit;
 	}
 
 	// rgb = light the fog scatters toward the viewer along the segment, a = its transmittance
-	vec4 integrate_scenery_fog_segment(
+	vec4 integrate_ground_fog_segment(
 		vec3 ray_origin,
 		vec3 ray_dir,
 		float fog_near,
@@ -803,20 +803,20 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		if (ATMOSPHERE_ENABLED == 0) return vec4(0.0, 0.0, 0.0, 1.0);
 
 		float step_size = fog_length / float(AERIAL_PERSPECTIVE_STEPS);
-		float scenery_fog_od = 0.0;
+		float ground_fog_od = 0.0;
 
 		for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
 			float t = fog_near + (float(i) + 0.5) * step_size;
 			vec3 sample_point = ray_origin + ray_dir * t;
-			scenery_fog_od += scenery_fog_density(sample_point) * step_size;
+			ground_fog_od += ground_fog_density(sample_point) * step_size;
 		}
 
-		float fog_transmittance = exp(-scenery_fog_od * SCENERY_FOG_EXTINCTION);
-		vec3 scenery_fog = get_scenery_fog_color(ray_origin, ray_dir, sun_dir, sun_visibility, gi_irradiance, sky_visibility) * (1.0 - fog_transmittance);
-		return vec4(scenery_fog, fog_transmittance);
+		float fog_transmittance = exp(-ground_fog_od * GROUND_FOG_EXTINCTION);
+		vec3 ground_fog = get_ground_fog_color(ray_origin, ray_dir, sun_dir, sun_visibility, gi_irradiance, sky_visibility) * (1.0 - fog_transmittance);
+		return vec4(ground_fog, fog_transmittance);
 	}
 
-	vec3 apply_scenery_fog_segment(
+	vec3 apply_ground_fog_segment(
 		vec3 scene_color,
 		vec3 ray_origin,
 		vec3 ray_dir,
@@ -827,7 +827,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 gi_irradiance,
 		float sky_visibility
 	) {
-		vec4 fog = integrate_scenery_fog_segment(ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
+		vec4 fog = integrate_ground_fog_segment(ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
 		return scene_color * fog.a + fog.rgb;
 	}
 
@@ -864,7 +864,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return scene_color * view_transmittance + scattered_light;
 	}
 
-	vec3 apply_scenery_fog(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
+	vec3 apply_ground_fog(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
 		vec3 ray_origin;
 		vec3 ray_dir;
 		float atmosphere_near;
@@ -877,30 +877,30 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		float fog_near;
 		float fog_length;
 
-		if (!get_scenery_fog_segment(ray_origin, ray_dir, atmosphere_near + segment_length, fog_near, fog_length)) {
+		if (!get_ground_fog_segment(ray_origin, ray_dir, atmosphere_near + segment_length, fog_near, fog_length)) {
 			return scene_color;
 		}
 
-		return apply_scenery_fog_segment(scene_color, ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
+		return apply_ground_fog_segment(scene_color, ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
-	vec3 apply_scenery_fog_ray(vec3 scene_color, vec3 ray_dir, vec3 sun_dir, vec3 cam_pos, float max_distance, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
+	vec3 apply_ground_fog_ray(vec3 scene_color, vec3 ray_dir, vec3 sun_dir, vec3 cam_pos, float max_distance, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
 		if (ATMOSPHERE_ENABLED == 0) return scene_color;
 
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
 		float fog_near;
 		float fog_length;
 
-		if (!get_scenery_fog_segment(ray_origin, normalize(ray_dir), max_distance, fog_near, fog_length)) {
+		if (!get_ground_fog_segment(ray_origin, normalize(ray_dir), max_distance, fog_near, fog_length)) {
 			return scene_color;
 		}
 
-		return apply_scenery_fog_segment(scene_color, ray_origin, normalize(ray_dir), fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
+		return apply_ground_fog_segment(scene_color, ray_origin, normalize(ray_dir), fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
 	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
 		scene_color = apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, sky_visibility, 0.0);
-		return apply_scenery_fog(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, gi_irradiance, sky_visibility);
+		return apply_ground_fog(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
 	// the sun's disc at its real luminance, illuminance over its solid angle (~2e9 cd/m2 at noon), darker
@@ -1020,7 +1020,7 @@ end
 
 do
 	local CONTRAST_THRESHOLD = -math.log(0.02)
-	local SEA_LEVEL_EXTINCTION_PER_METER = SCENERY_FOG_EXTINCTION * math.exp(-SEA_LEVEL_EYE_HEIGHT / SCENERY_FOG_SCALE_HEIGHT) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
+	local SEA_LEVEL_EXTINCTION_PER_METER = GROUND_FOG_EXTINCTION * math.exp(-SEA_LEVEL_EYE_HEIGHT / GROUND_FOG_SCALE_HEIGHT) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
 
 	function atmosphere.SetFogColor(radiance)
 		atmosphere.fog_color = radiance
@@ -1035,7 +1035,7 @@ do
 	end
 
 	function atmosphere.SetPrecipitationExtinction(extinction_per_km)
-		atmosphere.precipitation_fog_density = extinction_per_km / SCENERY_FOG_EXTINCTION
+		atmosphere.precipitation_fog_density = extinction_per_km / GROUND_FOG_EXTINCTION
 	end
 end
 

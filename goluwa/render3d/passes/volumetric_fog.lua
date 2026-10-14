@@ -349,7 +349,7 @@ local scatter_pass = {
 					shadow = calculateLocalDirectionalMediumShadow(world_pos, L);
 				}
 
-				result += light.color.rgb * light.color.a * attenuation * shadow * occlusion * henyey_greenstein_phase(dot(ray_dir, L), SCENERY_FOG_MIE_G);
+				result += light.color.rgb * light.color.a * attenuation * shadow * occlusion * henyey_greenstein_phase(dot(ray_dir, L), GROUND_FOG_MIE_G);
 			}
 			}
 
@@ -358,7 +358,7 @@ local scatter_pass = {
 
 		// radiance of the light around P averaged over all directions
 		vec3 get_ambient(vec3 P, vec2 uv, vec3 ray_origin, uint seed) {
-			vec3 sky = get_scenery_fog_sky_ambient(ray_origin);
+			vec3 sky = get_ground_fog_sky_ambient(ray_origin);
 
 			if (ddgi_data.ddgi_cascade_count > 0) {
 				// past the probes: open air far from the camera. the surface
@@ -410,7 +410,7 @@ local scatter_pass = {
 			vec3 fog_origin = get_atmosphere_camera_origin(froxel_data.camera_position.xyz);
 			vec3 fog_point = get_atmosphere_camera_origin(air_pos);
 			float per_meter = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
-			float fog_extinction = scenery_fog_density(fog_point) * SCENERY_FOG_EXTINCTION * per_meter;
+			float fog_extinction = ground_fog_density(fog_point) * GROUND_FOG_EXTINCTION * per_meter;
 			// the clear air is here too, lit by the same shadowed sun and
 			// ambient, so a room or a shadow doesn't glow with sky blue
 			float density_r = rayleigh_density(fog_point);
@@ -423,7 +423,7 @@ local scatter_pass = {
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(fog_point, sun_dir) * get_fog_sun_visibility(world_pos, sun_dir);
 			vec3 ambient = get_ambient(world_pos, uv, fog_origin, froxel_hash(uvec3(seed, id.z, 7u)));
 			vec3 fog_tint = ATMOSPHERE_FOG_COLOR.w > 0.5 ? ATMOSPHERE_FOG_COLOR.rgb : vec3(1.0);
-			vec3 scattering = (ambient + sun * henyey_greenstein_phase(mu, SCENERY_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH) * fog_tint * fog_extinction;
+			vec3 scattering = (ambient + sun * henyey_greenstein_phase(mu, GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH) * fog_tint * fog_extinction;
 			scattering += ambient * air_scattering + sun * (RAYLEIGH_BETA * (density_r * rayleigh_phase(mu)) + vec3(MIE_BETA * density_m * mie_phase(mu))) * per_meter;
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos) * fog_extinction;
