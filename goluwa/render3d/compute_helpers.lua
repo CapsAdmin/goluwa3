@@ -178,43 +178,29 @@ function compute_helpers.GetColorHelpersGLSL()
 			return max(bt2020_to_bt709 * min(mix(skewed, scaled, blend_ratio), vec3(peak)), vec3(0.0));
 		}
 
-		// Crysis' tonemapper (PostProcess.cfx, USE_EXP_TONEMAPPING): below a luminance of 0.2 the
-		// colour is pulled towards a blue tint, then every channel goes through 1 - exp(-k x).
-		// The shader's k is 3 / (1 + 10 * adapted luminance) and follows the eye adaptation, which
-		// here is the exposure already applied to x, so k is a fixed gain instead. 1.0 puts middle
-		// grey (0.18) at a display value of 0.165, about half a stop above AgX. The curve's ceiling
-		// is peak, 1 for SDR and the display's peak over paper white for HDR, which keeps the
-		// shape below 1 the same. The colour matrix and the noise in the blue shift are left out.
-		vec3 crysis(vec3 x, float peak) {
-			const float k = 1.0;
-			float luma = dot(x, vec3(0.2125, 0.7154, 0.0721));
-			x = mix(luma * vec3(0.8, 0.8, 1.4), x, clamp(5.0 * luma, 0.0, 1.0));
-			return peak * (1.0 - exp(-k * x / peak));
-		}
-
-		// Khronos PBR Neutral: not filmic, it has no toe and no contrast curve. The exposed colour is
-		// left as it is (less a small offset that keeps the darkest values off zero) until the
-		// brightest channel reaches 0.76, above that it rolls off towards 1 with the hue kept, and the
-		// colours that are compressed hardest fade to white. Middle grey (0.18) lands at 0.14.
-		vec3 pbr_neutral(vec3 x) {
-			const float start_compression = 0.8 - 0.04;
+		// Neutral: what the exposed colour says is shown as it is. Up to start the colour passes through
+		// unchanged, no toe, no black offset, no contrast, so middle grey (0.18) is 0.18. Above it the
+		// brightest channel rolls off smoothly (the slope is 1 at start) to peak with the ratio of the
+		// channels kept, and the harder a colour has to be compressed the more it moves towards white, so a
+		// saturated highlight fades instead of clipping a channel. peak is the display's peak over diffuse
+		// white: 1 for SDR and 4.9 for a 1000 nit display at 203 nits of paper white. Start does not depend on
+		// it, so SDR and HDR show everything below start the same and HDR keeps more of the highlights.
+		vec3 neutral(vec3 x, float peak) {
+			const float start = 0.76;
 			const float desaturation = 0.15;
-			float lowest = min(x.r, min(x.g, x.b));
-			float offset = lowest < 0.08 ? lowest - 6.25 * lowest * lowest : 0.04;
-			x -= offset;
-			float peak = max(x.r, max(x.g, x.b));
+			float m = max(x.r, max(x.g, x.b));
 
-			if (peak < start_compression) return x;
+			if (m <= start) return x;
 
-			float d = 1.0 - start_compression;
-			float new_peak = 1.0 - d * d / (peak + d - start_compression);
-			x *= new_peak / peak;
-			float g = 1.0 - 1.0 / (desaturation * (peak - new_peak) + 1.0);
+			float d = peak - start;
+			float new_peak = peak - d * d / (m + d - start);
+			x *= new_peak / m;
+			float g = 1.0 - 1.0 / (desaturation * (m - new_peak) + 1.0);
 			return mix(x, vec3(new_peak), g);
 		}
 
 		// x is exposed (middle grey at 0.18); returns linear display colour.
-		// tonemapper: 0 = AgX, 1 = AgX punchy, 2 = ACES, 3 = GT7, 4 = Crysis, 5 = Neutral
+		// tonemapper: 0 = AgX, 1 = AgX punchy, 2 = ACES, 3 = GT7, 4 = Neutral
 		vec3 tonemap(vec3 x, int tonemapper) {
 			x = max(x, vec3(0.0));
 
@@ -224,9 +210,7 @@ function compute_helpers.GetColorHelpersGLSL()
 
 			if (tonemapper == 2) return aces_fitted(x);
 
-			if (tonemapper == 4) return crysis(x, 0.5);
-
-			if (tonemapper == 5) return pbr_neutral(x);
+			if (tonemapper == 4) return neutral(x, 1.0);
 
 			return agx(x, tonemapper == 1);
 		}

@@ -74,13 +74,13 @@ render3d.local_exposure = {
 	slope = 0.2,
 	ceiling = 1e5,
 }
-local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, crysis = 4, neutral = 5}
+local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, neutral = 4}
 pvars.StartGroup("display", {store = false})
 local tonemapper = pvars.Setup2{
 	key = "r_tonemapper",
-	default = "gt7",
-	enums = {"agx", "agx_punchy", "aces", "gt7", "crysis", "neutral"},
-	help = "the curve that maps the exposed scene to the display",
+	default = "neutral",
+	enums = {"agx", "agx_punchy", "aces", "gt7", "neutral"},
+	help = "the curve that maps the exposed scene to the display. neutral keeps the exposed colour as it is and only rolls the highlights off to the display's peak, the others are looks",
 }
 
 function render3d.GetTonemapperIndex()
@@ -738,8 +738,7 @@ local compute_shader = [[
 			return gt7(x * paper_white, peak * paper_white) / paper_white;
 		}
 
-		// the crysis curve has its own shoulder that ends at the display's peak
-		if (tonemapper == 4) return crysis(x, peak);
+		if (tonemapper == 4) return neutral(x, peak);
 
 		const float knee = 0.6;
 		float m = max(x.r, max(x.g, x.b));
