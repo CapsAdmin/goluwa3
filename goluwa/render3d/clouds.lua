@@ -13,7 +13,7 @@ clouds.SKY_HEIGHT = 256
 clouds.BASE_NOISE_SIZE = 128
 -- the view the clouds are reconstructed at is the render size over this, and each frame traces a quarter of it
 clouds.VIEW_DIVISOR = 1
-clouds.DETAIL_NOISE_SIZE = 32
+clouds.DETAIL_NOISE_SIZE = 128
 clouds.WEATHER_SIZE = 512
 clouds.SKY_REFRESH_INTERVAL = 2
 clouds.SKY_CHANGE_INTERVAL = 0.5
@@ -698,6 +698,24 @@ function clouds.GetGLSL(block)
 		const float CLOUD_SKY_PROBE_FAR = 600.0;
 		// the light's optical depth is marched every this many lit samples
 		const int CLOUD_LIGHT_REUSE = 3;
+		// the finer detail fetch: how much finer, and how much of the erosion it makes
+		const float CLOUD_FINE_DETAIL = 2.7;
+		const float CLOUD_MID_DETAIL = 1.6;
+		const float CLOUD_COARSE_WEIGHT = 1.0;
+		const float CLOUD_FINE_WARP_AMOUNT = 0.8;
+		const float CLOUD_FINE_WARP_FREQUENCY = 1.3;
+		const float CLOUD_FINE_DETAIL_AMOUNT = 1.0;
+		// the warp of the detail lookup: how much it moves (in detail tiles) and the shape noise it is read from
+		const float CLOUD_DETAIL_WARP_AMOUNT = 0.5;
+		const float CLOUD_DETAIL_WARP_FREQUENCY = 0.7;
+		const float CLOUD_DETAIL_WARP_LOD = 2.0;
+		// the lumpy body: the size of the lumps relative to the detail's, how much they dent the shape, how
+		// far in they reach (the shape value where they stop), and the range of the noise that is a dent
+		const float CLOUD_BODY_SCALE = 2.2;
+		const float CLOUD_BODY_DEPTH = 0.9;
+		const float CLOUD_BODY_SHELL = 0.8;
+		const float CLOUD_BODY_LUMP_LOW = 0.35;
+		const float CLOUD_BODY_LUMP_HIGH = 0.6;
 		// how coarse the shape noise is read for how tall each heap grows
 		const float CLOUD_TOP_CELL_LOD = 3.0;
 
@@ -870,16 +888,62 @@ function clouds.GetGLSL(block)
 
 			if (d <= 0.0) return 0.0;
 
+			// how deep inside the cloud's shape the sample is, 0 at its surface and 1 in the core
+			float inside = d;
+
 			if (detail) {
 				vec3 duvw = (vec3(p.x, alt, p.z) + offset2.yzw) / scale.z;
+				// the detail noise tiles, and read sharp its regular lattice shows as a grid of puffs. a low
+				// frequency field from the shape noise pushes the lookup around, a different amount at every
+				// copy, so the copies don't repeat
+				vec3 swirl = textureLod(cloud_base_noise, vec3(uvw.x, uvw.y * 0.5, uvw.z) * CLOUD_DETAIL_WARP_FREQUENCY + 0.31, CLOUD_DETAIL_WARP_LOD).rgb - 0.5;
+				duvw += swirl * CLOUD_DETAIL_WARP_AMOUNT;
 				float detail_lod = log2(max(footprint * ]] .. clouds.DETAIL_NOISE_SIZE .. [[.0 / scale.z, 1.0));
 				vec3 dn = textureLod(cloud_detail_noise, duvw, detail_lod).rgb;
 				float dfbm = dot(dn, vec3(0.625, 0.25, 0.125));
+				// finer fetches of the same noise at unrelated scales and turns carve puffs of several sizes. each
+				// has its own warp, and a weight that varies across the sky, so one region gets big puffs and
+				// the next small ones, and no one lattice shows. they fade back to the coarse fetch where a
+				// pixel can't resolve them
+				float fine_lod = detail_lod + log2(CLOUD_FINE_DETAIL);
+				float fine_fade = 1.0 - smoothstep(1.5, 3.5, fine_lod);
+
+				if (fine_fade > 0.0) {
+					vec3 region = textureLod(cloud_base_noise, vec3(uvw.z, uvw.y * 0.5, uvw.x) * CLOUD_FINE_WARP_FREQUENCY + 0.67, CLOUD_DETAIL_WARP_LOD).rgb - 0.5;
+					vec3 turned_uvw = vec3(duvw.x * 0.6 - duvw.z * 0.8, duvw.y, duvw.x * 0.8 + duvw.z * 0.6);
+					vec3 fine_uvw = (turned_uvw + region * CLOUD_FINE_WARP_AMOUNT) * CLOUD_FINE_DETAIL + 0.37;
+					vec3 mid_uvw = (vec3(duvw.z * 0.8 + duvw.y * 0.6, duvw.x, duvw.y * 0.8 - duvw.z * 0.6) + region.gbr * CLOUD_FINE_WARP_AMOUNT) * CLOUD_MID_DETAIL + 0.71;
+					float mid_lod = max(detail_lod + log2(CLOUD_MID_DETAIL), 0.0);
+					float fine = dot(textureLod(cloud_detail_noise, fine_uvw, max(fine_lod, 0.0)).rgb, vec3(0.625, 0.25, 0.125));
+					float mid = dot(textureLod(cloud_detail_noise, mid_uvw, mid_lod).rgb, vec3(0.625, 0.25, 0.125));
+					// weights of the scales (coarse, mid, fine) from the region, each from 0.15 up, normalized
+					vec3 weights = mix(vec3(0.15), vec3(1.0), smoothstep(0.3, 0.7, vec3(region.r, region.g, region.b) + 0.5));
+					weights.x *= CLOUD_COARSE_WEIGHT;
+					weights /= weights.x + weights.y + weights.z;
+					float multi = dfbm * weights.x + mid * weights.y + fine * weights.z;
+					dfbm = mix(dfbm, mix(dfbm, multi, CLOUD_FINE_DETAIL_AMOUNT), fine_fade);
+				}
+
 				// wispy at the base, billowing above
 				float erode = mix(dfbm, 1.0 - dfbm, cloud_saturate(hf * 5.0));
 				// once the detail is much finer than the sample it only greys the edges out. it eats the
 				// thin rim and leaves the core
-				d = cloud_saturate(cloud_remap(d, erode * style.y * (1.0 - smoothstep(2.0, 4.0, detail_lod)), 1.0, 0.0, 1.0));
+				d = cloud_saturate(cloud_remap(d, erode * style.y * (1.0 - smoothstep(2.0, 4.0, detail_lod) * (1.0 - fine_fade)), 1.0, 0.0, 1.0));
+			}
+
+			// the body: billows as big as a cloud's lumps dent the outer part of the shape in 3D, so a thick
+			// cloud has a surface of round lumps and not one smooth skin. sampled coarse, they are
+			// affordable everywhere
+			float body_lod = log2(max(footprint * ]] .. clouds.DETAIL_NOISE_SIZE .. [[.0 / (scale.z * CLOUD_BODY_SCALE), 1.0));
+
+			// the dents fade out at mip 5 and don't reach the core, skip the fetch where they would not show
+			if (detail && body_lod < 5.0 && inside < 1.0) {
+				vec3 body_uvw = (vec3(p.x, alt, p.z) + offset2.yzw) / (scale.z * CLOUD_BODY_SCALE);
+				body_uvw = vec3(body_uvw.x * 0.8 + body_uvw.z * 0.6, body_uvw.y, body_uvw.z * 0.8 - body_uvw.x * 0.6) + 0.53;
+				float billow = dot(textureLod(cloud_detail_noise, body_uvw, body_lod).rgb, vec3(0.7, 0.3, 0.0));
+				// the noise is 1 at the middle of a lump, the dents are between them
+				float dent = 1.0 - smoothstep(CLOUD_BODY_LUMP_LOW, CLOUD_BODY_LUMP_HIGH, billow);
+				d *= 1.0 - CLOUD_BODY_DEPTH * dent * (1.0 - smoothstep(CLOUD_BODY_SHELL, 1.0, inside)) * (1.0 - smoothstep(2.0, 5.0, body_lod));
 			}
 
 			return d * shape.w;
@@ -1041,6 +1105,9 @@ function clouds.GetGLSL(block)
 			float depth_sum = 0.0;
 			float depth_weight = 0.0;
 			int light_steps = quality >= 1.0 ? 6 : 4;
+			// how many meters a pixel of the view covers per meter of distance. the detail is filtered by that and
+			// not by the length of the step, which grows with distance and blurs what a pixel could still resolve
+			float pixel_angle = 2.0 / (CLOUD_BLOCK.projection[1][1] * CLOUD_BLOCK.render_size.y);
 
 			for (int s = 0; s < count && transmittance > CLOUD_HIDDEN_TRANSMITTANCE; s++) {
 				int i = seg_layer[s];
@@ -1108,7 +1175,7 @@ function clouds.GetGLSL(block)
 					vec3 p = origin + dir * ts;
 					float alt = cloud_altitude(r, ts);
 					float shade;
-					float density = cloud_density_shaded(i, p, alt, true, dt, shade);
+					float density = cloud_density_shaded(i, p, alt, true, quality >= 1.0 ? min(dt, max(ts * pixel_angle, 0.5)) : dt, shade);
 
 					if (density <= 0.0) {
 						empty++;
