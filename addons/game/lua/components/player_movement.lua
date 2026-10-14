@@ -29,7 +29,9 @@ META:GetSet("CrouchHeight", 36 * UNIT)
 META:GetSet("CrouchEyeHeight", 28 * UNIT)
 META:GetSet("CrouchTransitionTime", 0.05)
 META:GetSet("FlySpeed", 30)
-META:GetSet("FlySpeedRamp", 0.75)
+META:GetSet("FlySpeedRamp", 1)
+META:GetSet("FlyAccelerate", 4)
+META:GetSet("FlyBrake", 5)
 META:GetSet("FlySpeedMaxMultiplier", 500)
 META:GetSet("WalkMaxLinearSpeed", 240)
 META:GetSet("SprintMultiplier", 2)
@@ -660,13 +662,14 @@ do
 			self.fly_speed_multiplier = 1
 		end
 
-		body:SetVelocity(
-			approach_vec(
-				body:GetVelocity():Copy(),
-				move * speed_multiplier * self.FlySpeed * self.fly_speed_multiplier,
-				self.Acceleration * dt * 10
+		local velocity = body:GetVelocity():Copy()
+		local target = move * (
+				moving and
+				speed_multiplier * self.FlySpeed * self.fly_speed_multiplier or
+				0
 			)
-		)
+		local rate = target:GetLength() < velocity:GetLength() and self.FlyBrake or self.FlyAccelerate
+		body:SetVelocity(velocity + (target - velocity) * (1 - math.exp(-rate * dt)))
 		body:SetAngularVelocity(Vec3())
 	end
 end
