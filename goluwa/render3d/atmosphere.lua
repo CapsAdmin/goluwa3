@@ -24,7 +24,12 @@ local SKY_VIEW_LUT_WIDTH = 1024
 local SKY_VIEW_LUT_HEIGHT = 512
 local SKY_VIEW_STEPS = 32
 local SKY_VIEW_TEXTURE_CACHE_LIMIT = 16
-local SKY_VIEW_POSITION_QUANTIZATION = 2
+-- the table is baked at the quantised camera and sun elevation of its key, never at whatever asked for it first: the
+-- environment probe at the origin and the view at 600 m shared a 2 km cell, and the one that got there first decided
+-- what the sky looked like, the sea level bake has 7 percent more air to look through. The air changes with height, the
+-- sideways position only tilts the horizon, so the height is quantised finely and the position coarsely (km)
+local SKY_VIEW_POSITION_QUANTIZATION = 5
+local SKY_VIEW_HEIGHT_QUANTIZATION = 0.1
 -- the sky view table is parametrised by the azimuth from the sun, so it depends on the sun's elevation over the horizon
 -- alone. It was keyed by the direction's components in steps of 0.002 (0.12 degrees): the table baked for the first sun in
 -- a step served the rest of it, the sky stood still and jumped 3 percent every 0.12 degrees of the sun's motion, and at a
@@ -140,14 +145,15 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 	local sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 	local length = math.sqrt(camera.x * camera.x + camera.y * camera.y + camera.z * camera.z)
 	local elevation = math.asin(math.max(-1, math.min(1, (sun.x * camera.x + sun.y * camera.y + sun.z * camera.z) / length)))
-	return string.format(
-		"%.1f:%.1f:%.1f|%.6f|%.3f",
-		quantize(camera.x, SKY_VIEW_POSITION_QUANTIZATION),
-		quantize(camera.y, SKY_VIEW_POSITION_QUANTIZATION),
-		quantize(camera.z, SKY_VIEW_POSITION_QUANTIZATION),
-		quantize(elevation, SKY_VIEW_ELEVATION_QUANTIZATION),
-		quantize(sun_illuminance, SKY_VIEW_ILLUMINANCE_QUANTIZATION)
-	)
+	local x = quantize(camera.x, SKY_VIEW_POSITION_QUANTIZATION)
+	local y = quantize(camera.y, SKY_VIEW_HEIGHT_QUANTIZATION)
+	local z = quantize(camera.z, SKY_VIEW_POSITION_QUANTIZATION)
+	elevation = quantize(elevation, SKY_VIEW_ELEVATION_QUANTIZATION)
+	return string.format("%.1f:%.1f:%.1f|%.6f|%.3f", x, y, z, elevation, quantize(sun_illuminance, SKY_VIEW_ILLUMINANCE_QUANTIZATION)),
+	x,
+	y,
+	z,
+	elevation
 end
 
 local atmosphere_shared_glsl = [[
@@ -1430,10 +1436,14 @@ function atmosphere.GetSunIlluminance()
 	return atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 end
 
-local function create_sky_view_texture(cam_pos, sun_dir)
+local function create_sky_view_texture(x, y, z, elevation)
 	local tex = create_lut_texture(SKY_VIEW_LUT_WIDTH, SKY_VIEW_LUT_HEIGHT)
-	local camera = get_shader_camera_position(cam_pos)
-	local sun = get_normalized_sun_direction(sun_dir)
+	local length = math.sqrt(x * x + y * y + z * z)
+	local ux, uy, uz = x / length, y / length, z / length
+	local hx, hy, hz = uy, -ux, 0
+	local hl = math.sqrt(hx * hx + hy * hy)
+	hx, hy = hx / hl, hy / hl
+	local cos_e, sin_e = math.cos(elevation), math.sin(elevation)
 	tex:Shade(
 		sky_view_glsl,
 		{
@@ -1442,9 +1452,9 @@ local function create_sky_view_texture(cam_pos, sun_dir)
 			fragment_push_constants = {
 				size = ffi.sizeof(SkyViewConstants),
 				data = SkyViewConstants(
-					{camera.x, camera.y, camera.z},
+					{x, y, z},
 					atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE,
-					{sun.x, sun.y, sun.z},
+					{hx * cos_e + ux * sin_e, hy * cos_e + uy * sin_e, hz * cos_e + uz * sin_e},
 					aerosol_extinction
 				),
 			},
@@ -1478,7 +1488,7 @@ function atmosphere.GetMultiScatterTexture()
 end
 
 function atmosphere.GetSkyViewTexture(cam_pos, sun_dir)
-	local key = get_sky_view_texture_key(cam_pos, sun_dir)
+	local key, x, y, z, elevation = get_sky_view_texture_key(cam_pos, sun_dir)
 	local tex = atmosphere.sky_view_textures[key]
 
 	if tex and tex:IsValid() then
@@ -1487,7 +1497,7 @@ function atmosphere.GetSkyViewTexture(cam_pos, sun_dir)
 	end
 
 	destroy_sky_view_texture(key)
-	tex = create_sky_view_texture(cam_pos, sun_dir)
+	tex = create_sky_view_texture(x, y, z, elevation)
 	atmosphere.sky_view_textures[key] = tex
 	touch_sky_view_texture_key(key)
 
