@@ -80,6 +80,20 @@ local compensation = pvars.Setup2{
 	max = 10,
 	help = "exposure compensation in stops, how much brighter than the meter the camera exposes",
 }
+local white_balance = pvars.Setup2{
+	key = "r_camera_white_balance",
+	default = 6500,
+	min = 0,
+	max = 25000,
+	help = "colour temperature in kelvin of the light the camera takes for white, 6500 (D65, the display's white) leaves the colours as they are, 5500 is daylight, 0 estimates it from the frame (gray world)",
+}
+local white_balance_tint = pvars.Setup2{
+	key = "r_camera_white_balance_tint",
+	default = 0,
+	min = -1,
+	max = 1,
+	help = "how green (+) or magenta (-) the light is that the white balance takes for white, on top of its colour temperature",
+}
 pvars.EndGroup()
 
 local function log2(x)
@@ -92,6 +106,14 @@ end
 
 function exposure.GetCameraCompensation()
 	return compensation:Get()
+end
+
+function exposure.GetCameraWhiteBalance()
+	return white_balance:Get()
+end
+
+function exposure.GetCameraWhiteBalanceTint()
+	return white_balance_tint:Get()
 end
 
 function exposure.GetCameraMode()
@@ -149,10 +171,10 @@ function exposure.DescribeCamera(ev)
 	return s, n, t
 end
 
--- how the metering and the adaptation behave. low and high percent: which part of the frame's luminance histogram is
--- averaged (centre weighted), tau: seconds to adapt to a brighter and to a darker scene
+-- how the metering and the adaptation behave. The meter is an averaging one: the centre weighted mean of the frame's luminance
+-- (linear light, ISO 2720) with every pixel held at the high_percent percentile of the histogram, so a small highlight does
+-- not pull it. tau: seconds to adapt to a brighter and to a darker scene
 exposure.camera = {
-	low_percent = 0.4,
 	high_percent = 0.95,
 	tau_brighten = 0.5,
 	tau_darken = 1.5,
@@ -161,7 +183,6 @@ exposure.camera = {
 exposure.eye = {
 	min_ev = -4,
 	max_ev = 18,
-	low_percent = 0.4,
 	high_percent = 0.95,
 	tau_brighten = 0.5,
 	tau_darken = 1.5,

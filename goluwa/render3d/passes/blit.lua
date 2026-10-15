@@ -71,7 +71,7 @@ end
 local update_hdr_metadata
 local hdr_paper_white = pvars.Setup2{
 	key = "r_hdr_paper_white",
-	default = 203,
+	default = 200,
 	min = 1,
 	help = "nits SDR white is shown at in HDR output",
 	callback = function(_, is_init)
@@ -80,7 +80,7 @@ local hdr_paper_white = pvars.Setup2{
 }
 local hdr_peak = pvars.Setup2{
 	key = "r_hdr_peak",
-	default = 1000,
+	default = 2000,
 	min = 1,
 	help = "nits of the brightest the display can show in HDR output",
 	callback = function(_, is_init)
@@ -147,6 +147,14 @@ end
 
 local function get_exposure_feedback_texture()
 	return post_source.GetExposureTexture()
+end
+
+local function get_white_balance_texture()
+	local pipeline = render3d.pipelines.white_balance_feedback
+
+	if not pipeline or not pipeline.framebuffers then return nil end
+
+	return pipeline:GetFramebuffer():GetAttachment(1)
 end
 
 local function get_previous_exposure_texture()
@@ -236,6 +244,66 @@ do
 	ADAPTATION_CURVE_CONES_GLSL = build(cones)
 end
 
+local WHITE_BALANCE_GLSL = [[
+	// chromaticity of the daylight locus (4000 to 25000 K, CIE) and of a blackbody below it (Kim et al.)
+	vec2 illuminant_xy(float t) {
+		t = clamp(t, 2000.0, 25000.0);
+		float x;
+		float y;
+
+		if (t < 4000.0) {
+			x = -0.2661239e9 / (t * t * t) - 0.2343589e6 / (t * t) + 0.8776956e3 / t + 0.179910;
+			y = t < 2222.0 ?
+				-1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x - 0.20219683 :
+				-0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x - 0.16748867;
+		} else {
+			x = t < 7000.0 ?
+				-4.6070e9 / (t * t * t) + 2.9678e6 / (t * t) + 0.09911e3 / t + 0.244063 :
+				-2.0064e9 / (t * t * t) + 1.9018e6 / (t * t) + 0.24748e3 / t + 0.237040;
+			y = -3.0 * x * x + 2.87 * x - 0.275;
+		}
+
+		return vec2(x, y);
+	}
+
+	const mat3 SRGB_TO_XYZ = mat3(
+		0.4124564, 0.2126729, 0.0193339,
+		0.3575761, 0.7151522, 0.1191920,
+		0.1804375, 0.0721750, 0.9503041
+	);
+	const mat3 XYZ_TO_SRGB = mat3(
+		3.2404542, -0.9692660, 0.0556434,
+		-1.5371385, 1.8760108, -0.2040259,
+		-0.4985314, 0.0415560, 1.0572252
+	);
+
+	// von Kries in the Bradford cone space: what a surface looks like under an illuminant of this correlated colour
+	// temperature, in linear sRGB, shown as it would under D65 (the display's white)
+	mat3 white_balance_matrix(vec2 xy) {
+		const mat3 bradford = mat3(
+			0.8951, -0.7502, 0.0389,
+			0.2664, 1.7135, -0.0685,
+			-0.1614, 0.0367, 1.0296
+		);
+		const mat3 bradford_inverse = mat3(
+			0.9869929, 0.4323053, -0.0085287,
+			-0.1470543, 0.5183603, 0.0400428,
+			0.1599627, 0.0492912, 0.9684867
+		);
+		vec3 source = bradford * vec3(xy.x / xy.y, 1.0, (1.0 - xy.x - xy.y) / xy.y);
+		vec3 target = bradford * vec3(0.95047, 1.0, 1.08883);
+		vec3 gain = target / source;
+		mat3 adapt = bradford_inverse * mat3(gain.x, 0.0, 0.0, 0.0, gain.y, 0.0, 0.0, 0.0, gain.z) * bradford;
+		return XYZ_TO_SRGB * adapt * SRGB_TO_XYZ;
+	}
+
+	// the chromaticity of a linear sRGB colour
+	vec2 rgb_to_xy(vec3 rgb) {
+		vec3 xyz = SRGB_TO_XYZ * rgb;
+		return xyz.xy / max(xyz.x + xyz.y + xyz.z, 1e-6);
+	}
+]]
+
 local exposure_feedback_shader = [[
 	layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_exposure;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
@@ -250,6 +318,9 @@ local exposure_feedback_shader = [[
 	#define GRID_Y 90
 
 	shared uint bins[BINS];
+	shared float clamp_luma;
+	shared float partial_light[256];
+	shared float partial_weight[256];
 
 	float log2_to_ev(float log_luma) {
 		return log_luma + 3.0; // log2(100 / 12.5)
@@ -268,6 +339,13 @@ local exposure_feedback_shader = [[
 		return mix(cones, rods, compute.rod_adaptation);
 	}
 
+	float sample_luma(int n, float to_absolute, out float weight) {
+		vec2 uv = (vec2(n % GRID_X, n / GRID_X) + 0.5) / vec2(GRID_X, GRID_Y);
+		// the centre of the view counts four times as much as the corners
+		weight = 1.0 + 3.0 * (1.0 - smoothstep(0.2, 1.0, length(uv * 2.0 - 1.0)));
+		return dot(textureLod(source_tex, uv, 0.0).rgb, vec3(0.2126, 0.7152, 0.0722)) * to_absolute;
+	}
+
 	void main() {
 		uint id = gl_LocalInvocationIndex;
 
@@ -277,38 +355,66 @@ local exposure_feedback_shader = [[
 		float to_absolute = 1.0 / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 		barrier();
 
+		// a histogram of the log luminance, only to find where the brightest few percent start
 		for (int n = int(id); n < GRID_X * GRID_Y; n += 256) {
-			vec2 uv = (vec2(n % GRID_X, n / GRID_X) + 0.5) / vec2(GRID_X, GRID_Y);
-			float luma = dot(textureLod(source_tex, uv, 0.0).rgb, vec3(0.2126, 0.7152, 0.0722)) * to_absolute;
+			float weight;
+			float luma = sample_luma(n, to_absolute, weight);
 			float bin = clamp((log2(max(luma, 1e-6)) - LOG_MIN) / (LOG_MAX - LOG_MIN) * float(BINS), 0.0, float(BINS - 1));
-			// the centre of the view counts four times as much as the corners
-			float weight = 1.0 + 3.0 * (1.0 - smoothstep(0.2, 1.0, length(uv * 2.0 - 1.0)));
 			atomicAdd(bins[int(bin)], uint(weight));
 		}
 
 		barrier();
 
-		if (id != 0u) return;
+		if (id == 0u) {
+			float total = 0.0;
 
-		float total = 0.0;
+			for (int i = 0; i < BINS; i++) total += float(bins[i]);
 
-		for (int i = 0; i < BINS; i++) total += float(bins[i]);
+			float cut = total * compute.high_percent;
+			float running = 0.0;
+			int top = BINS - 1;
 
-		float lo = total * compute.low_percent;
-		float hi = total * compute.high_percent;
-		float below = 0.0;
-		float log_sum = 0.0;
-		float weight_sum = 0.0;
+			for (int i = 0; i < BINS; i++) {
+				running += float(bins[i]);
 
-		for (int i = 0; i < BINS; i++) {
-			float count = float(bins[i]);
-			float take = clamp(below + count, lo, hi) - clamp(below, lo, hi);
-			log_sum += take * (LOG_MIN + (float(i) + 0.5) / float(BINS) * (LOG_MAX - LOG_MIN));
-			weight_sum += take;
-			below += count;
+				if (running >= cut) {
+					top = i;
+					break;
+				}
+			}
+
+			// the top of the bin that holds the percentile
+			clamp_luma = exp2(LOG_MIN + (float(top) + 1.0) / float(BINS) * (LOG_MAX - LOG_MIN));
 		}
 
-		float metered_ev = log2_to_ev(log_sum / max(weight_sum, 1.0));
+		barrier();
+
+		// what an averaging meter reads: the mean of the luminance, linear light, centre weighted, with each pixel held at
+		// the percentile so a small highlight (the sun, a glint) does not pull it
+		float light = 0.0;
+		float light_weight = 0.0;
+
+		for (int n = int(id); n < GRID_X * GRID_Y; n += 256) {
+			float weight;
+			light += min(sample_luma(n, to_absolute, weight), clamp_luma) * weight;
+			light_weight += weight;
+		}
+
+		partial_light[id] = light;
+		partial_weight[id] = light_weight;
+		barrier();
+
+		if (id != 0u) return;
+
+		float light_sum = 0.0;
+		float weight_sum = 0.0;
+
+		for (int i = 0; i < 256; i++) {
+			light_sum += partial_light[i];
+			weight_sum += partial_weight[i];
+		}
+
+		float metered_ev = log2_to_ev(log2(max(light_sum / max(weight_sum, 1.0), 1e-6)));
 		float ev = compute.eye != 0 ? metered_ev - adaptation_stops(metered_ev) : metered_ev;
 		ev = clamp(ev - compute.compensation, compute.min_ev, compute.max_ev);
 
@@ -368,7 +474,6 @@ local exposure_feedback_pass = {
 		{"rod_adaptation", "float"},
 		{"min_ev", "float"},
 		{"max_ev", "float"},
-		{"low_percent", "float"},
 		{"high_percent", "float"},
 		{"tau_brighten", "float"},
 		{"tau_darken", "float"},
@@ -397,7 +502,6 @@ local exposure_feedback_pass = {
 		block.rod_adaptation = exposure_rod_adaptation:Get()
 		block.min_ev = min_ev
 		block.max_ev = max_ev
-		block.low_percent = meter.low_percent
 		block.high_percent = meter.high_percent
 		block.tau_brighten = meter.tau_brighten
 		block.tau_darken = meter.tau_darken
@@ -420,6 +524,8 @@ commands.Add("r_exposure_info", function()
 	)
 
 	if not eye_enabled:Get() then
+		local wb = exposure_model.GetCameraWhiteBalance()
+		logf("[blit] white balance %s\n", wb > 0 and (wb .. " K") or "auto")
 		local iso, aperture, shutter = exposure_model.DescribeCamera(ev)
 		logf("[blit] camera %s: ISO %d, f/%.1f, 1/%d s\n", exposure_model.GetCameraMode(), iso, aperture, math.round(1 / shutter))
 	end
@@ -733,7 +839,8 @@ local compute_shader = [[
 	layout(set = 0, binding = 5) uniform sampler2D grid_tex;
 	layout(set = 0, binding = 6) uniform sampler2D prev_exposure_tex;
 	layout(set = 0, binding = 7) uniform sampler2D blue_noise_tex;
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
+	layout(set = 0, binding = 8) uniform sampler2D white_balance_tex;
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. WHITE_BALANCE_GLSL .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
 
 	// For HDR output: x exposed, returns linear light in units of paper white.
 	// The shadows and midtones go through the SDR tonemapper so they look the
@@ -807,6 +914,22 @@ local compute_shader = [[
 
 		vec2 uv = get_screen_uv(pos, size);
 		vec3 col = texture(source_tex, uv).rgb;
+
+		// the camera's white balance, the light it takes for white given as a colour temperature and a tint or estimated from the frame
+		if (compute.white_balance_on != 0) {
+			vec2 illuminant = vec2(0.3127, 0.3290);
+
+			if (compute.white_balance > 0.0) {
+				illuminant = illuminant_xy(compute.white_balance);
+				illuminant.y += compute.white_balance_tint * 0.02;
+			} else {
+				vec4 estimate = texture(white_balance_tex, vec2(0.5));
+
+				if (estimate.z > 0.5) illuminant = estimate.xy;
+			}
+
+			col = max(white_balance_matrix(illuminant) * col, vec3(0.0));
+		}
 		float exposure = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).r : exp2(]] .. LOG_EXPOSURE_AT_EV0 .. [[ - 10.0);
 		// the scene is pre-exposed with last frame's exposure
 		float pre_exposure = pre_exposure_from_exposure(compute.has_exposure_tex != 0 ? texture(prev_exposure_tex, vec2(0.5)).r : 0.0);
@@ -861,8 +984,92 @@ local compute_shader = [[
 		imageStore(out_color, pos, vec4(col, 1.0));
 	}
 ]]
+local white_balance_feedback_shader = [[
+	// the estimate is read and written in place, in the same texture the composite samples
+	layout(set = 0, binding = 0, rgba32f) uniform image2D white_balance_state;
+	layout(set = 0, binding = 1) uniform sampler2D source_tex;
+	]] .. WHITE_BALANCE_GLSL .. [[
+
+	#define GRID_X 160
+	#define GRID_Y 90
+	// the frame's mean colour relative to its brightness
+	shared uint chroma_sum[3];
+	shared uint chroma_weight;
+
+	void main() {
+		uint id = gl_LocalInvocationIndex;
+
+		if (id < 3u) chroma_sum[id] = 0u;
+
+		if (id == 0u) chroma_weight = 0u;
+
+		barrier();
+
+		for (int n = int(id); n < GRID_X * GRID_Y; n += 256) {
+			vec2 uv = (vec2(n % GRID_X, n / GRID_X) + 0.5) / vec2(GRID_X, GRID_Y);
+			vec3 rgb = textureLod(source_tex, uv, 0.0).rgb;
+			vec3 chroma = clamp(rgb / max(dot(rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-9), vec3(0.0), vec3(4.0));
+			float weight = 1.0 + 3.0 * (1.0 - smoothstep(0.2, 1.0, length(uv * 2.0 - 1.0)));
+			atomicAdd(chroma_sum[0], uint(chroma.r * weight * 64.0));
+			atomicAdd(chroma_sum[1], uint(chroma.g * weight * 64.0));
+			atomicAdd(chroma_sum[2], uint(chroma.b * weight * 64.0));
+			atomicAdd(chroma_weight, uint(weight * 64.0));
+		}
+
+		barrier();
+
+		if (id != 0u) return;
+
+		vec3 mean = vec3(float(chroma_sum[0]), float(chroma_sum[1]), float(chroma_sum[2])) / max(float(chroma_weight), 1.0);
+		vec2 xy = rgb_to_xy(mean);
+		// gray world is wrong for a green field or a blue sky, keep the estimate near the daylight locus
+		xy.x = clamp(xy.x, 0.28, 0.44);
+		float locus = -3.0 * xy.x * xy.x + 2.87 * xy.x - 0.275;
+		xy.y = clamp(xy.y, locus - 0.02, locus + 0.02);
+		vec4 prev = imageLoad(white_balance_state, ivec2(0, 0));
+		float k = 1.0 - exp(-compute.dt / compute.tau);
+		imageStore(white_balance_state, ivec2(0, 0), vec4(prev.z > 0.5 ? mix(prev.xy, xy, k) : xy, 1.0, 1.0));
+	}
+]]
+local white_balance_feedback_pass = {
+	name = "white_balance_feedback",
+	ComputePass = true,
+	is_enabled = function()
+		return not eye_enabled:Get() and exposure_model.GetCameraWhiteBalance() == 0
+	end,
+	ColorFormat = {{"r32g32b32a32_sfloat", {"white_balance", "rgba"}}},
+	FramebufferSize = {x = 1, y = 1},
+	framebuffer_count = 1,
+	LocalSize = {x = 16, y = 16, z = 1},
+	storage_images = {
+		{
+			binding_index = 0,
+			get_texture = get_white_balance_texture,
+			dst_stage = "compute",
+		},
+	},
+	sampled_images = {
+		{
+			binding_index = 1,
+			get_texture = function()
+				return post_source.GetSceneSourceTexture({name = "white_balance_feedback"})
+			end,
+		},
+	},
+	block = {
+		{"dt", "float"},
+		{"tau", "float"},
+	},
+	write = function(self, block)
+		block.dt = math.clamp(system.GetFrameTime(), 0, 0.1)
+		block.tau = exposure_model.camera.tau_darken
+		return block
+	end,
+	shader = white_balance_feedback_shader,
+}
 local r = {
 	exposure_feedback_pass,
+	white_balance_feedback_pass,
 	local_exposure_grid_pass,
 	local_exposure_blur_pass,
 }
@@ -932,6 +1139,7 @@ for _, pass in ipairs{
 					return assets.GetTexture("textures/render/blue_noise.lua")
 				end,
 			},
+			{binding_index = 8, get_texture = get_white_balance_texture},
 		},
 		block = {
 			{"has_source_tex", "int"},
@@ -949,6 +1157,9 @@ for _, pass in ipairs{
 			{"night_vision_log10_threshold", "float"},
 			{"night_vision_tint", "float"},
 			{"debug_passthrough", "int"},
+			{"white_balance_on", "int"},
+			{"white_balance", "float"},
+			{"white_balance_tint", "float"},
 			local_exposure_block,
 		},
 		write = function(self, block)
@@ -976,11 +1187,15 @@ for _, pass in ipairs{
 			block.night_vision_tint = night_vision_tint:Get()
 			write_local_exposure_block(block)
 			block.debug_passthrough = post_source.GetDebugTexture() and 1 or 0
+			block.white_balance_on = not eye_enabled:Get() and 1 or 0
+			block.white_balance = exposure_model.GetCameraWhiteBalance()
+			block.white_balance_tint = exposure_model.GetCameraWhiteBalanceTint()
 
 			if block.debug_passthrough == 1 then
 				block.has_bloom_tex = 0
 				block.has_grid_tex = 0
 				block.night_vision = 0
+				block.white_balance_on = 0
 			end
 
 			return block
