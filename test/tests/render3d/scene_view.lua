@@ -164,38 +164,3 @@ T.Test3D("Every environment preset bakes and shows its sky", function()
 
 	if not ok then error(err, 0) end
 end)
-
-T.Test3D("Environment from an atmosphere shader puts the sun where it was asked", function()
-	local view = SceneView.New{Width = 64, Height = 64, Supersample = 1, TransparentSky = false}
-	local ok, err = xpcall(
-		function()
-			-- looking along -z and 10 degrees up, azimuth 270 is the sun right in front of the camera
-			local orbit = OrbitCamera.New(view:GetCamera())
-			orbit.Yaw, orbit.Pitch, orbit.Distance = 0, math.rad(10), 1
-			orbit:Apply()
-
-			local function center_pixel(azimuth)
-				local environment = Environment.New{
-					Shader = import("goluwa/render3d/atmospheres/nishita.lua"),
-					SunElevation = 10,
-					SunAzimuth = azimuth,
-					Intensity = 1,
-				}
-				view:SetEnvironment(environment)
-				view:RenderNow()
-				local r, g, b = view:GetTexture():GetPixel(32, 32)
-				environment:Remove()
-				return r / 255, g / 255, b / 255
-			end
-
-			local r, g, b = center_pixel(270)
-			T(r > 0.97 and g > 0.97 and b > 0.97)["=="](true)
-			r, g, b = center_pixel(90)
-			T(r < 0.9 and b > r)["=="](true)
-		end,
-		debug.traceback
-	)
-	view:Remove()
-
-	if not ok then error(err, 0) end
-end)

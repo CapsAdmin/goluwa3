@@ -17,7 +17,7 @@ local SceneView = import("goluwa/render3d/scene_view.lua")
 local Environment = import("goluwa/render3d/environment.lua")
 local OrbitCamera = import("goluwa/render3d/orbit_camera.lua")
 local previews = import("lua/asset_preview.lua")
-local DEFAULT_ENVIRONMENT = "Nishita midday"
+local DEFAULT_ENVIRONMENT = "Studio"
 local WINDOW_SIZE = Vec2(1040, 740)
 local LOAD_TIMEOUT = 20
 -- the view is rendered at multiples of this and stretched to the canvas, a bundle of passes is kept

@@ -176,42 +176,9 @@ function META:Bake(cmd)
 end
 
 -- what a viewer offers to pick from. the ones with a Shader are rendered from the modules in
--- render3d/atmospheres, whose values are around 1 by day, so their Intensity is 1 and the dusk's
--- is lower to bring up its sky
+-- render3d/atmospheres, whose values are around 1 by day, so their Intensity is 1
 META.presets = {
 	{Name = "Studio"},
-	{
-		Name = "Nishita midday",
-		Shader = "goluwa/render3d/atmospheres/nishita.lua",
-		SunElevation = 60,
-		SunAzimuth = 50,
-		Ground = 0.3,
-		Intensity = 1,
-	},
-	{
-		Name = "Nishita afternoon",
-		Shader = "goluwa/render3d/atmospheres/nishita.lua",
-		SunElevation = 25,
-		SunAzimuth = 50,
-		Ground = 0.3,
-		Intensity = 1,
-	},
-	{
-		Name = "Nishita sunset",
-		Shader = "goluwa/render3d/atmospheres/nishita.lua",
-		SunElevation = 3,
-		SunAzimuth = 50,
-		Ground = 0.3,
-		Intensity = 1,
-	},
-	{
-		Name = "Nishita dusk",
-		Shader = "goluwa/render3d/atmospheres/nishita.lua",
-		SunElevation = -2,
-		SunAzimuth = 50,
-		Ground = 0.3,
-		Intensity = 0.1,
-	},
 	{
 		Name = "Temple",
 		Shader = "goluwa/render3d/atmospheres/temple.lua",
