@@ -1,5 +1,6 @@
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local froxel_fog = {}
 froxel_fog.TILE = 8
 froxel_fog.MAX_WIDTH = 240
@@ -131,12 +132,11 @@ function froxel_fog.GetViewDirGLSL(block)
 end
 
 function froxel_fog.GetPointGLSL(block)
-	return [[
+	return screen_reconstruct.GetViewDepthGLSL(block) .. [[
 		// view depth of the surface seen through uv, the ocean's included
 		float froxel_surface_depth(vec2 uv) {
 			float depth = textureLod(TEXTURE(]] .. block .. [[.depth_tex), uv, 0.0).r;
-			vec4 surface = ]] .. block .. [[.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
-			float view_depth = depth < 1.0 ? -surface.z / surface.w : 1e30;
+			float view_depth = depth < 1.0 ? get_view_depth(uv, depth) : 1e30;
 			// where the air ends at the water, 0 with the camera in it
 			float air_distance = ]] .. block .. [[.ocean_distance_tex != -1 ? textureLod(TEXTURE(]] .. block .. [[.ocean_distance_tex), uv, 0.0).g : -1.0;
 			return air_distance >= 0.0 ? min(view_depth, air_distance / length(get_view_dir(uv))) : view_depth;

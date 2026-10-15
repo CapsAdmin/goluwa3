@@ -13,6 +13,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 -- where the air has thinned to a few thousandths of its density at the ground, past it a sky ray has nothing left to scatter
 local AIR_END_ALTITUDE = 50
@@ -745,7 +746,7 @@ local composite_pass = {
 				float t = ray_sphere_intersect(get_atmosphere_camera_origin(fog_data.camera_position.xyz), dir, PLANET_RADIUS).x;
 				return t > 0.0 ? t : 1e30;
 			}
-		]] .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data") .. post_source.GetPreExposureGLSL("fog_data") .. [[
+		]] .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. screen_reconstruct.GetViewDepthGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data") .. post_source.GetPreExposureGLSL("fog_data") .. [[
 			void main() {
 				// the scene is pre-exposed, the fog in front of it absolute
 				float pre_exposure = get_pre_exposure();
@@ -760,8 +761,7 @@ local composite_pass = {
 				if (air_distance >= 0.0) {
 					hit_distance = air_distance;
 				} else if (depth < 1.0) {
-					vec4 view_pos = fog_data.inv_projection * vec4(in_uv * 2.0 - 1.0, depth, 1.0);
-					hit_distance = -view_pos.z / view_pos.w * length(view_dir);
+					hit_distance = get_view_depth(in_uv, depth) * length(view_dir);
 				}
 
 				// the froxel volume holds the air up to FROXEL_FAR, lit and

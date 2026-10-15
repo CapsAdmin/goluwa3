@@ -34,6 +34,28 @@ function screen_reconstruct.GetWorldPosFromUVGLSL(block_name, options)
 	):format(function_name, uv_name, depth_name, uv_name, depth_name, block_name, block_name)
 end
 
+function screen_reconstruct.GetViewPosGLSL(block_name)
+	return (
+		[[
+			vec3 get_view_pos(vec2 uv, float depth) {
+				vec4 view_pos = %s.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+				return view_pos.xyz / view_pos.w;
+			}
+	]]
+	):format(block_name)
+end
+
+function screen_reconstruct.GetViewDepthGLSL(block_name)
+	return (
+		[[
+			float get_view_depth(vec2 uv, float depth) {
+				vec4 view_pos = %s.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+				return -view_pos.z / view_pos.w;
+			}
+	]]
+	):format(block_name)
+end
+
 function screen_reconstruct.GetWorldRayGLSL(block_name, options)
 	options = options or {}
 	local function_name = options.function_name or "get_world_ray"

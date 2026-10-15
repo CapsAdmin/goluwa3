@@ -128,10 +128,7 @@ return {
 
 ]] .. screen_reconstruct.GetViewRayFromUVGLSL("taa_data") .. [[
 
-			float get_view_depth(vec2 uv, float depth) {
-				vec4 view_pos = taa_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
-				return -view_pos.z / view_pos.w;
-			}
+]] .. screen_reconstruct.GetViewDepthGLSL("taa_data") .. screen_reconstruct.GetViewPosGLSL("taa_data") .. [[
 
 			// 5 bilinear taps covering the 4x4 Catmull-Rom footprint, with the
 			// corners dropped (Jimenez, "Filmic SMAA")
@@ -235,8 +232,7 @@ return {
 					prev_uv = uv - motion.xy;
 					expected_depth = motion.z;
 				} else {
-					vec4 view_pos = taa_data.inv_projection * vec4(uv * 2.0 - 1.0, closest_depth, 1.0);
-					vec4 world_pos = taa_data.inv_view * (view_pos / view_pos.w);
+					vec4 world_pos = taa_data.inv_view * vec4(get_view_pos(uv, closest_depth), 1.0);
 					vec4 prev_clip = taa_data.prev_projection * taa_data.prev_view * vec4(world_pos.xyz, 1.0);
 					prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
 				}

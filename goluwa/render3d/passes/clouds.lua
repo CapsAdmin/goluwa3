@@ -4,6 +4,7 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local BINDING_OUT = 0
 local BINDING_OUT2 = 1
@@ -391,7 +392,7 @@ local trace_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUT .. [[, rgba16f) uniform writeonly image2D out_trace;
 		layout(set = 0, binding = ]] .. BINDING_OUT2 .. [[, r32f) uniform writeonly image2D out_depth;
 	]] .. NOISE_DECLARATIONS,
-	shader = cloud_glsl() .. froxel_fog.GetViewDirGLSL("cloud_data") .. [[
+	shader = cloud_glsl() .. froxel_fog.GetViewDirGLSL("cloud_data") .. screen_reconstruct.GetViewDepthGLSL("cloud_data") .. [[
 		void main() {
 			ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 
@@ -415,8 +416,7 @@ local trace_pass = {
 			float t_max = ]] .. string.format("%.1f", VIEW_DISTANCE) .. [[;
 
 			if (depth < 1.0) {
-				vec4 surface = cloud_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
-				t_max = -surface.z / surface.w * length(view_dir);
+				t_max = get_view_depth(uv, depth) * length(view_dir);
 			}
 
 			float cloud_depth;

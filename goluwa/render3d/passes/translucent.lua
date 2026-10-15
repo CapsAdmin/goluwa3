@@ -13,6 +13,7 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local translucent_extras = import("goluwa/render3d/translucent_extras.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -401,10 +402,7 @@ local passes = {
 					return (clip.xy / clip.w - prev_clip.xy / prev_clip.w) * 0.5;
 				}
 
-				vec3 get_scene_pos(vec2 uv, float depth) {
-					vec4 view_pos = lighting_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
-					return (lighting_data.inv_view * vec4(view_pos.xyz / view_pos.w, 1.0)).xyz;
-				}
+]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_scene_pos"}) .. [[
 
 				// the radiance behind the surface arriving along dir: the scene
 				// where the ray meets it, blurred by how far roughness has spread

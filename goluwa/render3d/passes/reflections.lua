@@ -99,10 +99,7 @@ local shared_glsl = [[
 				return dot(inv_projection_row_z, clip) / dot(inv_projection_row_w, clip);
 			}
 
-			vec3 get_view_pos(vec2 uv, float depth) {
-				vec4 view_pos = reflection_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
-				return view_pos.xyz / view_pos.w;
-			}
+]] .. screen_reconstruct.GetViewPosGLSL("reflection_data") .. [[
 
 			float fetch_depth(vec2 uv) {
 				return gbuffer_depth(clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1));
