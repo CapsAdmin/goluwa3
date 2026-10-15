@@ -367,7 +367,7 @@ local passes = {
 				// viewer is on. the gbuffer's screen space gi is the light of the
 				// opaque surface behind, which is another place with another
 				// normal, and only stands in where there are no probes
-				vec3 get_gi_irradiance(vec2 screen_uv, vec3 world_pos, vec3 facing_N, vec3 V, out float sky_visibility) {
+				vec3 get_gi_irradiance(vec2 screen_uv, vec3 world_pos, vec3 facing_N, vec3 V, bool use_probes, out float sky_visibility) {
 					vec3 irradiance;
 					bool behind_is_sky = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r >= 1.0;
 
@@ -380,7 +380,7 @@ local passes = {
 						irradiance = gi.rgb;
 					}
 
-					if (!ddgi_in_volume(world_pos)) return irradiance;
+					if (!use_probes || !ddgi_in_volume(world_pos)) return irradiance;
 
 					float weight;
 					vec4 probes = ddgi_sample_irradiance(world_pos, facing_N, facing_N, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
@@ -425,7 +425,34 @@ local passes = {
 					return 0.5 * (rs * rs + rp * rp);
 				}
 
-				vec3 get_refracted_background(vec3 surface_pos, vec3 exit_pos, vec3 exit_normal, vec3 dir, float reach, float roughness, vec3 environment_fallback) {
+				// what a ray that leaves a refracting surface finds where the screen and the scene do not say: the sky and the probes'
+				// light. Only a ray that misses needs it, so it is worked out there, with the surface's values kept here
+				bool exit_gi_known;
+				bool exit_use_probes;
+				vec3 exit_irradiance;
+				float exit_sky_visibility;
+				vec2 exit_screen_uv;
+				vec3 exit_world_pos;
+				vec3 exit_geometric_N;
+				vec3 exit_V;
+				vec3 exit_N;
+				float exit_perceptual_roughness;
+
+				vec3 get_exit_environment(vec3 dir) {
+					if (!exit_gi_known) {
+						exit_irradiance = get_gi_irradiance(exit_screen_uv, exit_world_pos, dot(exit_geometric_N, exit_V) < 0.0 ? -exit_geometric_N : exit_geometric_N, exit_V, exit_use_probes, exit_sky_visibility);
+						exit_gi_known = true;
+					}
+
+					return blend_probe_reflections(
+						mix(exit_irradiance, sample_environment_specular(lighting_data.env_tex, dir, exit_N, exit_perceptual_roughness), exit_sky_visibility),
+						dir,
+						exit_perceptual_roughness,
+						exit_world_pos
+					);
+				}
+
+				vec3 get_refracted_background(vec3 surface_pos, vec3 exit_pos, vec3 exit_normal, vec3 dir, float reach, float roughness) {
 					// per pixel and frame noise for the step jitter and the cone's rotation; a hash, because the
 					// gradient noise has diagonal structure that slides along as the frame moves
 					uvec3 hash_state = uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.time * 60.0)) * 1664525u + 1013904223u;
@@ -437,7 +464,7 @@ local passes = {
 					float spin = float(hash_state.x >> 8u) / 16777216.0;
 					float jitter = float(hash_state.y >> 8u) / 16777216.0;
 
-					if (lighting_data.refraction_tex < 0) return environment_fallback;
+					if (lighting_data.refraction_tex < 0) return get_exit_environment(dir);
 
 					// a rough interface spreads the ray into a cone. One ray lands on one object, so a blurred lookup
 					// at where it landed keeps the hard edge of whatever it met; several rays across the cone average
@@ -475,7 +502,7 @@ local passes = {
 
 								// a ray that hit nothing got the raw sky back, which is not what the surroundings (an enclosed place,
 								// the probes) say is there: those are what the screen would have used, so only a hit is taken
-								sum += traced_t < SCENE_REFLECTION_MAX_DISTANCE ? traced : environment_fallback;
+								sum += traced_t < SCENE_REFLECTION_MAX_DISTANCE ? traced : get_exit_environment(dir);
 								continue;
 							}
 							#endif
@@ -483,7 +510,8 @@ local passes = {
 							float outside = length(uv - clamp(uv, vec2(0.0), vec2(1.0)));
 							float edge_blur = 1.0 + outside * lighting_data.render_size.y * 0.25;
 							vec3 edge = textureLod(TEXTURE(lighting_data.refraction_tex), clamp(uv, vec2(0.0), vec2(1.0)), log2(edge_blur)).rgb * to_absolute;
-							sum += mix(edge, environment_fallback, smoothstep(0.5, 2.0, outside));
+							float far_outside = smoothstep(0.5, 2.0, outside);
+							sum += far_outside > 0.0 ? mix(edge, get_exit_environment(dir), far_outside) : edge;
 							continue;
 						}
 
@@ -575,17 +603,45 @@ local passes = {
 					finish_surface_features(surface);
 					vec3 direct_diffuse = get_direct_light(surface, direct_specular);
 
-					float sky_visibility;
-					vec3 irradiance = get_gi_irradiance(screen_uv, world_pos, dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N, V, sky_visibility);
-					vec3 raw_R = reflect(-V, N);
-					vec3 R = get_specular_dominant_direction(raw_R, N, perceptual_roughness);
-					vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, N, perceptual_roughness);
-					vec3 reflection = blend_probe_reflections(mix(irradiance, sky_reflection, sky_visibility), R, perceptual_roughness, world_pos);
-					#ifdef SCENE_REFLECTION
 					// a smooth surface reflects what the scene holds, one ray along the mirror direction (there
 					// is no history to average a rough one over), fading into the probes as it roughens
+					bool traced_only = false;
+					#ifdef SCENE_REFLECTION
 					float traced_weight = 1.0 - smoothstep(0.1, 0.35, perceptual_roughness);
+					traced_only = traced_weight >= 1.0 && scene_reflection_ready();
+					#endif
+					// the light of the probes is the surface's own diffuse and what it reflects where nothing is traced. A
+					// surface that transmits all, and reflects only what it traces, needs it only where a refracted ray misses
+					float sky_visibility = 1.0;
+					vec3 irradiance = vec3(0.0);
+					bool gi_known = !(refractive && refraction.amount >= 1.0 && traced_only);
+					// a surface that transmits all of the light has no diffuse of its own, the light only reaches its reflection:
+					// the opaque scene's light behind it and the sky stand in for the probes' (8 probes with a visibility
+					// test per pixel and layer)
+					bool use_probes = !(refractive && refraction.amount >= 1.0);
 
+					if (gi_known) irradiance = get_gi_irradiance(screen_uv, world_pos, dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N, V, use_probes, sky_visibility);
+
+					exit_gi_known = gi_known;
+					exit_use_probes = true;
+					exit_irradiance = irradiance;
+					exit_sky_visibility = sky_visibility;
+					exit_screen_uv = screen_uv;
+					exit_world_pos = world_pos;
+					exit_geometric_N = geometric_N;
+					exit_V = V;
+					exit_N = N;
+					exit_perceptual_roughness = perceptual_roughness;
+					vec3 raw_R = reflect(-V, N);
+					vec3 reflection = vec3(0.0);
+
+					if (!traced_only) {
+						vec3 R = get_specular_dominant_direction(raw_R, N, perceptual_roughness);
+						vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, N, perceptual_roughness);
+						reflection = blend_probe_reflections(mix(irradiance, sky_reflection, sky_visibility), R, perceptual_roughness, world_pos);
+					}
+
+					#ifdef SCENE_REFLECTION
 					if (traced_weight > 0.0 && scene_reflection_ready()) {
 						float traced_t;
 						vec3 traced = trace_scene_reflection(world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02, raw_R, N, perceptual_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
@@ -704,12 +760,7 @@ local passes = {
 						vec3 channel_background;
 
 						if (lighting_data.refraction_tex < 0) {
-							channel_background = blend_probe_reflections(
-								mix(irradiance, sample_environment_specular(lighting_data.env_tex, exit_dir, N, perceptual_roughness), sky_visibility),
-								exit_dir,
-								perceptual_roughness,
-								world_pos
-							);
+							channel_background = get_exit_environment(exit_dir);
 						} else if (refraction.thickness > 0.0) {
 							// how far behind the surface the opaque scene is along the view
 							// ray sets how far the refracted ray is followed. with only sky
@@ -723,13 +774,7 @@ local passes = {
 								reach = 3.0 * max(distance(lighting_data.camera_position.xyz, scene_pos) - surface_distance, 0.0) + 0.5;
 							}
 
-							vec3 environment = blend_probe_reflections(
-								mix(irradiance, sample_environment_specular(lighting_data.env_tex, exit_dir, N, perceptual_roughness), sky_visibility),
-								exit_dir,
-								perceptual_roughness,
-								world_pos
-							);
-							channel_background = get_refracted_background(world_pos, exit_pos, exit_outward, exit_dir, reach, roughness, environment);
+							channel_background = get_refracted_background(world_pos, exit_pos, exit_outward, exit_dir, reach, roughness);
 						} else {
 							vec2 slope = (lighting_data.view * vec4(N - facing_N, 0.0)).xy;
 							vec2 uv = clamp(screen_uv + vec2(slope.x, -slope.y) * (ior - 1.0), vec2(0.0), vec2(1.0));

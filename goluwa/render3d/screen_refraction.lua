@@ -20,7 +20,7 @@ function screen_refraction.GetGLSL(block_name)
 
 		// xy = uv, z = clip depth. uv is negative behind the camera
 		vec3 screen_refraction_project(vec3 world_pos) {
-			vec4 clip = ]] .. block_name .. [[.projection * ]] .. block_name .. [[.view * vec4(world_pos, 1.0);
+			vec4 clip = ]] .. block_name .. [[.projection * (]] .. block_name .. [[.view * vec4(world_pos, 1.0));
 			if (clip.w <= 1e-5) return vec3(-1.0);
 			return vec3(clip.xy / clip.w * 0.5 + 0.5, clip.z / clip.w);
 		}
