@@ -426,61 +426,91 @@ local passes = {
 				}
 
 				vec3 get_refracted_background(vec3 surface_pos, vec3 exit_pos, vec3 exit_normal, vec3 dir, float reach, float roughness, vec3 environment_fallback) {
-					vec2 uv;
-					float travel;
-
-					// interleaved gradient noise, moving each frame
-					vec2 noise_pos = gl_FragCoord.xy + 5.588238 * floor(lighting_data.time * 60.0);
-					float jitter = fract(52.9829189 * fract(dot(noise_pos, vec2(0.06711056, 0.00583715))));
+					// per pixel and frame noise for the step jitter and the cone's rotation; a hash, because the
+					// gradient noise has diagonal structure that slides along as the frame moves
+					uvec3 hash_state = uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.time * 60.0)) * 1664525u + 1013904223u;
+					hash_state.x += hash_state.y * hash_state.z;
+					hash_state.y += hash_state.z * hash_state.x;
+					hash_state.z += hash_state.x * hash_state.y;
+					hash_state ^= hash_state >> 16u;
+					hash_state.x += hash_state.y * hash_state.z;
+					float spin = float(hash_state.x >> 8u) / 16777216.0;
+					float jitter = float(hash_state.y >> 8u) / 16777216.0;
 
 					if (lighting_data.refraction_tex < 0) return environment_fallback;
 
-					if (!screen_refraction_trace(surface_pos, exit_pos, dir, reach, jitter, uv, travel)) {
-						// the ray left the screen, where the opaque scene is not known. With ray queries the scene
-						// there is traced, without them the edge of the screen it left through stands in for it
-						// (smeared and blurred more the further outside it went) and fades to the probes' light
-						// only when far outside, a probe is dark where the scene is not
-						#ifdef SCENE_REFLECTION
-						if (scene_reflection_ready()) {
-							float traced_t;
-							// a ray that leaves a solid nearly along its surface must start outside it, or it meets the solid again
-							vec3 traced = trace_scene_reflection(exit_pos + exit_normal * 0.05 + dir * 0.02, dir, dir, roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
-
-							// a ray that hit nothing got the raw sky back, which is not what the surroundings (an enclosed place,
-							// the probes) say is there: those are what the screen would have used, so only a hit is taken
-							if (traced_t < SCENE_REFLECTION_MAX_DISTANCE) return traced;
-
-							return environment_fallback;
-						}
-						#endif
-
-						float outside = length(uv - clamp(uv, vec2(0.0), vec2(1.0)));
-						float edge_blur = 1.0 + outside * lighting_data.render_size.y * 0.25;
-						vec3 edge = textureLod(TEXTURE(lighting_data.refraction_tex), clamp(uv, vec2(0.0), vec2(1.0)), log2(edge_blur)).rgb / get_pre_exposure();
-						return mix(edge, environment_fallback, smoothstep(0.5, 2.0, outside));
-					}
-
-					vec3 target = exit_pos + dir * travel;
-					float view_depth = max(-(lighting_data.view * vec4(target, 1.0)).z, 1e-3);
-					float blur_pixels = roughness * travel * abs(lighting_data.projection[1][1]) * 0.5 * lighting_data.render_size.y / view_depth;
+					// a rough interface spreads the ray into a cone. One ray lands on one object, so a blurred lookup
+					// at where it landed keeps the hard edge of whatever it met; several rays across the cone average
+					// the objects they meet instead, and the lookup only has to fill what lies between them
+					int samples = roughness < 0.04 ? 1 : 4;
+					vec3 tangent = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+					vec3 bitangent = cross(dir, tangent);
+					vec3 sum = vec3(0.0);
 
 					// the fogged scene is pre-exposed, the shading here is absolute
 					float to_absolute = 1.0 / get_pre_exposure();
 
-					if (blur_pixels <= 2.0) {
-						return textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb * to_absolute;
+					for (int s = 0; s < samples; s++) {
+						vec3 ray_dir = dir;
+
+						if (samples > 1) {
+							float radius = roughness * sqrt((float(s) + jitter) / float(samples));
+							float phi = 6.2831853 * (float(s) / float(samples) + spin);
+							ray_dir = normalize(dir + (tangent * cos(phi) + bitangent * sin(phi)) * radius);
+						}
+
+						vec2 uv;
+						float travel;
+
+						if (!screen_refraction_trace(surface_pos, exit_pos, ray_dir, reach, jitter, uv, travel)) {
+							// the ray left the screen, where the opaque scene is not known. With ray queries the scene
+							// there is traced, without them the edge of the screen it left through stands in for it
+							// (smeared and blurred more the further outside it went) and fades to the probes' light
+							// only when far outside, a probe is dark where the scene is not
+							#ifdef SCENE_REFLECTION
+							if (scene_reflection_ready()) {
+								float traced_t;
+								// a ray that leaves a solid nearly along its surface must start outside it, or it meets the solid again
+								vec3 traced = trace_scene_reflection(exit_pos + exit_normal * 0.05 + ray_dir * 0.02, ray_dir, ray_dir, roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+
+								// a ray that hit nothing got the raw sky back, which is not what the surroundings (an enclosed place,
+								// the probes) say is there: those are what the screen would have used, so only a hit is taken
+								sum += traced_t < SCENE_REFLECTION_MAX_DISTANCE ? traced : environment_fallback;
+								continue;
+							}
+							#endif
+
+							float outside = length(uv - clamp(uv, vec2(0.0), vec2(1.0)));
+							float edge_blur = 1.0 + outside * lighting_data.render_size.y * 0.25;
+							vec3 edge = textureLod(TEXTURE(lighting_data.refraction_tex), clamp(uv, vec2(0.0), vec2(1.0)), log2(edge_blur)).rgb * to_absolute;
+							sum += mix(edge, environment_fallback, smoothstep(0.5, 2.0, outside));
+							continue;
+						}
+
+						vec3 target = exit_pos + ray_dir * travel;
+						float view_depth = max(-(lighting_data.view * vec4(target, 1.0)).z, 1e-3);
+						float blur_pixels = roughness * travel * abs(lighting_data.projection[1][1]) * 0.5 * lighting_data.render_size.y / view_depth;
+
+						if (samples > 1) blur_pixels *= 0.5;
+
+						if (blur_pixels <= 2.0) {
+							sum += textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb * to_absolute;
+							continue;
+						}
+
+						// four taps a level finer than the blur, so the box filtered
+						// mips don't show as blocks
+						vec2 spread = vec2(blur_pixels * 0.5) / lighting_data.render_size;
+						float lod = log2(blur_pixels * 0.5);
+						sum += (
+							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, -0.5), lod).rgb +
+							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, -0.5), lod).rgb +
+							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, 0.5), lod).rgb +
+							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, 0.5), lod).rgb
+						) * (0.25 * to_absolute);
 					}
 
-					// four taps a level finer than the blur, so the box filtered
-					// mips don't show as blocks
-					vec2 spread = vec2(blur_pixels * 0.5) / lighting_data.render_size;
-					float lod = log2(blur_pixels * 0.5);
-					return (
-						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, -0.5), lod).rgb +
-						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, -0.5), lod).rgb +
-						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, 0.5), lod).rgb +
-						textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, 0.5), lod).rgb
-					) * (0.25 * to_absolute);
+					return sum / float(samples);
 				}
 
 				void main() {
