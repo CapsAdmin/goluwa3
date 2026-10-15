@@ -1,3 +1,4 @@
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
@@ -235,15 +236,14 @@ local function pass_compute_trace()
 					uvec2 result = uvec2(floatBitsToUint(-1.0), 0u);
 
 					if (ddgi_data.ddgi_emitter_count > 0) {
-						int kept_emitter;
-						uint kept;
-						vec3 kept_point;
-						float weight_sum = ddgi_pick_emitter_sample(index, uint(ddgi_data.ddgi_frame), ddgi_data.ddgi_emitter_count, uint(ddgi_data.ddgi_emitter_candidates), ddgi_data.ddgi_emitter_grid, origin, ddgi_data.ddgi_light_radius * ddgi_spacing(c), kept_emitter, kept, kept_point);
-						vec3 to_point = kept_point - origin;
+						int emitter;
+						vec3 point;
+						float weight = ddgi_pick_emitter_sample(index, uint(ddgi_data.ddgi_frame), ddgi_data.ddgi_emitter_count, origin, ddgi_data.ddgi_light_radius * ddgi_spacing(c), emitter, point);
+						vec3 to_point = point - origin;
 						float dist = length(to_point);
 
-						if (weight_sum > 0.0 && dist > DDGI_SHADOW_OFFSET && !scene_bvh_occluded(origin, to_point / dist, 0.0, dist - DDGI_SHADOW_OFFSET)) {
-							result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << DDGI_EMITTER_SHIFT));
+						if (weight > 0.0 && dist > DDGI_SHADOW_OFFSET && !scene_bvh_occluded(origin, to_point / dist, 0.0, dist - DDGI_SHADOW_OFFSET)) {
+							result = uvec2(floatBitsToUint(weight), uint(emitter));
 						}
 					}
 
@@ -370,7 +370,10 @@ local function pass_shade()
 				vec3 direct = vec3(0.0);
 
 				if (sun_visible) {
-					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P);
+					// the fog layer above the hit takes its share of the beam (see atmosphere.lua), world y is up from the eye's altitude
+					float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_EYE_HEIGHT) .. [[ + P.y * 0.001;
+					float fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y);
+					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * fog;
 
 					if (ddgi_data.glass_light != 0) direct *= get_glass_light(P + N * 0.02, L, ddgi_data.ddgi_max_distance, 0.0);
 				}
@@ -483,26 +486,25 @@ local function pass_shade()
 				uint hit_index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
 
 				// An emitter sample that got through (see the ray generation
-				// shader): its estimate of the irradiance, the kept point's
-				// radiance over the weight it was kept by (luminance, since the
-				// power it was drawn by divides out) times the candidates' mean
-				// weight. Over pi and the sample count like the uniform rays'
-				// estimate, with the direction packed into a; the update pass
-				// applies each texel's cosine.
+				// shader): its estimate of the irradiance, the point's radiance
+				// over the weight it was drawn with (luminance, since the power
+				// it was drawn by divides out). Over pi and the sample count like
+				// the uniform rays' estimate, with the direction packed into a;
+				// the update pass applies each texel's cosine.
 				if (ray >= uint(DDGI_RAYS)) {
 					uvec2 hit = ddgi_hits[hit_index];
-					float weight_sum = uintBitsToFloat(hit.x);
+					float weight = uintBitsToFloat(hit.x);
 					vec4 result = vec4(0.0);
 
-					if (ddgi_data.ddgi_rt_ready != 0 && weight_sum > 0.0) {
-						uint emitter_triangle = ddgi_emitter_triangle(int(hit.y & DDGI_EMITTER_MASK)) & ~DDGI_EMITTER_DOUBLE_SIDED;
+					if (ddgi_data.ddgi_rt_ready != 0 && weight > 0.0) {
+						uint emitter_triangle = ddgi_emitter_triangle(int(hit.y)) & ~DDGI_EMITTER_DOUBLE_SIDED;
 						scene_bvh_triangle tri = bvh_tri(emitter_triangle);
-						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> DDGI_EMITTER_SHIFT);
+						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), 0u);
 						vec3 point = ddgi_emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
 						vec3 emission = ddgi_emission(tri, ddgi_hit_albedo(ddgi_materials[tri.material], point, emitter_triangle));
 						float luminance = dot(tri.emissive, vec3(0.2126, 0.7152, 0.0722));
-						vec3 estimate = emission / luminance * weight_sum / float(ddgi_data.ddgi_emitter_candidates);
+						vec3 estimate = emission / luminance * weight;
 						if (ddgi_data.glass_light != 0) estimate *= get_glass_light(origin, dir, length(point - origin), 0.0);
 
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));

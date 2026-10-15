@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
@@ -86,31 +87,10 @@ local emitters_enabled = pvars.Setup2{
 	default = true,
 	help = "emissive surfaces light the probes, off is for telling whether they cause noise",
 }
-local emitter_grid = pvars.Setup2{
-	key = "ddgi_emitter_grid",
-	default = 0.75,
-	min = 0,
-	max = 1,
-	help = "share of emitter candidates drawn from the cells around the probe, 0 is by power alone",
-}
 local additive_emitters = pvars.Setup2{
 	key = "ddgi_additive_emitters",
 	default = false,
 	help = "additive materials light the probes like emissive surfaces do",
-}
-local emitter_cell_size = pvars.Setup2{
-	key = "ddgi_emitter_cell_size",
-	default = 4,
-	min = 0.25,
-	help = "meters across a cell of the grid the emitter candidates are drawn from",
-}
-local emitter_candidates = pvars.Setup2{
-	key = "ddgi_emitter_candidates",
-	default = 8,
-	integer = true,
-	min = 1,
-	max = 63,
-	help = "emitters drawn per emitter sample, one is kept by how much light it brings the probe",
 }
 ddgi.LIGHT_SAMPLES = 2
 ddgi.IRRADIANCE_TEXELS = 8
@@ -599,9 +579,6 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_CASCADES %d
 		#define DDGI_RAYS %d
 		#define DDGI_EMITTER_SAMPLES %d
-		// a kept emitter sample's hit word: the emitter's index, and above DDGI_EMITTER_SHIFT which candidate it was
-		#define DDGI_EMITTER_SHIFT 26u
-		#define DDGI_EMITTER_MASK 0x03FFFFFFu
 		// ddgi_emitter.triangle: the soup index, and the material's double sidedness
 		#define DDGI_EMITTER_DOUBLE_SIDED 0x80000000u
 		// a probe's uniform rays followed by its emitter samples
@@ -767,15 +744,9 @@ ddgi.MIN_WEIGHT = MIN_WEIGHT
 function ddgi.GetEmitterDeclarationsGLSL(binding)
 	return (
 		[[
-		// The emitters as words, built by ddgi.GetEmitters:
-		//   0 hash mask, 1 cell size (float), 2 cells' first word, 3 cell emitters'
-		//   first word, 4 emitters' first word, 5 total power (float), 6 emitter count
-		// A cell (10 words, empty when its count is 0): x y z, first cell emitter,
-		// count, power (float), power weighted centroid (3 floats).
-		// A cell emitter (3 words): its emitter, its cdf within the cell (float),
-		// its power (float).
-		// An emitter (4 words): its triangle (and the double sided bit), its cdf
-		// over all emitters (float), its power (float), its cell.
+		// The emitters as words, built by ddgi.GetEmitters: 0 total power (float), 1 emitter
+		// count, then the emitters, 3 words each: the triangle (and the double sided
+		// bit), the cdf over all emitters (float), the power (float).
 		layout(set = 0, binding = %d) readonly buffer DDGIEmitters {
 			uint ddgi_grid[];
 		};
@@ -1008,18 +979,17 @@ function ddgi.GetEmitterGLSL()
 		}
 
 		uint ddgi_emitter_triangle(int e) {
-			return ddgi_grid[ddgi_grid[4] + uint(e) * 4u];
+			return ddgi_grid[2u + uint(e) * 3u];
 		}
 
 		int ddgi_pick_emitter(float u, int count) {
-			uint base = ddgi_grid[4];
 			int lo = 0;
 			int hi = count - 1;
 
 			while (lo < hi) {
 				int mid = (lo + hi) / 2;
 
-				if (uintBitsToFloat(ddgi_grid[base + uint(mid) * 4u + 1u]) < u) {
+				if (uintBitsToFloat(ddgi_grid[2u + uint(mid) * 3u + 1u]) < u) {
 					lo = mid + 1;
 				} else {
 					hi = mid;
@@ -1035,154 +1005,44 @@ function ddgi.GetEmitterGLSL()
 			return tri.v0 + tri.e1 * u.x + tri.e2 * u.y;
 		}
 
-		// An emitter sample seen from origin. Candidates are drawn by a mix of two
-		// proposals: by power over all emitters, and (for grid_share of them) from
-		// the 27 cells of the grid around the origin, a cell by its power over its
-		// distance squared and then an emitter of it by power. One is kept with a
-		// probability proportional to its weight, the light it would bring
-		// unshadowed (facing / distance^2, inside radius flattened like the local
-		// lights) times its luminance, over the density it was drawn with
-		// (resampled importance sampling). Returns the candidates' summed weight,
-		// which with the kept emitter's colour and the candidate count is the
-		// estimate, and which one was kept and where; the shade pass rebuilds its
-		// point from the same random numbers.
-		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, uint candidates, float grid_share, vec3 origin, float radius, out int kept_emitter, out uint kept, out vec3 kept_point) {
-			float weight_sum = 0.0;
-			kept = 0u;
-			kept_emitter = 0;
-			kept_point = vec3(0.0);
+		// An emitter sample seen from origin: an emitter drawn by its power, a point on its
+		// triangle. Returns the light it would bring unshadowed, facing / distance^2 (inside
+		// radius flattened like the local lights), over the density it was drawn with, which
+		// times the emitter's colour over its luminance is the estimate; which emitter and
+		// where it was drawn is written to emitter and point, the shade pass rebuilds
+		// its point from the same random numbers.
+		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, vec3 origin, float radius, out int emitter, out vec3 point) {
+			vec4 u = ddgi_emitter_random(index, frame, 0u);
+			emitter = ddgi_pick_emitter(u.x, emitter_count);
+			uint triangle = ddgi_emitter_triangle(emitter);
+			scene_bvh_triangle tri = bvh_tri(triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
+			point = ddgi_emitter_point(tri, u.yz);
+			vec3 to_point = point - origin;
+			float dist2 = dot(to_point, to_point);
+			// tri.normal points away from the visible side
+			float facing = dot(tri.normal, to_point) * inversesqrt(dist2);
 
-			uint hash_mask = ddgi_grid[0];
-			float cell_size = uintBitsToFloat(ddgi_grid[1]);
-			uint cells = ddgi_grid[2];
-			uint cell_emitters = ddgi_grid[3];
-			uint emitters = ddgi_grid[4];
-			float total_power = uintBitsToFloat(ddgi_grid[5]);
-			ivec3 origin_cell = ivec3(floor(origin / cell_size));
-			float cell_weight[27];
-			float cell_power[27];
-			uint cell_first[27];
-			uint cell_count[27];
-			float weight_total = 0.0;
+			if ((triangle & DDGI_EMITTER_DOUBLE_SIDED) != 0u) facing = abs(facing);
 
-			if (grid_share > 0.0) {
-				for (int k = 0; k < 27; k++) {
-					ivec3 cell = origin_cell + ivec3(k % 3 - 1, (k / 3) % 3 - 1, k / 9 - 1);
-					uint h = (uint(cell.x) * 73856093u ^ uint(cell.y) * 19349663u ^ uint(cell.z) * 83492791u) & hash_mask;
-					cell_weight[k] = 0.0;
-					cell_power[k] = 0.0;
-					cell_first[k] = 0u;
-					cell_count[k] = 0u;
-
-					// linear probing up to the first empty cell
-					for (uint probe = 0u; probe <= hash_mask; probe++) {
-						uint b = cells + h * 10u;
-						uint n = ddgi_grid[b + 4u];
-
-						if (n == 0u) break;
-
-						if (ivec3(int(ddgi_grid[b]), int(ddgi_grid[b + 1u]), int(ddgi_grid[b + 2u])) == cell) {
-							vec3 to_centroid = origin - vec3(uintBitsToFloat(ddgi_grid[b + 6u]), uintBitsToFloat(ddgi_grid[b + 7u]), uintBitsToFloat(ddgi_grid[b + 8u]));
-							float flat_distance = cell_size * 0.5;
-							cell_power[k] = uintBitsToFloat(ddgi_grid[b + 5u]);
-							cell_weight[k] = cell_power[k] / max(dot(to_centroid, to_centroid), flat_distance * flat_distance);
-							cell_first[k] = ddgi_grid[b + 3u];
-							cell_count[k] = n;
-							weight_total += cell_weight[k];
-							break;
-						}
-
-						h = (h + 1u) & hash_mask;
-					}
-				}
-			}
-
-			// no cell around the origin has an emitter: by power alone
-			float share = weight_total > 0.0 ? grid_share : 0.0;
-
-			for (uint j = 0u; j < candidates; j++) {
-				vec4 u = ddgi_emitter_random(index, frame, j);
-				vec4 u2 = ddgi_emitter_random(index, frame, j + 64u);
-				int e;
-				float power;
-				float grid_density = 0.0;
-
-				if (u.x < share) {
-					float target = max(u.x / share * weight_total, 1e-30);
-					int k = 0;
-					float running = cell_weight[0];
-
-					while (k < 26 && running < target) {
-						k++;
-						running += cell_weight[k];
-					}
-
-					if (cell_count[k] == 0u) continue;
-
-					int lo = 0;
-					int hi = int(cell_count[k]) - 1;
-
-					while (lo < hi) {
-						int mid = (lo + hi) / 2;
-
-						if (uintBitsToFloat(ddgi_grid[cell_emitters + (cell_first[k] + uint(mid)) * 3u + 1u]) < u2.x) {
-							lo = mid + 1;
-						} else {
-							hi = mid;
-						}
-					}
-
-					uint r = cell_emitters + (cell_first[k] + uint(lo)) * 3u;
-					e = int(ddgi_grid[r]);
-					power = uintBitsToFloat(ddgi_grid[r + 2u]);
-					grid_density = cell_weight[k] / weight_total * power / cell_power[k];
-				} else {
-					e = ddgi_pick_emitter(share >= 1.0 ? 0.0 : (u.x - share) / (1.0 - share), emitter_count);
-					uint g = emitters + uint(e) * 4u;
-					power = uintBitsToFloat(ddgi_grid[g + 2u]);
-
-					if (share > 0.0) {
-						uint b = cells + ddgi_grid[g + 3u] * 10u;
-						ivec3 offset = ivec3(int(ddgi_grid[b]), int(ddgi_grid[b + 1u]), int(ddgi_grid[b + 2u])) - origin_cell;
-
-						if (all(lessThanEqual(abs(offset), ivec3(1)))) {
-							int k = offset.x + 1 + (offset.y + 1) * 3 + (offset.z + 1) * 9;
-							grid_density = cell_weight[k] / weight_total * power / cell_power[k];
-						}
-					}
-				}
-
-				float density = share * grid_density + (1.0 - share) * power / total_power;
-
-				if (!(density > 0.0)) continue;
-
-				uint triangle = ddgi_grid[emitters + uint(e) * 4u];
-				scene_bvh_triangle tri = bvh_tri(triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
-				vec3 point = ddgi_emitter_point(tri, u.yz);
-				vec3 to_point = point - origin;
-				float dist2 = dot(to_point, to_point);
-				// tri.normal points away from the visible side
-				float facing = dot(tri.normal, to_point) * inversesqrt(dist2);
-
-				if ((triangle & DDGI_EMITTER_DOUBLE_SIDED) != 0u) facing = abs(facing);
-
-				float weight = max(facing, 0.0) / max(dist2, radius * radius) * power / density;
-				weight_sum += weight;
-
-				if (weight > 0.0 && u.w * weight_sum < weight) {
-					kept = j;
-					kept_emitter = e;
-					kept_point = point;
-				}
-			}
-
-			return weight_sum;
+			return max(facing, 0.0) / max(dist2, radius * radius) * uintBitsToFloat(ddgi_grid[0]);
 		}
 	]]
 end
 
 function ddgi.GetCommonGLSL()
 	return ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. [[
+		// atmosphere.lua's ground_fog_sun_transmittance, for the probes, which have no atmosphere code of their own
+		float ddgi_ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction) {
+			const float scale_height = ]]..string.format("%.17g", atmosphere.GROUND_FOG_SCALE_HEIGHT)..[[;
+			const float top = ]]..string.format("%.17g", atmosphere.GROUND_FOG_TOP_HEIGHT)..[[;
+
+			if (altitude >= top) return 1.0;
+
+			altitude = max(altitude, 0.0);
+			float optical_depth = fog_extinction * scale_height * (exp(-altitude / scale_height) - exp(-top / scale_height)) + precipitation_extinction * (top - altitude);
+			return exp(-optical_depth / max(sun_up, 0.05));
+		}
+
 		ivec3 ddgi_volume_base(int c) {
 			return ivec3(ddgi_data.ddgi_cascades[c].xyz);
 		}
@@ -1541,6 +1401,8 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_rotation", "vec4"},
 		{"ddgi_sun_direction", "vec4"},
 		{"ddgi_sun_radiance", "vec4"},
+		-- x the ground fog's extinction per km at the ground, y the precipitation's
+		{"ddgi_ground_fog", "vec4"},
 		{"ddgi_max_distance", "float"},
 		{"ddgi_cascade_update", "vec4", ddgi.CASCADES},
 		{"ddgi_noise_range", "float"},
@@ -1576,10 +1438,8 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_distance_tex", "int"},
 		{"ddgi_probe_data_tex", "int"},
 		{"ddgi_emitter_count", "int"},
-		{"ddgi_emitter_grid", "float"},
 		{"ddgi_frame", "int"},
 		{"ddgi_uniform_rays", "int"},
-		{"ddgi_emitter_candidates", "int"},
 		{"ddgi_guide_tex", "int"},
 		{"ddgi_bent_normal_tex", "int"},
 	}
@@ -1618,6 +1478,8 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_sun_radiance[1] = sun_color.y * sun_illuminance
 	block.ddgi_sun_radiance[2] = sun_color.z * sun_illuminance
 	block.ddgi_sun_radiance[3] = 0
+	block.ddgi_ground_fog[0] = atmosphere.GetGroundFogExtinction()
+	block.ddgi_ground_fog[1] = atmosphere.precipitation_extinction
 
 	for c = 1, ddgi.CASCADES do
 		local cascade = state.cascades[c]
@@ -1678,10 +1540,8 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_probe_data_tex = pipeline_texture_index(self, "ddgi_probe_data")
 	local emitters = ddgi.GetEmitters()
 	block.ddgi_emitter_count = emitters_enabled:Get() and emitters.count or 0
-	block.ddgi_emitter_grid = emitter_grid:Get()
 	block.ddgi_frame = state.frame
 	block.ddgi_uniform_rays = ddgi.GetUniformRays()
-	block.ddgi_emitter_candidates = emitter_candidates:Get()
 	block.ddgi_guide_tex = pipeline_texture_index(self, "ddgi_guide")
 	local bent_normal = ambient_occlusion.GetBentNormalTexture()
 	block.ddgi_bent_normal_tex = bent_normal and self:GetTextureIndex(bent_normal) or -1
@@ -1716,14 +1576,9 @@ function ddgi.GetRayHitBuffer()
 end
 
 do
-	local GRID_HEADER = 8
-	local CELL_WORDS = 10
-	local CELL_EMITTER_WORDS = 3
-	local EMITTER_WORDS = 4
+	local HEADER_WORDS = 2
+	local EMITTER_WORDS = 3
 	local WordArray = ffi.typeof("uint32_t[?]")
-	local FloatArray = ffi.typeof("float[?]")
-	local Words = ffi.typeof("uint32_t*")
-	local Ints = ffi.typeof("int32_t*")
 	local Floats = ffi.typeof("float*")
 	local emitters = {
 		words = WordArray(1),
@@ -1733,26 +1588,17 @@ do
 		weight = 0,
 		version = 0,
 		emitter_version = -1,
-		cell_size = 0,
 		additive = false,
 		excluded_count = 0,
 		excluded_power = 0,
 	}
 	local buffers = {}
 	local buffer_versions = {}
-	local fill = FloatArray(1)
-	local running = FloatArray(1)
-	local scratch_capacity = 1
 
 	function ddgi.GetEmitters()
-		local cell_size = emitter_cell_size:Get()
 		local additive = additive_emitters:Get()
 
-		if
-			emitters.emitter_version == scene_bvh.emitter_version and
-			emitters.cell_size == cell_size and
-			emitters.additive == additive
-		then
+		if emitters.emitter_version == scene_bvh.emitter_version and emitters.additive == additive then
 			return emitters
 		end
 
@@ -1762,36 +1608,16 @@ do
 			total_count = total_count + block.emitter_count
 		end
 
-		local capacity = 64
-
-		while capacity < total_count * 2 do
-			capacity = capacity * 2
-		end
-
-		local mask = capacity - 1
-		local cells_base = GRID_HEADER
-		local cell_emitters_base = cells_base + capacity * CELL_WORDS
-		local emitters_base = cell_emitters_base + total_count * CELL_EMITTER_WORDS
-		local word_count = emitters_base + total_count * EMITTER_WORDS
+		local word_count = HEADER_WORDS + total_count * EMITTER_WORDS
 
 		if emitters.word_capacity < word_count then
 			emitters.words = WordArray(word_count * 2)
 			emitters.word_capacity = word_count * 2
 		end
 
-		if scratch_capacity < capacity then
-			fill = FloatArray(capacity * 2)
-			running = FloatArray(capacity * 2)
-			scratch_capacity = capacity * 2
-		end
-
 		local words = emitters.words
 		ffi.fill(words, word_count * 4)
-		ffi.fill(fill, capacity * 4)
-		ffi.fill(running, capacity * 4)
-		local ints = ffi.cast(Ints, words)
 		local floats = ffi.cast(Floats, words)
-		local inverse = 1 / cell_size
 		local count, weight = 0, 0
 		local excluded_count, excluded_power = 0, 0
 
@@ -1808,85 +1634,26 @@ do
 					excluded_power = excluded_power + power
 				elseif power > 0 then
 					weight = weight + power
-					local g = emitters_base + count * EMITTER_WORDS
+					local g = HEADER_WORDS + count * EMITTER_WORDS
 					words[g] = emitter.triangle + tri_base
 					floats[g + 1] = weight
 					floats[g + 2] = power
-					local x = math.floor(emitter.x * inverse)
-					local y = math.floor(emitter.y * inverse)
-					local z = math.floor(emitter.z * inverse)
-					local h = bit.band(bit.bxor(bit.bxor(x * 73856093, y * 19349663), z * 83492791), mask)
-
-					while true do
-						local b = cells_base + h * CELL_WORDS
-
-						if words[b + 4] == 0 then
-							ints[b], ints[b + 1], ints[b + 2] = x, y, z
-
-							break
-						end
-
-						if ints[b] == x and ints[b + 1] == y and ints[b + 2] == z then break end
-
-						h = bit.band(h + 1, mask)
-					end
-
-					local b = cells_base + h * CELL_WORDS
-					words[b + 4] = words[b + 4] + 1
-					floats[b + 5] = floats[b + 5] + power
-					floats[b + 6] = floats[b + 6] + power * emitter.x
-					floats[b + 7] = floats[b + 7] + power * emitter.y
-					floats[b + 8] = floats[b + 8] + power * emitter.z
-					words[g + 3] = h
 					count = count + 1
 				end
 			end
 		end
 
-		local cursor = 0
-
-		for h = 0, capacity - 1 do
-			local b = cells_base + h * CELL_WORDS
-
-			if words[b + 4] > 0 then
-				words[b + 3] = cursor
-				cursor = cursor + words[b + 4]
-				local power = floats[b + 5]
-				floats[b + 6] = floats[b + 6] / power
-				floats[b + 7] = floats[b + 7] / power
-				floats[b + 8] = floats[b + 8] / power
-			end
-		end
-
 		for i = 0, count - 1 do
-			local g = emitters_base + i * EMITTER_WORDS
-			local h = words[g + 3]
-			local b = cells_base + h * CELL_WORDS
-			local r = cell_emitters_base + (words[b + 3] + fill[h]) * CELL_EMITTER_WORDS
-			fill[h] = fill[h] + 1
-			running[h] = running[h] + floats[g + 2]
-			words[r] = i
-			floats[r + 1] = running[h] / floats[b + 5]
-			floats[r + 2] = floats[g + 2]
-
-			if fill[h] == words[b + 4] then floats[r + 1] = 1 end
-
-			floats[g + 1] = floats[g + 1] / weight
+			floats[HEADER_WORDS + i * EMITTER_WORDS + 1] = floats[HEADER_WORDS + i * EMITTER_WORDS + 1] / weight
 		end
 
-		if count > 0 then floats[emitters_base + (count - 1) * EMITTER_WORDS + 1] = 1 end
+		if count > 0 then floats[HEADER_WORDS + (count - 1) * EMITTER_WORDS + 1] = 1 end
 
-		words[0] = mask
-		floats[1] = cell_size
-		words[2] = cells_base
-		words[3] = cell_emitters_base
-		words[4] = emitters_base
-		floats[5] = weight
-		words[6] = count
+		floats[0] = weight
+		words[1] = count
 		emitters.word_count = word_count
 		emitters.count = count
 		emitters.weight = weight
-		emitters.cell_size = cell_size
 		emitters.additive = additive
 		emitters.excluded_count = excluded_count
 		emitters.excluded_power = excluded_power
@@ -2152,8 +1919,6 @@ local RTParams = ffi.typeof(
 	float light_radius;
 	int32_t update_mask;
 	int32_t uniform_rays;
-	int32_t emitter_candidates;
-	float emitter_grid;
 	int32_t reset_mask;
 }]]
 	):format(ddgi.CASCADES, ddgi.CASCADES)
@@ -2207,8 +1972,6 @@ function ddgi.WriteRTParams()
 	p.light_radius = light_radius:Get()
 	p.update_mask = state.update_mask
 	p.uniform_rays = ddgi.GetUniformRays()
-	p.emitter_candidates = emitter_candidates:Get()
-	p.emitter_grid = emitter_grid:Get()
 	p.reset_mask = state.reset_mask
 	return buffer
 end
@@ -2252,10 +2015,6 @@ layout(set = 0, binding = 0) uniform Params
     int update_mask;
     // rays of a probe that are not aimed by its guide
     int uniform_rays;
-    // see ddgi_emitter_candidates
-    int emitter_candidates;
-    // see ddgi_emitter_grid
-    float emitter_grid;
     // bit c: cascade c starts over
     int reset_mask;
 } params;
@@ -2293,26 +2052,24 @@ void main()
     uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
     const uint shadow_flags = DDGI_SCENE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
 
-    // An emitter sample (see ddgi_pick_emitter_sample). Only the kept one is
-    // traced. Stores the candidates' summed weight and which one was kept, or
-    // a negative weight when it is blocked.
+    // An emitter sample (see ddgi_pick_emitter_sample). Stores its weight and the
+    // emitter, or a negative weight when it is blocked.
     if (ray >= DDGI_RAYS) {
         uvec2 result = uvec2(floatBitsToUint(-1.0), 0u);
 
         if (params.emitter_count > 0) {
-            int kept_emitter;
-            uint kept;
-            vec3 kept_point;
-            float weight_sum = ddgi_pick_emitter_sample(index, params.frame, params.emitter_count, uint(params.emitter_candidates), params.emitter_grid, origin, params.light_radius * params.cascades[c].w, kept_emitter, kept, kept_point);
-            vec3 to_point = kept_point - origin;
+            int emitter;
+            vec3 point;
+            float weight = ddgi_pick_emitter_sample(index, params.frame, params.emitter_count, origin, params.light_radius * params.cascades[c].w, emitter, point);
+            vec3 to_point = point - origin;
             float dist = length(to_point);
 
-            if (weight_sum > 0.0 && dist > DDGI_SHADOW_OFFSET) {
+            if (weight > 0.0 && dist > DDGI_SHADOW_OFFSET) {
                 payload.hit_t = 1.0;
                 payload.sun = 0u;
                 traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin, 0.0, to_point / dist, dist - DDGI_SHADOW_OFFSET, 0);
 
-                if (payload.hit_t < 0.0) result = uvec2(floatBitsToUint(weight_sum), uint(kept_emitter) | (kept << DDGI_EMITTER_SHIFT));
+                if (payload.hit_t < 0.0) result = uvec2(floatBitsToUint(weight), uint(emitter));
             }
         }
 
@@ -2473,32 +2230,11 @@ commands.Add("ddgi_emitter_info", function()
 		emitters.excluded_count,
 		emitters.excluded_power
 	)
-	local words = emitters.words
-	local floats = ffi.cast("float*", words)
-	local cells_base, cell_emitters_base, emitters_base = words[2], words[3], words[4]
-	local occupied, largest, largest_power = 0, 0, 0
-
-	for h = 0, words[0] do
-		local b = cells_base + h * 10
-
-		if words[b + 4] > 0 then
-			occupied = occupied + 1
-			largest = math.max(largest, words[b + 4])
-			largest_power = math.max(largest_power, floats[b + 5])
-		end
-	end
-
-	logf(
-		"  grid: cell size %.2f m, %d cells hold emitters, most in one cell %d, most power in one cell %.4g\n",
-		emitters.cell_size,
-		occupied,
-		largest,
-		largest_power
-	)
+	local floats = ffi.cast("float*", emitters.words)
 	local lowest, highest = math.huge, 0
 
 	for i = 0, emitters.count - 1 do
-		local power = floats[emitters_base + i * 4 + 2]
+		local power = floats[2 + i * 3 + 2]
 		lowest = math.min(lowest, power)
 		highest = math.max(highest, power)
 	end
