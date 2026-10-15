@@ -65,7 +65,7 @@ function fluid.Refresh(time)
 
 	if level then
 		ocean_region.level = level
-		ocean_region.max_height = water.GetOceanWaves(water.NEAR_TEXEL_SIZE).max_height
+		ocean_region.max_height = water.GetOceanWaves().max_height
 		count = count + 1
 		regions[count] = ocean_region
 	end

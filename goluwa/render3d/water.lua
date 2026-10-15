@@ -1,10 +1,11 @@
+local ffi = require("ffi")
+local bit = require("bit")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local water = {}
 water.GRAVITY = 9.81
-water.MAX_OCEAN_WAVES = 48
 water.DETAIL_OCTAVES = 4
 water.MAX_VOLUMES = 64
 water.WAVE_TEXELS_PER_WAVELENGTH = 3
@@ -86,6 +87,9 @@ water.ocean = {
 	IOR = 1.333,
 	AbbeNumber = water.ABBE_NUMBER,
 	Foam = 1,
+	GustAmount = 1,
+	SlickAmount = 1,
+	StreakAmount = 1,
 	Caustics = 1,
 	Seed = 1,
 }
@@ -133,178 +137,257 @@ function water.HasVolumes()
 	return water.volumes[1] ~= nil
 end
 
+-- the sea is the sum of three tiles of an inverse FFT, each holding the waves of a band of wavelengths. the
+-- bands end where the wave textures stop resolving: the far texture (4 m texels) holds the first, the middle
+-- (1 m) the first two and the near one (0.25 m) all three. what is shorter than the last band is the ripples
+water.FFT_SIZE = 256
+water.FFT_CASCADES = {{size = 1000}, {size = 167}, {size = 37.3}}
+water.FFT_BAND_WAVELENGTHS = {
+	water.NEAR_TEXEL_SIZE * water.WAVE_TEXELS_PER_WAVELENGTH * 16,
+	water.NEAR_TEXEL_SIZE * water.WAVE_TEXELS_PER_WAVELENGTH * 4,
+	water.NEAR_TEXEL_SIZE * water.WAVE_TEXELS_PER_WAVELENGTH,
+}
+water.PHYSICS_WAVES = 128
+water.RIPPLE_WAVELENGTH = 0.06
+water.spectrum_version = 0
+
 do
-	local function next_random(state)
-		state[1] = (state[1] * 1103515245 + 12345) % 2147483648
-		return state[1] / 2147483648
+	local PI = math.pi
+	local BASE_OMEGA = 2 * PI / water.WAVE_PERIOD
+	local N = water.FFT_SIZE
+
+	-- a good integer hash (lowbias32), the multiplications done in 16 bit halves so they stay exact
+	local function multiply(a, b)
+		local ah, al = bit.rshift(a, 16), bit.band(a, 0xffff)
+		local bh, bl = bit.rshift(b, 16), bit.band(b, 0xffff)
+		return bit.tobit(al * bl + bit.lshift(bit.tobit(ah * bl + al * bh), 16))
 	end
 
-	local function gaussian(state)
-		local u = math.max(next_random(state), 1e-6)
-		return math.sqrt(-2 * math.log(u)) * math.cos(2 * math.pi * next_random(state))
+	local function hash(x)
+		x = bit.bxor(x, bit.rshift(x, 16))
+		x = multiply(x, 0x7feb352d)
+		x = bit.bxor(x, bit.rshift(x, 15))
+		x = multiply(x, 0x846ca68b)
+		return bit.bxor(x, bit.rshift(x, 16))
+	end
+
+	local function to_unit(x)
+		return ((x < 0 and x + 4294967296 or x) + 0.5) / 4294967296
 	end
 
 	local function pierson_moskowitz(omega, peak_omega)
 		return 0.0081 * water.GRAVITY ^ 2 * omega ^ -5 * math.exp(-1.25 * (peak_omega / omega) ^ 4)
 	end
 
-	local base_omega = 2 * math.pi / water.WAVE_PERIOD
-
-	local function add_wave(out, state, lambda, amplitude, angle)
-		local omega = math.max(math.round(math.sqrt(water.GRAVITY * 2 * math.pi / lambda) / base_omega), 1) * base_omega
-		local k = omega * omega / water.GRAVITY
-		list.insert(
-			out,
-			{
-				kx = math.cos(angle) * k,
-				kz = math.sin(angle) * k,
-				dir_x = math.cos(angle),
-				dir_z = math.sin(angle),
-				k = k,
-				omega = omega,
-				wavelength = 2 * math.pi / k,
-				amplitude = amplitude,
-				phase = next_random(state) * 2 * math.pi,
-			}
-		)
+	-- two independent normal values for the texel, the same everywhere for the same seed
+	local function gaussians(seed, cascade, u, r)
+		local key = hash(bit.bxor(hash(r * N + u), hash(seed * 131 + cascade * 17 + 5)))
+		local u1 = to_unit(hash(key + 1))
+		local u2 = to_unit(hash(key + 2))
+		local radius = math.sqrt(-2 * math.log(u1))
+		return radius * math.cos(2 * PI * u2), radius * math.sin(2 * PI * u2)
 	end
 
-	local function spectrum_band(out, state, count, omega_from, omega_to, peak_omega, wind_angle, energy_scale)
-		local log_from = math.log(omega_from)
-		local log_step = (math.log(omega_to) - log_from) / count
+	local function wrap_angle(angle)
+		return math.atan2(math.sin(angle), math.cos(angle))
+	end
 
-		for i = 0, count - 1 do
-			local omega_low = math.exp(log_from + log_step * i)
-			local omega_high = math.exp(log_from + log_step * (i + 1))
-			local omega = math.exp(log_from + log_step * (i + 0.25 + next_random(state) * 0.5))
-			local amplitude = math.sqrt(
-				2 * pierson_moskowitz(omega, peak_omega) * energy_scale * (
-						omega_high - omega_low
-					)
-			)
-			local spread = math.rad(math.clamp(20 + 45 * math.log(omega / peak_omega) / math.log(4), 20, 75))
-			add_wave(
-				out,
-				state,
-				2 * math.pi * water.GRAVITY / (omega * omega),
-				amplitude,
-				wind_angle + math.clamp(gaussian(state), -2, 2) * spread * 0.5
-			)
+	-- the 1d spectrum over wavenumber of the waves the wind makes, the slope variance in a range of it
+	local function slope_variance_between(waves, k_from, k_to)
+		if k_to <= k_from then return 0 end
+
+		local steps = 400
+		local ratio = (k_to / k_from) ^ (1 / steps)
+		local variance = 0
+		local k = k_from
+
+		for _ = 1, steps do
+			local k_next = k * ratio
+			local mid = math.sqrt(k * k_next)
+			variance = variance + waves.wind_spectrum(mid) * mid * mid * (k_next - k)
+			k = k_next
 		end
+
+		return variance
 	end
 
-	local function by_wavelength(a, b)
-		return a.wavelength > b.wavelength
-	end
-
-	water.WIND_SEA_ONSET = 1
-	water.WIND_SEA_GROWN = 3
-
-	function water.BuildOceanWaves(near_texel_size)
+	function water.BuildOceanWaves()
 		local params = water.ocean
-		local state = {params.Seed * 7919 + 17}
-		local wind_sea = math.smoothstep(water.WIND_SEA_ONSET, water.WIND_SEA_GROWN, params.WindSpeed)
-		local wind = math.max(params.WindSpeed, water.WIND_SEA_GROWN)
-		local wind_angle = math.rad(params.WindDirection)
+		local g = water.GRAVITY
+		local seed = params.Seed
+		local wind_sea = math.smoothstep(1, 3, params.WindSpeed)
+		local wind = math.max(params.WindSpeed, 3)
 		local development = math.clamp(params.Development, 0.05, 1)
-		local peak_omega = 0.855 * water.GRAVITY / wind / math.sqrt(development)
-		local split_wavelength = near_texel_size * water.WAVE_TEXELS_PER_WAVELENGTH
+		local peak_omega = 0.855 * g / wind / math.sqrt(development)
 		local omega_from = peak_omega * 0.6
-		local omega_split = math.sqrt(2 * math.pi * water.GRAVITY / split_wavelength)
-		local omega_to = math.sqrt(2 * math.pi * water.GRAVITY / 0.06)
-		local swell_count = params.SwellHeight > 0 and 3 or 0
-		local main = {}
+		local energy = development * wind_sea
+		local wind_angle = math.rad(params.WindDirection)
+		local waves = {wind_angle = wind_angle, detail_wavelength = water.FFT_BAND_WAVELENGTHS[3]}
 
-		if wind_sea > 0 and omega_from < omega_split then
-			spectrum_band(
-				main,
-				state,
-				water.MAX_OCEAN_WAVES - swell_count,
-				omega_from,
-				omega_split,
-				peak_omega,
-				wind_angle,
-				development * wind_sea
-			)
+		function waves.wind_spectrum(k)
+			local omega = math.sqrt(g * k)
+
+			if energy <= 0 or omega < omega_from then return 0 end
+
+			return pierson_moskowitz(omega, peak_omega) * energy * omega / (2 * k)
 		end
 
-		if swell_count > 0 then
-			local amplitude = params.SwellHeight / 4 * math.sqrt(2) / math.sqrt(swell_count)
-			local swell_angle = math.rad(params.SwellDirection)
+		local swell_sigma = params.SwellHeight / 4
+		local swell_k = 2 * PI / (params.SwellWavelength * 1.2)
+		local swell_angle = math.rad(params.SwellDirection)
+		local swell_spread = math.rad(8)
+		local swell_width = swell_k * 0.25
+		local band_edges = {}
 
-			for i = 1, swell_count do
-				add_wave(
-					main,
-					state,
-					params.SwellWavelength * (0.8 + 0.2 * i),
-					amplitude,
-					swell_angle + math.rad((i - 2) * 8)
-				)
+		for i, wavelength in ipairs(water.FFT_BAND_WAVELENGTHS) do
+			band_edges[i] = 2 * PI / wavelength
+		end
+
+		-- the swell has its own narrow band of the first cascade, its energy is set by summing it
+		local first_dk = 2 * PI / water.FFT_CASCADES[1].size
+		local swell_raw = 0
+
+		if swell_sigma > 0 then
+			for r = 0, N - 1 do
+				local m = r < N / 2 and r or r - N
+
+				for u = 0, N - 1 do
+					local n = u < N / 2 and u or u - N
+					local kx, kz = n * first_dk, m * first_dk
+					local k = math.sqrt(kx * kx + kz * kz)
+
+					if k > 0 and k <= band_edges[1] then
+						local weight = math.exp(-0.5 * ((k - swell_k) / swell_width) ^ 2) * math.exp(-0.5 * (wrap_angle(math.atan2(kz, kx) - swell_angle) / swell_spread) ^ 2)
+						swell_raw = swell_raw + weight
+					end
+				end
 			end
 		end
 
-		table.sort(main, by_wavelength)
-		local detail = {}
-
-		if wind_sea > 0 then
-			spectrum_band(
-				detail,
-				state,
-				16,
-				math.max(omega_split, omega_from),
-				omega_to,
-				peak_omega,
-				wind_angle,
-				development * wind_sea
-			)
-		end
-
+		local swell_scale = swell_raw > 0 and swell_sigma * swell_sigma / (swell_raw * 1) or 0
 		local height_variance = 0
-		local steepness = 0
-		local max_height = 0
+		local gradient_variance = 0
+		local candidates = {}
+		waves.cascades = {}
 
-		for _, wave in ipairs(main) do
-			height_variance = height_variance + wave.amplitude ^ 2 / 2
-			steepness = steepness + wave.k * wave.amplitude
-			max_height = max_height + wave.amplitude
+		for cascade_index, cascade in ipairs(water.FFT_CASCADES) do
+			local dk = 2 * PI / cascade.size
+			local k_low = cascade_index == 1 and 0 or band_edges[cascade_index - 1]
+			local k_high = band_edges[cascade_index]
+			local h0 = ffi.new("float[?]", N * N * 4)
+			local omega_index = ffi.new("float[?]", N * N)
+
+			local function mode(u, r)
+				local n = u < N / 2 and u or u - N
+				local m = r < N / 2 and r or r - N
+				local kx, kz = n * dk, m * dk
+				local k = math.sqrt(kx * kx + kz * kz)
+
+				if k <= k_low or k > k_high then return 0, 0, kx, kz, k end
+
+				local omega = math.sqrt(g * k)
+				local angle = wrap_angle(math.atan2(kz, kx) - wind_angle)
+				local sigma = math.rad(math.clamp(20 + 45 * math.log(omega / peak_omega) / math.log(4), 20, 75)) * 0.5
+				local spectrum = waves.wind_spectrum(k) / k * math.exp(-0.5 * (angle / sigma) ^ 2) / (sigma * math.sqrt(2 * PI))
+
+				if swell_scale > 0 then
+					local weight = math.exp(-0.5 * ((k - swell_k) / swell_width) ^ 2) * math.exp(-0.5 * (wrap_angle(math.atan2(kz, kx) - swell_angle) / swell_spread) ^ 2)
+					spectrum = spectrum + weight * swell_scale / (dk * dk)
+				end
+
+				local deviation = math.sqrt(spectrum * dk * dk / 2)
+				local re, im = gaussians(seed, cascade_index, u, r)
+				return re * deviation / math.sqrt(2), im * deviation / math.sqrt(2), kx, kz, k
+			end
+
+			for r = 0, N - 1 do
+				for u = 0, N - 1 do
+					local index = (r * N + u) * 4
+					local re, im, kx, kz, k = mode(u, r)
+					local partner_re, partner_im = mode((N - u) % N, (N - r) % N)
+					h0[index] = re
+					h0[index + 1] = im
+					h0[index + 2] = partner_re
+					h0[index + 3] = partner_im
+
+					if k > k_low and k <= k_high then
+						local j = math.max(math.round(math.sqrt(g * k) / BASE_OMEGA), 1)
+						omega_index[r * N + u] = j
+						local amplitude = 2 * math.sqrt(re * re + im * im)
+						height_variance = height_variance + amplitude * amplitude / 2
+						gradient_variance = gradient_variance + (k * amplitude) ^ 2 / 2
+
+						if cascade_index <= 2 then
+							candidates[#candidates + 1] = {
+								kx = kx,
+								kz = kz,
+								amplitude = amplitude,
+								phase = math.atan2(im, re),
+								k = k,
+								omega = j * BASE_OMEGA,
+							}
+						end
+					end
+				end
+			end
+
+			waves.cascades[cascade_index] = {h0 = h0, omega_index = omega_index}
 		end
 
-		local total_slope_variance = 0.003 + 0.00512 * params.WindSpeed * development
-		local main_slope_variance = 0
-		local detail_slope_variance = 0
+		table.sort(candidates, function(a, b)
+			return a.amplitude > b.amplitude
+		end)
 
-		for _, wave in ipairs(main) do
-			main_slope_variance = main_slope_variance + (wave.k * wave.amplitude) ^ 2 / 2
+		local main = {}
+
+		for i = 1, math.min(water.PHYSICS_WAVES, #candidates) do
+			local wave = candidates[i]
+			wave.dir_x = wave.kx / wave.k
+			wave.dir_z = wave.kz / wave.k
+			wave.wavelength = 2 * PI / wave.k
+			main[i] = wave
 		end
 
-		for _, wave in ipairs(detail) do
-			detail_slope_variance = detail_slope_variance + (wave.k * wave.amplitude) ^ 2 / 2
+		table.sort(main, function(a, b)
+			return a.wavelength > b.wavelength
+		end)
+
+		waves.main = main
+		waves.height_std = math.sqrt(height_variance)
+		waves.max_height = waves.height_std * 3.5
+		waves.choppiness = params.Choppiness * math.min(1, 0.3 / math.max(math.sqrt(gradient_variance), 1e-4))
+		waves.total_slope_variance = 0.003 + 0.00512 * params.WindSpeed * development
+		waves.swell_variance = swell_sigma * swell_sigma
+		waves.swell_k = swell_k
+		waves.detail_slope_variance = slope_variance_between(
+			waves,
+			band_edges[3],
+			2 * PI / water.RIPPLE_WAVELENGTH
+		)
+		water.spectrum_version = water.spectrum_version + 1
+		water.ocean_waves = waves
+		return waves
+	end
+
+	function water.GetResolvedSlopeVariance(waves, texel_size)
+		local k_max = 2 * PI / (texel_size * water.WAVE_TEXELS_PER_WAVELENGTH)
+		local variance = slope_variance_between(waves, 2 * PI / water.FFT_CASCADES[1].size, k_max)
+
+		if waves.swell_k <= k_max then
+			variance = variance + waves.swell_variance * waves.swell_k ^ 2
 		end
 
-		water.ocean_waves = {
-			main = main,
-			wind_angle = wind_angle,
-			detail_wavelength = split_wavelength,
-			height_std = math.sqrt(height_variance),
-			max_height = max_height,
-			choppiness = params.Choppiness * math.min(1, 1.6 / math.max(steepness, 1e-4)),
-			total_slope_variance = total_slope_variance,
-			main_slope_variance = main_slope_variance,
-			detail_slope_variance = detail_slope_variance,
-			near_texel_size = near_texel_size,
-		}
-		return water.ocean_waves
+		return variance
 	end
 end
 
-function water.GetOceanWaves(near_texel_size)
-	local waves = water.ocean_waves
+function water.GetOceanWaves()
+	return water.ocean_waves or water.BuildOceanWaves()
+end
 
-	if not waves or waves.near_texel_size ~= near_texel_size then
-		waves = water.BuildOceanWaves(near_texel_size)
-	end
-
-	return waves
+-- how much of the sea is whitecaps, 0 in a breeze, 1 from a strong breeze (Monahan: grows with the wind's power)
+function water.GetWhitecapFactor(wind_speed)
+	return math.clamp((wind_speed - 3) / 11, 0, 1) ^ 1.5
 end
 
 function water.GetWaveTime()
@@ -315,7 +398,7 @@ do
 	local UNDISPLACE_ITERATIONS = 4
 
 	function water.SampleOcean(x, z, time, min_wavelength, out)
-		local waves = water.GetOceanWaves(water.NEAR_TEXEL_SIZE)
+		local waves = water.GetOceanWaves()
 		local main = waves.main
 		local count = #main
 		local choppiness = waves.choppiness
@@ -369,114 +452,4 @@ do
 	end
 end
 
-function water.GetResolvedWaveCount(waves, texel_size)
-	local min_wavelength = texel_size * water.WAVE_TEXELS_PER_WAVELENGTH
-
-	for i, wave in ipairs(waves.main) do
-		if wave.wavelength < min_wavelength then return i - 1 end
-	end
-
-	return #waves.main
-end
-
-function water.GetResolvedSlopeVariance(waves, texel_size)
-	local variance = 0
-
-	for i = 1, water.GetResolvedWaveCount(waves, texel_size) do
-		local wave = waves.main[i]
-		variance = variance + (wave.k * wave.amplitude) ^ 2 / 2
-	end
-
-	return variance
-end
-
-water.wave_block = {
-	{"waves", "vec4", water.MAX_OCEAN_WAVES},
-	{"wave_count", "int"},
-	{"wave_choppiness", "float"},
-}
-
-function water.WriteWaveBlock(block, waves, count)
-	for i = 0, water.MAX_OCEAN_WAVES - 1 do
-		local wave = waves.main[i + 1]
-		local out = block.waves[i]
-
-		if wave and i < count then
-			out[0] = wave.kx
-			out[1] = wave.kz
-			out[2] = wave.amplitude
-			out[3] = wave.phase
-		else
-			out[0] = 0
-			out[1] = 0
-			out[2] = 0
-			out[3] = 0
-		end
-	end
-
-	block.wave_count = count
-	block.wave_choppiness = waves.choppiness
-end
-
-water.GERSTNER_GLSL = [[
-	const float WATER_GRAVITY = ]] .. water.GRAVITY .. [[;
-
-	// horizontal displacement of the undisplaced point p
-	vec2 gerstner_displacement(vec2 p, float time, float choppiness) {
-		vec2 d = vec2(0.0);
-
-		for (int i = 0; i < wave_block.wave_count; i++) {
-			vec4 w = wave_block.waves[i];
-			float k = length(w.xy);
-			float theta = dot(w.xy, p) - sqrt(WATER_GRAVITY * k) * time + w.w;
-			d -= (w.xy / k) * (w.z * choppiness * sin(theta));
-		}
-
-		return d;
-	}
-
-	// the undisplaced point that the waves carry to world_xz
-	vec2 gerstner_undisplace(vec2 world_xz, float time, float choppiness) {
-		vec2 p = world_xz;
-
-		for (int i = 0; i < 4; i++) {
-			p = world_xz - gerstner_displacement(p, time, choppiness);
-		}
-
-		return p;
-	}
-
-	// height, surface normal and the jacobian of the horizontal displacement,
-	// which drops towards 0 and below where a crest folds over and breaks
-	void gerstner_surface(vec2 p, float time, float choppiness, out float height, out vec3 normal, out float jacobian) {
-		height = 0.0;
-		float dx_dx = 0.0;
-		float dz_dz = 0.0;
-		float dx_dz = 0.0;
-		float dh_dx = 0.0;
-		float dh_dz = 0.0;
-
-		for (int i = 0; i < wave_block.wave_count; i++) {
-			vec4 w = wave_block.waves[i];
-			float k = length(w.xy);
-			vec2 dir = w.xy / k;
-			float theta = dot(w.xy, p) - sqrt(WATER_GRAVITY * k) * time + w.w;
-			float s = sin(theta);
-			float c = cos(theta);
-			float ak = w.z * k;
-			height += w.z * c;
-			dh_dx -= ak * dir.x * s;
-			dh_dz -= ak * dir.y * s;
-			float chop = ak * choppiness * c;
-			dx_dx -= dir.x * dir.x * chop;
-			dz_dz -= dir.y * dir.y * chop;
-			dx_dz -= dir.x * dir.y * chop;
-		}
-
-		vec3 tangent_x = vec3(1.0 + dx_dx, dh_dx, dx_dz);
-		vec3 tangent_z = vec3(dx_dz, dh_dz, 1.0 + dz_dz);
-		normal = normalize(cross(tangent_z, tangent_x));
-		jacobian = (1.0 + dx_dx) * (1.0 + dz_dz) - dx_dz * dx_dz;
-	}
-]]
 return water
