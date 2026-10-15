@@ -874,18 +874,6 @@ local compute_shader = [[
 		return mix(x * (mapped / m), vec3(mapped), compressed * compressed);
 	}
 
-	// SMPTE ST 2084 (PQ) of absolute luminance
-	vec3 pq_encode(vec3 nits) {
-		vec3 y = pow(clamp(nits / 10000.0, 0.0, 1.0), vec3(0.1593017578125));
-		return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));
-	}
-
-	vec3 pq_decode(vec3 n) {
-		vec3 np = pow(n, vec3(1.0 / 78.84375));
-		vec3 l = max(np - 0.8359375, vec3(0.0)) / (18.8515625 - 18.6875 * np);
-		return pow(l, vec3(1.0 / 0.1593017578125)) * 10000.0;
-	}
-
 	// Between ~5 and ~0.005 cd/m2 the rods take over from the cones (the mesopic range, CIE 191).
 	// Rods only see once the eye has adapted to the dark (in a lit room they are saturated), and
 	// only light too dim for the cones: a lamp or a traffic light keeps its colour at night. Rods have one kind of receptor, so they see no

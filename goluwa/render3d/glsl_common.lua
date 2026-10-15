@@ -13,6 +13,25 @@ function glsl_common.GetLuminanceGLSL()
 	]]
 end
 
+function glsl_common.GetPQGLSL()
+	return [[
+		#ifndef GLSL_COMMON_PQ
+		#define GLSL_COMMON_PQ
+		// SMPTE ST 2084 (PQ) of absolute luminance in nits
+		vec3 pq_encode(vec3 nits) {
+			vec3 y = pow(clamp(nits / 10000.0, 0.0, 1.0), vec3(0.1593017578125));
+			return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));
+		}
+
+		vec3 pq_decode(vec3 n) {
+			vec3 np = pow(clamp(n, 0.0, 1.0), vec3(1.0 / 78.84375));
+			vec3 l = max(np - 0.8359375, vec3(0.0)) / (18.8515625 - 18.6875 * np);
+			return pow(l, vec3(1.0 / 0.1593017578125)) * 10000.0;
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH

@@ -18,7 +18,7 @@ function compute_helpers.GetScreenHelpersGLSL()
 end
 
 function compute_helpers.GetColorHelpersGLSL()
-	return glsl_common.GetLuminanceGLSL() .. [[
+	return glsl_common.GetLuminanceGLSL() .. glsl_common.GetPQGLSL() .. [[
 		vec3 LinearToSRGB(vec3 col) {
 			vec3 low = col * 12.92;
 			vec3 high = 1.055 * pow(col, vec3(1.0 / 2.4)) - 0.055;
@@ -115,17 +115,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			return mix(mix(toe, x, weight_linear), shoulder, step(linear_section * peak, x));
 		}
 
-		vec3 gt7_pq_encode(vec3 x) {
-			vec3 y = pow(x * 0.01, vec3(0.1593017578125));
-			return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));
-		}
-
-		vec3 gt7_pq_decode(vec3 n) {
-			vec3 np = pow(clamp(n, 0.0, 1.0), vec3(1.0 / 78.84375));
-			vec3 l = max(np - 0.8359375, vec3(0.0)) / (18.8515625 - 18.6875 * np);
-			return pow(l, vec3(1.0 / 0.1593017578125)) * 100.0;
-		}
-
 		vec3 gt7_rgb_to_ictcp(vec3 rgb) {
 			const mat3 rgb_to_lms = mat3(
 				1688.0, 683.0, 99.0,
@@ -137,7 +126,7 @@ function compute_helpers.GetColorHelpersGLSL()
 				2048.0, -13613.0, -17390.0,
 				0.0, 7003.0, -543.0
 			) / 4096.0;
-			return lms_to_ictcp * gt7_pq_encode(rgb_to_lms * rgb);
+			return lms_to_ictcp * pq_encode(rgb_to_lms * rgb * 100.0);
 		}
 
 		vec3 gt7_ictcp_to_rgb(vec3 ictcp) {
@@ -151,7 +140,7 @@ function compute_helpers.GetColorHelpersGLSL()
 				-2.50645, 1.9836, -0.0989137,
 				0.0698454, -0.192271, 1.12486
 			);
-			return max(lms_to_rgb * gt7_pq_decode(ictcp_to_lms * ictcp), vec3(0.0));
+			return max(lms_to_rgb * pq_decode(ictcp_to_lms * ictcp) * 0.01, vec3(0.0));
 		}
 
 		// x is linear BT.709 in units of 100 cd/m2, peak (at least 2.5) in the
