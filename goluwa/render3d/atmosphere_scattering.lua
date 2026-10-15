@@ -197,7 +197,7 @@ local DENSITY_GLSL = [[
 				vec3 radiance;
 
 				if (sc_pc.order == 2) {
-					radiance = sc_lookup(SC_T1, r, wi.y, sun.y, nu_i) * rayleigh_phase(nu_i) + sc_lookup(SC_T2, r, wi.y, sun.y, nu_i) * mie_phase(nu_i);
+					radiance = sc_lookup(SC_T1, r, wi.y, sun.y, nu_i) * phase_rayleigh(nu_i) + sc_lookup(SC_T2, r, wi.y, sun.y, nu_i) * mie_phase(nu_i);
 				} else {
 					radiance = sc_lookup(SC_T3, r, wi.y, sun.y, nu_i);
 				}
@@ -220,7 +220,7 @@ local DENSITY_GLSL = [[
 				}
 
 				float nu_o = dot(wi, view);
-				total += radiance * (density_r * RAYLEIGH_BETA * rayleigh_phase(nu_o) + density_m * MIE_BETA * mie_phase(nu_o));
+				total += radiance * (density_r * RAYLEIGH_BETA * phase_rayleigh(nu_o) + density_m * MIE_BETA * mie_phase(nu_o));
 			}
 		}
 
@@ -283,7 +283,7 @@ local IRRADIANCE_GLSL = [[
 				vec3 radiance;
 
 				if (sc_pc.order == 1) {
-					radiance = sc_lookup(SC_T1, PLANET_RADIUS, wi.y, mu_s, nu) * rayleigh_phase(nu) + sc_lookup(SC_T2, PLANET_RADIUS, wi.y, mu_s, nu) * mie_phase(nu);
+					radiance = sc_lookup(SC_T1, PLANET_RADIUS, wi.y, mu_s, nu) * phase_rayleigh(nu) + sc_lookup(SC_T2, PLANET_RADIUS, wi.y, mu_s, nu) * mie_phase(nu);
 				} else {
 					radiance = sc_lookup(SC_T3, PLANET_RADIUS, wi.y, mu_s, nu);
 				}
@@ -315,7 +315,7 @@ local AMBIENT_GLSL = [[
 				float psi = 2.0 * PI * (float(j) + 0.5) / float(SC_PSI);
 				vec3 wi = vec3(sin_t * cos(psi), cos_t, sin_t * sin(psi));
 				float nu = dot(wi, sun);
-				vec3 radiance = sc_lookup(SC_T1, r, wi.y, mu_s, nu) * rayleigh_phase(nu) + sc_lookup(SC_T2, r, wi.y, mu_s, nu) * mie_phase(nu) + sc_lookup(SC_T3, r, wi.y, mu_s, nu);
+				vec3 radiance = sc_lookup(SC_T1, r, wi.y, mu_s, nu) * phase_rayleigh(nu) + sc_lookup(SC_T2, r, wi.y, mu_s, nu) * mie_phase(nu) + sc_lookup(SC_T3, r, wi.y, mu_s, nu);
 				total += radiance * (irradiance ? cos_t : 1.0);
 			}
 		}

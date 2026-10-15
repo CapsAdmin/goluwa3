@@ -343,7 +343,7 @@ local scatter_pass = {
 					shadow = calculateLocalDirectionalMediumShadow(world_pos, L);
 				}
 
-				result += light.color.rgb * light.color.a * attenuation * shadow * occlusion * henyey_greenstein_phase(dot(ray_dir, L), GROUND_FOG_MIE_G);
+				result += light.color.rgb * light.color.a * attenuation * shadow * occlusion * phase_henyey_greenstein(dot(ray_dir, L), GROUND_FOG_MIE_G);
 			}
 			}
 
@@ -434,7 +434,7 @@ local scatter_pass = {
 			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
 			// the air: the sun's single scattering, and the light of the sky scattering again, tabulated where the air is
 			// open to the sky and from the probes where it is not
-			scattering += sun * (RAYLEIGH_BETA * (density_r * rayleigh_phase(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
+			scattering += sun * (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
 			vec3 air_up = fog_point / length(fog_point);
 			vec3 sky_multi = ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX == -1 ?
 				ambient * air_scattering :

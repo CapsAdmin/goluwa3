@@ -983,14 +983,9 @@ function clouds.GetGLSL(block)
 			return field * shape.w;
 		}
 
-		float cloud_hg(float mu, float g) {
-			float gg = g * g;
-			return (1.0 - gg) / (4.0 * PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
-		}
-
 		// water droplets: a strong forward peak and a little back scattering
 		float cloud_phase(float mu, float scale) {
-			return mix(cloud_hg(mu, -0.25 * scale), cloud_hg(mu, 0.8 * scale), 0.75);
+			return mix(phase_henyey_greenstein(mu, -0.25 * scale), phase_henyey_greenstein(mu, 0.8 * scale), 0.75);
 		}
 
 		// sunlight after the optical depth od toward it, scattered toward the viewer, summed over
@@ -1140,7 +1135,7 @@ function clouds.GetGLSL(block)
 						float L_up = dot(up, L);
 						float T = exp(-od);
 						// ice crystals: forward peaked, and thin enough for single scattering
-						float phase = mix(cloud_hg(mu, 0.75), cloud_hg(mu, -0.1), 0.3);
+						float phase = mix(phase_henyey_greenstein(mu, 0.75), phase_henyey_greenstein(mu, -0.1), 0.3);
 						float upper = L_up > 0.01 ? cloud_upper_transmittance(i, p, shape.x + shape.y * 0.5, L, L_up) : 0.0;
 						vec3 S = light * phase * upper * smoothstep(-0.05, 0.05, L_up) + ambient_top;
 						radiance += transmittance * (1.0 - T) * S;

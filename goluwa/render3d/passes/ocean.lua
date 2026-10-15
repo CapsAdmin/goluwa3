@@ -782,7 +782,7 @@ list.insert(
 				return water_feature(WATER_SUN_SHADOWS) ? get_water_sun_visibility_shadowed(p, dir) : 1.0;
 			}
 
-			]] .. glsl_common.GetNoiseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 					RAY_QUERY and
 					render3d.GetEmissiveGLSL() .. scene_reflection.GetGLSL("ocean_data")
@@ -882,11 +882,6 @@ list.insert(
 				float rs = (eta * cos_i - cos_t) / (eta * cos_i + cos_t);
 				float rp = (cos_i - eta * cos_t) / (cos_i + eta * cos_t);
 				return 0.5 * (rs * rs + rp * rp);
-			}
-
-			float henyey_greenstein(float mu, float g) {
-				float gg = g * g;
-				return (1.0 - gg) / (4.0 * PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
 			}
 
 			// the water molecules' phase function, Rayleigh's with water's depolarization (Morel 1974)
@@ -1389,7 +1384,7 @@ list.insert(
 			// per meter and steradian, what the water scatters by the cosine mu between where the light
 			// went and where it goes
 			vec3 water_scatter(Water w, float mu) {
-				return WATER_MOLECULAR_SCATTERING * water_molecular_phase(mu) + w.particles * henyey_greenstein(mu, WATER_PARTICLE_G);
+				return WATER_MOLECULAR_SCATTERING * water_molecular_phase(mu) + w.particles * phase_henyey_greenstein(mu, WATER_PARTICLE_G);
 			}
 
 			vec3 get_sun_illuminance() {

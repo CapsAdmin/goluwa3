@@ -178,7 +178,7 @@ do
 end
 
 function precipitation.GetVertexGLSL(block_name)
-	return glsl_common.GetHashGLSL() .. [[
+	return glsl_common.GetHashGLSL() .. glsl_common.GetPhaseGLSL() .. [[
 		const float BOX_SIZE = ]] .. string.format("%.1f", BOX_SIZE) .. [[;
 		const float RAIN_MIN_DIAMETER = ]] .. string.format("%.2f", RAIN_MIN_DIAMETER) .. [[;
 		const float RAIN_MAX_DIAMETER = ]] .. string.format("%.2f", RAIN_MAX_DIAMETER) .. [[;
@@ -190,11 +190,6 @@ function precipitation.GetVertexGLSL(block_name)
 		const float RAIN_SCATTER_G = 0.81;
 		// an ice aggregate without its diffraction peak scatters less forward than a drop
 		const float SNOW_SCATTER_G = 0.6;
-
-		float precipitation_phase(float mu, float g) {
-			float gg = g * g;
-			return (1.0 - gg) / (12.566370614 * pow(1.0 + gg - 2.0 * g * mu, 1.5));
-		}
 
 		// true when a roof or canopy is above the particle along the falling precipitation
 		bool is_precipitation_sheltered(vec3 pos) {
@@ -299,8 +294,8 @@ function precipitation.GetVertexGLSL(block_name)
 			float along = float(corner >> 1) * 2.0 - 1.0;
 			vec3 position = mix(tail, head, along * 0.5 + 0.5) + along_dir * along * drawn_width * 0.5 + side * across * drawn_width * 0.5;
 			vec3 view_dir = to_particle / dist;
-			vec3 radiance = ]] .. block_name .. [[.precipitation_sun_illuminance * precipitation_phase(dot(]] .. block_name .. [[.precipitation_sun_direction, view_dir), g) +
-				]] .. block_name .. [[.precipitation_moon_illuminance * precipitation_phase(dot(]] .. block_name .. [[.precipitation_moon_direction, view_dir), g) +
+			vec3 radiance = ]] .. block_name .. [[.precipitation_sun_illuminance * phase_henyey_greenstein(dot(]] .. block_name .. [[.precipitation_sun_direction, view_dir), g) +
+				]] .. block_name .. [[.precipitation_moon_illuminance * phase_henyey_greenstein(dot(]] .. block_name .. [[.precipitation_moon_direction, view_dir), g) +
 				]] .. block_name .. [[.precipitation_ambient_radiance;
 			out_position = position;
 			out_radiance = radiance;

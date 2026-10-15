@@ -149,7 +149,7 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 	elevation
 end
 
-local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.GetRaySphereGLSL() .. [[
+local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.GetRaySphereGLSL() .. glsl_common.GetPhaseGLSL() .. [[
 	const float PLANET_RADIUS = 6371.0;
 	const float ATMOSPHERE_RADIUS = 6471.0;
 	const float RAYLEIGH_SCALE_HEIGHT = 8.0;
@@ -306,15 +306,6 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		return (ATMOSPHERE_GROUND_FOG_EXTINCTION * height_falloff + ATMOSPHERE_PRECIPITATION_EXTINCTION) * top_fade;
 	}
 
-	float rayleigh_phase(float mu) {
-		return 3.0 / (16.0 * PI) * (1.0 + mu * mu);
-	}
-
-	float henyey_greenstein_phase(float mu, float g) {
-		float gg = g * g;
-		return (1.0 - gg) / (4.0 * PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
-	}
-
 	float mie_phase(float mu) {
 		float gg = MIE_G * MIE_G;
 		float num = 3.0 * (1.0 - gg) * (1.0 + mu * mu);
@@ -371,7 +362,7 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		float ozone_od = 0.0;
 		vec3 total = vec3(0.0);
 		float mu = dot(ray_dir, sun_dir);
-		vec3 phase_r = RAYLEIGH_BETA * (rayleigh_phase(mu) * single_scatter_visibility.x);
+		vec3 phase_r = RAYLEIGH_BETA * (phase_rayleigh(mu) * single_scatter_visibility.x);
 		vec3 phase_m = MIE_BETA * (mie_phase(mu) * single_scatter_visibility.y);
 
 		for (int i = 0; i < steps; i++) {
@@ -944,7 +935,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		float c = 1.0;
 
 		for (int n = 0; n < GROUND_FOG_OCTAVES; n++) {
-			octaves += a * (n == 0 ? 1.0 : thickness) * ground_fog_sun_transmittance(altitude, sun_up, ATMOSPHERE_GROUND_FOG_EXTINCTION * b, ATMOSPHERE_PRECIPITATION_EXTINCTION * b) * henyey_greenstein_phase(mu, GROUND_FOG_MIE_G * c);
+			octaves += a * (n == 0 ? 1.0 : thickness) * ground_fog_sun_transmittance(altitude, sun_up, ATMOSPHERE_GROUND_FOG_EXTINCTION * b, ATMOSPHERE_PRECIPITATION_EXTINCTION * b) * phase_henyey_greenstein(mu, GROUND_FOG_MIE_G * c);
 			a *= GROUND_FOG_OCTAVE_SCATTER;
 			b *= GROUND_FOG_OCTAVE_EXTINCTION;
 			c *= GROUND_FOG_OCTAVE_PHASE;

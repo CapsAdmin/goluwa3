@@ -90,6 +90,23 @@ function glsl_common.GetConstantsGLSL()
 	]]
 end
 
+function glsl_common.GetPhaseGLSL()
+	return glsl_common.GetConstantsGLSL() .. [[
+		#ifndef GLSL_COMMON_PHASE
+		#define GLSL_COMMON_PHASE
+		float phase_rayleigh(float mu) {
+			return 3.0 / (16.0 * PI) * (1.0 + mu * mu);
+		}
+
+		// mu is the cosine between the direction light travels and the direction it scatters to
+		float phase_henyey_greenstein(float mu, float g) {
+			float gg = g * g;
+			return (1.0 - gg) / (4.0 * PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH
