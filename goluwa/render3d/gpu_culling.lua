@@ -619,7 +619,9 @@ function gpu_culling.Initialize()
 
 				if (clip.w <= 0.0) return true;
 
-				float projected_radius_px = abs(compute.view_projection[1][1]) * visual_record.sphere_radius * compute.viewport_height / max(clip.w * 2.0, 1e-5);
+				// the view rotation is in the view projection, the length of its vertical clip row is the projection's scale alone
+				vec3 clip_y_row = vec3(compute.view_projection[0][1], compute.view_projection[1][1], compute.view_projection[2][1]);
+				float projected_radius_px = length(clip_y_row) * visual_record.sphere_radius * compute.viewport_height / max(clip.w * 2.0, 1e-5);
 				return projected_radius_px * 2.0 >= compute.min_screen_diameter_px;
 			}
 
