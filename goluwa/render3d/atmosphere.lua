@@ -3,13 +3,14 @@ local atmosphere = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local scattering = import("goluwa/render3d/atmosphere_scattering.lua")
 atmosphere.stars_texture = nil
 atmosphere.environment_map_path = nil
 atmosphere.environment_map_texture = nil
 atmosphere.environment_map_intensity = 1000
 atmosphere.environment_map_version = 0
 atmosphere.transmittance_texture = nil
-atmosphere.multi_scatter_texture = nil
+atmosphere.scattering_texture = nil
 atmosphere.sky_view_textures = atmosphere.sky_view_textures or {}
 atmosphere.sky_view_texture_order = atmosphere.sky_view_texture_order or {}
 local PI = math.pi
@@ -22,7 +23,7 @@ local DEFAULT_OCEAN_LEVEL = 0
 local CAMERA_TEST_MULTIPLIER = 1
 local SKY_VIEW_LUT_WIDTH = 1024
 local SKY_VIEW_LUT_HEIGHT = 512
-local SKY_VIEW_STEPS = 32
+local SKY_VIEW_STEPS = 128
 local SKY_VIEW_TEXTURE_CACHE_LIMIT = 16
 -- the table is baked at the quantised camera and sun elevation of its key, never at whatever asked for it first: the
 -- environment probe at the origin and the view at 600 m shared a 2 km cell, and the one that got there first decided
@@ -36,7 +37,6 @@ local SKY_VIEW_HEIGHT_QUANTIZATION = 0.1
 -- sunset, where it changes fastest, the staircase was a visible flicker. 0.005 degrees is under 0.3 percent there
 local SKY_VIEW_ELEVATION_QUANTIZATION = math.rad(0.005)
 local SKY_VIEW_ILLUMINANCE_QUANTIZATION = 1000
-local MULTI_SCATTER_LUT_SIZE = 32
 local RAYLEIGH_SCALE_HEIGHT = 8.0
 local MIE_SCALE_HEIGHT = 1.2
 local OZONE_CENTER_HEIGHT = 25.0
@@ -200,8 +200,8 @@ local atmosphere_shared_glsl = [[
 	#ifndef ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX
 	#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX -1
 	#endif
-	#ifndef ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX
-	#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX -1
+	#ifndef ATMOSPHERE_SCATTERING_TEXTURE_INDEX
+	#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX -1
 	#endif
 	#ifndef ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX
 	#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX -1
@@ -348,36 +348,28 @@ local atmosphere_shared_glsl = [[
 		return texture(TEXTURE(ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX), get_transmittance_lut_uv(sample_point, light_dir)).rgb;
 	}
 
-	vec3 sample_multi_scatter_lut(vec3 sample_point, vec3 light_dir) {
-		if (ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX == -1) return vec3(0.0);
-		return texture(TEXTURE(ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX), get_transmittance_lut_uv(sample_point, light_dir)).rgb;
-	}
+	]] .. scattering.LOOKUP_GLSL .. [[
 
 	vec3 compute_view_tau(float rayleigh_od, float mie_od, float ozone_od) {
 		return RAYLEIGH_BETA * rayleigh_od + MIE_BETA_EXT * mie_od + OZONE_BETA_ABS * ozone_od;
 	}
 
-	// The multiple scattering lut is isotropic and assumes a transfer function that holds for thin air: against a path
-	// traced sky it is up to 30 percent too bright overhead and 50 percent too dark at the horizon with a clear aerosol,
-	// and too bright all over as the aerosol thickens, by an amount that follows the sun's elevation. This is the ratio
-	// fitted to the spectral path tracer (test/harnesses/sky/ms_fit.lua with SPECTRAL=1 rows, 9 percent rms), u = 1 - sin(view elevation),
-	// x = sin(sun elevation), a = ln(aerosol extinction / 0.0568). It holds for a camera near the ground, sun elevations
-	// of 6-75 degrees and an aerosol visibility from 12 km up, thicker haze is clamped and too bright. Regenerate it
-	// when the aerosol, ozone or Rayleigh constants change.
-	float get_multi_scatter_gain(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
-		vec3 up = normalize(ray_origin);
-		float u = 1.0 - clamp(dot(ray_dir, up), 0.0, 1.0);
-		float x = clamp(dot(sun_dir, up), 0.1, 0.97);
-		float a = clamp(log(max(ATMOSPHERE_AEROSOL_EXTINCTION, 1e-4) / 0.0568), -1.5, 1.71);
-		float poly0 = 0.0051 + 0.7043 * u + 0.0118 * u * u - 1.1846 * x - 0.5855 * x * u + 0.9844 * x * x - 0.7883 * x * x * u + 1.1238 * u * u * x;
-		float poly1 = -0.1042 + 0.2775 * u - 0.4293 * u * u - 0.5152 * x - 0.1436 * x * u + 0.6551 * x * x - 0.8781 * x * x * u + 1.0661 * u * u * x;
-		float poly2 = -0.0931 - 0.0209 * u - 0.0247 * u * u + 0.0668 * x - 0.1656 * x * u + 0.0376 * x * x + 0.0296 * x * x * u + 0.0753 * u * u * x;
-		return exp(poly0 + poly1 * a + poly2 * a * a);
+	// How far along a segment the s-th part of a march is (s from 0 to 1). The air thins out exponentially, so near the
+	// viewer the steps want to be short and on a path of a thousand km long; ATMOSPHERE_LOG_MARCH spaces them
+	// geometrically from 20 m out so that every scale gets the same number of steps (the quadratic spacing put 10 of 128
+	// steps in the first 10 km, and in a 6 km haze the near field is 1.5 km), the default is quadratic
+	float get_march_distance(float s, float segment) {
+		#ifdef ATMOSPHERE_LOG_MARCH
+		float base = clamp(segment / 0.02, 2.0, 1e6);
+		return segment * (exp2(log2(base) * s) - 1.0) / (base - 1.0);
+		#else
+		return segment * s * s;
+		#endif
 	}
 
-	// Single scattering with the real phase functions plus the multiple
-	// scattering estimate from the LUT, marched from t_near to t_far along the
-	// ray. Returns radiance and writes the view transmittance of the segment.
+	// Single scattering with the real phase functions marched from t_near to t_far along the ray, plus the light that
+	// scattered more than once from the table (the light that arrives along the ray from its end onward is the table at
+	// the start less what is left of the table at the end). Returns radiance and writes the view transmittance of the segment.
 	vec3 integrate_scattering(vec3 ray_origin, vec3 ray_dir, float t_near, float t_far, vec3 sun_dir, int steps, vec2 single_scatter_visibility, float multi_scatter_visibility, out vec3 view_transmittance) {
 		float segment = t_far - t_near;
 		float rayleigh_od = 0.0;
@@ -385,15 +377,14 @@ local atmosphere_shared_glsl = [[
 		float ozone_od = 0.0;
 		vec3 total = vec3(0.0);
 		float mu = dot(ray_dir, sun_dir);
-		multi_scatter_visibility *= get_multi_scatter_gain(ray_origin, ray_dir, sun_dir);
 		vec3 phase_r = RAYLEIGH_BETA * (rayleigh_phase(mu) * single_scatter_visibility.x);
 		vec3 phase_m = MIE_BETA * (mie_phase(mu) * single_scatter_visibility.y);
 
 		for (int i = 0; i < steps; i++) {
 			float s0 = float(i) / float(steps);
 			float s1 = float(i + 1) / float(steps);
-			float t0 = t_near + segment * s0 * s0;
-			float step_size = segment * (s1 * s1 - s0 * s0);
+			float t0 = t_near + get_march_distance(s0, segment);
+			float step_size = get_march_distance(s1, segment) - get_march_distance(s0, segment);
 			float t = t0 + ATMOSPHERE_SCATTER_JITTER * step_size;
 			vec3 sample_point = ray_origin + ray_dir * t;
 			float density_r = rayleigh_density(sample_point);
@@ -405,12 +396,23 @@ local atmosphere_shared_glsl = [[
 			vec3 view_t = exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od));
 			vec3 sun_t = sample_transmittance_lut(sample_point, sun_dir) * ATMOSPHERE_CLOUD_SHADOW(sample_point);
 			vec3 single = (phase_r * density_r + phase_m * density_m) * sun_t;
-			vec3 multi = sample_multi_scatter_lut(sample_point, sun_dir) * (RAYLEIGH_BETA * density_r + MIE_BETA * density_m) * multi_scatter_visibility;
-			total += (single + multi) * view_t * step_size;
+			total += single * view_t * step_size;
 		}
 
 		view_transmittance = exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od));
-		return total * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR;
+		vec3 multi = vec3(0.0);
+
+		if (ATMOSPHERE_SCATTERING_TEXTURE_INDEX != -1) {
+			float r_start = length(ray_origin);
+			vec3 up_start = ray_origin / r_start;
+			multi = sc_lookup(ATMOSPHERE_SCATTERING_TEXTURE_INDEX, r_start, dot(up_start, ray_dir), dot(up_start, sun_dir), mu);
+			vec3 end_point = ray_origin + ray_dir * t_far;
+			float r_end = length(end_point);
+			vec3 up_end = end_point / r_end;
+			multi -= view_transmittance * sc_lookup(ATMOSPHERE_SCATTERING_TEXTURE_INDEX, r_end, dot(up_end, ray_dir), dot(up_end, sun_dir), mu);
+		}
+
+		return (total + max(multi, vec3(0.0)) * multi_scatter_visibility) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR;
 	}
 
 	// Clips the ray to the atmosphere and the planet. Returns false when the
@@ -596,65 +598,6 @@ local transmittance_glsl = build_atmosphere_shader_prelude([[
 		return vec4(max(transmitted, vec3(0.0)), 1.0);
 	}
 ]], "#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n")
-local multi_scatter_glsl = build_atmosphere_shader_prelude(
-	[[
-	const int MULTI_SCATTER_SQRT_DIRECTIONS = 8;
-	const int MULTI_SCATTER_STEPS = 20;
-
-	vec4 shade(vec2 uv, vec3 _cube_dir) {
-		float mu_s = mix(-1.0, 1.0, uv.x);
-		float radius = get_lut_radius(uv.y);
-		vec3 ray_origin = vec3(0.0, radius, 0.0);
-		vec3 sun_dir = normalize(vec3(sqrt(max(1.0 - mu_s * mu_s, 0.0)), mu_s, 0.0));
-		vec3 second_order = vec3(0.0);
-		vec3 multi_scatter_transfer = vec3(0.0);
-		const float uniform_phase = 1.0 / (4.0 * PI);
-
-		for (int i = 0; i < MULTI_SCATTER_SQRT_DIRECTIONS; i++) {
-			for (int j = 0; j < MULTI_SCATTER_SQRT_DIRECTIONS; j++) {
-				float cos_theta = 1.0 - 2.0 * (float(i) + 0.5) / float(MULTI_SCATTER_SQRT_DIRECTIONS);
-				float sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0));
-				float phi = 2.0 * PI * (float(j) + 0.5) / float(MULTI_SCATTER_SQRT_DIRECTIONS);
-				vec3 ray_dir = vec3(sin_theta * cos(phi), cos_theta, sin_theta * sin(phi));
-				float t_near;
-				float t_far;
-				bool hits_ground;
-
-				if (!get_atmosphere_segment(ray_origin, ray_dir, t_near, t_far, hits_ground)) continue;
-
-				float step_size = (t_far - t_near) / float(MULTI_SCATTER_STEPS);
-				vec3 throughput = vec3(1.0);
-
-				for (int k = 0; k < MULTI_SCATTER_STEPS; k++) {
-					float t = t_near + (float(k) + 0.5) * step_size;
-					vec3 sample_point = ray_origin + ray_dir * t;
-					float density_r = rayleigh_density(sample_point);
-					float density_m = mie_density(sample_point);
-					float density_o = ozone_density(sample_point);
-					vec3 sigma_s = RAYLEIGH_BETA * density_r + MIE_BETA * density_m;
-					vec3 sigma_t = compute_view_tau(density_r, density_m, density_o);
-					vec3 sun_t = sample_transmittance_lut(sample_point, sun_dir);
-					second_order += throughput * sigma_s * sun_t * uniform_phase * step_size;
-					multi_scatter_transfer += throughput * sigma_s * step_size;
-					throughput *= exp(-sigma_t * step_size);
-				}
-
-				if (hits_ground) {
-					vec3 ground_point = ray_origin + ray_dir * t_far;
-					vec3 ground_up = normalize(ground_point);
-					second_order += throughput * GROUND_ALBEDO / PI * sample_transmittance_lut(ground_point, sun_dir) * max(dot(ground_up, sun_dir), 0.0);
-				}
-			}
-		}
-
-		float inv_directions = 1.0 / float(MULTI_SCATTER_SQRT_DIRECTIONS * MULTI_SCATTER_SQRT_DIRECTIONS);
-		second_order *= inv_directions;
-		multi_scatter_transfer *= inv_directions;
-		return vec4(second_order / max(vec3(1.0) - multi_scatter_transfer, vec3(1e-4)), 1.0);
-	}
-]],
-	"#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n"
-)
 -- what the lut shaders that have no uniform block get the aerosol from
 local AerosolConstants = ffi.typeof([[struct {
 	float extinction;
@@ -677,6 +620,8 @@ local SkyViewConstants = ffi.typeof([[struct {
 	float sun_illuminance;
 	float sun_direction[3];
 	float aerosol_extinction;
+	int transmittance_index;
+	int scattering_index;
 }]])
 local SKY_VIEW_DECLARATIONS = [[
 	layout(push_constant) uniform SkyViewConstants {
@@ -684,6 +629,8 @@ local SKY_VIEW_DECLARATIONS = [[
 		float sun_illuminance;
 		vec3 sun_direction;
 		float aerosol_extinction;
+		int transmittance_index;
+		int scattering_index;
 	} sky_view;
 ]]
 local sky_view_glsl = build_atmosphere_shader_prelude(
@@ -715,7 +662,7 @@ local sky_view_glsl = build_atmosphere_shader_prelude(
 		return vec4(scattered_light, dot(view_transmittance, vec3(1.0 / 3.0)));
 	}
 ]],
-	"#define ATMOSPHERE_SUN_ILLUMINANCE sky_view.sun_illuminance\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX 0\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX 1\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION sky_view.aerosol_extinction\n"
+	"#define ATMOSPHERE_LOG_MARCH 1\n#define ATMOSPHERE_SUN_ILLUMINANCE sky_view.sun_illuminance\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX sky_view.transmittance_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX sky_view.scattering_index\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION sky_view.aerosol_extinction\n"
 )
 local atmosphere_glsl = build_atmosphere_shader_prelude(
 	[[
@@ -1165,13 +1112,6 @@ local function destroy_transmittance_texture()
 	atmosphere.transmittance_texture = nil
 end
 
-local function destroy_multi_scatter_texture()
-	if atmosphere.multi_scatter_texture then
-		atmosphere.multi_scatter_texture:Remove()
-	end
-
-	atmosphere.multi_scatter_texture = nil
-end
 
 local function create_lut_texture(width, height)
 	return Texture.New{
@@ -1194,18 +1134,6 @@ local function create_transmittance_texture()
 	return tex
 end
 
-local function create_multi_scatter_texture()
-	local tex = create_lut_texture(MULTI_SCATTER_LUT_SIZE, MULTI_SCATTER_LUT_SIZE)
-	tex:Shade(
-		multi_scatter_glsl,
-		{
-			textures = {atmosphere.GetTransmittanceTexture()},
-			custom_declarations = AEROSOL_DECLARATIONS,
-			fragment_push_constants = get_aerosol_push_constants(),
-		}
-	)
-	return tex
-end
 
 local function destroy_sky_view_texture(key)
 	local tex = atmosphere.sky_view_textures[key]
@@ -1225,6 +1153,13 @@ local function touch_sky_view_texture_key(key)
 	end
 
 	table.insert(atmosphere.sky_view_texture_order, key)
+end
+
+local function destroy_scattering_texture()
+	if atmosphere.scattering_texture then
+		atmosphere.scattering_texture:Remove()
+		atmosphere.scattering_texture = nil
+	end
 end
 
 local function destroy_all_sky_view_textures()
@@ -1270,7 +1205,7 @@ do
 		MIE_BETA_EXT = AEROSOL_SPECTRUM * ext
 		MIE_BETA = MIE_BETA_EXT * AEROSOL_ALBEDO
 		destroy_transmittance_texture()
-		destroy_multi_scatter_texture()
+		destroy_scattering_texture()
 		destroy_all_sky_view_textures()
 	end
 
@@ -1444,19 +1379,25 @@ local function create_sky_view_texture(x, y, z, elevation)
 	local hl = math.sqrt(hx * hx + hy * hy)
 	hx, hy = hx / hl, hy / hl
 	local cos_e, sin_e = math.cos(elevation), math.sin(elevation)
+	local transmittance = atmosphere.GetTransmittanceTexture()
+	local scattering_table = atmosphere.GetScatteringTexture()
 	tex:Shade(
 		sky_view_glsl,
 		{
-			textures = {atmosphere.GetTransmittanceTexture(), atmosphere.GetMultiScatterTexture()},
+			textures = {transmittance, scattering_table},
 			custom_declarations = SKY_VIEW_DECLARATIONS,
 			fragment_push_constants = {
 				size = ffi.sizeof(SkyViewConstants),
-				data = SkyViewConstants(
-					{x, y, z},
-					atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE,
-					{hx * cos_e + ux * sin_e, hy * cos_e + uy * sin_e, hz * cos_e + uz * sin_e},
-					aerosol_extinction
-				),
+				get_data = function(_, _, pipeline)
+					return SkyViewConstants(
+						{x, y, z},
+						atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE,
+						{hx * cos_e + ux * sin_e, hy * cos_e + uy * sin_e, hz * cos_e + uz * sin_e},
+						aerosol_extinction,
+						pipeline:GetTextureIndex(transmittance),
+						pipeline:GetTextureIndex(scattering_table)
+					)
+				end,
 			},
 		}
 	)
@@ -1475,16 +1416,14 @@ function atmosphere.GetTransmittanceTexture()
 	return atmosphere.transmittance_texture
 end
 
-function atmosphere.GetMultiScatterTexture()
-	if
-		not atmosphere.multi_scatter_texture or
-		not atmosphere.multi_scatter_texture:IsValid()
-	then
-		destroy_multi_scatter_texture()
-		atmosphere.multi_scatter_texture = create_multi_scatter_texture()
+
+function atmosphere.GetScatteringTexture()
+	if not atmosphere.scattering_texture or not atmosphere.scattering_texture:IsValid() then
+		destroy_scattering_texture()
+		atmosphere.scattering_texture = scattering.Create(build_atmosphere_shader_prelude, atmosphere.GetTransmittanceTexture(), aerosol_extinction)
 	end
 
-	return atmosphere.multi_scatter_texture
+	return atmosphere.scattering_texture
 end
 
 function atmosphere.GetSkyViewTexture(cam_pos, sun_dir)
@@ -1513,7 +1452,7 @@ end
 function atmosphere.GetBlockLayout()
 	return {
 		{"atmosphere_transmittance_texture_index", "int"},
-		{"atmosphere_multi_scatter_texture_index", "int"},
+		{"atmosphere_scattering_texture_index", "int"},
 		{"atmosphere_sky_view_texture_index", "int"},
 		{"atmosphere_stars_texture_index", "int"},
 		{"atmosphere_environment_texture_index", "int"},
@@ -1556,7 +1495,7 @@ do
 			-1
 		block.atmosphere_environment_intensity = atmosphere.environment_map_intensity
 		block.atmosphere_transmittance_texture_index = pipeline:GetTextureIndex(atmosphere.GetTransmittanceTexture())
-		block.atmosphere_multi_scatter_texture_index = pipeline:GetTextureIndex(atmosphere.GetMultiScatterTexture())
+		block.atmosphere_scattering_texture_index = pipeline:GetTextureIndex(atmosphere.GetScatteringTexture())
 		block.atmosphere_sky_view_texture_index = pipeline:GetTextureIndex(atmosphere.GetSkyViewTexture(cam_pos, sky_sun_dir))
 		block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
 		block.atmosphere_ground_fog_extinction = environment_map and 0 or atmosphere.GetGroundFogExtinction()
@@ -1607,7 +1546,7 @@ do
 			-1
 		block.atmosphere_environment_intensity = intensity
 		block.atmosphere_transmittance_texture_index = -1
-		block.atmosphere_multi_scatter_texture_index = -1
+		block.atmosphere_scattering_texture_index = -1
 		block.atmosphere_sky_view_texture_index = -1
 		block.atmosphere_stars_texture_index = -1
 		block.atmosphere_ground_fog_extinction = 0
@@ -1633,7 +1572,7 @@ do
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_MULTI_SCATTER_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_multi_scatter_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
 function atmosphere.GetGLSLCode()
@@ -1745,7 +1684,7 @@ end
 
 if HOTRELOAD then
 	destroy_transmittance_texture()
-	destroy_multi_scatter_texture()
+	destroy_scattering_texture()
 	destroy_all_sky_view_textures()
 end
 

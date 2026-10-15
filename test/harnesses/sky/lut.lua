@@ -162,7 +162,6 @@ ENGINE = {
 	ground = {0.30, 0.27, 0.22},
 	g = MIE_G,
 }
-MS_ROWS = {}
 local frame = 0
 event.AddListener("Update", "sky_lut_harness", function()
 	frame = frame + 1
@@ -294,15 +293,6 @@ event.AddListener("Update", "sky_lut_harness", function()
 					mc_bias = mc_bias + math.log(eY / mY)
 				end
 
-				if os.getenv("MSFIT") and (s[2] == 90 or s[2] == 180) then
-					local sr, sg, sb = ss_reference(se, el, az)
-					local engine_multi = eY - (0.2126729 * sr + 0.7151522 * sg + 0.0721750 * sb)
-
-					if engine_multi > 50 and mY - mY1 > 50 then
-						MS_ROWS[#MS_ROWS + 1] = {1 - math.sin(el), math.sin(se), math.log(math.max(MIE_EXT[2], 1e-4) / 0.0568), math.log((mY - mY1) / engine_multi)}
-					end
-				end
-
 				if os.getenv("MS") then
 					local sr, sg, sb = ss_reference(se, el, az)
 					local ssY = 0.2126729 * sr + 0.7151522 * sg + 0.0721750 * sb
@@ -361,16 +351,6 @@ event.AddListener("Update", "sky_lut_harness", function()
 				math.sqrt(sum_xy / n)
 			)
 		)
-	end
-
-	if #MS_ROWS > 0 then
-		local f = assert(io.open("tmp/ms_rows.txt", "ab"))
-
-		for _, row in ipairs(MS_ROWS) do
-			f:write(string.format("%.6f %.6f %.6f %.6f\n", row[1], row[2], row[3], row[4]))
-		end
-
-		f:close()
 	end
 
 	system.ShutDown(0)
