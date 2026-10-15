@@ -101,33 +101,7 @@ return {
 				imageStore(out_bent_normal, get_screen_pos(), vec4(bent, view_depth));
 			}
 
-			vec3 get_geometric_normal(vec2 uv, vec3 world_pos, float depth, vec3 shading_normal) {
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0));
-				float depth_left = gbuffer_depth(uv - vec2(texel.x, 0.0));
-				float depth_right = gbuffer_depth(uv + vec2(texel.x, 0.0));
-				float depth_down = gbuffer_depth(uv - vec2(0.0, texel.y));
-				float depth_up = gbuffer_depth(uv + vec2(0.0, texel.y));
-				vec3 dx = abs(depth_left - depth) < abs(depth_right - depth) ?
-					world_pos - get_world_pos_uv(uv - vec2(texel.x, 0.0), depth_left) :
-					get_world_pos_uv(uv + vec2(texel.x, 0.0), depth_right) - world_pos;
-				vec3 dy = abs(depth_down - depth) < abs(depth_up - depth) ?
-					world_pos - get_world_pos_uv(uv - vec2(0.0, texel.y), depth_down) :
-					get_world_pos_uv(uv + vec2(0.0, texel.y), depth_up) - world_pos;
-				vec3 n = cross(dx, dy);
-				float len = length(n);
-
-				if (len < 1e-12) {
-					return shading_normal;
-				}
-
-				n /= len;
-
-				if (dot(n, shading_normal) < 0.0) {
-					n = -n;
-				}
-
-				return n;
-			}
+]] .. screen_reconstruct.GetGeometricNormalGLSL("lighting_data", {world_pos_function = "get_world_pos_uv"}) .. [[
 
 			// the rotation that takes the unit vector from to the unit vector to, applied to v. from and
 			// to are on the same side, so 1 + dot(from, to) stays away from 0
@@ -365,7 +339,7 @@ return {
 
 				// on a thin card the depth derivatives belong to whatever the card and its neighbours are,
 				// and flip from pixel to pixel
-				if (!thin) N = get_geometric_normal(in_uv, world_pos, depth, N);
+				if (!thin) N = get_geometric_normal(pixel, world_pos, depth, normalize(lighting_data.camera_position.xyz - world_pos), N);
 
 				float ao;
 				vec3 bounce;
