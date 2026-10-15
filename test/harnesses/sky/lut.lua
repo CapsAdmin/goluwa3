@@ -1,5 +1,6 @@
 -- prints the clear sky the engine bakes (sky view LUT, absolute cd/m2 before exposure and tonemapping)
 -- next to the Hosek-Wilkie model (test/harnesses/sky/hosek.lua) and a few analytic checks.
+-- SPECTRAL=1 with MC=<paths> scores against spectral.lua instead of the three channel path tracer
 -- SUN_ELEVS=60,30,10 TURBIDITY=2 ALBEDO=0.26 luajit glw --2d --one-frame --background lua "import('test/harnesses/sky/lut.lua')"
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local event = import("goluwa/event.lua")
@@ -93,12 +94,14 @@ local function light_depth(x, y, dx, dy, dz)
 	if near and far > 0 and near > 0 then return nil end
 
 	local _, top = sphere_far(x, y, 0, dx, dy, dz, R_ATMOSPHERE)
-	local n = 48
-	local ds = top / n
+	local n = 64
 	local r_od, m_od, o_od = 0, 0, 0
 
 	for i = 0, n - 1 do
-		local t = (i + 0.5) * ds
+		local u0, u1 = i / n, (i + 1) / n
+		local ds = top * (u1 * u1 - u0 * u0)
+		local u = (u0 + u1) / 2
+		local t = top * u * u
 		local dr, dm, do_ = densities(math.sqrt((x + dx * t) ^ 2 + (y + dy * t) ^ 2 + (dz * t) ^ 2))
 		r_od, m_od, o_od = r_od + dr * ds, m_od + dm * ds, o_od + do_ * ds
 	end
@@ -147,7 +150,8 @@ local function ss_reference(sun_elev, view_elev, az)
 	end
 
 	local E = atmosphere.GetSunIlluminance()
-	return out[1] * E, out[2] * E, out[3] * E
+	local color = atmosphere.SUN_COLOR
+	return out[1] * E * color.x, out[2] * E * color.y, out[3] * E * color.z
 end
 
 ENGINE = {
@@ -217,7 +221,7 @@ event.AddListener("Update", "sky_lut_harness", function()
 		end
 
 		print(string.format("  hosek sky illuminance on the same surface: %.0f lux", e_pre))
-		local e_direct = atmosphere.GetSunIlluminance() * (0.2126729 * trans.x + 0.7151522 * trans.y + 0.0721750 * trans.z) * math.sin(se)
+		local e_direct = atmosphere.GetSunIlluminance() * (0.2126729 * trans.x * atmosphere.SUN_COLOR.x + 0.7151522 * trans.y * atmosphere.SUN_COLOR.y + 0.0721750 * trans.z * atmosphere.SUN_COLOR.z) * math.sin(se)
 		print(
 			string.format(
 				"  horizontal illuminance: direct %.0f lux, sky %.0f lux, global %.0f lux, diffuse fraction %.2f",
@@ -253,7 +257,20 @@ event.AddListener("Update", "sky_lut_harness", function()
 				local N = tonumber(os.getenv("MC"))
 				local rgb, rgb1 = {}, {}
 
-				for c = 1, 3 do
+				if os.getenv("SPECTRAL") then
+					-- the reference of record: 21 wavelengths of the same air, the sun's spectrum and the eye, white balanced to the sun
+					local spectral = import("test/harnesses/sky/spectral.lua")
+					local aerosol = {aod = MIE_EXT[2] * (MIE_H + 0.07 * 8), alpha = ANGSTROM, ssa = ALBEDO, g = MIE_G, h = MIE_H}
+					local E = atmosphere.GetSunIlluminance()
+					local c = atmosphere.SUN_COLOR
+					local sun_a, dir_a = {sun.x, sun.y, sun.z}, {dir.x, dir.y, dir.z}
+					local r, g, b = spectral.Radiance(sun_a, dir_a, aerosol, N, 0.27, E, 100)
+					local r1, g1, b1 = spectral.Radiance(sun_a, dir_a, aerosol, N, 0.27, E, 1)
+					rgb = {r * c.x, g * c.y, b * c.z}
+					rgb1 = {r1 * c.x, g1 * c.y, b1 * c.z}
+				end
+
+				for c = 1, (os.getenv("SPECTRAL") and 0 or 3) do
 					local k = {
 						rayleigh = ENGINE.rayleigh[c],
 						ozone = ENGINE.ozone[c],
@@ -263,8 +280,9 @@ event.AddListener("Update", "sky_lut_harness", function()
 						g = ENGINE.g,
 						h = 1.2,
 					}
-					rgb[c] = mc.Radiance(k, sun.x, sun.y, sun.z, dir.x, dir.y, dir.z, N, 100, atmosphere.GetSunIlluminance())
-					rgb1[c] = mc.Radiance(k, sun.x, sun.y, sun.z, dir.x, dir.y, dir.z, N, 1, atmosphere.GetSunIlluminance())
+					local color_c = ({atmosphere.SUN_COLOR.x, atmosphere.SUN_COLOR.y, atmosphere.SUN_COLOR.z})[c]
+					rgb[c] = mc.Radiance(k, sun.x, sun.y, sun.z, dir.x, dir.y, dir.z, N, 100, atmosphere.GetSunIlluminance() * color_c)
+					rgb1[c] = mc.Radiance(k, sun.x, sun.y, sun.z, dir.x, dir.y, dir.z, N, 1, atmosphere.GetSunIlluminance() * color_c)
 				end
 
 				local mx, my, mY = rgb_to_xyY(rgb[1], rgb[2], rgb[3])

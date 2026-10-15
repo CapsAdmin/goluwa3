@@ -13,13 +13,13 @@ local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local precipitation = import("goluwa/render3d/precipitation.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local weather = {}
-local SUN_TOA_ILLUMINANCE = 126000
+local SUN_TOA_ILLUMINANCE = atmosphere.DEFAULT_SUN_ILLUMINANCE
 local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
 local EARTH_RADIUS_KM = 6371
 local MOON_RADIUS_KM = 1737.4
 local MOON_MEAN_DISTANCE_KM = 384400
-local SUN_TINT = Vec3(1.0, 0.98, 0.95)
-local MOON_TINT = SUN_TINT * Vec3(1.0, 0.94, 0.86)
+local SUN_COLOR = atmosphere.SUN_COLOR
+local MOON_TINT = SUN_COLOR * Vec3(1.0, 0.94, 0.86)
 local RAIN_FALL_SPEED = 6.5
 local SNOW_FALL_SPEED = 1
 local RAIN_SPREAD = 0.05
@@ -261,9 +261,20 @@ function weather.SetSunRotation(rotation)
 	weather.SetSunDirection(rotation:GetBackward())
 end
 
+-- a rotation whose backward axis is dir: the shortest arc from up, then up turned to the back axis. It is undefined only
+-- for a sun straight down. The shortest arc from the back axis itself (the old light rotation) is undefined at the horizon
+-- the default sun azimuth sets and rises in, and the rotation's roll (the shadow maps' orientation) turned up to 50
+-- degrees in a 0.005 degree step within 0.01 degrees of it; yaw and pitch (the old GetSunRotation) are undefined at the zenith
+local UP = Vec3(0, 1, 0)
+local BACK_TO_UP = QuatFromAxis(-math.pi / 2, Vec3(1, 0, 0))
+
+local function get_light_rotation(dir)
+	local axis = UP:GetCross(dir)
+	return Quat(axis.x, axis.y, axis.z, 1 + UP:GetDot(dir)):Normalize() * BACK_TO_UP
+end
+
 function weather.GetSunRotation()
-	local dir = weather.GetSunDirection()
-	return QuatFromAxis(math.atan2(dir.x, dir.z), Vec3(0, 1, 0)) * QuatFromAxis(-math.asin(dir.y), Vec3(1, 0, 0))
+	return get_light_rotation(weather.GetSunDirection())
 end
 
 function weather.GetSunDirection()
@@ -421,7 +432,7 @@ function weather.UpdateSky()
 	then
 		clouds.SetLight(moon_dir, MOON_TINT * moon_illuminance)
 	else
-		clouds.SetLight(sun_dir, SUN_TINT * SUN_TOA_ILLUMINANCE)
+		clouds.SetLight(sun_dir, SUN_COLOR * SUN_TOA_ILLUMINANCE)
 	end
 
 	if not weather.light then return end
@@ -435,11 +446,11 @@ function weather.UpdateSky()
 	then
 		dir, color, illuminance = moon_dir, moon_transmittance * MOON_TINT, moon_illuminance
 	else
-		dir, color, illuminance = sun_dir, sun_transmittance * SUN_TINT, SUN_TOA_ILLUMINANCE
+		dir, color, illuminance = sun_dir, sun_transmittance * SUN_COLOR, SUN_TOA_ILLUMINANCE
 	end
 
 	weather.syncing_light = true
-	weather.light.transform:SetRotation(Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize())
+	weather.light.transform:SetRotation(get_light_rotation(dir))
 	weather.syncing_light = false
 	weather.light.light_sun:SetColor(Color(color.x, color.y, color.z, 1))
 	clouds.SetShadowDirection(dir)

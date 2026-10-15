@@ -9,6 +9,9 @@ local EYE = 1.75 * 0.001
 local PI = math.pi
 local sqrt, exp, log, cos, sin, random = math.sqrt, math.exp, math.log, math.cos, math.sin, math.random
 local k_rayleigh, k_ozone, k_mie_ext, k_mie_sca, k_h, k_g, gg = 0, 0, 0, 0, 1.2, 0.758, 0.758 ^ 2
+-- an optional layer of grey fog, {ext (per km at the ground), h (scale height km), top (km), soft (km), g}: extinction
+-- ext exp(-altitude / h) faded out by a smoothstep over the last soft km below the top, scatters only, Henyey-Greenstein g
+local k_fog = nil
 
 local function densities(radius)
 	local alt = radius - R_PLANET
@@ -34,21 +37,64 @@ local function sphere(px, py, pz, dx, dy, dz, radius)
 	return -b - s, -b + s
 end
 
+local function fog_extinction(altitude)
+	if not k_fog or altitude >= k_fog.top then return 0 end
+
+	if altitude < 0 then altitude = 0 end
+
+	local fade = 1
+	local low = math.max(k_fog.top - k_fog.soft, 0)
+
+	if altitude > low then
+		local t = (altitude - low) / (k_fog.top - low)
+		fade = 1 - t * t * (3 - 2 * t)
+	end
+
+	return k_fog.ext * exp(-altitude / k_fog.h) * fade
+end
+
+local function fog_phase(mu)
+	local g = k_fog.g
+	return (1 - g * g) / (4 * PI * (1 + g * g - 2 * g * mu) ^ 1.5)
+end
+
 local function sun_transmittance(px, py, pz, dx, dy, dz)
 	local near = sphere(px, py, pz, dx, dy, dz, R_PLANET)
 
 	if near and near > 0 then return 0 end
 
 	local _, top = sphere(px, py, pz, dx, dy, dz, R_ATMOSPHERE)
-	local n = 32
-	local ds = top / n
+	-- the aerosol layer is 1.2 km deep and the path up to 100 km long: the samples crowd towards the start (32 uniform
+	-- steps of 3 km put the optical depth of the aerosol 15 percent low, the sun 2 to 9 percent too bright)
+	local n = 64
 	local tau = 0
 
 	for i = 0, n - 1 do
-		local t = (i + 0.5) * ds
+		local u0, u1 = i / n, (i + 1) / n
+		local ds = top * (u1 * u1 - u0 * u0)
+		local u = (u0 + u1) / 2
+		local t = top * u * u
 		local x, y, z = px + dx * t, py + dy * t, pz + dz * t
 		local dr, dm, do_ = densities(sqrt(x * x + y * y + z * z))
 		tau = tau + (k_rayleigh * dr + k_mie_ext * dm + k_ozone * do_) * ds
+	end
+
+	if k_fog then
+		-- the layer is under k_fog.top: its optical depth along the ray, quadratic steps from the start
+		local _, leave = sphere(px, py, pz, dx, dy, dz, R_PLANET + k_fog.top)
+
+		if leave and leave > 0 then
+			local m = 48
+
+			for i = 0, m - 1 do
+				local u0, u1 = i / m, (i + 1) / m
+				local ds = leave * (u1 * u1 - u0 * u0)
+				local u = (u0 + u1) / 2
+				local t = leave * u * u
+				local x, y, z = px + dx * t, py + dy * t, pz + dz * t
+				tau = tau + fog_extinction(sqrt(x * x + y * y + z * z) - R_PLANET) * ds
+			end
+		end
 	end
 
 	return exp(-tau)
@@ -84,7 +130,8 @@ end
 function mc.Radiance(k, sx, sy, sz, vx, vy, vz, paths, max_order, sun_illuminance)
 	k_rayleigh, k_ozone, k_mie_ext, k_mie_sca, k_h, k_g = k.rayleigh, k.ozone, k.mie_ext, k.mie_sca, k.h or 1.2, k.g or 0.758
 	gg = k_g * k_g
-	local sigma_max = k_rayleigh + k_mie_ext * 1.07 + k_ozone
+	k_fog = k.fog
+	local sigma_max = k_rayleigh + k_mie_ext * 1.07 + k_ozone + (k_fog and k_fog.ext or 0)
 	local albedo = k.albedo or 0
 	local total = 0
 
@@ -124,19 +171,24 @@ function mc.Radiance(k, sx, sy, sz, vx, vy, vz, paths, max_order, sun_illuminanc
 				local dr, dm, do_ = densities(radius)
 				local s_r = k_rayleigh * dr
 				local s_m = k_mie_sca * dm
-				local s_t = s_r + k_mie_ext * dm + k_ozone * do_
+				local s_f = fog_extinction(radius - R_PLANET)
+				local s_t = s_r + k_mie_ext * dm + k_ozone * do_ + s_f
 
 				if random() * sigma_max < s_t then
-					if random() * s_t > s_r + s_m then break end
+					local s_s = s_r + s_m + s_f
+
+					if random() * s_t > s_s then break end
 
 					order = order + 1
-					local s_s = s_r + s_m
 					local mu_s = dx * sx + dy * sy + dz * sz
-					total = total + weight * (s_r * rayleigh_phase(mu_s) + s_m * cs_phase(mu_s)) / s_s * sun_transmittance(px, py, pz, sx, sy, sz) * sun_illuminance
+					local fog_scatter = s_f > 0 and s_f * fog_phase(mu_s) or 0
+					total = total + weight * (s_r * rayleigh_phase(mu_s) + s_m * cs_phase(mu_s) + fog_scatter) / s_s * sun_transmittance(px, py, pz, sx, sy, sz) * sun_illuminance
 
 					if order >= max_order then break end
 
-					if random() * s_s < s_r then
+					local pick = random() * s_s
+
+					if pick < s_r then
 						local cos_t
 
 						repeat
@@ -144,10 +196,15 @@ function mc.Radiance(k, sx, sy, sz, vx, vy, vz, paths, max_order, sun_illuminanc
 						until random() * 2 < 1 + cos_t * cos_t
 
 						dx, dy, dz = rotate(dx, dy, dz, cos_t, 2 * PI * random())
-					else
+					elseif pick < s_r + s_m then
 						local u = random()
 						local cos_t = (1 + gg - ((1 - gg) / (1 - k_g + 2 * k_g * u)) ^ 2) / (2 * k_g)
 						weight = weight * cs_phase(cos_t) / hg_phase(cos_t)
+						dx, dy, dz = rotate(dx, dy, dz, cos_t, 2 * PI * random())
+					else
+						local g = k_fog.g
+						local u = random()
+						local cos_t = (1 + g * g - ((1 - g * g) / (1 - g + 2 * g * u)) ^ 2) / (2 * g)
 						dx, dy, dz = rotate(dx, dy, dz, cos_t, 2 * PI * random())
 					end
 				end

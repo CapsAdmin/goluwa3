@@ -17,6 +17,7 @@ local PLANET_RADIUS = 6371.0
 local ATMOSPHERE_RADIUS = 6471.0
 local CAMERA_METERS_TO_KM = 0.001
 local SEA_LEVEL_EYE_HEIGHT = 1.75 * CAMERA_METERS_TO_KM
+atmosphere.SEA_LEVEL_EYE_HEIGHT = SEA_LEVEL_EYE_HEIGHT
 local DEFAULT_OCEAN_LEVEL = 0
 local CAMERA_TEST_MULTIPLIER = 1
 local SKY_VIEW_LUT_WIDTH = 1024
@@ -24,7 +25,11 @@ local SKY_VIEW_LUT_HEIGHT = 512
 local SKY_VIEW_STEPS = 32
 local SKY_VIEW_TEXTURE_CACHE_LIMIT = 16
 local SKY_VIEW_POSITION_QUANTIZATION = 2
-local SKY_VIEW_DIRECTION_QUANTIZATION = 0.002
+-- the sky view table is parametrised by the azimuth from the sun, so it depends on the sun's elevation over the horizon
+-- alone. It was keyed by the direction's components in steps of 0.002 (0.12 degrees): the table baked for the first sun in
+-- a step served the rest of it, the sky stood still and jumped 3 percent every 0.12 degrees of the sun's motion, and at a
+-- sunset, where it changes fastest, the staircase was a visible flicker. 0.005 degrees is under 0.3 percent there
+local SKY_VIEW_ELEVATION_QUANTIZATION = math.rad(0.005)
 local SKY_VIEW_ILLUMINANCE_QUANTIZATION = 1000
 local MULTI_SCATTER_LUT_SIZE = 32
 local RAYLEIGH_SCALE_HEIGHT = 8.0
@@ -46,11 +51,20 @@ local MIE_BETA_EXT = Vec3(0, 0, 0)
 local MIE_BETA = Vec3(0, 0, 0)
 local aerosol_extinction = 0
 local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
-local DEFAULT_SUN_ILLUMINANCE = 126000
+-- the luminous solar constant: 127.5 klux (Gueymard 2005, the ASTM spectrum and 1366 W/m2), 127.0 for today's 1361 W/m2
+atmosphere.DEFAULT_SUN_ILLUMINANCE = 127000
+local DEFAULT_SUN_ILLUMINANCE = atmosphere.DEFAULT_SUN_ILLUMINANCE
 atmosphere.SUN_ANGULAR_RADIUS = 0.00465
+-- the colour of the sunlight above the atmosphere as linear sRGB with a luminance of 1, a 5778 K blackbody (chromaticity
+-- 0.3263 0.3359), warmer than the D65 white of the display. The direct light, the sky, the fog and the sun disc all
+-- start from it, so a white balance has one illuminant to undo.
+atmosphere.SUN_COLOR = Vec3(1.1093, 0.9763, 0.9133)
 atmosphere.CLOUD_RADIANCE_SCALE = 1 / 16
 local DEBUG_DISABLE_GROUND_FOG = false
 local GROUND_FOG_SCALE_HEIGHT = 0.28
+local GROUND_FOG_TOP_HEIGHT = 1.1
+atmosphere.GROUND_FOG_SCALE_HEIGHT = GROUND_FOG_SCALE_HEIGHT
+atmosphere.GROUND_FOG_TOP_HEIGHT = GROUND_FOG_TOP_HEIGHT
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 pvars.StartGroup("atmosphere", {store = false})
 local fog_ray_strength = pvars.Setup2{
@@ -124,14 +138,14 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 	local camera = get_shader_camera_position(cam_pos)
 	local sun = get_normalized_sun_direction(sun_dir)
 	local sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
+	local length = math.sqrt(camera.x * camera.x + camera.y * camera.y + camera.z * camera.z)
+	local elevation = math.asin(math.max(-1, math.min(1, (sun.x * camera.x + sun.y * camera.y + sun.z * camera.z) / length)))
 	return string.format(
-		"%.1f:%.1f:%.1f|%.3f:%.3f:%.3f|%.3f",
+		"%.1f:%.1f:%.1f|%.6f|%.3f",
 		quantize(camera.x, SKY_VIEW_POSITION_QUANTIZATION),
 		quantize(camera.y, SKY_VIEW_POSITION_QUANTIZATION),
 		quantize(camera.z, SKY_VIEW_POSITION_QUANTIZATION),
-		quantize(sun.x, SKY_VIEW_DIRECTION_QUANTIZATION),
-		quantize(sun.y, SKY_VIEW_DIRECTION_QUANTIZATION),
-		quantize(sun.z, SKY_VIEW_DIRECTION_QUANTIZATION),
+		quantize(elevation, SKY_VIEW_ELEVATION_QUANTIZATION),
 		quantize(sun_illuminance, SKY_VIEW_ILLUMINANCE_QUANTIZATION)
 	)
 end
@@ -148,9 +162,12 @@ local atmosphere_shared_glsl = [[
 		"1.0"
 	) .. [[;
 	const float GROUND_FOG_SCALE_HEIGHT = ]] .. GROUND_FOG_SCALE_HEIGHT .. [[;
-	const float GROUND_FOG_TOP_HEIGHT = 1.1;
+	const float GROUND_FOG_TOP_HEIGHT = ]] .. GROUND_FOG_TOP_HEIGHT .. [[;
 	const float GROUND_FOG_TOP_SOFTNESS = 0.3;
 	const float GROUND_FOG_MIE_G = 0.6;
+	// the share of the sun's energy a fog layer takes out of the beam that ends up as the mean radiance inside it: the rest
+	// leaves through the top, and the ground takes some
+	const float GROUND_FOG_DIFFUSE_FRACTION = 0.25;
 	// the aerosol's scattering and extinction per km at sea level, the pass provides the extinction at 550 nm
 	const vec3 AEROSOL_SPECTRUM = vec3(]] .. string.format("%.8f, %.8f, %.8f", AEROSOL_SPECTRUM.x, AEROSOL_SPECTRUM.y, AEROSOL_SPECTRUM.z) .. [[);
 	const float AEROSOL_ALBEDO = ]] .. AEROSOL_ALBEDO .. [[;
@@ -162,9 +179,11 @@ local atmosphere_shared_glsl = [[
 	const vec3 RAYLEIGH_BETA = vec3(0.0058, 0.0135, 0.0331);
 	const vec3 OZONE_BETA_ABS = vec3(0.00065, 0.00188, 0.000085);
 	const vec3 GROUND_ALBEDO = vec3(0.30, 0.27, 0.22);
+	const vec3 SUN_COLOR = vec3(]] .. string.format("%.4f, %.4f, %.4f", atmosphere.SUN_COLOR.x, atmosphere.SUN_COLOR.y, atmosphere.SUN_COLOR.z) .. [[);
 
 	#ifndef ATMOSPHERE_SUN_ILLUMINANCE
-	#define ATMOSPHERE_SUN_ILLUMINANCE 126000.0
+	#define ATMOSPHERE_SUN_ILLUMINANCE ]] .. string.format("%.1f", DEFAULT_SUN_ILLUMINANCE) .. [[
+
 	#endif
 	#ifndef ATMOSPHERE_FOG_COLOR
 	#define ATMOSPHERE_FOG_COLOR vec4(0.0)
@@ -303,12 +322,18 @@ local atmosphere_shared_glsl = [[
 		return num / den;
 	}
 
+	// the tables' height axis is the square root of the altitude, 64 rows over 100 km would put the first one 0.8 km up,
+	// above most of the aerosol, and a viewer at the ground would see the air of that height
+	float get_lut_radius(float v) {
+		return PLANET_RADIUS + (ATMOSPHERE_RADIUS - PLANET_RADIUS) * v * v;
+	}
+
 	vec2 get_transmittance_lut_uv(vec3 sample_point, vec3 light_dir) {
 		vec3 up = normalize(sample_point);
 		float mu = dot(up, light_dir);
 		float radius = length(sample_point);
 		float u = mu * 0.5 + 0.5;
-		float v = clamp((radius - PLANET_RADIUS) / max(ATMOSPHERE_RADIUS - PLANET_RADIUS, 1e-5), 0.0, 1.0);
+		float v = sqrt(clamp((radius - PLANET_RADIUS) / max(ATMOSPHERE_RADIUS - PLANET_RADIUS, 1e-5), 0.0, 1.0));
 		return vec2(u, v);
 	}
 
@@ -329,7 +354,7 @@ local atmosphere_shared_glsl = [[
 	// The multiple scattering lut is isotropic and assumes a transfer function that holds for thin air: against a path
 	// traced sky it is up to 30 percent too bright overhead and 50 percent too dark at the horizon with a clear aerosol,
 	// and too bright all over as the aerosol thickens, by an amount that follows the sun's elevation. This is the ratio
-	// fitted to the path tracer (test/harnesses/sky/ms_fit.lua, 7 percent rms), u = 1 - sin(view elevation),
+	// fitted to the spectral path tracer (test/harnesses/sky/ms_fit.lua with SPECTRAL=1 rows, 9 percent rms), u = 1 - sin(view elevation),
 	// x = sin(sun elevation), a = ln(aerosol extinction / 0.0568). It holds for a camera near the ground, sun elevations
 	// of 6-75 degrees and an aerosol visibility from 12 km up, thicker haze is clamped and too bright. Regenerate it
 	// when the aerosol, ozone or Rayleigh constants change.
@@ -338,9 +363,9 @@ local atmosphere_shared_glsl = [[
 		float u = 1.0 - clamp(dot(ray_dir, up), 0.0, 1.0);
 		float x = clamp(dot(sun_dir, up), 0.1, 0.97);
 		float a = clamp(log(max(ATMOSPHERE_AEROSOL_EXTINCTION, 1e-4) / 0.0568), -1.5, 1.71);
-		float poly0 = -0.0447 + 1.0927 * u - 0.6433 * u * u - 1.0966 * x - 0.9065 * x * u + 0.9874 * x * x - 1.0016 * x * x * u + 1.8771 * u * u * x;
-		float poly1 = -0.1888 + 0.1655 * u - 0.2228 * u * u - 0.2412 * x - 0.1192 * x * u + 0.3945 * x * x - 0.5815 * x * x * u + 0.7828 * u * u * x;
-		float poly2 = -0.0520 - 0.1203 * u + 0.0682 * u * u + 0.0399 * x + 0.0530 * x * u + 0.0524 * x * x - 0.0923 * x * x * u + 0.0047 * u * u * x;
+		float poly0 = 0.0051 + 0.7043 * u + 0.0118 * u * u - 1.1846 * x - 0.5855 * x * u + 0.9844 * x * x - 0.7883 * x * x * u + 1.1238 * u * u * x;
+		float poly1 = -0.1042 + 0.2775 * u - 0.4293 * u * u - 0.5152 * x - 0.1436 * x * u + 0.6551 * x * x - 0.8781 * x * x * u + 1.0661 * u * u * x;
+		float poly2 = -0.0931 - 0.0209 * u - 0.0247 * u * u + 0.0668 * x - 0.1656 * x * u + 0.0376 * x * x + 0.0296 * x * x * u + 0.0753 * u * u * x;
 		return exp(poly0 + poly1 * a + poly2 * a * a);
 	}
 
@@ -379,7 +404,7 @@ local atmosphere_shared_glsl = [[
 		}
 
 		view_transmittance = exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od));
-		return total * ATMOSPHERE_SUN_ILLUMINANCE;
+		return total * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR;
 	}
 
 	// Clips the ray to the atmosphere and the planet. Returns false when the
@@ -444,12 +469,72 @@ local atmosphere_shared_glsl = [[
 	}
 ]]
 
+-- The sunlight through the air, folded with the sun's spectrum and the eye: the same air (Rayleigh, aerosol, ozone) at
+-- 41 wavelengths instead of three. The three channel coefficients of the sky tables are tuned to the scattered light and
+-- give a direct beam that was 5 percent too bright at 60 degrees, 27 at 10 and twice as bright at 1 degree, and too red.
+-- weights[c] are the 5778 K blackbody times the CIE 1931 observer (Wyman, Sloan and Shirley 2013) in linear sRGB channel c,
+-- normalised to add up to 1
+local SPECTRUM = {wavelengths = {}, rayleigh = {}, ozone = {}, aerosol = {}, weights = {{}, {}, {}}}
+
+do
+	local function lobe(l, mu, s1, s2)
+		local t = (l - mu) / (l < mu and s1 or s2)
+		return math.exp(-0.5 * t * t)
+	end
+
+	local sums = {0, 0, 0}
+
+	for l = 380, 780, 10 do
+		local i = #SPECTRUM.wavelengths + 1
+		local um = l / 1000
+		SPECTRUM.wavelengths[i] = l
+		-- Bodhaine's Rayleigh optical depth of the whole atmosphere, per scale height
+		SPECTRUM.rayleigh[i] = 0.008569 * um ^ -4 * (1 + 0.0113 * um ^ -2 + 0.00013 * um ^ -4) / RAYLEIGH_SCALE_HEIGHT
+		-- the Chappuis band of 300 DU of ozone, a gaussian fit, spread over the layer's width
+		SPECTRUM.ozone[i] = 5.1e-21 * math.exp(-0.5 * ((l - 603) / 58) ^ 2) * 8.06e18 / OZONE_WIDTH
+		SPECTRUM.aerosol[i] = (l / 550) ^ -AEROSOL_ANGSTROM
+		local x = 1.056 * lobe(l, 599.8, 37.9, 31.0) + 0.362 * lobe(l, 442.0, 16.0, 26.7) - 0.065 * lobe(l, 501.1, 20.4, 26.2)
+		local y = 0.821 * lobe(l, 568.8, 46.9, 40.5) + 0.286 * lobe(l, 530.9, 16.3, 31.1)
+		local z = 1.217 * lobe(l, 437.0, 11.8, 36.0) + 0.681 * lobe(l, 459.0, 26.0, 13.8)
+		local sun = 1 / ((l * 1e-9) ^ 5 * (math.exp(1.4388e-2 / (l * 1e-9 * 5778)) - 1))
+		local rgb = {
+			3.2404542 * x - 1.5371385 * y - 0.4985314 * z,
+			-0.9692660 * x + 1.8760108 * y + 0.0415560 * z,
+			0.0556434 * x - 0.2040259 * y + 1.0572252 * z,
+		}
+
+		for c = 1, 3 do
+			SPECTRUM.weights[c][i] = sun * rgb[c]
+			sums[c] = sums[c] + sun * rgb[c]
+		end
+	end
+
+	for c = 1, 3 do
+		for i = 1, #SPECTRUM.wavelengths do
+			SPECTRUM.weights[c][i] = SPECTRUM.weights[c][i] / sums[c]
+		end
+	end
+end
+
+local function glsl_array(name, values)
+	local parts = {}
+
+	for i, v in ipairs(values) do
+		parts[i] = string.format("%.9g", v)
+	end
+
+	return string.format("const float %s[%d] = float[%d](%s);\n", name, #values, #values, table.concat(parts, ", "))
+end
+
 local function build_atmosphere_shader_prelude(extra, prefix)
 	return (prefix or "") .. atmosphere_shared_glsl .. "\n" .. extra
 end
 
 local transmittance_glsl = build_atmosphere_shader_prelude([[
 	const int TRANSMITTANCE_STEPS = 40;
+	const int SPECTRAL_COUNT = ]] .. #SPECTRUM.wavelengths .. [[;
+
+	]] .. glsl_array("SPECTRAL_RAYLEIGH", SPECTRUM.rayleigh) .. glsl_array("SPECTRAL_OZONE", SPECTRUM.ozone) .. glsl_array("SPECTRAL_AEROSOL", SPECTRUM.aerosol) .. glsl_array("SPECTRAL_WEIGHT_R", SPECTRUM.weights[1]) .. glsl_array("SPECTRAL_WEIGHT_G", SPECTRUM.weights[2]) .. glsl_array("SPECTRAL_WEIGHT_B", SPECTRUM.weights[3]) .. [[
 
 	vec2 ray_sphere_intersect_normalized(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
 		vec3 oc = ray_origin / sphere_radius;
@@ -467,7 +552,7 @@ local transmittance_glsl = build_atmosphere_shader_prelude([[
 
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
 		float mu = mix(-1.0, 1.0, uv.x);
-		float radius = mix(PLANET_RADIUS, ATMOSPHERE_RADIUS, uv.y);
+		float radius = get_lut_radius(uv.y);
 		vec3 ray_origin = vec3(0.0, radius, 0.0);
 		float sin_theta = sqrt(max(1.0 - mu * mu, 0.0));
 		vec3 ray_dir = normalize(vec3(sin_theta, mu, 0.0));
@@ -478,20 +563,31 @@ local transmittance_glsl = build_atmosphere_shader_prelude([[
 		if (ray_length <= 0.0) return vec4(1.0);
 		if (ground_hit.x > 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
 
-		float step_size = ray_length / float(TRANSMITTANCE_STEPS);
 		float rayleigh_od = 0.0;
 		float mie_od = 0.0;
 		float ozone_od = 0.0;
 
+		// the aerosol layer is 1.2 km deep and the path up to 100 km long, so the samples crowd towards the viewer
 		for (int i = 0; i < TRANSMITTANCE_STEPS; i++) {
-			float t = (float(i) + 0.5) * step_size;
+			float u0 = float(i) / float(TRANSMITTANCE_STEPS);
+			float u1 = float(i + 1) / float(TRANSMITTANCE_STEPS);
+			float step_size = ray_length * (u1 * u1 - u0 * u0);
+			float u = 0.5 * (u0 + u1);
+			float t = ray_length * u * u;
 			vec3 sample_point = ray_origin + ray_dir * t;
 			rayleigh_od += rayleigh_density(sample_point) * step_size;
 			mie_od += mie_density(sample_point) * step_size;
 			ozone_od += ozone_density(sample_point) * step_size;
 		}
 
-		return vec4(exp(-compute_view_tau(rayleigh_od, mie_od, ozone_od)), 1.0);
+		vec3 transmitted = vec3(0.0);
+
+		for (int i = 0; i < SPECTRAL_COUNT; i++) {
+			float t = exp(-(SPECTRAL_RAYLEIGH[i] * rayleigh_od + ATMOSPHERE_AEROSOL_EXTINCTION * SPECTRAL_AEROSOL[i] * mie_od + SPECTRAL_OZONE[i] * ozone_od));
+			transmitted += vec3(SPECTRAL_WEIGHT_R[i], SPECTRAL_WEIGHT_G[i], SPECTRAL_WEIGHT_B[i]) * t;
+		}
+
+		return vec4(max(transmitted, vec3(0.0)), 1.0);
 	}
 ]], "#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n")
 local multi_scatter_glsl = build_atmosphere_shader_prelude(
@@ -501,7 +597,7 @@ local multi_scatter_glsl = build_atmosphere_shader_prelude(
 
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
 		float mu_s = mix(-1.0, 1.0, uv.x);
-		float radius = mix(PLANET_RADIUS, ATMOSPHERE_RADIUS, uv.y);
+		float radius = get_lut_radius(uv.y);
 		vec3 ray_origin = vec3(0.0, radius, 0.0);
 		vec3 sun_dir = normalize(vec3(sqrt(max(1.0 - mu_s * mu_s, 0.0)), mu_s, 0.0));
 		vec3 second_order = vec3(0.0);
@@ -731,6 +827,46 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return get_sky_irradiance_ex(ray_origin, false);
 	}
 
+	// Two integrals of the sky dome above a point, a midpoint quadrature of the sky view lookup table over the upper
+	// hemisphere: the mean radiance (uniform in solid angle) and the irradiance on an upward facing surface
+	// (cosine weighted).
+	void get_sky_hemisphere_integrals(vec3 ray_origin, bool with_clouds, int zenith_steps, int azimuth_steps, out vec3 mean_radiance, out vec3 irradiance) {
+		vec3 up = normalize(ray_origin);
+		vec3 forward = get_sky_view_forward(up, ATMOSPHERE_SKY_SUN_DIRECTION);
+		vec3 right = normalize(cross(forward, up));
+		mean_radiance = vec3(0.0);
+		irradiance = vec3(0.0);
+		float d_theta = 1.5707963 / float(zenith_steps);
+		float d_phi = 6.2831853 / float(azimuth_steps);
+
+		for (int i = 0; i < zenith_steps; i++) {
+			float theta = (float(i) + 0.5) * d_theta;
+			float solid_angle = sin(theta) * d_theta * d_phi;
+
+			for (int j = 0; j < azimuth_steps; j++) {
+				float phi = (float(j) + 0.5) * d_phi;
+				vec3 dir = up * cos(theta) + (forward * cos(phi) + right * sin(phi)) * sin(theta);
+				vec3 radiance = get_sky_irradiance_sample(dir, ray_origin, with_clouds) * solid_angle;
+				mean_radiance += radiance;
+				irradiance += radiance * cos(theta);
+			}
+		}
+
+		mean_radiance /= 6.2831853;
+	}
+
+	// What the sky does not draw: the radiance of flat ground under it, albedo / pi times the sun
+	// and the sky's light on it. The environment probes use it below the horizon, the surfaces
+	// they light (where there are no DDGI probes) see the ground there, not the haze of the horizon.
+	vec3 get_ground_radiance(vec3 ray_origin, vec3 sun_dir) {
+		vec3 up = normalize(ray_origin);
+		vec3 sun_irradiance = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * max(dot(up, sun_dir), 0.0);
+		vec3 mean_radiance;
+		vec3 sky_irradiance;
+		get_sky_hemisphere_integrals(ray_origin, true, 6, 12, mean_radiance, sky_irradiance);
+		return GROUND_ALBEDO / PI * (sun_irradiance + sky_irradiance);
+	}
+
 	bool get_aerial_perspective_segment(
 		vec3 world_pos,
 		vec3 cam_pos,
@@ -812,18 +948,41 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		);
 	}
 
-	// Radiance arriving at a point in the open air, averaged over every
-	// direction: the sky above and the sky lit ground below, what DDGI's probes
-	// give where there are probes. It doesn't depend on the view, the glow
+	// The share of the sun that gets through the fog layer to a point (not the sun's own air, see sample_transmittance_lut):
+	// the optical depth of the layer above the point along the sun's slant, the exponential part
+	// in closed form, the precipitation (uniform up to the top) added.
+	float ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction) {
+		if (GROUND_FOG_ENABLED < 0.5 || altitude >= GROUND_FOG_TOP_HEIGHT) return 1.0;
+
+		altitude = max(altitude, 0.0);
+		float optical_depth = fog_extinction * GROUND_FOG_SCALE_HEIGHT * (exp(-altitude / GROUND_FOG_SCALE_HEIGHT) - exp(-GROUND_FOG_TOP_HEIGHT / GROUND_FOG_SCALE_HEIGHT)) + precipitation_extinction * (GROUND_FOG_TOP_HEIGHT - altitude);
+		return exp(-optical_depth / max(sun_up, 0.05));
+	}
+
+	float get_ground_fog_sun_transmittance(vec3 point, vec3 sun_dir) {
+		return ground_fog_sun_transmittance(length(point) - PLANET_RADIUS, dot(normalize(point), sun_dir), ATMOSPHERE_GROUND_FOG_EXTINCTION, ATMOSPHERE_PRECIPITATION_EXTINCTION);
+	}
+
+	// Radiance arriving at a point in the open air, averaged over every direction: the sky above and the sunlit,
+	// sky lit ground below, what DDGI's probes give where there are probes. It doesn't depend on the view, the glow
 	// around the sun is the sun's own scattering, which is shadowed.
 	vec3 get_ground_fog_sky_ambient(vec3 ray_origin) {
-		vec3 sky_irradiance = get_sky_irradiance(ray_origin);
-		return 0.5 * (vec3(1.0) + GROUND_ALBEDO) * sky_irradiance / PI;
+		vec3 mean_radiance;
+		vec3 sky_irradiance;
+		get_sky_hemisphere_integrals(ray_origin, true, 4, 8, mean_radiance, sky_irradiance);
+		vec3 up = normalize(ray_origin);
+		vec3 sun_dir = ATMOSPHERE_SKY_SUN_DIRECTION;
+		vec3 sun_irradiance = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * max(dot(up, sun_dir), 0.0);
+		vec3 sky_light = 0.5 * (mean_radiance + GROUND_ALBEDO / PI * (sky_irradiance + sun_irradiance));
+		// what the fog takes out of the sun's beam is scattered, it is not lost: it is the diffuse light of the fog
+		// (a layer thick enough to take much of the beam lights itself with the rest), as the irradiance it removes
+		// over pi, the mean radiance of an isotropic field
+		return sky_light + sun_irradiance * (1.0 - get_ground_fog_sun_transmittance(ray_origin, sun_dir)) * GROUND_FOG_DIFFUSE_FRACTION / PI;
 	}
 
 	// Sunlight scattered toward the viewer by the fog, forward peaked.
 	vec3 get_ground_fog_sun(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
-		return ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH;
+		return ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * get_ground_fog_sun_transmittance(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH;
 	}
 
 	// In-scattered radiance of the low altitude fog. gi_irradiance stands in
@@ -967,7 +1126,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		const vec3 LIMB_DARKENING = vec3(0.50, 0.62, 0.72);
 		vec3 limb = (1.0 - LIMB_DARKENING * (1.0 - mu)) / (1.0 - LIMB_DARKENING / 3.0);
 		float solid_angle = PI * SUN_ANGULAR_RADIUS * SUN_ANGULAR_RADIUS;
-		return ATMOSPHERE_SUN_DISC_ILLUMINANCE / solid_angle * limb * edge * sample_transmittance_lut(ray_origin, sun_dir);
+		return ATMOSPHERE_SUN_DISC_ILLUMINANCE / solid_angle * SUN_COLOR * limb * edge * sample_transmittance_lut(ray_origin, sun_dir);
 	}
 ]]
 )
@@ -1256,6 +1415,17 @@ function atmosphere.SetSunIlluminance(illuminance)
 	destroy_all_sky_view_textures()
 end
 
+-- the share of the sun that gets through the ground fog layer to a point (the GLSL ground_fog_sun_transmittance), height_m
+-- over the ground, sun_up the sine of the sun's elevation
+function atmosphere.GetGroundFogSunTransmittance(sun_up, height_m)
+	local altitude = math.max(SEA_LEVEL_EYE_HEIGHT + height_m * CAMERA_METERS_TO_KM, 0)
+
+	if altitude >= GROUND_FOG_TOP_HEIGHT then return 1 end
+
+	local depth = atmosphere.GetGroundFogExtinction() * GROUND_FOG_SCALE_HEIGHT * (math.exp(-altitude / GROUND_FOG_SCALE_HEIGHT) - math.exp(-GROUND_FOG_TOP_HEIGHT / GROUND_FOG_SCALE_HEIGHT)) + atmosphere.precipitation_extinction * (GROUND_FOG_TOP_HEIGHT - altitude)
+	return math.exp(-depth / math.max(sun_up, 0.05))
+end
+
 function atmosphere.GetSunIlluminance()
 	return atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 end
@@ -1512,6 +1682,20 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 	]]
 end
 
+function atmosphere.FoldTransmittance(rayleigh_depth, aerosol_depth, ozone_depth)
+	local transmitted = {0, 0, 0}
+
+	for i = 1, #SPECTRUM.wavelengths do
+		local t = math.exp(-(SPECTRUM.rayleigh[i] * rayleigh_depth + MIE_BETA_EXT.y * SPECTRUM.aerosol[i] * aerosol_depth + SPECTRUM.ozone[i] * ozone_depth))
+
+		for c = 1, 3 do
+			transmitted[c] = transmitted[c] + SPECTRUM.weights[c][i] * t
+		end
+	end
+
+	return Vec3(math.max(transmitted[1], 0), math.max(transmitted[2], 0), math.max(transmitted[3], 0))
+end
+
 function atmosphere.GetTransmittance(sunDir, camPos)
 	camPos = camPos or Vec3(0, 0, 0)
 	local rayOrigin = Vec3(
@@ -1528,22 +1712,25 @@ function atmosphere.GetTransmittance(sunDir, camPos)
 
 	if groundMin > 0 then return Vec3(0, 0, 0) end
 
-	local numSamples = 16
-	local segmentLength = (tmax - tmin) / numSamples
+	-- the aerosol layer is 1.2 km deep and the path 100 km long, so the samples crowd towards the viewer
+	local numSamples = 64
+	local length = tmax - tmin
 	local opticalDepthR = 0
 	local opticalDepthM = 0
 	local opticalDepthO = 0
 
 	for i = 0, numSamples - 1 do
-		local samplePos = rayOrigin + sunDir * (tmin + segmentLength * (i + 0.5))
+		local u0, u1 = i / numSamples, (i + 1) / numSamples
+		local segmentLength = length * (u1 * u1 - u0 * u0)
+		local u = (u0 + u1) / 2
+		local samplePos = rayOrigin + sunDir * (tmin + length * u * u)
 		local height = samplePos:GetLength() - PLANET_RADIUS
 		opticalDepthR = opticalDepthR + rayleighDensity(height) * segmentLength
 		opticalDepthM = opticalDepthM + mieDensity(height) * segmentLength
 		opticalDepthO = opticalDepthO + ozoneDensity(height) * segmentLength
 	end
 
-	local tau = RAYLEIGH_BETA * opticalDepthR + MIE_BETA_EXT * opticalDepthM + OZONE_BETA_ABS * opticalDepthO
-	return Vec3(math.exp(-tau.x), math.exp(-tau.y), math.exp(-tau.z))
+	return atmosphere.FoldTransmittance(opticalDepthR, opticalDepthM, opticalDepthO)
 end
 
 if HOTRELOAD then

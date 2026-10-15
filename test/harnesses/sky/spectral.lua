@@ -86,6 +86,7 @@ function spectral.Radiance(sun, view, aerosol, paths, ground_albedo, sun_illumin
 				albedo = ground_albedo,
 				g = aerosol.g,
 				h = aerosol.h,
+				fog = aerosol.fog,
 			},
 			sun[1],
 			sun[2],

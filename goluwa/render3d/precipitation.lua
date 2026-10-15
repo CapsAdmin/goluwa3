@@ -159,7 +159,7 @@ do
 		local sky = atmosphere.GetSky()
 		local cover = clouds.GetCover()
 		local sun_dir = sky and sky.sun_direction or Vec3(0, 1, 0)
-		local sun = atmosphere.GetTransmittance(sun_dir) * atmosphere.GetSunIlluminance()
+		local sun = atmosphere.GetTransmittance(sun_dir) * atmosphere.SUN_COLOR * atmosphere.GetSunIlluminance()
 		local moon_dir = sky and sky.moon_direction or Vec3(0, -1, 0)
 		local moon = atmosphere.GetTransmittance(moon_dir) * (sky and sky.moon_illuminance or 0)
 		local direct_sun = sun * clouds.GetMeanTransmittance(sun_dir)

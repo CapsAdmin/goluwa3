@@ -14,7 +14,7 @@ local aerosol = {
 }
 local paths = tonumber(os.getenv("PATHS") or "3000")
 local ground = 0.26
-local E_SUN = 126000
+local E_SUN = 127000
 local suns = {60, 30, 10}
 local SAMPLES = {{90, 0}, {90, 90}, {60, 180}, {45, 0}, {45, 90}, {45, 180}, {30, 90}, {30, 180}, {15, 0}, {15, 90}, {15, 180}, {5, 90}, {5, 180}, {1, 90}, {1, 180}}
 local points = {}
