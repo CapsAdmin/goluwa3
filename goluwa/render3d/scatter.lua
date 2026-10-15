@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local vk = import("goluwa/bindings/vk.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -260,7 +261,7 @@ local BINDING_UNITS = 14
 local BINDING_BLOCKS = 15
 local BINDING_UNIT_COUNTS = 16
 local RAY_QUERY = render.GetDevice().ray_query_supported
-local COMMON_GLSL = [[
+local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. [[
 	#define SCATTER_TILE_CELLS ]] .. scatter.TILE_CELLS .. [[
 
 	#define SCATTER_MAX_LEVEL ]] .. scatter.MAX_LEVEL .. [[
@@ -339,26 +340,11 @@ local COMMON_GLSL = [[
 		return scatter_pcg(uint(c.x) ^ scatter_pcg(uint(c.y) + 0x9e3779b9u));
 	}
 
-	float scatter_unorm(uint h) {
-		return float(h >> 8) * (1.0 / 16777216.0);
-	}
-
-	float scatter_value_noise(vec2 p) {
-		ivec2 i = ivec2(floor(p));
-		vec2 f = fract(p);
-		f = f * f * (3.0 - 2.0 * f);
-		return mix(
-			mix(scatter_unorm(scatter_hash2(i)), scatter_unorm(scatter_hash2(i + ivec2(1, 0))), f.x),
-			mix(scatter_unorm(scatter_hash2(i + ivec2(0, 1))), scatter_unorm(scatter_hash2(i + ivec2(1, 1))), f.x),
-			f.y
-		);
-	}
-
 	// non harmonic octaves so the pattern never visibly repeats
 	float scatter_fbm(vec2 p) {
-		return scatter_value_noise(p) * 0.55 +
-			scatter_value_noise(p * 2.13 + vec2(17.1, -3.7)) * 0.3 +
-			scatter_value_noise(p * 4.37 + vec2(-9.3, 21.4)) * 0.15;
+		return value_noise2(p) * 0.55 +
+			value_noise2(p * 2.13 + vec2(17.1, -3.7)) * 0.3 +
+			value_noise2(p * 4.37 + vec2(-9.3, 21.4)) * 0.15;
 	}
 
 	// 1 inside [lo, hi], falling to 0 over fade outside of it
@@ -384,10 +370,10 @@ local COMMON_GLSL = [[
 		h = scatter_hash2(cell) ^ scatter_pcg(proto_index + 0x51ed270bu);
 		float level_scale = exp2(-2.0 * float(cell_level + 1));
 		priority = cell_level == max_level ?
-			scatter_unorm(h) * level_scale * 4.0 :
-			level_scale * (1.0 + 3.0 * scatter_unorm(h));
+			pcg_unorm(h) * level_scale * 4.0 :
+			level_scale * (1.0 + 3.0 * pcg_unorm(h));
 		h = scatter_pcg(h);
-		vec2 jitter = vec2(scatter_unorm(h), scatter_unorm(scatter_pcg(h ^ 0x68bc21ebu)));
+		vec2 jitter = vec2(pcg_unorm(h), pcg_unorm(scatter_pcg(h ^ 0x68bc21ebu)));
 		return (vec2(cell) + jitter * float(1 << cell_level)) * cell_size;
 	}
 
@@ -842,19 +828,19 @@ local function get_compute_passes()
 						if (priority >= keep) continue;
 
 						h = scatter_pcg(h + 0x2545f491u);
-						float r_size = scatter_unorm(h);
+						float r_size = pcg_unorm(h);
 						h = scatter_pcg(h);
-						float r_stretch = scatter_unorm(h);
+						float r_stretch = pcg_unorm(h);
 						h = scatter_pcg(h);
-						float r_yaw = scatter_unorm(h);
+						float r_yaw = pcg_unorm(h);
 						h = scatter_pcg(h);
-						float r_tilt = scatter_unorm(h);
+						float r_tilt = pcg_unorm(h);
 						h = scatter_pcg(h);
-						float r_tilt_direction = scatter_unorm(h);
+						float r_tilt_direction = pcg_unorm(h);
 						h = scatter_pcg(h);
-						float r_sink = scatter_unorm(h);
+						float r_sink = pcg_unorm(h);
 						h = scatter_pcg(h);
-						float r_variation = scatter_unorm(h);
+						float r_variation = pcg_unorm(h);
 						float size = mix(proto.scale.x, proto.scale.y, r_size);
 						float size_y = size * mix(proto.scale.z, proto.scale.w, r_stretch);
 

@@ -10,6 +10,7 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -965,20 +966,9 @@ function ddgi.GetAlphaTestGLSL()
 end
 
 function ddgi.GetEmitterGLSL()
-	return [[
-		// pcg4d (Jarzynski and Olano 2020)
+	return glsl_common.GetHashGLSL() .. [[
 		vec4 ddgi_emitter_random(uint index, uint frame, uint candidate) {
-			uvec4 v = uvec4(index, frame, candidate, 0x9E3779B9u) * 1664525u + 1013904223u;
-			v.x += v.y * v.w;
-			v.y += v.z * v.x;
-			v.z += v.x * v.y;
-			v.w += v.y * v.z;
-			v ^= v >> 16u;
-			v.x += v.y * v.w;
-			v.y += v.z * v.x;
-			v.z += v.x * v.y;
-			v.w += v.y * v.z;
-			return vec4(v >> 8u) / 16777216.0;
+			return vec4(pcg4d(uvec4(index, frame, candidate, 0x9E3779B9u)) >> 8u) / 16777216.0;
 		}
 
 		uint ddgi_emitter_triangle(int e) {

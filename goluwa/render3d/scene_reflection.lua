@@ -6,6 +6,7 @@ local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local scene_reflection = {}
 scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
 scene_reflection.MAX_DISTANCE = 1000
@@ -158,21 +159,14 @@ function scene_reflection.GetGLSL(block_name, shared)
 			shared and
 			"" or
 			glass_light.GetGLSL("ddgi_scene")
-		) .. [[
+		) .. glsl_common.GetHashGLSL() .. [[
 		#define SCENE_REFLECTION_MAX_DISTANCE ]] .. string.format("%.1f", scene_reflection.MAX_DISTANCE) .. [[
 
 		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
 
 		// different for every point, light and frame, the reflections' histories average it out
 		float scene_reflection_random(vec3 p, int light) {
-			uvec3 v = uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(ddgi_data.ddgi_frame) * 40503u));
-			v = v * 1664525u + 1013904223u;
-			v.x += v.y * v.z;
-			v.y += v.z * v.x;
-			v.z += v.x * v.y;
-			v ^= v >> 16u;
-			v.x += v.y * v.z;
-			return float(v.x >> 8u) * (1.0 / 16777216.0);
+			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(ddgi_data.ddgi_frame) * 40503u))).x);
 		}
 
 		// what a light that adds contribution (absolute luminance) at p counts for. a light that

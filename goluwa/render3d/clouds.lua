@@ -3,6 +3,7 @@ local Texture = import("goluwa/render/texture.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local clouds = {}
 pvars.StartGroup("Environment", "Clouds", {store = false, prefix = "cloud_"})
@@ -587,23 +588,11 @@ function clouds.WriteBlock(self, block)
 	block.cloud_light_illuminance[3] = 0
 end
 
-clouds.NOISE_GLSL = [[
-	uvec3 cloud_pcg3d(uvec3 v) {
-		v = v * 1664525u + 1013904223u;
-		v.x += v.y * v.z;
-		v.y += v.z * v.x;
-		v.z += v.x * v.y;
-		v ^= v >> 16u;
-		v.x += v.y * v.z;
-		v.y += v.z * v.x;
-		v.z += v.x * v.y;
-		return v;
-	}
-
-	// a random point in the cell, the cells wrap every period. c is never below -1
+clouds.NOISE_GLSL = glsl_common.GetHashGLSL() .. [[
+		// a random point in the cell, the cells wrap every period. c is never below -1
 	vec3 cloud_random3(ivec3 c, ivec3 period, uint seed) {
 		uvec3 w = uvec3((c + period * 64) % period);
-		return vec3(cloud_pcg3d(w + uvec3(seed, seed * 7u, seed * 13u)) & 0xffffu) / 65535.0;
+		return vec3(pcg3d(w + uvec3(seed, seed * 7u, seed * 13u)) & 0xffffu) / 65535.0;
 	}
 
 	float cloud_gradient(ivec3 c, vec3 f, ivec3 o, ivec3 period, uint seed) {

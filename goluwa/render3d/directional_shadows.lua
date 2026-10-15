@@ -2,6 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local directional_shadows = {}
 directional_shadows.MAX_CASCADES = 4
 
@@ -324,7 +325,7 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 		]]
 end
 
-local SHADOW_PROJECTION_GLSL = [[
+local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 			float get_shadow_facing(vec3 normal, vec3 light_dir) {
 				return smoothstep(0.0, 0.1, dot(normal, light_dir));
 			}
@@ -354,13 +355,7 @@ local SHADOW_PROJECTION_GLSL = [[
 				// a rotation per point turns the banding of the few taps into grain. the point's bits are hashed,
 				// a hash of a linear function of the position draws diagonal streaks. the phase turns it every
 				// frame, so a temporal antialiasing averages different taps
-				uvec3 bits = floatBitsToUint(world_pos) * 1664525u + 1013904223u;
-				bits.x += bits.y * bits.z;
-				bits.y += bits.z * bits.x;
-				bits.z += bits.x * bits.y;
-				bits ^= bits >> 16u;
-				bits.x += bits.y * bits.z;
-				float angle = (float(bits.x >> 8u) / 16777216.0 + noise_phase) * 6.2831853;
+				float angle = (pcg_unorm(pcg3d(floatBitsToUint(world_pos)).x) + noise_phase) * 6.2831853;
 				mat2 rotation = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
 				// how much deeper a tilted receiver is at a tap this many meters away, so it doesn't shadow itself
 				float tolerance_per_meter = tan_slope * depth_per_meter;

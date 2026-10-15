@@ -1,4 +1,5 @@
-return [[
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
+return glsl_common.GetNoiseGLSL() .. [[
 	// a magnitude 0 star gives 2.08e-6 lux, and there are 10^(0.5 m) times more stars brighter than m
 	const float STAR_MAX_MAGNITUDE = 7.5;
 	const float STAR_FACE_CELLS = 64.0;
@@ -16,48 +17,12 @@ return [[
 	// the full earth lighting the moon's dark side, relative to the sun lighting its bright side
 	const float MOON_EARTHSHINE = 3e-4;
 
-	uvec3 night_pcg3d(uvec3 v) {
-		v = v * 1664525u + 1013904223u;
-		v.x += v.y * v.z;
-		v.y += v.z * v.x;
-		v.z += v.x * v.y;
-		v ^= v >> 16u;
-		v.x += v.y * v.z;
-		v.y += v.z * v.x;
-		v.z += v.x * v.y;
-		return v;
-	}
-
-	vec3 night_random3(uvec3 v) {
-		return vec3(night_pcg3d(v)) * (1.0 / 4294967296.0);
-	}
-
-	float night_noise(vec3 p) {
-		vec3 i = floor(p);
-		vec3 f = fract(p);
-		f = f * f * (3.0 - 2.0 * f);
-		uvec3 c = uvec3(ivec3(i) + 32768);
-		return mix(
-			mix(
-				mix(night_random3(c).x, night_random3(c + uvec3(1, 0, 0)).x, f.x),
-				mix(night_random3(c + uvec3(0, 1, 0)).x, night_random3(c + uvec3(1, 1, 0)).x, f.x),
-				f.y
-			),
-			mix(
-				mix(night_random3(c + uvec3(0, 0, 1)).x, night_random3(c + uvec3(1, 0, 1)).x, f.x),
-				mix(night_random3(c + uvec3(0, 1, 1)).x, night_random3(c + uvec3(1, 1, 1)).x, f.x),
-				f.y
-			),
-			f.z
-		);
-	}
-
 	float night_fbm(vec3 p) {
 		float value = 0.0;
 		float amplitude = 0.5;
 
 		for (int i = 0; i < 5; i++) {
-			value += amplitude * night_noise(p);
+			value += amplitude * value_noise3(p);
 			p *= 2.03;
 			amplitude *= 0.5;
 		}
@@ -101,8 +66,8 @@ return [[
 		}
 
 		vec2 cell = min(floor((uv * 0.5 + 0.5) * STAR_FACE_CELLS), STAR_FACE_CELLS - 1.0);
-		vec3 r = night_random3(uvec3(uvec2(cell), face));
-		vec3 r2 = night_random3(uvec3(uvec2(cell) + 7919u, face + 17u));
+		vec3 r = pcg3d_unorm(uvec3(uvec2(cell), face));
+		vec3 r2 = pcg3d_unorm(uvec3(uvec2(cell) + 7919u, face + 17u));
 		// kept off the cell's edges so its glow never crosses into the next cell
 		vec2 star_uv = (cell + 0.15 + 0.7 * r.xy) / STAR_FACE_CELLS * 2.0 - 1.0;
 

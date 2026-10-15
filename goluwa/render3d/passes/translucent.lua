@@ -13,6 +13,7 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local translucent_extras = import("goluwa/render3d/translucent_extras.lua")
@@ -351,7 +352,7 @@ local passes = {
 			) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. (
+			shader = glsl_common.GetHashGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. (
 				scene_reflection.RAY_QUERY and
 				glass_light.GetGLSL("ddgi_scene") or
 				""
@@ -453,14 +454,9 @@ local passes = {
 				vec3 get_refracted_background(vec3 surface_pos, vec3 exit_pos, vec3 exit_normal, vec3 dir, float reach, float roughness) {
 					// per pixel and frame noise for the step jitter and the cone's rotation; a hash, because the
 					// gradient noise has diagonal structure that slides along as the frame moves
-					uvec3 hash_state = uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.time * 60.0)) * 1664525u + 1013904223u;
-					hash_state.x += hash_state.y * hash_state.z;
-					hash_state.y += hash_state.z * hash_state.x;
-					hash_state.z += hash_state.x * hash_state.y;
-					hash_state ^= hash_state >> 16u;
-					hash_state.x += hash_state.y * hash_state.z;
-					float spin = float(hash_state.x >> 8u) / 16777216.0;
-					float jitter = float(hash_state.y >> 8u) / 16777216.0;
+					vec3 hash_state = pcg3d_unorm(uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.time * 60.0)));
+					float spin = hash_state.x;
+					float jitter = hash_state.y;
 
 					if (lighting_data.refraction_tex < 0) return get_exit_environment(dir);
 

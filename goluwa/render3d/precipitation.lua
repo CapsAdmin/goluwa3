@@ -4,6 +4,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
@@ -180,7 +181,7 @@ do
 end
 
 function precipitation.GetVertexGLSL(block_name)
-	return [[
+	return glsl_common.GetHashGLSL() .. [[
 		const float BOX_SIZE = ]] .. string.format("%.1f", BOX_SIZE) .. [[;
 		const float RAIN_MIN_DIAMETER = ]] .. string.format("%.2f", RAIN_MIN_DIAMETER) .. [[;
 		const float RAIN_MAX_DIAMETER = ]] .. string.format("%.2f", RAIN_MAX_DIAMETER) .. [[;
@@ -192,18 +193,6 @@ function precipitation.GetVertexGLSL(block_name)
 		const float RAIN_SCATTER_G = 0.81;
 		// an ice aggregate without its diffraction peak scatters less forward than a drop
 		const float SNOW_SCATTER_G = 0.6;
-
-		uvec3 precipitation_pcg3d(uvec3 v) {
-			v = v * 1664525u + 1013904223u;
-			v.x += v.y * v.z;
-			v.y += v.z * v.x;
-			v.z += v.x * v.y;
-			v ^= v >> 16u;
-			v.x += v.y * v.z;
-			v.y += v.z * v.x;
-			v.z += v.x * v.y;
-			return v;
-		}
 
 		float precipitation_phase(float mu, float g) {
 			float gg = g * g;
@@ -248,8 +237,8 @@ function precipitation.GetVertexGLSL(block_name)
 			float g;
 
 			if (is_rain) {
-				r = vec3(precipitation_pcg3d(uvec3(uint(gl_InstanceIndex), 17u, 29u))) * (1.0 / 4294967296.0);
-				r2 = vec3(precipitation_pcg3d(uvec3(uint(gl_InstanceIndex), 101u, 7u))) * (1.0 / 4294967296.0);
+				r = pcg3d_unorm(uvec3(uint(gl_InstanceIndex), 17u, 29u));
+				r2 = pcg3d_unorm(uvec3(uint(gl_InstanceIndex), 101u, 7u));
 				// exponentially distributed sizes above the smallest drawn
 				diameter = min(RAIN_MIN_DIAMETER - log(max(r2.x, 1e-7)) / ]] .. block_name .. [[.rain_lambda, RAIN_MAX_DIAMETER);
 				velocity = vec3(wind.x, -(9.65 - 10.3 * exp(-0.6 * diameter)), wind.z);
@@ -258,8 +247,8 @@ function precipitation.GetVertexGLSL(block_name)
 				g = RAIN_SCATTER_G;
 			} else {
 				uint index = uint(gl_InstanceIndex - ]] .. block_name .. [[.rain_count);
-				r = vec3(precipitation_pcg3d(uvec3(index, 53u, 61u))) * (1.0 / 4294967296.0);
-				r2 = vec3(precipitation_pcg3d(uvec3(index, 211u, 3u))) * (1.0 / 4294967296.0);
+				r = pcg3d_unorm(uvec3(index, 53u, 61u));
+				r2 = pcg3d_unorm(uvec3(index, 211u, 3u));
 				// wet flakes stick together into aggregates about twice as big and fast (calibrated, not sourced)
 				float wetness = ]] .. block_name .. [[.snow_wetness;
 				float melted = min(SNOW_MIN_MELTED_DIAMETER - log(max(r2.x, 1e-7)) / ]] .. block_name .. [[.snow_lambda, SNOW_MAX_MELTED_DIAMETER);

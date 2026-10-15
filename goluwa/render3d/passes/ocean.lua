@@ -7,6 +7,7 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local water = import("goluwa/render3d/water.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
@@ -782,7 +783,7 @@ list.insert(
 				return water_feature(WATER_SUN_SHADOWS) ? get_water_sun_visibility_shadowed(p, dir) : 1.0;
 			}
 
-			]] .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. glsl_common.GetNoiseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 					RAY_QUERY and
 					render3d.GetEmissiveGLSL() .. scene_reflection.GetGLSL("ocean_data")
@@ -808,17 +809,6 @@ list.insert(
 				vec3 p3 = fract(vec3(p.xyx) * 0.1031);
 				p3 += dot(p3, p3.yzx + 33.33);
 				return fract((p3.x + p3.y) * p3.z);
-			}
-
-			float water_value_noise(vec2 p) {
-				vec2 i = floor(p);
-				vec2 f = fract(p);
-				vec2 u = f * f * (3.0 - 2.0 * f);
-				return mix(
-					mix(water_hash(i), water_hash(i + vec2(1.0, 0.0)), u.x),
-					mix(water_hash(i + vec2(0.0, 1.0)), water_hash(i + vec2(1.0, 1.0)), u.x),
-					u.y
-				);
 			}
 
 			// the distances to the nearest and the second nearest of the jittered cells' points
@@ -852,11 +842,11 @@ list.insert(
 			// parts fade out to their mean when a pixel covers them
 			vec3 foam_pattern(vec2 p, float time, float footprint) {
 				vec2 flow = vec2(time * 0.07, -time * 0.05);
-				vec2 warp = vec2(water_value_noise(p * 0.35 + flow), water_value_noise(p * 0.35 + flow + 31.7)) - 0.5;
+				vec2 warp = vec2(value_noise2(p * 0.35 + flow), value_noise2(p * 0.35 + flow + 31.7)) - 0.5;
 				vec2 q = p + warp * 1.6;
-				float raft = water_value_noise(q * 0.5) * 0.5 + water_value_noise(q * 1.3 + 7.0) * 0.3;
+				float raft = value_noise2(q * 0.5) * 0.5 + value_noise2(q * 1.3 + 7.0) * 0.3;
 				float fine_raft = 1.0 - smoothstep(0.3, 1.0, footprint * 3.1);
-				raft += mix(0.075, water_value_noise(q * 3.1 + 3.3) * 0.15, fine_raft);
+				raft += mix(0.075, value_noise2(q * 3.1 + 3.3) * 0.15, fine_raft);
 				vec2 big = foam_cells(q * 0.9);
 				float strands = 1.0 - smoothstep(0.0, 0.3, big.y - big.x);
 				float hole = smoothstep(0.38, 0.62, big.x);
@@ -1068,7 +1058,7 @@ list.insert(
 			// bands along the wind where films damp the ripples, mirror like, w the windrows, thin lines along
 			// the wind in fresh wind (smooth lanes with a trace of foam)
 			float sea_noise(vec2 p, float seed) {
-				return water_value_noise(p + vec2(seed * 31.7, seed * 17.3));
+				return value_noise2(p + vec2(seed * 31.7, seed * 17.3));
 			}
 
 			vec4 get_sea_detail(vec2 xz) {
@@ -2213,11 +2203,11 @@ list.insert(
 					// view through it like a lens where it is thick
 					float wobble_time = ocean_data.time;
 					vec2 wobble_p = camera_origin.xz;
-					float wobble = (water_value_noise(wobble_p * 110.0 + vec2(wobble_time * 0.7, -wobble_time * 0.4)) - 0.5) * 0.0035 + (water_value_noise(wobble_p * 290.0 + vec2(-wobble_time * 1.1, wobble_time * 0.6)) - 0.5) * 0.0012;
+					float wobble = (value_noise2(wobble_p * 110.0 + vec2(wobble_time * 0.7, -wobble_time * 0.4)) - 0.5) * 0.0035 + (value_noise2(wobble_p * 290.0 + vec2(-wobble_time * 1.1, wobble_time * 0.6)) - 0.5) * 0.0012;
 					vec2 wobble_x = wobble_p + vec2(0.002, 0.0);
 					vec2 wobble_z = wobble_p + vec2(0.0, 0.002);
-					float wobble_dx = (water_value_noise(wobble_x * 110.0 + vec2(wobble_time * 0.7, -wobble_time * 0.4)) - 0.5) * 0.0035 + (water_value_noise(wobble_x * 290.0 + vec2(-wobble_time * 1.1, wobble_time * 0.6)) - 0.5) * 0.0012;
-					float wobble_dz = (water_value_noise(wobble_z * 110.0 + vec2(wobble_time * 0.7, -wobble_time * 0.4)) - 0.5) * 0.0035 + (water_value_noise(wobble_z * 290.0 + vec2(-wobble_time * 1.1, wobble_time * 0.6)) - 0.5) * 0.0012;
+					float wobble_dx = (value_noise2(wobble_x * 110.0 + vec2(wobble_time * 0.7, -wobble_time * 0.4)) - 0.5) * 0.0035 + (value_noise2(wobble_x * 290.0 + vec2(-wobble_time * 1.1, wobble_time * 0.6)) - 0.5) * 0.0012;
+					float wobble_dz = (value_noise2(wobble_z * 110.0 + vec2(wobble_time * 0.7, -wobble_time * 0.4)) - 0.5) * 0.0035 + (value_noise2(wobble_z * 290.0 + vec2(-wobble_time * 1.1, wobble_time * 0.6)) - 0.5) * 0.0012;
 					float shift = wobble + (get_blue_noise() - 0.5) * 0.002;
 					camera_origin.y += shift;
 					near_height += shift;

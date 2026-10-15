@@ -13,6 +13,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 -- where the air has thinned to a few thousandths of its density at the ground, past it a sky ray has nothing left to scatter
@@ -284,19 +285,12 @@ local scatter_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_scatter;
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID),
-	shader = [[
+	shader = glsl_common.GetHashGLSL() .. [[
 		#define saturate(x) clamp(x, 0.0, 1.0)
 	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
-			v = v * 1664525u + 1013904223u;
-			v.x += v.y * v.z;
-			v.y += v.z * v.x;
-			v.z += v.x * v.y;
-			v ^= v >> 16u;
-			v.x += v.y * v.z;
-			v.y += v.z * v.x;
-			v.z += v.x * v.y;
-			return v.x ^ v.y ^ v.z;
+			uvec3 h = pcg3d(v);
+			return h.x ^ h.y ^ h.z;
 		}
 
 		float calculateLocalDirectionalMediumShadow(vec3 world_pos, vec3 light_dir) {
