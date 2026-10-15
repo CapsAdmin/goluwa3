@@ -124,6 +124,17 @@ function glsl_common.GetBlueNoiseGLSL()
 	]]
 end
 
+function glsl_common.GetRemapGLSL()
+	return glsl_common.GetConstantsGLSL() .. [[
+		#ifndef GLSL_COMMON_REMAP
+		#define GLSL_COMMON_REMAP
+		float remap(float v, float l0, float h0, float l1, float h1) {
+			return l1 + (v - l0) * (h1 - l1) / (h0 - l0);
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH

@@ -588,7 +588,7 @@ function clouds.WriteBlock(self, block)
 	block.cloud_light_illuminance[3] = 0
 end
 
-clouds.NOISE_GLSL = glsl_common.GetHashGLSL() .. [[
+clouds.NOISE_GLSL = glsl_common.GetHashGLSL() .. glsl_common.GetRemapGLSL() .. [[
 		// a random point in the cell, the cells wrap every period. c is never below -1
 	vec3 cloud_random3(ivec3 c, ivec3 period, uint seed) {
 		uvec3 w = uvec3((c + period * 64) % period);
@@ -660,17 +660,10 @@ clouds.NOISE_GLSL = glsl_common.GetHashGLSL() .. [[
 			cloud_worley(p * vec3(freq * 4), freq * 4, seed + 2u) * 0.125;
 	}
 
-	float cloud_remap(float v, float l0, float h0, float l1, float h1) {
-		return l1 + (v - l0) * (h1 - l1) / (h0 - l0);
-	}
-
-	float cloud_saturate(float x) {
-		return clamp(x, 0.0, 1.0);
-	}
 ]]
 
 function clouds.GetGLSL(block)
-	return [[
+	return glsl_common.GetRemapGLSL() .. [[
 		#define CLOUD_BLOCK ]] .. block .. [[
 
 		const float CLOUD_PLANET_RADIUS = 6371000.0;
@@ -730,14 +723,6 @@ function clouds.GetGLSL(block)
 		const float CLOUD_BODY_LUMP_HIGH = 0.6;
 		// how coarse the shape noise is read for how tall each heap grows
 		const float CLOUD_TOP_CELL_LOD = 3.0;
-
-		float cloud_saturate(float x) {
-			return clamp(x, 0.0, 1.0);
-		}
-
-		float cloud_remap(float v, float l0, float h0, float l1, float h1) {
-			return l1 + (v - l0) * (h1 - l1) / (h0 - l0);
-		}
 
 		// a ray against the planet's spheres, in meters without losing precision to the planet's
 		// radius: h0 is the origin's altitude and b the ray's dot with the direction from the center
@@ -846,9 +831,9 @@ function clouds.GetGLSL(block)
 
 			if (hf <= 0.0 || hf >= 1.0) return 0.0;
 
-			float coverage = cloud_saturate(shape.z + (weather.r - 0.5) * scale.w);
+			float coverage = saturate(shape.z + (weather.r - 0.5) * scale.w);
 			// cumulonimbus spread out into an anvil near the top
-			coverage = mix(coverage, cloud_saturate(coverage * 1.4 + 0.25), style.z * smoothstep(0.65, 0.9, hf));
+			coverage = mix(coverage, saturate(coverage * 1.4 + 0.25), style.z * smoothstep(0.65, 0.9, hf));
 
 			if (coverage <= 0.0) return 0.0;
 
@@ -873,7 +858,7 @@ function clouds.GetGLSL(block)
 			float top = 1.0;
 
 			if (heaps > 0.0) {
-				float cell = cloud_saturate((textureLod(cloud_base_noise, vec3(uvw.x, offset2.x / scale.y, uvw.z), max(lod, CLOUD_TOP_CELL_LOD)).g - 0.3) / 0.4);
+				float cell = saturate((textureLod(cloud_base_noise, vec3(uvw.x, offset2.x / scale.y, uvw.z), max(lod, CLOUD_TOP_CELL_LOD)).g - 0.3) / 0.4);
 				top = mix(1.0, mix(0.3, 1.0, mix(weather.g, cell, 0.6)), heaps);
 			}
 
@@ -889,10 +874,10 @@ function clouds.GetGLSL(block)
 
 			// the perlin-worley shape, dented by the finer worley octaves
 			float fbm = dot(n.gba, vec3(0.625, 0.25, 0.125));
-			float base = cloud_saturate(cloud_remap(n.r, (1.0 - fbm) * 0.3, 1.0, 0.0, 1.0));
+			float base = saturate(remap(n.r, (1.0 - fbm) * 0.3, 1.0, 0.0, 1.0));
 			// thin at the edge and denser toward the core, so the detail erodes a soft rim instead of
 			// carving a hard outline
-			float d = pow(cloud_saturate(cloud_remap(base * profile, 1.0 - coverage, 1.0, 0.0, 1.0)), 0.7);
+			float d = pow(saturate(remap(base * profile, 1.0 - coverage, 1.0, 0.0, 1.0)), 0.7);
 			// heaps are thin and ragged at the base, and denser up where they billow
 			d *= mix(1.0, mix(0.6, 1.0, smoothstep(0.0, 0.5, hf)), style.x);
 			// a full cover has no gaps
@@ -937,10 +922,10 @@ function clouds.GetGLSL(block)
 				}
 
 				// wispy at the base, billowing above
-				float erode = mix(dfbm, 1.0 - dfbm, cloud_saturate(hf * 5.0));
+				float erode = mix(dfbm, 1.0 - dfbm, saturate(hf * 5.0));
 				// once the detail is much finer than the sample it only greys the edges out. it eats the
 				// thin rim and leaves the core
-				d = cloud_saturate(cloud_remap(d, erode * style.y * (1.0 - smoothstep(2.0, 4.0, detail_lod) * (1.0 - fine_fade)), 1.0, 0.0, 1.0));
+				d = saturate(remap(d, erode * style.y * (1.0 - smoothstep(2.0, 4.0, detail_lod) * (1.0 - fine_fade)), 1.0, 0.0, 1.0));
 			}
 
 			// the body: billows as big as a cloud's lumps dent the outer part of the shape in 3D, so a thick
@@ -973,12 +958,12 @@ function clouds.GetGLSL(block)
 			vec4 offset = CLOUD_BLOCK.cloud_layer_offset[i];
 			vec4 offset2 = CLOUD_BLOCK.cloud_layer_offset2[i];
 			vec4 weather = textureLod(TEXTURE(CLOUD_BLOCK.cloud_weather_tex), (p.xz + offset.xy) / scale.x, 0.0);
-			float coverage = cloud_saturate(shape.z + (weather.r - 0.5) * scale.w);
+			float coverage = saturate(shape.z + (weather.r - 0.5) * scale.w);
 			// the streaks, broken up by the base noise's fine octaves
-			float streaks = cloud_saturate((weather.b - 0.1) / 0.6);
+			float streaks = saturate((weather.b - 0.1) / 0.6);
 			vec3 n = textureLod(cloud_base_noise, vec3((p.xz + offset.zw) / scale.y, offset2.x / scale.y).xzy, 1.0).gba;
 			float field = streaks * mix(0.55, 1.0, dot(n, vec3(0.5, 0.3, 0.2)));
-			field = cloud_saturate(cloud_remap(field, 1.0 - coverage, 1.0, 0.0, 1.0));
+			field = saturate(remap(field, 1.0 - coverage, 1.0, 0.0, 1.0));
 			field = mix(field, 0.6 + 0.4 * field, smoothstep(0.9, 1.0, coverage));
 			return field * shape.w;
 		}
@@ -1210,13 +1195,13 @@ function clouds.GetGLSL(block)
 
 					light_reuse--;
 					float upper = L_up > 0.01 ? cloud_upper_transmittance(i, p, alt, L, L_up) : 1.0;
-					float hf = cloud_saturate((alt - shape.x) / shape.y);
+					float hf = saturate((alt - shape.x) / shape.y);
 					// light scattered toward the viewer builds up inside the cloud, so thin edges and the
 					// underside look darker, less so toward the sun where the forward peak makes the thin
 					// edges glow
 					float depth_powder = pow(density / shape.w, mix(0.5, 1.6, shade)) * 0.95 + 0.05;
 					float height_powder = pow(smoothstep(0.02, 0.2, shade), 0.8) * 0.85 + 0.15;
-					float powder = mix(1.0, depth_powder * height_powder, cloud_saturate(mu * -0.5 + 0.6));
+					float powder = mix(1.0, depth_powder * height_powder, saturate(mu * -0.5 + 0.6));
 					// the bases lose their direct light to the cloud above
 					float base_shadow = mix(0.55, 1.0, smoothstep(-0.1, 0.45, shade));
 					// the light diffused through the whole cloud keeps thick bodies from going black, more of it

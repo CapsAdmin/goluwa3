@@ -132,7 +132,7 @@ local noise_pass = {
 
 		// the fbms stretched from where most of their values lie to 0-1
 		float worley_channel(vec3 p, int freq, uint seed) {
-			return cloud_saturate((cloud_worley_fbm(p, ivec3(freq), seed) - 0.32) / 0.32);
+			return saturate((cloud_worley_fbm(p, ivec3(freq), seed) - 0.32) / 0.32);
 		}
 
 		void main() {
@@ -143,11 +143,11 @@ local noise_pass = {
 			{
 				vec3 p = (vec3(id) + 0.5) / float(BASE_SIZE);
 				// perlin-worley: billowy perlin whose low parts are cut into round cells
-				float perlin = cloud_saturate(0.5 + 0.8 * cloud_perlin_fbm(p, ivec3(4), 6, 0u));
+				float perlin = saturate(0.5 + 0.8 * cloud_perlin_fbm(p, ivec3(4), 6, 0u));
 				float worley = cloud_worley_fbm(p, ivec3(4), 10u);
-				float perlin_worley = cloud_saturate(cloud_remap(perlin, worley - 1.0, 1.0, 0.0, 1.0));
+				float perlin_worley = saturate(remap(perlin, worley - 1.0, 1.0, 0.0, 1.0));
 				imageStore(out_base, id, vec4(
-					cloud_saturate((perlin_worley - 0.54) / 0.26),
+					saturate((perlin_worley - 0.54) / 0.26),
 					worley_channel(p, 8, 20u),
 					worley_channel(p, 16, 30u),
 					worley_channel(p, 32, 40u)
@@ -171,21 +171,21 @@ local noise_pass = {
 				ivec2 pixel = id.xy + ivec2(id.z % tiles, id.z / tiles) * BASE_SIZE;
 				vec3 p = vec3((vec2(pixel) + 0.5) / float(WEATHER_SIZE), 0.0);
 				// where clouds gather: broad patches of more and less, clumped into cells
-				float patches = cloud_saturate(0.5 + 0.9 * cloud_perlin_fbm(p, ivec3(3, 3, 1), 5, 80u));
+				float patches = saturate(0.5 + 0.9 * cloud_perlin_fbm(p, ivec3(3, 3, 1), 5, 80u));
 				float cells = cloud_worley_fbm(p, ivec3(6, 6, 1), 90u);
-				float coverage = cloud_saturate(mix(patches, cells, 0.35) * 1.15 - 0.075);
+				float coverage = saturate(mix(patches, cells, 0.35) * 1.15 - 0.075);
 				// how tall the heaps grow
-				float height = cloud_saturate(0.5 + 0.9 * cloud_perlin_fbm(p, ivec3(5, 5, 1), 3, 100u));
+				float height = saturate(0.5 + 0.9 * cloud_perlin_fbm(p, ivec3(5, 5, 1), 3, 100u));
 				// cirrus: fibres stretched along x, bent by a slow warp, in patches
 				vec3 warp = vec3(
 					cloud_perlin_fbm(p, ivec3(3, 3, 1), 3, 110u),
 					cloud_perlin_fbm(p, ivec3(3, 3, 1), 3, 120u),
 					0.0
 				) * 0.06;
-				float fibres = cloud_saturate(0.5 + 1.1 * cloud_perlin_fbm(p + warp, ivec3(3, 28, 1), 4, 130u));
-				float veil = cloud_saturate(0.5 + 1.0 * cloud_perlin_fbm(p, ivec3(4, 4, 1), 3, 140u));
+				float fibres = saturate(0.5 + 1.1 * cloud_perlin_fbm(p + warp, ivec3(3, 28, 1), 4, 130u));
+				float veil = saturate(0.5 + 1.0 * cloud_perlin_fbm(p, ivec3(4, 4, 1), 3, 140u));
 				// where the base sits within the layer's base_variation, drifting over a few kilometers
-				float base = cloud_saturate(0.5 + 1.1 * cloud_perlin_fbm(p, ivec3(8, 8, 1), 3, 150u));
+				float base = saturate(0.5 + 1.1 * cloud_perlin_fbm(p, ivec3(8, 8, 1), 3, 150u));
 				imageStore(out_weather, pixel, vec4(coverage, height, fibres * mix(0.4, 1.0, veil), base));
 			}
 		}
