@@ -57,9 +57,10 @@ return {
 			default = "0.0",
 			material = "get_transmission_scattering()",
 		},
-		-- red and blue of a tint, halved to fit up to 2. its luminance is 1, which gives the green back
-		{name = "transmission_tint_r", kind = "unorm4", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
-		{name = "transmission_tint_b", kind = "unorm4", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
+		-- red and blue of a tint, halved to fit up to 2. its luminance is 1, which gives the green back. eight bits: four
+		-- left a hue 13 percent off (a white tint 7 percent red and blue)
+		{name = "transmission_tint_r", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
+		{name = "transmission_tint_b", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
 	},
 	thin = "gbuffer_transmission(c) > 0.0",
 	encoders = [[
@@ -77,13 +78,18 @@ return {
 	common = [[
 		// how a thin surface spreads the light going through it, over the side facing away from the
 		// light. lambert, blended by scattering towards a henyey greenstein lobe around the light's
-		// direction with the same total over that side
-		float transmission_phase(vec3 V, vec3 L, float scattering)
+		// direction. the lobe sends as much light out of that side as lambert does, whatever the angle the light
+		// arrives at: a henyey greenstein lobe alone sends 30 percent more at normal incidence and half as much
+		// at grazing ones, so it is divided by that flux (a quartic in cos_incidence fitted to its integral, within
+		// 0.03 percent)
+		float transmission_phase(vec3 V, vec3 L, float cos_incidence, float scattering)
 		{
 			const float g = 0.6;
 			float denominator = 1.0 + g * g + 2.0 * g * dot(V, L);
 			float henyey_greenstein = (1.0 - g * g) / (4.0 * BRDF_PI * denominator * sqrt(denominator));
-			return mix(1.0 / BRDF_PI, 2.0 * henyey_greenstein, scattering);
+			float c = saturate(cos_incidence);
+			float lobe_flux = 0.37707 + c * (0.58701 + c * (0.57085 + c * (-0.29538 + c * 0.06498)));
+			return mix(1.0 / BRDF_PI, 2.0 * henyey_greenstein / lobe_flux, scattering);
 		}
 	]],
 	surface_members = [[
@@ -125,7 +131,7 @@ return {
 	]],
 	direct = [[
 		if (s.transmission > 0.0) {
-			diffuse += s.transmission * s.transmission_color * s.albedo * (1.0 - s.metallic) * transmission_phase(s.V, L, s.transmission_scattering) * saturate(-dot(s.N, L)) * radiance;
+			diffuse += s.transmission * s.transmission_color * s.albedo * (1.0 - s.metallic) * transmission_phase(s.V, L, saturate(-dot(s.N, L)), s.transmission_scattering) * saturate(-dot(s.N, L)) * radiance;
 		}
 	]],
 	indirect = [[
