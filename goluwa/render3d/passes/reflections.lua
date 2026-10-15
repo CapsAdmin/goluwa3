@@ -41,9 +41,11 @@ local resolution = pvars.Setup2{
 	help = "the resolution the reflections are traced and filtered at, relative to the screen. full traces a ray for every pixel (4 times the work of half), quarter a ray for every 4 by 4 pixels. the filter radius is the same on screen at every resolution",
 	callback = function()
 		-- the framebuffers take their size from the scale when they are made, the history starts over with them
-		if render3d.pipelines then
-			render3d.pipelines.reflections_trace:RecreateFramebuffers()
-			render3d.pipelines.reflections:RecreateFramebuffers()
+		local pipelines = render3d.pipelines
+
+		if pipelines and pipelines.reflections_trace then
+			pipelines.reflections_trace:RecreateFramebuffers()
+			pipelines.reflections:RecreateFramebuffers()
 		end
 	end,
 }

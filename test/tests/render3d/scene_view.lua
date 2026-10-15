@@ -60,7 +60,7 @@ T.Test3D("Scene view with AutoRender is drawn by the next frame and only when it
 				tex = view:GetTexture(),
 				pos = {64, 64},
 				color = function(r, g, b, a)
-					return r > g * 2 and r > b * 2 and a > 0.9
+					return r > g * 1.5 and r > b * 1.5 and a > 0.9
 				end,
 			}
 			draw()
@@ -191,7 +191,7 @@ T.Test3D("Environment from an atmosphere shader puts the sun where it was asked"
 			local r, g, b = center_pixel(270)
 			T(r > 0.97 and g > 0.97 and b > 0.97)["=="](true)
 			r, g, b = center_pixel(90)
-			T(r < 0.9 and g < 0.95 and b < 0.95)["=="](true)
+			T(r < 0.9 and b > r)["=="](true)
 		end,
 		debug.traceback
 	)

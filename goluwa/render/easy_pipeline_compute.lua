@@ -566,8 +566,12 @@ do
 			current_frame_index = ((current_frame_index - 1) % self.compute_pass_frame_span) + 1
 		end
 
-		if self._compute_pass_descriptor_cmd ~= cmd then
+		if
+			self._compute_pass_descriptor_cmd ~= cmd or
+			self._compute_pass_descriptor_serial ~= render.frame_serial
+		then
 			self._compute_pass_descriptor_cmd = cmd
+			self._compute_pass_descriptor_serial = render.frame_serial
 			self._compute_pass_descriptor_slot = 0
 		end
 
@@ -581,7 +585,8 @@ do
 		then
 			error(
 				string.format(
-					"EasyPipeline.ComputePass: descriptor set ring exhausted for frame %d (%d > %d)",
+					"EasyPipeline.ComputePass: %s descriptor set ring exhausted for frame %d (%d > %d)",
+					tostring(self.name),
 					current_frame_index,
 					descriptor_frame_index,
 					descriptor_count

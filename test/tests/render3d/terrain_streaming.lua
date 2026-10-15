@@ -3,6 +3,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Terrain = import("goluwa/terrain/terrain.lua")
 local TerrainSource = import("goluwa/terrain/source.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
+local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 
 local FORWARD = Vec3(0, 0, 1)
 local HALF_ANGLE = math.pi
@@ -44,7 +45,6 @@ local function create_terrain()
 		BaseChunkSize = 16,
 		Samples = 5,
 		BuildsPerFrame = 1,
-		SwapFrames = 0,
 	}
 	terrain.Root = fake_entity()
 	terrain.CreateTile = function(self, want, chunk)
@@ -100,6 +100,8 @@ local function assert_area_covered(terrain, min_x, min_z, max_x, max_z)
 end
 
 T.Test("Terrain keeps stale tiles until their replacements are built", function()
+	local was_enabled = gpu_culling.IsEnabled()
+	gpu_culling.SetEnabled(false)
 	local terrain = create_terrain()
 	terrain:UpdateTiles(Vec3(0, 0, 0), FORWARD, HALF_ANGLE)
 	build_everything(terrain)
@@ -125,7 +127,7 @@ T.Test("Terrain keeps stale tiles until their replacements are built", function(
 
 			if tile.entity and not tile.hidden and not tile.retiring then
 				for _, other in pairs(terrain.Tiles) do
-					if other.retiring and other.entity then
+					if other.retiring and other.entity and not other.replaced_frame then
 						local size = terrain:GetLevelChunkSize(tile.level)
 						local other_size = terrain:GetLevelChunkSize(other.level)
 						local overlap = tile.chunk_x * size < (
@@ -149,6 +151,7 @@ T.Test("Terrain keeps stale tiles until their replacements are built", function(
 
 	T(saw_hidden)["=="](true)
 	terrain:RetireTiles()
+	terrain:RetireTiles()
 	ready, retiring = count_tiles(terrain)
 	T(ready)["=="](28)
 	T(retiring)["=="](0)
@@ -159,6 +162,7 @@ T.Test("Terrain keeps stale tiles until their replacements are built", function(
 
 	assert_area_covered(terrain, 0, -32, 128, 64)
 	T(next(terrain.BuildQueue))["=="](nil)
+	gpu_culling.SetEnabled(was_enabled)
 end)
 
 T.Test("Terrain drops stale tiles that were never built", function()
@@ -174,15 +178,17 @@ T.Test("Terrain drops stale tiles that were never built", function()
 	T(retiring)["=="](0)
 end)
 
-T.Test("Terrain keeps a replaced tile for a few frames after its replacements are shown", function()
+T.Test("Terrain keeps a replaced tile until its replacements are drawn", function()
 	local terrain = create_terrain()
 	local frame = 100
 	terrain.GetFrame = function()
 		return frame
 	end
-	terrain.SwapFrames = 3
 	terrain:UpdateTiles(Vec3(0, 0, 0), FORWARD, HALF_ANGLE)
 	build_everything(terrain)
+	local was_enabled, was_drawn = gpu_culling.IsEnabled(), gpu_culling.drawn_cull_frame
+	gpu_culling.SetEnabled(true)
+	gpu_culling.drawn_cull_frame = 0
 	terrain:UpdateTiles(Vec3(40, 0, 0), FORWARD, HALF_ANGLE)
 
 	while #terrain.BuildQueue > 0 do
@@ -190,8 +196,10 @@ T.Test("Terrain keeps a replaced tile for a few frames after its replacements ar
 		terrain:RetireTiles()
 	end
 
+	frame = frame + 1
+	terrain:RetireTiles()
 	-- everything is built, the old tiles are still there, the new ones are shown over them
-	local ready, retiring = count_tiles(terrain)
+	local _, retiring = count_tiles(terrain)
 	T(retiring > 0)["=="](true)
 	local swapping = 0
 
@@ -203,14 +211,15 @@ T.Test("Terrain keeps a replaced tile for a few frames after its replacements ar
 
 	T(swapping)["=="](retiring)
 	assert_area_covered(terrain, 0, -32, 64, 32)
-	frame = frame + 2
+	frame = frame + 10
 	terrain:RetireTiles()
-	T((count_tiles(terrain)))[">"](0)
 	local _, still = count_tiles(terrain)
 	T(still)["=="](retiring)
-	frame = frame + 1
+	gpu_culling.drawn_cull_frame = frame
 	terrain:RetireTiles()
-	ready, retiring = count_tiles(terrain)
+	_, retiring = count_tiles(terrain)
+	gpu_culling.SetEnabled(was_enabled)
+	gpu_culling.drawn_cull_frame = was_drawn
 	T(retiring)["=="](0)
 	assert_area_covered(terrain, 0, -32, 64, 32)
 end)

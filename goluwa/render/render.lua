@@ -376,6 +376,7 @@ function render.BeginFrame()
 	if render.cmd then return false end
 
 	run_flush_callbacks("begin_frame")
+	render.frame_serial = (render.frame_serial or 0) + 1
 	render.cmd = assert(render.target:BeginFrame())
 	return true
 end

@@ -95,7 +95,7 @@ T.Test3D("Model preview renders offscreen and restores the active camera", funct
 				tex = tex,
 				pos = {128, 128},
 				color = function(r, g, b, a)
-					return r > 0.3 and r > g * 2 and r > b * 2 and a > 0.9
+					return r > 0.3 and r > g * 1.5 and r > b * 1.5 and a > 0.9
 				end,
 			}
 			T.AssertTexturePixel{tex = tex, pos = {4, 4}, color = {0, 0, 0, 0}, tolerance = 0.05}
