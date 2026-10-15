@@ -123,6 +123,11 @@ function frame_benchmark.Run(config)
 			if phases[phase_index].enter then
 				phases[phase_index].enter(phases[phase_index])
 			end
+
+			-- a phase may stand somewhere else: view() returns position, pitch and yaw like config.view
+			if phases[phase_index].view then
+				start_position, start_pitch, start_yaw = phases[phase_index].view()
+			end
 		end
 	end
 
