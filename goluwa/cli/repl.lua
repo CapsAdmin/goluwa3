@@ -470,7 +470,8 @@ function repl.HandleEvent(ev)
 
 				if buffer == "clear" then
 					repl.SetInput("")
-						repl.autocomplete:SetText("", 1)
+					repl.editor.undo:Reset("", 1)
+					repl.autocomplete:SetText("", 1)
 					repl.term:Clear()
 					return
 				end
@@ -482,6 +483,7 @@ function repl.HandleEvent(ev)
 				if buffer ~= "" then repl.InputLua(buffer) end
 
 				repl.SetInput("")
+				repl.editor.undo:Reset("", 1)
 			end
 		elseif ev.key == "up" then
 			local current_visual_line = repl.editor:GetVisualLineCol()
