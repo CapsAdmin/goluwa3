@@ -9,7 +9,7 @@ local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local ENERGY_PER_OCTAVE = 0.0191 * math.log(2)
 local MIN_DEGREES = 0.1
 local MAX_DEGREES = 30
-pvars.StartGroup("bloom", {store = false})
+pvars.StartGroup("Post", "Bloom", {store = false, prefix = "bloom_"})
 render3d.bloom_strength = pvars.Setup2{
 	key = "r_bloom_strength",
 	default = 1,

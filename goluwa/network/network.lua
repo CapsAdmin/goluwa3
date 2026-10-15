@@ -484,8 +484,8 @@ do
 	local default_port = 1234
 
 	if CLIENT then
-		local ip_cvar = pvars.Setup("cl_ip", default_ip)
-		local port_cvar = pvars.Setup("cl_port", default_port)
+		local ip_cvar = pvars.Setup2{key = "cl_ip", category = "Network", group = "Client", prefix = "cl_", default = default_ip}
+		local port_cvar = pvars.Setup2{key = "cl_port", category = "Network", group = "Client", prefix = "cl_", default = default_port}
 		local last_ip
 		local last_port
 
@@ -508,8 +508,8 @@ do
 	end
 
 	if SERVER then
-		local ip_cvar = pvars.Setup("sv_ip", default_ip)
-		local port_cvar = pvars.Setup("sv_port", default_port)
+		local ip_cvar = pvars.Setup2{key = "sv_ip", category = "Network", group = "Server", prefix = "sv_", default = default_ip}
+		local port_cvar = pvars.Setup2{key = "sv_port", category = "Network", group = "Server", prefix = "sv_", default = default_port}
 
 		commands.Add("host=string|nil,number|nil", function(ip, port)
 			ip = ip or ip_cvar:Get()

@@ -8,14 +8,13 @@ local path = "data/pvars.txt"
 local mode = "luadata"
 pvars.vars = pvars.vars or {}
 pvars.infos = pvars.infos or {}
-pvars.groups = pvars.groups or {}
 pvars.session = pvars.session or {}
 
 do
 	local group
 
-	function pvars.StartGroup(name, defaults)
-		group = {name = name, defaults = defaults or {}}
+	function pvars.StartGroup(category, name, defaults)
+		group = {category = category, name = name, defaults = defaults or {}}
 	end
 
 	function pvars.EndGroup()
@@ -154,6 +153,10 @@ function META:GetGroup()
 	return pvars.infos[self.key].group
 end
 
+function META:GetCategory()
+	return pvars.infos[self.key].category
+end
+
 META:Register()
 
 function pvars.Setup2(info)
@@ -161,12 +164,15 @@ function pvars.Setup2(info)
 	local group = pvars.GetCurrentGroup()
 
 	if group then
+		info.category = info.category or group.category
 		info.group = info.group or group.name
 
 		for k, v in pairs(group.defaults) do
 			if info[k] == nil then info[k] = v end
 		end
 	end
+
+	assert(info.category and info.group, info.key .. ": a pvar needs an explicit category and group")
 
 	if info.default == nil then
 		assert(info.type, info.key .. ": a pvar without a default needs a type")
@@ -188,24 +194,20 @@ function pvars.Setup2(info)
 		assert(info.type == "number", info.key .. ": min, max and integer need a number")
 	end
 
-	if not info.group then info.group = info.key:match("^([^_%s]+)_") or "other" end
-
 	if not info.friendly then
 		local friendly = info.key:gsub("^r_", "")
-		local prefix = info.group .. "_"
+		local prefix = info.prefix
 
-		if friendly:sub(1, #prefix) == prefix and #friendly > #prefix then
+		if prefix and friendly:sub(1, #prefix) == prefix and #friendly > #prefix then
 			friendly = friendly:sub(#prefix + 1)
 		end
 
 		info.friendly = friendly:gsub("_", " ")
 	end
 
-	if group then
-		local previous = pvars.infos[info.key]
-		pvars.order_count = (pvars.order_count or 0) + 1
-		info.order = previous and previous.order or pvars.order_count
-	end
+	local previous = pvars.infos[info.key]
+	pvars.order_count = (pvars.order_count or 0) + 1
+	info.order = previous and previous.order or pvars.order_count
 
 	pvars.infos[info.key] = info
 	info.object = META:CreateObject({key = info.key})
@@ -224,48 +226,49 @@ function pvars.Setup2(info)
 	return info.object
 end
 
-function pvars.Setup(key, def, callback, help, dont_save)
-	return pvars.Setup2{
-		key = key,
-		default = def,
-		callback = callback,
-		help = help,
-		store = not dont_save,
-	}
-end
-
 function pvars.GetAll()
 	return pvars.infos
 end
 
-function pvars.GetGroups()
-	local by_name = {}
+function pvars.GetCategories()
+	local categories = {}
 	local out = {}
 
 	for _, info in pairs(pvars.infos) do
-		local entry = by_name[info.group]
+		local category = categories[info.category]
 
-		if not entry then
-			entry = {name = info.group, infos = {}}
-			by_name[info.group] = entry
-			out[#out + 1] = entry
+		if not category then
+			category = {name = info.category, groups = {}, by_name = {}}
+			categories[info.category] = category
+			out[#out + 1] = category
 		end
 
-		entry.infos[#entry.infos + 1] = info
+		local group = category.by_name[info.group]
+
+		if not group then
+			group = {name = info.group, category = info.category, infos = {}}
+			category.by_name[info.group] = group
+			category.groups[#category.groups + 1] = group
+		end
+
+		group.infos[#group.infos + 1] = info
 	end
 
-	table.sort(out, function(a, b)
+	local function by_name(a, b)
 		return a.name < b.name
-	end)
+	end
 
-	for _, entry in ipairs(out) do
-		table.sort(entry.infos, function(a, b)
-			if a.order and b.order then return a.order < b.order end
+	table.sort(out, by_name)
 
-			if a.order or b.order then return a.order ~= nil end
+	for _, category in ipairs(out) do
+		category.by_name = nil
+		table.sort(category.groups, by_name)
 
-			return a.key < b.key
-		end)
+		for _, group in ipairs(category.groups) do
+			table.sort(group.infos, function(a, b)
+				return a.order < b.order
+			end)
+		end
 	end
 
 	return out

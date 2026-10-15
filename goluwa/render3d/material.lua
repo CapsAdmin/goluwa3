@@ -493,7 +493,7 @@ end
 
 do
 	local LUMINANCE_BIT = Material.FlagBits.AlbedoLuminanceIsRoughness
-	pvars.StartGroup("material", {store = false})
+	pvars.StartGroup("Rendering", "Materials", {store = false})
 	local luminance_roughness = pvars.Setup2{
 		key = "r_albedo_luminance_roughness",
 		default = false,

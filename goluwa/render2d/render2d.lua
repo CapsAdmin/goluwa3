@@ -852,6 +852,7 @@ function render2d.FlushBatches(reason)
 	return true
 end
 
+pvars.StartGroup("Engine", "Text", {prefix = "text_"})
 pvars.Setup2{
 	key = "r_text_subpixel_strength",
 	default = 1,
@@ -866,6 +867,8 @@ pvars.Setup2{
 	enums = {"off", "rgb", "bgr", "vrgb", "vbgr", "rwbg", "bwrg"},
 	help = "subpixel text layout of the display: rgb and bgr are horizontal stripes, vrgb and vbgr are the same on a display rotated to portrait, rwbg is LG WOLED TVs and monitors before 2025 (C1, C2, C3, G3), bwrg is LG WOLED from 2025 (G5)",
 }
+pvars.EndGroup()
+pvars.StartGroup("Engine", "HDR", {prefix = "hdr_"})
 local hdr_ui_white = pvars.Setup2{
 	key = "r_hdr_ui_white",
 	default = 200,
@@ -877,6 +880,7 @@ local hdr_ui_white = pvars.Setup2{
 		end
 	end,
 }
+pvars.EndGroup()
 
 function render2d.GetUIScale()
 	if render.target:GetColorSpace() ~= "extended_srgb_linear_ext" then return 1 end

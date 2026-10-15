@@ -12,7 +12,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_reflection.RAY_QUERY
-pvars.StartGroup("reflection", {store = false})
+pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
 local rough_rays = pvars.Setup2{
 	key = "reflection_rough_rays",
 	default = 4,

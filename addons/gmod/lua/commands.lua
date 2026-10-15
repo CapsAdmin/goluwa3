@@ -13,18 +13,25 @@ if CLIENT then
 	end)
 
 	if SOUND then
-		pvars.Setup("volume", 1, function(val)
-			audio.SetListenerGain(val)
-		end, nil, true)
+		pvars.Setup2{
+			key = "volume",
+			category = "Game",
+			group = "Garry's Mod",
+			default = 1,
+			store = false,
+			callback = function(val)
+				audio.SetListenerGain(val)
+			end,
+		}
 
-		pvars.Setup("snd_mute_losefocus", 0, function(val) end, nil, true)
+		pvars.Setup2{key = "snd_mute_losefocus", category = "Game", group = "Garry's Mod", default = 0, store = false}
 	end
 
-	pvars.Setup("cl_timeout", 30, function(val) end, nil, true)
+	pvars.Setup2{key = "cl_timeout", category = "Game", group = "Garry's Mod", default = 30, store = false}
 
-	pvars.Setup("r_radiosity", 0, function(val) end, nil, true)
+	pvars.Setup2{key = "r_radiosity", category = "Game", group = "Garry's Mod", default = 0, store = false}
 
-	pvars.Setup("developer", 0, function(val) end, nil, true)
+	pvars.Setup2{key = "developer", category = "Game", group = "Garry's Mod", default = 0, store = false}
 end
 
 if SERVER then

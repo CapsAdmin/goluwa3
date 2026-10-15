@@ -2,7 +2,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local MAX_SEARCH = 32
-pvars.StartGroup("edge_aa", {store = false})
+pvars.StartGroup("Post", "Anti-aliasing", {store = false, prefix = "edge_aa_"})
 local threshold = pvars.Setup2{
 	key = "r_edge_aa_threshold",
 	default = 0.08,

@@ -4,7 +4,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-pvars.StartGroup("ssaa", {store = false})
+pvars.StartGroup("Post", "Anti-aliasing", {store = false, prefix = "ssaa_"})
 local sample_count = pvars.Setup2{
 	key = "r_ssaa_samples",
 	default = 64,

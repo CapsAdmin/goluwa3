@@ -9,7 +9,7 @@ local glass_light = import("goluwa/render3d/glass_light.lua")
 local scene_reflection = {}
 scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
 scene_reflection.MAX_DISTANCE = 1000
-pvars.StartGroup("reflection", {store = false})
+pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
 local enabled = pvars.Setup2{
 	key = "reflection_ray_query",
 	default = true,

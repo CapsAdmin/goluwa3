@@ -7,7 +7,7 @@ local DOWN_LOOK_MIN = 0.3
 local DOWN_LOOK_SPEED_GAIN = 0.3
 local DOWN_LOOK_HORIZONTAL_KEEP = 0.5
 local MAX_SPEED = 300
-pvars.StartGroup("bhop", {store = true})
+pvars.StartGroup("Game", "Bhop", {store = true, prefix = "bhop_"})
 local multiplier = pvars.Setup2{
 	key = "bhop_multiplier",
 	default = 1.5,

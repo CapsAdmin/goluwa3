@@ -11,7 +11,13 @@ outfit.BodyRadius = 16 * UNIT
 outfit.BodyHeight = 72 * UNIT
 
 outfit.DefaultName = "player_outfit"
-local selected = pvars.Setup("cl_outfit", outfit.DefaultName, nil, "prefab used as your player outfit, player_outfit_source is the gmod player model")
+local selected = pvars.Setup2{
+	key = "cl_outfit",
+	category = "Game",
+	group = "Player",
+	default = outfit.DefaultName,
+	help = "prefab used as your player outfit, player_outfit_source is the gmod player model",
+}
 
 function outfit.GetLocalName()
 	return selected:Get()

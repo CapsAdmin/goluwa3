@@ -12,7 +12,7 @@ local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 -- the exposed value the metered average is shown at, 18 percent grey
 local KEY = 0.18
 local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
-pvars.StartGroup("exposure", {store = false})
+pvars.StartGroup("Post", "Eye", {store = false, prefix = "eye_"})
 local eye_enabled = pvars.Setup2{
 	key = "r_eye",
 	default = false,
@@ -33,7 +33,7 @@ local eye_compensation = pvars.Setup2{
 	help = "stops added to what the eye sees, to tune how bright the eye mode is",
 }
 pvars.EndGroup()
-pvars.StartGroup("exposure", {store = false})
+pvars.StartGroup("Post", "Eye", {store = false, prefix = "eye_local_"})
 local local_exposure_shadows = pvars.Setup2{
 	key = "r_eye_local_shadows",
 	default = 0.23,
@@ -56,7 +56,7 @@ render3d.local_exposure = {
 	ceiling = 1e5,
 }
 local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, neutral = 4}
-pvars.StartGroup("display", {store = false})
+pvars.StartGroup("Post", "Display", {store = false})
 local tonemapper = pvars.Setup2{
 	key = "r_tonemapper",
 	default = "neutral",
@@ -92,6 +92,8 @@ local dither = pvars.Setup2{
 	default = true,
 	help = "dither the output to hide banding",
 }
+pvars.EndGroup()
+pvars.StartGroup("Post", "Eye", {store = false, prefix = "eye_"})
 local night_vision_enabled = pvars.Setup2{
 	key = "r_eye_night_vision",
 	default = true,

@@ -15,7 +15,7 @@ local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local ddgi = {}
-pvars.StartGroup("ddgi", {store = false})
+pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 
 event.AddListener("Render3DPassToggled", "ddgi", function(name, value)
 	if name == "ddgi" and value then ddgi.ResetHistory() end

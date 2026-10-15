@@ -47,6 +47,7 @@ return function(steam)
 		end
 	end)
 
+	pvars.StartGroup("Engine", "Steam", {prefix = "steam_"})
 	pvars.Setup2{
 		key = "steam_mount",
 		default = {},
@@ -74,6 +75,7 @@ return function(steam)
 			end
 		end,
 	}
+	pvars.EndGroup()
 
 	commands.Add("list_games", function()
 		if not next(steam.GetSourceGames()) then

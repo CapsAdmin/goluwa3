@@ -73,7 +73,7 @@ local GROUND_FOG_TOP_HEIGHT = 1.1
 atmosphere.GROUND_FOG_SCALE_HEIGHT = GROUND_FOG_SCALE_HEIGHT
 atmosphere.GROUND_FOG_TOP_HEIGHT = GROUND_FOG_TOP_HEIGHT
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
-pvars.StartGroup("atmosphere", {store = false})
+pvars.StartGroup("Environment", "Fog", {store = false, prefix = "fog_"})
 local fog_ray_strength = pvars.Setup2{
 	key = "fog_ray_strength",
 	default = 1,

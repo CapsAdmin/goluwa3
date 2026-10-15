@@ -17,7 +17,7 @@ local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid
 local pvars = import("goluwa/cli/pvars.lua")
 -- the parts of the water that can be turned off, to see what each costs. they are the bits of ocean_data.features
 local FEATURES = {}
-pvars.StartGroup("water", {store = false})
+pvars.StartGroup("Environment", "Water", {store = false, prefix = "water_"})
 
 for _, feature in ipairs{
 	{"caustics", "r_water_caustics", "the caustics on the floor under the water"},
@@ -34,7 +34,7 @@ for _, feature in ipairs{
 } do
 	FEATURES[#FEATURES + 1] = {
 		bit = 2 ^ #FEATURES,
-		pvar = pvars.Setup2{key = feature[2], default = true, friendly = "water " .. feature[1]:gsub("_", " "), help = feature[3]},
+		pvar = pvars.Setup2{key = feature[2], default = true, help = feature[3]},
 	}
 end
 

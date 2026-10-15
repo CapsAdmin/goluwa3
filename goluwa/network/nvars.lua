@@ -17,13 +17,19 @@ local function get_is_set(is, meta, name, default, cvar)
 		nvars.added_cvars[cvar] = name
 
 		if CLIENT then
-			pvars.Setup(cvar, default, function(var)
-				if network.IsConnected() then
-					message.Send("ncv", cvar, var)
-				else
-					clients.GetLocalClient().nv[name] = var
-				end
-			end)
+			pvars.Setup2{
+				key = cvar,
+				category = "Network",
+				group = "Replicated",
+				default = default,
+				callback = function(var)
+					if network.IsConnected() then
+						message.Send("ncv", cvar, var)
+					else
+						clients.GetLocalClient().nv[name] = var
+					end
+				end,
+			}
 		end
 	end
 

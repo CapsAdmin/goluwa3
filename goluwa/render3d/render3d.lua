@@ -47,7 +47,7 @@ function render3d.GetGPUCulling()
 	return gpu_culling
 end
 
-pvars.StartGroup("normal_map", {store = false})
+pvars.StartGroup("Rendering", "Normals", {store = false, prefix = "normal_map_"})
 local normal_map_strength = pvars.Setup2{
 	key = "r_normal_map_strength",
 	default = 1.0,
@@ -108,7 +108,7 @@ function render3d.WriteCommonBlock(self, block)
 	return block
 end
 
-pvars.StartGroup("gbuffer", {store = false})
+pvars.StartGroup("Rendering", "G-buffer", {store = false})
 render3d.velocity_enabled = pvars.Setup2{
 	key = "velocity_buffer",
 	default = true,
@@ -315,7 +315,7 @@ local pass_vars = {}
 render3d.bundles = render3d.bundles or table.weak("k")
 render3d.bundle_of_pipelines = render3d.bundle_of_pipelines or table.weak("k")
 local bundle_of_pipelines = render3d.bundle_of_pipelines
-pvars.StartGroup("pass", {store = false})
+pvars.StartGroup("Rendering", "Passes", {store = false, prefix = "pass_"})
 
 for _, entry in ipairs(default_passes) do
 	pass_vars[entry[1]] = pvars.Setup2{
@@ -344,7 +344,7 @@ function render3d.IsPassEnabled(name)
 		render3d.IsPipelineEnabled(name)
 end
 
-pvars.StartGroup("display", {store = false})
+pvars.StartGroup("Post", "Anti-aliasing", {store = false})
 local anti_aliasing = pvars.Setup2{
 	key = "r_aa",
 	default = "taa",

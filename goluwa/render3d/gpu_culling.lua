@@ -175,7 +175,7 @@ local BATCH_FLAG_HEIGHT_MAP = 2
 gpu_culling.BATCH_COMMAND_GROUP_COUNT = 4
 local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local ASYNC_SLOT_HEADROOM = 3
-pvars.StartGroup("feature", {store = false})
+pvars.StartGroup("Rendering", "Culling", {store = false, prefix = "feature_"})
 pvars.Setup2{
 	key = "r_feature_culling",
 	default = true,

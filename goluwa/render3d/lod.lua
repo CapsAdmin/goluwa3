@@ -10,7 +10,7 @@ local function changed()
 	event.Call("LODSettingsChanged")
 end
 
-pvars.StartGroup("lod", {store = false})
+pvars.StartGroup("Rendering", "LOD", {store = false, prefix = "lod_"})
 local level = pvars.Setup2{
 	key = "lod_level",
 	default = -1,

@@ -13,7 +13,7 @@ local function getnick(client)
 	return client:IsValid() and client:GetNick() or "server"
 end
 
-local enabled = pvars.Setup("chat_timestamps", true)
+local enabled = pvars.Setup2{key = "chat_timestamps", category = "Game", group = "Chat", prefix = "chat_", default = true}
 
 function chat.AddTimeStamp(tbl)
 	if not enabled:Get() then return {} end

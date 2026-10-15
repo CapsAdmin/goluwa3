@@ -343,7 +343,7 @@ function precipitation.GetCoverageGLSL()
 	]]
 end
 
-pvars.StartGroup("feature", {store = false})
+pvars.StartGroup("Environment", "Precipitation", {store = false, prefix = "feature_"})
 local enabled = pvars.Setup2{
 	key = "r_feature_precipitation",
 	default = true,

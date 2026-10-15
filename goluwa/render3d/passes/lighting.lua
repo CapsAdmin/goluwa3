@@ -23,14 +23,16 @@ local BINDING_LIGHT_GRID = 5
 local GLASS_BINDINGS = {scene = 6, triangles = 7, materials = 8}
 local SCREEN_SHADOW_MAX_STEPS = 64
 local SCREEN_SHADOW_STRIDE = 1.5
-pvars.StartGroup("lighting", {store = false})
+pvars.StartGroup("Lighting", "Lighting", {store = false, prefix = "lighting_"})
 local debug_direct = pvars.Setup2{
 	key = "lighting_debug_direct",
 	default = false,
 	help = "show only the direct light",
 }
+pvars.StartGroup("Lighting", "Screen space shadows", {store = false, prefix = "screen_space_shadow_"})
 local screen_shadows = pvars.Setup2{
 	key = "screen_space_shadows",
+	friendly = "enabled",
 	default = true,
 	help = "march the depth buffer towards each light for contact shadows",
 }
@@ -51,9 +53,12 @@ local screen_shadow_steps = pvars.Setup2{
 }
 local screen_shadows_debug = pvars.Setup2{
 	key = "screen_space_shadows_debug",
+	friendly = "debug",
 	default = false,
 	help = "show only what the screen space shadows darken, white is untouched",
 }
+pvars.EndGroup()
+pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
 local rough_sky = pvars.Setup2{
 	key = "reflection_rough_sky",
 	default = 0.6,
@@ -62,10 +67,12 @@ local rough_sky = pvars.Setup2{
 	help = "perceptual roughness above which a surface's ambient reflection is the probes' light and no raw sky (the sky fades out from 0.25), a rough surface's reflection is a blur of the gi, which already holds the sky. raise it to push the fade out towards rough surfaces only",
 }
 local gi_reflection_direction = pvars.Setup2{
-key = "reflection_gi_direction",
-default = true,
-help = "the gi light that stands in for a rough reflection is read along the reflection direction. off, it is the light around the surface normal, the colour of the whole hemisphere and not of what the surface mirrors",
+	key = "reflection_gi_direction",
+	default = true,
+	help = "the gi light that stands in for a rough reflection is read along the reflection direction. off, it is the light around the surface normal, the colour of the whole hemisphere and not of what the surface mirrors",
 }
+pvars.EndGroup()
+pvars.StartGroup("Lighting", "Lighting", {store = false, prefix = "lighting_"})
 local thin_specular = pvars.Setup2{
 	key = "thin_specular",
 	default = 1,

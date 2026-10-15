@@ -20,7 +20,7 @@ local function update_lights(_, is_init)
 	end
 end
 
-pvars.StartGroup("bsp_lights", {store = false})
+pvars.StartGroup("Lighting", "BSP lights", {store = false, prefix = "bsp_light_"})
 local intensity_pvar = pvars.Setup2{
 	key = "bsp_light_intensity",
 	default = 0.55,

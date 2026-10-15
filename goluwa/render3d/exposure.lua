@@ -3,7 +3,7 @@ local exposure = {}
 -- Exposure is one number, EV100. A camera reaches it with its settings: EV100 = log2(N^2 / t) - log2(ISO / 100),
 -- for the f-number N, the shutter time t and the sensitivity ISO. The eye has no such settings and gets its own table.
 -- What both give is how much the scene's luminance is multiplied by before the tonemapper (see passes/blit.lua).
-pvars.StartGroup("camera", {store = false})
+pvars.StartGroup("Post", "Camera", {store = false, prefix = "camera_"})
 local mode = pvars.Setup2{
 	key = "r_camera_mode",
 	default = "program",

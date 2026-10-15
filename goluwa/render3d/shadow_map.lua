@@ -2979,7 +2979,7 @@ function ShadowMap:SetRole(role)
 	self.role = role
 end
 
-pvars.StartGroup("feature", {store = false})
+pvars.StartGroup("Lighting", "Shadows", {store = false, prefix = "feature_"})
 local shadows = pvars.Setup2{
 	key = "r_feature_shadows",
 	default = true,

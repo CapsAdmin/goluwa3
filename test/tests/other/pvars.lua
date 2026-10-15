@@ -5,6 +5,8 @@ local calls
 
 local function setup(info)
 	info.store = false
+	info.category = info.category or "__test"
+	info.group = info.group or "__test_lonely"
 	return pvars.Setup2(info)
 end
 
@@ -103,25 +105,36 @@ test.Test("pvars set from strings parses booleans and numbers", function()
 end)
 
 test.Test("pvars groups are applied and friendly names strip the prefix", function()
-	pvars.StartGroup("__test_group", {store = false})
+	pvars.StartGroup("__test_category", "__test_group", {store = false, prefix = "__test_group_"})
 	local a = pvars.Setup2{key = "__test_group_alpha_beta", default = 1}
 	local b = pvars.Setup2{key = "r___test_group_gamma", default = 1, group = "other_group"}
 	pvars.EndGroup()
 	local c = setup{key = "__test_lonely", default = 1}
+	attest.equal(a:GetCategory(), "__test_category")
 	attest.equal(a:GetGroup(), "__test_group")
 	attest.equal(a:GetInfo().friendly, "alpha beta")
 	attest.equal(a:GetInfo().store, false)
+	attest.equal(b:GetCategory(), "__test_category")
 	attest.equal(b:GetGroup(), "other_group")
 	attest.equal(pvars.GetCurrentGroup(), nil)
-	attest.equal(c:GetGroup(), "other")
+	attest.equal(c:GetGroup(), "__test_lonely")
 	local found
 
-	for _, group in ipairs(pvars.GetGroups()) do
-		if group.name == "__test_group" then found = group end
+	for _, category in ipairs(pvars.GetCategories()) do
+		if category.name == "__test_category" then
+			for _, group in ipairs(category.groups) do
+				if group.name == "__test_group" then found = group end
+			end
+		end
 	end
 
 	attest.equal(#found.infos, 1)
 	attest.equal(found.infos[1].key, "__test_group_alpha_beta")
+end)
+
+test.Test("pvars need an explicit category and group", function()
+	attest.equal(pcall(pvars.Setup2, {key = "__test_pvar_nogroup", default = 1}), false)
+	attest.equal(pcall(pvars.Setup2, {key = "__test_pvar_nogroup", default = 1, category = "x"}), false)
 end)
 
 test.Test("pvars set errors are raised at the caller and keep the old value", function()
@@ -134,7 +147,7 @@ test.Test("pvars set errors are raised at the caller and keep the old value", fu
 end)
 
 test.Test("pvars session values are not written to disk", function()
-	local var = pvars.Setup2{key = "__test_pvar_session", default = 1}
+	local var = pvars.Setup2{key = "__test_pvar_session", default = 1, category = "__test", group = "__test_lonely"}
 	var:Set(2)
 	var:SetSession(9)
 	attest.equal(var:Get(), 9)

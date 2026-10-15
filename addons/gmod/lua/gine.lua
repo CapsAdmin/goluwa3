@@ -547,7 +547,7 @@ end
 
 gine.addons = gine.addons or {}
 gine.package_loaders = {}
-pvars.Setup("gine_local_addons_only", false)
+pvars.Setup2{key = "gine_local_addons_only", category = "Game", group = "Garry's Mod", prefix = "gine_", default = false}
 
 function gine.Initialize(gamemode, skip_addons)
 	gamemode = gamemode or "sandbox"
@@ -602,7 +602,7 @@ function gine.Initialize(gamemode, skip_addons)
 	if not gine.init then
 		gine.MountGLuaSourceOverlay()
 		steam.MountSourceGame("gmod", skip_addons)
-		pvars.Setup("sv_allowcslua", 1)
+		pvars.Setup2{key = "sv_allowcslua", category = "Game", group = "Garry's Mod", prefix = "sv_", default = 1}
 		gine.dir = R("garrysmod_dir.vpk"):match("(.+/)")
 		gine.AddGLuaPath(gine.dir)
 		import("lua/material.lua")

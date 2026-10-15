@@ -26,7 +26,7 @@ do
 	end
 end
 
-pvars.StartGroup("taa", {store = false})
+pvars.StartGroup("Post", "Anti-aliasing", {store = false, prefix = "taa_"})
 local strength = pvars.Setup2{
 	key = "r_taa_sharpen",
 	default = 0.5,

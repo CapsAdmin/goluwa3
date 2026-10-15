@@ -3,7 +3,13 @@ local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local third_person = pvars.Setup("cl_thirdperson", false, nil, "over the shoulder camera, client side only")
+local third_person = pvars.Setup2{
+	key = "cl_thirdperson",
+	category = "Game",
+	group = "Player",
+	default = false,
+	help = "over the shoulder camera, client side only",
+}
 local THIRD_PERSON_DISTANCE = 2.4
 local THIRD_PERSON_SHOULDER = 0.55
 local THIRD_PERSON_LIFT = 0.15

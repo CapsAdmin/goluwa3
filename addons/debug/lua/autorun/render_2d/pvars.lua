@@ -6,9 +6,11 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
+local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
-local WIDTH = 420
+local WIDTH = 520
+local SEARCH_HEIGHT = 28
 local panel = NULL
 local property_editor
 local node_types = {
@@ -21,7 +23,8 @@ local function build_node(info)
 	local node = {
 		Key = info.key,
 		Text = info.friendly,
-		Description = info.help,
+		Description = info.help and (info.key .. ": " .. info.help) or info.key,
+		Search = info.key,
 		Type = node_types[info.type],
 		Value = pvars.Get(info.key),
 		Default = info.default,
@@ -56,20 +59,23 @@ end
 local function build_items()
 	local items = {}
 
-	for _, group in ipairs(pvars.GetGroups()) do
-		local children = {}
+	for _, category in ipairs(pvars.GetCategories()) do
+		for _, group in ipairs(category.groups) do
+			local children = {}
 
-		for _, info in ipairs(group.infos) do
-			if node_types[info.type] then children[#children + 1] = build_node(info) end
-		end
+			for _, info in ipairs(group.infos) do
+				if node_types[info.type] then children[#children + 1] = build_node(info) end
+			end
 
-		if #children > 0 then
-			items[#items + 1] = {
-				Key = "pvars/" .. group.name,
-				Text = group.name,
-				Collapsed = true,
-				Children = children,
-			}
+			if #children > 0 then
+				items[#items + 1] = {
+					Key = "pvars/" .. category.name .. "/" .. group.name,
+					Text = group.name,
+					Tab = category.name,
+					Collapsed = true,
+					Children = children,
+				}
+			end
 		end
 	end
 
@@ -121,6 +127,20 @@ local function show()
 					panel.visual:SetVisible(false)
 				end,
 			}{
+				TextEdit{
+					Hint = "Search",
+					Wrap = false,
+					ScrollX = false,
+					ScrollY = false,
+					ScrollbarVisible = false,
+					Size = Vec2(0, SEARCH_HEIGHT),
+					MinSize = Vec2(0, SEARCH_HEIGHT),
+					MaxSize = Vec2(0, SEARCH_HEIGHT),
+					OnTextChanged = function(_, text)
+						property_editor:SetFilter(text)
+					end,
+					layout = {GrowWidth = 1},
+				},
 				ScrollablePanel{
 					ScrollX = false,
 					ScrollY = true,

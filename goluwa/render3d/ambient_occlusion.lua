@@ -4,7 +4,7 @@ local ambient_occlusion = {}
 ambient_occlusion.DEBUG_AO = 1
 ambient_occlusion.DEBUG_BOUNCE = 2
 ambient_occlusion.DEBUG_BENT_NORMAL = 3
-pvars.StartGroup("ambient_occlusion", {store = false})
+pvars.StartGroup("Lighting", "Ambient occlusion", {store = false, prefix = "ambient_occlusion_"})
 local gi = pvars.Setup2{
 	key = "ambient_occlusion_gi",
 	default = true,

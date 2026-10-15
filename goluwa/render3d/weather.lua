@@ -35,7 +35,7 @@ weather.longitude = 106.068101
 weather.time = 1782010800
 weather.time_scale = 0
 weather.moon_scale = 1
-pvars.StartGroup("weather", {store = false})
+pvars.StartGroup("Environment", "Weather", {store = false, prefix = "weather_"})
 local enabled = pvars.Setup2{
 	key = "weather_enabled",
 	default = true,

@@ -55,7 +55,7 @@ envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25
 envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
 envprobe.MAX_UPLOADED_PROBES = 64
 envprobe.enabled = true
-pvars.StartGroup("envprobe", {store = false})
+pvars.StartGroup("Lighting", "Environment probes", {store = false, prefix = "envprobe_"})
 envprobe.reflection_probes_enabled = pvars.Setup2{
 	key = "envprobe_reflection_probes",
 	default = false,

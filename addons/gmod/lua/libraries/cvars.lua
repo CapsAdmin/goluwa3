@@ -2,7 +2,7 @@ local gine = ... or _G.gine
 local pvars = import("goluwa/cli/pvars.lua")
 
 function gine.env.CreateConVar(name, def, flags, help)
-	return gine.WrapObject(pvars.Setup(name, tostring(def), nil, help, true), "ConVar")
+	return gine.WrapObject(pvars.Setup2{key = name, category = "Game", group = "Garry's Mod convars", default = tostring(def), help = help, store = false}, "ConVar")
 end
 
 function gine.env.GetConVar_Internal(name)
@@ -10,7 +10,7 @@ function gine.env.GetConVar_Internal(name)
 
 	if not pvar then
 		llog("unknown convar: ", name)
-		pvar = pvars.Setup(name, 0)
+		pvar = pvars.Setup2{key = name, category = "Game", group = "Garry's Mod convars", default = 0}
 	end
 
 	if pvar then return gine.WrapObject(pvar, "ConVar") end

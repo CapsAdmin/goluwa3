@@ -50,37 +50,34 @@ scatter.GROW_MARGIN = 1.5
 scatter.MAX_BATCHES = 1024
 scatter.TILE_CELLS = 32
 scatter.MAX_LEVEL = 4
-pvars.StartGroup("feature", {store = false})
+pvars.StartGroup("Rendering", "Scatter", {store = false, prefix = "feature_"})
 local enabled = pvars.Setup2{
 	key = "r_feature_scatter",
 	default = true,
-	friendly = "scatter",
 	help = "the models scattered over surfaces that ask for them, grass, rocks and trees",
 }
 pvars.EndGroup()
-pvars.StartGroup("feature", {store = false})
+pvars.StartGroup("Rendering", "Scatter", {store = false, prefix = "scatter_"})
 local billboards_enabled = pvars.Setup2{
 	key = "r_scatter_billboards",
 	default = true,
-	friendly = "scatter billboards",
 	help = "draw the prototypes that have a billboard as one past their billboard distance",
 }
 local billboard_scale = pvars.Setup2{
 	key = "r_scatter_billboard_distance",
 	default = 0.25,
-	friendly = "scatter billboard distance",
 	help = "multiplies the distance the billboards of the scatter prototypes start at",
 }
 local gi_enabled = pvars.Setup2{
 	key = "r_scatter_gi",
 	default = true,
-	friendly = "scatter in the scene bvh",
+	friendly = "bvh",
 	help = "put what scatter grows near the camera in the scene bvh, as geometry that is not drawn, for the soup shadows, global illumination and reflections",
 }
 local gi_distance = pvars.Setup2{
 	key = "r_scatter_gi_distance",
 	default = 200.0,
-	friendly = "scatter bvh distance",
+	friendly = "bvh distance",
 	help = "how far from the camera scatter units get geometry in the scene bvh",
 }
 pvars.EndGroup()

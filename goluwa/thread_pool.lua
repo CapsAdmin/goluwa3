@@ -243,6 +243,7 @@ function job_meta:Block()
 	return self.meta, self.blob
 end
 
+pvars.StartGroup("Engine", "Threads", {prefix = "codec_"})
 pvars.Setup2{
 	key = "r_codec_threads",
 	default = math.min(MAX_THREADS, math.max(1, threads.get_thread_count() - 1)),
@@ -264,6 +265,7 @@ pvars.Setup2{
 		end
 	end,
 }
+pvars.EndGroup()
 
 event.AddListener("Update", "thread_pool", function()
 	if

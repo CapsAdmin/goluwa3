@@ -7,7 +7,7 @@ local R = vfs.GetAbsolutePath
 local line = {}
 line.speed = 1
 line.love_envs = line.love_envs or table.weak("kv")
-pvars.Setup("line_enable_audio", true)
+pvars.Setup2{key = "line_enable_audio", category = "Game", group = "Love2D", prefix = "line_", default = true}
 
 do
 	local function base_typeOf(self, str)
@@ -133,7 +133,7 @@ function line.ReloadLoveLibrary(path)
 end
 
 do
-	local var = pvars.Setup("line_version", "11.0.0")
+	local var = pvars.Setup2{key = "line_version", category = "Game", group = "Love2D", prefix = "line_", default = "11.0.0"}
 
 	function line.ApplyVersion(love, version)
 		local major, minor, revision = tostring(version or var:Get()):match("^(%d+)%.(%d+)%.?(%d*)$")

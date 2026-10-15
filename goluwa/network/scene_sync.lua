@@ -199,21 +199,25 @@ if SERVER then
 	local pvars = import("goluwa/cli/pvars.lua")
 	local transfers = {}
 	local applying = false
-	local push_allowed = pvars.Setup(
-		"sv_scene_push",
-		true,
-		nil,
-		"allow clients to send scene entities to the server"
-	)
+	local push_allowed = pvars.Setup2{
+		key = "sv_scene_push",
+		category = "Network",
+		group = "Server",
+		prefix = "sv_",
+		default = true,
+		help = "allow clients to send scene entities to the server",
+	}
 
 	packet.AddListener(PROPERTY, function() end)
 
-	local client_scripts_allowed = pvars.Setup(
-		"sv_client_scripts",
-		false,
-		nil,
-		"run script components that clients send to the server, scripts have full access to the engine"
-	)
+	local client_scripts_allowed = pvars.Setup2{
+		key = "sv_client_scripts",
+		category = "Network",
+		group = "Server",
+		prefix = "sv_",
+		default = false,
+		help = "run script components that clients send to the server, scripts have full access to the engine",
+	}
 
 	-- scripts from clients are removed unless the server allows them, everything that is forwarded must be the stripped version
 	local function strip_scripts(records, sender)

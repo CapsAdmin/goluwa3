@@ -5,7 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local clouds = {}
-pvars.StartGroup("clouds", {store = false})
+pvars.StartGroup("Environment", "Clouds", {store = false, prefix = "cloud_"})
 local detail_min_mip = pvars.Setup2{
 	key = "cloud_detail_min_mip",
 	default = 0,

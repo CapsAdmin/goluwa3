@@ -1,6 +1,6 @@
 local pvars = import("goluwa/cli/pvars.lua")
 local ibl = {}
-pvars.StartGroup("reflection", {store = false})
+pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
 local gi_threshold = pvars.Setup2{
 	key = "reflection_gi_threshold",
 	default = 0.5,

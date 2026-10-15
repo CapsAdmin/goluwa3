@@ -9,7 +9,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local system = import("goluwa/system.lua")
 local light_occlusion = {}
-pvars.StartGroup("light_occlusion", {store = false})
+pvars.StartGroup("Lighting", "Light occlusion", {store = false, prefix = "light_occlusion_"})
 local enabled = pvars.Setup2{
 	key = "scene_bvh_light_occlusion",
 	default = true,
