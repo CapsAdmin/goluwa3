@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -56,9 +57,7 @@ local function data_uniform()
 end
 
 local function common_glsl()
-	return [[
-		#define saturate(x) clamp(x, 0.0, 1.0)
-	]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ddgi_data") .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL()
+	return glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ddgi_data") .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL()
 end
 
 local function pass_trace()

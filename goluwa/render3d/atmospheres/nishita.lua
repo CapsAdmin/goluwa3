@@ -1,6 +1,5 @@
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
-return glsl_common.GetRaySphereGLSL() .. [[
-    const float PI = 3.14159265359;
+return glsl_common.GetConstantsGLSL() .. glsl_common.GetRaySphereGLSL() .. [[
     
     // Nishita Sky Model Constants
     const float EARTH_RADIUS = 6371000.0;      // meters

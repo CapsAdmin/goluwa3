@@ -28,7 +28,7 @@ return {
 		float D_Charlie(float roughness, float NoH) {
 			float inverse_alpha = 1.0 / max(roughness * roughness, 1e-3);
 			float sin2 = max(1.0 - NoH * NoH, 0.0078125);
-			return (2.0 + inverse_alpha) * pow(sin2, inverse_alpha * 0.5) / (2.0 * BRDF_PI);
+			return (2.0 + inverse_alpha) * pow(sin2, inverse_alpha * 0.5) / (2.0 * PI);
 		}
 
 		float V_Neubelt(float NoV, float NoL) {

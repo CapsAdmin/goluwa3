@@ -739,7 +739,6 @@ list.insert(
 			// how far the sea is traced, and the steepest slope its height map can have (for the sphere trace)
 			const float WATER_TRACE_RANGE = 20000.0;
 			const float WATER_MAX_SLOPE = 1.5;
-			const float WATER_PI = 3.14159265359;
 			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. water.MOLECULAR_SCATTERING.x .. ", " .. water.MOLECULAR_SCATTERING.y .. ", " .. water.MOLECULAR_SCATTERING.z .. [[);
 			// how much of Gordon's multiple scattering is added to the single scattering
 			const float WATER_MULTIPLE_SCATTERING = 0.5;
@@ -887,12 +886,12 @@ list.insert(
 
 			float henyey_greenstein(float mu, float g) {
 				float gg = g * g;
-				return (1.0 - gg) / (4.0 * WATER_PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
+				return (1.0 - gg) / (4.0 * PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
 			}
 
 			// the water molecules' phase function, Rayleigh's with water's depolarization (Morel 1974)
 			float water_molecular_phase(float mu) {
-				return (1.0 + 0.835 * mu * mu) / (4.0 * WATER_PI * (1.0 + 0.835 / 3.0));
+				return (1.0 + 0.835 * mu * mu) / (4.0 * PI * (1.0 + 0.835 / 3.0));
 			}
 
 
@@ -1499,14 +1498,14 @@ list.insert(
 				// phase function doesn't have. Gordon's irradiance reflectance of the water, R = 0.33 bb / (a + bb), as
 				// a diffuse scattering coefficient, so the water has a color of its own whatever the angle to the sun
 				vec3 backscatter = WATER_MOLECULAR_SCATTERING * 0.5 + w.particles * WATER_PARTICLE_BACKSCATTER;
-				vec3 diffuse_scatter = backscatter * (WATER_MULTIPLE_SCATTERING * 0.33 * 4.0) / (w.absorption + backscatter) * sigma / WATER_PI;
+				vec3 diffuse_scatter = backscatter * (WATER_MULTIPLE_SCATTERING * 0.33 * 4.0) / (w.absorption + backscatter) * sigma / PI;
 				vec3 sun_scatter = sun_light * visibility * (water_scatter(w, dot(-dir, sun_dir)) + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, sun_mu);
 				// sky light comes down from all over the window above, as if at 40 degrees. the particles
 				// send their backscattered share of it up to a viewer looking down, the rest on down to one
 				// looking up; the molecules half each way
-				float particle_share = mix(WATER_PARTICLE_BACKSCATTER, 1.0 - WATER_PARTICLE_BACKSCATTER, 0.5 + 0.5 * dir.y) / (2.0 * WATER_PI);
-				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * WATER_PI) + w.particles * particle_share;
-				vec3 sky_scatter = get_ambient_irradiance(vec3(origin.x, w.surface_y + 0.1, origin.z)) * (WATER_PI * sky_phase + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
+				float particle_share = mix(WATER_PARTICLE_BACKSCATTER, 1.0 - WATER_PARTICLE_BACKSCATTER, 0.5 + 0.5 * dir.y) / (2.0 * PI);
+				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * PI) + w.particles * particle_share;
+				vec3 sky_scatter = get_ambient_irradiance(vec3(origin.x, w.surface_y + 0.1, origin.z)) * (PI * sky_phase + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
 				vec3 light_scatter = vec3(0.0);
 
 				#ifdef SCENE_REFLECTION
@@ -1578,7 +1577,7 @@ list.insert(
 				vec3 albedo = gbuffer_albedo(uv) * (1.0 - gbuffer_metallic(uv));
 				float no_l = max(dot(normal, normalize(ocean_data.sun_direction)), 0.0);
 				float shadow = get_water_sun_visibility(world_pos + normal * 0.1, ocean_data.sun_direction);
-				vec3 direct = min(albedo / WATER_PI * get_sun_illuminance() * (no_l * shadow), scene_color);
+				vec3 direct = min(albedo / PI * get_sun_illuminance() * (no_l * shadow), scene_color);
 				vec3 rest = scene_color - direct;
 				vec3 sun_path = exp(-sigma * (depth / max(-sun_dir.y, 0.05)));
 				vec3 sky_path = exp(-sigma * (depth / 0.75));
@@ -1969,7 +1968,7 @@ list.insert(
 					vec2 sun_side = normalize(sun.xz + 1e-5);
 					float back = pow(clamp(dot(view_side, -sun_side) * 0.6 + 0.4, 0.0, 1.0), 2.5);
 					float lit_crest = clamp(crest * 0.9 + 0.1, 0.0, 1.0) * (clamp((1.0 - normal.y) * 4.0, 0.0, 1.0) + 0.25);
-					vec3 isotropic = (WATER_MOLECULAR_SCATTERING + w.particles) / (4.0 * WATER_PI);
+					vec3 isotropic = (WATER_MOLECULAR_SCATTERING + w.particles) / (4.0 * PI);
 					color += (1.0 - fresnel) * sun_light * sun_transmission * isotropic * thickness * exp(-sigma * thickness) * WATER_CREST_GLOW * back * lit_crest * smoothstep(0.0, 0.25, sun.y);
 				}
 
@@ -1999,7 +1998,7 @@ list.insert(
 				foam = mix(foam, coverage * coverage * 0.5, smoothstep(0.15, 1.2, footprint)) * 0.95;
 
 				if (foam > 0.0) {
-					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / WATER_PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0));
+					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0));
 					// thick mats are brighter than the thin lace around them
 					float thickness = clamp((pattern.x - threshold) * 4.0 + 0.5, 0.0, 1.0);
 					vec3 foam_color = vec3(0.8) * mix(0.4, 1.0, thickness) * (0.9 + 0.1 * pattern.y) * foam_light;

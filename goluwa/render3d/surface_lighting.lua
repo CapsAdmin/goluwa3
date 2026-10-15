@@ -79,8 +79,6 @@ end
 
 function surface_lighting.GetGLSL(block_name)
 	return atmosphere.GetGLSLDefines(block_name, block_name .. ".primary_sun_illuminance") .. atmosphere.GetGLSLCode() .. post_source.GetPreExposureGLSL(block_name) .. [[
-
-		#define saturate(x) clamp(x, 0.0, 1.0)
 		]] .. ibl.GetBRDFGLSLCode() .. [[
 
 		]] .. ibl.GetEnvironmentGLSLCode() .. [[

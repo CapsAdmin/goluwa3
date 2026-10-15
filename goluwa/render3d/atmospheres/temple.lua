@@ -1,5 +1,5 @@
-return [[
-    const float PI = 3.14159265359;
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
+return glsl_common.GetConstantsGLSL() .. [[
 
     const int Iterations=14;
     const float detail=.00002;

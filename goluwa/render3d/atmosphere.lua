@@ -149,8 +149,7 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 	elevation
 end
 
-local atmosphere_shared_glsl = glsl_common.GetRaySphereGLSL() .. [[
-	const float PI = 3.14159265359;
+local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.GetRaySphereGLSL() .. [[
 	const float PLANET_RADIUS = 6371.0;
 	const float ATMOSPHERE_RADIUS = 6471.0;
 	const float RAYLEIGH_SCALE_HEIGHT = 8.0;

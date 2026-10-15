@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local ibl = {}
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
@@ -24,11 +25,7 @@ function ibl.GetReflectionGIRange()
 end
 
 function ibl.GetBRDFGLSLCode()
-	return [[
-			const float BRDF_PI = 3.14159265359;
-			#ifndef saturate
-			#define saturate(x) clamp(x, 0.0, 1.0)
-			#endif
+	return glsl_common.GetConstantsGLSL() .. [[
 
 			float pow5(float x) {
 				float x2 = x * x;
@@ -40,7 +37,7 @@ function ibl.GetBRDFGLSLCode()
 				float alpha2 = alpha * alpha;
 				float NoH2 = NoH * NoH;
 				float denom = max(NoH2 * (alpha2 - 1.0) + 1.0, 1e-6);
-				return alpha2 / (BRDF_PI * denom * denom);
+				return alpha2 / (PI * denom * denom);
 			}
 
 			float D_GGXPerceptual(float perceptual_roughness, float NoH) {
@@ -90,19 +87,19 @@ function ibl.GetBRDFGLSLCode()
 			// scatters again between the facets, so a white surface sends back all of the light at every roughness and view.
 			// The result is the BRDF, with the 1 / pi in it. NoL, NoV and LoV are cosines
 			vec3 Fd_EON(vec3 albedo, float roughness, float NoL, float NoV, float LoV) {
-				float A = 1.0 / (1.0 + (0.5 - 2.0 / (3.0 * BRDF_PI)) * roughness);
+				float A = 1.0 / (1.0 + (0.5 - 2.0 / (3.0 * PI)) * roughness);
 				float B = roughness * A;
 				float s = LoV - NoL * NoV;
 				float t = s > 0.0 ? max(max(NoL, NoV), 1e-4) : 1.0;
 				vec3 single_scatter = albedo * (A + B * s / t);
-				float mean_albedo = A * (1.0 + (2.0 / 3.0 - 28.0 / (15.0 * BRDF_PI)) * roughness);
+				float mean_albedo = A * (1.0 + (2.0 / 3.0 - 28.0 / (15.0 * PI)) * roughness);
 				float inv_i = 1.0 - NoL;
 				float inv_o = 1.0 - NoV;
 				float E_i = A + B * inv_i * (0.0571085289 + inv_i * (0.491881867 + inv_i * (-0.332181442 + inv_i * 0.0714429953)));
 				float E_o = A + B * inv_o * (0.0571085289 + inv_o * (0.491881867 + inv_o * (-0.332181442 + inv_o * 0.0714429953)));
 				float multi_denominator = max(1.0 - mean_albedo, 1e-4);
 				vec3 multi_scatter = albedo * albedo * (mean_albedo / max(vec3(1.0) - albedo * (1.0 - mean_albedo), vec3(1e-4))) * ((1.0 - E_i) * (1.0 - E_o) / multi_denominator);
-				return (single_scatter + multi_scatter) / BRDF_PI;
+				return (single_scatter + multi_scatter) / PI;
 			}
 
 			float SpecularOcclusion(float NoV, float ambient_occlusion, float perceptual_roughness) {
@@ -135,7 +132,7 @@ function ibl.GetBRDFGLSLCode()
 
 			vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float perceptual_roughness) {
 				float a = perceptual_roughness * perceptual_roughness;
-				float phi = 2.0 * BRDF_PI * Xi.x;
+				float phi = 2.0 * PI * Xi.x;
 				float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
 				float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
 
@@ -158,7 +155,7 @@ function ibl.GetBRDFGLSLCode()
 				vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) / sqrt(lensq) : vec3(1.0, 0.0, 0.0);
 				vec3 T2 = cross(Vh, T1);
 				float r = sqrt(xi.x);
-				float phi = 2.0 * BRDF_PI * xi.y;
+				float phi = 2.0 * PI * xi.y;
 				float t1 = r * cos(phi);
 				float t2 = r * sin(phi);
 				float s = 0.5 * (1.0 + Vh.z);

@@ -1027,7 +1027,7 @@ function envprobe.CreatePipelines()
 
 							float resolution = fragment.resolution;
 							float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf);
-							float saTexel  = 4.0 * BRDF_PI / (6.0 * resolution * resolution);
+							float saTexel  = 4.0 * PI / (6.0 * resolution * resolution);
 
 							float mipBias = max(saSample / saTexel, 1.0);
 							float lod = clamp(0.5 * log2(mipBias), 0.0, 8.0);

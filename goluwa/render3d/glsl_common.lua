@@ -78,6 +78,18 @@ function glsl_common.GetRaySphereGLSL()
 	]]
 end
 
+function glsl_common.GetConstantsGLSL()
+	return [[
+		#ifndef GLSL_COMMON_CONSTANTS
+		#define GLSL_COMMON_CONSTANTS
+		#define PI 3.14159265359
+		#ifndef saturate
+		#define saturate(x) clamp(x, 0.0, 1.0)
+		#endif
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH
