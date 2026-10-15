@@ -8,6 +8,8 @@ local output = import("goluwa/cli/output.lua")
 local commands = import("goluwa/cli/commands.lua")
 local lrun = import("goluwa/lrun.lua")
 local InputHistory = import("goluwa/input_history.lua")
+local autocomplete = import("goluwa/autocomplete.lua")
+local command_input = import("goluwa/cli/command_input.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local sequence_editor = import("goluwa/sequence_editor.lua")
@@ -15,6 +17,11 @@ local repl = {}
 repl.started = true
 repl.editor = repl.editor or sequence_editor.New()
 repl.history = repl.history or InputHistory.New{Name = "repl"}
+repl.autocomplete = repl.autocomplete or
+	autocomplete.NewSession{
+		GetQuery = command_input.GetQuery,
+		Max = 50,
+	}
 repl.editor.OnChanged = function(s, text)
 	repl.needs_redraw = true
 end
@@ -126,6 +133,7 @@ repl.last_cursor_bottom_offset = repl.last_cursor_bottom_offset or 0
 repl.enabled = true
 local INPUT_PREFIX_WIDTH = 2
 local MAX_VISIBLE_INPUT_LINES = 5
+local MAX_COMPLETION_ROWS = 6
 local clear_display
 
 local function get_terminal_width()
@@ -359,12 +367,29 @@ do
 	end
 end
 
+function repl.GetGhost()
+	local editor = repl.editor
+
+	if editor:GetSelection() or editor:GetCursor() ~= editor:GetBuffer():GetLength() + 1 then
+		return ""
+	end
+
+	return repl.autocomplete:GetGhost()
+end
+
 function repl.InputLua(str)
 	repl.is_executing = true
 
 	if str:find("cd ", nil, true) and str:find(" && luajit", nil, true) then
 		local script = str:match(".+luajit.+'(.+%.lua)")
 		str = "HOTRELOAD = true; dofile('" .. script .. "'); HOTRELOAD = nil"
+	end
+
+	if command_input.IsCommand(str) then
+		commands.RunString(str:sub(#command_input.Prefix + 1), true)
+		output.Flush()
+		repl.is_executing = false
+		return
 	end
 
 	local alias = str:match("^%s*(%S+)")
@@ -390,6 +415,7 @@ function repl.HandleEvent(ev)
 	if ev.paste and ev.text then
 		repl.editor:Paste(ev.text)
 		ensure_cursor_visible(get_terminal_width())
+		repl.autocomplete:SetText(repl.editor:GetText(), repl.editor:GetCursor())
 		return
 	end
 
@@ -400,7 +426,37 @@ function repl.HandleEvent(ev)
 		repl.editor:SetShiftDown(ev.modifiers and ev.modifiers.shift or false)
 		repl.editor:SetControlDown(ev.modifiers and ev.modifiers.ctrl or false)
 
-		if ev.key == "enter" then
+		local plain_key = not (
+			ev.modifiers and
+			(
+				ev.modifiers.ctrl or
+				ev.modifiers.shift or
+				ev.modifiers.alt
+			)
+		)
+		local session = repl.autocomplete
+
+		if ev.key == "tab" and session:HasResults() then
+			local completion = session:Cycle(ev.modifiers and ev.modifiers.shift and -1 or 1)
+
+			if completion then
+				repl.SetInput(completion)
+				keep_cursor_visible = true
+			end
+		elseif ev.key == "escape" and session:HasResults() then
+			session:Dismiss()
+		elseif
+			ev.key == "enter" and
+			plain_key and
+			session:IsExplicit() and
+			session:HasSelectable()
+		then
+			repl.SetInput(session:Accept())
+			keep_cursor_visible = true
+		elseif ev.key == "right" and plain_key and repl.GetGhost() ~= "" then
+			repl.SetInput(session:Accept())
+			keep_cursor_visible = true
+		elseif ev.key == "enter" then
 			if ev.modifiers and ev.modifiers.shift then
 				repl.editor:OnKeyInput("enter")
 				keep_cursor_visible = true
@@ -414,7 +470,8 @@ function repl.HandleEvent(ev)
 
 				if buffer == "clear" then
 					repl.SetInput("")
-							repl.term:Clear()
+						repl.autocomplete:SetText("", 1)
+					repl.term:Clear()
 					return
 				end
 
@@ -431,6 +488,8 @@ function repl.HandleEvent(ev)
 
 			if ev.modifiers and ev.modifiers.ctrl then
 				repl.input_scroll_offset = math.max(0, repl.input_scroll_offset - 1)
+			elseif plain_key and session:HasSelectable() then
+				session:Move(-1)
 			elseif current_visual_line > 1 then
 				repl.editor:OnKeyInput("up")
 				keep_cursor_visible = true
@@ -451,6 +510,8 @@ function repl.HandleEvent(ev)
 					math.max(0, total_visual_lines - MAX_VISIBLE_INPUT_LINES),
 					repl.input_scroll_offset + 1
 				)
+			elseif plain_key and session:HasSelectable() then
+				session:Move(1)
 			elseif current_visual_line < total_visual_lines then
 				repl.editor:OnKeyInput("down")
 				keep_cursor_visible = true
@@ -499,6 +560,7 @@ function repl.HandleEvent(ev)
 		end
 	end
 
+	repl.autocomplete:SetText(repl.editor:GetText(), repl.editor:GetCursor())
 end
 
 clear_display = function(term)
@@ -524,6 +586,12 @@ clear_display = function(term)
 	end
 end
 
+local function clip(str, max)
+	if str:utf8_length() <= max then return str end
+
+	return str:utf8_sub(1, math.max(0, max))
+end
+
 local function draw(term)
 	if not repl.needs_redraw then return end
 
@@ -534,7 +602,12 @@ local function draw(term)
 	clear_display(term)
 	local wrapped_lines = build_wrapped_lines(w)
 	local visible_input_lines = math.min(MAX_VISIBLE_INPUT_LINES, #wrapped_lines)
-	local total_display_lines = visible_input_lines
+	local session = repl.autocomplete
+	local results = session:HasResults() and session:GetResults() or {}
+	local completion_rows = math.min(MAX_COMPLETION_ROWS, #results)
+	local first_row = math.max(1, math.min(session:GetSelectedIndex() - completion_rows + 1, #results - completion_rows + 1))
+	local ghost = repl.GetGhost()
+	local total_display_lines = visible_input_lines + completion_rows
 	local sel_start, sel_stop = repl.editor:GetSelection()
 	local current_char_idx = 1
 	local start_line = repl.input_scroll_offset + 1
@@ -565,6 +638,11 @@ local function draw(term)
 			term:NoAttributes()
 			current_char_idx = current_char_idx + line:utf8_length()
 
+			if ghost ~= "" and i == #wrapped_lines then
+				term:PushForegroundColor(110, 110, 110)
+				term:Write(clip(ghost, w - INPUT_PREFIX_WIDTH - line:utf8_length() - 1))
+				term:PopAttribute()
+			end
 		else
 			for j = 1, line:utf8_length() do
 				local char = line:utf8_sub(j, j)
@@ -605,6 +683,32 @@ local function draw(term)
 		if display_line_num < visible_input_lines then term:Write("\n") end
 	end
 
+	for row = first_row, first_row + completion_rows - 1 do
+		local result = results[row]
+		term:Write("\n")
+
+		local selected = row == session:GetSelectedIndex() and not result.hint
+
+		if selected then term:PushBackgroundColor(60, 60, 90) end
+
+		term:Write("  ")
+
+		if not result.hint then
+			term:Write(result.val)
+			term:Write("  ")
+		end
+
+		if result.detail then
+			term:PushDim()
+			term:Write(clip((result.detail:gsub("%s+", " ")), w - 6 - result.val:utf8_length()))
+			term:PopAttribute()
+		end
+
+		term:ClearLine()
+
+		if selected then term:PopAttribute() else term:NoAttributes() end
+	end
+
 	local cursor_wrapped_line, cursor_wrapped_col = repl.editor:GetVisualLineCol()
 
 	if cursor_wrapped_line >= start_line and cursor_wrapped_line <= end_line then
@@ -612,7 +716,7 @@ local function draw(term)
 		cursor_screen_col = INPUT_PREFIX_WIDTH + cursor_wrapped_col
 	end
 
-	local lines_to_move_up = visible_input_lines - cursor_screen_line
+	local lines_to_move_up = total_display_lines - cursor_screen_line
 
 	if lines_to_move_up > 0 then term:MoveUp(lines_to_move_up) end
 

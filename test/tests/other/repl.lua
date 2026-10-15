@@ -330,3 +330,55 @@ test.Test("repl history", function()
 	attest.equal(repl.history:GetEntries()[1], "second")
 	attest.equal(repl.history:GetEntries()[2], "first")
 end)
+
+test.Test("repl autocomplete", function()
+	commands.Add("test_repl_complete=string", function(name) end)
+
+	local function reset()
+		repl.SetInput("")
+		repl.autocomplete:Clear()
+	end
+
+	reset()
+
+	for c in ("!test_repl_comp"):gmatch(".") do
+		send_key(c)
+	end
+
+	attest.equal(repl.autocomplete:GetResults()[1].val, "test_repl_complete")
+	attest.equal(repl.GetGhost(), "lete")
+	send_key("right")
+	attest.equal(repl.input_buffer, "!test_repl_complete")
+	attest.equal(repl.GetGhost(), "")
+	send_key("c", {ctrl = false})
+	reset()
+
+	for c in ("test_repl_comp"):gmatch(".") do
+		send_key(c)
+	end
+
+	attest.equal(repl.autocomplete:HasResults(), false)
+	reset()
+	send_key("!")
+	send_key("t")
+	send_key("e")
+	send_key("s")
+	send_key("t")
+	send_key("tab")
+	attest.equal(repl.input_buffer:starts_with("!test"), true)
+	reset()
+
+	for c in ("!test_repl_complete "):gmatch(".") do
+		send_key(c)
+	end
+
+	attest.equal(repl.autocomplete:GetResults()[1].hint, true)
+	reset()
+	send_key("!")
+	send_key("t")
+	send_key("e")
+	send_key("escape")
+	attest.equal(repl.autocomplete:HasResults(), false)
+	commands.Remove("test_repl_complete")
+	reset()
+end)
