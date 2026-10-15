@@ -110,8 +110,14 @@ function ibl.GetBRDFGLSLCode()
 				return saturate(pow(NoV + ambient_occlusion, exponent) - 1.0 + ambient_occlusion);
 			}
 
+			// what the microfacets' multiple scattering adds to the single scatter lobe (Fdez-Aguera 2019): the light the lobe
+			// does not send back, 1 - E, is reflected again with the average Fresnel, as a geometric series. For F0 = 1 that is
+			// 1 / E (Kulla and Conty, Filament's 1 + F0 (1 / E - 1)), but the average Fresnel of a darker metal is lower than its
+			// F0 gives and the old form was up to 41 percent too bright for a rough one (iron at roughness 1, against the random
+			// walk reference of test/harnesses/brdf/environment.lua), this is within 9
 			vec3 GGXEnergyCompensation(vec3 f0, vec2 env_brdf) {
-				return 1.0 + f0 * (1.0 / max(env_brdf.x + env_brdf.y, 0.001) - 1.0);
+				vec3 average_fresnel = f0 + (vec3(F90(f0)) - f0) / 21.0;
+				return 1.0 / (1.0 - (1.0 - min(env_brdf.x + env_brdf.y, 1.0)) * average_fresnel);
 			}
 
 			float RadicalInverse_Vdc(uint bits) {

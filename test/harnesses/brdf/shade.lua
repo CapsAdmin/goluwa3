@@ -175,7 +175,7 @@ end, {settle = settle}, function()
 		local V = (view.Position - Vec3(plate.x, 0.1, plate.z)):GetNormalized()
 		local alpha = plate.roughness * plate.roughness
 		local f0 = plate.row.metallic == 1 and plate.row.albedo or 0.04
-		local energy = 1 + f0 * (1 / specular_albedo(alpha, V.y, 1) - 1)
+		local energy = 1 / (1 - (1 - specular_albedo(alpha, V.y, 1)) * (f0 + (1 - f0) / 21))
 		local spec, diffuse = brdf(plate, V, to_sun, energy, specular_albedo(alpha, V.y, f0) * energy)
 		local parts = {}
 		local measured = {}
