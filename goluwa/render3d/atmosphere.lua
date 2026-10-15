@@ -175,7 +175,16 @@ local atmosphere_shared_glsl = [[
 	const float GROUND_FOG_MIE_G = 0.6;
 	// the share of the sun's energy a fog layer takes out of the beam that ends up as the mean radiance inside it: the rest
 	// leaves through the top, and the ground takes some
-	const float GROUND_FOG_DIFFUSE_FRACTION = 0.25;
+	// The fog's light is fitted to a path tracer (a grey fog, g 0.6, albedo 1) over visibilities of 300 m to 20 km and suns
+	// of 25 and 60 degrees, 9.6 percent rms (test/harnesses/fog/sky.lua, the offline fit is described in docs). A thin fog
+	// scatters the sky's mean radiance; a thick one is lit by the irradiance that enters its top and scatters it again
+	const float GROUND_FOG_IRRADIANCE_FRACTION = 0.33;
+	const float GROUND_FOG_IRRADIANCE_THICKNESS = 1.685;
+	const int GROUND_FOG_OCTAVES = 3;
+	const float GROUND_FOG_OCTAVE_SCATTER = 0.95;
+	const float GROUND_FOG_OCTAVE_EXTINCTION = 0.544;
+	const float GROUND_FOG_OCTAVE_PHASE = 0.669;
+	const float GROUND_FOG_OCTAVE_THICKNESS = 0.929;
 	// the aerosol's scattering and extinction per km at sea level, the pass provides the extinction at 550 nm
 	const vec3 AEROSOL_SPECTRUM = vec3(]] .. string.format("%.8f, %.8f, %.8f", AEROSOL_SPECTRUM.x, AEROSOL_SPECTRUM.y, AEROSOL_SPECTRUM.z) .. [[);
 	const float AEROSOL_ALBEDO = ]] .. AEROSOL_ALBEDO .. [[;
@@ -919,6 +928,11 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return ground_fog_sun_transmittance(length(point) - PLANET_RADIUS, dot(normalize(point), sun_dir), ATMOSPHERE_GROUND_FOG_EXTINCTION, ATMOSPHERE_PRECIPITATION_EXTINCTION);
 	}
 
+	// the optical depth of the whole layer straight up
+	float get_ground_fog_layer_optical_depth() {
+		return ATMOSPHERE_GROUND_FOG_EXTINCTION * GROUND_FOG_SCALE_HEIGHT * (1.0 - exp(-GROUND_FOG_TOP_HEIGHT / GROUND_FOG_SCALE_HEIGHT)) + ATMOSPHERE_PRECIPITATION_EXTINCTION * GROUND_FOG_TOP_HEIGHT;
+	}
+
 	// Radiance arriving at a point in the open air, averaged over every direction: the sky above and the sunlit,
 	// sky lit ground below, what DDGI's probes give where there are probes. It doesn't depend on the view, the glow
 	// around the sun is the sun's own scattering, which is shadowed.
@@ -930,15 +944,36 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 sun_dir = ATMOSPHERE_SKY_SUN_DIRECTION;
 		vec3 sun_irradiance = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * max(dot(up, sun_dir), 0.0);
 		vec3 sky_light = 0.5 * (mean_radiance + GROUND_ALBEDO / PI * (sky_irradiance + sun_irradiance));
-		// what the fog takes out of the sun's beam is scattered, it is not lost: it is the diffuse light of the fog
-		// (a layer thick enough to take much of the beam lights itself with the rest), as the irradiance it removes
-		// over pi, the mean radiance of an isotropic field
-		return sky_light + sun_irradiance * (1.0 - get_ground_fog_sun_transmittance(ray_origin, sun_dir)) * GROUND_FOG_DIFFUSE_FRACTION / PI;
+		// the thicker the layer the less the open air's light is what lights it: what enters the top of it, the sun's
+		// and the sky's irradiance, is scattered over and over and fills it (it fades with the layer's optical depth)
+		float thickness = 1.0 - exp(-get_ground_fog_layer_optical_depth());
+		return sky_light * (1.0 - thickness) + (sky_irradiance + sun_irradiance) * (GROUND_FOG_IRRADIANCE_FRACTION * pow(thickness, GROUND_FOG_IRRADIANCE_THICKNESS) / PI);
 	}
 
-	// Sunlight scattered toward the viewer by the fog, forward peaked.
+	// Sunlight scattered toward the viewer by the fog: the single scattering, forward peaked, and octaves of it for the
+	// light that scattered more than once (Wrenninge's approximation of multiple scattering): octave n has its scattering
+	// weight, its extinction and its phase asymmetry scaled by A^n, B^n, C^n, so the glow round the sun is broad and
+	// follows the sun, which an isotropic ambient does not. The octaves are weighted by how thick the layer is, a thin
+	// one has no light that scattered twice (the octaves alone put a quarter too much into a 5 km fog and too little into
+	// a 300 m one). In a dense fog the single scattering is a tenth of the light, the rest is the multiple scattering.
 	vec3 get_ground_fog_sun(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
-		return ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * get_ground_fog_sun_transmittance(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH;
+		float altitude = length(ray_origin) - PLANET_RADIUS;
+		float sun_up = dot(normalize(ray_origin), sun_dir);
+		float mu = dot(ray_dir, sun_dir);
+		float thickness = pow(1.0 - exp(-get_ground_fog_layer_optical_depth()), GROUND_FOG_OCTAVE_THICKNESS);
+		float octaves = 0.0;
+		float a = 1.0;
+		float b = 1.0;
+		float c = 1.0;
+
+		for (int n = 0; n < GROUND_FOG_OCTAVES; n++) {
+			octaves += a * (n == 0 ? 1.0 : thickness) * ground_fog_sun_transmittance(altitude, sun_up, ATMOSPHERE_GROUND_FOG_EXTINCTION * b, ATMOSPHERE_PRECIPITATION_EXTINCTION * b) * henyey_greenstein_phase(mu, GROUND_FOG_MIE_G * c);
+			a *= GROUND_FOG_OCTAVE_SCATTER;
+			b *= GROUND_FOG_OCTAVE_EXTINCTION;
+			c *= GROUND_FOG_OCTAVE_PHASE;
+		}
+
+		return ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * octaves * ATMOSPHERE_FOG_RAY_STRENGTH;
 	}
 
 	// What the fog layer and the precipitation scatter towards a viewer looking along ray_dir, per km, at a point: the light
