@@ -1024,7 +1024,7 @@ local function pass_guide()
 					s_ray[r] = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0);
 					s_dir[r] = ddgi_ray(uint(r), tile, guided);
 					s_q[r] = ddgi_ray_q(s_dir[r], tile, guided);
-					ivec2 ray_cell = clamp(ivec2((ddgi_oct_encode(s_dir[r]) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS)), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
+					ivec2 ray_cell = clamp(ivec2((oct_encode(s_dir[r]) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS)), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
 					s_cell[r] = ray_cell.y * DDGI_GUIDE_TEXELS + ray_cell.x;
 				}
 

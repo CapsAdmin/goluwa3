@@ -7,6 +7,7 @@ local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local light_occlusion = {}
 pvars.StartGroup("Lighting", "Light occlusion", {store = false, prefix = "light_occlusion_"})
@@ -75,32 +76,6 @@ local BINDING_BVH_TRIANGLES = 3
 local BINDING_SEE_THROUGH = 4
 local BINDING_BLUR_SRC = 1
 local BINDING_BLUR_DST = 2
-
-local function octahedral_glsl()
-	return [[
-		vec2 light_oct_encode(vec3 d) {
-			d /= (abs(d.x) + abs(d.y) + abs(d.z));
-			vec2 p = d.xy;
-
-			if (d.z < 0.0) {
-				p = (1.0 - abs(d.yx)) * vec2(d.x >= 0.0 ? 1.0 : -1.0, d.y >= 0.0 ? 1.0 : -1.0);
-			}
-
-			return p * 0.5 + 0.5;
-		}
-
-		vec3 light_oct_decode(vec2 uv) {
-			vec2 p = uv * 2.0 - 1.0;
-			vec3 d = vec3(p.x, p.y, 1.0 - abs(p.x) - abs(p.y));
-
-			if (d.z < 0.0) {
-				d.xy = (1.0 - abs(d.yx)) * vec2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
-			}
-
-			return normalize(d);
-		}
-	]]
-end
 
 local MAP_SAMPLER_CONFIG = {
 	min_filter = "linear",
@@ -254,7 +229,7 @@ local function build_trace_pipeline()
 				[[
 			const float LIGHT_OCCL_T_MIN = 0.05;
 
-			]] .. octahedral_glsl() .. [[
+			]] .. glsl_common.GetOctahedralGLSL() .. [[
 
 			]] .. scene_bvh.GetTraversalGLSL(BINDING_SEE_THROUGH) .. [[
 
@@ -276,7 +251,7 @@ local function build_trace_pipeline()
 
 				for (int sy = 0; sy < LIGHT_OCCL_SUBS; sy++) {
 					for (int sx = 0; sx < LIGHT_OCCL_SUBS; sx++) {
-						vec3 dir = light_oct_decode(uv0 + (vec2(sx, sy) + 0.5) * uv_step);
+						vec3 dir = oct_decode((uv0 + (vec2(sx, sy) + 0.5) * uv_step) * 2.0 - 1.0);
 						float dist = scene_bvh_trace(light.xyz, dir, LIGHT_OCCL_T_MIN, light.w, hit) ? hit.distance : light.w;
 						moments += vec2(dist, dist * dist);
 					}
@@ -718,7 +693,7 @@ function light_occlusion.GetSamplingGLSL(data_block)
 			[[
 		const int LIGHT_OCCL_MAX_SLOTS = ]] .. MAX_LIGHTS .. [[;
 
-		]] .. octahedral_glsl() .. [[
+		]] .. glsl_common.GetOctahedralGLSL() .. [[
 
 		float light_oct_shadow_factor(int slot, vec3 light_pos, float range, vec3 world_pos) {
 			if (slot < 0 || slot >= LIGHT_OCCL_MAX_SLOTS || ]] .. data_block .. [[.bvh_oct_active == 0) return 1.0;
@@ -727,7 +702,7 @@ function light_occlusion.GetSamplingGLSL(data_block)
 
 			if (dist >= range) return 1.0;
 
-			vec2 moments = texture(light_oct_map, vec3(light_oct_encode(to_pos / max(dist, 1e-5)), float(slot))).rg;
+			vec2 moments = texture(light_oct_map, vec3(oct_encode(to_pos / max(dist, 1e-5)) * 0.5 + 0.5, float(slot))).rg;
 
 			// 0 means the map was never traced (it is zero initialized) and is
 			// assumed clear, it will be traced on the next dispatch

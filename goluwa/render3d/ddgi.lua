@@ -637,7 +637,7 @@ function ddgi.GetDefinesGLSL()
 end
 
 function ddgi.GetRayDirectionGLSL()
-	return [[
+	return glsl_common.GetOctahedralGLSL() .. [[
 		#define DDGI_GUIDE_TEXELS 8
 		#define DDGI_GUIDE_CELLS 64
 		// what reads the guide texel of a probe's tile, so that the ray generation
@@ -645,23 +645,6 @@ function ddgi.GetRayDirectionGLSL()
 		#ifndef DDGI_GUIDE_FETCH
 		#define DDGI_GUIDE_FETCH(texel) texelFetch(TEXTURE(ddgi_data.ddgi_guide_tex), texel, 0)
 		#endif
-
-		vec2 ddgi_oct_encode(vec3 n) {
-			n /= abs(n.x) + abs(n.y) + abs(n.z);
-			vec2 p = n.xy;
-
-			if (n.z < 0.0) p = (1.0 - abs(p.yx)) * vec2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
-
-			return p;
-		}
-
-		vec3 ddgi_oct_decode(vec2 p) {
-			vec3 n = vec3(p, 1.0 - abs(p.x) - abs(p.y));
-
-			if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-
-			return normalize(n);
-		}
 
 		// index of count spherical fibonacci points, rotated by q
 		vec3 ddgi_fibonacci(uint index, uint count, vec4 q) {
@@ -720,7 +703,7 @@ function ddgi.GetRayDirectionGLSL()
 
 			vec2 inner = fract(vec2(0.7548776662, 0.5698402910) * float(k) + jitter.yz);
 			vec2 p = (vec2(lo % DDGI_GUIDE_TEXELS, lo / DDGI_GUIDE_TEXELS) + inner) / float(DDGI_GUIDE_TEXELS) * 2.0 - 1.0;
-			return ddgi_oct_decode(p);
+			return oct_decode(p);
 		}
 
 		// What a ray of direction d counts for: the inverse of the density it was
@@ -731,7 +714,7 @@ function ddgi.GetRayDirectionGLSL()
 		float ddgi_ray_weight(vec3 d, uint uniform_count, ivec2 tile, bool guided) {
 			if (!guided || uniform_count >= uint(DDGI_RAYS)) return 1.0;
 
-			ivec2 cell = clamp(ivec2((ddgi_oct_encode(d) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS)), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
+			ivec2 cell = clamp(ivec2((oct_encode(d) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS)), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
 			float probability = DDGI_GUIDE_FETCH(tile * DDGI_GUIDE_TEXELS + cell).g;
 			vec3 a = abs(d);
 			float l1 = a.x + a.y + a.z;
@@ -1099,14 +1082,14 @@ function ddgi.GetCommonGLSL()
 
 		float ddgi_pack_direction(vec3 d) {
 			const float levels = float((1u << DDGI_DIRECTION_BITS) - 1u);
-			uvec2 q = uvec2((ddgi_oct_encode(d) * 0.5 + 0.5) * levels + 0.5);
+			uvec2 q = uvec2((oct_encode(d) * 0.5 + 0.5) * levels + 0.5);
 			return float(q.x | (q.y << DDGI_DIRECTION_BITS)) - DDGI_DIRECTION_OFFSET;
 		}
 
 		vec3 ddgi_unpack_direction(float packed) {
 			const uint mask = (1u << DDGI_DIRECTION_BITS) - 1u;
 			uint v = uint(packed + DDGI_DIRECTION_OFFSET);
-			return ddgi_oct_decode(vec2(v & mask, v >> DDGI_DIRECTION_BITS) / float(mask) * 2.0 - 1.0);
+			return oct_decode(vec2(v & mask, v >> DDGI_DIRECTION_BITS) / float(mask) * 2.0 - 1.0);
 		}
 
 		// direction of texel (x, y) in a bordered octahedral tile; border texels
@@ -1127,12 +1110,12 @@ function ddgi.GetCommonGLSL()
 			}
 
 			vec2 uv = (vec2(src - 1) + 0.5) / float(texels - 2);
-			return ddgi_oct_decode(uv * 2.0 - 1.0);
+			return oct_decode(uv * 2.0 - 1.0);
 		}
 
 		vec2 ddgi_atlas_uv(ivec3 slot, int c, vec3 dir, int texels) {
 			vec2 atlas_size = vec2(DDGI_P * DDGI_P * texels, DDGI_P * DDGI_CASCADES * texels);
-			vec2 oct = ddgi_oct_encode(dir) * 0.5 + 0.5;
+			vec2 oct = oct_encode(dir) * 0.5 + 0.5;
 			vec2 pixel = vec2(ddgi_tile(slot, c) * texels) + 1.0 + oct * float(texels - 2);
 			return pixel / atlas_size;
 		}

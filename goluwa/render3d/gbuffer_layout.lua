@@ -2,6 +2,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local commands = import("goluwa/cli/commands.lua")
 local gbuffer_layout = {}
 local surface_features = import("goluwa/render3d/surface_features.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 -- the guaranteed minimum of vulkan's maxColorAttachments
 local MAX_TARGETS = 8
 gbuffer_layout.DEPTH_FORMAT = "d32_sfloat"
@@ -181,9 +182,7 @@ do
 	local lines = {}
 	local handwritten = [[
 		vec2 gbuffer_encode_normal(vec3 N) {
-			N /= abs(N.x) + abs(N.y) + abs(N.z);
-			vec2 e = N.z >= 0.0 ? N.xy : (1.0 - abs(N.yx)) * vec2(N.x >= 0.0 ? 1.0 : -1.0, N.y >= 0.0 ? 1.0 : -1.0);
-			return e * 0.5 + 0.5;
+			return oct_encode(N) * 0.5 + 0.5;
 		}
 
 		// cd/m2 in. b10g11r11 stops at 64512, a frosted bulb is ~1e5 and a clear
@@ -256,6 +255,7 @@ do
 
 	table.insert(defaults, "\tgbuffer_flush_packed();")
 	table.insert(defaults, "}")
+	table.insert(lines, glsl_common.GetOctahedralGLSL())
 	table.insert(lines, handwritten)
 	table.insert(lines, surface_features.GetEncodersGLSL())
 	table.insert(lines, table.concat(defaults, "\n"))
@@ -287,11 +287,7 @@ do
 				string.format(
 					[[
 		vec3 %s(COORD c) {
-			vec2 e = gbuffer_fetch_nearest(%s, c).%s * 2.0 - 1.0;
-			vec3 N = vec3(e, 1.0 - abs(e.x) - abs(e.y));
-			float t = max(-N.z, 0.0);
-			N.xy += vec2(N.x >= 0.0 ? -t : t, N.y >= 0.0 ? -t : t);
-			return normalize(N);
+			return oct_decode(gbuffer_fetch_nearest(%s, c).%s * 2.0 - 1.0);
 		}
 		]],
 					accessor,
@@ -332,7 +328,7 @@ do
 		"bool gbuffer_is_thin(COORD c) { return " .. surface_features.GetThinExpressionGLSL() .. "; }"
 	)
 	decoders = table.concat(decoders, "\n")
-	local code = [[
+	local code = glsl_common.GetOctahedralGLSL() .. [[
 		vec4 gbuffer_fetch(int tex, vec2 uv) {
 			return texture(TEXTURE(tex), uv);
 		}

@@ -32,6 +32,31 @@ function glsl_common.GetPQGLSL()
 	]]
 end
 
+function glsl_common.GetOctahedralGLSL()
+	return [[
+		#ifndef GLSL_COMMON_OCTAHEDRAL
+		#define GLSL_COMMON_OCTAHEDRAL
+		// a unit vector to the octahedral square [-1, 1]^2 and back
+		vec2 oct_encode(vec3 n) {
+			n /= abs(n.x) + abs(n.y) + abs(n.z);
+			vec2 p = n.xy;
+
+			if (n.z < 0.0) p = (1.0 - abs(p.yx)) * vec2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
+
+			return p;
+		}
+
+		vec3 oct_decode(vec2 p) {
+			vec3 n = vec3(p, 1.0 - abs(p.x) - abs(p.y));
+
+			if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+
+			return normalize(n);
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH
