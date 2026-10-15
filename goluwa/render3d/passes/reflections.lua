@@ -453,6 +453,9 @@ return {
 				vec3 mirror_R_vs = reflect(-V_vs, N_vs);
 
 				vec3 R_vs = mirror_R_vs;
+				// how blurred the environment is read where a ray leaves the scene. a sampled direction is already spread over
+				// the lobe, a prefiltered lookup on top of it would convolve it twice (the sun's glow came out half as bright)
+				float environment_roughness = roughness;
 
 				if (roughness > REFLECTION_MIRROR_THRESHOLD) {
 					vec3 T;
@@ -463,6 +466,7 @@ return {
 					vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
 					float rough_mix = smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness);
 					R_vs = normalize(mix(mirror_R_vs, reflect(-V_vs, H_vs), rough_mix));
+					environment_roughness = roughness * (1.0 - rough_mix);
 
 					// a sampled direction below the surface is reflected back above it. replacing it with the
 					// mirror ray (as it was) turned half the rays of a fully rough surface, 20% at 0.7, into the
@@ -498,10 +502,11 @@ return {
 				if (scene_reflection_ready() && hit.a < 0.999) {
 					vec3 origin = world_pos + geometric_N * (0.02 + 0.002 * -pos_vs.z);
 					float traced_t;
-					vec3 traced = trace_scene_reflection(origin, R_world, N, roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+					vec3 traced = trace_scene_reflection(origin, R_world, N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
 					reflection_hit_distance = traced_t;
 
-					if (roughness > REFLECTION_MIRROR_THRESHOLD) {
+					// the environment is smooth, a firefly is a small bright thing in the scene: a bright sky is real light
+					if (roughness > REFLECTION_MIRROR_THRESHOLD && traced_t < SCENE_REFLECTION_MAX_DISTANCE) {
 						float traced_luma = luminance(traced);
 
 						float traced_limit = get_hit_luminance_limit(roughness);
