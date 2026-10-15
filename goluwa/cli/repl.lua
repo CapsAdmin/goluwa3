@@ -7,19 +7,14 @@ local system = import("goluwa/system.lua")
 local output = import("goluwa/cli/output.lua")
 local commands = import("goluwa/cli/commands.lua")
 local lrun = import("goluwa/lrun.lua")
-local codec = import("goluwa/codec.lua")
+local InputHistory = import("goluwa/input_history.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local utf8 = import("goluwa/string/utf8.lua")
 local sequence_editor = import("goluwa/sequence_editor.lua")
 local repl = {}
-commands.history = codec.ReadFile("luadata", "data/cmd_history.txt") or {}
-
-for _, v in ipairs(commands.history) do
-	commands.history_map[v] = true
-end
-
 repl.started = true
 repl.editor = repl.editor or sequence_editor.New()
+repl.history = repl.history or InputHistory.New{Name = "repl"}
 repl.editor.OnChanged = function(s, text)
 	repl.needs_redraw = true
 end
@@ -120,13 +115,11 @@ setmetatable(
 		end,
 	}
 )
-repl.history_index = repl.history_index or #commands.history + 1
 repl.input_scroll_offset = repl.input_scroll_offset or 0
 repl.needs_redraw = repl.needs_redraw or true
 repl.debug = false
 repl.last_event = repl.last_event or nil
 repl.raw_input = repl.raw_input or nil
-repl.saved_input = repl.saved_input or ""
 repl.is_executing = repl.is_executing or false
 repl.last_drawn_lines = 0
 repl.last_cursor_bottom_offset = repl.last_cursor_bottom_offset or 0
@@ -229,6 +222,13 @@ local function ensure_cursor_visible(width)
 	end
 
 	clamp_input_scroll_offset(width)
+end
+
+function repl.SetInput(text)
+	repl.editor:SetText(text)
+	repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
+	repl.editor:SetSelectionStart(nil)
+	repl.input_scroll_offset = 0
 end
 
 function repl.SetEnabled(b)
@@ -413,32 +413,20 @@ function repl.HandleEvent(ev)
 				end
 
 				if buffer == "clear" then
-					repl.editor:SetText("")
-					repl.editor:SetCursor(1)
-					repl.input_scroll_offset = 0
-					repl.editor:SetSelectionStart(nil)
-					repl.saved_input = ""
-					repl.term:Clear()
+					repl.SetInput("")
+							repl.term:Clear()
 					return
 				end
 
 				logn("> " .. buffer)
 
-				if buffer ~= "" then
-					commands.AddHistory(buffer)
-					repl.history_index = #commands.history + 1
-					repl.InputLua(buffer)
-					codec.WriteFile("luadata", "data/cmd_history.txt", commands.history)
-				end
+				repl.history:Add(buffer)
 
-				repl.editor:SetText("")
-				repl.editor:SetCursor(1)
-				repl.input_scroll_offset = 0
-				repl.editor:SetSelectionStart(nil)
-				repl.saved_input = ""
+				if buffer ~= "" then repl.InputLua(buffer) end
+
+				repl.SetInput("")
 			end
 		elseif ev.key == "up" then
-			local buffer = repl.editor:GetText()
 			local current_visual_line = repl.editor:GetVisualLineCol()
 
 			if ev.modifiers and ev.modifiers.ctrl then
@@ -446,17 +434,13 @@ function repl.HandleEvent(ev)
 			elseif current_visual_line > 1 then
 				repl.editor:OnKeyInput("up")
 				keep_cursor_visible = true
-			elseif current_visual_line == 1 and repl.history_index > 1 then
-				if repl.history_index > #commands.history then
-					repl.saved_input = buffer
-				end
+			else
+				local text = repl.history:Older(repl.editor:GetText())
 
-				repl.history_index = repl.history_index - 1
-				repl.editor:SetText(commands.history[repl.history_index])
-				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
-				repl.input_scroll_offset = 0
-				repl.editor:SetSelectionStart(nil)
-				keep_cursor_visible = true
+				if text then
+					repl.SetInput(text)
+					keep_cursor_visible = true
+				end
 			end
 		elseif ev.key == "down" then
 			local current_visual_line = repl.editor:GetVisualLineCol()
@@ -470,27 +454,13 @@ function repl.HandleEvent(ev)
 			elseif current_visual_line < total_visual_lines then
 				repl.editor:OnKeyInput("down")
 				keep_cursor_visible = true
-			elseif
-				current_visual_line == total_visual_lines and
-				repl.history_index < #commands.history
-			then
-				repl.history_index = repl.history_index + 1
-				repl.editor:SetText(commands.history[repl.history_index])
-				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
-				repl.input_scroll_offset = 0
-				repl.editor:SetSelectionStart(nil)
-				keep_cursor_visible = true
-			elseif
-				current_visual_line == total_visual_lines and
-				repl.history_index == #commands.history
-			then
-				repl.history_index = #commands.history + 1
-				repl.editor:SetText(repl.saved_input)
-				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
-				repl.input_scroll_offset = 0
-				repl.editor:SetSelectionStart(nil)
-				repl.saved_input = ""
-				keep_cursor_visible = true
+			else
+				local text = repl.history:Newer(repl.editor:GetText())
+
+				if text then
+					repl.SetInput(text)
+					keep_cursor_visible = true
+				end
 			end
 		elseif ev.key == "q" and ev.modifiers and ev.modifiers.ctrl then
 			system.ShutDown()
@@ -528,6 +498,7 @@ function repl.HandleEvent(ev)
 			clamp_input_scroll_offset(width)
 		end
 	end
+
 end
 
 clear_display = function(term)
@@ -593,6 +564,7 @@ local function draw(term)
 			repl.ColorizeAndWrite(term, line)
 			term:NoAttributes()
 			current_char_idx = current_char_idx + line:utf8_length()
+
 		else
 			for j = 1, line:utf8_length() do
 				local char = line:utf8_sub(j, j)

@@ -96,26 +96,7 @@ end
 do
 	commands.added = commands.added or {}
 	commands.added2 = commands.added2 or {}
-	commands.history = commands.history or {}
-	commands.history_map = commands.history_map or {}
 	local USER_ERROR_PREFIX = "\1command_user_error:\1"
-
-	function commands.AddHistory(line)
-		if not line or line == "" then return end
-
-		if commands.history_map[line] then
-			for i, v in ipairs(commands.history) do
-				if v == line then
-					list.remove(commands.history, i)
-
-					break
-				end
-			end
-		end
-
-		list.insert(commands.history, line)
-		commands.history_map[line] = true
-	end
 
 	function commands.RaiseUserError(msg, level)
 		error(USER_ERROR_PREFIX .. tostring(msg), (level or 1) + 1)

@@ -3,6 +3,7 @@ local attest = import("goluwa/attest.lua")
 local commands = import("goluwa/cli/commands.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local repl = import("goluwa/cli/repl.lua")
+local InputHistory = import("goluwa/input_history.lua")
 local clipboard_works = clipboard.Set("glw") and clipboard.Get() == "glw"
 
 local function expect_clipboard(expected)
@@ -21,9 +22,7 @@ test.Test("repl input", function()
 		repl.input_buffer = ""
 		repl.input_cursor = 1
 		repl.selection_start = nil
-		commands.history = {}
-		commands.history_map = {}
-		repl.history_index = 1
+		repl.history = InputHistory.New()
 	end
 
 	reset()
@@ -175,9 +174,7 @@ test.Test("repl multiline navigation", function()
 		repl.input_buffer = ""
 		repl.input_cursor = 1
 		repl.selection_start = nil
-		commands.history = {}
-		commands.history_map = {}
-		repl.history_index = 1
+		repl.history = InputHistory.New()
 		repl.input_scroll_offset = 0
 	end
 
@@ -196,28 +193,25 @@ test.Test("repl multiline navigation", function()
 	send_key("end")
 	attest.equal(repl.input_cursor, 12)
 	reset()
-	commands.history = {"prev1", "prev2"}
-	commands.history_map = {prev1 = true, prev2 = true}
-	repl.history_index = 3
+	repl.history = InputHistory.New()
+	repl.history:Add("prev1")
+	repl.history:Add("prev2")
 	repl.input_buffer = "line1\nline2"
 	repl.input_cursor = 1
 	send_key("up")
 	attest.equal(repl.input_buffer, "prev2")
 	reset()
-	commands.history = {"prev1"}
-	commands.history_map = {prev1 = true}
-	repl.history_index = 2
+	repl.history = InputHistory.New()
+	repl.history:Add("prev1")
 	repl.input_buffer = "line1\nline2"
 	repl.input_cursor = 1
 	send_key("up")
 	attest.equal(repl.input_buffer, "prev1")
-	attest.equal(repl.history_index, 1)
 	send_key("down")
 	attest.equal(repl.input_buffer, "line1\nline2")
 	reset()
-	commands.history = {"prev1"}
-	commands.history_map = {prev1 = true}
-	repl.history_index = 2
+	repl.history = InputHistory.New()
+	repl.history:Add("prev1")
 	repl.input_buffer = "typing"
 	repl.input_cursor = 1
 	send_key("up")
@@ -232,9 +226,7 @@ test.Test("repl wrapped visual navigation", function()
 		repl.input_cursor = 1
 		repl.selection_start = nil
 		repl.input_scroll_offset = 0
-		commands.history = {}
-		commands.history_map = {}
-		repl.history_index = 1
+		repl.history = InputHistory.New()
 	end
 
 	local old_term = repl.term
@@ -310,9 +302,7 @@ test.Test("repl history", function()
 	local function reset()
 		repl.input_buffer = ""
 		repl.input_cursor = 1
-		commands.history = {}
-		commands.history_map = {}
-		repl.history_index = 1
+		repl.history = InputHistory.New()
 	end
 
 	reset()
@@ -320,23 +310,23 @@ test.Test("repl history", function()
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	repl.input_buffer = "asdf"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
-	attest.equal(#commands.history, 1)
-	attest.equal(commands.history[1], "asdf")
+	attest.equal(#repl.history:GetEntries(), 1)
+	attest.equal(repl.history:GetEntries()[1], "asdf")
 	reset()
 	repl.input_buffer = ""
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
-	attest.equal(#commands.history, 0)
+	attest.equal(#repl.history:GetEntries(), 0)
 	reset()
 	repl.input_buffer = "first"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	repl.input_buffer = "second"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
-	attest.equal(#commands.history, 2)
-	attest.equal(commands.history[1], "first")
-	attest.equal(commands.history[2], "second")
+	attest.equal(#repl.history:GetEntries(), 2)
+	attest.equal(repl.history:GetEntries()[1], "first")
+	attest.equal(repl.history:GetEntries()[2], "second")
 	repl.input_buffer = "first"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
-	attest.equal(#commands.history, 2)
-	attest.equal(commands.history[1], "second")
-	attest.equal(commands.history[2], "first")
+	attest.equal(#repl.history:GetEntries(), 2)
+	attest.equal(repl.history:GetEntries()[1], "second")
+	attest.equal(repl.history:GetEntries()[2], "first")
 end)
