@@ -9,6 +9,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local outfit = import("lua/outfit.lua")
 local clients = import("goluwa/network/clients.lua")
+local View = import("goluwa/render3d/view.lua")
 local META = objects.CreateTemplate("player_avatar")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
@@ -89,6 +90,18 @@ function META:ApplyFirstPerson()
 	end
 end
 
+-- the whole player is hidden, the weapons it holds are not part of the outfit
+function META:ApplyShotHidden()
+	local view = View.GetActive()
+	local visibility = self.Owner:EnsureComponent("visibility")
+
+	if view and view:GetHideAvatars() then
+		visibility:AddHider("shot")
+	else
+		visibility:RemoveHider("shot")
+	end
+end
+
 function META:UpdateOutfit()
 	local network = self.Owner.network
 
@@ -130,6 +143,8 @@ function META:OnUpdate(dt)
 
 		self:Build()
 	end
+
+	self:ApplyShotHidden()
 
 	local camera = owner.camera
 	local rotation
