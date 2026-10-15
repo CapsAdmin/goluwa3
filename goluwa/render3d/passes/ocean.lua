@@ -772,9 +772,7 @@ list.insert(
 			]] .. screen_reconstruct.GetViewRayFromUVGLSL("ocean_data") .. [[
 			]] .. screen_refraction.GetGLSL("ocean_data") .. [[
 			// what the medium shadow lookup expects from the atmosphere code
-			float get_fog_sun_horizon_visibility(vec3 sun_dir) {
-				return smoothstep(-0.08, 0.02, sun_dir.y);
-			}
+]] .. glsl_common.GetSunHorizonVisibilityGLSL() .. [[
 
 			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("ocean_data", "get_water_sun_visibility_shadowed") .. [[
 

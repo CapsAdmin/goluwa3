@@ -458,9 +458,7 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		);
 	}
 
-	float get_fog_sun_horizon_visibility(vec3 sun_dir) {
-		return smoothstep(-0.08, 0.02, sun_dir.y);
-	}
+]] .. glsl_common.GetSunHorizonVisibilityGLSL() .. [[
 ]]
 
 -- The sunlight through the air, folded with the sun's spectrum and the eye: the same air (Rayleigh, aerosol, ozone) at

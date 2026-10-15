@@ -156,6 +156,17 @@ function glsl_common.GetEquirectGLSL()
 	]]
 end
 
+function glsl_common.GetSunHorizonVisibilityGLSL()
+	return [[
+		#ifndef GLSL_COMMON_SUN_HORIZON_VISIBILITY
+		#define GLSL_COMMON_SUN_HORIZON_VISIBILITY
+		float get_fog_sun_horizon_visibility(vec3 sun_dir) {
+			return smoothstep(-0.08, 0.02, sun_dir.y);
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH
