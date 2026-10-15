@@ -17,13 +17,12 @@ local gi_strength = pvars.Setup2{
 	max = 4,
 	help = "scale of the screen space bounce light",
 }
+local DEBUG_VIEWS = {off = 0, occlusion = ambient_occlusion.DEBUG_AO, bounce = ambient_occlusion.DEBUG_BOUNCE, bent_normal = ambient_occlusion.DEBUG_BENT_NORMAL}
 local debug_view = pvars.Setup2{
 	key = "ambient_occlusion_debug",
-	default = 0,
-	integer = true,
-	min = 0,
-	max = 3,
-	help = "show only one output of the pass: 1 occlusion, 2 bounce light, 3 bent normal",
+	default = "off",
+	enums = {"off", "occlusion", "bounce", "bent_normal"},
+	help = "show only one output of the pass",
 }
 pvars.EndGroup()
 
@@ -36,7 +35,7 @@ function ambient_occlusion.GetGIStrength()
 end
 
 function ambient_occlusion.GetDebugView()
-	return debug_view:Get()
+	return DEBUG_VIEWS[debug_view:Get()]
 end
 
 function ambient_occlusion.GetBentNormalTexture()

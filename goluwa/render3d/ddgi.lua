@@ -181,28 +181,31 @@ local smooth_blend = pvars.Setup2{
 	default = true,
 	help = "blend 3x3x3 probes with quadratic B-spline weights",
 }
+local VISIBILITY_RAYS = {none = 0, relocated = 1, all = 2}
 local visibility_rays = pvars.Setup2{
 	key = "ddgi_visibility_rays",
-	default = 2,
-	enums = {0, 1, 2},
-	help = "probes checked with a ray: 0 none, 1 relocated ones, 2 all",
+	default = "all",
+	enums = {"none", "relocated", "all"},
+	help = "probes checked with a ray: none, only the relocated ones, or all",
 }
 local visibility_front_faces_only = pvars.Setup2{
 	key = "ddgi_visibility_front_faces_only",
 	default = true,
 	help = "visibility rays only hit front faces",
 }
+local DEBUG_PROBES = {off = 0, irradiance = 1, hit_distance = 2}
 local debug_probes = pvars.Setup2{
 	key = "ddgi_debug_probes",
-	default = 0,
-	enums = {0, 1, 2},
-	help = "0 off, 1 probe irradiance, 2 probe mean hit distance",
+	default = "off",
+	enums = {"off", "irradiance", "hit_distance"},
+	help = "what the probe debug markers show: the probe irradiance or its mean hit distance",
 }
+local DEBUG_SCENE = {off = 0, albedo = 1, normals = 2, hit_distance = 3}
 local debug_scene = pvars.Setup2{
 	key = "ddgi_debug_scene",
-	default = 0,
-	enums = {0, 1, 2, 3},
-	help = "0 off, 1 albedo, 2 normals, 3 hit distance of the scene the probe rays trace",
+	default = "off",
+	enums = {"off", "albedo", "normals", "hit_distance"},
+	help = "show the scene the probe rays trace as its albedo, normals or hit distance",
 }
 local debug_gi = pvars.Setup2{
 	key = "ddgi_debug_gi",
@@ -234,7 +237,7 @@ pvars.EndGroup()
 ddgi.MISS_DISTANCE = ddgi.HALF_PRECISION_RAYS and 60000 or 1e27
 
 function ddgi.GetDebugProbes()
-	return debug_probes:Get()
+	return DEBUG_PROBES[debug_probes:Get()]
 end
 
 function ddgi.IsDebugGI()
@@ -317,11 +320,11 @@ function ddgi.GetScreenSampleGLSL(block_name)
 end
 
 function ddgi.GetDebugSceneMode()
-	return debug_scene:Get()
+	return DEBUG_SCENE[debug_scene:Get()]
 end
 
 function ddgi.GetDebugOverlayTexture()
-	if debug_probes:Get() == 0 then return nil end
+	if ddgi.GetDebugProbes() == 0 then return nil end
 
 	return render3d.pipelines.ddgi_probe_debug:GetFramebuffer(1):GetAttachment(1)
 end
@@ -1521,12 +1524,12 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_light_radius = light_radius:Get()
 	block.ddgi_cascade_blend = ddgi.CASCADE_BLEND
 	block.ddgi_debug_scale = debug_scale:Get()
-	block.ddgi_debug_probes = debug_probes:Get()
+	block.ddgi_debug_probes = DEBUG_PROBES[debug_probes:Get()]
 	block.ddgi_debug_cascade = debug_cascade:Get()
-	block.ddgi_debug_scene = debug_scene:Get()
+	block.ddgi_debug_scene = DEBUG_SCENE[debug_scene:Get()]
 	block.ddgi_debug_manual_gamma = render.target:RequiresManualGamma() and 1 or 0
 	block.ddgi_smooth_blend = smooth_blend:Get() and 1 or 0
-	block.ddgi_visibility_rays = visibility_rays:Get()
+	block.ddgi_visibility_rays = VISIBILITY_RAYS[visibility_rays:Get()]
 	block.ddgi_visibility_front_faces_only = visibility_front_faces_only:Get() and 1 or 0
 	block.ddgi_cascade_count = state.cascade_count
 	block.ddgi_reset_mask = state.reset_mask

@@ -107,7 +107,7 @@ averaged push mostly cancels ("cramped") keep the offset and disable the probe (
 hit" rule made ground probes drift sideways (farthest = random sky miss); averaged push away from close hits is used instead.
 
 **Why:** the leak looked like exterior (roof) probes bleeding through the Chebyshev floor, but it was the two jiggling
-crevice probes — the GI-only view (`ddgi_debug_gi 1`, low exposure) plus `ddgi_debug_probes 1` found it.
+crevice probes — the GI-only view (`ddgi_debug_gi 1`, low exposure) plus `ddgi_debug_probes irradiance` found it.
 
 **How to apply:** when relocation changes look wrong, inspect with the probe debug view before tuning visibility. See
 [DDGI fireflies came from fast-adapt](#ddgi-fireflies-came-from-fast-adapt), [GI measurement needs an exposure lock and a real camera](#gi-measurement-needs-an-exposure-lock-and-a-real-camera).
@@ -116,7 +116,7 @@ crevice probes — the GI-only view (`ddgi_debug_gi 1`, low exposure) plus `ddgi
 
 *faint probes skipped rays but were 1000x brighter; contribution-share rule fix, gm_construct room repro*
 
-On gm_construct (brick room, grass on the roof) the room walls/ceiling glowed green and a bright band ran along the wall tops. `ddgi_visibility_rays` 0/1/2 changed nothing. Cause: commit 8d81b89c ("optimizations") only traces a probe's visibility ray if its blend weight is >= `DDGI_VISIBILITY_MIN_WEIGHT` (0.02). Probes outside the roof get weight ~0.004 after Chebyshev + the w<0.2 crush, so they were never ray-tested, but their irradiance is 100-1000x the dark room's, so a 1% share is the whole result.
+On gm_construct (brick room, grass on the roof) the room walls/ceiling glowed green and a bright band ran along the wall tops. `ddgi_visibility_rays` none/relocated/all changed nothing. Cause: commit 8d81b89c ("optimizations") only traces a probe's visibility ray if its blend weight is >= `DDGI_VISIBILITY_MIN_WEIGHT` (0.02). Probes outside the roof get weight ~0.004 after Chebyshev + the w<0.2 crush, so they were never ray-tested, but their irradiance is 100-1000x the dark room's, so a 1% share is the whole result.
 
 Fix in `ddgi_sample_cascade` (goluwa/render3d/ddgi.lua): fetch the probe's irradiance before the ray test and trace if `w >= min_weight` OR `w * luma(E) > DDGI_VISIBILITY_MIN_SHARE (0.02) * luma(sum so far)`. Resolve cost +0.3 ms (0.86 -> ~1.2 ms), tracing everything was +0.95 ms. The shade pass still passes `DDGI_NO_VISIBILITY_RAYS` (now explicitly skips the contrast rule too); turning rays on there changed nothing visible.
 
