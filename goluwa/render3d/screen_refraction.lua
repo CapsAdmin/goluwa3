@@ -51,7 +51,8 @@ function screen_refraction.GetGLSL(block_name)
 		// max_distance. hit_distance is how far along the ray the scene was met.
 		// a ray that meets nothing goes on to the sky where the depth is empty;
 		// otherwise it slipped past something thin between steps and takes what
-		// is where it stopped. false when the ray leaves the screen first.
+		// is where it stopped. false when the ray leaves the screen first, uv is then
+		// where it left (outside 0..1) and hit_distance how far it had gone.
 		// jitter (0..1) shifts the steps; varied per pixel and frame, taa turns
 		// the steps' stairs into a smooth result
 		bool screen_refraction_trace(vec3 surface_pos, vec3 origin, vec3 dir, float max_distance, float jitter, out vec2 uv, out float hit_distance) {
@@ -63,7 +64,12 @@ function screen_refraction.GetGLSL(block_name)
 				float t = max_distance * step * step;
 				vec3 p = screen_refraction_project(origin + dir * t);
 
-				if (!screen_refraction_on_screen(p.xy)) return false;
+				if (!screen_refraction_on_screen(p.xy)) {
+					// left the screen: where it went, so a caller can clamp it, and how far along it was
+					uv = p.xy;
+					hit_distance = t;
+					return false;
+				}
 
 				if (screen_refraction_behind(p, surface_depth)) {
 					float near = previous;

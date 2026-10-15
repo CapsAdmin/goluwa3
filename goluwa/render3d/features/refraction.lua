@@ -9,5 +9,7 @@ return {
 		{name = "IndexOfRefraction", default = 1.5, requires = "Refraction"},
 		{name = "AbbeNumber", default = 0, requires = "Refraction"},
 		{name = "RefractionThickness", default = -1.0, requires = "Refraction"},
+		-- how far a solid's light goes before it has the color of the material (glTF's attenuation distance), 0 takes the color once
+		{name = "AttenuationDistance", default = 0.0, requires = "Refraction"},
 	},
 }
