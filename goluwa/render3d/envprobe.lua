@@ -1612,11 +1612,41 @@ local function select_probe_to_capture(now, camera_position)
 	return best
 end
 
+do
+	-- the air thins with height, so the sky is not the same at 120 m (4 to 8 percent dimmer) or at 1000 m (25 to 60 percent) as at
+	-- the ground. The environment is captured at the height of the camera, in steps of a tenth of it (plus 10 m, so
+	-- the steps near the ground are 1 m), and not more than every ALTITUDE_REBAKE_INTERVAL seconds
+	local ALTITUDE_STEP = 1.1
+	local ALTITUDE_OFFSET = 10
+	local ALTITUDE_REBAKE_INTERVAL = 0.25
+	local log_step = math.log(ALTITUDE_STEP)
+
+	function envprobe.UpdateEnvironmentAltitude()
+		local probe = envprobe.environment_probe
+
+		if not probe then return end
+
+		local height = math.max(render3d.GetCamera():GetPosition().y, 0)
+		local key = math.floor(math.log(1 + height / ALTITUDE_OFFSET) / log_step)
+
+		if key == envprobe.environment_altitude_key then return end
+
+		local now = system.GetTime()
+
+		if envprobe.environment_altitude_key and now - probe.last_rendered < ALTITUDE_REBAKE_INTERVAL then return end
+
+		envprobe.environment_altitude_key = key
+		probe.position.y = ALTITUDE_OFFSET * (ALTITUDE_STEP ^ key - 1)
+		probe.needs_update = true
+	end
+end
+
 event.AddListener("PreRenderPass", "envprobe_update", function()
 	if not envprobe.enabled then return end
 
 	if not envprobe.sky_pipeline then return end
 
+	envprobe.UpdateEnvironmentAltitude()
 	local cmd, own_cmd = acquire_probe_command_buffer()
 	local sun_changed = envprobe.HasSkyChanged()
 
