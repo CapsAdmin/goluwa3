@@ -85,15 +85,24 @@ function ibl.GetBRDFGLSLCode()
 				return f0 + (max(vec3((1.0 - perceptual_roughness) * F90(f0)), f0) - f0) * f;
 			}
 
-			float Fd_Lambert() {
-				return 1.0 / BRDF_PI;
-			}
-
-			float Fd_Burley(float NoL, float NoV, float LoH, float perceptual_roughness) {
-				float F90 = 0.5 + 2.0 * perceptual_roughness * LoH * LoH;
-				float light_scatter = 1.0 + (F90 - 1.0) * pow5(1.0 - NoL);
-				float view_scatter = 1.0 + (F90 - 1.0) * pow5(1.0 - NoV);
-				return light_scatter * view_scatter * (1.0 / BRDF_PI);
+			// EON, Portsmouth, Kutz and Hill 2024 (JCGT 2025): the energy preserving Oren-Nayar rough diffuse. A single scatter
+			// term (Fujii's Oren-Nayar, with the retro reflection of a rough surface at a grazing light) and the light that
+			// scatters again between the facets, so a white surface sends back all of the light at every roughness and view.
+			// The result is the BRDF, with the 1 / pi in it. NoL, NoV and LoV are cosines
+			vec3 Fd_EON(vec3 albedo, float roughness, float NoL, float NoV, float LoV) {
+				float A = 1.0 / (1.0 + (0.5 - 2.0 / (3.0 * BRDF_PI)) * roughness);
+				float B = roughness * A;
+				float s = LoV - NoL * NoV;
+				float t = s > 0.0 ? max(max(NoL, NoV), 1e-4) : 1.0;
+				vec3 single_scatter = albedo * (A + B * s / t);
+				float mean_albedo = A * (1.0 + (2.0 / 3.0 - 28.0 / (15.0 * BRDF_PI)) * roughness);
+				float inv_i = 1.0 - NoL;
+				float inv_o = 1.0 - NoV;
+				float E_i = A + B * inv_i * (0.0571085289 + inv_i * (0.491881867 + inv_i * (-0.332181442 + inv_i * 0.0714429953)));
+				float E_o = A + B * inv_o * (0.0571085289 + inv_o * (0.491881867 + inv_o * (-0.332181442 + inv_o * 0.0714429953)));
+				float multi_denominator = max(1.0 - mean_albedo, 1e-4);
+				vec3 multi_scatter = albedo * albedo * (mean_albedo / max(vec3(1.0) - albedo * (1.0 - mean_albedo), vec3(1e-4))) * ((1.0 - E_i) * (1.0 - E_o) / multi_denominator);
+				return (single_scatter + multi_scatter) / BRDF_PI;
 			}
 
 			float SpecularOcclusion(float NoV, float ambient_occlusion, float perceptual_roughness) {

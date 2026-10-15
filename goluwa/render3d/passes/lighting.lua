@@ -388,14 +388,13 @@ return {
 				float ambient_occlusion = screen_gi.a * s.ao;
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
-				vec3 F_ambient = F_SchlickRoughness(s.F0, s.NdotV, s.perceptual_roughness);
-				vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - s.metallic);
+				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
+				// the directional albedo of the specular for this view, what the diffuse base under it does not get
+				vec3 specular_albedo = (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y) * GGXEnergyCompensation(s.F0, envBRDF);
+				vec3 kD_ambient = max(1.0 - specular_albedo, vec3(0.0)) * (1.0 - s.metallic);
 				vec3 ambient_diffuse = kD_ambient * (irradiance * ambient_occlusion + bounce) * s.albedo;
 
-				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
-
-				vec3 ambient_specular = reflection * (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y);
-				ambient_specular *= GGXEnergyCompensation(s.F0, envBRDF);
+				vec3 ambient_specular = reflection * specular_albedo;
 				ambient_specular *= SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness);
 				ambient_specular *= mix(1.0, lighting_data.thin_specular, get_thin_feature(in_view_depth, s.geometric_N));
 
