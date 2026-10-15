@@ -1,10 +1,13 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local assets = import("goluwa/assets.lua")
 import("goluwa/render3d/ddgi.lua").VISIBILITY_RAYS = 0
 local root = Entity.New{Name = "pbr_parameters"}
+-- everything collides but does not move
+local STATIC = {MotionType = "static"}
 local COLUMNS = 9
 local SPACING = 1.2
 local RADIUS = 0.45
@@ -143,6 +146,15 @@ local function material(config)
 	return shapes.Material(config)
 end
 
+local grid = material{
+	Color = [[
+		vec2 line = step(0.95, fract(uv * 12.0));
+		return vec4(vec3(mix(0.6, 0.05, max(line.x, line.y))), 1.0);
+	]],
+	Roughness = 0.6,
+	Metallic = 0,
+}
+
 local function group(name, parent)
 	return Entity.New{Name = name, Parent = parent or root}
 end
@@ -154,16 +166,16 @@ local function sphere(parent, name, x, z, mat)
 		Position = Vec3(x, RADIUS, z),
 		Radius = RADIUS,
 		Material = mat,
-		RigidBody = false,
+		RigidBody = STATIC,
 	}
 end
 
--- a row of spheres, build(t) makes the material for t from 0 to 1 along it
-local function sweep(parent, name, z, build)
+-- a row, build(t) makes the material for t from 0 to 1 along it, place puts a shape with it at x, z (a sphere by default)
+local function sweep(parent, name, z, build, place)
 	local row = group(name, parent)
 
 	for i = 0, COLUMNS - 1 do
-		sphere(
+		(place or sphere)(
 			row,
 			name .. "_" .. i,
 			(i - (COLUMNS - 1) / 2) * SPACING,
@@ -171,6 +183,153 @@ local function sweep(parent, name, z, build)
 			build(i / (COLUMNS - 1))
 		)
 	end
+end
+
+-- a sphere on a small tile of grid lines: what a refracting sphere bends is visible there
+local function sphere_on_grid(parent, name, x, z, mat)
+	shapes.Box{
+		Name = name .. "_grid",
+		Parent = parent,
+		Position = Vec3(x, 0.01, z),
+		Size = Vec3(1.1, 0.02, 1.1),
+		Material = grid,
+		RigidBody = STATIC,
+	}
+	shapes.Sphere{
+		Name = name,
+		Parent = parent,
+		Position = Vec3(x, 0.02 + RADIUS, z),
+		Radius = RADIUS,
+		Material = mat,
+		RigidBody = STATIC,
+	}
+end
+
+-- a brilliant cut diamond with its girdle at y = 0 and its culet pointing down, in the usual proportions (the table is
+-- 53 percent of the girdle's width, the crown 34.5 degrees, the pavilion 40.7). 8 table corners, 16 girdle corners:
+-- each table corner has the girdle corner under it and the two beside it, between two table corners there is one more
+local GEM_RADIUS = 0.42
+local GEM_TABLE, GEM_CROWN, GEM_GIRDLE, GEM_PAVILION = 0.53, 0.32, 0.03, 0.83
+
+local function build_diamond(poly, radius)
+	local function point(angle, r, y)
+		return Vec3(math.cos(angle) * r * radius, y * radius, math.sin(angle) * r * radius)
+	end
+
+	local girdle_top, girdle_bottom, table_corner = {}, {}, {}
+
+	for j = 0, 15 do
+		girdle_top[j] = point(math.rad(j * 22.5), 1, 0)
+		girdle_bottom[j] = point(math.rad(j * 22.5), 1, -GEM_GIRDLE)
+	end
+
+	for k = 0, 7 do
+		table_corner[k] = point(math.rad(22.5 + k * 45), GEM_TABLE, GEM_CROWN)
+	end
+
+	local culet = point(0, 0, -GEM_GIRDLE - GEM_PAVILION)
+	local inside = Vec3(0, -0.1 * radius, 0)
+
+	-- a facet, flat shaded, with its normal pointing out of the stone whatever order the corners come in
+	local function facet(a, b, c)
+		local n = (b - a):GetCross(c - a)
+
+		if n:GetDot((a + b + c) / 3 - inside) < 0 then
+			b, c = c, b
+			n = -n
+		end
+
+		n = n:GetNormalized()
+
+		for _, v in ipairs{a, c, b} do
+			poly:AddVertex{pos = v, uv = Vec2(v.x / radius * 0.5 + 0.5, v.z / radius * 0.5 + 0.5), normal = n}
+		end
+	end
+
+	for k = 1, 6 do
+		facet(table_corner[0], table_corner[k], table_corner[k + 1])
+	end
+
+	for k = 0, 7 do
+		local next_corner = table_corner[(k + 1) % 8]
+		facet(table_corner[k], next_corner, girdle_top[(2 * k + 2) % 16])
+		facet(table_corner[k], girdle_top[(2 * k) % 16], girdle_top[2 * k + 1])
+		facet(table_corner[k], girdle_top[2 * k + 1], girdle_top[(2 * k + 2) % 16])
+	end
+
+	for j = 0, 15 do
+		local n = (j + 1) % 16
+		facet(girdle_top[j], girdle_top[n], girdle_bottom[n])
+		facet(girdle_top[j], girdle_bottom[n], girdle_bottom[j])
+		facet(girdle_bottom[j], girdle_bottom[n], culet)
+	end
+
+	return poly
+end
+
+-- a diamond balanced on its culet over a small tile of grid lines
+local function gem_on_grid(parent, name, x, z, mat)
+	shapes.Box{
+		Name = name .. "_grid",
+		Parent = parent,
+		Position = Vec3(x, 0.01, z),
+		Size = Vec3(1.1, 0.02, 1.1),
+		Material = grid,
+		RigidBody = STATIC,
+	}
+	shapes.Polygon{
+		Name = name,
+		Parent = parent,
+		Position = Vec3(x, 0.02 + (GEM_GIRDLE + GEM_PAVILION) * GEM_RADIUS, z),
+		Polygon = function(poly)
+			return build_diamond(poly, GEM_RADIUS)
+		end,
+		Material = mat,
+		RigidBody = STATIC,
+	}
+end
+
+-- a pane of glass standing in front of a grid, tilted so it reflects as well as bends
+local function pane(parent, name, x, z, mat)
+	shapes.Box{
+		Name = name .. "_grid",
+		Parent = parent,
+		Position = Vec3(x, 0.5, z - 0.5),
+		Size = Vec3(1.0, 1.0, 0.02),
+		Material = grid,
+		RigidBody = STATIC,
+	}
+	shapes.Box{
+		Name = name,
+		Parent = parent,
+		Position = Vec3(x, 0.5, z),
+		Rotation = QuatDeg3(0, 20, 0),
+		Size = Vec3(0.9, 0.9, 0.02),
+		Material = mat,
+		RigidBody = STATIC,
+	}
+end
+
+-- a sheet like a leaf, one double sided quad (a box would shadow its own far face), its front turned to (facing_x, facing_z)
+local function sheet(parent, name, x, z, mat, yaw)
+	shapes.Polygon{
+		Name = name,
+		Parent = parent,
+		Position = Vec3(x, 0.6, z),
+		Rotation = QuatDeg3(0, yaw, 0),
+		Polygon = function(poly)
+			local corners = {Vec3(-0.45, -0.45, 0), Vec3(0.45, -0.45, 0), Vec3(0.45, 0.45, 0), Vec3(-0.45, 0.45, 0)}
+			local uvs = {Vec2(0, 0), Vec2(1, 0), Vec2(1, 1), Vec2(0, 1)}
+
+			for _, triangle in ipairs{{1, 3, 2}, {1, 4, 3}} do
+				for _, k in ipairs(triangle) do
+					poly:AddVertex{pos = corners[k], uv = uvs[k], normal = Vec3(0, 0, 1)}
+				end
+			end
+		end,
+		Material = mat,
+		RigidBody = STATIC,
+	}
 end
 
 -- a tile with a sphere on it, in a group of its own
@@ -182,7 +341,7 @@ local function tile(parent, name, x, z, tile_mat, sphere_mat)
 		Position = Vec3(x, 0.01, z),
 		Size = Vec3(2.4, 0.02, 2.4),
 		Material = tile_mat,
-		RigidBody = false,
+		RigidBody = STATIC,
 	}
 	shapes.Sphere{
 		Name = "sphere",
@@ -191,7 +350,7 @@ local function tile(parent, name, x, z, tile_mat, sphere_mat)
 		Rotation = QuatDeg3(0, 180, 0),
 		Radius = RADIUS,
 		Material = sphere_mat or tile_mat,
-		RigidBody = false,
+		RigidBody = STATIC,
 	}
 end
 
@@ -205,7 +364,7 @@ local function swatch(name, x, mat)
 		Position = Vec3(x, 1.2, -10.5),
 		Size = Vec3(2.4, 2.4, 0.1),
 		Material = mat,
-		RigidBody = false,
+		RigidBody = STATIC,
 	}
 	tile(entity, "tile_sphere", x, -8.6, mat)
 end
@@ -213,10 +372,10 @@ end
 shapes.Box{
 	Name = "floor",
 	Parent = root,
-	Position = Vec3(0, -0.5, 0),
-	Size = Vec3(30, 1, 30),
+	Position = Vec3(0, -0.5, 9),
+	Size = Vec3(30, 1, 48),
 	Material = material{Color = Color(0.5, 0.5, 0.5, 1), Roughness = 0.8, Metallic = 0},
-	RigidBody = false,
+	RigidBody = STATIC,
 }
 local sweeps = group("sweeps")
 
@@ -256,7 +415,7 @@ sweep(
 			Color = Color(0, 0, 0, 1),
 			Roughness = 0.15,
 			Metallic = 0,
-			SpecularMultiplier = math.lerp(0.5, 2, t),
+			SpecularMultiplier = math.lerp(t, 0.5, 2),
 		}
 	end
 )
@@ -270,19 +429,21 @@ sweep(
 	end
 )
 
+-- from air (an index of 1 bends nothing and reflects nothing) to 2, a dense flint glass or sapphire; the diamond row is further on
 sweep(
 	sweeps,
-	"refraction_roughness",
+	"refraction_ior",
 	-6,
 	function(t)
 		return material{
 			Color = Color(1, 1, 1, 1),
-			Roughness = t,
+			Roughness = 0.02,
 			Metallic = 0,
 			Refraction = 1,
-			IndexOfRefraction = 1.5,
+			IndexOfRefraction = math.lerp(t, 1, 2),
 		}
-	end
+	end,
+	sphere_on_grid
 )
 
 -- the surface features, each strength from 0 to 1 along the row
@@ -314,7 +475,7 @@ sweep(
 			Roughness = 0.5,
 			Metallic = 0,
 			Clearcoat = 1,
-			ClearcoatRoughness = math.lerp(0.02, 0.6, t),
+			ClearcoatRoughness = math.lerp(t, 0.02, 0.6),
 		}
 	end
 )
@@ -344,7 +505,7 @@ sweep(
 			Roughness = 0.9,
 			Metallic = 0,
 			SecondarySpecular = 1,
-			SecondarySpecularRoughness = math.lerp(0.05, 0.6, t),
+			SecondarySpecularRoughness = math.lerp(t, 0.05, 0.6),
 		}
 	end
 )
@@ -377,6 +538,142 @@ sweep(
 		}
 	end
 )
+
+-- glass: frosted spheres, panes from air to dense glass and frosted panes, and diamonds with their dispersion
+local refraction = group("refraction")
+local REFRACTION_Z = 13.4
+local PANE_SPACING = 1.6
+
+sweep(
+	refraction,
+	"refraction_roughness",
+	REFRACTION_Z,
+	function(t)
+		return material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = t,
+			Metallic = 0,
+			Refraction = 1,
+			IndexOfRefraction = 1.5,
+		}
+	end,
+	sphere_on_grid
+)
+
+sweep(
+	refraction,
+	"refraction_ior_panes",
+	REFRACTION_Z + PANE_SPACING,
+	function(t)
+		return material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = 0.02,
+			Metallic = 0,
+			Refraction = 1,
+			IndexOfRefraction = math.lerp(t, 1, 2),
+			-- its real thickness, a rotated pane's bounding box would make it a slab of a third of a meter
+			RefractionThickness = 0.02,
+		}
+	end,
+	pane
+)
+
+sweep(
+	refraction,
+	"refraction_roughness_panes",
+	REFRACTION_Z + PANE_SPACING * 2,
+	function(t)
+		return material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = t,
+			Metallic = 0,
+			Refraction = 1,
+			IndexOfRefraction = 1.5,
+			RefractionThickness = 0.02,
+		}
+	end,
+	pane
+)
+
+-- diamonds (index 2.42, brilliant cut), the dispersion from none to far more than the real stone's Abbe number of 55
+sweep(
+	refraction,
+	"diamond_dispersion",
+	REFRACTION_Z + PANE_SPACING * 3,
+	function(t)
+		return material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = 0.002,
+			Metallic = 0,
+			Refraction = 1,
+			IndexOfRefraction = 2.42,
+			AbbeNumber = t == 0 and 0 or math.lerp(t, 55, 10),
+		}
+	end,
+	gem_on_grid
+)
+
+-- diffuse transmission (leaves, cloth): each ring of sheets stands round a point light, so from outside the light comes through
+-- them, and from the opening or inside they are lit on their front. one value sweeps round the ring
+local transmission = group("transmission")
+local TRANSMISSION_Z = REFRACTION_Z + PANE_SPACING * 5
+local RING_RADIUS = 1.6
+local RING_SHEETS = 9
+local RING_STEP = math.rad(40)
+
+local function ring(name, x, build)
+	local entity = group(name, transmission)
+	local lamp = Entity.New{Name = name .. "_light", Parent = entity}
+	lamp:AddComponent("transform"):SetPosition(Vec3(x, 0.6, TRANSMISSION_Z))
+	lamp:AddComponent("light_point"):SetLumen(8000)
+
+	for i = 0, RING_SHEETS - 1 do
+		local angle = i * RING_STEP
+		sheet(
+			entity,
+			name .. "_" .. i,
+			x + math.sin(angle) * RING_RADIUS,
+			TRANSMISSION_Z + math.cos(angle) * RING_RADIUS,
+			build(i / (RING_SHEETS - 1)),
+			math.deg(angle) + 180
+		)
+	end
+end
+
+ring("transmission_amount", -5, function(t)
+	return material{
+		Color = Color(0.45, 0.6, 0.2, 1),
+		Roughness = 1,
+		Metallic = 0,
+		DoubleSided = true,
+		DiffuseTransmission = t,
+		TransmissionScattering = 0,
+	}
+end)
+
+ring("transmission_scattering", 0, function(t)
+	return material{
+		Color = Color(0.45, 0.6, 0.2, 1),
+		Roughness = 1,
+		Metallic = 0,
+		DoubleSided = true,
+		DiffuseTransmission = 0.6,
+		TransmissionScattering = t,
+	}
+end)
+
+-- from white through to a saturated red
+ring("transmission_color", 5, function(t)
+	return material{
+		Color = Color(0.7, 0.7, 0.7, 1),
+		Roughness = 1,
+		Metallic = 0,
+		DoubleSided = true,
+		DiffuseTransmission = 0.6,
+		TransmissionScattering = 0.4,
+		TransmissionColor = Color(1, math.lerp(t, 1, 0.15), math.lerp(t, 1, 0.1), 1),
+	}
+end)
 
 swatch(
 	"roughness_gradient",
@@ -470,14 +767,6 @@ local FRONT = 3.2
 local front = group("front_tiles")
 tile(front, "sand", -5, FRONT, assets.Load("materials/examples/sand.lua"))
 tile(front, "snow", -2.5, FRONT, assets.Load("materials/examples/snow.lua"))
-local grid = material{
-	Color = [[
-		vec2 line = step(0.95, fract(uv * 12.0));
-		return vec4(vec3(mix(0.6, 0.05, max(line.x, line.y))), 1.0);
-	]],
-	Roughness = 0.6,
-	Metallic = 0,
-}
 tile(
 	front,
 	"glass",
@@ -525,7 +814,7 @@ shapes.Box{
 		TransmissionColor = Color(0.55, 1, 0.1, 1),
 		TransmissionScattering = 0.6,
 	},
-	RigidBody = false,
+	RigidBody = STATIC,
 }
 -- many tiny shapes, to see how thin things alias
 local aliasing = group("aliasing")
@@ -559,7 +848,7 @@ for i = 0, 59 do
 		Radius = 0.005,
 		Height = 1.6,
 		Material = pipe,
-		RigidBody = false,
+		RigidBody = STATIC,
 		CastShadows = false,
 	}
 end
@@ -575,7 +864,7 @@ shapes.Box{
 		Metallic = 1,
 		Normal = normal_map("corrugated_height", "4.0"),
 	},
-	RigidBody = false,
+	RigidBody = STATIC,
 }
 local bumpy = material{
 	Color = Color(0.04, 0.04, 0.04, 1),
@@ -592,6 +881,6 @@ for i, z in ipairs{0, -6, -12} do
 		Position = Vec3(ALIAS_X + 4, 0.3, z),
 		Radius = 0.3,
 		Material = bumpy,
-		RigidBody = false,
+		RigidBody = STATIC,
 	}
 end
