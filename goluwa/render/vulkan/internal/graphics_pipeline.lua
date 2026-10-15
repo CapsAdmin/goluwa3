@@ -3,7 +3,9 @@ local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
+local system = import("goluwa/system.lua")
 local GraphicsPipeline = objects.CreateTemplate("vulkan_graphics_pipeline")
+local SLOW_PIPELINE_SECONDS = 0.05
 local EnumArray = ffi.typeof("uint32_t[?]")
 local VkVertexInputBindingDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputBindingDescription)
 local VkVertexInputAttributeDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputAttributeDescription)
@@ -375,6 +377,17 @@ function GraphicsPipeline:Wait()
 
 	if job then
 		self.job = nil
+
+		local start = system.GetTime()
+
+		while not job:IsDone() and system.GetTime() - start < SLOW_PIPELINE_SECONDS do
+			thread_pool.Update()
+		end
+
+		if not job:IsDone() then
+			logn("[pipeline] the driver is compiling a graphics pipeline, this can take a while...")
+		end
+
 		local milliseconds = job:Block()
 		self.keep = nil
 		self.device.pipeline_cache.generation = self.device.pipeline_cache.generation + 1
