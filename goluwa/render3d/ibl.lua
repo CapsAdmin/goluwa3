@@ -181,15 +181,7 @@ function ibl.GetEnvironmentGLSLCode()
 			math.floor(math.log(ibl.ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE) / math.log(2) + 0.5)
 		) .. [[;
 
-			// Converts a probe-space direction into the UV of the equirectangular
-			// (lat-long) texture it was baked into. Exact inverse of
-			// equirect_uv_to_dir in envprobe.lua, so a direction written there
-			// reads back identically here.
-			vec2 dir_to_equirect_uv(vec3 dir) {
-				float phi = atan(dir.z, dir.x);
-				float theta = asin(clamp(dir.y, -1.0, 1.0));
-				return vec2(phi * 0.15915494309 + 0.5, theta * 0.31830988618 + 0.5);
-			}
+]] .. glsl_common.GetEquirectGLSL() .. [[
 
 			// Mip that holds perceptual roughness 1. The chain stops at mips whose
 			// equivalent cube face would be ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE

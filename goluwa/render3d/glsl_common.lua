@@ -135,6 +135,27 @@ function glsl_common.GetRemapGLSL()
 	]]
 end
 
+-- equirect_uv_to_dir and dir_to_equirect_uv are inverses, a direction written through one reads back through the other
+function glsl_common.GetEquirectGLSL()
+	return [[
+		#ifndef GLSL_COMMON_EQUIRECT
+		#define GLSL_COMMON_EQUIRECT
+		vec3 equirect_uv_to_dir(vec2 uv) {
+			float phi = (uv.x - 0.5) * 6.28318530718;
+			float theta = (uv.y - 0.5) * 3.14159265359;
+			float ct = cos(theta);
+			return normalize(vec3(ct * cos(phi), sin(theta), ct * sin(phi)));
+		}
+
+		vec2 dir_to_equirect_uv(vec3 dir) {
+			float phi = atan(dir.z, dir.x);
+			float theta = asin(clamp(dir.y, -1.0, 1.0));
+			return vec2(phi * 0.15915494309 + 0.5, theta * 0.31830988618 + 0.5);
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH

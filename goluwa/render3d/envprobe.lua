@@ -11,6 +11,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local raycast = import("goluwa/render3d/raycast.lua")
@@ -114,15 +115,6 @@ local function write_sky_vertex_constants(self, block)
 	envprobe.inv_projection_view:CopyToFloatPointer(block.inv_projection_view)
 	return block
 end
-
-local equirect_direction_glsl = [[
-	vec3 equirect_uv_to_dir(vec2 uv) {
-		float phi = (uv.x - 0.5) * 6.28318530718;
-		float theta = (uv.y - 0.5) * 3.14159265359;
-		float ct = cos(theta);
-		return normalize(vec3(ct * cos(phi), sin(theta), ct * sin(phi)));
-	}
-]]
 
 local function equirect_dims(face_size)
 	return face_size * 4, face_size * 2
@@ -953,7 +945,7 @@ function envprobe.CreatePipelines()
 				},
 			},
 			custom_declarations = [[
-			]] .. equirect_direction_glsl .. [[
+			]] .. glsl_common.GetEquirectGLSL() .. [[
 			]],
 			shader = [[
 				void main() {
@@ -994,7 +986,7 @@ function envprobe.CreatePipelines()
 				},
 			},
 			custom_declarations = [[
-			]] .. equirect_direction_glsl .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. glsl_common.GetEquirectGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]],
 			shader = [[
 				void main() {
@@ -1075,7 +1067,7 @@ function envprobe.CreatePipelines()
 				},
 			},
 			custom_declarations = [[
-			]] .. equirect_direction_glsl .. [[
+			]] .. glsl_common.GetEquirectGLSL() .. [[
 				const int IRRADIANCE_SOURCE_SIZE = ]] .. envprobe.IRRADIANCE_SOURCE_SIZE .. [[;
 			]],
 			shader = [[
