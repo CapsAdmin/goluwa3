@@ -280,7 +280,7 @@ return {
 				return blue_noise_r2(xi, float((reflection_data.frame_index % 64) * reflection_data.rough_rays + sample_index));
 			}
 
-			void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
+			void build_orthonormal_basis(vec3 n, out vec3 t, out vec3 b) {
 				float a = 1.0 / (1.0 + n.z);
 				float d = -n.x * n.y * a;
 				t = vec3(1.0 - n.x * n.x * a, d, -n.x);
@@ -455,7 +455,7 @@ return {
 				if (roughness > REFLECTION_MIRROR_THRESHOLD) {
 					vec3 T;
 					vec3 B;
-					buildOrthonormalBasis(N_vs, T, B);
+					build_orthonormal_basis(N_vs, T, B);
 					vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
 					vec3 H_local = ImportanceSampleGGXVNDF(V_local, max(0.001, roughness * roughness), xi);
 					vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
