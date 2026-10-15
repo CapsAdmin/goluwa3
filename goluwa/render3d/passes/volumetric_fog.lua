@@ -373,7 +373,16 @@ local scatter_pass = {
 				float weight;
 				vec4 gi = ddgi_sample_irradiance(P, N, N, vec3(0.0), false, DDGI_VISIBILITY_MIN_WEIGHT, weight);
 
-				if (weight > 0.0) return gi.rgb / PI;
+				if (weight > 0.0) {
+					// under open sky the analytic sky, validated against a path tracer, is the light: the probes' sky
+					// lags a moving sun and steps with the environment probe and the cascades' update intervals,
+					// and the air of a whole frame followed it (the haze flickered). Where the point can not see the sky
+					// (a room, a roof) the probes' light is what is there. The overhead sky visibility tells which
+					float up_weight;
+					vec4 up = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0), false, DDGI_VISIBILITY_MIN_WEIGHT, up_weight);
+					float open_sky = up_weight > 0.0 ? saturate(up.a) : 0.0;
+					return mix(gi.rgb / PI, sky, open_sky);
+				}
 			}
 
 			if (froxel_data.gi_screen_tex < 0) return sky;
@@ -420,7 +429,7 @@ local scatter_pass = {
 			// the difference is a fraction of a percent within FROXEL_FAR
 			float air_extinction = dot(RAYLEIGH_BETA * density_r + MIE_BETA_EXT * density_m, vec3(0.2126, 0.7152, 0.0722)) * per_meter;
 			float mu = dot(ray_dir, sun_dir);
-			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * sample_transmittance_lut(fog_point, sun_dir) * get_fog_sun_visibility(world_pos, sun_dir);
+			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * get_fog_sun_visibility(world_pos, sun_dir);
 			vec3 ambient = get_ambient(world_pos, uv, fog_origin, froxel_hash(uvec3(seed, id.z, 7u)));
 			vec3 fog_tint = ATMOSPHERE_FOG_COLOR.w > 0.5 ? ATMOSPHERE_FOG_COLOR.rgb : vec3(1.0);
 			vec3 scattering = (ambient + sun * henyey_greenstein_phase(mu, GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH) * fog_tint * fog_extinction;

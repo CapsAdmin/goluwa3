@@ -127,6 +127,15 @@ function surface_lighting.GetGLSL(block_name)
 		{
 			vec3 diffuse = vec3(0.0);
 			specular = vec3(0.0);
+			// the specular lobe has no light that scatters twice on the microfacets, the directional albedo falls with the
+			// roughness (a rough white metal sends back 0.3 of what it gets) and this puts it back, Kulla and Conty 2017
+			vec2 direct_env_brdf = texture(TEXTURE(]] .. block_name .. [[.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
+			vec3 energy_compensation = GGXEnergyCompensation(s.F0, direct_env_brdf);
+			// the rough diffuse base under the specular coat (EON) gets what the view's specular does not take, 1 - E, enters
+			// through (1 - F(n.l)) and is divided by the average of that, so a white diffuse surface and its specular send back
+			// all of the light at every view and not more at a grazing one (it was Burley's, up to 1.4 times Lambert)
+			vec3 diffuse_view = max(1.0 - (s.F0 * direct_env_brdf.x + F90(s.F0) * direct_env_brdf.y) * energy_compensation, vec3(0.0)) * (1.0 - s.metallic);
+			vec3 average_fresnel = s.F0 + (vec3(F90(s.F0)) - s.F0) / 21.0;
 
 			int light_cell = light_grid_cell(s.world_pos);
 
@@ -145,6 +154,9 @@ function surface_lighting.GetGLSL(block_name)
 				}
 
 				vec3 unshadowed_radiance = light.color.rgb * light.color.a * attenuation;
+
+				// the fog layer above the surface takes its share of the sun's beam, by the surface's height
+				if (type == 0) unshadowed_radiance *= get_ground_fog_sun_transmittance(get_atmosphere_camera_origin(s.world_pos), L);
 
 				// a light that can't show on screen isn't shaded. a smooth surface shows a light brighter
 				// than it is as a highlight, so what the lobe's peak makes of it is counted
@@ -258,9 +270,8 @@ function surface_lighting.GetGLSL(block_name)
 				float V_func = V_SmithGGXCorrelated(s.roughness_alpha, s.NdotV, NoL);
 				vec3 F = F_Schlick(s.F0, LoH);
 
-				vec3 Fr = (D * V_func) * F;
-				vec3 kD = (1.0 - F) * (1.0 - s.metallic);
-				vec3 Fd = kD * s.albedo * Fd_Burley(NoL, s.NdotV, LoH, s.perceptual_roughness);
+				vec3 Fr = (D * V_func) * F * energy_compensation;
+				vec3 Fd = Fd_EON(s.albedo, s.perceptual_roughness, NoL, s.NdotV, dot(L, s.V)) * diffuse_view * (1.0 - F_Schlick(s.F0, NoL)) / max(1.0 - average_fresnel, vec3(0.001));
 
 				float diffuse_weight = 1.0;
 				]] .. surface_features.GetDirectLayerGLSL() .. [[
