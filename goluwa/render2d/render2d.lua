@@ -1365,7 +1365,7 @@ function render2d.Initialize()
 				vec3 srgb_to_linear(vec3 c) {
 					vec3 low = c / 12.92;
 					vec3 high = pow(max((c + 0.055) / 1.055, vec3(0.0)), vec3(2.4));
-					return mix(low, high, step(vec3(0.0031308), c));
+					return mix(low, high, step(vec3(0.04045), c));
 				}
 
 				vec3 linear_to_srgb(vec3 c) {
