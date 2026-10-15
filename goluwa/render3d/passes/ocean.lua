@@ -782,7 +782,7 @@ list.insert(
 				return water_feature(WATER_SUN_SHADOWS) ? get_water_sun_visibility_shadowed(p, dir) : 1.0;
 			}
 
-			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 					RAY_QUERY and
 					render3d.GetEmissiveGLSL() .. scene_reflection.GetGLSL("ocean_data")
@@ -792,16 +792,13 @@ list.insert(
 
 			float get_blue_noise() {
 				if (ocean_data.blue_noise_tex == -1) return 0.5;
-				ivec2 size = textureSize(TEXTURE(ocean_data.blue_noise_tex), 0);
-				float n = texelFetch(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy) % size, 0).r;
+				float n = blue_noise_texel(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy)).r;
 				return fract(n + float(ocean_data.frame) * 0.61803398875);
 			}
 
 			vec2 get_blue_noise2() {
 				if (ocean_data.blue_noise_tex == -1) return vec2(0.5);
-				ivec2 size = textureSize(TEXTURE(ocean_data.blue_noise_tex), 0);
-				vec2 n = texelFetch(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy) % size, 0).rg;
-				return fract(n + float(ocean_data.frame) * vec2(0.7548776662, 0.5698402910));
+				return blue_noise_r2(blue_noise_texel(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy)).rg, float(ocean_data.frame));
 			}
 
 			float water_hash(vec2 p) {

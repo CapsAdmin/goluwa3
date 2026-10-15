@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local assets = import("goluwa/assets.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -258,7 +259,7 @@ return {
 				""
 			),
 		shader = [[
-		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. surface_weather.GetRainSurfaceGLSL("reflection_data") .. [[
+		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. surface_weather.GetRainSurfaceGLSL("reflection_data") .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
 				RAY_QUERY and
@@ -271,13 +272,12 @@ return {
 			// how far the ray that just found something went, in meters, set by the traces
 			float reflection_hit_distance;
 			vec2 blue_noise(ivec2 pixel, int sample_index) {
-				ivec2 noise_size = textureSize(TEXTURE(reflection_data.blue_noise_tex), 0);
 				// the pixel's blue noise texel, moved on by one step of the R2 sequence per sample. frame_index is 0 without a
 				// temporal anti aliasing mode (render3d.GetTemporalFrame), then the noise stays where it is instead of crawling,
 				// a pattern nothing resolves. sample is the frame's own ray number, rays_per_frame of them: a ray's numbers
 				// are never another frame's
-				vec2 xi = texelFetch(TEXTURE(reflection_data.blue_noise_tex), pixel % noise_size, 0).rg;
-				return fract(xi + float((reflection_data.frame_index % 64) * reflection_data.rough_rays + sample_index) * vec2(0.7548776662, 0.5698402910));
+				vec2 xi = blue_noise_texel(TEXTURE(reflection_data.blue_noise_tex), pixel).rg;
+				return blue_noise_r2(xi, float((reflection_data.frame_index % 64) * reflection_data.rough_rays + sample_index));
 			}
 
 			void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {

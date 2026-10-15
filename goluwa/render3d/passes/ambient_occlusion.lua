@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -91,7 +92,7 @@ return {
 			const float BELOW_HORIZON_WEIGHT = 0.25;
 			const float BOUNCE_MAX_LUMINANCE = 30000.0;
 
-			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. post_source.GetPreExposureGLSL("lighting_data") .. [[
+			]] .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. post_source.GetPreExposureGLSL("lighting_data") .. [[
 			]] .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. [[
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_uv"}) .. [[
 
@@ -158,9 +159,7 @@ return {
 
 				ivec2 screen_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
 				ivec2 pixel = ivec2(uv * vec2(screen_size));
-				ivec2 noise_size = textureSize(TEXTURE(lighting_data.blue_noise_tex), 0);
-				// a different pattern every frame (R2 sequence), for taa to average
-				vec2 noise = fract(texelFetch(TEXTURE(lighting_data.blue_noise_tex), pixel % noise_size, 0).rg + float(lighting_data.frame) * vec2(0.7548776662, 0.5698402910));
+				vec2 noise = blue_noise_r2(blue_noise_texel(TEXTURE(lighting_data.blue_noise_tex), pixel).rg, float(lighting_data.frame));
 				
 				float random_offset = noise.x;
 				float random_rotation = noise.y * 6.28318;

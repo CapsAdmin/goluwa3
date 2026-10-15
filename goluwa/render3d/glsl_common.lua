@@ -107,6 +107,23 @@ function glsl_common.GetPhaseGLSL()
 	]]
 end
 
+function glsl_common.GetBlueNoiseGLSL()
+	return [[
+		#ifndef GLSL_COMMON_BLUE_NOISE
+		#define GLSL_COMMON_BLUE_NOISE
+		// the blue noise texture tiled over the screen
+		vec4 blue_noise_texel(sampler2D tex, ivec2 pixel) {
+			return texelFetch(tex, pixel % textureSize(tex, 0), 0);
+		}
+
+		// moves a blue noise value on by steps of the R2 sequence, a different pattern per step for taa to average
+		vec2 blue_noise_r2(vec2 xi, float steps) {
+			return fract(xi + steps * vec2(0.7548776662, 0.5698402910));
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH

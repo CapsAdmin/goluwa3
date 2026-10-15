@@ -843,7 +843,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 6) uniform sampler2D prev_exposure_tex;
 	layout(set = 0, binding = 7) uniform sampler2D blue_noise_tex;
 	layout(set = 0, binding = 8) uniform sampler2D white_balance_tex;
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. compute_helpers.GetColorHelpersGLSL() .. WHITE_BALANCE_GLSL .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. WHITE_BALANCE_GLSL .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
 
 	// For HDR output: x exposed, returns linear light in units of paper white.
 	// The shadows and midtones go through the SDR tonemapper so they look the
@@ -887,8 +887,7 @@ local compute_shader = [[
 	// Blue noise per channel, moved along the golden ratio each frame so 16
 	// frames in a row see different values (as in NVIDIA's RTXGI sample)
 	vec3 blue_noise(ivec2 pos) {
-		ivec2 size = textureSize(blue_noise_tex, 0);
-		vec3 noise = vec3(texelFetch(blue_noise_tex, pos % size, 0).rg, texelFetch(blue_noise_tex, (pos + ivec2(37, 19)) % size, 0).r);
+		vec3 noise = vec3(blue_noise_texel(blue_noise_tex, pos).rg, blue_noise_texel(blue_noise_tex, pos + ivec2(37, 19)).r);
 		return fract(noise + 0.61803398875 * float(compute.frame % 16));
 	}
 
