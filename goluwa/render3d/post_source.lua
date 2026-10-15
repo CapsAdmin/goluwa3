@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
@@ -159,7 +160,7 @@ function post_source.GetPreExposureGLSL(block_name)
 end
 
 function post_source.GetCompressGLSL()
-	return [[
+	return glsl_common.GetLuminanceGLSL() .. [[
 		vec3 rgb_to_ycocg(vec3 c) {
 			return vec3(
 				0.25 * c.r + 0.5 * c.g + 0.25 * c.b,
@@ -172,20 +173,16 @@ function post_source.GetCompressGLSL()
 			return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
 		}
 
-		float get_luma(vec3 c) {
-			return dot(c, vec3(0.2126, 0.7152, 0.0722));
-		}
-
 		// exposed and Reinhard compressed by luminance, so the inverse is exact. 1 - luma
 		// keeps float precision to ~1e6 exposed, the sun's disc is ~5e4 at noon
 		vec3 compress(vec3 c, float exposure) {
 			c *= exposure;
-			return rgb_to_ycocg(c / (1.0 + get_luma(c)));
+			return rgb_to_ycocg(c / (1.0 + luminance(c)));
 		}
 
 		vec3 decompress(vec3 c, float exposure) {
 			vec3 rgb = max(ycocg_to_rgb(c), vec3(0.0));
-			return rgb / max(1.0 - get_luma(rgb), 1e-6) / exposure;
+			return rgb / max(1.0 - luminance(rgb), 1e-6) / exposure;
 		}
 	]]
 end

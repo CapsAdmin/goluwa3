@@ -1,7 +1,8 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local compute_helpers = {}
 
 function compute_helpers.GetScreenHelpersGLSL()
-	return [[
+	return glsl_common.GetLuminanceGLSL() .. [[
 		ivec2 get_screen_pos() {
 			return ivec2(gl_GlobalInvocationID.xy);
 		}
@@ -17,7 +18,7 @@ function compute_helpers.GetScreenHelpersGLSL()
 end
 
 function compute_helpers.GetColorHelpersGLSL()
-	return [[
+	return glsl_common.GetLuminanceGLSL() .. [[
 		vec3 LinearToSRGB(vec3 col) {
 			vec3 low = col * 12.92;
 			vec3 high = 1.055 * pow(col, vec3(1.0 / 2.4)) - 0.055;
@@ -81,7 +82,7 @@ function compute_helpers.GetColorHelpersGLSL()
 				saturation = 1.4;
 			}
 
-			float luma = dot(x, vec3(0.2126, 0.7152, 0.0722));
+			float luma = luminance(x);
 			x = luma + saturation * (x - luma);
 
 			// the curve's output is display encoded (gamma 2.2)

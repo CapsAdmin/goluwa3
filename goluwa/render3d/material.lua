@@ -540,9 +540,7 @@ do
 
 		if self.Refraction == 0 then return color.a end
 
-		local transmittance = REFRACTION_TRANSMITTANCE * (
-				0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
-			)
+		local transmittance = REFRACTION_TRANSMITTANCE * color:GetLuminance()
 		local covering = self.Translucent and color.a or 1
 		return 1 - (
 				self.Refraction * transmittance + (

@@ -1,5 +1,6 @@
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
-return glsl_common.GetNoiseGLSL() .. [[
+return glsl_common.GetNoiseGLSL() ..
+glsl_common.GetLuminanceGLSL() .. [[
 	// a magnitude 0 star gives 2.08e-6 lux, and there are 10^(0.5 m) times more stars brighter than m
 	const float STAR_MAX_MAGNITUDE = 7.5;
 	const float STAR_FACE_CELLS = 64.0;
@@ -44,8 +45,8 @@ return glsl_common.GetNoiseGLSL() .. [[
 		c.b = t >= 66.0 ? 1.0 : (t <= 19.0 ? 0.0 : clamp(0.54320678911 * log(t - 10.0) - 1.19625408914, 0.0, 1.0));
 		c = pow(c, vec3(2.2));
 		// the eye barely sees color in stars
-		c = mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, 0.6);
-		return c / dot(c, vec3(0.2126, 0.7152, 0.0722));
+		c = mix(vec3(luminance(c)), c, 0.6);
+		return c / luminance(c);
 	}
 
 	// one candidate star in each cell of a cube around the sky

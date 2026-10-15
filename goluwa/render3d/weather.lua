@@ -392,9 +392,6 @@ function weather.GetMoonDirection()
 	return (weather.GetMoonAt(weather.time, weather.latitude, weather.longitude))
 end
 
-local function luminance(v)
-	return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
-end
 
 function weather.SetEnvironmentMap(path)
 	atmosphere.SetEnvironmentMap(path)
@@ -428,7 +425,7 @@ function weather.UpdateSky()
 	}
 
 	if
-		moon_illuminance * luminance(atmosphere.GetTransmittance(moon_dir, CLOUD_LIGHT_ALTITUDE)) > SUN_TOA_ILLUMINANCE * luminance(atmosphere.GetTransmittance(sun_dir, CLOUD_LIGHT_ALTITUDE))
+		moon_illuminance * atmosphere.GetTransmittance(moon_dir, CLOUD_LIGHT_ALTITUDE):GetLuminance() > SUN_TOA_ILLUMINANCE * atmosphere.GetTransmittance(sun_dir, CLOUD_LIGHT_ALTITUDE):GetLuminance()
 	then
 		clouds.SetLight(moon_dir, MOON_TINT * moon_illuminance)
 	else
@@ -442,7 +439,7 @@ function weather.UpdateSky()
 	local dir, color, illuminance
 
 	if
-		moon_illuminance * luminance(moon_transmittance) > SUN_TOA_ILLUMINANCE * luminance(sun_transmittance)
+		moon_illuminance * moon_transmittance:GetLuminance() > SUN_TOA_ILLUMINANCE * sun_transmittance:GetLuminance()
 	then
 		dir, color, illuminance = moon_dir, moon_transmittance * MOON_TINT, moon_illuminance
 	else

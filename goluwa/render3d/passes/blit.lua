@@ -8,6 +8,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local assets = import("goluwa/assets.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 -- the exposed value the metered average is shown at, 18 percent grey
 local KEY = 0.18
@@ -306,7 +307,7 @@ local WHITE_BALANCE_GLSL = [[
 	}
 ]]
 
-local exposure_feedback_shader = [[
+local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 	layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_exposure;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 	layout(set = 0, binding = 2) uniform sampler2D prev_exposure_tex;
@@ -345,7 +346,7 @@ local exposure_feedback_shader = [[
 		vec2 uv = (vec2(n % GRID_X, n / GRID_X) + 0.5) / vec2(GRID_X, GRID_Y);
 		// the centre of the view counts four times as much as the corners
 		weight = 1.0 + 3.0 * (1.0 - smoothstep(0.2, 1.0, length(uv * 2.0 - 1.0)));
-		return dot(textureLod(source_tex, uv, 0.0).rgb, vec3(0.2126, 0.7152, 0.0722)) * to_absolute;
+		return luminance(textureLod(source_tex, uv, 0.0).rgb) * to_absolute;
 	}
 
 	void main() {
@@ -605,7 +606,7 @@ local local_exposure_grid_pass = {
 		self:UploadConstants()
 		self.pipeline:DispatchForSize(cmd, GRID_X * 16, GRID_Y * 16, 1, desc, self.dynamic_offsets)
 	end,
-	shader = GRID_GLSL .. [[
+	shader = glsl_common.GetLuminanceGLSL() .. GRID_GLSL .. [[
 		layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_grid;
 		layout(set = 0, binding = 1) uniform sampler2D source_tex;
 		layout(set = 0, binding = 2) uniform sampler2D exposure_tex;
@@ -630,7 +631,7 @@ local local_exposure_grid_pass = {
 			vec2 uv = (vec2(tile) + (vec2(gl_LocalInvocationID.xy) + 0.5) / 16.0) / vec2(GRID_X, GRID_Y);
 			// the scene is pre-exposed with last frame's exposure
 			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
-			float luma = dot(textureLod(source_tex, uv, 0.0).rgb, vec3(0.2126, 0.7152, 0.0722)) * exposure;
+			float luma = luminance(textureLod(source_tex, uv, 0.0).rgb) * exposure;
 			float l = clamp(log2(max(luma, 1e-6)) - get_frame_log_level(texture(exposure_tex, vec2(0.5))), GRID_LOG_MIN, GRID_LOG_MAX);
 			int z = min(int((l - GRID_LOG_MIN) / (GRID_LOG_MAX - GRID_LOG_MIN) * float(GRID_Z)), GRID_Z - 1);
 			atomicAdd(cell_sum[z], uint((l - GRID_LOG_MIN) * FIXED));
@@ -663,7 +664,7 @@ local local_exposure_blur_pass = {
 	write = function(self, block)
 		return block
 	end,
-	shader = GRID_GLSL .. [[
+	shader = glsl_common.GetLuminanceGLSL() .. GRID_GLSL .. [[
 		layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_grid;
 		layout(set = 0, binding = 1) uniform sampler2D grid_tex;
 
@@ -941,14 +942,14 @@ local compute_shader = [[
 		// enough for them (a lamp in a dark room). Adapted EV100 to log10 cd/m2 is
 		// (ev - 3) * log10(2).
 		float adapted_ev = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).b : 10.0;
-		float pixel_log10 = log(max(dot(col, vec3(0.2126, 0.7152, 0.0722)) / pre_exposure, 1e-9)) * 0.4342945;
+		float pixel_log10 = log(max(luminance(col) / pre_exposure, 1e-9)) * 0.4342945;
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
 		// Local exposure adapts the scene. The glare was made from the light as
 		// the eye adapted to it (see passes/bloom.lua), so a region adapted down
 		// scatters less and its glow never outshines it; it is added on top.
 		if (compute.has_grid_tex != 0) {
-			col *= exp2(get_local_adaptation(uv, dot(col, vec3(0.2126, 0.7152, 0.0722)) * exposure, texture(exposure_tex, vec2(0.5))));
+			col *= exp2(get_local_adaptation(uv, luminance(col) * exposure, texture(exposure_tex, vec2(0.5))));
 		}
 
 		if (compute.has_bloom_tex != 0) {
@@ -986,7 +987,7 @@ local compute_shader = [[
 		imageStore(out_color, pos, vec4(col, 1.0));
 	}
 ]]
-local white_balance_feedback_shader = [[
+local white_balance_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 	// the estimate is read and written in place, in the same texture the composite samples
 	layout(set = 0, binding = 0, rgba32f) uniform image2D white_balance_state;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
@@ -1010,7 +1011,7 @@ local white_balance_feedback_shader = [[
 		for (int n = int(id); n < GRID_X * GRID_Y; n += 256) {
 			vec2 uv = (vec2(n % GRID_X, n / GRID_X) + 0.5) / vec2(GRID_X, GRID_Y);
 			vec3 rgb = textureLod(source_tex, uv, 0.0).rgb;
-			vec3 chroma = clamp(rgb / max(dot(rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-9), vec3(0.0), vec3(4.0));
+			vec3 chroma = clamp(rgb / max(luminance(rgb), 1e-9), vec3(0.0), vec3(4.0));
 			float weight = 1.0 + 3.0 * (1.0 - smoothstep(0.2, 1.0, length(uv * 2.0 - 1.0)));
 			atomicAdd(chroma_sum[0], uint(chroma.r * weight * 64.0));
 			atomicAdd(chroma_sum[1], uint(chroma.g * weight * 64.0));
@@ -1082,7 +1083,7 @@ for _, pass in ipairs(
 				layout(set = 0, binding = 2) uniform sampler2D grid_tex;
 				layout(set = 0, binding = 3) uniform sampler2D exposure_tex;
 				layout(set = 0, binding = 4) uniform sampler2D prev_exposure_tex;
-			]] .. post_source.GetPreExposureFromExposureGLSL() .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL,
+			]] .. glsl_common.GetLuminanceGLSL() .. post_source.GetPreExposureFromExposureGLSL() .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL,
 		sampled_images = {
 			{binding_index = 2, get_texture = get_pipeline_texture("local_exposure_blur")},
 			{binding_index = 3, get_texture = get_exposure_feedback_texture},

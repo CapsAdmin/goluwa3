@@ -79,10 +79,6 @@ local shared_glsl = [[
 			vec4 inv_projection_row_w;
 			float max_hit_luminance;
 
-			float luminance(vec3 color) {
-				return dot(color, vec3(0.2126, 0.7152, 0.0722));
-			}
-
 			// a rough lobe averages many directions, so one bright texel in it is a firefly
 			// and not light. the limit falls as the lobe widens
 			float get_hit_luminance_limit(float roughness) {

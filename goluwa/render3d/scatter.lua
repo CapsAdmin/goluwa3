@@ -261,7 +261,8 @@ local BINDING_UNITS = 14
 local BINDING_BLOCKS = 15
 local BINDING_UNIT_COUNTS = 16
 local RAY_QUERY = render.GetDevice().ray_query_supported
-local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. [[
+local COMMON_GLSL = glsl_common.GetNoiseGLSL() ..
+glsl_common.GetLuminanceGLSL() .. [[
 	#define SCATTER_TILE_CELLS ]] .. scatter.TILE_CELLS .. [[
 
 	#define SCATTER_MAX_LEVEL ]] .. scatter.MAX_LEVEL .. [[
@@ -930,10 +931,10 @@ local function get_compute_passes()
 
 						color *= s.color.rgb;
 						// the ground's color without its brightness, pushed away from grey, and some of the brightness back
-						float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-						vec3 chroma = luminance > 0.0001 ? color / luminance : vec3(1.0);
+						float color_luma = luminance(color);
+						vec3 chroma = color_luma > 0.0001 ? color / color_luma : vec3(1.0);
 						chroma = max(mix(vec3(1.0), chroma, proto.color.y), vec3(0.0));
-						vec3 tint = mix(vec3(1.0), chroma * mix(1.0, clamp(luminance / 0.25, 0.4, 2.0), proto.color.z), proto.color.x);
+						vec3 tint = mix(vec3(1.0), chroma * mix(1.0, clamp(color_luma / 0.25, 0.4, 2.0), proto.color.z), proto.color.x);
 						float patch_mix = smoothstep(0.35, 0.65, scatter_fbm(xz / max(proto.cluster.z, 0.01) + vec2(3.1, 11.9)));
 						tint *= mix(vec3(1.0), mix(proto.tint_a.rgb, proto.tint_b.rgb, patch_mix), proto.cluster.w);
 						tint *= 1.0 + (r_variation * 2.0 - 1.0) * proto.color.w;

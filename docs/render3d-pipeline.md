@@ -15,6 +15,10 @@ The cloud container has no GPU. Lavapipe reports one 15.7 GiB device-local heap 
 
 **How to apply:** when a lavapipe run dies with `bad callback` PANICs or `free(): corrupted ...`, suspect shader memory corruption, not the Lua side; bisect by skipping pipeline dispatches (`pipeline:Draw()` in the render3d PreRenderPass loop), and use `LP_NUM_THREADS=0` under gdb to get the faulting JIT address.
 
+## Shared GLSL helpers
+
+Helpers several shaders need live in one place, not pasted per module: `glsl_common.lua` has `luminance`, `pcg3d`/`pcg4d`/`pcg_unorm`/`pcg3d_unorm` and `value_noise2`/`value_noise3`, `screen_reconstruct.lua` has `get_view_pos`, `get_view_depth` and the world position getters. Every `glsl_common` block is `#ifndef` guarded, so including one twice through different chains is fine. A shader that calls `luminance()` must include `GetLuminanceGLSL()` itself (`compute_helpers.GetScreenHelpersGLSL` and `GetColorHelpersGLSL` already do). A local variable named `luminance` shadows the function, name it `x_luma`. Check the list before writing a hash, noise or luminance helper.
+
 ## GLSL negative % is unsigned on NVIDIA
 
 *wrap with a positive offset, not ((x%P)+P)%P*

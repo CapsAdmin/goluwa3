@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local ffi = require("ffi")
 local render3d = import("goluwa/render3d/render3d.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
@@ -1288,7 +1289,7 @@ function model_pipeline.GetPBRUniformBuffers()
 end
 
 function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
-	return Material.BuildGlslFlags("model.Flags") .. [=[
+	return glsl_common.GetLuminanceGLSL() .. Material.BuildGlslFlags("model.Flags") .. [=[
 			vec3 get_surface_camera_position() {
 				return ]=] .. camera_block_name .. [=[.camera_position;
 			}
@@ -1794,7 +1795,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
 						mask = get_normal_alpha(uv);
 					} else if (AlbedoLuminanceIsRoughness) {
-						mask = dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
+						mask = luminance(get_albedo_uv(uv));
 					} else if (aux_model.RoughnessTexture != -1) {
 						mask = texture(TEXTURE(aux_model.RoughnessTexture), uv).r;
 					}
@@ -1812,7 +1813,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
 					return get_normal_alpha(uv);
 				} else if (AlbedoLuminanceIsRoughness) {
-					return dot(get_albedo_uv(uv), vec3(0.2126, 0.7152, 0.0722));
+					return luminance(get_albedo_uv(uv));
 				} else if (aux_model.RoughnessTexture != -1) {
 					return texture(TEXTURE(aux_model.RoughnessTexture), uv).r;
 				} else if (aux_model.MetallicRoughnessTexture != -1) {

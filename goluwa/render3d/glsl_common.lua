@@ -1,6 +1,18 @@
 local glsl_common = {}
+glsl_common.LUMINANCE_WEIGHTS = "vec3(0.2126, 0.7152, 0.0722)"
 
 -- every block is guarded so a shader that gets one twice through different includes still compiles
+function glsl_common.GetLuminanceGLSL()
+	return [[
+		#ifndef GLSL_COMMON_LUMINANCE
+		#define GLSL_COMMON_LUMINANCE
+		float luminance(vec3 color) {
+			return dot(color, ]] .. glsl_common.LUMINANCE_WEIGHTS .. [[);
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH

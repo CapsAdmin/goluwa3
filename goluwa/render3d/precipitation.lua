@@ -136,9 +136,6 @@ precipitation.block = {
 }
 
 do
-	local function luminance(v)
-		return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
-	end
 
 	function precipitation.WriteBlock(self, block)
 		render3d.WriteCameraBlock(self, block)
@@ -165,7 +162,7 @@ do
 		local moon = atmosphere.GetTransmittance(moon_dir) * (sky and sky.moon_illuminance or 0)
 		local direct_sun = sun * clouds.GetMeanTransmittance(sun_dir)
 		local direct_moon = moon * clouds.GetMeanTransmittance(moon_dir)
-		local horizontal = luminance(sun) * math.max(sun_dir.y, 0) + luminance(moon) * math.max(moon_dir.y, 0)
+		local horizontal = sun:GetLuminance() * math.max(sun_dir.y, 0) + moon:GetLuminance() * math.max(moon_dir.y, 0)
 		local sky_irradiance = horizontal * CLEAR_SKY_DIFFUSE_RATIO * (
 				1 - cover
 			) + atmosphere.GetOvercastLuminance(sun_dir, sky and sky.moon_direction, sky and sky.moon_illuminance) * 7 * math.pi / 9 * cover

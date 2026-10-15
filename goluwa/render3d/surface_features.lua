@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local surface_features = {}
 surface_features.default_list = {
 	import("goluwa/render3d/features/core.lua"),
@@ -190,7 +191,7 @@ function self.GetGetterGLSL()
 end
 
 function self.GetCommonGLSL()
-	return join("common")
+	return glsl_common.GetLuminanceGLSL() .. join("common")
 end
 
 function self.GetEncodersGLSL()

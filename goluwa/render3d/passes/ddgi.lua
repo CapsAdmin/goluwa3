@@ -414,7 +414,7 @@ local function pass_shade()
 					float light_dist = length(to_light);
 					attenuation *= get_light_falloff(light, light_dist) / max(get_light_falloff(light, max(light_dist, radius)), 0.0025);
 					vec3 light_radiance = light.color.rgb * light.color.a * attenuation * (light_NoL / 3.14159265359);
-					float weight = dot(light_radiance, vec3(0.2126, 0.7152, 0.0722));
+					float weight = luminance(light_radiance);
 
 					if (weight <= 0.0) continue;
 
@@ -503,8 +503,8 @@ local function pass_shade()
 						vec3 point = ddgi_emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
 						vec3 emission = ddgi_emission(tri, ddgi_hit_albedo(ddgi_materials[tri.material], point, emitter_triangle));
-						float luminance = dot(tri.emissive, vec3(0.2126, 0.7152, 0.0722));
-						vec3 estimate = emission / luminance * weight;
+						float emissive_luma = luminance(tri.emissive);
+						vec3 estimate = emission / emissive_luma * weight;
 						if (ddgi_data.glass_light != 0) estimate *= get_glass_light(origin, dir, length(point - origin), 0.0);
 
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
@@ -531,7 +531,7 @@ local function pass_shade()
 
 				if (t < 0.0) {
 					// the miss distance carries how much of the sky the glass lets through, from half the distance (none) to all of it
-					store_ray(pos, vec4(ddgi_sky(dir) * glass, DDGI_MISS_DISTANCE * mix(0.5, 1.0, dot(glass, vec3(0.2126, 0.7152, 0.0722)))));
+					store_ray(pos, vec4(ddgi_sky(dir) * glass, DDGI_MISS_DISTANCE * mix(0.5, 1.0, luminance(glass))));
 					return;
 				}
 
@@ -794,7 +794,7 @@ local IRRADIANCE_INTEGRATE = {
 			for (int r = 0; r < DDGI_RAYS; r++) {
 				if (s_ray[r].a < 0.0) continue;
 
-				float l = dot(s_ray[r].rgb, vec3(0.2126, 0.7152, 0.0722));
+				float l = luminance(s_ray[r].rgb);
 				ray_sum += l * s_q[r];
 				ray_count += s_q[r];
 
@@ -815,7 +815,7 @@ local IRRADIANCE_INTEGRATE = {
 		if (w <= 0.0) continue;
 
 		vec3 radiance = ray.rgb;
-		float radiance_luma = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+		float radiance_luma = luminance(radiance);
 
 		if (radiance_luma > ray_cap) radiance *= ray_cap / radiance_luma;
 
@@ -830,7 +830,7 @@ local IRRADIANCE_INTEGRATE = {
 	]],
 	trend = true,
 	adapt = [[
-		float luma = dot(result.rgb, vec3(0.2126, 0.7152, 0.0722));
+		float luma = luminance(result.rgb);
 		float deviation = state.x > 0.0 ? min(abs(luma - state.y) / max(state.y, 1e-4), 4.0) : 1.0;
 		state.y = state.x > 0.0 ? mix(luma, state.y, ddgi_data.ddgi_cascade_update[c].y) : luma;
 		state.z = state.x > 0.0 ? mix(deviation, state.z, ddgi_data.ddgi_cascade_update[c].y) : deviation;
@@ -1035,7 +1035,7 @@ local function pass_guide()
 				float all_weight = 0.0;
 
 				for (int r = 0; r < DDGI_RAYS; r++) {
-					float luma = dot(s_ray[r].rgb, vec3(0.2126, 0.7152, 0.0722));
+					float luma = luminance(s_ray[r].rgb);
 					all_sum += luma * s_q[r];
 					all_weight += s_q[r];
 

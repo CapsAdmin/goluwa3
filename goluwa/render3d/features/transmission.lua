@@ -31,7 +31,7 @@ return {
 			float amount = transmission_model.DiffuseTransmission;
 
 			if (transmission_model.TransmissionTexture != -1) {
-				amount *= dot(texture(TEXTURE(transmission_model.TransmissionTexture), uv).rgb, vec3(0.2126, 0.7152, 0.0722));
+				amount *= luminance(texture(TEXTURE(transmission_model.TransmissionTexture), uv).rgb);
 			}
 
 			return clamp(amount, 0.0, 1.0);
@@ -46,7 +46,7 @@ return {
 		vec3 get_transmission_color() {
 			if (!Transmissive) return vec3(1.0);
 			vec3 tint = transmission_model.TransmissionColor.rgb;
-			return tint / max(dot(tint, vec3(0.2126, 0.7152, 0.0722)), 0.001);
+			return tint / max(luminance(tint), 0.001);
 		}
 	]],
 	fields = {

@@ -1023,7 +1023,7 @@ function ddgi.GetEmitterGLSL()
 end
 
 function ddgi.GetCommonGLSL()
-	return ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. [[
+	return ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 		// atmosphere.lua's ground_fog_sun_transmittance, for the probes, which have no atmosphere code of their own
 		float ddgi_ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction) {
 			const float scale_height = ]]..string.format("%.17g", atmosphere.GROUND_FOG_SCALE_HEIGHT)..[[;
@@ -1278,7 +1278,7 @@ function ddgi.GetCommonGLSL()
 				bool hidden = false;
 
 				#ifdef DDGI_VISIBILITY_RAYS
-				if (visibility_min_weight < DDGI_NO_VISIBILITY_RAYS && (w >= visibility_min_weight || w * dot(irradiance.rgb, vec3(0.2126, 0.7152, 0.0722)) > DDGI_VISIBILITY_MIN_SHARE * dot(sum.rgb, vec3(0.2126, 0.7152, 0.0722))) && ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
+				if (visibility_min_weight < DDGI_NO_VISIBILITY_RAYS && (w >= visibility_min_weight || w * luminance(irradiance.rgb) > DDGI_VISIBILITY_MIN_SHARE * luminance(sum.rgb)) && ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
 					vec3 origin = P + N * (0.02 * spacing);
 					vec3 to_probe_ray = probe_pos - origin;
 					float len = length(to_probe_ray);

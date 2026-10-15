@@ -73,7 +73,7 @@ local common_glsl = compute_helpers.GetScreenHelpersGLSL() .. [[
 			// glare comes from the light as the eye adapted to it: a region it
 			// adapted down scatters that much less. lifted shadows don't add any
 			if (compute.has_grid_tex != 0) {
-				c *= exp2(min(get_local_adaptation(uv, dot(c, vec3(0.2126, 0.7152, 0.0722)) * adapt_exposure, adapt_exposure_sample), 0.0));
+				c *= exp2(min(get_local_adaptation(uv, luminance(c) * adapt_exposure, adapt_exposure_sample), 0.0));
 			}
 		#endif
 		return c;

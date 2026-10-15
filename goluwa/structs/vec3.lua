@@ -39,6 +39,10 @@ end
 structs.AddGetFunc(META, "Cross")
 local Ang3
 
+function META:GetLuminance()
+	return self.x * 0.2126 + self.y * 0.7152 + self.z * 0.0722
+end
+
 function META:GetAngles()
 	Ang3 = Ang3 or import("goluwa/structs/ang3.lua")
 	local n = self:GetNormalized()

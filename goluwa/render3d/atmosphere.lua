@@ -1256,15 +1256,12 @@ do
 	local OVERCAST_TRANSMITTANCE = 0.3
 	local CLEAR_SKY_IRRADIANCE_RATIO = 1.15
 
-	local function luminance(v)
-		return v.x * 0.2126 + v.y * 0.7152 + v.z * 0.0722
-	end
 
 	function atmosphere.GetOvercastLuminance(sun_dir, moon_dir, moon_illuminance)
-		local clear_illuminance = atmosphere.GetSunIlluminance() * luminance(atmosphere.GetTransmittance(sun_dir)) * math.max(sun_dir.y, 0)
+		local clear_illuminance = atmosphere.GetSunIlluminance() * atmosphere.GetTransmittance(sun_dir):GetLuminance() * math.max(sun_dir.y, 0)
 
 		if moon_dir then
-			clear_illuminance = clear_illuminance + moon_illuminance * luminance(atmosphere.GetTransmittance(moon_dir)) * math.max(moon_dir.y, 0)
+			clear_illuminance = clear_illuminance + moon_illuminance * atmosphere.GetTransmittance(moon_dir):GetLuminance() * math.max(moon_dir.y, 0)
 		end
 
 		return clear_illuminance * CLEAR_SKY_IRRADIANCE_RATIO * OVERCAST_TRANSMITTANCE * 9 / (

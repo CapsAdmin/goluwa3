@@ -282,7 +282,7 @@ return {
 											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(1.5, 0.5)).rgb +
 											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(-0.5, 1.5)).rgb
 										) * (0.25 * history_scale);
-										hit *= min(1.0, bounce_max / max(dot(hit, vec3(0.2126, 0.7152, 0.0722)), 1e-6));
+										hit *= min(1.0, bounce_max / max(luminance(hit), 1e-6));
 										slice_bounce += hit * (cosine_share * float(bitCount(fresh)) / float(count) * facing);
 									}
 								}
