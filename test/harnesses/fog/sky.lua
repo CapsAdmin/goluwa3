@@ -5,6 +5,7 @@
 -- order of scattering.
 -- luajit glw --3d --background --validate lua "import('test/harnesses/fog/sky.lua')"
 -- FOG=<visibility m, 140000 is the default, 0 no fog layer> SUN=60 MC=6000 ELEVS=2,5,10,25,60 AZ=0,90,180 EV=14
+-- ORDERS=1,2 also prints the reference limited to that many scatterings
 local test_scene = import("goluwa/render3d/test_scene.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local weather = import("goluwa/render3d/weather.lua")
@@ -19,7 +20,11 @@ local sun_elevation = test_scene.GetNumber("SUN", 60)
 local fog_visibility = test_scene.GetNumber("FOG", 140000)
 local paths = math.floor(test_scene.GetNumber("MC", 6000))
 local ev = test_scene.GetNumber("EV", 14)
-local elevations, azimuths = {}, {}
+local elevations, azimuths, orders = {}, {}, {}
+
+for v in (os.getenv("ORDERS") or ""):gmatch("[^,]+") do
+	orders[#orders + 1] = tonumber(v)
+end
 
 for v in (os.getenv("ELEVS") or "2,5,10,25,60"):gmatch("[^,]+") do
 	elevations[#elevations + 1] = tonumber(v)
@@ -79,7 +84,14 @@ Shot.Sequence(views, function(texture, info, index)
 	r, g, b = r * c.x, g * c.y, b * c.z
 	local ey = 0.2126 * er + 0.7152 * eg + 0.0722 * eb
 	local my = 0.2126 * r + 0.7152 * g + 0.0722 * b
-	print(string.format("  %3g  %3g   %8.0f  %8.0f      %.3f        %.3f %.3f %.3f     %.3f %.3f %.3f", view.e, view.a, ey, my, ey / my, er / ey, eg / ey, eb / ey, r / my, g / my, b / my))
+	local by_order = ""
+
+	for _, order in ipairs(orders) do
+		local lr, lg, lb = spectral.Radiance(sun, dir, aerosol, paths, 0.27, atmosphere.GetSunIlluminance(), order)
+		by_order = by_order .. string.format("  order<=%d %7.0f", order, 0.2126 * lr * c.x + 0.7152 * lg * c.y + 0.0722 * lb * c.z)
+	end
+
+	print(string.format("  %3g  %3g   %8.0f  %8.0f      %.3f        %.3f %.3f %.3f     %.3f %.3f %.3f%s", view.e, view.a, ey, my, ey / my, er / ey, eg / ey, eb / ey, r / my, g / my, b / my, by_order))
 end, {settle = 3}, function()
 	system.ShutDown(0)
 end)
