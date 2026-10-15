@@ -57,6 +57,27 @@ function glsl_common.GetOctahedralGLSL()
 	]]
 end
 
+function glsl_common.GetRaySphereGLSL()
+	return [[
+		#ifndef GLSL_COMMON_RAY_SPHERE
+		#define GLSL_COMMON_RAY_SPHERE
+		// the distances along a normalized ray to where it enters and leaves a sphere around the origin, both -1 on a miss
+		vec2 ray_sphere_intersect(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
+			float b = dot(ray_origin, ray_dir);
+			float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
+			float discriminant = b * b - c;
+
+			if (discriminant < 0.0) {
+				return vec2(-1.0, -1.0);
+			}
+
+			float sqrt_d = sqrt(discriminant);
+			return vec2(-b - sqrt_d, -b + sqrt_d);
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH

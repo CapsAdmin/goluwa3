@@ -4,6 +4,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local scattering = import("goluwa/render3d/atmosphere_scattering.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local math3d = import("goluwa/render3d/math3d.lua")
 atmosphere.stars_texture = nil
 atmosphere.environment_map_path = nil
 atmosphere.environment_map_texture = nil
@@ -106,17 +108,6 @@ local function get_shader_camera_position(cam_pos)
 	}
 end
 
-local function raySphereIntersect(ray_origin, ray_dir, sphere_radius)
-	local b = ray_origin.x * ray_dir.x + ray_origin.y * ray_dir.y + ray_origin.z * ray_dir.z
-	local c = ray_origin.x * ray_origin.x + ray_origin.y * ray_origin.y + ray_origin.z * ray_origin.z - sphere_radius * sphere_radius
-	local discriminant = b * b - c
-
-	if discriminant < 0 then return -1, -1 end
-
-	local sqrt_d = math.sqrt(discriminant)
-	return -b - sqrt_d, -b + sqrt_d
-end
-
 local function rayleighDensity(height)
 	return math.exp(-math.max(height, 0) / RAYLEIGH_SCALE_HEIGHT)
 end
@@ -158,7 +149,7 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 	elevation
 end
 
-local atmosphere_shared_glsl = [[
+local atmosphere_shared_glsl = glsl_common.GetRaySphereGLSL() .. [[
 	const float PI = 3.14159265359;
 	const float PLANET_RADIUS = 6371.0;
 	const float ATMOSPHERE_RADIUS = 6471.0;
@@ -284,19 +275,6 @@ local atmosphere_shared_glsl = [[
 	#ifndef ATMOSPHERE_FOG_RAY_STRENGTH
 	#define ATMOSPHERE_FOG_RAY_STRENGTH ]] .. string.format("%.6f\n", fog_ray_strength:Get()) .. [[
 	#endif
-
-	vec2 ray_sphere_intersect(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
-		float b = dot(ray_origin, ray_dir);
-		float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
-		float discriminant = b * b - c;
-
-		if (discriminant < 0.0) {
-			return vec2(-1.0, -1.0);
-		}
-
-		float sqrt_d = sqrt(discriminant);
-		return vec2(-b - sqrt_d, -b + sqrt_d);
-	}
 
 	float rayleigh_density(vec3 point) {
 		float altitude = length(point) - PLANET_RADIUS;
@@ -1657,12 +1635,12 @@ function atmosphere.GetTransmittance(sunDir, camPos)
 		PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + camPos.y * CAMERA_METERS_TO_KM,
 		camPos.z * CAMERA_METERS_TO_KM
 	)
-	local tmin, tmax = raySphereIntersect(rayOrigin, sunDir, ATMOSPHERE_RADIUS)
+	local tmin, tmax = math3d.RaySphereIntersect(rayOrigin, sunDir, ATMOSPHERE_RADIUS)
 
 	if tmax <= 0 then return Vec3(0, 0, 0) end
 
 	tmin = math.max(tmin, 0)
-	local groundMin = raySphereIntersect(rayOrigin, sunDir, PLANET_RADIUS)
+	local groundMin = math3d.RaySphereIntersect(rayOrigin, sunDir, PLANET_RADIUS)
 
 	if groundMin > 0 then return Vec3(0, 0, 0) end
 

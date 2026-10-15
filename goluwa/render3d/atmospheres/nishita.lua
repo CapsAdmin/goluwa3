@@ -1,4 +1,5 @@
-return [[
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
+return glsl_common.GetRaySphereGLSL() .. [[
     const float PI = 3.14159265359;
     
     // Nishita Sky Model Constants
@@ -20,18 +21,6 @@ return [[
     
     const int NUM_SAMPLES = 16;
     const int NUM_SAMPLES_LIGHT = 8;
-    
-    // Ray-sphere intersection
-    // Returns distance to first intersection, or -1 if no intersection
-    vec2 raySphereIntersect(vec3 rayOrigin, vec3 rayDir, float radius) {
-        float a = dot(rayDir, rayDir);
-        float b = 2.0 * dot(rayDir, rayOrigin);
-        float c = dot(rayOrigin, rayOrigin) - radius * radius;
-        float d = b * b - 4.0 * a * c;
-        if (d < 0.0) return vec2(-1.0);
-        d = sqrt(d);
-        return vec2(-b - d, -b + d) / (2.0 * a);
-    }
     
     // Rayleigh phase function
     float phaseRayleigh(float cosTheta) {
@@ -74,10 +63,10 @@ return [[
         vec3 rayOrigin = vec3(0.0, EARTH_RADIUS + 1.75 + camPos.y, 0.0);
         
         // Intersect with atmosphere
-        vec2 t = raySphereIntersect(rayOrigin, rayDir, ATMOSPHERE_RADIUS);
+        vec2 t = ray_sphere_intersect(rayOrigin, rayDir, ATMOSPHERE_RADIUS);
         
         // Intersect with earth
-        vec2 tEarth = raySphereIntersect(rayOrigin, rayDir, EARTH_RADIUS);
+        vec2 tEarth = ray_sphere_intersect(rayOrigin, rayDir, EARTH_RADIUS);
 
         float tMax = t.y;
         if (tEarth.x > 0.0) {
@@ -110,10 +99,10 @@ return [[
             opticalDepthM += densityM;
             
             // Light ray to sun
-            vec2 tLight = raySphereIntersect(samplePos, sunDir, ATMOSPHERE_RADIUS);
+            vec2 tLight = ray_sphere_intersect(samplePos, sunDir, ATMOSPHERE_RADIUS);
 
             // Check if light ray hits Earth
-            vec2 tEarthLight = raySphereIntersect(samplePos, sunDir, EARTH_RADIUS);
+            vec2 tEarthLight = ray_sphere_intersect(samplePos, sunDir, EARTH_RADIUS);
             if (tEarthLight.x > 0.0) {
                 tCurrent += segmentLength;
                 continue;
@@ -156,7 +145,7 @@ return [[
         
         // Earth occlusion check
         vec3 rayOrigin = vec3(0.0, EARTH_RADIUS + 1.75 + camPos.y, 0.0);
-        vec2 tEarth = raySphereIntersect(rayOrigin, rayDir, EARTH_RADIUS);
+        vec2 tEarth = ray_sphere_intersect(rayOrigin, rayDir, EARTH_RADIUS);
         if (tEarth.x > 0.0) return skyColor;
 
         vec3 sunColor = vec3(0.0);

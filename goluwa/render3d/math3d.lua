@@ -4,6 +4,18 @@ function math3d.BilerpVec3(a, b, c, d, alpha1, alpha2)
 	return a:GetLerped(alpha1, b):Lerp(alpha2, c:GetLerped(alpha1, d))
 end
 
+-- the distances along a normalized ray to where it enters and leaves a sphere around the origin, both -1 on a miss
+function math3d.RaySphereIntersect(ray_origin, ray_dir, sphere_radius)
+	local b = ray_origin.x * ray_dir.x + ray_origin.y * ray_dir.y + ray_origin.z * ray_dir.z
+	local c = ray_origin.x * ray_origin.x + ray_origin.y * ray_origin.y + ray_origin.z * ray_origin.z - sphere_radius * sphere_radius
+	local discriminant = b * b - c
+
+	if discriminant < 0 then return -1, -1 end
+
+	local sqrt_d = math.sqrt(discriminant)
+	return -b - sqrt_d, -b + sqrt_d
+end
+
 function math3d.WorldToLocal(local_pos, local_ang, world_pos, world_ang)
 	local pos, ang
 
