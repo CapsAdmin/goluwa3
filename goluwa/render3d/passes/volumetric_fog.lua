@@ -14,7 +14,8 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
-local CLOUD_SHAFT_DISTANCE = 60
+-- where the air has thinned to a few thousandths of its density at the ground, past it a sky ray has nothing left to scatter
+local AIR_END_ALTITUDE = 50
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
 local BINDING_OUTPUT = 0
@@ -356,9 +357,12 @@ local scatter_pass = {
 			return result;
 		}
 
-		// radiance of the light around P averaged over all directions
-		vec3 get_ambient(vec3 P, vec2 uv, vec3 ray_origin, uint seed) {
+		// radiance of the light around P averaged over all directions. open_sky is how much of the air there is open to the
+		// sky (1 outdoors, 0 under a roof), probe_ambient the same light from the probes alone
+		vec3 get_ambient(vec3 P, vec2 uv, vec3 ray_origin, uint seed, out float open_sky, out vec3 probe_ambient) {
 			vec3 sky = get_ground_fog_sky_ambient(ray_origin);
+			open_sky = 1.0;
+			probe_ambient = sky;
 
 			if (ddgi_data.ddgi_cascade_count > 0) {
 				// past the probes: open air far from the camera. the surface
@@ -380,8 +384,9 @@ local scatter_pass = {
 					// (a room, a roof) the probes' light is what is there. The overhead sky visibility tells which
 					float up_weight;
 					vec4 up = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0), false, DDGI_VISIBILITY_MIN_WEIGHT, up_weight);
-					float open_sky = up_weight > 0.0 ? saturate(up.a) : 0.0;
-					return mix(gi.rgb / PI, sky, open_sky);
+					open_sky = up_weight > 0.0 ? saturate(up.a) : 0.0;
+					probe_ambient = gi.rgb / PI;
+					return mix(probe_ambient, sky, open_sky);
 				}
 			}
 
@@ -389,7 +394,9 @@ local scatter_pass = {
 
 			// no probes here: the light at the surface behind stands in for it
 			vec4 gi = texture(TEXTURE(froxel_data.gi_screen_tex), uv);
-			return mix(gi.rgb / PI, sky, saturate(gi.a));
+			open_sky = saturate(gi.a);
+			probe_ambient = gi.rgb / PI;
+			return mix(probe_ambient, sky, open_sky);
 		}
 
 		void main() {
@@ -420,25 +427,31 @@ local scatter_pass = {
 			vec3 fog_point = get_atmosphere_camera_origin(air_pos);
 			float per_meter = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 			float fog_extinction = ground_fog_extinction(fog_point) * per_meter;
-			// the clear air is here too, lit by the same shadowed sun and
-			// ambient, so a room or a shadow doesn't glow with sky blue
+			// the clear air is here too, lit by the same shadowed sun and ambient, so a room or a shadow doesn't glow with
+			// sky blue. Its extinction is not stored: the integration finds it per channel from the same medium
 			float density_r = rayleigh_density(fog_point);
 			float density_m = mie_density(fog_point);
 			vec3 air_scattering = (RAYLEIGH_BETA * density_r + MIE_BETA * density_m) * per_meter;
-			// its extinction is blue, but the volume holds one channel and
-			// the difference is a fraction of a percent within FROXEL_FAR
-			float air_extinction = dot(RAYLEIGH_BETA * density_r + MIE_BETA_EXT * density_m, vec3(0.2126, 0.7152, 0.0722)) * per_meter;
 			float mu = dot(ray_dir, sun_dir);
-			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * get_fog_sun_visibility(world_pos, sun_dir);
-			vec3 ambient = get_ambient(world_pos, uv, fog_origin, froxel_hash(uvec3(seed, id.z, 7u)));
-			vec3 fog_tint = ATMOSPHERE_FOG_COLOR.w > 0.5 ? ATMOSPHERE_FOG_COLOR.rgb : vec3(1.0);
-			vec3 scattering = (ambient + sun * henyey_greenstein_phase(mu, GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH) * fog_tint * fog_extinction;
-			scattering += ambient * air_scattering + sun * (RAYLEIGH_BETA * (density_r * rayleigh_phase(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
+			float sun_visibility = get_fog_sun_visibility(world_pos, sun_dir);
+			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
+			float open_sky;
+			vec3 probe_ambient;
+			vec3 ambient = get_ambient(world_pos, uv, fog_origin, froxel_hash(uvec3(seed, id.z, 7u)), open_sky, probe_ambient);
+			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
+			// the air: the sun's single scattering, and the light of the sky scattering again, tabulated where the air is
+			// open to the sky and from the probes where it is not
+			scattering += sun * (RAYLEIGH_BETA * (density_r * rayleigh_phase(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
+			vec3 air_up = fog_point / length(fog_point);
+			vec3 sky_multi = ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX == -1 ?
+				ambient * air_scattering :
+				sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, sun_dir), mu) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * per_meter;
+			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky);
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos) * fog_extinction;
 
 			// scattering per meter: the radiance alone overflows a half float
-			imageStore(out_scatter, id, vec4(scattering, fog_extinction + air_extinction));
+			imageStore(out_scatter, id, vec4(scattering, 0.0));
 		}
 	]],
 }
@@ -601,11 +614,18 @@ local integrate_pass = {
 			block = {
 				render3d.camera_block,
 				{"froxel_size", "vec2"},
+				atmosphere.GetBlockLayout(),
 			},
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
 				block.froxel_size[0] = froxels.width
 				block.froxel_size[1] = froxels.height
+				atmosphere.WriteBlock(
+					self,
+					block,
+					render3d.GetCamera():GetPosition(),
+					directional_shadows.GetPrimarySunDirection(render3d.GetLights())
+				)
 				return block
 			end,
 		},
@@ -618,25 +638,40 @@ local integrate_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_integrated;
 		layout(set = 0, binding = ]] .. BINDING_SCATTER .. [[) uniform sampler3D scatter;
 	]],
-	shader = SLICE_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
+	shader = atmosphere.GetGLSLDefines("froxel_data", string.format("%.17g", atmosphere.GetSunIlluminance())) .. atmosphere.GetAerialPerspectiveGLSLCode() .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
 		void main() {
 			ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 
 			if (any(greaterThanEqual(id, ivec2(froxel_data.froxel_size)))) return;
 
+			vec3 view_dir = get_view_dir((vec2(id) + 0.5) / froxel_data.froxel_size);
 			// meters along the ray per meter of view depth
-			float ray_scale = length(get_view_dir((vec2(id) + 0.5) / froxel_data.froxel_size));
+			float ray_scale = length(view_dir);
+			float per_meter = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 			vec3 scattered = vec3(0.0);
-			float transmittance = 1.0;
+			vec3 transmittance = vec3(1.0);
+			// the fog and the precipitation alone, for what the air's own transmittance already holds (the sky behind)
+			float layer_transmittance = 1.0;
 
 			for (int k = 0; k < int(FROXEL_SLICES); k++) {
 				vec4 froxel = texelFetch(scatter, ivec3(id, k), 0);
 				float step_length = (froxel_slice_depth(float(k + 1)) - froxel_slice_depth(float(k))) * ray_scale;
-				float step_transmittance = exp(-froxel.a * step_length);
+				// the medium in the middle of the slice, along the ray: the clear air per channel and the fog and the
+				// precipitation, which do not depend on the channel
+				vec3 mid = (froxel_data.inv_view * vec4(view_dir * froxel_slice_depth(float(k) + 0.5), 1.0)).xyz;
+				vec3 point = get_atmosphere_camera_origin(mid);
+				float layer_extinction = ground_fog_extinction(point) * per_meter;
+				vec3 extinction = compute_view_tau(rayleigh_density(point), mie_density(point), ozone_density(point)) * per_meter + layer_extinction;
+
+				if (ATMOSPHERE_ENABLED == 0) extinction = vec3(0.0);
+				vec3 step_transmittance = exp(-extinction * step_length);
 				// the light scattered within the slice, attenuated on its way out of it
-				scattered += transmittance * froxel.rgb * (froxel.a > 1e-9 ? (1.0 - step_transmittance) / froxel.a : step_length);
+				vec3 weight = mix(vec3(step_length), (1.0 - step_transmittance) / max(extinction, vec3(1e-12)), greaterThan(extinction, vec3(1e-9)));
+				scattered += transmittance * froxel.rgb * weight;
 				transmittance *= step_transmittance;
-				imageStore(out_integrated, ivec3(id, k), vec4(scattered, transmittance));
+				layer_transmittance *= exp(-layer_extinction * step_length);
+				imageStore(out_integrated, ivec3(id, k), vec4(scattered, 0.0));
+				imageStore(out_integrated, ivec3(id, k + int(FROXEL_SLICES)), vec4(transmittance, layer_transmittance));
 			}
 		}
 	]],
@@ -691,7 +726,9 @@ local composite_pass = {
 				end,
 			},
 		},
-		shader = scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. [[
+		shader = [[
+			#define ATMOSPHERE_LOG_MARCH 1
+		]] .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. [[
 			// the air is shadowed by the clouds where fog_cloud_shadows is on, and sampled with jitter
 			float get_cloud_shadow_km(vec3 point);
 			bool fog_cloud_shadows = true;
@@ -708,7 +745,7 @@ local composite_pass = {
 				float t = ray_sphere_intersect(get_atmosphere_camera_origin(fog_data.camera_position.xyz), dir, PLANET_RADIUS).x;
 				return t > 0.0 ? t : 1e30;
 			}
-		]] .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data", "get_current_primary_sun_direction()") .. post_source.GetPreExposureGLSL("fog_data") .. [[
+		]] .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data") .. post_source.GetPreExposureGLSL("fog_data") .. [[
 			void main() {
 				// the scene is pre-exposed, the fog in front of it absolute
 				float pre_exposure = get_pre_exposure();
@@ -749,57 +786,63 @@ local composite_pass = {
 					if (hit_distance >= 0.0 && hit_distance < cloud_depth) cloud = vec4(0.0, 0.0, 0.0, 1.0);
 				}
 
-				if (ATMOSPHERE_ENABLED == 0) {
-					// a void, no air
-				} else if (hit_distance < 0.0 && fog_data.cloud_view_tex < 0) {
-					// the sky carries all of the air along its ray: take out the
-					// part the volume holds so it isn't there twice
-					fog_cloud_shadows = false;
-					vec3 air_transmittance;
-					vec3 air = integrate_scattering(get_atmosphere_camera_origin(fog_data.camera_position.xyz), ray_dir, 0.0, min(froxel_end, get_planet_distance(ray_dir)), sun_dir, 16, vec2(1.0), 1.0, air_transmittance);
-					scene.rgb = max(scene.rgb - air, vec3(0.0)) / air_transmittance;
-				} else if (hit_distance < 0.0) {
-					// the sky with clouds: the air the volume holds, then the air up to the clouds
-					// in their shadows, the clouds, and the sky behind them. the sky's air is
-					// unshadowed, so the air in front of the clouds is taken out of it
+				vec3 color;
+
+				if (hit_distance < 0.0 && ATMOSPHERE_ENABLED != 0) {
+					// The sky. The sky pass drew what is behind the air, the sun, the moon and the stars already attenuated
+					// by it, and the volume holds the air from the camera to FROXEL_FAR. What is left is the air past the
+					// volume, marched here, but only where there is still air at its start, and the clouds in between.
 					vec3 origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
 					// the sky has no ground, rays below the horizon see the horizon's air
 					vec3 sky_dir = get_sky_lookup_dir(ray_dir, origin, sun_dir);
 					float ground = get_planet_distance(sky_dir);
-					float near = min(froxel_end, ground);
-					float far = min(clamp(cloud_depth * scale, near, ]] .. string.format("%.1f", CLOUD_SHAFT_DISTANCE) .. [[), ground);
+					float edge = min(ray_sphere_intersect(origin, sky_dir, ATMOSPHERE_RADIUS).y, ground);
+					float cloud_km = min(cloud_depth * scale, edge);
+					vec3 full_transmittance;
+					vec3 full_scattered = get_volumetric_fog(in_uv, -1.0, full_transmittance);
+					float layer_transmittance = get_fog_layer_transmittance(in_uv, -1.0);
+					vec3 front_transmittance = full_transmittance;
+					vec3 front_scattered = full_scattered;
+					// the light the air behind the clouds scatters, as much of it as reaches the camera
+					vec3 behind_scattered = vec3(0.0);
+					bool air_past_volume = edge > froxel_end && length(origin + sky_dir * froxel_end) - PLANET_RADIUS < ]] .. string.format("%.1f", AIR_END_ALTITUDE) .. [[;
 					fog_cloud_shadows = false;
-					vec3 near_transmittance;
-					vec3 near_air = integrate_scattering(origin, sky_dir, 0.0, near, sun_dir, 8, vec2(1.0), 1.0, near_transmittance);
-					vec3 far_transmittance;
-					vec3 far_air = integrate_scattering(origin, sky_dir, near, far, sun_dir, 12, vec2(1.0), 1.0, far_transmittance);
-					fog_cloud_shadows = true;
-					vec3 shadowed_transmittance;
-					vec3 shadowed_air = integrate_scattering(origin, sky_dir, near, far, sun_dir, 16, vec2(1.0), 1.0, shadowed_transmittance);
-					vec3 behind = max(scene.rgb - near_air - near_transmittance * far_air, vec3(0.0)) / max(near_transmittance * far_transmittance, vec3(1e-4));
-					cloud_front = shadowed_air + far_transmittance * cloud.rgb;
-					scene.rgb = far_transmittance * cloud.a * behind;
-				} else if (hit_distance * scale > froxel_end) {
-					// the air beyond the volume, past the sun's shadow map
-					vec3 world_pos = fog_data.camera_position.xyz + normalize(mat3(fog_data.inv_view) * view_dir) * hit_distance;
-					float sun_visibility = get_fog_sun_horizon_visibility(sun_dir) <= 0.0001 ? 0.0 : 1.0;
-					float sky_visibility = fog_data.gi_screen_tex < 0 ? 1.0 : clamp(texture(TEXTURE(fog_data.gi_screen_tex), in_uv).a, 0.0, 1.0);
-					scene.rgb = apply_atmospheric_aerial_perspective(scene.rgb, world_pos, sun_dir, fog_data.camera_position.xyz, sun_visibility, sky_visibility, froxel_end);
-				}
 
-				if (hit_distance >= 0.0) {
-					cloud_front = cloud.rgb;
-					scene.rgb *= cloud.a;
-				}
+					if (cloud_km <= froxel_end) {
+						front_scattered = get_volumetric_fog(in_uv, cloud_depth, front_transmittance);
+						behind_scattered = full_scattered - front_scattered;
 
-				vec4 fog = get_volumetric_fog(in_uv, hit_distance);
-				vec3 color = scene.rgb * fog.a + fog.rgb;
+						if (air_past_volume) {
+							vec3 tail_transmittance;
+							behind_scattered += full_transmittance * integrate_scattering(origin, sky_dir, froxel_end, edge, sun_dir, 32, vec2(1.0), 1.0, tail_transmittance);
+						}
+					} else if (air_past_volume) {
+						vec3 before_transmittance;
+						vec3 before = integrate_scattering(origin, sky_dir, froxel_end, cloud_km, sun_dir, 24, vec2(1.0), 1.0, before_transmittance);
+						front_scattered = full_scattered + full_transmittance * before;
+						front_transmittance = full_transmittance * before_transmittance;
+						vec3 after_transmittance;
+						behind_scattered = front_transmittance * integrate_scattering(origin, sky_dir, cloud_km, edge, sun_dir, 24, vec2(1.0), 1.0, after_transmittance);
+					}
 
-				if (fog_data.cloud_view_tex >= 0 && (hit_distance < 0.0 || cloud.a < 1.0)) {
-					// the fog in front of the clouds covers them, the rest is behind them and shows
-					// through as much as they let through
-					vec4 front = get_volumetric_fog(in_uv, cloud_depth);
-					color = front.rgb + front.a * cloud_front + cloud.a * (fog.rgb - front.rgb) + fog.a * scene.rgb;
+					color = front_scattered + front_transmittance * cloud.rgb + cloud.a * (behind_scattered + layer_transmittance * scene.rgb);
+				} else {
+					if (hit_distance >= 0.0) {
+						cloud_front = cloud.rgb;
+						scene.rgb *= cloud.a;
+					}
+
+					vec3 fog_transmittance;
+					vec3 fog_scattered = get_volumetric_fog(in_uv, hit_distance, fog_transmittance);
+					color = scene.rgb * fog_transmittance + fog_scattered;
+
+					if (fog_data.cloud_view_tex >= 0 && cloud.a < 1.0) {
+						// the fog in front of the clouds covers them, the rest is behind them and shows
+						// through as much as they let through
+						vec3 front_transmittance;
+						vec3 front_scattered = get_volumetric_fog(in_uv, cloud_depth, front_transmittance);
+						color = front_scattered + front_transmittance * cloud_front + cloud.a * (fog_scattered - front_scattered) + fog_transmittance * scene.rgb;
+					}
 				}
 
 				set_color(vec4(min(color * pre_exposure, vec3(65504.0)), scene.a));

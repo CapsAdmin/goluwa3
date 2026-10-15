@@ -5,7 +5,7 @@ froxel_fog.TILE = 8
 froxel_fog.MAX_WIDTH = 240
 froxel_fog.MAX_HEIGHT = 135
 froxel_fog.SLICES = 96
-froxel_fog.FAR = 3000
+froxel_fog.FAR = 100000
 froxel_fog.DEPTH_KNEE = 2
 local froxels = {width = 0, height = 0, current = 1, generation = 0}
 froxel_fog.froxels = froxels
@@ -21,13 +21,17 @@ function froxel_fog.EnsureResources()
 	for _, key in ipairs{"raw", "scatter1", "scatter2"} do
 		if froxels[key] then froxels[key]:Remove() end
 
+		-- raw is also the integrated volume: the light scattered towards the camera in its first half of the depth, what
+		-- is left of the light behind it per channel in the second
+		local depth = key == "raw" and 2 * froxel_fog.SLICES or froxel_fog.SLICES
+
 		froxels[key] = Texture.New{
 			width = width,
 			height = height,
 			format = "r16g16b16a16_sfloat",
 			image = {
 				image_type = "3d",
-				depth = froxel_fog.SLICES,
+				depth = depth,
 				usage = {"storage", "sampled"},
 			},
 			view = {view_type = "3d"},
@@ -167,42 +171,30 @@ function froxel_fog.GetPointGLSL(block)
 	]]
 end
 
-function froxel_fog.GetGLSL(block, sun_dir_expr)
+function froxel_fog.GetGLSL(block)
 	return [[
-		vec4 get_volumetric_fog(vec2 uv, float hit_distance) {
+		// The air and the fog from the camera to hit_distance (a negative one is the sky: the far end of the volume): the
+		// light scattered towards the camera and, per channel, what is left of the light behind it.
+		vec3 get_volumetric_fog(vec2 uv, float hit_distance, out vec3 transmittance) {
 			vec3 view_dir = get_view_dir(uv);
-			vec3 ray_dir = normalize(mat3(]] .. block .. [[.inv_view) * view_dir);
 			// meters along the ray per meter of view depth
 			float ray_scale = length(view_dir);
-			bool is_sky = hit_distance < 0.0;
-			float s = froxel_slice_coord(is_sky ? FROXEL_FAR : min(hit_distance / ray_scale, FROXEL_FAR));
+			float s = froxel_slice_coord(hit_distance < 0.0 ? FROXEL_FAR : min(hit_distance / ray_scale, FROXEL_FAR));
 			// texel k holds the fog from the camera to the far side of slice k
-			vec4 near_fog = textureLod(froxel_volume, vec3(uv, max(s - 0.5, 0.5) / FROXEL_SLICES), 0.0);
-			near_fog = mix(vec4(0.0, 0.0, 0.0, 1.0), near_fog, clamp(s, 0.0, 1.0));
-			float scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
-			float froxel_end = FROXEL_FAR * ray_scale * scale;
-			vec3 fog_origin = get_atmosphere_camera_origin(]] .. block .. [[.camera_position.xyz);
-			float fog_near;
-			float fog_length;
-			vec3 sun_dir = ]] .. sun_dir_expr .. [[;
-			// the sky has no ground, a ray below the horizon sees the fog the horizon does
-			vec3 fog_dir = is_sky ? get_sky_lookup_dir(ray_dir, fog_origin, sun_dir) : ray_dir;
+			float z = clamp(s - 0.5, 0.5, FROXEL_SLICES - 0.5);
+			float near = clamp(s, 0.0, 1.0);
+			vec3 scattered = textureLod(froxel_volume, vec3(uv, z / (2.0 * FROXEL_SLICES)), 0.0).rgb;
+			transmittance = mix(vec3(1.0), textureLod(froxel_volume, vec3(uv, (FROXEL_SLICES + z) / (2.0 * FROXEL_SLICES)), 0.0).rgb, near);
+			return scattered * near;
+		}
 
-			if (
-				(is_sky || hit_distance * scale > froxel_end) &&
-				get_ground_fog_segment_with_ground_clip(fog_origin, fog_dir, is_sky ? -1.0 : hit_distance * scale, false, fog_near, fog_length) &&
-				fog_near + fog_length > froxel_end
-			) {
-				fog_length += fog_near - max(fog_near, froxel_end);
-				fog_near = max(fog_near, froxel_end);
-				vec4 gi = is_sky || ]] .. block .. [[.gi_screen_tex < 0 ? vec4(0.0, 0.0, 0.0, 1.0) : texture(TEXTURE(]] .. block .. [[.gi_screen_tex), uv);
-				// past the sun's shadow map
-				float sun_visibility = get_fog_sun_horizon_visibility(sun_dir) <= 0.0001 ? 0.0 : 1.0;
-				vec4 far_fog = integrate_ground_fog_segment(fog_origin, fog_dir, fog_near, fog_length, sun_dir, sun_visibility, gi.rgb, clamp(gi.a, 0.0, 1.0));
-				return vec4(far_fog.rgb * near_fog.a + near_fog.rgb, far_fog.a * near_fog.a);
-			}
-
-			return near_fog;
+		// what the fog layer and the precipitation alone let through of the light behind them (the air's own part of it
+		// is in whatever is behind: the sky is attenuated by the air already)
+		float get_fog_layer_transmittance(vec2 uv, float hit_distance) {
+			float ray_scale = length(get_view_dir(uv));
+			float s = froxel_slice_coord(hit_distance < 0.0 ? FROXEL_FAR : min(hit_distance / ray_scale, FROXEL_FAR));
+			float z = clamp(s - 0.5, 0.5, FROXEL_SLICES - 0.5);
+			return mix(1.0, textureLod(froxel_volume, vec3(uv, (FROXEL_SLICES + z) / (2.0 * FROXEL_SLICES)), 0.0).a, clamp(s, 0.0, 1.0));
 		}
 	]]
 end

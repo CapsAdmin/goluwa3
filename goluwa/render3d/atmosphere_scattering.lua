@@ -54,6 +54,17 @@ scattering.LOOKUP_GLSL = [[
 		return textureLod(TEXTURE(table), uv, 0.0).rgb;
 	}
 
+	// The sky above a point seen from the tabulated ambient (the mean radiance of the upper hemisphere, uniform in solid
+	// angle, and the irradiance on a surface facing up): sun elevation across the columns of each half, radius down the rows
+	void sc_ambient(int table, float r, float mu_s, out vec3 mean_radiance, out vec3 irradiance) {
+		float fr = pow(clamp((r - PLANET_RADIUS) / (ATMOSPHERE_RADIUS - PLANET_RADIUS), 0.0, 1.0), 1.0 / SC_RADIUS_POWER) * float(SC_R - 1);
+		float v = (fr + 0.5) / float(SC_R);
+		float fs = clamp((mu_s - SC_MU_S_MIN) / (1.0 - SC_MU_S_MIN), 0.0, 1.0) * float(SC_S - 1);
+		float fade = smoothstep(SC_MU_S_MIN - 0.05, SC_MU_S_MIN, mu_s);
+		mean_radiance = textureLod(TEXTURE(table), vec2((fs + 0.5) / float(2 * SC_S), v), 0.0).rgb * fade;
+		irradiance = textureLod(TEXTURE(table), vec2((fs + float(SC_S) + 0.5) / float(2 * SC_S), v), 0.0).rgb * fade;
+	}
+
 	vec3 sc_lookup(int table, float r, float mu, float mu_s, float nu) {
 		float fr = pow(clamp((r - PLANET_RADIUS) / (ATMOSPHERE_RADIUS - PLANET_RADIUS), 0.0, 1.0), 1.0 / SC_RADIUS_POWER) * float(SC_R - 1);
 		float ir0 = min(floor(fr), float(SC_R - 2));
@@ -284,6 +295,34 @@ local IRRADIANCE_GLSL = [[
 		return vec4(total * (2.0 * PI / float(SC_THETA * SC_PSI)), 1.0);
 	}
 ]]
+-- tables: 1, 2 single scattering, 3 the light of orders 2 and up. One texel per radius and sun elevation, the mean
+-- radiance of the sky above in the first half of the columns, the irradiance in the second
+local AMBIENT_GLSL = [[
+	vec4 shade(vec2 uv, vec3 _cube_dir) {
+		ivec2 px = clamp(ivec2(floor(uv * vec2(float(2 * SC_S), float(SC_R)))), ivec2(0), ivec2(2 * SC_S - 1, SC_R - 1));
+		bool irradiance = px.x >= SC_S;
+		int is = px.x - (irradiance ? SC_S : 0);
+		float mu_s = SC_MU_S_MIN + (1.0 - SC_MU_S_MIN) * float(is) / float(SC_S - 1);
+		float r = PLANET_RADIUS + (ATMOSPHERE_RADIUS - PLANET_RADIUS) * pow(float(px.y) / float(SC_R - 1), SC_RADIUS_POWER);
+		vec3 sun = vec3(sqrt(max(1.0 - mu_s * mu_s, 0.0)), mu_s, 0.0);
+		vec3 total = vec3(0.0);
+
+		for (int i = 0; i < SC_THETA; i++) {
+			float cos_t = (float(i) + 0.5) / float(SC_THETA);
+			float sin_t = sqrt(max(1.0 - cos_t * cos_t, 0.0));
+
+			for (int j = 0; j < SC_PSI; j++) {
+				float psi = 2.0 * PI * (float(j) + 0.5) / float(SC_PSI);
+				vec3 wi = vec3(sin_t * cos(psi), cos_t, sin_t * sin(psi));
+				float nu = dot(wi, sun);
+				vec3 radiance = sc_lookup(SC_T1, r, wi.y, mu_s, nu) * rayleigh_phase(nu) + sc_lookup(SC_T2, r, wi.y, mu_s, nu) * mie_phase(nu) + sc_lookup(SC_T3, r, wi.y, mu_s, nu);
+				total += radiance * (irradiance ? cos_t : 1.0);
+			}
+		}
+
+		return vec4(total * (irradiance ? 2.0 * PI : 1.0) / float(SC_THETA * SC_PSI), 1.0);
+	}
+]]
 local ZERO_GLSL = [[
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
 		return vec4(0.0);
@@ -311,7 +350,9 @@ local function create_table(width, height)
 end
 
 -- build_prelude(extra, prefix) wraps a shader in the atmosphere's constants; the tables' atmosphere is the one the
--- transmittance texture was baked for. Returns the table of the light of orders 2 to ORDERS, unit sun
+-- transmittance texture was baked for. Returns three tables for a unit sun: the light of orders 2 to ORDERS that arrives
+-- along a ray, the scattering density of those orders (per km, the source the air adds to a ray at a point) and the
+-- ambient of the sky above a point (`sc_ambient`)
 function scattering.Create(build_prelude, transmittance_texture, aerosol_extinction)
 	local single_r = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local single_m = create_table(scattering.WIDTH, scattering.HEIGHT)
@@ -319,6 +360,8 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 	local delta = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local total = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local total_next = create_table(scattering.WIDTH, scattering.HEIGHT)
+	local source = create_table(scattering.WIDTH, scattering.HEIGHT)
+	local source_next = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local defines = "#define ATMOSPHERE_LOG_MARCH 1\n#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX sc_pc.tables[0]\n#define ATMOSPHERE_AEROSOL_EXTINCTION sc_pc.extinction\n"
 
 	local function shade(tex, body, textures, order, species)
@@ -346,6 +389,7 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 	shade(single_r, SINGLE_GLSL, {transmittance_texture}, 0, 0)
 	shade(single_m, SINGLE_GLSL, {transmittance_texture}, 0, 1)
 	shade(total, ZERO_GLSL, {transmittance_texture})
+	shade(source, ZERO_GLSL, {transmittance_texture})
 	-- the ground's indirect irradiance of the light of order k, the density of order k + 2 reflects it
 	local irradiance = {}
 	irradiance[1] = create_table(IRRADIANCE_SIZE, 1)
@@ -355,6 +399,8 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 	for order = 2, scattering.ORDERS do
 		shade(density, DENSITY_GLSL, {transmittance_texture, single_r, single_m, previous, irradiance[order - 2] or single_r}, order)
 		shade(delta, MULTI_GLSL, {transmittance_texture, density}, order)
+		shade(source_next, ADD_GLSL, {transmittance_texture, source, density}, 0)
+		source, source_next = source_next, source
 		shade(total_next, ADD_GLSL, {transmittance_texture, total, delta}, 0)
 		total, total_next = total_next, total
 		previous = delta
@@ -365,15 +411,18 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 		end
 	end
 
+	local ambient = create_table(2 * scattering.SUN_COUNT, scattering.RADIUS_COUNT)
+	shade(ambient, AMBIENT_GLSL, {transmittance_texture, single_r, single_m, total}, 0)
+
 	for _, tex in pairs(irradiance) do
 		tex:Remove()
 	end
 
-	for _, tex in ipairs{single_r, single_m, density, delta, total_next} do
+	for _, tex in ipairs{single_r, single_m, density, delta, total_next, source_next} do
 		tex:Remove()
 	end
 
-	return total
+	return total, source, ambient
 end
 
 return scattering

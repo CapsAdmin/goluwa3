@@ -11,6 +11,8 @@ atmosphere.environment_map_intensity = 1000
 atmosphere.environment_map_version = 0
 atmosphere.transmittance_texture = nil
 atmosphere.scattering_texture = nil
+atmosphere.scattering_source_texture = nil
+atmosphere.scattering_ambient_texture = nil
 atmosphere.sky_view_textures = atmosphere.sky_view_textures or {}
 atmosphere.sky_view_texture_order = atmosphere.sky_view_texture_order or {}
 local PI = math.pi
@@ -202,6 +204,12 @@ local atmosphere_shared_glsl = [[
 	#endif
 	#ifndef ATMOSPHERE_SCATTERING_TEXTURE_INDEX
 	#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX -1
+	#endif
+	#ifndef ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX
+	#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX -1
+	#endif
+	#ifndef ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX
+	#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX -1
 	#endif
 	#ifndef ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX
 	#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX -1
@@ -403,8 +411,9 @@ local atmosphere_shared_glsl = [[
 		vec3 multi = vec3(0.0);
 
 		if (ATMOSPHERE_SCATTERING_TEXTURE_INDEX != -1) {
-			float r_start = length(ray_origin);
-			vec3 up_start = ray_origin / r_start;
+			vec3 start_point = ray_origin + ray_dir * t_near;
+			float r_start = length(start_point);
+			vec3 up_start = start_point / r_start;
 			multi = sc_lookup(ATMOSPHERE_SCATTERING_TEXTURE_INDEX, r_start, dot(up_start, ray_dir), dot(up_start, sun_dir), mu);
 			vec3 end_point = ray_origin + ray_dir * t_far;
 			float r_end = length(end_point);
@@ -780,17 +789,36 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return get_sky_irradiance_ex(ray_origin, false);
 	}
 
-	// Two integrals of the sky dome above a point, a midpoint quadrature of the sky view lookup table over the upper
-	// hemisphere: the mean radiance (uniform in solid angle) and the irradiance on an upward facing surface
-	// (cosine weighted).
-	void get_sky_hemisphere_integrals(vec3 ray_origin, bool with_clouds, int zenith_steps, int azimuth_steps, out vec3 mean_radiance, out vec3 irradiance) {
-		vec3 up = normalize(ray_origin);
-		vec3 forward = get_sky_view_forward(up, ATMOSPHERE_SKY_SUN_DIRECTION);
-		vec3 right = normalize(cross(forward, up));
+	// Two integrals of the sky dome above a point: the mean radiance (uniform in solid angle) and the irradiance on an
+	// upward facing surface (cosine weighted). The clear sky's come from the scattering table at the point's height
+	// and the sun's elevation, the clouds (their transmittance and light, the dome texture) are folded in by a
+	// quadrature of the dome alone, as if the clear sky were the same in every direction
+	void get_sky_hemisphere_integrals(vec3 point, bool with_clouds, out vec3 mean_radiance, out vec3 irradiance) {
 		mean_radiance = vec3(0.0);
 		irradiance = vec3(0.0);
+
+		if (ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX == -1) return;
+
+		float r = length(point);
+		vec3 up = point / r;
+		sc_ambient(ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX, r, dot(up, ATMOSPHERE_SKY_SUN_DIRECTION), mean_radiance, irradiance);
+		mean_radiance *= ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR;
+		irradiance *= ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR;
+
+		if (!with_clouds || ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX == -1) return;
+
+		vec3 forward = get_sky_view_forward(up, ATMOSPHERE_SKY_SUN_DIRECTION);
+		vec3 right = normalize(cross(forward, up));
+		const int zenith_steps = 4;
+		const int azimuth_steps = 8;
 		float d_theta = 1.5707963 / float(zenith_steps);
 		float d_phi = 6.2831853 / float(azimuth_steps);
+		float weight = 0.0;
+		float weight_cos = 0.0;
+		float alpha = 0.0;
+		float alpha_cos = 0.0;
+		vec3 light = vec3(0.0);
+		vec3 light_cos = vec3(0.0);
 
 		for (int i = 0; i < zenith_steps; i++) {
 			float theta = (float(i) + 0.5) * d_theta;
@@ -799,13 +827,19 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			for (int j = 0; j < azimuth_steps; j++) {
 				float phi = (float(j) + 0.5) * d_phi;
 				vec3 dir = up * cos(theta) + (forward * cos(phi) + right * sin(phi)) * sin(theta);
-				vec3 radiance = get_sky_irradiance_sample(dir, ray_origin, with_clouds) * solid_angle;
-				mean_radiance += radiance;
-				irradiance += radiance * cos(theta);
+				vec4 clouds = textureLod(TEXTURE(ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX), get_cloud_sky_uv(dir), 0.0);
+				clouds.rgb /= CLOUD_RADIANCE_SCALE;
+				weight += solid_angle;
+				weight_cos += solid_angle * cos(theta);
+				alpha += clouds.a * solid_angle;
+				alpha_cos += clouds.a * solid_angle * cos(theta);
+				light += clouds.rgb * solid_angle;
+				light_cos += clouds.rgb * solid_angle * cos(theta);
 			}
 		}
 
-		mean_radiance /= 6.2831853;
+		mean_radiance = mean_radiance * (alpha / weight) + light / 6.2831853;
+		irradiance = irradiance * (alpha_cos / weight_cos) + light_cos;
 	}
 
 	// What the sky does not draw: the radiance of flat ground under it, albedo / pi times the sun
@@ -816,39 +850,8 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 sun_irradiance = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * max(dot(up, sun_dir), 0.0);
 		vec3 mean_radiance;
 		vec3 sky_irradiance;
-		get_sky_hemisphere_integrals(ray_origin, true, 6, 12, mean_radiance, sky_irradiance);
+		get_sky_hemisphere_integrals(ray_origin, true, mean_radiance, sky_irradiance);
 		return GROUND_ALBEDO / PI * (sun_irradiance + sky_irradiance);
-	}
-
-	bool get_aerial_perspective_segment(
-		vec3 world_pos,
-		vec3 cam_pos,
-		out vec3 ray_origin,
-		out vec3 ray_dir,
-		out float atmosphere_near,
-		out float segment_length
-	) {
-		ray_origin = get_atmosphere_camera_origin(cam_pos);
-		vec3 world_delta = (world_pos - cam_pos) * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
-		float target_distance = length(world_delta);
-
-		if (target_distance <= 1e-5) return false;
-
-		ray_dir = world_delta / target_distance;
-		vec2 atmosphere_hit = ray_sphere_intersect(ray_origin, ray_dir, ATMOSPHERE_RADIUS);
-
-		if (atmosphere_hit.y <= 0.0) return false;
-
-		atmosphere_near = max(atmosphere_hit.x, 0.0);
-		float atmosphere_far = min(atmosphere_hit.y, target_distance);
-		vec2 ground_hit = ray_sphere_intersect(ray_origin, ray_dir, PLANET_RADIUS);
-
-		if (ground_hit.x > atmosphere_near) {
-			atmosphere_far = min(atmosphere_far, ground_hit.x);
-		}
-
-		segment_length = atmosphere_far - atmosphere_near;
-		return segment_length > 1e-5;
 	}
 
 	bool get_ground_fog_segment_with_ground_clip(
@@ -922,7 +925,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	vec3 get_ground_fog_sky_ambient(vec3 ray_origin) {
 		vec3 mean_radiance;
 		vec3 sky_irradiance;
-		get_sky_hemisphere_integrals(ray_origin, true, 4, 8, mean_radiance, sky_irradiance);
+		get_sky_hemisphere_integrals(ray_origin, true, mean_radiance, sky_irradiance);
 		vec3 up = normalize(ray_origin);
 		vec3 sun_dir = ATMOSPHERE_SKY_SUN_DIRECTION;
 		vec3 sun_irradiance = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * max(dot(up, sun_dir), 0.0);
@@ -938,15 +941,19 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * get_ground_fog_sun_transmittance(ray_origin, sun_dir) * henyey_greenstein_phase(dot(ray_dir, sun_dir), GROUND_FOG_MIE_G) * ATMOSPHERE_FOG_RAY_STRENGTH;
 	}
 
-	// In-scattered radiance of the low altitude fog. gi_irradiance stands in
-	// for the sky where the sky is hidden (sky_visibility).
-	vec3 get_ground_fog_color(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
-		vec3 ambient = mix(gi_irradiance / PI, get_ground_fog_sky_ambient(ray_origin), clamp(sky_visibility, 0.0, 1.0));
-		vec3 lit = ambient + get_ground_fog_sun(ray_origin, ray_dir, sun_dir) * clamp(sun_visibility, 0.0, 1.0);
-		return ATMOSPHERE_FOG_COLOR.w > 0.5 ? lit * ATMOSPHERE_FOG_COLOR.rgb : lit;
+	// What the fog layer and the precipitation scatter towards a viewer looking along ray_dir, per km, at a point: the light
+	// of the open air around it (ambient) and the sun's beam through the layer above it. The froxel volume and the
+	// analytic integration of a single ray evaluate this at every sample, with the shadow and the light that are there
+	vec3 get_ground_fog_in_scatter(vec3 point, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 ambient) {
+		vec3 lit = ambient + get_ground_fog_sun(point, ray_dir, sun_dir) * clamp(sun_visibility, 0.0, 1.0);
+
+		if (ATMOSPHERE_FOG_COLOR.w > 0.5) lit *= ATMOSPHERE_FOG_COLOR.rgb;
+
+		return lit * ground_fog_extinction(point);
 	}
 
-	// rgb = light the fog scatters toward the viewer along the segment, a = its transmittance
+	// rgb = light the fog scatters toward the viewer along the segment, a = its transmittance. Marched, the sun's beam
+	// and the extinction taken at each sample. gi_irradiance stands in for the sky where the sky is hidden (sky_visibility)
 	vec4 integrate_ground_fog_segment(
 		vec3 ray_origin,
 		vec3 ray_dir,
@@ -960,17 +967,20 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		if (ATMOSPHERE_ENABLED == 0) return vec4(0.0, 0.0, 0.0, 1.0);
 
 		float step_size = fog_length / float(AERIAL_PERSPECTIVE_STEPS);
-		float ground_fog_od = 0.0;
+		vec3 ambient = mix(gi_irradiance / PI, get_ground_fog_sky_ambient(ray_origin), clamp(sky_visibility, 0.0, 1.0));
+		float transmittance = 1.0;
+		vec3 scattered = vec3(0.0);
 
 		for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
-			float t = fog_near + (float(i) + 0.5) * step_size;
-			vec3 sample_point = ray_origin + ray_dir * t;
-			ground_fog_od += ground_fog_extinction(sample_point) * step_size;
+			vec3 sample_point = ray_origin + ray_dir * (fog_near + (float(i) + 0.5) * step_size);
+			float extinction = ground_fog_extinction(sample_point);
+			float step_transmittance = exp(-extinction * step_size);
+			vec3 in_scatter = get_ground_fog_in_scatter(sample_point, ray_dir, sun_dir, sun_visibility, ambient);
+			scattered += transmittance * in_scatter * (extinction > 1e-9 ? (1.0 - step_transmittance) / extinction : step_size);
+			transmittance *= step_transmittance;
 		}
 
-		float fog_transmittance = exp(-ground_fog_od);
-		vec3 ground_fog = get_ground_fog_color(ray_origin, ray_dir, sun_dir, sun_visibility, gi_irradiance, sky_visibility) * (1.0 - fog_transmittance);
-		return vec4(ground_fog, fog_transmittance);
+		return vec4(scattered, transmittance);
 	}
 
 	vec3 apply_ground_fog_segment(
@@ -988,59 +998,6 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return scene_color * fog.a + fog.rgb;
 	}
 
-	// the air between start (km along the ray) and world_pos
-	vec3 apply_atmospheric_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, float sky_visibility, float start) {
-		if (ATMOSPHERE_ENABLED == 0) return scene_color;
-
-		vec3 ray_origin;
-		vec3 ray_dir;
-		float atmosphere_near;
-		float segment_length;
-
-		if (!get_aerial_perspective_segment(world_pos, cam_pos, ray_origin, ray_dir, atmosphere_near, segment_length)) {
-			return scene_color;
-		}
-
-		float atmosphere_far = atmosphere_near + segment_length;
-		atmosphere_near = max(atmosphere_near, start);
-
-		if (atmosphere_far <= atmosphere_near) return scene_color;
-
-		vec3 view_transmittance;
-		vec3 scattered_light = integrate_scattering(
-			ray_origin,
-			ray_dir,
-			atmosphere_near,
-			atmosphere_far,
-			sun_dir,
-			AERIAL_PERSPECTIVE_STEPS,
-			vec2(clamp(sun_visibility, 0.0, 1.0)),
-			clamp(sky_visibility, 0.0, 1.0),
-			view_transmittance
-		);
-		return scene_color * view_transmittance + scattered_light;
-	}
-
-	vec3 apply_ground_fog(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
-		vec3 ray_origin;
-		vec3 ray_dir;
-		float atmosphere_near;
-		float segment_length;
-
-		if (!get_aerial_perspective_segment(world_pos, cam_pos, ray_origin, ray_dir, atmosphere_near, segment_length)) {
-			return scene_color;
-		}
-
-		float fog_near;
-		float fog_length;
-
-		if (!get_ground_fog_segment(ray_origin, ray_dir, atmosphere_near + segment_length, fog_near, fog_length)) {
-			return scene_color;
-		}
-
-		return apply_ground_fog_segment(scene_color, ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
-	}
-
 	vec3 apply_ground_fog_ray(vec3 scene_color, vec3 ray_dir, vec3 sun_dir, vec3 cam_pos, float max_distance, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
 		if (ATMOSPHERE_ENABLED == 0) return scene_color;
 
@@ -1053,11 +1010,6 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		}
 
 		return apply_ground_fog_segment(scene_color, ray_origin, normalize(ray_dir), fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
-	}
-
-	vec3 apply_aerial_perspective(vec3 scene_color, vec3 world_pos, vec3 sun_dir, vec3 cam_pos, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
-		scene_color = apply_atmospheric_aerial_perspective(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, sky_visibility, 0.0);
-		return apply_ground_fog(scene_color, world_pos, sun_dir, cam_pos, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
 	// the sun's disc at its real luminance, illuminance over its solid angle (~2e9 cd/m2 at noon), darker
@@ -1158,7 +1110,11 @@ end
 local function destroy_scattering_texture()
 	if atmosphere.scattering_texture then
 		atmosphere.scattering_texture:Remove()
+		atmosphere.scattering_source_texture:Remove()
+		atmosphere.scattering_ambient_texture:Remove()
 		atmosphere.scattering_texture = nil
+		atmosphere.scattering_source_texture = nil
+		atmosphere.scattering_ambient_texture = nil
 	end
 end
 
@@ -1420,10 +1376,20 @@ end
 function atmosphere.GetScatteringTexture()
 	if not atmosphere.scattering_texture or not atmosphere.scattering_texture:IsValid() then
 		destroy_scattering_texture()
-		atmosphere.scattering_texture = scattering.Create(build_atmosphere_shader_prelude, atmosphere.GetTransmittanceTexture(), aerosol_extinction)
+		atmosphere.scattering_texture, atmosphere.scattering_source_texture, atmosphere.scattering_ambient_texture = scattering.Create(build_atmosphere_shader_prelude, atmosphere.GetTransmittanceTexture(), aerosol_extinction)
 	end
 
 	return atmosphere.scattering_texture
+end
+
+function atmosphere.GetScatteringSourceTexture()
+	atmosphere.GetScatteringTexture()
+	return atmosphere.scattering_source_texture
+end
+
+function atmosphere.GetScatteringAmbientTexture()
+	atmosphere.GetScatteringTexture()
+	return atmosphere.scattering_ambient_texture
 end
 
 function atmosphere.GetSkyViewTexture(cam_pos, sun_dir)
@@ -1453,6 +1419,8 @@ function atmosphere.GetBlockLayout()
 	return {
 		{"atmosphere_transmittance_texture_index", "int"},
 		{"atmosphere_scattering_texture_index", "int"},
+		{"atmosphere_scattering_source_texture_index", "int"},
+		{"atmosphere_scattering_ambient_texture_index", "int"},
 		{"atmosphere_sky_view_texture_index", "int"},
 		{"atmosphere_stars_texture_index", "int"},
 		{"atmosphere_environment_texture_index", "int"},
@@ -1496,6 +1464,8 @@ do
 		block.atmosphere_environment_intensity = atmosphere.environment_map_intensity
 		block.atmosphere_transmittance_texture_index = pipeline:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 		block.atmosphere_scattering_texture_index = pipeline:GetTextureIndex(atmosphere.GetScatteringTexture())
+		block.atmosphere_scattering_source_texture_index = pipeline:GetTextureIndex(atmosphere.GetScatteringSourceTexture())
+		block.atmosphere_scattering_ambient_texture_index = pipeline:GetTextureIndex(atmosphere.GetScatteringAmbientTexture())
 		block.atmosphere_sky_view_texture_index = pipeline:GetTextureIndex(atmosphere.GetSkyViewTexture(cam_pos, sky_sun_dir))
 		block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
 		block.atmosphere_ground_fog_extinction = environment_map and 0 or atmosphere.GetGroundFogExtinction()
@@ -1547,6 +1517,8 @@ do
 		block.atmosphere_environment_intensity = intensity
 		block.atmosphere_transmittance_texture_index = -1
 		block.atmosphere_scattering_texture_index = -1
+		block.atmosphere_scattering_source_texture_index = -1
+		block.atmosphere_scattering_ambient_texture_index = -1
 		block.atmosphere_sky_view_texture_index = -1
 		block.atmosphere_stars_texture_index = -1
 		block.atmosphere_ground_fog_extinction = 0
@@ -1572,7 +1544,7 @@ do
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_source_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_ambient_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
 function atmosphere.GetGLSLCode()
@@ -1605,7 +1577,8 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 				sky_color_output = vec3(0.0);
 			} else {
 				vec4 atmosphere_sample = sample_sky_view_lut(atmos_dir, atmos_cam_pos);
-				vec3 atmosphere_color = atmosphere_sample.rgb;
+				// a view that has the air in its volume (volumetric fog pass) wants only what is behind it
+				vec3 atmosphere_color = (]] .. (options.air or "true") .. [[) ? atmosphere_sample.rgb : vec3(0.0);
 				]] .. disc_code .. [[
 				vec3 space_color;
 

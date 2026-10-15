@@ -359,7 +359,7 @@ local passes = {
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
 					return calculateShadow(world_pos, sun_dir, sun_dir) * get_cloud_shadow(world_pos);
 				}
-			]] .. froxel_fog.GetGLSL("lighting_data", "get_primary_sun_direction()") .. [[
+			]] .. froxel_fog.GetGLSL("lighting_data") .. [[
 				// the gi at the surface itself, from the probes, for the side the
 				// viewer is on. the gbuffer's screen space gi is the light of the
 				// opaque surface behind, which is another place with another
@@ -457,7 +457,8 @@ local passes = {
 						texelFetch(TEXTURE(lighting_data.moments_tex), pixel, 0),
 						moments_warp_depth(distance(world_pos, lighting_data.camera_position.xyz), lighting_data.depth_warp)
 					);
-					vec4 fog = lighting_data.fog != 0 ? get_volumetric_fog(screen_uv, distance(world_pos, lighting_data.camera_position.xyz)) : vec4(0.0, 0.0, 0.0, 1.0);
+					vec3 fog_transmittance = vec3(1.0);
+					vec3 fog_scattered = lighting_data.fog != 0 ? get_volumetric_fog(screen_uv, distance(world_pos, lighting_data.camera_position.xyz), fog_transmittance) : vec3(0.0);
 					vec2 motion = get_screen_motion(world_pos, in_prev_position);
 					vec3 geometric_N = get_vertex_normal();
 					// how fast the surface bends, from how the interpolated normal
@@ -550,7 +551,7 @@ local passes = {
 						vec3 added = emission + (direct_specular + ambient_specular) * specular_coverage * get_pre_exposure();
 						set_color(vec4(0.0));
 						set_motion(vec4(0.0));
-						set_additive(vec4(min(added * fog.a, vec3(65504.0)), 0.0) * transmittance);
+						set_additive(vec4(min(added * fog_transmittance, vec3(65504.0)), 0.0) * transmittance);
 						return;
 					}
 
@@ -558,7 +559,7 @@ local passes = {
 						vec3 emissive = get_emissive(in_uv) * alpha;
 						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
 						// the fog in front of the surface covers what the surface covers
-						color = color * fog.a + fog.rgb * alpha;
+						color = color * fog_transmittance + fog_scattered * alpha;
 						set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha) * transmittance);
 						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
 						set_additive(vec4(0.0));
@@ -650,7 +651,7 @@ local passes = {
 					// and taa follows the background there
 					vec3 transmission = albedo * (1.0 - F_ambient) * (1.0 - metallic) * refraction.amount;
 					vec3 emissive = get_emissive(in_uv);
-					vec3 color = (direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + emissive) * fog.a + fog.rgb * (1.0 - transmission) + background * transmission;
+					vec3 color = (direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + emissive) * fog_transmittance + fog_scattered * (1.0 - transmission) + background * transmission;
 					set_color(vec4(min(color * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
 					set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance * (1.0 - dot(transmission, vec3(1.0 / 3.0))));
 					set_additive(vec4(0.0));

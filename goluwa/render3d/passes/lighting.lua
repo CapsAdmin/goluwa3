@@ -125,6 +125,7 @@ return {
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
+					{"sky_air", "int"},
 					{"sky_alpha", "float"},
 					{"sky_from_environment", "int"},
 					{"screen_shadows", "int"},
@@ -143,6 +144,8 @@ return {
 					block.gi_debug = ddgi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
+					-- the volumetric fog pass adds the air to the sky of the main view
+					block.sky_air = (render3d.GetActiveRenderContext() or not render3d.IsPassEnabled("volumetric_fog")) and 1 or 0
 					block.sky_alpha = render3d.IsSkyTransparent() and 0 or 1
 					block.sky_from_environment = render3d.IsSkyFromProbe() and 1 or 0
 					block.screen_shadows = screen_shadows:Get() and 1 or 0
@@ -341,7 +344,7 @@ return {
 				"sky_dir",
 				"sun_dir",
 				"lighting_data.camera_position.xyz",
-				{clouds = "lighting_data.sky_clouds != 0"}
+				{clouds = "lighting_data.sky_clouds != 0", air = "lighting_data.sky_air != 0"}
 			) .. [[
 
 				return max(sky_color_output, vec3(0.0));
