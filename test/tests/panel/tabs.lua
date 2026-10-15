@@ -102,3 +102,40 @@ T.Test2D("property editor lists the categories of the active tab only", function
 	T(editor._tab_bar.visual:GetVisible())["=="](false)
 	editor:Remove()
 end)
+
+T.Test2D("property editor filter keeps matching rows, expands their groups and drops empty tabs", function()
+	local editor = PropertyEditor{
+		Items = {
+			{
+				Key = "a",
+				Text = "Water",
+				Tab = "One",
+				Collapsed = true,
+				Children = {
+					{Key = "a/shafts", Text = "shafts", Type = "boolean", Value = true},
+					{Key = "a/ripples", Text = "ripples", Type = "boolean", Value = true, Search = "r_water_ripples"},
+				},
+			},
+			{
+				Key = "b",
+				Text = "Sky",
+				Tab = "Two",
+				Children = {{Key = "b/clouds", Text = "clouds", Type = "number", Value = 2}},
+			},
+		},
+	}
+	T(editor._tab_bar:GetChildren()[2] ~= nil)["=="](true)
+	editor:SetFilter("water shafts")
+	T(editor._row_infos["a/shafts"] ~= nil)["=="](true)
+	T(editor._row_infos["a/ripples"] == nil)["=="](true)
+	T(editor._category_refs["a"]:GetCollapsed())["=="](false)
+	T(editor._tab_bar:GetChildren()[1] == nil)["=="](true)
+	T(editor._row_infos["a/shafts"].text.text:GetHighlight()[2])["=="]("shafts")
+	editor:SetFilter("r_water_rip")
+	T(editor._row_infos["a/ripples"] ~= nil)["=="](true)
+	editor:SetFilter("nothing")
+	T(next(editor._row_infos))["=="](nil)
+	editor:SetFilter("")
+	T(editor._row_infos["a/shafts"] ~= nil)["=="](true)
+	T(editor._category_refs["a"]:GetCollapsed())["=="](true)
+end)

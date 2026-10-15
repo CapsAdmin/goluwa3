@@ -157,6 +157,7 @@ function DermaTheme:ConfigurePalette(palette)
 		dashed_underline = text:Copy():SetAlpha(0.3),
 		property_selection = selection,
 		text_selection = selection:Copy():SetAlpha(0.6),
+		text_highlight = Color.FromHex("#facc15"):SetAlpha(0.5),
 		positive = green,
 		neutral = yellow,
 		negative = red,

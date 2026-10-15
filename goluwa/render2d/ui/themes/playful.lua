@@ -131,6 +131,7 @@ function PlayfulTheme:ConfigurePalette(palette)
 		border_strong = ink,
 		property_selection = select_pink,
 		text_selection = select_pink:Copy():SetAlpha(0.8),
+		text_highlight = Color.FromHex("#facc15"):SetAlpha(0.5),
 		actual_black = ink,
 		invisible = Color(0, 0, 0, 0),
 	}

@@ -26,6 +26,7 @@ META:GetSet("AlignX", 0)
 META:GetSet("AlignY", 0)
 META:EndOptions()
 META:GetSet("Hint", "")
+META:GetSet("Highlight", nil)
 META:GetSet("DisableViewportCulling", false)
 META:GetSet("Color", nil)
 META:GetSet("SelectionColor", nil)
@@ -745,6 +746,43 @@ function META:OnDraw()
 			render2d.PopBorderRadius()
 			render2d.SetAlphaMultiplier(1)
 		end
+	end
+
+	local highlight = self:GetHighlight()
+
+	if highlight and not use_hint then
+		local r, g, b, a = theme.active:GetColor("text_highlight"):Unpack()
+		render2d.SetColor(r, g, b)
+		render2d.SetAlphaMultiplier(a)
+		render2d.SetTexture(nil)
+		render2d.PushBorderRadius(2)
+
+		for i = visible_start, visible_stop do
+			local line_text = lines[i] or ""
+			local lower = line_text:lower()
+			local display_line = self.wrap_layout_info and
+				self.wrap_layout_info.display_lines and
+				self.wrap_layout_info.display_lines[i]
+
+			for _, token in ipairs(highlight) do
+				local from = 1
+
+				while true do
+					local first, last = lower:find(token, from, true)
+
+					if not first then break end
+
+					local col_start = utf8.length(line_text:sub(1, first - 1)) + 1
+					local x_offset = get_line_column_offset(font, line_text, col_start, display_line)
+					local width = get_line_column_offset(font, line_text, col_start + utf8.length(token), display_line) - x_offset
+					render2d.DrawRect(lx + x_offset, ly - descent / 2 + (i - 1) * vertical_step, width, line_height)
+					from = last + 1
+				end
+			end
+		end
+
+		render2d.PopBorderRadius()
+		render2d.SetAlphaMultiplier(1)
 	end
 
 	render2d.SetTexture(nil)

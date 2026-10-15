@@ -81,6 +81,7 @@ function RetroTheme:ConfigurePalette(palette)
 		dashed_underline = butter:Copy():SetAlpha(0.3),
 		property_selection = Color.FromHex("#2e3cff"),
 		text_selection = Color.FromHex("#2e3cff"):SetAlpha(0.75),
+		text_highlight = Color.FromHex("#facc15"):SetAlpha(0.5),
 		positive = lime,
 		neutral = yellow,
 		negative = red,

@@ -129,6 +129,7 @@ function BaseTheme:CreatePalette()
 		clickable_disabled = Color.FromHex("#d2d2d7"),
 		property_selection = Color.FromHex("#dbeafe"),
 		text_selection = Color.FromHex("#93c5fd"):SetAlpha(0.5),
+		text_highlight = Color.FromHex("#facc15"):SetAlpha(0.5),
 		positive = base_map.green,
 		neutral = base_map.yellow,
 		negative = base_map.red,

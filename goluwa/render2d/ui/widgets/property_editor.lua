@@ -44,6 +44,7 @@ META.CMP.animation = {}
 META:StartStorable()
 META:GetSet("Items", nil)
 META:GetSet("CategoryOrder", nil)
+META:GetSet("Filter", "")
 META:GetSet("SelectedKey", nil)
 META:GetSet("NumberPrecision", 2)
 META:GetSet("ValueWidth", 10)
@@ -104,6 +105,44 @@ end
 
 local function get_node_children(node)
 	return node.Children or {}
+end
+
+-- keeps the rows whose label, search text or titles above them hold every word of the filter, groups are copied with only their kept rows
+local function filter_nodes(nodes, tokens, scope)
+	local out = {}
+
+	for _, node in ipairs(nodes) do
+		local node_scope = get_node_text(node):lower()
+
+		if scope then node_scope = scope .. " " .. node_scope end
+
+		local children = get_node_children(node)
+
+		if has_entries(children) then
+			local kept = filter_nodes(children, tokens, node_scope)
+
+			if #kept > 0 then
+				local copy = table.shallow_copy(node)
+				copy.Children = kept
+				out[#out + 1] = copy
+			end
+		else
+			local haystack = node_scope .. " " .. (node.Search or ""):lower()
+			local found = true
+
+			for _, token in ipairs(tokens) do
+				if not haystack:find(token, 1, true) then
+					found = false
+
+					break
+				end
+			end
+
+			if found then out[#out + 1] = node end
+		end
+	end
+
+	return out
 end
 
 local function find_node_by_key(nodes, target_key, parent_path, category_key)
@@ -346,6 +385,7 @@ function META:OnCreate()
 	self._listeners = {}
 	self._property_change_sync_blocked = 0
 	self._selected_key = self.SelectedKey
+
 	self._tab_bar = TabBar{
 		Parent = self,
 		IsInternal = true,
@@ -367,6 +407,26 @@ function META:OnCreate()
 		return self:commit_value(node, value, key, path, panel)
 	end
 	self:rebuild_categories()
+end
+
+function META:SetFilter(text)
+	text = text or ""
+	self._filter = text
+	local tokens = {}
+
+	for token in text:lower():gmatch("%S+") do
+		tokens[#tokens + 1] = token
+	end
+
+	self._filter_tokens = #tokens > 0 and tokens or nil
+
+	if self._content then self:rebuild_categories() end
+
+	return self
+end
+
+function META:GetFilter()
+	return self._filter or ""
 end
 
 function META:SetItems(items)
@@ -492,7 +552,7 @@ function META:refresh_all_row_text()
 	end
 end
 
-function META:sync_selection(key)
+function META:sync_selection(key, keep_collapsed)
 	if not key then
 		self._selected_key = nil
 		self.OnSelect(nil, nil, nil)
@@ -503,7 +563,7 @@ function META:sync_selection(key)
 	self._selected_key = key
 	local node, path, category_key = find_node_by_key(self._items, key)
 
-	if category_key then
+	if category_key and not keep_collapsed then
 		local category = self._category_refs[category_key]
 
 		if category then category:SetCollapsed(false) end
@@ -829,6 +889,7 @@ function META:build_rows_panel(entries)
 		info.text = Text{
 			Parent = info.panel,
 			Text = entry.label,
+			Highlight = self._filter_tokens,
 			FontSize = self._font_size,
 			Elide = true,
 			ElideString = "...",
@@ -928,6 +989,8 @@ function META:build_group_panel(node, path)
 
 	if collapsed == nil then collapsed = node.Collapsed == true end
 
+	if self._filter_tokens then collapsed = false end
+
 	local group = Collapsible{
 		Editor = self,
 		CategoryKey = key,
@@ -970,6 +1033,8 @@ function META:build_category_panel(node, path, key)
 	if collapsed == nil then
 		collapsed = node.Collapsed == true or node.Expanded == false
 	end
+
+	if self._filter_tokens then collapsed = false end
 
 	local nodes = get_node_children(node)
 	local run_start = 1
@@ -1042,11 +1107,11 @@ function META:GetActiveTab()
 end
 
 -- categories can name a Tab, with more than one name the tabs are shown above and only the categories of the active one are listed
-function META:update_tabs()
+function META:update_tabs(items)
 	local tabs = {}
 	local seen = {}
 
-	for _, node in ipairs(self._items) do
+	for _, node in ipairs(items) do
 		if node.Tab and not seen[node.Tab] then
 			seen[node.Tab] = true
 			tabs[#tabs + 1] = node.Tab
@@ -1073,10 +1138,23 @@ function META:rebuild_categories()
 	self._category_key_columns = {}
 	self._category_dividers = {}
 	self._content:RemoveChildren()
-	local active_tab = self:update_tabs()
+	local items = self._filter_tokens and filter_nodes(self._items, self._filter_tokens) or self._items
+	local active_tab = self:update_tabs(items)
 	local visible = {}
 
-	for index, node in ipairs(self._items) do
+	if #items == 0 then
+		self._content:AddChild(
+			Text{
+				Text = "No matches.",
+				FontSize = self._font_size,
+				Color = "text_disabled",
+				IgnoreMouseInput = true,
+				layout = {Padding = Rect() + self._padding_rect},
+			}
+		)
+	end
+
+	for index, node in ipairs(items) do
 		if not active_tab or node.Tab == active_tab then
 			local path = build_path(nil, index)
 			visible[#visible + 1] = node
@@ -1094,7 +1172,7 @@ function META:rebuild_categories()
 	end
 
 	if self._selected_key then
-		self:sync_selection(self._selected_key)
+		self:sync_selection(self._selected_key, true)
 	else
 		self.OnSelect(nil, nil, nil)
 	end

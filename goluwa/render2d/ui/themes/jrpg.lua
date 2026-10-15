@@ -66,6 +66,7 @@ function JRPGTheme:ConfigurePalette(palette)
 		url_color = neon,
 		property_selection = neon:Copy():SetAlpha(0.22),
 		text_selection = neon:Copy():SetAlpha(0.35),
+		text_highlight = Color.FromHex("#facc15"):SetAlpha(0.5),
 		actual_black = ink,
 		primary = neon,
 		primary_focus = Color.FromHex("#2fa8bd"),
