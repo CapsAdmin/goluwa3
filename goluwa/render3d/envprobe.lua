@@ -12,6 +12,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local raycast = import("goluwa/render3d/raycast.lua")
@@ -25,16 +26,6 @@ local function get_primary_sun(lights)
 	end
 
 	return nil
-end
-
-local function get_primary_sun_direction()
-	local lights = render3d.GetLights()
-	local sun_dir = Vec3(0, 1, 0)
-	local sun = get_primary_sun(lights)
-
-	if sun then sun_dir = sun.Owner.transform:GetRotation():GetBackward() end
-
-	return sun_dir
 end
 
 envprobe.TYPE_ENVIRONMENT = "environment"
@@ -728,7 +719,7 @@ function envprobe.CreatePipelines()
 					},
 					write = function(self, block)
 						local sun = get_primary_sun(render3d.GetLights())
-						local sun_direction = get_primary_sun_direction()
+						local sun_direction = directional_shadows.GetPrimarySunDirection(render3d.GetLights())
 						sun_direction:CopyToFloatPointer(block.sun_direction)
 						block.sun_direction[3] = 0
 						block.sun_illuminance = sun and sun:GetPhotometricAmount() or atmosphere.GetSunIlluminance()
