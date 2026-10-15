@@ -167,6 +167,24 @@ function glsl_common.GetSunHorizonVisibilityGLSL()
 	]]
 end
 
+function glsl_common.GetFresnelGLSL()
+	return [[
+		#ifndef GLSL_COMMON_FRESNEL
+		#define GLSL_COMMON_FRESNEL
+		// unpolarized Fresnel reflectance of a dielectric interface, eta is the index the light comes from over the one it enters
+		float fresnel_dielectric(float cos_i, float eta) {
+			cos_i = clamp(cos_i, 0.0, 1.0);
+			float sin_t2 = eta * eta * (1.0 - cos_i * cos_i);
+			if (sin_t2 >= 1.0) return 1.0;
+			float cos_t = sqrt(1.0 - sin_t2);
+			float rs = (eta * cos_i - cos_t) / (eta * cos_i + cos_t);
+			float rp = (cos_i - eta * cos_t) / (cos_i + eta * cos_t);
+			return 0.5 * (rs * rs + rp * rp);
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH

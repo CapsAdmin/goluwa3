@@ -352,7 +352,7 @@ local passes = {
 			) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = glsl_common.GetHashGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. (
+			shader = glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. (
 				scene_reflection.RAY_QUERY and
 				glass_light.GetGLSL("ddgi_scene") or
 				""
@@ -410,20 +410,6 @@ local passes = {
 				// it by then, or the environment when it leaves the screen.
 				// reach is how far to look, a few times how far behind the
 				// surface the scene is along the view ray
-				// the unpolarised Fresnel reflectance of a dielectric, light going from the medium of index n1 into n2 at the
-				// angle whose cosine is cos_i; 1 where it is totally reflected. Schlick's curve is up to 7 percent of the
-				// light off it at an oblique angle
-				float dielectric_fresnel(float cos_i, float n1, float n2) {
-					float sin_t = n1 / n2 * sqrt(max(1.0 - cos_i * cos_i, 0.0));
-
-					if (sin_t >= 1.0) return 1.0;
-
-					float cos_t = sqrt(1.0 - sin_t * sin_t);
-					float rs = (n1 * cos_i - n2 * cos_t) / (n1 * cos_i + n2 * cos_t);
-					float rp = (n1 * cos_t - n2 * cos_i) / (n1 * cos_t + n2 * cos_i);
-					return 0.5 * (rs * rs + rp * rp);
-				}
-
 				// what a ray that leaves a refracting surface finds where the screen and the scene do not say: the sky and the probes'
 				// light. Only a ray that misses needs it, so it is worked out there, with the surface's values kept here
 				bool exit_gi_known;
@@ -650,7 +636,7 @@ local passes = {
 					// bouncing between them (what it reflects is 2F / (1 + F), twice what one surface does), and what it
 					// carries is the tint once. A solid has its front surface here and its far one where the ray leaves.
 					// The split sum above is built on Schlick, so the exact reflectance scales it by the ratio of the two
-					float fresnel_front = dielectric_fresnel(NdotV, 1.0, refraction.ior);
+					float fresnel_front = fresnel_dielectric(NdotV, 1.0 / refraction.ior);
 					vec3 pane_reflectance = vec3(fresnel_front);
 					vec3 pane_transmittance = vec3(1.0 - fresnel_front);
 
@@ -743,7 +729,7 @@ local passes = {
 								exit_dir = T;
 								exit_transmitted += 1.0;
 							} else {
-								exit_transmitted += 1.0 - dielectric_fresnel(clamp(dot(T, exit_N), 0.0, 1.0), ior, 1.0);
+								exit_transmitted += 1.0 - fresnel_dielectric(dot(T, exit_N), ior);
 							}
 						} else {
 							// a thin wall leaves the ray parallel to how it came in, so

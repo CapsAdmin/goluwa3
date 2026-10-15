@@ -780,7 +780,7 @@ list.insert(
 				return water_feature(WATER_SUN_SHADOWS) ? get_water_sun_visibility_shadowed(p, dir) : 1.0;
 			}
 
-			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetFresnelGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 					RAY_QUERY and
 					render3d.GetEmissiveGLSL() .. scene_reflection.GetGLSL("ocean_data")
@@ -869,16 +869,6 @@ list.insert(
 			}
 
 			// exact fresnel reflectance of unpolarized light, eta = n_from / n_to
-			float fresnel_dielectric(float cos_i, float eta) {
-				cos_i = clamp(cos_i, 0.0, 1.0);
-				float sin_t2 = eta * eta * (1.0 - cos_i * cos_i);
-				if (sin_t2 >= 1.0) return 1.0;
-				float cos_t = sqrt(1.0 - sin_t2);
-				float rs = (eta * cos_i - cos_t) / (eta * cos_i + cos_t);
-				float rp = (cos_i - eta * cos_t) / (cos_i + eta * cos_t);
-				return 0.5 * (rs * rs + rp * rp);
-			}
-
 			// the water molecules' phase function, Rayleigh's with water's depolarization (Morel 1974)
 			float water_molecular_phase(float mu) {
 				return (1.0 + 0.835 * mu * mu) / (4.0 * PI * (1.0 + 0.835 / 3.0));
