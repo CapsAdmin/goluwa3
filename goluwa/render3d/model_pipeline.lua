@@ -1087,10 +1087,22 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, 
 	)
 end
 
-function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color_multiplier_a_expr)
+-- get_alpha_uv and get_alpha for a pass with its own sources of the textures: the surface pass and the shadow
+-- passes share it, so a cutout is the same shape in both. the shader has base_uv and bump_uv. options:
+-- albedo_texture, normal_texture, color_alpha: GLSL expressions. sample(texture, uv): a GLSL expression
+-- reading a texture. albedo_rgb: a GLSL expression of uv for the color the additive alpha comes from
+function model_pipeline.SampleTextureGlsl(texture, uv)
+	return "texture(TEXTURE(" .. texture .. "), " .. uv .. ")"
+end
+
+function model_pipeline.BuildAlphaSamplingGlsl(options)
 	return (
 		[[
 			float get_alpha_uv(vec2 uv) {
+				if (NormalAlphaIsCoverage && %s != -1) {
+					return %s.a * %s;
+				}
+
 				if (
 					%s == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
@@ -1101,7 +1113,12 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 					return %s;
 				}
 
-				return textureLod(textures[nonuniformEXT(%s)], uv, 0.0).a * %s;
+				if (Additive) {
+					vec3 albedo = %s;
+					return max(albedo.r, max(albedo.g, albedo.b)) * %s;
+				}
+
+				return %s.a * %s;
 			}
 
 			float get_alpha() {
@@ -1109,10 +1126,15 @@ function model_pipeline.BuildBindlessAlphaSamplingGlsl(texture_index_expr, color
 			}
 		]]
 	):format(
-		texture_index_expr,
-		color_multiplier_a_expr,
-		texture_index_expr,
-		color_multiplier_a_expr
+		options.normal_texture,
+		options.sample(options.normal_texture, "bump_uv(uv)"),
+		options.color_alpha,
+		options.albedo_texture,
+		options.color_alpha,
+		options.albedo_rgb,
+		options.color_alpha,
+		options.sample(options.albedo_texture, "base_uv(uv)"),
+		options.color_alpha
 	)
 end
 
@@ -1664,33 +1686,13 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return get_albedo_uv(in_uv);
 			}
 
-			float get_alpha_uv(vec2 uv) {
-				if (NormalAlphaIsCoverage && model.NormalTexture != -1) {
-					return texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a * color_model.ColorMultiplier.a;
-				}
-
-				if (
-					model.AlbedoTexture == -1 ||
-					AlbedoTextureAlphaIsRoughness ||
-					AlbedoAlphaIsEmissive ||
-					BlendTintByBaseAlpha ||
-					!(AlphaTest || Translucent || Additive)
-				) {
-					return color_model.ColorMultiplier.a;
-				}
-
-				if (Additive) {
-					vec3 albedo = get_albedo_uv(uv);
-					return max(albedo.r, max(albedo.g, albedo.b)) * color_model.ColorMultiplier.a;
-				}
-
-				return texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a * color_model.ColorMultiplier.a;
-			}
-
-			float get_alpha() {
-				return get_alpha_uv(in_uv);
-			}
-	]=] .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff", nil, camera_block_name .. ".noise_phase") .. [[
+	]=] .. model_pipeline.BuildAlphaSamplingGlsl{
+		albedo_texture = "model.AlbedoTexture",
+		normal_texture = "model.NormalTexture",
+		color_alpha = "color_model.ColorMultiplier.a",
+		sample = model_pipeline.SampleTextureGlsl,
+		albedo_rgb = "get_albedo_uv(uv)",
+	} .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff", nil, camera_block_name .. ".noise_phase") .. [[
 			vec3 get_vertex_normal() {
 				vec3 N = in_normal;
 

@@ -94,20 +94,71 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 	local entry = material_cache[pipeline]
 	local albedo_texture = material:GetAlbedoTexture()
 	local albedo_view = albedo_texture and albedo_texture:GetView() or nil
+	local normal_texture = material:GetNormalTexture()
+	local normal_view = normal_texture and normal_texture:GetView() or nil
 
 	if
 		not entry or
 		entry.albedo_texture ~= albedo_texture or
-		entry.albedo_view ~= albedo_view
+		entry.albedo_view ~= albedo_view or
+		entry.normal_texture ~= normal_texture or
+		entry.normal_view ~= normal_view
 	then
 		entry = entry or {}
 		entry.albedo_texture = albedo_texture
 		entry.albedo_view = albedo_view
 		entry.albedo_texture_index = pipeline:GetTextureIndex(albedo_texture)
+		entry.normal_texture = normal_texture
+		entry.normal_view = normal_view
+		entry.normal_texture_index = pipeline:GetTextureIndex(normal_texture)
 		material_cache[pipeline] = entry
 	end
 
 	return entry
+end
+
+-- what the alpha test reads besides the albedo: the normal texture's alpha for coverage, and the transforms of the uvs
+local function write_shadow_uv_data(data, material, normal_texture_index)
+	data.normal_texture_index = normal_texture_index
+
+	if material then
+		local base_u, base_v = material:GetBaseTextureTransformU(), material:GetBaseTextureTransformV()
+		local bump_u, bump_v = material:GetBumpTransformU(), material:GetBumpTransformV()
+		data.base_transform_u[0], data.base_transform_u[1], data.base_transform_u[2] = base_u.x, base_u.y, base_u.z
+		data.base_transform_v[0], data.base_transform_v[1], data.base_transform_v[2] = base_v.x, base_v.y, base_v.z
+		data.bump_transform_u[0], data.bump_transform_u[1], data.bump_transform_u[2] = bump_u.x, bump_u.y, bump_u.z
+		data.bump_transform_v[0], data.bump_transform_v[1], data.bump_transform_v[2] = bump_v.x, bump_v.y, bump_v.z
+	else
+		data.base_transform_u[0], data.base_transform_u[1], data.base_transform_u[2] = 1, 0, 0
+		data.base_transform_v[0], data.base_transform_v[1], data.base_transform_v[2] = 0, 1, 0
+		data.bump_transform_u[0], data.bump_transform_u[1], data.bump_transform_u[2] = 1, 0, 0
+		data.bump_transform_v[0], data.bump_transform_v[1], data.bump_transform_v[2] = 0, 1, 0
+	end
+end
+
+local function sample_shadow_texture(texture, uv)
+	return "textureLod(textures[nonuniformEXT(" .. texture .. ")], " .. uv .. ", 0.0)"
+end
+
+-- block is the GLSL expression of the struct with the material's texture indices and transforms
+local function build_shadow_alpha_glsl(block)
+	return (
+		[[
+			vec2 base_uv(vec2 uv) {
+				return vec2(dot(%s.base_transform_u.xy, uv) + %s.base_transform_u.z, dot(%s.base_transform_v.xy, uv) + %s.base_transform_v.z);
+			}
+
+			vec2 bump_uv(vec2 uv) {
+				return vec2(dot(%s.bump_transform_u.xy, uv) + %s.bump_transform_u.z, dot(%s.bump_transform_v.xy, uv) + %s.bump_transform_v.z);
+			}
+		]]
+	):format(block, block, block, block, block, block, block, block) .. model_pipeline.BuildAlphaSamplingGlsl{
+		albedo_texture = block .. ".albedo_texture_index",
+		normal_texture = block .. ".normal_texture_index",
+		color_alpha = block .. ".color_multiplier_a",
+		sample = sample_shadow_texture,
+		albedo_rgb = sample_shadow_texture(block .. ".albedo_texture_index", "base_uv(uv)") .. ".rgb",
+	}
 end
 
 local function get_cached_shadow_material_texture_indices(self, material, pipeline)
@@ -134,6 +185,11 @@ local ShadowStateUniformDecl = [[
 		int flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
+		int normal_texture_index;
+		float base_transform_u[4];
+		float base_transform_v[4];
+		float bump_transform_u[4];
+		float bump_transform_v[4];
 	}
 ]]
 local SHADOW_PUSH_CONSTANT_GLSL = [[
@@ -150,6 +206,11 @@ local SHADOW_STATE_UNIFORM_GLSL = [[
 		int flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
+		int normal_texture_index;
+		vec4 base_transform_u;
+		vec4 base_transform_v;
+		vec4 bump_transform_u;
+		vec4 bump_transform_v;
 	} shadow_state;
 ]]
 local NO_SHADOW_STATE_MATERIAL = {}
@@ -223,7 +284,7 @@ local function build_shadow_fragment_shader(bindless_texture_capacity, linear_de
 		linear_depth_output and "layout(location = 1) in vec3 in_world_pos;" or "",
 		linear_depth_output and "layout(location = 0) out float out_distance;" or ""
 	)
-	return prelude .. Material.BuildGlslFlags("shadow_state.flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl("shadow_state.albedo_texture_index", "shadow_state.color_multiplier_a") .. model_pipeline.BuildAlphaDiscardGlsl("shadow_state.alpha_cutoff", "alpha") .. (
+	return prelude .. Material.BuildGlslFlags("shadow_state.flags") .. build_shadow_alpha_glsl("shadow_state") .. model_pipeline.BuildAlphaDiscardGlsl("shadow_state.alpha_cutoff", "alpha") .. (
 			linear_depth_output and
 			[[
 					void main() {
@@ -451,11 +512,13 @@ local function get_shadow_state_offset(self, frame_index, pipeline, material, ca
 		data.flags = material:GetShadowFlags()
 		data.color_multiplier_a = material:GetShadowOpacity()
 		data.alpha_cutoff = material:GetAlphaCutoff()
+		write_shadow_uv_data(data, material, texture_entry and texture_entry.normal_texture_index or -1)
 	else
 		data.albedo_texture_index = 0
 		data.flags = 0
 		data.color_multiplier_a = 1.0
 		data.alpha_cutoff = 0.5
+		write_shadow_uv_data(data, nil, -1)
 	end
 
 	local offset = self.shadow_state_buffer:Upload(frame_index)
@@ -607,6 +670,11 @@ local ShadowBatchRecord = ffi.typeof(
 		int32_t flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
+		int32_t normal_texture_index;
+		float base_transform_u[4];
+		float base_transform_v[4];
+		float bump_transform_u[4];
+		float bump_transform_v[4];
 		$ anim;
 	}]],
 	ffi.typeof(model_pipeline.GetVertexAnimationUniformBufferDecl())
@@ -653,6 +721,11 @@ do
 		int flags;
 		float color_multiplier_a;
 		float alpha_cutoff;
+		int normal_texture_index;
+		vec4 base_transform_u;
+		vec4 base_transform_v;
+		vec4 bump_transform_u;
+		vec4 bump_transform_v;
 		VertexAnimation_t anim;
 	};
 
@@ -780,10 +853,7 @@ local function build_shadow_multi_draw_fragment_stage(bindless_texture_capacity,
 				linear_depth_output and
 				"layout(location = 2) in vec3 in_world_pos;\nlayout(location = 0) out float out_distance;" or
 				""
-			) .. "\n" .. Material.BuildGlslFlags("SHADOW_BATCH[in_batch].flags") .. model_pipeline.BuildBindlessAlphaSamplingGlsl(
-				"SHADOW_BATCH[in_batch].albedo_texture_index",
-				"SHADOW_BATCH[in_batch].color_multiplier_a"
-			) .. model_pipeline.BuildAlphaDiscardGlsl("SHADOW_BATCH[in_batch].alpha_cutoff", "alpha") .. (
+			) .. "\n" .. Material.BuildGlslFlags("SHADOW_BATCH[in_batch].flags") .. build_shadow_alpha_glsl("SHADOW_BATCH[in_batch]") .. model_pipeline.BuildAlphaDiscardGlsl("SHADOW_BATCH[in_batch].alpha_cutoff", "alpha") .. (
 				linear_depth_output and
 				[[
 					void main() {
@@ -1240,10 +1310,16 @@ local SOUP_UV_FRAGMENT_GLSL = [[
 		layout(set = 1, binding = 0) uniform sampler2D textures[%d];
 
 		struct SoupShadowMaterial {
-			float alpha;
-			int albedo_texture;
+			float color_multiplier_a;
+			int albedo_texture_index;
 			float cutoff;
 			uint mode;
+			int flags;
+			int normal_texture_index;
+			vec4 base_transform_u;
+			vec4 base_transform_v;
+			vec4 bump_transform_u;
+			vec4 bump_transform_v;
 		};
 
 		layout(scalar, set = 0, binding = 1) readonly buffer SoupShadowMaterials {
@@ -1253,13 +1329,12 @@ local SOUP_UV_FRAGMENT_GLSL = [[
 		layout(location = 0) in vec2 in_uv;
 		layout(location = 1) flat in uint in_material;
 
+		SoupShadowMaterial material;
+	]]
+local SOUP_UV_FRAGMENT_MAIN_GLSL = [[
 		void main() {
-			SoupShadowMaterial material = materials[in_material];
-			float alpha = material.alpha;
-
-			if (material.albedo_texture != -1) {
-				alpha *= textureLod(textures[nonuniformEXT(material.albedo_texture)], in_uv, 0.0).a;
-			}
+			material = materials[in_material];
+			float alpha = get_alpha();
 
 			if (material.mode == 1u) {
 				if (alpha < material.cutoff) discard;
@@ -1269,10 +1344,16 @@ local SOUP_UV_FRAGMENT_GLSL = [[
 		}
 	]]
 local SoupShadowMaterial = ffi.typeof([[struct {
-	float alpha;
-	int32_t albedo_texture;
+	float color_multiplier_a;
+	int32_t albedo_texture_index;
 	float cutoff;
 	uint32_t mode;
+	int32_t flags;
+	int32_t normal_texture_index;
+	float base_transform_u[4];
+	float base_transform_v[4];
+	float bump_transform_u[4];
+	float bump_transform_v[4];
 }]])
 local SoupShadowMaterialPtr = ffi.typeof("$ *", SoupShadowMaterial)
 local SOUP_MATERIAL_BYTES = ffi.sizeof(SoupShadowMaterial)
@@ -1315,7 +1396,7 @@ local function create_soup_uv_pipeline_variant(
 				},
 				{
 					type = "fragment",
-					code = SOUP_UV_FRAGMENT_GLSL:format(bindless_texture_capacity),
+					code = SOUP_UV_FRAGMENT_GLSL:format(bindless_texture_capacity) .. Material.BuildGlslFlags("material.flags") .. build_shadow_alpha_glsl("material") .. SOUP_UV_FRAGMENT_MAIN_GLSL,
 					descriptor_sets = {
 						{
 							type = "combined_image_sampler",
@@ -1363,8 +1444,10 @@ local function update_soup_material_table(pipeline, table_state)
 		if full or i >= filled or (material.shadow_stamp or 0) > stamp then
 			local entry = table_state.ptr[i]
 			local texture = material:HasShadowTexture() and material:GetAlbedoTexture() or nil
-			entry.alpha = material:GetShadowOpacity()
-			entry.albedo_texture = texture and pipeline:GetTextureIndex(texture) or -1
+			entry.color_multiplier_a = material:GetShadowOpacity()
+			entry.albedo_texture_index = texture and pipeline:GetTextureIndex(texture) or -1
+			entry.flags = material:GetShadowFlags()
+			write_shadow_uv_data(entry, material, pipeline:GetTextureIndex(material:GetNormalTexture()))
 			entry.cutoff = material:GetAlphaCutoff()
 			entry.mode = material:GetAlphaTest() and
 				1 or
@@ -2617,6 +2700,7 @@ local function write_shadow_batch_record(self, pipeline, record, batch)
 	record.flags = material:GetShadowFlags()
 	record.color_multiplier_a = material:GetShadowOpacity()
 	record.alpha_cutoff = material:GetAlphaCutoff()
+	write_shadow_uv_data(record, material, cache_shadow_material_texture_indices(self, material, pipeline).normal_texture_index)
 	render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 	model_pipeline.FillVertexAnimationData(record.anim, material)
 end
