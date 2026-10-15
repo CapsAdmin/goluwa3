@@ -2,6 +2,7 @@ local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
+local ddgi = import("goluwa/render3d/ddgi.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -57,6 +58,7 @@ return {
 					{"frame", "int"},
 					{"gi_enabled", "int"},
 					{"gi_strength", "float"},
+					{"ddgi_screen_tex", "int"},
 					gbuffer_layout.block,
 				},
 				write = function(self, block)
@@ -67,6 +69,9 @@ return {
 					block.frame = system.GetFrameNumber() % 4096
 					block.gi_enabled = ambient_occlusion.IsGIEnabled() and block.last_frame_tex ~= -1 and 1 or 0
 					block.gi_strength = ambient_occlusion.GetGIStrength()
+					-- the probes' sky visibility of the frame before, the resolve runs after this pass
+					local screen = ddgi.GetScreenTexture()
+					block.ddgi_screen_tex = screen and self:GetTextureIndex(screen) or -1
 					gbuffer_layout.WriteBlock(self, block)
 					return block
 				end,
@@ -83,6 +88,7 @@ return {
 			const float BENT_COS_SIN[32] = float[32](]] .. table.concat(BENT_COS_SIN, ", ") .. [[);
 			// a diffuse surface in full sun is about this bright in cd/m2. anything above is a glint, an
 			// emitter or earlier bounce piling up, and one such pixel should not become a firefly
+			const float BELOW_HORIZON_WEIGHT = 0.25;
 			const float BOUNCE_MAX_LUMINANCE = 30000.0;
 
 			]] .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. post_source.GetPreExposureGLSL("lighting_data") .. [[
@@ -136,6 +142,19 @@ return {
 				vec3 p = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
 				vec3 V = normalize(-p);
 				vec3 view_normal = normalize(mat3(lighting_data.view) * N);
+				vec3 view_up = mat3(lighting_data.view) * vec3(0.0, 1.0, 0.0);
+
+				// how much of the sky the probes see around this point, as a share of the upper half that a surface with
+				// this normal faces. where they see it the ground and the ceiling are in their light already
+				float probe_sky = 0.0;
+
+				if (lighting_data.ddgi_screen_tex != -1) {
+					vec2 probe_uv = lighting_data.velocity_tex == -1 ? uv : uv - texture(TEXTURE(lighting_data.velocity_tex), uv).xy;
+					float visibility = texture(TEXTURE(lighting_data.ddgi_screen_tex), probe_uv).a;
+					probe_sky = clamp(visibility / max(0.5 * (1.0 + N.y), 0.05), 0.0, 1.0);
+				}
+
+				float below_horizon_weight = BELOW_HORIZON_WEIGHT * (1.0 - probe_sky);
 
 				ivec2 screen_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
 				ivec2 pixel = ivec2(uv * vec2(screen_size));
@@ -167,6 +186,7 @@ return {
 				float total_ao = 0.0;
 				vec3 total_bounce = vec3(0.0);
 				vec3 total_bent = vec3(0.0);
+				vec3 total_bent_open = vec3(0.0);
 				float total_weight = 0.0;
 
 				for (int i = 0; i < Nd; i++) {
@@ -272,23 +292,38 @@ return {
 						}
 					}
 
-					total_ao += (1.0 - float(bitCount(bi)) / float(Nb)) * weight;
 					total_bounce += slice_bounce * weight;
 
+					// the probes already hold the large occluders around, a floor or a ceiling next to the surface, so
+					// a direction counts more the further up it points. below the horizon it keeps a share, or a wall
+					// touching a ceiling, whose upward directions are all covered, would go black
+					float sky_open = 0.0;
+					float sky_total = 0.0;
 					float open_cos_squared = 0.0;
 					float open_cos_sin = 0.0;
 
 					for (int k = 0; k < 32; k++) {
-						if (((bi >> uint(k)) & 1u) == 0u) {
-							open_cos_squared += BENT_COS_SQUARED[k];
-							open_cos_sin += BENT_COS_SIN[k];
-						}
+						float bit_angle = theta_n + (float(k) + 0.5) / float(Nb) * 3.14159 - 1.5708;
+						float up = dot(V * cos(bit_angle) + T_v * sin(bit_angle), view_up);
+						float direction_weight = below_horizon_weight + (1.0 - below_horizon_weight) * clamp(up, 0.0, 1.0);
+						bool covered = ((bi >> uint(k)) & 1u) != 0u;
+						sky_total += direction_weight;
+
+						if (!covered) sky_open += direction_weight;
+
+						// the bent normal takes the same share of the ground out, or the lookup leans up where the ao does not darken
+						float open_share = covered ? (up <= 0.0 ? 1.0 - below_horizon_weight : 0.0) : 1.0;
+						open_cos_squared += BENT_COS_SQUARED[k] * open_share;
+						open_cos_sin += BENT_COS_SIN[k] * open_share;
 					}
 
+					total_ao += sky_open / sky_total * weight;
 					// the open direction in the slice, measured from the projected normal, back in view space
 					float cn = cos(theta_n);
 					float sn = sin(theta_n);
 					total_bent += (V * (open_cos_squared * cn - open_cos_sin * sn) + T_v * (open_cos_squared * sn + open_cos_sin * cn)) * weight;
+					// the same with nothing covering the slice, its bits' cos squared add up to half of them
+					total_bent_open += (V * cn + T_v * sn) * (weight * float(Nb / 2u));
 					total_weight += weight;
 				}
 
@@ -301,8 +336,11 @@ return {
 
 				ao = clamp(total_ao / total_weight, 0.0, 1.0);
 				bounce = total_bounce / total_weight * lighting_data.gi_strength;
-				float bent_length = length(total_bent);
-				bent = bent_length > 1e-4 ? normalize(mat3(lighting_data.inv_view) * (total_bent / bent_length)) : N;
+				// the slices all contain the view vector, so with nothing covering them their sum leans towards
+				// the viewer. what is covered is taken off the sum of the open slices, which stands in for the normal
+				vec3 open_bent = view_normal * dot(total_bent_open, view_normal) - (total_bent_open - total_bent);
+				float bent_length = length(open_bent);
+				bent = bent_length > 1e-4 ? normalize(mat3(lighting_data.inv_view) * (open_bent / bent_length)) : N;
 			}
 
 			void main() {

@@ -45,6 +45,9 @@ envprobe.ENVIRONMENT_SIZE = 512
 envprobe.REFLECTION_SIZE = 128
 envprobe.IRRADIANCE_SIZE = 32
 envprobe.IRRADIANCE_SOURCE_SIZE = 16
+-- b10g11r11 has 5 bits of mantissa in blue, and through the cubemap, the equirect and its mips it darkened the clear sky's
+-- blue light by 1.4 percent and red by 0.9 (measured against the sky view LUT, test/harnesses/colorchecker)
+envprobe.FORMAT = "r16g16b16a16_sfloat"
 envprobe.REFLECTION_RADIUS = envprobe.REFLECTION_RADIUS or 24
 envprobe.REFLECTION_MIN_SPACING = envprobe.REFLECTION_MIN_SPACING or 4
 envprobe.FACES_PER_FRAME = 1
@@ -263,13 +266,16 @@ local function create_face_views(texture, mip_level)
 	return views
 end
 
+-- the poles are the first and last rows, wrapping would blend the sky overhead with the ground below in a lookup straight up or down
+local EQUIRECT_SAMPLER = {wrap_t = "clamp_to_edge"}
+
 local function create_equirect(width, height, format, mip_map_levels, sampler)
 	return Texture.New{
 		width = width,
 		height = height,
 		format = format,
 		mip_map_levels = mip_map_levels,
-		sampler = sampler,
+		sampler = sampler or EQUIRECT_SAMPLER,
 	}
 end
 
@@ -291,21 +297,21 @@ local function create_mip_views_2d(texture, mip_count)
 	return views
 end
 
-local DEPTH_SAMPLER = {min_filter = "linear", mag_filter = "linear"}
+local DEPTH_SAMPLER = {min_filter = "linear", mag_filter = "linear", wrap_t = "clamp_to_edge"}
 
 local function CreateProbeTextures(size, with_irradiance)
 	local probe = {}
-	probe.source_cubemap = create_cubemap(size, "b10g11r11_ufloat_pack32", "auto")
+	probe.source_cubemap = create_cubemap(size, envprobe.FORMAT, "auto")
 	probe.depth_cubemap = create_cubemap(size, "r32_sfloat", 1, DEPTH_SAMPLER)
 	probe.source_face_views = create_face_views(probe.source_cubemap)
 	probe.depth_face_views = create_face_views(probe.depth_cubemap)
 	local color_w, color_h = equirect_dims(size)
-	probe.color_equirect = create_equirect(color_w, color_h, "b10g11r11_ufloat_pack32", "auto")
+	probe.color_equirect = create_equirect(color_w, color_h, envprobe.FORMAT, "auto")
 	probe.color_equirect_mip_views = create_mip_views_2d(probe.color_equirect, probe.color_equirect.mip_map_levels)
 
 	if with_irradiance then
 		local irradiance_w, irradiance_h = equirect_dims(envprobe.IRRADIANCE_SIZE)
-		probe.irradiance_equirect = create_equirect(irradiance_w, irradiance_h, "b10g11r11_ufloat_pack32", 1)
+		probe.irradiance_equirect = create_equirect(irradiance_w, irradiance_h, envprobe.FORMAT, 1)
 		probe.irradiance_equirect_view = create_2d_view(probe.irradiance_equirect)
 	else
 		local depth_w, depth_h = equirect_dims(size)
@@ -711,7 +717,7 @@ function envprobe.CreatePipelines()
 	envprobe.sky_pipeline = EasyPipeline.New{
 		name = "envprobe_sky",
 		ColorFormat = {
-			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
+			{envprobe.FORMAT, {"color", "rgba"}},
 			{"r32_sfloat", {"linear_depth", "r"}},
 		},
 		RasterizationSamples = "1",
@@ -757,6 +763,11 @@ function envprobe.CreatePipelines()
 					vec3 probe_sun_dir = length(fragment.sun_direction.xyz) > 0.0001
 						? normalize(fragment.sun_direction.xyz)
 						: vec3(0.0, 1.0, 0.0);
+
+					if (probe_ray_dir.y < 0.0) {
+						sky_color_output = get_ground_radiance(get_atmosphere_camera_origin(fragment.camera_position.xyz), probe_sun_dir);
+					}
+
 					sky_color_output = apply_ground_fog_ray(
 						sky_color_output,
 						probe_ray_dir,
@@ -780,7 +791,7 @@ function envprobe.CreatePipelines()
 	envprobe.environment_sky_pipeline = EasyPipeline.New{
 		name = "envprobe_environment_sky",
 		ColorFormat = {
-			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
+			{envprobe.FORMAT, {"color", "rgba"}},
 			{"r32_sfloat", {"linear_depth", "r"}},
 		},
 		RasterizationSamples = "1",
@@ -847,7 +858,7 @@ function envprobe.CreatePipelines()
 		DepthWrite = false,
 	}
 	envprobe.capture_copy_pipeline = EasyPipeline.New{
-		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
+		ColorFormat = {{envprobe.FORMAT, {"color", "rgba"}}},
 		dont_create_framebuffers = true,
 		CullMode = "none",
 		DepthTest = false,
@@ -959,7 +970,7 @@ function envprobe.CreatePipelines()
 		},
 	}
 	envprobe.prefilter_pipeline = EasyPipeline.New{
-		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
+		ColorFormat = {{envprobe.FORMAT, {"color", "rgba"}}},
 		RasterizationSamples = "1",
 		CullMode = "none",
 		DepthTest = false,
@@ -1042,7 +1053,7 @@ function envprobe.CreatePipelines()
 		},
 	}
 	envprobe.irradiance_pipeline = EasyPipeline.New{
-		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
+		ColorFormat = {{envprobe.FORMAT, {"color", "rgba"}}},
 		RasterizationSamples = "1",
 		CullMode = "none",
 		DepthTest = false,
