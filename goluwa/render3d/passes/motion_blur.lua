@@ -9,7 +9,7 @@ local PROBES = 8
 pvars.StartGroup("Post", "Motion blur", {store = false, prefix = "motion_blur_"})
 render3d.motion_blur_enabled = pvars.Setup2{
 	key = "r_motion_blur",
-	default = false,
+	default = true,
 	help = "blur along each pixel's screen motion, from the velocity buffer",
 }
 local shutter = pvars.Setup2{
