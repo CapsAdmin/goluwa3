@@ -2418,6 +2418,7 @@ function scatter.Draw(pipeline, cmd)
 	batch_table = batch_table or gbuffer_instancing.NewBatchTable("scatter_batches")
 	pipeline.draw_batches_address = batch_table:Update(pipeline, draw_batches, batch_serial, system.GetFrameNumber())
 	pipeline.draw_instances_address = b.instances:GetDeviceAddress()
+	pipeline.draw_prev_instances_address = pipeline.draw_instances_address
 	pipeline:UploadConstants()
 	cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
 	cmd:SetCullMode(orientation.CULL_MODE)

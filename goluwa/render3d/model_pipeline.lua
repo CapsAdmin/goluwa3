@@ -589,6 +589,7 @@ do
 ]] .. table.concat(fetch, "\n") .. [[
 
 	multi_draw_instance_world = PBRBatchInstanceData(]] .. options.instances_expr .. [[).worlds[gl_InstanceIndex];
+	multi_draw_instance_prev_world = PBRBatchInstanceData(]] .. options.prev_instances_expr .. [[).worlds[gl_InstanceIndex];
 	// the bottom row's [2][3] is free in a scene instance (zero), scatter sets it for an instance that stands still
 	vertex_animation_disabled = multi_draw_instance_world[2][3] != 0.0;
 	vertex_animation = batch_data.b[batch_index].m_vertex_animation;
@@ -605,6 +606,7 @@ layout(buffer_reference, scalar) readonly buffer PBRBatchVertexData { float v[];
 layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 worlds[]; };
 layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
 mat4 multi_draw_instance_world;
+mat4 multi_draw_instance_prev_world;
 PBRBatch_vertex_animation vertex_animation;
 
 // scatter instances carry a color multiplier in the free bottom row of their world matrix, rgb in
@@ -614,7 +616,7 @@ vec3 multi_draw_instance_tint(float packed) {
 	return bits == 0u ? vec3(1.0) : unpackUnorm4x8(bits).rgb * 2.0;
 }
 ]],
-			shader = build_vertex_shader(options, "multi_draw_instance_world", "multi_draw_instance_world", main_prologue),
+			shader = build_vertex_shader(options, "multi_draw_instance_world", "multi_draw_instance_prev_world", main_prologue),
 		}
 	end
 end

@@ -124,6 +124,7 @@ do
 		local commands = output.visible_batch_indirect_command_buffer
 		local group_size = output.batch_command_capacity * stride
 		local instances_address = output.visible_instance_vertex_buffer.buffer:GetDeviceAddress()
+		local prev_instances_address = output.visible_instance_prev_buffer:GetDeviceAddress()
 		pipelines[1] = pipeline
 		pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
 
@@ -137,6 +138,7 @@ do
 
 			pipeline.draw_batches_address = batch_table:Update(pipeline, batches, dataset.main.batch_serial, system.GetFrameNumber())
 			pipeline.draw_instances_address = instances_address
+			pipeline.draw_prev_instances_address = prev_instances_address
 			pipeline:UploadConstants()
 			cmd:SetCullMode(orientation.CULL_MODE)
 			cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")

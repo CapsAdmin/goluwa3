@@ -169,12 +169,14 @@ local multi_draw_block = {
 	block = {
 		{"batches", "uint64_t"},
 		{"instances", "uint64_t"},
+		{"prev_instances", "uint64_t"},
 		{"time", "float"},
 		{"prev_time", "float"},
 	},
 	write = function(self, block)
 		block.batches = self.draw_batches_address
 		block.instances = self.draw_instances_address
+		block.prev_instances = self.draw_prev_instances_address
 		block.time = system.GetElapsedTime()
 		block.prev_time = render3d.GetPreviousElapsedTime()
 		return block
@@ -201,6 +203,7 @@ local function build_multi_draw_pass(fragment_shader)
 		uniform_buffers = {camera_block, multi_draw_block},
 		batches_expr = "gbuffer_draw.batches",
 		instances_expr = "gbuffer_draw.instances",
+		prev_instances_expr = "gbuffer_draw.prev_instances",
 		time_expr = "gbuffer_draw.time",
 		prev_time_expr = "gbuffer_draw.prev_time",
 	}

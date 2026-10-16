@@ -383,6 +383,12 @@ function gpu_culling.Initialize()
 					stageFlags = "compute",
 					set_index = 0,
 				},
+				{
+					type = "storage_buffer",
+					binding_index = 16,
+					stageFlags = "compute",
+					set_index = 0,
+				},
 			},
 			block = {
 				{"visual_count", "int"},
@@ -556,6 +562,10 @@ function gpu_culling.Initialize()
 			// without searching the append-ordered visible list
 			layout(std430, set = 0, binding = 15) writeonly buffer EntryVisibilityBuffer {
 				uint entry_visible[];
+			};
+
+			layout(std430, set = 0, binding = 16) writeonly buffer VisibleInstancePrevWorldBuffer {
+				mat4 visible_instance_prev_worlds[];
 			};
 
 			const uint VISUAL_FLAG_VISIBLE = 1u;
@@ -745,9 +755,10 @@ function gpu_culling.Initialize()
 						atomicAdd(batch_commands[command_index].instanceCount, 1u);
 
 						if (local_index < batch_record.max_count) {
-							mat4 instance_world = static_instance_worlds[entry_record.static_matrix_index];
+							mat4 instance_world = static_instance_worlds[entry_record.static_matrix_index * 2u];
 							instance_world[0][3] = lod_fade;
 							visible_instance_worlds[batch_record.output_offset + local_index] = instance_world;
+							visible_instance_prev_worlds[batch_record.output_offset + local_index] = static_instance_worlds[entry_record.static_matrix_index * 2u + 1u];
 						}
 					} else {
 						uint fallback_write_index = atomicAdd(fallback_visible_count[0], 1u);
@@ -1683,6 +1694,7 @@ local function clear_frame_buffers()
 		remove_buffer(frame_buffers.fallback_visible_index_buffer)
 		remove_buffer(frame_buffers.fallback_visible_count_buffer)
 		remove_buffer(frame_buffers.main_instance_world_buffer)
+		remove_buffer(frame_buffers.visible_instance_prev_buffer)
 		remove_buffer(frame_buffers.indirect_command_buffer)
 		remove_buffer(frame_buffers.indirect_count_buffer)
 		remove_buffer(frame_buffers.visible_instanced_batch_count_buffer)
@@ -1983,8 +1995,13 @@ local function build_frame_buffers(dataset, capacity)
 			),
 			main_instance_world_buffer = create_buffer(
 				"gpu_culling_main_instance_worlds_" .. frame_index,
-				math.max(static_instance_capacity * 16, 16) * ffi.sizeof("float"),
+				math.max(static_instance_capacity * 32, 32) * ffi.sizeof("float"),
 				{"storage_buffer"}
+			),
+			visible_instance_prev_buffer = create_buffer(
+				"gpu_culling_visible_instance_prev_worlds_" .. frame_index,
+				math.max(static_instance_capacity * 16, 16) * ffi.sizeof("float"),
+				{"storage_buffer", "shader_device_address"}
 			),
 			indirect_command_buffer = create_buffer(
 				"gpu_culling_indirect_commands_" .. frame_index,
@@ -2241,10 +2258,10 @@ local function ensure_matrix_capacity(view, count)
 	if count <= view.matrix_capacity then return end
 
 	local capacity = grow_capacity(count, view.matrix_capacity)
-	local worlds = FloatArray(capacity * 16)
+	local worlds = FloatArray(capacity * view.matrix_floats)
 
 	if view.worlds then
-		ffi.copy(worlds, view.worlds, view.matrix_capacity * MATRIX_SIZE)
+		ffi.copy(worlds, view.worlds, view.matrix_capacity * view.matrix_bytes)
 	end
 
 	view.worlds = worlds
@@ -2271,6 +2288,12 @@ local function create_view(is_main)
 		entry_count = 0,
 		entry_waste = 0,
 		matrix_free = {},
+		-- the main view keeps each instance's previous world after its world, for the velocity buffer
+		matrix_floats = is_main and 32 or 16,
+		matrix_bytes = is_main and MATRIX_SIZE * 2 or MATRIX_SIZE,
+		prev_moved = {},
+		prev_reset = {},
+		prev_frame = -1,
 		matrix_count = 0,
 		batches = {},
 		batch_serial = next_batch_serial(),
@@ -2497,7 +2520,25 @@ local function write_entry_world(view, entry)
 	local world_matrix = source_entry.transform and
 		source_entry.transform:GetWorldMatrix() or
 		entry.component:GetWorldMatrix()
-	world_matrix:CopyToFloatPointer(view.worlds + entry.static_matrix_index * 16)
+	local base = view.worlds + entry.static_matrix_index * view.matrix_floats
+
+	if view.is_main then
+		local frame = system.GetFrameNumber()
+
+		if entry.world_frame == nil then
+			world_matrix:CopyToFloatPointer(base + 16)
+		elseif entry.world_frame ~= frame then
+			ffi.copy(base + 16, base, MATRIX_SIZE)
+		end
+
+		if entry.world_frame ~= frame then
+			local moved = view.prev_moved
+			moved[#moved + 1] = entry
+			entry.world_frame = frame
+		end
+	end
+
+	world_matrix:CopyToFloatPointer(base)
 	local log = view.world_log
 	log[#log + 1] = entry.static_matrix_index
 end
@@ -2772,6 +2813,31 @@ local function prepare_view(view)
 
 	local log = view.world_log
 
+	if view.is_main then
+		local frame = system.GetFrameNumber()
+
+		if view.prev_frame ~= frame then
+			view.prev_frame = frame
+			local reset = view.prev_reset
+
+			for i = 1, #reset do
+				local entry = reset[i]
+
+				-- an entry that was not written again this frame stood still, so its previous world is its world
+				if entry.batch and entry.world_frame ~= frame then
+					local base = view.worlds + entry.static_matrix_index * view.matrix_floats
+					ffi.copy(base + 16, base, MATRIX_SIZE)
+					log[#log + 1] = entry.static_matrix_index
+				end
+
+				reset[i] = nil
+			end
+
+			view.prev_reset = view.prev_moved
+			view.prev_moved = reset
+		end
+	end
+
 	if #log > math.max(4096, view.matrix_count) then
 		view.world_log_base = view.world_log_base + #log
 		view.world_log = {}
@@ -2802,11 +2868,11 @@ local function sync_output_worlds(view, output, buffer)
 
 		for i = output.world_serial - base + 1, #log do
 			local index = log[i]
-			ffi.copy(mapped + index * MATRIX_SIZE, worlds + index * 16, MATRIX_SIZE)
+			ffi.copy(mapped + index * view.matrix_bytes, worlds + index * view.matrix_floats, view.matrix_bytes)
 		end
 	else
 		if view.matrix_count > 0 then
-			ffi.copy(buffer:Map(), view.worlds, view.matrix_count * MATRIX_SIZE)
+			ffi.copy(buffer:Map(), view.worlds, view.matrix_count * view.matrix_bytes)
 		end
 
 		output.world_view = view
@@ -3165,6 +3231,14 @@ local function record_cull_dispatch(
 		output.entry_visibility_buffer,
 		output.entry_visibility_buffer.size
 	)
+	pass:UpdateDescriptorSet(
+		"storage_buffer",
+		slot,
+		16,
+		0,
+		output.visible_instance_prev_buffer,
+		output.visible_instance_prev_buffer.size
+	)
 	bind_main_view_hiz(pass, slot, output, hiz_state, hiz_buffer)
 	local cmd = output.cull_cmd
 	cmd:Reset()
@@ -3285,6 +3359,12 @@ local function record_cull_dispatch(
 				size = output.visible_instance_vertex_buffer.byte_size,
 				srcAccessMask = "shader_write",
 				dstAccessMask = {"vertex_attribute_read", "shader_read"},
+			},
+			{
+				buffer = output.visible_instance_prev_buffer,
+				size = output.visible_instance_prev_buffer.size,
+				srcAccessMask = "shader_write",
+				dstAccessMask = "shader_read",
 			},
 			{
 				buffer = output.fallback_visible_index_buffer,
