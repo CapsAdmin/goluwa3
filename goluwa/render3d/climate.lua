@@ -11,6 +11,10 @@ climate.DEFAULTS = {
 	snow = 0,
 	wetness = 0,
 	snow_depth = 0,
+	aerosol_angstrom = atmosphere.DEFAULT_AEROSOL.angstrom,
+	aerosol_albedo = atmosphere.DEFAULT_AEROSOL.albedo,
+	aerosol_g = atmosphere.DEFAULT_AEROSOL.g,
+	aerosol_height = atmosphere.DEFAULT_AEROSOL.scale_height,
 }
 climate.presets = {
 	clear = {
@@ -20,6 +24,14 @@ climate.presets = {
 	haze = {
 		aerosol_visibility = 12000,
 		ground_fog_visibility = 60000,
+	},
+	hanoi = {
+		aerosol_visibility = 3000,
+		ground_fog_visibility = 20000,
+		aerosol_angstrom = 1.8,
+		aerosol_albedo = 0.88,
+		aerosol_g = 0.62,
+		aerosol_height = 0.7,
 	},
 	fog = {
 		aerosol_visibility = atmosphere.DEFAULT_AEROSOL_VISIBILITY,
@@ -378,8 +390,13 @@ local function get_state()
 		end
 	end
 
+	local aerosol = weather.GetAerosol()
 	return {
 		clouds = fill_layers(layers),
+		aerosol_angstrom = aerosol.angstrom,
+		aerosol_albedo = aerosol.albedo,
+		aerosol_g = aerosol.g,
+		aerosol_height = aerosol.scale_height,
 		rain = weather.GetRain(),
 		snow = weather.GetSnow(),
 		wetness = weather.GetWetness(),
@@ -464,6 +481,12 @@ local function apply(a, b, t)
 	weather.SetSnowDepth(math.lerp(t, a.snow_depth, b.snow_depth))
 	weather.SetTemperature(math.lerp(t, a.temperature, b.temperature))
 	weather.SetAerosolVisibility(1 / math.lerp(t, 1 / a.aerosol_visibility, 1 / b.aerosol_visibility))
+	weather.SetAerosol{
+		angstrom = math.lerp(t, a.aerosol_angstrom, b.aerosol_angstrom),
+		albedo = math.lerp(t, a.aerosol_albedo, b.aerosol_albedo),
+		g = math.lerp(t, a.aerosol_g, b.aerosol_g),
+		scale_height = math.lerp(t, a.aerosol_height, b.aerosol_height),
+	}
 	weather.SetGroundFogVisibility(1 / math.lerp(t, 1 / a.ground_fog_visibility, 1 / b.ground_fog_visibility))
 	weather.SetWind(a.wind:GetLerped(t, b.wind))
 	weather.SetCloudLayers(blend_layers(a.clouds, b.clouds, t))
