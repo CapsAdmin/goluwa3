@@ -6,22 +6,25 @@
 --   detach: how far the base of a leaf card, the frond or the blade moves from the wood it hangs on, meters (the
 --     nearest wood vertex at rest of the same limb, the same phase, is followed. a card on a twig too thin to have wood
 --     is followed against the branch the twig grows on)
--- MODEL=pine_a luajit glw --2d --background lua test/harnesses/foliage/wind_check.lua, NO_MAIN=1 leaves out the sway
--- of the whole and NO_DETAIL=1 the detail bending, to tell which one it is
+-- WIND=15 MODEL=pine_a luajit glw --2d --background lua test/harnesses/foliage/wind_check.lua, NO_MAIN=1 leaves out the sway
+-- of the whole and NO_DETAIL=1 the detail bending, to tell which one it is. MAIN_SCHEME=shear or rotate try other main
+-- bendings than crysis' (see docs/foliage.md), WORST=1 prints the most stretched edge
 local ffi = require("ffi")
 local system = import("goluwa/system.lua")
 local foliage = import("lua/foliage/foliage.lua")
 local floor, sqrt, abs, max, min = math.floor, math.sqrt, math.abs, math.max, math.min
-local WIND_X, WIND_Z = 6, 0
-local BEND_RESPONSE, MAX_BENDING, BEND_PER_HEIGHT = 0.25, 2, 0.25
+-- WIND is the speed in m/s (6 by default), along +x
+local WIND_X, WIND_Z = tonumber(os.getenv("WIND") or "") or 6, 0
+local BEND_RESPONSE, MAX_BENDING, BENDING_SPEED, BEND_PER_HEIGHT = 0.25, 7, 22, 0.25
 local MODES = {none = 0, leaves = 1, grass = 2}
 
 local function fract(x)
 	return x - floor(x)
 end
 
-local function triangle(x)
-	return abs(fract(x + 0.5) * 2 - 1)
+local function smooth_triangle(x)
+	local t = abs(fract(x + 0.5) * 2 - 1)
+	return t * t * (3 - 2 * t)
 end
 
 local function clamp01(x)
@@ -32,12 +35,15 @@ end
 local function animation_block(part)
 	local wind_x, wind_z = WIND_X * BEND_RESPONSE, WIND_Z * BEND_RESPONSE
 	local wind_length = sqrt(wind_x * wind_x + wind_z * wind_z)
-	local bending = wind_length * MAX_BENDING / (MAX_BENDING + wind_length)
+	local lean = (sqrt(WIND_X * WIND_X + WIND_Z * WIND_Z) / BENDING_SPEED) ^ 1.6
+	local bending = MAX_BENDING * lean / (1 + lean)
 	local material, height = part.material, part.mesh:GetBendHeight()
 	return {
 		main = height > 0 and not os.getenv("NO_MAIN") and bending * material:GetBending() * height * BEND_PER_HEIGHT or 0,
 		height = height,
-		speed = wind_length,
+		speed = 0.3 * wind_length * 6 / (6 + wind_length),
+		-- the detail clock's rate, atmosphere.GetWindDetailTime
+		rate = sqrt(max(sqrt(WIND_X * WIND_X + WIND_Z * WIND_Z), 4) / 4),
 		dir_x = wind_x / wind_length,
 		dir_z = wind_z / wind_length,
 		detail = os.getenv("NO_DETAIL") and 0 or MODES[material:GetDetailBending()],
@@ -50,7 +56,7 @@ end
 
 -- the object space position of a vertex at time t, an instance at the origin without rotation
 local function animate(block, v, t)
-	local p, c = v.position, v.vertex_color
+	local p, n, c = v.position, v.normal, v.vertex_color
 	local x, y, z = p[0], p[1], p[2]
 
 	if block.detail ~= 0 then
@@ -59,16 +65,22 @@ local function animate(block, v, t)
 
 		if block.detail == 2 then speed = speed * y end
 
+		local detail_time = t * block.rate
 		local branch_phase = clamp01(c[1])
 		local vertex_phase = (x + y + z) * (block.phase + branch_phase)
-		local scale = speed * block.frequency
-		local w1 = triangle((fract((t + vertex_phase) * 1.975) * 2 - 1) * scale)
-		local w2 = triangle((fract((t + vertex_phase) * 0.793) * 2 - 1) * scale)
-		local w3 = triangle((fract((t + branch_phase) * 0.375) * 2 - 1) * scale)
-		local w4 = triangle((fract((t + branch_phase) * 0.193) * 2 - 1) * scale)
-		x = x + (w1 + w2) * edge * block.leaf * block.dir_x
-		z = z + (w1 + w2) * edge * block.leaf * block.dir_z
-		y = y + (w3 + w4) * branch_atten * block.branch
+		local strength = speed * block.frequency
+		local amplitude = strength < 0.5 and strength * 2 or sqrt(strength * 2)
+		local w1 = smooth_triangle((detail_time + vertex_phase) * 1.975) - 0.5
+		local w2 = smooth_triangle((detail_time + vertex_phase) * 0.793) - 0.5
+		local w3 = smooth_triangle((detail_time + branch_phase) * 0.375) - 0.5
+		local w4 = smooth_triangle((detail_time + branch_phase) * 0.193) - 0.5
+		local edge_wave, branch_wave = (w1 + w2) * amplitude, (w3 + w4) * amplitude
+		local fx, fz = n[0], n[2]
+		local leaf = (edge_wave + (fx * block.dir_x + fz * block.dir_z) * (amplitude + branch_wave) * 0.5) * edge * block.leaf
+		local push = (amplitude + branch_wave) * 0.5 * branch_atten * block.branch
+		x = x + fx * leaf + block.dir_x * push
+		z = z + fz * leaf + block.dir_z * push
+		y = y + branch_wave * branch_atten * block.branch
 	end
 
 	if block.main > 0 then
@@ -80,16 +92,57 @@ local function animate(block, v, t)
 		local across = 0.12 * strength * math.sin(sway * 1.13 + 1.3)
 		local bx = (block.dir_x * (1 + along) - block.dir_z * across) * block.main * 0.015
 		local bz = (block.dir_z * (1 + along) + block.dir_x * across) * block.main * 0.015
-		local f = y / block.height + 1
-		f = f * f
-		f = f * f - f
-		local length = sqrt(x * x + y * y + z * z)
+		local scheme = os.getenv("MAIN_SCHEME") or "crysis"
 
-		if length > 0 then
-			local nx, ny, nz = x + bx * f, y, z + bz * f
-			local l = sqrt(nx * nx + ny * ny + nz * nz)
-			x, y, z = nx / l * length, ny / l * length, nz / l * length
+		if scheme == "crysis" then
+			local f = y / block.height + 1
+			f = f * f
+			f = f * f - f
+			local length = sqrt(x * x + y * y + z * z)
+
+			if length > 0 then
+				local nx, ny, nz = x + bx * f, y, z + bz * f
+				local l = sqrt(nx * nx + ny * ny + nz * nz)
+				x, y, z = nx / l * length, ny / l * length, nz / l * length
+			end
+
+			return x, y, z
 		end
+
+		local function bent_axis(h)
+			local f = h / block.height + 1
+			f = f * f
+			f = f * f - f
+			local ax, az = bx * f, bz * f
+			local l = sqrt(ax * ax + h * h + az * az)
+
+			if l == 0 then return 0, 0, 0 end
+
+			return ax * abs(h) / l, h * abs(h) / l, az * abs(h) / l
+		end
+
+		local ax, ay, az = bent_axis(y)
+		local step = 0.01 * block.height
+		local px, py, pz = bent_axis(y + step)
+		local mx, my, mz = bent_axis(y - step)
+		local tx, ty, tz = px - mx, py - my, pz - mz
+		local tl = sqrt(tx * tx + ty * ty + tz * tz)
+		tx, ty, tz = tx / tl, ty / tl, tz / tl
+		local ox, oy, oz = x, 0, z
+		local kx, kz = tz, -tx
+		local sine = sqrt(kx * kx + kz * kz)
+
+		if sine > 0.000001 then
+			kx, kz = kx / sine, kz / sine
+			-- rodrigues around (kx, 0, kz): o cos + k x o sin + k (k . o) (1 - cos)
+			local cx, cy, cz = -kz * oy, kz * ox - kx * oz, kx * oy
+			local d = kx * ox + kz * oz
+			ox, oy, oz = ox * ty + cx * sine + kx * d * (1 - ty), oy * ty + cy * sine, oz * ty + cz * sine + kz * d * (1 - ty)
+		end
+
+		if scheme == "shear" then return ax + x, ay, az + z end
+
+		x, y, z = ax + ox, ay + oy, az + oz
 	end
 
 	return x, y, z
@@ -105,10 +158,13 @@ for i = 1, 24 do
 	TIMES[i] = i * 1.37
 end
 
+local worst
+
 local function check(name, config)
 	local parts = foliage.Build(name, config)
 	local wood
 	local stretch, detach = 0, 0
+	local stretch_sum, length_sum = 0, 0
 
 	for _, part in ipairs(parts) do
 		local packed = part.mesh.packed
@@ -136,7 +192,13 @@ local function check(name, config)
 
 							if rest > 0.01 then
 								local ma, mb = moved[a], moved[b]
-								stretch = max(stretch, abs(distance(ma[1], ma[2], ma[3], mb[1], mb[2], mb[3]) - rest) / rest)
+								local e = abs(distance(ma[1], ma[2], ma[3], mb[1], mb[2], mb[3]) - rest) / rest
+								stretch_sum, length_sum = stretch_sum + e * rest, length_sum + rest
+
+								if e > stretch then
+									stretch = e
+									worst = ("rest %.2f m from %.2f,%.2f,%.2f to %.2f,%.2f,%.2f t %.1f"):format(rest, pa[0], pa[1], pa[2], pb[0], pb[1], pb[2], t)
+								end
 							end
 						end
 					end
@@ -178,7 +240,7 @@ local function check(name, config)
 		end
 	end
 
-	return stretch, detach
+	return stretch, detach, stretch_sum / math.max(length_sum, 1e-9)
 end
 
 local only = os.getenv("MODEL")
@@ -189,8 +251,10 @@ for _, category in ipairs{"trees", "plants", "grass"} do
 
 		if not only or preset:find(only, 1, true) then
 			local entry = foliage.models[path]
-			local stretch, detach = check(entry.generator, entry.config)
-			print(("%-28s stretch %5.1f%%   detach %.3f m"):format(category .. "/" .. preset, stretch * 100, detach))
+			local stretch, detach, mean = check(entry.generator, entry.config)
+			print(("%-28s stretch %5.1f%% (mean %4.2f%%)   detach %.3f m"):format(category .. "/" .. preset, stretch * 100, mean * 100, detach))
+
+			if os.getenv("WORST") then print("    worst edge", worst) end
 		end
 	end
 end

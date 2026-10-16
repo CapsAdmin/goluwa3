@@ -3,12 +3,17 @@
 local Color = import("goluwa/structs/color.lua")
 local foliage = import("lua/foliage/foliage.lua")
 local add = foliage.AddMaterial
-local BARK = {MetallicMultiplier = 0, SpecularMultiplier = 0.6, Bending = 1, DetailBending = "leaves"}
+-- the detail bending's frequency is how much the wind moves the detail, the amplitudes are meters (see the detail
+-- bending in model_pipeline.lua): at 1 a branch and a leaf's edge go about half their amplitude in a gentle breeze
+-- (4.4 m/s), the whole of it in a fresh one (9.4 m/s) and half again in a hurricane. crysis' leaves are 0.2 to 0.5 with
+-- larger amplitudes. the default (5) is crysis' untuned one, for what has no detail bending
+local BARK = {MetallicMultiplier = 0, SpecularMultiplier = 0.6, Bending = 1, DetailBending = "leaves", BendDetailFrequency = 1}
 -- small plants sway more for their height than trees do (the sway is a share of the height), and the detail bending's
 -- amplitudes are meters, the defaults are for the branches and leaves of trees. the detail phase is how fast the
 -- flutter's phase changes over the position: the default (100) has two vertices a centimeter apart flutter apart,
--- which tears a blade, 1 has a blade flutter as one with a wave along it. in the grass mode the flutter is faster
--- the higher it is, so the frequency is lower than the default (5), and lower still for what is tall
+-- which tears a blade, 1 has a blade flutter as one with a wave along it. in the grass mode the wind is multiplied by
+-- the height of the vertex, so a half meter blade at 3 goes most of its amplitude in a gentle breeze, and what is tall
+-- is lower
 local SMALL = {
 	Bending = 3,
 	DetailBending = "grass",
@@ -35,6 +40,7 @@ local function leaves(extra)
 		Bending = 1,
 		DetailBending = "leaves",
 		BendDetailPhase = 1,
+		BendDetailFrequency = 1,
 	}
 
 	for key, value in pairs(extra or {}) do
@@ -302,7 +308,7 @@ add(
 	)
 )
 add("grass_sedge", grass(35, {color_root = {0.25, 0.3, 0.15}, color_mid = {0.14, 0.3, 0.1}, color_tip = {0.25, 0.38, 0.14}, dry = 0.05, dry_tips = 0.2}))
-add("grass_reed", grass(37, {color_root = {0.3, 0.32, 0.18}, color_mid = {0.2, 0.33, 0.12}, color_tip = {0.32, 0.4, 0.16}, dry = 0.1, dry_tips = 0.25}, {BendDetailFrequency = 1.2, BendDetailLeafAmplitude = 0.08}))
+add("grass_reed", grass(37, {color_root = {0.3, 0.32, 0.18}, color_mid = {0.2, 0.33, 0.12}, color_tip = {0.32, 0.4, 0.16}, dry = 0.1, dry_tips = 0.25}, {BendDetailFrequency = 0.8, BendDetailLeafAmplitude = 0.08}))
 add("plant_stem", grass(36, {color_root = {0.2, 0.3, 0.1}, color_mid = {0.25, 0.4, 0.12}, color_tip = {0.3, 0.45, 0.15}, dry = 0, dry_tips = 0, variation = 0.1}))
 
 local function cutout(kind, config, extra)
