@@ -433,9 +433,15 @@ function terrain.ApplyVegetationMaterialState(level_data)
 		local uv = Color(0, -1 / terrain.world_size, 1 / terrain.world_size, 0)
 
 		for _, prototype in ipairs(prototypes.list) do
-			if prototype.use_terrain_color and prototype.material_path then
-				for _, material in ipairs(mtl_material.FromCryMTLList(prototype.material_path)) do
-					if material:GetGroundColorBlend() > 0 then
+			if prototype.use_terrain_color then
+				for _, material_path in ipairs(prototype.material_paths) do
+					for _, material in ipairs(mtl_material.FromCryMTLList(material_path)) do
+						-- grass sets its own amount from blendWithTerrainAmount. cry fades the other vegetation
+						-- to half terrain color with distance, here it is always half
+						if material:GetGroundColorBlend() == 0 then
+							material:SetGroundColorBlend(0.5)
+						end
+
 						material:SetGroundColorTexture(texture)
 						material:SetGroundColorUV(uv)
 					end
