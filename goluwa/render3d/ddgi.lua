@@ -303,6 +303,8 @@ function ddgi.GetScreenSampleGLSL(block_name)
 			vec2 fraction = position - vec2(base);
 			vec4 sum = vec4(0.0);
 			float total = 0.0;
+			// a texel covers more pixels of thin geometry the further away it is, so its stand-in is matched less strictly
+			float far = smoothstep(20.0, 200.0, view_depth);
 
 			for (int i = 0; i < 4; i++) {
 				ivec2 corner = ivec2(i & 1, i >> 1);
@@ -312,8 +314,8 @@ function ddgi.GetScreenSampleGLSL(block_name)
 
 				ivec2 texel = clamp(base + corner, ivec2(0), size - 1);
 				vec4 geometry = texelFetch(TEXTURE(]] .. block_name .. [[.gi_screen_geometry_tex), texel, 0);
-				float depth_weight = exp(-abs(view_depth - geometry.w) / max(view_depth * 0.02, 0.02));
-				float normal_weight = pow(max(dot(N, geometry.xyz), 0.0), 16.0);
+				float depth_weight = exp(-abs(view_depth - geometry.w) / max(view_depth * mix(0.02, 0.1, far), 0.02));
+				float normal_weight = pow(max(dot(N, geometry.xyz), 0.0), mix(16.0, 4.0, far));
 				w *= depth_weight * normal_weight + 1e-4;
 				sum += texelFetch(TEXTURE(screen_tex), texel, 0) * w;
 				total += w;

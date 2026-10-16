@@ -1450,7 +1450,9 @@ local function pass_resolve()
  layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;
  ]],
 		shader = common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
-			// each texel resolves the pixel under its centre (see ddgi_screen_sample)
+			// each texel resolves the mean of four pixels spread over the pixels it covers (one
+			// probe lookup at their mean position and normal), so thin moving geometry doesn't
+			// flip it between the surface and what is behind
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_color);
@@ -1458,34 +1460,55 @@ local function pass_resolve()
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
 				ivec2 depth_size = textureSize(TEXTURE(ddgi_data.depth_tex), 0);
-				vec2 uv = (vec2(pos) + 0.5) / vec2(size);
-				ivec2 pixel = min(ivec2(uv * vec2(depth_size)), depth_size - 1);
-				float depth = gbuffer_depth(pixel);
+				mat4 inv_projection = ddgi_data.inv_projection;
+				vec3 position_sum = vec3(0.0);
+				vec3 normal_sum = vec3(0.0);
+				vec3 bent_sum = vec3(0.0);
+				float depth_sum = 0.0;
+				float roughness_sum = 0.0;
+				float count = 0.0;
 
-				if (depth >= 1.0) {
+				for (int tap = 0; tap < 4; tap++) {
+					vec2 offset = vec2(tap & 1, tap >> 1) * 0.5 - 0.25;
+					vec2 tap_uv = (vec2(pos) + 0.5 + offset) / vec2(size);
+					ivec2 pixel = min(ivec2(tap_uv * vec2(depth_size)), depth_size - 1);
+					float depth = gbuffer_depth(pixel);
+
+					if (depth >= 1.0) continue;
+
+					vec2 uv = (vec2(pixel) + 0.5) / vec2(depth_size);
+					vec3 N = normalize(gbuffer_normal(pixel));
+					normal_sum += N;
+					bent_sum += N;
+
+					if (ddgi_data.ddgi_bent_normal_tex >= 0) {
+						vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
+						float bent_length = length(bent);
+
+						// the sky and glass have none
+						if (bent_length > 0.1) bent_sum += bent / bent_length - N;
+					}
+
+					depth_sum += -(inv_projection[2][2] * depth + inv_projection[3][2]) / (inv_projection[2][3] * depth + inv_projection[3][3]);
+					position_sum += get_world_pos(uv, depth);
+					roughness_sum += sqrt(gbuffer_roughness(pixel));
+					count += 1.0;
+				}
+
+				if (count == 0.0) {
 					imageStore(out_color, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					imageStore(out_geometry, pos, vec4(0.0, 0.0, 0.0, 1e30));
 					imageStore(out_specular, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					return;
 				}
 
-				vec3 N = normalize(gbuffer_normal(pixel));
-				mat4 inv_projection = ddgi_data.inv_projection;
-				float view_depth = -(inv_projection[2][2] * depth + inv_projection[3][2]) / (inv_projection[2][3] * depth + inv_projection[3][3]);
-				imageStore(out_geometry, pos, vec4(N, view_depth));
-				vec3 P = get_world_pos(uv, depth);
+				vec3 P = position_sum / count;
+				vec3 N = normalize(normal_sum / count + 1e-6);
+				vec3 L = normalize(bent_sum / count + 1e-6);
 				vec3 V = normalize(ddgi_data.camera_position - P);
+				float roughness = roughness_sum / count;
+				imageStore(out_geometry, pos, vec4(N, depth_sum / count));
 				float weight;
-				vec3 L = N;
-
-				if (ddgi_data.ddgi_bent_normal_tex >= 0) {
-					vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
-					float bent_length = length(bent);
-
-					// the sky and glass have none
-					if (bent_length > 0.1) L = bent / bent_length;
-				}
-
 				vec4 gi = ddgi_sample_irradiance(P, N, L, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
 
 				// outside the volume the sky is all there is to go on; inside it,
@@ -1498,7 +1521,6 @@ local function pass_resolve()
 
 				// what stands in for a rough reflection is the light around the reflection direction, not around
 				// the normal. a smooth surface traces its reflection, so it keeps the normal's
-				float roughness = sqrt(gbuffer_roughness(pixel));
 				vec4 specular = gi;
 
 				if (roughness > 0.25) {
