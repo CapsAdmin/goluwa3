@@ -6,7 +6,6 @@ local bor = bit.bor
 local bxor = bit.bxor
 local floor = math.floor
 local lshift = bit.lshift
-local max = math.max
 local rshift = bit.rshift
 local M = {}
 local Perms = ffi.new(
@@ -296,8 +295,12 @@ local Grads3 = ffi.new(
 do
 	local function GetN(bx, by, x, y)
 		local t = .5 - x * x - y * y
+
+		-- a corner only reaches as far as its falloff
+		if t < 0 then return 0 end
+
 		local index = Perms12[bx + Perms[by]]
-		return max(0, (t * t) * (t * t)) * (Grads3[index][0] * x + Grads3[index][1] * y)
+		return (t * t) * (t * t) * (Grads3[index][0] * x + Grads3[index][1] * y)
 	end
 
 	function M.Simplex2D(x, y)
@@ -318,8 +321,11 @@ end
 do
 	local function GetN(ix, iy, iz, x, y, z)
 		local t = .6 - x * x - y * y - z * z
+
+		if t < 0 then return 0 end
+
 		local index = Perms12[ix + Perms[iy + Perms[iz]]]
-		return max(0, (t * t) * (t * t)) * (
+		return (t * t) * (t * t) * (
 				Grads3[index][0] * x + Grads3[index][1] * y + Grads3[index][2] * z
 			)
 	end
@@ -402,8 +408,11 @@ do
 
 	local function GetN(ix, iy, iz, iw, x, y, z, w)
 		local t = .6 - x * x - y * y - z * z - w * w
+
+		if t < 0 then return 0 end
+
 		local index = band(Perms[ix + Perms[iy + Perms[iz + Perms[iw]]]], 0x1F)
-		return max(0, (t * t) * (t * t)) * (
+		return (t * t) * (t * t) * (
 				Grads4[index][0] * x + Grads4[index][1] * y + Grads4[index][2] * z + Grads4[index][3] * w
 			)
 	end
