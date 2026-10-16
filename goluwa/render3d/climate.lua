@@ -506,12 +506,16 @@ function climate.IsBlending()
 	return climate.from ~= nil
 end
 
-function climate.Blend(a, b, t)
-	local current = get_state()
+function climate.Stop()
 	climate.preset = nil
 	climate.from = nil
 	climate.to = nil
 	event.RemoveListener("Update", "climate")
+end
+
+function climate.Blend(a, b, t)
+	local current = get_state()
+	climate.Stop()
 	apply(resolve(a, current), resolve(b, current), t)
 end
 
