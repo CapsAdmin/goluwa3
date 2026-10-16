@@ -58,6 +58,11 @@ function META:Initialize()
 	self:ApplyMode(self.Mode)
 end
 
+-- what decides where the body goes, the controller of a player or the brain of an npc
+function META:GetCommandSource()
+	return self.Owner.player_controller or self.Owner.npc
+end
+
 function META:Reset(mode)
 	self.mode = nil
 	self.Crouching = false
@@ -432,7 +437,7 @@ do
 
 	function META:OnPhysicsUpdate(dt)
 		local body = self.Owner.rigid_body
-		local cmd = self.Owner.player_controller:NextCommand(dt)
+		local cmd = self:GetCommandSource():NextCommand(dt)
 
 		if cmd.mode ~= self.mode then self:ApplyMode(cmd.mode) end
 
