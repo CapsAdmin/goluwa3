@@ -516,8 +516,13 @@ local temporal_pass = {
 			vec4 result = current;
 
 			if (clip.w > 0.0 && all(greaterThanEqual(previous, vec3(0.0))) && all(lessThanEqual(previous, vec3(1.0)))) {
-				result = mix(current, clamp(textureLod(history_scatter, previous, 0.0), low, high), froxel_data.history);
+				// what was behind a surface last frame holds no light (alpha 0), and trusting it as black would
+				// fade a uncovered froxel in over several frames, a dark trail behind a moving silhouette
+				vec4 history = textureLod(history_scatter, previous, 0.0);
+				result.rgb = mix(current.rgb, clamp(history.rgb / max(history.a, 1e-3), low.rgb, high.rgb), froxel_data.history * history.a);
 			}
+
+			result.a = 1.0;
 
 			imageStore(out_scatter, id, result);
 		}
