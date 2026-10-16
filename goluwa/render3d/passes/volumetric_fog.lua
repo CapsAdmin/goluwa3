@@ -399,10 +399,15 @@ local temporal_pass = {
 				{"froxel_size", "vec2"},
 				{"ocean_distance_tex", "int"},
 				{"history", "float"},
+				{"sun_direction", "vec4"},
 			},
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
 				render3d.WritePreviousCameraBlock(self, block)
+				local sun = directional_shadows.GetPrimarySunDirection(render3d.GetLights())
+				block.sun_direction[0] = sun.x
+				block.sun_direction[1] = sun.y
+				block.sun_direction[2] = sun.z
 				gbuffer_layout.WriteBlock(self, block)
 				block.froxel_size[0] = froxels.width
 				block.froxel_size[1] = froxels.height
@@ -432,6 +437,8 @@ local temporal_pass = {
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 	]],
 	shader = SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+		const int SUN_BLUR_SAMPLES = 10;
+
 		void main() {
 			ivec3 id = ivec3(gl_GlobalInvocationID);
 			ivec3 size = ivec3(froxel_data.froxel_size, int(FROXEL_SLICES));
@@ -452,24 +459,12 @@ local temporal_pass = {
 
 			vec4 low = current;
 			vec4 high = current;
-			vec4 blurred = current * 8.0;
-			float blurred_weight = 8.0;
 
 			for (int i = 0; i < 27; i++) {
-				ivec3 offset = ivec3(i % 3, (i / 3) % 3, i / 9) - 1;
-				ivec3 neighbor = clamp(id + offset, ivec3(0), size - 1);
-				vec4 v = texelFetch(raw_scatter, neighbor, 0);
+				vec4 v = texelFetch(raw_scatter, clamp(id + ivec3(i % 3, (i / 3) % 3, i / 9) - 1, ivec3(0), size - 1), 0);
 				low = min(low, v);
 				high = max(high, v);
-
-				if (i != 13 && !froxel_is_hidden(neighbor, texelFetch(tile_depth, neighbor.xy, 0).r)) {
-					float weight = 4.0 / float(1 + abs(offset.x) + abs(offset.y) + abs(offset.z));
-					blurred += v * weight;
-					blurred_weight += weight;
-				}
 			}
-
-			current = blurred / blurred_weight;
 
 			// the point the froxel stands for, placed like its samples: in
 			// front of a wall it holds the light there, and the same world
@@ -478,6 +473,44 @@ local temporal_pass = {
 			vec2 uv;
 			float depth = froxel_point(id, (vec2(id.xy) + 0.5) / froxel_data.froxel_size, froxel_slice_depth(float(id.z) + 0.5), uv);
 			vec3 center = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
+
+			// A shadow edge runs along the sun's direction, so what is seen along that line through the froxel is the same
+			// light: averaging the raw samples there takes the grain out and leaves the edges alone. Samples past a surface
+			// carry no light (alpha 0) and drop out
+			vec3 sun_step = 1.5 * froxel_data.sun_direction.xyz * depth * length(get_view_dir(uv + vec2(0.0, 1.0 / froxel_data.froxel_size.y)) - get_view_dir(uv));
+			// the light of a froxel depends on its view direction (the phase function, the sky), which the samples
+			// along the line do not share, so the line shortens into the distance where one step covers a lot of sky
+			float line_fade = 1.0 - smoothstep(40.0, 200.0, depth);
+			vec4 blurred = current;
+			float blurred_weight = 1.0;
+
+			for (int i = 1; i <= SUN_BLUR_SAMPLES; i++) {
+				for (int side = -1; side <= 1; side += 2) {
+					vec4 line_clip = froxel_data.projection * froxel_data.view * vec4(center + sun_step * float(i * side), 1.0);
+					vec3 line_coord = vec3(line_clip.xy / line_clip.w * 0.5 + 0.5, froxel_slice_coord(line_clip.w) / FROXEL_SLICES);
+
+					if (line_clip.w > 0.0 && all(greaterThanEqual(line_coord, vec3(0.0))) && all(lessThanEqual(line_coord, vec3(1.0)))) {
+						vec4 v = textureLod(raw_scatter, line_coord, 0.0);
+						float weight = line_fade * v.a * exp(-0.5 * float(i * i) / float(SUN_BLUR_SAMPLES * SUN_BLUR_SAMPLES) * 4.0);
+						blurred += v * weight;
+						blurred_weight += weight;
+					}
+				}
+			}
+
+			current = blurred / blurred_weight;
+			vec4 around = current * 3.0;
+			float around_weight = 3.0;
+
+			for (int i = 0; i < 6; i++) {
+				ivec3 offset = ivec3(i == 0 ? -1 : (i == 1 ? 1 : 0), i == 2 ? -1 : (i == 3 ? 1 : 0), i == 4 ? -1 : (i == 5 ? 1 : 0));
+				ivec3 neighbor = clamp(id + offset, ivec3(0), size - 1);
+				vec4 v = texelFetch(raw_scatter, neighbor, 0);
+				around += v * v.a;
+				around_weight += v.a;
+			}
+
+			current = around / around_weight;
 			vec4 clip = froxel_data.prev_projection * froxel_data.prev_view * vec4(center, 1.0);
 			vec3 previous = vec3(clip.xy / clip.w * 0.5 + 0.5, froxel_slice_coord(clip.w) / FROXEL_SLICES);
 			vec4 result = current;
