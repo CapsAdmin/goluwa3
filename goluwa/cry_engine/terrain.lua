@@ -282,9 +282,15 @@ local function build_cry_terrain_source(terrain)
 			}
 
 			float terrain_height(vec2 world) {
-				return texture(TEXTURE(terrain_bake.texture0), cry_terrain_uv(world)).r * %.6f;
+				vec2 uv = vec2(-world.y / %.6f, world.x / %.6f);
+
+				if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
+
+				return texture(TEXTURE(terrain_bake.texture0), uv).r * %.6f;
 			}
 		]],
+			world_size,
+			world_size,
 			world_size,
 			world_size,
 			terrain.heightmap_max_height
