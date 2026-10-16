@@ -150,11 +150,22 @@ function froxel_fog.GetPointGLSL(block)
 		// sees past the furthest surface, and a point reaching past it would
 		// bring the light on its other side to the pixels in front of it, so
 		// such points are lit in front of it.
-		float froxel_point(ivec3 id, vec2 uv, float depth, out vec2 point_uv) {
+		float froxel_point(ivec3 id, vec2 uv, float depth, float pick, out vec2 point_uv) {
 			point_uv = uv;
 			float surface_depth = froxel_surface_depth(uv);
 
-			if (depth > surface_depth) {
+			if (depth > surface_depth && pick >= 0.0) {
+				// the scatter samples take a random one of the corners that sees further, always the same one lit a bright
+				// dot along an edge at every froxel, the history averages the random ones into a soft glow
+				int i = int(pick * 4.0);
+				vec2 corner_uv = (vec2(id.xy) + vec2(i & 1, i >> 1) * 0.8 + 0.1) / ]] .. block .. [[.froxel_size;
+				float corner_depth = froxel_surface_depth(corner_uv);
+
+				if (corner_depth > surface_depth) {
+					surface_depth = corner_depth;
+					point_uv = corner_uv;
+				}
+			} else if (depth > surface_depth) {
 				for (int i = 0; i < 4; i++) {
 					vec2 corner_uv = (vec2(id.xy) + vec2(i & 1, i >> 1) * 0.8 + 0.1) / ]] .. block .. [[.froxel_size;
 					float corner_depth = froxel_surface_depth(corner_uv);

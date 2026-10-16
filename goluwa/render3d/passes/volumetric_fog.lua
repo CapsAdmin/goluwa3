@@ -309,7 +309,7 @@ local scatter_pass = {
 			vec3 jitter = vec3(uvec3(seed, seed >> 10u, seed >> 20u) & 1023u) / 1023.0 - 0.5;
 			vec2 uv;
 			float slice_depth = froxel_slice_depth(float(id.z) + 0.5 + jitter.z);
-			float depth = froxel_point(id, (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size, slice_depth, uv);
+			float depth = froxel_point(id, (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size, slice_depth, float((seed >> 12u) & 1023u) / 1024.0, uv);
 			vec3 view_dir = get_view_dir(uv);
 			vec3 world_pos = (froxel_data.inv_view * vec4(view_dir * depth, 1.0)).xyz;
 			// a froxel behind a surface is lit at the surface, but its air is the air along the ray
@@ -471,7 +471,7 @@ local temporal_pass = {
 			// point last frame may have been in view (through a doorway)
 			// with very different light
 			vec2 uv;
-			float depth = froxel_point(id, (vec2(id.xy) + 0.5) / froxel_data.froxel_size, froxel_slice_depth(float(id.z) + 0.5), uv);
+			float depth = froxel_point(id, (vec2(id.xy) + 0.5) / froxel_data.froxel_size, froxel_slice_depth(float(id.z) + 0.5), -1.0, uv);
 			vec3 center = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
 
 			// A shadow edge runs along the sun's direction, so what is seen along that line through the froxel is the same
