@@ -233,7 +233,7 @@ local function build_ffi_struct(layout, fields)
 				ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
 			end
 
-			current_offset = current_offset + size
+			current_offset = aligned_offset + size
 		end
 	end
 
