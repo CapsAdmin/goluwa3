@@ -25,6 +25,8 @@ local SNOW_FALL_SPEED = 1
 local RAIN_SPREAD = 0.05
 local SNOW_SPREAD = 0.3
 local WIND_TURBULENCE = 0.25
+-- the farthest the shelter of an obstacle reaches downwind, in its heights
+local MAX_SHELTER_SLANT = 4
 local SHELTER_SIZE = 1024
 local SHELTER_HALF_SIZE = 96
 local SHELTER_DEPTH = 600
@@ -612,7 +614,14 @@ function weather.Initialize()
 				SNOW_SPREAD or
 				RAIN_SPREAD
 			) + WIND_TURBULENCE * math.sqrt(wind.x * wind.x + wind.z * wind.z) / fall_speed
-		local dir = Vec3(-wind.x, fall_speed, -wind.z):GetNormalized()
+		-- the precipitation moves with the wind and falls at fall_speed, so it comes in at a slant of wind / fall_speed.
+		-- in a strong wind that is nearly flat (40:1 for snow at 40 m/s) and a tree would keep the rain off a strip
+		-- hundreds of meters long, but the air behind an obstacle is turbulent and slowed and brings it down again
+		-- within a few of its heights. the slant the shelter is cast at is held to MAX_SHELTER_SLANT (calibrated, not
+		-- sourced: a snow fence's lee drift, the longest, reaches 10 to 15 heights)
+		local wind_speed = math.sqrt(wind.x * wind.x + wind.z * wind.z)
+		local slant = math.min(wind_speed / fall_speed, MAX_SHELTER_SLANT) / math.max(wind_speed, 0.0001)
+		local dir = Vec3(-wind.x * slant, 1, -wind.z * slant):GetNormalized()
 		local rotation = Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize()
 		local right = rotation:GetRight()
 		local up = rotation:GetUp()
