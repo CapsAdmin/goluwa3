@@ -347,7 +347,7 @@ local scatter_pass = {
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction;
 
 			// scattering per meter: the radiance alone overflows a half float
-			imageStore(out_scatter, id, vec4(scattering, 0.0));
+			imageStore(out_scatter, id, vec4(scattering, 1.0));
 		}
 	]],
 }
@@ -578,7 +578,7 @@ local integrate_pass = {
 				scattered += transmittance * froxel.rgb * weight;
 				transmittance *= step_transmittance;
 				layer_transmittance *= exp(-layer_extinction * step_length);
-				imageStore(out_integrated, ivec3(id, k), vec4(scattered, 0.0));
+				imageStore(out_integrated, ivec3(id, k), vec4(scattered, froxel.a));
 				imageStore(out_integrated, ivec3(id, k + int(FROXEL_SLICES)), vec4(transmittance, layer_transmittance));
 			}
 		}

@@ -3,8 +3,8 @@ local Texture = import("goluwa/render/texture.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local froxel_fog = {}
 froxel_fog.TILE = 8
-froxel_fog.MAX_WIDTH = 240
-froxel_fog.MAX_HEIGHT = 135
+froxel_fog.MAX_WIDTH = 480
+froxel_fog.MAX_HEIGHT = 270
 froxel_fog.SLICES = 96
 froxel_fog.FAR = 100000
 froxel_fog.DEPTH_KNEE = 2
@@ -173,6 +173,42 @@ end
 
 function froxel_fog.GetGLSL(block)
 	return [[
+		// The integrated volume at depth slice s along the ray through uv, blended bilinearly from the four froxel columns
+		// around it by hand: a column whose froxel at this depth is behind a surface holds no light of its own (the alpha
+		// of the first half is 0 there), and blending it in would bring the fog of a nearer surface to a pixel behind it.
+		// front is the scattered light, back the transmittance.
+		void froxel_sample(vec2 uv, float s, out vec4 front, out vec4 back) {
+			float z = clamp(s - 0.5, 0.5, FROXEL_SLICES - 0.5);
+			float front_z = z / (2.0 * FROXEL_SLICES);
+			float back_z = (FROXEL_SLICES + z) / (2.0 * FROXEL_SLICES);
+			vec2 size = vec2(textureSize(froxel_volume, 0).xy);
+			vec2 p = uv * size - 0.5;
+			vec2 base = floor(p);
+			vec2 f = p - base;
+			front = vec4(0.0);
+			back = vec4(0.0);
+			float total = 0.0;
+
+			for (int i = 0; i < 4; i++) {
+				vec2 corner = vec2(i & 1, i >> 1);
+				vec2 column = (clamp(base + corner, vec2(0.0), size - 1.0) + 0.5) / size;
+				vec4 f_sample = textureLod(froxel_volume, vec3(column, front_z), 0.0);
+				vec2 w2 = mix(1.0 - f, f, corner);
+				float weight = w2.x * w2.y * f_sample.a;
+				front += f_sample * weight;
+				back += textureLod(froxel_volume, vec3(column, back_z), 0.0) * weight;
+				total += weight;
+			}
+
+			if (total > 1e-3) {
+				front /= total;
+				back /= total;
+			} else {
+				front = textureLod(froxel_volume, vec3(uv, front_z), 0.0);
+				back = textureLod(froxel_volume, vec3(uv, back_z), 0.0);
+			}
+		}
+
 		// The air and the fog from the camera to hit_distance (a negative one is the sky: the far end of the volume): the
 		// light scattered towards the camera and, per channel, what is left of the light behind it.
 		vec3 get_volumetric_fog(vec2 uv, float hit_distance, out vec3 transmittance) {
@@ -180,12 +216,11 @@ function froxel_fog.GetGLSL(block)
 			// meters along the ray per meter of view depth
 			float ray_scale = length(view_dir);
 			float s = froxel_slice_coord(hit_distance < 0.0 ? FROXEL_FAR : min(hit_distance / ray_scale, FROXEL_FAR));
-			// texel k holds the fog from the camera to the far side of slice k
-			float z = clamp(s - 0.5, 0.5, FROXEL_SLICES - 0.5);
 			float near = clamp(s, 0.0, 1.0);
-			vec3 scattered = textureLod(froxel_volume, vec3(uv, z / (2.0 * FROXEL_SLICES)), 0.0).rgb;
-			transmittance = mix(vec3(1.0), textureLod(froxel_volume, vec3(uv, (FROXEL_SLICES + z) / (2.0 * FROXEL_SLICES)), 0.0).rgb, near);
-			return scattered * near;
+			vec4 front, back;
+			froxel_sample(uv, s, front, back);
+			transmittance = mix(vec3(1.0), back.rgb, near);
+			return front.rgb * near;
 		}
 
 		// what the fog layer and the precipitation alone let through of the light behind them (the air's own part of it
@@ -193,8 +228,9 @@ function froxel_fog.GetGLSL(block)
 		float get_fog_layer_transmittance(vec2 uv, float hit_distance) {
 			float ray_scale = length(get_view_dir(uv));
 			float s = froxel_slice_coord(hit_distance < 0.0 ? FROXEL_FAR : min(hit_distance / ray_scale, FROXEL_FAR));
-			float z = clamp(s - 0.5, 0.5, FROXEL_SLICES - 0.5);
-			return mix(1.0, textureLod(froxel_volume, vec3(uv, (FROXEL_SLICES + z) / (2.0 * FROXEL_SLICES)), 0.0).a, clamp(s, 0.0, 1.0));
+			vec4 front, back;
+			froxel_sample(uv, s, front, back);
+			return mix(1.0, back.a, clamp(s, 0.0, 1.0));
 		}
 	]]
 end
