@@ -349,7 +349,16 @@ return {
 				// the normals of foliage are not a surface, bending the lookup by them only adds noise
 				if (thin) bent = N;
 				// the geometric normal is flat per triangle, so the bent normal is handed over relative to the smooth one
-				else bent = rotate_between(bent, N, shading_normal);
+				else {
+					bent = rotate_between(bent, N, shading_normal);
+
+					// On a wall the sideways part of the lean has nothing to be measured against, the horizon search
+					// only sees the nearer of whatever is beside it, and the lookup shows it as a square around every
+					// opening. The up and down part stays, on a floor or a ceiling all of it does.
+					float horizontal_face = smoothstep(0.5, 0.9, abs(shading_normal.y));
+					vec3 lean = bent - shading_normal;
+					bent = normalize(shading_normal + vec3(lean.x * horizontal_face, lean.y, lean.z * horizontal_face));
+				}
 
 				set_color(bounce, ao, bent, -(lighting_data.view * vec4(world_pos, 1.0)).z);
 			}
