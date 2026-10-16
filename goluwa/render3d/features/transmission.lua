@@ -63,6 +63,7 @@ return {
 		{name = "transmission_tint_b", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
 	},
 	thin = "gbuffer_transmission(c) > 0.0",
+	lit_from_behind = "s.transmission > 0.0",
 	encoders = [[
 		vec2 gbuffer_encode_transmission_tint(vec3 tint) {
 			return vec2(gbuffer_encode_transmission_tint_r(tint.r), gbuffer_encode_transmission_tint_b(tint.b));

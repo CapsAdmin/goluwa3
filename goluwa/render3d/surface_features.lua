@@ -165,6 +165,9 @@ end
 -- other passes:
 --   reflection: see GetReflectionGLSL
 --   thin: a GLSL bool expression of c, a gbuffer coordinate, true where the surface is thin
+--   lit_from_behind: a GLSL bool expression of s, true where a light facing away from s.N still adds
+--     something (the direct stages of other features read the light behind the surface), the
+--     lighting loop skips those lights otherwise
 -- the getters of the params that name one, reading the block the param is in
 function self.GetGetterGLSL()
 	local out = {join("getters")}
@@ -237,6 +240,19 @@ function self.GetThinExpressionGLSL()
 
 	for _, feature in ipairs(list) do
 		if feature.thin then out[#out + 1] = "(" .. feature.thin .. ")" end
+	end
+
+	return #out > 0 and table.concat(out, " || ") or "false"
+end
+
+-- a GLSL bool expression of s, true where a light behind the surface still adds something
+function self.GetLitFromBehindExpressionGLSL()
+	local out = {}
+
+	for _, feature in ipairs(list) do
+		if feature.lit_from_behind then
+			out[#out + 1] = "(" .. feature.lit_from_behind .. ")"
+		end
 	end
 
 	return #out > 0 and table.concat(out, " || ") or "false"

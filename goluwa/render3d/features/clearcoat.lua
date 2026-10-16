@@ -72,6 +72,7 @@ return {
 			apply_rain_surface(s.world_pos, footprint, s.clearcoat_rain, s.coat_N, s.clearcoat_alpha);
 		}
 	]],
+	lit_from_behind = "s.clearcoat > 0.0",
 	direct_peak = [[
 		if (s.clearcoat > 0.0) lobe_alpha_min = min(lobe_alpha_min, s.clearcoat_alpha);
 	]],

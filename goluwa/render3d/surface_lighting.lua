@@ -163,6 +163,9 @@ function surface_lighting.GetGLSL(block_name)
 				float brightest = max(max(unshadowed_radiance.r, unshadowed_radiance.g), unshadowed_radiance.b) * max(1.0, 0.08 / max(lobe_alpha_min * lobe_alpha_min, 1e-4));
 
 				if (brightest * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
+
+				// diffuse and every specular lobe are scaled by NoL, only a feature reading the light behind the surface can add to it
+				if (dot(s.N, L) <= 0.0 && !(]] .. surface_features.GetLitFromBehindExpressionGLSL() .. [[)) continue;
 				// the shadow maps' self shadowing fades out towards the terminator, by the
 				// smooth normal since the geometric one of a tessellated surface would step
 				vec3 shadow_N = s.geometric_N;
@@ -195,14 +198,14 @@ function surface_lighting.GetGLSL(block_name)
 					shadow_factor = calculateLocalDirectionalShadow(s.world_pos, shadow_N, L) * shadow_facing;
 					screen_marchable = false;
 				} else if (type == 1 || type == 3) {
-					int point_shadow_slot = getPointShadowSlot(i);
-
-					if (point_shadow_slot >= 0) {
 					// the coarse occlusion map is one fetch, a light it hides isn't worth the shadow map or the march
 					shadow_factor = light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos);
 
 					if (brightest * shadow_factor * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 
+					int point_shadow_slot = getPointShadowSlot(i);
+
+					if (point_shadow_slot >= 0) {
 						shadow_factor *= calculatePointShadow(point_shadow_slot, s.world_pos, shadow_N, L);
 						screen_marchable = false;
 					}
