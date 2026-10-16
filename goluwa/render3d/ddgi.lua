@@ -598,6 +598,7 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_CASCADES %d
 		#define DDGI_RAYS %d
 		#define DDGI_EMITTER_SAMPLES %d
+		#define DDGI_EMITTER_CANDIDATES 16
 		// ddgi_emitter.triangle: the soup index, and the material's double sidedness
 		#define DDGI_EMITTER_DOUBLE_SIDED 0x80000000u
 		// a probe's uniform rays followed by its emitter samples
@@ -657,8 +658,8 @@ function ddgi.GetRayDirectionGLSL()
 		#define DDGI_GUIDE_CELLS 64
 		// how much of its previous value a guide cell keeps each frame
 		#define DDGI_GUIDE_HISTORY 0.9
-		// shader and the guide pass can use their own bindings
 		// what reads the guide texel of a probe's tile, so that the ray generation
+		// shader and the guide pass can use their own bindings
 		#ifndef DDGI_GUIDE_FETCH
 		#define DDGI_GUIDE_FETCH(texel) texelFetch(TEXTURE(ddgi_data.ddgi_guide_tex), texel, 0)
 		#endif
@@ -1004,10 +1005,11 @@ function ddgi.GetEmitterGLSL()
 		// times the emitter's colour over its luminance is the estimate; which emitter and
 		// where it was drawn is written to emitter and point, the shade pass rebuilds
 		// its point from the same random numbers.
-		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, vec3 origin, float radius, out int emitter, out vec3 point) {
-			vec4 u = ddgi_emitter_random(index, frame, 0u);
-			emitter = ddgi_pick_emitter(u.x, emitter_count);
-			uint triangle = ddgi_emitter_triangle(emitter);
+		// The light one drawn candidate would bring unshadowed: facing / distance^2 (flattened
+		// inside radius), over the density it was drawn with (the emitter's share of the power)
+		float ddgi_emitter_candidate_weight(uint index, uint frame, uint candidate, int emitter_count, vec3 origin, float radius) {
+			vec4 u = ddgi_emitter_random(index, frame, candidate);
+			uint triangle = ddgi_emitter_triangle(ddgi_pick_emitter(u.x, emitter_count));
 			scene_bvh_triangle tri = bvh_tri(triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
 			point = ddgi_emitter_point(tri, u.yz);
 			vec3 to_point = point - origin;

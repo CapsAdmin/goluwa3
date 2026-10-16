@@ -495,9 +495,9 @@ local function pass_shade()
 					vec4 result = vec4(0.0);
 
 					if (ddgi_data.ddgi_rt_ready != 0 && weight > 0.0) {
-						uint emitter_triangle = ddgi_emitter_triangle(int(hit.y)) & ~DDGI_EMITTER_DOUBLE_SIDED;
+						uint emitter_triangle = ddgi_emitter_triangle(int(hit.y & 0x03FFFFFFu)) & ~DDGI_EMITTER_DOUBLE_SIDED;
 						scene_bvh_triangle tri = bvh_tri(emitter_triangle);
-						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), 0u);
+						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 26u);
 						vec3 point = ddgi_emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
 						vec3 emission = ddgi_emission(tri, ddgi_hit_albedo(ddgi_materials[tri.material], point, emitter_triangle));
