@@ -6,10 +6,13 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
+local pvar_node = import("goluwa/render2d/ui/pvar_node.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local live_weather = import("lua/live_weather.lua")
 local climate = import("goluwa/render3d/climate.lua")
+local grade = import("goluwa/render3d/grade.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local WIDTH = 460
 local panel = NULL
@@ -18,6 +21,7 @@ local shown = false
 local nodes = {}
 local layer_signature = ""
 local wind_direction = 0
+local grade_blend_seconds = grade.BLEND_TIME
 
 -- editing by hand takes over from a preset that is still blending in
 local function number_node(key, text, min, max, precision, get, set, help)
@@ -431,6 +435,99 @@ local function build_items()
 			},
 		},
 	}
+	local grade_options = {}
+
+	for name in pairs(grade.presets) do
+		grade_options[#grade_options + 1] = name
+	end
+
+	table.sort(grade_options)
+
+	for i, name in ipairs(grade_options) do
+		grade_options[i] = {Text = name, Value = name}
+	end
+
+	local function get_grade_preset()
+		local preset = grade.GetPreset()
+		return type(preset) == "string" and preset or nil
+	end
+
+	local grade_preset = {
+		Key = "grade/preset",
+		Text = "preset",
+		Description = "blend the whole look into a grade preset",
+		Type = "enum",
+		Options = grade_options,
+		Value = get_grade_preset(),
+		GetValue = get_grade_preset,
+		OnChange = function(_, value)
+			grade.SetPreset(value, grade_blend_seconds)
+		end,
+	}
+	nodes[#nodes + 1] = grade_preset
+	items[#items + 1] = {
+		Key = "grade/presets",
+		Text = "Preset",
+		Tab = "Grade",
+		Children = {
+			grade_preset,
+			{
+				Key = "grade/blend_time",
+				Text = "blend time",
+				Description = "seconds a preset takes to blend in",
+				Type = "number",
+				Min = 0,
+				Max = 10,
+				ShowSlider = true,
+				Precision = 1,
+				Value = grade_blend_seconds,
+				OnChange = function(node, value)
+					grade_blend_seconds = value
+					node.Value = value
+				end,
+			},
+			{
+				Type = "action",
+				Key = "grade/neutral",
+				Text = "neutral",
+				Description = "every setting a preset sets back to its default, at once",
+				ButtonText = "Reset",
+				OnAction = function()
+					grade.SetPreset("neutral", 0)
+				end,
+			},
+		},
+	}
+	local grade_groups = {}
+
+	for _, field in ipairs(grade.fields) do
+		local info = pvars.GetObject(field.key):GetInfo()
+		local group = grade_groups[info.group]
+
+		if not group then
+			group = {
+				Key = "grade/group/" .. info.group,
+				Text = info.group,
+				Tab = "Grade",
+				Children = {},
+			}
+			grade_groups[info.group] = group
+			items[#items + 1] = group
+		end
+
+		-- editing by hand takes over from a preset that is still blending in
+		local node = pvar_node.Build(info, function(value)
+			grade.Stop()
+			pvars.SetSession(info.key, value)
+		end)
+
+		node.GetValue = function()
+			return pvars.Get(info.key)
+		end
+		nodes[#nodes + 1] = node
+		group.Children[#group.Children + 1] = node
+	end
+
 	return items
 end
 
@@ -481,8 +578,8 @@ local function show()
 		name_layers()
 		panel = world:Ensure(
 			Window{
-				Key = "WeatherWindow",
-				Title = "WEATHER",
+				Key = "LookWindow",
+				Title = "LOOK",
 				RequestMouse = true,
 				Padding = "none",
 				Closable = false,
@@ -516,15 +613,15 @@ local function show()
 	sync()
 end
 
-event.AddListener("Update", "weather_panel", function()
+event.AddListener("Update", "look_panel", function()
 	if shown and panel:IsValid() then sync() end
 end)
 
-input.Bind("q", "+show_weather", function()
+input.Bind("q", "+show_look", function()
 	show()
 end)
 
-input.Bind("q", "-show_weather", function()
+input.Bind("q", "-show_look", function()
 	if not panel:IsValid() or is_editing() then return end
 
 	panel.visual:SetVisible(false)
