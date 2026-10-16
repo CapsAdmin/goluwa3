@@ -20,6 +20,7 @@ scattering.WIDTH = scattering.SUN_COUNT * scattering.AZIMUTH_COUNT
 scattering.HEIGHT = scattering.RADIUS_COUNT * scattering.ELEVATION_COUNT * 2
 local IRRADIANCE_SIZE = 64
 local Constants = ffi.typeof([[struct {
+	float shape[4];
 	float extinction;
 	float species;
 	int order;
@@ -27,6 +28,7 @@ local Constants = ffi.typeof([[struct {
 }]])
 local DECLARATIONS = [[
 	layout(push_constant) uniform ScatteringConstants {
+		vec4 shape;
 		float extinction;
 		float species;
 		int order;
@@ -353,7 +355,7 @@ end
 -- transmittance texture was baked for. Returns three tables for a unit sun: the light of orders 2 to ORDERS that arrives
 -- along a ray, the scattering density of those orders (per km, the source the air adds to a ray at a point) and the
 -- ambient of the sky above a point (`sc_ambient`)
-function scattering.Create(build_prelude, transmittance_texture, aerosol_extinction)
+function scattering.Create(build_prelude, transmittance_texture, aerosol_extinction, aerosol_shape)
 	local single_r = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local single_m = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local density = create_table(scattering.WIDTH, scattering.HEIGHT)
@@ -362,7 +364,7 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 	local total_next = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local source = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local source_next = create_table(scattering.WIDTH, scattering.HEIGHT)
-	local defines = "#define ATMOSPHERE_LOG_MARCH 1\n#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX sc_pc.tables[0]\n#define ATMOSPHERE_AEROSOL_EXTINCTION sc_pc.extinction\n"
+	local defines = "#define ATMOSPHERE_LOG_MARCH 1\n#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX sc_pc.tables[0]\n#define ATMOSPHERE_AEROSOL_EXTINCTION sc_pc.extinction\n#define ATMOSPHERE_AEROSOL_SHAPE sc_pc.shape\n"
 
 	local function shade(tex, body, textures, order, species)
 		tex:Shade(
@@ -373,7 +375,7 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 				fragment_push_constants = {
 					size = ffi.sizeof(Constants),
 					get_data = function(_, _, pipeline)
-						local data = Constants({aerosol_extinction, species or 0, order or 0, {}})
+						local data = Constants({aerosol_shape, aerosol_extinction, species or 0, order or 0, {}})
 
 						for i, texture in ipairs(textures) do
 							data.tables[i - 1] = pipeline:GetTextureIndex(texture)

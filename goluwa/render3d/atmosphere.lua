@@ -42,20 +42,25 @@ local SKY_VIEW_HEIGHT_QUANTIZATION = 0.1
 local SKY_VIEW_ELEVATION_QUANTIZATION = math.rad(0.005)
 local SKY_VIEW_ILLUMINANCE_QUANTIZATION = 1000
 local RAYLEIGH_SCALE_HEIGHT = 8.0
-local MIE_SCALE_HEIGHT = 1.2
 local OZONE_CENTER_HEIGHT = 25.0
 local OZONE_WIDTH = 15.0
 local RAYLEIGH_BETA = Vec3(0.0058, 0.0135, 0.0331)
 -- aerosol: Angstrom exponent, single scattering albedo and asymmetry of clear continental air. The extinction per
 -- channel is at the wavelengths the rgb Rayleigh and ozone constants stand for. How much of it there is comes from
 -- atmosphere.SetAerosolVisibility
-local AEROSOL_ANGSTROM = 1.3
-local AEROSOL_ALBEDO = 0.95
-local AEROSOL_G = 0.7
+atmosphere.DEFAULT_AEROSOL = {angstrom = 1.3, albedo = 0.95, g = 0.7, scale_height = 1.2}
+-- angstrom, albedo, g and scale height: the shader reads them as one vec4 in this order
+local aerosol_shape = {
+	atmosphere.DEFAULT_AEROSOL.angstrom,
+	atmosphere.DEFAULT_AEROSOL.albedo,
+	atmosphere.DEFAULT_AEROSOL.g,
+	atmosphere.DEFAULT_AEROSOL.scale_height,
+}
 local RAYLEIGH_GREEN_EXTINCTION = 0.0135
 -- Koschmieder: the distance at which contrast falls to 2 percent, times the extinction coefficient
 local VISIBILITY_OPTICAL_DEPTH = -math.log(0.02)
-local AEROSOL_SPECTRUM = Vec3((680 / 550) ^ -AEROSOL_ANGSTROM, 1, (440 / 550) ^ -AEROSOL_ANGSTROM)
+local AEROSOL_SPECTRUM = Vec3(0, 1, 0)
+local AEROSOL_ALBEDO, AEROSOL_G, AEROSOL_HEIGHT = 0, 0, 0
 local MIE_BETA_EXT = Vec3(0, 0, 0)
 local MIE_BETA = Vec3(0, 0, 0)
 local aerosol_extinction = 0
@@ -113,7 +118,7 @@ local function rayleighDensity(height)
 end
 
 local function mieDensity(height)
-	local boundary_aerosols = math.exp(-math.max(height, 0) / MIE_SCALE_HEIGHT)
+	local boundary_aerosols = math.exp(-math.max(height, 0) / aerosol_shape[4])
 	local upper_haze = 0.07 * math.exp(-math.max(height, 0) / 8.0)
 	return boundary_aerosols + upper_haze
 end
@@ -153,7 +158,6 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	const float PLANET_RADIUS = 6371.0;
 	const float ATMOSPHERE_RADIUS = 6471.0;
 	const float RAYLEIGH_SCALE_HEIGHT = 8.0;
-	const float MIE_SCALE_HEIGHT = 1.2;
 	const float GROUND_FOG_ENABLED = ]] .. (
 		DEBUG_DISABLE_GROUND_FOG and
 		"0.0" or
@@ -176,11 +180,13 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	const float GROUND_FOG_OCTAVE_PHASE = 0.669;
 	const float GROUND_FOG_OCTAVE_THICKNESS = 0.929;
 	// the aerosol's scattering and extinction per km at sea level, the pass provides the extinction at 550 nm
-	const vec3 AEROSOL_SPECTRUM = vec3(]] .. string.format("%.8f, %.8f, %.8f", AEROSOL_SPECTRUM.x, AEROSOL_SPECTRUM.y, AEROSOL_SPECTRUM.z) .. [[);
-	const float AEROSOL_ALBEDO = ]] .. AEROSOL_ALBEDO .. [[;
+	// ATMOSPHERE_AEROSOL_SHAPE is (angstrom exponent, single scattering albedo, asymmetry, scale height in km)
+	#define AEROSOL_SPECTRUM vec3(pow(680.0 / 550.0, -ATMOSPHERE_AEROSOL_SHAPE.x), 1.0, pow(440.0 / 550.0, -ATMOSPHERE_AEROSOL_SHAPE.x))
+	#define AEROSOL_ALBEDO (ATMOSPHERE_AEROSOL_SHAPE.y)
 	#define MIE_BETA_EXT (ATMOSPHERE_AEROSOL_EXTINCTION * AEROSOL_SPECTRUM)
 	#define MIE_BETA (MIE_BETA_EXT * AEROSOL_ALBEDO)
-	const float MIE_G = ]] .. AEROSOL_G .. [[;
+	#define MIE_G (ATMOSPHERE_AEROSOL_SHAPE.z)
+	#define MIE_SCALE_HEIGHT (ATMOSPHERE_AEROSOL_SHAPE.w)
 	const float OZONE_CENTER_HEIGHT = 25.0;
 	const float OZONE_WIDTH = 15.0;
 	const vec3 RAYLEIGH_BETA = vec3(0.0058, 0.0135, 0.0331);
@@ -484,7 +490,7 @@ do
 		SPECTRUM.rayleigh[i] = 0.008569 * um ^ -4 * (1 + 0.0113 * um ^ -2 + 0.00013 * um ^ -4) / RAYLEIGH_SCALE_HEIGHT
 		-- the Chappuis band of 300 DU of ozone, a gaussian fit, spread over the layer's width
 		SPECTRUM.ozone[i] = 5.1e-21 * math.exp(-0.5 * ((l - 603) / 58) ^ 2) * 8.06e18 / OZONE_WIDTH
-		SPECTRUM.aerosol[i] = (l / 550) ^ -AEROSOL_ANGSTROM
+		SPECTRUM.aerosol[i] = 1
 		local x = 1.056 * lobe(l, 599.8, 37.9, 31.0) + 0.362 * lobe(l, 442.0, 16.0, 26.7) - 0.065 * lobe(l, 501.1, 20.4, 26.2)
 		local y = 0.821 * lobe(l, 568.8, 46.9, 40.5) + 0.286 * lobe(l, 530.9, 16.3, 31.1)
 		local z = 1.217 * lobe(l, 437.0, 11.8, 36.0) + 0.681 * lobe(l, 459.0, 26.0, 13.8)
@@ -525,8 +531,10 @@ end
 local transmittance_glsl = build_atmosphere_shader_prelude([[
 	const int TRANSMITTANCE_STEPS = 40;
 	const int SPECTRAL_COUNT = ]] .. #SPECTRUM.wavelengths .. [[;
+	const int SPECTRAL_FIRST_WAVELENGTH = ]] .. SPECTRUM.wavelengths[1] .. [[;
+	const int SPECTRAL_STEP = ]] .. (SPECTRUM.wavelengths[2] - SPECTRUM.wavelengths[1]) .. [[;
 
-	]] .. glsl_array("SPECTRAL_RAYLEIGH", SPECTRUM.rayleigh) .. glsl_array("SPECTRAL_OZONE", SPECTRUM.ozone) .. glsl_array("SPECTRAL_AEROSOL", SPECTRUM.aerosol) .. glsl_array("SPECTRAL_WEIGHT_R", SPECTRUM.weights[1]) .. glsl_array("SPECTRAL_WEIGHT_G", SPECTRUM.weights[2]) .. glsl_array("SPECTRAL_WEIGHT_B", SPECTRUM.weights[3]) .. [[
+	]] .. glsl_array("SPECTRAL_RAYLEIGH", SPECTRUM.rayleigh) .. glsl_array("SPECTRAL_OZONE", SPECTRUM.ozone) .. glsl_array("SPECTRAL_WEIGHT_R", SPECTRUM.weights[1]) .. glsl_array("SPECTRAL_WEIGHT_G", SPECTRUM.weights[2]) .. glsl_array("SPECTRAL_WEIGHT_B", SPECTRUM.weights[3]) .. [[
 
 	vec2 ray_sphere_intersect_normalized(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
 		vec3 oc = ray_origin / sphere_radius;
@@ -575,19 +583,21 @@ local transmittance_glsl = build_atmosphere_shader_prelude([[
 		vec3 transmitted = vec3(0.0);
 
 		for (int i = 0; i < SPECTRAL_COUNT; i++) {
-			float t = exp(-(SPECTRAL_RAYLEIGH[i] * rayleigh_od + ATMOSPHERE_AEROSOL_EXTINCTION * SPECTRAL_AEROSOL[i] * mie_od + SPECTRAL_OZONE[i] * ozone_od));
+			float t = exp(-(SPECTRAL_RAYLEIGH[i] * rayleigh_od + ATMOSPHERE_AEROSOL_EXTINCTION * pow((float(SPECTRAL_FIRST_WAVELENGTH) + float(SPECTRAL_STEP) * float(i)) / 550.0, -ATMOSPHERE_AEROSOL_SHAPE.x) * mie_od + SPECTRAL_OZONE[i] * ozone_od));
 			transmitted += vec3(SPECTRAL_WEIGHT_R[i], SPECTRAL_WEIGHT_G[i], SPECTRAL_WEIGHT_B[i]) * t;
 		}
 
 		return vec4(max(transmitted, vec3(0.0)), 1.0);
 	}
-]], "#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n")
+]], "#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n#define ATMOSPHERE_AEROSOL_SHAPE aerosol.shape\n")
 -- what the lut shaders that have no uniform block get the aerosol from
 local AerosolConstants = ffi.typeof([[struct {
+	float shape[4];
 	float extinction;
 }]])
 local AEROSOL_DECLARATIONS = [[
 	layout(push_constant) uniform AerosolConstants {
+		vec4 shape;
 		float extinction;
 	} aerosol;
 ]]
@@ -595,7 +605,7 @@ local AEROSOL_DECLARATIONS = [[
 local function get_aerosol_push_constants()
 	return {
 		size = ffi.sizeof(AerosolConstants),
-		data = AerosolConstants({aerosol_extinction}),
+		data = AerosolConstants({aerosol_shape, aerosol_extinction}),
 	}
 end
 
@@ -604,6 +614,7 @@ local SkyViewConstants = ffi.typeof([[struct {
 	float sun_illuminance;
 	float sun_direction[3];
 	float aerosol_extinction;
+	float aerosol_shape[4];
 	int transmittance_index;
 	int scattering_index;
 }]])
@@ -613,6 +624,7 @@ local SKY_VIEW_DECLARATIONS = [[
 		float sun_illuminance;
 		vec3 sun_direction;
 		float aerosol_extinction;
+		vec4 aerosol_shape;
 		int transmittance_index;
 		int scattering_index;
 	} sky_view;
@@ -646,7 +658,7 @@ local sky_view_glsl = build_atmosphere_shader_prelude(
 		return vec4(scattered_light, dot(view_transmittance, vec3(1.0 / 3.0)));
 	}
 ]],
-	"#define ATMOSPHERE_LOG_MARCH 1\n#define ATMOSPHERE_SUN_ILLUMINANCE sky_view.sun_illuminance\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX sky_view.transmittance_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX sky_view.scattering_index\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION sky_view.aerosol_extinction\n"
+	"#define ATMOSPHERE_LOG_MARCH 1\n#define ATMOSPHERE_SUN_ILLUMINANCE sky_view.sun_illuminance\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX sky_view.transmittance_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX sky_view.scattering_index\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION sky_view.aerosol_extinction\n" .. "#define ATMOSPHERE_AEROSOL_SHAPE sky_view.aerosol_shape\n"
 )
 local atmosphere_glsl = build_atmosphere_shader_prelude(
 	[[
@@ -1154,13 +1166,54 @@ do
 	-- (the distance where contrast falls to 2 percent). A new value rebakes the lookup tables
 	function atmosphere.SetAerosolVisibility(meters)
 		atmosphere.aerosol_visibility = meters
-		local ext = get_aerosol_extinction_550()
+		atmosphere.UpdateAerosol()
+	end
 
-		if ext == aerosol_extinction then return end
+	-- the particles: angstrom exponent (how fast the extinction falls with wavelength, larger is smaller particles), single
+	-- scattering albedo (1 scatters everything, lower absorbs, smoke and soot are around 0.85), asymmetry of the phase
+	-- function (1 is all forward) and the scale height of the layer in km. Takes the table GetAerosol returns
+	function atmosphere.SetAerosol(params)
+		aerosol_shape[1] = params.angstrom
+		aerosol_shape[2] = params.albedo
+		aerosol_shape[3] = params.g
+		aerosol_shape[4] = params.scale_height
+		atmosphere.UpdateAerosol()
+	end
+
+	function atmosphere.GetAerosol()
+		return {
+			angstrom = aerosol_shape[1],
+			albedo = aerosol_shape[2],
+			g = aerosol_shape[3],
+			scale_height = aerosol_shape[4],
+		}
+	end
+
+	-- a new amount or kind of aerosol rebakes the lookup tables
+	function atmosphere.UpdateAerosol()
+		local ext = get_aerosol_extinction_550()
+		local spectrum = Vec3((680 / 550) ^ -aerosol_shape[1], 1, (440 / 550) ^ -aerosol_shape[1])
+
+		if
+			ext == aerosol_extinction and
+			spectrum.x == AEROSOL_SPECTRUM.x and
+			aerosol_shape[2] == AEROSOL_ALBEDO and
+			aerosol_shape[3] == AEROSOL_G and
+			aerosol_shape[4] == AEROSOL_HEIGHT
+		then
+			return
+		end
 
 		aerosol_extinction = ext
+		AEROSOL_SPECTRUM = spectrum
+		AEROSOL_ALBEDO, AEROSOL_G, AEROSOL_HEIGHT = aerosol_shape[2], aerosol_shape[3], aerosol_shape[4]
 		MIE_BETA_EXT = AEROSOL_SPECTRUM * ext
 		MIE_BETA = MIE_BETA_EXT * AEROSOL_ALBEDO
+
+		for i, wavelength in ipairs(SPECTRUM.wavelengths) do
+			SPECTRUM.aerosol[i] = (wavelength / 550) ^ -aerosol_shape[1]
+		end
+
 		destroy_transmittance_texture()
 		destroy_scattering_texture()
 		destroy_all_sky_view_textures()
@@ -1191,7 +1244,7 @@ do
 	end
 
 	atmosphere.GetGroundFogExtinction = get_ground_fog_extinction
-	atmosphere.SetAerosolVisibility(atmosphere.aerosol_visibility)
+	atmosphere.UpdateAerosol()
 end
 
 do
@@ -1348,6 +1401,7 @@ local function create_sky_view_texture(x, y, z, elevation)
 						atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE,
 						{hx * cos_e + ux * sin_e, hy * cos_e + uy * sin_e, hz * cos_e + uz * sin_e},
 						aerosol_extinction,
+						aerosol_shape,
 						pipeline:GetTextureIndex(transmittance),
 						pipeline:GetTextureIndex(scattering_table)
 					)
@@ -1374,7 +1428,7 @@ end
 function atmosphere.GetScatteringTexture()
 	if not atmosphere.scattering_texture or not atmosphere.scattering_texture:IsValid() then
 		destroy_scattering_texture()
-		atmosphere.scattering_texture, atmosphere.scattering_source_texture, atmosphere.scattering_ambient_texture = scattering.Create(build_atmosphere_shader_prelude, atmosphere.GetTransmittanceTexture(), aerosol_extinction)
+		atmosphere.scattering_texture, atmosphere.scattering_source_texture, atmosphere.scattering_ambient_texture = scattering.Create(build_atmosphere_shader_prelude, atmosphere.GetTransmittanceTexture(), aerosol_extinction, aerosol_shape)
 	end
 
 	return atmosphere.scattering_texture
@@ -1430,12 +1484,16 @@ function atmosphere.GetBlockLayout()
 		{"atmosphere_fog_color", "vec4"},
 		{"atmosphere_cloud_sky_texture_index", "int"},
 		{"atmosphere_cloud_transmittance", "float"},
+		{"atmosphere_aerosol_angstrom", "float"},
+		{"atmosphere_aerosol_albedo", "float"},
 		{"atmosphere_sun_direction", "vec3"},
 		{"atmosphere_sun_disc_illuminance", "float"},
 		{"atmosphere_moon_direction", "vec3"},
 		{"atmosphere_moon_sky_scale", "float"},
 		{"atmosphere_moon_sky_view_texture_index", "int"},
 		{"atmosphere_moon_angular_radius", "float"},
+		{"atmosphere_aerosol_g", "float"},
+		{"atmosphere_aerosol_scale_height", "float"},
 		{"atmosphere_celestial_x", "vec3"},
 		{"atmosphere_celestial_y", "vec3"},
 		{"atmosphere_celestial_z", "vec3"},
@@ -1469,6 +1527,10 @@ do
 		block.atmosphere_ground_fog_extinction = environment_map and 0 or atmosphere.GetGroundFogExtinction()
 		block.atmosphere_precipitation_extinction = environment_map and 0 or atmosphere.precipitation_extinction
 		block.atmosphere_aerosol_extinction = aerosol_extinction
+		block.atmosphere_aerosol_angstrom = aerosol_shape[1]
+		block.atmosphere_aerosol_albedo = aerosol_shape[2]
+		block.atmosphere_aerosol_g = aerosol_shape[3]
+		block.atmosphere_aerosol_scale_height = aerosol_shape[4]
 		block.atmosphere_fog_ray_strength = fog_ray_strength:Get()
 		local fog_color = atmosphere.fog_color
 		block.atmosphere_fog_color[0] = fog_color and fog_color.x or 0
@@ -1522,6 +1584,10 @@ do
 		block.atmosphere_ground_fog_extinction = 0
 		block.atmosphere_precipitation_extinction = 0
 		block.atmosphere_aerosol_extinction = 0
+		block.atmosphere_aerosol_angstrom = aerosol_shape[1]
+		block.atmosphere_aerosol_albedo = aerosol_shape[2]
+		block.atmosphere_aerosol_g = aerosol_shape[3]
+		block.atmosphere_aerosol_scale_height = aerosol_shape[4]
 		block.atmosphere_fog_ray_strength = 0
 		block.atmosphere_fog_color[0] = 0
 		block.atmosphere_fog_color[1] = 0
@@ -1542,7 +1608,7 @@ do
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_source_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_ambient_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_source_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_ambient_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_AEROSOL_SHAPE vec4(" .. uniform_name .. ".atmosphere_aerosol_angstrom, " .. uniform_name .. ".atmosphere_aerosol_albedo, " .. uniform_name .. ".atmosphere_aerosol_g, " .. uniform_name .. ".atmosphere_aerosol_scale_height)\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
 function atmosphere.GetGLSLCode()

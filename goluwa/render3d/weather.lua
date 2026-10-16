@@ -306,6 +306,14 @@ function weather.GetAerosolVisibility()
 	return atmosphere.GetAerosolVisibility()
 end
 
+function weather.SetAerosol(params)
+	atmosphere.SetAerosol(params)
+end
+
+function weather.GetAerosol()
+	return atmosphere.GetAerosol()
+end
+
 function weather.SetGroundFogVisibility(meters)
 	atmosphere.SetGroundFogVisibility(meters)
 end

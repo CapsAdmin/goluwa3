@@ -699,6 +699,10 @@ function envprobe.CreatePipelines()
 
 	envprobe.sky_pipeline = EasyPipeline.New{
 		name = "envprobe_sky",
+		ConstantPlacement = {
+			mode = "auto",
+			fallback = "uniform_buffer",
+		},
 		ColorFormat = {
 			{envprobe.FORMAT, {"color", "rgba"}},
 			{"r32_sfloat", {"linear_depth", "r"}},
@@ -708,9 +712,11 @@ function envprobe.CreatePipelines()
 		ColorWriteMask = "rgba",
 		vertex = fullscreen_direction_vertex,
 		fragment = {
-			push_constants = {
+			constants = {
 				{
 					name = "fragment",
+					storage = "auto",
+					prefer = "push",
 					block = {
 						{"sun_direction", "vec4"},
 						{"camera_position", "vec4"},
