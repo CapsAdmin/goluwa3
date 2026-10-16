@@ -819,6 +819,7 @@ local function pass_probe_data()
 				float backfaces = 0.0;
 				float closest_back = 1e30;
 				vec3 closest_back_dir = vec3(0.0);
+				float short_back = 0.0;
 				float min_distance = ddgi_data.ddgi_relocation_distance * spacing;
 				ivec2 tile = ddgi_tile(slot, c);
 
@@ -829,6 +830,8 @@ local function pass_probe_data()
 					if (a < 0.0) {
 						backfaces += 1.0;
 						float d = -a / DDGI_BACKFACE_SCALE;
+
+						if (d < min_distance * 2.0) short_back += 1.0;
 
 						if (d < closest_back) {
 							closest_back = d;
@@ -849,8 +852,13 @@ local function pass_probe_data()
 				vec3 previous_offset = offset;
 				vec3 moved = offset;
 
-				if (min_distance > 0.0 && disabled) {
-					moved += closest_back_dir * (closest_back + min_distance * 0.5);
+				// a probe in a thin wall sees its backfaces close in every direction. Which side it
+				// leaves by is a coin toss, and half the time it ends up outside the room
+				if (min_distance > 0.0 && disabled && short_back < backfaces * 0.8) {
+					// along one axis only: a diagonal move at a corner of thin walls leaves through the crack between them
+					vec3 axis = abs(closest_back_dir);
+					vec3 move_dir = sign(closest_back_dir) * vec3(axis.x >= axis.y && axis.x >= axis.z, axis.y > axis.x && axis.y >= axis.z, axis.z > axis.x && axis.z > axis.y);
+					moved += move_dir * (closest_back + min_distance * 0.5);
 				}
 
 				if (min_distance <= 0.0) {
