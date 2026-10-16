@@ -1318,6 +1318,11 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return ]=] .. camera_block_name .. [=[.camera_position;
 			}
 
+			// the terrain without its layers: the chunk's own color and normal, nothing blended over them
+			bool terrain_layers_hidden() {
+				return ]=] .. camera_block_name .. [=[.terrain_only != 0;
+			}
+
 			bool has_heightmap() {
 				return displacement_model.HeightTexture != -1 && displacement_model.HeightScale > 0.0;
 			}
@@ -1574,6 +1579,17 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec4 detail = terrain_model.TerrainLayerDetailStrength;
 				vec4 additive_detail = terrain_model.TerrainLayerAdditiveDetail;
 				vec3 base = model.AlbedoTexture != -1 ? texture(TEXTURE(model.AlbedoTexture), uv).rgb : vec3(1.0);
+
+				if (terrain_layers_hidden()) {
+					s.albedo = base;
+					s.roughness = 1.0;
+					s.normal = N;
+					s.ao = 1.0;
+					terrain_layer_cache = s;
+					terrain_layer_cache_valid = true;
+					return s;
+				}
+
 				vec3 to_camera = get_surface_camera_position() - world_pos;
 				vec3 V = normalize(to_camera);
 				// crysis fades the displacement out towards the detail layers' view distance
@@ -1618,6 +1634,10 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			// a per layer value averaged by the layer weights
 			float get_terrain_weighted_value(vec2 uv, vec4 values, vec4 values2) {
+				if (terrain_layers_hidden()) {
+					return 1.0;
+				}
+
 				vec4 weights, weights2;
 				get_terrain_material_weights_both_uv(uv, weights, weights2);
 				return dot(weights, values) + dot(weights2, values2);
@@ -1627,7 +1647,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec4 weights, weights2;
 				get_terrain_material_weights_both_uv(uv, weights, weights2);
 
-				if (dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0)) <= 0.0001) {
+				if (!terrain_layers_hidden() && dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0)) <= 0.0001) {
 					return color_model.ColorMultiplier.rgb;
 				}
 

@@ -287,6 +287,8 @@ Weather first asks the surface what it wants (`prepare_surface_weather`, the `we
 
 **Adding a feature:** write `features/<name>.lua`, add it to `default_list` in `surface_features.lua`. Not covered yet: the sheen and secondary lobes don't take energy from the base lobe, and nothing sets the new params from the Source or glTF importers.
 
+**Surface debug views:** `r_surface_debug` (`render3d/surface_debug.lua`) strips one layer of shading and shows a gbuffer value unlit through the `surface_debug` pass (and `post_source.GetDebugTexture`): `vertex`, `map`, `combined` normals or `albedo`. `terrain` is `albedo` with `terrain_only` set in the camera block (every pass that uses `BuildPBRSurfaceGlsl` sees it): `terrain_layers_hidden()` makes a terrain material skip its layers, so it shows only the chunk's baked color texture. Scatter (grass, rocks) is separate, `r_feature_scatter 0` hides it.
+
 ## Terrain tiles swap when the replacements are drawn
 
 *a replaced tile goes when the culling that is drawn was dispatched after its replacements were shown; chunk textures are released 12 frames after their tile*

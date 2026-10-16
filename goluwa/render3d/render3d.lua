@@ -11,6 +11,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local surface_debug = import("goluwa/render3d/surface_debug.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -64,6 +65,7 @@ render3d.camera_block = {
 	{"render_size", "vec2"},
 	{"camera_position", "vec3"},
 	{"normal_map_strength", "float"},
+	{"terrain_only", "int"},
 	{"noise_phase", "float"},
 }
 
@@ -80,6 +82,7 @@ function render3d.WriteCameraBlock(self, block)
 	block.render_size[1] = size.y
 	camera:GetPosition():CopyToFloatPointer(block.camera_position)
 	block.normal_map_strength = normal_map_strength:Get()
+	block.terrain_only = surface_debug.GetTerrainOnly() and 1 or 0
 	block.noise_phase = render3d.GetNoisePhase()
 	return block
 end
