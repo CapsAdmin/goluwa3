@@ -908,8 +908,8 @@ do
 		local bending = wind_length * MAX_BENDING / (MAX_BENDING + wind_length)
 		local polygon = render3d.GetCurrentPolygon3D()
 		local height = polygon and polygon:GetBendHeight() or 0
-		block.Time = system.GetElapsedTime()
-		block.PrevTime = render3d.GetPreviousElapsedTime()
+		block.Time = atmosphere.GetWindTime()
+		block.PrevTime = atmosphere.GetPreviousWindTime()
 		block.MainBending = height > 0 and bending * material:GetBending() * height * BEND_PER_HEIGHT or 0
 		block.BendHeight = height
 		block.BendSpeed = wind_length

@@ -15,6 +15,7 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local system = import("goluwa/system.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local objects = import("goluwa/objects/objects.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local event = import("goluwa/event.lua")
@@ -2735,8 +2736,8 @@ function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instan
 	push_constants.light_position[2] = self.point_light_position.z
 	push_constants.light_far_plane = self.far_plane
 	push_constants.disable_vertex_animation = self:ShouldDisableVertexAnimation(cascade_index) and 1 or 0
-	push_constants.time = system.GetElapsedTime()
-	push_constants.prev_time = render3d.GetPreviousElapsedTime()
+	push_constants.time = atmosphere.GetWindTime()
+	push_constants.prev_time = atmosphere.GetPreviousWindTime()
 	push_constants.batches = batch_table:Update(pipeline, batches, batch_serial, self.batch_serial, self)
 	push_constants.instances = instances_address
 	pipeline:Bind(self.cmd, render.GetCurrentFrame())

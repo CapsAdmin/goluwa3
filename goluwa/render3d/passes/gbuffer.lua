@@ -7,7 +7,7 @@ local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local gbuffer_extras = import("goluwa/render3d/gbuffer_extras.lua")
 local geometry_block = import("goluwa/render3d/geometry_block.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
-local system = import("goluwa/system.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_debug = import("goluwa/render3d/surface_debug.lua")
 local camera_block = geometry_block.New("gbuffer_data", {
 	{"surface_debug", "int"},
@@ -177,8 +177,8 @@ local multi_draw_block = {
 		block.batches = self.draw_batches_address
 		block.instances = self.draw_instances_address
 		block.prev_instances = self.draw_prev_instances_address
-		block.time = system.GetElapsedTime()
-		block.prev_time = render3d.GetPreviousElapsedTime()
+		block.time = atmosphere.GetWindTime()
+		block.prev_time = atmosphere.GetPreviousWindTime()
 		return block
 	end,
 }

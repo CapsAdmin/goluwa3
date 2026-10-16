@@ -334,6 +334,14 @@ function weather.GetWind()
 	return atmosphere.GetWind()
 end
 
+function weather.SetWindTimeScale(scale)
+	atmosphere.SetWindTimeScale(scale)
+end
+
+function weather.GetWindTimeScale()
+	return atmosphere.GetWindTimeScale()
+end
+
 function weather.SetTemperature(celsius)
 	atmosphere.SetTemperature(celsius)
 	atmosphere.SetPrecipitationExtinction(precipitation.GetExtinction())

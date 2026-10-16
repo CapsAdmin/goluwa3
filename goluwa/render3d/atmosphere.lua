@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local atmosphere = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
+local system = import("goluwa/system.lua")
 local Texture = import("goluwa/render/texture.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local scattering = import("goluwa/render3d/atmosphere_scattering.lua")
@@ -1268,6 +1269,44 @@ do
 
 	function atmosphere.GetWindStrength()
 		return atmosphere.wind:GetLength() / REFERENCE_WIND_SPEED
+	end
+end
+
+-- the clock the wind moves plants by: the elapsed time at a scale (0 stops them where they are, below 1 is slow
+-- motion), advanced once a frame by whoever asks first, and the time of the frame before it for motion vectors
+do
+	local scale = 1
+	local time, prev_time = 0, 0
+	local last_elapsed, last_frame = 0, -1
+
+	function atmosphere.SetWindTimeScale(value)
+		scale = value
+	end
+
+	function atmosphere.GetWindTimeScale()
+		return scale
+	end
+
+	local function advance()
+		local frame = system.GetFrameNumber()
+
+		if frame == last_frame then return end
+
+		local elapsed = system.GetElapsedTime()
+		local dt = (elapsed - last_elapsed) * scale
+		prev_time = time
+		time = time + dt
+		last_elapsed, last_frame = elapsed, frame
+	end
+
+	function atmosphere.GetWindTime()
+		advance()
+		return time
+	end
+
+	function atmosphere.GetPreviousWindTime()
+		advance()
+		return prev_time
 	end
 end
 
