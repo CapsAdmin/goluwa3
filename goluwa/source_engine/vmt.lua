@@ -52,6 +52,60 @@ local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local vmt = {}
 vmt.ConvertTypedValues = convert_typed_values
 
+-- the shader model of a modern gpu, a block like ">=dx90_20b" or "<dx90" holds the parameters used on cards that have it or lack it
+local DX_LEVEL = 95
+local DX_COMPARE = {
+	[">="] = function(a, b)
+		return a >= b
+	end,
+	["<="] = function(a, b)
+		return a <= b
+	end,
+	[">"] = function(a, b)
+		return a > b
+	end,
+	["<"] = function(a, b)
+		return a < b
+	end,
+	["=="] = function(a, b)
+		return a == b
+	end,
+	[""] = function(a, b)
+		return a == b
+	end,
+}
+
+-- the parameters of the dx blocks that apply replace the ones outside them and the blocks are gone, a missing one is a no
+local function apply_dx_blocks(tbl)
+	local blocks = {}
+
+	for key, value in pairs(tbl) do
+		if type(key) == "string" and type(value) == "table" then
+			local operator, level, suffix = key:lower():match("^([<>=]*)dx(%d+)(_?%w*)$")
+
+			if level then
+				blocks[#blocks + 1] = {
+					key = key,
+					applies = DX_COMPARE[operator](DX_LEVEL, tonumber(level) + (suffix == "_20b" and 0.5 or 0)),
+					value = value,
+				}
+			end
+		end
+	end
+
+	for _, block in ipairs(blocks) do
+		tbl[block.key] = nil
+
+		if block.applies then
+			apply_dx_blocks(block.value)
+
+			for k, v in pairs(block.value) do
+				tbl[k] = v
+			end
+		end
+	end
+end
+
 do
 	local texture_paths = {
 		basetexture = true,
@@ -143,6 +197,7 @@ do
 			end
 
 			vmt = v
+			apply_dx_blocks(vmt)
 			convert_typed_values(vmt)
 			vmt.fullpath = path
 			vmt.resolved_path = resolved_path
