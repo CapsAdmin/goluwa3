@@ -43,6 +43,20 @@ local function number_node(key, text, min, max, precision, get, set, help)
 	return node
 end
 
+local function aerosol_getter(field)
+	return function()
+		return weather.GetAerosol()[field]
+	end
+end
+
+local function aerosol_setter(field)
+	return function(value)
+		local aerosol = weather.GetAerosol()
+		aerosol[field] = value
+		weather.SetAerosol(aerosol)
+	end
+end
+
 local function get_wind_direction()
 	local wind = weather.GetWind()
 
@@ -275,6 +289,53 @@ local function build_items()
 				end, function(value)
 					weather.SetGroundFogVisibility(10 ^ value)
 				end, "log10 of meters"),
+			},
+		},
+		{
+			Key = "weather/aerosol_shape",
+			Text = "Aerosol particles",
+			Tab = "Air",
+			Children = {
+				number_node(
+					"weather/aerosol_angstrom",
+					"angstrom exponent",
+					0,
+					3,
+					2,
+					aerosol_getter("angstrom"),
+					aerosol_setter("angstrom"),
+					"how fast the extinction falls with wavelength, larger is smaller particles and a bluer haze that reddens the sun"
+				),
+				number_node(
+					"weather/aerosol_albedo",
+					"single scattering albedo",
+					0.5,
+					1,
+					3,
+					aerosol_getter("albedo"),
+					aerosol_setter("albedo"),
+					"1 scatters everything, lower absorbs, smoke and soot are around 0.85"
+				),
+				number_node(
+					"weather/aerosol_g",
+					"asymmetry",
+					0,
+					0.95,
+					2,
+					aerosol_getter("g"),
+					aerosol_setter("g"),
+					"how forward the particles scatter, the glow around the sun"
+				),
+				number_node(
+					"weather/aerosol_height",
+					"layer height",
+					0.1,
+					4,
+					2,
+					aerosol_getter("scale_height"),
+					aerosol_setter("scale_height"),
+					"scale height of the aerosol in km"
+				),
 			},
 		},
 		{
