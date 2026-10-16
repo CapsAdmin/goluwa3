@@ -176,7 +176,18 @@ local strength = pvars.Setup2{
 }
 ddgi.SKY_INTENSITY = 1.0
 ddgi.RANDOM_ROTATION = true
-ddgi.RESOLVE_SCALE = 0.5
+local RESOLVE_MEGAPIXELS = {["0.25mp"] = 0.25, ["0.5mp"] = 0.5, ["1mp"] = 1, native = math.huge}
+local resolve_resolution = pvars.Setup2{
+	key = "ddgi_resolve_resolution",
+	default = "0.25mp",
+	enums = {"0.25mp", "0.5mp", "1mp", "native"},
+	help = "the pixel count the gi seen by the screen is resolved at, in megapixels, whatever the window size. it is upsampled to the screen with depth and normal weights. native resolves every pixel",
+	callback = function()
+		local resolve = render3d.pipelines and render3d.pipelines.ddgi_resolve
+
+		if resolve then resolve:RecreateFramebuffers() end
+	end,
+}
 local smooth_blend = pvars.Setup2{
 	key = "ddgi_smooth_blend",
 	default = true,
@@ -278,16 +289,18 @@ function ddgi.GetScreenSpecularTexture()
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(3) or nil
 end
 
-function ddgi.GetScreenRatioGLSL()
-	return "#define DDGI_SCREEN_RATIO " .. math.floor(1 / ddgi.RESOLVE_SCALE + 0.5) .. "\n"
+function ddgi.GetResolveScale()
+	local size = render.GetRenderImageSize()
+	return math.min(1, math.sqrt(RESOLVE_MEGAPIXELS[resolve_resolution:Get()] * 1000000 / (size.x * size.y)))
 end
 
 function ddgi.GetScreenSampleGLSL(block_name)
-	return ddgi.GetScreenRatioGLSL() .. [[
-		vec4 ddgi_screen_sample_texture(int screen_tex, ivec2 pixel, vec3 N, float view_depth) {
-			ivec2 base = pixel / DDGI_SCREEN_RATIO;
+	return [[
+		vec4 ddgi_screen_sample_texture(int screen_tex, vec2 uv, vec3 N, float view_depth) {
 			ivec2 size = textureSize(TEXTURE(screen_tex), 0);
-			vec2 fraction = vec2(pixel - base * DDGI_SCREEN_RATIO) / float(DDGI_SCREEN_RATIO);
+			vec2 position = uv * vec2(size) - 0.5;
+			ivec2 base = ivec2(floor(position));
+			vec2 fraction = position - vec2(base);
 			vec4 sum = vec4(0.0);
 			float total = 0.0;
 
@@ -297,7 +310,7 @@ function ddgi.GetScreenSampleGLSL(block_name)
 
 				if (w <= 0.0) continue;
 
-				ivec2 texel = min(base + corner, size - 1);
+				ivec2 texel = clamp(base + corner, ivec2(0), size - 1);
 				vec4 geometry = texelFetch(TEXTURE(]] .. block_name .. [[.gi_screen_geometry_tex), texel, 0);
 				float depth_weight = exp(-abs(view_depth - geometry.w) / max(view_depth * 0.02, 0.02));
 				float normal_weight = pow(max(dot(N, geometry.xyz), 0.0), 16.0);
@@ -309,13 +322,13 @@ function ddgi.GetScreenSampleGLSL(block_name)
 				return sum / total;
 				}
 				
-				vec4 ddgi_screen_sample(ivec2 pixel, vec3 N, float view_depth) {
-				return ddgi_screen_sample_texture(]] .. block_name .. [[.gi_screen_tex, pixel, N, view_depth);
+				vec4 ddgi_screen_sample(vec2 uv, vec3 N, float view_depth) {
+				return ddgi_screen_sample_texture(]] .. block_name .. [[.gi_screen_tex, uv, N, view_depth);
 				}
 				
 				// the gi along the reflection direction of a rough surface (see ddgi_resolve)
-				vec4 ddgi_screen_specular_sample(ivec2 pixel, vec3 N, float view_depth) {
-				return ddgi_screen_sample_texture(]] .. block_name .. [[.gi_screen_specular_tex, pixel, N, view_depth);
+				vec4 ddgi_screen_specular_sample(vec2 uv, vec3 N, float view_depth) {
+				return ddgi_screen_sample_texture(]] .. block_name .. [[.gi_screen_specular_tex, uv, N, view_depth);
 				}
 	]]
 end

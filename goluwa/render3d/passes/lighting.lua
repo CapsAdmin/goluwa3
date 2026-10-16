@@ -323,7 +323,7 @@ return {
 					return sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
 				}
 
-				vec4 gi = ddgi_screen_sample(in_pixel, N, in_view_depth);
+				vec4 gi = ddgi_screen_sample(in_uv, N, in_view_depth);
 				sky_visibility = gi.a;
 				return gi.rgb;
 			}
@@ -390,7 +390,7 @@ return {
 				vec3 reflection_gi = irradiance;
 				
 				if (lighting_data.gi_reflection_direction != 0 && lighting_data.gi_screen_specular_tex >= 0) {
-					reflection_gi = ddgi_screen_specular_sample(in_pixel, s.N, in_view_depth).rgb;
+					reflection_gi = ddgi_screen_specular_sample(in_uv, s.N, in_view_depth).rgb;
 				}
 				
 				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, reflection_gi, in_uv);

@@ -1421,7 +1421,7 @@ local function pass_resolve()
 			},
 		framebuffer_count = 1,
 		scale = function()
-			return ddgi.RESOLVE_SCALE
+			return ddgi.GetResolveScale()
 		end,
 		LocalSize = {x = 8, y = 8, z = 1},
 		storage_images = {
@@ -1449,17 +1449,17 @@ local function pass_resolve()
 			layout(set = 0, binding = ]] .. BINDING_SCREEN_GEOMETRY .. [[, rgba16f) uniform writeonly image2D out_geometry;
  layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;
  ]],
-		shader = common_glsl() .. ddgi.GetScreenRatioGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
-			// each texel resolves the pixel in the top left corner of the pixels it covers (see ddgi_screen_sample)
+		shader = common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
+			// each texel resolves the pixel under its centre (see ddgi_screen_sample)
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_color);
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
-				ivec2 pixel = pos * DDGI_SCREEN_RATIO;
 				ivec2 depth_size = textureSize(TEXTURE(ddgi_data.depth_tex), 0);
-				vec2 uv = (vec2(pixel) + 0.5) / vec2(depth_size);
+				vec2 uv = (vec2(pos) + 0.5) / vec2(size);
+				ivec2 pixel = min(ivec2(uv * vec2(depth_size)), depth_size - 1);
 				float depth = gbuffer_depth(pixel);
 
 				if (depth >= 1.0) {
@@ -1477,7 +1477,6 @@ local function pass_resolve()
 				vec3 V = normalize(ddgi_data.camera_position - P);
 				float weight;
 				vec3 L = N;
-				
 
 				if (ddgi_data.ddgi_bent_normal_tex >= 0) {
 					vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
@@ -1496,23 +1495,23 @@ local function pass_resolve()
 				}
 
 				imageStore(out_color, pos, gi);
-				
+
 				// what stands in for a rough reflection is the light around the reflection direction, not around
 				// the normal. a smooth surface traces its reflection, so it keeps the normal's
 				float roughness = sqrt(gbuffer_roughness(pixel));
 				vec4 specular = gi;
-				
+
 				if (roughness > 0.25) {
 					vec3 R = get_specular_dominant_direction(reflect(-V, N), N, roughness);
 					specular = ddgi_sample_irradiance(P, N, R, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
-				
+
 					if (weight <= 0.0 && !ddgi_in_volume(P)) {
 						specular = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, R) * ddgi_data.ddgi_strength, 1.0);
 					}
 				}
-				
+
 				imageStore(out_specular, pos, specular);
-				}
+			}
 		]],
 	}
 end
