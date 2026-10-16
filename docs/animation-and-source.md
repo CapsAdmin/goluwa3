@@ -17,6 +17,7 @@ Source format gotchas (all verified on gmod player models):
 - missing includes (vortigaunt m_gst etc.) are logged and skipped, not fatal
 - vertices of a mesh start at `mstudiomodel.vertexindex/48 + mstudiomesh.vertexoffset` in the vvd; the old "sum of max vertex index" guess broke TF2 and zombie_classic. mdl v49 (tob_magilou) has a 33 byte vtx strip group header instead of 25
 - setting a different Sequence resets time and crossfades; call SetTime after the switch has resolved (next Update)
+- ground speed: an animdesc has `nummovements` (+20) and `movementindex` (+24), 44 byte `mstudiomovement_t` blocks (endframe, flags, v0, v1, angle, vector, position). The last block's `position` (floats 8..10, source units) is where the animation ends up after one cycle, `v0` and `v1` are the same number per cycle and not units per second. `clip:GetGroundSpeed(params)` is |that| over the duration, blended over the pose parameters like the pose itself (walk_all of the citizens 80 u/s, run_all 210, combine soldier 72/215, zombie 45, antlion 195/355). See [Navigation and NPCs](navigation-and-npcs.md)
 
 Rig / Pose layering (components never touch ffi or GPU buffers):
 - `Skeleton:NewPose()` gives an opaque `Pose` (Reset/Copy/Sample(clip, cycle, params)/Blend(a, b, t)); raw float arrays (CreatePose, BlendPoses, ComputeSkinMatrices) are the decoder/clip level

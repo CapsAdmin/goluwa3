@@ -137,6 +137,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/scatter.md](docs/scatter.md): scatter sets, models (grass, rocks, trees) grown on surfaces on the gpu: set rules, passes, pitfalls
 - [docs/foliage.md](docs/foliage.md): procedural trees, grass, rocks and plants (addons/foliage), their textures, model assets and scatter sets
 - [docs/crysis.md](docs/crysis.md): Crysis level loading, terrain, vegetation, water, performance
+- [docs/navigation-and-npcs.md](docs/navigation-and-npcs.md): Source `.nav` meshes, pathfinding, NPC prefabs that walk with Source animations, simulation LOD
 - [docs/physics.md](docs/physics.md): solver, stress harnesses, buoyancy, Source props
 - [docs/animation-and-source.md](docs/animation-and-source.md): skeletal animation, Source content, threaded codecs
 - [docs/networking.md](docs/networking.md): server/client, replication, players, visibility, ownership and permissions
