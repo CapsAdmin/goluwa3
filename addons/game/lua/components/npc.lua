@@ -1,0 +1,459 @@
+local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
+local network = import("goluwa/network/network.lua")
+local physics = import("goluwa/physics.lua")
+local usercmd = import("goluwa/network/usercmd.lua")
+local commands = import("goluwa/cli/commands.lua")
+local nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
+local Color = import("goluwa/structs/color.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local UNIT = import("goluwa/source_engine/units.lua").meters
+local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
+local PlayerController = import("lua/components/player_controller.lua")
+local BUTTON = usercmd.BUTTON
+local META = objects.CreateTemplate("npc")
+META:StartStorable()
+META:GetSet("WalkSpeed", 80 * UNIT)
+META:GetSet("RunSpeed", 210 * UNIT)
+META:GetSet("TurnSpeed", 8)
+META:GetSet("Radius", 16 * UNIT)
+META:GetSet("Height", 72 * UNIT)
+META:GetSet("StepHeight", 18 * UNIT)
+META:GetSet("MaxClimb", 0.45)
+META:GetSet("MaxDrop", 3)
+META:IsSet("Running", false)
+META:IsSet("Wander", true)
+META:GetSet("WanderRadius", 30)
+META:GetSet("WanderMinDelay", 1)
+META:GetSet("WanderMaxDelay", 6)
+META:GetSet("PhysicsDistance", 15)
+META:EndStorable()
+-- a waypoint is reached this close, the last one is the place the npc was asked to go to
+local WAYPOINT_RADIUS = 0.5
+local GOAL_RADIUS = 0.3
+-- above this angle between where it faces and where it goes the npc turns on the spot first, until it is under the second
+local TURN_FIRST = math.rad(100)
+local TURN_RESUME = math.rad(50)
+-- not getting this far in this time is being stuck, after this many times in a row the goal is given up, and what is
+-- in the way is looked for this far ahead and stays out of the next paths for the block time
+local STUCK_INTERVAL = 1
+local STUCK_DISTANCE = 0.2
+local STUCK_LIMIT = 3
+local STUCK_PROBE = 0.6
+local BLOCK_TIME = 10
+-- an npc that is not above the mesh for this long is put back on it, it was pushed or fell off
+local LOST_INTERVAL = 0.5
+local LOST_TIME = 5
+local LOST_HEIGHT = 2
+local LOST_DISTANCE = 60
+-- an npc farther than PhysicsDistance from everything that watches, or not among the nearest MaxSimulated, has no body
+-- simulated, it follows the mesh, and gets one back when it is among them again
+META.MaxSimulated = 12
+local PHYSICS_HYSTERESIS = 8
+local RANK_INTERVAL = 4
+-- friction takes a fixed share of the stop speed every tick, a slow walker has to be able to out accelerate it
+local STOP_SPEED_SHARE = 0.5
+local WANDER_MIN_DISTANCE = 4
+local WANDER_TRIES = 4
+local path_debug = false
+local observers, observer_count, observer_step = {}, 0, nil
+local ranked = {}
+
+-- the camera and the players, an npc that none of them is near does not need a body
+local function refresh_observers()
+	observer_count = 0
+
+	if render3d then
+		local position = render3d.GetCamera():GetPosition()
+		observers[1], observers[2], observers[3] = position.x, position.y, position.z
+		observer_count = 3
+	end
+
+	for _, controller in ipairs(PlayerController.Instances or {}) do
+		local position = controller.Owner.transform:GetPosition()
+		observers[observer_count + 1], observers[observer_count + 2], observers[observer_count + 3] = position.x,
+		position.y,
+		position.z
+		observer_count = observer_count + 3
+	end
+end
+
+local function sort_by_distance(a, b)
+	return a.observer_distance < b.observer_distance
+end
+
+-- the npcs nearest to a camera or a player are simulated, up to MaxSimulated of them, and only within their PhysicsDistance,
+-- the rest follow the navigation mesh. Done every few physics ticks for all of them at once
+local function update_simulation()
+	local step = physics.StepIndex
+
+	if observer_step and step >= observer_step and step - observer_step < RANK_INTERVAL then return end
+
+	observer_step = step
+	refresh_observers()
+	local count = 0
+
+	for _, npc in ipairs(META.Instances) do
+		if npc.Owner.player_movement then
+			local position = npc.Owner.transform:GetPosition()
+			local nearest = math.huge
+
+			for i = 1, observer_count, 3 do
+				local dx, dy, dz = observers[i] - position.x, observers[i + 1] - position.y, observers[i + 2] - position.z
+				nearest = math.min(nearest, dx * dx + dy * dy + dz * dz)
+			end
+
+			npc.observer_distance = math.sqrt(nearest)
+			count = count + 1
+			ranked[count] = npc
+		end
+	end
+
+	for i = #ranked, count + 1, -1 do
+		ranked[i] = nil
+	end
+
+	table.sort(ranked, sort_by_distance)
+
+	for rank, npc in ipairs(ranked) do
+		npc.far = observer_count > 0 and
+			(
+				rank > META.MaxSimulated or
+				npc.observer_distance > npc.PhysicsDistance + (npc.far and 0 or PHYSICS_HYSTERESIS)
+			)
+	end
+end
+
+function META:Initialize()
+	-- an npc in a prefab is added while its entity is being built and initialized once more when the build ends
+	if self.initialized then return end
+
+	self.initialized = true
+	local owner = self.Owner
+	local transform = owner:EnsureComponent("transform")
+	local forward = transform:GetRotation():GetForward()
+	self.yaw = math.atan2(-forward.x, -forward.z)
+	self.time = 0
+	self.wander_time = 0
+	self.lost_check = 0
+	self.blocked = {}
+	self.stuck_failures = 0
+	self.stuck_time = 0
+	self.turning = false
+	self.cmd = usercmd.New()
+	self.cmd.mode = "walk"
+	self.cmd.buttons = BUTTON.ACTIVE
+
+	-- only where the npc is simulated, everywhere else its transform is replicated
+	if network.HasAuthority() then
+		owner:AddComponent(
+			"player_movement",
+			{
+				Mode = "walk",
+				Radius = self.Radius,
+				Height = self.Height,
+				EyeHeight = self.Height * 0.9,
+				StepHeight = self.StepHeight,
+				GroundSpeed = self.WalkSpeed,
+			}
+		)
+	end
+end
+
+function META:HasAuthority()
+	return self.Owner.player_movement ~= nil
+end
+
+function META:Teleport(position, yaw)
+	local owner = self.Owner
+	local body = owner.rigid_body
+	owner.player_movement:MoveBodyBy(body, position - body:GetOriginPosition())
+	body:SetVelocity(Vec3())
+	self.yaw = yaw or self.yaw
+	self:Stop()
+end
+
+function META:GetGoal()
+	return self.goal
+end
+
+function META:GetPath()
+	return self.path
+end
+
+function META:IsMoving()
+	return self.goal ~= nil
+end
+
+-- walks to a position over the navigation mesh, the path is found on the next tick
+function META:MoveTo(position, running)
+	self.goal = position:Copy()
+	self.path = nil
+	self.stuck_failures = 0
+
+	if running ~= nil then self:SetRunning(running) end
+end
+
+function META:Stop()
+	self.goal = nil
+	self.path = nil
+end
+
+function META:Finish(event_name)
+	self.goal = nil
+	self.path = nil
+	self.wander_time = self.time + math.randomf(self.WanderMinDelay, self.WanderMaxDelay)
+	self.Owner:CallLocalEvent(event_name)
+end
+
+-- what the navigation mesh needs to know about this npc to find a way it can walk
+function META:GetPathOptions()
+	local blocked = {}
+
+	for area, expires in pairs(self.blocked) do
+		if expires > self.time then
+			blocked[area] = true
+		else
+			self.blocked[area] = nil
+		end
+	end
+
+	return {Radius = self.Radius, MaxClimb = self.MaxClimb, MaxDrop = self.MaxDrop, Blocked = blocked}
+end
+
+function META:FindPath(position, mesh)
+	if not mesh then return self:Finish("OnNPCPathFailed") end
+
+	local path = mesh:FindPath(position, self.goal, self:GetPathOptions())
+
+	if not path then return self:Finish("OnNPCPathFailed") end
+
+	self.path = path
+	self.path_index = 2
+	self.stuck_position = nil
+	self.stuck_time = 0
+end
+
+-- something is in the way where the npc is headed, the next path does not use the connection it was on its way through and
+-- stays out of the area ahead of it, if that is not the one it is in
+function META:OnStuck(position)
+	self.stuck_failures = self.stuck_failures + 1
+
+	if self.stuck_failures > STUCK_LIMIT then return self:Finish("OnNPCPathFailed") end
+
+	local mesh = nav_mesh.GetMesh()
+	local path = self.path
+	local current = mesh:GetAreaAt(position)
+	local expires = self.time + BLOCK_TIME
+
+	for i, link in ipairs(path.links) do
+		if path.areas[i] == current then
+			self.blocked[link] = expires
+
+			break
+		end
+	end
+
+	local ahead = mesh:GetAreaAt(
+		Vec3(position.x + self.dir_x * STUCK_PROBE, position.y, position.z + self.dir_z * STUCK_PROBE)
+	)
+
+	if ahead and ahead ~= current then self.blocked[ahead] = expires end
+
+	self.path = nil
+end
+
+-- the direction to walk in and how far away the point it is walking to is
+function META:Steer(position)
+	local points = self.path.points
+	local count = #points
+
+	while self.path_index <= count do
+		local point = points[self.path_index]
+		local dx, dz = point.x - position.x, point.z - position.z
+		local distance = math.sqrt(dx * dx + dz * dz)
+
+		if distance > (self.path_index == count and GOAL_RADIUS or WAYPOINT_RADIUS) then
+			return dx / distance, dz / distance
+		end
+
+		self.path_index = self.path_index + 1
+	end
+end
+
+function META:ReturnToMesh(mesh, position)
+	local area, x, y, z = mesh:GetNearestArea(position, LOST_DISTANCE)
+	self.lost_since = nil
+
+	if area then self:Teleport(Vec3(x, y + 0.1, z)) end
+end
+
+function META:Think(dt, position)
+	self.time = self.time + dt
+	local mesh = nav_mesh.GetMesh()
+
+	if mesh and self.time >= self.lost_check then
+		self.lost_check = self.time + LOST_INTERVAL
+
+		if mesh:GetAreaAt(position, LOST_HEIGHT) then
+			self.lost_since = nil
+		else
+			self.lost_since = self.lost_since or self.time
+
+			if self.time - self.lost_since >= LOST_TIME then
+				return self:ReturnToMesh(mesh, position)
+			end
+		end
+	end
+
+	if not self.goal then
+		if self.Wander and self.time >= self.wander_time then
+			self.wander_time = self.time + 1
+			local reachable = mesh and mesh:GetReachableAreas(position, self:GetPathOptions())
+
+			if reachable then
+				for _ = 1, WANDER_TRIES do
+					local point = mesh:GetRandomPoint(position, self.WanderRadius, reachable)
+
+					if point and point:Distance(position) >= WANDER_MIN_DISTANCE then
+						self:MoveTo(point)
+
+						break
+					end
+				end
+			end
+		end
+
+		return
+	end
+
+	if not self.path then self:FindPath(position, mesh) end
+
+	if not self.path then return end
+
+	self.dir_x, self.dir_z = self:Steer(position)
+
+	if not self.dir_x then return self:Finish("OnNPCArrived") end
+
+	local stuck_position = self.stuck_position
+
+	if not stuck_position then
+		self.stuck_position = position:Copy()
+		self.stuck_time = 0
+	else
+		self.stuck_time = self.stuck_time + dt
+
+		if self.stuck_time >= STUCK_INTERVAL then
+			local dx, dz = position.x - stuck_position.x, position.z - stuck_position.z
+
+			if dx * dx + dz * dz < STUCK_DISTANCE * STUCK_DISTANCE then
+				self:OnStuck(position)
+			else
+				self.stuck_failures = 0
+			end
+
+			self.stuck_position = nil
+		end
+	end
+end
+
+-- far from everything that watches, the body is not simulated, the npc walks over the surface of the navigation mesh
+function META:Advance(position, dir_x, dir_z, distance)
+	local mesh = nav_mesh.GetMesh()
+	local x, z = position.x + dir_x * distance, position.z + dir_z * distance
+	local y = position.y
+	local area = mesh:GetAreaAt(Vec3(x, y, z), self.MaxDrop)
+
+	if area then y = mesh:GetHeight(area, x, z) end
+
+	self.Owner.player_movement:MoveBodyBy(self.Owner.rigid_body, Vec3(x - position.x, y - position.y, z - position.z))
+end
+
+function META:IsSimulated()
+	return not self.far
+end
+
+-- called by player_movement once per physics tick, the walk to a point is a command like the keys of a player
+function META:NextCommand(dt)
+	local owner = self.Owner
+	local position = owner.rigid_body:GetOriginPosition()
+	local cmd = self.cmd
+	update_simulation()
+	local far = self.far
+	self.dir_x, self.dir_z = nil, nil
+	self:Think(dt, position)
+	local dir_x, dir_z = self.dir_x, self.dir_z
+	local yaw = self.yaw
+	cmd.mode = far and "fly" or "walk"
+	cmd.buttons = far and 0 or BUTTON.ACTIVE
+	cmd.forward, cmd.side = 0, 0
+	local speed = self.Running and self.RunSpeed or self.WalkSpeed
+
+	if dir_x then
+		local delta = math.normalizeangle(math.atan2(-dir_x, -dir_z) - yaw)
+		local step = self.TurnSpeed * dt
+		yaw = yaw + math.clamp(delta, -step, step)
+		self.yaw = yaw
+		local remaining = math.abs(delta) - step
+		self.turning = remaining > (self.turning and TURN_RESUME or TURN_FIRST)
+
+		if not self.turning then
+			if far then
+				self:Advance(position, dir_x, dir_z, speed * dt)
+			else
+				local sin, cos = math.sin(yaw), math.cos(yaw)
+				cmd.forward = -dir_x * sin - dir_z * cos
+				cmd.side = dir_x * cos - dir_z * sin
+			end
+		end
+	end
+
+	local half = yaw / 2
+	local view = cmd.view
+	view.x, view.y, view.z, view.w = 0, math.sin(half), 0, math.cos(half)
+	local movement = owner.player_movement
+	movement:SetGroundSpeed(speed)
+	movement:SetStopSpeed(self.WalkSpeed * STOP_SPEED_SHARE)
+	return cmd
+end
+
+function META.SetPathDebug(enabled)
+	if enabled == path_debug then return end
+
+	path_debug = enabled
+
+	if not enabled then
+		event.RemoveListener("Update", "npc_path_debug")
+		return
+	end
+
+	local debug_draw = import("goluwa/debug_draw.lua")
+	local lift = Vec3(0, 0.1, 0)
+
+	event.AddListener("Update", "npc_path_debug", function()
+		for index, npc in ipairs(META.Instances) do
+			local path = npc.path
+
+			if path then
+				local points = path.points
+
+				for i = npc.path_index, #points do
+					debug_draw.DrawLine{
+						id = "npc_path_" .. index .. "_" .. i,
+						from = (i == npc.path_index and npc.Owner.transform:GetPosition() or points[i - 1]) + lift,
+						to = points[i] + lift,
+						color = npc.Running and Color(1, 0.4, 0.1, 1) or Color(0.2, 0.8, 1, 1),
+						width = 3,
+						time = 0.1,
+					}
+				end
+			end
+		end
+	end)
+end
+
+commands.Add("npc_show_paths", function()
+	META.SetPathDebug(not path_debug)
+end)
+
+return META:Register()
