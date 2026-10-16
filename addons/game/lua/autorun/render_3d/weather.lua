@@ -3,7 +3,8 @@ import("goluwa/render3d/climate.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local date = import("goluwa/date.lua")
 weather.Initialize()
-weather.SetWind(Vec3(1, 0, 0.35):GetNormalized() * 0.5)
+-- a gentle breeze (beaufort 3), leaves and twigs in constant motion
+weather.SetWind(Vec3(1, 0, 0.35):GetNormalized() * 4)
 
 local function parse_time(str, utc_offset)
 	local y, m, d, h, min = str:match("(%d+)-(%d+)-(%d+) (%d+):(%d+)")
