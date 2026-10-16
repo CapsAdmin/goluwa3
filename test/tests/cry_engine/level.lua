@@ -348,6 +348,34 @@ T.Test("Cry level parser reads painted vegetation instances", function()
 	T((fit.matrix:TransformVector(Vec3(0, 1, 0)) - fit_origin - Vec3(0, 2, 0)):GetLength())["~"](0, 0.001)
 end)
 
+T.Test("Cry terrain height drops to zero outside the heightmap", function()
+	local raw = pack_u16_le(65535)
+	local terrain = {
+		world_size = 10,
+		heightmap_max_height = 100,
+		height_data = raw .. raw .. raw .. raw,
+		height_data_offset = 1,
+		height_sample_width = 2,
+		height_sample_height = 2,
+		height_world_to_sample_x = 0.1,
+		height_world_to_sample_y = 0.1,
+	}
+	T(crylevel.SampleTerrainHeight(terrain, 5, -5))["~"](100, 0.001)
+	T(crylevel.SampleTerrainHeight(terrain, 0, 0))["~"](100, 0.001)
+	T(crylevel.SampleTerrainHeight(terrain, 10, -10))["~"](100, 0.001)
+	T(crylevel.SampleTerrainHeight(terrain, -0.01, -5))["=="](0)
+	T(crylevel.SampleTerrainHeight(terrain, 10.01, -5))["=="](0)
+	T(crylevel.SampleTerrainHeight(terrain, 5, 0.01))["=="](0)
+	T(crylevel.SampleTerrainHeight(terrain, 5, -10.01))["=="](0)
+	T(crylevel.SampleTerrainHeight(terrain, 1000, 1000))["=="](0)
+	T(crylevel.SampleRenderedTerrainHeight(terrain, 5, -5))["~"](100, 0.001)
+	T(crylevel.SampleRenderedTerrainHeight(terrain, 0, 0))["~"](100, 0.001)
+	T(crylevel.SampleRenderedTerrainHeight(terrain, -0.01, -5))["=="](0)
+	T(crylevel.SampleRenderedTerrainHeight(terrain, 10.01, -5))["=="](0)
+	T(crylevel.SampleRenderedTerrainHeight(terrain, 5, 0.01))["=="](0)
+	T(crylevel.SampleRenderedTerrainHeight(terrain, 5, -10.01))["=="](0)
+end)
+
 T.Test("Cry cover parser reads the terrain texture quadtree", function()
 	local function u16(v)
 		return string.char(bit.band(v, 0xFF), bit.band(bit.rshift(v, 8), 0xFF))
