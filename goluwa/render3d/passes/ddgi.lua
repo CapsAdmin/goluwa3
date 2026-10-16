@@ -21,9 +21,8 @@ local BINDING_RAY_HITS = 2
 local BINDING_BVH_NODES = 3
 local BINDING_BVH_TRIANGLES = 4
 local BINDING_MATERIALS = 5
-local BINDING_TREND = 7
-local BINDING_EMITTERS = 8
 local BINDING_STATE = 9
+local BINDING_EMITTERS = 8
 local BINDING_SCENE = 10
 local BINDING_LIGHT_GRID = 11
 local BINDING_UVS = 12
@@ -566,9 +565,10 @@ local function pass_shade()
 end
 
 local function pass_update(name, texels, integrate)
+	-- state: x the frames behind a texel, y its probe's mean ray brightness
 	local color_formats = {
 		{integrate.atlas_format[1], {name, "rgba"}},
-		{integrate.state_format[1], {name .. "_state", "rgba"}},
+		{"r16g16b16a16_sfloat", {name .. "_state", "rgba"}},
 	}
 	local storage_images = {
 		{binding_index = BINDING_OUTPUT, dst_stage = "compute"},
@@ -582,22 +582,8 @@ local function pass_update(name, texels, integrate)
 	}
 	local declarations = [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, ]] .. integrate.atlas_format[2] .. [[) uniform image2D atlas;
-		layout(set = 0, binding = ]] .. BINDING_STATE .. [[, ]] .. integrate.state_format[2] .. [[) uniform image2D state_atlas;
+		layout(set = 0, binding = ]] .. BINDING_STATE .. [[, rgba16f) uniform image2D state_atlas;
 	]]
-
-	if integrate.trend then
-		color_formats[3] = {"r16g16b16a16_sfloat", {name .. "_trend", "rgba"}}
-		storage_images[3] = {
-			binding_index = BINDING_TREND,
-			get_texture = function(self, fb)
-				return fb:GetAttachment(3)
-			end,
-			dst_stage = "compute",
-		}
-		declarations = declarations .. [[
-			layout(set = 0, binding = ]] .. BINDING_TREND .. [[, rgba16f) uniform image2D trend_atlas;
-		]]
-	end
 
 	return {
 		name = name,
@@ -652,16 +638,6 @@ local function pass_update(name, texels, integrate)
 				}
 
 				barrier();
-				// count back face hits from this frame's rays for the validity check,
-				// so a probe that just escaped geometry is valid immediately
-				// instead of waiting for the probe_data pass (which runs later).
-				// Only the uniform rays count, the others look where the light is.
-				float backface_count = 0.0;
-				for (int r = 0; r < ddgi_data.ddgi_uniform_rays; r++) {
-					if (s_ray[r].a < 0.0) backface_count += 1.0;
-				}
-				float backface_fraction = backface_count / float(ddgi_data.ddgi_uniform_rays);
-
 				vec3 texel_dir = ddgi_texel_direction(local, TEXELS);
 				vec4 sum = vec4(0.0);
 				float weight_sum = 0.0;
@@ -681,96 +657,46 @@ local function pass_update(name, texels, integrate)
 			) .. [[
 
 				ivec2 texel = tile * TEXELS + local;
-				// On a reset frame the probe data itself is garbage. A disabled
-				// probe's history is never shaded with and may hold light from
-				// hitting the inside of geometry, so it starts over as well, before
-				// relocation can carry it out into the open.
-				vec4 data = ddgi_probe_data(slot, c);
-				// a probe that just moved is judged by this frame's rays, which start
-				// where it is now; any other by the probe data's smoothed verdict
-				bool disabled = ddgi_probe_moved(data) ? backface_fraction > ddgi_data.ddgi_backface_threshold : ddgi_probe_disabled(data);
-				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && !disabled;
-				vec4 previous = imageLoad(atlas, texel);
-
-				// a probe that moved was last integrated from rays that started somewhere
-				// else, so that history does not describe where it is now
-				vec4 state = current && !ddgi_probe_moved(data) ? imageLoad(state_atlas, texel) : vec4(0.0);
-
-				// A probe that just became valid has no history. Seed it from its
-				// valid neighbours so it starts close to the right answer instead
-				// of black, and give it a small age so the hysteresis keeps most
-				// of the seed value on the first frame. A relocated probe is not
-				// seeded: it sits off its grid point, possibly on the other side
-				// of a wall from its neighbours, whose light would leak in.
-				if (current && state.x <= 0.0 && data.xyz == vec3(world)) {
-					vec3 seed = vec3(0.0);
-					float seed_count = 0.0;
-					ivec3 nbase = ddgi_volume_base(c);
-					ivec3 nsize = ddgi_volume_size(c);
-					for (int n = 0; n < 6; n++) {
-						ivec3 off = ivec3(n % 2 * 2 - 1, (n / 2) % 2 * 2 - 1, (n / 4) * 2 - 1);
-						if (off.x + off.y + off.z == 0) continue;
-						if (abs(off.x) + abs(off.y) + abs(off.z) != 1) continue;
-						ivec3 nworld = world + off;
-						if (any(lessThan(nworld, nbase)) || any(greaterThanEqual(nworld, nbase + nsize))) continue;
-						ivec3 nslot = ddgi_slot(nworld, c);
-						vec4 ndata = ddgi_probe_data(nslot, c);
-						if (!ddgi_probe_is_current(ndata, nworld) || ddgi_probe_disabled(ndata)) continue;
-						ivec2 ntile = ddgi_tile(nslot, c);
-						seed += imageLoad(atlas, ntile * TEXELS + local).rgb;
-						seed_count += 1.0;
-					}
-					// fall back to the coarser cascade: its probes are twice the
-					// spacing, so they are less likely to be inside the geometry
-					if (seed_count <= 0.0 && c + 1 < ddgi_data.ddgi_cascade_count) {
-						int pc = c + 1;
-						float pspacing = ddgi_spacing(pc);
-						ivec3 pbase = ddgi_volume_base(pc);
-						ivec3 psize = ddgi_volume_size(pc);
-						ivec3 pworld = ivec3(floor(vec3(world) * ddgi_spacing(c) / pspacing + 0.5));
-
-						for (int n = 0; n < 6 && seed_count <= 0.0; n++) {
-							ivec3 off = ivec3(n % 2 * 2 - 1, (n / 2) % 2 * 2 - 1, (n / 4) * 2 - 1);
-							if (off.x + off.y + off.z == 0) continue;
-							if (abs(off.x) + abs(off.y) + abs(off.z) != 1) continue;
-							ivec3 pw = pworld + off;
-							if (any(lessThan(pw, pbase)) || any(greaterThanEqual(pw, pbase + psize))) continue;
-							ivec3 pslot = ddgi_slot(pw, pc);
-							vec4 pdata = ddgi_probe_data(pslot, pc);
-							if (!ddgi_probe_is_current(pdata, pw) || ddgi_probe_disabled(pdata)) continue;
-							ivec2 ptile = ddgi_tile(pslot, pc);
-							seed += imageLoad(atlas, ptile * TEXELS + local).rgb;
-							seed_count += 1.0;
-						}
-					}
-
-					if (seed_count > 0.0) {
-						previous.rgb = seed / seed_count;
-						state.x = 4.0;
-					}
-				}
-
-				if (weight_sum <= 0.0) {
-					imageStore(atlas, texel, current ? previous : vec4(0.0));
-					imageStore(state_atlas, texel, state);
-					return;
-				}
-
-				vec4 result = sum / weight_sum;
+				vec4 result = weight_sum > 0.0 ? sum / weight_sum : vec4(0.0);
 				]] .. (
 				integrate.result or
 				""
 			) .. [[
-				float hysteresis = ddgi_data.ddgi_cascade_update[c].x;
-				]] .. (
-				integrate.adapt or
-				""
-			) .. [[
-				// a texel with n frames behind it weighs the new one 1 / (n + 1)
-				hysteresis = min(hysteresis, state.x / (state.x + 1.0));
+
+				// A probe that was reset, just moved or is disabled has no history. How much of the
+				// history a texel keeps: the cascade's rate, but a texel with n frames behind it
+				// weighs the new one 1 / (n + 1), and a probe whose mean ray brightness moved takes
+				// the new frame at once. Noise averages out of that mean, a moving shadow does not.
+				vec4 data = ddgi_probe_data(slot, c);
+				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && !ddgi_probe_disabled(data) && !ddgi_probe_moved(data);
+				vec4 state = current ? imageLoad(state_atlas, texel) : vec4(0.0);
+				float probe_mean = 0.0;
+				float probe_weight = 0.0;
+
+				for (int r = 0; r < DDGI_RAYS; r++) {
+					if (s_ray[r].a < 0.0) continue;
+
+					probe_mean += sqrt(luminance(s_ray[r].rgb)) * s_q[r];
+					probe_weight += s_q[r];
+				}
+
+				probe_mean /= max(probe_weight, 1e-4);
+				// the probe's mean against its slow average: z is the signed relative difference
+				// smoothed over a few frames (noise cancels in it), w the typical size of a single
+				// frame's difference. A real change makes z large against w, noise does not
+				float diff = state.y > 0.0 ? (probe_mean - state.y) / max(state.y, 1e-3) : 0.0;
+				state.z = state.y > 0.0 ? mix(diff, state.z, 0.8) : 0.0;
+				state.w = state.y > 0.0 ? mix(abs(diff), state.w, 0.95) : 0.0;
+				float change = abs(state.z) / (state.w + 0.01);
+				state.y = state.y > 0.0 ? mix(probe_mean, state.y, 0.97) : probe_mean;
+				float keep = ddgi_data.ddgi_cascade_update[c].x;
+				keep = mix(keep, pow(keep, 4.0), clamp((change - 0.6) / 0.6, 0.0, 1.0));
+				// the sun moved since this cascade was last updated, what it held is out of date
+				if (ddgi_data.ddgi_cascade_update[c].y > 0.0) keep = min(keep, 0.4);
+				keep = min(keep, state.x / (state.x + 1.0));
 				state.x = min(state.x + 1.0, 1024.0);
 				imageStore(state_atlas, texel, state);
-				imageStore(atlas, texel, mix(result, previous, hysteresis));
+				imageStore(atlas, texel, mix(result, imageLoad(atlas, texel), keep));
 			}
 		]],
 	}
@@ -778,7 +704,6 @@ end
 
 local IRRADIANCE_INTEGRATE = {
 	atlas_format = {"r16g16b16a16_sfloat", "rgba16f"},
-	state_format = {"r16g16b16a16_sfloat", "rgba16f"},
 	declare = [[
 		// mean luminance of the probe's rays without its brightest, the
 		// reference a ray is capped against
@@ -827,31 +752,9 @@ local IRRADIANCE_INTEGRATE = {
 			result.rgb += emitter.rgb * max(0.0, dot(texel_dir, ddgi_unpack_direction(emitter.a)));
 		}
 	]],
-	trend = true,
-	adapt = [[
-		float luma = luminance(result.rgb);
-		float deviation = state.x > 0.0 ? min(abs(luma - state.y) / max(state.y, 1e-4), 4.0) : 1.0;
-		state.y = state.x > 0.0 ? mix(luma, state.y, ddgi_data.ddgi_cascade_update[c].y) : luma;
-		state.z = state.x > 0.0 ? mix(deviation, state.z, ddgi_data.ddgi_cascade_update[c].y) : deviation;
-		hysteresis = mix(ddgi_data.ddgi_cascade_update[c].y, ddgi_data.ddgi_cascade_update[c].x, clamp(state.z / ddgi_data.ddgi_noise_range, 0.0, 1.0));
-
-		vec4 trend = current ? imageLoad(trend_atlas, texel) : vec4(result.rgb, 0.0);
-		trend.rgb = mix(result.rgb, trend.rgb, 0.75);
-		vec3 ratio = max(result.rgb, vec3(1e-3)) / max(previous.rgb, vec3(1e-3));
-		bool up = max(ratio.r, max(ratio.g, ratio.b)) > ddgi_data.ddgi_irradiance_threshold;
-		bool down = min(ratio.r, min(ratio.g, ratio.b)) < 1.0 / ddgi_data.ddgi_irradiance_threshold;
-		trend.a = up == down ? 0.0 : up ? max(trend.a, 0.0) + 1.0 : min(trend.a, 0.0) - 1.0;
-		imageStore(trend_atlas, texel, trend);
-
-		if (abs(trend.a) >= ddgi_data.ddgi_adapt_frames) {
-			result.rgb = trend.rgb;
-			hysteresis = min(hysteresis, 0.5);
-		}
-	]],
 }
 local DISTANCE_INTEGRATE = {
 	atlas_format = {"r16g16_sfloat", "rg16f"},
-	state_format = {"r16_sfloat", "r16f"},
 	loop = [[
 		float w = pow(max(0.0, dot(texel_dir, s_dir[r])), ddgi_data.ddgi_distance_exponent) * s_q[r];
 
@@ -1048,7 +951,7 @@ local function pass_guide()
 				// probe's mean without one
 				float value = weight > 0.0 ? sum / weight : (has_history ? previous : all_sum / all_weight);
 
-				if (weight > 0.0 && has_history) value = mix(value, previous, ddgi_data.ddgi_cascade_update[c].y);
+				if (weight > 0.0 && has_history) value = mix(value, previous, DDGI_GUIDE_HISTORY);
 
 				s_value[cell] = value;
 				barrier();

@@ -38,17 +38,27 @@ local cascade_ratio = pvars.Setup2{
 }
 ddgi.CASCADES = 10
 ddgi.CASCADE_BLEND = 2.0
-local update_intervals = {}
+local update_interval_min = pvars.Setup2{
+	key = "ddgi_update_interval_min",
+	default = 1,
+	integer = true,
+	min = 1,
+	max = 64,
+	help = "frames between updates of the finest cascade. the cascades between it and the coarsest wait geometrically more",
+}
+local update_interval_max = pvars.Setup2{
+	key = "ddgi_update_interval_max",
+	default = 64,
+	integer = true,
+	min = 1,
+	max = 64,
+	help = "frames between updates of the coarsest cascade, the further cascades reach the longer they can wait, but lighting that changes shows up in them that much later",
+}
 
-for c, frames in ipairs{1, 2, 4, 8, 16, 32, 64, 64, 64, 64} do
-	update_intervals[c] = pvars.Setup2{
-		key = "ddgi_update_interval_" .. c - 1,
-		default = frames,
-		integer = true,
-		min = 1,
-		max = 64,
-		help = "frames between updates of cascade " .. c - 1,
-	}
+local function get_update_interval(c)
+	local lowest = update_interval_min:Get()
+
+	return math.max(1, math.floor(lowest * (update_interval_max:Get() / lowest) ^ ((c - 1) / (ddgi.CASCADES - 1)) + 0.5))
 end
 
 local min_coverage = pvars.Setup2{
@@ -101,33 +111,7 @@ local hysteresis = pvars.Setup2{
 	default = 0.99,
 	min = 0,
 	max = 1,
-	help = "how much of a noisy texel's history survives a frame at 60 fps",
-}
-local min_hysteresis = pvars.Setup2{
-	key = "ddgi_min_hysteresis",
-	default = 0.95,
-	min = 0,
-	max = 1,
-	help = "how much of a steady texel's history survives a frame at 60 fps",
-}
-local noise_range = pvars.Setup2{
-	key = "ddgi_noise_range",
-	default = 0.25,
-	min = 0.001,
-	help = "mean relative deviation at which a texel counts as fully noisy",
-}
-local irradiance_threshold = pvars.Setup2{
-	key = "ddgi_irradiance_threshold",
-	default = 2.0,
-	min = 1,
-	help = "factor against its history a texel must differ by to adapt quickly",
-}
-local adapt_frames = pvars.Setup2{
-	key = "ddgi_adapt_frames",
-	default = 6,
-	integer = true,
-	min = 1,
-	help = "frames in a row a texel must differ by the threshold to adapt quickly",
+	help = "how much of a probe texel's history survives a frame at 60 fps, a cascade that updates less often keeps this to the power of the frames it was away",
 }
 local ray_clamp = pvars.Setup2{
 	key = "ddgi_ray_clamp",
@@ -137,7 +121,7 @@ local ray_clamp = pvars.Setup2{
 }
 local guided_ray_fraction = pvars.Setup2{
 	key = "ddgi_guided_rays",
-	default = 0.5,
+	default = 0.7,
 	min = 0,
 	max = 0.75,
 	help = "share of each probe's rays aimed by its own radiance map, 0 is uniform rays only",
@@ -451,11 +435,11 @@ do
 		region.min_x, region.max_x = fit_region(0, position.x, bounds_min, bounds_max)
 		region.min_y, region.max_y = fit_region(1, position.y, bounds_min, bounds_max)
 		region.min_z, region.max_z = fit_region(2, position.z, bounds_min, bounds_max)
+		local frame_time = system.GetFrameTime()
 		local irradiance = render3d.pipelines.ddgi_irradiance
 		local framebuffers = irradiance and irradiance.framebuffers
 		local reset_mask = 0
 		local update_mask = 0
-		local frame_time = system.GetFrameTime()
 
 		if ddgi.force_reset or framebuffers ~= state.history_framebuffers then
 			reset_mask = bit.lshift(1, ddgi.CASCADES) - 1
@@ -467,6 +451,22 @@ do
 		local sun_x, sun_y, sun_z = sun.x, sun.y, sun.z
 		local sun_luma = directional_shadows.GetPrimarySunIlluminance(lights) * math.smoothstep(-0.08, 0.02, sun_y)
 		local threshold = change_threshold:Get()
+		local reference = state.sun_reference
+
+		-- what the probes hold was lit by a sun that is gone (the sun moved or changed brightness by the same
+		-- measure as above since a few frames ago), so their history gives way to the new rays for a short while
+		if not reference or frame - reference.frame >= 8 then
+			if reference and threshold > 0 then
+				local luma_change = math.abs(sun_luma - reference.luma) / math.max(sun_luma, reference.luma, 1e-3)
+				local moved = math.sqrt((sun_x - reference.x) ^ 2 + (sun_y - reference.y) ^ 2 + (sun_z - reference.z) ^ 2)
+
+				if moved + luma_change > threshold then state.sun_fast_until = frame + 60 end
+			end
+
+			reference = reference or {}
+			reference.x, reference.y, reference.z, reference.luma, reference.frame = sun_x, sun_y, sun_z, sun_luma, frame
+			state.sun_reference = reference
+		end
 
 		for c = 1, ddgi.CASCADES do
 			local spacing = ddgi.GetCascadeSpacing(c - 1)
@@ -499,7 +499,7 @@ do
 			cascade.y, holds_y = fit_base(position.y, region.min_y, region.max_y, spacing, size.y)
 			cascade.z, holds_z = fit_base(position.z, region.min_z, region.max_z, spacing, size.z)
 			cascade.elapsed = (cascade.elapsed or 0) + frame_time
-			local interval = update_intervals[c]:Get()
+			local interval = get_update_interval(c)
 			cascade.frames = (cascade.frames or 0) + 1
 			local changed = false
 
@@ -656,6 +656,8 @@ function ddgi.GetRayDirectionGLSL()
 		#define DDGI_GUIDE_TEXELS 8
 		#define DDGI_GUIDE_CELLS 64
 		// what reads the guide texel of a probe's tile, so that the ray generation
+		// how much of its previous value a guide cell keeps each frame
+		#define DDGI_GUIDE_HISTORY 0.9
 		// shader and the guide pass can use their own bindings
 		#ifndef DDGI_GUIDE_FETCH
 		#define DDGI_GUIDE_FETCH(texel) texelFetch(TEXTURE(ddgi_data.ddgi_guide_tex), texel, 0)
@@ -1396,9 +1398,6 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_ground_fog", "vec4"},
 		{"ddgi_max_distance", "float"},
 		{"ddgi_cascade_update", "vec4", ddgi.CASCADES},
-		{"ddgi_noise_range", "float"},
-		{"ddgi_irradiance_threshold", "float"},
-		{"ddgi_adapt_frames", "float"},
 		{"ddgi_ray_clamp", "float"},
 		{"ddgi_distance_exponent", "float"},
 		{"ddgi_normal_bias", "float"},
@@ -1491,15 +1490,10 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_max_distance = max_ray_distance:Get()
 
 	for c = 1, ddgi.CASCADES do
-		local cascade = state.cascades[c]
-		local frames = math.min(cascade.update_time, 0.1 * update_intervals[c]:Get()) * 60
-		block.ddgi_cascade_update[c - 1][0] = hysteresis:Get() ^ frames
-		block.ddgi_cascade_update[c - 1][1] = min_hysteresis:Get() ^ frames
+		block.ddgi_cascade_update[c - 1][0] = hysteresis:Get() ^ (math.min(state.cascades[c].update_time, 0.1 * get_update_interval(c)) * 60)
+		block.ddgi_cascade_update[c - 1][1] = (state.sun_fast_until or 0) > state.frame and 1 or 0
 	end
 
-	block.ddgi_noise_range = noise_range:Get()
-	block.ddgi_irradiance_threshold = irradiance_threshold:Get()
-	block.ddgi_adapt_frames = adapt_frames:Get()
 	block.ddgi_ray_clamp = ray_clamp:Get()
 	block.ddgi_distance_exponent = ddgi.DISTANCE_EXPONENT
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
@@ -2312,7 +2306,7 @@ commands.Add("ddgi_info", function()
 			c - 1,
 			c > state.cascade_count and " (unused)" or "",
 			cascade.spacing,
-			update_intervals[c]:Get(),
+			get_update_interval(c),
 			cascade.size.x,
 			cascade.size.y,
 			cascade.size.z,
