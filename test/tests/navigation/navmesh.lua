@@ -1,0 +1,232 @@
+local T = import("test/environment.lua")
+local navmesh = import("goluwa/navigation/navmesh.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+
+local function close(value, expected)
+	T(math.abs(value - expected) < 1e-3)["=="](true)
+end
+
+local function rectangle(mesh, id, x1, z1, x2, z2, y, extra)
+	extra = extra or {}
+	extra.Id = id
+	extra.Polygon = {Vec3(x1, y, z1), Vec3(x2, y, z1), Vec3(x2, y, z2), Vec3(x1, y, z2)}
+	return mesh:AddArea(extra)
+end
+
+-- both directions, a and b are the ends of the shared edge
+local function join(mesh, a, b, p, q)
+	mesh:Connect(a, b, p, q)
+	mesh:Connect(b, a, p, q)
+end
+
+-- a corridor along x from 0 to 10, then a corridor along z from 2 to 12
+local function create_corner()
+	local mesh = navmesh.New()
+	local a = rectangle(mesh, 1, 0, 0, 10, 2, 0)
+	local b = rectangle(mesh, 2, 8, 2, 10, 12, 0)
+	join(mesh, a, b, Vec3(8, 0, 2), Vec3(10, 0, 2))
+	return mesh
+end
+
+T.Test("navmesh finds the area under a point and the closest one on a different level", function()
+	local mesh = navmesh.New()
+	local ground = rectangle(mesh, 1, 0, 0, 10, 10, 0)
+	local upper = rectangle(mesh, 2, 0, 0, 10, 10, 4)
+	T(mesh:GetAreaAt(Vec3(5, 0.2, 5)))["=="](ground)
+	T(mesh:GetAreaAt(Vec3(5, 3.5, 5)))["=="](upper)
+	T(mesh:GetAreaAt(Vec3(5, 2, 5)))["=="](nil)
+	T(mesh:GetAreaAt(Vec3(12, 0, 5)))["=="](nil)
+	local nearest, x, y, z = mesh:GetNearestArea(Vec3(11, 0, 5), 2)
+	T(nearest)["=="](ground)
+	close(x, 10)
+	close(y, 0)
+	close(z, 5)
+	T(mesh:GetNearestArea(Vec3(20, 0, 5), 2))["=="](nil)
+end)
+
+T.Test("navmesh interpolates the height over a sloped area", function()
+	local mesh = navmesh.New()
+	local ramp = mesh:AddArea{
+		Polygon = {Vec3(0, 0, 0), Vec3(10, 5, 0), Vec3(10, 5, 4), Vec3(0, 0, 4)},
+	}
+	close(mesh:GetHeight(ramp, 0, 2), 0)
+	close(mesh:GetHeight(ramp, 5, 1), 2.5)
+	close(mesh:GetHeight(ramp, 10, 3), 5)
+	T(mesh:GetAreaAt(Vec3(5, 2.5, 2)))["=="](ramp)
+	T(mesh:GetAreaAt(Vec3(5, 0, 2), 1))["=="](nil)
+end)
+
+T.Test("navmesh path in one area is a straight line", function()
+	local mesh = navmesh.New()
+	rectangle(mesh, 1, 0, 0, 10, 10, 0)
+	local path = assert(mesh:FindPath(Vec3(1, 0, 1), Vec3(9, 0, 9)))
+	T(#path.points)["=="](2)
+	T(#path.areas)["=="](1)
+	close(path.length, math.sqrt(128))
+end)
+
+T.Test("navmesh path through two areas in a line has no extra points", function()
+	local mesh = navmesh.New()
+	local a = rectangle(mesh, 1, 0, 0, 10, 4, 0)
+	local b = rectangle(mesh, 2, 10, 0, 20, 4, 0)
+	join(mesh, a, b, Vec3(10, 0, 0), Vec3(10, 0, 4))
+	local path = assert(mesh:FindPath(Vec3(1, 0, 2), Vec3(19, 0, 2)))
+	T(#path.points)["=="](2)
+	T(#path.areas)["=="](2)
+	close(path.length, 18)
+end)
+
+T.Test("navmesh path turns at the inner corner of a bend", function()
+	local mesh = create_corner()
+	local path = assert(mesh:FindPath(Vec3(1, 0, 1), Vec3(9, 0, 11)))
+	T(#path.points)["=="](3)
+	close(path.points[2].x, 8)
+	close(path.points[2].z, 2)
+	close(path.points[3].x, 9)
+	close(path.points[3].z, 11)
+	local mirrored = assert(mesh:FindPath(Vec3(9, 0, 11), Vec3(1, 0, 1)))
+	T(#mirrored.points)["=="](3)
+	close(mirrored.points[2].x, 8)
+	close(mirrored.points[2].z, 2)
+end)
+
+T.Test("navmesh path keeps its radius from the corner", function()
+	local mesh = create_corner()
+	local path = assert(mesh:FindPath(Vec3(1, 0, 1), Vec3(9, 0, 11), {Radius = 0.5}))
+	T(#path.points)["=="](3)
+	close(path.points[2].x, 8.5)
+	close(path.points[2].z, 2)
+end)
+
+T.Test("navmesh path takes the shorter way around a wall", function()
+	local mesh = navmesh.New()
+	-- a ring of eight areas around a hole in the middle, the way through the north is much shorter than the south
+	local start = rectangle(mesh, 1, 0, 0, 4, 4, 0)
+	local north_a = rectangle(mesh, 2, 4, 0, 8, 4, 0)
+	local goal = rectangle(mesh, 3, 8, 0, 12, 4, 0)
+	local south_a = rectangle(mesh, 4, 0, 4, 4, 20, 0)
+	local south_b = rectangle(mesh, 5, 4, 16, 8, 20, 0)
+	local south_c = rectangle(mesh, 6, 8, 4, 12, 20, 0)
+	join(mesh, start, north_a, Vec3(4, 0, 0), Vec3(4, 0, 4))
+	join(mesh, north_a, goal, Vec3(8, 0, 0), Vec3(8, 0, 4))
+	join(mesh, start, south_a, Vec3(0, 0, 4), Vec3(4, 0, 4))
+	join(mesh, south_a, south_b, Vec3(4, 0, 16), Vec3(4, 0, 20))
+	join(mesh, south_b, south_c, Vec3(8, 0, 16), Vec3(8, 0, 20))
+	join(mesh, south_c, goal, Vec3(8, 0, 4), Vec3(12, 0, 4))
+	local path = assert(mesh:FindPath(Vec3(2, 0, 2), Vec3(10, 0, 2)))
+	T(#path.areas)["=="](3)
+	T(path.areas[2])["=="](north_a)
+	close(path.length, 8)
+	local blocked = assert(mesh:FindPath(Vec3(2, 0, 2), Vec3(10, 0, 2), {Blocked = {[north_a] = true}}))
+	T(#blocked.areas)["=="](5)
+	T(blocked.areas[2])["=="](south_a)
+	T(blocked.length > 20)["=="](true)
+	north_a.Blocked = true
+	T(#assert(mesh:FindPath(Vec3(2, 0, 2), Vec3(10, 0, 2))).areas)["=="](5)
+end)
+
+T.Test("navmesh path respects the climb and drop limits and one way connections", function()
+	local mesh = navmesh.New()
+	local low = rectangle(mesh, 1, 0, 0, 10, 4, 0)
+	local high = rectangle(mesh, 2, 10, 0, 20, 4, 3)
+	join(mesh, low, high, Vec3(10, 0, 0), Vec3(10, 0, 4))
+	T(mesh:FindPath(Vec3(1, 0, 2), Vec3(19, 3, 2)))["~="](nil)
+	local path, reason = mesh:FindPath(Vec3(1, 0, 2), Vec3(19, 3, 2), {MaxClimb = 1})
+	T(path)["=="](nil)
+	T(reason)["=="]("no path")
+	T(mesh:FindPath(Vec3(19, 3, 2), Vec3(1, 0, 2), {MaxClimb = 1}))["~="](nil)
+	T(mesh:FindPath(Vec3(19, 3, 2), Vec3(1, 0, 2), {MaxDrop = 1}))["=="](nil)
+	local one_way = navmesh.New()
+	local a = rectangle(one_way, 1, 0, 0, 10, 4, 0)
+	local b = rectangle(one_way, 2, 10, 0, 20, 4, 0)
+	one_way:Connect(a, b, Vec3(10, 0, 0), Vec3(10, 0, 4))
+	T(one_way:FindPath(Vec3(1, 0, 2), Vec3(19, 0, 2)))["~="](nil)
+	T(one_way:FindPath(Vec3(19, 0, 2), Vec3(1, 0, 2)))["=="](nil)
+end)
+
+T.Test("navmesh path is cheaper through areas with a low cost", function()
+	local mesh = navmesh.New()
+	local start = rectangle(mesh, 1, 0, 0, 4, 4, 0)
+	local mud = rectangle(mesh, 2, 4, 0, 8, 4, 0, {Cost = 10})
+	local goal = rectangle(mesh, 3, 8, 0, 12, 4, 0)
+	local detour_a = rectangle(mesh, 4, 4, 4, 8, 6, 0)
+	join(mesh, start, mud, Vec3(4, 0, 0), Vec3(4, 0, 4))
+	join(mesh, mud, goal, Vec3(8, 0, 0), Vec3(8, 0, 4))
+	join(mesh, start, detour_a, Vec3(4, 0, 4), Vec3(4, 0, 4))
+	join(mesh, detour_a, goal, Vec3(8, 0, 4), Vec3(8, 0, 4))
+	local path = assert(mesh:FindPath(Vec3(2, 0, 3.5), Vec3(10, 0, 3.5)))
+	T(path.areas[2])["=="](detour_a)
+end)
+
+T.Test("navmesh snaps a goal beside the mesh to its edge", function()
+	local mesh = create_corner()
+	local path = assert(mesh:FindPath(Vec3(1, 0, 1), Vec3(11.5, 0, 11)))
+	local goal = path.points[#path.points]
+	close(goal.x, 10)
+	close(goal.z, 11)
+	T(mesh:FindPath(Vec3(1, 0, 1), Vec3(30, 0, 30)))["=="](nil)
+	T(mesh:FindPath(Vec3(-20, 0, 1), Vec3(9, 0, 11)))["=="](nil)
+end)
+
+T.Test("navmesh gives random points that are on the mesh", function()
+	local mesh = create_corner()
+
+	for _ = 1, 50 do
+		local point, area = mesh:GetRandomPoint()
+		T(mesh:GetAreaAt(point))["=="](area)
+	end
+
+	local around = Vec3(9, 0, 8)
+
+	for _ = 1, 50 do
+		local point = mesh:GetRandomPoint(around, 3)
+		T(point ~= nil)["=="](true)
+		T(point:Distance(around) <= 3 + 1e-3)["=="](true)
+		T(mesh:GetAreaAt(point) ~= nil)["=="](true)
+	end
+
+	T(mesh:GetRandomPoint(Vec3(100, 0, 100), 3))["=="](nil)
+end)
+
+T.Test("navmesh path reports its links and avoids the ones that are blocked", function()
+	local mesh = navmesh.New()
+	local start = rectangle(mesh, 1, 0, 0, 4, 4, 0)
+	local north = rectangle(mesh, 2, 4, 0, 8, 4, 0)
+	local goal = rectangle(mesh, 3, 8, 0, 12, 4, 0)
+	local south = rectangle(mesh, 4, 4, 4, 8, 6, 0)
+	join(mesh, start, north, Vec3(4, 0, 0), Vec3(4, 0, 4))
+	join(mesh, north, goal, Vec3(8, 0, 0), Vec3(8, 0, 4))
+	join(mesh, start, south, Vec3(4, 0, 4), Vec3(4, 0, 4))
+	join(mesh, south, goal, Vec3(8, 0, 4), Vec3(8, 0, 4))
+	local path = assert(mesh:FindPath(Vec3(2, 0, 2), Vec3(10, 0, 2)))
+	T(#path.links)["=="](#path.areas - 1)
+	T(path.links[1].area)["=="](north)
+	T(path.links[2].area)["=="](goal)
+	local detour = assert(mesh:FindPath(Vec3(2, 0, 2), Vec3(10, 0, 2), {Blocked = {[path.links[2]] = true}}))
+	T(detour.areas[2])["=="](south)
+	T(detour.links[1].area)["=="](south)
+end)
+
+T.Test("navmesh finds the areas that can be walked to", function()
+	local mesh = navmesh.New()
+	local low = rectangle(mesh, 1, 0, 0, 10, 4, 0)
+	local middle = rectangle(mesh, 2, 10, 0, 20, 4, 0.2)
+	local high = rectangle(mesh, 3, 20, 0, 30, 4, 3)
+	local island = rectangle(mesh, 4, 50, 0, 60, 4, 0)
+	join(mesh, low, middle, Vec3(10, 0, 0), Vec3(10, 0, 4))
+	join(mesh, middle, high, Vec3(20, 0, 0), Vec3(20, 0, 4))
+	local all = mesh:GetReachableAreas(Vec3(5, 0, 2))
+	T(all[low] and all[middle] and all[high])["=="](true)
+	T(all[island])["=="](nil)
+	local walkable = mesh:GetReachableAreas(Vec3(5, 0, 2), {MaxClimb = 0.5})
+	T(walkable[low] and walkable[middle])["=="](true)
+	T(walkable[high])["=="](nil)
+	T(mesh:GetReachableAreas(Vec3(100, 0, 100)))["=="](nil)
+	local point = mesh:GetRandomPoint(nil, nil, walkable)
+
+	for _ = 1, 20 do
+		T(walkable[select(2, mesh:GetRandomPoint(nil, nil, walkable))])["=="](true)
+	end
+
+	T(point ~= nil)["=="](true)
+end)
