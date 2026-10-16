@@ -452,12 +452,24 @@ local temporal_pass = {
 
 			vec4 low = current;
 			vec4 high = current;
+			vec4 blurred = current * 8.0;
+			float blurred_weight = 8.0;
 
 			for (int i = 0; i < 27; i++) {
-				vec4 v = texelFetch(raw_scatter, clamp(id + ivec3(i % 3, (i / 3) % 3, i / 9) - 1, ivec3(0), size - 1), 0);
+				ivec3 offset = ivec3(i % 3, (i / 3) % 3, i / 9) - 1;
+				ivec3 neighbor = clamp(id + offset, ivec3(0), size - 1);
+				vec4 v = texelFetch(raw_scatter, neighbor, 0);
 				low = min(low, v);
 				high = max(high, v);
+
+				if (i != 13 && !froxel_is_hidden(neighbor, texelFetch(tile_depth, neighbor.xy, 0).r)) {
+					float weight = 4.0 / float(1 + abs(offset.x) + abs(offset.y) + abs(offset.z));
+					blurred += v * weight;
+					blurred_weight += weight;
+				}
 			}
+
+			current = blurred / blurred_weight;
 
 			// the point the froxel stands for, placed like its samples: in
 			// front of a wall it holds the light there, and the same world
