@@ -8,11 +8,11 @@ local gbuffer_extras = import("goluwa/render3d/gbuffer_extras.lua")
 local geometry_block = import("goluwa/render3d/geometry_block.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local system = import("goluwa/system.lua")
-local normal_debug = import("goluwa/render3d/normal_debug.lua")
+local surface_debug = import("goluwa/render3d/surface_debug.lua")
 local camera_block = geometry_block.New("gbuffer_data", {
-	{"normal_debug", "int"},
+	{"surface_debug", "int"},
 }, function(self, block)
-	block.normal_debug = normal_debug.GetView()
+	block.surface_debug = surface_debug.GetView()
 end)
 
 local function build_base_pass(fragment_shader, enable_vertex_animation)
@@ -345,9 +345,9 @@ local function build_ssdm_fragment_shader(write_depth)
 			weather_surface_features(surface, weather);
 			surface.roughness_alpha = get_antialiased_roughness(surface.N, surface.roughness_alpha);
 
-			if (gbuffer_data.normal_debug == 1) {
+			if (gbuffer_data.surface_debug == 1) {
 				surface.N = tbn[2];
-			} else if (gbuffer_data.normal_debug == 2) {
+			} else if (gbuffer_data.surface_debug == 2) {
 				surface.N = get_normal_map(displacement.uv);
 			}
 

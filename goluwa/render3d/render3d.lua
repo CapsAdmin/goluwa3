@@ -308,7 +308,7 @@ local default_passes = {
 	{"ssaa", "goluwa/render3d/passes/ssaa.lua"},
 	{"fxaa", "goluwa/render3d/passes/fxaa.lua"},
 	{"ambient_occlusion_debug", "goluwa/render3d/passes/ambient_occlusion_debug.lua"},
-	{"normal_debug", "goluwa/render3d/passes/normal_debug.lua"},
+	{"surface_debug", "goluwa/render3d/passes/surface_debug.lua"},
 	{"blit", "goluwa/render3d/passes/blit.lua"},
 }
 local pass_vars = {}

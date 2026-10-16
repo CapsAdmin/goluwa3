@@ -1,22 +1,22 @@
 local pvars = import("goluwa/cli/pvars.lua")
-local normal_debug = {}
-normal_debug.MODES = {"off", "vertex", "map", "combined", "albedo"}
-normal_debug.VERTEX = 1
-normal_debug.MAP = 2
-normal_debug.COMBINED = 3
-normal_debug.ALBEDO = 4
-pvars.StartGroup("Rendering", "Normals", {store = false})
+local surface_debug = {}
+surface_debug.MODES = {"off", "vertex", "map", "combined", "albedo"}
+surface_debug.VERTEX = 1
+surface_debug.MAP = 2
+surface_debug.COMBINED = 3
+surface_debug.ALBEDO = 4
+pvars.StartGroup("Rendering", "Surface", {store = false})
 local view = pvars.Setup2{
-	key = "r_normal_debug",
+	key = "r_surface_debug",
 	default = "off",
-	enums = normal_debug.MODES,
+	enums = surface_debug.MODES,
 	help = "show only one gbuffer value as color. normals: vertex is the interpolated vertex normal, map is the tangent space normal map, combined is the final normal, world space except for map. albedo is the surface color without any lighting, fog or tonemapping",
 }
 pvars.EndGroup()
 local mode_index = {off = 0, vertex = 1, map = 2, combined = 3, albedo = 4}
 
-function normal_debug.GetView()
+function surface_debug.GetView()
 	return mode_index[view:Get()]
 end
 
-return normal_debug
+return surface_debug

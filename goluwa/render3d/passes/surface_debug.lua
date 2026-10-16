@@ -1,12 +1,12 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
-local normal_debug = import("goluwa/render3d/normal_debug.lua")
+local surface_debug = import("goluwa/render3d/surface_debug.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 return {
 	{
-		name = "normal_debug",
+		name = "surface_debug",
 		is_enabled = function()
-			return normal_debug.GetView() ~= 0
+			return surface_debug.GetView() ~= 0
 		end,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		fragment = {
@@ -22,7 +22,7 @@ return {
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
 						gbuffer_layout.WriteBlock(self, block)
-						block.mode = normal_debug.GetView()
+						block.mode = surface_debug.GetView()
 						return block
 					end,
 				},
@@ -33,10 +33,10 @@ return {
 				vec3 shown = vec3(0.0);
 
 				if (gbuffer_depth(pixel) != 1.0) {
-					shown = debug_data.mode == ]] .. normal_debug.ALBEDO .. [[ ? gbuffer_albedo(pixel) : gbuffer_normal(pixel) * 0.5 + 0.5;
+					shown = debug_data.mode == ]] .. surface_debug.ALBEDO .. [[ ? gbuffer_albedo(pixel) : gbuffer_normal(pixel) * 0.5 + 0.5;
 				}
 
-				if (debug_data.mode == ]] .. normal_debug.ALBEDO .. [[) {
+				if (debug_data.mode == ]] .. surface_debug.ALBEDO .. [[) {
 					set_color(vec4(shown, 1.0));
 					return;
 				}
@@ -52,7 +52,7 @@ return {
 
 				if (len < 1.0) {
 					vec3 view_normal = vec3(d, sqrt(1.0 - len * len));
-					vec3 sphere = debug_data.mode == ]] .. normal_debug.MAP .. [[ ? view_normal : normalize(mat3(debug_data.inv_view) * view_normal);
+					vec3 sphere = debug_data.mode == ]] .. surface_debug.MAP .. [[ ? view_normal : normalize(mat3(debug_data.inv_view) * view_normal);
 					shown = sphere * 0.5 + 0.5;
 				} else if (len < 1.04) {
 					shown = vec3(0.0);

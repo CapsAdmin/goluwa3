@@ -2,7 +2,7 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
-local normal_debug = import("goluwa/render3d/normal_debug.lua")
+local surface_debug = import("goluwa/render3d/surface_debug.lua")
 local post_source = {}
 
 function post_source.GetOpaqueSceneFramebuffer()
@@ -52,8 +52,8 @@ function post_source.GetRawSceneSourceTexture()
 end
 
 function post_source.GetDebugTexture()
-	if normal_debug.GetView() ~= 0 then
-		return render3d.pipelines.normal_debug:GetFramebuffer():GetAttachment(1)
+	if surface_debug.GetView() ~= 0 then
+		return render3d.pipelines.surface_debug:GetFramebuffer():GetAttachment(1)
 	end
 
 	if
