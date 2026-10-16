@@ -856,8 +856,12 @@ do
 	}
 	local DETAIL_BENDING_MODES = {none = 0, leaves = 1, grass = 2}
 	local BEND_RESPONSE = 0.25
-	local MAX_BENDING = 2
 	local BEND_PER_HEIGHT = 0.25
+	-- how far the wind leans a plant, from its speed in m/s: the drag grows faster than the speed and a plant gives way
+	-- less and less, so it rises as speed^1.6 and eases towards MAX_BENDING. a top moves about 0.045 times the height a
+	-- unit of it (see the main bending below): 5 m/s 0.6, 10 m/s 1.5, 20 m/s 3.2, 40 m/s 5
+	local MAX_BENDING = 7
+	local BENDING_SPEED = 22
 
 	function model_pipeline.GetVertexAnimationUniformBufferDecl()
 		local fields = {}
@@ -905,7 +909,8 @@ do
 		local wind_x = wind.x * BEND_RESPONSE
 		local wind_z = wind.z * BEND_RESPONSE
 		local wind_length = math.sqrt(wind_x * wind_x + wind_z * wind_z)
-		local bending = wind_length * MAX_BENDING / (MAX_BENDING + wind_length)
+		local lean = (wind:GetLength() / BENDING_SPEED) ^ 1.6
+		local bending = MAX_BENDING * lean / (1 + lean)
 		local polygon = render3d.GetCurrentPolygon3D()
 		local height = polygon and polygon:GetBendHeight() or 0
 		block.Time = atmosphere.GetWindTime()
