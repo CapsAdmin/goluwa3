@@ -51,12 +51,10 @@ function META:GetAngles()
 	return Ang3(p, y, 0)
 end
 
+-- turned around a unit axis by ang radians, by the right hand rule
 function META:GetRotated(axis, ang)
-	local ca, sa = math.sin(ang), math.cos(ang)
-	local zax = axis * self:GetDot(axis)
-	local xax = self - zax
-	local yax = axis:GetCross(zax)
-	return xax * ca + yax * sa + zax
+	local c, s = math.cos(ang), math.sin(ang)
+	return self * c + axis:GetCross(self) * s + axis * (axis:GetDot(self) * (1 - c))
 end
 
 function META:GetReflected(normal)
