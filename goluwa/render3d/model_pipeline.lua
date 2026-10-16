@@ -1693,14 +1693,25 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 		sample = model_pipeline.SampleTextureGlsl,
 		albedo_rgb = "get_albedo_uv(uv)",
 	} .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff", nil, camera_block_name .. ".noise_phase") .. [[
-			vec3 get_vertex_normal() {
-				vec3 N = in_normal;
-
-				if (DoubleSided && gl_FrontFacing) {
-					N = -N;
+			// the normal seen from the back of a thin surface. a bent normal keeps the part along the face and
+			// reverses only the part across it
+			vec3 get_back_normal(vec3 N) {
+				if (BentNormals) {
+					vec3 face = normalize(cross(dFdx(in_position), dFdy(in_position)));
+					return N - 2.0 * dot(N, face) * face;
 				}
 
-				return normalize(N);
+				return -N;
+			}
+
+			vec3 get_vertex_normal() {
+				vec3 N = normalize(in_normal);
+
+				if (DoubleSided && gl_FrontFacing) {
+					N = get_back_normal(N);
+				}
+
+				return N;
 			}
 
 			mat3 get_tbn() {
@@ -1713,7 +1724,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				if (DoubleSided && gl_FrontFacing) {
 					tangent = -tangent;
 					bitangent = -bitangent;
-					normal = -normal;
+					normal = get_back_normal(normal);
 				}
 
 				return mat3(tangent, bitangent, normal);

@@ -77,6 +77,9 @@ Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
 Material:GetSet("DisplayReferred", false, {callback = "InvalidateFlags"})
 Material:StartCategory("Rendering")
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
+-- the vertex normals lean off the face (leaf cards bent away from the trunk so a crown shades as a volume), the back
+-- of a double sided face mirrors them through the face instead of reversing them, which would point the bend inwards
+Material:GetSet("BentNormals", false, {callback = "InvalidateFlags", requires = "DoubleSided"})
 Material:GetSet("IgnoreZ", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("NoDraw", false, {callback = "InvalidateSceneKey"})
 Material:StartCategory("Channel Packing")
@@ -374,6 +377,7 @@ local FLAGS = {
 	"Decal",
 	"SharpAlpha",
 	"DecalFade",
+	"BentNormals",
 }
 Material.FlagBits = {}
 
