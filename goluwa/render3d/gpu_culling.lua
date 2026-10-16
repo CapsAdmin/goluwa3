@@ -265,12 +265,17 @@ function gpu_culling.Initialize()
 
 				ivec2 src_size = imageSize(source_hiz);
 				ivec2 src_base = pos * 2;
+				ivec2 src_last = src_base + 1;
+
+				// mips are floor sized, the last texel of a row or column also covers the odd remainder
+				if (pos.x == dst_size.x - 1) src_last.x = src_size.x - 1;
+				if (pos.y == dst_size.y - 1) src_last.y = src_size.y - 1;
+
 				float max_depth = 0.0;
 
-				for (int y = 0; y < 2; ++y) {
-					for (int x = 0; x < 2; ++x) {
-						ivec2 src_pos = min(src_base + ivec2(x, y), src_size - 1);
-						max_depth = max(max_depth, imageLoad(source_hiz, src_pos).r);
+				for (int y = src_base.y; y <= src_last.y; ++y) {
+					for (int x = src_base.x; x <= src_last.x; ++x) {
+						max_depth = max(max_depth, imageLoad(source_hiz, ivec2(x, y)).r);
 					}
 				}
 
@@ -686,8 +691,9 @@ function gpu_culling.Initialize()
 				max_uv = clamp(max_uv, vec2(0.0), vec2(1.0));
 				int mip_level = choose_occlusion_mip(min_uv, max_uv);
 				ivec2 mip_size = textureSize(source_depth_tex, mip_level);
-				ivec2 texel_min = ivec2(clamp(floor(min_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
-				ivec2 texel_max = ivec2(clamp(floor(max_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+				vec2 base_texels_per_texel = vec2(textureSize(source_depth_tex, 0)) / exp2(float(mip_level));
+				ivec2 texel_min = ivec2(clamp(floor(min_uv * base_texels_per_texel), vec2(0.0), vec2(mip_size - 1)));
+				ivec2 texel_max = ivec2(clamp(floor(max_uv * base_texels_per_texel), vec2(0.0), vec2(mip_size - 1)));
 
 				float sampled_depth = 0.0;
 				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
@@ -1110,8 +1116,9 @@ function gpu_culling.Initialize()
 				max_uv = clamp(max_uv, vec2(0.0), vec2(1.0));
 				int mip_level = choose_occlusion_mip(min_uv, max_uv);
 				ivec2 mip_size = textureSize(source_depth_tex, mip_level);
-				ivec2 texel_min = ivec2(clamp(floor(min_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
-				ivec2 texel_max = ivec2(clamp(floor(max_uv * vec2(mip_size)), vec2(0.0), vec2(mip_size - 1)));
+				vec2 base_texels_per_texel = vec2(textureSize(source_depth_tex, 0)) / exp2(float(mip_level));
+				ivec2 texel_min = ivec2(clamp(floor(min_uv * base_texels_per_texel), vec2(0.0), vec2(mip_size - 1)));
+				ivec2 texel_max = ivec2(clamp(floor(max_uv * base_texels_per_texel), vec2(0.0), vec2(mip_size - 1)));
 
 				float sampled_depth = 0.0;
 				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
