@@ -198,11 +198,14 @@ function surface_lighting.GetGLSL(block_name)
 					int point_shadow_slot = getPointShadowSlot(i);
 
 					if (point_shadow_slot >= 0) {
-						shadow_factor = calculatePointShadow(point_shadow_slot, s.world_pos, shadow_N, L);
+					// the coarse occlusion map is one fetch, a light it hides isn't worth the shadow map or the march
+					shadow_factor = light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos);
+
+					if (brightest * shadow_factor * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
+
+						shadow_factor *= calculatePointShadow(point_shadow_slot, s.world_pos, shadow_N, L);
 						screen_marchable = false;
 					}
-
-					shadow_factor *= light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos);
 				}
 
 				#ifdef SHADOW_SCREEN_SPACE
