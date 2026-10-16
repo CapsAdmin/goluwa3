@@ -8,6 +8,7 @@ local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local weather = import("goluwa/render3d/weather.lua")
+local live_weather = import("lua/live_weather.lua")
 local climate = import("goluwa/render3d/climate.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local WIDTH = 460
@@ -243,7 +244,32 @@ local function build_items()
 			Key = "weather/presets",
 			Text = "Preset",
 			Tab = "Preset",
-			Children = {preset},
+			Children = {
+				preset,
+				{
+					Type = "action",
+					Key = "weather/live",
+					Text = "live weather",
+					Description = "fetch the current weather at the location and blend into it",
+					ButtonText = "Fetch",
+					OnAction = function()
+						live_weather.Apply(function(applied, err)
+							if applied then
+								llog(
+									"live weather: %.1f C, rain %.1f mm/h, visibility %d m, %d cloud layers, wind %.1f m/s",
+									applied.temperature,
+									applied.rain,
+									applied.aerosol_visibility,
+									#applied.clouds,
+									applied.wind:GetLength()
+								)
+							else
+								llog("live weather failed: %s", err)
+							end
+						end)
+					end,
+				},
+			},
 		},
 		{
 			Key = "weather/time",
