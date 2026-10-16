@@ -795,19 +795,28 @@ if RENDER_2D then
 	)
 end
 
+-- a virtual model asset's load returns what a lua model file would: the model, or a function of the config making it
 assets.RegisterCategory(
 	"models",
 	{
 		roots = {"models/", "objects/"},
 		extensions = {".lua", ".mdl", ".bsp", ".gltf", ".glb", ".obj", ".cgf"},
 		build_cache_key = default_cache_key,
+		loads_virtual = true,
 		load = function(path, options, entry)
 			local ext = get_extension(path)
 
 			if ext == ".lua" then
-				local model, err = load_lua_asset(path)
+				local virtual_asset = get_virtual_asset(path)
+				local model, err
 
-				if not model then return nil, err end
+				if virtual_asset then
+					model = virtual_asset.load(path, options)
+				else
+					model, err = load_lua_asset(path)
+				end
+
+				if not model then return nil, err or ("model asset %q returned nil"):format(path) end
 
 				if type(model) == "function" then
 					local ok, result = xpcall(
@@ -980,7 +989,7 @@ function assets.Load(path, options)
 	local key = category.build_cache_key(resolved, options)
 	local cached = assets.cache[key]
 	local virtual_asset = get_virtual_asset(resolved)
-	local load = virtual_asset and virtual_asset.load or category.load
+	local load = virtual_asset and not category.loads_virtual and virtual_asset.load or category.load
 
 	if cached then
 		if category_name == "models" then
@@ -1010,13 +1019,13 @@ function assets.Load(path, options)
 		local entry = make_model_entry(resolved, key)
 		assets.cache[key] = entry
 		queue_callbacks(entry, options)
-		local ok, result = xpcall(load, debug.traceback, resolved, options, entry)
+		local ok, result, err = xpcall(load, debug.traceback, resolved, options, entry)
 
-		if not ok then
+		if not ok or not result then
 			assets.cache[key] = nil
-			entry.error = result
+			entry.error = ok and err or result
 			entry.is_loading = false
-			flush_error(entry, result)
+			flush_error(entry, entry.error)
 			return entry
 		end
 

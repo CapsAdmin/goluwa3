@@ -5,6 +5,7 @@ local event = import("goluwa/event.lua")
 local resource = import("goluwa/resource.lua")
 local utility = import("goluwa/utility.lua")
 local tasks = import("goluwa/tasks.lua")
+local assets = import("goluwa/assets.lua")
 model_loader.model_decoders = model_loader.model_decoders or {}
 
 function model_loader.AddModelDecoder(id, callback, ext)
@@ -76,6 +77,41 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 
 	event.Call("PreLoad3DModel", path)
 	loads:Begin(path, callback, {mesh = callback2, on_fail = on_fail})
+
+	-- a lua model asset (a file or a virtual one) is built from its descriptor with the default options. the
+	-- position, rotation and scale of its primitives are for the model component, they are not applied here
+	if path:ends_with(".lua") then
+		local entry = assets.GetModel(path)
+
+		if not entry then
+			fail_model_load(loads, path, "unable to resolve model asset")
+			return true
+		end
+
+		if entry.error then
+			fail_model_load(loads, path, entry.error)
+			return true
+		end
+
+		local ok, err = xpcall(
+			function()
+				local out = {}
+
+				for _, primitive in ipairs(entry.value.create_primitives({})) do
+					local ext = {mesh = primitive.mesh, material = primitive.material}
+					loads:Emit(path, "mesh", ext)
+					list.insert(out, ext)
+				end
+
+				loads:Finish(path, out)
+			end,
+			debug.traceback
+		)
+
+		if not ok then fail_model_load(loads, path, err) end
+
+		return true
+	end
 
 	resource.Download(path, nil, path:ends_with(".mdl")):Then(function(full_path)
 		local out = {}
