@@ -616,6 +616,41 @@ do
 		end
 	end
 
+	-- the speed a sequence moves at in meters per second, from the movement the animations were compiled with
+	local function get_ground_speed(clip, params)
+		local ix, fx = axis_position(clip, 1, params)
+		local iy, fy = axis_position(clip, 2, params)
+		local gx = clip.group_size[1]
+		local x, y, duration = 0, 0, 0
+
+		for dy = 0, fy > 0 and 1 or 0 do
+			for dx = 0, fx > 0 and 1 or 0 do
+				local weight = (dx == 1 and fx or 1 - fx) * (dy == 1 and fy or 1 - fy)
+
+				if weight > 0 then
+					local index = (ix + dx) + (iy + dy) * gx + 1
+					x = x + clip.movement_x[index] * weight
+					y = y + clip.movement_y[index] * weight
+					duration = duration + clip.anim_durations[index] * weight
+				end
+			end
+		end
+
+		if duration <= 0 then return 0 end
+
+		return math.sqrt(x * x + y * y) / duration
+	end
+
+	-- where an animation ends up after one cycle, relative to where it started, the last movement block holds the sum
+	local function get_anim_movement(desc)
+		local count = ffi.cast(I32, desc + 20)[0]
+
+		if count == 0 then return 0, 0 end
+
+		local movement = ffi.cast(F32, desc + ffi.cast(I32, desc + 24)[0] + (count - 1) * 44)
+		return movement[8] * SCALE, movement[9] * SCALE
+	end
+
 	load_skeleton = function(path)
 		local main = open_source(path)
 		local hdr = main.header
@@ -713,6 +748,15 @@ do
 					end
 
 					if usable then
+						local movement_x, movement_y, anim_durations = {}, {}, {}
+
+						for b, desc in ipairs(anims) do
+							movement_x[b], movement_y[b] = get_anim_movement(desc)
+							local anim_frames = ffi.cast(I32, desc + 16)[0]
+							local anim_fps = ffi.cast(F32, desc + 8)[0]
+							anim_durations[b] = anim_frames > 1 and anim_fps > 0 and (anim_frames - 1) / anim_fps or 0
+						end
+
 						local first = anims[1]
 						local frames = ffi.cast(I32, first + 16)[0]
 						local fps = ffi.cast(F32, first + 8)[0]
@@ -738,6 +782,10 @@ do
 							Duration = frames > 1 and fps > 0 and (frames - 1) / fps or 0,
 							Loop = band(flags, SEQ_LOOPING) ~= 0,
 							Sample = sample_sequence,
+							GetGroundSpeed = get_ground_speed,
+							movement_x = movement_x,
+							movement_y = movement_y,
+							anim_durations = anim_durations,
 							skeleton = skeleton,
 							source = source,
 							bone_map = bone_map,

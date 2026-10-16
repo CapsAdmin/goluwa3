@@ -50,7 +50,13 @@ function Pose:Blend(a, b, t)
 	return self
 end
 
+-- clips of formats without motion data do not move the character
+local function get_no_ground_speed()
+	return 0
+end
+
 function Skeleton:AddClip(clip)
+	clip.GetGroundSpeed = clip.GetGroundSpeed or get_no_ground_speed
 	self.Clips[#self.Clips + 1] = clip
 	self.ClipsByName[clip.Name] = clip
 end
