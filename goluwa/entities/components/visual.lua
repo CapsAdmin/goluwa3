@@ -1104,6 +1104,10 @@ end
 Visual:IsSet("Loading", false)
 
 function Visual:Initialize()
+	-- a visual added while its entity is being built is initialized once more when the build ends, which would drop its load
+	if self.initialized then return end
+
+	self.initialized = true
 	self.RenderEntries = {}
 	self.LODRenderEntries = self.RenderEntries
 	self.RenderEntriesDirty = true
