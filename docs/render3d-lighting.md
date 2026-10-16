@@ -226,6 +226,10 @@ An interactive scene: one metallic sphere in the middle of a room open to the sk
 
 `ddgi_strength` (default 1, 0 to 4) scales the light the probes give every consumer: `ddgi_sample_irradiance` is a wrapper that multiplies the real lookup (`ddgi_sample_irradiance_unscaled`), and the resolve pass's out-of-volume environment fallback is scaled the same way, so the lighting pass's diffuse gi and reflection fallback, the translucent pass, traced reflection hits, ocean and fog all follow it. The probes' own bounce rays (`ddgi_shade`, which defines `DDGI_UNSCALED`) are not scaled, that would compound with every update. 0 gives no indirect light from the probes (only the direct light, reflections and the sky in the reflection), 2 doubles it.
 
+## DDGI resolve resolution
+
+`ddgi_resolve_resolution` (`0.25mp` default, `0.5mp`, `1mp`, `native`) fixes the pixel count the screen gi (`ddgi_resolve`) is computed at, whatever the window size; it never upscales past the screen. The lighting pass bilinearly upsamples it with depth and normal weights (`ddgi_screen_sample` takes the pixel's uv, no integer ratio). The pvar recreates the resolve framebuffers.
+
 ## Reflections are two passes
 
 Naming: "reflections" is the whole system (the passes, their pvars, `reflection_data`, `reflection_tex`), "screenspace" is the part that marches the depth buffer and reads last frame's colour (`SCREENSPACE_*`, `trace_screenspace_direction`, `reflection_screenspace_roughness`, the ocean's `screenspace_*`). The screen space march is what traces the reflection of a smooth surface when `reflection_screenspace_roughness` is above 0 and the whole reflection where there are no ray queries (`reflection_ray_query` off or no hardware).
