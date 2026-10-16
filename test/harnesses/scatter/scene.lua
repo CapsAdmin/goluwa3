@@ -5,7 +5,8 @@ local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 -- hills with a steep rise at 70,10 and a bump at -40,60, scatter_forest_height(x, z) is the terrain height
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local presets = import("lua/autorun/render_3d/scatter_presets.lua")
-local SET = presets[os.getenv("SET") or "crysis_meadow"] or ScatterSet.GetGrass()
+local foliage_sets = import("lua/foliage/scatter_sets.lua")
+local SET = presets[os.getenv("SET") or "crysis_meadow"] or foliage_sets[os.getenv("SET")] or ScatterSet.GetGrass()
 -- BB_SCALE=0.3 scales the scatter billboard distance, BB_OFF=1 turns the billboards off
 local pvars = import("goluwa/cli/pvars.lua")
 if os.getenv("BB_SCALE") then pvars.SetSession("r_scatter_billboard_distance", tonumber(os.getenv("BB_SCALE"))) end
