@@ -158,6 +158,23 @@ function weather.SetTimeScale(scale)
 	weather.time_scale = scale
 end
 
+function weather.GetSolarHours()
+	return (weather.time + weather.longitude * 240) % 86400 / 3600
+end
+
+function weather.SetSolarHours(hours)
+	local offset = weather.longitude * 240
+	weather.SetTime(math.floor((weather.time + offset) / 86400) * 86400 + hours * 3600 - offset)
+end
+
+function weather.GetDayOfYear()
+	return tonumber(os.date("!%j", math.floor(weather.time)))
+end
+
+function weather.SetDayOfYear(day)
+	weather.SetTime(weather.time + (math.floor(day + 0.5) - weather.GetDayOfYear()) * 86400)
+end
+
 function weather.GetTimeScale()
 	return weather.time_scale
 end
