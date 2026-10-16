@@ -3,6 +3,7 @@ local tasks = import("goluwa/tasks.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local scene = import("goluwa/entities/scene.lua")
 local lights = import("goluwa/source_engine/lights.lua")
+local nav_mesh = import("goluwa/source_engine/nav_mesh.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -138,12 +139,14 @@ function map_scene.Translate(data, map_name, map_path)
 	end
 
 	local atmosphere = {OceanLevel = data.ocean_level - 2}
+	local nav_path = nav_mesh.GetPath(map_name)
 	add{
 		guid = root_guid,
 		properties = {Name = map_name},
 		components = {
 			transform = {},
 			static_world = {Pak = map_path},
+			nav_mesh = vfs.IsFile(nav_path) and {Path = nav_path} or nil,
 		},
 	}
 	add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
