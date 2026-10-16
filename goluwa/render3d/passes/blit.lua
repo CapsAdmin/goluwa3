@@ -7,6 +7,7 @@ local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
+local grade = import("goluwa/render3d/grade.lua")
 local assets = import("goluwa/assets.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
@@ -577,9 +578,14 @@ local function is_eye_mode()
 	return eye_enabled:Get()
 end
 
+-- the grid is built for the eye's local exposure and for the grade's local sliders, and not at all without them
+local function needs_local_grid()
+	return is_eye_mode() or grade.NeedsLocal()
+end
+
 local local_exposure_grid_pass = {
 	name = "local_exposure_grid",
-	is_enabled = is_eye_mode,
+	is_enabled = needs_local_grid,
 	ComputePass = true,
 	ColorFormat = {{"r32g32_sfloat", {"grid", "rg"}}},
 	FramebufferSize = {x = GRID_X * GRID_Z, y = GRID_Y},
@@ -648,7 +654,7 @@ local local_exposure_grid_pass = {
 }
 local local_exposure_blur_pass = {
 	name = "local_exposure_blur",
-	is_enabled = is_eye_mode,
+	is_enabled = needs_local_grid,
 	ComputePass = true,
 	ColorFormat = {{"r32g32_sfloat", {"grid", "rg"}}},
 	FramebufferSize = {x = GRID_X * GRID_Z, y = GRID_Y},
@@ -843,7 +849,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 6) uniform sampler2D prev_exposure_tex;
 	layout(set = 0, binding = 7) uniform sampler2D blue_noise_tex;
 	layout(set = 0, binding = 8) uniform sampler2D white_balance_tex;
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. WHITE_BALANCE_GLSL .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute") .. WHITE_BALANCE_GLSL .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
 
 	// For HDR output: x exposed, returns linear light in units of paper white.
 	// The shadows and midtones go through the SDR tonemapper so they look the
@@ -904,6 +910,7 @@ local compute_shader = [[
 
 		vec2 uv = get_screen_uv(pos, size);
 		vec3 col = texture(source_tex, uv).rgb;
+		float scene_luma = compute.grade_local != 0 ? luminance(col) : 0.0;
 
 		// the camera's white balance, the light it takes for white given as a colour temperature and a tint or estimated from the frame
 		if (compute.white_balance_on != 0) {
@@ -924,6 +931,19 @@ local compute_shader = [[
 		// the scene is pre-exposed with last frame's exposure
 		float pre_exposure = pre_exposure_from_exposure(compute.has_exposure_tex != 0 ? texture(prev_exposure_tex, vec2(0.5)).r : 0.0);
 		exposure /= pre_exposure;
+
+		// the luminance of the surroundings as the display shows it, for the grade's shadows, highlights and ambiance:
+		// the grid's local average of the scene, through the tonemapper as a grey
+		float grade_base = -1.0;
+
+		if (compute.grade_local != 0) {
+			vec4 exposure_state = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)) : vec4(0.0);
+			float frame_level = get_frame_log_level(exposure_state);
+			float local_l = local_log_luma(uv, log2(max(scene_luma * exposure, 1e-6)) - frame_level);
+			vec3 surroundings = vec3(exp2(local_l + frame_level));
+			surroundings = compute.output_mode == 0 ? tonemap(surroundings, compute.tonemapper) : min(tonemap_hdr(surroundings, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper), vec3(1.0));
+			grade_base = LinearToSRGB(clamp(surroundings, 0.0, 1.0)).g;
+		}
 		// Share of vision the cones provide: all of it when the eye is adapted to
 		// light (a dark corner of a lit room) or when the pixel itself is bright
 		// enough for them (a lamp in a dark room). Adapted EV100 to log10 cd/m2 is
@@ -946,14 +966,14 @@ local compute_shader = [[
 		col = mix(col, mix(vec3(1.0), ROD_TINT, compute.night_vision_tint) * dot(max(col, vec3(0.0)), ROD_RESPONSE), (1.0 - cones) * compute.night_vision);
 
 		if (compute.output_mode == 0) {
-			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0);
+			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0), grade_base);
 
 			// dithered in the sRGB encoding the output is quantized in
 			col = SRGBToLinear(dither(LinearToSRGB(col), blue_noise(pos), compute.dither_steps));
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
 		} else {
-			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper) * compute.hdr_paper_white;
+			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper), grade_base) * compute.hdr_paper_white;
 
 			if (compute.output_mode == 1) {
 				// scRGB: linear BT.709, 1.0 = 80 nits. fp16 doesn't band, but the
@@ -1150,6 +1170,7 @@ for _, pass in ipairs{
 			{"white_balance_on", "int"},
 			{"white_balance", "float"},
 			{"white_balance_tint", "float"},
+			grade.block,
 			local_exposure_block,
 		},
 		write = function(self, block)
@@ -1180,12 +1201,16 @@ for _, pass in ipairs{
 			block.white_balance_on = not eye_enabled:Get() and 1 or 0
 			block.white_balance = exposure_model.GetCameraWhiteBalance()
 			block.white_balance_tint = exposure_model.GetCameraWhiteBalanceTint()
+			grade.WriteBlock(block)
+			block.grade_local = block.grade_tone == 1 and render3d.pipelines.local_exposure_blur and 1 or 0
 
 			if block.debug_passthrough == 1 then
 				block.has_bloom_tex = 0
 				block.has_grid_tex = 0
 				block.night_vision = 0
 				block.white_balance_on = 0
+				block.grade_on = 0
+				block.grade_local = 0
 			end
 
 			return block
