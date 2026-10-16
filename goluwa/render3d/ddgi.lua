@@ -655,10 +655,10 @@ function ddgi.GetRayDirectionGLSL()
 	return glsl_common.GetOctahedralGLSL() .. [[
 		#define DDGI_GUIDE_TEXELS 8
 		#define DDGI_GUIDE_CELLS 64
-		// what reads the guide texel of a probe's tile, so that the ray generation
 		// how much of its previous value a guide cell keeps each frame
 		#define DDGI_GUIDE_HISTORY 0.9
 		// shader and the guide pass can use their own bindings
+		// what reads the guide texel of a probe's tile, so that the ray generation
 		#ifndef DDGI_GUIDE_FETCH
 		#define DDGI_GUIDE_FETCH(texel) texelFetch(TEXTURE(ddgi_data.ddgi_guide_tex), texel, 0)
 		#endif
