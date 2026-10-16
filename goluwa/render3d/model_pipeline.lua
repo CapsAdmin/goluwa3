@@ -950,11 +950,6 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				return abs(fract(x + 0.5) * 2.0 - 1.0);
 			}
 
-			vec4 vegetation_smooth_triangle_wave(vec4 x) {
-				vec4 t = vegetation_triangle_wave(x);
-				return t * t * (3.0 - 2.0 * t);
-			}
-
 			// a scatter instance that conforms to the ground has the sign bit set in the corner of its matrix (a scene
 			// instance has 1.0), the radius it was measured at and the height of the ground over its base plane, along
 			// its up axis, at the four edges of its footprint (see scatter.lua). the vertices near the base move to meet
@@ -988,6 +983,8 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				vec3 start_pos = inv_world_matrix3 * (world_pos - origin);
 				vec3 pos = start_pos;
 				float speed = vertex_animation.BendSpeed;
+				// each instance has its own phase, from a hash of where it is, so neighbours do not move together
+				float instance_phase = fract(sin(dot(origin, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
 
 				if (vertex_animation.DetailBending != 0) {
 					vec4 color = clamp(vertex_color, 0.0, 1.0);
@@ -996,7 +993,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 					float detail_speed = speed;
 					if (vertex_animation.DetailBending == 2) detail_speed *= pos.y;
 
-					float branch_phase = color.g + dot(origin, vec3(2.0));
+					float branch_phase = color.g + instance_phase * 7.0;
 					float vertex_phase = dot(pos, vec3(vertex_animation.DetailPhase + branch_phase));
 					vec2 waves_in = anim_time + vec2(vertex_phase, branch_phase);
 					vec4 waves = (fract(waves_in.xxyy * vec4(1.975, 0.793, 0.375, 0.193)) * 2.0 - 1.0) * detail_speed * vertex_animation.DetailFrequency;
@@ -1013,12 +1010,18 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 					vec2 bend_dir = normalize(wind_dir.xz);
 					vec2 bend = bend_dir * vertex_animation.MainBending;
 
-					// gusts, cryengine adds these on its object axes, here along and across the wind
-					float wave_in = (anim_time + length(origin) * 2.0) * 2.0;
-					vec4 waves = (fract(wave_in * vec4(0.95, 0.45793, 0.913, 0.5793) * 0.1) * 2.0 - 1.0) * 0.7 * speed;
-					waves = vegetation_smooth_triangle_wave(waves);
-					vec2 waves_sum = waves.xz + waves.yw;
-					bend += (bend_dir * (waves_sum.x - 1.0) + vec2(-bend_dir.y, bend_dir.x) * (waves_sum.y - 1.0) * 0.5) * (0.3333 * vertex_animation.MainBending);
+					// gusts roll over the land with the wind, so neighbours lean in turn and not at once: a sum of sines of
+					// unrelated periods over the time they reach this instance, -1 to 1
+					float gust_time = anim_time - dot(origin.xz, vertex_animation.BendDirection.xz) / 6.0 + instance_phase * 3.0;
+					float gust = 0.5 * sin(gust_time * 0.71) + 0.3 * sin(gust_time * 1.63 + 1.7) + 0.2 * sin(gust_time * 2.87 + 4.1);
+					// on top of the lean the instance swings at its own frequency, lower the taller it is (a 12 m tree about
+					// 0.35 hz, a meter of grass 1.2 hz), harder in a gust, and a little across the wind on a slightly
+					// different period, which makes the tip go round in loops instead of back and forth on a line
+					float sway_time = anim_time * 6.2832 * 1.2 / sqrt(max(vertex_animation.BendHeight, 0.5)) + instance_phase * 6.2832;
+					float strength = 0.6 + 0.4 * gust;
+					float along = 0.25 * gust + 0.15 * strength * sin(sway_time);
+					float across = 0.12 * strength * sin(sway_time * 1.13 + 1.3);
+					bend += (bend_dir * along + vec2(-bend_dir.y, bend_dir.x) * across) * vertex_animation.MainBending;
 					bend *= 0.015;
 
 					float bend_factor = pos.y / vertex_animation.BendHeight + 1.0;
