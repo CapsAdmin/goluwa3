@@ -16,6 +16,7 @@ local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 -- where the air has thinned to a few thousandths of its density at the ground, past it a sky ray has nothing left to scatter
 local AIR_END_ALTITUDE = 50
 local FROXEL_HISTORY = 0.9
@@ -39,45 +40,6 @@ local HIDDEN_GLSL = [[
 		return froxel_slice_depth(float(id.z) - 2.0) > tile_depth_max * 1.1;
 	}
 ]]
-
-local function get_sun_helpers_glsl(data_block)
-	return [[
-		int get_current_primary_sun_index() {
-			for (int i = 0; i < ]] .. data_block .. [[.light_count; i++) {
-				if (get_light_type(]] .. data_block .. [[.lights[i]) == 0) return i;
-			}
-
-			return -1;
-		}
-
-		vec3 get_current_primary_sun_direction() {
-			int sun_index = get_current_primary_sun_index();
-
-			if (sun_index < 0) return vec3(0.0, 1.0, 0.0);
-
-			return normalize(-]] .. data_block .. [[.lights[sun_index].direction.xyz);
-		}
-
-		float get_current_primary_sun_illuminance() {
-			int sun_index = get_current_primary_sun_index();
-			return sun_index < 0 ? ]] .. string.format("%.17g", atmosphere.GetSunIlluminance()) .. [[ : ]] .. data_block .. [[.lights[sun_index].color.a;
-		}
-	]]
-end
-
-local function write_lights_block(self, block)
-	local lights = render3d.GetLights()
-	scene_lights.WriteLightsBlock(block.lights, lights)
-	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-	scene_lights.WriteShadowBlock(self, block.shadows, lights)
-	atmosphere.WriteBlock(
-		self,
-		block,
-		render3d.GetCamera():GetPosition(),
-		directional_shadows.GetPrimarySunDirection(render3d.GetLights())
-	)
-	return lights
-end
 
 local function write_gi_screen_texture(self, block, key)
 	local texture = ddgi.GetScreenTexture()
@@ -238,7 +200,7 @@ local scatter_pass = {
 				block.frame = system.GetFrameNumber()
 				write_gi_screen_texture(self, block, "gi_screen_tex")
 				write_ocean_distance_texture(self, block, "ocean_distance_tex")
-				light_occlusion.WriteOcclusionBlock(block, write_lights_block(self, block))
+				light_occlusion.WriteOcclusionBlock(block, medium_lighting.WriteLightsBlock(self, block))
 				return block
 			end,
 		},
@@ -285,69 +247,10 @@ local scatter_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_scatter;
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID),
-	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. medium_lighting.GetLocalLightsGLSL("froxel_data", LOCAL_LIGHT_LIMIT) .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
 			uvec3 h = pcg3d(v);
 			return h.x ^ h.y ^ h.z;
-		}
-
-		float calculateLocalDirectionalMediumShadow(vec3 world_pos, vec3 light_dir) {
-			int shadow_map_idx = froxel_data.shadows.local_directional_shadow_map_index;
-
-			if (shadow_map_idx < 0) return 1.0;
-
-			vec3 proj_coords;
-
-			if (!projectMediumShadowMap(froxel_data.shadows.local_directional_light_space_matrix, world_pos, proj_coords)) return 1.0;
-
-			return sampleMediumShadowProjection(shadow_map_idx, proj_coords, 1.35);
-		}
-
-		vec3 get_local_light_scattering(vec3 ray_dir, vec3 world_pos) {
-			vec3 result = vec3(0.0);
-			int processed = 0;
-
-			int light_cell = light_grid_cell(world_pos);
-
-			for (int w = 0; w < light_grid_words(froxel_data.light_count) && processed < ]] .. LOCAL_LIGHT_LIMIT .. [[; w++) {
-			uint light_bits = light_grid_word(light_cell, w, froxel_data.light_count);
-
-			while (light_bits != 0u && processed < ]] .. LOCAL_LIGHT_LIMIT .. [[) {
-				int i = w * 32 + findLSB(light_bits);
-				light_bits &= light_bits - 1u;
-				lights_t light = froxel_data.lights[i];
-				int type = get_light_type(light);
-
-				if (type == 0) continue;
-
-				vec3 L;
-				float attenuation;
-
-				if (!get_light_vector_and_attenuation(light, world_pos, L, attenuation) || attenuation <= 0.0001) continue;
-
-				float occlusion = light_oct_shadow_factor(froxel_data.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
-
-				if (occlusion <= 0.0) continue;
-
-				processed++;
-				// a soft core in the air for lights with a glow radius, so they glow instead of showing a hot spot
-				float core_falloff = get_light_falloff(light, length(light.position.xyz - world_pos));
-				attenuation *= core_falloff / max(core_falloff + light.falloff.w * light.falloff.w, 0.0001);
-				float shadow = 1.0;
-
-				if (type == 1) {
-					int point_shadow_slot = getPointShadowSlot(i);
-
-					if (point_shadow_slot >= 0) shadow = calculatePointShadow(point_shadow_slot, world_pos, L, L);
-				} else if (type == 2 && i == froxel_data.shadows.local_directional_shadow_light_index) {
-					shadow = calculateLocalDirectionalMediumShadow(world_pos, L);
-				}
-
-				result += light.color.rgb * light.color.a * attenuation * shadow * occlusion * phase_henyey_greenstein(dot(ray_dir, L), GROUND_FOG_MIE_G);
-			}
-			}
-
-			return result;
 		}
 
 		// radiance of the light around P averaged over all directions. open_sky is how much of the air there is open to the
@@ -441,7 +344,7 @@ local scatter_pass = {
 				sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, sun_dir), mu) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * per_meter;
 			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky);
 
-			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos) * fog_extinction;
+			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction;
 
 			// scattering per meter: the radiance alone overflows a half float
 			imageStore(out_scatter, id, vec4(scattering, 0.0));
@@ -714,14 +617,14 @@ local composite_pass = {
 					block.source_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
 					write_ocean_distance_texture(self, block, "ocean_distance_tex")
 					write_gi_screen_texture(self, block, "gi_screen_tex")
-					write_lights_block(self, block)
+					medium_lighting.WriteLightsBlock(self, block)
 					return block
 				end,
 			},
 		},
 		shader = [[
 			#define ATMOSPHERE_LOG_MARCH 1
-		]] .. scene_lights.GetLightGLSLCode() .. get_sun_helpers_glsl("fog_data") .. [[
+		]] .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("fog_data") .. [[
 			// the air is shadowed by the clouds where fog_cloud_shadows is on, and sampled with jitter
 			float get_cloud_shadow_km(vec3 point);
 			bool fog_cloud_shadows = true;
