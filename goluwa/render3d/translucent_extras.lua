@@ -9,7 +9,7 @@ local translucent_extras = {}
 --     same stage after the models
 --   Draw(pipeline, cmd): draws into the pipeline of a stage
 translucent_extras.list = {
-	import("goluwa/render3d/precipitation.lua"),
+	import("goluwa/render3d/particles.lua"),
 }
 
 -- stage is "moments" or "accumulate"

@@ -1,6 +1,6 @@
 -- how much of the precipitation's box around the camera the shelter map hides, at several wind speeds: the
 -- foliage world with rain (SCENE=debug the wind debug scene, SNOW=1 snow), the shelter map downloaded and every sample
--- point tested as precipitation.lua's is_precipitation_sheltered does.
+-- point tested as precipitation.lua's is_rain_sheltered and is_snow_sheltered does.
 -- luajit glw --3d --background lua test/harnesses/wind/shelter_check.lua
 local ffi = require("ffi")
 local event = import("goluwa/event.lua")

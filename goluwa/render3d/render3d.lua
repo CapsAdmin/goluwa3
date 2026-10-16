@@ -304,6 +304,7 @@ local default_passes = {
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"ocean", "goluwa/render3d/passes/ocean.lua"},
 	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},
+	{"particles", "goluwa/render3d/passes/particles.lua"},
 	{"translucent", "goluwa/render3d/passes/translucent.lua"},
 	{"forward_overlay", "goluwa/render3d/passes/forward_overlay.lua"},
 	{"edge_aa", "goluwa/render3d/passes/edge_aa.lua"},

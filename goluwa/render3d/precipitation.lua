@@ -1,15 +1,7 @@
-local render3d = import("goluwa/render3d/render3d.lua")
-local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local system = import("goluwa/system.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
-local glsl_common = import("goluwa/render3d/glsl_common.lua")
-local post_source = import("goluwa/render3d/post_source.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
-local clouds = import("goluwa/render3d/clouds.lua")
-local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
-local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
+local particles = import("goluwa/render3d/particles.lua")
 local precipitation = {}
 precipitation.name = "precipitation"
 precipitation.rain_rate = 0
@@ -24,8 +16,10 @@ local BOX_SIZE = 20
 local MAX_RAIN_DROPS = 131072
 local MAX_SNOWFLAKES = 131072
 local EXPOSURE_TIME = 1 / 60
-local CLEAR_SKY_DIFFUSE_RATIO = 0.15
-local GROUND_ALBEDO = 0.2
+-- geometric optics of a water sphere without its diffraction peak
+local RAIN_SCATTER_G = 0.81
+-- an ice aggregate without its diffraction peak scatters less forward than a drop
+local SNOW_SCATTER_G = 0.6
 
 function precipitation.SetRain(mm_per_hour)
 	precipitation.rain_rate = mm_per_hour
@@ -111,219 +105,6 @@ function precipitation.GetExtinction()
 	return extinction
 end
 
-precipitation.block = {
-	render3d.camera_block,
-	render3d.prev_camera_block,
-	{"precipitation_time", "float"},
-	{"precipitation_dt", "float"},
-	{"rain_count", "int"},
-	{"rain_lambda", "float"},
-	{"rain_coverage_scale", "float"},
-	{"snow_lambda", "float"},
-	{"snow_coverage_scale", "float"},
-	{"snow_wetness", "float"},
-	{"precipitation_wind", "vec3"},
-	{"precipitation_sun_direction", "vec3"},
-	{"precipitation_sun_illuminance", "vec3"},
-	{"precipitation_moon_direction", "vec3"},
-	{"precipitation_moon_illuminance", "vec3"},
-	{"precipitation_ambient_radiance", "vec3"},
-	{"b0_tex", "int"},
-	{"moments_tex", "int"},
-	{"depth_warp", "vec2"},
-	post_source.pre_exposure_block,
-	surface_weather.block,
-}
-
-do
-
-	function precipitation.WriteBlock(self, block)
-		render3d.WriteCameraBlock(self, block)
-		render3d.WritePreviousCameraBlock(self, block)
-		post_source.WritePreExposureBlock(self, block)
-		surface_weather.WriteBlock(self, block)
-		local b0, moments = translucent_moments.GetTextures()
-		block.b0_tex = self:GetTextureIndex(b0)
-		block.moments_tex = self:GetTextureIndex(moments)
-		translucent_moments.WriteDepthWarp(block.depth_warp)
-		block.precipitation_time = system.GetElapsedTime() % 1024
-		block.precipitation_dt = system.GetElapsedTime() - render3d.GetPreviousElapsedTime()
-		block.rain_count, block.rain_coverage_scale = precipitation.GetRainDropCount()
-		block.rain_lambda = precipitation.rain_rate > 0 and get_rain_lambda() or 1
-		block.snow_coverage_scale = select(2, precipitation.GetSnowflakeCount())
-		block.snow_lambda = precipitation.snow_rate > 0 and select(2, get_snow_distribution()) or 1
-		block.snow_wetness = surface_weather.GetSnowWetness()
-		atmosphere.GetWind():CopyToFloatPointer(block.precipitation_wind)
-		local sky = atmosphere.GetSky()
-		local cover = clouds.GetCover()
-		local sun_dir = sky and sky.sun_direction or Vec3(0, 1, 0)
-		local sun = atmosphere.GetTransmittance(sun_dir) * atmosphere.SUN_COLOR * atmosphere.GetSunIlluminance()
-		local moon_dir = sky and sky.moon_direction or Vec3(0, -1, 0)
-		local moon = atmosphere.GetTransmittance(moon_dir) * (sky and sky.moon_illuminance or 0)
-		local direct_sun = sun * clouds.GetMeanTransmittance(sun_dir)
-		local direct_moon = moon * clouds.GetMeanTransmittance(moon_dir)
-		local horizontal = sun:GetLuminance() * math.max(sun_dir.y, 0) + moon:GetLuminance() * math.max(moon_dir.y, 0)
-		local sky_irradiance = horizontal * CLEAR_SKY_DIFFUSE_RATIO * (
-				1 - cover
-			) + atmosphere.GetOvercastLuminance(sun_dir, sky and sky.moon_direction, sky and sky.moon_illuminance) * 7 * math.pi / 9 * cover
-		local ground_irradiance = sky_irradiance + horizontal * (1 - cover)
-		local ambient = (sky_irradiance + GROUND_ALBEDO * ground_irradiance) / (2 * math.pi)
-		sun_dir:CopyToFloatPointer(block.precipitation_sun_direction)
-		direct_sun:CopyToFloatPointer(block.precipitation_sun_illuminance)
-		moon_dir:CopyToFloatPointer(block.precipitation_moon_direction)
-		direct_moon:CopyToFloatPointer(block.precipitation_moon_illuminance)
-		Vec3(ambient, ambient, ambient):CopyToFloatPointer(block.precipitation_ambient_radiance)
-		return block
-	end
-end
-
-function precipitation.GetVertexGLSL(block_name)
-	return glsl_common.GetHashGLSL() .. glsl_common.GetPhaseGLSL() .. [[
-		const float BOX_SIZE = ]] .. string.format("%.1f", BOX_SIZE) .. [[;
-		const float RAIN_MIN_DIAMETER = ]] .. string.format("%.2f", RAIN_MIN_DIAMETER) .. [[;
-		const float RAIN_MAX_DIAMETER = ]] .. string.format("%.2f", RAIN_MAX_DIAMETER) .. [[;
-		const float SNOW_MIN_MELTED_DIAMETER = ]] .. string.format("%.2f", SNOW_MIN_MELTED_DIAMETER) .. [[;
-		const float SNOW_MAX_MELTED_DIAMETER = ]] .. string.format("%.2f", SNOW_MAX_MELTED_DIAMETER) .. [[;
-		const float SNOW_DENSITY_SCALE = ]] .. string.format("%.3f", SNOW_DENSITY_SCALE) .. [[;
-		const float EXPOSURE_TIME = ]] .. string.format("%.8f", EXPOSURE_TIME) .. [[;
-		// geometric optics of a water sphere without its diffraction peak
-		const float RAIN_SCATTER_G = 0.81;
-		// an ice aggregate without its diffraction peak scatters less forward than a drop
-		const float SNOW_SCATTER_G = 0.6;
-
-		// true when a roof or canopy is above the particle along the falling precipitation
-		bool is_precipitation_sheltered(vec3 pos) {
-			if (]] .. block_name .. [[.shelter_texture == -1) return false;
-
-			mat4 m = ]] .. block_name .. [[.shelter_matrix;
-			vec4 light_space_pos = m * vec4(pos, 1.0);
-			vec3 coords = light_space_pos.xyz / light_space_pos.w;
-			coords.xy = coords.xy * 0.5 + 0.5;
-
-			if (any(lessThan(coords, vec3(0.0))) || any(greaterThan(coords, vec3(1.0)))) return false;
-
-			float depth_per_meter = length(vec3(m[0].z, m[1].z, m[2].z));
-			return textureLod(TEXTURE(]] .. block_name .. [[.shelter_texture), coords.xy, 0.0).r < coords.z - 0.05 * depth_per_meter;
-		}
-
-		vec2 get_precipitation_screen_motion(vec3 world_pos, vec3 prev_world_pos) {
-			vec4 clip = ]] .. block_name .. [[.projection * ]] .. block_name .. [[.view * vec4(world_pos, 1.0);
-			vec4 prev_clip = ]] .. block_name .. [[.prev_projection * ]] .. block_name .. [[.prev_view * vec4(prev_world_pos, 1.0);
-
-			if (clip.w <= 0.0001 || prev_clip.w <= 0.0001) return vec2(0.0);
-
-			return (clip.xy / clip.w - prev_clip.xy / prev_clip.w) * 0.5;
-		}
-
-		void main() {
-			float time = ]] .. block_name .. [[.precipitation_time;
-			vec3 wind = ]] .. block_name .. [[.precipitation_wind;
-			bool is_rain = gl_InstanceIndex < ]] .. block_name .. [[.rain_count;
-			vec3 r;
-			vec3 r2;
-			// mm
-			float diameter;
-			vec3 velocity;
-			vec3 fallen;
-			float coverage_scale;
-			float g;
-
-			if (is_rain) {
-				r = pcg3d_unorm(uvec3(uint(gl_InstanceIndex), 17u, 29u));
-				r2 = pcg3d_unorm(uvec3(uint(gl_InstanceIndex), 101u, 7u));
-				// exponentially distributed sizes above the smallest drawn
-				diameter = min(RAIN_MIN_DIAMETER - log(max(r2.x, 1e-7)) / ]] .. block_name .. [[.rain_lambda, RAIN_MAX_DIAMETER);
-				velocity = vec3(wind.x, -(9.65 - 10.3 * exp(-0.6 * diameter)), wind.z);
-				fallen = r * BOX_SIZE + velocity * time;
-				coverage_scale = ]] .. block_name .. [[.rain_coverage_scale;
-				g = RAIN_SCATTER_G;
-			} else {
-				uint index = uint(gl_InstanceIndex - ]] .. block_name .. [[.rain_count);
-				r = pcg3d_unorm(uvec3(index, 53u, 61u));
-				r2 = pcg3d_unorm(uvec3(index, 211u, 3u));
-				// wet flakes stick together into aggregates about twice as big and fast (calibrated, not sourced)
-				float wetness = ]] .. block_name .. [[.snow_wetness;
-				float melted = min(SNOW_MIN_MELTED_DIAMETER - log(max(r2.x, 1e-7)) / ]] .. block_name .. [[.snow_lambda, SNOW_MAX_MELTED_DIAMETER);
-				diameter = sqrt(melted * melted * melted / SNOW_DENSITY_SCALE) * (1.0 + wetness);
-				// unrimed aggregates, wet ones fall faster
-				float speed = 0.8 * pow(diameter, 0.16) * (1.0 + wetness);
-				// flakes flutter as they fall, a few centimeters to a couple of decimeters every second or
-				// two (calibrated, not sourced), the lighter dry ones more
-				float angular = mix(2.0, 5.0, r2.y);
-				float amplitude = mix(0.03, 0.2, r2.z) * (1.0 - 0.5 * wetness);
-				float phase = r.x * 61.0;
-				vec3 sway = amplitude * vec3(sin(angular * time + phase), 0.0, cos(angular * 0.7 * time + phase));
-				vec3 sway_velocity = amplitude * angular * vec3(cos(angular * time + phase), 0.0, -0.7 * sin(angular * 0.7 * time + phase));
-				velocity = vec3(wind.x, -speed, wind.z);
-				fallen = r * BOX_SIZE + velocity * time + sway;
-				velocity += sway_velocity;
-				coverage_scale = ]] .. block_name .. [[.snow_coverage_scale;
-				g = SNOW_SCATTER_G;
-			}
-
-			vec3 camera = ]] .. block_name .. [[.camera_position;
-			// falling through the world, wrapped into the box around the camera
-			vec3 head = camera + (fract((fallen - camera) / BOX_SIZE + 0.5) - 0.5) * BOX_SIZE;
-			vec3 tail = head - velocity * EXPOSURE_TIME;
-			vec3 to_particle = head - camera;
-			float dist = length(to_particle);
-			// thinned toward the box's edge so particles don't pop in, and none right in front of the eye
-			float fade = (1.0 - smoothstep(0.7, 1.0, dist / (BOX_SIZE * 0.5))) * smoothstep(0.3, 1.0, dist);
-
-			if (fade <= 0.0 || is_precipitation_sheltered(head)) {
-				gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-				return;
-			}
-
-			float width = diameter * 0.001;
-			// at least a pixel and a half wide, fainter by as much
-			float pixel = dist * 2.0 / (abs(]] .. block_name .. [[.projection[1][1]) * ]] .. block_name .. [[.render_size.y);
-			float drawn_width = max(width, pixel * 1.5);
-			vec3 axis = head - tail;
-			float path = length(axis);
-			vec3 along_dir = axis / path;
-			vec3 side = normalize(cross(axis, to_particle));
-			// the path with a round particle at each end, core is the straight part's share of its length
-			float core = path / (path + drawn_width);
-			// the coverage profile's average over the quad, so rounding the ends doesn't change the total
-			float profile_average = core * (2.0 / 3.0) + (1.0 - core) * 0.39269908;
-			// a point on the path is covered while the particle passes it, its width of the path's length
-			float alpha = width / (path + width) * (width / drawn_width) * coverage_scale * fade;
-			int corner = gl_VertexIndex;
-			float across = float(corner & 1) * 2.0 - 1.0;
-			float along = float(corner >> 1) * 2.0 - 1.0;
-			vec3 position = mix(tail, head, along * 0.5 + 0.5) + along_dir * along * drawn_width * 0.5 + side * across * drawn_width * 0.5;
-			vec3 view_dir = to_particle / dist;
-			vec3 radiance = ]] .. block_name .. [[.precipitation_sun_illuminance * phase_henyey_greenstein(dot(]] .. block_name .. [[.precipitation_sun_direction, view_dir), g) +
-				]] .. block_name .. [[.precipitation_moon_illuminance * phase_henyey_greenstein(dot(]] .. block_name .. [[.precipitation_moon_direction, view_dir), g) +
-				]] .. block_name .. [[.precipitation_ambient_radiance;
-			out_position = position;
-			out_radiance = radiance;
-			out_alpha = alpha / profile_average;
-			out_shape = vec3(across, along, core);
-			out_motion = get_precipitation_screen_motion(position, position - velocity * ]] .. block_name .. [[.precipitation_dt);
-			gl_Position = ]] .. block_name .. [[.projection * ]] .. block_name .. [[.view * vec4(position, 1.0);
-		}
-	]]
-end
-
-precipitation.vertex_outputs = {
-	{"position", "vec3"},
-	{"radiance", "vec3"},
-	{"alpha", "float"},
-	{"shape", "vec3"},
-	{"motion", "vec2"},
-}
-
-function precipitation.GetCoverageGLSL()
-	return [[
-		float get_precipitation_alpha() {
-			float end_distance = max(abs(in_shape.y) - in_shape.z, 0.0) / max(1.0 - in_shape.z, 1e-4);
-			return min(in_alpha * max(1.0 - in_shape.x * in_shape.x - end_distance * end_distance, 0.0), 1.0);
-		}
-	]]
-end
-
 pvars.StartGroup("Environment", "Precipitation", {store = false, prefix = "feature_"})
 local enabled = pvars.Setup2{
 	key = "r_feature_precipitation",
@@ -342,117 +123,190 @@ function precipitation.IsActive()
 		)
 end
 
-function precipitation.Draw(pipeline, cmd)
-	pipeline:UploadConstants()
-	cmd:Draw(4, precipitation.GetRainDropCount() + precipitation.GetSnowflakeCount(), 0, 0)
+-- the particles live in a box around the camera and wrap around its sides, so the density is the same wherever the
+-- camera goes. They fall with the wind, hit what the shelter map sees (a roof, a canopy, the ground) and are hidden
+-- under it
+local function get_common_glsl()
+	return [[
+		#ifndef PRECIPITATION_COMMON
+		#define PRECIPITATION_COMMON
+		const float PRECIPITATION_BOX = ]] .. string.format("%.1f", BOX_SIZE) .. [[;
+
+		vec3 wrap_into_camera_box(vec3 position) {
+			vec3 camera = particle_data.camera_position;
+			return camera + (fract((position - camera) / PRECIPITATION_BOX + 0.5) - 0.5) * PRECIPITATION_BOX;
+		}
+
+		vec3 get_camera_box_position(vec3 unorm) {
+			return particle_data.camera_position + (unorm - 0.5) * PRECIPITATION_BOX;
+		}
+		#endif
+	]]
 end
 
-function precipitation.BuildPasses()
-	local precipitation_block = {
-		name = "precipitation_data",
-		binding_index = 3,
-		block = precipitation.block,
-		write = precipitation.WriteBlock,
-		upload_scope = "frame",
-	}
-
-	return {
-	{
-		name = "precipitation_moments",
-		draw_in_prerender = false,
-		dont_create_framebuffers = true,
-		ColorFormat = {
-			{"r32_sfloat", {"b0", "r"}},
-			{"r32g32b32a32_sfloat", {"moments", "rgba"}},
-		},
-		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
-		Topology = "triangle_strip",
-		vertex = {
-			outputs = precipitation.vertex_outputs,
-			uniform_buffers = {precipitation_block},
-			shader = precipitation.GetVertexGLSL("precipitation_data"),
-		},
-		fragment = {
-			uniform_buffers = {precipitation_block},
-			shader = translucent_moments.GLSL .. precipitation.GetCoverageGLSL() .. [[
-				void main() {
-					float absorbance = -log(max(1.0 - get_precipitation_alpha(), 1e-3));
-					float depth = moments_warp_depth(distance(in_position, precipitation_data.camera_position), precipitation_data.depth_warp);
-					float depth2 = depth * depth;
-					set_b0(absorbance);
-					set_moments(vec4(depth, depth2, depth2 * depth, depth2 * depth2) * absorbance);
-				}
-			]],
-		},
-		CullMode = "none",
-		Blend = true,
-		SrcColorBlendFactor = "one",
-		DstColorBlendFactor = "one",
-		ColorBlendOp = "add",
-		SrcAlphaBlendFactor = "one",
-		DstAlphaBlendFactor = "one",
-		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, translucent_moments.ADDITIVE}},
-		DepthTest = true,
-		DepthWrite = false,
-		DepthCompareOp = "less_or_equal",
+precipitation.rain = particles.Register{
+	name = "rain",
+	max_count = MAX_RAIN_DROPS,
+	scatter_g = RAIN_SCATTER_G,
+	streak_time = EXPOSURE_TIME,
+	fade_time = 0.3,
+	fade_near = 1,
+	fade_far = BOX_SIZE * 0.5,
+	depth_near = 0.3,
+	depth_far = BOX_SIZE,
+	IsActive = function()
+		return enabled:Get() and atmosphere.IsEnabled() and precipitation.rain_rate > 0
+	end,
+	GetCount = precipitation.GetRainDropCount,
+	block = {
+		{"lambda", "float"},
+		{"wind", "vec3"},
 	},
-	{
-		name = "precipitation_accumulate",
-		draw_in_prerender = false,
-		dont_create_framebuffers = true,
-		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			{"r16g16b16a16_sfloat", {"motion", "rgba"}},
-			{"r16g16b16a16_sfloat", {"additive", "rgba"}},
-			{"r16g16b16a16_sfloat", {"modulate", "rgba"}},
-		},
-		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
-		Topology = "triangle_strip",
-		vertex = {
-			outputs = precipitation.vertex_outputs,
-			uniform_buffers = {precipitation_block},
-			shader = precipitation.GetVertexGLSL("precipitation_data"),
-		},
-		fragment = {
-			uniform_buffers = {precipitation_block},
-			shader = post_source.GetPreExposureGLSL("precipitation_data") .. translucent_moments.GLSL .. precipitation.GetCoverageGLSL() .. [[
-				void main() {
-					ivec2 pixel = ivec2(gl_FragCoord.xy);
-					float transmittance = moments_transmittance(
-						texelFetch(TEXTURE(precipitation_data.b0_tex), pixel, 0).r,
-						texelFetch(TEXTURE(precipitation_data.moments_tex), pixel, 0),
-						moments_warp_depth(distance(in_position, precipitation_data.camera_position), precipitation_data.depth_warp)
-					);
-					float alpha = get_precipitation_alpha();
-					set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
-					// streaks are thin and fast, a pixel with one follows it, or taa would average it away
-					set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
-						set_additive(vec4(0.0));
-					set_modulate(vec4(1.0));
-				}
-			]],
-		},
-		CullMode = "none",
-		Blend = true,
-		SrcColorBlendFactor = "one",
-		DstColorBlendFactor = "one",
-		ColorBlendOp = "add",
-		SrcAlphaBlendFactor = "one",
-		DstAlphaBlendFactor = "one",
-		AlphaBlendOp = "add",
-		color_blend = {attachments = {{}, translucent_moments.ADDITIVE, translucent_moments.ADDITIVE, translucent_moments.MULTIPLY}},
-		DepthTest = true,
-		DepthWrite = false,
-		DepthCompareOp = "less_or_equal",
+	WriteBlock = function(self, block)
+		block.lambda = get_rain_lambda()
+		atmosphere.GetWind():CopyToFloatPointer(block.wind)
+		return block
+	end,
+	declarations = get_common_glsl() .. [[
+		const float RAIN_MIN_DIAMETER = ]] .. string.format("%.2f", RAIN_MIN_DIAMETER) .. [[;
+		const float RAIN_MAX_DIAMETER = ]] .. string.format("%.2f", RAIN_MAX_DIAMETER) .. [[;
+
+		// terminal velocity of a drop of this diameter in mm
+		vec3 get_rain_velocity(float diameter) {
+			return vec3(rain_data.wind.x, -(9.65 - 10.3 * exp(-0.6 * diameter)), rain_data.wind.z);
+		}
+	]],
+	spawn = [[
+		vec3 r = pcg3d_unorm(uvec3(index, generation, 17u));
+		vec3 r2 = pcg3d_unorm(uvec3(index, generation, 101u));
+		// exponentially distributed sizes above the smallest drawn
+		float diameter = min(RAIN_MIN_DIAMETER - log(max(r2.x, 1e-7)) / rain_data.lambda, RAIN_MAX_DIAMETER);
+		p.width = diameter * 0.001;
+		p.position = get_camera_box_position(r);
+		p.velocity = get_rain_velocity(diameter);
+		p.life = mix(8.0, 16.0, r2.y);
+	]],
+	update = [[
+		p.velocity = get_rain_velocity(p.width * 1000.0);
+		vec3 moved = p.position + p.velocity * dt;
+		p.position = wrap_into_camera_box(moved);
+
+		// the box moved it, it did not fall
+		if (distance(moved, p.position) > 0.01) particle_previous = p.position;
+	]],
+	-- a drop that hits something is gone, the slot spawns again
+	collision = "shelter_map",
+	collide = "p.life = 0.0;",
+	visibility = [[
+		vec3 surface;
+		vec3 normal;
+		return particle_probe_shelter_map(p.position, surface, normal) ? 0.0 : 1.0;
+	]],
+}
+precipitation.snow = particles.Register{
+	name = "snow",
+	max_count = MAX_SNOWFLAKES,
+	scatter_g = SNOW_SCATTER_G,
+	streak_time = EXPOSURE_TIME,
+	fade_time = 0.3,
+	fade_near = 1,
+	fade_far = BOX_SIZE * 0.5,
+	depth_near = 0.3,
+	depth_far = BOX_SIZE,
+	IsActive = function()
+		return enabled:Get() and atmosphere.IsEnabled() and precipitation.snow_rate > 0
+	end,
+	GetCount = precipitation.GetSnowflakeCount,
+	block = {
+		{"lambda", "float"},
+		{"wetness", "float"},
+		{"wind", "vec3"},
 	},
-	}
-end
+	WriteBlock = function(self, block)
+		block.lambda = select(2, get_snow_distribution())
+		block.wetness = surface_weather.GetSnowWetness()
+		atmosphere.GetWind():CopyToFloatPointer(block.wind)
+		return block
+	end,
+	declarations = get_common_glsl() .. [[
+		const float SNOW_MIN_MELTED_DIAMETER = ]] .. string.format("%.2f", SNOW_MIN_MELTED_DIAMETER) .. [[;
+		const float SNOW_MAX_MELTED_DIAMETER = ]] .. string.format("%.2f", SNOW_MAX_MELTED_DIAMETER) .. [[;
+		// seconds a flake lies on the surface before it is gone
+		const float SNOW_LAND_TIME = 1.5;
+		const float SNOW_DENSITY_SCALE = ]] .. string.format("%.3f", SNOW_DENSITY_SCALE) .. [[;
 
-event.AddListener("PreDraw3DTranslucent", "precipitation", function()
-	if not precipitation.IsActive() then return end
+		// flakes flutter as they fall, a few centimeters to a couple of decimeters every second or two (calibrated,
+		// not sourced), the lighter dry ones more. the offset is a function of the age, so it is added as the change
+		// over the step and does not drift
+		struct SnowSway {
+			float angular;
+			float amplitude;
+			float phase;
+		};
 
-	render3d.ExtendTranslucentDepthRange(0.3, BOX_SIZE)
-end)
+		SnowSway get_snow_sway(uint index, uint generation) {
+			vec3 r = pcg3d_unorm(uvec3(index, generation, 53u));
+			vec3 r2 = pcg3d_unorm(uvec3(index, generation, 211u));
+			return SnowSway(mix(2.0, 5.0, r2.y), mix(0.03, 0.2, r2.z) * (1.0 - 0.5 * snow_data.wetness), r.x * 61.0);
+		}
 
+		vec3 get_snow_sway_offset(SnowSway s, float t) {
+			return s.amplitude * vec3(sin(s.angular * t + s.phase), 0.0, cos(s.angular * 0.7 * t + s.phase));
+		}
+
+		vec3 get_snow_sway_velocity(SnowSway s, float t) {
+			return s.amplitude * s.angular * vec3(cos(s.angular * t + s.phase), 0.0, -0.7 * sin(s.angular * 0.7 * t + s.phase));
+		}
+
+		// unrimed aggregates, wet ones fall faster
+		vec3 get_snow_velocity(float diameter) {
+			return vec3(snow_data.wind.x, -0.8 * pow(diameter, 0.16) * (1.0 + snow_data.wetness), snow_data.wind.z);
+		}
+	]],
+	spawn = [[
+		vec3 r = pcg3d_unorm(uvec3(index, generation, 53u));
+		vec3 r2 = pcg3d_unorm(uvec3(index, generation, 211u));
+		float melted = min(SNOW_MIN_MELTED_DIAMETER - log(max(r2.x, 1e-7)) / snow_data.lambda, SNOW_MAX_MELTED_DIAMETER);
+		// wet flakes stick together into aggregates about twice as big and fast (calibrated, not sourced)
+		float diameter = sqrt(melted * melted * melted / SNOW_DENSITY_SCALE) * (1.0 + snow_data.wetness);
+		p.width = diameter * 0.001;
+		p.position = get_camera_box_position(r);
+		p.velocity = get_snow_velocity(diameter);
+		p.life = mix(12.0, 24.0, r2.y);
+	]],
+	update = [[
+		// a flake that has landed stays where it is and melts away
+		if (p.user.y == 1u) {
+			p.velocity = vec3(0.0);
+
+			if (p.age - uintBitsToFloat(p.user.z) >= SNOW_LAND_TIME) p.life = 0.0;
+
+			return;
+		}
+
+		SnowSway sway = get_snow_sway(index, p.user.x);
+		vec3 velocity = get_snow_velocity(p.width * 1000.0);
+		vec3 moved = p.position + velocity * dt + get_snow_sway_offset(sway, p.age) - get_snow_sway_offset(sway, p.age - dt);
+		p.position = wrap_into_camera_box(moved);
+		p.velocity = velocity + get_snow_sway_velocity(sway, p.age);
+
+		// the box moved it, it did not fall
+		if (distance(moved, p.position) > 0.01) particle_previous = p.position;
+	]],
+	-- a flake comes to rest on the surface (half sunk by its own size) and melts away
+	collision = "shelter_map",
+	collide = [[
+		particle_stick(p, hit, normal);
+		p.user.y = 1u;
+		p.user.z = floatBitsToUint(p.age);
+	]],
+	visibility = [[
+		// a landed flake melts
+		if (p.user.y == 1u) return 1.0 - smoothstep(0.0, SNOW_LAND_TIME, p.age - uintBitsToFloat(p.user.z));
+
+		vec3 surface;
+		vec3 normal;
+		return particle_probe_shelter_map(p.position, surface, normal) ? 0.0 : 1.0;
+	]],
+}
 return precipitation
