@@ -218,6 +218,8 @@ function cgf.ReadMeshSubsetsChunk(file, chunk)
 	return out
 end
 
+local RIGID_COLOR = {r = 0, g = 0, b = 1, a = 1}
+
 function cgf.ReadDataStreamChunk(file, chunk)
 	file:PushPosition(chunk_body_offset(chunk))
 	local stream = {
@@ -626,6 +628,14 @@ function cgf.ExtractStaticMeshData(parsed)
 
 				if is_proxy then positions, indices, subsets = {}, {}, {subsets = {}} end
 
+				-- the colors are the vegetation bending (see model_pipeline.lua): without them a mesh is held still, no edge
+				-- flutters and nothing bends but the whole
+				if not colors[1] then
+					for index = 1, #positions do
+						colors[index] = RIGID_COLOR
+					end
+				end
+
 				for index, pos in ipairs(positions) do
 					local transformed_position = cry_units.ToEngine(world_transform:TransformVector(pos))
 					local transformed_normal = normals[index] and
@@ -635,7 +645,7 @@ function cgf.ExtractStaticMeshData(parsed)
 						pos = transformed_position,
 						normal = transformed_normal,
 						uv = uvs[index] and uvs[index]:Copy() or nil,
-						texture_blend = colors[index] and colors[index].a or 0,
+						texture_blend = colors[index] == RIGID_COLOR and 0 or colors[index].a,
 						vertex_color = colors[index],
 					}
 				end
