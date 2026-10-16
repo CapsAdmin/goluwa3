@@ -172,6 +172,8 @@ local multi_draw_block = {
 		{"prev_instances", "uint64_t"},
 		{"time", "float"},
 		{"prev_time", "float"},
+		{"detail_time", "float"},
+		{"prev_detail_time", "float"},
 	},
 	write = function(self, block)
 		block.batches = self.draw_batches_address
@@ -179,6 +181,8 @@ local multi_draw_block = {
 		block.prev_instances = self.draw_prev_instances_address
 		block.time = atmosphere.GetWindTime()
 		block.prev_time = atmosphere.GetPreviousWindTime()
+		block.detail_time = atmosphere.GetWindDetailTime()
+		block.prev_detail_time = atmosphere.GetPreviousWindDetailTime()
 		return block
 	end,
 }
@@ -206,6 +210,8 @@ local function build_multi_draw_pass(fragment_shader)
 		prev_instances_expr = "gbuffer_draw.prev_instances",
 		time_expr = "gbuffer_draw.time",
 		prev_time_expr = "gbuffer_draw.prev_time",
+		detail_time_expr = "gbuffer_draw.detail_time",
+		prev_detail_time_expr = "gbuffer_draw.prev_detail_time",
 	}
 	pass.fragment.uniform_buffers = {camera_block, multi_draw_block}
 	pass.fragment.custom_declarations = string.format("layout(location = %d) flat in uint in_batch;\n", pass.vertex.batch_location) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(gbuffer_draw.batches).b[in_batch]")

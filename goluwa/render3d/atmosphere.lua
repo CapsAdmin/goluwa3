@@ -1273,10 +1273,13 @@ do
 end
 
 -- the clock the wind moves plants by: the elapsed time at a scale (0 stops them where they are, below 1 is slow
--- motion), advanced once a frame by whoever asks first, and the time of the frame before it for motion vectors
+-- motion), advanced once a frame by whoever asks first, and the time of the frame before it for motion vectors. the
+-- detail clock (leaves fluttering, branches bobbing) runs faster in a strong wind, as the square root of the speed over
+-- 4 m/s. it is added up frame by frame, so the phase of the detail stays where it is when the wind changes
 do
 	local scale = 1
 	local time, prev_time = 0, 0
+	local detail_time, prev_detail_time = 0, 0
 	local last_elapsed, last_frame = 0, -1
 
 	function atmosphere.SetWindTimeScale(value)
@@ -1294,14 +1297,25 @@ do
 
 		local elapsed = system.GetElapsedTime()
 		local dt = (elapsed - last_elapsed) * scale
-		prev_time = time
+		prev_time, prev_detail_time = time, detail_time
 		time = time + dt
+		detail_time = detail_time + dt * math.sqrt(math.max(atmosphere.wind:GetLength(), 4) / 4)
 		last_elapsed, last_frame = elapsed, frame
 	end
 
 	function atmosphere.GetWindTime()
 		advance()
 		return time
+	end
+
+	function atmosphere.GetWindDetailTime()
+		advance()
+		return detail_time
+	end
+
+	function atmosphere.GetPreviousWindDetailTime()
+		advance()
+		return prev_detail_time
 	end
 
 	function atmosphere.GetPreviousWindTime()

@@ -266,10 +266,10 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	end
 
 	if options.enable_vertex_animation ~= false then
-		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, vertex_color);"
+		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, vertex_color);"
 
 		if options.velocity then
-			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, vertex_color);"
+			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, vertex_color);"
 		end
 
 		lines[#lines + 1] = [[
@@ -595,6 +595,8 @@ do
 	vertex_animation = batch_data.b[batch_index].m_vertex_animation;
 	vertex_animation.Time = ]] .. options.time_expr .. [[;
 	vertex_animation.PrevTime = ]] .. options.prev_time_expr .. [[;
+	vertex_animation.DetailTime = ]] .. options.detail_time_expr .. [[;
+	vertex_animation.PrevDetailTime = ]] .. options.prev_detail_time_expr .. [[;
 ]]
 		options.instance_tint_expr = "multi_draw_instance_tint(world[1][3])"
 		return {
@@ -844,6 +846,8 @@ do
 	local FIELDS = {
 		{"Time", "float", "float Time;"},
 		{"PrevTime", "float", "float PrevTime;"},
+		{"DetailTime", "float", "float DetailTime;"},
+		{"PrevDetailTime", "float", "float PrevDetailTime;"},
 		{"MainBending", "float", "float MainBending;"},
 		{"BendHeight", "float", "float BendHeight;"},
 		{"BendSpeed", "float", "float BendSpeed;"},
@@ -855,7 +859,14 @@ do
 		{"DetailPhase", "float", "float DetailPhase;"},
 	}
 	local DETAIL_BENDING_MODES = {none = 0, leaves = 1, grass = 2}
+	-- the wind's strength in the detail bending (crysis' fSpeed) is cryengine's (SBending in lumberyard's
+	-- 3dEngine.cpp and D3DHWShader.cpp, see docs/crysis.md): 0.3 of a quarter of the wind in m/s, softly clamped. its
+	-- clamp of 2 held it under 0.6, so a storm moved leaves little more than a breeze. at 6 it is near cryengine's in a
+	-- light wind (0.28 in a gentle breeze of 4.4 m/s against 0.21) and goes on to 1.07 in a hurricane (35 m/s). the
+	-- materials of crysis were made for it
 	local BEND_RESPONSE = 0.25
+	local MAX_DETAIL_BENDING = 6
+	local DETAIL_SPEED = 0.3
 	local BEND_PER_HEIGHT = 0.25
 	-- how far the wind leans a plant, from its speed in m/s: the drag grows faster than the speed and a plant gives way
 	-- less and less, so it rises as speed^1.6 and eases towards MAX_BENDING. a top moves about 0.045 times the height a
@@ -909,15 +920,18 @@ do
 		local wind_x = wind.x * BEND_RESPONSE
 		local wind_z = wind.z * BEND_RESPONSE
 		local wind_length = math.sqrt(wind_x * wind_x + wind_z * wind_z)
+		local detail_speed = DETAIL_SPEED * wind_length * MAX_DETAIL_BENDING / (MAX_DETAIL_BENDING + wind_length)
 		local lean = (wind:GetLength() / BENDING_SPEED) ^ 1.6
 		local bending = MAX_BENDING * lean / (1 + lean)
 		local polygon = render3d.GetCurrentPolygon3D()
 		local height = polygon and polygon:GetBendHeight() or 0
 		block.Time = atmosphere.GetWindTime()
 		block.PrevTime = atmosphere.GetPreviousWindTime()
+		block.DetailTime = atmosphere.GetWindDetailTime()
+		block.PrevDetailTime = atmosphere.GetPreviousWindDetailTime()
 		block.MainBending = height > 0 and bending * material:GetBending() * height * BEND_PER_HEIGHT or 0
 		block.BendHeight = height
-		block.BendSpeed = wind_length
+		block.BendSpeed = detail_speed
 		block.BendDirection[0] = wind_length > 0 and wind_x / wind_length or 1
 		block.BendDirection[1] = 0
 		block.BendDirection[2] = wind_length > 0 and wind_z / wind_length or 0
@@ -953,8 +967,10 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				return !vertex_animation_disabled && (vertex_animation.MainBending > 0.0 || (vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0));
 			}
 
-			vec4 vegetation_triangle_wave(vec4 x) {
-				return abs(fract(x + 0.5) * 2.0 - 1.0);
+			// a wave of period 1 between 0 and 1, eased at its ends
+			vec4 vegetation_smooth_triangle_wave(vec4 x) {
+				vec4 t = abs(fract(x + 0.5) * 2.0 - 1.0);
+				return t * t * (3.0 - 2.0 * t);
 			}
 
 			// a scatter instance that conforms to the ground has the sign bit set in the corner of its matrix (a scene
@@ -977,7 +993,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				return world_matrix3 * vec3(0.0, lift * radius * follow, 0.0);
 			}
 
-			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec4 vertex_color, float anim_time) {
+			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec3 world_normal, vec4 vertex_color, float anim_time, float detail_time) {
 				vec3 conform = get_instance_conform_offset(world_pos);
 
 				if (!has_vertex_animation()) return conform;
@@ -995,6 +1011,8 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				// the wind in object space, what moves with it moves the same way in the world whatever the instance's rotation
 				vec2 bend_dir = normalize((inv_world_matrix3 * vertex_animation.BendDirection).xz);
 
+				// the detail bending of crysis (gpu gems 3, chapter 16): the vertex color's red is how much a leaf's edge
+				// flutters, green the phase of a branch and its leaves, blue how stiff it is (1 does not move)
 				if (vertex_animation.DetailBending != 0) {
 					vec4 color = clamp(vertex_color, 0.0, 1.0);
 					float edge_atten = color.r;
@@ -1004,13 +1022,24 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 
 					float branch_phase = color.g + instance_phase * 7.0;
 					float vertex_phase = dot(pos, vec3(vertex_animation.DetailPhase + branch_phase));
-					vec2 waves_in = anim_time + vec2(vertex_phase, branch_phase);
-					vec4 waves = (fract(waves_in.xxyy * vec4(1.975, 0.793, 0.375, 0.193)) * 2.0 - 1.0) * detail_speed * vertex_animation.DetailFrequency;
-					waves = vegetation_triangle_wave(waves);
-					vec2 waves_sum = waves.xz + waves.yw;
-					// leaf edges flutter with the wind, branches move up and down
-					pos.xz += waves_sum.x * edge_atten * vertex_animation.DetailLeafAmplitude * bend_dir;
+					vec2 waves_in = detail_time + vec2(vertex_phase, branch_phase);
+					// two waves for the edges and two slower ones for the branches, at fixed rates (the detail clock
+					// runs faster in a strong wind), centered on the rest position
+					vec4 waves = vegetation_smooth_triangle_wave(waves_in.xxyy * vec4(1.975, 0.793, 0.375, 0.193)) - 0.5;
+					// how much the wind moves the detail. crysis multiplied the wave's input by speed * frequency, which
+					// below 0.5 scales how far it goes and above it how fast, so a strong wind only made it buzz. here it
+					// is the amplitude, as crysis below 0.5 and growing as the square root above it
+					float strength = detail_speed * vertex_animation.DetailFrequency;
+					float amplitude = strength < 0.5 ? strength * 2.0 : sqrt(strength * 2.0);
+					vec2 waves_sum = (waves.xz + waves.yw) * amplitude;
+					vec3 object_normal = normalize(transpose(world_matrix3) * world_normal);
+					vec2 facing = object_normal.xz;
+					// a leaf flutters across itself (along its normal, so a card never slides within itself) and the part
+					// of it that faces the wind is pushed downwind in the slow gusts of its branch
+					pos.xz += facing * (waves_sum.x + dot(facing, bend_dir) * (amplitude + waves_sum.y) * 0.5) * edge_atten * vertex_animation.DetailLeafAmplitude;
+					// a branch bobs up and down and is pushed downwind in the same gusts
 					pos.y += waves_sum.y * branch_atten * vertex_animation.DetailBranchAmplitude;
+					pos.xz += bend_dir * ((amplitude + waves_sum.y) * 0.5 * branch_atten * vertex_animation.DetailBranchAmplitude);
 				}
 
 				if (vertex_animation.MainBending > 0.0) {
@@ -1046,12 +1075,12 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				return conform + world_matrix3 * (pos - start_pos);
 			}
 
-			vec3 get_vertex_animation_offset(vec3 world_pos, vec4 vertex_color) {
-				return get_vertex_animation_offset_at_time(world_pos, vertex_color, vertex_animation.Time);
+			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
+				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_animation.Time, vertex_animation.DetailTime);
 			}
 
-			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec4 vertex_color) {
-				return get_vertex_animation_offset_at_time(world_pos, vertex_color, vertex_animation.PrevTime);
+			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
+				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_animation.PrevTime, vertex_animation.PrevDetailTime);
 			}
 	]]
 end
