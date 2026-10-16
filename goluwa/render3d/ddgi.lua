@@ -1011,8 +1011,7 @@ function ddgi.GetEmitterGLSL()
 			vec4 u = ddgi_emitter_random(index, frame, candidate);
 			uint triangle = ddgi_emitter_triangle(ddgi_pick_emitter(u.x, emitter_count));
 			scene_bvh_triangle tri = bvh_tri(triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
-			point = ddgi_emitter_point(tri, u.yz);
-			vec3 to_point = point - origin;
+			vec3 to_point = ddgi_emitter_point(tri, u.yz) - origin;
 			float dist2 = dot(to_point, to_point);
 			// tri.normal points away from the visible side
 			float facing = dot(tri.normal, to_point) * inversesqrt(dist2);
@@ -1020,6 +1019,47 @@ function ddgi.GetEmitterGLSL()
 			if ((triangle & DDGI_EMITTER_DOUBLE_SIDED) != 0u) facing = abs(facing);
 
 			return max(facing, 0.0) / max(dist2, radius * radius) * uintBitsToFloat(ddgi_grid[0]);
+		}
+
+		// An emitter sample seen from origin, by resampled importance sampling: DDGI_EMITTER_CANDIDATES
+		// emitters drawn by their power, one kept by the light it would bring at origin. Drawing by
+		// power alone gives a probe next to a small emitter a single huge weight (a firefly), this
+		// spends the weight on the emitters that matter to the probe. Returns the mean candidate
+		// weight, which times the emitter's colour over its luminance is the estimate. emitter is
+		// the emitter and, in its top 6 bits, the candidate it came from, the shade pass rebuilds
+		// the point from that candidate's random numbers.
+		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, vec3 origin, float radius, out int emitter, out vec3 point) {
+			float weights[DDGI_EMITTER_CANDIDATES];
+			float total = 0.0;
+
+			for (uint k = 0u; k < uint(DDGI_EMITTER_CANDIDATES); k++) {
+				weights[k] = ddgi_emitter_candidate_weight(index, frame, k, emitter_count, origin, radius);
+				total += weights[k];
+			}
+
+			emitter = 0;
+			point = origin;
+
+			if (total <= 0.0) return 0.0;
+
+			float pick = ddgi_emitter_random(index, frame ^ 0x5bd1e995u, 0u).x * total;
+			uint chosen = uint(DDGI_EMITTER_CANDIDATES) - 1u;
+			float running = 0.0;
+
+			for (uint k = 0u; k < uint(DDGI_EMITTER_CANDIDATES); k++) {
+				running += weights[k];
+
+				if (pick < running) {
+					chosen = k;
+					break;
+				}
+			}
+
+			vec4 u = ddgi_emitter_random(index, frame, chosen);
+			int e = ddgi_pick_emitter(u.x, emitter_count);
+			point = ddgi_emitter_point(bvh_tri(ddgi_emitter_triangle(e) & ~DDGI_EMITTER_DOUBLE_SIDED), u.yz);
+			emitter = int(uint(e) | (chosen << 26u));
+			return total / float(DDGI_EMITTER_CANDIDATES);
 		}
 	]]
 end
