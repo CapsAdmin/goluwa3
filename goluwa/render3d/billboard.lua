@@ -6,7 +6,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Material = import("goluwa/render3d/material.lua")
 local ForwardPreview = import("goluwa/render3d/forward_preview.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local Texture = import("goluwa/render/texture.lua")
+local cutout_texture = import("goluwa/render/cutout_texture.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Rect = import("goluwa/structs/rect.lua")
@@ -40,150 +40,6 @@ local function configure_camera(self)
 	self.camera:SetPosition(view.center - rotation:GetForward() * view.depth)
 	self.camera:SetRotation(rotation)
 	return self.camera
-end
-
-local function dilate(pixels, width, height, tile_width, passes)
-	local count = width * height
-	local filled = ffi.new("uint8_t[?]", count)
-	local queue = ffi.new("uint32_t[?]", count)
-	local depths = ffi.new("uint8_t[?]", count)
-	local tail = 0
-	local sum_r, sum_g, sum_b = 0, 0, 0
-
-	for i = 0, count - 1 do
-		if pixels[i * 4 + 3] > 0 then
-			filled[i] = 1
-			queue[tail] = i
-			tail = tail + 1
-			sum_r, sum_g, sum_b = sum_r + pixels[i * 4], sum_g + pixels[i * 4 + 1], sum_b + pixels[i * 4 + 2]
-		end
-	end
-
-	if tail == 0 then return end
-
-	local opaque = tail
-	local head = 0
-
-	while head < tail do
-		local i = queue[head]
-		head = head + 1
-		local depth = depths[i]
-
-		if depth < passes then
-			local x, y = i % width, math.floor(i / width)
-			local tile_start = x - x % tile_width
-
-			for dy = -1, 1 do
-				local ny = y + dy
-
-				if ny >= 0 and ny < height then
-					for dx = -1, 1 do
-						local nx = x + dx
-
-						if nx >= tile_start and nx < tile_start + tile_width then
-							local j = ny * width + nx
-
-							if filled[j] == 0 then
-								filled[j] = 1
-								depths[j] = depth + 1
-								pixels[j * 4], pixels[j * 4 + 1], pixels[j * 4 + 2] = pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2]
-								queue[tail] = j
-								tail = tail + 1
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	local r, g, b = sum_r / opaque, sum_g / opaque, sum_b / opaque
-
-	for i = 0, count - 1 do
-		if filled[i] == 0 then
-			pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2] = r, g, b
-		end
-	end
-end
-
-local function build_mip_chain(pixels, width, height, cutoff)
-	local levels = {{width = width, height = height, offset = 0, size = width * height * 4}}
-	local total = width * height * 4
-	local w, h = width, height
-
-	while w > 1 or h > 1 do
-		w, h = math.max(math.floor(w / 2), 1), math.max(math.floor(h / 2), 1)
-		levels[#levels + 1] = {width = w, height = h, offset = total, size = w * h * 4}
-		total = total + w * h * 4
-	end
-
-	local data = ffi.new("uint8_t[?]", total)
-	ffi.copy(data, pixels, width * height * 4)
-	local threshold = cutoff * 255
-	local passing = 0
-
-	for i = 0, width * height - 1 do
-		if pixels[i * 4 + 3] >= threshold then passing = passing + 1 end
-	end
-
-	local coverage = passing / (width * height)
-
-	for level = 2, #levels do
-		local source, destination = levels[level - 1], levels[level]
-		local source_pixels, destination_pixels = data + source.offset, data + destination.offset
-		local alpha = ffi.new("float[?]", destination.width * destination.height)
-
-		for y = 0, destination.height - 1 do
-			local y0 = math.min(y * 2, source.height - 1)
-			local y1 = math.min(y * 2 + 1, source.height - 1)
-
-			for x = 0, destination.width - 1 do
-				local x0 = math.min(x * 2, source.width - 1)
-				local x1 = math.min(x * 2 + 1, source.width - 1)
-				local i = y * destination.width + x
-				local a, b, c, d = (y0 * source.width + x0) * 4,
-				(y0 * source.width + x1) * 4,
-				(y1 * source.width + x0) * 4,
-				(y1 * source.width + x1) * 4
-
-				for k = 0, 2 do
-					destination_pixels[i * 4 + k] = (
-							source_pixels[a + k] + source_pixels[b + k] + source_pixels[c + k] + source_pixels[d + k] + 2
-						) / 4
-				end
-
-				alpha[i] = (source_pixels[a + 3] + source_pixels[b + 3] + source_pixels[c + 3] + source_pixels[d + 3]) / 4
-			end
-		end
-
-		local count = destination.width * destination.height
-		local histogram = ffi.new("uint32_t[256]")
-
-		for i = 0, count - 1 do
-			histogram[math.min(math.floor(alpha[i] + 0.5), 255)] = histogram[math.min(math.floor(alpha[i] + 0.5), 255)] + 1
-		end
-
-		local wanted, seen, quantile = coverage * count, 0, 0
-
-		for bin = 255, 1, -1 do
-			seen = seen + histogram[bin]
-			quantile = bin
-
-			if seen >= wanted then break end
-		end
-
-		local high = math.min(math.max(threshold / math.max(quantile, 1), 1), 32)
-
-		for i = 0, count - 1 do
-			destination_pixels[i * 4 + 3] = math.min(alpha[i] * high + 0.5, 255)
-		end
-
-		if destination.width == 1 and destination.height == 1 then
-			destination_pixels[3] = alpha[0] > 0 and 255 or 0
-		end
-	end
-
-	return data, levels, total
 end
 
 local function are_textures_ready(visual)
@@ -247,7 +103,6 @@ function billboard.Bake(visual)
 	end
 
 	preview:Remove()
-	dilate(atlas, atlas_width, height, width, billboard.DILATE_PASSES)
 	local material = Material.New{
 		Billboard = true,
 		AlphaTest = true,
@@ -269,33 +124,13 @@ function billboard.Bake(visual)
 		end
 	end
 
-	local mips, levels, mip_size = build_mip_chain(atlas, width * billboard.TILE_COUNT, height, material:GetAlphaCutoff())
-
-	for _, level in ipairs(levels) do
-		level.depth = 1
-	end
-
 	material:SetAlbedoTexture(
-		Texture.New{
-			decoded = {
-				width = width * billboard.TILE_COUNT,
-				height = height,
-				vulkan_format = "r8g8b8a8_srgb",
-				is_compressed = true,
-				mip_count = #levels,
-				mip_info = levels,
-				data_size = mip_size,
-				data = mips,
-			},
-			image = {usage = {"sampled", "transfer_dst", "transfer_src"}},
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				mipmap_mode = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
+		cutout_texture.New(
+			atlas,
+			atlas_width,
+			height,
+			{tile_width = width, dilate_passes = billboard.DILATE_PASSES, cutoff = material:GetAlphaCutoff()}
+		)
 	)
 	local polygon = Polygon3D.New()
 	local indices = {}
