@@ -367,7 +367,7 @@ local function BuildShadowGeometryDeformationGlsl(world_matrix_expr)
 				vec4 vertex_color,
 				mat3 inv_world_matrix3
 			) {
-				vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, vertex_color);
+				vec3 world_offset = get_vertex_animation_offset(world_pos, vertex_color);
 
 				if (dot(world_offset, world_offset) > 0.0) {
 					local_pos += inv_world_matrix3 * world_offset;
@@ -821,11 +821,8 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 					vertex_animation = SHADOW_BATCH[batch_index].anim;
 					vertex_animation.Time = pc.time;
 					vertex_animation.PrevTime = pc.prev_time;
-					vec3 local_normal = normalize(vec3(data.v[base + 3u], data.v[base + 4u], data.v[base + 5u]));
 					vec4 vertex_color = vec4(data.v[base + 13u], data.v[base + 14u], data.v[base + 15u], data.v[base + 16u]);
-					mat3 world_matrix3 = mat3(shadow_world);
-					vec3 world_normal = normalize(transpose(inverse(world_matrix3)) * local_normal);
-					world_pos += get_vertex_animation_offset(world_pos, world_normal, vertex_color);
+					world_pos += get_vertex_animation_offset(world_pos, vertex_color);
 				}
 
 				gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);

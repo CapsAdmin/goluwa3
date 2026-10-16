@@ -266,10 +266,10 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	end
 
 	if options.enable_vertex_animation ~= false then
-		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, vertex_color);"
+		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, vertex_color);"
 
 		if options.velocity then
-			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, vertex_color);"
+			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, vertex_color);"
 		end
 
 		lines[#lines + 1] = [[
@@ -970,7 +970,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				return world_matrix3 * vec3(0.0, lift * radius * follow, 0.0);
 			}
 
-			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec3 world_normal, vec4 vertex_color, float anim_time) {
+			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec4 vertex_color, float anim_time) {
 				vec3 conform = get_instance_conform_offset(world_pos);
 
 				if (!has_vertex_animation()) return conform;
@@ -985,6 +985,8 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				float speed = vertex_animation.BendSpeed;
 				// each instance has its own phase, from a hash of where it is, so neighbours do not move together
 				float instance_phase = fract(sin(dot(origin, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+				// the wind in object space, what moves with it moves the same way in the world whatever the instance's rotation
+				vec2 bend_dir = normalize((inv_world_matrix3 * vertex_animation.BendDirection).xz);
 
 				if (vertex_animation.DetailBending != 0) {
 					vec4 color = clamp(vertex_color, 0.0, 1.0);
@@ -999,15 +1001,12 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 					vec4 waves = (fract(waves_in.xxyy * vec4(1.975, 0.793, 0.375, 0.193)) * 2.0 - 1.0) * detail_speed * vertex_animation.DetailFrequency;
 					waves = vegetation_triangle_wave(waves);
 					vec2 waves_sum = waves.xz + waves.yw;
-					vec3 object_normal = normalize(transpose(world_matrix3) * world_normal);
-					// leaf edges flutter along the horizontal normal, branches move up and down
-					pos.xz += waves_sum.x * edge_atten * vertex_animation.DetailLeafAmplitude * object_normal.xz;
+					// leaf edges flutter with the wind, branches move up and down
+					pos.xz += waves_sum.x * edge_atten * vertex_animation.DetailLeafAmplitude * bend_dir;
 					pos.y += waves_sum.y * branch_atten * vertex_animation.DetailBranchAmplitude;
 				}
 
 				if (vertex_animation.MainBending > 0.0) {
-					vec3 wind_dir = inv_world_matrix3 * vertex_animation.BendDirection;
-					vec2 bend_dir = normalize(wind_dir.xz);
 					vec2 bend = bend_dir * vertex_animation.MainBending;
 
 					// gusts roll over the land with the wind, so neighbours lean in turn and not at once: a sum of sines of
@@ -1040,12 +1039,12 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				return conform + world_matrix3 * (pos - start_pos);
 			}
 
-			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
-				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_animation.Time);
+			vec3 get_vertex_animation_offset(vec3 world_pos, vec4 vertex_color) {
+				return get_vertex_animation_offset_at_time(world_pos, vertex_color, vertex_animation.Time);
 			}
 
-			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
-				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_animation.PrevTime);
+			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec4 vertex_color) {
+				return get_vertex_animation_offset_at_time(world_pos, vertex_color, vertex_animation.PrevTime);
 			}
 	]]
 end
