@@ -278,6 +278,7 @@ add(
 	path("M3.5 7H8L9.5 4.5H14.5L16 7H20.5V20.5H3.5Z", ring(12, 13.5, 3))
 )
 add("Scene", "water", path(teardrop(12, 14.5, 6.5, 12, 3.5)))
+add("Scene", "sparkle", path("M12 3L14 10L21 12L14 14L12 21L10 14L3 12L10 10Z"))
 add("Objects", "user", path(ring(12, 7.5, 3.5), arc(12, 21, 8, 6.5, 180, 360, true)))
 add("Scene", "spawn", path("M6 4H18L15 8.5L18 13H6Z", "M6 13V21"))
 add("Scene", "place", path(teardrop(12, 9.5, 6.5, 12, 21)) .. dot(12, 9.5, 2.2))
