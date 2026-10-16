@@ -300,6 +300,43 @@ T.Test2D("property editor builds rows from items and routes edits through node a
 	editor:Remove()
 end)
 
+T.Test2D("property editor color picker window writes picked colors back to the color control", function()
+	local changes = {}
+	local editor = PropertyEditor{
+		Items = {
+			{
+				Key = "group",
+				Text = "Group",
+				Children = {
+					{
+						Key = "group/tint",
+						Text = "Tint",
+						Type = "color",
+						Value = Color(1, 0, 0, 1),
+						OnChange = function(node, value)
+							changes[#changes + 1] = value
+						end,
+					},
+				},
+			},
+		},
+	}
+	local control = editor._row_infos["group/tint"].editor_panel
+	editor:open_color_picker_window(control)
+	local window = Panel.World:GetKeyed("PropertyColorPickerWindow/" .. control.PropertyKey)
+	local picker
+
+	for _, child in ipairs(window:GetChildrenList()) do
+		if child.apply_hsva then picker = child end
+	end
+
+	picker:apply_hsva(0.5, 1, 1, 1, true)
+	T(#changes)["=="](1)
+	T(changes[1].g > 0)["=="](true)
+	window:Remove()
+	editor:Remove()
+end)
+
 T.Test2D("menu bar creates a button per item and tracks the open menu", function()
 	local bar = MenuBar{
 		Items = {

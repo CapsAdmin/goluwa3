@@ -654,7 +654,7 @@ function META:open_color_picker_window(control)
 				Value = control:GetValue(),
 				Control = control,
 				OnChange = function(color, old_color, picker)
-					picker.Control:SetValue(picker.Control.Factory(color), true)
+					picker.Control:SetValue(color, true)
 				end,
 				layout = {GrowWidth = 1},
 			},
