@@ -968,6 +968,25 @@ function stats.DrawOverlay(cmd)
 	for line_index = 1, line_count do
 		local pen_x = x + OVERLAY_PADDING
 		local pen_y = y + OVERLAY_PADDING + ((-(line_index - 1) + line_count)) * LINE_HEIGHT
+
+		if overlay_columns[line_index] and line_index % 2 == 0 then
+			draw_overlay_rect(
+				cmd,
+				pipeline,
+				frame_index,
+				viewport_w,
+				viewport_h,
+				x,
+				pen_y,
+				panel_width,
+				LINE_HEIGHT,
+				1,
+				1,
+				1,
+				0.1
+			)
+		end
+
 		draw_overlay_text(
 			cmd,
 			pipeline,
