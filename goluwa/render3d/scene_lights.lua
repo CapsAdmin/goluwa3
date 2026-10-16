@@ -78,11 +78,10 @@ function scene_lights.GetLightGLSLCode()
 
 			bool get_light_vector_and_attenuation(lights_t light, vec3 world_pos, out vec3 L, out float attenuation) {
 				int type = get_light_type(light);
-				vec3 light_dir = get_light_direction(light);
 				attenuation = 1.0;
 
 				if (type == 0) {
-					L = normalize(-light_dir);
+					L = -get_light_direction(light);
 					return true;
 				}
 
@@ -111,6 +110,7 @@ function scene_lights.GetLightGLSLCode()
 
 					// light_dir points back toward the source, so light travels
 					// along -light_dir and surfaces behind the light are not lit
+					vec3 light_dir = get_light_direction(light);
 					float in_front = 1.0 - smoothstep(-0.1, 0.2, dot(from_light / dist, light_dir));
 
 					if (in_front <= 0.0) {
@@ -131,6 +131,7 @@ function scene_lights.GetLightGLSLCode()
 						return false;
 					}
 
+					vec3 light_dir = get_light_direction(light);
 					float inner_cone = clamp(light.params.y, -1.0, 1.0);
 					float outer_cone = clamp(light.params.z, -1.0, inner_cone);
 					float cosine = dot(light_dir, from_light / dist);
