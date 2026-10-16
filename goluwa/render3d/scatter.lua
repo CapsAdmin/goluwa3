@@ -1377,7 +1377,8 @@ local function write_prototype(out, proto, instance_base, far_base, shadow_base,
 	out.info4[1] = proto.shadow_billboard_room
 	out.limits[1] = proto.animation_distance
 	out.limits[3] = proto.align_steep
-	out.limits[2] = RAY_QUERY and proto.conform and proto.footprint > 0.02 and proto.footprint or 0
+	-- the footprint is measured when the model has loaded
+	out.limits[2] = RAY_QUERY and proto.conform and proto.state == "ready" and proto.footprint > 0.02 and proto.footprint or 0
 	out.info[2] = proto.state == "ready" and 1 or 0
 	out.info[3] = proto.shadow and 1 or 0
 end
