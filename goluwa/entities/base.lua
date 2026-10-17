@@ -697,19 +697,6 @@ function BaseEntity:Ensure(ent)
 	return ent
 end
 
-function BaseEntity:Conditional(condition, props)
-	local key = props.Key
-
-	if not key then error("Conditional requires a Key prop") end
-
-	if condition then
-		return self:Ensure(props)
-	else
-		self:RemoveKeyed(key)
-		return nil
-	end
-end
-
 function BaseEntity:SetState(key, val)
 	self.state = self.state or {}
 

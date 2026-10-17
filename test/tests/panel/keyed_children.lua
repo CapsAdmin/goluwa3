@@ -65,23 +65,6 @@ T.Test("panel Ensure reuse", function()
 	T(child1:GetName())["=="]("Child 1")
 end)
 
-T.Test("panel Conditional", function()
-	local parent = Panel.New{
-		Name = "Parent",
-	}
-	local props = {
-		Key = "MyKey",
-		Name = "Child",
-	}
-	local child1 = parent:Conditional(true, props)
-	T(parent:GetKeyed("MyKey"))["=="](child1)
-	local child2 = parent:Conditional(true, props)
-	T(child2)["=="](child1)
-	parent:Conditional(false, props)
-	T(parent:GetKeyed("MyKey"))["=="](nil)
-	T(child1:IsValid())["=="](false)
-end)
-
 T.Test("panel Ensure already created", function()
 	local parent = Panel.New({Name = "Parent"})
 	local child1 = Panel.New{
