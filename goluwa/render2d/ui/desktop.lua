@@ -333,8 +333,11 @@ function desktop.Hide()
 	end
 end
 
+-- a scroll view that has focus for its keys is not a program being edited
 function desktop.IsEditing()
 	local focused = objects.GetFocusedObject()
+
+	if focused and focused:IsValid() and focused.Scrollable then return false end
 
 	while focused and focused:IsValid() do
 		for _, name in ipairs(order) do

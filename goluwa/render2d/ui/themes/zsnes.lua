@@ -336,6 +336,10 @@ function ZsnesTheme:GetScrollbarWidth()
 	return PX * 8
 end
 
+function ZsnesTheme:GetScrollbarCollapsedWidth()
+	return self:GetScrollbarWidth()
+end
+
 function ZsnesTheme:GetScrollbarMargin()
 	return 0
 end
@@ -660,6 +664,34 @@ function ZsnesTheme:DrawScrollbarHandle(size, pressed, hovered)
 		fill(0, 0, w, PX, gray(face))
 		fill(0, h - PX, w, PX, gray(face))
 		fill(w - PX, 0, PX, h, gray(face - 6))
+	end
+end
+
+function ZsnesTheme:DrawScrollbarButton(size, direction, pressed, hovered)
+	local w, h = math.floor(size.x / PX), math.floor(size.y / PX)
+	render2d.SetTexture(nil)
+	gui_button(0, 0, w, h, hovered and 220 or 217, pressed)
+	local shift = pressed and PX or 0
+	self:DrawArrow(shift, shift, w * PX, h * PX, direction, gray(pressed and 199 or 197), PX)
+end
+
+-- a raised gray button with a pixel dot in the middle and a stepped arrow on each side the view scrolls
+function ZsnesTheme:DrawAutoscrollMarker(size, vertical, horizontal)
+	local w, h = math.floor(size.x / PX), math.floor(size.y / PX)
+	local color = gray(197)
+	render2d.SetTexture(nil)
+	gui_button(0, 0, w, h, 217, false)
+	zfill(math.floor((w - 2) / 2), math.floor((h - 2) / 2), 2, 2, color)
+	local pw, ph = w * PX, h * PX
+
+	if vertical then
+		self:DrawArrow(0, PX * 2, pw, ph * 0.3, "up", color, PX)
+		self:DrawArrow(0, ph * 0.7 - PX * 2, pw, ph * 0.3, "down", color, PX)
+	end
+
+	if horizontal then
+		self:DrawArrow(PX * 2, 0, pw * 0.3, ph, "left", color, PX)
+		self:DrawArrow(pw * 0.7 - PX * 2, 0, pw * 0.3, ph, "right", color, PX)
 	end
 end
 

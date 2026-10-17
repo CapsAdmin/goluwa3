@@ -259,7 +259,14 @@ function BaseTheme:GetInputHeight(font_size_name)
 	return self:ResolveFontSize(font_size_name or "M") + self:GetPadding("S") * 2
 end
 
+-- the width of a scrollbar when it is under the mouse (and the size of its hit area)
 function BaseTheme:GetScrollbarWidth()
+	return self:GetSize("XXS") * 2
+end
+
+-- the width it is drawn at otherwise, it grows to GetScrollbarWidth with a backdrop when hovered. content is only ever
+-- padded by this, so growing never shifts the layout. a theme with a fixed bar returns GetScrollbarWidth here
+function BaseTheme:GetScrollbarCollapsedWidth()
 	return self:GetSize("XXS")
 end
 
@@ -1680,18 +1687,129 @@ function BaseTheme:Draw(pnl)
 			}
 		)
 	elseif type(name) == "string" and name:starts_with("scrollbar_track_") then
-		return self:DrawSurface(
-			pnl.transform:GetTotalSize(),
-			pnl:GetState("color") or "scrollbar_track",
-			self:GetRadius("M")
-		)
+		return self:DrawScrollbarPart(pnl, name, pnl:GetState("color") or "scrollbar_track", true)
 	elseif type(name) == "string" and name:starts_with("scrollbar_handle_") then
-		return self:DrawSurface(
+		return self:DrawScrollbarPart(pnl, name, pnl:GetState("color") or "scrollbar", false)
+	elseif name == "scrollbar_autoscroll_marker" then
+		return self:DrawAutoscrollMarker(pnl.transform:GetTotalSize(), pnl.ScrollsY, pnl.ScrollsX)
+	elseif type(name) == "string" and name:starts_with("scrollbar_button_") then
+		return self:DrawScrollbarButton(
 			pnl.transform:GetTotalSize(),
-			pnl:GetState("color") or "scrollbar",
-			self:GetRadius("M")
+			pnl.ArrowDirection,
+			pnl:GetState("pressed"),
+			pnl:GetState("hovered")
 		)
 	end
+end
+
+-- the track (the backdrop, only visible once the bar is expanded) and the handle of a scrollbar. pnl.Expand is 0 for the
+-- thin collapsed bar and 1 when expanded, the bar sits against the edge of its hit area and grows towards the content
+function BaseTheme:DrawScrollbarPart(pnl, name, color, is_track)
+	local size = pnl.transform:GetTotalSize()
+	local vertical = name:sub(-1) == "y"
+	local full = vertical and size.x or size.y
+	local collapsed = math.min(full, self:GetScrollbarCollapsedWidth())
+	local expand = pnl.Expand or 1
+	local thickness = collapsed + (full - collapsed) * expand
+
+	if is_track then
+		if expand <= 0 then return end
+
+		color = self:ResolveColor(color):Copy():SetAlpha(self:ResolveColor(color).a * expand)
+	end
+
+	render2d.PushMatrix()
+
+	if vertical then
+		render2d.Translate(full - thickness, 0)
+		self:DrawSurface(Vec2(thickness, size.y), color, self:GetRadius("M"))
+	else
+		render2d.Translate(0, full - thickness)
+		self:DrawSurface(Vec2(size.x, thickness), color, self:GetRadius("M"))
+	end
+
+	render2d.PopMatrix()
+end
+
+-- a triangle of one pixel high steps centered in the box, direction is up, down, left or right. unit is the step size in pixels
+function BaseTheme:DrawArrow(x, y, w, h, direction, color, unit)
+	local short = math.min(w, h)
+	unit = unit or math.max(1, math.floor(short / 8))
+	local steps = math.max(2, math.floor(short * 0.3 / unit))
+	local cx, cy = x + w / 2, y + h / 2
+	local length = steps * unit
+	render2d.SetTexture(nil)
+	render2d.SetColor(color.r, color.g, color.b, color.a)
+
+	for i = 0, steps - 1 do
+		local width = (i * 2 + 1) * unit
+		local along = i * unit
+
+		if direction == "up" then
+			render2d.DrawRect(math.floor(cx - width / 2), math.floor(cy - length / 2 + along), width, unit)
+		elseif direction == "down" then
+			render2d.DrawRect(math.floor(cx - width / 2), math.floor(cy + length / 2 - along - unit), width, unit)
+		elseif direction == "left" then
+			render2d.DrawRect(math.floor(cx - length / 2 + along), math.floor(cy - width / 2), unit, width)
+		else
+			render2d.DrawRect(math.floor(cx + length / 2 - along - unit), math.floor(cy - width / 2), unit, width)
+		end
+	end
+end
+
+-- a theme icon (a chevron) centered on a point, for the arrows of the autoscroll marker. spread_x and spread_y draw it
+-- twice that far apart, which makes the stroke heavier than the theme's icon stroke
+function BaseTheme:DrawAutoscrollChevron(name, center_x, center_y, icon_size, color, spread_x, spread_y)
+	spread_x = (spread_x or 0) / 2
+	spread_y = (spread_y or 0) / 2
+
+	for pass = -1, 1, 2 do
+		render2d.PushMatrix()
+		render2d.Translate(center_x - icon_size / 2 + spread_x * pass, center_y - icon_size / 2 + spread_y * pass)
+		self:DrawSVGIcon(name, Vec2(icon_size, icon_size), {size = icon_size, inset = 0, color = color})
+		render2d.PopMatrix()
+	end
+
+	render2d.SetTexture(nil)
+end
+
+-- the marker shown where the middle button was pressed to autoscroll: a round badge with a small dot in the middle and a
+-- heavier chevron on each side the view scrolls
+function BaseTheme:DrawAutoscrollMarker(size, vertical, horizontal)
+	local w, h = size.x, size.y
+	local color = self:GetColor("text")
+	self:DrawBox(
+		size,
+		{
+			fill = "surface",
+			outline = "border_strong",
+			outline_alpha = 1,
+			radius = self:GetRadius("full"),
+		}
+	)
+	local dot = math.max(2, math.floor(math.min(w, h) * 0.1))
+	self:DrawBoxShape((w - dot) / 2, (h - dot) / 2, dot, dot, {fill = color, radius = self:GetRadius("full")})
+	-- four arrows are smaller and further out so they do not run into each other
+	local both = vertical and horizontal
+	local icon = math.floor(math.min(w, h) * (both and 0.36 or 0.46))
+	local near = both and 0.2 or 0.25
+
+	if vertical then
+		self:DrawAutoscrollChevron("chevron_up", w / 2, h * near, icon, color, 0, 1)
+		self:DrawAutoscrollChevron("chevron_down", w / 2, h * (1 - near), icon, color, 0, 1)
+	end
+
+	if horizontal then
+		self:DrawAutoscrollChevron("chevron_left", w * near, h / 2, icon, color, 1, 0)
+		self:DrawAutoscrollChevron("chevron_right", w * (1 - near), h / 2, icon, color, 1, 0)
+	end
+end
+
+function BaseTheme:DrawScrollbarButton(size, direction, pressed, hovered)
+	local color = self:GetColor("scrollbar"):Copy()
+	color:SetAlpha(math.min(1, color.a * (pressed and 2.4 or hovered and 1.7 or 1)))
+	self:DrawSurface(size, color, self:GetRadius("M"))
+	self:DrawArrow(0, 0, size.x, size.y, direction, self:GetColor("text"))
 end
 
 function BaseTheme:DrawPost(pnl)

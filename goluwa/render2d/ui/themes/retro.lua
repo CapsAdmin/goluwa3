@@ -212,6 +212,10 @@ function RetroTheme:GetScrollbarWidth()
 	return 14
 end
 
+function RetroTheme:GetScrollbarCollapsedWidth()
+	return self:GetScrollbarWidth()
+end
+
 function RetroTheme:GetScrollbarMargin()
 	return 0
 end
@@ -616,6 +620,34 @@ function RetroTheme:DrawScrollbarHandle(size, pressed, hovered)
 			fill(mid_x + offset, 3, 1, length, ink)
 			fill(mid_x + offset + 1, 3, 1, length, light, 0.8)
 		end
+	end
+end
+
+function RetroTheme:DrawScrollbarButton(size, direction, pressed, hovered)
+	local w, h = math.floor(size.x), math.floor(size.y)
+	self:DrawSlab(0, 0, w, h, self:GetColor("scrollbar"), pressed, hovered, 1)
+	local shift = pressed and 1 or 0
+	self:DrawArrow(shift, shift, w, h, direction, self:GetColor("ink"), 2)
+end
+
+function RetroTheme:DrawAutoscrollMarker(size, vertical, horizontal)
+	local w, h = math.floor(size.x), math.floor(size.y)
+	local ink = self:GetColor("ink")
+	local icon = math.floor(math.min(w, h) * 0.38)
+	local arrow = self:GetColor("text")
+	render2d.SetTexture(nil)
+	octagon(0, 0, w, h, ink, 1, 8)
+	octagon(1, 1, w - 2, h - 2, self:GetColor("surface_alt"), 1, 7)
+	octagon(math.floor(w / 2 - 3), math.floor(h / 2 - 3), 6, 6, self:GetColor("lime"), 1, 2)
+
+	if vertical then
+		self:DrawAutoscrollChevron("chevron_up", w / 2, h * 0.24, icon, arrow)
+		self:DrawAutoscrollChevron("chevron_down", w / 2, h * 0.76, icon, arrow)
+	end
+
+	if horizontal then
+		self:DrawAutoscrollChevron("chevron_left", w * 0.24, h / 2, icon, arrow)
+		self:DrawAutoscrollChevron("chevron_right", w * 0.76, h / 2, icon, arrow)
 	end
 end
 

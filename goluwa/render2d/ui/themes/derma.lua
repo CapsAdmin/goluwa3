@@ -287,6 +287,10 @@ function DermaTheme:GetScrollbarWidth()
 	return 15
 end
 
+function DermaTheme:GetScrollbarCollapsedWidth()
+	return self:GetScrollbarWidth()
+end
+
 function DermaTheme:GetScrollbarMargin()
 	return 0
 end
