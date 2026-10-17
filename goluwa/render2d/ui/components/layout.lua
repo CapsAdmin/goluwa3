@@ -989,37 +989,36 @@ end
 
 local signature = {}
 
-function META:OnFirstCreated()
-	event.AddListener(
-		"Update",
-		signature,
-		function()
-			local queue = dirty_queue
-			dirty_queue = dirty_queue_next
-			dirty_queue_next = queue
+-- lays out everything that was invalidated, what the Update listener does, for code that needs the sizes now
+function META.FlushDirty()
+	local queue = dirty_queue
+	dirty_queue = dirty_queue_next
+	dirty_queue_next = queue
 
-			for i = 1, #queue do
-				local layout = queue[i]
-				queue[i] = nil
-				layout.queued = false
+	for i = 1, table.maxn(queue) do
+		local layout = queue[i]
+		queue[i] = nil
 
-				if layout.Dirty and layout.Owner:IsValid() then
-					local root = layout
-					local parent = layout.Owner:GetParent()
+		if layout then layout.queued = false end
 
-					while parent and parent:IsValid() and parent.layout and parent.layout.Dirty do
-						root = parent.layout
-						parent = parent:GetParent()
-					end
+		if layout and layout.Dirty and layout.Owner:IsValid() then
+			local root = layout
+			local parent = layout.Owner:GetParent()
 
-					root:UpdateLayout()
-
-					if layout.Dirty then layout:UpdateLayout() end
-				end
+			while parent and parent:IsValid() and parent.layout and parent.layout.Dirty do
+				root = parent.layout
+				parent = parent:GetParent()
 			end
-		end,
-		{priority = -100}
-	)
+
+			root:UpdateLayout()
+
+			if layout.Dirty then layout:UpdateLayout() end
+		end
+	end
+end
+
+function META:OnFirstCreated()
+	event.AddListener("Update", signature, META.FlushDirty, {priority = -100})
 end
 
 function META:OnLastRemoved()

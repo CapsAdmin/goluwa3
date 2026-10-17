@@ -485,7 +485,7 @@ end
 local CornerButton = react.Component(|props| -> do
 	local button = react.UseRef()
 
-	react.UseEvent("Update", || -> do
+	local follow = || -> do
 		local anchor = props.Anchor.current
 
 		if not (anchor and anchor:IsValid()) then return end
@@ -495,7 +495,11 @@ local CornerButton = react.Component(|props| -> do
 		button.current.transform:SetPosition(
 			button.current:GetParent().transform:GlobalToLocal(Vec2(x - size.x + props.OffsetX, y - size.y + props.OffsetY))
 		)
-	end)
+	end
+
+	-- in place before the first frame, then it follows the panel when the window moves or resizes
+	react.UseLayoutEffect(follow, {})
+	react.UseEvent("Update", follow)
 
 	return IconButton{
 		Ref = button,
@@ -920,8 +924,8 @@ local Editor = react.Component(|props| -> do
 		end
 	end, {})
 
-	-- the window is what the desktop program drives
-	react.UseEffect(|| -> do
+	-- the window is what the desktop program drives, the tree scrolls to the selected entity so it needs the layout
+	react.UseLayoutEffect(|| -> do
 		local entity = window.current
 
 		function entity:SetPlaying(value)

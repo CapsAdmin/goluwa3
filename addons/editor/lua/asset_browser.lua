@@ -704,7 +704,7 @@ local FolderTree = react.Component(|props| -> do
 		return {root_node}
 	end, {props.Index, props.Root})
 
-	react.UseEffect(
+	react.UseLayoutEffect(
 		|| -> reveal_in_tree(tree.current, items, expanded.current, props.Root, props.Folder),
 		{props.Folder, items}
 	)

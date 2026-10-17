@@ -540,3 +540,39 @@ T.Test2D("react prop diff does not recurse into cyclic tables", function()
 	root:Render(Column{Data = make()}{})
 	root:Unmount()
 end)
+
+T.Test2D("react layout effect sees the layout of the render that scheduled it and an effect runs after it", function()
+	local order = {}
+	local heights = {}
+	local Measured = react.Component(|props| -> do
+		local box = react.UseRef()
+
+		react.UseEffect(|| -> do
+			order[#order + 1] = "effect"
+		end, {})
+		react.UseLayoutEffect(|| -> do
+			order[#order + 1] = "layout"
+			heights[#heights + 1] = box.current.transform:GetSize().y
+
+			return || -> do
+				order[#order + 1] = "cleanup"
+			end
+		end, {props.Rows})
+
+		local rows = {}
+
+		for i = 1, props.Rows do
+			rows[i] = Text{Key = i, Text = "row " .. i}
+		end
+
+		return Column{Ref = box, layout = {FitHeight = true, FitWidth = true}}{rows}
+	end)
+	local root = react.Mount(Measured{Rows = 2}, Panel.World)
+	T(table.concat(order, ","))["=="]("layout,effect")
+	T(heights[1])[">"](0)
+	root:Render(Measured{Rows = 4})
+	T(table.concat(order, ","))["=="]("layout,effect,cleanup,layout")
+	T(heights[2])[">"](heights[1])
+	root:Unmount()
+	T(table.concat(order, ","))["=="]("layout,effect,cleanup,layout,cleanup")
+end)

@@ -2,6 +2,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local Layout = import("goluwa/render2d/ui/components/layout.lua")
 local react = {}
 local Descriptor = {}
 Descriptor.__index = Descriptor
@@ -150,6 +151,7 @@ local current_inst
 local hook_index = 0
 local dirty = {}
 local pending_effects = {}
+local pending_layout_effects = {}
 local removed_hosts = {}
 local inst_of_entity = setmetatable({}, {__mode = "k"})
 
@@ -802,6 +804,18 @@ do -- hooks
 			pending_effects[#pending_effects + 1] = hook
 		end
 	end
+
+	-- like UseEffect, but it runs after the layout of what the render changed was done, so sizes and positions can be read (and scrolled to) before a frame is drawn. Without deps it runs after every render
+	function react.UseLayoutEffect(effect, deps)
+		local hook, is_new = use_hook()
+
+		if is_new or not deps_equal(hook.deps, deps) then
+			hook.deps = deps
+			hook.effect = effect
+			hook.inst = current_inst
+			pending_layout_effects[#pending_layout_effects + 1] = hook
+		end
+	end
 end
 
 local function is_alive(inst)
@@ -825,10 +839,35 @@ local function by_depth(a, b)
 	return a.depth < b.depth
 end
 
+local function run_effects(effects)
+	for _, hook in ipairs(effects) do
+		local effect = hook.effect
+
+		if effect and not hook.inst.unmounted then
+			hook.effect = nil
+
+			if hook.cleanup then hook.cleanup() end
+
+			local boundary = hook.inst.boundary
+			local cleanup
+
+			if boundary then
+				local ok, result = guard(boundary, effect)
+
+				if ok then cleanup = result else schedule(boundary) end
+			else
+				cleanup = effect()
+			end
+
+			hook.cleanup = type(cleanup) == "function" and cleanup or nil
+		end
+	end
+end
+
 function react.Flush()
 	local passes = 0
 
-	while dirty[1] or pending_effects[1] or removed_hosts[1] do
+	while dirty[1] or pending_layout_effects[1] or pending_effects[1] or removed_hosts[1] do
 		passes = passes + 1
 
 		if passes > 50 then error("too many re-renders, a state update keeps triggering itself", 0) end
@@ -869,31 +908,16 @@ function react.Flush()
 			end
 		end
 
+		if pending_layout_effects[1] then
+			local layout_effects = pending_layout_effects
+			pending_layout_effects = {}
+			Layout.FlushDirty()
+			run_effects(layout_effects)
+		end
+
 		local effects = pending_effects
 		pending_effects = {}
-
-		for _, hook in ipairs(effects) do
-			local effect = hook.effect
-
-			if effect and not hook.inst.unmounted then
-				hook.effect = nil
-
-				if hook.cleanup then hook.cleanup() end
-
-				local boundary = hook.inst.boundary
-				local cleanup
-
-				if boundary then
-					local ok, result = guard(boundary, effect)
-
-					if ok then cleanup = result else schedule(boundary) end
-				else
-					cleanup = effect()
-				end
-
-				hook.cleanup = type(cleanup) == "function" and cleanup or nil
-			end
-		end
+		run_effects(effects)
 	end
 end
 
