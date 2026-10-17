@@ -1,5 +1,3 @@
-local event = import("goluwa/event.lua")
-local input = import("goluwa/input.lua")
 local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -7,6 +5,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local perf = import("lua/perf.lua")
 local WIDTH, HEIGHT = 660, 430
 local PIE_X, PIE_Y, PIE_RADIUS, PIE_INNER = 200, 232, 150, 84
 local LIST_X, LIST_W = 400, 244
@@ -310,23 +309,6 @@ function META:OnDraw()
 end
 
 META:Register()
-local panel = NULL
-local shown = false
-
-event.AddListener("Update", "gpu_pie", function()
-	local down = input.IsKeyDown("h")
-
-	if down and not shown then
-		if not panel:IsValid() then
-			panel = Panel.World:Ensure(META{Key = "GpuPie", Size = Vec2(WIDTH, HEIGHT), RequestMouse = true})
-		end
-
-		local size = Panel.World.transform:GetSize()
-		panel.transform:SetPosition(Vec2((size.x - WIDTH) / 2, (size.y - HEIGHT) / 2))
-		panel.visual:SetVisible(true)
-		shown = true
-	elseif not down and shown then
-		panel.visual:SetVisible(false)
-		shown = false
-	end
+perf.RegisterTab("GPU", 1, function()
+	return META{Size = Vec2(WIDTH, HEIGHT)}
 end)

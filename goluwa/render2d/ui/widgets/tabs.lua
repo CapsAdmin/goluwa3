@@ -82,6 +82,12 @@ function META:SetValue(name)
 	return self
 end
 
+function META:SetBarHidden(hidden)
+	self._bar.visual:SetVisible(not hidden and self._names[1] ~= nil)
+	self.layout:InvalidateLayout()
+	return self
+end
+
 function META:GetPage(name)
 	return self._pages[name]
 end
