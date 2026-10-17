@@ -291,7 +291,6 @@ do
 	render_stats.RegisterField{
 		id = "uniform_ring_peak_uploads",
 		label = "PEAK UPLOADS/FRAME",
-		glyphs = "._/",
 		group = "uniform_buffers",
 		getter = function()
 			local ubo = get_busiest("peak_frame_uploads")
@@ -301,7 +300,6 @@ do
 	render_stats.RegisterField{
 		id = "uniform_ring_persistent",
 		label = "PERSISTENT SLOTS",
-		glyphs = "._/",
 		group = "uniform_buffers",
 		getter = function()
 			local ubo = get_busiest("persistent_slot_count")

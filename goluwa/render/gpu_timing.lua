@@ -3,7 +3,6 @@ local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local QueryPool = import("goluwa/render/vulkan/internal/query_pool.lua")
-local render_stats = import("goluwa/render/stats.lua")
 local gpu_timing = {}
 local serialized = os.getenv("GOLUWA_GPU_SERIALIZE") == "1"
 local MAX_SCOPES = 128
@@ -22,7 +21,6 @@ local sequence_frame
 local positions = {}
 local pools = {}
 local last_ms = {}
-local smoothed_ms = {}
 local timestamp_period_ns
 local timestamps_supported
 
@@ -43,7 +41,6 @@ local function timestamps_are_supported()
 	return timestamps_supported
 end
 
-render_stats.RegisterGroup{id = "gpu_timing", label = "GPU TIMINGS IN MS", columns = true}
 local TOTAL_NAME = "gpu_total"
 local get_total_ms
 
@@ -80,69 +77,6 @@ function get_total_ms(name)
 	return total
 end
 
-local shown_ms = {}
-local shown_frame
-local shown_min
-local shown_max
-
-local function update_shown()
-	local frame = system.GetFrameNumber()
-
-	if shown_frame == frame then return end
-
-	shown_frame = frame
-	shown_min = nil
-	shown_max = nil
-
-	for i = 1, #display_order do
-		local name = display_order[i]
-		local total = get_total_ms(name)
-
-		if total then
-			local smoothed = smoothed_ms[name] and (smoothed_ms[name] * 0.85 + total * 0.15) or total
-			smoothed_ms[name] = smoothed
-			shown_ms[name] = smoothed
-
-			if name ~= "gpu_frame" and name ~= TOTAL_NAME then
-				shown_min = shown_min and math.min(shown_min, smoothed) or smoothed
-				shown_max = shown_max and math.max(shown_max, smoothed) or smoothed
-			end
-		else
-			smoothed_ms[name] = nil
-			shown_ms[name] = nil
-		end
-	end
-end
-
-local function register_row(rank)
-	render_stats.RegisterField{
-		id = "gpu_timing_row_" .. rank,
-		group = "gpu_timing",
-		glyphs = "-.",
-		label_getter = function()
-			return display_labels[display_order[rank]]
-		end,
-		getter = function()
-			update_shown()
-			local ms = shown_ms[display_order[rank]]
-			return ms and string.format("%.3f", ms) or "-"
-		end,
-		swatch_getter = function()
-			update_shown()
-			local name = display_order[rank]
-			local ms = shown_ms[name]
-
-			if not ms or name == "gpu_frame" or name == TOTAL_NAME then return nil end
-
-			local t = shown_max > shown_min and (ms - shown_min) / (shown_max - shown_min) or 0
-
-			if t < 0.5 then return t * 2, 1, 0 end
-
-			return 1, (1 - t) * 2, 0
-		end,
-	}
-end
-
 local function get_slot(name)
 	local slot = slot_by_name[name]
 
@@ -158,7 +92,6 @@ local function get_slot(name)
 	slot_order[slot + 1] = name
 	display_labels[name] = name:gsub("^gpu_", ""):gsub("_", " "):upper()
 	display_order[#display_order + 1] = name
-	register_row(#display_order)
 	return slot
 end
 

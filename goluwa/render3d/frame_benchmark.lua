@@ -91,7 +91,6 @@ function frame_benchmark.Run(config)
 	end
 
 	render.stats = true
-	render.stats_overlay = false
 	local results = {name = config.name, phases = {}}
 	local saved = benchmark_results.New(config.name)
 	local chunk_time, chunk_frames, chunk_draws = 0, 0, 0
