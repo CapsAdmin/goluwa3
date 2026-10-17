@@ -1,3 +1,4 @@
+local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local raycast = import("goluwa/render3d/raycast.lua")
@@ -10,9 +11,11 @@ local highlight = import("lua/highlight.lua")
 local Gizmo = import("lua/gizmo.lua")
 local event = import("goluwa/event.lua")
 local CameraComponent = import("lua/components/camera.lua")
-local AssetBrowser = import("lua/asset_browser.lua")
 local assets = import("goluwa/assets.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local desktop = import("goluwa/render2d/ui/desktop.lua")
+local timer = import("goluwa/timer.lua")
+local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local picker = {}
 picker.include_transient = false
 local nonvisual_candidates = {}
@@ -59,6 +62,21 @@ do
 	Entity.World:AddLocalListener("OnEntityComponentChanged", mark_dirty)
 end
 
+-- an entity that is, or is below, one of the opts.entity_blacklist entities
+local function is_blacklisted(entity)
+	local blacklist = picker.entity_blacklist
+
+	if not blacklist then return false end
+
+	for _, banned in ipairs(blacklist) do
+		if banned:IsValid() and (entity == banned or entity:ContainsParent(banned)) then
+			return true
+		end
+	end
+
+	return false
+end
+
 local function find_nonvisual_entity_hit(mouse_pos, ray_origin, ray_direction, max_distance)
 	local cam = render3d.GetCamera()
 	local screen_size = render2d.GetSize()
@@ -67,7 +85,16 @@ local function find_nonvisual_entity_hit(mouse_pos, ray_origin, ray_direction, m
 	local marker_radius_sq = 144
 
 	for _, entity in ipairs(picker.GetNonvisualCandidates()) do
-		if not entity:IsValid() then goto continue2 end
+		if
+			not entity:IsValid() or
+			is_blacklisted(entity) or
+			(
+				picker.filter and
+				not picker.filter(entity)
+			)
+		then
+			goto continue2
+		end
 
 		local world_pos = entity.transform:GetWorldPosition()
 		local screen_pos = cam:WorldPositionToScreen(world_pos, screen_size)
@@ -107,6 +134,28 @@ local function find_nonvisual_entity_hit(mouse_pos, ray_origin, ray_direction, m
 	return best_hit
 end
 
+-- the cursor, or the middle of the screen while the mouse is trapped and the crosshair is what aims
+function picker.GetPickPosition()
+	local window = system.GetWindow()
+
+	if window:GetMouseTrapped() then
+		local width, height = render2d.GetSize()
+		return Vec2(width / 2, height / 2)
+	end
+
+	return window:GetMousePosition()
+end
+
+local function is_pickable(entity)
+	if not (entity:IsValid() and entity:GetRoot() == Entity.World) then return false end
+
+	local owner = entity.VisualOwner and entity.VisualOwner.Owner or entity
+
+	if is_blacklisted(owner) then return false end
+
+	return not picker.filter or picker.filter(owner)
+end
+
 function picker.find_3d_pick_target(mouse_pos)
 	local cam = render3d.GetCamera()
 	local screen_width, screen_height = render2d.GetSize()
@@ -118,9 +167,7 @@ function picker.find_3d_pick_target(mouse_pos)
 		ray_origin,
 		ray_direction,
 		math.huge,
-		function(entity)
-			return entity:IsValid() and entity:GetRoot() == Entity.World
-		end
+		is_pickable
 	)
 	raycast.SetLODCamera(nil)
 
@@ -137,6 +184,7 @@ function picker.find_3d_pick_target(mouse_pos)
 
 		if
 			geometry_entity and
+			(not picker.filter or picker.filter(geometry_entity)) and
 			(
 				not visual_hit or
 				geometry_distance <= visual_hit.distance + 0.01
@@ -145,6 +193,8 @@ function picker.find_3d_pick_target(mouse_pos)
 			return geometry_entity
 		end
 	end
+
+	if visual_hit and picker.filter then return visual_hit.primitive.entity.VisualOwner.Owner end
 
 	if visual_hit then
 		local entity = visual_hit.primitive.entity
@@ -161,53 +211,244 @@ function picker.find_3d_pick_target(mouse_pos)
 	return NULL
 end
 
-local function cancel_picker()
-	if not picker.IsActive() then return end
+local session
+local finish
 
+local function has_model(entity)
+	return entity.visual ~= nil and entity.visual:GetModelPath() ~= ""
+end
+
+local function in_prefab(entity)
+	local node = entity
+
+	while node:IsValid() do
+		if node.prefab and node.prefab.Path ~= "" then return true end
+
+		node = node:GetParent()
+	end
+
+	return false
+end
+
+-- the model path of an entity, or of the closest entity around it that has one
+local function find_model_path(entity)
+	local candidates = {entity}
+
+	for _, node in ipairs(entity:GetParentList()) do
+		candidates[#candidates + 1] = node
+	end
+
+	for _, node in ipairs(entity:GetChildrenList()) do
+		candidates[#candidates + 1] = node
+	end
+
+	for _, node in ipairs(candidates) do
+		local path = node.visual and node.visual:GetModelPath() or ""
+
+		if path ~= "" then return path end
+	end
+end
+
+local function find_prefab_path(entity)
+	local node = entity
+
+	while node:IsValid() do
+		if node.prefab and node.prefab.Path ~= "" then return node.prefab.Path end
+
+		node = node:GetParent()
+	end
+end
+
+-- entity modes hover and highlight an entity, resolve turns it into what the mode picks and nothing means there is nothing to pick there
+-- hit modes pick the surface under the cursor
+local MODES = {
+	entity = {},
+	model = {world_only = true, filter = has_model, resolve = find_model_path},
+	prefab = {world_only = true, filter = in_prefab, resolve = find_prefab_path},
+	material = {hit = true},
+	texture = {hit = true},
+}
+
+-- choosing a texture of the picked material is part of the pick, it ends once one is chosen or the menu is dismissed
+local function open_texture_menu(material)
+	local mine = session
+	local items = {}
+
+	for _, info in ipairs(material:GetTextures()) do
+		local texture = info.texture
+		local name = info.name:lower()
+		local path = texture.config.path
+		items[#items + 1] = MenuItem{
+			Text = path and (name .. "  " .. path:match("[^/]*$")) or name,
+			IconTexture = texture,
+			OnClick = function()
+				mine.opts.on_pick(texture, name)
+				picker.Stop()
+			end,
+		}
+	end
+
+	if not items[1] then items[1] = MenuItem{Text = "no textures", Disabled = true} end
+
+	mine.menu_open = true
+	Panel.OpenContextMenu(
+		{
+			Position = picker.GetPickPosition(),
+			mouse_input = {RequestMouse = true},
+			OnClose = function(self)
+				self:Remove()
+				-- a click on an item closes the menu too, before or after it runs, so look again next frame
+				timer.Delay(0, function()
+					if session == mine then picker.Stop() end
+				end)
+			end,
+		},
+		items
+	)
+end
+
+local function update_menu()
+	if input.IsMouseDown("button_1") then return end
+
+	event.RemoveListener("Update", "picker_menu")
+	open_texture_menu(session.menu_material)
+end
+
+-- whatever came back under the cursor comes back after the release, or the release lands on it
+local function update_finish()
+	if input.IsMouseDown("button_1") then return end
+
+	event.RemoveListener("Update", "picker_finish")
+	local done = finish
+	finish = nil
+
+	if done.desktop_shown then desktop.Show(true) end
+
+	if done.on_done then done.on_done() end
+
+end
+
+function picker.Stop()
+	if not session then return end
+
+	local ended = session
+	session = nil
 	picker.hovered_entity = NULL
+	picker.world_only = nil
+	picker.filter = nil
+	picker.entity_blacklist = nil
 	highlight.SetEntity(nil)
 	Gizmo.SetHidden(false)
 	input.HijackKeyInput(nil)
 
-	for _, remove in ipairs(picker.remove_events) do
+	for _, remove in ipairs(ended.remove_events) do
 		remove()
 	end
 
-	picker.remove_events = nil
+	if ended.menu_material then
+		event.RemoveListener("Update", "picker_menu")
 
-	if picker.on_cancel then picker.on_cancel() end
+		if ended.menu_open then Panel.CloseContextMenu() end
+	end
 
-	picker.on_pick = nil
-	picker.on_cancel = nil
+	local opts = ended.opts
+
+	if opts.on_stop then opts.on_stop() end
+
+	if ended.desktop_shown or opts.on_done then
+		finish = {desktop_shown = ended.desktop_shown, on_done = opts.on_done}
+		event.AddListener("Update", "picker_finish", update_finish)
+	end
 end
 
-function picker.StartEntityPicker(opts)
-	if picker.IsActive() then return end
+local function get_hit_material(hit)
+	local primitive = hit.primitive
+	return primitive.entity.VisualOwner.MaterialOverride or
+		primitive.material or
+		render3d.GetDefaultMaterial()
+end
 
-	opts = opts or {}
-	local on_pick = opts.on_pick
-	local on_cancel = opts.on_cancel
-	picker.on_pick = on_pick
-	picker.on_cancel = on_cancel
-	local cancel_fn = cancel_picker
+local function on_hit_click(button, press)
+	if button ~= "button_1" or not press then return end
+
+	local hovered = not system.GetWindow():GetMouseTrapped() and MouseInput.GetHoveredObject()
+
+	if hovered and hovered:IsValid() and not desktop.IsBackdrop(hovered) then return end
+
+	local cam = render3d.GetCamera()
+	local width, height = render2d.GetSize()
+	local origin = cam:GetPosition()
+	raycast.SetLODCamera(origin)
+	local ok, hit = pcall(
+		raycast.CastClosest,
+		origin,
+		cam:ScreenToWorldDirection(picker.GetPickPosition(), width, height),
+		math.huge,
+		is_pickable
+	)
+	raycast.SetLODCamera(nil)
+
+	if not ok then error(hit, 0) end
+
+	if hit then
+		local material = get_hit_material(hit)
+
+		if session.opts.mode == "texture" then
+			session.remove_events[1]()
+			session.menu_material = material
+			event.AddListener("Update", "picker_menu", update_menu)
+			return true
+		end
+
+		session.opts.on_pick(material, hit)
+	end
+
+	picker.Stop()
+	return true
+end
+
+-- opts.mode is one of MODES, entity_blacklist is a list of entities that and what is below them can not be picked, on_pick(entity, resolved), on_pick(material, hit) or on_pick(texture, name) depending on it,
+-- on_pick returning false keeps picking, on_stop runs when picking ends, hide_desktop hides the desktop meanwhile and shows it again
+-- once the mouse is released, then on_done runs, returns the function that cancels
+function picker.Start(opts)
+	if session then return end
+
+	local config = MODES[opts.mode]
+	session = {opts = opts, config = config}
+	picker.hovered_entity = NULL
+	picker.world_only = config.world_only
+	picker.filter = opts.filter or config.filter
+	picker.entity_blacklist = opts.entity_blacklist
 	Gizmo.SetHidden(true)
+
+	if opts.hide_desktop then
+		session.desktop_shown = desktop.IsShown()
+		desktop.Hide()
+	end
 
 	input.HijackKeyInput(function(key)
 		if key == "escape" then
-			cancel_fn()
+			picker.Stop()
 			return true
 		end
 	end)
 
-	picker.remove_events = {
-		event.AddListener("Update", "picker", picker.Update),
-		event.AddListener("MouseInput", "picker", picker.MouseInput, {priority = math.huge}),
-	}
-	return cancel_picker
+	if config.hit then
+		session.remove_events = {
+			event.AddListener("MouseInput", "picker", on_hit_click, {priority = math.huge}),
+		}
+	else
+		session.remove_events = {
+			event.AddListener("Update", "picker", picker.Update),
+			event.AddListener("MouseInput", "picker", picker.MouseInput, {priority = math.huge}),
+		}
+	end
+
+	return picker.Stop
 end
 
 function picker.IsActive()
-	return picker.remove_events and picker.remove_events[1]
+	return session ~= nil
 end
 
 local debug_draw = import("goluwa/debug_draw.lua")
@@ -217,7 +458,14 @@ function picker.Update(dt)
 		local NONVISUAL_HINT_TIME = 1.0
 
 		for _, entity in ipairs(picker.GetNonvisualCandidates()) do
-			if entity:IsValid() then
+			if
+				entity:IsValid() and
+				not is_blacklisted(entity) and
+				(
+					not picker.filter or
+					picker.filter(entity)
+				)
+			then
 				local world_pos = entity.transform:GetWorldPosition()
 
 				if render3d.GetCamera():WorldPositionToScreen(world_pos) then
@@ -235,10 +483,12 @@ function picker.Update(dt)
 		end
 	end
 
-	local hovered = MouseInput.GetHoveredObject() or NULL
+	local hovered = not system.GetWindow():GetMouseTrapped() and MouseInput.GetHoveredObject() or NULL
 
 	if not hovered:IsValid() then
-		picker.hovered_entity = picker.find_3d_pick_target(system.GetWindow():GetMousePosition()) or NULL
+		picker.hovered_entity = picker.find_3d_pick_target(picker.GetPickPosition()) or NULL
+	elseif picker.world_only then
+		picker.hovered_entity = NULL
 	else
 		picker.hovered_entity = hovered
 	end
@@ -252,10 +502,16 @@ function picker.MouseInput(button, press)
 	if not press then return end
 
 	if button == "button_1" then
-		if picker.on_pick(picker.hovered_entity) == false then return true end
+		local entity = picker.hovered_entity
+		local resolve = session.config.resolve
+		local resolved = resolve and resolve(entity)
+
+		if resolve and resolved == nil then return true end
+
+		if session.opts.on_pick(entity, resolved) == false then return true end
 	end
 
-	cancel_picker()
+	picker.Stop()
 end
 
 -- most categories are identified by their path, a category can say its value is something else (a prefab is its name)
@@ -268,7 +524,7 @@ function picker.PickAsset(category, current_value, callback)
 	end
 
 	Panel.World:Ensure(
-		AssetBrowser{
+		import("lua/asset_browser.lua"){
 			Key = "AssetPicker",
 			PickerCategory = category,
 			SelectedPath = selected,

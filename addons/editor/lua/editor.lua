@@ -891,11 +891,12 @@ return function(props)
 				end
 			else
 				self.mouse_input:SetCursorOverride("crosshair")
-				picker_cancel_fn = picker.StartEntityPicker{
+				picker_cancel_fn = picker.Start{
+					mode = "entity",
 					on_pick = function(target)
 						set_selected_target(target)
 					end,
-					on_cancel = function()
+					on_stop = function()
 						self.mouse_input:ClearCursorOverride()
 						picker_cancel_fn = nil
 					end,
