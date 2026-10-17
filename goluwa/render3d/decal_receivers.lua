@@ -43,6 +43,8 @@ end
 
 -- transforms and tests the triangles of one polygon, mirrored is true when the world matrix flips the winding
 local function visit_polygon(polygon, matrix, mirrored, min_x, min_y, min_z, max_x, max_y, max_z, callback, context)
+	if polygon.packed then polygon:GetVertices() end
+
 	local vertices, indices = polygon.Vertices, polygon.indices
 	local m00, m01, m02, m10, m11, m12, m20, m21, m22 = matrix.m00,
 	matrix.m01,
