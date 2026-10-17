@@ -14,7 +14,10 @@ local system = import("goluwa/system.lua")
 local desktop = {}
 local programs = {}
 local order = {}
+local menus = {}
+local root_dirty = false
 local root = NULL
+local menu_bar = NULL
 local shown = false
 
 local function default_shown(window)
@@ -43,6 +46,13 @@ function desktop.RegisterProgram(program)
 	program.OnShown = program.OnShown or (program.Interactive and noop or default_shown)
 	program.OnHidden = program.OnHidden or (program.Interactive and noop or default_hidden)
 	programs[program.Name] = program
+	root_dirty = true
+end
+
+-- adds a menu to the menu bar, {Text, Items = a function returning MenuItems}
+function desktop.RegisterMenu(menu)
+	menus[#menus + 1] = menu
+	root_dirty = true
 end
 
 function desktop.IsShown()
@@ -113,6 +123,7 @@ function desktop.Toggle(name)
 end
 
 local function build_root()
+	root_dirty = false
 	local buttons = {}
 
 	for i, name in ipairs(order) do
@@ -126,24 +137,7 @@ local function build_root()
 		}
 	end
 
-	root = Panel.New{
-		Parent = Panel.World,
-		transform = true,
-		layout = {Direction = "y", AlignmentX = "stretch"},
-		visual = true,
-		mouse_input = {RequestMouse = true},
-		OnDraw = function(self)
-			if not self.dimmed then return end
-
-			local size = self.transform:GetSize()
-			render2d.SetTexture(nil)
-			render2d.SetColor(0, 0, 0, 0.35)
-			render2d.DrawRect(0, 0, size.x, size.y)
-		end,
-	}{
-		Frame{layout = {GrowWidth = 1, FitHeight = true, AlignmentX = "stretch"}}{MenuBar{
-			MenuKey = "DesktopMenuBarContextMenu",
-			Items = {
+	local menu_items = {
 				{
 					Text = "ENGINE",
 					Items = function()
@@ -187,7 +181,34 @@ local function build_root()
 						}
 					end,
 				},
-			},
+			
+	}
+
+	for _, menu in ipairs(menus) do
+		menu_items[#menu_items + 1] = menu
+	end
+
+	root = Panel.New{
+		Parent = Panel.World,
+		transform = true,
+		layout = {Direction = "y", AlignmentX = "stretch"},
+		visual = true,
+		mouse_input = {RequestMouse = true},
+		OnDraw = function(self)
+			if not self.dimmed then return end
+
+			local size = self.transform:GetSize()
+			render2d.SetTexture(nil)
+			render2d.SetColor(0, 0, 0, 0.35)
+			render2d.DrawRect(0, 0, size.x, size.y)
+		end,
+	}{
+		Frame{layout = {GrowWidth = 1, FitHeight = true, AlignmentX = "stretch"}}{MenuBar{
+			Ref = function(self)
+				menu_bar = self
+			end,
+			MenuKey = "DesktopMenuBarContextMenu",
+			Items = menu_items,
 			layout = {GrowWidth = 1},
 		}},
 		Row{layout = {ChildGap = "S", Padding = "M"}}(buttons),
@@ -198,6 +219,8 @@ function desktop.Show(dimmed)
 	if shown then return end
 
 	shown = true
+
+	if root:IsValid() and root_dirty then root:Remove() end
 
 	if not root:IsValid() then build_root() end
 
@@ -218,6 +241,7 @@ function desktop.Hide()
 	if not shown then return end
 
 	shown = false
+	menu_bar:CloseMenu()
 	root.visual:SetVisible(false)
 	render2d.SetHudHidden("desktop", false)
 	Dock.GetInstance():SetPinned(false)
