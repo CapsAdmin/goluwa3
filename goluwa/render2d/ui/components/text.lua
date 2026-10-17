@@ -595,8 +595,6 @@ function META:OnTextChanged()
 	else
 		self.Owner.transform:SetHeight(h)
 	end
-
-	if self.Owner.layout then self.Owner.layout:InvalidateLayout() end
 end
 
 function META:CursorMoved()

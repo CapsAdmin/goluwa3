@@ -243,3 +243,21 @@ T.Test("text component caret moves to new line after trailing newline", function
 	T(pnl.text.wrap_layout_info.lines[2])["=="]("")
 	pnl:Remove()
 end)
+
+T.Test2D("changing a text without changing its size does not dirty the layout", function()
+	local Text = import("goluwa/render2d/ui/elements/text.lua")
+	local fixed = Text{Text = "abc", Elide = true, Size = Vec2(100, 20), layout = {FitWidth = false}}
+	fixed:SetParent(Panel.World)
+	fixed.layout:UpdateLayout()
+	T(fixed.layout.Dirty)["=="](false)
+	fixed.text:SetText("abd")
+	T(fixed.layout.Dirty)["=="](false)
+	local fit = Text{Text = "abc"}
+	fit:SetParent(Panel.World)
+	fit.layout:UpdateLayout()
+	T(fit.layout.Dirty)["=="](false)
+	fit.text:SetText("a much longer text")
+	T(fit.layout.Dirty)["=="](true)
+	fixed:Remove()
+	fit:Remove()
+end)
