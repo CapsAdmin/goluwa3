@@ -1,5 +1,4 @@
 local render3d = import("goluwa/render3d/render3d.lua")
-local commands = import("goluwa/cli/commands.lua")
 local gbuffer_layout = {}
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
@@ -420,10 +419,6 @@ do
 		)
 		return table.concat(lines, "\n")
 	end
-
-	commands.Add("gbuffer_layout", function()
-		logf("%s\n", gbuffer_layout.Describe())
-	end)
 end
 
 return gbuffer_layout
