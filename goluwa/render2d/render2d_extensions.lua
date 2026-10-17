@@ -539,6 +539,30 @@ function render2d.DrawBox(x, y, w, h, radius, fill, outline, outline_width)
 	render2d.PopShapeMode()
 end
 
+-- fills the rect with the texture keeping its aspect ratio, what overflows is cropped equally on both sides
+function render2d.DrawTextureCover(texture, x, y, w, h, radius, r, g, b, a, flip_y)
+	local texture_width, texture_height = texture:GetWidth(), texture:GetHeight()
+	local scale = math.max(w / texture_width, h / texture_height)
+	local u = w / (texture_width * scale)
+	local v = h / (texture_height * scale)
+	render2d.PushShapeMode("none")
+	local v1, v2 = (1 - v) / 2, (1 + v) / 2
+
+	if flip_y then v1, v2 = v2, v1 end
+
+	render2d.PushColorUV((1 - u) / 2, v1, (1 + u) / 2, v2)
+	render2d.PushTexture(texture)
+	render2d.PushBorderRadius(radius)
+	render2d.PushSDFSoftness(default_sdf_softness)
+	render2d.SetColor(r or 1, g or 1, b or 1, a or 1)
+	render2d.DrawRectf(x, y, w, h)
+	render2d.PopSDFSoftness()
+	render2d.PopBorderRadius()
+	render2d.PopTexture()
+	render2d.PopColorUV()
+	render2d.PopShapeMode()
+end
+
 do
 	local src_x, src_y, dst_x, dst_y = {}, {}, {}, {}
 
