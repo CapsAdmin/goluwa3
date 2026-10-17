@@ -126,6 +126,8 @@ function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance
 			y = y - self:GetAscent()
 		elseif align_y == "center" then
 			y = y - (h / 2)
+		elseif align_y == "cap_center" then
+			y = y - (self:GetAscent() - self:GetCapHeight() / 2)
 		elseif align_y == "bottom" then
 			y = y - h
 		end
@@ -255,6 +257,10 @@ end
 function META:GetDescent()
 	local _, d = get_ascent_descent(self)
 	return d
+end
+
+function META:GetCapHeight()
+	return self:GetMetricGlyph(72).bearing_y
 end
 
 function META:GetLineHeight()
