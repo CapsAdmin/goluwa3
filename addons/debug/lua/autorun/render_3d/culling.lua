@@ -8,11 +8,13 @@ local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local visual_module = import("goluwa/entities/components/visual.lua")
 local visual = import("goluwa/entities/components/visual.lua").Library
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
+local perf = import("lua/perf.lua")
 
 do
 	local Visual = visual_module
 	local visual = visual_module.Library
-	local show_culling_panel = false
 	local show_culling_boxes = false
 	local colors = {
 		visible = Color(0.25, 0.95, 0.35, 0.9),
@@ -23,11 +25,6 @@ do
 		accent = Color(0.50, 0.82, 1.0, 1.0),
 		warning = Color(1.0, 0.9, 0.35, 1.0),
 	}
-
-	local function set_panel_enabled(enabled)
-		show_culling_panel = enabled == true
-		print("[Culling Debug] Panel " .. (show_culling_panel and "ON" or "OFF"))
-	end
 
 	local function set_boxes_enabled(enabled)
 		show_culling_boxes = enabled == true
@@ -89,108 +86,45 @@ do
 		return counts, state_by_component
 	end
 
-	commands.Add("culling_debug_panel", function()
-		set_panel_enabled(not show_culling_panel)
-	end)
-
 	commands.Add("culling_debug_boxes", function()
 		set_boxes_enabled(not show_culling_boxes)
 	end)
 
-	commands.Add("culling_debug_all", function()
-		local enabled = not (show_culling_panel and show_culling_boxes)
-		show_culling_panel = enabled
-		show_culling_boxes = enabled
-		print("[Culling Debug] Panel " .. (show_culling_panel and "ON" or "OFF"))
-		print("[Culling Debug] Boxes " .. (show_culling_boxes and "ON" or "OFF"))
-	end)
+	perf.RegisterTab("CULLING", 5, function()
+		return StatTable{
+			Size = Vec2(660, 470),
+			OnRows = function()
+				local counts = collect_culling_state()
+				local occlusion_stats = visual.GetOcclusionStats()
+				local rows = {
+					{
+						label = "frustum",
+						value = (visual.noculling or not gpu_culling.culling_enabled) and "disabled" or "enabled",
+					},
+					{
+						label = "occlusion",
+						value = string.format(
+							"%s (%s)",
+							visual.IsOcclusionCullingEnabled() and "enabled" or "disabled",
+							get_occlusion_mode_label()
+						),
+					},
+				}
 
-	event.AddListener("Draw2D", "culling_debug_panel", function()
-		if not show_culling_panel then return end
+				if visual.freeze_frustum_planes then
+					rows[#rows + 1] = {label = "frustum planes frozen", color = "warn"}
+				end
 
-		local x = 12
-		local y = 52
-		local line_height = 18
-		local counts = select(1, collect_culling_state())
-		local occlusion_stats = visual.GetOcclusionStats()
-		local panel_width = 360
-		local panel_height = 186
-		render2d.SetTexture(nil)
-		render2d.SetColor(0.05, 0.07, 0.10, 0.93)
-		render2d.DrawRoundedRect(x - 8, y - 10, panel_width, panel_height, 10)
-		render2d.DrawText{
-			text = "Culling Debug",
-			x = x,
-			y = y,
-			foreground_color = colors.text,
-			softness = 0,
-		}
-		y = y + line_height
-		render2d.DrawText{
-			text = string.format("Frustum: %s", (visual.noculling or not gpu_culling.culling_enabled) and "disabled" or "enabled"),
-			x = x,
-			y = y,
-			foreground_color = colors.accent,
-		}
-		y = y + line_height
-		render2d.DrawText{
-			text = string.format(
-				"Occlusion: %s (%s)",
-				visual.IsOcclusionCullingEnabled() and "enabled" or "disabled",
-				get_occlusion_mode_label()
-			),
-			x = x,
-			y = y,
-			foreground_color = colors.accent,
-		}
-		y = y + line_height
-
-		if visual.freeze_frustum_planes then
-			render2d.DrawText{
-				text = "Frustum planes frozen",
-				x = x,
-				y = y,
-				foreground_color = colors.warning,
-			}
-			y = y + line_height
-		end
-
-		render2d.DrawText{
-			text = string.format("Submitted visuals: %d / %d", counts.submitted, counts.total),
-			x = x,
-			y = y,
-			foreground_color = colors.text,
-		}
-		y = y + line_height
-		render2d.DrawText{
-			text = string.format("Culled visuals: %d", counts.culled),
-			x = x,
-			y = y,
-			foreground_color = colors.culled,
-		}
-		y = y + line_height
-		render2d.DrawText{
-			text = string.format("Occlusion-managed visuals: %d", counts.conditional),
-			x = x,
-			y = y,
-			foreground_color = colors.conditional,
-		}
-		y = y + line_height
-		render2d.DrawText{
-			text = string.format(
-				"Submitted with conditional rendering: %d",
-				occlusion_stats.submitted_with_conditional or 0
-			),
-			x = x,
-			y = y,
-			foreground_color = colors.muted,
-		}
-		y = y + line_height
-		render2d.DrawText{
-			text = "Commands: culling_debug_panel, culling_debug_boxes, culling_debug_all",
-			x = x,
-			y = y,
-			foreground_color = colors.muted,
+				rows[#rows + 1] = {label = "submitted visuals", value = counts.submitted .. " / " .. counts.total}
+				rows[#rows + 1] = {label = "culled visuals", value = tostring(counts.culled), color = "warn"}
+				rows[#rows + 1] = {label = "occlusion managed visuals", value = tostring(counts.conditional)}
+				rows[#rows + 1] = {
+					label = "submitted with conditional rendering",
+					value = tostring(occlusion_stats.submitted_with_conditional or 0),
+					color = "dim",
+				}
+				return rows
+			end,
 		}
 	end)
 
