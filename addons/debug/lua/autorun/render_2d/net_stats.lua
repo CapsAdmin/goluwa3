@@ -4,7 +4,8 @@ local system = import("goluwa/system.lua")
 local network = import("goluwa/network/network.lua")
 local NetworkComponent = import("goluwa/entities/components/network.lua")
 local scene_sync = import("goluwa/network/scene_sync.lua")
-local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local perf = import("lua/perf.lua")
 local last_time = 0
 local last = {bytes_in = 0, bytes_out = 0, received = 0, sent = 0}
@@ -147,9 +148,11 @@ local function build_rows()
 	return rows
 end
 
-perf.RegisterTab("NETWORK", 6, function()
-	return StatTable{Size = Vec2(660, 470), OnRows = build_rows}
-end)
+perf.RegisterTab(
+	"NETWORK",
+	6,
+	react.Component(|| -> ui.StatTable{Size = Vec2(660, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)})
+)
 
 commands.Add("net_stats", function()
 	perf.PrintRows(build_rows())

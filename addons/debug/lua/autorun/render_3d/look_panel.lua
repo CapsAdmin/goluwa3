@@ -1,12 +1,10 @@
-local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local desktop = import("goluwa/render2d/ui/desktop.lua")
-local Window = import("goluwa/render2d/ui/widgets/window.lua")
-local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local pvar_node = import("goluwa/render2d/ui/pvar_node.lua")
-local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local live_weather = import("lua/live_weather.lua")
 local climate = import("goluwa/render3d/climate.lua")
@@ -14,11 +12,11 @@ local grade = import("goluwa/render3d/grade.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local WIDTH = 460
+-- how often the editor looks at the models, seconds
+local POLL_INTERVAL = 0.1
 -- the desktop menu bar and its program buttons stay uncovered
 local DESKTOP_BAR = 104
-local property_editor
 local nodes = {}
-local layer_signature = ""
 local wind_direction = 0
 local grade_blend_seconds = grade.BLEND_TIME
 
@@ -400,7 +398,6 @@ local function build_items()
 			},
 		},
 	}
-	layer_signature = get_signature()
 	local names = get_layer_names()
 
 	for _, name in ipairs(names) do
@@ -540,57 +537,70 @@ local function name_layers()
 	end
 end
 
-local function sync()
-	name_layers()
+-- the values of every node the editor shows, the same table while nothing changed so that a poll that finds nothing is not a render
+local last_values = {}
 
-	if get_signature() ~= layer_signature then
-		property_editor:SetItems(build_items())
-
-		return
-	end
+local function read_values()
+	local values = {}
+	local changed = false
 
 	for _, node in ipairs(nodes) do
 		local value = node.GetValue()
+		values[node.Key] = value
 
-		if value ~= node.Value then property_editor:UpdateValueForKey(node.Key, value) end
+		if value ~= last_values[node.Key] then changed = true end
 	end
+
+	if not changed then return last_values end
+
+	last_values = values
+	return values
 end
+
+-- the editor follows the weather, the climate and the grade while the window is shown: a new set of cloud layers builds new items, a changed value is put into its row
+local LookEditor = react.Component(|| -> do
+	local editor = react.UseRef()
+	local signature = react.UsePoll(|| -> do
+		name_layers()
+
+		return get_signature()
+	end, POLL_INTERVAL)
+	local items = react.UseMemo(build_items, {signature})
+	local values = react.UsePoll(read_values, POLL_INTERVAL)
+
+	react.UseEffect(|| -> do
+		for _, node in ipairs(nodes) do
+			local value = values[node.Key]
+
+			if value ~= node.Value then editor.current:UpdateValueForKey(node.Key, value) end
+		end
+	end, {values, items})
+
+	return ui.ScrollablePanel{ScrollX = false, ScrollY = true, Padding = "M", layout = {GrowWidth = 1, GrowHeight = 1}}{
+		ui.PropertyEditor{Ref = editor, Items = items, layout = {GrowWidth = 1}},
+	}
+end)
+-- closing the window only hides it, nothing follows the models while it is hidden
+local LookView = react.Component(|| -> do
+	local shown, set_shown = react.UseState(true)
+	local size = react.UseMemo(|| -> Vec2(WIDTH, Panel.World.transform:GetSize().y - DESKTOP_BAR), {})
+
+	return ui.Window{
+		Title = "LOOK",
+		Pinnable = true,
+		Padding = "none",
+		Size = size,
+		Position = Vec2(0, DESKTOP_BAR),
+		MinSize = Vec2(WIDTH, 200),
+		OnVisibilityChanged = |_, visible| -> set_shown(visible),
+	}{shown && LookEditor{}}
+end)
 
 desktop.RegisterProgram{
 	Name = "Look",
 	Icon = "eye",
 	Positioned = true,
-	OnOpen = sync,
 	Create = function()
-		name_layers()
-		return Window{
-			Title = "LOOK",
-			Pinnable = true,
-			Padding = "none",
-			Size = Vec2(WIDTH, Panel.World.transform:GetSize().y - DESKTOP_BAR),
-			Position = Vec2(0, DESKTOP_BAR),
-			MinSize = Vec2(WIDTH, 200),
-		}{
-			ScrollablePanel{
-				ScrollX = false,
-				ScrollY = true,
-				Padding = "M",
-				layout = {GrowWidth = 1, GrowHeight = 1},
-			}{
-				PropertyEditor{
-					Ref = function(self)
-						property_editor = self
-					end,
-					Items = build_items(),
-					layout = {GrowWidth = 1},
-				},
-			},
-		}
+		return react.Mount(LookView{}, Panel.World):GetEntity()
 	end,
 }
-
-event.AddListener("Update", "look_panel", function()
-	local window = desktop.GetProgram("Look").Window
-
-	if window:IsValid() and window.visual:GetVisible() then sync() end
-end)

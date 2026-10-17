@@ -9,7 +9,8 @@ local visual_module = import("goluwa/entities/components/visual.lua")
 local visual = import("goluwa/entities/components/visual.lua").Library
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local perf = import("lua/perf.lua")
 
 do
@@ -90,43 +91,44 @@ do
 		set_boxes_enabled(not show_culling_boxes)
 	end)
 
-	perf.RegisterTab("CULLING", 5, function()
-		return StatTable{
-			Size = Vec2(660, 470),
-			OnRows = function()
-				local counts = collect_culling_state()
-				local occlusion_stats = visual.GetOcclusionStats()
-				local rows = {
-					{
-						label = "frustum",
-						value = (visual.noculling or not gpu_culling.culling_enabled) and "disabled" or "enabled",
-					},
-					{
-						label = "occlusion",
-						value = string.format(
-							"%s (%s)",
-							visual.IsOcclusionCullingEnabled() and "enabled" or "disabled",
-							get_occlusion_mode_label()
-						),
-					},
-				}
+	local function build_rows()
+	local counts = collect_culling_state()
+	local occlusion_stats = visual.GetOcclusionStats()
+	local rows = {
+		{
+			label = "frustum",
+			value = (visual.noculling or not gpu_culling.culling_enabled) and "disabled" or "enabled",
+		},
+		{
+			label = "occlusion",
+			value = string.format(
+				"%s (%s)",
+				visual.IsOcclusionCullingEnabled() and "enabled" or "disabled",
+				get_occlusion_mode_label()
+			),
+		},
+	}
 
-				if visual.freeze_frustum_planes then
-					rows[#rows + 1] = {label = "frustum planes frozen", color = "warn"}
-				end
+	if visual.freeze_frustum_planes then
+		rows[#rows + 1] = {label = "frustum planes frozen", color = "warn"}
+	end
 
-				rows[#rows + 1] = {label = "submitted visuals", value = counts.submitted .. " / " .. counts.total}
-				rows[#rows + 1] = {label = "culled visuals", value = tostring(counts.culled), color = "warn"}
-				rows[#rows + 1] = {label = "occlusion managed visuals", value = tostring(counts.conditional)}
-				rows[#rows + 1] = {
-					label = "submitted with conditional rendering",
-					value = tostring(occlusion_stats.submitted_with_conditional or 0),
-					color = "dim",
-				}
-				return rows
-			end,
-		}
-	end)
+	rows[#rows + 1] = {label = "submitted visuals", value = counts.submitted .. " / " .. counts.total}
+	rows[#rows + 1] = {label = "culled visuals", value = tostring(counts.culled), color = "warn"}
+	rows[#rows + 1] = {label = "occlusion managed visuals", value = tostring(counts.conditional)}
+	rows[#rows + 1] = {
+		label = "submitted with conditional rendering",
+		value = tostring(occlusion_stats.submitted_with_conditional or 0),
+		color = "dim",
+	}
+		return rows
+	end
+
+	perf.RegisterTab(
+		"CULLING",
+		5,
+		react.Component(|| -> ui.StatTable{Size = Vec2(660, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)})
+	)
 
 	event.AddListener(
 		"Draw3DGeometry",

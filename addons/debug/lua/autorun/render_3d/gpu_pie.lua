@@ -6,6 +6,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local perf = import("lua/perf.lua")
+local react = import("goluwa/render2d/ui/react.lua")
 local WIDTH, HEIGHT = 660, 430
 local PIE_X, PIE_Y, PIE_RADIUS, PIE_INNER = 200, 232, 150, 84
 local LIST_X, LIST_W = 400, 244
@@ -309,6 +310,5 @@ function META:OnDraw()
 end
 
 META:Register()
-perf.RegisterTab("GPU", 1, function()
-	return META{Size = Vec2(WIDTH, HEIGHT)}
-end)
+local GpuPie = react.Element(META)
+perf.RegisterTab("GPU", 1, react.Component(|| -> GpuPie{Size = Vec2(WIDTH, HEIGHT)}))

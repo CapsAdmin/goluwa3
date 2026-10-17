@@ -2,13 +2,13 @@ local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local desktop = import("goluwa/render2d/ui/desktop.lua")
 local perf = import("lua/perf.lua")
-local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
 local WIDTH = 660
 local GRAPH_HEIGHT = 110
 local GRAPH_MS_MAX = 50
@@ -63,16 +63,23 @@ local function rows_of(in_group)
 	end
 end
 
-perf.RegisterTab("FRAME", 0, function()
-	return Column{layout = {ChildGap = "S", AlignmentX = "center"}}{
-		FrameGraph{Size = Vec2(WIDTH, GRAPH_HEIGHT)},
-		StatTable{Size = Vec2(WIDTH, 316), OnRows = rows_of(true)},
-	}
-end)
+local FrameGraphElement = react.Element(FrameGraph)
+local render_rows = rows_of(true)
+local other_rows = rows_of(false)
 
-perf.RegisterTab("RENDER", 3, function()
-	return StatTable{Size = Vec2(WIDTH, 470), OnRows = rows_of(false)}
-end)
+perf.RegisterTab(
+	"FRAME",
+	0,
+	react.Component(|| -> ui.Column{layout = {ChildGap = "S", AlignmentX = "center"}}{
+		FrameGraphElement{Size = Vec2(WIDTH, GRAPH_HEIGHT)},
+		ui.StatTable{Size = Vec2(WIDTH, 316), Rows = react.UsePoll(render_rows, perf.POLL_INTERVAL)},
+	})
+)
+perf.RegisterTab(
+	"RENDER",
+	3,
+	react.Component(|| -> ui.StatTable{Size = Vec2(WIDTH, 470), Rows = react.UsePoll(other_rows, perf.POLL_INTERVAL)})
+)
 
 local counting = false
 

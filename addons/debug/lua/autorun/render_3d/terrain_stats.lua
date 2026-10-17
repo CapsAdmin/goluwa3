@@ -7,12 +7,12 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local commands = import("goluwa/cli/commands.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Terrain = import("goluwa/terrain/terrain.lua")
-local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
 local perf = import("lua/perf.lua")
 local MAP_SIZE = 200
 local TEXT_DIM = Color(0.5, 0.55, 0.65, 1)
@@ -200,12 +200,15 @@ function META:OnDraw()
 end
 
 META:Register()
-perf.RegisterTab("TERRAIN", 7, function()
-	return Row{layout = {ChildGap = 8}}{
-		StatTable{Size = Vec2(440, 470), OnRows = build_rows},
-		META{Size = Vec2(212, 470)},
-	}
-end)
+local TerrainMap = react.Element(META)
+perf.RegisterTab(
+	"TERRAIN",
+	7,
+	react.Component(|| -> ui.Row{layout = {ChildGap = 8}}{
+		ui.StatTable{Size = Vec2(440, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)},
+		TerrainMap{Size = Vec2(212, 470)},
+	})
+)
 
 commands.Add("terrain_stats", function()
 	perf.PrintRows(build_rows())

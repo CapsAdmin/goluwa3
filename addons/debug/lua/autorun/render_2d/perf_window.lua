@@ -1,43 +1,49 @@
 local input = import("goluwa/input.lua")
+local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Window = import("goluwa/render2d/ui/widgets/window.lua")
-local Tabs = import("goluwa/render2d/ui/widgets/tabs.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local desktop = import("goluwa/render2d/ui/desktop.lua")
 local perf = import("lua/perf.lua")
 local WIDTH, HEIGHT = 700, 580
-local tabs
+-- only the open tab of a window that is shown is mounted, closing the window only hides it, a tab that collects something collects while it is on screen
+local PerfView = react.Component(|props| -> do
+	local tabs = react.UseMemo(perf.GetTabs, {})
+	local hud, set_hud = react.UseState(false)
+	local shown, set_shown = react.UseState(true)
+	local active, set_active = react.UseState(|| -> tabs[1].name)
+
+	react.UseEvent("PerfTab", set_active)
+
+	return ui.Window{
+		Title = "PERF",
+		Pinnable = true,
+		Minimizable = false,
+		Maximizable = false,
+		Size = Vec2(WIDTH, HEIGHT),
+		MinSize = Vec2(WIDTH, HEIGHT),
+		OnHudChanged = |_, value| -> set_hud(value),
+		OnVisibilityChanged = |_, visible| -> set_shown(visible),
+	}{
+		ui.Tabs{Value = active, OnChange = set_active, BarHidden = hud, layout = {GrowWidth = 1, GrowHeight = 1}}{
+			list.map(
+				tabs,
+				|tab| -> ui.Column{Key = tab.name, Tab = tab.name, layout = {GrowWidth = 1, AlignmentX = "center"}}{
+					shown && active == tab.name && tab.view{},
+				}
+			),
+		},
+	}
+end)
 
 desktop.RegisterProgram{
 	Name = "Perf",
 	Icon = "layout",
 	Pinned = true,
 	Create = function()
-		local pages = {}
-
-		for i, tab in ipairs(perf.GetTabs()) do
-			pages[i] = Column{Tab = tab.name, layout = {GrowWidth = 1, AlignmentX = "center"}}{tab.create()}
-		end
-
-		return Window{
-			Title = "PERF",
-			Pinnable = true,
-			Minimizable = false,
-			Maximizable = false,
-			Size = Vec2(WIDTH, HEIGHT),
-			MinSize = Vec2(WIDTH, HEIGHT),
-			OnHudChanged = function(_, hud)
-				tabs:SetBarHidden(hud)
-			end,
-		}{
-			Tabs{
-				Ref = function(self)
-					tabs = self
-				end,
-				layout = {GrowWidth = 1, GrowHeight = 1},
-			}(pages),
-		}
+		return react.Mount(PerfView{}, Panel.World):GetEntity()
 	end,
 }
 
@@ -48,7 +54,7 @@ commands.Add("perf=string|nil", function(tab)
 	end
 
 	desktop.Open("Perf")
-	tabs:SetValue(tab:upper())
+	event.Call("PerfTab", tab:upper())
 end)
 
 input.Bind("h", "perf")

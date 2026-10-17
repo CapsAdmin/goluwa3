@@ -8,15 +8,13 @@ do
 	local commands = import("goluwa/cli/commands.lua")
 	local Vec2 = import("goluwa/structs/vec2.lua")
 	local render = import("goluwa/render/render.lua")
-	local system = import("goluwa/system.lua")
 	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
-	local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
+	local react = import("goluwa/render2d/ui/react.lua")
+	local ui = import("goluwa/render2d/ui/react_ui.lua")
 	local perf = import("lua/perf.lua")
 	local WINDOW = 0.5
 	local MAX_ROWS = 20
-	local window_start = 0
-	local snapshot
 
 	local function format_bytes(bytes)
 		if bytes >= 1024 * 1024 * 1024 then
@@ -103,74 +101,71 @@ do
 		}
 	end
 
-	perf.RegisterTab("MEMORY", 2, function()
-		return StatTable{
-			Size = Vec2(660, 430),
-			OnRows = function()
-				local now = system.GetElapsedTime()
-
-				if not snapshot or now - window_start >= WINDOW then
-					snapshot = take_snapshot()
-					window_start = now
-				end
-
-				local s = snapshot
-				local fraction = s.heap > 0 and s.total / s.heap or 0
-				local rows = {
-					{
-						label = string.format(
-							"vram  %s of %s device local (%.0f%%)  %d allocations  +%s awaiting release",
-							format_bytes(s.total),
-							format_bytes(s.heap),
-							fraction * 100,
-							s.count,
-							format_bytes(s.pending)
-						),
-						color = fraction > 0.9 and "warn" or "head",
-					},
-				}
-
-				for i = 1, math.min(MAX_ROWS, #s.groups) do
-					local group = s.groups[i]
-					rows[#rows + 1] = {
-						label = group.label,
-						value = format_bytes(group.bytes),
-						detail = "x" .. group.count,
-						fraction = group.bytes / s.groups[1].bytes,
-						color = i == 1 and "head" or nil,
-					}
-				end
-
-				if #s.groups > MAX_ROWS then
-					local rest = 0
-
-					for i = MAX_ROWS + 1, #s.groups do
-						rest = rest + s.groups[i].bytes
-					end
-
-					rows[#rows + 1] = {
-						label = string.format("%d more labels", #s.groups - MAX_ROWS),
-						value = format_bytes(rest),
-						color = "dim",
-					}
-				end
-
-				if s.pending_groups[1] then
-					rows[#rows + 1] = {label = "awaiting release", color = "dim"}
-
-					for i = 1, math.min(5, #s.pending_groups) do
-						rows[#rows + 1] = {
-							label = s.pending_groups[i].label,
-							value = format_bytes(s.pending_groups[i].bytes),
-							color = "dim",
-						}
-					end
-				end
-
-				return rows
-			end,
+	-- the rows of a snapshot of the allocations
+	local function build_rows(s)
+		local fraction = s.heap > 0 and s.total / s.heap or 0
+		local rows = {
+			{
+				label = string.format(
+					"vram  %s of %s device local (%.0f%%)  %d allocations  +%s awaiting release",
+					format_bytes(s.total),
+					format_bytes(s.heap),
+					fraction * 100,
+					s.count,
+					format_bytes(s.pending)
+				),
+				color = fraction > 0.9 and "warn" or "head",
+			},
 		}
-	end)
+
+		for i = 1, math.min(MAX_ROWS, #s.groups) do
+			local group = s.groups[i]
+			rows[#rows + 1] = {
+				label = group.label,
+				value = format_bytes(group.bytes),
+				detail = "x" .. group.count,
+				fraction = group.bytes / s.groups[1].bytes,
+				color = i == 1 and "head" or nil,
+			}
+		end
+
+		if #s.groups > MAX_ROWS then
+			local rest = 0
+
+			for i = MAX_ROWS + 1, #s.groups do
+				rest = rest + s.groups[i].bytes
+			end
+
+			rows[#rows + 1] = {
+				label = string.format("%d more labels", #s.groups - MAX_ROWS),
+				value = format_bytes(rest),
+				color = "dim",
+			}
+		end
+
+		if s.pending_groups[1] then
+			rows[#rows + 1] = {label = "awaiting release", color = "dim"}
+
+			for i = 1, math.min(5, #s.pending_groups) do
+				rows[#rows + 1] = {
+					label = s.pending_groups[i].label,
+					value = format_bytes(s.pending_groups[i].bytes),
+					color = "dim",
+				}
+			end
+		end
+
+	return rows
+	end
+
+	perf.RegisterTab(
+		"MEMORY",
+		2,
+		react.Component(|| -> ui.StatTable{
+			Size = Vec2(660, 430),
+			Rows = react.UsePoll(|| -> build_rows(take_snapshot()), WINDOW),
+		})
+	)
 
 	commands.Add("vram_dump=number[40]", function(limit)
 		local s = take_snapshot()

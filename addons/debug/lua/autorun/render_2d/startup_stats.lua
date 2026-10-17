@@ -8,7 +8,8 @@ if not RENDER_2D then return end
 local Vec2 = import("goluwa/structs/vec2.lua")
 local commands = import("goluwa/cli/commands.lua")
 local startup = import("goluwa/startup.lua")
-local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local perf = import("lua/perf.lua")
 local function format_seconds(seconds)
 	if seconds >= 1 then return string.format("%.2f s", seconds) end
@@ -20,9 +21,6 @@ local MAX_SPAN_DEPTH = 2
 local MAX_GROUP_CHILDREN = 4
 local MIN_SPAN_FRACTION = 0.015
 local WINDOW = 0.25
-local window_start = -1
-local cached_rows
-local cached_ready
 
 local function by_seconds(a, b)
 	return a.seconds > b.seconds
@@ -171,30 +169,24 @@ local function get_rows()
 	return rows
 end
 
-perf.RegisterTab("STARTUP", 9, function()
-	return StatTable{
-		Size = Vec2(660, 430),
-		Timeline = true,
-		OnRows = function()
-			local now = startup.GetTime()
+local ready_rows
 
-			if
-				not cached_rows or
-				not cached_ready and
-				(
-					startup.ready_time or
-					now - window_start >= WINDOW
-				)
-			then
-				cached_rows = get_rows()
-				cached_ready = startup.ready_time ~= nil
-				window_start = now
-			end
+-- once the scene is ready nothing changes anymore, the same rows are not a new state
+local function poll_rows()
+	if ready_rows then return ready_rows end
 
-			return cached_rows
-		end,
-	}
-end)
+	local rows = get_rows()
+
+	if startup.ready_time then ready_rows = rows end
+
+	return rows
+end
+
+perf.RegisterTab(
+	"STARTUP",
+	9,
+	react.Component(|| -> ui.StatTable{Size = Vec2(660, 430), Timeline = true, Rows = react.UsePoll(poll_rows, WINDOW)})
+)
 
 commands.Add("startup_stats", function()
 	perf.PrintRows(get_rows())

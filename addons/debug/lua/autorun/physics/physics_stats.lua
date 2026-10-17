@@ -1,21 +1,15 @@
 if not RENDER_2D then return end
 
 local commands = import("goluwa/cli/commands.lua")
-local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local stats = import("goluwa/physics/stats.lua")
-local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local perf = import("lua/perf.lua")
 local WINDOW = 0.5
-local enabled = false
-local window_start = 0
-local last_rows_time = 0
-local frames = 0
-local snapshot_frames = 0
-local snapshot
-local frame_time = 0
-local last_draw = 0
+-- the newest window the open tab took, the physics_stats command prints it
+local latest = {snapshot_frames = 0, frame_time = 0}
 
 local function timing_row(rows, label, seconds, per, total, indent, color)
 	local ms = per > 0 and seconds / per * 1000 or 0
@@ -38,9 +32,8 @@ local function count_row(rows, label, value, per, unit)
 	rows[#rows + 1] = {label = label, value = string.format("%.1f", per > 0 and value / per or 0), detail = unit}
 end
 
-local function build_rows()
+local function build_rows(s, snapshot_frames, frame_time)
 	local rows = {}
-	local s = snapshot
 
 	if not s then
 		rows[1] = {label = "physics: collecting", color = "warn"}
@@ -119,55 +112,52 @@ local function build_rows()
 	return rows
 end
 
-local function sample()
-	local now = system.GetElapsedTime()
-	last_rows_time = now
+-- stats are only collected while the tab is open, a window of WINDOW seconds at a time
+perf.RegisterTab(
+	"PHYSICS",
+	4,
+	react.Component(|| -> do
+		local rows, set_rows = react.UseState(|| -> build_rows())
+		local window = react.UseRef()
 
-	if not enabled then
-		enabled = true
-		stats:Enable()
-		window_start = now
-		frames = 0
-		snapshot_frames = 0
-		snapshot = nil
-		last_draw = now
-	end
+		react.UseEffect(|| -> do
+			stats:Enable()
+			latest.snapshot = nil
+			window.current = nil
 
-	frames = frames + 1
-	frame_time = frame_time * 0.9 + (now - last_draw) * 0.1
-	last_draw = now
+			return || -> stats:Disable()
+		end, {})
 
-	if now - window_start >= WINDOW then
-		snapshot = stats:TakeSnapshot()
-		window_start = now
-		snapshot_frames = frames
-		frames = 0
-	end
-end
+		react.UseEvent("Update", || -> do
+			local now = system.GetElapsedTime()
 
-perf.RegisterTab("PHYSICS", 4, function()
-	return StatTable{
-		Size = Vec2(660, 470),
-		Columns = 2,
-		OnRows = function()
-			sample()
-			return build_rows()
-		end,
-	}
-end)
+			if not window.current then
+				window.current = {start = now, frames = 0, last_update = now}
+			end
 
-event.AddListener("Update", "physics_stats_idle", function()
-	if enabled and system.GetElapsedTime() - last_rows_time > 0.25 then
-		enabled = false
-		stats:Disable()
-	end
-end)
+			local current = window.current
+			current.frames = current.frames + 1
+			latest.frame_time = latest.frame_time * 0.9 + (now - current.last_update) * 0.1
+			current.last_update = now
+
+			if now - current.start >= WINDOW then
+				latest.snapshot = stats:TakeSnapshot()
+				latest.snapshot_frames = current.frames
+				current.start = now
+				current.frames = 0
+				set_rows(build_rows(latest.snapshot, latest.snapshot_frames, latest.frame_time))
+			end
+		end)
+
+		return ui.StatTable{Size = Vec2(660, 470), Columns = 2, Rows = rows}
+	end)
+)
 
 commands.Add("physics_stats", function()
-	if not snapshot then
+	if not latest.snapshot then
 		print("[physics stats] open the PERF window on the PHYSICS tab to collect a snapshot")
 		return
 	end
 
-	perf.PrintRows(build_rows())
+	perf.PrintRows(build_rows(latest.snapshot, latest.snapshot_frames, latest.frame_time))
 end)
