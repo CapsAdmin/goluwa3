@@ -10,6 +10,7 @@ META.CMP.layout = {FitWidth = true, FitHeight = true}
 META:StartStorable()
 META:GetSet("Text", "")
 META:GetSet("Icon", nil)
+META:GetSet("IconTexture", nil)
 META:GetSet("Font", nil)
 META:GetSet("FontSize", nil)
 META:GetSet("TextColor", nil)
@@ -32,7 +33,7 @@ function META:PropDefaults(props)
 		layout.MinSize = theme.Dynamic(theme.InputSize, 0, props.FontSize)
 	end
 
-	if props.Icon then layout.ChildGap = "XS" end
+	if props.Icon or props.IconTexture then layout.ChildGap = "XS" end
 
 	return {layout = layout}
 end
@@ -40,14 +41,16 @@ end
 function META:OnCreate()
 	META.BaseClass.OnCreate(self)
 
-	if self.Icon then
+	if self.Icon or self.IconTexture then
+		local size = self.IconTexture and Vec2(28, 28) or "icon"
 		Icon{
 			Parent = self,
 			IsInternal = true,
 			Icon = self.Icon,
-			Size = "icon",
-			MinSize = "icon",
-			MaxSize = "icon",
+			Texture = self.IconTexture,
+			Size = size,
+			MinSize = size,
+			MaxSize = size,
 			IconColor = self.TextColor,
 			layout = {GrowWidth = 0, FitWidth = false},
 		}
