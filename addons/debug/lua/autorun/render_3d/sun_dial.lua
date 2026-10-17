@@ -1,9 +1,9 @@
-local event = import("goluwa/event.lua")
-local input = import("goluwa/input.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local desktop = import("goluwa/render2d/ui/desktop.lua")
+local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local WIDTH = 604
@@ -426,24 +426,23 @@ function META:OnDraw()
 	end
 end
 
-META:Register()
-local panel = NULL
-local shown = false
+local SkyDial = META:Register()
+local HEADER = 36
 
-event.AddListener("Update", "sun_dial", function()
-	local down = input.IsKeyDown("q")
-
-	if down and not shown then
-		if not panel:IsValid() then
-			panel = Panel.World:Ensure(META{Key = "SunDial", Size = Vec2(WIDTH, HEIGHT), RequestMouse = true})
-		end
-
-		local size = Panel.World.transform:GetSize()
-		panel.transform:SetPosition(Vec2(size.x - WIDTH - 16, size.y - HEIGHT - 16))
-		panel.visual:SetVisible(true)
-		shown = true
-	elseif not down and shown and not panel:IsDragging() then
-		panel.visual:SetVisible(false)
-		shown = false
-	end
-end)
+desktop.RegisterProgram{
+	Name = "Sun",
+	Icon = "light",
+	Positioned = true,
+	Create = function()
+		local world_size = Panel.World.transform:GetSize()
+		return Window{
+			Title = "SUN DIAL",
+			Pinnable = true,
+			Maximizable = false,
+			Padding = "none",
+			Size = Vec2(WIDTH, HEIGHT + HEADER),
+			MinSize = Vec2(WIDTH, HEIGHT + HEADER),
+			Position = Vec2(world_size.x - WIDTH - 16, world_size.y - HEIGHT - HEADER - 16),
+		}{SkyDial{Size = Vec2(WIDTH, HEIGHT)}}
+	end,
+}
