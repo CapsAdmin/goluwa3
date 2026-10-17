@@ -241,7 +241,7 @@ end
 
 local function get_ascent_descent(self)
 	if not self.ascent then
-		local scale = self.FontPath == "bitmap" and 1 or self.Size
+		local scale = glyphs.IsBitmapFontPath(self.FontPath) and 1 or self.Size
 		self.ascent = glyphs.GetAscent(self.FontPath) * scale
 		self.descent = glyphs.GetDescent(self.FontPath) * scale
 	end

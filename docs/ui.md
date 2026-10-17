@@ -112,3 +112,7 @@ Related: [Panel GetSet callbacks skip defaults](#panel-getset-callbacks-skip-def
 # In game hud
 
 `event.Call("DrawHUD", dt)` is Draw2D for the in game hud (`addons/game/lua/autorun/render_2d/weapon_hud.lua`). `render2d` calls it before Draw2D, so the ui draws over it, and skips it while anything hides it: `render2d.SetHudHidden(reason, hidden)` keeps a set of reasons. The desktop hides it while it is shown (`"desktop"`), and a `View` with `HideHud = true` hides it while it is the active view (`"view"`, `Shot` sets it). Draw hud things in `DrawHUD`, not Draw2D.
+
+# Desktop backdrops and the zsnes theme
+
+- **Bitmap fonts:** `glyphs.RegisterBitmapFont{name, width, advance, height, descent, fallback, glyphs = {[codepoint] = rows}, shade}` and a font path `"bitmap:name:scale"` (a theme font style `{Path = "bitmap:zsnes:2"}`) gives a pixel font that draws from one texture, no atlas (`fonts/bitmap.lua`). `fonts/raster.lua` is out of date with `fonts/base.lua` (its `RenderGlyph` wants `temp_fbs`), do not use it for new fonts. Glyph rows are bytes with the left pixel in the high bit, `shade(x, y)` is baked into the glyph so tinted text keeps a gradient. Texture glyph UVs are sampled upside down, `SetColorUV(u1, v2, u2, v1)`. `fonts/bitmap.lua` draws with `render2d.PushMargin(0)`: `GetMargin` pads every quad when `sdf_softness > 0`, even for a plain color texture, and the UVs stretch over the padded quad, so a 2x pixel font came out with 1 and 3 pixel texels. Anything that must show a bitmap 1:1 needs margin 0.

@@ -3,6 +3,8 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local SDFFont = import("goluwa/render2d/fonts/sdf.lua")
 local RasterFont = import("goluwa/render2d/fonts/raster.lua")
+local BitmapFont = import("goluwa/render2d/fonts/bitmap.lua")
+local glyphs = import("goluwa/render2d/glyphs.lua")
 local fonts = {}
 local current_font = nil
 local default_font = nil
@@ -36,6 +38,10 @@ function fonts.New(props)
 	end
 
 	props.Path = props.Path or fonts.GetDefaultSystemFontPath()
+
+	if props.Path and glyphs.IsBitmapFontPath(props.Path) then
+		return BitmapFont.New(props.Path)
+	end
 
 	if props.Path then
 		local ext = tostring(props.Path):match("%.([^%.]+)$")

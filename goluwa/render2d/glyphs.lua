@@ -406,11 +406,89 @@ local function build_glyph(font_obj, ascent, inv_upem, char_code)
 	}
 end
 
+local registered_bitmap_fonts = {}
+
+-- a pixel font as {name, width, advance, height, descent, fallback = rows, glyphs = {[codepoint] = rows}, shade = function(x, y) return brightness end}
+-- where rows are bytes with the leftmost pixel in the high bit. Use it with the font path "bitmap:name:scale"
+function glyphs.RegisterBitmapFont(def)
+	registered_bitmap_fonts[def.name] = def
+end
+
+function glyphs.IsBitmapFontPath(path)
+	return path == "bitmap" or path:starts_with("bitmap:")
+end
+
+local function build_registered_bitmap_state(path)
+	local name, scale = path:match("^bitmap:([^:]+):?(%d*)$")
+	local def = assert(registered_bitmap_fonts[name], "unknown bitmap font " .. tostring(name))
+	scale = tonumber(scale) or 1
+	local codes = {}
+
+	for code in pairs(def.glyphs) do
+		codes[#codes + 1] = code
+	end
+
+	table.sort(codes)
+	codes[#codes + 1] = -1
+	local columns = 16
+	local cell_w, cell_h = def.advance, def.height
+	local tex_w = columns * cell_w
+	local tex_h = math.ceil(#codes / columns) * cell_h
+	local buffer = ffi.new("uint8_t[?]", tex_w * tex_h * 4)
+	local cells = {}
+
+	for i, code in ipairs(codes) do
+		local rows = code == -1 and def.fallback or def.glyphs[code]
+		local cx = ((i - 1) % columns) * cell_w
+		local cy = math.floor((i - 1) / columns) * cell_h
+		cells[code] = {cx / tex_w, cy / tex_h, (cx + cell_w) / tex_w, (cy + cell_h) / tex_h}
+
+		for y = 0, cell_h - 1 do
+			for x = 0, def.width - 1 do
+				if bit.band(rows[y + 1], bit.rshift(0x80, x)) ~= 0 then
+					local shade = def.shade and def.shade(x, y) or 1
+					local idx = ((cy + y) * tex_w + cx + x) * 4
+					buffer[idx] = math.floor(shade * 255 + 0.5)
+					buffer[idx + 1] = buffer[idx]
+					buffer[idx + 2] = buffer[idx]
+					buffer[idx + 3] = 255
+				end
+			end
+		end
+	end
+
+	return {
+		is_bitmap = true,
+		bitmap_def = def,
+		bitmap_scale = scale,
+		bitmap_cells = cells,
+		units_per_em = 1,
+		ascent = def.height * scale,
+		descent = def.descent * scale,
+		texture = Texture.New{
+			width = tex_w,
+			height = tex_h,
+			name = "glyphs bitmap font " .. path,
+			format = "r8g8b8a8_unorm",
+			buffer = buffer,
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		},
+		glyphs_cache = {},
+	}
+end
+
 function glyphs.GetFontState(path)
 	local state = glyphs.font_cache[path]
 
 	if not state then
-		if path == "bitmap" then
+		if path:starts_with("bitmap:") then
+			state = build_registered_bitmap_state(path)
+		elseif path == "bitmap" then
 			state = {
 				is_bitmap = true,
 				units_per_em = 1,
@@ -470,7 +548,39 @@ function glyphs.GetGlyph(path, char_code)
 	return g
 end
 
+local function build_registered_bitmap_glyph(state, path, char_code)
+	local def = state.bitmap_def
+	local scale = state.bitmap_scale
+	local cell = state.bitmap_cells[char_code] or state.bitmap_cells[-1]
+	local advance = def.advance * scale
+	local g = {
+		x_advance = advance,
+		lsb = 0,
+		w = advance,
+		h = def.height * scale,
+		x_min = 0,
+		x_max = advance,
+		y_min = 0,
+		y_max = def.height * scale,
+		texture = state.texture,
+		u1 = cell[1],
+		v1 = cell[2],
+		u2 = cell[3],
+		v2 = cell[4],
+		is_visual = true,
+		font_path = path,
+		char_code = char_code,
+		units_per_em = 1,
+	}
+	state.glyphs_cache[char_code] = g
+	return g
+end
+
 local function build_bitmap_glyph(state, path, char_code)
+	if state.bitmap_def then
+		return build_registered_bitmap_glyph(state, path, char_code)
+	end
+
 	if char_code > 127 then
 		state.glyphs_cache[char_code] = nil
 		return nil
@@ -510,6 +620,8 @@ glyphs._build_bitmap_glyph = build_bitmap_glyph
 function glyphs.GetAscent(path)
 	local state = glyphs.GetFontState(path)
 
+	if state.bitmap_def then return state.ascent end
+
 	if state.is_bitmap then return bitmap_char_height end
 
 	return state.ascent / state.units_per_em
@@ -517,6 +629,8 @@ end
 
 function glyphs.GetDescent(path)
 	local state = glyphs.GetFontState(path)
+
+	if state.bitmap_def then return state.descent end
 
 	if state.is_bitmap then return 0 end
 
