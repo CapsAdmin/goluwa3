@@ -11,6 +11,7 @@ local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local system = import("goluwa/system.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local desktop = {}
 local programs = {}
 local order = {}
@@ -19,6 +20,17 @@ local root_dirty = false
 local root = NULL
 local menu_bar = NULL
 local shown = false
+local dimmed = false
+local backdrops = {}
+local backdrop_order = {}
+local active_backdrop
+pvars.StartGroup("Engine", "Desktop", {prefix = "desktop_"})
+pvars.Setup2{
+	key = "desktop_backdrop",
+	default = "dim",
+	help = "what the desktop shows behind its programs when it is opened with escape, a registered backdrop (dim is the dimmed scene)",
+}
+pvars.EndGroup()
 
 local function default_shown(window)
 	if window:IsMinimized() then return end
@@ -53,6 +65,53 @@ end
 function desktop.RegisterMenu(menu)
 	menus[#menus + 1] = menu
 	root_dirty = true
+end
+
+-- a backdrop replaces the dimmed scene behind the desktop, {Name, OnDraw(root, width, height)}. OnActivate and OnDeactivate run when it starts and stops being shown, so it only has to work while the desktop is up
+function desktop.RegisterBackdrop(backdrop)
+	if not backdrops[backdrop.Name] then backdrop_order[#backdrop_order + 1] = backdrop.Name end
+
+	backdrop.OnActivate = backdrop.OnActivate or noop
+	backdrop.OnDeactivate = backdrop.OnDeactivate or noop
+	backdrops[backdrop.Name] = backdrop
+end
+
+desktop.RegisterBackdrop{
+	Name = "dim",
+	OnDraw = function(root, width, height)
+		render2d.SetTexture(nil)
+		render2d.SetColor(0, 0, 0, 0.35)
+		render2d.DrawRect(0, 0, width, height)
+	end,
+}
+
+function desktop.GetBackdrops()
+	return backdrop_order
+end
+
+-- a backdrop that is not registered (its addon is not loaded) falls back to dim
+function desktop.GetBackdrop()
+	local name = pvars.Get("desktop_backdrop")
+
+	return backdrops[name] and name or "dim"
+end
+
+local function update_backdrop()
+	local wanted = shown and dimmed and backdrops[desktop.GetBackdrop()] or nil
+
+	if wanted == active_backdrop then return end
+
+	if active_backdrop then active_backdrop.OnDeactivate() end
+
+	active_backdrop = wanted
+
+	if wanted then wanted.OnActivate() end
+end
+
+function desktop.SetBackdrop(name)
+	assert(backdrops[name], "unknown desktop backdrop " .. tostring(name))
+	pvars.Set("desktop_backdrop", name)
+	update_backdrop()
 end
 
 function desktop.IsBackdrop(panel)
@@ -182,6 +241,25 @@ local function build_root()
 									return items
 								end,
 							},
+							MenuItem{
+								Text = "Backdrop",
+								Icon = "material",
+								Items = function()
+									local items = {}
+									local active = desktop.GetBackdrop()
+
+									for _, name in ipairs(desktop.GetBackdrops()) do
+										items[#items + 1] = MenuItem{
+											Text = name == active and name .. " (active)" or name,
+											OnClick = function()
+												desktop.SetBackdrop(name)
+											end,
+										}
+									end
+
+									return items
+								end,
+							},
 						}
 					end,
 				},
@@ -199,12 +277,10 @@ local function build_root()
 		visual = true,
 		mouse_input = {RequestMouse = true},
 		OnDraw = function(self)
-			if not self.dimmed then return end
+			if not active_backdrop then return end
 
 			local size = self.transform:GetSize()
-			render2d.SetTexture(nil)
-			render2d.SetColor(0, 0, 0, 0.35)
-			render2d.DrawRect(0, 0, size.x, size.y)
+			active_backdrop.OnDraw(self, size.x, size.y)
 		end,
 	}{
 		Frame{layout = {GrowWidth = 1, FitHeight = true, AlignmentX = "stretch"}}{MenuBar{
@@ -219,7 +295,7 @@ local function build_root()
 	}
 end
 
-function desktop.Show(dimmed)
+function desktop.Show(is_dimmed)
 	if shown then return end
 
 	shown = true
@@ -228,13 +304,14 @@ function desktop.Show(dimmed)
 
 	if not root:IsValid() then build_root() end
 
-	root.dimmed = dimmed
+	dimmed = is_dimmed
 	render2d.SetHudHidden("desktop", true)
 	Dock.GetInstance():SetPinned(true)
 
 	root.transform:SetSize(Panel.World.transform:GetSize())
 	root.visual:SetVisible(true)
 	root:SendToBack()
+	update_backdrop()
 
 	for _, name in ipairs(order) do
 		if desktop.IsOpen(name) then programs[name].OnShown(programs[name].Window) end
@@ -245,6 +322,7 @@ function desktop.Hide()
 	if not shown then return end
 
 	shown = false
+	update_backdrop()
 	menu_bar:CloseMenu()
 	root.visual:SetVisible(false)
 	render2d.SetHudHidden("desktop", false)
