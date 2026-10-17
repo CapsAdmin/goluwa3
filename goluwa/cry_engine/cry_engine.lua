@@ -1,4 +1,5 @@
 local engines = import("goluwa/engines.lua")
+local steam = import("goluwa/steam/steam.lua")
 local startup = import("goluwa/startup.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -45,7 +46,33 @@ engines.Register(
 			return nil, "could not find Crysis level " .. name
 		end,
 		Load = cry_engine.Load,
-		List = game.ListLevels,
+		GetGames = function()
+			local cry_game = game.FindCryGame()
+
+			if not cry_game then return {} end
+
+			return {
+				{
+					id = cry_game.appid,
+					name = cry_game.name,
+					image = steam.GetGameImage(cry_game.appid, "header"),
+					mounted = true,
+				},
+			}
+		end,
+		GetMaps = function()
+			local maps = {}
+			local cry_game = game.FindCryGame()
+
+			for i, level in ipairs(game.ListLevels()) do
+				maps[i] = {name = level, game = cry_game.appid, mounted = true}
+			end
+
+			return maps
+		end,
+		GetMapThumbnail = function(map)
+			return game.GetLevelThumbnail(map.name)
+		end,
 	}
 )
 return cry_engine

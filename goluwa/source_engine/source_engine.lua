@@ -106,14 +106,30 @@ engines.Register(
 			return game.FindMap(name)
 		end,
 		Load = source_engine.Load,
-		List = function()
-			local names = {}
+		GetGames = function()
+			local games = {}
 
-			for _, path in ipairs(vfs.Find("maps/%.bsp$")) do
-				names[#names + 1] = path:sub(0, -5)
+			for i, info in ipairs(game.GetMountableGames()) do
+				games[i] = {
+					id = info.filesystem.steamappid,
+					name = game.GetGameName(info),
+					image = game.GetGameImage(info),
+					mounted = steam.IsSourceGameMounted(info),
+					mountable = true,
+				}
 			end
 
-			return names
+			return games
+		end,
+		MountGame = function(id)
+			assert(steam.MountSourceGame(id))
+		end,
+		UnmountGame = function(id)
+			assert(steam.UnmountSourceGame(id))
+		end,
+		GetMaps = game.GetMaps,
+		GetMapThumbnail = function(map)
+			return game.GetMapThumbnail(map.name, map.game and steam.FindSourceGame(map.game))
 		end,
 	}
 )

@@ -47,12 +47,70 @@ function engines.Load(name)
 	return engine.Load(id)
 end
 
+local function get_sorted_engines()
+	local list = {}
+
+	for engine_name, engine in pairs(registered) do
+		list[#list + 1] = {name = engine_name, engine = engine}
+	end
+
+	table.sort(list, function(a, b)
+		return a.name < b.name
+	end)
+
+	return list
+end
+
+-- the games an engine can load maps from, {engine, id, name, image, mounted, mountable}. a mountable game costs something to mount and lists more maps once it is
+function engines.GetGames()
+	local games = {}
+
+	for _, entry in ipairs(get_sorted_engines()) do
+		for _, game in ipairs(entry.engine.GetGames and entry.engine.GetGames() or {}) do
+			game.engine = entry.name
+			games[#games + 1] = game
+		end
+	end
+
+	return games
+end
+
+-- {engine, name, game, mounted} for every map that can be listed without loading anything
+function engines.GetMaps()
+	local maps = {}
+
+	for _, entry in ipairs(get_sorted_engines()) do
+		for _, map in ipairs(entry.engine.GetMaps and entry.engine.GetMaps() or {}) do
+			map.engine = entry.name
+			maps[#maps + 1] = map
+		end
+	end
+
+	return maps
+end
+
+-- a vfs path to a picture of the map or nil
+function engines.GetMapThumbnail(map)
+	local engine = registered[map.engine]
+	return engine.GetMapThumbnail and engine.GetMapThumbnail(map)
+end
+
+function engines.MountGame(engine_name, id)
+	registered[engine_name].MountGame(id)
+end
+
+function engines.UnmountGame(engine_name, id)
+	registered[engine_name].UnmountGame(id)
+end
+
+function engines.LoadMap(map)
+	return engines.Load(map.engine .. ":" .. map.name)
+end
+
 commands.Add("map=string_trim|nil", function(name)
 	if not name then
-		for engine_name, engine in pairs(registered) do
-			for _, map_name in ipairs(engine.List and engine.List() or {}) do
-				print(engine_name .. ":" .. map_name)
-			end
+		for _, map in ipairs(engines.GetMaps()) do
+			print(map.engine .. ":" .. map.name)
 		end
 
 		return

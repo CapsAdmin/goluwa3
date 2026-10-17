@@ -63,6 +63,25 @@ function game.ListLevels()
 	return levels
 end
 
+-- LevelStart.bmp is the 16:9 picture the game shows in its level list, a few levels only have the loading screen
+function game.GetLevelThumbnail(level)
+	local level_dir = game.ResolveLevelDirectory(level)
+
+	if not level_dir then return end
+
+	local loading
+
+	for _, entry in ipairs(vfs.Find(level_dir)) do
+		local lower = entry:lower()
+
+		if lower == "levelstart.bmp" then return level_dir .. entry end
+
+		if lower:ends_with("loading.dds") then loading = level_dir .. entry end
+	end
+
+	return loading
+end
+
 function game.ResolveLevelDirectory(level)
 	if type(level) ~= "string" or level == "" then
 		return nil, "missing Crysis level path"
