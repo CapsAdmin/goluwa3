@@ -190,6 +190,42 @@ return function(steam)
 		return tbl
 	end
 
+	do
+		local image_names = {
+			header = {"library_header.jpg", "header.jpg", "library_hero.jpg", "library_600x900.jpg"},
+			portrait = {"library_600x900.jpg"},
+			hero = {"library_hero.jpg"},
+			logo = {"logo.png"},
+		}
+		local cache = {}
+
+		-- the steam client's cached art for a game, nil when the client never downloaded it. newer clients keep the files in a hash named subfolder
+		function steam.GetGameImage(appid, kind)
+			local key = appid .. kind
+
+			if cache[key] ~= nil then return cache[key] or nil end
+
+			local dir = steam.GetInstallPath() .. "/appcache/librarycache/" .. appid .. "/"
+			local dirs = {dir}
+
+			for _, sub in ipairs(vfs.Find("os:" .. dir, true)) do
+				if vfs.IsDirectory("os:" .. sub) then dirs[#dirs + 1] = sub .. "/" end
+			end
+
+			for _, name in ipairs(image_names[kind]) do
+				for _, folder in ipairs(dirs) do
+					if vfs.IsFile("os:" .. folder .. name) then
+						cache[key] = folder .. name
+
+						return cache[key]
+					end
+				end
+			end
+
+			cache[key] = false
+		end
+	end
+
 	function steam.GetGamePath(game)
 		for _, dir in pairs(steam.GetLibraryFolders()) do
 			local path = dir .. "common/" .. game .. "/"
