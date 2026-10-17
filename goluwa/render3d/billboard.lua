@@ -2,6 +2,7 @@ local startup = import("goluwa/startup.lua")
 local billboard = {}
 import.loaded["goluwa/render3d/billboard.lua"] = billboard
 local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local Entity = import("goluwa/entities/entity.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -20,6 +21,8 @@ billboard.NORMAL_TILT = 0.4
 billboard.PADDING = 1.02
 billboard.BAKE_TIMEOUT_FRAMES = 600
 billboard.DILATE_PASSES = 8
+-- seconds a frame may spend baking, a bake is not interrupted so one that starts before the budget is spent finishes after it
+billboard.BAKE_BUDGET = 0.1
 local cache = {}
 local pending = {}
 local uint8_ptr_t = ffi.typeof("uint8_t *")
@@ -178,6 +181,8 @@ function billboard.Bake(visual)
 end
 
 local function update()
+	local deadline = system.GetTime() + billboard.BAKE_BUDGET
+
 	for path, request in pairs(pending) do
 		local visual = request.entity.visual
 		request.frames = request.frames + 1
@@ -208,7 +213,7 @@ local function update()
 				logf("billboard bake failed for %q: %s\n", path, polygon)
 			end
 
-			break
+			if system.GetTime() > deadline then break end
 		end
 	end
 
