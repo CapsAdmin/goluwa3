@@ -331,6 +331,60 @@ function gpu_timing.GetScopeNames()
 	return slot_order
 end
 
+do
+	local groups = {}
+	local grouped
+	local grouped_count = 0
+
+	function gpu_timing.RegisterGroup(id, label, ...)
+		groups[#groups + 1] = {id = id, label = label, patterns = {...}}
+		grouped = nil
+	end
+
+	-- scopes that match no registered group get a group of their own. gpu_frame and gpu_total are
+	-- aggregates of the other scopes and are left out
+	function gpu_timing.GetGroups()
+		if grouped and grouped_count == #slot_order then return grouped end
+
+		grouped = {}
+		grouped_count = #slot_order
+		local by_id = {}
+
+		for _, name in ipairs(slot_order) do
+			if name ~= TOTAL_NAME and name ~= "gpu_frame" then
+				local id, label = name, display_labels[name]
+
+				for _, group in ipairs(groups) do
+					for _, pattern in ipairs(group.patterns) do
+						if name:find(pattern) then
+							id, label = group.id, group.label
+
+							goto found
+						end
+					end
+				end
+
+				::found::
+				local entry = by_id[id]
+
+				if not entry then
+					entry = {id = id, label = label, scopes = {}}
+					by_id[id] = entry
+					grouped[#grouped + 1] = entry
+				end
+
+				entry.scopes[#entry.scopes + 1] = name
+			end
+		end
+
+		return grouped
+	end
+end
+
+function gpu_timing.GetLabel(name)
+	return display_labels[name]
+end
+
 function gpu_timing.SetSerialized(value)
 	serialized = value
 end
