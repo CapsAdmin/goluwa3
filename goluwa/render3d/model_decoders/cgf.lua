@@ -3,6 +3,10 @@ local cry_units = import("goluwa/cry_engine/units.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
+local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
+local vertex_math = import("goluwa/render3d/vertex_math.lua")
+local blob = import("goluwa/codecs/internal/blob.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -145,7 +149,14 @@ function cgf.ReadChunkEmbeddedHeader(file, chunk)
 end
 
 function cgf.Open(path)
-	local file = assert(vfs.Open(path))
+	return cgf.Parse(assert(vfs.Open(path)))
+end
+
+function cgf.OpenData(data)
+	return cgf.Parse(Buffer.New(data, #data))
+end
+
+function cgf.Parse(file)
 	local header = cgf.ReadHeader(file)
 	local chunks = cgf.ReadChunks(file, header)
 	local chunks_by_id = {}
@@ -504,9 +515,12 @@ do
 	end
 end
 
-function cgf.ExtractStaticMeshData(parsed)
+-- skip_physics leaves the physics geometry out, skip_visuals the meshes. Returns the meshes, the physics geometry and
+-- whether the file has any (also when it was skipped)
+function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 	local entries = {}
 	local physics = {}
+	local has_physics = false
 	local file = parsed.file
 	local nodes_by_id = {}
 	local materials_by_id = {}
@@ -601,6 +615,10 @@ function cgf.ExtractStaticMeshData(parsed)
 				local physics_chunk = physics_chunk_id > 0 and parsed.chunks_by_id[physics_chunk_id]
 
 				if physics_chunk and not lod_level then
+					has_physics = true
+				end
+
+				if physics_chunk and not lod_level and not skip_physics then
 					if physics_chunk.type ~= cgf.CHUNK_MESH_PHYSICS_DATA then
 						error(
 							string.format(
@@ -625,6 +643,8 @@ function cgf.ExtractStaticMeshData(parsed)
 						wlog("failed to read cgf physics of node %q: %s", node.name, tostring(err))
 					end
 				end
+
+				if skip_visuals then goto continue_node end
 
 				if is_proxy then positions, indices, subsets = {}, {}, {subsets = {}} end
 
@@ -727,9 +747,11 @@ function cgf.ExtractStaticMeshData(parsed)
 				end
 			end
 		end
+
+		::continue_node::
 	end
 
-	return entries, physics
+	return entries, physics, has_physics
 end
 
 function cgf.ResolveMaterialPath(model_path, material_name)
@@ -772,127 +794,186 @@ function cgf.GetMaterialPaths(path)
 	return out
 end
 
-function cgf.DecodeModel(path, full_path, mesh_callback, physics_callback)
-	local ok_open, parsed_or_err = pcall(cgf.Open, full_path)
+-- The decode runs on a worker thread (model_loader.AddThreadedDecoder): the main thread reads the bytes of the file and
+-- of its _lodN siblings, the worker extracts the meshes and packs them (tangents included), the main thread makes the
+-- materials and uploads the packed meshes.
+cgf.Decoder = {}
+cgf.Decoder.job = [=[
+	local input = ...
+	return import("goluwa/render3d/model_decoders/cgf.lua").PackModel(input)
+]=]
 
-	if not ok_open then
-		error(("failed to open cgf %q from %q: %s"):format(path, full_path, parsed_or_err), 0)
+function cgf.Decoder.Gather(path, full_path)
+	local file, err = vfs.Open(full_path)
+
+	if not file then
+		error(("failed to open cgf %q from %q: %s"):format(path, full_path, err), 0)
 	end
 
-	local parsed = parsed_or_err
-	local model_path = parsed.file.path_used or full_path
+	local input = {
+		data = file:ReadAll(),
+		model_path = file.path_used or full_path,
+		meshes = render.IsInitialized(),
+	}
+	file:Close()
+	local size = #input.data
+
+	if input.meshes then
+		local base = input.model_path:gsub("%.[cC][gG][fF]$", "")
+		input.lods = {}
+
+		for level = 1, cgf.MAX_SIBLING_LODS do
+			local lod_path = vfs.FindMixedCasePath(base .. "_lod" .. level .. ".cgf")
+
+			if not lod_path then break end
+
+			input.lods[level] = assert(vfs.Read(lod_path))
+			size = size + #input.lods[level]
+		end
+	end
+
+	return input, size
+end
+
+-- worker side
+function cgf.PackModel(input)
+	local entries, _, has_physics = cgf.ExtractStaticMeshData(cgf.OpenData(input.data), true, not input.meshes)
+	local meta = {has_physics = has_physics}
+
+	if not input.meshes then return meta end
+
+	local has_lod_nodes = false
+
+	for _, entry in ipairs(entries) do
+		if entry.lod_level > 0 then has_lod_nodes = true end
+	end
+
+	if not has_lod_nodes then
+		for level, data in ipairs(input.lods) do
+			local ok, lod_entries = pcall(cgf.ExtractStaticMeshData, cgf.OpenData(data), true)
+
+			if not ok then error(lod_entries, 0) end
+
+			for _, entry in ipairs(lod_entries) do
+				entry.lod_level = level
+				entries[#entries + 1] = entry
+			end
+		end
+	end
+
+	local bend_height = 0
+
+	for _, entry in ipairs(entries) do
+		if entry.lod_level == 0 then
+			for _, vertex in ipairs(entry.vertices) do
+				bend_height = math.max(bend_height, vertex.pos.y)
+			end
+		end
+	end
+
+	local builder = blob.New()
+	meta.bend_height = bend_height
+	meta.entries = {}
+
+	for _, entry in ipairs(entries) do
+		local polygon = Polygon3D.New()
+		polygon:SetVertices(entry.vertices)
+		polygon.indices = entry.indices
+		local info = packed_mesh.PackPolygon(builder, polygon)
+
+		if info then
+			info.material_name = entry.material_name
+			info.subset_material_id = entry.subset_material_id
+			info.lod_level = entry.lod_level
+			meta.entries[#meta.entries + 1] = info
+		end
+	end
+
+	return meta, builder:Finish()
+end
+
+-- the physics geometry is made when something asks for it (a rigid body), most models are only drawn
+function cgf.ExtractPhysics(data)
+	local _, physics = cgf.ExtractStaticMeshData(cgf.OpenData(data), false, true)
+	return physics
+end
+
+function cgf.Decoder.Finish(path, full_path, input, meta, blob_table, mesh_callback, physics_callback)
+	if meta.has_physics then
+		local data = input.data
+		physics_callback(
+			setmetatable(
+				{},
+				{
+					__index = function(physics, key)
+						setmetatable(physics, nil)
+						physics.children = cgf.ExtractPhysics(data)
+						return physics[key]
+					end,
+				}
+			)
+		)
+	end
+
+	if not meta.entries then return end
+
 	local resolved_material_paths = {}
-	local ok, result = xpcall(function()
-		local entries, physics = cgf.ExtractStaticMeshData(parsed)
 
-		if physics[1] then physics_callback{children = physics} end
+	for _, info in ipairs(meta.entries) do
+		local material = nil
 
-		if not render.IsInitialized() then return true end
+		if info.material_name then
+			local material_path = resolved_material_paths[info.material_name]
 
-		local has_lod_nodes = false
-
-		for _, entry in ipairs(entries) do
-			if entry.lod_level > 0 then has_lod_nodes = true end
-		end
-
-		if not has_lod_nodes then
-			local base = model_path:gsub("%.[cC][gG][fF]$", "")
-
-			for level = 1, cgf.MAX_SIBLING_LODS do
-				local lod_path = vfs.FindMixedCasePath(base .. "_lod" .. level .. ".cgf")
-
-				if not lod_path then break end
-
-				local lod_parsed = cgf.Open(lod_path)
-				local ok_lod, lod_entries = pcall(cgf.ExtractStaticMeshData, lod_parsed)
-				lod_parsed.file:Close()
-
-				if not ok_lod then error(lod_entries, 0) end
-
-				for _, entry in ipairs(lod_entries) do
-					entry.lod_level = level
-					entries[#entries + 1] = entry
-				end
-			end
-		end
-
-		local bend_height = 0
-
-		for _, entry in ipairs(entries) do
-			if entry.lod_level == 0 then
-				for _, vertex in ipairs(entry.vertices) do
-					bend_height = math.max(bend_height, vertex.pos.y)
-				end
-			end
-		end
-
-		for _, entry in ipairs(entries) do
-			local mesh = Polygon3D.New()
-			local material = nil
-
-			if entry.material_name then
-				local material_path = resolved_material_paths[entry.material_name]
-
-				if not material_path then
-					material_path = cgf.ResolveMaterialPath(model_path, entry.material_name)
-					resolved_material_paths[entry.material_name] = material_path
-				end
-
-				if vfs.IsFile(material_path) then
-					material = mtl_material.FromCryMTL(material_path, entry.subset_material_id)
-				else
-					logf(
-						"crytek material not found for %q referenced by model %q\n",
-						tostring(material_path),
-						tostring(path)
-					)
-					material = Material.New()
-					material:SetAlbedoTexture(Texture.GetFallback())
-				end
+			if not material_path then
+				material_path = cgf.ResolveMaterialPath(input.model_path, info.material_name)
+				resolved_material_paths[info.material_name] = material_path
 			end
 
-			local vertices = entry.vertices
-			local diffuse = material and material.cry_texture_maps and material.cry_texture_maps.Diffuse
-
-			if
-				diffuse and
-				(
-					diffuse.tile_u ~= 1 or
-					diffuse.tile_v ~= 1 or
-					diffuse.offset_u ~= 0 or
-					diffuse.offset_v ~= 0
+			if vfs.IsFile(material_path) then
+				material = mtl_material.FromCryMTL(material_path, info.subset_material_id)
+			else
+				logf(
+					"crytek material not found for %q referenced by model %q\n",
+					tostring(material_path),
+					tostring(path)
 				)
-			then
-				for _, vertex in ipairs(vertices) do
-					if vertex.uv then
-						vertex.uv = Vec2(
-							vertex.uv.x * diffuse.tile_u + diffuse.offset_u,
-							vertex.uv.y * diffuse.tile_v + diffuse.offset_v
-						)
-					end
-				end
+				material = Material.New()
+				material:SetAlbedoTexture(Texture.GetFallback())
 			end
-
-			mesh:SetVertices(vertices)
-			mesh:SetBendHeight(bend_height)
-			mesh:SetMaterialSlot(entry.subset_material_id)
-			mesh:SetLODLevel(entry.lod_level)
-			mesh:SetLODDistance(entry.lod_level * lod.CRY_RADII_PER_LEVEL)
-			mesh:SetName(path)
-			mesh:BuildBoundingBox()
-			mesh:Upload(entry.indices)
-			mesh_callback(mesh, material)
 		end
 
-		return true
-	end, function(err)
-		return err
-	end)
-	parsed.file:Close()
+		local vertices, indices = packed_mesh.Unpack(info, blob_table)
+		local diffuse = material and material.cry_texture_maps and material.cry_texture_maps.Diffuse
 
-	if not ok then error(result, 0) end
+		-- the tiling changes the uvs the tangents are made from, the worker made them from the plain uvs
+		if
+			diffuse and
+			(
+				diffuse.tile_u ~= 1 or
+				diffuse.tile_v ~= 1 or
+				diffuse.offset_u ~= 0 or
+				diffuse.offset_v ~= 0
+			)
+		then
+			for i = 0, info.vertex_count - 1 do
+				local uv = vertices[i].uv
+				uv[0] = uv[0] * diffuse.tile_u + diffuse.offset_u
+				uv[1] = uv[1] * diffuse.tile_v + diffuse.offset_v
+			end
 
-	return {}
+			vertex_math.BuildTangents(vertices, info.vertex_count, indices, info.index_count)
+		end
+
+		local mesh = Polygon3D.New()
+		mesh:UploadVertexArray(vertices, info.vertex_count, indices, info.index_count, true)
+		mesh:SetBendHeight(meta.bend_height)
+		mesh:SetMaterialSlot(info.subset_material_id)
+		mesh:SetLODLevel(info.lod_level)
+		mesh:SetLODDistance(info.lod_level * lod.CRY_RADII_PER_LEVEL)
+		mesh:SetName(path)
+		mesh_callback(mesh, material)
+	end
 end
 
 return cgf
