@@ -47,7 +47,7 @@ Pitfalls (each looked like a different bug):
 
 ## Stats HUD
 
-K or the `physics_stats` command toggles a 0.5 s windowed HUD from `goluwa/physics/stats.lua` (`TakeSnapshot`): per-step section times, query time per frame (sweep, trace) and counters (solver pairs, mesh pairs/triangles, sweeps, ray casts, world model scans, wakes). `autorun/physics/` only loads with `--3d` or `--physics`; the engine already steps physics itself, do not add your own Update step; Draw2D listeners get `(dt)` in 2D but `(cmd, dt)` in 3D.
+The PHYSICS tab of the PERF window (`perf physics`, the `physics_stats` command prints the last snapshot) shows a 0.5 s windowed view of `goluwa/physics/stats.lua` (`TakeSnapshot`): per-step section times, query time per frame (sweep, trace) and counters (solver pairs, mesh pairs/triangles, sweeps, ray casts, world model scans, wakes). `autorun/physics/` only loads with `--3d` or `--physics`; the engine already steps physics itself, do not add your own Update step; Draw2D listeners get `(dt)` in 2D but `(cmd, dt)` in 3D.
 
 ## Buoyancy and water
 
