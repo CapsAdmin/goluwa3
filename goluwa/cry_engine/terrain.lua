@@ -286,13 +286,16 @@ local function build_cry_terrain_source(terrain)
 
 				if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
 
-				return texture(TEXTURE(terrain_bake.texture0), uv).r * %.6f;
+				// heights sit on the vertices, texel i is the height at world i * unit, not at its centre
+				return texture(TEXTURE(terrain_bake.texture0), uv + vec2(%.9f, %.9f)).r * %.6f;
 			}
 		]],
 			world_size,
 			world_size,
 			world_size,
 			world_size,
+			0.5 / terrain.height_sample_width,
+			0.5 / terrain.height_sample_height,
 			terrain.heightmap_max_height
 		),
 		SplatGLSL = has_layers and

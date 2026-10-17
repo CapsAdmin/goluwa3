@@ -1297,8 +1297,9 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 	local raw = sample_terrain_height_raw(terrain, sample_x, sample_y)
 	return raw / 65535
 end
--- The height of the rendered terrain: the gpu samples the height texture with texel centers at half texel offsets, so
--- it lies up to half a texel away from where the heightmap data puts it.
+-- The height of the rendered terrain: the gpu shifts the height texture by half a texel so that texel i is the height at
+-- world i * unit, the same as the heightmap data, but it spans world_size / width per texel where the data above uses
+-- world_size / (width - 1).
 function level.SampleRenderedTerrainHeight(terrain, world_x, world_z)
 	local world_size = math.max(terrain.world_size or 0, 1)
 	local width = terrain.height_sample_width or terrain.height_samples_width or terrain.height_samples_per_side
@@ -1308,7 +1309,7 @@ function level.SampleRenderedTerrainHeight(terrain, world_x, world_z)
 
 	if u < 0 or u > 1 or v < 0 or v > 1 then return 0 end
 
-	return sample_terrain_height_raw(terrain, u * width - 0.5, v * height - 0.5) / 65535 * terrain.heightmap_max_height
+	return sample_terrain_height_raw(terrain, u * width, v * height) / 65535 * terrain.heightmap_max_height
 end
 
 local loaded_levels = {}
