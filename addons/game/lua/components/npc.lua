@@ -1,11 +1,8 @@
 local objects = import("goluwa/objects/objects.lua")
-local event = import("goluwa/event.lua")
 local network = import("goluwa/network/network.lua")
 local physics = import("goluwa/physics.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
-local commands = import("goluwa/cli/commands.lua")
 local nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
-local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
@@ -55,7 +52,6 @@ local RANK_INTERVAL = 4
 local STOP_SPEED_SHARE = 0.5
 local WANDER_MIN_DISTANCE = 4
 local WANDER_TRIES = 4
-local path_debug = false
 local observers, observer_count, observer_step = {}, 0, nil
 local ranked = {}
 
@@ -416,44 +412,5 @@ function META:NextCommand(dt)
 	movement:SetStopSpeed(self.WalkSpeed * STOP_SPEED_SHARE)
 	return cmd
 end
-
-function META.SetPathDebug(enabled)
-	if enabled == path_debug then return end
-
-	path_debug = enabled
-
-	if not enabled then
-		event.RemoveListener("Update", "npc_path_debug")
-		return
-	end
-
-	local debug_draw = import("goluwa/debug_draw.lua")
-	local lift = Vec3(0, 0.1, 0)
-
-	event.AddListener("Update", "npc_path_debug", function()
-		for index, npc in ipairs(META.Instances) do
-			local path = npc.path
-
-			if path then
-				local points = path.points
-
-				for i = npc.path_index, #points do
-					debug_draw.DrawLine{
-						id = "npc_path_" .. index .. "_" .. i,
-						from = (i == npc.path_index and npc.Owner.transform:GetPosition() or points[i - 1]) + lift,
-						to = points[i] + lift,
-						color = npc.Running and Color(1, 0.4, 0.1, 1) or Color(0.2, 0.8, 1, 1),
-						width = 3,
-						time = 0.1,
-					}
-				end
-			end
-		end
-	end)
-end
-
-commands.Add("npc_show_paths", function()
-	META.SetPathDebug(not path_debug)
-end)
 
 return META:Register()
