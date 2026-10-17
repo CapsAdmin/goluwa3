@@ -104,6 +104,10 @@ local function project_brush_side(fragments, record, side_index, origin, normal,
 	add_fragment(fragments, polygon, record.group, frame)
 end
 
+local function by_seed_distance(a, b)
+	return a.seed_distance < b.seed_distance
+end
+
 local function project_displacements(fragments, records, origin, normal, u_axis, v_axis, frame)
 	local verts = {}
 	local vert_count = 0
@@ -112,6 +116,7 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 
 	for _, record in ipairs(records) do
 		local positions, dims = record.positions, record.dims
+		local record_normal = record.normal
 		local grid = {}
 
 		for i = 1, dims * dims do
@@ -121,13 +126,15 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 
 			if not vert then
 				vert_count = vert_count + 1
-				local offset = position - origin
+				local ox, oy, oz = position.x - origin.x, position.y - origin.y, position.z - origin.z
 				vert = {
 					id = vert_count,
 					pos = position,
-					x0 = offset:Dot(u_axis),
-					y0 = offset:Dot(v_axis),
-					sum = Vec3(0, 0, 0),
+					x0 = ox * u_axis.x + oy * u_axis.y + oz * u_axis.z,
+					y0 = ox * v_axis.x + oy * v_axis.y + oz * v_axis.z,
+					sx = 0,
+					sy = 0,
+					sz = 0,
 				}
 				verts[key] = vert
 			end
@@ -142,17 +149,31 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 				local c = a + 1
 				local d = b + 1
 
-				for _, corners in ipairs{{a, c, b}, {c, d, b}} do
-					local v1, v2, v3 = grid[corners[1]], grid[corners[2]], grid[corners[3]]
-					local tri_normal = (v2.pos - v1.pos):Cross(v3.pos - v1.pos):GetNormalized()
+				for half = 1, 2 do
+					local v1, v2, v3
 
-					if tri_normal:Dot(record.normal) < 0 then tri_normal = -tri_normal end
+					if half == 1 then
+						v1, v2, v3 = grid[a], grid[c], grid[b]
+					else
+						v1, v2, v3 = grid[c], grid[d], grid[b]
+					end
 
-					v1.sum = v1.sum + tri_normal
-					v2.sum = v2.sum + tri_normal
-					v3.sum = v3.sum + tri_normal
-					local tri = {v1, v2, v3, normal = tri_normal, group = record.group}
-					list.insert(tris, tri)
+					local p1, p2, p3 = v1.pos, v2.pos, v3.pos
+					local ux, uy, uz = p2.x - p1.x, p2.y - p1.y, p2.z - p1.z
+					local wx, wy, wz = p3.x - p1.x, p3.y - p1.y, p3.z - p1.z
+					local nx, ny, nz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+					local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+					nx, ny, nz = nx / length, ny / length, nz / length
+
+					if nx * record_normal.x + ny * record_normal.y + nz * record_normal.z < 0 then
+						nx, ny, nz = -nx, -ny, -nz
+					end
+
+					v1.sx, v1.sy, v1.sz = v1.sx + nx, v1.sy + ny, v1.sz + nz
+					v2.sx, v2.sy, v2.sz = v2.sx + nx, v2.sy + ny, v2.sz + nz
+					v3.sx, v3.sy, v3.sz = v3.sx + nx, v3.sy + ny, v3.sz + nz
+					local tri = {v1, v2, v3, normal_x = nx, normal_y = ny, normal_z = nz, group = record.group}
+					tris[#tris + 1] = tri
 
 					for k = 1, 3 do
 						local p, q = tri[k], tri[k % 3 + 1]
@@ -164,7 +185,7 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 							edge_tris[edge_key] = shared
 						end
 
-						list.insert(shared, tri)
+						shared[#shared + 1] = tri
 					end
 				end
 			end
@@ -177,7 +198,7 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 	local seeds = {}
 
 	for _, tri in ipairs(tris) do
-		if tri.normal:Dot(normal) >= 0.2 then
+		if tri.normal_x * normal.x + tri.normal_y * normal.y + tri.normal_z * normal.z >= 0.2 then
 			local v1, v2, v3 = tri[1], tri[2], tri[3]
 			local dx = (v1.x0 + v2.x0 + v3.x0) / 3 - center_x
 			local dy = (v1.y0 + v2.y0 + v3.y0) / 3 - center_y
@@ -186,11 +207,8 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 		end
 	end
 
-	table.sort(seeds, function(a, b)
-		return a.seed_distance < b.seed_distance
-	end)
-
-	local queue = {}
+	table.sort(seeds, by_seed_distance)
+	local queue_tri, queue_p, queue_q, queue_o = {}, {}, {}, {}
 
 	for _, seed in ipairs(seeds) do
 		if not seed.visited then
@@ -211,21 +229,20 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 				for _, neighbor in ipairs(edge_tris[edge_key]) do
 					if not neighbor.visited then
 						tail = tail + 1
-						queue[tail] = {neighbor, p, q, o}
+						queue_tri[tail], queue_p[tail], queue_q[tail], queue_o[tail] = neighbor, p, q, o
 					end
 				end
 			end
 
 			while head <= tail do
-				local entry = queue[head]
-				queue[head] = nil
+				local tri, va, vb, vo = queue_tri[head], queue_p[head], queue_q[head], queue_o[head]
+				queue_tri[head], queue_p[head], queue_q[head], queue_o[head] = nil, nil, nil, nil
 				head = head + 1
-				local tri, va, vb, vo = entry[1], entry[2], entry[3], entry[4]
 
 				if not tri.visited then
 					tri.visited = true
 
-					if tri.normal:Dot(normal) < -0.2 then
+					if tri.normal_x * normal.x + tri.normal_y * normal.y + tri.normal_z * normal.z < -0.2 then
 						tri.skip = true
 					else
 						local vc
@@ -262,7 +279,7 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 							for _, neighbor in ipairs(edge_tris[edge_key]) do
 								if not neighbor.visited then
 									tail = tail + 1
-									queue[tail] = {neighbor, p, q, o}
+									queue_tri[tail], queue_p[tail], queue_q[tail], queue_o[tail] = neighbor, p, q, o
 								end
 							end
 						end
@@ -272,25 +289,57 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 		end
 	end
 
+	local min_x, min_y, max_x, max_y = frame.min_x, frame.min_y, frame.max_x, frame.max_y
+
 	for _, tri in ipairs(tris) do
 		if tri.visited and not tri.skip then
-			local polygon = {}
+			local v1, v2, v3 = tri[1], tri[2], tri[3]
+			local x1, x2, x3, y1, y2, y3 = v1.x, v2.x, v3.x, v1.y, v2.y, v3.y
 
-			for k = 1, 3 do
-				local vert = tri[k]
+			-- a triangle that lies wholly beyond one side of the decal rectangle is clipped away
+			if
+				not (
+					(
+						x1 < min_x and x2 < min_x and x3 < min_x
+					)
+					or
+					(
+						x1 > max_x and x2 > max_x and x3 > max_x
+					)
+					or
+					(
+						y1 < min_y and y2 < min_y and y3 < min_y
+					)
+					or
+					(
+						y1 > max_y and y2 > max_y and y3 > max_y
+					)
+				)
+			then
+				local polygon = {}
 
-				if not vert.out then
-					vert.out = {
-						x = vert.x,
-						y = vert.y,
-						pos = vert.pos + vert.sum:GetNormalized() * OFFSET_FROM_SURFACE,
-					}
+				for k = 1, 3 do
+					local vert = tri[k]
+
+					if not vert.out then
+						local length = math.sqrt(vert.sx * vert.sx + vert.sy * vert.sy + vert.sz * vert.sz)
+						local scale = OFFSET_FROM_SURFACE / length
+						vert.out = {
+							x = vert.x,
+							y = vert.y,
+							pos = Vec3(
+								vert.pos.x + vert.sx * scale,
+								vert.pos.y + vert.sy * scale,
+								vert.pos.z + vert.sz * scale
+							),
+						}
+					end
+
+					polygon[k] = vert.out
 				end
 
-				polygon[k] = vert.out
+				add_fragment(fragments, polygon, tri.group, frame)
 			end
-
-			add_fragment(fragments, polygon, tri.group, frame)
 		end
 	end
 end
