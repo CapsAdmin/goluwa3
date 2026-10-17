@@ -60,6 +60,8 @@ function Terrain.New(config)
 	self.ScatterWaitFrames = config.ScatterWaitFrames or 120
 	self.ViewPriority = ViewPriority.New{PredictSeconds = config.PredictSeconds, OutsidePenalty = config.OutsidePenalty}
 	self.BuildsPerFrame = config.BuildsPerFrame or 2
+	-- while the terrain holds the scene load nothing is flying yet, so the first tiles are built in bulk
+	self.LoadBuildsPerFrame = config.LoadBuildsPerFrame or 16
 	self.ScatterSet = config.ScatterSet
 	-- the frames a chunk's textures live on after its tile is removed: the culling and the frames in flight can still draw
 	-- the tile, and a texture that is released is an error texture or another chunk's texture in the bindless array
@@ -177,8 +179,9 @@ function Terrain:ProcessBuildQueue()
 	end
 
 	local built = 0
+	local builds_per_frame = self.holding_scene_load and self.LoadBuildsPerFrame or self.BuildsPerFrame
 
-	while built < self.BuildsPerFrame and count > 0 do
+	while built < builds_per_frame and count > 0 do
 		local best = 1
 
 		for i = 2, count do
