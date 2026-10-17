@@ -1,4 +1,3 @@
-local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -721,35 +720,5 @@ function light_occlusion.GetSamplingGLSL(data_block)
 	]]
 		)
 end
-
-commands.Add("lo_debug", function()
-	local debug_state = light_occlusion.GetDebugState()
-	logf(
-		"[light_occlusion] frame %d, %d occlusion lights, bias %g blur %g bleed reduction %g oct %d\n",
-		debug_state.frame,
-		#debug_state.lights,
-		debug_state.bias,
-		debug_state.blur,
-		debug_state.bleed_reduction,
-		debug_state.oct_size
-	)
-
-	for _, light in ipairs(debug_state.lights) do
-		logf(
-			"  [%d] %-20s pos (%.1f %.1f %.1f) range %g stamp %d dispatched %d%s%s%s\n",
-			light.index,
-			light.name,
-			light.x,
-			light.y,
-			light.z,
-			light.range,
-			light.stamp,
-			light.dispatched,
-			light.pending and " PENDING" or "",
-			light.geom_stale and " GEOM_STALE" or "",
-			light.in_frustum and "" or " OUT_OF_FRUSTUM"
-		)
-	end
-end)
 
 return light_occlusion

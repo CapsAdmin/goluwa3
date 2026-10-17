@@ -3,7 +3,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local system = import("goluwa/system.lua")
-local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
@@ -14,6 +13,7 @@ local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 -- the exposed value the metered average is shown at, 18 percent grey
 local KEY = 0.18
 local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
+render3d.LOG_EXPOSURE_AT_EV0 = LOG_EXPOSURE_AT_EV0
 pvars.StartGroup("Post", "Eye", {store = false, prefix = "eye_"})
 local eye_enabled = pvars.Setup2{
 	key = "r_eye",
@@ -513,27 +513,6 @@ local exposure_feedback_pass = {
 	end,
 	shader = exposure_feedback_shader,
 }
-
-commands.Add("r_exposure_info", function()
-	local texture = get_exposure_feedback_texture()
-	local exposure, metered_ev, adapted_ev = texture:Download():GetPixelFloat(0, 0)
-	local ev = LOG_EXPOSURE_AT_EV0 - math.log(exposure) / math.log(2)
-	logf(
-		"[blit] %s: metered EV %.2f, adapted EV %.2f, exposure %.3g (EV %.2f)\n",
-		eye_enabled:Get() and "eye" or "camera",
-		metered_ev,
-		adapted_ev,
-		exposure,
-		ev
-	)
-
-	if not eye_enabled:Get() then
-		local wb = exposure_model.GetCameraWhiteBalance()
-		logf("[blit] white balance %s\n", wb > 0 and (wb .. " K") or "auto")
-		local iso, aperture, shutter = exposure_model.DescribeCamera(ev)
-		logf("[blit] camera %s: ISO %d, f/%.1f, 1/%d s\n", exposure_model.GetCameraMode(), iso, aperture, math.round(1 / shutter))
-	end
-end)
 
 local GRID_X, GRID_Y, GRID_Z = 64, 36, 48
 local GRID_GLSL = (

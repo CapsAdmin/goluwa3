@@ -1,5 +1,4 @@
 local ffi = require("ffi")
-local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local event = import("goluwa/event.lua")
@@ -55,7 +54,7 @@ local update_interval_max = pvars.Setup2{
 	help = "frames between updates of the coarsest cascade, the further cascades reach the longer they can wait, but lighting that changes shows up in them that much later",
 }
 
-local function get_update_interval(c)
+function ddgi.GetUpdateInterval(c)
 	local lowest = update_interval_min:Get()
 
 	return math.max(1, math.floor(lowest * (update_interval_max:Get() / lowest) ^ ((c - 1) / (ddgi.CASCADES - 1)) + 0.5))
@@ -499,7 +498,7 @@ do
 			cascade.y, holds_y = fit_base(position.y, region.min_y, region.max_y, spacing, size.y)
 			cascade.z, holds_z = fit_base(position.z, region.min_z, region.max_z, spacing, size.z)
 			cascade.elapsed = (cascade.elapsed or 0) + frame_time
-			local interval = get_update_interval(c)
+			local interval = ddgi.GetUpdateInterval(c)
 			cascade.frames = (cascade.frames or 0) + 1
 			local changed = false
 
@@ -1532,7 +1531,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_max_distance = max_ray_distance:Get()
 
 	for c = 1, ddgi.CASCADES do
-		block.ddgi_cascade_update[c - 1][0] = hysteresis:Get() ^ (math.min(state.cascades[c].update_time, 0.1 * get_update_interval(c)) * 60)
+		block.ddgi_cascade_update[c - 1][0] = hysteresis:Get() ^ (math.min(state.cascades[c].update_time, 0.1 * ddgi.GetUpdateInterval(c)) * 60)
 		block.ddgi_cascade_update[c - 1][1] = (state.sun_fast_until or 0) > state.frame and 1 or 0
 	end
 
@@ -2242,125 +2241,5 @@ function ddgi.GetRTPipeline()
 
 	return rt_pipeline
 end
-
-commands.Add("ddgi_emitter_info", function()
-	local emitters = ddgi.GetEmitters()
-	logf(
-		"ddgi emitters: %d triangles, total power %.4g, reference luminance %.0f, max %.0f\n",
-		emitters.count,
-		emitters.weight,
-		render3d.EMISSIVE_REFERENCE_LUMINANCE,
-		render3d.EMISSIVE_MAX_LUMINANCE
-	)
-	logf(
-		"  left out as additive effects (ddgi_additive_emitters 0): %d triangles, power %.4g\n",
-		emitters.excluded_count,
-		emitters.excluded_power
-	)
-	local floats = ffi.cast("float*", emitters.words)
-	local lowest, highest = math.huge, 0
-
-	for i = 0, emitters.count - 1 do
-		local power = floats[2 + i * 3 + 2]
-		lowest = math.min(lowest, power)
-		highest = math.max(highest, power)
-	end
-
-	logf("  power per triangle: lowest %.4g, highest %.4g\n", lowest, highest)
-	logf("  %d emissive blocks:\n", #scene_bvh.emissive_blocks)
-
-	for i, block in ipairs(scene_bvh.emissive_blocks) do
-		if i > 40 then
-			logf("  ...\n")
-
-			break
-		end
-
-		local power = 0
-
-		for j = 0, block.emitter_count - 1 do
-			power = power + block.emitters[j].power
-		end
-
-		logf(
-			"  block %d%s: %d emitters, power %.4g, at %.1f %.1f %.1f\n",
-			i,
-			block.emitters[0].additive ~= 0 and not emitters.additive and " (left out)" or "",
-			block.emitter_count,
-			power,
-			block.emitters[0].x,
-			block.emitters[0].y,
-			block.emitters[0].z
-		)
-		local seen = {}
-
-		for _, slot in ipairs(block.slots) do
-			if
-				slot.emissive_r + slot.emissive_g + slot.emissive_b > 0 and
-				not seen[slot.material_id]
-			then
-				seen[slot.material_id] = true
-				local material = scene_bvh.materials[slot.material_id + 1]
-				local color = material:GetColorMultiplier()
-				logf(
-					"    material '%s' (id %d): emissive x strength %.3f %.3f %.3f, colour %.2f %.2f %.2f, albedo texture %s, emissive texture %s, albedo alpha is emissive %s, additive %s\n",
-					material:GetName(),
-					slot.material_id,
-					slot.emissive_r,
-					slot.emissive_g,
-					slot.emissive_b,
-					color.r,
-					color.g,
-					color.b,
-					tostring(material:GetAlbedoTexture() ~= nil),
-					tostring(material:GetEmissiveTexture() ~= nil),
-					tostring(material:GetAlbedoAlphaIsEmissive()),
-					tostring(material:GetAdditive())
-				)
-			end
-		end
-	end
-end)
-
-commands.Add("ddgi_reset", function()
-	ddgi.ResetHistory()
-end)
-
-commands.Add("ddgi_info", function()
-	local state = ddgi.GetFrameState()
-	local region = state.region
-	logf(
-		"ddgi: %d of %d cascades in use, region %.1f..%.1f %.1f..%.1f %.1f..%.1f\n",
-		state.cascade_count,
-		ddgi.CASCADES,
-		region.min_x,
-		region.max_x,
-		region.min_y,
-		region.max_y,
-		region.min_z,
-		region.max_z
-	)
-
-	for c = 1, ddgi.CASCADES do
-		local cascade = state.cascades[c]
-		logf(
-			"  cascade %d%s: spacing %.2f, updates every %d frames, %d x %d x %d probes (%d), spans %.1f %.1f %.1f m from %.1f %.1f %.1f\n",
-			c - 1,
-			c > state.cascade_count and " (unused)" or "",
-			cascade.spacing,
-			get_update_interval(c),
-			cascade.size.x,
-			cascade.size.y,
-			cascade.size.z,
-			cascade.size.x * cascade.size.y * cascade.size.z,
-			cascade.spacing * (cascade.size.x - 1),
-			cascade.spacing * (cascade.size.y - 1),
-			cascade.spacing * (cascade.size.z - 1),
-			cascade.x * cascade.spacing,
-			cascade.y * cascade.spacing,
-			cascade.z * cascade.spacing
-		)
-	end
-end)
 
 return ddgi
