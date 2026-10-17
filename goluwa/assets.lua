@@ -746,7 +746,7 @@ if RENDER_2D then
 		"textures",
 		{
 			roots = {"textures/render/", "textures/", "materials/"},
-			extensions = {".lua", ".png", ".jpg", ".jpeg", ".dds", ".gif", ".vtf"},
+			extensions = {".lua", ".png", ".jpg", ".jpeg", ".dds", ".gif", ".vtf", ".bmp"},
 			load = function(path, options)
 				local ext = get_extension(path)
 
