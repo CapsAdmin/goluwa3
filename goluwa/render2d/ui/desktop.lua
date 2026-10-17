@@ -239,6 +239,13 @@ local function build_menu_items()
 						end,
 					},
 					MenuItem{
+						Text = "Layout debugger" .. (Panel.World.ui_debug:IsLayoutDebugEnabled() and " (on)" or " (off)"),
+						Icon = "layers",
+						OnClick = function()
+							Panel.World.ui_debug:SetLayoutDebug(not Panel.World.ui_debug:IsLayoutDebugEnabled())
+						end,
+					},
+					MenuItem{
 						Text = "Backdrop",
 						Icon = "material",
 						Items = function()
