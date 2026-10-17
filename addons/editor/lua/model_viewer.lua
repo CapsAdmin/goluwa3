@@ -2,14 +2,14 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Window = import("goluwa/render2d/ui/widgets/window.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-local Checkbox = import("goluwa/render2d/ui/elements/checkbox.lua")
-local Slider = import("goluwa/render2d/ui/elements/slider.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local Button = react.Element(import("goluwa/render2d/ui/widgets/button.lua"))
+local Dropdown = react.Element(import("goluwa/render2d/ui/widgets/dropdown.lua"))
+local Column = react.Element(import("goluwa/render2d/ui/elements/column.lua"))
+local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
+local Text = react.Element(import("goluwa/render2d/ui/elements/text.lua"))
+local Checkbox = react.Element(import("goluwa/render2d/ui/elements/checkbox.lua"))
+local Slider = react.Element(import("goluwa/render2d/ui/elements/slider.lua"))
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local input = import("goluwa/input.lua")
@@ -17,6 +17,9 @@ local SceneView = import("goluwa/render3d/scene_view.lua")
 local Environment = import("goluwa/render3d/environment.lua")
 local OrbitCamera = import("goluwa/render3d/orbit_camera.lua")
 local previews = import("lua/asset_preview.lua")
+local kit = import("lua/editor_kit.lua")
+local ViewerWindow = kit.ViewerWindow
+local Canvas = kit.Canvas
 local DEFAULT_ENVIRONMENT = "Studio"
 local WINDOW_SIZE = Vec2(1040, 740)
 local LOAD_TIMEOUT = 20
@@ -26,233 +29,223 @@ local SIZE_STEP = 16
 local RESIZE_DELAY = 0.25
 local DOUBLE_CLICK_TIME = 0.3
 local HELP = "drag to orbit, right drag to pan, wheel to zoom, double click to reset"
-return function(entry)
-	local key = "ModelViewer/" .. entry.path
-	local open = Panel.World:GetKeyed(key)
 
-	if open then return open end
+local function fit(state)
+	local view = state.view
+	state.visual:BuildAABB()
+	local aabb = state.visual:GetWorldAABB()
+	local size = Vec3(aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z)
+	local center = Vec3(
+		(aabb.min_x + aabb.max_x) / 2,
+		(aabb.min_y + aabb.max_y) / 2,
+		(aabb.min_z + aabb.max_z) / 2
+	)
+	state.orbit:Fit(center, math.max(size:GetLength() / 2, 1e-3), view:GetWidth() / view:GetHeight())
+	state.orbit:Apply()
+	view:Invalidate()
+end
 
-	local entity = previews.CreateModelEntity(entry.path)
+local function get_render_size(canvas_size)
+	return math.max(math.floor(canvas_size.x / SIZE_STEP) * SIZE_STEP, SIZE_STEP * 4),
+	math.max(math.floor(canvas_size.y / SIZE_STEP) * SIZE_STEP, SIZE_STEP * 4)
+end
 
-	if not entity then return end
+local function apply_size(state, width, height)
+	state.view:SetWidth(width)
+	state.view:SetHeight(height)
+	state.view:SetSupersample(width * height <= 900 * 600 and 2 or 1)
+end
 
-	local visual = entity.visual
-	local view = SceneView.New{TransparentSky = false}
-	view:SetEnvironment(Environment.GetPreset(DEFAULT_ENVIRONMENT))
+local ModelView = react.Component(|props| -> do
+	local entry = props.Entry
+	local canvas = react.UseRef()
+	local status, set_status = react.UseState("loading...")
+	-- everything the frames and the mouse change lives here, the scene view and the entity go when the window does
+	local state = react.UseResource(|| -> do
+		local entity = props.Entity
+		local view = SceneView.New{TransparentSky = false}
+		local started = system.GetElapsedTime()
+		view:SetEnvironment(Environment.GetPreset(DEFAULT_ENVIRONMENT))
 
-	function view.OnDrawGeometry()
-		SceneView.DrawVisual(visual)
-	end
-
-	local orbit = OrbitCamera.New(view:GetCamera())
-	local started = system.GetElapsedTime()
-	local last_time = started
-	local ready = false
-	local sized = false
-	local failed = false
-	local auto_rotate = false
-	local drag
-	local drag_button
-	local drag_x
-	local drag_y
-	local last_press = 0
-	local pending_width
-	local pending_height
-	local pending_since
-	local status_text
-
-	local function set_status(text)
-		if status_text and status_text:IsValid() then status_text.text:SetText(text) end
-	end
-
-	local function fit()
-		visual:BuildAABB()
-		local aabb = visual:GetWorldAABB()
-		local size = Vec3(aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z)
-		local center = Vec3(
-			(aabb.min_x + aabb.max_x) / 2,
-			(aabb.min_y + aabb.max_y) / 2,
-			(aabb.min_z + aabb.max_z) / 2
-		)
-		orbit:Fit(center, math.max(size:GetLength() / 2, 1e-3), view:GetWidth() / view:GetHeight())
-		orbit:Apply()
-		view:Invalidate()
-	end
-
-	local function update_loading(now)
-		if failed then return end
-
-		if now - started > LOAD_TIMEOUT then
-			failed = true
-			set_status("could not load " .. entry.path)
-			return
+		function view.OnDrawGeometry()
+			SceneView.DrawVisual(entity.visual)
 		end
 
-		local entries = visual:GetRenderEntries()
+		return {
+			entity = entity,
+			visual = entity.visual,
+			view = view,
+			orbit = OrbitCamera.New(view:GetCamera()),
+			started = started,
+			last_time = started,
+			last_press = 0,
+			ready = false,
+			sized = false,
+			failed = false,
+			auto_rotate = false,
+		}
+	end, |state| -> do
+		state.view:Remove()
 
-		if not visual.Loading and entries[1] and previews.AreModelMaterialsReady(visual) then
-			ready = true
-			-- not before, the first render is at the size of the canvas
-			view:SetAutoRender(true)
-			fit()
-			set_status(HELP)
-		end
-	end
+		if state.entity:IsValid() then state.entity:Remove() end
+	end, {})
 
-	local function get_render_size(canvas_size)
-		return math.max(math.floor(canvas_size.x / SIZE_STEP) * SIZE_STEP, SIZE_STEP * 4),
-		math.max(math.floor(canvas_size.y / SIZE_STEP) * SIZE_STEP, SIZE_STEP * 4)
-	end
+	react.UseEvent("Update", || -> do
+		local panel = canvas.current
 
-	local function apply_size(width, height)
-		view:SetWidth(width)
-		view:SetHeight(height)
-		view:SetSupersample(width * height <= 900 * 600 and 2 or 1)
-	end
+		if not panel then return end
 
-	-- the view follows the canvas once it has stopped changing size, a size of passes is not free
-	local function update_size(now, canvas_size)
-		local width, height = get_render_size(canvas_size)
-
-		if width == view:GetWidth() and height == view:GetHeight() then
-			pending_since = nil
-			return
-		end
-
-		if pending_since == nil or width ~= pending_width or height ~= pending_height then
-			pending_width, pending_height, pending_since = width, height, now
-			return
-		end
-
-		if now - pending_since < RESIZE_DELAY then return end
-
-		pending_since = nil
-		apply_size(width, height)
-	end
-
-	local function update_drag()
-		if not drag then return false end
-
-		-- the release isn't seen when it happens outside of the canvas
-		if not input.IsMouseDown(drag_button) then
-			drag = nil
-			return false
-		end
-
-		local x, y = system.GetWindow():GetMousePosition():Unpack()
-		local dx, dy = x - drag_x, y - drag_y
-		drag_x, drag_y = x, y
-
-		if dx == 0 and dy == 0 then return false end
-
-		if drag == "orbit" then
-			orbit:Rotate(dx, dy)
-		else
-			orbit:Pan(dx, dy, view:GetHeight())
-		end
-
-		return true
-	end
-
-	local function on_update(self)
+		local view = state.view
 		local now = system.GetElapsedTime()
-		local dt = math.min(now - last_time, 0.1)
-		last_time = now
-		local canvas_size = self.transform:GetSize()
+		local dt = math.min(now - state.last_time, 0.1)
+		state.last_time = now
+		local canvas_size = panel.transform:GetSize()
 
-		if not sized then
+		if not state.sized then
 			-- the layout hasn't given the canvas its size yet
 			if canvas_size.x < SIZE_STEP * 4 or canvas_size.y < SIZE_STEP * 4 then return end
 
-			sized = true
-			apply_size(get_render_size(canvas_size))
+			state.sized = true
+			local width, height = get_render_size(canvas_size)
+			apply_size(state, width, height)
 		end
 
-		if not ready then
-			update_loading(now)
+		if not state.ready then
+			if state.failed then return end
+
+			if now - state.started > LOAD_TIMEOUT then
+				state.failed = true
+				set_status("could not load " .. entry.path)
+
+				return
+			end
+
+			if
+				not state.visual.Loading and
+				state.visual:GetRenderEntries()[1] and
+				previews.AreModelMaterialsReady(state.visual)
+			then
+				state.ready = true
+				-- not before, the first render is at the size of the canvas
+				view:SetAutoRender(true)
+				fit(state)
+				set_status(HELP)
+			end
+
 			return
 		end
 
-		update_size(now, canvas_size)
-		local changed = update_drag()
+		-- the view follows the canvas once it has stopped changing size, a size of passes is not free
+		local width, height = get_render_size(canvas_size)
 
-		if auto_rotate and not drag then
-			orbit:Rotate(dt * 40, 0)
+		if width == view:GetWidth() and height == view:GetHeight() then
+			state.pending_since = nil
+		elseif
+			state.pending_since == nil or
+			width ~= state.pending_width or
+			height ~= state.pending_height
+		then
+			state.pending_width, state.pending_height, state.pending_since = width, height, now
+		elseif now - state.pending_since >= RESIZE_DELAY then
+			state.pending_since = nil
+			apply_size(state, width, height)
+		end
+
+		local changed = false
+
+		if state.drag then
+			-- the release isn't seen when it happens outside of the canvas
+			if not input.IsMouseDown(state.drag_button) then
+				state.drag = nil
+			else
+				local x, y = system.GetWindow():GetMousePosition():Unpack()
+				local dx, dy = x - state.drag_x, y - state.drag_y
+				state.drag_x, state.drag_y = x, y
+
+				if dx ~= 0 or dy ~= 0 then
+					if state.drag == "orbit" then
+						state.orbit:Rotate(dx, dy)
+					else
+						state.orbit:Pan(dx, dy, view:GetHeight())
+					end
+
+					changed = true
+				end
+			end
+		end
+
+		if state.auto_rotate and not state.drag then
+			state.orbit:Rotate(dt * 40, 0)
 			changed = true
 		end
 
 		if changed then
-			orbit:Apply()
+			state.orbit:Apply()
 			view:Invalidate()
 		end
-	end
+	end)
 
-	local function on_mouse_input(self, button, press)
+	local on_mouse_input = react.UseCallback(|self, button, press| -> do
 		if button == "mwheel_up" or button == "mwheel_down" then
-			if ready and press then
-				orbit:Zoom(button == "mwheel_up" and -1 or 1)
-				orbit:Apply()
-				view:Invalidate()
+			if state.ready and press then
+				state.orbit:Zoom(button == "mwheel_up" and -1 or 1)
+				state.orbit:Apply()
+				state.view:Invalidate()
 			end
 
 			return true
 		end
 
-		if button ~= "button_1" and button ~= "button_2" and button ~= "button_3" then
-			return
-		end
+		if button ~= "button_1" and button ~= "button_2" and button ~= "button_3" then return end
 
 		if not press then
-			drag = nil
+			state.drag = nil
+
 			return true
 		end
 
-		if not ready then return true end
+		if not state.ready then return true end
 
-		drag_x, drag_y = system.GetWindow():GetMousePosition():Unpack()
-		drag_button = button
+		state.drag_x, state.drag_y = system.GetWindow():GetMousePosition():Unpack()
+		state.drag_button = button
 
 		if button == "button_1" then
-			drag = "orbit"
+			state.drag = "orbit"
 			local now = system.GetTime()
 
-			if now - last_press < DOUBLE_CLICK_TIME then
-				orbit:Reset()
-				orbit:Apply()
-				view:Invalidate()
-				last_press = 0
+			if now - state.last_press < DOUBLE_CLICK_TIME then
+				state.orbit:Reset()
+				state.orbit:Apply()
+				state.view:Invalidate()
+				state.last_press = 0
 			else
-				last_press = now
+				state.last_press = now
 			end
 		else
-			drag = "pan"
+			state.drag = "pan"
 		end
 
 		return true
-	end
-
-	local function draw_canvas(self)
+	end, {})
+	local draw = react.UseCallback(|self| -> do
 		local size = self.Owner.transform:GetSize()
 		render2d.SetTexture(nil)
 		render2d.SetColor(0.07, 0.08, 0.09, 1)
 		render2d.DrawRect(0, 0, size.x, size.y)
 
-		if not (ready and view:HasRendered()) then return end
+		if not (state.ready and state.view:HasRendered()) then return end
 
-		render2d.PushTexture(view:GetTexture())
+		render2d.PushTexture(state.view:GetTexture())
 		render2d.PushColorUV(0, 1, 1, 0, 0)
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.DrawRect(0, 0, size.x, size.y)
 		render2d.PopColorUV()
 		render2d.PopTexture()
-	end
+	end, {})
 
-	local window = Window{
-		Key = key,
+	return ViewerWindow{
 		Title = entry.path:upper(),
 		Size = WINDOW_SIZE,
-		Padding = "none",
-		Position = (Panel.World.transform:GetSize() - WINDOW_SIZE) / 2,
 		layout = {FitHeight = false, FitWidth = false},
 	}{
 		Column{
@@ -271,24 +264,18 @@ return function(entry)
 					Options = Environment.GetPresetNames(),
 					Value = DEFAULT_ENVIRONMENT,
 					Padding = "XS",
-					OnSelect = function(value)
-						view:SetEnvironment(Environment.GetPreset(value))
-					end,
+					OnSelect = |value| -> state.view:SetEnvironment(Environment.GetPreset(value)),
 					layout = {MinSize = Vec2(180, 0), MaxSize = Vec2(180, 0), GrowWidth = 0},
 				},
 				Checkbox{
 					Text = "Background",
 					Value = true,
-					OnChange = function(value)
-						view:SetTransparentSky(not value)
-					end,
+					OnChange = |value| -> state.view:SetTransparentSky(not value),
 				},
 				Checkbox{
 					Text = "Auto rotate",
 					Value = false,
-					OnChange = function(value)
-						auto_rotate = value
-					end,
+					OnChange = |value| -> do state.auto_rotate = value end,
 				},
 				Text{Text = "Exposure", Color = "text_disabled", layout = {FitWidth = true}},
 				Slider{
@@ -296,55 +283,40 @@ return function(entry)
 					Min = -4,
 					Max = 4,
 					Value = 0,
-					OnChange = function(value)
-						view:SetExposureCompensation(value)
-					end,
+					OnChange = |value| -> state.view:SetExposureCompensation(value),
 					Tooltip = "exposure compensation in stops",
 					layout = {MinSize = Vec2(140, 16), MaxSize = Vec2(140, 16), FitWidth = false},
 				},
 				Button{
 					Text = "Reset view",
 					Mode = "outline",
-					OnClick = function()
-						if not ready then return end
+					OnClick = || -> do
+						if not state.ready then return end
 
-						orbit:Reset()
-						orbit:Apply()
-						view:Invalidate()
+						state.orbit:Reset()
+						state.orbit:Apply()
+						state.view:Invalidate()
 					end,
 				},
 			},
-			Panel.New{
+			Canvas{
 				Name = "ModelViewerCanvas",
-				transform = true,
-				visual = {OnDraw = draw_canvas},
-				mouse_input = {Cursor = "sizeall"},
-				layout = {GrowWidth = 1, GrowHeight = 1},
-				Ref = function(self)
-					self:AddGlobalEvent("Update")
-				end,
-				OnUpdate = on_update,
+				Cursor = "sizeall",
+				Ref = canvas,
+				OnDraw = draw,
 				OnMouseInput = on_mouse_input,
 			},
-			Text{
-				Ref = function(self)
-					status_text = self
-				end,
-				Text = "loading...",
-				Color = "text_disabled",
-				layout = {GrowWidth = 1},
-			},
+			Text{Text = status, Color = "text_disabled", layout = {GrowWidth = 1}},
 		},
 	}
+end)
 
-	window:CallOnRemove(
-		function()
-			view:Remove()
+return function(entry)
+	return kit.OpenOnce("ModelViewer/" .. entry.path, function()
+		local entity = previews.CreateModelEntity(entry.path)
 
-			if entity:IsValid() then entity:Remove() end
-		end,
-		"model_viewer_cleanup"
-	)
+		if not entity then return end
 
-	return Panel.World:Ensure(window)
+		return react.Mount(ModelView{Entry = entry, Entity = entity}, Panel.World):GetEntity()
+	end)
 end
