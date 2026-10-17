@@ -19,6 +19,10 @@ The profiler uses luajit's statistical profiler and jit.attach to observe trace 
 
 - The profile capture is saved to `storage/logs/jit_profile_someid.glwp` which can be read in detail, ie `PROF.Summary("storage/logs/jit_profile_someid.glwp", {top_n = 20})`
 
+# Desktop
+
+`goluwa/render2d/ui/desktop.lua` is a small desktop (the keys are bound in `goluwa/main.lua`): hold `c` for one button per program and a free cursor (it hides on release unless keyboard focus is inside a program window), Escape toggles it with a dimmed backdrop and it stays. `desktop.RegisterProgram{Name, Icon, Pinned, Positioned, Create, OnOpen, OnShown, OnHidden}` adds a program, `Create` returns a `Window`. `OnShown` and `OnHidden` get the window when the desktop shows or hides while the program is open. The defaults: a pinned window (`Window{Pinnable = true}` adds a pin button to its header, `Pinned` is the state, `OnPinChanged` the callback; a program's `Pinned` is the starting state) stays on screen in HUD mode when the desktop hides (`Window:SetHud(true)`: no header, ignores the mouse, fits its content), an unpinned one hides and comes back when the desktop shows. A minimized program stays minimized across the desktop hiding and showing: the dock (`widgets/dock.lua`, the taskbar) lists it and is pinned up while the desktop is shown (`Dock:SetPinned`), clicking its item or opening the program from the desktop restores it. The desktop has a menu bar on top (ENGINE > exit, OPTIONS > theme, the theme switcher the editor used to have) over the row of program buttons. Programs are Pvars and Perf (`addons/debug`), the UI Gallery (`addons/ui_gallery/lua/autorun/render_2d/gallery_program.lua`), the asset browser (`addons/editor/lua/autorun/render_3d/asset_browser_program.lua`) and the Editor (`addons/editor/lua/autorun/render_3d/editor_program.lua`, an Interactive program: opening it hides the desktop, it keeps the mouse itself, Escape closes it (or leaves play mode)). With `--hot-reload` the desktop opens on the editor.
+
 # Optimizations
 
 - Trace abort reasons like `blacklisted` are caused by other trace abort reasons, it means that it was attempted too many times

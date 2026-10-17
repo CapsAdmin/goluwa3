@@ -1,6 +1,5 @@
-local input = import("goluwa/input.lua")
+local desktop = import("goluwa/render2d/ui/desktop.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
@@ -12,7 +11,6 @@ local Button = import("goluwa/render2d/ui/widgets/button.lua")
 local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
 local WIDTH = 520
 local SEARCH_HEIGHT = 28
-local panel = NULL
 local property_editor
 local function build_items()
 	local items = {}
@@ -60,95 +58,59 @@ local function reset_all()
 	refresh_values()
 end
 
-local function is_editing()
-	if not panel:IsValid() then return false end
-
-	local focused = objects.GetFocusedObject()
-
-	while focused and focused:IsValid() do
-		if focused == panel then return true end
-
-		focused = focused:GetParent()
-	end
-
-	return false
-end
-
-local function show()
-	local world = Panel.World
-
-	if not panel:IsValid() then
-		panel = world:Ensure(
-			Window{
-				Key = "PvarsWindow",
-				Title = "PVARS",
-				RequestMouse = true,
-				Padding = "none",
-				MinSize = Vec2(WIDTH, 200),
-				OnClose = function()
-					panel.visual:SetVisible(false)
+desktop.RegisterProgram{
+	Name = "Pvars",
+	Icon = "settings",
+	Positioned = true,
+	OnOpen = refresh_values,
+	Create = function()
+		local world_size = Panel.World.transform:GetSize()
+		return Window{
+			Title = "PVARS",
+			Size = Vec2(WIDTH, world_size.y),
+			Position = Vec2(world_size.x - WIDTH, 0),
+			MinSize = Vec2(WIDTH, 200),
+		}{
+			TextEdit{
+				Hint = "Search",
+				Wrap = false,
+				ScrollX = false,
+				ScrollY = false,
+				ScrollbarVisible = false,
+				Size = Vec2(0, SEARCH_HEIGHT),
+				MinSize = Vec2(0, SEARCH_HEIGHT),
+				MaxSize = Vec2(0, SEARCH_HEIGHT),
+				OnTextChanged = function(_, text)
+					property_editor:SetFilter(text)
 				end,
-			}{
-				TextEdit{
-					Hint = "Search",
-					Wrap = false,
-					ScrollX = false,
-					ScrollY = false,
-					ScrollbarVisible = false,
-					Size = Vec2(0, SEARCH_HEIGHT),
-					MinSize = Vec2(0, SEARCH_HEIGHT),
-					MaxSize = Vec2(0, SEARCH_HEIGHT),
-					OnTextChanged = function(_, text)
-						property_editor:SetFilter(text)
-					end,
-					layout = {GrowWidth = 1},
+				layout = {GrowWidth = 1},
+			},
+			ScrollablePanel{
+				ScrollX = false,
+				ScrollY = true,
+				Padding = "M",
+				layout = {
+					GrowWidth = 1,
+					GrowHeight = 1,
 				},
-				ScrollablePanel{
-					ScrollX = false,
-					ScrollY = true,
-					Padding = "M",
+			}{
+				PropertyEditor{
+					Ref = function(self)
+						property_editor = self
+					end,
+					Items = build_items(),
 					layout = {
 						GrowWidth = 1,
-						GrowHeight = 1,
-					},
-				}{
-					PropertyEditor{
-						Ref = function(self)
-							property_editor = self
-						end,
-						Items = build_items(),
-						layout = {
-							GrowWidth = 1,
-						},
 					},
 				},
-				Row{layout = {Padding = "M", FitHeight = true, GrowWidth = 1}}{
-					Button{
-						Text = "Reset all",
-						Mode = "outline",
-						OnClick = reset_all,
-					},
+			},
+			Row{layout = {Padding = "M", FitHeight = true, GrowWidth = 1}}{
+				Button{
+					Text = "Reset all",
+					Mode = "outline",
+					OnClick = reset_all,
 				},
-			}
-		)
-	else
-		refresh_values()
-	end
-
-	local size = world.transform:GetSize()
-	panel.transform:SetSize(Vec2(WIDTH, size.y))
-	panel.transform:SetPosition(Vec2(size.x - WIDTH, 0))
-	panel.visual:SetVisible(true)
-end
-
-input.Bind("c", "+show_pvars", function()
-	show()
-end)
-
-input.Bind("c", "-show_pvars", function()
-	if not panel:IsValid() then return end
-
-	if is_editing() then return end
-
-	panel.visual:SetVisible(false)
-end)
+			},
+		}
+	end,
+}

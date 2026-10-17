@@ -360,14 +360,6 @@ return function(props)
 					Items = function()
 						return {
 							MenuItem{
-								Text = "ui gallery",
-								Icon = "grid",
-								OnClick = function()
-									local Gallery = import("addons/ui_gallery/lua/gallery_browser.lua")
-									Panel.World:Ensure(Gallery({Key = "GalleryWindow"}))
-								end,
-							},
-							MenuItem{
 								Text = "asset browser",
 								Icon = "folder",
 								OnClick = function()
@@ -413,14 +405,6 @@ return function(props)
 									end
 
 									return items
-								end,
-							},
-							MenuSpacer{},
-							MenuItem{
-								Text = "exit",
-								Icon = "power",
-								OnClick = function()
-									system.ShutDown(0)
 								end,
 							},
 						}
@@ -513,28 +497,6 @@ return function(props)
 									show_nearby = not show_nearby
 									nearby_dirty = true
 									tree_view:SetNearbyRoot(show_nearby and Entity.World or nil)
-								end,
-							},
-							MenuItem{
-								Text = "Theme",
-								Icon = "palette",
-								Items = function()
-									local items = {}
-
-									for _, label in ipairs(theme.GetAvailable()) do
-										if label == theme.active:GetName() then label = label .. " (active)" end
-
-										items[#items + 1] = MenuItem{
-											Text = label,
-											OnClick = function()
-												if label == theme.active:GetName() then return end
-
-												theme.LoadTheme(label)
-											end,
-										}
-									end
-
-									return items
 								end,
 							},
 						}

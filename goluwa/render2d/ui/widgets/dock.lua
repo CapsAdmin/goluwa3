@@ -21,6 +21,7 @@ META:GetSet("ShowDistance", 24)
 META:GetSet("HideDelay", 0.6)
 META:GetSet("SlideSpeed", 14)
 META:GetSet("Margin", "M")
+META:GetSet("Pinned", false)
 META:EndStorable()
 local instance
 
@@ -113,7 +114,7 @@ function META:OnUpdate()
 		self._hold_until = now + self.HideDelay
 	end
 
-	if now < self._reveal_until or now < (self._hold_until or 0) then target = 1 end
+	if self.Pinned or now < self._reveal_until or now < (self._hold_until or 0) then target = 1 end
 
 	local previous = self._fraction
 	self._fraction = previous + (

@@ -178,6 +178,12 @@ local function run_game()
 
 			render.Initialize({samples = "1"})
 			import("goluwa/render2d/render2d.lua").Initialize()
+
+			local input = import("goluwa/input.lua")
+			local desktop = import("goluwa/render2d/ui/desktop.lua")
+			input.Bind("c", "+desktop", desktop.Hold)
+			input.Bind("c", "-desktop", desktop.Release)
+			input.Bind("escape", "toggle_desktop", desktop.ToggleShown)
 		end
 	end
 
