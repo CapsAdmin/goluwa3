@@ -360,6 +360,19 @@ end
 
 import.loaded["goluwa/filesystem/vfs.lua"] = vfs
 
+function vfs.Prefetch(path, callback)
+	local data = vfs.TranslatePath(path)[1]
+
+	if not data then return callback() end
+
+	local file = data.context:CreateObject()
+	file:SetMode("read")
+	file:Prefetch(data.path_info, function()
+		file:Remove()
+		callback()
+	end)
+end
+
 do
 	local path_utilities = import("goluwa/filesystem/path_utilities.lua")
 

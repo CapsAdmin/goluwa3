@@ -189,27 +189,29 @@ function codec.DecodeFile(path, lib)
 end
 
 function codec.DecodeFileAsync(path, callback)
-	local file_content = vfs.Read(path)
-	local mod = file_content and codec.GuessFormat(path, file_content)
+	vfs.Prefetch(path, function()
+		local file_content = vfs.Read(path)
+		local mod = file_content and codec.GuessFormat(path, file_content)
 
-	if not (mod and mod.thread_job) then
-		local ok, decoded, err = pcall(codec.DecodeFile, path)
-
-		if ok then callback(decoded, err) else callback(nil, decoded) end
-
-		return
-	end
-
-	local cost = mod.ThreadCost and mod.ThreadCost(file_content) or #file_content
-
-	import("goluwa/thread_pool.lua").Run(mod.thread_job, file_content, cost):OnDone(function(job)
-		if job.err then
+		if not (mod and mod.thread_job) then
 			local ok, decoded, err = pcall(codec.DecodeFile, path)
 
 			if ok then callback(decoded, err) else callback(nil, decoded) end
-		else
-			callback(codec.AttachBlob(job.meta, job.blob))
+
+			return
 		end
+
+		local cost = mod.ThreadCost and mod.ThreadCost(file_content) or #file_content
+
+		import("goluwa/thread_pool.lua").Run(mod.thread_job, file_content, cost):OnDone(function(job)
+			if job.err then
+				local ok, decoded, err = pcall(codec.DecodeFile, path)
+
+				if ok then callback(decoded, err) else callback(nil, decoded) end
+			else
+				callback(codec.AttachBlob(job.meta, job.blob))
+			end
+		end)
 	end)
 end
 

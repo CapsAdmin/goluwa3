@@ -5,6 +5,7 @@ local event = import("goluwa/event.lua")
 local resource = import("goluwa/resource.lua")
 local utility = import("goluwa/utility.lua")
 local tasks = import("goluwa/tasks.lua")
+local vfs = import("goluwa/vfs.lua")
 local assets = import("goluwa/assets.lua")
 model_loader.model_decoders = model_loader.model_decoders or {}
 
@@ -145,9 +146,11 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 				loads:Finish(path, out)
 			end
 
-			utility.PushTimeWarning()
-			thread:Start()
-			utility.PopTimeWarning("decoding " .. path, 0.5)
+			vfs.Prefetch(full_path, function()
+				utility.PushTimeWarning()
+				thread:Start()
+				utility.PopTimeWarning("decoding " .. path, 0.5)
+			end)
 		else
 			fail_model_load(loads, path, "unknown format " .. path)
 		end

@@ -137,6 +137,62 @@ function CONTEXT:ParseZipData(file_data, archive_path, base_offset)
 	return true
 end
 
+local inflate_job_source = [=[
+	local input = ...
+	local ffi = require("ffi")
+	local deflate = import("goluwa/codecs/deflate.lua")
+	local Buffer = import("goluwa/structs/buffer.lua")
+	local file = assert(io.open(input.path, "rb"))
+	file:seek("set", input.offset)
+	local compressed = assert(file:read(input.compressed_size))
+	file:close()
+	local out = deflate.Decode(
+		compressed,
+		"raw",
+		Buffer.New(ffi.new("uint8_t[?]", input.size), input.size):MakeWritable()
+	)
+	return {}, out:ReadBytes(input.size)
+]=]
+
+-- the entry is inflated on a worker thread, the Open that follows takes the result instead of inflating it itself
+function CONTEXT:Prefetch(path_info, callback)
+	if self:GetMode() ~= "read" then return callback() end
+
+	local tree, relative, archive_path = self:GetFileTree(path_info)
+
+	if not tree then return callback() end
+
+	local file_info = tree:GetEntry(relative)
+
+	if
+		not file_info or
+		file_info.is_dir or
+		file_info.inflated or
+		file_info.compressionMethod ~= 8
+	then
+		return callback()
+	end
+
+	local os_path = self:TranslateArchivePath(file_info, archive_path)
+
+	if os_path:sub(1, 3) ~= "os:" then return callback() end
+
+	import("goluwa/thread_pool.lua").Run(
+		inflate_job_source,
+		{
+			path = os_path:sub(4),
+			offset = file_info.offset,
+			compressed_size = file_info.compressedSize,
+			size = file_info.size,
+		},
+		file_info.size
+	):OnDone(function(job)
+		if not job.err then file_info.inflated = ffi.string(job.blob.ptr, job.blob.len) end
+
+		callback()
+	end)
+end
+
 function CONTEXT:TranslateArchivePath(file_info, archive_path)
 	return file_info.archive_path or (self.ArchiveReadPrefix .. archive_path)
 end
@@ -153,14 +209,21 @@ function CONTEXT:Open(path_info, mode, ...)
 
 		if file_info.is_dir then return false, "file is a directory" end
 
+		self.position = 0
+		self.file_info = file_info
+
+		if file_info.inflated then
+			self.data = file_info.inflated
+			file_info.inflated = nil
+			return true
+		end
+
 		local archive_path = self:TranslateArchivePath(file_info, archive_path)
 		local file, err = vfs.Open(archive_path)
 
 		if not file then return false, err end
 
 		file:SetPosition(file_info.offset)
-		self.position = 0
-		self.file_info = file_info
 		local compressed_data = file:ReadBytes(file_info.compressedSize)
 		file:Close()
 
