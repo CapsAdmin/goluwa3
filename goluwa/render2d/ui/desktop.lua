@@ -55,6 +55,10 @@ function desktop.RegisterMenu(menu)
 	root_dirty = true
 end
 
+function desktop.IsBackdrop(panel)
+	return panel == root
+end
+
 function desktop.IsShown()
 	return shown
 end
