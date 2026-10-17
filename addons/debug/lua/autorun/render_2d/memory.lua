@@ -5,32 +5,18 @@ local callstack = import("goluwa/debug/callstack.lua")
 do
 	if not RENDER_2D then return end
 
-	local Color = import("goluwa/structs/color.lua")
 	local commands = import("goluwa/cli/commands.lua")
-	local event = import("goluwa/event.lua")
-	local input = import("goluwa/input.lua")
+	local Vec2 = import("goluwa/structs/vec2.lua")
 	local render = import("goluwa/render/render.lua")
-	local render2d = import("goluwa/render2d/render2d.lua")
 	local system = import("goluwa/system.lua")
 	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
+	local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
+	local perf = import("lua/perf.lua")
 	local WINDOW = 0.5
-	local MAX_ROWS = 28
-	local LINE_HEIGHT = 15
-	local PANEL_WIDTH = 520
-	local SIZE_X = 330
-	local COUNT_X = 410
-	local BAR_X = 440
-	local BAR_WIDTH = 70
-	local WHITE = Color(0.88, 0.9, 0.94, 1)
-	local DIM = Color(0.6, 0.64, 0.7, 1)
-	local HEAD = Color(1, 0.85, 0.4, 1)
-	local WARN = Color(1, 0.5, 0.4, 1)
-	local visible = false
+	local MAX_ROWS = 20
 	local window_start = 0
 	local snapshot
-	local row_y = 0
-	local panel_height = 480
 
 	local function format_bytes(bytes)
 		if bytes >= 1024 * 1024 * 1024 then
@@ -117,94 +103,74 @@ do
 		}
 	end
 
-	local function text(x, panel_x, label, color)
-		render2d.DrawText{
-			text = label,
-			x = panel_x + x,
-			y = row_y,
-			foreground_color = color or WHITE,
+	perf.RegisterTab("MEMORY", 2, function()
+		return StatTable{
+			Size = Vec2(660, 430),
+			OnRows = function()
+				local now = system.GetElapsedTime()
+
+				if not snapshot or now - window_start >= WINDOW then
+					snapshot = take_snapshot()
+					window_start = now
+				end
+
+				local s = snapshot
+				local fraction = s.heap > 0 and s.total / s.heap or 0
+				local rows = {
+					{
+						label = string.format(
+							"vram  %s of %s device local (%.0f%%)  %d allocations  +%s awaiting release",
+							format_bytes(s.total),
+							format_bytes(s.heap),
+							fraction * 100,
+							s.count,
+							format_bytes(s.pending)
+						),
+						color = fraction > 0.9 and "warn" or "head",
+					},
+				}
+
+				for i = 1, math.min(MAX_ROWS, #s.groups) do
+					local group = s.groups[i]
+					rows[#rows + 1] = {
+						label = group.label,
+						value = format_bytes(group.bytes),
+						detail = "x" .. group.count,
+						fraction = group.bytes / s.groups[1].bytes,
+						color = i == 1 and "head" or nil,
+					}
+				end
+
+				if #s.groups > MAX_ROWS then
+					local rest = 0
+
+					for i = MAX_ROWS + 1, #s.groups do
+						rest = rest + s.groups[i].bytes
+					end
+
+					rows[#rows + 1] = {
+						label = string.format("%d more labels", #s.groups - MAX_ROWS),
+						value = format_bytes(rest),
+						color = "dim",
+					}
+				end
+
+				if s.pending_groups[1] then
+					rows[#rows + 1] = {label = "awaiting release", color = "dim"}
+
+					for i = 1, math.min(5, #s.pending_groups) do
+						rows[#rows + 1] = {
+							label = s.pending_groups[i].label,
+							value = format_bytes(s.pending_groups[i].bytes),
+							color = "dim",
+						}
+					end
+				end
+
+				return rows
+			end,
 		}
-	end
-
-	local function draw_snapshot(x, y)
-		local s = snapshot
-		render2d.SetTexture(nil)
-		render2d.SetColor(0, 0, 0, 0.72)
-		render2d.DrawRoundedRect(x, y, PANEL_WIDTH, panel_height, 6)
-		row_y = y + 8
-		local fraction = s.heap > 0 and s.total / s.heap or 0
-		text(
-			10,
-			x,
-			string.format(
-				"vram  %s of %s device local (%.0f%%)  %d allocations  +%s awaiting release",
-				format_bytes(s.total),
-				format_bytes(s.heap),
-				fraction * 100,
-				s.count,
-				format_bytes(s.pending)
-			),
-			fraction > 0.9 and WARN or HEAD
-		)
-		row_y = row_y + LINE_HEIGHT + 4
-
-		for i = 1, math.min(MAX_ROWS, #s.groups) do
-			local group = s.groups[i]
-			local share = group.bytes / s.total
-			text(10, x, group.label, i == 1 and HEAD or WHITE)
-			text(SIZE_X, x, format_bytes(group.bytes), WHITE)
-			text(COUNT_X, x, "x" .. group.count, DIM)
-			render2d.SetTexture(nil)
-			render2d.SetColor(0.35, 0.6, 0.95, 0.85)
-			render2d.DrawRect(x + BAR_X, row_y + 3, BAR_WIDTH * share, LINE_HEIGHT - 8)
-			row_y = row_y + LINE_HEIGHT
-		end
-
-		if #s.groups > MAX_ROWS then
-			local rest = 0
-
-			for i = MAX_ROWS + 1, #s.groups do
-				rest = rest + s.groups[i].bytes
-			end
-
-			text(10, x, string.format("%d more labels", #s.groups - MAX_ROWS), DIM)
-			text(SIZE_X, x, format_bytes(rest), DIM)
-			row_y = row_y + LINE_HEIGHT
-		end
-
-		if s.pending_groups[1] then
-			text(10, x, "awaiting release", DIM)
-			row_y = row_y + LINE_HEIGHT
-
-			for i = 1, math.min(5, #s.pending_groups) do
-				text(10, x, s.pending_groups[i].label, DIM)
-				text(SIZE_X, x, format_bytes(s.pending_groups[i].bytes), DIM)
-				row_y = row_y + LINE_HEIGHT
-			end
-		end
-
-		panel_height = row_y - y + 10
-	end
-
-	event.AddListener("Draw2D", "vram_hud", function()
-		if not visible then return end
-
-		local now = system.GetElapsedTime()
-
-		if not snapshot or now - window_start >= WINDOW then
-			snapshot = take_snapshot()
-			window_start = now
-		end
-
-		draw_snapshot(10, 10)
 	end)
-
-	commands.Add("vram", function()
-		visible = not visible
-		print("[VRAM] " .. (visible and "Enabled" or "Disabled"))
-	end)
-
-	input.Bind("f2", "vram")
 
 	commands.Add("vram_dump=number[40]", function(limit)
 		local s = take_snapshot()
