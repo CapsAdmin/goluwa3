@@ -5,14 +5,8 @@ local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local objects = import("goluwa/objects/objects.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Frame = import("goluwa/render2d/ui/elements/frame.lua")
-local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
-local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 local DemoObject = objects.CreateTemplate("gallery_demo_object")
 DemoObject:StartStorable()
@@ -30,153 +24,7 @@ DemoObject:GetSet("AColor", Color(1, 0.5, 0.2, 1), {type = "color"})
 DemoObject:EndStorable()
 DemoObject:Register()
 
-local function build_items(state)
-	local function changed(key)
-		return function(node, value)
-			state[key] = value
-			state.refresh()
-		end
-	end
-
-	return {
-		{
-			Key = "appearance",
-			Text = "Appearance",
-			Expanded = true,
-			Description = "Surface and presentation controls.",
-			Children = {
-				{
-					Key = "appearance/name",
-					Text = "Display name",
-					Type = "string",
-					Value = state.name,
-					Default = "Beacon Drone",
-					Description = "Shown in the inspector.",
-					OnChange = changed("name"),
-				},
-				{
-					Key = "appearance/visible",
-					Text = "Visible",
-					Type = "boolean",
-					Value = state.visible,
-					Default = true,
-					OnChange = changed("visible"),
-				},
-				{
-					Key = "appearance/material",
-					Text = "Material",
-					Type = "enum",
-					Value = state.material,
-					Default = "glass",
-					Options = {
-						{Text = "Glass", Value = "glass"},
-						{Text = "Scanlines", Value = "scanlines"},
-						{Text = "Hologram", Value = "hologram"},
-						{Text = "Chrome", Value = "chrome"},
-					},
-					OnChange = changed("material"),
-				},
-				{
-					Key = "appearance/opacity",
-					Text = "Opacity",
-					Type = "number",
-					Value = state.opacity,
-					Default = 0.72,
-					Min = 0,
-					Max = 1,
-					Precision = 2,
-					ShowSlider = true,
-					OnChange = changed("opacity"),
-				},
-				{
-					Key = "appearance/color",
-					Text = "Tint",
-					Type = "color",
-					Value = state.color,
-					Default = Color(0.2, 0.7, 1, 1),
-					OnChange = changed("color"),
-				},
-			},
-		},
-		{
-			Key = "motion",
-			Text = "Motion",
-			Expanded = true,
-			Description = "Numbers with ranges, steppers and drag editing.",
-			Children = {
-				{
-					Key = "motion/spin",
-					Text = "Spin speed",
-					Type = "number",
-					Value = state.spin,
-					Default = 38,
-					Min = 0,
-					Max = 360,
-					Precision = 1,
-					ShowStepper = true,
-					OnChange = changed("spin"),
-				},
-				{
-					Key = "motion/count",
-					Text = "Count",
-					Type = "integer",
-					Value = state.count,
-					Default = 4,
-					Min = 1,
-					Max = 16,
-					Precision = 0,
-					ShowStepper = true,
-					OnChange = changed("count"),
-				},
-				{
-					Key = "motion/offset",
-					Text = "Offset",
-					Type = "vec3",
-					Value = state.offset,
-					Default = Vec3(0, 6, 2),
-					Precision = 1,
-					OnChange = changed("offset"),
-				},
-				{
-					Key = "motion/rotation",
-					Text = "Rotation",
-					Type = "ang3",
-					Value = state.rotation,
-					Default = Ang3(0, 0, 0),
-					Precision = 1,
-					OnChange = changed("rotation"),
-				},
-			},
-		},
-		{
-			Key = "notes",
-			Text = "Notes",
-			Expanded = false,
-			Description = "Long text and actions.",
-			Children = {
-				{
-					Key = "notes/text",
-					Text = "Notes",
-					Type = "string",
-					Multiline = true,
-					Value = state.notes,
-					OnChange = changed("notes"),
-				},
-				{
-					Key = "notes/reset",
-					Text = "Reset",
-					Type = "action",
-					ButtonText = "Reset to defaults",
-					OnAction = function()
-						state.reset()
-					end,
-				},
-			},
-		},
-	}
-end
-
-local function new_state()
+local function new_values()
 	return {
 		name = "Beacon Drone",
 		visible = true,
@@ -191,19 +39,161 @@ local function new_state()
 	}
 end
 
-local function snapshot(state)
+-- the values only start the editor off, it keeps them itself and reports every change through changed(key)
+local function build_items(values, changed, reset)
+	local function on_change(key)
+		return |_, value| -> changed(key, value)
+	end
+
+	return {
+		{
+			Key = "appearance",
+			Text = "Appearance",
+			Expanded = true,
+			Description = "Surface and presentation controls.",
+			Children = {
+				{
+					Key = "appearance/name",
+					Text = "Display name",
+					Type = "string",
+					Value = values.name,
+					Default = "Beacon Drone",
+					Description = "Shown in the inspector.",
+					OnChange = on_change("name"),
+				},
+				{
+					Key = "appearance/visible",
+					Text = "Visible",
+					Type = "boolean",
+					Value = values.visible,
+					Default = true,
+					OnChange = on_change("visible"),
+				},
+				{
+					Key = "appearance/material",
+					Text = "Material",
+					Type = "enum",
+					Value = values.material,
+					Default = "glass",
+					Options = {
+						{Text = "Glass", Value = "glass"},
+						{Text = "Scanlines", Value = "scanlines"},
+						{Text = "Hologram", Value = "hologram"},
+						{Text = "Chrome", Value = "chrome"},
+					},
+					OnChange = on_change("material"),
+				},
+				{
+					Key = "appearance/opacity",
+					Text = "Opacity",
+					Type = "number",
+					Value = values.opacity,
+					Default = 0.72,
+					Min = 0,
+					Max = 1,
+					Precision = 2,
+					ShowSlider = true,
+					OnChange = on_change("opacity"),
+				},
+				{
+					Key = "appearance/color",
+					Text = "Tint",
+					Type = "color",
+					Value = values.color,
+					Default = Color(0.2, 0.7, 1, 1),
+					OnChange = on_change("color"),
+				},
+			},
+		},
+		{
+			Key = "motion",
+			Text = "Motion",
+			Expanded = true,
+			Description = "Numbers with ranges, steppers and drag editing.",
+			Children = {
+				{
+					Key = "motion/spin",
+					Text = "Spin speed",
+					Type = "number",
+					Value = values.spin,
+					Default = 38,
+					Min = 0,
+					Max = 360,
+					Precision = 1,
+					ShowStepper = true,
+					OnChange = on_change("spin"),
+				},
+				{
+					Key = "motion/count",
+					Text = "Count",
+					Type = "integer",
+					Value = values.count,
+					Default = 4,
+					Min = 1,
+					Max = 16,
+					Precision = 0,
+					ShowStepper = true,
+					OnChange = on_change("count"),
+				},
+				{
+					Key = "motion/offset",
+					Text = "Offset",
+					Type = "vec3",
+					Value = values.offset,
+					Default = Vec3(0, 6, 2),
+					Precision = 1,
+					OnChange = on_change("offset"),
+				},
+				{
+					Key = "motion/rotation",
+					Text = "Rotation",
+					Type = "ang3",
+					Value = values.rotation,
+					Default = Ang3(0, 0, 0),
+					Precision = 1,
+					OnChange = on_change("rotation"),
+				},
+			},
+		},
+		{
+			Key = "notes",
+			Text = "Notes",
+			Expanded = false,
+			Description = "Long text and actions.",
+			Children = {
+				{
+					Key = "notes/text",
+					Text = "Notes",
+					Type = "string",
+					Multiline = true,
+					Value = values.notes,
+					OnChange = on_change("notes"),
+				},
+				{
+					Key = "notes/reset",
+					Text = "Reset",
+					Type = "action",
+					ButtonText = "Reset to defaults",
+					OnAction = reset,
+				},
+			},
+		},
+	}
+end
+
+local function snapshot(values)
 	return string.format(
 		"name = %s\nvisible = %s\nmaterial = %s\nopacity = %.2f\ncolor = %s\nspin = %.1f\ncount = %d\noffset = %s\nrotation = %s\nnotes = %q",
-		state.name,
-		tostring(state.visible),
-		state.material,
-		state.opacity,
-		tostring(state.color),
-		state.spin,
-		state.count,
-		tostring(state.offset),
-		tostring(state.rotation),
-		state.notes
+		values.name,
+		tostring(values.visible),
+		values.material,
+		values.opacity,
+		tostring(values.color),
+		values.spin,
+		values.count,
+		tostring(values.offset),
+		tostring(values.rotation),
+		values.notes
 	)
 end
 
@@ -211,38 +201,26 @@ return {
 	Name = "property editor",
 	Section = "Data",
 	Order = 3,
-	Create = function()
-		local state = new_state()
-		local view = TextEdit{
-			Editable = false,
-			Wrap = true,
-			ScrollY = true,
-			Size = Vec2(0, 280),
-			MinSize = Vec2(0, 280),
-			MaxSize = Vec2(0, 280),
-		}
-		local editor
+	View = react.Component(|| -> do
+		local values, set_values = react.UseState(new_values)
+		local resets, set_resets = react.UseState(0)
+		local inspector = react.UseRef()
+		local demo = react.UseResource(|| -> DemoObject.New(), |object| -> object:Remove(), {})
+		-- a reset makes a new editor with the default items, the first ones are only used when it opens
+		local items = react.UseMemo(
+			|| -> build_items(
+				values,
+				|key, value| -> set_values(|current| -> table.merge(table.shallow_copy(current), {[key] = value})),
+				|| -> do
+					set_values(new_values())
+					set_resets(|count| -> count + 1)
+				end
+			),
+			{resets}
+		)
 
-		function state.refresh()
-			view:SetText(snapshot(state))
-		end
+		react.UseEffect(|| -> inspector.current:SetObject(demo), {demo})
 
-		function state.reset()
-			local fresh = new_state()
-
-			for key, value in pairs(fresh) do
-				state[key] = value
-			end
-
-			editor:SetItems(build_items(state))
-			state.refresh()
-		end
-
-		editor = PropertyEditor{Items = build_items(state)}
-		state.refresh()
-		local demo = DemoObject.New()
-		local inspector = PropertyEditor{}
-		inspector:SetObject(demo)
 		return kit.Page{
 			Title = "Property editor",
 			Description = "Grouped, labelled editors for numbers, strings, booleans, enums, vectors, colors, assets and actions. Right click any row to copy, paste or reset it.",
@@ -251,14 +229,22 @@ return {
 				Title = "Hand built items",
 				Description = "Items are nodes with a Type and a Value. OnChange(node, value) can veto a change by returning false.",
 			}{
-				Splitter{InitialSize = 460, layout = {MinSize = Vec2(0, 300), MaxSize = Vec2(0, 300)}}{
-					ScrollablePanel{layout = {GrowWidth = 1, GrowHeight = 1}}{editor},
-					Frame{Padding = "S", layout = {GrowWidth = 1, GrowHeight = 1}}{
-						Column{
-							layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch", ChildGap = "XS"},
-						}{
-							Text{Text = "Live state", Font = "body_strong S", IgnoreMouseInput = true},
-							view,
+				ui.Splitter{InitialSize = 460, layout = {MinSize = Vec2(0, 300), MaxSize = Vec2(0, 300)}}{
+					ui.ScrollablePanel{layout = {GrowWidth = 1, GrowHeight = 1}}{
+						ui.PropertyEditor{Key = resets, Items = items},
+					},
+					ui.Frame{Padding = "S", layout = {GrowWidth = 1, GrowHeight = 1}}{
+						ui.Column{layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch", ChildGap = "XS"}}{
+							ui.Text{Text = "Live state", Font = "body_strong S", IgnoreMouseInput = true},
+							ui.TextEdit{
+								Editable = false,
+								Wrap = true,
+								ScrollY = true,
+								Text = snapshot(values),
+								Size = Vec2(0, 280),
+								MinSize = Vec2(0, 280),
+								MaxSize = Vec2(0, 280),
+							},
 						},
 					},
 				},
@@ -267,8 +253,8 @@ return {
 				Title = "Object inspector",
 				Description = "SetObject builds the items from an object's storable properties, including enums, vectors and colors.",
 			}{
-				Frame{Padding = "XS", layout = {GrowWidth = 1, FitHeight = true}}{inspector},
+				ui.Frame{Padding = "XS", layout = {GrowWidth = 1, FitHeight = true}}{ui.PropertyEditor{Ref = inspector}},
 			},
 		}
-	end,
+	end),
 }

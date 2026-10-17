@@ -1,21 +1,17 @@
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Window = import("goluwa/render2d/ui/widgets/window.lua")
-local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
-local ScrollablePanel = import("goluwa/render2d/ui/elements/scrollable_panel.lua")
-local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local Window = react.Element(import("goluwa/render2d/ui/widgets/window.lua"))
+local Dropdown = react.Element(import("goluwa/render2d/ui/widgets/dropdown.lua"))
+local Column = react.Element(import("goluwa/render2d/ui/elements/column.lua"))
+local MenuItem = react.Element(import("goluwa/render2d/ui/elements/context_menu_item.lua"))
+local ScrollablePanel = react.Element(import("goluwa/render2d/ui/elements/scrollable_panel.lua"))
+local Splitter = react.Element(import("goluwa/render2d/ui/elements/splitter.lua"))
+local Text = react.Element(import("goluwa/render2d/ui/elements/text.lua"))
 local theme = import("goluwa/render2d/ui/theme.lua")
 local vfs = import("goluwa/vfs.lua")
-local META = Panel:CreateTemplate("ui_gallery")
-META.Base = Window
-META.Title = "UI GALLERY"
-META:StartStorable()
-META:GetSet("SelectedPage", nil)
-META:EndStorable()
+local ErrorBoundary = react.ErrorBoundary
 local section_order = {
 	"Foundations",
 	"Controls",
@@ -54,135 +50,98 @@ local function load_pages()
 	return pages
 end
 
-local function on_page_click(item)
-	item.Gallery:SelectPage(item.Page)
+local GalleryContext = react.CreateContext()
+-- the page and whether it is selected are the only props, the select function comes from the context and never changes, so only the two items whose selection changed render
+local SidebarItem = react.Memo(
+	react.Component(|props| -> do
+		local gallery = react.UseContext(GalleryContext)
+
+		return MenuItem{
+			Text = props.Page.Name,
+			Padding = "S",
+			Selected = props.Selected,
+			OnClick = || -> gallery.select(props.Page),
+		}
+	end)
+)
+
+local function page_error(err)
+	return Text{Text = "this page failed: " .. tostring(err), Color = "text_disabled", Wrap = true, layout = {GrowWidth = 1}}
 end
 
-local function on_theme_select(name, text, index, dropdown)
-	theme.LoadTheme(name)
-	dropdown.Gallery:Rebuild()
-end
+local GalleryView = react.Component(|props| -> do
+	local pages = react.UseState(load_pages)
+	local selected, set_selected = react.UseState(props.SelectedPage)
+	local theme_version, set_theme_version = react.UseState(0)
+	local gallery = react.UseMemo(|| -> {select = |page| -> set_selected(page.Name)}, {})
+	local size = props.Size ?? Vec2(1280, 760)
+	local position = react.UseMemo(|| -> props.Position ?? (Panel.World.transform:GetSize() - size) / 2, {})
+	local current = pages[1]
 
-function META.PropDefaults(_, props)
-	local size = props.Size or Vec2(1280, 760)
-	return {
-		Padding = "none",
-		Size = size,
-		Position = (Panel.World.transform:GetSize() - size) / 2,
-	}
-end
+	react.UseEvent("ThemeChanged", || -> set_theme_version(|version| -> version + 1))
 
-function META:OnCreate()
-	META.BaseClass.OnCreate(self)
-	self._pages = load_pages()
-	local sidebar = Column{
-		layout = {
-			ChildGap = "XXS",
-			GrowWidth = 1,
-			AlignmentX = "stretch",
-		},
-	}
-	local options = {}
-
-	for index, name in ipairs(theme.GetAvailable()) do
-		options[index] = name
+	for _, page in ipairs(pages) do
+		if page.Name == selected then current = page end
 	end
 
-	sidebar:AddChild(
+	local entries = {
 		Text{
+			Key = "theme label",
 			Text = "THEME",
 			Font = "body_strong XS",
 			Color = "text_disabled",
 			IgnoreMouseInput = true,
 			layout = {Padding = "XS"},
-		}
-	)
-	sidebar:AddChild(
+		},
 		Dropdown{
-			Gallery = self,
-			Options = options,
+			Key = "theme",
+			Options = theme.GetAvailable(),
 			Value = theme.active:GetName(),
 			Padding = "XS",
-			OnSelect = on_theme_select,
-		}
-	)
-	self._page_items = {}
-	local current_section
-
-	for _, page in ipairs(self._pages) do
-		if page.Section ~= current_section then
-			current_section = page.Section
-			sidebar:AddChild(
-				Text{
-					Text = current_section:upper(),
-					Font = "body_strong XS",
-					Color = "text_disabled",
-					IgnoreMouseInput = true,
-					layout = {Padding = Rect(8, 16, 8, 4)},
-				}
-			)
-		end
-
-		self._page_items[page] = sidebar:AddChild(
-			MenuItem{
-				Gallery = self,
-				Page = page,
-				Text = page.Name,
-				Padding = "S",
-				OnClick = on_page_click,
-			}
-		)
-	end
-
-	self._page_scroll = ScrollablePanel{
-		Padding = "M",
-		layout = {
-			GrowWidth = 1,
-			GrowHeight = 1,
+			OnSelect = |name| -> theme.LoadTheme(name),
 		},
 	}
-	self:AddChild(
-		Splitter{
-			InitialSize = 220,
+	local current_section
+
+	for _, page in ipairs(pages) do
+		if page.Section ~= current_section then
+			current_section = page.Section
+			entries[#entries + 1] = Text{
+				Key = "section " .. current_section,
+				Text = current_section:upper(),
+				Font = "body_strong XS",
+				Color = "text_disabled",
+				IgnoreMouseInput = true,
+				layout = {Padding = Rect(8, 16, 8, 4)},
+			}
+		end
+
+		entries[#entries + 1] = SidebarItem{Key = page.Name, Page = page, Selected = page == current}
+	end
+
+	return GalleryContext.Provider{Value = gallery}{
+		Window{
+			Title = "UI GALLERY",
+			Padding = "none",
+			Size = size,
+			Position = position,
 		}{
-			ScrollablePanel{
-				layout = {GrowHeight = 1},
-				Padding = "XS",
-			}{sidebar},
-			self._page_scroll,
-		}
-	)
-	self:SelectPage(self:find_page(self.SelectedPage) or self._pages[1])
-end
-
-function META:find_page(name)
-	for _, page in ipairs(self._pages) do
-		if page.Name == name then return page end
-	end
-end
-
-function META:SelectPage(page)
-	for other, item in pairs(self._page_items) do
-		item:SetSelected(other == page)
-	end
-
-	self.SelectedPage = page.Name
-	self._page_scroll:RemoveChildren()
-	self._page_scroll:AddChild(page.Create())
-	self._page_scroll:GetViewport().transform:SetScroll(Vec2(0, 0))
-end
-
-function META:Rebuild()
-	local gallery = META.New{
-		Key = self:GetKey(),
-		Position = self.transform:GetPosition():Copy(),
-		Size = self.transform:GetSize():Copy(),
-		SelectedPage = self.SelectedPage,
+			Splitter{InitialSize = 220}{
+				ScrollablePanel{layout = {GrowHeight = 1}, Padding = "XS"}{
+					Column{layout = {ChildGap = "XXS", GrowWidth = 1, AlignmentX = "stretch"}}{entries},
+				},
+				ScrollablePanel{
+					Key = "page " .. current.Name .. " " .. theme_version,
+					Padding = "M",
+					layout = {GrowWidth = 1, GrowHeight = 1},
+				}{
+					ErrorBoundary{Fallback = page_error}{current.View{}},
+				},
+			},
+		},
 	}
+end)
 
-	if self:IsValid() then self:Remove() end
-
-	return gallery
+return function(props)
+	return react.Mount(GalleryView(props), Panel.World):GetEntity()
 end
-
-return META:Register()

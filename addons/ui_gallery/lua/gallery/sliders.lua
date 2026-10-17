@@ -1,51 +1,30 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
-local Slider = import("goluwa/render2d/ui/elements/slider.lua")
-local ProgressBar = import("goluwa/render2d/ui/elements/progress_bar.lua")
-local StepNumberValue = import("goluwa/render2d/ui/widgets/step_number_value.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-local timer = import("goluwa/timer.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
+-- the bar runs on its own state so a frame renders this one component and not the page
+local AnimatedProgress = react.Component(|| -> do
+	local progress, set_progress = react.UseState(0)
 
-local function on_slider_change(value, slider)
-	slider.Readout.text:SetText(string.format("%s = %.2f", slider.Label, value))
-end
+	react.UseEvent("Update", |dt| -> set_progress(|value| -> (value + dt * 0.25) % 1))
 
-local function on_plane_change(value, slider)
-	slider.Readout.text:SetText(string.format("x = %.2f, y = %.2f", value.x, value.y))
-end
+	return ui.ProgressBar{Value = progress}
+end)
 
-local function on_step_change(value, old_value, control)
-	control.Readout.text:SetText("value = " .. value)
+local function readout(text)
+	return ui.Text{Text = text, Color = "text_disabled", IgnoreMouseInput = true}
 end
 
 return {
 	Name = "sliders",
 	Section = "Controls",
 	Order = 3,
-	Create = function()
-		local horizontal_readout = Text{Text = "volume = 0.40", Color = "text_disabled", IgnoreMouseInput = true}
-		local vertical_readout = Text{Text = "gain = 0.70", Color = "text_disabled", IgnoreMouseInput = true}
-		local plane_readout = Text{Text = "x = 0.50, y = 0.50", Color = "text_disabled", IgnoreMouseInput = true}
-		local step_readout = Text{Text = "value = 5", Color = "text_disabled", IgnoreMouseInput = true}
-		local animated = ProgressBar{Value = 0}
-		local progress = 0
-
-		timer.Repeat(
-			"gallery_progress_animation",
-			0.016,
-			0,
-			function()
-				if not animated:IsValid() then
-					timer.RemoveTimer("gallery_progress_animation")
-					return
-				end
-
-				progress = (progress + 0.004) % 1
-				animated:SetValue(progress)
-			end
-		)
+	View = react.Component(|| -> do
+		local volume, set_volume = react.UseState(0.4)
+		local gain, set_gain = react.UseState(0.7)
+		local plane, set_plane = react.UseState(Vec2(0.5, 0.5))
+		local step, set_step = react.UseState(5)
 
 		return kit.Page{
 			Title = "Sliders and progress",
@@ -57,28 +36,22 @@ return {
 			}{
 				kit.Group(
 					{
-						Column{layout = {ChildGap = "XS", GrowWidth = 1, AlignmentX = "stretch"}}{
-							Slider{
+						ui.Column{layout = {ChildGap = "XS", GrowWidth = 1, AlignmentX = "stretch"}}{
+							ui.Slider{
 								Value = 0.4,
-								Label = "volume",
-								Readout = horizontal_readout,
-								OnChange = on_slider_change,
+								OnChange = set_volume,
 								layout = {GrowWidth = 1, MinSize = Vec2(200, 16)},
 							},
-							horizontal_readout,
+							readout(string.format("volume = %.2f", volume)),
 						},
-						Column{
-							layout = {ChildGap = "XS", GrowWidth = 0, FitWidth = true, AlignmentX = "start"},
-						}{
-							Slider{
+						ui.Column{layout = {ChildGap = "XS", GrowWidth = 0, FitWidth = true, AlignmentX = "start"}}{
+							ui.Slider{
 								Mode = "vertical",
 								Value = 0.7,
-								Label = "gain",
-								Readout = vertical_readout,
-								OnChange = on_slider_change,
+								OnChange = set_gain,
 								layout = {MinSize = Vec2(16, 140)},
 							},
-							vertical_readout,
+							readout(string.format("gain = %.2f", gain)),
 						},
 					},
 					{AlignmentY = "start"}
@@ -89,46 +62,41 @@ return {
 				Description = "Mode = 2d takes Vec2 Min, Max and Value.",
 			}{
 				kit.Group{
-					Slider{
+					ui.Slider{
 						Mode = "2d",
 						Value = Vec2(0.5, 0.5),
-						Readout = plane_readout,
-						OnChange = on_plane_change,
+						OnChange = set_plane,
 						layout = {MinSize = Vec2(220, 160), MaxSize = Vec2(220, 160)},
 					},
-					plane_readout,
+					readout(string.format("x = %.2f, y = %.2f", plane.x, plane.y)),
 				},
 			},
 			kit.Section{
 				Title = "Progress bars",
 				Description = "Value is clamped to 0..1. Color takes a palette token or a Color.",
 			}{
-				kit.Labeled("25 percent", ProgressBar{Value = 0.25}),
-				kit.Labeled("Positive, 50 percent", ProgressBar{Value = 0.5, Color = "positive"}),
-				kit.Labeled(
-					"Custom color, 75 percent",
-					ProgressBar{Value = 0.75, Color = Color.FromHex("#00ffd4")}
-				),
-				kit.Labeled("Animated", animated),
+				kit.Labeled("25 percent", ui.ProgressBar{Value = 0.25}),
+				kit.Labeled("Positive, 50 percent", ui.ProgressBar{Value = 0.5, Color = "positive"}),
+				kit.Labeled("Custom color, 75 percent", ui.ProgressBar{Value = 0.75, Color = Color.FromHex("#00ffd4")}),
+				kit.Labeled("Animated", AnimatedProgress{}),
 			},
 			kit.Section{
 				Title = "Step number value",
 				Description = "Drag the field vertically, double click to type, or use the arrows. Hold Alt for fine steps.",
 			}{
 				kit.Group{
-					StepNumberValue{
+					ui.StepNumberValue{
 						Value = 5,
 						Min = 0,
 						Max = 10,
 						Step = 1,
 						Precision = 0,
-						Readout = step_readout,
-						OnChange = on_step_change,
+						OnChange = |value| -> set_step(value),
 						layout = {GrowWidth = 0},
 					},
-					step_readout,
+					readout("value = " .. step),
 				},
 			},
 		}
-	end,
+	end),
 }

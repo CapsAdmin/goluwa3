@@ -1,23 +1,92 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Slider = import("goluwa/render2d/ui/elements/slider.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-local Page = import("addons/ui_gallery/lua/gallery_page.lua")
-local Section = import("addons/ui_gallery/lua/gallery_section.lua")
-local kit = {Page = Page, Section = Section}
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
+local kit = {}
 
-function kit.Caption(text)
-	return Text{
-		Text = text,
-		Font = "body XS",
-		Color = "text_disabled",
-		IgnoreMouseInput = true,
+-- a page is a column, its sections are the children that come after the header
+function kit.Page(props)
+	return ui.Column{
+		layout = {
+			Direction = "y",
+			GrowWidth = 1,
+			FitHeight = true,
+			AlignmentX = "stretch",
+			ChildGap = "L",
+			Padding = "M",
+		},
+	}{
+		ui.Column{
+			Key = "header",
+			layout = {
+				Direction = "y",
+				GrowWidth = 1,
+				FitHeight = true,
+				AlignmentX = "stretch",
+				ChildGap = "XS",
+			},
+		}{
+			ui.Text{Key = "title", Text = props.Title, Font = "heading XL", IgnoreMouseInput = true},
+			props.Description && ui.Text{
+				Key = "description",
+				Text = props.Description,
+				Color = "text_disabled",
+				Wrap = true,
+				IgnoreMouseInput = true,
+				layout = {GrowWidth = 1},
+			},
+		},
 	}
 end
 
+do
+	local STAGE_LAYOUT = {
+		Direction = "y",
+		GrowWidth = 1,
+		FitHeight = true,
+		AlignmentX = "stretch",
+		ChildGap = "M",
+	}
+
+	-- a title, a description and a stage the children go in, framed unless Framed = false
+	kit.Section = react.Component(|props| -> do
+		local stage
+
+		if props.Framed == false then
+			stage = ui.Panel{Key = "stage", transform = true, layout = STAGE_LAYOUT}{props.children}
+		else
+			stage = ui.Frame{Key = "stage", Padding = "M", layout = STAGE_LAYOUT}{props.children}
+		end
+
+		return ui.Column{
+			layout = {
+				Direction = "y",
+				GrowWidth = 1,
+				FitHeight = true,
+				AlignmentX = "stretch",
+				ChildGap = "S",
+			},
+		}{
+			ui.Text{Key = "title", Text = props.Title, Font = "body_strong M", IgnoreMouseInput = true},
+			props.Description && ui.Text{
+				Key = "description",
+				Text = props.Description,
+				Font = "body S",
+				Color = "text_disabled",
+				Wrap = true,
+				IgnoreMouseInput = true,
+				layout = {GrowWidth = 1},
+			},
+			stage,
+		}
+	end)
+end
+
+function kit.Caption(text)
+	return ui.Text{Text = text, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true}
+end
+
 function kit.Group(children, layout)
-	return Row{
+	return ui.Row{
 		layout = table.merge(
 			{
 				ChildGap = "S",
@@ -27,7 +96,7 @@ function kit.Group(children, layout)
 			},
 			layout or {}
 		),
-	}(children)
+	}{children}
 end
 
 function kit.Wrap(children, layout)
@@ -35,7 +104,7 @@ function kit.Wrap(children, layout)
 end
 
 function kit.Labeled(caption, child)
-	return Column{
+	return ui.Column{
 		layout = {
 			ChildGap = "XXS",
 			AlignmentX = "start",
@@ -50,7 +119,8 @@ end
 
 function kit.Paragraph(text, props)
 	props = props or {}
-	return Text{
+
+	return ui.Text{
 		Text = text,
 		Wrap = true,
 		Font = props.Font,
@@ -62,47 +132,36 @@ function kit.Paragraph(text, props)
 	}
 end
 
-local function on_row_slider_change(value, slider)
-	local row = slider.SliderRow
-	value = math.floor(value + 0.5)
-	row.ValueLabel.text:SetText(value .. row.Suffix)
-	row.OnValueChange(value)
-end
+-- a label, a slider and the rounded value with an optional suffix, OnChange gets the rounded value
+kit.SliderRow = react.Component(|props| -> do
+	local value, set_value = react.UseState(props.Value)
 
-function kit.SliderRow(props)
-	local row = Row{
-		Suffix = props.Suffix or "",
-		OnValueChange = props.OnChange,
-		layout = {
-			ChildGap = "S",
-			GrowWidth = 1,
-			AlignmentY = "center",
-		},
-	}
-	row.ValueLabel = Text{
-		Text = props.Value .. row.Suffix,
-		AlignX = 1,
-		IgnoreMouseInput = true,
-		layout = {MinSize = Vec2(48, 0), FitWidth = false},
-	}
-	row{
-		Text{
+	return ui.Row{layout = {ChildGap = "S", GrowWidth = 1, AlignmentY = "center"}}{
+		ui.Text{
 			Text = props.Label,
 			IgnoreMouseInput = true,
 			layout = {MinSize = Vec2(72, 0), FitWidth = false},
 		},
-		Slider{
-			SliderRow = row,
+		ui.Slider{
 			Value = props.Value,
 			Min = props.Min,
 			Max = props.Max,
-			OnChange = on_row_slider_change,
+			OnChange = |slider_value| -> do
+				local rounded = math.floor(slider_value + 0.5)
+				set_value(rounded)
+				props.OnChange(rounded)
+			end,
 			layout = {GrowWidth = 1},
 		},
-		row.ValueLabel,
+		ui.Text{
+			Text = value .. (props.Suffix ?? ""),
+			AlignX = 1,
+			IgnoreMouseInput = true,
+			layout = {MinSize = Vec2(48, 0), FitWidth = false},
+		},
 	}
-	return row
-end
+end)
 
 kit.Lorem = "The quick brown fox jumps over the lazy dog while the five boxing wizards jump quickly. Pack my box with five dozen liquor jugs, and sphinx of black quartz, judge my vow."
+
 return kit

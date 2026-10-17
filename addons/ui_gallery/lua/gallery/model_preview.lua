@@ -1,21 +1,17 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local system = import("goluwa/system.lua")
+local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 local Polygon3D
 local shapes
 local Material
 local ModelPreview
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Frame = import("goluwa/render2d/ui/elements/frame.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-local Panel = import("goluwa/render2d/ui/panel.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
-local system = import("goluwa/system.lua")
-local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 
 local function create_material(color, emissive)
 	return Material.New{
@@ -56,108 +52,6 @@ local function create_primitive_entity(name, build_polygon, material, transform_
 	end
 
 	return entity
-end
-
-local function build_tile(definition)
-	local preview_panel
-	local entity
-	local preview
-	local base_angles = definition.base_angles or Ang3(0, 0, 0)
-
-	local function cleanup()
-		if preview and preview.IsValid and preview:IsValid() then preview:Remove() end
-
-		if entity and entity.IsValid and entity:IsValid() then entity:Remove() end
-
-		preview = nil
-		entity = nil
-	end
-
-	return Frame{
-		Padding = "M",
-		layout = {
-			FitWidth = true,
-			FitHeight = true,
-			MinSize = Vec2(188, 236),
-		},
-	}{
-		Column{
-			layout = {
-				GrowWidth = 1,
-				FitHeight = true,
-				AlignmentX = "stretch",
-				ChildGap = 10,
-			},
-		}{
-			Panel.New{
-				transform = true,
-				rect = true,
-				layout = {
-					Size = Vec2(164, 164),
-					MinSize = Vec2(164, 164),
-					MaxSize = Vec2(164, 164),
-				},
-				Ref = function(self)
-					preview_panel = self
-					self:AddGlobalEvent("Update")
-					entity = definition.build_entity()
-					preview = ModelPreview.New{
-						Padding = definition.padding or 1.12,
-					}
-					preview:SetTarget(entity.visual)
-				end,
-				OnRemove = function()
-					cleanup()
-				end,
-				OnUpdate = function(self)
-					if not entity or not entity:IsValid() or not preview or not preview:IsValid() then
-						return
-					end
-
-					local t = system.GetElapsedTime()
-					entity.transform:SetAngles(
-						Ang3(
-							base_angles.x + math.sin(t * (definition.pitch_speed or 0.65)) * (
-									definition.pitch_range or
-									0.18
-								),
-							base_angles.y + t * (definition.yaw_speed or 0.9),
-							base_angles.z + math.cos(t * (definition.roll_speed or 0.5)) * (
-									definition.roll_range or
-									0.06
-								)
-						)
-					)
-					preview:Refresh()
-				end,
-				OnDraw = function(self)
-					local size = self.transform.Size + self.transform.DrawSizeOffset
-					render2d.SetTexture(nil)
-					render2d.SetColor(0.05, 0.06, 0.08, 1)
-					render2d.DrawRect(0, 0, size.x, size.y)
-					render2d.SetColor(1, 1, 1, 0.05)
-					render2d.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
-
-					if preview and preview.IsValid and preview:IsValid() then
-						preview:Draw(6, 6, size.x - 12, size.y - 12)
-					end
-				end,
-			},
-			Text{
-				Text = definition.label,
-				Font = "body_strong S",
-				IgnoreMouseInput = true,
-			},
-			Text{
-				Text = definition.description,
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {
-					GrowWidth = 1,
-				},
-			},
-		},
-	}
 end
 
 local function build_definitions()
@@ -274,32 +168,91 @@ local function build_definitions()
 	}
 end
 
+-- every tile owns an entity and a preview renderer, both go when the tile does
+local Tile = react.Component(|props| -> do
+	local definition = props.Definition
+	local base_angles = definition.base_angles or Ang3(0, 0, 0)
+	local state = react.UseResource(|| -> do
+		local entity = definition.build_entity()
+		local preview = ModelPreview.New{Padding = definition.padding or 1.12}
+		preview:SetTarget(entity.visual)
+
+		return {entity = entity, preview = preview}
+	end, |state| -> do
+		if state.preview:IsValid() then state.preview:Remove() end
+
+		if state.entity:IsValid() then state.entity:Remove() end
+	end, {})
+
+	react.UseEvent("Update", || -> do
+		if not state.entity:IsValid() or not state.preview:IsValid() then return end
+
+		local t = system.GetElapsedTime()
+		state.entity.transform:SetAngles(
+			Ang3(
+				base_angles.x + math.sin(t * (definition.pitch_speed or 0.65)) * (definition.pitch_range or 0.18),
+				base_angles.y + t * (definition.yaw_speed or 0.9),
+				base_angles.z + math.cos(t * (definition.roll_speed or 0.5)) * (definition.roll_range or 0.06)
+			)
+		)
+		state.preview:Refresh()
+	end)
+
+	local draw = react.UseCallback(|self| -> do
+		local size = self.transform.Size + self.transform.DrawSizeOffset
+		render2d.SetTexture(nil)
+		render2d.SetColor(0.05, 0.06, 0.08, 1)
+		render2d.DrawRect(0, 0, size.x, size.y)
+		render2d.SetColor(1, 1, 1, 0.05)
+		render2d.DrawOutlinedRect(0, 0, size.x, size.y, 1, 16)
+
+		if state.preview:IsValid() then state.preview:Draw(6, 6, size.x - 12, size.y - 12) end
+	end, {})
+
+	return ui.Frame{Padding = "M", layout = {FitWidth = true, FitHeight = true, MinSize = Vec2(188, 236)}}{
+		ui.Column{layout = {GrowWidth = 1, FitHeight = true, AlignmentX = "stretch", ChildGap = 10}}{
+			ui.Panel{
+				transform = true,
+				rect = true,
+				layout = {Size = Vec2(164, 164), MinSize = Vec2(164, 164), MaxSize = Vec2(164, 164)},
+				OnDraw = draw,
+			},
+			ui.Text{Text = definition.label, Font = "body_strong S", IgnoreMouseInput = true},
+			ui.Text{Text = definition.description, Wrap = true, IgnoreMouseInput = true, layout = {GrowWidth = 1}},
+		},
+	}
+end)
+
 return {
 	Name = "model preview",
 	Section = "Graphics",
 	Order = 3,
-	Create = function()
+	View = react.Component(|| -> do
 		local rows = {}
+		local definitions = react.UseMemo(|| -> do
+			if not RENDER_3D then return {} end
 
-		if RENDER_3D then
 			import("goluwa/render3d/render3d.lua")
 			Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 			shapes = import("goluwa/render3d/shapes.lua")
 			Material = import("goluwa/render3d/material.lua")
 			ModelPreview = import("goluwa/render3d/model_preview.lua")
-			local definitions = build_definitions()
 
-			for i = 1, #definitions, 3 do
-				local children = {}
+			return build_definitions()
+		end, {})
 
-				for j = i, math.min(i + 2, #definitions) do
-					children[#children + 1] = build_tile(definitions[j])
+		if definitions[1] then
+			for first = 1, #definitions, 3 do
+				local tiles = {}
+
+				for index = first, math.min(first + 2, #definitions) do
+					tiles[#tiles + 1] = Tile{Key = definitions[index].label, Definition = definitions[index]}
 				end
 
-				rows[#rows + 1] = kit.Group(children, {AlignmentY = "start", ChildGap = "M"})
+				rows[#rows + 1] = kit.Group(tiles, {AlignmentY = "start", ChildGap = "M"})
 			end
 		else
-			rows[1] = Text{
+			rows[1] = ui.Text{
 				Text = "Model previews render entities through the 3D renderer. Start the engine with --3d to see them.",
 				Wrap = true,
 				Color = "text_disabled",
@@ -312,7 +265,7 @@ return {
 			Title = "Model preview",
 			Description = "Entities rendered into small offscreen textures with the model preview helper. Each tile owns its own entity and preview renderer.",
 		}{
-			kit.Section{Title = "Primitives", Framed = false}(rows),
+			kit.Section{Title = "Primitives", Framed = false}{rows},
 		}
-	end,
+	end),
 }

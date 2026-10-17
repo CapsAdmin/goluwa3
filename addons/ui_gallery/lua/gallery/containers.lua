@@ -1,16 +1,12 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Collapsible = import("goluwa/render2d/ui/widgets/collapsible.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Frame = import("goluwa/render2d/ui/elements/frame.lua")
-local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 
 local function pane(title)
-	return Frame{Padding = "S", layout = {GrowWidth = 1, GrowHeight = 1}}{
-		Text{Text = title, Font = "body_strong S", IgnoreMouseInput = true},
-		Text{
+	return ui.Frame{Padding = "S", layout = {GrowWidth = 1, GrowHeight = 1}}{
+		ui.Text{Text = title, Font = "body_strong S", IgnoreMouseInput = true},
+		ui.Text{
 			Text = "Drag the divider to resize the panes.",
 			Color = "text_disabled",
 			Wrap = true,
@@ -20,75 +16,24 @@ local function pane(title)
 	}
 end
 
-local function on_toggle(collapsed, collapsible)
-	collapsible.Readout.text:SetText("OnToggle(" .. tostring(collapsed) .. ")")
-end
-
-local function toggle_all(button)
-	for _, collapsible in ipairs(button.Targets) do
-		collapsible:SetCollapsed(button.Collapse)
-	end
-end
-
 return {
 	Name = "containers",
 	Section = "Containers",
 	Order = 1,
-	Create = function()
-		local readout = Text{
-			Text = "OnToggle has not fired yet",
-			Color = "text_disabled",
-			IgnoreMouseInput = true,
-		}
-		local first = Collapsible{Title = "Information", Readout = readout, OnToggle = on_toggle}{
-			Text{
-				Text = kit.Lorem,
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {GrowWidth = 1},
-			},
-		}
-		local nested = Collapsible{Title = "Nested", Collapsed = true, Readout = readout, OnToggle = on_toggle}{
-			Collapsible{
-				Title = "Inner",
-				Collapsed = true,
-				HeaderMode = "text",
-				Readout = readout,
-				OnToggle = on_toggle,
-			}{
-				Text{Text = "Collapsibles can be nested to any depth.", IgnoreMouseInput = true},
-			},
-			Button{Text = "A button inside the body", Mode = "outline"},
-		}
-		local filled = Collapsible{
-			Title = "Filled header",
-			Collapsed = true,
-			HeaderMode = "filled",
-			HeaderButtonColor = "positive",
-			HeaderTextColor = "text_on_accent",
-			Readout = readout,
-			OnToggle = on_toggle,
-		}{
-			Text{
-				Text = "HeaderMode, HeaderButtonColor and HeaderTextColor restyle the header.",
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {GrowWidth = 1},
-			},
-		}
-		local emphases = {}
+	View = react.Component(|| -> do
+		local readout, set_readout = react.UseState("OnToggle has not fired yet")
+		local collapsed, set_collapsed = react.UseState({first = false, nested = true, filled = true})
 
-		for level = 0, 3 do
-			emphases[#emphases + 1] = kit.Labeled(
-				"Emphasis = " .. level,
-				Frame{
-					Emphasis = level,
-					Padding = "M",
-					layout = {MinSize = Vec2(120, 64), MaxSize = Vec2(120, 64)},
-				}{
-					Text{Text = "Frame", IgnoreMouseInput = true},
-				}
-			)
+		-- the widgets toggle themselves when clicked, the state follows what they report
+		local function on_toggle(key)
+			return |is_collapsed| -> do
+				set_readout("OnToggle(" .. tostring(is_collapsed) .. ")")
+				set_collapsed(|current| -> table.merge(table.shallow_copy(current), {[key] = is_collapsed}))
+			end
+		end
+
+		local function set_all(value)
+			set_collapsed({first = value, nested = value, filled = value})
 		end
 
 		return kit.Page{
@@ -98,41 +43,77 @@ return {
 			kit.Section{
 				Title = "Frame",
 				Description = "A themed surface. Emphasis raises it for popups and windows.",
-			}{kit.Group(emphases, {AlignmentY = "start"})},
+			}{
+				kit.Group(
+					list.map(
+						{0, 1, 2, 3},
+						|level| -> kit.Labeled(
+							"Emphasis = " .. level,
+							ui.Frame{
+								Emphasis = level,
+								Padding = "M",
+								layout = {MinSize = Vec2(120, 64), MaxSize = Vec2(120, 64)},
+							}{
+								ui.Text{Text = "Frame", IgnoreMouseInput = true},
+							}
+						)
+					),
+					{AlignmentY = "start"}
+				),
+			},
 			kit.Section{
 				Title = "Collapsible",
 				Description = "Children go into the body. SetCollapsed animates and fires OnToggle(collapsed, collapsible).",
 			}{
 				kit.Group{
-					Button{
-						Targets = {first, nested, filled},
-						Collapse = true,
-						Text = "Collapse all",
-						Mode = "outline",
-						OnClick = toggle_all,
-					},
-					Button{
-						Targets = {first, nested, filled},
-						Collapse = false,
-						Text = "Expand all",
-						Mode = "outline",
-						OnClick = toggle_all,
+					ui.Button{Text = "Collapse all", Mode = "outline", OnClick = || -> set_all(true)},
+					ui.Button{Text = "Expand all", Mode = "outline", OnClick = || -> set_all(false)},
+				},
+				ui.Collapsible{Title = "Information", Collapsed = collapsed.first, OnToggle = on_toggle("first")}{
+					ui.Text{
+						Text = kit.Lorem,
+						Wrap = true,
+						IgnoreMouseInput = true,
+						layout = {GrowWidth = 1},
 					},
 				},
-				first,
-				nested,
-				filled,
-				readout,
+				ui.Collapsible{Title = "Nested", Collapsed = collapsed.nested, OnToggle = on_toggle("nested")}{
+					ui.Collapsible{
+						Title = "Inner",
+						Collapsed = true,
+						HeaderMode = "text",
+						OnToggle = |is_collapsed| -> set_readout("OnToggle(" .. tostring(is_collapsed) .. ")"),
+					}{
+						ui.Text{Text = "Collapsibles can be nested to any depth.", IgnoreMouseInput = true},
+					},
+					ui.Button{Text = "A button inside the body", Mode = "outline"},
+				},
+				ui.Collapsible{
+					Title = "Filled header",
+					Collapsed = collapsed.filled,
+					HeaderMode = "filled",
+					HeaderButtonColor = "positive",
+					HeaderTextColor = "text_on_accent",
+					OnToggle = on_toggle("filled"),
+				}{
+					ui.Text{
+						Text = "HeaderMode, HeaderButtonColor and HeaderTextColor restyle the header.",
+						Wrap = true,
+						IgnoreMouseInput = true,
+						layout = {GrowWidth = 1},
+					},
+				},
+				ui.Text{Text = readout, Color = "text_disabled", IgnoreMouseInput = true},
 			},
 			kit.Section{
 				Title = "Splitter",
 				Description = "Two children separated by a draggable divider. Vertical = true stacks them.",
 			}{
-				Splitter{InitialSize = 240, layout = {MinSize = Vec2(0, 140), MaxSize = Vec2(0, 140)}}{
+				ui.Splitter{InitialSize = 240, layout = {MinSize = Vec2(0, 140), MaxSize = Vec2(0, 140)}}{
 					pane("Left"),
 					pane("Right"),
 				},
-				Splitter{
+				ui.Splitter{
 					Vertical = true,
 					InitialSize = 60,
 					MinSplitSize = 40,
@@ -143,5 +124,5 @@ return {
 				},
 			},
 		}
-	end,
+	end),
 }

@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Panel = import("goluwa/render2d/ui/panel.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
@@ -11,8 +12,7 @@ Pretext can already decide where each line should break. The missing piece for e
 This demo uses one animated circular obstacle and one fixed rectangular card. The text is reflowed every frame by asking pretext for the next line fragment that fits each remaining slot.
 ]]
 
-local function rebuild_layout(flow)
-	local size = flow.transform:GetSize()
+local function rebuild_layout(view, size)
 	local t = system.GetElapsedTime()
 	local region = {x = 28, y = 28, width = size.x - 56, height = size.y - 56}
 	local circle = {
@@ -32,13 +32,13 @@ local function rebuild_layout(flow)
 		horizontal_padding = 12,
 		vertical_padding = 8,
 	}
-	flow.Region = region
-	flow.Obstacles = {circle, card}
-	flow.Flow = pretext.layout_flow(
-		flow.Prepared,
+	view.region = region
+	view.obstacles = {circle, card}
+	view.flow = pretext.layout_flow(
+		view.prepared,
 		region,
-		flow.FlowFont:GetLineHeight() + 4,
-		flow.Obstacles,
+		view.font:GetLineHeight() + 4,
+		view.obstacles,
 		{min_slot_width = 32, use_all_slots = true}
 	)
 end
@@ -57,59 +57,60 @@ local function draw_obstacle(obstacle)
 	end
 end
 
-local function on_update(flow)
-	rebuild_layout(flow)
-end
-
-local function on_draw(flow)
-	local size = flow.transform:GetSize()
-	render2d.SetTexture(nil)
-	render2d.SetColor(0.05, 0.06, 0.08, 1)
-	render2d.DrawRect(0, 0, size.x, size.y)
-	render2d.SetColor(0.1, 0.11, 0.14, 1)
-	render2d.DrawRect(20, 20, size.x - 40, size.y - 40)
-
-	if not flow.Flow then return end
-
-	render2d.SetColor(1, 1, 1, 0.03)
-	render2d.DrawRect(flow.Region.x, flow.Region.y, flow.Region.width, flow.Region.height)
-
-	for _, obstacle in ipairs(flow.Obstacles) do
-		draw_obstacle(obstacle)
-	end
-
-	render2d.SetColor(0.9, 0.93, 0.98, 1)
-
-	for _, line in ipairs(flow.Flow.lines) do
-		flow.FlowFont:DrawText(line.text, line.x, line.y)
-	end
-end
-
 return {
 	Name = "text flow",
 	Section = "Graphics",
 	Order = 2,
-	Create = function()
-		local font = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 18}
-		local flow = Panel.New{
-			FlowFont = font,
-			Prepared = pretext.prepare(ARTICLE, font),
-			transform = true,
-			layout = {
-				GrowWidth = 1,
-				MinSize = Vec2(100, 420),
-			},
-			visual = true,
-			OnUpdate = on_update,
-			OnDraw = on_draw,
-		}
-		flow:AddGlobalEvent("Update")
-		rebuild_layout(flow)
+	View = react.Component(|| -> do
+		local panel = react.UseRef()
+		-- the layout of the last frame, the draw reads it
+		local view = react.UseMemo(|| -> do
+			local font = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 18}
+
+			return {font = font, prepared = pretext.prepare(ARTICLE, font)}
+		end, {})
+
+		react.UseEvent("Update", || -> do
+			if panel.current then rebuild_layout(view, panel.current.transform:GetSize()) end
+		end)
+
+		local draw = react.UseCallback(|flow| -> do
+			local size = flow.transform:GetSize()
+			render2d.SetTexture(nil)
+			render2d.SetColor(0.05, 0.06, 0.08, 1)
+			render2d.DrawRect(0, 0, size.x, size.y)
+			render2d.SetColor(0.1, 0.11, 0.14, 1)
+			render2d.DrawRect(20, 20, size.x - 40, size.y - 40)
+
+			if not view.flow then return end
+
+			render2d.SetColor(1, 1, 1, 0.03)
+			render2d.DrawRect(view.region.x, view.region.y, view.region.width, view.region.height)
+
+			for _, obstacle in ipairs(view.obstacles) do
+				draw_obstacle(obstacle)
+			end
+
+			render2d.SetColor(0.9, 0.93, 0.98, 1)
+
+			for _, line in ipairs(view.flow.lines) do
+				view.font:DrawText(line.text, line.x, line.y)
+			end
+		end, {})
+
 		return kit.Page{
 			Title = "Text flow",
 			Description = "Band based obstacle flow built on pretext.layout_next_line. The circle animates while the card stays fixed, and the text reflows around both every frame.",
 		}{
-			kit.Section{Title = "Obstacles", Framed = false}{flow},
+			kit.Section{Title = "Obstacles", Framed = false}{
+				ui.Panel{
+					Ref = panel,
+					transform = true,
+					layout = {GrowWidth = 1, MinSize = Vec2(100, 420)},
+					visual = true,
+					OnDraw = draw,
+				},
+			},
 		}
-	end,
+	end),
 }

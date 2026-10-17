@@ -1,41 +1,24 @@
-local Checkbox = import("goluwa/render2d/ui/elements/checkbox.lua")
-local RadioButton = import("goluwa/render2d/ui/elements/radio_button.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
-
-local function on_check_change(value, checkbox)
-	checkbox.Readout.text:SetText("Checkbox value: " .. tostring(value))
-end
-
-local function is_option_selected(radio)
-	return radio.Group.selected == radio.Index
-end
-
-local function on_option_select(radio)
-	local group = radio.Group
-	group.selected = radio.Index
-	group.Readout.text:SetText("Selected: " .. group.options[radio.Index])
-end
+local OPTIONS = {"Low", "Medium", "High"}
 
 return {
 	Name = "selection",
 	Section = "Controls",
 	Order = 2,
-	Create = function()
-		local check_readout = Text{Text = "Checkbox value: true", Color = "text_disabled", IgnoreMouseInput = true}
-		local radio_readout = Text{Text = "Selected: Low", Color = "text_disabled", IgnoreMouseInput = true}
-		local group = {selected = 1, options = {"Low", "Medium", "High"}, Readout = radio_readout}
-		local radios = {}
-
-		for index, option in ipairs(group.options) do
-			radios[index] = RadioButton{
+	View = react.Component(|| -> do
+		local checked, set_checked = react.UseState(true)
+		local selected, set_selected = react.UseState(1)
+		local radios = list.map(
+			OPTIONS,
+			|option, index| -> ui.RadioButton{
+				Key = option,
 				Text = option,
-				Group = group,
-				Index = index,
-				IsSelected = is_option_selected,
-				OnSelect = on_option_select,
+				IsSelected = || -> selected == index,
+				OnSelect = || -> set_selected(index),
 			}
-		end
+		)
 
 		return kit.Page{
 			Title = "Selection",
@@ -46,29 +29,27 @@ return {
 				Description = "OnChange(value) fires when the value flips. SetValue(value, notify) controls whether it fires.",
 			}{
 				kit.Group{
-					Checkbox{
-						Text = "Enabled",
-						Value = true,
-						Readout = check_readout,
-						OnChange = on_check_change,
-					},
-					Checkbox{
-						Text = "Unchecked",
-						Value = false,
-						Readout = check_readout,
-						OnChange = on_check_change,
-					},
-					Checkbox{Text = "Disabled", Value = true, Disabled = true},
+					ui.Checkbox{Text = "Enabled", Value = true, OnChange = set_checked},
+					ui.Checkbox{Text = "Unchecked", Value = false, OnChange = set_checked},
+					ui.Checkbox{Text = "Disabled", Value = true, Disabled = true},
 				},
-				check_readout,
+				ui.Text{
+					Text = "Checkbox value: " .. tostring(checked),
+					Color = "text_disabled",
+					IgnoreMouseInput = true,
+				},
 			},
 			kit.Section{
 				Title = "Radio buttons",
 				Description = "IsSelected is polled each frame so the group state can live anywhere.",
 			}{
 				kit.Group(radios, {ChildGap = "L"}),
-				radio_readout,
+				ui.Text{
+					Text = "Selected: " .. OPTIONS[selected],
+					Color = "text_disabled",
+					IgnoreMouseInput = true,
+				},
 			},
 		}
-	end,
+	end),
 }

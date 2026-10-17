@@ -1,9 +1,7 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
-local Dropdown = import("goluwa/render2d/ui/widgets/dropdown.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
-local Panel = import("goluwa/render2d/ui/panel.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local SVG = import("goluwa/render2d/svg.lua")
@@ -75,89 +73,41 @@ local function build_pattern_source(kind, cell)
 	)
 end
 
-local function pattern_panel(svg, background, foreground)
-	return Panel.New{
-		transform = true,
-		layout = {
-			MinSize = Vec2(PATTERN_SIZE + 16, PATTERN_SIZE + 16),
-			MaxSize = Vec2(PATTERN_SIZE + 16, PATTERN_SIZE + 16),
-		},
-		visual = {
-			OnDraw = function(self)
-				local size = self.Owner.transform:GetSize()
-				render2d.SetColor(background:Unpack())
-				render2d.DrawRect(0, 0, size.x, size.y)
-				render2d.SetColor(foreground:Unpack())
-				render2d.PushMatrixf(8, 8, PATTERN_SIZE, PATTERN_SIZE)
-				svg:Draw()
-				render2d.PopMatrix()
-			end,
-		},
-	}
+local function draw_pattern(self)
+	local owner = self.Owner
+	local size = owner.transform:GetSize()
+	render2d.SetColor(owner.Background:Unpack())
+	render2d.DrawRect(0, 0, size.x, size.y)
+	render2d.SetColor(owner.Foreground:Unpack())
+	render2d.PushMatrixf(8, 8, PATTERN_SIZE, PATTERN_SIZE)
+	owner.Svg:Draw()
+	render2d.PopMatrix()
 end
+
+local function draw_swatch_background(self)
+	render2d.SetColor(self.swatch_background:Unpack())
+	render2d.DrawRect(0, 0, self.transform:GetWidth(), self.transform:GetHeight())
+end
+
+local font_cache = {}
 
 return {
 	Name = "subpixel",
 	Section = "Foundations",
 	Order = 1.5,
-	Create = function()
-		local layouts = {}
-
-		for _, value in ipairs(pvars.GetAll()["r_text_subpixel"].enums) do
-			layouts[#layouts + 1] = {Text = layout_labels[value], Value = value}
-		end
-
-		local note = Text{
-			Text = render2d.SupportsSubpixelText() and
-				"Applies to MSDF text and icons drawn straight to the window. Outlines and glows stay grayscale." or
-				"This GPU has no dual source blending, so subpixel rendering is unavailable.",
-			Color = "text_disabled",
-			IgnoreMouseInput = true,
-		}
-		local pattern_rows = {}
-
-		for _, pattern in ipairs(patterns) do
-			local svg = SVG.New(
-				build_pattern_source(pattern.kind, pattern.cell),
-				{TextureSize = PATTERN_SIZE, Mode = "msdf"}
-			)
-			local panels = {}
-
-			for _, swatch in ipairs(backgrounds) do
-				panels[#panels + 1] = pattern_panel(svg, swatch.background, swatch.foreground)
-			end
-
-			pattern_rows[#pattern_rows + 1] = kit.Labeled(pattern.name, kit.Group(panels, {GrowWidth = 0, FitWidth = true, ChildGap = "XS"}))
-		end
-
-		local swatches = {}
-
-		for _, swatch in ipairs(backgrounds) do
-			local lines = {}
-
-			for _, size in ipairs(text_sizes) do
-				lines[#lines + 1] = Text{
-					Text = string.format("Hamburgefonstiv 1lI| design tokens %dpx", size),
-					Font = fonts.New{Size = size},
-					Color = swatch.foreground,
-					IgnoreMouseInput = true,
-				}
-			end
-
-			swatches[#swatches + 1] = kit.Labeled(
-				swatch.name,
-				Column{
-					Padding = "S",
-					swatch_background = swatch.background,
-					visual = true,
-					OnDraw = function(self)
-						render2d.SetColor(self.swatch_background:Unpack())
-						render2d.DrawRect(0, 0, self.transform:GetWidth(), self.transform:GetHeight())
-					end,
-					layout = {AlignmentX = "start", ChildGap = "XXS", GrowWidth = 0, FitWidth = true},
-				}(lines)
-			)
-		end
+	View = react.Component(|| -> do
+		-- the pattern vectors are made once and the page owns them
+		local pattern_svgs = react.UseMemo(
+			|| -> list.map(
+				patterns,
+				|pattern| -> SVG.New(build_pattern_source(pattern.kind, pattern.cell), {TextureSize = PATTERN_SIZE, Mode = "msdf"})
+			),
+			{}
+		)
+		local layouts = react.UseMemo(
+			|| -> list.map(pvars.GetAll()["r_text_subpixel"].enums, |value| -> {Text = layout_labels[value], Value = value}),
+			{}
+		)
 
 		return kit.Page{
 			Title = "Subpixel",
@@ -169,12 +119,10 @@ return {
 			}{
 				kit.Labeled(
 					"r_text_subpixel",
-					Dropdown{
+					ui.Dropdown{
 						Options = layouts,
 						Value = pvars.Get("r_text_subpixel"),
-						OnSelect = function(value)
-							pvars.Set("r_text_subpixel", value)
-						end,
+						OnSelect = |value| -> pvars.Set("r_text_subpixel", value),
 					}
 				),
 				kit.SliderRow{
@@ -183,24 +131,81 @@ return {
 					Min = 0,
 					Max = 100,
 					Suffix = "%",
-					OnChange = function(value)
-						pvars.Set("r_text_subpixel_strength", value / 100)
-					end,
+					OnChange = |value| -> pvars.Set("r_text_subpixel_strength", value / 100),
 				},
-				note,
+				ui.Text{
+					Text = render2d.SupportsSubpixelText() and
+						"Applies to MSDF text and icons drawn straight to the window. Outlines and glows stay grayscale." or
+						"This GPU has no dual source blending, so subpixel rendering is unavailable.",
+					Color = "text_disabled",
+					IgnoreMouseInput = true,
+				},
 			},
 			kit.Section{
 				Title = "Lines and checkerboards",
 				Description = "One pixel patterns drawn 1:1. The right layout keeps them neutral grey, the wrong one tints them.",
 			}{
-				kit.Wrap(pattern_rows, {ChildGap = "L"}),
+				kit.Wrap(
+					list.map(
+						patterns,
+						|pattern, index| -> kit.Labeled(
+							pattern.name,
+							kit.Group(
+								list.map(
+									backgrounds,
+									|swatch| -> ui.Panel{
+										Key = swatch.name,
+										Svg = pattern_svgs[index],
+										Background = swatch.background,
+										Foreground = swatch.foreground,
+										transform = true,
+										layout = {
+											MinSize = Vec2(PATTERN_SIZE + 16, PATTERN_SIZE + 16),
+											MaxSize = Vec2(PATTERN_SIZE + 16, PATTERN_SIZE + 16),
+										},
+										visual = {OnDraw = draw_pattern},
+									}
+								),
+								{GrowWidth = 0, FitWidth = true, ChildGap = "XS"}
+							)
+						)
+					),
+					{ChildGap = "L"}
+				),
 			},
-			kit.Section{
-				Title = "Small sizes",
-				Description = "Fixed pixel sizes that ignore the theme.",
-			}{
-				kit.Wrap(swatches, {ChildGap = "L"}),
+			kit.Section{Title = "Small sizes", Description = "Fixed pixel sizes that ignore the theme."}{
+				kit.Wrap(
+					list.map(
+						backgrounds,
+						|swatch| -> kit.Labeled(
+							swatch.name,
+							ui.Column{
+								Padding = "S",
+								swatch_background = swatch.background,
+								visual = true,
+								OnDraw = draw_swatch_background,
+								layout = {AlignmentX = "start", ChildGap = "XXS", GrowWidth = 0, FitWidth = true},
+							}{
+								list.map(
+									text_sizes,
+									|size| -> do
+										font_cache[size] = font_cache[size] or fonts.New{Size = size}
+
+										return ui.Text{
+											Key = size,
+											Text = string.format("Hamburgefonstiv 1lI| design tokens %dpx", size),
+											Font = font_cache[size],
+											Color = swatch.foreground,
+											IgnoreMouseInput = true,
+										}
+									end
+								),
+							}
+						)
+					),
+					{ChildGap = "L"}
+				),
 			},
 		}
-	end,
+	end),
 }

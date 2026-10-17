@@ -1,101 +1,39 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local TabBar = import("goluwa/render2d/ui/widgets/tab_bar.lua")
-local Tabs = import("goluwa/render2d/ui/widgets/tabs.lua")
-local Checkbox = import("goluwa/render2d/ui/elements/checkbox.lua")
-local Column = import("goluwa/render2d/ui/elements/column.lua")
-local Slider = import("goluwa/render2d/ui/elements/slider.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
+local BAR_TABS = {"Inspector", "Hierarchy", "Console"}
 
 local function page(name, children)
-	return Column{
-		Tab = name,
-		layout = {ChildGap = "S", Padding = "M", AlignmentX = "stretch"},
-	}(children)
+	return ui.Column{Key = name, Tab = name, layout = {ChildGap = "S", Padding = "M", AlignmentX = "stretch"}}{children}
 end
 
-local function on_tabs_change(name, tabs)
-	tabs.Readout.text:SetText("OnChange(" .. name .. ")")
-end
-
-local function on_bar_change(name, bar)
-	bar.Readout.text:SetText("OnChange(" .. name .. ")")
-end
-
-local function step_bar(button)
-	local bar = button.Bar
-	local index = 1
-
-	for i, name in ipairs(bar.Tabs) do
-		if name == bar.Value then index = i end
-	end
-
-	local name = bar.Tabs[(index - 1 + button.Step) % #bar.Tabs + 1]
-	bar:SetValue(name)
-	bar.Readout.text:SetText("SetValue(" .. name .. ") does not fire OnChange")
-end
-
-local function add_tab(button)
-	local bar = button.Bar
-	local tabs = table.shallow_copy(bar.Tabs)
-	tabs[#tabs + 1] = "Tab " .. (#tabs + 1)
-	bar:SetTabs(tabs)
-	bar:SetValue(tabs[#tabs])
-end
-
-local function remove_tab(button)
-	local bar = button.Bar
-	local tabs = table.shallow_copy(bar.Tabs)
-	tabs[#tabs] = nil
-	bar:SetTabs(tabs)
-	bar:SetValue(tabs[#tabs])
+local function readout(text)
+	return ui.Text{Text = text, Color = "text_disabled", IgnoreMouseInput = true}
 end
 
 return {
 	Name = "tabs",
 	Section = "Containers",
 	Order = 3,
-	Create = function()
-		local tabs_readout = Text{
-			Text = "OnChange has not fired yet",
-			Color = "text_disabled",
-			IgnoreMouseInput = true,
-		}
-		local bar_readout = Text{
-			Text = "OnChange has not fired yet",
-			Color = "text_disabled",
-			IgnoreMouseInput = true,
-		}
-		local dynamic_readout = Text{
-			Text = "SetTabs rebuilds the tabs only when the list changed",
-			Color = "text_disabled",
-			IgnoreMouseInput = true,
-		}
-		local bar = TabBar{
-			Tabs = {"Inspector", "Hierarchy", "Console"},
-			Value = "Hierarchy",
-			Readout = bar_readout,
-			OnChange = on_bar_change,
-		}
-		local dynamic = TabBar{
-			Tabs = {"Tab 1", "Tab 2"},
-			Value = "Tab 1",
-			Readout = dynamic_readout,
-			OnChange = on_bar_change,
-		}
-		local sizes = {}
+	View = react.Component(|| -> do
+		local tabs_readout, set_tabs_readout = react.UseState("OnChange has not fired yet")
+		local bar_value, set_bar_value = react.UseState("Hierarchy")
+		local bar_readout, set_bar_readout = react.UseState("OnChange has not fired yet")
+		local dynamic_tabs, set_dynamic_tabs = react.UseState({"Tab 1", "Tab 2"})
+		local dynamic_value, set_dynamic_value = react.UseState("Tab 1")
+		local dynamic_readout, set_dynamic_readout = react.UseState("SetTabs rebuilds the tabs only when the list changed")
 
-		for _, size in ipairs{"S", "M", "L"} do
-			sizes[#sizes + 1] = kit.Labeled(
-				"FontSize = " .. size,
-				TabBar{
-					Tabs = {"Models", "Textures", "Materials"},
-					Value = "Textures",
-					FontSize = size,
-					layout = {MinSize = Vec2(320, 0), GrowWidth = 0},
-				}
-			)
+		local function step_bar(step)
+			local index = 1
+
+			for i, name in ipairs(BAR_TABS) do
+				if name == bar_value then index = i end
+			end
+
+			local name = BAR_TABS[(index - 1 + step) % #BAR_TABS + 1]
+			set_bar_value(name)
+			set_bar_readout("SetValue(" .. name .. ") does not fire OnChange")
 		end
 
 		return kit.Page{
@@ -106,57 +44,98 @@ return {
 				Title = "Tabs",
 				Description = "Children carrying a Tab name become the pages, in order. Value picks the page that is shown, the first one by default.",
 			}{
-				Tabs{Readout = tabs_readout, OnChange = on_tabs_change}{
-					page(
-						"Overview",
-						{
-							kit.Paragraph(kit.Lorem),
-						}
-					),
+				ui.Tabs{OnChange = |name| -> set_tabs_readout("OnChange(" .. name .. ")")}{
+					page("Overview", {kit.Paragraph(kit.Lorem)}),
 					page(
 						"Settings",
 						{
-							Checkbox{Text = "Enable shadows", Value = true},
-							Checkbox{Text = "Show the grid"},
-							Slider{Value = 0.6, layout = {GrowWidth = 1, MinSize = Vec2(200, 16)}},
+							ui.Checkbox{Text = "Enable shadows", Value = true},
+							ui.Checkbox{Text = "Show the grid"},
+							ui.Slider{Value = 0.6, layout = {GrowWidth = 1, MinSize = Vec2(200, 16)}},
 						}
 					),
 					page(
 						"About",
 						{
-							Text{Text = "Only the page of the active tab takes part in layout.", IgnoreMouseInput = true},
-							kit.Group{Button{Text = "A button on the page", Mode = "outline"}},
+							ui.Text{Text = "Only the page of the active tab takes part in layout.", IgnoreMouseInput = true},
+							kit.Group{ui.Button{Text = "A button on the page", Mode = "outline"}},
 						}
 					),
 				},
-				tabs_readout,
+				readout(tabs_readout),
 			},
 			kit.Section{
 				Title = "Tab bar",
 				Description = "The row of tabs on its own, for content that is managed elsewhere. OnChange(name, bar) fires when a tab is clicked, SetValue changes the tab without it.",
 			}{
-				bar,
-				kit.Group{
-					Button{Text = "Previous", Mode = "outline", Bar = bar, Step = -1, OnClick = step_bar},
-					Button{Text = "Next", Mode = "outline", Bar = bar, Step = 1, OnClick = step_bar},
+				ui.TabBar{
+					Tabs = BAR_TABS,
+					Value = bar_value,
+					OnChange = |name| -> do
+						set_bar_value(name)
+						set_bar_readout("OnChange(" .. name .. ")")
+					end,
 				},
-				bar_readout,
+				kit.Group{
+					ui.Button{Text = "Previous", Mode = "outline", OnClick = || -> step_bar(-1)},
+					ui.Button{Text = "Next", Mode = "outline", OnClick = || -> step_bar(1)},
+				},
+				readout(bar_readout),
 			},
-			kit.Section{
-				Title = "Changing the tabs",
-				Description = "SetTabs takes a list of names.",
-			}{
-				dynamic,
-				kit.Group{
-					Button{Text = "Add tab", Mode = "outline", Bar = dynamic, OnClick = add_tab},
-					Button{Text = "Remove tab", Mode = "outline", Bar = dynamic, OnClick = remove_tab},
+			kit.Section{Title = "Changing the tabs", Description = "SetTabs takes a list of names."}{
+				ui.TabBar{
+					Tabs = dynamic_tabs,
+					Value = dynamic_value,
+					OnChange = |name| -> do
+						set_dynamic_value(name)
+						set_dynamic_readout("OnChange(" .. name .. ")")
+					end,
 				},
-				dynamic_readout,
+				kit.Group{
+					ui.Button{
+						Text = "Add tab",
+						Mode = "outline",
+						OnClick = || -> do
+							local tabs = table.shallow_copy(dynamic_tabs)
+							tabs[#tabs + 1] = "Tab " .. (#tabs + 1)
+							set_dynamic_tabs(tabs)
+							set_dynamic_value(tabs[#tabs])
+						end,
+					},
+					ui.Button{
+						Text = "Remove tab",
+						Mode = "outline",
+						OnClick = || -> do
+							local tabs = table.shallow_copy(dynamic_tabs)
+							tabs[#tabs] = nil
+							set_dynamic_tabs(tabs)
+							set_dynamic_value(tabs[#tabs])
+						end,
+					},
+				},
+				readout(dynamic_readout),
 			},
 			kit.Section{
 				Title = "Font size",
 				Description = "FontSize sizes the labels, the tabs grow with it.",
-			}{kit.Group(sizes, {AlignmentY = "start", WrapChildren = true})},
+			}{
+				kit.Group(
+					list.map(
+						{"S", "M", "L"},
+						|size| -> kit.Labeled(
+							"FontSize = " .. size,
+							ui.TabBar{
+								Key = size,
+								Tabs = {"Models", "Textures", "Materials"},
+								Value = "Textures",
+								FontSize = size,
+								layout = {MinSize = Vec2(320, 0), GrowWidth = 0},
+							}
+						)
+					),
+					{AlignmentY = "start", WrapChildren = true}
+				),
+			},
 		}
-	end,
+	end),
 }

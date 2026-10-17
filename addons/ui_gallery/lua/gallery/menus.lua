@@ -1,22 +1,15 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
-local Frame = import("goluwa/render2d/ui/elements/frame.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local MenuSpacer = import("goluwa/render2d/ui/elements/menu_spacer.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 
-local function report(path)
-	return function(item)
-		item.Status.text:SetText("Selected: " .. path)
-	end
-end
-
-local function build_file_menu(status)
+-- the items of a menu are made when it opens, they are real entities and not part of the tree
+local function build_file_menu(report)
 	local function leaf(text, path)
-		return MenuItem{Status = status, Text = text, OnClick = report(path)}
+		return MenuItem{Text = text, OnClick = || -> report(path)}
 	end
 
 	return {
@@ -49,45 +42,36 @@ local function build_file_menu(status)
 	}
 end
 
-local function build_edit_menu(status)
+local function build_edit_menu(report)
 	return {
-		MenuItem{Status = status, Text = "Undo", OnClick = report("Edit > Undo")},
-		MenuItem{Status = status, Text = "Redo", OnClick = report("Edit > Redo")},
+		MenuItem{Text = "Undo", OnClick = || -> report("Edit > Undo")},
+		MenuItem{Text = "Redo", OnClick = || -> report("Edit > Redo")},
 		MenuSpacer{},
 		MenuItem{
 			Text = "Selection",
 			Items = function()
 				return {
-					MenuItem{Status = status, Text = "Expand", OnClick = report("Edit > Selection > Expand")},
-					MenuItem{Status = status, Text = "Shrink", OnClick = report("Edit > Selection > Shrink")},
+					MenuItem{Text = "Expand", OnClick = || -> report("Edit > Selection > Expand")},
+					MenuItem{Text = "Shrink", OnClick = || -> report("Edit > Selection > Shrink")},
 				}
 			end,
 		},
 	}
 end
 
-local function open_context_menu(button)
-	local status = button.Status
+local function open_context_menu(report)
 	Panel.OpenContextMenu(
 		{},
 		{
-			MenuItem{Status = status, Text = "Copy", OnClick = report("Context > Copy")},
-			MenuItem{Status = status, Text = "Paste", OnClick = report("Context > Paste")},
+			MenuItem{Text = "Copy", OnClick = || -> report("Context > Copy")},
+			MenuItem{Text = "Paste", OnClick = || -> report("Context > Paste")},
 			MenuSpacer{},
 			MenuItem{
 				Text = "Transform",
 				Items = function()
 					return {
-						MenuItem{
-							Status = status,
-							Text = "Rotate",
-							OnClick = report("Context > Transform > Rotate"),
-						},
-						MenuItem{
-							Status = status,
-							Text = "Scale",
-							OnClick = report("Context > Transform > Scale"),
-						},
+						MenuItem{Text = "Rotate", OnClick = || -> report("Context > Transform > Rotate")},
+						MenuItem{Text = "Scale", OnClick = || -> report("Context > Transform > Scale")},
 					}
 				end,
 			},
@@ -96,24 +80,20 @@ local function open_context_menu(button)
 	)
 end
 
-local function on_surface_mouse_input(surface, button, press)
-	if button == "button_2" and press then
-		open_context_menu(surface)
-		return true
-	end
-end
-
 return {
 	Name = "menus",
 	Section = "Overlays",
 	Order = 1,
-	Create = function()
-		local status = Text{
-			Text = "Open a menu and pick an item.",
-			Color = "text_disabled",
-			IgnoreMouseInput = true,
-			layout = {GrowWidth = 1},
-		}
+	View = react.Component(|| -> do
+		local status, set_status = react.UseState("Open a menu and pick an item.")
+		local report = react.UseCallback(|path| -> set_status("Selected: " .. path), {})
+		-- built once, a new function every render would rebuild the bar
+		local bar_items = react.UseMemo(|| -> {
+			{Text = "File", Items = || -> build_file_menu(report)},
+			{Text = "Edit", Items = || -> build_edit_menu(report)},
+			{Text = "Disabled", Disabled = true},
+		}, {})
+
 		return kit.Page{
 			Title = "Menus",
 			Description = "Menu bars open context menus. Context menus nest to any depth, close on outside click or Escape, and stay on screen.",
@@ -122,45 +102,32 @@ return {
 				Title = "Menu bar",
 				Description = "Hover across the top level buttons while a menu is open to switch menus.",
 			}{
-				MenuBar{
-					Items = {
-						{
-							Text = "File",
-							Items = function()
-								return build_file_menu(status)
-							end,
-						},
-						{
-							Text = "Edit",
-							Items = function()
-								return build_edit_menu(status)
-							end,
-						},
-						{Text = "Disabled", Disabled = true},
-					},
-					layout = {GrowWidth = 0},
-				},
-				status,
+				ui.MenuBar{Items = bar_items, layout = {GrowWidth = 0}},
+				ui.Text{Text = status, Color = "text_disabled", IgnoreMouseInput = true, layout = {GrowWidth = 1}},
 			},
 			kit.Section{
 				Title = "Context menu",
 				Description = "Panel.OpenContextMenu(props, items). Right click the surface or use the button.",
 			}{
 				kit.Group{
-					Button{
-						Status = status,
+					ui.Button{
 						Text = "Open context menu",
 						Mode = "outline",
-						OnClick = open_context_menu,
+						OnClick = || -> open_context_menu(report),
 					},
 				},
-				Frame{
-					Status = status,
+				ui.Frame{
 					Padding = "L",
 					layout = {GrowWidth = 1, MinSize = Vec2(0, 96)},
-					OnMouseInput = on_surface_mouse_input,
+					OnMouseInput = |_, button, press| -> do
+						if button == "button_2" and press then
+							open_context_menu(report)
+
+							return true
+						end
+					end,
 				}{
-					Text{
+					ui.Text{
 						Text = "Right click anywhere in this frame",
 						Color = "text_disabled",
 						IgnoreMouseInput = true,
@@ -168,5 +135,5 @@ return {
 				},
 			},
 		}
-	end,
+	end),
 }

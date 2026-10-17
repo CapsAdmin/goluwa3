@@ -1,77 +1,84 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
-local Window = import("goluwa/render2d/ui/widgets/window.lua")
-local Text = import("goluwa/render2d/ui/elements/text.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
-local count = 0
-
-local function open_window(button)
-	count = count + 1
-	local size = Vec2(320, 200)
-	local offset = Vec2(24, 24) * (count % 6)
-	Panel.World:Ensure(
-		Window{
-			Key = "GalleryDemoWindow" .. count,
-			Title = "WINDOW " .. count,
-			Size = size,
-			Position = (Panel.World.transform:GetSize() - size) / 2 + offset,
-			MinSize = Vec2(200, 120),
-		}{
-			Text{
-				Text = "Drag the title bar to move this window and drag its edges to resize it. Clicking a window brings it to the front.",
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {GrowWidth = 1},
-			},
-		}
-	)
-end
-
-local function open_custom_close(button)
-	local size = Vec2(320, 160)
-	Panel.World:Ensure(
-		Window{
-			Key = "GalleryConfirmWindow",
-			Title = "CONFIRM",
-			Size = size,
-			Position = (Panel.World.transform:GetSize() - size) / 2,
-			OnClose = function(window)
-				window:Remove()
-			end,
-		}{
-			Text{
-				Text = "OnClose receives the window. Remove it, hide it or ask for confirmation.",
-				Wrap = true,
-				IgnoreMouseInput = true,
-				layout = {GrowWidth = 1},
-			},
-		}
-	)
-end
+local DEMO_SIZE = Vec2(320, 200)
+local CONFIRM_SIZE = Vec2(320, 160)
 
 return {
 	Name = "windows",
 	Section = "Overlays",
 	Order = 2,
-	Create = function()
+	View = react.Component(|| -> do
+		local windows, set_windows = react.UseState({})
+		local confirm, set_confirm = react.UseState(nil)
+		local counter = react.UseRef(0)
+
+		local function open_window()
+			counter.current = counter.current + 1
+			local id = counter.current
+			local position = (Panel.World.transform:GetSize() - DEMO_SIZE) / 2 + Vec2(24, 24) * (id % 6)
+
+			set_windows(|current| -> do
+				local next_windows = list.copy(current)
+				next_windows[#next_windows + 1] = {id = id, position = position}
+
+				return next_windows
+			end)
+		end
+
 		return kit.Page{
 			Title = "Windows",
 			Description = "Floating, draggable and resizable windows. Children added to a window land in its padded content area.",
 		}{
 			kit.Section{
 				Title = "Open windows",
-				Description = "Key makes a window unique: Panel.World:Ensure(window) reuses an existing one.",
+				Description = "The windows are rendered through a Portal into the world panel, closing one removes it from the state.",
 			}{
 				kit.Group{
-					Button{Text = "Open a window", OnClick = open_window},
-					Button{
+					ui.Button{Text = "Open a window", OnClick = open_window},
+					ui.Button{
 						Text = "Open with custom OnClose",
 						Mode = "outline",
-						OnClick = open_custom_close,
+						OnClick = || -> set_confirm((Panel.World.transform:GetSize() - CONFIRM_SIZE) / 2),
+					},
+				},
+			},
+			react.Portal{Target = Panel.World}{
+				list.map(
+					windows,
+					|window| -> ui.Window{
+						Key = window.id,
+						Title = "WINDOW " .. window.id,
+						Size = DEMO_SIZE,
+						Position = window.position,
+						MinSize = Vec2(200, 120),
+						OnClose = || -> set_windows(|current| -> list.filter(current, |other| -> other.id ~= window.id)),
+					}{
+						ui.Text{
+							Text = "Drag the title bar to move this window and drag its edges to resize it. Clicking a window brings it to the front.",
+							Wrap = true,
+							IgnoreMouseInput = true,
+							layout = {GrowWidth = 1},
+						},
+					}
+				),
+				confirm && ui.Window{
+					Key = "confirm",
+					Title = "CONFIRM",
+					Size = CONFIRM_SIZE,
+					Position = confirm,
+					OnClose = || -> set_confirm(nil),
+				}{
+					ui.Text{
+						Text = "OnClose receives the window. Remove it, hide it or ask for confirmation.",
+						Wrap = true,
+						IgnoreMouseInput = true,
+						layout = {GrowWidth = 1},
 					},
 				},
 			},
 		}
-	end,
+	end),
 }
