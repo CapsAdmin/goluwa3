@@ -1,9 +1,8 @@
 local event = import("goluwa/event.lua")
-local input = import("goluwa/input.lua")
-local objects = import("goluwa/objects/objects.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local desktop = import("goluwa/render2d/ui/desktop.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local PropertyEditor = import("goluwa/render2d/ui/widgets/property_editor.lua")
 local pvar_node = import("goluwa/render2d/ui/pvar_node.lua")
@@ -15,9 +14,9 @@ local grade = import("goluwa/render3d/grade.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local WIDTH = 460
-local panel = NULL
+-- the desktop menu bar and its program buttons stay uncovered
+local DESKTOP_BAR = 104
 local property_editor
-local shown = false
 local nodes = {}
 local layer_signature = ""
 local wind_direction = 0
@@ -557,73 +556,41 @@ local function sync()
 	end
 end
 
-local function is_editing()
-	if not panel:IsValid() then return false end
-
-	local focused = objects.GetFocusedObject()
-
-	while focused and focused:IsValid() do
-		if focused == panel then return true end
-
-		focused = focused:GetParent()
-	end
-
-	return false
-end
-
-local function show()
-	local world = Panel.World
-
-	if not panel:IsValid() then
+desktop.RegisterProgram{
+	Name = "Look",
+	Icon = "eye",
+	Positioned = true,
+	OnOpen = sync,
+	Create = function()
 		name_layers()
-		panel = world:Ensure(
-			Window{
-				Key = "LookWindow",
-				Title = "LOOK",
-				RequestMouse = true,
-				Padding = "none",
-				Closable = false,
-				Minimizable = false,
-				Maximizable = false,
-				MinSize = Vec2(WIDTH, 200),
+		return Window{
+			Title = "LOOK",
+			Pinnable = true,
+			Padding = "none",
+			Size = Vec2(WIDTH, Panel.World.transform:GetSize().y - DESKTOP_BAR),
+			Position = Vec2(0, DESKTOP_BAR),
+			MinSize = Vec2(WIDTH, 200),
+		}{
+			ScrollablePanel{
+				ScrollX = false,
+				ScrollY = true,
+				Padding = "M",
+				layout = {GrowWidth = 1, GrowHeight = 1},
 			}{
-				ScrollablePanel{
-					ScrollX = false,
-					ScrollY = true,
-					Padding = "M",
-					layout = {GrowWidth = 1, GrowHeight = 1},
-				}{
-					PropertyEditor{
-						Ref = function(self)
-							property_editor = self
-						end,
-						Items = build_items(),
-						layout = {GrowWidth = 1},
-					},
+				PropertyEditor{
+					Ref = function(self)
+						property_editor = self
+					end,
+					Items = build_items(),
+					layout = {GrowWidth = 1},
 				},
-			}
-		)
-	end
-
-	local size = world.transform:GetSize()
-	panel.transform:SetSize(Vec2(WIDTH, size.y))
-	panel.transform:SetPosition(Vec2(0, 0))
-	panel.visual:SetVisible(true)
-	shown = true
-	sync()
-end
+			},
+		}
+	end,
+}
 
 event.AddListener("Update", "look_panel", function()
-	if shown and panel:IsValid() then sync() end
-end)
+	local window = desktop.GetProgram("Look").Window
 
-input.Bind("q", "+show_look", function()
-	show()
-end)
-
-input.Bind("q", "-show_look", function()
-	if not panel:IsValid() or is_editing() then return end
-
-	panel.visual:SetVisible(false)
-	shown = false
+	if window:IsValid() and window.visual:GetVisible() then sync() end
 end)
