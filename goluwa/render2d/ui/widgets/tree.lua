@@ -243,7 +243,7 @@ function META:Rebuild(force)
 	self:clear_drag_state()
 	self._row_infos = {}
 	self._row_order = {}
-	self:RemoveChildren()
+	self:RemoveAllChildren()
 	local insert_index = 1
 
 	for index, node in ipairs(self._items) do
