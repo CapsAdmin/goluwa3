@@ -130,7 +130,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 
 - [docs/screenshots-and-cameras.md](docs/screenshots-and-cameras.md): `Screenshot`, `Shot`, moving the camera
 - [docs/debugging-and-profiling.md](docs/debugging-and-profiling.md): print helpers, the JIT profiler, optimization notes
-- [docs/performance.md](docs/performance.md): measuring CPU/GPU time correctly, benchmarks, JIT pitfalls, baselines and past optimization passes
+- [docs/performance.md](docs/performance.md): measuring CPU/GPU time correctly, benchmarks, JIT pitfalls, baselines and past optimization passes, startup time (the STARTUP tab and the `startup` timers)
 - [docs/render3d-lighting.md](docs/render3d-lighting.md): DDGI/GI, fog, sky, clouds, water, shadows, exposure, material and shading pitfalls
 - [docs/render3d-pipeline.md](docs/render3d-pipeline.md): surface features and the auto packed gbuffer, Vulkan/GLSL pitfalls, GPU culling, instancing, LOD, scene view, Test3D harness
 - [docs/particles.md](docs/particles.md): the particle system (gpu pools, one compute pass, lit by the sun, local lights and DDGI or the sky), the particle_emitter_gpu and particle_emitter_cpu (gbuffer instancing) components, rain, snow, collision, measuring
