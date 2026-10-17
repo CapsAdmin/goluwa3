@@ -224,6 +224,10 @@ function VulkanInstance:GetPipelineCacheData()
 	return self.device.pipeline_cache:GetData()
 end
 
+function VulkanInstance:GetPipelineCacheDataSize()
+	return self.device.pipeline_cache:GetDataSize()
+end
+
 function VulkanInstance:GetPipelineCacheGeneration()
 	return self.device.pipeline_cache.generation
 end

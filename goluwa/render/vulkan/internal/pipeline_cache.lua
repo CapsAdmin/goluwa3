@@ -64,6 +64,15 @@ function PipelineCache.New(device, initial_data)
 	}
 end
 
+function PipelineCache:GetDataSize()
+	local size = SizeBox()
+	vulkan.assert(
+		vulkan.lib.vkGetPipelineCacheData(self.device.ptr[0], self.ptr[0], size, nil),
+		"failed to get pipeline cache size"
+	)
+	return tonumber(size[0])
+end
+
 function PipelineCache:GetData()
 	local size = SizeBox()
 	vulkan.assert(

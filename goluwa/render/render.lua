@@ -256,7 +256,7 @@ function render.Shutdown()
 	render.shutting_down = false
 end
 
-local function start_saving_pipeline_cache(path)
+local function start_saving_pipeline_cache(path, saved_size)
 	local saved_generation = vulkan_instance:GetPipelineCacheGeneration()
 	local seen_generation = saved_generation
 	local changed_at = 0
@@ -277,6 +277,13 @@ local function start_saving_pipeline_cache(path)
 		if time - changed_at < 2 then return end
 
 		saved_generation = generation
+
+		-- a cache that grew by nothing holds nothing new, writing it again would only cost the time
+		local size = vulkan_instance:GetPipelineCacheDataSize()
+
+		if size == saved_size then return end
+
+		saved_size = size
 
 		if jit.os == "Windows" then
 			assert(fs.write_file(path, vulkan_instance:GetPipelineCacheData()))
@@ -340,7 +347,7 @@ function render.Initialize(config)
 	end
 
 	refresh_bindless_descriptor_capacities()
-	start_saving_pipeline_cache(pipeline_cache_path)
+	start_saving_pipeline_cache(pipeline_cache_path, pipeline_cache_data and #pipeline_cache_data)
 	startup.Begin("RendererReady listeners")
 	event.Call("RendererReady")
 	startup.End("RendererReady listeners")
