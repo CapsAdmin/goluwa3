@@ -498,7 +498,7 @@ function Terrain:RetireTiles()
 
 	local min_height, max_height = self.Source.MinHeight, self.Source.MaxHeight
 
-	for _ = 1, math.min(self.BVHPerFrame, #due) do
+	for _ = 1, math.min(self.holding_scene_load and #due or self.BVHPerFrame, #due) do
 		local best, best_rank, best_index = nil, math.huge
 
 		for i = 1, #due do
@@ -587,8 +587,9 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 					tile.polygon = built.polygon
 					tile.material = built.material
 
+					-- while the scene loads nothing flies, the tile is wanted for good and the first bvh build takes it along
 					if tile.level < self.BVHLevels then
-						tile.bvh_time = system.GetElapsedTime() + self.BVHDelay
+						tile.bvh_time = system.GetElapsedTime() + (self.holding_scene_load and 0 or self.BVHDelay)
 					end
 
 					if tile.material:GetScatterSet() then
