@@ -44,10 +44,11 @@ function META:GetMouseLocation(pos)
 	local offset = self.ResizeBorder
 	local transform = self.Owner.transform
 	local siz = transform:GetSize()
-	local is_top = pos.y > -offset.y and pos.y < offset.y
-	local is_bottom = pos.y > siz.y - offset.h and pos.y < siz.y + offset.h
-	local is_left = pos.x > -offset.x and pos.x < offset.x
-	local is_right = pos.x > siz.x - offset.w and pos.x < siz.x + offset.w
+	-- the border is only outside the panel, so it never overlaps anything inside it (a scrollbar at the edge)
+	local is_top = pos.y >= -offset.y and pos.y < 0
+	local is_bottom = pos.y >= siz.y and pos.y < siz.y + offset.h
+	local is_left = pos.x >= -offset.x and pos.x < 0
+	local is_right = pos.x >= siz.x and pos.x < siz.x + offset.w
 
 	if is_top and is_left then return "top_left" end
 

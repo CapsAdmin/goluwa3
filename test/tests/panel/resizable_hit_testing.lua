@@ -84,7 +84,7 @@ T.Test("panel resize works on extended border of topmost panel", function()
 	Panel.World = old_world
 end)
 
-T.Test("panel resize works on inside edge over child panel", function()
+T.Test("panel resize works on the outside edge next to a child panel", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
 		ComponentSet = {"transform", "visual"},
@@ -113,7 +113,7 @@ T.Test("panel resize works on inside edge over child panel", function()
 	local window = system.GetWindow()
 	local old_get_mouse_pos = window.GetMousePosition
 	window.GetMousePosition = function()
-		return Vec2(25, 50)
+		return Vec2(16, 50)
 	end
 	event.Call("MouseInput", "button_1", true)
 	T(window_panel.resizable:IsResizing())["=="](true)
@@ -156,7 +156,7 @@ T.Test("panel resize is not blocked by child global false return", function()
 	local window = system.GetWindow()
 	local old_get_mouse_pos = window.GetMousePosition
 	window.GetMousePosition = function()
-		return Vec2(25, 50)
+		return Vec2(16, 50)
 	end
 	event.Call("MouseInput", "button_1", true)
 	T(window_panel.resizable:IsResizing())["=="](true)
@@ -206,7 +206,7 @@ T.Test("panel resize cursor stays locked during drag over child move handler", f
 	local old_get_mouse_pos = window.GetMousePosition
 	local old_get_mouse_delta = window.GetMouseDelta
 	window.GetMousePosition = function()
-		return Vec2(25, 50)
+		return Vec2(16, 50)
 	end
 	window.GetMouseDelta = function()
 		return Vec2(1, 0)
@@ -253,7 +253,7 @@ T.Test("panel resize cursor updates immediately from child hover cursor", functi
 	local old_cursor = window:GetCursor()
 	window:SetCursor("hand")
 	window.GetMousePosition = function()
-		return Vec2(25, 50)
+		return Vec2(16, 50)
 	end
 	event.Call("MouseInput", "button_1", true)
 	T(window_panel.resizable:IsResizing())["=="](true)
