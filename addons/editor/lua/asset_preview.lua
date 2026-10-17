@@ -515,6 +515,27 @@ function previews.LoadMaterial(entry)
 	return assets.GetMaterial(entry.path)
 end
 
+-- the asset paths a loaded material came from, empty for a material built at runtime
+function previews.GetMaterialPaths(material)
+	local paths = {}
+
+	if material.vmt_path then paths[#paths + 1] = material.vmt_path end
+
+	local stats = Material.GetCacheStats()[material]
+
+	if stats then
+		for _, key in ipairs(stats.key_order) do
+			paths[#paths + 1] = key
+		end
+	end
+
+	for key, value in pairs(assets.cache) do
+		if value == material then paths[#paths + 1] = key:match("^[^|]*") end
+	end
+
+	return paths
+end
+
 function previews.ReleaseMaterial(material)
 	if material.private_prefix then vmt_material.Release(material) end
 end

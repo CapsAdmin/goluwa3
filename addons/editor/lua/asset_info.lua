@@ -4,6 +4,7 @@ local assets = import("goluwa/assets.lua")
 local previews = import("lua/asset_preview.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local objects = import("goluwa/objects/objects.lua")
+local tostring_object = import("goluwa/tostring_object.lua").tostring_object
 local asset_info = {}
 
 function asset_info.FormatBytes(bytes)
@@ -68,7 +69,37 @@ function asset_info.GetVMTSummary(source)
 	return summary
 end
 
-function asset_info.Get(entry)
+function asset_info.GetMaterialSection(material)
+	local section = {title = "material", rows = {}}
+	local rows = section.rows
+
+	if material.Name ~= "" then rows[#rows + 1] = {"name", material.Name} end
+
+	if material.vmt_surfaceprop then
+		rows[#rows + 1] = {"surface prop", tostring_object(material.vmt_surfaceprop)}
+	end
+
+	for _, info in ipairs(material:GetTextures()) do
+		local texture = info.texture
+		local size = texture:GetSize()
+		rows[#rows + 1] = {
+			info.name:lower(),
+			("%d x %d  %s"):format(size.x, size.y, tostring(texture.format)),
+		}
+	end
+
+	local flags = {}
+
+	for name, set in pairs(material:GetDebugFlagMap()) do
+		if set then flags[#flags + 1] = name end
+	end
+
+	table.sort(flags)
+	rows[#rows + 1] = {"flags", #flags > 0 and table.concat(flags, ", ") or "none"}
+	return section
+end
+
+function asset_info.Get(entry, material)
 	local sections = {}
 	local general = {title = "asset", rows = {}}
 	sections[1] = general
@@ -80,7 +111,15 @@ function asset_info.Get(entry)
 	rows[#rows + 1] = {"root", entry.root}
 	local provider_section = {title = "providers", rows = {}}
 
-	if entry.source == "virtual" then
+	if entry.source == "world" then
+		local hit = entry.hit
+		local rows = provider_section.rows
+		rows[1] = {"source", "picked from the world"}
+		rows[#rows + 1] = {"entity", hit.primitive.entity.VisualOwner.Owner:GetName()}
+		rows[#rows + 1] = {"distance", ("%.2f"):format(hit.distance)}
+		rows[#rows + 1] = {"position", tostring(hit.position)}
+		rows[#rows + 1] = {"primitive", tostring(hit.primitive_index)}
+	elseif entry.source == "virtual" then
 		provider_section.rows[1] = {"source", "registered in code, no file"}
 	else
 		local providers = asset_info.GetProviders(entry)
@@ -111,6 +150,13 @@ function asset_info.Get(entry)
 	end
 
 	sections[#sections + 1] = provider_section
+
+	if entry.source == "world" then
+		if material then sections[#sections + 1] = asset_info.GetMaterialSection(material) end
+
+		return sections
+	end
+
 	local state = entry.preview
 	local preview_section = {title = "preview", rows = {}}
 
@@ -228,6 +274,8 @@ function asset_info.Get(entry)
 			sections[#sections + 1] = vmt_section
 		end
 	end
+
+	if material then sections[#sections + 1] = asset_info.GetMaterialSection(material) end
 
 	return sections
 end

@@ -35,6 +35,7 @@ local previews = import("lua/asset_preview.lua")
 local asset_info = import("lua/asset_info.lua")
 local prefab_tools = import("lua/prefab_tools.lua")
 local editor_history = import("lua/editor_history.lua")
+local picker = import("lua/picker.lua")
 local DEFAULT_CATEGORIES = {"models", "textures", "materials", "prefabs", "components"}
 local CATEGORY_ICONS = {
 	models = "cube",
@@ -44,6 +45,7 @@ local CATEGORY_ICONS = {
 	components = "component",
 }
 local folder_icon_box = Vec2()
+local WORLD_PREVIEW = {status = "loading"}
 local LABEL_HEIGHT = 36
 local DETAIL_PREVIEW_SIZE = 320
 local CHANNEL_SIZE = 64
@@ -265,6 +267,11 @@ return function(props)
 	local tab_bar
 	local details_entry
 	local details_status
+	local details_ready
+	local pick_state = {
+		owns = false,
+		modes = {models = "model", prefabs = "prefab", materials = "material", textures = "texture"},
+	}
 	local last_search_query = ""
 	local last_search_results
 	local last_search_folder
@@ -476,7 +483,9 @@ return function(props)
 		state.items = items
 		grid:SetItems(items, keep_scroll)
 
-		if state.selected then grid:SelectItem(state.selected) end
+		if state.selected and not state.selected.material then
+			grid:SelectItem(state.selected)
+		end
 
 		local asset_count = 0
 		local folder_count = 0
@@ -532,6 +541,11 @@ return function(props)
 		state.category = name
 		state.selected = nil
 		last_search_results = nil
+		if pick_state.owns then picker.Stop() end
+
+		if pick_state.button then
+			pick_state.button.visual:SetVisible(name ~= "components")
+		end
 
 		if tab_bar then tab_bar:SetValue(name) end
 
@@ -579,6 +593,19 @@ return function(props)
 		import("lua/model_viewer.lua")(entry)
 	end
 
+	local function open_material_viewer(entry)
+		import("lua/material_viewer.lua")(
+			entry.material or
+				(
+					detail.entry == entry and
+					detail.material
+				)
+				or
+				previews.LoadMaterial(entry),
+			entry.name
+		)
+	end
+
 	local function activate_item(item)
 		if item.is_folder then
 			window_navigate(item.folder, true)
@@ -594,6 +621,8 @@ return function(props)
 
 			if texture then TextureViewer(texture, item.path) end
 		end
+
+		if item.category == "materials" then open_material_viewer(item) end
 	end
 
 	local function open_context_menu(item)
@@ -752,7 +781,7 @@ return function(props)
 					Items = function()
 						local debug_items = {}
 
-						for _, section in ipairs(asset_info.Get(entry)) do
+						for _, section in ipairs(asset_info.Get(entry, detail.entry == entry and detail.material or nil)) do
 							debug_items[#debug_items + 1] = MenuItem{Text = "-- " .. section.title .. " --", Disabled = true}
 
 							for _, row in ipairs(section.rows) do
@@ -858,7 +887,9 @@ return function(props)
 
 		if detail.preview and detail.preview:IsValid() then detail.preview:Remove() end
 
-		if detail.material then previews.ReleaseMaterial(detail.material) end
+		if detail.material and not detail.entry.material then
+			previews.ReleaseMaterial(detail.material)
+		end
 
 		detail.entity = nil
 		detail.owns_entity = false
@@ -895,7 +926,11 @@ return function(props)
 				}
 			end
 		elseif entry.category == "materials" then
-			local ok, material = xpcall(previews.LoadMaterial, debug.traceback, entry)
+			local ok, material = true, entry.material
+
+			if not material then
+				ok, material = xpcall(previews.LoadMaterial, debug.traceback, entry)
+			end
 
 			if ok and material then
 				detail.material = material
@@ -999,7 +1034,7 @@ return function(props)
 			return
 		end
 
-		local preview = previews.Request(entry)
+		local preview = entry.material and WORLD_PREVIEW or previews.Request(entry)
 
 		if entry.category == "textures" then
 			if preview.status == "ready" then
@@ -1117,13 +1152,16 @@ return function(props)
 	end
 
 	local channels_source = false
+	local channels_width = 0
 
 	local function update_channels()
 		local source = detail.ready and detail.material or false
+		local width = channels_panel.transform:GetWidth()
 
-		if source == channels_source then return end
+		if source == channels_source and width == channels_width then return end
 
 		channels_source = source
+		channels_width = width
 		collect_channels()
 		local per_row = math.max(
 			1,
@@ -1145,6 +1183,7 @@ return function(props)
 		local entry = state.selected
 		details_entry = entry
 		details_status = entry and entry.preview and entry.preview.status or "none"
+		details_ready = detail.entry == entry and detail.ready
 
 		if not entry then
 			details_column:AddChild(
@@ -1198,6 +1237,17 @@ return function(props)
 			end,
 		}
 
+		if entry.category == "materials" then
+			actions[#actions + 1] = Button{
+				Text = "View",
+				Icon = "cube",
+				Mode = "outline",
+				OnClick = function()
+					open_material_viewer(entry)
+				end,
+			}
+		end
+
 		if entry.category == "textures" then
 			actions[#actions + 1] = Button{
 				Text = "Open",
@@ -1239,7 +1289,7 @@ return function(props)
 					end,
 				}
 			end
-		elseif entry.category == "materials" and target then
+		elseif entry.category == "materials" and target and not entry.material then
 			actions[#actions + 1] = Button{
 				Text = "Apply to selected",
 				Icon = "arrow_right",
@@ -1282,7 +1332,7 @@ return function(props)
 
 		details_column:AddChild(Row{layout = {GrowWidth = 1, ChildGap = 6, WrapChildren = true}}(actions))
 
-		for _, section in ipairs(asset_info.Get(entry)) do
+		for _, section in ipairs(asset_info.Get(entry, detail.entry == entry and detail.material or nil)) do
 			details_column:AddChild(
 				Text{
 					Text = section.title:upper(),
@@ -1306,6 +1356,113 @@ return function(props)
 				)
 			end
 		end
+
+	end
+
+	local function select_asset(category, matches)
+		if state.category ~= category then set_category(category) end
+
+		for _, entry in pairs(get_index().by_path) do
+			if matches(entry) then
+				window_navigate(entry.folder, true)
+				grid:SelectItem(entry)
+				return true
+			end
+		end
+
+		return false
+	end
+
+	-- what picker.Start hands over for the current tab: a model path, a prefab name, a material and its hit or a texture and its name
+	local function on_picked(value, extra)
+		local category = state.category
+
+		if category == "models" then
+			return select_asset("models", function(entry)
+				return entry.path:lower() == extra:lower()
+			end)
+		end
+
+		if category == "prefabs" then
+			return select_asset("prefabs", function(entry)
+				return entry.name == extra
+			end)
+		end
+
+		if category == "textures" then
+			-- a texture path is the mounted file, an absolute path into a vpk for source textures, the index has the part below the mount
+			local lower = value.config.path and value.config.path:lower()
+			local start = 1
+			local entry
+
+			while lower and start and not entry do
+				entry = get_index().by_path[lower:sub(start)]
+				start = lower:find("/", start, true)
+				start = start and start + 1
+			end
+
+			if entry then
+				window_navigate(entry.folder, true)
+				grid:SelectItem(entry)
+			else
+				print("the " .. extra .. " texture is not an asset in the browser")
+			end
+
+			return
+		end
+
+		local paths = {}
+
+		for _, path in ipairs(previews.GetMaterialPaths(value)) do
+			paths[path:lower()] = true
+		end
+
+		if
+			select_asset("materials", function(entry)
+				return paths[entry.path:lower()]
+			end)
+		then
+			return
+		end
+
+		local name = value.Name ~= "" and value.Name or "picked material"
+		grid:SetSelectedIndex(nil)
+		state.selected = {
+			category = "materials",
+			name = name,
+			extension = "",
+			path = name,
+			kind = "material",
+			source = "world",
+			root = "world",
+			material = value,
+			hit = extra,
+		}
+		update_status()
+	end
+
+	local function start_pick()
+		if pick_state.owns then return picker.Stop() end
+
+		pick_state.owns = true
+		pick_state.button:SetActive(true)
+		window.visual:SetVisible(false)
+		picker.Start{
+			mode = pick_state.modes[state.category],
+			hide_desktop = true,
+			entity_blacklist = (state.category == "models" or state.category == "prefabs") and {_G.PLAYER_RIG} or nil,
+			on_pick = on_picked,
+			on_stop = function()
+				pick_state.owns = false
+			end,
+			on_done = function()
+				if not window:IsValid() then return end
+
+				pick_state.button:SetActive(false)
+				window.visual:SetVisible(true)
+				window:BringToFront()
+			end,
+		}
 	end
 
 	local zoom_changed = false
@@ -1375,6 +1532,19 @@ return function(props)
 			refresh_items()
 		end,
 	}
+	if RENDER_3D and table.has_value(categories, "materials") then
+		toolbar_widgets[#toolbar_widgets + 1] = Button{
+			Text = "Pick",
+			Icon = "target",
+			Mode = "outline",
+			Tooltip = "pick from the world: the material of a surface, the model or the prefab of an entity depending on the tab. escape cancels",
+			Ref = function(self)
+				pick_state.button = self
+			end,
+			OnClick = start_pick,
+		}
+	end
+
 	toolbar_widgets[#toolbar_widgets + 1] = Button{
 		Text = "Refresh",
 		Icon = "refresh",
@@ -1507,56 +1677,6 @@ return function(props)
 								AlignmentX = "stretch",
 							},
 						}{
-							Panel.New{
-								Name = "AssetDetailPreview",
-								transform = true,
-								layout = {
-									GrowWidth = 1,
-									MinSize = Vec2(0, 320),
-									MaxSize = Vec2(0, 320),
-								},
-								visual = {OnDraw = draw_detail_preview},
-								mouse_input = {Cursor = "sizeall"},
-								OnMouseInput = function(self, button, press)
-									if button ~= "button_1" then return end
-
-									if press then
-										detail_drag_x, detail_drag_y = system.GetWindow():GetMousePosition():Unpack()
-										detail.press_x, detail.press_y = detail_drag_x, detail_drag_y
-										detail.dragging = true
-									else
-										detail.dragging = false
-										local x, y = system.GetWindow():GetMousePosition():Unpack()
-
-										if math.abs(x - detail.press_x) + math.abs(y - detail.press_y) < 3 then
-											detail.auto_rotate = not detail.auto_rotate
-										end
-									end
-
-									return true
-								end,
-							},
-							Panel.New{
-								Name = "AssetDetailChannels",
-								Ref = function(self)
-									channels_panel = self
-								end,
-								transform = true,
-								layout = {GrowWidth = 1, MinSize = Vec2(0, 1), MaxSize = Vec2(0, 1)},
-								visual = {Visible = false, OnDraw = draw_channels},
-								mouse_input = {Cursor = "hand"},
-								OnMouseInput = function(self, button, press, local_pos)
-									if button ~= "button_1" or not press then return end
-
-									local index = get_channel_at(local_pos.x, local_pos.y)
-
-									if index then
-										TextureViewer(channel_textures[index], state.selected.name .. " " .. channel_labels[index])
-									end
-
-									return true
-								end,
-							},
 							ScrollablePanel{
 								Ref = function(self)
 									details_scroll = self
@@ -1567,11 +1687,65 @@ return function(props)
 								layout = {GrowWidth = 1, GrowHeight = 1},
 							}{
 								Column{
-									Ref = function(self)
-										details_column = self
-									end,
-									layout = {GrowWidth = 1, FitHeight = true, ChildGap = 4, AlignmentX = "stretch"},
-								}{},
+									layout = {GrowWidth = 1, FitHeight = true, ChildGap = 6, AlignmentX = "stretch"},
+								}{
+									Panel.New{
+										Name = "AssetDetailPreview",
+										transform = true,
+										layout = {
+											GrowWidth = 1,
+											MinSize = Vec2(0, 320),
+											MaxSize = Vec2(0, 320),
+										},
+										visual = {OnDraw = draw_detail_preview},
+										mouse_input = {Cursor = "sizeall"},
+										OnMouseInput = function(self, button, press)
+											if button ~= "button_1" then return end
+
+											if press then
+												detail_drag_x, detail_drag_y = system.GetWindow():GetMousePosition():Unpack()
+												detail.press_x, detail.press_y = detail_drag_x, detail_drag_y
+												detail.dragging = true
+											else
+												detail.dragging = false
+												local x, y = system.GetWindow():GetMousePosition():Unpack()
+
+												if math.abs(x - detail.press_x) + math.abs(y - detail.press_y) < 3 then
+													detail.auto_rotate = not detail.auto_rotate
+												end
+											end
+
+											return true
+										end,
+									},
+									Panel.New{
+										Name = "AssetDetailChannels",
+										Ref = function(self)
+											channels_panel = self
+										end,
+										transform = true,
+										layout = {GrowWidth = 1, MinSize = Vec2(0, 1), MaxSize = Vec2(0, 1)},
+										visual = {Visible = false, OnDraw = draw_channels},
+										mouse_input = {Cursor = "hand"},
+										OnMouseInput = function(self, button, press, local_pos)
+											if button ~= "button_1" or not press then return end
+
+											local index = get_channel_at(local_pos.x, local_pos.y)
+
+											if index then
+												TextureViewer(channel_textures[index], state.selected.name .. " " .. channel_labels[index])
+											end
+
+											return true
+										end,
+									},
+									Column{
+										Ref = function(self)
+											details_column = self
+										end,
+										layout = {GrowWidth = 1, FitHeight = true, ChildGap = 4, AlignmentX = "stretch"},
+									}{},
+								},
 							},
 						},
 					},
@@ -1647,6 +1821,11 @@ return function(props)
 		return self
 	end
 
+	function window:SelectPicked(value, extra)
+		on_picked(value, extra)
+		return self
+	end
+
 	function window:PickSelected()
 		if state.selected then pick(state.selected) end
 
@@ -1680,7 +1859,16 @@ return function(props)
 		local entry = state.selected
 		local status = entry and entry.preview and entry.preview.status or "none"
 
-		if entry ~= details_entry or status ~= details_status then rebuild_details() end
+if
+			entry ~= details_entry or
+			status ~= details_status or
+			(
+				detail.entry == entry and
+				detail.ready
+			) ~= details_ready
+		then
+			rebuild_details()
+		end
 
 		if detail.entry ~= entry then
 			if entry then start_detail_preview(entry) else stop_detail_preview() end
@@ -1704,6 +1892,8 @@ return function(props)
 
 	window:CallOnRemove(
 		function()
+			if pick_state.owns then picker.Stop() end
+
 			stop_detail_preview()
 			open_windows = open_windows - 1
 
