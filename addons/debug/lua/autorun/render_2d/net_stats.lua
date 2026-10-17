@@ -1,28 +1,21 @@
-local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local commands = import("goluwa/cli/commands.lua")
-local event = import("goluwa/event.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local network = import("goluwa/network/network.lua")
 local NetworkComponent = import("goluwa/entities/components/network.lua")
 local scene_sync = import("goluwa/network/scene_sync.lua")
-local LINE_HEIGHT = 15
-local PANEL_WIDTH = 420
-local WHITE = Color(0.88, 0.9, 0.94, 1)
-local HEAD = Color(1, 0.85, 0.4, 1)
-local DIM = Color(0.6, 0.64, 0.7, 1)
-local WARN = Color(1, 0.5, 0.4, 1)
-local visible = false
+local StatTable = import("goluwa/render2d/ui/widgets/stat_table.lua")
+local perf = import("lua/perf.lua")
 local last_time = 0
 local last = {bytes_in = 0, bytes_out = 0, received = 0, sent = 0}
 local rates = {in_kb = 0, out_kb = 0, in_pps = 0, out_pps = 0}
 local rows = {}
 
 local function line(label, color)
-	rows[#rows + 1] = {label, color or WHITE}
+	rows[#rows + 1] = {label = label, color = color}
 end
 
-local SNAPSHOT_COLORS = {downloading = HEAD, spawning = HEAD}
+local SNAPSHOT_COLORS = {downloading = "head", spawning = "head"}
 
 local function format_bytes(bytes)
 	if bytes >= 1048576 then return string.format("%.2f MB", bytes / 1048576) end
@@ -34,10 +27,10 @@ end
 
 local function add_scene_lines(now)
 	local stats = scene_sync.stats
-	line("scene sync", HEAD)
+	line("scene sync", "head")
 
 	if stats.state == "none" then
-		line("no scene received", DIM)
+		line("no scene received", "dim")
 		return
 	end
 
@@ -63,7 +56,7 @@ local function add_scene_lines(now)
 		)
 	end
 
-	line(string.format("checksum %08x", stats.checksum), DIM)
+	line(string.format("checksum %08x", stats.checksum), "dim")
 	line(
 		string.format(
 			"property changes %d  %s  applies %d  removes %d",
@@ -74,7 +67,7 @@ local function add_scene_lines(now)
 		)
 	)
 
-	if stats.last_delta ~= "" then line("last " .. stats.last_delta, DIM) end
+	if stats.last_delta ~= "" then line("last " .. stats.last_delta, "dim") end
 
 	line(string.format("pushed %d  %s", stats.pushes, format_bytes(stats.push_bytes)))
 	local adopted = 0
@@ -88,20 +81,18 @@ local function add_scene_lines(now)
 
 	for i = #stats.log, 1, -1 do
 		local entry = stats.log[i]
-		line(string.format("%5.1fs  %s", now - entry.time, entry.text), DIM)
+		line(string.format("%5.1fs  %s", now - entry.time, entry.text), "dim")
 	end
 end
 
-event.AddListener("Draw2D", "net_stats", function()
-	if not visible then return end
-
+local function build_rows()
 	local peer = network.socket
 	local now = system.GetTime()
 	rows = {}
-	line("network", HEAD)
+	line("network", "head")
 
 	if not (peer:IsValid() and peer:IsConnected()) then
-		line("not connected", WARN)
+		line("not connected", "warn")
 	else
 		local stats = peer:GetStats()
 
@@ -123,7 +114,7 @@ event.AddListener("Draw2D", "net_stats", function()
 		line(string.format("out %.1f KB/s  %.0f msg/s", rates.out_kb, rates.out_pps))
 		line(
 			string.format("retransmitted %d", stats.retransmitted),
-			stats.retransmitted > 0 and WARN or WHITE
+			stats.retransmitted > 0 and "warn" or nil
 		)
 		local entities = 0
 
@@ -145,7 +136,7 @@ event.AddListener("Draw2D", "net_stats", function()
 					controller.corrections,
 					controller.last_correction or 0
 				),
-				(controller.last_correction or 0) > 0.5 and WARN or WHITE
+				(controller.last_correction or 0) > 0.5 and "warn" or nil
 			)
 			line(string.format("view correction %.3f m", controller.correction_offset:GetLength()))
 		end
@@ -153,21 +144,13 @@ event.AddListener("Draw2D", "net_stats", function()
 		add_scene_lines(now)
 	end
 
-	render2d.SetTexture(nil)
-	render2d.SetColor(0, 0, 0, 0.72)
-	render2d.DrawRoundedRect(8, 8, PANEL_WIDTH, #rows * LINE_HEIGHT + 24, 6)
+	return rows
+end
 
-	for i, row in ipairs(rows) do
-		render2d.DrawText{
-			text = row[1],
-			x = 18,
-			y = 9 + i * LINE_HEIGHT,
-			foreground_color = row[2],
-		}
-	end
+perf.RegisterTab("NETWORK", 6, function()
+	return StatTable{Size = Vec2(660, 470), OnRows = build_rows}
 end)
 
 commands.Add("net_stats", function()
-	visible = not visible
-	print("[net stats] " .. (visible and "Enabled" or "Disabled"))
+	perf.PrintRows(build_rows())
 end)
