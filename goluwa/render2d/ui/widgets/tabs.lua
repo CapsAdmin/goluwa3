@@ -2,6 +2,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local Column = import("goluwa/render2d/ui/elements/column.lua")
 local TabBar = import("goluwa/render2d/ui/widgets/tab_bar.lua")
 local META = Panel:CreateTemplate("tabs")
+META.Slot = "_content"
 META.CMP.transform = {}
 META.CMP.layout = {
 	Direction = "y",
@@ -43,11 +44,10 @@ function META:OnCreate()
 	}
 end
 
-function META:PreChildAdd(child)
+function META:OnChildAdd(child)
 	if child.IsInternal then return end
 
 	local name = assert(child.Tab, "a page of tabs needs a Tab name")
-	self._content:AddChild(child)
 	child:EnsureComponent("visual")
 	self._pages[name] = child
 	self._names[#self._names + 1] = name
@@ -56,15 +56,12 @@ function META:PreChildAdd(child)
 	if self.Value == nil then self.Value = name end
 
 	self:SetValue(self.Value)
-	return false
 end
 
-function META:PreRemoveChildren()
-	self._content:RemoveChildren()
+function META:OnChildrenRemoved()
 	self._pages = {}
 	self._names = {}
 	self._bar:SetTabs(self._names)
-	return false
 end
 
 function META:SetValue(name)

@@ -4,7 +4,7 @@ Every widget under `goluwa/render2d/ui` (`elements/`, `widgets/`, `widgets/prope
 
 - Component defaults go in `META.CMP.transform = {...}`, `META.CMP.layout = {...}` and so on. Props passed by the caller are merged on top, they never mutate the defaults.
 - Options are `META:GetSet` properties. Tokens (`"M"`, `"XS"`, palette names) are resolved through `theme.active`. Token or object valued options use a `nil` default because GetSet coerces string and number defaults.
-- Build internal children in `OnCreate` with `Parent = self, IsInternal = true` and keep them in private `_fields`. Forward user children with `PreChildAdd` and `PreRemoveChildren` (or `self:RemoveExternalChildren()`).
+- Build internal children in `OnCreate` with `Parent = self, IsInternal = true` and keep them in private `_fields`. A widget that keeps its user children in an inner panel declares it with `META.Slot = "_content"` (the field name, set in `OnCreate`): `AddChild` of anything without `IsInternal` goes to that panel, `RemoveChildren()` clears only that panel, `RemoveAllChildren()` (what `OnRemove` calls) removes everything. Without a slot `RemoveChildren()` removes every child except the ones with `IsInternal`. React to children with `OnChildAdd(child)` (fires on the widget for slotted children too, check `child.IsInternal`) and `OnChildrenRemoved()` (see `tabs.lua`, `splitter.lua`). The old `PreChildAdd`/`PreRemoveChildren` hooks are gone, they intercepted the call and returned false.
 - Callbacks are default no-ops (`function META.OnChange() end`) assigned from props and called as `self.OnChange(value, self)`. Derived templates set `META.Base = Other` and call `META.BaseClass.OnCreate`, so a base template must define `OnCreate`.
 - Custom `SetX` methods run while props are applied, before the internal children exist. Guard them.
 - Construction is one pipeline in `goluwa/entities/base.lua` (`OnConstruct`) for every entity. Props are flattened into one table (template `CMP` defaults < `PropDefaults` chain < caller), components are added, props are applied in a deterministic order (`GetSet` declaration order, then alphabetical), then `OnCreate()` runs, then `Ref`/`Parent`/`Key` are handled. The caller's table is never mutated.
@@ -39,6 +39,8 @@ Every icon the UI uses is defined up front in `goluwa/render2d/ui/themes/icons.l
 
 
 # Widget pitfalls
+
+- Slots replaced `PreChildAdd`/`PreRemoveChildren` (2026-10-17). The hook doubled as "clear my user children" and "tear everything down", so removing a `ScrollablePanel` or `VirtualGrid` left its viewport alive and the next layout update crashed in `update_handle`, and a bulk `RemoveChildren` detached hook widgets without removing them. Tests: `test/tests/objects/parenting_hooks.lua`.
 
 Collected from converting every widget to the template pattern and from the construction pipeline rework. The rules themselves are in "UI widgets" above; these are the extra things that bit.
 

@@ -65,14 +65,6 @@ function Panel:OnPostCreate()
 	end
 end
 
-function Panel:RemoveExternalChildren()
-	local children = self:GetChildren()
-
-	for i = #children, 1, -1 do
-		if not children[i].IsInternal then children[i]:Remove() end
-	end
-end
-
 Panel:Register()
 import.loaded["goluwa/render2d/ui/panel.lua"] = Panel
 

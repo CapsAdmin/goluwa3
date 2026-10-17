@@ -6,6 +6,7 @@ local Text = import("goluwa/render2d/ui/elements/text.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local Dock = import("goluwa/render2d/ui/widgets/dock.lua")
 local META = Panel:CreateTemplate("window")
+META.Slot = "_content"
 META.CMP.transform = {}
 META.CMP.layout = {
 	Direction = "y",
@@ -270,18 +271,6 @@ function META:OnSnapChanged(zone)
 	local icon = self._header_icons.maximize
 
 	if icon then icon:SetIcon(zone == "maximize" and "restore" or "maximize") end
-end
-
-function META:PreChildAdd(child)
-	if child.IsInternal then return end
-
-	self._content:AddChild(child)
-	return false
-end
-
-function META:PreRemoveChildren()
-	self._content:RemoveChildren()
-	return false
 end
 
 return META:Register()

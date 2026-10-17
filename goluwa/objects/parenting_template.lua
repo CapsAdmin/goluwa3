@@ -210,8 +210,18 @@ return function(META)
 		end
 	end
 
+	-- META.Slot names a field holding the object user children go into (a window's content area), an object with IsInternal set is part of the widget itself and is added to it directly
 	function META:AddChild(obj, pos)
-		if self.PreChildAdd and self:PreChildAdd(obj, pos) == false then return false end
+		local slot_name = self.Slot
+
+		if slot_name and obj and not obj.IsInternal then
+			local slot = assert(self[slot_name], "slot " .. slot_name .. " does not exist yet, children can only be added after OnCreate")
+			local added = slot:AddChild(obj, pos)
+
+			if added then self:CallLocalEvent("OnChildAdd", obj) end
+
+			return added
+		end
 
 		if not obj or not obj:IsValid() then
 			self:UnParent()
@@ -287,14 +297,7 @@ return function(META)
 		return self
 	end
 
-	function META:RemoveChildren()
-		if self.PreRemoveChildren and self:PreRemoveChildren() == false then return end
-
-		if self.__skip_remove_children then
-			self.__skip_remove_children = nil
-			return
-		end
-
+	local function remove_children(self, only_external)
 		if not self.Children[1] then
 			self.Children = {}
 			self.ChildrenMap = {}
@@ -308,38 +311,24 @@ return function(META)
 
 		for i = #children, 1, -1 do
 			local root = children[i]
-			local stack = {root}
 
-			while #stack > 0 do
-				local obj = stack[#stack]
+			if not (only_external and root.IsInternal) then
+				local stack = {root}
 
-				if obj.__bulk_remove_mark then
-					stack[#stack] = nil
-					remove_list[#remove_list + 1] = obj
+				while #stack > 0 do
+					local obj = stack[#stack]
 
-					if obj.PreRemoveChildren then
-						local descendants = obj:GetChildrenList()
+					if obj.__bulk_remove_mark then
+						stack[#stack] = nil
+						remove_list[#remove_list + 1] = obj
+					else
+						obj.__bulk_remove_mark = true
+						obj.__skip_remove_children = true
+						local obj_children = obj:GetChildren()
 
-						for _, child in ipairs(descendants) do
-							child.__bulk_remove_mark = nil
-							child.__skip_remove_children = nil
+						for j = #obj_children, 1, -1 do
+							stack[#stack + 1] = obj_children[j]
 						end
-
-						if obj:PreRemoveChildren() == false then
-							obj.__protected_remove = true
-
-							for _, child in ipairs(descendants) do
-								if not child.__removed then child.__protected_remove = true end
-							end
-						end
-					end
-				else
-					obj.__bulk_remove_mark = true
-					obj.__skip_remove_children = true
-					local obj_children = obj:GetChildren()
-
-					for j = #obj_children, 1, -1 do
-						stack[#stack + 1] = obj_children[j]
 					end
 				end
 			end
@@ -348,21 +337,38 @@ return function(META)
 		for i = 1, #remove_list do
 			local obj = remove_list[i]
 			obj.__bulk_remove_mark = nil
-
-			if obj.__protected_remove and obj.Parent:IsValid() then
-				obj.__protected_remove = nil
-				obj.Parent = NULL
-				obj:InvalidateParentList()
-				obj:CallLocalEvent("OnUnParent", self)
-				self:CallLocalEvent("OnChildRemove", obj)
-			else
-				obj:Remove()
-			end
+			obj:Remove()
 		end
 
 		self.bulk_removing_children = nil
-		self.Children = {}
-		self.ChildrenMap = {}
+
+		if not only_external then
+			self.Children = {}
+			self.ChildrenMap = {}
+		end
+	end
+
+	-- removes the children user code added (the ones of the slot when there is one), what IsInternal is left alone
+	function META:RemoveChildren()
+		local slot_name = self.Slot
+
+		if slot_name then
+			assert(self[slot_name], "slot " .. slot_name .. " does not exist yet"):RemoveChildren()
+		else
+			remove_children(self, true)
+		end
+
+		self:CallLocalEvent("OnChildrenRemoved")
+	end
+
+	-- everything, internal children included, for when the object itself is removed
+	function META:RemoveAllChildren()
+		if self.__skip_remove_children then
+			self.__skip_remove_children = nil
+			return
+		end
+
+		remove_children(self, false)
 	end
 
 	function META:UnParent()

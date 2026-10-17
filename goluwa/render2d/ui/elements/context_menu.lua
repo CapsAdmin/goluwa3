@@ -5,6 +5,7 @@ local event = import("goluwa/event.lua")
 local timer = import("goluwa/timer.lua")
 local MenuContainer = import("goluwa/render2d/ui/elements/menu_container.lua")
 local META = Panel:CreateTemplate("context_menu")
+META.Slot = "_root"
 META.CMP.transform = {}
 META.CMP.layout = {Floating = true}
 META.CMP.mouse_input = {BringToFrontOnClick = true}
@@ -95,18 +96,6 @@ end
 
 function META:GetRootMenu()
 	return self._root
-end
-
-function META:PreChildAdd(child)
-	if child.IsInternal then return end
-
-	self._root:AddChild(child)
-	return false
-end
-
-function META:PreRemoveChildren()
-	self._root:RemoveChildren()
-	return false
 end
 
 function META:get_submenus()

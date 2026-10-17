@@ -603,7 +603,7 @@ function BaseEntity:OnRemove()
 		end
 	end
 
-	self:RemoveChildren()
+	self:RemoveAllChildren()
 end
 
 function BaseEntity:AddComponent(name, tbl, skip_init)

@@ -2,6 +2,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local Frame = import("goluwa/render2d/ui/elements/frame.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local META = Panel:CreateTemplate("gallery_section")
+META.Slot = "_stage"
 META.CMP.transform = {}
 META.CMP.layout = {
 	Direction = "y",
@@ -61,18 +62,6 @@ function META:OnCreate()
 			layout = stage_layout,
 		}
 	end
-end
-
-function META:PreChildAdd(child)
-	if child.IsInternal then return end
-
-	self._stage:AddChild(child)
-	return false
-end
-
-function META:PreRemoveChildren()
-	self._stage:RemoveChildren()
-	return false
 end
 
 return META:Register()

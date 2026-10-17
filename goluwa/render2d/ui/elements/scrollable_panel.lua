@@ -21,6 +21,7 @@ local function is_shown(panel)
 	return true
 end
 local META = Panel:CreateTemplate("scrollable_panel")
+META.Slot = "Viewport"
 META.CMP.transform = {}
 META.CMP.layout = {
 	AlignmentX = "stretch",
@@ -564,18 +565,6 @@ function META:apply_scroll_configuration()
 	self.TrackY.visual:SetVisible(self.ScrollY)
 	self.TrackX.visual:SetVisible(self.ScrollX)
 	self:update_handle()
-end
-
-function META:PreChildAdd(child)
-	if child.IsInternal then return end
-
-	self.Viewport:AddChild(child)
-	return false
-end
-
-function META:PreRemoveChildren()
-	self.Viewport:RemoveChildren()
-	return false
 end
 
 function META:GetViewport()

@@ -69,9 +69,4 @@ function META:OnCreate()
 	}
 end
 
-function META:PreRemoveChildren()
-	self:RemoveExternalChildren()
-	return false
-end
-
 return META:Register()

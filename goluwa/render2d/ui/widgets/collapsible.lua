@@ -5,6 +5,7 @@ local Icon = import("goluwa/render2d/ui/elements/icon.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local META = Panel:CreateTemplate("collapsible")
+META.Slot = "_body"
 META.CMP.transform = {}
 META.CMP.layout = {
 	Direction = "y",
@@ -169,18 +170,6 @@ end
 function META:OnThemeChanged()
 	self._body.style:SetForegroundColor(theme.active:GetContentForeground())
 	self._arrow.transform:SetSize(Vec2() + theme.active:ResolveFontSize(self.HeaderFontSize or "M"))
-end
-
-function META:PreChildAdd(child)
-	if child.IsInternal then return end
-
-	self._body:AddChild(child)
-	return false
-end
-
-function META:PreRemoveChildren()
-	self._body:RemoveChildren()
-	return false
 end
 
 function META:update_height()

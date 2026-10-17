@@ -121,10 +121,10 @@ function META:get_external_children()
 		if not child.IsInternal then
 			if not first then
 				first = child
-			else
+			elseif not second then
 				second = child
-
-				break
+			else
+				return first, second, child
 			end
 		end
 	end
@@ -194,18 +194,19 @@ function META:GetSplitSize()
 	return self._size
 end
 
-function META:PreChildAdd(child)
+function META:OnChildAdd(child)
 	if child.IsInternal then return end
 
-	local first, second = self:get_external_children()
+	local first, second, third = self:get_external_children()
 
-	if second then
+	if third then
+		child:UnParent()
 		error("Splitter can only have 2 children, but attempted to add a third")
 	end
 
 	if not child.layout then return end
 
-	if not first then
+	if not second then
 		local initial_size = self.InitialSize
 
 		if self.Vertical then
@@ -226,11 +227,6 @@ function META:PreChildAdd(child)
 		child.layout:SetGrowHeight(1)
 		self:AddChild(self._divider, 2)
 	end
-end
-
-function META:PreRemoveChildren()
-	self:RemoveExternalChildren()
-	return false
 end
 
 return META:Register()

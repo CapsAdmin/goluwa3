@@ -1,97 +1,105 @@
 local T = import("test/environment.lua")
 local objects = import("goluwa/objects/objects.lua")
 
-T.Test("objects parenting hooks", function()
-	local META = objects.CreateTemplate("test_parenting_hooks")
+T.Test("objects slot sends user children to the slot and keeps internal ones on the object", function()
+	local META = objects.CreateTemplate("test_slot_parent")
 	objects.ParentingTemplate(META)
+	META.Slot = "content"
+
+	function META:OnRemove()
+		self:UnParent()
+		self:RemoveAllChildren()
+	end
+
 	META:Register()
-	local CHILD_META = objects.CreateTemplate("test_child")
+	local CHILD_META = objects.CreateTemplate("test_slot_child")
 	objects.ParentingTemplate(CHILD_META)
+
+	function CHILD_META:OnRemove()
+		self:UnParent()
+		self:RemoveAllChildren()
+	end
+
 	CHILD_META:Register()
 	local parent = objects.CreateObject(META)
-	local child1 = objects.CreateObject(CHILD_META)
-	local child2 = objects.CreateObject(CHILD_META)
-	parent:AddChild(child1)
-	T(#parent:GetChildren())["=="](1)
-	T(child1:GetParent())["=="](parent)
+	local added = {}
+	local removed = 0
 
-	function parent:PreChildAdd(obj)
-		if obj == child2 then return false end
+	function parent:OnChildAdd(child)
+		added[#added + 1] = child
 	end
 
-	parent:AddChild(child2)
-	T(#parent:GetChildren())["=="](1)
-	T(child2:HasParent())["=="](false)
-	local captured_pos
-
-	function parent:PreChildAdd(obj, pos)
-		captured_pos = pos
-		return true
+	function parent:OnChildrenRemoved()
+		removed = removed + 1
 	end
 
-	parent:AddChild(child2, 5)
-	T(captured_pos)["=="](5)
-	local container = objects.CreateObject(CHILD_META)
-	parent:AddChild(container)
+	local early = objects.CreateObject(CHILD_META)
+	local ok = pcall(parent.AddChild, parent, early)
+	T(ok)["=="](false)
+	local content = objects.CreateObject(CHILD_META)
+	content.IsInternal = true
+	parent:AddChild(content)
+	parent.content = content
+	local header = objects.CreateObject(CHILD_META)
+	header.IsInternal = true
+	parent:AddChild(header)
+	local a = objects.CreateObject(CHILD_META)
+	local b = objects.CreateObject(CHILD_META)
+	T(parent:AddChild(a))["=="](a)
+	parent:AddChild(b, 1)
+	T(a:GetParent())["=="](content)
+	T(b:GetParent())["=="](content)
+	T(content:GetChildren()[1])["=="](b)
 	T(#parent:GetChildren())["=="](2)
+	T(#added)["=="](4)
+	T(added[3])["=="](a)
+	T(added[4])["=="](b)
+	parent:RemoveChildren()
+	T(removed)["=="](1)
+	T(a:IsValid())["=="](false)
+	T(b:IsValid())["=="](false)
+	T(#content:GetChildren())["=="](0)
+	T(content:IsValid())["=="](true)
+	T(header:IsValid())["=="](true)
+	local c = objects.CreateObject(CHILD_META)
+	parent:AddChild(c)
+	parent:Remove()
+	T(c:IsValid())["=="](false)
+	T(content:IsValid())["=="](false)
+	T(header:IsValid())["=="](false)
+end)
 
-	function parent:PreChildAdd(obj)
-		if obj.Type == "test_child" and obj ~= container then
-			container:AddChild(obj)
-			return false
-		end
+T.Test("objects RemoveChildren keeps internal children without a slot and removes the rest completely", function()
+	local META = objects.CreateTemplate("test_internal_children")
+	objects.ParentingTemplate(META)
+
+	function META:OnRemove()
+		self:UnParent()
+		self:RemoveAllChildren()
 	end
 
-	local child3 = objects.CreateObject(CHILD_META)
-	parent:AddChild(child3)
-	T(#parent:GetChildren())["=="](2)
-	T(child3:GetParent())["=="](container)
-	local p2 = objects.CreateObject(META)
-	local c1 = objects.CreateObject(CHILD_META)
-	p2:AddChild(c1)
-	T(#p2:GetChildren())["=="](1)
-
-	function p2:PreRemoveChildren()
-		return false
-	end
-
-	p2:RemoveChildren()
-	T(#p2:GetChildren())["=="](1)
-	T(c1:IsValid())["=="](true)
-	local p3 = objects.CreateObject(META)
-	local sub_container = objects.CreateObject(CHILD_META)
-	p3:AddChild(sub_container)
-
-	function sub_container:PreChildAdd()
-		return true
-	end
-
-	local internal_child = objects.CreateObject(CHILD_META)
-	internal_child.IsInternal = true
-	sub_container:AddChild(internal_child)
-	local external_child = objects.CreateObject(CHILD_META)
-	sub_container:AddChild(external_child)
-	T(#sub_container:GetChildren())["=="](2)
-
-	function sub_container:PreRemoveChildren()
-		local children = self:GetChildren()
-
-		for i = #children, 1, -1 do
-			local child = children[i]
-
-			if not child.IsInternal then
-				child:UnParent()
-				child:Remove()
-			end
-		end
-
-		return false
-	end
-
-	sub_container:RemoveChildren()
-	T(#sub_container:GetChildren())["=="](1)
-	T(internal_child:IsValid())["=="](true)
-	T(external_child:IsValid())["=="](false)
+	META:Register()
+	local parent = objects.CreateObject(META)
+	local internal = objects.CreateObject(META)
+	internal.IsInternal = true
+	local external_a = objects.CreateObject(META)
+	local external_b = objects.CreateObject(META)
+	local grandchild = objects.CreateObject(META)
+	parent:AddChild(external_a)
+	parent:AddChild(internal)
+	parent:AddChild(external_b)
+	external_a:AddChild(grandchild)
+	parent:RemoveChildren()
+	T(#parent:GetChildren())["=="](1)
+	T(parent:GetChildren()[1])["=="](internal)
+	T(internal:IsValid())["=="](true)
+	T(external_a:IsValid())["=="](false)
+	T(external_b:IsValid())["=="](false)
+	T(grandchild:IsValid())["=="](false)
+	T(#parent:GetChildrenList())["=="](1)
+	parent:RemoveAllChildren()
+	T(#parent:GetChildren())["=="](0)
+	T(internal:IsValid())["=="](false)
 end)
 
 T.Test("objects RemoveChildren bulk semantics", function()
@@ -100,7 +108,7 @@ T.Test("objects RemoveChildren bulk semantics", function()
 
 	function META:OnRemove()
 		self:UnParent()
-		self:RemoveChildren()
+		self:RemoveAllChildren()
 	end
 
 	META:Register()
@@ -193,72 +201,4 @@ T.Test("objects BringToFront and SendToBack reorder without reparent", function(
 	T(unparent_calls)["=="](0)
 	T(child_a._child_insert_order < child_b._child_insert_order)["=="](true)
 	T(child_b._child_insert_order < child_c._child_insert_order)["=="](true)
-end)
-
-T.Test("objects PreRemoveChildren protects subtree during bulk removal", function()
-	local META = objects.CreateTemplate("test_preremove_parent")
-	objects.ParentingTemplate(META)
-
-	function META:OnRemove()
-		self:UnParent()
-		self:RemoveChildren()
-	end
-
-	META:Register()
-	local parent = objects.CreateObject(META)
-	local protected_child = objects.CreateObject(META)
-	local grandchild = objects.CreateObject(META)
-
-	function protected_child:PreRemoveChildren()
-		return false
-	end
-
-	parent:AddChild(protected_child)
-	protected_child:AddChild(grandchild)
-	T(#parent:GetChildren())["=="](1)
-	T(#parent:GetChildrenList())["=="](2)
-	parent:RemoveChildren()
-	T(#parent:GetChildren())["=="](0)
-	T(protected_child:IsValid())["=="](true)
-	T(grandchild:IsValid())["=="](true)
-	T(protected_child:HasParent())["=="](false)
-	T(grandchild:HasParent())["=="](false)
-	T(grandchild:GetParent():IsValid())["=="](false)
-end)
-
-T.Test("objects PreRemoveChildren with nested protected objects", function()
-	local META = objects.CreateTemplate("test_nested_protected")
-	objects.ParentingTemplate(META)
-
-	function META:OnRemove()
-		self:UnParent()
-		self:RemoveChildren()
-	end
-
-	META:Register()
-	local parent = objects.CreateObject(META)
-	local protected_outer = objects.CreateObject(META)
-	local protected_inner = objects.CreateObject(META)
-	local leaf = objects.CreateObject(META)
-
-	function protected_outer:PreRemoveChildren()
-		return false
-	end
-
-	function protected_inner:PreRemoveChildren()
-		return false
-	end
-
-	parent:AddChild(protected_outer)
-	protected_outer:AddChild(protected_inner)
-	protected_inner:AddChild(leaf)
-	T(#parent:GetChildrenList())["=="](3)
-	parent:RemoveChildren()
-	T(#parent:GetChildren())["=="](0)
-	T(protected_outer:IsValid())["=="](true)
-	T(protected_inner:IsValid())["=="](true)
-	T(leaf:IsValid())["=="](true)
-	T(protected_outer:HasParent())["=="](false)
-	T(protected_inner:HasParent())["=="](false)
-	T(leaf:HasParent())["=="](false)
 end)
