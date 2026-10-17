@@ -61,3 +61,26 @@ T.Test3D("Material stamps property_version when a property or Touch changes it",
 	other:SetMetallicMultiplier(0)
 	T(other.property_version ~= material.property_version)["=="](true)
 end)
+
+T.Test3D("Material:Copy keeps every property and shares nothing mutable with the source", function()
+	local source = Material.New{
+		ColorMultiplier = Color(1, 0, 0, 1),
+		Roughness = 0.3,
+		Albedo = "return vec4(1.0, 0.0, 0.0, 1.0);",
+	}
+	source:SetAlphaTest(true)
+	source:SetDoubleSided(true)
+	source.vmt_surfaceprop = {name = "metal"}
+	local copy = source:Copy()
+	T(copy)["~="](source)
+	T(copy:GetAlbedoTexture())["=="](source:GetAlbedoTexture())
+	T(copy:GetRoughnessMultiplier())["=="](0.3)
+	T(copy:GetAlphaTest())["=="](true)
+	T(copy:GetDoubleSided())["=="](true)
+	T(copy.Flags)["=="](source.Flags)
+	T(copy.vmt_surfaceprop)["=="](source.vmt_surfaceprop)
+	copy:GetColorMultiplier().g = 1
+	copy:SetRoughnessMultiplier(0.9)
+	T(source:GetColorMultiplier().g)["=="](0)
+	T(source:GetRoughnessMultiplier())["=="](0.3)
+end)

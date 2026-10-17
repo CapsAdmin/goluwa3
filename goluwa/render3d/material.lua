@@ -280,6 +280,21 @@ function Material.New(config)
 	return self
 end
 
+function Material:Copy()
+	local copy = Material.New()
+
+	for _, info in ipairs(objects.GetStorableVariables(self)) do
+		local value = self[info.get_name](self)
+
+		if type(value) == "cdata" and value.Copy then value = value:Copy() end
+
+		copy[info.set_name](copy, value)
+	end
+
+	copy.vmt_surfaceprop = self.vmt_surfaceprop
+	return copy
+end
+
 function Material:HasExplicitMetallicTexture()
 	return self.MetallicTexture ~= nil or self.MetallicRoughnessTexture ~= nil
 end
