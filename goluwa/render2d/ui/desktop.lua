@@ -1,14 +1,12 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
+local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
-local Frame = import("goluwa/render2d/ui/elements/frame.lua")
-local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local Dock = import("goluwa/render2d/ui/widgets/dock.lua")
-local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
-local Row = import("goluwa/render2d/ui/elements/row.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local LoadWindow = import("goluwa/render2d/ui/load_window.lua")
 local system = import("goluwa/system.lua")
@@ -17,7 +15,6 @@ local desktop = {}
 local programs = {}
 local order = {}
 local menus = {}
-local root_dirty = false
 local root = NULL
 local menu_bar = NULL
 local shown = false
@@ -59,13 +56,13 @@ function desktop.RegisterProgram(program)
 	program.OnShown = program.OnShown or (program.Interactive and noop or default_shown)
 	program.OnHidden = program.OnHidden or (program.Interactive and noop or default_hidden)
 	programs[program.Name] = program
-	root_dirty = true
+	event.Call("DesktopChanged")
 end
 
 -- adds a menu to the menu bar, {Text, Items = a function returning MenuItems}
 function desktop.RegisterMenu(menu)
 	menus[#menus + 1] = menu
-	root_dirty = true
+	event.Call("DesktopChanged")
 end
 
 -- a backdrop replaces the dimmed scene behind the desktop, {Name, OnDraw(root, width, height)}. OnActivate and OnDeactivate run when it starts and stops being shown, so it only has to work while the desktop is up
@@ -186,137 +183,143 @@ function desktop.Toggle(name)
 	if desktop.IsOpen(name) then desktop.Close(name) else desktop.Open(name) end
 end
 
-local function build_root()
-	root_dirty = false
-	local buttons = {}
-
-	for _, name in ipairs(order) do
-		if not programs[name].NoButton then
-			buttons[#buttons + 1] = Button{
-				Text = name,
-				Icon = programs[name].Icon,
-				Mode = "filled",
-				OnClick = function()
-					desktop.Open(name)
-				end,
-			}
-		end
-	end
-
+-- the menus of the menu bar: the two of the engine and the ones other code registered
+local function build_menu_items()
 	local menu_items = {
-				{
-					Text = "ENGINE",
-					Items = function()
-						local items = {}
+		{
+			Text = "ENGINE",
+			Items = function()
+				local items = {}
 
-						if RENDER_3D then
-							items[#items + 1] = MenuItem{
-								Text = "load",
-								Icon = "folder",
-								OnClick = function()
-									desktop.Open("Load")
-								end,
-							}
-						end
+				if RENDER_3D then
+					items[#items + 1] = MenuItem{
+						Text = "load",
+						Icon = "folder",
+						OnClick = function()
+							desktop.Open("Load")
+						end,
+					}
+				end
 
-						items[#items + 1] = MenuItem{
-							Text = "exit",
-							Icon = "power",
-							OnClick = function()
-								system.ShutDown(0)
-							end,
-						}
-						return items
+				items[#items + 1] = MenuItem{
+					Text = "exit",
+					Icon = "power",
+					OnClick = function()
+						system.ShutDown(0)
 					end,
-				},
-				{
-					Text = "OPTIONS",
-					Items = function()
-						return {
-							MenuItem{
-								Text = "Theme",
-								Icon = "palette",
-								Items = function()
-									local items = {}
+				}
 
-									for _, label in ipairs(theme.GetAvailable()) do
-										if label == theme.active:GetName() then label = label .. " (active)" end
+				return items
+			end,
+		},
+		{
+			Text = "OPTIONS",
+			Items = function()
+				return {
+					MenuItem{
+						Text = "Theme",
+						Icon = "palette",
+						Items = function()
+							local items = {}
 
-										items[#items + 1] = MenuItem{
-											Text = label,
-											OnClick = function()
-												if label == theme.active:GetName() then return end
+							for _, label in ipairs(theme.GetAvailable()) do
+								if label == theme.active:GetName() then label = label .. " (active)" end
 
-												theme.LoadTheme(label)
-											end,
-										}
-									end
+								items[#items + 1] = MenuItem{
+									Text = label,
+									OnClick = function()
+										if label == theme.active:GetName() then return end
 
-									return items
-								end,
-							},
-							MenuItem{
-								Text = "Backdrop",
-								Icon = "material",
-								Items = function()
-									local items = {}
-									local active = desktop.GetBackdrop()
+										theme.LoadTheme(label)
+									end,
+								}
+							end
 
-									for _, name in ipairs(desktop.GetBackdrops()) do
-										items[#items + 1] = MenuItem{
-											Text = name == active and name .. " (active)" or name,
-											OnClick = function()
-												desktop.SetBackdrop(name)
-											end,
-										}
-									end
+							return items
+						end,
+					},
+					MenuItem{
+						Text = "Backdrop",
+						Icon = "material",
+						Items = function()
+							local items = {}
+							local active = desktop.GetBackdrop()
 
-									return items
-								end,
-							},
-						}
-					end,
-				},
-			
+							for _, name in ipairs(desktop.GetBackdrops()) do
+								items[#items + 1] = MenuItem{
+									Text = name == active and name .. " (active)" or name,
+									OnClick = function()
+										desktop.SetBackdrop(name)
+									end,
+								}
+							end
+
+							return items
+						end,
+					},
+				}
+			end,
+		},
 	}
 
 	for _, menu in ipairs(menus) do
 		menu_items[#menu_items + 1] = menu
 	end
 
-	root = Panel.New{
-		Parent = Panel.World,
+	return menu_items
+end
+
+local function draw_backdrop(self)
+	if not active_backdrop then return end
+
+	local size = self.transform:GetSize()
+	active_backdrop.OnDraw(self, size.x, size.y)
+end
+
+-- the root panel with the menu bar and a button for every program, made when the desktop is first shown. Programs and menus registered later arrive as a DesktopChanged event and are added to what is there
+local DesktopView = react.Component(|| -> do
+	local version, set_version = react.UseState(0)
+	local menu_items = react.UseMemo(build_menu_items, {version})
+
+	react.UseEvent("DesktopChanged", || -> set_version(|current| -> current + 1))
+
+	return ui.Panel{
+		Ref = |entity| -> do root = entity ?? NULL end,
 		transform = true,
 		layout = {Direction = "y", AlignmentX = "stretch"},
 		visual = true,
 		mouse_input = {RequestMouse = true},
-		OnDraw = function(self)
-			if not active_backdrop then return end
-
-			local size = self.transform:GetSize()
-			active_backdrop.OnDraw(self, size.x, size.y)
-		end,
+		OnDraw = draw_backdrop,
 	}{
-		Frame{layout = {GrowWidth = 1, FitHeight = true, AlignmentX = "stretch"}}{MenuBar{
-			Ref = function(self)
-				menu_bar = self
-			end,
-			MenuKey = "DesktopMenuBarContextMenu",
-			Items = menu_items,
-			layout = {GrowWidth = 1},
-		}},
-		Row{layout = {ChildGap = "S", Padding = "M"}}(buttons),
+		ui.Frame{layout = {GrowWidth = 1, FitHeight = true, AlignmentX = "stretch"}}{
+			ui.MenuBar{
+				Ref = |entity| -> do menu_bar = entity ?? NULL end,
+				MenuKey = "DesktopMenuBarContextMenu",
+				Items = menu_items,
+				layout = {GrowWidth = 1},
+			},
+		},
+		ui.Row{layout = {ChildGap = "S", Padding = "M"}}{
+			list.map(
+				list.filter(order, |name| -> not programs[name].NoButton),
+				|name| -> ui.Button{
+					Key = name,
+					Text = name,
+					Icon = programs[name].Icon,
+					Mode = "filled",
+					OnClick = || -> desktop.Open(name),
+				}
+			),
+		},
 	}
-end
+end)
 
 function desktop.Show(is_dimmed)
 	if shown then return end
 
 	shown = true
 
-	if root:IsValid() and root_dirty then root:Remove() end
-
-	if not root:IsValid() then build_root() end
+	if not root:IsValid() then react.Mount(DesktopView{}, Panel.World) end
 
 	dimmed = is_dimmed
 	render2d.SetHudHidden("desktop", true)
