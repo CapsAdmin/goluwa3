@@ -353,6 +353,9 @@ function META:OnFirstCreated()
 				break
 			end
 
+			-- the wheel is delivered as button presses, but scrolling is not clicking: it must not move focus or raise windows
+			local is_wheel = button:starts_with("mwheel_")
+
 			if press then
 				local hovered = get_active_hovered_entity(world, pos)
 
@@ -364,21 +367,34 @@ function META:OnFirstCreated()
 						mouse_comp.button_states = mouse_comp.button_states or {}
 						mouse_comp.button_states[button] = {press = press, pos = pos}
 
-						if mouse_comp:GetFocusOnClick() then
-							local target = hovered
+						-- the panel under the cursor takes focus, or else the nearest ancestor that does, or nothing does
+						local focus_source = is_wheel and NULL or hovered
 
-							if mouse_comp:GetRedirectFocus():IsValid() then
-								target = mouse_comp:GetRedirectFocus()
+						while focus_source:IsValid() and not (
+								focus_source.mouse_input and
+								focus_source.mouse_input:GetFocusOnClick()
+							)
+						do
+							focus_source = focus_source:GetParent()
+						end
+
+						if focus_source:IsValid() then
+							local target = focus_source
+
+							if focus_source.mouse_input:GetRedirectFocus():IsValid() then
+								target = focus_source.mouse_input:GetRedirectFocus()
 							end
 
 							target:RequestFocus()
-						else
+						elseif not is_wheel then
 							objects.SetFocusedObject(NULL)
 						end
 
 						local bring_to_front_target = NULL
 
-						if mouse_comp:GetBringToFrontOnClick() then
+						if is_wheel then
+							-- scrolling does not raise a window
+						elseif mouse_comp:GetBringToFrontOnClick() then
 							bring_to_front_target = hovered
 						else
 							local ancestor = hovered:GetParent()
@@ -416,7 +432,7 @@ function META:OnFirstCreated()
 
 						break
 					end
-				else
+				elseif not is_wheel then
 					objects.SetFocusedObject(NULL)
 				end
 			else
