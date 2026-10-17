@@ -3,11 +3,29 @@ local startup = import("goluwa/startup.lua")
 local scene = import("goluwa/entities/scene.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local QUIET_TIME = 1.5
 local MAX_FRAME_TIME = 0.2
 local last_version
 local quiet_since
 local snapshot
+local normal_gc_pause
+
+pvars.StartGroup("Engine", "Loading", {prefix = "loading_"})
+pvars.Setup2{
+	key = "r_loading_gc_pause",
+	default = 1000,
+	type = "number",
+	min = 100,
+	max = 10000,
+	integer = true,
+	help = "the garbage collector pause while a map loads, in percent of the heap after the last collection. A load allocates millions of tables and a collection cycle at the default 200 took about 15 percent of the time, at 1000 the heap grows by about a gigabyte more and the load is 10 percent faster",
+}
+pvars.EndGroup()
+
+event.AddListener("SceneLoad", "startup_gc_pause", function()
+	normal_gc_pause = normal_gc_pause or collectgarbage("setpause", pvars.Get("r_loading_gc_pause"))
+end)
 
 -- the scene is ready once the map load is done, the bvh has stopped changing and frames are fast again
 event.AddListener("Update", "startup_ready", function(dt)
@@ -24,6 +42,11 @@ event.AddListener("Update", "startup_ready", function(dt)
 
 	if now - quiet_since >= QUIET_TIME and dt < MAX_FRAME_TIME then
 		startup.SetReady(quiet_since, snapshot)
+
+		if normal_gc_pause then
+			collectgarbage("setpause", normal_gc_pause)
+			normal_gc_pause = nil
+		end
 
 		if os.getenv("GOLUWA_STARTUP_REPORT") == "1" then
 			logn("[startup]\n", startup.GetReport())
