@@ -3,24 +3,26 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local desktop = import("goluwa/render2d/ui/desktop.lua")
-local Window = import("goluwa/render2d/ui/widgets/window.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local WIDTH = 604
 local HEIGHT = 412
-local DOME_X, DOME_Y, DOME_RADIUS, DOME_MARGIN = 142, 150, 108, 22
-local COLUMN_X, COLUMN_W = 292, 300
-local CHART_Y, CHART_H = 34, 130
-local YEAR_Y, YEAR_H = 218, 28
-local LATITUDE_Y, LATITUDE_H = 294, 28
-local MOON_Y, MOON_H = 370, 28
+local HEADER = 36
+local DOME_RADIUS, DOME_MARGIN = 108, 22
+local DOME_SIZE = (DOME_RADIUS + DOME_MARGIN) * 2
+local CHART_H = 130
+local STRIP_H = 28
 local CHART_MIN, CHART_MAX = -60, 90
 local SAMPLES = 48
 local SYNODIC_DAYS = 29.530588
 local MONTHS = {"J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"}
 local MONTH_STARTS = {1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366}
-local TEXT = Color(0.78, 0.82, 0.9, 1)
+local HOUR_LABELS = {"00", "06", "12", "18", "24"}
+local LATITUDE_LABELS = {"-60", "-30", "0", "30", "60"}
 local TEXT_DIM = Color(0.5, 0.55, 0.65, 1)
+local TEXT_COMPASS = Color(0.78, 0.82, 0.9, 1)
 local SUN_COLOR = Color(1, 0.82, 0.35, 1)
 local MOON_COLOR = Color(0.72, 0.8, 1, 1)
 local cache_key
@@ -32,10 +34,6 @@ local noon_elevation = {}
 local function rect(x, y, w, h, r, g, b, a, radius)
 	render2d.SetColor(r, g, b, a)
 	render2d.DrawRoundedRect(x, y, w, h, radius or 0)
-end
-
-local function label(text, x, y, color)
-	render2d.DrawText{text = text, x = x, y = y, size = 12, foreground_color = color or TEXT_DIM}
 end
 
 local function wrap(value)
@@ -56,6 +54,7 @@ local function get_lunar_state()
 		)
 	)
 	local waxing = later > elongation
+
 	return elongation, waxing, waxing and elongation / (2 * math.pi) or 1 - elongation / (2 * math.pi), moon
 end
 
@@ -99,6 +98,7 @@ local function draw_moon(x, y, radius, elongation, waxing, alpha)
 	end
 end
 
+-- the positions of the sun and the moon over the day and the noon height of the sun over the year, made again when the day or the place changes
 local function update_cache()
 	local latitude, longitude = weather.GetLocation()
 	local time = weather.GetTime()
@@ -136,47 +136,307 @@ local function update_cache()
 	end
 end
 
-local function dome_point(x, y, z)
+-- a point of the dome seen from above with north up and east to the right, the center of the dome is (cx, cy)
+local function dome_point(cx, cy, x, y, z)
 	local elevation = math.deg(math.asin(math.clamp(y, -1, 1)))
 	local azimuth = math.atan2(x, -z)
 	local radius = elevation >= 0 and
 		DOME_RADIUS * (1 - elevation / 90) or
 		DOME_RADIUS - elevation / 90 * DOME_MARGIN
-	return DOME_X + math.sin(azimuth) * radius, DOME_Y - math.cos(azimuth) * radius, elevation, azimuth
+
+	return cx + math.sin(azimuth) * radius, cy - math.cos(azimuth) * radius, elevation, azimuth
 end
 
-local function chart_y(elevation)
-	return CHART_Y + CHART_H * (1 - (math.clamp(elevation, CHART_MIN, CHART_MAX) - CHART_MIN) / (CHART_MAX - CHART_MIN))
+local function chart_y(elevation, height)
+	return height * (1 - (math.clamp(elevation, CHART_MIN, CHART_MAX) - CHART_MIN) / (CHART_MAX - CHART_MIN))
 end
 
-local REGIONS = {
-	{name = "dome", x = DOME_X - DOME_RADIUS - DOME_MARGIN, y = DOME_Y - DOME_RADIUS - DOME_MARGIN, w = (DOME_RADIUS + DOME_MARGIN) * 2, h = (DOME_RADIUS + DOME_MARGIN) * 2},
-	{name = "time", x = COLUMN_X, y = CHART_Y, w = COLUMN_W, h = CHART_H},
-	{name = "day", x = COLUMN_X, y = YEAR_Y, w = COLUMN_W, h = YEAR_H},
-	{name = "latitude", x = COLUMN_X, y = LATITUDE_Y, w = COLUMN_W, h = LATITUDE_H},
-	{name = "moon", x = COLUMN_X, y = MOON_Y, w = COLUMN_W, h = MOON_H},
-}
-
-local META = Panel:CreateTemplate("sky_dial")
-META.CMP.transform = {}
-META.CMP.layout = {GrowWidth = 0, FitWidth = false, FitHeight = false}
-META.CMP.visual = {}
-META.CMP.mouse_input = {Cursor = "hand"}
-
-function META.PropDefaults(_, props)
-	return {layout = {MinSize = props.Size, MaxSize = props.Size}}
+local function elevation_of(y)
+	return math.deg(math.asin(math.clamp(y, -1, 1)))
 end
 
-function META:IsDragging()
-	return self._drag ~= nil
+local function draw_dome(self)
+	update_cache()
+	local size = self.Owner.transform:GetSize()
+	local cx, cy = size.x / 2, size.y / 2
+	local time = weather.GetTime()
+	local latitude, longitude = weather.GetLocation()
+	local sun = weather.GetSunDirectionAt(time, latitude, longitude)
+	local elongation, waxing, _, moon = get_lunar_state()
+	render2d.SetTexture(nil)
+	local rings = 24
+	local daylight = math.lerp(math.clamp(sun.y * 3, 0, 1), 0.35, 1)
+
+	for i = 0, rings - 1 do
+		local f = i / (rings - 1)
+		render2d.SetColor(
+			math.lerp(f, 0.55, 0.05) * daylight,
+			math.lerp(f, 0.6, 0.1) * daylight,
+			math.lerp(f, 0.75, 0.3) * daylight,
+			1
+		)
+		render2d.DrawFilledCircle(cx, cy, DOME_RADIUS * (1 - f * 0.97))
+	end
+
+	render2d.SetColor(1, 1, 1, 0.14)
+
+	for _, elevation in ipairs{30, 60} do
+		render2d.DrawCircle(cx, cy, DOME_RADIUS * (1 - elevation / 90), 1, 48)
+	end
+
+	render2d.DrawLine(cx - DOME_RADIUS, cy, cx + DOME_RADIUS, cy, 1)
+	render2d.DrawLine(cx, cy - DOME_RADIUS, cx, cy + DOME_RADIUS, 1)
+	render2d.SetColor(1, 1, 1, 0.5)
+	render2d.DrawCircle(cx, cy, DOME_RADIUS, 1.5, 64)
+
+	for _, compass in ipairs{
+		{"N", cx - 4, cy - DOME_RADIUS - DOME_MARGIN + 2},
+		{"S", cx - 4, cy + DOME_RADIUS + 4},
+		{"E", cx + DOME_RADIUS + 8, cy - 7},
+		{"W", cx - DOME_RADIUS - 16, cy - 7},
+	} do
+		render2d.DrawText{text = compass[1], x = compass[2], y = compass[3], size = 12, foreground_color = TEXT_COMPASS}
+	end
+
+	render2d.SetColor(1, 0.85, 0.4, 0.55)
+
+	for i = 0, SAMPLES do
+		if sun_dy[i] > 0 then
+			local x, y = dome_point(cx, cy, sun_dx[i], sun_dy[i], sun_dz[i])
+			render2d.DrawFilledCircle(x, y, 1.4)
+		end
+	end
+
+	render2d.SetColor(0.7, 0.8, 1, 0.45)
+
+	for i = 0, SAMPLES do
+		if moon_dy[i] > 0 then
+			local x, y = dome_point(cx, cy, moon_dx[i], moon_dy[i], moon_dz[i])
+			render2d.DrawFilledCircle(x, y, 1.2)
+		end
+	end
+
+	local mx, my = dome_point(cx, cy, moon.x, moon.y, moon.z)
+	draw_moon(mx, my, 8, elongation, waxing, moon.y > 0 and 1 or 0.45)
+	local sx, sy = dome_point(cx, cy, sun.x, sun.y, sun.z)
+	local alpha = sun.y > 0 and 1 or 0.45
+
+	for i = 3, 1, -1 do
+		render2d.SetColor(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b, 0.12 * alpha)
+		render2d.DrawFilledCircle(sx, sy, 9 + i * 5)
+	end
+
+	render2d.SetColor(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b, alpha)
+	render2d.DrawFilledCircle(sx, sy, 9)
 end
 
-function META:drag_to(local_pos)
-	local drag = self._drag
-	local x, y = local_pos.x, local_pos.y
+local function draw_day(self)
+	update_cache()
+	local size = self.Owner.transform:GetSize()
+	local w, h = size.x, size.y
+	local time = weather.GetTime()
+	local latitude, longitude = weather.GetLocation()
+	local sun = weather.GetSunDirectionAt(time, latitude, longitude)
+	local moon = weather.GetMoonAt(time, latitude, longitude)
+	render2d.SetTexture(nil)
+	rect(0, 0, w, h, 0.08, 0.1, 0.16, 1, 4)
+	local horizon = chart_y(0, h)
+	rect(0, horizon, w, h - horizon, 0, 0, 0, 0.35)
+	render2d.SetColor(1, 1, 1, 0.12)
 
-	if drag == "dome" then
-		local dx, dy = x - DOME_X, DOME_Y - y
+	for hour = 3, 21, 3 do
+		render2d.DrawLine(hour / 24 * w, 0, hour / 24 * w, h, 1)
+	end
+
+	render2d.SetColor(1, 1, 1, 0.4)
+	render2d.DrawLine(0, horizon, w, horizon, 1)
+
+	for pass = 1, 2 do
+		local dys = pass == 1 and moon_dy or sun_dy
+		local color = pass == 1 and MOON_COLOR or SUN_COLOR
+		render2d.SetColor(color.r, color.g, color.b, pass == 1 and 0.6 or 1)
+
+		for i = 1, SAMPLES do
+			render2d.DrawLine(
+				(i - 1) / SAMPLES * w,
+				chart_y(elevation_of(dys[i - 1]), h),
+				i / SAMPLES * w,
+				chart_y(elevation_of(dys[i]), h),
+				2
+			)
+		end
+	end
+
+	local x = weather.GetSolarHours() / 24 * w
+	render2d.SetColor(1, 1, 1, 0.5)
+	render2d.DrawLine(x, 0, x, h, 1)
+	render2d.SetColor(MOON_COLOR.r, MOON_COLOR.g, MOON_COLOR.b, 1)
+	render2d.DrawFilledCircle(x, chart_y(elevation_of(moon.y), h), 4)
+	render2d.SetColor(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b, 1)
+	render2d.DrawFilledCircle(x, chart_y(elevation_of(sun.y), h), 7)
+end
+
+local function draw_year(self)
+	update_cache()
+	local size = self.Owner.transform:GetSize()
+	local w, h = size.x, size.y
+	render2d.SetTexture(nil)
+	rect(0, 0, w, h, 0.08, 0.1, 0.16, 1, 4)
+	render2d.SetColor(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b, 0.6)
+
+	for i = 1, 24 do
+		render2d.DrawLine(
+			(i - 1) / 24 * w,
+			h * (1 - math.clamp(noon_elevation[i - 1] / 90, 0, 1)),
+			i / 24 * w,
+			h * (1 - math.clamp(noon_elevation[i] / 90, 0, 1)),
+			1.5
+		)
+	end
+
+	local x = (weather.GetDayOfYear() - 1) / 365 * w
+	render2d.SetColor(1, 1, 1, 0.9)
+	render2d.DrawLine(x, 0, x, h, 2)
+end
+
+local function draw_latitude(self)
+	local size = self.Owner.transform:GetSize()
+	local w, h = size.x, size.y
+	local latitude = weather.GetLocation()
+	render2d.SetTexture(nil)
+	rect(0, 0, w, h, 0.08, 0.1, 0.16, 1, 4)
+	render2d.SetColor(1, 1, 1, 0.2)
+
+	for degrees = -60, 60, 30 do
+		local x = (degrees + 90) / 180 * w
+		render2d.DrawLine(x, 4, x, h - 4, 1)
+	end
+
+	local x = (latitude + 90) / 180 * w
+	render2d.SetColor(1, 1, 1, 0.9)
+	render2d.DrawLine(x, 0, x, h, 2)
+end
+
+local function draw_moon_phase(self)
+	local size = self.Owner.transform:GetSize()
+	local w, h = size.x, size.y
+	local _, _, phase = get_lunar_state()
+	render2d.SetTexture(nil)
+	rect(0, 0, w, h, 0.08, 0.1, 0.16, 1, 4)
+
+	for i = 0, 8 do
+		local f = i / 8
+		local e = (f <= 0.5 and f or 1 - f) * 2 * math.pi
+		draw_moon(14 + f * (w - 28), h / 2, 8, e, f <= 0.5, 0.55)
+	end
+
+	local x = phase * w
+	render2d.SetColor(MOON_COLOR.r, MOON_COLOR.g, MOON_COLOR.b, 1)
+	render2d.DrawLine(x, 0, x, h, 2)
+end
+
+local last_sky
+
+-- what the captions and the readouts say, rounded to what they show and the same table while it is the same, so that a quiet sky is not a render
+local function read_sky()
+	local time = weather.GetTime()
+	local latitude, longitude = weather.GetLocation()
+	local sun = weather.GetSunDirectionAt(time, latitude, longitude)
+	local elongation, _, phase, moon = get_lunar_state()
+	local sky = {
+		sun_elevation = math.floor(elevation_of(sun.y) * 10 + 0.5) / 10,
+		sun_azimuth = math.floor(math.deg(math.atan2(sun.x, -sun.z)) % 360 * 10 + 0.5) / 10,
+		moon_elevation = math.floor(elevation_of(moon.y) * 10 + 0.5) / 10,
+		phase_name = get_phase_name(phase),
+		illumination = math.floor((1 - math.cos(elongation)) * 50),
+		day = math.floor(weather.GetDayOfYear()),
+		latitude = math.floor(latitude * 10 + 0.5) / 10,
+	}
+
+	if last_sky then
+		local same = true
+
+		for key, value in pairs(sky) do
+			if last_sky[key] ~= value then same = false end
+		end
+
+		if same then return last_sky end
+	end
+
+	last_sky = sky
+
+	return sky
+end
+
+-- a canvas that is dragged to set something, OnDrag(local_position, size) is called when the button goes down and while it is held, also outside of the canvas
+local DragSurface = react.Component(|props| -> do
+	local latest = react.UseRef()
+	local dragging = react.UseRef(false)
+	latest.current = props.OnDrag
+
+	local on_mouse_input = react.UseCallback(|self, button, press, local_pos| -> do
+		if button ~= "button_1" then return end
+
+		if press then
+			dragging.current = true
+			latest.current(local_pos, self.transform:GetSize())
+		end
+
+		return true
+	end, {})
+	local on_global_move = react.UseCallback(|self, position| -> do
+		if not dragging.current then return end
+
+		latest.current(self.transform:GlobalToLocal(position), self.transform:GetSize())
+
+		return true
+	end, {})
+	local on_global_input = react.UseCallback(|self, button, press| -> do
+		if button == "button_1" and not press and dragging.current then
+			dragging.current = false
+
+			return true
+		end
+	end, {})
+
+	return ui.Panel{
+		transform = true,
+		layout = props.layout,
+		mouse_input = {Cursor = "hand"},
+		visual = {OnDraw = props.Draw},
+		OnMouseInput = on_mouse_input,
+		OnGlobalMouseMove = on_global_move,
+		OnGlobalMouseInput = on_global_input,
+	}
+end)
+
+local function caption(text)
+	return ui.Text{Key = "caption", Text = text, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true}
+end
+
+local function axis(labels, layout)
+	return ui.Row{Key = "axis", layout = layout}{
+		list.map(labels, |text, index| -> ui.Text{Key = index, Text = text, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true}),
+	}
+end
+
+local function strip(title, height, draw, on_drag, labels)
+	return ui.Column{layout = {GrowWidth = 1, ChildGap = 2, AlignmentX = "stretch"}}{
+		caption(title),
+		DragSurface{
+			Key = "surface",
+			Draw = draw,
+			OnDrag = on_drag,
+			layout = {GrowWidth = 1, MinSize = Vec2(0, height), MaxSize = Vec2(0, height)},
+		},
+		labels,
+	}
+end
+
+local SunDial = react.Component(|| -> do
+	local sky = react.UsePoll(read_sky, 0.1)
+	local on_dome = |position, size| -> do
+		local dx, dy = position.x - size.x / 2, size.y / 2 - position.y
 		local radius = math.sqrt(dx * dx + dy * dy)
 		local azimuth = math.atan2(dx, dy)
 		local elevation = radius <= DOME_RADIUS and
@@ -190,259 +450,106 @@ function META:drag_to(local_pos)
 				-math.cos(azimuth) * math.cos(elevation)
 			)
 		)
-	elseif drag == "time" then
-		weather.SetSolarHours(math.clamp((x - COLUMN_X) / COLUMN_W, 0, 1) * 24)
-	elseif drag == "day" then
-		weather.SetDayOfYear(1 + math.clamp((x - COLUMN_X) / COLUMN_W, 0, 1) * 365)
-	elseif drag == "latitude" then
-		weather.SetLocation(-90 + math.clamp((x - COLUMN_X) / COLUMN_W, 0, 1) * 180, select(2, weather.GetLocation()))
-	elseif drag == "moon" then
+	end
+	local on_time = |position, size| -> weather.SetSolarHours(math.clamp(position.x / size.x, 0, 1) * 24)
+	local on_day = |position, size| -> weather.SetDayOfYear(1 + math.clamp(position.x / size.x, 0, 1) * 365)
+	local on_latitude = |position, size| -> weather.SetLocation(
+		-90 + math.clamp(position.x / size.x, 0, 1) * 180,
+		select(2, weather.GetLocation())
+	)
+	local on_moon = |position, size| -> do
 		local _, _, phase = get_lunar_state()
-		local target = math.clamp((x - COLUMN_X) / COLUMN_W, 0, 1)
+		local target = math.clamp(position.x / size.x, 0, 1)
 		weather.SetTime(weather.GetTime() + wrap(target - phase) * SYNODIC_DAYS * 86400)
 	end
-end
 
-function META:OnMouseInput(button, press, local_pos)
-	if button ~= "button_1" then return end
+	return ui.Row{layout = {GrowWidth = 1, GrowHeight = 1, ChildGap = "M", AlignmentY = "start"}}{
+		ui.Column{layout = {ChildGap = "XS", AlignmentX = "start", GrowWidth = 0, FitWidth = true}}{
+			DragSurface{
+				Key = "dome",
+				Draw = draw_dome,
+				OnDrag = on_dome,
+				layout = {MinSize = Vec2(DOME_SIZE, DOME_SIZE), MaxSize = Vec2(DOME_SIZE, DOME_SIZE), GrowWidth = 0},
+			},
+			ui.Text{
+				Key = "sun",
+				Text = string.format("sun   %5.1f° up   %5.1f° az", sky.sun_elevation, sky.sun_azimuth),
+				Font = "body S",
+				IgnoreMouseInput = true,
+			},
+			ui.Text{
+				Key = "moon",
+				Text = string.format("moon %5.1f° up   %s %d%%", sky.moon_elevation, sky.phase_name, sky.illumination),
+				Font = "body S",
+				IgnoreMouseInput = true,
+			},
+		},
+		ui.Column{layout = {GrowWidth = 1, ChildGap = "S", AlignmentX = "stretch"}}{
+			strip(
+				"day   drag to set the time of day",
+				CHART_H,
+				draw_day,
+				on_time,
+				axis(HOUR_LABELS, {GrowWidth = 1, AlignmentX = "space_between"})
+			),
+			strip(
+				string.format("year   drag to set the date   day %d", sky.day),
+				STRIP_H,
+				draw_year,
+				on_day,
+				-- the width of a month is its days, so each letter sits in the middle of its month
+				ui.Row{Key = "axis", layout = {GrowWidth = 1}}{
+					list.map(
+						MONTHS,
+						|month, index| -> ui.Text{
+							Key = index,
+							Text = month,
+							Font = "body XS",
+							Color = "text_disabled",
+							AlignX = 0.5,
+							IgnoreMouseInput = true,
+							layout = {GrowWidth = MONTH_STARTS[index + 1] - MONTH_STARTS[index]},
+						}
+					),
+				}
+			),
+			strip(
+				string.format("latitude   %.1f° %s", math.abs(sky.latitude), sky.latitude < 0 and "S" or "N"),
+				STRIP_H,
+				draw_latitude,
+				on_latitude,
+				axis(LATITUDE_LABELS, {GrowWidth = 1, AlignmentX = "space_evenly"})
+			),
+			strip("moon   drag to change the phase", STRIP_H, draw_moon_phase, on_moon, nil),
+		},
+	}
+end)
+-- closing the window only hides it, nothing reads the sky while it is hidden
+local SunDialWindow = react.Component(|| -> do
+	local shown, set_shown = react.UseState(true)
+	local position = react.UseMemo(|| -> do
+		local world_size = Panel.World.transform:GetSize()
 
-	if press then
-		for _, region in ipairs(REGIONS) do
-			if
-				local_pos.x >= region.x and
-				local_pos.x <= region.x + region.w and
-				local_pos.y >= region.y - 4 and
-				local_pos.y <= region.y + region.h + 4
-			then
-				self._drag = region.name
-				self:drag_to(local_pos)
+		return Vec2(world_size.x - WIDTH - 16, world_size.y - HEIGHT - HEADER - 16)
+	end, {})
 
-				break
-			end
-		end
-	end
-
-	return true
-end
-
-function META:OnGlobalMouseMove(pos)
-	if not self._drag then return end
-
-	self:drag_to(self.transform:GlobalToLocal(pos))
-	return true
-end
-
-function META:OnGlobalMouseInput(button, press)
-	if button == "button_1" and not press and self._drag then
-		self._drag = nil
-		return true
-	end
-end
-
-function META:OnDraw()
-	update_cache()
-	render2d.SetTexture(nil)
-	rect(0, 0, WIDTH, HEIGHT, 0.03, 0.04, 0.07, 0.9, 10)
-	local time = weather.GetTime()
-	local latitude, longitude = weather.GetLocation()
-	local sun = weather.GetSunDirectionAt(time, latitude, longitude)
-	local elongation, waxing, phase, moon = get_lunar_state()
-
-	do -- the dome, seen from above with north up and east to the right
-		local rings = 24
-
-		for i = 0, rings - 1 do
-			local f = i / (rings - 1)
-			render2d.SetColor(
-				math.lerp(f, 0.55, 0.05) * math.lerp(math.clamp(sun.y * 3, 0, 1), 0.35, 1),
-				math.lerp(f, 0.6, 0.1) * math.lerp(math.clamp(sun.y * 3, 0, 1), 0.35, 1),
-				math.lerp(f, 0.75, 0.3) * math.lerp(math.clamp(sun.y * 3, 0, 1), 0.35, 1),
-				1
-			)
-			render2d.DrawFilledCircle(DOME_X, DOME_Y, DOME_RADIUS * (1 - f * 0.97))
-		end
-
-		render2d.SetColor(1, 1, 1, 0.14)
-
-		for _, elevation in ipairs{30, 60} do
-			render2d.DrawCircle(DOME_X, DOME_Y, DOME_RADIUS * (1 - elevation / 90), 1, 48)
-		end
-
-		render2d.DrawLine(DOME_X - DOME_RADIUS, DOME_Y, DOME_X + DOME_RADIUS, DOME_Y, 1)
-		render2d.DrawLine(DOME_X, DOME_Y - DOME_RADIUS, DOME_X, DOME_Y + DOME_RADIUS, 1)
-		render2d.SetColor(1, 1, 1, 0.5)
-		render2d.DrawCircle(DOME_X, DOME_Y, DOME_RADIUS, 1.5, 64)
-		label("N", DOME_X - 4, DOME_Y - DOME_RADIUS - DOME_MARGIN + 2, TEXT)
-		label("S", DOME_X - 4, DOME_Y + DOME_RADIUS + 4, TEXT)
-		label("E", DOME_X + DOME_RADIUS + 8, DOME_Y - 7, TEXT)
-		label("W", DOME_X - DOME_RADIUS - 16, DOME_Y - 7, TEXT)
-		render2d.SetColor(1, 0.85, 0.4, 0.55)
-
-		for i = 0, SAMPLES do
-			if sun_dy[i] > 0 then
-				local x, y = dome_point(sun_dx[i], sun_dy[i], sun_dz[i])
-				render2d.DrawFilledCircle(x, y, 1.4)
-			end
-		end
-
-		render2d.SetColor(0.7, 0.8, 1, 0.45)
-
-		for i = 0, SAMPLES do
-			if moon_dy[i] > 0 then
-				local x, y = dome_point(moon_dx[i], moon_dy[i], moon_dz[i])
-				render2d.DrawFilledCircle(x, y, 1.2)
-			end
-		end
-
-		local mx, my = dome_point(moon.x, moon.y, moon.z)
-		draw_moon(mx, my, 8, elongation, waxing, moon.y > 0 and 1 or 0.45)
-		local sx, sy = dome_point(sun.x, sun.y, sun.z)
-		local alpha = sun.y > 0 and 1 or 0.45
-
-		for i = 3, 1, -1 do
-			render2d.SetColor(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b, 0.12 * alpha)
-			render2d.DrawFilledCircle(sx, sy, 9 + i * 5)
-		end
-
-		render2d.SetColor(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b, alpha)
-		render2d.DrawFilledCircle(sx, sy, 9)
-		local _, _, sun_elevation, sun_azimuth = dome_point(sun.x, sun.y, sun.z)
-		local _, _, moon_elevation = dome_point(moon.x, moon.y, moon.z)
-		label(
-			string.format("sun   %5.1f° up   %5.1f° az", sun_elevation, math.deg(sun_azimuth) % 360),
-			12,
-			DOME_Y + DOME_RADIUS + DOME_MARGIN + 8,
-			SUN_COLOR
-		)
-		label(
-			string.format("moon %5.1f° up   %s %d%%", moon_elevation, get_phase_name(phase), (1 - math.cos(elongation)) * 50),
-			12,
-			DOME_Y + DOME_RADIUS + DOME_MARGIN + 26,
-			MOON_COLOR
-		)
-	end
-
-	do -- the day: elevation against local solar time
-		label("day   drag to set the time of day", COLUMN_X, CHART_Y - 18)
-		rect(COLUMN_X, CHART_Y, COLUMN_W, CHART_H, 0.08, 0.1, 0.16, 1, 4)
-		local horizon = chart_y(0)
-		rect(COLUMN_X, horizon, COLUMN_W, CHART_Y + CHART_H - horizon, 0, 0, 0, 0.35)
-		render2d.SetColor(1, 1, 1, 0.12)
-
-		for hour = 3, 21, 3 do
-			render2d.DrawLine(COLUMN_X + hour / 24 * COLUMN_W, CHART_Y, COLUMN_X + hour / 24 * COLUMN_W, CHART_Y + CHART_H, 1)
-		end
-
-		render2d.SetColor(1, 1, 1, 0.4)
-		render2d.DrawLine(COLUMN_X, horizon, COLUMN_X + COLUMN_W, horizon, 1)
-
-		for hour = 0, 24, 6 do
-			label(string.format("%02d", hour), COLUMN_X + hour / 24 * COLUMN_W - 6, CHART_Y + CHART_H + 1)
-		end
-
-		for pass = 1, 2 do
-			local dys = pass == 1 and moon_dy or sun_dy
-			local color = pass == 1 and MOON_COLOR or SUN_COLOR
-			render2d.SetColor(color.r, color.g, color.b, pass == 1 and 0.6 or 1)
-
-			for i = 1, SAMPLES do
-				render2d.DrawLine(
-					COLUMN_X + (i - 1) / SAMPLES * COLUMN_W,
-					chart_y(math.deg(math.asin(math.clamp(dys[i - 1], -1, 1)))),
-					COLUMN_X + i / SAMPLES * COLUMN_W,
-					chart_y(math.deg(math.asin(math.clamp(dys[i], -1, 1)))),
-					2
-				)
-			end
-		end
-
-		local x = COLUMN_X + weather.GetSolarHours() / 24 * COLUMN_W
-		render2d.SetColor(1, 1, 1, 0.5)
-		render2d.DrawLine(x, CHART_Y, x, CHART_Y + CHART_H, 1)
-		local moon_x = x
-		render2d.SetColor(MOON_COLOR.r, MOON_COLOR.g, MOON_COLOR.b, 1)
-		render2d.DrawFilledCircle(moon_x, chart_y(math.deg(math.asin(math.clamp(moon.y, -1, 1)))), 4)
-		render2d.SetColor(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b, 1)
-		render2d.DrawFilledCircle(x, chart_y(math.deg(math.asin(math.clamp(sun.y, -1, 1)))), 7)
-	end
-
-	do -- the season: the sun's noon height across the year
-		label(
-			string.format("year   drag to set the date   day %d", weather.GetDayOfYear()),
-			COLUMN_X,
-			YEAR_Y - 18
-		)
-		rect(COLUMN_X, YEAR_Y, COLUMN_W, YEAR_H, 0.08, 0.1, 0.16, 1, 4)
-		render2d.SetColor(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b, 0.6)
-
-		for i = 1, 24 do
-			render2d.DrawLine(
-				COLUMN_X + (i - 1) / 24 * COLUMN_W,
-				YEAR_Y + YEAR_H * (1 - math.clamp(noon_elevation[i - 1] / 90, 0, 1)),
-				COLUMN_X + i / 24 * COLUMN_W,
-				YEAR_Y + YEAR_H * (1 - math.clamp(noon_elevation[i] / 90, 0, 1)),
-				1.5
-			)
-		end
-
-		for i, month in ipairs(MONTHS) do
-			label(month, COLUMN_X + (MONTH_STARTS[i] + MONTH_STARTS[i + 1] - 2) / 2 / 365 * COLUMN_W - 3, YEAR_Y + YEAR_H + 1)
-		end
-
-		local x = COLUMN_X + (weather.GetDayOfYear() - 1) / 365 * COLUMN_W
-		render2d.SetColor(1, 1, 1, 0.9)
-		render2d.DrawLine(x, YEAR_Y, x, YEAR_Y + YEAR_H, 2)
-	end
-
-	do -- the place
-		label(string.format("latitude   %.1f° %s", math.abs(latitude), latitude < 0 and "S" or "N"), COLUMN_X, LATITUDE_Y - 18)
-		rect(COLUMN_X, LATITUDE_Y, COLUMN_W, LATITUDE_H, 0.08, 0.1, 0.16, 1, 4)
-		render2d.SetColor(1, 1, 1, 0.2)
-
-		for degrees = -60, 60, 30 do
-			local x = COLUMN_X + (degrees + 90) / 180 * COLUMN_W
-			render2d.DrawLine(x, LATITUDE_Y + 4, x, LATITUDE_Y + LATITUDE_H - 4, 1)
-			label(tostring(degrees), x - 8, LATITUDE_Y + LATITUDE_H + 1)
-		end
-
-		local x = COLUMN_X + (latitude + 90) / 180 * COLUMN_W
-		render2d.SetColor(1, 1, 1, 0.9)
-		render2d.DrawLine(x, LATITUDE_Y, x, LATITUDE_Y + LATITUDE_H, 2)
-	end
-
-	do -- the moon's phase, dragging it moves the date
-		label("moon   drag to change the phase", COLUMN_X, MOON_Y - 18)
-		rect(COLUMN_X, MOON_Y, COLUMN_W, MOON_H, 0.08, 0.1, 0.16, 1, 4)
-
-		for i = 0, 8 do
-			local f = i / 8
-			local e = (f <= 0.5 and f or 1 - f) * 2 * math.pi
-			draw_moon(COLUMN_X + 14 + f * (COLUMN_W - 28), MOON_Y + MOON_H / 2, 8, e, f <= 0.5, 0.55)
-		end
-
-		local x = COLUMN_X + phase * COLUMN_W
-		render2d.SetColor(MOON_COLOR.r, MOON_COLOR.g, MOON_COLOR.b, 1)
-		render2d.DrawLine(x, MOON_Y, x, MOON_Y + MOON_H, 2)
-	end
-end
-
-local SkyDial = META:Register()
-local HEADER = 36
+	return ui.Window{
+		Title = "SUN DIAL",
+		Pinnable = true,
+		Maximizable = false,
+		Padding = "S",
+		Size = Vec2(WIDTH, HEIGHT + HEADER),
+		MinSize = Vec2(WIDTH, HEIGHT + HEADER),
+		Position = position,
+		OnVisibilityChanged = |_, visible| -> set_shown(visible),
+	}{shown && SunDial{}}
+end)
 
 desktop.RegisterProgram{
 	Name = "Sun",
 	Icon = "light",
 	Positioned = true,
 	Create = function()
-		local world_size = Panel.World.transform:GetSize()
-		return Window{
-			Title = "SUN DIAL",
-			Pinnable = true,
-			Maximizable = false,
-			Padding = "none",
-			Size = Vec2(WIDTH, HEIGHT + HEADER),
-			MinSize = Vec2(WIDTH, HEIGHT + HEADER),
-			Position = Vec2(world_size.x - WIDTH - 16, world_size.y - HEIGHT - HEADER - 16),
-		}{SkyDial{Size = Vec2(WIDTH, HEIGHT)}}
+		return react.Mount(SunDialWindow{}, Panel.World):GetEntity()
 	end,
 }
