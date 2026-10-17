@@ -23,6 +23,8 @@ META:GetSet("Title", "Window")
 META:GetSet("Minimizable", true)
 META:GetSet("Maximizable", true)
 META:GetSet("Closable", true)
+META:GetSet("Pinnable", false)
+META:GetSet("Pinned", false)
 META:GetSet("MinSize", nil)
 META:GetSet("Padding", nil)
 META:EndStorable()
@@ -73,6 +75,7 @@ local function get_header_button_size(active)
 end
 
 local header_buttons = {
+	{Prop = "Pinnable", Icon = "pin", Action = "TogglePin"},
 	{Prop = "Minimizable", Icon = "minimize", Action = "Minimize"},
 	{Prop = "Maximizable", Icon = "maximize", Action = "ToggleMaximize"},
 	{Prop = "Closable", Icon = "close", Action = "OnClose"},
@@ -168,6 +171,42 @@ function META:OnCreate()
 		OnPostDraw = on_content_post_draw,
 	}
 	self._content.style:SetForegroundColor(theme.active:GetContentForeground())
+
+	if self.Pinnable then self:RefreshPinIcon() end
+end
+
+function META.OnHudChanged(window, hud) end
+
+function META.OnPinChanged(window, pinned) end
+
+function META:RefreshPinIcon()
+	self._header_icons.pin:SetIcon(self.Pinned and "pin" or "pin_off")
+	return self
+end
+
+function META:TogglePin()
+	self:SetPinned(not self.Pinned)
+	self:RefreshPinIcon()
+	self.OnPinChanged(self, self.Pinned)
+end
+
+function META:SetHud(hud)
+	if hud and not self.Hud then
+		self._size_before_hud = self.transform:GetSize():Copy()
+	end
+
+	self.Hud = hud
+	self.layout:SetFitHeight(hud)
+
+	if not hud and self._size_before_hud then
+		self.transform:SetSize(self._size_before_hud)
+	end
+
+	self._header.visual:SetVisible(not hud)
+	self.mouse_input:SetIgnoreMouseInput(hud)
+	self.layout:InvalidateLayout()
+	self.OnHudChanged(self, hud)
+	return self
 end
 
 function META:OnThemeChanged()

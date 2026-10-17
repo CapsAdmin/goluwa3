@@ -151,6 +151,8 @@ end
 
 add("Basic", "menu", path("M4 7H20M4 12H20M4 17H20"))
 add("Basic", "filter", path("M4 5H20L14 12.5V19L10 17V12.5Z"))
+add("Window", "pin", path("M9 4H15V10L18 14H6L9 10Z", "M12 14V21"))
+add("Window", "pin_off", path("M9 4H15V10L18 14H6L9 10Z", "M12 14V21", "M4 4L20 20"))
 add("Window", "minimize", path("M6 18H18"))
 add("Window", "maximize", "<rect x=\"5\" y=\"5\" width=\"14\" height=\"14\"/>")
 add(
