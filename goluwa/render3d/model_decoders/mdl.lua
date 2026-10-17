@@ -2,9 +2,8 @@ local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
-local thread_pool = import("goluwa/thread_pool.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
-local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
@@ -1062,8 +1061,10 @@ do
 	end
 end
 
-model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, physics_callback, skeleton_callback)
-	local models = {}
+local mdl_decoder = {job = job_source}
+
+-- the source files are read here, the parsing runs on a worker (see model_loader.AddThreadedDecoder)
+function mdl_decoder.Gather(path, full_path)
 	local companion_path = path
 
 	if full_path:ends_with(".mdl") then
@@ -1101,7 +1102,16 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 		end
 	end
 
-	local meta, blob_table = thread_pool.Run(job_source, input, size):Await()
+	return input, size
+end
+
+function mdl_decoder.Finish(path, full_path, input, meta, blob_table, mesh_callback, physics_callback, skeleton_callback)
+	local models = {}
+
+	if full_path:ends_with(".mdl") then
+		full_path = full_path:sub(1, -#".mdl" - 1)
+	end
+
 	local mdl = meta.mdl
 
 	for _, model_flexes in ipairs(mdl.bodypart_models) do
@@ -1172,17 +1182,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 		end
 
 		tasks.Wait()
-		local mesh = Polygon3D.New()
-		local vertex_count = mesh_info.vertex_count
-		local ctype = mesh_info.index_size == 4 and "uint32_t" or "uint16_t"
-		local vertices = vertex_math.VertexType(vertex_count)
-		ffi.copy(
-			vertices,
-			blob_table.ptr + mesh_info.vertex_offset,
-			vertex_count * ffi.sizeof(vertices[0])
-		)
-		local indices = copy_array(blob_table, ctype, mesh_info.index_offset, mesh_info.index_count)
-		mesh:UploadVertexArray(vertices, vertex_count, indices, mesh_info.index_count, true)
+		local mesh = packed_mesh.ToPolygon(mesh_info, blob_table)
 		mesh:SetName(full_path)
 		mesh:SetLODLevel(mesh_info.lod)
 		mesh:SetLODDistance(mesh_info.switch_point * lod.SOURCE_SWITCH_TO_RADII)
@@ -1213,4 +1213,6 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback, phy
 	end
 
 	return models
-end)
+end
+
+model_loader.AddThreadedDecoder("mdl", mdl_decoder)

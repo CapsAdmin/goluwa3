@@ -287,6 +287,24 @@ local function pack_vertices(polygon, vertex_count)
 	return vertices
 end
 
+-- builds what the vertices lack (uvs, normals, tangents, the tangents need self.indices) and packs them, nothing here
+-- needs the gpu so a worker thread can do it
+function Polygon3D:PackVertices()
+	local vertex_count = #self.Vertices
+
+	if vertex_count == 0 then return end
+
+	self:BuildBoundingBox()
+
+	if not self.Vertices[1].uv then self:BuildUVsPlanar() end
+
+	if not self.Vertices[1].normal then self:BuildNormals() end
+
+	if not self.Vertices[1].tangent then self:BuildTangents() end
+
+	return pack_vertices(self, vertex_count), vertex_count
+end
+
 function Polygon3D:Upload(indices)
 	self.indices = indices
 
@@ -300,19 +318,10 @@ function Polygon3D:Upload(indices)
 		indices = gpu_indices
 	end
 
-	local vertex_count = #self.Vertices
+	local vertices, vertex_count = self:PackVertices()
 
-	if vertex_count == 0 then return end
+	if not vertices then return end
 
-	self:BuildBoundingBox()
-
-	if not self.Vertices[1].uv then self:BuildUVsPlanar() end
-
-	if not self.Vertices[1].normal then self:BuildNormals() end
-
-	if not self.Vertices[1].tangent then self:BuildTangents() end
-
-	local vertices = pack_vertices(self, vertex_count)
 	local vertex_attributes = VERTEX_ATTRIBUTES
 	local index_type = "uint16_t"
 

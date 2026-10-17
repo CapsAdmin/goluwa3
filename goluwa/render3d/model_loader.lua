@@ -6,6 +6,7 @@ local resource = import("goluwa/resource.lua")
 local utility = import("goluwa/utility.lua")
 local tasks = import("goluwa/tasks.lua")
 local vfs = import("goluwa/vfs.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
 local assets = import("goluwa/assets.lua")
 model_loader.model_decoders = model_loader.model_decoders or {}
 
@@ -47,6 +48,31 @@ end
 
 model_loader.model_cache = {}
 model_loader.model_loads = utility.CreateLoadCache(model_loader.model_cache)
+
+-- a decoder whose parsing runs on a worker thread. Gather(path, full_path) runs on the main thread and returns the
+-- input of the job (bytes, the workers have no vfs mounts) and its size, `job` is the source of the worker (it gets
+-- the input and returns a table and a blob, see packed_mesh.lua) and Finish(path, full_path, input, meta, blob,
+-- mesh_callback, physics_callback, skeleton_callback) turns the result into meshes on the main thread
+function model_loader.AddThreadedDecoder(id, decoder, ext)
+	model_loader.AddModelDecoder(
+		id,
+		function(path, full_path, mesh_callback, physics_callback, skeleton_callback)
+			local input, size = decoder.Gather(path, full_path)
+			local meta, blob = thread_pool.Run(decoder.job, input, size):Await()
+			return decoder.Finish(
+				path,
+				full_path,
+				input,
+				meta,
+				blob,
+				mesh_callback,
+				physics_callback,
+				skeleton_callback
+			)
+		end,
+		ext
+	)
+end
 
 local function fail_model_load(loads, path, reason)
 	local message = tostring(reason)
