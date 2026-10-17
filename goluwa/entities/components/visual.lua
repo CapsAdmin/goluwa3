@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local commands = import("goluwa/cli/commands.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Visual = objects.CreateTemplate("visual")
 import.loaded["goluwa/entities/components/visual.lua"] = Visual
@@ -1191,6 +1192,52 @@ function Visual:SetRaysOnly(enabled)
 	scene_bvh.Invalidate(self)
 end
 
+do
+	local hide_list
+
+	local function get_hide_list()
+		if hide_list then return hide_list end
+
+		hide_list = {}
+
+		for word in tostring(visual.hide_pvar:Get()):lower():gmatch("[^,%s]+") do
+			hide_list[#hide_list + 1] = word
+		end
+
+		return hide_list
+	end
+
+	visual.hide_pvar = pvars.Setup2{
+		key = "visual_hide",
+		category = "Debug",
+		group = "Visual",
+		store = false,
+		default = "",
+		help = "comma separated words, every visual whose entity name contains one is hidden everywhere (gbuffer, shadows, scene bvh so gi and reflections). for isolating what a debug view shows, try world (static decals and roads), cry_terrain, vegetation, rock",
+		callback = function()
+			hide_list = nil
+
+			for _, component in ipairs(Visual.Instances) do
+				component:RefreshVisible()
+			end
+		end,
+	}
+
+	function Visual:IsDebugHidden()
+		local list = get_hide_list()
+
+		if not list[1] then return false end
+
+		local name = self.Owner:GetName():lower()
+
+		for i = 1, #list do
+			if name:find(list[i], 1, true) then return true end
+		end
+
+		return false
+	end
+end
+
 -- Visible is what is drawn: the own flag (SetVisible, stored) unless the visibility of the entity hides it (OnHide/OnShow)
 function Visual:ApplyVisible(visible)
 	if self.Visible == visible then return end
@@ -1203,11 +1250,11 @@ end
 
 function Visual:SetVisible(visible)
 	self.OwnVisible = visible
-	self:ApplyVisible(visible and not self.Owner.visibility_hidden)
+	self:ApplyVisible(visible and not self.Owner.visibility_hidden and not self:IsDebugHidden())
 end
 
 function Visual:RefreshVisible()
-	self:ApplyVisible(self.OwnVisible ~= false and not self.Owner.visibility_hidden)
+	self:ApplyVisible(self.OwnVisible ~= false and not self.Owner.visibility_hidden and not self:IsDebugHidden())
 end
 
 Visual.OnHide = Visual.RefreshVisible
@@ -3562,6 +3609,9 @@ end
 
 function Visual:OnAdd()
 	self.scene_removed = false
+
+	if self:IsDebugHidden() then self:RefreshVisible() end
+
 	visual.aabb_scan_candidates[self] = true
 	mark_shadow_change(self)
 	mark_scene_component_dirty(self, true)
