@@ -7,7 +7,6 @@ local Column = react.Element(import("goluwa/render2d/ui/elements/column.lua"))
 local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
 local Text = react.Element(import("goluwa/render2d/ui/elements/text.lua"))
 local TextEdit = react.Element(import("goluwa/render2d/ui/elements/text_edit.lua"))
-local kit = import("lua/editor_kit.lua")
 local SIZE = Vec2(360, 160)
 local NamePrompt = react.Component(|props| -> do
 	local edit = react.UseRef()
@@ -68,21 +67,15 @@ local NamePrompt = react.Component(|props| -> do
 end)
 
 return function(props)
-	return kit.OpenOnce("NamePrompt", function()
-		local root
-
-		root = react.Mount(
-			NamePrompt{
-				Title = props.Title,
-				Text = props.Text,
-				Hint = props.Hint,
-				Validate = props.Validate,
-				OnSubmit = props.OnSubmit,
-				Close = || -> root:Unmount(),
-			},
-			Panel.World
-		)
-
-		return root:GetEntity()
-	end)
+	return react.OpenWindow(
+		"NamePrompt",
+		NamePrompt,
+		{
+			Title = props.Title,
+			Text = props.Text,
+			Hint = props.Hint,
+			Validate = props.Validate,
+			OnSubmit = props.OnSubmit,
+		}
+	)
 end

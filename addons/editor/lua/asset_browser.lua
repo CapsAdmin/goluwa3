@@ -266,10 +266,7 @@ local function open_source_viewer(entry)
 
 	if not source then return end
 
-	kit.OpenOnce(
-		"AssetSourceViewer/" .. entry.path,
-		|| -> react.Mount(SourceViewer{Title = entry.path:upper(), Source = source}, Panel.World):GetEntity()
-	)
+	react.OpenWindow("AssetSourceViewer/" .. entry.path, SourceViewer, {Title = entry.path:upper(), Source = source})
 end
 
 -- api is what the browser hands to its callbacks: picking, pick(entry), navigate(folder) and view (the detail view)
@@ -1050,16 +1047,6 @@ local AssetDetails = react.Component(|props| -> do
 	end, {})
 
 	react.UseEvent("Update", |dt| -> do
-		if view.dragging then
-			local x, y = system.GetWindow():GetMousePosition():Unpack()
-			view.orbit:Rotate(x - view.drag_x, y - view.drag_y)
-			view.drag_x, view.drag_y = x, y
-
-			if math.abs(x - view.press_x) + math.abs(y - view.press_y) >= 3 then
-				view.auto_rotate = false
-			end
-		end
-
 		update_detail_preview(detail, view, dt)
 	end)
 
@@ -1078,24 +1065,7 @@ local AssetDetails = react.Component(|props| -> do
 		return list
 	end, {detail, state})
 	local draw = react.UseCallback(|self| -> draw_detail_preview(self, entry, detail, view), {})
-	local on_mouse_input = react.UseCallback(|self, button, press| -> do
-		if button ~= "button_1" then return end
-
-		if press then
-			view.drag_x, view.drag_y = system.GetWindow():GetMousePosition():Unpack()
-			view.press_x, view.press_y = view.drag_x, view.drag_y
-			view.dragging = true
-		else
-			view.dragging = false
-			local x, y = system.GetWindow():GetMousePosition():Unpack()
-
-			if math.abs(x - view.press_x) + math.abs(y - view.press_y) < 3 then
-				view.auto_rotate = not view.auto_rotate
-			end
-		end
-
-		return true
-	end, {})
+	local drag = kit.UseOrbitDrag(view)
 	local actions = {}
 
 	if props.Picking then
@@ -1241,7 +1211,7 @@ local AssetDetails = react.Component(|props| -> do
 			Name = "AssetDetailPreview",
 			Cursor = "sizeall",
 			OnDraw = draw,
-			OnMouseInput = on_mouse_input,
+			Drag = drag,
 			layout = {GrowWidth = 1, MinSize = Vec2(0, 320), MaxSize = Vec2(0, 320)},
 		},
 		#tiles > 0 && Row{layout = {GrowWidth = 1, ChildGap = 8, WrapChildren = true, Margin = Rect(0, 0, 0, 12)}}{tiles},
@@ -1650,22 +1620,14 @@ local AssetBrowser = react.Component(|props| -> do
 end)
 
 return function(props)
-	props = props or {}
-
-	return kit.OpenOnce(props.Key, || -> do
-		local root
-
-		root = react.Mount(
-			AssetBrowser{
-				PickerCategory = props.PickerCategory,
-				SelectedPath = props.SelectedPath,
-				ComponentTarget = props.ComponentTarget,
-				OnPick = props.OnPick,
-				Close = || -> root:Unmount(),
-			},
-			Panel.World
-		)
-
-		return root:GetEntity()
-	end)
+	return react.OpenWindow(
+		props.Key,
+		AssetBrowser,
+		{
+			PickerCategory = props.PickerCategory,
+			SelectedPath = props.SelectedPath,
+			ComponentTarget = props.ComponentTarget,
+			OnPick = props.OnPick,
+		}
+	)
 end

@@ -370,43 +370,16 @@ end
 
 -- a canvas that is dragged to set something, OnDrag(local_position, size) is called when the button goes down and while it is held, also outside of the canvas
 local DragSurface = react.Component(|props| -> do
-	local latest = react.UseRef()
-	local dragging = react.UseRef(false)
-	latest.current = props.OnDrag
-
-	local on_mouse_input = react.UseCallback(|self, button, press, local_pos| -> do
-		if button ~= "button_1" then return end
-
-		if press then
-			dragging.current = true
-			latest.current(local_pos, self.transform:GetSize())
-		end
-
-		return true
-	end, {})
-	local on_global_move = react.UseCallback(|self, position| -> do
-		if not dragging.current then return end
-
-		latest.current(self.transform:GlobalToLocal(position), self.transform:GetSize())
-
-		return true
-	end, {})
-	local on_global_input = react.UseCallback(|self, button, press| -> do
-		if button == "button_1" and not press and dragging.current then
-			dragging.current = false
-
-			return true
-		end
-	end, {})
+	local drag = react.UseDrag{OnDrag = props.OnDrag}
 
 	return ui.Panel{
 		transform = true,
 		layout = props.layout,
 		mouse_input = {Cursor = "hand"},
 		visual = {OnDraw = props.Draw},
-		OnMouseInput = on_mouse_input,
-		OnGlobalMouseMove = on_global_move,
-		OnGlobalMouseInput = on_global_input,
+		OnMouseInput = drag.OnMouseInput,
+		OnGlobalMouseMove = drag.OnGlobalMouseMove,
+		OnGlobalMouseInput = drag.OnGlobalMouseInput,
 	}
 end)
 

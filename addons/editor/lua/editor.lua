@@ -40,7 +40,6 @@ local camera = import("lua/camera.lua")
 local picker = import("lua/picker.lua")
 local editor_history = import("lua/editor_history.lua")
 local HistoryPanel = import("lua/history_panel.lua")
-local kit = import("lua/editor_kit.lua")
 local history = editor_history.history
 -- the order the components of an entity are listed in the property editor, the rest follows alphabetically
 local COMPONENT_ORDER = {
@@ -1118,12 +1117,13 @@ local Editor = react.Component(|props| -> do
 end)
 
 return function(props)
-	return kit.OpenOnce(props.Key, || -> react.Mount(
-		Editor{
+	return react.OpenWindow(
+		props.Key,
+		Editor,
+		{
 			RequestMouse = props.RequestMouse,
 			SelectedEntityGUID = props.SelectedEntityGUID,
 			OnClose = props.OnClose,
-		},
-		Panel.World
-	):GetEntity())
+		}
+	)
 end

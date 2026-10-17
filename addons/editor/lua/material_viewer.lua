@@ -32,7 +32,6 @@ local MaterialView = react.Component(|props| -> do
 		sphere = previews.GetMaterialSphere(),
 		auto_rotate = true,
 		ready = false,
-		dragging = false,
 	}, |view| -> view.preview:Remove(), {})
 
 	react.UseEffect(|| -> do
@@ -44,16 +43,6 @@ local MaterialView = react.Component(|props| -> do
 		if not view.ready then view.ready = previews.IsMaterialReady(material) end
 
 		if not view.ready then return end
-
-		if view.dragging then
-			local x, y = system.GetWindow():GetMousePosition():Unpack()
-			view.orbit:Rotate(x - view.drag_x, y - view.drag_y)
-			view.drag_x, view.drag_y = x, y
-
-			if math.abs(x - view.press_x) + math.abs(y - view.press_y) >= 3 then
-				view.auto_rotate = false
-			end
-		end
 
 		if view.auto_rotate then view.orbit:Rotate(-dt * 60, 0) end
 
@@ -77,24 +66,7 @@ local MaterialView = react.Component(|props| -> do
 		local side = math.min(size.x, size.y)
 		view.preview:Draw((size.x - side) / 2, (size.y - side) / 2, side, side)
 	end, {})
-	local on_mouse_input = react.UseCallback(|self, button, press| -> do
-		if button ~= "button_1" then return end
-
-		if press then
-			view.drag_x, view.drag_y = system.GetWindow():GetMousePosition():Unpack()
-			view.press_x, view.press_y = view.drag_x, view.drag_y
-			view.dragging = true
-		else
-			view.dragging = false
-			local x, y = system.GetWindow():GetMousePosition():Unpack()
-
-			if math.abs(x - view.press_x) + math.abs(y - view.press_y) < 3 then
-				view.auto_rotate = not view.auto_rotate
-			end
-		end
-
-		return true
-	end, {})
+	local drag = kit.UseOrbitDrag(view)
 
 	return ViewerWindow{Title = props.Title, Size = WINDOW_SIZE}{
 		Splitter{InitialSize = 400}{
@@ -127,7 +99,7 @@ local MaterialView = react.Component(|props| -> do
 					PropertyEditor{Ref = editor, layout = {GrowWidth = 1, FitWidth = false}},
 				},
 			},
-			Canvas{Name = "MaterialPreview", Cursor = "sizeall", OnDraw = draw, OnMouseInput = on_mouse_input},
+			Canvas{Name = "MaterialPreview", Cursor = "sizeall", OnDraw = draw, Drag = drag},
 		},
 	}
 end)

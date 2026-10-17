@@ -1,7 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Panel = import("goluwa/render2d/ui/panel.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local Button = react.Element(import("goluwa/render2d/ui/widgets/button.lua"))
 local Dropdown = react.Element(import("goluwa/render2d/ui/widgets/dropdown.lua"))
@@ -62,7 +61,7 @@ local ModelView = react.Component(|props| -> do
 	local status, set_status = react.UseState("loading...")
 	-- everything the frames and the mouse change lives here, the scene view and the entity go when the window does
 	local state = react.UseResource(|| -> do
-		local entity = props.Entity
+		local entity = assert(previews.CreateModelEntity(entry.path), "there is no model to view in " .. entry.path)
 		local view = SceneView.New{TransparentSky = false}
 		local started = system.GetElapsedTime()
 		view:SetEnvironment(Environment.GetPreset(DEFAULT_ENVIRONMENT))
@@ -312,11 +311,5 @@ local ModelView = react.Component(|props| -> do
 end)
 
 return function(entry)
-	return kit.OpenOnce("ModelViewer/" .. entry.path, function()
-		local entity = previews.CreateModelEntity(entry.path)
-
-		if not entity then return end
-
-		return react.Mount(ModelView{Entry = entry, Entity = entity}, Panel.World):GetEntity()
-	end)
+	return react.OpenWindow("ModelViewer/" .. entry.path, ModelView, {Entry = entry})
 end

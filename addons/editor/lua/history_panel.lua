@@ -1,6 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
-local Panel = import("goluwa/render2d/ui/panel.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local Window = react.Element(import("goluwa/render2d/ui/widgets/window.lua"))
 local Button = react.Element(import("goluwa/render2d/ui/widgets/button.lua"))
@@ -8,7 +7,6 @@ local Column = react.Element(import("goluwa/render2d/ui/elements/column.lua"))
 local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
 local ScrollablePanel = react.Element(import("goluwa/render2d/ui/elements/scrollable_panel.lua"))
 local editor_history = import("lua/editor_history.lua")
-local kit = import("lua/editor_kit.lua")
 local history = editor_history.history
 -- a row only renders when its own text or state changed, not on every entry that is pushed
 local HistoryRow = react.Memo(
@@ -79,7 +77,5 @@ local HistoryView = react.Component(|props| -> do
 end)
 
 return function(props)
-	return kit.OpenOnce("EditorHistoryWindow", function()
-		return react.Mount(HistoryView(props or {}), Panel.World):GetEntity()
-	end)
+	return react.OpenWindow("EditorHistoryWindow", HistoryView, props)
 end

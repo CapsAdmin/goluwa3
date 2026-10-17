@@ -576,3 +576,81 @@ T.Test2D("react layout effect sees the layout of the render that scheduled it an
 	root:Unmount()
 	T(table.concat(order, ","))["=="]("layout,effect,cleanup,layout,cleanup")
 end)
+
+T.Test2D("react use stable keeps its identity and calls the callback of the latest render", function()
+	local seen = {}
+	local calls = {}
+	local Holder = react.Component(|props| -> do
+		local stable = react.UseStable(|| -> props.Name)
+		seen[#seen + 1] = stable
+		calls[#calls + 1] = stable()
+
+		return Text{Text = props.Name}
+	end)
+	local root = react.Mount(Column{}{Holder{Name = "first"}}, Panel.World)
+	root:Render(Column{}{Holder{Name = "second"}})
+	T(seen[1])["=="](seen[2])
+	T(table.concat(calls, ","))["=="]("first,second")
+	root:Unmount()
+end)
+
+T.Test2D("react open window opens once per key, hands the component a close and opens again after it", function()
+	local closes = {}
+	local Closable = react.Component(|props| -> do
+		closes[#closes + 1] = props.Close
+
+		return Text{Text = props.Title}
+	end)
+	local first = react.OpenWindow("test_window", Closable, {Title = "one"})
+	T(react.OpenWindow("test_window", Closable, {Title = "two"}))["=="](first)
+	T(#closes)["=="](1)
+	closes[1]()
+	T(first:IsValid())["=="](false)
+	local second = react.OpenWindow("test_window", Closable, {Title = "three"})
+	T(second ~= first)["=="](true)
+	T(second.text:GetText())["=="]("three")
+	closes[2]()
+	T(second:IsValid())["=="](false)
+end)
+
+T.Test2D("react use drag reports the press, the moves outside the panel, the end and whether it was a click", function()
+	local log = {}
+	local PanelElement = react.Element(Panel)
+	local Surface = react.Component(|| -> do
+		local drag = react.UseDrag{
+			OnDrag = |position, size, dx, dy, moved| -> do
+				log[#log + 1] = ("drag %d,%d %dx%d moved=%s"):format(position.x, position.y, size.x, size.y, tostring(moved))
+			end,
+			OnEnd = |moved| -> do
+				log[#log + 1] = "end moved=" .. tostring(moved)
+			end,
+		}
+
+		return PanelElement{
+			transform = true,
+			Size = Vec2(100, 50),
+			OnMouseInput = drag.OnMouseInput,
+			OnGlobalMouseMove = drag.OnGlobalMouseMove,
+			OnGlobalMouseInput = drag.OnGlobalMouseInput,
+		}
+	end)
+	local root = react.Mount(Surface{}, Panel.World)
+	local panel = root:GetEntity()
+	T(panel.OnMouseInput(panel, "button_2", true, Vec2(1, 1)))["=="](nil)
+	panel.OnGlobalMouseMove(panel, Vec2(500, 500))
+	T(#log)["=="](0)
+	panel.OnMouseInput(panel, "button_1", true, Vec2(10, 5))
+	local x, y = import("goluwa/system.lua").GetWindow():GetMousePosition():Unpack()
+	panel.OnGlobalMouseMove(panel, Vec2(x + 40, y))
+	panel.OnGlobalMouseInput(panel, "button_1", false)
+	panel.OnGlobalMouseMove(panel, Vec2(x + 80, y))
+	T(log[1])["=="]("drag 10,5 100x50 moved=false")
+	T(log[2]:starts_with("drag "))["=="](true)
+	T(log[2]:ends_with("moved=true"))["=="](true)
+	T(log[3])["=="]("end moved=true")
+	T(#log)["=="](3)
+	panel.OnMouseInput(panel, "button_1", true, Vec2(1, 1))
+	panel.OnGlobalMouseInput(panel, "button_1", false)
+	T(log[#log])["=="]("end moved=false")
+	root:Unmount()
+end)

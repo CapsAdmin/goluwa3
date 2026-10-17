@@ -20,7 +20,7 @@ kit.ViewerWindow = react.Component(|props| -> do
 	}{props.children}
 end)
 
--- a panel the viewer draws into and reads the mouse from, pass callbacks that keep their identity (UseCallback)
+-- a panel the viewer draws into and reads the mouse from, pass callbacks that keep their identity (UseCallback), or Drag (react.UseDrag)
 function kit.Canvas(props)
 	return PanelElement{
 		Name = props.Name,
@@ -28,9 +28,25 @@ function kit.Canvas(props)
 		layout = props.layout ?? {GrowWidth = 1, GrowHeight = 1},
 		mouse_input = {Cursor = props.Cursor ?? "arrow"},
 		visual = {OnDraw = props.OnDraw},
-		OnMouseInput = props.OnMouseInput,
+		OnMouseInput = props.Drag && props.Drag.OnMouseInput || props.OnMouseInput,
+		OnGlobalMouseMove = props.Drag && props.Drag.OnGlobalMouseMove,
+		OnGlobalMouseInput = props.Drag && props.Drag.OnGlobalMouseInput,
 		OnMouseMove = props.OnMouseMove,
 		Ref = props.Ref,
+	}
+end
+
+-- the mouse of a preview with an orbit camera, view is {orbit, auto_rotate}: dragging rotates it and stops the spin, a click toggles the spin. Give the result to a Canvas as Drag
+function kit.UseOrbitDrag(view)
+	return react.UseDrag{
+		OnDrag = |_, _, dx, dy, moved| -> do
+			view.orbit:Rotate(dx, dy)
+
+			if moved then view.auto_rotate = false end
+		end,
+		OnEnd = |moved| -> do
+			if not moved then view.auto_rotate = not view.auto_rotate end
+		end,
 	}
 end
 
@@ -39,25 +55,6 @@ function kit.InfoRow(props)
 		Text{Text = props.Label, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true, layout = {FitWidth = true}},
 		Text{Text = props.Value, Font = "body XS", IgnoreMouseInput = true, layout = {GrowWidth = 1}},
 	}
-end
-
-do
-	local open = {}
-
-	-- one window per key, opening it again brings the one that is already there to the front and returns it
-	function kit.OpenOnce(key, create)
-		local existing = open[key]
-
-		if existing and existing:IsValid() then
-			existing:BringToFront()
-
-			return existing
-		end
-
-		local window = create()
-		open[key] = window
-		return window
-	end
 end
 
 return kit

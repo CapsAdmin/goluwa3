@@ -694,6 +694,106 @@ do -- hooks
 		return react.UseMemo(|| -> callback, deps)
 	end
 
+	-- a function with a fixed identity that calls the latest callback, for what is handed to a widget, a listener or a picker and still has to see the props and state of the render it runs in
+	function react.UseStable(callback)
+		local latest = react.UseRef()
+		latest.current = callback
+
+		return react.UseMemo(function()
+			return function(...)
+				return latest.current(...)
+			end
+		end, {})
+	end
+
+	local DRAG_THRESHOLD = 3
+
+	-- the callbacks of a panel that is dragged with button_1: OnDrag(local_position, size, dx, dy, moved) runs when the button goes down (dx and dy are 0) and on every mouse move while it is held, also outside the panel, OnEnd(moved) when it goes up, moved is false for a click that stayed within a few pixels. Returns {OnMouseInput, OnGlobalMouseMove, OnGlobalMouseInput} to give to the panel
+	function react.UseDrag(handlers)
+		local latest = react.UseRef()
+		latest.current = handlers
+
+		return react.UseMemo(function()
+			local state = {active = false}
+			local drag = {}
+
+			function drag.OnMouseInput(self, button, press, local_position)
+				if button ~= "button_1" then return end
+
+				if press then
+					state.active = true
+					state.moved = false
+					state.x, state.y = system.GetWindow():GetMousePosition():Unpack()
+					state.press_x, state.press_y = state.x, state.y
+
+					if latest.current.OnDrag then
+						latest.current.OnDrag(local_position, self.transform:GetSize(), 0, 0, false)
+					end
+				end
+
+				return true
+			end
+
+			function drag.OnGlobalMouseMove(self, position)
+				if not state.active then return end
+
+				local dx, dy = position.x - state.x, position.y - state.y
+				state.x, state.y = position.x, position.y
+
+				if math.abs(position.x - state.press_x) + math.abs(position.y - state.press_y) >= DRAG_THRESHOLD then
+					state.moved = true
+				end
+
+				if latest.current.OnDrag then
+					latest.current.OnDrag(self.transform:GlobalToLocal(position), self.transform:GetSize(), dx, dy, state.moved)
+				end
+
+				return true
+			end
+
+			function drag.OnGlobalMouseInput(self, button, press)
+				if button == "button_1" and not press and state.active then
+					state.active = false
+
+					if latest.current.OnEnd then latest.current.OnEnd(state.moved) end
+
+					return true
+				end
+			end
+
+			return drag
+		end, {})
+	end
+
+	-- a window or panel that is opened once per key: opening it again brings the open one to the front and returns it. The component gets a Close prop that unmounts it, props are the props of the component
+	local opened = {}
+
+	function react.OpenWindow(key, component, props)
+		local existing = key and opened[key]
+
+		if existing and existing:IsValid() then
+			existing:BringToFront()
+
+			return existing
+		end
+
+		local root
+		local component_props = {Close = function()
+			root:Unmount()
+		end}
+
+		for name, value in pairs(props or {}) do
+			component_props[name] = value
+		end
+
+		root = react.Mount(component(component_props), Panel.World)
+		local entity = root:GetEntity()
+
+		if key then opened[key] = entity end
+
+		return entity
+	end
+
 	function react.UseContext(context)
 		local hook, is_new = use_hook()
 
