@@ -189,6 +189,69 @@ function Polygon2D:SetRect(i, x, y, w, h, r, ox, oy, rx, ry)
 	set_uv(self, i, self.U1, self.V1, self.U2, self.V2, self.UVSW, self.UVSH)
 end
 
+do
+	local ring_radius = {}
+	local ring_alpha = {}
+	local station_angle = {}
+	local station_alpha = {}
+
+	-- writes an annular sector from vertex index `vertex` and returns the next free index.
+	-- feather is a fringe in pixels around the whole shape that fades to transparent, it anti aliases
+	-- the edges without multisampling. a vertex capacity of (segments + 2) * 18 is needed with a feather
+	function Polygon2D:SetArc(vertex, x, y, inner, outer, a0, a1, segments, feather, r, g, b, a)
+		local rings = 2
+		ring_radius[1], ring_alpha[1] = inner, 1
+		ring_radius[2], ring_alpha[2] = outer, 1
+		local stations = segments + 1
+
+		if feather > 0 then
+			rings = 4
+			ring_radius[1], ring_alpha[1] = inner - feather, 0
+			ring_radius[2], ring_alpha[2] = inner, 1
+			ring_radius[3], ring_alpha[3] = outer, 1
+			ring_radius[4], ring_alpha[4] = outer + feather, 0
+			local fringe = feather / ((inner + outer) / 2)
+			station_angle[1], station_alpha[1] = a0 - fringe, 0
+
+			for i = 0, segments do
+				station_angle[i + 2] = a0 + (a1 - a0) * i / segments
+				station_alpha[i + 2] = 1
+			end
+
+			station_angle[segments + 3], station_alpha[segments + 3] = a1 + fringe, 0
+			stations = segments + 3
+		else
+			for i = 0, segments do
+				station_angle[i + 1] = a0 + (a1 - a0) * i / segments
+				station_alpha[i + 1] = 1
+			end
+		end
+
+		for ring = 1, rings - 1 do
+			local r0, r1 = ring_radius[ring], ring_radius[ring + 1]
+			local k0, k1 = ring_alpha[ring], ring_alpha[ring + 1]
+
+			for station = 1, stations - 1 do
+				local t0, t1 = station_angle[station], station_angle[station + 1]
+				local c0, s0, c1, s1 = math.cos(t0), math.sin(t0), math.cos(t1), math.sin(t1)
+				local m0, m1 = station_alpha[station], station_alpha[station + 1]
+				local x00, y00, x01, y01 = x + c0 * r0, y + s0 * r0, x + c1 * r0, y + s1 * r0
+				local x10, y10, x11, y11 = x + c0 * r1, y + s0 * r1, x + c1 * r1, y + s1 * r1
+				local a00, a01, a10, a11 = a * k0 * m0, a * k0 * m1, a * k1 * m0, a * k1 * m1
+				self:SetVertex(vertex, x10, y10, 0, 0, r, g, b, a10)
+				self:SetVertex(vertex + 1, x00, y00, 0, 0, r, g, b, a00)
+				self:SetVertex(vertex + 2, x11, y11, 0, 0, r, g, b, a11)
+				self:SetVertex(vertex + 3, x11, y11, 0, 0, r, g, b, a11)
+				self:SetVertex(vertex + 4, x00, y00, 0, 0, r, g, b, a00)
+				self:SetVertex(vertex + 5, x01, y01, 0, 0, r, g, b, a01)
+				vertex = vertex + 6
+			end
+		end
+
+		return vertex
+	end
+end
+
 function Polygon2D:DrawLine(i, x1, y1, x2, y2, w)
 	w = w or 1
 	local dx, dy = x2 - x1, y2 - y1
