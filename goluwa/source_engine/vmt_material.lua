@@ -1,5 +1,4 @@
 local tasks = import("goluwa/tasks.lua")
-local commands = import("goluwa/cli/commands.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -791,6 +790,10 @@ vmt_stats = vmt_stats or {
 	values = {},
 }
 
+function vmt_material.GetStats()
+	return vmt_stats
+end
+
 function vmt_material.FromVMT(path, private_prefix)
 	local cache_key = get_vmt_cache_key(path)
 
@@ -851,48 +854,6 @@ end
 
 Material.RegisterOverrideLoader(".vmt", function(path)
 	return nil, vmt_material.FromVMT(path)
-end)
-
-commands.Add("dump_unused_vmt_properties", function()
-	local unused = {}
-
-	for k, count in pairs(vmt_stats.seen) do
-		if not vmt_stats.used[k] then
-			local values = {}
-
-			if vmt_stats.values[k] then
-				for val, _ in pairs(vmt_stats.values[k]) do
-					table.insert(values, val)
-				end
-
-				table.sort(values)
-			end
-
-			table.insert(unused, {key = k, count = count, values = values})
-		end
-	end
-
-	table.sort(unused, function(a, b)
-		if a.count ~= b.count then return a.count > b.count end
-
-		return a.key < b.key
-	end)
-
-	print("Unused VMT properties (found in files but never accessed by code):")
-
-	for _, item in ipairs(unused) do
-		local val_str = #item.values > 0 and
-			(
-				" (values: " .. table.concat(item.values, ", ") .. ")"
-			)
-			or
-			""
-		print(string.format("  %-30s %d%s", item.key, item.count, val_str))
-	end
-
-	if #unused == 0 then
-		print("  None! All properties found in VMTs have been accessed at least once.")
-	end
 end)
 
 return vmt_material
