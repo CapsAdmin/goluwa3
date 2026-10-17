@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local View = objects.CreateTemplate("render3d_view")
 local commands = import("goluwa/cli/commands.lua")
 local active = {}
@@ -15,6 +16,8 @@ end
 View:GetSet("Priority", 0, {callback = "OnPriorityChanged"})
 -- a view that stands outside the game (a shot) should not show the players in it
 View:GetSet("HideAvatars", false)
+-- and no hud (render2d DrawHUD)
+View:GetSet("HideHud", false)
 View:GetSet("ExposureLock", false)
 View:GetSet("ExposureCompensation", false)
 View:GetSet("LocalExposure", false)
@@ -27,6 +30,7 @@ end
 
 local function apply_winner()
 	table.sort(active, sort_active)
+	render2d.SetHudHidden("view", active[1] and active[1].HideHud)
 
 	if active[1] then active[1]:ApplyToCamera(render3d.GetMainCamera()) end
 end

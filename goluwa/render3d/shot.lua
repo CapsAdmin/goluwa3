@@ -79,7 +79,7 @@ end
 
 function Shot.Capture(properties, cb, opt)
 	opt = table.merge_many(defaults, opt or {})
-	local view = View.New{Priority = 100, HideAvatars = true}:Activate()
+	local view = View.New{Priority = 100, HideAvatars = true, HideHud = true}:Activate()
 
 	hold(
 		view,
@@ -94,7 +94,7 @@ end
 
 function Shot.Sequence(list_of_properties, cb, opt, done)
 	opt = table.merge_many(defaults, opt or {})
-	local view = View.New{Priority = 100, HideAvatars = true}:Activate()
+	local view = View.New{Priority = 100, HideAvatars = true, HideHud = true}:Activate()
 
 	local function run(i)
 		if not list_of_properties[i] then

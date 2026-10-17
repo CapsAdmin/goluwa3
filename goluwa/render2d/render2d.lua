@@ -3070,6 +3070,13 @@ render.RegisterFlushCallback("render2d", function(reason)
 	return render2d.FlushBatches(reason)
 end)
 
+-- DrawHUD is Draw2D for the in game hud, drawn under the ui and skipped while anything hides it (the desktop, a shot)
+local hud_hiders = {}
+
+function render2d.SetHudHidden(reason, hidden)
+	hud_hiders[reason] = hidden or nil
+end
+
 event.AddListener("PostDraw", "render2d", function(dt)
 	if not render2d.pipeline then return end
 
@@ -3077,6 +3084,9 @@ event.AddListener("PostDraw", "render2d", function(dt)
 	gpu_timing.BeginScope(cmd, "render2d")
 	render2d.BindPipeline()
 	event.Call("PreDraw2D", dt)
+
+	if not next(hud_hiders) then event.Call("DrawHUD", dt) end
+
 	event.Call("Draw2D", dt)
 	render2d.FlushBatches("PostDraw")
 	gpu_timing.EndScope(cmd, "render2d")

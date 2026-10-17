@@ -105,3 +105,7 @@ Rewritten 2026-10-08 (addons/editor/lua/asset_browser.lua, asset_preview.lua, as
 - Framebuffer color textures are sampled upside down by render2d. Draw a ModelPreview with `preview:Draw(x, y, w, h)` (PushColorUV(0, 1, 1, 0, 0), same as the love canvas path). Check orientation with an asymmetric shape (models/cone.lua apex is +Y), the first version of the browser shipped upside down because the raw framebuffer data is upright and only the draw flips it.
 
 Related: [Panel GetSet callbacks skip defaults](#panel-getset-callbacks-skip-defaults), [Lua heap measurement pitfalls](performance.md#lua-heap).
+
+# In game hud
+
+`event.Call("DrawHUD", dt)` is Draw2D for the in game hud (`addons/game/lua/autorun/render_2d/weapon_hud.lua`). `render2d` calls it before Draw2D, so the ui draws over it, and skips it while anything hides it: `render2d.SetHudHidden(reason, hidden)` keeps a set of reasons. The desktop hides it while it is shown (`"desktop"`), and a `View` with `HideHud = true` hides it while it is the active view (`"view"`, `Shot` sets it). Draw hud things in `DrawHUD`, not Draw2D.

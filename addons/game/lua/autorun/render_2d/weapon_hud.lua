@@ -12,7 +12,7 @@ local TEXT = Color(0.88, 0.9, 0.94, 1)
 local last_slot = 0
 local last_change = -math.huge
 
-event.AddListener("Draw2D", "weapon_hud", function()
+event.AddListener("DrawHUD", "weapon_hud", function()
 	local rig = _G.PLAYER_RIG
 
 	if not (rig and rig:IsValid()) then return end
