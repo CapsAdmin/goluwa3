@@ -112,7 +112,7 @@ function META:OnCreate()
 end
 
 function META:OnThemeChanged()
-	META.BaseClass.OnThemeChanged(self)
+	self:update_style()
 	self._indicator.transform:SetSize(Vec2() + theme.active:ResolveFontSize(self.FontSize))
 end
 
