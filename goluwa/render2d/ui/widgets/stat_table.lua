@@ -18,14 +18,14 @@ META:GetSet("Columns", 1)
 -- a wide bar column instead of the value, detail and small bar: rows with `offset` and `fraction` draw a span of the whole bar
 META:GetSet("Timeline", false)
 META:EndStorable()
+-- rows of {label, value, detail, fraction, offset, color} where color is a COLOR_TOKENS key
+META:GetSet("Rows", nil)
 META:GetSet("FirstRow", 0)
 
 function META.PropDefaults(_, props)
 	return {layout = {MinSize = props.Size, MaxSize = props.Size}}
 end
 
--- called every draw, returns rows of {label, value, detail, fraction, offset, color} where color is a COLOR_TOKENS key
-function META.OnRows(table) end
 
 function META:OnMouseInput(button, press)
 	if not press then return end
@@ -77,7 +77,7 @@ function META:OnDraw()
 
 	local track = active:GetColor("track")
 	local bar = active:GetColor("primary")
-	local rows = self.OnRows(self)
+	local rows = self.Rows
 	local first_row = math.min(self.FirstRow, math.max(#rows - per_column * self.Columns, 0))
 	self.FirstRow = first_row
 

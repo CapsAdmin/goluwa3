@@ -118,3 +118,34 @@ T.Test2D("virtual grid reports selection changes once and resets them when the i
 	grid:Remove()
 	Panel.World = old_world
 end)
+
+T.Test2D("virtual grid keeps SelectedItem across items and clears it with nil", function()
+	local old_world, world = create_world()
+	local a, b, c = {id = "a"}, {id = "b"}, {id = "c"}
+	local grid = VirtualGrid{
+		CellWidth = 100,
+		ExtraHeight = 20,
+		Items = {a, b, c},
+		SelectedItem = b,
+		OnDrawItem = function() end,
+	}
+	grid:SetParent(world)
+	grid.transform:SetSize(Vec2(450, 300))
+	settle(world, grid)
+	T(grid:GetSelectedIndex())["=="](2)
+	grid:SetItems({c, b})
+	T(grid:GetSelectedIndex())["=="](2)
+	grid:SetItems({a, c})
+	T(grid:GetSelectedIndex() == nil)["=="](true)
+	T(grid:GetSelectedItem() == nil)["=="](true)
+	grid:SetItems({b, a})
+	T(grid:GetSelectedIndex())["=="](1)
+	T(grid:GetSelectedItem())["=="](b)
+	grid:SetSelectedItem(a)
+	T(grid:GetSelectedIndex())["=="](2)
+	grid:SetSelectedItem(nil)
+	T(grid:GetSelectedIndex() == nil)["=="](true)
+	T(grid:GetSelectedItem() == nil)["=="](true)
+	grid:Remove()
+	Panel.World = old_world
+end)

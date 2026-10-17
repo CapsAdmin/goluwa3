@@ -139,3 +139,20 @@ T.Test2D("property editor filter keeps matching rows, expands their groups and d
 	T(editor._row_infos["a/shafts"] ~= nil)["=="](true)
 	T(editor._category_refs["a"]:GetCollapsed())["=="](true)
 end)
+
+T.Test2D("tabs take BarHidden as a prop and apply it once the bar exists", function()
+	local Text = import("goluwa/render2d/ui/elements/text.lua")
+	local hidden = Tabs{BarHidden = true}{
+		Column{Tab = "One"}{Text{Text = "one"}},
+		Column{Tab = "Two"}{Text{Text = "two"}},
+	}
+	T(hidden._bar.visual:GetVisible())["=="](false)
+	hidden:SetBarHidden(false)
+	T(hidden._bar.visual:GetVisible())["=="](true)
+	hidden:SetBarHidden(true)
+	T(hidden._bar.visual:GetVisible())["=="](false)
+	local shown = Tabs{}{Column{Tab = "One"}{Text{Text = "one"}}, Column{Tab = "Two"}{Text{Text = "two"}}}
+	T(shown._bar.visual:GetVisible())["=="](true)
+	hidden:Remove()
+	shown:Remove()
+end)

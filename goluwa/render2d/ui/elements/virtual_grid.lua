@@ -12,6 +12,7 @@ META:GetSet("Gap", 8)
 META:GetSet("ContentPadding", 8)
 META:GetSet("DoubleClickTime", 0.3)
 META:GetSet("StretchCells", true)
+META:GetSet("KeepScroll", false)
 META:EndStorable()
 
 function META.OnDrawItem(item, index, x, y, width, height, selected, hovered) end
@@ -188,16 +189,26 @@ function META:GetHoveredIndex()
 	return self._hovered_index
 end
 
+function META:find_index(item)
+	local items = self._items
+
+	if item == nil or not items then return end
+
+	for index = 1, #items do
+		if items[index] == item then return index end
+	end
+end
+
 function META:SetItems(items, keep_scroll)
 	self._items = items
-	self._selected_index = nil
+	self._selected_index = self:find_index(self._wanted_item)
 	self._hovered_index = nil
 	self._last_click_index = nil
 	self._laid_out_count = -1
 
 	if not self.Viewport then return self end
 
-	if not keep_scroll then self.Viewport.transform:SetScroll(Vec2(0, 0)) end
+	if not (keep_scroll or self.KeepScroll) then self.Viewport.transform:SetScroll(Vec2(0, 0)) end
 
 	self:relayout()
 	return self
@@ -320,12 +331,24 @@ function META:SetSelectedIndex(index)
 end
 
 function META:SelectItem(item)
-	for index = 1, #self._items do
-		if self._items[index] == item then
-			self:SetSelectedIndex(index)
-			return self
-		end
-	end
+	local index = self:find_index(item)
+
+	if index then self:SetSelectedIndex(index) end
+
+	return self
+end
+
+function META:GetSelectedItem()
+	return self._selected_index and self._items[self._selected_index]
+end
+
+-- unlike SetSelectedIndex this one is silent (no OnSelect) and remembered: SetItems selects the item again for as long as the list holds it. nil clears it
+function META:SetSelectedItem(item)
+	self._wanted_item = item
+	local index = self:find_index(item)
+	self._selected_index = index
+
+	if index and self.Viewport then self:ScrollToIndex(index) end
 
 	return self
 end

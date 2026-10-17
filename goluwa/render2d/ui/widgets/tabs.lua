@@ -52,6 +52,7 @@ function META:OnChildAdd(child)
 	self._pages[name] = child
 	self._names[#self._names + 1] = name
 	self._bar:SetTabs(self._names)
+	self:SetBarHidden(self.BarHidden)
 
 	if self.Value == nil then self.Value = name end
 
@@ -62,6 +63,7 @@ function META:OnChildrenRemoved()
 	self._pages = {}
 	self._names = {}
 	self._bar:SetTabs(self._names)
+	self:SetBarHidden(self.BarHidden)
 end
 
 function META:SetValue(name)
@@ -80,6 +82,10 @@ function META:SetValue(name)
 end
 
 function META:SetBarHidden(hidden)
+	self.BarHidden = hidden
+
+	if not self._bar then return self end
+
 	self._bar.visual:SetVisible(not hidden and self._names[1] ~= nil)
 	self.layout:InvalidateLayout()
 	return self
