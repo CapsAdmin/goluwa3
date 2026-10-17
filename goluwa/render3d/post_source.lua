@@ -2,7 +2,6 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
-local surface_debug = import("goluwa/render3d/surface_debug.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local post_source = {}
 
@@ -55,10 +54,6 @@ end
 function post_source.GetDebugTexture()
 	if gbuffer_inspect.IsFullScreen() then
 		return render3d.pipelines.gbuffer_inspect:GetFramebuffer():GetAttachment(1)
-	end
-
-	if surface_debug.GetView() ~= 0 then
-		return render3d.pipelines.surface_debug:GetFramebuffer():GetAttachment(1)
 	end
 
 	if

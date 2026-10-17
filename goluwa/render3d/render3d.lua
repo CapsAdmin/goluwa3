@@ -11,7 +11,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local surface_debug = import("goluwa/render3d/surface_debug.lua")
+local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
@@ -82,7 +82,7 @@ function render3d.WriteCameraBlock(self, block)
 	block.render_size[1] = size.y
 	camera:GetPosition():CopyToFloatPointer(block.camera_position)
 	block.normal_map_strength = normal_map_strength:Get()
-	block.terrain_only = surface_debug.GetTerrainOnly() and 1 or 0
+	block.terrain_only = gbuffer_inspect.IsTerrainOnly() and 1 or 0
 	block.noise_phase = render3d.GetNoisePhase()
 	return block
 end
@@ -314,7 +314,6 @@ local default_passes = {
 	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua"},
 	{"ambient_occlusion_debug", "goluwa/render3d/passes/ambient_occlusion_debug.lua"},
 	{"gbuffer_inspect", "goluwa/render3d/passes/gbuffer_inspect.lua"},
-	{"surface_debug", "goluwa/render3d/passes/surface_debug.lua"},
 	{"blit", "goluwa/render3d/passes/blit.lua"},
 }
 local pass_vars = {}
