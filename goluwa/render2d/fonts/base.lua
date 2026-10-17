@@ -391,6 +391,30 @@ function META:GetTextSize(str)
 	return w, h
 end
 
+-- shortens a text to fit max_width, keeping the start and the end around a "..."
+function META:ElideText(text, max_width)
+	if self:GetTextSize(text) <= max_width then return text end
+
+	local length = utf8.length(text)
+	local low, high = 1, length - 1
+	local best = "..."
+
+	while low <= high do
+		local keep = math.floor((low + high) / 2)
+		local head = math.ceil(keep * 0.6)
+		local candidate = utf8.sub(text, 1, head) .. "..." .. utf8.sub(text, length - (keep - head) + 1, length)
+
+		if self:GetTextSize(candidate) <= max_width then
+			best = candidate
+			low = keep + 1
+		else
+			high = keep - 1
+		end
+	end
+
+	return best
+end
+
 function META:StartCollectTempResources()
 	self.temp_textures = {}
 	self.temp_framebuffers = {}

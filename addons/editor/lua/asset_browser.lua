@@ -7,7 +7,6 @@ local system = import("goluwa/system.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
-local utf8 = import("goluwa/string/utf8.lua")
 local Window = import("goluwa/render2d/ui/widgets/window.lua")
 local Tree = import("goluwa/render2d/ui/widgets/tree.lua")
 local Button = import("goluwa/render2d/ui/widgets/button.lua")
@@ -88,29 +87,6 @@ local function refresh_colors()
 	colors.font = active:GetFont("body", "S")
 	colors.font_strong = active:GetFont("body_strong", "S")
 	colors.font_small = active:GetFont("body", "XS")
-end
-
-local function elide(font, text, max_width)
-	if font:GetTextSize(text) <= max_width then return text end
-
-	local length = utf8.length(text)
-	local low, high = 1, length - 1
-	local best = "..."
-
-	while low <= high do
-		local keep = math.floor((low + high) / 2)
-		local head = math.ceil(keep * 0.6)
-		local candidate = utf8.sub(text, 1, head) .. "..." .. utf8.sub(text, length - (keep - head) + 1, length)
-
-		if font:GetTextSize(candidate) <= max_width then
-			best = candidate
-			low = keep + 1
-		else
-			high = keep - 1
-		end
-	end
-
-	return best
 end
 
 local function draw_text(font, text, x, y, color)
@@ -820,7 +796,7 @@ return function(props)
 		local width = w - 8
 
 		if item.label_width ~= width then
-			item.label = elide(colors.font, item.name, width)
+			item.label = colors.font:ElideText(item.name, width)
 			item.label_width = width
 			item.sub_label = item.is_folder and
 				(
