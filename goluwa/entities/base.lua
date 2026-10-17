@@ -340,6 +340,53 @@ local function get_key_order(key, valid_components, meta)
 	return order
 end
 
+local function apply_prop(self, meta, valid_components, key, val)
+	if key:starts_with("On") then
+		self[key] = val
+		return
+	end
+
+	local ok, new_val = set_property(self, self, key, val)
+
+	if ok then return end
+
+	for _, component in ipairs(self.component_list) do
+		if set_property(self, component, key, val) then return end
+	end
+
+	for _, comp_name in ipairs(get_sorted_component_names(meta, valid_components)) do
+		local comp_meta = valid_components[comp_name]
+
+		if objects.GetPropertyInfo(comp_meta, key) or comp_meta["Set" .. key] then
+			local component = self:AddComponent(comp_name, nil, true)
+			set_property(self, component, key, val)
+			return
+		end
+	end
+
+	self[key] = new_val
+end
+
+function BaseEntity:SetProp(key, val)
+	local valid_components = self.GetValidComponents()
+
+	if valid_components[key] then
+		local component = self[key] or self:EnsureComponent(key)
+
+		for sub_key, sub_val in pairs(val) do
+			if sub_key:starts_with("On") then
+				component[sub_key] = sub_val
+			else
+				set_property(self, component, sub_key, sub_val)
+			end
+		end
+
+		return
+	end
+
+	apply_prop(self, getmetatable(self), valid_components, key, val)
+end
+
 function BaseEntity:OnConstruct(config)
 	self.Children = {}
 	self.ChildrenMap = {}
@@ -441,39 +488,7 @@ function BaseEntity:OnConstruct(config)
 			key ~= "Ref" and
 			key ~= "Parent"
 		then
-			if key:starts_with("On") then
-				self[key] = val
-			else
-				local ok, new_val = set_property(self, self, key, val)
-
-				if not ok then
-					local found = false
-
-					for _, component in ipairs(self.component_list) do
-						if set_property(self, component, key, val) then
-							found = true
-
-							break
-						end
-					end
-
-					if not found then
-						for _, comp_name in ipairs(get_sorted_component_names(meta, valid_components)) do
-							local comp_meta = valid_components[comp_name]
-
-							if objects.GetPropertyInfo(comp_meta, key) or comp_meta["Set" .. key] then
-								local component = self:AddComponent(comp_name, nil, true)
-								set_property(self, component, key, val)
-								found = true
-
-								break
-							end
-						end
-					end
-
-					if not found then self[key] = new_val end
-				end
-			end
+			apply_prop(self, meta, valid_components, key, val)
 		end
 	end
 
