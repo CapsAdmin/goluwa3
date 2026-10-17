@@ -12,6 +12,8 @@ gbuffer_layout.DEPTH_FORMAT = "d32_sfloat"
 -- default: the value written when a pass doesn't write the field, before encode
 -- encode, decode: GLSL on v, the field's value and what is stored. encode becomes
 --   gbuffer_encode_<name>, decode is what gbuffer_<accessor> returns
+-- sheet: the gbuffer_inspect sheet the field belongs to (its own name by default), fields of one sheet are shown together
+-- max: the largest decoded value, what gbuffer_inspect shows as white (1 by default)
 -- readers: the passes that read it. fields with the same readers sit next to each other, so a
 --   pass binds fewer textures. no readers means all of them
 gbuffer_layout.fields = surface_features.GetFields()
@@ -360,6 +362,7 @@ do
 		r16g16b16a16_unorm = 8,
 		r16g16b16a16_sfloat = 8,
 	}
+	gbuffer_layout.FORMAT_BYTES = FORMAT_BYTES
 
 	-- the targets, what is stored in each channel and how much is left
 	function gbuffer_layout.Describe()

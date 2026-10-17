@@ -23,6 +23,7 @@ return {
 		},
 		{
 			name = "clearcoat_roughness",
+			sheet = "clearcoat",
 			member = "clearcoat_alpha",
 			material = "get_clearcoat_roughness()",
 			kind = "unorm8",
@@ -32,8 +33,8 @@ return {
 			decode = "v * v",
 			readers = {"lighting", "reflections"},
 		},
-		{name = "clearcoat_rain", kind = "unorm8", default = "0.0", readers = {"lighting", "reflections"}},
-		{name = "clearcoat_normal", kind = "octa", member = false, readers = {"lighting", "reflections"}},
+		{name = "clearcoat_rain", sheet = "clearcoat", kind = "unorm8", default = "0.0", readers = {"lighting", "reflections"}},
+		{name = "clearcoat_normal", sheet = "clearcoat", kind = "octa", member = false, readers = {"lighting", "reflections"}},
 	},
 	surface_members = [[
 		// the coat's normal without the rain's waves

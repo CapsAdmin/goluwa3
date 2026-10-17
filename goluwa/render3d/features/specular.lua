@@ -12,6 +12,7 @@ return {
 			-- up to 2 fits
 			encode = "clamp(v * 0.5, 0.0, 1.0)",
 			decode = "v * 2.0",
+			max = 2,
 			material = "get_specular(uv)",
 			readers = {"lighting"},
 		},

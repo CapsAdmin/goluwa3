@@ -53,14 +53,15 @@ return {
 		{name = "transmission", kind = "unorm8", default = "0.0", material = "get_transmission(uv)"},
 		{
 			name = "transmission_scattering",
+			sheet = "transmission",
 			kind = "unorm4",
 			default = "0.0",
 			material = "get_transmission_scattering()",
 		},
 		-- red and blue of a tint, halved to fit up to 2. its luminance is 1, which gives the green back. eight bits: four
 		-- left a hue 13 percent off (a white tint 7 percent red and blue)
-		{name = "transmission_tint_r", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
-		{name = "transmission_tint_b", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0"},
+		{name = "transmission_tint_r", sheet = "transmission", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0", max = 2},
+		{name = "transmission_tint_b", sheet = "transmission", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0", max = 2},
 	},
 	thin = "gbuffer_transmission(c) > 0.0",
 	lit_from_behind = "s.transmission > 0.0",

@@ -17,6 +17,7 @@ return {
 	fields = {
 		{
 			name = "secondary_specular",
+			sheet = "specular",
 			kind = "unorm4",
 			default = "0.0",
 			material = "get_secondary_specular()",
@@ -24,6 +25,7 @@ return {
 		},
 		{
 			name = "secondary_specular_roughness",
+			sheet = "specular",
 			member = "secondary_specular_alpha",
 			material = "get_secondary_specular_roughness()",
 			kind = "unorm8",

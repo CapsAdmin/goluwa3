@@ -18,6 +18,7 @@ return {
 		{name = "sheen", kind = "unorm4", default = "0.0", material = "get_sheen()", readers = {"lighting"}},
 		{
 			name = "sheen_roughness",
+			sheet = "sheen",
 			kind = "unorm4",
 			default = "1.0",
 			material = "get_sheen_roughness()",
