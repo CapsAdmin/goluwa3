@@ -1,0 +1,420 @@
+local commands = import("goluwa/cli/commands.lua")
+local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
+local callstack = import("goluwa/debug/callstack.lua")
+
+do
+	if not RENDER_2D then return end
+
+	local Color = import("goluwa/structs/color.lua")
+	local commands = import("goluwa/cli/commands.lua")
+	local event = import("goluwa/event.lua")
+	local input = import("goluwa/input.lua")
+	local render = import("goluwa/render/render.lua")
+	local render2d = import("goluwa/render2d/render2d.lua")
+	local system = import("goluwa/system.lua")
+	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+	local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
+	local WINDOW = 0.5
+	local MAX_ROWS = 28
+	local LINE_HEIGHT = 15
+	local PANEL_WIDTH = 520
+	local SIZE_X = 330
+	local COUNT_X = 410
+	local BAR_X = 440
+	local BAR_WIDTH = 70
+	local WHITE = Color(0.88, 0.9, 0.94, 1)
+	local DIM = Color(0.6, 0.64, 0.7, 1)
+	local HEAD = Color(1, 0.85, 0.4, 1)
+	local WARN = Color(1, 0.5, 0.4, 1)
+	local visible = false
+	local window_start = 0
+	local snapshot
+	local row_y = 0
+	local panel_height = 480
+
+	local function format_bytes(bytes)
+		if bytes >= 1024 * 1024 * 1024 then
+			return string.format("%.2f GiB", bytes / 1024 / 1024 / 1024)
+		end
+
+		return string.format("%.1f MiB", bytes / 1024 / 1024)
+	end
+
+	local function by_bytes(a, b)
+		if a.bytes ~= b.bytes then return a.bytes > b.bytes end
+
+		return a.label < b.label
+	end
+
+	local function get_device_heap_bytes()
+		local properties = vulkan.vk.VkPhysicalDeviceMemoryProperties()
+		vulkan.lib.vkGetPhysicalDeviceMemoryProperties(render.GetDevice().physical_device.ptr[0], properties)
+		local total = 0
+
+		for i = 0, properties.memoryHeapCount - 1 do
+			if bit.band(properties.memoryHeaps[i].flags, 1) ~= 0 then
+				total = total + tonumber(properties.memoryHeaps[i].size)
+			end
+		end
+
+		return total
+	end
+
+	local function take_pending_groups()
+		local sorted = {}
+
+		for label, bytes in pairs(vulkan_memory.pending_release_by_name) do
+			sorted[#sorted + 1] = {label = label, bytes = bytes}
+		end
+
+		table.sort(sorted, by_bytes)
+		return sorted
+	end
+
+	local function take_snapshot()
+		local groups = {}
+		local total = 0
+		local count = 0
+
+		for _, memory in pairs(vulkan_memory.Instances) do
+			if memory:IsValid() then
+				local label = (
+						memory.debug_name and
+						memory.debug_name:gsub(" memory$", "") or
+						"(unnamed)"
+					) .. (
+						" [type " .. memory.type_index .. "]"
+					)
+				local group = groups[label]
+
+				if not group then
+					group = {label = label, bytes = 0, count = 0}
+					groups[label] = group
+				end
+
+				local size = tonumber(memory.size)
+				group.bytes = group.bytes + size
+				group.count = group.count + 1
+				total = total + size
+				count = count + 1
+			end
+		end
+
+		local sorted = {}
+
+		for _, group in pairs(groups) do
+			sorted[#sorted + 1] = group
+		end
+
+		table.sort(sorted, by_bytes)
+		return {
+			groups = sorted,
+			total = total,
+			count = count,
+			heap = get_device_heap_bytes(),
+			pending = vulkan_memory.pending_release_bytes,
+			pending_groups = take_pending_groups(),
+		}
+	end
+
+	local function text(x, panel_x, label, color)
+		render2d.DrawText{
+			text = label,
+			x = panel_x + x,
+			y = row_y,
+			foreground_color = color or WHITE,
+		}
+	end
+
+	local function draw_snapshot(x, y)
+		local s = snapshot
+		render2d.SetTexture(nil)
+		render2d.SetColor(0, 0, 0, 0.72)
+		render2d.DrawRoundedRect(x, y, PANEL_WIDTH, panel_height, 6)
+		row_y = y + 8
+		local fraction = s.heap > 0 and s.total / s.heap or 0
+		text(
+			10,
+			x,
+			string.format(
+				"vram  %s of %s device local (%.0f%%)  %d allocations  +%s awaiting release",
+				format_bytes(s.total),
+				format_bytes(s.heap),
+				fraction * 100,
+				s.count,
+				format_bytes(s.pending)
+			),
+			fraction > 0.9 and WARN or HEAD
+		)
+		row_y = row_y + LINE_HEIGHT + 4
+
+		for i = 1, math.min(MAX_ROWS, #s.groups) do
+			local group = s.groups[i]
+			local share = group.bytes / s.total
+			text(10, x, group.label, i == 1 and HEAD or WHITE)
+			text(SIZE_X, x, format_bytes(group.bytes), WHITE)
+			text(COUNT_X, x, "x" .. group.count, DIM)
+			render2d.SetTexture(nil)
+			render2d.SetColor(0.35, 0.6, 0.95, 0.85)
+			render2d.DrawRect(x + BAR_X, row_y + 3, BAR_WIDTH * share, LINE_HEIGHT - 8)
+			row_y = row_y + LINE_HEIGHT
+		end
+
+		if #s.groups > MAX_ROWS then
+			local rest = 0
+
+			for i = MAX_ROWS + 1, #s.groups do
+				rest = rest + s.groups[i].bytes
+			end
+
+			text(10, x, string.format("%d more labels", #s.groups - MAX_ROWS), DIM)
+			text(SIZE_X, x, format_bytes(rest), DIM)
+			row_y = row_y + LINE_HEIGHT
+		end
+
+		if s.pending_groups[1] then
+			text(10, x, "awaiting release", DIM)
+			row_y = row_y + LINE_HEIGHT
+
+			for i = 1, math.min(5, #s.pending_groups) do
+				text(10, x, s.pending_groups[i].label, DIM)
+				text(SIZE_X, x, format_bytes(s.pending_groups[i].bytes), DIM)
+				row_y = row_y + LINE_HEIGHT
+			end
+		end
+
+		panel_height = row_y - y + 10
+	end
+
+	event.AddListener("Draw2D", "vram_hud", function()
+		if not visible then return end
+
+		local now = system.GetElapsedTime()
+
+		if not snapshot or now - window_start >= WINDOW then
+			snapshot = take_snapshot()
+			window_start = now
+		end
+
+		draw_snapshot(10, 10)
+	end)
+
+	commands.Add("vram", function()
+		visible = not visible
+		print("[VRAM] " .. (visible and "Enabled" or "Disabled"))
+	end)
+
+	input.Bind("f2", "vram")
+
+	commands.Add("vram_dump=number[40]", function(limit)
+		local s = take_snapshot()
+		logn(
+			string.format(
+				"VRAM: %s of %s device local, %d allocations, %d labels, %s awaiting release",
+				format_bytes(s.total),
+				format_bytes(s.heap),
+				s.count,
+				#s.groups,
+				format_bytes(s.pending)
+			)
+		)
+
+		for i = 1, math.min(10, #s.pending_groups) do
+			logn(
+				string.format(
+					"awaiting release: %10s  %s",
+					format_bytes(s.pending_groups[i].bytes),
+					s.pending_groups[i].label
+				)
+			)
+		end
+
+		for i = 1, math.min(limit, #s.groups) do
+			local group = s.groups[i]
+			logn(
+				string.format(
+					"%10s  %5.1f%%  x%-5d %s",
+					format_bytes(group.bytes),
+					group.bytes / s.total * 100,
+					group.count,
+					group.label
+				)
+			)
+		end
+	end)
+end
+
+do
+	local function format_bytes(bytes)
+		bytes = math.max(0, tonumber(bytes) or 0)
+
+		if bytes >= 1024 * 1024 * 1024 then
+			return string.format("%.2f GiB", bytes / 1024 / 1024 / 1024)
+		end
+
+		if bytes >= 1024 * 1024 then
+			return string.format("%.2f MiB", bytes / 1024 / 1024)
+		end
+
+		if bytes >= 1024 then return string.format("%.2f KiB", bytes / 1024) end
+
+		return string.format("%d B", bytes)
+	end
+
+	local function normalize_traceback(traceback)
+		traceback = tostring(traceback or "unknown traceback")
+		traceback = traceback:trim()
+
+		if traceback == "" then return "unknown traceback" end
+
+		return traceback
+	end
+
+	local function trim_traceback(traceback)
+		traceback = normalize_traceback(traceback)
+		local lines = callstack.format(traceback)
+
+		if not lines[1] then return traceback end
+
+		local start_index
+
+		for i, line in ipairs(lines) do
+			if line:find("goluwa/render/vulkan/internal/buffer.lua:", nil, true) then
+				start_index = i
+
+				break
+			end
+		end
+
+		if not start_index then
+			for i, line in ipairs(lines) do
+				if line:find("goluwa/render/vulkan/internal/image.lua:", nil, true) then
+					start_index = i
+
+					break
+				end
+			end
+		end
+
+		if not start_index then
+			for i, line in ipairs(lines) do
+				if line:find("goluwa/render/vulkan/internal/", nil, true) then
+					start_index = i
+
+					break
+				end
+			end
+		end
+
+		if not start_index then return traceback end
+
+		local end_index = #lines
+
+		for i = start_index, #lines do
+			if lines[i]:find("main.lua:", nil, true) then
+				end_index = i
+
+				break
+			end
+		end
+
+		local out = {}
+
+		for i = start_index, end_index do
+			list.insert(out, lines[i])
+
+			if i ~= end_index and lines[i] == "stack traceback:" then
+				list.insert(out, "")
+			end
+		end
+
+		if not out[1] then return traceback end
+
+		return table.concat(out, "\n")
+	end
+
+	local function indent_traceback(traceback)
+		local out = {}
+
+		for _, line in ipairs(traceback:split("\n")) do
+			list.insert(out, "  " .. line)
+		end
+
+		return table.concat(out, "\n")
+	end
+
+	commands.Add("dump_vulkan_memory=number[20]", function(limit)
+		limit = math.max(1, math.floor(tonumber(limit) or 20))
+		local total_bytes = 0
+		local allocation_count = 0
+		local freed_count = tonumber(vulkan_memory.total_freed_count) or 0
+		local freed_bytes = tonumber(vulkan_memory.total_freed_bytes) or 0
+		local hotspots = {}
+
+		for _, allocation in pairs(vulkan_memory.Instances) do
+			if allocation and allocation.size then
+				local size = tonumber(allocation.size) or 0
+				local traceback = trim_traceback(allocation.traceback)
+				local hotspot = hotspots[traceback]
+
+				if not hotspot then
+					hotspot = {
+						traceback = traceback,
+						count = 0,
+						bytes = 0,
+					}
+					hotspots[traceback] = hotspot
+				end
+
+				hotspot.count = hotspot.count + 1
+				hotspot.bytes = hotspot.bytes + size
+				total_bytes = total_bytes + size
+				allocation_count = allocation_count + 1
+			end
+		end
+
+		local sorted = {}
+
+		for _, hotspot in pairs(hotspots) do
+			list.insert(sorted, hotspot)
+		end
+
+		table.sort(sorted, function(a, b)
+			if a.bytes ~= b.bytes then return a.bytes > b.bytes end
+
+			if a.count ~= b.count then return a.count > b.count end
+
+			return a.traceback < b.traceback
+		end)
+
+		logn(
+			string.format(
+				"Live Vulkan memory allocations: %d objects, %s total | Freed: %d objects, %s total",
+				allocation_count,
+				format_bytes(total_bytes),
+				freed_count,
+				format_bytes(freed_bytes)
+			)
+		)
+
+		if #sorted == 0 then
+			logn("No live Vulkan memory allocations tracked.")
+			return
+		end
+
+		logn(string.format("Top %d Vulkan memory hotspots:", math.min(limit, #sorted)))
+
+		for i = 1, math.min(limit, #sorted) do
+			local hotspot = sorted[i]
+			logn(
+				string.format(
+					"[%d] %s across %d allocations",
+					i,
+					format_bytes(hotspot.bytes),
+					hotspot.count
+				)
+			)
+			logn(indent_traceback(hotspot.traceback))
+		end
+	end)
+end
