@@ -1,0 +1,362 @@
+local Vec2 = import("goluwa/structs/vec2.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
+local Texture = import("goluwa/render/texture.lua")
+local engines = import("goluwa/engines.lua")
+local Window = import("goluwa/render2d/ui/widgets/window.lua")
+local Button = import("goluwa/render2d/ui/widgets/button.lua")
+local Splitter = import("goluwa/render2d/ui/elements/splitter.lua")
+local VirtualGrid = import("goluwa/render2d/ui/elements/virtual_grid.lua")
+local Column = import("goluwa/render2d/ui/elements/column.lua")
+local Row = import("goluwa/render2d/ui/elements/row.lua")
+local Text = import("goluwa/render2d/ui/elements/text.lua")
+local TextEdit = import("goluwa/render2d/ui/elements/text_edit.lua")
+local LABEL_HEIGHT = 40
+local ALL_GAMES = {name = "All games", all = true}
+local textures = {}
+local colors = {}
+-- the png and bmp decoders write the bottom row first, the others the top row
+local top_first = {jpg = true, jpeg = true, dds = true, vtf = true}
+
+local function refresh_colors()
+	local active = theme.active
+
+	if colors.theme == active then return end
+
+	colors.theme = active
+	colors.text = active:GetColor("text")
+	colors.text_disabled = active:GetColor("text_disabled")
+	colors.primary = active:GetColor("primary")
+	colors.surface_alt = active:GetColor("surface_alt")
+	colors.border = active:GetColor("border")
+	colors.tile_fill = {
+		r = colors.surface_alt.r,
+		g = colors.surface_alt.g,
+		b = colors.surface_alt.b,
+		a = 0.7,
+	}
+	colors.tile_fill_hover = {
+		r = colors.surface_alt.r,
+		g = colors.surface_alt.g,
+		b = colors.surface_alt.b,
+		a = 1,
+	}
+	colors.placeholder = {r = 0.2, g = 0.21, b = 0.24, a = 1}
+	colors.shade = {r = 0, g = 0, b = 0, a = 0.6}
+	colors.font = active:GetFont("body", "S")
+	colors.font_strong = active:GetFont("body_strong", "S")
+	colors.font_small = active:GetFont("body", "XS")
+end
+
+local function draw_text(font, text, x, y, color)
+	render2d.SetTexture(nil)
+	render2d.PushColor(color.r, color.g, color.b, 1)
+	render2d.PushAlphaMultiplier(color.a)
+	font:DrawText(text, x, y, 0)
+	render2d.PopAlphaMultiplier()
+	render2d.PopColor()
+end
+
+-- nil while the picture is loading or when it can not be loaded
+local function get_texture(path)
+	local texture = textures[path]
+
+	if texture == false then return end
+
+	if not texture then
+		texture = Texture.New{path = path, srgb = true}
+		textures[path] = texture
+	end
+
+	if not texture:IsReady() then return end
+
+	if texture.image == Texture.GetFallback().image then
+		textures[path] = false
+		return
+	end
+
+	return texture
+end
+
+local function draw_picture(path, x, y, w, h, alpha)
+	local texture = path and get_texture(path)
+
+	if not texture then return false end
+
+	render2d.DrawTextureCover(texture, x, y, w, h, 4, 1, 1, 1, alpha, top_first[path:lower():match("%.(%w+)$")])
+	return true
+end
+
+local function draw_tile_frame(x, y, w, h, selected, hovered)
+	render2d.DrawBox(
+		x,
+		y,
+		w,
+		h,
+		6,
+		hovered and colors.tile_fill_hover or colors.tile_fill,
+		selected and colors.primary or colors.border,
+		selected and -2 or -1
+	)
+end
+
+local function is_game_map(game, map)
+	return game.all or (map.engine == game.engine and map.game == game.id)
+end
+
+return function(props)
+	local games = {}
+	local maps = {}
+	local game_names = {}
+	local query = ""
+	local games_grid, maps_grid, mount_button, load_button, status, count
+	local selected_game = ALL_GAMES
+
+	local function update_buttons()
+		local map = maps_grid:GetSelectedIndex() and maps_grid:GetItems()[maps_grid:GetSelectedIndex()]
+		load_button:SetDisabled(not map)
+
+		if selected_game.mountable then
+			mount_button:SetText(selected_game.mounted and "Unmount" or "Mount")
+			mount_button:SetDisabled(false)
+		else
+			mount_button:SetText(selected_game.all and "Mount" or "Always available")
+			mount_button:SetDisabled(true)
+		end
+	end
+
+	local function filter_maps()
+		local shown = {}
+
+		for _, map in ipairs(maps) do
+			if is_game_map(selected_game, map) and (query == "" or map.name:lower():find(query, 1, true)) then
+				shown[#shown + 1] = map
+			end
+		end
+
+		maps_grid:SetItems(shown)
+		count.text:SetText(#shown .. " maps")
+		update_buttons()
+	end
+
+	local function refresh()
+		games = engines.GetGames()
+		maps = engines.GetMaps()
+		game_names = {}
+
+		for _, game in ipairs(games) do
+			game_names[game.engine .. game.id] = game.name
+		end
+
+		for _, map in ipairs(maps) do
+			map.game_name = game_names[map.engine .. tostring(map.game)] or map.engine
+		end
+
+		local items = {ALL_GAMES}
+
+		for _, game in ipairs(games) do
+			items[#items + 1] = game
+
+			if game.engine == selected_game.engine and game.id == selected_game.id then
+				selected_game = game
+			end
+		end
+
+		games_grid:SetItems(items, true)
+		games_grid:SelectItem(selected_game)
+	end
+
+	local function draw_game(game, index, x, y, w, h, selected, hovered)
+		refresh_colors()
+		draw_tile_frame(x, y, w, h, selected, hovered)
+		local inset = 4
+		local name = colors.font_strong:ElideText(game.name, w - inset * 4)
+
+		if game.all then
+			draw_text(colors.font_strong, name, x + inset * 2, y + (h - 16) / 2, colors.text)
+
+			return
+		end
+
+		if not draw_picture(game.image, x + inset, y + inset, w - inset * 2, h - inset * 2, 1) then
+			render2d.DrawBox(x + inset, y + inset, w - inset * 2, h - inset * 2, 4, colors.placeholder)
+		end
+
+		render2d.DrawBox(x + inset, y + h - 34 - inset, w - inset * 2, 34, 4, colors.shade)
+		draw_text(colors.font_strong, name, x + inset * 2, y + h - 34, {r = 1, g = 1, b = 1, a = 1})
+		draw_text(
+			colors.font_small,
+			game.mountable and (game.mounted and "mounted" or "not mounted") or "always available",
+			x + inset * 2,
+			y + h - 18,
+			game.mounted and {r = 0.5, g = 1, b = 0.5, a = 1} or {r = 0.85, g = 0.85, b = 0.85, a = 1}
+		)
+	end
+
+	local function draw_map(map, index, x, y, w, h, selected, hovered)
+		refresh_colors()
+		draw_tile_frame(x, y, w, h, selected, hovered)
+		local inset = 4
+		local px, py, pw, ph = x + inset, y + inset, w - inset * 2, h - LABEL_HEIGHT - inset
+
+		if map.thumbnail == nil then
+			map.thumbnail = engines.GetMapThumbnail(map) or false
+		end
+
+		if not draw_picture(map.thumbnail, px, py, pw, ph, 1) then
+			render2d.DrawBox(px, py, pw, ph, 4, colors.placeholder)
+
+			for _, game in ipairs(games) do
+				if game.engine == map.engine and game.id == map.game then
+					draw_picture(game.image, px, py, pw, ph, 0.35)
+
+					break
+				end
+			end
+		end
+
+		draw_text(
+			colors.font,
+			colors.font:ElideText(map.name, w - inset * 2),
+			x + inset,
+			y + h - LABEL_HEIGHT + 2,
+			colors.text
+		)
+		draw_text(
+			colors.font_small,
+			colors.font_small:ElideText(map.game_name, w - inset * 2),
+			x + inset,
+			y + h - LABEL_HEIGHT + 18,
+			colors.text_disabled
+		)
+	end
+
+	local function toggle_mount()
+		if not selected_game.mountable then return end
+
+		if selected_game.mounted then
+			engines.UnmountGame(selected_game.engine, selected_game.id)
+		else
+			engines.MountGame(selected_game.engine, selected_game.id)
+		end
+
+		refresh()
+	end
+
+	local function load_map(map)
+		local ok, err = pcall(engines.LoadMap, map)
+
+		if ok then
+			status.text:SetText("loading " .. map.engine .. ":" .. map.name)
+			props.OnLoad()
+		else
+			status.text:SetText(tostring(err))
+		end
+	end
+
+	local window = Window{
+		Title = "LOAD",
+		Size = Vec2(980, 640),
+		MinSize = Vec2(640, 360),
+	}{
+		Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center"}}{
+			TextEdit{
+				Hint = "search maps",
+				Wrap = false,
+				ScrollX = false,
+				ScrollY = false,
+				Size = Vec2(0, theme.active:GetInputHeight("M")),
+				MinSize = Vec2(160, theme.active:GetInputHeight("M")),
+				MaxSize = Vec2(0, theme.active:GetInputHeight("M")),
+				OnTextChanged = function(_, text)
+					query = text:lower()
+					filter_maps()
+				end,
+				layout = {GrowWidth = 1},
+			},
+			Text{
+				Ref = function(self)
+					count = self
+				end,
+				Text = "",
+				Color = "text_disabled",
+				layout = {FitWidth = true, MinSize = Vec2(80, 0)},
+			},
+			Button{
+				Ref = function(self)
+					load_button = self
+				end,
+				Text = "Load",
+				Icon = "play",
+				Disabled = true,
+				OnClick = function()
+					local index = maps_grid:GetSelectedIndex()
+
+					if index then load_map(maps_grid:GetItems()[index]) end
+				end,
+			},
+		},
+		Splitter{
+			InitialSize = 310,
+			layout = {GrowWidth = 1, GrowHeight = 1},
+		}{
+			Column{
+				layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch", ChildGap = 4},
+			}{
+				Button{
+					Ref = function(self)
+						mount_button = self
+					end,
+					Text = "Mount",
+					Disabled = true,
+					OnClick = toggle_mount,
+					layout = {GrowWidth = 1},
+				},
+				VirtualGrid{
+					Ref = function(self)
+						games_grid = self
+					end,
+					CellWidth = 280,
+					CellAspect = 0.34,
+					ExtraHeight = 0,
+					Gap = 6,
+					ContentPadding = 4,
+					OnDrawItem = draw_game,
+					OnSelect = function(game)
+						selected_game = game or ALL_GAMES
+						filter_maps()
+					end,
+					OnActivate = function(game)
+						toggle_mount()
+					end,
+					layout = {GrowWidth = 1, GrowHeight = 1},
+				},
+			},
+			VirtualGrid{
+				Ref = function(self)
+					maps_grid = self
+				end,
+				CellWidth = 170,
+				CellAspect = 0.5625,
+				ExtraHeight = LABEL_HEIGHT + 4,
+				Gap = 8,
+				ContentPadding = 6,
+				OnDrawItem = draw_map,
+				OnSelect = update_buttons,
+				OnActivate = load_map,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			},
+		},
+		Text{
+			Ref = function(self)
+				status = self
+			end,
+			Text = "double click a map to load it, mounting a game lists the maps it keeps in packages",
+			Color = "text_disabled",
+			layout = {GrowWidth = 1},
+		},
+	}
+
+	refresh()
+	return window
+end

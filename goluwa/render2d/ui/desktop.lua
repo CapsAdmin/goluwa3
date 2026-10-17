@@ -10,6 +10,7 @@ local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local Row = import("goluwa/render2d/ui/elements/row.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local LoadWindow = import("goluwa/render2d/ui/load_window.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local desktop = {}
@@ -189,30 +190,43 @@ local function build_root()
 	root_dirty = false
 	local buttons = {}
 
-	for i, name in ipairs(order) do
-		buttons[i] = Button{
-			Text = name,
-			Icon = programs[name].Icon,
-			Mode = "filled",
-			OnClick = function()
-				desktop.Open(name)
-			end,
-		}
+	for _, name in ipairs(order) do
+		if not programs[name].NoButton then
+			buttons[#buttons + 1] = Button{
+				Text = name,
+				Icon = programs[name].Icon,
+				Mode = "filled",
+				OnClick = function()
+					desktop.Open(name)
+				end,
+			}
+		end
 	end
 
 	local menu_items = {
 				{
 					Text = "ENGINE",
 					Items = function()
-						return {
-							MenuItem{
-								Text = "exit",
-								Icon = "power",
+						local items = {}
+
+						if RENDER_3D then
+							items[#items + 1] = MenuItem{
+								Text = "load",
+								Icon = "folder",
 								OnClick = function()
-									system.ShutDown(0)
+									desktop.Open("Load")
 								end,
-							},
+							}
+						end
+
+						items[#items + 1] = MenuItem{
+							Text = "exit",
+							Icon = "power",
+							OnClick = function()
+								system.ShutDown(0)
+							end,
 						}
+						return items
 					end,
 				},
 				{
@@ -332,6 +346,21 @@ function desktop.Hide()
 		if desktop.IsOpen(name) then programs[name].OnHidden(programs[name].Window) end
 	end
 end
+
+-- opened from the load item in the engine menu
+desktop.RegisterProgram{
+	Name = "Load",
+	Icon = "folder",
+	NoButton = true,
+	Create = function()
+		return LoadWindow{
+			OnLoad = function()
+				desktop.Close("Load")
+				desktop.Hide()
+			end,
+		}
+	end,
+}
 
 -- a scroll view that has focus for its keys is not a program being edited
 function desktop.IsEditing()
