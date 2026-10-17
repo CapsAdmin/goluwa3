@@ -523,16 +523,14 @@ function picker.PickAsset(category, current_value, callback)
 		selected = config.get_path(current_value)
 	end
 
-	Panel.World:Ensure(
-		import("lua/asset_browser.lua"){
-			Key = "AssetPicker",
-			PickerCategory = category,
-			SelectedPath = selected,
-			OnPick = function(entry)
-				callback(config.get_value and config.get_value(entry) or entry.path)
-			end,
-		}
-	)
+	import("lua/asset_browser.lua"){
+		Key = "AssetPicker",
+		PickerCategory = category,
+		SelectedPath = selected,
+		OnPick = function(entry)
+			callback(config.get_value and config.get_value(entry) or entry.path)
+		end,
+	}
 end
 
 event.AddListener("PickObject", "picker", function(what, callback, options)
