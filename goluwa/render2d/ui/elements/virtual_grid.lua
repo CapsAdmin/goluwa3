@@ -6,6 +6,7 @@ local META = Panel:CreateTemplate("virtual_grid")
 META.Base = ScrollablePanel
 META:StartStorable()
 META:GetSet("CellWidth", 128)
+META:GetSet("CellAspect", 1)
 META:GetSet("ExtraHeight", 32)
 META:GetSet("Gap", 8)
 META:GetSet("ContentPadding", 8)
@@ -125,7 +126,7 @@ function META:OnCreate()
 	META.BaseClass.OnCreate(self)
 	self._columns = 1
 	self._pitch_x = self.CellWidth + self.Gap
-	self._cell_height = self.CellWidth + self.ExtraHeight
+	self._cell_height = self.CellWidth * self.CellAspect + self.ExtraHeight
 	self._pitch_y = self._cell_height + self.Gap
 	self._laid_out_width = -1
 	self._laid_out_count = -1
@@ -245,7 +246,7 @@ function META:relayout()
 	local usable = math.max(width - padding * 2, 1)
 	self._columns = math.max(1, math.floor((usable + gap) / (self.CellWidth + gap)))
 	self._pitch_x = self.StretchCells and (usable + gap) / self._columns or (self.CellWidth + gap)
-	self._cell_height = self._pitch_x - gap + self.ExtraHeight
+	self._cell_height = (self._pitch_x - gap) * self.CellAspect + self.ExtraHeight
 	self._pitch_y = self._cell_height + gap
 	local rows = math.ceil(count / self._columns)
 	local height = math.max(1, padding * 2 + rows * self._pitch_y - (rows > 0 and gap or 0))
