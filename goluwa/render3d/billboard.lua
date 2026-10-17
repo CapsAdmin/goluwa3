@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local billboard = {}
 import.loaded["goluwa/render3d/billboard.lua"] = billboard
 local event = import("goluwa/event.lua")
@@ -190,7 +191,9 @@ local function update()
 			)
 		then
 			pending[path] = nil
+			local started = startup.Start()
 			local ok, polygon, material = xpcall(billboard.Bake, debug.traceback, visual)
+			startup.Add("billboard bake", started)
 			request.entity:Remove()
 			local callbacks = request.callbacks
 			request.callbacks = nil

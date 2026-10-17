@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local mtl_material = import("goluwa/cry_engine/mtl_material.lua")
 local xml = import("goluwa/codecs/xml.lua")
 local vfs = import("goluwa/vfs.lua")
@@ -1316,10 +1317,13 @@ local loaded_levels = {}
 local libraries
 
 function level.Load(level_dir)
+	startup.Begin("mount cry paks")
 	game.EnsureLevelMounts(level_dir)
+	startup.End("mount cry paks")
 
 	if loaded_levels[level_dir] then return loaded_levels[level_dir] end
 
+	startup.Begin("read layers")
 	local nodes = {}
 	local layers_dir = level_dir .. "Layers/"
 
@@ -1342,6 +1346,8 @@ function level.Load(level_dir)
 		end
 	end
 
+	startup.End("read layers")
+	startup.Begin("parse editor objects")
 	local level_name = level_dir:match("/([^/]+)/$") or ""
 	local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"
 	local editor_level_data, editor_level_err = vfs.Read(editor_level_path)
@@ -1366,6 +1372,8 @@ function level.Load(level_dir)
 		)
 	end
 
+	startup.End("parse editor objects")
+	startup.Begin("extract visual objects")
 	libraries = libraries or level.LoadLibraries()
 	local entries, extra = level.ExtractVisualObjects(nodes, libraries)
 
@@ -1385,7 +1393,11 @@ function level.Load(level_dir)
 		road.material_path = game.ResolveMaterialPath(level_dir, road.material_path)
 	end
 
+	startup.End("extract visual objects")
+	startup.Begin("load terrain data")
 	local terrain = select(1, level.LoadTerrainData(level_dir))
+	startup.End("load terrain data")
+	startup.Begin("vegetation instances")
 	local vegetation_entries = {}
 	local vegetation_prototypes
 	local vegetation_map_data = editor_level_data
@@ -1435,6 +1447,7 @@ function level.Load(level_dir)
 		end
 	end
 
+	startup.End("vegetation instances")
 	loaded_levels[level_dir] = {
 		level_dir = level_dir,
 		entries = entries,

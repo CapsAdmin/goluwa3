@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local objects = import("goluwa/objects/objects.lua")
 local decal_geometry = import("goluwa/source_engine/decal_geometry.lua")
 local decal_projection = import("goluwa/render3d/decal_projection.lua")
@@ -242,6 +243,7 @@ do
 	local function process()
 		if scene_loading.IsLoading() then return end
 
+		local started = startup.Start()
 		local touched_by_world = {}
 		local deadline = system.GetElapsedTime() + PROJECTION_BUDGET
 		local last = #pending
@@ -279,6 +281,8 @@ do
 		for world, touched in pairs(touched_by_world) do
 			world:RefreshBatches(touched)
 		end
+
+		startup.Add("decal projection (per frame budget)", started)
 
 		if head > #pending and not next(queued) then
 			pending, head, receivers, placed = {}, 1, nil, {}

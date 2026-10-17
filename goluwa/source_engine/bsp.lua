@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local startup = import("goluwa/startup.lua")
 local vmt_loader = import("goluwa/source_engine/vmt.lua")
 local vfs = import("goluwa/vfs.lua")
 local game = import("goluwa/source_engine/game.lua")
@@ -116,6 +117,7 @@ function bsp.Load(path)
 	end
 
 	logn("loading map: ", path)
+	startup.Begin("bsp read file")
 	local bsp_file = assert(vfs.Open(path))
 
 	if bsp_file:GetSize() == 0 then error("map is empty? (size is 0)") end
@@ -123,11 +125,19 @@ function bsp.Load(path)
 	tasks.Report("reading bsp")
 	local bsp_data = bsp_file:ReadBytes(bsp_file:GetSize())
 	bsp_file:Close()
+	startup.End("bsp read file")
+	startup.Begin("bsp decode")
 	local header = thread_pool.Run(decode_job_source, {data = bsp_data, cubemaps = CUBEMAPS}, #bsp_data):Await()
+	startup.End("bsp decode")
+	startup.Begin("bsp convert types")
 	convert_bsp_types(header)
+	startup.End("bsp convert types")
 	tasks.Wait()
 	tasks.Report("mounting pak")
+	startup.Begin("bsp mount pakfile")
 	game.MountMapPak(path)
+	startup.End("bsp mount pakfile")
+	startup.Begin("bsp visibility groups")
 	bsp_data = nil
 
 	if CUBEMAPS then
@@ -506,6 +516,7 @@ function bsp.Load(path)
 		end
 	end
 
+	startup.End("bsp visibility groups")
 	header.visibility = {
 		point_leaf = point_leaf,
 		area_groups = area_groups,
@@ -534,6 +545,7 @@ function bsp.Load(path)
 		logn("found ", #header.water_volumes, " water volumes in map")
 	end
 
+	startup.Begin("bsp world brushes and displacements")
 	header.lowest_point = get_model_lowest_point(header.models and header.models[1])
 	header.ocean_level = nil
 	local texinfos = {}
@@ -1082,6 +1094,8 @@ function bsp.Load(path)
 		end
 	end
 
+	startup.End("bsp world brushes and displacements")
+	startup.Begin("bsp decals")
 	local decals = {}
 
 	do
@@ -1276,6 +1290,7 @@ function bsp.Load(path)
 		end
 	end
 
+	startup.End("bsp decals")
 	logn("exported ", #decals, " decals")
 	logn("exported ", #brush_list, " brushes, ", #displacements, " displacements")
 	local ocean_level = header.ocean_level

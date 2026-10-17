@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local timer = import("goluwa/timer.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
@@ -149,7 +150,14 @@ function META:Start(now, ...)
 
 			local old_wait = self.wait
 			tasks.running_tasks[co] = true
+			local started = startup.Start()
 			local ok, res = coroutine.resume(co, self)
+
+			if not startup.ready_time then
+				local name = self.Name
+				startup.Add("task: " .. (name:match("%.(%w+)$") or name), started)
+			end
+
 			tasks.running_tasks[co] = nil
 
 			if not self:IsValid() then return true end

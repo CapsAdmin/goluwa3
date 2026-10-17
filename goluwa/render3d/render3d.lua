@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local render3d = {}
 import.loaded["goluwa/render3d/render3d.lua"] = render3d
 local render = import("goluwa/render/render.lua")
@@ -585,14 +586,23 @@ function render3d.Initialize(config)
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 	render3d.GetMainCamera():SetJitter(Vec2(0, 0))
 
+	local startup_pass_names = table.weak("k")
+
 	event.AddListener("PreRenderPass", "render3d", function()
 		if not render3d.pipelines.gbuffer then return end
+
+		local pre_render_started = startup.Start()
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
 			if pipeline.pre_render then pipeline:pre_render() end
 		end
 
 		skinning.Dispatch(render.GetCommandBuffer())
+
+		if not startup.ready_time then
+			startup.Add("render pass: pre_render hooks, skinning", pre_render_started)
+		end
+
 		scene_bvh.EnsureBuilt()
 		local ocean_enabled = render3d.IsOceanEnabled()
 		local water_needed = render3d.IsWaterEnabled()
@@ -627,7 +637,19 @@ function render3d.Initialize(config)
 					end
 				end
 
+				local pass_started = startup.Start()
 				pipeline:Draw()
+
+				if not startup.ready_time then
+					local pass_name = startup_pass_names[pipeline]
+
+					if not pass_name then
+						pass_name = "render pass: " .. pipeline.name
+						startup_pass_names[pipeline] = pass_name
+					end
+
+					startup.Add(pass_name, pass_started)
+				end
 
 				if pipeline.name == "gbuffer" then
 					gpu_culling.PrepareMainViewHiZ(render.GetCommandBuffer())

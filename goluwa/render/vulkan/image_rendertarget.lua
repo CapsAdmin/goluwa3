@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
@@ -504,7 +505,9 @@ function ImageRenderTarget:BeginFrame()
 		local fence = self.in_flight_fences[frame_index]
 
 		if not RENDER_NOOP or self.vulkan_instance.queue:HasPendingSubmission(fence) then
+			local wait_started = startup.Start()
 			fence:Wait()
+			startup.Add("gpu: wait for previous frame", wait_started)
 
 			if not RENDER_NOOP then fence:Reset() end
 		end
@@ -518,7 +521,9 @@ function ImageRenderTarget:BeginFrame()
 		self.texture_index = frame_index
 		texture_index = self.texture_index - 1
 	elseif self.swapchain then
+		local acquire_started = startup.Start()
 		texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[frame_index])
+		startup.Add("gpu: swapchain acquire", acquire_started)
 
 		if texture_index == nil then
 			self:RebuildFramebuffers()

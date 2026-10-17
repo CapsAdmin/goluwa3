@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
@@ -100,6 +101,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	self.write_serial = serial
 
 	if full then
+		local full_started = startup.Start()
 		table.clear(material_batches)
 		table.clear(animated_batches)
 
@@ -118,6 +120,10 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 
 				list[#list + 1] = i
 			end
+		end
+
+		if not startup.ready_time then
+			startup.Add("render pass: gbuffer batch rewrite", full_started)
 		end
 	elseif version - self.material_version >= objects.VERSION_LOG_SIZE then
 		-- too many materials changed to follow them in the log

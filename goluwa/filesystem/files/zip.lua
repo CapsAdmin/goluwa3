@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local Buffer = import("goluwa/structs/buffer.lua")
 local bit = require("bit")
@@ -164,12 +165,14 @@ function CONTEXT:Open(path_info, mode, ...)
 		file:Close()
 
 		if file_info.compressionMethod == 8 then
+			local started = startup.Start()
 			local decompressed = deflate.Decode(
 				compressed_data,
 				"raw",
 				Buffer.New(ffi.new("uint8_t[?]", file_info.size), file_info.size):MakeWritable()
 			)
 			self.data = decompressed:ReadBytes(file_info.size)
+			startup.Add("pak inflate (zip)", started)
 		elseif file_info.compressionMethod == 0 then
 			self.data = compressed_data
 		else

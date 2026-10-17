@@ -103,6 +103,7 @@ function META:Reload()
 			if not world:IsValid() or world.load_id ~= load_id then return end
 
 			local task = tasks.CreateTask()
+			task:SetName("static world build")
 			scene_loading.HoldTask(task)
 
 			function task:OnStart()

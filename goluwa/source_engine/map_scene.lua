@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
@@ -138,6 +139,7 @@ function map_scene.Translate(data, map_name, map_path)
 		return record
 	end
 
+	startup.Begin("translate world geometry")
 	local atmosphere = {OceanLevel = data.ocean_level - 2}
 	local nav_path = nav_mesh.GetPath(map_name)
 	add{
@@ -261,6 +263,8 @@ function map_scene.Translate(data, map_name, map_path)
 		end
 	end
 
+	startup.End("translate world geometry")
+	startup.Begin("translate classify entities")
 	local entries = {}
 	local physics_models = {}
 	local handled = {}
@@ -326,7 +330,11 @@ function map_scene.Translate(data, map_name, map_path)
 		end
 	end
 
+	startup.End("translate classify entities")
+	startup.Begin("load physics models")
 	local models = load_models(physics_models)
+	startup.End("load physics models")
+	startup.Begin("translate entities")
 
 	for entry_index, entry in ipairs(entries) do
 		local info = entry.info
@@ -465,6 +473,9 @@ function map_scene.Translate(data, map_name, map_path)
 		if entry_index % 50 == 0 then tasks.Wait() end
 	end
 
+	startup.End("translate entities")
+	startup.Begin("translate decals and water")
+
 	for index, decal in ipairs(data.decals) do
 		local frame
 
@@ -514,6 +525,7 @@ function map_scene.Translate(data, map_name, map_path)
 		}
 	end
 
+	startup.End("translate decals and water")
 	handled.water = data.water_volumes and #data.water_volumes or nil
 	logn("translated ", #records, " bsp records")
 

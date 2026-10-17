@@ -1,4 +1,7 @@
 require("goluwa.global_environment")
+local startup = import("goluwa/startup.lua")
+startup.Begin("engine start")
+startup.Begin("core modules")
 local crash_trace = import("goluwa/bindings/crash_trace.lua")
 crash_trace.Install()
 local event = import("goluwa/event.lua")
@@ -24,6 +27,7 @@ vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
 import("goluwa/test.lua")
 import("goluwa/cli/bench.lua")
+startup.End("core modules")
 commands.Add{
 	command = "global_flags",
 	flags = {
@@ -153,8 +157,11 @@ commands.Add("lua=string", function(code, ...)
 end)
 
 local function run_game()
+	startup.Begin("run_game")
+	startup.Begin("pvars and repl")
 	import("goluwa/cli/pvars.lua").Initialize()
 	import("goluwa/cli/repl.lua").Initialize()
+	startup.End("pvars and repl")
 
 	if HOT_RELOAD then import("goluwa/filesystem/watcher.lua").Start() end
 
@@ -165,19 +172,29 @@ local function run_game()
 	end)
 
 	if RENDER_2D then
+		startup.Begin("render import")
 		local render = import("goluwa/render/render.lua")
+
+		startup.End("render import")
 
 		if not render.available then
 			logf("[game] Graphics not available - running in headless mode\n")
 			_G.RENDER_2D = false
 			_G.RENDER_3D = false
 		else
+			startup.Begin("open window")
+
 			if not system.GetWindows()[1] then
 				system.OpenWindow(window_width, window_height)
 			end
 
+			startup.End("open window")
+			startup.Begin("render.Initialize")
 			render.Initialize({samples = "1"})
+			startup.End("render.Initialize")
+			startup.Begin("render2d.Initialize")
 			import("goluwa/render2d/render2d.lua").Initialize()
+			startup.End("render2d.Initialize")
 
 			local input = import("goluwa/input.lua")
 			local desktop = import("goluwa/render2d/ui/desktop.lua")
@@ -187,14 +204,27 @@ local function run_game()
 		end
 	end
 
-	if RENDER_3D then import("goluwa/render3d/render3d.lua").Initialize() end
+	if RENDER_3D then
+		startup.Begin("render3d.Initialize")
+		import("goluwa/render3d/render3d.lua").Initialize()
+		startup.End("render3d.Initialize")
+		import("goluwa/render3d/shot.lua")
+		import("goluwa/render3d/startup_ready.lua")
+	end
 
-	if RENDER_3D then import("goluwa/render3d/shot.lua") end
+	if PHYSICS then
+		startup.Begin("physics.Initialize")
+		import("goluwa/physics.lua").Initialize()
+		startup.End("physics.Initialize")
+	end
 
-	if PHYSICS then import("goluwa/physics.lua").Initialize() end
+	if AUDIO then
+		startup.Begin("audio.Initialize")
+		import("goluwa/audio.lua").Initialize()
+		startup.End("audio.Initialize")
+	end
 
-	if AUDIO then import("goluwa/audio.lua").Initialize() end
-
+	startup.Begin("addon autorun")
 	vfs.AutorunAddons()
 
 	if RENDER_2D then vfs.AutorunAddons("render_2d/") end
@@ -212,12 +242,16 @@ local function run_game()
 
 	if SERVER then vfs.AutorunAddons("server/") end
 
+	startup.End("addon autorun")
+
 	do
+		startup.Begin("mount addons")
 		local resource = import("goluwa/resource.lua")
 		resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/extras/", true)
 		resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/base/", true)
 		vfs.MountAddons("os:downloads/")
 		vfs.InitAddons()
+		startup.End("mount addons")
 	end
 
 	if RENDER_2D then
@@ -248,7 +282,9 @@ local function run_game()
 	end
 
 	if SERVER or CLIENT then
+		startup.Begin("network")
 		import("goluwa/network/network.lua").Initialize()
+		startup.End("network")
 
 		if SERVER then
 			local ok, err = commands.ExecuteCommandString("host")
@@ -259,6 +295,8 @@ local function run_game()
 			end
 		end
 	end
+
+	startup.End("run_game")
 end
 
 crash_trace.Run(function()
@@ -294,15 +332,21 @@ crash_trace.Run(function()
 
 		run_game()
 
+		startup.Begin("startup command")
+
 		if remaining_args then
 			if not commands.RunArguments(remaining_args) then system.ShutDown(1) end
 		end
+
+		startup.End("startup command")
 	end
 
 	system.KeepAlive("game")
 	local last_time = system.GetTime()
 	local i = 0
 	event.Call("Initialize")
+	startup.End("engine start")
+	startup.Mark("first frame")
 
 	while system.IsRunning() and not os.exitcode do
 		local time = system.GetTime()
@@ -310,7 +354,11 @@ crash_trace.Run(function()
 		system.SetFrameTime(dt)
 		system.SetFrameNumber(i)
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
+		local update_start = startup.Start()
 		event.Call("Update", dt)
+
+		if not startup.ready_time then startup.Add("Update event (all frames)", update_start) end
+
 		system.SetInternalFrameTime(system.GetTime() - time)
 		i = i + 1
 		last_time = time

@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
@@ -389,6 +390,7 @@ function GraphicsPipeline:Wait()
 		end
 
 		local milliseconds = job:Block()
+		startup.Add("pipeline: graphics wait", start)
 		self.keep = nil
 		self.device.pipeline_cache.generation = self.device.pipeline_cache.generation + 1
 

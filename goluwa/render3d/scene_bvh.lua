@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local band = require("bit").band
 local render = import("goluwa/render/render.lua")
@@ -2403,7 +2404,9 @@ function scene_bvh.EnsureBuilt()
 	end
 
 	scene_bvh.dirty_since = nil
+	local started = startup.Start()
 	scene_bvh.BuildIncremental(scene_bvh.dirty_components and "incremental" or "scan")
+	startup.Add("scene_bvh build", started)
 
 	if scene_bvh.build_backlog then scene_bvh.dirty_since = now end
 end

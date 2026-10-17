@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
@@ -24,6 +25,7 @@ function ComputePipeline.New(device, shaderModule, pipelineLayout)
 		"failed to create compute pipeline"
 	)
 	PipelineCache.LogIfSlow("compute", start)
+	startup.Add("pipeline: compute create", start)
 	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 	return ComputePipeline:CreateObject{device = device, ptr = ptr}
 end

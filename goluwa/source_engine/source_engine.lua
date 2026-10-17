@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local codec = import("goluwa/codec.lua")
@@ -55,17 +56,30 @@ function source_engine.Load(name)
 	end
 
 	local path = game.GetMapPath(name)
+	startup.Begin("mount source games")
 	game.EnsureMounted(path)
+	startup.End("mount source games")
 	scene.Clear()
 	local task = tasks.CreateTask()
+	task:SetName("source map load")
 	scene_loading.HoldTask(task)
+	startup.Begin("source map load")
 
 	function task:OnStart()
+		startup.Begin("bsp load")
 		local data = wait_for_map(path)
+		startup.End("bsp load")
 
-		if not data then return end
+		if not data then
+			startup.End("source map load")
 
+			return
+		end
+
+		startup.Begin("map translate")
 		local scene_data = map_scene.Translate(data, name, path)
+		startup.End("map translate")
+		startup.Begin("scene spawn")
 		scene.BeginSpawning()
 		local ok, err = pcall(
 			scene.Deserialize,
@@ -74,6 +88,8 @@ function source_engine.Load(name)
 			{yield_every = 128, skip_unavailable = not RENDER_3D}
 		)
 		scene.EndSpawning()
+		startup.End("scene spawn")
+		startup.End("source map load")
 
 		if not ok then error(err, 0) end
 	end

@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local render = {}
 import.loaded["goluwa/render/render.lua"] = render
@@ -276,6 +277,7 @@ local function start_saving_pipeline_cache(path)
 		if time - changed_at < 2 then return end
 
 		saved_generation = generation
+
 		if jit.os == "Windows" then
 			assert(fs.write_file(path, vulkan_instance:GetPipelineCacheData()))
 		else
@@ -290,10 +292,13 @@ function render.Initialize(config)
 	config = config or {}
 	local is_headless = config.headless
 
+	startup.Begin("locate shaderc")
+
 	if not shaderc.initialized then
 		import("goluwa/render/shaderc_locator.lua").Locate()
 	end
 
+	startup.End("locate shaderc")
 	render.initializing = true
 	local pipeline_cache_path = vfs.GetStorageDirectory("cache") .. "vulkan_pipeline_cache.bin"
 	local pipeline_cache_data = fs.read_file(pipeline_cache_path)
@@ -304,7 +309,10 @@ function render.Initialize(config)
 			"render.Initialize() requires a window; call system.OpenWindow() first"
 		)
 		local surface_handle, display_handle = assert(wnd:GetSurfaceHandle())
+		startup.Begin("vulkan instance and device")
 		vulkan_instance = VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
+		startup.End("vulkan instance and device")
+		startup.Begin("window render target")
 		local size = wnd:GetSize()
 		render.target = vulkan_instance:CreateWindowRenderTarget{
 			present_mode = "immediate_khr",
@@ -315,6 +323,7 @@ function render.Initialize(config)
 			height = size.y,
 			samples = config.samples,
 		}
+		startup.End("window render target")
 	else
 		vulkan_instance = VulkanInstance.New(nil, nil, pipeline_cache_data)
 		local width = config.width or 512
@@ -332,7 +341,9 @@ function render.Initialize(config)
 
 	refresh_bindless_descriptor_capacities()
 	start_saving_pipeline_cache(pipeline_cache_path)
+	startup.Begin("RendererReady listeners")
 	event.Call("RendererReady")
+	startup.End("RendererReady listeners")
 	render.initializing = false
 
 	event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
@@ -349,14 +360,30 @@ function render.Initialize(config)
 
 	function render.Draw(dt)
 		event.Call("PreFrame", dt)
+		local begin_started = startup.Start()
 		local began = render.BeginFrame()
 
+		if not startup.ready_time then
+			startup.Add("render.Draw: BeginFrame and passes", begin_started)
+		end
+
 		if began then
+			local draw_started = startup.Start()
 			event.Call("Draw", dt)
 			event.Call("PostDraw", dt)
+			local end_started = startup.Start()
+
+			if not startup.ready_time then
+				startup.Add("render.Draw: Draw events", draw_started)
+			end
 
 			render.EndFrame()
+
+			if not startup.ready_time then
+				startup.Add("render.Draw: EndFrame, present", end_started)
+			end
 		end
+
 	end
 
 	event.AddListener("Update", "window_update", render.Draw)
@@ -1128,7 +1155,9 @@ function render.SubmitAndWait(cmd)
 
 	if RENDER_NOOP then return end
 
+	local started = startup.Start()
 	fence:Wait()
+	startup.Add("gpu: SubmitAndWait", started)
 	queue:RetireFence(fence)
 end
 

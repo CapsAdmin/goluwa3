@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local Texture = objects.CreateTemplate("render_texture")
@@ -577,7 +578,9 @@ function Texture.New(config)
 		resource.Download(config.path):Then(function(p)
 			codec.DecodeFileAsync(p, function(img, err)
 				if img then
+					local started = startup.Start()
 					load(img)
+					startup.Add("texture upload", started)
 					import("goluwa/event.lua").Call("TextureViewChanged", self)
 				else
 					print("Warning: Failed to load texture:", config.path, err)

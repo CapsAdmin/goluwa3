@@ -1,3 +1,4 @@
+local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
@@ -142,7 +143,9 @@ local function get_or_create_cached_module(device, glsl, type)
 		-- is a cache that can't be trusted
 		local reason = spirv_size
 		local start = os.clock()
+		local started = startup.Start()
 		spirv_data, spirv_size = shaderc.compile(glsl, type)
+		startup.Add("shader: shaderc compile", started)
 		logf(
 			"[shader] compiled %s shader %s (%d bytes of glsl) in %.0f ms%s\n",
 			type,

@@ -877,6 +877,7 @@ function scene.SpawnAsync(data, parent, options, done)
 	options = options or {}
 	options.yield_every = options.yield_every or 256
 	local task = tasks.CreateTask()
+	task:SetName("scene spawn")
 	scene_loading.HoldTask(task)
 	scene.BeginSpawning()
 
