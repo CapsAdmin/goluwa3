@@ -167,7 +167,7 @@ local function create_main_view_hiz_buffer(width, height, index)
 		format = "r32_sfloat",
 		mip_map_levels = mip_count,
 		image = {
-			usage = {"sampled", "storage"},
+			usage = {"sampled", "storage", "transfer_src"},
 			properties = "device_local",
 		},
 		sampler = {

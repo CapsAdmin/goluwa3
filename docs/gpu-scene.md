@@ -51,3 +51,9 @@ What the cpu still draws, all of it small:
 - entries the store has no row for (`bridge.GetCPUDrawnVisuals`: meshes without gpu buffers) and every entry when the store did not cull the frame (more than one camera in the stack, scene views and previews, or `visual.noculling`), through `gbuffer_instancing` and the translucent single pipelines;
 - visuals with an ignore z material (the forward overlay pass, a per draw blend state that a multi draw cannot change), debug drawing and the editor's gizmos;
 - `particle_emitter_cpu`.
+
+## Checking the culling
+
+`draw.ReadBackCull(kind)` (0 the gbuffer, 1 the translucent passes) and `draw.ReadBackShadowCull(buffers, count)` copy what the last cull wrote to the host (a slot is drawn when its command has an instance count, with its group, fade and world matrix) and stall until the gpu is done, so they are for tests and debugging only. `test/tests/render3d/scene_cull.lua` compares them with a cpu reference: a scatter of cubes against the frustum planes (the set must be exactly the same), the cull distance, the size on screen, the level of detail picked and faded by distance and `lod_level`, the depth pyramid (an occluder in front, with occlusion culling on and off), and a shadow cascade's box, minimum extent, far plane and `CastShadows`. `r_scene_draw_debug` reads the main cull back about once a second into `draw.debug_result` (stats `R3D CULL ROWS / VISIBLE / TRANSLUCENT`), and the CULLING tab and `culling_debug_boxes` of the debug addon colour the boxes by what the gpu drew then instead of by the cpu's list.
+
+The test found that the main cull never called its occlusion test (`is_occluded` was written and not used) since the cull moved onto the store: `r_feature_culling` on drew everything the frustum held, hidden or not. It is called now with the old depth bias of 0.0015.

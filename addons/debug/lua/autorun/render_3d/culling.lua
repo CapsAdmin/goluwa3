@@ -5,6 +5,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local Color = import("goluwa/structs/color.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local visual_module = import("goluwa/entities/components/visual.lua")
 local visual = import("goluwa/entities/components/visual.lua").Library
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
@@ -48,8 +49,23 @@ do
 		}
 		local state_by_component = {}
 		local visible_lookup = {}
-		for _, component in ipairs(visual.GetVisibleVisuals()) do
-			visible_lookup[component] = true
+		local gpu = scene_draw.debug_result
+
+		-- with r_scene_draw_debug on, what the gpu drew about a second ago, otherwise what the cpu would
+		if gpu then
+			for _, component in ipairs(Visual.Instances or {}) do
+				for _, item in ipairs(component.scene_instances or {}) do
+					if gpu.opaque.by_id[item.id] or gpu.translucent.by_id[item.id] then
+						visible_lookup[component] = true
+
+						break
+					end
+				end
+			end
+		else
+			for _, component in ipairs(visual.GetVisibleVisuals()) do
+				visible_lookup[component] = true
+			end
 		end
 
 		for _, component in ipairs(Visual.Instances or {}) do
@@ -97,6 +113,11 @@ do
 		rows[#rows + 1] = {label = "frustum planes frozen", color = "warn"}
 	end
 
+	rows[#rows + 1] = {
+		label = "decided by",
+		value = scene_draw.debug_result and "the gpu (r_scene_draw_debug)" or "the cpu (set r_scene_draw_debug to see the gpu's)",
+		color = scene_draw.debug_result and nil or "dim",
+	}
 	rows[#rows + 1] = {label = "submitted visuals", value = counts.submitted .. " / " .. counts.total}
 	rows[#rows + 1] = {label = "culled visuals", value = tostring(counts.culled), color = "warn"}
 	rows[#rows + 1] = {label = "occlusion managed visuals", value = tostring(counts.conditional)}

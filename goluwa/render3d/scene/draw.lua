@@ -1,4 +1,8 @@
 local ffi = require("ffi")
+local vk = import("goluwa/bindings/vk.lua")
+local event = import("goluwa/event.lua")
+local pvars = import("goluwa/cli/pvars.lua")
+local render_stats = import("goluwa/render/stats.lua")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
@@ -9,6 +13,8 @@ local index_pool = import("goluwa/render3d/index_pool.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local store = import("goluwa/render3d/scene/store.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local render3d
 local draw = {}
 -- the main view drawn from the scene store: one pass writes an indexed indirect draw for every row that is in view, the
 -- world matrices and the previous ones of its instance, and the gbuffer's multi draw pipelines draw them, with a record
@@ -125,7 +131,7 @@ function create_cull_pipeline()
 			block.culling_enabled = state.culling and 1 or 0
 			block.occlusion_enabled = state.occlusion_max_mip and 1 or 0
 			block.occlusion_max_mip = state.occlusion_max_mip or 0
-			block.occlusion_depth_bias = 0.0
+			block.occlusion_depth_bias = 0.0015
 			return block
 		end,
 		custom_declarations = [[
@@ -325,6 +331,8 @@ function create_cull_pipeline()
 							if (projected_radius_px * 2.0 < 1.0) return;
 						}
 					}
+
+					if (!inside && is_occluded(raster)) return;
 				}
 
 				float fade = 0.0;
@@ -383,7 +391,7 @@ local function ensure_buffers(kind, capacity)
 	end
 
 	capacity = math.ceil(capacity * 1.5)
-	local usage = {"storage_buffer", "shader_device_address", "indirect_buffer", "transfer_dst"}
+	local usage = {"storage_buffer", "shader_device_address", "indirect_buffer", "transfer_dst", "transfer_src"}
 	local name = kind == 0 and "scene_draw" or "scene_draw_translucent"
 	buffers = {
 		capacity = capacity,
@@ -559,6 +567,8 @@ function draw.DrawTranslucent(gbuffer_instancing, pipeline)
 	local buffers = buffer_sets[1]
 	local cmd = render.GetCommandBuffer()
 	local group_size = buffers.capacity * COMMAND_SIZE
+	render3d = render3d or import("goluwa/render3d/render3d.lua")
+	gpu_timing.SetInfo(render3d.translucent_scope, "store_slots", frame_state.counts[1])
 	local batch_table = batch_tables[pipeline]
 
 	if not batch_table then
@@ -792,7 +802,7 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	if buffers.capacity < count then
 		draw.RemoveShadowBuffers(buffers)
 		buffers.capacity = math.ceil(count * 1.5)
-		local usage = {"storage_buffer", "shader_device_address", "indirect_buffer"}
+		local usage = {"storage_buffer", "shader_device_address", "indirect_buffer", "transfer_src"}
 		buffers.commands = render.CreateBuffer{
 			byte_size = buffers.capacity * SHADOW_COMMAND_SIZE,
 			buffer_usage = usage,
@@ -859,6 +869,146 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	}
 	return count
 end
+
+-- what the culling decided, read back to the host. these stall until the gpu is done, they are for the tests and the debug
+-- mode (r_scene_draw_debug) and are never called in a frame otherwise
+do
+	local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
+
+	local function download(buffer, size)
+		local readback = render.CreateBuffer{
+			byte_size = size,
+			buffer_usage = {"transfer_dst"},
+			memory_property = {"host_visible", "host_coherent", "host_cached"},
+			label = "scene_draw readback",
+		}
+		local copy = BufferCopy()
+		copy[0].size = size
+		local cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd.gpu_timing_disabled = true
+		cmd:Begin()
+		cmd:PipelineBarrier{
+			srcStage = {"compute", "transfer"},
+			dstStage = "transfer",
+			bufferBarriers = {{buffer = buffer, srcAccessMask = "shader_write", dstAccessMask = "transfer_read"}},
+		}
+		cmd:CopyBuffer(buffer, readback, copy, 1)
+		cmd:End()
+		render.SubmitAndWait(cmd)
+		cmd:Remove()
+		local out = ffi.new("uint8_t[?]", size)
+		ffi.copy(out, readback:Map(), size)
+		readback:Remove()
+		return out
+	end
+
+	function draw.GetRowId(slot)
+		return slot_rows:Get()[slot]
+	end
+
+	-- the rows the last cull of kind (0 the gbuffer, 1 the translucent passes) draws: {by_id = {[id] = {slot, group, fade,
+	-- world = 12 floats}}, count, slots}
+	function draw.ReadBackCull(kind)
+		kind = kind or 0
+		local result = {by_id = {}, count = 0, slots = frame_state.counts[kind]}
+		local buffers = buffer_sets[kind]
+
+		if not buffers or result.slots == 0 then return result end
+
+		local capacity = buffers.capacity
+		local commands = ffi.cast("uint32_t *", download(buffers.commands, capacity * GROUPS * COMMAND_SIZE))
+		local worlds = ffi.cast("float *", download(buffers.worlds, result.slots * 64))
+		local ids = slot_rows:Get()
+
+		for group = 0, GROUPS - 1 do
+			for slot = 0, result.slots - 1 do
+				local command = commands + (group * capacity + slot) * (COMMAND_SIZE / 4)
+
+				if command[1] ~= 0 then
+					local id = ids[slot]
+					local world = {}
+					local fade = worlds[slot * 16 + 3]
+
+					for i = 0, 11 do
+						world[i + 1] = worlds[slot * 16 + (i % 4) * 4 + math.floor(i / 4)]
+					end
+
+					result.by_id[id] = {slot = slot, group = group, fade = fade, world = world, index_count = command[0], first_index = command[2]}
+					result.count = result.count + 1
+				end
+			end
+		end
+
+		return result
+	end
+
+	-- the same for a shadow cascade's buffers (draw.CullShadow), count is what CullShadow returned
+	function draw.ReadBackShadowCull(buffers, count)
+		local result = {by_id = {}, count = 0, slots = count or 0}
+
+		if not buffers.commands or result.slots == 0 then return result end
+
+		local commands = ffi.cast("uint32_t *", download(buffers.commands, result.slots * SHADOW_COMMAND_SIZE))
+		local ids = slot_rows:Get()
+
+		for slot = 0, result.slots - 1 do
+			if commands[slot * 4 + 1] ~= 0 then
+				result.by_id[ids[slot]] = {slot = slot, index_count = commands[slot * 4]}
+				result.count = result.count + 1
+			end
+		end
+
+		return result
+	end
+end
+
+pvars.StartGroup("Rendering", "Scene draw", {store = false})
+local debug_mode = pvars.Setup2{
+	key = "r_scene_draw_debug",
+	default = false,
+	help = "reads the main view's culling back about once a second (a stall) and keeps what it drew in draw.debug_result, the culling debug boxes and the stats show it",
+}
+pvars.EndGroup()
+draw.debug_result = nil
+
+event.AddListener("Update", "scene_draw_debug", function()
+	if not debug_mode:Get() or system.GetFrameNumber() % 30 ~= 0 or frame_state.frame < 0 then return end
+
+	local opaque = draw.ReadBackCull(0)
+	local translucent = draw.ReadBackCull(1)
+	draw.debug_result = {
+		frame = frame_state.frame,
+		opaque = opaque,
+		translucent = translucent,
+		slots = frame_state.counts[0],
+	}
+end)
+
+render_stats.RegisterGroup{id = "render3d_scene_draw", label = "RENDER3D SCENE DRAW"}
+render_stats.RegisterField{
+	id = "r3d_scene_draw_rows",
+	label = "R3D CULL ROWS",
+	group = "render3d_scene_draw",
+	getter = function()
+		return draw.debug_result and draw.debug_result.slots or 0
+	end,
+}
+render_stats.RegisterField{
+	id = "r3d_scene_draw_visible",
+	label = "R3D CULL VISIBLE",
+	group = "render3d_scene_draw",
+	getter = function()
+		return draw.debug_result and draw.debug_result.opaque.count or 0
+	end,
+}
+render_stats.RegisterField{
+	id = "r3d_scene_draw_translucent",
+	label = "R3D CULL TRANSLUCENT",
+	group = "render3d_scene_draw",
+	getter = function()
+		return draw.debug_result and draw.debug_result.translucent.count or 0
+	end,
+}
 
 function draw.GetRows()
 	return rows, draw.serial
