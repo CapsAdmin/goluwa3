@@ -1,6 +1,6 @@
 # The ray traced scene (`goluwa/render3d/scene/`)
 
-What GI, reflections, glass, fog, light occlusion and particle collision trace against. It replaced the scene bvh and its triangle soup on 2026-10-18 (branch `gpu-scene-phase0`, plan in `tmp/gpu_scene_rewrite.md`). The raster side (culling, drawing, shadow maps) is still `gpu_culling.lua`, `visual.lua` and `shadow_map.lua`, it does not read this store yet.
+What GI, reflections, glass, fog, light occlusion and particle collision trace against. It replaced the scene bvh and its triangle soup on 2026-10-18 (branch `gpu-scene-phase0`, plan in `tmp/gpu_scene_rewrite.md`). The main view's culling and drawing are still `gpu_culling.lua` and `visual.lua`, only the far shadow cascades read this store.
 
 ## How it fits together
 
@@ -26,7 +26,7 @@ Without ray queries nothing is built (`ray_tracing_supported`): no DDGI trace, l
 - The ray payload size of DDGI's pipeline has to be the size of `Payload` (`max_ray_payload_size` 16), a bigger payload than declared is a device lost, not a validation error.
 - The bottom level structure is built from the mesh's buffers, so a mesh whose vertices change in place needs `dynamic` and something that says when (`skinning.updated`), nothing else refits.
 - A visual with `InSceneBVH = false` (the name is old) is not in the scene. `RaysOnly` visuals are in the scene and in no draw.
-- Shadow maps draw the real scene in every cascade now (the soup raster is gone), far cascades cost what they did before the soup existed. The next step is drawing shadows from this store.
+- **Shadows** (`ShadowMap:CullInstances` / `DrawInstances`, `instance_cascade_from`, 2 by default): from that cascade on a directional shadow map draws the instances of the store instead of the visuals. A compute pass writes one `VkDrawIndirectCommand` per row (the mesh once, `firstInstance` = the row) for rows that rays see, do not have `FLAG_NO_SHADOW` / `FLAG_BILLBOARD` / `FLAG_PRODUCED` and whose sphere is in the cascade's sides and far plane, the pipeline pulls vertices by address (push constants, no descriptors besides the bindless textures) and alpha tests from a material table (`InstanceShadowMaterial`). Producer rows (scatter) are not drawn, scatter draws its own lists. Visuals with `InSceneBVH = false` (terrain's real tiles) are still drawn as visuals in those cascades. The sphere is the visual's (level 0), a visual whose coarse level is much bigger than level 0 can be cut early.
 
 ## Measuring
 

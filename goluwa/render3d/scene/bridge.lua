@@ -195,6 +195,12 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 			if hidden then mask = 0 end
 
+			if not visual.CastShadows or material:GetRayShadowOpacity() < 0.5 then
+				flags = flags + instances.FLAG_NO_SHADOW
+			end
+
+			if entry.lod_billboard then flags = flags + instances.FLAG_BILLBOARD end
+
 			if item and item.mesh_row == mesh_row then
 				if item.matrix ~= matrix then
 					instances.SetMatrix(item.id, matrix)

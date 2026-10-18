@@ -53,8 +53,10 @@ end
 
 -- declarations, the triangle of a hit in world space and its uvs. a triangle's normal is the normalized cross product
 -- of its edges (the winding of the mesh), its material the row of the instance's material
-function hit.GetGLSL(binding)
-	return ([[
+-- the structs of the tables and the functions that read a vertex of a mesh through them, for shaders that reach the
+-- tables by address instead of by binding
+function hit.GetCoreGLSL()
+	return [[
 		#extension GL_EXT_buffer_reference : require
 		#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
@@ -85,18 +87,6 @@ function hit.GetGLSL(binding)
 			uint64_t blas;
 		};
 
-		layout(scalar, set = 0, binding = %d) readonly buffer SceneMeshes {
-			scene_mesh scene_meshes[];
-		};
-
-		layout(scalar, set = 0, binding = %d) readonly buffer SceneInstances {
-			scene_instance_data scene_instances[];
-		};
-
-		layout(scalar, set = 0, binding = %d) readonly buffer SceneTLASInstances {
-			scene_tlas_instance scene_tlas_instances[];
-		};
-
 		layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer SceneVertexData { float v[]; };
 		layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer SceneIndexData { uint i[]; };
 
@@ -119,14 +109,6 @@ function hit.GetGLSL(binding)
 			vec3 blend;
 		};
 
-		uint scene_instance_material(uint instance) {
-			return scene_instances[instance].material_row;
-		}
-
-		uint scene_instance_flags(uint instance) {
-			return scene_instances[instance].flags;
-		}
-
 		uint scene_mesh_index(scene_mesh mesh, uint k) {
 			if ((mesh.flags & 2u) == 0u) return k;
 
@@ -145,6 +127,31 @@ function hit.GetGLSL(binding)
 				dot(vec3(t.m[4], t.m[5], t.m[6]), p) + t.m[7],
 				dot(vec3(t.m[8], t.m[9], t.m[10]), p) + t.m[11]
 			);
+		}
+
+	]]
+end
+
+function hit.GetGLSL(binding)
+	return hit.GetCoreGLSL() .. ([[
+		layout(scalar, set = 0, binding = %d) readonly buffer SceneMeshes {
+			scene_mesh scene_meshes[];
+		};
+
+		layout(scalar, set = 0, binding = %d) readonly buffer SceneInstances {
+			scene_instance_data scene_instances[];
+		};
+
+		layout(scalar, set = 0, binding = %d) readonly buffer SceneTLASInstances {
+			scene_tlas_instance scene_tlas_instances[];
+		};
+
+		uint scene_instance_material(uint instance) {
+			return scene_instances[instance].material_row;
+		}
+
+		uint scene_instance_flags(uint instance) {
+			return scene_instances[instance].flags;
 		}
 
 		scene_triangle scene_hit_tri(uint instance, uint primitive) {

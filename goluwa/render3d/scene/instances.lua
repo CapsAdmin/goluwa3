@@ -36,6 +36,10 @@ instances.FLAG_NO_OPAQUE = 8
 instances.FLAG_REMOVED = 16
 -- the row is written by a pass of a producer, which the update pass leaves alone
 instances.FLAG_PRODUCED = 32
+-- the shadow maps leave an instance out, or a billboard (crossed quads would shadow themselves)
+instances.FLAG_NO_SHADOW = 64
+instances.FLAG_BILLBOARD = 128
+local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table
 instances.version = 0
@@ -175,6 +179,7 @@ end
 function instances.AllocRange(n)
 	instances.GetTables()
 	local base = tlas_table:AllocRange(n)
+	produced_ranges[base] = n
 	data_table:Reserve(tlas_table.capacity)
 	data_table.count = tlas_table.count
 	data_table.live = data_table.live + n
@@ -183,6 +188,7 @@ function instances.AllocRange(n)
 end
 
 function instances.FreeRange(base, n)
+	produced_ranges[base] = nil
 	tlas_table:FreeRange(base, n)
 	data_table.live = data_table.live - n
 	instances.version = instances.version + 1
@@ -222,6 +228,37 @@ local producers = {}
 -- a producer writes the rows it owns on the gpu in the command buffer that builds the structure: fn(cmd)
 function instances.AddProducer(name, fn)
 	producers[name] = fn
+end
+
+-- the runs of rows between the ranges of producers, which are the rows of visuals: {first, count, first, count, ...}
+function instances.GetVisualRows()
+	local bases = {}
+
+	for base in pairs(produced_ranges) do
+		bases[#bases + 1] = base
+	end
+
+	table.sort(bases)
+	local runs = {}
+	local first = 0
+
+	for _, base in ipairs(bases) do
+		if base > first then
+			runs[#runs + 1] = first
+			runs[#runs + 1] = base - first
+		end
+
+		first = base + produced_ranges[base]
+	end
+
+	local top = tlas_table and tlas_table.count or 0
+
+	if top > first then
+		runs[#runs + 1] = first
+		runs[#runs + 1] = top - first
+	end
+
+	return runs
 end
 
 function instances.GetCount()

@@ -23,6 +23,11 @@ local Visual = import("goluwa/entities/components/visual.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local scene_hit = import("goluwa/render3d/scene/hit.lua")
+local scene_instances = import("goluwa/render3d/scene/instances.lua")
+local scene_meshes = import("goluwa/render3d/scene/meshes.lua")
+local scene_materials = import("goluwa/render3d/scene/materials.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 local DEFAULT_FORMAT = "d32_sfloat"
@@ -1191,6 +1196,418 @@ local function quickselect_depth_value(values, target_index)
 	return nil
 end
 
+-- shadows of the ray traced scene's instances (see docs/gpu-scene.md): one indirect draw per instance, the vertices pulled
+-- from the mesh tables by address, so a far cascade draws what the store holds and not the visuals one by one. the
+-- commands of a cascade are written by a pass that tests the instances against its box, the level of detail is the one
+-- rays see
+local INSTANCE_SHADOW_LOCAL_SIZE = 64
+local InstanceShadowPush = ffi.typeof([[struct {
+	float light_space_matrix[16];
+	uint64_t tlas;
+	uint64_t data;
+	uint64_t meshes;
+	uint64_t materials;
+}]])
+local InstanceShadowMaterial = ffi.typeof([[struct {
+	float color_multiplier_a;
+	int32_t albedo_texture_index;
+	float cutoff;
+	uint32_t mode;
+	int32_t flags;
+	int32_t normal_texture_index;
+	float base_transform_u[4];
+	float base_transform_v[4];
+	float bump_transform_u[4];
+	float bump_transform_v[4];
+}]])
+local InstanceShadowMaterialPtr = ffi.typeof("$ *", InstanceShadowMaterial)
+local INSTANCE_MATERIAL_BYTES = ffi.sizeof(InstanceShadowMaterial)
+local INSTANCE_SHADOW_REFS = [[
+	#extension GL_EXT_scalar_block_layout : require
+	layout(buffer_reference, scalar) readonly buffer SceneMeshArray { scene_mesh m[]; };
+	layout(buffer_reference, scalar) readonly buffer SceneInstanceArray { scene_instance_data d[]; };
+	layout(buffer_reference, scalar) readonly buffer SceneTLASArray { scene_tlas_instance t[]; };
+]]
+local INSTANCE_SHADOW_VERTEX = [[
+	#version 460
+	#extension GL_EXT_nonuniform_qualifier : require
+	#extension GL_EXT_scalar_block_layout : require
+]] .. scene_hit.GetCoreGLSL() .. [[
+]] .. INSTANCE_SHADOW_REFS .. [[
+	layout(push_constant, scalar) uniform Constants {
+		mat4 light_space_matrix;
+		uint64_t tlas;
+		uint64_t data;
+		uint64_t meshes;
+		uint64_t materials;
+	} pc;
+
+	layout(location = 0) out vec2 out_uv;
+	layout(location = 1) flat out uint out_material;
+
+	void main() {
+		uint id = uint(gl_InstanceIndex);
+		scene_instance_data inst = SceneInstanceArray(pc.data).d[id];
+		scene_mesh mesh = SceneMeshArray(pc.meshes).m[inst.mesh_row];
+		scene_tlas_instance t = SceneTLASArray(pc.tlas).t[id];
+		SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
+		uint base = scene_mesh_index(mesh, uint(gl_VertexIndex)) * (mesh.vertex_stride / 4u);
+		gl_Position = pc.light_space_matrix * vec4(scene_hit_world(t, vertices, base), 1.0);
+		out_uv = vec2(vertices.v[base + 6u], vertices.v[base + 7u]);
+		out_material = inst.material_row;
+	}
+]]
+local INSTANCE_SHADOW_FRAGMENT = [[
+	#version 460
+	#extension GL_EXT_nonuniform_qualifier : require
+	#extension GL_EXT_scalar_block_layout : require
+	#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+	#extension GL_EXT_buffer_reference : require
+
+	layout(set = 1, binding = 0) uniform sampler2D textures[%d];
+
+	struct ShadowMaterial {
+		float color_multiplier_a;
+		int albedo_texture_index;
+		float cutoff;
+		uint mode;
+		int flags;
+		int normal_texture_index;
+		vec4 base_transform_u;
+		vec4 base_transform_v;
+		vec4 bump_transform_u;
+		vec4 bump_transform_v;
+	};
+
+	layout(buffer_reference, scalar) readonly buffer ShadowMaterials { ShadowMaterial m[]; };
+
+	layout(push_constant, scalar) uniform Constants {
+		mat4 light_space_matrix;
+		uint64_t tlas;
+		uint64_t data;
+		uint64_t meshes;
+		uint64_t materials;
+	} pc;
+
+	layout(location = 0) in vec2 in_uv;
+	layout(location = 1) flat in uint in_material;
+
+	ShadowMaterial material;
+]]
+local INSTANCE_SHADOW_FRAGMENT_MAIN = [[
+	void main() {
+		material = ShadowMaterials(pc.materials).m[in_material];
+
+		if (material.mode == 0u) return;
+
+		float alpha = get_alpha();
+
+		if (material.mode == 1u) {
+			if (alpha < material.cutoff) discard;
+		} else if (material.mode == 2u) {
+			if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > alpha) discard;
+		}
+	}
+]]
+
+local function create_instance_shadow_pipeline_variant(depth_format, max_shadow_width, max_shadow_height, bindless_texture_capacity)
+	return render.CreateGraphicsPipeline(
+		build_shadow_pipeline_config(
+			depth_format,
+			max_shadow_width,
+			max_shadow_height,
+			{
+				{
+					type = "vertex",
+					code = INSTANCE_SHADOW_VERTEX,
+					push_constants = {size = ffi.sizeof(InstanceShadowPush), offset = 0},
+				},
+				{
+					type = "fragment",
+					code = INSTANCE_SHADOW_FRAGMENT:format(bindless_texture_capacity) .. Material.BuildGlslFlags("material.flags") .. build_shadow_alpha_glsl("material") .. INSTANCE_SHADOW_FRAGMENT_MAIN,
+					descriptor_sets = {
+						{
+							type = "combined_image_sampler",
+							binding_index = 0,
+							count = bindless_texture_capacity,
+							set_index = 1,
+						},
+					},
+					push_constants = {size = ffi.sizeof(InstanceShadowPush), offset = 0},
+				},
+			},
+			"triangle_list",
+			nil,
+			nil
+		)
+	)
+end
+
+local function create_instance_material_table(capacity)
+	local buffer = render.CreateBuffer{
+		byte_size = capacity * INSTANCE_MATERIAL_BYTES,
+		buffer_usage = {"storage_buffer", "shader_device_address"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "shadow_map.instance_materials",
+	}
+	return {
+		buffer = buffer,
+		ptr = ffi.cast(InstanceShadowMaterialPtr, buffer:Map()),
+		capacity = capacity,
+		filled = 0,
+		full_generation = -1,
+		stamp = 0,
+	}
+end
+
+-- the shadow side of the material rows, with the texture indices of the pipeline that reads them
+local function update_instance_material_table(pipeline, table_state)
+	local materials = scene_materials.list
+	local count = #materials
+	local full = table_state.full_generation ~= Material.shadow_full_generation
+
+	if count > table_state.capacity then
+		local grown = create_instance_material_table(math.max(count, math.ceil(table_state.capacity * 1.5)))
+		ffi.copy(grown.ptr, table_state.ptr, table_state.filled * INSTANCE_MATERIAL_BYTES)
+		grown.filled = table_state.filled
+		render.GetDevice():WaitIdle()
+		table_state.buffer:Remove()
+		table_state.buffer = grown.buffer
+		table_state.ptr = grown.ptr
+		table_state.capacity = grown.capacity
+		table_state.address = nil
+	end
+
+	local stamp = table_state.stamp
+	local filled = table_state.filled
+
+	for i = 0, count - 1 do
+		local material = materials[i + 1]
+
+		if full or i >= filled or (material.shadow_stamp or 0) > stamp then
+			local entry = table_state.ptr[i]
+			local texture = material:HasShadowTexture() and material:GetAlbedoTexture() or nil
+			entry.color_multiplier_a = material:GetShadowOpacity()
+			entry.albedo_texture_index = texture and pipeline:GetTextureIndex(texture) or -1
+			entry.flags = material:GetShadowFlags()
+			write_shadow_uv_data(entry, material, pipeline:GetTextureIndex(material:GetNormalTexture()))
+			entry.cutoff = material:GetAlphaCutoff()
+			entry.mode = material:GetAlphaTest() and
+				1 or
+				(
+					bit.band(material:GetShadowFlags(), Material.FlagBits.Translucent) ~= 0 and
+					2 or
+					0
+				)
+		end
+	end
+
+	table_state.filled = count
+	table_state.full_generation = Material.shadow_full_generation
+	table_state.stamp = Material.shadow_stamp
+	table_state.address = table_state.address or table_state.buffer:GetDeviceAddress()
+end
+
+local instance_cull_pipeline
+
+-- writes the draw of every instance of a cascade: the whole mesh once when the instance is seen by rays, casts shadows,
+-- and its sphere is in the box of the cascade (the sides and the far plane of it, what is between the light and the box
+-- casts into it)
+local function get_instance_cull_pipeline()
+	if instance_cull_pipeline then return instance_cull_pipeline end
+
+	instance_cull_pipeline = EasyPipeline.Compute{
+		name = "scene_shadow_cull",
+		DescriptorSetCount = 1,
+		LocalSize = {x = INSTANCE_SHADOW_LOCAL_SIZE, y = 1, z = 1},
+		block = {
+			{"planes", "vec4", 5},
+			{"tlas", "uint64_t"},
+			{"data", "uint64_t"},
+			{"meshes", "uint64_t"},
+			{"commands", "uint64_t"},
+			{"count", "int"},
+		},
+		write = function(self, block)
+			local state = self.cull_state
+
+			for i = 0, 4 do
+				for k = 0, 3 do
+					block.planes[i][k] = state.planes[i * 4 + k]
+				end
+			end
+
+			block.tlas = state.tlas
+			block.data = state.data
+			block.meshes = state.meshes
+			block.commands = state.commands
+			block.count = state.count
+			return block
+		end,
+		custom_declarations = [[
+			#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+			#extension GL_EXT_buffer_reference : require
+			#extension GL_EXT_scalar_block_layout : require
+
+			struct tlas_instance {
+				float m[12];
+				uint custom_and_mask;
+				uint flags;
+				uint64_t blas;
+			};
+
+			struct instance_data {
+				uint mesh_row;
+				uint material_row;
+				uint flags;
+				uint mask_lod;
+				vec4 bounds;
+				vec2 lod;
+				vec2 pad;
+			};
+
+			struct mesh_row {
+				uint64_t vertex_address;
+				uint64_t index_address;
+				uint64_t blas;
+				uint triangle_count;
+				uint vertex_stride;
+				uint flags;
+				uint pad;
+			};
+
+			layout(buffer_reference, scalar) readonly buffer TLASArray { tlas_instance t[]; };
+			layout(buffer_reference, scalar) readonly buffer DataArray { instance_data d[]; };
+			layout(buffer_reference, scalar) readonly buffer MeshArray { mesh_row m[]; };
+			layout(buffer_reference, scalar) writeonly buffer CommandArray { uvec4 c[]; };
+		]],
+		shader = [[
+			void main() {
+				uint id = gl_GlobalInvocationID.x;
+
+				if (id >= uint(compute.count)) return;
+
+				tlas_instance t = TLASArray(compute.tlas).t[id];
+				instance_data inst = DataArray(compute.data).d[id];
+				// removed 16, produced 32, no shadow 64, billboard 128
+				bool draw = t.blas != 0ul && (inst.flags & 240u) == 0u;
+				uint vertex_count = 0u;
+
+				if (draw) {
+					vec3 center = inst.bounds.xyz;
+					float radius = inst.bounds.w;
+
+					for (int i = 0; i < 5; i++) {
+						if (dot(compute.planes[i].xyz, center) + compute.planes[i].w < -radius) {
+							draw = false;
+							break;
+						}
+					}
+
+					vertex_count = MeshArray(compute.meshes).m[inst.mesh_row].triangle_count * 3u;
+				}
+
+				CommandArray(compute.commands).c[id] = uvec4(draw ? vertex_count : 0u, draw ? 1u : 0u, 0u, id);
+			}
+		]],
+	}
+	return instance_cull_pipeline
+end
+
+-- the cascades from this one on draw the instances of the ray traced scene, the others draw the visuals
+function ShadowMap:UsesInstances(cascade_index)
+	return self.mode ~= "point" and self.instance_cascade_from ~= nil and cascade_index >= self.instance_cascade_from
+end
+
+-- records the pass that writes the commands of a cascade, outside of its render pass
+function ShadowMap:CullInstances(cascade_index)
+	local cascade = self.cascade[cascade_index]
+	local tlas_table, data_table = scene_instances.GetTables()
+	local count = tlas_table.count
+
+	if count == 0 then
+		cascade.instance_commands_count = 0
+		return
+	end
+
+	if not cascade.instance_commands or cascade.instance_commands_capacity < count then
+		if cascade.instance_commands then cascade.instance_commands:Remove() end
+
+		cascade.instance_commands_capacity = math.ceil(count * 1.5)
+		cascade.instance_commands = render.CreateBuffer{
+			byte_size = cascade.instance_commands_capacity * 16,
+			buffer_usage = {"storage_buffer", "indirect_buffer", "shader_device_address"},
+			memory_property = {"device_local"},
+			label = "shadow_map.instance_commands",
+		}
+		cascade.instance_commands_address = cascade.instance_commands:GetDeviceAddress()
+	end
+
+	local pipeline = get_instance_cull_pipeline()
+	local planes = cascade.frustum_planes
+	local state = pipeline.cull_state or {planes = {}}
+	pipeline.cull_state = state
+
+	-- the four sides and the far plane, not the plane the light looks out of
+	for i = 0, 3 do
+		for k = 0, 3 do
+			state.planes[i * 4 + k] = planes[i * 4 + k]
+		end
+	end
+
+	for k = 0, 3 do
+		state.planes[16 + k] = planes[20 + k]
+	end
+
+	state.tlas = tonumber(tlas_table:GetAddress())
+	state.data = tonumber(data_table:GetAddress())
+	state.meshes = tonumber(scene_meshes.GetTable():GetAddress())
+	state.commands = tonumber(cascade.instance_commands_address)
+	state.count = count
+	cascade.instance_commands_count = count
+	self.cmd:PipelineBarrier{srcStage = {"host", "compute"}, dstStage = "compute", memoryBarrier = true}
+	pipeline:Dispatch(self.cmd, math.ceil(count / INSTANCE_SHADOW_LOCAL_SIZE), 1, 1, 1)
+	self.cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = "draw_indirect",
+		memoryBarrier = true,
+	}
+end
+
+-- draws what CullInstances wrote, in the render pass of the cascade
+function ShadowMap:DrawInstances(cascade_index)
+	local cascade = self.cascade[cascade_index]
+
+	if not cascade.instance_commands or cascade.instance_commands_count == 0 then return end
+
+	local variants = self.instance_pipeline_variants
+	local pipeline = variants[cascade.format]
+	local table_state = self.instance_material_tables[cascade.format]
+	update_instance_material_table(pipeline, table_state)
+	local tlas_table, data_table = scene_instances.GetTables()
+	local depth_texture = cascade.depth_texture
+	local push = self.instance_push
+	cascade.light_space_matrix:CopyToFloatPointer(push.light_space_matrix)
+	push.tlas = tlas_table:GetAddress()
+	push.data = data_table:GetAddress()
+	push.meshes = scene_meshes.GetTable():GetAddress()
+	push.materials = table_state.address
+	pipeline:Bind(self.cmd, render.GetCurrentFrame())
+	self.cmd:SetViewport(0.0, 0.0, depth_texture:GetWidth(), depth_texture:GetHeight(), 0.0, 1.0)
+	self.cmd:SetScissor(0, 0, depth_texture:GetWidth(), depth_texture:GetHeight())
+	self.cmd:SetFrontFace(orientation.FRONT_FACE)
+	self.cmd:SetCullMode("none")
+	pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, push)
+	local runs = scene_instances.GetVisualRows()
+
+	for i = 1, #runs, 2 do
+		local first = runs[i]
+		local run = math.min(runs[i + 1], cascade.instance_commands_count - first)
+
+		if run > 0 then self.cmd:DrawIndirect(cascade.instance_commands, first * 16, run, 16) end
+	end
+end
+
 local MAX_SHADOW_PASSES_PER_FRAME = 4
 local shadow_pass_budget_frame = -1
 local shadow_passes_used = 0
@@ -1512,6 +1929,10 @@ function ShadowMap.New(config)
 		self.pipeline_variants = {}
 		self.instanced_pipeline_variants = {}
 		self.multi_draw_pipeline_variants = {}
+		self.instance_cascade_from = config.instance_cascade_from or 2
+		self.instance_pipeline_variants = {}
+		self.instance_material_tables = {}
+		self.instance_push = InstanceShadowPush()
 
 		for depth_format in pairs(unique_formats) do
 			self.pipeline_variants[depth_format] = create_shadow_pipeline_variant(
@@ -1540,6 +1961,13 @@ function ShadowMap.New(config)
 				false,
 				nil
 			)
+			self.instance_pipeline_variants[depth_format] = create_instance_shadow_pipeline_variant(
+				depth_format,
+				max_shadow_width,
+				max_shadow_height,
+				bindless_texture_capacity
+			)
+			self.instance_material_tables[depth_format] = create_instance_material_table(256)
 		end
 
 		self.pipeline = self.pipeline_variants[self.format]
@@ -1568,6 +1996,10 @@ function ShadowMap:OnRemove()
 	end
 
 	self.instance_batcher:Remove()
+
+	for _, table_state in pairs(self.instance_material_tables or {}) do
+		table_state.buffer:Remove()
+	end
 
 	for i, map in ipairs(active_maps) do
 		if map == self then
@@ -1979,6 +2411,12 @@ end
 local function record_shadow_draw_cull(self, cascade_index)
 	local cascade = self.cascade[cascade_index]
 	cascade.gpu_draw_cull_result = nil
+
+	if self:UsesInstances(cascade_index) then
+		self:CullInstances(cascade_index)
+
+		return
+	end
 
 	if not gpu_culling.IsEnabled() or not gpu_culling.GetSceneDataset() then
 		return

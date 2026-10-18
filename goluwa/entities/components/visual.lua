@@ -3800,8 +3800,24 @@ function Visual:OnFirstCreated()
 		}
 	end)
 
+	local tile_casters = {}
+
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
 		reset_shadow_draw_calls(shadow_map, cascade_idx)
+
+		if shadow_map:UsesInstances(cascade_idx) then
+			shadow_map:DrawInstances(cascade_idx)
+			table.clear(tile_casters)
+
+			-- what is not in the ray traced scene is drawn as it is
+			for _, component in ipairs(visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)) do
+				if not component.InSceneBVH then tile_casters[#tile_casters + 1] = component end
+			end
+
+			if tile_casters[1] then shadow_map:DrawVisibleComponents(tile_casters, cascade_idx, false) end
+
+			return
+		end
 
 		if gpu_culling.IsEnabled() then
 			local track_shadow_debug = visual.shadow_debug_filter ~= nil
