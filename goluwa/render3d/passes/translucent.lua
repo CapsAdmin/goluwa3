@@ -222,6 +222,7 @@ local passes = {
 			if render3d.translucent_depth_far == 0 then return end
 
 			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
+			render3d.translucent_scope = "translucent_moments"
 			render3d.translucent_multi_draw_pipeline = render3d.pipelines.translucent_moments_surface_multi_draw
 			event.Call("Draw3DTranslucent")
 
@@ -296,6 +297,7 @@ local passes = {
 			if render3d.translucent_depth_far == 0 then return end
 
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
+			render3d.translucent_scope = "translucent_accumulate"
 			render3d.translucent_multi_draw_pipeline = render3d.pipelines.translucent_surface_multi_draw
 			event.Call("Draw3DTranslucent")
 

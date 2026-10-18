@@ -14,6 +14,7 @@ local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local scene_bridge = import("goluwa/render3d/scene/bridge.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local lod = import("goluwa/render3d/lod.lua")
@@ -2661,6 +2662,9 @@ function Visual:OnFirstCreated()
 			if multi_draw_pipeline then
 				scene_draw.DrawTranslucent(gbuffer_instancing, multi_draw_pipeline)
 			end
+
+			gpu_timing.SetInfo(render3d.translucent_scope, "cpu_draws", draw_count)
+			gpu_timing.SetInfo(render3d.translucent_scope, "components", #visual.translucent_components)
 
 			for i = 1, draw_count do
 				local polygon3d = draw_entries[i].polygon3d

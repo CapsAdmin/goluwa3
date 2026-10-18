@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local event = import("goluwa/event.lua")
 local QueryPool = import("goluwa/render/vulkan/internal/query_pool.lua")
 local gpu_timing = {}
 local serialized = os.getenv("GOLUWA_GPU_SERIALIZE") == "1"
@@ -324,6 +325,77 @@ end
 
 function gpu_timing.IsSerialized()
 	return serialized
+end
+
+-- what a scope worked on in the last frame it was recorded (rays dispatched, rows drawn, pixels), set by the pass that
+-- knows, so a time can be read as a time per unit of work
+do
+	local infos = {}
+
+	function gpu_timing.SetInfo(name, key, value)
+		local info = infos[name]
+
+		if not info then
+			info = {}
+			infos[name] = info
+		end
+
+		info[key] = value
+	end
+
+	function gpu_timing.GetInfo(name)
+		return infos[name]
+	end
+
+	local capture
+
+	-- averages the scopes over the frames between BeginCapture and EndCapture
+	function gpu_timing.BeginCapture()
+		capture = {frames = 0, sums = {}}
+	end
+
+	event.AddListener("Update", "gpu_timing_capture", function()
+		if not capture then return end
+
+		capture.frames = capture.frames + 1
+
+		for _, name in ipairs(slot_order) do
+			capture.sums[name] = (capture.sums[name] or 0) + (last_ms[name] or 0)
+		end
+	end)
+
+	-- {frame_ms, frames, scopes = {{name, ms, share, info}}, groups = {{id, label, ms, share}}}, largest first
+	function gpu_timing.EndCapture()
+		local frames = math.max(capture.frames, 1)
+		local frame_ms = (capture.sums.gpu_frame or 0) / frames
+		local result = {frame_ms = frame_ms, frames = capture.frames, scopes = {}, groups = {}}
+		local by_name = {}
+
+		for name, sum in pairs(capture.sums) do
+			local entry = {name = name, ms = sum / frames, share = frame_ms > 0 and sum / frames / frame_ms or 0, info = infos[name]}
+			result.scopes[#result.scopes + 1] = entry
+			by_name[name] = entry
+		end
+
+		for _, group in ipairs(gpu_timing.GetGroups()) do
+			local ms = 0
+
+			for _, name in ipairs(group.scopes) do
+				ms = ms + (by_name[name] and by_name[name].ms or 0)
+			end
+
+			result.groups[#result.groups + 1] = {id = group.id, label = group.label, ms = ms, share = frame_ms > 0 and ms / frame_ms or 0}
+		end
+
+		local function larger(a, b)
+			return a.ms > b.ms
+		end
+
+		table.sort(result.scopes, larger)
+		table.sort(result.groups, larger)
+		capture = nil
+		return result
+	end
 end
 
 get_slot(TOTAL_NAME)

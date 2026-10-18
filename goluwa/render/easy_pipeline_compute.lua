@@ -555,7 +555,10 @@ do
 
 		local timing_name = self.name
 
-		if timing_name then gpu_timing.BeginScope(cmd, timing_name) end
+		if timing_name then
+			gpu_timing.BeginScope(cmd, timing_name)
+			gpu_timing.SetInfo(timing_name, "pixels", fb.width * fb.height)
+		end
 
 		render.PushCommandBuffer(cmd)
 		local current_frame_index = render.GetCurrentFrame() or frame_index or 1
