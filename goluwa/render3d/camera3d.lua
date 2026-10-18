@@ -43,6 +43,8 @@ do
 			projection:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
 		end
 
+		projection:ReverseDepth()
+
 		self.UnjitteredProjectionMatrix = projection
 		self.JitterMatrix = Matrix44():Translate(self.Jitter.x * 2 / self.Viewport.w, self.Jitter.y * 2 / self.Viewport.h, 0)
 		self.ProjectionMatrix = projection:GetMultiplied(self.JitterMatrix)
@@ -235,8 +237,8 @@ do
 		local ndc_y = ((screen_pos.y - viewport_y) / viewport_height) * 2 - 1
 		self:BuildViewMatrix():GetMultiplied(self:BuildProjectionMatrix(), world_to_screen_matrix)
 		world_to_screen_matrix:GetInverse(screen_to_world_inverse)
-		local near_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 0, screen_to_world_near)
-		local far_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 1, screen_to_world_far)
+		local near_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 1, screen_to_world_near)
+		local far_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 0, screen_to_world_far)
 		return Vec3(far_pos.m00 - near_pos.m00, far_pos.m01 - near_pos.m01, far_pos.m02 - near_pos.m02):GetNormalized()
 	end
 end

@@ -338,7 +338,7 @@ return {
 					float z_ray = mix(q0, q1, t) / mix(k0, k1, t);
 					float depth = fetch_depth(uv);
 
-					if (depth < 1.0) {
+					if (depth > 0.0) {
 						float z_surf = linearize_depth(uv, depth);
 
 						if (z_ray < z_surf) {
@@ -355,7 +355,7 @@ return {
 									vec2 uv_mid = mix(p0, p1, t_mid);
 									float z_mid = mix(q0, q1, t_mid) / mix(k0, k1, t_mid);
 									float depth_mid = fetch_depth(uv_mid);
-									float z_surf_mid = depth_mid < 1.0 ? linearize_depth(uv_mid, depth_mid) : -1e30;
+									float z_surf_mid = depth_mid > 0.0 ? linearize_depth(uv_mid, depth_mid) : -1e30;
 
 									if (z_mid < z_surf_mid) {
 										t_hi = t_mid;
@@ -536,7 +536,7 @@ return {
 				float roughness = 1.0;
 				float view_depth = 0.0;
 
-				if (depth < 1.0) {
+				if (depth > 0.0) {
 					N = gbuffer_normal(gbuffer_pos);
 					// the gbuffer stores ggx alpha
 					roughness = sqrt(gbuffer_roughness(gbuffer_pos));
@@ -623,7 +623,7 @@ return {
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
 				float depth = gbuffer_depth(gbuffer_pos);
 
-				if (depth >= 1.0) {
+				if (depth <= 0.0) {
 					imageStore(out_reflection, pos, vec4(0.0));
 					imageStore(out_reflection_depth, pos, vec4(0.0));
 					return;
@@ -687,7 +687,7 @@ return {
 					ivec2 sample_gbuffer_pos = min(get_reflection_gbuffer_pos(sample_pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
 					float sample_gbuffer_depth = gbuffer_depth(sample_gbuffer_pos);
 
-					if (sample_gbuffer_depth >= 1.0) continue;
+					if (sample_gbuffer_depth <= 0.0) continue;
 
 					// how far the tap's surface is from the center's plane, a slope has no view depth step to cut it
 					vec3 sample_world = get_world_pos((vec2(sample_gbuffer_pos) + 0.5) / vec2(gbuffer_size), sample_gbuffer_depth);

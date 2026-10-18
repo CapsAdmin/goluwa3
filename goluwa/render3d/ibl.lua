@@ -268,7 +268,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				ivec2 pixel = clamp(ivec2(uv * vec2(gbuffer_size)), ivec2(0), gbuffer_size - 1);
 				float center_depth = gbuffer_depth(pixel);
 
-				if (center_depth >= 1.0) return vec4(0.0);
+				if (center_depth <= 0.0) return vec4(0.0);
 
 				float center_view_depth = reconstruct_reflection_view_depth(uv, center_depth);
 				vec3 center_normal = gbuffer_normal(pixel);
@@ -287,7 +287,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 					ivec2 tap_pixel = get_reflection_gbuffer_pos(reflection_pos, ]] .. uniform_name .. [[.reflection_phase, gbuffer_size, reflection_size);
 					float tap_depth = gbuffer_depth(tap_pixel);
 
-					if (tap_depth >= 1.0) continue;
+					if (tap_depth <= 0.0) continue;
 
 					vec2 tap_uv = (vec2(tap_pixel) + 0.5) / vec2(gbuffer_size);
 					float tap_view_depth = reconstruct_reflection_view_depth(tap_uv, tap_depth);

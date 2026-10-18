@@ -334,3 +334,12 @@ Vulkan mip sizes are `floor(dim / 2^m)`, so for 1920x1080 mip 10 is 1x1 and the 
 
 **Why:** the visibility of a moving entry may be a frame or two late (a pop at the screen edge), its position must not be.
 **How to apply:** when something moves relative to what draws next to it, compare it with `gpu_culling.SetAsyncMainViewEnabled(false)` and `SetEnabled(false)` first. Repro: a `shapes.Box` with a dynamic body (`GravityScale = 0`, velocity set in `PhysicsUpdate`) and two children, one `Translucent`, a fixed `View` at 60 m with a narrow FOV, `Screenshot` at the speed peak and measure the box edges per row. TAA still leaves about 2 px between them (history), `r_aa` none is 0. 1000 moving boxes did not measure differently with the fix (22-33 ms vs 30-43 ms, noise is larger than the effect, unrepeated). Related: [Velocity of GPU-culled instances](#velocity-of-gpu-culled-instances), [Async cull results were dropped](#async-cull-results-were-dropped)
+
+## Reverse-Z depth
+
+The camera projection is reverse-Z (2026-10-18): `Camera3D:BuildProjectionMatrix` applies `Matrix44:ReverseDepth()` (`z' = w - z`) to perspective and ortho alike, so near maps to 1 and far to 0 in the `d32_sfloat` depth. The gbuffer clears depth to 0 (`DepthClear = 0.0`, framebuffer `depth_clear`) and every depth-testing 3D pipeline uses `greater_or_equal`. Far terrain stopped z-fighting.
+
+- The sky is `depth == 0`, not 1. `depth <= 0.0` means sky, `depth > 0.0` means a surface. "Further" is a smaller depth, so min and max swap (Hi-Z reduce in `gpu_culling.lua` keeps the min, the froxel tile depth keeps the min, TAA's closest neighbour is the max).
+- Anything that rebuilds a ray from `inv_projection` with depth 0 and 1 as near and far has them swapped: `get_view_ray` did this and flipped the ocean's rays until it was fixed.
+- Absolute depth tolerances are now relative: a reversed depth near the far plane is tiny, so `+ 4e-7` in `get_geometric_normal` is `4e-7 * depth` and the Hi-Z bias is a fraction of the sampled depth.
+- Shadow maps keep their own standard-Z projections (`Matrix44:Perspective`/`Ortho` are unchanged, only the camera reverses). The forward overlay draws into the swapchain, which is still cleared to 1 (Love uses it), so it flips its matrix back.

@@ -909,7 +909,7 @@ function envprobe.CreatePipelines()
 
 					float depth = texture(TEXTURE(probe_depth_data.depth_tex), in_uv).r;
 
-					if (depth >= 0.999999) {
+					if (depth <= 0.0) {
 						set_linear_depth(1000.0);
 						return;
 					}

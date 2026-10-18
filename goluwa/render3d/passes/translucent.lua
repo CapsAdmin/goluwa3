@@ -270,7 +270,7 @@ local passes = {
 		color_blend = {attachments = {{}, translucent_moments.ADDITIVE}},
 		DepthTest = true,
 		DepthWrite = false,
-		DepthCompareOp = "less_or_equal",
+		DepthCompareOp = "greater_or_equal",
 	},
 	{
 		name = "translucent_accumulate",
@@ -371,7 +371,7 @@ local passes = {
 				// normal, and only stands in where there are no probes
 				vec3 get_gi_irradiance(vec2 screen_uv, vec3 world_pos, vec3 facing_N, vec3 V, bool use_probes, out float sky_visibility) {
 					vec3 irradiance;
-					bool behind_is_sky = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r >= 1.0;
+					bool behind_is_sky = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r <= 0.0;
 
 					if (lighting_data.gi_screen_tex < 0 || behind_is_sky) {
 						sky_visibility = 1.0;
@@ -749,7 +749,7 @@ local passes = {
 							float surface_distance = distance(lighting_data.camera_position.xyz, exit_pos);
 							float reach = 2.0 * surface_distance;
 
-							if (scene_depth < 1.0) {
+							if (scene_depth > 0.0) {
 								vec3 scene_pos = get_scene_pos(screen_uv, scene_depth);
 								reach = 3.0 * max(distance(lighting_data.camera_position.xyz, scene_pos) - surface_distance, 0.0) + 0.5;
 							}
@@ -823,7 +823,7 @@ local passes = {
 		color_blend = {attachments = {{}, translucent_moments.ADDITIVE, translucent_moments.ADDITIVE, translucent_moments.MULTIPLY}},
 		DepthTest = true,
 		DepthWrite = false,
-		DepthCompareOp = "less_or_equal",
+		DepthCompareOp = "greater_or_equal",
 	},
 	{
 		name = "translucent_modulate",

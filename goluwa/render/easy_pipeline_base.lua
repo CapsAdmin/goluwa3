@@ -782,6 +782,7 @@ do
 					formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
 					depth = self.config.DepthFormat ~= nil and not self.config.ReadOnlyDepth,
 					depth_format = self.config.DepthFormat,
+					depth_clear = self.config.DepthClear,
 					read_only_depth = self.config.ReadOnlyDepth,
 					clear_colors = self.config.ClearColors,
 					mip_map_levels = self.config.mip_map_levels,

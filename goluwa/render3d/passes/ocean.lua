@@ -1671,7 +1671,7 @@ list.insert(
 
 					float depth = scene_depth_at(p.xy);
 
-					if (depth < 1.0 && p.z >= depth) {
+					if (depth > 0.0 && p.z <= depth) {
 						float near = previous;
 						float far = t;
 
@@ -1679,7 +1679,7 @@ list.insert(
 							float middle = (near + far) * 0.5;
 							vec3 pm = screen_refraction_project(origin + dir * middle);
 
-							if (pm.z >= scene_depth_at(pm.xy)) {
+							if (pm.z <= scene_depth_at(pm.xy)) {
 								far = middle;
 							} else {
 								near = middle;
@@ -1794,12 +1794,12 @@ list.insert(
 					vec2 uv = clamp(bent.xy, vec2(0.001), vec2(0.999));
 
 					// something in front of the water is where the shift lands
-					if (scene_depth_at(uv) >= screen_refraction_project(surface_pos).z) floor_uv = uv;
+					if (scene_depth_at(uv) <= screen_refraction_project(surface_pos).z) floor_uv = uv;
 				}
 
 				float depth = scene_depth_at(floor_uv);
 
-				if (depth >= 1.0) {
+				if (depth <= 0.0) {
 					path_len = volume_exit;
 					return w.volume >= 0 ? get_scene_color(floor_uv) : vec3(0.0);
 				}
@@ -1818,7 +1818,7 @@ list.insert(
 
 						if (projected.z > -1.0) {
 							vec2 uv = clamp(projected.xy, vec2(0.001), vec2(0.999));
-							if (scene_depth_at(uv) >= surface_depth) channel_uv = uv;
+							if (scene_depth_at(uv) <= surface_depth) channel_uv = uv;
 						}
 
 						behind[channel] = get_scene_color(channel_uv)[channel];
@@ -2075,7 +2075,7 @@ list.insert(
 
 						// only what the ray really met: where it stopped without meeting anything the screen
 						// holds something else
-						if (screen_refraction_trace(surface_pos, surface_pos, primary_dir, 200.0, jitter, uv, hit) && hit < 200.0 && scene_depth_at(uv) < 1.0) {
+						if (screen_refraction_trace(surface_pos, surface_pos, primary_dir, 200.0, jitter, uv, hit) && hit < 200.0 && scene_depth_at(uv) > 0.0) {
 							primary_above = get_scene_color(uv);
 							hit_scene = true;
 						}
@@ -2198,7 +2198,7 @@ list.insert(
 				float scene_t = 1e30;
 				float jitter = get_blue_noise();
 
-				if (scene_depth < 1.0) {
+				if (scene_depth > 0.0) {
 					scene_pos = get_world_pos(in_uv, scene_depth);
 					scene_t = dot(scene_pos - camera_origin, ray_dir);
 				}

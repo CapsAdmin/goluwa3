@@ -1052,7 +1052,7 @@ local function pass_probe_debug()
 				vec3 D = get_world_ray();
 				int c = min(ddgi_data.ddgi_debug_cascade, ddgi_data.ddgi_cascade_count - 1);
 				float spacing = ddgi_spacing(c);
-				float best = depth >= 1.0 ? 1e9 : length(get_world_pos(in_uv, depth) - O);
+				float best = depth <= 0.0 ? 1e9 : length(get_world_pos(in_uv, depth) - O);
 				float radius = spacing * 0.12;
 				// display units per absolute unit, the exposure the scene is shown with
 				float exposure = get_pre_exposure() * ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[;
@@ -1149,7 +1149,7 @@ local function pass_probe_debug()
 						}
 					}
 
-					if (best < 1e9 && (depth >= 1.0 || best < length(get_world_pos(in_uv, depth) - O) - 1e-4)) {
+					if (best < 1e9 && (depth <= 0.0 || best < length(get_world_pos(in_uv, depth) - O) - 1e-4)) {
 						result = vec4(hit_color * (0.8 * ddgi_data.ddgi_debug_scale / ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[), 1.0);
 					}
 				}
@@ -1385,7 +1385,7 @@ local function pass_resolve()
 					ivec2 pixel = min(ivec2(tap_uv * vec2(depth_size)), depth_size - 1);
 					float depth = gbuffer_depth(pixel);
 
-					if (depth >= 1.0) continue;
+					if (depth <= 0.0) continue;
 
 					vec2 uv = (vec2(pixel) + 0.5) / vec2(depth_size);
 					vec3 N = normalize(gbuffer_normal(pixel));

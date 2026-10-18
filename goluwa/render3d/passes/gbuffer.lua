@@ -49,6 +49,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		end,
 		ColorFormat = gbuffer_layout.color_format,
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
+		DepthClear = 0.0,
 		fragment = {
 			uniform_buffers = uniform_buffers,
 			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data") .. surface_weather.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
@@ -118,7 +119,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		ColorWriteMask = "rgba",
 		DepthTest = true,
 		DepthWrite = true,
-		DepthCompareOp = "less_or_equal",
+		DepthCompareOp = "greater_or_equal",
 		DepthBoundsTest = false,
 		StencilTest = false,
 		vertex = model_pipeline.CreateVertexStage{

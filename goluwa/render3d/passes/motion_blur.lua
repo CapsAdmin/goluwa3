@@ -85,13 +85,13 @@ return {
 				pixel = clamp(pixel, ivec2(0), size - 1);
 				vec2 motion;
 
-				if (depth < 1.0 && mb_data.velocity_tex != -1) {
+				if (depth > 0.0 && mb_data.velocity_tex != -1) {
 					motion = texelFetch(TEXTURE(mb_data.velocity_tex), pixel, 0).xy;
 				} else {
 					vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
 					vec4 prev_clip;
 
-					if (depth < 1.0) {
+					if (depth > 0.0) {
 						vec4 world_pos = mb_data.inv_view * vec4(get_view_pos(uv, depth), 1.0);
 						prev_clip = mb_data.prev_projection * mb_data.prev_view * vec4(world_pos.xyz, 1.0);
 					} else {

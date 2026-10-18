@@ -37,14 +37,14 @@ function screen_refraction.GetGLSL(block_name)
 
 			if (!screen_refraction_on_screen(uv)) return false;
 
-			return texture(TEXTURE(]] .. block_name .. [[.depth_tex), uv).r >= screen_refraction_project(surface_pos).z;
+			return texture(TEXTURE(]] .. block_name .. [[.depth_tex), uv).r <= screen_refraction_project(surface_pos).z;
 		}
 
 		// is the point at p (projected) behind the opaque scene, and is what it
 		// is behind itself behind the surface
 		bool screen_refraction_behind(vec3 p, float surface_depth) {
 			float scene_depth = texture(TEXTURE(]] .. block_name .. [[.depth_tex), p.xy).r;
-			return scene_depth >= surface_depth && p.z >= scene_depth;
+			return scene_depth <= surface_depth && p.z <= scene_depth;
 		}
 
 		// marches from origin along dir, in steps that grow towards
@@ -96,7 +96,7 @@ function screen_refraction.GetGLSL(block_name)
 			hit_distance = 1000.0;
 			uv = screen_refraction_project(origin + dir * hit_distance).xy;
 
-			if (screen_refraction_on_screen(uv) && texture(TEXTURE(]] .. block_name .. [[.depth_tex), uv).r >= 1.0) return true;
+			if (screen_refraction_on_screen(uv) && texture(TEXTURE(]] .. block_name .. [[.depth_tex), uv).r <= 0.0) return true;
 
 			hit_distance = max_distance;
 			uv = screen_refraction_project(origin + dir * hit_distance).xy;

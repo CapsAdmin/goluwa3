@@ -327,7 +327,7 @@ return {
 				float depth = gbuffer_depth(pixel);
 				float alpha = gbuffer_alpha(pixel);
 
-				if (depth == 1.0 || alpha == 0.0) {
+				if (depth == 0.0 || alpha == 0.0) {
 					set_color(vec3(0.0), 1.0, vec3(0.0), 0.0);
 					return;
 				}
@@ -554,7 +554,7 @@ return {
 
 				float depth = gbuffer_depth(pos);
 
-				if (depth == 1.0) {
+				if (depth == 0.0) {
 					set_color(vec4(0.0, 0.0, 0.0, 1.0), vec3(0.0));
 					return;
 				}

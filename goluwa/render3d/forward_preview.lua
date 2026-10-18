@@ -130,7 +130,7 @@ local function create_preview_pipeline()
 		FrontFace = orientation.FRONT_FACE,
 		DepthTest = true,
 		DepthWrite = true,
-		DepthCompareOp = "less_or_equal",
+		DepthCompareOp = "greater_or_equal",
 		Blend = true,
 		SrcColorBlendFactor = "src_alpha",
 		DstColorBlendFactor = "one_minus_src_alpha",
@@ -187,6 +187,7 @@ function META:EnsureFramebuffer()
 		height = self:GetHeight(),
 		format = "r8g8b8a8_srgb",
 		depth = true,
+		depth_clear = 0.0,
 		clear_color = DEFAULT_CLEAR_COLOR,
 	}
 	return self.framebuffer

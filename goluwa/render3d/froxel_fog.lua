@@ -136,7 +136,7 @@ function froxel_fog.GetPointGLSL(block)
 		// view depth of the surface seen through uv, the ocean's included
 		float froxel_surface_depth(vec2 uv) {
 			float depth = textureLod(TEXTURE(]] .. block .. [[.depth_tex), uv, 0.0).r;
-			float view_depth = depth < 1.0 ? get_view_depth(uv, depth) : 1e30;
+			float view_depth = depth > 0.0 ? get_view_depth(uv, depth) : 1e30;
 			// where the air ends at the water, 0 with the camera in it
 			float air_distance = ]] .. block .. [[.ocean_distance_tex != -1 ? textureLod(TEXTURE(]] .. block .. [[.ocean_distance_tex), uv, 0.0).g : -1.0;
 			return air_distance >= 0.0 ? min(view_depth, air_distance / length(get_view_dir(uv))) : view_depth;

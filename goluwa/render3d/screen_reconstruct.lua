@@ -63,7 +63,7 @@ function screen_reconstruct.GetWorldRayGLSL(block_name, options)
 	return (
 		[[
 			vec3 %s() {
-				vec4 clip_pos = vec4(%s * 2.0 - 1.0, 1.0, 1.0);
+				vec4 clip_pos = vec4(%s * 2.0 - 1.0, 0.0, 1.0);
 				vec4 view_pos = %s.inv_projection * clip_pos;
 				view_pos /= view_pos.w;
 				vec3 world_pos = (%s.inv_view * vec4(view_pos.xyz, 1.0)).xyz;
@@ -80,8 +80,8 @@ function screen_reconstruct.GetViewRayFromUVGLSL(block_name, options)
 	return (
 		[[
 			vec3 %s(vec2 %s) {
-				vec4 near_clip_pos = vec4(%s * 2.0 - 1.0, 0.0, 1.0);
-				vec4 far_clip_pos = vec4(%s * 2.0 - 1.0, 1.0, 1.0);
+				vec4 near_clip_pos = vec4(%s * 2.0 - 1.0, 1.0, 1.0);
+				vec4 far_clip_pos = vec4(%s * 2.0 - 1.0, 0.0, 1.0);
 				vec4 near_view_pos = %s.inv_projection * near_clip_pos;
 				vec4 far_view_pos = %s.inv_projection * far_clip_pos;
 				near_view_pos /= near_view_pos.w;
@@ -118,8 +118,8 @@ function screen_reconstruct.GetGeometricNormalGLSL(block_name, options)
 					bool positive = positive_error < negative_error;
 
 					// the tolerance is relative to the step itself, so it holds at any
-					// distance, plus the rounding of depths near 1
-					if (min(positive_error, negative_error) > 0.25 * abs((positive ? d1 : e1) - depth) + 4e-7) return fallback;
+					// distance, plus the rounding of depths near 0
+					if (min(positive_error, negative_error) > 0.25 * abs((positive ? d1 : e1) - depth) + 4e-7 * depth) return fallback;
 
 					steps[axis] = positive ?
 						%s((vec2(p1) + 0.5) * texel, d1) - world_pos :

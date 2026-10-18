@@ -79,6 +79,7 @@ function Framebuffer.New(config)
 	self.color_texture = self.color_textures[1]
 	self.clear_color = self.clear_colors[1]
 	self.read_only_depth = config.read_only_depth
+	self.depth_clear = config.depth_clear or 1.0
 
 	if config.depth then
 		self.depth_texture = Texture.New{
@@ -214,7 +215,7 @@ function Framebuffer:Begin(cmd, load_op)
 
 	if self.depth_texture then
 		rendering_info.depth_image_view = self.depth_texture:GetView()
-		rendering_info.clear_depth = 1.0
+		rendering_info.clear_depth = self.depth_clear
 		rendering_info.depth_store = true
 	elseif self.read_only_depth then
 		local depth_texture = self.read_only_depth()

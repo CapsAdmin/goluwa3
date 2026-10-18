@@ -187,7 +187,7 @@ return {
 				vec3 c_max = vec3(-1e9);
 				vec3 current = vec3(0.0);
 				float current_weight = 0.0;
-				float closest_depth = 1.0;
+				float closest_depth = 0.0;
 				ivec2 closest_pixel = pixel;
 				float neighbour_motion = 0.0;
 
@@ -205,11 +205,11 @@ return {
 						current_weight += w;
 						float depth = texelFetch(TEXTURE(taa_data.depth_tex), p, 0).r;
 
-						if (taa_data.velocity_tex != -1 && depth < 1.0) {
+						if (taa_data.velocity_tex != -1 && depth > 0.0) {
 							neighbour_motion = max(neighbour_motion, length(texelFetch(TEXTURE(taa_data.velocity_tex), p, 0).xy * vec2(size)));
 						}
 
-						if (depth < closest_depth) {
+						if (depth > closest_depth) {
 							closest_depth = depth;
 							closest_pixel = p;
 						}
@@ -227,7 +227,7 @@ return {
 				vec2 prev_uv;
 				float expected_depth = -1.0;
 
-				if (closest_depth < 1.0 && taa_data.velocity_tex != -1) {
+				if (closest_depth > 0.0 && taa_data.velocity_tex != -1) {
 					vec3 motion = texelFetch(TEXTURE(taa_data.velocity_tex), closest_pixel, 0).rgb;
 					prev_uv = uv - motion.xy;
 					expected_depth = motion.z;

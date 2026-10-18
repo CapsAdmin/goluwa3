@@ -35,7 +35,7 @@ local shader = gbuffer_layout.GetDecodeGLSL("debug_data") .. ([[
 
 	vec3 inspect_entry(int index, ivec2 pixel) {
 		// the sky has no surface, its values are the gbuffer defaults
-		if (index != %d && gbuffer_depth(pixel) == 1.0) return vec3(0.06);
+		if (index != %d && gbuffer_depth(pixel) == 0.0) return vec3(0.06);
 
 		%s
 		return vec3(0.0);

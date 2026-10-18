@@ -273,7 +273,7 @@ return {
 
 					float depth = texelFetch(TEXTURE(lighting_data.depth_tex), min(ivec2(uv * vec2(depth_size)), depth_size - 1), 0).r;
 
-					if (depth >= 1.0) continue;
+					if (depth <= 0.0) continue;
 
 					float z_surf = (depth_a * depth + depth_b) / (depth_c * depth + depth_d);
 					float z_ray = mix(q0, q1, t) / mix(k0, k1, t);
@@ -373,7 +373,7 @@ return {
 					for (int side = 0; side < 2; side++) {
 						ivec2 p = clamp(in_pixel + step_pixel * (side == 0 ? -1 : 1), ivec2(0), size - 1);
 						float d = gbuffer_depth(p);
-						float neighbour_depth = d >= 1.0 ? 1e6 : -(lighting_data.inv_projection[2][2] * d + lighting_data.inv_projection[3][2]) / (lighting_data.inv_projection[2][3] * d + lighting_data.inv_projection[3][3]);
+						float neighbour_depth = d <= 0.0 ? 1e6 : -(lighting_data.inv_projection[2][2] * d + lighting_data.inv_projection[3][2]) / (lighting_data.inv_projection[2][3] * d + lighting_data.inv_projection[3][3]);
 						differs[side] = abs(neighbour_depth - view_depth) > view_depth * 0.03 || dot(N, gbuffer_normal(p)) < 0.9;
 					}
 
@@ -436,7 +436,7 @@ return {
 
 				float depth = gbuffer_depth(in_uv);
 
-				if (depth == 1.0) {
+				if (depth == 0.0) {
 					set_color(vec4(min(get_sky() * get_pre_exposure(), vec3(65504.0)), lighting_data.sky_alpha));
 					return;
 				}
@@ -545,7 +545,7 @@ return {
 				// without the exposure pass (which is the blit pass) nothing scales the scene down
 				float scale = fallback_data.pre_exposure_tex == -1 ? fallback_data.unexposed_scale : ]] .. string.format("%.1f", render3d.EMISSIVE_REFERENCE_LUMINANCE) .. [[ * get_pre_exposure();
 
-				if (gbuffer_depth(uv) == 1.0) {
+				if (gbuffer_depth(uv) == 0.0) {
 					imageStore(out_color, pos, vec4(vec3(0.5 * scale), 1.0));
 					return;
 				}

@@ -271,15 +271,15 @@ function gpu_culling.Initialize()
 				if (pos.x == dst_size.x - 1) src_last.x = src_size.x - 1;
 				if (pos.y == dst_size.y - 1) src_last.y = src_size.y - 1;
 
-				float max_depth = 0.0;
+				float min_depth = 1.0;
 
 				for (int y = src_base.y; y <= src_last.y; ++y) {
 					for (int x = src_base.x; x <= src_last.x; ++x) {
-						max_depth = max(max_depth, imageLoad(source_hiz, ivec2(x, y)).r);
+						min_depth = min(min_depth, imageLoad(source_hiz, ivec2(x, y)).r);
 					}
 				}
 
-				imageStore(out_hiz, pos, vec4(max_depth, 0.0, 0.0, 1.0));
+				imageStore(out_hiz, pos, vec4(min_depth, 0.0, 0.0, 1.0));
 			}
 		]],
 		}
@@ -664,7 +664,7 @@ function gpu_culling.Initialize()
 
 				vec2 min_uv = vec2(1.0);
 				vec2 max_uv = vec2(0.0);
-				float nearest_depth = 1.0;
+				float nearest_depth = 0.0;
 				bool any_valid = false;
 				bool crosses_near_plane = false;
 
@@ -680,7 +680,7 @@ function gpu_culling.Initialize()
 					vec2 uv = ndc.xy * 0.5 + 0.5;
 					min_uv = min(min_uv, uv);
 					max_uv = max(max_uv, uv);
-					nearest_depth = min(nearest_depth, ndc.z);
+					nearest_depth = max(nearest_depth, ndc.z);
 					any_valid = true;
 				}
 
@@ -695,13 +695,13 @@ function gpu_culling.Initialize()
 				ivec2 texel_min = ivec2(clamp(floor(min_uv * base_texels_per_texel), vec2(0.0), vec2(mip_size - 1)));
 				ivec2 texel_max = ivec2(clamp(floor(max_uv * base_texels_per_texel), vec2(0.0), vec2(mip_size - 1)));
 
-				float sampled_depth = 0.0;
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
+				float sampled_depth = 1.0;
+				sampled_depth = min(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
+				sampled_depth = min(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
+				sampled_depth = min(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
+				sampled_depth = min(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
 
-				return nearest_depth > sampled_depth + compute.occlusion_depth_bias;
+				return nearest_depth < sampled_depth * (1.0 - compute.occlusion_depth_bias);
 			}
 
 			void main() {
@@ -1089,7 +1089,7 @@ function gpu_culling.Initialize()
 
 				vec2 min_uv = vec2(1.0);
 				vec2 max_uv = vec2(0.0);
-				float nearest_depth = 1.0;
+				float nearest_depth = 0.0;
 				bool any_valid = false;
 				bool crosses_near_plane = false;
 
@@ -1105,7 +1105,7 @@ function gpu_culling.Initialize()
 					vec2 uv = ndc.xy * 0.5 + 0.5;
 					min_uv = min(min_uv, uv);
 					max_uv = max(max_uv, uv);
-					nearest_depth = min(nearest_depth, ndc.z);
+					nearest_depth = max(nearest_depth, ndc.z);
 					any_valid = true;
 				}
 
@@ -1120,13 +1120,13 @@ function gpu_culling.Initialize()
 				ivec2 texel_min = ivec2(clamp(floor(min_uv * base_texels_per_texel), vec2(0.0), vec2(mip_size - 1)));
 				ivec2 texel_max = ivec2(clamp(floor(max_uv * base_texels_per_texel), vec2(0.0), vec2(mip_size - 1)));
 
-				float sampled_depth = 0.0;
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
-				sampled_depth = max(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
+				float sampled_depth = 1.0;
+				sampled_depth = min(sampled_depth, texelFetch(source_depth_tex, texel_min, mip_level).r);
+				sampled_depth = min(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_max.x, texel_min.y), mip_level).r);
+				sampled_depth = min(sampled_depth, texelFetch(source_depth_tex, ivec2(texel_min.x, texel_max.y), mip_level).r);
+				sampled_depth = min(sampled_depth, texelFetch(source_depth_tex, texel_max, mip_level).r);
 
-				return nearest_depth > sampled_depth + compute.occlusion_depth_bias;
+				return nearest_depth < sampled_depth * (1.0 - compute.occlusion_depth_bias);
 			}
 
 			void main() {

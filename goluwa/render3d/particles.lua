@@ -318,7 +318,7 @@ function particles.GetCollisionGLSL()
 			ivec2 pixel = clamp(ivec2(uv * vec2(textureSize(TEXTURE(particle_data.depth_tex), 0))), ivec2(0), textureSize(TEXTURE(particle_data.depth_tex), 0) - 1);
 			float depth = gbuffer_depth(pixel);
 
-			if (depth >= 1.0) return false;
+			if (depth <= 0.0) return false;
 
 			float surface_depth = get_view_depth(uv, depth);
 			float before_depth = -(particle_data.view * vec4(a, 1.0)).z;
@@ -887,7 +887,7 @@ function particles.BuildPasses()
 			color_blend = {attachments = {{}, translucent_moments.ADDITIVE}},
 			DepthTest = true,
 			DepthWrite = false,
-			DepthCompareOp = "less_or_equal",
+			DepthCompareOp = "greater_or_equal",
 		},
 		{
 			name = "particles_accumulate",
@@ -936,7 +936,7 @@ function particles.BuildPasses()
 			color_blend = {attachments = {{}, translucent_moments.ADDITIVE, translucent_moments.ADDITIVE, translucent_moments.MULTIPLY}},
 			DepthTest = true,
 			DepthWrite = false,
-			DepthCompareOp = "less_or_equal",
+			DepthCompareOp = "greater_or_equal",
 		},
 	}
 end

@@ -115,17 +115,17 @@ local depth_pass = {
 			ivec2 margin = ivec2(ceil(tile_size));
 			ivec2 first = ivec2(floor(vec2(id) * tile_size)) - margin;
 			ivec2 last = ivec2(ceil(vec2(id + 1) * tile_size)) + margin;
-			float farthest = 0.0;
+			float farthest = 1.0;
 
 			for (int y = first.y; y < last.y; y++) {
 				for (int x = first.x; x < last.x; x++) {
-					farthest = max(farthest, gbuffer_depth(clamp(ivec2(x, y), ivec2(0), size - 1)));
+					farthest = min(farthest, gbuffer_depth(clamp(ivec2(x, y), ivec2(0), size - 1)));
 				}
 			}
 
 			float view_depth = 1e30;
 
-			if (farthest < 1.0) {
+			if (farthest > 0.0) {
 				mat4 inv_projection = froxel_data.inv_projection;
 				view_depth = -(inv_projection[2][2] * farthest + inv_projection[3][2]) / (inv_projection[2][3] * farthest + inv_projection[3][3]);
 			}
@@ -706,7 +706,7 @@ local composite_pass = {
 
 				if (air_distance >= 0.0) {
 					hit_distance = air_distance;
-				} else if (depth < 1.0) {
+				} else if (depth > 0.0) {
 					hit_distance = get_view_depth(in_uv, depth) * length(view_dir);
 				}
 

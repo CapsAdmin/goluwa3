@@ -279,6 +279,14 @@ do
 		return self
 	end
 
+	function META:ReverseDepth()
+		self.m02 = self.m03 - self.m02
+		self.m12 = self.m13 - self.m12
+		self.m22 = self.m23 - self.m22
+		self.m32 = self.m33 - self.m32
+		return self
+	end
+
 	function META:Frustum(l, r, b, t, n, f)
 		local temp = 2.0 * n
 		local temp2 = r - l

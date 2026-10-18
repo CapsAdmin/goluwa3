@@ -405,17 +405,17 @@ local trace_pass = {
 			// the farthest surface of the pixels this one covers, clouds in front of the nearer ones are
 			// dropped when they are composited
 			vec2 full_size = vec2(textureSize(TEXTURE(cloud_data.depth_tex), 0));
-			float depth = 0.0;
+			float depth = 1.0;
 
 			for (int i = 0; i < ]] .. clouds.VIEW_DIVISOR * clouds.VIEW_DIVISOR .. [[; i++) {
 				vec2 full_uv = (vec2(pixel * ]] .. clouds.VIEW_DIVISOR .. [[ + ivec2(i % ]] .. clouds.VIEW_DIVISOR .. [[, i / ]] .. clouds.VIEW_DIVISOR .. [[)) + 0.5) / (cloud_data.view_size * ]] .. clouds.VIEW_DIVISOR .. [[.0);
-				depth = max(depth, textureLod(TEXTURE(cloud_data.depth_tex), min(full_uv, 1.0 - 0.5 / full_size), 0.0).r);
+				depth = min(depth, textureLod(TEXTURE(cloud_data.depth_tex), min(full_uv, 1.0 - 0.5 / full_size), 0.0).r);
 			}
 
 
 			float t_max = ]] .. string.format("%.1f", VIEW_DISTANCE) .. [[;
 
-			if (depth < 1.0) {
+			if (depth > 0.0) {
 				t_max = get_view_depth(uv, depth) * length(view_dir);
 			}
 
