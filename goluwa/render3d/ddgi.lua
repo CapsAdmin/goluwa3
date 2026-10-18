@@ -2161,7 +2161,7 @@ function ddgi.GetRTPipeline()
 				stages = stages,
 				bindless = ddgi.ALPHA_TEST,
 				max_recursion_depth = 1,
-				max_ray_payload_size = 12,
+				max_ray_payload_size = 16,
 				DescriptorSetCount = render.GetSwapchainImageCount() * 16,
 				descriptor_sets = {bindings},
 			}

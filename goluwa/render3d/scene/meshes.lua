@@ -27,7 +27,7 @@ local SWEEP_ROWS = 256
 
 function meshes.GetTable()
 	table_rows = table_rows or
-		store.CreateTable{name = "meshes", ctype = MeshRow, capacity = 4096}
+		store.CreateTable{name = "meshes", ctype = MeshRow, capacity = 16384}
 	return table_rows
 end
 

@@ -2804,6 +2804,10 @@ do
 		return dataset, cull_result
 	end
 
+	function visual.UpdateScene()
+		ensure_scene_acceleration()
+	end
+
 	function visual.GetVisibleVisuals()
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local acceleration = ensure_scene_acceleration()

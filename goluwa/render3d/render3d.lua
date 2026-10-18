@@ -16,6 +16,7 @@ local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local water = import("goluwa/render3d/water.lua")
@@ -605,6 +606,12 @@ function render3d.Initialize(config)
 		end
 
 		scene_bvh.EnsureBuilt()
+
+		if render.GetDevice().ray_tracing_supported then
+			import("goluwa/entities/components/visual.lua").Library.UpdateScene()
+			scene_rt.GetTLAS(render.GetCommandBuffer())
+		end
+
 		local ocean_enabled = render3d.IsOceanEnabled()
 		local water_needed = render3d.IsWaterEnabled()
 

@@ -18,6 +18,7 @@ function rt.GetTLAS(cmd)
 	accel.Update()
 	meshes.Update()
 	frame_state.tlas = instances.Build(cmd) or accel.GetPlaceholderTLAS(cmd)
+	accel.MarkTLASUsed()
 	return frame_state.tlas
 end
 

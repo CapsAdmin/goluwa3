@@ -363,6 +363,11 @@ function accel.BuildTLAS(cmd, instance_buffer, count)
 	return slot.tlas
 end
 
+-- the structure a frame traces against stays unwritten until the frames that may still use it are done
+function accel.MarkTLASUsed()
+	if current_slot then current_slot.last_used = system.GetFrameNumber() end
+end
+
 function accel.GetPlaceholderTLAS(cmd)
 	if placeholder then return placeholder.tlas end
 

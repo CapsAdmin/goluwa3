@@ -6,6 +6,7 @@ local Table = {}
 Table.__index = Table
 -- buffers that were replaced by a bigger one stay alive until the frames in flight that may read them are done
 local retired = {}
+local tables = setmetatable({}, {__mode = "k"})
 local RETIRE_FRAMES = 4
 
 function store.CreateTable(config)
@@ -21,6 +22,7 @@ function store.CreateTable(config)
 	self.free_count = 0
 	self.generation = 0
 	self.on_grow = config.on_grow
+	tables[self] = true
 	self:Reserve(config.capacity or 1024)
 	return self
 end
@@ -39,6 +41,8 @@ function Table:Reserve(capacity)
 	ffi.fill(ptr, capacity * self.row_size)
 
 	if self.buffer then
+		-- the descriptors that point at the old buffer are rewritten by the next bind, which a frame in flight does not allow
+		render.GetDevice():WaitIdle()
 		ffi.copy(ptr, self.ptr, self.capacity * self.row_size)
 		retired[#retired + 1] = {buffer = self.buffer, frame = system.GetFrameNumber()}
 	end
@@ -51,7 +55,7 @@ function Table:Reserve(capacity)
 	if self.on_grow then self.on_grow(self) end
 end
 
--- rows are zeroed when they are freed, so an unwritten or freed row reads as all zero
+-- a freed row keeps what it held until the frames that may still read it are done, then it is zeroed and can be given out again
 function Table:Alloc()
 	local row
 
@@ -70,10 +74,29 @@ function Table:Alloc()
 end
 
 function Table:Free(row)
-	ffi.fill(self.ptr + row, self.row_size)
-	self.free_count = self.free_count + 1
-	self.free[self.free_count] = row
 	self.live = self.live - 1
+	self.pending_free = self.pending_free or {}
+	self.pending_free[#self.pending_free + 1] = {row = row, frame = system.GetFrameNumber()}
+end
+
+function Table:Update(frame)
+	local pending = self.pending_free
+
+	if not pending or not pending[1] then return end
+
+	local keep = {}
+
+	for _, item in ipairs(pending) do
+		if item.frame <= frame - RETIRE_FRAMES then
+			ffi.fill(self.ptr + item.row, self.row_size)
+			self.free_count = self.free_count + 1
+			self.free[self.free_count] = item.row
+		else
+			keep[#keep + 1] = item
+		end
+	end
+
+	self.pending_free = keep
 end
 
 function Table:Get()
@@ -94,6 +117,10 @@ end
 
 function store.Update()
 	local frame = system.GetFrameNumber()
+
+	for rows in pairs(tables) do
+		rows:Update(frame)
+	end
 
 	for i = #retired, 1, -1 do
 		if retired[i].frame <= frame - RETIRE_FRAMES then

@@ -28,10 +28,10 @@ function instances.GetTables()
 		tlas_table = store.CreateTable{
 			name = "tlas_instances",
 			ctype = TLASInstance,
-			capacity = 4096,
+			capacity = 16384,
 			usage = {"shader_device_address", "storage_buffer", "acceleration_structure_build_input_read_only_khr"},
 		}
-		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 4096}
+		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 16384}
 	end
 
 	return tlas_table, data_table
@@ -95,8 +95,11 @@ function instances.Add(mesh_row, material_row, matrix, mask, flags)
 end
 
 function instances.Remove(id)
+	-- inactive for the next build, what the instance's rows say stays until frames in flight are done with it
+	local record = tlas_table:Get()[id]
+	record.accelerationStructureReference = 0
+	record.customAndMask = id
 	tlas_table:Free(id)
-	ffi.fill(data_table:Get() + id, ffi.sizeof(InstanceData))
 	data_table.live = data_table.live - 1
 	unresolved[id] = nil
 	instances.version = instances.version + 1
