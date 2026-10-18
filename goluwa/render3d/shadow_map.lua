@@ -16,16 +16,13 @@ local Quat = import("goluwa/structs/quat.lua")
 local system = import("goluwa/system.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local objects = import("goluwa/objects/objects.lua")
-local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
-local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
-local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
@@ -34,40 +31,6 @@ local FRUSTUM_PLANE_COMPONENT_COUNT = 24
 local TEMP_IDENTITY_CASCADE_OVERRIDE = false
 local TEMP_REUSE_FIRST_CASCADE_OVERRIDE = false
 local SUN_CASTER_REACH = 20000
-local SHADOW_INSTANCE_STRIDE = ffi.sizeof("float[16]")
-local SHADOW_INSTANCE_BINDINGS = {
-	model_pipeline.GetVertexBufferBinding(0),
-	{
-		binding = 1,
-		stride = SHADOW_INSTANCE_STRIDE,
-		input_rate = "instance",
-	},
-}
-local SHADOW_INSTANCE_VERTEX_ATTRIBUTES = table.copy(model_pipeline.GetVertexAttributeLayout(0))
-SHADOW_INSTANCE_VERTEX_ATTRIBUTES[#SHADOW_INSTANCE_VERTEX_ATTRIBUTES + 1] = {
-	binding = 1,
-	location = 6,
-	format = "r32g32b32a32_sfloat",
-	offset = 0,
-}
-SHADOW_INSTANCE_VERTEX_ATTRIBUTES[#SHADOW_INSTANCE_VERTEX_ATTRIBUTES + 1] = {
-	binding = 1,
-	location = 7,
-	format = "r32g32b32a32_sfloat",
-	offset = 16,
-}
-SHADOW_INSTANCE_VERTEX_ATTRIBUTES[#SHADOW_INSTANCE_VERTEX_ATTRIBUTES + 1] = {
-	binding = 1,
-	location = 8,
-	format = "r32g32b32a32_sfloat",
-	offset = 32,
-}
-SHADOW_INSTANCE_VERTEX_ATTRIBUTES[#SHADOW_INSTANCE_VERTEX_ATTRIBUTES + 1] = {
-	binding = 1,
-	location = 9,
-	format = "r32g32b32a32_sfloat",
-	offset = 48,
-}
 local POINT_SHADOW_FACE_ANGLES = {
 	Deg3(0, -90 + 180, 0),
 	Deg3(0, 90 + 180, 0),
@@ -163,396 +126,6 @@ local function build_shadow_alpha_glsl(block)
 	}
 end
 
-local function get_cached_shadow_material_texture_indices(self, material, pipeline)
-	local cache = self.shadow_material_texture_cache
-	local material_cache = cache and cache[material] or nil
-	local entry = material_cache and material_cache[pipeline] or nil
-
-	if entry then return entry end
-
-	return nil
-end
-
-local ShadowDrawPushConstants = ffi.typeof([[
-	struct {
-		float world[16];
-	}
-]])
-local ShadowStateUniformDecl = [[
-	struct {
-		float light_space_matrix[16];
-		float light_position[3];
-		float light_far_plane;
-		int albedo_texture_index;
-		int flags;
-		float color_multiplier_a;
-		float alpha_cutoff;
-		int normal_texture_index;
-		float base_transform_u[4];
-		float base_transform_v[4];
-		float bump_transform_u[4];
-		float bump_transform_v[4];
-	}
-]]
-local SHADOW_PUSH_CONSTANT_GLSL = [[
-	layout(push_constant, scalar) uniform Constants {
-		mat4 world;
-	} pc;
-]]
-local SHADOW_STATE_UNIFORM_GLSL = [[
-	layout(scalar, binding = 2) uniform ShadowState_t {
-		mat4 light_space_matrix;
-		vec3 light_position;
-		float light_far_plane;
-		int albedo_texture_index;
-		int flags;
-		float color_multiplier_a;
-		float alpha_cutoff;
-		int normal_texture_index;
-		vec4 base_transform_u;
-		vec4 base_transform_v;
-		vec4 bump_transform_u;
-		vec4 bump_transform_v;
-	} shadow_state;
-]]
-local NO_SHADOW_STATE_MATERIAL = {}
-
-local function get_shadow_stage_push_constants()
-	return {
-		size = ffi.sizeof(ShadowDrawPushConstants),
-		offset = 0,
-	}
-end
-
-local function get_shadow_texture_descriptor_sets(self, bindless_texture_capacity)
-	return {
-		{
-			type = "combined_image_sampler",
-			binding_index = 0,
-			count = bindless_texture_capacity,
-			set_index = 1,
-		},
-		{
-			type = "uniform_buffer_dynamic",
-			binding_index = 2,
-			args = {self.shadow_state_buffer.buffer, self.shadow_state_buffer.aligned_size},
-		},
-	}
-end
-
-local function get_shadow_geometry_descriptor_sets(self, bindless_texture_capacity)
-	local descriptor_sets = {
-		{
-			type = "combined_image_sampler",
-			binding_index = 0,
-			count = bindless_texture_capacity,
-			set_index = 1,
-		},
-		{
-			type = "uniform_buffer_dynamic",
-			binding_index = 1,
-			args = {self.vertex_animation_buffer.buffer, self.vertex_animation_buffer.aligned_size},
-		},
-		{
-			type = "uniform_buffer_dynamic",
-			binding_index = 2,
-			args = {self.shadow_state_buffer.buffer, self.shadow_state_buffer.aligned_size},
-		},
-	}
-	return descriptor_sets
-end
-
-local function build_shadow_fragment_shader(bindless_texture_capacity, linear_depth_output)
-	local prelude = (
-		[[
-					#version 450
-					#extension GL_EXT_nonuniform_qualifier : require
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(set = 1, binding = 0) uniform sampler2D textures[%d];
-
-					%s
-					%s
-					layout(location = 0) in vec2 in_uv;
-					%s
-					%s
-
-					#define FLAGS shadow_state.flags
-				]]
-	):format(
-		bindless_texture_capacity,
-		SHADOW_PUSH_CONSTANT_GLSL,
-		SHADOW_STATE_UNIFORM_GLSL,
-		linear_depth_output and "layout(location = 1) in vec3 in_world_pos;" or "",
-		linear_depth_output and "layout(location = 0) out float out_distance;" or ""
-	)
-	return prelude .. Material.BuildGlslFlags("shadow_state.flags") .. build_shadow_alpha_glsl("shadow_state") .. model_pipeline.BuildAlphaDiscardGlsl("shadow_state.alpha_cutoff", "alpha") .. (
-			linear_depth_output and
-			[[
-					void main() {
-						float alpha = get_alpha();
-						compute_translucency_and_discard(alpha);
-						float light_distance = length(in_world_pos - shadow_state.light_position);
-						out_distance = clamp(light_distance / max(shadow_state.light_far_plane, 0.0001), 0.0, 1.0);
-					}
-				]] or
-			[[
-					void main() {
-						float alpha = get_alpha();
-						compute_translucency_and_discard(alpha);
-					}
-				]]
-		)
-end
-
-local function build_shadow_projected_main(
-	world_matrix_expr,
-	local_pos_expr,
-	local_normal_expr,
-	local_tangent_expr,
-	uv_expr,
-	texture_blend_expr,
-	vertex_color_expr
-)
-	return (
-		[[
-					void main() {
-						vec3 local_pos = %s;
-						vec3 local_normal = normalize(%s);
-						vec3 local_tangent = normalize(%s);
-						vec2 uv = %s;
-						float texture_blend = %s;
-						vec4 vertex_color = %s;
-						mat4 world_matrix = %s;
-						vec3 world_pos = (world_matrix * vec4(local_pos, 1.0)).xyz;
-						mat3 world_matrix3 = mat3(world_matrix);
-						mat3 inv_world_matrix3 = inverse(world_matrix3);
-						vec3 world_normal = normalize(transpose(inv_world_matrix3) * local_normal);
-						vec3 world_tangent = normalize(world_matrix3 * local_tangent);
-
-						apply_shadow_geometry_deformation(
-							local_pos,
-							world_pos,
-							world_normal,
-							world_tangent,
-							uv,
-							texture_blend,
-							vertex_color,
-							inv_world_matrix3
-						);
-
-						gl_Position = shadow_state.light_space_matrix * vec4(world_pos, 1.0);
-						out_uv = uv;
-						out_world_pos = world_pos;
-					}
-				]]
-	):format(
-		local_pos_expr,
-		local_normal_expr,
-		local_tangent_expr,
-		uv_expr,
-		texture_blend_expr,
-		vertex_color_expr,
-		world_matrix_expr
-	)
-end
-
-local function BuildShadowGeometryDeformationGlsl(world_matrix_expr)
-	return model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr) .. [[
-			void apply_shadow_geometry_deformation(
-				inout vec3 local_pos,
-				inout vec3 world_pos,
-				vec3 world_normal,
-				vec3 world_tangent,
-				vec2 uv,
-				float texture_blend,
-				vec4 vertex_color,
-				mat3 inv_world_matrix3
-			) {
-				vec3 world_offset = get_vertex_animation_offset(world_pos, world_normal, vertex_color);
-
-				if (dot(world_offset, world_offset) > 0.0) {
-					local_pos += inv_world_matrix3 * world_offset;
-					world_pos += world_offset;
-				}
-			}
-		]]
-end
-
-local function build_shadow_vertex_stage(self, bindless_texture_capacity)
-	return {
-		type = "vertex",
-		code = [[
-					#version 450
-					#extension GL_EXT_nonuniform_qualifier : require
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(set = 1, binding = 0) uniform sampler2D textures[];
-
-					layout(location = 0) in vec3 in_position;
-					layout(location = 1) in vec3 in_normal;
-					layout(location = 2) in vec2 in_uv;
-					layout(location = 3) in vec4 in_tangent;
-					layout(location = 4) in float in_texture_blend;
-					layout(location = 5) in vec4 in_vertex_color;
-
-					]] .. SHADOW_PUSH_CONSTANT_GLSL .. [[
-				]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
-				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration(1) .. [[
-					layout(location = 0) out vec2 out_uv;
-					layout(location = 1) out vec3 out_world_pos;
-
-				]] .. BuildShadowGeometryDeformationGlsl("pc.world") .. build_shadow_projected_main(
-				"pc.world",
-				"in_position",
-				"in_normal",
-				"in_tangent.xyz",
-				"in_uv",
-				"in_texture_blend",
-				"in_vertex_color"
-			),
-		bindings = {model_pipeline.GetVertexBufferBinding(0)},
-		attributes = model_pipeline.GetVertexAttributeLayout(0),
-		descriptor_sets = get_shadow_geometry_descriptor_sets(self, bindless_texture_capacity),
-		push_constants = get_shadow_stage_push_constants(),
-	}
-end
-
-local function build_shadow_instanced_vertex_stage(self, bindless_texture_capacity)
-	return {
-		type = "vertex",
-		code = [[
-					#version 450
-					#extension GL_EXT_nonuniform_qualifier : require
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(set = 1, binding = 0) uniform sampler2D textures[];
-
-					layout(location = 0) in vec3 in_position;
-					layout(location = 1) in vec3 in_normal;
-					layout(location = 2) in vec2 in_uv;
-					layout(location = 3) in vec4 in_tangent;
-					layout(location = 4) in float in_texture_blend;
-					layout(location = 5) in vec4 in_vertex_color;
-					layout(location = 6) in vec4 in_instance_world_row_0;
-					layout(location = 7) in vec4 in_instance_world_row_1;
-					layout(location = 8) in vec4 in_instance_world_row_2;
-					layout(location = 9) in vec4 in_instance_world_row_3;
-
-				]] .. SHADOW_STATE_UNIFORM_GLSL .. [[
-				]] .. model_pipeline.BuildVertexAnimationUniformDeclaration(1) .. [[
-					layout(location = 0) out vec2 out_uv;
-					layout(location = 1) out vec3 out_world_pos;
-
-				]] .. BuildShadowGeometryDeformationGlsl(
-				"mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
-			) .. build_shadow_projected_main(
-				"mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)",
-				"in_position",
-				"in_normal",
-				"in_tangent.xyz",
-				"in_uv",
-				"in_texture_blend",
-				"in_vertex_color"
-			),
-		bindings = SHADOW_INSTANCE_BINDINGS,
-		attributes = SHADOW_INSTANCE_VERTEX_ATTRIBUTES,
-		descriptor_sets = get_shadow_geometry_descriptor_sets(self, bindless_texture_capacity),
-	}
-end
-
-local function build_shadow_fragment_stage(self, bindless_texture_capacity, linear_depth_output)
-	return {
-		type = "fragment",
-		code = build_shadow_fragment_shader(bindless_texture_capacity, linear_depth_output),
-		descriptor_sets = get_shadow_texture_descriptor_sets(self, bindless_texture_capacity),
-	}
-end
-
-local function get_shadow_state_upload_cache(self)
-	local cache = self.shadow_state_upload_cache
-	local frame = system.GetFrameNumber()
-
-	if not cache or cache.frame ~= frame then
-		cache = {frame = frame, pipelines = {}}
-		self.shadow_state_upload_cache = cache
-	end
-
-	return cache.pipelines
-end
-
-local function get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
-	local pipelines = get_shadow_state_upload_cache(self)
-	local pipeline_cache = pipelines[pipeline]
-
-	if not pipeline_cache then
-		pipeline_cache = {}
-		pipelines[pipeline] = pipeline_cache
-	end
-
-	local material_key = material or NO_SHADOW_STATE_MATERIAL
-	local material_cache = pipeline_cache[material_key]
-
-	if not material_cache then
-		material_cache = {}
-		pipeline_cache[material_key] = material_cache
-	end
-
-	local cached_offset = material_cache[cascade_index]
-
-	if cached_offset then return cached_offset end
-
-	local data = self.shadow_state_buffer:GetData()
-	data.light_space_matrix = self.cascade[cascade_index].light_space_matrix:GetFloatCopy()
-	data.light_position[0] = self.point_light_position.x
-	data.light_position[1] = self.point_light_position.y
-	data.light_position[2] = self.point_light_position.z
-	data.light_far_plane = self.far_plane
-
-	if material then
-		data.albedo_texture_index = texture_entry and texture_entry.albedo_texture_index or 0
-		data.flags = material:GetShadowFlags()
-		data.color_multiplier_a = material:GetShadowOpacity()
-		data.alpha_cutoff = material:GetAlphaCutoff()
-		write_shadow_uv_data(data, material, texture_entry and texture_entry.normal_texture_index or -1)
-	else
-		data.albedo_texture_index = 0
-		data.flags = 0
-		data.color_multiplier_a = 1.0
-		data.alpha_cutoff = 0.5
-		write_shadow_uv_data(data, nil, -1)
-	end
-
-	local offset = self.shadow_state_buffer:Upload(frame_index)
-	material_cache[cascade_index] = offset
-	return offset
-end
-
-local function get_vertex_animation_offset(self, vertex_animation_material, frame_index)
-	if vertex_animation_material:HasVertexAnimation() then
-		model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), vertex_animation_material)
-		return self.vertex_animation_buffer:Upload(frame_index)
-	end
-
-	local cache = self.vertex_animation_upload_cache
-	local frame_number = system.GetFrameNumber()
-
-	if not cache or cache.frame ~= frame_number then
-		cache = {frame = frame_number}
-		self.vertex_animation_upload_cache = cache
-	end
-
-	local offset = cache[vertex_animation_material]
-
-	if not offset then
-		model_pipeline.FillVertexAnimationData(self.vertex_animation_buffer:GetData(), vertex_animation_material)
-		offset = self.vertex_animation_buffer:Upload(frame_index)
-		cache[vertex_animation_material] = offset
-	end
-
-	return offset
-end
-
 local function build_shadow_pipeline_config(
 	format,
 	max_shadow_width,
@@ -611,57 +184,6 @@ local function get_cascade_depth_format(cascade_formats, cascade_index, default_
 	if not cascade_formats then return default_format end
 
 	return cascade_formats[cascade_index] or default_format
-end
-
-local function create_shadow_pipeline_variant(
-	self,
-	depth_format,
-	max_shadow_width,
-	max_shadow_height,
-	bindless_texture_capacity,
-	linear_depth_output,
-	color_format
-)
-	local pipeline = render.CreateGraphicsPipeline(
-		build_shadow_pipeline_config(
-			depth_format,
-			max_shadow_width,
-			max_shadow_height,
-			{
-				build_shadow_vertex_stage(self, bindless_texture_capacity),
-				build_shadow_fragment_stage(self, bindless_texture_capacity, linear_depth_output),
-			},
-			"triangle_list",
-			nil,
-			color_format
-		)
-	)
-	return pipeline
-end
-
-local function create_shadow_instanced_pipeline_variant(
-	self,
-	depth_format,
-	max_shadow_width,
-	max_shadow_height,
-	bindless_texture_capacity,
-	linear_depth_output,
-	color_format
-)
-	return render.CreateGraphicsPipeline(
-		build_shadow_pipeline_config(
-			depth_format,
-			max_shadow_width,
-			max_shadow_height,
-			{
-				build_shadow_instanced_vertex_stage(self, bindless_texture_capacity),
-				build_shadow_fragment_stage(self, bindless_texture_capacity, linear_depth_output),
-			},
-			"triangle_list",
-			nil,
-			color_format
-		)
-	)
 end
 
 local ShadowBatchRecord = ffi.typeof(
@@ -909,14 +431,6 @@ local function create_shadow_multi_draw_pipeline_variant(
 	)
 end
 
-local function get_pipeline_for_cascade(self, cascade_index)
-	if self.mode == "point" then return self.pipeline end
-
-	local cascade = self.cascade[cascade_index]
-	local depth_format = cascade and cascade.format or self.format
-	return self.pipeline_variants[depth_format]
-end
-
 local function extract_frustum_planes(proj_view_matrix, out_planes)
 	local m = proj_view_matrix
 	out_planes[0] = m.m03 + m.m00
@@ -958,42 +472,12 @@ local function extract_frustum_planes(proj_view_matrix, out_planes)
 	end
 end
 
-local function is_aabb_visible_frustum(aabb, frustum_planes)
-	for i = 0, 20, 4 do
-		local a, b, c, d = frustum_planes[i], frustum_planes[i + 1], frustum_planes[i + 2], frustum_planes[i + 3]
-		local px = a > 0 and aabb.max_x or aabb.min_x
-		local py = b > 0 and aabb.max_y or aabb.min_y
-		local pz = c > 0 and aabb.max_z or aabb.min_z
-
-		if a * px + b * py + c * pz + d < 0 then return false end
-	end
-
-	return true
-end
-
 local function update_cascade_frustum_planes(cascade)
 	if not cascade or not cascade.light_space_matrix or not cascade.frustum_planes then
 		return
 	end
 
 	extract_frustum_planes(cascade.light_space_matrix, cascade.frustum_planes)
-end
-
-local function get_shadow_texel_coverage(self, cascade_index, world_aabb)
-	if self.mode == "point" or not world_aabb then return math.huge, math.huge end
-
-	local cascade = self.cascade[cascade_index]
-
-	if not cascade then return math.huge, math.huge end
-
-	local texel_world_size = cascade.texel_world_size or 0
-
-	if texel_world_size <= 0 then return math.huge, math.huge end
-
-	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, cascade.view_matrix)
-	local width_texels = (local_aabb.max_x - local_aabb.min_x) / texel_world_size
-	local height_texels = (local_aabb.max_y - local_aabb.min_y) / texel_world_size
-	return width_texels, height_texels
 end
 
 local function build_world_aabb_from_local_aabb(local_aabb, local_to_world)
@@ -1101,96 +585,6 @@ local function update_local_directional_perspective(self, light_position, light_
 		AABB(-half_span, -half_span, -range, half_span, half_span, -near),
 		range
 	)
-end
-
-local function get_camera_shadow_corners(max_distance)
-	render3d = render3d or import("goluwa/render3d/render3d.lua")
-	local cam = render3d.GetCamera()
-
-	if not cam then return nil end
-
-	local split_near = cam:GetNearZ()
-	local split_far = math.min(cam:GetFarZ(), max_distance or cam:GetFarZ())
-
-	if split_far <= split_near then return nil end
-
-	return cam,
-	get_frustum_slice_corners(cam, split_near, split_far),
-	split_near,
-	split_far
-end
-
-local function depth_to_linear_distance(depth, near_plane, far_plane)
-	if depth == nil or depth >= 1.0 or depth <= 0.0 then return nil end
-
-	local denom = far_plane - depth * (far_plane - near_plane)
-
-	if denom <= 1e-6 then return nil end
-
-	return (near_plane * far_plane) / denom
-end
-
-local function get_depth_fit_percentile(sorted_values, percentile)
-	if #sorted_values == 0 then return nil end
-
-	local index = math.floor(math.clamp(percentile, 0, 1) * (#sorted_values - 1) + 1.5)
-	index = math.clamp(index, 1, #sorted_values)
-	return index
-end
-
-local function partition_depth_values(values, left, right, pivot_index)
-	local pivot_value = values[pivot_index]
-	values[pivot_index], values[right] = values[right], values[pivot_index]
-	local store_index = left
-
-	for i = left, right - 1 do
-		if values[i] < pivot_value then
-			values[store_index], values[i] = values[i], values[store_index]
-			store_index = store_index + 1
-		end
-	end
-
-	values[right], values[store_index] = values[store_index], values[right]
-	return store_index
-end
-
-local function quickselect_depth_value(values, target_index)
-	local left = 1
-	local right = #values
-
-	while left <= right do
-		if left == right then return values[left] end
-
-		local mid = math.floor((left + right) * 0.5)
-		local a = values[left]
-		local b = values[mid]
-		local c = values[right]
-		local pivot_index = mid
-
-		if a > b then a, b = b, a end
-
-		if b > c then b, c = c, b end
-
-		if a > b then b = a end
-
-		if b == values[left] then
-			pivot_index = left
-		elseif b == values[right] then
-			pivot_index = right
-		end
-
-		pivot_index = partition_depth_values(values, left, right, pivot_index)
-
-		if target_index == pivot_index then return values[target_index] end
-
-		if target_index < pivot_index then
-			right = pivot_index - 1
-		else
-			left = pivot_index + 1
-		end
-	end
-
-	return nil
 end
 
 -- the cascades and cube faces of a shadow map draw the rows of the scene store: a pass writes a draw per slot (scene/draw.lua)
@@ -1342,7 +736,6 @@ local function render_shadow_map_pass(self, cascade_index, is_first_in_batch, is
 	)
 end
 
-local draw_shadow_single, draw_shadow_instanced
 
 function ShadowMap.New(config)
 	config = config or {}
@@ -1395,8 +788,6 @@ function ShadowMap.New(config)
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
 	self.cascade_splits = {}
 	self.cascade = {}
-	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl(), "shadow_map.vertex_animation")
-	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl, "shadow_map.state")
 	self.light = config.light
 	self.role = config.role or "cascades"
 	self.policy = config.policy or {}
@@ -1469,24 +860,6 @@ function ShadowMap.New(config)
 				aspect = "depth",
 			},
 		}
-		self.pipeline = create_shadow_pipeline_variant(
-			self,
-			self.format,
-			max_shadow_width,
-			max_shadow_height,
-			bindless_texture_capacity,
-			true,
-			self.point_color_format
-		)
-		self.instanced_pipeline = create_shadow_instanced_pipeline_variant(
-			self,
-			self.format,
-			max_shadow_width,
-			max_shadow_height,
-			bindless_texture_capacity,
-			true,
-			self.point_color_format
-		)
 		self.multi_draw_pipeline = create_shadow_multi_draw_pipeline_variant(
 			self.format,
 			max_shadow_width,
@@ -1539,29 +912,9 @@ function ShadowMap.New(config)
 			unique_formats[cascade_format] = true
 		end
 
-		self.pipeline_variants = {}
-		self.instanced_pipeline_variants = {}
 		self.multi_draw_pipeline_variants = {}
 
 		for depth_format in pairs(unique_formats) do
-			self.pipeline_variants[depth_format] = create_shadow_pipeline_variant(
-				self,
-				depth_format,
-				max_shadow_width,
-				max_shadow_height,
-				bindless_texture_capacity,
-				false,
-				nil
-			)
-			self.instanced_pipeline_variants[depth_format] = create_shadow_instanced_pipeline_variant(
-				self,
-				depth_format,
-				max_shadow_width,
-				max_shadow_height,
-				bindless_texture_capacity,
-				false,
-				nil
-			)
 			self.multi_draw_pipeline_variants[depth_format] = create_shadow_multi_draw_pipeline_variant(
 				depth_format,
 				max_shadow_width,
@@ -1571,9 +924,6 @@ function ShadowMap.New(config)
 				nil
 			)
 		end
-
-		self.pipeline = self.pipeline_variants[self.format]
-		self.instanced_pipeline = self.instanced_pipeline_variants[self.format]
 	end
 
 	self.command_pool = render.GetCommandPool()
@@ -1582,11 +932,6 @@ function ShadowMap.New(config)
 	self.is_recording_cascades = false
 	self.batch_serial = 0
 	self.shadow_batch_tables = {}
-	self.instance_batcher = InstanceBatcher.New{
-		label = "render3d shadow instances",
-		draw_single = draw_shadow_single,
-		draw_instanced = draw_shadow_instanced,
-	}
 	self.shadow_multi_draw_push_constants = ShadowMultiDrawPushConstants()
 	self.current_cascade = 1
 	return self
@@ -1596,8 +941,6 @@ function ShadowMap:OnRemove()
 	for _, batch_table in pairs(self.shadow_batch_tables) do
 		batch_table:Remove()
 	end
-
-	self.instance_batcher:Remove()
 
 	for _, cascade in ipairs(self.cascade or {}) do
 		if cascade.scene_shadow_buffers then
@@ -1880,34 +1223,6 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 	end
 end
 
-function ShadowMap:IsWorldAABBVisible(cascade_index, world_aabb)
-	if not world_aabb or not gpu_culling.culling_enabled then return true end
-
-	local cascade = self.cascade[cascade_index]
-
-	if not cascade then return true end
-
-	if self.mode == "point" then
-		return AABB.IsOverlappedSphereInside(world_aabb, self.point_light_position, self.far_plane) and
-			is_aabb_visible_frustum(world_aabb, cascade.frustum_planes)
-	end
-
-	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, cascade.view_matrix)
-
-	if not cascade.cull_aabb:IsBoxIntersecting(local_aabb) then return false end
-
-	return is_aabb_visible_frustum(world_aabb, cascade.frustum_planes)
-end
-
-function ShadowMap:IsWorldAABBTooSmall(cascade_index, world_aabb)
-	local min_caster_texel_size = self.min_caster_texel_size or 0
-
-	if min_caster_texel_size <= 0 or not gpu_culling.culling_enabled then return false end
-
-	local width_texels, height_texels = get_shadow_texel_coverage(self, cascade_index, world_aabb)
-	return width_texels < min_caster_texel_size and height_texels < min_caster_texel_size
-end
-
 function ShadowMap:GetCascadeWorldAABB(cascade_index)
 	local cascade = self.cascade[cascade_index]
 
@@ -2095,206 +1410,6 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 	return self.cmd
 end
 
-function ShadowMap:BeginAllCascades()
-	local cmds = {}
-
-	for i = 1, self.cascade_count do
-		cmds[i] = self:Begin(i)
-	end
-
-	return cmds
-end
-
-function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
-	cascade_index = cascade_index or self.current_cascade
-	local push_constants = ShadowDrawPushConstants()
-	local pipeline = get_pipeline_for_cascade(self, cascade_index)
-	local texture_entry = nil
-
-	if material then
-		texture_entry = get_cached_shadow_material_texture_indices(self, material, pipeline)
-
-		if not texture_entry then
-			texture_entry = cache_shadow_material_texture_indices(self, material, pipeline)
-		end
-	end
-
-	local vertex_animation_material = self:ShouldDisableVertexAnimation(cascade_index) and
-		render3d.GetDefaultMaterial() or
-		(
-			material or
-			render3d.GetDefaultMaterial()
-		)
-	world_matrix:CopyToFloatPointer(push_constants.world)
-	local frame_index = render.GetCurrentFrame()
-	local vertex_animation_offset = get_vertex_animation_offset(self, vertex_animation_material, frame_index)
-	local shadow_state_offset = get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
-	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_state_offset})
-
-	do
-		local depth_texture = self.mode == "point" and
-			self.point_depth_buffer or
-			self.cascade[cascade_index].depth_texture
-		local w = depth_texture:GetWidth()
-		local h = depth_texture:GetHeight()
-		self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
-		self.cmd:SetScissor(0, 0, w, h)
-	end
-
-	self.cmd:SetFrontFace(orientation.FRONT_FACE)
-	self.cmd:SetCullMode("none")
-	pipeline:PushConstants(self.cmd, {"vertex"}, 0, push_constants)
-end
-
-local function get_instanced_pipeline_for_cascade(self, cascade_index)
-	if self.mode == "point" then return self.instanced_pipeline end
-
-	local cascade = self.cascade[cascade_index]
-	local depth_format = cascade and cascade.format or self.format
-	return self.instanced_pipeline_variants and
-		self.instanced_pipeline_variants[depth_format] or
-		self.instanced_pipeline
-end
-
-local function shadow_material_has_vertex_animation(material)
-	return material and material:HasVertexAnimation()
-end
-
-local function get_shadow_draw_submission_context(self, track_component_stats)
-	local context = self.shadow_draw_submission_context
-
-	if not context then
-		context = {
-			submission_stats = {
-				submitted_entry_count = 0,
-				missing_world_matrix_count = 0,
-			},
-			submitted_by_component = setmetatable({}, {__mode = "k"}),
-			missing_world_matrix_components = setmetatable({}, {__mode = "k"}),
-		}
-		self.shadow_draw_submission_context = context
-	end
-
-	context.submission_stats.submitted_entry_count = 0
-	context.submission_stats.missing_world_matrix_count = 0
-
-	if track_component_stats then
-		table.clear(context.submitted_by_component)
-		table.clear(context.missing_world_matrix_components)
-	end
-
-	return context.submission_stats,
-	track_component_stats and context.submitted_by_component or nil,
-	track_component_stats and context.missing_world_matrix_components or nil
-end
-
-local function get_shadow_draw_result(self)
-	local result = self.shadow_draw_result
-
-	if not result then
-		result = {}
-		self.shadow_draw_result = result
-	end
-
-	return result
-end
-
-local function bind_instanced_shadow_constants(self, material, cascade_index)
-	local pipeline = get_instanced_pipeline_for_cascade(self, cascade_index)
-	local texture_entry = nil
-
-	if material then
-		texture_entry = get_cached_shadow_material_texture_indices(self, material, pipeline)
-
-		if not texture_entry then
-			texture_entry = cache_shadow_material_texture_indices(self, material, pipeline)
-		end
-	end
-
-	local vertex_animation_material = self:ShouldDisableVertexAnimation(cascade_index) and
-		render3d.GetDefaultMaterial() or
-		(
-			material or
-			render3d.GetDefaultMaterial()
-		)
-	local frame_index = render.GetCurrentFrame()
-	local vertex_animation_offset = get_vertex_animation_offset(self, vertex_animation_material, frame_index)
-	local shadow_state_offset = get_shadow_state_offset(self, frame_index, pipeline, material, cascade_index, texture_entry)
-	pipeline:Bind(self.cmd, frame_index, {vertex_animation_offset, shadow_state_offset})
-	local depth_texture = self.mode == "point" and
-		self.point_depth_buffer or
-		self.cascade[cascade_index].depth_texture
-	local w = depth_texture:GetWidth()
-	local h = depth_texture:GetHeight()
-	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
-	self.cmd:SetScissor(0, 0, w, h)
-	self.cmd:SetFrontFace(orientation.FRONT_FACE)
-	self.cmd:SetCullMode("none")
-	return pipeline
-end
-
-local function collect_shadow_visible_entry(
-	self,
-	component,
-	entry,
-	cascade_index,
-	submission_stats,
-	submitted_by_component,
-	missing_world_matrix_components
-)
-	local transform = entry and entry.transform or nil
-	local world_matrix = transform and transform:GetWorldMatrix() or component:GetWorldMatrix()
-
-	if not world_matrix then
-		submission_stats.missing_world_matrix_count = submission_stats.missing_world_matrix_count + 1
-
-		if missing_world_matrix_components then
-			missing_world_matrix_components[component] = true
-		end
-
-		return
-	end
-
-	local material = component:GetResolvedMaterial(entry)
-	local uses_vertex_animation = not self:ShouldDisableVertexAnimation(cascade_index) and
-		shadow_material_has_vertex_animation(material)
-
-	if not uses_vertex_animation then
-		self.instance_batcher:Queue(entry.polygon3d, entry.polygon3d:GetMesh(), material, world_matrix)
-	else
-		render3d.SetWorldMatrix(world_matrix)
-		render3d.SetCurrentPolygon3D(entry.polygon3d)
-		self:UploadConstants(world_matrix, material, cascade_index)
-		entry.polygon3d:Draw()
-	end
-
-	submission_stats.submitted_entry_count = submission_stats.submitted_entry_count + 1
-
-	if submitted_by_component then
-		submitted_by_component[component] = (submitted_by_component[component] or 0) + 1
-	end
-end
-
-function draw_shadow_single(self, batch)
-	local world_matrix = batch.world_matrices[1]
-	render3d.SetWorldMatrix(world_matrix)
-	render3d.SetCurrentPolygon3D(batch.polygon3d)
-	self:UploadConstants(world_matrix, batch.material, self.flush_cascade_index)
-	batch.polygon3d:Draw()
-end
-
-function draw_shadow_instanced(self, batch, instance_buffers, first_instance)
-	render3d.SetWorldMatrix(batch.world_matrices[1])
-	render3d.SetCurrentPolygon3D(batch.polygon3d)
-	bind_instanced_shadow_constants(self, batch.material, self.flush_cascade_index)
-	batch.mesh:DrawInstanced(self.cmd, batch.count, instance_buffers, nil, 0, 0, first_instance)
-end
-
-local function flush_shadow_instance_batches(self, cascade_index)
-	self.flush_cascade_index = cascade_index
-	return self.instance_batcher:Flush(self, self.batch_serial)
-end
-
 local function write_shadow_batch_record(self, pipeline, record, batch)
 	local material = batch.material
 	record.albedo_texture_index = cache_shadow_material_texture_indices(self, material, pipeline).albedo_texture_index
@@ -2353,56 +1468,16 @@ function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instan
 	self.cmd:DrawIndirect(commands, 0, #batches, stride)
 end
 
-function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, track_component_stats)
-	cascade_index = cascade_index or self.current_cascade
-	local submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
-
-	for _, component in ipairs(visible_components or {}) do
-		for _, entry in ipairs(component:GetRenderEntries() or {}) do
-			collect_shadow_visible_entry(
-				self,
-				component,
-				entry,
-				cascade_index,
-				submission_stats,
-				submitted_by_component,
-				missing_world_matrix_components
-			)
-		end
-	end
-
-	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, cascade_index)
-	local result = get_shadow_draw_result(self)
-	result.submitted_entry_count = submission_stats.submitted_entry_count
-	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
-	result.submitted_by_component = submitted_by_component
-	result.missing_world_matrix_components = missing_world_matrix_components
-	result.gpu_instanced_entry_count = 0
-	result.gpu_instanced_draw_calls = 0
-	result.gpu_active_batch_count = 0
-	result.gpu_total_batch_count = 0
-	result.instanced_draws = instanced_draws
-	result.fallback_draws = fallback_draws
-	return result
-end
-
 function ShadowMap:PrimeMaterial(material)
 	if not material then return end
 
 	if self.mode == "point" then
-		cache_shadow_material_texture_indices(self, material, self.pipeline)
-		cache_shadow_material_texture_indices(self, material, self.instanced_pipeline)
+		cache_shadow_material_texture_indices(self, material, self.multi_draw_pipeline)
 		return
 	end
 
-	for _, pipeline in pairs(self.pipeline_variants or {}) do
+	for _, pipeline in pairs(self.multi_draw_pipeline_variants) do
 		cache_shadow_material_texture_indices(self, material, pipeline)
-	end
-
-	for _, pipeline in pairs(self.instanced_pipeline_variants or {}) do
-		if pipeline then
-			cache_shadow_material_texture_indices(self, material, pipeline)
-		end
 	end
 end
 
@@ -2462,18 +1537,6 @@ function ShadowMap:GetDepthTexture(cascade_index)
 	return self.cascade[cascade_index].depth_texture
 end
 
-function ShadowMap:GetCascadeDepthTextures()
-	if self.mode == "point" then return {self.point_depth_cubemap} end
-
-	local textures = {}
-
-	for i = 1, self.cascade_count do
-		textures[i] = self.cascade[i].depth_texture
-	end
-
-	return textures
-end
-
 function ShadowMap:IsCascadeSampleable(cascade_index)
 	return self.cascade[cascade_index].is_sampleable
 end
@@ -2484,10 +1547,6 @@ end
 
 function ShadowMap:GetMode()
 	return self.mode
-end
-
-function ShadowMap:GetLightPosition()
-	return self.point_light_position
 end
 
 function ShadowMap:GetFarPlane()
@@ -2531,6 +1590,32 @@ end
 
 function ShadowMap:SetEnabled(enabled)
 	self.enabled = enabled
+end
+
+function ShadowMap:BeginAllCascades()
+	local cmds = {}
+
+	for i = 1, self.cascade_count do
+		cmds[i] = self:Begin(i)
+	end
+
+	return cmds
+end
+
+function ShadowMap:GetCascadeDepthTextures()
+	if self.mode == "point" then return {self.point_depth_cubemap} end
+
+	local textures = {}
+
+	for i = 1, self.cascade_count do
+		textures[i] = self.cascade[i].depth_texture
+	end
+
+	return textures
+end
+
+function ShadowMap:GetLightPosition()
+	return self.point_light_position
 end
 
 function ShadowMap.GetActiveMaps()

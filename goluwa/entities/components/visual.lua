@@ -2395,39 +2395,6 @@ function Visual:OnDraw3DForwardOverlay()
 	return self:DrawForwardOverlayPass()
 end
 
-function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibility_checks)
-	if not self.CastShadows then return end
-
-	render_entries = render_entries or self:GetRenderEntries()
-
-	if not skip_visibility_checks then
-		if not self:IsWithinCullDistance() then
-			return
-		end
-
-		if can_use_shadow_aabb_cull(self, render_entries) then
-			local world_aabb = self:GetWorldAABB()
-
-			if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
-				return
-			end
-		end
-	end
-
-	for _, entry in ipairs(render_entries) do
-		local transform = entry.transform
-		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
-
-		if world_matrix then
-			local material = self:GetResolvedMaterial(entry)
-			render3d.SetWorldMatrix(world_matrix)
-			render3d.SetCurrentPolygon3D(entry.polygon3d)
-			shadow_map:UploadConstants(world_matrix, material, cascade_idx)
-			entry.polygon3d:Draw()
-		end
-	end
-end
-
 function Visual:OnChildAdd()
 	self:InvalidateHierarchyState()
 end
@@ -2713,31 +2680,9 @@ function Visual:OnFirstCreated()
 		}
 	end)
 
-	local height_map_casters = {}
-
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
 
 		shadow_map:DrawScene(cascade_idx)
-		table.clear(height_map_casters)
-
-		-- the multi draw pipeline does not displace: rows with a height map are drawn as visuals
-		for _, component in ipairs(visual.shadow_casters) do
-			if
-				component.Visible and
-				component:IsWithinCullDistance() and
-				component.scene_height_map
-			then
-				local world_aabb = component:GetWorldAABB()
-
-				if world_aabb and shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
-					height_map_casters[#height_map_casters + 1] = component
-				end
-			end
-		end
-
-		if height_map_casters[1] then
-			shadow_map:DrawVisibleComponents(height_map_casters, cascade_idx, false)
-		end
 	end)
 end
 

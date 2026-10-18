@@ -490,7 +490,7 @@ end
 -- the shadow maps: a pass like the main view's that writes, for every slot, a draw (vertices pulled through the index
 -- buffer by the shadow multi draw pipeline, which is what its non indexed command is for) and the world matrix, into buffers
 -- of the cascade. what is not in the cascade's box, is too small to show in it, or is not the level of detail that casts
--- has no instances. rows with a height map are left to the cpu, the multi draw pipeline does not displace
+-- has no instances
 local SHADOW_COMMAND_SIZE = 16
 local shadow_pipeline
 
@@ -627,8 +627,8 @@ local function get_shadow_pipeline()
 				if (casts) {
 					raster = RasterArray(ARGS.raster).r[id];
 					inst = DataArray(ARGS.data).d[id];
-					// 16 casts a shadow, 4 has a height map. removed 16, produced 32
-					casts = (raster.flags & 16u) != 0u && (raster.flags & 4u) == 0u && (inst.flags & 48u) == 0u;
+					// 16 casts a shadow. removed 16, produced 32
+					casts = (raster.flags & 16u) != 0u && (inst.flags & 48u) == 0u;
 				}
 
 				if (casts && compute.culling_enabled != 0) {

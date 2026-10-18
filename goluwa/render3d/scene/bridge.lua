@@ -180,10 +180,7 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		if visual.UseOcclusionCulling then flags = flags + instances.RASTER_OCCLUSION end
 	end
 
-	if flags ~= 0 and material:HasHeightMap() then
-		flags = flags + instances.RASTER_HEIGHT_MAP
-		visual.scene_height_map = true
-	end
+	if flags ~= 0 and material:HasHeightMap() then flags = flags + instances.RASTER_HEIGHT_MAP end
 
 	local transform = entry.transform
 	instances.SetRaster(
@@ -218,7 +215,6 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	local changed = false
 	local emissive = false
 	local hidden = not visual.Visible
-	visual.scene_height_map = nil
 
 	for _, entry in ipairs(visual:GetLODRenderEntries()) do
 		local mesh = entry.polygon3d.mesh
