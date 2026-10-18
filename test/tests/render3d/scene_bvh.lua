@@ -330,12 +330,24 @@ T.Test3D("Graphics render3d scene bvh builds a grid polygon from its grid", func
 
 	local function add_tile(name, x, seed, grid)
 		local heights = ffi.new("float[?]", samples * samples)
+		local min_height, max_height = math.huge, -math.huge
 
 		for i = 0, samples * samples - 1 do
 			heights[i] = math.sin(i * 0.37 + seed) * 3 + math.cos(i * 0.11 * seed) * 2
+			min_height = math.min(min_height, heights[i])
+			max_height = math.max(max_height, heights[i])
 		end
 
-		local polygon3d = tiles.BuildPolygon({request = {samples = samples, size = 16}, heights = heights}, 1, 1)
+		local polygon3d = tiles.BuildPolygon(
+			{
+				request = {samples = samples, size = 16},
+				heights = heights,
+				min_height = min_height,
+				max_height = max_height,
+			},
+			1,
+			1
+		)
 
 		if not grid then polygon3d:SetGridCells(nil) end
 

@@ -102,25 +102,27 @@ local VERTEX_ATTRIBUTES = {
 }
 
 -- `mode` is for vertices and indices that are not used by anything else (see Mesh.New): "owned" or "host". without it
--- the mesh is deduplicated against meshes with the same content
-function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode)
-	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+-- the mesh is deduplicated against meshes with the same content. `aabb` is the bounds when the caller knows them
+function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode, aabb)
+	if not aabb then
+		aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
-	for i = 0, vertex_count - 1 do
-		local position = vertices[i].position
-		local x, y, z = position[0], position[1], position[2]
+		for i = 0, vertex_count - 1 do
+			local position = vertices[i].position
+			local x, y, z = position[0], position[1], position[2]
 
-		if x < aabb.min_x then aabb.min_x = x end
+			if x < aabb.min_x then aabb.min_x = x end
 
-		if y < aabb.min_y then aabb.min_y = y end
+			if y < aabb.min_y then aabb.min_y = y end
 
-		if z < aabb.min_z then aabb.min_z = z end
+			if z < aabb.min_z then aabb.min_z = z end
 
-		if x > aabb.max_x then aabb.max_x = x end
+			if x > aabb.max_x then aabb.max_x = x end
 
-		if y > aabb.max_y then aabb.max_y = y end
+			if y > aabb.max_y then aabb.max_y = y end
 
-		if z > aabb.max_z then aabb.max_z = z end
+			if z > aabb.max_z then aabb.max_z = z end
+		end
 	end
 
 	self:SetAABB(aabb)
