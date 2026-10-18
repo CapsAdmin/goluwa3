@@ -136,6 +136,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/particles.md](docs/particles.md): the particle system (gpu pools, one compute pass, lit by the sun, local lights and DDGI or the sky), the particle_emitter_gpu and particle_emitter_cpu (gbuffer instancing) components, rain, snow, collision, measuring
 - [docs/scatter.md](docs/scatter.md): scatter sets, models (grass, rocks, trees) grown on surfaces on the gpu: set rules, passes, pitfalls
 - [docs/foliage.md](docs/foliage.md): procedural trees, grass, rocks and plants (addons/foliage), their textures, model assets and scatter sets
+- [docs/terrain-streaming.md](docs/terrain-streaming.md): the Limcore Terrain project (heightmap clipmap, tessellation) and what was taken from it for tiles
 - [docs/crysis.md](docs/crysis.md): Crysis level loading, terrain, vegetation, water, performance
 - [docs/navigation-and-npcs.md](docs/navigation-and-npcs.md): Source `.nav` meshes, pathfinding, NPC prefabs that walk with Source animations, simulation LOD
 - [docs/physics.md](docs/physics.md): solver, stress harnesses, buoyancy, Source props
