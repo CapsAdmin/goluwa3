@@ -76,6 +76,8 @@ function scene_reflection.GetDeclarationGLSL(bindings, shared)
 		]] .. (shared and "" or "#define DDGI_VISIBILITY_RAYS") .. [[
 
 		#define SCENE_REFLECTION
+		// radians the footprint of a reflected pixel widens by, a pixel at 1080p and a 60 degree view
+		#define SCENE_REFLECTION_CONE 0.0017
 	]] .. hit.GetSceneGLSL("ddgi_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. (
 			bindings.light_grid and
 			light_grid.GetGLSL(bindings.light_grid) or
@@ -229,17 +231,19 @@ function scene_reflection.GetGLSL(block_name, shared)
 				scene_uv uv = scene_hit_uv(hit_instance, hit_primitive);
 				vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics);
 				vec2 coord = uv.uv0 * weights.x + uv.uv1 * weights.y + uv.uv2 * weights.z;
-				vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, 0.0).rgb;
+				// the cone of the reflection widens with the distance the ray went and with how rough the surface is
+				float cone_width = t * (SCENE_REFLECTION_CONE + roughness * roughness * 0.25);
+				vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.albedo_tex), 0), cone_width)).rgb;
 
 				if (material.albedo2_tex >= 0) {
 					float blend = dot(uv.blend, weights);
 
 					if (material.blend_tex >= 0) {
-						vec2 modulate = textureLod(TEXTURE(material.blend_tex), coord, 0.0).rg;
+						vec2 modulate = textureLod(TEXTURE(material.blend_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.blend_tex), 0), cone_width)).rg;
 						blend = smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), blend);
 					}
 
-					rgb = mix(rgb, textureLod(TEXTURE(material.albedo2_tex), coord, 0.0).rgb, blend);
+					rgb = mix(rgb, textureLod(TEXTURE(material.albedo2_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.albedo2_tex), 0), cone_width)).rgb, blend);
 				}
 
 				albedo = material.albedo * rgb;

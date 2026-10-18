@@ -166,6 +166,20 @@ function hit.GetGLSL(binding)
 			return tri;
 		}
 
+		// the mip a texture of this size is read at when the ray's footprint at the hit is width meters across: the texels
+		// per meter of the triangle come from how much of the texture its uvs cover
+		float scene_hit_texture_lod(scene_triangle tri, scene_uv uv, ivec2 size, float width) {
+			float area = 0.5 * length(cross(tri.e1, tri.e2));
+			vec2 d1 = uv.uv1 - uv.uv0;
+			vec2 d2 = uv.uv2 - uv.uv0;
+			float uv_area = 0.5 * abs(d1.x * d2.y - d1.y * d2.x);
+			float texels = uv_area * float(size.x) * float(size.y);
+
+			if (area <= 1e-12 || texels <= 1e-9) return 0.0;
+
+			return max(log2(width / sqrt(area / texels)), 0.0);
+		}
+
 		scene_uv scene_hit_uv(uint instance, uint primitive) {
 			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
