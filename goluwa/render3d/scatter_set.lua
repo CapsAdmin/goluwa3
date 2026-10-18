@@ -36,10 +36,10 @@
 --     has loaded), crossfading with the model over fade (a share of the distance) around it. it casts shadows in the model's place.
 --     the r_scatter_billboards pvar turns them off, and r_scatter_billboard_distance scales the distance. only for
 --     models that are a path
---   shadow: the instances are drawn in the shadow maps, all of them, in view or not, so the ones behind the camera cast
+--   shadow: (true by default) the instances are drawn in the shadow maps, all of them, in view or not, so the ones behind the camera cast
 --     shadows into it, and the shadow maps decide how far that goes. past the billboard's distance it is the billboard
 --     that casts, which is much cheaper to draw in every cascade
---   bvh: the instances near the camera (r_scatter_gi_distance) are in the scene bvh as simple geometry that is not
+--   bvh: (true by default) the instances near the camera (r_scatter_gi_distance) are in the scene bvh as simple geometry that is not
 --     drawn: the billboard when the prototype has one, else the model's lowest level of detail. that is what gives
 --     them shadows from the soup, global illumination and reflections. for what is big enough to matter to light
 --   density_response: the same for the set's DensityMultiplier, 1 by default and above it is fine: at 3 a
@@ -100,8 +100,8 @@ local DEFAULTS = {
 	distance_response = 1,
 	density_response = 1,
 	conform = false,
-	shadow = false,
-	bvh = false,
+	shadow = true,
+	bvh = true,
 	animation_distance = 60,
 	billboard = false,
 	cluster = {scale = 8, amount = 0},

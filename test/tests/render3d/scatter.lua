@@ -230,6 +230,7 @@ local function create_red_cubes(overrides)
 		density = 6,
 		max_distance = 40,
 		full_density_distance = 40,
+		bvh = false,
 	}
 
 	for k, v in pairs(overrides or {}) do
