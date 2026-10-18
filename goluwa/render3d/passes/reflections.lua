@@ -124,7 +124,7 @@ local shared_glsl = [[
 			}
 
 ]]
-local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9, uvs = 10}
+local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 -- both passes read the same block, the history is the reflections pass's own
 local function get_uniform_buffers(with_ddgi)
 	return {

@@ -29,7 +29,7 @@ function instances.GetTables()
 			name = "tlas_instances",
 			ctype = TLASInstance,
 			capacity = 4096,
-			usage = {"shader_device_address", "acceleration_structure_build_input_read_only_khr"},
+			usage = {"shader_device_address", "storage_buffer", "acceleration_structure_build_input_read_only_khr"},
 		}
 		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 4096}
 	end
@@ -114,7 +114,13 @@ function instances.SetMesh(id, mesh_row)
 end
 
 function instances.SetMaterial(id, material_row)
-	data_table:Get()[id].material_row = material_row
+	local data = data_table:Get()[id]
+
+	if data.material_row == material_row then return false end
+
+	data.material_row = material_row
+	instances.version = instances.version + 1
+	return true
 end
 
 function instances.SetMask(id, mask, flags)
@@ -123,11 +129,12 @@ function instances.SetMask(id, mask, flags)
 	local custom_and_mask = id + mask * 0x1000000
 
 	if tonumber(record.customAndMask) == custom_and_mask and data.flags == flags then
-		return
+		return false
 	end
 
 	write_flags(record, data, mask, flags)
 	instances.version = instances.version + 1
+	return true
 end
 
 function instances.IsAlive()

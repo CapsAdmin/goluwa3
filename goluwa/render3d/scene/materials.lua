@@ -15,4 +15,18 @@ function materials.GetID(material)
 	return id
 end
 
+-- the colour a surface of this material emits, zero for one that does not
+function materials.GetEmissive(material)
+	if
+		material:GetAlbedoAlphaIsEmissive() or
+		material:GetAdditive() or
+		material:GetEmissiveTexture() ~= nil
+	then
+		local multiplier = material:GetEmissiveMultiplier()
+		return multiplier.r * multiplier.a, multiplier.g * multiplier.a, multiplier.b * multiplier.a
+	end
+
+	return 0, 0, 0
+end
+
 return materials

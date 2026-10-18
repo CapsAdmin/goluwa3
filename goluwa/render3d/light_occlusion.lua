@@ -5,7 +5,9 @@ local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local hit = import("goluwa/render3d/scene/hit.lua")
+local bridge = import("goluwa/render3d/scene/bridge.lua")
+local rt = import("goluwa/render3d/scene/rt.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local light_occlusion = {}
@@ -71,7 +73,7 @@ local MAX_LIGHTS = scene_lights.MAX_LIGHTS
 local BINDING_UNIFORM = 0
 local BINDING_MAP = 1
 local BINDING_TLAS = 2
-local BINDING_BVH_TRIANGLES = 3
+local BINDING_HIT = 3
 local BINDING_BLUR_SRC = 1
 local BINDING_BLUR_DST = 2
 
@@ -125,7 +127,6 @@ local stamps = {}
 local move_frame = {}
 local geom_stale = {}
 local slot_at_z = {}
-local geom_version = -1
 
 local function sphere_overlaps_box(px, py, pz, radius_sq, box)
 	local dx = math.max(box[1] - px, 0, px - box[4])
@@ -135,15 +136,9 @@ local function sphere_overlaps_box(px, py, pz, radius_sq, box)
 end
 
 local function process_geometry_change(lights)
-	local version = scene_bvh.version
+	local dirty_all, boxes = bridge.ConsumeDirty()
 
-	if geom_version == version or scene_bvh.dirty_since then return end
-
-	geom_version = version
-	local dirty_all = scene_bvh.dirty_all
-	local boxes = scene_bvh.dirty_boxes or {}
-	scene_bvh.dirty_all = false
-	scene_bvh.dirty_boxes = {}
+	if not dirty_all and not boxes[1] then return end
 
 	for light_index = 1, math.min(#lights, MAX_LIGHTS) do
 		local light = lights[light_index]
@@ -179,9 +174,8 @@ local function build_trace_pipeline()
 			{binding_index = BINDING_MAP},
 		},
 		storage_buffers = {
-			{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
 		},
-		descriptor_sets = scene_bvh.GetTLASDescriptor(BINDING_TLAS),
+		descriptor_sets = hit.IsSupported() and hit.GetDescriptorSets(BINDING_HIT, "compute", BINDING_TLAS) or nil,
 		uniform_buffers = {
 			{
 				name = "oct_data",
@@ -218,17 +212,25 @@ local function build_trace_pipeline()
 			},
 		},
 		custom_declarations = (
+				hit.IsSupported() and
+				hit.GetSceneGLSL("light_occlusion_scene", BINDING_TLAS) .. hit.GetGLSL(BINDING_HIT) or
+				""
+			) .. (
 				[[
 			layout(set = 0, binding = %d, rg32f) uniform writeonly image2DArray light_oct_map;
 		]]
-			):format(BINDING_MAP) .. scene_bvh.GetDeclarationsGLSL(BINDING_TLAS, BINDING_BVH_TRIANGLES),
+			):format(BINDING_MAP),
 		shader = (
 				[[
 			const float LIGHT_OCCL_T_MIN = 0.05;
 
 			]] .. glsl_common.GetOctahedralGLSL() .. [[
 
-			]] .. scene_bvh.GetTraversalGLSL() .. [[
+			]] .. (
+				hit.IsSupported() and
+				hit.GetTraceGLSL("light_occlusion_scene") or
+				hit.GetStubTraceGLSL()
+			) .. [[
 
 			const int LIGHT_OCCL_SUBS = ]] .. subs:Get() .. [[;
 
@@ -383,11 +385,9 @@ light_occlusion.last_dispatches = 0
 function light_occlusion.Draw(cmd)
 	light_occlusion.last_dispatches = 0
 
-	if not (scene_bvh.IsRayQuerySupported() and scene_bvh.IsReady() and enabled:Get()) then return end
+	if not (hit.IsSupported() and enabled:Get()) then return end
 
-	local tlas = scene_bvh.EnsureRTBuilt(cmd)
-
-	if not tlas then return end
+	local tlas = rt.GetTLAS(cmd)
 
 	local lights = render3d.GetLights()
 	local frame = system.GetFrameNumber()
@@ -484,7 +484,7 @@ function light_occlusion.Draw(cmd)
 	)
 	pipeline:UpdateDescriptorSet("storage_image", slot, BINDING_MAP, 0, map_texture:GetView())
 	pipeline:UpdateDescriptorSet("acceleration_structure_khr", slot, BINDING_TLAS, 0, tlas)
-	scene_bvh.BindTriangleBuffer(pipeline, slot, BINDING_BVH_TRIANGLES, scene_bvh.triangle_buffer)
+	hit.Bind(pipeline, slot, BINDING_HIT)
 	pipeline:UploadConstants()
 	local size = get_map_size()
 	light_occlusion.last_dispatches = dirty_count
@@ -664,7 +664,7 @@ function light_occlusion.WriteOcclusionBlock(block, lights)
 
 	local active = 0
 
-	if scene_bvh.IsRayQuerySupported() and scene_bvh.IsReady() and enabled:Get() then
+	if hit.IsSupported() and enabled:Get() then
 		for light_index = 1, math.min(#lights, MAX_LIGHTS) do
 			local info = state[light_index]
 

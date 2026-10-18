@@ -138,7 +138,7 @@ do
 
 			for ray = 0, ddgi.GetUniformRays() - 1 do
 				local _, dy = ddgi.GetRayDirection(ray, ddgi.GetUniformRays(), state.rotation)
-				local hit_t = hits[(probe * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) + ray) * 2]
+				local hit_t = hits[(probe * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) + ray) * 4]
 
 				if dy < -0.1 then
 					T(hit_t)["~"](height / -dy, 0.01 * height / -dy)
@@ -346,7 +346,7 @@ T.Test3D("Graphics render3d ddgi material buffer marks materials without an albe
 	ent.visual:BuildAABB()
 	scene_bvh.Build()
 	local ok, err = pcall(function()
-		local id = scene_bvh.GetMaterialID(material)
+		local id = import("goluwa/render3d/scene/materials.lua").GetID(material)
 		local releases = 0
 		local pipeline = {
 			GetTextureIndex = function()

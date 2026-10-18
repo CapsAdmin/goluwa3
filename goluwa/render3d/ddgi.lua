@@ -6,7 +6,11 @@ local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_materials = import("goluwa/render3d/scene/materials.lua")
+local scene_bridge = import("goluwa/render3d/scene/bridge.lua")
+local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
+local scene_instances = import("goluwa/render3d/scene/instances.lua")
+local scene_hit = import("goluwa/render3d/scene/hit.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
@@ -88,8 +92,8 @@ local change_min_interval = pvars.Setup2{
 ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
 ddgi.HALF_PRECISION_RAYS = true
-ddgi.ALPHA_TEST = scene_bvh.SOUP_UVS
-ddgi.ALBEDO_UVS = scene_bvh.SOUP_UVS
+ddgi.ALPHA_TEST = true
+ddgi.ALBEDO_UVS = true
 ddgi.ALBEDO_UV_TEXELS = 8
 ddgi.EMITTER_SAMPLES = 32
 local emitters_enabled = pvars.Setup2{
@@ -429,7 +433,7 @@ do
 
 		state.frame = frame
 		local position = render3d.GetCamera():GetPosition()
-		local bounds_min, bounds_max = scene_bvh.GetBounds()
+		local bounds_min, bounds_max = scene_bridge.GetBounds()
 		local region = state.region
 		region.min_x, region.max_x = fit_region(0, position.x, bounds_min, bounds_max)
 		region.min_y, region.max_y = fit_region(1, position.y, bounds_min, bounds_max)
@@ -647,7 +651,7 @@ function ddgi.GetDefinesGLSL()
 		ddgi.HALF_PRECISION_RAYS and 6 or 12,
 		ddgi.HALF_PRECISION_RAYS and 2048 or 0,
 		ddgi.LIGHT_SAMPLES,
-		ddgi.ALPHA_TEST and scene_bvh.RAY_MASK_SOLID or 0xFF
+		ddgi.ALPHA_TEST and scene_instances.MASK_SOLID or 0xFF
 	)
 end
 
@@ -749,8 +753,8 @@ function ddgi.GetEmitterDeclarationsGLSL(binding)
 	return (
 		[[
 		// The emitters as words, built by ddgi.GetEmitters: 0 total power (float), 1 emitter
-		// count, then the emitters, 3 words each: the triangle (and the double sided
-		// bit), the cdf over all emitters (float), the power (float).
+		// count, then the emitters, 4 words each: the instance, the primitive (and the
+		// double sided bit), the cdf over all emitters (float), the power (float).
 		layout(set = 0, binding = %d) readonly buffer DDGIEmitters {
 			uint ddgi_grid[];
 		};
@@ -802,6 +806,8 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			float roughness_max;
 			int roughness_tex;
 			int roughness_channel;
+			// what the surface emits
+			vec3 emissive;
 			};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -888,7 +894,7 @@ float ddgi_bounce_share(ddgi_material material) {
 }
 
 vec3 ddgi_emission(scene_bvh_triangle tri, vec3 albedo) {
-			return min(tri.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+			return min(ddgi_materials[tri.material].emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
 		}
 	]]
 end
@@ -896,7 +902,7 @@ end
 function ddgi.GetHitAlbedoGLSL()
 	if not ddgi.ALBEDO_UVS then
 		return [[
-			vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint triangle) {
+			vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
 				return ddgi_albedo(material, P);
 			}
 		]]
@@ -905,10 +911,10 @@ function ddgi.GetHitAlbedoGLSL()
 	return [[
 		#define DDGI_ALBEDO_UV_TEXELS ]] .. string.format("%.1f", ddgi.ALBEDO_UV_TEXELS) .. [[
 
-		vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint triangle) {
+		vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
 			if (material.terrain_tex >= 0 || material.albedo_tex < 0) return ddgi_albedo(material, P);
 
-			scene_bvh_triangle tri = bvh_tri(triangle);
+			scene_bvh_triangle tri = scene_hit_tri(instance, primitive);
 			vec3 p = P - tri.v0;
 			float d00 = dot(tri.e1, tri.e1);
 			float d01 = dot(tri.e1, tri.e2);
@@ -918,7 +924,7 @@ function ddgi.GetHitAlbedoGLSL()
 			float inv = 1.0 / (d00 * d11 - d01 * d01);
 			float v = (d11 * d20 - d01 * d21) * inv;
 			float w = (d00 * d21 - d01 * d20) * inv;
-			scene_bvh_uv uv = bvh_uv(triangle);
+			scene_bvh_uv uv = scene_hit_uv(instance, primitive);
 			vec2 coord = uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w;
 			ivec2 size = textureSize(TEXTURE(material.albedo_tex), 0);
 			float lod = max(log2(float(max(size.x, size.y)) / DDGI_ALBEDO_UV_TEXELS), 0.0);
@@ -947,15 +953,15 @@ end
 
 function ddgi.GetAlphaTestGLSL()
 	return [[
-		bool ddgi_alpha_passes(uint triangle, vec2 barycentrics) {
-			ddgi_material material = ddgi_materials[bvh_tri(triangle).material];
+		bool ddgi_alpha_passes(uint instance, uint primitive, vec2 barycentrics) {
+			ddgi_material material = ddgi_materials[scene_instance_material(instance)];
 
 			if (material.alpha_test == 0) return true;
 
 			float alpha = material.alpha;
 
 			if (material.alpha_test == 2) {
-				scene_bvh_uv uv = bvh_uv(triangle);
+				scene_bvh_uv uv = scene_hit_uv(instance, primitive);
 				vec2 coord = uv.uv0 * (1.0 - barycentrics.x - barycentrics.y) + uv.uv1 * barycentrics.x + uv.uv2 * barycentrics.y;
 				alpha *= textureLod(TEXTURE(material.albedo_tex), coord, 0.0).a;
 			}
@@ -971,8 +977,12 @@ function ddgi.GetEmitterGLSL()
 			return vec4(pcg4d(uvec4(index, frame, candidate, 0x9E3779B9u)) >> 8u) / 16777216.0;
 		}
 
+		uint ddgi_emitter_instance(int e) {
+			return ddgi_grid[2u + uint(e) * 4u];
+		}
+
 		uint ddgi_emitter_triangle(int e) {
-			return ddgi_grid[2u + uint(e) * 3u];
+			return ddgi_grid[2u + uint(e) * 4u + 1u];
 		}
 
 		int ddgi_pick_emitter(float u, int count) {
@@ -982,7 +992,7 @@ function ddgi.GetEmitterGLSL()
 			while (lo < hi) {
 				int mid = (lo + hi) / 2;
 
-				if (uintBitsToFloat(ddgi_grid[2u + uint(mid) * 3u + 1u]) < u) {
+				if (uintBitsToFloat(ddgi_grid[2u + uint(mid) * 4u + 2u]) < u) {
 					lo = mid + 1;
 				} else {
 					hi = mid;
@@ -1008,8 +1018,9 @@ function ddgi.GetEmitterGLSL()
 		// inside radius), over the density it was drawn with (the emitter's share of the power)
 		float ddgi_emitter_candidate_weight(uint index, uint frame, uint candidate, int emitter_count, vec3 origin, float radius) {
 			vec4 u = ddgi_emitter_random(index, frame, candidate);
-			uint triangle = ddgi_emitter_triangle(ddgi_pick_emitter(u.x, emitter_count));
-			scene_bvh_triangle tri = bvh_tri(triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
+			int picked = ddgi_pick_emitter(u.x, emitter_count);
+			uint triangle = ddgi_emitter_triangle(picked);
+			scene_bvh_triangle tri = scene_hit_tri(ddgi_emitter_instance(picked), triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
 			vec3 to_point = ddgi_emitter_point(tri, u.yz) - origin;
 			float dist2 = dot(to_point, to_point);
 			// tri.normal points away from the visible side
@@ -1056,7 +1067,7 @@ function ddgi.GetEmitterGLSL()
 
 			vec4 u = ddgi_emitter_random(index, frame, chosen);
 			int e = ddgi_pick_emitter(u.x, emitter_count);
-			point = ddgi_emitter_point(bvh_tri(ddgi_emitter_triangle(e) & ~DDGI_EMITTER_DOUBLE_SIDED), u.yz);
+			point = ddgi_emitter_point(scene_hit_tri(ddgi_emitter_instance(e), ddgi_emitter_triangle(e) & ~DDGI_EMITTER_DOUBLE_SIDED), u.yz);
 			emitter = int(uint(e) | (chosen << 26u));
 			return total / float(DDGI_EMITTER_CANDIDATES);
 		}
@@ -1591,7 +1602,7 @@ local ray_hit_buffer = nil
 function ddgi.GetRayHitBuffer()
 	if not ray_hit_buffer then
 		ray_hit_buffer = render.CreateBuffer{
-			byte_size = ddgi.GetRayCount() * 8,
+			byte_size = ddgi.GetRayCount() * 16,
 			buffer_usage = {"storage_buffer"},
 			memory_property = {"host_visible", "device_local"},
 			label = "ddgi_ray_hits",
@@ -1602,90 +1613,12 @@ function ddgi.GetRayHitBuffer()
 end
 
 do
-	local HEADER_WORDS = 2
-	local EMITTER_WORDS = 3
 	local WordArray = ffi.typeof("uint32_t[?]")
-	local Floats = ffi.typeof("float*")
-	local emitters = {
-		words = WordArray(1),
-		word_capacity = 1,
-		word_count = 0,
-		count = 0,
-		weight = 0,
-		version = 0,
-		emitter_version = -1,
-		additive = false,
-		excluded_count = 0,
-		excluded_power = 0,
-	}
 	local buffers = {}
 	local buffer_versions = {}
 
 	function ddgi.GetEmitters()
-		local additive = additive_emitters:Get()
-
-		if emitters.emitter_version == scene_bvh.emitter_version and emitters.additive == additive then
-			return emitters
-		end
-
-		local total_count = 0
-
-		for _, block in ipairs(scene_bvh.emissive_blocks) do
-			total_count = total_count + block.emitter_count
-		end
-
-		local word_count = HEADER_WORDS + total_count * EMITTER_WORDS
-
-		if emitters.word_capacity < word_count then
-			emitters.words = WordArray(word_count * 2)
-			emitters.word_capacity = word_count * 2
-		end
-
-		local words = emitters.words
-		ffi.fill(words, word_count * 4)
-		local floats = ffi.cast(Floats, words)
-		local count, weight = 0, 0
-		local excluded_count, excluded_power = 0, 0
-
-		for _, block in ipairs(scene_bvh.emissive_blocks) do
-			local block_emitters = block.emitters
-			local tri_base = block.tri_base
-
-			for j = 0, block.emitter_count - 1 do
-				local emitter = block_emitters[j]
-				local power = emitter.power
-
-				if emitter.additive ~= 0 and not additive then
-					excluded_count = excluded_count + 1
-					excluded_power = excluded_power + power
-				elseif power > 0 then
-					weight = weight + power
-					local g = HEADER_WORDS + count * EMITTER_WORDS
-					words[g] = emitter.triangle + tri_base
-					floats[g + 1] = weight
-					floats[g + 2] = power
-					count = count + 1
-				end
-			end
-		end
-
-		for i = 0, count - 1 do
-			floats[HEADER_WORDS + i * EMITTER_WORDS + 1] = floats[HEADER_WORDS + i * EMITTER_WORDS + 1] / weight
-		end
-
-		if count > 0 then floats[HEADER_WORDS + (count - 1) * EMITTER_WORDS + 1] = 1 end
-
-		floats[0] = weight
-		words[1] = count
-		emitters.word_count = word_count
-		emitters.count = count
-		emitters.weight = weight
-		emitters.additive = additive
-		emitters.excluded_count = excluded_count
-		emitters.excluded_power = excluded_power
-		emitters.emitter_version = scene_bvh.emitter_version
-		emitters.version = emitters.version + 1
-		return emitters
+		return scene_emitters.Get(additive_emitters:Get())
 	end
 
 	function ddgi.GetEmitterBuffer()
@@ -1708,9 +1641,9 @@ do
 			buffer_versions[frame] = nil
 		end
 
-		if buffer_versions[frame] ~= emitters.version then
+		if buffer_versions[frame] ~= emitters.words_version then
 			buffer:CopyData(emitters.words, bytes)
-			buffer_versions[frame] = emitters.version
+			buffer_versions[frame] = emitters.words_version
 		end
 
 		return buffer
@@ -1748,6 +1681,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	float roughness_max;
 	int32_t roughness_tex;
 	int32_t roughness_channel;
+	float emissive[3];
 	}]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
@@ -1762,7 +1696,7 @@ end
 
 function ddgi.WriteMaterialBuffer(self)
 	local frame = render.GetCurrentFrame()
-	local materials = scene_bvh.materials
+	local materials = scene_materials.list
 	local count = #materials
 	material_buffers[self] = material_buffers[self] or {}
 	local states = material_buffers[self]
@@ -1860,6 +1794,7 @@ function ddgi.WriteMaterialBuffer(self)
 				roughness_texture:IsValid() and
 				self:GetTextureIndex(roughness_texture) or
 				-1
+			entry.emissive[0], entry.emissive[1], entry.emissive[2] = scene_materials.GetEmissive(material)
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()
@@ -2006,6 +1941,7 @@ local payload_glsl = [[
 struct Payload
 {
     float hit_t;
+    uint instance;
     uint primitive;
     // 1 for the sun's shadow ray, which passes through glass (see ddgi_material.glass)
     uint sun;
@@ -2023,7 +1959,7 @@ local raygen_glsl = [[
 // see ddgi_guide_texel
 layout(set = 0, binding = 4) uniform sampler2D guide;
 #define DDGI_GUIDE_FETCH(texel) texelFetch(guide, texel, 0)
-]] .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_bvh.GetTriangleDeclarationGLSL(5) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
+]] .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_hit.GetGLSL(10) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
 layout(set = 0, binding = 0) uniform Params
 {
     // see ddgi_cascades and ddgi_cascade_size
@@ -2046,7 +1982,7 @@ layout(set = 0, binding = 0) uniform Params
 } params;
 layout(set = 0, binding = 1) writeonly buffer Hits
 {
-    uvec2 hits[];
+    uvec4 hits[];
 };
 layout(set = 0, binding = 2) uniform accelerationStructureEXT scene;
 // see ddgi_probe_data
@@ -2081,7 +2017,7 @@ void main()
     // An emitter sample (see ddgi_pick_emitter_sample). Stores its weight and the
     // emitter, or a negative weight when it is blocked.
     if (ray >= DDGI_RAYS) {
-        uvec2 result = uvec2(floatBitsToUint(-1.0), 0u);
+        uvec4 result = uvec4(floatBitsToUint(-1.0), 0u, 0u, 0u);
 
         if (params.emitter_count > 0) {
             int emitter;
@@ -2095,7 +2031,7 @@ void main()
                 payload.sun = 0u;
                 traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin, 0.0, to_point / dist, dist - DDGI_SHADOW_OFFSET, 0);
 
-                if (payload.hit_t < 0.0) result = uvec2(floatBitsToUint(weight), uint(emitter));
+                if (payload.hit_t < 0.0) result = uvec4(floatBitsToUint(weight), uint(emitter), 0u, 0u);
             }
         }
 
@@ -2107,7 +2043,9 @@ void main()
     payload.sun = 0u;
     traceRayEXT(scene, DDGI_SCENE_FLAGS, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
     float hit_t = payload.hit_t;
+    uint instance = payload.instance;
     uint primitive = payload.primitive;
+    uint sun_visible = 0u;
 
     // The sun's visibility from the hit, exact rather than from shadow maps
     // that only cover the view. The local lights get theirs in the shade pass
@@ -2115,7 +2053,7 @@ void main()
     // only a miss changes the payload.
     if (hit_t >= 0.0 && params.sun_direction.w > 0.0) {
         // the shade pass' normal, flipped to face the ray (a back face of a single sided material is discarded there anyway)
-        vec3 hit_normal = -bvh_tri(primitive).normal;
+        vec3 hit_normal = -scene_hit_tri(instance, primitive).normal;
 
         if (dot(dir, hit_normal) > 0.0) hit_normal = -hit_normal;
 
@@ -2127,11 +2065,11 @@ void main()
             payload.sun = 1u;
             traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin + dir * hit_t + hit_normal * DDGI_SHADOW_OFFSET, 0.0, sun_direction, params.max_ray_distance, 0);
 
-            if (payload.hit_t < 0.0) primitive |= DDGI_SUN_VISIBLE_BIT;
+            if (payload.hit_t < 0.0) sun_visible = 1u;
         }
     }
 
-    hits[index] = uvec2(floatBitsToUint(hit_t), primitive);
+    hits[index] = uvec4(floatBitsToUint(hit_t), instance, primitive, sun_visible);
 }
 ]]
 local closesthit_glsl = [[
@@ -2143,8 +2081,8 @@ layout(location = 0) rayPayloadInEXT Payload payload;
 void main()
 {
     payload.hit_t = gl_HitTEXT;
-    // one instance per visual, its custom index is the visual's soup range start
-    payload.primitive = uint(gl_InstanceCustomIndexEXT) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(gl_PrimitiveID);
+    payload.instance = uint(gl_InstanceCustomIndexEXT);
+    payload.primitive = uint(gl_PrimitiveID);
 }
 ]]
 
@@ -2159,20 +2097,20 @@ layout(set = 1, binding = 0) uniform sampler2D textures[]] .. render.GetBindless
 hitAttributeEXT vec2 barycentrics;
 ]] .. payload_glsl .. [[
 layout(location = 0) rayPayloadInEXT Payload payload;
-]] .. scene_bvh.GetTriangleDeclarationGLSL(5) .. scene_bvh.GetUvDeclarationGLSL(8) .. ddgi.GetMaterialDeclarationsGLSL(9) .. ddgi.GetAlphaTestGLSL() .. [[
+]] .. scene_hit.GetGLSL(10) .. ddgi.GetMaterialDeclarationsGLSL(9) .. ddgi.GetAlphaTestGLSL() .. [[
 
 void main()
 {
-    // one instance per visual, its custom index is the visual's soup range start
-    uint triangle = uint(gl_InstanceCustomIndexEXT) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(gl_PrimitiveID);
+    uint instance = uint(gl_InstanceCustomIndexEXT);
+    uint material = scene_instance_material(instance);
 
     // the sun's light goes on through glass, tinted by the lookup in the shade pass
-    if (payload.sun != 0u && ddgi_materials[bvh_tri(triangle).material].glass != 0) ignoreIntersectionEXT;
+    if (payload.sun != 0u && ddgi_materials[material].glass != 0) ignoreIntersectionEXT;
 
     // probe and emitter rays see what is behind refractive surfaces
-    if (payload.sun == 0u && ddgi_materials[bvh_tri(triangle).material].refractive != 0) ignoreIntersectionEXT;
+    if (payload.sun == 0u && ddgi_materials[material].refractive != 0) ignoreIntersectionEXT;
 
-    if (!ddgi_alpha_passes(triangle, barycentrics)) ignoreIntersectionEXT;
+    if (!ddgi_alpha_passes(instance, uint(gl_PrimitiveID), barycentrics)) ignoreIntersectionEXT;
 }
 ]]
 end
@@ -2186,6 +2124,7 @@ layout(location = 0) rayPayloadInEXT Payload payload;
 void main()
 {
     payload.hit_t = -1.0;
+    payload.instance = 0u;
     payload.primitive = 0u;
 }
 ]]
@@ -2205,23 +2144,14 @@ function ddgi.GetRTPipeline()
 			{binding_index = 2, type = "acceleration_structure_khr", stageFlags = "all"},
 			{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
 			{binding_index = 4, type = "combined_image_sampler", stageFlags = "all"},
-			{
-				binding_index = 5,
-				type = "storage_buffer",
-				stageFlags = "all",
-				count = scene_bvh.SOUP_CHUNKS,
-			},
 			{binding_index = 6, type = "storage_buffer", stageFlags = "all"},
+			{binding_index = 10, type = "storage_buffer", stageFlags = "all"},
+			{binding_index = 11, type = "storage_buffer", stageFlags = "all"},
+			{binding_index = 12, type = "storage_buffer", stageFlags = "all"},
 		}
 
 		if ddgi.ALPHA_TEST then
 			stages[#stages + 1] = {name = "anyhit", code = build_anyhit_glsl()}
-			bindings[#bindings + 1] = {
-				binding_index = 8,
-				type = "storage_buffer",
-				stageFlags = "all",
-				count = scene_bvh.SOUP_CHUNKS,
-			}
 			bindings[#bindings + 1] = {binding_index = 9, type = "storage_buffer", stageFlags = "all"}
 		end
 

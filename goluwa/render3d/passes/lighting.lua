@@ -20,7 +20,7 @@ local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
-local GLASS_BINDINGS = {scene = 6, triangles = 7, materials = 8}
+local GLASS_BINDINGS = {scene = 6, hit = 30, materials = 8}
 local SCREEN_SHADOW_MAX_STEPS = 64
 local SCREEN_SHADOW_STRIDE = 1.5
 pvars.StartGroup("Lighting", "Lighting", {store = false, prefix = "lighting_"})

@@ -14,7 +14,7 @@ local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
 local render = import("goluwa/render/render.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local RAY_QUERY = scene_reflection.RAY_QUERY
-local REFLECTION_BINDINGS = {scene = 5, triangles = 6, materials = 7, light_grid = 9, uvs = 10}
+local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local pvars = import("goluwa/cli/pvars.lua")
 -- the parts of the water that can be turned off, to see what each costs. they are the bits of ocean_data.features
 local FEATURES = {}

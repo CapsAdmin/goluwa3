@@ -21,7 +21,7 @@ local Texture = import("goluwa/render/texture.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
-local SCENE_BINDINGS = {scene = 22, triangles = 23, materials = 24, uvs = 25}
+local SCENE_BINDINGS = {scene = 22, hit = 30, materials = 24}
 local surface_descriptor_sets = {
 	{
 		type = "storage_buffer",

@@ -1,6 +1,6 @@
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local rt = import("goluwa/render3d/scene/rt.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
@@ -225,9 +225,7 @@ local scatter_pass = {
 				desc,
 				BINDING_SCENE,
 				0,
-				render3d.IsPassEnabled("ddgi") and
-					ddgi.GetFrameState().tlas or
-					scene_bvh.GetPlaceholderTLAS(cmd)
+				rt.GetTLAS(cmd)
 			)
 		end
 	end,

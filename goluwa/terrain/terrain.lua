@@ -379,7 +379,7 @@ function Terrain:CreateBVHEntity(tile)
 			tile.chunk,
 			self:GetLevelSkirtDepth(tile.level),
 			tile.level == 0 and self.BVHNearStride or self.BVHStride,
-			"host"
+			"owned"
 		)
 	)
 	primitive:SetMaterial(tile.material)

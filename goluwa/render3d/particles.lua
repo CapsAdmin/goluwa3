@@ -16,7 +16,8 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local hit = import("goluwa/render3d/scene/hit.lua")
+local rt = import("goluwa/render3d/scene/rt.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
@@ -79,7 +80,7 @@ local BINDING_OCCLUSION = 3
 local BINDING_LIGHT_GRID = 4
 local BINDING_FIRST_SYSTEM = 5
 local BINDING_TLAS = 20
-local BINDING_BVH_TRIANGLES = 21
+local BINDING_HIT = 21
 local COLLISION_MODES = {shelter_map = 1, scene_depth = 2, rays = 3, per_particle = 4}
 local PARTICLE_BYTES = 80
 particles.systems = {}
@@ -570,9 +571,8 @@ function particles.GetSimulationGLSL()
 end
 
 function particles.BuildSimulationPasses()
-	-- whether the scene bvh is bound this frame, or a placeholder is
+	-- whether the scene is traced this frame
 	local bvh_ready = false
-	local placeholder
 	local uniform_buffers = {
 		{
 			name = "ddgi_data",
@@ -656,9 +656,8 @@ function particles.BuildSimulationPasses()
 			uniform_buffers = uniform_buffers,
 			storage_buffers = {
 				{binding_index = BINDING_LIGHT_GRID},
-				{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
 			},
-			descriptor_sets = scene_bvh.GetTLASDescriptor(BINDING_TLAS),
+			descriptor_sets = hit.IsSupported() and hit.GetDescriptorSets(BINDING_HIT, "compute", BINDING_TLAS) or nil,
 			on_pre_draw = function(self, cmd, frame, desc)
 				light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 				local wants_rays = false
@@ -667,25 +666,11 @@ function particles.BuildSimulationPasses()
 					if def.IsActive() and (def.collision == "rays" or def.UsesRays and def.UsesRays()) then wants_rays = true end
 				end
 
-				if wants_rays then scene_bvh.EnsureBuilt() end
+				bvh_ready = wants_rays and hit.IsSupported()
 
-				local tlas = wants_rays and scene_bvh.IsReady() and scene_bvh.EnsureRTBuilt(cmd)
-				bvh_ready = tlas ~= nil and tlas ~= false
-
-				if scene_bvh.IsRayQuerySupported() then
-					self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_TLAS, 0, tlas or scene_bvh.GetPlaceholderTLAS(cmd))
-				end
-
-				if bvh_ready then
-					scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, scene_bvh.triangle_buffer)
-				else
-					placeholder = placeholder or render.CreateBuffer{
-						byte_size = 256,
-						buffer_usage = {"storage_buffer"},
-						memory_property = {"device_local"},
-						label = "particles bvh placeholder",
-					}
-					scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, placeholder)
+				if hit.IsSupported() then
+					self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_TLAS, 0, rt.GetTLAS(cmd))
+					hit.Bind(self, desc, BINDING_HIT)
 				end
 
 				for _, def in ipairs(particles.systems) do
@@ -715,8 +700,16 @@ function particles.BuildSimulationPasses()
 				self.pipeline:DispatchForSize(cmd, widest, #particles.systems, 1, desc, self.dynamic_offsets)
 				cmd:PipelineBarrier{srcStage = "compute", dstStage = {"vertex", "compute"}, bufferBarriers = pooled_after}
 			end,
-			custom_declarations = particles.GetParticleGLSL() .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. scene_bvh.GetDeclarationsGLSL(BINDING_TLAS, BINDING_BVH_TRIANGLES),
-			shader = glsl_common.GetHashGLSL() .. glsl_common.GetPhaseGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("particle_data") .. screen_reconstruct.GetViewDepthGLSL("particle_data") .. scene_bvh.GetTraversalGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("particle_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("particle_data") .. atmosphere.GetGLSLDefines("particle_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("particle_data", "get_particle_sun_visibility") .. scene_lights.GetPointShadowGLSL("particle_data") .. medium_lighting.GetLocalLightsGLSL("particle_data", LOCAL_LIGHT_LIMIT) .. particles.GetSimulationGLSL(),
+			custom_declarations = particles.GetParticleGLSL() .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. (
+				hit.IsSupported() and
+				hit.GetSceneGLSL("particle_scene", BINDING_TLAS) .. hit.GetGLSL(BINDING_HIT) or
+				""
+			),
+			shader = glsl_common.GetHashGLSL() .. glsl_common.GetPhaseGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("particle_data") .. screen_reconstruct.GetViewDepthGLSL("particle_data") .. (
+				hit.IsSupported() and
+				hit.GetTraceGLSL("particle_scene") or
+				hit.GetStubTraceGLSL()
+			) .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("particle_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("particle_data") .. atmosphere.GetGLSLDefines("particle_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("particle_data", "get_particle_sun_visibility") .. scene_lights.GetPointShadowGLSL("particle_data") .. medium_lighting.GetLocalLightsGLSL("particle_data", LOCAL_LIGHT_LIMIT) .. particles.GetSimulationGLSL(),
 		},
 	}
 end

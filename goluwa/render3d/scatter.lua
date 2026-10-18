@@ -11,6 +11,7 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local event = import("goluwa/event.lua")
@@ -1891,7 +1892,7 @@ local function build_proxy(unit, instances, count)
 
 				local vertices, vertex_count, indices, index_count = scatter_proxy.Build(template, instances, list, counts[kind][proto])
 				local polygon = Polygon3D.New()
-				polygon:UploadVertexArray(vertices, vertex_count, indices, index_count, false, "host")
+				polygon:UploadVertexArray(vertices, vertex_count, indices, index_count, false, "owned")
 				local primitive = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
 				primitive:AddComponent("transform")
 				local visual_primitive = primitive:AddComponent("visual_primitive")
@@ -2410,7 +2411,7 @@ function scatter.PreDraw(cmd)
 				render.GetCurrentFrame(),
 				BINDING_SCENE,
 				0,
-				scene_bvh.EnsureRTBuilt(cmd) or scene_bvh.GetPlaceholderTLAS(cmd)
+				scene_rt.GetTLAS(cmd)
 			)
 		end
 

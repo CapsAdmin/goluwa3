@@ -1,7 +1,8 @@
 local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local hit = import("goluwa/render3d/scene/hit.lua")
+local rt = import("goluwa/render3d/scene/rt.lua")
 local Material = import("goluwa/render3d/material.lua")
 local glass_light = {}
 glass_light.RAY_QUERY = render.GetDevice().ray_query_supported
@@ -26,16 +27,9 @@ Material.GlassCastsShadow = function()
 end
 
 function glass_light.GetDescriptorSets(bindings, stage)
-	return {
-		{type = "acceleration_structure_khr", binding_index = bindings.scene, stageFlags = stage},
-		{
-			type = "storage_buffer",
-			binding_index = bindings.triangles,
-			stageFlags = stage,
-			count = scene_bvh.SOUP_CHUNKS,
-		},
-		{type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage},
-	}
+	local sets = hit.GetDescriptorSets(bindings.hit, stage, bindings.scene)
+	sets[#sets + 1] = {type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage}
+	return sets
 end
 
 do
@@ -44,8 +38,7 @@ do
 
 	function glass_light.Bind(self, cmd, desc, bindings)
 		local materials = ddgi.WriteMaterialBuffer(self)
-		local tlas = ddgi.GetFrameState().tlas or scene_bvh.GetPlaceholderTLAS(cmd)
-		local triangles = scene_bvh.triangle_buffer or materials
+		local tlas = rt.GetTLAS(cmd)
 		bound[self] = bound[self] or {}
 		local last = bound[self][desc]
 
@@ -64,18 +57,12 @@ do
 			last.tlas = tlas
 		end
 
-		if last.triangles ~= triangles then
-			scene_bvh.BindTriangleBuffer(self, desc, bindings.triangles, triangles)
-			last.triangles = triangles
-		end
+		hit.Bind(self, desc, bindings.hit)
 	end
 end
 
 function glass_light.GetDeclarationGLSL(bindings)
-	return [[
-		#extension GL_EXT_ray_query : require
-		layout(set = 0, binding = ]] .. bindings.scene .. [[) uniform accelerationStructureEXT glass_light_scene;
-	]] .. scene_bvh.GetTriangleDeclarationGLSL(bindings.triangles) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials)
+	return hit.GetSceneGLSL("glass_light_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials)
 end
 
 -- what the light along origin + dir * distance is multiplied by after the glass in between. only see
@@ -92,8 +79,7 @@ function glass_light.GetGLSL(scene_name)
 			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, 0xFF, origin, 0.0, dir, distance);
 
 			while (rayQueryProceedEXT(query)) {
-				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
-				ddgi_material material = ddgi_materials[bvh_tri(candidate).material];
+				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
 
 				if (material.glass == 0) continue;
 

@@ -2,7 +2,8 @@ local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local hit = import("goluwa/render3d/scene/hit.lua")
+local rt = import("goluwa/render3d/scene/rt.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
@@ -26,28 +27,14 @@ local screenspace_roughness = pvars.Setup2{
 pvars.EndGroup()
 
 function scene_reflection.GetDescriptorSets(bindings, stage)
-	return {
-		{
-			type = "acceleration_structure_khr",
-			binding_index = bindings.scene,
-			stageFlags = stage,
-		},
-		{
-			type = "storage_buffer",
-			binding_index = bindings.triangles,
-			stageFlags = stage,
-			count = scene_bvh.SOUP_CHUNKS,
-		},
-		{type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage},
-		{type = "storage_buffer", binding_index = bindings.uvs, stageFlags = stage, count = scene_bvh.SOUP_CHUNKS},
-		bindings.light_grid and
-		{
-			type = "storage_buffer",
-			binding_index = bindings.light_grid,
-			stageFlags = stage,
-		} or
-		nil,
-	}
+	local sets = hit.GetDescriptorSets(bindings.hit, stage, bindings.scene)
+	sets[#sets + 1] = {type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage}
+
+	if bindings.light_grid then
+		sets[#sets + 1] = {type = "storage_buffer", binding_index = bindings.light_grid, stageFlags = stage}
+	end
+
+	return sets
 end
 
 do
@@ -57,11 +44,7 @@ do
 	-- bindings.light_grid is left out by a pass that has the light grid already
 	function scene_reflection.Bind(self, cmd, desc, bindings)
 		local materials = ddgi.WriteMaterialBuffer(self)
-		local tlas = render3d.IsPassEnabled("ddgi") and
-			ddgi.GetFrameState().tlas or
-			scene_bvh.GetPlaceholderTLAS(cmd)
-		local triangles = scene_bvh.triangle_buffer or materials
-		local uvs = scene_bvh.uv_buffer or materials
+		local tlas = rt.GetTLAS(cmd)
 		bound[self] = bound[self] or {}
 		local last = bound[self][desc]
 
@@ -82,15 +65,7 @@ do
 			last.tlas = tlas
 		end
 
-		if last.triangles ~= triangles then
-			scene_bvh.BindTriangleBuffer(self, desc, bindings.triangles, triangles)
-			last.triangles = triangles
-		end
-
-		if last.uvs ~= uvs then
-			scene_bvh.BindTriangleBuffer(self, desc, bindings.uvs, uvs, scene_bvh.UV_CHUNK_BYTES)
-			last.uvs = uvs
-		end
+		hit.Bind(self, desc, bindings.hit)
 	end
 end
 
@@ -98,12 +73,10 @@ end
 -- off already, it is not given the light grid and does not get the visibility rays
 function scene_reflection.GetDeclarationGLSL(bindings, shared)
 	return [[
-		#extension GL_EXT_ray_query : require
 		]] .. (shared and "" or "#define DDGI_VISIBILITY_RAYS") .. [[
 
 		#define SCENE_REFLECTION
-		layout(set = 0, binding = ]] .. bindings.scene .. [[) uniform accelerationStructureEXT ddgi_scene;
-	]] .. scene_bvh.GetTriangleDeclarationGLSL(bindings.triangles) .. scene_bvh.GetUvDeclarationGLSL(bindings.uvs) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. (
+	]] .. hit.GetSceneGLSL("ddgi_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. (
 			bindings.light_grid and
 			light_grid.GetGLSL(bindings.light_grid) or
 			""
@@ -194,8 +167,8 @@ function scene_reflection.GetGLSL(block_name, shared)
 		// confirms the first solid hit, looking through glass and respecting cutout textures
 		#define SCENE_REFLECTION_PROCEED(query) \
 			while (rayQueryProceedEXT(query)) { \
-				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)); \
-				if (ddgi_materials[bvh_tri(candidate).material].transparent == 0 && ddgi_alpha_passes(candidate, rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
+				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)); \
+				if (ddgi_materials[scene_instance_material(candidate)].transparent == 0 && ddgi_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
 			}
 
 		bool scene_reflection_visible(vec3 origin, vec3 dir, float dist) {
@@ -234,8 +207,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 			float t = rayQueryGetIntersectionTEXT(query, true);
 			hit_t = t;
-			uint triangle = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
-			scene_bvh_triangle tri = bvh_tri(triangle);
+			uint hit_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+			uint hit_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+			scene_bvh_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ddgi_material material = ddgi_materials[tri.material];
 			// the visible side winds clockwise, so tri.normal points inward
 			vec3 hit_N = -tri.normal;
@@ -252,7 +226,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
 				vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
-				scene_bvh_uv uv = bvh_uv(triangle);
+				scene_bvh_uv uv = scene_hit_uv(hit_instance, hit_primitive);
 				vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics);
 				vec2 coord = uv.uv0 * weights.x + uv.uv1 * weights.y + uv.uv2 * weights.z;
 				vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, 0.0).rgb;
