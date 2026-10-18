@@ -46,15 +46,13 @@ function Terrain.New(config)
 	self.SplatSize = config.SplatSize or 128
 	self.ColorSize = config.ColorSize
 	self.ShadowLevels = config.ShadowLevels or self.Levels
-	-- the finest levels that are in the scene bvh (gi, reflections, soup shadows). a tile costs a cpu sah build of its
-	-- triangles, which is the most expensive thing about a tile
+	-- the finest levels that are in the scene bvh (gi, reflections, soup shadows)
 	self.BVHLevels = config.BVHLevels or self.Levels
-	-- a tile enters the bvh once it has been wanted for this many seconds: flying fast makes tiles that are gone before
-	-- their bvh is built, and building it is the most expensive thing about a tile
-	self.BVHDelay = config.BVHDelay or 1.5
-	-- and at most this many enter it in a frame, the nearest first: a tile takes about 10 ms of cpu to build, a jump makes hundreds that
-	-- are due at the same moment, and the scene bvh builds all of them in one frame when it sees that many changes
-	self.BVHPerFrame = config.BVHPerFrame or 1
+	-- a tile enters the bvh once it has been wanted for this many seconds, and at most BVHPerFrame enter in a frame, the
+	-- nearest first. its bvh is a coarse copy (~0.1 ms of cpu), so there is no need to wait: a tile that is not in the bvh
+	-- casts no soup shadow and is not in gi or reflections
+	self.BVHDelay = config.BVHDelay or 0
+	self.BVHPerFrame = config.BVHPerFrame or 8
 	-- the scene bvh uses every stride:th sample of the tile, the finest level a smaller stride
 	self.BVHStride = config.BVHStride or 4
 	self.BVHNearStride = config.BVHNearStride or 2
