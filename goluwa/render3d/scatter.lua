@@ -1777,8 +1777,6 @@ end
 -- every bake of a unit makes new instances, but the bvh of its proxy is a sah build on the cpu that costs more than
 -- the difference is worth, so a unit that has one waits this long before it is rebuilt
 local PROXY_REBUILD_FRAMES = 180
--- how far the camera moves before the proxies made when it was somewhere else are made again
-local PROXY_MOVE = 40
 local proxy_jobs = {}
 local proxy_part_templates = setmetatable({}, {__mode = "k"})
 local proxy_warned = false
@@ -1790,6 +1788,20 @@ local function remove_proxy(unit)
 
 		unit.proxy = nil
 	end
+end
+
+-- near units have the model's geometry in their proxy, far units billboards. a unit changes over some way past the
+-- bvh distance so that one on the edge does not go back and forth
+local PROXY_MODE_MARGIN = 1.15
+
+local function get_unit_mode(unit)
+	local range = gi_distance:Get()
+
+	if unit.proxy_mode == "near" then
+		return unit.dist < range * PROXY_MODE_MARGIN and "near" or "far"
+	end
+
+	return unit.dist < range and "near" or "far"
 end
 
 -- the parts a proxy copies for each instance of a prototype: with a billboard, the model's own geometry where the scene
@@ -1812,21 +1824,29 @@ local function build_proxy(unit, instances, count)
 	local cx, cy, cz = camera.x, camera.y, camera.z
 	local full_range = gi_distance:Get()
 	local billboard_range = billboard_distance:Get()
+	local near_unit = get_unit_mode(unit) == "near"
 
 	for i = 0, count - 1 do
 		local proto = protos[bits[i * 16 + 11] + 1]
 
 		if proto and proto.bvh and proto.state == "ready" and instances[i * 16 + 3] < cpu_keep(proto, unit.dist) then
-			local dx, dy, dz = instances[i * 16 + 12] - cx, instances[i * 16 + 13] - cy, instances[i * 16 + 14] - cz
-			local d2 = dx * dx + dy * dy + dz * dz
 			local switch = get_switch(proto)
-			-- the model's geometry where the scene draws the model, but no further than the bvh distance: a prototype
-			-- with a billboard has that beyond it, as far as the billboard distance, one without has nothing
+			-- a unit with the model's geometry in it, near the camera, has it for what is nearer than the prototype's
+			-- switch distance, a unit past it has the billboards only, all of them, wherever the camera is in it: what
+			-- is in a proxy then depends on the unit alone, not on the camera, and does not have to be built again
+			-- when the camera moves
 			local kind
 
-			if d2 < full_range * full_range and (switch == 0 or d2 < switch * switch) then
-				kind = 1
-			elseif switch > 0 and d2 < billboard_range * billboard_range then
+			if near_unit then
+				local dx, dy, dz = instances[i * 16 + 12] - cx, instances[i * 16 + 13] - cy, instances[i * 16 + 14] - cz
+				local d2 = dx * dx + dy * dy + dz * dz
+
+				if d2 < full_range * full_range and (switch == 0 or d2 < switch * switch) then
+					kind = 1
+				elseif switch > 0 and d2 < billboard_range * billboard_range then
+					kind = 2
+				end
+			elseif switch > 0 then
 				kind = 2
 			end
 
@@ -1846,6 +1866,7 @@ local function build_proxy(unit, instances, count)
 	end
 
 	remove_proxy(unit)
+	unit.proxy_mode = near_unit and "near" or "far"
 
 	if not next(lists[1]) and not next(lists[2]) then return end
 
@@ -2061,7 +2082,6 @@ local function update_proxies(cmd, b, frame, ring)
 		if wanted and not unit.dead and unit.offset and unit.bake_frame == job.bake_frame then
 			build_proxy(unit, b.proxy_data + ring * scatter.PROXY_MAX_INSTANCES * 16, job.count)
 			unit.proxy_frame = job.bake_frame
-			unit.proxy_origin_x, unit.proxy_origin_y, unit.proxy_origin_z = position.x, position.y, position.z
 			unit.proxy_built = frame
 		end
 	end
@@ -2071,11 +2091,8 @@ local function update_proxies(cmd, b, frame, ring)
 			remove_proxy(unit)
 			unit.proxy_frame = nil
 			unit.proxy_built = nil
-		elseif unit.proxy_frame then
-			-- what is model and what is billboard in it depends on where the camera was
-			local dx, dy, dz = position.x - unit.proxy_origin_x, position.y - unit.proxy_origin_y, position.z - unit.proxy_origin_z
-
-			if dx * dx + dy * dy + dz * dz > PROXY_MOVE * PROXY_MOVE then unit.proxy_frame = nil end
+		elseif unit.proxy_frame and unit.proxy_mode ~= get_unit_mode(unit) then
+			unit.proxy_frame = nil
 		end
 	end
 
