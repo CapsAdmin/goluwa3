@@ -70,9 +70,8 @@ local LIGHT_OCCL_MOVE_TOLERANCE_SQ = 0.02 * 0.02
 local MAX_LIGHTS = scene_lights.MAX_LIGHTS
 local BINDING_UNIFORM = 0
 local BINDING_MAP = 1
-local BINDING_BVH_NODES = 2
+local BINDING_TLAS = 2
 local BINDING_BVH_TRIANGLES = 3
-local BINDING_SEE_THROUGH = 4
 local BINDING_BLUR_SRC = 1
 local BINDING_BLUR_DST = 2
 
@@ -180,10 +179,9 @@ local function build_trace_pipeline()
 			{binding_index = BINDING_MAP},
 		},
 		storage_buffers = {
-			{binding_index = BINDING_BVH_NODES},
 			{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
-			{binding_index = BINDING_SEE_THROUGH},
 		},
+		descriptor_sets = scene_bvh.GetTLASDescriptor(BINDING_TLAS),
 		uniform_buffers = {
 			{
 				name = "oct_data",
@@ -223,14 +221,14 @@ local function build_trace_pipeline()
 				[[
 			layout(set = 0, binding = %d, rg32f) uniform writeonly image2DArray light_oct_map;
 		]]
-			):format(BINDING_MAP) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES),
+			):format(BINDING_MAP) .. scene_bvh.GetDeclarationsGLSL(BINDING_TLAS, BINDING_BVH_TRIANGLES),
 		shader = (
 				[[
 			const float LIGHT_OCCL_T_MIN = 0.05;
 
 			]] .. glsl_common.GetOctahedralGLSL() .. [[
 
-			]] .. scene_bvh.GetTraversalGLSL(BINDING_SEE_THROUGH) .. [[
+			]] .. scene_bvh.GetTraversalGLSL() .. [[
 
 			const int LIGHT_OCCL_SUBS = ]] .. subs:Get() .. [[;
 
@@ -385,7 +383,11 @@ light_occlusion.last_dispatches = 0
 function light_occlusion.Draw(cmd)
 	light_occlusion.last_dispatches = 0
 
-	if not (scene_bvh.IsReady() and enabled:Get()) then return end
+	if not (scene_bvh.IsRayQuerySupported() and scene_bvh.IsReady() and enabled:Get()) then return end
+
+	local tlas = scene_bvh.EnsureRTBuilt(cmd)
+
+	if not tlas then return end
 
 	local lights = render3d.GetLights()
 	local frame = system.GetFrameNumber()
@@ -481,16 +483,8 @@ function light_occlusion.Draw(cmd)
 		{cmd = cmd, base_array_layer = 0, layer_count = LIGHT_OCCL_MAX_TRACES_PER_FRAME}
 	)
 	pipeline:UpdateDescriptorSet("storage_image", slot, BINDING_MAP, 0, map_texture:GetView())
-	scene_bvh.BindBuffers(pipeline, slot, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
-	local see_through = scene_bvh.UpdateSeeThroughMaterials()
-	pipeline:UpdateDescriptorSet(
-		"storage_buffer",
-		slot,
-		BINDING_SEE_THROUGH,
-		0,
-		see_through,
-		see_through:GetSize()
-	)
+	pipeline:UpdateDescriptorSet("acceleration_structure_khr", slot, BINDING_TLAS, 0, tlas)
+	scene_bvh.BindTriangleBuffer(pipeline, slot, BINDING_BVH_TRIANGLES, scene_bvh.triangle_buffer)
 	pipeline:UploadConstants()
 	local size = get_map_size()
 	light_occlusion.last_dispatches = dirty_count
@@ -670,7 +664,7 @@ function light_occlusion.WriteOcclusionBlock(block, lights)
 
 	local active = 0
 
-	if scene_bvh.IsReady() and enabled:Get() then
+	if scene_bvh.IsRayQuerySupported() and scene_bvh.IsReady() and enabled:Get() then
 		for light_index = 1, math.min(#lights, MAX_LIGHTS) do
 			local info = state[light_index]
 

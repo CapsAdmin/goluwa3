@@ -10,7 +10,7 @@ Notes collected from past sessions. Dated numbers are snapshots; re-measure befo
 - Slow far cascades are rescued by `ddgi_change_threshold` (0.05, sun direction in radians plus relative brightness, 0 = off) and `ddgi_change_min_interval` (2): a cascade updates early when the sun moved that much since its last update. Local lights, emissives and the sky map are not tracked, `ddgi.ResetHistory()` resets all.
 - The resolve looks up probes along the AO bent normal. The AO pass computes it against `get_geometric_normal` (depth derivatives, flat per triangle), which showed as faint vertical bands on a low poly sphere. The AO pass now rotates the bent normal from the geometric to the shading normal before writing it (`rotate_between`).
 
-**How to apply:** faint banding that follows mesh facets in GI means something in the lookup uses a depth-derived normal. Related: [DDGI software trace](#ddgi-software-trace).
+**How to apply:** faint banding that follows mesh facets in GI means something in the lookup uses a depth-derived normal. Related: [DDGI without ray tracing](#ddgi-without-ray-tracing).
 
 ## DDGI rebuilt from a history free start
 
@@ -42,13 +42,13 @@ The old probe history (noise driven blending between `ddgi_hysteresis` and `ddgi
 
 **How to apply:** change one thing, run the sun room twice and the lamp room three times, and read rms, p99.9, the count above 32 and the mean luminance together. Spatial filtering and the removal of small dynamic objects from the probes are the next steps.
 
-## DDGI software trace
+## DDGI without ray tracing
 
-*only GI left; compute scene_bvh fallback; GOLUWA_NO_RAY_TRACING=1 to test*
+*no software trace since 2026-10-18; GOLUWA_NO_RAY_TRACING=1 to test*
 
-Since 2026-09-27 radiance cascades and voxel GI are deleted; DDGI is the only GI. On a gpu without ray tracing `passes/ddgi.lua` swaps the ray tracing `ddgi_trace` pass for a compute one over `scene_bvh` (same hit buffer), and the shade pass shadows local lights with `scene_bvh_occluded`. Probe visibility rays are still skipped without ray queries.
+Since 2026-09-27 radiance cascades and voxel GI are deleted; DDGI is the only GI. The software traversal of `scene_bvh` (compute `ddgi_trace`, `scene_bvh_occluded` in the shade pass, node buffer bindings) was deleted as phase 0 of tmp/gpu_scene_rewrite.md. On a gpu without ray tracing there is no `ddgi_trace` pass, `rt_ready` stays 0 and probe rays read the sky, local lights are not shadowed in the bounce, and light occlusion maps, particle ray collision and the scene debug view do nothing (`scene_bvh.IsRayQuerySupported()` gates them, their shaders use stub `scene_bvh_trace`/`scene_bvh_occluded` that return false). Screen space paths still work. Light occlusion and particles now trace with ray queries against the TLAS (`scene_bvh.GetDeclarationsGLSL(tlas_binding, triangle_binding)`, `GetTraversalGLSL()`, ray mask `RAY_MASK_SOLID`, so see-through instances are skipped per instance, not per material), and build it with `scene_bvh.EnsureRTBuilt(cmd)` in their pre draw.
 
-`GOLUWA_NO_RAY_TRACING=1 luajit glw ...` makes the device report no ray tracing/ray query, so every fallback (ddgi, reflections, fog, lighting) can be tested on this machine; the env var reaches test workers. `test/tests/render3d/ddgi.lua` passes in both modes.
+`GOLUWA_NO_RAY_TRACING=1 luajit glw ...` makes the device report no ray tracing/ray query, so the engine starting without them can be tested on this machine; the env var reaches test workers.
 
 **Why:** the user prefers DDGI over RC and wanted the non-RT path working first, optimizing it later.
 **How to apply:** when touching DDGI or anything gated on `ray_query_supported`/`ray_tracing_supported`, run the tests with and without the env var. Open items are in docs/refactoring-notes.md (GI section).
@@ -97,7 +97,7 @@ The old threshold of 16 never fired on real light switches (a 10× change); a th
 **How to apply:**
 - Measure flicker by capturing at auto exposure with captures 20 frames apart (the old `tmp/ddgi_fireflies.lua` rig with FF_GAP/FF_EXPOSURE/FF_MAP env knobs and the light switch rig `tmp/ddgi_response.lua` are gone; rebuild with `Shot.Sequence`).
 
-Emissive surfaces were the other half. The brightest-ray clamp erased lone hits on small emitters, under-counting them about 12×. Since 2026-09-24 they reach the probes only through emitter samples (`ddgi.EMITTER_SAMPLES`, resampled candidates until 2026-10-15, a draw by power since), which brought night flicker down to 2.9%. Details are in docs/vulkan-raytrace.md, "Night fireflies and emitter sampling". Related: [DDGI software trace](#ddgi-software-trace).
+Emissive surfaces were the other half. The brightest-ray clamp erased lone hits on small emitters, under-counting them about 12×. Since 2026-09-24 they reach the probes only through emitter samples (`ddgi.EMITTER_SAMPLES`, resampled candidates until 2026-10-15, a draw by power since), which brought night flicker down to 2.9%. Details are in docs/vulkan-raytrace.md, "Night fireflies and emitter sampling". Related: [DDGI without ray tracing](#ddgi-without-ray-tracing).
 
 ## DDGI guided rays
 

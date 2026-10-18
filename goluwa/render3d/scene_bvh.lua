@@ -2516,40 +2516,37 @@ function scene_bvh.GetUvDeclarationGLSL(uv_binding)
 	):format(uv_binding, SOUP_CHUNKS)
 end
 
-function scene_bvh.GetDeclarationsGLSL(node_binding, triangle_binding)
-	return (
-			[[
-		struct scene_bvh_node {
-			uint left_first;
-			uint count;
-			vec3 bounds_min;
-			vec3 bounds_max;
-		};
-
-		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHNodeBuffer {
-			scene_bvh_node scene_bvh_nodes[];
-		};
-	]]
-		):format(node_binding) .. scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
+function scene_bvh.IsRayQuerySupported()
+	return render.GetDevice().ray_query_supported
 end
 
-function scene_bvh.GetTraversalGLSL(see_through_binding)
-	return (
-			see_through_binding and
-			(
-				[[
-		// 1 for materials the ray flies through, see Material:IsSeeThrough
-		layout(scalar, set = 0, binding = %d) readonly buffer SceneBVHSeeThroughBuffer {
-			uint scene_bvh_see_through[];
-		};
-		#define SCENE_BVH_SKIP_SEE_THROUGH
-	]]
-			):format(see_through_binding) or
-			""
-		) .. [[
-		#define SCENE_BVH_MISS 3.402823466e+38
-		#define SCENE_BVH_STACK_SIZE ]] .. scene_bvh.STACK_SIZE .. [[
+function scene_bvh.GetTLASDescriptor(binding)
+	if not scene_bvh.IsRayQuerySupported() then return nil end
 
+	return {
+		{
+			type = "acceleration_structure_khr",
+			binding_index = binding,
+			stageFlags = "compute",
+		},
+	}
+end
+
+function scene_bvh.GetDeclarationsGLSL(tlas_binding, triangle_binding)
+	if not scene_bvh.IsRayQuerySupported() then
+		return scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
+	end
+
+	return (
+			[[
+		#extension GL_EXT_ray_query : require
+		layout(set = 0, binding = %d) uniform accelerationStructureEXT scene_bvh_tlas;
+	]]
+		):format(tlas_binding) .. scene_bvh.GetTriangleDeclarationGLSL(triangle_binding)
+end
+
+function scene_bvh.GetHitGLSL()
+	return [[
 		struct scene_bvh_hit {
 			vec3 position;
 			vec3 normal;
@@ -2558,133 +2555,48 @@ function scene_bvh.GetTraversalGLSL(see_through_binding)
 			// index into scene_bvh_triangles
 			uint triangle;
 		};
+	]]
+end
 
-		float scene_bvh_slab(uint index, vec3 origin, vec3 inv_dir, float t_min, float t_max) {
-			vec3 low = (scene_bvh_nodes[index].bounds_min - origin) * inv_dir;
-			vec3 high = (scene_bvh_nodes[index].bounds_max - origin) * inv_dir;
-			vec3 near_corner = min(low, high);
-			vec3 far_corner = max(low, high);
-			float near_t = max(max(near_corner.x, near_corner.y), max(near_corner.z, t_min));
-			float far_t = min(min(far_corner.x, far_corner.y), min(far_corner.z, t_max));
-			return near_t <= far_t ? near_t : SCENE_BVH_MISS;
-		}
-
-		// the closest triangle hit between t_min and t_max and its distance, or
-		// -1. any_hit returns the first hit found instead, for shadow rays
-		int scene_bvh_intersect(vec3 origin, vec3 dir, float t_min, float t_max, bool any_hit, out float closest) {
-			vec3 inv_dir = 1.0 / mix(dir, vec3(1e-20), lessThan(abs(dir), vec3(1e-20)));
-			closest = t_max;
-
-			if (scene_bvh_slab(0u, origin, inv_dir, t_min, t_max) >= SCENE_BVH_MISS) {
-				return -1;
-			}
-
-			uint stack[SCENE_BVH_STACK_SIZE];
-			int stack_size = 0;
-			uint node_index = 0u;
-			int closest_triangle = -1;
-
-			while (true) {
-				scene_bvh_node node = scene_bvh_nodes[node_index];
-				uint count = node.count;
-
-				if (count > 0u) {
-					uint first = node.left_first;
-
-					for (uint i = 0u; i < count; i++) {
-						scene_bvh_triangle tri = bvh_tri(first + i);
-						vec3 pvec = cross(dir, tri.e2);
-						float det = dot(tri.e1, pvec);
-
-						if (abs(det) < 1e-12) continue;
-
-						#ifdef SCENE_BVH_SKIP_SEE_THROUGH
-						if (scene_bvh_see_through[tri.material] != 0u) continue;
-						#endif
-
-						float inv_det = 1.0 / det;
-						vec3 tvec = origin - tri.v0;
-						float u = dot(tvec, pvec) * inv_det;
-
-						if (u < 0.0 || u > 1.0) continue;
-
-						vec3 qvec = cross(tvec, tri.e1);
-						float v = dot(dir, qvec) * inv_det;
-
-						if (v < 0.0 || u + v > 1.0) continue;
-
-						float t = dot(tri.e2, qvec) * inv_det;
-
-						if (t > t_min && t < closest) {
-							closest = t;
-							closest_triangle = int(first + i);
-
-							if (any_hit) return closest_triangle;
-						}
-					}
-				} else {
-					uint left = node.left_first;
-					float left_t = scene_bvh_slab(left, origin, inv_dir, t_min, closest);
-					float right_t = scene_bvh_slab(left + 1u, origin, inv_dir, t_min, closest);
-					uint near_index = left;
-					uint far_index = left + 1u;
-					float near_t = left_t;
-					float far_t = right_t;
-
-					if (right_t < left_t) {
-						near_index = left + 1u;
-						far_index = left;
-						near_t = right_t;
-						far_t = left_t;
-					}
-
-					if (near_t < SCENE_BVH_MISS) {
-						if (far_t < SCENE_BVH_MISS && stack_size < SCENE_BVH_STACK_SIZE) {
-							stack[stack_size] = far_index;
-							stack_size++;
-						}
-
-						node_index = near_index;
-						continue;
-					}
-				}
-
-				bool popped = false;
-
-				while (stack_size > 0) {
-					stack_size--;
-
-					if (scene_bvh_slab(stack[stack_size], origin, inv_dir, t_min, closest) < SCENE_BVH_MISS) {
-						node_index = stack[stack_size];
-						popped = true;
-						break;
-					}
-				}
-
-				if (!popped) break;
-			}
-
-			return closest_triangle;
-		}
-
+function scene_bvh.GetTraversalGLSL()
+	if not scene_bvh.IsRayQuerySupported() then
+		return scene_bvh.GetHitGLSL() .. [[
 		bool scene_bvh_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_bvh_hit hit) {
-			float closest;
-			int triangle = scene_bvh_intersect(origin, dir, t_min, t_max, false, closest);
+			return false;
+		}
 
-			if (triangle < 0) return false;
+		bool scene_bvh_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
+			return false;
+		}
+	]]
+	end
 
+	return scene_bvh.GetHitGLSL() .. [[
+		bool scene_bvh_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_bvh_hit hit) {
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, scene_bvh_tlas, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_bvh.RAY_MASK_SOLID) .. [[, origin, t_min, dir, t_max);
+
+			while (rayQueryProceedEXT(query)) {}
+
+			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return false;
+
+			uint triangle = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)) * ]] .. scene_bvh.SOUP_ALIGN .. [[u + uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
 			scene_bvh_triangle final_triangle = bvh_tri(triangle);
-			hit.position = origin + dir * closest;
-			hit.distance = closest;
+			hit.distance = rayQueryGetIntersectionTEXT(query, true);
+			hit.position = origin + dir * hit.distance;
 			hit.emissive = final_triangle.emissive;
 			hit.normal = dot(final_triangle.normal, dir) > 0.0 ? -final_triangle.normal : final_triangle.normal;
-			hit.triangle = uint(triangle);
+			hit.triangle = triangle;
 			return true;
 		}
 
 		bool scene_bvh_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
-			float closest;
-			return scene_bvh_intersect(origin, dir, t_min, t_max, true, closest) >= 0;
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, scene_bvh_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_bvh.RAY_MASK_SOLID) .. [[, origin, t_min, dir, t_max);
+
+			while (rayQueryProceedEXT(query)) {}
+
+			return rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
 		}
 	]]
 end

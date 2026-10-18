@@ -18,7 +18,6 @@ local CASCADES = ddgi.CASCADES
 local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 1
 local BINDING_RAY_HITS = 2
-local BINDING_BVH_NODES = 3
 local BINDING_BVH_TRIANGLES = 4
 local BINDING_MATERIALS = 5
 local BINDING_STATE = 9
@@ -85,14 +84,6 @@ local function pass_trace()
 			local emitters = ddgi.GetEmitterBuffer()
 			scene_bvh.BindTriangleBuffer(rt, desc, 5, scene_bvh.triangle_buffer)
 			rt:UpdateDescriptorSet("storage_buffer", desc, 6, 0, emitters, emitters:GetSize())
-			rt:UpdateDescriptorSet(
-				"storage_buffer",
-				desc,
-				7,
-				0,
-				scene_bvh.node_buffer,
-				scene_bvh.node_buffer:GetSize()
-			)
 
 			if ddgi.ALPHA_TEST then
 				local materials = ddgi.WriteMaterialBuffer(rt)
@@ -149,132 +140,9 @@ local function pass_trace()
 	}
 end
 
-local function pass_compute_trace()
-	return {
-		name = "ddgi_trace",
-		ComputePass = true,
-		ColorFormat = {{"r8_unorm", {"ddgi_trace_dummy", "r"}}},
-		FramebufferSize = {x = 1, y = 1},
-		framebuffer_count = 1,
-		LocalSize = {x = 64, y = 1, z = 1},
-		storage_buffers = {
-			{binding_index = BINDING_RAY_HITS},
-			{binding_index = BINDING_BVH_NODES},
-			{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
-			{binding_index = BINDING_EMITTERS},
-		},
-		uniform_buffers = {data_uniform()},
-		on_pre_draw = function(self, cmd, frame, desc)
-			local state = ddgi.GetFrameState()
-			scene_bvh.EnsureBuilt()
-			state.rt_ready = scene_bvh.IsReady()
-			state.tlas = nil
-
-			if not state.rt_ready then return end
-
-			local hits = ddgi.GetRayHitBuffer()
-			local emitters = ddgi.GetEmitterBuffer()
-			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_RAY_HITS, 0, hits, hits:GetSize())
-			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
-			scene_bvh.BindBuffers(self, desc, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
-		end,
-		on_draw = function(self, cmd, fb, frame, desc)
-			if not ddgi.GetFrameState().rt_ready then return end
-
-			local hits = ddgi.GetRayHitBuffer()
-			cmd:PipelineBarrier{
-				srcStage = "compute",
-				dstStage = "compute",
-				bufferBarriers = {
-					{buffer = hits, srcAccessMask = "shader_read", dstAccessMask = "shader_write"},
-				},
-			}
-			self:UploadConstants()
-			self.pipeline:DispatchForSize(
-				cmd,
-				ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES,
-				P ^ 3,
-				ddgi.GetFrameState().cascade_count,
-				desc,
-				self.dynamic_offsets
-			)
-			cmd:PipelineBarrier{
-				srcStage = "compute",
-				dstStage = "compute",
-				bufferBarriers = {
-					{buffer = hits, srcAccessMask = "shader_write", dstAccessMask = "shader_read"},
-				},
-			}
-		end,
-		custom_declarations = [[
-			layout(set = 0, binding = ]] .. BINDING_RAY_HITS .. [[) writeonly buffer DDGIRayHits {
-				uvec2 ddgi_hits[];
-			};
-		]] .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = common_glsl() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. [[
-			// see the ray generation shader in ddgi.lua, which this follows
-			void main() {
-				uint ray = gl_GlobalInvocationID.x;
-				int probe = int(gl_GlobalInvocationID.y);
-				int c = int(gl_GlobalInvocationID.z);
-
-				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0) return;
-
-				if (ray >= uint(DDGI_RAY_STRIDE) || probe >= ddgi_probe_count(c)) return;
-
-				ivec3 slot = ddgi_slot_from_index(probe, c);
-				ivec3 world = ddgi_world_from_slot(slot, c);
-
-				if (ddgi_probe_is_idle(slot, world, probe, c)) return;
-
-				vec3 origin = ddgi_probe_origin(slot, c, world);
-				uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
-
-				if (ray >= uint(DDGI_RAYS)) {
-					uvec2 result = uvec2(floatBitsToUint(-1.0), 0u);
-
-					if (ddgi_data.ddgi_emitter_count > 0) {
-						int emitter;
-						vec3 point;
-						float weight = ddgi_pick_emitter_sample(index, uint(ddgi_data.ddgi_frame), ddgi_data.ddgi_emitter_count, origin, ddgi_data.ddgi_light_radius * ddgi_spacing(c), emitter, point);
-						vec3 to_point = point - origin;
-						float dist = length(to_point);
-
-						if (weight > 0.0 && dist > DDGI_SHADOW_OFFSET && !scene_bvh_occluded(origin, to_point / dist, 0.0, dist - DDGI_SHADOW_OFFSET)) {
-							result = uvec2(floatBitsToUint(weight), uint(emitter));
-						}
-					}
-
-					ddgi_hits[index] = result;
-					return;
-				}
-
-				ivec2 tile = ddgi_tile(slot, c);
-				vec3 dir = ddgi_ray(ray, tile, ddgi_guide_valid(tile, world, c));
-				scene_bvh_hit hit;
-				float hit_t = -1.0;
-				uint primitive = 0u;
-
-				if (scene_bvh_trace(origin, dir, 0.0, ddgi_data.ddgi_max_distance, hit)) {
-					hit_t = hit.distance;
-					primitive = hit.triangle;
-					vec3 sun = ddgi_data.ddgi_sun_direction.xyz;
-
-					if (any(greaterThan(ddgi_data.ddgi_sun_radiance.rgb, vec3(0.0))) && !scene_bvh_occluded(origin + dir * max(hit_t - DDGI_SHADOW_OFFSET, 0.0), normalize(sun), 0.0, ddgi_data.ddgi_max_distance)) {
-						primitive |= DDGI_SUN_VISIBLE_BIT;
-					}
-				}
-
-				ddgi_hits[index] = uvec2(floatBitsToUint(hit_t), primitive);
-			}
-		]],
-	}
-end
-
 local function pass_shade()
 	local shade_buffers = {
 		{binding_index = BINDING_RAY_HITS},
-		{binding_index = BINDING_BVH_NODES},
 		{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
 		{binding_index = BINDING_MATERIALS},
 		{binding_index = BINDING_EMITTERS},
@@ -324,12 +192,7 @@ local function pass_shade()
 				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
 			end
 
-			if scene_bvh.triangle_buffer then
-				scene_bvh.BindBuffers(self, desc, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
-			else
-				self:UpdateDescriptorSet("storage_buffer", desc, BINDING_BVH_NODES, 0, hits, hits:GetSize())
-				scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, hits)
-			end
+			scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, scene_bvh.triangle_buffer or hits)
 
 			if ddgi.ALBEDO_UVS then
 				scene_bvh.BindTriangleBuffer(self, desc, BINDING_UVS, scene_bvh.uv_buffer or hits, scene_bvh.UV_CHUNK_BYTES)
@@ -345,12 +208,12 @@ local function pass_shade()
 			layout(set = 0, binding = ]] .. BINDING_RAY_HITS .. [[) readonly buffer DDGIRayHits {
 				uvec2 ddgi_hits[];
 			};
-		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. (
+		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_bvh.GetTriangleDeclarationGLSL(BINDING_BVH_TRIANGLES) .. (
 				ddgi.ALBEDO_UVS and
 				scene_bvh.GetUvDeclarationGLSL(BINDING_UVS) or
 				""
 			) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = "#define DDGI_UNSCALED\n" .. common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
+		shader = "#define DDGI_UNSCALED\n" .. common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
 			// clamped to what the ray texture holds, see ddgi.HALF_PRECISION_RAYS
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
@@ -360,8 +223,7 @@ local function pass_shade()
 			// P's light grid cell are sampled (see ddgi.LIGHT_SAMPLES): each
 			// sample streams over them keeping a light with its share of the
 			// weight summed so far, reusing one random number by rescaling it,
-			// and the kept light's shadow ray is traced here, through scene_bvh
-			// without ray queries.
+			// and the kept light's shadow ray is traced here, by ray query.
 			vec3 ddgi_direct_light(vec3 P, vec3 N, bool sun_visible, float radius, vec4 u) {
 				vec3 L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 				float NoL = max(dot(N, L), 0.0);
@@ -448,7 +310,7 @@ local function pass_shade()
 
 					bool visible = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 					#else
-					bool visible = !scene_bvh_occluded(P, picked_ray[k].xyz, 0.0, shadow_distance);
+					bool visible = true;
 					#endif
 
 					if (visible) {
@@ -1165,7 +1027,6 @@ local function pass_scene_debug()
 	local alpha_test = rays and ddgi.ALPHA_TEST
 	local uvs = alpha_test or ddgi.ALBEDO_UVS
 	local storage_buffers = {
-		{binding_index = BINDING_BVH_NODES},
 		{binding_index = BINDING_BVH_TRIANGLES, count = scene_bvh.SOUP_CHUNKS},
 		{binding_index = BINDING_MATERIALS},
 	}
@@ -1212,7 +1073,7 @@ local function pass_scene_debug()
 	else
 		trace_glsl = [[
 			bool debug_trace(vec3 O, vec3 D, out scene_bvh_hit hit) {
-				return scene_bvh_trace(O, D, 0.0, ddgi_data.ddgi_max_distance, hit);
+				return false;
 			}
 		]]
 	end
@@ -1239,7 +1100,7 @@ local function pass_scene_debug()
 
 			local materials = ddgi.WriteMaterialBuffer(self)
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_MATERIALS, 0, materials, materials:GetSize())
-			scene_bvh.BindBuffers(self, desc, BINDING_BVH_NODES, BINDING_BVH_TRIANGLES)
+			scene_bvh.BindTriangleBuffer(self, desc, BINDING_BVH_TRIANGLES, scene_bvh.triangle_buffer)
 
 			if rays then
 				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
@@ -1267,12 +1128,12 @@ local function pass_scene_debug()
 				""
 			) .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-		]] .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_bvh.GetDeclarationsGLSL(BINDING_BVH_NODES, BINDING_BVH_TRIANGLES) .. (
+		]] .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_bvh.GetTriangleDeclarationGLSL(BINDING_BVH_TRIANGLES) .. (
 				uvs and
 				scene_bvh.GetUvDeclarationGLSL(BINDING_UVS) or
 				""
 			),
-		shader = common_glsl() .. scene_bvh.GetTraversalGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. trace_glsl .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
+		shader = common_glsl() .. scene_bvh.GetHitGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. trace_glsl .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
 			vec2 in_uv;
 		]] .. screen_reconstruct.GetWorldRayGLSL("ddgi_data") .. [[
 			void main() {
@@ -1460,10 +1321,6 @@ local passes = {
 	pass_scene_debug(),
 }
 
-if ddgi.RTSupported() then
-	table.insert(passes, 1, pass_trace())
-else
-	table.insert(passes, 1, pass_compute_trace())
-end
+if ddgi.RTSupported() then table.insert(passes, 1, pass_trace()) end
 
 return passes

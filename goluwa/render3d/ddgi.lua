@@ -2023,7 +2023,7 @@ local raygen_glsl = [[
 // see ddgi_guide_texel
 layout(set = 0, binding = 4) uniform sampler2D guide;
 #define DDGI_GUIDE_FETCH(texel) texelFetch(guide, texel, 0)
-]] .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_bvh.GetDeclarationsGLSL(7, 5) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
+]] .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_bvh.GetTriangleDeclarationGLSL(5) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
 layout(set = 0, binding = 0) uniform Params
 {
     // see ddgi_cascades and ddgi_cascade_size
@@ -2212,7 +2212,6 @@ function ddgi.GetRTPipeline()
 				count = scene_bvh.SOUP_CHUNKS,
 			},
 			{binding_index = 6, type = "storage_buffer", stageFlags = "all"},
-			{binding_index = 7, type = "storage_buffer", stageFlags = "all"},
 		}
 
 		if ddgi.ALPHA_TEST then
