@@ -342,7 +342,8 @@ local scatter_pass = {
 			vec3 sky_multi = ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX == -1 ?
 				ambient * air_scattering :
 				sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, sun_dir), mu) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * per_meter;
-			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky);
+			// the tabulated sky has the sun's glow in it: air in the shadow of the terrain does not get it, whatever is overhead
+			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * mix(0.15, 1.0, get_terrain_shadow(world_pos)));
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction;
 
