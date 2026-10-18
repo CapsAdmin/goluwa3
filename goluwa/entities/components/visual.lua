@@ -1074,6 +1074,8 @@ Visual:GetSet("CastShadows", true)
 Visual:GetSet("ReceivesDecals", true)
 -- in the scene bvh (shadows from the soup, gi, reflections) and nothing else: no gbuffer, shadow map or culling draws
 Visual:GetSet("RaysOnly", false)
+-- shadows from the soup of the scene bvh. the terrain's bvh tiles are coarse copies that give none, its real tiles are drawn instead
+Visual:GetSet("CastSoupShadows", true)
 -- false keeps it out of the scene bvh (no shadows from the soup, gi, reflections or traced hits), which is a cpu sah build per mesh
 Visual:GetSet("InSceneBVH", true)
 Visual:GetSet("UseOcclusionCulling", true)
