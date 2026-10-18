@@ -1793,7 +1793,7 @@ local function build_proxy(unit, instances, count)
 
 			local vertices, vertex_count, indices, index_count = scatter_proxy.Build(template, instances, list, counts[proto])
 			local polygon = Polygon3D.New()
-			polygon:UploadVertexArray(vertices, vertex_count, indices, index_count)
+			polygon:UploadVertexArray(vertices, vertex_count, indices, index_count, false, "host")
 			local primitive = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
 			primitive:AddComponent("transform")
 			local visual_primitive = primitive:AddComponent("visual_primitive")

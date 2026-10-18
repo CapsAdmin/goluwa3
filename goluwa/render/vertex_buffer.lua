@@ -30,7 +30,8 @@ end
 
 local cached = {}
 
-function VertexBuffer.New(vertices, vertex_attributes, name)
+-- `mode` "owned" keeps the given cdata as the cpu copy instead of copying it, "host" does that and has no gpu buffer
+function VertexBuffer.New(vertices, vertex_attributes, name, mode)
 	local self = VertexBuffer:CreateObject()
 	self.debug_name = name
 
@@ -50,8 +51,14 @@ function VertexBuffer.New(vertices, vertex_attributes, name)
 		local cdata_size = ffi.sizeof(vertices)
 		self.vertex_count = cdata_size / self.stride
 		self.byte_size = cdata_size
-		self.data = ffi.new("uint8_t[?]", self.byte_size)
-		ffi.copy(self.data, vertices, self.byte_size)
+
+		if mode then
+			self.owner = vertices
+			self.data = ffi.cast("uint8_t*", vertices)
+		else
+			self.data = ffi.new("uint8_t[?]", self.byte_size)
+			ffi.copy(self.data, vertices, self.byte_size)
+		end
 	elseif type(vertices) == "table" then
 		local is_raw_floats = type(vertices[1]) == "number"
 
@@ -115,7 +122,7 @@ function VertexBuffer.New(vertices, vertex_attributes, name)
 		end
 	end
 
-	if render.IsReady() then
+	if mode ~= "host" and render.IsReady() then
 		self.buffer = render.CreateBuffer{
 			buffer_usage = {"vertex_buffer", "storage_buffer", "shader_device_address"},
 			data_type = "float",

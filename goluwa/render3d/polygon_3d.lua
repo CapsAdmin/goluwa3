@@ -101,7 +101,9 @@ local VERTEX_ATTRIBUTES = {
 	},
 }
 
-function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed)
+-- `mode` is for vertices and indices that are not used by anything else (see Mesh.New): "owned" or "host". without it
+-- the mesh is deduplicated against meshes with the same content
+function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode)
 	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
 	for i = 0, vertex_count - 1 do
@@ -134,13 +136,13 @@ function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_coun
 	end
 
 	if Mesh then
-		self.mesh = Mesh.NewDeduped(
-			VERTEX_ATTRIBUTES,
-			vertices,
-			indices,
-			vertex_count > 65535 and "uint32_t" or "uint16_t",
-			index_count
-		)
+		local index_type = vertex_count > 65535 and "uint32_t" or "uint16_t"
+
+		if mode then
+			self.mesh = Mesh.New(VERTEX_ATTRIBUTES, vertices, indices, index_type, index_count, nil, mode)
+		else
+			self.mesh = Mesh.NewDeduped(VERTEX_ATTRIBUTES, vertices, indices, index_type, index_count)
+		end
 	end
 end
 

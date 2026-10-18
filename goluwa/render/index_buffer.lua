@@ -45,7 +45,7 @@ function IndexBuffer.New(indices, index_type, name)
 	return self
 end
 
-function IndexBuffer.FromPointer(ptr, len, index_type, name)
+function IndexBuffer.FromPointer(ptr, len, index_type, name, host_only)
 	local self = IndexBuffer:CreateObject()
 	self.index_type = index_type or "uint16_t"
 	self.debug_name = name
@@ -53,6 +53,9 @@ function IndexBuffer.FromPointer(ptr, len, index_type, name)
 	self.index_count = len
 	local byte_size = ffi.sizeof(self:GetIndexTypeFFI()) * len
 	self.byte_size = byte_size
+
+	if host_only then return self end
+
 	self.buffer = render.CreateBuffer{
 		buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},
 		data_type = self.index_type,

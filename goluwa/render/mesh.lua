@@ -118,15 +118,17 @@ local function assert_indices_reach_vertices(self)
 	end
 end
 
-function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name)
+-- `mode` "owned" is for vertices and indices nothing else uses, they are kept instead of copied. "host" also has no gpu
+-- buffers, for meshes that only the cpu reads
+function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name, mode)
 	local self = Mesh:CreateObject()
 	self.debug_name = name
-	self.vertex_buffer = VertexBuffer.New(vertices, vertex_attributes, build_mesh_buffer_name(name, "vertices"))
+	self.vertex_buffer = VertexBuffer.New(vertices, vertex_attributes, build_mesh_buffer_name(name, "vertices"), mode)
 	self.mode = "triangle_list"
 
 	if indices then
 		if type(indices) == "cdata" and index_count then
-			self.index_buffer = IndexBuffer.FromPointer(indices, index_count, index_type, build_mesh_buffer_name(name, "indices"))
+			self.index_buffer = IndexBuffer.FromPointer(indices, index_count, index_type, build_mesh_buffer_name(name, "indices"), mode == "host")
 		else
 			self.index_buffer = IndexBuffer.New(indices, index_type, build_mesh_buffer_name(name, "indices"))
 		end
