@@ -15,6 +15,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local scene_bridge = import("goluwa/render3d/scene/bridge.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local billboard = import("goluwa/render3d/billboard.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
@@ -916,6 +917,7 @@ local function rebuild_scene_acceleration()
 		set_component_scene_items(acceleration, component, main_kind, shadow_kind, bounds)
 		refresh_material_users(component, main_kind or shadow_kind)
 		gpu_culling.UpdateSceneVisual(component, main_kind, shadow_kind, true)
+		scene_bridge.UpdateVisual(component, is_visual_dynamic(component))
 	end
 
 	acceleration.tree = build_scene_tree(acceleration.pending, false)
@@ -954,6 +956,7 @@ local function patch_scene_acceleration(acceleration)
 			end
 
 			gpu_culling.UpdateSceneVisual(component, main_kind, shadow_kind, structure)
+			scene_bridge.UpdateVisual(component, is_visual_dynamic(component))
 		end
 	end
 
@@ -987,6 +990,7 @@ local function ensure_scene_acceleration()
 	if visual.dynamic_refresh_frame ~= frame then
 		visual.dynamic_refresh_frame = frame
 		gpu_culling.RefreshDynamicSceneVisuals()
+		scene_bridge.RefreshDynamic()
 	end
 
 	return acceleration
@@ -3484,6 +3488,7 @@ function Visual:OnRemove()
 	registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", self)
 	registry_remove(visual.translucent_components, "translucent_registry_index", self)
 	self.scene_removed = true
+	scene_bridge.RemoveVisual(self)
 	self.RenderEntries = {}
 	self:InvalidateRenderEntries()
 	visual.scene_dirty_components[self] = nil

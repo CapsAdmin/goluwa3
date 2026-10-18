@@ -8,6 +8,11 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local rt = import("goluwa/render3d/scene/rt.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
 local RESULT_COUNT = 8
 
 -- one ray straight at the instance and one that misses it
@@ -90,4 +95,63 @@ T.Test3D("Graphics render3d scene store traces an instance of a mesh through its
 	instances.Remove(first)
 	instances.Remove(second)
 	results:Remove()
+end)
+
+local function read_results(draw, tlas_getter)
+	local results = render.CreateBuffer{
+		byte_size = RESULT_COUNT * 4,
+		buffer_usage = {"storage_buffer"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "scene_store_test_results",
+	}
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	trace(tlas_getter(cmd), cmd, results)
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	local out = ffi.cast("uint32_t*", results:Map())
+	local copy = {out[0], out[1], out[2], out[3], out[4]}
+	results:Remove()
+	return copy
+end
+
+T.Test3D("Graphics render3d scene store follows a visual that moves, hides and is removed", function(draw)
+	if not render.GetDevice().ray_query_supported then return end
+
+	local cube = Polygon3D.New()
+	shapes.BuildCube(cube, 1)
+	cube:BuildBoundingBox()
+	cube:Upload()
+	local entity = Entity.New{Name = "scene_store_cube"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -4))
+	local visual = entity:AddComponent("visual")
+	local primitive = Entity.New{Name = "scene_store_cube_primitive", Parent = entity}
+	primitive:AddComponent("transform")
+	local visual_primitive = primitive:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(cube)
+	visual_primitive:SetMaterial(Material.New{ColorMultiplier = Color(1, 0, 0, 1)})
+	visual:BuildAABB()
+	draw()
+	draw()
+	local hit = read_results(draw, rt.GetTLAS)
+	T(hit[1])["=="](1)
+	entity.transform:SetPosition(Vec3(0, 0, -40))
+	draw()
+	draw()
+	local moved = read_results(draw, rt.GetTLAS)
+	T(moved[1])["=="](1)
+	T(ffi.cast("float*", ffi.new("uint32_t[1]", moved[4]))[0] > 30)["=="](true)
+	visual:SetVisible(false)
+	draw()
+	draw()
+	T(read_results(draw, rt.GetTLAS)[1])["=="](0)
+	visual:SetVisible(true)
+	draw()
+	draw()
+	T(read_results(draw, rt.GetTLAS)[1])["=="](1)
+	entity:Remove()
+	draw()
+	draw()
+	T(read_results(draw, rt.GetTLAS)[1])["=="](0)
 end)

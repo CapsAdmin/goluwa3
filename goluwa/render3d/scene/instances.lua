@@ -117,10 +117,21 @@ function instances.SetMaterial(id, material_row)
 	data_table:Get()[id].material_row = material_row
 end
 
-function instances.SetMask(id, mask)
+function instances.SetMask(id, mask, flags)
 	local record = tlas_table:Get()[id]
-	write_flags(record, data_table:Get()[id], mask, data_table:Get()[id].flags)
+	local data = data_table:Get()[id]
+	local custom_and_mask = id + mask * 0x1000000
+
+	if tonumber(record.customAndMask) == custom_and_mask and data.flags == flags then
+		return
+	end
+
+	write_flags(record, data, mask, flags)
 	instances.version = instances.version + 1
+end
+
+function instances.IsAlive()
+	return tlas_table ~= nil and tlas_table.buffer:IsValid()
 end
 
 function instances.GetCount()
