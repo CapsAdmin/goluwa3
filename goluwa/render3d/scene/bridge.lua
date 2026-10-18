@@ -5,6 +5,8 @@ local materials = import("goluwa/render3d/scene/materials.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
 local bridge = {}
 local dynamic = setmetatable({}, {__mode = "k"})
+-- visuals with an entry the store has no row for (a mesh the gpu has no buffers of), which the cpu draws
+local cpu_drawn = setmetatable({}, {__mode = "k"})
 -- every visual in the scene, for the bounds of all of it
 local tracked = setmetatable({}, {__mode = "k"})
 local bounds_min, bounds_max = {[0] = 0, 0, 0}, {[0] = 0, 0, 0}
@@ -205,6 +207,7 @@ end
 -- matrix places it. called whenever the visual is dirty in the scene acceleration, in the frame it changed
 function bridge.UpdateVisual(visual, is_dynamic)
 	if not visual:IsValid() or visual.scene_removed then
+		cpu_drawn[visual] = nil
 		release(visual)
 
 		return
@@ -215,6 +218,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	local changed = false
 	local emissive = false
 	local hidden = not visual.Visible
+	local has_cpu_entry = false
 
 	for _, entry in ipairs(visual:GetLODRenderEntries()) do
 		local mesh = entry.polygon3d.mesh
@@ -282,8 +286,12 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			item.material = material
 			item.hidden = hidden
 			set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
+		else
+			has_cpu_entry = true
 		end
 	end
+
+	cpu_drawn[visual] = has_cpu_entry or nil
 
 	for i = #list, count + 1, -1 do
 		draw.ClearRow(list[i].id)
@@ -333,7 +341,12 @@ function bridge.IsRasterEntry(visual, entry)
 end
 
 function bridge.RemoveVisual(visual)
+	cpu_drawn[visual] = nil
 	release(visual)
+end
+
+function bridge.GetCPUDrawnVisuals()
+	return cpu_drawn
 end
 
 -- what moves with a body or a skeleton gets its matrices again every frame

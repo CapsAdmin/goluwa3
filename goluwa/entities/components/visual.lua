@@ -2443,15 +2443,24 @@ function Visual:OnFirstCreated()
 		store_pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
 
 		local camera_position = render3d.GetCamera():GetPosition()
-		local drawn_by_store = not visual.noculling and store_pipelines[2] and scene_draw.Draw(gbuffer_instancing, store_pipelines)
 
-		-- what the store does not draw (meshes without gpu buffers, what a pass of its own draws), or everything when
-		-- it did not cull this frame
+		if not visual.noculling and store_pipelines[2] and scene_draw.Draw(gbuffer_instancing, store_pipelines) then
+			-- what the store has no row for
+			for component in pairs(scene_bridge.GetCPUDrawnVisuals()) do
+				if component.Visible and not component:IsCulled() then
+					for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
+						if not scene_bridge.IsRasterEntry(component, entry) then draw_geometry_entry(component, entry) end
+					end
+				end
+			end
+
+			return
+		end
+
+		-- the store did not cull this frame
 		for _, component in ipairs(visual.CollectCPUVisibleComponents(main_visible_components)) do
 			for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
-				if not (drawn_by_store and scene_bridge.IsRasterEntry(component, entry)) then
-					draw_geometry_entry(component, entry)
-				end
+				draw_geometry_entry(component, entry)
 			end
 		end
 	end)
