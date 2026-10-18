@@ -2,8 +2,6 @@ local ffi = require("ffi")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
-local test_helper = import("goluwa/test.lua")
-local tasks = import("goluwa/tasks.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local vk = import("goluwa/bindings/vk.lua")
@@ -20,8 +18,8 @@ gpu_culling.generation = gpu_culling.generation or 0
 gpu_culling.drawn_cull_frame = gpu_culling.drawn_cull_frame or -1
 gpu_culling.enabled = true
 gpu_culling.MAX_SHADOW_QUERY_OUTPUTS = 512
-gpu_culling.async_main_view_enabled = true
 gpu_culling.async_frustum_scale = gpu_culling.async_frustum_scale or 0.96
+gpu_culling.wait_for_main_view = false
 gpu_culling.occlusion_mode = gpu_culling.occlusion_mode or "hiz"
 gpu_culling.scene_acceleration = gpu_culling.scene_acceleration or nil
 gpu_culling.scene_dataset = gpu_culling.scene_dataset or nil
@@ -1432,14 +1430,6 @@ function gpu_culling.SetEnabled(enabled)
 	gpu_culling.enabled = enabled == true
 end
 
-function gpu_culling.IsAsyncMainViewEnabled()
-	return gpu_culling.async_main_view_enabled == true
-end
-
-function gpu_culling.SetAsyncMainViewEnabled(enabled)
-	gpu_culling.async_main_view_enabled = enabled == true
-end
-
 function gpu_culling.GetOcclusionMode()
 	return gpu_culling.occlusion_mode
 end
@@ -2174,18 +2164,6 @@ local function stamp_published_slot_release(frame_buffers)
 	if published.published_frame == current_frame then return end
 
 	published.release_serial = render.GetDevice().last_submission_serial or 0
-end
-
-local function should_use_async_main_view_culling()
-	if not gpu_culling.IsAsyncMainViewEnabled() then return false end
-
-	if test_helper.GetCurrentRunningTestName() ~= "" then return false end
-
-	local active_task = tasks.GetActiveTask()
-
-	if active_task and active_task.is_test_task then return false end
-
-	return true
 end
 
 local DEAD_ENTRY = {}
@@ -3405,7 +3383,6 @@ function gpu_culling.RunMainViewFrustumCulling(
 	if not (dataset and dataset_buffers and frame_buffers) then return nil end
 
 	local read_visible_entry_indices = include_visible_entry_indices ~= false
-	local use_async = should_use_async_main_view_culling()
 	local visual_count = dataset_buffers.layout and dataset_buffers.layout.main_visual_count or 0
 
 	if visual_count <= 0 then
@@ -3427,28 +3404,8 @@ function gpu_culling.RunMainViewFrustumCulling(
 	extract_frustum_planes(
 		view_projection_matrix,
 		frustum_planes,
-		use_async and gpu_culling.async_frustum_scale or 1
+		gpu_culling.async_frustum_scale
 	)
-
-	if not use_async then
-		local slot = resolve_frame_slot(frame_index)
-		local output = frame_buffers[slot]
-		local cmd = record_cull_dispatch(
-			output,
-			slot,
-			dataset,
-			dataset_buffers,
-			visual_count,
-			view_projection_matrix,
-			camera_position,
-			frustum_planes,
-			read_visible_entry_indices
-		)
-		render.SubmitAndWait(cmd)
-		output.cull_result = collect_cull_result(output)
-		gpu_culling.drawn_cull_frame = system.GetFrameNumber()
-		return output.cull_result
-	end
 
 	stamp_published_slot_release(frame_buffers)
 	local output = acquire_async_slot(frame_buffers)
@@ -3469,6 +3426,8 @@ function gpu_culling.RunMainViewFrustumCulling(
 		render.Submit(cmd, output.cull_fence)
 		output.cull_pending_serial = gpu_culling.main_view_submission_serial
 		output.cull_frame = system.GetFrameNumber()
+
+		if gpu_culling.wait_for_main_view then output.cull_fence:Wait() end
 	end
 
 	return publish_latest_async_result(frame_buffers)
