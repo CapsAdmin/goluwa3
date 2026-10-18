@@ -10,7 +10,6 @@ local BatchTable = import("goluwa/render3d/batch_table.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local gbuffer_instancing = {}
-local UInt32Ptr = ffi.typeof("uint32_t *")
 local queued_instances = 0
 local last_stats = {
 	queued_instances = 0,
@@ -150,7 +149,7 @@ do
 		result.drew_any = true
 		result.submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0)
 		result.draw_call_count = 4
-		result.active_batch_count = ffi.cast(UInt32Ptr, output.active_batch_count_buffer:Map())[0]
+		gpu_culling.MarkMainViewDrawn()
 		result.total_batch_count = #batches
 		return result
 	end

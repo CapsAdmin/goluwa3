@@ -3827,8 +3827,18 @@ function Visual:OnFirstCreated()
 			table.clear(tile_casters)
 
 			-- what is not in the ray traced scene is drawn as it is
-			for _, component in ipairs(visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)) do
-				if not component.InSceneBVH then tile_casters[#tile_casters + 1] = component end
+			for _, component in ipairs(visual.shadow_casters) do
+				if
+					not component.InSceneBVH and
+					component.Visible and
+					component:IsWithinCullDistance()
+				then
+					local world_aabb = component:GetWorldAABB()
+
+					if world_aabb and shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
+						tile_casters[#tile_casters + 1] = component
+					end
+				end
 			end
 
 			if tile_casters[1] then shadow_map:DrawVisibleComponents(tile_casters, cascade_idx, false) end

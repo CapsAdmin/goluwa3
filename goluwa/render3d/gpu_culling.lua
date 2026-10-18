@@ -20,6 +20,7 @@ gpu_culling.enabled = true
 gpu_culling.MAX_SHADOW_QUERY_OUTPUTS = 512
 gpu_culling.async_frustum_scale = gpu_culling.async_frustum_scale or 0.96
 gpu_culling.wait_for_main_view = false
+gpu_culling.read_back_main_view = false
 gpu_culling.occlusion_mode = gpu_culling.occlusion_mode or "hiz"
 gpu_culling.scene_acceleration = gpu_culling.scene_acceleration or nil
 gpu_culling.scene_dataset = gpu_culling.scene_dataset or nil
@@ -1431,6 +1432,11 @@ function gpu_culling.SetEnabled(enabled)
 end
 
 -- the culling of this frame, whose buffers the main view's draws read, nil when there was no free slot
+-- the main view's draws have been recorded from this frame's culling
+function gpu_culling.MarkMainViewDrawn()
+	gpu_culling.drawn_cull_frame = system.GetFrameNumber()
+end
+
 function gpu_culling.GetCurrentMainView()
 	local view = gpu_culling.current_main_view
 
@@ -2125,7 +2131,8 @@ local function update_async_slot_completion(output, queue)
 		queue:RetireFence(output.cull_fence)
 	end
 
-	output.cull_result = collect_cull_result(output)
+	-- what the cull wrote is read by the cpu only where something needs it (the tests), the draws read it on the gpu
+	output.cull_result = gpu_culling.read_back_main_view and collect_cull_result(output) or nil
 	output.cull_completed_serial = output.cull_pending_serial
 	output.cull_pending_serial = nil
 end
@@ -2164,7 +2171,6 @@ local function publish_latest_async_result(frame_buffers)
 	if not latest then return nil end
 
 	gpu_culling.published_async_slot = latest
-	gpu_culling.drawn_cull_frame = latest.cull_frame
 	latest.published_frame = system.GetFrameNumber()
 	return latest.cull_result
 end
