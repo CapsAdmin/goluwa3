@@ -2885,12 +2885,13 @@ do
 		scene_bvh.MarkVisibleBlocks(planes)
 		local visible = scene_bvh.raster_visible
 		local dithered = scene_bvh.raster_dithered
+		local blocks = scene_bvh.blocks
 
-		for i = 0, #scene_bvh.blocks - 1 do
+		for i = 0, #blocks - 1 do
 			if visible[i] ~= 0 then
 				visible[i] = 0
 
-				if ranges[i * 2 + 1] <= limit then
+				if ranges[i * 2 + 1] <= limit and not blocks[i + 1].shadowless then
 					local block_first = ranges[i * 2]
 
 					if dithered[i] ~= 0 then

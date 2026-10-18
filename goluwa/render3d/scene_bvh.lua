@@ -2012,6 +2012,7 @@ do
 		vc = vc or {}
 		cache[visual] = vc
 		vc.stamp = stamp
+		vc.shadowless = not visual.CastShadows
 		vc.animated = animated and render.GetDevice().ray_tracing_supported
 		scene_bvh.animated_blocks[vc] = vc.animated or nil
 		local hidden = not visual.Visible
