@@ -50,6 +50,18 @@ local function layer_values(suffix, requires)
 	values("DetailStrength", Color(0.0, 0.0, 0.0, 0.0), ray)
 	values("AdditiveDetail", Color(0.0, 0.0, 0.0, 0.0), ray)
 	values("Specular", Color(1.0, 1.0, 1.0, 1.0))
+	-- where a layer may be by the slope of the ground at the pixel, as 1 - (normal.y * 0.5 + 0.5): it is there from SlopeMin to
+	-- SlopeMax, fading in and out over SlopeBlend. the defaults are everywhere
+	values("SlopeMin", Color(-1.0, -1.0, -1.0, -1.0))
+	values("SlopeMax", Color(2.0, 2.0, 2.0, 2.0))
+	values("SlopeBlend", Color(0.01, 0.01, 0.01, 0.01))
+	-- a layer with a CoverSlope is laid over the others instead of mixed in by its weight (snow): it covers the ground flatter
+	-- than CoverSlope * ((height - CoverStart) / CoverRange) ^ CoverPower, fading over CoverBlend. 0 for not a covering layer
+	values("CoverSlope", Color(0.0, 0.0, 0.0, 0.0))
+	values("CoverStart", Color(0.0, 0.0, 0.0, 0.0))
+	values("CoverRange", Color(1000.0, 1000.0, 1000.0, 1000.0))
+	values("CoverPower", Color(1.0, 1.0, 1.0, 1.0))
+	values("CoverBlend", Color(0.05, 0.05, 0.05, 0.05))
 end
 
 texture("TerrainMaterialTexture", nil, ray)

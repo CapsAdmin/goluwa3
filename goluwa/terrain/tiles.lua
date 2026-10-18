@@ -235,6 +235,14 @@ local LAYER_VALUES = {
 	{"Specular", "specular", 1},
 	{"Scatter", "scatter", 0},
 	{"HeightScales", "height_scale", 0},
+	{"SlopeMin", "slope_min", -1},
+	{"SlopeMax", "slope_max", 2},
+	{"SlopeBlend", "slope_blend", 0.01},
+	{"CoverSlope", "cover_slope", 0},
+	{"CoverStart", "cover_start", 0},
+	{"CoverRange", "cover_range", 1000},
+	{"CoverPower", "cover_power", 1},
+	{"CoverBlend", "cover_blend", 0.05},
 }
 
 function tiles.CreateMaterial(chunk, layers, scatter_set)

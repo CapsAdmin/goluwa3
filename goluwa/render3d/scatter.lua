@@ -4,6 +4,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
+local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
 local vk = import("goluwa/bindings/vk.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
@@ -83,6 +84,17 @@ local gi_distance = pvars.Setup2{
 }
 pvars.EndGroup()
 local MAX_PROTOTYPES = ScatterSet.MAX_PROTOTYPES
+-- the material's per layer rules and the fields of the surface they go in
+local LAYER_RULES = {
+	{"SlopeMin", "slope_min"},
+	{"SlopeMax", "slope_max"},
+	{"SlopeBlend", "slope_blend"},
+	{"CoverSlope", "cover_slope"},
+	{"CoverStart", "cover_start"},
+	{"CoverRange", "cover_range"},
+	{"CoverPower", "cover_power"},
+	{"CoverBlend", "cover_blend"},
+}
 local ScatterSurface = ffi.typeof([[struct {
 	float world[16];
 	uint32_t addresses[4];
@@ -93,6 +105,14 @@ local ScatterSurface = ffi.typeof([[struct {
 	float layer_scales[4];
 	float layer_detail[4];
 	float layer_additive_detail[4];
+	float slope_min[4];
+	float slope_max[4];
+	float slope_blend[4];
+	float cover_slope[4];
+	float cover_start[4];
+	float cover_range[4];
+	float cover_power[4];
+	float cover_blend[4];
 	int32_t blend[4];
 	int32_t set[4];
 	float params[4];
@@ -285,6 +305,15 @@ glsl_common.GetLuminanceGLSL() .. [[
 		vec4 layer_scales;
 		vec4 layer_detail;
 		vec4 layer_additive_detail;
+		// where the layers are by the slope and the height of the ground, see terrain_layer_rules.lua
+		vec4 slope_min;
+		vec4 slope_max;
+		vec4 slope_blend;
+		vec4 cover_slope;
+		vec4 cover_start;
+		vec4 cover_range;
+		vec4 cover_power;
+		vec4 cover_blend;
 		// grows on the first texture of a displacement blend: 1 when the material blends two, and its blend modulate texture
 		ivec4 blend;
 		// first prototype, prototype count
@@ -463,10 +492,14 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 
 	// a surface with a layer mask (terrain splat weights) only grows where its layers are, and
 	// blends the amount across the transitions to other layers
-	vec4 scatter_layer_weights(int mask_texture, vec2 uv) {
+	]] .. terrain_layer_rules .. [[
+
+	// the layers' rules (slope, cover) apply like they do to the terrain's own layers, with the ground's normal and height
+	// at the point
+	vec4 scatter_layer_weights(ScatterSurface s, int mask_texture, vec2 uv, vec3 normal, float height) {
 		vec4 weights = max(textureLod(TEXTURE(mask_texture), uv, 0.0), vec4(0.0));
-		float sum = dot(weights, vec4(1.0));
-		return sum > 0.0001 ? weights / sum : vec4(0.0);
+		float steepness = 1.0 - (normal.y * 0.5 + 0.5);
+		return apply_terrain_layer_rules(weights, steepness, height, s.slope_min, s.slope_max, s.slope_blend, s.cover_slope, s.cover_start, s.cover_range, s.cover_power, s.cover_blend);
 	}
 
 	// how much of the surface's first texture shows at a point of a displacement blend, like get_texture_blend_uv in model_pipeline.lua
@@ -623,13 +656,13 @@ local function get_compute_passes()
 					vec4 weights[7];
 
 					if (masked) {
-						weights[0] = scatter_layer_weights(compute.mask_texture, t.uv0);
-						weights[1] = scatter_layer_weights(compute.mask_texture, t.uv1);
-						weights[2] = scatter_layer_weights(compute.mask_texture, t.uv2);
-						weights[3] = scatter_layer_weights(compute.mask_texture, (t.uv0 + t.uv1 + t.uv2) / 3.0);
-						weights[4] = scatter_layer_weights(compute.mask_texture, (t.uv0 + t.uv1) * 0.5);
-						weights[5] = scatter_layer_weights(compute.mask_texture, (t.uv1 + t.uv2) * 0.5);
-						weights[6] = scatter_layer_weights(compute.mask_texture, (t.uv2 + t.uv0) * 0.5);
+						weights[0] = scatter_layer_weights(s, compute.mask_texture, t.uv0, t.n0, t.p0.y);
+						weights[1] = scatter_layer_weights(s, compute.mask_texture, t.uv1, t.n1, t.p1.y);
+						weights[2] = scatter_layer_weights(s, compute.mask_texture, t.uv2, t.n2, t.p2.y);
+						weights[3] = scatter_layer_weights(s, compute.mask_texture, (t.uv0 + t.uv1 + t.uv2) / 3.0, normalize(t.n0 + t.n1 + t.n2), (t.p0.y + t.p1.y + t.p2.y) / 3.0);
+						weights[4] = scatter_layer_weights(s, compute.mask_texture, (t.uv0 + t.uv1) * 0.5, normalize(t.n0 + t.n1), (t.p0.y + t.p1.y) * 0.5);
+						weights[5] = scatter_layer_weights(s, compute.mask_texture, (t.uv1 + t.uv2) * 0.5, normalize(t.n1 + t.n2), (t.p1.y + t.p2.y) * 0.5);
+						weights[6] = scatter_layer_weights(s, compute.mask_texture, (t.uv2 + t.uv0) * 0.5, normalize(t.n2 + t.n0), (t.p2.y + t.p0.y) * 0.5);
 					}
 
 					// the flattest and the steepest the triangle gets
@@ -821,7 +854,7 @@ local function get_compute_passes()
 						if (priority >= lod_keep * clustering * terrain_amount) continue;
 
 						vec2 uv = t.uv0 * w0 + t.uv1 * w1 + t.uv2 * w2;
-						vec4 layer_weights = mask_texture >= 0 ? scatter_layer_weights(mask_texture, uv) : vec4(0.0);
+						vec4 layer_weights = mask_texture >= 0 ? scatter_layer_weights(s, mask_texture, uv, ground_normal, root.y) : vec4(0.0);
 						float amount = (mask_texture >= 0 ? dot(layer_weights, layer_amounts) : 1.0) * scatter_blend_amount(s, uv, dot(t.blend, vec3(w0, w1, w2)));
 						float ground_amount = clustering * terrain_amount * amount;
 						float keep = lod_keep * ground_amount;
@@ -1317,6 +1350,14 @@ local function write_surface(out, surface, pipeline)
 	out.layer_additive_detail[1] = additive_detail.g
 	out.layer_additive_detail[2] = additive_detail.b
 	out.layer_additive_detail[3] = additive_detail.a
+	for _, rule in ipairs(LAYER_RULES) do
+		local value = material["GetTerrainLayer" .. rule[1]](material)
+		out[rule[2]][0] = value.r
+		out[rule[2]][1] = value.g
+		out[rule[2]][2] = value.b
+		out[rule[2]][3] = value.a
+	end
+
 	local albedo2 = material:GetAlbedo2Texture()
 	out.blend[0] = albedo2 and not Material.IsGrassTexture(albedo2) and 1 or 0
 	out.blend[1] = pipeline:GetTextureIndex(material:GetBlendTexture())

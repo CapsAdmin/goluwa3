@@ -6,6 +6,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local Material = import("goluwa/render3d/material.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local system = import("goluwa/system.lua")
+local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
 local model_pipeline = {}
 local FLOAT_SIZE = ffi.sizeof("float")
 local SURFACE_MATERIAL_FIELDS = {
@@ -1532,14 +1533,22 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
 
-				if (weight_sum <= 0.0001) {
+				if (weight_sum > 0.0001) {
+					weights /= weight_sum;
+					weights2 /= weight_sum;
+				} else {
 					weights = vec4(0.0);
 					weights2 = vec4(0.0);
 					return;
 				}
 
-				weights /= weight_sum;
-				weights2 /= weight_sum;
+				float cover_sum = dot(cover, vec4(1.0)) + dot(cover2, vec4(1.0));
+
+				if (cover_sum > 0.0001) {
+					float covered = max(max(max(cover.x, cover.y), max(cover.z, cover.w)), max(max(cover2.x, cover2.y), max(cover2.z, cover2.w)));
+					weights = weights * (1.0 - covered) + cover * (covered / cover_sum);
+					weights2 = weights2 * (1.0 - covered) + cover2 * (covered / cover_sum);
+				}
 			}
 
 			struct TerrainLayerSample {
@@ -1555,7 +1564,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float weight, float scale, float detail_strength, float additive_detail, float displacement) {
 				if (weight <= 0.001) {
-					return;
 				}
 
 				// like crysis, a layer displaces as much as it covers
@@ -1563,6 +1571,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				if (albedo_tex != -1) {
 					vec4 albedo = sample_terrain_layer_triplanar(albedo_tex, uv, blend);
+
+			]=] .. terrain_layer_rules .. [=[
 
 					if (detail_strength > 0.0) {
 						if (additive_detail > 0.0) {
@@ -1579,6 +1589,17 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 						albedo.a = 1.0;
 					} else {
 						albedo.rgb *= base;
+				// where a layer may be by the slope of the ground at this pixel, which the weight texture is too coarse for
+				// (and its texels cover more ground the coarser the tile is). 0 is flat, 1 is a wall
+				float steepness = 1.0 - (get_terrain_world_normal(uv).y * 0.5 + 0.5);
+				weights *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin, terrain_model.TerrainLayerSlopeMax, terrain_model.TerrainLayerSlopeBlend);
+				weights2 *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin2, terrain_model.TerrainLayerSlopeMax2, terrain_model.TerrainLayerSlopeBlend2);
+
+				// a covering layer is not mixed in by its weight, what covers the ground is over the others
+				vec4 cover = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverStart, terrain_model.TerrainLayerCoverRange, terrain_model.TerrainLayerCoverPower, terrain_model.TerrainLayerCoverBlend);
+				vec4 cover2 = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverStart2, terrain_model.TerrainLayerCoverRange2, terrain_model.TerrainLayerCoverPower2, terrain_model.TerrainLayerCoverBlend2);
+				weights *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope, vec4(0.0)));
+				weights2 *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope2, vec4(0.0)));
 					}
 
 					s.albedo += albedo.rgb * weight;
