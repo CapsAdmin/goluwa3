@@ -46,10 +46,6 @@ function test_render.Init3D()
 			},
 		}
 		test_render.render3d_init = true
-		local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
-		gpu_culling.wait_for_main_view = true
-		gpu_culling.read_back_main_view = true
-		gpu_culling.async_frustum_scale = 1
 	end
 end
 

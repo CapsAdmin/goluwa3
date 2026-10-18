@@ -84,11 +84,7 @@ m3.Run(function(view, now)
 	frames = frames + 1
 	if frames == 200 then
 		local seen = {}
-		local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 		local mats = {}
-		for _, batch in ipairs(gpu_culling.GetSceneDataset().main_instanced_batches) do
-			if batch.material then mats[batch.material] = true end
-		end
 		for material in pairs(visual.Library.material_users) do mats[material] = true end
 		for material in pairs(mats) do
 			local users = true

@@ -25,7 +25,6 @@ local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
-local scene_materials = import("goluwa/render3d/scene/materials.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 local DEFAULT_FORMAT = "d32_sfloat"
@@ -1194,12 +1193,8 @@ local function quickselect_depth_value(values, target_index)
 	return nil
 end
 
--- the cascades of a directional shadow map draw the rows of the scene store: a pass writes a draw per slot (scene/draw.lua)
--- and the multi draw pipeline pulls the vertices of the batch of the slot. point lights still draw the visuals
-function ShadowMap:UsesSceneDraw()
-	return self.mode ~= "point" and scene_draw.enabled:Get()
-end
-
+-- the cascades and cube faces of a shadow map draw the rows of the scene store: a pass writes a draw per slot (scene/draw.lua)
+-- and the multi draw pipeline pulls the vertices of the batch of the slot
 -- records the pass that writes the draws of a cascade, outside of its render pass
 function ShadowMap:CullScene(cascade_index)
 	local cascade = self.cascade[cascade_index]
@@ -1604,7 +1599,7 @@ function ShadowMap:OnRemove()
 
 	self.instance_batcher:Remove()
 
-	for _, cascade in ipairs(self.cascade) do
+	for _, cascade in ipairs(self.cascade or {}) do
 		if cascade.scene_shadow_buffers then
 			scene_draw.RemoveShadowBuffers(cascade.scene_shadow_buffers)
 		end
@@ -1615,19 +1610,6 @@ function ShadowMap:OnRemove()
 			table.remove(active_maps, i)
 
 			break
-		end
-	end
-
-	for _, cascade in ipairs(self.cascade or {}) do
-		if cascade.gpu_cull_output then
-			gpu_culling.RemoveShadowQueryOutput(cascade.gpu_cull_output)
-			cascade.gpu_cull_output = nil
-		end
-
-		if cascade.gpu_draw_cull_output then
-			gpu_culling.RemoveShadowQueryOutput(cascade.gpu_draw_cull_output)
-			cascade.gpu_draw_cull_output = nil
-			cascade.gpu_draw_cull_result = nil
 		end
 	end
 end
@@ -1955,50 +1937,6 @@ function ShadowMap:MarkCascadeRendered(cascade_index, shadow_volume_change_versi
 	cascade.last_rendered_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 end
 
-local function get_shadow_cull_output_requirements()
-	local dataset_buffers = gpu_culling.GetDatasetBuffers and gpu_culling.GetDatasetBuffers() or nil
-	local layout = dataset_buffers and dataset_buffers.layout or nil
-	return math.max(layout and layout.shadow_entry_capacity or 0, 1),
-	math.max(layout and layout.shadow_instanced_batch_capacity or 0, 1),
-	math.max(layout and layout.shadow_instance_capacity or 0, 1)
-end
-
-local function ensure_shadow_cull_output(self, cascade_index, key)
-	local cascade = self.cascade and self.cascade[cascade_index] or nil
-
-	if not cascade then return nil end
-
-	local shadow_entry_capacity, shadow_instanced_batch_count, shadow_instance_capacity = get_shadow_cull_output_requirements()
-	local output = cascade[key]
-
-	if
-		output and
-		output.shadow_entry_capacity == shadow_entry_capacity and
-		output.shadow_instanced_batch_count == shadow_instanced_batch_count and
-		output.shadow_instance_capacity == shadow_instance_capacity
-	then
-		return output
-	end
-
-	local descriptor_slot = output and output.descriptor_slot or nil
-
-	if output then gpu_culling.RemoveShadowQueryOutput(output) end
-
-	output = gpu_culling.CreateShadowQueryOutput(
-		string.format("shadow_%s_%d", key, cascade_index),
-		shadow_entry_capacity,
-		shadow_instanced_batch_count,
-		shadow_instance_capacity,
-		descriptor_slot
-	)
-	cascade[key] = output
-	return output
-end
-
-function ShadowMap:GetShadowCullOutput(cascade_index)
-	return ensure_shadow_cull_output(self, cascade_index or self.current_cascade, "gpu_cull_output")
-end
-
 function ShadowMap:GetGPUCullOptions(cascade_index)
 	if self.mode == "point" then return nil end
 
@@ -2018,39 +1956,7 @@ function ShadowMap:GetGPUCullOptions(cascade_index)
 end
 
 local function record_shadow_draw_cull(self, cascade_index)
-	local cascade = self.cascade[cascade_index]
-	cascade.gpu_draw_cull_result = nil
-
-	if self:UsesSceneDraw() then
-		self:CullScene(cascade_index)
-
-		return
-	end
-
-	if not gpu_culling.IsEnabled() or not gpu_culling.GetSceneDataset() then
-		return
-	end
-
-	local query_aabb = self:GetCascadeWorldAABB(cascade_index)
-
-	if not query_aabb then return end
-
-	cascade.gpu_draw_cull_result = gpu_culling.RecordShadowViewAABBCulling(
-		self.cmd,
-		query_aabb,
-		ensure_shadow_cull_output(self, cascade_index, "gpu_draw_cull_output"),
-		self:GetGPUCullOptions(cascade_index)
-	)
-end
-
-function ShadowMap:GetGPUDrawCullResult(cascade_index)
-	local cull_result = self.cascade[cascade_index].gpu_draw_cull_result
-
-	if cull_result and gpu_culling.IsCullResultCurrent(cull_result) then
-		return cull_result
-	end
-
-	return nil
+	self:CullScene(cascade_index)
 end
 
 function ShadowMap:GetTimingName(cascade_index)
@@ -2445,67 +2351,6 @@ function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instan
 	self.cmd:SetCullMode("none")
 	pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, push_constants)
 	self.cmd:DrawIndirect(commands, 0, #batches, stride)
-end
-
-function ShadowMap:DrawGPUCulled(cull_result, cascade_index, track_component_stats)
-	local submission_stats, submitted_by_component, missing_world_matrix_components = get_shadow_draw_submission_context(self, track_component_stats)
-	local dataset = gpu_culling.GetSceneDataset()
-	local output = cull_result.shadow_output
-	local batches = dataset.shadow_instanced_batches
-	local indirect_draws = 0
-
-	if batches[1] then
-		self:DrawBatches(
-			cascade_index,
-			nil,
-			batches,
-			dataset.shadow.batch_serial,
-			output.shadow_visible_instance_vertex_buffer.buffer:GetDeviceAddress(),
-			output.shadow_visible_batch_indirect_command_buffer,
-			gpu_culling.BATCH_DRAW_COMMAND_SIZE
-		)
-		indirect_draws = 1
-	end
-
-	for _, entry in ipairs(dataset.shadow_fallback_entries) do
-		local component = entry.component
-		local world_aabb = not entry.skip_shadow_aabb_cull and component:GetWorldAABB() or nil
-
-		if
-			component:IsWithinCullDistance() and
-			(
-				not world_aabb or
-				(
-					self:IsWorldAABBVisible(cascade_index, world_aabb) and
-					not self:IsWorldAABBTooSmall(cascade_index, world_aabb)
-				)
-			)
-		then
-			collect_shadow_visible_entry(
-				self,
-				component,
-				entry.source_entry,
-				cascade_index,
-				submission_stats,
-				submitted_by_component,
-				missing_world_matrix_components
-			)
-		end
-	end
-
-	local instanced_draws, fallback_draws = flush_shadow_instance_batches(self, cascade_index)
-	local result = get_shadow_draw_result(self)
-	result.submitted_entry_count = submission_stats.submitted_entry_count
-	result.missing_world_matrix_count = submission_stats.missing_world_matrix_count
-	result.submitted_by_component = submitted_by_component
-	result.missing_world_matrix_components = missing_world_matrix_components
-	result.gpu_instanced_entry_count = 0
-	result.gpu_instanced_draw_calls = indirect_draws
-	result.gpu_active_batch_count = #batches
-	result.gpu_total_batch_count = #batches
-	result.instanced_draws = instanced_draws
-	result.fallback_draws = fallback_draws
-	return result
 end
 
 function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, track_component_stats)

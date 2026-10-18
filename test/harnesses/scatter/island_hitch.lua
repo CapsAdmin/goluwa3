@@ -5,7 +5,6 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local scatter = import("goluwa/render3d/scatter.lua")
 local render = import("goluwa/render/render.lua")
-local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local View = import("goluwa/render3d/view.lua")
 local island = import("addons/examples/lua/examples/render3d/island_terrain.lua")
 local terrain = _G.island_terrain

@@ -2,7 +2,7 @@ local T = import("test/environment.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
-local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local Visual = import("goluwa/entities/components/visual.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
@@ -48,7 +48,7 @@ local function spawn(polygon3d, material)
 	return entity
 end
 
-local function draw_center_red(draw, double_sided, count, use_gpu_culling)
+local function draw_center_red(draw, double_sided, count, from_store)
 	local camera = render3d.GetCamera()
 	camera:SetFOV(math.rad(90))
 	camera:SetNearZ(0.1)
@@ -66,14 +66,15 @@ local function draw_center_red(draw, double_sided, count, use_gpu_culling)
 		entities[i] = spawn(polygon3d, material)
 	end
 
-	local was_enabled = gpu_culling.IsEnabled()
-	gpu_culling.SetEnabled(use_gpu_culling)
+	local library = Visual.Library
+	local was_noculling = library.noculling
+	library.noculling = not from_store
 	local ok, err = pcall(function()
-		for _ = 1, use_gpu_culling and 4 or 1 do
+		for _ = 1, from_store and 4 or 1 do
 			draw()
 		end
 	end)
-	gpu_culling.SetEnabled(was_enabled)
+	library.noculling = was_noculling
 
 	for _, entity in ipairs(entities) do
 		entity:Remove()
@@ -97,7 +98,7 @@ T.Test3D("Graphics render3d double sided materials draw back faces in instanced 
 	T(gbuffer_instancing.GetStats().instanced_draws)["=="](1)
 end)
 
-T.Test3D("Graphics render3d double sided materials draw back faces in gpu culled draws", function(draw)
+T.Test3D("Graphics render3d double sided materials draw back faces in draws from the scene store", function(draw)
 	T(draw_center_red(draw, false, 1, true))["<"](10)
 	T(draw_center_red(draw, true, 1, true))[">"](200)
 end)

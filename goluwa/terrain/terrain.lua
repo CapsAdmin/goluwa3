@@ -450,7 +450,7 @@ end
 function Terrain:IsTileDrawn(tile)
 	if not tile.entity or tile.hidden or not tile.shown then return false end
 
-	return not gpu_culling.IsEnabled() or gpu_culling.GetDrawnCullFrame() >= tile.shown
+	return gpu_culling.GetDrawnCullFrame() >= tile.shown
 end
 
 function Terrain:AreReplacementsDrawn(tile)

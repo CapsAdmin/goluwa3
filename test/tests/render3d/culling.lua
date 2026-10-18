@@ -7,11 +7,12 @@ local event = import("goluwa/event.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
+local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
-local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -32,17 +33,6 @@ local function attach_visual(entity, polygon3d, material)
 	entity.visual:BuildAABB()
 	entity.visual:SetUseOcclusionCulling(false)
 	return entity.visual
-end
-
-local function new_dynamic_body_stub()
-	return {
-		IsKinematic = function(self)
-			return false
-		end,
-		IsDynamic = function(self)
-			return true
-		end,
-	}
 end
 
 local function add_visual_primitive(entity, polygon3d, material, name)
@@ -75,14 +65,6 @@ local function configure_camera()
 	return camera
 end
 
-local function clear_visual_instances()
-	for _, visual in ipairs(Visual.Instances or {}) do
-		if visual and visual.IsValid and visual:IsValid() then
-			visual.Owner:Remove()
-		end
-	end
-end
-
 local function visible_lookup(components, visible_entry_index_ptr, visible_entry_count)
 	local lookup = {}
 
@@ -104,42 +86,6 @@ local function visible_lookup(components, visible_entry_index_ptr, visible_entry
 	end
 
 	return lookup
-end
-
-local function read_entry_indices(result, prefer_visible_entry_indices)
-	if not result then return {} end
-
-	local legacy = prefer_visible_entry_indices == false and
-		result.fallback_visible_entry_indices or
-		result.visible_entry_indices
-
-	if legacy then return legacy end
-
-	local entry_index_ptr, entry_count = gpu_culling.GetVisibleEntrySpan(result, prefer_visible_entry_indices)
-	local out = {}
-
-	if not entry_index_ptr then return out end
-
-	for i = 0, entry_count - 1 do
-		out[i + 1] = tonumber(entry_index_ptr[i])
-	end
-
-	return out
-end
-
-local function create_shadow_query_output(label_suffix)
-	return gpu_culling.CreateShadowQueryOutput("test_shadow_query_" .. tostring(label_suffix or "output"))
-end
-
-local function count_shadow_items()
-	local acceleration = gpu_culling.GetSceneAcceleration()
-	local count = #acceleration.shadow_pending
-
-	for _, item in ipairs(acceleration.shadow_tree and acceleration.shadow_tree.components or {}) do
-		if not item.dead then count = count + 1 end
-	end
-
-	return count
 end
 
 local function list_contains(list, value)
@@ -221,446 +167,6 @@ T.Test3D("Graphics render3d culling acceleration invalidates after transform mov
 	sun:Remove()
 end)
 
-T.Test3D("Graphics render3d gpu culling scaffold tracks scene acceleration invalidation and publish", function()
-	configure_camera()
-	T(gpu_culling.IsEnabled())["=="](true)
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local entity = Entity.New({Name = "gpu_culling_publish"})
-	entity:AddComponent("transform")
-	entity.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(entity, polygon3d, material)
-	Visual.Library.GetVisibleVisuals()
-	local previous_dataset = gpu_culling.GetSceneDataset()
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	T(gpu_culling.GetSceneAcceleration() ~= nil)["=="](true)
-	T(gpu_culling.GetSceneDataset() ~= nil)["=="](true)
-	T(gpu_culling.GetSceneDataset().generation > previous_dataset.generation)["=="](true)
-	T(gpu_culling.GetDatasetBuffersGeneration())["=="](gpu_culling.GetSceneDataset().generation)
-	entity:Remove()
-end)
-
-T.Test3D("Graphics render3d gpu culling shadow culling re-entry keeps shadow items consistent", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local entity = Entity.New({Name = "gpu_culling_shadow_reentry"})
-	entity:AddComponent("transform")
-	entity.transform:SetPosition(Vec3(0, 0, -6))
-	local visual = attach_visual(entity, polygon3d, material)
-	visual:SetCastShadows(false)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	T(count_shadow_items())["=="](0)
-	visual:SetCastShadows(true)
-	Visual.Library.GetVisibleVisuals()
-	T(count_shadow_items())["=="](1)
-	visual:SetCastShadows(false)
-	Visual.Library.GetVisibleVisuals()
-	T(count_shadow_items())["=="](0)
-	visual:SetCastShadows(true)
-	Visual.Library.GetVisibleVisuals()
-	T(count_shadow_items())["=="](1)
-	entity:Remove()
-end)
-
-T.Test3D("Graphics render3d gpu culling shadow AABB pass writes visible entry indices", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local inside = Entity.New({Name = "gpu_culling_shadow_inside"})
-	inside:AddComponent("transform")
-	inside.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(inside, polygon3d, material)
-	local outside = Entity.New({Name = "gpu_culling_shadow_outside"})
-	outside:AddComponent("transform")
-	outside.transform:SetPosition(Vec3(50, 0, -6))
-	attach_visual(outside, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local shadow_output = create_shadow_query_output("writes_visible_entry_indices")
-	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0), shadow_output)
-	local dataset = gpu_culling.GetSceneDataset()
-	local visible = {}
-	local visible_entry_indices = read_entry_indices(result, true)
-
-	for _, entry_index in ipairs(visible_entry_indices) do
-		local entry = dataset.shadow_entries[entry_index + 1]
-
-		if entry and entry.component then visible[entry.component] = true end
-	end
-
-	T(result ~= nil)["=="](true)
-	T(result.visible_entry_count)["=="](1)
-	T(result.fallback_visible_entry_count)["=="](0)
-	T(visible[inside.visual])["=="](true)
-	T(visible[outside.visual])["=="](nil)
-	gpu_culling.RemoveShadowQueryOutput(shadow_output)
-	inside:Remove()
-	outside:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
-T.Test3D("Graphics render3d gpu culling shadow AABB pass splits instanced and fallback entries", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local static_entity = Entity.New({Name = "gpu_culling_shadow_instanced_static"})
-	static_entity:AddComponent("transform")
-	static_entity.transform:SetPosition(Vec3(-1, 0, -6))
-	attach_visual(static_entity, polygon3d, material)
-	local dynamic_entity = Entity.New({Name = "gpu_culling_shadow_instanced_dynamic"})
-	dynamic_entity:AddComponent("transform")
-	dynamic_entity.transform:SetPosition(Vec3(1, 0, -6))
-	dynamic_entity.rigid_body = new_dynamic_body_stub()
-	attach_visual(dynamic_entity, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local shadow_output = create_shadow_query_output("splits_instanced_and_fallback")
-	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0), shadow_output)
-	local dataset = gpu_culling.GetSceneDataset()
-	local fallback_visible = {}
-	local fallback_visible_entry_indices = read_entry_indices(result, false)
-
-	for _, entry_index in ipairs(fallback_visible_entry_indices) do
-		local entry = dataset.shadow_entries[entry_index + 1]
-
-		if entry and entry.component then
-			fallback_visible[entry.component] = true
-		end
-	end
-
-	T(result ~= nil)["=="](true)
-	T(result.visible_entry_count)["=="](2)
-	T(result.fallback_visible_entry_count)["=="](0)
-	T(fallback_visible[static_entity.visual])["=="](nil)
-	T(fallback_visible[dynamic_entity.visual])["=="](nil)
-	gpu_culling.RemoveShadowQueryOutput(shadow_output)
-	static_entity:Remove()
-	dynamic_entity:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
-T.Test3D("Graphics render3d gpu culling shadow AABB keeps vertex animated entries instanced", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	material:SetBending(1)
-	local static_entity = Entity.New({Name = "gpu_culling_shadow_vertex_animated_static"})
-	static_entity:AddComponent("transform")
-	static_entity.transform:SetPosition(Vec3(-1, 0, -6))
-	attach_visual(static_entity, polygon3d, material)
-	local dynamic_entity = Entity.New({Name = "gpu_culling_shadow_vertex_animated_dynamic"})
-	dynamic_entity:AddComponent("transform")
-	dynamic_entity.transform:SetPosition(Vec3(1, 0, -6))
-	dynamic_entity.rigid_body = new_dynamic_body_stub()
-	attach_visual(dynamic_entity, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local shadow_output = create_shadow_query_output("keeps_vertex_animated_entries_instanced")
-	local result = gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0), shadow_output)
-	local dataset = gpu_culling.GetSceneDataset()
-	local fallback_visible = {}
-	local fallback_visible_entry_indices = read_entry_indices(result, false)
-
-	for _, entry_index in ipairs(fallback_visible_entry_indices) do
-		local entry = dataset.shadow_entries[entry_index + 1]
-
-		if entry and entry.component then
-			fallback_visible[entry.component] = true
-		end
-	end
-
-	T(result ~= nil)["=="](true)
-	T(result.visible_entry_count)["=="](2)
-	T(result.fallback_visible_entry_count)["=="](0)
-	T(fallback_visible[static_entity.visual])["=="](nil)
-	T(fallback_visible[dynamic_entity.visual])["=="](nil)
-	gpu_culling.RemoveShadowQueryOutput(shadow_output)
-	static_entity:Remove()
-	dynamic_entity:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
-T.Test3D("Graphics render3d gpu culling shadow AABB results stay isolated per query", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local left = Entity.New({Name = "gpu_culling_shadow_left"})
-	left:AddComponent("transform")
-	left.transform:SetPosition(Vec3(-8, 0, -6))
-	attach_visual(left, polygon3d, material)
-	local right = Entity.New({Name = "gpu_culling_shadow_right"})
-	right:AddComponent("transform")
-	right.transform:SetPosition(Vec3(8, 0, -6))
-	attach_visual(right, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local left_output = create_shadow_query_output("left_query")
-	local right_output = create_shadow_query_output("right_query")
-	local left_result = gpu_culling.RunShadowViewAABBCulling(AABB(-12, -4, -20, -4, 4, 0), left_output)
-	local right_result = gpu_culling.RunShadowViewAABBCulling(AABB(4, -4, -20, 12, 4, 0), right_output)
-	local dataset = gpu_culling.GetSceneDataset()
-	local left_visible = {}
-	local right_visible = {}
-
-	for _, entry_index in ipairs(read_entry_indices(left_result, true)) do
-		local entry = dataset.shadow_entries[entry_index + 1]
-
-		if entry and entry.component then left_visible[entry.component] = true end
-	end
-
-	for _, entry_index in ipairs(read_entry_indices(right_result, true)) do
-		local entry = dataset.shadow_entries[entry_index + 1]
-
-		if entry and entry.component then right_visible[entry.component] = true end
-	end
-
-	T(left_result ~= nil)["=="](true)
-	T(right_result ~= nil)["=="](true)
-	T(left_result.visible_entry_count)["=="](1)
-	T(right_result.visible_entry_count)["=="](1)
-	T(left_visible[left.visual])["=="](true)
-	T(left_visible[right.visual])["=="](nil)
-	T(right_visible[left.visual])["=="](nil)
-	T(right_visible[right.visual])["=="](true)
-	gpu_culling.RemoveShadowQueryOutput(left_output)
-	gpu_culling.RemoveShadowQueryOutput(right_output)
-	left:Remove()
-	right:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
-T.Test3D("Graphics render3d gpu culling scene dataset serializes static and dynamic visuals", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local static_entity = Entity.New({Name = "gpu_culling_static"})
-	static_entity:AddComponent("transform")
-	static_entity.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(static_entity, polygon3d, material)
-	local dynamic_entity = Entity.New({Name = "gpu_culling_dynamic"})
-	dynamic_entity:AddComponent("transform")
-	dynamic_entity.transform:SetPosition(Vec3(1, 0, -6))
-	dynamic_entity.rigid_body = new_dynamic_body_stub()
-	attach_visual(dynamic_entity, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local dataset = gpu_culling.GetSceneDataset()
-	T(dataset ~= nil)["=="](true)
-	local static_visual = static_entity.visual.gpu_main_visual
-	local dynamic_visual = dynamic_entity.visual.gpu_main_visual
-	T(dataset.main.live_visual_count)["=="](2)
-	T(#dataset.main.dynamic)["=="](1)
-	T(static_visual.dynamic)["=="](false)
-	T(dynamic_visual.dynamic)["=="](true)
-	T(static_visual.render_entry_count)["=="](1)
-	T(dynamic_visual.render_entry_count)["=="](1)
-	T(static_visual.entries[1].polygon_guid ~= nil)["=="](true)
-	T(static_visual.entries[1].material_guid ~= nil)["=="](true)
-	-- the async main view cull copies instance worlds a frame or two before the draw, so a moving entry is drawn from the cpu
-	T(static_visual.entries[1].instanced_batch_index ~= nil)["=="](true)
-	T(dynamic_visual.entries[1].instanced_batch_index)["=="](nil)
-	static_entity:Remove()
-	dynamic_entity:Remove()
-end)
-
-T.Test3D("Graphics render3d gpu culling scene dataset does not upload bvh nodes", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local left = Entity.New({Name = "gpu_culling_bvh_left"})
-	left:AddComponent("transform")
-	left.transform:SetPosition(Vec3(-2, 0, -6))
-	attach_visual(left, polygon3d, material)
-	local right = Entity.New({Name = "gpu_culling_bvh_right"})
-	right:AddComponent("transform")
-	right.transform:SetPosition(Vec3(2, 0, -6))
-	attach_visual(right, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local dataset = gpu_culling.GetSceneDataset()
-	local dataset_buffers = gpu_culling.GetDatasetBuffers()
-	T(dataset ~= nil)["=="](true)
-	T(dataset.static_bvh == nil)["=="](true)
-	T(dataset.shadow_bvh == nil)["=="](true)
-	T(dataset_buffers ~= nil)["=="](true)
-	T(dataset_buffers.static_bvh_node_buffer == nil)["=="](true)
-	T(dataset_buffers.shadow_bvh_node_buffer == nil)["=="](true)
-	left:Remove()
-	right:Remove()
-end)
-
-T.Test3D("Graphics render3d gpu culling allocates per-frame buffers from dataset capacity", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local entity = Entity.New({Name = "gpu_culling_buffers"})
-	entity:AddComponent("transform")
-	entity.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(entity, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local dataset = gpu_culling.GetSceneDataset()
-	local frame_buffers = gpu_culling.GetFrameBuffers()
-	T(dataset ~= nil)["=="](true)
-	T(frame_buffers ~= nil)["=="](true)
-	T(#frame_buffers >= 1)["=="](true)
-	T(frame_buffers[1].visible_entry_capacity >= dataset.main.entry_count)["=="](true)
-	T(frame_buffers[1].visible_index_buffer.size >= ffi.sizeof("uint32_t"))["=="](true)
-	T(frame_buffers[1].indirect_command_buffer.size >= ffi.sizeof(vk.VkDrawIndexedIndirectCommand))["=="](true)
-	T(frame_buffers[1].indirect_count_buffer.size >= ffi.sizeof("uint32_t"))["=="](true)
-	entity:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local frame_buffers_after = gpu_culling.GetFrameBuffers()
-	T(frame_buffers_after ~= nil)["=="](true)
-	T(frame_buffers_after[1].visible_entry_capacity >= 1)["=="](true)
-end)
-
-T.Test3D("Graphics render3d gpu culling uploads typed binary scene records", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local entity = Entity.New({Name = "gpu_culling_upload"})
-	entity:AddComponent("transform")
-	entity.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(entity, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local dataset = gpu_culling.GetSceneDataset()
-	local dataset_buffers = gpu_culling.GetDatasetBuffers()
-	local upload_types = gpu_culling.GetUploadTypes()
-	T(dataset ~= nil)["=="](true)
-	T(dataset_buffers ~= nil)["=="](true)
-	T(gpu_culling.GetDatasetBuffersGeneration())["=="](dataset.generation)
-	T(dataset_buffers.layout.main_visual_count)["=="](1)
-	T(dataset_buffers.layout.main_entry_count)["=="](1)
-	local visual_ptr = ffi.cast(
-		ffi.typeof("$*", upload_types.visual_record),
-		dataset_buffers.main_visual_buffer:Map()
-	)
-	local entry_ptr = ffi.cast(ffi.typeof("$*", upload_types.entry_record), dataset_buffers.main_entry_buffer:Map())
-	T(visual_ptr[0].entry_count)["=="](1)
-	T(visual_ptr[0].entry_offset)["=="](0)
-	T(visual_ptr[0].cull_distance > 0)["=="](true)
-	T(bit.band(visual_ptr[0].flags, upload_types.flags.visual_visible) ~= 0)["=="](true)
-	T(bit.band(visual_ptr[0].flags, upload_types.flags.visual_dynamic) == 0)["=="](true)
-	T(entry_ptr[0].visual_index)["=="](0)
-	T(entry_ptr[0].entry_index)["=="](0)
-	T(entry_ptr[0].local_min_x < entry_ptr[0].local_max_x)["=="](true)
-	entity:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	T(gpu_culling.GetDatasetBuffers() ~= nil)["=="](true)
-end)
-
-T.Test3D("Graphics render3d gpu culling compute pass writes visible main-view indices", function()
-	local camera = configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local front = Entity.New({Name = "gpu_culling_compute_front"})
-	front:AddComponent("transform")
-	front.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(front, polygon3d, material)
-	local behind = Entity.New({Name = "gpu_culling_compute_behind"})
-	behind:AddComponent("transform")
-	behind.transform:SetPosition(Vec3(0, 0, 6))
-	attach_visual(behind, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
-	local result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
-	local visible_entry_indices = read_entry_indices(result, true)
-	T(result ~= nil)["=="](true)
-	T(result.visible_entry_count)["=="](1)
-	T(#visible_entry_indices)["=="](1)
-	T(visible_entry_indices[1])["=="](0)
-	front:Remove()
-	behind:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
-T.Test3D("Graphics render3d gpu culling draws everything when visibility culling is off", function()
-	local camera = configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local front = Entity.New({Name = "gpu_culling_off_front"})
-	front:AddComponent("transform")
-	front.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(front, polygon3d, material)
-	local behind = Entity.New({Name = "gpu_culling_off_behind"})
-	behind:AddComponent("transform")
-	behind.transform:SetPosition(Vec3(0, 0, 6))
-	attach_visual(behind, polygon3d, material)
-	local far = Entity.New({Name = "gpu_culling_off_far"})
-	far:AddComponent("transform")
-	far.transform:SetPosition(Vec3(50, 0, -6))
-	attach_visual(far, polygon3d, material)
-	far.visual:SetCullDistance(2)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local shadow_output = create_shadow_query_output("culling_off")
-	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
-	local ok, err = pcall(function()
-		T(gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition()).visible_entry_count)["=="](1)
-		T(gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0), shadow_output).visible_entry_count)["=="](1)
-		pvars.SetSession("r_feature_culling", false)
-		T(gpu_culling.culling_enabled)["=="](false)
-		T(gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition()).visible_entry_count)["=="](3)
-		T(gpu_culling.RunShadowViewAABBCulling(AABB(-10, -10, -20, 10, 10, 0), shadow_output).visible_entry_count)["=="](3)
-		T(front.visual:IsWithinCullDistance())["=="](true)
-		T(far.visual:IsWithinCullDistance())["=="](true)
-		T(front.visual:IsAABBVisibleLocal())["=="](true)
-		T(behind.visual:IsAABBVisibleLocal())["=="](true)
-		T(render3d.SphereInFrustum(0, 0, 500, 1))["=="](true)
-		pvars.SetSession("r_feature_culling", true)
-		T(gpu_culling.culling_enabled)["=="](true)
-		T(gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition()).visible_entry_count)["=="](1)
-		T(far.visual:IsWithinCullDistance())["=="](false)
-		T(behind.visual:IsAABBVisibleLocal())["=="](false)
-		T(render3d.SphereInFrustum(0, 0, 500, 1))["=="](false)
-	end)
-	pvars.SetSession("r_feature_culling", true)
-	gpu_culling.RemoveShadowQueryOutput(shadow_output)
-	front:Remove()
-	behind:Remove()
-	far:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-
-	if not ok then error(err, 0) end
-end)
-
-T.Test3D("Graphics render3d gpu culling compute pass expands visible visuals into entry indices", function()
-	local camera = configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local visible = Entity.New({Name = "gpu_culling_compute_multi_visible"})
-	visible:AddComponent("transform")
-	visible.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(visible, polygon3d, material)
-	add_visual_primitive(visible, polygon3d, material, "gpu_culling_compute_multi_visible_second")
-	visible.visual:BuildAABB()
-	local hidden = Entity.New({Name = "gpu_culling_compute_multi_hidden"})
-	hidden:AddComponent("transform")
-	hidden.transform:SetPosition(Vec3(0, 0, 6))
-	attach_visual(hidden, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
-	local result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
-	local visible_entry_indices = read_entry_indices(result, true)
-	T(result ~= nil)["=="](true)
-	T(result.visible_entry_count)["=="](2)
-	T(#visible_entry_indices)["=="](2)
-	T(visible_entry_indices[1])["=="](0)
-	T(visible_entry_indices[2])["=="](1)
-	visible:Remove()
-	hidden:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
 do
 	local RADII_PER_UNIT = 1 / math.sqrt(3)
 
@@ -680,71 +186,62 @@ do
 		return entity
 	end
 
-	local function cull_visible_entries(camera)
-		local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
-		local result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
-		return read_entry_indices(result, true)
+	local function build_colored_lod_visual(name, distance)
+		local entity = Entity.New({Name = name})
+		entity:AddComponent("transform")
+		entity.transform:SetPosition(Vec3(0, 0, -distance))
+		attach_visual(entity, build_cube_polygon(), Material.New{ColorMultiplier = Color(1, 0, 0, 1)})
+		local coarse = build_cube_polygon()
+		coarse:SetLODLevel(1)
+		coarse:SetLODDistance(10)
+		add_visual_primitive(entity, coarse, Material.New{ColorMultiplier = Color(0, 1, 0, 1)}, name .. "_coarse")
+		entity.visual:BuildAABB()
+		return entity
 	end
 
-	T.Test3D("Graphics render3d gpu culling picks the level of detail by distance", function()
-		local camera = configure_camera()
-		local near = build_lod_visual("gpu_culling_lod_near", 8)
-		local entries = cull_visible_entries(camera)
-		T(#entries)["=="](1)
-		T(entries[1])["=="](0)
+	-- the level of detail the scene store draws in the main view: red is the fine level, green the coarse one
+	local function drawn_level(draw)
+		configure_camera()
+
+		for _ = 1, 4 do
+			draw()
+		end
+
+		local size = render.GetRenderImageSize()
+		local r, g = gbuffer_layout.GetTexture("albedo"):GetPixel(math.floor(size.x / 2), math.floor(size.y / 2))
+		return r > g and 0 or 1
+	end
+
+	T.Test3D("Graphics render3d the scene store draws the level of detail by distance", function(draw)
+		local near = build_colored_lod_visual("scene_draw_lod_near", 8)
+		T(drawn_level(draw))["=="](0)
 		near:Remove()
-		local far = build_lod_visual("gpu_culling_lod_far", 40)
-		entries = cull_visible_entries(camera)
-		T(#entries)["=="](1)
-		T(entries[1])["=="](1)
+		local far = build_colored_lod_visual("scene_draw_lod_far", 40)
+		T(drawn_level(draw))["=="](1)
 		far:Remove()
-		local between = build_lod_visual("gpu_culling_lod_between", 10 / RADII_PER_UNIT)
-		entries = cull_visible_entries(camera)
-		T(#entries)["=="](2)
-		between:Remove()
-		Visual.Library.InvalidateSceneAcceleration()
 	end)
 
-	T.Test3D("Graphics render3d gpu culling lod_level overrides the level and clamps to the last one", function()
-		local camera = configure_camera()
-		local near = build_lod_visual("gpu_culling_lod_forced", 8)
+	T.Test3D("Graphics render3d the scene store draws lod_level over the distance and lod_scale moves the switch", function(draw)
+		local near = build_colored_lod_visual("scene_draw_lod_forced", 8)
 		pvars.SetSession("lod_level", 1)
-		local entries = cull_visible_entries(camera)
-		T(#entries)["=="](1)
-		T(entries[1])["=="](1)
-		pvars.SetSession("lod_level", 9)
-		entries = cull_visible_entries(camera)
-		T(#entries)["=="](1)
-		T(entries[1])["=="](1)
-		pvars.SetSession("lod_level", 0)
-		entries = cull_visible_entries(camera)
-		T(#entries)["=="](1)
-		T(entries[1])["=="](0)
+		T(drawn_level(draw))["=="](1)
 		pvars.SetSession("lod_level", -1)
 		near:Remove()
-		Visual.Library.InvalidateSceneAcceleration()
-	end)
-
-	T.Test3D("Graphics render3d gpu culling lod_scale moves the switch distance", function()
-		local camera = configure_camera()
-		local far = build_lod_visual("gpu_culling_lod_scaled", 40)
+		local far = build_colored_lod_visual("scene_draw_lod_scaled", 40)
 		pvars.SetSession("lod_scale", 4)
-		local entries = cull_visible_entries(camera)
-		T(#entries)["=="](1)
-		T(entries[1])["=="](0)
+		T(drawn_level(draw))["=="](0)
 		pvars.SetSession("lod_scale", 1)
 		far:Remove()
-		Visual.Library.InvalidateSceneAcceleration()
 	end)
 
 	T.Test3D("Graphics render3d visual builds the bvh from one fixed level and never a billboard", function()
-		local entity = build_lod_visual("gpu_culling_lod_bvh", 8)
+		local entity = build_lod_visual("lod_bvh", 8)
 		local material = Material.New()
 		local billboard = build_cube_polygon()
 		billboard:SetLODLevel(2)
 		billboard:SetLODDistance(20)
 		billboard:SetLODBillboard(true)
-		add_visual_primitive(entity, billboard, material, "gpu_culling_lod_bvh_billboard")
+		add_visual_primitive(entity, billboard, material, "lod_bvh_billboard")
 		entity.visual:BuildAABB()
 		T(#entity.visual:GetLODRenderEntries())["=="](3)
 		T(#entity.visual:GetBVHRenderEntries())["=="](1)
@@ -762,13 +259,13 @@ do
 	end)
 
 	T.Test3D("Graphics render3d visual shows the level of the camera distance and a billboard as the level before it", function()
-		local entity = build_lod_visual("gpu_culling_lod_at", 8)
+		local entity = build_lod_visual("lod_at", 8)
 		local material = Material.New()
 		local billboard = build_cube_polygon()
 		billboard:SetLODLevel(2)
 		billboard:SetLODDistance(20)
 		billboard:SetLODBillboard(true)
-		add_visual_primitive(entity, billboard, material, "gpu_culling_lod_at_billboard")
+		add_visual_primitive(entity, billboard, material, "lod_at_billboard")
 		entity.visual:BuildAABB()
 		local position = entity.transform:GetPosition()
 		local unit = math.sqrt(3)
@@ -790,7 +287,7 @@ do
 	end)
 
 	T.Test3D("Graphics render3d visual keeps only the most detailed level in its render entries", function()
-		local entity = build_lod_visual("gpu_culling_lod_entries", 8)
+		local entity = build_lod_visual("lod_entries", 8)
 		T(#entity.visual:GetRenderEntries())["=="](1)
 		T(#entity.visual:GetLODRenderEntries())["=="](2)
 		local entries = entity.visual:GetLODRenderEntries()
@@ -802,39 +299,6 @@ do
 		Visual.Library.InvalidateSceneAcceleration()
 	end)
 end
-
-T.Test3D("Graphics render3d gpu culling rejects cull results from a stale dataset generation", function()
-	local camera = configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local front = Entity.New({Name = "gpu_culling_stale_front"})
-	front:AddComponent("transform")
-	front.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(front, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local dataset = gpu_culling.GetSceneDataset()
-	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
-	local result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
-	T(result ~= nil)["=="](true)
-	T(result.dataset_generation)["=="](dataset.generation)
-	T(gpu_culling.IsCullResultCurrent(result))["=="](true)
-	local second = Entity.New({Name = "gpu_culling_stale_second"})
-	second:AddComponent("transform")
-	second.transform:SetPosition(Vec3(2, 0, -6))
-	attach_visual(second, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local new_dataset = gpu_culling.GetSceneDataset()
-	T(new_dataset.generation > dataset.generation)["=="](true)
-	result.dataset_generation = dataset.generation
-	T(gpu_culling.IsCullResultCurrent(result))["=="](false)
-	local draw_result = gbuffer_instancing.DrawGPUCulled(result)
-	T(draw_result.drew_any == false)["=="](true)
-	second:Remove()
-	front:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
 
 T.Test3D("Graphics render3d a deduped mesh stays valid across polygon release and reuse", function()
 	local Index16Array = ffi.typeof("uint16_t[?]")
@@ -892,125 +356,6 @@ T.Test3D("Graphics render3d a deduped mesh stays valid across polygon release an
 	T(mesh0:IsValid())["=="](true)
 	T(mesh0.vertex_buffer ~= nil)["=="](true)
 	owner:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
-T.Test3D("Graphics render3d gpu culling visible render entries expand GPU-visible entries", function()
-	configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local visible = Entity.New({Name = "gpu_culling_visible_entries_visible"})
-	visible:AddComponent("transform")
-	visible.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(visible, polygon3d, material)
-	add_visual_primitive(visible, polygon3d, material, "gpu_culling_visible_entries_visible_second")
-	visible.visual:BuildAABB()
-	local hidden = Entity.New({Name = "gpu_culling_visible_entries_hidden"})
-	hidden:AddComponent("transform")
-	hidden.transform:SetPosition(Vec3(0, 0, 6))
-	attach_visual(hidden, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	local visible_entries = Visual.Library.GetVisibleRenderEntries()
-	T(#visible_entries)["=="](2)
-	T(visible_entries[1].component)["=="](visible.visual)
-	T(visible_entries[2].component)["=="](visible.visual)
-	visible:Remove()
-	hidden:Remove()
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
-T.Test3D("Graphics render3d gpu culling splits batch commands by cull mode and height map", function()
-	local camera = configure_camera()
-	local polygon3d = build_cube_polygon()
-	local materials = {}
-
-	for group = 0, 3 do
-		local material = Material.New()
-		material:SetDoubleSided(group % 2 == 1)
-
-		if group >= 2 then
-			material:SetHeightTexture(Texture.GetFallback())
-			material:SetHeightScale(1)
-		end
-
-		materials[material] = group
-	end
-
-	local created = {}
-
-	for material, group in pairs(materials) do
-		local ent = Entity.New({Name = "gpu_culling_command_group_" .. group})
-		ent:AddComponent("transform")
-		ent.transform:SetPosition(Vec3(group * 2 - 3, 0, -6))
-		attach_visual(ent, polygon3d, material)
-		created[#created + 1] = ent
-	end
-
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
-	local cull_result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
-	local output = gpu_culling.GetFrameBuffers()[cull_result.frame_index]
-	local commands = ffi.cast(
-		ffi.typeof("$*", vk.VkDrawIndexedIndirectCommand),
-		output.visible_batch_indirect_command_buffer:Map()
-	)
-	local group_size = output.batch_command_capacity
-	local checked = 0
-
-	for _, batch in ipairs(gpu_culling.GetSceneDataset().main_instanced_batches) do
-		local expected_group = materials[batch.material]
-
-		if expected_group then
-			for group = 0, gpu_culling.BATCH_COMMAND_GROUP_COUNT - 1 do
-				T(commands[group * group_size + batch.batch_index].instanceCount)["=="](group == expected_group and 1 or 0)
-			end
-
-			T(commands[expected_group * group_size + batch.batch_index].indexCount)["=="](polygon3d:GetMesh().index_buffer:GetIndexCount())
-			checked = checked + 1
-		end
-	end
-
-	T(checked)["=="](4)
-
-	for _, ent in ipairs(created) do
-		ent:Remove()
-	end
-
-	Visual.Library.InvalidateSceneAcceleration()
-end)
-
-T.Test3D("Graphics render3d gpu culling builds indirect commands from visible entry indices", function()
-	local camera = configure_camera()
-	local polygon3d = build_cube_polygon()
-	local material = Material.New()
-	local visible = Entity.New({Name = "gpu_culling_indirect_visible"})
-	visible:AddComponent("transform")
-	visible.transform:SetPosition(Vec3(0, 0, -6))
-	attach_visual(visible, polygon3d, material)
-	add_visual_primitive(visible, polygon3d, material, "gpu_culling_indirect_visible_second")
-	visible.visual:BuildAABB()
-	local hidden = Entity.New({Name = "gpu_culling_indirect_hidden"})
-	hidden:AddComponent("transform")
-	hidden.transform:SetPosition(Vec3(0, 0, 6))
-	attach_visual(hidden, polygon3d, material)
-	Visual.Library.InvalidateSceneAcceleration()
-	Visual.Library.GetVisibleVisuals()
-	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
-	local cull_result = gpu_culling.RunMainViewFrustumCulling(view_projection, camera:GetPosition())
-	local frame_buffers = gpu_culling.GetFrameBuffers()
-	local command_ptr = ffi.cast(
-		ffi.typeof("$*", vk.VkDrawIndexedIndirectCommand),
-		frame_buffers[cull_result.frame_index].indirect_command_buffer:Map()
-	)
-	T(cull_result ~= nil)["=="](true)
-	T(cull_result.indirect_command_count)["=="](2)
-	T(command_ptr[0].indexCount)["=="](polygon3d:GetMesh().index_buffer:GetIndexCount())
-	T(command_ptr[0].instanceCount)["=="](1)
-	T(command_ptr[0].firstInstance)["=="](0)
-	T(command_ptr[1].firstInstance)["=="](1)
-	visible:Remove()
-	hidden:Remove()
 	Visual.Library.InvalidateSceneAcceleration()
 end)
 

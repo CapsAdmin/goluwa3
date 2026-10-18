@@ -4,7 +4,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local Visual = import("goluwa/entities/components/visual.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -260,17 +260,18 @@ do
 		return entity
 	end
 
-	local function draw_without_gpu_culling(draw)
+	local function draw_on_the_cpu(draw)
 		local camera = render3d.GetCamera()
 		camera:SetFOV(math.rad(90))
 		camera:SetNearZ(0.1)
 		camera:SetFarZ(100)
 		camera:SetPosition(Vec3(0, 0, 0))
 		camera:SetRotation(Quat():Identity())
-		local was_enabled = gpu_culling.IsEnabled()
-		gpu_culling.SetEnabled(false)
+		local library = Visual.Library
+		local was_noculling = library.noculling
+		library.noculling = true
 		local ok, err = pcall(draw)
-		gpu_culling.SetEnabled(was_enabled)
+		library.noculling = was_noculling
 
 		if not ok then error(err, 0) end
 	end
@@ -285,7 +286,7 @@ do
 		material_b:SetColorMultiplier(Color(0, 1, 0, 1))
 		local entity_a = spawn("instanced_material_a", -1.5, polygon3d, material_a)
 		local entity_b = spawn("instanced_material_b", 1.5, polygon3d, material_b)
-		draw_without_gpu_culling(draw)
+		draw_on_the_cpu(draw)
 		local stats = gbuffer_instancing.GetStats()
 		T(stats.queued_instances)["=="](2)
 		T(stats.instanced_draws)["=="](0)
@@ -304,7 +305,7 @@ do
 		end
 
 		local other = spawn("instanced_other", 0, polygon3d, Material.New())
-		draw_without_gpu_culling(draw)
+		draw_on_the_cpu(draw)
 		local stats = gbuffer_instancing.GetStats()
 		T(stats.queued_instances)["=="](6)
 		T(stats.instanced_draws)["=="](1)

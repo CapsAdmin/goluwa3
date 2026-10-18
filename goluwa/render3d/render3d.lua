@@ -611,7 +611,7 @@ function render3d.Initialize(config)
 			scene_rt.GetTLAS(render.GetCommandBuffer())
 		end
 
-		if scene_draw.enabled:Get() and not (render3d.camera_stack and #render3d.camera_stack > 1) then
+		if not (render3d.camera_stack and #render3d.camera_stack > 1) then
 			local camera = render3d.GetCamera()
 			local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
 			scene_draw.frustum_planes = scene_draw.frustum_planes or ffi.new("float[24]")

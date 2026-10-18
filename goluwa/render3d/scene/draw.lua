@@ -1,7 +1,6 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
-local pvars = import("goluwa/cli/pvars.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
@@ -14,13 +13,6 @@ local draw = {}
 -- the main view drawn from the scene store: one pass writes an indexed indirect draw for every row that is in view, the
 -- world matrices and the previous ones of its instance, and the gbuffer's multi draw pipelines draw them, with a record
 -- of the row's mesh and material as the batch (the rows are the batches, so the draws need no cpu list of what is visible)
-pvars.StartGroup("Rendering", "Scene draw", {store = false})
-draw.enabled = pvars.Setup2{
-	key = "r_scene_draw",
-	default = true,
-	help = "draw the main view from the scene store, off draws it from the culling's own dataset",
-}
-pvars.EndGroup()
 local LOCAL_SIZE = 64
 local COMMAND_SIZE = 20
 local GROUPS = 4

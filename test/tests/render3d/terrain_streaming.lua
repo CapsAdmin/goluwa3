@@ -101,8 +101,8 @@ local function assert_area_covered(terrain, min_x, min_z, max_x, max_z)
 end
 
 T.Test("Terrain keeps stale tiles until their replacements are built", function()
-	local was_enabled = gpu_culling.IsEnabled()
-	gpu_culling.SetEnabled(false)
+	local was_drawn = gpu_culling.drawn_cull_frame
+	gpu_culling.drawn_cull_frame = math.huge
 	local terrain = create_terrain()
 	terrain:UpdateTiles(Vec3(0, 0, 0), FORWARD, HALF_ANGLE)
 	build_everything(terrain)
@@ -163,7 +163,7 @@ T.Test("Terrain keeps stale tiles until their replacements are built", function(
 
 	assert_area_covered(terrain, 0, -32, 128, 64)
 	T(next(terrain.BuildQueue))["=="](nil)
-	gpu_culling.SetEnabled(was_enabled)
+	gpu_culling.drawn_cull_frame = was_drawn
 end)
 
 T.Test("Terrain drops stale tiles that were never built", function()
@@ -187,8 +187,7 @@ T.Test("Terrain keeps a replaced tile until its replacements are drawn", functio
 	end
 	terrain:UpdateTiles(Vec3(0, 0, 0), FORWARD, HALF_ANGLE)
 	build_everything(terrain)
-	local was_enabled, was_drawn = gpu_culling.IsEnabled(), gpu_culling.drawn_cull_frame
-	gpu_culling.SetEnabled(true)
+	local was_drawn = gpu_culling.drawn_cull_frame
 	gpu_culling.drawn_cull_frame = 0
 	terrain:UpdateTiles(Vec3(40, 0, 0), FORWARD, HALF_ANGLE)
 
@@ -219,7 +218,6 @@ T.Test("Terrain keeps a replaced tile until its replacements are drawn", functio
 	gpu_culling.drawn_cull_frame = frame
 	terrain:RetireTiles()
 	_, retiring = count_tiles(terrain)
-	gpu_culling.SetEnabled(was_enabled)
 	gpu_culling.drawn_cull_frame = was_drawn
 	T(retiring)["=="](0)
 	assert_area_covered(terrain, 0, -32, 64, 32)

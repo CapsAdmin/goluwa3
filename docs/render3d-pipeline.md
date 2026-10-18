@@ -2,6 +2,8 @@
 
 Notes collected from past sessions. Dated numbers are snapshots; re-measure before relying on them.
 
+The notes below about the GPU culling dataset (`dataset.generation`, entry and batch lists, `GetVisibleMainGPUEntries`, `RunMainViewFrustumCulling`, async cull results, `test/harnesses/terrain/coverage.lua`) describe code that was removed on 2026-10-18, when the main view and the shadow maps moved to the scene store: see [gpu-scene.md](gpu-scene.md). They stay for the reasoning behind the bugs.
+
 ## Running the suite on lavapipe in a cloud container
 
 *Ubuntu + Mesa 25.2.8 lavapipe; limits, memory and the ddgi crash*

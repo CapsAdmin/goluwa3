@@ -1,10 +1,8 @@
-local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
@@ -70,8 +68,6 @@ function gbuffer_instancing.Flush()
 end
 
 do
-	local batch_tables = setmetatable({}, {__mode = "k"})
-
 	local function write_record(_, pipeline, record, batch)
 		render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 		render3d.SetMaterial(batch.material)
@@ -94,64 +90,6 @@ do
 			write_animated = write_animated,
 			per_frame = true,
 		}
-	end
-
-	local result = {}
-	local pipelines = {}
-
-	function gbuffer_instancing.DrawGPUCulled(cull_result)
-		result.drew_any = false
-		result.submitted_entry_count = 0
-		result.draw_call_count = 0
-		result.active_batch_count = 0
-		result.total_batch_count = 0
-		local pipeline = render3d.pipelines.gbuffer_multi_draw
-
-		if not (cull_result and pipeline and gpu_culling.IsCullResultCurrent(cull_result)) then
-			return result
-		end
-
-		local dataset = gpu_culling.GetSceneDataset()
-		local frame_buffers = gpu_culling.GetFrameBuffers()
-		local output = cull_result.output or frame_buffers and frame_buffers[cull_result.frame_index]
-		local batches = dataset and dataset.main_instanced_batches
-
-		if not (output and batches and batches[1]) then return result end
-
-		local cmd = render.GetCommandBuffer()
-		local stride = gpu_culling.MAIN_BATCH_DRAW_COMMAND_SIZE
-		local commands = output.visible_batch_indirect_command_buffer
-		local group_size = output.batch_command_capacity * stride
-		local instances_address = output.visible_instance_vertex_buffer.buffer:GetDeviceAddress()
-		local prev_instances_address = output.visible_instance_prev_buffer:GetDeviceAddress()
-		pipelines[1] = pipeline
-		pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
-
-		for i, pipeline in ipairs(pipelines) do
-			local batch_table = batch_tables[pipeline]
-
-			if not batch_table then
-				batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_batches")
-				batch_tables[pipeline] = batch_table
-			end
-
-			pipeline.draw_batches_address = batch_table:Update(pipeline, batches, dataset.main.batch_serial, system.GetFrameNumber())
-			pipeline.draw_instances_address = instances_address
-			pipeline.draw_prev_instances_address = prev_instances_address
-			pipeline:UploadConstants()
-			cmd:SetCullMode(orientation.CULL_MODE)
-			cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-			cmd:DrawIndexedIndirect(commands, (i - 1) * 2 * group_size, #batches, stride)
-			cmd:SetCullMode("none")
-			cmd:DrawIndexedIndirect(commands, ((i - 1) * 2 + 1) * group_size, #batches, stride)
-		end
-
-		result.drew_any = true
-		result.submitted_entry_count = math.max((cull_result.visible_entry_count or 0) - (cull_result.fallback_visible_entry_count or 0), 0)
-		result.draw_call_count = 4
-		gpu_culling.MarkMainViewDrawn()
-		result.total_batch_count = #batches
-		return result
 	end
 end
 
