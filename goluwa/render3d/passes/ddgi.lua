@@ -14,6 +14,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local P = ddgi.PROBES_PER_AXIS
 local CASCADES = ddgi.CASCADES
 local BINDING_OUTPUT = 0
@@ -50,6 +51,23 @@ end
 
 local function common_glsl()
 	return glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ddgi_data") .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL()
+end
+
+-- the rays of a frame: every probe of every cascade is dispatched, the ones whose cascade is not updating this frame
+-- return at once, so rays is what is traced and dispatched what is launched
+local function record_ray_info(name, state)
+	local updating = 0
+
+	for c = 0, state.cascade_count - 1 do
+		if bit.band(state.update_mask, bit.lshift(1, c)) ~= 0 then updating = updating + 1 end
+	end
+
+	local per_cascade = (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) * P ^ 3
+	gpu_timing.SetInfo(name, "cascades", state.cascade_count)
+	gpu_timing.SetInfo(name, "mask", state.update_mask)
+	gpu_timing.SetInfo(name, "updating", updating)
+	gpu_timing.SetInfo(name, "dispatched", per_cascade * state.cascade_count)
+	gpu_timing.SetInfo(name, "rays", per_cascade * updating)
 end
 
 local function pass_trace()
@@ -104,8 +122,11 @@ local function pass_trace()
 			)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
-			if not ddgi.GetFrameState().rt_ready then return end
+			local state = ddgi.GetFrameState()
 
+			if not state.rt_ready then return end
+
+			record_ray_info("ddgi_trace", state)
 			local hits = ddgi.GetRayHitBuffer()
 			cmd:PipelineBarrier{
 				srcStage = "compute",
@@ -157,6 +178,7 @@ local function pass_shade()
 		uniform_buffers = {data_uniform()},
 		on_draw = function(self, cmd, fb, frame, desc)
 			self:UploadConstants()
+			record_ray_info("ddgi_shade", ddgi.GetFrameState())
 			self.pipeline:DispatchForSize(
 				cmd,
 				fb.height,
@@ -192,7 +214,7 @@ local function pass_shade()
 				uvec4 ddgi_hits[];
 			};
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = "#define DDGI_UNSCALED\n" .. common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
+		shader = "#define DDGI_UNSCALED\n" .. ddgi.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
 			// clamped to what the ray texture holds, see ddgi.HALF_PRECISION_RAYS
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
@@ -208,7 +230,7 @@ local function pass_shade()
 				float NoL = max(dot(N, L), 0.0);
 				vec3 direct = vec3(0.0);
 
-				if (sun_visible) {
+				if (RT_HIT_SUN != 0 && sun_visible) {
 					// the fog layer above the hit takes its share of the beam (see atmosphere.lua), world y is up from the eye's altitude
 					float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_EYE_HEIGHT) .. [[ + P.y * 0.001;
 					float fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y);
@@ -216,6 +238,10 @@ local function pass_shade()
 
 					if (ddgi_data.glass_light != 0) direct *= get_glass_light(P + N * 0.02, L, ddgi_data.ddgi_max_distance, 0.0);
 				}
+
+				#if RT_HIT_LIGHTS == 0
+				return direct;
+				#endif
 
 				float total = 0.0;
 				vec3 picked_light[DDGI_LIGHT_SAMPLES];
@@ -278,7 +304,7 @@ local function pass_shade()
 
 					// stops short of the light so a bulb mesh around it doesn't shadow it
 					float shadow_distance = max(picked_ray[k].w - DDGI_SHADOW_OFFSET, 0.0);
-					#ifdef DDGI_VISIBILITY_RAYS
+					#if defined(DDGI_VISIBILITY_RAYS) && RT_HIT_SHADOWS
 					rayQueryEXT query;
 					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, P, 0.0, picked_ray[k].xyz, shadow_distance);
 
@@ -399,7 +425,9 @@ local function pass_shade()
 				vec3 radiance = albedo * ddgi_direct_light(surface, N, hit.w != 0u, light_radius, u);
 
 				float weight;
+				#if RT_HIT_PROBES
 				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_NO_VISIBILITY_RAYS, weight).rgb;
+				#endif
 
 				store_ray(pos, vec4(radiance * glass, t));
 			}
@@ -1006,7 +1034,7 @@ end
 local function pass_scene_debug()
 	local rays = VISIBILITY_RAYS and ddgi.RTSupported()
 	local alpha_test = rays and ddgi.ALPHA_TEST
-	local uvs = alpha_test or ddgi.ALBEDO_UVS
+	local uvs = alpha_test or ddgi.AreHitTexturesOn()
 	local storage_buffers = {
 		{binding_index = BINDING_MATERIALS},
 	}

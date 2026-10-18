@@ -10,7 +10,14 @@ local glass_light = import("goluwa/render3d/glass_light.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local scene_reflection = {}
 scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
-scene_reflection.MAX_DISTANCE = 1000
+pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
+local max_distance = pvars.Setup2{
+	key = "r_rt_reflection_distance",
+	default = 1000,
+	min = 1,
+	help = "how far reflection and refraction rays travel, in meters, a ray that goes no further finds the sky or the environment. built into the shaders",
+}
+pvars.EndGroup()
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
 local enabled = pvars.Setup2{
 	key = "reflection_ray_query",
@@ -126,7 +133,7 @@ end
 
 -- shared is for a pass that has ddgi.GetCommonGLSL, the light code and get_glass_light before this
 function scene_reflection.GetGLSL(block_name, shared)
-	return (
+	return ddgi.GetHitDefinesGLSL() .. (
 			shared and
 			"" or
 			ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode()
@@ -135,8 +142,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 			"" or
 			glass_light.GetGLSL("ddgi_scene")
 		) .. glsl_common.GetHashGLSL() .. [[
-		#define SCENE_REFLECTION_MAX_DISTANCE ]] .. string.format("%.1f", scene_reflection.MAX_DISTANCE) .. [[
+		#define SCENE_REFLECTION_MAX_DISTANCE ]] .. string.format("%.1f", max_distance:Get()) .. [[
 
+		#define SCENE_REFLECTION_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
 		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
 
 		// different for every point, light and frame, the reflections' histories average it out
@@ -175,7 +183,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 		bool scene_reflection_visible(vec3 origin, vec3 dir, float dist) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.0, dir, dist);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? 0u : gl_RayFlagsOpaqueEXT), 0xFF, origin, 0.0, dir, dist);
 
 			SCENE_REFLECTION_PROCEED(query)
 
@@ -185,7 +193,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 		// how far along dir the scene is, max_distance when nothing is that close
 		float scene_hit_distance(vec3 origin, vec3 dir, float max_distance) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, 0xFF, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, origin, 0.0, dir, max_distance);
 
 			SCENE_REFLECTION_PROCEED(query)
 
@@ -197,7 +205,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 		// the hit is lit by the sun and lights through the glass in front of them, see trace_scene_reflection
 		vec3 trace_scene_reflection_hit(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, 0xFF, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, origin, 0.0, dir, max_distance);
 
 			SCENE_REFLECTION_PROCEED(query)
 
@@ -226,6 +234,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			vec3 surface = P + hit_N * 0.02;
 			vec3 albedo = ddgi_albedo(material, P);
 
+			#if RT_HIT_TEXTURES
 			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
 				vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
 				scene_uv uv = scene_hit_uv(hit_instance, hit_primitive);
@@ -248,12 +257,13 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 				albedo = material.albedo * rgb;
 			}
+			#endif
 
 			vec3 radiance = ddgi_emission(tri, albedo);
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
 
-			if (sun_NoL > 0.0 && scene_reflection_visible(surface, sun_L, SCENE_REFLECTION_MAX_DISTANCE)) {
+			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_reflection_visible(surface, sun_L, SCENE_REFLECTION_MAX_DISTANCE))) {
 				vec3 sun_radiance = albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
 
 				if (]]..block_name..[[.glass_light != 0) sun_radiance *= get_glass_light(surface, sun_L, GLASS_SUN_DISTANCE, 0.0);
@@ -261,6 +271,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 				radiance += sun_radiance;
 			}
 
+			#if RT_HIT_LIGHTS
 			int light_cell = light_grid_cell(surface);
 			int light_count = ]] .. block_name .. [[.light_count;
 
@@ -291,13 +302,18 @@ function scene_reflection.GetGLSL(block_name, shared)
 					// stops short of the light so a bulb mesh around it doesn't shadow it
 					float dist = dot(light.position.xyz - surface, L);
 
-					if (dist > 0.05 && !scene_reflection_visible(surface, L, dist - 0.05)) continue;
+					if (RT_HIT_SHADOWS != 0 && dist > 0.05 && !scene_reflection_visible(surface, L, dist - 0.05)) continue;
 
 					if (]]..block_name..[[.glass_light != 0) contribution *= get_glass_light(surface, L, max(dist - 0.05, 0.0), 0.0);
 
 					radiance += contribution * light_weight;
 				}
 			}
+			#endif
+
+			#if !RT_HIT_PROBES
+			return radiance;
+			#endif
 
 			float weight;
 			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, DDGI_NO_VISIBILITY_RAYS, weight);

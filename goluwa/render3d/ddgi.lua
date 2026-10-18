@@ -93,8 +93,65 @@ ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
 ddgi.HALF_PRECISION_RAYS = true
 ddgi.ALPHA_TEST = true
-ddgi.ALBEDO_UVS = true
-ddgi.ALBEDO_UV_TEXELS = 8
+pvars.EndGroup()
+pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
+-- what a ray that hits something reads and traces to be lit, for the probes' rays, the reflections and the translucent
+-- surfaces. these are built into the shaders, so they are read when the pipelines are made
+local hit_textures = pvars.Setup2{
+	key = "r_rt_hit_textures",
+	default = true,
+	help = "the albedo of a hit comes from its material's texture, off uses the material's flat color and reads no uvs or textures",
+}
+local hit_texels = pvars.Setup2{
+	key = "r_rt_hit_texels",
+	default = 8,
+	min = 1,
+	help = "how many texels across the albedo texture of a probe ray's hit is read at, the mip is chosen from it, fewer is a smaller mip and less memory read",
+}
+local hit_sun = pvars.Setup2{
+	key = "r_rt_hit_sun",
+	default = true,
+	help = "the sun lights what a ray hits",
+}
+local hit_lights = pvars.Setup2{
+	key = "r_rt_hit_lights",
+	default = true,
+	help = "the local lights light what a ray hits, off leaves the sun and the probes",
+}
+local hit_shadows = pvars.Setup2{
+	key = "r_rt_hit_shadow_rays",
+	default = true,
+	help = "the sun and lights at a hit are tested with a shadow ray, off lights it unshadowed",
+}
+local hit_any_hit = pvars.Setup2{
+	key = "r_rt_hit_any_hit",
+	default = true,
+	help = "a reflection ray looks through glass and cutout textures (every candidate hit of a non opaque instance is tested), off treats every instance as opaque",
+}
+local hit_probes = pvars.Setup2{
+	key = "r_rt_hit_probes",
+	default = true,
+	help = "a hit also gets the light the probes hold (further bounces), off lights it directly only",
+}
+pvars.EndGroup()
+pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
+
+function ddgi.GetHitDefinesGLSL()
+	return string.format(
+		"#ifndef RT_HIT_SUN\n#define RT_HIT_SUN %d\n#define RT_HIT_LIGHTS %d\n#define RT_HIT_SHADOWS %d\n#define RT_HIT_PROBES %d\n#define RT_HIT_TEXTURES %d\n#define RT_HIT_ANY_HIT %d\n#endif\n",
+		hit_sun:Get() and 1 or 0,
+		hit_lights:Get() and 1 or 0,
+		hit_shadows:Get() and 1 or 0,
+		hit_probes:Get() and 1 or 0,
+		hit_textures:Get() and 1 or 0,
+		hit_any_hit:Get() and 1 or 0
+	)
+end
+
+function ddgi.AreHitTexturesOn()
+	return hit_textures:Get()
+end
+
 ddgi.EMITTER_SAMPLES = 32
 local emitters_enabled = pvars.Setup2{
 	key = "ddgi_emitters",
@@ -900,7 +957,7 @@ vec3 ddgi_emission(scene_triangle tri, vec3 albedo) {
 end
 
 function ddgi.GetHitAlbedoGLSL()
-	if not ddgi.ALBEDO_UVS then
+	if not hit_textures:Get() then
 		return [[
 			vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
 				return ddgi_albedo(material, P);
@@ -909,7 +966,7 @@ function ddgi.GetHitAlbedoGLSL()
 	end
 
 	return [[
-		#define DDGI_ALBEDO_UV_TEXELS ]] .. string.format("%.1f", ddgi.ALBEDO_UV_TEXELS) .. [[
+		#define DDGI_ALBEDO_UV_TEXELS ]] .. string.format("%.1f", hit_texels:Get()) .. [[
 
 		vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
 			if (material.terrain_tex >= 0 || material.albedo_tex < 0) return ddgi_albedo(material, P);

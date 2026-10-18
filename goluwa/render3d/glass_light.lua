@@ -15,6 +15,12 @@ local enabled = pvars.Setup2{
 	friendly = "glass tints light",
 	help = "lights take on the colour of the glass between them and a surface, glass casts no shadow of its own",
 }
+local max_distance = pvars.Setup2{
+	key = "r_glass_light_distance",
+	default = 4000,
+	min = 1,
+	help = "how far a ray looks for glass in front of what it lights, in meters, glass further away does not tint it. built into the shaders",
+}
 pvars.EndGroup()
 
 function glass_light.IsEnabled()
@@ -76,7 +82,7 @@ function glass_light.GetGLSL(scene_name)
 		vec3 get_glass_light_ray(vec3 origin, vec3 dir, float distance) {
 			vec3 transmitted = vec3(1.0);
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, 0xFF, origin, 0.0, dir, distance);
+			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, 0x02, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
 				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
