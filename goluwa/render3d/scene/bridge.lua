@@ -167,6 +167,44 @@ end
 
 -- what the main view needs of a row: whether it is drawn there at all (not rays only, not hidden, a material the gbuffer
 -- draws), the box and the previous matrix
+do
+	local box = {}
+	local huge = math.huge
+
+	-- the box of an entry's own mesh in the world, a visual of many parts (the world of a map is a part per material)
+	-- would otherwise have the box of all of them for every part. nil when the entry has no bounds
+	function bridge.GetEntryBox(entry, matrix)
+		local aabb = entry.source_aabb
+
+		if not aabb or aabb.min_x > aabb.max_x then return nil end
+
+		local min_x, min_y, min_z, max_x, max_y, max_z = huge, huge, huge, -huge, -huge, -huge
+
+		for i = 0, 7 do
+			local x, y, z = matrix:TransformVectorUnpacked(
+				bit.band(i, 1) ~= 0 and aabb.max_x or aabb.min_x,
+				bit.band(i, 2) ~= 0 and aabb.max_y or aabb.min_y,
+				bit.band(i, 4) ~= 0 and aabb.max_z or aabb.min_z
+			)
+
+			if x < min_x then min_x = x end
+
+			if x > max_x then max_x = x end
+
+			if y < min_y then min_y = y end
+
+			if y > max_y then max_y = y end
+
+			if z < min_z then min_z = z end
+
+			if z > max_z then max_z = z end
+		end
+
+		box.min_x, box.min_y, box.min_z, box.max_x, box.max_y, box.max_z = min_x, min_y, min_z, max_x, max_y, max_z
+		return box
+	end
+end
+
 local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	local flags = 0
 	local module = import("goluwa/entities/components/visual.lua").Library
@@ -180,6 +218,9 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		flags = flags + instances.RASTER_TRANSLUCENT
 
 		if material:GetDoubleSided() then flags = flags + instances.RASTER_DOUBLE_SIDED end
+
+		-- they write no depth, but what the opaque depth of the last frame hides they do not show either
+		if visual.UseOcclusionCulling then flags = flags + instances.RASTER_OCCLUSION end
 	end
 
 	if drawn then
@@ -195,7 +236,7 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	local transform = entry.transform
 	instances.SetRaster(
 		item.id,
-		visual:GetWorldAABB(),
+		bridge.GetEntryBox(entry, matrix) or visual:GetWorldAABB(),
 		visual:GetCullDistance(),
 		flags,
 		transform and transform:GetPreviousWorldMatrix() or matrix,
@@ -383,12 +424,12 @@ function bridge.RefreshDynamic()
 			mark_dirty(visual.scene_aabb)
 			grow_bounds(visual.scene_aabb)
 			set_lod_bounds(visual, list)
-			local box = visual:GetWorldAABB()
+			local visual_box = visual:GetWorldAABB()
 
-			if box then
-				for i = 1, #list do
-					instances.SetRasterBox(list[i].id, box)
-				end
+			for i = 1, #list do
+				local box = bridge.GetEntryBox(list[i].entry, list[i].matrix) or visual_box
+
+				if box then instances.SetRasterBox(list[i].id, box) end
 			end
 
 			if emissive_visuals[visual] then bridge.emitter_version = bridge.emitter_version + 1 end

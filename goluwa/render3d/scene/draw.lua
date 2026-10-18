@@ -239,7 +239,7 @@ function create_cull_pipeline()
 
 			// a box the depth pyramid of the last frame hides completely
 			bool is_occluded(raster_data raster) {
-				if (compute.kind != 0 || compute.occlusion_enabled == 0 || (raster.flags & 2u) == 0u) return false;
+				if (compute.occlusion_enabled == 0 || (raster.flags & 2u) == 0u) return false;
 
 				vec2 min_uv = vec2(1.0);
 				vec2 max_uv = vec2(0.0);
@@ -593,7 +593,7 @@ end
 -- buffer by the shadow multi draw pipeline, which is what its non indexed command is for) and the world matrix, into buffers
 -- of the cascade. what is not in the cascade's box, is too small to show in it, or is not the level of detail that casts
 -- has no instances
-local SHADOW_COMMAND_SIZE = 16
+local SHADOW_COMMAND_SIZE = COMMAND_SIZE
 local shadow_pipeline
 
 local create_shadow_pipeline
@@ -675,6 +675,14 @@ function create_shadow_pipeline()
 				uint pool_first_index;
 			};
 
+			struct draw_command {
+				uint index_count;
+				uint instance_count;
+				uint first_index;
+				int vertex_offset;
+				uint first_instance;
+			};
+
 			struct shadow_args {
 				uint64_t tlas;
 				uint64_t data;
@@ -690,7 +698,7 @@ function create_shadow_pipeline()
 			layout(buffer_reference, scalar) readonly buffer DataArray { instance_data d[]; };
 			layout(buffer_reference, scalar) readonly buffer RasterArray { raster_data r[]; };
 			layout(buffer_reference, scalar) readonly buffer MeshArray { mesh_row m[]; };
-			layout(buffer_reference, scalar) writeonly buffer CommandArray { uvec4 c[]; };
+			layout(buffer_reference, scalar) writeonly buffer CommandArray { draw_command c[]; };
 			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
 			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { shadow_args a; };
@@ -721,7 +729,6 @@ function create_shadow_pipeline()
 				if (slot >= uint(compute.count)) return;
 
 				uint id = SlotArray(ARGS.slot_rows).r[slot];
-				uvec4 none = uvec4(0u, 0u, 0u, slot);
 				bool casts = id != 0xFFFFFFFFu;
 				raster_data raster;
 				instance_data inst;
@@ -759,13 +766,13 @@ function create_shadow_pipeline()
 				}
 
 				if (!casts) {
-					CommandArray(ARGS.commands).c[slot] = none;
+					CommandArray(ARGS.commands).c[slot] = draw_command(0u, 0u, 0u, 0, slot);
 					return;
 				}
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[inst.mesh_row];
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
-				CommandArray(ARGS.commands).c[slot] = uvec4(mesh.triangle_count * 3u, 1u, 0u, slot);
+				CommandArray(ARGS.commands).c[slot] = draw_command(mesh.triangle_count * 3u, 1u, mesh.pool_first_index, 0, slot);
 				WorldArray(ARGS.worlds).w[slot] = mat4(
 					vec4(t.m[0], t.m[4], t.m[8], 0.0),
 					vec4(t.m[1], t.m[5], t.m[9], 0.0),
@@ -952,8 +959,8 @@ do
 		local ids = slot_rows:Get()
 
 		for slot = 0, result.slots - 1 do
-			if commands[slot * 4 + 1] ~= 0 then
-				result.by_id[ids[slot]] = {slot = slot, index_count = commands[slot * 4]}
+			if commands[slot * 5 + 1] ~= 0 then
+				result.by_id[ids[slot]] = {slot = slot, index_count = commands[slot * 5]}
 				result.count = result.count + 1
 			end
 		end

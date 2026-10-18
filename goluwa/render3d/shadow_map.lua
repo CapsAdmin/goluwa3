@@ -23,6 +23,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
+local index_pool = import("goluwa/render3d/index_pool.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
@@ -214,6 +215,7 @@ local ShadowMultiDrawPushConstants = ffi.typeof([[
 		float detail_time;
 		uint64_t batches;
 		uint64_t instances;
+		int32_t indexed;
 	}
 ]])
 local SHADOW_MULTI_DRAW_COMMON_GLSL
@@ -267,6 +269,7 @@ do
 		float detail_time;
 		uint64_t batches;
 		uint64_t instances;
+		int indexed;
 	} pc;
 
 	#define SHADOW_BATCH ShadowBatchData(pc.batches).b
@@ -313,10 +316,12 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 					return;
 				}
 
+				// the store's rows are drawn indexed through the index pool, so the vertex cache works and gl_VertexIndex is the
+				// vertex. other lists (scatter's) are drawn by vertex count and fetch their indices here
 				uint index = uint(gl_VertexIndex);
 				uint64_t index_address = packUint2x32(addresses.zw);
 
-				if (index_address != 0ul) {
+				if (pc.indexed == 0 && index_address != 0ul) {
 					ShadowIndexData indices = ShadowIndexData(index_address);
 
 					if (SHADOW_BATCH[batch_index].index_is_32 != 0u) {
@@ -612,7 +617,7 @@ function ShadowMap:DrawScene(cascade_index)
 
 	local rows, serial = scene_draw.GetRows()
 	local buffers = cascade.scene_shadow_buffers
-	self:DrawBatches(cascade_index, "scene", rows, serial, buffers.worlds_address, buffers.commands, 16)
+	self:DrawBatches(cascade_index, "scene", rows, serial, buffers.worlds_address, buffers.commands, 20, true)
 end
 
 local MAX_SHADOW_PASSES_PER_FRAME = 4
@@ -1427,8 +1432,8 @@ local function write_shadow_batch_animation(self, pipeline, record, batch)
 end
 
 -- draws a list of {mesh, material, first_polygon3d} batches with the multi draw pipeline, from
--- VkDrawIndirectCommands, one for each batch. key tells the batch tables of different lists apart
-function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instances_address, commands, stride)
+-- VkDrawIndirectCommands (VkDrawIndexedIndirectCommands over the index pool when indexed), one for each batch. key tells the batch tables of different lists apart
+function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instances_address, commands, stride, indexed)
 	local pipeline = self.mode == "point" and
 		self.multi_draw_pipeline or
 		self.multi_draw_pipeline_variants[self.cascade[cascade_index].format]
@@ -1459,13 +1464,20 @@ function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instan
 	push_constants.detail_time = atmosphere.GetWindDetailTime()
 	push_constants.batches = batch_table:Update(pipeline, batches, batch_serial, self.batch_serial, self)
 	push_constants.instances = instances_address
+	push_constants.indexed = indexed and 1 or 0
 	pipeline:Bind(self.cmd, render.GetCurrentFrame())
 	self.cmd:SetViewport(0.0, 0.0, depth_texture:GetWidth(), depth_texture:GetHeight(), 0.0, 1.0)
 	self.cmd:SetScissor(0, 0, depth_texture:GetWidth(), depth_texture:GetHeight())
 	self.cmd:SetFrontFace(orientation.FRONT_FACE)
 	self.cmd:SetCullMode("none")
 	pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, push_constants)
-	self.cmd:DrawIndirect(commands, 0, #batches, stride)
+
+	if indexed then
+		self.cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
+		self.cmd:DrawIndexedIndirect(commands, 0, #batches, stride)
+	else
+		self.cmd:DrawIndirect(commands, 0, #batches, stride)
+	end
 end
 
 function ShadowMap:PrimeMaterial(material)
