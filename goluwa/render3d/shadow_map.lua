@@ -2773,22 +2773,6 @@ function ShadowMap:GetSize()
 	return self.size
 end
 
-local function append_shadow_map_draws(shadow_map)
-	local draw_stats = Visual.GetShadowDrawCallStats and
-		Visual.GetShadowDrawCallStats(shadow_map) or
-		nil
-
-	if not draw_stats then return 0 end
-
-	local total = 0
-
-	for cascade_idx = 1, shadow_map:GetCascadeCount() do
-		total = total + (draw_stats[cascade_idx] or 0)
-	end
-
-	return total
-end
-
 local function count_pending_shadow_passes(shadow_map)
 	local next_cascade = shadow_map.next_cascade
 	local cascade_count = shadow_map:GetCascadeCount()
@@ -2802,7 +2786,6 @@ local shadow_overlay_summary = {
 	frame = -1,
 	shadow_lights = 0,
 	shadow_maps = 0,
-	shadow_draws = 0,
 	pending_passes = 0,
 	active_passes = 0,
 	budget_used = 0,
@@ -2817,7 +2800,6 @@ local function get_shadow_overlay_summary()
 	shadow_overlay_summary.frame = frame
 	shadow_overlay_summary.shadow_lights = 0
 	shadow_overlay_summary.shadow_maps = 0
-	shadow_overlay_summary.shadow_draws = 0
 	shadow_overlay_summary.pending_passes = 0
 	shadow_overlay_summary.active_passes = 0
 	shadow_overlay_summary.budget_used = shadow_pass_budget_frame == frame and shadow_passes_used or 0
@@ -2833,7 +2815,6 @@ local function get_shadow_overlay_summary()
 		end
 
 		shadow_overlay_summary.shadow_maps = shadow_overlay_summary.shadow_maps + 1
-		shadow_overlay_summary.shadow_draws = shadow_overlay_summary.shadow_draws + append_shadow_map_draws(shadow_map)
 
 		if shadow_map.needs_completion then
 			shadow_overlay_summary.pending_passes = shadow_overlay_summary.pending_passes + count_pending_shadow_passes(shadow_map)
@@ -2872,14 +2853,6 @@ function ShadowMap:OnFirstCreated()
 		group = "render3d_shadows",
 		getter = function()
 			return get_shadow_overlay_summary().shadow_maps
-		end,
-	}
-	render_stats.RegisterField{
-		id = "r3d_shadow_draws",
-		label = "R3D SHADOW DRAWS",
-		group = "render3d_shadows",
-		getter = function()
-			return get_shadow_overlay_summary().shadow_draws
 		end,
 	}
 	render_stats.RegisterField{

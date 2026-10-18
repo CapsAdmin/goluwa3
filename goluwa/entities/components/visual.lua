@@ -89,99 +89,7 @@ local function refresh_visual_registries(component)
 	refresh_occlusion_registries(component)
 end
 
-local function get_shadow_debug_target_name(component)
-	local owner = component and component.Owner
-	return owner and owner.Name or tostring(component)
-end
-
-local function shadow_debug_matches(component)
-	local filter = visual.shadow_debug_filter
-
-	if filter == nil or filter == false then return false end
-
-	local name = get_shadow_debug_target_name(component)
-
-	if filter == true then return true end
-
-	return name == filter or name:find(filter, 1, true) ~= nil
-end
-
-local function get_shadow_debug_frame_hits()
-	local frame = system.GetFrameNumber and system.GetFrameNumber() or 0
-
-	if visual.shadow_debug_frame ~= frame then
-		visual.shadow_debug_frame = frame
-		visual.shadow_debug_hits = {}
-	end
-
-	return visual.shadow_debug_hits
-end
-
-local function record_shadow_debug_hit(component, cascade_idx, state, entries)
-	if not shadow_debug_matches(component) then return end
-
-	local name = get_shadow_debug_target_name(component)
-	local hits = get_shadow_debug_frame_hits()
-	local hit = hits[name]
-
-	if not hit then
-		hit = {name = name, states = {}}
-		hits[name] = hit
-	end
-
-	local state_key = tostring(cascade_idx) .. ":" .. state
-	hit.states[state_key] = (hit.states[state_key] or 0) + (entries or 0)
-
-	if visual.shadow_debug_log then
-		logn(
-			"[shadow-debug] ",
-			name,
-			" cascade=",
-			cascade_idx,
-			" state=",
-			state,
-			" entries=",
-			entries or 0
-		)
-	end
-end
-
-local function get_shadow_draw_call_stats_store()
-	visual.shadow_draw_call_stats = visual.shadow_draw_call_stats or setmetatable({}, {__mode = "k"})
-	return visual.shadow_draw_call_stats
-end
-
 local get_cull_camera_position
-
-local function record_shadow_draw_calls(shadow_map, cascade_idx, draw_call_count)
-	if not shadow_map or not cascade_idx or draw_call_count <= 0 then return end
-
-	local stats = get_shadow_draw_call_stats_store()
-	local map_stats = stats[shadow_map]
-
-	if not map_stats then
-		map_stats = {cascades = {}}
-		stats[shadow_map] = map_stats
-	end
-
-	map_stats.cascades[cascade_idx] = (map_stats.cascades[cascade_idx] or 0) + draw_call_count
-	map_stats.last_updated_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
-end
-
-local function reset_shadow_draw_calls(shadow_map, cascade_idx)
-	if not shadow_map or not cascade_idx then return end
-
-	local stats = get_shadow_draw_call_stats_store()
-	local map_stats = stats[shadow_map]
-
-	if not map_stats then
-		map_stats = {cascades = {}}
-		stats[shadow_map] = map_stats
-	end
-
-	map_stats.cascades[cascade_idx] = 0
-	map_stats.last_updated_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
-end
 
 local function create_empty_aabb()
 	return AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
@@ -1495,39 +1403,12 @@ do
 		end
 	end)
 
-	visual.shadow_debug_filter = nil
-	visual.shadow_debug_log = true
-	visual.shadow_debug_frame = -1
-	visual.shadow_debug_hits = {}
-	visual.shadow_draw_call_stats = setmetatable({}, {__mode = "k"})
-	visual.shadow_gpu_culling_stats = setmetatable({}, {__mode = "k"})
 	visual.shadow_prime_versions = setmetatable({}, {__mode = "k"})
 	visual.shadow_visible_list_version = 0
 	visual.shadow_change_version_counter = 0
 	visual.shadow_casters = visual.shadow_casters or {}
 	visual.forward_overlay_components = visual.forward_overlay_components or {}
 	visual.translucent_components = visual.translucent_components or {}
-
-	function visual.EnableShadowDrawDebug(filter, should_log)
-		visual.shadow_debug_filter = filter == nil and true or filter
-		visual.shadow_debug_log = should_log ~= false
-		visual.shadow_debug_frame = -1
-		visual.shadow_debug_hits = {}
-	end
-
-	function visual.DisableShadowDrawDebug()
-		visual.shadow_debug_filter = nil
-		visual.shadow_debug_hits = {}
-	end
-
-	function visual.GetShadowDrawDebugHits()
-		return get_shadow_debug_frame_hits()
-	end
-
-	function visual.GetShadowDrawCallStats(shadow_map)
-		local stats = get_shadow_draw_call_stats_store()
-		return stats[shadow_map] and stats[shadow_map].cascades or nil
-	end
 
 	local function get_shadow_tree_volume_change_version(query_aabb)
 		local acceleration = ensure_scene_acceleration()
@@ -2521,7 +2402,6 @@ function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibil
 
 	if not skip_visibility_checks then
 		if not self:IsWithinCullDistance() then
-			record_shadow_debug_hit(self, cascade_idx, "culled_distance")
 			return
 		end
 
@@ -2529,13 +2409,10 @@ function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibil
 			local world_aabb = self:GetWorldAABB()
 
 			if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
-				record_shadow_debug_hit(self, cascade_idx, "culled_aabb")
 				return
 			end
 		end
 	end
-
-	local submitted_entries = 0
 
 	for _, entry in ipairs(render_entries) do
 		local transform = entry.transform
@@ -2543,24 +2420,11 @@ function Visual:DrawShadow(shadow_map, cascade_idx, render_entries, skip_visibil
 
 		if world_matrix then
 			local material = self:GetResolvedMaterial(entry)
-
-			if material then
-				material.shadow_debug_force_opaque = shadow_debug_matches(self)
-			end
-
 			render3d.SetWorldMatrix(world_matrix)
 			render3d.SetCurrentPolygon3D(entry.polygon3d)
 			shadow_map:UploadConstants(world_matrix, material, cascade_idx)
 			entry.polygon3d:Draw()
-			submitted_entries = submitted_entries + 1
 		end
-	end
-
-	if submitted_entries > 0 then
-		record_shadow_draw_calls(shadow_map, cascade_idx, submitted_entries)
-		record_shadow_debug_hit(self, cascade_idx, "submitted", submitted_entries)
-	else
-		record_shadow_debug_hit(self, cascade_idx, "no_world_matrix")
 	end
 end
 
@@ -2852,7 +2716,6 @@ function Visual:OnFirstCreated()
 	local height_map_casters = {}
 
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
-		reset_shadow_draw_calls(shadow_map, cascade_idx)
 
 		shadow_map:DrawScene(cascade_idx)
 		table.clear(height_map_casters)
