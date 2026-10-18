@@ -165,7 +165,7 @@ function meshes.Build(cmd, updated)
 	for i = 1, #pending do
 		local record = pending[i]
 
-		if records[record.row] == record then
+		if records[record.row] == record and mesh_of_row[record.row] and mesh_of_row[record.row]:IsValid() then
 			if count > 0 and budget < record.triangle_count then break end
 
 			budget = budget - record.triangle_count
