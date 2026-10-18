@@ -1077,7 +1077,7 @@ Visual:GetSet("RaysOnly", false)
 -- false keeps it out of the scene bvh (no shadows from the soup, gi, reflections or traced hits), which is a cpu sah build per mesh
 Visual:GetSet("InSceneBVH", true)
 Visual:GetSet("UseOcclusionCulling", true)
-Visual:GetSet("CullDistance", 20000)
+Visual:GetSet("CullDistance", 1000000)
 Visual:GetSet("Billboard", false)
 Visual:GetSet("ClipBounds", nil, {type = "table"})
 Visual:GetSet("ModelPath", "", {asset = "models"})

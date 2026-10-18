@@ -107,6 +107,7 @@ _G.alpine_terrain = Terrain.New(table.merge({
 			layer("snow", 7),
 		},
 	},
+	Levels = 12,
 	BaseChunkSize = 64,
 	Samples = 65,
 	DetailSize = 256,

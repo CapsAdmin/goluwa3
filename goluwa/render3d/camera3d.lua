@@ -20,7 +20,7 @@ do
 	META:GetSet("OrthoHalfHeight", 100 * math.rad(90), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FOV", math.rad(90), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("NearZ", 0.1, {callback = "InvalidateProjectionMatrix"})
-	META:GetSet("FarZ", 32000, {callback = "InvalidateProjectionMatrix"})
+	META:GetSet("FarZ", 1000000, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("Viewport", Rect(0, 0, 1000, 1000), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("Jitter", Vec2(0, 0), {callback = "InvalidateProjectionMatrix"})
 	META:EndStorable()

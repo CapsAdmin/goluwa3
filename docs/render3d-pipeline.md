@@ -240,11 +240,11 @@ Everything that is derived from a material follows the version instead of being 
 
 Per draw paths that have a bound pipeline use `pipeline:UploadConstantsBound()`, which skips `GraphicsPipeline:Bind` (every dynamic state setter) when the pipeline is already bound and only pushes constants and rebinds descriptor sets; the draw sets the dynamic state it needs itself (cull mode, blend).
 
-## Visual CullDistance is 20 km
+## Visual CullDistance is 1000 km
 
 *very far test geometry vanishes but still casts shadows*
 
-`goluwa/entities/components/visual.lua`: `Visual:GetSet("CullDistance", 20000)`. Anything whose AABB is more than 20 km from the camera is not drawn, though it still renders into shadow maps. For distant test geometry (mountains), call `ent.visual:SetCullDistance(0)` (0 = unlimited). The default was 2000 when this was found (2026-09-27), it is 20000 now. Related: [Test scene material defaults](#test-scene-material-defaults)
+`goluwa/entities/components/visual.lua`: `Visual:GetSet("CullDistance", 1000000)`. Anything whose AABB is more than 1000 km from the camera is not drawn, though it still renders into shadow maps. For distant test geometry (mountains), call `ent.visual:SetCullDistance(0)` (0 = unlimited). The default was 2000 when this was found (2026-09-27), it is 1000000 now (the camera FarZ is 1000000 too, raised with reverse-Z). A FarZ of 4000000 turned the ocean pass to inf/nan (whole frame white), 1000000 and 400000 are fine. Related: [Test scene material defaults](#test-scene-material-defaults)
 
 ## Mirror test scene
 

@@ -737,7 +737,7 @@ list.insert(
 			// the camera's near plane distance
 			const float WATER_NEAR_PLANE = 0.1;
 			// how far the sea is traced, and the steepest slope its height map can have (for the sphere trace)
-			const float WATER_TRACE_RANGE = 20000.0;
+			const float WATER_TRACE_RANGE = 1000000.0;
 			const float WATER_MAX_SLOPE = 1.5;
 			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. water.MOLECULAR_SCATTERING.x .. ", " .. water.MOLECULAR_SCATTERING.y .. ", " .. water.MOLECULAR_SCATTERING.z .. [[);
 			// how much of Gordon's multiple scattering is added to the single scattering
@@ -1707,7 +1707,7 @@ list.insert(
 			}
 
 			// where a traced reflection may reach, far enough for a coast across the water
-			const float WATER_REFLECTION_TRACE_DISTANCE = 20000.0;
+			const float WATER_REFLECTION_TRACE_DISTANCE = 1000000.0;
 
 			vec3 get_reflection(vec3 surface_pos, vec3 view_dir, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
 				float perceptual = sqrt(alpha);
