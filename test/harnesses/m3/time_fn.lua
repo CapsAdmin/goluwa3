@@ -21,7 +21,6 @@ local function wrap(tbl, name, label)
 		end)(v(...))
 	end
 end
-wrap(visual.Library, "GetShadowVisibleVisuals", "visual.GetShadowVisibleVisuals")
 wrap(skinning, "Dispatch", "skinning.Dispatch")
 wrap(import("goluwa/render3d/scene_lights.lua"), "WriteLightsBlock", "scene_lights.WriteLightsBlock")
 wrap(import("goluwa/render3d/scene_lights.lua"), "WriteShadowBlock", "scene_lights.WriteShadowBlock")

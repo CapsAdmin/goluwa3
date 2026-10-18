@@ -151,147 +151,7 @@ local function get_shadow_draw_call_stats_store()
 	return visual.shadow_draw_call_stats
 end
 
-local function get_shadow_visible_list_cache_store()
-	visual.shadow_visible_list_cache = visual.shadow_visible_list_cache or setmetatable({}, {__mode = "k"})
-	return visual.shadow_visible_list_cache
-end
-
 local get_cull_camera_position
-
-local function get_shadow_visible_list_cache(shadow_map, cascade_idx)
-	local stats = get_shadow_visible_list_cache_store()
-	local map_stats = stats[shadow_map]
-
-	if not map_stats then
-		map_stats = {cascades = {}}
-		stats[shadow_map] = map_stats
-	end
-
-	local cascade_cache = map_stats.cascades[cascade_idx]
-
-	if not cascade_cache then
-		cascade_cache = {list = {}}
-		map_stats.cascades[cascade_idx] = cascade_cache
-	end
-
-	return cascade_cache
-end
-
-local function shadow_cache_matches_aabb(cache, query_aabb)
-	if cache.has_query_aabb ~= (query_aabb ~= nil) then return false end
-
-	if not query_aabb then return true end
-
-	return cache.query_min_x == query_aabb.min_x and
-		cache.query_min_y == query_aabb.min_y and
-		cache.query_min_z == query_aabb.min_z and
-		cache.query_max_x == query_aabb.max_x and
-		cache.query_max_y == query_aabb.max_y and
-		cache.query_max_z == query_aabb.max_z
-end
-
-local function shadow_cache_matches_camera(cache, camera_position)
-	if cache.has_camera_position ~= (camera_position ~= nil) then return false end
-
-	if not camera_position then return true end
-
-	return cache.camera_x == camera_position.x and
-		cache.camera_y == camera_position.y and
-		cache.camera_z == camera_position.z
-end
-
-local function can_reuse_shadow_visible_list(
-	cache,
-	query_aabb,
-	camera_position,
-	shadow_volume_change_version,
-	shadow_visible_list_version
-)
-	if not cache.valid then return false end
-
-	if not query_aabb then return false end
-
-	if cache.shadow_volume_change_version ~= shadow_volume_change_version then
-		return false
-	end
-
-	if cache.shadow_visible_list_version ~= shadow_visible_list_version then
-		return false
-	end
-
-	if not shadow_cache_matches_aabb(cache, query_aabb) then return false end
-
-	if not shadow_cache_matches_camera(cache, camera_position) then return false end
-
-	return true
-end
-
-local function update_shadow_cache_query_state(
-	cache,
-	query_aabb,
-	camera_position,
-	shadow_volume_change_version,
-	shadow_visible_list_version
-)
-	cache.shadow_volume_change_version = shadow_volume_change_version
-	cache.shadow_visible_list_version = shadow_visible_list_version
-	cache.has_query_aabb = query_aabb ~= nil
-	cache.has_camera_position = camera_position ~= nil
-
-	if query_aabb then
-		cache.query_min_x = query_aabb.min_x
-		cache.query_min_y = query_aabb.min_y
-		cache.query_min_z = query_aabb.min_z
-		cache.query_max_x = query_aabb.max_x
-		cache.query_max_y = query_aabb.max_y
-		cache.query_max_z = query_aabb.max_z
-	end
-
-	if camera_position then
-		cache.camera_x = camera_position.x
-		cache.camera_y = camera_position.y
-		cache.camera_z = camera_position.z
-	end
-end
-
-local function get_cached_shadow_volume_change_version(cache, query_aabb)
-	if not query_aabb then return nil end
-
-	local current_shadow_change_version = visual.shadow_change_version_counter or 0
-
-	if
-		cache.shadow_volume_query_global_change_version == current_shadow_change_version and
-		shadow_cache_matches_aabb(cache, query_aabb)
-	then
-		return cache.shadow_volume_change_version
-	end
-
-	local shadow_volume_change_version = visual.GetShadowVolumeChangeVersion(query_aabb)
-	cache.shadow_volume_query_global_change_version = current_shadow_change_version
-	cache.shadow_volume_change_version = shadow_volume_change_version
-	return shadow_volume_change_version
-end
-
-local function get_shadow_visibility_cache_version()
-	return visual.shadow_visible_list_version or 0
-end
-
-local function update_shadow_visible_list_cache(
-	cache,
-	query_aabb,
-	camera_position,
-	shadow_volume_change_version,
-	shadow_visible_list_version
-)
-	cache.valid = true
-	update_shadow_cache_query_state(
-		cache,
-		query_aabb,
-		camera_position,
-		shadow_volume_change_version,
-		shadow_visible_list_version
-	)
-end
 
 local function record_shadow_draw_calls(shadow_map, cascade_idx, draw_call_count)
 	if not shadow_map or not cascade_idx or draw_call_count <= 0 then return end
@@ -1641,7 +1501,6 @@ do
 	visual.shadow_debug_hits = {}
 	visual.shadow_draw_call_stats = setmetatable({}, {__mode = "k"})
 	visual.shadow_gpu_culling_stats = setmetatable({}, {__mode = "k"})
-	visual.shadow_visible_list_cache = setmetatable({}, {__mode = "k"})
 	visual.shadow_prime_versions = setmetatable({}, {__mode = "k"})
 	visual.shadow_visible_list_version = 0
 	visual.shadow_change_version_counter = 0
@@ -1824,18 +1683,6 @@ do
 		return true
 	end
 
-	local function transform_plane(plane_offset, frustum_array, world_matrix, out_offset, out_array)
-		local a = frustum_array[plane_offset]
-		local b = frustum_array[plane_offset + 1]
-		local c = frustum_array[plane_offset + 2]
-		local d = frustum_array[plane_offset + 3]
-		local m = world_matrix
-		out_array[out_offset] = a * m.m00 + b * m.m01 + c * m.m02 + d * m.m03
-		out_array[out_offset + 1] = a * m.m10 + b * m.m11 + c * m.m12 + d * m.m13
-		out_array[out_offset + 2] = a * m.m20 + b * m.m21 + c * m.m22 + d * m.m23
-		out_array[out_offset + 3] = a * m.m30 + b * m.m31 + c * m.m32 + d * m.m33
-	end
-
 	local cached_frustum_planes = ffi.new("float[24]")
 	local cached_frustum_frame = -1
 	local cached_frustum_view = nil
@@ -1902,14 +1749,6 @@ do
 		cached_cull_camera_position = camera and camera.GetPosition and camera:GetPosition() or nil
 		cached_cull_camera_frame = current_frame
 		return cached_cull_camera_position
-	end
-
-	local function is_aabb_visible_world(world_aabb)
-		if visual.noculling or not gpu_culling.culling_enabled then return true end
-
-		if not world_aabb then return true end
-
-		return is_aabb_visible_frustum(world_aabb, get_frustum_planes())
 	end
 
 	local function is_aabb_within_cull_distance(world_aabb, cull_distance, camera_position)
@@ -2183,54 +2022,6 @@ do
 		return out
 	end
 
-	local function append_shadow_visible_component(out, component, shadow_map, cascade_idx, skip_shadow_aabb)
-		if not component.CastShadows then return out end
-
-		local render_entries = component:GetRenderEntries()
-
-		if not render_entries[1] then return out end
-
-		if not component:IsWithinCullDistance() then return out end
-
-		if not skip_shadow_aabb then
-			local world_aabb = component:GetWorldAABB()
-
-			if world_aabb and not shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
-				return out
-			end
-
-			if world_aabb and shadow_map:IsWorldAABBTooSmall(cascade_idx, world_aabb) then
-				return out
-			end
-		end
-
-		out[#out + 1] = component
-		return out
-	end
-
-	local function append_shadow_visible_static_item(out, item, shadow_map, cascade_idx)
-		local component = item.component
-
-		if not component.CastShadows then return out end
-
-		if
-			not is_aabb_within_cull_distance(item.world_aabb, item.cull_distance, get_cull_camera_position())
-		then
-			return out
-		end
-
-		if not shadow_map:IsWorldAABBVisible(cascade_idx, item.world_aabb) then
-			return out
-		end
-
-		if shadow_map:IsWorldAABBTooSmall(cascade_idx, item.world_aabb) then
-			return out
-		end
-
-		out[#out + 1] = component
-		return out
-	end
-
 	local function append_volume_visible_component(out, component, query_aabb)
 		if not component.Visible then return out end
 
@@ -2266,35 +2057,6 @@ do
 		end
 
 		out[#out + 1] = component
-		return out
-	end
-
-	local function get_shadow_sort_state(component)
-		local render_entries = component:GetRenderEntries()
-		local first_entry = render_entries[1]
-		local material = first_entry and component:GetResolvedMaterial(first_entry) or nil
-		local polygon3d = first_entry and first_entry.polygon3d or nil
-		return material and material:GetGUID() or "",
-		polygon3d and polygon3d:GetGUID() or "",
-		component:GetModelPath() or "",
-		component:GetGUID()
-	end
-
-	local function compare_shadow_visible_components(a, b)
-		local a_material, a_polygon, a_model, a_component = get_shadow_sort_state(a)
-		local b_material, b_polygon, b_model, b_component = get_shadow_sort_state(b)
-
-		if a_material ~= b_material then return a_material < b_material end
-
-		if a_polygon ~= b_polygon then return a_polygon < b_polygon end
-
-		if a_model ~= b_model then return a_model < b_model end
-
-		return a_component < b_component
-	end
-
-	local function sort_shadow_visible_components(out)
-		table.sort(out, compare_shadow_visible_components)
 		return out
 	end
 
@@ -2340,55 +2102,6 @@ do
 
 		for _, item in ipairs(acceleration.pending) do
 			append_visible_static_item(out, item, frustum_planes)
-		end
-
-		return out
-	end
-
-	local function collect_shadow_visible_static_components(out, shadow_map, cascade_idx)
-		local acceleration = ensure_scene_acceleration()
-		local tree = acceleration.shadow_tree
-		local camera_position = get_cull_camera_position()
-
-		if tree then
-			local node_stack = tree.traversal_context.node_stack
-			node_stack[1] = tree.root
-			local stack_size = 1
-
-			while stack_size > 0 do
-				local node = node_stack[stack_size]
-				node_stack[stack_size] = nil
-				stack_size = stack_size - 1
-
-				if
-					is_node_within_cull_distance(node, camera_position) and
-					shadow_map:IsWorldAABBVisible(cascade_idx, node.aabb)
-				then
-					if node.first then
-						for i = node.first, node.last do
-							local item = tree.components[i]
-
-							if not item.dead then
-								append_shadow_visible_static_item(out, item, shadow_map, cascade_idx)
-							end
-						end
-					else
-						if node.right then
-							stack_size = stack_size + 1
-							node_stack[stack_size] = node.right
-						end
-
-						if node.left then
-							stack_size = stack_size + 1
-							node_stack[stack_size] = node.left
-						end
-					end
-				end
-			end
-		end
-
-		for _, item in ipairs(acceleration.shadow_pending) do
-			append_shadow_visible_static_item(out, item, shadow_map, cascade_idx)
 		end
 
 		return out
@@ -2524,95 +2237,6 @@ do
 			append_component_render_entries(out, component, payloads)
 		end
 
-		return out
-	end
-
-	function visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)
-		local cache = get_shadow_visible_list_cache(shadow_map, cascade_idx)
-		local acceleration = ensure_scene_acceleration()
-		local camera_position = get_cull_camera_position()
-		local query_aabb = shadow_map.GetCascadeWorldAABB and
-			shadow_map:GetCascadeWorldAABB(cascade_idx) or
-			nil
-		local shadow_volume_change_version = get_cached_shadow_volume_change_version(cache, query_aabb)
-		local shadow_visible_list_version = get_shadow_visibility_cache_version()
-
-		if
-			can_reuse_shadow_visible_list(
-				cache,
-				query_aabb,
-				camera_position,
-				shadow_volume_change_version,
-				shadow_visible_list_version
-			)
-		then
-			return cache.list
-		end
-
-		local out = cache.list
-		table.clear(out)
-
-		collect_shadow_visible_static_components(out, shadow_map, cascade_idx)
-
-		for _, component in ipairs(acceleration.dynamic_shadow_components or {}) do
-			append_shadow_visible_component(out, component, shadow_map, cascade_idx)
-		end
-
-		for _, component in ipairs(acceleration.non_aabb_shadow_components or {}) do
-			append_shadow_visible_component(out, component, shadow_map, cascade_idx, true)
-		end
-
-		sort_shadow_visible_components(out)
-		update_shadow_visible_list_cache(
-			cache,
-			query_aabb,
-			camera_position,
-			shadow_volume_change_version,
-			shadow_visible_list_version
-		)
-		return out
-	end
-
-	function visual.GetShadowVisibleRenderEntries(shadow_map, cascade_idx)
-		local cache = get_shadow_visible_list_cache(shadow_map, cascade_idx)
-		local camera_position = get_cull_camera_position()
-		local query_aabb = shadow_map.GetCascadeWorldAABB and
-			shadow_map:GetCascadeWorldAABB(cascade_idx) or
-			nil
-		local shadow_volume_change_version = get_cached_shadow_volume_change_version(cache, query_aabb)
-		local shadow_visible_list_version = get_shadow_visibility_cache_version()
-
-		if
-			cache.render_entries_valid and
-			can_reuse_shadow_visible_list(
-				cache,
-				query_aabb,
-				camera_position,
-				shadow_volume_change_version,
-				shadow_visible_list_version
-			) and
-			cache.render_entries
-		then
-			return cache.render_entries
-		end
-
-		local out = cache.render_entries or {}
-		local payloads = cache.render_entry_payloads or {}
-		table.clear(out)
-		cache.render_entry_payloads = payloads
-		for _, component in ipairs(visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)) do
-			append_component_render_entries(out, component, payloads)
-		end
-
-		cache.render_entries = out
-		cache.render_entries_valid = true
-		update_shadow_cache_query_state(
-			cache,
-			query_aabb,
-			camera_position,
-			shadow_volume_change_version,
-			shadow_visible_list_version
-		)
 		return out
 	end
 
@@ -2848,25 +2472,6 @@ local function draw_geometry_entry(component, entry)
 	render3d.SetCurrentPolygon3D(entry.polygon3d)
 	render3d.SetMaterial(material)
 	render3d.UploadGBufferConstants()
-	entry.polygon3d:Draw()
-	return true
-end
-
-local function draw_shadow_entry(component, entry, shadow_map, cascade_idx)
-	local transform = entry.transform
-	local world_matrix = transform and transform:GetWorldMatrix() or component:GetWorldMatrix()
-
-	if not world_matrix then return false end
-
-	local material = component:GetResolvedMaterial(entry)
-
-	if material then
-		material.shadow_debug_force_opaque = shadow_debug_matches(component)
-	end
-
-	render3d.SetWorldMatrix(world_matrix)
-	render3d.SetCurrentPolygon3D(entry.polygon3d)
-	shadow_map:UploadConstants(world_matrix, material, cascade_idx)
 	entry.polygon3d:Draw()
 	return true
 end
