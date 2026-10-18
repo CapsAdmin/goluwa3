@@ -1430,6 +1430,41 @@ function gpu_culling.SetEnabled(enabled)
 	gpu_culling.enabled = enabled == true
 end
 
+-- the culling of this frame, whose buffers the main view's draws read, nil when there was no free slot
+function gpu_culling.GetCurrentMainView()
+	local view = gpu_culling.current_main_view
+
+	if view and view.frame == system.GetFrameNumber() and view.dataset_generation == gpu_culling.scene_dataset.generation then
+		return view
+	end
+
+	return nil
+end
+
+-- the entries of the main view that are not drawn from the culling's buffers: dynamic ones, translucent ones and what has
+-- no batch. the cpu draws them
+function gpu_culling.IsMainFallbackEntry(source_entry)
+	local dataset = gpu_culling.scene_dataset
+
+	if not dataset then return false end
+
+	local cache = gpu_culling.main_fallback_cache
+
+	if not cache or cache.generation ~= dataset.generation or cache.version ~= dataset.main.entry_version then
+		cache = {generation = dataset.generation, version = dataset.main.entry_version, set = {}}
+
+		for _, entry in ipairs(dataset.main.entries) do
+			if entry ~= DEAD_ENTRY and entry.source_entry and not entry.instanced_batch_index then
+				cache.set[entry.source_entry] = true
+			end
+		end
+
+		gpu_culling.main_fallback_cache = cache
+	end
+
+	return cache.set[source_entry] == true
+end
+
 function gpu_culling.GetOcclusionMode()
 	return gpu_culling.occlusion_mode
 end
@@ -2613,6 +2648,7 @@ end
 local function add_visual(dataset, view, component, kind)
 	local dynamic = kind ~= "static"
 	local serialized = serialize_component(component, dynamic)
+	view.entry_version = (view.entry_version or 0) + 1
 	local slot = alloc_visual_slot(view)
 	local count = serialized.render_entry_count
 	serialized.view = view
@@ -2653,6 +2689,7 @@ local function add_visual(dataset, view, component, kind)
 end
 
 local function remove_visual(dataset, view, serialized)
+	view.entry_version = (view.entry_version or 0) + 1
 	for _, entry in ipairs(serialized.entries) do
 		if entry.batch then
 			release_batch(view, entry.batch)
@@ -3408,7 +3445,20 @@ function gpu_culling.RunMainViewFrustumCulling(
 	)
 
 	stamp_published_slot_release(frame_buffers)
-	local output = acquire_async_slot(frame_buffers)
+	local previous = gpu_culling.current_main_view
+
+	-- what the last frame drew from is free once the gpu is done with that frame
+	if previous and (previous.frame ~= system.GetFrameNumber() or gpu_culling.wait_for_main_view) then
+		previous.output.release_serial = render.GetDevice().last_submission_serial or 0
+	end
+
+	local output
+
+	if previous and previous.frame == system.GetFrameNumber() and not gpu_culling.wait_for_main_view then
+		output = nil
+	else
+		output = acquire_async_slot(frame_buffers)
+	end
 
 	if output then
 		local cmd = record_cull_dispatch(
@@ -3428,6 +3478,16 @@ function gpu_culling.RunMainViewFrustumCulling(
 		output.cull_frame = system.GetFrameNumber()
 
 		if gpu_culling.wait_for_main_view then output.cull_fence:Wait() end
+
+		-- the draws of this frame read what was just submitted, behind it in the queue, not the last result that was
+		-- read back
+		output.release_serial = math.huge
+		gpu_culling.current_main_view = {
+			output = output,
+			frame = system.GetFrameNumber(),
+			frame_index = output.frame_index,
+			dataset_generation = dataset.generation,
+		}
 	end
 
 	return publish_latest_async_result(frame_buffers)

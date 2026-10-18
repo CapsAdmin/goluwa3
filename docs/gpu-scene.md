@@ -1,6 +1,6 @@
 # The ray traced scene (`goluwa/render3d/scene/`)
 
-What GI, reflections, glass, fog, light occlusion and particle collision trace against. It replaced the scene bvh and its triangle soup on 2026-10-18 (branch `gpu-scene-phase0`, plan in `tmp/gpu_scene_rewrite.md`). The main view's culling and drawing are still `gpu_culling.lua` and `visual.lua`, only the far shadow cascades read this store.
+What GI, reflections, glass, fog, light occlusion and particle collision trace against. It replaced the scene bvh and its triangle soup on 2026-10-18 (branch `gpu-scene-phase0`, plan in `tmp/gpu_scene_rewrite.md`). The main view's culling and drawing are still `gpu_culling.lua` and `visual.lua`, only the far shadow cascades read this store. The main view draws from the culling submitted in the same frame (`gpu_culling.GetCurrentMainView`, the slot is protected until the gpu is done with it) instead of the last result read back, and what the culling does not draw (dynamic, translucent, unbatched entries: `gpu_culling.IsMainFallbackEntry`) is picked by the cpu from this frame's frustum (`visual.CollectCPUVisibleComponents`), so the main draw path reads nothing back. Unfinished: the readbacks still exist for tests, terrain's `GetDrawnCullFrame` and the shadow lists, and the culling still works on `gpu_culling`'s dataset, not on this store.
 
 ## How it fits together
 

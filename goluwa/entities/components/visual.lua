@@ -2866,6 +2866,20 @@ do
 		return out, nil, 0, nil
 	end
 
+	-- the components in view by the cpu alone (frustum and distance), for what the gpu culling does not draw
+	function visual.CollectCPUVisibleComponents(out)
+		local acceleration = ensure_scene_acceleration()
+		local frustum_planes = get_frustum_planes()
+		table.clear(out)
+		collect_visible_static_components(out, frustum_planes)
+
+		for _, component in ipairs(acceleration.dynamic_components or {}) do
+			append_visible_component(out, component, frustum_planes)
+		end
+
+		return out
+	end
+
 	function visual.GetVisibleRenderEntries()
 		local current_frame = system.GetFrameNumber and system.GetFrameNumber() or 0
 		local acceleration = ensure_scene_acceleration()
@@ -3501,28 +3515,31 @@ function Visual:OnRemove()
 end
 
 function Visual:OnFirstCreated()
+	local main_visible_components = {}
+
 	event.AddListener("Draw3DGeometry", "visual_geometry_draw", function()
 		if gpu_culling.IsEnabled() and not visual.noculling then
 			local entry_records, visible_entry_index_ptr, visible_entry_count, cull_result = visual.GetVisibleMainGPUEntries()
 
-			if entry_records and visible_entry_index_ptr then
-				local gpu_instanced_result = gbuffer_instancing.DrawGPUCulled(cull_result)
+			if gpu_culling.GetCurrentMainView() then
+				local gpu_instanced_result = gbuffer_instancing.DrawGPUCulled(gpu_culling.GetCurrentMainView())
 				local fallback_submitted_entry_count = 0
+				local camera_position = render3d.GetCamera():GetPosition()
 
-				if gpu_instanced_result.drew_any then
-					visible_entry_index_ptr, visible_entry_count = gpu_culling.GetVisibleEntrySpan(cull_result, false)
-				end
-
-				for i = 0, visible_entry_count - 1 do
-					local record = entry_records[tonumber(visible_entry_index_ptr[i]) + 1]
-
-					if
-						record and
-						record.component and
-						record.source_entry and
-						draw_geometry_entry(record.component, record.source_entry)
-					then
-						fallback_submitted_entry_count = fallback_submitted_entry_count + 1
+				-- what the culling's buffers do not draw comes from the cpu, in view this frame, not as a readback of
+				-- a frame or two ago
+				for _, component in ipairs(visual.CollectCPUVisibleComponents(main_visible_components)) do
+					for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
+						if
+							(
+								not gpu_instanced_result.drew_any or
+								gpu_culling.IsMainFallbackEntry(entry)
+							)
+							and
+							draw_geometry_entry(component, entry)
+						then
+							fallback_submitted_entry_count = fallback_submitted_entry_count + 1
+						end
 					end
 				end
 
@@ -3541,7 +3558,7 @@ function Visual:OnFirstCreated()
 						),
 					fallback_visible_entry_count = cull_result and
 						cull_result.fallback_visible_entry_count or
-						visible_entry_count,
+						0,
 					gpu_packed_entry_count = gpu_instanced_result.submitted_entry_count or 0,
 					gpu_packed_draw_calls = gpu_instanced_result.draw_call_count or 0,
 					gpu_active_batch_count = gpu_instanced_result.active_batch_count or 0,

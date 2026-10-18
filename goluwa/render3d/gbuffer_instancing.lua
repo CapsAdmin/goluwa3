@@ -114,7 +114,7 @@ do
 
 		local dataset = gpu_culling.GetSceneDataset()
 		local frame_buffers = gpu_culling.GetFrameBuffers()
-		local output = frame_buffers and frame_buffers[cull_result.frame_index]
+		local output = cull_result.output or frame_buffers and frame_buffers[cull_result.frame_index]
 		local batches = dataset and dataset.main_instanced_batches
 
 		if not (output and batches and batches[1]) then return result end
