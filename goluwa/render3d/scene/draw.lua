@@ -145,15 +145,7 @@ local function get_cull_pipeline()
 				vec2 pad;
 			};
 
-			struct raster_data {
-				vec3 box_min;
-				vec3 box_max;
-				float cull_distance;
-				uint flags;
-				float prev[12];
-				vec3 local_size;
-				float thickness;
-			};
+			]] .. instances.RASTER_DATA_GLSL .. [[
 
 			struct mesh_row {
 				uint64_t vertex_address;
@@ -649,13 +641,7 @@ local function get_shadow_pipeline()
 				vec2 pad;
 			};
 
-			struct raster_data {
-				vec3 box_min;
-				vec3 box_max;
-				float cull_distance;
-				uint flags;
-				float prev[12];
-			};
+			]] .. instances.RASTER_DATA_GLSL .. [[
 
 			struct mesh_row {
 				uint64_t vertex_address;

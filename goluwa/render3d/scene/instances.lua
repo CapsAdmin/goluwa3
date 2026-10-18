@@ -61,6 +61,18 @@ local RasterData = ffi.typeof([[struct {
 	float local_size_z;
 	float thickness;
 }]])
+-- the shaders that read the table declare the row with this, it has to match RasterData
+instances.RASTER_DATA_GLSL = [[
+	struct raster_data {
+		vec3 box_min;
+		vec3 box_max;
+		float cull_distance;
+		uint flags;
+		float prev[12];
+		vec3 local_size;
+		float thickness;
+	};
+]]
 instances.RASTER_DRAW = 1
 instances.RASTER_OCCLUSION = 2
 instances.RASTER_HEIGHT_MAP = 4
