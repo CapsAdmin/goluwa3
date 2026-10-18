@@ -2,6 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local directional_shadows = {}
 directional_shadows.MAX_CASCADES = 4
@@ -52,7 +53,7 @@ end
 
 function directional_shadows.BuildFogShadowBlockLayout()
 	local max_cascades = directional_shadows.MAX_CASCADES
-	return {
+	local layout = {
 		{"light_space_matrices", "mat4", max_cascades},
 		{"inset_light_space_matrix", "mat4"},
 		{"cascade_splits", "float", max_cascades},
@@ -65,6 +66,12 @@ function directional_shadows.BuildFogShadowBlockLayout()
 		{"sun_angular_radius_tan", "float"},
 		unpack(clouds.GetShadowBlockLayout()),
 	}
+
+	for _, field in ipairs(terrain_shadow.GetShadowBlockLayout()) do
+		layout[#layout + 1] = field
+	end
+
+	return layout
 end
 
 function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
@@ -83,6 +90,7 @@ function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
 	shadow_block.cascade_count = 0
 	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
 	clouds.WriteShadowBlock(self, shadow_block)
+	terrain_shadow.WriteShadowBlock(self, shadow_block)
 
 	for i = 0, 15 do
 		shadow_block.inset_light_space_matrix[i] = 0
@@ -178,7 +186,7 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 				if (shadow >= 0.0) break;
 			}
 
-			if (shadow < 0.0) return 1.0;
+			if (shadow < 0.0) return get_terrain_shadow(world_pos);
 
 			shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx];
 
@@ -214,6 +222,13 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 				}
 			}
 
+			// the terrain's own shadow (a height field march, no triangles) takes over where the shadow maps stop, or the
+			// tiles that cast into them do
+			float raster_end = min(@@BLOCK@@.shadows.terrain_shadow_params.z, @@BLOCK@@.shadows.cascade_splits[max(cascade_count - 1, 0)]);
+			float terrain_weight = smoothstep(raster_end * 0.8, raster_end, dist);
+
+			if (terrain_weight > 0.0) shadow = min(shadow, mix(1.0, get_terrain_shadow(world_pos), terrain_weight));
+
 			return shadow;
 ]==]
 	src = (src:gsub("@@BLOCK@@", block_macro))
@@ -231,7 +246,7 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 		"sampleMediumShadowCascade(%s, world_pos, light_dir)",
 		"sampleMediumInsetShadow(world_pos, light_dir, %s)"
 	)
-	return header .. clouds.GetShadowGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK") .. [[
+	return header .. clouds.GetShadowGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows") .. terrain_shadow.GetShadowGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK") .. [[
 			// the texel size of the coarsest cascade the last lookup used
 			float shadow_texel_world_size = 0.0;
 
@@ -479,7 +494,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 		"sampleShadowCascade(%s, world_pos, normal, light_dir)",
 		"sampleInsetShadow(world_pos, normal, light_dir, %s)"
 	)
-	return header .. clouds.GetShadowGLSL("DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
+	return header .. clouds.GetShadowGLSL("DIRECTIONAL_SHADOW_BLOCK.shadows") .. terrain_shadow.GetShadowGLSL("DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
 			// the texel size of the coarsest cascade the last lookup used
 			float shadow_texel_world_size = 0.0;
 

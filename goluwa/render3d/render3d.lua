@@ -299,6 +299,7 @@ local default_passes = {
 	{"light_grid", "goluwa/render3d/light_grid.lua"},
 	{"gbuffer", "goluwa/render3d/passes/gbuffer.lua"},
 	{"clouds", "goluwa/render3d/passes/clouds.lua"},
+	{"terrain_shadow", "goluwa/render3d/passes/terrain_shadow.lua"},
 	{"ambient_occlusion", "goluwa/render3d/passes/ambient_occlusion.lua"},
 	{"ddgi", "goluwa/render3d/passes/ddgi.lua"},
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},

@@ -113,6 +113,7 @@ _G.alpine_terrain = Terrain.New(table.merge({
 	SplatSize = 128,
 	ColorSize = 64,
 	ShadowLevels = 6,
+	ShadowExtent = 16384,
 	BuildsPerFrame = 2,
 	Physics = {
 		chunk_size = 64,

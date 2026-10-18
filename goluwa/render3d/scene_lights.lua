@@ -2,6 +2,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local scene_lights = {}
@@ -28,7 +29,7 @@ function scene_lights.BuildLightsBlockLayout()
 end
 
 function scene_lights.BuildShadowsBlockLayout()
-	return {
+	local layout = {
 		{"light_space_matrices", "mat4", scene_lights.MAX_CASCADES},
 		{"local_directional_light_space_matrix", "mat4"},
 		{"inset_light_space_matrix", "mat4"},
@@ -51,6 +52,12 @@ function scene_lights.BuildShadowsBlockLayout()
 		{"noise_phase", "float"},
 		unpack(clouds.GetShadowBlockLayout()),
 	}
+
+	for _, field in ipairs(terrain_shadow.GetShadowBlockLayout()) do
+		layout[#layout + 1] = field
+	end
+
+	return layout
 end
 
 function scene_lights.GetLightGLSLCode()
@@ -316,6 +323,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
 	shadow_block.noise_phase = render3d.GetNoisePhase()
 	clouds.WriteShadowBlock(self, shadow_block)
+	terrain_shadow.WriteShadowBlock(self, shadow_block)
 
 	for i = 0, 15 do
 		shadow_block.local_directional_light_space_matrix[i] = 0

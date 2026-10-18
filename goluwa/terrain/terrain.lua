@@ -5,6 +5,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local ViewPriority = import("goluwa/render3d/view_priority.lua")
+local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local tiles = import("goluwa/terrain/tiles.lua")
 local TerrainPhysics = import("goluwa/terrain/physics.lua")
 local system = import("goluwa/system.lua")
@@ -58,6 +59,12 @@ function Terrain.New(config)
 	self.BVHStride = config.BVHStride or 4
 	self.BVHNearStride = config.BVHNearStride or 2
 	self.BVHDue = {}
+	-- the terrain's shadow on everything past the shadow maps comes from a height field of this many meters around the
+	-- camera (see terrain_shadow.lua), baked at ShadowSamples squared samples and baked again when the camera is more
+	-- than ShadowRecenter of the extent from its center. nil is off
+	self.ShadowExtent = config.ShadowExtent
+	self.ShadowSamples = config.ShadowSamples or 1024
+	self.ShadowRecenter = config.ShadowRecenter or 0.2
 	-- the frames a tile that is replaced waits for the vegetation of its replacements to be baked, so that it does not go
 	-- before there is anything to replace its vegetation with
 	self.ScatterWaitFrames = config.ScatterWaitFrames or 120
@@ -742,6 +749,39 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 	self:RetireTiles()
 end
 
+function Terrain:UpdateShadowField(position)
+	local field = self.shadow_field
+
+	if self.shadow_field_loading then return end
+
+	local extent = self.ShadowExtent
+	local step = extent / (self.ShadowSamples - 1)
+
+	if
+		field and
+		math.abs(position.x - field.center_x) < extent * self.ShadowRecenter and
+		math.abs(position.z - field.center_z) < extent * self.ShadowRecenter
+	then
+		return
+	end
+
+	local min_x = math.floor(position.x / step + 0.5) * step - extent / 2
+	local min_z = math.floor(position.z / step + 0.5) * step - extent / 2
+	self.shadow_field_loading = true
+	self.Source:RequestChunk({min_x = min_x, min_z = min_z, size = extent, samples = self.ShadowSamples}, function(chunk)
+		self.shadow_field_loading = false
+
+		if not self.Root then
+			self.Source:ReleaseChunk(chunk)
+			return
+		end
+
+		terrain_shadow.SetHeightField(chunk.heights, self.ShadowSamples, min_x, min_z, step, chunk.max_height, self.GridSize / 2 * self:GetLevelChunkSize(self.ShadowLevels - 1))
+		self.shadow_field = {center_x = min_x + extent / 2, center_z = min_z + extent / 2}
+		self.Source:ReleaseChunk(chunk)
+	end)
+end
+
 function Terrain:Update(dt)
 	self.Source:Update()
 	self:ProcessPendingReleases()
@@ -757,6 +797,9 @@ function Terrain:Update(dt)
 	if not camera then return end
 
 	local position = camera:GetPosition()
+
+	if self.ShadowExtent then self:UpdateShadowField(position) end
+
 	self:UpdateTiles(position, camera:GetRotation():GetForward(), ViewPriority.GetHalfAngle(camera))
 
 	if self.Physics then self.Physics:Update(position) end
@@ -941,6 +984,11 @@ function Terrain:Stop()
 	if self.Physics then
 		self.Physics:Remove()
 		self.Physics = nil
+	end
+
+	if self.shadow_field then
+		terrain_shadow.Clear()
+		self.shadow_field = nil
 	end
 
 	for key, tile in pairs(self.Tiles) do

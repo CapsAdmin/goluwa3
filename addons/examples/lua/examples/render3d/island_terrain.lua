@@ -165,6 +165,7 @@ _G.island_terrain = Terrain.New{
 	SplatSize = 128,
 	ColorSize = 64,
 	ShadowLevels = 6,
+	ShadowExtent = 12288,
 	BuildsPerFrame = 2,
 	Physics = {
 		chunk_size = 64,
