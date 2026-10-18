@@ -170,9 +170,17 @@ end
 local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	local flags = 0
 	local module = import("goluwa/entities/components/visual.lua").Library
-	local drawn = not visual.RaysOnly and visual.Visible and module.MaterialDrawsInGBuffer(material)
+	local shown = not visual.RaysOnly and visual.Visible
+	local drawn = shown and module.MaterialDrawsInGBuffer(material)
+	local translucent = shown and module.MaterialDrawsTranslucent(material)
 
-	if not visual.RaysOnly and visual.Visible and visual.CastShadows then flags = instances.RASTER_SHADOW end
+	if shown and visual.CastShadows then flags = instances.RASTER_SHADOW end
+
+	if translucent then
+		flags = flags + instances.RASTER_TRANSLUCENT
+
+		if material:GetDoubleSided() then flags = flags + instances.RASTER_DOUBLE_SIDED end
+	end
 
 	if drawn then
 		flags = flags + instances.RASTER_DRAW
@@ -190,17 +198,19 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		visual:GetWorldAABB(),
 		visual:GetCullDistance(),
 		flags,
-		transform and transform:GetPreviousWorldMatrix() or matrix
+		transform and transform:GetPreviousWorldMatrix() or matrix,
+		entry.source_aabb,
+		translucent and material:GetRefraction() > 0 and material:GetRefractionThickness() or 0
 	)
 
 	if flags ~= 0 then
 		meshes.EnsureRaster(mesh_row)
-		draw.SetRow(item.id, mesh, material, entry.polygon3d)
+		draw.SetRow(item.id, mesh, material, entry.polygon3d, translucent)
 	else
 		draw.ClearRow(item.id)
 	end
 
-	item.raster = drawn or nil
+	item.raster = (drawn or translucent) or nil
 end
 
 -- the instances of a visual: one per render entry that has a mesh the gpu has, in the scene as the entry's own world

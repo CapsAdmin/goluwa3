@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
@@ -167,6 +168,33 @@ table.insert(
 		upload_scope = "frame",
 	}
 )
+-- what the surface pipelines read besides their own uniforms: the light grid, the occlusion map, the fog and the scene
+local function bind_surface(surface, cmd)
+	if not surface then return end
+
+	local frame = render.GetCurrentFrame()
+
+	if not surface.pipeline.descriptor_sets[frame] then frame = 1 end
+
+	surface.surface_lighting_sets = surface.surface_lighting_sets or {}
+	froxel_fog.BindVolume(surface, frame)
+
+	if not surface.surface_lighting_sets[frame] then
+		surface.surface_lighting_sets[frame] = true
+		local grid = light_grid.GetBuffer(cmd)
+		surface:UpdateDescriptorSet("storage_buffer", frame, BINDING_LIGHT_GRID, 0, grid, grid:GetSize())
+		surface:UpdateDescriptorSet(
+			"combined_image_sampler",
+			frame,
+			BINDING_OCCLUSION_MAP,
+			0,
+			unpack(light_occlusion.GetOcclusionDescriptor())
+		)
+	end
+
+	if scene_reflection.RAY_QUERY then scene_reflection.Bind(surface, cmd, frame, SCENE_BINDINGS) end
+end
+
 local passes = {
 	{
 		name = "translucent_moments",
@@ -178,28 +206,8 @@ local passes = {
 		ReadOnlyDepth = gbuffer_layout.GetDepthTexture,
 		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}},
 		on_pre_draw = function(self, cmd)
-			local surface = render3d.pipelines.translucent_surface
-			local frame = render.GetCurrentFrame()
-
-			if not surface.pipeline.descriptor_sets[frame] then frame = 1 end
-
-			surface.surface_lighting_sets = surface.surface_lighting_sets or {}
-			froxel_fog.BindVolume(surface, frame)
-
-			if not surface.surface_lighting_sets[frame] then
-				surface.surface_lighting_sets[frame] = true
-				local grid = light_grid.GetBuffer(cmd)
-				surface:UpdateDescriptorSet("storage_buffer", frame, BINDING_LIGHT_GRID, 0, grid, grid:GetSize())
-				surface:UpdateDescriptorSet(
-					"combined_image_sampler",
-					frame,
-					BINDING_OCCLUSION_MAP,
-					0,
-					unpack(light_occlusion.GetOcclusionDescriptor())
-				)
-			end
-
-			if scene_reflection.RAY_QUERY then scene_reflection.Bind(surface, cmd, frame, SCENE_BINDINGS) end
+			bind_surface(render3d.pipelines.translucent_surface, cmd)
+			bind_surface(render3d.pipelines.translucent_surface_multi_draw, cmd)
 
 			render3d.refraction_source_requested = false
 			render3d.translucent_depth_near = math.huge
@@ -214,6 +222,7 @@ local passes = {
 			if render3d.translucent_depth_far == 0 then return end
 
 			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
+			render3d.translucent_multi_draw_pipeline = render3d.pipelines.translucent_moments_surface_multi_draw
 			event.Call("Draw3DTranslucent")
 
 			translucent_extras.Draw("moments", cmd)
@@ -287,6 +296,7 @@ local passes = {
 			if render3d.translucent_depth_far == 0 then return end
 
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
+			render3d.translucent_multi_draw_pipeline = render3d.pipelines.translucent_surface_multi_draw
 			event.Call("Draw3DTranslucent")
 
 			translucent_extras.Draw("accumulate", cmd)
@@ -924,6 +934,127 @@ local passes = {
 		AlphaBlendOp = "add",
 	},
 }
+
+-- the two surface passes again for the rows of the scene store: the vertices come from the mesh buffers by address, the
+-- material of a draw from a record of its batch, and what refracts brings its thickness along per instance
+local multi_draw_block = {
+	name = "translucent_draw",
+	block = {
+		{"batches", "uint64_t"},
+		{"instances", "uint64_t"},
+		{"prev_instances", "uint64_t"},
+		{"thicknesses", "uint64_t"},
+		{"time", "float"},
+		{"prev_time", "float"},
+		{"detail_time", "float"},
+		{"prev_detail_time", "float"},
+	},
+	write = function(self, block)
+		block.batches = self.draw_batches_address
+		block.instances = self.draw_instances_address
+		block.prev_instances = self.draw_prev_instances_address
+		block.thicknesses = self.draw_thicknesses_address or 0
+		block.time = atmosphere.GetWindTime()
+		block.prev_time = atmosphere.GetPreviousWindTime()
+		block.detail_time = atmosphere.GetWindDetailTime()
+		block.prev_detail_time = atmosphere.GetPreviousWindDetailTime()
+		return block
+	end,
+}
+
+local function build_multi_draw_pass(source, uniform_buffers, with_thickness)
+	local pass = {}
+
+	for k, v in pairs(source) do
+		pass[k] = v
+	end
+
+	pass.name = source.name .. "_multi_draw"
+	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
+		normal = true,
+		tangent = true,
+		uv = true,
+		texture_blend = true,
+		vertex_color = true,
+		velocity = true,
+		camera_block_name = "translucent_camera",
+		uniform_buffers = {camera_block, multi_draw_block},
+		batches_expr = "translucent_draw.batches",
+		instances_expr = "translucent_draw.instances",
+		prev_instances_expr = "translucent_draw.prev_instances",
+		instance_thickness_expr = with_thickness and
+			"PBRBatchThicknessData(translucent_draw.thicknesses).t[gl_InstanceIndex]" or
+			nil,
+		time_expr = "translucent_draw.time",
+		prev_time_expr = "translucent_draw.prev_time",
+		detail_time_expr = "translucent_draw.detail_time",
+		prev_detail_time_expr = "translucent_draw.prev_detail_time",
+	}
+	local fragment = {}
+
+	for k, v in pairs(source.fragment) do
+		fragment[k] = v
+	end
+
+	fragment.push_constants = nil
+	fragment.uniform_buffers = {}
+
+	for _, ubo in ipairs(uniform_buffers) do
+		table.insert(fragment.uniform_buffers, ubo)
+	end
+
+	table.insert(fragment.uniform_buffers, multi_draw_block)
+	fragment.custom_declarations = (source.fragment.custom_declarations or "") .. string.format("layout(location = %d) flat in uint in_batch;\n", pass.vertex.batch_location) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(translucent_draw.batches).b[in_batch]")
+
+	if with_thickness then
+		fragment.custom_declarations = fragment.custom_declarations .. [[
+			struct RefractionView {
+				float amount;
+				float ior;
+				float abbe;
+				float thickness;
+				float attenuation;
+			};
+			RefractionView refraction;
+		]]
+		local main
+		local init = 1
+
+		while true do
+			local found = source.fragment.shader:find("void main() {", init, true)
+
+			if not found then break end
+
+			main = found
+			init = found + 1
+		end
+
+		assert(main, "no main in the surface shader")
+		fragment.shader = source.fragment.shader:sub(1, main - 1) .. [[
+			void main() {
+				refraction = RefractionView(refraction_record.amount, refraction_record.ior, refraction_record.abbe, in_instance_thickness, refraction_record.attenuation);
+		]] .. source.fragment.shader:sub(main + #"void main() {")
+	end
+
+	pass.fragment = fragment
+	return pass
+end
+
+do
+	local list = {}
+
+	for i, pass in ipairs(passes) do
+		if pass.name == "translucent_moments_surface" then
+			table.insert(list, build_multi_draw_pass(pass, {camera_block, moments_uniform_buffers[#moments_uniform_buffers]}, false))
+		elseif pass.name == "translucent_surface" then
+			table.insert(list, build_multi_draw_pass(pass, {camera_block, surface_uniform_buffers[#surface_uniform_buffers - 1], surface_uniform_buffers[#surface_uniform_buffers]}, true))
+		end
+	end
+
+	for _, pass in ipairs(list) do
+		table.insert(passes, pass)
+	end
+end
 
 for _, extra in ipairs(translucent_extras.list) do
 	for _, pass in ipairs(extra.BuildPasses()) do

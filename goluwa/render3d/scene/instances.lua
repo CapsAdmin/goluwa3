@@ -56,12 +56,17 @@ local RasterData = ffi.typeof([[struct {
 	float cull_distance;
 	uint32_t flags;
 	float prev[12];
+	float local_size_x;
+	float local_size_y;
+	float local_size_z;
+	float thickness;
 }]])
 instances.RASTER_DRAW = 1
 instances.RASTER_OCCLUSION = 2
 instances.RASTER_HEIGHT_MAP = 4
 instances.RASTER_DOUBLE_SIDED = 8
 instances.RASTER_SHADOW = 16
+instances.RASTER_TRANSLUCENT = 32
 local raster_table
 instances.version = 0
 pvars.StartGroup("Rendering", "Ray tracing", {store = false})
@@ -101,7 +106,8 @@ function instances.GetRasterTable()
 	return raster_table
 end
 
-function instances.SetRaster(id, aabb, cull_distance, flags, prev)
+-- thickness is what a refracting surface is as thick as, negative for the size of the entry's own bounds along its axes
+function instances.SetRaster(id, aabb, cull_distance, flags, prev, local_aabb, thickness)
 	local row = instances.GetRasterTable():Get()[id]
 
 	if aabb then
@@ -111,6 +117,14 @@ function instances.SetRaster(id, aabb, cull_distance, flags, prev)
 
 	row.cull_distance = cull_distance
 	row.flags = flags
+	row.thickness = thickness
+
+	if local_aabb then
+		row.local_size_x = local_aabb.max_x - local_aabb.min_x
+		row.local_size_y = local_aabb.max_y - local_aabb.min_y
+		row.local_size_z = local_aabb.max_z - local_aabb.min_z
+	end
+
 	instances.SetPrevMatrix(id, prev)
 end
 

@@ -251,6 +251,10 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 		lines[#lines + 1] = "\tout_instance_tint = " .. (options.instance_tint_expr or "vec3(1.0)") .. ";"
 	end
 
+	if options.instance_thickness_expr then
+		lines[#lines + 1] = "\tout_instance_thickness = " .. options.instance_thickness_expr .. ";"
+	end
+
 	lines[#lines + 1] = "\tbool skinned = in_vertex_color.a < " .. skinning.MOTION_THRESHOLD .. ";"
 	lines[#lines + 1] = "\tvec3 skin_motion = skinned ? in_vertex_color.rgb : vec3(0.0);"
 	lines[#lines + 1] = "\tvec4 vertex_color = skinned ? vec4(0.0) : in_vertex_color;"
@@ -335,6 +339,10 @@ local function get_vertex_stage_outputs(options)
 
 	if options.instance_tint then
 		outputs[#outputs + 1] = {"instance_tint", "vec3"}
+	end
+
+	if options.instance_thickness_expr then
+		outputs[#outputs + 1] = {"instance_thickness", "float"}
 	end
 
 	return outputs
@@ -470,6 +478,25 @@ do
 			record_blocks[#record_blocks + 1] = {name = ubo.name, field = "m_" .. ubo.name, block = ubo.block, write = ubo.write}
 		end
 
+		-- what the translucent passes read of a refracting material
+		record_blocks[#record_blocks + 1] = {
+			name = "refraction_record",
+			field = "m_refraction_record",
+			block = {
+				{"amount", "float"},
+				{"ior", "float"},
+				{"abbe", "float"},
+				{"attenuation", "float"},
+			},
+			write = function(self, block)
+				local material = get_material()
+				block.amount = material:GetRefraction()
+				-- an index under 1 is not a medium light slows down in, and 0 divides by zero in the refraction
+				block.ior = math.max(material:GetIndexOfRefraction(), 1)
+				block.abbe = material:GetAbbeNumber()
+				block.attenuation = material:GetAttenuationDistance()
+			end,
+		}
 		record_blocks[#record_blocks + 1] = {
 			name = "vertex_animation",
 			field = "m_vertex_animation",
@@ -607,6 +634,7 @@ do
 			custom_declarations = model_pipeline.BuildPBRBatchRecordGlsl() .. [[
 layout(buffer_reference, scalar) readonly buffer PBRBatchVertexData { float v[]; };
 layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 worlds[]; };
+layout(buffer_reference, scalar) readonly buffer PBRBatchThicknessData { float t[]; };
 layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
 mat4 multi_draw_instance_world;
 mat4 multi_draw_instance_prev_world;

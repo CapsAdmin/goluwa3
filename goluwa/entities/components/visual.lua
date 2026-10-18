@@ -113,6 +113,11 @@ end
 
 visual.MaterialDrawsInGBuffer = material_draws_in_gbuffer
 
+-- the translucent passes draw it
+function visual.MaterialDrawsTranslucent(material)
+	return material_is_translucent(material) and render3d.pipelines.translucent_surface ~= nil
+end
+
 local function invalidate_scene_acceleration()
 	visual.scene_full_rebuild = true
 	visual.shadow_visible_list_version = (visual.shadow_visible_list_version or 0) + 1
@@ -2603,6 +2608,7 @@ function Visual:OnFirstCreated()
 			local camera_position = render3d.GetCamera():GetPosition()
 			local camera_x, camera_y, camera_z = camera_position.x, camera_position.y, camera_position.z
 			local previous_count = draw_count
+			local in_store = scene_draw.IsCulled()
 			draw_count = 0
 
 			for _, component in ipairs(visual.translucent_components) do
@@ -2623,14 +2629,18 @@ function Visual:OnFirstCreated()
 								if item.refractive then render3d.RequestRefractionSource() end
 
 								local entry = item.entry
-								draw_count = draw_count + 1
-								draw_entries[draw_count] = entry
-								draw_materials[draw_count] = item.material
-								draw_world_matrices[draw_count] = world_matrix
-								draw_prev_world_matrices[draw_count] = entry.transform and
-									entry.transform:GetPreviousWorldMatrix() or
-									component:GetPreviousWorldMatrix()
-								draw_thicknesses[draw_count] = item.thickness
+
+								-- the store draws the rows it has, the cpu the rest
+								if not (in_store and scene_bridge.IsRasterEntry(component, entry)) then
+									draw_count = draw_count + 1
+									draw_entries[draw_count] = entry
+									draw_materials[draw_count] = item.material
+									draw_world_matrices[draw_count] = world_matrix
+									draw_prev_world_matrices[draw_count] = entry.transform and
+										entry.transform:GetPreviousWorldMatrix() or
+										component:GetPreviousWorldMatrix()
+									draw_thicknesses[draw_count] = item.thickness
+								end
 							end
 						end
 					end
@@ -2646,6 +2656,12 @@ function Visual:OnFirstCreated()
 		end)
 
 		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
+			local multi_draw_pipeline = render3d.translucent_multi_draw_pipeline
+
+			if multi_draw_pipeline then
+				scene_draw.DrawTranslucent(gbuffer_instancing, multi_draw_pipeline)
+			end
+
 			for i = 1, draw_count do
 				local polygon3d = draw_entries[i].polygon3d
 				render3d.SetWorldMatrix(draw_world_matrices[i], draw_prev_world_matrices[i])

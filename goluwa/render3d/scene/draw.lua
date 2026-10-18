@@ -24,13 +24,20 @@ local rows = {}
 local slot_of = {}
 local free_slots = {}
 local slot_rows
+local translucent_ids = {}
+local translucent_count = 0
 draw.serial = 0
 
 -- a drawn row has a slot of its own, the slots are what the draws index (the batch records, the matrices), so rows that
 -- are not drawn, and the rows of producers, cost nothing
-function draw.SetRow(id, mesh, material, polygon3d)
+function draw.SetRow(id, mesh, material, polygon3d, translucent)
 	slot_rows = slot_rows or store.CreateTable{name = "draw_slot_rows", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
+
+	if (translucent_ids[id] or false) ~= (translucent or false) then
+		translucent_ids[id] = translucent or nil
+		translucent_count = translucent_count + (translucent and 1 or -1)
+	end
 
 	if slot then
 		local row = rows[slot + 1]
@@ -51,6 +58,11 @@ function draw.ClearRow(id)
 	local slot = slot_of[id]
 
 	if not slot then return end
+
+	if translucent_ids[id] then
+		translucent_ids[id] = nil
+		translucent_count = translucent_count - 1
+	end
 
 	rows[slot + 1] = DEAD_ROW
 	slot_rows:Get()[slot] = 0xFFFFFFFF
@@ -88,8 +100,10 @@ local function get_cull_pipeline()
 			{"occlusion_enabled", "int"},
 			{"occlusion_max_mip", "int"},
 			{"occlusion_depth_bias", "float"},
+			{"kind", "int"},
 		},
 		write = function(self, block)
+			block.kind = state.kind
 			block.args = state.args_address
 			block.camera_position[0] = state.camera.x
 			block.camera_position[1] = state.camera.y
@@ -101,7 +115,7 @@ local function get_cull_pipeline()
 			block.viewport_height = state.viewport_height
 			block.lod_forced = lod.GetForcedLevel()
 			block.lod_scale = lod.GetScale()
-			block.lod_fade_width = lod.GetFadeWidth()
+			block.lod_fade_width = state.kind == 0 and lod.GetFadeWidth() or 0
 			block.culling_enabled = state.culling and 1 or 0
 			block.occlusion_enabled = state.occlusion_max_mip and 1 or 0
 			block.occlusion_max_mip = state.occlusion_max_mip or 0
@@ -137,6 +151,8 @@ local function get_cull_pipeline()
 				float cull_distance;
 				uint flags;
 				float prev[12];
+				vec3 local_size;
+				float thickness;
 			};
 
 			struct mesh_row {
@@ -164,6 +180,7 @@ local function get_cull_pipeline()
 			layout(buffer_reference, scalar) writeonly buffer CommandArray { draw_command c[]; };
 			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
 			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
+			layout(buffer_reference, scalar) writeonly buffer ThicknessArray { float t[]; };
 
 			struct draw_args {
 				uint64_t tlas;
@@ -174,6 +191,7 @@ local function get_cull_pipeline()
 				uint64_t worlds;
 				uint64_t prev_worlds;
 				uint64_t slot_rows;
+				uint64_t thicknesses;
 			};
 
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { draw_args a; };
@@ -217,7 +235,7 @@ local function get_cull_pipeline()
 
 			// a box the depth pyramid of the last frame hides completely
 			bool is_occluded(raster_data raster) {
-				if (compute.occlusion_enabled == 0 || (raster.flags & 2u) == 0u) return false;
+				if (compute.kind != 0 || compute.occlusion_enabled == 0 || (raster.flags & 2u) == 0u) return false;
 
 				vec2 min_uv = vec2(1.0);
 				vec2 max_uv = vec2(0.0);
@@ -275,8 +293,8 @@ local function get_cull_pipeline()
 
 				raster_data raster = RasterArray(ARGS.raster).r[id];
 
-				// 1 draws, 16 is a removed row (see instances.lua)
-				if ((raster.flags & 1u) == 0u) return;
+				// 1 draws in the gbuffer, 32 in the translucent passes, 16 is a removed row (see instances.lua)
+				if ((raster.flags & (compute.kind == 0 ? 1u : 32u)) == 0u) return;
 
 				instance_data inst = DataArray(ARGS.data).d[id];
 
@@ -323,9 +341,23 @@ local function get_cull_pipeline()
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[inst.mesh_row];
 				// the group is single or double sided, with the height map ones after them
-				uint group = ((raster.flags >> 3u) & 1u) + ((raster.flags >> 2u) & 1u) * 2u;
+				uint group = ((raster.flags >> 3u) & 1u) + (compute.kind == 0 ? ((raster.flags >> 2u) & 1u) * 2u : 0u);
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * group + slot] = draw_command(mesh.triangle_count * 3u, 1u, mesh.pool_first_index, 0, slot);
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
+
+				if (compute.kind != 0) {
+					float thickness = raster.thickness;
+
+					if (thickness < 0.0) {
+						thickness = min(
+							raster.local_size.x * length(vec3(t.m[0], t.m[4], t.m[8])),
+							min(raster.local_size.y * length(vec3(t.m[1], t.m[5], t.m[9])), raster.local_size.z * length(vec3(t.m[2], t.m[6], t.m[10])))
+						);
+					}
+
+					ThicknessArray(ARGS.thicknesses).t[slot] = thickness;
+				}
+
 				WorldArray(ARGS.worlds).w[slot] = world_from(t.m, fade);
 				WorldArray(ARGS.prev_worlds).w[slot] = world_from(raster.prev, 0.0);
 			}
@@ -334,47 +366,67 @@ local function get_cull_pipeline()
 	return cull_pipeline
 end
 
-local buffers
+-- the draws of the gbuffer (kind 0) and of the translucent passes (kind 1) are written by the same pass into a set of
+-- buffers each
+local buffer_sets = {}
 
-local function ensure_buffers(capacity)
-	if buffers and buffers.capacity >= capacity then return end
+local function ensure_buffers(kind, capacity)
+	local buffers = buffer_sets[kind]
+
+	if buffers and buffers.capacity >= capacity then return buffers end
 
 	if buffers then
 		render.GetDevice():WaitIdle()
 		buffers.commands:Remove()
 		buffers.worlds:Remove()
 		buffers.prev_worlds:Remove()
+
+		if buffers.thicknesses then buffers.thicknesses:Remove() end
 	end
 
 	capacity = math.ceil(capacity * 1.5)
 	local usage = {"storage_buffer", "shader_device_address", "indirect_buffer", "transfer_dst"}
+	local name = kind == 0 and "scene_draw" or "scene_draw_translucent"
 	buffers = {
 		capacity = capacity,
 		commands = render.CreateBuffer{
 			byte_size = capacity * GROUPS * COMMAND_SIZE,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
-			label = "scene_draw.commands",
+			label = name .. ".commands",
 		},
 		worlds = render.CreateBuffer{
 			byte_size = capacity * 64,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
-			label = "scene_draw.worlds",
+			label = name .. ".worlds",
 		},
 		prev_worlds = render.CreateBuffer{
 			byte_size = capacity * 64,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
-			label = "scene_draw.prev_worlds",
+			label = name .. ".prev_worlds",
 		},
 	}
+
+	if kind == 1 then
+		buffers.thicknesses = render.CreateBuffer{
+			byte_size = capacity * 4,
+			buffer_usage = usage,
+			memory_property = {"device_local"},
+			label = name .. ".thicknesses",
+		}
+		buffers.thicknesses_address = buffers.thicknesses:GetDeviceAddress()
+	end
+
 	buffers.commands_address = buffers.commands:GetDeviceAddress()
 	buffers.worlds_address = buffers.worlds:GetDeviceAddress()
 	buffers.prev_worlds_address = buffers.prev_worlds:GetDeviceAddress()
+	buffer_sets[kind] = buffers
+	return buffers
 end
 
-local frame_state = {frame = -1}
+local frame_state = {frame = -1, counts = {[0] = 0, 0}}
 
 -- records the pass that writes this frame's draws, outside of a render pass, after the instances were updated
 function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewport_height, culling_enabled)
@@ -383,85 +435,99 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 	-- only the rows that were given a mesh and a material can be drawn
 	local count = #rows
 	frame_state.frame = system.GetFrameNumber()
-	frame_state.count = 0
+	frame_state.counts[0] = 0
+	frame_state.counts[1] = 0
 
 	if count == 0 then return end
 
-	ensure_buffers(count)
 	local pipeline = get_cull_pipeline()
 	args_ring = args_ring or {}
-	local ring_slot = system.GetFrameNumber() % 4 + 1
-	local args = args_ring[ring_slot]
-
-	if not args then
-		args = render.CreateBuffer{
-			byte_size = 64,
-			buffer_usage = {"storage_buffer", "shader_device_address"},
-			memory_property = {"host_visible", "host_coherent"},
-			label = "scene_draw.args",
-		}
-		args_ring[ring_slot] = args
-		args.pointer = ffi.cast("uint64_t *", args:Map())
-		args.address = tonumber(args:GetDeviceAddress())
-	end
-
-	args.pointer[0] = tlas_table:GetAddress()
-	args.pointer[1] = data_table:GetAddress()
-	args.pointer[2] = raster_table:GetAddress()
-	args.pointer[3] = meshes.GetTable():GetAddress()
-	args.pointer[4] = buffers.commands_address
-	args.pointer[5] = buffers.worlds_address
-	args.pointer[6] = buffers.prev_worlds_address
-	args.pointer[7] = slot_rows:GetAddress()
-	state.args_address = args.address
-	state.camera = camera_position
-	state.count = count
-	state.capacity = buffers.capacity
-	state.planes = frustum_planes
-	state.view_projection = view_projection
-	state.viewport_height = viewport_height
-	state.culling = culling_enabled
-	local viewport_height = viewport_height
-	local hiz, fallback_hiz, hiz_height = gpu_culling.GetMainViewHiZ()
+	local hiz, fallback_hiz = gpu_culling.GetMainViewHiZ()
 	local bound = hiz or fallback_hiz
-
-	state.occlusion_max_mip = hiz and hiz.max_mip or nil
+	local descriptor_slot
 
 	if bound then
-		local descriptor_slot = system.GetFrameNumber() % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+		descriptor_slot = system.GetFrameNumber() % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		pipeline:UpdateDescriptorSet("combined_image_sampler", descriptor_slot, 0, 0, bound.view, bound.sampler, nil, nil, "general")
-		state.descriptor_slot = descriptor_slot
 	end
 
-	cmd:FillBuffer(buffers.commands, 0, buffers.commands.size, 0)
-	cmd:PipelineBarrier{
-		srcStage = {"host", "transfer", "compute"},
-		dstStage = "compute",
-		memoryBarrier = true,
-	}
-	pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, state.descriptor_slot or 1)
-	cmd:PipelineBarrier{
-		srcStage = "compute",
-		dstStage = {"draw_indirect", "vertex_shader", "vertex_input"},
-		memoryBarrier = true,
-	}
-	frame_state.count = count
+	for kind = 0, translucent_count > 0 and 1 or 0 do
+		local buffers = ensure_buffers(kind, count)
+		local ring_slot = system.GetFrameNumber() % 4 + 1
+		local ring = args_ring[kind]
+
+		if not ring then
+			ring = {}
+			args_ring[kind] = ring
+		end
+
+		local args = ring[ring_slot]
+
+		if not args then
+			args = render.CreateBuffer{
+				byte_size = 128,
+				buffer_usage = {"storage_buffer", "shader_device_address"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "scene_draw.args",
+			}
+			ring[ring_slot] = args
+			args.pointer = ffi.cast("uint64_t *", args:Map())
+			args.address = tonumber(args:GetDeviceAddress())
+		end
+
+		args.pointer[0] = tlas_table:GetAddress()
+		args.pointer[1] = data_table:GetAddress()
+		args.pointer[2] = raster_table:GetAddress()
+		args.pointer[3] = meshes.GetTable():GetAddress()
+		args.pointer[4] = buffers.commands_address
+		args.pointer[5] = buffers.worlds_address
+		args.pointer[6] = buffers.prev_worlds_address
+		args.pointer[7] = slot_rows:GetAddress()
+		args.pointer[8] = buffers.thicknesses_address or 0
+		state.kind = kind
+		state.args_address = args.address
+		state.camera = camera_position
+		state.count = count
+		state.capacity = buffers.capacity
+		state.planes = frustum_planes
+		state.view_projection = view_projection
+		state.viewport_height = viewport_height
+		state.culling = culling_enabled
+		state.occlusion_max_mip = hiz and hiz.max_mip or nil
+		cmd:FillBuffer(buffers.commands, 0, buffers.commands.size, 0)
+		cmd:PipelineBarrier{
+			srcStage = {"host", "transfer", "compute"},
+			dstStage = "compute",
+			memoryBarrier = true,
+		}
+		pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, descriptor_slot or 1)
+		cmd:PipelineBarrier{
+			srcStage = "compute",
+			dstStage = {"draw_indirect", "vertex_shader", "vertex_input"},
+			memoryBarrier = true,
+		}
+		frame_state.counts[kind] = count
+	end
 end
 
 local batch_tables = setmetatable({}, {__mode = "k"})
 
+-- whether the views of this frame were culled, and what the store draws is not left to the cpu
+function draw.IsCulled()
+	return frame_state.frame == system.GetFrameNumber()
+end
+
 -- draws what Cull wrote in the gbuffer pass: every row of the pipelines' groups, the rows that are not in view have no
 -- instances
 function draw.Draw(gbuffer_instancing, pipelines)
-	if frame_state.frame ~= system.GetFrameNumber() or frame_state.count == 0 then return false end
+	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[0] == 0 then return false end
 
+	local buffers = buffer_sets[0]
 	local cmd = render.GetCommandBuffer()
 	local stride = COMMAND_SIZE
 	local group_size = buffers.capacity * stride
 	-- the rows that were given a mesh and a material, past them nothing is drawn
-	local count = frame_state.count
-
-	if count == 0 then return false end
+	local count = frame_state.counts[0]
 
 	gpu_culling.MarkMainViewDrawn()
 
@@ -484,6 +550,34 @@ function draw.Draw(gbuffer_instancing, pipelines)
 		cmd:DrawIndexedIndirect(buffers.commands, ((i - 1) * 2 + 1) * group_size, count, stride)
 	end
 
+	return true
+end
+
+-- draws the translucent rows of the view in a translucent pass, with the pass's multi draw pipeline. returns whether the
+-- store had any
+function draw.DrawTranslucent(gbuffer_instancing, pipeline)
+	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[1] == 0 then return false end
+
+	local buffers = buffer_sets[1]
+	local cmd = render.GetCommandBuffer()
+	local group_size = buffers.capacity * COMMAND_SIZE
+	local batch_table = batch_tables[pipeline]
+
+	if not batch_table then
+		batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_rows")
+		batch_tables[pipeline] = batch_table
+	end
+
+	pipeline.draw_batches_address = batch_table:Update(pipeline, rows, draw.serial, system.GetFrameNumber())
+	pipeline.draw_instances_address = buffers.worlds_address
+	pipeline.draw_prev_instances_address = buffers.prev_worlds_address
+	pipeline.draw_thicknesses_address = buffers.thicknesses_address
+	pipeline:UploadConstants()
+	cmd:SetCullMode(orientation.CULL_MODE)
+	cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
+	cmd:DrawIndexedIndirect(buffers.commands, 0, frame_state.counts[1], COMMAND_SIZE)
+	cmd:SetCullMode("none")
+	cmd:DrawIndexedIndirect(buffers.commands, group_size, frame_state.counts[1], COMMAND_SIZE)
 	return true
 end
 
