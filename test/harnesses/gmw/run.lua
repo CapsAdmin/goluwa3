@@ -5,7 +5,7 @@ local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local raycast = import("goluwa/render3d/raycast.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -94,9 +94,9 @@ do
 	end)
 	local seen_ready
 	event.AddListener("Update", "gmw_stage", function()
-		if scene_bvh.readied and not seen_ready then
+		if scene_rt.readied and not seen_ready then
 			seen_ready = true
-			print(string.format("STAGE %-26s       %6.2fs", "scene_bvh.readied", system.GetTime() - t0))
+			print(string.format("STAGE %-26s       %6.2fs", "scene_rt.readied", system.GetTime() - t0))
 		end
 	end)
 end
@@ -141,10 +141,10 @@ event.AddListener("Update", "gmw", function()
 				print("  LISTENERS " .. top_listeners(listener_window, 7))
 				table.clear(listener_window)
 			end
-			print(string.format("t=%.1fs frame=%d ft=%.0fms mem=%.0fMB bvh=%s loading=%s busy=%s", now - t0, system.GetFrameNumber(), dt * 1000, collectgarbage("count") / 1024, tostring(scene_bvh.readied), tostring(scene_loading.IsLoading()), tostring(tasks.IsBusy())))
+			print(string.format("t=%.1fs frame=%d ft=%.0fms mem=%.0fMB bvh=%s loading=%s busy=%s", now - t0, system.GetFrameNumber(), dt * 1000, collectgarbage("count") / 1024, tostring(scene_rt.readied), tostring(scene_loading.IsLoading()), tostring(tasks.IsBusy())))
 		end
 
-		if scene_bvh.readied and not scene_loading.IsLoading() and not tasks.IsBusy() then
+		if scene_rt.readied and not scene_loading.IsLoading() and not tasks.IsBusy() then
 			stable_since = stable_since or now
 			if now - stable_since > 3 then
 				local done = stable_since - t0

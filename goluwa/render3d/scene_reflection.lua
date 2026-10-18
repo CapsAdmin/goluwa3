@@ -209,7 +209,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			hit_t = t;
 			uint hit_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
 			uint hit_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
-			scene_bvh_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
+			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ddgi_material material = ddgi_materials[tri.material];
 			// the visible side winds clockwise, so tri.normal points inward
 			vec3 hit_N = -tri.normal;
@@ -226,7 +226,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
 				vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
-				scene_bvh_uv uv = scene_hit_uv(hit_instance, hit_primitive);
+				scene_uv uv = scene_hit_uv(hit_instance, hit_primitive);
 				vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics);
 				vec2 coord = uv.uv0 * weights.x + uv.uv1 * weights.y + uv.uv2 * weights.z;
 				vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, 0.0).rgb;

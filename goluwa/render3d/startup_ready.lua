@@ -1,7 +1,8 @@
 local event = import("goluwa/event.lua")
 local startup = import("goluwa/startup.lua")
 local scene = import("goluwa/entities/scene.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local QUIET_TIME = 1.5
@@ -27,14 +28,14 @@ event.AddListener("SceneLoad", "startup_gc_pause", function()
 	normal_gc_pause = normal_gc_pause or collectgarbage("setpause", pvars.Get("r_loading_gc_pause"))
 end)
 
--- the scene is ready once the map load is done, the bvh has stopped changing and frames are fast again
+-- the scene is ready once the map load is done, the ray traced scene has stopped changing and frames are fast again
 event.AddListener("Update", "startup_ready", function(dt)
-	if startup.IsReady() or not scene_bvh.readied then return end
+	if startup.IsReady() or not scene_rt.readied then return end
 
 	local now = startup.GetTime()
 
-	if scene_loading.IsLoading() or scene.IsSpawning() or scene_bvh.version ~= last_version then
-		last_version = scene_bvh.version
+	if scene_loading.IsLoading() or scene.IsSpawning() or instances.version ~= last_version then
+		last_version = instances.version
 		quiet_since = now
 		snapshot = startup.Snapshot()
 		return

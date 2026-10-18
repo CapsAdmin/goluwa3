@@ -150,33 +150,6 @@ T.Test3D("source engine player model animations", function()
 	T(difference)[">"](0.1)
 end)
 
-T.Test3D("animated visuals get a block in the scene bvh with a per triangle source table", function(draw)
-	local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
-
-	if not render.GetDevice().ray_tracing_supported then
-		return T.Unavailable("ray tracing not supported")
-	end
-
-	local skeleton = create_skeleton()
-	local entity, primitive, poly = create_animated_entity(skeleton)
-	local animator = entity:AddComponent("animator")
-	animator:Bind(skeleton)
-	animator:SetSequence("swing")
-	animator:Animate(0)
-	entity.visual:BuildAABB()
-	scene_bvh.Build(true)
-	local block
-
-	for animated in pairs(scene_bvh.animated_blocks) do
-		if animated.shape.animated_source then block = animated end
-	end
-
-	T(block ~= nil)["=="](true)
-	T(block.shape.total)["=="](poly.mesh.vertex_buffer:GetVertexCount() / 3)
-	animator:Unbind()
-	entity:Remove()
-end)
-
 T.Test3D("animator skins once more after the pose stops changing, then goes quiet", function()
 	local skeleton = create_skeleton()
 	local entity = create_animated_entity(skeleton)

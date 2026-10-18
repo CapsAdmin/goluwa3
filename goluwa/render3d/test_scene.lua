@@ -3,7 +3,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local weather = import("goluwa/render3d/weather.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Shot = import("goluwa/render3d/shot.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -196,12 +196,12 @@ function test_scene.Mirror(config)
 end
 
 function test_scene.WhenReady(cb)
-	if scene_bvh.readied then
+	if scene_rt.readied then
 		cb()
 		return
 	end
 
-	event.AddListener("BVHSceneReady", {}, function()
+	event.AddListener("RTSceneReady", {}, function()
 		cb()
 		return event.destroy_tag
 	end)

@@ -9,7 +9,7 @@ local View = import("goluwa/render3d/view.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local commands = import("goluwa/cli/commands.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local MAPS = {
@@ -85,7 +85,7 @@ end
 
 commands.RunString(map.cmd)
 local ready_at, settled_at, view
-event.AddListener("BVHSceneReady", "go_ready", function()
+event.AddListener("RTSceneReady", "go_ready", function()
 	ready_at = system.GetTime()
 end)
 local original = {}

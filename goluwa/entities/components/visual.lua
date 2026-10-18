@@ -19,7 +19,6 @@ local scene_bridge = import("goluwa/render3d/scene/bridge.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local billboard = import("goluwa/render3d/billboard.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local test_helper = import("goluwa/test.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
@@ -1076,11 +1075,9 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("ReceivesDecals", true)
--- in the scene bvh (shadows from the soup, gi, reflections) and nothing else: no gbuffer, shadow map or culling draws
+-- in the ray traced scene (gi, reflections, glass, fog) and nothing else: no gbuffer, shadow map or culling draws
 Visual:GetSet("RaysOnly", false)
--- shadows from the soup of the scene bvh. the terrain's bvh tiles are coarse copies that give none, its real tiles are drawn instead
-Visual:GetSet("CastSoupShadows", true)
--- false keeps it out of the scene bvh (no shadows from the soup, gi, reflections or traced hits), which is a cpu sah build per mesh
+-- false keeps it out of the ray traced scene (no gi, reflections or traced hits)
 Visual:GetSet("InSceneBVH", true)
 Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 1000000)
@@ -1186,7 +1183,7 @@ function Visual:SetInSceneBVH(enabled)
 	if self.InSceneBVH == enabled then return end
 
 	objects.CommitProperty(self, "InSceneBVH", enabled)
-	scene_bvh.Invalidate(self)
+	mark_scene_component_dirty(self, true)
 end
 
 function Visual:SetRaysOnly(enabled)
@@ -1195,7 +1192,6 @@ function Visual:SetRaysOnly(enabled)
 	objects.CommitProperty(self, "RaysOnly", enabled)
 	mark_shadow_change(self)
 	mark_scene_component_dirty(self, true)
-	scene_bvh.Invalidate(self)
 end
 
 do
@@ -1251,7 +1247,6 @@ function Visual:ApplyVisible(visible)
 	objects.CommitProperty(self, "Visible", visible)
 	mark_shadow_change(self)
 	mark_scene_component_dirty(self)
-	scene_bvh.Invalidate(self)
 end
 
 function Visual:SetVisible(visible)
@@ -1289,7 +1284,6 @@ function Visual:InvalidateRenderEntries()
 	refresh_forward_overlay_registry(self)
 	refresh_translucent_registry(self)
 	mark_scene_component_dirty(self, true)
-	scene_bvh.Invalidate(self)
 end
 
 function Visual:NotifyGeometryChanged()
@@ -1813,7 +1807,7 @@ do
 			visual.bvh_level = lod.GetBVHLevel()
 
 			for _, component in ipairs(Visual.Instances) do
-				scene_bvh.Invalidate(component)
+				mark_scene_component_dirty(component, true)
 			end
 		end
 
@@ -3806,34 +3800,8 @@ function Visual:OnFirstCreated()
 		}
 	end)
 
-	local tile_casters = {}
-
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
 		reset_shadow_draw_calls(shadow_map, cascade_idx)
-
-		if
-			shadow_map.UsesSoup and
-			shadow_map:UsesSoup(cascade_idx) and
-			scene_bvh.IsReady()
-		then
-			shadow_map:DrawSoup(cascade_idx)
-
-			-- what is not in the bvh, the terrain's tiles, is not in the soup: it is drawn as it is, so the terrain shadows
-			-- agree between the cascades
-			if terrain_shadow.IsActive() then
-				table.clear(tile_casters)
-
-				for _, component in ipairs(visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)) do
-					if not component.InSceneBVH then tile_casters[#tile_casters + 1] = component end
-				end
-
-				if tile_casters[1] then
-					shadow_map:DrawVisibleComponents(tile_casters, cascade_idx, false)
-				end
-			end
-
-			return
-		end
 
 		if gpu_culling.IsEnabled() then
 			local track_shadow_debug = visual.shadow_debug_filter ~= nil

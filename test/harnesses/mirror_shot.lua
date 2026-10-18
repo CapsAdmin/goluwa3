@@ -4,7 +4,7 @@ local Shot = import("goluwa/render3d/shot.lua")
 local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
-event.AddListener("BVHSceneReady", "mirror_shot", function()
+event.AddListener("RTSceneReady", "mirror_shot", function()
 	print("bvh ready, capturing")
 
 	Shot.Capture(

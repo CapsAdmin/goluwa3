@@ -13,7 +13,7 @@ local system = import("goluwa/system.lua")
 local light_occlusion = {}
 pvars.StartGroup("Lighting", "Light occlusion", {store = false, prefix = "light_occlusion_"})
 local enabled = pvars.Setup2{
-	key = "scene_bvh_light_occlusion",
+	key = "light_occlusion",
 	default = true,
 	friendly = "enabled",
 	help = "trace per light occlusion maps against the scene bvh",
@@ -246,12 +246,12 @@ local function build_trace_pipeline()
 				vec2 moments = vec2(0.0);
 				vec2 uv0 = vec2(p) / float(size);
 				vec2 uv_step = vec2(1.0) / (float(size) * float(LIGHT_OCCL_SUBS));
-				scene_bvh_hit hit;
+				scene_trace_hit hit;
 
 				for (int sy = 0; sy < LIGHT_OCCL_SUBS; sy++) {
 					for (int sx = 0; sx < LIGHT_OCCL_SUBS; sx++) {
 						vec3 dir = oct_decode((uv0 + (vec2(sx, sy) + 0.5) * uv_step) * 2.0 - 1.0);
-						float dist = scene_bvh_trace(light.xyz, dir, LIGHT_OCCL_T_MIN, light.w, hit) ? hit.distance : light.w;
+						float dist = scene_trace(light.xyz, dir, LIGHT_OCCL_T_MIN, light.w, hit) ? hit.distance : light.w;
 						moments += vec2(dist, dist * dist);
 					}
 				}

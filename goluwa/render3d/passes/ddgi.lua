@@ -339,7 +339,7 @@ local function pass_shade()
 						int emitter_index = int(hit.y & 0x03FFFFFFu);
 						uint emitter_instance = ddgi_emitter_instance(emitter_index);
 						uint emitter_triangle = ddgi_emitter_triangle(emitter_index) & ~DDGI_EMITTER_DOUBLE_SIDED;
-						scene_bvh_triangle tri = scene_hit_tri(emitter_instance, emitter_triangle);
+						scene_triangle tri = scene_hit_tri(emitter_instance, emitter_triangle);
 						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 26u);
 						vec3 point = ddgi_emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
@@ -376,7 +376,7 @@ local function pass_shade()
 					return;
 				}
 
-				scene_bvh_triangle tri = scene_hit_tri(hit.y, hit.z);
+				scene_triangle tri = scene_hit_tri(hit.y, hit.z);
 				ddgi_material material = ddgi_materials[tri.material];
 				// the rasterizer culls counter clockwise ("front") faces, so the
 				// visible side winds clockwise and cross(e1, e2) points inward
@@ -1114,7 +1114,7 @@ local function pass_scene_debug()
 				ddgi_debug_hit hit;
 
 				if (ddgi_data.ddgi_rt_ready != 0 && debug_trace(O, D, hit)) {
-					scene_bvh_triangle tri = scene_hit_tri(hit.instance, hit.primitive);
+					scene_triangle tri = scene_hit_tri(hit.instance, hit.primitive);
 					ddgi_material material = ddgi_materials[tri.material];
 					// see the shade pass: cross(e1, e2) points inward
 					vec3 N = -tri.normal;

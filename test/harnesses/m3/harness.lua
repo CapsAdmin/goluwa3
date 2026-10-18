@@ -3,7 +3,7 @@ local units = import("goluwa/source_engine/units.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -18,7 +18,7 @@ function m3.Run(fn, yaw, pitch)
 	event.AddListener("Update", "m3_harness", function()
 		local now = system.GetTime()
 		if not view then
-			if scene_bvh.readied and not scene_loading.IsLoading() and not tasks.IsBusy() then
+			if scene_rt.readied and not scene_loading.IsLoading() and not tasks.IsBusy() then
 				stable_since = stable_since or now
 				if now - stable_since > 4 then
 					print(string.format("LOADED at %.1fs", now - t0))

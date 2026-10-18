@@ -5,11 +5,9 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 steam.MountSourceGame("gmod")
 import("goluwa/entities/components/visual.lua").Library.noculling = true
 
-if _G.MIRROR_FREEZE_BVH then scene_bvh.ANIMATION_DISTANCE = 0 end
 
 local poly = Polygon3D.New()
 poly:CreatePlane(Vec3(0, 1.2, 2), Vec3(0, 0, 1), Vec3(1, 0, 0), Vec3(0, 1, 0), 1.6, 1.3, 1, 1, 1)

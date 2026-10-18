@@ -28,9 +28,6 @@ do
 		local ddgi = import("goluwa/render3d/ddgi.lua")
 		local old = ddgi.GetEmitters
 		local last_version
-		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
-		local ls, lt, lb = scene_bvh.soup_version, scene_bvh.top_version, scene_bvh.emissive_blocks
-		emitter_stats.soup_changed, emitter_stats.top_changed, emitter_stats.blocks_changed = 0, 0, 0
 		ddgi.GetEmitters = function(...)
 			local t = system.GetTime()
 			local e = old(...)
@@ -41,10 +38,6 @@ do
 			if e.version ~= last_version then
 				last_version = e.version
 				emitter_stats.rebuilds = emitter_stats.rebuilds + 1
-				if scene_bvh.soup_version ~= ls then emitter_stats.soup_changed = emitter_stats.soup_changed + 1 end
-				if scene_bvh.top_version ~= lt then emitter_stats.top_changed = emitter_stats.top_changed + 1 end
-				if scene_bvh.emissive_blocks ~= lb then emitter_stats.blocks_changed = emitter_stats.blocks_changed + 1 end
-				ls, lt, lb = scene_bvh.soup_version, scene_bvh.top_version, scene_bvh.emissive_blocks
 				emitter_stats.rebuild_time = emitter_stats.rebuild_time + dt
 				emitter_stats.max = math.max(emitter_stats.max, dt)
 				emitter_stats.count = e.count
@@ -218,7 +211,7 @@ end
 function walk.Report(frame_times, gpu_sums, gpu_n, worst, alloc, seconds)
 	if os.getenv("GMW_EMITTERS") then
 		print("STATS hide", STAT_HIDE, "write", STAT_WRITE, "release", STAT_RELEASE, "same", STAT_SAME, "diff", STAT_DIFF)
-		print(string.format("EMITTERS calls=%d rebuilds=%d total=%.0fms rebuild_total=%.0fms max_rebuild=%.1fms emitters=%s soup_changed=%d top_changed=%d blocks_changed=%d blocks=%d", emitter_stats.calls, emitter_stats.rebuilds, emitter_stats.time * 1000, emitter_stats.rebuild_time * 1000, emitter_stats.max * 1000, tostring(emitter_stats.count), emitter_stats.soup_changed, emitter_stats.top_changed, emitter_stats.blocks_changed, #import("goluwa/render3d/scene_bvh.lua").emissive_blocks))
+		print(string.format("EMITTERS calls=%d rebuilds=%d total=%.0fms rebuild_total=%.0fms max_rebuild=%.1fms emitters=%s", emitter_stats.calls, emitter_stats.rebuilds, emitter_stats.time * 1000, emitter_stats.rebuild_time * 1000, emitter_stats.max * 1000, tostring(emitter_stats.count)))
 	end
 	local sorted = table.move(frame_times, 1, #frame_times, 1, {})
 	table.sort(sorted)

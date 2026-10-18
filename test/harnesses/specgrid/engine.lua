@@ -26,7 +26,7 @@ local radius = 17.8
 local char_width = 6.3
 local live = os.getenv("SPECGRID_LIVE") ~= nil
 commands.ExecuteCommandString("map gm_construct")
-event.AddListener("BVHSceneReady", "specgrid", function()
+event.AddListener("RTSceneReady", "specgrid", function()
 	for ri, row in ipairs(rows) do
 		local z = ez - 64 + 20 + (#rows - ri) * spacing
 

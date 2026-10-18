@@ -5,7 +5,6 @@ local vfs = import("goluwa/vfs.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Animator = import("goluwa/entities/components/animator.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local SIDES = {}
 
 for side in (os.getenv("ANIM_SIDES") or "0,5,10,15,20"):gmatch("%d+") do
@@ -17,7 +16,6 @@ if os.getenv("ANIM_NO_LOD") then
 	Animator.LOD_FAR = 2e9
 end
 
-if os.getenv("ANIM_NO_BVH_ANIM") then scene_bvh.ANIMATION_DISTANCE = 0 end
 
 local SPACING = 1.2
 local SEQUENCES = {"walk_all", "run_all_01", "run_all_02", "idle_all_01", "cwalk_all"}

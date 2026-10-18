@@ -2,7 +2,6 @@ local ffi = require("ffi")
 local vk = import("goluwa/bindings/vk.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = nil
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -1192,281 +1191,6 @@ local function quickselect_depth_value(values, target_index)
 	return nil
 end
 
-local SOUP_TRIANGLE_BINDING = 2
-local SOUP_OPACITY_BINDING = 3
-local SOUP_UV_BINDING = 4
-local SOUP_VERTEX_BODY = [[
-		uint vid = uint(gl_VertexIndex);
-		uint tri = vid / 3u;
-		uint which = vid - tri * 3u;
-		scene_bvh_triangle t = bvh_tri(tri);
-		vec3 p = vec3(0.0);
-
-		if (material_opacities[t.material] > 0.0) {
-			p = t.v0;
-
-			if (which == 1u) p += t.e1;
-			else if (which == 2u) p += t.e2;
-		}
-
-		gl_Position = soup_light.light_space_matrix * vec4(p, 1.0);
-]]
-local soup_vertex_glsl = {}
-
-local function get_soup_vertex_glsl(uvs)
-	local code = soup_vertex_glsl[uvs]
-
-	if code then return code end
-
-	code = [[
-		#version 450
-		#extension GL_EXT_scalar_block_layout : require
-		#extension GL_EXT_nonuniform_qualifier : require
-	]] .. scene_bvh.GetTriangleDeclarationGLSL(SOUP_TRIANGLE_BINDING) .. [[
-		layout(scalar, set = 0, binding = ]] .. SOUP_OPACITY_BINDING .. [[) readonly buffer SoupShadowOpacity {
-			float material_opacities[];
-		};
-		layout(scalar, set = 0, binding = 0) uniform SoupLight_t {
-			mat4 light_space_matrix;
-		} soup_light;
-	]]
-
-	if uvs then
-		code = code .. scene_bvh.GetUvDeclarationGLSL(SOUP_UV_BINDING) .. [[
-		layout(location = 0) out vec2 out_uv;
-		layout(location = 1) flat out uint out_material;
-
-		void main() {
-]] .. SOUP_VERTEX_BODY .. [[
-			scene_bvh_uv tuv = bvh_uv(tri);
-			out_uv = which == 0u ? tuv.uv0 : (which == 1u ? tuv.uv1 : tuv.uv2);
-			out_material = t.material;
-		}
-	]]
-	else
-		code = code .. "void main() {\n" .. SOUP_VERTEX_BODY .. "}\n"
-	end
-
-	soup_vertex_glsl[uvs] = code
-	return code
-end
-
-local SOUP_FRAGMENT_GLSL = [[
-		#version 450
-
-		void main() {}
-	]]
-
-local function get_soup_descriptor_sets(self, uvs)
-	local sets = {
-		{
-			type = "uniform_buffer_dynamic",
-			binding_index = 0,
-			args = {self.soup_light_buffer.buffer, self.soup_light_buffer.aligned_size},
-		},
-		{
-			type = "storage_buffer",
-			binding_index = SOUP_TRIANGLE_BINDING,
-			count = scene_bvh.SOUP_CHUNKS,
-		},
-		{type = "storage_buffer", binding_index = SOUP_OPACITY_BINDING},
-	}
-
-	if uvs then
-		sets[4] = {
-			type = "storage_buffer",
-			binding_index = SOUP_UV_BINDING,
-			count = scene_bvh.SOUP_CHUNKS,
-		}
-	end
-
-	return sets
-end
-
-local function create_soup_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
-	return render.CreateGraphicsPipeline(
-		build_shadow_pipeline_config(
-			depth_format,
-			max_shadow_width,
-			max_shadow_height,
-			{
-				{
-					type = "vertex",
-					code = get_soup_vertex_glsl(false),
-					descriptor_sets = get_soup_descriptor_sets(self, false),
-				},
-				{type = "fragment", code = SOUP_FRAGMENT_GLSL},
-			},
-			"triangle_list",
-			nil,
-			nil
-		)
-	)
-end
-
-local SOUP_UV_FRAGMENT_GLSL = [[
-		#version 450
-		#extension GL_EXT_nonuniform_qualifier : require
-		#extension GL_EXT_scalar_block_layout : require
-
-		layout(set = 1, binding = 0) uniform sampler2D textures[%d];
-
-		struct SoupShadowMaterial {
-			float color_multiplier_a;
-			int albedo_texture_index;
-			float cutoff;
-			uint mode;
-			int flags;
-			int normal_texture_index;
-			vec4 base_transform_u;
-			vec4 base_transform_v;
-			vec4 bump_transform_u;
-			vec4 bump_transform_v;
-		};
-
-		layout(scalar, set = 0, binding = 1) readonly buffer SoupShadowMaterials {
-			SoupShadowMaterial materials[];
-		};
-
-		layout(location = 0) in vec2 in_uv;
-		layout(location = 1) flat in uint in_material;
-
-		SoupShadowMaterial material;
-	]]
-local SOUP_UV_FRAGMENT_MAIN_GLSL = [[
-		void main() {
-			material = materials[in_material];
-			float alpha = get_alpha();
-
-			if (material.mode == 1u) {
-				if (alpha < material.cutoff) discard;
-			} else if (material.mode == 2u) {
-				if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > alpha) discard;
-			}
-		}
-	]]
-local SoupShadowMaterial = ffi.typeof([[struct {
-	float color_multiplier_a;
-	int32_t albedo_texture_index;
-	float cutoff;
-	uint32_t mode;
-	int32_t flags;
-	int32_t normal_texture_index;
-	float base_transform_u[4];
-	float base_transform_v[4];
-	float bump_transform_u[4];
-	float bump_transform_v[4];
-}]])
-local SoupShadowMaterialPtr = ffi.typeof("$ *", SoupShadowMaterial)
-local SOUP_MATERIAL_BYTES = ffi.sizeof(SoupShadowMaterial)
-
-local function create_soup_material_table(capacity)
-	local buffer = render.CreateBuffer{
-		byte_size = capacity * SOUP_MATERIAL_BYTES,
-		buffer_usage = {"storage_buffer"},
-		memory_property = {"host_visible", "host_coherent"},
-		label = "shadow_map.soup_materials",
-	}
-	return {
-		buffer = buffer,
-		ptr = ffi.cast(SoupShadowMaterialPtr, buffer:Map()),
-		capacity = capacity,
-		filled = 0,
-		full_generation = -1,
-		stamp = 0,
-	}
-end
-
-local function create_soup_uv_pipeline_variant(
-	self,
-	depth_format,
-	max_shadow_width,
-	max_shadow_height,
-	bindless_texture_capacity,
-	table_state
-)
-	return render.CreateGraphicsPipeline(
-		build_shadow_pipeline_config(
-			depth_format,
-			max_shadow_width,
-			max_shadow_height,
-			{
-				{
-					type = "vertex",
-					code = get_soup_vertex_glsl(true),
-					descriptor_sets = get_soup_descriptor_sets(self, true),
-				},
-				{
-					type = "fragment",
-					code = SOUP_UV_FRAGMENT_GLSL:format(bindless_texture_capacity) .. Material.BuildGlslFlags("material.flags") .. build_shadow_alpha_glsl("material") .. SOUP_UV_FRAGMENT_MAIN_GLSL,
-					descriptor_sets = {
-						{
-							type = "combined_image_sampler",
-							binding_index = 0,
-							count = bindless_texture_capacity,
-							set_index = 1,
-						},
-						{
-							type = "storage_buffer",
-							binding_index = 1,
-							set_index = 0,
-							args = {table_state.buffer, table_state.buffer:GetSize()},
-						},
-					},
-				},
-			},
-			"triangle_list",
-			nil,
-			nil
-		)
-	)
-end
-
-local function update_soup_material_table(pipeline, table_state)
-	local materials = scene_bvh.materials
-	local count = #materials
-	local full = table_state.full_generation ~= Material.shadow_full_generation
-
-	if count > table_state.capacity then
-		local grown = create_soup_material_table(math.max(count, math.ceil(table_state.capacity * 1.5)))
-		ffi.copy(grown.ptr, table_state.ptr, table_state.filled * SOUP_MATERIAL_BYTES)
-		grown.filled = table_state.filled
-		table_state.buffer:Remove()
-		table_state.buffer = grown.buffer
-		table_state.ptr = grown.ptr
-		table_state.capacity = grown.capacity
-	end
-
-	local stamp = table_state.stamp
-	local filled = table_state.filled
-
-	for i = 0, count - 1 do
-		local material = materials[i + 1]
-
-		if full or i >= filled or (material.shadow_stamp or 0) > stamp then
-			local entry = table_state.ptr[i]
-			local texture = material:HasShadowTexture() and material:GetAlbedoTexture() or nil
-			entry.color_multiplier_a = material:GetShadowOpacity()
-			entry.albedo_texture_index = texture and pipeline:GetTextureIndex(texture) or -1
-			entry.flags = material:GetShadowFlags()
-			write_shadow_uv_data(entry, material, pipeline:GetTextureIndex(material:GetNormalTexture()))
-			entry.cutoff = material:GetAlphaCutoff()
-			entry.mode = material:GetAlphaTest() and
-				1 or
-				(
-					bit.band(material:GetShadowFlags(), Material.FlagBits.Translucent) ~= 0 and
-					2 or
-					0
-				)
-		end
-	end
-
-	table_state.filled = count
-	table_state.full_generation = Material.shadow_full_generation
-	table_state.stamp = Material.shadow_stamp
-	pipeline:UpdateDescriptorSet("storage_buffer", 1, 1, 0, table_state.buffer, table_state.buffer:GetSize())
-end
-
 local MAX_SHADOW_PASSES_PER_FRAME = 4
 local shadow_pass_budget_frame = -1
 local shadow_passes_used = 0
@@ -1643,12 +1367,6 @@ function ShadowMap.New(config)
 	self.cascade = {}
 	self.vertex_animation_buffer = UniformBuffer.New(model_pipeline.GetVertexAnimationUniformBufferDecl(), "shadow_map.vertex_animation")
 	self.shadow_state_buffer = UniformBuffer.New(ShadowStateUniformDecl, "shadow_map.state")
-	self.soup_state = {
-		version = -1,
-		shadow_generation = -1,
-		albedo_generation = -1,
-		vertex_count = 0,
-	}
 	self.light = config.light
 	self.role = config.role or "cascades"
 	self.policy = config.policy or {}
@@ -1794,11 +1512,6 @@ function ShadowMap.New(config)
 		self.pipeline_variants = {}
 		self.instanced_pipeline_variants = {}
 		self.multi_draw_pipeline_variants = {}
-		self.soup_cascade_from = config.soup_cascade_from or 2
-		self.soup_light_buffer = UniformBuffer.New([[struct { float light_space_matrix[16]; }]], "shadow_map.soup_light")
-		self.soup_pipeline_variants = {}
-		self.soup_uv_pipeline_variants = {}
-		self.soup_material_tables = {}
 
 		for depth_format in pairs(unique_formats) do
 			self.pipeline_variants[depth_format] = create_shadow_pipeline_variant(
@@ -1827,22 +1540,10 @@ function ShadowMap.New(config)
 				false,
 				nil
 			)
-			self.soup_pipeline_variants[depth_format] = create_soup_pipeline_variant(self, depth_format, max_shadow_width, max_shadow_height)
-			local table_state = create_soup_material_table(256)
-			self.soup_material_tables[depth_format] = table_state
-			self.soup_uv_pipeline_variants[depth_format] = create_soup_uv_pipeline_variant(
-				self,
-				depth_format,
-				max_shadow_width,
-				max_shadow_height,
-				bindless_texture_capacity,
-				table_state
-			)
 		end
 
 		self.pipeline = self.pipeline_variants[self.format]
 		self.instanced_pipeline = self.instanced_pipeline_variants[self.format]
-		self.soup_pipeline = self.soup_pipeline_variants[self.format]
 	end
 
 	self.command_pool = render.GetCommandPool()
@@ -1867,10 +1568,6 @@ function ShadowMap:OnRemove()
 	end
 
 	self.instance_batcher:Remove()
-
-	for _, table_state in pairs(self.soup_material_tables or {}) do
-		table_state.buffer:Remove()
-	end
 
 	for i, map in ipairs(active_maps) do
 		if map == self then
@@ -2283,8 +1980,6 @@ local function record_shadow_draw_cull(self, cascade_index)
 	local cascade = self.cascade[cascade_index]
 	cascade.gpu_draw_cull_result = nil
 
-	if self:UsesSoup(cascade_index) and scene_bvh.IsReady() then return end
-
 	if not gpu_culling.IsEnabled() or not gpu_culling.GetSceneDataset() then
 		return
 	end
@@ -2417,55 +2112,6 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		gpu_timing.BeginCommandBuffer(self.cmd)
 		self.is_recording_cascades = true
 		self.batch_serial = self.batch_serial + 1
-		local state = self.soup_state
-
-		if
-			self.mode ~= "point" and
-			self.soup_cascade_from <= self.cascade_count and
-			(
-				state.version ~= scene_bvh.soup_version or
-				state.shadow_generation ~= Material.shadow_generation or
-				state.albedo_generation ~= Material.albedo_generation
-			)
-		then
-			local materials_changed = state.shadow_generation ~= Material.shadow_generation or
-				state.albedo_generation ~= Material.albedo_generation
-			state.version = scene_bvh.soup_version
-			state.shadow_generation = Material.shadow_generation
-			state.albedo_generation = Material.albedo_generation
-
-			for format, table_state in pairs(self.soup_material_tables) do
-				update_soup_material_table(self.soup_uv_pipeline_variants[format], table_state)
-			end
-
-			local opacities = scene_bvh.UpdateShadowMaterials()
-			state.vertex_count = scene_bvh.IsReady() and scene_bvh.soup_triangle_count * 3 or 0
-
-			if state.vertex_count > 0 then
-				if materials_changed then scene_bvh.RefreshShadowClasses() end
-
-				if
-					state.triangle_buffer ~= scene_bvh.triangle_buffer or
-					state.uv_buffer ~= scene_bvh.uv_buffer or
-					state.opacity_buffer ~= opacities
-				then
-					state.triangle_buffer = scene_bvh.triangle_buffer
-					state.uv_buffer = scene_bvh.uv_buffer
-					state.opacity_buffer = opacities
-
-					for _, pipeline in pairs(self.soup_pipeline_variants) do
-						scene_bvh.BindTriangleBuffer(pipeline, 1, SOUP_TRIANGLE_BINDING, scene_bvh.triangle_buffer)
-						pipeline:UpdateDescriptorSet("storage_buffer", 1, SOUP_OPACITY_BINDING, 0, opacities, opacities:GetSize())
-					end
-
-					for _, pipeline in pairs(self.soup_uv_pipeline_variants) do
-						scene_bvh.BindTriangleBuffer(pipeline, 1, SOUP_TRIANGLE_BINDING, scene_bvh.triangle_buffer)
-						pipeline:UpdateDescriptorSet("storage_buffer", 1, SOUP_OPACITY_BINDING, 0, opacities, opacities:GetSize())
-						scene_bvh.BindTriangleBuffer(pipeline, 1, SOUP_UV_BINDING, scene_bvh.uv_buffer, scene_bvh.UV_CHUNK_BYTES)
-					end
-				end
-			end
-		end
 	end
 
 	gpu_timing.BeginScope(self.cmd, self:GetTimingName(cascade_index))
@@ -2846,95 +2492,6 @@ function ShadowMap:DrawVisibleComponents(visible_components, cascade_index, trac
 	result.instanced_draws = instanced_draws
 	result.fallback_draws = fallback_draws
 	return result
-end
-
-function ShadowMap:UsesSoup(cascade_index)
-	return self.mode ~= "point" and cascade_index >= self.soup_cascade_from
-end
-
-do
-	local dither_runs = {}
-
-	function ShadowMap:DrawSoup(cascade_index)
-		cascade_index = cascade_index or self.current_cascade
-		local cascade = self.cascade[cascade_index]
-
-		if not cascade then return end
-
-		local frame_index = render.GetCurrentFrame()
-		local data = self.soup_light_buffer:GetData()
-		data.light_space_matrix = cascade.light_space_matrix:GetFloatCopy()
-		local offset = self.soup_light_buffer:Upload(frame_index)
-		local depth_texture = cascade.depth_texture
-		local w = depth_texture:GetWidth()
-		local h = depth_texture:GetHeight()
-		self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
-		self.cmd:SetScissor(0, 0, w, h)
-		self.cmd:SetCullMode("none")
-		local planes = cascade.frustum_planes
-		local ranges = scene_bvh.raster_ranges
-
-		if not (ranges and planes) then return end
-
-		local pipeline = self.soup_pipeline_variants[cascade.format] or self.soup_pipeline
-		pipeline:Bind(self.cmd, frame_index, {offset})
-		local first, stop = 0, 0
-		local dither_count = 0
-		local dither_first, dither_stop = 0, 0
-		local limit = self.soup_state.vertex_count
-		scene_bvh.MarkVisibleBlocks(planes)
-		local visible = scene_bvh.raster_visible
-		local dithered = scene_bvh.raster_dithered
-		local blocks = scene_bvh.blocks
-
-		for i = 0, #blocks - 1 do
-			if visible[i] ~= 0 then
-				visible[i] = 0
-
-				if ranges[i * 2 + 1] <= limit and not blocks[i + 1].shadowless then
-					local block_first = ranges[i * 2]
-
-					if dithered[i] ~= 0 then
-						if block_first ~= dither_stop then
-							if dither_stop > dither_first then
-								dither_runs[dither_count + 1] = dither_first
-								dither_runs[dither_count + 2] = dither_stop
-								dither_count = dither_count + 2
-							end
-
-							dither_first = block_first
-						end
-
-						dither_stop = ranges[i * 2 + 1]
-					else
-						if block_first ~= stop then
-							if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
-
-							first = block_first
-						end
-
-						stop = ranges[i * 2 + 1]
-					end
-				end
-			end
-		end
-
-		if stop > first then self.cmd:Draw(stop - first, 1, first, 0) end
-
-		if dither_stop > dither_first then
-			dither_runs[dither_count + 1] = dither_first
-			dither_runs[dither_count + 2] = dither_stop
-			dither_count = dither_count + 2
-		end
-
-		if dither_count == 0 then return end
-
-		self.soup_uv_pipeline_variants[cascade.format]:Bind(self.cmd, frame_index, {offset})
-
-		for i = 1, dither_count, 2 do
-			self.cmd:Draw(dither_runs[i + 1] - dither_runs[i], 1, dither_runs[i], 0)
-		end
-	end
 end
 
 function ShadowMap:PrimeMaterial(material)

@@ -100,7 +100,7 @@ function hit.GetGLSL(binding)
 		#define SCENE_INSTANCE_DOUBLE_SIDED 1u
 		#define SCENE_INSTANCE_ALPHA_TEST 2u
 
-		struct scene_bvh_triangle {
+		struct scene_triangle {
 			vec3 v0;
 			vec3 e1;
 			vec3 e2;
@@ -109,7 +109,7 @@ function hit.GetGLSL(binding)
 			uint material;
 		};
 
-		struct scene_bvh_uv {
+		struct scene_uv {
 			vec2 uv0;
 			vec2 uv1;
 			vec2 uv2;
@@ -144,7 +144,7 @@ function hit.GetGLSL(binding)
 			);
 		}
 
-		scene_bvh_triangle scene_hit_tri(uint instance, uint primitive) {
+		scene_triangle scene_hit_tri(uint instance, uint primitive) {
 			scene_instance_data data = scene_instances[instance];
 			scene_mesh mesh = scene_meshes[data.mesh_row];
 			scene_tlas_instance t = scene_tlas_instances[instance];
@@ -153,7 +153,7 @@ function hit.GetGLSL(binding)
 			vec3 p0 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u) * stride);
 			vec3 p1 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u + 1u) * stride);
 			vec3 p2 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u + 2u) * stride);
-			scene_bvh_triangle tri;
+			scene_triangle tri;
 			tri.v0 = p0;
 			tri.e1 = p1 - p0;
 			tri.e2 = p2 - p0;
@@ -163,14 +163,14 @@ function hit.GetGLSL(binding)
 			return tri;
 		}
 
-		scene_bvh_uv scene_hit_uv(uint instance, uint primitive) {
+		scene_uv scene_hit_uv(uint instance, uint primitive) {
 			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
 			uint stride = mesh.vertex_stride / 4u;
 			uint a = scene_mesh_index(mesh, primitive * 3u) * stride;
 			uint b = scene_mesh_index(mesh, primitive * 3u + 1u) * stride;
 			uint c = scene_mesh_index(mesh, primitive * 3u + 2u) * stride;
-			scene_bvh_uv uv;
+			scene_uv uv;
 			uv.uv0 = vec2(vertices.v[a + 6u], vertices.v[a + 7u]);
 			uv.uv1 = vec2(vertices.v[b + 6u], vertices.v[b + 7u]);
 			uv.uv2 = vec2(vertices.v[c + 6u], vertices.v[c + 7u]);
@@ -184,7 +184,7 @@ end
 -- see the solid instances only, what the ray flies through (see through materials, alpha tested leaves) is not hit
 function hit.GetTraceGLSL(tlas_name)
 	return [[
-		struct scene_bvh_hit {
+		struct scene_trace_hit {
 			vec3 position;
 			vec3 normal;
 			vec3 emissive;
@@ -193,7 +193,7 @@ function hit.GetTraceGLSL(tlas_name)
 			uint primitive;
 		};
 
-		bool scene_bvh_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_bvh_hit hit) {
+		bool scene_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_trace_hit hit) {
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ]] .. tlas_name .. [[, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", instances.MASK_SOLID) .. [[, origin, t_min, dir, t_max);
 
@@ -203,7 +203,7 @@ function hit.GetTraceGLSL(tlas_name)
 
 			hit.instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
 			hit.primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
-			scene_bvh_triangle tri = scene_hit_tri(hit.instance, hit.primitive);
+			scene_triangle tri = scene_hit_tri(hit.instance, hit.primitive);
 			hit.distance = rayQueryGetIntersectionTEXT(query, true);
 			hit.position = origin + dir * hit.distance;
 			hit.emissive = tri.emissive;
@@ -211,7 +211,7 @@ function hit.GetTraceGLSL(tlas_name)
 			return true;
 		}
 
-		bool scene_bvh_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
+		bool scene_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ]] .. tlas_name .. [[, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", instances.MASK_SOLID) .. [[, origin, t_min, dir, t_max);
 
@@ -225,7 +225,7 @@ end
 -- without ray queries nothing is hit
 function hit.GetStubTraceGLSL()
 	return [[
-		struct scene_bvh_hit {
+		struct scene_trace_hit {
 			vec3 position;
 			vec3 normal;
 			vec3 emissive;
@@ -234,11 +234,11 @@ function hit.GetStubTraceGLSL()
 			uint primitive;
 		};
 
-		bool scene_bvh_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_bvh_hit hit) {
+		bool scene_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_trace_hit hit) {
 			return false;
 		}
 
-		bool scene_bvh_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
+		bool scene_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
 			return false;
 		}
 	]]

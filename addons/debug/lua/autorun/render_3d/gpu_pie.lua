@@ -25,7 +25,7 @@ gpu_timing.RegisterGroup("ocean", "ocean", "^ocean_")
 gpu_timing.RegisterGroup("particles", "particles", "^particles_")
 gpu_timing.RegisterGroup("translucency", "translucency", "^translucent")
 gpu_timing.RegisterGroup("lighting", "lighting", "^lighting$", "^light_grid$", "^light_occlusion$")
-gpu_timing.RegisterGroup("scene", "scene acceleration", "^rt_build$", "^animate_soup$", "^skinning$")
+gpu_timing.RegisterGroup("scene", "scene acceleration", "^rt_build$", "^skinning$")
 gpu_timing.RegisterGroup("antialiasing", "anti aliasing", "^taa")
 gpu_timing.RegisterGroup("bloom", "bloom", "^bloom_", "^glare$")
 gpu_timing.RegisterGroup(

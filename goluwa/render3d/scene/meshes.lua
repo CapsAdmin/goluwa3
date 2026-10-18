@@ -23,6 +23,7 @@ local mesh_of_row = setmetatable({}, {__mode = "v"})
 local records = {}
 local pending = {}
 local sweep_cursor = 0
+local triangle_total = 0
 local SWEEP_ROWS = 256
 
 function meshes.GetTable()
@@ -80,6 +81,7 @@ function meshes.Get(mesh)
 	}
 	records[row] = record
 	pending[#pending + 1] = record
+	triangle_total = triangle_total + triangle_count
 	return row
 end
 
@@ -129,6 +131,10 @@ function meshes.Build(cmd)
 	return true
 end
 
+function meshes.GetTriangleCount()
+	return triangle_total
+end
+
 function meshes.GetPendingCount()
 	return #pending
 end
@@ -148,6 +154,7 @@ function meshes.Update()
 
 		if record and not mesh_of_row[row] then
 			accel.ReleaseBLAS(record)
+			triangle_total = triangle_total - record.triangle_count
 			records[row] = nil
 			rows:Free(row)
 		end

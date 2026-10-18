@@ -1,6 +1,6 @@
 local commands = import("goluwa/cli/commands.lua")
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_bridge = import("goluwa/render3d/scene/bridge.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 frame_benchmark.Run{
 	name = "Crysis PS/Beach",
@@ -10,7 +10,7 @@ frame_benchmark.Run{
 		commands.RunString("map cry:PS/Beach")
 	end,
 	view = function()
-		local min, max = scene_bvh.GetBounds()
+		local min, max = scene_bridge.GetBounds()
 		return Vec3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2 + 150, (min[2] + max[2]) / 2),
 		-10,
 		0

@@ -10,7 +10,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
@@ -75,7 +74,7 @@ local gi_enabled = pvars.Setup2{
 	key = "r_scatter_gi",
 	default = true,
 	friendly = "bvh",
-	help = "put what scatter grows near the camera in the scene bvh, as geometry that is not drawn, for the soup shadows, global illumination and reflections",
+	help = "put what scatter grows near the camera in the scene bvh, as geometry that is not drawn, for global illumination and reflections",
 }
 local gi_distance = pvars.Setup2{
 	key = "r_scatter_gi_distance",
@@ -87,7 +86,7 @@ local billboard_distance = pvars.Setup2{
 	key = "r_scatter_gi_billboard_distance",
 	default = 1500.0,
 	friendly = "bvh billboard distance",
-	help = "how far from the camera the prototypes that have a billboard are in the scene bvh as their billboards, for the soup shadows, global illumination and reflections",
+	help = "how far from the camera the prototypes that have a billboard are in the scene bvh as their billboards, for global illumination and reflections",
 }
 pvars.EndGroup()
 local MAX_PROTOTYPES = ScatterSet.MAX_PROTOTYPES
@@ -2556,16 +2555,6 @@ end
 -- the shadow maps draw what the last PreDraw wrote. the shadow pass may run before this frame's PreDraw,
 -- in which case the commands are the last frame's, and there is nothing to draw yet in the first frame
 event.AddListener("DrawAllShadows", "scatter", function(shadow_map, cascade_index)
-	-- the cascades that draw the bvh's soup get what is near from the geometry in it
-	if
-		gi_enabled:Get() and
-		shadow_map.UsesSoup and
-		shadow_map:UsesSoup(cascade_index) and
-		scene_bvh.IsReady()
-	then
-		return
-	end
-
 	if not enabled:Get() or not draw_batches[1] or not first_commands_frame or first_commands_frame >= system.GetFrameNumber() then
 		return
 	end

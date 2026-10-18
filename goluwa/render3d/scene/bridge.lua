@@ -154,7 +154,7 @@ local function write_flags(material)
 	if
 		material:GetAlphaTest() or
 		material:IsTransparent() or
-		material:GetSoupShadowOpacity() < 1
+		material:GetRayShadowOpacity() < 1
 	then
 		flags = flags + instances.FLAG_NO_OPAQUE
 	end

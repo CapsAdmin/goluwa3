@@ -30,8 +30,7 @@ local function create_rays_only_cube(rays_only)
 	return entity
 end
 
-T.Test3D("Graphics render3d a rays only visual is in the scene bvh and is not drawn", function(draw)
-	local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+T.Test3D("Graphics render3d a rays only visual is in the ray traced scene and is not drawn", function(draw)
 	local camera = render3d.GetCamera()
 	camera:SetFOV(math.rad(90))
 	camera:SetNearZ(0.1)
@@ -46,8 +45,7 @@ T.Test3D("Graphics render3d a rays only visual is in the scene bvh and is not dr
 
 	local size = render.GetRenderImageSize()
 	local r = gbuffer_layout.GetTexture("albedo"):GetPixel(math.floor(size.x / 2), math.floor(size.y / 2))
-	scene_bvh.Build(true)
-	local in_bvh = scene_bvh.visual_cache[entity.visual] ~= nil and scene_bvh.visual_cache[entity.visual].block_index ~= nil
+	local in_bvh = entity.visual.scene_instances ~= nil
 	entity:Remove()
 	T(r)["<"](200)
 	T(in_bvh)["=="](true)

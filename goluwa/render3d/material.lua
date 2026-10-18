@@ -569,7 +569,7 @@ do
 			)
 	end
 
-	function Material:GetSoupShadowOpacity()
+	function Material:GetRayShadowOpacity()
 		if self.Additive or self.Modulate then return 0 end
 
 		if self.Refraction > 0 or self.Translucent then
@@ -602,14 +602,14 @@ Material.shadow_generation = 0
 Material.shadow_full_generation = 0
 
 function Material:InvalidateShadow()
-	local opacity = self:GetSoupShadowOpacity()
+	local opacity = self:GetRayShadowOpacity()
 
-	if self.soup_shadow_opacity ~= nil and self.soup_shadow_opacity ~= opacity then
+	if self.ray_shadow_opacity ~= nil and self.ray_shadow_opacity ~= opacity then
 		Material.shadow_generation = Material.shadow_generation + 1
 		self:StampShadow()
 	end
 
-	self.soup_shadow_opacity = opacity
+	self.ray_shadow_opacity = opacity
 end
 
 function Material:GetLightFlags()

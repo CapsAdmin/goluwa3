@@ -893,7 +893,7 @@ float ddgi_bounce_share(ddgi_material material) {
 	return mix(1.0, smoothstep(0.1, 0.9, roughness), metallic);
 }
 
-vec3 ddgi_emission(scene_bvh_triangle tri, vec3 albedo) {
+vec3 ddgi_emission(scene_triangle tri, vec3 albedo) {
 			return min(ddgi_materials[tri.material].emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
 		}
 	]]
@@ -914,7 +914,7 @@ function ddgi.GetHitAlbedoGLSL()
 		vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
 			if (material.terrain_tex >= 0 || material.albedo_tex < 0) return ddgi_albedo(material, P);
 
-			scene_bvh_triangle tri = scene_hit_tri(instance, primitive);
+			scene_triangle tri = scene_hit_tri(instance, primitive);
 			vec3 p = P - tri.v0;
 			float d00 = dot(tri.e1, tri.e1);
 			float d01 = dot(tri.e1, tri.e2);
@@ -924,7 +924,7 @@ function ddgi.GetHitAlbedoGLSL()
 			float inv = 1.0 / (d00 * d11 - d01 * d01);
 			float v = (d11 * d20 - d01 * d21) * inv;
 			float w = (d00 * d21 - d01 * d20) * inv;
-			scene_bvh_uv uv = scene_hit_uv(instance, primitive);
+			scene_uv uv = scene_hit_uv(instance, primitive);
 			vec2 coord = uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w;
 			ivec2 size = textureSize(TEXTURE(material.albedo_tex), 0);
 			float lod = max(log2(float(max(size.x, size.y)) / DDGI_ALBEDO_UV_TEXELS), 0.0);
@@ -961,7 +961,7 @@ function ddgi.GetAlphaTestGLSL()
 			float alpha = material.alpha;
 
 			if (material.alpha_test == 2) {
-				scene_bvh_uv uv = scene_hit_uv(instance, primitive);
+				scene_uv uv = scene_hit_uv(instance, primitive);
 				vec2 coord = uv.uv0 * (1.0 - barycentrics.x - barycentrics.y) + uv.uv1 * barycentrics.x + uv.uv2 * barycentrics.y;
 				alpha *= textureLod(TEXTURE(material.albedo_tex), coord, 0.0).a;
 			}
@@ -1002,7 +1002,7 @@ function ddgi.GetEmitterGLSL()
 			return lo;
 		}
 
-		vec3 ddgi_emitter_point(scene_bvh_triangle tri, vec2 u) {
+		vec3 ddgi_emitter_point(scene_triangle tri, vec2 u) {
 			if (u.x + u.y > 1.0) u = 1.0 - u;
 
 			return tri.v0 + tri.e1 * u.x + tri.e2 * u.y;
@@ -1020,7 +1020,7 @@ function ddgi.GetEmitterGLSL()
 			vec4 u = ddgi_emitter_random(index, frame, candidate);
 			int picked = ddgi_pick_emitter(u.x, emitter_count);
 			uint triangle = ddgi_emitter_triangle(picked);
-			scene_bvh_triangle tri = scene_hit_tri(ddgi_emitter_instance(picked), triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
+			scene_triangle tri = scene_hit_tri(ddgi_emitter_instance(picked), triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
 			vec3 to_point = ddgi_emitter_point(tri, u.yz) - origin;
 			float dist2 = dot(to_point, to_point);
 			// tri.normal points away from the visible side

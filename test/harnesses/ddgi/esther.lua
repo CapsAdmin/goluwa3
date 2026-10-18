@@ -29,7 +29,7 @@ commands.RunString("map esther")
 os.execute("mkdir -p " .. out_dir)
 local ready_at, last_time, good, settled_at = nil, system.GetTime(), 0, nil
 local saved = 0
-event.AddListener("BVHSceneReady", "est_ready", function()
+event.AddListener("RTSceneReady", "est_ready", function()
 	ready_at = system.GetTime()
 end)
 event.AddListener("Update", "est_cycle", function()

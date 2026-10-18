@@ -55,26 +55,6 @@ local function wrap_allocs()
 	for _, name in ipairs{"UploadVertexArray", "BuildAABB", "SetGridCells", "Remove", "OnRemove"} do wrap(Polygon3D, name, "polygon." .. name) end
 	local Entity = import("goluwa/entities/entity.lua")
 	for _, name in ipairs{"New", "AddComponent", "Remove"} do wrap(Entity, name, "entity." .. name) end
-	local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
-	local Visual = import("goluwa/entities/components/visual.lua")
-	local build = scene_bvh.BuildIncremental
-	local stats = {scan = 0, incremental = 0, reset = 0, visuals = 0, dirty = 0}
-	_G.bvh_stats = stats
-	scene_bvh.BuildIncremental = function(mode)
-		stats[mode] = (stats[mode] or 0) + 1
-		stats.visuals = #Visual.Instances
-		local n = 0
-		for v in pairs(scene_bvh.dirty_components or {}) do
-			n = n + 1
-			local name = v.Owner and v.Owner:GetName() or "?"
-			name = name:gsub("%d+", "#")
-			stats.names = stats.names or {}
-			stats.names[name] = (stats.names[name] or 0) + 1
-		end
-		stats.dirty = stats.dirty + n
-		return build(mode)
-	end
-	for k, v in pairs(scene_bvh) do if type(v) == "function" then wrap(scene_bvh, k, "scene_bvh." .. k) end end
 end
 -- every vulkan call that creates, frees or waits, with its time and count
 local vk_cpu, vk_calls = {}, {}
@@ -191,9 +171,6 @@ event.AddListener("Update", "island_fly_harness", function(dt)
 		local mem = collectgarbage("count")
 		print(string.format("t=%4.1f frames %3d avg %5.1f p50 %5.1f p95 %5.1f max %6.1f ms | heap %.0f MB (%+.0f MB)", t, n, sum / n * 1000, window[math.ceil(n * 0.5)] * 1000, window[math.ceil(n * 0.95)] * 1000, window[n] * 1000, mem / 1024, (mem - last_mem) / 1024))
 		last_mem = mem
-		local bvh = import("goluwa/render3d/scene_bvh.lua")
-		local ta, na = bvh.triangle_allocator, bvh.node_allocator
-		print(string.format("   soup capacity %.2fM tris top %.2fM used %.2fM triangles %.2fM | nodes capacity %.2fM top %.2fM used %.2fM | blocks %d", bvh.triangle_capacity / 1e6, ta.top / 1e6, ta.used / 1e6, bvh.triangle_count / 1e6, bvh.node_capacity / 1e6, na.top / 1e6, na.used / 1e6, #bvh.blocks))
 		window = {}
 	end
 	if t > WARMUP + SECONDS then
@@ -205,9 +182,6 @@ event.AddListener("Update", "island_fly_harness", function(dt)
 			for k in pairs(vk_cpu) do if vk_calls[k] > 0 then vk_rows[#vk_rows + 1] = k end end
 			table.sort(vk_rows, function(a, b) return vk_cpu[a] > vk_cpu[b] end)
 			for i = 1, math.min(#vk_rows, 12) do print(string.format("VK %-34s %7.2f ms/frame %7.1f calls/frame %7.1f us/call", vk_rows[i], vk_cpu[vk_rows[i]] / #all * 1000, vk_calls[vk_rows[i]] / #all, vk_cpu[vk_rows[i]] / vk_calls[vk_rows[i]] * 1e6)) end
-			for k, v in pairs(import("goluwa/render3d/scene_bvh.lua").dbg or {}) do print(string.format("SHAPE %-40s %5d shapes %8d tris %7.1f ms total", k, v[1], v[2], v[3] * 1000)) end
-			for k, v in pairs(_G.bvh_stats.names or {}) do print("BVH dirty", k, v) end
-			print("BVH", _G.bvh_stats.scan, _G.bvh_stats.incremental, _G.bvh_stats.reset, "visuals", _G.bvh_stats.visuals, "dirty total", _G.bvh_stats.dirty, "blocks", #import("goluwa/render3d/scene_bvh.lua").blocks)
 			local rows = {}
 			for k, v in pairs(alloc) do if v > 0 or cpu[k] > 0.05 then rows[#rows + 1] = k end end
 			table.sort(rows, function(a, b) return cpu[a] > cpu[b] end)

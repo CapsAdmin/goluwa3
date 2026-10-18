@@ -69,7 +69,6 @@ T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
 		p.visual_primitive:SetMaterial(Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9, MetallicMultiplier = 0})
 		ent.visual:BuildAABB()
-		import("goluwa/render3d/scene_bvh.lua").Build()
 		T(render3d.IsPassEnabled("ddgi"))["=="](true)
 		T(render3d.pipelines.ddgi_irradiance ~= nil)["=="](true)
 		T(render3d.pipelines.ddgi_resolve ~= nil)["=="](true)
@@ -127,7 +126,6 @@ do
 		use_ddgi()
 		render3d.camera:SetPosition(Vec3(0, 4, 10))
 		add_slab(polygon3d, created, Vec3(-100, -1, -100), Vec3(100, 0, 100))
-		import("goluwa/render3d/scene_bvh.lua").Build()
 		local ok, err = pcall(function()
 			draw()
 			local state = ddgi.GetFrameState()
@@ -163,7 +161,6 @@ do
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
-		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 		local created = {}
 		use_ddgi()
 		render3d.camera:SetPosition(Vec3(0, 3, 2))
@@ -175,7 +172,6 @@ do
 		add_slab(polygon3d, created, Vec3(-3, 0, 3), Vec3(3, 6, 3.5))
 		add_slab(polygon3d, created, Vec3(-3.5, 6, -3.5), Vec3(3.5, 6.5, 3.5))
 		local roof = created[#created]
-		scene_bvh.Build()
 
 		local function gi_average()
 			for _ = 1, 4 do
@@ -189,7 +185,6 @@ do
 		local ok, err = pcall(function()
 			local sealed = gi_average()
 			roof:Remove()
-			scene_bvh.Build()
 			local open = gi_average()
 			T(open > 0)["=="](true)
 			T(sealed <= open * 0.01)["=="](true)
@@ -210,7 +205,6 @@ do
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
-		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 		local created = {}
 		use_ddgi()
 		render3d.camera:SetPosition(Vec3(0, 3, 2))
@@ -221,7 +215,6 @@ do
 		add_slab(polygon3d, created, Vec3(-3, 0, -6), Vec3(3, 6, -3))
 		add_slab(polygon3d, created, Vec3(-3, 0, 3), Vec3(3, 6, 6))
 		add_slab(polygon3d, created, Vec3(-6, 6, -6), Vec3(6, 9, 6))
-		scene_bvh.Build()
 		local light = Entity.New{Name = "ddgi_test_light"}
 		created[#created + 1] = light
 		light:AddComponent("transform")
@@ -262,7 +255,6 @@ do
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
-		local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 		local created = {}
 		use_ddgi()
 		render3d.camera:SetPosition(Vec3(0, 3, 2))
@@ -294,7 +286,6 @@ do
 
 		local function gi_average(position, draws)
 			emitter.transform:SetPosition(position)
-			scene_bvh.Build()
 			ddgi.ResetHistory()
 
 			for _ = 1, draws do
@@ -330,7 +321,6 @@ end
 
 T.Test3D("Graphics render3d ddgi material buffer marks materials without an albedo texture", function(draw)
 	local ffi = require("ffi")
-	local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
@@ -344,7 +334,6 @@ T.Test3D("Graphics render3d ddgi material buffer marks materials without an albe
 	p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
 	p.visual_primitive:SetMaterial(material)
 	ent.visual:BuildAABB()
-	scene_bvh.Build()
 	local ok, err = pcall(function()
 		local id = import("goluwa/render3d/scene/materials.lua").GetID(material)
 		local releases = 0

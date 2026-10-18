@@ -193,9 +193,6 @@ do
 end
 
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
-wrap(scene_bvh, "EnsureBuilt", "scene_bvh.EnsureBuilt")
-wrap(scene_bvh, "BuildIncremental", "scene_bvh.BuildIncremental")
 
 local frame_times = {}
 local window_frame_times = {}

@@ -538,7 +538,6 @@ function weather.Initialize()
 				3,
 				1,
 			},
-			soup_cascade_from = 1,
 			cascade_split_lambda = 0,
 			max_shadow_distance = 2700,
 			near_plane = 1,

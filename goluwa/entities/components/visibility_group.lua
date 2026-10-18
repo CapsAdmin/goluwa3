@@ -1,7 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local VisibilityGroup = objects.CreateTemplate("visibility_group")
 VisibilityGroup.active = nil
@@ -133,8 +132,6 @@ function VisibilityGroup.SetActive(group)
 
 		if other.shown ~= shown then apply(other, shown) end
 	end
-
-	if scene_bvh.has_built then scene_bvh.Build() end
 
 	ddgi.ResetHistory()
 end

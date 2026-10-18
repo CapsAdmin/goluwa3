@@ -4,7 +4,6 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local scatter = import("goluwa/render3d/scatter.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local render = import("goluwa/render/render.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -35,7 +34,6 @@ end
 
 wrap(scatter, "PreDraw", "scatter.PreDraw")
 wrap(scatter, "Preload", "scatter.Preload")
-wrap(scene_bvh, "EnsureBuilt", "scene_bvh.EnsureBuilt")
 wrap(render, "BeginFrame", "render.BeginFrame")
 wrap(render, "EndFrame", "render.EndFrame")
 local previous, last_time = {}, nil

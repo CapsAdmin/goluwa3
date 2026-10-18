@@ -4,7 +4,9 @@ local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local benchmark_results = import("goluwa/benchmark_results.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
+local meshes = import("goluwa/render3d/scene/meshes.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -289,10 +291,10 @@ function frame_benchmark.Run(config)
 				return
 			end
 
-			if not scene_bvh.readied or scene_loading.IsLoading() then return end
+			if not scene_rt.readied or scene_loading.IsLoading() then return end
 
-			if scene_bvh.version ~= last_version then
-				last_version = scene_bvh.version
+			if instances.version ~= last_version then
+				last_version = instances.version
 				version_since = now
 			end
 
@@ -312,8 +314,8 @@ function frame_benchmark.Run(config)
 					FOV = config.fov and math.rad(config.fov) or nil,
 				}:Activate()
 				results.load_seconds = now - start
-				results.blocks = #scene_bvh.blocks
-				results.triangles = scene_bvh.triangle_count
+				results.blocks = instances.GetCount()
+				results.triangles = meshes.GetTriangleCount()
 				print_result(
 					"%s settled after %.0f s: %d blocks, %d triangles",
 					config.name,

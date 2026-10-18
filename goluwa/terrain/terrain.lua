@@ -46,11 +46,11 @@ function Terrain.New(config)
 	self.SplatSize = config.SplatSize or 128
 	self.ColorSize = config.ColorSize
 	self.ShadowLevels = config.ShadowLevels or self.Levels
-	-- the finest levels that are in the scene bvh (gi, reflections, soup shadows)
+	-- the finest levels that are in the scene bvh (gi and reflections)
 	self.BVHLevels = config.BVHLevels or self.Levels
 	-- a tile enters the bvh once it has been wanted for this many seconds, and at most BVHPerFrame enter in a frame, the
 	-- nearest first. its bvh is a coarse copy (~0.1 ms of cpu), so there is no need to wait: a tile that is not in the bvh
-	-- casts no soup shadow and is not in gi or reflections
+	-- is not in gi or reflections
 	self.BVHDelay = config.BVHDelay or 0
 	self.BVHPerFrame = config.BVHPerFrame or 8
 	-- the scene bvh uses every stride:th sample of the tile, the finest level a smaller stride
@@ -366,7 +366,6 @@ function Terrain:CreateBVHEntity(tile)
 	local visual = entity:AddComponent("visual")
 	visual:SetRaysOnly(true)
 	visual:SetCastShadows(false)
-	visual:SetCastSoupShadows(false)
 	visual:SetReceivesDecals(false)
 	visual:SetUseOcclusionCulling(false)
 	visual:SetCullDistance(1e8)

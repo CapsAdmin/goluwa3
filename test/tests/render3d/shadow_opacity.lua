@@ -11,14 +11,14 @@ local TRANSLUCENT_FLAG = Material.FlagBits.Translucent
 T.Test("Graphics render3d translucent materials stop the share of light their alpha covers", function()
 	local material = Material.New{Translucent = true, ColorMultiplier = Color(1, 1, 1, 0.75)}
 	T(material:GetShadowOpacity())["~"](0.75)
-	T(material:GetSoupShadowOpacity())["~"](0.75)
+	T(material:GetRayShadowOpacity())["~"](0.75)
 	T(bit.band(material:GetShadowFlags(), TRANSLUCENT_FLAG))["=="](TRANSLUCENT_FLAG)
 end)
 
 T.Test("Graphics render3d additive materials stop no light", function()
 	local material = Material.New{Additive = true, Translucent = true}
 	T(material:GetShadowOpacity())["=="](0)
-	T(material:GetSoupShadowOpacity())["=="](0)
+	T(material:GetRayShadowOpacity())["=="](0)
 	T(bit.band(material:GetShadowFlags(), TRANSLUCENT_FLAG))["=="](TRANSLUCENT_FLAG)
 end)
 
@@ -33,12 +33,12 @@ T.Test("Graphics render3d refracting materials stop what their faces reflect and
 	T(half:GetShadowOpacity())["~"](0.55)
 end)
 
-T.Test("Graphics render3d the triangle soup alpha tests a material without a texture by its color", function()
+T.Test("Graphics render3d the ray traced scene alpha tests a material without a texture by its color", function()
 	local cut = Material.New{AlphaTest = true, ColorMultiplier = Color(1, 1, 1, 0.3)}
-	T(cut:GetSoupShadowOpacity())["=="](0)
+	T(cut:GetRayShadowOpacity())["=="](0)
 	local solid = Material.New{AlphaTest = true, ColorMultiplier = Color(1, 1, 1, 0.8)}
-	T(solid:GetSoupShadowOpacity())["=="](1)
-	T(Material.New():GetSoupShadowOpacity())["=="](1)
+	T(solid:GetRayShadowOpacity())["=="](1)
+	T(Material.New():GetRayShadowOpacity())["=="](1)
 end)
 
 T.Test3D("Graphics render3d only see through materials with an albedo texture have a shadow texture", function()
@@ -56,7 +56,7 @@ T.Test3D("Graphics render3d only see through materials with an albedo texture ha
 	)["=="](false)
 end)
 
-T.Test("Graphics render3d the soup shadow generation follows what a material's opacity changes to", function()
+T.Test("Graphics render3d the ray shadow opacity follows what a material's opacity changes to", function()
 	local material = Material.New{ColorMultiplier = Color(1, 1, 1, 0.5)}
 	local generation = Material.shadow_generation
 	material:SetTranslucent(true)

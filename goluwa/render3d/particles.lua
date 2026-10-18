@@ -340,9 +340,9 @@ function particles.GetCollisionGLSL()
 
 			if (particle_data.bvh_ready == 0 || length_of_step < 1e-5) return false;
 
-			scene_bvh_hit result;
+			scene_trace_hit result;
 
-			if (!scene_bvh_trace(a, step / length_of_step, 0.0, length_of_step + radius, result)) return false;
+			if (!scene_trace(a, step / length_of_step, 0.0, length_of_step + radius, result)) return false;
 
 			hit = result.position;
 			normal = result.normal;

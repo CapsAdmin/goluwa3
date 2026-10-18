@@ -38,7 +38,7 @@ end
 
 local ready_at, settled_at, view
 
-event.AddListener("BVHSceneReady", "qp_ready", function()
+event.AddListener("RTSceneReady", "qp_ready", function()
 	ready_at = system.GetTime()
 end)
 
@@ -134,7 +134,7 @@ event.AddListener("Update", "qp_cycle", function()
 				print(string.format("RESULT mode %2d: %s", m2, table.concat(parts, "  ")))
 			end
 
-			print("RESULT soup_tris", import("goluwa/render3d/scene_bvh.lua").soup_triangle_count)
+			print("RESULT scene_tris", import("goluwa/render3d/scene/meshes.lua").GetTriangleCount())
 			os.exit(0)
 		end
 

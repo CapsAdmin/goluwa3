@@ -15,7 +15,6 @@ local pvars = import("goluwa/cli/pvars.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
-local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
@@ -575,7 +574,6 @@ end
 
 function render3d.Initialize(config)
 	render3d.initializing = true
-	scene_bvh.Initialize()
 
 	if render3d.main_pipeline_bundle then
 		render3d.RemovePipelineBundle(render3d.main_pipeline_bundle)
@@ -604,8 +602,6 @@ function render3d.Initialize(config)
 		if not startup.ready_time then
 			startup.Add("render pass: pre_render hooks, skinning", pre_render_started)
 		end
-
-		scene_bvh.EnsureBuilt()
 
 		if render.GetDevice().ray_tracing_supported then
 			import("goluwa/entities/components/visual.lua").Library.UpdateScene()
