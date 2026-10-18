@@ -52,7 +52,7 @@ T.Test3D("Terrain shader source reads back heights matching its GLSL", function(
 
 	T(math.abs(chunk.min_height - (5 + 16 * 0.5 - 8 * 0.25)))["<"](0.001)
 	T(math.abs(chunk.max_height - (5 + 48 * 0.5 + 24 * 0.25)))["<"](0.001)
-	local polygon = tiles.BuildPolygon(chunk, 3)
+	local polygon = tiles.BuildPolygon(chunk, 3, 1)
 	T(polygon.mesh ~= nil)["=="](true)
 	T(math.abs(polygon.AABB.max_x - 32))["<"](0.001)
 	T(math.abs(polygon.AABB.max_z - 32))["<"](0.001)

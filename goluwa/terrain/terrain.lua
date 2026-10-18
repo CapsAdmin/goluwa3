@@ -54,6 +54,9 @@ function Terrain.New(config)
 	-- and at most this many enter it in a frame, the nearest first: a tile takes about 10 ms of cpu to build, a jump makes hundreds that
 	-- are due at the same moment, and the scene bvh builds all of them in one frame when it sees that many changes
 	self.BVHPerFrame = config.BVHPerFrame or 1
+	-- the scene bvh uses every stride:th sample of the tile, the finest level a smaller stride
+	self.BVHStride = config.BVHStride or 4
+	self.BVHNearStride = config.BVHNearStride or 2
 	self.BVHDue = {}
 	-- the frames a tile that is replaced waits for the vegetation of its replacements to be baked, so that it does not go
 	-- before there is anything to replace its vegetation with
@@ -334,7 +337,7 @@ function Terrain:CreateTile(want, chunk)
 	}
 	primitive_entity:AddComponent("transform")
 	local primitive = primitive_entity:AddComponent("visual_primitive")
-	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level))
+	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level), 1)
 	primitive:SetPolygon3D(polygon)
 	primitive:SetMaterial(tiles.CreateMaterial(chunk, chunk.layers or self.Source:GetLayers(), self.ScatterSet))
 	visual:BuildAABB()
@@ -347,10 +350,46 @@ function Terrain:CreateTile(want, chunk)
 	}
 end
 
+-- the scene bvh is built from a coarser, rays only copy of the tile: a bvh of the 8448 triangles of the tile costs
+-- about 10 ms of cpu, a few hundred triangles are not worth the nearest few meters of detail to rays
+function Terrain:CreateBVHEntity(tile)
+	local entity = Entity.New{
+		Name = tile.entity:GetName() .. "_bvh",
+		Parent = self.Root,
+	}
+	entity:AddComponent("transform"):SetPosition(tile.entity.transform:GetPosition())
+	local visual = entity:AddComponent("visual")
+	visual:SetRaysOnly(true)
+	visual:SetCastShadows(false)
+	visual:SetReceivesDecals(false)
+	visual:SetUseOcclusionCulling(false)
+	visual:SetCullDistance(1e8)
+	visual:SetVisible(not tile.hidden)
+	local primitive_entity = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local primitive = primitive_entity:AddComponent("visual_primitive")
+	primitive:SetPolygon3D(
+		tiles.BuildPolygon(
+			tile.chunk,
+			self:GetLevelSkirtDepth(tile.level),
+			tile.level == 0 and self.BVHNearStride or self.BVHStride,
+			"host"
+		)
+	)
+	primitive:SetMaterial(tile.material)
+	visual:BuildAABB()
+	tile.bvh_entity = entity
+end
+
 function Terrain:RemoveTile(tile)
 	tile.removed = true
 
 	if tile.entity and tile.entity:IsValid() then tile.entity:Remove() end
+
+	if tile.bvh_entity then
+		tile.bvh_entity:Remove()
+		tile.bvh_entity = nil
+	end
 
 	if tile.chunk_key then self:ReleaseChunk(tile.chunk_key) end
 end
@@ -363,6 +402,8 @@ local function set_tile_hidden(self, tile, hidden)
 	tile.hidden = hidden
 
 	if not hidden then tile.shown = self:GetFrame() end
+
+	if tile.bvh_entity then tile.bvh_entity.visual:SetVisible(not hidden) end
 
 	if not tile.entity or not tile.entity.visual then return end
 
@@ -508,7 +549,7 @@ function Terrain:RetireTiles()
 		end
 
 		best.bvh_time = nil
-		best.entity.visual:SetInSceneBVH(true)
+		self:CreateBVHEntity(best)
 		due[best_index] = due[#due]
 		due[#due] = nil
 	end
@@ -585,6 +626,7 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 					local built = self:CreateTile(want, chunk)
 					tile.entity = built.entity
 					tile.polygon = built.polygon
+					tile.chunk = chunk
 					tile.material = built.material
 
 					-- while the scene loads nothing flies, the tile is wanted for good and the first bvh build takes it along

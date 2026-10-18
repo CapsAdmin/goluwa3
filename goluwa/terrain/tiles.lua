@@ -9,13 +9,14 @@ local VertexType = Polygon3D.VertexType
 local Index16Array = ffi.typeof("uint16_t[?]")
 local Index32Array = ffi.typeof("uint32_t[?]")
 
-function tiles.BuildPolygon(chunk, skirt_depth)
+-- `stride` takes every stride:th sample, for a coarser mesh. `mode` is for the mesh, see Polygon3D:UploadVertexArray
+function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
 	local request = chunk.request
-	local samples = request.samples
-	local size = request.size
+	local full_samples = request.samples
 	local heights = chunk.heights
-	local step = size / (samples - 1)
-	local cells = samples - 1
+	local step = request.size / (full_samples - 1) * stride
+	local cells = (full_samples - 1) / stride
+	local samples = cells + 1
 	local grid_count = samples * samples
 	local vertex_count = grid_count + samples * 4
 	local index_count = cells * cells * 6 + cells * 4 * 6
@@ -31,11 +32,11 @@ function tiles.BuildPolygon(chunk, skirt_depth)
 			local vertex = vertices[z * samples + x]
 			local x0 = math.max(x - 1, 0)
 			local x1 = math.min(x + 1, cells)
-			local nx = (heights[z * samples + x0] - heights[z * samples + x1]) / ((x1 - x0) * step)
-			local nz = (heights[z0 * samples + x] - heights[z1 * samples + x]) / ((z1 - z0) * step)
+			local nx = (heights[z * stride * full_samples + x0 * stride] - heights[z * stride * full_samples + x1 * stride]) / ((x1 - x0) * step)
+			local nz = (heights[z0 * stride * full_samples + x * stride] - heights[z1 * stride * full_samples + x * stride]) / ((z1 - z0) * step)
 			local inv_length = 1 / math.sqrt(nx * nx + 1 + nz * nz)
 			vertex.position[0] = x * step
-			vertex.position[1] = heights[z * samples + x]
+			vertex.position[1] = heights[z * stride * full_samples + x * stride]
 			vertex.position[2] = z * step
 			vertex.normal[0] = nx * inv_length
 			vertex.normal[1] = inv_length
@@ -124,7 +125,7 @@ function tiles.BuildPolygon(chunk, skirt_depth)
 
 	local polygon = Polygon3D.New()
 	polygon:SetGridCells(cells)
-	polygon:UploadVertexArray(vertices, vertex_count, indices, index_count)
+	polygon:UploadVertexArray(vertices, vertex_count, indices, index_count, false, mode or "owned")
 	return polygon
 end
 

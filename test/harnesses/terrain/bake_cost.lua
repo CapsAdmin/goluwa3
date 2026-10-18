@@ -103,7 +103,7 @@ local function run_cpu(level)
 		end
 	end)
 	time("tiles.BuildPolygon", function(chunk)
-		tiles.BuildPolygon(chunk, skirt)
+		tiles.BuildPolygon(chunk, skirt, 1)
 	end)
 	time("tiles.CreateMaterial", function(chunk)
 		tiles.CreateMaterial(chunk, chunk.layers or source:GetLayers(), terrain.ScatterSet)

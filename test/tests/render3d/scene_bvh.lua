@@ -335,7 +335,7 @@ T.Test3D("Graphics render3d scene bvh builds a grid polygon from its grid", func
 			heights[i] = math.sin(i * 0.37 + seed) * 3 + math.cos(i * 0.11 * seed) * 2
 		end
 
-		local polygon3d = tiles.BuildPolygon({request = {samples = samples, size = 16}, heights = heights}, 1)
+		local polygon3d = tiles.BuildPolygon({request = {samples = samples, size = 16}, heights = heights}, 1, 1)
 
 		if not grid then polygon3d:SetGridCells(nil) end
 
