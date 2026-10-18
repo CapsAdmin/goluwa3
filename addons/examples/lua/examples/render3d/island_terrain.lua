@@ -12,6 +12,8 @@ local commands = import("goluwa/cli/commands.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
+local event = import("goluwa/event.lua")
+local trace = import("goluwa/physics/trace.lua")
 local SEED = 77
 local island = {}
 local scatter_set = presets[_G.SCATTER_SET or "crysis_jungle"] or ScatterSet.GetGrass()
@@ -206,5 +208,63 @@ commands.Add("island_view=number[0]", function(index)
 
 	island.view = View.New(table.merge({Priority = 100}, island.GetView(index))):Activate()
 end)
+
+-- `island_fly kmh radius height` flies around the mountain over the jungle, following the ground by tracing down a
+-- little ahead of the camera (the terrain only has colliders close to the camera). `island_fly 0` stops
+do
+	local PEAK = Vec3(-180, 0, 140)
+	local LOOKAHEAD = 1.2
+	local DOWN = Vec3(0, -1, 0)
+	local origin = Vec3()
+	local fly = {}
+
+	local function update(dt)
+		local angle = fly.angle + fly.speed / fly.radius * dt
+		fly.angle = angle
+		local ahead = angle + fly.speed / fly.radius * LOOKAHEAD
+		origin.x = PEAK.x + math.cos(ahead) * fly.radius
+		origin.y = 1500
+		origin.z = PEAK.z + math.sin(ahead) * fly.radius
+		local hit = trace.RayCast(origin, DOWN, 2000)
+
+		if hit then fly.ground = math.max(hit.position.y, 0) end
+
+		fly.y = math.lerp(1 - 0.5 ^ (dt * 2), fly.y, fly.ground + fly.height)
+		fly.view:SetPosition(Vec3(PEAK.x + math.cos(angle) * fly.radius, fly.y, PEAK.z + math.sin(angle) * fly.radius))
+		fly.view:SetRotation(QuatDeg3(-8, -math.deg(angle) - 25, 0))
+	end
+
+	function island.StopFly()
+		if not fly.view then return end
+
+		event.RemoveListener("Update", "island_fly")
+		fly.view:Remove()
+		fly.view = nil
+	end
+
+	function island.Fly(kmh, radius, height)
+		island.StopFly()
+
+		if kmh == 0 then return end
+
+		fly.speed = kmh / 3.6
+		fly.radius = radius
+		fly.height = height
+		fly.angle = 0
+		fly.ground = 60
+		fly.y = fly.ground + height
+		fly.view = View.New{
+			Priority = 100,
+			Position = Vec3(PEAK.x + radius, fly.y, PEAK.z),
+			Rotation = QuatDeg3(-8, 0, 0),
+			FOV = math.rad(75),
+		}:Activate()
+		event.AddListener("Update", "island_fly", update)
+	end
+
+	commands.Add("island_fly=number[300],number|nil,number|nil", function(kmh, radius, height)
+		island.Fly(kmh, radius or 1100, height or 60)
+	end)
+end
 
 return island
