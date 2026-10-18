@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local accel = import("goluwa/render3d/scene/accel.lua")
+local index_pool = import("goluwa/render3d/index_pool.lua")
 local meshes = {}
 -- what the shaders read of a mesh. the bottom level structure of the mesh is built from its own vertex and index
 -- buffers, instances only point at it, so any number of instances share one
@@ -12,7 +13,7 @@ local MeshRow = ffi.typeof([[struct {
 	uint32_t triangle_count;
 	uint32_t vertex_stride;
 	uint32_t flags;
-	uint32_t pad;
+	uint32_t pool_first_index;
 }]])
 meshes.FLAG_INDEX_32 = 1
 meshes.FLAG_HAS_INDICES = 2
@@ -90,6 +91,39 @@ function meshes.Get(mesh, dynamic)
 	return row
 end
 
+-- what drawing a mesh needs besides its buffers: indices in the shared index pool (a mesh without indices gets the
+-- sequential ones, which is what its structure was built from as well), and the row says where they are
+function meshes.EnsureRaster(row)
+	local record = records[row]
+
+	if record.raster_ready then return end
+
+	local mesh = mesh_of_row[row]
+
+	if not mesh.index_buffer then
+		local vertex_count = mesh:GetVertexCount()
+		local sequential = {}
+
+		for i = 1, vertex_count do
+			sequential[i] = i - 1
+		end
+
+		mesh:UploadIndices(sequential, vertex_count > 65535 and "uint32_t" or "uint16_t")
+		local data = meshes.GetTable():Get() + row
+		data.index_address = mesh:GetIndexBufferAddress()
+		data.flags = meshes.FLAG_HAS_INDICES + (
+				mesh.index_buffer:GetIndexType() == "uint32" and
+				meshes.FLAG_INDEX_32 or
+				0
+			)
+		record.index_address = tonumber(data.index_address)
+		record.index_is_32 = mesh.index_buffer:GetIndexType() == "uint32"
+	end
+
+	meshes.GetTable():Get()[row].pool_first_index = index_pool.GetFirstIndex(mesh.index_buffer)
+	record.raster_ready = true
+end
+
 function meshes.GetRecord(row)
 	return records[row]
 end
@@ -97,6 +131,12 @@ end
 -- builds the bottom level structures that are waiting, within a budget of triangles per frame, and refits the ones of
 -- meshes that were skinned (updated is a set of the addresses of their vertices)
 function meshes.Build(cmd, updated)
+	if not render.GetDevice().ray_tracing_supported then
+		table.clear(pending)
+
+		return false
+	end
+
 	local refit_count = 0
 	local refit = {}
 

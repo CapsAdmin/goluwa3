@@ -252,6 +252,7 @@ end
 
 -- the parts of the models, the segments and the rows of the structure for all of them
 local function rebuild(segment_list)
+	scatter_rt.rebuilds = (scatter_rt.rebuilds or 0) + 1
 	local segments, parts = get_tables()
 	render.GetDevice():WaitIdle()
 	segments:Clear()

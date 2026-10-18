@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local startup = import("goluwa/startup.lua")
 local render3d = {}
 import.loaded["goluwa/render3d/render3d.lua"] = render3d
@@ -16,6 +17,7 @@ local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
+local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local water = import("goluwa/render3d/water.lua")
@@ -603,9 +605,25 @@ function render3d.Initialize(config)
 			startup.Add("render pass: pre_render hooks, skinning", pre_render_started)
 		end
 
+		import("goluwa/entities/components/visual.lua").Library.UpdateScene()
+
 		if render.GetDevice().ray_tracing_supported then
-			import("goluwa/entities/components/visual.lua").Library.UpdateScene()
 			scene_rt.GetTLAS(render.GetCommandBuffer())
+		end
+
+		if scene_draw.enabled:Get() and not (render3d.camera_stack and #render3d.camera_stack > 1) then
+			local camera = render3d.GetCamera()
+			local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
+			scene_draw.frustum_planes = scene_draw.frustum_planes or ffi.new("float[24]")
+			gpu_culling.ExtractFrustumPlanes(view_projection, scene_draw.frustum_planes, 1)
+			scene_draw.Cull(
+				render.GetCommandBuffer(),
+				view_projection,
+				scene_draw.frustum_planes,
+				camera:GetPosition(),
+				render.GetRenderImageSize().y,
+				gpu_culling.culling_enabled
+			)
 		end
 
 		local ocean_enabled = render3d.IsOceanEnabled()

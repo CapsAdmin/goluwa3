@@ -2,6 +2,7 @@ local render = import("goluwa/render/render.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
+local draw = import("goluwa/render3d/scene/draw.lua")
 local bridge = {}
 local dynamic = setmetatable({}, {__mode = "k"})
 -- every visual in the scene, for the bounds of all of it
@@ -140,6 +141,7 @@ local function release(visual)
 	end
 
 	for i = 1, #list do
+		draw.ClearRow(list[i].id)
 		instances.Remove(list[i].id)
 		list[i] = nil
 	end
@@ -161,12 +163,45 @@ function bridge.GetEmissiveVisuals()
 	return emissive_visuals
 end
 
+-- what the main view needs of a row: whether it is drawn there at all (not rays only, not hidden, a material the gbuffer
+-- draws), the box and the previous matrix
+local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
+	local flags = 0
+	local module = import("goluwa/entities/components/visual.lua").Library
+
+	if not visual.RaysOnly and visual.Visible and module.MaterialDrawsInGBuffer(material) then
+		flags = instances.RASTER_DRAW
+
+		if material:HasHeightMap() then flags = flags + instances.RASTER_HEIGHT_MAP end
+
+		if material:GetDoubleSided() then flags = flags + instances.RASTER_DOUBLE_SIDED end
+
+		if visual.UseOcclusionCulling then flags = flags + instances.RASTER_OCCLUSION end
+	end
+
+	local transform = entry.transform
+	instances.SetRaster(
+		item.id,
+		visual:GetWorldAABB(),
+		visual:GetCullDistance(),
+		flags,
+		transform and transform:GetPreviousWorldMatrix() or matrix
+	)
+
+	if flags ~= 0 then
+		meshes.EnsureRaster(mesh_row)
+		draw.SetRow(item.id, mesh, material, entry.polygon3d)
+		item.raster = true
+	else
+		draw.ClearRow(item.id)
+		item.raster = nil
+	end
+end
+
 -- the instances of a visual: one per render entry that has a mesh the gpu has, in the scene as the entry's own world
 -- matrix places it. called whenever the visual is dirty in the scene acceleration, in the frame it changed
 function bridge.UpdateVisual(visual, is_dynamic)
-	if not render.GetDevice().ray_tracing_supported then return end
-
-	if not visual:IsValid() or visual.scene_removed or not visual.InSceneBVH then
+	if not visual:IsValid() or visual.scene_removed then
 		release(visual)
 
 		return
@@ -193,7 +228,8 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 			if r + g + b > 0 and (entry.lod_level or 0) == 0 then emissive = true end
 
-			if hidden then mask = 0 end
+			-- a visual that is not in the ray traced scene is only drawn
+			if hidden or not visual.InSceneBVH then mask = 0 end
 
 			if not visual.CastShadows or material:GetRayShadowOpacity() < 0.5 then
 				flags = flags + instances.FLAG_NO_SHADOW
@@ -213,7 +249,10 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			else
 				changed = true
 
-				if item then instances.Remove(item.id) end
+				if item then
+					draw.ClearRow(item.id)
+					instances.Remove(item.id)
+				end
 
 				item = item or {}
 				item.id = instances.Add(
@@ -236,10 +275,13 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 			item.entry = entry
 			item.material = material
+			item.hidden = hidden
+			set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		end
 	end
 
 	for i = #list, count + 1, -1 do
+		draw.ClearRow(list[i].id)
 		instances.Remove(list[i].id)
 		list[i] = nil
 		changed = true
@@ -272,6 +314,19 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	end
 end
 
+-- whether the main view draws the entry from the store
+function bridge.IsRasterEntry(visual, entry)
+	local list = visual.scene_instances
+
+	if not list then return false end
+
+	for i = 1, #list do
+		if list[i].entry == entry then return list[i].raster == true end
+	end
+
+	return false
+end
+
 function bridge.RemoveVisual(visual)
 	release(visual)
 end
@@ -285,6 +340,7 @@ function bridge.RefreshDynamic()
 		for i = 1, #list do
 			local item = list[i]
 			local matrix = item.entry.transform:GetWorldMatrix()
+			instances.SetPrevMatrix(item.id, item.entry.transform:GetPreviousWorldMatrix() or matrix)
 
 			if item.matrix ~= matrix then
 				instances.SetMatrix(item.id, matrix)
@@ -299,6 +355,13 @@ function bridge.RefreshDynamic()
 			mark_dirty(visual.scene_aabb)
 			grow_bounds(visual.scene_aabb)
 			set_lod_bounds(visual, list)
+			local box = visual:GetWorldAABB()
+
+			if box then
+				for i = 1, #list do
+					instances.SetRasterBox(list[i].id, box)
+				end
+			end
 
 			if emissive_visuals[visual] then bridge.emitter_version = bridge.emitter_version + 1 end
 		end

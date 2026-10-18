@@ -1471,6 +1471,15 @@ function gpu_culling.IsMainFallbackEntry(source_entry)
 	return cache.set[source_entry] == true
 end
 
+-- the depth pyramid of the last frame the main view's occlusion culling tests against, with the buffers that are left
+-- to bind when there is none yet
+function gpu_culling.GetMainViewHiZ()
+	if gpu_culling.GetOcclusionMode() ~= "hiz" or not gpu_culling.culling_enabled then return nil end
+
+	local state = get_main_view_hiz_state()
+	return state.latest, state.buffers[1], state.height
+end
+
 function gpu_culling.GetOcclusionMode()
 	return gpu_culling.occlusion_mode
 end
@@ -1701,6 +1710,8 @@ local function extract_frustum_planes(proj_view_matrix, out_planes, side_scale)
 		end
 	end
 end
+
+gpu_culling.ExtractFrustumPlanes = extract_frustum_planes
 
 local function remove_buffer(buffer)
 	if buffer then buffer:Remove() end

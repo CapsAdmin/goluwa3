@@ -42,6 +42,24 @@ instances.FLAG_BILLBOARD = 128
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table
+-- what drawing an instance in the main view needs: the box of its visual (the culling's tests), how far it is drawn, the
+-- previous world matrix (motion vectors) and what pipeline group it is in
+local RasterData = ffi.typeof([[struct {
+	float min_x;
+	float min_y;
+	float min_z;
+	float max_x;
+	float max_y;
+	float max_z;
+	float cull_distance;
+	uint32_t flags;
+	float prev[12];
+}]])
+instances.RASTER_DRAW = 1
+instances.RASTER_OCCLUSION = 2
+instances.RASTER_HEIGHT_MAP = 4
+instances.RASTER_DOUBLE_SIDED = 8
+local raster_table
 instances.version = 0
 pvars.StartGroup("Rendering", "Ray tracing", {store = false})
 local rt_distance = pvars.Setup2{
@@ -67,9 +85,43 @@ function instances.GetTables()
 			usage = {"shader_device_address", "storage_buffer", "acceleration_structure_build_input_read_only_khr"},
 		}
 		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 16384}
+		raster_table = store.CreateTable{name = "instance_raster", ctype = RasterData, capacity = 16384}
 	end
 
 	return tlas_table, data_table
+end
+
+function instances.GetRasterTable()
+	instances.GetTables()
+	raster_table:Reserve(tlas_table.capacity)
+	raster_table.count = tlas_table.count
+	return raster_table
+end
+
+function instances.SetRaster(id, aabb, cull_distance, flags, prev)
+	local row = instances.GetRasterTable():Get()[id]
+
+	if aabb then
+		row.min_x, row.min_y, row.min_z = aabb.min_x, aabb.min_y, aabb.min_z
+		row.max_x, row.max_y, row.max_z = aabb.max_x, aabb.max_y, aabb.max_z
+	end
+
+	row.cull_distance = cull_distance
+	row.flags = flags
+	instances.SetPrevMatrix(id, prev)
+end
+
+function instances.SetRasterBox(id, aabb)
+	local row = instances.GetRasterTable():Get()[id]
+	row.min_x, row.min_y, row.min_z = aabb.min_x, aabb.min_y, aabb.min_z
+	row.max_x, row.max_y, row.max_z = aabb.max_x, aabb.max_y, aabb.max_z
+end
+
+function instances.SetPrevMatrix(id, m)
+	local t = instances.GetRasterTable():Get()[id].prev
+	t[0], t[1], t[2], t[3] = m.m00, m.m10, m.m20, m.m30
+	t[4], t[5], t[6], t[7] = m.m01, m.m11, m.m21, m.m31
+	t[8], t[9], t[10], t[11] = m.m02, m.m12, m.m22, m.m32
 end
 
 function instances.GetDataTable()
@@ -102,6 +154,7 @@ function instances.Add(mesh_row, material_row, matrix, mask, flags, level, last,
 	data_table:Reserve(tlas_table.capacity)
 	data_table.count = tlas_table.count
 	data_table.live = data_table.live + 1
+	instances.GetRasterTable():Get()[id].flags = 0
 	local record = tlas_table:Get()[id]
 	local data = data_table:Get()[id]
 	record.customAndMask = id
@@ -181,6 +234,7 @@ function instances.AllocRange(n)
 	local base = tlas_table:AllocRange(n)
 	produced_ranges[base] = n
 	data_table:Reserve(tlas_table.capacity)
+	instances.GetRasterTable()
 	data_table.count = tlas_table.count
 	data_table.live = data_table.live + n
 	instances.version = instances.version + 1

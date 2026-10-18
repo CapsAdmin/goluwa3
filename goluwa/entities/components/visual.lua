@@ -16,6 +16,7 @@ local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local scene_bridge = import("goluwa/render3d/scene/bridge.lua")
+local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local billboard = import("goluwa/render3d/billboard.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
@@ -536,6 +537,8 @@ local function material_draws_in_gbuffer(material)
 			not render3d.pipelines.translucent_surface
 		)
 end
+
+visual.MaterialDrawsInGBuffer = material_draws_in_gbuffer
 
 local function invalidate_scene_acceleration()
 	visual.scene_full_rebuild = true
@@ -3517,7 +3520,31 @@ end
 function Visual:OnFirstCreated()
 	local main_visible_components = {}
 
+	local store_pipelines = {}
+
 	event.AddListener("Draw3DGeometry", "visual_geometry_draw", function()
+		store_pipelines[1] = render3d.pipelines.gbuffer_multi_draw
+		store_pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
+
+		if
+			scene_draw.enabled:Get() and
+			gpu_culling.IsEnabled() and
+			not visual.noculling and
+			store_pipelines[2] and
+			scene_draw.Draw(gbuffer_instancing, store_pipelines)
+		then
+			-- what the store does not draw, meshes without gpu buffers and what a pass of its own draws
+			local camera_position = render3d.GetCamera():GetPosition()
+
+			for _, component in ipairs(visual.CollectCPUVisibleComponents(main_visible_components)) do
+				for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
+					if not scene_bridge.IsRasterEntry(component, entry) then draw_geometry_entry(component, entry) end
+				end
+			end
+
+			return
+		end
+
 		if gpu_culling.IsEnabled() and not visual.noculling then
 			local entry_records, visible_entry_index_ptr, visible_entry_count, cull_result = visual.GetVisibleMainGPUEntries()
 
