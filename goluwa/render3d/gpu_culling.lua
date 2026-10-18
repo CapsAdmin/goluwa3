@@ -1522,7 +1522,7 @@ local function serialize_render_entry(component, entry, entry_index, dynamic)
 		ignore_z = material:GetIgnoreZ(),
 		transparent = material:IsTransparent(),
 		has_height_displacement = has_height_displacement,
-		gbuffer_instancing_eligible = not material:GetIgnoreZ() and not material:IsTransparent(),
+		gbuffer_instancing_eligible = not dynamic and not material:GetIgnoreZ() and not material:IsTransparent(),
 		shadow_instancing_eligible = not has_height_displacement,
 		batch_mesh = mesh,
 		batch_material = material,

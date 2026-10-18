@@ -459,6 +459,9 @@ T.Test3D("Graphics render3d gpu culling scene dataset serializes static and dyna
 	T(dynamic_visual.render_entry_count)["=="](1)
 	T(static_visual.entries[1].polygon_guid ~= nil)["=="](true)
 	T(static_visual.entries[1].material_guid ~= nil)["=="](true)
+	-- the async main view cull copies instance worlds a frame or two before the draw, so a moving entry is drawn from the cpu
+	T(static_visual.entries[1].instanced_batch_index ~= nil)["=="](true)
+	T(dynamic_visual.entries[1].instanced_batch_index)["=="](nil)
 	static_entity:Remove()
 	dynamic_entity:Remove()
 end)
