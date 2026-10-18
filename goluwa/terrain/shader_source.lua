@@ -26,6 +26,11 @@ local BakeConstants = ffi.typeof([[
 		int layer5;
 		int layer6;
 		int layer7;
+		int field_texture;
+		float field_origin_x;
+		float field_origin_z;
+		float field_step;
+		int field_size;
 	}
 ]])
 local BAKE_DECLARATIONS = [[
@@ -48,6 +53,12 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 	int layer5;
 	int layer6;
 	int layer7;
+	// the height field of the chunk (FIELD_BAKE), what the other textures are derived from
+	int field_texture;
+	float field_origin_x;
+	float field_origin_z;
+	float field_step;
+	int field_size;
 } terrain_bake;
 ]]
 local BAKE_STEP_HELPER = [[
@@ -61,12 +72,28 @@ vec2 terrain_bake_world_pos() {
 	return vec2(terrain_bake.origin_x, terrain_bake.origin_z) + pixel * vec2(terrain_bake.step_x, terrain_bake.step_z);
 }
 
+// the height at a world position from the baked height field instead of evaluating terrain_height again, exact at the
+// field's texels and bilinear between them
+float terrain_bake_field(vec2 p) {
+	vec2 t = (p - vec2(terrain_bake.field_origin_x, terrain_bake.field_origin_z)) / terrain_bake.field_step;
+	ivec2 i0 = ivec2(floor(t));
+	vec2 f = t - vec2(i0);
+	int last = terrain_bake.field_size - 1;
+	ivec2 i1 = clamp(i0 + 1, ivec2(0), ivec2(last));
+	i0 = clamp(i0, ivec2(0), ivec2(last));
+	float h00 = texelFetch(TEXTURE(terrain_bake.field_texture), ivec2(i0.x, i0.y), 0).r;
+	float h10 = texelFetch(TEXTURE(terrain_bake.field_texture), ivec2(i1.x, i0.y), 0).r;
+	float h01 = texelFetch(TEXTURE(terrain_bake.field_texture), ivec2(i0.x, i1.y), 0).r;
+	float h11 = texelFetch(TEXTURE(terrain_bake.field_texture), ivec2(i1.x, i1.y), 0).r;
+	return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+}
+
 vec3 terrain_bake_normal(vec2 p) {
 	float s = terrain_bake.sample_step;
-	float h_left = terrain_height(p - vec2(s, 0.0));
-	float h_right = terrain_height(p + vec2(s, 0.0));
-	float h_down = terrain_height(p - vec2(0.0, s));
-	float h_up = terrain_height(p + vec2(0.0, s));
+	float h_left = terrain_bake_field(p - vec2(s, 0.0));
+	float h_right = terrain_bake_field(p + vec2(s, 0.0));
+	float h_down = terrain_bake_field(p - vec2(0.0, s));
+	float h_up = terrain_bake_field(p + vec2(0.0, s));
 	return normalize(vec3(h_left - h_right, 2.0 * s, h_down - h_up));
 }
 ]]
@@ -80,25 +107,25 @@ local NORMAL_BAKE = [[
 ]]
 local SPLAT_BAKE = [[
 	vec2 p = terrain_bake_world_pos();
-	float h = terrain_height(p);
+	float h = terrain_bake_field(p);
 	vec3 n = terrain_bake_normal(p);
 	return terrain_splat(p, h, n);
 ]]
 local SPLAT2_BAKE = [[
 	vec2 p = terrain_bake_world_pos();
-	float h = terrain_height(p);
+	float h = terrain_bake_field(p);
 	vec3 n = terrain_bake_normal(p);
 	return terrain_splat2(p, h, n);
 ]]
 local COLOR_BAKE = [[
 	vec2 p = terrain_bake_world_pos();
-	float h = terrain_height(p);
+	float h = terrain_bake_field(p);
 	vec3 n = terrain_bake_normal(p);
 	return vec4(terrain_color(p, h, n), 1.0);
 ]]
 
-local function make_bake_texture(self, size, format, cmd)
-	local key = size .. ":" .. format
+local function make_bake_texture(self, size, format, cmd, nearest)
+	local key = size .. ":" .. format .. (nearest and ":nearest" or "")
 	local pooled = self.texture_pool[key]
 
 	if pooled and pooled[1] then return table.remove(pooled) end
@@ -113,8 +140,8 @@ local function make_bake_texture(self, size, format, cmd)
 			usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
 		},
 		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
+			min_filter = nearest and "nearest" or "linear",
+			mag_filter = nearest and "nearest" or "linear",
 			wrap_s = "clamp_to_edge",
 			wrap_t = "clamp_to_edge",
 		},
@@ -159,11 +186,14 @@ function ShaderSource:GetShaderHeader()
 end
 
 do
-	local bake = {}
+	local bake = {field_origin_x = 0, field_origin_z = 0, field_step = 1, field_size = 0}
+	-- the source's textures and the height field of the chunk, for the passes that read it
+	local shade_textures = {}
 
 	local function get_bake_constants(_, _, pipeline)
 		local textures = bake.textures
 		local layer_ids = bake.layer_ids
+		local field = bake.field
 		return BakeConstants(
 			bake.origin_x,
 			bake.origin_z,
@@ -181,29 +211,50 @@ do
 			layer_ids[5] or -1,
 			layer_ids[6] or -1,
 			layer_ids[7] or -1,
-			layer_ids[8] or -1
+			layer_ids[8] or -1,
+			field and pipeline:GetTextureIndex(field) or -1,
+			bake.field_origin_x,
+			bake.field_origin_z,
+			bake.field_step,
+			bake.field_size
 		)
 	end
 
 	local NO_LAYER_IDS = {}
 	local push_constants = {size = ffi.sizeof(BakeConstants), get_data = get_bake_constants}
 
-	local function record_bake(self, batch, size, format, glsl, request, texel_centered, layer_ids)
-		local texture = make_bake_texture(self, size, format, batch.cmd)
-		local step = texel_centered and request.size / size or request.size / (size - 1)
-		local offset = texel_centered and step * 0.5 or 0
-		bake.textures = self.Textures
-		bake.origin_x = request.min_x + offset
-		bake.origin_z = request.min_z + offset
+	-- `size` texels of `step` meters starting at `origin_x`, `origin_z`. `field` is the chunk's height field, for the
+	-- passes that are derived from it
+	local function record_bake(self, batch, size, format, glsl, origin_x, origin_z, step, layer_ids, field, nearest)
+		local texture = make_bake_texture(self, size, format, batch.cmd, nearest)
+		local source_textures = self.Textures
+		local textures = source_textures
+		bake.textures = source_textures
+		bake.origin_x = origin_x
+		bake.origin_z = origin_z
 		bake.step = step
 		bake.layer_ids = layer_ids or NO_LAYER_IDS
+		bake.field = field
+
+		if field then
+			textures = shade_textures
+			table.clear(textures)
+			textures[1] = field
+
+			for i = 1, #source_textures do
+				textures[i + 1] = source_textures[i]
+			end
+
+			bake.field_size = field.image:GetWidth()
+		end
+
 		batch.refs[#batch.refs + 1] = texture:Shade(
 			glsl,
 			{
 				cmd = batch.cmd,
 				header = self.ShaderHeader,
 				custom_declarations = BAKE_DECLARATIONS,
-				textures = self.Textures,
+				textures = textures,
 				fragment_push_constants = push_constants,
 			}
 		)
@@ -216,18 +267,24 @@ do
 		if not batch then
 			local cmd = render.GetCommandPool():AllocateCommandBuffer()
 			cmd:Begin()
-			batch = {cmd = cmd, refs = {}, chunks = {}, callbacks = {}, height_textures = {}}
+			batch = {cmd = cmd, refs = {}, chunks = {}, callbacks = {}, height_textures = {}, fields = {}}
 			self.batch = batch
 		end
 
 		local chunk = {request = request}
+		local min_x, min_z, size = request.min_x, request.min_z, request.size
 
 		if request.samples then
-			batch.height_textures[#batch.chunks + 1] = record_bake(self, batch, request.samples, "r32_sfloat", HEIGHT_BAKE, request, false)
-		end
-
-		if request.detail_size then
-			chunk.normal_texture = record_bake(self, batch, request.detail_size, "r8g8b8a8_unorm", NORMAL_BAKE, request, true)
+			batch.height_textures[#batch.chunks + 1] = record_bake(
+				self,
+				batch,
+				request.samples,
+				"r32_sfloat",
+				HEIGHT_BAKE,
+				min_x,
+				min_z,
+				size / (request.samples - 1)
+			)
 		end
 
 		local layer_ids
@@ -236,43 +293,86 @@ do
 			chunk.layers, layer_ids = self.SelectChunkLayers(request)
 		end
 
-		if request.splat_size and self.HasSplat then
+		local wants_splat = request.splat_size and self.HasSplat
+		local wants_splat2 = request.splat_size and self.HasSplat2 and layer_ids and layer_ids[5]
+		local wants_color = request.color_size and self.HasColor
+		local field
+
+		-- the height function is evaluated once per texel of the finest texture, with a texel more around it for the
+		-- normals at its edges, and the normals, the weights and the colors are read from that
+		if request.detail_size or wants_splat or wants_color then
+			local cells = math.max(request.detail_size or 0, wants_splat and request.splat_size or 0, wants_color and request.color_size or 0)
+			local step = size / cells
+			-- texel i is at min + (i - 0.5) * step, the first one is the apron
+			bake.field_origin_x = min_x - step * 0.5
+			bake.field_origin_z = min_z - step * 0.5
+			bake.field_step = step
+			field = record_bake(self, batch, cells + 2, "r32_sfloat", HEIGHT_BAKE, min_x - step * 0.5, min_z - step * 0.5, step, nil, nil, true)
+			batch.fields[#batch.fields + 1] = field
+		end
+
+		if request.detail_size then
+			local step = size / request.detail_size
+			chunk.normal_texture = record_bake(
+				self,
+				batch,
+				request.detail_size,
+				"r8g8b8a8_unorm",
+				NORMAL_BAKE,
+				min_x + step * 0.5,
+				min_z + step * 0.5,
+				step,
+				nil,
+				field
+			)
+		end
+
+		if wants_splat then
+			local step = size / request.splat_size
 			chunk.splat_texture = record_bake(
 				self,
 				batch,
 				request.splat_size,
 				"r8g8b8a8_unorm",
 				SPLAT_BAKE,
-				request,
-				true,
-				layer_ids
+				min_x + step * 0.5,
+				min_z + step * 0.5,
+				step,
+				layer_ids,
+				field
 			)
 		end
 
 		-- the layers after the fourth have their weights in a second texture
-		if request.splat_size and self.HasSplat2 and layer_ids and layer_ids[5] then
+		if wants_splat2 then
+			local step = size / request.splat_size
 			chunk.splat2_texture = record_bake(
 				self,
 				batch,
 				request.splat_size,
 				"r8g8b8a8_unorm",
 				SPLAT2_BAKE,
-				request,
-				true,
-				layer_ids
+				min_x + step * 0.5,
+				min_z + step * 0.5,
+				step,
+				layer_ids,
+				field
 			)
 		end
 
-		if request.color_size and self.HasColor then
+		if wants_color then
+			local step = size / request.color_size
 			chunk.color_texture = record_bake(
 				self,
 				batch,
 				request.color_size,
 				self.ColorFormat,
 				COLOR_BAKE,
-				request,
-				true,
-				layer_ids
+				min_x + step * 0.5,
+				min_z + step * 0.5,
+				step,
+				layer_ids,
+				field
 			)
 		end
 
@@ -382,6 +482,10 @@ function ShaderSource:CompleteBatch(batch)
 	render.GetQueue():RetireFence(batch.fence)
 	self.free_fences[#self.free_fences + 1] = batch.fence
 	local mapped = batch.staging and ffi.cast("float*", batch.staging:Map())
+
+	for _, field in ipairs(batch.fields) do
+		self:RecycleTexture(field)
+	end
 
 	for i, chunk in ipairs(batch.chunks) do
 		local texture = batch.height_textures[i]

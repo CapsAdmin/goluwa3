@@ -64,3 +64,49 @@ T.Test3D("Terrain shader source reads back heights matching its GLSL", function(
 	T(math.abs(b - 239))["<="](2)
 	source:ReleaseChunk(chunk)
 end)
+
+T.Test3D("Terrain shader source derives the splat and color from the baked height field", function()
+	local source = ShaderSource.New{
+		HeightGLSL = [[
+			float terrain_height(vec2 world) {
+				return 10.0 + world.x * 0.5;
+			}
+		]],
+		SplatGLSL = [[
+			vec4 terrain_splat(vec2 world, float h, vec3 n) {
+				return vec4(h / 100.0, n.y, 0.0, 1.0);
+			}
+		]],
+		ColorGLSL = [[
+			vec3 terrain_color(vec2 world, float h, vec3 n) {
+				return vec3(h / 100.0, 0.0, 0.0);
+			}
+		]],
+		MinHeight = 0,
+		MaxHeight = 100,
+	}
+	local request = {
+		min_x = 0,
+		min_z = 0,
+		size = 32,
+		samples = 9,
+		detail_size = 32,
+		splat_size = 16,
+		color_size = 8,
+	}
+	local chunk
+
+	source:RequestChunk(request, function(result)
+		chunk = result
+	end)
+
+	source:Finish()
+	-- the splat texel (4, 4) is at x = 9 and the color texel (4, 4) at x = 18
+	local r, g = chunk.splat_texture:Download():GetPixel(4, 4)
+	T(math.abs(r - (10 + 9 * 0.5) * 2.55))["<="](1.5)
+	local expected_ny = 1 / math.sqrt(1 + 0.25)
+	T(math.abs(g - expected_ny * 255))["<="](1.5)
+	r = chunk.color_texture:Download():GetPixel(4, 4)
+	T(math.abs(r - (10 + 18 * 0.5) * 2.55))["<="](1.5)
+	source:ReleaseChunk(chunk)
+end)
