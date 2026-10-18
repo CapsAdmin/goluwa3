@@ -1,3 +1,4 @@
+-- (EG_DUMP=n also lists the n largest rows the main cull drew, see scene_draw_dump)
 -- gpu time per scope and group on the esther map at the cave view, after the scene is ready. env: EG_PV ("pvar=value ..."), EG_SECONDS (measured seconds, 6), EG_TOP (scopes printed, 16)
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
@@ -54,6 +55,7 @@ event.AddListener("Update", "eg_cycle", function()
 			table.sort(info)
 			print(string.format("GPU %-30s %6.2f ms %5.1f%%  %s", e.name, e.ms, e.share * 100, table.concat(info, " ")))
 		end
+		if os.getenv("EG_DUMP") then commands.RunString("scene_draw_dump " .. os.getenv("EG_DUMP")) end
 		system.ShutDown(0)
 	end
 end)

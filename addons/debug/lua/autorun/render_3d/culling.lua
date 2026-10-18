@@ -6,6 +6,9 @@ local Color = import("goluwa/structs/color.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
+local scene_bridge = import("goluwa/render3d/scene/bridge.lua")
+local scene_meshes = import("goluwa/render3d/scene/meshes.lua")
+local scene_visibility = import("goluwa/render3d/scene/visibility.lua")
 local visual_module = import("goluwa/entities/components/visual.lua")
 local visual = import("goluwa/entities/components/visual.lua").Library
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
@@ -163,3 +166,171 @@ do
 		{priority = -100}
 	)
 end
+
+-- lists what the gpu culling of the main view drew in the last frame, by entity: the rows it kept (one per render entry and
+-- level of detail), whether the box of the visual holds the camera (such a row is never occluded) and whether it is
+-- translucent. stalls, reads the culling back
+commands.Add("scene_draw_dump", function(count)
+	count = tonumber(count) or 40
+	local camera = render3d.GetCamera():GetPosition()
+	local view_projection = render3d.GetCamera():BuildViewMatrix() * render3d.GetCamera():BuildProjectionMatrix()
+	local by_id = {}
+
+	for _, component in ipairs(visual_module.Instances or {}) do
+		for _, item in ipairs(component.scene_instances or {}) do
+			by_id[item.id] = {component = component, item = item}
+
+		end
+	end
+
+	local lines = {}
+	local totals = {opaque = 0, translucent = 0, contains_camera = 0, no_occlusion = 0, unknown = 0}
+
+	for kind, name in ipairs{"opaque", "translucent"} do
+		local result = scene_draw.ReadBackCull(kind - 1)
+
+		for id in pairs(result.by_id) do
+			local owner = by_id[id]
+			totals[name] = totals[name] + 1
+
+			if not owner then
+				totals.unknown = totals.unknown + 1
+			else
+				local component = owner.component
+				local box = scene_bridge.GetEntryBox(owner.item.entry, owner.item.matrix) or component:GetWorldAABB()
+				local contains = box and
+					camera.x >= box.min_x and
+					camera.x <= box.max_x and
+					camera.y >= box.min_y and
+					camera.y <= box.max_y and
+					camera.z >= box.min_z and
+					camera.z <= box.max_z
+				local size = box and
+					math.max(box.max_x - box.min_x, box.max_y - box.min_y, box.max_z - box.min_z) or
+					0
+
+				-- a box with a corner behind the eye reaches the near plane, its nearest point is as near as can be and
+				-- no depth in front of it can hide it
+				local behind_eye = false
+
+				if box and not contains then
+					local m = view_projection
+
+					for i = 0, 7 do
+						local x = bit.band(i, 1) ~= 0 and box.max_x or box.min_x
+						local y = bit.band(i, 2) ~= 0 and box.max_y or box.min_y
+						local z = bit.band(i, 4) ~= 0 and box.max_z or box.min_z
+
+						if m.m03 * x + m.m13 * y + m.m23 * z + m.m33 <= 0 then
+							behind_eye = true
+
+							break
+						end
+					end
+				end
+
+				if behind_eye then totals.reaches_behind_eye = (totals.reaches_behind_eye or 0) + 1 end
+
+				if contains then totals.contains_camera = totals.contains_camera + 1 end
+
+				if not component.UseOcclusionCulling then
+					totals.no_occlusion = totals.no_occlusion + 1
+				end
+
+				lines[#lines + 1] = {
+					size = size,
+					text = string.format(
+						"%-11s %-32s level %d  tris %6d  size %7.1f%s%s",
+						name,
+						tostring(component.Owner and component.Owner.Name or "?"):sub(1, 32),
+						owner.item.level or 0,
+						(scene_meshes.GetRecord(owner.item.mesh_row) or {}).triangle_count or 0,
+						size,
+						contains and "  holds the camera" or (behind_eye and "  reaches behind the eye" or ""),
+						component.UseOcclusionCulling and "" or "  no occlusion test"
+					),
+				}
+			end
+		end
+	end
+
+	table.sort(lines, function(a, b)
+		return a.size > b.size
+	end)
+
+	print(
+		string.format(
+			"[scene_draw_dump] %d opaque and %d translucent rows drawn, %d hold the camera, %d more reach behind the eye, %d are not occlusion tested, %d unknown",
+			totals.opaque,
+			totals.translucent,
+			totals.contains_camera,
+			totals.reaches_behind_eye or 0,
+			totals.no_occlusion,
+			totals.unknown
+		)
+	)
+
+	for i = 1, math.min(#lines, count) do
+		print("[scene_draw_dump] " .. lines[i].text)
+	end
+end)
+
+-- of the rows the main cull drew, which can be seen: rays from the camera through random points of the box of each row, see
+-- visibility.lua for what it can and cannot tell. lists the rows no ray reached, the ones the cull should have hidden
+-- if the estimate is right
+commands.Add("scene_draw_visibility", function(rays)
+	local result = scene_visibility.Estimate(tonumber(rays) or 128)
+	local by_id = {}
+
+	for _, component in ipairs(visual_module.Instances or {}) do
+		for _, item in ipairs(component.scene_instances or {}) do
+			by_id[item.id] = {component = component, item = item}
+		end
+	end
+
+	local unseen = {}
+	local not_measurable = 0
+
+	for id, entry in pairs(result.by_id) do
+		if entry.self == 0 then
+			if entry.solid then
+				local owner = by_id[id]
+				local box = owner and scene_bridge.GetEntryBox(owner.item.entry, owner.item.matrix)
+				local size = box and
+					math.max(box.max_x - box.min_x, box.max_y - box.min_y, box.max_z - box.min_z) or
+					0
+				unseen[#unseen + 1] = {
+					size = size,
+					text = string.format(
+						"%-32s size %7.1f  %d rays: %d hit another row, %d hit nothing",
+						tostring(owner and owner.component.Owner and owner.component.Owner.Name or "?"):sub(1, 32),
+						size,
+						entry.samples,
+						entry.other,
+						entry.sky
+					),
+				}
+			else
+				not_measurable = not_measurable + 1
+			end
+		end
+	end
+
+	table.sort(unseen, function(a, b)
+		return a.size > b.size
+	end)
+
+	print(
+		string.format(
+			"[scene_draw_visibility] %d rows drawn, %d seen by a ray, %d not seen (%d of them cannot be told: not in the ray traced scene or not solid)",
+			result.drawn,
+			result.seen,
+			result.unseen,
+			not_measurable
+		)
+	)
+
+	for i = 1, math.min(#unseen, 30) do
+		print("[scene_draw_visibility] not seen: " .. unseen[i].text)
+	end
+end)

@@ -293,3 +293,65 @@ T.Test3D("Graphics render3d a shadow cull keeps what is in the box of the cascad
 		entity:Remove()
 	end
 end)
+
+T.Test3D("Graphics render3d the main view cull tests the box of each part of a visual, not of all of them", function(draw)
+	configure_camera()
+	local entity = Entity.New{Name = "scene_cull_parts"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -10))
+	local visual = entity:AddComponent("visual")
+	local parts = {}
+
+	for i, x in ipairs{0, -60} do
+		local primitive = Entity.New{Name = "scene_cull_part" .. i, Parent = entity}
+		primitive:AddComponent("transform")
+		primitive.transform:SetPosition(Vec3(x, 0, 0))
+		local visual_primitive = primitive:AddComponent("visual_primitive")
+		visual_primitive:SetPolygon3D(get_cube())
+		visual_primitive:SetMaterial(Material.New())
+		parts[i] = primitive
+	end
+
+	visual:BuildAABB()
+	visual:SetUseOcclusionCulling(false)
+	draw_frames(draw)
+	local result = scene_draw.ReadBackCull(0)
+	local drawn = {}
+
+	for _, item in ipairs(visual.scene_instances) do
+		drawn[item.entry.entity] = result.by_id[item.id] ~= nil
+	end
+
+	-- the box of the whole visual holds the frustum, the box of the part at -60 does not
+	T(drawn[parts[1]])["=="](true)
+	T(drawn[parts[2]])["=="](false)
+	entity:Remove()
+end)
+
+T.Test3D("Graphics render3d the visibility estimate sees a row in front of another and not the one behind it", function(draw)
+	if not render.GetDevice().ray_query_supported then return end
+
+	local visibility = import("goluwa/render3d/scene/visibility.lua")
+	configure_camera()
+	-- nothing here is occlusion culled, so the cull draws the row behind as well
+	local occluder = spawn(Vec3(0, 0, -5), 1)
+	occluder.transform:SetScale(Vec3(8, 8, 1))
+	local behind = spawn(Vec3(0, 0, -12), 1)
+	local aside = spawn(Vec3(0, 0, -5), 1)
+	aside.transform:SetPosition(Vec3(6, 0, -12))
+	draw_frames(draw)
+	local result = visibility.Estimate(64)
+	local by_entity = {}
+
+	for _, entity in ipairs{occluder, behind, aside} do
+		by_entity[entity] = result.by_id[get_ids(entity)[1]]
+	end
+
+	T(by_entity[occluder] ~= nil and by_entity[behind] ~= nil)["=="](true)
+	T(by_entity[occluder].self > 0)["=="](true)
+	T(by_entity[behind].self)["=="](0)
+	T(by_entity[behind].other > 0)["=="](true)
+	occluder:Remove()
+	behind:Remove()
+	aside:Remove()
+end)
