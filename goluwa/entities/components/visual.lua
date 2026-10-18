@@ -19,6 +19,7 @@ local lod = import("goluwa/render3d/lod.lua")
 local billboard = import("goluwa/render3d/billboard.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local scene_bvh = import("goluwa/render3d/scene_bvh.lua")
+local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local test_helper = import("goluwa/test.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -3794,6 +3795,8 @@ function Visual:OnFirstCreated()
 		}
 	end)
 
+	local tile_casters = {}
+
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
 		reset_shadow_draw_calls(shadow_map, cascade_idx)
 
@@ -3803,6 +3806,21 @@ function Visual:OnFirstCreated()
 			scene_bvh.IsReady()
 		then
 			shadow_map:DrawSoup(cascade_idx)
+
+			-- what is not in the bvh, the terrain's tiles, is not in the soup: it is drawn as it is, so the terrain shadows
+			-- agree between the cascades
+			if terrain_shadow.IsActive() then
+				table.clear(tile_casters)
+
+				for _, component in ipairs(visual.GetShadowVisibleVisuals(shadow_map, cascade_idx)) do
+					if not component.InSceneBVH then tile_casters[#tile_casters + 1] = component end
+				end
+
+				if tile_casters[1] then
+					shadow_map:DrawVisibleComponents(tile_casters, cascade_idx, false)
+				end
+			end
+
 			return
 		end
 
