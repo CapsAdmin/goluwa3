@@ -31,3 +31,7 @@ Without ray queries nothing is built (`ray_tracing_supported`): no DDGI trace, l
 ## Measuring
 
 `test/tests/render3d/scene_store.lua` (rows, tlas, the level of detail by distance, skinned refit). `ddgi_debug_scene albedo` shows what the rays see. `rt_build` is the gpu time scope of the update and build.
+
+## Waits that are left
+
+Places that still block on the gpu, each outside the per frame draw path: `render.SubmitAndWait` in `envprobe.lua` (bakes), `scene_view.lua` (screenshots of a scene view), `particles.lua` (pool setup), terrain's `batch.fence:Wait()` (bake results), a shadow map waiting on its own fence before it records again, `polygon_3d.lua`'s `Wait`, `gpu_culling.wait_for_main_view` and `read_back_main_view` (set by `test_render.Init3D`), and the older `GetShadowVisibleVisuals` / `RunShadowViewAABBCulling` pair (tests, a cascade with no dataset). Most of these want to be helpers meant for the test suite, screenshots and bakes (one `render.ReadBack(buffer)` style function with a name that says it stalls) instead of loose `SubmitAndWait` calls, so that a grep for the helper finds every place that stalls.
