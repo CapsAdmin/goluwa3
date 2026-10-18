@@ -53,6 +53,19 @@ function Buffer.New(config)
 	assert(size > 0, "buffer size must be greater than 0")
 	local usage = config.usage
 	local properties = config.properties
+
+	-- geometry buffers are the input of the bottom level builds of the scene
+	if device.ray_tracing_supported and type(usage) == "table" then
+		for _, u in ipairs(usage) do
+			if u == "vertex_buffer" or u == "index_buffer" then
+				usage = {unpack(usage)}
+				table.insert(usage, "acceleration_structure_build_input_read_only_khr")
+
+				break
+			end
+		end
+	end
+
 	local ptr = VkBufferBox()
 	vulkan.assert(
 		vulkan.lib.vkCreateBuffer(
