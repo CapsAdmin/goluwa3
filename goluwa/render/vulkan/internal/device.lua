@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local system = import("goluwa/system.lua")
 local RENDER_NOOP = _G.RENDER_NOOP or false
 local Device = objects.CreateTemplate("vulkan_device")
 Device.GetQueue = import("goluwa/render/vulkan/internal/queue.lua").New
@@ -567,6 +568,10 @@ function Device:DeferRelease(callback, serial)
 	table.insert(self.deferred_releases, {serial = serial, callback = callback})
 end
 
+-- a collection that lets go of hundreds of resources at once queues them all here, and every vkFreeMemory is 0.1-0.4 ms,
+-- so a flush that is not forced stops after a budget and leaves the rest for the next one
+local FLUSH_BUDGET = 0.002
+
 function Device:FlushDeferredReleases(force)
 	local deferred = self.deferred_releases
 
@@ -586,11 +591,24 @@ function Device:FlushDeferredReleases(force)
 		end
 	end
 
-	self.deferred_releases = pending
+	local deadline = not force and system.GetTime() + FLUSH_BUDGET
+	local done = #ready
 
 	for i = 1, #ready do
 		ready[i].callback()
+
+		if deadline and system.GetTime() > deadline then
+			done = i
+
+			break
+		end
 	end
+
+	for i = done + 1, #ready do
+		pending[#pending + 1] = ready[i]
+	end
+
+	self.deferred_releases = pending
 end
 
 function Device:MarkSubmissionCompleted(serial)
