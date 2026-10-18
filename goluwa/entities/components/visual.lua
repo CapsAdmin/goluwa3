@@ -3844,31 +3844,33 @@ function Visual:OnFirstCreated()
 		}
 	end)
 
-	local tile_casters = {}
+	local height_map_casters = {}
 
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
 		reset_shadow_draw_calls(shadow_map, cascade_idx)
 
-		if shadow_map:UsesInstances(cascade_idx) then
-			shadow_map:DrawInstances(cascade_idx)
-			table.clear(tile_casters)
+		if shadow_map:UsesSceneDraw() then
+			shadow_map:DrawScene(cascade_idx)
+			table.clear(height_map_casters)
 
-			-- what is not in the ray traced scene is drawn as it is
+			-- the multi draw pipeline does not displace: rows with a height map are drawn as visuals
 			for _, component in ipairs(visual.shadow_casters) do
 				if
-					not component.InSceneBVH and
 					component.Visible and
-					component:IsWithinCullDistance()
+					component:IsWithinCullDistance() and
+					component.scene_height_map
 				then
 					local world_aabb = component:GetWorldAABB()
 
 					if world_aabb and shadow_map:IsWorldAABBVisible(cascade_idx, world_aabb) then
-						tile_casters[#tile_casters + 1] = component
+						height_map_casters[#height_map_casters + 1] = component
 					end
 				end
 			end
 
-			if tile_casters[1] then shadow_map:DrawVisibleComponents(tile_casters, cascade_idx, false) end
+			if height_map_casters[1] then
+				shadow_map:DrawVisibleComponents(height_map_casters, cascade_idx, false)
+			end
 
 			return
 		end

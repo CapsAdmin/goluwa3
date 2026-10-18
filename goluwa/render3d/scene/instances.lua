@@ -39,6 +39,8 @@ instances.FLAG_PRODUCED = 32
 -- the shadow maps leave an instance out, or a billboard (crossed quads would shadow themselves)
 instances.FLAG_NO_SHADOW = 64
 instances.FLAG_BILLBOARD = 128
+-- the level of detail before a billboard casts in its place
+instances.FLAG_BEFORE_BILLBOARD = 256
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table
@@ -59,6 +61,7 @@ instances.RASTER_DRAW = 1
 instances.RASTER_OCCLUSION = 2
 instances.RASTER_HEIGHT_MAP = 4
 instances.RASTER_DOUBLE_SIDED = 8
+instances.RASTER_SHADOW = 16
 local raster_table
 instances.version = 0
 pvars.StartGroup("Rendering", "Ray tracing", {store = false})

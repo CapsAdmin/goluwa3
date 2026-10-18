@@ -495,4 +495,289 @@ function draw.Draw(gbuffer_instancing, pipelines)
 	return true
 end
 
+-- the shadow maps: a pass like the main view's that writes, for every slot, a draw (vertices pulled through the index
+-- buffer by the shadow multi draw pipeline, which is what its non indexed command is for) and the world matrix, into buffers
+-- of the cascade. what is not in the cascade's box, is too small to show in it, or is not the level of detail that casts
+-- has no instances. rows with a height map are left to the cpu, the multi draw pipeline does not displace
+local SHADOW_COMMAND_SIZE = 16
+local shadow_pipeline
+
+local function get_shadow_pipeline()
+	if shadow_pipeline then return shadow_pipeline end
+
+	shadow_pipeline = EasyPipeline.Compute{
+		name = "scene_shadow_cull",
+		DescriptorSetCount = 1,
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		block = {
+			{"args", "uint64_t"},
+			{"camera_position", "vec3"},
+			{"count", "int"},
+			{"planes", "vec4", 5},
+			{"light_axis_x", "vec3"},
+			{"min_caster_extent", "float"},
+			{"light_axis_y", "vec3"},
+			{"lod_forced", "int"},
+			{"lod_scale", "float"},
+			{"culling_enabled", "int"},
+		},
+		write = function(self, block)
+			local v = self.shadow_state
+			block.args = v.args_address
+			block.camera_position[0], block.camera_position[1], block.camera_position[2] = v.camera.x, v.camera.y, v.camera.z
+			block.count = v.count
+
+			for i = 0, 4 do
+				for k = 0, 3 do
+					block.planes[i][k] = v.planes[i * 4 + k]
+				end
+			end
+
+			block.light_axis_x[0], block.light_axis_x[1], block.light_axis_x[2] = v.axis_x[1], v.axis_x[2], v.axis_x[3]
+			block.light_axis_y[0], block.light_axis_y[1], block.light_axis_y[2] = v.axis_y[1], v.axis_y[2], v.axis_y[3]
+			block.min_caster_extent = v.min_caster_extent
+			block.lod_forced = lod.GetForcedLevel()
+			block.lod_scale = lod.GetScale()
+			block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
+			return block
+		end,
+		custom_declarations = [[
+			#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+			#extension GL_EXT_buffer_reference : require
+			#extension GL_EXT_scalar_block_layout : require
+
+			struct tlas_instance {
+				float m[12];
+				uint custom_and_mask;
+				uint flags;
+				uint64_t blas;
+			};
+
+			struct instance_data {
+				uint mesh_row;
+				uint material_row;
+				uint flags;
+				uint mask_lod;
+				vec4 bounds;
+				vec2 lod;
+				vec2 pad;
+			};
+
+			struct raster_data {
+				vec3 box_min;
+				vec3 box_max;
+				float cull_distance;
+				uint flags;
+				float prev[12];
+			};
+
+			struct mesh_row {
+				uint64_t vertex_address;
+				uint64_t index_address;
+				uint64_t blas;
+				uint triangle_count;
+				uint vertex_stride;
+				uint flags;
+				uint pool_first_index;
+			};
+
+			struct shadow_args {
+				uint64_t tlas;
+				uint64_t data;
+				uint64_t raster;
+				uint64_t meshes;
+				uint64_t commands;
+				uint64_t worlds;
+				uint64_t slot_rows;
+				uint64_t pad;
+			};
+
+			layout(buffer_reference, scalar) readonly buffer TLASArray { tlas_instance t[]; };
+			layout(buffer_reference, scalar) readonly buffer DataArray { instance_data d[]; };
+			layout(buffer_reference, scalar) readonly buffer RasterArray { raster_data r[]; };
+			layout(buffer_reference, scalar) readonly buffer MeshArray { mesh_row m[]; };
+			layout(buffer_reference, scalar) writeonly buffer CommandArray { uvec4 c[]; };
+			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
+			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
+			layout(buffer_reference, scalar) readonly buffer ArgsRef { shadow_args a; };
+			#define ARGS ArgsRef(compute.args).a
+		]],
+		shader = [[
+			// the level of detail that casts, no fade: the one the camera is nearest to, a billboard casts nothing and the
+			// mesh level before it casts in its place
+			bool select_shadow_lod(uint flags, uint level, uint last, float near_ratio, float far_ratio, float ratio) {
+				if ((flags & 128u) != 0u) return false;
+
+				bool before_billboard = (flags & 256u) != 0u;
+
+				if (compute.lod_forced >= 0) {
+					uint target = min(uint(compute.lod_forced), last);
+					return level == target || (before_billboard && target > level);
+				}
+
+				if (level > 0u && ratio < near_ratio) return false;
+				if (!before_billboard && level < last && ratio >= far_ratio) return false;
+
+				return true;
+			}
+
+			void main() {
+				uint slot = gl_GlobalInvocationID.x;
+
+				if (slot >= uint(compute.count)) return;
+
+				uint id = SlotArray(ARGS.slot_rows).r[slot];
+				uvec4 none = uvec4(0u, 0u, 0u, slot);
+				bool casts = id != 0xFFFFFFFFu;
+				raster_data raster;
+				instance_data inst;
+
+				if (casts) {
+					raster = RasterArray(ARGS.raster).r[id];
+					inst = DataArray(ARGS.data).d[id];
+					// 16 casts a shadow, 4 has a height map. removed 16, produced 32
+					casts = (raster.flags & 16u) != 0u && (raster.flags & 4u) == 0u && (inst.flags & 48u) == 0u;
+				}
+
+				if (casts && compute.culling_enabled != 0) {
+					for (int i = 0; i < 5; i++) {
+						vec4 plane = compute.planes[i];
+						vec3 p = vec3(plane.x > 0.0 ? raster.box_max.x : raster.box_min.x, plane.y > 0.0 ? raster.box_max.y : raster.box_min.y, plane.z > 0.0 ? raster.box_max.z : raster.box_min.z);
+
+						if (dot(plane.xyz, p) + plane.w < 0.0) casts = false;
+					}
+
+					if (casts && compute.min_caster_extent > 0.0) {
+						vec3 half_size = 0.5 * (raster.box_max - raster.box_min);
+						float extent_x = dot(abs(compute.light_axis_x), half_size) * 2.0;
+						float extent_y = dot(abs(compute.light_axis_y), half_size) * 2.0;
+
+						if (extent_x < compute.min_caster_extent && extent_y < compute.min_caster_extent) casts = false;
+					}
+				}
+
+				if (casts) {
+					uint level = (inst.mask_lod >> 8u) & 0xFFu;
+					uint last = (inst.mask_lod >> 16u) & 0xFFu;
+					float ratio = distance(compute.camera_position, inst.bounds.xyz) / (max(inst.bounds.w, 0.001) * compute.lod_scale);
+
+					if (last > 0u || (inst.flags & 128u) != 0u) casts = select_shadow_lod(inst.flags, level, last, inst.lod.x, inst.lod.y, ratio);
+				}
+
+				if (!casts) {
+					CommandArray(ARGS.commands).c[slot] = none;
+					return;
+				}
+
+				mesh_row mesh = MeshArray(ARGS.meshes).m[inst.mesh_row];
+				tlas_instance t = TLASArray(ARGS.tlas).t[id];
+				CommandArray(ARGS.commands).c[slot] = uvec4(mesh.triangle_count * 3u, 1u, 0u, slot);
+				WorldArray(ARGS.worlds).w[slot] = mat4(
+					vec4(t.m[0], t.m[4], t.m[8], 0.0),
+					vec4(t.m[1], t.m[5], t.m[9], 0.0),
+					vec4(t.m[2], t.m[6], t.m[10], 0.0),
+					vec4(t.m[3], t.m[7], t.m[11], 1.0)
+				);
+			}
+		]],
+	}
+	return shadow_pipeline
+end
+
+-- the buffers a cascade of a shadow map writes its draws into, grown with the number of slots
+function draw.NewShadowBuffers()
+	return {capacity = 0}
+end
+
+function draw.RemoveShadowBuffers(buffers)
+	if buffers.commands then
+		buffers.commands:Remove()
+		buffers.worlds:Remove()
+		buffers.args:Remove()
+	end
+end
+
+-- records the pass in the command buffer of the shadow map, outside of its render pass. returns the number of slots, nil
+-- when there is nothing to draw
+function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_extent, light_view)
+	local tlas_table, data_table = instances.GetTables()
+	local count = #rows
+
+	if count == 0 or not slot_rows then return nil end
+
+	if buffers.capacity < count then
+		draw.RemoveShadowBuffers(buffers)
+		buffers.capacity = math.ceil(count * 1.5)
+		local usage = {"storage_buffer", "shader_device_address", "indirect_buffer"}
+		buffers.commands = render.CreateBuffer{
+			byte_size = buffers.capacity * SHADOW_COMMAND_SIZE,
+			buffer_usage = usage,
+			memory_property = {"device_local"},
+			label = "scene_draw.shadow_commands",
+		}
+		buffers.worlds = render.CreateBuffer{
+			byte_size = buffers.capacity * 64,
+			buffer_usage = usage,
+			memory_property = {"device_local"},
+			label = "scene_draw.shadow_worlds",
+		}
+		buffers.args = render.CreateBuffer{
+			byte_size = 64,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scene_draw.shadow_args",
+		}
+		buffers.args_pointer = ffi.cast("uint64_t *", buffers.args:Map())
+		buffers.commands_address = buffers.commands:GetDeviceAddress()
+		buffers.worlds_address = buffers.worlds:GetDeviceAddress()
+		buffers.args_address = tonumber(buffers.args:GetDeviceAddress())
+	end
+
+	local pointer = buffers.args_pointer
+	pointer[0] = tlas_table:GetAddress()
+	pointer[1] = data_table:GetAddress()
+	pointer[2] = instances.GetRasterTable():GetAddress()
+	pointer[3] = meshes.GetTable():GetAddress()
+	pointer[4] = buffers.commands_address
+	pointer[5] = buffers.worlds_address
+	pointer[6] = slot_rows:GetAddress()
+	local pipeline = get_shadow_pipeline()
+	local v = pipeline.shadow_state or {axis_x = {0, 0, 0}, axis_y = {0, 0, 0}, planes = {}}
+	pipeline.shadow_state = v
+	v.args_address = buffers.args_address
+	v.camera = camera_position
+	v.count = count
+
+	-- the four sides and the far plane of the box of the cascade
+	for i = 0, 3 do
+		for k = 0, 3 do
+			v.planes[i * 4 + k] = planes[i * 4 + k]
+		end
+	end
+
+	for k = 0, 3 do
+		v.planes[16 + k] = planes[20 + k]
+	end
+
+	v.min_caster_extent = min_caster_extent or 0
+
+	if light_view then
+		v.axis_x[1], v.axis_x[2], v.axis_x[3] = light_view.m00, light_view.m10, light_view.m20
+		v.axis_y[1], v.axis_y[2], v.axis_y[3] = light_view.m01, light_view.m11, light_view.m21
+	end
+
+	cmd:PipelineBarrier{srcStage = {"host", "compute"}, dstStage = "compute", memoryBarrier = true}
+	pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, 1)
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = {"draw_indirect", "vertex_shader"},
+		memoryBarrier = true,
+	}
+	return count
+end
+
+function draw.GetRows()
+	return rows, draw.serial
+end
+
 return draw

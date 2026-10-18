@@ -168,15 +168,21 @@ end
 local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	local flags = 0
 	local module = import("goluwa/entities/components/visual.lua").Library
+	local drawn = not visual.RaysOnly and visual.Visible and module.MaterialDrawsInGBuffer(material)
 
-	if not visual.RaysOnly and visual.Visible and module.MaterialDrawsInGBuffer(material) then
-		flags = instances.RASTER_DRAW
+	if not visual.RaysOnly and visual.Visible and visual.CastShadows then flags = instances.RASTER_SHADOW end
 
-		if material:HasHeightMap() then flags = flags + instances.RASTER_HEIGHT_MAP end
+	if drawn then
+		flags = flags + instances.RASTER_DRAW
 
 		if material:GetDoubleSided() then flags = flags + instances.RASTER_DOUBLE_SIDED end
 
 		if visual.UseOcclusionCulling then flags = flags + instances.RASTER_OCCLUSION end
+	end
+
+	if flags ~= 0 and material:HasHeightMap() then
+		flags = flags + instances.RASTER_HEIGHT_MAP
+		visual.scene_height_map = true
 	end
 
 	local transform = entry.transform
@@ -191,11 +197,11 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	if flags ~= 0 then
 		meshes.EnsureRaster(mesh_row)
 		draw.SetRow(item.id, mesh, material, entry.polygon3d)
-		item.raster = true
 	else
 		draw.ClearRow(item.id)
-		item.raster = nil
 	end
+
+	item.raster = drawn or nil
 end
 
 -- the instances of a visual: one per render entry that has a mesh the gpu has, in the scene as the entry's own world
@@ -212,6 +218,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	local changed = false
 	local emissive = false
 	local hidden = not visual.Visible
+	visual.scene_height_map = nil
 
 	for _, entry in ipairs(visual:GetLODRenderEntries()) do
 		local mesh = entry.polygon3d.mesh
@@ -236,6 +243,8 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			end
 
 			if entry.lod_billboard then flags = flags + instances.FLAG_BILLBOARD end
+
+			if entry.lod_before_billboard then flags = flags + instances.FLAG_BEFORE_BILLBOARD end
 
 			if item and item.mesh_row == mesh_row then
 				if item.matrix ~= matrix then
