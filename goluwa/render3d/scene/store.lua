@@ -63,6 +63,12 @@ function Table:Alloc()
 		row = self.free[self.free_count]
 		self.free[self.free_count] = nil
 		self.free_count = self.free_count - 1
+	elseif self.free_ranges and self.free_ranges[1] then
+		local range = self.free_ranges[#self.free_ranges]
+		row = range.base + range.n - 1
+		range.n = range.n - 1
+
+		if range.n == 0 then self.free_ranges[#self.free_ranges] = nil end
 	else
 		row = self.count
 		self.count = row + 1
@@ -73,6 +79,39 @@ function Table:Alloc()
 	return row
 end
 
+-- n rows in a row of their own, for what a gpu pass writes a range of
+function Table:AllocRange(n)
+	local ranges = self.free_ranges
+
+	if ranges then
+		for i, range in ipairs(ranges) do
+			if range.n >= n then
+				local base = range.base
+				range.base = range.base + n
+				range.n = range.n - n
+
+				if range.n == 0 then table.remove(ranges, i) end
+
+				self.live = self.live + n
+
+				return base
+			end
+		end
+	end
+
+	local base = self.count
+	self.count = base + n
+	self:Reserve(self.count)
+	self.live = self.live + n
+	return base
+end
+
+function Table:FreeRange(base, n)
+	self.live = self.live - n
+	self.pending_ranges = self.pending_ranges or {}
+	self.pending_ranges[#self.pending_ranges + 1] = {base = base, n = n, frame = system.GetFrameNumber()}
+end
+
 function Table:Free(row)
 	self.live = self.live - 1
 	self.pending_free = self.pending_free or {}
@@ -80,6 +119,24 @@ function Table:Free(row)
 end
 
 function Table:Update(frame)
+	local ranges = self.pending_ranges
+
+	if ranges and ranges[1] then
+		local keep = {}
+
+		for _, range in ipairs(ranges) do
+			if range.frame <= frame - RETIRE_FRAMES then
+				ffi.fill(self.ptr + range.base, range.n * self.row_size)
+				self.free_ranges = self.free_ranges or {}
+				self.free_ranges[#self.free_ranges + 1] = {base = range.base, n = range.n}
+			else
+				keep[#keep + 1] = range
+			end
+		end
+
+		self.pending_ranges = keep
+	end
+
 	local pending = self.pending_free
 
 	if not pending or not pending[1] then return end
@@ -101,6 +158,18 @@ end
 
 function Table:Get()
 	return self.ptr
+end
+
+-- every row is unused again, for a table that is rewritten as a whole
+function Table:Clear()
+	ffi.fill(self.ptr, self.capacity * self.row_size)
+	self.count = 0
+	self.live = 0
+	self.free = {}
+	self.free_count = 0
+	self.free_ranges = nil
+	self.pending_free = nil
+	self.pending_ranges = nil
 end
 
 function Table:GetBuffer()

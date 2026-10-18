@@ -39,9 +39,9 @@
 --   shadow: (true by default) the instances are drawn in the shadow maps, all of them, in view or not, so the ones behind the camera cast
 --     shadows into it, and the shadow maps decide how far that goes. past the billboard's distance it is the billboard
 --     that casts, which is much cheaper to draw in every cascade
---   bvh: (true by default) the instances near the camera (r_scatter_gi_distance) are in the scene bvh as simple geometry that is not
---     drawn: the billboard when the prototype has one, else the model's lowest level of detail. that is what gives
---     them shadows from the soup, global illumination and reflections. for what is big enough to matter to light
+--   bvh: (true by default) the instances are in the ray traced scene (global illumination, reflections, fog) the way the
+--     shadow maps get them: the model up to the billboard's distance and the billboard beyond it, so a prototype that
+--     casts no shadow is not in it. false for what is too small to matter to light (the pebbles)
 --   density_response: the same for the set's DensityMultiplier, 1 by default and above it is fine: at 3 a
 --     multiplier of 2 makes the density 4 times, so grass can grow denser than the trees do. the result is
 --     `proto.density_multiplier`

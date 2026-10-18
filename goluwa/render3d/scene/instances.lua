@@ -34,6 +34,8 @@ instances.FLAG_ALPHA_TEST = 2
 instances.FLAG_EMISSIVE = 4
 instances.FLAG_NO_OPAQUE = 8
 instances.FLAG_REMOVED = 16
+-- the row is written by a pass of a producer, which the update pass leaves alone
+instances.FLAG_PRODUCED = 32
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table
 instances.version = 0
@@ -169,6 +171,59 @@ function instances.SetMask(id, mask, flags)
 	return true
 end
 
+-- n rows in a row for a producer, which writes the records and the data of them on the gpu. returns the first
+function instances.AllocRange(n)
+	instances.GetTables()
+	local base = tlas_table:AllocRange(n)
+	data_table:Reserve(tlas_table.capacity)
+	data_table.count = tlas_table.count
+	data_table.live = data_table.live + n
+	instances.version = instances.version + 1
+	return base
+end
+
+function instances.FreeRange(base, n)
+	tlas_table:FreeRange(base, n)
+	data_table.live = data_table.live - n
+	instances.version = instances.version + 1
+end
+
+-- the flags and ray mask of a material, how rays treat the surface
+function instances.GetMaterialFlags(material)
+	local flags = 0
+	local see_through = material:GetAlphaTest() or material:IsSeeThrough()
+
+	if material:GetDoubleSided() then flags = flags + instances.FLAG_DOUBLE_SIDED end
+
+	if material:GetAlphaTest() then flags = flags + instances.FLAG_ALPHA_TEST end
+
+	if
+		material:GetAlphaTest() or
+		material:IsTransparent() or
+		material:GetRayShadowOpacity() < 1
+	then
+		flags = flags + instances.FLAG_NO_OPAQUE
+	end
+
+	return flags, see_through and instances.MASK_SEE_THROUGH or instances.MASK_SOLID
+end
+
+-- what a producer's instance of a part writes to its record: the instance flags of the structure
+function instances.GetRecordFlags(flags)
+	return accel.INSTANCE_FACING_CULL_DISABLE + (
+			bit.band(flags, instances.FLAG_NO_OPAQUE) ~= 0 and
+			accel.INSTANCE_FORCE_NO_OPAQUE or
+			accel.INSTANCE_FORCE_OPAQUE
+		)
+end
+
+local producers = {}
+
+-- a producer writes the rows it owns on the gpu in the command buffer that builds the structure: fn(cmd)
+function instances.AddProducer(name, fn)
+	producers[name] = fn
+end
+
 function instances.GetCount()
 	return tlas_table and tlas_table.live or 0
 end
@@ -259,6 +314,8 @@ do
 					uint last = (inst.mask_lod >> 16u) & 0xFFu;
 					uint64_t blas = 0ul;
 
+					if ((inst.flags & 32u) != 0u) return;
+
 					if ((inst.flags & 16u) == 0u && mask != 0u) {
 						blas = meshes[inst.mesh_row].blas;
 						float distance_to = distance(update_data.camera.xyz, inst.bounds.xyz);
@@ -285,9 +342,13 @@ do
 	-- builds the bottom level structures that are waiting, lets the update pass pick what rays see and builds the top
 	-- level structure from it. it is built every frame, the levels of detail follow the camera
 	function instances.Build(cmd)
-		if not tlas_table then return nil end
-
+		instances.GetTables()
 		meshes.Build(cmd, skinning.updated)
+
+		for _, produce in pairs(producers) do
+			produce(cmd)
+		end
+
 		row_count = tlas_table.count
 
 		if row_count == 0 then return nil end

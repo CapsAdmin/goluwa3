@@ -10,7 +10,7 @@ local SET = presets[os.getenv("SET") or "crysis_meadow"] or foliage_sets[os.gete
 -- BB_SCALE=0.3 scales the scatter billboard distance, BB_OFF=1 turns the billboards off
 local pvars = import("goluwa/cli/pvars.lua")
 if os.getenv("BB_SCALE") then pvars.SetSession("r_scatter_billboard_distance", tonumber(os.getenv("BB_SCALE"))) end
-if os.getenv("GI_OFF") then pvars.SetSession("r_scatter_gi", false) end
+if os.getenv("GI_OFF") then pvars.SetSession("r_scatter_rt", false) end
 if os.getenv("BB_OFF") then pvars.SetSession("r_scatter_billboards", false) end
 
 local HEIGHT_GLSL = [=[

@@ -161,25 +161,6 @@ function bridge.GetEmissiveVisuals()
 	return emissive_visuals
 end
 
-local function write_flags(material)
-	local flags = 0
-	local see_through = material:GetAlphaTest() or material:IsSeeThrough()
-
-	if material:GetDoubleSided() then flags = flags + instances.FLAG_DOUBLE_SIDED end
-
-	if material:GetAlphaTest() then flags = flags + instances.FLAG_ALPHA_TEST end
-
-	if
-		material:GetAlphaTest() or
-		material:IsTransparent() or
-		material:GetRayShadowOpacity() < 1
-	then
-		flags = flags + instances.FLAG_NO_OPAQUE
-	end
-
-	return flags, see_through and instances.MASK_SEE_THROUGH or instances.MASK_SOLID
-end
-
 -- the instances of a visual: one per render entry that has a mesh the gpu has, in the scene as the entry's own world
 -- matrix places it. called whenever the visual is dirty in the scene acceleration, in the frame it changed
 function bridge.UpdateVisual(visual, is_dynamic)
@@ -204,7 +185,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 		if mesh_row then
 			count = count + 1
 			local material = visual:GetResolvedMaterial(entry)
-			local flags, mask = write_flags(material)
+			local flags, mask = instances.GetMaterialFlags(material)
 			local material_row = materials.GetID(material)
 			local matrix = entry.transform:GetWorldMatrix()
 			local item = list[count]

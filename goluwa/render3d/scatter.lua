@@ -16,7 +16,7 @@ local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local scatter_proxy = import("goluwa/render3d/scatter_proxy.lua")
+import("goluwa/render3d/scatter_rt.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local ViewPriority = import("goluwa/render3d/view_priority.lua")
 -- models grown on surfaces, see scatter_set.lua for what a surface asks for. a compute pass finds where
@@ -47,7 +47,6 @@ scatter.BAKE_BUDGET = 8
 scatter.view_priority = ViewPriority.New()
 scatter.MAX_UNITS = 16384
 scatter.MAX_BAKED = 2 ^ 21
-scatter.PROXY_MAX_INSTANCES = 2 ^ 16
 scatter.GROW_MARGIN = 1.5
 scatter.MAX_BATCHES = 1024
 scatter.TILE_CELLS = 32
@@ -69,24 +68,6 @@ local billboard_scale = pvars.Setup2{
 	key = "r_scatter_billboard_distance",
 	default = 0.25,
 	help = "multiplies the distance the billboards of the scatter prototypes start at",
-}
-local gi_enabled = pvars.Setup2{
-	key = "r_scatter_gi",
-	default = true,
-	friendly = "bvh",
-	help = "put what scatter grows near the camera in the scene bvh, as geometry that is not drawn, for global illumination and reflections",
-}
-local gi_distance = pvars.Setup2{
-	key = "r_scatter_gi_distance",
-	default = 200.0,
-	friendly = "bvh distance",
-	help = "how far from the camera what scatter grows is the model's own geometry in the scene bvh, past it only the billboards are in it",
-}
-local billboard_distance = pvars.Setup2{
-	key = "r_scatter_gi_billboard_distance",
-	default = 1500.0,
-	friendly = "bvh billboard distance",
-	help = "how far from the camera the prototypes that have a billboard are in the scene bvh as their billboards, for global illumination and reflections",
 }
 pvars.EndGroup()
 local MAX_PROTOTYPES = ScatterSet.MAX_PROTOTYPES
@@ -212,12 +193,6 @@ local function get_buffers()
 			memory_property = {"host_visible", "host_coherent"},
 			label = "scatter blocks",
 		},
-		proxy_staging = render.CreateBuffer{
-			byte_size = 64 * scatter.PROXY_MAX_INSTANCES * scatter.SURFACE_RING,
-			buffer_usage = {"transfer_dst"},
-			memory_property = {"host_visible", "host_coherent"},
-			label = "scatter proxy staging",
-		},
 		args = render.CreateBuffer{
 			byte_size = ffi.sizeof(ARGS_RESET),
 			buffer_usage = {"storage_buffer", "indirect_buffer", "transfer_dst", "transfer_src"},
@@ -254,7 +229,6 @@ local function get_buffers()
 	buffers.batch_data = ffi.cast(ffi.typeof("$ *", ScatterBatch), buffers.batches:Map())
 	buffers.demand_data = ffi.cast("uint32_t *", buffers.demand:Map())
 	buffers.unit_counts_data = ffi.cast("uint32_t *", buffers.unit_counts_readback:Map())
-	buffers.proxy_data = ffi.cast("float *", buffers.proxy_staging:Map())
 	buffers.units_data = ffi.cast("uint32_t *", buffers.units:Map())
 	buffers.blocks_data = ffi.cast("uint32_t *", buffers.blocks:Map())
 	return buffers
@@ -1441,6 +1415,7 @@ local far_bases = {}
 local shadow_bases = {}
 local shadow_billboard_bases = {}
 local layout_dirty = false
+local layout_version = 0
 local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
 local demand_copy = BufferCopy()
 local demand_versions = {}
@@ -1552,6 +1527,7 @@ local function assign_bases()
 	end
 
 	layout_dirty = false
+	layout_version = layout_version + 1
 end
 
 -- the counters the gpu counted past the room with, from the frame this slot was last written. a prototype that
@@ -1771,142 +1747,7 @@ local function estimate_unit(set, material_density, distance, size)
 	return total * 1.3
 end
 
--- the scene bvh is made of polygons, so the units near the camera get their instances made into polygons of the
--- stand-ins of their prototypes (see scatter_proxy.lua), in entities that are only in the bvh. the instances are on the
--- gpu, a few frames of copying to the host later they are made into the polygons
--- every bake of a unit makes new instances, but the bvh of its proxy is a sah build on the cpu that costs more than
--- the difference is worth, so a unit that has one waits this long before it is rebuilt
-local PROXY_REBUILD_FRAMES = 180
-local proxy_jobs = {}
-local proxy_part_templates = setmetatable({}, {__mode = "k"})
-local proxy_warned = false
-local proxy_copy = BufferCopy()
-
-local function remove_proxy(unit)
-	if unit.proxy then
-		if unit.proxy:IsValid() then unit.proxy:Remove() end
-
-		unit.proxy = nil
-	end
-end
-
--- near units have the model's geometry in their proxy, far units billboards. a unit changes over some way past the
--- bvh distance so that one on the edge does not go back and forth
-local PROXY_MODE_MARGIN = 1.15
-
-local function get_unit_mode(unit)
-	local range = gi_distance:Get()
-
-	if unit.proxy_mode == "near" then
-		return unit.dist < range * PROXY_MODE_MARGIN and "near" or "far"
-	end
-
-	return unit.dist < range and "near" or "far"
-end
-
--- the parts a proxy copies for each instance of a prototype: with a billboard, the model's own geometry where the scene
--- draws the model (nearer than its switch distance from the camera) and the billboard beyond it, like the scene,
--- else the stand-in. `far` says which of the two
-local function get_proxy_parts(proto, far)
-	if proto.billboard_part and (far or get_switch(proto) == 0) then return {proto.billboard_part} end
-
-	if proto.billboard_part then return proto.parts end
-
-	return proto.lod_parts or proto.parts
-end
-
-local function build_proxy(unit, instances, count)
-	local protos = ScatterSet.GetPrototypes()
-	local bits = ffi.cast("uint32_t *", instances)
-	local lists = {{}, {}}
-	local counts = {{}, {}}
-	local camera = render3d.GetCamera():GetPosition()
-	local cx, cy, cz = camera.x, camera.y, camera.z
-	local full_range = gi_distance:Get()
-	local billboard_range = billboard_distance:Get()
-	local near_unit = get_unit_mode(unit) == "near"
-
-	for i = 0, count - 1 do
-		local proto = protos[bits[i * 16 + 11] + 1]
-
-		if proto and proto.bvh and proto.state == "ready" and instances[i * 16 + 3] < cpu_keep(proto, unit.dist) then
-			local switch = get_switch(proto)
-			-- a unit with the model's geometry in it, near the camera, has it for what is nearer than the prototype's
-			-- switch distance, a unit past it has the billboards only, all of them, wherever the camera is in it: what
-			-- is in a proxy then depends on the unit alone, not on the camera, and does not have to be built again
-			-- when the camera moves
-			local kind
-
-			if near_unit then
-				local dx, dy, dz = instances[i * 16 + 12] - cx, instances[i * 16 + 13] - cy, instances[i * 16 + 14] - cz
-				local d2 = dx * dx + dy * dy + dz * dz
-
-				if d2 < full_range * full_range and (switch == 0 or d2 < switch * switch) then
-					kind = 1
-				elseif switch > 0 and d2 < billboard_range * billboard_range then
-					kind = 2
-				end
-			elseif switch > 0 then
-				kind = 2
-			end
-
-			if kind then
-				local list = lists[kind][proto]
-
-				if not list then
-					list = ffi.new("int32_t[?]", count)
-					lists[kind][proto] = list
-					counts[kind][proto] = 0
-				end
-
-				list[counts[kind][proto]] = i
-				counts[kind][proto] = counts[kind][proto] + 1
-			end
-		end
-	end
-
-	remove_proxy(unit)
-	unit.proxy_mode = near_unit and "near" or "far"
-
-	if not next(lists[1]) and not next(lists[2]) then return end
-
-	local entity = Entity.New{Name = string.format("scatter_proxy_%d_%d", unit.min_x, unit.min_z), Parent = Entity.World}
-	entity:AddComponent("transform")
-	local visual = entity:AddComponent("visual")
-	visual:SetRaysOnly(true)
-	visual:SetCastShadows(false)
-	visual:SetReceivesDecals(false)
-	visual:SetUseOcclusionCulling(false)
-	visual:SetCullDistance(1e8)
-
-	for kind = 1, 2 do
-		for proto, list in pairs(lists[kind]) do
-			for _, part in ipairs(get_proxy_parts(proto, kind == 2)) do
-				local template = proxy_part_templates[part]
-
-				if not template then
-					template = scatter_proxy.GetTemplate(part.mesh)
-					proxy_part_templates[part] = template
-				end
-
-				local vertices, vertex_count, indices, index_count = scatter_proxy.Build(template, instances, list, counts[kind][proto])
-				local polygon = Polygon3D.New()
-				polygon:UploadVertexArray(vertices, vertex_count, indices, index_count, false, "owned")
-				local primitive = Entity.New{Name = entity:GetName() .. "_primitive", Parent = entity}
-				primitive:AddComponent("transform")
-				local visual_primitive = primitive:AddComponent("visual_primitive")
-				visual_primitive:SetPolygon3D(polygon)
-				visual_primitive:SetMaterial(part.material)
-			end
-		end
-	end
-
-	visual:BuildAABB()
-	unit.proxy = entity
-end
-
 local function release_unit(unit)
-	remove_proxy(unit)
 	pool_release(unit)
 	unit.state.units[unit.key] = nil
 	free_slots[#free_slots + 1] = unit.slot
@@ -1983,7 +1824,6 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 			return false
 		end
 
-		remove_proxy(farthest)
 		pool_release(farthest)
 		pool_collect()
 		-- what is released waits for the frames in flight, so it may not be there yet
@@ -1997,12 +1837,6 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 	unit.hint = nil
 	unit.baked_band = band
 	unit.set = surface.set
-	unit.has_bvh = false
-
-	for _, proto in ipairs(surface.set.protos) do
-		if proto.bvh and proto.state == "ready" then unit.has_bvh = true end
-	end
-
 	unit.epoch = bake_epoch
 	unit.stamp = unit.state.stamp
 	unit.bake_frame = system.GetFrameNumber()
@@ -2050,102 +1884,6 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 	)
 	passes.instances:DispatchIndirect(cmd, b.args, 0, render.GetCurrentFrame())
 	return true
-end
-
--- the units near enough get their instances copied to the host, a few frames later they are made into geometry
--- for the scene bvh, one unit a frame
-local PROXY_SPEED_SCALE = 25
-local proxy_last_x, proxy_last_y, proxy_last_z = 0, 0, 0
-local proxy_last_time = 0
-local proxy_speed = 0
-
-local function update_proxies(cmd, b, frame, ring)
-	local wanted = gi_enabled:Get()
-	local range = math.max(gi_distance:Get(), billboard_distance:Get())
-	local position = render3d.GetCamera():GetPosition()
-	local now = system.GetElapsedTime()
-
-	if now > proxy_last_time then
-		local dx, dy, dz = position.x - proxy_last_x, position.y - proxy_last_y, position.z - proxy_last_z
-		proxy_speed = math.lerp(0.1, proxy_speed, math.sqrt(dx * dx + dy * dy + dz * dz) / (now - proxy_last_time))
-	end
-
-	proxy_last_x, proxy_last_y, proxy_last_z = position.x, position.y, position.z
-	proxy_last_time = now
-	local job = proxy_jobs[ring]
-
-	if job then
-		proxy_jobs[ring] = nil
-		local unit = job.unit
-		unit.proxy_pending = nil
-
-		if wanted and not unit.dead and unit.offset and unit.bake_frame == job.bake_frame then
-			build_proxy(unit, b.proxy_data + ring * scatter.PROXY_MAX_INSTANCES * 16, job.count)
-			unit.proxy_frame = job.bake_frame
-			unit.proxy_built = frame
-		end
-	end
-
-	for _, unit in ipairs(units) do
-		if unit.proxy and (not wanted or not unit.offset or unit.dist > range * 1.25) then
-			remove_proxy(unit)
-			unit.proxy_frame = nil
-			unit.proxy_built = nil
-		elseif unit.proxy_frame and unit.proxy_mode ~= get_unit_mode(unit) then
-			unit.proxy_frame = nil
-		end
-	end
-
-	if not wanted then return end
-
-	-- flying fast the units are passed before their proxy is of any use, and a proxy is a cpu bvh build of its triangles
-	local build_range = math.max(range / (1 + proxy_speed / PROXY_SPEED_SCALE), 30)
-	local best
-
-	for _, unit in ipairs(units) do
-		if
-			unit.offset and
-			unit.count and
-			unit.count > 0 and
-			unit.has_bvh and
-			not unit.state.preload and
-			not unit.proxy_pending and
-			unit.proxy_frame ~= unit.bake_frame and
-			(
-				not unit.proxy_built or
-				frame - unit.proxy_built >= PROXY_REBUILD_FRAMES
-			)
-			and
-			unit.dist <= build_range and
-			(
-				not best or
-				unit.dist < best.dist
-			)
-		then
-			best = unit
-		end
-	end
-
-	if not best then return end
-
-	if best.count > scatter.PROXY_MAX_INSTANCES then
-		best.proxy_frame = best.bake_frame
-
-		if not proxy_warned then
-			proxy_warned = true
-			logf("scatter: a unit has more instances than the %d that the scene bvh geometry is made from, it has none\n", scatter.PROXY_MAX_INSTANCES)
-		end
-
-		return
-	end
-
-	barrier(cmd, b.baked, "compute", "transfer", "shader_write", "transfer_read")
-	proxy_copy[0].srcOffset = best.offset * 64
-	proxy_copy[0].dstOffset = ring * scatter.PROXY_MAX_INSTANCES * 64
-	proxy_copy[0].size = best.count * 64
-	cmd:CopyBuffer(b.baked, b.proxy_staging, proxy_copy, 1)
-	best.proxy_pending = true
-	proxy_jobs[ring] = {unit = best, bake_frame = best.bake_frame, count = best.count}
 end
 
 -- the units a surface wants this frame, found from the biggest cells down: a cell the camera is far from is a unit, a
@@ -2437,7 +2175,6 @@ function scatter.PreDraw(cmd)
 		barrier(cmd, b.unit_counts, "compute", "compute", "shader_write", "shader_read")
 	end
 
-	update_proxies(cmd, b, frame, ring)
 
 	-- the units nothing wanted for a while go
 	local kept = 0
@@ -2534,6 +2271,31 @@ function scatter.PreDraw(cmd)
 	cmd:CopyBuffer(b.unit_counts, b.unit_counts_readback, demand_copy, 1)
 	unit_readback_frames[ring] = frame
 	barrier(cmd, b.instances, "compute", "vertex", "shader_write", "shader_read")
+end
+
+-- what ray tracing is made of: the lists of what casts shadows, which hold every instance in range, in view or not,
+-- the model near and the billboard beyond its distance. returns the sources with the buffers of the instances and of
+-- the counters, and a version that changes when the layout of the lists does
+function scatter.GetRTSources()
+	if not buffers or layout_dirty or draw_version ~= ScatterSet.version then return nil end
+
+	local sources = {}
+
+	for i, proto in ipairs(ScatterSet.GetPrototypes()) do
+		if proto.state == "ready" and proto.shadow and proto.bvh and shadow_bases[i] then
+			sources[#sources + 1] = {
+				counter = proto.index * 4,
+				parts = proto.parts,
+				billboard_part = proto.sized_switch > 0 and proto.billboard_part or nil,
+				model_base = shadow_bases[i],
+				model_room = proto.shadow_room,
+				billboard_base = shadow_billboard_bases[i],
+				billboard_room = proto.shadow_billboard_room,
+			}
+		end
+	end
+
+	return sources, buffers.instances, buffers.args, layout_version
 end
 
 function scatter.Draw(pipeline, cmd)
