@@ -55,9 +55,15 @@ local function get_tables()
 	return segments_table, parts_table
 end
 
+local create_pipeline
+
 local function get_pipeline()
 	if pipeline then return pipeline end
 
+	return create_pipeline()
+end
+
+function create_pipeline()
 	pipeline = EasyPipeline.Compute{
 		name = "scatter_rt_instances",
 		DescriptorSetCount = math.max(render.GetSwapchainImageCount() or 1, 1),

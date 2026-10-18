@@ -356,9 +356,15 @@ do
 	local update_pipeline
 	local row_count = 0
 
+	local create_update_pipeline
+
 	local function get_update_pipeline()
 		if update_pipeline then return update_pipeline end
 
+		return create_update_pipeline()
+	end
+
+	function create_update_pipeline()
 		update_pipeline = EasyPipeline.Compute{
 			name = "scene_instance_update",
 			DescriptorSetCount = math.max(render.GetSwapchainImageCount() or 1, 1),

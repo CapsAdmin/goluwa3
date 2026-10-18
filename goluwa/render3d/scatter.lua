@@ -576,9 +576,15 @@ end
 
 local compute_passes = nil
 
+local create_compute_passes
+
 local function get_compute_passes()
 	if compute_passes then return compute_passes end
 
+	return create_compute_passes()
+end
+
+function create_compute_passes()
 	local descriptor_sets = {
 		storage_buffer(BINDING_SURFACES, "surfaces", "compute"),
 		storage_buffer(BINDING_JOBS, "jobs", "compute"),

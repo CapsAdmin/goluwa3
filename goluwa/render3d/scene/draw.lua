@@ -75,9 +75,15 @@ local cull_pipeline
 local state = {}
 local args_ring
 
+local create_cull_pipeline
+
 local function get_cull_pipeline()
 	if cull_pipeline then return cull_pipeline end
 
+	return create_cull_pipeline()
+end
+
+function create_cull_pipeline()
 	cull_pipeline = EasyPipeline.Compute{
 		name = "scene_draw_cull",
 		DescriptorSetCount = math.max(render.GetSwapchainImageCount() or 1, 1),
@@ -580,9 +586,15 @@ end
 local SHADOW_COMMAND_SIZE = 16
 local shadow_pipeline
 
+local create_shadow_pipeline
+
 local function get_shadow_pipeline()
 	if shadow_pipeline then return shadow_pipeline end
 
+	return create_shadow_pipeline()
+end
+
+function create_shadow_pipeline()
 	shadow_pipeline = EasyPipeline.Compute{
 		name = "scene_shadow_cull",
 		DescriptorSetCount = 1,
