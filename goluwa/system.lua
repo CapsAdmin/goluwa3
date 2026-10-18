@@ -47,6 +47,8 @@ do
 	function system.ShutDown(code)
 		code = code or 0
 		os.exitcode = code
+		os.realexit(code)
+	-- TODO: just exit for now
 	end
 
 	local old = os.exit
