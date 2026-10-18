@@ -1412,7 +1412,9 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 			vec3 get_terrain_triplanar_weights(vec3 normal) {
-				vec3 w = pow(abs(normal), vec3(4.0));
+				// scaled by the largest first, a high sharpness would underflow the others
+				vec3 w = abs(normal);
+				w = pow(w / max(max(w.x, w.y), max(w.z, 0.0001)), vec3(max(terrain_model.TerrainTriplanarSharpness, 1.0)));
 				return w / max(w.x + w.y + w.z, 0.0001);
 			}
 
@@ -1423,48 +1425,95 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec2 z;
 			};
 
-			vec4 sample_terrain_layer_triplanar(int tex, TerrainLayerUV uv, vec3 blend) {
+			// against a texture's repeats being the same everywhere: the layer is also sampled turned and shifted, and the two are
+			// swapped between by noise that changes over a few repeats, mostly one or the other with a short fade between
+			float terrain_tiling_hash(vec2 p) {
+				return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+			}
+
+			float terrain_tiling_mask(vec2 uv) {
+				vec2 p = uv * 0.37 + vec2(17.3, 5.1);
+				vec2 i = floor(p);
+				vec2 f = fract(p);
+				f = f * f * (3.0 - 2.0 * f);
+				float noise = mix(mix(terrain_tiling_hash(i), terrain_tiling_hash(i + vec2(1.0, 0.0)), f.x), mix(terrain_tiling_hash(i + vec2(0.0, 1.0)), terrain_tiling_hash(i + vec2(1.0, 1.0)), f.x), f.y);
+				return smoothstep(0.3, 0.7, noise);
+			}
+
+			const mat2 TERRAIN_TILING_TURN = mat2(0.8, 0.6, -0.6, 0.8);
+
+			vec2 terrain_tiling_variant(vec2 uv) {
+				return TERRAIN_TILING_TURN * uv * 1.13 + vec2(0.37, 0.71);
+			}
+
+			vec4 sample_terrain_layer_texel(int tex, vec2 uv, float anti_tiling) {
+				vec4 t = texture(TEXTURE(tex), uv);
+
+				if (anti_tiling > 0.0) {
+					t = mix(t, texture(TEXTURE(tex), terrain_tiling_variant(uv)), terrain_tiling_mask(uv) * anti_tiling);
+				}
+
+				return t;
+			}
+
+			// the tangent space normal (not normalized) and the ao of a normal texture
+			vec4 sample_terrain_layer_normal_texel(int tex, vec2 uv, float anti_tiling) {
+				vec4 t = texture(TEXTURE(tex), uv);
+				vec3 tn = t.xyz * 2.0 - 1.0;
+				float ao = t.a;
+
+				if (anti_tiling > 0.0) {
+					vec4 t2 = texture(TEXTURE(tex), terrain_tiling_variant(uv));
+					vec3 tn2 = t2.xyz * 2.0 - 1.0;
+					// the turned sample's normal is turned back
+					tn2.xy = tn2.xy * TERRAIN_TILING_TURN;
+					float m = terrain_tiling_mask(uv) * anti_tiling;
+					tn = mix(tn, tn2, m);
+					ao = mix(ao, t2.a, m);
+				}
+
+				return vec4(tn, ao);
+			}
+
+			vec4 sample_terrain_layer_triplanar(int tex, TerrainLayerUV uv, vec3 blend, float anti_tiling) {
 				vec4 result = vec4(0.0);
 
 				if (blend.y > 0.001) {
-					result += texture(TEXTURE(tex), uv.y) * blend.y;
+					result += sample_terrain_layer_texel(tex, uv.y, anti_tiling) * blend.y;
 				}
 
 				if (blend.x > 0.001) {
-					result += texture(TEXTURE(tex), uv.x) * blend.x;
+					result += sample_terrain_layer_texel(tex, uv.x, anti_tiling) * blend.x;
 				}
 
 				if (blend.z > 0.001) {
-					result += texture(TEXTURE(tex), uv.z) * blend.z;
+					result += sample_terrain_layer_texel(tex, uv.z, anti_tiling) * blend.z;
 				}
 
 				return result;
 			}
 
-			vec4 sample_terrain_layer_normal_triplanar(int tex, TerrainLayerUV uv, vec3 blend, vec3 N) {
+			vec4 sample_terrain_layer_normal_triplanar(int tex, TerrainLayerUV uv, vec3 blend, vec3 N, float anti_tiling) {
 				vec3 n = vec3(0.0);
 				float ao = 0.0;
 
 				if (blend.y > 0.001) {
-					vec4 t = texture(TEXTURE(tex), uv.y);
-					vec3 tn = t.xyz * 2.0 - 1.0;
-					tn = vec3(tn.xy + N.xz, abs(tn.z) * N.y);
+					vec4 t = sample_terrain_layer_normal_texel(tex, uv.y, anti_tiling);
+					vec3 tn = vec3(t.xy + N.xz, abs(t.z) * N.y);
 					n += tn.xzy * blend.y;
 					ao += t.a * blend.y;
 				}
 
 				if (blend.x > 0.001) {
-					vec4 t = texture(TEXTURE(tex), uv.x);
-					vec3 tn = t.xyz * 2.0 - 1.0;
-					tn = vec3(tn.xy + N.zy, abs(tn.z) * N.x);
+					vec4 t = sample_terrain_layer_normal_texel(tex, uv.x, anti_tiling);
+					vec3 tn = vec3(t.xy + N.zy, abs(t.z) * N.x);
 					n += tn.zyx * blend.x;
 					ao += t.a * blend.x;
 				}
 
 				if (blend.z > 0.001) {
-					vec4 t = texture(TEXTURE(tex), uv.z);
-					vec3 tn = t.xyz * 2.0 - 1.0;
-					tn = vec3(tn.xy + N.xy, abs(tn.z) * N.z);
+					vec4 t = sample_terrain_layer_normal_texel(tex, uv.z, anti_tiling);
+					vec3 tn = vec3(t.xy + N.xy, abs(t.z) * N.z);
 					n += tn.xyz * blend.z;
 					ao += t.a * blend.z;
 				}
@@ -1516,6 +1565,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return TerrainLayerUV(uv[0], uv[1], uv[2]);
 			}
 
+			]=] .. terrain_layer_rules .. [=[
+
 			// the weights of layers 1 to 4 and, when the chunk has more than four layers, 5 to 8. Together they add up to one
 			void get_terrain_material_weights_both_uv(vec2 uv, out vec4 weights, out vec4 weights2) {
 				weights = vec4(0.0);
@@ -1531,6 +1582,17 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					weights2 = max(texture(TEXTURE(terrain_model.TerrainMaterial2Texture), uv), vec4(0.0));
 				}
 
+				// where a layer may be by the slope of the ground at this pixel, which the weight texture is too coarse for
+				// (and its texels cover more ground the coarser the tile is). 0 is flat, 1 is a wall
+				float steepness = 1.0 - (get_terrain_world_normal(uv).y * 0.5 + 0.5);
+				weights *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin, terrain_model.TerrainLayerSlopeMax, terrain_model.TerrainLayerSlopeBlend);
+				weights2 *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin2, terrain_model.TerrainLayerSlopeMax2, terrain_model.TerrainLayerSlopeBlend2);
+
+				// a covering layer is not mixed in by its weight, what covers the ground is over the others
+				vec4 cover = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverStart, terrain_model.TerrainLayerCoverRange, terrain_model.TerrainLayerCoverPower, terrain_model.TerrainLayerCoverBlend);
+				vec4 cover2 = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverStart2, terrain_model.TerrainLayerCoverRange2, terrain_model.TerrainLayerCoverPower2, terrain_model.TerrainLayerCoverBlend2);
+				weights *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope, vec4(0.0)));
+				weights2 *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope2, vec4(0.0)));
 				float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
 
 				if (weight_sum > 0.0001) {
@@ -1539,7 +1601,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				} else {
 					weights = vec4(0.0);
 					weights2 = vec4(0.0);
-					return;
 				}
 
 				float cover_sum = dot(cover, vec4(1.0)) + dot(cover2, vec4(1.0));
@@ -1559,21 +1620,66 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float normal_weight;
 			};
 
+			// how much a layer's own height at this pixel scales its weight, 1 where it has none or amount is 0
+			float get_terrain_layer_height_factor(int height_tex, vec3 world_pos, float scale, vec3 blend, float amount, float weight) {
+				if (height_tex == -1 || amount <= 0.0 || weight <= 0.001) {
+					return 1.0;
+				}
+
+				float safe_scale = max(scale, 0.0001);
+				vec2 uv = blend.y >= blend.x && blend.y >= blend.z ? world_pos.xz / safe_scale : (blend.x >= blend.z ? world_pos.zy / safe_scale : world_pos.xy / safe_scale);
+				return mix(1.0, texture(TEXTURE(height_tex), uv).r * 2.0, amount);
+			}
+
 			TerrainLayerSample terrain_layer_cache;
 			bool terrain_layer_cache_valid = false;
 
-			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float weight, float scale, float detail_strength, float additive_detail, float displacement) {
+			// far_scale and far_scale_b are larger scales the layer fades to (between far_distance / 2 and far_distance, then the
+			// same for the second), so that its repeats are not all that is seen from far away. 0 for none. past fade_distance / 2
+			// the layer fades to its average color and is not sampled at all from fade_distance. 0 for never
+			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float distance_to_camera, float weight, float scale, float detail_strength, float additive_detail, float displacement, vec4 far, float fade_distance, float anti_tiling) {
 				if (weight <= 0.001) {
+					return;
 				}
 
-				// like crysis, a layer displaces as much as it covers
-				TerrainLayerUV uv = get_terrain_layer_uv(height_tex, world_pos, scale, blend, N, V, displacement * weight);
+				float far_a = far.x > 0.0 ? smoothstep(far.y * 0.5, far.y, distance_to_camera) : 0.0;
+				float far_b = far.z > 0.0 ? smoothstep(far.w * 0.5, far.w, distance_to_camera) : 0.0;
+				float fade = fade_distance > 0.0 ? smoothstep(fade_distance * 0.5, fade_distance, distance_to_camera) : 0.0;
+				vec4 albedo = vec4(0.0);
+				vec4 n = vec4(0.0);
+
+				// one call site for the scales, see get_terrain_layer_uv
+				for (int i = 0; i < 3; i++) {
+					float w = (i == 0 ? (1.0 - far_a) * (1.0 - far_b) : (i == 1 ? far_a * (1.0 - far_b) : far_b)) * (1.0 - fade);
+
+					if (w <= 0.0) {
+						continue;
+					}
+
+					// like crysis, a layer displaces as much as it covers
+					TerrainLayerUV uv = get_terrain_layer_uv(i == 0 ? height_tex : -1, world_pos, i == 0 ? scale : (i == 1 ? far.x : far.z), blend, N, V, i == 0 ? displacement * weight : 0.0);
+
+					if (albedo_tex != -1) {
+						albedo += sample_terrain_layer_triplanar(albedo_tex, uv, blend, anti_tiling) * w;
+					}
+
+					if (normal_tex != -1) {
+						n += sample_terrain_layer_normal_triplanar(normal_tex, uv, blend, N, anti_tiling) * w;
+					}
+				}
+
+				if (fade > 0.0) {
+					// the smallest mip is the average color of the layer, and nothing of its normal map is left
+					if (albedo_tex != -1) {
+						albedo += textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0) * fade;
+					}
+
+					if (normal_tex != -1) {
+						n += vec4(N, 1.0) * fade;
+					}
+				}
 
 				if (albedo_tex != -1) {
-					vec4 albedo = sample_terrain_layer_triplanar(albedo_tex, uv, blend);
-
-			]=] .. terrain_layer_rules .. [=[
-
 					if (detail_strength > 0.0) {
 						if (additive_detail > 0.0) {
 							// the detail is an offset around 0.5 in gamma space, adding it to the linear color
@@ -1589,17 +1695,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 						albedo.a = 1.0;
 					} else {
 						albedo.rgb *= base;
-				// where a layer may be by the slope of the ground at this pixel, which the weight texture is too coarse for
-				// (and its texels cover more ground the coarser the tile is). 0 is flat, 1 is a wall
-				float steepness = 1.0 - (get_terrain_world_normal(uv).y * 0.5 + 0.5);
-				weights *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin, terrain_model.TerrainLayerSlopeMax, terrain_model.TerrainLayerSlopeBlend);
-				weights2 *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin2, terrain_model.TerrainLayerSlopeMax2, terrain_model.TerrainLayerSlopeBlend2);
-
-				// a covering layer is not mixed in by its weight, what covers the ground is over the others
-				vec4 cover = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverStart, terrain_model.TerrainLayerCoverRange, terrain_model.TerrainLayerCoverPower, terrain_model.TerrainLayerCoverBlend);
-				vec4 cover2 = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverStart2, terrain_model.TerrainLayerCoverRange2, terrain_model.TerrainLayerCoverPower2, terrain_model.TerrainLayerCoverBlend2);
-				weights *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope, vec4(0.0)));
-				weights2 *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope2, vec4(0.0)));
 					}
 
 					s.albedo += albedo.rgb * weight;
@@ -1610,7 +1705,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				}
 
 				if (normal_tex != -1) {
-					vec4 n = sample_terrain_layer_normal_triplanar(normal_tex, uv, blend, N);
 					s.normal += n.xyz * weight;
 					s.ao += n.w * weight;
 					s.normal_weight += weight;
@@ -1649,16 +1743,48 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				vec3 to_camera = get_surface_camera_position() - world_pos;
 				vec3 V = normalize(to_camera);
+				float distance_to_camera = length(to_camera);
 				// crysis fades the displacement out towards the detail layers' view distance
-				float fade = 1.0 - pow(min(length(to_camera) / max(terrain_model.TerrainLayerHeightDistance, 0.001), 1.0), 4.0);
+				float fade = 1.0 - pow(min(distance_to_camera / max(terrain_model.TerrainLayerHeightDistance, 0.001), 1.0), 4.0);
 				vec4 displacement = terrain_model.TerrainLayerHeightScales * fade;
 				ivec4 albedo_textures = ivec4(terrain_model.TerrainLayer1Texture, terrain_model.TerrainLayer2Texture, terrain_model.TerrainLayer3Texture, terrain_model.TerrainLayer4Texture);
 				ivec4 normal_textures = ivec4(terrain_model.TerrainLayer1NormalTexture, terrain_model.TerrainLayer2NormalTexture, terrain_model.TerrainLayer3NormalTexture, terrain_model.TerrainLayer4NormalTexture);
 				ivec4 height_textures = ivec4(terrain_model.TerrainLayer1HeightTexture, terrain_model.TerrainLayer2HeightTexture, terrain_model.TerrainLayer3HeightTexture, terrain_model.TerrainLayer4HeightTexture);
 
+				// where the layers' own heights are higher they take the weight of the ones that are lower, so a transition
+				// follows the grain of the layers (the pebbles of one stand up through the other) rather than being a gradient
+				vec4 height_blend = terrain_model.TerrainLayerHeightBlend;
+				vec4 height_blend2 = terrain_model.TerrainLayerHeightBlend2;
+				bool has_second_set = terrain_model.TerrainMaterial2Texture != -1;
+
+				if (dot(height_blend, vec4(1.0)) + (has_second_set ? dot(height_blend2, vec4(1.0)) : 0.0) > 0.0) {
+					for (int i = 0; i < 4; i++) {
+						weights[i] *= get_terrain_layer_height_factor(height_textures[i], world_pos, scales[i], blend, height_blend[i], weights[i]);
+					}
+
+					if (has_second_set) {
+						ivec4 height_textures2 = ivec4(terrain_model.TerrainLayer5HeightTexture, terrain_model.TerrainLayer6HeightTexture, terrain_model.TerrainLayer7HeightTexture, terrain_model.TerrainLayer8HeightTexture);
+
+						for (int i = 0; i < 4; i++) {
+							weights2[i] *= get_terrain_layer_height_factor(height_textures2[i], world_pos, terrain_model.TerrainLayerScales2[i], blend, height_blend2[i], weights2[i]);
+						}
+					}
+
+					float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
+					weights /= max(weight_sum, 0.0001);
+					weights2 /= max(weight_sum, 0.0001);
+				}
+
+				vec4 far_scales = terrain_model.TerrainLayerFarScales;
+				vec4 far_distances = terrain_model.TerrainLayerFarDistances;
+				vec4 far_scales_b = terrain_model.TerrainLayerFarScaleB;
+				vec4 far_distances_b = terrain_model.TerrainLayerFarDistanceB;
+				vec4 fade_distances = terrain_model.TerrainLayerFadeDistance;
+				vec4 anti_tiling = terrain_model.TerrainLayerAntiTiling;
+
 				// a loop rather than four calls so the layer code is compiled once
 				for (int i = 0; i < 4; i++) {
-					accumulate_terrain_layer(s, base, albedo_textures[i], normal_textures[i], height_textures[i], world_pos, blend, N, V, weights[i], scales[i], detail[i], additive_detail[i], displacement[i]);
+					accumulate_terrain_layer(s, base, albedo_textures[i], normal_textures[i], height_textures[i], world_pos, blend, N, V, distance_to_camera, weights[i], scales[i], detail[i], additive_detail[i], displacement[i], vec4(far_scales[i], far_distances[i], far_scales_b[i], far_distances_b[i]), fade_distances[i], anti_tiling[i]);
 				}
 
 				// layers 5 to 8 are only there for chunks with more than four layers
@@ -1670,9 +1796,15 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					vec4 detail2 = terrain_model.TerrainLayerDetailStrength2;
 					vec4 additive_detail2 = terrain_model.TerrainLayerAdditiveDetail2;
 					vec4 displacement2 = terrain_model.TerrainLayerHeightScales2 * fade;
+					vec4 far_scales2 = terrain_model.TerrainLayerFarScales2;
+					vec4 far_distances2 = terrain_model.TerrainLayerFarDistances2;
+					vec4 far_scales_b2 = terrain_model.TerrainLayerFarScaleB2;
+					vec4 far_distances_b2 = terrain_model.TerrainLayerFarDistanceB2;
+					vec4 fade_distances2 = terrain_model.TerrainLayerFadeDistance2;
+					vec4 anti_tiling2 = terrain_model.TerrainLayerAntiTiling2;
 
 					for (int i = 0; i < 4; i++) {
-						accumulate_terrain_layer(s, base, albedo_textures2[i], normal_textures2[i], height_textures2[i], world_pos, blend, N, V, weights2[i], scales2[i], detail2[i], additive_detail2[i], displacement2[i]);
+						accumulate_terrain_layer(s, base, albedo_textures2[i], normal_textures2[i], height_textures2[i], world_pos, blend, N, V, distance_to_camera, weights2[i], scales2[i], detail2[i], additive_detail2[i], displacement2[i], vec4(far_scales2[i], far_distances2[i], far_scales_b2[i], far_distances_b2[i]), fade_distances2[i], anti_tiling2[i]);
 					}
 				}
 

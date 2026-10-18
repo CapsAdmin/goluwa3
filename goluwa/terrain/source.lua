@@ -6,6 +6,8 @@ function TerrainSource.New(config)
 	self.MinHeight = config.MinHeight or 0
 	self.MaxHeight = config.MaxHeight or 1000
 	self.Layers = config.Layers or {}
+	-- the exponent of the triplanar weights of the layers, the higher the less the three projections show together
+	self.TriplanarSharpness = config.TriplanarSharpness or 4
 	return self
 end
 

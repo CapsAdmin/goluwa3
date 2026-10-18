@@ -43,6 +43,12 @@ local function layer_values(suffix, requires)
 			default = 128,
 			requires = requires,
 		}
+		-- the exponent of the triplanar weights: the higher the less the projections show together
+		add{
+			name = "TerrainTriplanarSharpness",
+			default = 4,
+			requires = requires,
+		}
 	end
 
 	values("Roughness", Color(1.0, 1.0, 1.0, 1.0))
@@ -55,6 +61,18 @@ local function layer_values(suffix, requires)
 	values("SlopeMin", Color(-1.0, -1.0, -1.0, -1.0))
 	values("SlopeMax", Color(2.0, 2.0, 2.0, 2.0))
 	values("SlopeBlend", Color(0.01, 0.01, 0.01, 0.01))
+	-- 0 to 1, how much the layer's height texture decides its weight against the other layers
+	values("HeightBlend", Color(0.0, 0.0, 0.0, 0.0))
+	-- a second, larger scale (in meters like Scales) that the layer fades to by FarDistances, 0 for none
+	values("FarScales", Color(0.0, 0.0, 0.0, 0.0))
+	values("FarDistances", Color(0.0, 0.0, 0.0, 0.0))
+	-- and a third scale after the second, for FarDistanceB
+	values("FarScaleB", Color(0.0, 0.0, 0.0, 0.0))
+	values("FarDistanceB", Color(0.0, 0.0, 0.0, 0.0))
+	-- the layer fades to its average color from half of this distance and is not sampled past it, 0 for never
+	values("FadeDistance", Color(0.0, 0.0, 0.0, 0.0))
+	-- 0 to 1, how much of the layer is sampled turned and shifted and swapped for the original by noise, so that its repeats differ
+	values("AntiTiling", Color(0.0, 0.0, 0.0, 0.0))
 	-- a layer with a CoverSlope is laid over the others instead of mixed in by its weight (snow): it covers the ground flatter
 	-- than CoverSlope * ((height - CoverStart) / CoverRange) ^ CoverPower, fading over CoverBlend. 0 for not a covering layer
 	values("CoverSlope", Color(0.0, 0.0, 0.0, 0.0))

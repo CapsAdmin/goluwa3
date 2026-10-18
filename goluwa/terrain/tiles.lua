@@ -238,6 +238,13 @@ local LAYER_VALUES = {
 	{"SlopeMin", "slope_min", -1},
 	{"SlopeMax", "slope_max", 2},
 	{"SlopeBlend", "slope_blend", 0.01},
+	{"HeightBlend", "height_blend", 0},
+	{"FarScales", "far_scale", 0},
+	{"FarDistances", "far_distance", 0},
+	{"FarScaleB", "far_scale_b", 0},
+	{"FarDistanceB", "far_distance_b", 0},
+	{"FadeDistance", "fade_distance", 0},
+	{"AntiTiling", "anti_tiling", 0},
 	{"CoverSlope", "cover_slope", 0},
 	{"CoverStart", "cover_start", 0},
 	{"CoverRange", "cover_range", 1000},
@@ -245,13 +252,14 @@ local LAYER_VALUES = {
 	{"CoverBlend", "cover_blend", 0.05},
 }
 
-function tiles.CreateMaterial(chunk, layers, scatter_set)
+function tiles.CreateMaterial(chunk, layers, scatter_set, source)
 	local material = Material.New()
 	material:SetNormalTexture(chunk.normal_texture)
 	material:SetTerrainMaterialTexture(chunk.splat_texture)
 	material:SetTerrainMaterial2Texture(chunk.splat2_texture)
 	material:SetTerrainBounds(Vec3(chunk.request.min_x, chunk.request.min_z, chunk.request.size))
 	material:SetAlbedoTexture(chunk.color_texture)
+	material:SetTerrainTriplanarSharpness(source.TriplanarSharpness)
 	material:SetRoughnessMultiplier(1)
 	material:SetMetallicMultiplier(0)
 	local layer_count = chunk.splat2_texture and 8 or 4
