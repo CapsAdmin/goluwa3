@@ -1727,6 +1727,9 @@ end
 -- the scene bvh is made of polygons, so the units near the camera get their instances made into polygons of the
 -- stand-ins of their prototypes (see scatter_proxy.lua), in entities that are only in the bvh. the instances are on the
 -- gpu, a few frames of copying to the host later they are made into the polygons
+-- every bake of a unit makes new instances, but the bvh of its proxy is a sah build on the cpu that costs more than
+-- the difference is worth, so a unit that has one waits this long before it is rebuilt
+local PROXY_REBUILD_FRAMES = 180
 local proxy_jobs = {}
 local proxy_part_templates = setmetatable({}, {__mode = "k"})
 local proxy_warned = false
@@ -1955,9 +1958,24 @@ end
 
 -- the units near enough get their instances copied to the host, a few frames later they are made into geometry
 -- for the scene bvh, one unit a frame
+local PROXY_SPEED_SCALE = 25
+local proxy_last_x, proxy_last_y, proxy_last_z = 0, 0, 0
+local proxy_last_time = 0
+local proxy_speed = 0
+
 local function update_proxies(cmd, b, frame, ring)
 	local wanted = gi_enabled:Get()
 	local range = gi_distance:Get()
+	local position = render3d.GetCamera():GetPosition()
+	local now = system.GetElapsedTime()
+
+	if now > proxy_last_time then
+		local dx, dy, dz = position.x - proxy_last_x, position.y - proxy_last_y, position.z - proxy_last_z
+		proxy_speed = math.lerp(0.1, proxy_speed, math.sqrt(dx * dx + dy * dy + dz * dz) / (now - proxy_last_time))
+	end
+
+	proxy_last_x, proxy_last_y, proxy_last_z = position.x, position.y, position.z
+	proxy_last_time = now
 	local job = proxy_jobs[ring]
 
 	if job then
@@ -1968,6 +1986,7 @@ local function update_proxies(cmd, b, frame, ring)
 		if wanted and not unit.dead and unit.offset and unit.bake_frame == job.bake_frame then
 			build_proxy(unit, b.proxy_data + ring * scatter.PROXY_MAX_INSTANCES * 16, job.count)
 			unit.proxy_frame = job.bake_frame
+			unit.proxy_built = frame
 		end
 	end
 
@@ -1975,11 +1994,14 @@ local function update_proxies(cmd, b, frame, ring)
 		if unit.proxy and (not wanted or not unit.offset or unit.dist > range * 1.25) then
 			remove_proxy(unit)
 			unit.proxy_frame = nil
+			unit.proxy_built = nil
 		end
 	end
 
 	if not wanted then return end
 
+	-- flying fast the units are passed before their proxy is of any use, and a proxy is a cpu bvh build of its triangles
+	local build_range = math.max(range / (1 + proxy_speed / PROXY_SPEED_SCALE), 30)
 	local best
 
 	for _, unit in ipairs(units) do
@@ -1991,7 +2013,12 @@ local function update_proxies(cmd, b, frame, ring)
 			not unit.state.preload and
 			not unit.proxy_pending and
 			unit.proxy_frame ~= unit.bake_frame and
-			unit.dist <= range and
+			(
+				not unit.proxy_built or
+				frame - unit.proxy_built >= PROXY_REBUILD_FRAMES
+			)
+			and
+			unit.dist <= build_range and
 			(
 				not best or
 				unit.dist < best.dist
