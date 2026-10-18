@@ -50,6 +50,7 @@ local function create_terrain()
 	terrain.CreateTile = function(self, want, chunk)
 		return {entity = fake_entity(), material = {GetScatterSet = function() end}}
 	end
+	terrain.CreateBVHEntity = function() end
 	return terrain
 end
 
