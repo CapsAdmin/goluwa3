@@ -826,6 +826,24 @@ function RigidBody:ApplyForce(force, world_pos)
 	return self
 end
 
+-- ApplyForce with plain numbers for callers that apply many forces a step (a vehicle's springs and tires): no vectors
+-- are allocated. the point is where in the world the force acts
+function RigidBody:ApplyForceAt(fx, fy, fz, px, py, pz)
+	if not self:HasSolverMass() then return self end
+
+	if not self.Awake then self:Wake() end
+
+	local force, torque, position = self.AccumulatedForce, self.AccumulatedTorque, self.Position
+	force.x = force.x + fx
+	force.y = force.y + fy
+	force.z = force.z + fz
+	local rx, ry, rz = px - position.x, py - position.y, pz - position.z
+	torque.x = torque.x + ry * fz - rz * fy
+	torque.y = torque.y + rz * fx - rx * fz
+	torque.z = torque.z + rx * fy - ry * fx
+	return self
+end
+
 RigidBody.AddForce = RigidBody.ApplyForce
 RigidBody.AddTorque = RigidBody.ApplyTorque
 RigidBody.AddImpulse = RigidBody.ApplyImpulse
