@@ -46,7 +46,7 @@ function emitters.Get(include_additive)
 			for _, item in ipairs(visual.scene_instances) do
 				local material = item.material
 				local r, g, b = materials.GetEmissive(material)
-				local luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+				local luminance = item.level == 0 and 0.2126 * r + 0.7152 * g + 0.0722 * b or 0
 
 				if luminance > 0 then
 					local m = item.matrix
@@ -55,10 +55,11 @@ function emitters.Get(include_additive)
 						and
 						material:GetEmissiveTexture() == nil
 					local flag = material:GetDoubleSided() and emitters.DOUBLE_SIDED or 0
-					local vertices, stride, indices = get_triangles(item.mesh)
+					local mesh = item.entry.polygon3d.mesh
+					local vertices, stride, indices = get_triangles(mesh)
 					local triangle_count = indices and
-						math.floor(item.mesh.index_buffer:GetIndexCount() / 3) or
-						math.floor(item.mesh.vertex_buffer:GetVertexCount() / 3)
+						math.floor(mesh.index_buffer:GetIndexCount() / 3) or
+						math.floor(mesh.vertex_buffer:GetVertexCount() / 3)
 
 					for i = 0, triangle_count - 1 do
 						local a = (indices and indices[i * 3] or i * 3) * stride

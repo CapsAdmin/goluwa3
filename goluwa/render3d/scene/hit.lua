@@ -72,7 +72,10 @@ function hit.GetGLSL(binding)
 			uint mesh_row;
 			uint material_row;
 			uint flags;
-			uint user;
+			uint mask_lod;
+			vec4 bounds;
+			vec2 lod;
+			vec2 pad;
 		};
 
 		struct scene_tlas_instance {

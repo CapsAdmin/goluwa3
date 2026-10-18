@@ -29,6 +29,8 @@ local queue = {}
 local queued_count = 0
 local buffers = nil
 local pipeline = nil
+-- the destination vertex buffers (by address) that were skinned in the last dispatch, ray tracing refits their structures
+skinning.updated = {}
 local job_base = 0
 local job_count = 0
 local group_count = 0
@@ -330,6 +332,8 @@ function skinning.Queue(rig)
 end
 
 function skinning.Dispatch(cmd)
+	table.clear(skinning.updated)
+
 	if queued_count == 0 then return end
 
 	local b = get_buffers()
@@ -389,6 +393,7 @@ function skinning.Dispatch(cmd)
 					ffi.cast(uint64_ptr, job.morph_ranges)[0] = 0
 				end
 
+				skinning.updated[tonumber(skinned.destination_address)] = true
 				job.count = skinned.count
 				job.group_start = groups
 				groups = groups + math.ceil(skinned.count / LOCAL_SIZE)

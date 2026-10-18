@@ -21,6 +21,8 @@ local table_rows
 local by_mesh = setmetatable({}, {__mode = "k"})
 local mesh_of_row = setmetatable({}, {__mode = "v"})
 local records = {}
+-- the meshes that deform, by the address of their vertices, for the structures to follow what skins them
+local dynamic_records = {}
 local pending = {}
 local sweep_cursor = 0
 local triangle_total = 0
@@ -34,7 +36,7 @@ end
 
 -- the row of a mesh, which is built for ray tracing once and kept for as long as the mesh lives. nil for a mesh the gpu
 -- has no buffers of
-function meshes.Get(mesh)
+function meshes.Get(mesh, dynamic)
 	local row = by_mesh[mesh]
 
 	if row then return row end
@@ -71,16 +73,19 @@ function meshes.Get(mesh)
 	mesh_of_row[row] = mesh
 	local record = {
 		row = row,
-		vertex_address = data.vertex_address,
+		vertex_address = tonumber(data.vertex_address),
 		vertex_stride = data.vertex_stride,
 		vertex_count = vertex_buffer:GetVertexCount(),
 		index_address = tonumber(data.index_address),
 		index_is_32 = index_buffer and index_buffer:GetIndexType() == "uint32",
 		triangle_count = triangle_count,
+		allow_update = dynamic,
 		address = 0,
 	}
 	records[row] = record
 	pending[#pending + 1] = record
+
+	if dynamic then dynamic_records[record.vertex_address] = record end
 	triangle_total = triangle_total + triangle_count
 	return row
 end
@@ -89,9 +94,28 @@ function meshes.GetRecord(row)
 	return records[row]
 end
 
--- builds the bottom level structures that are waiting, within a budget of triangles per frame
-function meshes.Build(cmd)
-	if not pending[1] then return false end
+-- builds the bottom level structures that are waiting, within a budget of triangles per frame, and refits the ones of
+-- meshes that were skinned (updated is a set of the addresses of their vertices)
+function meshes.Build(cmd, updated)
+	local refit_count = 0
+	local refit = {}
+
+	if updated then
+		for address in pairs(updated) do
+			local record = dynamic_records[address]
+
+			if record and record.blas then
+				refit_count = refit_count + 1
+				refit[refit_count] = record
+			end
+		end
+	end
+
+	if refit_count > 0 then
+		accel.BuildBLASes(cmd, refit, refit_count)
+	end
+
+	if not pending[1] then return refit_count > 0 end
 
 	local jobs = {}
 	local budget = meshes.TRIANGLES_PER_FRAME
@@ -154,6 +178,7 @@ function meshes.Update()
 
 		if record and not mesh_of_row[row] then
 			accel.ReleaseBLAS(record)
+			dynamic_records[record.vertex_address] = nil
 			triangle_total = triangle_total - record.triangle_count
 			records[row] = nil
 			rows:Free(row)

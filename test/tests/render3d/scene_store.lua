@@ -15,7 +15,8 @@ local Color = import("goluwa/structs/color.lua")
 local RESULT_COUNT = 8
 
 -- one ray straight at the instance and one that misses it
-local function trace(tlas, cmd, results, origin_z)
+local function trace(tlas, cmd, results, origin)
+	origin = origin or {0, 0, 0}
 	local pipeline = EasyPipeline.Compute{
 		name = "scene_store_test_trace",
 		DescriptorSetCount = 1,
@@ -27,10 +28,10 @@ local function trace(tlas, cmd, results, origin_z)
 			layout(set = 0, binding = 0) buffer Results { uint results[]; };
 			layout(set = 0, binding = 1) uniform accelerationStructureEXT scene;
 		]],
-		shader = [[
+		shader = ([[
 			void trace(int slot, vec3 dir) {
 				rayQueryEXT query;
-				rayQueryInitializeEXT(query, scene, gl_RayFlagsOpaqueEXT, 0xFF, vec3(0.0), 0.0, dir, 100.0);
+				rayQueryInitializeEXT(query, scene, gl_RayFlagsOpaqueEXT, 0xFF, vec3(%f, %f, %f), 0.0, dir, 100.0);
 				while (rayQueryProceedEXT(query)) {}
 
 				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
@@ -48,7 +49,7 @@ local function trace(tlas, cmd, results, origin_z)
 				trace(0, vec3(0.0, 0.0, -1.0));
 				trace(1, vec3(0.0, 1.0, 0.0));
 			}
-		]],
+		]]):format(origin[1], origin[2], origin[3]),
 	}
 	pipeline:UpdateDescriptorSet("storage_buffer", 1, 0, 0, results, results:GetSize())
 	pipeline:UpdateDescriptorSet("acceleration_structure_khr", 1, 1, 0, tlas)
@@ -96,7 +97,7 @@ T.Test3D("Graphics render3d scene store traces an instance of a mesh through its
 	results:Remove()
 end)
 
-local function read_results(draw, tlas_getter)
+local function read_results(draw, tlas_getter, origin)
 	local results = render.CreateBuffer{
 		byte_size = RESULT_COUNT * 4,
 		buffer_usage = {"storage_buffer"},
@@ -105,7 +106,7 @@ local function read_results(draw, tlas_getter)
 	}
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
-	trace(tlas_getter(cmd), cmd, results)
+	trace(tlas_getter(cmd), cmd, results, origin)
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	local out = ffi.cast("uint32_t*", results:Map())
@@ -153,4 +154,122 @@ T.Test3D("Graphics render3d scene store follows a visual that moves, hides and i
 	draw()
 	draw()
 	T(read_results(draw, rt.GetTLAS)[1])["=="](0)
+end)
+
+T.Test3D("Graphics render3d scene store shows rays the level of detail of the distance", function(draw)
+	if not render.GetDevice().ray_query_supported then return end
+
+	local render3d = import("goluwa/render3d/render3d.lua")
+	render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+	local fine = Polygon3D.New()
+	shapes.BuildCube(fine, 2)
+	fine:BuildBoundingBox()
+	fine:Upload()
+	local coarse = Polygon3D.New()
+	shapes.BuildCube(coarse, 4)
+	coarse:BuildBoundingBox()
+	coarse:Upload()
+	coarse:SetLODLevel(1)
+	coarse:SetLODDistance(2)
+	local entity = Entity.New{Name = "scene_store_lod"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -5))
+	local visual = entity:AddComponent("visual")
+	local material = Material.New{ColorMultiplier = Color(1, 0, 0, 1)}
+
+	for i, polygon in ipairs{fine, coarse} do
+		local primitive = Entity.New{Name = "scene_store_lod_primitive" .. i, Parent = entity}
+		primitive:AddComponent("transform")
+		primitive:AddComponent("visual_primitive"):SetPolygon3D(polygon)
+		primitive.visual_primitive:SetMaterial(material)
+	end
+
+	visual:BuildAABB()
+	draw()
+	draw()
+	local near = read_results(draw, rt.GetTLAS)
+	T(near[1])["=="](1)
+	local near_distance = ffi.cast("float*", ffi.new("uint32_t[1]", near[4]))[0]
+	T(near_distance > 2.5 and near_distance < 3.5)["=="](true)
+	entity.transform:SetPosition(Vec3(0, 0, -40))
+	draw()
+	draw()
+	local far = read_results(draw, rt.GetTLAS)
+	T(far[1])["=="](1)
+	local far_distance = ffi.cast("float*", ffi.new("uint32_t[1]", far[4]))[0]
+	T(far_distance > 35.5 and far_distance < 36.5)["=="](true)
+	entity:Remove()
+	fine:Remove()
+	coarse:Remove()
+end)
+
+T.Test3D("Graphics render3d scene store follows a skinned mesh in the ray traced scene", function(draw)
+	if not render.GetDevice().ray_query_supported then return end
+
+	local Skeleton = import("goluwa/render3d/skeleton.lua")
+	local bind_local = ffi.new("float[14]", {0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1})
+	local inverse_bind = ffi.new(
+		"float[24]",
+		{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 1, 0}
+	)
+	local skeleton = Skeleton.New{
+		BoneNames = {"root", "arm"},
+		Parents = {-1, 0},
+		BindLocal = bind_local,
+		InverseBind = inverse_bind,
+	}
+	skeleton:AddClip{
+		Name = "swing",
+		Duration = 1,
+		Loop = true,
+		Sample = function(clip, cycle, params, out)
+			ffi.copy(out, bind_local, 14 * 4)
+			local half = cycle * math.pi / 4
+			out[12] = math.sin(half)
+			out[13] = math.cos(half)
+		end,
+	}
+	local poly = Polygon3D.New()
+	shapes.BuildCube(poly, 0.5, 1.0)
+	poly:Upload()
+	local count = poly.mesh.vertex_buffer:GetVertexCount()
+	poly.Skin = {
+		BoneIndices = ffi.new("uint8_t[?]", count * 4),
+		BoneWeights = ffi.new("float[?]", count * 4),
+	}
+
+	for i = 0, count - 1 do
+		poly.Skin.BoneIndices[i * 4] = 1
+		poly.Skin.BoneWeights[i * 4] = 1
+	end
+
+	local entity = Entity.New{Name = "scene_store_skinned"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -4))
+	local visual = entity:AddComponent("visual")
+	local primitive_entity = Entity.New{Name = "scene_store_skinned_primitive", Parent = entity}
+	primitive_entity:AddComponent("transform")
+	local primitive = primitive_entity:AddComponent("visual_primitive")
+	primitive:SetPolygon3D(poly)
+	primitive:SetMaterial(Material.New{ColorMultiplier = Color(1, 0, 0, 1)})
+	visual.Skeleton = skeleton
+	local animator = entity:AddComponent("animator")
+	animator:Bind(skeleton)
+	animator:SetSequence("swing")
+	animator:SetPlaying(false)
+	animator:SetTime(0)
+	animator:Animate(0)
+	visual:BuildAABB()
+	-- a ray through the corner of the cube in its bind pose, which the swing moves away from it
+	local origin = {-0.45, -0.45, 0}
+	draw()
+	draw()
+	T(read_results(draw, rt.GetTLAS, origin)[1])["=="](1)
+	animator:SetTime(0.5)
+	animator:Animate(0)
+	draw()
+	draw()
+	T(read_results(draw, rt.GetTLAS, origin)[1])["=="](0)
+	animator:Unbind()
+	entity:Remove()
 end)
