@@ -355,6 +355,7 @@ end
 do
 	local update_pipeline
 	local row_count = 0
+	local bound_buffers = {}
 
 	local create_update_pipeline
 
@@ -481,16 +482,17 @@ do
 
 		local pipeline = get_update_pipeline()
 		local slot = ((render.GetCurrentFrame() or 1) - 1) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
-		pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_table:GetBuffer(), tlas_table:GetSize())
-		pipeline:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_table:GetBuffer(), data_table:GetSize())
-		pipeline:UpdateDescriptorSet(
-			"storage_buffer",
-			slot,
-			2,
-			0,
-			meshes.GetTable():GetBuffer(),
-			meshes.GetTable():GetSize()
-		)
+		local bound = bound_buffers[slot]
+		local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
+
+		-- a set that a frame in flight uses cannot be written, so only a replaced buffer is
+		if not bound or bound[1] ~= tlas_buffer or bound[2] ~= data_buffer or bound[3] ~= mesh_buffer then
+			bound_buffers[slot] = {tlas_buffer, data_buffer, mesh_buffer}
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 2, 0, mesh_buffer, meshes.GetTable():GetSize())
+		end
+
 		pipeline:UploadConstants()
 		cmd:PipelineBarrier{
 			srcStage = {"host", "compute", "acceleration_structure_build_khr"},

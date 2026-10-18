@@ -43,6 +43,7 @@ pvars.EndGroup()
 local segments_table, parts_table
 local pipeline
 local built_version = -1
+local bound_buffers = {}
 local range_base, range_count = nil, 0
 local segment_count = 0
 
@@ -364,13 +365,31 @@ local function produce(cmd)
 	local tlas_table, data_table = instances.GetTables()
 	local pipe = get_pipeline()
 	local slot = ((render.GetCurrentFrame() or 1) - 1) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
-	pipe:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_table:GetBuffer(), tlas_table:GetSize())
-	pipe:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_table:GetBuffer(), data_table:GetSize())
-	pipe:UpdateDescriptorSet("storage_buffer", slot, 2, 0, meshes.GetTable():GetBuffer(), meshes.GetTable():GetSize())
-	pipe:UpdateDescriptorSet("storage_buffer", slot, 3, 0, segments:GetBuffer(), segments:GetSize())
-	pipe:UpdateDescriptorSet("storage_buffer", slot, 4, 0, parts:GetBuffer(), parts:GetSize())
-	pipe:UpdateDescriptorSet("storage_buffer", slot, 5, 0, list_buffer, list_buffer.size)
-	pipe:UpdateDescriptorSet("storage_buffer", slot, 6, 0, counts_buffer, counts_buffer.size)
+		local bound = bound_buffers[slot]
+		local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
+		local segments_buffer, parts_buffer = segments:GetBuffer(), parts:GetBuffer()
+
+		-- the descriptors only change when a buffer was replaced, a set that a frame in flight uses cannot be written
+		if
+			not bound or
+			bound[1] ~= tlas_buffer or
+			bound[2] ~= data_buffer or
+			bound[3] ~= mesh_buffer or
+			bound[4] ~= segments_buffer or
+			bound[5] ~= parts_buffer or
+			bound[6] ~= list_buffer or
+			bound[7] ~= counts_buffer
+		then
+			bound_buffers[slot] = {tlas_buffer, data_buffer, mesh_buffer, segments_buffer, parts_buffer, list_buffer, counts_buffer}
+			pipe:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
+			pipe:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())
+			pipe:UpdateDescriptorSet("storage_buffer", slot, 2, 0, mesh_buffer, meshes.GetTable():GetSize())
+			pipe:UpdateDescriptorSet("storage_buffer", slot, 3, 0, segments_buffer, segments:GetSize())
+			pipe:UpdateDescriptorSet("storage_buffer", slot, 4, 0, parts_buffer, parts:GetSize())
+			pipe:UpdateDescriptorSet("storage_buffer", slot, 5, 0, list_buffer, list_buffer.size)
+			pipe:UpdateDescriptorSet("storage_buffer", slot, 6, 0, counts_buffer, counts_buffer.size)
+		end
+
 	pipe:UploadConstants()
 	cmd:PipelineBarrier{
 		srcStage = {"host", "compute", "acceleration_structure_build_khr"},
