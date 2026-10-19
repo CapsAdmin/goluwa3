@@ -5,7 +5,8 @@
 -- MP_SWEEP ("name=pvar:value,pvar:value;name2=...": the variants, run as base, the variants, base again; the pvars of a
 -- variant go back to what they were before it), MP_SHOT (a directory: one picture per view and variant, time frozen and
 -- exposure locked to MP_EV, MP_FREEZE=1 holds the time still instead of advancing it from the start of each job, which also
--- stops the plants where the wind has them), MP_SECONDS (measured seconds per job, 4), MP_SETTLE (seconds a job is held before measuring, 3),
+-- stops the plants where the wind has them, MP_SHIFT=seconds takes a second picture, name_b.png, with the wind's clock
+-- that much later), MP_SECONDS (measured seconds per job, 4), MP_SETTLE (seconds a job is held before measuring, 3),
 -- MP_MOVE (m/s the camera flies forward while measuring, 0), MP_EXTRA (a lua file imported before the map loads, it may
 -- set the globals MP_RESET() and MP_REPORT(frames) to wrap things), MP_PROF (a profile tag), MP_TOP (gpu scopes printed,
 -- 10), MP_CPU_TOP (cpu scopes printed, 8), MP_TRACE (frame time per second while loading)
@@ -134,6 +135,7 @@ local times = {}
 local heap_prev, alloc
 local trace_n, trace_sum = 0, 0
 local frame_count = 0
+local shot_shift, shot_wait, shot_path, shot_finish = 0, 0, nil, nil
 event.AddListener("RTSceneReady", "mp_ready", function() ready_at = system.GetTime() end)
 event.AddListener("Update", "mp_cycle", function()
 	local now = system.GetTime()
@@ -181,7 +183,7 @@ event.AddListener("Update", "mp_cycle", function()
 	end
 	if shot_dir then
 		frame_count = frame_count + 1
-		system.SetElapsedTime(os.getenv("MP_FREEZE") and 1000 or 1000 + frame_count / 60)
+		system.SetElapsedTime(os.getenv("MP_FREEZE") and 1000 + shot_shift or 1000 + frame_count / 60)
 	end
 	if state == "settle" then
 		if dt < 0.06 then quiet = quiet + 1 else quiet = 0 end
@@ -198,6 +200,21 @@ event.AddListener("Update", "mp_cycle", function()
 		return
 	end
 	if state == "shot" then return end
+
+	if state == "shot_wait" then
+		shot_wait = shot_wait - 1
+
+		if shot_wait <= 0 then
+			state = "shot"
+			Screenshot(function(texture)
+				texture:SaveWithoutAlpha(shot_path:gsub("%.png$", "_b.png"))
+				shot_shift = 0
+				shot_finish()
+			end)
+		end
+
+		return
+	end
 	if move_speed > 0 then active_view:SetPosition(active_view:GetPosition() + active_view:GetRotation():GetForward() * move_speed * dt) end
 	times[#times + 1] = dt
 	local heap = collectgarbage("count")
@@ -244,10 +261,19 @@ event.AddListener("Update", "mp_cycle", function()
 		end
 		if shot_dir then
 			state = "shot"
-			local path = string.format("%s/%s_%s_%s.png", shot_dir, map, views[job.view][1]:gsub("%s", "_"), job.variant.name:gsub("%s", "_"))
+			shot_path = string.format("%s/%s_%s_%s.png", shot_dir, map, views[job.view][1]:gsub("%s", "_"), job.variant.name:gsub("%s", "_"))
+			shot_finish = finish
 			Screenshot(function(texture)
-				texture:SaveWithoutAlpha(path)
-				finish()
+				texture:SaveWithoutAlpha(shot_path)
+
+				if tonumber(os.getenv("MP_SHIFT") or "") then
+					-- the same view with the wind's clock moved on (the history has to settle in it), to see how much moves
+					shot_shift = tonumber(os.getenv("MP_SHIFT"))
+					shot_wait = 90
+					state = "shot_wait"
+				else
+					finish()
+				end
 			end)
 		else
 			finish()
