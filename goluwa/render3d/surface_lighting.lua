@@ -179,7 +179,7 @@ function surface_lighting.GetGLSL(block_name)
 				float shadow_factor = 1.0;
 				if (
 					i == ]] .. block_name .. [[.shadows.directional_shadow_light_index &&
-					]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0 &&
+					(]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0 || ]] .. block_name .. [[.shadows.inset_shadow_map_index >= 0) &&
 					type == 0
 				) {
 					shadow_factor = calculateShadow(s.world_pos, shadow_N, L) * shadow_facing;

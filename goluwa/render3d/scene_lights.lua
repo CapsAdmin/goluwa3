@@ -420,7 +420,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	if sun then
 		write_sun_shadows(self, shadow_block, sun)
 
-		if shadow_block.cascade_count == 0 then
+		if shadow_block.cascade_count == 0 and shadow_block.inset_shadow_map_index < 0 then
 			sun = nil
 			sun_light_index = -1
 		else

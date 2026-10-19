@@ -160,19 +160,24 @@ end
 local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 	local src = [==[
 			int cascade_count = @@BLOCK@@.shadows.cascade_count;
-			int cascade_idx = getCascadeIndex(world_pos);
-			if (cascade_idx < 0) return 1.0;
+			bool has_inset = @@BLOCK@@.shadows.inset_shadow_map_index >= 0;
 
+			if (cascade_count <= 0 && !has_inset) return 1.0;
+
+			// without cascades the inset is all there is
+			int cascade_idx = max(getCascadeIndex(world_pos), 0);
 			float dist = -(@@BLOCK@@.view * vec4(world_pos, 1.0)).z;
 			float inset_distance = @@BLOCK@@.shadows.inset_shadow_distance;
 
 			// the inset takes over completely closer than its blend band, the cascades would be
 			// looked up for nothing
-			if (@@BLOCK@@.shadows.inset_shadow_map_index >= 0 && dist <= max(inset_distance - max(inset_distance * 0.25, 4.0), 0.0)) {
+			if (has_inset && dist <= max(inset_distance - max(inset_distance * 0.25, 4.0), 0.0)) {
 				float inset_shadow = 1.0;
 
 				if (@@INSET@@) {
-					shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx];
+					shadow_texel_world_size = cascade_count > 0 ?
+						@@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx] :
+						@@BLOCK@@.shadows.inset_shadow_texel_world_size;
 					return inset_shadow;
 				}
 			}
@@ -186,29 +191,35 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 				if (shadow >= 0.0) break;
 			}
 
-			if (shadow < 0.0) return get_terrain_shadow(world_pos);
+			if (shadow < 0.0) {
+				// no cascade reaches the point, the inset may still
+				if (!has_inset || dist >= inset_distance) return get_terrain_shadow(world_pos);
 
-			shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx];
+				shadow = 1.0;
+				shadow_texel_world_size = @@BLOCK@@.shadows.inset_shadow_texel_world_size;
+			} else {
+				shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx];
 
-			if (cascade_idx < cascade_count - 1) {
-				float previous_split = cascade_idx > 0 ? @@BLOCK@@.shadows.cascade_splits[cascade_idx - 1] : 0.0;
-				float current_split = @@BLOCK@@.shadows.cascade_splits[cascade_idx];
-				float cascade_span = max(current_split - previous_split, 0.0001);
-				float blend_band = max(cascade_span * 0.15, 8.0);
-				float blend_start = current_split - blend_band;
+				if (cascade_idx < cascade_count - 1) {
+					float previous_split = cascade_idx > 0 ? @@BLOCK@@.shadows.cascade_splits[cascade_idx - 1] : 0.0;
+					float current_split = @@BLOCK@@.shadows.cascade_splits[cascade_idx];
+					float cascade_span = max(current_split - previous_split, 0.0001);
+					float blend_band = max(cascade_span * 0.15, 8.0);
+					float blend_start = current_split - blend_band;
 
-				if (dist > blend_start) {
-					float next_shadow = @@CASCADE_NEXT@@;
+					if (dist > blend_start) {
+						float next_shadow = @@CASCADE_NEXT@@;
 
-					if (next_shadow >= 0.0) {
-						float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
-						shadow = mix(shadow, next_shadow, blend);
-						shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx + 1];
+						if (next_shadow >= 0.0) {
+							float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
+							shadow = mix(shadow, next_shadow, blend);
+							shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx + 1];
+						}
 					}
 				}
 			}
 
-			if (@@BLOCK@@.shadows.inset_shadow_map_index >= 0 && dist < @@BLOCK@@.shadows.inset_shadow_distance) {
+			if (has_inset && dist < inset_distance) {
 				float inset_shadow = 1.0;
 
 				if (@@INSET@@) {
@@ -224,7 +235,7 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 
 			// the terrain's own shadow (a height field march, no triangles) takes over where the shadow maps stop, or the
 			// tiles that cast into them do
-			float raster_end = min(@@BLOCK@@.shadows.terrain_shadow_params.z, @@BLOCK@@.shadows.cascade_splits[max(cascade_count - 1, 0)]);
+			float raster_end = min(@@BLOCK@@.shadows.terrain_shadow_params.z, cascade_count > 0 ? @@BLOCK@@.shadows.cascade_splits[cascade_count - 1] : inset_distance);
 			float terrain_weight = smoothstep(raster_end * 0.8, raster_end, dist);
 
 			if (terrain_weight > 0.0) shadow = min(shadow, mix(1.0, get_terrain_shadow(world_pos), terrain_weight));
@@ -316,10 +327,6 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 			}
 
 			float ]] .. result_fn_name .. [[_without_clouds(vec3 world_pos, vec3 light_dir) {
-				if (MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count <= 0 || MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.shadow_map_indices[0] < 0) {
-					return 1.0;
-				}
-
 				]] .. body .. [[
 			}
 
