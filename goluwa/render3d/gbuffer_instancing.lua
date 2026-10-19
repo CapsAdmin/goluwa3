@@ -86,6 +86,7 @@ do
 		return BatchTable.New{
 			label = label,
 			record_type = model_pipeline.GetPBRBatchRecordType(),
+			shared_records = true,
 			write_record = write_record,
 			write_animated = write_animated,
 			animation_version = model_pipeline.GetVertexAnimationVersion,

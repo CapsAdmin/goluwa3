@@ -8,6 +8,7 @@ local BatchTable = objects.CreateTemplate("render3d_batch_table")
 local UInt64Ptr = ffi.typeof("uint64_t *")
 local REFRESH_WINDOW = 4
 local WEAK_VALUES = {__mode = "v"}
+local WEAK_KEYS = {__mode = "k"}
 
 function BatchTable.New(config)
 	return BatchTable:CreateObject{
@@ -15,6 +16,7 @@ function BatchTable.New(config)
 		record_type = config.record_type,
 		record_size = ffi.sizeof(config.record_type),
 		write_record = config.write_record,
+		shared_records = config.shared_records,
 		per_frame = config.per_frame,
 		capacity = 0,
 		buffers = {},
@@ -28,7 +30,8 @@ function BatchTable.New(config)
 		batch_at = setmetatable({}, WEAK_VALUES),
 		material_at = setmetatable({}, WEAK_VALUES),
 		written_count = 0,
-		material_batches = setmetatable({}, {__mode = "k"}),
+		material_batches = setmetatable({}, WEAK_KEYS),
+		copy_sources = setmetatable({}, WEAK_KEYS),
 		animated_batches = {},
 		material_version = objects.version_counter,
 		cursor = 1,
@@ -53,17 +56,44 @@ local function write_batch_record(self, pipeline, context, index, batch, serial)
 	local addresses = ffi.cast(UInt64Ptr, record.addresses)
 	local mesh = batch.mesh
 
+	local material = batch.material
+
 	if mesh:IsValid() then
+		local sources = self.shared_records and material and self.copy_sources[material]
+		local source = sources and sources[mesh]
+
+		-- with shared_records the record only depends on the mesh, the material and the first polygon of the batch, so
+		-- the rows of the same mesh and material (every instance of a plant) copy the record that was written first
+		if
+			source and
+			self.batch_at[source] and
+			self.batch_at[source].first_polygon3d == batch.first_polygon3d and
+			self.versions[source] == (material.property_version or -1) and
+			source ~= index
+		then
+			ffi.copy(record, self.records[source - 1], self.record_size)
+			addresses = ffi.cast(UInt64Ptr, record.addresses)
+		else
+			self.write_record(context, pipeline, record, batch)
+
+			if self.shared_records and material then
+				if not sources then
+					sources = setmetatable({}, WEAK_KEYS)
+					self.copy_sources[material] = sources
+				end
+
+				sources[mesh] = index
+			end
+		end
+
 		addresses[0] = mesh:GetVertexBufferAddress()
 		addresses[1] = mesh:GetIndexBufferAddress()
 		record.index_is_32 = mesh.index_buffer and mesh.index_buffer:GetIndexType() == "uint32" and 1 or 0
-		self.write_record(context, pipeline, record, batch)
 	else
 		addresses[0] = 0
 		addresses[1] = 0
 	end
 
-	local material = batch.material
 	local old_material = self.material_at[index]
 
 	if old_material ~= material then
@@ -133,15 +163,15 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 
 	if self.capacity < count then
 		self:RemoveBuffers()
-		self.capacity = math.max(math.ceil(count * 1.5), 1)
-		self.records = ffi.typeof("$[?]", self.record_type)(self.capacity)
-		self.versions = {}
-		self.written = {}
-		self.batch_at = setmetatable({}, WEAK_VALUES)
-		self.material_at = setmetatable({}, WEAK_VALUES)
-		self.written_count = 0
-		table.clear(self.material_batches)
-		table.clear(self.animated_batches)
+		local capacity = math.max(math.ceil(count * 1.5), 1)
+		local records = ffi.typeof("$[?]", self.record_type)(capacity)
+
+		if self.records then
+			ffi.copy(records, self.records, self.written_count * self.record_size)
+		end
+
+		self.capacity = capacity
+		self.records = records
 		grown = true
 		resync = true
 	end

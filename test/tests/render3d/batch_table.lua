@@ -125,6 +125,50 @@ local function create_material()
 	return objects.CreateObject(Material)
 end
 
+T.Test3D("Graphics render3d batch table copies the record of rows with the same mesh and material", function()
+	local batch_table = BatchTable.New{
+		label = "test batches",
+		record_type = Record,
+		shared_records = true,
+		write_record = write_record,
+		animation_version = get_animation_version,
+	}
+	local batches = create_batches(20)
+	local material = create_material()
+	local context = {writes = 0}
+
+	for i = 1, 20 do
+		batches[i].material = material
+		batches[i].value = 7
+	end
+
+	batch_table:Update(pipeline, batches, 1, 1, context)
+	T(context.writes)["=="](1)
+
+	for i = 1, 20 do
+		T(read_record(batch_table.buffers[1], i).value)["=="](7)
+	end
+
+	-- growing keeps the records that were written
+	local more = create_batches(40)
+
+	for i = 1, 40 do
+		more[i].material = material
+		more[i].value = 7
+	end
+
+	for i = 1, 20 do
+		more[i] = batches[i]
+	end
+
+	context.writes = 0
+	batch_table:Update(pipeline, more, 2, 2, context)
+	T(context.writes)["<="](5)
+	T(read_record(batch_table.buffers[1], 40).value)["=="](7)
+	batch_table:Remove()
+end)
+
+
 T.Test3D("Graphics render3d batch table rewrites records when needed", function()
 	local batch_table = create_table()
 	local batches = create_batches(300)
