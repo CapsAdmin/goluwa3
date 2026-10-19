@@ -171,6 +171,7 @@ local multi_draw_block = {
 		{"batches", "uint64_t"},
 		{"instances", "uint64_t"},
 		{"prev_instances", "uint64_t"},
+		{"batch_by_instance", "int"},
 		{"time", "float"},
 		{"prev_time", "float"},
 		{"detail_time", "float"},
@@ -180,6 +181,7 @@ local multi_draw_block = {
 		block.batches = self.draw_batches_address
 		block.instances = self.draw_instances_address
 		block.prev_instances = self.draw_prev_instances_address
+		block.batch_by_instance = self.draw_batch_by_instance or 0
 		block.time = atmosphere.GetWindTime()
 		block.prev_time = atmosphere.GetPreviousWindTime()
 		block.detail_time = atmosphere.GetWindDetailTime()
@@ -209,6 +211,7 @@ local function build_multi_draw_pass(fragment_shader)
 		batches_expr = "gbuffer_draw.batches",
 		instances_expr = "gbuffer_draw.instances",
 		prev_instances_expr = "gbuffer_draw.prev_instances",
+		batch_index_expr = "(gbuffer_draw.batch_by_instance != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID))",
 		time_expr = "gbuffer_draw.time",
 		prev_time_expr = "gbuffer_draw.prev_time",
 		detail_time_expr = "gbuffer_draw.detail_time",

@@ -311,7 +311,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			descriptorBindingSampledImageUpdateAfterBind = 1,
 			bufferDeviceAddress = 1,
 			samplerMirrorClampToEdge = 0,
-			drawIndirectCount = 0,
+			drawIndirectCount = availableVulkan12Features.drawIndirectCount,
 			storageBuffer8BitAccess = 0,
 			uniformAndStorageBuffer8BitAccess = 0,
 			storagePushConstant8 = 0,

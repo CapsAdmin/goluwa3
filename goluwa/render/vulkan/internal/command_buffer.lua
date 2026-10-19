@@ -701,6 +701,23 @@ function CommandBuffer:DrawIndexedIndirect(buffer, offset, drawCount, stride)
 	)
 end
 
+-- the draw count is read from count_buffer at count_offset when the draw runs, max_draw_count is the most it may be
+function CommandBuffer:DrawIndexedIndirectCount(buffer, offset, count_buffer, count_offset, max_draw_count, stride)
+	if render.stats then render_stats.AddDrawCalls(max_draw_count) end
+
+	keepalive(self, buffer)
+	keepalive(self, count_buffer)
+	vulkan.lib.vkCmdDrawIndexedIndirectCount(
+		self.ptr[0],
+		buffer.ptr[0],
+		offset,
+		count_buffer.ptr[0],
+		count_offset,
+		max_draw_count,
+		stride
+	)
+end
+
 function CommandBuffer:SetCullMode(cull_mode)
 	if not should_apply_dynamic_state(self, "cull_mode", cull_mode or "back") then
 		return

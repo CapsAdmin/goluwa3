@@ -946,6 +946,7 @@ local multi_draw_block = {
 		{"instances", "uint64_t"},
 		{"prev_instances", "uint64_t"},
 		{"thicknesses", "uint64_t"},
+		{"batch_by_instance", "int"},
 		{"time", "float"},
 		{"prev_time", "float"},
 		{"detail_time", "float"},
@@ -956,6 +957,7 @@ local multi_draw_block = {
 		block.instances = self.draw_instances_address
 		block.prev_instances = self.draw_prev_instances_address
 		block.thicknesses = self.draw_thicknesses_address or 0
+		block.batch_by_instance = self.draw_batch_by_instance or 0
 		block.time = atmosphere.GetWindTime()
 		block.prev_time = atmosphere.GetPreviousWindTime()
 		block.detail_time = atmosphere.GetWindDetailTime()
@@ -984,6 +986,7 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness)
 		batches_expr = "translucent_draw.batches",
 		instances_expr = "translucent_draw.instances",
 		prev_instances_expr = "translucent_draw.prev_instances",
+		batch_index_expr = "(translucent_draw.batch_by_instance != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID))",
 		instance_thickness_expr = with_thickness and
 			"PBRBatchThicknessData(translucent_draw.thicknesses).t[gl_InstanceIndex]" or
 			nil,

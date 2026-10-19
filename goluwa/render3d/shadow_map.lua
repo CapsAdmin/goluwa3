@@ -310,7 +310,8 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 			#define SHADOW_VERTEX_FLOATS ]] .. SHADOW_VERTEX_FLOAT_COUNT .. [[u
 
 			void main() {
-				uint batch_index = uint(gl_DrawID);
+				// the scene's draws are packed, the row is the first instance. the scatter ones are one for each batch
+				uint batch_index = pc.indexed != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID);
 				uvec4 addresses = SHADOW_BATCH[batch_index].addresses;
 
 				if (addresses.x == 0u && addresses.y == 0u) {
@@ -616,7 +617,7 @@ function ShadowMap:DrawScene(cascade_index)
 
 	local rows, serial = scene_draw.GetRows()
 	local buffers = cascade.scene_shadow_buffers
-	self:DrawBatches(cascade_index, "scene", rows, serial, buffers.worlds_address, buffers.commands, 20, true)
+	self:DrawBatches(cascade_index, "scene", rows, serial, buffers.worlds_address, buffers.commands, 20, true, buffers.counts)
 end
 
 local MAX_SHADOW_PASSES_PER_FRAME = 4
@@ -1427,8 +1428,9 @@ local function write_shadow_batch_animation(self, pipeline, record, batch)
 end
 
 -- draws a list of {mesh, material, first_polygon3d} batches with the multi draw pipeline, from
--- VkDrawIndirectCommands (VkDrawIndexedIndirectCommands over the index pool when indexed), one for each batch. key tells the batch tables of different lists apart
-function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instances_address, commands, stride, indexed)
+-- VkDrawIndirectCommands (VkDrawIndexedIndirectCommands over the index pool when indexed, those are the scene's: packed, the
+-- count of them in counts, and a row is its first instance), one for each batch. key tells the batch tables of different lists apart
+function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instances_address, commands, stride, indexed, counts)
 	local pipeline = self.mode == "point" and
 		self.multi_draw_pipeline or
 		self.multi_draw_pipeline_variants[self.cascade[cascade_index].format]
@@ -1474,7 +1476,7 @@ function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instan
 
 	if indexed then
 		self.cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-		self.cmd:DrawIndexedIndirect(commands, 0, #batches, stride)
+		self.cmd:DrawIndexedIndirectCount(commands, 0, counts, 0, #batches, stride)
 	else
 		self.cmd:DrawIndirect(commands, 0, #batches, stride)
 	end

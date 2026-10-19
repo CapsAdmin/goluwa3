@@ -608,7 +608,7 @@ do
 		end
 
 		local main_prologue = [[
-	uint batch_index = uint(gl_DrawID);
+	uint batch_index = ]] .. (options.batch_index_expr or "uint(gl_DrawID)") .. [[;
 	out_batch = batch_index;
 	PBRBatchData batch_data = PBRBatchData(]] .. options.batches_expr .. [[);
 	uvec4 addresses = batch_data.b[batch_index].addresses;

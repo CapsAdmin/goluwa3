@@ -187,6 +187,7 @@ function create_cull_pipeline()
 			layout(buffer_reference, scalar) readonly buffer RasterArray { raster_data r[]; };
 			layout(buffer_reference, scalar) readonly buffer MeshArray { mesh_row m[]; };
 			layout(buffer_reference, scalar) writeonly buffer CommandArray { draw_command c[]; };
+			layout(buffer_reference, scalar) buffer CountArray { uint n[]; };
 			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
 			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
 			layout(buffer_reference, scalar) writeonly buffer ThicknessArray { float t[]; };
@@ -201,6 +202,7 @@ function create_cull_pipeline()
 				uint64_t prev_worlds;
 				uint64_t slot_rows;
 				uint64_t thicknesses;
+				uint64_t counts;
 			};
 
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { draw_args a; };
@@ -353,7 +355,10 @@ function create_cull_pipeline()
 				mesh_row mesh = MeshArray(ARGS.meshes).m[inst.mesh_row];
 				// the group is single or double sided, with the height map ones after them
 				uint group = ((raster.flags >> 3u) & 1u) + (compute.kind == 0 ? ((raster.flags >> 2u) & 1u) * 2u : 0u);
-				CommandArray(ARGS.commands).c[uint(compute.capacity) * group + slot] = draw_command(mesh.triangle_count * 3u, 1u, mesh.pool_first_index, 0, slot);
+				// the draws that are left are packed at the start of the group, the count they end up with is what is drawn. the
+				// slot is the first instance, which is how the vertex stage finds the row's batch and its matrix
+				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[group], 1u);
+				CommandArray(ARGS.commands).c[uint(compute.capacity) * group + packed_index] = draw_command(mesh.triangle_count * 3u, 1u, mesh.pool_first_index, 0, slot);
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
 
 				if (compute.kind != 0) {
@@ -389,6 +394,7 @@ local function ensure_buffers(kind, capacity)
 	if buffers then
 		render.GetDevice():WaitIdle()
 		buffers.commands:Remove()
+		buffers.counts:Remove()
 		buffers.worlds:Remove()
 		buffers.prev_worlds:Remove()
 
@@ -405,6 +411,13 @@ local function ensure_buffers(kind, capacity)
 			buffer_usage = usage,
 			memory_property = {"device_local"},
 			label = name .. ".commands",
+		},
+		-- how many draws each group got
+		counts = render.CreateBuffer{
+			byte_size = GROUPS * 4,
+			buffer_usage = usage,
+			memory_property = {"device_local"},
+			label = name .. ".counts",
 		},
 		worlds = render.CreateBuffer{
 			byte_size = capacity * 64,
@@ -431,6 +444,7 @@ local function ensure_buffers(kind, capacity)
 	end
 
 	buffers.commands_address = buffers.commands:GetDeviceAddress()
+	buffers.counts_address = buffers.counts:GetDeviceAddress()
 	buffers.worlds_address = buffers.worlds:GetDeviceAddress()
 	buffers.prev_worlds_address = buffers.prev_worlds:GetDeviceAddress()
 	buffer_sets[kind] = buffers
@@ -498,6 +512,7 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 		args.pointer[6] = buffers.prev_worlds_address
 		args.pointer[7] = slot_rows:GetAddress()
 		args.pointer[8] = buffers.thicknesses_address or 0
+		args.pointer[9] = buffers.counts_address
 		state.kind = kind
 		state.args_address = args.address
 		state.camera = camera_position
@@ -508,7 +523,7 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 		state.viewport_height = viewport_height
 		state.culling = culling_enabled
 		state.occlusion_max_mip = hiz and hiz.max_mip or nil
-		cmd:FillBuffer(buffers.commands, 0, buffers.commands.size, 0)
+		cmd:FillBuffer(buffers.counts, 0, buffers.counts.size, 0)
 		cmd:PipelineBarrier{
 			srcStage = {"host", "transfer", "compute"},
 			dstStage = "compute",
@@ -556,12 +571,13 @@ function draw.Draw(gbuffer_instancing, pipelines)
 		pipeline.draw_batches_address = batch_table:Update(pipeline, rows, draw.serial, system.GetFrameNumber())
 		pipeline.draw_instances_address = buffers.worlds_address
 		pipeline.draw_prev_instances_address = buffers.prev_worlds_address
+		pipeline.draw_batch_by_instance = 1
 		pipeline:UploadConstants()
 		cmd:SetCullMode(orientation.CULL_MODE)
 		cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-		cmd:DrawIndexedIndirect(buffers.commands, (i - 1) * 2 * group_size, count, stride)
+		cmd:DrawIndexedIndirectCount(buffers.commands, (i - 1) * 2 * group_size, buffers.counts, (i - 1) * 2 * 4, count, stride)
 		cmd:SetCullMode("none")
-		cmd:DrawIndexedIndirect(buffers.commands, ((i - 1) * 2 + 1) * group_size, count, stride)
+		cmd:DrawIndexedIndirectCount(buffers.commands, ((i - 1) * 2 + 1) * group_size, buffers.counts, ((i - 1) * 2 + 1) * 4, count, stride)
 	end
 
 	return true
@@ -588,12 +604,13 @@ function draw.DrawTranslucent(gbuffer_instancing, pipeline)
 	pipeline.draw_instances_address = buffers.worlds_address
 	pipeline.draw_prev_instances_address = buffers.prev_worlds_address
 	pipeline.draw_thicknesses_address = buffers.thicknesses_address
+	pipeline.draw_batch_by_instance = 1
 	pipeline:UploadConstants()
 	cmd:SetCullMode(orientation.CULL_MODE)
 	cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-	cmd:DrawIndexedIndirect(buffers.commands, 0, frame_state.counts[1], COMMAND_SIZE)
+	cmd:DrawIndexedIndirectCount(buffers.commands, 0, buffers.counts, 0, frame_state.counts[1], COMMAND_SIZE)
 	cmd:SetCullMode("none")
-	cmd:DrawIndexedIndirect(buffers.commands, group_size, frame_state.counts[1], COMMAND_SIZE)
+	cmd:DrawIndexedIndirectCount(buffers.commands, group_size, buffers.counts, 4, frame_state.counts[1], COMMAND_SIZE)
 	return true
 end
 
@@ -699,7 +716,7 @@ function create_shadow_pipeline()
 				uint64_t commands;
 				uint64_t worlds;
 				uint64_t slot_rows;
-				uint64_t pad;
+				uint64_t counts;
 			};
 
 			layout(buffer_reference, scalar) readonly buffer TLASArray { tlas_instance t[]; };
@@ -707,6 +724,7 @@ function create_shadow_pipeline()
 			layout(buffer_reference, scalar) readonly buffer RasterArray { raster_data r[]; };
 			layout(buffer_reference, scalar) readonly buffer MeshArray { mesh_row m[]; };
 			layout(buffer_reference, scalar) writeonly buffer CommandArray { draw_command c[]; };
+			layout(buffer_reference, scalar) buffer CountArray { uint n[]; };
 			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
 			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { shadow_args a; };
@@ -773,14 +791,12 @@ function create_shadow_pipeline()
 					if (last > 0u || (inst.flags & 128u) != 0u) casts = select_shadow_lod(inst.flags, level, last, inst.lod.x, inst.lod.y, ratio);
 				}
 
-				if (!casts) {
-					CommandArray(ARGS.commands).c[slot] = draw_command(0u, 0u, 0u, 0, slot);
-					return;
-				}
+				if (!casts) return;
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[inst.mesh_row];
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
-				CommandArray(ARGS.commands).c[slot] = draw_command(mesh.triangle_count * 3u, 1u, mesh.pool_first_index, 0, slot);
+				// only what casts has a draw, packed at the start, the slot is the first instance
+				CommandArray(ARGS.commands).c[atomicAdd(CountArray(ARGS.counts).n[0], 1u)] = draw_command(mesh.triangle_count * 3u, 1u, mesh.pool_first_index, 0, slot);
 				WorldArray(ARGS.worlds).w[slot] = mat4(
 					vec4(t.m[0], t.m[4], t.m[8], 0.0),
 					vec4(t.m[1], t.m[5], t.m[9], 0.0),
@@ -801,6 +817,7 @@ end
 function draw.RemoveShadowBuffers(buffers)
 	if buffers.commands then
 		buffers.commands:Remove()
+		buffers.counts:Remove()
 		buffers.worlds:Remove()
 		buffers.args:Remove()
 	end
@@ -826,6 +843,12 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 			memory_property = {"device_local"},
 			label = "scene_draw.shadow_commands",
 		}
+		buffers.counts = render.CreateBuffer{
+			byte_size = 4,
+			buffer_usage = {"storage_buffer", "shader_device_address", "indirect_buffer", "transfer_dst", "transfer_src"},
+			memory_property = {"device_local"},
+			label = "scene_draw.shadow_counts",
+		}
 		buffers.worlds = render.CreateBuffer{
 			byte_size = buffers.capacity * 64,
 			buffer_usage = usage,
@@ -840,6 +863,7 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 		}
 		buffers.args_pointer = ffi.cast("uint64_t *", buffers.args:Map())
 		buffers.commands_address = buffers.commands:GetDeviceAddress()
+		buffers.counts_address = buffers.counts:GetDeviceAddress()
 		buffers.worlds_address = buffers.worlds:GetDeviceAddress()
 		buffers.args_address = tonumber(buffers.args:GetDeviceAddress())
 	end
@@ -852,6 +876,7 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	pointer[4] = buffers.commands_address
 	pointer[5] = buffers.worlds_address
 	pointer[6] = slot_rows:GetAddress()
+	pointer[7] = buffers.counts_address
 	local pipeline = get_shadow_pipeline()
 	local v = pipeline.shadow_state or {axis_x = {0, 0, 0}, axis_y = {0, 0, 0}, planes = {}}
 	pipeline.shadow_state = v
@@ -877,7 +902,8 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 		v.axis_y[1], v.axis_y[2], v.axis_y[3] = light_view.m01, light_view.m11, light_view.m21
 	end
 
-	cmd:PipelineBarrier{srcStage = {"host", "compute"}, dstStage = "compute", memoryBarrier = true}
+	cmd:FillBuffer(buffers.counts, 0, 4, 0)
+	cmd:PipelineBarrier{srcStage = {"host", "transfer", "compute"}, dstStage = "compute", memoryBarrier = true}
 	pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, 1)
 	cmd:PipelineBarrier{
 		srcStage = "compute",
@@ -934,25 +960,24 @@ do
 
 		local capacity = buffers.capacity
 		local commands = ffi.cast("uint32_t *", download(buffers.commands, capacity * GROUPS * COMMAND_SIZE))
+		local counts = ffi.cast("uint32_t *", download(buffers.counts, GROUPS * 4))
 		local worlds = ffi.cast("float *", download(buffers.worlds, result.slots * 64))
 		local ids = slot_rows:Get()
 
 		for group = 0, GROUPS - 1 do
-			for slot = 0, result.slots - 1 do
-				local command = commands + (group * capacity + slot) * (COMMAND_SIZE / 4)
+			for packed_index = 0, counts[group] - 1 do
+				local command = commands + (group * capacity + packed_index) * (COMMAND_SIZE / 4)
+				local slot = command[4]
+				local id = ids[slot]
+				local world = {}
+				local fade = worlds[slot * 16 + 3]
 
-				if command[1] ~= 0 then
-					local id = ids[slot]
-					local world = {}
-					local fade = worlds[slot * 16 + 3]
-
-					for i = 0, 11 do
-						world[i + 1] = worlds[slot * 16 + (i % 4) * 4 + math.floor(i / 4)]
-					end
-
-					result.by_id[id] = {slot = slot, group = group, fade = fade, world = world, index_count = command[0], first_index = command[2]}
-					result.count = result.count + 1
+				for i = 0, 11 do
+					world[i + 1] = worlds[slot * 16 + (i % 4) * 4 + math.floor(i / 4)]
 				end
+
+				result.by_id[id] = {slot = slot, group = group, fade = fade, world = world, index_count = command[0], first_index = command[2]}
+				result.count = result.count + 1
 			end
 		end
 
@@ -966,13 +991,13 @@ do
 		if not buffers.commands or result.slots == 0 then return result end
 
 		local commands = ffi.cast("uint32_t *", download(buffers.commands, result.slots * SHADOW_COMMAND_SIZE))
+		local drawn = ffi.cast("uint32_t *", download(buffers.counts, 4))[0]
 		local ids = slot_rows:Get()
 
-		for slot = 0, result.slots - 1 do
-			if commands[slot * 5 + 1] ~= 0 then
-				result.by_id[ids[slot]] = {slot = slot, index_count = commands[slot * 5]}
-				result.count = result.count + 1
-			end
+		for packed_index = 0, drawn - 1 do
+			local slot = commands[packed_index * 5 + 4]
+			result.by_id[ids[slot]] = {slot = slot, index_count = commands[packed_index * 5]}
+			result.count = result.count + 1
 		end
 
 		return result
