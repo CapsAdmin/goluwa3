@@ -451,15 +451,17 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 	local hiz, fallback_hiz = gpu_culling.GetMainViewHiZ()
 	local bound = hiz or fallback_hiz
 	local descriptor_slot
+	-- the slots follow the frames that were recorded, not the frame number: a blocking callback wait runs the Update
+	-- event again inside a main loop iteration and that draws a second frame with the same number
 
 	if bound then
-		descriptor_slot = system.GetFrameNumber() % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+		descriptor_slot = render.frame_serial % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		pipeline:UpdateDescriptorSet("combined_image_sampler", descriptor_slot, 0, 0, bound.view, bound.sampler, nil, nil, "general")
 	end
 
 	for kind = 0, translucent_count > 0 and 1 or 0 do
 		local buffers = ensure_buffers(kind, count)
-		local ring_slot = system.GetFrameNumber() % 4 + 1
+		local ring_slot = render.frame_serial % 4 + 1
 		local ring = args_ring[kind]
 
 		if not ring then

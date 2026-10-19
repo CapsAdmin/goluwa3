@@ -345,3 +345,11 @@ The camera projection is reverse-Z (2026-10-18): `Camera3D:BuildProjectionMatrix
 - Anything that rebuilds a ray from `inv_projection` with depth 0 and 1 as near and far has them swapped: `get_view_ray` did this and flipped the ocean's rays until it was fixed.
 - Absolute depth tolerances are now relative: a reversed depth near the far plane is tiny, so `+ 4e-7` in `get_geometric_normal` is `4e-7 * depth` and the Hi-Z bias is a fraction of the sampled depth.
 - Shadow maps keep their own standard-Z projections (`Matrix44:Perspective`/`Ortho` are unchanged, only the camera reverses). The forward overlay draws into the swapchain, which is still cleared to 1 (Love uses it), so it flips its matrix back.
+
+## The frame number is not unique per recorded frame
+
+*a blocking callback wait draws a second frame with the same `system.GetFrameNumber()`*
+
+`callback:Get()` on an unfinished callback pumps `event.Call("Update")` while it waits (`pump_blocking_get` in callback.lua), and `render.Draw` is an Update listener, so a blocking wait inside an Update (the Sun dial's Shadows tab mounting its editor took a 300 ms frame with one) records and presents a whole extra frame inside the same main loop iteration: two frames with one `system.GetFrameNumber()`. `scene/draw.lua` rotated the main cull's descriptor set and its args buffers by that number, so the second frame updated a descriptor set the first frame's command buffer still held (a `vkUpdateDescriptorSets` validation error, and the args buffer was overwritten under the gpu). They use `render.frame_serial` now, which counts `render.BeginFrame` calls.
+
+**How to apply:** rotate anything the gpu reads over frames (descriptor sets, ring buffers) by `render.frame_serial`, not by the frame number. The ping-pong history targets of the passes (taa, ssao temporal, ocean foam, glare, envprobe) still use `system.GetFrameNumber() % 2`, so in such a frame they read the target they write; a one frame glitch, not an error. Repro: switch the Sun dial to its Shadows tab in a `--validate` run, it failed every time before the fix.
