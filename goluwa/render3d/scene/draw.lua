@@ -1,5 +1,4 @@
 local ffi = require("ffi")
-local vk = import("goluwa/bindings/vk.lua")
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render_stats = import("goluwa/render/stats.lua")
@@ -1137,34 +1136,7 @@ end
 -- what the culling decided, read back to the host. these stall until the gpu is done, they are for the tests and the debug
 -- mode (r_scene_draw_debug) and are never called in a frame otherwise
 do
-	local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
-
-	local function download(buffer, size)
-		local readback = render.CreateBuffer{
-			byte_size = size,
-			buffer_usage = {"transfer_dst"},
-			memory_property = {"host_visible", "host_coherent", "host_cached"},
-			label = "scene_draw readback",
-		}
-		local copy = BufferCopy()
-		copy[0].size = size
-		local cmd = render.GetCommandPool():AllocateCommandBuffer()
-		cmd.gpu_timing_disabled = true
-		cmd:Begin()
-		cmd:PipelineBarrier{
-			srcStage = {"compute", "transfer"},
-			dstStage = "transfer",
-			bufferBarriers = {{buffer = buffer, srcAccessMask = "shader_write", dstAccessMask = "transfer_read"}},
-		}
-		cmd:CopyBuffer(buffer, readback, copy, 1)
-		cmd:End()
-		render.SubmitAndWait(cmd)
-		cmd:Remove()
-		local out = ffi.new("uint8_t[?]", size)
-		ffi.copy(out, readback:Map(), size)
-		readback:Remove()
-		return out
-	end
+	local download = store.Download
 
 	function draw.GetRowId(slot)
 		return slot_rows:Get()[slot]
