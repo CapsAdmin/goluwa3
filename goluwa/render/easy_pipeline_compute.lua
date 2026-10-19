@@ -547,7 +547,10 @@ do
 				config.DepthFormat
 			)
 		then
-			self:RecreateFramebuffers()
+			-- a lazy pipeline gets them when its framebuffer is first asked for
+			self.lazy_framebuffers = config.lazy_framebuffers
+
+			if not self.lazy_framebuffers then self:RecreateFramebuffers() end
 
 			if not self.config.FramebufferSize then
 				self:AddGlobalEvent("WindowFramebufferResized")

@@ -38,6 +38,7 @@ local weight = 1
 return {
 	{
 		name = "ssaa",
+		lazy_framebuffers = true,
 		is_enabled = function()
 			return render3d.IsAntiAliasingEnabled("ssaa")
 		end,

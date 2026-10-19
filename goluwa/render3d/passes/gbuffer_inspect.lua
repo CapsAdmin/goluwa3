@@ -135,6 +135,7 @@ local shader = gbuffer_layout.GetDecodeGLSL("debug_data") .. ([[
 return {
 	{
 		name = "gbuffer_inspect",
+		lazy_framebuffers = true,
 		is_enabled = function()
 			return gbuffer_inspect.IsActive()
 		end,

@@ -498,6 +498,7 @@ return {
 	},
 	{
 		name = "lighting_albedo",
+		lazy_framebuffers = true,
 		fallback = true,
 		ComputePass = true,
 		ColorFormat = {

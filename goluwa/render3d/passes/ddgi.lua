@@ -885,6 +885,10 @@ end
 local function pass_probe_debug()
 	return {
 		name = "ddgi_probe_debug",
+		lazy_framebuffers = true,
+		is_enabled = function()
+			return ddgi.GetDebugProbes() ~= 0
+		end,
 		ComputePass = true,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"ddgi_probe_debug", "rgba"}}},
 		framebuffer_count = 1,
@@ -1101,6 +1105,10 @@ local function pass_scene_debug()
 
 	return {
 		name = "ddgi_scene_debug",
+		lazy_framebuffers = true,
+		is_enabled = function()
+			return ddgi.GetDebugSceneMode() ~= 0
+		end,
 		ComputePass = true,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"ddgi_scene_debug", "rgba"}}},
 		framebuffer_count = 1,

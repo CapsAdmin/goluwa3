@@ -24,6 +24,7 @@ end
 return {
 	{
 		name = "edge_aa_edges",
+		lazy_framebuffers = true,
 		is_enabled = is_enabled,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		fragment = {
@@ -90,6 +91,7 @@ return {
 	},
 	{
 		name = "edge_aa_weights",
+		lazy_framebuffers = true,
 		is_enabled = is_enabled,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		fragment = {
@@ -231,6 +233,7 @@ return {
 	},
 	{
 		name = "edge_aa",
+		lazy_framebuffers = true,
 		is_enabled = is_enabled,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 2,

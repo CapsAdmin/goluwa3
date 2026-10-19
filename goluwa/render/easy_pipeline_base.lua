@@ -31,6 +31,10 @@ local function get_constant_stage_config(config, stage_name)
 end
 
 local function resolve_draw_frame_index(self, frame_index)
+	if self.lazy_framebuffers and not self.framebuffers then
+		self:RecreateFramebuffers()
+	end
+
 	if frame_index then return frame_index end
 
 	if self.framebuffers and self.framebuffers[2] then
@@ -485,10 +489,6 @@ do
 			self.framebuffers = nil
 		end
 
-		if self.pipeline then
-			self.pipeline:Remove()
-			self.pipeline = nil
-		end
 		if self.owned_textures then
 			for _, texture in ipairs(self.owned_textures) do
 				texture:Remove()
@@ -497,6 +497,10 @@ do
 			self.owned_textures = nil
 		end
 
+		if self.pipeline then
+			self.pipeline:Remove()
+			self.pipeline = nil
+		end
 
 		if self.uniform_buffers then
 			for _, ubo in pairs(self.uniform_buffers) do
