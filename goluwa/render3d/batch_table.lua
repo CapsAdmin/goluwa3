@@ -7,6 +7,7 @@ local render_stats = import("goluwa/render/stats.lua")
 local BatchTable = objects.CreateTemplate("render3d_batch_table")
 local UInt64Ptr = ffi.typeof("uint64_t *")
 local REFRESH_WINDOW = 4
+local WEAK_VALUES = {__mode = "v"}
 
 function BatchTable.New(config)
 	return BatchTable:CreateObject{
@@ -23,6 +24,10 @@ function BatchTable.New(config)
 		write_animated = config.write_animated,
 		animation_version = config.animation_version,
 		versions = {},
+		-- what each index was written from, weak because the batch and its material belong to whoever draws them
+		batch_at = setmetatable({}, WEAK_VALUES),
+		material_at = setmetatable({}, WEAK_VALUES),
+		written_count = 0,
 		material_batches = setmetatable({}, {__mode = "k"}),
 		animated_batches = {},
 		material_version = objects.version_counter,
@@ -59,24 +64,62 @@ local function write_batch_record(self, pipeline, context, index, batch, serial)
 	end
 
 	local material = batch.material
+	local old_material = self.material_at[index]
+
+	if old_material ~= material then
+		local material_batches = self.material_batches
+		local set = old_material and material_batches[old_material]
+
+		if set then set[index] = nil end
+
+		if material then
+			set = material_batches[material]
+
+			if not set then
+				set = {}
+				material_batches[material] = set
+			end
+
+			set[index] = true
+		end
+
+		self.material_at[index] = material
+	end
+
+	self.batch_at[index] = batch
 	self.versions[index] = material and material.property_version or -1
 	self.written[index] = serial
 	self.animated_batches[index] = material ~= nil and material:HasVertexAnimation() or nil
 end
 
+-- the record of an index that is past the end of the batches now
+local function forget_batch_record(self, index)
+	local old_material = self.material_at[index]
+	local set = old_material and self.material_batches[old_material]
+
+	if set then set[index] = nil end
+
+	self.material_at[index] = nil
+	self.batch_at[index] = nil
+	self.versions[index] = nil
+	self.animated_batches[index] = nil
+end
+
 -- a record is written when its batch is new or the material of the batch changed, found in the log of the objects
--- that were stamped since the last update. a batch of an animated material only has the part that moves written
--- when animation_version() changed since the last update, and a few records get written in full each update in case
--- something changed that no property version saw. each frame's buffer gets the records that changed since it was last written, kept mapped
+-- that were stamped since the last update. when the batches changed (batch_serial) or a buffer that has an address was
+-- freed, every index is looked at and only those whose batch is another one, or whose mesh has other addresses, are
+-- written. a batch of an animated material only has the part that moves written when animation_version() changed since
+-- the last update, and a few records get written in full each update in case something changed that no property
+-- version saw. each frame's buffer gets the records that changed since it was last written, kept mapped
 function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local slot = self.per_frame and render.GetCurrentFrame() or 1
 	local version = objects.version_counter
 	local animation_version = self.animation_version()
-	local full = self.batch_serial ~= batch_serial or
-		self.address_release_serial ~= Buffer.address_release_serial
+	local release_serial = Buffer.address_release_serial
+	local resync = self.batch_serial ~= batch_serial or self.address_release_serial ~= release_serial
 
 	if
-		not full and
+		not resync and
 		self.submission == submission and
 		self.material_version == version and
 		self.written_animation_version == animation_version and
@@ -86,6 +129,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	end
 
 	local count = #batches
+	local grown = false
 
 	if self.capacity < count then
 		self:RemoveBuffers()
@@ -93,7 +137,13 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		self.records = ffi.typeof("$[?]", self.record_type)(self.capacity)
 		self.versions = {}
 		self.written = {}
-		full = true
+		self.batch_at = setmetatable({}, WEAK_VALUES)
+		self.material_at = setmetatable({}, WEAK_VALUES)
+		self.written_count = 0
+		table.clear(self.material_batches)
+		table.clear(self.animated_batches)
+		grown = true
+		resync = true
 	end
 
 	local versions = self.versions
@@ -103,32 +153,42 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local serial = self.write_serial + 1
 	self.write_serial = serial
 
-	if full then
-		local full_started = startup.Start()
-		table.clear(material_batches)
-		table.clear(animated_batches)
+	if resync then
+		local started = startup.Start()
+		local batch_at = self.batch_at
+		local records = self.records
+		local check_addresses = self.address_release_serial ~= release_serial
 
 		for i = 1, count do
 			local batch = batches[i]
-			write_batch_record(self, pipeline, context, i, batch, serial)
-			local material = batch.material
+			local stale = batch_at[i] ~= batch
 
-			if material then
-				local list = material_batches[material]
+			if not stale and check_addresses then
+				local addresses = ffi.cast(UInt64Ptr, records[i - 1].addresses)
+				local mesh = batch.mesh
 
-				if not list then
-					list = {}
-					material_batches[material] = list
+				if mesh:IsValid() then
+					stale = addresses[0] ~= mesh:GetVertexBufferAddress() or addresses[1] ~= mesh:GetIndexBufferAddress()
+				else
+					stale = addresses[0] ~= 0 or addresses[1] ~= 0
 				end
-
-				list[#list + 1] = i
 			end
+
+			if stale then write_batch_record(self, pipeline, context, i, batch, serial) end
 		end
 
-		if not startup.ready_time then
-			startup.Add("render pass: gbuffer batch rewrite", full_started)
+		for i = count + 1, self.written_count do
+			forget_batch_record(self, i)
 		end
-	elseif version - self.material_version >= objects.VERSION_LOG_SIZE then
+
+		self.written_count = count
+
+		if grown and not startup.ready_time then
+			startup.Add("render pass: gbuffer batch rewrite", started)
+		end
+	end
+
+	if version - self.material_version >= objects.VERSION_LOG_SIZE then
 		-- too many materials changed to follow them in the log
 		for i = 1, count do
 			local batch = batches[i]
@@ -144,12 +204,10 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 
 		for log_version = self.material_version + 1, version do
 			local material = log[log_version % log_size]
-			local list = material and material_batches[material]
+			local set = material and material_batches[material]
 
-			if list then
-				for j = 1, #list do
-					local i = list[j]
-
+			if set then
+				for i in pairs(set) do
 					if versions[i] ~= material.property_version then
 						write_batch_record(self, pipeline, context, i, batches[i], serial)
 					end
@@ -158,7 +216,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		end
 	end
 
-	if not full then
+	if not grown then
 		local cursor = self.cursor
 
 		if cursor > count then cursor = 1 end
@@ -224,7 +282,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	self.submission = submission
 	self.material_version = version
 	self.batch_serial = batch_serial
-	self.address_release_serial = Buffer.address_release_serial
+	self.address_release_serial = release_serial
 	return buffer:GetDeviceAddress()
 end
 

@@ -36,6 +36,17 @@ local function create_table(per_frame)
 	}
 end
 
+-- frees a buffer that had an address, which is what makes a batch table look at the addresses of its meshes
+local function release_a_buffer()
+	local buffer = render.CreateBuffer{
+		byte_size = 16,
+		buffer_usage = {"storage_buffer", "shader_device_address"},
+		memory_property = {"host_visible", "host_coherent"},
+	}
+	buffer:GetDeviceAddress()
+	buffer:Remove()
+end
+
 local function create_batches(count)
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)
@@ -134,33 +145,82 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	-- a few records are written in full every update in case something changed that no version saw
 	T(update(1, 2))["=="](4)
 	T(update(1, 3))["=="](4)
-	T(update(2, 4))["=="](300)
+	-- the batches are the same ones after the list changed, so only the window is written
+	T(update(2, 4))["=="](4)
+	-- a batch that is another one is written, and only that
+	batches[50] = {mesh = batches[50].mesh, first_polygon3d = batches[50].first_polygon3d, value = 5000}
+	T(update(3, 5))["=="](1 + 4)
+	T(read_record(batch_table.buffers[1], 50).value)["=="](5000)
 	local release_serial = Buffer.address_release_serial
-	local buffer = render.CreateBuffer{
-		byte_size = 16,
-		buffer_usage = {"storage_buffer", "shader_device_address"},
-		memory_property = {"host_visible", "host_coherent"},
-	}
-	buffer:GetDeviceAddress()
-	buffer:Remove()
+	release_a_buffer()
 	T(Buffer.address_release_serial > release_serial)["=="](true)
-	T(update(2, 5))["=="](300)
+	-- the meshes have the addresses they were written with
+	T(update(3, 6))["=="](4)
 	-- what a batch holds changes without its material saying so, which it only finds out by the window
 	batches[100].value = 1000
-	T(update(2, 6))["=="](4)
+	T(update(3, 7))["=="](4)
 	T(read_record(batch_table.buffers[1], 100).value)["=="](100)
 	-- the batches of a material that changed are written
 	material:SetOther(1)
-	T(update(2, 7))["=="](2 + 4)
+	T(update(3, 8))["=="](2 + 4)
 	T(read_record(batch_table.buffers[1], 100).value)["=="](1000)
 	batches[101].value = 2000
 	-- a material that did not change since is left alone, also when it is the same value
 	material:SetOther(1)
-	T(update(2, 8))["=="](4)
+	T(update(3, 9))["=="](4)
 	T(read_record(batch_table.buffers[1], 101).value)["=="](101)
 	material:SetOther(2)
-	T(update(2, 9))["=="](2 + 4)
+	T(update(3, 10))["=="](2 + 4)
 	T(read_record(batch_table.buffers[1], 101).value)["=="](2000)
+	-- a batch given another material is found by the new one
+	local other = create_material()
+	batches[101] = {mesh = batches[101].mesh, first_polygon3d = batches[101].first_polygon3d, material = other, value = 3000}
+	T(update(4, 11))["=="](1 + 4)
+	batches[101].value = 3500
+	material:SetOther(3)
+	T(update(4, 12))["=="](1 + 4)
+	T(read_record(batch_table.buffers[1], 101).value)["=="](3000)
+	other:SetOther(1)
+	T(update(4, 13))["=="](1 + 4)
+	T(read_record(batch_table.buffers[1], 101).value)["=="](3500)
+	-- a mesh that is freed after its record was written has the addresses of the record zeroed when the release is seen
+	local doomed = Polygon3D.New()
+	shapes.BuildCube(doomed, 3)
+	doomed:Upload()
+	batches[60] = {mesh = doomed:GetMesh(), first_polygon3d = doomed, value = 60}
+	T(update(5, 14))["=="](1 + 4)
+	local addresses = ffi.cast(UInt64Ptr, read_record(batch_table.buffers[1], 60).addresses)
+	T(addresses[0] == doomed:GetMesh():GetVertexBufferAddress())["=="](true)
+	doomed:GetMesh():Remove()
+	release_a_buffer()
+	T(update(5, 15))["=="](4)
+	addresses = ffi.cast(UInt64Ptr, read_record(batch_table.buffers[1], 60).addresses)
+	T(addresses[0] == 0)["=="](true)
+	T(addresses[1] == 0)["=="](true)
+	batch_table:Remove()
+end)
+
+T.Test3D("Graphics render3d batch table drops what it kept of batches past the end", function()
+	local batch_table = BatchTable.New{
+		label = "test batches",
+		record_type = Record,
+		write_record = write_record,
+		animation_version = get_animation_version,
+		write_animated = function(context, pipeline, record, batch)
+			record.value = batch.value + 0.5
+		end,
+	}
+	local batches = create_batches(10)
+	batches[9].material = create_material()
+	batches[9].material:SetAnimated(true)
+	local context = {writes = 0}
+	batch_table:Update(pipeline, batches, 1, 1, context)
+	batches[9] = nil
+	batches[10] = nil
+	animation_version = animation_version + 1
+	batch_table:Update(pipeline, batches, 2, 2, context)
+	T(batch_table.animated_batches[9])["=="](nil)
+	T(batch_table.batch_at[9])["=="](nil)
 	batch_table:Remove()
 end)
 
