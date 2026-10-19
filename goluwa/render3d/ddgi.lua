@@ -884,6 +884,8 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			int roughness_channel;
 			// what the surface emits
 			vec3 emissive;
+			// the albedo's alpha is the emission mask, so the average emission is scaled by the average alpha
+			int emissive_alpha;
 			};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -970,7 +972,14 @@ float ddgi_bounce_share(ddgi_material material) {
 }
 
 vec3 ddgi_emission(scene_triangle tri, vec3 albedo) {
-			return min(ddgi_materials[tri.material].emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+			ddgi_material material = ddgi_materials[tri.material];
+			vec3 emission = material.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE;
+
+			if (material.emissive_alpha != 0 && material.albedo_tex >= 0) {
+				emission *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).a;
+			}
+
+			return min(emission, vec3(EMISSIVE_MAX_LUMINANCE));
 		}
 	]]
 end
@@ -1729,6 +1738,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t roughness_tex;
 	int32_t roughness_channel;
 	float emissive[3];
+	int32_t emissive_alpha;
 	}]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
@@ -1842,6 +1852,7 @@ function ddgi.WriteMaterialBuffer(self)
 				self:GetTextureIndex(roughness_texture) or
 				-1
 			entry.emissive[0], entry.emissive[1], entry.emissive[2] = scene_materials.GetEmissive(material)
+			entry.emissive_alpha = material:GetAlbedoAlphaIsEmissive() and 1 or 0
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()
