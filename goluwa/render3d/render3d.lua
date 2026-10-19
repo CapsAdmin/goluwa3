@@ -387,7 +387,9 @@ end
 -- what a pass that varies its sampling from frame to frame goes by. without a temporal anti aliasing mode
 -- nothing resolves the variation, so it shows as pixels that crawl, and the sampling is held still
 function render3d.GetTemporalFrame()
-	if render3d.IsTemporalAntiAliasingEnabled() then return system.GetFrameNumber() end
+	if render3d.IsTemporalAntiAliasingEnabled() then
+		return system.GetFrameNumber()
+	end
 
 	return 0
 end
@@ -587,8 +589,18 @@ function render3d.Initialize(config)
 	local size = render.GetRenderImageSize()
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 	render3d.GetMainCamera():SetJitter(Vec2(0, 0))
-
 	local startup_pass_names = table.weak("k")
+	local Visual = import("goluwa/entities/components/visual.lua").Library
+
+	-- the shadow maps record before the frame begins, their first pass would cull with the matrices of the last frame
+	event.AddListener(
+		"PreFrame",
+		"render3d_scene",
+		function()
+			Visual.UpdateScene()
+		end,
+		{priority = 100}
+	)
 
 	event.AddListener("PreRenderPass", "render3d", function()
 		if not render3d.pipelines.gbuffer then return end
@@ -605,7 +617,7 @@ function render3d.Initialize(config)
 			startup.Add("render pass: pre_render hooks, skinning", pre_render_started)
 		end
 
-		import("goluwa/entities/components/visual.lua").Library.UpdateScene()
+		Visual.UpdateScene()
 
 		if render.GetDevice().ray_tracing_supported then
 			scene_rt.GetTLAS(render.GetCommandBuffer())
