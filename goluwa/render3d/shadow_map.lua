@@ -949,6 +949,8 @@ function ShadowMap:OnRemove()
 		if cascade.scene_shadow_buffers then
 			scene_draw.RemoveShadowBuffers(cascade.scene_shadow_buffers)
 		end
+
+		if cascade.depth_texture then cascade.depth_texture:Remove() end
 	end
 
 	for i, map in ipairs(active_maps) do
