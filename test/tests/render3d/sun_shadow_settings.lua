@@ -9,15 +9,15 @@ T.Test("render3d sun shadow settings are changed by category and handed out as c
 	local cascades = weather.GetSunShadow("cascades")
 	T(cascades.count)["=="](3)
 	T(cascades.zoom[1])["=="](2)
-	T(cascades.size)["=="](4096)
+	T(cascades.size)["=="](8192)
 	T(weather.GetSunShadow("inset").distance)["=="](24)
 	cascades.count = 1
 	cascades.zoom[1] = 9
 	T(weather.GetSunShadow("cascades").count)["=="](3)
 	T(weather.GetSunShadow("cascades").zoom[1])["=="](2)
 	weather.ResetSunShadow()
-	T(weather.GetSunShadow("cascades").count)["=="](2)
-	T(weather.GetSunShadow("inset").distance)["=="](16)
+	T(weather.GetSunShadow("cascades").count)["=="](1)
+	T(weather.GetSunShadow("inset").distance)["=="](30)
 end)
 
 T.Test("render3d sun shadow settings reject names that do not exist", function()
