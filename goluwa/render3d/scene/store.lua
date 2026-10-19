@@ -147,7 +147,21 @@ do
 		end
 
 		upload.used = offset + bytes
+
+		if upload.used * 4 > upload.size then upload.busy_frame = system.GetFrameNumber() end
+
 		return upload.buffer, upload.ptr + offset, offset
+	end
+
+	-- a buffer that grew for a burst (the first upload of a big table) is given back once nothing uses much of it
+	function store.TrimUploads(frame)
+		for _, upload in pairs(uploads) do
+			if upload.buffer and upload.size > 8 * 1024 * 1024 and frame - upload.busy_frame > 600 then
+				retired[#retired + 1] = {buffer = upload.buffer, frame = frame}
+				upload.buffer = nil
+				upload.size = 0
+			end
+		end
 	end
 
 	-- the rows written since the last flush as runs of consecutive rows in `runs`, returns the number of runs and bytes
@@ -338,6 +352,13 @@ end
 -- `immediate` is for a caller that waited for the device, no frame in flight reads the rows
 function Table:FreeRange(base, n, immediate)
 	self.live = self.live - n
+
+	if immediate then
+		release_range(self, base, n)
+
+		return
+	end
+
 	self.pending_ranges = self.pending_ranges or {}
 	self.pending_ranges[#self.pending_ranges + 1] = {base = base, n = n, frame = system.GetFrameNumber()}
 end
