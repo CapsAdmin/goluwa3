@@ -596,10 +596,14 @@ local LookView = react.Component(|| -> do
 	}{shown && LookEditor{}}
 end)
 
+-- a host that keeps the content mounted while hidden passes Shown = false so nothing polls
+local LookContent = react.Component(|props| -> props.Shown ~= false && LookEditor{})
+
 desktop.RegisterProgram{
 	Name = "Look",
 	Icon = "eye",
 	Positioned = true,
+	Content = LookContent,
 	Create = function()
 		return react.Mount(LookView{}, Panel.World):GetEntity()
 	end,

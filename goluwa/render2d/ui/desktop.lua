@@ -45,7 +45,7 @@ local function noop() end
 
 local function not_consumed() end
 
--- a program is centered unless it sets Positioned. An Interactive program (the editor) works with the world while it is open, so it asks for the mouse itself, opening it hides the desktop and it ignores the desktop showing or hiding. OnShown and OnHidden of a program get its window when the desktop shows or hides while the program is open
+-- a program is centered unless it sets Positioned. Content is optional, the react component of what its window shows, for hosts that show a program without its window (the spawn menu). An Interactive program (the editor) works with the world while it is open, so it asks for the mouse itself, opening it hides the desktop and it ignores the desktop showing or hiding. OnShown and OnHidden of a program get its window when the desktop shows or hides while the program is open
 function desktop.RegisterProgram(program)
 	if not programs[program.Name] then order[#order + 1] = program.Name end
 
@@ -57,6 +57,11 @@ function desktop.RegisterProgram(program)
 	program.OnHidden = program.OnHidden or (program.Interactive and noop or default_hidden)
 	programs[program.Name] = program
 	event.Call("DesktopChanged")
+end
+
+-- the programs in registration order
+function desktop.GetPrograms()
+	return list.map(order, |name| -> programs[name])
 end
 
 -- adds a menu to the menu bar, {Text, Items = a function returning MenuItems}

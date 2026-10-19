@@ -6,13 +6,13 @@ local react = import("goluwa/render2d/ui/react.lua")
 local Window = react.Element(import("goluwa/render2d/ui/widgets/window.lua"))
 local PropertyEditor = react.Element(import("goluwa/render2d/ui/widgets/property_editor.lua"))
 local pvar_node = import("goluwa/render2d/ui/pvar_node.lua")
+local Column = react.Element(import("goluwa/render2d/ui/elements/column.lua"))
 local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
 local TextEdit = react.Element(import("goluwa/render2d/ui/elements/text_edit.lua"))
 local Button = react.Element(import("goluwa/render2d/ui/widgets/button.lua"))
 local ScrollablePanel = react.Element(import("goluwa/render2d/ui/elements/scrollable_panel.lua"))
 local WIDTH = 520
 local SEARCH_HEIGHT = 28
-local property_editor
 local function build_items()
 	local items = {}
 
@@ -43,33 +43,37 @@ local function build_items()
 	return items
 end
 
-local function refresh_values()
+local function refresh_values(editor)
 	for _, info in pairs(pvars.GetAll()) do
 		if pvar_node.IsSupported(info) then
-			property_editor:UpdateValueForKey(info.key, pvars.Get(info.key))
+			editor:UpdateValueForKey(info.key, pvars.Get(info.key))
 		end
 	end
 end
 
-local function reset_all()
+local function reset_all(editor)
 	for _, info in pairs(pvars.GetAll()) do
 		if pvar_node.IsSupported(info) then pvars.Set(info.key, nil) end
 	end
 
-	refresh_values()
+	refresh_values(editor)
 end
 
-local PvarsView = react.Component(|props| -> do
+-- the editor that was mounted last, the desktop refreshes it when the window opens again
+local window_editor
+
+-- the search, the groups and reset without a window
+local PvarsContent = react.Component(|| -> do
 	local filter, set_filter = react.UseState("")
 	local items = react.UseMemo(build_items, {})
-	local world_size = react.UseMemo(|| -> Panel.World.transform:GetSize(), {})
+	local editor = react.UseRef()
 
-	return Window{
-		Title = "PVARS",
-		Size = Vec2(WIDTH, world_size.y),
-		Position = Vec2(world_size.x - WIDTH, 0),
-		MinSize = Vec2(WIDTH, 200),
-	}{
+	react.UseLayoutEffect(|| -> do
+		window_editor = editor.current
+		refresh_values(editor.current)
+	end, {})
+
+	return Column{layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch"}}{
 		TextEdit{
 			Hint = "Search",
 			Wrap = false,
@@ -83,24 +87,32 @@ local PvarsView = react.Component(|props| -> do
 			layout = {GrowWidth = 1},
 		},
 		ScrollablePanel{ScrollX = false, ScrollY = true, Padding = "M", layout = {GrowWidth = 1, GrowHeight = 1}}{
-			PropertyEditor{
-				Ref = |self| -> do property_editor = self end,
-				Items = items,
-				Filter = filter,
-				layout = {GrowWidth = 1},
-			},
+			PropertyEditor{Ref = editor, Items = items, Filter = filter, layout = {GrowWidth = 1}},
 		},
 		Row{layout = {Padding = "M", FitHeight = true, GrowWidth = 1}}{
-			Button{Text = "Reset all", Mode = "outline", OnClick = reset_all},
+			Button{Text = "Reset all", Mode = "outline", OnClick = || -> reset_all(editor.current)},
 		},
 	}
+end)
+local PvarsView = react.Component(|| -> do
+	local world_size = react.UseMemo(|| -> Panel.World.transform:GetSize(), {})
+
+	return Window{
+		Title = "PVARS",
+		Size = Vec2(WIDTH, world_size.y),
+		Position = Vec2(world_size.x - WIDTH, 0),
+		MinSize = Vec2(WIDTH, 200),
+	}{PvarsContent{}}
 end)
 
 desktop.RegisterProgram{
 	Name = "Pvars",
 	Icon = "settings",
 	Positioned = true,
-	OnOpen = refresh_values,
+	Content = PvarsContent,
+	OnOpen = || -> do
+		if window_editor and window_editor:IsValid() then refresh_values(window_editor) end
+	end,
 	Create = function()
 		return react.Mount(PvarsView{}, Panel.World):GetEntity()
 	end,

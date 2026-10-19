@@ -499,11 +499,23 @@ local SunDial = react.Component(|| -> do
 		},
 	}
 end)
--- closing the window only hides it, nothing reads the sky or the shadow settings while it is hidden, and only the open tab is mounted
+-- the pages of the sun dial without a window, only the open tab is mounted and only while shown
+local SunDialContent = react.Component(|props| -> do
+	local tab, set_tab = react.UseState("Dial")
+
+	return ui.Tabs{Value = tab, OnChange = set_tab, BarHidden = props.BarHidden, layout = {GrowWidth = 1, GrowHeight = 1}}{
+		ui.Column{Key = "dial", Tab = "Dial", layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"}}{
+			props.Shown && tab == "Dial" && SunDial{},
+		},
+		ui.Column{Key = "shadows", Tab = "Shadows", layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"}}{
+			props.Shown && tab == "Shadows" && SunShadowEditor{Height = HEIGHT - 24},
+		},
+	}
+end)
+-- closing the window only hides it, nothing reads the sky or the shadow settings while it is hidden
 local SunDialWindow = react.Component(|| -> do
 	local shown, set_shown = react.UseState(true)
 	local hud, set_hud = react.UseState(false)
-	local tab, set_tab = react.UseState("Dial")
 	local position = react.UseMemo(|| -> do
 		local world_size = Panel.World.transform:GetSize()
 
@@ -520,22 +532,14 @@ local SunDialWindow = react.Component(|| -> do
 		Position = position,
 		OnHudChanged = |_, value| -> set_hud(value),
 		OnVisibilityChanged = |_, visible| -> set_shown(visible),
-	}{
-		ui.Tabs{Value = tab, OnChange = set_tab, BarHidden = hud, layout = {GrowWidth = 1, GrowHeight = 1}}{
-			ui.Column{Key = "dial", Tab = "Dial", layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"}}{
-				shown && tab == "Dial" && SunDial{},
-			},
-			ui.Column{Key = "shadows", Tab = "Shadows", layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"}}{
-				shown && tab == "Shadows" && SunShadowEditor{Height = HEIGHT - 24},
-			},
-		},
-	}
+	}{SunDialContent{Shown = shown, BarHidden = hud}}
 end)
 
 desktop.RegisterProgram{
 	Name = "Sun",
 	Icon = "light",
 	Positioned = true,
+	Content = SunDialContent,
 	Create = function()
 		return react.Mount(SunDialWindow{}, Panel.World):GetEntity()
 	end,
