@@ -1,80 +1,131 @@
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
-local noise = import("goluwa/terrain/noise.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
+local foliage_sets = import("lua/foliage/scatter_sets.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local SEED = 4242
-local BASE_HEIGHT = 0
-local MOUNTAIN_HEIGHT = 1800
-local FEATURE_SCALE = 0.001
+local HEIGHT_RANGE = 6000
+local HEIGHT_OFFSET = 900
+local MIN_HEIGHT = HEIGHT_OFFSET - HEIGHT_RANGE * 0.5
+local MAX_HEIGHT = HEIGHT_OFFSET + HEIGHT_RANGE * 0.5
+local OCEAN_LEVEL = 100
+local SNOW_START = 1100
+local SNOW_RANGE = 1500
 local HEIGHT_GLSL = [=[
-// octaves finer than the bake step fade out, so far LOD levels stay smooth instead of aliasing
+float lc_rnd(vec2 p, float seed) {
+	p += vec2(seed, seed * 1.6180339);
+	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.x + p3.y) * p3.z);
+}
+
+vec3 lc_value_noise(vec2 x, float seed) {
+	vec2 pi = floor(x);
+	vec2 pf = fract(x);
+	float a = lc_rnd(pi, seed);
+	float b = lc_rnd(pi + vec2(1.0, 0.0), seed);
+	float c = lc_rnd(pi + vec2(0.0, 1.0), seed);
+	float d = lc_rnd(pi + 1.0, seed);
+	vec2 u = pf * pf * pf * (pf * (pf * 6.0 - 15.0) + 10.0);
+	vec2 du = 30.0 * pf * pf * (pf - 1.0) * (pf - 1.0);
+	float k1 = b - a;
+	float k2 = c - a;
+	float k3 = a - b - c + d;
+	return vec3(a + k1 * u.x + k2 * u.y + k3 * u.x * u.y, (k1 + k3 * u.y) * du.x, (k2 + k3 * u.x) * du.y);
+}
+
+// the original runs 15 octaves on the nearest heightmap and fewer on the coarse ones. here an octave stops once its
+// wavelength is under two samples, and the sum is normalised by the full 15 so levels agree
 float terrain_height(vec2 world) {
-	vec2 p = (world + SEED_OFFSET) * FEATURE_SCALE;
-	float step = terrain_bake_step();
-	float unit = 1.0 / FEATURE_SCALE;
-	float continent = pn_fbm(p * 0.12 + vec2(3.7, -2.1), 3);
-	float mountain_mask = smoothstep(-0.35, 0.45, continent);
-	vec2 warp = vec2(pn_fbm(p * 0.6 + vec2(11.3, 4.2), 3), pn_fbm(p * 0.6 - vec2(7.1, 2.9), 3)) * 0.35;
-	float ridges = pn_ridged_lod((p + warp) * 0.55, 7, 1.0, 2.0, unit / 0.55, step);
-	float hills = pn_fbm_lod(p * 1.3 + vec2(5.0, 1.5), 5, unit / 1.3, step);
-	float detail = pn_fbm_lod(p * 9.0 + vec2(1.0, 8.0), 4, unit / 9.0, step);
-	float valley = smoothstep(0.12, 0.5, ridges);
-	float h = BASE_HEIGHT;
-	h += hills * 45.0 * (1.0 - mountain_mask * 0.6) + hills * 25.0;
-	h += pow(ridges, 1.6) * MOUNTAIN_HEIGHT * mountain_mask;
-	h += detail * (3.0 + 14.0 * mountain_mask * valley);
-	return h;
+	const mat2 m = mat2(0.825, -0.6, 0.6, 0.825);
+	const float erosion = 2.5;
+	const float seed = 0.303586;
+	vec2 p = (world + SEED_OFFSET) / 10000.0;
+	float step_uv = terrain_bake_step() / 10000.0;
+	float a = 0.0;
+	float b = 1.0;
+	float total = 0.0;
+	float full_total = 0.0;
+	float wavelength = 1.0;
+	vec2 d = vec2(0.0);
+	int used = 15;
+
+	for (int i = 0; i < 15; i++) {
+		full_total += b;
+		b *= 0.5;
+	}
+
+	b = 1.0;
+
+	for (int i = 0; i < 15; i++) {
+		if (wavelength < step_uv * 2.0) {
+			used = i;
+			break;
+		}
+
+		vec3 n = lc_value_noise(p, seed);
+		d += n.yz;
+		a += b * n.x / (1.0 + dot(d, d) * erosion);
+		b *= 0.5;
+		p = m * p * 2.0;
+		wavelength *= 0.5;
+	}
+
+	// the octaves a coarse bake leaves out have a mean of 0.5 each, without them the level sits lower than the finer ones
+	if (used < 15) a += b * 2.0 * (1.0 - pow(0.5, float(15 - used))) * 0.5 / (1.0 + dot(d, d) * erosion);
+
+	return (a / full_total - 0.5) * HEIGHT_RANGE + HEIGHT_OFFSET;
 }
 ]=]
 local SPLAT_GLSL = [=[
 vec4 terrain_splat(vec2 world, float h, vec3 n) {
-	vec2 p = world + SEED_OFFSET;
-	float slope = 1.0 - n.y;
-	float breakup = pn_fbm(p * 0.002 + vec2(3.0, 5.0), 3) * 0.5;
-	float breakup_fine = pn_fbm(p * 0.012 + vec2(9.0, -4.0), 3) * 0.5;
-	float altitude = clamp((h - BASE_HEIGHT) / MOUNTAIN_HEIGHT, 0.0, 1.0);
-	float snow_line = 0.68 + breakup * 0.25;
-	float snow = smoothstep(snow_line - 0.05, snow_line + 0.1, altitude) * (1.0 - smoothstep(0.25, 0.5, slope + breakup_fine * 0.1));
-	float rock = smoothstep(0.16, 0.34, slope + breakup_fine * 0.14);
-	float dirt = smoothstep(0.06, 0.2, slope + breakup_fine * 0.1) + smoothstep(0.28, 0.5, altitude + breakup * 0.3) * 0.7;
-	dirt = clamp(dirt, 0.0, 1.0);
-	float grass_dirt = dirt * (1.0 - rock);
-	float rock_left = rock * (1.0 - snow);
-	vec4 w;
-	w.w = snow;
-	w.z = rock_left;
-	w.y = grass_dirt * (1.0 - snow);
-	w.x = max(1.0 - w.w - w.z - w.y, 0.0);
-	return w / max(dot(w, vec4(1.0)), 0.0001);
-}
-]=]
-local COLOR_GLSL = [=[
-vec3 terrain_color(vec2 world, float h, vec3 n) {
-	vec2 p = world + SEED_OFFSET;
-	float patches = pn_fbm(p * 0.008 + vec2(1.0, 7.0), 3);
-	float dry = smoothstep(0.05, 0.45, patches);
-	float shade = 0.9 + pn_fbm(p * 0.003 + vec2(8.0, 3.0), 2) * 0.12;
-	vec3 tint = mix(vec3(1.0), vec3(1.0, 0.9, 0.64), dry * 0.5);
-	return clamp(tint * shade, 0.0, 1.0);
+	float steepness = 1.0 - (n.y * 0.5 + 0.5);
+	float rock = clamp((steepness - 0.075) / 0.025, 0.0, 1.0);
+	float snow_amount = pow(clamp(h - SNOW_START, 0.0, SNOW_RANGE) / SNOW_RANGE, 0.75);
+	float diff = mix(0.0, 0.3, snow_amount) - steepness;
+	float snow = clamp(diff / 0.05, 0.0, 1.0);
+	float rest = 1.0 - snow;
+	return vec4((1.0 - rock) * rest, rock * rest, snow, 0.0);
 }
 ]=]
 
 local function build_header()
-	return noise.WORLD .. string.format(
-			[=[
+	return string.format(
+		[=[
 const vec2 SEED_OFFSET = vec2(%f, %f);
-const float BASE_HEIGHT = %f;
-const float MOUNTAIN_HEIGHT = %f;
-const float FEATURE_SCALE = %f;
+const float HEIGHT_RANGE = %f;
+const float HEIGHT_OFFSET = %f;
+const float SNOW_START = %f;
+const float SNOW_RANGE = %f;
 ]=],
-			math.sin(SEED * 12.9898) * 16384.0,
-			math.cos(SEED * 78.2330) * 16384.0,
-			BASE_HEIGHT,
-			MOUNTAIN_HEIGHT,
-			FEATURE_SCALE
-		)
+		math.sin(SEED * 12.9898) * 16384.0,
+		math.cos(SEED * 78.2330) * 16384.0,
+		HEIGHT_RANGE,
+		HEIGHT_OFFSET,
+		SNOW_START,
+		SNOW_RANGE
+	)
+end
+
+-- the layers are grass, rock, snow, rock. the meadow grows on the low grass, the forest above it up to the tree line, the rocky set on the rock
+local function build_scatter_set()
+	local prototypes = {}
+
+	local function add(set, layers, altitude, density)
+		for _, definition in ipairs(set.Prototypes) do
+			local copy = table.copy(definition)
+			copy.layers = layers
+			copy.altitude = altitude
+			copy.density = definition.density * density
+			prototypes[#prototypes + 1] = copy
+		end
+	end
+
+	add(foliage_sets.foliage_meadow, {1, 0, 0, 0}, {OCEAN_LEVEL + 3, 700, 150}, 2.5)
+	add(foliage_sets.foliage_forest, {1, 0.3, 0, 0.3}, {OCEAN_LEVEL + 40, 1400, 250}, 4)
+	add(foliage_sets.foliage_rocky, {0.15, 1, 0, 1}, {OCEAN_LEVEL + 3, 2000, 200}, 1.5)
+	return ScatterSet.New{Name = "alpine_terrain", Prototypes = prototypes, DistanceMultiplier = 2.5}
 end
 
 local function layer(name, scale, extra)
@@ -92,19 +143,18 @@ if _G.alpine_terrain then _G.alpine_terrain:Stop() end
 
 _G.alpine_terrain = Terrain.New(table.merge({
 	Name = "alpine_terrain",
-	ScatterSet = ScatterSet.GetGrass(),
+	ScatterSet = build_scatter_set(),
 	Source = ShaderSource.New{
 		Header = build_header(),
 		HeightGLSL = HEIGHT_GLSL,
 		SplatGLSL = SPLAT_GLSL,
-		ColorGLSL = COLOR_GLSL,
-		MinHeight = BASE_HEIGHT - 120,
-		MaxHeight = BASE_HEIGHT + MOUNTAIN_HEIGHT + 120,
+		MinHeight = MIN_HEIGHT,
+		MaxHeight = MAX_HEIGHT,
 		Layers = {
 			layer("grass", 3, {scatter = 1}),
-			layer("dirt", 3),
-			layer("rock", 11),
+			layer("rock", 11, {scatter = 1}),
 			layer("snow", 7),
+			layer("rock", 11, {scatter = 1}),
 		},
 	},
 	Levels = 12,
@@ -112,7 +162,6 @@ _G.alpine_terrain = Terrain.New(table.merge({
 	Samples = 65,
 	DetailSize = 256,
 	SplatSize = 128,
-	ColorSize = 64,
 	ShadowLevels = 6,
 	ShadowExtent = 16384,
 	BuildsPerFrame = 2,
@@ -123,4 +172,4 @@ _G.alpine_terrain = Terrain.New(table.merge({
 	},
 }, _G.TERRAIN_OVERRIDES or {})):Start()
 render3d.SetOceanEnabled(true)
-render3d.SetOceanLevel(100)
+render3d.SetOceanLevel(OCEAN_LEVEL)
