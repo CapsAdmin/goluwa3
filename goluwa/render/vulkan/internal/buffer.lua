@@ -4,6 +4,7 @@ local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
+local buffer_pool = import("goluwa/render/vulkan/internal/buffer_pool.lua")
 local Buffer = objects.CreateTemplate("vulkan_buffer")
 local VkBufferBox = ffi.typeof("$[1]", vulkan.vk.VkBuffer)
 Buffer.address_release_serial = 0
@@ -105,36 +106,47 @@ function Buffer.New(config)
 
 	local memory_label = string.format("buffer %s size=%d", config.label or "unnamed", requirements.size)
 	local fast_type
+	local default_type = device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"})
 
 	if is_plain_host_memory(properties) then
 		fast_type = device.physical_device:FindFastHostMemoryType(requirements.memoryTypeBits, MIN_FAST_HEAP_SIZE)
 	end
 
-	if fast_type then
-		local ok, memory = pcall(
-			Memory.New,
-			device,
-			{
-				size = requirements.size,
-				type_index = fast_type,
-				flags = allocate_flags,
-				label = memory_label,
-			}
-		)
+	self.pool_allocation = buffer_pool.Allocate(
+		device,
+		fast_type or default_type,
+		allocate_flags,
+		requirements.size,
+		requirements.alignment
+	)
 
-		if ok then self.memory = memory end
-	end
+	if not self.pool_allocation then
+		if fast_type then
+			local ok, memory = pcall(
+				Memory.New,
+				device,
+				{
+					size = requirements.size,
+					type_index = fast_type,
+					flags = allocate_flags,
+					label = memory_label,
+				}
+			)
 
-	if not self.memory then
-		self.memory = Memory.New(
-			device,
-			{
-				size = requirements.size,
-				type_index = device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"}),
-				flags = allocate_flags,
-				label = memory_label,
-			}
-		)
+			if ok then self.memory = memory end
+		end
+
+		if not self.memory then
+			self.memory = Memory.New(
+				device,
+				{
+					size = requirements.size,
+					type_index = default_type,
+					flags = allocate_flags,
+					label = memory_label,
+				}
+			)
+		end
 	end
 
 	self:BindMemory()
@@ -152,6 +164,7 @@ function Buffer:OnRemove()
 
 	if
 		self.mapped_data and
+		not self.pool_allocation and
 		self.device:IsValid() and
 		self.memory and
 		self.memory:IsValid()
@@ -166,8 +179,12 @@ function Buffer:OnRemove()
 		local buffer_ptr = self.ptr[0]
 		self.ptr[0] = nil
 
+		local pool_allocation = self.pool_allocation
+
 		device:DeferRelease(function()
 			vulkan.lib.vkDestroyBuffer(device_ptr, buffer_ptr, nil)
+
+			if pool_allocation then buffer_pool.Free(pool_allocation) end
 		end)
 	end
 
@@ -178,8 +195,14 @@ function Buffer:OnRemove()
 end
 
 function Buffer:BindMemory()
+	local allocation = self.pool_allocation
 	vulkan.assert(
-		vulkan.lib.vkBindBufferMemory(self.device.ptr[0], self.ptr[0], self.memory.ptr[0], 0),
+		vulkan.lib.vkBindBufferMemory(
+			self.device.ptr[0],
+			self.ptr[0],
+			(allocation and allocation.block.memory or self.memory).ptr[0],
+			allocation and allocation.offset or 0
+		),
 		"failed to bind image memory"
 	)
 end
@@ -202,9 +225,24 @@ end
 
 function Buffer:Map(offset, size)
 	if not self.mapped_data then
-		local data = ffi.new("void*[1]")
-		vulkan.lib.vkMapMemory(self.device.ptr[0], self.memory.ptr[0], 0, self.size, 0, data)
-		self.mapped_data = ffi.cast("uint8_t *", data[0])
+		local allocation = self.pool_allocation
+
+		if allocation then
+			local block = allocation.block
+
+			-- a block is mapped once, as a whole, and stays mapped
+			if not block.mapped then
+				local data = ffi.new("void*[1]")
+				vulkan.lib.vkMapMemory(self.device.ptr[0], block.memory.ptr[0], 0, block.memory.size, 0, data)
+				block.mapped = ffi.cast("uint8_t *", data[0])
+			end
+
+			self.mapped_data = block.mapped + allocation.offset
+		else
+			local data = ffi.new("void*[1]")
+			vulkan.lib.vkMapMemory(self.device.ptr[0], self.memory.ptr[0], 0, self.size, 0, data)
+			self.mapped_data = ffi.cast("uint8_t *", data[0])
+		end
 	end
 
 	if offset and offset ~= 0 then return self.mapped_data + offset end
@@ -213,7 +251,9 @@ function Buffer:Map(offset, size)
 end
 
 function Buffer:Unmap()
-	if self.mapped_data then
+	if self.pool_allocation then
+		self.mapped_data = nil
+	elseif self.mapped_data then
 		vulkan.lib.vkUnmapMemory(self.device.ptr[0], self.memory.ptr[0])
 		self.mapped_data = nil
 	end

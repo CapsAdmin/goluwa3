@@ -62,6 +62,8 @@ Findings from the Esther / Quarry / gm_construct / Beach optimization passes (20
 - Beach (54M triangles, 10.7 GiB VRAM) went from ~20 to ~12.5 ms CPU per frame and became GPU bound.
 - gm_construct_m3_401 is the heavy metastruct map (9724 BSP entities, 4020 static props, ~1850 lights); its default camera is at the origin looking at ocean, use the lobby spawn `units.PositionToEngine(Vec3(-10818,-9029.5,9448))`. Some props/materials are not installed anywhere (props_island, soldier_statue, props_swamp, Nature/grass_09, dirtground011_island, tunnel01-ssbump, Material2). `test/harnesses/gmw/` drives a scripted walk/fly over it (`walk.lua` drives the real player rig through the `CreateMove` event after `SetEyePosition`).
 
+- Buffer memory (2026-10-19): `vkAllocateMemory` was 15% of the main thread while loading models (one allocation per mesh buffer, 1005 Crysis cgf: `finish` 4.4 s to 2.1 s). `vulkan/internal/buffer_pool.lua` binds buffers up to 4 MiB to ranges of 64 MiB blocks per memory type and flags (size classes, eight per power of two, ranges reused by the next buffer of the class once the deferred release ran, blocks never given back, mapped once as a whole). The vram view groups them as `small buffers`. `test/harnesses/cgf/decode_bench.lua` is the benchmark (all cgf models of a level on the main thread under the profiler, `r_codec_threads=0` runs the worker part inline).
+
 ## Culling off, and the gm_construct_m3_401 pass
 
 *`r_feature_culling`, what the worst case costs, what was in a frame, the scripts in `test/harnesses/m3`*
