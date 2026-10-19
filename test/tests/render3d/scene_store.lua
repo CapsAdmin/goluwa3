@@ -97,6 +97,78 @@ T.Test3D("Graphics render3d scene store traces an instance of a mesh through its
 	results:Remove()
 end)
 
+T.Test3D("Graphics render3d scene store keeps the free rows of a producer's range together", function()
+	if not render.GetDevice().ray_query_supported then return end
+
+	local tlas_table = instances.GetTables()
+	local first = instances.Add(0, 0, Matrix44(), instances.MASK_SOLID, 0)
+	local base_count = tlas_table.count
+	local spans = {}
+	local range = instances.AllocRange(10000)
+	T(range)["=="](base_count)
+	T(tlas_table.count)["=="](base_count + 10000)
+	instances.FreeRange(range, 10000, true)
+	T(tlas_table.count)["=="](base_count)
+	range = instances.AllocRange(10000)
+	local second = instances.Add(0, 0, Matrix44(), instances.MASK_SOLID, 0)
+	T(second)["=="](base_count + 10000)
+	instances.FreeRange(range, 10000, true)
+	T(tlas_table.count)["=="](base_count + 10001)
+	local rows, span_count = tlas_table:GetSpans(spans)
+	T(span_count)["=="](2)
+	T(rows)["=="](base_count + 1)
+	T(spans[1])["=="](0)
+	T(spans[2])["=="](base_count)
+	T(spans[3])["=="](base_count + 10000)
+	T(spans[4])["=="](1)
+	local small = instances.AllocRange(3000)
+	T(small)["=="](base_count)
+	local other = instances.AllocRange(3000)
+	T(other)["=="](base_count + 3000)
+	instances.FreeRange(other, 3000, true)
+	instances.FreeRange(small, 3000, true)
+	rows, span_count = tlas_table:GetSpans(spans)
+	T(span_count)["=="](2)
+	T(rows)["=="](base_count + 1)
+	instances.Remove(first)
+	instances.Remove(second)
+end)
+
+T.Test3D("Graphics render3d scene store traces a structure built around a hole in the rows", function()
+	if not render.GetDevice().ray_query_supported then return end
+
+	local cube = Polygon3D.New()
+	shapes.BuildCube(cube, 1)
+	cube:BuildBoundingBox()
+	cube:Upload()
+	local row = meshes.Get(cube.mesh)
+	local first = instances.Add(row, 0, Matrix44():Translate(0, 0, -4), instances.MASK_SOLID, 0)
+	local range = instances.AllocRange(8000)
+	local second = instances.Add(row, 0, Matrix44():Translate(0, 6, 0), instances.MASK_SOLID, 0)
+	instances.FreeRange(range, 8000, true)
+	T(second - first > 8000)["=="](true)
+	local results = render.CreateBuffer{
+		byte_size = RESULT_COUNT * 4,
+		buffer_usage = {"storage_buffer"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "scene_store_test_results",
+	}
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	local tlas = instances.Build(cmd)
+	trace(tlas, cmd, results)
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	local out = ffi.cast("uint32_t*", results:Map())
+	T(out[0])["=="](1)
+	T(out[1])["=="](first)
+	T(out[4])["=="](1)
+	T(out[5])["=="](second)
+	instances.Remove(first)
+	instances.Remove(second)
+	results:Remove()
+end)
+
 local function read_results(draw, tlas_getter, origin)
 	local results = render.CreateBuffer{
 		byte_size = RESULT_COUNT * 4,

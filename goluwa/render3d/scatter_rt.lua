@@ -265,7 +265,7 @@ local function rebuild(segment_list)
 	segments:Clear()
 	parts:Clear()
 
-	if range_base then instances.FreeRange(range_base, range_count) end
+	if range_base then instances.FreeRange(range_base, range_count, true) end
 
 	local total = 0
 	definitions = {}

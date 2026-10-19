@@ -462,20 +462,21 @@ local function remove_tlas_slot(slot)
 	slot.buffer:Remove()
 end
 
-local function get_free_tlas_slot(frame, capacity)
+local function get_free_tlas_slot(frame, count)
 	local delay = render.GetSwapchainImageCount() + 1
 
 	for i = 1, TLAS_SLOT_COUNT do
 		local slot = tlas_slots[i]
 
 		if not slot or (slot ~= current_slot and slot.last_used <= frame - delay) then
-			if slot and slot.capacity < capacity then
+			-- a structure is sized for its most instances, it follows the count down too
+			if slot and (slot.capacity < count or slot.capacity > math.max(count, 1024) * 2) then
 				remove_tlas_slot(slot)
 				slot = nil
 			end
 
 			if not slot then
-				slot = create_tlas_slot(math.max(capacity, 1024))
+				slot = create_tlas_slot(math.max(math.ceil(count * 1.25 / 1024) * 1024, 1024))
 				tlas_slots[i] = slot
 			end
 
@@ -487,6 +488,53 @@ end
 -- builds the top level structure from `count` records of an instance buffer. an unused record has a zero blas reference
 function accel.BuildTLAS(cmd, instance_buffer, count)
 	local frame = system.GetFrameNumber()
+do
+	local VkBufferCopyArray = ffi.typeof("$[?]", vk.VkBufferCopy)
+	local regions = VkBufferCopyArray(16)
+	local region_capacity = 16
+	local compact
+	local compact_rows = 0
+
+	-- copies runs of records of an instance buffer (first record and length pairs in `spans`, `rows` records in all) one after the
+	-- other into a buffer of their own, so a structure built from it is as big as the records it holds and not the ones it spans
+	function accel.CompactInstances(cmd, buffer, spans, span_count, rows)
+		if rows > compact_rows or compact_rows > math.max(rows, 1024) * 2 then
+			if compact then compact:Remove() end
+
+			compact_rows = math.max(math.ceil(rows * 1.25 / 1024) * 1024, 1024)
+			compact = render.CreateBuffer{
+				byte_size = compact_rows * accel.INSTANCE_BYTE_SIZE,
+				buffer_usage = {"transfer_dst", "shader_device_address", "acceleration_structure_build_input_read_only_khr"},
+				memory_property = {"device_local"},
+				label = "scene_tlas_compact",
+			}
+		end
+
+		if span_count > region_capacity then
+			region_capacity = span_count * 2
+			regions = VkBufferCopyArray(region_capacity)
+		end
+
+		local offset = 0
+
+		for i = 0, span_count - 1 do
+			local size = spans[i * 2 + 2] * accel.INSTANCE_BYTE_SIZE
+			regions[i].srcOffset = spans[i * 2 + 1] * accel.INSTANCE_BYTE_SIZE
+			regions[i].dstOffset = offset
+			regions[i].size = size
+			offset = offset + size
+		end
+
+		cmd:PipelineBarrier{
+			srcStage = {"compute", "transfer", "acceleration_structure_build_khr"},
+			dstStage = "transfer",
+			memoryBarrier = true,
+		}
+		cmd:CopyBuffer(buffer, compact, regions, span_count)
+		return compact
+	end
+end
+
 	local slot = get_free_tlas_slot(frame, count)
 
 	if not slot then return current_slot and current_slot.tlas end

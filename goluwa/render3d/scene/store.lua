@@ -248,11 +248,12 @@ function Table:Alloc()
 		self.free[self.free_count] = nil
 		self.free_count = self.free_count - 1
 	elseif self.free_ranges and self.free_ranges[1] then
-		local range = self.free_ranges[#self.free_ranges]
-		row = range.base + range.n - 1
+		local range = self.free_ranges[1]
+		row = range.base
+		range.base = range.base + 1
 		range.n = range.n - 1
 
-		if range.n == 0 then self.free_ranges[#self.free_ranges] = nil end
+		if range.n == 0 then table.remove(self.free_ranges, 1) end
 	else
 		row = self.count
 		self.count = row + 1
@@ -290,7 +291,52 @@ function Table:AllocRange(n)
 	return base
 end
 
-function Table:FreeRange(base, n)
+-- the free ranges are sorted by their first row. one joins the ranges next to it, and one that ends at the last row lowers the
+-- count (a producer's range that was replaced by a smaller one would otherwise keep the count at its biggest size)
+local function release_range(self, base, n)
+	ffi.fill(self.ptr + base, n * self.row_size)
+
+	if self.staged then self:TouchRange(base, n) end
+
+	local ranges = self.free_ranges
+
+	if not ranges then
+		ranges = {}
+		self.free_ranges = ranges
+	end
+
+	local i = 1
+
+	while ranges[i] and ranges[i].base < base do
+		i = i + 1
+	end
+
+	local before, after = ranges[i - 1], ranges[i]
+	local joins_before = before and before.base + before.n == base
+	local joins_after = after and base + n == after.base
+
+	if joins_before and joins_after then
+		before.n = before.n + n + after.n
+		table.remove(ranges, i)
+	elseif joins_before then
+		before.n = before.n + n
+	elseif joins_after then
+		after.base = base
+		after.n = after.n + n
+	else
+		table.insert(ranges, i, {base = base, n = n})
+	end
+
+	local last = ranges[#ranges]
+
+	if last.base + last.n == self.count then
+		self.count = last.base
+		ranges[#ranges] = nil
+	end
+end
+
+-- `immediate` is for a caller that waited for the device, no frame in flight reads the rows
+function Table:FreeRange(base, n, immediate)
 	self.live = self.live - n
 	self.pending_ranges = self.pending_ranges or {}
 	self.pending_ranges[#self.pending_ranges + 1] = {base = base, n = n, frame = system.GetFrameNumber()}
@@ -306,16 +352,18 @@ function Table:Update(frame)
 	local ranges = self.pending_ranges
 
 	if ranges and ranges[1] then
+
+	if immediate then
+		release_range(self, base, n)
+
+		return
+	end
+
 		local keep = {}
 
 		for _, range in ipairs(ranges) do
 			if range.frame <= frame - RETIRE_FRAMES then
-				ffi.fill(self.ptr + range.base, range.n * self.row_size)
-
-				if self.staged then self:TouchRange(range.base, range.n) end
-
-				self.free_ranges = self.free_ranges or {}
-				self.free_ranges[#self.free_ranges + 1] = {base = range.base, n = range.n}
+				release_range(self, range.base, range.n)
 			else
 				keep[#keep + 1] = range
 			end
@@ -359,6 +407,36 @@ function Table:Clear()
 		self.dirty_min = 0
 		self.dirty_max = self.capacity - 1
 	end
+
+-- the runs of rows that are not in a free range, as first row and length pairs in `spans`. returns how many rows they hold
+-- and how many runs there are
+function Table:GetSpans(spans)
+	local position = 0
+	local rows = 0
+	local count = 0
+
+	if self.free_ranges then
+		for _, range in ipairs(self.free_ranges) do
+			if range.base > position then
+				spans[count * 2 + 1] = position
+				spans[count * 2 + 2] = range.base - position
+				rows = rows + range.base - position
+				count = count + 1
+			end
+
+			position = range.base + range.n
+		end
+	end
+
+	if position < self.count then
+		spans[count * 2 + 1] = position
+		spans[count * 2 + 2] = self.count - position
+		rows = rows + self.count - position
+		count = count + 1
+	end
+
+	return rows, count
+end
 
 	self.count = 0
 	self.live = 0

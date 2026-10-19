@@ -102,7 +102,7 @@ function instances.GetTables()
 			name = "tlas_instances",
 			ctype = TLASInstance,
 			capacity = 16384,
-			usage = {"shader_device_address", "storage_buffer", "acceleration_structure_build_input_read_only_khr"},
+			usage = {"shader_device_address", "storage_buffer", "transfer_src", "acceleration_structure_build_input_read_only_khr"},
 			staged = true,
 		}
 		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 16384, staged = true}
@@ -285,10 +285,12 @@ function instances.AllocRange(n)
 	return base
 end
 
-function instances.FreeRange(base, n)
+function instances.FreeRange(base, n, immediate)
 	produced_ranges[base] = nil
-	tlas_table:FreeRange(base, n)
+	tlas_table:FreeRange(base, n, immediate)
 	data_table.live = data_table.live - n
+	instances.GetRasterTable()
+	data_table.count = tlas_table.count
 	instances.version = instances.version + 1
 end
 
@@ -370,6 +372,7 @@ end
 do
 	local update_pipeline
 	local row_count = 0
+	local spans = {}
 	local bound_buffers = {}
 
 	local create_update_pipeline
@@ -493,6 +496,8 @@ do
 		end
 
 		row_count = tlas_table.count
+		data_table.count = row_count
+		raster_table.count = row_count
 
 		if row_count == 0 then return nil end
 
@@ -528,7 +533,16 @@ do
 			dstStage = "acceleration_structure_build_khr",
 			memoryBarrier = true,
 		}
-		instances.tlas = accel.BuildTLAS(cmd, tlas_table:GetBuffer(), row_count)
+		local instance_buffer, instance_count = tlas_buffer, row_count
+		local used, span_count = tlas_table:GetSpans(spans)
+
+		-- free rows between the used ones (a replaced producer's range) would make the structure as big as the table
+		if row_count - used >= 4096 and used * 4 <= row_count * 3 then
+			instance_buffer = accel.CompactInstances(cmd, tlas_buffer, spans, span_count, used)
+			instance_count = used
+		end
+
+		instances.tlas = accel.BuildTLAS(cmd, instance_buffer, instance_count)
 		return instances.tlas
 	end
 end
