@@ -35,7 +35,7 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - `--cli` scripts keep the engine running after the script finishes (`--validate` only ends it on a Lua error). End scratch scripts run with `--cli` with `os.exit(0)`, or use `--one-frame` in 2d/3d mode. A hung run blocks the call until its timeout.
 
-- Scratch scripts that flip a pvar must use `pvars.SetSession`; `pvars.Set` writes the user's `pvars.txt` for good.
+- Scratch scripts that flip a pvar must use `pvars.SetSession`; `pvars.Set` writes the user's `pvars.txt` for good. Pvars that shaders and passes are built from ("build time" ones like `r_rt_hit_*`, `reflection_reorder`) are read when the passes are made, before a script runs, so a script's `SetSession` comes too late for them: put `GOLUWA_PVARS="key=value key=value"` in the environment instead (the `esther_gpu_run.sh` style harnesses pass it for you).
 
 - Never edit files under `goluwa/` or `addons/` while a benchmark or scene run is going in the background if `--hot-reload` is on; the reload crashes the run.
 

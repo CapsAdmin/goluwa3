@@ -9,6 +9,13 @@ local mode = "luadata"
 pvars.vars = pvars.vars or {}
 pvars.infos = pvars.infos or {}
 pvars.session = pvars.session or {}
+-- "key=value key=value" in the environment, applied for the session as each pvar is registered so that pvars the
+-- shaders are built from can be set before the passes are made
+local env_overrides = {}
+
+for key, value in (os.getenv("GOLUWA_PVARS") or ""):gmatch("(%S+)=(%S+)") do
+	env_overrides[key] = value
+end
 
 do
 	local group
@@ -213,6 +220,8 @@ function pvars.Setup2(info)
 	info.object = META:CreateObject({key = info.key})
 	load(info.key, info.store and pvars.vars[info.key] or nil)
 
+	if env_overrides[info.key] then pvars.SetStringSession(info.key, env_overrides[info.key]) end
+
 	if info.callback then
 		timer.Delay(function()
 			local val = pvars.Get(info.key)
@@ -350,28 +359,36 @@ do
 		n = false,
 	}
 
-	function pvars.SetString(key, val)
+	local function parse(key, val)
 		local info = assert(pvars.infos[key], "unknown pvar " .. tostring(key))
 
 		if info.type == "table" then
-			val = codec.GetLibrary("comma").Decode(val)
+			return codec.GetLibrary("comma").Decode(val)
 		elseif info.type == "boolean" then
 			local parsed = booleans[val:trim():lower()]
 
 			if parsed == nil then error(key .. ": expected a boolean, got " .. val, 0) end
 
-			val = parsed
+			return parsed
 		elseif info.type == "number" then
 			local parsed = tonumber(val)
 
 			if parsed == nil then error(key .. ": expected a number, got " .. val, 0) end
 
-			val = parsed
+			return parsed
 		elseif info.type ~= "string" then
-			val = codec.GetLibrary(mode).FromString(val)
+			return codec.GetLibrary(mode).FromString(val)
 		end
 
-		pvars.Set(key, val)
+		return val
+	end
+
+	function pvars.SetString(key, val)
+		pvars.Set(key, parse(key, val))
+	end
+
+	function pvars.SetStringSession(key, val)
+		pvars.SetSession(key, parse(key, val))
 	end
 end
 
