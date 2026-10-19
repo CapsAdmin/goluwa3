@@ -102,6 +102,12 @@ The Beach level has ~30.9k visuals and flying streams terrain tiles, so a visual
 
 **Measuring:** the "settled" heuristic (60 frames < 100 ms) fires before vegetation finishes spawning, and a faster build settles earlier, so bushes look "missing". Wait ~30 s after settle before comparing. Mountain tree density and vegetation LOD also vary per run, capture twice before calling a diff a regression. `glw bench crysis_beach` is the maintained benchmark.
 
+**Beach load stalls (2026-10-19):** the map used to hang for tens of seconds with 3-25 s frames after most of it had appeared. Causes, biggest first:
+- `timer.lua` measured the thinker budget with `system.GetTimeNS() / 1e9`, a `uint64` division that returns whole seconds, so no task thinker ever used up its 1/30 s budget and every running task got a full pass per frame (`tonumber` first). Check any `GetTimeNS()` arithmetic the same way. The fps thinkers also share one budget per frame now, and `tasks.Update` shares one for the first slices of the tasks it starts.
+- `BatchTable` threw all records away whenever its capacity grew (1.5x steps, ~230k-390k rows on Beach, one row per vegetation instance), and wrote a record per row for 4-5 scene tables. Growth keeps the records, and `shared_records` (the gbuffer/translucent tables) copies the record of an earlier row with the same mesh, material and first polygon. Scene rows keep a change log (`draw.lua`), so a table only looks at the rows that changed unless a buffer with an address was freed, and that scan asks each mesh for its addresses once.
+- `utility.CreateLoadCache(cache, budget)` queues the callbacks of everything waiting on a model and runs them within `budget` seconds per frame (model_loader uses 4 ms): the coral rocks (`underwater_plants`) had hundreds of instances that all built their primitive entities in one 1-1.8 s slice.
+Measure with a script that prints frames over 150 ms; the load now stays at 150-300 ms frames (real work) with an occasional 0.5 s hit when the row tables grow, instead of multi-second frames that never settled.
+
 ## Quarry test camera
 
 *objects at ~(1414,178,-1158); default camera is at origin far away*
