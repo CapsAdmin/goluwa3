@@ -1151,8 +1151,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 		end
 
 		local zoom_factor = self.cascade_zoom_factors[cascade_idx] or 1
-		local radius = sphere_radius
-		radius = radius / zoom_factor
+		local radius = math.max(sphere_radius / zoom_factor, (split_far - previous_split) * 0.5)
 		radius = math.max(radius * 1.05, 0.0001)
 		local cascade_size = self.cascade[cascade_idx].size or self.size
 		local texel_world_x = math.max((radius * 2.0) / cascade_size.w, 0.0001)
