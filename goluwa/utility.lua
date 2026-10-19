@@ -356,18 +356,23 @@ do
 	local head = 1
 	local tail = 0
 	local budget = 0
+	local spent = 0
+
+	local function run_timed(run)
+		local started = system.GetTime()
+		run()
+		spent = spent + system.GetTime() - started
+	end
 
 	event.AddListener("Update", "load_cache_joiners", function()
-		if head > tail then return end
+		spent = 0
 
-		local started = system.GetTime()
-
-		repeat
+		while head <= tail and spent < budget do
 			local run = queue[head]
 			queue[head] = nil
 			head = head + 1
-			run()
-		until head > tail or system.GetTime() - started >= budget
+			run_timed(run)
+		end
 
 		if head > tail then
 			head = 1
@@ -376,7 +381,8 @@ do
 	end)
 
 	-- budget (seconds per frame) makes the callbacks of the callers wait in a queue shared by all load caches that have
-	-- one, a model that a thousand entities are waiting on would otherwise build all of them in the frame it finished
+	-- one once a frame's budget is spent, a model that a thousand entities are waiting on would otherwise build all of
+	-- them in the frame it finished
 	function utility.CreateLoadCache(cache, frame_budget)
 		local self = {}
 
@@ -384,6 +390,9 @@ do
 			if not frame_budget then return run() end
 
 			budget = math.max(budget, frame_budget)
+
+			if head > tail and spent < budget then return run_timed(run) end
+
 			tail = tail + 1
 			queue[tail] = run
 		end
