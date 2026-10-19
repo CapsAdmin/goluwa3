@@ -747,6 +747,10 @@ do
 	end
 
 	function EasyPipeline:GetFramebuffer(index)
+		if self.lazy_framebuffers and not self.framebuffers then
+			self:RecreateFramebuffers()
+		end
+
 		return self.framebuffers and (self.framebuffers[index] or self.framebuffers[1])
 	end
 
@@ -820,6 +824,8 @@ do
 
 	function EasyPipeline:OnWindowFramebufferResized()
 		if render.target:IsValid() and render.target.config.offscreen then return end
+
+		if self.lazy_framebuffers and not self.framebuffers then return end
 
 		self:RecreateFramebuffers()
 	end
