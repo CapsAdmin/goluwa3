@@ -493,7 +493,7 @@ function weather.UpdateSky()
 		or
 		0
 
-	for _, shadow_map in ipairs(weather.shadow_maps) do
+	for _, shadow_map in pairs(weather.shadow_maps) do
 		shadow_map:SetEnabled(transmittance > SHADOW_CUTOFF_TRANSMITTANCE)
 	end
 end
@@ -503,6 +503,135 @@ commands.Add("envmap=string|nil,number|nil", function(path, intensity)
 
 	weather.SetEnvironmentMap(path)
 end)
+
+-- the sun's shadow maps are two sets: the cascades, which follow the camera's frustum out to a distance, and the inset,
+-- a small one close to the camera. cascade i is fitted to the frustum slice up to its split (zoom shrinks the fitted
+-- sphere so a cascade covers only the nearest part of its slice and the next one covers the rest)
+local SUN_SHADOW_DEFAULTS = {
+	cascades = {
+		enabled = true,
+		count = 2,
+		size = 4096,
+		format = "d16_unorm",
+		distance = 2700,
+		split_lambda = 0,
+		zoom = {3, 1, 1, 1},
+		min_caster_texel_size = 0,
+		update_interval = 2,
+		cache_far_cascade = true,
+		far_cascade_move = 96,
+	},
+	inset = {
+		enabled = true,
+		size = 4096,
+		format = "d16_unorm",
+		distance = 16,
+		zoom = 1.75,
+		min_caster_texel_size = 1,
+		update_interval = 2,
+	},
+}
+-- a change of these needs other textures, the rest is written into the maps that exist
+local SUN_SHADOW_STRUCTURE = {enabled = true, count = true, size = true, format = true}
+weather.sun_shadow = table.copy(SUN_SHADOW_DEFAULTS)
+
+function weather.GetSunShadow(category)
+	return table.copy(weather.sun_shadow[category])
+end
+
+local function apply_sun_shadow()
+	local cascades = weather.sun_shadow.cascades
+	local inset = weather.sun_shadow.inset
+	local map = weather.shadow_maps.cascades
+
+	if map then
+		map.max_shadow_distance = cascades.distance
+		map.cascade_split_lambda = cascades.split_lambda
+		map.cascade_zoom_factors = cascades.zoom
+		map.min_caster_texel_size = cascades.min_caster_texel_size
+		map:SetUpdatePolicy{
+			shadow_update_mode = "continuous",
+			shadow_update_interval = cascades.update_interval,
+			farthest_cascade_update_mode = cascades.cache_far_cascade and "world_changed" or nil,
+			farthest_cascade_camera_position_threshold = cascades.far_cascade_move,
+		}
+		map:Invalidate()
+	end
+
+	map = weather.shadow_maps.inset
+
+	if map then
+		map.max_shadow_distance = inset.distance
+		map.cascade_zoom_factors = {inset.zoom}
+		map.min_caster_texel_size = inset.min_caster_texel_size
+		map:SetUpdatePolicy{
+			shadow_update_mode = "continuous",
+			shadow_update_interval = inset.update_interval,
+		}
+		map:Invalidate()
+	end
+end
+
+-- destroys the sun's shadow maps and makes them again from the settings
+function weather.BuildSunShadows()
+	for _, shadow_map in pairs(weather.shadow_maps) do
+		shadow_map:Remove()
+	end
+
+	weather.shadow_maps = {}
+	local cascades = weather.sun_shadow.cascades
+	local inset = weather.sun_shadow.inset
+
+	if cascades.enabled then
+		weather.shadow_maps.cascades = ShadowMap.New{
+			mode = "sun",
+			light = weather.light,
+			size = Vec2() + cascades.size,
+			format = cascades.format,
+			cascade_count = cascades.count,
+		}
+	end
+
+	if inset.enabled then
+		weather.shadow_maps.inset = ShadowMap.New{
+			mode = "sun",
+			light = weather.light,
+			size = Vec2() + inset.size,
+			format = inset.format,
+			cascade_count = 1,
+			role = "inset",
+		}
+	end
+
+	apply_sun_shadow()
+	weather.UpdateSky()
+end
+
+-- changes some settings of "cascades" or "inset" (see SUN_SHADOW_DEFAULTS for the names). Whether the shadow maps are
+-- made again or only written to depends on what changed
+function weather.SetSunShadow(category, changes)
+	local defaults = SUN_SHADOW_DEFAULTS[category]
+	local settings = weather.sun_shadow[category]
+	local rebuild = false
+
+	for key, value in pairs(changes) do
+		assert(defaults[key] ~= nil, "no sun shadow setting " .. category .. "." .. key)
+
+		if SUN_SHADOW_STRUCTURE[key] and settings[key] ~= value then rebuild = true end
+
+		settings[key] = table.copy(value)
+	end
+
+	if not weather.light then return end
+
+	if rebuild then weather.BuildSunShadows() else apply_sun_shadow() end
+end
+
+function weather.ResetSunShadow()
+	weather.sun_shadow = table.copy(SUN_SHADOW_DEFAULTS)
+
+	if weather.light then weather.BuildSunShadows() end
+end
 
 function weather.Initialize()
 	if weather.light and weather.light:IsValid() then return end
@@ -520,55 +649,7 @@ function weather.Initialize()
 	}
 	weather.light:SetGUID("atmosphere")
 	atmosphere.SetSunIlluminance(SUN_TOA_ILLUMINANCE)
-	weather.shadow_maps = {
-		ShadowMap.New{
-			mode = "sun",
-			light = weather.light,
-			size = Vec2() + 4096,
-			cascade_count = 2,
-			cascade_formats = {
-				"d16_unorm",
-				"d16_unorm",
-			},
-			cascade_sizes = {
-				Vec2() + 4096,
-				Vec2() + 4096,
-			},
-			cascade_zoom_factors = {
-				3,
-				1,
-			},
-			cascade_split_lambda = 0,
-			max_shadow_distance = 2700,
-			near_plane = 1,
-			far_plane = 2700,
-		},
-		ShadowMap.New{
-			mode = "sun",
-			light = weather.light,
-			size = Vec2() + 4096,
-			cascade_count = 1,
-			cascade_sizes = {Vec2() + 4096},
-			cascade_formats = {"d16_unorm"},
-			cascade_zoom_factors = {1.75},
-			min_caster_texel_size = 1,
-			cascade_split_lambda = 1,
-			max_shadow_distance = 16,
-			ortho_size = 50,
-			near_plane = 1,
-			far_plane = 16,
-			role = "inset",
-		},
-	}
-
-	for _, shadow_map in ipairs(weather.shadow_maps) do
-		shadow_map:SetUpdatePolicy{
-			shadow_update_mode = "continuous",
-			shadow_update_interval = 2,
-			farthest_cascade_update_mode = "world_changed",
-			farthest_cascade_camera_position_threshold = 96,
-		}
-	end
+	weather.BuildSunShadows()
 
 	weather.shelter_caster = Entity.New{Name = "shelter_caster", transform = {}}
 	weather.shelter_map = ShadowMap.New{

@@ -1584,6 +1584,15 @@ function ShadowMap:SetUpdatePolicy(policy)
 	self.policy = policy or {}
 end
 
+-- every cascade is drawn again on the next update, for when a setting changed what a cached one would show
+function ShadowMap:Invalidate()
+	for _, cascade in ipairs(self.cascade) do
+		cascade.last_rendered_frame = nil
+	end
+
+	self.geometry_dirty = true
+end
+
 function ShadowMap:SetRole(role)
 	self.role = role
 end
