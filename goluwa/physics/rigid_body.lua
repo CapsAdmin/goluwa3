@@ -8,6 +8,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Collider = import("goluwa/physics/collider.lua")
 local islands = import("goluwa/physics/islands.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local stats = import("goluwa/physics/stats.lua")
 local motion = import("goluwa/physics/motion.lua")
 local RigidBody = objects.CreateTemplate("rigid_body")
@@ -1182,8 +1183,18 @@ function RigidBody:WriteToTransform()
 	end
 end
 
+local interpolation = pvars.Setup2{
+	key = "phys_interpolation",
+	category = "Debug",
+	group = "Physics",
+	store = false,
+	default = true,
+	help = "draw dynamic bodies between their last two fixed steps. off draws them at the last step, which shows what the interpolation contributes (the player's step smoothing needs it too)",
+}
+
 function RigidBody:ShouldInterpolateTransform()
-	return self:IsDynamic() and
+	return interpolation:Get() and
+		self:IsDynamic() and
 		self.StepStartPosition and
 		self.StepStartRotation and
 		self.Position and
