@@ -8,6 +8,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local ray_reorder = import("goluwa/render3d/ray_reorder.lua")
 local scene_reflection = {}
 scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
 pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
@@ -100,17 +101,8 @@ end
 -- the ray generation form of a pass that traces the reflection hit with a hit object and reorders the threads by what
 -- they hit before shading it. the any hit shader is the confirmation of the ray query loop
 function scene_reflection.GetRayGeneration()
-	local vendor = render.GetDevice().ray_reorder:upper()
-	local names = {}
-
-	for _, name in ipairs({"hitObject", "hitObjectTraceRay", "reorderThread", "hitObjectIsHit", "hitObjectGetRayTMax", "hitObjectGetInstanceCustomIndex", "hitObjectGetPrimitiveIndex", "hitObjectGetAttributes", "hitObjectAttribute"}) do
-		names[#names + 1] = "#define SER_" .. name .. " " .. name .. vendor
-	end
-
-	return {
-		extension = "#extension GL_" .. vendor .. "_shader_invocation_reorder : require",
-		declarations = table.concat(names, "\n") .. [[
-
+	return ray_reorder.GetRayGeneration{
+		declarations = [[
 			#define SCENE_REFLECTION_SER
 			layout(location = 0) rayPayloadEXT int scene_reflection_payload;
 			layout(location = 1) SER_hitObjectAttribute vec2 scene_reflection_attributes;
