@@ -17,6 +17,7 @@ function BatchTable.New(config)
 		record_size = ffi.sizeof(config.record_type),
 		write_record = config.write_record,
 		shared_records = config.shared_records,
+		changes = config.changes,
 		per_frame = config.per_frame,
 		capacity = 0,
 		buffers = {},
@@ -136,8 +137,9 @@ local function forget_batch_record(self, index)
 end
 
 -- a record is written when its batch is new or the material of the batch changed, found in the log of the objects
--- that were stamped since the last update. when the batches changed (batch_serial) or a buffer that has an address was
--- freed, every index is looked at and only those whose batch is another one, or whose mesh has other addresses, are
+-- that were stamped since the last update. when the batches changed (batch_serial) the indices in the change log of
+-- the list are looked at if it has one that reaches back far enough, and when a buffer that has an address was freed
+-- (or without a log) every index is looked at and only those whose batch is another one, or whose mesh has other addresses, are
 -- written. a batch of an animated material only has the part that moves written when animation_version() changed since
 -- the last update, and a few records get written in full each update in case something changed that no property
 -- version saw. each frame's buffer gets the records that changed since it was last written, kept mapped
@@ -183,25 +185,59 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local serial = self.write_serial + 1
 	self.write_serial = serial
 
-	if resync then
+	local changes = self.changes
+
+	if
+		resync and
+		changes and
+		not grown and
+		self.address_release_serial == release_serial and
+		self.written_count > 0 and
+		batch_serial - self.batch_serial < changes.size
+	then
+		-- the batches that changed are in the log of the list, so the rest of it is not looked at
+		local batch_at = self.batch_at
+		local log = changes.log
+		local size = changes.size
+
+		for change = self.batch_serial + 1, batch_serial do
+			local i = log[change % size]
+			local batch = batches[i]
+
+			if batch_at[i] ~= batch then write_batch_record(self, pipeline, context, i, batch, serial) end
+		end
+
+		self.written_count = count
+	elseif resync then
 		local started = startup.Start()
 		local batch_at = self.batch_at
-		local records = self.records
 		local check_addresses = self.address_release_serial ~= release_serial
+		local addresses = ffi.cast(UInt64Ptr, self.records)
+		local stride = self.record_size / 8
+		local offset = ffi.offsetof(self.record_type, "addresses") / 8
+		-- the instances of a mesh are many rows, its addresses are asked once
+		local expected = {}
 
 		for i = 1, count do
 			local batch = batches[i]
 			local stale = batch_at[i] ~= batch
 
 			if not stale and check_addresses then
-				local addresses = ffi.cast(UInt64Ptr, records[i - 1].addresses)
 				local mesh = batch.mesh
+				local pair = expected[mesh]
 
-				if mesh:IsValid() then
-					stale = addresses[0] ~= mesh:GetVertexBufferAddress() or addresses[1] ~= mesh:GetIndexBufferAddress()
-				else
-					stale = addresses[0] ~= 0 or addresses[1] ~= 0
+				if not pair then
+					if mesh:IsValid() then
+						pair = {mesh:GetVertexBufferAddress(), mesh:GetIndexBufferAddress()}
+					else
+						pair = {0, 0}
+					end
+
+					expected[mesh] = pair
 				end
+
+				local base = (i - 1) * stride + offset
+				stale = addresses[base] ~= pair[1] or addresses[base + 1] ~= pair[2]
 			end
 
 			if stale then write_batch_record(self, pipeline, context, i, batch, serial) end

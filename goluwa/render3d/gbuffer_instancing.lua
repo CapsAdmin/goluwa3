@@ -81,12 +81,13 @@ do
 	end
 
 	-- the table of PBR records of a list of {mesh, material, first_polygon3d} batches, drawn by the multi
-	-- draw pipelines
-	function gbuffer_instancing.NewBatchTable(label)
+	-- draw pipelines. changes is the log of the list when it keeps one (see BatchTable:Update)
+	function gbuffer_instancing.NewBatchTable(label, changes)
 		return BatchTable.New{
 			label = label,
 			record_type = model_pipeline.GetPBRBatchRecordType(),
 			shared_records = true,
+			changes = changes,
 			write_record = write_record,
 			write_animated = write_animated,
 			animation_version = model_pipeline.GetVertexAnimationVersion,

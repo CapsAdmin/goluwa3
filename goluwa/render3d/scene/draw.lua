@@ -33,6 +33,9 @@ local slot_rows
 local translucent_ids = {}
 local translucent_count = 0
 draw.serial = 0
+-- the slot (plus one) that each change of the rows, which is what the serial counts, was made to
+local CHANGE_LOG_SIZE = 65536
+local changes = {log = {}, size = CHANGE_LOG_SIZE}
 
 -- a drawn row has a slot of its own, the slots are what the draws index (the batch records, the matrices), so rows that
 -- are not drawn, and the rows of producers, cost nothing
@@ -58,6 +61,7 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent)
 
 	rows[slot + 1] = setmetatable({mesh = mesh, material = material, first_polygon3d = polygon3d}, ROW_META)
 	draw.serial = draw.serial + 1
+	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
 
 function draw.ClearRow(id)
@@ -75,6 +79,7 @@ function draw.ClearRow(id)
 	slot_of[id] = nil
 	free_slots[#free_slots + 1] = slot
 	draw.serial = draw.serial + 1
+	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
 
 local cull_pipeline
@@ -544,7 +549,7 @@ function draw.Draw(gbuffer_instancing, pipelines)
 		local batch_table = batch_tables[pipeline]
 
 		if not batch_table then
-			batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_rows")
+			batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_rows", changes)
 			batch_tables[pipeline] = batch_table
 		end
 
@@ -575,7 +580,7 @@ function draw.DrawTranslucent(gbuffer_instancing, pipeline)
 	local batch_table = batch_tables[pipeline]
 
 	if not batch_table then
-		batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_rows")
+		batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_rows", changes)
 		batch_tables[pipeline] = batch_table
 	end
 
