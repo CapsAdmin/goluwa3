@@ -43,6 +43,14 @@ local VkPhysicalDeviceRobustness2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.V
 local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
 local VkPhysicalDeviceRayQueryFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayQueryFeaturesKHR)
+local VkRayTracingInvocationReorderFeaturesBoxes = {
+	ext = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT),
+	nv = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV),
+}
+local RAY_REORDER_EXTENSIONS = {
+	ext = "VK_EXT_ray_tracing_invocation_reorder",
+	nv = "VK_NV_ray_tracing_invocation_reorder",
+}
 local VkDeviceQueueCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkDeviceQueueCreateInfo)
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)
 local VkDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkDevice)
@@ -394,6 +402,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.has_value(available_extensions, "VK_KHR_ray_tracing_pipeline")
 	local ray_tracing_supported = false
 	local ray_query_supported = false
+	local ray_reorder
+	local ray_reorder_features
 
 	if has_ray_tracing then
 		local rt_features = physical_device:GetRayTracingPipelineFeatures()
@@ -437,6 +447,23 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 					}
 				)
 				pNextChain = ray_query_features
+			end
+
+			for _, vendor in ipairs({"ext", "nv"}) do
+				if
+					not ray_reorder and
+					table.has_value(available_extensions, RAY_REORDER_EXTENSIONS[vendor]) and
+					physical_device:GetRayTracingInvocationReorderFeatures(vendor).rayTracingInvocationReorder == 1
+				then
+					ray_reorder = vendor
+					table.insert(finalExtensions, RAY_REORDER_EXTENSIONS[vendor])
+					local reorder_features = VkRayTracingInvocationReorderFeaturesBoxes[vendor]()
+					reorder_features[0].sType = vulkan.vk.VkStructureType["VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_" .. vendor:upper()]
+					reorder_features[0].pNext = pNextChain
+					reorder_features[0].rayTracingInvocationReorder = 1
+					pNextChain = reorder_features
+					ray_reorder_features = reorder_features
+				end
 			end
 		end
 	end
@@ -486,6 +513,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		extensions = finalExtensions,
 		ray_tracing_supported = ray_tracing_supported,
 		ray_query_supported = ray_query_supported,
+		ray_reorder = ray_reorder,
 	}
 	device.vkSetDebugUtilsObjectNameEXT = device:TryGetExtension("vkSetDebugUtilsObjectNameEXT")
 	device.vkSetDebugUtilsObjectTagEXT = device:TryGetExtension("vkSetDebugUtilsObjectTagEXT")

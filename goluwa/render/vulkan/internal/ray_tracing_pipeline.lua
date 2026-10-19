@@ -100,7 +100,9 @@ function RayTracingPipeline.New(device, config)
 	local pipeline_layout
 	local layouts
 
-	if config.descriptor_sets and #config.descriptor_sets > 0 then
+	if config.pipeline_layout then
+		pipeline_layout = config.pipeline_layout
+	elseif config.descriptor_sets and #config.descriptor_sets > 0 then
 		layouts = {}
 
 		for set_index, bindings in ipairs(config.descriptor_sets) do
@@ -197,6 +199,7 @@ function RayTracingPipeline.New(device, config)
 		record_stride = record_stride,
 		shader_modules = shader_modules,
 		pipeline_layout = pipeline_layout,
+		owns_pipeline_layout = not config.pipeline_layout,
 		set_layouts = layouts,
 		stage_count = stage_count,
 		stage_index = stage_index,
@@ -226,9 +229,9 @@ end
 
 local region_t = ffi.typeof("$[1]", vulkan.vk.VkStridedDeviceAddressRegionKHR)
 
-function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_sets)
+function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_sets, dynamic_offsets)
 	vulkan.lib.vkCmdBindPipeline(cmd.ptr[0], vulkan.vk.e.VkPipelineBindPoint("ray_tracing_khr"), self.pipeline)
-	cmd:BindDescriptorSets("ray_tracing_khr", self.pipeline_layout, descriptor_sets, nil, 0)
+	cmd:BindDescriptorSets("ray_tracing_khr", self.pipeline_layout, descriptor_sets, dynamic_offsets, 0)
 	local rgs = region_t()
 	local chs = region_t()
 	local miss = region_t()
@@ -266,7 +269,7 @@ function RayTracingPipeline:OnRemove()
 		if module then module:Remove() end
 	end
 
-	if self.pipeline_layout then self.pipeline_layout:Remove() end
+	if self.pipeline_layout and self.owns_pipeline_layout then self.pipeline_layout:Remove() end
 
 	if self.records_buffer then self.records_buffer:Remove() end
 end

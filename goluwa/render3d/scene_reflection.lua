@@ -31,6 +31,11 @@ local screenspace_roughness = pvars.Setup2{
 	max = 1,
 	help = "perceptual roughness below which the screen space reflection is used first and the ray trace only fills what the screen does not hold. from there up, and everywhere at 0, the trace is the reflection and the screen is not traced",
 }
+local reorder = pvars.Setup2{
+	key = "reflection_reorder",
+	default = true,
+	help = "the reflection rays are traced from a ray generation shader with a hit object and the threads are reordered by what they hit before it is shaded, off traces with ray queries in a compute shader. needs ray tracing invocation reorder, built into the shader",
+}
 pvars.EndGroup()
 
 function scene_reflection.GetDescriptorSets(bindings, stage)
@@ -90,6 +95,42 @@ function scene_reflection.GetDeclarationGLSL(bindings, shared)
 			light_grid.GetGLSL(bindings.light_grid) or
 			""
 		)
+end
+
+-- the ray generation form of a pass that traces the reflection hit with a hit object and reorders the threads by what
+-- they hit before shading it. the any hit shader is the confirmation of the ray query loop
+function scene_reflection.GetRayGeneration()
+	local vendor = render.GetDevice().ray_reorder:upper()
+	local names = {}
+
+	for _, name in ipairs({"hitObject", "hitObjectTraceRay", "reorderThread", "hitObjectIsHit", "hitObjectGetRayTMax", "hitObjectGetInstanceCustomIndex", "hitObjectGetPrimitiveIndex", "hitObjectGetAttributes", "hitObjectAttribute"}) do
+		names[#names + 1] = "#define SER_" .. name .. " " .. name .. vendor
+	end
+
+	return {
+		extension = "#extension GL_" .. vendor .. "_shader_invocation_reorder : require",
+		declarations = table.concat(names, "\n") .. [[
+
+			#define SCENE_REFLECTION_SER
+			layout(location = 0) rayPayloadEXT int scene_reflection_payload;
+			layout(location = 1) SER_hitObjectAttribute vec2 scene_reflection_attributes;
+		]],
+		anyhit = [[
+			hitAttributeEXT vec2 barycentrics;
+			layout(location = 0) rayPayloadInEXT int payload;
+		]] .. ddgi.GetAlphaTestGLSL() .. [[
+
+			void main() {
+				uint instance = uint(gl_InstanceCustomIndexEXT);
+
+				if (ddgi_materials[scene_instance_material(instance)].transparent != 0 || !ddgi_alpha_passes(instance, uint(gl_PrimitiveID), barycentrics)) ignoreIntersectionEXT;
+			}
+		]],
+	}
+end
+
+function scene_reflection.IsReordered()
+	return reorder:Get()
 end
 
 function scene_reflection.IsEnabled()
@@ -204,21 +245,44 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 		// the hit is lit by the sun and lights through the glass in front of them, see trace_scene_reflection
 		vec3 trace_scene_reflection_hit(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
+			hit_t = max_distance;
+			float t;
+			uint hit_instance;
+			uint hit_primitive;
+			vec2 hit_barycentrics;
+
+			#ifdef SCENE_REFLECTION_SER
+			SER_hitObject hit_object;
+			SER_hitObjectTraceRay(hit_object, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, 0, 0, 0, origin, 0.0, dir, max_distance, 0);
+
+			SER_reorderThread(hit_object);
+
+			if (!SER_hitObjectIsHit(hit_object)) {
+				return sample_environment_specular(]] .. block_name .. [[.env_tex, dir, N, roughness);
+			}
+
+			t = SER_hitObjectGetRayTMax(hit_object);
+			hit_instance = uint(SER_hitObjectGetInstanceCustomIndex(hit_object));
+			hit_primitive = uint(SER_hitObjectGetPrimitiveIndex(hit_object));
+			SER_hitObjectGetAttributes(hit_object, 1);
+			hit_barycentrics = scene_reflection_attributes;
+			#else
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, origin, 0.0, dir, max_distance);
 
 			SCENE_REFLECTION_PROCEED(query)
 
-			hit_t = max_distance;
-
 			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
 				return sample_environment_specular(]] .. block_name .. [[.env_tex, dir, N, roughness);
 			}
 
-			float t = rayQueryGetIntersectionTEXT(query, true);
+			t = rayQueryGetIntersectionTEXT(query, true);
+			hit_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+			hit_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+			hit_barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+			#endif
+
 			hit_t = t;
-			uint hit_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-			uint hit_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
 			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ddgi_material material = ddgi_materials[tri.material];
 			// the visible side winds clockwise, so tri.normal points inward
@@ -236,7 +300,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 			#if RT_HIT_TEXTURES
 			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
-				vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+				vec2 barycentrics = hit_barycentrics;
 				scene_uv uv = scene_hit_uv(hit_instance, hit_primitive);
 				vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics);
 				vec2 coord = uv.uv0 * weights.x + uv.uv1 * weights.y + uv.uv2 * weights.z;

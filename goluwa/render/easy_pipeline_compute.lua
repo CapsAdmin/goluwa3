@@ -247,10 +247,18 @@ do
 		local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
 		local bindless_view_capacity = bindless_descriptor_capacities.views
 		local bindless_sampler_capacity = bindless_descriptor_capacities.samplers
+		local ray_generation = config.ray_generation
 		local shader_header = glsl_meta.build_shader_header(
 			bindless_texture_capacity,
 			bindless_cubemap_capacity,
-			{"#extension GL_NV_compute_shader_derivatives : require"},
+			ray_generation and
+				{
+					"#extension GL_EXT_ray_tracing : require",
+					ray_generation.extension,
+					"#define texture(s, uv) textureLod(s, uv, 0.0)",
+					"#define gl_GlobalInvocationID gl_LaunchIDEXT",
+				} or
+				{"#extension GL_NV_compute_shader_derivatives : require"},
 			bindless_view_capacity,
 			bindless_sampler_capacity
 		)
@@ -372,7 +380,7 @@ do
 		local local_size_glsl = ""
 		local uniform_buffer_glsl = ""
 
-		if local_size then
+		if local_size and not ray_generation then
 			if type(local_size) == "number" then
 				local_size = {x = local_size, y = local_size, z = 1}
 			else
@@ -395,7 +403,18 @@ do
 			uniform_buffer_glsl = uniform_buffer_glsl .. uniform_buffer_types[name].glsl .. "\n\n"
 		end
 
+		local ray_tracing
+
+		if ray_generation then
+			ray_tracing = {
+				closesthit = "#version 460\n#extension GL_EXT_ray_tracing : require\nlayout(location = 0) rayPayloadInEXT int payload;\nvoid main() {}\n",
+				miss = "#version 460\n#extension GL_EXT_ray_tracing : require\nlayout(location = 0) rayPayloadInEXT int payload;\nvoid main() {}\n",
+				anyhit = shader_header .. (config.custom_declarations or "") .. uniform_buffer_glsl .. ray_generation.anyhit,
+			}
+		end
+
 		self.pipeline = render.CreateComputePipeline{
+			ray_tracing = ray_tracing,
 			DescriptorSetCount = config.DescriptorSetCount or
 				(
 					config.descriptor_set_count
@@ -414,7 +433,7 @@ do
 					code = shader_header .. (
 							config.custom_declarations or
 							""
-						) .. local_size_glsl .. push_constant_glsl .. uniform_buffer_glsl .. (
+						) .. (ray_generation and ray_generation.declarations or "") .. local_size_glsl .. push_constant_glsl .. uniform_buffer_glsl .. (
 							config.shader or
 							""
 						),
@@ -658,6 +677,10 @@ do
 			)
 		end
 
+		if self.config.ray_generation then
+			cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "ray_tracing_shader_khr", memoryBarrier = true}
+		end
+
 		if self.on_draw then
 			self:on_draw(cmd, fb, resolved_frame_index, descriptor_frame_index)
 		else
@@ -678,7 +701,7 @@ do
 				"shader_read_only_optimal",
 				{
 					cmd = cmd,
-					srcStage = "compute",
+					srcStage = self.config.ray_generation and "ray_tracing_shader_khr" or "compute",
 					srcAccess = "shader_write",
 					dstStage = info.dst_stage or "fragment",
 					dstAccess = "shader_read",

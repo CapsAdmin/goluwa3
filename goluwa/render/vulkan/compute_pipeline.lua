@@ -8,7 +8,9 @@ local DescriptorPool = import("goluwa/render/vulkan/internal/descriptor_pool.lua
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local common = import("goluwa/render/vulkan/pipeline_common.lua")
+local RayTracingPipelineInternal = import("goluwa/render/vulkan/internal/ray_tracing_pipeline.lua")
 local ComputePipeline = objects.CreateTemplate("render_compute_pipeline")
+local RAY_TRACING_STAGE_BITS = 0x100 + 0x200 + 0x400 + 0x800
 
 local function normalize_compat_config(config)
 	if config.shader_stages then return config end
@@ -65,7 +67,9 @@ local function build_descriptor_layouts(config)
 			error("ComputePipeline.New: only compute shader stages are supported", 3)
 		end
 
-		local stage_bits = common.get_shader_stage_bits_u32(stage.type)
+		local stage_bits = config.ray_tracing and
+			RAY_TRACING_STAGE_BITS or
+			common.get_shader_stage_bits_u32(stage.type)
 		all_stage_bits = bit.bor(all_stage_bits, stage_bits)
 
 		for _, ds in ipairs(stage.descriptor_sets or {}) do
@@ -166,11 +170,16 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 		config.shader_stages and config.shader_stages[1],
 		"ComputePipeline.New: shader_stages[1] is required"
 	)
-	local shader = ShaderModule.New(
-		vulkan_instance.device,
-		assert(stage.code, "ComputePipeline.New: compute shader code is required"),
-		"compute"
-	)
+	local shader
+
+	if not config.ray_tracing then
+		shader = ShaderModule.New(
+			vulkan_instance.device,
+			assert(stage.code, "ComputePipeline.New: compute shader code is required"),
+			"compute"
+		)
+	end
+
 	local descriptor_info = build_descriptor_layouts(config)
 
 	if #descriptor_info.push_constant_ranges > 0 then
@@ -195,7 +204,27 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 		descriptor_info.descriptor_set_layouts,
 		descriptor_info.push_constant_ranges
 	)
-	local pipeline = ComputePipelineInternal.New(vulkan_instance.device, shader, pipeline_layout)
+	local pipeline
+
+	if config.ray_tracing then
+		pipeline = RayTracingPipelineInternal.New(
+			vulkan_instance.device,
+			{
+				stages = {
+					{name = "raygeneration", code = stage.code},
+					{name = "closesthit", code = config.ray_tracing.closesthit},
+					{name = "miss", code = config.ray_tracing.miss},
+					{name = "anyhit", code = config.ray_tracing.anyhit},
+				},
+				pipeline_layout = pipeline_layout,
+				max_recursion_depth = 1,
+				max_ray_payload_size = 4,
+			}
+		)
+	else
+		pipeline = ComputePipelineInternal.New(vulkan_instance.device, shader, pipeline_layout)
+	end
+
 	local descriptor_set_count = config.DescriptorSetCount or 1
 	local pool_sizes = config.pool_sizes or config.descriptor_pool or descriptor_info.pool_sizes
 	local descriptor_pools = {}
@@ -229,6 +258,7 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 	end
 
 	self.shader = shader
+	self.ray_tracing = config.ray_tracing ~= nil
 	self.pipeline = pipeline
 	self.pipeline_layout = pipeline_layout
 	self.descriptor_set_layouts = descriptor_info.descriptor_set_layouts
@@ -301,7 +331,8 @@ end
 
 function ComputePipeline:Bind(cmd, frame_index, dynamic_offsets)
 	frame_index = frame_index or 1
-	cmd:BindPipeline(self.pipeline, "compute")
+
+	if not self.ray_tracing then cmd:BindPipeline(self.pipeline, "compute") end
 
 	if self.descriptor_sets and #self.descriptor_sets > 0 then
 		local dirty = self.bindless_descriptor_sets_dirty
@@ -315,8 +346,10 @@ function ComputePipeline:Bind(cmd, frame_index, dynamic_offsets)
 			dirty[frame_index] = nil
 		end
 
-		local sets = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
-		cmd:BindDescriptorSets("compute", self.pipeline_layout, sets, dynamic_offsets, 0)
+		if not self.ray_tracing then
+			local sets = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
+			cmd:BindDescriptorSets("compute", self.pipeline_layout, sets, dynamic_offsets, 0)
+		end
 	end
 end
 
@@ -331,6 +364,20 @@ function ComputePipeline:DispatchIndirect(cmd, buffer, offset, frame_index, dyna
 end
 
 function ComputePipeline:DispatchForSize(cmd, width, height, depth, frame_index, dynamic_offsets)
+	if self.ray_tracing then
+		self:Bind(cmd, frame_index, dynamic_offsets)
+		self.pipeline:DispatchRays(
+			cmd,
+			width or 1,
+			height or 1,
+			depth or 1,
+			self.descriptor_sets[frame_index or 1] or self.descriptor_sets[1],
+			dynamic_offsets
+		)
+
+		return
+	end
+
 	local ls = self.local_size
 	local gx = math.ceil((width or 1) / math.max(ls.x, 1))
 	local gy = math.ceil((height or 1) / math.max(ls.y, 1))
