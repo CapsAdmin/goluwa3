@@ -108,12 +108,16 @@ function META:CanHoldBody(body)
 		body:IsDynamic()
 end
 
+-- a dynamic body can always be grabbed, a static one (frozen, or a static prop of a scene) only when its entity is not transient: transient entities are what code made and keeps, saved ones are what players and levels placed. World geometry never
 function META:CanGrabBody(body)
 	return body and
 		body.IsValid and
 		body:IsValid() and
 		body.WorldGeometry ~= true and
-		not body:IsStatic()
+		(
+			not body:IsStatic() or
+			not body.Owner:GetTransient()
+		)
 end
 
 function META:FreezeHeldBody()
@@ -172,6 +176,8 @@ function META:TryAcquireBody(cmd)
 	local grab_point = hit and (hit.point or hit.position) or nil
 
 	if not self:CanGrabBody(body) or not grab_point then return false end
+
+	if body:IsStatic() then body:SetMotionType("dynamic") end
 
 	self.held_body = body
 	self.held_original_group = body:GetCollisionGroup()
