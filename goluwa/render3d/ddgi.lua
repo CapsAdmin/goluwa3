@@ -828,8 +828,8 @@ ddgi.MIN_WEIGHT = MIN_WEIGHT
 function ddgi.GetEmitterDeclarationsGLSL(binding)
 	return (
 		[[
-		// The emitters as words, built by ddgi.GetEmitters: 0 total power (float), 1 emitter
-		// count, then the emitters, 4 words each: the instance, the primitive (and the
+		// The emitters as words, built on the gpu by scene/emitters.lua: 0 total power (float), 1
+		// emitter count, then the emitters, 4 words each: the instance, the primitive (and the
 		// double sided bit), the cdf over all emitters (float), the power (float).
 		layout(set = 0, binding = %d) readonly buffer DDGIEmitters {
 			uint ddgi_grid[];
@@ -1068,7 +1068,7 @@ function ddgi.GetEmitterGLSL()
 			while (lo < hi) {
 				int mid = (lo + hi) / 2;
 
-				if (uintBitsToFloat(ddgi_grid[2u + uint(mid) * 4u + 2u]) < u) {
+				if (uintBitsToFloat(ddgi_grid[2u + uint(mid) * 4u + 2u]) <= u) {
 					lo = mid + 1;
 				} else {
 					hi = mid;
@@ -1688,42 +1688,13 @@ function ddgi.GetRayHitBuffer()
 	return ray_hit_buffer
 end
 
-do
-	local WordArray = ffi.typeof("uint32_t[?]")
-	local buffers = {}
-	local buffer_versions = {}
+function ddgi.GetEmitters()
+	return scene_emitters.Get(additive_emitters:Get())
+end
 
-	function ddgi.GetEmitters()
-		return scene_emitters.Get(additive_emitters:Get())
-	end
-
-	function ddgi.GetEmitterBuffer()
-		local emitters = ddgi.GetEmitters()
-		local frame = render.GetCurrentFrame()
-		local buffer = buffers[frame]
-		local bytes = emitters.word_count * 4
-
-		if not buffer or buffer:GetSize() < bytes then
-			if buffer then buffer:Remove() end
-
-			buffer = render.CreateBuffer{
-				byte_size = bytes * 2,
-				buffer_usage = {"storage_buffer"},
-				memory_property = {"host_visible", "host_coherent"},
-				label = "ddgi_emitters",
-				data = WordArray(emitters.word_count * 2),
-			}
-			buffers[frame] = buffer
-			buffer_versions[frame] = nil
-		end
-
-		if buffer_versions[frame] ~= emitters.words_version then
-			buffer:CopyData(emitters.words, bytes)
-			buffer_versions[frame] = emitters.words_version
-		end
-
-		return buffer
-	end
+-- the emitter words, built on the gpu in cmd
+function ddgi.GetEmitterBuffer(cmd)
+	return scene_emitters.Build(cmd, additive_emitters:Get())
 end
 
 local MaterialEntry = ffi.typeof([[struct {

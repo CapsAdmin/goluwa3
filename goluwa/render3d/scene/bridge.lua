@@ -267,6 +267,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	local list = visual.scene_instances or {}
 	local count = 0
 	local changed = false
+	local emitter_changed = false
 	local emissive = false
 	local hidden = not visual.Visible
 	local has_cpu_entry = false
@@ -304,10 +305,13 @@ function bridge.UpdateVisual(visual, is_dynamic)
 					changed = true
 				end
 
-				changed = instances.SetMaterial(item.id, material_row) or changed
-				changed = instances.SetMask(item.id, mask, flags) or changed
+				local material_changed = instances.SetMaterial(item.id, material_row)
+				local mask_changed = instances.SetMask(item.id, mask, flags)
+				changed = material_changed or mask_changed or changed
+				emitter_changed = material_changed or mask_changed or emitter_changed
 			else
 				changed = true
+				emitter_changed = true
 
 				if item then
 					draw.ClearRow(item.id)
@@ -349,6 +353,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 		instances.Remove(list[i].id)
 		list[i] = nil
 		changed = true
+		emitter_changed = true
 	end
 
 	if count == 0 then
@@ -370,7 +375,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	end
 
 	if emissive or emissive_visuals[visual] then
-		if changed or (emissive_visuals[visual] or false) ~= emissive then
+		if emitter_changed or (emissive_visuals[visual] or false) ~= emissive then
 			bridge.emitter_version = bridge.emitter_version + 1
 		end
 
@@ -431,8 +436,6 @@ function bridge.RefreshDynamic()
 
 				if box then instances.SetRasterBox(list[i].id, box) end
 			end
-
-			if emissive_visuals[visual] then bridge.emitter_version = bridge.emitter_version + 1 end
 		end
 	end
 end
