@@ -373,13 +373,6 @@ function Table:Update(frame)
 	local ranges = self.pending_ranges
 
 	if ranges and ranges[1] then
-
-	if immediate then
-		release_range(self, base, n)
-
-		return
-	end
-
 		local keep = {}
 
 		for _, range in ipairs(ranges) do
@@ -415,20 +408,6 @@ function Table:Update(frame)
 	self.pending_free = keep
 end
 
-function Table:Get()
-	return self.ptr
-end
-
--- every row is unused again, for a table that is rewritten as a whole
-function Table:Clear()
-	ffi.fill(self.ptr, self.capacity * self.row_size)
-
-	if self.staged then
-		ffi.fill(self.dirty_flags, self.capacity, 1)
-		self.dirty_min = 0
-		self.dirty_max = self.capacity - 1
-	end
-
 -- the runs of rows that are not in a free range, as first row and length pairs in `spans`. returns how many rows they hold
 -- and how many runs there are
 function Table:GetSpans(spans)
@@ -459,6 +438,20 @@ function Table:GetSpans(spans)
 	return rows, count
 end
 
+function Table:Get()
+	return self.ptr
+end
+
+-- every row is unused again, for a table that is rewritten as a whole
+function Table:Clear()
+	ffi.fill(self.ptr, self.capacity * self.row_size)
+
+	if self.staged then
+		ffi.fill(self.dirty_flags, self.capacity, 1)
+		self.dirty_min = 0
+		self.dirty_max = self.capacity - 1
+	end
+
 	self.count = 0
 	self.live = 0
 	self.free = {}
@@ -486,6 +479,8 @@ function store.Update()
 	for rows in pairs(tables) do
 		rows:Update(frame)
 	end
+
+	store.TrimUploads(frame)
 
 	for i = #retired, 1, -1 do
 		if retired[i].frame <= frame - RETIRE_FRAMES then
