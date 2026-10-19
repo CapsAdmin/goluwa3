@@ -1,9 +1,11 @@
 local prefab = import("goluwa/entities/prefab.lua")
 local weapons = {}
+weapons.Definitions = {}
 
 -- the entity of a weapon is the prefab of its name, the weapon component holds what every weapon has and the weapon_* component what it does
 -- its model is an instance of a model prefab, a node of the weapon that sits on the right hand and is shown while the weapon is held
 function weapons.Register(name, values, model_prefab)
+	weapons.Definitions[name] = {DisplayName = values.DisplayName, Model = model_prefab}
 	prefab.Register(
 		name,
 		{
@@ -32,6 +34,17 @@ weapons.Register(
 )
 weapons.Register("weapon_physgun", {Slot = 1, DisplayName = "Physgun"}, "weapon_physgun_model")
 weapons.Register("weapon_pistol", {Slot = 2, DisplayName = "Pistol", FireRate = 0.25}, "weapon_pistol_model")
+
+function weapons.GetNames()
+	local names = {}
+
+	for name in pairs(weapons.Definitions) do
+		names[#names + 1] = name
+	end
+
+	table.sort(names)
+	return names
+end
 
 weapons.Loadout = {"weapon_camera", "weapon_physgun", "weapon_pistol"}
 return weapons
