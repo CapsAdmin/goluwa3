@@ -21,6 +21,7 @@ function BatchTable.New(config)
 		written = {},
 		write_serial = 0,
 		write_animated = config.write_animated,
+		animation_version = config.animation_version,
 		versions = {},
 		material_batches = setmetatable({}, {__mode = "k"}),
 		animated_batches = {},
@@ -65,11 +66,12 @@ end
 
 -- a record is written when its batch is new or the material of the batch changed, found in the log of the objects
 -- that were stamped since the last update. a batch of an animated material only has the part that moves written
--- every update, and a few records get written in full each update in case something changed that no property
--- version saw. each frame's buffer gets the records that changed since it was last written, kept mapped
+-- when animation_version() changed since the last update, and a few records get written in full each update in case
+-- something changed that no property version saw. each frame's buffer gets the records that changed since it was last written, kept mapped
 function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local slot = self.per_frame and render.GetCurrentFrame() or 1
 	local version = objects.version_counter
+	local animation_version = self.animation_version()
 	local full = self.batch_serial ~= batch_serial or
 		self.address_release_serial ~= Buffer.address_release_serial
 
@@ -77,6 +79,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		not full and
 		self.submission == submission and
 		self.material_version == version and
+		self.written_animation_version == animation_version and
 		self.buffers[slot]
 	then
 		return self.buffers[slot]:GetDeviceAddress()
@@ -167,16 +170,20 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		self.cursor = cursor + REFRESH_WINDOW
 	end
 
-	local write_animated = self.write_animated
+	if self.written_animation_version ~= animation_version then
+		local write_animated = self.write_animated
 
-	for i in pairs(animated_batches) do
-		if write_animated then
-			write_animated(context, pipeline, self.records[i - 1], batches[i])
-		else
-			write_batch_record(self, pipeline, context, i, batches[i], serial)
+		for i in pairs(animated_batches) do
+			if write_animated then
+				write_animated(context, pipeline, self.records[i - 1], batches[i])
+			else
+				write_batch_record(self, pipeline, context, i, batches[i], serial)
+			end
+
+			written[i] = serial
 		end
 
-		written[i] = serial
+		self.written_animation_version = animation_version
 	end
 
 	local buffer = self.buffers[slot]

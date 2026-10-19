@@ -973,6 +973,12 @@ do
 	end
 end
 
+-- changes when FillVertexAnimationData would write something else for the same material and polygon, the times of
+-- the wind are not counted because the multi draw shaders take them from the frame
+function model_pipeline.GetVertexAnimationVersion()
+	return atmosphere.GetWindVersion()
+end
+
 function model_pipeline.WriteVertexAnimationBlock(self, block)
 	return model_pipeline.FillVertexAnimationData(block)
 end

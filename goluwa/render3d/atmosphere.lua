@@ -91,6 +91,7 @@ local fog_ray_strength = pvars.Setup2{
 pvars.EndGroup()
 atmosphere.precipitation_extinction = 0
 atmosphere.wind = Vec3(0, 0, 0)
+atmosphere.wind_version = 0
 atmosphere.temperature = 15
 atmosphere.cloud_sky_texture = nil
 atmosphere.cloud_transmittance = 1
@@ -1252,7 +1253,17 @@ do
 	local REFERENCE_WIND_SPEED = 4
 
 	function atmosphere.SetWind(velocity)
+		if atmosphere.wind_set ~= velocity then
+			atmosphere.wind_version = atmosphere.wind_version + 1
+			atmosphere.wind_set = velocity:Copy()
+		end
+
 		atmosphere.wind = velocity
+	end
+
+	-- changes when the wind vector does, for what is worked out from it and kept
+	function atmosphere.GetWindVersion()
+		return atmosphere.wind_version
 	end
 
 	function atmosphere.GetWind()

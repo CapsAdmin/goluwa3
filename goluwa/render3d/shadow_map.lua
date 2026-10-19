@@ -1445,6 +1445,7 @@ function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instan
 			record_type = ShadowBatchRecord,
 			write_record = write_shadow_batch_record,
 			write_animated = write_shadow_batch_animation,
+			animation_version = model_pipeline.GetVertexAnimationVersion,
 		}
 		self.shadow_batch_tables[key or pipeline] = batch_table
 	end

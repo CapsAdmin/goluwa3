@@ -88,6 +88,7 @@ do
 			record_type = model_pipeline.GetPBRBatchRecordType(),
 			write_record = write_record,
 			write_animated = write_animated,
+			animation_version = model_pipeline.GetVertexAnimationVersion,
 			per_frame = true,
 		}
 	end

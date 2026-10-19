@@ -20,11 +20,18 @@ local function write_record(context, pipeline, record, batch)
 	record.value = batch.value
 end
 
+local animation_version = 0
+
+local function get_animation_version()
+	return animation_version
+end
+
 local function create_table(per_frame)
 	return BatchTable.New{
 		label = "test batches",
 		record_type = Record,
 		write_record = write_record,
+		animation_version = get_animation_version,
 		per_frame = per_frame,
 	}
 end
@@ -157,12 +164,13 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	batch_table:Remove()
 end)
 
-T.Test3D("Graphics render3d batch table writes the animated part of animated batches every update", function()
+T.Test3D("Graphics render3d batch table writes the animated part of animated batches when the animation changed", function()
 	local animated_writes = 0
 	local batch_table = BatchTable.New{
 		label = "test batches",
 		record_type = Record,
 		write_record = write_record,
+		animation_version = get_animation_version,
 		write_animated = function(context, pipeline, record, batch)
 			animated_writes = animated_writes + 1
 			record.value = batch.value + 0.5
@@ -179,6 +187,12 @@ T.Test3D("Graphics render3d batch table writes the animated part of animated bat
 	context.writes = 0
 	batches[8].value = 80
 	batch_table:Update(pipeline, batches, 1, 2, context)
+	T(context.writes)["=="](4)
+	T(animated_writes)["=="](1)
+	T(read_record(batch_table.buffers[1], 8).value)["=="](8.5)
+	animation_version = animation_version + 1
+	context.writes = 0
+	batch_table:Update(pipeline, batches, 1, 3, context)
 	T(context.writes)["=="](4)
 	T(animated_writes)["=="](2)
 	T(read_record(batch_table.buffers[1], 8).value)["=="](80.5)
