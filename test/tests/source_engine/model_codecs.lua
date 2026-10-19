@@ -175,7 +175,7 @@ T.Test("the model decoder job gives the same result on a worker as inline", func
 
 		results[#results + 1] = {meshes = meshes, hull_count = physics and #physics.children or 0}
 		model_loader.model_cache = {}
-		model_loader.model_loads = import("goluwa/utility.lua").CreateLoadCache(model_loader.model_cache)
+		model_loader.model_loads = import("goluwa/utility.lua").CreateLoadCache(model_loader.model_cache, 0.004)
 	end
 
 	thread_pool.Shutdown()

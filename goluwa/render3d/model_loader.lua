@@ -47,7 +47,7 @@ function model_loader.FindModelDecoder(path)
 end
 
 model_loader.model_cache = {}
-model_loader.model_loads = utility.CreateLoadCache(model_loader.model_cache)
+model_loader.model_loads = utility.CreateLoadCache(model_loader.model_cache, 0.004)
 
 -- a decoder whose parsing runs on a worker thread. Gather(path, full_path) runs on the main thread and returns the
 -- input of the job (bytes, the workers have no vfs mounts) and its size, `job` is the source of the worker (it gets

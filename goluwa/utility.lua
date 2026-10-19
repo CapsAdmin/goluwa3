@@ -349,64 +349,109 @@ function utility.CreateDeferredLibrary(name)
 	)
 end
 
-function utility.CreateLoadCache(cache)
-	local self = {}
+do
+	local event = import("goluwa/event.lua")
+	local system = import("goluwa/system.lua")
+	local queue = {}
+	local head = 1
+	local tail = 0
+	local budget = 0
 
-	function self:Join(path, callback, extra)
-		local entry = cache[path]
+	event.AddListener("Update", "load_cache_joiners", function()
+		if head > tail then return end
 
-		if not entry or not entry.loading then return end
+		local started = system.GetTime()
 
-		list.insert(entry.joiners, {callback = callback, extra = extra})
-		return true
-	end
+		repeat
+			local run = queue[head]
+			queue[head] = nil
+			head = head + 1
+			run()
+		until head > tail or system.GetTime() - started >= budget
 
-	function self:Begin(path, callback, extra)
-		cache[path] = {loading = true, joiners = {{callback = callback, extra = extra}}}
-	end
-
-	function self:Emit(path, key, out)
-		local entry = cache[path]
-
-		if not entry or not entry.loading then return end
-
-		for _, joiner in ipairs(entry.joiners) do
-			local extra_callback = joiner.extra[key]
-
-			if extra_callback then extra_callback(out) end
+		if head > tail then
+			head = 1
+			tail = 0
 		end
-	end
+	end)
 
-	function self:Finish(path, out, ...)
-		local entry = cache[path]
+	-- budget (seconds per frame) makes the callbacks of the callers wait in a queue shared by all load caches that have
+	-- one, a model that a thousand entities are waiting on would otherwise build all of them in the frame it finished
+	function utility.CreateLoadCache(cache, frame_budget)
+		local self = {}
 
-		if not entry or not entry.loading then return end
+		local function call(run)
+			if not frame_budget then return run() end
 
-		cache[path] = out
+			budget = math.max(budget, frame_budget)
+			tail = tail + 1
+			queue[tail] = run
+		end
 
-		for _, joiner in ipairs(entry.joiners) do
-			local ok, err = xpcall(joiner.callback, debug.traceback, out, ...)
+		function self:Join(path, callback, extra)
+			local entry = cache[path]
 
-			if not ok then
-				local on_fail = joiner.extra.on_fail
+			if not entry or not entry.loading then return end
 
-				if not on_fail then error(err, 0) end
+			list.insert(entry.joiners, {callback = callback, extra = extra})
+			return true
+		end
 
-				on_fail(err)
+		function self:Begin(path, callback, extra)
+			cache[path] = {loading = true, joiners = {{callback = callback, extra = extra}}}
+		end
+
+		function self:Emit(path, key, out)
+			local entry = cache[path]
+
+			if not entry or not entry.loading then return end
+
+			for _, joiner in ipairs(entry.joiners) do
+				local extra_callback = joiner.extra[key]
+
+				if extra_callback then
+					call(function()
+						extra_callback(out)
+					end)
+				end
 			end
 		end
-	end
 
-	function self:Get(path)
-		local entry = cache[path]
-		return entry and not entry.loading and entry or nil
-	end
+		function self:Finish(path, out, ...)
+			local entry = cache[path]
 
-	function self:Forget(path)
-		cache[path] = nil
-	end
+			if not entry or not entry.loading then return end
 
-	return self
+			cache[path] = out
+			local args = {...}
+			local count = select("#", ...)
+
+			for _, joiner in ipairs(entry.joiners) do
+				call(function()
+					local ok, err = xpcall(joiner.callback, debug.traceback, out, unpack(args, 1, count))
+
+					if not ok then
+						local on_fail = joiner.extra.on_fail
+
+						if not on_fail then error(err, 0) end
+
+						on_fail(err)
+					end
+				end)
+			end
+		end
+
+		function self:Get(path)
+			local entry = cache[path]
+			return entry and not entry.loading and entry or nil
+		end
+
+		function self:Forget(path)
+			cache[path] = nil
+		end
+
+		return self
+	end
 end
 
 do
