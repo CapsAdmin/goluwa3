@@ -55,7 +55,6 @@ end
 
 function META:GetViewPosition()
 	local transform = self.Owner and self.Owner.transform
-	local body = self.Owner and self.Owner.rigid_body
 	local offset = self:GetViewOffset() or Vec3()
 	local controller = self.Owner and self.Owner.player_controller
 
@@ -63,10 +62,9 @@ function META:GetViewPosition()
 
 	if not transform then return offset:Copy() end
 
-	if body and body.ShouldInterpolateTransform and body:ShouldInterpolateTransform() then
-		local alpha = physics.GetInterpolationAlpha()
-		return body:GetInterpolatedOrigin(alpha) + offset
-	end
+	local render_position = transform:GetRenderPositionRotation()
+
+	if render_position then return render_position + offset end
 
 	return transform:GetPosition():Copy() + offset
 end

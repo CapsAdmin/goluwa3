@@ -52,8 +52,9 @@ function META:Initialize()
 	assert(self.Owner.rigid_body)
 	self.crouch_alpha = self:IsCrouching() and 1 or 0
 	self.fly_speed_multiplier = 1
-	self.step_smooth = 0
+	self.Owner.transform.RenderOffset = Vec3()
 	self:AddGlobalEvent("PhysicsUpdate")
+	self:AddGlobalEvent("Update")
 	self.mode = nil
 	self:ApplyMode(self.Mode)
 end
@@ -77,7 +78,7 @@ function META:Reset(mode)
 	self.ground_z = nil
 	self.jump_requested = nil
 	self.fly_speed_multiplier = 1
-	self.step_smooth = 0
+	self.Owner.transform.RenderOffset:Set(0, 0, 0)
 	self:InvalidateBodyGeometry()
 	self:ApplyMode(mode)
 end
@@ -85,7 +86,7 @@ end
 -- the origin of a player is where it stands, the eye is above it in both modes
 function META:GetViewOffset()
 	local _, _, eye_height = self:GetDimensions()
-	return Vec3(0, eye_height + self.step_smooth, 0)
+	return Vec3(0, eye_height, 0)
 end
 
 function META:SetEyePosition(position)
@@ -285,7 +286,7 @@ function META:TryStepUp(direction, distance)
 	end
 
 	self:MoveBodyBy(body, Vec3(0, lift, 0))
-	self.step_smooth = self.step_smooth - lift
+	self.Owner.transform.RenderOffset.y = self.Owner.transform.RenderOffset.y - lift
 	return true
 end
 
@@ -390,7 +391,7 @@ function META:ApplyMode(mode)
 	body:SetFriction(0)
 	body:SetCollisionMask(bit.bnot(usercmd.HELD_COLLISION_GROUP))
 	self:ResetBodyRotation()
-	self.step_smooth = 0
+	self.Owner.transform.RenderOffset:Set(0, 0, 0)
 	self.Owner.transform:SetPosition(position)
 	body:SynchronizeFromTransform()
 	body.PreviousPosition = body.Position:Copy()
@@ -435,6 +436,16 @@ do
 
 	local BUTTON = usercmd.BUTTON
 
+	function META:OnUpdate(dt)
+		local offset = self.Owner.transform.RenderOffset
+		local smooth = offset.y
+
+		if smooth ~= 0 then
+			local decay = math.max(math.abs(smooth) * STEP_SMOOTH_SPEED, STEP_SMOOTH_MIN_SPEED) * dt
+			offset.y = math.abs(smooth) <= decay and 0 or smooth - math.sign(smooth) * decay
+		end
+	end
+
 	function META:OnPhysicsUpdate(dt)
 		local body = self.Owner.rigid_body
 		local cmd = self:GetCommandSource():NextCommand(dt)
@@ -460,13 +471,6 @@ do
 		local jump_down = usercmd.HasButton(cmd, BUTTON.JUMP)
 
 		if self.mode == "walk" then
-			local smooth = self.step_smooth
-
-			if smooth ~= 0 then
-				local decay = math.max(math.abs(smooth) * STEP_SMOOTH_SPEED, STEP_SMOOTH_MIN_SPEED) * dt
-				self.step_smooth = math.abs(smooth) <= decay and 0 or smooth - math.sign(smooth) * decay
-			end
-
 			local submerged = body.SubmergedFraction or 0
 
 			if self.Swimming then
@@ -548,7 +552,7 @@ do
 
 					if gap > 0 and reach > self.GroundReach then
 						self:MoveBodyBy(body, Vec3(0, -gap, 0))
-						self.step_smooth = self.step_smooth + gap
+						self.Owner.transform.RenderOffset.y = self.Owner.transform.RenderOffset.y + gap
 					end
 				end
 			end

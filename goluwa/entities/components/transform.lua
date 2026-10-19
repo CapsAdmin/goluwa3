@@ -267,6 +267,13 @@ function META:GetRenderPositionRotation()
 		local alpha = physics.GetInterpolationAlpha()
 		self.InterpolatedPosition = body:GetInterpolatedOrigin(alpha)
 		self.InterpolatedRotation = body:GetInterpolatedRotation(alpha)
+		local offset = self.RenderOffset
+
+		if offset then
+			local position = self.InterpolatedPosition
+			position.x, position.y, position.z = position.x + offset.x, position.y + offset.y, position.z + offset.z
+		end
+
 		self.InterpolatedFrame = frame
 	end
 
