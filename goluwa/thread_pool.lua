@@ -243,6 +243,16 @@ function job_meta:Block()
 	return self.meta, self.blob
 end
 
+pvars.StartGroup("Engine", "Threads", {prefix = "tasks_"})
+pvars.Setup2{
+	key = "tasks_enabled",
+	default = true,
+	help = "run loading work as cooperative tasks spread over frames, off runs each one to completion when it starts",
+	callback = function(val)
+		tasks.enabled = val
+	end,
+}
+
 pvars.StartGroup("Engine", "Threads", {prefix = "codec_"})
 pvars.Setup2{
 	key = "r_codec_threads",
