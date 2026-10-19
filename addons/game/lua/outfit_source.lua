@@ -90,12 +90,12 @@ function META:OnUpdate(dt)
 	local transform = player.transform
 	local _, rotation = transform:GetRenderPositionRotation()
 	rotation = rotation or transform:GetRotation()
-	local velocity = transform:GetRenderVelocity()
+	local body = self.player and self.player.rigid_body
+	local velocity = body and body:GetVelocity() or transform:GetRenderVelocity()
 	local forward_speed = velocity:Dot(rotation:GetForward())
 	local right_speed = velocity:Dot(rotation:GetRight())
 	local speed = math.sqrt(forward_speed * forward_speed + right_speed * right_speed)
 	local crouching = self.player and self.player.player_avatar:IsCrouching()
-	local body = self.player and self.player.rigid_body
 	local air = math.abs(velocity.y) > 0.8
 	if body and body:GetGrounded() then air = false end
 
