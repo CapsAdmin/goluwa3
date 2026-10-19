@@ -14,6 +14,8 @@ META:GetSet("IconTexture", nil)
 META:GetSet("Font", nil)
 META:GetSet("FontSize", nil)
 META:GetSet("TextColor", nil)
+-- a solid surface under the button, for a button that sits straight on the scene or on a transparent bar
+META:GetSet("Backed", false)
 META:GetSet("AlignX", 0.5)
 META:GetSet("AlignY", 0.5)
 META:EndStorable()
@@ -67,6 +69,14 @@ function META:OnCreate()
 		IgnoreMouseInput = true,
 		layout = self.TextLayout,
 	}
+end
+
+function META:OnDraw()
+	if self.Backed then
+		theme.active:DrawSurface(self.transform:GetSize())
+	end
+
+	theme.active:Draw(self)
 end
 
 return META:Register()

@@ -15,6 +15,7 @@ META:StartStorable()
 META:GetSet("Tabs", nil)
 META:GetSet("Icons", nil)
 META:GetSet("Value", nil)
+META:GetSet("Backed", false)
 META:GetSet("Font", nil)
 META:GetSet("FontSize", nil)
 META:EndStorable()
@@ -63,6 +64,7 @@ function META:rebuild_tabs()
 			Text = name,
 			Icon = self.Icons and self.Icons[name],
 			Mode = "tab",
+			Backed = self.Backed,
 			Font = self:GetPropertyToken("Font"),
 			FontSize = self:GetPropertyToken("FontSize"),
 			Active = name == self.Value,

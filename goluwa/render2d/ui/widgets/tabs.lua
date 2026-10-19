@@ -12,6 +12,7 @@ META.CMP.layout = {
 }
 META:StartStorable()
 META:GetSet("Value", nil)
+META:GetSet("Backed", false)
 META:GetSet("Font", nil)
 META:GetSet("FontSize", nil)
 META:EndStorable()
@@ -33,6 +34,7 @@ function META:OnCreate()
 		IsInternal = true,
 		TabsWidget = self,
 		Value = self.Value,
+		Backed = self.Backed,
 		Font = self:GetPropertyToken("Font"),
 		FontSize = self:GetPropertyToken("FontSize"),
 		OnChange = on_bar_change,
