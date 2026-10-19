@@ -173,6 +173,11 @@ local function pass_shade()
 		FramebufferSize = {x = (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) * CASCADES, y = P ^ 3},
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
+		ray_generation = VISIBILITY_RAYS and
+			render.GetDevice().ray_tracing_supported and
+			ddgi.IsShadeRayGeneration() and
+			{declarations = ""} or
+			nil,
 		storage_images = {{binding_index = BINDING_OUTPUT, dst_stage = "compute"}},
 		storage_buffers = shade_buffers,
 		uniform_buffers = {data_uniform()},

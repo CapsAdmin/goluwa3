@@ -214,7 +214,7 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 					{name = "raygeneration", code = stage.code},
 					{name = "closesthit", code = config.ray_tracing.closesthit},
 					{name = "miss", code = config.ray_tracing.miss},
-					{name = "anyhit", code = config.ray_tracing.anyhit},
+					config.ray_tracing.anyhit and {name = "anyhit", code = config.ray_tracing.anyhit} or nil,
 				},
 				pipeline_layout = pipeline_layout,
 				max_recursion_depth = 1,

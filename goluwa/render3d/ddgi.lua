@@ -241,6 +241,16 @@ local resolve_resolution = pvars.Setup2{
 		if resolve then resolve:RecreateFramebuffers() end
 	end,
 }
+local shade_ray_generation = pvars.Setup2{
+	key = "ddgi_shade_ray_generation",
+	default = true,
+	help = "the pass that lights the probe rays' hits is built as a ray generation shader of a ray tracing pipeline, off a compute shader. the same shader, the driver schedules it better. built into the shader",
+}
+
+function ddgi.IsShadeRayGeneration()
+	return shade_ray_generation:Get()
+end
+
 local smooth_blend = pvars.Setup2{
 	key = "ddgi_smooth_blend",
 	default = true,

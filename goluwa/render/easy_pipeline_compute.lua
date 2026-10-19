@@ -254,7 +254,7 @@ do
 			ray_generation and
 				{
 					"#extension GL_EXT_ray_tracing : require",
-					ray_generation.extension,
+					ray_generation.extension or "",
 					"#define texture(s, uv) textureLod(s, uv, 0.0)",
 					"#define gl_GlobalInvocationID gl_LaunchIDEXT",
 				} or
@@ -409,7 +409,9 @@ do
 			ray_tracing = {
 				closesthit = "#version 460\n#extension GL_EXT_ray_tracing : require\nlayout(location = 0) rayPayloadInEXT int payload;\nvoid main() {}\n",
 				miss = "#version 460\n#extension GL_EXT_ray_tracing : require\nlayout(location = 0) rayPayloadInEXT int payload;\nvoid main() {}\n",
-				anyhit = shader_header .. (config.custom_declarations or "") .. uniform_buffer_glsl .. ray_generation.anyhit,
+				anyhit = ray_generation.anyhit and
+					shader_header .. (config.custom_declarations or "") .. uniform_buffer_glsl .. ray_generation.anyhit or
+					nil,
 			}
 		end
 
