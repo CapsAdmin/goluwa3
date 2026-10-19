@@ -392,29 +392,44 @@ function tasks.Panic()
 	end
 end
 
-function tasks.Update()
-	local i = 0
+do
+	-- a task runs its first slice when it is started, outside of the thinker budget of the timers, so starting all the
+	-- waiting tasks of a frame (up to tasks.max of them) shares one budget too, the rest are started the next frame
+	local START_BUDGET = 1 / 30
+	local start_spent = 0
 
-	for thread in pairs(tasks.created) do
-		if not thread:IsValid() then tasks.created[thread] = nil end
-	end
+	function tasks.Update()
+		local i = 0
 
-	for thread in pairs(tasks.created) do
-		if thread:IsRunning() then i = i + 1 end
-	end
-
-	for thread in pairs(tasks.created) do
-		if thread.run_me then
-			if thread.start_blocked then goto continue end
-
-			if i >= tasks.max then break end
-
-			thread:Start(true)
-			i = i + 1
+		for thread in pairs(tasks.created) do
+			if not thread:IsValid() then tasks.created[thread] = nil end
 		end
 
-		::continue::
+		for thread in pairs(tasks.created) do
+			if thread:IsRunning() then i = i + 1 end
+		end
+
+		for thread in pairs(tasks.created) do
+			if thread.run_me then
+				if thread.start_blocked then goto continue end
+
+				if i >= tasks.max or start_spent >= START_BUDGET then break end
+
+				local started = system.GetTime()
+				thread:Start(true)
+				start_spent = start_spent + system.GetTime() - started
+				i = i + 1
+			end
+
+			::continue::
+		end
 	end
+
+	event.AddListener("Update", "tasks_start_budget", function()
+		start_spent = 0
+
+		if next(tasks.created) then tasks.Update() end
+	end)
 end
 
 do
