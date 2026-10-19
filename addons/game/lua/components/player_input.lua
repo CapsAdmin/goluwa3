@@ -18,6 +18,8 @@ META:GetSet("MaxPitch", math.pi / 2 - 0.01)
 META:GetSet("MinFOV", math.rad(0.1))
 META:GetSet("MaxFOV", math.rad(175))
 META:GetSet("MouseDivisor", 2)
+-- the movement keys keep working while a ui has the mouse (the spawn menu), looking, shooting and using still need the trapped mouse. Typing in a text field never moves
+META:GetSet("KeyboardMovement", false)
 
 function META:SetRotation(rotation)
 	self.Rotation = rotation:Copy()
@@ -159,14 +161,19 @@ function META:BuildCommand(cmd)
 
 	if self.sprint_down then buttons = bit.bor(buttons, BUTTON.SPRINT) end
 
-	if active then
+	local focused = objects.GetFocusedObject()
+	local typing = focused and focused:IsValid() and focused.text and focused.text:GetEditable()
+
+	if active or (self.KeyboardMovement and self:IsReceivingInput() and not typing) then
 		buttons = bit.bor(buttons, BUTTON.ACTIVE)
 		cmd.forward = self.move_local.z
 		cmd.side = self.move_local.x
 		cmd.up = self.move_local.y
 
 		if self.jump_down then buttons = bit.bor(buttons, BUTTON.JUMP) end
+	end
 
+	if active then
 		if input.IsMouseDown("button_1") then
 			buttons = bit.bor(buttons, BUTTON.ATTACK1)
 		end
