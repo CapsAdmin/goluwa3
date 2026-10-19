@@ -489,6 +489,14 @@ do
 			self.pipeline:Remove()
 			self.pipeline = nil
 		end
+		if self.owned_textures then
+			for _, texture in ipairs(self.owned_textures) do
+				texture:Remove()
+			end
+
+			self.owned_textures = nil
+		end
+
 
 		if self.uniform_buffers then
 			for _, ubo in pairs(self.uniform_buffers) do

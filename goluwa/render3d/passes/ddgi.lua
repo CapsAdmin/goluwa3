@@ -1,6 +1,7 @@
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local render = import("goluwa/render/render.lua")
+local Texture = import("goluwa/render/texture.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local scene_hit = import("goluwa/render3d/scene/hit.lua")
@@ -441,17 +442,25 @@ local function pass_shade()
 end
 
 local function pass_update(name, texels, integrate)
-	-- state: x the frames behind a texel, y its probe's mean ray brightness
-	local color_formats = {
-		{integrate.atlas_format[1], {name, "rgba"}},
-		{"r16g16b16a16_sfloat", {name .. "_state", "rgba"}},
-	}
+	-- state, one texel per probe (every texel of a probe computes the same): x the frames behind it, y its mean ray brightness
+	local color_formats = {{integrate.atlas_format[1], {name, "rgba"}}}
 	local storage_images = {
 		{binding_index = BINDING_OUTPUT, dst_stage = "compute"},
 		{
 			binding_index = BINDING_STATE,
-			get_texture = function(self, fb)
-				return fb:GetAttachment(2)
+			get_texture = function(self)
+				if not self.owned_textures then
+					local state = Texture.New{
+						width = P * P,
+						height = P * CASCADES,
+						format = "r16g16b16a16_sfloat",
+						image = {usage = {"storage", "sampled"}},
+					}
+					state:SetDebugName(name .. " probe state")
+					self.owned_textures = {state}
+				end
+
+				return self.owned_textures[1]
 			end,
 			dst_stage = "compute",
 		},
@@ -545,7 +554,7 @@ local function pass_update(name, texels, integrate)
 				// the new frame at once. Noise averages out of that mean, a moving shadow does not.
 				vec4 data = ddgi_probe_data(slot, c);
 				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && !ddgi_probe_disabled(data) && !ddgi_probe_moved(data);
-				vec4 state = current ? imageLoad(state_atlas, texel) : vec4(0.0);
+				vec4 state = current ? imageLoad(state_atlas, tile) : vec4(0.0);
 				float probe_mean = 0.0;
 				float probe_weight = 0.0;
 
@@ -571,7 +580,12 @@ local function pass_update(name, texels, integrate)
 				if (ddgi_data.ddgi_cascade_update[c].y > 0.0) keep = min(keep, 0.4);
 				keep = min(keep, state.x / (state.x + 1.0));
 				state.x = min(state.x + 1.0, 1024.0);
-				imageStore(state_atlas, texel, state);
+				// the texels of a probe all read the state before the first of them writes it
+				memoryBarrierImage();
+				barrier();
+
+				if (local == ivec2(0)) imageStore(state_atlas, tile, state);
+
 				imageStore(atlas, texel, mix(result, imageLoad(atlas, texel), keep));
 			}
 		]],
