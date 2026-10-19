@@ -1,8 +1,24 @@
 local event = import("goluwa/event.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local Physics = import("goluwa/physics/physics.lua")
 local physics = {}
+local tickrate = pvars.Setup2{
+	key = "phys_tickrate",
+	category = "Debug",
+	group = "Physics",
+	store = false,
+	default = 60,
+	min = 1,
+	max = 1000,
+	help = "fixed physics steps per second. the game renders at its own rate and draws bodies between steps (phys_interpolation)",
+	callback = function(hz, initial)
+		if not initial then physics.instance.FixedTimeStep = 1 / hz end
+	end,
+}
 
 function physics.Initialize(config)
+	config = config or {}
+	config.FixedTimeStep = config.FixedTimeStep or 1 / tickrate:Get()
 	physics.instance = Physics.New(config)
 
 	do -- TODO
