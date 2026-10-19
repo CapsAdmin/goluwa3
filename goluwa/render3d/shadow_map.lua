@@ -209,7 +209,8 @@ local ShadowMultiDrawPushConstants = ffi.typeof([[
 		float light_space_matrix[16];
 		float light_position[3];
 		float light_far_plane;
-		int32_t disable_vertex_animation;
+		float wind_camera[3];
+		float wind_pixel_scale;
 		float time;
 		float prev_time;
 		float detail_time;
@@ -263,7 +264,8 @@ do
 		mat4 light_space_matrix;
 		vec3 light_position;
 		float light_far_plane;
-		int disable_vertex_animation;
+		vec3 wind_camera;
+		float wind_pixel_scale;
 		float time;
 		float prev_time;
 		float detail_time;
@@ -303,7 +305,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 			mat4 shadow_world;
 			VertexAnimation_t vertex_animation;
 
-			]] .. model_pipeline.BuildVertexAnimationGlsl("shadow_world") .. [[
+			]] .. model_pipeline.BuildVertexAnimationGlsl("shadow_world", "pc.wind_camera", "pc.wind_pixel_scale") .. [[
 
 			#define SHADOW_VERTEX_FLOATS ]] .. SHADOW_VERTEX_FLOAT_COUNT .. [[u
 
@@ -340,12 +342,9 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				vec3 world_pos = (shadow_world * vec4(local_pos, 1.0)).xyz;
 
 				if (
-					pc.disable_vertex_animation == 0 &&
-					(
-						(floatBitsToUint(shadow_world[3][3]) & 0x80000000u) != 0u ||
-						SHADOW_BATCH[batch_index].anim.MainBending > 0.0 ||
-						(SHADOW_BATCH[batch_index].anim.DetailBending != 0 && SHADOW_BATCH[batch_index].anim.BendSpeed > 0.0)
-					)
+					(floatBitsToUint(shadow_world[3][3]) & 0x80000000u) != 0u ||
+					SHADOW_BATCH[batch_index].anim.MainBending > 0.0 ||
+					(SHADOW_BATCH[batch_index].anim.DetailBending != 0 && SHADOW_BATCH[batch_index].anim.BendSpeed > 0.0)
 				) {
 					vertex_animation = SHADOW_BATCH[batch_index].anim;
 					vertex_animation.Time = pc.time;
@@ -789,7 +788,6 @@ function ShadowMap.New(config)
 	self.scene_bounds_margin = config.scene_bounds_margin or 16
 	self.current_shadow_distance = self.max_shadow_distance
 	self.min_caster_texel_size = config.min_caster_texel_size or 0
-	self.disable_vertex_animation_cascades = config.disable_vertex_animation_cascades or {}
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
 	self.cascade_splits = {}
 	self.cascade = {}
@@ -1242,10 +1240,6 @@ function ShadowMap:GetCascadeWorldAABB(cascade_index)
 	return cascade.world_cull_aabb
 end
 
-function ShadowMap:ShouldDisableVertexAnimation(cascade_index)
-	return self.disable_vertex_animation_cascades[cascade_index] == true
-end
-
 function ShadowMap:MarkCascadeRendered(cascade_index, shadow_volume_change_version, camera_position, camera_forward)
 	local cascade = self.cascade[cascade_index]
 
@@ -1459,7 +1453,11 @@ function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instan
 	push_constants.light_position[1] = self.point_light_position.y
 	push_constants.light_position[2] = self.point_light_position.z
 	push_constants.light_far_plane = self.far_plane
-	push_constants.disable_vertex_animation = self:ShouldDisableVertexAnimation(cascade_index) and 1 or 0
+	local wind_camera, wind_pixel_scale = model_pipeline.GetVertexAnimationView()
+	push_constants.wind_camera[0] = wind_camera.x
+	push_constants.wind_camera[1] = wind_camera.y
+	push_constants.wind_camera[2] = wind_camera.z
+	push_constants.wind_pixel_scale = wind_pixel_scale
 	push_constants.time = atmosphere.GetWindTime()
 	push_constants.prev_time = atmosphere.GetPreviousWindTime()
 	push_constants.detail_time = atmosphere.GetWindDetailTime()

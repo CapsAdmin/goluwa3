@@ -1081,8 +1081,8 @@ function create_compute_passes()
 					float size_y = length(world[1].xyz);
 					world[0].xyz *= widen;
 					world[2].xyz *= widen;
-					// the vertex stage does not animate an instance that has this set
-					world[2][3] = d > proto.limits.y ? 1.0 : 0.0;
+					// the prototype's index was in the corner, a drawn instance leaves it zero
+					world[2][3] = 0.0;
 					bool in_view = scatter_sphere_visible(position + vec3(0.0, proto.bounds.y * size_y * 0.5, 0.0), proto.bounds.x * max(size_xz, size_y));
 
 					// only the thinning with distance fades instances, they come and go as the camera moves
@@ -1402,7 +1402,6 @@ local function write_prototype(out, proto, instance_base, far_base, shadow_base,
 	out.info3[1] = proto.shadow_room
 	out.info4[0] = shadow_billboard_base
 	out.info4[1] = proto.shadow_billboard_room
-	out.limits[1] = proto.animation_distance
 	out.limits[3] = proto.align_steep
 	-- the footprint is measured when the model has loaded
 	out.limits[2] = RAY_QUERY and proto.conform and proto.state == "ready" and proto.footprint > 0.02 and proto.footprint or 0

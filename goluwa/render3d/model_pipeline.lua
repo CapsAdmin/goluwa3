@@ -6,6 +6,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local Material = import("goluwa/render3d/material.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local system = import("goluwa/system.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
 local model_pipeline = {}
 local FLOAT_SIZE = ffi.sizeof("float")
@@ -234,7 +235,13 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	local lines = {}
 
 	if options.enable_vertex_animation ~= false then
-		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl(world_expr)
+		local camera = options.camera_block_name
+
+		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl(
+			world_expr,
+			camera and camera .. ".camera_position",
+			camera and string.format("(abs(%s.projection[1][1]) * %s.render_size.y * 0.5)", camera, camera)
+		)
 	end
 
 	lines[#lines + 1] = "void main() {"
@@ -618,8 +625,6 @@ do
 
 	multi_draw_instance_world = PBRBatchInstanceData(]] .. options.instances_expr .. [[).worlds[gl_InstanceIndex];
 	multi_draw_instance_prev_world = PBRBatchInstanceData(]] .. options.prev_instances_expr .. [[).worlds[gl_InstanceIndex];
-	// the bottom row's [2][3] is free in a scene instance (zero), scatter sets it for an instance that stands still
-	vertex_animation_disabled = multi_draw_instance_world[2][3] != 0.0;
 	vertex_animation = batch_data.b[batch_index].m_vertex_animation;
 	vertex_animation.Time = ]] .. options.time_expr .. [[;
 	vertex_animation.PrevTime = ]] .. options.prev_time_expr .. [[;
@@ -871,6 +876,20 @@ do
 	end
 end
 
+pvars.StartGroup("Rendering", "Wind", {store = false})
+-- moves with the wind's version, see GetVertexAnimationVersion
+local still_version = 0
+local still_pixels = pvars.Setup2{
+	key = "r_wind_still_pixels",
+	default = 2,
+	min = 0,
+	help = "a plant whose movement in the wind spans fewer pixels than this stands still in the pose it has at time 0 (its lean, without the sway and the flutter), over a band of twice that. far plants only shimmer. 0 moves every plant at every distance",
+	callback = function()
+		still_version = still_version + 1
+	end,
+}
+pvars.EndGroup()
+
 do
 	local FIELDS = {
 		{"Time", "float", "float Time;"},
@@ -886,8 +905,15 @@ do
 		{"DetailLeafAmplitude", "float", "float DetailLeafAmplitude;"},
 		{"DetailBranchAmplitude", "float", "float DetailBranchAmplitude;"},
 		{"DetailPhase", "float", "float DetailPhase;"},
+		{"Motion", "float", "float Motion;"},
 	}
 	local DETAIL_BENDING_MODES = {none = 0, leaves = 1, grass = 2}
+	-- how far the part of the wind's movement that changes with time takes a plant, in units of its bend height and of
+	-- the detail amplitudes, worked out from the formulas of get_vertex_animation_offset_at_time. the top of the main
+	-- bending moves 0.015 * 12 of MainBending, of which the sway and the gust are 0.45. a leaf's flutter goes up to
+	-- twice its amplitude
+	local MAIN_MOTION = 0.015 * 12 * 0.45
+	local DETAIL_MOTION = 2
 	-- the wind's strength in the detail bending (crysis' fSpeed) is cryengine's (SBending in lumberyard's
 	-- 3dEngine.cpp and D3DHWShader.cpp, see docs/crysis.md): 0.3 of a quarter of the wind in m/s, softly clamped. its
 	-- clamp of 2 held it under 0.6, so a storm moved leaves little more than a breeze. at 6 it is near cryengine's in a
@@ -969,6 +995,21 @@ do
 		block.DetailLeafAmplitude = material:GetBendDetailLeafAmplitude()
 		block.DetailBranchAmplitude = material:GetBendDetailBranchAmplitude()
 		block.DetailPhase = material:GetBendDetailPhase()
+		local motion = block.MainBending * MAIN_MOTION
+
+		if block.DetailBending ~= 0 and detail_speed > 0 then
+			local strength = detail_speed * block.DetailFrequency
+
+			-- grass bends more the higher a vertex is
+			if block.DetailBending == 2 then strength = strength * (height > 0 and height or 1) end
+
+			local amplitude = strength < 0.5 and strength * 2 or math.sqrt(strength * 2)
+			motion = motion + DETAIL_MOTION * amplitude * math.max(block.DetailLeafAmplitude, block.DetailBranchAmplitude)
+		end
+
+		local pixels = still_pixels:Get()
+		-- counted in the pixels the movement has to span for the plant to move at all, 0 turns standing still off
+		block.Motion = pixels > 0 and motion / pixels or 1e9
 		return block
 	end
 end
@@ -976,7 +1017,26 @@ end
 -- changes when FillVertexAnimationData would write something else for the same material and polygon, the times of
 -- the wind are not counted because the multi draw shaders take them from the frame
 function model_pipeline.GetVertexAnimationVersion()
-	return atmosphere.GetWindVersion()
+	return atmosphere.GetWindVersion() + still_version
+end
+
+do
+	local frame, position, pixel_scale = -1, nil, 0
+
+	-- the camera as the vertex animation sees it for the frame: where it is and how many pixels a meter at a distance of
+	-- one spans, for the passes that have no camera block of their own (the shadow maps)
+	function model_pipeline.GetVertexAnimationView()
+		local now = system.GetFrameNumber()
+
+		if now ~= frame then
+			local camera = render3d.GetCamera()
+			position = camera:GetPosition()
+			pixel_scale = math.abs(camera:BuildProjectionMatrix().m11) * render3d.GetRenderSize().y * 0.5
+			frame = now
+		end
+
+		return position, pixel_scale
+	end
 end
 
 function model_pipeline.WriteVertexAnimationBlock(self, block)
@@ -993,13 +1053,21 @@ function model_pipeline.GetVertexAnimationUploadKey()
 	return render3d.GetMaterialUploadKey()
 end
 
-function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
+-- camera_position_expr and pixel_scale_expr (a vec3 and a float, the pixels a meter spans at a distance of one) say where
+-- the camera is, without them nothing stands still
+function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_position_expr, pixel_scale_expr)
+	local still = camera_position_expr and
+		([[
+				mat4 world = ]] .. world_matrix_expr .. [[;
+				float meters = vertex_animation.Motion * length(world[1].xyz);
+				float pixels = meters * ]] .. pixel_scale_expr .. [[ / max(distance(world[3].xyz, ]] .. camera_position_expr .. [[), 0.5);
+				return 1.0 - smoothstep(1.0, 2.0, pixels);
+		]]) or
+		"return 0.0;"
 	return [[
-			// an instance can ask not to be animated, scatter does it for what is far away
-			bool vertex_animation_disabled = false;
 
 			bool has_vertex_animation() {
-				return !vertex_animation_disabled && (vertex_animation.MainBending > 0.0 || (vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0));
+				return vertex_animation.MainBending > 0.0 || (vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0);
 			}
 
 			// a wave of period 1 between 0 and 1, eased at its ends
@@ -1110,12 +1178,34 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr)
 				return conform + world_matrix3 * (pos - start_pos);
 			}
 
+			// how much of the way to standing still the wind has this instance, 0 moves it in full and 1 leaves it in the pose
+			// it has at time 0. Motion is how far it moves in units of r_wind_still_pixels, so its movement spans that
+			// many of them times its scale and the pixels a meter has at its distance. a band of twice that is a blend
+			float get_vertex_animation_still() {
+				]] .. still .. [[
+			}
+
+			// the time of the wind and of the detail only move a plant that is not standing still
+			vec3 get_vertex_animation_offset_still(vec3 world_pos, vec3 world_normal, vec4 vertex_color, float anim_time, float detail_time) {
+				if (!has_vertex_animation()) return get_instance_conform_offset(world_pos);
+
+				float still = get_vertex_animation_still();
+
+				if (still <= 0.0) return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, anim_time, detail_time);
+
+				vec3 at_rest = get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, 0.0, 0.0);
+
+				if (still >= 1.0) return at_rest;
+
+				return mix(get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, anim_time, detail_time), at_rest, still);
+			}
+
 			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
-				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_animation.Time, vertex_animation.DetailTime);
+				return get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_animation.Time, vertex_animation.DetailTime);
 			}
 
 			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
-				return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_animation.PrevTime, vertex_animation.PrevDetailTime);
+				return get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_animation.PrevTime, vertex_animation.PrevDetailTime);
 			}
 	]]
 end

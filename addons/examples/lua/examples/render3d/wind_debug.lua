@@ -9,7 +9,7 @@
 --   crysis vegetation at the sides when crysis 1 is installed (a palm, a jungle tree, a twisted tree and a bush), with
 --     their own materials and bend heights, which the multipliers scale too once they have loaded
 --   a bumpy patch at the back that a scatter set grows grass (conform, the base follows the ground) and small trees
---     on (turned, tilted, aligned to the ground, standing still past ANIMATION_DISTANCE) through scatter's own draw
+--     on (turned, tilted, aligned to the ground) through scatter's own draw
 --
 -- hold q for the controls: the wind's direction and speed, multipliers on the bending params of every material and
 -- the time scale of the wind's clock (0 stops the plants where they are)
@@ -41,7 +41,6 @@ local FLEX = 0.1
 -- far past real wind, to exaggerate. the engine eases the sway towards a limit as the wind gets stronger, the
 -- bending multiplier scales the Bending of the materials past it
 local MAX_SPEED = 100
-local ANIMATION_DISTANCE = 30
 local SCATTER_CENTER = Vec3(0, 0, -34)
 local SCATTER_SIZE = 32
 local BRANCH_COLORS = {
@@ -288,7 +287,6 @@ scene.scatter_set = ScatterSet.New{
 			full_density_distance = 30,
 			conform = true,
 			shadow = true,
-			animation_distance = ANIMATION_DISTANCE,
 			yaw = 360,
 			align = 1,
 			scale = {0.8, 1.3},
@@ -301,7 +299,6 @@ scene.scatter_set = ScatterSet.New{
 			max_distance = 150,
 			full_density_distance = 150,
 			shadow = true,
-			animation_distance = ANIMATION_DISTANCE,
 			yaw = 360,
 			tilt = 8,
 			align = 0.3,
@@ -347,7 +344,7 @@ do
 		SCATTER_CENTER,
 		0,
 		1,
-		("scatter: grass conform, trees still past %d m"):format(ANIMATION_DISTANCE)
+		"scatter: grass conform, small trees"
 	)
 end
 

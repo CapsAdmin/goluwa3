@@ -53,8 +53,6 @@
 --     (needs ray queries) the ground is measured under the four edges of its footprint, and the vertex stage moves
 --     the vertices near its base along its up axis to meet it, less the higher they are, so the tips stay free. for
 --     models that are wide and low, grass and ground plants
---   animation_distance: beyond it the instances stand still, their wind bending is skipped. 60 m by default, not
---     scaled by the set
 --   cluster: {scale = meters, amount = 0 to 1}. noise patches across the ground that the density follows,
 --     amount 1 leaves bare ground between clumps of the size of scale
 --   layers: {r, g, b, a}, how much each channel of the surface's layer mask (the terrain's splat
@@ -102,7 +100,6 @@ local DEFAULTS = {
 	conform = false,
 	shadow = true,
 	bvh = true,
-	animation_distance = 60,
 	billboard = false,
 	cluster = {scale = 8, amount = 0},
 	layers = {1, 1, 1, 1},
@@ -210,7 +207,6 @@ local function normalize_prototype(definition, set_name, index)
 		conform = get("conform"),
 		shadow = get("shadow"),
 		bvh = get("bvh"),
-		animation_distance = get("animation_distance"),
 		billboard_distance = 0,
 		billboard_fade = 0.15,
 		cluster_scale = cluster.scale or DEFAULTS.cluster.scale,
