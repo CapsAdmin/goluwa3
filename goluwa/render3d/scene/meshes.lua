@@ -155,7 +155,17 @@ function meshes.Build(cmd, updated)
 		accel.BuildBLASes(cmd, refit, refit_count)
 	end
 
-	if not pending[1] then return refit_count > 0 end
+	local compacted, compacted_count = accel.CompactBLASes(cmd)
+
+	if compacted_count > 0 then
+		local rows = meshes.GetTable():Get()
+
+		for i = 1, compacted_count do
+			rows[compacted[i].row].blas_address = compacted[i].address
+		end
+	end
+
+	if not pending[1] then return refit_count > 0 or compacted_count > 0 end
 
 	local jobs = {}
 	local budget = meshes.TRIANGLES_PER_FRAME
