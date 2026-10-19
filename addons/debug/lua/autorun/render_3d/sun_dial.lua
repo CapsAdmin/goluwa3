@@ -7,9 +7,11 @@ local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local weather = import("goluwa/render3d/weather.lua")
+local SunShadowEditor = import("lua/sun_shadow_editor.lua")
 local WIDTH = 604
 local HEIGHT = 412
 local HEADER = 36
+local TAB_BAR = 40
 local DOME_RADIUS, DOME_MARGIN = 108, 22
 local DOME_SIZE = (DOME_RADIUS + DOME_MARGIN) * 2
 local CHART_H = 130
@@ -497,13 +499,15 @@ local SunDial = react.Component(|| -> do
 		},
 	}
 end)
--- closing the window only hides it, nothing reads the sky while it is hidden
+-- closing the window only hides it, nothing reads the sky or the shadow settings while it is hidden, and only the open tab is mounted
 local SunDialWindow = react.Component(|| -> do
 	local shown, set_shown = react.UseState(true)
+	local hud, set_hud = react.UseState(false)
+	local tab, set_tab = react.UseState("Dial")
 	local position = react.UseMemo(|| -> do
 		local world_size = Panel.World.transform:GetSize()
 
-		return Vec2(world_size.x - WIDTH - 16, world_size.y - HEIGHT - HEADER - 16)
+		return Vec2(world_size.x - WIDTH - 16, world_size.y - HEIGHT - HEADER - TAB_BAR - 16)
 	end, {})
 
 	return ui.Window{
@@ -511,11 +515,21 @@ local SunDialWindow = react.Component(|| -> do
 		Pinnable = true,
 		Maximizable = false,
 		Padding = "S",
-		Size = Vec2(WIDTH, HEIGHT + HEADER),
-		MinSize = Vec2(WIDTH, HEIGHT + HEADER),
+		Size = Vec2(WIDTH, HEIGHT + HEADER + TAB_BAR),
+		MinSize = Vec2(WIDTH, HEIGHT + HEADER + TAB_BAR),
 		Position = position,
+		OnHudChanged = |_, value| -> set_hud(value),
 		OnVisibilityChanged = |_, visible| -> set_shown(visible),
-	}{shown && SunDial{}}
+	}{
+		ui.Tabs{Value = tab, OnChange = set_tab, BarHidden = hud, layout = {GrowWidth = 1, GrowHeight = 1}}{
+			ui.Column{Key = "dial", Tab = "Dial", layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"}}{
+				shown && tab == "Dial" && SunDial{},
+			},
+			ui.Column{Key = "shadows", Tab = "Shadows", layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"}}{
+				shown && tab == "Shadows" && SunShadowEditor{Height = HEIGHT - 24},
+			},
+		},
+	}
 end)
 
 desktop.RegisterProgram{
