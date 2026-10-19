@@ -1073,7 +1073,7 @@ do
 		local scratch = {}
 
 		event.AddListener(
-			"Update",
+			"LateUpdate",
 			"gine_pending_layout",
 			function()
 				for _ = 1, 32 do
@@ -1113,8 +1113,7 @@ do
 						end
 					end
 				end
-			end,
-			{priority = -150}
+			end
 		)
 	end
 

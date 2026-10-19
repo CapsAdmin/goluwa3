@@ -1018,7 +1018,7 @@ function META.FlushDirty()
 end
 
 function META:OnFirstCreated()
-	event.AddListener("Update", signature, META.FlushDirty, {priority = -100})
+	event.AddListener("LateUpdate", signature, META.FlushDirty)
 end
 
 function META:OnLastRemoved()

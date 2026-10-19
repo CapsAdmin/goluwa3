@@ -8,7 +8,7 @@ local callback = {}
 local function pump_blocking_get()
 	local dt = 0.001
 	system.SetElapsedTime(system.GetElapsedTime() + dt)
-	event.Call("Update", dt)
+	event.CallUpdate(dt)
 	system.Sleep(dt)
 end
 

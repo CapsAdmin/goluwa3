@@ -87,7 +87,7 @@ function META:Snap(name)
 	if not self.snapped_zone then
 		self.restore_pos = transform:GetPosition():Copy()
 		self.restore_size = transform:GetSize():Copy()
-		self:AddGlobalEvent("Update", {priority = 100})
+		self:AddGlobalEvent("PreUpdate")
 	end
 
 	local pos, size = self:GetZoneRect(zone)
@@ -106,7 +106,7 @@ function META:ClearSnap()
 	self.snapped_size = nil
 	self.restore_pos = nil
 	self.restore_size = nil
-	self:RemoveEvent("Update")
+	self:RemoveEvent("PreUpdate")
 	self.Owner:CallLocalEvent("OnSnapChanged", nil)
 end
 
@@ -119,7 +119,7 @@ function META:Unsnap()
 	self:ClearSnap()
 end
 
-function META:OnUpdate()
+function META:OnPreUpdate()
 	local transform = self.Owner.transform
 
 	if

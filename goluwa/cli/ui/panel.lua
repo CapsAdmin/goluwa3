@@ -65,12 +65,11 @@ end
 sync_terminal_size()
 
 event.AddListener(
-	"Update",
+	"LateUpdate",
 	"tui_panel_world_size",
 	function()
 		sync_terminal_size()
-	end,
-	{priority = -200}
+	end
 )
 
 function TuiPanel.Draw(term)
@@ -123,7 +122,7 @@ do
 	end)
 
 	event.AddListener(
-		"Update",
+		"Render",
 		"tui_panel_draw",
 		function()
 			local ok, err = pcall(function()
@@ -148,8 +147,7 @@ do
 				teardown()
 				print("Error in draw loop:", err)
 			end
-		end,
-		{priority = -200}
+		end
 	)
 end
 
@@ -197,7 +195,7 @@ do
 		end
 	end
 
-	event.AddListener("Update", "tui_panel_events", function()
+	event.AddListener("PreUpdate", "tui_panel_events", function()
 		local term = repl.GetTerminal()
 
 		if not term then return end

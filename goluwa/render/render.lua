@@ -216,7 +216,7 @@ function render.Shutdown()
 	render.shutting_down = true
 	event.RemoveListener("WindowFramebufferResized", "window_resized")
 	event.RemoveListener("Update", "save_pipeline_cache")
-	event.RemoveListener("Update", "window_update")
+	event.RemoveListener("Render", "window_update")
 
 	if render.target:IsValid() then render.target:Remove() end
 
@@ -393,7 +393,7 @@ function render.Initialize(config)
 
 	end
 
-	event.AddListener("Update", "window_update", render.Draw)
+	event.AddListener("Render", "window_update", render.Draw)
 	render.ready = true
 end
 

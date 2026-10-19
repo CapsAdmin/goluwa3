@@ -60,7 +60,7 @@ function META:StartDragging(button)
 	self.drag_mouse_start = mouse_pos:Copy()
 	self.drag_object_start = transform:GetPosition():Copy()
 	self.drag_button = button
-	self:AddGlobalEvent("Update", {priority = 100})
+	self:AddGlobalEvent("PreUpdate")
 	self.Owner:CallLocalEvent("OnDragStarted", button)
 	return true
 end
@@ -70,7 +70,7 @@ function META:StopDragging()
 	self.drag_mouse_start = nil
 	self.drag_object_start = nil
 	self.drag_button = nil
-	self:RemoveEvent("Update")
+	self:RemoveEvent("PreUpdate")
 end
 
 function META:Rebase()
@@ -82,7 +82,7 @@ function META:IsDragging()
 	return self.drag_mouse_start ~= nil
 end
 
-function META:OnUpdate()
+function META:OnPreUpdate()
 	if self.drag_button ~= nil and not input.IsMouseDown(self.drag_button) then
 		self:StopDragging()
 		return

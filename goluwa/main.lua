@@ -355,10 +355,11 @@ crash_trace.Run(function()
 		system.SetFrameNumber(i)
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
 		local update_start = startup.Start()
-		event.Call("Update", dt)
+		event.CallUpdate(dt)
 
 		if not startup.ready_time then startup.Add("Update event (all frames)", update_start) end
 
+		event.Call("Render", dt)
 		system.SetInternalFrameTime(system.GetTime() - time)
 		i = i + 1
 		last_time = time

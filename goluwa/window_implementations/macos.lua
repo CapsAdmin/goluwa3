@@ -51,7 +51,7 @@ return function(META)
 		return true
 	end
 
-	function META:OnUpdate(dt)
+	function META:OnPreUpdate(dt)
 		self:SetMouseDelta(Vec2(0, 0))
 		local events = self.cocoa_window:ReadEvents()
 

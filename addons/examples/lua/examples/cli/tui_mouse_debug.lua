@@ -105,7 +105,7 @@ end)
 local function teardown()
 	event.RemoveListener("TerminalKeyInput", "tui_mouse_debug_key")
 	event.RemoveListener("TerminalMouseMoved", "tui_mouse_debug")
-	event.RemoveListener("Update", "tui_mouse_debug_draw")
+	event.RemoveListener("Render", "tui_mouse_debug_draw")
 	TuiPanel.World:RemoveChildren()
 end
 
@@ -122,7 +122,7 @@ event.AddListener(
 )
 
 event.AddListener(
-	"Update",
+	"Render",
 	"tui_mouse_debug_draw",
 	function()
 		if repl.GetEnabled() then return end
@@ -159,8 +159,7 @@ event.AddListener(
 
 		term:EndFrame()
 		term:Flush()
-	end,
-	{priority = -200}
+	end
 )
 
 repl.SetEnabled(false)

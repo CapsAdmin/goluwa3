@@ -40,7 +40,7 @@ function META:Initialize()
 	self.select_down = {}
 	self.wheel_accum = 0
 	self:RefreshKeys()
-	self:AddGlobalEvent("Update", {priority = 100})
+	self:AddGlobalEvent("PreUpdate")
 	self:AddGlobalEvent("MouseInput")
 	self:AddGlobalEvent("EditorControlsChanged")
 end
@@ -196,7 +196,7 @@ function META:BuildCommand(cmd)
 	self.rotate_accum.y = 0
 end
 
-function META:OnUpdate(dt)
+function META:OnPreUpdate(dt)
 	if not self:IsReceivingInput() then return end
 
 	self.look_delta = system.GetWindow():GetMouseDelta() / self.MouseDivisor

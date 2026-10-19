@@ -110,6 +110,13 @@ function event.SkipCallback(cb)
 	event.skip_callback = cb
 end
 
+-- the phases of a frame before it is drawn: input, then the simulation, then whatever reads the simulated state
+function event.CallUpdate(dt)
+	event.Call("PreUpdate", dt)
+	event.Call("Update", dt)
+	event.Call("LateUpdate", dt)
+end
+
 function event.Call(event_type, a_, b_, c_, d_, e_)
 	if event.fix_indices[event_type] then
 		list.fix_indices(event.active[event_type])

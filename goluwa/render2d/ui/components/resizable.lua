@@ -120,21 +120,21 @@ function META:StartResizing(local_pos, button)
 
 	if self:GetBringToFrontOnResize() then self.Owner:BringToFront() end
 
-	self:AddGlobalEvent("Update", {priority = 100})
+	self:AddGlobalEvent("PreUpdate")
 	return true
 end
 
 function META:StopResizing()
 	self.resize_start_pos = nil
 	self.Owner.mouse_input:ClearCursorOverride()
-	self:RemoveEvent("Update")
+	self:RemoveEvent("PreUpdate")
 end
 
 function META:IsResizing()
 	return self.resize_start_pos ~= nil
 end
 
-function META:OnUpdate()
+function META:OnPreUpdate()
 	if self.resize_button ~= nil and not input.IsMouseDown(self.resize_button) then
 		self:StopResizing()
 		return

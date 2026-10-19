@@ -212,7 +212,7 @@ T.Test("panel resize cursor stays locked during drag over child move handler", f
 		return Vec2(1, 0)
 	end
 	event.Call("MouseInput", "button_1", true)
-	event.Call("Update")
+	event.CallUpdate()
 	T(window_panel.resizable:IsResizing())["=="](true)
 	T(window:GetCursor())["=="]("horizontal_resize")
 	event.Call("MouseInput", "button_1", false)

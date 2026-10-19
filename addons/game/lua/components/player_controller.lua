@@ -33,7 +33,7 @@ function META:Initialize()
 	self.correction_offset = Vec3()
 	self.corrections = 0
 	self.recent = {}
-	self:AddGlobalEvent("Update", {priority = -200})
+	self:AddGlobalEvent("Update")
 end
 
 function META:OnUpdate(dt)

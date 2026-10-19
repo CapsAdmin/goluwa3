@@ -145,7 +145,7 @@ T.Pending("panel mouse simulation and hover", function()
 	window.GetMousePosition = function()
 		return Vec2(125, 125)
 	end
-	event.Call("Update")
+	event.CallUpdate()
 	T(entered)["=="](true)
 	T(pnl.mouse_input:GetHovered())["=="](true)
 	event.Call("MouseInput", "button_1", true)
@@ -153,7 +153,7 @@ T.Pending("panel mouse simulation and hover", function()
 	window.GetMousePosition = function()
 		return Vec2(0, 0)
 	end
-	event.Call("Update")
+	event.CallUpdate()
 	T(left)["=="](true)
 	T(pnl.mouse_input:GetHovered())["=="](false)
 	window.GetMousePosition = old_GetMousePosition

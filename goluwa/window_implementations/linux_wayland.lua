@@ -885,7 +885,7 @@ return function(META)
 		)
 	end
 
-	function META:OnUpdate(dt)
+	function META:OnPreUpdate(dt)
 		self:SetMouseDelta(Vec2(0, 0))
 		local events = self:ReadEvents()
 

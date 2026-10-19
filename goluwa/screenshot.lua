@@ -32,7 +32,7 @@ function Screenshot(cb, opt)
 	local function capture()
 		if opt.update_events then
 			for i = 1, opt.update_events do
-				event.Call("Update", 1 / 60)
+				event.CallUpdate(1 / 60)
 			end
 		end
 

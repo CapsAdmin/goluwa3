@@ -75,7 +75,7 @@ function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 	self:SetViewOffset(self.ViewOffset)
 	self.view = View.New{Priority = self.Priority}
-	self:AddGlobalEvent("Update", {priority = -100})
+	self:AddGlobalEvent("LateUpdate")
 	self:SetActive(self.Active)
 end
 
@@ -83,7 +83,7 @@ function META:IsThirdPerson()
 	return third_person:Get()
 end
 
-function META:OnUpdate()
+function META:OnLateUpdate()
 	local transform = self.Owner.transform
 	local view = self.view
 	local movement = self.Owner.player_movement

@@ -173,7 +173,7 @@ function Window:ShouldWarpMouseWhenCaptured()
 	return true
 end
 
-function Window:OnUpdate(dt) end
+function Window:OnPreUpdate(dt) end
 
 function Window:OnMinimize()
 	return event.Call("WindowMinimize", self)
@@ -359,7 +359,7 @@ function Window.New(width, height, title, flags)
 	self.key_trigger = input.TriggerKey
 	self.mouse_trigger = input.TriggerMouse
 	event.Call("WindowOpened", self)
-	self:AddGlobalEvent("Update", {priority = 1000})
+	self:AddGlobalEvent("PreUpdate")
 	return self
 end
 

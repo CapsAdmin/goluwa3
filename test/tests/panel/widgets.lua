@@ -479,7 +479,7 @@ T.Test2D("clicking empty space in a text edit moves the caret to the nearest pos
 	edit:SetParent(Panel.World)
 
 	for _ = 1, 3 do
-		event.Call("Update")
+		event.CallUpdate()
 	end
 
 	local window = system.GetWindow()
@@ -503,7 +503,7 @@ T.Test2D("read only text edit focuses and starts a selection from empty space", 
 	edit:SetParent(Panel.World)
 
 	for _ = 1, 3 do
-		event.Call("Update")
+		event.CallUpdate()
 	end
 
 	local window = system.GetWindow()
@@ -554,7 +554,7 @@ T.Test2D("checkbox and radio button labels are part of the control", function()
 		row.layout:SetDirty(true)
 		row.layout:UpdateLayout()
 		world.visual:DrawRecursive()
-		event.Call("Update")
+		event.CallUpdate()
 	end
 
 	local window = system.GetWindow()
@@ -563,7 +563,7 @@ T.Test2D("checkbox and radio button labels are part of the control", function()
 	local function click_label(control)
 		local x, y = control._label.transform:GetWorldMatrix():GetTranslation()
 		window:SetMousePosition(Vec2(x + 2, y + 2))
-		event.Call("Update")
+		event.CallUpdate()
 		event.Call("MouseInput", "button_1", true)
 		event.Call("MouseInput", "button_1", false)
 	end

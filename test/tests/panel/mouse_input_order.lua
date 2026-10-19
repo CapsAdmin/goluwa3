@@ -96,7 +96,7 @@ T.Test("mouse input event order (local and global)", function()
 	T(global_calls[2])["=="]("p2")
 	T(#global_calls)["=="](2)
 	call_stack = {}
-	import("goluwa/event.lua").Call("Update")
+	import("goluwa/event.lua").CallUpdate()
 	local move_calls = {}
 
 	for _, call in ipairs(call_stack) do

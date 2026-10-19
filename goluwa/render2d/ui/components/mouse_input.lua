@@ -549,7 +549,7 @@ function META:OnFirstCreated()
 	end
 
 	event.AddListener("MouseInput", "ecs_gui_system", mouse_input.MouseInput, {priority = 100})
-	event.AddListener("Update", "ecs_gui_system", mouse_input.Update, {priority = 100})
+	event.AddListener("PreUpdate", "ecs_gui_system", mouse_input.Update)
 end
 
 function META:Initialize()

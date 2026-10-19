@@ -524,7 +524,7 @@ do
 		while system.GetElapsedTime() < end_time do
 			local dt = 0.016
 			system.SetElapsedTime(system.GetElapsedTime() + dt)
-			event.Call("Update", dt)
+			event.CallUpdate(dt)
 			system.Sleep(0.001)
 		end
 	end
@@ -1005,7 +1005,7 @@ function test.RunFor(duration)
 		local current_time = system.GetTime()
 		local dt = 0.016
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
-		event.Call("Update", dt)
+		event.CallUpdate(dt)
 	end
 end
 
@@ -1030,7 +1030,7 @@ function test.RunUntil(condition, timeout)
 
 		local dt = 0.016
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
-		event.Call("Update", dt)
+		event.CallUpdate(dt)
 		system.Sleep(0.001)
 	end
 
@@ -1419,7 +1419,7 @@ commands.Add({
 
 				local dt = 0.016
 				system.SetElapsedTime(system.GetElapsedTime() + dt)
-				event.Call("Update", dt)
+				event.CallUpdate(dt)
 				system.Sleep(0.001)
 			end
 
