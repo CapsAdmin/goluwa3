@@ -5,7 +5,7 @@ timer.timers = timer.timers or {}
 timer.MaxThinkerIterations = timer.MaxThinkerIterations or 128
 
 local function get_precise_time_seconds()
-	if system.GetTimeNS then return system.GetTimeNS() / 1000000000 end
+	if system.GetTimeNS then return tonumber(system.GetTimeNS()) / 1000000000 end
 
 	return system.GetTime()
 end
@@ -156,41 +156,83 @@ end
 local remove_these = {}
 local updating = 0
 
+local fps_resume
+
+-- an fps thinker may spend 1 / fps seconds per frame, but all of them together share that budget, otherwise 128
+-- running tasks cost 128 budgets in one frame. when the budget runs out the next frame starts with the thinker that
+-- did not get to run, so none are starved
+local function run_fps_thinkers(fps_thinkers, count)
+	local spent_time = 0
+	local first = 1
+
+	if fps_resume then
+		for i = 1, count do
+			if fps_thinkers[i] == fps_resume then
+				first = i
+
+				break
+			end
+		end
+
+		fps_resume = nil
+	end
+
+	for n = 0, count - 1 do
+		local data = fps_thinkers[(first + n - 1) % count + 1]
+
+		if remove_these[data] then goto continue end
+
+		if spent_time >= data.fps then
+			fps_resume = data
+
+			break
+		end
+
+		local iterations = 0
+		local max_iterations = math.max(1, data.max_iterations or timer.MaxThinkerIterations or 128)
+
+		repeat
+			iterations = iterations + 1
+			local callback_start = get_precise_time_seconds()
+			local res = data.callback()
+			local callback_time = tonumber(get_precise_time_seconds() - callback_start) or 0
+
+			if callback_time > 0 then spent_time = spent_time + callback_time end
+
+			if res == true then
+				remove_these[data] = true
+
+				break
+			elseif res == false then
+				break
+			end
+		until iterations >= max_iterations or spent_time >= data.fps
+
+		::continue::
+	end
+end
+
 function timer.UpdateTimers(a_, b_, c_, d_, e_)
 	updating = updating + 1
 	local cur = system.GetElapsedTime()
 	local snapshot = {}
+	local fps_thinkers = {}
+	local fps_count = 0
 
 	for i, data in ipairs(timer.timers) do
 		snapshot[i] = data
+
+		if data.type == "thinker" and data.fps then
+			fps_count = fps_count + 1
+			fps_thinkers[fps_count] = data
+		end
 	end
 
 	for _, data in ipairs(snapshot) do
 		if remove_these[data] then goto continue end
 
 		if data.type == "thinker" then
-			if data.fps then
-				local spent_time = 0
-				local max_iterations = math.max(1, data.max_iterations or timer.MaxThinkerIterations or 128)
-				local iterations = 0
-
-				repeat
-					iterations = iterations + 1
-					local callback_start = get_precise_time_seconds()
-					local res = data.callback()
-					local callback_time = tonumber(get_precise_time_seconds() - callback_start) or 0
-
-					if callback_time > 0 then spent_time = spent_time + callback_time end
-
-					if res == true then
-						remove_these[data] = true
-
-						break
-					elseif res == false then
-						break
-					end				
-				until iterations >= max_iterations or spent_time >= data.fps
-			else
+			if not data.fps then
 				if data.realtime < cur then
 					local fps = ((cur + data.frequency) - data.realtime)
 					local extra_iterations = math.ceil(fps / data.frequency) - 2
@@ -247,6 +289,8 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 
 		::continue::
 	end
+
+	if fps_count > 0 then run_fps_thinkers(fps_thinkers, fps_count) end
 
 	updating = updating - 1
 
