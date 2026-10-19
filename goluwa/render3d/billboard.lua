@@ -84,6 +84,36 @@ function billboard.Bake(visual)
 		ConfigureCamera = configure_camera,
 	}
 
+	-- the ground color is sampled at the world position of what is drawn, which is nowhere in a preview. the picture is
+	-- made from copies of the materials without it, and the billboard blends it itself, where it stands
+	local ground
+	local previous_slots = visual.MaterialSlotOverrides
+	local slots = {}
+	local clones = {}
+
+	for slot, material in pairs(previous_slots or {}) do
+		slots[slot] = material
+	end
+
+	for _, entry in ipairs(visual:GetRenderEntries()) do
+		local source = visual:GetResolvedMaterial(entry)
+
+		if source:GetGroundColorTexture() and source:GetGroundColorBlend() > 0 then
+			local clone = clones[source]
+
+			if not clone then
+				clone = source:Copy()
+				clone:SetGroundColorBlend(0)
+				clones[source] = clone
+			end
+
+			slots[entry.polygon3d:GetMaterialSlot()] = clone
+			ground = ground or source
+		end
+	end
+
+	if ground then visual:SetMaterialSlotOverrides(slots) end
+
 	for i, forward in ipairs(VIEW_FORWARDS) do
 		local scale = i == 3 and top_scale or 1
 		preview.view = {
@@ -107,6 +137,7 @@ function billboard.Bake(visual)
 	end
 
 	preview:Remove()
+
 	local material = Material.New{
 		Billboard = true,
 		AlphaTest = true,
@@ -126,6 +157,12 @@ function billboard.Bake(visual)
 
 			break
 		end
+	end
+
+	if ground then
+		material:SetGroundColorTexture(ground:GetGroundColorTexture())
+		material:SetGroundColorUV(ground:GetGroundColorUV())
+		material:SetGroundColorBlend(ground:GetGroundColorBlend())
 	end
 
 	material:SetAlbedoTexture(
