@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
+local vk = import("goluwa/bindings/vk.lua")
 local store = {}
 local Table = {}
 Table.__index = Table
@@ -8,6 +9,8 @@ Table.__index = Table
 local retired = {}
 local tables = setmetatable({}, {__mode = "k"})
 local RETIRE_FRAMES = 4
+local BufferCopy = ffi.typeof("$[?]", vk.VkBufferCopy)
+local staged_tables = setmetatable({}, {__mode = "k"})
 
 function store.CreateTable(config)
 	local self = setmetatable({}, Table)
@@ -15,6 +18,16 @@ function store.CreateTable(config)
 	self.ctype = ffi.typeof(config.ctype)
 	self.row_size = ffi.sizeof(self.ctype)
 	self.usage = config.usage or {"storage_buffer", "shader_device_address"}
+	self.staged = config.staged
+
+	if self.staged then
+		-- the gpu's copy is written by copies in the command buffers, in order with the work that reads it
+		self.usage = {unpack(self.usage)}
+		self.usage[#self.usage + 1] = "transfer_dst"
+		self.ptr_ctype = ffi.typeof("$*", self.ctype)
+		staged_tables[self] = true
+	end
+
 	self.capacity = 0
 	self.count = 0
 	self.live = 0
@@ -34,11 +47,19 @@ function Table:Reserve(capacity)
 	local buffer = render.CreateBuffer{
 		byte_size = capacity * self.row_size,
 		buffer_usage = self.usage,
-		memory_property = {"host_visible", "host_coherent"},
+		memory_property = self.staged and {"device_local"} or {"host_visible", "host_coherent"},
 		label = "scene_" .. self.name,
 	}
-	local ptr = ffi.cast(ffi.typeof("$*", self.ctype), buffer:Map())
-	ffi.fill(ptr, capacity * self.row_size)
+	local memory
+	local ptr
+
+	if self.staged then
+		memory = ffi.new("uint8_t[?]", capacity * self.row_size)
+		ptr = ffi.cast(self.ptr_ctype, memory)
+	else
+		ptr = ffi.cast(ffi.typeof("$*", self.ctype), buffer:Map())
+		ffi.fill(ptr, capacity * self.row_size)
+	end
 
 	if self.buffer then
 		-- the descriptors that point at the old buffer are rewritten by the next bind, which a frame in flight does not allow
@@ -48,11 +69,174 @@ function Table:Reserve(capacity)
 	end
 
 	self.buffer = buffer
+	self.memory = memory
 	self.ptr = ptr
 	self.capacity = capacity
 	self.generation = self.generation + 1
 
+	if self.staged then
+		-- what a gpu pass writes of the rows (the update pass, producers) is written again every frame, so the new buffer
+		-- only needs what the cpu holds
+		self.dirty_flags = ffi.new("uint8_t[?]", capacity)
+		ffi.fill(self.dirty_flags, capacity, 1)
+		self.dirty_min = 0
+		self.dirty_max = capacity - 1
+	end
+
 	if self.on_grow then self.on_grow(self) end
+end
+
+-- a staged table has to be told which rows the cpu wrote, they are copied to the gpu at the next store.FlushStaged
+function Table:Touch(row)
+	local flags = self.dirty_flags
+
+	if flags[row] == 0 then
+		flags[row] = 1
+
+		if row < self.dirty_min then self.dirty_min = row end
+
+		if row > self.dirty_max then self.dirty_max = row end
+	end
+end
+
+function Table:TouchRange(base, n)
+	for row = base, base + n - 1 do
+		self:Touch(row)
+	end
+end
+
+do
+	local uploads = {}
+	local runs = ffi.new("uint32_t[?]", 2048)
+	local run_capacity = 1024
+	local regions = BufferCopy(1024)
+	local region_capacity = 1024
+
+	-- space in the staging buffer of this frame. the buffers take turns by frame in flight, a bigger one replaces a full one
+	local function reserve_upload(bytes)
+		local serial = render.frame_serial or 0
+		local slot = serial % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+		local upload = uploads[slot]
+
+		if not upload then
+			upload = {serial = -1, used = 0, size = 0}
+			uploads[slot] = upload
+		end
+
+		if upload.serial ~= serial then
+			upload.serial = serial
+			upload.used = 0
+		end
+
+		local offset = bit.band(upload.used + 15, bit.bnot(15))
+
+		if not upload.buffer or offset + bytes > upload.size then
+			if upload.buffer then
+				retired[#retired + 1] = {buffer = upload.buffer, frame = system.GetFrameNumber()}
+			end
+
+			upload.size = math.max(bytes * 2, 4 * 1024 * 1024)
+			upload.buffer = render.CreateBuffer{
+				byte_size = upload.size,
+				buffer_usage = {"transfer_src"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "scene_upload",
+			}
+			upload.ptr = ffi.cast("uint8_t *", upload.buffer:Map())
+			offset = 0
+		end
+
+		upload.used = offset + bytes
+		return upload.buffer, upload.ptr + offset, offset
+	end
+
+	-- the rows written since the last flush as runs of consecutive rows in `runs`, returns the number of runs and bytes
+	local function collect_runs(rows)
+		local flags = rows.dirty_flags
+		local row = rows.dirty_min
+		local last = math.min(rows.dirty_max, rows.capacity - 1)
+		local count = 0
+
+		while row <= last do
+			if flags[row] ~= 0 then
+				local first = row
+
+				while row <= last and flags[row] ~= 0 do
+					flags[row] = 0
+					row = row + 1
+				end
+
+				if count + 1 > run_capacity then
+					local grown = ffi.new("uint32_t[?]", run_capacity * 4)
+					ffi.copy(grown, runs, run_capacity * 2 * 4)
+					runs = grown
+					run_capacity = run_capacity * 2
+				end
+
+				runs[count * 2] = first
+				runs[count * 2 + 1] = row - first
+				count = count + 1
+			else
+				row = row + 1
+			end
+		end
+
+		rows.dirty_min = rows.capacity
+		rows.dirty_max = -1
+		return count
+	end
+
+	-- copies what the cpu wrote of the staged tables since the last call to the gpu, in the command buffer, outside of a
+	-- render pass. the copy comes after all work submitted before it and before all work submitted after it, so a frame in
+	-- flight still reads the rows it was recorded with, and a command buffer recorded before this one in the same frame (a
+	-- shadow map's) is also covered when the call was made in it
+	function store.FlushStaged(cmd)
+		local barriered = false
+
+		for rows in pairs(staged_tables) do
+			if rows.dirty_max >= rows.dirty_min then
+				local count = collect_runs(rows)
+				local row_size = rows.row_size
+				local bytes = 0
+
+				for i = 0, count - 1 do
+					bytes = bytes + runs[i * 2 + 1] * row_size
+				end
+
+				if count > 0 then
+					if not barriered then
+						barriered = true
+						cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "transfer", memoryBarrier = true}
+					end
+
+					if count > region_capacity then
+						region_capacity = count * 2
+						regions = BufferCopy(region_capacity)
+					end
+
+					local buffer, pointer, base = reserve_upload(bytes)
+					local source = ffi.cast("uint8_t *", rows.memory)
+					local written = 0
+
+					for i = 0, count - 1 do
+						local first = runs[i * 2]
+						local size = runs[i * 2 + 1] * row_size
+						ffi.copy(pointer + written, source + first * row_size, size)
+						regions[i].srcOffset = base + written
+						regions[i].dstOffset = first * row_size
+						regions[i].size = size
+						written = written + size
+					end
+
+					cmd:CopyBuffer(buffer, rows.buffer, regions, count)
+				end
+			end
+		end
+
+		if barriered then
+			cmd:PipelineBarrier{srcStage = "transfer", dstStage = "all_commands", memoryBarrier = true}
+		end
+	end
 end
 
 -- a freed row keeps what it held until the frames that may still read it are done, then it is zeroed and can be given out again
@@ -127,6 +311,9 @@ function Table:Update(frame)
 		for _, range in ipairs(ranges) do
 			if range.frame <= frame - RETIRE_FRAMES then
 				ffi.fill(self.ptr + range.base, range.n * self.row_size)
+
+				if self.staged then self:TouchRange(range.base, range.n) end
+
 				self.free_ranges = self.free_ranges or {}
 				self.free_ranges[#self.free_ranges + 1] = {base = range.base, n = range.n}
 			else
@@ -146,6 +333,9 @@ function Table:Update(frame)
 	for _, item in ipairs(pending) do
 		if item.frame <= frame - RETIRE_FRAMES then
 			ffi.fill(self.ptr + item.row, self.row_size)
+
+			if self.staged then self:Touch(item.row) end
+
 			self.free_count = self.free_count + 1
 			self.free[self.free_count] = item.row
 		else
@@ -163,6 +353,13 @@ end
 -- every row is unused again, for a table that is rewritten as a whole
 function Table:Clear()
 	ffi.fill(self.ptr, self.capacity * self.row_size)
+
+	if self.staged then
+		ffi.fill(self.dirty_flags, self.capacity, 1)
+		self.dirty_min = 0
+		self.dirty_max = self.capacity - 1
+	end
+
 	self.count = 0
 	self.live = 0
 	self.free = {}

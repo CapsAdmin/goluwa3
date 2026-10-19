@@ -446,6 +446,7 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 
 	if count == 0 then return end
 
+	store.FlushStaged(cmd)
 	local pipeline = get_cull_pipeline()
 	args_ring = args_ring or {}
 	local hiz, fallback_hiz = gpu_culling.GetMainViewHiZ()
@@ -807,6 +808,8 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	local count = #rows
 
 	if count == 0 or not slot_rows then return nil end
+
+	store.FlushStaged(cmd)
 
 	if buffers.capacity < count then
 		draw.RemoveShadowBuffers(buffers)
