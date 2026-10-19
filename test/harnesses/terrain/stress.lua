@@ -88,7 +88,7 @@ end
 
 if not LEAN then
 	local original_call = event.Call
-	local timed = {Draw = true, PostDraw = true, Update = true, PreFrame = true, FrameEnd = true, Draw3DGeometry = true, Draw2D = true}
+	local timed = {Draw = true, PostDraw = true, Update = true, PreFrame = true, PostUpdate = true, Draw3DGeometry = true, Draw2D = true}
 	local depth = 0
 	local totals = {}
 
@@ -262,7 +262,7 @@ local wall_dt, last_wall, frame_gap, last_frame
 local time_after, time_before, time_at_update, time_at_frame_end = 0, 0, 0, 0
 local mem_at_update, mem_at_frame_end, grew_in_update, grew_outside = 0, 0, 0, 0
 
-event.AddListener("FrameEnd", "terrain_stress_frame_end", function()
+event.AddListener("PostUpdate", "terrain_stress_frame_end", function()
 	local now = collectgarbage("count")
 	grew_in_update = now - mem_at_update
 	mem_at_frame_end = now
@@ -288,7 +288,7 @@ event.AddListener("Update", "terrain_stress", function(dt)
 		wrap_listeners("Draw")
 		wrap_listeners("PreFrame")
 		wrap_listeners("PostDraw")
-		wrap_listeners("FrameEnd")
+		wrap_listeners("PostUpdate")
 	end
 
 	if wall_dt and wall_dt > 0.1 and t > WARMUP then

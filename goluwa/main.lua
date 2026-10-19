@@ -132,7 +132,7 @@ commands.Add{
 
 		if flags["one-frame"] or flags.screenshot then
 			if system.GetFrameNumber() == 0 then
-				event.AddListener("FrameEnd", function()
+				event.AddListener("PostUpdate", function()
 					system.ShutDown(0)
 				end)
 			end
@@ -362,7 +362,7 @@ crash_trace.Run(function()
 		system.SetInternalFrameTime(system.GetTime() - time)
 		i = i + 1
 		last_time = time
-		event.Call("FrameEnd")
+		event.Call("PostUpdate")
 	end
 
 	event.Call("ShutDown")

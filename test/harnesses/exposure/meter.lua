@@ -159,7 +159,7 @@ local function measure(name)
 end
 
 print("metered EV100 (engine), against the centre weighted arithmetic mean (an averaging meter), the same held at the 95th percentile, and the geometric mean; differences in stops")
-event.AddListener("FrameEnd", "meter_harness", function()
+event.AddListener("PostUpdate", "meter_harness", function()
 	frame = frame + 1
 
 	if not view then
@@ -173,7 +173,7 @@ event.AddListener("FrameEnd", "meter_harness", function()
 			measure(wanted[case_index])
 
 			if case_index >= #wanted then
-				event.RemoveListener("FrameEnd", "meter_harness")
+				event.RemoveListener("PostUpdate", "meter_harness")
 				system.ShutDown(0)
 			end
 		end

@@ -76,7 +76,7 @@ function test_render.Draw2D(cb)
 		render2d.ResetState()
 		local finish = cb(width, height)
 		render.EndFrame()
-		event.Call("FrameEnd")
+		event.Call("PostUpdate")
 
 		if finish then finish() end
 	end
@@ -92,7 +92,7 @@ function test_render.Draw2DFrames(frame_count, cb, after_frame)
 			render2d.ResetState()
 			cb(width, height, frame)
 			render.EndFrame()
-			event.Call("FrameEnd")
+			event.Call("PostUpdate")
 
 			if after_frame then after_frame(width, height, frame) end
 		end
@@ -102,7 +102,7 @@ end
 local function draw_3d_func()
 	system.SetFrameNumber(system.GetFrameNumber() + 1)
 	render.Draw(1)
-	event.Call("FrameEnd")
+	event.Call("PostUpdate")
 end
 
 function test_render.Draw3D(cb)

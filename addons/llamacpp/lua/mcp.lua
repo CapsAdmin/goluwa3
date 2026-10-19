@@ -64,7 +64,7 @@ local tools = {
 		callback = function(args)
 			local cb = callback.Create()
 
-			event.AddListener("FrameEnd", nil, function()
+			event.AddListener("PostUpdate", nil, function()
 				cb:Resolve("frame completed")
 				return event.destroy_tag
 			end)

@@ -149,7 +149,7 @@ do
 	end
 
 	local count, frame = 0, 0
-	event.AddListener("FrameEnd", "emissive_harness", function()
+	event.AddListener("PostUpdate", "emissive_harness", function()
 		frame = frame + 1
 
 		if frame < settle_frames or frame % gap ~= 0 then return end
@@ -159,7 +159,7 @@ do
 
 		if count < frames then return end
 
-		event.RemoveListener("FrameEnd", "emissive_harness")
+		event.RemoveListener("PostUpdate", "emissive_harness")
 
 		local function stats(list)
 			local sum, sq = 0, 0

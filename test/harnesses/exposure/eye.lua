@@ -116,7 +116,7 @@ local function build_scene(luminance)
 	test_scene.Box{name = "wall", pos = Vec3(0, 0, -DISTANCE), size = Vec3(half_w * 2.2, half_h * 2.2, 0.1), material = material}
 end
 
-event.AddListener("FrameEnd", "eye_harness", function()
+event.AddListener("PostUpdate", "eye_harness", function()
 	if not view then
 		view = View.New{Priority = 100, Position = Vec3(0, 0, 0), Rotation = QuatDeg3(0, 0, 0), FOV = FOV, LocalExposure = 0}:Activate()
 	end
@@ -144,7 +144,7 @@ event.AddListener("FrameEnd", "eye_harness", function()
 		frame_count = 0
 
 		if index > #luminances then
-			event.RemoveListener("FrameEnd", "eye_harness")
+			event.RemoveListener("PostUpdate", "eye_harness")
 			system.ShutDown(0)
 
 			return

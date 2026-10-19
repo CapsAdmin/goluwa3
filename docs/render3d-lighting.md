@@ -302,7 +302,7 @@ test/harnesses/alpha_scene.lua + test/harnesses/alpha_measure.lua (CAM_H=12 FOV=
 
 **How to apply:**
 - Measure with `LocalExposure = 0` in the view and an EV sweep of the lit floor to undo the tonemapper; without it results are flaky.
-- `Screenshot(update_events=n)` runs Update events, not frames; shadows/GI need real frames (wait on FrameEnd, remove the listener with the returned fn).
+- `Screenshot(update_events=n)` runs Update events, not frames; shadows/GI need real frames (wait on PostUpdate, remove the listener with the returned fn).
 - Floor of 60 m with the camera 25 m up got no far shadows at all, 200 m works; not investigated.
 - A material changing translucency used to leave its visual out of every pass (stale RenderEntries); fixed in visual.lua patch/rebuild, test in test/tests/render3d/shadow_opacity.lua.
 - DDGI/other TLAS rays still force-opaque, textured alpha-test in the soup is still opaque.

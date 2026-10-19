@@ -11,7 +11,7 @@ function Screenshot(cb, opt)
 	local function capture_swapchain()
 		local texture = render.target:GetTexture():Download()
 
-		event.AddListener("FrameEnd", function()
+		event.AddListener("PostUpdate", function()
 			texture:Resolve()
 			cb(texture)
 		end)
@@ -19,7 +19,7 @@ function Screenshot(cb, opt)
 
 	local function schedule()
 		if render.target.config.offscreen then
-			event.AddListener("FrameEnd", function()
+			event.AddListener("PostUpdate", function()
 				cb(render.target:GetTexture():Download())
 			end)
 

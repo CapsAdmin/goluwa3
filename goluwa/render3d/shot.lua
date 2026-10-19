@@ -17,7 +17,7 @@ local function wait(frames, seconds, cb)
 	local start = system.GetElapsedTime()
 	local count = 0
 	local remove
-	remove = event.AddListener("FrameEnd", {}, function()
+	remove = event.AddListener("PostUpdate", {}, function()
 		count = count + 1
 
 		if count >= frames and system.GetElapsedTime() - start >= seconds then

@@ -122,7 +122,7 @@ T.Test("Screenshot update_events lets UI layout resolve before capture", functio
 	assert(child.transform:GetSize().x == 40, "child layout should have resolved")
 	assert(child.transform:GetSize().y == 100, "child should be stretched to container height")
 	event.Call("Update", 1 / 60)
-	event.Call("FrameEnd")
+	event.Call("PostUpdate")
 	assert(results.called, "Screenshot callback was not called")
 	local r, g, b = unpack(results.pixel)
 	assert(

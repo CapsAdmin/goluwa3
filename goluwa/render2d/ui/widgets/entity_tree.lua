@@ -487,7 +487,7 @@ function META:OnCreate()
 
 	table.insert(
 		self._hierarchy_listeners,
-		event.AddListener("FrameEnd", self, process_hierarchy_queue)
+		event.AddListener("PostUpdate", self, process_hierarchy_queue)
 	)
 
 	table.insert(
