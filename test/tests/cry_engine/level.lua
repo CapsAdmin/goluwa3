@@ -312,40 +312,12 @@ T.Test("Cry level parser reads painted vegetation instances", function()
 	T(entries[1].position.y)["~"](1903.96875, 0.001)
 	T(entries[1].position.z)["~"](236.1796875, 0.001)
 	T(entries[1].scale)["~"](0.8685, 0.0001)
-	local transform = crylevel.ConvertCryVegetationInstanceToEngineTransform(entries[1])
-	T(transform.position.x)["~"](1548.375, 0.001)
-	T(transform.position.y)["~"](236.1796875, 0.001)
-	T(transform.position.z)["~"](-1903.96875, 0.001)
-	T(transform.scale.x)["~"](0.8685, 0.0001)
-	T(transform.scale.y)["~"](0.8685, 0.0001)
-	T(transform.scale.z)["~"](0.8685, 0.0001)
 	T(entries[2].prototype_id)["=="](3)
 	T(entries[2].model_path)["=="]("objects/natural/bushes/groundfernbush/ground_fern_bush_big_a.cgf")
 	T(entries[2].yaw)["~"](64 / 255 * math.pi * 2, 0.001)
 	T(entries[2].brightness)["=="](30)
-	local random_transform = crylevel.ConvertCryVegetationInstanceToEngineTransform(entries[2])
-	T(random_transform.position.x)["~"](100, 0.001)
-	T(random_transform.position.y)["~"](300, 0.001)
-	T(random_transform.position.z)["~"](-200, 0.001)
-	local random_right = get_basis(random_transform)
-	T((random_right - Vec3(0, 0, -1)):GetLength())["~"](0, 0.01)
 	T(entries[3].prototype_id)["=="](56)
 	T(entries[3].terrain_normal ~= nil)["=="](true)
-	local aligned_transform = crylevel.ConvertCryVegetationInstanceToEngineTransform(entries[3])
-	local aligned_up = aligned_transform.rotation:GetUp()
-	T(aligned_up.x)["~"](0, 0.001)
-	T(aligned_up.y)["~"](1, 0.001)
-	T(aligned_up.z)["~"](0, 0.001)
-	local fit = crylevel.ConvertCryVegetationInstanceToEngineTransform{
-		position = Vec3(0, 0, 0),
-		scale = 2,
-		yaw = 0,
-		fit_to_terrain = true,
-		terrain_normal = Vec3(-1, 1, 0):GetNormalized(),
-	}
-	local fit_origin = fit.matrix:TransformVector(Vec3(0, 0, 0))
-	T((fit.matrix:TransformVector(Vec3(1, 0, 0)) - fit_origin - Vec3(2, 2, 0)):GetLength())["~"](0, 0.001)
-	T((fit.matrix:TransformVector(Vec3(0, 1, 0)) - fit_origin - Vec3(0, 2, 0)):GetLength())["~"](0, 0.001)
 end)
 
 T.Test("Cry terrain height drops to zero outside the heightmap", function()

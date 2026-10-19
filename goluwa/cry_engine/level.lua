@@ -246,41 +246,6 @@ function level.ConvertCryDecalMatrixToEngineTransform(world_matrix)
 	}
 end
 
-function level.ConvertCryVegetationInstanceToEngineTransform(entry)
-	local rotation = Quat(0, 0, 0, 1):Rotate(entry.yaw or 0, 0, 1, 0)
-	local position = units.ToEngine(entry.position)
-
-	if entry.fit_to_terrain and entry.terrain_normal then
-		local up = entry.terrain_normal
-		local slope_x = -up.x / up.y
-		local slope_z = -up.z / up.y
-		local matrix = Matrix44():Identity()
-		matrix:SetRotation(rotation)
-		matrix:Scale(entry.scale, entry.scale, entry.scale)
-		matrix.m01 = matrix.m01 + slope_x * matrix.m00 + slope_z * matrix.m02
-		matrix.m11 = matrix.m11 + slope_x * matrix.m10 + slope_z * matrix.m12
-		matrix.m21 = matrix.m21 + slope_x * matrix.m20 + slope_z * matrix.m22
-		matrix:SetTranslation(position.x, position.y, position.z)
-		return {matrix = matrix}
-	end
-
-	if entry.terrain_normal then
-		local up = entry.terrain_normal:GetNormalized()
-		local axis = Vec3(0, 1, 0):GetCross(up)
-		local sin = axis:GetLength()
-
-		if sin > 0.000001 then
-			rotation = Quat(0, 0, 0, 1):Rotate(math.atan2(sin, up.y), axis.x, axis.y, axis.z) * rotation
-		end
-	end
-
-	return {
-		position = position,
-		rotation = rotation:GetNormalized(),
-		scale = Vec3(entry.scale, entry.scale, entry.scale),
-	}
-end
-
 do
 	local function get_model_property(properties)
 		return properties and (properties.object_Model or properties.fileModel)

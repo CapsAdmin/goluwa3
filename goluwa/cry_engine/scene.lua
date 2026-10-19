@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local level = import("goluwa/cry_engine/level.lua")
 local units = import("goluwa/cry_engine/units.lua")
 local cry_water = import("goluwa/cry_engine/water.lua")
@@ -130,36 +131,6 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					} or
 					nil,
 				rigid_body = entry.physics and build_rigid_body(entry) or nil,
-			},
-		}
-	end
-
-	local function add_vegetation(entry, parent_guid)
-		local transform_data = level.ConvertCryVegetationInstanceToEngineTransform(entry)
-		local transform
-
-		if transform_data.matrix then
-			transform = {Matrix = matrix_values(transform_data.matrix)}
-		else
-			transform = {
-				Position = transform_data.position,
-				Rotation = transform_data.rotation,
-				Scale = transform_data.scale,
-			}
-		end
-
-		add{
-			guid = level_guid .. ":veg:" .. entry.cry_index,
-			parent = parent_guid,
-			properties = {Name = entry.name or "cry_vegetation"},
-			components = {
-				transform = transform,
-				visual = {
-					ModelPath = entry.model_path,
-					MaterialOverridePath = entry.material_path,
-					Billboard = entry.use_sprites == true or nil,
-					ReceivesDecals = false,
-				},
 			},
 		}
 	end
@@ -341,14 +312,31 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 	local vegetation_guid = RENDER_3D and add_folder(level_guid, "Vegetation") or nil
 	local category_folders = {}
-	local prototype_leaves = {}
+	local placements = {}
+	local placement_order = {}
 
-	for index, entry in ipairs(RENDER_3D and data.vegetation_entries or {}) do
-		entry.cry_index = index
-		local leaf = prototype_leaves[entry.prototype_id]
+	for _, entry in ipairs(RENDER_3D and data.vegetation_entries or {}) do
+		local group = placements[entry.prototype_id]
 
-		if not leaf then
-			local prototype = data.vegetation_prototypes.by_id[entry.prototype_id]
+		if not group then
+			group = {id = entry.prototype_id, entries = {}}
+			placements[entry.prototype_id] = group
+			placement_order[#placement_order + 1] = group
+		end
+
+		group.entries[#group.entries + 1] = entry
+	end
+
+	-- the painted vegetation of a prototype is one entity, its instances are drawn by the scatter system
+	if placement_order[1] then
+		local ScatterPlacements = import("goluwa/entities/components/scatter_placements.lua")
+		local Record, RecordArray = ScatterPlacements.Record, ScatterPlacements.RecordArray
+		table.sort(placement_order, function(a, b)
+			return a.id < b.id
+		end)
+
+		for _, group in ipairs(placement_order) do
+			local prototype = data.vegetation_prototypes.by_id[group.id]
 			local category = prototype.category or "uncategorized"
 			local category_folder = category_folders[category]
 
@@ -357,16 +345,38 @@ function cry_scene.Translate(data, level_name, level_path, options)
 				category_folders[category] = category_folder
 			end
 
-			leaf = {
-				folder = add_folder(category_folder, (prototype.name:gsub("%.%w+$", ""))),
-				items = {},
-				add = add_vegetation,
-			}
-			prototype_leaves[entry.prototype_id] = leaf
-			leaves[#leaves + 1] = leaf
-		end
+			local records = RecordArray(#group.entries)
 
-		leaf.items[#leaf.items + 1] = entry
+			for i, entry in ipairs(group.entries) do
+				local r = records[i - 1]
+				local position = units.ToEngine(entry.position)
+				r.x, r.y, r.z, r.scale, r.yaw = position.x, position.y, position.z, entry.scale, entry.yaw
+				-- grass on slopes follows the ground by conforming to it, it stands upright
+				local up = not entry.fit_to_terrain and entry.terrain_normal and entry.terrain_normal:GetNormalized()
+
+				if up then
+					r.nx, r.ny, r.nz = up.x, up.y, up.z
+				else
+					r.nx, r.ny, r.nz = 0, 1, 0
+				end
+			end
+
+			add{
+				guid = level_guid .. ":veg:" .. group.id,
+				parent = category_folder,
+				properties = {Name = (prototype.name:gsub("%.%w+$", ""))},
+				components = {
+					scatter_placements = {
+						Model = prototype.model_path,
+						MaterialOverride = prototype.material_path or "",
+						Bending = prototype.bending or 0,
+						Billboard = prototype.use_sprites == true,
+						Conform = prototype.fit_to_terrain == true,
+						Records = ffi.string(records, ffi.sizeof(Record) * #group.entries),
+					},
+				},
+			}
+		end
 	end
 
 	if RENDER_3D and data.decals and data.decals[1] then
