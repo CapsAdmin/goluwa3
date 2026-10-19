@@ -2500,6 +2500,7 @@ mod.VkStructureType = {
 	VK_STRUCTURE_TYPE_RELEASE_SWAPCHAIN_IMAGES_INFO_KHR = 1000275005,
 	VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PER_VIEW_VIEWPORTS_FEATURES_QCOM = 1000488000,
 	VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV = 1000490000,
+	VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT = 1000581000,
 	VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_PROPERTIES_NV = 1000490001,
 	VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV = 1000491000,
 	VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_PROPERTIES_NV = 1000491001,
@@ -47698,6 +47699,32 @@ ffi.metatype(
 		end,
 	}
 )
+mod.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT = ffi.typeof(
+	[[struct {
+	uint32_t sType;
+	void* pNext;
+	$ rayTracingInvocationReorder;
+}]],
+	mod.VkBool32
+)
+ffi.metatype(
+	mod.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT,
+	{
+		__tostring = function(s)
+			return ("struct VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT[%p]"):format(s)
+		end,
+		__new = function(T, t)
+			local obj = N(T)
+
+			if not t then return obj end
+
+			obj.sType = t.sType
+			obj.pNext = t.pNext
+			obj.rayTracingInvocationReorder = t.rayTracingInvocationReorder
+			return obj
+		end,
+	}
+)
 mod.VkCooperativeVectorMatrixLayoutNV = {
 	VK_COOPERATIVE_VECTOR_MATRIX_LAYOUT_ROW_MAJOR_NV = 0,
 	VK_COOPERATIVE_VECTOR_MATRIX_LAYOUT_COLUMN_MAJOR_NV = 1,
@@ -53212,7 +53239,7 @@ mod.PFN_vkGetAccelerationStructureDeviceAddressKHR = ffi.typeof(
 	mod.VkAccelerationStructureDeviceAddressInfoKHR
 )
 mod.PFN_vkCmdWriteAccelerationStructuresPropertiesKHR = ffi.typeof(
-	[[void (*)($ , uint32_t , const $*, uint32_t , $ , uint32_t , void*)]],
+	[[void (*)($ , uint32_t , const $*, uint32_t , $ , uint32_t )]],
 	mod.VkCommandBuffer,
 	mod.VkAccelerationStructureKHR,
 	mod.VkQueryPool
@@ -64963,6 +64990,7 @@ do
 		["physical_device_raw_access_chains_features_nv"] = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAW_ACCESS_CHAINS_FEATURES_NV,
 		["physical_device_ray_query_features_khr"] = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
 		["physical_device_ray_tracing_invocation_reorder_features_nv"] = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV,
+		["physical_device_ray_tracing_invocation_reorder_features_ext"] = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT,
 		["physical_device_ray_tracing_invocation_reorder_properties_nv"] = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_PROPERTIES_NV,
 		["physical_device_ray_tracing_linear_swept_spheres_features_nv"] = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_LINEAR_SWEPT_SPHERES_FEATURES_NV,
 		["physical_device_ray_tracing_maintenance_1_features_khr"] = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR,
@@ -66297,6 +66325,7 @@ do
 		[lookup["physical_device_raw_access_chains_features_nv"]] = "physical_device_raw_access_chains_features_nv",
 		[lookup["physical_device_ray_query_features_khr"]] = "physical_device_ray_query_features_khr",
 		[lookup["physical_device_ray_tracing_invocation_reorder_features_nv"]] = "physical_device_ray_tracing_invocation_reorder_features_nv",
+		[lookup["physical_device_ray_tracing_invocation_reorder_features_ext"]] = "physical_device_ray_tracing_invocation_reorder_features_ext",
 		[lookup["physical_device_ray_tracing_invocation_reorder_properties_nv"]] = "physical_device_ray_tracing_invocation_reorder_properties_nv",
 		[lookup["physical_device_ray_tracing_linear_swept_spheres_features_nv"]] = "physical_device_ray_tracing_linear_swept_spheres_features_nv",
 		[lookup["physical_device_ray_tracing_maintenance_1_features_khr"]] = "physical_device_ray_tracing_maintenance_1_features_khr",
@@ -77526,6 +77555,17 @@ mod.s.PhysicalDeviceRayTracingInvocationReorderFeaturesNV = function(t)
 		t and
 			{
 				sType = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV,
+				pNext = t.pNext,
+				rayTracingInvocationReorder = t.rayTracingInvocationReorder,
+			} or
+			nil
+	)
+end
+mod.s.PhysicalDeviceRayTracingInvocationReorderFeaturesEXT = function(t)
+	return mod.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT(
+		t and
+			{
+				sType = mod.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT,
 				pNext = t.pNext,
 				rayTracingInvocationReorder = t.rayTracingInvocationReorder,
 			} or
