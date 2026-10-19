@@ -165,7 +165,7 @@ local function get_buffers()
 		},
 		baked = render.CreateBuffer{
 			byte_size = 64 * scatter.MAX_BAKED,
-			buffer_usage = {"storage_buffer", "transfer_src"},
+			buffer_usage = {"storage_buffer", "transfer_src", "transfer_dst"},
 			memory_property = {"device_local"},
 			label = "scatter baked",
 		},
@@ -398,6 +398,51 @@ local PROTOTYPES_GLSL = [[
 		ScatterPrototype scatter_prototypes[];
 	};
 ]]
+-- the ground under a footprint, for what conforms to it, packed in the corner of the instance matrix: a conforming one
+-- has the sign bit set, the radius it was measured at (6 bits, log scale) and the height of the ground over the plane
+-- through its root at the four edges of the footprint (5 bits each, in radii and along its up axis), see the vertex
+-- stage. 1.0 is what a scene instance has there
+local CONFORM_GLSL = RAY_QUERY and
+	[[
+	float scatter_conform_word(ScatterPrototype proto, vec3 root, vec3 x_axis, vec3 z_axis, vec3 up, float size, float size_y) {
+		float conform_word = 1.0;
+
+		if (proto.limits.z > 0.0) {
+			uint radius_code = uint(clamp(round(log(proto.limits.z / 0.02) / log(1.12)), 0.0, 63.0));
+			float radius = 0.02 * pow(1.12, float(radius_code));
+			float reach = radius * size;
+			float window = reach * 1.5;
+			vec3 sample_directions[4] = vec3[4](x_axis, -x_axis, z_axis, -z_axis);
+			uint offsets = 0u;
+			float worst = 0.0;
+
+			for (int i = 0; i < 4; i++) {
+				vec3 edge = root + sample_directions[i] * reach;
+				rayQueryEXT ground;
+				rayQueryInitializeEXT(ground, scatter_scene, gl_RayFlagsOpaqueEXT, 0xFF, edge + up * window, 0.0, -up, window * 2.0);
+
+				while (rayQueryProceedEXT(ground)) {}
+
+				float height = 0.0;
+
+				if (rayQueryGetIntersectionTypeEXT(ground, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+					height = window - rayQueryGetIntersectionTEXT(ground, true);
+				}
+
+				worst = max(worst, abs(height) / (radius * size_y));
+				offsets |= uint(int(clamp(round(height / (radius * size_y) * 15.0), -15.0, 15.0)) + 16) << uint(i * 5);
+			}
+
+			// ground that far off under the footprint (the foot of a cliff, a rock) is more than a patch bends to, it
+			// would arch over it instead
+			if (worst < 0.6) conform_word = uintBitsToFloat(0x80000000u | (radius_code << 24) | offsets);
+		}
+
+		return conform_word;
+	}
+]] or
+	""
+
 local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 	layout(std430, set = 0, binding = ]] .. BINDING_SURFACES .. [[) readonly buffer ScatterSurfaces {
 		ScatterSurface scatter_surfaces[];
@@ -544,6 +589,17 @@ local cull_block = {
 	{"unit_base", "int"},
 	{"block_base", "int"},
 }
+
+local conform_block = {
+	{"unit_offset", "int"},
+	{"unit_count", "int"},
+}
+
+local function write_conform_block(self, block)
+	block.unit_offset = self.unit_offset or 0
+	block.unit_count = self.unit_count or 0
+	return block
+end
 
 local function write_bake_block(self, block)
 	block.surface_index = self.surface_index or 0
@@ -765,7 +821,7 @@ function create_compute_passes()
 				layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT scatter_scene;
 			]] or
 					""
-				) .. COMPUTE_GLSL .. [[
+				) .. COMPUTE_GLSL .. CONFORM_GLSL .. [[
 				// what is baked of a unit stays where it is until the unit is baked again. the instance matrix has
 				// the number a cell needs the density to be over to exist in the bottom row, with the tint and the prototype
 				layout(std430, set = 0, binding = ]] .. BINDING_INSTANCES .. [[) writeonly buffer ScatterBaked {
@@ -892,47 +948,8 @@ function create_compute_passes()
 						vec3 x_axis = b1 * cos(yaw) + b2 * sin(yaw);
 						vec3 z_axis = cross(x_axis, up);
 						vec3 position = root - up * mix(proto.sink.x, proto.sink.y, r_sink) * size;
-						// 1.0 is what a scene instance has in the corner of its matrix. a conforming one has the sign bit set, the
-						// radius it was measured at (6 bits, log scale) and the height of the ground over the plane through its root
-						// at the four edges of the footprint (5 bits each, in radii and along its up axis), see the vertex stage
-						float conform_word = 1.0;
-
-						]] .. (
-					RAY_QUERY and
-					[[
-						if (proto.limits.z > 0.0) {
-							uint radius_code = uint(clamp(round(log(proto.limits.z / 0.02) / log(1.12)), 0.0, 63.0));
-							float radius = 0.02 * pow(1.12, float(radius_code));
-							float reach = radius * size;
-							float window = reach * 1.5;
-							vec3 sample_directions[4] = vec3[4](x_axis, -x_axis, z_axis, -z_axis);
-							uint offsets = 0u;
-							float worst = 0.0;
-
-							for (int i = 0; i < 4; i++) {
-								vec3 edge = root + sample_directions[i] * reach;
-								rayQueryEXT ground;
-								rayQueryInitializeEXT(ground, scatter_scene, gl_RayFlagsOpaqueEXT, 0xFF, edge + up * window, 0.0, -up, window * 2.0);
-
-								while (rayQueryProceedEXT(ground)) {}
-
-								float height = 0.0;
-
-								if (rayQueryGetIntersectionTypeEXT(ground, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
-									height = window - rayQueryGetIntersectionTEXT(ground, true);
-								}
-
-								worst = max(worst, abs(height) / (radius * size_y));
-								offsets |= uint(int(clamp(round(height / (radius * size_y) * 15.0), -15.0, 15.0)) + 16) << uint(i * 5);
-							}
-
-							// ground that far off under the footprint (the foot of a cliff, a rock) is more than a patch bends to, it
-							// would arch over it instead
-							if (worst < 0.6) conform_word = uintBitsToFloat(0x80000000u | (radius_code << 24) | offsets);
-						}
-						]] or
-					""
-				) .. [[
+						// 1.0 is what a scene instance has in the corner of its matrix, see scatter_conform_word
+						float conform_word = ]] .. (RAY_QUERY and "scatter_conform_word(proto, root, x_axis, z_axis, up, size, size_y)" or "1.0") .. [[;
 
 						vec3 color = albedo_texture >= 0 ? textureLod(TEXTURE(albedo_texture), uv, 3.0).rgb : vec3(1.0);
 
@@ -975,6 +992,51 @@ function create_compute_passes()
 				}
 			]],
 		},
+		-- measures the ground under the instances that were given to the set (they were not grown on a surface, so no bake
+		-- measured it), it runs again now and then, since the terrain streams in under them
+		conform = RAY_QUERY and
+			EasyPipeline.Compute{
+				name = "scatter_conform",
+				DescriptorSetCount = render.GetSwapchainImageCount(),
+				LocalSize = {x = 64, y = 1, z = 1},
+				descriptor_sets = {
+					storage_buffer(BINDING_PROTOTYPES, "prototypes", "compute"),
+					storage_buffer(BINDING_INSTANCES, "baked", "compute"),
+					{
+						type = "acceleration_structure_khr",
+						binding_index = BINDING_SCENE,
+						stageFlags = "compute",
+						set_index = 0,
+					},
+				},
+				block = conform_block,
+				write = write_conform_block,
+				shader = [[
+				#extension GL_EXT_ray_query : require
+				layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT scatter_scene;
+			]] .. COMMON_GLSL .. PROTOTYPES_GLSL .. CONFORM_GLSL .. [[
+				layout(std430, set = 0, binding = ]] .. BINDING_INSTANCES .. [[) buffer ScatterBaked {
+					mat4 scatter_baked[];
+				};
+
+				void main() {
+					uint i = gl_GlobalInvocationID.x;
+
+					if (i >= uint(compute.unit_count)) return;
+
+					mat4 world = scatter_baked[uint(compute.unit_offset) + i];
+					ScatterPrototype proto = scatter_prototypes[floatBitsToUint(world[2][3])];
+
+					if (proto.limits.z <= 0.0) return;
+
+					float size = length(world[0].xyz);
+					float size_y = length(world[1].xyz);
+					world[3][3] = scatter_conform_word(proto, world[3].xyz, world[0].xyz / size, world[2].xyz / size, world[1].xyz / size_y, size, size_y);
+					scatter_baked[uint(compute.unit_offset) + i] = world;
+				}
+			]],
+			} or
+			nil,
 		cull = EasyPipeline.Compute{
 			name = "scatter_cull",
 			DescriptorSetCount = 1,
@@ -1468,31 +1530,34 @@ local function size_prototype(proto)
 	-- the model reaches a little past the billboard's distance, and the billboard from a little before it
 	local model_end = switch > 0 and math.min(switch * (1 + proto.billboard_fade), far) or far
 
+	-- a placed prototype has no density to estimate from, all of its instances are the most any list can get
+	local placed_room = proto.placed and math.max(proto.placed_count or 0, scatter.MIN_ROOM)
+
 	if proto.max_instances then
 		proto.capacity = proto.max_instances
 	else
-		proto.capacity = estimate_room(proto, 0, model_end, proto.shadow and 1 or 0.5)
+		proto.capacity = placed_room or estimate_room(proto, 0, model_end, proto.shadow and 1 or 0.5)
 		proto.peak = proto.capacity / scatter.GROW_MARGIN
 	end
 
 	proto.far_capacity = scatter.MIN_ROOM
 
 	if switch > 0 then
-		proto.far_capacity = estimate_room(proto, switch * (1 - proto.billboard_fade), far, 0.5)
+		proto.far_capacity = placed_room or estimate_room(proto, switch * (1 - proto.billboard_fade), far, 0.5)
 	end
 
 	proto.far_peak = proto.far_capacity / scatter.GROW_MARGIN
 	proto.shadow_capacity = scatter.MIN_ROOM
 
 	if proto.shadow then
-		proto.shadow_capacity = estimate_room(proto, 0, switch > 0 and switch or far, 1)
+		proto.shadow_capacity = placed_room or estimate_room(proto, 0, switch > 0 and switch or far, 1)
 	end
 
 	proto.shadow_peak = proto.shadow_capacity / scatter.GROW_MARGIN
 	proto.shadow_billboard_capacity = scatter.MIN_ROOM
 
 	if proto.shadow and switch > 0 then
-		proto.shadow_billboard_capacity = estimate_room(proto, switch, far, 1)
+		proto.shadow_billboard_capacity = placed_room or estimate_room(proto, switch, far, 1)
 	end
 
 	proto.shadow_billboard_peak = proto.shadow_billboard_capacity / scatter.GROW_MARGIN
@@ -2012,6 +2077,353 @@ function scatter.IsSurfaceReady(entry)
 	return state.baked == state.wanted
 end
 
+-- instances that were given to a placed prototype instead of grown on a surface (the scatter_placements component does
+-- it). they are cut into units by the cells they are in and kept on the host, a unit is copied into the baked pool when the
+-- camera is within its prototype's reach (the nearest first, a few a frame), and the cull pass goes through them like
+-- any other unit: the bottom row of a matrix has the need (0, they are never thinned but by the end of the reach), the
+-- tint, the prototype's index and the conform word
+local placed_units = {}
+local active_placed = {}
+local placed_staging = {}
+local placed_copy = BufferCopy()
+local COUNT_WORD = ffi.new("uint32_t[1]")
+scatter.PLACED_CELL = 512
+scatter.PLACED_UPLOADS = 4
+scatter.PLACED_CONFORMS = 2
+scatter.PLACED_CONFORM_INTERVAL = 300
+
+-- matrices is a float array of 16 for each instance, the world matrix as the cull pass reads it, count of them
+function scatter.AddPlacements(proto, matrices, count)
+	assert(proto.placed, proto.name .. " is not a placed prototype")
+	local cell = scatter.PLACED_CELL
+	local groups, order = {}, {}
+
+	for i = 0, count - 1 do
+		local key = (math.floor(matrices[i * 16 + 12] / cell) + 32768) * 65536 + math.floor(matrices[i * 16 + 14] / cell) + 32768
+		local group = groups[key]
+
+		if not group then
+			group = {n = 0}
+			groups[key] = group
+			order[#order + 1] = group
+		end
+
+		group.n = group.n + 1
+		group[group.n] = i
+	end
+
+	local handle = {proto = proto, units = {}, count = count, hidden = false}
+
+	for _, group in ipairs(order) do
+		assert(group.n <= 2 ^ MAX_CLASS, "too many placed instances in a cell")
+		local data = ffi.new("float[?]", group.n * 16)
+		local unit = {
+			handle = handle,
+			proto = proto,
+			data = data,
+			words = ffi.cast("uint32_t *", data),
+			n = group.n,
+			min_x = math.huge,
+			min_y = math.huge,
+			min_z = math.huge,
+			max_x = -math.huge,
+			max_y = -math.huge,
+			max_z = -math.huge,
+		}
+
+		for k = 1, group.n do
+			local at = (k - 1) * 16
+			ffi.copy(data + at, matrices + group[k] * 16, 64)
+			local x, y, z = data[at + 12], data[at + 13], data[at + 14]
+			unit.min_x, unit.max_x = math.min(unit.min_x, x), math.max(unit.max_x, x)
+			unit.min_y, unit.max_y = math.min(unit.min_y, y), math.max(unit.max_y, y)
+			unit.min_z, unit.max_z = math.min(unit.min_z, z), math.max(unit.max_z, z)
+		end
+
+		handle.units[#handle.units + 1] = unit
+		placed_units[#placed_units + 1] = unit
+	end
+
+	proto.placed_count = (proto.placed_count or 0) + count
+	proto.sized_density = nil
+	return handle
+end
+
+function scatter.RemovePlacements(handle)
+	local proto = handle.proto
+	proto.placed_count = math.max((proto.placed_count or 0) - handle.count, 0)
+	proto.sized_density = nil
+
+	for _, unit in ipairs(handle.units) do
+		unit.dead = true
+
+		if unit.slot then
+			pool_release(unit)
+			free_slots[#free_slots + 1] = unit.slot
+		end
+	end
+
+	local kept = 0
+
+	for _, unit in ipairs(placed_units) do
+		if not unit.dead then
+			kept = kept + 1
+			placed_units[kept] = unit
+		end
+	end
+
+	for i = kept + 1, #placed_units do
+		placed_units[i] = nil
+	end
+end
+
+-- for whoever measures: how many placed units there are, how many are in the baked pool, how many the cull pass goes through
+function scatter.GetPlacedStatus()
+	local uploaded = 0
+
+	for _, unit in ipairs(placed_units) do
+		if unit.offset and unit.index_written == unit.proto.index then uploaded = uploaded + 1 end
+	end
+
+	return #placed_units, uploaded, #active_placed
+end
+
+function scatter.SetPlacementsHidden(handle, hidden)
+	handle.hidden = hidden
+end
+
+local function upload_placed(cmd, b, unit, proto, frame)
+	if not unit.offset then
+		local class = next_class(unit.n)
+		local offset = pool_alloc(class)
+
+		if not offset then
+			if frame - pool_warned > 600 then
+				pool_warned = frame
+				logf("scatter: the baked pool is full, placed instances far away stay out\n")
+			end
+
+			return false
+		end
+
+		unit.offset = offset
+		unit.class = class
+		unit.slot = unit.slot or acquire_slot()
+	end
+
+	for i = 0, unit.n - 1 do
+		unit.words[i * 16 + 11] = proto.index
+	end
+
+	unit.index_written = proto.index
+	local size = unit.n * 64
+	local staging = render.CreateBuffer{
+		byte_size = size,
+		buffer_usage = {"transfer_src"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "scatter placements",
+	}
+	ffi.copy(staging:Map(), unit.data, size)
+	placed_copy[0].srcOffset = 0
+	placed_copy[0].dstOffset = unit.offset * 64
+	placed_copy[0].size = size
+	barrier(cmd, b.baked, "compute", "transfer", {"shader_read", "shader_write"}, "transfer_write")
+	cmd:CopyBuffer(staging, b.baked, placed_copy, 1)
+	barrier(cmd, b.baked, "transfer", "compute", "transfer_write", {"shader_read", "shader_write"})
+	COUNT_WORD[0] = unit.n
+	barrier(cmd, b.unit_counts, "compute", "transfer", {"shader_read", "shader_write"}, "transfer_write")
+	cmd:UpdateBuffer(b.unit_counts, unit.slot * 4, 4, COUNT_WORD)
+	barrier(cmd, b.unit_counts, "transfer", "compute", "transfer_write", {"shader_read", "shader_write"})
+	-- the copy is in the command buffer that is being recorded, the staging buffer goes after the frames in flight
+	placed_staging[#placed_staging + 1] = {buffer = staging, frame = frame}
+	unit.conform_frame = nil
+	return true
+end
+
+-- fills active_placed with the units the cull pass goes through this frame
+local function update_placed(cmd, b, passes, frame, camera)
+	list.clear(active_placed)
+
+	while placed_staging[1] and frame - placed_staging[1].frame > scatter.SURFACE_RING + 1 do
+		table.remove(placed_staging, 1).buffer:Remove()
+	end
+
+	local uploads, conforms = 0, 0
+	local tlas_set = false
+
+	for pass = 1, scatter.PLACED_UPLOADS + 1 do
+		local nearest, nearest_distance
+
+		for _, unit in ipairs(placed_units) do
+			local proto = unit.proto
+
+			if
+				not unit.handle.hidden and
+				proto.state == "ready" and
+				proto.index and
+				unit.index_written ~= proto.index and
+				unit.upload_frame ~= frame
+			then
+				local dx = math.max(unit.min_x - camera.x, 0, camera.x - unit.max_x)
+				local dy = math.max(unit.min_y - camera.y, 0, camera.y - unit.max_y)
+				local dz = math.max(unit.min_z - camera.z, 0, camera.z - unit.max_z)
+				local d = dx * dx + dy * dy + dz * dz
+				local far = proto.max_distance * proto.distance_multiplier
+
+				if d <= far * far and (not nearest or d < nearest_distance) then
+					nearest, nearest_distance = unit, d
+				end
+			end
+		end
+
+		if not nearest or uploads >= scatter.PLACED_UPLOADS then break end
+
+		nearest.upload_frame = frame
+		uploads = uploads + 1
+		upload_placed(cmd, b, nearest, nearest.proto, frame)
+	end
+
+	for _, unit in ipairs(placed_units) do
+		local proto = unit.proto
+
+		if not unit.handle.hidden and unit.offset and proto.index and unit.index_written == proto.index then
+			local dx = math.max(unit.min_x - camera.x, 0, camera.x - unit.max_x)
+			local dy = math.max(unit.min_y - camera.y, 0, camera.y - unit.max_y)
+			local dz = math.max(unit.min_z - camera.z, 0, camera.z - unit.max_z)
+			local far = proto.max_distance * proto.distance_multiplier
+
+			if dx * dx + dy * dy + dz * dz <= far * far then
+				active_placed[#active_placed + 1] = unit
+
+				if
+					passes.conform and
+					proto.conform and
+					conforms < scatter.PLACED_CONFORMS and
+					(not unit.conform_frame or frame - unit.conform_frame > scatter.PLACED_CONFORM_INTERVAL)
+				then
+					if not tlas_set then
+						tlas_set = true
+						passes.conform:UpdateDescriptorSet(
+							"acceleration_structure_khr",
+							render.GetCurrentFrame(),
+							BINDING_SCENE,
+							0,
+							scene_rt.GetTLAS(cmd)
+						)
+					end
+
+					conforms = conforms + 1
+					unit.conform_frame = frame
+					passes.conform.unit_offset = unit.offset
+					passes.conform.unit_count = unit.n
+					passes.conform:Dispatch(cmd, math.ceil(unit.n / 64), 1, 1, render.GetCurrentFrame())
+					barrier(cmd, b.baked, "compute", "compute", "shader_write", {"shader_read", "shader_write"})
+				end
+			end
+		end
+	end
+end
+
+-- fills bake_list with the units that want baking (which are wanted, or wanted in another band)
+local function collect_bakes(candidates, camera, reach, frame)
+	list.clear(bake_list)
+
+	for _, surface in ipairs(candidates) do
+		local mesh = surface.entry.polygon3d:GetMesh()
+
+		local visible = surface.component:GetVisible()
+
+		if mesh:IsValid() and (visible or scatter.preloaded[surface.component]) then
+			local aabb = surface.component:GetWorldAABB()
+			local min_x, max_x = math.max(aabb.min_x, camera.x - reach), math.min(aabb.max_x, camera.x + reach)
+			local min_z, max_z = math.max(aabb.min_z, camera.z - reach), math.min(aabb.max_z, camera.z + reach)
+			local state = surface_states[surface.entry]
+
+			if not state then
+				state = {units = {}, stamp = 0}
+				surface_states[surface.entry] = state
+			end
+
+			state.wanted, state.baked, state.frame = 0, 0, frame
+			state.preload = not visible
+			state.retiring = scatter.retiring[surface.component]
+			state.min_y, state.max_y = aabb.min_y, aabb.max_y
+
+			if min_x <= max_x and min_z <= max_z and camera.y > aabb.min_y - reach and camera.y < aabb.max_y + reach then
+				-- what a unit is baked from, besides the set
+				local signature = aabb.min_x + aabb.max_x * 3 + aabb.min_z * 7 + aabb.max_z * 11 + aabb.min_y * 13 + aabb.max_y * 17 + surface.material:GetScatterDensity() * 19
+
+				if state.signature ~= signature then
+					state.signature = signature
+					state.stamp = state.stamp + 1
+				end
+
+				visit_surface, visit_state, visit_frame = surface, state, frame
+				visit_dy = math.max(aabb.min_y - camera.y, 0, camera.y - aabb.max_y)
+				visit_camera_x, visit_camera_z, visit_reach = camera.x, camera.z, reach
+				visit_min_x, visit_max_x, visit_min_z, visit_max_z = min_x, max_x, min_z, max_z
+				local top = scatter.BAKE_CELLS[#scatter.BAKE_CELLS]
+
+				for cx = math.floor(min_x / top), math.floor(max_x / top) do
+					for cz = math.floor(min_z / top), math.floor(max_z / top) do
+						visit_cell(#scatter.BAKE_CELLS, cx, cz)
+					end
+				end
+			end
+		end
+	end
+
+end
+
+-- the units and the blocks of 64 instances that the cull pass goes through, written into the ring slot's part of the
+-- buffers. returns the unit base and the block base and how many blocks there are
+local function write_cull_tables(b, ring, frame)
+	local unit_base = ring * scatter.MAX_UNITS
+	local block_base = ring * (scatter.MAX_BAKED / 64)
+	local unit_count, block_count = 0, 0
+
+	for _, unit in ipairs(units) do
+		-- a unit nothing wants this frame (its surface is gone or hidden) is not drawn, it is kept a while in case it is back
+		if unit.offset and unit.seen == frame and not unit.state.preload then
+			local capacity = 2 ^ unit.class
+			local blocks = math.ceil((unit.count and math.min(unit.count, capacity) or capacity) / 64)
+			local entry = (unit_base + unit_count) * 4
+			b.units_data[entry] = unit.offset
+			b.units_data[entry + 1] = capacity
+			b.units_data[entry + 2] = unit.slot
+			b.units_data[entry + 3] = 0
+
+			for block = 0, blocks - 1 do
+				local at = (block_base + block_count) * 2
+				b.blocks_data[at] = unit_count
+				b.blocks_data[at + 1] = block
+				block_count = block_count + 1
+			end
+
+			unit_count = unit_count + 1
+		end
+	end
+
+	for _, unit in ipairs(active_placed) do
+		local entry = (unit_base + unit_count) * 4
+		b.units_data[entry] = unit.offset
+		b.units_data[entry + 1] = unit.n
+		b.units_data[entry + 2] = unit.slot
+		b.units_data[entry + 3] = 0
+
+		for block = 0, math.ceil(unit.n / 64) - 1 do
+			local at = (block_base + block_count) * 2
+			b.blocks_data[at] = unit_count
+			b.blocks_data[at + 1] = block
+			block_count = block_count + 1
+		end
+
+		unit_count = unit_count + 1
+	end
+
+	return unit_base, block_base, block_count
+end
+
 function scatter.PreDraw(cmd)
 	surface_count = 0
 
@@ -2019,7 +2431,7 @@ function scatter.PreDraw(cmd)
 
 	local candidates = get_surfaces()
 
-	if not candidates[1] then return end
+	if not candidates[1] and not placed_units[1] then return end
 
 	local b = get_buffers()
 	local passes = get_compute_passes()
@@ -2076,57 +2488,10 @@ function scatter.PreDraw(cmd)
 	local reach = 0
 
 	for _, proto in ipairs(protos) do
-		reach = math.max(reach, proto.max_distance * proto.distance_multiplier)
+		if not proto.placed then reach = math.max(reach, proto.max_distance * proto.distance_multiplier) end
 	end
 
-	-- which units want baking
-	list.clear(bake_list)
-
-	for _, surface in ipairs(candidates) do
-		local mesh = surface.entry.polygon3d:GetMesh()
-
-		local visible = surface.component:GetVisible()
-
-		if mesh:IsValid() and (visible or scatter.preloaded[surface.component]) then
-			local aabb = surface.component:GetWorldAABB()
-			local min_x, max_x = math.max(aabb.min_x, camera.x - reach), math.min(aabb.max_x, camera.x + reach)
-			local min_z, max_z = math.max(aabb.min_z, camera.z - reach), math.min(aabb.max_z, camera.z + reach)
-			local state = surface_states[surface.entry]
-
-			if not state then
-				state = {units = {}, stamp = 0}
-				surface_states[surface.entry] = state
-			end
-
-			state.wanted, state.baked, state.frame = 0, 0, frame
-			state.preload = not visible
-			state.retiring = scatter.retiring[surface.component]
-			state.min_y, state.max_y = aabb.min_y, aabb.max_y
-
-			if min_x <= max_x and min_z <= max_z and camera.y > aabb.min_y - reach and camera.y < aabb.max_y + reach then
-				-- what a unit is baked from, besides the set
-				local signature = aabb.min_x + aabb.max_x * 3 + aabb.min_z * 7 + aabb.max_z * 11 + aabb.min_y * 13 + aabb.max_y * 17 + surface.material:GetScatterDensity() * 19
-
-				if state.signature ~= signature then
-					state.signature = signature
-					state.stamp = state.stamp + 1
-				end
-
-				visit_surface, visit_state, visit_frame = surface, state, frame
-				visit_dy = math.max(aabb.min_y - camera.y, 0, camera.y - aabb.max_y)
-				visit_camera_x, visit_camera_z, visit_reach = camera.x, camera.z, reach
-				visit_min_x, visit_max_x, visit_min_z, visit_max_z = min_x, max_x, min_z, max_z
-				local top = scatter.BAKE_CELLS[#scatter.BAKE_CELLS]
-
-				for cx = math.floor(min_x / top), math.floor(max_x / top) do
-					for cz = math.floor(min_z / top), math.floor(max_z / top) do
-						visit_cell(#scatter.BAKE_CELLS, cx, cz)
-					end
-				end
-			end
-		end
-	end
-
+	collect_bakes(candidates, camera, reach, frame)
 	table.sort(bake_list, by_priority)
 	-- for whoever measures: nothing is loading when this is zero
 	scatter.pending_new, scatter.pending_nearer, scatter.pending_farther = 0, 0, 0
@@ -2181,6 +2546,7 @@ function scatter.PreDraw(cmd)
 	end
 
 
+	update_placed(cmd, b, passes, frame, camera)
 	-- the units nothing wanted for a while go
 	local kept = 0
 
@@ -2197,33 +2563,7 @@ function scatter.PreDraw(cmd)
 		units[i] = nil
 	end
 
-	-- the units and the blocks of 64 instances that the cull pass goes through
-	local unit_base = ring * scatter.MAX_UNITS
-	local block_base = ring * (scatter.MAX_BAKED / 64)
-	local unit_count, block_count = 0, 0
-
-	for _, unit in ipairs(units) do
-		-- a unit nothing wants this frame (its surface is gone or hidden) is not drawn, it is kept a while in case it is back
-		if unit.offset and unit.seen == frame and not unit.state.preload then
-			local capacity = 2 ^ unit.class
-			local blocks = math.ceil((unit.count and math.min(unit.count, capacity) or capacity) / 64)
-			local entry = (unit_base + unit_count) * 4
-			b.units_data[entry] = unit.offset
-			b.units_data[entry + 1] = capacity
-			b.units_data[entry + 2] = unit.slot
-			b.units_data[entry + 3] = 0
-
-			for block = 0, blocks - 1 do
-				local at = (block_base + block_count) * 2
-				b.blocks_data[at] = unit_count
-				b.blocks_data[at + 1] = block
-				block_count = block_count + 1
-			end
-
-			unit_count = unit_count + 1
-		end
-	end
-
+	local unit_base, block_base, block_count = write_cull_tables(b, ring, frame)
 	surface_count = block_count
 	barrier(
 		cmd,

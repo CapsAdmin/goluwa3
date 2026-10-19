@@ -76,9 +76,15 @@
 --     tint_amount is how strongly
 --   bending: the wind bending of the model's materials, see the Bending material param. it is set on the
 --     model's materials, which are shared with every other use of the model
+--   placed: true for a prototype that has no rules, its instances are given to scatter.AddPlacements (the
+--     scatter_placements component does that). density, cluster, layers, slope, altitude, the scale, yaw and
+--     tilt keys mean nothing to it, max_distance is how far it is drawn and conform still applies. the billboard may
+--     have `radii` instead of `distance`: the distance is that many of the model's radii (the model has to load first)
+--   material_override: a material path (a Crysis mtl) that replaces the materials of the model's parts by their slot
 local objects = import("goluwa/objects/objects.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local Material = import("goluwa/render3d/material.lua")
 local scatter_grass_mesh = import("goluwa/render3d/scatter_grass_mesh.lua")
 local ScatterSet = objects.CreateTemplate("render3d_scatter_set")
 ScatterSet.MAX_PROTOTYPES = 256
@@ -158,7 +164,14 @@ local function normalize_prototype(definition, set_name, index)
 	assert(definition.model, name .. " has no model")
 
 	for key in pairs(definition) do
-		if key ~= "model" and key ~= "bending" and key ~= "max_instances" and DEFAULTS[key] == nil then
+		if
+			key ~= "model" and
+			key ~= "bending" and
+			key ~= "max_instances" and
+			key ~= "placed" and
+			key ~= "material_override" and
+			DEFAULTS[key] == nil
+		then
 			error("unknown prototype key " .. tostring(key) .. " in " .. name, 3)
 		end
 	end
@@ -195,6 +208,8 @@ local function normalize_prototype(definition, set_name, index)
 		name = name,
 		model = definition.model,
 		bending = definition.bending,
+		placed = definition.placed or false,
+		material_override = definition.material_override,
 		state = "unloaded",
 		parts = {},
 		density = get("density"),
@@ -242,7 +257,8 @@ local function normalize_prototype(definition, set_name, index)
 	if billboard then
 		assert(type(proto.model) == "string", name .. " has a billboard but its model is not a path")
 		billboard = billboard == true and {} or billboard
-		proto.billboard_distance = billboard.distance or 150
+		proto.billboard_radii = billboard.radii
+		proto.billboard_distance = billboard.distance or (billboard.radii and 1) or 150
 		proto.billboard_fade = billboard.fade or 0.15
 		assert(proto.billboard_distance > 0 and proto.billboard_fade > 0 and proto.billboard_fade < 1, name .. ".billboard needs a distance and a fade between 0 and 1")
 	end
@@ -332,6 +348,11 @@ local function finish_loading(proto, entries)
 	proto.parts = {}
 	proto.lod_parts = nil
 	local lod_level = 0
+	local override_slots, override_material
+
+	if proto.material_override then
+		override_slots, override_material = Material.GetOverrideFromPath(proto.material_override)
+	end
 
 	for _, entry in ipairs(entries) do
 		local polygon = entry.mesh
@@ -341,6 +362,13 @@ local function finish_loading(proto, entries)
 		if polygon:GetLODLevel() == 0 and not polygon:GetLODBillboard() and mesh:IsValid() then
 			assert(mesh.index_buffer, proto.name .. " has a mesh without indices")
 			local material = entry.material or render3d.GetDefaultMaterial()
+
+			if override_slots then
+				material = override_slots[polygon:GetMaterialSlot()] or material
+			elseif override_material then
+				material = override_material
+			end
+
 			local aabb = polygon:GetAABB()
 			min_x, min_y, min_z = math.min(min_x, aabb.min_x),
 			math.min(min_y, aabb.min_y),
@@ -373,12 +401,6 @@ local function finish_loading(proto, entries)
 	else
 		proto.state = "ready"
 
-		if proto.billboard_distance > 0 then
-			import("goluwa/render3d/billboard.lua").Request(proto.model, function(polygon, material)
-				proto.billboard_part = {mesh = polygon:GetMesh(), polygon = polygon, material = material}
-				ScatterSet.version = ScatterSet.version + 1
-			end)
-		end
 		-- how far from its origin the model reaches, and how tall it is, unscaled
 		proto.height = math.max(max_y, 0.01)
 		-- the mean half width of the model, how far the ground is measured from its root when it conforms
@@ -386,6 +408,17 @@ local function finish_loading(proto, entries)
 		proto.radius = math.sqrt(
 			math.max(min_x * min_x, max_x * max_x) + math.max(min_y * min_y, max_y * max_y) + math.max(min_z * min_z, max_z * max_z)
 		)
+
+		if proto.billboard_radii then
+			proto.billboard_distance = proto.billboard_radii * proto.radius
+		end
+
+		if proto.billboard_distance > 0 then
+			import("goluwa/render3d/billboard.lua").Request(proto.model, function(polygon, material)
+				proto.billboard_part = {mesh = polygon:GetMesh(), polygon = polygon, material = material}
+				ScatterSet.version = ScatterSet.version + 1
+			end)
+		end
 	end
 
 	ScatterSet.version = ScatterSet.version + 1

@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local T = import("test/environment.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -289,3 +290,52 @@ T.Test3D("Graphics render3d scatter keeps off slopes it is not set to grow on", 
 	set:Remove()
 end)
 
+
+local function place_red_cubes(grid, spacing)
+	local set = create_red_cubes{placed = true}
+	set:Use()
+	local scatter = import("goluwa/render3d/scatter.lua")
+	local count = grid * grid
+	local matrices = ffi.new("float[?]", count * 16)
+	local words = ffi.cast("uint32_t *", matrices)
+
+	for i = 0, count - 1 do
+		local at = i * 16
+		matrices[at] = 1
+		matrices[at + 5] = 1
+		matrices[at + 10] = 1
+		words[at + 7] = 0xFF808080
+		matrices[at + 12] = (i % grid - (grid - 1) / 2) * spacing
+		matrices[at + 14] = (math.floor(i / grid) - (grid - 1) / 2) * spacing
+		matrices[at + 15] = 1
+	end
+
+	return set, scatter, scatter.AddPlacements(set.protos[1], matrices, count)
+end
+
+T.Test3D("Graphics render3d scatter draws the instances placed in a prototype", function(draw)
+	local set, scatter, handle = place_red_cubes(5, 1)
+	local camera = render3d.GetCamera()
+	camera:SetFOV(math.rad(60))
+	camera:SetNearZ(0.1)
+	camera:SetFarZ(100)
+	camera:SetPosition(Vec3(0, 6, 0))
+	camera:SetRotation(Quat():SetAngles(Deg3(-90, 0, 0)))
+
+	for _ = 1, 6 do
+		draw()
+	end
+
+	local total, uploaded, active = scatter.GetPlacedStatus()
+	-- the grid straddles the corner of four cells
+	T(total)["=="](4)
+	T(uploaded)["=="](4)
+	T(active)["=="](4)
+	local texture = gbuffer_layout.GetTexture("albedo")
+	local size = render.GetRenderImageSize()
+	local r, g = texture:GetPixel(math.floor(size.x / 2), math.floor(size.y / 2))
+	T(r > 150 and g < 100)["=="](true)
+	scatter.RemovePlacements(handle)
+	set:Remove()
+	T(scatter.GetPlacedStatus())["=="](0)
+end)
