@@ -264,7 +264,11 @@ do
 			local roots = math.asin(math.clamp(sun.z / r, -1, 1))
 			local a = wrap_angle(roots - theta)
 			local b = wrap_angle(math.pi - roots - theta)
-			latitude = math.clamp(math.abs(a - latitude) < math.abs(b - latitude) and a or b, -math.pi / 2, math.pi / 2)
+			latitude = math.clamp(
+				math.abs(a - latitude) < math.abs(b - latitude) and a or b,
+				-math.pi / 2,
+				math.pi / 2
+			)
 			local meridian = math.cos(latitude) * dir.y + math.sin(latitude) * dir.z
 			local sidereal = math.atan2(sun.y, sun.x) - math.atan2(dir.x, meridian)
 			time = time + wrap_angle(sidereal - get_sidereal(time, weather.longitude)) / SIDEREAL_RADIANS_PER_SECOND
@@ -427,7 +431,6 @@ function weather.GetMoonDirection()
 	return (weather.GetMoonAt(weather.time, weather.latitude, weather.longitude))
 end
 
-
 function weather.SetEnvironmentMap(path)
 	atmosphere.SetEnvironmentMap(path)
 	weather.UpdateSky()
@@ -528,7 +531,7 @@ local SUN_SHADOW_DEFAULTS = {
 		distance = 30,
 		zoom = 4,
 		min_caster_texel_size = 1,
-		update_interval = 3,
+		update_interval = 1,
 	},
 }
 -- a change of these needs other textures, the rest is written into the maps that exist
@@ -650,7 +653,6 @@ function weather.Initialize()
 	weather.light:SetGUID("atmosphere")
 	atmosphere.SetSunIlluminance(SUN_TOA_ILLUMINANCE)
 	weather.BuildSunShadows()
-
 	weather.shelter_caster = Entity.New{Name = "shelter_caster", transform = {}}
 	weather.shelter_map = ShadowMap.New{
 		mode = "directional",
