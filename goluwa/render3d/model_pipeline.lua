@@ -639,6 +639,7 @@ do
 			custom_declarations = model_pipeline.BuildPBRBatchRecordGlsl() .. [[
 layout(buffer_reference, scalar) readonly buffer PBRBatchVertexData { float v[]; };
 layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 worlds[]; };
+layout(buffer_reference, scalar) readonly buffer PBRBatchIdData { uvec2 ids[]; };
 layout(buffer_reference, scalar) readonly buffer PBRBatchThicknessData { float t[]; };
 layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
 mat4 multi_draw_instance_world;

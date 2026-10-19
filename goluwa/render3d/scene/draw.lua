@@ -16,9 +16,10 @@ local store = import("goluwa/render3d/scene/store.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local render3d
 local draw = {}
--- the main view drawn from the scene store: one pass writes an indexed indirect draw for every row that is in view, the
--- world matrices and the previous ones of its instance, and the gbuffer's multi draw pipelines draw them, with a record
--- of the row's mesh and material as the batch (the rows are the batches, so the draws need no cpu list of what is visible)
+-- the main view drawn from the scene store: rows of the same mesh, material and first polygon are a group, one pass puts
+-- the rows of a group that are in view next to each other in the group's room, with their world matrices and the previous
+-- ones, a second one writes an indexed indirect draw for each group that has any (packed, with their count), and the
+-- gbuffer's multi draw pipelines draw them, with a record of the group's mesh and material as the batch
 local LOCAL_SIZE = 64
 local COMMAND_SIZE = 20
 local GROUPS = 4
@@ -36,12 +37,117 @@ draw.serial = 0
 -- the slot (plus one) that each change of the rows, which is what the serial counts, was made to
 local CHANGE_LOG_SIZE = 65536
 local changes = {log = {}, size = CHANGE_LOG_SIZE}
+-- the groups: what is drawn together, by the side of the draw too (single or double sided, with a height map or not, which
+-- is which of the four draws of a pipeline it is in). a group has a room in the instance buffers, as many as it has rows
+-- at the most (a power of two), the id of a group is the index of its batch record
+local MIN_GROUP_ROOM = 4
+local GroupRecord = ffi.typeof("struct { uint32_t mesh_row, base, room, set; }")
+local groups = {}
+local group_lookup = {}
+local free_group_ids = {}
+local group_table
+local slot_groups
+local group_space = 0
+local group_free_rooms = {}
+draw.group_serial = 0
+local group_changes = {log = {}, size = CHANGE_LOG_SIZE}
 
--- a drawn row has a slot of its own, the slots are what the draws index (the batch records, the matrices), so rows that
+local function note_group_change(id)
+	draw.group_serial = draw.group_serial + 1
+	group_changes.log[draw.group_serial % CHANGE_LOG_SIZE] = id
+end
+
+local function write_group(group)
+	local record = group_table:Get()[group.id - 1]
+	record.mesh_row = group.mesh_row
+	record.base = group.base
+	record.room = group.room
+	record.set = group.set
+end
+
+local function acquire_group(mesh, material, polygon3d, mesh_row, set)
+	group_table = group_table or store.CreateTable{name = "draw_groups", ctype = GroupRecord, capacity = 1024}
+	local by_mesh = group_lookup[set]
+
+	if not by_mesh then
+		by_mesh = table.weak("k")
+		group_lookup[set] = by_mesh
+	end
+
+	local by_material = by_mesh[mesh]
+
+	if not by_material then
+		by_material = table.weak("k")
+		by_mesh[mesh] = by_material
+	end
+
+	local by_polygon = by_material[material]
+
+	if not by_polygon then
+		by_polygon = table.weak("k")
+		by_material[material] = by_polygon
+	end
+
+	local group = by_polygon[polygon3d]
+
+	if not group then
+		local id = table.remove(free_group_ids) or #groups + 1
+		group = setmetatable(
+			{id = id, mesh = mesh, material = material, first_polygon3d = polygon3d, mesh_row = mesh_row, set = set, rows = 0, room = 0, base = 0},
+			ROW_META
+		)
+		groups[id] = group
+		by_polygon[polygon3d] = group
+		group_table:Reserve(id)
+		note_group_change(id)
+	end
+
+	group.rows = group.rows + 1
+
+	if group.rows > group.room then
+		if group.room > 0 then
+			group_free_rooms[group.room] = group_free_rooms[group.room] or {}
+			table.insert(group_free_rooms[group.room], group.base)
+		end
+
+		group.room = math.max(MIN_GROUP_ROOM, 2 ^ math.ceil(math.log(group.rows, 2)))
+		local free = group_free_rooms[group.room]
+		group.base = free and table.remove(free)
+
+		if not group.base then
+			group.base = group_space
+			group_space = group_space + group.room
+		end
+
+		write_group(group)
+	end
+
+	return group
+end
+
+local function release_group(group)
+	group.rows = group.rows - 1
+
+	if group.rows > 0 then return end
+
+	group_free_rooms[group.room] = group_free_rooms[group.room] or {}
+	table.insert(group_free_rooms[group.room], group.base)
+	group.room = 0
+	write_group(group)
+	group_lookup[group.set][group.mesh][group.material][group.first_polygon3d] = nil
+	groups[group.id] = DEAD_ROW
+	free_group_ids[#free_group_ids + 1] = group.id
+	note_group_change(group.id)
+end
+
+-- a drawn row has a slot of its own, the slots are what the draws index (the instance data), so rows that
 -- are not drawn, and the rows of producers, cost nothing
-function draw.SetRow(id, mesh, material, polygon3d, translucent)
+function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 	slot_rows = slot_rows or store.CreateTable{name = "draw_slot_rows", ctype = "uint32_t", capacity = 4096}
+	slot_groups = slot_groups or store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
+	-- which of the four draws of a pipeline, the sides and the height map ones (translucent ones only have the sides)
+	local set = (material:GetDoubleSided() and 1 or 0) + (material:HasHeightMap() and 2 or 0)
 
 	if (translucent_ids[id] or false) ~= (translucent or false) then
 		translucent_ids[id] = translucent or nil
@@ -51,15 +157,20 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent)
 	if slot then
 		local row = rows[slot + 1]
 
-		if row.mesh == mesh and row.material == material then return end
+		if row.mesh == mesh and row.material == material and row.set == set then return end
+
+		if row.group then release_group(row.group) end
 	else
 		slot = table.remove(free_slots) or #rows
 		slot_of[id] = slot
 		slot_rows:Reserve(slot + 1)
+		slot_groups:Reserve(slot + 1)
 		slot_rows:Get()[slot] = id
 	end
 
-	rows[slot + 1] = setmetatable({mesh = mesh, material = material, first_polygon3d = polygon3d}, ROW_META)
+	local group = acquire_group(mesh, material, polygon3d, mesh_row, set)
+	slot_groups:Get()[slot] = group.id - 1
+	rows[slot + 1] = setmetatable({mesh = mesh, material = material, first_polygon3d = polygon3d, set = set, group = group}, ROW_META)
 	draw.serial = draw.serial + 1
 	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
@@ -74,13 +185,100 @@ function draw.ClearRow(id)
 		translucent_count = translucent_count - 1
 	end
 
+	local group = rows[slot + 1].group
+
+	if group then release_group(group) end
+
 	rows[slot + 1] = DEAD_ROW
 	slot_rows:Get()[slot] = 0xFFFFFFFF
+	slot_groups:Get()[slot] = 0xFFFFFFFF
 	slot_of[id] = nil
 	free_slots[#free_slots + 1] = slot
 	draw.serial = draw.serial + 1
 	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
+
+local DRAW_DECLARATIONS = [[
+			#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+			#extension GL_EXT_buffer_reference : require
+			#extension GL_EXT_scalar_block_layout : require
+
+			struct tlas_instance {
+				float m[12];
+				uint custom_and_mask;
+				uint flags;
+				uint64_t blas;
+			};
+
+			struct instance_data {
+				uint mesh_row;
+				uint material_row;
+				uint flags;
+				uint mask_lod;
+				vec4 bounds;
+				vec2 lod;
+				vec2 pad;
+			};
+
+			]] .. instances.RASTER_DATA_GLSL .. [[
+
+			struct mesh_row {
+				uint64_t vertex_address;
+				uint64_t index_address;
+				uint64_t blas;
+				uint triangle_count;
+				uint vertex_stride;
+				uint flags;
+				uint pool_first_index;
+			};
+
+			struct group_record {
+				uint mesh_row;
+				uint base;
+				uint room;
+				uint set;
+			};
+
+			struct draw_command {
+				uint index_count;
+				uint instance_count;
+				uint first_index;
+				int vertex_offset;
+				uint first_instance;
+			};
+
+			layout(buffer_reference, scalar) readonly buffer TLASArray { tlas_instance t[]; };
+			layout(buffer_reference, scalar) readonly buffer DataArray { instance_data d[]; };
+			layout(buffer_reference, scalar) readonly buffer RasterArray { raster_data r[]; };
+			layout(buffer_reference, scalar) readonly buffer MeshArray { mesh_row m[]; };
+			layout(buffer_reference, scalar) writeonly buffer CommandArray { draw_command c[]; };
+			layout(buffer_reference, scalar) buffer CountArray { uint n[]; };
+			layout(buffer_reference, scalar) readonly buffer GroupArray { group_record g[]; };
+			layout(buffer_reference, scalar) writeonly buffer BatchIdArray { uvec2 b[]; };
+			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
+			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
+			layout(buffer_reference, scalar) writeonly buffer ThicknessArray { float t[]; };
+
+			struct draw_args {
+				uint64_t tlas;
+				uint64_t data;
+				uint64_t raster;
+				uint64_t meshes;
+				uint64_t commands;
+				uint64_t worlds;
+				uint64_t prev_worlds;
+				uint64_t slot_rows;
+				uint64_t thicknesses;
+				uint64_t counts;
+				uint64_t slot_groups;
+				uint64_t group_table;
+				uint64_t group_counts;
+				uint64_t batch_ids;
+			};
+
+			layout(buffer_reference, scalar) readonly buffer ArgsRef { draw_args a; };
+			#define ARGS ArgsRef(compute.args).a
+]]
 
 local cull_pipeline
 local state = {}
@@ -141,73 +339,7 @@ function create_cull_pipeline()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
-			#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-			#extension GL_EXT_buffer_reference : require
-			#extension GL_EXT_scalar_block_layout : require
-
-			struct tlas_instance {
-				float m[12];
-				uint custom_and_mask;
-				uint flags;
-				uint64_t blas;
-			};
-
-			struct instance_data {
-				uint mesh_row;
-				uint material_row;
-				uint flags;
-				uint mask_lod;
-				vec4 bounds;
-				vec2 lod;
-				vec2 pad;
-			};
-
-			]] .. instances.RASTER_DATA_GLSL .. [[
-
-			struct mesh_row {
-				uint64_t vertex_address;
-				uint64_t index_address;
-				uint64_t blas;
-				uint triangle_count;
-				uint vertex_stride;
-				uint flags;
-				uint pool_first_index;
-			};
-
-			struct draw_command {
-				uint index_count;
-				uint instance_count;
-				uint first_index;
-				int vertex_offset;
-				uint first_instance;
-			};
-
-			layout(buffer_reference, scalar) readonly buffer TLASArray { tlas_instance t[]; };
-			layout(buffer_reference, scalar) readonly buffer DataArray { instance_data d[]; };
-			layout(buffer_reference, scalar) readonly buffer RasterArray { raster_data r[]; };
-			layout(buffer_reference, scalar) readonly buffer MeshArray { mesh_row m[]; };
-			layout(buffer_reference, scalar) writeonly buffer CommandArray { draw_command c[]; };
-			layout(buffer_reference, scalar) buffer CountArray { uint n[]; };
-			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
-			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
-			layout(buffer_reference, scalar) writeonly buffer ThicknessArray { float t[]; };
-
-			struct draw_args {
-				uint64_t tlas;
-				uint64_t data;
-				uint64_t raster;
-				uint64_t meshes;
-				uint64_t commands;
-				uint64_t worlds;
-				uint64_t prev_worlds;
-				uint64_t slot_rows;
-				uint64_t thicknesses;
-				uint64_t counts;
-			};
-
-			layout(buffer_reference, scalar) readonly buffer ArgsRef { draw_args a; };
-			#define ARGS ArgsRef(compute.args).a
-		]],
+		]] .. DRAW_DECLARATIONS,
 		shader = [[
 			// a level of detail: whether it is drawn at this ratio, and the fade that dithers it into the next one, 0 for
 			// none, towards 1 for a level on its way out, towards -1 for one that is just coming in
@@ -352,13 +484,19 @@ function create_cull_pipeline()
 					if (!select_lod(level, last, inst.lod.x, inst.lod.y, ratio, fade)) return;
 				}
 
-				mesh_row mesh = MeshArray(ARGS.meshes).m[inst.mesh_row];
-				// the group is single or double sided, with the height map ones after them
-				uint group = ((raster.flags >> 3u) & 1u) + (compute.kind == 0 ? ((raster.flags >> 2u) & 1u) * 2u : 0u);
-				// the draws that are left are packed at the start of the group, the count they end up with is what is drawn. the
-				// slot is the first instance, which is how the vertex stage finds the row's batch and its matrix
-				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[group], 1u);
-				CommandArray(ARGS.commands).c[uint(compute.capacity) * group + packed_index] = draw_command(mesh.triangle_count * 3u, 1u, mesh.pool_first_index, 0, slot);
+				uint group_id = SlotArray(ARGS.slot_groups).r[slot];
+
+				if (group_id == 0xFFFFFFFFu) return;
+
+				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				// the rows of a group in view are put next to each other in its room, the instance index
+				// is the first instance of its draw plus the place in the room
+				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
+
+				if (place >= group.room) return;
+
+				uint at = group.base + place;
+				BatchIdArray(ARGS.batch_ids).b[at] = uvec2(group_id, slot);
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
 
 				if (compute.kind != 0) {
@@ -371,53 +509,119 @@ function create_cull_pipeline()
 						);
 					}
 
-					ThicknessArray(ARGS.thicknesses).t[slot] = thickness;
+					ThicknessArray(ARGS.thicknesses).t[at] = thickness;
 				}
 
-				WorldArray(ARGS.worlds).w[slot] = world_from(t.m, fade);
-				WorldArray(ARGS.prev_worlds).w[slot] = world_from(raster.prev, 0.0);
+				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade);
+				WorldArray(ARGS.prev_worlds).w[at] = world_from(raster.prev, 0.0);
 			}
 		]],
 	}
 	return cull_pipeline
 end
 
+local finalize_pipeline
+
+local function get_finalize_pipeline()
+	if finalize_pipeline then return finalize_pipeline end
+
+	finalize_pipeline = EasyPipeline.Compute{
+		name = "scene_draw_finalize",
+		DescriptorSetCount = 1,
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		block = {
+			{"args", "uint64_t"},
+			{"count", "int"},
+			{"capacity", "int"},
+			{"kind", "int"},
+		},
+		write = function(self, block)
+			block.args = state.args_address
+			block.count = state.group_count
+			block.capacity = state.group_capacity
+			block.kind = state.kind
+			return block
+		end,
+		custom_declarations = DRAW_DECLARATIONS,
+		shader = [[
+			// the draw of a group that has rows in view: one instanced draw, packed with the others of its set, which of the
+			// four draws of a pipeline it is in (the translucent passes only have the sides). the instances are in its room
+			void main() {
+				uint group_id = gl_GlobalInvocationID.x;
+
+				if (group_id >= uint(compute.count)) return;
+
+				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				uint instance_count = min(CountArray(ARGS.group_counts).n[group_id], group.room);
+
+				if (instance_count == 0u) return;
+
+				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
+				uint set = compute.kind == 0 ? group.set : (group.set & 1u);
+				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
+				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
+			}
+		]],
+	}
+	return finalize_pipeline
+end
+
 -- the draws of the gbuffer (kind 0) and of the translucent passes (kind 1) are written by the same pass into a set of
 -- buffers each
 local buffer_sets = {}
 
-local function ensure_buffers(kind, capacity)
+local function ensure_buffers(kind, instance_capacity, group_count)
 	local buffers = buffer_sets[kind]
 
-	if buffers and buffers.capacity >= capacity then return buffers end
+	if buffers and buffers.capacity >= instance_capacity and buffers.group_capacity >= group_count then
+		return buffers
+	end
 
 	if buffers then
 		render.GetDevice():WaitIdle()
 		buffers.commands:Remove()
 		buffers.counts:Remove()
+		buffers.group_counts:Remove()
+		buffers.batch_ids:Remove()
 		buffers.worlds:Remove()
 		buffers.prev_worlds:Remove()
 
 		if buffers.thicknesses then buffers.thicknesses:Remove() end
 	end
 
-	capacity = math.ceil(capacity * 1.5)
+	local capacity = math.ceil(instance_capacity * 1.5)
+	local group_capacity = math.ceil(group_count * 1.5)
 	local usage = {"storage_buffer", "shader_device_address", "indirect_buffer", "transfer_dst", "transfer_src"}
 	local name = kind == 0 and "scene_draw" or "scene_draw_translucent"
 	buffers = {
 		capacity = capacity,
+		group_capacity = group_capacity,
 		commands = render.CreateBuffer{
-			byte_size = capacity * GROUPS * COMMAND_SIZE,
+			byte_size = group_capacity * GROUPS * COMMAND_SIZE,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
 			label = name .. ".commands",
 		},
-		-- how many draws each group got
+		-- how many draws each of the four draws got
 		counts = render.CreateBuffer{
 			byte_size = GROUPS * 4,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
 			label = name .. ".counts",
+		},
+		-- how many rows of each group were in view
+		group_counts = render.CreateBuffer{
+			byte_size = group_capacity * 4,
+			buffer_usage = usage,
+			memory_property = {"device_local"},
+			label = name .. ".group_counts",
+		},
+		-- the group and the slot of each instance
+		batch_ids = render.CreateBuffer{
+			byte_size = capacity * 8,
+			buffer_usage = usage,
+			memory_property = {"device_local"},
+			label = name .. ".batch_ids",
 		},
 		worlds = render.CreateBuffer{
 			byte_size = capacity * 64,
@@ -445,13 +649,15 @@ local function ensure_buffers(kind, capacity)
 
 	buffers.commands_address = buffers.commands:GetDeviceAddress()
 	buffers.counts_address = buffers.counts:GetDeviceAddress()
+	buffers.group_counts_address = buffers.group_counts:GetDeviceAddress()
+	buffers.batch_ids_address = buffers.batch_ids:GetDeviceAddress()
 	buffers.worlds_address = buffers.worlds:GetDeviceAddress()
 	buffers.prev_worlds_address = buffers.prev_worlds:GetDeviceAddress()
 	buffer_sets[kind] = buffers
 	return buffers
 end
 
-local frame_state = {frame = -1, counts = {[0] = 0, 0}}
+local frame_state = {frame = -1, counts = {[0] = 0, 0}, group_counts = {[0] = 0, 0}}
 
 -- records the pass that writes this frame's draws, outside of a render pass, after the instances were updated
 function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewport_height, culling_enabled)
@@ -462,11 +668,15 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 	frame_state.frame = system.GetFrameNumber()
 	frame_state.counts[0] = 0
 	frame_state.counts[1] = 0
+	frame_state.group_counts[0] = 0
+	frame_state.group_counts[1] = 0
 
 	if count == 0 then return end
 
 	store.FlushStaged(cmd)
 	local pipeline = get_cull_pipeline()
+	local finalize = get_finalize_pipeline()
+	local group_count = #groups
 	args_ring = args_ring or {}
 	local hiz, fallback_hiz = gpu_culling.GetMainViewHiZ()
 	local bound = hiz or fallback_hiz
@@ -480,7 +690,7 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 	end
 
 	for kind = 0, translucent_count > 0 and 1 or 0 do
-		local buffers = ensure_buffers(kind, count)
+		local buffers = ensure_buffers(kind, group_space, group_count)
 		local ring_slot = render.frame_serial % 4 + 1
 		local ring = args_ring[kind]
 
@@ -513,29 +723,39 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 		args.pointer[7] = slot_rows:GetAddress()
 		args.pointer[8] = buffers.thicknesses_address or 0
 		args.pointer[9] = buffers.counts_address
+		args.pointer[10] = slot_groups:GetAddress()
+		args.pointer[11] = group_table:GetAddress()
+		args.pointer[12] = buffers.group_counts_address
+		args.pointer[13] = buffers.batch_ids_address
 		state.kind = kind
 		state.args_address = args.address
 		state.camera = camera_position
 		state.count = count
-		state.capacity = buffers.capacity
+		state.capacity = buffers.group_capacity
+		state.group_count = group_count
+		state.group_capacity = buffers.group_capacity
 		state.planes = frustum_planes
 		state.view_projection = view_projection
 		state.viewport_height = viewport_height
 		state.culling = culling_enabled
 		state.occlusion_max_mip = hiz and hiz.max_mip or nil
 		cmd:FillBuffer(buffers.counts, 0, buffers.counts.size, 0)
+		cmd:FillBuffer(buffers.group_counts, 0, buffers.group_counts.size, 0)
 		cmd:PipelineBarrier{
 			srcStage = {"host", "transfer", "compute"},
 			dstStage = "compute",
 			memoryBarrier = true,
 		}
 		pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, descriptor_slot or 1)
+		cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+		finalize:Dispatch(cmd, math.ceil(group_count / LOCAL_SIZE), 1, 1, 1)
 		cmd:PipelineBarrier{
 			srcStage = "compute",
 			dstStage = {"draw_indirect", "vertex_shader", "vertex_input"},
 			memoryBarrier = true,
 		}
 		frame_state.counts[kind] = count
+		frame_state.group_counts[kind] = group_count
 	end
 end
 
@@ -554,9 +774,9 @@ function draw.Draw(gbuffer_instancing, pipelines)
 	local buffers = buffer_sets[0]
 	local cmd = render.GetCommandBuffer()
 	local stride = COMMAND_SIZE
-	local group_size = buffers.capacity * stride
-	-- the rows that were given a mesh and a material, past them nothing is drawn
-	local count = frame_state.counts[0]
+	local group_size = buffers.group_capacity * stride
+	-- the groups that were given rows, past them nothing is drawn
+	local count = frame_state.group_counts[0]
 
 	gpu_culling.MarkMainViewDrawn()
 
@@ -564,14 +784,14 @@ function draw.Draw(gbuffer_instancing, pipelines)
 		local batch_table = batch_tables[pipeline]
 
 		if not batch_table then
-			batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_rows", changes)
+			batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_groups", group_changes)
 			batch_tables[pipeline] = batch_table
 		end
 
-		pipeline.draw_batches_address = batch_table:Update(pipeline, rows, draw.serial, system.GetFrameNumber())
+		pipeline.draw_batches_address = batch_table:Update(pipeline, groups, draw.group_serial, system.GetFrameNumber())
 		pipeline.draw_instances_address = buffers.worlds_address
 		pipeline.draw_prev_instances_address = buffers.prev_worlds_address
-		pipeline.draw_batch_by_instance = 1
+		pipeline.draw_batch_ids_address = buffers.batch_ids_address
 		pipeline:UploadConstants()
 		cmd:SetCullMode(orientation.CULL_MODE)
 		cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
@@ -590,27 +810,28 @@ function draw.DrawTranslucent(gbuffer_instancing, pipeline)
 
 	local buffers = buffer_sets[1]
 	local cmd = render.GetCommandBuffer()
-	local group_size = buffers.capacity * COMMAND_SIZE
+	local group_size = buffers.group_capacity * COMMAND_SIZE
+	local count = frame_state.group_counts[1]
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
 	gpu_timing.SetInfo(render3d.translucent_scope, "store_slots", frame_state.counts[1])
 	local batch_table = batch_tables[pipeline]
 
 	if not batch_table then
-		batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_rows", changes)
+		batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_groups", group_changes)
 		batch_tables[pipeline] = batch_table
 	end
 
-	pipeline.draw_batches_address = batch_table:Update(pipeline, rows, draw.serial, system.GetFrameNumber())
+	pipeline.draw_batches_address = batch_table:Update(pipeline, groups, draw.group_serial, system.GetFrameNumber())
 	pipeline.draw_instances_address = buffers.worlds_address
 	pipeline.draw_prev_instances_address = buffers.prev_worlds_address
 	pipeline.draw_thicknesses_address = buffers.thicknesses_address
-	pipeline.draw_batch_by_instance = 1
+	pipeline.draw_batch_ids_address = buffers.batch_ids_address
 	pipeline:UploadConstants()
 	cmd:SetCullMode(orientation.CULL_MODE)
 	cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-	cmd:DrawIndexedIndirectCount(buffers.commands, 0, buffers.counts, 0, frame_state.counts[1], COMMAND_SIZE)
+	cmd:DrawIndexedIndirectCount(buffers.commands, 0, buffers.counts, 0, count, COMMAND_SIZE)
 	cmd:SetCullMode("none")
-	cmd:DrawIndexedIndirectCount(buffers.commands, group_size, buffers.counts, 4, frame_state.counts[1], COMMAND_SIZE)
+	cmd:DrawIndexedIndirectCount(buffers.commands, group_size, buffers.counts, 4, count, COMMAND_SIZE)
 	return true
 end
 
@@ -958,26 +1179,31 @@ do
 
 		if not buffers or result.slots == 0 then return result end
 
-		local capacity = buffers.capacity
-		local commands = ffi.cast("uint32_t *", download(buffers.commands, capacity * GROUPS * COMMAND_SIZE))
+		local group_capacity = buffers.group_capacity
+		local commands = ffi.cast("uint32_t *", download(buffers.commands, group_capacity * GROUPS * COMMAND_SIZE))
 		local counts = ffi.cast("uint32_t *", download(buffers.counts, GROUPS * 4))
-		local worlds = ffi.cast("float *", download(buffers.worlds, result.slots * 64))
+		local worlds = ffi.cast("float *", download(buffers.worlds, buffers.capacity * 64))
+		local batch_ids = ffi.cast("uint32_t *", download(buffers.batch_ids, buffers.capacity * 8))
 		local ids = slot_rows:Get()
 
-		for group = 0, GROUPS - 1 do
-			for packed_index = 0, counts[group] - 1 do
-				local command = commands + (group * capacity + packed_index) * (COMMAND_SIZE / 4)
-				local slot = command[4]
-				local id = ids[slot]
-				local world = {}
-				local fade = worlds[slot * 16 + 3]
+		for set = 0, GROUPS - 1 do
+			for packed_index = 0, counts[set] - 1 do
+				local command = commands + (set * group_capacity + packed_index) * (COMMAND_SIZE / 4)
 
-				for i = 0, 11 do
-					world[i + 1] = worlds[slot * 16 + (i % 4) * 4 + math.floor(i / 4)]
+				for place = 0, command[1] - 1 do
+					local at = command[4] + place
+					local slot = batch_ids[at * 2 + 1]
+					local id = ids[slot]
+					local world = {}
+					local fade = worlds[at * 16 + 3]
+
+					for i = 0, 11 do
+						world[i + 1] = worlds[at * 16 + (i % 4) * 4 + math.floor(i / 4)]
+					end
+
+					result.by_id[id] = {slot = slot, group = set, fade = fade, world = world, index_count = command[0], first_index = command[2]}
+					result.count = result.count + 1
 				end
-
-				result.by_id[id] = {slot = slot, group = group, fade = fade, world = world, index_count = command[0], first_index = command[2]}
-				result.count = result.count + 1
 			end
 		end
 
