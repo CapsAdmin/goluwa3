@@ -335,7 +335,79 @@ function scene_reflection.GetGLSL(block_name, shared)
 				radiance += sun_radiance;
 			}
 
-			#if RT_HIT_LIGHTS
+			#if RT_HIT_LIGHTS && RT_HIT_LIGHT_SAMPLES > 0
+			{
+				// the lights of the cell are streamed through once keeping RT_HIT_LIGHT_SAMPLES of them, each with its share of
+				// the weight summed so far, the kept lights are traced and scaled by the inverse of their probability
+				int light_cell = light_grid_cell(surface);
+				int light_count = ]] .. block_name .. [[.light_count;
+				float total = 0.0;
+				vec3 picked_light[RT_HIT_LIGHT_SAMPLES];
+				vec4 picked_ray[RT_HIT_LIGHT_SAMPLES];
+				float picked_weight[RT_HIT_LIGHT_SAMPLES];
+				float u[RT_HIT_LIGHT_SAMPLES];
+
+				for (int k = 0; k < RT_HIT_LIGHT_SAMPLES; k++) {
+					picked_weight[k] = 0.0;
+					u[k] = scene_reflection_random(P, -1 - k);
+				}
+
+				for (int w = 0; w < light_grid_words(light_count); w++) {
+					uint light_bits = light_grid_word(light_cell, w, light_count);
+
+					while (light_bits != 0u) {
+						int i = w * 32 + findLSB(light_bits);
+						light_bits &= light_bits - 1u;
+						lights_t light = ]] .. block_name .. [[.lights[i];
+
+						if (get_light_type(light) == 0) continue;
+
+						vec3 L;
+						float attenuation;
+
+						if (!get_light_vector_and_attenuation(light, surface, L, attenuation)) continue;
+
+						float NoL = dot(hit_N, L);
+
+						if (NoL <= 0.0) continue;
+
+						vec3 contribution = albedo * light.color.rgb * light.color.a * attenuation * (NoL / 3.14159265359);
+						float weight = max(max(contribution.r, contribution.g), contribution.b);
+
+						if (weight <= 0.0) continue;
+
+						total += weight;
+						float p = weight / total;
+
+						for (int k = 0; k < RT_HIT_LIGHT_SAMPLES; k++) {
+							if (u[k] < p) {
+								picked_light[k] = contribution;
+								// stops short of the light so a bulb mesh around it doesn't shadow it
+								picked_ray[k] = vec4(L, dot(light.position.xyz - surface, L));
+								picked_weight[k] = weight;
+								u[k] /= p;
+							} else {
+								u[k] = (u[k] - p) / (1.0 - p);
+							}
+						}
+					}
+				}
+
+				for (int k = 0; k < RT_HIT_LIGHT_SAMPLES; k++) {
+					if (picked_weight[k] <= 0.0) continue;
+
+					float dist = picked_ray[k].w;
+
+					if (RT_HIT_SHADOWS != 0 && dist > 0.05 && !scene_reflection_visible(surface, picked_ray[k].xyz, dist - 0.05)) continue;
+
+					vec3 contribution = picked_light[k];
+
+					if (]]..block_name..[[.glass_light != 0) contribution *= get_glass_light(surface, picked_ray[k].xyz, max(dist - 0.05, 0.0), 0.0);
+
+					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
+				}
+			}
+			#elif RT_HIT_LIGHTS
 			int light_cell = light_grid_cell(surface);
 			int light_count = ]] .. block_name .. [[.light_count;
 

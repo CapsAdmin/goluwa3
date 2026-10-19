@@ -118,6 +118,14 @@ local hit_lights = pvars.Setup2{
 	default = true,
 	help = "the local lights light what a ray hits, off leaves the sun and the probes",
 }
+local hit_light_samples = pvars.Setup2{
+	key = "r_rt_hit_light_samples",
+	default = 2,
+	integer = true,
+	min = 0,
+	max = 8,
+	help = "how many of the local lights in a hit's light grid cell light it in a reflection or refraction ray, each picked with a probability of its share of the light and traced with a shadow ray. 0 lights it with every light that is bright enough, stochastically for the dim ones",
+}
 local hit_shadows = pvars.Setup2{
 	key = "r_rt_hit_shadow_rays",
 	default = true,
@@ -138,13 +146,14 @@ pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 
 function ddgi.GetHitDefinesGLSL()
 	return string.format(
-		"#ifndef RT_HIT_SUN\n#define RT_HIT_SUN %d\n#define RT_HIT_LIGHTS %d\n#define RT_HIT_SHADOWS %d\n#define RT_HIT_PROBES %d\n#define RT_HIT_TEXTURES %d\n#define RT_HIT_ANY_HIT %d\n#endif\n",
+		"#ifndef RT_HIT_SUN\n#define RT_HIT_SUN %d\n#define RT_HIT_LIGHTS %d\n#define RT_HIT_SHADOWS %d\n#define RT_HIT_PROBES %d\n#define RT_HIT_TEXTURES %d\n#define RT_HIT_ANY_HIT %d\n#define RT_HIT_LIGHT_SAMPLES %d\n#endif\n",
 		hit_sun:Get() and 1 or 0,
 		hit_lights:Get() and 1 or 0,
 		hit_shadows:Get() and 1 or 0,
 		hit_probes:Get() and 1 or 0,
 		hit_textures:Get() and 1 or 0,
-		hit_any_hit:Get() and 1 or 0
+		hit_any_hit:Get() and 1 or 0,
+		hit_light_samples:Get()
 	)
 end
 
