@@ -113,7 +113,7 @@ function import:__call(path)
 
 	self.loaded[path] = result
 
-	if self.tracking and type(result) == "table" and result.Type == nil then
+	if self.tracking and type(result) == "table" and rawget(result, "Type") == nil then
 		take_snapshot(result, path, get_own_functions(result, path))
 	end
 
