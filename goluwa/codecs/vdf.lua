@@ -47,6 +47,10 @@ local function eval_condition(expr)
 	return check_condition(expr)
 end
 
+local function lower_vmt_key(key)
+	return (key:lower():gsub("%$", ""))
+end
+
 local function insert_key_value(current, key, val, lower_or_modify_keys)
 	if lower_or_modify_keys then key = lower_or_modify_keys(key) end
 
@@ -58,7 +62,7 @@ local function insert_key_value(current, key, val, lower_or_modify_keys)
 		return
 	end
 
-	if current[key] == nil then
+	if current[key] == nil or lower_or_modify_keys == lower_vmt_key then
 		current[key] = val
 	else
 		local existing = current[key]
@@ -69,10 +73,6 @@ local function insert_key_value(current, key, val, lower_or_modify_keys)
 			current[key] = {existing, val}
 		end
 	end
-end
-
-local function lower_vmt_key(key)
-	return (key:lower():gsub("%$", ""))
 end
 
 function vdf.Decode(data, key_mode, preprocess)
