@@ -306,6 +306,11 @@ function Material:ResetToDefaults()
 	end
 end
 
+-- whether any of the surface is metal: the multiplier scales a metallic texture, a packed one or the roughness mask as well
+function Material:IsMetallic()
+	return self.MetallicMultiplier > 0
+end
+
 function Material:HasExplicitMetallicTexture()
 	return self.MetallicTexture ~= nil or self.MetallicRoughnessTexture ~= nil
 end
