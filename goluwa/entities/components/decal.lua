@@ -55,7 +55,7 @@ local ROAD_STEP = 1
 
 function META:ReadTransform()
 	local transform = self.Owner.transform
-	self.Origin = units.PositionFromEngine(transform:GetWorldPosition())
+	self.Origin = units.PositionFromEngine(transform:GetWorldPosition() - self.world.Owner.transform:GetWorldPosition())
 	self.Normal, self.UAxis = decal_geometry.RotationToAxes(transform:GetRotation())
 end
 
