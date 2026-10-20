@@ -125,6 +125,12 @@ do
 		parallaxmap = true,
 		detail = true,
 	}
+	-- extras that stock content names without shipping them, a missing one is dropped and not an error. 89 of the 95
+	-- hl2 materials with a $parallaxmap have no height texture
+	local optional_textures = {
+		parallaxmap = true,
+		detail = true,
+	}
 	local special_textures = {
 		_rt_fullframefb = "error",
 		[1] = "error",
@@ -255,7 +261,7 @@ do
 							if mixed_path then
 								vmt[k] = mixed_path
 							else
-								if on_error then
+								if on_error and not optional_textures[k] then
 									on_error("texture " .. k .. " " .. new_path .. " not found: " .. reason)
 								end
 
