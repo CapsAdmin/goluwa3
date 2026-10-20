@@ -5,8 +5,9 @@ local Material = import("goluwa/render3d/material.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 
-local function apply(vmt)
+local function apply(vmt, path)
 	local material = Material.New{}
+	material.vmt_path = path
 	vmt.source_text = ""
 	vmt_material.Apply(material, vmt)
 	return material
@@ -119,4 +120,21 @@ T.Test3D("source materials: metallic estimate on gmod content", function()
 		T(model_materials[i] ~= nil, info[1])["=="](true)
 		T(model_materials[i]:IsMetallic(), info[1] .. " " .. info[2])["=="](info[3])
 	end
+end)
+
+T.Test3D("source materials: cloth gets a sheen and foliage cards let light through", function()
+	T(apply{shader = "vertexlitgeneric"}:GetSheen())["=="](0)
+	local carpet = apply{shader = "vertexlitgeneric", surfaceprop = {surfaceprop_name = "carpet"}}
+	T(carpet:GetSheen() > 0)["=="](true)
+	local couch = apply({shader = "vertexlitgeneric"}, "materials/models/props_c17/furniturecouch001a.vmt")
+	T(couch:GetSheen() > 0)["=="](true)
+	T(apply{shader = "vertexlitgeneric", rimlight = 1}:GetSheen() > 0)["=="](true)
+	local leaf = apply({shader = "vertexlitgeneric", alphatest = 1, nocull = 1}, "materials/models/props_foliage/tree_01a.vmt")
+	T(leaf:GetDiffuseTransmission() > 0)["=="](true)
+	T(leaf:GetTransmissive())["=="](true)
+	local street = apply({shader = "vertexlitgeneric", alphatest = 1, nocull = 1}, "materials/models/props_street/sign001a.vmt")
+	T(street:GetDiffuseTransmission())["=="](0)
+	local fence = apply({shader = "vertexlitgeneric", alphatest = 1, nocull = 1}, "materials/metal/metalrail006b.vmt")
+	T(fence:GetDiffuseTransmission())["=="](0)
+	T(apply({shader = "vertexlitgeneric"}, "materials/models/props_foliage/tree_01a.vmt"):GetDiffuseTransmission())["=="](0)
 end)

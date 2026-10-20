@@ -212,6 +212,12 @@ local FEATURES = {
 	refract = true,
 	glass_override = true,
 	grass_detection = true,
+	-- cloth, carpet and upholstery get a soft sheen lobe
+	sheen_cloth = true,
+	-- $rimlight is source's soft rim, nearly all of it on characters
+	sheen_rimlight = true,
+	-- alphatest or translucent cards of foliage, paper and curtains let light through
+	thin_transmission = true,
 }
 local FAMILIES = {
 	"concrete",
@@ -260,6 +266,12 @@ local ALBEDO_TARGETS = {
 -- the shaders whose lighting is multiplied by source's 2x overbright
 local OVERBRIGHT_SHADERS = {lightmappedgeneric = true, worldvertextransition = true}
 local MAX_ALBEDO = 0.9
+local CLOTH_WORDS = {"cloth", "fabric", "carpet", "upholster", "mattress", "couch", "curtain", "blanket"}
+local SHEEN_CLOTH = 0.3
+local SHEEN_ROUGHNESS = 0.5
+local SHEEN_RIMLIGHT = 0.1
+local THIN_WORDS = {"leaf", "leaves", "foliage", "plant", "bush", "tree", "vine", "grass", "shade", "paper", "curtain", "flag", "palm", "fern", "ivy", "weed"}
+local THIN_TRANSMISSION = 0.4
 local CHROME_ROUGHNESS = 0.05
 local SSBUMP_MASK_ROUGHNESS = 0.25
 -- how much roughness a material without a roughness map varies by, as a multiple of its constant roughness, so a mirror stays smooth
@@ -306,6 +318,19 @@ do
 		end
 
 		return 1, 1, 1
+	end
+
+	-- whole is for short words that sit inside others, tree in street
+	local function has_word(name, words, whole)
+		for _, word in ipairs(words) do
+			if whole then
+				if name:find("%f[%a]" .. word) then return true end
+			elseif name:find(word, 1, true) then
+				return true
+			end
+		end
+
+		return false
 	end
 
 	local function find_family(name)
@@ -911,6 +936,33 @@ do
 		end
 
 		if FEATURES.derived_roughness and not is_glass then apply_derived_roughness(self) end
+
+		do
+			local name = (class or "") .. " " .. (self.vmt_path or "")
+
+			if FEATURES.sheen_cloth and has_word(name, CLOTH_WORDS) then
+				self:SetSheen(SHEEN_CLOTH)
+				self:SetSheenRoughness(SHEEN_ROUGHNESS)
+			elseif FEATURES.sheen_rimlight and vmt.rimlight == 1 then
+				self:SetSheen(math.clamp(SHEEN_RIMLIGHT * (tonumber(vmt.rimlightboost) or 1), 0, 1))
+				self:SetSheenRoughness(SHEEN_ROUGHNESS)
+			end
+
+			if
+				FEATURES.thin_transmission and
+				(
+					vmt.alphatest == 1 or
+					vmt.translucent == 1
+				)
+				and
+				vmt.nocull and
+				not is_glass and
+				ctx.family ~= "metal" and
+				has_word(name, THIN_WORDS, true)
+			then
+				self:SetDiffuseTransmission(THIN_TRANSMISSION)
+			end
+		end
 
 		material_proxies.Attach(self, vmt.source_text)
 		local color = self.ColorMultiplier
