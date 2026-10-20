@@ -1123,7 +1123,8 @@ do
 		local position = transform:GetPosition()
 		local rotation = transform:GetRotation()
 		local offset = self.CenterOffset
-		local x, y, z = position.x, position.y, position.z
+		local parent_x, parent_y, parent_z = transform:GetParentOffset()
+		local x, y, z = position.x + parent_x, position.y + parent_y, position.z + parent_z
 
 		if kinematic then
 			self.PreviousPosition:CopyFrom(self.Position)
@@ -1160,17 +1161,15 @@ function RigidBody:WriteToTransform()
 
 	if not transform then return end
 
-	local position = self:GetOriginPosition()
+	local origin = self:GetOriginPosition()
+	local parent_x, parent_y, parent_z = transform:GetParentOffset()
+	local x, y, z = origin.x - parent_x, origin.y - parent_y, origin.z - parent_z
 	local rotation = self.Rotation
 	local transform_position = transform:GetPosition()
 	local transform_rotation = transform:GetRotation()
 
-	if
-		transform_position.x ~= position.x or
-		transform_position.y ~= position.y or
-		transform_position.z ~= position.z
-	then
-		transform:SetPosition(position:Copy())
+	if transform_position.x ~= x or transform_position.y ~= y or transform_position.z ~= z then
+		transform:SetPosition(Vec3(x, y, z))
 	end
 
 	if

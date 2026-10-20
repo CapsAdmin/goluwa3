@@ -265,7 +265,14 @@ function META:GetRenderPositionRotation()
 		local body = self.Owner.rigid_body
 		physics = physics or import("goluwa/physics.lua")
 		local alpha = physics.GetInterpolationAlpha()
-		self.InterpolatedPosition = body:GetInterpolatedOrigin(alpha)
+		local origin = body:GetInterpolatedOrigin(alpha)
+		local parent_x, parent_y, parent_z = self:GetParentOffset()
+
+		if parent_x ~= 0 or parent_y ~= 0 or parent_z ~= 0 then
+			origin = Vec3(origin.x - parent_x, origin.y - parent_y, origin.z - parent_z)
+		end
+
+		self.InterpolatedPosition = origin
 		self.InterpolatedRotation = body:GetInterpolatedRotation(alpha)
 		local offset = self.RenderOffset
 
@@ -348,6 +355,16 @@ function META:GetParentWorldMatrix()
 	if not bone then return parent_world end
 
 	return bone:GetMultiplied(parent_world, Matrix44())
+end
+
+-- where the parent puts the origin of this transform's local space, physics bodies simulate in the world and a map
+-- placed at an offset is a parent of its props. Rotation and scale of the parent are not part of it
+function META:GetParentOffset()
+	local parent = self.Owner:GetParent()
+
+	if not (parent:IsValid() and parent.transform) then return 0, 0, 0 end
+
+	return parent.transform:GetWorldMatrix():GetTranslation()
 end
 
 -- a position in the world as a local position of this transform

@@ -25,7 +25,7 @@ end
 -- a spawn point sits on the ground, this is the position a given height above it, and the way the spawn point faces
 function SpawnPoint:GetPlacement(height)
 	local transform = self.Owner.transform
-	return transform:GetPosition() + Vec3(0, height + CLEARANCE, 0),
+	return transform:GetWorldPosition() + Vec3(0, height + CLEARANCE, 0),
 	transform:GetRotation():Copy()
 end
 
