@@ -1829,7 +1829,7 @@ function ddgi.WriteMaterialBuffer(self)
 
 			if not metallic_texture then
 				metallic_texture = material:GetMetallicRoughnessTexture()
-				entry.metallic_channel = 2
+				entry.metallic_channel = material:GetMetallicRoughnessIsMRAO() and 0 or 2
 			end
 
 			entry.metallic_tex = metallic_texture and

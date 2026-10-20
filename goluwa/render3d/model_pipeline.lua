@@ -2189,7 +2189,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				if (aux_model.MetallicTexture != -1) {
 					val = texture(TEXTURE(aux_model.MetallicTexture), uv).r;
 				} else if (aux_model.MetallicRoughnessTexture != -1) {
-					val = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).b;
+					vec3 packed_texel = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).rgb;
+					val = MetallicRoughnessIsMRAO ? packed_texel.r : packed_texel.b;
 				} else {
 					val = factor_model.MetallicMultiplier;
 					val = clamp(val, 0, 1);
@@ -2290,6 +2291,10 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			float get_ao(vec2 uv) {
 				if (aux_model.AmbientOcclusionTexture == -1) {
+					if (MetallicRoughnessIsMRAO && aux_model.MetallicRoughnessTexture != -1) {
+						return texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).b * aux_model.AmbientOcclusionMultiplier;
+					}
+
 					if (terrain_model.TerrainMaterialTexture != -1) {
 						return get_terrain_weighted_value(uv, terrain_model.TerrainLayerAmbientOcclusion, terrain_model.TerrainLayerAmbientOcclusion2) * get_terrain_layer_sample(uv, in_position).ao * aux_model.AmbientOcclusionMultiplier;
 					}
