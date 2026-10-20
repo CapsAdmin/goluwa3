@@ -1494,7 +1494,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return 1.0;
 				}
 
-				return texture(TEXTURE(displacement_model.HeightTexture), uv).r;
+				vec4 texel = texture(TEXTURE(displacement_model.HeightTexture), uv);
+				return HeightTextureIsAlpha ? texel.a : texel.r;
 			}
 
 			int get_height_layers() {

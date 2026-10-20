@@ -115,6 +115,7 @@ Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicFromRoughnessMask", false, {callback = "InvalidateFlags"})
 -- the MetallicRoughnessTexture is packed R metallic, G roughness, B ambient occlusion instead of glTF's R occlusion, G roughness, B metallic
 Material:GetSet("MetallicRoughnessIsMRAO", false, {callback = "InvalidateFlags", requires = "MetallicRoughnessTexture"})
+Material:GetSet("HeightTextureIsAlpha", false, {callback = "InvalidateFlags", requires = "HeightTexture"})
 Material:StartCategory("Source")
 Material:GetSet("OriginalMaterial", "", {multiline = true})
 Material:EndCategory()
@@ -403,6 +404,7 @@ local FLAGS = {
 	"DecalFade",
 	"BentNormals",
 	"MetallicRoughnessIsMRAO",
+	"HeightTextureIsAlpha",
 }
 Material.FlagBits = {}
 
