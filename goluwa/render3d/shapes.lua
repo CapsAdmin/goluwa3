@@ -152,6 +152,78 @@ do
 	end
 end
 
+-- a surface of revolution around the y axis: profile is a list of {radius, y} read in the direction that has the outside
+-- on its right hand (a cylinder's side goes up, its top cap goes in towards the axis), so a closed solid is one list
+-- from the bottom's middle round to the top's. a point where the profile turns by more than 35 degrees is a hard edge
+-- (it gets a normal for each side), smaller turns are smooth. uv: u once around, v by the length along the profile.
+-- scale stretches the result along the axes (a boat is a bowl of revolution made long)
+function shapes.BuildLathe(poly, profile, segments, texture_scale, scale)
+	segments = math.max(math.floor(segments or 24), 3)
+	texture_scale = texture_scale or 1
+	scale = scale or Vec3(1, 1, 1)
+	local count = #profile
+	local lengths = {0}
+	-- the direction of each segment of the profile
+	local directions = {}
+
+	for i = 2, count do
+		local a, b = profile[i - 1], profile[i]
+		local dr, dy = b[1] - a[1], b[2] - a[2]
+		local length = math.sqrt(dr * dr + dy * dy)
+		lengths[i] = lengths[i - 1] + length
+		directions[i - 1] = {dr / math.max(length, 1e-9), dy / math.max(length, 1e-9)}
+	end
+
+	local total = math.max(lengths[count], 1e-6)
+	local smooth_cos = math.cos(math.rad(35))
+
+	-- the direction at the end of segment k, which is point k (at_start) or k + 1, averaged with the neighbouring
+	-- segment unless the profile turns sharply there
+	local function direction_at(k, at_start)
+		local own = directions[k]
+		local other = directions[at_start and k - 1 or k + 1]
+
+		if not other or own[1] * other[1] + own[2] * other[2] < smooth_cos then return own end
+
+		local dr, dy = own[1] + other[1], own[2] + other[2]
+		local length = math.max(math.sqrt(dr * dr + dy * dy), 1e-9)
+		return {dr / length, dy / length}
+	end
+
+	local function vertex(point, k, at_start, j)
+		local angle = j / segments * math.pi * 2
+		local cos, sin = math.cos(angle), math.sin(angle)
+		local radius, y = profile[point][1], profile[point][2]
+		local dir = direction_at(k, at_start)
+		local dr, dy = dir[1], dir[2]
+		local normal = Vec3(dy * cos / scale.x, -dr / scale.y, dy * sin / scale.z):GetNormalized()
+		local tangent = Vec3(-sin * scale.x, 0, cos * scale.z):GetNormalized()
+		local along = Vec3(dr * cos * scale.x, dy * scale.y, dr * sin * scale.z)
+		poly:AddVertex{
+			pos = Vec3(radius * cos * scale.x, y * scale.y, radius * sin * scale.z),
+			uv = Vec2(j / segments * texture_scale, lengths[point] / total * texture_scale),
+			normal = normal,
+			tangent = {
+				x = tangent.x,
+				y = tangent.y,
+				z = tangent.z,
+				w = normal:GetCross(tangent):GetDot(along) < 0 and -1 or 1,
+			},
+		}
+	end
+
+	for k = 1, count - 1 do
+		for j = 0, segments - 1 do
+			vertex(k, k, true, j)
+			vertex(k, k, true, j + 1)
+			vertex(k + 1, k, false, j)
+			vertex(k, k, true, j + 1)
+			vertex(k + 1, k, false, j + 1)
+			vertex(k + 1, k, false, j)
+		end
+	end
+end
+
 function shapes.BuildCube(poly, size, texture_scale, subdivisions)
 	size = size or 1
 	texture_scale = texture_scale or 1

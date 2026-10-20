@@ -45,6 +45,65 @@ T.Test("shapes cube faces point away from the center", function()
 	end
 end)
 
+-- the triangles of a lathe that are not degenerate (the ones at the axis are), with their winding against their normals
+local function check_lathe(poly, scale)
+	local checked = 0
+
+	for first = 1, #poly.Vertices - 2, 3 do
+		local a, b, c = poly.Vertices[first].pos, poly.Vertices[first + 1].pos, poly.Vertices[first + 2].pos
+		local geometric = (c - a):GetCross(b - a)
+
+		if geometric:GetLength() > 1e-6 then
+			for corner = 0, 2 do
+				local normal = poly.Vertices[first + corner].normal
+				T(normal:GetLength())[">"](0.999)
+				T(geometric:GetNormalized():GetDot(normal))[">"](0.8)
+			end
+
+			checked = checked + 1
+		end
+	end
+
+	return checked
+end
+
+T.Test("shapes lathe makes a closed cylinder that faces outwards", function()
+	local poly = Polygon3D.New()
+	shapes.BuildLathe(poly, {{0, 0}, {1, 0}, {1, 2}, {0, 2}}, 12)
+	T(#poly.Vertices)["=="](3 * 2 * 12 * 3)
+	-- the caps and the side, 12 segments of 2 triangles each, minus the cap triangles that collapse on the axis
+	T(check_lathe(poly))["=="](48)
+
+	for _, vertex in ipairs(poly.Vertices) do
+		if vertex.pos.y > 0.01 and vertex.pos.y < 1.99 then
+			T(vertex.normal.y)["=="](0)
+			T(vertex.normal:GetDot(Vec3(vertex.pos.x, 0, vertex.pos.z)))[">"](0.999)
+		end
+	end
+end)
+
+T.Test("shapes lathe keeps normals right when it is stretched", function()
+	local profile = {}
+
+	for i = 0, 24 do
+		local angle = i / 24 * math.pi
+		profile[#profile + 1] = {math.sin(angle), -math.cos(angle)}
+	end
+
+	local scale = Vec3(2, 0.8, 1.5)
+	local poly = Polygon3D.New()
+	shapes.BuildLathe(poly, profile, 16, 1, scale)
+	T(check_lathe(poly))[">"](300)
+
+	for _, vertex in ipairs(poly.Vertices) do
+		local p = vertex.pos
+		-- the ellipsoid's normal is its position over the squared radii
+		local expected = Vec3(p.x / scale.x ^ 2, p.y / scale.y ^ 2, p.z / scale.z ^ 2):GetNormalized()
+
+		if math.abs(p.y) < 0.7 then T(vertex.normal:GetDot(expected))[">"](0.98) end
+	end
+end)
+
 T.Test3D("shapes materials default to a dull dielectric", function()
 	local plain = shapes.Material()
 	T(plain:GetMetallicMultiplier())["=="](0)
