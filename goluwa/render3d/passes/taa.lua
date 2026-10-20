@@ -37,6 +37,7 @@ local strength = pvars.Setup2{
 pvars.EndGroup()
 local ZERO = Vec2(0, 0)
 local SAMPLES_2X = {Vec2(0.25, -0.25), Vec2(-0.25, 0.25)}
+local REQUIRED_TEXTURES = {"source_tex", "depth_tex", "history_tex", "history_color_tex"}
 local last_frame = -1
 local last_width, last_height = 0, 0
 return {
@@ -107,6 +108,11 @@ return {
 							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(2)) or
 							-1
 						post_source.WritePreExposureBlock(self, block)
+
+						for _, key in ipairs(REQUIRED_TEXTURES) do
+							if block[key] == -1 then error("taa has no " .. key) end
+						end
+
 						local size = render.GetRenderImageSize()
 						block.max_feedback = render3d.IsAntiAliasingEnabled("edge_aa_t") and 0.5 or 0
 						block.history_valid = (
