@@ -29,7 +29,7 @@ function phy.Decode(str)
 	for solid_index = 1, solid_count do
 		local surface_size = ffi.cast(int32_ptr_t, at(position, 4))[0]
 		local solid_start = position + 4
-		local surface_start = solid_start + 28
+		local surface_start = ffi.string(at(solid_start, 4), 4) == "VPHY" and solid_start + 28 or solid_start
 		local floats = ffi.cast(float_ptr_t, at(surface_start, 24))
 		local cx, cy, cz = floats[0], floats[1], floats[2]
 		local ix, iy, iz = floats[3], floats[4], floats[5]
