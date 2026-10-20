@@ -430,6 +430,12 @@ local LIGHTING_MODES = {
 		description = "markers at the ddgi probes colored by the mean distance their rays hit",
 	},
 	{
+		name = "reflection scene",
+		key = "reflection_debug_scene",
+		value = true,
+		description = "the scene the reflection rays trace, seen from the camera: the hit shading, lights, probes and fog a reflection of it has",
+	},
+	{
 		name = "ddgi scene albedo",
 		key = "ddgi_debug_scene",
 		value = "albedo",

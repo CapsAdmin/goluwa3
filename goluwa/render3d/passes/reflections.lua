@@ -24,6 +24,11 @@ local hit_reprojection = pvars.Setup2{
 	default = true,
 	help = "the history of a reflection is read where the reflected image was last frame, found from the hit distance, and not where the surface was. off, the reflection drags along with the surface and bends when the camera moves",
 }
+local debug_scene = pvars.Setup2{
+	key = "reflection_debug_scene",
+	default = false,
+	help = "shows the scene the reflection rays trace, from the camera: the same hit shading, lights, probes and fog a reflection of it has (at the resolution of the reflections)",
+}
 local SCALES = scene_reflection.RESOLUTION_SCALES
 local resolution = pvars.Setup2{
 	key = "reflection_resolution",
@@ -122,6 +127,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"history_depth_tex", "int"},
 				{"frame_index", "int"},
 				{"rough_rays", "int"},
+				{"debug_scene", "int"},
 				{"raw_tex", "int"},
 				{"raw_distance_tex", "int"},
 				{"filter_radius", "float"},
@@ -148,6 +154,7 @@ local function get_uniform_buffers(with_ddgi)
 				local frame = system.GetFrameNumber()
 				block.frame_index = render3d.GetTemporalFrame()
 				block.rough_rays = rough_rays:Get()
+				block.debug_scene = debug_scene:Get() and 1 or 0
 				block.filter_radius = filter_radius:Get()
 				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
 				local _, gi_end = ibl.GetReflectionGIRange()
@@ -209,6 +216,11 @@ return {
 	{
 		name = "reflections_trace",
 		ComputePass = true,
+		present_texture = function()
+			if not (RAY_QUERY and debug_scene:Get()) then return nil end
+
+			return render3d.pipelines.reflections_trace:GetFramebuffer(1):GetAttachment(1)
+		end,
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"reflection_raw", "rgba"}},
 			{"r16_sfloat", {"reflection_raw_distance", "r"}},
@@ -475,6 +487,9 @@ return {
 				return hit.a > 0.0 ? hit : vec4(0.0);
 			}
 
+			vec2 debug_uv;
+]] .. screen_reconstruct.GetWorldRayGLSL("reflection_data", {uv_expr = "debug_uv", function_name = "get_debug_ray"}) .. [[
+
 			void main() {
 				ivec2 pos = get_screen_pos();
 				reflection_size = imageSize(out_raw);
@@ -484,6 +499,21 @@ return {
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
 				max_hit_luminance = reflection_data.exposure_tex != -1 ? SCENE_REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
 				bool in_bounds = is_screen_pos_in_bounds(pos, reflection_size);
+
+				#ifdef SCENE_REFLECTION
+				if (reflection_data.debug_scene != 0) {
+					if (!in_bounds) return;
+
+					debug_uv = (vec2(pos) + 0.5) / vec2(reflection_size);
+					vec3 debug_dir = get_debug_ray();
+					float debug_t;
+					vec3 radiance = trace_scene_reflection(reflection_data.camera_position.xyz, debug_dir, -debug_dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, debug_t);
+					imageStore(out_raw, pos, vec4(clamp(radiance * get_exposure(), 0.0, 1.0), 1.0));
+					imageStore(out_raw_distance, pos, vec4(0.0));
+					return;
+				}
+				#endif
+
 				ivec2 gbuffer_pos = min(get_reflection_gbuffer_pos(pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
 				float depth = in_bounds ? gbuffer_depth(gbuffer_pos) : 1.0;
