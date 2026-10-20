@@ -1366,6 +1366,8 @@ list.insert(
 				float foam;
 				float caustics;
 				float roughness;
+				// 1 when the water ends at the volume's sides and bottom, 0 when it is open like the sea
+				float closed;
 			};
 
 			Water get_ocean_water() {
@@ -1379,6 +1381,7 @@ list.insert(
 				w.foam = ocean_data.ocean_scattering.w;
 				w.caustics = ocean_data.ocean_wave_info.y;
 				w.roughness = 0.0;
+				w.closed = 0.0;
 				return w;
 			}
 
@@ -1393,6 +1396,23 @@ list.insert(
 				w.foam = ocean_data.volume_waves[i].w;
 				w.caustics = ocean_data.volume_flow[i].z;
 				w.roughness = ocean_data.volume_scattering[i].w;
+				w.closed = 1.0;
+				return w;
+			}
+
+			// a volume's surface at the height of the ocean goes over into the ocean's over this many meters of its edge
+			const float VOLUME_EDGE_BLEND = 12.0;
+
+			Water mix_water(Water a, Water b, float t) {
+				Water w = b;
+				w.absorption = mix(a.absorption, b.absorption, t);
+				w.particles = mix(a.particles, b.particles, t);
+				w.ior = mix(a.ior, b.ior, t);
+				w.abbe = mix(a.abbe, b.abbe, t);
+				w.foam = mix(a.foam, b.foam, t);
+				w.caustics = mix(a.caustics, b.caustics, t);
+				w.roughness = mix(a.roughness, b.roughness, t);
+				w.closed = mix(a.closed, b.closed, t);
 				return w;
 			}
 
@@ -1909,11 +1929,11 @@ list.insert(
 				vec3 flat_dir = normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / channel_ior.g));
 				vec3 bent_dir = refract(ray_dir, normal, 1.0 / channel_ior.g);
 				if (dot(bent_dir, bent_dir) <= 0.0) bent_dir = flat_dir;
-				float volume_exit = w.volume >= 0 ? get_volume_exit(w.volume, surface_pos + flat_dir * 0.001, flat_dir) : WATER_OPEN_DEPTH;
+				float volume_exit = w.volume >= 0 ? mix(WATER_OPEN_DEPTH, get_volume_exit(w.volume, surface_pos + flat_dir * 0.001, flat_dir), w.closed) : WATER_OPEN_DEPTH;
 
 				if (scene_distance >= 1e29) {
 					path_len = volume_exit;
-					return w.volume >= 0 ? get_scene_color(in_uv) : vec3(0.0);
+					return w.volume >= 0 ? get_scene_color(in_uv) * w.closed : vec3(0.0);
 				}
 
 				vec3 straight = surface_pos + ray_dir * scene_distance;
@@ -1930,7 +1950,7 @@ list.insert(
 
 				if (depth <= 0.0) {
 					path_len = volume_exit;
-					return w.volume >= 0 ? get_scene_color(floor_uv) : vec3(0.0);
+					return w.volume >= 0 ? get_scene_color(floor_uv) * w.closed : vec3(0.0);
 				}
 
 				vec3 behind = get_scene_color(floor_uv);
@@ -2134,7 +2154,7 @@ list.insert(
 				vec3 origin = surface_pos + dir * 0.02;
 				// a volume's walls are usually right on its sides, so what's hit a little past where the
 				// ray leaves it still counts
-				float len = w.volume >= 0 ? get_volume_exit(w.volume, origin, dir) + 0.25 : WATER_OPEN_DEPTH;
+				float len = w.volume >= 0 ? mix(WATER_OPEN_DEPTH, get_volume_exit(w.volume, origin, dir) + 0.25, w.closed) : WATER_OPEN_DEPTH;
 				vec3 behind = vec3(0.0);
 				vec2 hit_uv;
 				float hit_t;
@@ -2257,6 +2277,25 @@ list.insert(
 				vec3 transmittance;
 				vec3 inscatter = get_water_inscatter(w, camera, ray_dir, len, jitter, transmittance);
 				return behind * transmittance + inscatter;
+			}
+
+			// the sea's normal, roughness and fold at a point of its surface
+			void get_ocean_surface(vec2 xz, float footprint, out vec3 normal, out float alpha, out float fold) {
+				vec3 unused_hess = vec3(0.0);
+				float resolved_variance;
+				vec4 wd = get_wave_data(xz, footprint, resolved_variance);
+				vec2 grad = wd.gb;
+				sea_state = get_sea_detail(xz);
+				float detail_lost = add_detail_ripples(xz, footprint, sea_state.x, grad, unused_hess);
+				float detail_total = ocean_data.detail_info.w * float(RIPPLE_OCTAVES);
+
+				// the slopes of the sea no wave here shows make up the roughness,
+				// so the whole matches cox and munk's for the wind
+				float unresolved = max(ocean_data.ocean_wave_info.z - (water_feature(WATER_UNIFORM_ROUGHNESS) ? ocean_data.wave_origin[0].w : resolved_variance) - (detail_total - detail_lost), 0.0) * sea_state.x * sea_state.x;
+				if (!water_feature(WATER_WAVES)) unresolved = 0.0;
+				alpha = water_feature(WATER_WAVES) && water_feature(WATER_ROUGHNESS) ? sqrt(max(unresolved, 4e-4)) : 0.001;
+				normal = normalize(vec3(-grad.x, 1.0, -grad.y));
+				fold = wd.a;
 			}
 
 			void write_passthrough(vec3 scene_color) {
@@ -2394,7 +2433,17 @@ list.insert(
 				float ocean_entry = camera_under_ocean ? 0.0 : ocean_t;
 
 				// a volume in front of the ocean, or the camera in one
-				if (volume >= 0 && (!ocean_first || volume_entry < ocean_entry || (volume_entry == 0.0 && !camera_under_ocean))) {
+				// a volume that lies in the sea covers the crests that rise through its surface
+				bool volume_in_sea = false;
+
+				if (volume >= 0 && ocean_data.ocean_enabled != 0) {
+					volume_in_sea = abs(ocean_data.volume_shape[volume].w - ocean_data.ocean_level) < ocean_data.ocean_wave_info.x + 0.5;
+
+					// the sides of such a volume are open to the sea, there is no glass to see them by
+					if (volume_in_sea && !volume_top && volume_entry > 0.0) volume = -1;
+				}
+
+				if (volume >= 0 && (!ocean_first || volume_entry < ocean_entry || (volume_entry == 0.0 && !camera_under_ocean) || (volume_in_sea && volume_top && !camera_under_ocean))) {
 					Water w = get_volume_water(volume);
 					vec3 color;
 					float distance;
@@ -2444,7 +2493,28 @@ list.insert(
 					float lost_variance = get_volume_ripples(volume, surface_pos.xz, footprint, grad, unused_hess);
 					vec3 normal = normalize(vec3(-grad.x, 1.0, -grad.y));
 					float alpha = sqrt(w.roughness * w.roughness + lost_variance);
-					color = shade_surface_from_above(w, surface_pos, normal, alpha, 0.0, ray_dir, volume_entry, scene_t < 1e29 ? max(scene_t - volume_entry, 0.0) : 1e30, jitter);
+					float fold = 0.0;
+
+					if (volume_in_sea) {
+						// towards the edge the surface becomes the sea's, its water, waves and roughness
+						vec3 local = (ocean_data.volume_to_local[volume] * vec4(surface_pos, 1.0)).xyz;
+						vec4 shape = ocean_data.volume_shape[volume];
+						float edge = min(shape.x - abs(local.x), shape.z - abs(local.z));
+						float inside = smoothstep(0.0, min(VOLUME_EDGE_BLEND, 0.5 * min(shape.x, shape.z)), edge);
+
+						if (inside < 1.0) {
+							vec3 sea_normal;
+							float sea_alpha;
+							float sea_fold;
+							get_ocean_surface(surface_pos.xz, footprint, sea_normal, sea_alpha, sea_fold);
+							w = mix_water(get_ocean_water(), w, inside);
+							normal = normalize(mix(sea_normal, normal, inside));
+							alpha = mix(sea_alpha, alpha, inside);
+							fold = sea_fold * (1.0 - inside);
+						}
+					}
+
+					color = shade_surface_from_above(w, surface_pos, normal, alpha, fold, ray_dir, volume_entry, scene_t < 1e29 ? max(scene_t - volume_entry, 0.0) : 1e30, jitter);
 					set_scene_color(color, 1.0);
 					set_ocean_distance(vec2(volume_entry, sqrt(alpha) * water_rt_share));
 					return;
@@ -2480,20 +2550,11 @@ list.insert(
 
 				vec3 surface_pos = camera_origin + ocean_local_pos;
 				float footprint = get_pixel_footprint(ocean_t, ray_dir.y);
-				float resolved_variance;
-				vec4 wd = get_wave_data(surface_pos.xz, footprint, resolved_variance);
-				vec2 grad = wd.gb;
-				sea_state = get_sea_detail(surface_pos.xz);
-				float detail_lost = add_detail_ripples(surface_pos.xz, footprint, sea_state.x, grad, unused_hess);
-				float detail_total = ocean_data.detail_info.w * float(RIPPLE_OCTAVES);
-
-				// the slopes of the sea no wave here shows make up the roughness,
-				// so the whole matches cox and munk's for the wind
-				float unresolved = max(ocean_data.ocean_wave_info.z - (water_feature(WATER_UNIFORM_ROUGHNESS) ? ocean_data.wave_origin[0].w : resolved_variance) - (detail_total - detail_lost), 0.0) * sea_state.x * sea_state.x;
-				if (!water_feature(WATER_WAVES)) unresolved = 0.0;
-				float alpha = water_feature(WATER_WAVES) && water_feature(WATER_ROUGHNESS) ? sqrt(max(unresolved, 4e-4)) : 0.001;
-				vec3 normal = normalize(vec3(-grad.x, 1.0, -grad.y));
-				vec3 color = shade_surface_from_above(w, surface_pos, normal, alpha, wd.a, ray_dir, ocean_t, scene_t < 1e29 ? max(scene_t - ocean_t, 0.0) : 1e30, jitter);
+				vec3 normal;
+				float alpha;
+				float fold;
+				get_ocean_surface(surface_pos.xz, footprint, normal, alpha, fold);
+				vec3 color = shade_surface_from_above(w, surface_pos, normal, alpha, fold, ray_dir, ocean_t, scene_t < 1e29 ? max(scene_t - ocean_t, 0.0) : 1e30, jitter);
 				set_scene_color(color, 1.0);
 				set_ocean_distance(vec2(ocean_t, sqrt(alpha) * water_rt_share));
 			}
