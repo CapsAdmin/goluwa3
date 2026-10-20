@@ -618,7 +618,7 @@ end
 
 local function write_cull_block(self, block)
 	local camera = render3d.GetCamera()
-	local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
+	local view_projection = camera:BuildViewMatrix() * camera:BuildUnjitteredProjectionMatrix()
 	view_projection:CopyToFloatPointer(block.view_projection)
 	local position = camera:GetPosition()
 	block.camera_position[0] = position.x

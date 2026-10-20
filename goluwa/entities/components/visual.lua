@@ -1607,7 +1607,7 @@ do
 		local current_frame = system.GetFrameNumber()
 		local camera = render3d.GetCamera()
 		local view = camera:BuildViewMatrix()
-		local proj = camera:BuildProjectionMatrix()
+		local proj = camera:BuildUnjitteredProjectionMatrix()
 
 		if
 			cached_frustum_frame ~= current_frame or

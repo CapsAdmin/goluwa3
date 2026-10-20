@@ -625,7 +625,7 @@ function render3d.Initialize(config)
 
 		if not (render3d.camera_stack and #render3d.camera_stack > 1) then
 			local camera = render3d.GetCamera()
-			local view_projection = camera:BuildViewMatrix() * camera:BuildProjectionMatrix()
+			local view_projection = camera:BuildViewMatrix() * camera:BuildUnjitteredProjectionMatrix()
 			scene_draw.frustum_planes = scene_draw.frustum_planes or ffi.new("float[24]")
 			gpu_culling.ExtractFrustumPlanes(view_projection, scene_draw.frustum_planes, 1)
 			scene_draw.Cull(
@@ -892,13 +892,15 @@ do
 
 	local frustum_planes = {}
 	local frustum_frame = -1
+	local unjittered_pv = Matrix44()
 
 	function render3d.GetFrustumPlanes()
 		local frame = system.GetFrameNumber()
 
 		if frustum_frame == frame then return frustum_planes end
 
-		local m = render3d.GetProjectionViewMatrix()
+		local camera = render3d.GetCamera()
+		local m = camera:BuildViewMatrix():GetMultiplied(camera:BuildUnjitteredProjectionMatrix(), unjittered_pv)
 		local x0, x1, x2, x3 = m.m00, m.m10, m.m20, m.m30
 		local y0, y1, y2, y3 = m.m01, m.m11, m.m21, m.m31
 		local planes = frustum_planes
