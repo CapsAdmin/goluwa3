@@ -419,6 +419,75 @@ do
 	plane("plane_room_right", Vec3(cx + half, h / 2, cz), Vec3(-1, 0, 0), half, h / 2)
 end
 
+do
+	local cx, cz, w, h, d, t = 0, -100, 14, 6, 14, 0.4
+	local inner_x, inner_y, inner_z = w / 2 - t / 2, h - t / 2, d / 2 - t / 2
+	box("emitter_room_floor", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), white)
+	box("emitter_room_roof", Vec3(cx, h, cz), Vec3(w, t, d), white)
+	box("emitter_room_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box("emitter_room_front", Vec3(cx, h / 2, cz + d / 2), Vec3(w, h, t), white)
+	box("emitter_room_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), white)
+	box("emitter_room_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
+	sphere("emitter_room_chrome", Vec3(cx - 2, 1.5, cz), 1.5, mat(Color(0.95, 0.95, 0.95, 1), 0.02, 1))
+	sphere("emitter_room_rough", Vec3(cx + 2.5, 1, cz + 1), 1, mat(Color(0.9, 0.9, 0.9, 1), 0.4, 1))
+	box("emitter_room_box", Vec3(cx, 0.75, cz - 3.5), Vec3(1.5, 1.5, 1.5), white)
+	local palette = {}
+
+	for i, c in ipairs{
+		Color(1, 0.55, 0.2, 1),
+		Color(1, 0.9, 0.7, 1),
+		Color(0.6, 0.8, 1, 1),
+		Color(1, 0.2, 0.2, 1),
+		Color(0.2, 1, 0.35, 1),
+		Color(0.4, 0.3, 1, 1),
+		Color(1, 0.3, 0.9, 1),
+	} do
+		palette[i] = emissive_mat(c, 4 + i * 1.5)
+	end
+
+	local seed = 7
+
+	local function random()
+		seed = (seed * 16807) % 2147483647
+		return seed / 2147483647
+	end
+
+	-- each surface: center, the two tangent half extents, and the axis the emitter is thin along
+	local surfaces = {
+		{pos = Vec3(cx, 0.1, cz), u = w / 2, v = d / 2, axis = "y", sign = 1},
+		{pos = Vec3(cx, inner_y, cz), u = w / 2, v = d / 2, axis = "y", sign = -1},
+		{pos = Vec3(cx, h / 2, cz - inner_z), u = w / 2, v = h / 2, axis = "z", sign = 1},
+		{pos = Vec3(cx, h / 2, cz + inner_z), u = w / 2, v = h / 2, axis = "z", sign = -1},
+		{pos = Vec3(cx - inner_x, h / 2, cz), u = d / 2, v = h / 2, axis = "x", sign = 1},
+		{pos = Vec3(cx + inner_x, h / 2, cz), u = d / 2, v = h / 2, axis = "x", sign = -1},
+	}
+
+	for i = 1, 240 do
+		local s = surfaces[math.floor(random() * #surfaces) + 1]
+		local size = 0.04 + random() ^ 3 * 0.5
+		local thickness = 0.03
+		local a = (random() * 2 - 1) * (s.u - 0.3)
+		local b = (random() * 2 - 1) * (s.v - 0.3)
+		local depth = s.sign * thickness / 2
+		local position, extent
+
+		if s.axis == "y" then
+			position = s.pos + Vec3(a, depth, b)
+			extent = Vec3(size, thickness, size * (0.5 + random()))
+		elseif s.axis == "z" then
+			position = s.pos + Vec3(a, b, depth)
+			extent = Vec3(size, size * (0.5 + random()), thickness)
+		else
+			position = s.pos + Vec3(depth, b, a)
+			extent = Vec3(thickness, size * (0.5 + random()), size)
+		end
+
+		if position.y < 0.2 then position.y = 0.2 end
+
+		box("emitter_room_emitter_" .. i, position, extent, palette[math.floor(random() * #palette) + 1])
+	end
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
