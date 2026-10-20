@@ -167,7 +167,9 @@ function Framebuffer:Begin(cmd, load_op)
 			{
 				image = image,
 				srcAccessMask = "none",
-				dstAccessMask = "color_attachment_write",
+				dstAccessMask = load_op == "load" and
+					{"color_attachment_write", "color_attachment_read"} or
+					"color_attachment_write",
 				oldLayout = image.layout or "undefined",
 				newLayout = "color_attachment_optimal",
 			}
