@@ -2106,6 +2106,16 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					N.xy += detail;
 				}
 
+				// the grain of a micro detail texture as a height, one texel to the right and up gives its slope
+				if (micro_detail_model.MicroDetailTexture != -1 && micro_detail_model.MicroDetailNormal > 0.0) {
+					vec2 grain_uv = uv * micro_detail_model.MicroDetailTiling;
+					vec2 texel = 1.0 / vec2(textureSize(TEXTURE(micro_detail_model.MicroDetailTexture), 0));
+					float height = texture(TEXTURE(micro_detail_model.MicroDetailTexture), grain_uv).r;
+					float right = texture(TEXTURE(micro_detail_model.MicroDetailTexture), grain_uv + vec2(texel.x, 0.0)).r;
+					float up = texture(TEXTURE(micro_detail_model.MicroDetailTexture), grain_uv + vec2(0.0, texel.y)).r;
+					N.xy -= vec2(right - height, up - height) * micro_detail_model.MicroDetailNormal;
+				}
+
 				return normalize(N);
 			}
 

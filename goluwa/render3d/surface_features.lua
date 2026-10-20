@@ -8,6 +8,8 @@ surface_features.default_list = {
 	import("goluwa/render3d/features/secondary_specular.lua"),
 	import("goluwa/render3d/features/sheen.lua"),
 	import("goluwa/render3d/features/specular_tint.lua"),
+	import("goluwa/render3d/features/derived_roughness.lua"),
+	import("goluwa/render3d/features/micro_detail.lua"),
 	import("goluwa/render3d/features/displacement.lua"),
 	import("goluwa/render3d/features/refraction.lua"),
 	import("goluwa/render3d/features/weather_response.lua"),
