@@ -565,6 +565,40 @@ do
 	sphere(name .. "_ball", Vec3(cx + 1.5, 0.8, cz - 2), 0.8, white)
 end
 
+do
+	local event = import("goluwa/event.lua")
+	local system = import("goluwa/system.lua")
+	local cx, cz, w, h, d, t = 160, -100, 12, 6, 12, 0.4
+	local name = "moving_emitter_room"
+	box(name .. "_floor", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), white)
+	box(name .. "_roof", Vec3(cx, h, cz), Vec3(w, t, d), white)
+	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box(name .. "_front", Vec3(cx, h / 2, cz + d / 2), Vec3(w, h, t), white)
+	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), red)
+	box(name .. "_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), green)
+	box(name .. "_pillar_a", Vec3(cx - 2.5, 1.5, cz - 2), Vec3(1.2, 3, 1.2), white)
+	box(name .. "_pillar_b", Vec3(cx + 2.5, 1, cz + 2), Vec3(1.2, 2, 1.2), white)
+	sphere(name .. "_chrome", Vec3(cx, 1, cz), 1, mat(Color(0.95, 0.95, 0.95, 1), 0.02, 1))
+	local emitter = shapes.Sphere{
+		Name = name .. "_emitter",
+		Position = Vec3(cx, 3, cz),
+		Radius = 0.2,
+		Material = emissive_mat(Color(1, 0.8, 0.55, 1), 60),
+		Collision = false,
+		RigidBody = false,
+	}
+	event.AddListener("Update", "gi_reflections_moving_emitter", function()
+		local time = system.GetElapsedTime()
+		emitter.transform:SetPosition(
+			Vec3(
+				cx + math.sin(time * 0.7) * (w / 2 - 1),
+				3 + math.sin(time * 1.3) * 1.8,
+				cz + math.sin(time * 0.9 + 1) * (d / 2 - 1)
+			)
+		)
+	end)
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
