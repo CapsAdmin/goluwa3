@@ -395,6 +395,30 @@ do
 	box("desk_room_pillar", Vec3(cx + 1, 1.5, cz), Vec3(0.6, 3, 0.6), magenta)
 end
 
+do
+	local cx, cz, half, h = -40, -100, 4, 5
+
+	-- six single quads facing into the room, so only the inside faces are drawn and the sun has no wall thickness to hide behind
+	local function plane(name, position, normal, size_x, size_y)
+		shapes.Polygon{
+			Name = name,
+			Material = grey,
+			Collision = false,
+			RigidBody = false,
+			Polygon = function(poly)
+				shapes.BuildPlane(poly, position, normal, size_x, size_y)
+			end,
+		}
+	end
+
+	plane("plane_room_floor", Vec3(cx, 0.01, cz), Vec3(0, 1, 0), half, half)
+	plane("plane_room_ceiling", Vec3(cx, h, cz), Vec3(0, -1, 0), half, half)
+	plane("plane_room_back", Vec3(cx, h / 2, cz - half), Vec3(0, 0, 1), half, h / 2)
+	plane("plane_room_front", Vec3(cx, h / 2, cz + half), Vec3(0, 0, -1), half, h / 2)
+	plane("plane_room_left", Vec3(cx - half, h / 2, cz), Vec3(1, 0, 0), half, h / 2)
+	plane("plane_room_right", Vec3(cx + half, h / 2, cz), Vec3(-1, 0, 0), half, h / 2)
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
