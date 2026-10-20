@@ -8,7 +8,11 @@ local Material = import("goluwa/render3d/material.lua")
 local material_proxies = import("goluwa/source_engine/material_proxies.lua")
 local vmt_loader = import("goluwa/source_engine/vmt.lua")
 local vmt_material = {}
-local vmt_material_cache = {}
+Material.vmt_materials = Material.vmt_materials or table.weak("k")
+local live_materials = Material.vmt_materials
+Material.vmt_material_cache = Material.vmt_material_cache or {}
+local vmt_material_cache = Material.vmt_material_cache
+local event = import("goluwa/event.lua")
 local SRGBTexture, LinearTexture = Material.SRGBTexture, Material.LinearTexture
 local vmt_stats
 
@@ -491,11 +495,14 @@ do
 		if family == "metal" or family == "glass" or family == "water" then return end
 
 		local target = family and ALBEDO_TARGETS[family]
+		local generation = self.vmt_generation
 
 		albedo:AddOnReady(function(texture)
 			local refl = texture.reflectivity
 
-			if not refl or not self:IsValid() then return end
+			if not refl or not self:IsValid() or generation ~= self.vmt_generation then
+				return
+			end
 
 			local lum = refl[1] * 0.2126 + refl[2] * 0.7152 + refl[3] * 0.0722
 			local high = math.max(refl[1], refl[2], refl[3])
@@ -548,7 +555,6 @@ do
 			family = class and find_family(class),
 		}
 		local shader = ctx.shader
-		self.vmt = vmt
 		self:SetMetallicMultiplier(0)
 		load_textures(self, vmt, ctx)
 
@@ -793,6 +799,18 @@ function vmt_material.GetStats()
 	return vmt_stats
 end
 
+function vmt_material.Apply(material, vmt)
+	material:ResetToDefaults()
+	material.vmt_generation = (material.vmt_generation or 0) + 1
+	material.vmt_surfaceprop = nil
+	material.has_uv_transform = nil
+	material.proxy_frame = nil
+	material.Error = nil
+	material_proxies.Detach(material)
+	material.vmt = vmt
+	on_load_vmt(material, track_vmt(vmt))
+end
+
 function vmt_material.FromVMT(path, private_prefix)
 	local cache_key = get_vmt_cache_key(path)
 
@@ -815,8 +833,9 @@ function vmt_material.FromVMT(path, private_prefix)
 		vmt_material_cache[cache_key] = self
 	end
 
+	live_materials[self] = true
 	local cb = vmt_loader.Load(cache_key, function(vmt)
-		on_load_vmt(self, track_vmt(vmt))
+		vmt_material.Apply(self, vmt)
 	end, function(err)
 		print("Material error for " .. cache_key .. ": " .. err)
 		self:SetError(err)
@@ -829,6 +848,20 @@ function vmt_material.FromVMT(path, private_prefix)
 	end
 
 	return self
+end
+
+function vmt_material.Reload(material)
+	vmt_loader.Load(material.vmt_path, function(vmt)
+		vmt_material.Apply(material, vmt)
+	end, function(err)
+		logn("vmt reload failed for ", material.vmt_path, ": ", err)
+	end)
+end
+
+function vmt_material.ReloadAll()
+	for material in pairs(live_materials) do
+		vmt_material.Reload(material)
+	end
 end
 
 function vmt_material.Release(material)
@@ -849,6 +882,23 @@ function vmt_material.Release(material)
 	end
 
 	material:Remove()
+end
+
+do
+	local reload_paths = {
+		["goluwa/source_engine/vmt_material.lua"] = true,
+		["goluwa/source_engine/material_proxies.lua"] = true,
+		["goluwa/source_engine/vmt.lua"] = true,
+	}
+
+	event.AddListener("ModulesReloaded", "vmt_material", function(paths)
+		for _, path in ipairs(paths) do
+			if reload_paths[path] then
+				vmt_material.ReloadAll()
+				return
+			end
+		end
+	end)
 end
 
 Material.RegisterOverrideLoader(".vmt", function(path)
