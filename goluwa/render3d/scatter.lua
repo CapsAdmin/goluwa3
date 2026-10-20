@@ -12,6 +12,7 @@ local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
+local BuddyPool = import("goluwa/render3d/buddy_pool.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -1724,8 +1725,6 @@ local surface_states = setmetatable({}, {__mode = "k"})
 local bake_epoch = 1
 local free_slots = {}
 local next_slot = 0
-local pool_top = 0
-local pool_free = {}
 local pool_pending = {}
 local bake_list = {}
 local unit_readback_frames = {}
@@ -1735,6 +1734,7 @@ local MIN_CLASS = 6
 local MAX_CLASS = 17
 local last_signature = nil
 local pool_warned = 0
+local pool = BuddyPool.New(scatter.MAX_BAKED, MIN_CLASS, MAX_CLASS)
 
 local function next_class(count)
 	local class = MIN_CLASS
@@ -1744,19 +1744,6 @@ local function next_class(count)
 	end
 
 	return class
-end
-
-local function pool_alloc(class)
-	local list = pool_free[class]
-
-	if list and #list > 0 then return table.remove(list) end
-
-	local size = 2 ^ class
-
-	if pool_top + size > scatter.MAX_BAKED then return nil end
-
-	pool_top = pool_top + size
-	return pool_top - size
 end
 
 -- the memory goes back after the frames in flight that could still read it
@@ -1774,8 +1761,7 @@ local function pool_collect()
 
 	while pool_pending[1] and frame - pool_pending[1].frame > scatter.SURFACE_RING + 1 do
 		local entry = table.remove(pool_pending, 1)
-		pool_free[entry.class] = pool_free[entry.class] or {}
-		table.insert(pool_free[entry.class], entry.offset)
+		pool:Free(entry.offset, entry.class)
 	end
 end
 
@@ -1873,8 +1859,22 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 	end
 
 	local class = next_class(math.max(wanted, 1))
-	pool_release(unit)
-	local offset = pool_alloc(class)
+	local offset = pool:Alloc(class)
+
+	if not unit.hint then
+		-- the room is a guess and the pool cannot spare it: the biggest it can spare down to a probe's room, the unit
+		-- is baked again to fit once the gpu has counted what it holds
+		local probe_class = next_class(scatter.PROBE_ROOM)
+
+		while not offset and class > probe_class do
+			class = class - 1
+			offset = pool:Alloc(class)
+		end
+	end
+
+	-- the pool cannot hold the unit's old room and a new one: the old one goes (it is free after the frames in flight) and the
+	-- unit is empty until it has a new one. keeping it would deadlock a pool full of rooms that are waiting to be baked smaller
+	if not offset then pool_release(unit) end
 
 	while not offset do
 		local farthest
@@ -1897,11 +1897,13 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 		pool_release(farthest)
 		pool_collect()
 		-- what is released waits for the frames in flight, so it may not be there yet
-		offset = pool_alloc(class)
+		offset = pool:Alloc(class)
 
 		if not offset then return false end
 	end
 
+	-- the old room is only given up now that there is a new one, a unit that can't be baked again keeps what it had
+	pool_release(unit)
 	unit.offset = offset
 	unit.class = class
 	unit.hint = nil
@@ -2188,6 +2190,46 @@ function scatter.GetPlacedStatus()
 	return #placed_units, uploaded, #active_placed
 end
 
+-- for whoever measures: where the baked pool went. top is how far it has been handed out, live the rooms units hold, used what
+-- is in them, free the rooms that were handed back (by class, a room of a class is made from a bigger one) and pending the ones
+-- that wait for the frames in flight
+function scatter.GetPoolStatus()
+	local live, used, rooms = 0, 0, 0
+	local free, free_by_class = pool:GetFree()
+	local pending = 0
+
+	for _, unit in ipairs(units) do
+		if unit.offset then
+			rooms = rooms + 1
+			live = live + 2 ^ unit.class
+			used = used + math.min(unit.count or 2 ^ unit.class, 2 ^ unit.class)
+		end
+	end
+
+	for _, unit in ipairs(placed_units) do
+		if unit.offset then
+			rooms = rooms + 1
+			live = live + 2 ^ unit.class
+			used = used + unit.n
+		end
+	end
+
+	for _, entry in ipairs(pool_pending) do
+		pending = pending + 2 ^ entry.class
+	end
+
+	return {
+		top = pool.Top,
+		size = pool.Size,
+		rooms = rooms,
+		live = live,
+		used = used,
+		free = free,
+		free_by_class = free_by_class,
+		pending = pending,
+	}
+end
+
 function scatter.SetPlacementsHidden(handle, hidden)
 	handle.hidden = hidden
 end
@@ -2195,7 +2237,7 @@ end
 local function upload_placed(cmd, b, unit, proto, frame)
 	if not unit.offset then
 		local class = next_class(unit.n)
-		local offset = pool_alloc(class)
+		local offset = pool:Alloc(class)
 
 		if not offset then
 			if frame - pool_warned > 600 then
@@ -2508,7 +2550,7 @@ function scatter.PreDraw(cmd)
 
 	scatter.pending_bakes = #bake_list
 	scatter.unit_count = #units
-	scatter.pool_top = pool_top
+	scatter.pool_top = pool.Top
 
 	-- the baking of this frame
 	if bake_list[1] then
