@@ -44,10 +44,19 @@ local SPAWNFLAG_MOTION_DISABLED = 8
 local axis_x = Vec3(1, 0, 0)
 local axis_y = Vec3(0, 1, 0)
 
+local BLACKLISTED_MODEL_PREFIXES = {
+	"models/lostcoast/effects/vollight_stainedglass.mdl",
+	"models/effects/vol_light",
+}
+
 local function is_blacklisted(path)
-	if path == "models/lostcoast/effects/vollight_stainedglass.mdl" then
-		return true
+	path = path:lower()
+
+	for _, prefix in ipairs(BLACKLISTED_MODEL_PREFIXES) do
+		if path:starts_with(prefix) then return true end
 	end
+
+	return false
 end
 
 local function get_prop_motion_type(info)
