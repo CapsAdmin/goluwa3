@@ -467,7 +467,10 @@ local function detach(material)
 	animated[material] = nil
 end
 
+material_proxies.Detach = detach
+
 function material_proxies.Attach(material, source_text)
+	detach(material)
 	local fn, variables, animations = material_proxies.Compile(source_text)
 
 	if not fn then return false end
