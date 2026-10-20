@@ -6,6 +6,8 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 
+local static_body = {MotionType = "static", Friction = 0.8, Restitution = 0}
+
 local function mat(color, roughness, metallic)
 	return shapes.Material{Color = color, Roughness = roughness, Metallic = metallic or 0}
 end
@@ -26,8 +28,7 @@ local function box(name, position, size, material)
 		Position = position,
 		Size = size,
 		Material = material,
-		Collision = false,
-		RigidBody = false,
+		RigidBody = static_body,
 	}
 end
 
@@ -37,8 +38,7 @@ local function sphere(name, position, radius, material)
 		Position = position,
 		Radius = radius,
 		Material = material,
-		Collision = false,
-		RigidBody = false,
+		RigidBody = static_body,
 	}
 end
 
@@ -403,8 +403,7 @@ do
 		shapes.Polygon{
 			Name = name,
 			Material = grey,
-			Collision = false,
-			RigidBody = false,
+			RigidBody = static_body,
 			Polygon = function(poly)
 				shapes.BuildPlane(poly, position, normal, size_x, size_y)
 			end,
@@ -513,8 +512,7 @@ do
 		Rotation = QuatDeg3(0, -18, 0),
 		Size = Vec3(165, 165, 165) * k,
 		Material = cornell_white,
-		Collision = false,
-		RigidBody = false,
+		RigidBody = static_body,
 	}
 	shapes.Box{
 		Name = "cornell_room_tall_block",
@@ -522,8 +520,7 @@ do
 		Rotation = QuatDeg3(0, 17, 0),
 		Size = Vec3(165, 330, 165) * k,
 		Material = cornell_white,
-		Collision = false,
-		RigidBody = false,
+		RigidBody = static_body,
 	}
 end
 
@@ -753,9 +750,7 @@ do
 			Position = center,
 			Material = rock,
 			Polygon = cave_polygon,
-			CollisionShape = false,
-			Collision = false,
-			RigidBody = false,
+			RigidBody = static_body,
 		}
 
 		if i == 2 then
