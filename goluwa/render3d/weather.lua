@@ -8,6 +8,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
+local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local precipitation = import("goluwa/render3d/precipitation.lua")
@@ -527,12 +528,13 @@ local SUN_SHADOW_DEFAULTS = {
 	inset = {
 		enabled = true,
 		size = 4096,
-		format = "d16_unorm",
+		format = "d32_sfloat",
 		distance = 30,
 		zoom = 4,
 		min_caster_texel_size = 1,
 		update_interval = 1,
 	},
+	bias = {normal = 1, light = 1},
 }
 -- a change of these needs other textures, the rest is written into the maps that exist
 local SUN_SHADOW_STRUCTURE = {enabled = true, count = true, size = true, format = true}
@@ -543,6 +545,8 @@ function weather.GetSunShadow(category)
 end
 
 local function apply_sun_shadow()
+	directional_shadows.bias.normal = weather.sun_shadow.bias.normal
+	directional_shadows.bias.light = weather.sun_shadow.bias.light
 	local cascades = weather.sun_shadow.cascades
 	local inset = weather.sun_shadow.inset
 	local map = weather.shadow_maps.cascades
@@ -625,7 +629,11 @@ function weather.SetSunShadow(category, changes)
 		settings[key] = table.copy(value)
 	end
 
-	if not weather.light then return end
+	if not weather.light then
+		apply_sun_shadow()
+
+		return
+	end
 
 	if rebuild then weather.BuildSunShadows() else apply_sun_shadow() end
 end
@@ -633,7 +641,7 @@ end
 function weather.ResetSunShadow()
 	weather.sun_shadow = table.copy(SUN_SHADOW_DEFAULTS)
 
-	if weather.light then weather.BuildSunShadows() end
+	if weather.light then weather.BuildSunShadows() else apply_sun_shadow() end
 end
 
 function weather.Initialize()

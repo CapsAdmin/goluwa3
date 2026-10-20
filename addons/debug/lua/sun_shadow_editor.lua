@@ -52,6 +52,15 @@ local SHADOW_GROUPS = {
 			{"update_interval", "update interval", "integer", "frames between draws", {Min = 1, Max = 8, Precision = 0, ShowSlider = true}},
 		},
 	},
+	{
+		category = "bias",
+		text = "Bias",
+		help = "how far a lit point is moved before it is compared with the shadow maps, against acne and against light leaking in under and through walls",
+		settings = {
+			{"normal", "normal offset", "number", "texels the point is moved along its surface normal, more at a slant. lower stops light from leaking through thin walls", {Min = 0, Max = 4, Precision = 2, ShowSlider = true}},
+			{"light", "light offset", "number", "how far the point is moved towards the sun, scaled so that 1 is the default. lower stops light from leaking at the base of a wall, below 0 it moves away from the sun, too low shows acne", {Min = -10, Max = 10, Precision = 2, ShowSlider = true}},
+		},
+	},
 }
 
 -- the shadow maps keep their own fit of the view, what they came to is shown next to the settings
@@ -122,7 +131,7 @@ local function build_items()
 			children[#children + 1] = node
 		end
 
-		for i = 1, category == "cascades" and 4 or 1 do
+		for i = 1, category == "cascades" and 4 or category == "inset" and 1 or 0 do
 			local node = {
 				Key = "shadow/" .. category .. "/result/" .. i,
 				Text = category == "cascades" and "cascade " .. i or "reach",

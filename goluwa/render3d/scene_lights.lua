@@ -35,6 +35,9 @@ function scene_lights.BuildShadowsBlockLayout()
 		{"inset_light_space_matrix", "mat4"},
 		{"cascade_splits", "float", scene_lights.MAX_CASCADES},
 		{"cascade_texel_world_sizes", "float", scene_lights.MAX_CASCADES},
+		{"cascade_depth_quanta", "float", scene_lights.MAX_CASCADES},
+		{"inset_depth_quantum", "float"},
+		{"local_directional_depth_quantum", "float"},
 		{"local_directional_shadow_texel_world_size", "float"},
 		{"inset_shadow_distance", "float"},
 		{"inset_shadow_texel_world_size", "float"},
@@ -50,6 +53,8 @@ function scene_lights.BuildShadowsBlockLayout()
 		{"cascade_count", "int"},
 		{"sun_angular_radius_tan", "float"},
 		{"noise_phase", "float"},
+		{"sun_normal_bias", "float"},
+		{"sun_light_bias", "float"},
 		unpack(clouds.GetShadowBlockLayout()),
 	}
 
@@ -264,6 +269,7 @@ local function write_sun_shadows(self, shadow_block, sun)
 				shadow_map:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)
 				shadow_block.inset_shadow_distance = shadow_map:GetCascadeSplits()[1] or 0
 				shadow_block.inset_shadow_texel_world_size = shadow_map:GetCascadeTexelWorldSize(1)
+				shadow_block.inset_depth_quantum = shadow_map:GetDepthQuantum(1)
 			else
 				for i = 1, shadow_map:GetCascadeCount() do
 					if cascade_slot > scene_lights.MAX_CASCADES then break end
@@ -272,6 +278,7 @@ local function write_sun_shadows(self, shadow_block, sun)
 					shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(shadow_block.light_space_matrices[cascade_slot - 1])
 					shadow_block.cascade_splits[cascade_slot - 1] = shadow_map:GetCascadeSplits()[i] or -1
 					shadow_block.cascade_texel_world_sizes[cascade_slot - 1] = shadow_map:GetCascadeTexelWorldSize(i)
+					shadow_block.cascade_depth_quanta[cascade_slot - 1] = shadow_map:GetDepthQuantum(i)
 					cascade_slot = cascade_slot + 1
 				end
 			end
@@ -310,11 +317,14 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 		shadow_block.shadow_map_indices[i] = -1
 		shadow_block.cascade_splits[i] = -1
 		shadow_block.cascade_texel_world_sizes[i] = 0
+		shadow_block.cascade_depth_quanta[i] = 1 / 65535
 	end
 
 	shadow_block.inset_shadow_map_index = -1
 	shadow_block.inset_shadow_distance = 0
 	shadow_block.inset_shadow_texel_world_size = 0
+	shadow_block.inset_depth_quantum = 1 / 65535
+	shadow_block.local_directional_depth_quantum = 1 / 65535
 	shadow_block.directional_shadow_light_index = -1
 	shadow_block.local_directional_shadow_map_index = -1
 	shadow_block.local_directional_shadow_light_index = -1
@@ -322,6 +332,8 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	shadow_block.cascade_count = 0
 	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
 	shadow_block.noise_phase = render3d.GetNoisePhase()
+	shadow_block.sun_normal_bias = directional_shadows.bias.normal
+	shadow_block.sun_light_bias = directional_shadows.bias.light
 	clouds.WriteShadowBlock(self, shadow_block)
 	terrain_shadow.WriteShadowBlock(self, shadow_block)
 
@@ -433,6 +445,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 		shadow_block.local_directional_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
 		shadow_block.local_directional_shadow_light_index = directional_light_index
 		shadow_block.local_directional_shadow_texel_world_size = shadow_map:GetCascadeTexelWorldSize(1)
+		shadow_block.local_directional_depth_quantum = shadow_map:GetDepthQuantum(1)
 		shadow_map:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.local_directional_light_space_matrix)
 	end
 end

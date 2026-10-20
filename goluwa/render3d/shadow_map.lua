@@ -181,6 +181,11 @@ local function build_shadow_pipeline_config(
 	return config
 end
 
+-- the smallest step the stored depth can tell apart, in the 0 to 1 of the map's depth range
+function ShadowMap:GetDepthQuantum(cascade_index)
+	return self.cascade[cascade_index].format == "d16_unorm" and 1 / 65535 or 1 / 16777216
+end
+
 local function get_cascade_depth_format(cascade_formats, cascade_index, default_format)
 	if not cascade_formats then return default_format end
 

@@ -6,6 +6,10 @@ local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local directional_shadows = {}
 directional_shadows.MAX_CASCADES = 4
+-- how far a surface point is moved off the surface along its normal (in shadow texels, scaled by the slope) and towards the
+-- sun (at least a quarter texel and a depth step, a negative scale moves it away) before it is compared with the shadow map.
+-- more hides acne and light leaking in through thin walls less, a point moved too far steps out of a wall's shadow
+directional_shadows.bias = {normal = 1, light = 1}
 
 function directional_shadows.GetPrimarySun(lights)
 	for i, light in ipairs(lights) do
@@ -425,20 +429,23 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 				int shadow_map_idx,
 				mat4 light_space_matrix,
 				float texel_world_size,
+				float depth_quantum,
 				vec3 world_pos,
 				vec3 normal,
 				vec3 light_dir,
 				float filter_radius_texels,
 				float sun_radius_tan,
-				float noise_phase
+				float noise_phase,
+				float normal_bias,
+				float light_bias
 			) {
 				float n_dot_l = clamp(dot(normal, light_dir), 0.0, 1.0);
 				float slope = sqrt(1.0 - n_dot_l * n_dot_l);
 				vec3 depth_row = vec3(light_space_matrix[0].z, light_space_matrix[1].z, light_space_matrix[2].z);
-				float depth_step_world = 2.0 / (65535.0 * max(length(depth_row), 1e-8));
+				float depth_step_world = 2.0 * depth_quantum / max(length(depth_row), 1e-8);
 				vec3 offset_pos = world_pos +
-					normal * (texel_world_size * (0.5 + 1.5 * slope) * filter_radius_texels) +
-					light_dir * max(texel_world_size * 0.25, depth_step_world);
+					normal * (texel_world_size * (0.5 + 1.5 * slope) * filter_radius_texels * normal_bias) +
+					light_dir * max(texel_world_size * 0.25, depth_step_world) * light_bias;
 				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
 				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
@@ -455,7 +462,6 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 				}
 
 				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
-
 				if (sun_radius_tan > 0.0) {
 					float soft = sampleSoftShadowMap(
 						shadow_map_idx,
@@ -517,12 +523,15 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					shadow_map_idx,
 					DIRECTIONAL_SHADOW_BLOCK.shadows.light_space_matrices[cascade_idx],
 					DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_texel_world_sizes[cascade_idx],
+					DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_depth_quanta[cascade_idx],
 					world_pos,
 					normal,
 					light_dir,
 					1.0,
 					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.noise_phase
+					DIRECTIONAL_SHADOW_BLOCK.shadows.noise_phase,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_normal_bias,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_light_bias
 				);
 			}
 
@@ -534,12 +543,15 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index,
 					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix,
 					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_texel_world_size,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_depth_quantum,
 					world_pos,
 					normal,
 					light_dir,
 					1.0,
 					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.noise_phase
+					DIRECTIONAL_SHADOW_BLOCK.shadows.noise_phase,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_normal_bias,
+					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_light_bias
 				);
 
 				if (result < 0.0) return false;
@@ -579,12 +591,15 @@ function directional_shadows.GetLocalDirectionalShadowGLSL(block_name)
 				shadow_map_idx,
 				]] .. block_name .. [[.shadows.local_directional_light_space_matrix,
 				]] .. block_name .. [[.shadows.local_directional_shadow_texel_world_size,
+				]] .. block_name .. [[.shadows.local_directional_depth_quantum,
 				world_pos,
 				normal,
 				light_dir,
 				2.0,
 				0.0,
-				0.0
+				0.0,
+				1.0,
+				1.0
 			);
 
 			return shadow < 0.0 ? 1.0 : shadow;
